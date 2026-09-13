@@ -7,6 +7,8 @@ import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import type { Socket, AddressInfo } from 'node:net';
 import { app, BrowserWindow } from 'electron';
+// 지문 계산만 따로 있는 이유는 시험 — 이 파일은 electron 을 물고 있어 단위 테스트에서 못 부른다.
+import { certFingerprintOf } from './certFingerprint';
 import { inject, type DispatchFunc } from 'light-my-request';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
@@ -24,9 +26,14 @@ import {
   MOBILE_UPNP_LEASE_S,
   MOBILE_QR_TICKET_TTL_MS,
   MOBILE_QR_TOKEN_BYTES,
+  MOBILE_QR_MAX_USES,
   MOBILE_QR_PATH,
   MOBILE_QR_PARAM,
+  buildMobileAddressEntries,
+  MOBILE_QR_KIND_ORDER,
   type MobileAccessState,
+  type MobileAddressEntry,
+  type MobileAddressInput,
   type MobileQrTicket,
   type MobileExternalStatus,
   type MobileExternalReason,
@@ -81,6 +88,14 @@ interface PersistedMobileAccess {
   httpsPort: number;
   /** 발급된 세션 토큰들(최신 우선, MOBILE_SESSION_MAX 캡). */
   sessions: string[];
+  /**
+   * 수동 포트포워딩 안내를 한 번이라도 띄웠는가 — **끈 뒤에도 남는 뒷정리 표식**.
+   *
+   * UPnP 매핑은 임대가 끝나면 공유기가 스스로 지우지만, 사용자가 손으로 만든 규칙은 우리가
+   * 지울 방법이 없다. 그래서 "안내했다"를 영속해 두었다가 외부를 끈 뒤에 뒷정리를 청한다.
+   * 사용자가 지웠다고 확인할 때만 false 로 돌아간다.
+   */
+  manualForwardAdvised: boolean;
 }
 
 interface PersistedTls {
@@ -121,9 +136,11 @@ let externalReason: MobileExternalReason = null;
 let publicIp: string | null = null;
 let externalPort: number | null = null;
 let upnpRenewTimer: ReturnType<typeof setInterval> | null = null;
+/** 지금 뜬 HTTPS 리스너가 쓰는 인증서의 SHA-256 지문 — 폰 경고 화면과 눈으로 대조하는 값. */
+let tlsFingerprint: string | null = null;
 
 function defaultPersisted(): PersistedMobileAccess {
-  return { enabled: false, externalEnabled: false, port: 0, httpsPort: 0, sessions: [] };
+  return { enabled: false, externalEnabled: false, port: 0, httpsPort: 0, sessions: [], manualForwardAdvised: false };
 }
 
 function persistPath(): string {
@@ -148,6 +165,8 @@ function loadPersisted(): PersistedMobileAccess {
       sessions: Array.isArray(obj['sessions'])
         ? (obj['sessions'] as unknown[]).filter((s): s is string => typeof s === 'string').slice(0, MOBILE_SESSION_MAX)
         : [],
+      // 구버전 파일에는 없는 필드 — 없으면 false(안내한 적 없음)로 읽는다.
+      manualForwardAdvised: obj['manualForwardAdvised'] === true,
     };
   } catch (err) {
     console.warn(`[mobile-access] failed to read ${p}: ${String(err)}`);
@@ -208,16 +227,30 @@ function newPairingCode(): string {
   return String(randomInt(0, max)).padStart(MOBILE_PAIR_CODE_LENGTH, '0');
 }
 
-function lanUrls(port: number | null): string[] {
+/**
+ * 지금 이 PC 에 붙어 있는 IPv4 주소 전부 — **어댑터 이름을 함께** 들고 나온다.
+ *
+ * 종전에는 주소만 뽑아 `http://…` 문자열로 만들어 버렸다. 그래서 화면에 닿을 때쯤엔
+ * "이 주소가 진짜 랜인지, Tailscale 인지, WSL 인지"를 알 방법이 사라져 있었다 —
+ * 그 정보는 여기 `Object.entries` 의 키에만 있고 그다음에는 어디에도 없다.
+ * 정체 판정(`buildMobileAddressEntries`)은 이 이름을 먹고 돈다.
+ */
+function lanAddressInputs(port: number | null): MobileAddressInput[] {
   if (port === null) return [];
-  const urls: string[] = [];
-  const nets = networkInterfaces();
-  for (const infos of Object.values(nets)) {
+  const inputs: MobileAddressInput[] = [];
+  for (const [adapter, infos] of Object.entries(networkInterfaces())) {
     for (const info of infos ?? []) {
-      if (info.family === 'IPv4' && !info.internal) urls.push(`http://${info.address}:${port}`);
+      if (info.family === 'IPv4' && !info.internal) {
+        inputs.push({ url: `http://${info.address}:${port}`, address: info.address, adapter });
+      }
     }
   }
-  return urls;
+  return inputs;
+}
+
+/** 화면에 세울 접속 주소 목록 — 정체 판정 + 되는 순서 정렬 + 추천 1개까지 마친 상태. */
+function lanAddresses(port: number | null): MobileAddressEntry[] {
+  return buildMobileAddressEntries(lanAddressInputs(port));
 }
 
 function httpPortNow(): number | null {
@@ -266,21 +299,33 @@ function liveQrTicket(): QrTicket | null {
 }
 
 /**
- * 티켓 딥링크 — 지금 접속 가능한 모든 주소(LAN 인터페이스별 + 외부 https)에 토큰을 붙인다.
+ * 티켓 딥링크 — 지금 접속 가능한 모든 주소(인터페이스별 + 외부 https)에 토큰을 붙인다.
  * 주소는 그때그때 계산하므로 외부를 켜거나 끄면 QR 대상 목록도 따라 바뀐다.
+ *
+ * 대상도 **접속 주소 목록과 같은 판정**을 태운다 — 종전에는 `https` 인지만 보고 "Wi-Fi /
+ * 인터넷" 두 갈래로 칩을 그려서, Tailscale 주소도 WSL 주소도 전부 "Wi-Fi" 라고 우겼다.
+ *
+ * 다만 **순서는 목록과 다르다**(`MOBILE_QR_KIND_ORDER`) — 외부 IP 가 맨 앞이다. 목록은 폰에
+ * 직접 쳐 넣는 것이라 "지금 될 가능성"이 먼저지만, QR 은 폰이 어디 있든 찍는 것이라 집
+ * 와이파이를 벗어나도 남는 길이 먼저여야 한다. 첫 칸이 곧 기본 선택이다.
  */
-function qrTicketUrls(token: string): string[] {
-  const bases = lanUrls(httpPortNow());
-  const ext = computeExternalUrl();
-  if (ext !== null) bases.push(ext);
+function qrTicketTargets(token: string): MobileAddressEntry[] {
   const query = `${MOBILE_QR_PATH}?${MOBILE_QR_PARAM}=${token}`;
-  return bases.map((base) => `${base}${query}`);
+  const inputs = lanAddressInputs(httpPortNow()).map((input) => ({ ...input, url: `${input.url}${query}` }));
+  const ext = computeExternalUrl();
+  if (ext !== null) inputs.push({ url: `${ext}${query}`, address: publicIp ?? '', adapter: '', external: true });
+  return buildMobileAddressEntries(inputs, MOBILE_QR_KIND_ORDER);
 }
 
 function qrTicketView(): MobileQrTicket | null {
   const ticket = liveQrTicket();
   if (ticket === null) return null;
-  return { urls: qrTicketUrls(ticket.token), expiresAt: ticket.expiresAt, usedCount: ticket.usedCount };
+  return {
+    targets: qrTicketTargets(ticket.token),
+    expiresAt: ticket.expiresAt,
+    usedCount: ticket.usedCount,
+    maxUses: MOBILE_QR_MAX_USES,
+  };
 }
 
 export function getMobileAccessState(): MobileAccessState {
@@ -288,7 +333,7 @@ export function getMobileAccessState(): MobileAccessState {
   return {
     enabled: httpServer !== null,
     port,
-    urls: lanUrls(port),
+    addresses: lanAddresses(port),
     pairingCode: httpServer !== null ? pairingCode : null,
     clientCount: wsClients.size,
     pairingLocked: anyBanned(),
@@ -299,6 +344,9 @@ export function getMobileAccessState(): MobileAccessState {
     publicIp,
     externalPort,
     httpsPort: httpsPortNow(),
+    certFingerprint: tlsFingerprint,
+    // 켜져 있는 동안에는 청하지 않는다 — 아직 쓰는 중인 규칙을 지우라고 말하면 접속이 끊긴다.
+    manualForwardPending: persisted.manualForwardAdvised && !persisted.externalEnabled,
     qrTicket: httpServer !== null ? qrTicketView() : null,
   };
 }
@@ -539,6 +587,12 @@ function handleQrRedeem(req: IncomingMessage, res: ServerResponse): void {
   }
   pairAttempts.delete(ip);
   ticket.usedCount += 1;
+  // 상한(`MOBILE_QR_MAX_USES`)에 닿으면 **그 자리에서 폐기**한다. 남겨 두면 만료까지 남은 시간이
+  // 통째로 열린 문이다 — QR 은 화면에 띄우는 물건이라 사진·화면 공유로 새기 쉽다.
+  if (ticket.usedCount >= MOBILE_QR_MAX_USES) {
+    clearQrTicket();
+    console.log(`[mobile-access] QR ticket spent (${ticket.usedCount}/${MOBILE_QR_MAX_USES}) — revoked`);
+  }
   grantSession(res);
   // §4 v3.87 — `?paired=1` 표식을 달아 보낸다. 정상이면 다음 요청이 쿠키를 물고 와 인증되고
   // handleRequest 가 파라미터를 떼어 `/` 로 한 번 더 보낸다. 그런데도 미인증으로 돌아오면
@@ -958,6 +1012,7 @@ async function stopHttpListener(): Promise<void> {
 async function startHttpsListener(): Promise<void> {
   if (httpsServer) return;
   const tls = await loadOrCreateTls();
+  tlsFingerprint = certFingerprintOf(tls.cert);
   const server = createHttpsServer({ key: tls.key, cert: tls.cert }, handleRequest);
   if (!wss) wss = new WebSocketServer({ noServer: true });
   bindUpgrade(server);
@@ -970,6 +1025,8 @@ async function startHttpsListener(): Promise<void> {
 async function stopHttpsListener(): Promise<void> {
   const s = httpsServer;
   httpsServer = null;
+  // 지문은 "지금 이 경고가 우리 것인가"를 대조하는 값이라, 리스너가 없으면 보여 줄 것도 없다.
+  tlsFingerprint = null;
   if (s) {
     // 외부(HTTPS)는 공인 포트라 스캐너·폰의 연결이 특히 잘 남는다. WS 업그레이드 소켓은
     // `wsClients` 정리(stopHttpListener)보다 **먼저** 이 경로를 타므로 여기서 끊어 준다.
@@ -1091,6 +1148,12 @@ function finalizeExternalManualFallback(): void {
   externalStatus = 'error';
   externalReason = 'upnp';
   externalPort = null;
+  // 여기서부터는 **우리가 못 닫는 구멍**이 생길 수 있다 — 사용자가 공유기에 손으로 만든 규칙은
+  // 앱을 끄든 지우든 남는다. 안내를 띄웠다는 사실을 영속해 두었다가 외부를 끈 뒤에 뒷정리를 청한다.
+  if (!persisted.manualForwardAdvised) {
+    persisted.manualForwardAdvised = true;
+    savePersisted();
+  }
   pushState();
 }
 
@@ -1228,6 +1291,21 @@ export function issueMobileQrTicket(): MobileAccessState {
 }
 
 /** §4 v3.66 — QR 티켓 즉시 폐기(3분을 못 기다릴 때). 이미 페어링된 기기는 그대로 유지된다. */
+/**
+ * 뒷정리 확인 — 사용자가 "공유기 규칙을 지웠다"고 알려 온 것. 그때만 표식을 내린다.
+ *
+ * 외부를 끄는 것으로는 내리지 않는다. 끄는 것은 **우리 쪽 리스너**를 닫는 일이고, 공유기에
+ * 손으로 만든 규칙은 그대로 남아 있기 때문이다 — 우리가 지울 수 없으니 사람이 확인해야 한다.
+ */
+export function ackManualForwardCleanup(): MobileAccessState {
+  if (persisted.manualForwardAdvised) {
+    persisted.manualForwardAdvised = false;
+    savePersisted();
+    pushState();
+  }
+  return getMobileAccessState();
+}
+
 export function revokeMobileQrTicket(): MobileAccessState {
   if (qrTicket !== null) {
     clearQrTicket();

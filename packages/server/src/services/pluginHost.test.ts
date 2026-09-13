@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Request, Response } from 'express';
+import { getPluginManifest } from '@vibisual/plugins';
 
 /** 저장된 켬/끔 (프로젝트 맵 + 구 전역 시드). 테스트마다 갈아 끼운다. */
 const defaults = {
@@ -45,8 +46,13 @@ vi.mock('../logger.js', () => ({ logger: { info: () => {}, warn: () => {}, error
  * 워크트리·하위 폴더일 수 있어 켬/끔 키와 어긋난다). 여기서는 그 답만 흉내낸다.
  */
 const agentProject = { value: null as string | null };
+/** §5.11 정독 게이트 — 호스트가 프로젝트의 정독 설정을 그래프에 묻는다(아직 안 정했으면 undefined). */
+const specSettings = { value: undefined as import('@vibisual/shared').SpecReadingSettings | undefined };
 vi.mock('./projectGraphManager.js', () => ({
-  graphManager: { getProjectPathForAgent: () => agentProject.value },
+  graphManager: {
+    getProjectPathForAgent: () => agentProject.value,
+    getSpecReadingSettings: () => specSettings.value,
+  },
 }));
 
 const {
@@ -329,10 +335,19 @@ describe('집행 실측 — 카드가 읽는 값', () => {
     agentProject.value = root;
   });
 
-  it('안 켜면 빈 객체 — 스냅샷에 필드가 생기지 않는다', () => {
+  it('안 켜면 빈 객체 — 스냅샷에 필드가 생기지 않는다(켬 목록을 묻지 않는 카드만 예외)', () => {
     defaults.enabledPluginsByProject = { [root]: [] };
-    expect(getPluginFactsFor(root)).toEqual({});
-    expect(getPluginFactsForProjects([root])).toBeUndefined();
+    const facts = getPluginFactsFor(root);
+    expect(Object.keys(facts).filter((id) => getPluginManifest(id)?.ownToggle !== true)).toEqual([]);
+    /*
+     * §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드는 여기서도 한 칸을 낸다: **꺼져 있다.**
+     *
+     * 안 내면 그 카드의 계기판이 "측정 전"에 머물러, 사용자는 재는 중인 줄 알고 기다리며 켜야 한다는
+     * 것을 영영 모른다(`spec-driven/index.tsx` 의 `status` 가 그 두 상태를 갈라 그린다).
+     * 대신 **그 한 칸이 전부여야 한다** — 꺼진 층에서는 색인조차 세우지 않으므로, 잰 값이 딸려 오면
+     * 그것이 곧 꺼 둔 프로젝트가 매 턴 `docs/**` 를 훑고 있다는 증거다.
+     */
+    expect(facts['spec-driven']).toEqual({ specEnabled: false });
   });
 
   it('켜면 프롬프트에 실은 것과 같은 값이 실측으로 나온다', () => {
@@ -357,16 +372,26 @@ describe('집행 실측 — 카드가 읽는 값', () => {
   it('A 에서 켠 것이 B 의 실측으로 새지 않는다', () => {
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'vibisual-facts-b-'));
     defaults.enabledPluginsByProject = { [root]: ['ssot-drift'], [other]: [] };
-    expect(Object.keys(getPluginFactsFor(root))).toEqual(['ssot-drift']);
-    expect(getPluginFactsFor(other)).toEqual({});
-    expect(Object.keys(getPluginFactsForProjects([root, other]) ?? {})).toEqual([root]);
+    /*
+     * §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드(`ownToggle`)는 이 목록을 묻지 않으므로
+     * **모든 프로젝트에 선다.** 그것은 새는 것이 아니라 그 카드의 스위치가 여기가 아니라는 뜻이고,
+     * 실제로 내는 값도 "꺼져 있다" 한 칸뿐이라 카드가 "측정 전"이 아니라 "꺼짐"을 그릴 수 있다.
+     * 그래서 **여기서 켜서 선 것**만 남기고 샘을 본다.
+     */
+    const byList = (p: string): string[] =>
+      Object.keys(getPluginFactsFor(p)).filter((id) => getPluginManifest(id)?.ownToggle !== true);
+    expect(byList(root)).toEqual(['ssot-drift']);
+    expect(byList(other)).toEqual([]);
+    // 프로젝트 칸 자체는 양쪽 다 선다 — `ownToggle` 카드가 프로젝트마다 꺼짐을 신고하기 때문이다.
+    expect(Object.keys(getPluginFactsForProjects([root, other]) ?? {}).sort()).toEqual([root, other].sort());
   });
 
   it('끄면 다음 조회에서 바로 빠진다 — 캐시가 켬/끔을 지연시키지 않는다', () => {
     defaults.enabledPluginsByProject = { [root]: ['ssot-drift'] };
     expect(getPluginFactsFor(root)['ssot-drift']).toBeDefined();
     defaults.enabledPluginsByProject = { [root]: [] };
-    expect(getPluginFactsFor(root)).toEqual({});
+    // 끈 카드가 빠지는지만 본다 — 켬 목록을 묻지 않는 카드(§5.5 #17-44 ⑧(d))는 끌 대상이 아니다.
+    expect(getPluginFactsFor(root)['ssot-drift']).toBeUndefined();
   });
 
   it('프로젝트를 모르면 아무것도 재지 않는다', () => {

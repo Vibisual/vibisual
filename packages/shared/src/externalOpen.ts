@@ -32,7 +32,41 @@ export type ExternalOpenFailureReason =
   /** 리눅스에 링크를 열어 줄 프로그램이 아예 없다(탐침 결과). */
   | 'no-browser'
   /** `shell.openExternal` 이 실패를 보고했다(win/mac 에서 신뢰할 수 있는 신호). */
-  | 'open-failed';
+  | 'open-failed'
+  /** 브라우저로 넘길 수 없는 스킴이라 **아예 열지 않았다**(§보안 감사 2026-09-09). */
+  | 'blocked-scheme';
+
+/**
+ * 바깥으로 넘겨도 되는 스킴 — **허용 목록**이다. 여기 없으면 전부 막는다.
+ *
+ * `shell.openExternal` 은 브라우저를 여는 함수가 아니라 **OS 의 프로토콜 핸들러를 그대로
+ * 부르는** 함수다. 그래서 `file:`·`ms-msdt:`·`search-ms:`·`vbscript:`·`javascript:` 같은
+ * 스킴이 들어오면 브라우저가 아니라 로컬 프로그램이 뜬다.
+ *
+ * 그런데 이 길로 들어오는 주소는 **우리가 만든 것이 아니다.** 에이전트가 흘린 마크다운 링크,
+ * 훅이 등록한 카드, 내부 앱이 그린 화면이 그대로 `window.open` → `setWindowOpenHandler` 로
+ * 온다. 즉 이 PC 안의 다른 프로그램·에이전트가 쓴 문자열이 그대로 OS 핸들러 인자가 된다.
+ * 그래서 "브라우저로 연다"는 말 그대로만 되게 잠근다.
+ *
+ * ⚠️ OS 설정 창을 여는 길(`micSettingsOpener`)은 **여기를 지나지 않는다** — 그쪽 주소는
+ * 서버의 고정 표에서 나오고 사용자 입력이 섞이지 않는다. 그 길까지 이 목록으로 막으면
+ * 정상 기능이 죽으므로 합치지 말 것.
+ */
+export const ALLOWED_EXTERNAL_SCHEMES: readonly string[] = ['http:', 'https:', 'mailto:'];
+
+/**
+ * 이 주소를 바깥으로 넘겨도 되는가. 파싱 자체가 안 되는 값(상대 경로 등)도 **막는다** —
+ * 바깥 핸들러에 넘길 수 있는 절대 주소가 아니면 열 일도 없다.
+ */
+export function isAllowedExternalUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return ALLOWED_EXTERNAL_SCHEMES.includes(parsed.protocol.toLowerCase());
+}
 
 /** main → renderer 로 흐르는 실패 알림 payload(`vibisual:external-open-failed`). */
 export interface ExternalOpenFailure {

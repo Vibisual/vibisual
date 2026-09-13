@@ -7,36 +7,36 @@
  */
 export const strings = {
   "en": {
-    "desc": "Checks whether claims are tied to something verifiable — the ability to read the source, and evidence that actually arrived.",
+    "desc": "Checks whether claims are tied to something verifiable — the ability to read the source, and procedures that point back at the files they actually touched.",
     "heading": "Grounding",
     "level": {
       "ungrounded": "Nothing to ground on",
       "partial": "Partial",
-      "both": "Source and evidence"
+      "both": "Source and anchors"
     },
     "check": {
       "source": "Can read source",
-      "memory": "Evidence cards"
+      "memory": "Anchored procedures"
     },
     "yes": "yes",
     "no": "no",
-    "note": "Reading the file beats being told about the file. Grounding is what makes a claim checkable rather than plausible."
+    "note": "Reading the file beats being told about the file. A file anchor is what makes “do it this way” checkable rather than merely asserted."
   },
   "ko": {
-    "desc": "주장이 확인 가능한 것에 매여 있는지 봅니다 — 원본을 읽을 수 있는지, 그리고 근거가 실제로 도착했는지.",
+    "desc": "주장이 확인 가능한 것에 매여 있는지 봅니다 — 원본을 읽을 수 있는지, 그리고 절차가 실제로 건드린 파일을 가리키고 있는지.",
     "heading": "그라운딩",
     "level": {
-      "ungrounded": "매일 근거 없음",
+      "ungrounded": "매어 둘 근거 없음",
       "partial": "일부만",
-      "both": "원본 + 근거"
+      "both": "원본 + 파일 앵커"
     },
     "check": {
       "source": "원본 읽기 가능",
-      "memory": "근거 카드"
+      "memory": "파일이 붙은 절차"
     },
     "yes": "가능",
     "no": "불가",
-    "note": "파일에 대해 전해 듣는 것보다 파일을 읽는 편이 낫습니다. 그라운딩이 주장을 그럴듯한 것에서 확인 가능한 것으로 바꿉니다."
+    "note": "파일에 대해 전해 듣는 것보다 파일을 읽는 편이 낫습니다. 파일 앵커가 \"이렇게 해라\"를 그럴듯한 말에서 확인 가능한 것으로 바꿉니다."
   },
   "ja": {
     "level": {

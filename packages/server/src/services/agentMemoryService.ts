@@ -48,12 +48,30 @@ export function resolveAgentMemoryDir(
   scope: Exclude<AgentMemoryScope, 'off'>,
   agentName: string,
   projectRoot: string | undefined,
+  home = os.homedir(),
 ): string | null {
   const seg = safeSegment(agentName);
-  if (scope === 'user') return path.join(os.homedir(), '.claude', 'agent-memory', seg);
+  if (scope === 'user') return path.join(home, '.claude', 'agent-memory', seg);
   if (!projectRoot) return null; // 프로젝트 범위인데 루트를 모르면 아무것도 하지 않는다.
   const dirName = scope === 'local' ? 'agent-memory-local' : 'agent-memory';
   return path.join(projectRoot, '.claude', dirName, seg);
+}
+
+/**
+ * §5.10 (O) — 화면(기억 정리 칸)과 주입원 표가 "이 에이전트의 자동 기억 폴더는 어디인가"를 물을 때 쓰는 한 줄.
+ *
+ * `undefined`/`'off'` 면 `undefined` — 기본은 레포 공용 폴더(`scanAutoMemory` 의 기본 경로)를 그대로 쓰고, 끔은
+ * 폴더가 없다(호출부가 따로 말한다). 나머지 셋은 위 `resolveAgentMemoryDir` 와 **같은 답**이다 — 스폰이 넘기는
+ * `agentName`·`projectRoot` 를 그대로 주면 실제로 쓰이는 그 폴더가 나온다(두 곳이 따로 조립하면 화면이 엉뚱한 폴더를 센다).
+ */
+export function resolveAgentMemoryDirOverride(
+  memory: AgentMemoryScope | undefined,
+  agentName: string,
+  projectRoot: string | undefined,
+  home = os.homedir(),
+): string | undefined {
+  if (!memory || memory === 'off') return undefined;
+  return resolveAgentMemoryDir(memory, agentName, projectRoot, home) ?? undefined;
 }
 
 export interface AgentSettingsPlan {

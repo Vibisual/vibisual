@@ -58,6 +58,15 @@ describe('formatShortcut — 단축키 라벨', () => {
     expect(formatShortcut('Ctrl+Enter', false)).toBe('Ctrl+Enter');
   });
 
+  // 방향키만은 세 OS 를 같게 둔다 — `Ctrl+Alt+LeftRightUpDown` 은 읽을 수 없는 덩어리가 된다
+  //   (창 배치 안내가 네 방향을 한 줄로 적는 자리가 실제로 있다 — §5.5 #17-1).
+  it('방향키는 mac 이 아니어도 화살표로', () => {
+    expect(formatShortcut('Ctrl+Alt+Left', false)).toBe('Ctrl+Alt+←');
+    expect(formatShortcut('Ctrl+Alt+Down', true)).toBe('⌥⌘↓');
+    // Enter·Backspace 는 그대로 — Windows 는 그 둘을 글자로 적는 것이 관례다.
+    expect(formatShortcut('Ctrl+Backspace', false)).toBe('Ctrl+Backspace');
+  });
+
   it('모디파이어가 여럿이면 Apple 순서(⌃⌥⇧⌘)로 선다', () => {
     expect(formatShortcut('Ctrl+Shift+Z', true)).toBe('⇧⌘Z');
     expect(formatShortcut('Shift+Ctrl+Z', true)).toBe('⇧⌘Z');

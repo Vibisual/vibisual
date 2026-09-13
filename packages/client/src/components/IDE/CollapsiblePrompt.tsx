@@ -9,6 +9,11 @@
  * 게 없으니 셰브론 없는 정적 말풍선, 길거나 여러 줄(복붙한 inspector 정보 등)이면 기본 접힘
  * (첫 줄만 미리보기) + 펼치면 넣은 그대로(공백·줄바꿈 보존)인 접이식 말풍선. 둘 다 우상단 복사 버튼.
  *
+ * **펼친 말풍선은 IDE 어디를 눌러도 접힌다.** 접는 손짓이 "그 좁은 머리줄을 다시 정확히 찾아 누르기"
+ * 하나뿐이면, 내 글을 확인하고 되돌아가는 흔한 동작이 매번 조준을 요구한다(사용자 보고). 바깥 press
+ * 판정은 팝업과 같은 공통 규약(`useOutsidePressDismiss`)에 맡긴다 — 말풍선 안에서 시작한 press·드래그
+ * 로는 접히지 않으므로 복사·대기 컨트롤과 펼친 본문의 **텍스트 선택**은 그대로 살아 있다.
+ *
  * tool/thinking 의 좌측 세로바 박스와 모양·정렬을 의도적으로 다르게(우측 정렬 + 채움 말풍선 +
  * 사람 아이콘·"나" 라벨) 해 본인 입력임을 한눈에 구분한다.
  *
@@ -27,7 +32,10 @@ import { useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE, type CommandDispatchMode } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 import { formatPromptStamp } from './promptStamp.js';
+import type { SpeechRunPos } from './streamDensity.js';
 
 /** 접이식(여러 줄/긴 입력)으로 다룰지 — 짧은 한 줄이면 정적 말풍선. */
 export function isLongUserPrompt(prompt: string): boolean {
@@ -38,21 +46,81 @@ export function isLongUserPrompt(prompt: string): boolean {
  * AI 발화 표식 — assistant 텍스트를 박스로 감싸지 않고 평범한 본문으로 두되, 왼쪽에 작은 스파클 글리프만
  * 붙여 "AI 가 말하는 것"임을 한눈에 알리는 수수한 마커. 내 입력(사람 아이콘·sky 말풍선)과 짝을 이루는
  * 발화 주체 표식이라 이 공용 모듈에 둔다(두 렌더 경로가 동일 모양을 쓰도록).
+ *
+ * §5.5 #17-45 — `run` 은 이 문단이 **연속 발화 런**에서 선 자리(`speechRunPositions`). 말머리는 런의
+ * **첫 문단에만** 달고, 이어지는 문단에는 같은 칼럼에 실선 한 줄만 내려 "같은 사람이 계속 하는 말"임을
+ * 알린다. 값이 없으면(`solo`) 종전과 한 픽셀도 다르지 않다 — 표준·원문 밀도는 이 축을 타지 않는다.
+ *
+ * ⚠ 세로 여백은 **이 칸이 아니라 옆의 본문 칸**이 만든다(부르는 쪽이 `py-*` 를 본문 칸에 준다).
+ * 바깥 상자에 `py-*` 를 주면 이 칸이 그만큼 짧아져 실선이 항목마다 끊긴 점선으로 보인다.
  */
-export function AiSpeakerGlyph(): React.JSX.Element {
+export function AiSpeakerGlyph({ run = 'solo' }: { run?: SpeechRunPos }): React.JSX.Element {
+  const head = run === 'solo' || run === 'head';
   return (
-    <span
-      className="mt-0.5 flex h-5 w-5 flex-shrink-0 select-none items-center justify-center rounded-md bg-gray-700/40 text-gray-300/80"
-      aria-hidden="true"
-    >
-      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
-        <path d="M5 3v4" />
-        <path d="M19 17v4" />
-        <path d="M3 5h4" />
-        <path d="M17 19h4" />
-      </svg>
+    <span className="relative flex w-5 flex-shrink-0 select-none justify-center" aria-hidden="true">
+      {run !== 'solo' && (
+        <span
+          className={`absolute left-1/2 w-px -translate-x-1/2 bg-gray-600/40 ${
+            head ? 'bottom-0 top-7' : run === 'tail' ? 'bottom-2 top-0' : 'inset-y-0'
+          }`}
+        />
+      )}
+      {head && (
+        <span className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-md bg-gray-700/40 text-gray-300/80">
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+            <path d="M5 3v4" />
+            <path d="M19 17v4" />
+            <path d="M3 5h4" />
+            <path d="M17 19h4" />
+          </svg>
+        </span>
+      )}
     </span>
+  );
+}
+
+/**
+ * §5.5 #17-46 ③ — 간결에서 AI 본문의 **가운데를 접는 손잡이**. Sub 탭 `TextBlock`·메인 탭
+ * `TerminalTextLine` 이 **같은 조각**을 쓴다(두 벌로 두면 한쪽만 고쳐진다 — `AiSpeakerGlyph` 와 같은 이유로
+ * 이 공용 모듈에 둔다).
+ *
+ * 접힌 상태에서는 머리와 꼬리 **사이**에 서고 좌우로 헤어라인을 뻗어 "여기가 잘린 자리"임을 그린다 —
+ * 버튼이 곧 생략 표시다. 펼치면 본문 아래의 평범한 [접기] 한 줄로 돌아간다(종전 모양 그대로).
+ * 라벨은 기존 키를 그대로 쓴다(뜻이 "N줄 더 보기"에서 달라지지 않아 12 로케일에 문자열을 늘리지 않는다).
+ */
+export function StreamTextFold({ open, hiddenLines, onToggle }: {
+  open: boolean;
+  /** 가운데에 접힌 줄 수 — 펼친 상태에서는 라벨에 쓰이지 않는다. */
+  hiddenLines: number;
+  onToggle: () => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const label = open
+    ? t('ide.streamRenderer.showLess')
+    : t('ide.streamRenderer.showMoreLines', { count: hiddenLines });
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`flex items-center gap-2 text-[12px] text-gray-500 transition-colors hover:text-gray-300 ${
+        open ? 'mt-0.5' : 'my-1 w-full'
+      }`}
+    >
+      {!open && <span className="h-px flex-1 bg-gray-700/60" aria-hidden="true" />}
+      <span className="flex flex-shrink-0 items-center gap-1">
+        <svg
+          className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`}
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M8 5v14l11-7z" />
+        </svg>
+        {label}
+      </span>
+      {!open && <span className="h-px flex-1 bg-gray-700/60" aria-hidden="true" />}
+    </button>
   );
 }
 
@@ -212,6 +280,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
   const collapsible = isLongUserPrompt(prompt);
   const setCommandDispatchMode = useGraphStore((s) => s.setCommandDispatchMode);
   const removeCommand = useGraphStore((s) => s.removeCommand);
@@ -221,6 +290,23 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   const controlAgentId = command?.status === 'queued' ? command.agentId : undefined;
   const controlCommandId = command?.status === 'queued' ? command.commandId : undefined;
   const controllable = controlAgentId !== undefined && controlCommandId !== undefined;
+
+  // 펼친 말풍선은 **IDE 어디를 눌러도 접힌다** — 다시 접으려고 좁은 머리줄을 정확히 찾아 누를 필요가
+  // 없다(사용자 보고: "펼친 걸 닫으려면 그 자리를 다시 정확히 눌러야 한다"). 팝업은 아니지만 닫는
+  // 손짓의 성질이 같아 **공통 규약을 그대로 쓴다**(직접 리스너 ❌ · `popupDismissContract` 가 집행).
+  //   - 말풍선 안에서 시작한 press 는 안이므로 접지 않는다 → 복사·[대기|합치기|즉시] 칩·삭제(×)와
+  //     펼친 본문의 **텍스트 선택 드래그**(밖에서 손을 떼도)가 살아 있다. 내 글을 확인하려고 펼친
+  //     것이므로 긁어서 복사하는 도중에 접히면 안 된다.
+  //   - `graceMs` — 펼친 그 클릭의 잔여 이벤트가 곧바로 접어 "안 펼쳐지는" 것처럼 보이는 것을 막는다.
+  //   - 접혀 있으면 리스너를 아예 걸지 않는다(`enabled`) — 스트림에 말풍선이 수백 개 쌓여도
+  //     window 리스너는 지금 펼친 것 수만큼만 산다.
+  const collapse = useCallback(() => setOpen(false), []);
+  useOutsidePressDismiss({
+    enabled: collapsible && open,
+    onDismiss: collapse,
+    refs: [bubbleRef],
+    graceMs: POPUP_DISMISS.openGraceMs,
+  });
 
   const firstLine = useMemo(() => {
     const line = prompt.split('\n').find((l) => l.trim().length > 0) ?? prompt;
@@ -280,7 +366,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
     // `ide-user-msg` 는 §5.5 #17-22 ⑨ 대화 정렬이 잡는 표식 — 켜지면 index.css 가 이 90% 폭을 풀고
     // 내용 폭 그대로 오른쪽 끝에 붙인다(꺼져 있으면 아무 규칙도 걸리지 않아 종전 모양 그대로).
     <div className="ide-user-msg mb-2 ml-auto w-full max-w-[90%] max-md:max-w-[96%]">
-      <div className={`relative overflow-hidden rounded-2xl rounded-tr-sm border shadow-sm ${tone.bubble}`}>
+      <div ref={bubbleRef} className={`relative overflow-hidden rounded-2xl rounded-tr-sm border shadow-sm ${tone.bubble}`}>
         {collapsible ? (
           /* 여러 줄/긴 입력 — 클릭하면 펼침/접힘. 접힘 상태에선 첫 줄만 미리보기. */
           <button

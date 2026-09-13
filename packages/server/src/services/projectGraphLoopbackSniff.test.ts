@@ -159,3 +159,101 @@ describe('§7.11 — foreground Bash 의 루프백 주소로 프리뷰 회수', 
     expect(iframesOf(agent.persistSatellites)).toHaveLength(0);
   });
 });
+
+/**
+ * §7.11 — 주운 주소를 **그대로** 열면 안 된다. 사용자 보고: "이거 iframe 버블인데
+ * `http://127.0.0.1:3456/` 이 주소인데 계속 `/api/backtest/state` 로 연결시켜서 이상한 곳으로 빠진다."
+ * 에이전트가 상태를 확인하려고 친 `curl …/api/backtest/state` 한 줄이 그대로 프리뷰 주소가 된 자리다.
+ */
+describe('§7.11 — 프리뷰는 그 서버의 화면을 연다(API 경로는 정문으로)', () => {
+  /** `/` 는 페이지, `/api/…` 는 JSON — 실제 Express 앱(정적 public + res.json)의 모양. */
+  async function listenApp(): Promise<number> {
+    const server = createServer((req, res) => {
+      const path = (req.url ?? '/').split('?')[0];
+      if (path === '/') { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html>ok</html>'); return; }
+      if (path === '/api/backtest/state') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"runs":[]}'); return; }
+      res.writeHead(404); res.end('nope');
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (addr === null || typeof addr === 'string') throw new Error('no port');
+    return addr.port;
+  }
+
+  it('API 를 확인한 curl 에서는 정문 주소로 프리뷰가 선다', async () => {
+    const port = await listenApp();
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Runner');
+    const api = `http://127.0.0.1:${String(port)}/api/backtest/state`;
+
+    graph.processHookEvent(bashDone(agent.path, `curl -s ${api}`, '{"runs":[]}'));
+    await waitFor(() => iframesOf(agent.persistSatellites).length > 0);
+
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe(`http://127.0.0.1:${String(port)}/`);
+  });
+
+  it('정문이 없는 서버면 확인된 그 주소를 지킨다 — 안 열리는 주소로 바꾸지 않는다', async () => {
+    // `/` 는 404, `/data.json` 만 응답하는 서버.
+    const server = createServer((req, res) => {
+      if ((req.url ?? '/') === '/data.json') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
+      res.writeHead(404); res.end('nope');
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (addr === null || typeof addr === 'string') throw new Error('no port');
+    const url = `http://127.0.0.1:${String(addr.port)}/data.json`;
+
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Runner');
+    graph.processHookEvent(bashDone(agent.path, `curl -s ${url}`, '{}'));
+    await waitFor(() => iframesOf(agent.persistSatellites).length > 0);
+
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe(url);
+  });
+
+  it('옛 판본이 저장해 둔 API 주소 위성은 생사 sweep 에서 정문으로 고쳐진다', async () => {
+    const port = await listenApp();
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Runner');
+    // 체크포인트에서 복원된 모양 그대로 — 생성 경로를 안 타고 이미 굳어 있는 위성.
+    agent.persistSatellites = [{
+      id: 'special-old',
+      label: `localhost:${String(port)}`,
+      bubbleType: 'iframe',
+      path: `__special__iframe__${agent.path}__${String(port)}`,
+      status: 'active',
+      activity: 1,
+      lastActivity: Date.now(),
+      url: `http://127.0.0.1:${String(port)}/api/backtest/state`,
+      iframeAlive: true,
+    }];
+
+    await graph.checkIframesAlive();
+
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe(`http://127.0.0.1:${String(port)}/`);
+  });
+
+  it('문서 경로는 sweep 이 건드리지 않는다 — `/game.html` 은 그대로 남는다', async () => {
+    const port = await listen();
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Runner');
+    const url = `http://127.0.0.1:${String(port)}/game.html`;
+    agent.persistSatellites = [{
+      id: 'special-keep',
+      label: `localhost:${String(port)}`,
+      bubbleType: 'iframe',
+      path: `__special__iframe__${agent.path}__${String(port)}`,
+      status: 'active',
+      activity: 1,
+      lastActivity: Date.now(),
+      url,
+      iframeAlive: true,
+    }];
+
+    await graph.checkIframesAlive();
+
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe(url);
+  });
+});

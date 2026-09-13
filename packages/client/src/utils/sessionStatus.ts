@@ -2,7 +2,7 @@
  * 세션 상태 표시 규약 — **색과 라벨을 여기 한 곳에서만 정한다.**
  *
  * 종전에는 같은 도트 색표가 `IDETabBar` · `IDESidebar` · `SubAgentList` 세 벌로 복사돼 있었고
- * `IDESessionSummaryView` 가 네 번째 변형(확인 여부 반영)이었다. 게다가 `IDEStatusBar` 는 색 규약이
+ * 세션 요약 보드(그 뒤 회수됨)가 네 번째 변형(확인 여부 반영)이었다. 게다가 `IDEStatusBar` 는 색 규약이
  * **정반대로 뒤집혀** 있었다 — 나머지 넷은 `idle`(=완료·미확인)을 초록으로 강조하고 `completed` 를
  * 회색으로 죽였는데, 그 바만 `idle` 을 회색으로 죽이고 `completed` 를 시안으로 강조했다.
  * 그래서 같은 세션이 화면마다 다른 색으로 보였다.
@@ -22,20 +22,110 @@ import type {
   SubAgentStatus,
 } from '@vibisual/shared';
 
-/** 상태 → 도트 색(Tailwind). 값을 바꾸려면 여기 한 줄만 고친다. */
-export const SESSION_STATUS_DOT: Record<SessionRunState, string> = {
-  running: 'bg-blue-400 animate-pulse',
+/**
+ * 상태 → 도트 **색만**(Tailwind). 값을 바꾸려면 여기 한 줄만 고친다.
+ *
+ * 색과 움직임을 가른 이유는 아래 **여운**(`sessionDotClass`) 때문이다 — 여운은 자기 몸짓
+ * (`animate-session-glow`)을 입히므로 색 위에 이미 얹힌 `animate-pulse` 를 떼야 한다. 한 요소에
+ * `animation` 을 두 벌 걸면 나중에 선언된 하나만 살아남아 어느 쪽이 이길지 CSS 순서가 정한다.
+ */
+export const SESSION_STATUS_DOT_BG: Record<SessionRunState, string> = {
+  running: 'bg-blue-400',
   error: 'bg-red-400',
+  // §2.4 (한도 정지) — 끝난 것도 실패한 것도 아니고 **끊긴 것**. 실패의 빨강과 완료의 초록 사이,
+  //   "손대야 다시 간다"를 말하는 주황이다. 빨강처럼 사고를 알리지 않고 초록처럼 안심시키지도 않는다.
+  limited: 'bg-orange-400',
   // 끝났는데 아직 안 봤다 = 사용자를 부르는 색.
   doneUnseen: 'bg-emerald-400',
   // 확인까지 끝났다 = 배경으로 물러난다.
   done: 'bg-gray-500',
 };
 
+/** 그 색이 **스스로 뛰는가** — 지금 무슨 일이 일어나는 중인 두 상태만 참이다. */
+const SESSION_STATUS_DOT_PULSE: Record<SessionRunState, boolean> = {
+  running: true,
+  limited: true,
+  error: false,
+  doneUnseen: false,
+  done: false,
+};
+
+/** 상태 → 도트 클래스(색 + 제 몸짓). 종전 소비자가 그대로 쓰는 조합값 — 위 두 표에서 파생한다. */
+export const SESSION_STATUS_DOT: Record<SessionRunState, string> = Object.fromEntries(
+  (Object.keys(SESSION_STATUS_DOT_BG) as SessionRunState[]).map((s) => [
+    s,
+    SESSION_STATUS_DOT_PULSE[s] ? `${SESSION_STATUS_DOT_BG[s]} animate-pulse` : SESSION_STATUS_DOT_BG[s],
+  ]),
+) as Record<SessionRunState, string>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * (판올림 번호 발급 대기) **누른 색의 여운** — 들어간 순간 색이 꺼져 알아볼 수 없던 것.
+ *
+ * [창과 버블] 목록에서 주황 줄을 누르면 그 세션이 창에 서는데(#17-1 `focusSessionId`), **서는 그
+ * 순간 주황이 걷힌다.** 누르는 것이 곧 확인이라 `setIDEActiveSession` 이 `acknowledgeUsageLimit` ·
+ * `acknowledgedSubAgents` 를 함께 찍기 때문이다(§17-47 — "그 말을 읽은 순간 불은 제 할 일을 다 한
+ * 것이다"). 규약으로는 옳지만 화면에서는 **누른 색이 도착과 동시에 사라져**, 방금 무슨 색을 눌러
+ * 들어왔는지 알아볼 수가 없었다(사용자 보고 — "바로 idle로 바뀌는게 아니라 한동안 색을 유지해줘야지
+ * 왜냐면 인식이 안돼 … 지금은 알아보기 어려워").
+ *
+ * 그래서 **표식은 그대로 걷고 표시만 남긴다** — 걷는 규약(§17-47)은 한 글자도 건드리지 않는다.
+ * 여운은 순수한 화면 층이다: 서버·스냅샷·체크포인트 무변경, 영속 ❌(앱을 껐다 켜면 남지 않는다 —
+ * "방금 눌렀다"는 사실은 그때만 참이다).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 여운이 남는 시간. 사용자가 정한 값("10초간 그 불이 깜빡") — 깜빡임 횟수도 이 길이를 따른다. */
+export const SESSION_FOCUS_GLOW_MS = 10_000;
+
+/** 눌러 들어간 자국 한 벌 — 어느 색이었나(`state`), 언제 눌렀나(`at`). */
+export interface SessionFocusGlow {
+  /** 누른 그 순간의 색. 이 색으로 여운이 남는다. */
+  state: SessionRunState;
+  /** 누른 시각(ms). `SESSION_FOCUS_GLOW_MS` 가 지나면 여운은 끝난다. */
+  at: number;
+}
+
+/**
+ * 지금 그 도트를 **무슨 색으로, 뛰게 할 것인가** — 여운과 실제 상태를 한 곳에서 합친다.
+ *
+ * 규칙은 둘뿐이다.
+ *  · **여운은 조용한 자리만 덮는다.** 실제 상태가 `done`(아무 일 없음)일 때만 누른 색이 남는다.
+ *    그래서 "10초 안에 뭔가 액션을 취하면 그 액션 색이 이긴다"가 조건문 하나 없이 성립한다 —
+ *    명령을 보내 파랑이 켜지면 실제 상태가 `done` 이 아니게 되어 여운이 그 자리를 내준다.
+ *  · **여운이 살아 있는 동안 그 색은 뛴다.** 빨강·초록처럼 평소 가만히 있는 색도 이때는 깜빡인다 —
+ *    색만 남기면 "원래 그런 색"과 구별되지 않아 알아보라는 목적을 못 한다.
+ */
+export function resolveSessionDot(
+  actual: SessionRunState,
+  glow: SessionFocusGlow | undefined,
+  now: number,
+): { state: SessionRunState; glowing: boolean } {
+  // 만료는 스토어 타이머가 걷지만 여기서도 본다 — 타이머를 놓친 프레임이 옛 색을 그리면 안 된다.
+  const live = glow !== undefined && now - glow.at < SESSION_FOCUS_GLOW_MS;
+  if (!live) return { state: actual, glowing: false };
+  const state = actual === 'done' ? glow.state : actual;
+  return { state, glowing: state === glow.state };
+}
+
+/**
+ * 도트 한 점의 클래스 — 여운까지 반영한 최종값. **도트를 그리는 모든 자리가 이 함수를 쓴다.**
+ * (여운을 자리마다 따로 합치면 같은 세션이 탭바에서는 주황인데 사이드바에서는 회색이 된다.)
+ */
+export function sessionDotClass(
+  actual: SessionRunState,
+  glow: SessionFocusGlow | undefined,
+  now: number,
+): string {
+  const { state, glowing } = resolveSessionDot(actual, glow, now);
+  // 여운은 제 몸짓을 입으므로 색표의 `animate-pulse` 를 떼고 색만 가져간다.
+  return glowing ? `${SESSION_STATUS_DOT_BG[state]} animate-session-glow` : SESSION_STATUS_DOT[state];
+}
+
 /** 상태 → i18n 키(`panel.subAgent.status.*` 재사용 — 새 문자열 ❌). */
 export const SESSION_STATUS_LABEL_KEY: Record<SessionRunState, string> = {
   running: 'panel.subAgent.status.running',
   error: 'panel.subAgent.status.error',
+  // §2.4 (한도 정지) — 이 낱말은 기존 어휘로 대체할 수 없다. "오류"도 "끝남"도 사실이 아니다.
+  limited: 'panel.subAgent.status.limited',
   // 미확인이든 확인이든 사실은 "끝남" 하나다 — 그 차이는 색이 말한다.
   doneUnseen: 'panel.subAgent.status.done',
   done: 'panel.subAgent.status.done',
@@ -98,6 +188,8 @@ export function sessionRunStateOf(
     subStatus: sub.status,
     runningTaskCount: hasBackgroundWork ? 1 : 0,
     acknowledged,
+    // §2.4 (한도 정지) — 서버가 세워 둔 사실을 접기만 한다(여기서 만료·판정 ❌).
+    usageLimited: sub.usageLimit !== undefined,
   });
 }
 
@@ -150,6 +242,8 @@ export function buildSessionRunInputs(src: SessionRunInputSources): SessionRunIn
       (t) => subId === null || t.subAgentId === subId,
     ).length,
     acknowledged: src.acknowledged,
+    // §2.4 (한도 정지) — 세션이 특정되지 않는 자리(메인 탭)는 한도를 말할 대상이 없다.
+    usageLimited: src.sub?.usageLimit !== undefined,
   };
 }
 

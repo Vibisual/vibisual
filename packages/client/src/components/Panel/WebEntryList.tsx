@@ -1,12 +1,15 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, type WebEntry } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { SatelliteMaxPopup } from './SatelliteMaxPopup.js';
+import { KindGlyph, TrashGlyph, WebEntryDetailPopup } from './WebEntryDetailPopup.js';
 
 interface Props {
   /** 도메인 버블의 노드 ID — 서버 API 가 이걸로 버블을 찾는다. */
   nodeId: string;
+  /** 이 버블의 호스트(라벨). 상세 팝업 헤더가 "어디서 일어난 일인가"를 말할 때 쓴다. */
+  host?: string;
   /** 이 도메인의 항목들(서버 값 그대로 · 최신 우선). */
   entries: WebEntry[];
   /** 이 버블에 저장된 상한. 없으면 기본값. */
@@ -41,13 +44,18 @@ function post(path: string, body: unknown): void {
 /**
  * §7.22 — 도메인 버블의 웹 이력 목록.
  *
- * **체크 = 제거.** 체크 상태를 저장하지 않으므로 "반쯤 체크된 목록"이라는 상태가 없다
- * (저장하면 읽었지만 남아 있는 줄이 상한을 먹고, 결국 사용자가 두 번 지워야 한다 — §5.23).
+ * **목록은 훑는 자리, 팝업은 읽는 자리.** 줄을 누르면 `WebEntryDetailPopup` 이 열려 검색어·URL
+ * 전문과 결과 본문을 다 보여 준다(260px 안에서 `pre` 를 펼치던 종전 방식은 목록을 밀어내면서도
+ * 읽히지 않았다 — 훑기와 읽기를 한 칸에서 하려다 둘 다 놓쳤다).
+ *
+ * **지우기는 휴지통 버튼이다.** 종전의 "항상 꺼진 체크박스"는 고르는 칸으로 읽히는데 실제 행동은
+ * 제거라 모양과 행동이 어긋났다. 부르는 창구는 그대로(`/api/domain-entries/check`)라 서버 계약은
+ * 안 바뀌고, 되돌리기가 없다는 것도 그대로다 — 지워지는 것은 산출물이 아니라 관찰 이력이다(§5.23).
  */
-export function WebEntryList({ nodeId, entries, maxWebEntries }: Props): React.JSX.Element {
+export function WebEntryList({ nodeId, host, entries, maxWebEntries }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [maxEditorAt, setMaxEditorAt] = useState<{ x: number; y: number } | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
   const effectiveMax = maxWebEntries ?? DEFAULT_MAX_WEB_ENTRIES;
@@ -64,6 +72,13 @@ export function WebEntryList({ nodeId, entries, maxWebEntries }: Props): React.J
     post('/api/domain-entries/clear', { nodeId });
     setConfirmClear(false);
   }, [nodeId]);
+
+  // 열어 둔 항목이 서버 쪽에서 사라졌으면(상한 트림 · 모두 비우기 · 버블 소멸) 창도 닫는다 —
+  // 없는 항목을 보여 주는 창은 유령이다.
+  const detail = detailId === null ? undefined : entries.find((e) => e.id === detailId);
+  useEffect(() => {
+    if (detailId !== null && detail === undefined) setDetailId(null);
+  }, [detailId, detail]);
 
   return (
     <div className="flex flex-col">
@@ -134,121 +149,124 @@ export function WebEntryList({ nodeId, entries, maxWebEntries }: Props): React.J
         <span className="text-[12px] text-gray-600">{t('panel.webEntry.empty')}</span>
       ) : (
         <div className="overflow-hidden rounded border border-gray-800 bg-gray-950/50">
-          <ScrollFade maxHeight={LIST_MAX_HEIGHT} className="px-2 py-1">
+          <ScrollFade maxHeight={LIST_MAX_HEIGHT} className="px-1 py-1">
             {entries.map((e) => (
               <WebEntryRow
                 key={e.id}
                 entry={e}
-                expanded={expanded === e.id}
-                onToggleExpand={() => setExpanded((cur) => (cur === e.id ? null : e.id))}
-                onCheck={() => check(e.id)}
+                onOpen={() => setDetailId(e.id)}
+                onDelete={() => check(e.id)}
               />
             ))}
           </ScrollFade>
         </div>
       )}
+
+      {detail && (
+        <WebEntryDetailPopup
+          entry={detail}
+          host={host}
+          onClose={() => setDetailId(null)}
+          onDelete={() => {
+            check(detail.id);
+            setDetailId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+/**
+ * 한 줄 = 한 항목. **줄 전체가 여는 버튼**이고, 지우기만 그 안에서 따로 선다.
+ *
+ * 계층은 글자 크기가 아니라 색·굵기로 만든다 — 표제는 진한 색, 요약·메타는 흐린 색이되 셋 다
+ * 12px 이다(한글은 12px 아래로 내려가면 읽히지 않는다).
+ */
 function WebEntryRow({
   entry,
-  expanded,
-  onToggleExpand,
-  onCheck,
+  onOpen,
+  onDelete,
 }: {
   entry: WebEntry;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  onCheck: () => void;
+  onOpen: () => void;
+  onDelete: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const isSearch = entry.kind === 'search';
   const headline = isSearch ? entry.query : entry.url;
+  const summary = isSearch ? undefined : entry.prompt;
 
   return (
-    <div className="border-b border-gray-800/60 py-1 last:border-b-0">
-      <div className="flex items-start gap-1.5">
-        {/* 체크 = 제거. 되돌리기는 없다 — 지워지는 것은 산출물이 아니라 관찰 이력이다(§5.23). */}
-        <input
-          type="checkbox"
-          checked={false}
-          onChange={onCheck}
-          title={t('panel.webEntry.checkHint')}
-          aria-label={t('panel.webEntry.checkHint')}
-          className="mt-0.5 h-3 w-3 flex-shrink-0 cursor-pointer accent-sky-500"
-        />
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          className="min-w-0 flex-1 text-left"
-        >
-          <span className="flex items-center gap-1.5">
-            <span
-              className={`flex-shrink-0 rounded px-1 py-px text-[12px] font-medium ${
-                isSearch ? 'bg-sky-900/60 text-sky-300' : 'bg-gray-800 text-gray-300'
-              }`}
-            >
-              {t(isSearch ? 'panel.webEntry.kindSearch' : 'panel.webEntry.kindFetch')}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200" title={headline}>
-              {headline ? (isSearch ? headline : middleEllipsis(headline)) : '—'}
-            </span>
-            <span className="flex-shrink-0 text-[12px] text-gray-600">{formatTime(entry.at)}</span>
-          </span>
-        </button>
-        {!isSearch && entry.url && (
-          <button
-            type="button"
-            title={t('panel.webEntry.openExternal')}
-            aria-label={t('panel.webEntry.openExternal')}
-            // 링크를 여는 길은 앱 전체에 하나다 — `window.open` → main `setWindowOpenHandler`
-            // → `shell.openExternal`. 실패 안내는 `ExternalOpenNotice` 가 맡는다(§3.7).
-            onClick={() => { window.open(entry.url, '_blank', 'noopener'); }}
-            className="mt-0.5 flex-shrink-0 rounded p-0.5 text-gray-600 hover:bg-gray-800 hover:text-sky-400"
+    <div className="group relative rounded hover:bg-gray-900/70">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={t('panel.webEntry.openDetail')}
+        className="w-full cursor-pointer rounded px-1.5 py-1 text-left"
+      >
+        {/* 첫 줄 — 종류 칩 · 표제 · 시각 */}
+        <span className="flex items-center gap-1.5">
+          <span
+            className={`flex flex-shrink-0 items-center gap-1 rounded px-1 py-px text-[12px] font-medium ${
+              isSearch ? 'bg-sky-900/60 text-sky-300' : 'bg-gray-800 text-gray-300'
+            }`}
           >
-            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <path d="M15 3h6v6" />
-              <path d="M10 14 21 3" />
-            </svg>
-          </button>
+            <KindGlyph isSearch={isSearch} />
+            {t(isSearch ? 'panel.webEntry.kindSearch' : 'panel.webEntry.kindFetch')}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-gray-100" title={headline}>
+            {headline ? (isSearch ? headline : middleEllipsis(headline)) : '—'}
+          </span>
+          <span className="flex-shrink-0 font-mono text-[12px] text-gray-600">{formatTime(entry.at)}</span>
+          {/* 지우기 버튼이 겹치지 않게 자리를 비워 둔다(호버 때만 버튼이 뜬다). */}
+          <span className="w-5 flex-shrink-0" />
+        </span>
+
+        {/* 둘째 줄 — 한 줄 요약. 검색은 결과 건수 + 도메인 칩, 가져오기는 물어본 내용. */}
+        {isSearch && (entry.resultCount !== undefined || entry.resultHosts?.length) && (
+          <span className="mt-0.5 flex flex-wrap items-center gap-1 pl-0.5">
+            {entry.resultCount !== undefined && (
+              <span className="text-[12px] text-gray-500">
+                {t('panel.webEntry.resultCount', { count: entry.resultCount })}
+              </span>
+            )}
+            {entry.resultHosts?.slice(0, 3).map((h) => (
+              <span key={h} className="rounded bg-gray-800/80 px-1 py-px text-[12px] text-gray-400">
+                {h}
+              </span>
+            ))}
+            {(entry.resultHosts?.length ?? 0) > 3 && (
+              <span className="text-[12px] text-gray-600">
+                {t('panel.webEntry.moreHosts', { count: (entry.resultHosts?.length ?? 0) - 3 })}
+              </span>
+            )}
+          </span>
         )}
-      </div>
+        {summary && (
+          <span className="mt-0.5 block truncate pl-0.5 text-[12px] text-gray-500" title={summary}>
+            {summary}
+          </span>
+        )}
 
-      {/* 부가 정보 한 줄 — 검색은 결과 건수·결과 도메인, 가져오기는 물어본 내용 */}
-      {isSearch && (entry.resultCount !== undefined || entry.resultHosts?.length) && (
-        <div className="ml-[18px] mt-0.5 flex flex-wrap items-center gap-1">
-          {entry.resultCount !== undefined && (
-            <span className="text-[12px] text-gray-500">
-              {t('panel.webEntry.resultCount', { count: entry.resultCount })}
-            </span>
-          )}
-          {entry.resultHosts?.map((h) => (
-            <span key={h} className="rounded bg-gray-800/80 px-1 py-px text-[12px] text-gray-400">
-              {h}
-            </span>
-          ))}
-        </div>
-      )}
-      {!isSearch && entry.prompt && (
-        <div className="ml-[18px] mt-0.5 truncate text-[12px] text-gray-500" title={entry.prompt}>
-          {entry.prompt}
-        </div>
-      )}
+        {/* 실패는 숨기지 않는다 — "왜 못 읽었나"가 사용자에게 필요한 정보다(§5.23). */}
+        {entry.error && (
+          <span className="mt-0.5 block truncate pl-0.5 text-[12px] text-rose-400" title={entry.error}>
+            {entry.error}
+          </span>
+        )}
+      </button>
 
-      {/* 실패는 숨기지 않는다 — "왜 못 읽었나"가 사용자에게 필요한 정보다(§5.23). */}
-      {entry.error && (
-        <div className="ml-[18px] mt-0.5 text-[12px] text-rose-400">{entry.error}</div>
-      )}
-
-      {/* 결과 요약 꼬리 — 줄을 누르면 펼쳐진다. 못 읽었으면 `—`(0 으로 채우지 않는다). */}
-      {expanded && (
-        <pre className="ml-[18px] mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900/80 p-1.5 text-[12px] leading-snug text-gray-400">
-          {entry.result ?? '—'}
-          {entry.resultTruncated ? `\n${t('panel.webEntry.truncated')}` : ''}
-        </pre>
-      )}
+      {/* 지우기 — 종전의 "항상 꺼진 체크박스" 자리. 모양이 곧 행동이다(되돌리기 없음 · §5.23). */}
+      <button
+        type="button"
+        onClick={onDelete}
+        title={t('panel.webEntry.checkHint')}
+        aria-label={t('panel.webEntry.checkHint')}
+        className="absolute right-1 top-1 rounded p-0.5 text-gray-700 opacity-0 transition-opacity hover:bg-rose-950/50 hover:text-rose-300 focus-visible:opacity-100 group-hover:opacity-100"
+      >
+        <TrashGlyph />
+      </button>
     </div>
   );
 }

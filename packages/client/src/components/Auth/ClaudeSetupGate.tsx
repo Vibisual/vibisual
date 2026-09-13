@@ -43,6 +43,8 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   const refresh = useGraphStore((s) => s.refreshClaudeSetup);
   const setLoginGate = useGraphStore((s) => s.setLoginGate);
   const refreshAuth = useGraphStore((s) => s.refreshClaudeAuth);
+  // §5.25 (C) — 코덱스·로컬을 고른 사람에게 이 창이 저절로 뜨지 않게 하는 축.
+  const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice);
 
   const [copied, setCopied] = useState(false);
   const [rechecking, setRechecking] = useState(false);
@@ -60,7 +62,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   /** 인계는 한 번만 — 자동 만료와 [계속] 이 겹쳐도 로그인 창을 두 번 부르지 않게. */
   const handedOffRef = useRef(false);
 
-  const shouldOpen = isSetupGateOpen({ setup, justCompleted, forced, dismissed });
+  const shouldOpen = isSetupGateOpen({ setup, justCompleted, forced, dismissed, engineChoice });
 
   // §4 (첫 실행 온보딩) — 이 창의 백드롭이 헤더까지 덮으므로, 그 동안 헤더 언어 전환기를
   //   창 위로 띄우게 알린다(HeaderLanguageSlot). 새 OS 에 갓 깔면 이 창이 첫 화면이다.

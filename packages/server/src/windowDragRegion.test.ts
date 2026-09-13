@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   DETACHED_REDOCK_INSET_PX,
+  REDOCK_DWELL_MS,
   isCursorDeepInside,
   isCursorOutsideRect,
   stepAppEntry,
+  stepRedockDwell,
   type ScreenRect,
 } from '@vibisual/shared';
 
@@ -111,5 +113,123 @@ describe('isCursorOutsideRect — 앱 밖으로 "나갔다"의 문턱', () => {
     const deep = { x: APP.x + APP.width - DETACHED_REDOCK_INSET_PX, y: 500 };
     expect(isCursorDeepInside(deep, APP, DETACHED_REDOCK_INSET_PX)).toBe(true);
     expect(isCursorOutsideRect(deep, APP, M)).toBe(false);
+  });
+});
+
+// §5.5 #17-6 (H-12)+(H-17) — **들어오는 길에도 구간이 있다.** 들어온 순간에는 창이 윤곽선으로
+// 바뀌기만 하고, 그대로 버티면 그 선이 **밝아진다**(무장). 실제로 합치는 일은 이 함수가 하지
+// 않는다 — 손을 뗄 때 `finishOverlayFollow` 한 곳에서만 일어난다(사용자 지시 — "마우스 놓기
+// 전까지 가상의 창 그대로 유지해"). 셋(`start`·`cancel`·`arm`)이 한 틱에 겹치면 화면에는 선이
+// 뜨자마자 밝아진 것으로만 보여 구간을 만든 뜻이 없어지므로, 그 배타성을 여기서 고정한다.
+describe('stepRedockDwell — 들어오기: 선으로 바뀜 · 버팀 · 무장', () => {
+  const idle = { wasInside: false, isInside: false, dwelling: false, elapsedMs: 0 };
+
+  it('밖 → 안 전이에서 **선으로 바뀌기만** 한다 — 그 틱에 무장하지 않는다', () => {
+    const step = stepRedockDwell({ ...idle, isInside: true });
+    expect(step.start).toBe(true);
+    expect(step.dwelling).toBe(true);
+    expect(step.arm).toBe(false);
+    expect(step.cancel).toBe(false);
+  });
+
+  it('원래 안에 있던 창은 아무 일도 일어나지 않는다 — (H-4) 의 전이 규칙 그대로', () => {
+    const step = stepRedockDwell({ ...idle, wasInside: true, isInside: true });
+    expect(step.start).toBe(false);
+    expect(step.dwelling).toBe(false);
+    expect(step.arm).toBe(false);
+  });
+
+  it('버티는 동안은 아직 아무것도 아니다', () => {
+    const step = stepRedockDwell({ wasInside: true, isInside: true, dwelling: true, elapsedMs: 10 });
+    expect(step.dwelling).toBe(true);
+    expect(step.start).toBe(false);
+    expect(step.cancel).toBe(false);
+    expect(step.arm).toBe(false);
+  });
+
+  it('(H-17) 다 버티면 **무장만** 한다 — 가상 창은 그대로 남는다(합치는 것은 뗌의 일)', () => {
+    const step = stepRedockDwell({
+      wasInside: true, isInside: true, dwelling: true, elapsedMs: REDOCK_DWELL_MS,
+    });
+    expect(step.arm).toBe(true);
+    // 종전에는 여기서 `dwelling` 이 거짓이 되며 그 틱에 합쳐졌다. 이제는 참으로 남아야 한다 —
+    //   그 한 비트가 "지금 화면에 있는 것은 가상 창"이고, 뗄 때 합칠지를 그것으로 가른다.
+    expect(step.dwelling).toBe(true);
+    expect(step.start).toBe(false);
+    expect(step.cancel).toBe(false);
+  });
+
+  it('(H-17) 무장한 뒤로도 계속 무장으로 남는다 — 다 버틴 손이 멎어 있어도 선이 꺼지지 않게', () => {
+    const step = stepRedockDwell({
+      wasInside: true, isInside: true, dwelling: true, elapsedMs: REDOCK_DWELL_MS * 10,
+    });
+    expect(step.arm).toBe(true);
+    expect(step.dwelling).toBe(true);
+  });
+
+  it('버티다 다시 나가면 **즉시** 풀린다 — (H-3) "가장자리를 떠나면 즉시 풀린다"와 같은 규율', () => {
+    const step = stepRedockDwell({
+      wasInside: true, isInside: false, dwelling: true, elapsedMs: REDOCK_DWELL_MS + 999,
+    });
+    expect(step.cancel).toBe(true);
+    expect(step.arm).toBe(false);
+    expect(step.dwelling).toBe(false);
+  });
+
+  it('(H-17) 다 버틴 뒤에 나가도 풀린다 — 무장은 관문이 아니라 표시다', () => {
+    const armed = stepRedockDwell({
+      wasInside: true, isInside: true, dwelling: true, elapsedMs: REDOCK_DWELL_MS,
+    });
+    expect(armed.arm).toBe(true);
+    const out = stepRedockDwell({
+      wasInside: armed.inside, isInside: false, dwelling: armed.dwelling, elapsedMs: REDOCK_DWELL_MS + 16,
+    });
+    expect(out.cancel).toBe(true);
+    expect(out.dwelling).toBe(false);
+  });
+
+  it('풀린 뒤 다시 들어오면 **처음부터** 다시 버틴다(반쯤 찬 버팀이 남지 않는다)', () => {
+    const out = stepRedockDwell({
+      wasInside: true, isInside: false, dwelling: true, elapsedMs: REDOCK_DWELL_MS - 1,
+    });
+    expect(out.cancel).toBe(true);
+    const back = stepRedockDwell({
+      wasInside: out.inside, isInside: true, dwelling: out.dwelling, elapsedMs: 0,
+    });
+    expect(back.start).toBe(true);
+    expect(back.arm).toBe(false);
+  });
+
+  it('버팀 0 을 넘겨도 최소 한 틱은 무장하지 않은 선으로 서 있는다', () => {
+    const start = stepRedockDwell({ ...idle, isInside: true, dwellMs: 0 });
+    expect(start.start).toBe(true);
+    expect(start.arm).toBe(false);
+    // 다음 틱(1ms 경과)에서야 밝아진다.
+    expect(stepRedockDwell({
+      wasInside: true, isInside: true, dwelling: true, elapsedMs: 1, dwellMs: 0,
+    }).arm).toBe(true);
+  });
+
+  it('셋은 한 틱에 겹치지 않는다 — 어느 입력을 넣어도', () => {
+    for (const wasInside of [false, true]) {
+      for (const isInside of [false, true]) {
+        for (const dwelling of [false, true]) {
+          for (const elapsedMs of [0, REDOCK_DWELL_MS - 1, REDOCK_DWELL_MS, REDOCK_DWELL_MS * 10]) {
+            const s = stepRedockDwell({ wasInside, isInside, dwelling, elapsedMs });
+            const hot = [s.start, s.cancel, s.arm].filter(Boolean).length;
+            expect(hot).toBeLessThanOrEqual(1);
+            // 기억은 언제나 지금 실측 그대로 넘어간다(다음 틱이 같은 자리에서 견주게).
+            expect(s.inside).toBe(isInside);
+            // (H-17) 합치라는 말은 이 함수에서 **나오지 않는다** — 그 판단은 뗌 한 곳의 몫이다.
+            expect('commit' in s).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it('버팀은 사람이 알아볼 만큼 짧다 — 구간은 보여 주기 위한 것이지 관문이 아니다', () => {
+    expect(REDOCK_DWELL_MS).toBeGreaterThanOrEqual(200);
+    expect(REDOCK_DWELL_MS).toBeLessThanOrEqual(1_000);
   });
 });

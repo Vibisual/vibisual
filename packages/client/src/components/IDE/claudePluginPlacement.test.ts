@@ -7,7 +7,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { normalizePluginPath, placementAppliesHere, resolvePluginPlacement, splitPluginId } from '@vibisual/shared';
+import {
+  classifyMarketplace,
+  normalizePluginPath,
+  placementAppliesHere,
+  resolvePluginPlacement,
+  splitPluginId,
+  suggestedMarketplaces,
+} from '@vibisual/shared';
 
 // 경로는 실측 모양(드라이브 문자·역슬래시·대소문자 갈림)만 남긴 가공값이다.
 const HERE = 'C:\\work\\projects\\vibisual';
@@ -64,5 +71,32 @@ describe('placementAppliesHere', () => {
     expect(placementAppliesHere('global')).toBe(true);
     expect(placementAppliesHere('this-project')).toBe(true);
     expect(placementAppliesHere('other-project')).toBe(false);
+  });
+});
+
+// §5.5 #17-42 — 마켓 갈래 판정과 추천 목록. 화면·서버가 같은 규칙을 써야 칩과 목록이 어긋나지 않는다.
+describe('마켓 갈래(#17-42)', () => {
+  it('Anthropic 이 운영하는 둘만 갈래를 갖고, 나머지는 보증 없음(custom)', () => {
+    expect(classifyMarketplace('claude-plugins-official')).toBe('official');
+    expect(classifyMarketplace('claude-community')).toBe('community');
+    expect(classifyMarketplace('claude-code-harness-marketplace')).toBe('custom');
+    expect(classifyMarketplace('')).toBe('custom');
+  });
+
+  it('추천은 아직 안 붙은 것만 — 같은 것을 두 번 붙일 자리를 주지 않는다', () => {
+    // 공식만 붙어 있는 상태(= Claude Code 가 스스로 붙인 실측 기본값).
+    const s = suggestedMarketplaces([{ name: 'claude-plugins-official' }]);
+    expect(s.map((m) => m.name)).toEqual(['claude-community']);
+    // 붙일 때 넘길 인자는 마켓 이름이 아니라 owner/repo 다(섞으면 추천이 영영 안 사라진다).
+    expect(s[0]?.source).toBe('anthropics/claude-plugins-community');
+  });
+
+  it('둘 다 붙어 있으면 추천은 비고, 하나도 없으면 둘 다 뜬다', () => {
+    expect(suggestedMarketplaces([
+      { name: 'claude-plugins-official' }, { name: 'claude-community' },
+    ])).toEqual([]);
+    expect(suggestedMarketplaces([]).map((m) => m.name)).toEqual([
+      'claude-plugins-official', 'claude-community',
+    ]);
   });
 });

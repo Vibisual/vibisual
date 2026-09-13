@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { useGraphStore, selectRenderedIDEPaneKeys } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPaneRenderOrderKeys } from '../../stores/graphStore.js';
 import { AgentIDEOverlay } from './AgentIDEOverlay.js';
 import { IDEPaneProvider } from './idePane.js';
 
@@ -15,7 +15,10 @@ const KEY_SEP = '\n';
 export const IDEPaneHost = memo(function IDEPaneHost(): React.JSX.Element | null {
   // 키 목록은 **문자열 하나**로 구독한다 — 선택자가 매 호출 새 배열을 돌려주면 zustand v5 는
   //   "캐시되지 않은 스냅샷"으로 보고 무한 리렌더로 간다.
-  const keysJoined = useGraphStore((s) => selectRenderedIDEPaneKeys(s).join(KEY_SEP));
+  // 순서는 **열린 순번 고정**(z 아님) — 앞뒤는 각 창의 zIndex 가 낸다. 그리는 배열을 z 로 정렬하면
+  //   창을 눌러 앞으로 꺼낼 때마다 형제 DOM 이 재배치되고, 그때 스크롤 컨테이너의 scrollTop 이
+  //   0 으로 리셋돼 IDE 본문이 맨 위로 튀었다(selectIDEPaneRenderOrderKeys 주석 참조).
+  const keysJoined = useGraphStore((s) => selectIDEPaneRenderOrderKeys(s).join(KEY_SEP));
   const keys = useMemo(() => (keysJoined ? keysJoined.split(KEY_SEP) : []), [keysJoined]);
   if (keys.length === 0) return null;
   return (

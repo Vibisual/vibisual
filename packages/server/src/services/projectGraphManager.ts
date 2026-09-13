@@ -13,6 +13,9 @@ import fs from 'node:fs';
 import type {
   BubbleData,
   GraphSnapshot,
+  SpecReadingSettings,
+  AutoGoalSettings,
+  SpecReadingState,
   ProjectAgentCounts,
   HookEventPayload,
   ProjectInfo,
@@ -47,6 +50,10 @@ import type {
   ShelfBubble,
   ProjectCostMap,
   ProjectAuditLog,
+  CompactMarker,
+  CompactWatchState,
+  FilePreimage,
+  ProjectInsuranceLedger,
   AuditBoundaryConfig,
   AuditDecisionSource,
   ModelRegistry,
@@ -71,13 +78,22 @@ import type {
   ClaudeUsageInfo,
   ClaudeAuthStatus,
   ClaudeSetupState,
+  CodexAuthStatus,
+  CodexSetupState,
+  CodexHookState,
+  CodexModelCatalog,
+  CodexInventory,
+  CodexReviewRun,
   ExecutionMode,
   AgentProvider,
 } from '@vibisual/shared';
-import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
+import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, EXTERNAL_TOP_BUDGET_DEFAULT, GOAL_ACTION_MAX, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
+import type { GoalActionCard } from '@vibisual/shared';
 // §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
 import {
+  heatQuantileSamples,
   isSliceScopeGroup,
+  resolveAutoGoalProjectRoot,
   resolveSliceShipSet,
   stripScopedOutSlices,
   type ScopableSliceKey,
@@ -378,6 +394,13 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     claudeAuth: b.claudeAuth ?? a.claudeAuth,
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정도 글로벌 1건(설치는 기기 단위).
     claudeSetup: b.claudeSetup ?? a.claudeSetup,
+    // §5.25 — 코덱스 상태 셋도 같은 규칙(글로벌 1건).
+    codexAuth: b.codexAuth ?? a.codexAuth,
+    codexSetup: b.codexSetup ?? a.codexSetup,
+    codexHooks: b.codexHooks ?? a.codexHooks,
+    codexModels: b.codexModels ?? a.codexModels,
+    codexInventory: b.codexInventory ?? a.codexInventory,
+    codexReviews: b.codexReviews ?? a.codexReviews,
     // §5.5 #17-4 v2.36 — 스킬 사용 카운트는 projectName 1차 키 → 단순 spread 안전.
     // 같은 projectName 이 양쪽에 들어올 가능성 ❌ (각 ProjectGraph 가 primary 하나).
     skillUsageCounts: (() => {
@@ -461,32 +484,55 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.10 v3.70 — Brain 요약은 projectName 1차 키(skillUsageCounts 와 동형) → 단순 spread 안전.
-    //   각 ProjectGraph 가 primary 하나뿐이라 키 충돌 ❌. **이 두 필드가 빠져 있어서** 프로젝트를
-    //   2개 이상 열면 병합 순간 요약/주입 신호가 통째로 사라지고 Brain 버블이 "0장"으로 보였다
-    //   (카드는 디스크에 그대로 있는 표시 전용 결함) — 새 스냅샷 필드 추가 시 여기 병합도 함께.
-    brain: (() => {
-      const av = a.brain;
-      const bv = b.brain;
+    // §5.5 #17-17 ⑪(a) — 종류 카드는 `key` 1차 키. **여기 빠져 있었다** — 프로젝트를 2개 이상 열면
+    //   병합 순간 종류 표가 통째로 사라져 무대의 색·글리프가 전부 중립 점이 되고 종류 서랍이 빈다
+    //   (카드는 디스크에 그대로 있는 표시 전용 결함 — 바로 위 두 카드가 겪은 그것과 같은 결).
+    visualKinds: (() => {
+      const av = a.visualKinds;
+      const bv = b.visualKinds;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.10 v3.70 — 주입 이벤트는 agentId 1차 키(agentReports 와 동형, b 우선).
-    brainInjections: (() => {
-      const av = a.brainInjections;
-      const bv = b.brainInjections;
+    // §5.5 #17-17 ⑫(a) — 팔레트는 **배열**이라 spread 로 합쳐지지 않는다. id 로 접고(같은 id 면 많이
+    //   배운 쪽), 산식과 **같은 순서**로 다시 세운 뒤 상한에서 자른다 — 프로젝트를 2개 연 순간
+    //   팔레트만 다른 규칙으로 서면 사용자는 자기 습관을 알아볼 수 없다.
+    goalActions: (() => {
+      const av = a.goalActions;
+      const bv = b.goalActions;
+      if (!av && !bv) return undefined;
+      const byId = new Map<string, GoalActionCard>();
+      for (const card of [...(av ?? []), ...(bv ?? [])]) {
+        const cur = byId.get(card.id);
+        if (!cur || card.useCount > cur.useCount) byId.set(card.id, card);
+      }
+      return [...byId.values()]
+        .sort((x, y) => {
+          if (!!x.pinned !== !!y.pinned) return x.pinned ? -1 : 1;
+          if (x.useCount !== y.useCount) return y.useCount - x.useCount;
+          return (y.lastUsedAt ?? 0) - (x.lastUsedAt ?? 0) || x.id.localeCompare(y.id);
+        })
+        .slice(0, GOAL_ACTION_MAX);
+    })(),
+    // §5.10 — 자동 목표 요약은 projectName 1차 키(skillUsageCounts 와 동형) → 단순 spread 안전.
+    //   **이 칸이 빠져 있으면** 프로젝트를 2개 이상 열었을 때 병합 순간 요약이 통째로 사라져,
+    //   절차 파일이 디스크에 그대로 있는데도 점검 카드가 "0개"로 보인다(브레인이 v3.70 에 겪은 결함).
+    autoGoal: (() => {
+      const av = a.autoGoal;
+      const bv = b.autoGoal;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.5 #17-28 — 주입원 오버라이드는 층이 둘이라 **한 겹 안쪽까지** 합쳐야 한다.
-    //   겉만 spread 하면 나중 스냅샷의 `projects`/`sessions` 가 앞 것을 통째로 덮어
+    // §5.5 #17-28 — 주입원 오버라이드는 층이 셋이라 **한 겹 안쪽까지** 합쳐야 한다.
+    //   겉만 spread 하면 나중 스냅샷의 `projects`/`agents`/`sessions` 가 앞 것을 통째로 덮어
     //   프로젝트를 2개 이상 열었을 때 한쪽의 껐던 설정이 사라진다(위 두 카드가 겪은 결함).
+    //   **층을 늘렸으면 여기도 늘려야 한다** — 빠뜨린 층은 두 번째 프로젝트를 여는 순간 조용히 증발한다.
     contextOverrides: (() => {
       const av = a.contextOverrides;
       const bv = b.contextOverrides;
       if (!av && !bv) return undefined;
       return {
         projects: { ...(av?.projects ?? {}), ...(bv?.projects ?? {}) },
+        agents: { ...(av?.agents ?? {}), ...(bv?.agents ?? {}) },
         sessions: { ...(av?.sessions ?? {}), ...(bv?.sessions ?? {}) },
         updatedAt: Math.max(av?.updatedAt ?? 0, bv?.updatedAt ?? 0),
       };
@@ -589,9 +635,9 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     auditLogs: snap.auditLogs?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
     skillUsageCounts: renameKey(snap.skillUsageCounts),
-    // §5.10 v3.70 — Brain 요약도 projectName 1차 키라 전역 유일 표시명으로 함께 relabel해야
+    // §5.10 — 자동 목표 요약도 projectName 1차 키라 함께 relabel 해야
     //   클라(activeProject 키 조회)가 같은 이름으로 찾을 수 있다.
-    brain: renameKey(snap.brain),
+    autoGoal: renameKey(snap.autoGoal),
   };
 }
 
@@ -616,6 +662,13 @@ export class ProjectGraphManager {
 
   /** §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정 (글로벌 1건, 기기 단위). */
   private globalClaudeSetup?: ClaudeSetupState;
+  /** §5.25 — 코덱스 상태 셋도 글로벌 1건이다(계정·설치·훅 전부 기기 단위). */
+  private globalCodexAuth?: CodexAuthStatus;
+  private globalCodexSetup?: CodexSetupState;
+  private globalCodexHooks?: CodexHookState;
+  private globalCodexModels?: CodexModelCatalog;
+  private globalCodexInventory?: CodexInventory;
+  private globalCodexReviews?: CodexReviewRun[];
 
   /** project name → stub 메타 (hydrated 인스턴스가 없는 프로젝트) */
   private stubs = new Map<string, ProjectMetaSnapshot>();
@@ -758,6 +811,9 @@ export class ProjectGraphManager {
    */
   private uiLocale: UiLocale = DEFAULT_UI_LOCALE;
 
+  /** §2.1 (B) — 최상위 외부 폴더 예산의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
+  private externalTopBudget: number = EXTERNAL_TOP_BUDGET_DEFAULT;
+
   getUiLocale(): UiLocale {
     return this.primaryInstance()?.getUiLocale() ?? this.uiLocale;
   }
@@ -774,6 +830,17 @@ export class ProjectGraphManager {
     return changed || seedChanged;
   }
 
+  /**
+   * §2.1 (B) — 최상위 외부 폴더 **예산**을 살아 있는 모든 인스턴스에 먹인다.
+   *
+   * 씨앗을 여기에 남기는 이유는 `setUiLocale` 과 같다 — 인스턴스가 아직 하나도 없거나 나중에
+   * hydrate 되는 프로젝트가 있어서, 여기 남기지 않으면 그 탭만 기본값으로 돌아간다.
+   */
+  setExternalTopBudget(budget: number): void {
+    this.externalTopBudget = budget;
+    for (const inst of this.instances.values()) inst.setExternalTopBudget(budget);
+  }
+
   // ─── 새 인스턴스 생성 헬퍼 ───
 
   private scenarioSeedCache: string | null = null;
@@ -785,9 +852,26 @@ export class ProjectGraphManager {
     //   고른 언어가, 폴더를 고르는 순간 서는 이 인스턴스의 기본값 'en' 에 덮여 되돌아간다.
     //   저장된 값이 있는 프로젝트는 `restoreFromCheckpoint` 가 곧바로 자기 값으로 바꾼다.
     inst.setUiLocale(this.uiLocale);
+    // §2.1 (B) — 외부 폴더 예산도 같은 이유로 물려준다. 이 줄이 없으면 나중에 hydrate 되는
+    //   프로젝트만 기본값(12)으로 돌아, 같은 앱 안에서 탭마다 화면 밀도가 달라진다.
+    inst.setExternalTopBudget(this.externalTopBudget);
     inst.setPoppedCommandsRef(this.poppedCommandsRef);
     inst.setCommandQueuesRef(this.commandQueuesRef);
     inst.setCompletedCommandArchiveRef(this.completedCommandArchiveRef);
+    // §7.11 (프로젝트 격리) — iframe 위성 생성·생사 경로가 "이 포트의 서버가 남의 프로젝트
+    //   것인가"를 물으려면 **사용자가 열어 둔 프로젝트 전부**를 알아야 한다. 값이 아니라
+    //   함수로 넘긴다: 이 인스턴스는 아직 `instances` 에 들어가기 전이라, 값으로 주면 늘
+    //   자기 자신도 빠진 낡은 목록이 박힌다.
+    //   **`instances` 만으로는 부족하다** — 인스턴스는 그 탭이 실제로 hydrate 된 뒤에야 생기고,
+    //   앱을 막 켠 직후에는 대개 활성 탭 하나뿐이다. 그 창에서 감지가 돌면 "다른 프로젝트가
+    //   하나도 없다"로 읽혀 격리 문이 아예 서지 않는다(사용자 체감: 껐다 켤 때마다 남의 서버가
+    //   되살아난다). `openProjects`(AppState SSOT)는 hydrate 여부와 무관하게 열린 탭 전부를
+    //   들고 있으므로 둘을 합집합으로 본다.
+    inst.setKnownProjectRootsProvider(() => {
+      const roots = new Set<string>(this.instances.keys());
+      for (const p of loadAppState().openProjects) roots.add(p);
+      return [...roots];
+    });
     if (this.onSnapshotChange) inst.setOnSnapshotChange(this.onSnapshotChange);
     const key = normalize(cwd);
 
@@ -1155,6 +1239,39 @@ export class ProjectGraphManager {
     return null;
   }
 
+  /**
+   * §5.4 #14-3 — 탭 닫기 확인 팝업의 [닫기] 가 중지할 **에이전트 버블 id 목록**.
+   *
+   * `ref` 는 클라가 보내는 projectId(경로) 또는 표시명이며, 해소는 `resolveProjectRef` 한 곳을
+   * 그대로 탄다(닫기 `DELETE /api/projects/:name` 과 **같은 해소 규칙** — 두 벌이 되면 "닫히는
+   * 프로젝트"와 "멈추는 프로젝트"가 갈린다). `ref === null` 이면 **모든 인스턴스**(팝업의
+   * "모든 에이전트 강제 종료" 옵션).
+   *
+   * 단위는 **인스턴스**다 — 워크트리 하위 프로젝트는 그 탭의 캔버스 안에 사는 버블이고(§5.7 #26),
+   * 탭을 닫으면 인스턴스가 통째로 내려가므로 그 안의 자식도 같이 회수돼야 한다.
+   */
+  listAgentIdsForProject(ref: string | null): string[] {
+    const out: string[] = [];
+    if (ref === null) {
+      for (const inst of this.instances.values()) out.push(...inst.listAgentIds());
+      return out;
+    }
+    const resolved = this.resolveProjectRef(ref);
+    if (!resolved) return out;
+    const key = normalize(resolved.path);
+    // 인스턴스 키는 등록 시점의 rootCwd 라 보통 primaryProject.path 와 같지만, 하위 폴더로
+    // 등록됐다 루트로 승격된 경우를 대비해 못 찾으면 primaryProject 로 한 번 더 훑는다.
+    let inst = this.instances.get(key);
+    if (!inst) {
+      for (const candidate of this.instances.values()) {
+        const pp = candidate.getPrimaryProject();
+        if (pp && normalize(pp.path) === key) { inst = candidate; break; }
+      }
+    }
+    if (inst) out.push(...inst.listAgentIds());
+    return out;
+  }
+
   // ─── 프로젝트 등록 ───
 
   /** cwd로 새 ProjectGraph 인스턴스 등록 (이미 있으면 기존 반환) */
@@ -1381,6 +1498,60 @@ export class ProjectGraphManager {
 
   getClaudeSetup(): ClaudeSetupState | undefined {
     return this.globalClaudeSetup;
+  }
+
+  /** §5.25 (E) — 코덱스 로그인 상태 갱신(codexAuthService 가 판정한 값 그대로 보관). */
+  setCodexAuth(status: CodexAuthStatus): void {
+    this.globalCodexAuth = status;
+  }
+
+  getCodexAuth(): CodexAuthStatus | undefined {
+    return this.globalCodexAuth;
+  }
+
+  /** §5.25 (D) — 코덱스 CLI 설치 판정 갱신. */
+  setCodexSetup(state: CodexSetupState): void {
+    this.globalCodexSetup = state;
+  }
+
+  getCodexSetup(): CodexSetupState | undefined {
+    return this.globalCodexSetup;
+  }
+
+  /** §5.25 (I) — 코덱스 훅 설치 상태 갱신. */
+  setCodexHooks(state: CodexHookState): void {
+    this.globalCodexHooks = state;
+  }
+
+  getCodexHooks(): CodexHookState | undefined {
+    return this.globalCodexHooks;
+  }
+
+  /** §5.25 (G) — 코덱스 모델 목록 갱신(읽어 온 캐시 그대로 보관 — 우리가 표를 들지 않는다). */
+  setCodexModels(catalog: CodexModelCatalog): void {
+    this.globalCodexModels = catalog;
+  }
+
+  getCodexModels(): CodexModelCatalog | undefined {
+    return this.globalCodexModels;
+  }
+
+  /** §5.25 (M) — 코덱스가 들고 있는 MCP·스킬·플러그인·훅·`AGENTS.md`. 읽은 그대로 보관한다. */
+  setCodexInventory(inventory: CodexInventory): void {
+    this.globalCodexInventory = inventory;
+  }
+
+  getCodexInventory(): CodexInventory | undefined {
+    return this.globalCodexInventory;
+  }
+
+  /** §5.25 (N) — 코덱스 리뷰 이력. 최근 것이 앞이고, 화면이 `agentId` 로 걸러 본다. */
+  setCodexReviews(runs: CodexReviewRun[]): void {
+    this.globalCodexReviews = runs;
+  }
+
+  getCodexReviews(): CodexReviewRun[] | undefined {
+    return this.globalCodexReviews;
   }
 
   /** 커스텀 에이전트 상태를 소속 서브에이전트 집계로 재계산. 한 번이라도 바뀐 인스턴스가 있으면 true. */
@@ -1695,14 +1866,6 @@ export class ProjectGraphManager {
     return inst ? inst.getAgentMemos(agentId) : [];
   }
 
-    /** §5.10 — Brain 주입 이벤트 적재. ev.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
-  addBrainInjection(ev: import('@vibisual/shared').BrainInjectionEvent): boolean {
-    const inst = this.findInstanceByAgentId(ev.agentId) ?? this.primaryInstance();
-    if (!inst) return false;
-    inst.addBrainInjection(ev);
-    return true;
-  }
-
   /** §4 v2.60 — 에이전트 질문 카드 적재. report.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
   addAgentQuestions(q: import('@vibisual/shared').AgentQuestions): boolean {
     const inst = this.findInstanceByAgentId(q.agentId) ?? this.primaryInstance();
@@ -1946,7 +2109,7 @@ export class ProjectGraphManager {
 
   /** 오버라이드 설정. 소유 인스턴스(에이전트 기준)로 라우팅, 없으면 primary. */
   setContextOverride(
-    scope: { agentId?: string; projectKey?: string; subAgentId?: string },
+    scope: { level: import('@vibisual/shared').ContextScopeLevel; agentId?: string; projectKey?: string; subAgentId?: string },
     sourceId: string,
     enabled: boolean | null,
   ): void {
@@ -1955,7 +2118,7 @@ export class ProjectGraphManager {
   }
 
   /** 한 층의 오버라이드를 통째로 비운다. 어느 인스턴스든 지운 게 있으면 true. */
-  clearContextOverrides(scope: { agentId?: string; projectKey?: string; subAgentId?: string }): boolean {
+  clearContextOverrides(scope: { level: import('@vibisual/shared').ContextScopeLevel; agentId?: string; projectKey?: string; subAgentId?: string }): boolean {
     let changed = false;
     for (const inst of this.instances.values()) {
       if (inst.clearContextOverrides(scope)) changed = true;
@@ -1972,9 +2135,18 @@ export class ProjectGraphManager {
     return changed;
   }
 
+  /** 에이전트 버블이 사라질 때의 정리(버블 층 + 그 버블 소유 세션 층). */
+  deleteContextOverridesForAgent(agentId: string): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.deleteContextOverridesForAgent(agentId)) changed = true;
+    }
+    return changed;
+  }
+
   /**
    * 열린 인스턴스 전체의 오버라이드 합집합 — 게이트와 화면이 같은 것을 본다.
-   * 인스턴스마다 키 공간(프로젝트 키·세션 id)이 겹치지 않으므로 단순 합치기로 충분하다.
+   * 인스턴스마다 키 공간(프로젝트 키·버블 id·세션 id)이 겹치지 않으므로 단순 합치기로 충분하다.
    */
   getContextOverrides(): import('@vibisual/shared').ContextOverrides | undefined {
     let out: import('@vibisual/shared').ContextOverrides | undefined;
@@ -1982,10 +2154,11 @@ export class ProjectGraphManager {
       const one = inst.getContextOverrides();
       if (!one) continue;
       if (!out) {
-        out = { projects: { ...one.projects }, sessions: { ...one.sessions }, updatedAt: one.updatedAt };
+        out = { projects: { ...one.projects }, agents: { ...one.agents }, sessions: { ...one.sessions }, updatedAt: one.updatedAt };
         continue;
       }
       Object.assign(out.projects, one.projects);
+      Object.assign(out.agents, one.agents);
       Object.assign(out.sessions, one.sessions);
       if (one.updatedAt > out.updatedAt) out.updatedAt = one.updatedAt;
     }
@@ -2082,6 +2255,106 @@ export class ProjectGraphManager {
     return false;
   }
 
+  // ─── §5.5 #17-17 ⑪ 살아 있는 단계 지도 ───
+
+  /** ⑪(d) — 사용자가 단계 목록을 다시 세운다(끼워 넣기·삭제·순서). 목표를 가진 인스턴스에만 간다. */
+  setUserGoalSteps(
+    subAgentId: string,
+    steps: {
+      text: string;
+      status?: import('@vibisual/shared').SessionGoalStepStatus;
+      kind?: string;
+      confidence?: 'high' | 'low';
+    }[],
+  ): import('@vibisual/shared').SessionGoal | undefined {
+    for (const inst of this.instances.values()) {
+      if (!inst.getSessionGoal(subAgentId)) continue;
+      return inst.setUserGoalSteps(subAgentId, steps);
+    }
+    return undefined;
+  }
+
+  /**
+   * ⑪(i) — 한 단계의 종류만 바꾼다(소유·시각은 그대로). 목표를 가진 인스턴스에만 간다.
+   */
+  setGoalStepKind(
+    subAgentId: string,
+    stepId: string,
+    kind: string | null,
+  ): import('@vibisual/shared').SessionGoal | undefined {
+    for (const inst of this.instances.values()) {
+      if (!inst.getSessionGoal(subAgentId)) continue;
+      return inst.setGoalStepKind(subAgentId, stepId, kind);
+    }
+    return undefined;
+  }
+
+  /**
+   * ⑪(a)(b) — 종류 카드 생성·수정.
+   *
+   * 종류는 **프로젝트 한 벌**이라 세션 탭 키가 없다 — 지금 보고 있는 프로젝트(primary)에 만든다.
+   */
+  upsertVisualKind(input: {
+    key: string;
+    label?: string;
+    glyph?: string;
+    color?: string;
+    /** (i) — 무대 배경 그림·화면 골격·미리 표현 한 줄. 검증은 그래프가 한다. */
+    scene?: unknown;
+    surface?: unknown;
+    blurb?: unknown;
+    /** (m) — 밑그림 이름. 안 낸 칸만 채운다. */
+    from?: unknown;
+  }): import('@vibisual/shared').VisualKindCard | undefined {
+    const inst = this.primaryInstance();
+    return inst ? inst.upsertVisualKind(input) : undefined;
+  }
+
+  /**
+   * (i) — 주입 블록이 실을 지금 있는 종류 키 목록(휴지통 제외).
+   *
+   * 종류는 프로젝트 한 벌이므로 그 세션을 담은 인스턴스의 것을 돌려준다 — primary 가 아니라도
+   * 그 세션이 보는 지도는 자기 프로젝트의 카드로 그려지기 때문이다.
+   */
+  getVisualKindKeysForSession(subAgentId: string): string[] {
+    for (const inst of this.instances.values()) {
+      if (!inst.getSessionGoal(subAgentId)) continue;
+      return inst.getVisualKindKeys();
+    }
+    const primary = this.primaryInstance();
+    return primary ? primary.getVisualKindKeys() : [];
+  }
+
+  /** ⑪(c) — 고정·해제. 어느 프로젝트에 있든 그 키를 가진 인스턴스에 간다. */
+  setVisualKindPinned(key: string, pinned: boolean): import('@vibisual/shared').VisualKindCard | undefined {
+    for (const inst of this.instances.values()) {
+      const card = inst.setVisualKindPinned(key, pinned);
+      if (card) return card;
+    }
+    return undefined;
+  }
+
+  /**
+   * §5.5 #17-17 ⑫(b) — 팔레트 한 칸 고정·해제.
+   *
+   * 종류 카드와 달리 **지금 보고 있는 프로젝트 한 곳**에만 건다 — 팔레트는 그 프로젝트에서 배운
+   * 것이라(`skillUsageCounts` 부터가 프로젝트별이다) 다른 인스턴스에 같은 id 를 꽂으면 거기서는
+   * 아무 카드도 가리키지 않는 유령 고정이 된다.
+   */
+  setGoalActionPinned(id: string, pinned: boolean): boolean {
+    const primary = this.primaryInstance();
+    return primary ? primary.setGoalActionPinned(id, pinned) : false;
+  }
+
+  /** ⑪(c) — 휴지통으로 보내거나 꺼낸다. */
+  setVisualKindTrashed(key: string, trashed: boolean): import('@vibisual/shared').VisualKindCard | undefined {
+    for (const inst of this.instances.values()) {
+      const card = inst.setVisualKindTrashed(key, trashed);
+      if (card) return card;
+    }
+    return undefined;
+  }
+
   /** 한 에이전트에 속한 목표 전부. */
   getSessionGoalsForAgent(agentId: string): import('@vibisual/shared').SessionGoal[] {
     const inst = this.findInstanceByAgentId(agentId);
@@ -2154,7 +2427,7 @@ export class ProjectGraphManager {
     logger.warn(`ProjectGraphManager.removeBubble: node not found id="${nodeId}"`);
   }
 
-  // ─── §5.10 Project Brain — 커스텀 에이전트 휴지통 위임 ───
+  // ─── §5.10 (J) — 커스텀 에이전트 휴지통 위임 ───
 
   /**
    * 버블 id(에이전트 id) 가 커스텀 에이전트면 즉시 삭제 대신 휴지통으로 이동시킨다.
@@ -2182,31 +2455,6 @@ export class ProjectGraphManager {
       if (inst.permanentlyDeleteTrashedAgent(sessionIdOrBubbleId)) return true;
     }
     return false;
-  }
-
-  // ─── §5.10 Project Brain — 카드 서비스 라우팅 ───
-
-  /** 프로젝트명(옵션)의 브레인 루트 경로를 해소. 없으면 primary 루트. */
-  resolveBrainRoot(projectName?: string): string | null {
-    const inst = projectName
-      ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
-      : this.primaryInstance();
-    if (!inst) return this.getRoot();
-    const info = (projectName ? inst.getProjectByName(projectName) : null) ?? inst.getPrimaryProject();
-    return info?.path ?? inst.getRoot() ?? this.getRoot();
-  }
-
-  /** 브레인 카드가 REST 로 바뀌었을 때 해당 인스턴스의 스냅샷 캐시 무효화(요약 재계산 유도). */
-  notifyBrainChanged(projectName?: string): void {
-    const inst = projectName
-      ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
-      : this.primaryInstance();
-    inst?.notifyBrainChanged();
-  }
-
-  /** 모든 인스턴스의 스냅샷 캐시 무효화(주기 stale sweep 등 프로젝트 특정이 없을 때). */
-  notifyBrainChangedAll(): void {
-    for (const inst of this.instances.values()) inst.notifyBrainChanged();
   }
 
   toggleDisappearPause(nodeId: string, durationSec: number): boolean | null {
@@ -2894,6 +3142,15 @@ export class ProjectGraphManager {
       let fileMax = 0;
       const readMaxByProject: Record<string, number> = {};
       let readMaxUnowned = 0;
+      // §5.24 축 토글 — 쓰기 축도 같은 규칙으로 전량에서 잰다(축마다 자가 따로여야 한다).
+      const writeMaxByProject: Record<string, number> = {};
+      let writeMaxUnowned = 0;
+      // §5.24 `quantile` 곡선 — 분포도 최대값과 **같은 칸**이다(좁히면 순위가 뒤집혀 색이 통째로 바뀐다).
+      //   여기서는 값을 모으기만 하고, 표본으로 요약하는 것은 인스턴스를 다 합친 뒤다.
+      const readValuesByProject: Record<string, number[]> = {};
+      const readValuesUnowned: number[] = [];
+      const writeValuesByProject: Record<string, number[]> = {};
+      const writeValuesUnowned: number[] = [];
       for (const inst of visibleInstances) {
         activeAgentCountAll += inst.getActiveAgentCount();
         {
@@ -2902,13 +3159,27 @@ export class ProjectGraphManager {
             if (extent.min < fileMin) fileMin = extent.min;
             if (extent.max > fileMax) fileMax = extent.max;
           }
-          const heat = inst.getReadCountMaxes();
-          if (heat.unowned > readMaxUnowned) readMaxUnowned = heat.unowned;
+          const heat = inst.getHeatCountMaxes();
+          if (heat.read.unowned > readMaxUnowned) readMaxUnowned = heat.read.unowned;
+          if (heat.write.unowned > writeMaxUnowned) writeMaxUnowned = heat.write.unowned;
           const display = displayNameOfInstance(inst);
           const pj = instProj.get(inst);
-          for (const [rawName, max] of Object.entries(heat.byProject)) {
-            const key = pj && display && rawName === pj.raw ? display : rawName;
-            if (max > (readMaxByProject[key] ?? 0)) readMaxByProject[key] = max;
+          for (const [axisMaxes, out, valuesOut, unownedOut] of [
+            [heat.read, readMaxByProject, readValuesByProject, readValuesUnowned],
+            [heat.write, writeMaxByProject, writeValuesByProject, writeValuesUnowned],
+          ] as const) {
+            for (const [rawName, max] of Object.entries(axisMaxes.byProject)) {
+              // 인스턴스 안의 원본 프로젝트 이름을 탭에 뜨는 표시명으로 옮겨 담는다(클라의 조회 키).
+              const key = pj && display && rawName === pj.raw ? display : rawName;
+              if (max > (out[key] ?? 0)) out[key] = max;
+            }
+            // 분포는 최대값과 **같은 키 규칙**을 탄다 — 여기서 갈리면 색과 눈금이 다른 척도를 본다.
+            for (const [rawName, values] of Object.entries(axisMaxes.valuesByProject)) {
+              const key = pj && display && rawName === pj.raw ? display : rawName;
+              const bucket = (valuesOut[key] ??= []);
+              for (const v of values) bucket.push(v);
+            }
+            for (const v of axisMaxes.unownedValues) unownedOut.push(v);
           }
         }
         const display = displayNameOfInstance(inst);
@@ -2929,15 +3200,36 @@ export class ProjectGraphManager {
                 completed: prev.completed + counts.completed,
                 sessions: prev.sessions + counts.sessions,
                 running: prev.running + counts.running,
+                limited: prev.limited + counts.limited,
               }
             : counts;
         }
       }
       // 소유 프로젝트를 모르는 노드는 클라가 쓰던 규칙대로 **어느 프로젝트에나** 센다.
       //   그래서 마지막에 모든 프로젝트 칸에 그 바닥을 얹는다(칸이 없던 프로젝트도 만든다).
-      if (readMaxUnowned > 0) {
+      for (const [unowned, out] of [
+        [readMaxUnowned, readMaxByProject],
+        [writeMaxUnowned, writeMaxByProject],
+      ] as const) {
+        if (unowned <= 0) continue;
         for (const name of Object.keys(projectsAll)) {
-          if (readMaxUnowned > (readMaxByProject[name] ?? 0)) readMaxByProject[name] = readMaxUnowned;
+          if (unowned > (out[name] ?? 0)) out[name] = unowned;
+        }
+      }
+      // §5.24 — 분포는 값을 다 모은 **지금** 표본으로 접는다(정렬은 프로젝트당 한 번뿐).
+      //   소유를 모르는 값은 최대값과 같은 규칙으로 모든 프로젝트에 얹는다.
+      const readQuantilesByProject: Record<string, number[]> = {};
+      const writeQuantilesByProject: Record<string, number[]> = {};
+      for (const [valuesOut, unownedValues, quantilesOut] of [
+        [readValuesByProject, readValuesUnowned, readQuantilesByProject],
+        [writeValuesByProject, writeValuesUnowned, writeQuantilesByProject],
+      ] as const) {
+        const names = new Set([...Object.keys(projectsAll), ...Object.keys(valuesOut)]);
+        for (const name of names) {
+          const own = valuesOut[name] ?? [];
+          const merged = unownedValues.length > 0 ? own.concat(unownedValues) : own;
+          const samples = heatQuantileSamples(merged);
+          if (samples.length > 0) quantilesOut[name] = samples;
         }
       }
       snapshot = {
@@ -2947,6 +3239,9 @@ export class ProjectGraphManager {
         activeAgentCount: activeAgentCountAll,
         fileSizeRange: { min: fileMin === Infinity ? 0 : fileMin, max: fileMax },
         readCountMaxByProject: readMaxByProject,
+        writeCountMaxByProject: writeMaxByProject,
+        readCountQuantilesByProject: readQuantilesByProject,
+        writeCountQuantilesByProject: writeQuantilesByProject,
       };
     }
 
@@ -2998,6 +3293,15 @@ export class ProjectGraphManager {
       }
     }
 
+    // §5.11 정독 게이트 — 세션별 정독 상태도 **병합이 끝난 뒤** 얹는다(`SubAgent.id` 키라 병합 대상이
+    //   아니며, 여기 한 곳에서 넣으므로 방송 지점 하나를 빠뜨려 값이 사라지는 부류가 생기지 않는다).
+    if (this.specReadingProvider) {
+      const reading = this.specReadingProvider();
+      if (reading && Object.keys(reading).length > 0) {
+        snapshot = { ...snapshot, specReading: reading };
+      }
+    }
+
     // stub 프로젝트 합성 — v1.63: 충돌 판정은 **경로(projectId)** 기준. 같은 경로가
     // hydrated 면 그 stub 은 동일 프로젝트라 drop(hydrated 우선). 같은 basename·다른 경로는
     // 충돌이 아니라 둘 다 노출(위 displayNames 로 유일화). stub 키·project.name 도 표시명으로 통일.
@@ -3034,6 +3338,26 @@ export class ProjectGraphManager {
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정 주입. 설치도 기기 단위라 프로젝트 무관.
     if (this.globalClaudeSetup) {
       snapshot = { ...snapshot, claudeSetup: this.globalClaudeSetup };
+    }
+
+    // §5.25 — 코덱스 상태 셋 주입. 클로드 것과 같은 이유로 프로젝트 무관.
+    if (this.globalCodexAuth) {
+      snapshot = { ...snapshot, codexAuth: this.globalCodexAuth };
+    }
+    if (this.globalCodexSetup) {
+      snapshot = { ...snapshot, codexSetup: this.globalCodexSetup };
+    }
+    if (this.globalCodexModels) {
+      snapshot = { ...snapshot, codexModels: this.globalCodexModels };
+    }
+    if (this.globalCodexInventory) {
+      snapshot = { ...snapshot, codexInventory: this.globalCodexInventory };
+    }
+    if (this.globalCodexReviews && this.globalCodexReviews.length > 0) {
+      snapshot = { ...snapshot, codexReviews: this.globalCodexReviews };
+    }
+    if (this.globalCodexHooks) {
+      snapshot = { ...snapshot, codexHooks: this.globalCodexHooks };
     }
 
     // §4 v1.98 — 글로벌 진단 에러 로그 주입 (프로젝트 무관, 런타임 캐시)
@@ -3155,6 +3479,18 @@ export class ProjectGraphManager {
       if (found) return found;
     }
     return null;
+  }
+
+  /**
+   * §7.11 포트 인계 — 포트 인계: 신고 전용 entry 의 기동 명령을 OS 에서 읽어 승격한다.
+   * 인스턴스를 순회하되 **성공한 첫 인스턴스에서 멈춘다** — 같은 serverId 는 한 곳에만 있고,
+   * 전부 돌면 없는 곳에서 헛되이 포트를 조회한다.
+   */
+  async takeoverServerEntry(serverId: string): Promise<boolean> {
+    for (const inst of this.instances.values()) {
+      if (await inst.takeoverServerEntry(serverId)) return true;
+    }
+    return false;
   }
 
   /** §7.11 v2.23 — respawn 직후 owning-shell 분리 (모든 인스턴스에 idempotent 전파). */
@@ -3543,6 +3879,78 @@ export class ProjectGraphManager {
     const inst = this.getInstanceByName(projectName);
     if (!inst) return null;
     return inst.setDebugBreakpoints(projectName, breakpoints);
+  }
+
+  // ─── §5.11 정독 게이트 — 프로젝트별 설정 (키는 **경로**다) ────────────────
+
+  /** 그 프로젝트에 저장된 정독 설정. 아직 아무것도 안 정했으면 undefined
+   *  (그때는 팀 파일 `.vibisual/spec.json` 이 이겨야 하므로 기본값으로 채우지 않는다). */
+  getSpecReadingSettings(projectPath: string): SpecReadingSettings | undefined {
+    return this.getInstanceByPath(projectPath)?.getSpecReadingSettings(projectPath);
+  }
+
+  /** 정독 설정 전량 교체. 프로젝트 인스턴스가 없으면 null(저장할 자리가 없다). */
+  setSpecReadingSettings(projectPath: string, settings: SpecReadingSettings): SpecReadingSettings | null {
+    const inst = this.getInstanceByPath(projectPath);
+    if (!inst) return null;
+    return inst.setSpecReadingSettings(projectPath, settings);
+  }
+
+  // ─── §5.10 자동 목표 — 프로젝트별 설정 (정독과 같은 규약: 키는 **경로**다) ───
+
+  /**
+   * **지목한 경로가 지금 열려 있는 프로젝트인가** — 맞으면 그 인스턴스의 정본 루트, 아니면 `null`.
+   *
+   * 자동 목표 REST 는 경로를 **문자열로** 받고, 저장고는 그 폴더 안(`.vibisual/skills/`)에 있다.
+   * 빗장이 없으면 아무 경로나 적어 남의 폴더에 든 절차 목록·본문을 읽어 갈 수 있다 — 폐기된 브레인이
+   * `resolveBrainQueryProject` 로 닫아 두던 자리다(OWASP LLM08 · 저장고 경계). 저장고가 바뀌었다고
+   * 구멍까지 물려받지 않는다. 쓰기 창구(`scope`·`dismiss`)는 `setAutoGoalSettings` 가 이미 같은
+   * 판정으로 404 를 내므로, 여기서 막을 것은 **읽기와 삭제** 셋이다.
+   */
+  resolveAutoGoalRoot(projectPath: string): string | null {
+    const loaded: string[] = [];
+    for (const inst of this.instances.values()) {
+      const root = inst.getRoot();
+      if (root) loaded.push(root);
+    }
+    return resolveAutoGoalProjectRoot(projectPath, loaded, process.platform);
+  }
+
+  /** 그 프로젝트에 저장된 자동 목표 설정. 아직 아무것도 안 정했으면 undefined(= 꺼짐). */
+  getAutoGoalSettings(projectPath: string): AutoGoalSettings | undefined {
+    return this.getInstanceByPath(projectPath)?.getAutoGoalSettings(projectPath);
+  }
+
+  /** 자동 목표 설정 전량 교체. 프로젝트 인스턴스가 없으면 null(저장할 자리가 없다). */
+  setAutoGoalSettings(projectPath: string, settings: AutoGoalSettings): AutoGoalSettings | null {
+    const inst = this.getInstanceByPath(projectPath);
+    if (!inst) return null;
+    return inst.setAutoGoalSettings(projectPath, settings);
+  }
+
+  /**
+   * 되풀이 분석에 넣을 재료 — **그 프로젝트 것만.**
+   *
+   * 여러 프로젝트를 합친 스냅샷을 쓰면 옆 프로젝트에서 친 명령이 이 프로젝트의 "되풀이"로 세어져
+   * 엉뚱한 스킬이 생긴다(§3.5 프로젝트 격리). 인스턴스가 없으면 빈 재료 — 분석은 그냥 0건이다.
+   */
+  getAutoGoalMaterial(projectPath: string): {
+    bashHistory: Record<string, import('@vibisual/shared').BashEntry[]>;
+    sessionGoals: Record<string, import('@vibisual/shared').SessionGoal>;
+  } {
+    return this.getInstanceByPath(projectPath)?.getAutoGoalMaterial() ?? { bashHistory: {}, sessionGoals: {} };
+  }
+
+  /**
+   * §5.11 정독 게이트 — 스냅샷에 실을 **세션별 정독 상태**.
+   *
+   * `pluginFacts` 와 같은 provider 방식이다. 스냅샷 방송 지점이 스무 곳이 넘어 호출부마다 얹으면
+   * 반드시 어딘가 빠지고, 빠진 곳으로 온 스냅샷은 클라에서 "값이 사라진 것"으로 읽힌다.
+   */
+  private specReadingProvider: (() => Record<string, SpecReadingState> | undefined) | null = null;
+
+  setSpecReadingProvider(fn: () => Record<string, SpecReadingState> | undefined): void {
+    this.specReadingProvider = fn;
   }
 
   // ─── §5.9 화면/프로그램 캡처 버블 — 프로젝트별 인스턴스에 저장 ───
@@ -4002,6 +4410,174 @@ export class ProjectGraphManager {
       if (inst.getAgentProjectName(agentId)) return inst;
     }
     return null;
+  }
+
+  // ─── §5.26 — 컨텍스트 보험 위임 ───
+
+  /** §5.26 (B) — 팀원 이름 수집. 세션 소속 인스턴스에만 적는다(모르면 전부에게 흘린다). */
+  noteTeammates(sessionId: string, names: readonly string[]): void {
+    const inst = this.getInstanceForSession(sessionId);
+    if (inst) { inst.noteTeammates(sessionId, names); return; }
+    for (const i of this.instances.values()) i.noteTeammates(sessionId, names);
+  }
+
+  /**
+   * §5.26 (B) 1단계 — 압축 직전 마커. **처음으로 마커를 만든 인스턴스가 임자다.**
+   *
+   * 세션 소속을 알면 그쪽만 부른다. 모를 때 전부에게 시도하는 것은, 프로젝트를 못 짚는
+   * 인스턴스는 `null` 을 돌려주고 조용히 지나가기 때문이다(중복 기록이 생기지 않는다).
+   */
+  recordCompactMarker(input: Parameters<ProjectGraph['recordCompactMarker']>[0]): CompactMarker | null {
+    const inst = this.getInstanceForSession(input.sessionId);
+    if (inst) return inst.recordCompactMarker(input);
+    for (const i of this.instances.values()) {
+      const marker = i.recordCompactMarker(input);
+      if (marker) return marker;
+    }
+    return null;
+  }
+
+  /** §5.26 (B) — 트랜스크립트 미러(응답 뒤 비동기). 마커를 든 인스턴스가 뜬다. */
+  mirrorCompactMarker(marker: CompactMarker): void {
+    const inst = this.getInstanceByName(marker.projectName);
+    if (inst) { inst.mirrorCompactMarker(marker); return; }
+    for (const i of this.instances.values()) i.mirrorCompactMarker(marker);
+  }
+
+  /** §5.26 (E) 3단계 — 복원 브리핑을 한 번만 꺼낸다(꺼내는 순간 못 박힌다). */
+  takeCompactBriefing(sessionId: string, now: number = Date.now()): CompactMarker | undefined {
+    const inst = this.getInstanceForSession(sessionId);
+    if (inst) return inst.takeCompactBriefing(sessionId, now);
+    for (const i of this.instances.values()) {
+      const marker = i.takeCompactBriefing(sessionId, now);
+      if (marker) return marker;
+    }
+    return undefined;
+  }
+
+  /** §5.26 (E) — 못 박지 않고 고르기만(프롬프트 조립은 부작용이 없어야 한다). */
+  peekCompactBriefing(sessionId: string): CompactMarker | undefined {
+    const inst = this.getInstanceForSession(sessionId);
+    if (inst) return inst.peekCompactBriefing(sessionId);
+    for (const i of this.instances.values()) {
+      const marker = i.peekCompactBriefing(sessionId);
+      if (marker) return marker;
+    }
+    return undefined;
+  }
+
+  /** §5.26 (E) — 실제로 보낸 뒤 못 박기. 이미 찍혀 있으면 false. */
+  markCompactBriefed(projectName: string, markerId: string, now: number = Date.now()): boolean {
+    const inst = this.getInstanceByName(projectName);
+    if (inst) return inst.markCompactBriefed(projectName, markerId, now);
+    for (const i of this.instances.values()) {
+      if (i.markCompactBriefed(projectName, markerId, now)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * §5.26 (D) — `PostCompact` 도착을 그 세션의 마커에 새긴다.
+   *
+   * 세션이 어느 프로젝트에 있는지 훅 경로는 모르므로 **찾을 때까지** 인스턴스를 돈다. 첫 성공에서
+   * 멈추는 이유: 한 세션은 한 프로젝트에만 있고, 계속 돌면 같은 세션 id 를 가진 다른 프로젝트의
+   * 마커까지 건드린다(§5.26 은 세션 id 를 프로젝트 사이에서 유일하다고 보지 않는다).
+   */
+  notePostCompact(sessionId: string, now?: number): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.notePostCompact(sessionId, now)) return true;
+    }
+    return false;
+  }
+
+  /** §5.26 (G) — 되살리기 확인 걸기. 그 세션을 가진 인스턴스에서 멈춘다. */
+  armResumeCheck(sessionId: string, now?: number): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.armResumeCheck(sessionId, now)) return true;
+    }
+    return false;
+  }
+
+  /** §5.26 (G) — 되살아난 세션의 문맥 확인 스윕(전 인스턴스). */
+  sweepResumeChecks(now: number = Date.now()): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.sweepResumeChecks(now)) changed = true;
+    }
+    return changed;
+  }
+
+  /** §5.26 (D) 2단계 — 압축 전후 대조 스윕. 한 인스턴스라도 적었으면 true. */
+  sweepCompactOutcomes(now: number = Date.now()): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.sweepCompactOutcomes(now)) changed = true;
+    }
+    return changed;
+  }
+
+  /** §3.2.3 — 보험 보존 축 적용(전 인스턴스). */
+  applyInsuranceRetention(now: number = Date.now()): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.applyInsuranceRetention(now)) changed = true;
+    }
+    return changed;
+  }
+
+  /** §7.23 — 그 프로젝트의 보험 원장 전문(REST). */
+  getInsuranceLedger(projectName: string): ProjectInsuranceLedger | undefined {
+    for (const inst of this.instances.values()) {
+      const led = inst.getInsuranceLedger(projectName);
+      if (led) return led;
+    }
+    return undefined;
+  }
+
+  /** §7.23 `[미리보기]` — 사본 한 건 + 그 내용. */
+  readInsuranceBlob(projectName: string, id: string): { preimage: FilePreimage; text: string | null } | null {
+    for (const inst of this.instances.values()) {
+      const found = inst.readInsuranceBlob(projectName, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /** §5.26 (C) — 사본으로 되돌리기(사용자가 눌렀을 때만). */
+  restoreInsuranceFile(projectName: string, id: string): { ok: boolean; undoId?: string } {
+    for (const inst of this.instances.values()) {
+      const out = inst.restoreInsuranceFile(projectName, id);
+      if (out.ok) return out;
+    }
+    return { ok: false };
+  }
+
+  /** §5.26 (F) 4단계 — 자동압축 미발동 감시(전 인스턴스 합집합). */
+  getCompactWatch(now: number = Date.now()): CompactWatchState[] {
+    const out: CompactWatchState[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getCompactWatch(now));
+    return out;
+  }
+
+  /**
+   * §5.26 (F)(b) — 이 세션에 `/compact` 를 **보냈다**고 적어 둔다.
+   *
+   * 세션에서 인스턴스를 되짚는 길이 따로 없어 **전 인스턴스에 적는다**(`restoreInsuranceFile` 이
+   * 쓰는 그 패턴). 판정은 그 세션을 실제로 감시하는 인스턴스에서만 일어나므로
+   * (`getCompactWatch` 가 자기 `agents` 만 돈다) 나머지에 남는 키는 어느 판정에도 쓰이지 않고,
+   * 키 개수는 인스턴스마다 걸린 상한이 그대로 막는다(§3.2.4 G축).
+   */
+  markCompactSent(sessionId: string, at: number = Date.now()): void {
+    for (const inst of this.instances.values()) inst.markCompactSent(sessionId, at);
+  }
+
+  /** §5.26 (F) — 감시 재판정(5초 대조 루프). 등급이 바뀐 인스턴스가 있으면 true. */
+  refreshCompactWatch(now: number = Date.now()): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.refreshCompactWatch(now)) changed = true;
+    }
+    return changed;
   }
 
   // ─── §5.20 — 스크립트 선반 위임 ───

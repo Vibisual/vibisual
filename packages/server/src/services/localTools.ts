@@ -31,6 +31,7 @@ import {
   LOCAL_WEB_SEARCH_TIMEOUT_MS,
   LOCAL_TOOL_LIST_MAX_ENTRIES,
   LOCAL_TOOL_COMMAND_TIMEOUT_MS,
+  detectLocalBashEscape,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { augmentedEnv } from './binLocator.js';
@@ -296,6 +297,15 @@ function toolGrep(root: string, args: Record<string, unknown>): LocalToolOutcome
 function toolBash(root: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<LocalToolOutcome> {
   const command = typeof args['command'] === 'string' ? args['command'] : '';
   if (!command.trim()) return Promise.resolve(fail('command is required'));
+  // 경계 ① 은 파일 도구에만 걸려 있었다 — 셸에도 건다(§5.19 (H) · `detectLocalBashEscape` 주석).
+  //   던지지 않고 **결과로** 알린다: 모델이 왜 막혔는지 읽고 루트 안의 경로로 고쳐 쓸 수 있어야 한다.
+  const escape = detectLocalBashEscape(command);
+  if (escape) {
+    return Promise.resolve(fail(
+      `refused: this command reaches outside the project root (saw \`${escape}\`).`
+      + ` Tools here are confined to ${root}. Rewrite the command with a path inside the project.`,
+    ));
+  }
   return new Promise<LocalToolOutcome>((resolve) => {
     const isWin = process.platform === 'win32';
     // §5.19 (H) — 셸에 **보강된 PATH** 를 물려준다. Finder/Dock 으로 띄운 macOS 앱은 launchd 의

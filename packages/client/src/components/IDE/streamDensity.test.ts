@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyStreamDensity, sameDisplayItem, clampStreamText, type StreamToolGroup } from './streamDensity.js';
+import { applyStreamDensity, sameDisplayItem, clampStreamText, turnOpeningTextIds, speechRunPositions, type StreamToolGroup } from './streamDensity.js';
 import type { StreamGroup, StreamItemFull, StreamPlan } from './streamItems.js';
 
 function tool(id: string, toolName: string, isActive = false): StreamGroup {
@@ -196,77 +196,202 @@ describe('applyStreamDensity — §5.5 #17-21 간결은 진짜 간결하게', ()
   });
 });
 
-describe('applyStreamDensity — §5.5 #17-26 간결은 첫 말과 마지막 말만', () => {
-  it('턴 안의 중간 본문(진행 나레이션)은 빠지고 처음·마지막만 남는다', () => {
+describe('applyStreamDensity — §5.5 #17-43 간결은 명령창만 숨긴다(본문은 전부 남는다)', () => {
+  it('턴 안의 본문은 몇 개든 하나도 빠지지 않는다 — 도구 묶음만 사라진다', () => {
     const items = [
       command('c1'),
       text('t1', '요청은 이렇게 이해했습니다'),
       text('t2', 'Now the render body'),
-      text('t3', 'Now extend StreamCommand'),
+      text('t3', '원인은 캐시가 갱신되지 않아서입니다'),
       text('t4', '작업을 마쳤습니다'),
     ];
-    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't4']);
-    // 표준·원문은 그대로 — 중간 본문이 전부 남는다.
+    // 간결·표준·원문 모두 본문 개수는 같다(간결이 지우는 것은 명령창뿐).
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't2', 't3', 't4']);
     expect(applyStreamDensity(items, 'standard').map((i) => i.id)).toEqual(['c1', 't1', 't2', 't3', 't4']);
     expect(applyStreamDensity(items, 'raw').map((i) => i.id)).toEqual(['c1', 't1', 't2', 't3', 't4']);
   });
 
-  it('턴마다 따로 센다 — 명령 경계를 넘으면 첫 말·마지막 말이 새로 잡힌다', () => {
+  it('명령 경계를 여러 번 넘어도 본문은 전부 남는다', () => {
     const items = [
       command('c1'), text('a1', '의도1'), text('a2', '중간1'), text('a3', '결론1'),
       command('c2'), text('b1', '의도2'), text('b2', '중간2'), text('b3', '결론2'),
     ];
-    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 'a1', 'a3', 'c2', 'b1', 'b3']);
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id))
+      .toEqual(['c1', 'a1', 'a2', 'a3', 'c2', 'b1', 'b2', 'b3']);
   });
 
-  it('본문이 둘 이하인 턴은 아무것도 빠지지 않는다', () => {
-    expect(applyStreamDensity([command('c1'), text('t1', '하나')], 'compact').map((i) => i.id)).toEqual(['c1', 't1']);
-    expect(applyStreamDensity([command('c1'), text('t1', '하나'), text('t2', '둘')], 'compact').map((i) => i.id))
-      .toEqual(['c1', 't1', 't2']);
+  it('사용자에게 알리는 중간 본문(발견·경고)이 살아남는다 — 종전 규칙이 잘라 내던 자리', () => {
+    const items = [
+      command('c1'),
+      text('t1', '의도'),
+      text('t2', '다만 이 파일은 권한이 없어 고치지 못했습니다'),
+      text('t3', 'A안과 B안 중 무엇으로 갈까요?'),
+      text('t4', '결론'),
+    ];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't2', 't3', 't4']);
   });
 
-  it('카드·계획·결과·내용 있는 system 본문은 중간에 있어도 그대로 남는다', () => {
+  it('카드·계획·결과·내용 있는 system 본문도 그대로 남는다', () => {
     const items = [
       command('c1'),
       text('t1', '의도'),
       plan('p1', '단계'),
-      text('t2', '중간 나레이션'),
+      text('t2', '중간 본문'),
       system('s1', '[Read] file not found'),
       result('r1', '끝'),
       text('t3', '결론'),
     ];
-    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 'p1', 's1', 'r1', 't3']);
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id))
+      .toEqual(['c1', 't1', 'p1', 't2', 's1', 'r1', 't3']);
   });
 
-  it('스트리밍 중(마지막 본문 = 지금 쓰는 말)에도 화면은 [의도] + [지금 하는 말] 두 문단', () => {
-    const streaming = [command('c1'), text('t1', '의도'), text('t2', '중간'), text('t3', '지금 쓰는 중…')];
-    expect(applyStreamDensity(streaming, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't3']);
+  it('본문 사이에 낀 도구 묶음만 빠지고 앞뒤 본문은 둘 다 남는다', () => {
+    const items = [
+      command('c1'),
+      text('t1', '고치겠습니다'),
+      tool('g1', 'Edit'),
+      text('t2', '고쳤습니다'),
+    ];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't2']);
+    expect(applyStreamDensity(items, 'standard').map((i) => i.kind))
+      .toEqual(['command', 'text', 'toolgroup', 'text']);
   });
 });
 
-describe('clampStreamText — §5.5 #17-21 ② 본문 접기', () => {
+describe('clampStreamText — §5.5 #17-46 머리 + 꼬리, 가운데만 접기', () => {
+  const SPEC = { headLines: 4, headChars: 420, tailLines: 3, tailChars: 240, minHiddenChars: 120 };
+  const FENCE = '`'.repeat(3);
+
   it('짧은 본문은 자르지 않는다(null)', () => {
-    expect(clampStreamText('한 줄', 4, 420)).toBeNull();
-    expect(clampStreamText('a\nb\nc\nd', 4, 420)).toBeNull();
+    expect(clampStreamText('한 줄', SPEC)).toBeNull();
+    expect(clampStreamText('a\nb\nc\nd', SPEC)).toBeNull();
   });
 
-  it('줄 수를 넘으면 앞 N줄만 남기고 숨은 줄 수를 센다', () => {
-    const out = clampStreamText('1\n2\n3\n4\n5\n6', 4, 420);
-    expect(out?.text).toBe('1\n2\n3\n4');
-    expect(out?.hiddenLines).toBe(2);
+  it('머리(4줄)와 꼬리(3줄)가 본문을 다 덮으면 접지 않는다', () => {
+    // 7줄까지는 감출 것이 없는데 버튼 한 줄만 늘어난다(§5.5 #17-46 ②).
+    expect(clampStreamText('1\n2\n3\n4\n5\n6\n7', SPEC)).toBeNull();
   });
 
-  it('줄바꿈 없는 긴 문단도 글자 수로 잘린다', () => {
-    const long = 'ㄱ'.repeat(600);
-    const out = clampStreamText(long, 4, 420);
+  it('가운데가 생기면 머리와 꼬리를 남기고 그 사이만 접는다', () => {
+    const out = clampStreamText('1\n2\n3\n4\n5\n6\n7\n8\n9\n10', SPEC);
+    expect(out?.head).toBe('1\n2\n3\n4');
+    expect(out?.tail).toBe('8\n9\n10'); // 끝 멘트는 접혀도 보인다
+    expect(out?.hiddenLines).toBe(3);
+  });
+
+  it('줄바꿈 없는 긴 문단도 글자 수로 머리·꼬리가 나뉜다', () => {
+    const out = clampStreamText('ㄱ'.repeat(900), SPEC);
     expect(out).not.toBeNull();
-    expect(out!.text.length).toBe(420);
+    expect(out!.head.length).toBe(420);
+    expect(out!.tail.length).toBe(240);
     expect(out!.hiddenLines).toBe(1);
   });
 
-  it('빈 줄만 남는 꼬리도 최소 1줄로 센다(버튼 라벨이 0이 되지 않게)', () => {
-    const out = clampStreamText('1\n2\n3\n4\n\n\n', 4, 420);
+  it('감추는 것이 짧은 한 줄뿐이면 접지 않는다(버튼 한 줄과 상쇄)', () => {
+    expect(clampStreamText('1\n2\n3\n4\n5\n6\n7\n8', SPEC)).toBeNull();
+  });
+
+  it('감추는 것이 한 줄이어도 충분히 길면 접는다', () => {
+    const out = clampStreamText(`1\n2\n3\n4\n${'ㄱ'.repeat(200)}\n6\n7\n8`, SPEC);
     expect(out?.hiddenLines).toBe(1);
+    expect(out?.tail).toBe('6\n7\n8');
+  });
+
+  it('꼬리가 코드블록 안에서 시작하면 여는 펜스를 덧대 넘긴다(markdown)', () => {
+    const content = [
+      '첫 줄', '둘', '셋', '넷',
+      `${FENCE}ts`, 'const a = 1;', 'const b = 2;', 'const c = 3;', 'const d = 4;', FENCE,
+      '결론입니다',
+    ].join('\n');
+    const md = clampStreamText(content, { ...SPEC, markdown: true });
+    expect(md?.tail.startsWith(`${FENCE}\n`)).toBe(true);
+    expect(md?.tail.endsWith('결론입니다')).toBe(true);
+    // 평문으로 그리는 메인 탭은 보정하지 않는다(펜스 글자가 그대로 보이면 안 된다).
+    expect(clampStreamText(content, SPEC)?.tail.startsWith(`${FENCE}\n`)).toBe(false);
+  });
+
+  it('코드블록이 닫힌 채 잘리면 꼬리에 펜스를 덧대지 않는다', () => {
+    const content = [
+      '첫 줄', '둘', '셋', '넷',
+      FENCE, 'const a = 1;', FENCE,
+      '가운데 설명', '또 한 줄',
+      '마무리 1', '마무리 2', '마무리 3',
+    ].join('\n');
+    const md = clampStreamText(content, { ...SPEC, markdown: true });
+    expect(md?.tail).toBe('마무리 1\n마무리 2\n마무리 3');
+  });
+});
+
+describe('turnOpeningTextIds — §5.5 #17-12 ①-2 여는 본문은 간결에서도 안 접힌다', () => {
+  const seq = (...rows: [string, 'command' | 'text' | 'other'][]) => rows.map(([id, role]) => ({ id, role }));
+
+  it('내 말풍선 바로 다음의 첫 본문이 그 턴의 의도 선언이다', () => {
+    const out = turnOpeningTextIds(seq(['c1', 'command'], ['t1', 'text'], ['t2', 'text']));
+    expect([...out]).toEqual(['t1']);
+  });
+
+  it('턴이 여러 개면 턴마다 하나씩 잡는다', () => {
+    const out = turnOpeningTextIds(seq(
+      ['c1', 'command'], ['t1', 'text'], ['x1', 'other'], ['t2', 'text'],
+      ['c2', 'command'], ['t3', 'text'], ['t4', 'text'],
+    ));
+    expect([...out]).toEqual(['t1', 't3']);
+  });
+
+  it('말풍선과 본문 사이에 도구·생각이 끼어도 첫 본문을 잡는다', () => {
+    const out = turnOpeningTextIds(seq(['c1', 'command'], ['x1', 'other'], ['x2', 'other'], ['t1', 'text']));
+    expect([...out]).toEqual(['t1']);
+  });
+
+  it('첫 명령 이전의 본문은 잡지 않는다(짝지을 말풍선이 없다)', () => {
+    const out = turnOpeningTextIds(seq(['t0', 'text'], ['c1', 'command'], ['t1', 'text']));
+    expect([...out]).toEqual(['t1']);
+  });
+
+  it('본문 없이 끝난 턴은 아무것도 잡지 않는다', () => {
+    expect([...turnOpeningTextIds(seq(['c1', 'command'], ['x1', 'other']))]).toEqual([]);
+    expect([...turnOpeningTextIds(seq())]).toEqual([]);
+  });
+
+  it('말풍선이 연달아 오면 마지막 말풍선의 다음 본문 하나만 잡는다(대기 명령 묶음)', () => {
+    const out = turnOpeningTextIds(seq(['c1', 'command'], ['c2', 'command'], ['t1', 'text'], ['t2', 'text']));
+    expect([...out]).toEqual(['t1']);
+  });
+});
+
+describe('speechRunPositions — §5.5 #17-45 연달아 온 본문은 한 발화로 묶인다', () => {
+  const seq = (...rows: ([string, boolean] | [string, boolean, string])[]) =>
+    rows.map(([id, text, owner]) => ({ id, text, owner }));
+
+  it('본문이 연달아 오면 첫 문단만 말머리를 달고 나머지는 이어 붙는다', () => {
+    const out = speechRunPositions(seq(['t1', true], ['t2', true], ['t3', true], ['t4', true]));
+    expect([...out]).toEqual([['t1', 'head'], ['t2', 'mid'], ['t3', 'mid'], ['t4', 'tail']]);
+  });
+
+  it('앞뒤가 끊긴 홑 문단은 solo — 종전과 한 픽셀도 다르지 않다', () => {
+    const out = speechRunPositions(seq(['x0', false], ['t1', true], ['x1', false]));
+    expect(out.get('t1')).toBe('solo');
+  });
+
+  it('두 문단짜리 런은 head + tail 뿐이다(mid 없음)', () => {
+    const out = speechRunPositions(seq(['t1', true], ['t2', true]));
+    expect([...out]).toEqual([['t1', 'head'], ['t2', 'tail']]);
+  });
+
+  it('본문이 아닌 것(내 말풍선·카드·오류·라이브 1줄)은 런을 끊는다', () => {
+    const out = speechRunPositions(seq(['t1', true], ['t2', true], ['c1', false], ['t3', true], ['t4', true]));
+    expect([...out]).toEqual([['t1', 'head'], ['t2', 'tail'], ['t3', 'head'], ['t4', 'tail']]);
+  });
+
+  it('주인이 다르면(중첩 서브에이전트·다른 세션) 런을 끊는다 — 남의 말을 내 발화에 붙이지 않는다', () => {
+    const out = speechRunPositions(seq(['t1', true], ['t2', true, 'task-1'], ['t3', true, 'task-1'], ['t4', true]));
+    expect([...out]).toEqual([['t1', 'solo'], ['t2', 'head'], ['t3', 'tail'], ['t4', 'solo']]);
+  });
+
+  it('본문이 아닌 항목에는 자리를 매기지 않는다(맵에 없으면 부르는 쪽이 solo 로 읽는다)', () => {
+    const out = speechRunPositions(seq(['x1', false], ['x2', false]));
+    expect(out.size).toBe(0);
+    expect([...speechRunPositions(seq())]).toEqual([]);
   });
 });
 

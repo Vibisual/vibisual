@@ -34,9 +34,11 @@ function IDESplitRoot({
   sessionId: string | null;
   children: React.ReactNode;
 }): React.JSX.Element {
-  const { state, handlers } = useSplitDrop(slotKey, null, agentId, sessionId);
+  const { state, handlers, dropRef } = useSplitDrop(slotKey, null, agentId, sessionId);
   return (
     <div
+      // 포인터로 집어 든 세션 탭도 여기에 떨어진다 — 첫 분할이 시작되는 자리(§5.4 #14-2).
+      ref={dropRef}
       className="relative flex min-h-0 min-w-0 flex-1 flex-col"
       onDragEnter={handlers.onDragEnter}
       onDragOver={handlers.onDragOver}

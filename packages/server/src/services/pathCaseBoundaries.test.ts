@@ -1,5 +1,5 @@
 /**
- * 경로 대소문자 정책이 **실제 경계**(두뇌 활성화·플러그인 활성 목록·플러그인 배치·그래프 노드 키)에서
+ * 경로 대소문자 정책이 **실제 경계**(자동 목표 저장고·플러그인 활성 목록·플러그인 배치·그래프 노드 키)에서
  * 지켜지는가. 정책 자체(`shared/pathCase.ts`)의 단위 테스트는 `src/pathCase.test.ts` 에 있고,
  * 여기서는 그 정책을 쓰는 쪽이 옛 습관(무조건 `.toLowerCase()`)으로 되돌아가지 못하게 고정한다.
  *
@@ -8,7 +8,7 @@
  * `Feature-X` 와 `feature-x` 가 실재하는 서로 다른 디렉터리**다. 워크트리 생성은 이름 케이스를
  * 보존하고 중복 판정을 `fs.existsSync` 로 하므로 Linux 에서는 두 워크트리가 진짜로 따로 생기는데,
  * `projects`/`nodes` Map 에서는 같은 키로 접혀 한쪽 등록이 다른 쪽을 **에러 한 줄 없이** 덮어썼다.
- * 두뇌 카드·플러그인 활성 목록도 같은 방식으로 남의 프로젝트 것이 실렸다.
+ * 절차 저장고·플러그인 활성 목록도 같은 방식으로 남의 프로젝트 것이 실렸다.
  *
  * 고정하는 계약 셋:
  *   ① Linux 에서 케이스만 다른 두 경로는 **다른 칸**이다.
@@ -24,12 +24,9 @@ import {
   isCaseInsensitiveFs,
   legacyLowerPathKey,
   pathKey,
-  isBrainEnabled,
-  resolveBrainActivation,
-  resolveBrainProjectKey,
+  resolveAutoGoalProjectRoot,
   normalizePluginPath,
   resolvePluginPlacement,
-  type BrainActivation,
 } from '@vibisual/shared';
 import {
   resolveEnabledPluginsFor,
@@ -64,51 +61,38 @@ describe('services/pathKey — 서버는 이 프로세스의 플랫폼 정책을
   });
 });
 
-// ─── 두뇌 활성화(§5.10) ──────────────────────────────────────────────────────
+// ─── 자동 목표 저장고(§5.10) ────────────────────────────────────────
 
-describe('두뇌 활성화 맵 — 프로젝트 경계가 플랫폼 규칙을 따른다', () => {
-  const on: BrainActivation = { enabled: true };
-
-  it('linux 는 케이스만 다른 프로젝트의 두뇌 설정을 가져오지 않는다', () => {
-    const byProject: Record<string, BrainActivation> = { [UPPER]: on };
-    expect(isBrainEnabled(byProject, UPPER, 'linux')).toBe(true);
-    expect(isBrainEnabled(byProject, LOWER, 'linux')).toBe(false);
+/*
+ * 폐기된 두뇌 활성화 맵이 지키던 자리를 자동 목표가 이어받았다.
+ *
+ * 지키는 것은 같다 — **케이스만 다른 폴더를 같은 프로젝트로 접지 않는 것.** 저장고가 프로젝트 폴더
+ * 안(`.vibisual/skills`)에 있으므로, 접는 순간 Linux 에서 `Feature-X` 를 물어본 사람이 `feature-x` 의
+ * 절차 목록을 받아 간다. 하위호환 폴백(예전 소문자 키)은 없다 — 이 판정은 **디스크에 적힌 키**가
+ * 아니라 **지금 열려 있는 경로 목록**을 보기 때문에 물려받을 과거가 없다.
+ */
+describe('자동 목표 저장고 — 프로젝트 경계가 플랫폼 규칙을 따른다', () => {
+  it('linux 는 케이스만 다른 프로젝트의 저장고를 열어 주지 않는다', () => {
+    expect(resolveAutoGoalProjectRoot(UPPER, [UPPER], 'linux')).toBe(UPPER);
+    expect(resolveAutoGoalProjectRoot(LOWER, [UPPER], 'linux')).toBeNull();
   });
 
-  it('win32·darwin 은 같은 폴더로 보고 그대로 가져온다', () => {
-    const byProject: Record<string, BrainActivation> = { [UPPER]: on };
+  it('win32·darwin 은 같은 폴더로 보고 열려 있는 쪽 표기를 돌려준다', () => {
     for (const platform of ['win32', 'darwin'] as const) {
-      expect(isBrainEnabled(byProject, LOWER, platform)).toBe(true);
+      expect(resolveAutoGoalProjectRoot(LOWER, [UPPER], platform)).toBe(UPPER);
     }
   });
 
-  it('플랫폼 인자를 생략하면 예전대로 접는다(기존 호출부 회귀 없음)', () => {
-    expect(isBrainEnabled({ [UPPER]: on }, LOWER)).toBe(true);
+  it('정확 일치가 케이스 접기보다 우선한다 — 두 칸이 공존해도 자기 것을 본다', () => {
+    const both = [UPPER, LOWER];
+    expect(resolveAutoGoalProjectRoot(UPPER, both, 'darwin')).toBe(UPPER);
+    expect(resolveAutoGoalProjectRoot(LOWER, both, 'darwin')).toBe(LOWER);
   });
 
-  it('하위호환 — 예전 소문자 키로 저장된 설정을 linux 에서도 읽어낸다', () => {
-    // 업그레이드 직전 디스크 상태: 실제 폴더는 `Feature-X` 인데 키는 소문자로 적혀 있다.
-    const legacy: Record<string, BrainActivation> = { [legacyLowerPathKey(UPPER)]: on };
-    expect(resolveBrainActivation(legacy, UPPER, 'linux')).toEqual(on);
-    expect(isBrainEnabled(legacy, UPPER, 'linux')).toBe(true);
-    // 저장 키도 예전 칸을 재사용한다 — 아니면 새 칸이 생겨 기존 설정이 통째로 밀린다.
-    expect(resolveBrainProjectKey(legacy, UPPER, 'linux')).toBe(legacyLowerPathKey(UPPER));
-  });
-
-  it('정확 일치가 폴백보다 우선한다(두 칸이 공존해도 자기 것을 본다)', () => {
-    const both: Record<string, BrainActivation> = {
-      [UPPER]: { enabled: true },
-      [LOWER]: { enabled: false },
-    };
-    expect(isBrainEnabled(both, UPPER, 'linux')).toBe(true);
-    expect(isBrainEnabled(both, LOWER, 'linux')).toBe(false);
-  });
-
-  it('폴백은 **이미 소문자인 칸**만 본다 — 대소문자 섞인 남의 칸을 집어 들지 않는다', () => {
-    // 이 가드가 없으면 `feature-x` 조회가 `Feature-X` 칸을 집어 들어 원래 결함이 그대로 되살아난다.
-    const byProject: Record<string, BrainActivation> = { [UPPER]: on };
-    expect(resolveBrainActivation(byProject, LOWER, 'linux')).toBeUndefined();
-    expect(resolveBrainProjectKey(byProject, LOWER, 'linux')).toBe(LOWER);
+  it('이 프로세스의 플랫폼으로 물으면 서버 래퍼와 같은 답이다', () => {
+    // 서버는 `process.platform` 을 넘긴다 — 그 경로가 위 판정과 어긋나면 화면과 디스크가 갈린다.
+    const got = resolveAutoGoalProjectRoot(LOWER, [UPPER], process.platform);
+    expect(got === UPPER).toBe(CASE_INSENSITIVE_FS);
   });
 });
 

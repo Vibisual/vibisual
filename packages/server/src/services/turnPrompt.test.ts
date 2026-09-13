@@ -9,7 +9,7 @@
  * ② 슬래시가 아니면 종전 조립과 **바이트 단위로 같다**(이 모듈을 끼운 것만으로 기존 턴이 달라지면 안 된다).
  */
 import { describe, it, expect } from 'vitest';
-import { isSlashCommandText, composeTurnPrompt } from './turnPrompt.js';
+import { isSlashCommandText, composeTurnPrompt, extractTaskText } from './turnPrompt.js';
 
 const SUMMARY = 'You are a sub-agent working in project at: C:/x\nParent agent: 테스터\n\nExecute the following task.';
 const PREAMBLE = '# 의도 먼저 말하기\n지금 할 일을 먼저 말하라.';
@@ -160,5 +160,26 @@ describe('composeTurnPrompt — 슬래시가 아니면 종전 조립 그대로',
       text: '  들여쓴 본문  ', preamble: '', contextSummary: SUMMARY, hasSession: true,
     });
     expect(r.prompt).toBe('  들여쓴 본문  ');
+  });
+});
+
+describe('extractTaskText — 조립본에서 본문만 되찾는다(§5.11 정독 라우팅 재료)', () => {
+  it('첫 스폰 꼴(`브리핑 --- Task: 본문`)에서 본문만 돌려준다', () => {
+    expect(extractTaskText(`${SUMMARY}\n\n---\n\nTask: 결제 화면을 만들자`)).toBe('결제 화면을 만들자');
+  });
+
+  it('여러 줄 본문은 통째로 — 본문 안의 `---` 는 마커가 아니다', () => {
+    const task = '첫 줄\n\n---\n\n둘째 줄';
+    expect(extractTaskText(`${SUMMARY}\n\n---\n\nTask: ${task}`)).toBe(task);
+  });
+
+  it('마커가 없으면 그대로 돌려준다 — 외부 세션의 프롬프트를 망가뜨리면 안 된다', () => {
+    expect(extractTaskText('그냥 물어본다')).toBe('그냥 물어본다');
+    expect(extractTaskText('')).toBe('');
+  });
+
+  it('이어지는 턴의 앞말 꼴(`앞말 --- 본문`)은 여기서 못 가른다 — 그 턴의 본문은 조립 시점에 원장이 직접 받는다', () => {
+    const prompt = `${PREAMBLE}\n\n---\n\n로그인 버그를 고치자`;
+    expect(extractTaskText(prompt)).toBe(prompt);
   });
 });

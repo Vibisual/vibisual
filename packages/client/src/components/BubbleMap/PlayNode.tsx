@@ -263,8 +263,14 @@ export const PlayNode = memo(function PlayNode({
     if (status === 'running' && data.url) return data.url.replace(/^https?:\/\//, '');
     if (status === 'starting') return t('canvas.play.starting', { defaultValue: '켜는 중…' });
     if (!hasRecipe) return t('canvas.play.findHint', { defaultValue: '눌러서 실행법 찾기' });
+    // §보안 감사 2026-09-09 — **이름이 명령을 가리지 못하게.** 버블에 보이는 이름이 실행할 명령과
+    //   다르면(제목을 붙였거나 레시피에 라벨이 있으면) 이 줄에 명령 원문을 그대로 보여 준다.
+    //   이 버블은 누르면 그 명령이 그대로 돈다 — 무엇이 도는지 모르는 채로 누르는 자리는 없어야 한다.
+    //   서버 쪽 짝은 `POST /api/play-recipe` — 에이전트가 등록한 명령에는 별명을 못 붙인다.
+    const command = data.recipe?.command;
+    if (command && command !== label) return command;
     return t('canvas.play.idle', { defaultValue: '눌러서 실행' });
-  }, [status, data.error, data.url, hasRecipe, t]);
+  }, [status, data.error, data.url, data.recipe, hasRecipe, label, t]);
 
   const menuItem = (
     onClick: () => void,

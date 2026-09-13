@@ -21,12 +21,13 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
   LLAMA_RELEASES_LIST_API,
+  parseAssetSha256,
   LOCAL_ENGINE_DEFAULT_BACKENDS,
   LOCAL_ENGINE_DIR_NAME,
   type LocalEngineBackend,
@@ -357,6 +358,8 @@ export interface ReleaseAsset {
   name: string;
   browser_download_url: string;
   size: number;
+  /** `sha256:<64 hex>` — GitHub 이 자산마다 붙여 주는 무결성 지문. 옛 API·미러에는 없을 수 있다. */
+  digest?: string;
 }
 
 /** GitHub 릴리스 목록의 한 줄(우리가 보는 필드만). */
@@ -464,6 +467,13 @@ export function pickRelease(
 }
 
 // ─── 내려받기 · 풀기 ───
+
+/** 내려받은 파일의 SHA-256(소문자 hex). 통째로 메모리에 올리지 않는다 — 수백 MB 짜리가 온다. */
+async function sha256File(file: string): Promise<string> {
+  const hash = createHash('sha256');
+  await pipeline(fs.createReadStream(file), hash);
+  return hash.digest('hex');
+}
 
 async function downloadTo(url: string, dest: string, onBytes: (received: number, total: number) => void): Promise<void> {
   const res = await fetch(url, { redirect: 'follow' });
@@ -660,6 +670,25 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
             pushProgress();
           }
         });
+
+        // **푸는 것은 코드를 실행할 자리에 파일을 놓는 일이다** — 풀기 전에 발행처 지문과 대조한다.
+        //   길이 대조(`downloadTo`)는 "다 받았나"만 본다. 중간에 바뀐 바이트는 길이가 같으므로 통과한다.
+        //   `digest` 는 우리가 이미 TLS 로 받은 릴리스 JSON 에 실려 오므로 요청이 늘지 않는다.
+        const expected = parseAssetSha256(asset.digest);
+        if (expected) {
+          const actual = await sha256File(zipPath);
+          if (actual !== expected) {
+            // 남겨 두면 다음 설치가 이 파일을 주워 쓸 수 있다 — 그 자리에서 지운다.
+            await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+            throw new Error(
+              `engine asset checksum mismatch (${asset.name}): expected ${expected.slice(0, 16)}…,`
+              + ` got ${actual.slice(0, 16)}… — install again`,
+            );
+          }
+        } else {
+          // 지문이 없다고 설치를 막지는 않는다(구형 API·미러에는 없다). 다만 검증이 없었음을 남긴다.
+          logger.warn(`[localEngine] no sha256 digest for ${asset.name} — integrity unverified`);
+        }
 
         session.status = 'extracting';
         pushProgress();

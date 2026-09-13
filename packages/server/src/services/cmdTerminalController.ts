@@ -1,4 +1,4 @@
-import { CMD_READ_MAX_LINES, CMD_SEND_MAX_CHARS, CMD_WAIT_MAX_MS, CMD_WAIT_POLL_MS } from '@vibisual/shared';
+import { CMD_READ_MAX_LINES, CMD_WAIT_MAX_MS, CMD_WAIT_POLL_MS, sanitizeCmdPrefill } from '@vibisual/shared';
 
 /**
  * §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 를 **서버 REST 에서 만질 수 있게 하는 주입 지점**.
@@ -81,8 +81,9 @@ export function readCmdTerminal(termId: string, lines: number): string | null {
 export function sendCmdTerminal(termId: string, text: string): { ok: boolean; error?: string } {
   if (!controller) return { ok: false, error: 'terminal controller not available' };
   if (!controller.exists(termId)) return { ok: false, error: `no such terminal: ${termId}` };
-  const stripped = text.replace(/[\r\n]+/g, ' ').slice(0, CMD_SEND_MAX_CHARS);
-  if (!stripped) return { ok: false, error: 'empty text' };
+  // 개행뿐 아니라 C0 제어문자 전부를 접는다 — \x04(EOF)\x03(SIGINT)\x1a\x1b 도 사람 손 없이 실행을 밀어낸다.
+  const stripped = sanitizeCmdPrefill(text);
+  if (!stripped.trim()) return { ok: false, error: 'empty text' };
   return controller.write(termId, stripped) ? { ok: true } : { ok: false, error: 'write failed' };
 }
 

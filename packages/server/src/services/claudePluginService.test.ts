@@ -101,9 +101,27 @@ describe('parsePluginListOutput', () => {
   it('마켓플레이스 목록은 available 을 접어서 센다 — CLI 를 또 부르지 않는다', () => {
     const inv = parsePluginListOutput(REAL_OUTPUT, HERE);
     expect(inv.marketplaces).toEqual([
-      { name: 'claude-plugins-official', pluginCount: 2 },
-      { name: 'claude-code-harness-marketplace', pluginCount: 1 },
+      { name: 'claude-plugins-official', pluginCount: 2, kind: 'official' },
+      { name: 'claude-code-harness-marketplace', pluginCount: 1, kind: 'custom' },
     ]);
+  });
+
+  // §5.5 #17-42 ⑤ — 갈래는 화면이 따로 세지 않는다. 서버가 실어 보낸 것 하나만 본다.
+  it('마켓 갈래를 함께 실어 보낸다 — 공식·커뮤니티·사용자가 붙인 것', () => {
+    const out = JSON.stringify({
+      installed: [],
+      available: [
+        { pluginId: 'a@claude-plugins-official', name: 'a', marketplaceName: 'claude-plugins-official' },
+        { pluginId: 'b@claude-community', name: 'b', marketplaceName: 'claude-community' },
+        { pluginId: 'c@my-own', name: 'c', marketplaceName: 'my-own' },
+      ],
+    });
+    const byName = Object.fromEntries(
+      parsePluginListOutput(out, HERE).marketplaces.map((m) => [m.name, m.kind]),
+    );
+    expect(byName['claude-plugins-official']).toBe('official');
+    expect(byName['claude-community']).toBe('community');
+    expect(byName['my-own']).toBe('custom');
   });
 
   it('--available 없이 부른 배열 모양도 받는다(CLI 판본이 갈려도 안 깨지게)', () => {
@@ -137,5 +155,37 @@ describe('parsePluginListOutput', () => {
     const inv = parsePluginListOutput(odd, HERE);
     expect(inv.installed[0]?.scope).toBe('user');
     expect(inv.installed[0]?.placement).toBe('global');
+  });
+});
+
+/**
+ * §5.5 #17-33 ⑦ — 파서가 **새 판 표식**까지 새기는지.
+ *
+ * 이 표식이 없으면 화면은 뒤처진 플러그인을 최신인 것처럼 그리고, 자동 갱신은 올릴 것을 못 고른다.
+ * 판정 자체는 shared `pluginsNeedingUpdate` 가 시험하므로 여기서는 **파서가 그것을 실제로
+ * 불러 결과에 실었는지**만 본다(붙였다고 적어 놓고 안 부르는 것이 가장 흔한 미배선이다).
+ */
+describe('parsePluginListOutput — 새 판 표식(#17-33 ⑦)', () => {
+  it('마켓 판이 더 높으면 updateAvailable 을 새긴다', () => {
+    const out = parsePluginListOutput(JSON.stringify({
+      installed: [{ id: 'mine@mp', version: '1.0.0', scope: 'user', enabled: true }],
+      available: [{ pluginId: 'mine@mp', name: 'mine', marketplaceName: 'mp', version: '1.2.0' }],
+    }), HERE);
+    const mine = out.installed.find((p) => p.id === 'mine@mp');
+    expect(mine?.updateAvailable).toBe(true);
+    expect(mine?.latestVersion).toBe('1.2.0');
+  });
+
+  it('같은 판이면 표식을 안 단다 — 최신인 줄에 [업데이트] 를 세우면 눌러도 아무 일이 없다', () => {
+    const out = parsePluginListOutput(JSON.stringify({
+      installed: [{ id: 'mine@mp', version: '2.0.0', scope: 'user', enabled: true }],
+      available: [{ pluginId: 'mine@mp', name: 'mine', marketplaceName: 'mp', version: '2.0.0' }],
+    }), HERE);
+    expect(out.installed.find((p) => p.id === 'mine@mp')?.updateAvailable).toBeUndefined();
+  });
+
+  it('마켓이 판을 안 밝히면 표식을 안 단다 (실측 available[] 에 version 이 없는 항목이 있다)', () => {
+    const out = parsePluginListOutput(REAL_OUTPUT, HERE);
+    for (const p of out.installed) expect(p.updateAvailable).toBeUndefined();
   });
 });

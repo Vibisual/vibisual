@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "Separates memory pushed in at spawn from memory the agent went and looked for. Push-only means the same bundle rides along every time; active search means it arrives when it is needed.",
+    "desc": "Separates procedures that grew out of the agent's own commands from ones that came from steps you pinned to the stage. Pinned-only means you are still choosing every time; grown-from-work means it noticed the repetition by itself.",
     "heading": "Agentic RAG",
     "level": {
-      "none": "No retrieval",
-      "static": "Pushed in only",
-      "agentic": "Searches actively"
+      "none": "Nothing grown yet",
+      "static": "From pinned steps only",
+      "agentic": "Grew from its own work"
     },
     "check": {
-      "searched": "Agent searches",
-      "pushed": "Pushed at spawn"
+      "searched": "From its own commands",
+      "pushed": "From pinned steps"
     },
-    "note": "A fixed pipeline retrieves once; an agent decides when it needs more and goes back."
+    "note": "A fixed pipeline only ever stores what you told it to; an agent notices the run it keeps repeating and writes that down itself."
   },
   "ko": {
-    "desc": "스폰 때 밀어넣은 기억과 에이전트가 직접 찾아 온 기억을 나눕니다. 밀어넣기만 있으면 같은 묶음이 매번 실리고, 능동 검색이 있으면 필요한 순간에 들어옵니다.",
+    "desc": "에이전트가 스스로 친 명령에서 자란 절차와, 사용자가 무대에 꽂은 단계에서 자란 절차를 나눠 봅니다. 꽂은 것만 있으면 매번 사람이 고르는 것이고, 스스로 자란 것이 있으면 되풀이를 에이전트가 알아챈 것입니다.",
     "heading": "에이전틱 검색",
     "level": {
-      "none": "검색 없음",
-      "static": "밀어넣기만",
-      "agentic": "스스로 검색"
+      "none": "아직 자란 것 없음",
+      "static": "꽂은 단계에서만",
+      "agentic": "스스로 한 일에서 자람"
     },
     "check": {
-      "searched": "에이전트 검색",
-      "pushed": "스폰 시 주입"
+      "searched": "스스로 친 명령에서",
+      "pushed": "꽂은 단계에서"
     },
-    "note": "고정된 파이프라인은 한 번 검색하고 끝나지만, 에이전트는 필요할 때 다시 찾으러 갑니다."
+    "note": "고정된 파이프라인은 시킨 것만 저장하지만, 에이전트는 자기가 되풀이하는 일을 알아채 스스로 적어 둡니다."
   },
   "ja": {
     "level": {

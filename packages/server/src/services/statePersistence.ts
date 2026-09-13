@@ -274,6 +274,10 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     contis: cp.contis ?? {},
     // §5.5 #17-17 v4.46 — 세션 목표는 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(정체성).
     sessionGoals: cp.sessionGoals ?? {},
+    // §5.5 #17-17 ⑪(h) — 시각 종류 카드. 에이전트가 만든 것이라 잃으면 복구할 길이 없다.
+    visualKinds: cp.visualKinds ?? {},
+    // §5.5 #17-17 ⑫(b) — 팔레트 고정도 사용자가 고른 것이라 재계산으로 되살릴 수 없다.
+    pinnedGoalActions: cp.pinnedGoalActions ?? [],
     // §5.5 #17-36 — 메인 탭 스티키 메모도 사람이 쓴 글이다(세션 탭 메모는 세션과 함께 산다).
     agentMemos: cp.agentMemos ?? {},
     deletedSessionIds: cp.deletedCustomAgentIds ?? [],
@@ -987,6 +991,25 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     for (const [id, conti] of Object.entries(identity.contis)) {
       if (!(id in cp.contis)) cp.contis[id] = conti;
     }
+  }
+  // §5.5 #17-17 ⑪(h) 시각 종류 카드 보충 — 없는 키만 되살린다(진행 중 상태를 디스크가 덮지 않게).
+  if (identity.visualKinds && Object.keys(identity.visualKinds).length > 0) {
+    cp.visualKinds = cp.visualKinds ?? {};
+    for (const [key, card] of Object.entries(identity.visualKinds)) {
+      if (!(key in cp.visualKinds)) cp.visualKinds[key] = card;
+    }
+  }
+  // §5.5 #17-17 ⑫(b) 팔레트 고정 보충 — 없는 id 만 되살린다(합집합, 순서는 checkpoint 가 먼저).
+  if (identity.pinnedGoalActions && identity.pinnedGoalActions.length > 0) {
+    const have = new Set(cp.pinnedGoalActions ?? []);
+    const merged = [...(cp.pinnedGoalActions ?? [])];
+    for (const id of identity.pinnedGoalActions) {
+      if (typeof id === 'string' && id.trim() && !have.has(id)) {
+        have.add(id);
+        merged.push(id);
+      }
+    }
+    if (merged.length > 0) cp.pinnedGoalActions = merged;
   }
   // §5.5 #17-17 v4.46 세션 목표 보충 — checkpoint 에 없는 세션 탭의 목표만 되살린다
   //   (진행 중인 목표를 디스크 판본이 덮어 되감지 않게 "없는 것만" 규칙 유지).

@@ -6,8 +6,18 @@ import { INTERNAL_APPS } from '../../apps/registry.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
-import { useBrainActivation } from '../../hooks/useBrainActivation.js';
 import { isMainCanvasView } from './canvasScope.js';
+import {
+  SUBMENU_CLOSED,
+  hoverPlainItem,
+  hoverSubmenu,
+  isSubmenuOpen,
+  leaveSubmenu,
+  toggleSubmenuPin,
+  type SubmenuKey,
+  type SubmenuState,
+} from './contextMenuSubmenu.js';
+import { EngineIcon } from '../Engine/engineIcons.js';
 
 interface CanvasContextMenuProps {
   x: number;
@@ -38,6 +48,15 @@ interface CanvasContextMenuProps {
 
 const PIPELINE_TYPES: PipelineType[] = ['pipeline-subagent', 'pipeline-teams', 'pipeline-hybrid'];
 
+/** 메뉴 한 줄의 공통 모양. 옆으로 펼쳐지는 칸의 머리 줄과 평범한 항목이 같은 줄로 보여야 한다. */
+const MENU_ROW_CLASS =
+  'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-800';
+/**
+ * 펼쳐진 칸의 머리 줄은 **손이 떠나도 배경을 유지**한다 — 고정(클릭)으로 열어 두면 호버 배경이
+ * 사라져 "지금 열린 칸이 어느 줄의 것인지"를 화면이 말해 주지 않는다(§5.25 (B-1)).
+ */
+const MENU_ROW_OPEN_CLASS = `${MENU_ROW_CLASS} bg-gray-800`;
+
 export const CanvasContextMenu = memo(function CanvasContextMenu({
   x,
   y,
@@ -59,17 +78,37 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [hoveredType, setHoveredType] = useState<PipelineType | null>(null);
-  // §5.13 v4.45 — 앱 카테고리는 마우스를 올리면 펼쳐진다(앱이 늘어도 메뉴가 길어지지 않게).
-  const [appsOpen, setAppsOpen] = useState(false);
+  /**
+   * §5.25 (B)·(B-1) · §5.13 v4.45 — **옆으로 펼쳐지는 칸(엔진 칸 · 앱 칸) 한 벌.**
+   *
+   * 엔진 칸: 클로드 전용 항목(클로드 에이전트·워크트리)과 코덱스 전용 항목이 최상위에 평평하게
+   * 깔려 있으면 "무엇이 어느 엔진의 것인지"가 화면에서 안 보인다 — 워크트리는 git 워크트리 +
+   * 클로드 세션이라 코덱스 사용자에게는 뜻이 다르고, 반대로 코덱스 항목은 클로드만 쓰는 사람에게
+   * 잡음이다. 그래서 **엔진 이름 한 칸**을 두고 그 아래로 접는다(앱 카테고리와 같은 펼침 규약).
+   *
+   * 상태를 칸마다 나누지 않고 **한 칸**에 둔 이유: 열려 있는 칸은 하나뿐이어야 하는데(두 서브메뉴가
+   * 같은 자리에 겹쳐 뜨면 어느 쪽을 누르는지 모른다) 상태가 갈려 있으면 그 불변식을 호출자가 매번
+   * 손으로 지켜야 한다. 전이 규칙(호버로 열기 · **클릭으로 고정** · 다른 항목 호버로 풀기)은
+   * `contextMenuSubmenu.ts` 한 곳에 있고 그대로 단위 테스트된다.
+   */
+  const [submenu, setSubmenu] = useState<SubmenuState>(SUBMENU_CLOSED);
+  /** 칸 위로 마우스가 들어왔다 — 그 칸이 펼쳐지고, 다른 칸의 고정은 풀린다. */
+  const enterSubmenu = useCallback((key: SubmenuKey) => setSubmenu((s) => hoverSubmenu(s, key)), []);
+  /** 칸에서 마우스가 빠져나갔다 — 고정된 칸은 그대로 남는다. */
+  const exitSubmenu = useCallback((key: SubmenuKey) => setSubmenu((s) => leaveSubmenu(s, key)), []);
+  /** 칸의 머리 줄을 클릭했다 = 고정 토글(고정된 칸을 다시 누르면 닫힌다). */
+  const pinSubmenu = useCallback((key: SubmenuKey) => setSubmenu((s) => toggleSubmenuPin(s, key)), []);
+  /**
+   * 서브메뉴가 없는 항목 위로 마우스가 왔다 — **고정도 풀린다.**
+   * 고정이 없던 시절에는 칸의 `mouseleave` 가 알아서 닫았으므로 이 손잡이가 필요 없었다.
+   */
+  const releaseSubmenu = useCallback(() => setSubmenu(hoverPlainItem), []);
   // §5.13 (N) v4.47 — 설치도 여기서 한다. 별도 창을 띄우지 않고 **이 메뉴와 캔버스 버블이
   //   유일한 관리 지점**이다 — 무엇이 깔려 있는지 캔버스에서 바로 보이는 편이 낫다는 판단.
   const createLocalAgent = useGraphStore((st) => st.createLocalAgent);
+  const createCodexAgent = useGraphStore((st) => st.createCodexAgent);
   // 노출 게이트 — 아래 네 항목(플레이·스펙·랩·선반)은 디버그 모드에서만 낸다(§7.7).
   const debugMode = useGraphStore((st) => st.debugMode);
-  // §5.10 (H) — 두뇌 켜기/끄기. **꺼져 있을 때도 반드시 보이는 자리**여야 한다:
-  //   게이트 ③ 이 Brain 버블을 안 그리므로, 켜는 버튼을 두뇌 안에 두면 켤 방법 자체가 사라진다
-  //   (1회 안내 배너를 넘기면 `promptedAt` 이 남아 다시 뜨지 않는다 — 실제로 그렇게 막혔었다).
-  const brain = useBrainActivation();
   /**
    * §5.7 #26 — **그릴 수 없는 자리에서는 메뉴에도 내지 않는다.**
    * 캡처·플레이·스펙·랩·선반·앱 버블은 메인 뷰에서만 렌더되므로(각 노드 산식의 첫 줄),
@@ -130,6 +169,13 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onClose();
   }, [createLocalAgent, onClose, canvasX, canvasY]);
 
+  // §5.25 (B) — 코덱스. All Model 과 같은 규약 — 누르면 버블이 먼저 생기고, 설치·로그인·모델은
+  //   그 버블을 눌렀을 때 판정한다(준비 창이 캔버스 앞을 막지 않는다).
+  const handleCreateCodexAgent = useCallback(() => {
+    createCodexAgent(canvasX, canvasY);
+    onClose();
+  }, [createCodexAgent, onClose, canvasX, canvasY]);
+
   const handleCreateApp = useCallback((appId: string) => {
     onCreateAppBubble(appId, canvasX, canvasY);
     onClose();
@@ -160,15 +206,6 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onClose();
   }, [onCreatePipeline, onClose, canvasX, canvasY]);
 
-  /**
-   * §5.10 (H) — 두뇌 마스터 스위치. 켜면 그 자리에서 버블이 서고(게이트 ③), 끄면 동작만 멈춘다
-   * (카드 파일은 그대로 — "끄면 지우지 않는다"). 즉시 반영이라 재시작 ❌.
-   */
-  const handleToggleBrain = useCallback(() => {
-    void brain.setEnabled(!brain.enabled);
-    onClose();
-  }, [brain, onClose]);
-
   const info = hoveredType ? PIPELINE_TYPE_INFO[hoveredType] : null;
 
   // §4 v3.16 — 화면 밖으로 넘치지 않게 위치를 뷰포트 안으로 당긴다(폰 가장자리 롱프레스 대비).
@@ -176,8 +213,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
   const clampedX = Math.max(8, Math.min(x, vw - 244));
   // 메뉴 높이는 게이트로 넷이 빠지면 짧아지므로 클램프도 그 높이를 따라간다.
-  //   §5.10 (H) 두뇌 행(구분선 + 2줄)도 있으면 그만큼 더 잡는다 — 없으면 종전 높이 그대로.
-  const clampedY = Math.max(8, Math.min(y, vh - (debugMode ? 380 : 240) - (brain.projectPath ? 56 : 0)));
+  const clampedY = Math.max(8, Math.min(y, vh - (debugMode ? 380 : 240)));
 
   return (
     <div
@@ -189,26 +225,141 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     >
       {/* 메뉴 목록 */}
       <div className="min-w-48 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
-        {/* 단일 커스텀 에이전트 */}
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-          onClick={handleCreateAgent}
+        {/* §5.25 (B) — **클로드 칸.** 마우스를 올리면 클로드 전용 항목이 옆으로 펼쳐지고,
+            **클릭하면 고정**돼 마우스가 벗어나도 남는다(다른 항목에 올리면 풀린다 — (B-1)).
+            안에 드는 것: 클로드 에이전트(종전 "Custom Agent") · 워크트리.
+            둘 다 `claude` 실행본을 전제로 하는 항목이라, 코덱스만 쓰는 사람에게 최상위에
+            평평하게 깔려 있으면 무엇이 자기 것인지 화면에서 갈리지 않는다. */}
+        <div
+          className="relative"
+          onMouseEnter={() => enterSubmenu('claude')}
+          onMouseLeave={() => exitSubmenu('claude')}
         >
-          <svg className="h-4 w-4 shrink-0 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="16" />
-            <line x1="8" y1="12" x2="16" y2="12" />
-          </svg>
-          <span>{t('canvas.contextMenu.createCustomAgent')}</span>
-        </button>
+          <button
+            type="button"
+            className={isSubmenuOpen(submenu, 'claude') ? MENU_ROW_OPEN_CLASS : MENU_ROW_CLASS}
+            onClick={() => pinSubmenu('claude')}
+            aria-haspopup="menu"
+            aria-expanded={isSubmenuOpen(submenu, 'claude')}
+          >
+            <span className="shrink-0 text-blue-400">
+              <EngineIcon kind="claude" className="h-4 w-4" />
+            </span>
+            <div className="flex flex-1 flex-col">
+              <span>{t('canvas.contextMenu.engineClaude', { defaultValue: 'Claude' })}</span>
+              <span className="text-xs text-gray-500">
+                {t('canvas.contextMenu.engineClaudeHint', { defaultValue: 'Claude Code 로 도는 버블' })}
+              </span>
+            </div>
+            <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
 
-        {/* §4 v2.63 — CMD 에이전트 (인터랙티브 임베디드 터미널, teal 톤). 우리는 시각화·보조만,
-            실행/오케스트레이션 권한은 Claude Code 안에 있음(힌트로 명시). */}
+          {isSubmenuOpen(submenu, 'claude') && (
+            <div className="absolute left-full top-0 ml-1 min-w-64 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+              {/* 클로드 에이전트 — 종전 "Custom Agent 만들기". 이름만 엔진 기준으로 고쳤고
+                  만드는 경로(`onCreateCustomAgent`)는 그대로다. */}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                onClick={handleCreateAgent}
+              >
+                <svg className="h-4 w-4 shrink-0 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <div className="flex flex-col">
+                  <span>{t('canvas.contextMenu.createClaudeAgent', { defaultValue: 'Claude Agent 만들기' })}</span>
+                  <span className="text-xs text-gray-500">
+                    {t('canvas.contextMenu.createClaudeAgentHint', { defaultValue: 'Claude Code 로 도는 에이전트를 놓습니다' })}
+                  </span>
+                </div>
+              </button>
+
+              {/* Worktree 생성 — master 최신 기준 새 git worktree. 그 안에서 도는 것이 클로드
+                  세션이라 이 칸에 든다. */}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                onClick={handleCreateWorktree}
+              >
+                <svg className="h-4 w-4 shrink-0 text-lime-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="6" cy="6" r="2.5" />
+                  <circle cx="18" cy="6" r="2.5" />
+                  <circle cx="12" cy="18" r="2.5" />
+                  <path d="M6 8.5v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-2" />
+                  <line x1="12" y1="13.5" x2="12" y2="15.5" />
+                </svg>
+                <div className="flex flex-col">
+                  <span>{t('canvas.contextMenu.createWorktree')}</span>
+                  <span className="text-xs text-gray-500">{t('canvas.contextMenu.createWorktreeHint')}</span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* §5.25 (B) — **코덱스 칸.** 클로드 칸과 같은 규약. 지금은 안에 한 줄뿐이지만
+            엔진 축이 늘 때 이 자리가 그대로 받는다(최상위에 항목을 다시 쌓지 않는다). */}
+        <div
+          className="relative"
+          onMouseEnter={() => enterSubmenu('codex')}
+          onMouseLeave={() => exitSubmenu('codex')}
+        >
+          <button
+            type="button"
+            className={isSubmenuOpen(submenu, 'codex') ? MENU_ROW_OPEN_CLASS : MENU_ROW_CLASS}
+            onClick={() => pinSubmenu('codex')}
+            aria-haspopup="menu"
+            aria-expanded={isSubmenuOpen(submenu, 'codex')}
+          >
+            <span className="shrink-0 text-emerald-400">
+              <EngineIcon kind="codex" className="h-4 w-4" />
+            </span>
+            <div className="flex flex-1 flex-col">
+              <span>{t('canvas.contextMenu.engineCodex', { defaultValue: 'Codex' })}</span>
+              <span className="text-xs text-gray-500">
+                {t('canvas.contextMenu.engineCodexHint', { defaultValue: 'OpenAI Codex CLI 로 도는 버블' })}
+              </span>
+            </div>
+            <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+
+          {isSubmenuOpen(submenu, 'codex') && (
+            <div className="absolute left-full top-0 ml-1 min-w-64 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+              {/* §5.25 (B) — 코덱스 에이전트. 누르면 버블이 먼저 생기고, 설치·로그인·모델은
+                  그 버블을 눌렀을 때 판정한다(준비 창이 캔버스 앞을 막지 않는다). */}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                onClick={handleCreateCodexAgent}
+              >
+                <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 18l6-6-6-6" />
+                  <path d="M8 6l-6 6 6 6" />
+                </svg>
+                <div className="flex flex-col">
+                  <span>{t('canvas.contextMenu.createCodexAgent', { defaultValue: 'Codex Agent 만들기' })}</span>
+                  <span className="text-xs text-gray-500">
+                    {t('canvas.contextMenu.createCodexAgentHint', { defaultValue: 'OpenAI Codex CLI 로 도는 에이전트를 놓습니다' })}
+                  </span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* §4 v2.63 — CMD 에이전트 (인터랙티브 임베디드 터미널, teal 톤). 엔진 칸에 넣지 않는다 —
+            이건 어느 엔진의 것도 아닌 **맨 셸**이라 그 안에서 무엇을 몰지는 사용자가 정한다. */}
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          className={MENU_ROW_CLASS}
           onClick={handleCreateCmdAgent}
+          onMouseEnter={releaseSubmenu}
         >
           <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2.5" y="4" width="19" height="16" rx="2" />
@@ -221,12 +372,15 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </div>
         </button>
 
-        {/* §5.19 (B) — All Model (내 PC 에서 도는 로컬 LLM). 커스텀·CMD 와 같은 줄기의 세 번째 갈래.
-            누르면 **버블이 바로 생긴다** — 엔진·모델이 없으면 그 버블을 눌렀을 때 설치 창이 뜬다. */}
+        {/* §5.19 (B) — All Model (내 PC 에서 도는 로컬 LLM). 누르면 **버블이 바로 생긴다** —
+            엔진·모델이 없으면 그 버블을 눌렀을 때 설치 창이 뜬다.
+            엔진 칸으로 접지 않는 이유: 안에 들 항목이 이 한 줄뿐이라 접으면 한 번 더 눌러야
+            같은 것이 나온다(클로드·코덱스와 달리 전용 항목이 여럿이 아니다). */}
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          className={MENU_ROW_CLASS}
           onClick={handleCreateLocalAgent}
+          onMouseEnter={releaseSubmenu}
         >
           <svg className="h-4 w-4 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="12" rx="2" />
@@ -242,11 +396,16 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </div>
         </button>
 
-        {/* §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트, 다크 톤) */}
+        {/* §5.3 #10-2 — Auto Agent (메타 에이전트). **사용자 지시로 당분간 메뉴에서 내린다** —
+            서버 경로(`/api/create-auto-agent`)·스토어 액션·이미 놓인 버블은 그대로라, 이 게이트만
+            되돌리면 있던 자리로 돌아온다(기능을 지운 것이 아니라 만드는 입구만 닫았다).
+            디버그 모드(§7.7)에서는 계속 보인다 — 개발 중에 손이 닿아야 하는 자리다. */}
+        {debugMode && (
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          className={MENU_ROW_CLASS}
           onClick={handleCreateAutoAgent}
+          onMouseEnter={releaseSubmenu}
         >
           <svg className="h-4 w-4 shrink-0 text-blue-900" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="9" />
@@ -259,32 +418,15 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             <span className="text-xs text-gray-500">{t('canvas.contextMenu.createAutoAgentHint')}</span>
           </div>
         </button>
-
-        {/* Worktree 생성 — master 최신 기준 새 git worktree */}
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-          onClick={handleCreateWorktree}
-        >
-          <svg className="h-4 w-4 shrink-0 text-lime-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="6" cy="6" r="2.5" />
-            <circle cx="18" cy="6" r="2.5" />
-            <circle cx="12" cy="18" r="2.5" />
-            <path d="M6 8.5v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-2" />
-            <line x1="12" y1="13.5" x2="12" y2="15.5" />
-          </svg>
-          <div className="flex flex-col">
-            <span>{t('canvas.contextMenu.createWorktree')}</span>
-            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createWorktreeHint')}</span>
-          </div>
-        </button>
+        )}
 
         {/* §5.9 — 화면/프로그램 캡처 버블 (라이브 스트림, rose 톤). 메인 뷰 전용(§5.7 #26). */}
         {mainView && (
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          className={MENU_ROW_CLASS}
           onClick={handleCreateCapture}
+          onMouseEnter={releaseSubmenu}
         >
           <svg className="h-4 w-4 shrink-0 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect width="20" height="14" x="2" y="3" rx="2" /><path d="M8 21h8" /><path d="M12 17v4" />
@@ -304,8 +446,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           {/* §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼, emerald 톤). */}
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            className={MENU_ROW_CLASS}
             onClick={handleCreatePlay}
+            onMouseEnter={releaseSubmenu}
           >
             <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="9" />
@@ -320,8 +463,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           {/* §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드, teal 톤). */}
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            className={MENU_ROW_CLASS}
             onClick={handleCreateSpec}
+            onMouseEnter={releaseSubmenu}
           >
             <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -338,8 +482,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           {/* §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌 → 비교 표 → 승격, orange 톤). */}
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            className={MENU_ROW_CLASS}
             onClick={handleCreateLab}
+            onMouseEnter={releaseSubmenu}
           >
             <svg className="h-4 w-4 shrink-0 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10 2v6.5L4.8 17.4A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 1.7-3.1L14 8.5V2" />
@@ -355,8 +500,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           {/* §5.20 — 스크립트 선반 (자주 쓰는 명령·프롬프트를 캔버스에 고정, cyan 톤). */}
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            className={MENU_ROW_CLASS}
             onClick={handleCreateShelf}
+            onMouseEnter={releaseSubmenu}
           >
             <svg className="h-4 w-4 shrink-0 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 4h18M3 12h18M3 20h18" />
@@ -379,15 +525,15 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         <div className="mx-2 my-1 border-t border-gray-700" />
         <div
           className="relative"
-          onMouseEnter={() => setAppsOpen(true)}
-          onMouseLeave={() => setAppsOpen(false)}
+          onMouseEnter={() => enterSubmenu('apps')}
+          onMouseLeave={() => exitSubmenu('apps')}
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-800"
-            onClick={() => setAppsOpen((v) => !v)}
+            className={isSubmenuOpen(submenu, 'apps') ? MENU_ROW_OPEN_CLASS : MENU_ROW_CLASS}
+            onClick={() => pinSubmenu('apps')}
             aria-haspopup="menu"
-            aria-expanded={appsOpen}
+            aria-expanded={isSubmenuOpen(submenu, 'apps')}
           >
             {/* v4.66 — 앱 카테고리는 특정 앱의 색이 아니라 중립 톤. 색은 각 앱 행이 자기 것으로 낸다. */}
             <svg className="h-4 w-4 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -405,7 +551,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             </svg>
           </button>
 
-          {appsOpen && (
+          {isSubmenuOpen(submenu, 'apps') && (
             <div className="absolute left-full top-0 ml-1 min-w-72 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
               {INTERNAL_APPS.map((app) => {
                 const Icon = app.icon;
@@ -443,42 +589,13 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         </>
         )}
 
-        {/* §5.10 (H) — 프로젝트 두뇌 켜기/끄기. 생성 항목이 아니라 **이 프로젝트의 상태를 바꾸는 줄**이라
-            구분선 아래 따로 둔다. 꺼져 있을 때도 보여야 하는 자리이므로 활성 여부로 숨기지 않는다. */}
-        {brain.projectPath && (
-          <>
-            <div className="mx-2 my-1 border-t border-gray-700" />
-            <button
-              type="button"
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-800"
-              onClick={handleToggleBrain}
-            >
-              <svg className="h-4 w-4 shrink-0 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 1 2.2A3 3 0 0 0 9 19h6a3 3 0 0 0 2-5.8A3 3 0 0 0 18 11a3 3 0 0 0-3-3 3 3 0 0 0-3-3Z" />
-                <path d="M12 5v14" />
-              </svg>
-              <div className="flex flex-col">
-                <span>
-                  {brain.enabled
-                    ? t('canvas.contextMenu.brainOff', { defaultValue: '프로젝트 메모리 끄기' })
-                    : t('canvas.contextMenu.brainOn', { defaultValue: '프로젝트 메모리 켜기' })}
-                </span>
-                <span className="text-xs text-gray-500">
-                  {brain.enabled
-                    ? t('canvas.contextMenu.brainOffHint', { defaultValue: '꺼도 기록은 지워지지 않습니다' })
-                    : brain.sleepingCardCount > 0
-                      ? t('canvas.contextMenu.brainOnHintSleeping', {
-                          count: brain.sleepingCardCount,
-                          defaultValue: '기억 {{count}}장이 잠들어 있습니다',
-                        })
-                      : t('canvas.contextMenu.brainOnHint', {
-                          defaultValue: '배운 절차를 모아 다음 작업에 자동으로 겁니다',
-                        })}
-                </span>
-              </div>
-            </button>
-          </>
-        )}
+        {/*
+          §5.10 — **「프로젝트 메모리 켜기/끄기」 줄은 걷었다.**
+
+          사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 그 자리를 대신하는 자동 목표의
+          켜고 끄는 손잡이는 **IDE `목표` 뷰 안 하나뿐**이고, 캔버스 우클릭에 한 벌 더 두지 않는다 —
+          같은 물음에 두 번 답하게 만드는 스위치가 §5.11 이 계속 잡아 온 결함이다(#17-44 ⑧(d)).
+        */}
 
         {/* §5.10 — "지난 커스텀 에이전트 복구" 메뉴 제거됨(휴지통 버블이 그 경로의 후신). */}
 

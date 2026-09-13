@@ -39,9 +39,10 @@ export function normalizeTabSortAnchor(value: unknown): TabSortAnchor {
 /**
  * 실행 상태 우선순위 — 작을수록 기준 쪽(앞)에 선다.
  *
- * 사용자가 부른 순서는 "실행중 → 완료 → 비활성화" 셋이다. 우리 상태 축은 넷이라
- * (`running`/`error`/`doneUnseen`/`done`) 다음과 같이 대응시킨다.
+ * 사용자가 부른 순서는 "실행중 → 완료 → 비활성화" 셋이다. 우리 상태 축은 다섯이라
+ * (`running`/`limited`/`error`/`doneUnseen`/`done`) 다음과 같이 대응시킨다.
  *  · `running`    = 실행중
+ *  · `limited`    = 요금제 한도로 끊김 — 끝난 것이 아니라 **멈춘** 탭이다(§2.4 한도 정지).
  *  · `error`      = 사용자를 불러야 하는 끝남 — 실행중 바로 다음에 둔다(사용자가 부른 셋에는
  *                   없지만, 조용한 완료들 사이에 묻히면 그게 제일 놓치기 쉬운 탭이 된다).
  *  · `doneUnseen` = 완료(아직 안 본 결과 — 초록 도트)
@@ -49,9 +50,12 @@ export function normalizeTabSortAnchor(value: unknown): TabSortAnchor {
  */
 const RUN_STATE_RANK: Record<SessionRunState, number> = {
   running: 0,
-  error: 1,
-  doneUnseen: 2,
-  done: 3,
+  // §2.4 (한도 정지) — 실행중 바로 다음. 손을 대야 다시 가는 탭이라 조용한 완료들 사이에 묻히면
+  //   그 세션이 멈춰 있다는 사실 자체를 못 본다(실패보다 앞에 두는 이유는 사유가 더 구체적이어서다).
+  limited: 1,
+  error: 2,
+  doneUnseen: 3,
+  done: 4,
 };
 
 /** 탭 하나를 줄 세우는 데 필요한 사실 전부 — DOM·store 를 모르는 값만 받는다. */

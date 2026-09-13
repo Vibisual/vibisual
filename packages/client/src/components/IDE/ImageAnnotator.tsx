@@ -38,6 +38,7 @@ import {
   type Size,
 } from './imageAnnotate.js';
 import { putWorkspaceImage } from './workspaceImageSave.js';
+import { copyImageToClipboard, resolveClipboardSurface, type ClipboardScope } from './imageClipboard.js';
 
 // §5.5 #17-25 v4.80 — 라이트박스 안에서 이미지에 직접 표시하고, 표시가 박힌 PNG 를 그대로 첨부한다.
 //
@@ -46,6 +47,9 @@ import { putWorkspaceImage } from './workspaceImageSave.js';
 // 계산은 전부 imageAnnotate.ts(순수 모듈)에 있고 여기는 입력·표시·저장 배선만 한다.
 
 const API_BASE = '';
+
+/** [복사됨] 표시를 붙들어 두는 시간 — 누른 사람이 알아볼 만큼만 짧게. */
+const COPIED_HOLD_MS = 1600;
 
 interface ImageLightboxViewProps {
   state: ImageLightboxState;
@@ -83,6 +87,8 @@ export function ImageLightboxView({
   const [natural, setNatural] = useState<Size>({ w: 0, h: 0 });
   const [textDraft, setTextDraft] = useState<{ at: Point; value: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // ④-1 그 사이 디스크가 바뀌었을 때 — 사용자가 [그래도 저장]을 고를 때까지 덮어쓰지 않는다.
@@ -120,6 +126,58 @@ export function ImageLightboxView({
     setDraft(next);
   }, []);
 
+  /**
+   * §5.5 #17-25 ④-2 — 이 런타임이 클립보드에 **그림**을 올릴 수 있는가.
+   *
+   * `null` 이면 버튼이 흐려지고 그 이유를 말한다. 전역을 한 번만 들여다보는 이유는 이 능력이
+   * 창이 사는 동안 바뀌지 않기 때문이다(보안 컨텍스트는 문서 단위로 정해진다).
+   */
+  const clipboard = useMemo(
+    () => resolveClipboardSurface(globalThis as unknown as ClipboardScope),
+    [],
+  );
+
+  /**
+   * §5.5 #17-25 ④-2 — **네 번째 나가는 자리: 클립보드.**
+   *
+   * 내려받기(⑤)와 같은 결이라 **주석이 없어도 눌린다** — 그때는 원본 한 장이 그대로 나간다.
+   * 굽기를 `await` 하지 않고 **약속째로** 넘기는 이유는 `imageClipboard.ts` 주석에 있다(쓰기가
+   * 사용자 제스처 안에서 시작돼야 거절되지 않는다).
+   *
+   * 정의가 여기 있는 것은 취향이 아니다 — 아래 keydown 효과의 의존성 배열이 렌더 중에 읽히므로,
+   * 이 함수가 그보다 뒤에 선언되면 TDZ 로 죽는다.
+   */
+  const handleCopy = useCallback(async () => {
+    const img = imgRef.current;
+    if (!img || copying) return;
+    setError(null);
+    setCopying(true);
+    try {
+      const result = await copyImageToClipboard(exportAnnotatedPng(img, items), clipboard);
+      if (result.ok) {
+        setCopied(true);
+        return;
+      }
+      setError(t(
+        result.reason === 'unsupported'
+          ? 'ide.imageAnnotate.copyUnsupported'
+          : result.reason === 'denied'
+            ? 'ide.imageAnnotate.copyDenied'
+            : 'ide.imageAnnotate.copyFailed',
+        { download: t('ide.imageAnnotate.download') },
+      ));
+    } finally {
+      setCopying(false);
+    }
+  }, [copying, items, clipboard, t]);
+
+  // [복사됨]은 잠깐만 머문다. 다시 복사하면 타이머가 새로 잡히고, 닫히면 함께 걷힌다.
+  useEffect(() => {
+    if (!copied) return undefined;
+    const id = window.setTimeout(() => setCopied(false), COPIED_HOLD_MS);
+    return () => window.clearTimeout(id);
+  }, [copied]);
+
   const requestClose = useCallback(() => {
     if (dirty) {
       setConfirmDiscard(true);
@@ -128,7 +186,7 @@ export function ImageLightboxView({
     onClose();
   }, [dirty, onClose]);
 
-  // Esc(닫기 확인) · Ctrl+Z / Ctrl+Shift+Z · Ctrl+Y. 글자 입력 중에는 그 입력이 먼저다.
+  // Esc(닫기 확인) · Ctrl+Z / Ctrl+Shift+Z · Ctrl+Y · Ctrl+C(④-2 클립보드). 글자 입력 중에는 그 입력이 먼저다.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -148,11 +206,16 @@ export function ImageLightboxView({
       } else if (key === 'y') {
         e.preventDefault();
         setHistory(redoAnnotations);
+      } else if (key === 'c' && !hasTextSelection()) {
+        // 글자를 골라 둔 상태의 Ctrl/⌘+C 는 **그 글자의 것**이다 — 그때만 비켜선다.
+        // 판정은 규약대로 `ctrlKey || metaKey`(위)이므로 mac 에서도 ⌘C 로 그림이 복사된다.
+        e.preventDefault();
+        void handleCopy();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [textDraft, requestClose]);
+  }, [textDraft, requestClose, handleCopy]);
 
   const pointFromEvent = useCallback(
     (e: React.PointerEvent): Point | null => {
@@ -446,6 +509,24 @@ export function ImageLightboxView({
         <ToolbarButton label={t('ide.imageAnnotate.download')} onClick={() => void handleDownload()}>
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
         </ToolbarButton>
+        {/* ④-2 클립보드 — 다른 프로그램에 곧바로 붙이는 자리. 주석이 없어도 눌린다. */}
+        <ToolbarButton
+          label={
+            clipboard
+              ? t(copied ? 'ide.imageAnnotate.copied' : 'ide.imageAnnotate.copy', {
+                shortcut: shortcutLabel('Ctrl+C'),
+              })
+              : t('ide.imageAnnotate.copyUnsupported', { download: t('ide.imageAnnotate.download') })
+          }
+          disabled={!clipboard || copying}
+          onClick={() => void handleCopy()}
+        >
+          {copied ? (
+            <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+          ) : (
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          )}
+        </ToolbarButton>
         {/* ④-1 워크스페이스 파일에서 연 팝업 — 첨부가 아니라 그 파일을 덮어쓴다(둘은 병행). */}
         {state.workspace && (
           <button
@@ -597,6 +678,18 @@ export function ImageLightboxView({
 }
 
 // ─── 부속 ───
+
+/**
+ * 지금 화면에 **사용자가 고른 글자**가 있는가 — Ctrl/⌘+C 를 그림 복사로 가로챌지 가르는 판정.
+ *
+ * 없으면(대개 그렇다) 그 조합은 이 창의 것이고, 있으면 브라우저 기본 동작에 그대로 넘긴다.
+ * 선택 API 가 없는 런타임에서는 "고른 글자가 없다"로 본다 — 그림 복사가 막다른 길이 되지 않게.
+ */
+function hasTextSelection(): boolean {
+  if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
+  const sel = window.getSelection();
+  return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
+}
 
 function Divider(): React.JSX.Element {
   return <span className="mx-0.5 h-5 w-px flex-shrink-0 bg-gray-700" />;

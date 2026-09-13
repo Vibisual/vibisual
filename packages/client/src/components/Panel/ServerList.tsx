@@ -2,6 +2,7 @@ import { memo, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ServerEntry } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
+import { serverRespawnGate } from './serverRespawnGate.js';
 
 interface ServerListProps {
   servers: ServerEntry[];
@@ -125,13 +126,14 @@ export const ServerList = memo(function ServerList({
               </div>
             </div>
 
-            {/* Restart button — §7.11 v3.85 신고 전용 entry 는 기동 명령 미상이라 respawn 불가 */}
+            {/* Restart button — §7.11 포트 인계 신고 전용 entry 라도 프로세스가 살아 있으면 서버가
+                OS 에서 기동 명령을 읽어 인계하므로 연다. 영구 불가는 이미 꺼진 신고 서버뿐. */}
             <button
               type="button"
               onClick={(e) => handleRestart(s.id, e)}
-              disabled={stopping === s.id || s.reportedOnly === true}
+              disabled={stopping === s.id || !serverRespawnGate(s, 'restart').canRespawn}
               className="ml-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-blue-500/20 hover:text-blue-400 disabled:opacity-40"
-              title={s.reportedOnly === true ? t('panel.serverList.noCommand') : t('panel.serverList.restart')}
+              title={t(serverRespawnGate(s, 'restart').titleKey)}
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                 <path d="M21 12a9 9 0 1 1-2.63-6.36M21 3v6h-6" />

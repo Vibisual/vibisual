@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
 
+import type { AvailableSkill } from '@vibisual/shared';
+
 /**
  * §5.5 #17-2 v2.30 / #17-4 v2.32 — 프로젝트 + 플러그인 스킬 목록.
  * `GET /api/available-skills` 응답 shape 와 동치.
+ *
+ * §5.5 #17-33 ⑦ — 정의는 `@vibisual/shared` 의 `AvailableSkill` 하나로 모았다. 서버와 화면이
+ * 각자 모양을 들고 있었기 때문에 `installed`/`enabled` 같은 새 칸이 한쪽에만 생길 수 있었다.
  */
-export interface SkillInfo {
-  name: string;
-  description: string;
-  /** project = 프로젝트 `.claude`, global = 홈 `~/.claude`(전 프로젝트 공통), plugin = 설치 플러그인. */
-  source: 'project' | 'global' | 'plugin';
-  pluginName?: string;
-}
+export type SkillInfo = AvailableSkill;
 
 /** §5.5 #17-4/#17-5 — 타입별 사용자 고정 순서 (드래그 재정렬). */
 export interface SkillOrder {
@@ -37,10 +36,18 @@ interface SkillsState {
   order: SkillOrder;
   /** §5.5 #17-4 v2.93 — 즐겨찾기 스킬명(별 누른 순서, 출처 무관). */
   favorites: string[];
+  /**
+   * §5.5 #17-2 (보강) — 이 프로젝트에서 슬래시 명령이 **살아 있는가**.
+   *
+   * 꺼져 있으면 위 `skills`·`builtins` 가 전부 거절된다(#17-28 ⑩). 목록은 그대로 두고
+   * 화면이 그 사실만 말한다 — 무엇이 있었는지까지 지우면 사용자가 켠 뒤에 뭘 얻는지 모른다.
+   * **모르면 켜진 것으로 본다**(네트워크 실패로 "다 안 됩니다"라고 겁주지 않게).
+   */
+  slashCommandsEnabled: boolean;
 }
 
 const EMPTY_ORDER: SkillOrder = { project: [], global: [], plugin: [] };
-const EMPTY_STATE: SkillsState = { skills: [], builtins: [], order: EMPTY_ORDER, favorites: [] };
+const EMPTY_STATE: SkillsState = { skills: [], builtins: [], order: EMPTY_ORDER, favorites: [], slashCommandsEnabled: true };
 
 /**
  * §5.5 #17-2/#17-4 v2.59 — 프로젝트별 조회.
@@ -111,13 +118,15 @@ function normalizeBuiltins(raw: unknown): BuiltinCommandInfo[] {
 
 function fetchSkills(key: string): Promise<SkillsState> {
   return fetch(urlForKey(key))
-    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; builtins?: unknown; order?: unknown; favorites?: unknown }>)
+    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; builtins?: unknown; order?: unknown; favorites?: unknown; slashCommandsEnabled?: unknown }>)
     .then((d) => {
       const next: SkillsState = {
         skills: d.ok && Array.isArray(d.skills) ? d.skills : [],
         builtins: d.ok ? normalizeBuiltins(d.builtins) : [],
         order: normalizeOrder(d.order),
         favorites: normalizeFavorites(d.favorites),
+        // 명시적으로 `false` 일 때만 꺼진 것 — 옛 서버(이 칸이 없다)는 켜진 것으로 읽는다.
+        slashCommandsEnabled: d.slashCommandsEnabled !== false,
       };
       caches.set(key, next);
       return next;
@@ -155,6 +164,42 @@ export function refreshAvailableSkills(): Promise<void> {
   return Promise.all(
     [...keys].map((key) => fetchSkills(key).then((s) => notify(key, s))),
   ).then(() => undefined);
+}
+
+/**
+ * §5.5 #17-33 ⑦ — 목록에서 고른 플러그인 스킬을 **그 자리에서 깐다**.
+ *
+ * 왜 필요한가: 종전 목록은 마켓 클론 폴더를 훑어 **안 깔린 스킬까지** 실었고, 고르면 프롬프트 앞에
+ * `/이름` 만 붙어 나가 CLI 가 그것을 풀지 못했다. 이제 목록이 `installed:false` 를 말해 주므로,
+ * 사용자를 터미널로 내보내는 대신 여기서 `claude plugin install --scope user --yes` 를 대신 부른다.
+ *
+ * **범위는 `user` 고정이다.** 이 사용자가 겪은 병목의 절반이 "프로젝트마다 다시 깔아야 한다" 였고
+ * (실측: 공식 플러그인 4개가 `project` 범위로 한 프로젝트에만 매여 있었다), 스킬 목록에서 고르는
+ * 행위의 뜻은 "이걸 쓰겠다" 이지 "이 프로젝트에서만 쓰겠다" 가 아니다. 범위를 고르고 싶은 사용자는
+ * 플러그인 창(#17-33 ⑤)에 그 자리가 이미 있다.
+ *
+ * `root` 는 그 프로젝트 경로 — CLI 가 `cwd` 로 범위를 해석하므로 필요하다.
+ */
+export async function installPluginSkill(
+  root: string,
+  pluginId: string,
+  /** 안 깔렸으면 `install`, 깔렸는데 꺼져 있으면 `enable` — 둘은 다른 상태다(#17-33 ③). */
+  action: 'install' | 'enable' = 'install',
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/claude-plugins/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root, action, id: pluginId, scope: 'user' }),
+    });
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) return { ok: false, ...(data.error ? { error: data.error } : {}) };
+    // 깔았으면 목록이 말하는 상태도 달라진다 — 재조회하지 않으면 칩이 "미설치" 로 남는다.
+    await refreshAvailableSkills();
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
 }
 
 /** 프로젝트 스킬을 디스크에서 삭제. 성공 시 목록 재조회. */
@@ -273,7 +318,7 @@ export async function persistSkillFavorites(favorites: string[]): Promise<void> 
  * 같은 프로젝트를 볼 때 같은 데이터를 본다. v2.59 부터 캐시는 projectName 키로 분리되어
  * 탭(프로젝트)마다 독립 목록을 반환한다. fetch 는 프로젝트 키별 첫 호출 시 1회.
  */
-export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; builtins: BuiltinCommandInfo[]; order: SkillOrder; favorites: string[]; loaded: boolean } {
+export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; builtins: BuiltinCommandInfo[]; order: SkillOrder; favorites: string[]; slashCommandsEnabled: boolean; loaded: boolean } {
   const key = keyOf(projectName, agentId);
   const [state, setState] = useState<SkillsState>(() => caches.get(key) ?? EMPTY_STATE);
   const [loaded, setLoaded] = useState<boolean>(caches.has(key));
@@ -311,5 +356,5 @@ export function useAvailableSkills(projectName?: string | null, agentId?: string
     };
   }, [key]);
 
-  return { skills: state.skills, builtins: state.builtins, order: state.order, favorites: state.favorites, loaded };
+  return { skills: state.skills, builtins: state.builtins, order: state.order, favorites: state.favorites, slashCommandsEnabled: state.slashCommandsEnabled, loaded };
 }

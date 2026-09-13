@@ -15,6 +15,7 @@ import { scanLoginOutput, type LoginScan } from './loginOutput.js';
 import { hasProjectFolder, shouldSummonProjectFolder } from './projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
+import { claudeGatesMayAutoOpen } from '../Engine/engineChoiceFlow.js';
 
 const Z = 100_600; // ClaudeVersionGate(100_500) 보다 위 — 로그인이 안 되면 버전 갱신도 의미가 없다.
 
@@ -50,6 +51,7 @@ export function LoginWindow(): React.JSX.Element | null {
   // 네이티브 인스톨러가 넣은 PATH 는 **이미 떠 있는 앱의 환경에는 반영되지 않기 때문**이다
   // (§4 첫 실행 설치 온보딩의 마지막 칸이 여기서 끊긴다). 설치 판정은 절대경로를 들고 있다.
   const claudeBinPath = useGraphStore((s) => s.claudeVersion?.binPath ?? s.claudeSetup?.binPath);
+  const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice);
 
   const [mode, setMode] = useState<ClaudeAuthLoginMode>('claudeai');
   const [email, setEmail] = useState('');
@@ -66,7 +68,8 @@ export function LoginWindow(): React.JSX.Element | null {
   const bufferRef = useRef('');
 
   const transport = useMemo(() => getTerminalTransport(), []);
-  const shouldOpen = forced || (auth !== null && !auth.loggedIn && !auth.error && !dismissed);
+  // §5.25 (C) — 코덱스·로컬을 고른 사람에게는 저절로 뜨지 않는다(직접 열면 `forced` 로 온다).
+  const shouldOpen = forced || (claudeGatesMayAutoOpen(engineChoice) && auth !== null && !auth.loggedIn && !auth.error && !dismissed);
   // §4 (첫 실행 온보딩) — 백드롭이 헤더를 덮는 동안 헤더 언어 전환기를 창 위로 띄우게 알린다.
   useOnboardingGate('login', shouldOpen);
   // §4 (첫 실행 온보딩) — 성공 표시에 "다음은 폴더" 를 덧붙일지. 이미 폴더가 있으면 안내할 다음 칸이 없다.

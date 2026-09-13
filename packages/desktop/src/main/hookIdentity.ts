@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
@@ -70,7 +70,22 @@ export function loadHookIdentity(): { token: string; preferredPort: number } {
 export function saveHookIdentity(id: HookIdentity): void {
   const p = identityPath();
   try {
-    writeFileSync(p, JSON.stringify(id, null, 2) + '\n', 'utf8');
+    /*
+     * §보안 감사 2026-09-09 — 이 파일에는 loopback 토큰이 평문으로 들어 있다. 토큰 하나면 훅
+     * 리스너의 화이트리스트 전체(카드·에이전트 설정·명령 큐)에 닿으므로, **같은 PC 의 다른
+     * 사용자 계정이 읽을 수 있으면 안 된다.**
+     *
+     * `mode` 는 파일을 새로 만들 때만 먹는다 — 이미 0644 로 만들어져 있던 파일은 그대로이므로
+     * `chmodSync` 로 함께 좁힌다. Windows 에서는 읽기전용 비트만 건드리는 무해한 no-op 이고
+     * (0o600 은 쓰기 비트가 있어 읽기전용이 되지 않는다), 실효는 mac·linux 에서 난다
+     * — 셋 다 도는 제품이므로 여기서 한 번에 처리한다.
+     */
+    writeFileSync(p, JSON.stringify(id, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+    try {
+      chmodSync(p, 0o600);
+    } catch {
+      /* 파일시스템이 권한을 다루지 않는 경우 — 위 mode 로 할 수 있는 데까지는 했다 */
+    }
   } catch (err) {
     console.warn(`[hook-identity] failed to persist ${p}: ${String(err)}`);
   }

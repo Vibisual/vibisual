@@ -82,6 +82,21 @@ export function clientPathPlatform(): PlatformName {
   return isCaseInsensitiveFsClient() ? 'win32' : 'linux';
 }
 
+/**
+ * §6 단축키 판정에 넘길 플랫폼 이름.
+ *
+ * ⚠ `clientPathPlatform()` 과 **다르다** — 저쪽은 "케이스를 접느냐"만 갈리므로 darwin 을 win32 로
+ * 접지만, 단축키는 OS 예약 조합(⌘Q·Alt+F4·⌘⇧4)이 세 OS 마다 실제로 다르다. 접어 버리면 mac
+ * 사용자에게 ⌘Q 를 배정하도록 허락하게 된다(누르면 앱이 종료된다).
+ *
+ * 판정 불가(`unknown`)면 `win32` — 가장 흔한 데스크톱이고, 여기서 틀려도 잃는 것은 "막았어야 할
+ * 조합을 허용"이지 동작이 깨지는 것이 아니다.
+ */
+export function clientKeyPlatform(): PlatformName {
+  const os = clientOs();
+  return os === 'unknown' ? 'win32' : os;
+}
+
 /** 경로를 비교·Map 키로 쓸 정규 형태로. Linux 에서는 케이스를 **보존**한다. */
 export function clientPathKey(p: string): string {
   return pathKey(p, clientPathPlatform());
@@ -128,11 +143,19 @@ const MAC_MODIFIER: Record<string, string> = {
 };
 
 /** 모디파이어가 아닌 키 중 mac 이 기호로 그리는 것. 없으면 원문 그대로 둔다. */
+/**
+ * 세 OS 공통으로 **기호가 더 읽기 쉬운** 키 — 방향키 넷.
+ *
+ * `Ctrl+Alt+Left` 라고 적으면 네 방향을 한 줄에 안내할 때 `Ctrl+Alt+LeftRightUpDown` 처럼
+ * 읽을 수 없는 덩어리가 된다. Windows 앱도 이 자리는 화살표로 그리므로 세 OS 를 같게 둔다.
+ */
+const ARROW_KEY: Record<string, string> = { up: '↑', down: '↓', left: '←', right: '→' };
+
 const MAC_KEY: Record<string, string> = {
+  ...ARROW_KEY,
   enter: '↩', return: '↩',
   backspace: '⌫', delete: '⌦', del: '⌦',
   tab: '⇥', escape: 'Esc', esc: 'Esc',
-  up: '↑', down: '↓', left: '←', right: '→',
   pageup: '⇞', pagedown: '⇟',
 };
 
@@ -154,13 +177,17 @@ function splitCombo(combo: string): string[] {
  * 단축키 조합을 그 플랫폼의 표기로(순수 함수 · 단위 테스트 대상).
  *
  * - mac: 기호를 이어 붙인다 — `Ctrl+S` → `⌘S`, `Ctrl+Shift+Z` → `⇧⌘Z`, `Ctrl+Enter` → `⌘↩`.
- * - 그 외: 받은 그대로 `+` 로 잇는다 — `Ctrl+S` → `Ctrl+S`.
+ * - 그 외: 받은 그대로 `+` 로 잇는다 — `Ctrl+S` → `Ctrl+S`. 방향키만 기호로(`Left` → `←`).
  * - `Control` 토큰은 **진짜 Control** — `Control+Tab` → mac `⌃⇥`, 그 외 `Ctrl+Tab`(#17-37 ③).
  */
 export function formatShortcut(combo: string, mac: boolean): string {
   const tokens = splitCombo(combo);
   if (tokens.length === 0) return combo;
-  if (!mac) return tokens.map((token) => WIN_MODIFIER[token.toLowerCase()] ?? token).join('+');
+  if (!mac) {
+    return tokens
+      .map((t) => WIN_MODIFIER[t.toLowerCase()] ?? ARROW_KEY[t.toLowerCase()] ?? t)
+      .join('+');
+  }
 
   const mods: string[] = [];
   const keys: string[] = [];

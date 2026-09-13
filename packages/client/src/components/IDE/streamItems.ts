@@ -321,9 +321,30 @@ export interface StreamCommand {
   error?: CommandError;
 }
 
+/**
+ * §5.25 (O) — 엔진이 대화에 내건 **그림 한 장**.
+ *
+ * 전선에서는 `text` 이벤트지만(`SubAgentStreamEvent.imagePath`), 화면 항목으로는 **따로 선다.**
+ * 이유는 말풍선이 연속된 `text` 를 한 덩어리로 합치기 때문이다 — 그 런에 섞이면
+ * 그림이 사라지고 파일 이름만 본문 중간에 박힌다.
+ *
+ * `src` 를 여기 두지 않는다 — 그림을 청하는 주소는 `id` 와 세션으로 화면이 만든다
+ * (경로는 서버 밖으로 나가지 않는다).
+ */
+export interface StreamImage {
+  kind: 'image';
+  id: string;
+  /** 파일 이름. 그림이 못 뜨는 자리에서도 무엇인지는 말해야 한다. */
+  content: string;
+  timestamp: number;
+  /** §4 (스트림 3종 ①) — 중첩 서브에이전트가 낸 그림이면 그 Task 호출의 id. */
+  nestedUnderToolUseId?: string;
+}
+
 export type StreamItem =
   | StreamText | StreamGroup | StreamSystem | StreamResult | StreamError | StreamPlan | StreamStep
-  | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk;
+  | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk
+  | StreamImage;
 
 export type StreamItemFull = StreamItem | StreamCommand;
 
@@ -371,7 +392,7 @@ export function commandAnchorTs(cmd: QueuedCommand): number {
  * 대기 중 덧말은 아직 아무것도 끊지 않았으므로 본문 런도 카드 자리도 가르지 않는다.
  * (재개 대기 중인 명령은 이미 한 번 끊었으므로 ⑥-5 규칙대로 경계에 남는다.)
  */
-function dispatchedAnchorsAsc(commands: QueuedCommand[] | undefined): number[] {
+function dispatchedAnchorsAsc(commands: readonly QueuedCommand[] | undefined): number[] {
   const out: number[] = [];
   for (const c of commands ?? []) {
     if (!hasDispatched(c)) continue;
@@ -380,16 +401,100 @@ function dispatchedAnchorsAsc(commands: QueuedCommand[] | undefined): number[] {
   return out.sort((a, b) => a - b);
 }
 
-/** commands → 사용자 프롬프트 블록. 결과는 스트림이 있으면 스트림에서 렌더하므로 비운다. */
-function buildCommandItems(commands: QueuedCommand[] | undefined, hasStream: boolean): StreamCommand[] {
+// ─── 턴 단위 결과 폴백 (§5.5 #17-12 ③-3) ───
+
+/** 나간 명령의 (경계 시각, 명령 id) — 도장 없는 줄을 시각으로 제 턴에 귀속시킬 때 쓴다. */
+export interface TurnAnchor { ts: number; id: string }
+
+/**
+ * 나간 명령의 경계를 (시각, id) 쌍으로 오름차순 정렬. `dispatchedAnchorsAsc` 와 같은 명령·같은 시각을
+ * 쓰되 **어느 명령인지**까지 든다 — 시각만으로는 그 자리에 무엇을 채워 넣을지 알 수 없다.
+ */
+export function dispatchedTurnAnchorsAsc(commands: readonly QueuedCommand[] | undefined): TurnAnchor[] {
+  const out: TurnAnchor[] = [];
+  for (const c of commands ?? []) {
+    if (!hasDispatched(c)) continue;
+    out.push({ ts: commandAnchorTs(c), id: c.id });
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * 이 줄이 속한 턴의 명령 id. 턴 세대 도장(`turnId`)이 있으면 그것, 없으면 **나간 시각**으로 —
+ * `crossesCommand` 와 같은 경계(`anchor <= ts` 면 그 명령의 턴)라 본문 런이 갈리는 자리와 귀속이
+ * 어긋나지 않는다. 첫 명령보다 앞선 복원 본문은 짝지을 말풍선이 없으므로 `null`.
+ */
+export function turnOfEvent(evt: SubAgentStreamEvent, anchors: readonly TurnAnchor[]): string | null {
+  if (evt.turnId) return evt.turnId;
+  let lo = 0;
+  let hi = anchors.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (anchors[mid]!.ts <= evt.timestamp) lo = mid + 1; else hi = mid;
+  }
+  return lo === 0 ? null : anchors[lo - 1]!.id;
+}
+
+/**
+ * 어느 턴의 말이 **버퍼에 실제로 남아 있는가**.
+ *  - `answered`: 그 턴의 AI 본문(`text` — 부모 자신의 말, 그림·중첩 Task 의 말 ❌) 또는 `result` 줄이 하나라도 있다.
+ *  - `failed`: 그 턴의 `error` 줄이 있다.
+ */
+export interface TurnCoverage {
+  answered: Set<string>;
+  failed: Set<string>;
+}
+
+export function emptyTurnCoverage(): TurnCoverage {
+  return { answered: new Set(), failed: new Set() };
+}
+
+/** 이 줄이 "그 턴이 답했다"의 증거인가 — 부모 자신의 본문이거나 CLI 의 결과 줄. 그림·중첩 Task 의 말은 아니다. */
+function isTurnAnswer(evt: SubAgentStreamEvent): boolean {
+  if (evt.eventType === 'result') return true;
+  return evt.eventType === 'text' && !evt.imagePath && !evt.nestedUnderToolUseId;
+}
+
+/** 줄 하나를 커버리지에 보탠다 — 전체 재구축·증분 파서가 **같은 함수**를 쓴다(등가성 시험이 대칭을 못박는다). */
+export function coverTurn(cov: TurnCoverage, evt: SubAgentStreamEvent, anchors: readonly TurnAnchor[]): void {
+  const answer = isTurnAnswer(evt);
+  const failure = evt.eventType === 'error';
+  if (!answer && !failure) return;
+  const turn = turnOfEvent(evt, anchors);
+  if (turn === null) return;
+  if (answer) cov.answered.add(turn);
+  if (failure) cov.failed.add(turn);
+}
+
+/** 버퍼 전체에서 턴 커버리지를 만든다(O(전체) — 전체 재구축 경로 전용). */
+export function turnCoverageOf(events: readonly SubAgentStreamEvent[], anchors: readonly TurnAnchor[]): TurnCoverage {
+  const cov = emptyTurnCoverage();
+  for (const evt of events) coverTurn(cov, evt, anchors);
+  return cov;
+}
+
+/**
+ * commands → 사용자 프롬프트 블록.
+ *
+ * §5.5 #17-12 ③-3 — 저장된 `result`(그 턴의 마지막 AI 본문)는 **그 턴의 말이 스트림에 남아 있을 때만**
+ * 비운다(같은 답이 두 번 읽히지 않게). 종전에는 "세션에 스트림이 하나라도 있으면" 모든 말풍선의 결과를
+ * 통째로 비웠다 — 복원 창(서버 마지막 N건 · 클라 상한) 밖으로 밀려난 턴은 본문도 없고 결과도 비워져,
+ * 디스크에 답이 있는데 화면에는 말풍선만 줄지어 남았다(2026-09-09 사용자 보고). 실패 사유(`error`)도
+ * 같은 규약 — 그 턴의 오류 줄이 남아 있을 때만 비운다.
+ */
+function buildCommandItems(commands: readonly QueuedCommand[] | undefined, coverage: TurnCoverage): StreamCommand[] {
   const items: StreamCommand[] = [];
   if (commands && commands.length > 0) {
     for (const cmd of commands) {
+      // §5.3 #9-1 (P) — 우리가 사용자 명령 앞에 끼운 조용한 압축은 **말풍선이 되지 않는다.**
+      //   사용자가 친 적이 없는 글이라, 뜨면 자기 대화에 `/compact` 가 섞여 보인다. 그 명령이
+      //   도는 동안 화면이 "생각 중"인 것은 `isSessionRunning` 이 따로 맡는다(그쪽은 안 거른다).
+      if (cmd.silent) continue;
       items.push({
         kind: 'command',
         id: `cmd-${cmd.id}`,
         prompt: cmd.text,
-        result: hasStream ? '' : (cmd.result ?? ''),
+        result: coverage.answered.has(cmd.id) ? '' : (cmd.result ?? ''),
         status: cmd.status,
         // §5.5 #17-18 ⑥ — 큐에 넣은 시각이 아니라 **나간 시각**(대기 중이면 꼬리).
         timestamp: commandAnchorTs(cmd),
@@ -400,14 +505,14 @@ function buildCommandItems(commands: QueuedCommand[] | undefined, hasStream: boo
         restartResumed: cmd.restartResumed,
         commandId: cmd.id,
         dispatchMode: cmd.dispatchMode,
-        error: hasStream ? undefined : cmd.error,
+        error: coverage.failed.has(cmd.id) ? undefined : cmd.error,
       });
     }
   }
   return items;
 }
 
-function computeAgentBusy(commands: QueuedCommand[] | undefined): boolean {
+function computeAgentBusy(commands: readonly QueuedCommand[] | undefined): boolean {
   return !!commands && commands.some((c) => c.status === 'executing' || c.status === 'queued');
 }
 
@@ -470,9 +575,9 @@ function computeThinkingLive(events: SubAgentStreamEvent[], agentBusy: boolean):
  * events + commands 만으로 base 아이템을 빌드(카드 제외). O(전체 길이).
  * IncrementalStreamParser 의 정답지이자, 증분이 불가능한 변화의 폴백 경로.
  */
-export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[]): BaseItemsResult {
-  const hasStream = events.length > 0;
-  const items: StreamItemFull[] = buildCommandItems(commands, hasStream);
+export function buildBaseItems(events: SubAgentStreamEvent[], commands?: readonly QueuedCommand[]): BaseItemsResult {
+  // §5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 **그 턴의 말이 버퍼에 남아 있는지**로 턴마다 갈린다.
+  const items: StreamItemFull[] = buildCommandItems(commands, turnCoverageOf(events, dispatchedTurnAnchorsAsc(commands)));
   const agentBusy = computeAgentBusy(commands);
 
   // 1차 패스: tool_use ↔ tool_result FIFO 페어링 (서버가 tool_use_id를 노출하지 않으므로 발생 순서 기반)
@@ -552,6 +657,22 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
 
     // 사고가 아닌 이벤트가 왔다 = 사고 런이 끝났다. 자국은 뒤이어 올 항목보다 **먼저** 선다.
     flushThink();
+
+    // §5.25 (O) — 그림은 말풍선 런에 섞지 않는다. 합치는 순간 `imagePath` 가 버려져
+    //   그림은 사라지고 파일 이름만 문장 중간에 끼어든다. 앞 런을 닫고 한 장씩 선다.
+    //   (증분 파서에도 같은 규약이 있다 — 등가성 시험이 둘의 대칭을 못박는다.)
+    if (evt.eventType === 'text' && evt.imagePath) {
+      flushText();
+      items.push({
+        kind: 'image',
+        id: evt.id,
+        content: evt.content,
+        timestamp: evt.timestamp,
+        ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}),
+      });
+      i++;
+      continue;
+    }
 
     if (evt.eventType === 'text') {
       if (textBuf && crossesCommand(textBuf.lastTs, evt.timestamp)) flushText();
@@ -703,7 +824,7 @@ export function isPendingCommandItem(item: StreamItemFull): item is StreamComman
  */
 export function mergeCardsIntoItems(
   base: BaseItemsResult,
-  commands?: QueuedCommand[],
+  commands?: readonly QueuedCommand[],
   reports?: AgentReport[],
   questions?: AgentQuestions[],
   reviews?: AgentReview[],
@@ -809,6 +930,9 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
     case 'result':
     case 'error':
       return (a as StreamSystem | StreamResult | StreamError).content === b.content;
+    // §5.25 (O) — 그림은 봉인된 뒤 바뀌지 않는다(같은 id = 같은 파일). 이름만 대조하면 충분하다.
+    case 'image':
+      return (a as StreamImage).content === b.content;
     // §5.5 #17-39 — 단계 자국. 봉인된 뒤로는 안 바뀌지만, 앞쪽 절단·재구축으로 같은 id 가 다시 오면 비교된다.
     case 'step': {
       const x = a as StreamStep;
@@ -861,8 +985,10 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
  * (대기 덧말 추가 → busy, 실행 끝 → idle)에 키가 같으면 파서가 **낡은 busy** 로 계속 판정해
  * 전체 재구축과 결과가 갈린다(등가성 테스트가 잡아낸 구멍).
  */
-function cmdTsKey(commands: QueuedCommand[] | undefined, agentBusy: boolean): string {
-  return `${agentBusy ? '1' : '0'}|${dispatchedAnchorsAsc(commands).join(',')}`;
+function cmdTsKey(commands: readonly QueuedCommand[] | undefined, agentBusy: boolean): string {
+  // §5.5 #17-12 ③-3 — 경계 시각뿐 아니라 **명령 id** 까지 키에 넣는다. 턴 커버리지는 id 로 쌓이므로
+  //   시각이 같은 채 id 만 바뀌면(명령 교체) 리셋 없이는 옛 id 에 쌓인 판정이 새 명령에 붙는다.
+  return `${agentBusy ? '1' : '0'}|${dispatchedTurnAnchorsAsc(commands).map((a) => `${a.ts}:${a.id}`).join(',')}`;
 }
 
 /** 열린 text 블록의 증분 상태 — items[idx] 를 제자리 교체하며 자란다. */
@@ -894,6 +1020,10 @@ export class IncrementalStreamParser {
   private cmdKey = '';
   private agentBusy = false;
   private sortedCmdTs: number[] = [];
+  /** §5.5 #17-12 ③-3 — 턴 귀속용 경계(시각·id). `sortedCmdTs` 와 같은 명령에서, 리셋 때만 갱신. */
+  private turnAnchors: TurnAnchor[] = [];
+  /** §5.5 #17-12 ③-3 — 소비한 이벤트로 쌓인 턴 커버리지(O(신규) 로 자란다). */
+  private coverage: TurnCoverage = emptyTurnCoverage();
 
   private openText: OpenBuf | null = null;
   /** §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다. */
@@ -916,6 +1046,7 @@ export class IncrementalStreamParser {
     this.openText = null;
     this.openThink = null;
     this.pending = [];
+    this.coverage = emptyTurnCoverage();
   }
 
   private crossesCommand(prevTs: number, nextTs: number): boolean {
@@ -949,6 +1080,8 @@ export class IncrementalStreamParser {
   }
 
   private processOne(evt: SubAgentStreamEvent): void {
+    // §5.5 #17-12 ③-3 — 숨김 판정보다 먼저, 모든 줄을 커버리지에 보탠다(전체 재구축 `turnCoverageOf` 와 같은 범위).
+    coverTurn(this.coverage, evt, this.turnAnchors);
     if (isThinkingPulse(evt) || isHiddenSystem(evt)) return;
 
     const type = evt.eventType;
@@ -968,6 +1101,19 @@ export class IncrementalStreamParser {
 
     // 사고 런이 끝났다 — 자국은 뒤이어 올 항목보다 **먼저** 선다(전체 재구축과 같은 순서).
     this.sealThink();
+
+    // §5.25 (O) — 전체 재구축과 같은 규약: 그림은 런에 섞지 않고 한 장씩 선다.
+    if (type === 'text' && evt.imagePath) {
+      this.sealText();
+      this.items.push({
+        kind: 'image',
+        id: evt.id,
+        content: evt.content,
+        timestamp: evt.timestamp,
+        ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}),
+      });
+      return;
+    }
 
     if (type === 'text') {
       if (this.openText && this.crossesCommand(this.openText.lastTs, evt.timestamp)) this.sealText();
@@ -1030,7 +1176,7 @@ export class IncrementalStreamParser {
   }
 
   /** 매 틱 호출 — 이벤트 파생 base 를 반환(BaseItemsResult 형태). */
-  sync(events: SubAgentStreamEvent[], commands?: QueuedCommand[]): BaseItemsResult {
+  sync(events: SubAgentStreamEvent[], commands?: readonly QueuedCommand[]): BaseItemsResult {
     const agentBusy = computeAgentBusy(commands);
     const cmdKey = cmdTsKey(commands, agentBusy);
 
@@ -1040,6 +1186,7 @@ export class IncrementalStreamParser {
       this.cmdKey = cmdKey;
       this.agentBusy = agentBusy;
       this.sortedCmdTs = dispatchedAnchorsAsc(commands);
+      this.turnAnchors = dispatchedTurnAnchorsAsc(commands);
     }
     // (canAppend 이면 cmdKey/agentBusy/sortedCmdTs 는 이미 이전과 동일 — 그대로 둔다)
 
@@ -1047,8 +1194,8 @@ export class IncrementalStreamParser {
     this.consumed = events.length;
     this.lastId = events.length ? events[events.length - 1]!.id : null;
 
-    const hasStream = events.length > 0;
-    const commandItems = buildCommandItems(commands, hasStream);
+    // §5.5 #17-12 ③-3 — 커버리지는 소비하며 쌓였으므로 여기서 다시 훑지 않는다(O(명령 수)).
+    const commandItems = buildCommandItems(commands, this.coverage);
     const items: StreamItemFull[] = commandItems.length > 0 ? [...commandItems, ...this.items] : this.items.slice();
     const thinkingLive = computeThinkingLive(events, agentBusy);
     return { items, agentBusy, thinkingLive };

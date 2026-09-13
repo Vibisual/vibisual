@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { PREVIEW_ALT_MESSAGE, PREVIEW_PICK_SOURCE } from '@vibisual/shared';
 import {
   INSPECTOR_OVERLAY_ID,
   getClassString,
@@ -75,6 +76,45 @@ function probeIframes(
   return null;
 }
 
+/** 포커스를 우리 문서로 되가져올 때 쓰는 보이지 않는 자리. 한 창에 하나만 만든다. */
+const FOCUS_SENTINEL_ID = 'vibisual-inspector-focus-sink';
+
+/** `postMessage` 를 보내온 창이 어느 iframe 인가 — 포커스를 되돌려 줄 상대를 찾는다. */
+function frameOfWindow(win: Window | null): HTMLIFrameElement | null {
+  if (!win) return null;
+  const frames = document.querySelectorAll('iframe');
+  for (const frame of frames) {
+    try {
+      if (frame.contentWindow === win) return frame;
+    } catch { /* 접근이 막힌 프레임은 우리 상대가 아니다 */ }
+  }
+  return null;
+}
+
+/**
+ * §7.11 (G) — **포커스를 우리 창으로 되가져온다.**
+ *
+ * 프리뷰 안에 포커스가 있으면 Alt 뒤의 모든 것(뗌·휠·클릭)이 그 페이지로 가고 인스펙터는 절반만
+ * 산다. 그래서 프리뷰가 "여기서 Alt 를 눌렀다"고 알려 오면 그 즉시 우리 문서의 보이지 않는 자리로
+ * 포커스를 옮긴다 — cross-origin 이라 자식이 `parent.focus()` 를 부를 수는 없지만, **부모가 자기
+ * 요소를 포커스하는 것**은 어느 오리진에서도 막히지 않는다.
+ */
+function takeFocusFromFrame(): void {
+  let sink = document.getElementById(FOCUS_SENTINEL_ID);
+  if (!sink) {
+    sink = document.createElement('div');
+    sink.id = FOCUS_SENTINEL_ID;
+    sink.tabIndex = -1;
+    // 눈에도 손에도 걸리지 않는 자리 — 포커스를 받는 것 말고는 아무 일도 하지 않는다.
+    sink.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none;outline:none';
+    document.body.appendChild(sink);
+  }
+  try {
+    window.focus();
+    (sink as HTMLElement).focus({ preventScroll: true });
+  } catch { /* 포커스를 못 옮겨도 아래 프리뷰의 keyup 신고가 남아 있다 */ }
+}
+
 /** innermost 요소에서 depthOffset 만큼 부모로 올라간 요소 반환 (root 넘지 않음) */
 function applyDepthOffset(innermost: Element, offset: number): Element {
   if (offset <= 0) return innermost;
@@ -115,10 +155,24 @@ export function useInspector(): {
   const [copiedSummary, setCopiedSummary] = useState('');
   const lastElRef = useRef<Element | null>(null);
   const copiedTimer = useRef(0);
+  /**
+   * §7.11 (G) — Alt 를 누르는 순간 포커스를 **뺏어 온** 프리뷰. Alt 를 떼면 그 자리로 돌려준다.
+   *
+   * 돌려주지 않으면 그 안에서 글을 쓰던 사람은 Alt 한 번에 키보드를 잃는다 — 우리가 가져가는 것은
+   * "Alt 를 누르고 있는 동안"뿐이라는 뜻이다.
+   */
+  const focusStolenFrom = useRef<HTMLIFrameElement | null>(null);
 
   // ── Alt/Shift key tracking ──────────────────────────
   // iframe 내부 포커스에서도 keydown을 받으려면 각 iframe contentDocument에도 리스너를 건다.
   useEffect(() => {
+    /** Alt 를 떼었다 — 프리뷰에서 가져왔던 포커스를 돌려준다(가져온 적 없으면 아무 일도 안 한다). */
+    const giveFocusBack = (): void => {
+      const frame = focusStolenFrom.current;
+      focusStolenFrom.current = null;
+      if (!frame || !frame.isConnected) return;
+      try { frame.focus({ preventScroll: true }); } catch { /* 사라진 프레임 */ }
+    };
     const down = (e: KeyboardEvent): void => {
       if (e.key === 'Alt' && !e.repeat) setActive(true);
       if (e.key === 'Shift' && !e.repeat) setShiftHeld(true);
@@ -132,8 +186,36 @@ export function useInspector(): {
         setCopied(false);
         setRegion(null);
         lastElRef.current = null;
+        giveFocusBack();
       }
       if (e.key === 'Shift') setShiftHeld(false);
+    };
+    /**
+     * §7.11 (G) — 프리뷰가 "여기서 Alt 를 눌렀다/뗐다"고 알려 온다.
+     *
+     * 프록시가 넣어 준 조각(`previewPicker.ts`)이 보내는 것이라 **오리진이 달라도** 온다 —
+     * 종전에는 `contentDocument` 에 리스너를 걸 수 있는 같은 오리진 프리뷰에서만 Alt 가 살아 있었고,
+     * 패키지 앱(`vibproxy://`)에서는 프리뷰 안을 한 번 클릭한 순간부터 인스펙터가 통째로 죽었다.
+     */
+    const onPreviewMessage = (e: MessageEvent): void => {
+      const d = e.data as { source?: string; type?: string; down?: boolean; shift?: boolean } | null;
+      if (!d || d.source !== PREVIEW_PICK_SOURCE || d.type !== PREVIEW_ALT_MESSAGE) return;
+      if (d.down === true) {
+        // 포커스를 가져온다 — 뗌·휠·클릭이 전부 우리에게 오도록. 어디서 가져왔는지 적어 둔다.
+        const frame = frameOfWindow(e.source as Window | null);
+        if (frame) focusStolenFrom.current = frame;
+        takeFocusFromFrame();
+        setActive(true);
+        if (d.shift === true) setShiftHeld(true);
+        return;
+      }
+      // 포커스를 못 가져갔을 때만 오는 뗌 신고(가져갔으면 위 `up` 이 받는다) — 같은 자리로 내린다.
+      setActive(false);
+      setInfo(null);
+      setCopied(false);
+      setRegion(null);
+      lastElRef.current = null;
+      focusStolenFrom.current = null;
     };
     const blur = (): void => {
       setActive(false);
@@ -142,6 +224,8 @@ export function useInspector(): {
       setCopied(false);
       setRegion(null);
       lastElRef.current = null;
+      // 창 자체가 포커스를 잃었다 — 지금 남의 창으로 포커스를 던지면 안 되므로 표식만 버린다.
+      focusStolenFrom.current = null;
     };
 
     const attachedDocs = new Set<Document>();
@@ -179,10 +263,12 @@ export function useInspector(): {
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
+    window.addEventListener('message', onPreviewMessage);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
+      window.removeEventListener('message', onPreviewMessage);
       observer.disconnect();
       trackedIframes.forEach((iframe) => iframe.removeEventListener('load', onIframeLoad));
       attachedDocs.forEach((doc) => {

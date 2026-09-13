@@ -12,7 +12,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { ContextSourceItem, ContextSourcePreview } from '@vibisual/shared';
+import type { ContextScopeLevel, ContextSourceItem, ContextSourcePreview } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { highlightCode } from './codeHighlight.js';
@@ -24,6 +24,7 @@ import { formatTokens, CONTEXT_CATEGORY_LABEL_KEY } from './contextInventoryView
 import { controlExplainKey, CONTEXT_ABOUT_FIELDS } from './contextSourceAbout.js';
 import { useContextAbout } from './useContextAbout.js';
 import { useIDEPaneActions } from './idePane.js';
+import { hasOwnOverride, lowerOverrideLevels, scopeStateOf } from './contextScopeView.js';
 import { clientPathKey } from '../../utils/platform.js';
 
 /** 본문 뷰어가 한 번에 그리는 줄 수 상한 — 그 위로는 브라우저가 아니라 사람이 못 읽는다. */
@@ -63,6 +64,8 @@ interface IDEContextSourceDialogProps {
   agentId: string;
   subAgentId?: string | undefined;
   item: ContextSourceItem;
+  /** 표에서 고른 층 — 이 창의 스위치도 그 층을 그리고 그 층에 건다(표와 다른 말을 하면 안 된다). */
+  scope: ContextScopeLevel;
   /** 표의 토글과 **같은 손잡이** — 설명을 읽은 자리에서 바로 끄고 켤 수 있게. */
   onToggle: (item: ContextSourceItem, next: boolean) => void;
   busy: boolean;
@@ -73,6 +76,7 @@ export function IDEContextSourceDialog({
   agentId,
   subAgentId,
   item,
+  scope,
   onToggle,
   busy,
   onClose,
@@ -137,6 +141,10 @@ export function IDEContextSourceDialog({
   }, [rootPath, openInEditor, onClose]);
 
   const lockable = item.control === 'session' || item.control === 'spawn';
+  /** 고른 층에서 본 값 · 그 층이 자기 값을 들었나 · 아래층이 따로 정해 뒀나 — 표와 같은 규칙. */
+  const scopedOn = scopeStateOf(item, scope);
+  const ownHere = hasOwnOverride(item, scope);
+  const lower = lowerOverrideLevels(item, scope);
   const files = preview?.files ?? [];
   const language = preview?.filePath ? languageFromPath(preview.filePath) : 'markdown';
 
@@ -183,30 +191,31 @@ export function IDEContextSourceDialog({
               );
             })}
 
-            {/* 지금 이 줄의 상태 — 켬/끔 + 그것을 어떻게 끄는가 */}
+            {/* 지금 이 줄의 상태 — 고른 층에서의 켬/끔 + 그것을 어떻게 끄는가 */}
             <div className="rounded-lg border border-white/[0.06] bg-black/25 p-2.5">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   disabled={!lockable || busy}
-                  onClick={() => onToggle(item, !item.enabled)}
-                  aria-pressed={item.enabled}
+                  onClick={() => onToggle(item, !scopedOn)}
+                  aria-pressed={scopedOn}
                   title={lockable
-                    ? t(item.enabled ? 'ide.context.turnOff' : 'ide.context.turnOn')
+                    ? t(scopedOn ? 'ide.context.turnOff' : 'ide.context.turnOn')
                     : t(item.hintKey ?? 'ide.context.locked')}
                   className={`flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors ${
                     !lockable
                       ? 'cursor-not-allowed bg-gray-700/60'
-                      : item.enabled
+                      : scopedOn
                         ? 'bg-emerald-500/70 hover:bg-emerald-400/80'
                         : 'bg-gray-600 hover:bg-gray-500'
                   }`}
                 >
-                  <span className={`h-3 w-3 rounded-full bg-white/90 transition-transform ${item.enabled ? 'translate-x-3' : 'translate-x-0'} ${!lockable ? 'opacity-40' : ''}`} />
+                  <span className={`h-3 w-3 rounded-full bg-white/90 transition-transform ${scopedOn ? 'translate-x-3' : 'translate-x-0'} ${!lockable ? 'opacity-40' : ''}`} />
                 </button>
-                <span className={`text-[12px] font-semibold ${item.enabled ? 'text-emerald-300/90' : 'text-gray-500'}`}>
-                  {t(item.enabled ? 'ide.context.detail.stateOn' : 'ide.context.detail.stateOff')}
+                <span className={`text-[12px] font-semibold ${scopedOn ? 'text-emerald-300/90' : 'text-gray-500'}`}>
+                  {t(scopedOn ? 'ide.context.detail.stateOn' : 'ide.context.detail.stateOff')}
                 </span>
+                <span className="text-[12px] text-gray-500">{t(`ide.context.scope.${scope}`)}</span>
                 <span className="ml-auto tabular-nums text-[12px] font-semibold text-violet-300/80">
                   {item.estimated ? '~' : ''}{formatTokens(item.tokens)}
                 </span>
@@ -214,9 +223,19 @@ export function IDEContextSourceDialog({
               <p className="mt-2 text-[12px] leading-relaxed text-gray-400">{t(controlExplainKey(item.control))}</p>
               {item.hintKey && <p className="mt-1 text-[12px] leading-relaxed text-sky-300/80">{t(item.hintKey)}</p>}
               {item.warnKey && <p className="mt-1 text-[12px] leading-relaxed text-amber-400/80">{t(item.warnKey)}</p>}
-              {item.overrideScope && (
-                <p className="mt-1 text-[12px] text-violet-300/70">
-                  {t('ide.context.detail.overrideBy', { scope: t(`ide.context.scope.${item.overrideScope}`) })}
+              {/* 이 층이 자기 값을 들었나, 아니면 위층을 따라가는 중인가 — 둘을 구분해 말한다. */}
+              <p className="mt-1 text-[12px] text-violet-300/70">
+                {ownHere
+                  ? t('ide.context.detail.setHere', { scope: t(`ide.context.scope.${scope}`) })
+                  : t('ide.context.detail.inheritedHere', { scope: t(`ide.context.scope.${scope}`) })}
+              </p>
+              {/* 아래층이 따로 정해 뒀으면 여기서 바꿔도 프롬프트에 나가는 값은 그쪽이다. */}
+              {lower.length > 0 && (
+                <p className="mt-1 text-[12px] leading-relaxed text-amber-400/80">
+                  {t('ide.context.detail.lowerOverride', {
+                    scopes: lower.map((lv) => t(`ide.context.scope.${lv}`)).join(', '),
+                    state: t(item.enabled ? 'ide.context.detail.stateOn' : 'ide.context.detail.stateOff'),
+                  })}
                 </p>
               )}
             </div>

@@ -26,6 +26,14 @@ export interface PaneDragResume {
    * 있던 곳)에 떠 있다 — 한 프레임이라도 엉뚱한 데 떴다 손 아래로 튀면 창이 깜빡인 것처럼 보인다.
    */
   cursor: { x: number; y: number } | null;
+  /**
+   * §5.5 #17-6 (H-17) — 손이 **아직 눌려 있는가.**
+   *
+   * 거짓이면 받는 창은 자리·크기만 물려받고 그대로 선다(드래그를 이어받으면 놓은 뒤에도 창이
+   * 커서를 따라다닌다). 합치는 자리가 뗌 한 곳으로 모인 뒤로는 이쪽이 보통이고, 참인 판은
+   * 손이 눌린 채 창을 넘겨야 하는 길에만 남는다.
+   */
+  dragging: boolean;
   /** 맡긴 시각(ms) — 받을 창이 끝내 안 서면 걷는다. */
   at: number;
 }
@@ -38,6 +46,8 @@ export interface PaneDragResumeInput {
   width: number;
   height: number;
   cursor?: { x: number; y: number } | undefined;
+  /** (H-17) 손이 아직 눌려 있는가 — 없으면 **눌린 채**로 본다(종전 판의 뜻을 그대로 잇는다). */
+  dragging?: boolean | undefined;
 }
 
 /**
@@ -67,6 +77,7 @@ export function putPaneDragResume(input: PaneDragResumeInput, now: number = Date
       && Number.isFinite(input.cursor.y)
       ? { x: input.cursor.x, y: input.cursor.y }
       : null,
+    dragging: input.dragging !== false,
     at: now,
   };
   pending = resume;
@@ -74,17 +85,35 @@ export function putPaneDragResume(input: PaneDragResumeInput, now: number = Date
 }
 
 /**
+ * §5.5 #17-6 (H-14) — 꺼내지 **않고** 들여다본다.
+ *
+ * 쓰는 자리가 둘이라 손잡이도 둘이다: 이 창이 **첫 렌더에 앉을 자리**를 정할 때는 값을 보기만
+ * 하고(`peek`), 그 뒤에 도는 레이아웃 효과가 드래그를 이어받을 때 비로소 꺼낸다(`take`).
+ * 첫 렌더에서 꺼내 버리면 그 효과가 빈손이 되어 창은 자리만 잡고 손을 따라오지 않는다.
+ *
+ * 시한이 지난 짐은 여기서 **걷지 않는다** — 들여다보는 손잡이가 무언가를 버리면 두 번 불렸다는
+ * 이유로 결과가 달라진다. 걷는 것은 `takePaneDragResume` 한 곳의 일이다.
+ */
+export function peekPaneDragResume(agentId: string, now: number = Date.now()): PaneDragResume | null {
+  const cur = pending;
+  if (!cur) return null;
+  if (now - cur.at > PANE_DRAG_RESUME_TTL_MS) return null;
+  if (cur.agentId !== agentId) return null;
+  return cur;
+}
+
+/**
  * 그 에이전트의 짐을 꺼낸다 — **한 번 꺼내면 사라진다**(같은 짐을 두 창이 나눠 쓰면 둘 다
  * 커서를 따라다닌다). 다른 에이전트의 것이면 손대지 않고 그대로 둔다.
  */
 export function takePaneDragResume(agentId: string, now: number = Date.now()): PaneDragResume | null {
-  const cur = pending;
-  if (!cur) return null;
-  if (now - cur.at > PANE_DRAG_RESUME_TTL_MS) {
-    pending = null;
+  const cur = peekPaneDragResume(agentId, now);
+  if (!cur) {
+    // 시한이 지난 짐은 **꺼내려는 손**이 걷는다 — 남겨 두면 한참 뒤에 연 창이 누르지도
+    //   않은 드래그를 이어받는다(창이 커서를 따라다니는 유령 동작).
+    if (pending && now - pending.at > PANE_DRAG_RESUME_TTL_MS) pending = null;
     return null;
   }
-  if (cur.agentId !== agentId) return null;
   pending = null;
   return cur;
 }

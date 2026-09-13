@@ -7,34 +7,34 @@
  */
 export const strings = {
   "en": {
-    "desc": "Distilling episodes into facts is not free — it is a lossy operation. Keep the original and add the distillation rather than replacing it.",
+    "desc": "Distilling episodes into reusable knowledge is not free — it is a lossy operation. Here the steps are kept as the command text that actually ran, so nothing is summarised away.",
     "heading": "Memory Consolidation",
     "level": {
-      "none": "No memory yet",
-      "pending": "New cards unseen",
-      "settled": "Reviewed"
+      "none": "Not on yet",
+      "pending": "Candidates forming",
+      "settled": "All settled"
     },
     "check": {
-      "unseen": "Unseen cards",
+      "unseen": "Still forming",
       "recent": "Most recent",
-      "archived": "Archived"
+      "archived": "Set aside"
     },
-    "note": "Two traps: naive summarisation loses encoded facts, and weak deduplication lets new records overwrite old ones that were still true."
+    "note": "Two traps: naive summarisation loses the detail that made the steps runnable, and weak deduplication lets a new record overwrite an old one that was still true."
   },
   "ko": {
-    "desc": "일화를 사실로 증류하는 일은 공짜가 아니라 손실이 있는 연산입니다. 원본을 지우고 요약만 남기는 대신, 원본을 둔 채 증류본을 더해야 합니다.",
+    "desc": "일화를 다시 쓸 수 있는 지식으로 증류하는 일은 공짜가 아니라 손실이 있는 연산입니다. 여기서는 단계를 실제로 돌아간 명령 그대로 두므로 요약으로 잃는 것이 없습니다.",
     "heading": "기억 통합",
     "level": {
-      "none": "아직 기억 없음",
-      "pending": "미확인 카드 있음",
-      "settled": "확인됨"
+      "none": "아직 켜지 않음",
+      "pending": "굳는 중인 후보 있음",
+      "settled": "모두 굳음"
     },
     "check": {
-      "unseen": "미확인 카드",
-      "recent": "최근 카드",
-      "archived": "보관됨"
+      "unseen": "굳는 중",
+      "recent": "가장 최근",
+      "archived": "물려 둔 것"
     },
-    "note": "함정이 둘입니다 — 단순 요약은 인코딩된 사실을 잃고, 중복 제거를 소홀히 하면 새 기록이 아직 유효한 옛 기록을 덮어씁니다."
+    "note": "함정이 둘입니다 — 단순 요약은 단계를 돌아가게 하던 세부를 잃고, 중복 제거를 소홀히 하면 새 기록이 아직 유효한 옛 기록을 덮어씁니다."
   },
   "ja": {
     "level": {

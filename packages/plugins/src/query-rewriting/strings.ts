@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "The words a person uses and the words stored in knowledge rarely match, so the query has to be reshaped. Here the agent writes its own search terms, so rewriting happens on its side.",
+    "desc": "Raw history and reusable knowledge are not the same shape, so what was observed has to be reshaped on the way in. Here that reshaping happens during analysis — repeated runs are folded into one identity and given a name.",
     "heading": "Query Rewriting",
     "level": {
-      "none": "No searches",
-      "empty": "Searches found nothing",
-      "effective": "Searches found matches"
+      "none": "Nothing spotted",
+      "empty": "Spotted, nothing written",
+      "effective": "Spotted and written"
     },
     "check": {
-      "searches": "Searches",
-      "hits": "Cards found"
+      "searches": "Runs spotted",
+      "hits": "Written down"
     },
-    "note": "Searches that keep coming back empty usually mean the stored wording and the asked wording never overlap."
+    "note": "Spotting runs but never writing one down usually means the work is not actually repeating the same way twice."
   },
   "ko": {
-    "desc": "사람이 쓰는 말과 저장된 지식의 표현은 잘 맞지 않아 질의를 다듬어야 합니다. 여기서는 에이전트가 직접 검색어를 만들므로 재작성이 에이전트 쪽에서 일어납니다.",
+    "desc": "날것의 이력과 다시 쓸 수 있는 지식은 모양이 다르므로, 본 것을 들어오는 길에 다시 빚어야 합니다. 여기서는 그 일이 분석 중에 일어납니다 — 되풀이된 일들이 하나로 접히고 이름을 얻습니다.",
     "heading": "질의 재작성",
     "level": {
-      "none": "검색 없음",
-      "empty": "검색이 빈손",
-      "effective": "검색이 맞음"
+      "none": "잡힌 것 없음",
+      "empty": "잡혔지만 안 적힘",
+      "effective": "잡혀서 적힘"
     },
     "check": {
-      "searches": "검색 횟수",
-      "hits": "찾은 카드"
+      "searches": "잡은 일",
+      "hits": "적힌 절차"
     },
-    "note": "검색이 계속 빈손이면 대개 저장된 표현과 묻는 표현이 아예 겹치지 않는다는 뜻입니다."
+    "note": "일은 잡히는데 적히는 절차가 없다면 대개 같은 모양으로 두 번 되풀이되지 않는다는 뜻입니다."
   },
   "ja": {
     "level": {

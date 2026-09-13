@@ -14,14 +14,19 @@ import {
 } from '../../stores/graphStore.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import { captureIDEPaneHandoff, type IDEPaneHandoff } from '../../stores/idePaneHandoff.js';
-import { takePaneDragResume } from '../../stores/idePaneDragResume.js';
+import { peekPaneDragResume, takePaneDragResume } from '../../stores/idePaneDragResume.js';
 import { readIDEPane, useIDEPaneScope, useIDEPaneValue } from './idePane.js';
+import { scheduleGhostHide } from './ghostHandoff.js';
+import { watchDetachedFollowRelease } from './detachedFollowRelease.js';
+import { createPopOutWarmLatch } from './popOutWarmLatch.js';
 import {
   IDE_DOCK,
   IDE_DOCK_SIDES,
   IDE_PANE_Z_BASE,
   IDE_FLOAT,
   FLOAT_RESIZE_EDGES,
+  applyDockEntryLock,
+  beginDockEntryLock,
   canAddDockSlot,
   clampDockSize,
   clampFloatGeom,
@@ -33,11 +38,9 @@ import {
   dockZoneButtons,
   initialFloatGeom,
   isHorizontalSide,
-  isOutsideViewport,
   isPinnedToViewportEdge,
   dockSizeFromDrag,
   dragFloatGeom,
-  isPulledFullyOut,
   magnetFloatGeom,
   easeFloatPushOffset,
   pushFloatGeoms,
@@ -46,9 +49,12 @@ import {
   previewDockRect,
   resizeFloatGeom,
   resolveDockDrop,
+  resumedFloatGeom,
   sameDockTarget,
   splitSpansFromDrag,
+  stepDockEntryLock,
   type DockDropTarget,
+  type DockEntryLock,
   type DockZoneButton,
   type DockedPane,
   type FloatGeom,
@@ -84,34 +90,13 @@ import { VerifyDemoLayer } from './VerifyDemoLayer.js';
 import { IDERunOutputPanel } from './IDERunOutputPanel.js';
 import { useRunSessions } from '../../stores/runSessions.js';
 import { useReadingSettings } from './reading/useReadingSettings.js';
-import { shortcutLabel } from '../../utils/platform.js';
+// §6 — 창 배치 키는 레지스트리가 정한다(여기 조합을 적지 않는다).
+import { useCommand } from '../../hooks/useCommand.js';
+import { useBindingLabel, useBindingRaw } from '../Shortcuts/useBindingLabel.js';
+import { groupBindingLabel } from '../Shortcuts/bindingLabel.js';
 import { ReadingSettingsPopover } from './reading/ReadingSettingsPopover.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
-
-/**
- * §5.5 #17-6 (H-4) ⑥ — 앱 밖으로 꺼낸 창이 커서에 매달린 동안, **손을 뗀 순간을 앱 쪽에서도 듣는다.**
- *
- * 꺼내는 순간 이 창(앱 안 IDE)은 닫히므로 컴포넌트는 사라진다 — 그래서 리스너를 컴포넌트가
- * 아니라 **모듈**에 단다. 뗌을 놓쳤을 때의 대가가 "창이 영영 커서를 따라다닌다"라, 매달린 창
- * 쪽에서도 같은 신호를 듣게 해 두었다(둘 중 어느 쪽이 마우스 캡처를 쥐고 있든 한쪽은 듣는다).
- * 두 번 불려도 안전하다 — 이미 끝난 판은 main 이 조용히 지나간다.
- */
-function watchDetachedFollowRelease(agentId: string): void {
-  const end = (): void => {
-    window.removeEventListener('mouseup', end, true);
-    window.removeEventListener('mousemove', onMove, true);
-    window.removeEventListener('blur', end);
-    void window.api?.overlay?.dragEndFor?.(agentId);
-  };
-  // 뗌 자체를 놓쳤을 때의 그물 — 버튼이 눌리지 않은 채 움직이면 이미 놓은 것이다.
-  const onMove = (ev: MouseEvent): void => {
-    if (ev.buttons === 0) end();
-  };
-  window.addEventListener('mouseup', end, true);
-  window.addEventListener('mousemove', onMove, true);
-  window.addEventListener('blur', end);
-}
 
 /**
  * 창의 모양. 'docked' 는 **네 변 중 어디에 붙었는가**를 스토어의 `dockSide` 가 쥔다
@@ -151,6 +136,16 @@ const EDGE_NUDGE_PX = 72;
  * — 그 경우엔 선 없이라도 넘어가는 편이 낫다(빈 구간 한 번 vs 창이 굳는 것).
  */
 const POP_OUT_GHOST_WAIT_MS = 160;
+/**
+ * §5.5 #17-6 (H-22) main 의 선에 **살아 있다고 알리는** 주기(ms).
+ *
+ * 그 선은 클릭통과 창이라 사용자가 없앨 수 없어, main 이 수명 그물(`GHOST_MAX_LIFE_MS`=20초)로
+ * 스스로 걷는다. (H-22) 로 선이 한 판 내내 살아 있게 되면서 그 그물이 **아직 끌고 있는 손
+ * 아래에서** 걷힐 수 있게 됐다 — 본체는 숨어 있으므로((H-19)) 그러면 커서 아래가 완전히 빈다.
+ * 그물을 늘리는 대신(늘리면 렌더러가 죽었을 때 그만큼 오래 남는다) 판이 살아 있는 동안 다시
+ * 재게 한다: 손을 떼면 이 알림이 멎고, 그때부터 그물은 종전 그대로 20초다.
+ */
+const GHOST_KEEPALIVE_MS = 5_000;
 
 /**
  * 이 창이 앉을 자리 — **사용자가 옮겨 둔 자리가 있으면 그것**, 없으면 계단식 초기 자리.
@@ -160,6 +155,28 @@ function floatGeomFor(paneKey: string | null, paneIndex: number): FloatGeom {
   const vp = { w: window.innerWidth, h: window.innerHeight };
   const saved = selectIDEPane(useGraphStore.getState(), paneKey).float;
   return saved ? clampFloatGeom(saved, vp) : initialFloatGeom(vp, paneIndex);
+}
+
+/**
+ * §5.5 #17-6 (H-14) — 이 창이 **밖에서 끌려 들어오는 중**이면 첫 자리는 손 아래다.
+ *
+ * 되돌아온 칸은 짐에 실려 온 `float`(밖으로 나가기 **전** 앱 안에 앉아 있던 자리)로 서므로,
+ * 자리를 옮기는 일을 마운트 뒤로 미루면 그 한 프레임이 화면에 그대로 그려진다 — 창이 엉뚱한
+ * 곳에 튀어나왔다 손에 붙는 것으로 보이고, 그것은 (H-12) 가 없애기로 한 바로 그 구간이다.
+ * 그래서 첫 렌더의 상태 초기값으로 쓰이고, 훅 밖(모듈 함수)에 둔다.
+ *
+ * **꺼내지 않고 들여다보기만 한다**(`peek`) — 실제로 드래그를 이어받는 것은 아래 레이아웃
+ * 효과이고, 여기서 꺼내 버리면 그 효과가 빈손이 되어 창이 손을 따라오지 않는다.
+ */
+function resumeGeomFor(agentId: string | null, fullWindow: boolean): FloatGeom | null {
+  if (!agentId || fullWindow) return null;
+  const resume = peekPaneDragResume(agentId);
+  if (!resume) return null;
+  return resumedFloatGeom(
+    resume,
+    { x: window.screenX, y: window.screenY },
+    { w: window.innerWidth, h: window.innerHeight },
+  );
 }
 
 /** 도크 손잡이가 붙는 **안쪽** 모서리 — 오른쪽 도크는 왼쪽 모서리에 손잡이가 선다. */
@@ -261,7 +278,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // 백드롭·in-window floating/maximize 분기 없이, 이동은 타이틀바 app-drag(OS 창 이동),
   // 크기 조절은 OS 창 엣지 리사이즈. 모달이 80vw/80vh 로 떠 주변이 검은 띠로 보이던 문제 제거.
   fullWindow = false,
-}: { disableDock?: boolean; fullWindow?: boolean }): React.JSX.Element | null {
+  // (판올림 번호 발급 대기) §5.5 #17-6 (H-18) — **밖에 서 있는 이 창을 오버레이 버블로 바꾼다.**
+  // 창을 접는 일 자체는 `overlay.collapseSelf` 지만, "이번 접힘은 버블로"라는 사실은 `OverlayShell`
+  // 이 쥔다((H-20) — 닫기(✕/Esc)는 창을 닫고, 버블로 가는 길은 이 손잡이 하나다. 규칙은
+  // `overlayCloseIntent.ts`). 그래서 IPC 를 여기서 직접 부르지 않고 셸이 준 길로 간다. 앱 안 창에는
+  // 이 prop 이 없다(바꿀 창이 없다).
+  onCollapseToBubble,
+}: {
+  disableDock?: boolean;
+  fullWindow?: boolean;
+  onCollapseToBubble?: () => void;
+}): React.JSX.Element | null {
   const { t } = useTranslation();
   // §5.5 #17-1 — 이 컴포넌트는 이제 **창 하나**다. 어느 슬롯을 보는지는 컨텍스트가 말해 준다
   //   (컨텍스트 밖 = 오버레이 위젯 창이면 종전대로 활성 프로젝트의 주 창).
@@ -351,11 +378,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트: 라벨/자동 세션 분기. customCreated 기반이라 isCustom 도 true.
   const executionMode = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.executionMode : undefined));
   const isCmdAgent = isCustom && executionMode === 'interactive-terminal';
-  // §5.19 (G) — All Model(로컬 LLM) 버블: 정체가 다르면 창의 얼굴도 달라야 한다.
-  //   이 창은 클로드 CLI 의 것이 아니라 지금 문 로컬 모델의 것이다.
+  // §5.19 (G) · §5.25 (B) — 프로바이더 버블(All Model · 코덱스): 정체가 다르면 창의 얼굴도 달라야 한다.
+  //   이 창은 클로드 CLI 의 것이 아니라 지금 문 엔진의 것이다. **어느 엔진인지는 여기서 가리지 않는다** —
+  //   이 값이 정하는 것은 "타이틀바 뱃지를 비우고 정체를 하단 상태바에 맡기는가" 하나뿐이고,
+  //   그 답은 두 프로바이더가 같다(엔진 이름은 그 뱃지가 `kind` 로 갈라 적는다).
   const agentConfig = useGraphStore((s) => (agentId ? s.agentConfigs[agentId] : undefined));
-  const localProvider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
-  const isLocalAgent = !!localProvider;
+  const provider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
+  const isProviderAgent = !!provider;
 
   /**
    * §5.5 #17-1 — 최대화는 **슬롯이 들고 있다**(`float`·`dockSide` 와 같은 자리).
@@ -417,15 +446,22 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const sidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
   const sidebarView = useIDEPaneValue((o) => o.activeView);
   const editorOpenCount = useIDEPaneValue((o) => o.editorFiles.length);
+  /**
+   * §5.5 #17-17 ㉔ — 무대도 **같은 판**에 서므로 반응형 판정에 함께 실린다. 종전에는 무대가 따로
+   * 서면서도 이 계산에 없어, 무대를 연 만큼 대화가 하한(`MIN_STREAM_W`) 아래로 눌려도 아무것도
+   * 접히지 않았다(판정이 안 보던 폭이라 자리를 낼 이유를 몰랐다). 판이 하나가 되면서 그 구멍도 닫힌다.
+   */
+  const stageOpen = useIDEPaneValue((o) => o.stageOpen);
+  const paneOpen = editorOpenCount > 0 || stageOpen;
   const storedEditorWidth = useGraphStore((s) => s.ideEditorWidth);
   const bodyLayout = useMemo(() => resolveIDEBodyLayout({
     width: bodyWidth,
     viewportNarrow: isNarrow,
     sidebarCollapsed,
     sidebarWidth: ideSidebarWidth(sidebarView),
-    editorOpen: editorOpenCount > 0,
+    editorOpen: paneOpen,
     editorWidth: storedEditorWidth,
-  }), [bodyWidth, isNarrow, sidebarCollapsed, sidebarView, editorOpenCount, storedEditorWidth]);
+  }), [bodyWidth, isNarrow, sidebarCollapsed, sidebarView, paneOpen, storedEditorWidth]);
 
   // §5.5 #17-27 ⑪ — [추종] 이 켜져 있으면 그 **세션**이 고치는 파일을 편집창이 따라 연다.
   //   편집창은 열린 파일이 없으면 렌더되지 않으므로, 여는 판단은 그 밖(여기)에 있어야 한다.
@@ -571,13 +607,26 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // ⚠ 초기값을 **스토어에서 바로** 잡는다. 종전처럼 항상 'modal' 로 시작하면, 붙어 있던 창이
   //   (프로젝트 탭을 옮겼다 돌아와) 다시 마운트될 때 아래 sync 효과가 그 첫 프레임의 stale 한
   //   mode 를 보고 **스스로 도크를 떼어 버린다**(붙여 둔 창이 저절로 떠다니는 회귀).
+  //
+  // §5.5 #17-6 (H-14) — **밖에서 끌려 들어오는 중인 창**은 그 규칙보다 앞선다. 짐에 실려 온
+  //   `dockSide`·`openMode` 는 "밖으로 나가기 전에 어디에 있었나"이고, 지금 이 창은 아직 손에
+  //   매달려 있다 — 붙은 채·모달로 한 프레임 섰다가 떠 있는 창으로 바뀌면 들어오는 그 순간이
+  //   통째로 깜빡임이 된다. 어디에 앉을지는 손을 뗄 때 정해진다(그것이 (H-11) 의 규율이다).
+  const resumeGeomRef = useRef<FloatGeom | null | undefined>(undefined);
+  if (resumeGeomRef.current === undefined) resumeGeomRef.current = resumeGeomFor(agentId, fullWindow);
+  const resumeGeom = resumeGeomRef.current;
   const [mode, setMode] = useState<OverlayMode>(() => {
     if (fullWindow) return 'modal';
+    if (resumeGeom) return 'floating';
     if (storeDockSide && !disableDock) return 'docked';
     return openModeHint === 'floating' ? 'floating' : 'modal';
   });
-  const [floatPos, setFloatPos] = useState<{ x: number; y: number }>(() => floatGeomFor(paneKey, paneIndex));
-  const [floatSize, setFloatSize] = useState<{ w: number; h: number }>(() => floatGeomFor(paneKey, paneIndex));
+  const [floatPos, setFloatPos] = useState<{ x: number; y: number }>(
+    () => resumeGeom ?? floatGeomFor(paneKey, paneIndex),
+  );
+  const [floatSize, setFloatSize] = useState<{ w: number; h: number }>(
+    () => resumeGeom ?? floatGeomFor(paneKey, paneIndex),
+  );
   /**
    * 드래그 중 미리보기가 그릴 **실제로 앉을 칸**(없으면 미리보기 ❌). 종전 불리언 한 비트를 대신한다.
    * 좌표까지 여기 담아 두는 까닭은 그리는 쪽이 같은 계산을 두 번 하지 않게 하기 위함이다.
@@ -589,6 +638,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    */
   const [zoneButtons, setZoneButtons] = useState<DockZoneButton[]>([]);
   const [dropTarget, setDropTarget] = useState<DockDropTarget | null>(null);
+  /**
+   * (판올림 번호 발급 대기) §5.5 #17-6 (H-11) 밖에서 **돌아온 판**이 잠가 둔 벽 — 그 변의 십자
+   * 버튼을 흐리게 그린다. 잠긴 자리를 평소처럼 그려 두면 겨눠도 안 밝아지는 이유를 말하지 않는
+   * 무반응이 된다(막힌 까닭을 말하지 않는 죽은 자리 ❌).
+   */
+  const [dockLockSide, setDockLockSide] = useState<IDEDockSide | null>(null);
   /** 자석이 붙은 선 — 왜 창이 살짝 튀었는지 눈으로 보이게 한다. */
   const [magnetGuides, setMagnetGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   /**
@@ -630,19 +685,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   /** 지금 남이 나를 밀 수 있는 상태인가 — 떠 있는 창일 때만(렌더마다 갱신되는 거울). */
   const pushableRef = useRef(false);
   const dragRafRef = useRef<number | null>(null);
-  /**
-   * §5.5 #17-6 (H) — **끌어다 앱 안으로 합치는 중**(독립 창 한정). main 이 창을 칩으로 줄여
-   * 커서를 따라가게 하고, 그동안 이 창은 IDE 대신 칩 UI 를 그린다(줄어든 창에 IDE 를 그대로
-   * 그리면 글자만 잘려 보인다). `hovering` 은 커서가 앱 창 위에 있다 = 놓으면 합쳐진다.
-   */
-  const [redockDrag, setRedockDrag] = useState<{ dragging: boolean; hovering: boolean }>({
-    dragging: false,
-    hovering: false,
-  });
-  /** 손을 뗀 순간의 hover 를 읽는 거울 — 리스너 closure 가 옛 값을 보지 않게. */
-  const redockHoverRef = useRef(false);
-  /** 이번 누름이 드래그가 됐는가 — 그랬다면 뒤따르는 click(=즉시 되돌리기)을 삼킨다. */
-  const redockDraggedRef = useRef(false);
   const [flashKey, setFlashKey] = useState<number>(0);
   /** 타이틀바 [붙이기] 메뉴 열림 — 이 창만의 UI 상태(전역 store 금지 규칙). */
   const [dockMenuOpen, setDockMenuOpen] = useState(false);
@@ -723,6 +765,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     prevRef.current = { agentId: agentId ?? null, projectId: overlayProjectId };
     const projectChanged = prev.projectId !== overlayProjectId;
     if (agentId && (!prev.agentId || projectChanged)) {
+      // §5.5 #17-6 (H-26) — **밖에서 들어온 판은 여기서 다시 정하지 않는다.**
+      //
+      //   그 창의 자리·크기·모드는 첫 렌더가 `resumeGeomFor` 로 이미 정했다(밖의 창 크기 그대로
+      //   손 아래). 아래 세 갈래는 **어느 쪽이든** 그 크기를 잃는다 — 모달은 `80vw×80vh` 로 부풀고,
+      //   `goFloating` 은 슬롯의 `float` 로 자리를 다시 짓는데 밖에서 돌아온 짐에는 그 값이 없다.
+      //   어디에 앉을지는 손을 뗄 때 정해진다((H-11)(H-14) 의 규율 그대로).
+      //
+      //   표식은 **한 판만** 쓰고 여기서 소모한다 — 남겨 두면 이 창이 나중에 프로젝트를 갈아탈 때
+      //   모드를 다시 정하는 길까지 영영 막힌다(그때는 밖에서 들어온 판이 아니다).
+      if (resumeGeomRef.current) {
+        resumeGeomRef.current = null;
+        return;
+      }
       // (오버레이 창에선 disableDock 이라 항상 modal 로 연다 — 도킹 없음)
       if (storeDockSide && !disableDock) {
         setMode('docked');
@@ -751,6 +806,41 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     goFloating();
   }, [fullWindow, agentId, mode, paneCount, goFloating]);
 
+  /**
+   * (판올림 번호 발급 대기) 헤더 [창과 버블] 메뉴의 **레이아웃 프리셋**이 밖에서 배치를 바꿨다 —
+   * 창 모양(모달/플로팅/도킹)은 컴포넌트 로컬 상태라, 이 반영이 없으면 스토어만 바뀌고 화면은
+   * 그대로 남는다.
+   *
+   * ⚠ 이 효과는 **아래 도크 sync 효과보다 먼저 서 있어야 한다.** 한 커밋 안에서 효과는 선언 순서로
+   *   도는데, 프리셋이 `dockSide` 를 적으면 아래 sync 가 먼저 깨어나 "모드는 아직 floating 인데
+   *   변이 생겼다"로 읽고 **방금 적힌 변을 도로 지운다**(`setPaneDock(paneKey, null)`). 그러면 이
+   *   효과가 뒤늦게 스토어를 읽을 때는 이미 변이 없어, [오른쪽 한 칸에 탭으로 모으기]·[좌우로 나눠
+   *   붙이기]가 눌러도 아무 일도 일어나지 않는 버튼이 된다. 순서를 바꾸고, 아래 sync 는 아직
+   *   반영되지 않은 세대가 있으면 그 커밋을 통째로 비켜서게 한다(`layoutEpochRef`).
+   */
+  const layoutEpochRef = useRef(0);
+  /** 아래 sync 가 **이미 비켜선** 세대 — 같은 세대를 두 번 삼키지 않게 한다. */
+  const syncedEpochRef = useRef(0);
+  useEffect(() => {
+    if (layoutEpoch === 0 || fullWindow || !agentId) return;
+    layoutEpochRef.current = layoutEpoch;
+    const slot = selectIDEPane(useGraphStore.getState(), paneKey);
+    // 최대화는 프리셋 쪽(`applyIDEWindowLayout`)이 이미 풀었다 — 자리를 다시 정하는 프리셋만
+    //   푼다(전부 접기/펴기는 배치를 안 건드리므로 최대화도 그대로 둔다).
+    if (slot.dockSide && !disableDock) {
+      setMode('docked');
+      return;
+    }
+    // 떼는 프리셋([전부 떼어 내기]·바둑판·계단식)은 **모달도 함께 푼다** — 모달은 백드롭으로 화면을
+    //   덮어 "떼어 늘어놓았다"가 눈에 보이지 않는다(창이 하나뿐이면 아래 paneCount 갈래도 안 돈다).
+    const g = floatGeomFor(paneKey, paneIndex);
+    setFloatSize({ w: g.w, h: g.h });
+    setFloatPos({ x: g.x, y: g.y });
+    setMode('floating');
+    commitFloat(g);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutEpoch]);
+
   // §5.5 #17-1 (v2.18) — 로컬 mode 와 스토어의 붙은 변을 맞춘다. 자리를 비우는 쪽(App 캔버스 여백·
   //   DetailPanel 미러링)이 스토어를 읽으므로 둘이 어긋나면 "IDE 없는 빈 도크"가 남는다.
   //   (v2.20) 닫힌 상태(agentId null)에서는 sync 금지 — 다음 open 이 mode 를 다시 정한다.
@@ -762,6 +852,16 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     //   돌아온 창이 늘 붙지 않은 채로 떠 있었다(어디에 있던 창인지 잊는다).
     //   도킹 자체가 불가능한 창이라 지우지 않아도 화면에는 아무 영향이 없다.
     if (fullWindow || disableDock) return;
+    // ⚠ 프리셋이 방금 적은 변을 **지우지 않는다.** 위 효과가 이 세대를 반영하며 `setMode` 를 예약해도
+    //   그 값은 다음 커밋에나 보이므로, 이 커밋의 `mode` 는 아직 옛것이다. 그대로 견주면 "모드는
+    //   floating 인데 변이 생겼다"로 읽어 프리셋을 되돌린다 — [탭으로 모으기]·[좌우로 나눠 붙이기]가
+    //   죽는 자리가 여기였다. 위 효과가 막 삼킨 세대의 커밋은 통째로 비켜서고, `setMode` 가 반영된
+    //   다음 커밋부터 다시 맞춘다(플래그가 아니라 **세대 번호**로 견준다 — 플래그로 두면 mode 가
+    //   안 바뀌어 이 효과가 안 도는 프리셋에서 표시가 남아, 나중에 진짜 필요한 sync 한 번을 삼킨다).
+    if (layoutEpochRef.current === layoutEpoch && syncedEpochRef.current !== layoutEpoch) {
+      syncedEpochRef.current = layoutEpoch;
+      return;
+    }
     const dockedNow = mode === 'docked';
     if (dockedNow && !storeDockSide) {
       // 붙을 변이 사라졌다(다른 경로로 뗌) — 창을 잃지 않게 플로팅으로 되돌린다.
@@ -769,7 +869,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     } else if (!dockedNow && storeDockSide) {
       setPaneDock(paneKey, null);
     }
-  }, [agentId, mode, storeDockSide, paneKey, setPaneDock, goFloating, fullWindow, disableDock]);
+  }, [agentId, mode, storeDockSide, paneKey, setPaneDock, goFloating, fullWindow, disableDock, layoutEpoch]);
 
   // Escape to close — **맨 앞 창 하나만** 먹는다(창이 여럿일 때 한 번에 다 닫히면 안 된다).
   useEffect(() => {
@@ -899,6 +999,39 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   }, [paneKey]);
 
   /**
+   * §5.5 #17-6 (H-25) — **놓기 전에 미리 짓는다.** 선이 무장되는 순간(나갈 뜻이 분명한 자리).
+   *
+   * 종전에는 창 짓기(번들 파싱 → WS 연결 → 스냅샷 → `takeHandoff` → IDE 마운트, 실제로 초
+   * 단위)가 전부 **손을 뗀 그 프레임**에 몰려 그 지점만 유독 무거웠다(사용자 보고 — "손때면
+   * 두두둑 이러면서 엄청 느리다고"). 미리 지어 두면 뗌은 `overlay:open` 의 재사용 갈래를 타
+   * 자리 옮기기와 보여주기만 남는다.
+   *
+   * 지어 두는 창은 **보이지 않는다**(main 의 `warming`) — 지금 그 자리에는 선이 있고, 실물
+   * 창이 겹쳐 뜨면 무엇이 진짜인지 알 수 없다((H-6) ③). 짐도 지금 맡긴다: 손이 눌린 동안에는
+   * 이 창의 상태가 바뀌지 않으므로 지금 값이 곧 마지막 값이다((H-4) 가 드래그 시작에 짐을
+   * 받는 것과 같은 근거). 창구가 없거나 실패하면 아무 일도 없다 — 종전대로 뗌에 짓는다(⑥).
+   */
+  const warmPopOutWindow = useCallback((size: { width: number; height: number }) => {
+    const ov = window.api?.overlay;
+    if (!ov?.warm || !agentId) return;
+    const projectId = resolveProjectId();
+    if (!projectId) return;
+    void ov.warm({ agentId, projectId, size, handoff: captureHandoff() })
+      .catch(() => { /* (H-25) ⑥ 빨라지지 않을 뿐 못 나가지는 않는다 */ });
+  }, [agentId, resolveProjectId, captureHandoff]);
+
+  /**
+   * §5.5 #17-6 (H-25) ⑤ — 나가지 않기로 끝난 판이 예열해 둔 창을 거둔다.
+   *
+   * 안 거두면 쓰지도 않을 창이 목록 밖에 남아, 이 에이전트를 다음에 꺼낼 때 재사용 갈래가 그
+   * 빈 창을 집는다. main 은 **예열 중인 창만** 닫으므로, 이미 태어난 창에는 닿지 않는다.
+   */
+  const cancelWarmPopOut = useCallback(() => {
+    if (!agentId) return;
+    void window.api?.overlay?.warmCancel?.(agentId).catch(() => { /* noop */ });
+  }, [agentId]);
+
+  /**
    * 앱 밖 **독립 창**으로 꺼낸다(§5.5 #17-6 오버레이 창을 IDE 크기로 바로 띄운다).
    * 앱 안 창은 함께 닫는다 — 같은 IDE 가 두 곳에 뜨면 어느 쪽이 진짜인지 알 수 없다.
    */
@@ -907,8 +1040,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     /**
      * §5.5 #17-6 (H-4) — 끌던 **도중에** 꺼내는 자리. 새 창이 잡은 지점 그대로 커서에 매달려
      * 뜬다(`grab` = 창 좌상단에서 커서까지의 거리) — 끌던 손 아래에서 창이 이어진다.
+     *
+     * (H-17) `settled` 면 그 자리에 **서기만** 한다 — 손을 뗀 뒤에 태어나는 창이라 매달릴
+     * 손이 없다(매달면 놓은 뒤에도 창이 커서를 따라다닌다). 자리를 내는 셈은 그대로 쓴다.
      */
-    follow?: { grabX: number; grabY: number };
+    follow?: { grabX: number; grabY: number; settled?: boolean };
   }) => {
     const ov = window.api?.overlay;
     if (!ov || !agentId) return;
@@ -916,91 +1052,37 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (!projectId) return;
     // 짐은 **닫기 전에** 뜬다 — 닫고 나면 읽을 슬롯이 없다.
     const handoff = captureHandoff();
-    void ov.open({ agentId, projectId, expanded: true, size: opts?.size, handoff, follow: opts?.follow });
+    // §5.5 #17-6 (H-12) 이 창이 **되돌아올 때** 그릴 윤곽선에 적을 말을 지금 함께 맡긴다.
+    //   main 에는 번역이 없고, 되돌아오는 판단은 main 이 커서를 폴링해 스스로 내리므로 그때
+    //   렌더러에 물을 수가 없다(물어도 그 창은 닫히는 중이다).
+    const follow = opts?.follow
+      ? {
+        ...opts.follow,
+        label: agentLabelRef.current,
+        hint: t('ide.overlay.redockDwellHint'),
+      }
+      : undefined;
+    void ov.open({ agentId, projectId, expanded: true, size: opts?.size, handoff, follow })
+      .catch(() => {
+        // §5.5 #17-6 (H-10) **창이 서지 못한 판.** 앱 안 창은 바로 아래에서 이미 닫혔으므로,
+        //   여기서 아무것도 하지 않으면 IDE 가 밖에도 안에도 없다(사용자에게는 통째로 사라진
+        //   것이다). 매달릴 창이 없으니 선과 매달림을 먼저 걷고, 보던 그대로 앱 안에 다시 세운다.
+        void window.api?.overlay?.ghostHide?.();
+        void window.api?.overlay?.dragEndFor?.(agentId);
+        //   `redock` — 이 길도 "밖 대신 앱 안에 세운다"는 뜻이다. 밖의 창은 서지 못했지만 그
+        //   판정이 보는 목록은 아직 옛것일 수 있어, 표시가 없으면 세우지 않고 앞으로만 세운다.
+        useGraphStore.getState().openIDEOverlay(agentId, { pane: 'new', handoff, handoffTarget: 'app', redock: true });
+      });
     // 매달린 채 뜬 창은 손을 뗄 때 풀어 줘야 한다. 이 컴포넌트는 곧 닫히므로(아래) 리스너는
     //   모듈에 단다 — 컴포넌트에 달면 언마운트와 함께 사라져 창이 커서를 계속 따라다닌다.
-    if (opts?.follow) watchDetachedFollowRelease(agentId);
+    //   (H-17) 놓고 나서 태어난 창은 애초에 매달리지 않으므로 풀어 줄 것도 없다.
+    if (opts?.follow && !opts.follow.settled) watchDetachedFollowRelease(agentId);
     closeOverlay();
-  }, [agentId, resolveProjectId, closeOverlay, captureHandoff]);
+  }, [agentId, resolveProjectId, closeOverlay, captureHandoff, t]);
 
-  /**
-   * 꺼내 둔 창을 **앱 안으로 되돌린다**(독립 창에서만 뜬다). 메인 창을 앞으로 끌어올려
-   * 그 버블 자리에 IDE 창을 다시 열고, 이 창은 닫는다 — 되돌리기가 반쪽이면 되돌린 게 아니다.
-   */
-  const returnToApp = useCallback(() => {
-    const ov = window.api?.overlay;
-    if (!ov?.revealInMain || !agentId) return;
-    const projectId = resolveProjectId();
-    if (!projectId) return;
-    void ov.revealInMain({ agentId, projectId, openIde: true, handoff: captureHandoff() });
-    void ov.closeSelf?.();
-  }, [agentId, resolveProjectId, captureHandoff]);
-
-  /**
-   * §5.5 #17-6 (H) — main 의 폴링이 알려 주는 합치기 드래그 상태(칩 모양·놓을 자리 강조).
-   * 독립 창에서만 온다 — 앱 안 창은 이 채널을 쓰지 않는다.
-   */
-  useEffect(() => {
-    const ov = window.api?.overlay;
-    if (!ov?.onRedockDragState) return;
-    const off = ov.onRedockDragState((s) => {
-      redockHoverRef.current = s.hovering;
-      setRedockDrag({ dragging: s.dragging, hovering: s.hovering });
-    });
-    return () => { off(); };
-  }, []);
-
-  /**
-   * 되돌리기 손잡이를 **잡아 끌면** 합치기 드래그가 된다 — 누르고 바로 떼면 종전대로 즉시 되돌리기.
-   *
-   * 꺼내는 길은 제스처(타이틀바를 앱 밖으로)인데 돌아오는 길만 버튼이면 두 방향이 대칭이 아니다.
-   * 임계(`DRAG_THRESHOLD`)를 넘겨야 드래그로 보는 까닭은, 누르는 손이 몇 픽셀 흔들렸다고 창이
-   * 칩으로 줄었다 돌아오면 누른 사람에게는 고장으로 읽히기 때문이다.
-   *
-   * 좌표는 **화면 좌표**(`screenX/Y`)로 잰다 — 드래그가 시작되면 창 자체가 커서를 따라 움직여
-   * 창 안 좌표(`clientX/Y`)는 거의 제자리에 머문다(임계를 영영 못 넘는다).
-   */
-  const handleReturnPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    if (e.button !== 0) return;
-    const ov = window.api?.overlay;
-    // 드래그를 모르는 판(구버전 preload)에서는 아무 것도 걸지 않는다 — 클릭 되돌리기는 그대로 산다.
-    if (!ov?.redockDragStart || !ov.redockDragEnd) return;
-    const sx = e.screenX;
-    const sy = e.screenY;
-    redockDraggedRef.current = false;
-    redockHoverRef.current = false;
-    let started = false;
-    const onMove = (ev: MouseEvent): void => {
-      if (started) return;
-      if (Math.abs(ev.screenX - sx) < DRAG_THRESHOLD && Math.abs(ev.screenY - sy) < DRAG_THRESHOLD) return;
-      started = true;
-      redockDraggedRef.current = true;
-      void ov.redockDragStart();
-    };
-    // 종료는 window `mouseup` — 창이 칩으로 줄며 이 버튼이 화면에서 사라지므로 엘리먼트 이벤트에
-    //   기대면 신호를 놓친다(칩이 커서를 따라다니므로 mouseup 은 이 창에 온다).
-    const onUp = (): void => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      if (!started) return; // 안 움직였다 = 클릭 — 뒤따르는 onClick 이 즉시 되돌리기를 한다.
-      void ov.redockDragEnd({ commit: redockHoverRef.current, handoff: captureHandoff() });
-      // 끌고 놓았을 때 click 이 **오지 않는 경우도 있다**(칩으로 줄며 버튼이 DOM 에서 빠져
-      //   mousedown/mouseup 대상이 갈린다). 표식을 그대로 두면 다음 클릭 한 번이 통째로 먹히므로,
-      //   click 이 올 자리(같은 틱)를 지나면 스스로 내린다.
-      setTimeout(() => { redockDraggedRef.current = false; }, 0);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [captureHandoff]);
-
-  /** 끌어서 놓은 뒤 따라오는 click 은 삼킨다 — 안 그러면 합치기와 즉시 되돌리기가 겹쳐 두 번 일어난다. */
-  const handleReturnClick = useCallback(() => {
-    if (redockDraggedRef.current) {
-      redockDraggedRef.current = false;
-      return;
-    }
-    returnToApp();
-  }, [returnToApp]);
+  // §5.5 #17-6 (H-21) — 종전의 [앱 안으로 되돌리기(↩)] 손잡이(클릭 되돌리기 + 칩 합치기 드래그)는
+  //   **없앴다.** (H-20) 부터 닫기(✕/Esc)가 앱을 앞으로 세우고 이 창을 닫으므로 같은 결과로 가는
+  //   손잡이가 둘이었다. IDE 를 열린 채 앱 안으로 옮기는 길은 타이틀바를 앱 안으로 끌어 넣는 (H-4) 하나다.
 
   /** 이 창을 맨 앞으로 — 누르는 순간 겹침 순서가 바뀐다(창이 여럿일 때만 뜻이 있다). */
   const bringToFront = useCallback(() => {
@@ -1045,6 +1127,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
      */
     cursor?: { x: number; y: number } | undefined;
   }) => {
+    // §5.5 #17-6 (H-10) **앞 판이 남아 있으면 먼저 걷는다.** 앱 안 ↔ 밖을 빠르게 오가면 앞 판의
+    //   뗌(mouseup)이 이미 닫힌 창으로 가 이 창에는 도착하지 않는다 — 그 판의 리스너가 살아 있는
+    //   채로 새 판이 시작되면 한 번의 `mousemove` 를 둘이 듣고 창을 두 번 꺼내려 든다.
+    activeDragCleanupRef.current?.();
+    activeDragCleanupRef.current = null;
     // 붙을 수 있는 자리는 다른 창이 드래그 중 움직이지 않으므로 **여기서 한 번만** 잰다 —
     //   십자 위젯·미리보기·커밋이 모두 이 한 스냅샷을 읽어야 셋이 갈라지지 않는다.
     const dragVp = viewportNow();
@@ -1140,6 +1227,21 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let nextH = init.height;
     /** 지금 커서가 가리키는 도킹 자리 — mouseup 이 이 값 하나로 붙일지 말지를 정한다. */
     let dropAt: DockDropTarget | null = null;
+    /**
+     * §5.5 #17-6 (H-11) **들어온 벽의 잠금** — 밖에서 끌던 손을 이어받은 판에서만 선다.
+     *
+     * 되돌아오는 문턱(H-4 ④ · 48px)은 도킹 스냅 폭(≥120px) 한복판이라, 이어받는 첫 프레임에
+     * 이미 그 벽의 파란 미리보기가 떠 있다 — 들여놓자마자 손을 떼면 창이 벽에 붙어 버린다.
+     * 들여놓는 손짓은 "여기 놓겠다"이지 "이 벽에 붙이겠다"가 아니므로, 그 벽 하나만 잠근다.
+     */
+    let entryLock: DockEntryLock | null = null;
+    /**
+     * 잠금은 **첫 이동에서** 건다. 이어받는 순간의 커서를 모를 수도 있고(창 밖이면 안 넘어온다),
+     * 붙일지 말지는 어차피 이동이 한 번은 와야 정해진다(`dropAt` 은 `handleMove` 가 쓴다).
+     */
+    let entryLockPending = init.resumed === true;
+    /** 지금 화면(십자 버튼)에 알려 둔 잠긴 변 — 바뀔 때만 상태를 건드리려고 들고 있는다. */
+    let lockSideShown: IDEDockSide | null = null;
     /** 이동이 끝났을 때 슬롯에 적어 둘 자리 — 상태가 아니라 여기서 들고 있어야 mouseup 이 읽는다. */
     let lastGeom: FloatGeom | null = null;
     let lastGuides: { x: number | null; y: number | null } = { x: null, y: null };
@@ -1155,6 +1257,31 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let ghostOn = false;
     let ghostKind: 'os' | 'inapp' = 'inapp';
     let ghostArmed = false;
+    /**
+     * §5.5 #17-6 (H-22) **이 판이 앱 밖을 한 번이라도 밟았는가** — 밟았으면 도로 들어와도 선이다.
+     *
+     * (H-17) 은 창이 바뀌는 자리를 뗌 하나로 모았지만, **선이 꺼지는 자리**는 여전히 여럿이었다:
+     * 밖으로 나갔다 도로 들어오면 켤 이유가 사라져 선이 꺼지고, 숨어 있던 본체((H-19))가 그
+     * 자리에서 다시 나타났다 — 한 손짓 안에서 그림이 두 번 바뀐다(사용자 지시 — "마우스 때기
+     * 전까지 계속 가상창 유지"). 한 판에 걸쇠 하나를 물어, 꺼지는 자리도 뗌 하나로 만든다.
+     *
+     * 걸쇠는 **선을 세워 둘 뿐 무장하지 않는다** — 도로 들어와 놓는 손은 "여기 놓겠다"이고,
+     * 그때 `armed` 는 지금 자리를 그대로 읽어 거짓이 된다(선이 흐려져 그 뜻을 미리 말한다).
+     */
+    let ghostEscaped = false;
+    /**
+     * (H-25) ⑤ **이 판의 예열 걸쇠** — 짓는가·거두는가를 이 하나가 쥔다.
+     *
+     * 무장은 손짓에 따라 켜졌다 꺼졌다 하므로 그때마다 짓고 닫으면 예열이 되레 부담이 된다.
+     * 반대로 판이 끝나는 자리는 넷이다(나갔다 · 앱 안에 놓았다 · 끌지도 않았다 · 언마운트).
+     * 그 넷이 각자 판단하면 한쪽만 고쳐지는 날이 온다((H-16) 이 활성화 갈래에서 겪은 그 일).
+     *
+     * 크기는 `build` 가 불리는 그 순간의 값을 읽는다 — 무장된 자리가 곧 창이 설 자리다.
+     */
+    const warmLatch = createPopOutWarmLatch({
+      build: () => warmPopOutWindow({ width: Math.round(nextW), height: Math.round(nextH) }),
+      discard: cancelWarmPopOut,
+    });
     /** 윤곽선을 그 변 밖으로 밀어 낸 여분(px) — 가장자리 버팀 동안 자란다(H-6 ④). */
     let ghostPush = { dx: 0, dy: 0 };
     /**
@@ -1176,6 +1303,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         grabY: Math.round(init.grabRatioY * nextH),
         label: agentLabelRef.current,
         armed,
+        // (H-19) 나가는 길의 말도 선이 한다 — 본체가 숨으므로 앱 안 안내 띠는 이제 없다.
+        //   앱 안 윤곽선과 같은 문구라, 선이 앱 밖으로 이어질 때 말이 바뀌지 않는다.
+        hint: armed ? t('ide.overlay.popOutGhostArmedHint') : t('ide.overlay.popOutGhostHint'),
       });
     }
 
@@ -1185,12 +1315,34 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       void requestOsGhost(ghostArmed);
     }
 
+    /**
+     * (H-22) 선이 서 있는 동안 main 에 **아직 끌고 있다**고 알린다 — 수명 그물을 다시 재게.
+     *
+     * 같은 부탁을 다시 하는 것뿐이라 main 은 창을 다시 만들지 않는다(크기·잡은 지점만 갈아
+     * 끼우고 그물을 다시 잰다). 앱 안 폴백 선(`inapp`)에는 그물이 없으므로 보내지 않는다.
+     */
+    let ghostKeepAlive: number | null = null;
+    function startGhostKeepAlive(): void {
+      if (ghostKeepAlive !== null) return;
+      ghostKeepAlive = window.setInterval(() => {
+        if (!ghostOn || ghostKind !== 'os') return;
+        void requestOsGhost(ghostArmed);
+      }, GHOST_KEEPALIVE_MS);
+    }
+    function stopGhostKeepAlive(): void {
+      if (ghostKeepAlive === null) return;
+      window.clearInterval(ghostKeepAlive);
+      ghostKeepAlive = null;
+    }
+
     function showGhost(rect: FloatGeom, armed: boolean): void {
       ghostRectRef.current = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
       const armChanged = ghostOn && armed !== ghostArmed;
       ghostArmed = armed;
       if (!ghostOn) {
         ghostOn = true;
+        // (H-22) 이 판이 사는 동안 main 의 수명 그물을 다시 재게 한다(손 아래에서 걷히지 않게).
+        startGhostKeepAlive();
         // 선은 **지금 이 프레임에** 떠야 한다. 본체는 이미 멎었으므로, OS 창이 서기를 기다리면
         //   (창 하나를 만들고 띄우는 데 백 밀리초 남짓) 그동안 손을 따라오는 것이 아무것도 없다 —
         //   고치려던 바로 그 구간이 다시 생긴다. 그래서 **앱 안 윤곽선으로 먼저 그리고**, main 의
@@ -1213,13 +1365,24 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         syncOsGhost();
       }
       if (ghostKind === 'inapp') scheduleDragFrame();
+      // (H-25) ① **무장된 순간이 미리 지을 자리다** — `armed` 는 (H-17) 이 정한 "지금 놓으면
+      //   여기"라 나갈 뜻이 가장 분명하다. 선이 처음 뜨는 순간은 이르다(클램프를 조금 넘겼을
+      //   뿐 도로 앉을 판이 섞여 있다).
+      if (armed && canPopOut) warmLatch.arm();
     }
 
-    /** 도로 앱 안으로 들어왔거나 손을 뗐다 — 선을 걷는다(밖으로 나간 경우는 main 이 스스로 걷는다). */
+    /**
+     * 선을 걷는다 — 밖으로 나간 경우는 main 이 스스로 걷는다.
+     *
+     * (H-22) **도로 들어온 것은 더는 걷는 이유가 아니다.** 앱 밖을 밟은 판은 걸쇠가 물려
+     * 있어 여기까지 오지 않는다 — 남은 이유는 뗌·판 정리, 그리고 밖을 밟은 적 없이 켜졌던
+     * 선(클램프 초과·가장자리 버팀)이 그 이유를 잃은 자리뿐이다.
+     */
     function hideGhost(): void {
       if (!ghostOn) return;
       ghostOn = false;
       ghostArmed = false;
+      stopGhostKeepAlive();
       ghostPush = { dx: 0, dy: 0 };
       ghostShowPending = null;
       ghostRectRef.current = null;
@@ -1240,10 +1403,24 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let edgeSpan: number = IDE_FLOAT.POP_OUT_EDGE_DWELL_MS;
     /** 그 변 밖으로 완전히 나가려면 얼마나 밀어야 하는가(px). */
     let edgeTarget = { dx: 0, dy: 0 };
+    /**
+     * (H-17) 버팀을 **끝까지 채웠다** — 종전에는 이 순간이 곧 나가는 순간이었다.
+     *
+     * 이제는 선이 밝아질 뿐이고, 실제로 나가는 것은 손을 뗄 때다. 가장자리를 떠나면 함께 풀린다
+     * (스쳐 지나간 손이 창을 밖으로 던져서는 안 된다 — (H-3) 의 규율 그대로).
+     */
+    let edgeArmed = false;
 
-    function clearEdgeWatch(): void {
+    /**
+     * @param opts.keepPush 밀어 낸 만큼을 **그대로 둔다**(판이 끝나는 자리에서만).
+     *   무장한 채 손을 떼면 그 밀린 자리가 곧 창이 설 자리다 — 여기서 0 으로 되돌리면
+     *   선은 제자리로 튀고 창은 선이 아니었던 곳에 선다(사용자 지시 "그 자리 그 크기 그대로").
+     */
+    function clearEdgeWatch(opts?: { keepPush?: boolean }): void {
       if (edgeTimer !== null) { window.clearInterval(edgeTimer); edgeTimer = null; }
       edgeStartedAt = 0;
+      edgeArmed = false;
+      if (opts?.keepPush) return;
       // 가장자리를 떠났으면 밀어 냈던 만큼도 되돌린다 — 안 되돌리면 선이 그 자리에 어긋난 채 남는다.
       if (ghostPush.dx !== 0 || ghostPush.dy !== 0) {
         ghostPush = { dx: 0, dy: 0 };
@@ -1255,9 +1432,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
      *
      * 이 창에서 `mousedown` 이 일어난 판은 마우스 캡처 덕에 창 밖에서도 `mousemove` 가 온다.
      * 그런데 밖에서 끌던 손을 **이어받은 판**(H-4 ③)은 눌린 곳이 이미 닫힌 창이라 캡처가 없다 —
-     * 커서가 나가는 순간 눈이 멀어 "밖으로 빼기"가 영영 서지 않는다. 그동안은 main 이 커서를
-     * 대신 보고 한 번 알려 준다. 캡처가 있는 판에서도 함께 달아 둔다 — 어느 쪽이 먼저 보든
-     * `popOutNow()` 는 한 번만 일어나고, 캡처가 언제 사라지는지는 OS 마다 다르기 때문이다.
+     * 커서가 나가는 순간 눈이 멀어 밖에서 손이 어디에 있는지 알 길이 없다. 그동안은 main 이
+     * 커서를 대신 보고 알려 준다. 캡처가 있는 판에서도 함께 달아 둔다(캡처가 언제 사라지는지는
+     * OS 마다 다르다 — 두 눈이 같은 것을 봐도 하는 일은 하나라 겹쳐도 안전하다).
+     *
+     * (H-17) 이 귀가 하는 일은 **선을 세우고 밝히는 것**뿐이다 — 종전에는 여기서 곧바로 창을
+     * 꺼냈는데, 그러면 손이 눌린 채로 창이 바뀐다(고치기로 한 바로 그 증상이다).
      */
     let offEscape: (() => void) | null = null;
     function stopEscapeWatch(): void {
@@ -1279,16 +1459,21 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           w: nextW,
           h: nextH,
         }, viewportNow());
-        popOutNow();
+        // (H-17) 여기서도 나가지 않는다 — 선을 세우고 무장까지만 한다(확정은 뗌 한 곳).
+        //   이 귀가 있는 까닭은 커서가 창 밖으로 나가면 `mousemove` 가 끊기는 판이 있기
+        //   때문이고, 그런 판에서도 선은 손을 따라가야 하기 때문이다.
+        refreshGhost();
       });
       void ov.paneDragWatch(true);
     }
 
-    function detach(): void {
+    function detach(opts?: { keepGhostPush?: boolean }): void {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
-      clearEdgeWatch();
+      clearEdgeWatch({ keepPush: opts?.keepGhostPush });
       stopEscapeWatch();
+      // (H-22) 나가는 길이면 선은 남지만(인계는 main 이 한다) 이 판의 알림은 여기서 멎는다.
+      stopGhostKeepAlive();
       // 밀어 둔 창들을 여기서 굳힌다 — 손을 떼든 밖으로 빠져나가든 이 자리는 반드시 지난다.
       settlePush();
       activeDragCleanupRef.current = null;
@@ -1299,15 +1484,27 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       setZoneButtons([]);
       setDropTarget(null);
       setMagnetGuides({ x: null, y: null });
+      // (H-11) 잠금은 **한 판짜리**다 — 판이 끝나면 함께 걷는다(다음 판은 잠기지 않은 채 시작한다).
+      entryLock = null;
+      entryLockPending = false;
+      if (lockSideShown !== null) {
+        lockSideShown = null;
+        setDockLockSide(null);
+      }
     }
 
     /**
-     * §5.5 #17-6 (H-4) ① — **경계를 넘는 그 순간** 독립 창으로 바꾼다(놓을 때가 아니라).
+     * §5.5 #17-6 (H-17) — **손을 떼는 그 순간** 독립 창으로 바꾼다(경계를 넘는 순간이 아니라).
      *
-     * 종전에는 밖으로 나가도 창이 앱 안에 남아 뷰포트 경계에서 잘린 채 멈춰 있었다(밖은 그릴
-     * 수가 없다) — 끌고 있는 사람 눈에는 "안 나간다"로 읽혔다. 이제 그 자리에서 OS 창이 되어
-     * 잡은 지점 그대로 커서를 따라온다(`follow`). 앱 안 창은 함께 닫힌다 — 같은 IDE 가 두 곳에
-     * 뜨면 어느 쪽이 진짜인지 알 수 없다.
+     * (H-4) ① 은 반대였다: 경계를 넘는 그 순간 창을 바꿨다. 그 결과 한 손짓 안에서 창이 밖으로
+     * 나갔다 다시 들어왔다를 되풀이했고, 사용자에게는 "놓지도 않았는데 계속 바뀐다"로 읽혔다
+     * (사용자 지시 — "마우스 놓기 전까지 가상의 창 그대로 유지해"). 이제 끄는 내내 화면에 있는
+     * 것은 **선(가상 창)** 하나뿐이고, 이 함수는 그 선이 서 있던 자리를 **뗌 한 번에** 창으로
+     * 바꾼다. 앱 안 창은 함께 닫힌다 — 같은 IDE 가 두 곳에 뜨면 어느 쪽이 진짜인지 알 수 없다.
+     *
+     * `settled` 는 **손이 이미 떠났다**는 뜻이다 — 새 창은 커서에 매달리지 않고 선이 있던 그
+     * 자리에 그대로 선다(매달리면 놓은 뒤에도 창이 커서를 따라다닌다). 아직 눌린 채로 부르는
+     * 길(윤곽선을 못 세운 판의 그물)은 종전처럼 매달린다.
      *
      * (H-6) ⑤ **윤곽선은 여기서 끄지 않는다.** 창을 만들고 띄우는 동안 커서 아래가 비면 "사라졌다
      * 나타난다"가 된다 — 새 창이 실제로 보이는 순간 main 이 스스로 걷는다(같은 프로세스가 둘 다
@@ -1320,12 +1517,16 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
      * 사라진다"). 이제 선이 없으면 **여기서 세우고, 실제로 선 뒤에** 앱 안 창을 닫는다. 기다리는
      * 동안 손 아래에는 앱 안 창이 그대로 있으므로 비는 순간이 어느 쪽으로도 생기지 않는다.
      */
-    function popOutNow(): void {
+    function popOutNow(opts?: { settled?: boolean }): void {
       if (poppedOut) return;
       poppedOut = true;
+      // (H-25) ⑤ 미리 지어 둔 창을 **쓰는** 판이다 — 거두지 않는다(그 창이 곧 사용자가 볼 창이다).
+      //   걸쇠를 여기서 내려 두면 아래 `detach` 뒤의 정리 경로들이 그것을 닫지 않는다.
+      warmLatch.settle(true);
+      const settled = !!opts?.settled;
       // 밀어 냈던 만큼을 **먼저** 뜬다 — `detach()` 안의 시계 정리가 그 값을 0 으로 되돌린다.
       const push = { dx: ghostPush.dx, dy: ghostPush.dy };
-      detach();
+      detach({ keepGhostPush: true });
       clearDragVisuals();
       // (H-7) 선이 아직 안 섰으면 지금 세운다 — 이미 부탁해 둔 것이 있으면 그것을 기다린다
       //   (같은 부탁을 두 번 하면 main 이 창을 만들었다 지웠다 한다).
@@ -1345,14 +1546,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         if (handedOff) return;
         handedOff = true;
         window.removeEventListener('mouseup', onEarlyRelease, true);
-        // 선은 main 이 걷는다 — 우리 쪽 표시만 내린다(여기서 ghostHide 를 부르면 빈 화면이 생긴다).
+        // 선은 main 이 걷는다 — 이 판의 손잡이만 놓는다(여기서 ghostHide 를 부르면 빈 화면이 생긴다).
+        // (H-19) `popOutGhost` 는 **내리지 않는다.** 내리면 숨겨 둔 본체가 새 창이 서기까지의
+        //   왕복 동안 도로 나타났다 닫힌다 — 그 한 번의 번쩍임이 나가는 길의 잔상이었다.
+        //   본체는 이 창이 닫힐 때(`closeOverlay`)까지 숨은 채로 간다.
         ghostOn = false;
-        setPopOutGhost(null);
         popOutToWindow({
           size: { width: Math.round(nextW), height: Math.round(nextH) },
+          // 잡은 지점에서 밀어 낸 만큼을 빼 넘기므로, 새 창은 **선이 서 있던 바로 그 자리**에 선다.
+          //   (H-17) `settled` 면 그 자리에 서기만 하고 커서를 따라가지는 않는다(손이 이미 떠났다).
           follow: {
             grabX: Math.round(init.grabRatioX * nextW - push.dx),
             grabY: Math.round(init.grabRatioY * nextH - push.dy),
+            settled,
           },
         });
         if (releasedWhileWaiting && agentId) void window.api?.overlay?.dragEndFor?.(agentId);
@@ -1436,7 +1642,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         cursor: lastCursor ?? { x: lastRaw.x, y: lastRaw.y },
         vp,
         edgeDwell: byEdge,
+        // (H-17) 버팀을 다 채웠으면 선을 밝힌다 — 나가는 것은 손을 뗄 때다.
+        edgeArmed,
+        // (H-22) 이미 앱 밖을 밟은 판이면 도로 들어와도 선을 세워 둔다.
+        escaped: ghostEscaped,
       });
+      // 걸쇠는 판정 **뒤에** 문다 — 이번 프레임의 답은 지금 자리가 정한다(걸쇠가 앞지르지 않게).
+      if (canPopOut && want.outside) ghostEscaped = true;
       if (canPopOut && want.show) showGhost(lastRaw, want.armed);
       else hideGhost();
     }
@@ -1471,10 +1683,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             scheduleDragFrame();
           }
         }
-        if (elapsed >= edgeSpan) {
-          clearEdgeWatch();
-          // 버팀이 끝나는 그 순간 = 나가는 순간. 선이 서 있던 그 자리를 창이 그대로 이어받는다.
-          popOutNow();
+        if (elapsed >= edgeSpan && !edgeArmed) {
+          // (H-17) 버팀이 끝나는 그 순간 = **무장**하는 순간(종전에는 나가는 순간이었다).
+          //   시계는 그대로 돌려 둔다 — 멈추면 위 `!pinned` 갈래가 곧바로 새 판을 시작해
+          //   버팀을 처음부터 다시 재고, 그러면 무장이 켜졌다 꺼졌다 한다.
+          edgeArmed = true;
+          refreshGhost();
         }
       }, EDGE_TICK_MS);
     }
@@ -1512,9 +1726,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       }
 
       // §5.5 #17-6 (H-4)+(H-6) ④ **완전히 나갔다** — 커서가 앱 밖(다중 모니터)이거나, 창이 앱
-      //   화면과 더는 겹치지 않는다. 그 자리에서 곧바로 독립 창이 되므로 도킹·자석은 볼 것도 없다.
+      //   화면과 더는 겹치지 않는다.
+      //
+      // (H-17) 종전에는 **그 자리에서 곧바로** 독립 창이 됐다. 이제는 아니다 — 그 판정은
+      //   `popOutGhostDecision` 안에서 **무장**으로 읽히고(선이 밝아진다), 실제로 나가는 것은
+      //   손을 뗄 때다(사용자 지시 — "마우스 놓기 전까지 가상의 창 그대로 유지"). 여기서 하는
+      //   일은 도킹·자석을 쉬게 하는 것뿐이고, 그것은 아래 `ghostOn` 갈래가 이미 하고 있다.
       const cursorNow = { x: ev.clientX, y: ev.clientY };
-      if (canPopOut && (isOutsideViewport(cursorNow, vp) || isPulledFullyOut(raw, vp))) { popOutNow(); return; }
       // 단일 모니터에 앱이 최대화돼 있으면 커서는 한 픽셀도 밖으로 못 나간다 — 그 사람에게는 위 판정이
       //   영영 참이 되지 않아 끌어내기가 **없는 기능**이었다(H-3). 화면 끝에 막힌 채 잠깐 버티는 것을
       //   같은 뜻으로 읽어, 화면 수와 창 상태에 관계없이 같은 손짓이 닿게 한다.
@@ -1524,22 +1742,43 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
       refreshGhost();
       if (ghostOn) {
-        // (H-6) ③ 밖으로 빼는 중 — 본체는 멎고 선이 따라간다. 도킹·자석은 쉰다(그때 정해진 것은
+        // (H-6) ③ 밖으로 빼는 중 — 선이 따라간다. 도킹·자석은 쉰다(그때 정해진 것은
         //   "밖으로 나간다" 하나다 — 파란 도킹 미리보기와 함께 뜨면 무엇이 일어날지 말이 갈린다).
         if (dropAt) { dropAt = null; setDropTarget(null); setSnapRect(null); }
         if (lastGuides.x !== null || lastGuides.y !== null) {
           lastGuides = { x: null, y: null };
           setMagnetGuides(lastGuides);
         }
+        // (H-19) 본체는 **숨은 채로 손을 따라온다.** 종전에는 그 자리에 반투명으로 멎었는데, 그
+        //   멎은 창이 사용자에게는 잔상이었다("기존 앱 안 창은 안 보여야 하는데 잔상이 있다").
+        //   숨겨도 자리는 계속 맞춰 둔다 — 선이 꺼지면(도로 안으로 들어왔다) 본체가 **손 아래
+        //   그 자리**에 다시 나타나야지, 멎어 있던 옛 자리에서 튀어나오면 안 된다.
+        lastGeom = raw;
+        dragOffsetRef.current = { dx: raw.x - dragBase.x, dy: raw.y - dragBase.y };
+        scheduleDragFrame();
         return;
       }
 
       let moved = raw;
+      // (H-11) **들어온 벽의 잠금**을 한 프레임 진행시킨다 — 첫 이동에서 걸고, 안으로 들어오거나
+      //   그 자리에서 버티면 풀린다. 잠긴 동안 그 변의 판정만 없던 것이 된다(나머지 셋은 그대로).
+      if (entryLockPending) {
+        entryLockPending = false;
+        entryLock = beginDockEntryLock(cursorNow, vp, Date.now());
+      } else if (entryLock) {
+        entryLock = stepDockEntryLock(entryLock, cursorNow, vp, Date.now());
+      }
+      // 화면에 알리는 것은 **바뀔 때 한 번** — 버팀을 다시 잴 때마다 새 객체가 나오므로,
+      //   그대로 상태에 쓰면 끄는 내내 리렌더가 붙는다(이 판이 ref+transform 을 쓰는 이유가 그것이다).
+      if ((entryLock?.side ?? null) !== lockSideShown) {
+        lockSideShown = entryLock?.side ?? null;
+        setDockLockSide(lockSideShown);
+      }
       // 도킹 자리 — 네 변 + **붙어 있는 칸 위**(가운데는 탭 합류, 앞뒤 띠는 새 칸).
       //   자리가 바뀔 때만 미리보기를 다시 잰다(매 프레임 새 객체를 넣으면 드래그 내내 리렌더가 붙는다).
       const nextTarget = disableDock
         ? null
-        : resolveDockDrop({ x: ev.clientX, y: ev.clientY }, vp, others);
+        : applyDockEntryLock(resolveDockDrop({ x: ev.clientX, y: ev.clientY }, vp, others), entryLock);
       if (!sameDockTarget(nextTarget, dropAt)) {
         dropAt = nextTarget;
         setDropTarget(nextTarget);
@@ -1574,12 +1813,18 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     function handleUp(): void {
       if (poppedOut) return; // 이미 밖으로 나갔다 — 이 창은 닫히는 중이다.
       const wasArmed = ghostOn && ghostArmed;
-      detach();
+      const goingOut = wasArmed && canPopOut;
+      // (H-17) 나가는 판이면 밀어 낸 만큼을 **살려 둔 채** 정리한다 — 그 자리가 곧 창이 설 자리다.
+      detach({ keepGhostPush: goingOut });
       clearDragVisuals();
-      if (!dragging) { hideGhost(); return; }
+      if (!dragging) { hideGhost(); warmLatch.settle(false); return; }
       // (H-6) ④ 선이 **무장한 채** 손을 뗐다 = 여기까지 끌었으면 밖으로 뺀다는 뜻 말고 없다.
-      if (wasArmed && canPopOut) { popOutNow(); return; }
+      // (H-17) 이제 이 자리가 나가는 **유일한** 자리다(끄는 도중에는 어떤 이유로도 나가지 않는다).
+      if (goingOut) { popOutNow({ settled: true }); return; }
       hideGhost();
+      // (H-25) ⑤ 나가지 않기로 끝난 판이다 — 미리 지어 둔 창을 거둔다. 안 거두면 쓰지도 않을
+      //   창이 남아, 이 IDE 를 다음에 꺼낼 때 재사용 갈래가 그 빈 창을 집는다.
+      warmLatch.settle(false);
       // (H-6) ① 안전망은 **여기서** 한 번 건다 — 끄는 동안 가두지 않았으므로 놓인 자리를 되돌린다.
       if (lastGeom) {
         const landed = clampFloatGeom(lastGeom, viewportNow());
@@ -1634,13 +1879,25 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       clearEdgeWatch();
       // (H-8) 언마운트로 판이 끊겨도 main 의 감시가 남지 않게(고아 타이머 ❌).
       stopEscapeWatch();
+      stopGhostKeepAlive();
       // (H-6) 언마운트로 판이 끊겨도 선은 남지 않는다 — 클릭통과 창이라 사용자가 없앨 수 없다.
       if (!poppedOut) hideGhost();
+      // (H-25) ⑤ 같은 이유로 **미리 지어 둔 창도 남지 않는다.** 나간 판(`poppedOut`)에서는 그
+      //   창이 곧 사용자가 보는 창이므로 거두지 않는다.
+      warmLatch.settle(poppedOut);
+      // (H-11) 이 판의 잠금 표시도 함께 걷는다 — 다음 판이 시작될 때 남아 있으면 잠기지도 않은
+      //   벽이 흐린 채로 뜬다(새 판의 첫 이동은 "안 바뀜"으로 읽어 지우지 않는다).
+      entryLock = null;
+      entryLockPending = false;
+      if (lockSideShown !== null) {
+        lockSideShown = null;
+        setDockLockSide(null);
+      }
       // 밀어 둔 창들도 여기서 굳힌다 — 안 그러면 남의 창에 transform 만 남아 영영 어긋난다.
       settlePush();
       dragOffsetRef.current = { dx: 0, dy: 0 };
     };
-  }, [mode, maximized, setMaximized, floatSize.w, floatSize.h, disableDock, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow, scheduleDragFrame]);
+  }, [mode, maximized, setMaximized, floatSize.w, floatSize.h, disableDock, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow, warmPopOutWindow, cancelWarmPopOut, scheduleDragFrame, t]);
 
   /**
    * 타이틀바 mousedown.
@@ -1663,7 +1920,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       if (!ov?.dragStart) return;
       // 짐은 **시작할 때** 맡긴다 — 손이 눌린 동안에는 이 창의 상태가 바뀌지 않으므로 그 값이 곧
       //   마지막 값이고, 돌아가는 순간에 뜨려 하면 창이 이미 닫히는 중일 수 있다.
-      void ov.dragStart({ redockOnEnter: true, handoff: captureHandoff() });
+      // (H-12) 되돌아오는 구간의 윤곽선에 적을 말도 **시작할 때** 함께 맡긴다(짐과 같은 이유).
+      void ov.dragStart({
+        redockOnEnter: true,
+        handoff: captureHandoff(),
+        label: agentLabelRef.current,
+        hint: t('ide.overlay.redockDwellHint'),
+      });
       const end = (): void => {
         window.removeEventListener('mouseup', end);
         void ov.dragEnd();
@@ -1685,7 +1948,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       width: rect.width,
       height: rect.height,
     });
-  }, [fullWindow, captureHandoff, bringToFront, beginTitleDrag]);
+  }, [fullWindow, captureHandoff, bringToFront, beginTitleDrag, t]);
 
   /**
    * §5.5 #17-6 (H-4) ③ — 밖에서 끌던 창이 앱 안으로 돌아왔다: **그 드래그를 이어받는다.**
@@ -1693,20 +1956,46 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    * 손은 아직 눌려 있으므로, 이어받지 않으면 창은 돌아왔는데 움직이지 않는다(한 번 놓았다 다시
    * 잡아야 한다 = 한 손짓이 두 동강 난다). 짐은 창이 서기 전에 맡겨져 있고 **한 번 꺼내면
    * 사라진다** — 창이 아직 그려지지 않았으면(`windowRef` 없음) 꺼내지 않고 다음 렌더를 기다린다.
+   *
+   * §5.5 #17-6 (H-14) — 이 판은 **그려지기 전에** 끝나야 한다(`useLayoutEffect`). 미뤄 둔
+   * 효과(`useEffect`)로 두면 브라우저가 옛 자리의 창을 한 번 그린 **뒤에** 손 아래로 옮기게 되어,
+   * 사용자에게는 창이 엉뚱한 데 튀어나왔다 마우스에 달라붙는 것으로 보인다. 첫 자리는 위
+   * `resumeGeomFor` 가 이미 잡아 두었고, 여기서는 그 자리를 이어 **드래그를 물려받는다**.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!agentId || fullWindow) return;
     if (!windowRef.current) return;
     const resume = takePaneDragResume(agentId);
     if (!resume) return;
     const rect = windowRef.current.getBoundingClientRect();
+    // §5.5 #17-6 (H-17) — **손이 이미 떠난 판**(밖의 창을 끌어다 놓아 합쳐진 길)에서는 이어받을
+    //   드래그가 없다. 자리·크기는 첫 렌더가 `resumeGeomFor` 로 이미 잡아 두었으므로 여기서는
+    //   그 자리를 **굳히기만** 한다 — 이어받으면 놓은 뒤에도 창이 커서를 따라다닌다.
+    if (!resume.dragging) {
+      const landed = resumedFloatGeom(
+        resume,
+        { x: window.screenX, y: window.screenY },
+        { w: window.innerWidth, h: window.innerHeight },
+      );
+      if (landed) {
+        setFloatPos({ x: landed.x, y: landed.y });
+        setFloatSize({ w: landed.w, h: landed.h });
+        commitFloat(landed);
+      }
+      // 선을 걷는 부탁은 이 길에서도 똑같이 한다 — 아래 이어받는 길과 같은 이유다.
+      scheduleGhostHide();
+      return;
+    }
     beginTitleDrag({
       startX: 0,
       startY: 0,
       grabRatioX: resume.grabRatioX,
       grabRatioY: resume.grabRatioY,
-      width: rect.width > 0 ? rect.width : resume.width,
-      height: rect.height > 0 ? rect.height : resume.height,
+      // 크기는 **밖의 창 것**이 먼저다 — 그것이 방금까지 화면에 떠 있던 윤곽선의 크기다.
+      //   그려진 rect 를 먼저 보면, 짐에 실려 온 옛 크기로 선 첫 프레임을 그대로 물려받아
+      //   선과 창이 다른 크기가 된다(선이 창이 되는 것이 아니라 다른 창이 나타난 것이 된다).
+      width: resume.width > 0 ? resume.width : rect.width,
+      height: resume.height > 0 ? resume.height : rect.height,
       resumed: true,
       // 커서의 화면 좌표를 창 안 좌표로 옮긴다(`window.screenX/Y` = 이 창의 콘텐츠 좌상단).
       //   없거나 화면 밖으로 나오면 넘기지 않는다 — 첫 mousemove 가 곧 자리를 잡아 준다.
@@ -1714,7 +2003,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         ? { x: resume.cursor.x - window.screenX, y: resume.cursor.y - window.screenY }
         : undefined,
     });
-  }, [agentId, agent, fullWindow, beginTitleDrag]);
+    // §5.5 #17-6 (H-12) — **선이 창이 된다(들어오는 판).** 밖에서 들어온 창은 합쳐지는 동안
+    //   윤곽선으로 서 있었고, main 은 그 선을 여기까지 살려 두었다((H-7) 의 `shell-ready` 와 같은
+    //   약속). 이 자리가 "앱 안 창이 그 자리를 이어받아 다 그린" 순간이므로 여기서 선을 걷는다.
+    //   (H-15) 예약은 **이 효과의 정리에 매지 않는다** — 두 프레임 안에 효과가 다시 돌면(딸린
+    //   `agent` 는 스냅샷마다 새 객체다) 정리가 그 예약을 취소하는데, 다시 돈 판은 짐을 이미
+    //   꺼내 갔으므로 위에서 곧바로 되돌아간다. 그러면 "다 그렸다"가 영영 나가지 않고 선이 커서에
+    //   붙은 채 남는다(사용자 보고). 늦게 걷는 것은 안전하고, 안 걷는 것은 안전하지 않다.
+    scheduleGhostHide();
+  }, [agentId, agent, fullWindow, beginTitleDrag, commitFloat]);
 
   /**
    * 떠 있는 창의 **여덟 방향** 리사이즈. 종전에는 우하단 한 곳뿐이라 왼쪽·위로 넓히려면
@@ -1881,24 +2178,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     };
   }, [storeDockSide, storeDockSize, paneKey, setPaneDockSize, viewportNow, otherDockedPanes]);
 
-  // (판올림 번호 발급 대기) 헤더 [창] 메뉴의 레이아웃 프리셋이 배치를 바꿨다 — 창 모양을 다시 읽는다.
-  //   모양(모달/플로팅/도킹)은 컴포넌트 로컬 상태라, 이 반영이 없으면 스토어만 바뀌고 화면은 그대로 남는다.
-  useEffect(() => {
-    if (layoutEpoch === 0 || fullWindow || !agentId) return;
-    const slot = selectIDEPane(useGraphStore.getState(), paneKey);
-    // 최대화는 프리셋 쪽(`applyIDEWindowLayout`)이 이미 풀었다 — 자리를 다시 정하는 프리셋만
-    //   푼다(전부 접기/펴기는 배치를 안 건드리므로 최대화도 그대로 둔다).
-    if (slot.dockSide && !disableDock) {
-      setMode('docked');
-      return;
-    }
-    const g = floatGeomFor(paneKey, paneIndex);
-    setFloatSize({ w: g.w, h: g.h });
-    setFloatPos({ x: g.x, y: g.y });
-    setMode('floating');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutEpoch]);
-
   /**
    * (판올림 번호 발급 대기) 창 배치 단축키 — **맨 앞 창 하나만** 받는다(여러 창이 같은 키에 함께 반응하면 안 된다).
    *
@@ -1909,38 +2188,27 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //
   // §5.5 #17-6 (H-5) — 독립 창에서는 **최대화(+Enter) 하나만** 받는다. 붙이기·떼기·다음 창은 그
   //   창에 뜻이 없지만, 최대화는 이제 그 창에서도 하는 일이 있다(버튼·더블클릭과 같은 일).
-  useEffect(() => {
-    if (!agentId || !isFrontPane) return;
-    function onKey(e: KeyboardEvent): void {
-      // mac 에서 실제로 눌리는 것은 ⌘⌥ 다 — 이 저장소의 단축키는 전부 `ctrlKey || metaKey` 를 함께 본다.
-      if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      const side: IDEDockSide | null =
-        e.code === 'ArrowLeft' ? 'left'
-        : e.code === 'ArrowRight' ? 'right'
-        : e.code === 'ArrowUp' ? 'top'
-        : e.code === 'ArrowDown' ? 'bottom'
-        : null;
-      if (side) {
-        if (fullWindow || disableDock) return;
-        dockToSide(side);
-      } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
-        toggleMaximized();
-      } else if (e.code === 'KeyD') {
-        if (fullWindow || disableDock) return;
-        undock();
-      } else if (e.code === 'KeyW') {
-        if (fullWindow) return;
-        cyclePaneFocus(1);
-      } else {
-        return;
-      }
-      e.preventDefault();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [agentId, isFrontPane, fullWindow, disableDock, dockToSide, toggleMaximized, undock, cyclePaneFocus]);
+  // 배정은 §6 레지스트리가 정한다 — 키를 여기 적지 않으므로 사용자가 바꾸면 그대로 따라간다.
+  //   맨 앞 창 하나만 듣는 조건(`isFrontPane`)은 `enabled` 로 넘긴다.
+  // 안내 문구의 키도 레지스트리에서 — 넷의 모디파이어가 같으면 `Ctrl+Alt+←→↑↓` 로 묶고,
+  //   사용자가 하나라도 다르게 바꿨으면 따로 나열한다(거짓말하지 않는다).
+  const dockKeysLabel = groupBindingLabel([
+    useBindingRaw('ide.dockLeft'), useBindingRaw('ide.dockRight'),
+    useBindingRaw('ide.dockTop'), useBindingRaw('ide.dockBottom'),
+  ]);
+  const undockKeyLabel = useBindingLabel('ide.undock');
+
+  const placementEnabled = !!agentId && isFrontPane;
+  const dockable = placementEnabled && !fullWindow && !disableDock;
+
+  useCommand('ide.dockLeft', () => { dockToSide('left'); }, { enabled: dockable });
+  useCommand('ide.dockRight', () => { dockToSide('right'); }, { enabled: dockable });
+  useCommand('ide.dockTop', () => { dockToSide('top'); }, { enabled: dockable });
+  useCommand('ide.dockBottom', () => { dockToSide('bottom'); }, { enabled: dockable });
+  // §5.5 #17-6 (H-5) — 독립 창에서는 **최대화 하나만** 받는다(붙이기·떼기·다음 창은 뜻이 없다).
+  useCommand('ide.toggleMaximize', () => { toggleMaximized(); }, { enabled: placementEnabled });
+  useCommand('ide.undock', () => { undock(); }, { enabled: dockable });
+  useCommand('ide.nextWindow', () => { cyclePaneFocus(1); }, { enabled: placementEnabled && !fullWindow });
 
   // Custom 에이전트: 열릴 때 첫 번째 Sub 세션 자동 선택
   useEffect(() => {
@@ -1949,18 +2217,23 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (first) setSession(first.id);
   }, [isCustom, agentId, activeSessionId, subAgents, setSession]);
 
-  // 서버(디스크)에서 버퍼된 스트림 이벤트를 다시 불러온다. IDE 열릴 때 자동 + 새로고침 버튼 수동.
-  // 크래시/미hydrate 로 화면엔 "No activity" 인데 sub-streams/*.jsonl 은 디스크에 온전한 경우,
-  // 앱 재시작 없이 이 재요청으로 되살린다(loadStreamBuffers 가 세션 스트림을 디스크 버퍼로 재적재).
-  const refreshStreams = useCallback(() => {
+  // 캔버스 버블/에이전트 상태 최신화 — 소속 프로젝트 스냅샷 재요청.
+  //   §5.7 #26 — **그 버블의 소속 프로젝트**를 다시 받는다. 워크트리 버블에서 활성 탭(=부모)을
+  //   다시 받아 봐야 그 버블의 스냅샷은 한 줄도 안 온다(워크트리는 독립 프로젝트로 등록된다).
+  //   이미 hydrated 면 서버가 `already-hydrated` 로 되돌려 보내 브로드캐스트가 없다(사실상 무비용).
+  const hydrateOwnerProject = useCallback(() => {
     if (!agentId) return;
-    setRefreshing(true);
-    // 캔버스 버블/에이전트 상태도 함께 최신화 — 소속 프로젝트 스냅샷 재요청.
-    //   §5.7 #26 — **그 버블의 소속 프로젝트**를 다시 받는다. 워크트리 버블에서 활성 탭(=부모)을
-    //   다시 받아 봐야 그 버블의 스냅샷은 한 줄도 안 온다(워크트리는 독립 프로젝트로 등록된다).
     const st = useGraphStore.getState();
     const proj = st.agentProjects[agentId] ?? st.activeProject;
     if (proj) st.hydrateProject(proj);
+  }, [agentId]);
+
+  // 서버(디스크)에서 버퍼된 스트림 이벤트를 다시 불러온다 — 이 에이전트의 **모든 세션**을 얕게.
+  // 크래시/미hydrate 로 화면엔 "No activity" 인데 sub-streams/*.jsonl 은 디스크에 온전한 경우,
+  // 앱 재시작 없이 이 재요청으로 되살린다(loadStreamBuffers 가 세션 스트림을 디스크 버퍼로 재적재).
+  const fetchAllStreams = useCallback(() => {
+    if (!agentId) return;
+    setRefreshing(true);
     fetch(`/api/subagent-streams/${agentId}`)
       .then((r) => r.json())
       .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
@@ -1973,13 +2246,49 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       .finally(() => setRefreshing(false));
   }, [agentId]);
 
-  // IDE 열릴 때(agentId 변경 시) 자동 로드.
-  useEffect(() => { refreshStreams(); }, [refreshStreams]);
+  /** 새로고침 손잡이(타이틀바 ⟳) — 사용자가 **직접** 눌렀을 때는 종전대로 전부 다시 받는다. */
+  const refreshStreams = useCallback(() => {
+    hydrateOwnerProject();
+    fetchAllStreams();
+  }, [hydrateOwnerProject, fetchAllStreams]);
+
+  // IDE 열릴 때(agentId 변경 시) 버블 상태만 최신화 — 스트림과 분리돼 있다(아래 참조).
+  useEffect(() => { hydrateOwnerProject(); }, [hydrateOwnerProject]);
+
+  // §9 **세션 축** — 안 그리는 세션은 전선에 올리지 않는다(프로젝트 축 → 폴더 축 → 슬라이스 축의 넷째).
+  //
+  //   종전에는 IDE 를 열 때마다 이 에이전트의 **모든 세션**을 무조건 받아 왔다. 그런데 창이
+  //   실제로 읽는 것은 딱 둘 중 하나다 — ① 세션 탭이면 **그 세션 하나**(그것은 바로 아래 깊은
+  //   복원이 상한 전체로 따로 받아 온다) ② 메인 탭이면 전 세션 합본. 즉 ①에서는 받아 온 것의
+  //   99% 가 화면에 한 글자도 안 그려지고 버려졌다.
+  //
+  //   실측(2026-09-10, 살아 있는 `.vibisual/save/sub-streams`): 세션 44개짜리 버블 하나를 여는 데
+  //   **7.43MB · 11,892 이벤트**(세션 66개짜리는 11.01MB · 16,127건, 전 버블 합계 56.79MB)가
+  //   오갔다. 값을 치르는 자리가 넷이고 그 중 둘은 **Electron 메인 프로세스**라 그대로 창의
+  //   멈춤으로 나온다 — 디스크 tail 읽기+파싱 56ms · `JSON.stringify` 22ms(둘 다 메인) ·
+  //   렌더러 `JSON.parse` 15ms · 44개 세션 버퍼 교체 후 스토어 통지(막 마운트된 IDE 트리 전체가
+  //   다시 그려진다). 사용자 보고 — "IDE 창이 열릴 때 바로 안 보이고 끊기고 눌러도 반응이 없다".
+  //
+  //   그래서 벌크는 **메인 탭을 그릴 때만** 받는다. 메인 탭은 훅 버블에만 있고(`IDETabBar` —
+  //   `{!isCustom && …}`), 커스텀 버블은 열리는 순간 첫 세션이 자동 선택되므로 `activeSessionId`
+  //   가 `null` 인 것은 한 프레임짜리 찰나다. `agent` 가 아직 스냅샷에 없을 때의 `isCustom=false`
+  //   기본값에 속지 않도록 버블을 아는 뒤에만 판정한다.
+  //   세션 탭에서 다른 탭으로 옮기면 그 세션의 깊은 복원이 따로 걸리므로(아래) 화면은 종전과
+  //   같고, 되살리기 손잡이(⟳)는 여전히 전부 다시 받는다.
+  const mainTabDrawn = !!agent && !isCustom && activeSessionId === null;
+  useEffect(() => {
+    if (!mainTabDrawn) return;
+    fetchAllStreams();
+  }, [mainTabDrawn, fetchAllStreams]);
 
   // §5.5 v4.92 — 보고 있는 세션만 **깊은 복원분**을 따로 받는다.
-  //   위 전체 조회는 에이전트의 모든 세션을 담느라 세션당 얕게 주고(안 보는 세션은 클라가 어차피
-  //   비활성 상한으로 깎는다), 사용자가 실제로 연 세션은 여기서 상한 전체를 받아 오래된 대화가
-  //   "말풍선과 카드만 남고" 비지 않게 한다. 세션 탭을 옮길 때마다 그 세션 것 하나만 오간다.
+  //   위 전체 조회(메인 탭 한정)는 에이전트의 모든 세션을 담느라 세션당 얕게 주고, 사용자가
+  //   실제로 연 세션은 여기서 상한 전체를 받아 오래된 대화가 "말풍선과 카드만 남고" 비지 않게
+  //   한다. 세션 탭을 옮길 때마다 그 세션 것 하나만 오간다.
+  //   ⚠ "안 보는 세션은 어차피 비활성 상한(300)으로 깎인다"고 읽지 마라 — 그 컷의 주인인
+  //   `computeActiveSessionIds` 는 **IDE 를 연 에이전트의 세션을 전부 활성으로 친다**(메인 탭이
+  //   그 전부를 실제로 그리기 때문. `streamRestoreDepth.test.ts` 가 그 뜻을 못 박고 있다).
+  //   그래서 벌크로 받아 온 것은 깎이지 않고 그대로 남는다 — 안 받는 것이 유일한 절약이다.
   //
   //   ⚠ 이 요청은 **한 번 성공할 때까지, 그리고 깎일 때마다 다시** 나가야 한다. 종전에는
   //   `[agentId, activeSessionId]` 가 바뀔 때만 한 번 나가서 — ① 응답이 비어 오거나(복원 직후
@@ -1987,6 +2296,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   창을 깎아도 재요청이 없었다. 그러면 그 세션은 얕은 창인 채로 굳고, 화면은 말풍선·카드만
   //   남는다. 이제 스토어의 깊은 복원 표식(`deepRestoredSessions`)이 없으면 다시 받아 온다 —
   //   표식은 비활성 컷·세션 제거가 지우므로, **세션이 다시 활성화될 때마다 자동으로 재요청**된다.
+  //   그리고 아래 `run` 은 **성공할 때까지 포기하지 않는다**(2026-09-08) — 몇 번 묻고 그만두면
+  //   의존성이 그대로라 다시 도는 길이 없어, 그 세 번이 하필 빈 응답일 때 화면이 그대로 굳었다.
   const deepRestored = useGraphStore((s) => (activeSessionId ? s.deepRestoredSessions[activeSessionId] === true : true));
   useEffect(() => {
     if (!agentId || !activeSessionId || deepRestored) return;
@@ -1994,7 +2305,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     // 빈 응답은 "없다"가 아니라 대개 "아직"이다 — 복원 직후엔 서버가 그 세션을 등록하기 전이라
     // 빈 배열이 온다. 종전처럼 조용히 포기하면 영영 얕은 채로 남으므로 짧게 물러났다 다시 묻는다.
-    const RETRY_DELAYS = [400, 1200, 3000];
+    //
+    // ⚠ **포기하지 않는다**(2026-09-08). 종전엔 `[400, 1200, 3000]` 세 번만 묻고 그만뒀는데,
+    //   그 세 번이 전부 빈 응답이면 effect 의 의존성(`agentId`·`activeSessionId`·`deepRestored`)이
+    //   아무것도 바뀌지 않아 **다시 도는 길이 없었다** — 그 세션은 말풍선과 카드만 남은 채 굳는다
+    //   (사용자 보고: "대화 내역이 다 날아갔다"). 서버가 폴더를 못 짚는 동안(프로젝트 탭을 닫았다
+    //   오간 뒤)에는 몇 초로 끝나지 않으므로, 간격을 늘려 가다 상한에서 **계속 두드린다.**
+    //   비용은 세션을 보고 있는 동안의 `stat` 몇 번이고, 탭을 옮기거나 창을 닫으면 정리에서 끊긴다.
+    const RETRY_DELAYS = [400, 1200, 3000, 6000];
+    /** 위 표를 다 쓰면 이 간격으로 계속 묻는다 — 화면이 빈 채로 굳는 것보다 낫다. */
+    const RETRY_DELAY_MAX = 10_000;
+    const delayFor = (attempt: number): number => RETRY_DELAYS[attempt] ?? RETRY_DELAY_MAX;
     const run = (attempt: number): void => {
       fetch(`/api/subagent-streams/${agentId}/${activeSessionId}`)
         .then((r) => r.json())
@@ -2002,8 +2323,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           if (cancelled) return;
           const server = data.events;
           if (!server || server.length === 0) {
-            const delay = RETRY_DELAYS[attempt];
-            if (delay !== undefined) retryTimer = setTimeout(() => run(attempt + 1), delay);
+            retryTimer = setTimeout(() => run(attempt + 1), delayFor(attempt));
             return;
           }
           // ⚠ 이 적재는 그 세션의 버퍼를 **교체**한다. 요청이 오가는 사이 WS 로 도착한 라이브
@@ -2020,8 +2340,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         })
         .catch(() => {
           if (cancelled) return;
-          const delay = RETRY_DELAYS[attempt];
-          if (delay !== undefined) retryTimer = setTimeout(() => run(attempt + 1), delay);
+          retryTimer = setTimeout(() => run(attempt + 1), delayFor(attempt));
         });
     };
     run(0);
@@ -2097,32 +2416,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   메인 창에서 뒤 탭이 됐다는 이유로 통째로 비면 사용자는 빈 창을 보게 된다.
   if (!fullWindow && !disableDock && storeDockSide && selfPaneKey && slotFrontKey !== selfPaneKey) return null;
 
-  // §5.5 #17-6 (H) — **끌어다 합치는 중**: 창이 칩 크기로 줄어 커서를 따라온다. 그 안에 IDE 를
-  //   그대로 그리면 글자만 잘려 보이므로, 무엇을 들고 있고 지금 놓으면 어떻게 되는지만 말한다
-  //   (별창 mini ghost(§5.4 #14-1)와 같은 모양 — 두 기능이 같은 손버릇이면 배울 것이 하나다).
-  if (fullWindow && redockDrag.dragging) {
-    return (
-      <div
-        data-ide-redock-ghost="1"
-        className={`flex h-screen w-screen select-none flex-col items-stretch justify-center gap-0.5 rounded-md px-3 py-1 ${
-          redockDrag.hovering
-            ? 'bg-blue-600/90 ring-2 ring-blue-300/80'
-            : 'bg-[#1f2937] shadow-lg shadow-black/60 ring-1 ring-amber-400/50'
-        }`}
-      >
-        <div className="flex items-center gap-1.5">
-          <svg className="h-3 w-3 flex-shrink-0 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4" />
-          </svg>
-          <span className="truncate text-[12px] font-semibold text-white">{agent.label}</span>
-        </div>
-        <span className={`truncate text-[12px] font-medium ${redockDrag.hovering ? 'text-blue-100' : 'text-amber-200/90'}`}>
-          {redockDrag.hovering ? t('ide.overlay.redockDropHint') : t('ide.overlay.redockKeepHint')}
-        </span>
-      </div>
-    );
-  }
-
   // §5.5 #17-1 윈도우 모드 — mode 에 따라 컨테이너/윈도우 스타일 분기
   const isModal = mode === 'modal';
   // 붙을 변이 없으면 도킹이 아니다 — 모드만 남고 변이 사라진 찰나에 창을 잃지 않게 한다.
@@ -2187,8 +2480,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       height: floatSize.h,
       transform: off.dx === 0 && off.dy === 0 ? undefined : `translate3d(${off.dx}px, ${off.dy}px, 0)`,
       willChange: off.dx === 0 && off.dy === 0 ? undefined : 'transform',
-      // (H-6) ③ 밖으로 빼는 중에는 본체가 그 자리에 **멎는다** — 지금 손을 따라가는 것은 선이다.
-      opacity: popOutGhost ? 0.35 : undefined,
+      // (H-6) ③ → (H-19) 밖으로 빼는 중에는 본체가 **완전히 숨는다** — 지금 손을 따라가는 것은
+      //   선 하나다. 종전의 반투명(0.35)으로 멎은 본체는 사용자에게 잔상으로 읽혔다. 자리는 숨은
+      //   채로도 계속 맞춰 두므로(`handleMove`), 선이 꺼지면 손 아래에서 그대로 다시 나타난다.
+      opacity: popOutGhost ? 0 : undefined,
+      pointerEvents: popOutGhost ? 'none' : undefined,
       transition: popOutGhost ? 'opacity 120ms ease-out' : undefined,
     };
   }
@@ -2244,13 +2540,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           버튼으로 뜬다. 겨눈 버튼이 밝아지고, 그 자리가 곧 위 미리보기 박스다(판정은 한 함수). */}
       {zoneButtons.map((zone) => {
         const active = sameDockTarget(zone.target, dropTarget);
+        // (H-11) 밖에서 돌아온 판이 잠가 둔 벽 — 겨눠도 안 밝아지는 자리이므로 그렇게 보이게 한다.
+        const locked = zone.target.side === dockLockSide;
         return (
           <div
             key={`${zone.target.side}:${zone.target.index}:${zone.target.mode}`}
             className={`fixed flex items-center justify-center rounded-md border transition-all duration-100 ${
               active
                 ? 'border-blue-300 bg-blue-500/35 text-blue-50 shadow-lg shadow-blue-500/30'
-                : 'border-blue-400/40 bg-gray-900/85 text-blue-300/80'
+                : locked
+                  ? 'border-blue-400/15 bg-gray-900/50 text-blue-300/25'
+                  : 'border-blue-400/40 bg-gray-900/85 text-blue-300/80'
             }`}
             style={{
               left: zone.rect.x,
@@ -2277,14 +2577,27 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         <div
           ref={ghostElRef}
           data-ide-popout-ghost="1"
-          className={`fixed left-0 top-0 rounded-lg border-2 ${
+          className={`fixed left-0 top-0 overflow-hidden rounded-[10px] border-2 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.55),0_10px_30px_rgba(0,0,0,0.35)] ${
             popOutGhost.armed
-              ? 'border-violet-300/90 bg-violet-500/[0.12]'
-              : 'border-violet-400/70 bg-violet-500/[0.06]'
+              ? 'border-violet-300/95 bg-violet-500/[0.14]'
+              : 'border-violet-400/75 bg-violet-500/[0.07]'
           }`}
           style={{ pointerEvents: 'none', zIndex: 49, willChange: 'transform' }}
           aria-hidden="true"
-        />
+        >
+          {/* (H-19) main 의 선(`ghostFrame.ts`)과 **같은 그림** — 이름 띠 + 안내 한 줄. 본체가 숨는
+              대신 이 선이 무슨 일이 일어나는지 말하고, 앱 경계를 넘어가면 main 의 선이 같은 말을
+              이어받는다(두 선이 같은 자리·같은 모양이라 넘어가는 순간이 보이지 않는다). */}
+          <div className={`flex h-[34px] items-center gap-1.5 border-b bg-slate-900/55 px-2.5 text-[12px] font-medium text-violet-100/95 ${
+            popOutGhost.armed ? 'border-violet-300/80' : 'border-violet-400/55'
+          }`}>
+            <span className="h-2 w-2 flex-none rounded-full bg-violet-400/95" />
+            <span className="truncate">{agent?.label ?? ''}</span>
+          </div>
+          <div className="truncate border-b border-violet-400/30 bg-slate-900/40 px-[11px] py-[7px] text-[12px] font-medium leading-[1.35] text-violet-200/90">
+            {popOutGhost.armed ? t('ide.overlay.popOutGhostArmedHint') : t('ide.overlay.popOutGhostHint')}
+          </div>
+        </div>
       )}
       {/* 자석 안내선 — 왜 창이 마지막 몇 px 을 알아서 맞췄는지 눈으로 보이게 한다. */}
       {magnetGuides.x !== null && (
@@ -2329,30 +2642,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             />
           </div>
         )}
-        {/* §5.5 #17-6 (H-6) ③ 밖으로 빼는 중 — 본체는 여기 멎어 있고 손을 따라가는 것은 선이다.
-            그 자리에 남는 이 창은 **무슨 일이 일어나는지**만 말한다: 조금 더 끌면 나간다(연보라),
-            여기까지 왔으면 놓기만 해도 나간다(무장 — 밝은 보라). 종전 (H-3) 의 예고 문구가
-            문구뿐이었던 자리를, 이제는 문구와 **그림**(가상 창)이 함께 채운다. */}
-        {popOutGhost && (
-          <div
-            className={`pointer-events-none absolute inset-0 z-30 rounded-lg border-2 ${
-              popOutGhost.armed
-                ? 'border-violet-300/80 bg-violet-500/[0.10]'
-                : 'border-violet-400/40 bg-violet-500/[0.04]'
-            }`}
-            aria-hidden="true"
-          >
-            <div className={`absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-md border bg-gray-900/90 px-2.5 py-1 text-[12px] shadow-lg shadow-black/50 ${
-              popOutGhost.armed ? 'border-violet-300/80 text-violet-50' : 'border-violet-400/60 text-violet-100'
-            }`}>
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="8" width="13" height="13" rx="2" />
-                <path d="M8 3h13v13" />
-              </svg>
-              {popOutGhost.armed ? t('ide.overlay.popOutGhostArmedHint') : t('ide.overlay.popOutGhostHint')}
-            </div>
-          </div>
-        )}
+        {/* §5.5 #17-6 (H-19) 밖으로 빼는 중의 안내는 이제 **선(가상 창)** 이 한다 — 본체는 숨어
+            있으므로 여기 띄우던 띠는 아무도 못 본다(앱 안 윤곽선의 이름 띠·안내 줄이 말하고,
+            앱 밖에서는 main 의 선이 같은 말을 잇는다). */}
         {/* 도킹 시 안쪽 모서리 리사이즈 핸들 (4px) — 좌/우는 세로 손잡이, 상/하는 가로 손잡이. */}
         {isDocked && storeDockSide && (
           <div
@@ -2482,11 +2774,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 ))}
               </div>
             )}
-            {isLocalAgent || !chrome.showTypeBadge ? (
+            {isProviderAgent || !chrome.showTypeBadge ? (
               /* 폰(chrome.showTypeBadge=false)에서도 이 자리를 비운다 — `커스텀/훅/CMD` 는 같은 사실이
                  하단 상태바에 있고, 좁은 줄에서는 이름과 [닫기]가 먼저다.
-                 §5.19 (G) — 로컬 버블의 정체 뱃지(All Model + 지금 문 모델명)는 이 자리를 떠나
-                 **하단 상태바의 밀도 토글 옆**(`StreamLocalModelButton`)으로 내려갔다(사용자 지시).
+                 §5.19 (G) · §5.25 (B) — 프로바이더 버블의 정체 뱃지(All Model 또는 Codex + 지금 문 모델명)는
+                 이 자리를 떠나 **하단 상태바의 밀도 토글 옆**(`StreamProviderModelButton`)으로 내려갔다(사용자 지시).
                  여기에 `커스텀` 뱃지를 대신 달지는 않는다 — 정체를 거짓으로 말하게 된다. */
               null
             ) : (
@@ -2517,6 +2809,30 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 <path d="M3 15h18" />
               </svg>
             </button>
+            {/* (판올림 번호 발급 대기) §5.5 #17-6 (H-18) — **밖에 서 있을 때만 서는 손잡이:
+                이 창을 오버레이 버블로 바꾼다.** 밖으로 끌어낸 창에는 여태 돌아갈 길이 [앱 안으로
+                되돌리기(↩)] 하나뿐이었다(그 ↩ 는 (H-21) 에서 없앴다 — 닫기가 같은 일을 한다) — 데스크톱에 그대로 두되 자리만 덜 먹게 하려면 길이 없어
+                창을 닫았다 설정창을 거쳐 위젯으로 다시 보내야 했다. 이제 그 왕복이 버튼 하나다.
+                앱 안 창에는 뜻이 없어 그리지 않는다(`fullWindow` — 그 창은 밖에 있지 않다). */}
+            {fullWindow && !!onCollapseToBubble && (
+              <button
+                type="button"
+                onClick={onCollapseToBubble}
+                className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+                aria-label={t('ide.overlay.toBubble')}
+                title={t('ide.overlay.toBubbleHint')}
+              >
+                {/* 안으로 모이는 두 화살표 + 가운데 버블 — "창을 저 동그라미로 줄인다".
+                    화살촉은 반지름(3) 밖(중심에서 4.2)에 두어 14px 에서도 원과 붙지 않는다. */}
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M21 9h-6V3" />
+                  <path d="M21 3l-6 6" />
+                  <path d="M3 15h6v6" />
+                  <path d="M3 21l6-6" />
+                </svg>
+              </button>
+            )}
             {/* §5.5 읽기 설정 — 폭 안(A~D)·읽기 폭·행간/자간/어간·글꼴·모바일 자동 변형.
                 초광폭 창에서 한 줄이 길어져 읽기 어려운 문제를 사용자가 직접 조절하는 자리.
                 §4 (CMD) — **CMD 버블에서는 그리지 않는다.** 이 설정이 먹는 표면은 `.ide-md`(IDE 본문
@@ -2657,8 +2973,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                         모르면 없는 것과 같다(§9 한글 가독 하한 12px). */}
                     <div className="mt-1 border-t border-gray-800 px-2 pb-0.5 pt-1 text-[12px] leading-snug text-gray-500">
                       {t('ide.overlay.dockShortcutHint', {
-                        dock: shortcutLabel('Ctrl+Alt+←→↑↓'),
-                        undock: shortcutLabel('Ctrl+Alt+D'),
+                        dock: dockKeysLabel,
+                        undock: undockKeyLabel,
                       })}
                     </div>
                   </div>
@@ -2683,25 +2999,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             {/* §5.5 #17-6 (H-4) ⑤ — 종전의 [독립 창으로 꺼내기] 버튼은 **없앴다.** 타이틀바를 잡고
                 앱 밖으로 끌면 경계를 넘는 그 순간 창이 밖으로 나가므로, 같은 일을 하는 두 번째
                 손잡이가 됐다(끌기가 어려운 트랙패드·터치를 위해 [붙이기] 메뉴 항목은 남아 있다). */}
-            {/* (판올림 번호 발급 대기) 꺼내 둔 창에서만 뜨는 **되돌리기** — 메인 창의 그 자리로
-                IDE 를 다시 열고 이 창은 닫는다. 꺼내는 길만 있고 돌아오는 길이 없으면 함정이다. */}
-            {fullWindow && !!window.api?.overlay?.revealInMain && (
-              <button
-                type="button"
-                onClick={handleReturnClick}
-                // (H) 잡아 끌면 합치기 드래그 — 누르고 바로 떼면 종전대로 즉시 되돌리기.
-                onPointerDown={handleReturnPointerDown}
-                className="app-nodrag flex h-6 w-6 cursor-grab items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200 active:cursor-grabbing"
-                aria-label={t('ide.overlay.returnToApp')}
-                title={t('ide.overlay.returnToAppHint')}
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <path d="M14 16l-4-4 4-4" />
-                  <path d="M10 12h11" />
-                </svg>
-              </button>
-            )}
+            {/* §5.5 #17-6 (H-21) — 종전의 [앱 안으로 되돌리기(↩)] 손잡이도 **없앴다.** 닫기(✕/Esc)가
+                앱을 앞으로 세우고 이 창을 닫으므로((H-20)) 같은 결과로 가는 손잡이가 둘이었다. */}
             {/* §5.5 #17-6 (H-5) — 독립 창에서는 이 버튼이 **OS 창**을 최대화한다(앱 안 창은 종전대로
                 창 안 레이아웃). 같은 자리·같은 아이콘이라 두 창에서 배울 손버릇이 하나다. */}
             {chrome.showMaximize && (
@@ -2781,8 +3080,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             onDrop={entryDropHandlers.onDrop}
           >
             <IDESplitView agentId={agentId} isCustom={isCustom} />
-            {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(열린 파일이 없으면 렌더 ❌).
-                나란히 세울 폭이 안 남으면(폰이거나 창이 좁으면) 대화 위 오버레이로 뜬다. */}
+            {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(비출 것이 없으면 렌더 ❌).
+                나란히 세울 폭이 안 남으면(폰이거나 창이 좁으면) 대화 위 오버레이로 뜬다.
+                §5.5 #17-17 ㉔ — **우측에 서는 판은 이것 하나다.** 무대(단계 지도)는 종전처럼 옆에
+                따로 서지 않고 이 판의 **첫 탭**으로 든다 — 그래서 여기 형제도 하나뿐이고, `order-last`
+                로 자리를 되돌리던 장치도 필요 없어졌다(무대가 밀릴 다른 판이 애초에 없다). */}
             <IDEEditorPane />
           </div>
           {/* §5.5 #17-19 ⑧ — "지금 손을 떼면 무슨 일이 일어나는가". 폭은 **비율**이라 캔버스를

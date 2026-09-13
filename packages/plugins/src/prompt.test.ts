@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import type { PluginPromptContext, PluginPromptModule } from './types.js';
 import { PLUGIN_PROMPT_MODULES, activePromptModules, buildPluginPromptBlocks, collectPluginFacts } from './prompt.js';
-import { getPluginManifest } from './registry.js';
+import { PLUGIN_MANIFESTS, getPluginManifest } from './registry.js';
 
 const PROJECT = 'C:/repo/alpha';
 const OTHER = 'C:/repo/beta';
@@ -25,6 +25,14 @@ const ctx: PluginPromptContext = {
 
 const on = { enabledPluginsByProject: { [PROJECT]: ['ssot-drift'] } };
 const off = { enabledPluginsByProject: { [PROJECT]: [] } };
+
+/**
+ * §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드들. **켬 집합과 무관하게 늘 통과한다.**
+ *
+ * 목록을 손으로 적지 않고 등록부에서 뽑는다 — 적어 두면 다음에 이 축을 쓰는 카드가 늘었을 때
+ * 이 파일만 조용히 낡고, 그때 기대치는 "왜 하나 더 나오지"로 읽힌다.
+ */
+const OWN_TOGGLE = PLUGIN_MANIFESTS.filter((m) => m.ownToggle === true).map((m) => m.id).sort();
 
 describe('집행 배럴', () => {
   it('등록된 집행 모듈은 전부 등록부에 있는 id 다', () => {
@@ -55,9 +63,17 @@ describe('집행 배럴', () => {
     expect(buildPluginPromptBlocks(undefined, null, ctx)).toBe('');
   });
 
-  it('활성 목록은 켬/끔 판정 한 곳을 그대로 통과한다', () => {
-    expect(activePromptModules(on, PROJECT).map((m) => m.id)).toEqual(['ssot-drift']);
-    expect(activePromptModules(off, PROJECT)).toEqual([]);
+  /**
+   * §5.5 #17-44 ⑧(d) — **예외는 손잡이가 자기 화면에 있는 카드(`ownToggle`)뿐**이다.
+   *
+   * 그 카드는 켬 집합을 묻지 않고 늘 통과한다 — 뒤에서 그 기능 자신의 스위치가 다시 판정하기 때문이다.
+   * 관문을 여기서 한 번 더 두면 "뷰에서 켰는데 프롬프트엔 안 실린다"가 만들어진다. 대신 **프롬프트가
+   * 한 글자도 안 느는 것**(위 "아무것도 안 켜면 빈 문자열")은 그대로다 — 꺼진 층이면 그 카드의
+   * `buildBlock` 자신이 `undefined` 를 낸다.
+   */
+  it('활성 목록은 켬/끔 판정 한 곳을 그대로 통과한다 — 예외는 손잡이가 자기 화면에 있는 카드뿐', () => {
+    expect(activePromptModules(on, PROJECT).map((m) => m.id).sort()).toEqual([...OWN_TOGGLE, 'ssot-drift'].sort());
+    expect(activePromptModules(off, PROJECT).map((m) => m.id).sort()).toEqual([...OWN_TOGGLE]);
   });
 
   it('플러그인이 던져도 그 턴은 살아남고, 어느 플러그인이 죽었는지만 보고된다', () => {
@@ -84,10 +100,13 @@ describe('집행 배럴', () => {
  * 블록 조립과 동일하다는 것과 한 장이 던져도 나머지가 산다는 것을 함께 못 박는다.
  */
 describe('집행 실측 수집', () => {
-  it('켠 프로젝트에서만 실측이 나온다', () => {
-    expect(Object.keys(collectPluginFacts(on, PROJECT, ctx))).toEqual(['ssot-drift']);
-    expect(collectPluginFacts(off, PROJECT, ctx)).toEqual({});
-    expect(collectPluginFacts({ enabledPluginsByProject: { [OTHER]: ['ssot-drift'] } }, PROJECT, ctx)).toEqual({});
+  it('켠 프로젝트에서만 실측이 나온다 — `ownToggle` 은 늘 나오되 꺼진 층을 스스로 신고한다', () => {
+    expect(Object.keys(collectPluginFacts(on, PROJECT, ctx)).sort()).toEqual([...OWN_TOGGLE, 'ssot-drift'].sort());
+    expect(Object.keys(collectPluginFacts(off, PROJECT, ctx)).sort()).toEqual([...OWN_TOGGLE]);
+    expect(Object.keys(collectPluginFacts({ enabledPluginsByProject: { [OTHER]: ['ssot-drift'] } }, PROJECT, ctx)).sort())
+      .toEqual([...OWN_TOGGLE]);
+    // 늘 나온다고 해서 **재는** 것은 아니다 — 3층이 꺼져 있으면 색인조차 세우지 않고 그 사실만 신고한다.
+    expect(collectPluginFacts(off, PROJECT, ctx)['spec-driven']).toEqual({ specEnabled: false });
   });
 
   it('실측은 그 블록이 실제로 쓴 판단과 같은 값이다', () => {
@@ -114,7 +133,8 @@ describe('집행 실측 수집', () => {
       },
     };
     const failed: string[] = [];
-    expect(collectPluginFacts(on, PROJECT, hostile, (id) => failed.push(id))).toEqual({});
+    // 던진 카드만 빠진다 — `ownToggle` 카드는 꺼진 층이라 파일을 훑지 않으므로 애초에 던질 일이 없다.
+    expect(collectPluginFacts(on, PROJECT, hostile, (id) => failed.push(id))['ssot-drift']).toBeUndefined();
     expect(failed).toEqual(['ssot-drift']);
   });
 

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { PREVIEW_DEVICE_PRESETS, resolveCompareWidths } from '@vibisual/shared';
+// 스크롤바 규칙은 CSS 에, 그 표식은 TSX 에 산다 — 짝이 맞는지 보려면 둘 다 읽어야 한다. CSS 원문은
+// 설정 파일이 넘겨 준다(`?raw` 도 `import.meta.glob` 도 CSS 에서는 빈 문자열 — `vitest.config.ts` 참고).
+import indexCss from 'virtual:vibisual-css-source/index';
 
 /**
  * §5.17 · §7.16 **프리뷰 폭 프리셋에서 되돌아올 수 있는가**의 집행.
@@ -113,7 +116,43 @@ describe('프리뷰 폭 프리셋 — 되돌아올 문이 항상 화면 안에 �
     const frames = readSource('components/Preview/PreviewFrames.tsx');
     // 실제 폭 그대로 그리는 iframe 을 담는 두 컨테이너(한 폭 / 비교) 모두가 스크롤 컨테이너여야 한다.
     // 하나라도 `overflow-auto` 를 잃으면 그 폭이 조상에게 번져 조작 줄이 다시 창 밖으로 나간다.
-    const scrollers = frames.match(/className="flex min-h-0 flex-1 [^"]*overflow-auto[^"]*"/g) ?? [];
+    const scrollers = frames.match(/className="[^"]*flex min-h-0 flex-1 [^"]*overflow-auto[^"]*"/g) ?? [];
     expect(scrollers).toHaveLength(2);
+  });
+
+  it('그 스크롤바는 앱 공용 톤이고, 대기 상태에서는 숨어 있다', () => {
+    const frames = readSource('components/Preview/PreviewFrames.tsx');
+
+    // `scrollbar-thin` 을 빼면 index.css 의 **전역 기본값**(항상 보이는 슬레이트 썸)이 되살아난다.
+    // 비교 줄은 폭이 늘 넘치므로, 그 순간 아무것도 안 했는데 처음부터 스크롤바가 그어져 있게 된다.
+    const scrollers = [...frames.matchAll(/className="([^"]*flex min-h-0 flex-1 [^"]*overflow-auto[^"]*)"/g)];
+    expect(scrollers).toHaveLength(2);
+    for (const m of scrollers) expect(classesOf(m[1]!)).toContain('scrollbar-thin');
+
+    // hover 만으로는 휠·터치·키보드로 굴리기만 한 사용자에게 스크롤바가 오지 않는다 — 두 컨테이너
+    // 모두 `useScrollReveal` 의 `data-scrolling` 을 달고 있어야 굴리는 동안에도 뜬다.
+    expect(frames).toContain('useScrollReveal');
+    expect(frames.match(/\{\.\.\.scrollReveal\}/g) ?? []).toHaveLength(2);
+  });
+
+  /**
+   * §7.16 — **마우스만 대도 떠야 한다.**
+   *
+   * `.scrollbar-thin:hover` 는 이 자리에서 서지 않는다: 프리뷰 본체가 다른 오리진 iframe 이라,
+   * 마우스가 그 위로 들어가는 순간 부모 문서는 아무 것도 받지 못한다(인스펙터가 켜질 때 iframe 의
+   * `pointer-events` 를 일부러 끄는 것과 같은 까닭). 그래서 안에서 온 신고를 `data-hovering` 으로
+   * 세운다 — 표식과 CSS 규칙은 **다른 파일**에 살기 때문에, 한쪽만 지워져도 조용히 죽는다.
+   */
+  it('마우스를 대기만 해도 뜬다 — 안에서 온 신고가 `:hover` 를 대신한다', () => {
+    const frames = readSource('components/Preview/PreviewFrames.tsx');
+
+    // 두 컨테이너(한 폭 · 비교) 모두가 표식을 달아야 한다 — 하나만 달면 그 폭에서만 산다.
+    expect(frames.match(/data-hovering=\{hoverReveal\}/g) ?? []).toHaveLength(2);
+    // 값의 출처는 훅이 들고 있는 신고다(컴포넌트가 자기 `onMouseEnter` 로 지어내면 iframe 위에서 안 온다).
+    expect(frames).toContain('picker.hovered');
+
+    // 표식만 달고 규칙이 없으면 아무 일도 일어나지 않는다 — 색은 굴릴 때와 같은 값이어야 한다.
+    expect(indexCss).toContain(".scrollbar-thin[data-hovering='true']");
+    expect(indexCss).toContain("[data-hovering='true']::-webkit-scrollbar-thumb");
   });
 });

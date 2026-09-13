@@ -22,9 +22,14 @@ export const CANVAS_ROOT_SELECTOR = '.react-flow';
 /**
  * 캔버스 안이지만 **생성 메뉴 자리는 아닌** 것들 — 버블(노드) 위, 그리고 조작용 패널
  * (`CanvasControls` 는 React Flow `<Panel>` 이라 `.react-flow__panel` 이 된다) 위.
+ *
+ * §5.4 #34 — `.react-flow__nodesselection` 은 **여러 개를 묶어 고르면 그 위에 덮이는 상자**다.
+ * `pointer-events: all` 이라 묶인 버블을 통째로 가려, 이것이 없으면 **묶음 위 우클릭이 버블에
+ * 닿지 못하고 빈 곳 메뉴(만들기)로 샜다** — 지우려던 손이 만들기 목록을 받았다(2026-09-11 사용자
+ * 보고). 묶음의 메뉴는 `onSelectionContextMenu` 가 따로 연다.
  */
 export const CANVAS_CHROME_SELECTOR =
-  '.react-flow__node, .react-flow__controls, .react-flow__minimap, .react-flow__panel, .react-flow__attribution';
+  '.react-flow__node, .react-flow__nodesselection, .react-flow__controls, .react-flow__minimap, .react-flow__panel, .react-flow__attribution';
 
 /**
  * 이 대상 위에서 캔버스 생성 메뉴를 열어도 되는가.

@@ -156,4 +156,50 @@ describe('absorbMergeFollowUps', () => {
     expect(base.text).toBe('a\n\nb');
     expect(base.mergedCount).toBe(2);
   });
+
+  /**
+   * §5.3 #9-1 (P) — **조용한 내부 명령은 남의 본문과 섞이지 않는다.**
+   *
+   * 실제로 난 사고(2026-09-13 사용자 신고): 선행 압축이 `dispatchMode` 없이 큐에 끼어
+   * 기본값(합치기)으로 떨어졌고, 이 함수가 그 압축을 base 로 삼아 **뒤에 선 사용자 명령을
+   * 자기 텍스트에 흡수하고 큐에서 지웠다.** CLI 에는 `/compact` 로 시작하는 한 덩어리가
+   * 나갔고, CLI 는 맨 앞의 슬래시 명령만 읽고 끝냈다 — 화면에는 압축이 거절당한
+   * `Not enough messages to compact.` 한 줄만 남고 사용자가 친 지시는 어디에도 없었다.
+   *
+   * 화면에 안 보이는 명령이 일으키는 사고라 눈으로 잡을 자리가 없다. 여기서 고정한다.
+   */
+  describe('조용한 내부 명령(silent)', () => {
+    it('조용한 압축이 앞에 서도 뒤의 사용자 명령을 흡수하지 않는다', () => {
+      const compact = cmd({ id: 'cmd-precompact', text: '/compact', silent: true });
+      const user = cmd({ text: '사용자 지시' });
+      const queue = [compact, user];
+
+      expect(absorbMergeFollowUps(queue, compact)).toEqual([]);
+      expect(compact.text).toBe('/compact');
+      expect(compact.mergedCount).toBeUndefined();
+      expect(queue).toEqual([compact, user]); // 사용자 명령이 큐에 그대로 남는다.
+    });
+
+    it('사용자 명령이 base 여도 뒤의 조용한 압축은 흡수하지 않는다', () => {
+      const user = cmd({ text: '사용자 지시' });
+      const compact = cmd({ text: '/compact', silent: true });
+      const queue = [user, compact];
+
+      expect(absorbMergeFollowUps(queue, user)).toEqual([]);
+      expect(user.text).toBe('사용자 지시'); // 삼켰으면 본문 끝에 /compact 가 글자로 붙는다.
+      expect(queue).toEqual([user, compact]);
+    });
+
+    it('조용한 압축이 덧말 사이에 끼면 그 앞까지만 합친다', () => {
+      const base = cmd({ text: '첫 지시' });
+      const f1 = cmd({ text: '덧말 1' });
+      const compact = cmd({ text: '/compact', silent: true });
+      const f2 = cmd({ text: '덧말 2' });
+      const queue = [base, f1, compact, f2];
+
+      expect(absorbMergeFollowUps(queue, base)).toEqual([f1]);
+      expect(base.text).toBe('첫 지시\n\n덧말 1');
+      expect(queue).toEqual([base, compact, f2]);
+    });
+  });
 });

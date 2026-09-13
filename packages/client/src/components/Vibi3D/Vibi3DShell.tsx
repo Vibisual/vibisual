@@ -339,8 +339,9 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
     //   여기서 h-screen 을 쓰면 앱 안 창에서 화면 높이만큼 자라 창을 뚫는다.
     <div className="flex h-full flex-col bg-gray-950 text-gray-100">
       <header className="app-drag flex h-11 shrink-0 items-center gap-3 border-b border-white/10 px-3">
-        <span className="text-sm font-semibold">{t('panel.vibi3d.title', { defaultValue: 'Vibi3D' })}</span>
-        <span className="truncate text-xs text-white/45">{fileName}</span>
+        {/* `app-drag-label` — 드래그 영역의 정적 글자는 손짓을 잡지 않는다(`index.css`). */}
+        <span className="app-drag-label text-sm font-semibold">{t('panel.vibi3d.title', { defaultValue: 'Vibi3D' })}</span>
+        <span className="app-drag-label truncate text-xs text-white/45">{fileName}</span>
         <div className="app-nodrag ml-auto flex items-center">
           <WindowControls />
         </div>

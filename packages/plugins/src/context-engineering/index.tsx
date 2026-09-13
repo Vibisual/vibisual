@@ -6,29 +6,34 @@
  * 몇 개인지 세어 준다. 표시 전용.
  */
 import { defineInspector } from '../sdk/index.js';
-import { effectiveTools } from '../sdk/index.js';
+import { effectiveTools, readAutoGoal } from '../sdk/index.js';
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
 import type { PluginBubbleContext } from '../sdk/index.js';
 
-/** 다섯 패턴 중 관측 가능한 것들: 색인 주입 · 도구 관리 · 검색 사용 · 사고 조절. */
+/**
+ * 네 축 — 절차 색인 · 도구 관리 · 되짚을 원본 · 사고 조절.
+ *
+ * 서로 겹치지 않게 골랐다. "색인이 실린다"와 "실리는 것이 있다"를 따로 세면 한 사실이 두 점이 되어
+ * 점수가 부풀고, 그러면 이 칸의 4 가 아무 뜻도 못 갖는다.
+ */
 function applied(ctx: PluginBubbleContext): number {
-  const injections = ctx.data.brainInjections ?? [];
+  const goal = readAutoGoal(ctx);
   return [
-    injections.length > 0,
+    goal.activeHere,
     effectiveTools(ctx.agentConfig).size < AVAILABLE_AGENT_TOOLS.length,
-    injections.some((e) => e.trigger === 'search'),
+    goal.anchored > 0,
     (ctx.agentConfig?.effort ?? 'default') !== 'default',
   ].filter(Boolean).length;
 }
 
 const inspector = defineInspector({
   id: 'context-engineering', i18nKey: 'contextEngineering', name: 'Context Engineering', category: 'observability',
-  needs: ['brainInjections'],
+  needs: ['autoGoal'],
   status: (ctx) => (applied(ctx) >= 3 ? { key: 'designed', tone: 'good' } : applied(ctx) >= 1 ? { key: 'partial', tone: 'neutral' } : { key: 'default', tone: 'warn' }),
   checks: [
     { key: 'applied', value: (ctx) => `${applied(ctx)} / 4` },
     { key: 'tools', value: (ctx) => `${effectiveTools(ctx.agentConfig).size} / ${AVAILABLE_AGENT_TOOLS.length}` },
-    { key: 'memory', value: (ctx) => String((ctx.data.brainInjections ?? []).length) },
+    { key: 'memory', value: (ctx) => String(readAutoGoal(ctx).carried) },
   ],
   noteKey: () => '.note',
 });

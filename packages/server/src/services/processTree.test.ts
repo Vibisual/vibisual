@@ -58,7 +58,7 @@ describe('killTree — POSIX 그룹 킬 유지', () => {
 describe('장수명 claude 자식 스폰은 전부 processGroupSpawnOptions 를 통과한다', () => {
   // "detached 는 필요 없어 보인다"며 되돌리면 mac/linux 고아 프로세스 버그가 그대로 부활한다.
   const LONG_LIVED_SPAWNS: { file: string; sites: number; why: string }[] = [
-    { file: 'subAgentManager.ts', sites: 2, why: 'claude 본체 execute + summarizeSession(--resume)' },
+    { file: 'subAgentManager.ts', sites: 1, why: 'claude 본체 execute' },
     { file: 'contiManager.ts', sites: 2, why: 'callClaude + runPatchAgent' },
     { file: 'claudeAgentViewService.ts', sites: 1, why: 'claude --bg 워커' },
     { file: 'claudeSetupService.ts', sites: 1, why: '네이티브 인스톨러(shell 파이프라인)' },

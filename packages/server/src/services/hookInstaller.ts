@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveBinary } from './binLocator.js';
+// §3.6 — 설치처는 하나가 아니다. Cowork 세션 홈 목록의 정본은 이 모듈.
+import { listCoworkConfigHomes } from './claudeConfigHomes.js';
 
 const MARKER = '_vibisualManaged';
 
@@ -106,15 +108,6 @@ export const HANDLER_EVENTS: ReadonlySet<string> = new Set<HookEvent>([
 ]);
 
 /**
- * §3.6 / §5.10 — `PostToolUse` 에서 handler.mjs 가 **실제로 할 일이 있는 도구.**
- *
- * 기억 카드 경고 주입은 처음부터 `Edit`/`Write` 두 도구에만 붙는 기능이었는데, 훅에는 필터가
- * 없어서 **모든 도구 호출마다 Node 프로세스가 한 번씩 떴다.** `if`(권한 규칙 문법) 필터가 그
- * 헛스폰을 없앤다 — 나머지 도구의 `PostToolUse` 는 HTTP 훅이 서버로 바로 넘긴다.
- */
-export const BRAIN_NOTE_TOOLS: readonly string[] = ['Edit', 'Write'];
-
-/**
  * §5.3 #12-1 — 승인 게이트는 사용자 결정을 최대 60초 기다린다. 훅 타임아웃은 그보다 조금 길어야
  * 하고(짧으면 사용자가 누르기 전에 CLI 가 먼저 포기한다), CLI 기본값 600초보다는 훨씬 짧아야 한다
  * (Vibisual 이 멎으면 사용자의 CLI 가 10분간 얼어붙는다).
@@ -213,6 +206,14 @@ export interface HookInstallOptions {
   transport?: HookTransport;
   /** 설치본 판올림(`2.1.251` 꼴). 모르면 undefined — HTTP 승격을 하지 않는다. */
   cliVersion?: string | null;
+  /**
+   * 설치할 **설정 홈**(`…/.claude`). 기본은 호스트 `~/.claude` — 종전 동작 그대로다.
+   *
+   * Cowork 는 설정 홈을 세션마다 따로 잡아 우리 `~/.claude/settings.json` 을 보지 않는다
+   * (§3.6 · anthropics/claude-code#63360). 그 세션의 홈을 여기 넘기면 **같은 블록**이 그쪽에도
+   * 깔리고, 같은 코어가 같은 훅을 쏜다 — 이벤트 처리 경로는 한 줄도 달라지지 않는다.
+   */
+  settingsDir?: string;
 }
 
 /** §3.6 — `settings.json.bak-vibisual-*` 보존 개수. 넘치면 오래된 것부터 지운다. */
@@ -358,21 +359,22 @@ export function buildVibisualBlocks(
     })]);
   }
 
+  /*
+   * §5.10 — `PostToolUse` 는 이제 **한 갈래**다.
+   *
+   * 종전에는 `if: Edit`/`if: Write` 전용 엔트리를 따로 심어 기억 카드 경고를 물어봤는데,
+   * 그 축이 폐기돼 물어볼 곳이 없다. 갈래가 사라지면 편집할 때마다 뜨던 Node 프로세스도
+   * 함께 사라진다 — 추적은 종전대로 HTTP(폴백은 handler)가 통째로 맡는다.
+   *
+   * **분기는 그대로 둔다**(아래 "나머지 전부"에 흘려보내지 않는다). 일반 경로는 `sync: false` ·
+   * `EVENT_TIMEOUT_SEC` 를 쓰는데, `PostToolUse` 는 종전부터 `sync: true` · `TRACK_TIMEOUT_SEC`
+   * 였다. 기억 카드를 걷는 김에 전송 방식까지 같이 바뀌면 이번 변경이 무엇을 고쳤는지 알 수 없다.
+   */
   if (event === 'PostToolUse') {
     if (transport === 'command') {
-      // 폴백에서는 종전 그대로 한 장 — 이 엔트리가 기억 카드 주입과 추적을 겸한다.
       return wrap([buildHandlerEntry(port, handlerPath, token, { sync: true, timeout: TRACK_TIMEOUT_SEC })]);
     }
-    // HTTP 경로: 기억 카드 주입은 `Edit`/`Write` 에만(= 그 외 도구에서는 프로세스가 아예 안 뜬다),
-    //   추적은 전체 도구를 HTTP 로. 두 일을 나눠야 `if` 를 걸 수 있다.
-    const brain = BRAIN_NOTE_TOOLS.map((tool) => buildHandlerEntry(port, handlerPath, token, {
-      if: tool,
-      sync: true,
-      timeout: TRACK_TIMEOUT_SEC,
-      // 추적은 아래 HTTP 엔트리가 맡는다 — 여기서 또 보내면 같은 이벤트가 두 번 처리된다.
-      extraArgs: ['--brain-notes-only'],
-    }));
-    return wrap([...brain, buildHttpEntry(port, token, { timeout: TRACK_TIMEOUT_SEC })]);
+    return wrap([buildHttpEntry(port, token, { timeout: TRACK_TIMEOUT_SEC })]);
   }
 
   // ── 나머지 전부 = 순수 전달 ──
@@ -465,8 +467,8 @@ export function ensureClaudeHooksInstalled(
   token: string,
   options: HookInstallOptions = {},
 ): HookInstallResult {
-  const home = os.homedir();
-  const settingsDir = path.join(home, '.claude');
+  // 기본은 호스트 홈 — Cowork 세션 홈을 심을 때만 호출부가 `settingsDir` 을 넘긴다.
+  const settingsDir = options.settingsDir ?? path.join(os.homedir(), '.claude');
   const settingsPath = path.join(settingsDir, 'settings.json');
 
   const result: HookInstallResult = {
@@ -546,14 +548,29 @@ export function ensureClaudeHooksInstalled(
     if (raw !== null) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       const backupPath = `${settingsPath}.bak-vibisual-${ts}`;
-      fs.writeFileSync(backupPath, raw, 'utf-8');
+      // §보안 감사 2026-09-09 — 백업본에도 직전 판의 훅 헤더(= loopback 토큰)가 그대로 들어 있다.
+      //   원본과 같은 권한으로 좁히지 않으면 백업이 토큰 유출 경로가 된다.
+      fs.writeFileSync(backupPath, raw, { encoding: 'utf-8', mode: 0o600 });
       result.backupPath = backupPath;
       result.prunedBackups = pruneBackups(settingsDir, settingsPath);
     }
 
+    /*
+     * §보안 감사 2026-09-09 — 이 파일의 훅 블록에는 `x-vibisual-hook-token` 헤더가 평문으로 들어간다.
+     * 토큰 하나면 loopback 리스너의 화이트리스트 전체에 닿으므로 **소유자만 읽게** 좁힌다.
+     *
+     * `mode` 는 새로 만들 때만 먹으므로 이미 있던 `settings.json` 은 rename 뒤에 `chmodSync` 로
+     * 함께 좁힌다(rename 은 tmp 의 권한을 그대로 옮긴다). Windows 에서는 읽기전용 비트만 다루는
+     * 무해한 no-op 이고, 실효는 mac·linux 에서 난다 — 셋 다 도는 제품이다.
+     */
     const tmpPath = `${settingsPath}.tmp-vibisual-${process.pid}`;
-    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmpPath, settingsPath);
+    try {
+      fs.chmodSync(settingsPath, 0o600);
+    } catch {
+      /* 권한을 다루지 않는 파일시스템 — 위 mode 로 할 수 있는 데까지는 했다 */
+    }
 
     result.installed = true;
     return result;
@@ -561,4 +578,151 @@ export function ensureClaudeHooksInstalled(
     result.error = err as Error;
     return result;
   }
+}
+
+/**
+ * §3.6 — **설치처가 여럿인 경우의 설치 결과.**
+ *
+ * 호스트 설치는 종전과 같은 한 건이고, Cowork 는 세션마다 홈이 따로라 여러 건이다.
+ */
+export interface HookInstallAllResult {
+  /** 호스트 `~/.claude` 설치 결과 — VS Code 등 종전 경로 전부가 여기에 달렸다. */
+  host: HookInstallResult;
+  /** Cowork 세션 홈별 결과. Claude Desktop 이 없는 기계에서는 빈 배열(정상). */
+  cowork: HookInstallResult[];
+  /** 이번 호출에서 **실제로 파일을 쓴** Cowork 홈 수(진단용 — 로그 도배 방지에 쓴다). */
+  coworkInstalled: number;
+}
+
+/**
+ * 우리가 아는 **모든 설정 홈**에 같은 훅 블록을 심는다 — 호스트 하나 + Cowork 세션 홈들.
+ *
+ * ## 왜 필요한가
+ *
+ * Cowork 는 Claude Code 와 같은 코어로 돌면서 **설정 홈만 세션마다 따로 잡는다**(그 물증은
+ * `claudeConfigHomes.ts` 주석). 그래서 우리 `~/.claude/settings.json` 의 훅은 Cowork 에서 한 번도
+ * 발화하지 않았고(anthropics/claude-code#63360 "not planned", 근본 원인 #40495), 캔버스에서
+ * Cowork 작업은 **일어나지 않은 일**이었다. 같은 블록을 그 홈에 심으면 같은 코어가 같은 훅을
+ * 쏘므로, 이벤트를 받는 쪽(`/api/hook-event`)은 한 줄도 고칠 게 없다.
+ *
+ * ## 순서와 실패 격리
+ *
+ * **호스트가 먼저다.** Cowork 열거는 디렉터리 3겹을 훑으므로 느리거나 실패할 수 있는데, 그때도
+ * 종전 동작(호스트 설치)은 이미 끝나 있어야 한다 — 새 축이 옛 축을 볼모로 잡지 않는다.
+ * 홈 하나가 실패해도 나머지는 계속 깐다(§3.6 failure-tolerant).
+ *
+ * ## 유령 디렉터리를 만들지 않는다
+ *
+ * 설치기는 설정 홈이 없으면 `mkdir -p` 로 만든다. Cowork 홈 목록은 15초 캐시라 그 사이 세션이
+ * 지워졌을 수 있는데, 그때 그대로 만들면 **우리가 남의 데이터 폴더에 빈 껍데기를 되살리는** 꼴이
+ * 된다. 그래서 심기 직전에 **세션 디렉터리가 아직 있는지** 한 번 더 확인한다.
+ */
+export function ensureHooksInstalledEverywhere(
+  port: number,
+  handlerPath: string,
+  token: string,
+  options: HookInstallOptions = {},
+): HookInstallAllResult {
+  // 호스트 — `settingsDir` 을 비워 종전 경로(`~/.claude`)로 간다.
+  const host = ensureClaudeHooksInstalled(port, handlerPath, token, {
+    ...options,
+    settingsDir: undefined,
+  });
+
+  const cowork: HookInstallResult[] = [];
+  let coworkInstalled = 0;
+  try {
+    resetCoworkLedgerIfStale(port, handlerPath, token, options);
+    for (const home of listCoworkConfigHomes()) {
+      // 캐시가 잡아 둔 사이에 사라진 세션 — 되살리지 않는다.
+      if (home.sessionDir && !fs.existsSync(home.sessionDir)) continue;
+      const r = ensureClaudeHooksInstalled(port, handlerPath, token, {
+        ...options,
+        settingsDir: home.dir,
+      });
+      cowork.push(r);
+      if (!r.error) coworkHomesDone.add(home.dir);
+      if (r.installed) coworkInstalled += 1;
+    }
+  } catch {
+    /* 열거 자체가 실패해도 호스트 설치는 이미 끝났다 — 조용히 넘어간다 */
+  }
+
+  return { host, cowork, coworkInstalled };
+}
+
+/**
+ * 이번 프로세스에서 훅을 심어 둔 Cowork 홈 — **새로 나타난 세션만** 건드리기 위한 장부.
+ *
+ * Cowork 세션은 사용자가 새 대화를 열 때마다 생기므로 부팅 1회 설치로는 그 뒤에 생긴 세션이
+ * 전부 새어 나간다. 그렇다고 주기마다 홈 전부를 다시 여는 것은 낭비다 — 설치기는 idempotent 라
+ * 결과는 같지만, 10초 스윕이 홈 48개의 `settings.json` 을 매번 읽고 파싱한다.
+ */
+const coworkHomesDone = new Set<string>();
+
+/** 장부가 가리키는 설치 내용(포트·토큰·전송 경로). 이게 바뀌면 전부 다시 깔아야 한다. */
+let coworkLedgerSignature = '';
+
+/**
+ * 포트·토큰·핸들러·전송 경로가 바뀌었으면 장부를 비운다.
+ *
+ * 이게 없으면 **판올림으로 HTTP 승격이 일어난 뒤에도 Cowork 홈에는 옛 command 블록이 남는다** —
+ * "이미 심었다"는 표식만 보고 건너뛰기 때문이다. 서명이 바뀌면 다음 회차가 전부 다시 깐다.
+ */
+function resetCoworkLedgerIfStale(
+  port: number,
+  handlerPath: string,
+  token: string,
+  options: HookInstallOptions,
+): void {
+  const sig = [port, handlerPath, token, options.transport ?? 'command', options.cliVersion ?? ''].join('|');
+  if (sig !== coworkLedgerSignature) {
+    coworkLedgerSignature = sig;
+    coworkHomesDone.clear();
+  }
+}
+
+/** 테스트에서 장부를 비운다. */
+export function __resetCoworkInstallLedgerForTest(): void {
+  coworkHomesDone.clear();
+  coworkLedgerSignature = '';
+}
+
+/**
+ * **새로 나타난 Cowork 세션 홈에만** 훅을 심는다 — 주기 스윕이 부르는 경로.
+ *
+ * 사용자가 Cowork 에서 새 대화를 열면 세션 홈이 하나 생긴다. 그 홈에 우리 블록이 깔리기 전에
+ * CLI 가 설정을 읽어 버리면 **그 세션은 통째로 안 보인다**(훅이 0건이라 캔버스에서는 일어나지
+ * 않은 일이 된다). 그래서 부팅 1회가 아니라 세션 스캔 주기(10초)마다 새 홈을 확인한다 —
+ * 사용자가 대화를 열고 첫 프롬프트를 치기까지의 시간이 그보다 짧은 경우는 드물다.
+ *
+ * 호스트 홈은 건드리지 않는다(부팅 설치와 전송 경로 승격이 이미 맡고 있다).
+ *
+ * @returns 이번 회차에 새로 심은 홈 수(0 이면 조용히 지나간다 — 로그 도배 방지).
+ */
+export function installHooksIntoNewCoworkHomes(
+  port: number,
+  handlerPath: string,
+  token: string,
+  options: HookInstallOptions = {},
+): number {
+  let installed = 0;
+  try {
+    resetCoworkLedgerIfStale(port, handlerPath, token, options);
+    for (const home of listCoworkConfigHomes()) {
+      if (coworkHomesDone.has(home.dir)) continue;
+      if (home.sessionDir && !fs.existsSync(home.sessionDir)) continue;
+      const r = ensureClaudeHooksInstalled(port, handlerPath, token, {
+        ...options,
+        settingsDir: home.dir,
+      });
+      // 실패는 장부에 남기지 않는다 — 다음 회차에 다시 시도한다(일시적 잠금·권한 문제 대비).
+      if (r.error) continue;
+      coworkHomesDone.add(home.dir);
+      if (r.installed) installed += 1;
+    }
+  } catch {
+    /* 열거 실패는 조용히 — 다음 회차가 다시 본다 */
+  }
+  return installed;
 }

@@ -208,12 +208,27 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
 
   return (
     <div className="flex min-h-0 flex-col">
-      <div className="flex flex-shrink-0 items-center justify-between gap-1 px-3 pt-2">
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.loop.title')}</span>
+      {/* 제목 + 상태 배지 — 이 줄의 폭은 고정이 아니다. 사이드바가 서랍으로 뜨면 상한이 창 크기를
+          따라가고(`max-w-[calc(100%-5rem)]`), 상태 문구 길이는 로케일마다 다르다("정지됨" ↔
+          "Presupuesto agotado"). 종전엔 제목이 줄지 않아(`min-w-0` 없음) 긴 쪽에서 배지가 패널
+          오른쪽 테두리 **밖으로 밀려 잘렸다** — 이제 제목이 먼저 줄고, 그래도 둘이 한 줄에 못 서면
+          배지가 아랫줄로 내려간다(`flex-wrap`, 오른쪽 정렬은 `ml-auto` 가 지킨다).
+          `pb-1.5` 는 아래 스크롤 영역 상단의 그라데이션(`.scroll-fade-top`, 12px·z-10)이 스크롤을
+          내리는 순간 배지 밑변에 달라붙어 겹쳐 보이지 않도록 띄워 둔 자리다. */}
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1 px-3 pb-1.5 pt-2">
+        <span
+          title={t('ide.loop.title')}
+          className="min-w-0 flex-1 basis-20 truncate text-[12px] font-semibold uppercase tracking-wider text-gray-500"
+        >
+          {t('ide.loop.title')}
+        </span>
         {statusLabel && (
-          <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] font-semibold ${
-            loop?.enabled ? 'bg-amber-500/20 text-amber-300' : 'bg-gray-700/70 text-gray-300'
-          }`}>
+          <span
+            title={statusLabel}
+            className={`ml-auto max-w-full flex-shrink-0 truncate rounded px-1.5 py-0.5 text-[12px] font-semibold ${
+              loop?.enabled ? 'bg-amber-500/20 text-amber-300' : 'bg-gray-700/70 text-gray-300'
+            }`}
+          >
             {statusLabel}
           </span>
         )}

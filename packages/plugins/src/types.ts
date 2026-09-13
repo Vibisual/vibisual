@@ -8,10 +8,20 @@
  * 직접 변형할 수 있게 되어 §5.11 의 "슬롯 경유만" 경계가 무너진다.
  */
 import type { ReactNode } from 'react';
-import type { AgentConfig, AgentEvent, AgentReport, AgentReview, BashEntry, BrainInjectionEvent, BrainSummary, BubbleType, PluginFactMap, PluginManifest, CaptureBubble, RunningSubagentTask, SubAgent, TaskEdge } from '@vibisual/shared';
+import type { AgentConfig, AgentEvent, AgentReport, AgentReview, AutoGoalSummary, BashEntry, BubbleType, PluginFactMap, PluginManifest, CaptureBubble, RunningSubagentTask, SubAgent, TaskEdge } from '@vibisual/shared';
+// §5.11 정독 게이트 — 절 색인·영수증·인용·신뢰도 계약(서버·클라와 같은 한 벌).
+import type {
+  PlatformName,
+  SpecCitation, SpecGateStrength, SpecIndex, SpecReadSpan, SpecReadingRoute,
+  SpecReadingSettings, SpecReadingScope, SpecReadingScopeState, SpecRequiredEntry, SpecTrust, SpecUnit, SpecUnitStatus,
+} from '@vibisual/shared';
 
 /** 플러그인 작성자가 shared 를 따로 물지 않게 재수출 — 플러그인은 `../types.js` 하나만 보면 된다. */
 export type { PluginManifest, PluginFactMap };
+export type {
+  SpecCitation, SpecGateStrength, SpecIndex, SpecReadSpan, SpecReadingRoute,
+  SpecReadingSettings, SpecReadingScope, SpecReadingScopeState, SpecRequiredEntry, SpecTrust, SpecUnit, SpecUnitStatus,
+};
 
 /** 호스트가 주입하는 번역 함수 — 플러그인이 react-i18next 를 직접 물지 않게 한다(i18next 인스턴스 이중화 방지). */
 export type PluginTranslate = (key: string, options?: Record<string, unknown>) => string;
@@ -28,8 +38,7 @@ export type PluginDataNeed =
   | 'runningTasks'
   | 'agentReports'
   | 'agentReviews'
-  | 'brain'
-  | 'brainInjections'
+  | 'autoGoal'
   | 'taskEdges'
   | 'captureBubbles'
   | 'bashCommands'
@@ -42,10 +51,12 @@ export interface PluginAgentData {
   runningTasks?: readonly RunningSubagentTask[];
   agentReports?: readonly AgentReport[];
   agentReviews?: readonly AgentReview[];
-  /** 활성 프로젝트의 기억 요약(§5.10). 프로젝트 단위라 버블과 무관하게 같은 값이 온다. */
-  brain?: BrainSummary | null;
-  /** 이 에이전트에 기억이 주입된 이벤트들. */
-  brainInjections?: readonly BrainInjectionEvent[];
+  /**
+   * §5.10 — 활성 프로젝트의 자동 목표 요약(되풀이가 절차로 굳은 정도).
+   * 프로젝트 단위라 버블과 무관하게 같은 값이 온다. **꺼져 있으면 `null`** 이다 —
+   * 0 과 구분해야 카드가 "아직 없다"와 "이 축을 안 쓴다"를 다르게 말할 수 있다.
+   */
+  autoGoal?: AutoGoalSummary | null;
   /** 이 에이전트가 양끝 중 하나인 Task Edge 들. */
   taskEdges?: readonly TaskEdge[];
   /** 지금 캔버스에 떠 있는 화면 캡처 버블들(프로젝트 단위). */
@@ -211,6 +222,13 @@ export interface PluginPromptContext {
   cwd: string;
   agentId: string;
   agentLabel: string;
+  /**
+   * §5.5 #17-44 ⑧ — 이 턴을 도는 **세션**(`SubAgent.id`). 세션 축이 없는 호출에서는 비어 있다.
+   *
+   * 켬/끔 3층의 맨 아래 칸을 고르는 열쇠다. **선택 필드**이고(`fileMtimeMs`·`listFiles` 와 같은 규율)
+   * 없으면 그 층만 조용히 접혀 에이전트·프로젝트 층으로 판정이 내려간다.
+   */
+  subAgentId?: string;
   /** 우리가 만든 커스텀/CMD 에이전트인가(false = 외부 훅으로 붙은 세션). */
   customCreated: boolean;
   /** 프로젝트 루트 기준 상대경로가 실제로 있는가. 루트 밖은 호스트가 무조건 false 로 끊는다. */
@@ -234,6 +252,58 @@ export interface PluginPromptContext {
    * 쓰는 쪽은 항상 없을 수 있다고 보고 없으면 그 축만 조용히 접는다.
    */
   fileMtimeMs?: (relPath: string) => number | null;
+  /**
+   * §5.11 정독 게이트 — 폴더 하나를 훑어 **프로젝트 루트 기준 상대경로** 목록을 돌려준다.
+   *
+   * `fileExists`/`readFile` 만으로는 "기획 문서가 어디에 몇 개 있는가"를 물을 수 없다 — 후보 경로를
+   * 손으로 나열하는 방식은 `docs/기획/전투.md` 처럼 프로젝트마다 다른 이름 앞에서 그대로 헛돈다
+   * (`ssot-drift` 가 v4.67 에서 후보 8개 하드코딩으로 겪은 바로 그 실패).
+   *
+   * 루트 밖은 호스트가 무조건 끊는다. 훑는 양은 호스트가 `opts` 로 받은 상한 안에서 스스로 자른다 —
+   * 깊은 트리 전체를 도는 순간 색인 한 번이 곧 UI 정지다(서버가 메인 프로세스와 한 몸).
+   *
+   * **선택 필드다** — `fileMtimeMs` 와 같은 규율로, 안 넘기는 옛 호스트에서는 그 축만 조용히 접힌다.
+   */
+  listFiles?: (
+    relDir: string,
+    opts?: { maxDepth?: number; extensions?: readonly string[]; limit?: number },
+  ) => string[];
+  /**
+   * §5.11 정독 게이트 — 이번 턴 사용자 프롬프트 원문.
+   *
+   * 필수 절을 고르려면 "이번에 무슨 일을 하려는가"를 봐야 하는데, 그것은 파일에 없다. 위 탐침들과
+   * 같은 규율로 **선택 필드**이고, 없으면 프롬프트 축 라우팅만 접힌다(경로·명시 매핑 축은 그대로).
+   */
+  promptText?: string;
+  /** 이 세션이 이미 건드린 파일(프로젝트 루트 기준 상대경로) — 경로 축 라우팅의 재료. */
+  touchedPaths?: readonly string[];
+  /**
+   * 이 세션의 **읽기 영수증**(파일 → 열람 구간). 서버가 훅에서 모아 넘긴다.
+   *
+   * 플러그인은 파일을 볼 수는 있어도 "이 세션이 그 구간을 열었는가"는 알 수 없다 — 그것은 도구 호출
+   * 이력이고 호스트만 갖고 있다. 없으면 열람 판정 없이 **목록과 규칙만** 싣는다(그래도 집행은 선다).
+   */
+  readingSpans?: Readonly<Record<string, readonly SpecReadSpan[]>>;
+  /** 이 세션에서 이미 대조를 마친 인용들(중복 요구를 피하고 확증 결과를 블록에 되비친다). */
+  readingCitations?: readonly SpecCitation[];
+  /**
+   * §5.11 정독 게이트 — 안 변하는 규칙 줄을 호스트가 **시스템 프롬프트**(`--append-system-prompt`)에 따로 실었는가.
+   *
+   * 참이면 매 턴 블록은 목록·강도만 싣는다(규칙 다섯 줄이 턴마다 사용자 메시지에 쌓이지 않게).
+   * 시스템 프롬프트가 없는 경로(훅으로 붙은 외부 세션)는 안 넘기고, 그러면 종전대로 규칙까지 함께 실린다.
+   * 호스트는 **실제로 실을 때만** 켜야 한다 — 켜 놓고 안 실으면 규칙이 어디에도 없다.
+   */
+  promptRulesInSystem?: boolean;
+  /** 이 프로젝트의 정독 설정(호스트가 체크포인트에서 읽어 넘긴다). 없으면 파일·기본값으로 떨어진다. */
+  specSettings?: SpecReadingSettings;
+  /**
+   * 이 호스트가 도는 OS — **경로를 키로 쓸 때만** 쓴다(멀티플랫폼 1축).
+   *
+   * 색인이 든 문서 경로와 훅이 남긴 열람 경로를 맞춰 보려면 케이스 정책이 필요한데, 그 정책은
+   * 플러그인이 정할 수 없다(`process.platform` 은 이 패키지에서 읽지 않는다 — 클라에서도 로드된다).
+   * 안 넘기면 `projectPath` 모양으로 추정하고, 추정도 못 하면 **접지 않는다**(Linux 쪽으로 안전하게).
+   */
+  platform?: PlatformName;
 }
 
 /**

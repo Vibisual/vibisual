@@ -45,6 +45,19 @@ export type {
   PluginRouteRequest,
   PluginRouteResponse,
   PluginServerHost,
+  // §5.11 정독 게이트 — 절 색인·영수증·인용·신뢰도.
+  SpecCitation,
+  SpecGateStrength,
+  SpecIndex,
+  SpecReadSpan,
+  SpecReadingRoute,
+  SpecReadingSettings,
+  SpecReadingScope,
+  SpecReadingScopeState,
+  SpecRequiredEntry,
+  SpecTrust,
+  SpecUnit,
+  SpecUnitStatus,
 } from '../types.js';
 
 // ── 점검 카드 골격 + 공용 글리프 ──
@@ -57,6 +70,71 @@ export { hasActivity, toneIfActive } from '../framework/activity.js';
 // ── 집행 골격(v4.59) — 플러그인 = 관측(카드) + 집행(규칙) ──
 export { defineEnforcement, ENFORCEMENT_RULE_MAX } from '../framework/enforcement.js';
 export type { EnforcementSpec } from '../framework/enforcement.js';
+
+/**
+ * ── 설정 상수(§3.3) — 정독 게이트 ──
+ *
+ * 이 값들은 **플러그인·서버·클라가 함께 읽어야** 한다(색인 상한을 플러그인이 자르고, 원장 상한을
+ * 서버가 걸고, 화면이 같은 숫자로 "잘렸다"를 말한다). 그래서 폴더 안에 사본을 두지 않고 이 문 하나로
+ * 내보낸다 — 사본을 두면 셋 중 하나만 바뀌어 서로 다른 상한을 말하게 된다.
+ */
+export {
+  SPEC_DOC_ROOT_CANDIDATES,
+  SPEC_DOC_EXTENSIONS,
+  SPEC_DOC_SCAN_MAX_DEPTH,
+  SPEC_DOC_FILE_MAX,
+  SPEC_ID_PATTERN_DEFAULT,
+  SPEC_REQUIREMENT_MARKERS,
+  SPEC_REQUIRED_MAX,
+  SPEC_UNIT_MAX,
+  SPEC_UNIT_TOKEN_MAX,
+  SPEC_ITEM_PATTERN_DEFAULT,
+  SPEC_RESPLIT_DEPTH_MAX,
+  SPEC_ITEM_LABEL_MAX,
+  SPEC_TITLE_MIN_HITS,
+  // §5.11 — 겹침을 **개수**가 아니라 **무게**로 세는 재료(접착제 0 · 드문 낱말 가중).
+  SPEC_TITLE_STOPWORDS,
+  SPEC_RARE_TITLE_HIT_WEIGHT,
+  SPEC_RARE_TITLE_DF_RATIO,
+  SPEC_RARE_TITLE_MIN_UNITS,
+  SPEC_TITLE_HEAD_PARTS,
+  SPEC_DOC_SKIP_SEGMENTS,
+  SPEC_DOC_SKIP_FILE_PATTERN,
+  SPEC_DOC_LIST_MAX,
+  SPEC_INDEX_SKIPPED_LIST_MAX,
+  SPEC_CITATION_ACTUAL_MAX,
+  SPEC_FULL_READ_LINE_MAX,
+  SPEC_GREP_CONTEXT_LINES,
+  SPEC_COVER_SATISFIED_RATIO,
+  SPEC_STOP_RETRY_DEFAULT,
+  SPEC_STOP_RETRY_LIMIT,
+  SPEC_CITATION_MIN_CHARS,
+  SPEC_CITATION_MAX_CHARS,
+  SPEC_INDEX_TTL_MS,
+  SPEC_SETTINGS_FILE,
+  SPEC_GATE_STRENGTHS,
+  SPEC_SCOPE_ENTRY_MAX,
+  DEFAULT_SPEC_READING_SETTINGS,
+  // §5.5 #17-44 ⑧ — 켬/끔 3층 판정은 shared 순수 함수 하나가 소유한다(카드·집행·게이트 공용).
+  SPEC_SCOPE_ORDER,
+  resolveSpecReadingEnabled,
+  specReadingScopeStates,
+  normalizeScopeMap,
+} from '@vibisual/shared';
+
+/**
+ * 경로를 **키·비교로 쓸 때** 반드시 이것을 통과시킨다(멀티플랫폼 1축).
+ *
+ * `.toLowerCase()` 로 접으면 Linux 에서 `Feature-X` 와 `feature-x` 가 같은 파일이 된다.
+ */
+export { pathKey } from '@vibisual/shared';
+export type { PlatformName } from '@vibisual/shared';
+
+/**
+ * 토큰 어림 — 서버·클라가 쓰는 **같은 산식**(`TOKEN_BYTES_RATIO`). 절 크기 상한(정독 게이트)이 이것으로
+ * 잰다. 플러그인이 자기 산식을 들면 화면의 "~토큰" 과 프롬프트의 숫자가 갈린다.
+ */
+export { estimateTokens } from '@vibisual/shared';
 
 // ── 화면 조각 — 카드 생김새를 카탈로그 전체가 공유한다 ──
 export { PluginSection, PluginRow, PluginBadgePill, formatElapsed } from '../ui/kit.js';
@@ -83,6 +161,9 @@ export type {
 } from './judgments/trifecta.js';
 export { judgeBlastRadius } from './judgments/blastRadius.js';
 export type { BlastRadiusVerdict } from './judgments/blastRadius.js';
+// §5.10 — 자동 목표 한 벌 접기. 3층을 접는 자리가 카드마다 갈리지 않게 여기 하나로 둔다.
+export { readAutoGoal } from './judgments/autoGoal.js';
+export type { AutoGoalReading } from './judgments/autoGoal.js';
 
 /**
  * 호스트 API 버전 — 플러그인 `plugin.json` 의 `hostApi` 와 맞춰 본다.

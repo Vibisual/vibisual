@@ -48,6 +48,13 @@ export interface InspectorSpec {
    * 이 값과 실제 집행 모듈이 어긋나면 `readiness.test.ts` 가 실패한다 — 한쪽만 고치는 것을 막는다.
    */
   enforcesProject?: boolean;
+  /**
+   * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 이 기능 자신의 화면에 있는가(기본 false).
+   *
+   * 적으면 Plugins 창 목록에서 빠지고 집행 배럴·카드 호스트가 켬 집합을 묻지 않는다. 옮겨 간 손잡이가
+   * 실제로 있는 카드만 적어라 — 없으면 어디에서도 못 끄는 카드가 된다(`readiness.test.ts` 가 막는다).
+   */
+  ownToggle?: boolean;
   /** 이 버블에 붙을지. 기본값 = 에이전트 버블이며 설정이 있는 것. */
   match?: (ctx: PluginBubbleContext) => boolean;
   /** 등급 — i18n: `.level.<key>` */
@@ -105,6 +112,8 @@ export function defineInspector(spec: InspectorSpec): { manifest: PluginManifest
     clientOnly: false,
     // 노출 게이트 판정 — 안 적은 카드는 "아직 고정 문장만 낸다"로 읽힌다(§5.11).
     enforcesProject: spec.enforcesProject === true,
+    // §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드는 이 창의 소관이 아니다(목록·켠 개수에서 빠진다).
+    ownToggle: spec.ownToggle === true,
   };
 
   function Section({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {
@@ -192,7 +201,8 @@ export const ICONS = {
       <path d="M4 18a8 8 0 1 1 16 0" /><path d="M12 18l4-5" />
     </svg>
   ),
-  brain: (
+  // 사고의 양(턴 누적·사고 강도)을 말하는 배지용. 폐기된 두뇌 **기능**과 무관한 **글리프 이름**이다.
+  think: (
     <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V15a4 4 0 0 0 4 4h1V4H9zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 1 5.8V15a4 4 0 0 1-4 4h-1V4h1z" />
     </svg>

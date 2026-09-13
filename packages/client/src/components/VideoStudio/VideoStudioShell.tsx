@@ -368,10 +368,11 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     <div className="flex h-full flex-col bg-gray-950 text-gray-100">
       {/* 타이틀바 */}
       <header className="app-drag flex h-11 shrink-0 items-center gap-3 border-b border-white/10 px-3">
-        <span className="text-sm font-semibold">
+        {/* `app-drag-label` — 드래그 영역의 정적 글자는 손짓을 잡지 않는다(`index.css`). */}
+        <span className="app-drag-label text-sm font-semibold">
           {t('panel.videoStudio.title', { defaultValue: 'Vibistudio' })}
         </span>
-        <span className="truncate text-xs text-white/45">{projectName}</span>
+        <span className="app-drag-label truncate text-xs text-white/45">{projectName}</span>
         <div className="app-nodrag ml-auto flex items-center gap-2">
           <select
             className="rounded bg-gray-800 px-2 py-1 text-xs"

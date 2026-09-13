@@ -6,6 +6,7 @@ import {
   injectWorkspaceSiteAgents,
   isWorkspaceHtmlPath,
   parseWorkspaceSitePath,
+  previewScrollbarInjection,
   rewriteWorkspaceSiteCss,
   rewriteWorkspaceSiteHtml,
   workspaceSiteBase,
@@ -299,5 +300,16 @@ describe('injectWorkspaceSiteAgents — 부모와 말하는 두 조각', () => {
   it('<head> 가 없으면 <html> 뒤, 그것도 없으면 맨 앞', () => {
     expect(injectWorkspaceSiteAgents('<html><body>x</body></html>').indexOf('<script>')).toBe('<html>'.length);
     expect(injectWorkspaceSiteAgents('<p>x</p>').indexOf('<script>')).toBe(0);
+  });
+
+  it('스크롤바 톤은 세 갈래 어디서나 **맨 뒤**에 붙는다 (페이지 스타일보다 늦게 서야 기본값을 덮는다)', () => {
+    const tail = previewScrollbarInjection();
+    for (const html of [
+      '<html><head><title>t</title></head><body></body></html>',
+      '<html><body>x</body></html>',
+      '<p>x</p>',
+    ]) {
+      expect(injectWorkspaceSiteAgents(html).endsWith(tail)).toBe(true);
+    }
   });
 });

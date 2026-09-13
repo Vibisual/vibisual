@@ -31,7 +31,7 @@ const inspector = defineInspector({
     { key: 'skills', value: (ctx) => String((ctx.agentConfig?.skills ?? []).length) },
   ],
   noteKey: (ctx) => (turns(ctx) >= 25 ? '.noteLong' : '.note'),
-  badge: { match: (ctx) => turns(ctx) >= 25, text: () => '', icon: ICONS.brain },
+  badge: { match: (ctx) => turns(ctx) >= 25, text: () => '', icon: ICONS.think },
 });
 
 export const instructionDriftManifest = inspector.manifest;

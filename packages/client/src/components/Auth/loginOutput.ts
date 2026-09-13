@@ -90,7 +90,8 @@ function joinWrapped(text: string): string {
 
 const URL_RE = /https?:\/\/[^\s"'<>)\]}]+/g;
 /** OAuth 승인 URL 로 볼 만한 호스트/경로 — 잡다한 안내 링크(docs 등)를 고르지 않게. */
-const URL_PREFERRED = /(oauth|authorize|login|claude\.ai|console\.anthropic\.com)/i;
+// §5.25 (E) — 코덱스도 같은 스캐너를 쓴다. 스캐너를 두 벌로 만들면 한쪽만 고쳐지는 날이 온다.
+const URL_PREFERRED = /(oauth|authorize|login|device|claude\.ai|console\.anthropic\.com|openai\.com|chatgpt\.com)/i;
 const CODE_RE = /(paste[^\n]*code|enter[^\n]*code|authorization code|code\s*(?:here)?\s*[:>])/i;
 const SUCCESS_RE = /(login successful|logged in|signed in|authentication successful|you are now logged)/i;
 const FAILED_RE = /(login failed|authentication failed|sign[- ]?in failed|invalid code|cancell?ed|timed out)/i;

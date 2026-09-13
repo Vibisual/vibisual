@@ -11,6 +11,7 @@ import { TrashPurgeDialog } from '../Panel/TrashPurgeDialog.js';
 import { MediaConvertDialog } from '../IDE/MediaConvertDialog.js';
 import { AppWindowHost } from '../../apps/AppWindow.js';
 import { PermissionPromptStack } from '../PermissionPrompt/PermissionPromptStack.js';
+import { OptionsWindowHost } from '../Options/OptionsWindowHost.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useDetachedSync } from '../../hooks/useDetachedSync.js';
@@ -110,6 +111,9 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
       {/* §5.13 (S) — 앱 안 창(내부 앱). 여는 문이 넷(버블 더블클릭·우클릭 메뉴·옵션 패널·파일
           클릭)이라 창은 여기서만 그리고 열림 여부는 store 가 든다. 캔버스가 있는 셸마다 하나. */}
       <AppWindowHost />
+      {/* §5.10 (O) — 옵션 창. 별창의 IDE 기억 정리 칸에서 「활성화 하러 가기」를 누르면 **이 창**에서
+          열려야 한다(본 창에만 두면 별창에서는 아무 일도 안 일어난다). 열림 여부는 store 가 든다. */}
+      <OptionsWindowHost />
       <PermissionPromptStack />
     </div>
   );

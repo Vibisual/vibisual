@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   PANE_DRAG_RESUME_TTL_MS,
   clearPaneDragResume,
+  peekPaneDragResume,
   putPaneDragResume,
   takePaneDragResume,
 } from './idePaneDragResume.js';
@@ -76,5 +77,36 @@ describe('idePaneDragResume — 오가는 드래그를 잇는 짐', () => {
 
   it('맡긴 적 없으면 null — 아무 일도 일어나지 않는다', () => {
     expect(takePaneDragResume('a1', 1000)).toBeNull();
+  });
+});
+
+// §5.5 #17-6 (H-14) — 첫 렌더가 **자리를 정하려고** 들여다보는 손잡이. 여기서 꺼내 버리면 그
+// 뒤에 도는 레이아웃 효과가 빈손이 되어, 창은 자리만 잡고 손을 따라오지 않는다.
+describe('peekPaneDragResume — 들여다보기는 아무것도 꺼내지 않는다', () => {
+  beforeEach(() => clearPaneDragResume());
+
+  it('몇 번을 들여다봐도 짐은 그대로 있다 — 그 뒤 `take` 가 받는다', () => {
+    putPaneDragResume({ agentId: 'a1', grabX: 100, grabY: 10, width: 400, height: 300 }, 1000);
+    expect(peekPaneDragResume('a1', 1000)?.agentId).toBe('a1');
+    expect(peekPaneDragResume('a1', 1000)?.agentId).toBe('a1');
+    expect(takePaneDragResume('a1', 1000)?.agentId).toBe('a1');
+    expect(peekPaneDragResume('a1', 1000)).toBeNull();
+  });
+
+  it('남의 것은 보이지 않는다 — 자리를 남의 짐으로 정하면 엉뚱한 창이 손에 붙는다', () => {
+    putPaneDragResume({ agentId: 'a1', grabX: 100, grabY: 10, width: 400, height: 300 }, 1000);
+    expect(peekPaneDragResume('a2', 1000)).toBeNull();
+    // 남의 짐을 들여다봤다고 그것이 사라지지도 않는다.
+    expect(peekPaneDragResume('a1', 1000)).not.toBeNull();
+  });
+
+  it('시한이 지나면 안 보이고, **걷는 것은 `take`** 다', () => {
+    putPaneDragResume({ agentId: 'a1', grabX: 100, grabY: 10, width: 400, height: 300 }, 1000);
+    const late = 1000 + PANE_DRAG_RESUME_TTL_MS + 1;
+    expect(peekPaneDragResume('a1', late)).toBeNull();
+    // 들여다보기는 버리지 않았으므로, 시한 안의 시각으로 다시 보면 그대로 있다.
+    expect(peekPaneDragResume('a1', 1000)).not.toBeNull();
+    expect(takePaneDragResume('a1', late)).toBeNull();
+    expect(peekPaneDragResume('a1', 1000)).toBeNull();
   });
 });

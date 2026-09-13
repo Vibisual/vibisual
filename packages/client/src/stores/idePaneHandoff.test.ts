@@ -183,3 +183,40 @@ describe('handoffPanePatch', () => {
     expect(back.dockSize).toBe(520);
   });
 });
+
+/**
+ * §5.5 #17-6 (H-26) — **되돌아온 창이 저절로 확대되던 자리.**
+ *
+ * 독립 창의 슬롯은 `'detached'` 갈래가 자리 값을 심지 않아 통째로 비어 있고, `openMode` 는
+ * 슬롯을 세울 때의 기본값 `'modal'` 그대로 남는다(그 창은 `fullWindow` 라 그 필드를 읽지
+ * 않는다). 돌아오는 짐을 **그 슬롯에서** 뜨므로, 짐의 `openMode` 를 물려받는 갈래가 남아
+ * 있으면 앱 안에 서는 창이 언제나 모달이 되어 밖에서 들고 온 크기를 `80vw×80vh` 로 부풀린다.
+ */
+describe('(H-26) 앱으로 합치는 창은 언제나 떠 있는 창으로 선다', () => {
+  /** 밖으로 꺼낸 창의 슬롯을 실제 갈래로 지어 본다(손으로 채우지 않는다). */
+  const detachedSlot = pane(handoffPanePatch(
+    captureIDEPaneHandoff(pane({
+      float: { x: 10, y: 20, w: 800, h: 600 },
+      openMode: 'floating',
+    }))!,
+    'detached',
+  ));
+
+  it('독립 창 슬롯은 자리 값이 비고 `openMode` 는 기본값 그대로다', () => {
+    expect(detachedSlot.float).toBeNull();
+    expect(detachedSlot.dockSide).toBeNull();
+    expect(detachedSlot.openMode).toBe('modal');
+  });
+
+  it('그 슬롯에서 뜬 짐으로 돌아와도 모달이 아니다 — 들고 온 크기를 잃는다', () => {
+    expect(handoffPanePatch(captureIDEPaneHandoff(detachedSlot)!, 'app').openMode).toBe('floating');
+  });
+
+  it('자리 값을 지고 온 짐도 종전대로 떠 있는 창이다', () => {
+    const h = captureIDEPaneHandoff(pane({
+      float: { x: 1, y: 2, w: 300, h: 400 },
+      openMode: 'modal',
+    }))!;
+    expect(handoffPanePatch(h, 'app').openMode).toBe('floating');
+  });
+});

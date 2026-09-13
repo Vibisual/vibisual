@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
 import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, TOKEN_SUBAGENT_FETCH_CONCURRENCY, LOCAL_TOOL_NAMES } from '@vibisual/shared';
 import { mapWithConcurrency } from '../../utils/tokenFanout.js';
-import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useIDEDockLayout } from '../IDE/useIDEDockLayout.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -18,6 +18,7 @@ import { CommandQueue } from './CommandQueue.js';
 import { TokenUsagePopup } from './TokenUsagePopup.js';
 import { AgentConfigPopup } from './AgentConfigPopup.js';
 import { localProviderOf, localToolVerdictOf } from '../LocalModel/localModelEntry.js';
+import { codexProviderOf } from '../Codex/codexModelEntry.js';
 import { FolderFileTree } from './FolderFileTree.js';
 import { WebEntryList } from './WebEntryList.js';
 import { RootFileList } from './RootFileList.js';
@@ -26,7 +27,6 @@ import { CommentBoxDetail } from './CommentBoxDetail.js';
 import { CaptureBubbleDetail } from './CaptureBubbleDetail.js';
 import { AppBubbleDetail } from './AppBubbleDetail.js';
 import { getInternalApp } from '../../apps/registry.js';
-import { BrainCardDetail } from './BrainCardDetail.js';
 import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 import { AutoAgentPanel } from './AutoAgentPanel.js';
 import { GitStatusCard } from './GitStatusCard.js';
@@ -35,6 +35,7 @@ import { PluginPanelSectionSlot } from '../../plugins/host.js';
 import { ContiHistoryDetail } from './ContiHistoryDetail.js';
 import { TASK_EDGE_STYLES } from '@vibisual/shared';
 import { clampUsagePct, usageBarToneClass } from '../../utils/usageLimits.js';
+import { formatSince } from '../../formatSince.js';
 
 interface DetailPanelProps {
   onClose: () => void;
@@ -59,14 +60,12 @@ function formatDurationMs(ms: number): string {
   return `${m}m${s ? ` ${s}s` : ''}`;
 }
 
-/** §4 v1.50 — epoch ms 를 "방금 전" / "5m ago" 식으로. */
-function formatRelativeTime(ts: number, t: (k: string, opts?: Record<string, unknown>) => string): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return t('panel.detailPanel.justNow');
-  if (diff < 3_600_000) return t('panel.detailPanel.minutesAgo', { n: Math.floor(diff / 60_000) });
-  if (diff < 86_400_000) return t('panel.detailPanel.hoursAgo', { n: Math.floor(diff / 3_600_000) });
-  return t('panel.detailPanel.daysAgo', { n: Math.floor(diff / 86_400_000) });
-}
+/**
+ * §4 v1.50 — epoch ms 를 "방금 전" / "5m ago" 식으로.
+ * 본체는 `src/formatSince.ts` 하나다 — §5.5 #17-33 ⑦ 이 플러그인 창에서 같은 모양을 쓰게 되면서
+ * 밖으로 꺼냈다(두 벌이면 한쪽만 고쳐져 같은 화면 안에서 시간이 다르게 읽힌다).
+ */
+const formatRelativeTime = formatSince;
 
 /**
  * §4 v1.50 / v3.64 — 한도 사용률 가로 게이지. `used` 단위는 **퍼센트(0~100)** 고정.
@@ -346,9 +345,17 @@ export function DetailPanel({
    * 진실을 가져올 곳은 여기다.
    */
   const localProvider = localProviderOf(agentConfig);
-  const localTokensTotal = (localProvider?.tokensIn ?? 0) + (localProvider?.tokensOut ?? 0);
-  const localContextUsed = localProvider?.contextUsed;
-  const localContextLimit = localProvider?.contextLimit;
+  /**
+   * §5.25 (J) — 코덱스 버블의 정체. 로컬과 **같은 자리·같은 이유**로 든다: 프로바이더 버블에서
+   * `config.model`·`config.tools` 는 저장만 될 뿐 러너가 읽지 않는 칸이다.
+   */
+  const codexProvider = codexProviderOf(agentConfig);
+  /** 요약 줄들이 진실을 가져올 프로바이더 — 둘 중 있는 쪽(둘 다 있을 수는 없다). */
+  const summaryProvider = localProvider ?? codexProvider;
+  const localTokensTotal = (summaryProvider?.tokensIn ?? 0) + (summaryProvider?.tokensOut ?? 0);
+  const localContextUsed = summaryProvider?.contextUsed;
+  // 코덱스는 문맥 상한을 신고하지 않는다 — 없으면 아래 줄이 비율 대신 쓴 양만 적는다.
+  const localContextLimit = summaryProvider?.contextLimit;
   // 도구 판정 문구·색은 설정 창(§5.19 (H))과 **같은 어휘**를 쓴다 — 두 화면이 다른 낱말로 같은
   //   상태를 말하면 사용자는 둘 다 믿지 않게 된다.
   const localToolVerdict = localToolVerdictOf(localProvider);
@@ -367,7 +374,11 @@ export function DetailPanel({
    */
   const toolNames: readonly string[] = localProvider
     ? LOCAL_TOOL_NAMES
-    : (agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
+    // §5.25 (J) — 코덱스의 도구는 **그쪽 CLI 가 들고 있고 우리에게 목록을 주지 않는다.**
+    //   여기에 클로드 목록을 적으면 그건 우리가 지어낸 것이다 — 없는 목록 대신 그 사실을 적는다.
+    : codexProvider
+      ? []
+      : (agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
 
   const isAgent = node?.bubbleType === 'agent';
   const isFile = node?.bubbleType === 'file';
@@ -429,13 +440,8 @@ export function DetailPanel({
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   const appBubbles = useGraphStore((s) => s.appBubbles);
   // §5.10 — 기억 카드/두뇌/휴지통 선택.
-  const selectedBrainCardId = useGraphStore((s) => s.selectedBrainCardId);
-  const selectedBrainCard = useGraphStore((s) => s.selectedBrainCard);
-  const brainSummary = useGraphStore(selectActiveBrainSummary);
-  const openBrainFeed = useGraphStore((s) => s.openBrainFeed);
   const restoreTrashedAgent = useGraphStore((s) => s.restoreTrashedAgent);
   const purgeTrashedAgent = useGraphStore((s) => s.purgeTrashedAgent);
-  const agentBrainCardCount = useGraphStore((s) => selectedNodeId ? (selectActiveBrainSummary(s)?.agentCardCounts[selectedNodeId] ?? 0) : 0);
 
   // v1.37 — STRICT outbound 엣지 타겟 툴 합집합(현재 노드가 소스인 경우). 서버 computeStrictStripSet 과 동일 규칙.
   //         툴 구성은 사용자 책임 — 특수 예외 없음.
@@ -671,97 +677,13 @@ export function DetailPanel({
     );
   }
 
-  // §5.10 — 기억 카드 선택 시 전용 패널(다른 선택과 배타).
-  if (selectedBrainCardId) {
-    return (
-      <aside className={panelWrapperClass} style={panelWrapperStyle} onAnimationEnd={() => setAnimating(false)}>
-        <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
-        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {/* v4.66 — Brain 버블과 같은 인디고(BUBBLE_STYLES.brain). 여기만 푸시아라 같은 것이 두 색이었다. */}
-            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: BUBBLE_STYLES.brain.color }} />
-            <span className="truncate text-sm font-bold text-gray-100">{t('brain.cardDetailTitle', { defaultValue: '기억 카드' })}</span>
-          </div>
-          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
-        </div>
-        <ScrollFade fill className="flex-1">
-          {selectedBrainCard ? (
-            <BrainCardDetail card={selectedBrainCard} />
-          ) : (
-            <div className="p-4 text-sm text-gray-500">{t('brain.loading', { defaultValue: '불러오는 중…' })}</div>
-          )}
-        </ScrollFade>
-      </aside>
-    );
-  }
-
-  // §5.10 — Brain 상주 버블 선택 시 두뇌 요약 패널.
-  if (selectedNodeId === '__brain__') {
-    return (
-      <aside className={panelWrapperClass} style={panelWrapperStyle} onAnimationEnd={() => setAnimating(false)}>
-        <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
-        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#6366F1' }} />
-            <span className="truncate text-sm font-bold text-gray-100">{t('brain.bubbleLabel', { defaultValue: '메모리' })}</span>
-          </div>
-          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
-        </div>
-        <ScrollFade fill className="flex-1">
-          <div className="space-y-4 p-4">
-            {/* §5.10 v3.82 — 버블 배지와 같은 축으로 4칸. v3.81 이후 "저장 장수"와 "현재 진실"은
-                다른 수이고, 사람이 손대야 하는 것은 검토 대기라서 그 둘을 윗줄에 둔다. */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded border border-indigo-500/25 bg-indigo-500/10 p-3">
-                <div className="text-2xl font-bold tabular-nums text-indigo-300">{brainSummary?.currentCount ?? 0}</div>
-                <div className="text-xs text-gray-400" title={t('brain.summaryCurrentTip', { defaultValue: '검증돼 AI 에게 전달되는 지식' })}>
-                  {t('brain.summaryCurrent', { defaultValue: '현재 진실' })}
-                </div>
-              </div>
-              <div className={`rounded border p-3 ${(brainSummary?.reviewCount ?? 0) > 0 ? 'border-amber-500/30 bg-amber-500/10' : 'border-gray-800 bg-gray-800/40'}`}>
-                <div className={`text-2xl font-bold tabular-nums ${(brainSummary?.reviewCount ?? 0) > 0 ? 'text-amber-300' : 'text-gray-500'}`}>
-                  {brainSummary?.reviewCount ?? 0}
-                </div>
-                <div className="text-xs text-gray-400" title={t('brain.summaryReviewTip', { defaultValue: '확인해야 AI 에게 전달되는 후보' })}>
-                  {t('brain.summaryReview', { defaultValue: '검토 대기' })}
-                </div>
-              </div>
-              <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
-                <div className="text-lg font-bold tabular-nums text-gray-200">{brainSummary?.cardCount ?? 0}</div>
-                <div className="text-xs text-gray-500">{t('brain.summaryCards', { defaultValue: '기억 카드' })}</div>
-              </div>
-              <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
-                <div className="text-lg font-bold tabular-nums text-gray-200">{brainSummary?.unseenCount ?? 0}</div>
-                <div className="text-xs text-gray-500">{t('brain.summaryUnseen', { defaultValue: '미확인' })}</div>
-              </div>
-            </div>
-            {brainSummary?.recentCardTitle && (
-              <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('brain.summaryRecent', { defaultValue: '최근 저장' })}</div>
-                <div className="truncate text-sm text-gray-200" title={brainSummary.recentCardTitle}>{brainSummary.recentCardTitle}</div>
-              </div>
-            )}
-            {/* §5.10 v3.82 — 구 라벨 "내부 열기"는 버블 산개(v3.49 이전) 시절 표현이라, 실제로 열리는
-                기억 라이브러리(v3.75~v3.77 창)를 가리키게 고쳤다. */}
-            <button
-              type="button"
-              onClick={() => openBrainFeed({ scope: 'project' })}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
-              </svg>
-              {t('brain.openLibrary', { defaultValue: '기억 라이브러리 열기' })}
-            </button>
-          </div>
-        </ScrollFade>
-      </aside>
-    );
-  }
+  /*
+   * §5.10 — **기억 카드 상세 · 메모리 버블 요약 두 갈래는 걷었다.**
+   *
+   * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 카드를 여는 화면이 없어졌고
+   * 메모리 버블은 캔버스에서 내려갔으므로, 이 두 갈래는 어떤 손짓으로도 닿지 않는 자리였다.
+   * 되풀이한 절차를 스킬로 굳히는 일은 IDE `목표` 뷰의 자동 목표 블록이 이어받았다.
+   */
 
   // §5.10 — 휴지통 내부의 버려진 커스텀 에이전트 선택 시 전용 패널.
   if (node?.trashed) {
@@ -780,8 +702,7 @@ export function DetailPanel({
         <ScrollFade fill className="flex-1">
           <div className="space-y-4 p-4">
             <div className="rounded border border-gray-800 bg-gray-800/40 p-3 text-xs text-gray-400">
-              <div>{t('brain.trashedAt', { defaultValue: '휴지통 이동' })}: {node.trashedAt ? new Date(node.trashedAt).toLocaleString('en-US', { hour12: false }) : '—'}</div>
-              <div>{t('brain.trashedMemories', { defaultValue: '개별 기억' })}: {agentBrainCardCount}{t('brain.cardCountUnit', { defaultValue: '장' })}</div>
+              <div>{t('trash.trashedAt', { defaultValue: '휴지통 이동' })}: {node.trashedAt ? new Date(node.trashedAt).toLocaleString('en-US', { hour12: false }) : '—'}</div>
             </div>
             <div className="flex flex-col gap-2">
               <button
@@ -789,19 +710,19 @@ export function DetailPanel({
                 onClick={() => void restoreTrashedAgent(node.id)}
                 className="w-full rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
               >
-                {t('brain.restore', { defaultValue: '복구' })}
+                {t('trash.restore', { defaultValue: '복구' })}
               </button>
               {purgeConfirm ? (
                 <div className="rounded border border-red-800 bg-red-950/40 p-3 text-sm">
                   <div className="mb-2 text-red-300">
-                    {t('brain.purgeConfirm', { defaultValue: '개별 기억 {{n}}장 포함 전부 삭제됩니다.', n: agentBrainCardCount })}
+                    {t('trash.purgeConfirm', { defaultValue: '되돌릴 수 없습니다 — 이 에이전트가 통째로 지워집니다.' })}
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={() => void purgeTrashedAgent(node.id)} className="rounded bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500">
-                      {t('brain.purgeYes', { defaultValue: '영구 삭제' })}
+                      {t('trash.purgeYes', { defaultValue: '영구 삭제' })}
                     </button>
                     <button type="button" onClick={() => setPurgeConfirm(false)} className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-200 hover:bg-gray-600">
-                      {t('brain.cancel', { defaultValue: '취소' })}
+                      {t('trash.cancel', { defaultValue: '취소' })}
                     </button>
                   </div>
                 </div>
@@ -811,7 +732,7 @@ export function DetailPanel({
                   onClick={() => setPurgeConfirm(true)}
                   className="w-full rounded bg-red-900/40 px-3 py-2 text-sm text-red-300 hover:bg-red-900/60"
                 >
-                  {t('brain.purge', { defaultValue: '영구 삭제' })}
+                  {t('trash.purge', { defaultValue: '영구 삭제' })}
                 </button>
               )}
             </div>
@@ -949,7 +870,7 @@ export function DetailPanel({
                   왕복마다 돌려준 수치다. 같은 자리에 클로드 어휘("청구 토큰" · M 단위 창)를 그대로
                   두면 이 줄 전체가 거짓말이 되므로, 로컬이면 로컬이 실제로 아는 값만 그린다. */}
               <div className="flex items-center gap-3">
-                {!localProvider && billableTokens > 0 && (
+                {!summaryProvider && billableTokens > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowSessionTokens(true)}
@@ -961,15 +882,15 @@ export function DetailPanel({
                 )}
                 {/* §5.19 (D) — 로컬 누적 토큰(입+출). 청구액이 아니라 **양과 속도의 감각**이라
                     누를 팝업(턴별 청구 내역)도 없다 — 없는 원장을 여는 버튼은 고장으로 읽힌다. */}
-                {localProvider && localTokensTotal > 0 && (
+                {summaryProvider && localTokensTotal > 0 && (
                   <div className="flex items-center gap-1.5 rounded bg-gray-800/40 px-2 py-1">
                     <span className="text-xs text-gray-500">{t('panel.cost.colTokens')}</span>
                     <span className="font-mono text-xs font-semibold text-amber-400">
-                      {(localProvider.tokensIn ?? 0).toLocaleString()}+{(localProvider.tokensOut ?? 0).toLocaleString()}
+                      {(summaryProvider.tokensIn ?? 0).toLocaleString()}+{(summaryProvider.tokensOut ?? 0).toLocaleString()}
                     </span>
                   </div>
                 )}
-                {!localProvider && (node.contextUsed !== undefined || node.contextMax !== undefined) && (
+                {!summaryProvider && (node.contextUsed !== undefined || node.contextMax !== undefined) && (
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-gray-500">{t('panel.detailPanel.context')}</span>
                     <span className="font-mono text-xs text-cyan-400">
@@ -980,19 +901,26 @@ export function DetailPanel({
                 )}
                 {/* 로컬 창은 16K~262K 급이라 클로드의 M 단위 표기로는 전부 `0M` 이 된다. IDE 상태바
                     게이지와 **같은 K 표기**를 써 두 화면이 같은 숫자를 말하게 한다. */}
-                {localProvider && localContextUsed !== undefined && localContextLimit !== undefined && localContextLimit > 0 && (
+                {summaryProvider && localContextUsed !== undefined && (
                   <div
                     className="flex items-center gap-1.5"
-                    title={t('ide.overlay.localContextUsed', {
-                      defaultValue: '대화 창 {{used}} / {{limit}} 토큰 ({{percent}}%) — 넘치면 오래된 말부터 덜어 냅니다',
-                      used: localContextUsed,
-                      limit: localContextLimit,
-                      percent: Math.round(Math.min(1, localContextUsed / localContextLimit) * 100),
-                    })}
+                    title={localContextLimit !== undefined && localContextLimit > 0
+                      ? t('ide.overlay.localContextUsed', {
+                        defaultValue: '대화 창 {{used}} / {{limit}} 토큰 ({{percent}}%) — 넘치면 오래된 말부터 덜어 냅니다',
+                        used: localContextUsed,
+                        limit: localContextLimit,
+                        percent: Math.round(Math.min(1, localContextUsed / localContextLimit) * 100),
+                      })
+                      : t('ide.overlay.codexContextUsed', {
+                        defaultValue: '이번 대화가 쓴 문맥 {{used}} 토큰 — 상한은 엔진이 알려 주지 않습니다',
+                        used: localContextUsed,
+                      })}
                   >
                     <span className="text-xs text-gray-500">{t('panel.detailPanel.context')}</span>
+                    {/* 코덱스는 상한을 신고하지 않는다 — 분모를 지어내지 않고 쓴 양만 적는다. */}
                     <span className="font-mono text-xs text-cyan-400">
-                      {Math.round(localContextUsed / 100) / 10}K/{Math.round(localContextLimit / 1024)}K
+                      {Math.round(localContextUsed / 100) / 10}K
+                      {localContextLimit !== undefined && localContextLimit > 0 && `/${Math.round(localContextLimit / 1024)}K`}
                     </span>
                   </div>
                 )}
@@ -1007,13 +935,17 @@ export function DetailPanel({
               <div className="flex flex-col gap-1.5 rounded border border-gray-700/50 bg-gray-800/30 p-2">
                 <div className="flex items-center gap-2">
                   <span className="w-12 flex-shrink-0 text-xs text-gray-500">{t('panel.detailPanel.model')}</span>
-                  {localProvider ? (
+                  {summaryProvider ? (
                     <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="flex-shrink-0 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300">
-                        {t('ide.overlay.localLabel', { defaultValue: 'All Model' })}
+                      <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] font-semibold ${
+                        codexProvider ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-500/15 text-slate-300'
+                      }`}>
+                        {codexProvider
+                          ? t('ide.overlay.codexLabel', { defaultValue: 'Codex' })
+                          : t('ide.overlay.localLabel', { defaultValue: 'All Model' })}
                       </span>
-                      <span className={`truncate text-xs font-medium ${localProvider.modelId ? 'text-gray-300' : 'text-gray-500'}`}>
-                        {localProvider.modelName || localProvider.modelId
+                      <span className={`truncate text-xs font-medium ${summaryProvider.modelId ? 'text-gray-300' : 'text-gray-500'}`}>
+                        {summaryProvider.modelName || summaryProvider.modelId
                           || t('panel.agentConfig.local.noModel', { defaultValue: '아직 모델을 고르지 않았습니다' })}
                       </span>
                     </span>
@@ -1035,6 +967,11 @@ export function DetailPanel({
                     title={toolNames.join(', ')}
                     onClick={() => setToolsExpanded((v) => !v)}
                   >
+                    {codexProvider && (
+                      <span className="text-gray-500">
+                        {t('panel.agentConfig.codex.toolsManaged', { defaultValue: '코덱스 CLI 가 관리합니다' })}
+                      </span>
+                    )}
                     {toolNames.map((tool, i) => {
                       // 로컬은 고르는 목록이 아니라 **언제나 이 한 벌**이 간다 — 파랑(=허용된 도구)
                       //   대신 읽기 전용 회색이고, 엣지 도구 박탈(strictStripSet)도 걸리지 않는다.
@@ -1345,6 +1282,7 @@ export function DetailPanel({
           {isDomain && (
             <WebEntryList
               nodeId={node.id}
+              host={node.label}
               entries={domainEntries[node.id] ?? []}
               maxWebEntries={node.maxWebEntries}
             />

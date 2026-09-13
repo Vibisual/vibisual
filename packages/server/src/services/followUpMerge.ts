@@ -16,6 +16,12 @@ import { COMMAND_MERGE_SEPARATOR, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisua
  *  - `edgeId` 가 실린 명령 — 엣지 dispatch 는 1:1 대응이라 남의 덧말을 섞으면 그 결과가 그 엣지의
  *    것이 아니게 된다.
  *  - 이미 `executing`/완료된 명령.
+ *  - **조용한 내부 명령**(`silent` — §5.3 #9-1 (P) 의 선행 `/compact`). base 로도, 흡수 대상으로도
+ *    쓰지 않는다. 사용자가 넣은 적 없는 명령이 사용자 본문을 자기 뒤에 달고 나가면 CLI 는 맨 앞의
+ *    슬래시 명령만 읽고 그 턴을 끝내, **그 턴의 사용자 지시가 통째로 사라진다** — 화면에는 압축이
+ *    거절당한 `Not enough messages to compact.` 한 줄만 남고 자기가 친 말은 어디에도 없다(실측).
+ *    반대로 사용자 명령이 base 일 때 뒤의 조용한 압축을 삼키면 그 압축은 본문 끝에 붙어 **명령이
+ *    아니라 글자**가 된다 — 접히지도 않고 사용자 대화에 `/compact` 가 섞인다.
  * 다른 탭 소유 명령은 순서 의미가 없으므로 **건너뛴다**(끊지 않음).
  *
  * @returns 흡수한 명령들(빈 배열이면 큐를 건드리지 않았다).
@@ -23,6 +29,8 @@ import { COMMAND_MERGE_SEPARATOR, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisua
 export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand): QueuedCommand[] {
   if ((base.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE) !== 'merge') return [];
   if (base.edgeId) return [];
+  // §5.3 #9-1 (P) — 조용한 내부 명령은 남의 본문을 삼키지 않는다(위 "끊는 지점" 참고).
+  if (base.silent) return [];
   const baseIdx = queue.indexOf(base);
   if (baseIdx < 0) return [];
 
@@ -32,6 +40,8 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
     if (c.subAgentId !== base.subAgentId) continue;
     if (c.status !== 'queued') break;
     if (c.edgeId) break;
+    // 조용한 내부 명령은 남의 턴에 섞이지 않는다 — 자기 턴으로 따로 나간다.
+    if (c.silent) break;
     if ((c.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE) !== 'merge') break;
     absorbed.push(c);
   }

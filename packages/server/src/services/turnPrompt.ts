@@ -73,6 +73,20 @@ export function isSlashCommandText(text: string): boolean {
 }
 
 /**
+ * §5.11 정독 게이트 — 조립된 프롬프트에서 **본문만** 되찾는다.
+ *
+ * 훅 `UserPromptSubmit` 은 우리가 조립한 결과(브리핑·앞말 포함)를 그대로 준다. 그것을 라우팅 재료로 쓰면
+ * 앞말에 실린 정독 블록의 제목들이 다음 턴의 "필수 절"을 고르는 자기 참조가 된다. 첫 스폰 꼴
+ * (`브리핑 --- Task: 본문`)만 여기서 벗기고, 이어지는 턴의 본문은 조립 시점에 원장이 직접 받는다
+ * (`specReadingService.notePrompt` · 앞말 꼴은 마커가 없어 여기서 못 가른다). 우리 꼴이 아니면 그대로 돌려준다.
+ */
+export function extractTaskText(prompt: string): string {
+  const marker = `${PREAMBLE_SEPARATOR}${TASK_LEAD}`;
+  const at = prompt.indexOf(marker);
+  return at >= 0 ? prompt.slice(at + marker.length) : prompt;
+}
+
+/**
  * 이 턴에 실제로 나갈 프롬프트를 만든다.
  *
  * 슬래시 명령이면 `text.trim()` 을 그대로 돌려주고(문자열 동일성 보장), 그 턴이 첫 스폰이었다면

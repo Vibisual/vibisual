@@ -18,17 +18,19 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand, CommandError, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
+import { isStageBlockLang } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { FeedbackButtons } from './FeedbackButtons.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { StreamImageThumb } from './StreamImageThumb.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
-import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
+import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
 import { DiffView, type DiffReviewCtx } from './DiffView.js';
 import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 import { followSessionKey } from './editorFollow.js';
@@ -44,25 +46,26 @@ import { getInternalApp } from '../../apps/registry.js';
 import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
-  type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError,
+  type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError, type StreamImage,
   type StreamCommand, type StreamItemFull, type StreamStep,
 } from './streamItems.js';
 import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 import { describeCommandError, parseStreamErrorContent } from './commandError.js';
 import {
-  applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText,
-  type StreamDisplayItem, type StreamToolGroup,
+  applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText, COMPACT_TEXT_CLAMP_MD,
+  turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
+  type StreamDisplayItem, type StreamToolGroup, type SpeechRunPos,
 } from './streamDensity.js';
 import { useStreamToggle, streamToggleProps } from './streamToggle.js';
 import { streamItemFindText, findTextMatches } from './streamSearch.js';
 import {
   STREAM_DIFF_AUTO_EXPAND_MAX_LINES,
-  STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS,
   isReadOnlyHookAgent,
   type StreamDensity,
 } from '@vibisual/shared';
 import { useVirtuosoFrontShift } from './frontShift.js';
+import { lastPassedIndex, owningCommandId, VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
 import { readingItemAttrs } from './reading/readingModel.js';
 
 // ─── 타입 ───
@@ -70,7 +73,7 @@ import { readingItemAttrs } from './reading/readingModel.js';
 interface StreamRendererProps {
   events: SubAgentStreamEvent[];
   /** 완료된 명령 (스트림 없을 때 폴백 표시용) */
-  commands?: QueuedCommand[];
+  commands?: readonly QueuedCommand[];
   /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 소유 에이전트. 있으면 result 블록에 좋아요/싫어요 노출. */
   agentId?: string;
   /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 세션(탭) ID. */
@@ -124,6 +127,16 @@ export interface StreamRendererHandle {
   /** 인-페이지 검색 — query 를 포함하는 항목들의 id 를 등장 순서로 반환. 네비게이션/하이라이트는
    *  scrollToBookmark(id, query) 재사용(가상 리스트라 DOM 검색 불가 → 항목 데이터 기준 매칭). */
   searchMatchIds: (query: string) => string[];
+  /**
+   * §5.5 #17-12 — 지금 **화면 맨 위를 채운 항목이 속한 명령**(`cmd-${id}` 형태의 항목 id).
+   * 하단 상태바가 "지금 보고 있는 프롬프트"를 가리키는 데 쓴다.
+   *
+   * 상태바가 직접 DOM 에서 명령 블록을 찾던 종전 방식은 가상 리스트에서 틀렸다 — 응답이 긴 턴
+   * 사이에서는 명령 블록이 한 장도 렌더되지 않아, 위로 올려 말풍선을 지나쳐도 상태바가 옛
+   * 프롬프트로 바뀌지 않았다. 여기서는 맨 위 항목만 DOM 으로 재고 소속 명령은 **항목 배열**로
+   * 되짚어(streamViewedCommand.ts) 미렌더 명령까지 정확히 집는다.
+   */
+  viewedCommandId: () => string | null;
   /** v2.99 — 세션 떠날 때 부모가 현재 스크롤/측정 상태 스냅샷을 가져가 저장(다음 복귀 때 restoreState 로 전달). */
   getState: (cb: (snap: StateSnapshot) => void) => void;
 }
@@ -143,11 +156,31 @@ const InCodeBlock = createContext(false);
 /** 펜스드/인덴트 코드 블록 — 우상단 호버 시 복사 버튼.
  *  react-markdown 의 `pre` 슬롯 교체. 내부 `<code>` 는 그대로 children 으로 받는다.
  *  텍스트 추출은 ref 의 `textContent` 로 — 중첩 syntax 토큰까지 한 번에 잡힌다. */
-function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>): React.JSX.Element {
+/**
+ * §5.5 #17-17 ⑪(l) — 펜스에 적힌 언어 이름(`language-vibisual`)을 꺼낸다.
+ *
+ * react-markdown 은 언어를 `<pre>` 가 아니라 그 안쪽 `<code>` 의 className 에 실어 준다 —
+ * 그래서 `pre` 슬롯인 이 자리에서는 자식을 한 겹 들여다봐야 한다.
+ */
+function fencedLangOf(children: React.ReactNode): string | null {
+  const first = Children.toArray(children)[0];
+  if (!isValidElement(first)) return null;
+  const className = (first.props as { className?: string }).className ?? '';
+  return /language-([A-Za-z0-9_-]+)/u.exec(className)?.[1] ?? null;
+}
+
+function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>): React.JSX.Element | null {
   const { t } = useTranslation();
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
+
+  // §5.5 #17-17 ⑪(o) — 무대 블록은 **코드도 아니고 대화에 세우는 카드도 아니다.** 조용히 삼킨다.
+  //   적용은 서버가 스트림에서 하고(`stageBlockIngest`), 사용자는 목표 뷰의 [뷰 보기]로 무대를 연다
+  //   (⑪(k) — 무대로 가는 입구는 하나다). 대화에 같은 것을 또 세우면 입구가 둘이 된다.
+  //   갈림은 **훅을 전부 부른 뒤**에 선다 — 조건부 훅 호출이 되면 같은 자리에 코드 블록과 무대 블록이
+  //   번갈아 오는 스트림에서 리액트가 상태를 어긋나게 붙인다.
+  const isStageBlock = useMemo(() => isStageBlockLang(fencedLangOf(children)), [children]);
 
   const onCopy = useCallback(() => {
     const text = preRef.current?.textContent ?? '';
@@ -158,6 +191,8 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
       timerRef.current = window.setTimeout(() => setCopied(false), 1400);
     }).catch(() => { /* clipboard 권한 거부 — 조용히 무시 */ });
   }, []);
+
+  if (isStageBlock) return null;
 
   return (
     // §5.5 읽기 설정 — 이 래퍼가 `.ide-md` 그리드의 직접 자식이므로(안쪽 <pre> 가 아니라) 탈출 표식도
@@ -443,19 +478,27 @@ const remarkPlugins = [remarkGfm];
 /** assistant 텍스트 → 마크다운. "AI 와 나눈 일상 대화"임을 한눈에 — 박스로 감싸면 도구/생각/결과 박스와
  *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
  *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분). */
-const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: StreamText; density: StreamDensity; exempt: boolean }): React.JSX.Element {
+/** 본문 한 덩이를 마크다운으로 — 접힌 본문은 머리·꼬리 **두 덩이**로 그리므로 클래스를 한 곳에 둔다. */
+function TextMarkdown({ body }: { body: string }): React.JSX.Element {
+  return (
+    <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
+      <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{body}</Markdown>
+    </div>
+  );
+}
+
+const TextBlock = memo(function TextBlock({ item, density, exempt, run }: { item: StreamText; density: StreamDensity; exempt: boolean; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
-  // §5.5 #17-21 ② — 간결에서는 앞 N줄(또는 N자)만 남기고 [더 보기]로 접는다.
-  //   `exempt`(화면의 마지막 본문)는 지금 하는 말이자 그 턴의 결론이라 자르지 않는다.
+  // §5.5 #17-46 — 간결에서는 **머리와 꼬리만 남기고 가운데**를 접는다([더 보기]로 펼침). 종전(#17-21 ②)은
+  //   앞부분만 남겨 그 문단의 결론이 매번 잘렸다 — 사용자가 읽어야 하는 줄은 앞이 아니라 끝에 있다.
+  //   `exempt`(화면의 마지막 본문·턴의 여는 본문)는 지금 하는 말이자 그 턴의 결론이라 아예 자르지 않는다.
   const clamped = useMemo(
-    () => (density === 'compact' && !exempt
-      ? clampStreamText(item.content, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS)
-      : null),
+    () => (density === 'compact' && !exempt ? clampStreamText(item.content, COMPACT_TEXT_CLAMP_MD) : null),
     [density, exempt, item.content],
   );
   // 펼침은 #17-16 ④ 모듈 저장소 — 가상 리스트가 언마운트해도 펼쳐 둔 채로 돌아온다.
   const [open, toggleOpen] = useStreamToggle(`text-more-${item.id}`, false);
-  const body = clamped && !open ? clamped.text : item.content;
+  const folded = clamped !== null && !open;
   // §5.5 #17-39 — 작성 자국. **긴 본문에만** 붙인다(짧은 대답 밑의 숫자는 소음이다).
   //   `간결` 은 핵심만 남기는 밀도라 자국도 붙이지 않는다(#17-21 과 같은 갈래).
   const writeTrace = density !== 'compact' && shouldTraceWriting(item.content.length)
@@ -463,25 +506,21 @@ const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: Str
     : null;
   return (
     // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(카톡/텔레그램 밀도) — 데스크톱 px-4 유지.
-    <div className="px-4 py-1 max-md:px-1.5">
+    // §5.5 #17-45 — 세로 여백은 **본문 칸**이 갖는다(바깥 상자 ❌). 그래야 왼쪽 말머리 칸이 항목 높이를
+    //   꽉 채워 런의 실선이 문단 사이에서 끊기지 않는다. `solo` 는 py-1 이라 종전과 높이가 같다.
+    <div className="px-4 max-md:px-1.5">
       <div className="flex gap-2">
-        <AiSpeakerGlyph />
-        <div className="min-w-0 flex-1">
-          <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
-            <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{body}</Markdown>
-          </div>
-          {clamped && (
-            <button
-              type="button"
-              onClick={toggleOpen}
-              className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
-            >
-              <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              {open ? t('ide.streamRenderer.showLess') : t('ide.streamRenderer.showMoreLines', { count: clamped.hiddenLines })}
-            </button>
+        <AiSpeakerGlyph run={run} />
+        <div className={`min-w-0 flex-1 ${run === 'mid' || run === 'tail' ? 'py-0.5' : 'py-1'}`}>
+          {/* §5.5 #17-46 ③ — 접힌 동안은 [머리 · 접기 손잡이 · 꼬리] 세 덩이, 펼치면 [본문 전체 · 접기] 종전 모양. */}
+          <TextMarkdown body={folded ? clamped.head : item.content} />
+          {folded && (
+            <>
+              <StreamTextFold open={false} hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />
+              <TextMarkdown body={clamped.tail} />
+            </>
           )}
+          {clamped !== null && open && <StreamTextFold open hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />}
           {writeTrace && <WriteTraceLine text={writeTrace} />}
         </div>
       </div>
@@ -766,6 +805,25 @@ function SystemLine({ item, density }: { item: StreamSystem; density?: StreamDen
 }
 
 /**
+ * §5.25 (O) — 엔진이 대화에 **내건 그림 한 장**(Sub 탭).
+ *
+ * 그리는 일 자체는 `StreamImageThumb` 가 한다 — 메인 탭(`IDEMainArea`)이 같은 조각을 쓰기 때문이다.
+ * 여기서는 세션 좌표만 넘긴다.
+ */
+function ImageBlock({ item, ctx }: { item: StreamImage; ctx?: StreamFeedbackCtx }): React.JSX.Element {
+  return (
+    <div className="px-4 py-1.5 max-md:px-1.5">
+      <StreamImageThumb
+        agentId={ctx?.agentId}
+        subAgentId={ctx?.subAgentId}
+        eventId={item.id}
+        name={item.content}
+      />
+    </div>
+  );
+}
+
+/**
  * §5.5 #17-12 ③ — 실패 사유 한 장. **왜 끝났는지**를 한 문장으로 말하고, 원문(stderr 꼬리·CLI 본문)은
  * 그 아래 코드 폰트로 그대로 보여준다(번역 대상 아님 — 손대면 검색·대조가 안 된다).
  */
@@ -883,10 +941,11 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
           ))}
         </div>
       )}
-      {/* §5.5 #17-12 ③ — 스트림이 없어(또는 유실돼) 실패 사유를 실어 줄 오류 항목이 없을 때의 표면.
-          `error` 를 실어 보내는 쪽(buildCommandItems)이 스트림 유무로 이미 걸러 두었다. */}
+      {/* §5.5 #17-12 ③ — 그 턴의 오류 줄이 스트림에 없어(창 밖으로 밀렸거나 유실돼) 실패 사유를 실어 줄
+          오류 항목이 없을 때의 표면. `error` 를 실어 보내는 쪽(buildCommandItems)이 **턴 단위**로 이미 걸러 두었다. */}
       {item.error && <CommandErrorNotice error={item.error} />}
-      {/* 결과 */}
+      {/* 결과 — §5.5 #17-12 ③-3: 그 턴의 본문이 스트림에 남아 있으면 비어 오고(스트림이 그린다), 복원 창 밖으로
+          밀려난 턴은 여기 저장된 마지막 AI 본문이 그 턴의 답이다. */}
       {item.result && (
         <div className={`rounded-md border px-3 py-2 ${
           isError ? 'border-red-500/20 bg-red-500/5' : 'border-emerald-500/20 bg-emerald-500/5'
@@ -951,11 +1010,13 @@ const StepTraceBlock = memo(function StepTraceBlock({ item }: { item: StreamStep
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, nestedLabel: string, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, openingTextIds: ReadonlySet<string>, speechRuns: ReadonlyMap<string, SpeechRunPos>, nestedLabel: string, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
-    // §5.5 #17-21 ② — 마지막 본문(lastTextId)만 간결에서도 통째로 보인다(지금 하는 말 = 결론).
-    case 'text':     inner = <TextBlock item={item} density={density} exempt={item.id === lastTextId} />; break;
+    // §5.5 #17-21 ② — 마지막 본문(lastTextId)은 간결에서도 통째로 보인다(지금 하는 말 = 결론).
+    // §5.5 #17-12 ①-2 — 턴의 여는 본문(의도 선언)도 같다. 그 턴의 전제라 접히면 멈출 판단이 안 선다.
+    // §5.5 #17-45 — 연달아 온 본문은 한 발화로 묶어 말머리를 첫 문단에만 단다(간결에서만 · 없으면 `solo`).
+    case 'text':     inner = <TextBlock item={item} density={density} exempt={item.id === lastTextId || openingTextIds.has(item.id)} run={speechRuns.get(item.id) ?? 'solo'} />; break;
     case 'tool':     inner = <ToolBlock item={item} density={density} review={reviewCtx} />; break;
     case 'toolgroup': inner = <ToolGroupBlock item={item} density={density} />; break;
     case 'plan':     inner = <PlanBlock item={item} />; break;
@@ -963,6 +1024,8 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     // §5.5 #17-12 ③ — 실패 사유는 어느 밀도에서도 접거나 묶지 않는다(읽어야 할 유일한 원인).
     case 'error':    inner = <ErrorLine item={item} />; break;
     case 'system':   inner = <SystemLine item={item} density={density} />; break;
+    // §5.25 (O) — 엔진이 내건 그림. 밀도에 따라 접지 않는다 — 그림은 줄이면 아무 말도 못 한다.
+    case 'image':    inner = <ImageBlock item={item} ctx={feedbackCtx} />; break;
     case 'command':  inner = <CommandBlock item={item} agentId={feedbackCtx?.agentId} />; break;
     // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
     case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} />; break;
@@ -1067,6 +1130,29 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     }
     return null;
   }, [items]);
+  // §5.5 #17-12 ①-2 — 자르지 않는 두 번째 자리 = 턴의 **여는 본문**(의도 선언). 요구가 여러 갈래면
+  //   그 선언이 요구 개수만큼 길어지는데(①-1), 4줄에서 접히면 무엇을 빠뜨렸는지 보이지 않아
+  //   "멈출지 판단"이 다시 불가능해진다. 결론(마지막 본문)과 전제(여는 본문)는 간결에서도 온전히 남는다.
+  const openingTextIds = useMemo(
+    () => turnOpeningTextIds(items.map((it) => ({
+      id: it.id,
+      role: it.kind === 'command' ? 'command' as const : it.kind === 'text' ? 'text' as const : 'other' as const,
+    }))),
+    [items],
+  );
+  // §5.5 #17-45 — 연속 발화 런. **간결에서만** 켠다 — 표준·원문은 도구 상자가 사이사이 끼어 본문이
+  //   원래 끊겨 보이므로 문단마다 말머리가 붙는 종전 모양이 맞고, 이 항목은 그 둘을 바꾸지 않는다.
+  //   주인(중첩 서브에이전트)이 다르면 런을 끊는다 — 남의 말을 내 발화에 붙일 수 없다.
+  const speechRuns = useMemo(
+    () => (density === 'compact'
+      ? speechRunPositions(items.map((it) => ({
+        id: it.id,
+        text: it.kind === 'text',
+        owner: it.kind === 'text' ? it.nestedUnderToolUseId : undefined,
+      })))
+      : NO_SPEECH_RUNS),
+    [items, density],
+  );
   // §5.5 #17-30 — 이 스트림이 속한 세션 = 코멘트를 담을 자리. 쓰기 가능 여부는 `addCommand` 와 **같은 술어**
   //   (`isReadOnlyHookAgent`)로 판정해, 화면에서 손잡이를 지운 것과 서버가 막는 것이 어긋나지 않게 한다.
   const canReviewComment = useGraphStore((s) => (
@@ -1078,8 +1164,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   );
   const itemContent = useCallback(
     (_index: number, item: StreamDisplayItem) =>
-      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, nestedLabel, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
-    [liveLabels, ideTextZoom, density, lastTextId, nestedLabel, agentId, subAgentId, reviewCtx],
+      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, openingTextIds, speechRuns, nestedLabel, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
+    [liveLabels, ideTextZoom, density, lastTextId, openingTextIds, speechRuns, nestedLabel, agentId, subAgentId, reviewCtx],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다
@@ -1138,6 +1224,20 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       cont.scrollTo({ top: cont.scrollTop + (targetRect.top - containerRect.top) - 16, behavior: 'smooth' });
     }, idx >= 0 ? 280 : 0);
   }, [items]);
+  // §5.5 #17-12 — 하단 상태바가 묻는 "지금 보고 있는 명령". 화면 맨 위를 채운 항목만 DOM 으로 재고
+  //   (항목 래퍼 `data-stream-item-id` 는 위→아래 순서라 top 이 단조증가 → 이분 탐색), 그 항목이 속한
+  //   명령은 items 배열로 거슬러 올라가 찾는다. 명령 블록이 선렌더 버퍼 밖이어도 정확히 나온다.
+  const viewedCommandId = useCallback((): string | null => {
+    const cont = scrollerElRef.current;
+    if (!cont) return null;
+    const els = cont.querySelectorAll<HTMLElement>('[data-stream-item-id]');
+    if (els.length === 0) return null;
+    const contTop = cont.getBoundingClientRect().top;
+    const idx = lastPassedIndex(els.length, (i) => els[i]!.getBoundingClientRect().top - contTop, VIEWED_TOP_MARGIN);
+    // 하나도 못 지났으면 리스트 맨 위 — 렌더된 첫 항목이 곧 화면 맨 위다.
+    const topId = (idx >= 0 ? els[idx]! : els[0]!).dataset.streamItemId ?? null;
+    return owningCommandId(items, (it) => it.kind === 'command', topId);
+  }, [items]);
   const getState = useCallback((cb: (snap: StateSnapshot) => void) => {
     virtuosoRef.current?.getState(cb);
   }, []);
@@ -1149,7 +1249,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     }
     return ids;
   }, [items]);
-  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds]);
+  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId]);
 
   if (items.length === 0) {
     return (

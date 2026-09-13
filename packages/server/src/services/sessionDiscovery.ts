@@ -7,7 +7,10 @@ import {
   TOKEN_BYTES_RATIO, TOKEN_FIXED_CATEGORIES,
   ByteBudgetCache, approximateStringBytes,
   SESSION_CACHE_BYTE_BUDGET, SESSION_CACHE_MAX_ENTRIES,
+  entrypointFromConfigHome, isInteractiveEntrypoint, parseSessionEntrypoint,
 } from '@vibisual/shared';
+// §5.7 #24 — 설정 홈은 하나가 아니다(호스트 + Cowork 세션별). 목록의 정본은 이 모듈.
+import { listClaudeConfigHomes, listCoworkConfigHomes } from './claudeConfigHomes.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
@@ -57,8 +60,12 @@ const CLAUDE_BIN = (): string => getClaudeBin().binPath;
  */
 const SAFE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
 
-/** 세션 진입점 — session.json.entrypoint에서 추출. 영속 정책 판단에 사용. */
-export type SessionEntrypoint = 'vscode' | 'cli' | 'unknown';
+/**
+ * 세션 진입점 — 판정 정본은 shared(`sessionEntrypoint.ts`)다.
+ * 여기서는 종전 import 경로(`./sessionDiscovery.js`)를 쓰던 호출부가 깨지지 않게 다시 내보낸다.
+ */
+export type { SessionEntrypoint } from '@vibisual/shared';
+import type { SessionEntrypoint } from '@vibisual/shared';
 
 /** 로컬 Claude Code 세션 정보 */
 export interface LocalSession {
@@ -75,73 +82,99 @@ export interface LocalSession {
   entrypoint: SessionEntrypoint;
 }
 
-/** session.json의 entrypoint 문자열 → SessionEntrypoint */
+/**
+ * session.json 의 `entrypoint` 문자열 → `SessionEntrypoint`.
+ * 판정은 shared 정본에 위임한다 — 종전 이름은 호출부 호환으로 남긴다.
+ */
 export function parseEntrypoint(raw: unknown): SessionEntrypoint {
-  if (typeof raw !== 'string') return 'unknown';
-  const s = raw.toLowerCase();
-  if (s.includes('vscode')) return 'vscode';
-  if (s.includes('claude-code') || s === 'claude' || s.includes('cli')) return 'cli';
-  return 'unknown';
+  return parseSessionEntrypoint(raw);
 }
 
-const SESSIONS_DIR = path.join(os.homedir(), '.claude', 'sessions');
 const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 const MAX_TITLE_LENGTH = 40;
 
-/** sessionId → entrypoint 조회. 세션 파일이 없으면 'unknown' */
-export function findEntrypointBySession(sessionId: string): SessionEntrypoint {
-  try {
-    const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith('.json'));
+/** 한 설정 홈의 세션 디렉터리. */
+function sessionsDirOf(home: string): string {
+  return path.join(home, 'sessions');
+}
+
+/** 세션 JSON 한 건 — 파일에서 뽑은 원시 필드 + **어느 홈에서 읽었는지**. */
+interface SessionRecord {
+  file: string;
+  sessionId: string;
+  pid: number;
+  cwd: string;
+  entrypoint: SessionEntrypoint;
+  startedAt: number;
+}
+
+/**
+ * 모든 설정 홈(`~/.claude` + Cowork 세션 홈들)의 `sessions/*.json` 을 한 번 훑는다.
+ *
+ * 종전에는 `find*` 셋이 각자 `~/.claude/sessions` 를 `readdirSync` 하고 같은 파싱을 세 벌
+ * 적고 있었다 — 홈이 여러 곳으로 늘어나는 순간 그 중복은 **한쪽만 고쳐져 어긋나는** 자리가
+ * 된다(§2.1 셸 토크나이저를 한 벌로 묶은 것과 같은 규율). 스캔은 여기 하나뿐이다.
+ *
+ * 진입점은 **출처 홈**이 정한다(`entrypointFromConfigHome`) — Cowork 가 `entrypoint` 에 무엇을
+ * 적는지는 실측된 바 없으므로 문자열을 추측하지 않는다.
+ */
+function forEachSessionRecord(visit: (rec: SessionRecord) => void): void {
+  for (const home of listClaudeConfigHomes()) {
+    const dir = sessionsDirOf(home.dir);
+    let files: string[];
+    try {
+      files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    } catch {
+      continue; // 홈이 아직 없거나 못 읽는다 — 설치 안 된 기계가 정상이다
+    }
     for (const file of files) {
       try {
-        const raw: unknown = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf8'));
-        if (typeof raw !== 'object' || raw === null) continue;
+        const raw: unknown = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+        if (typeof raw !== 'object' || raw === null) {
+          visit({ file, sessionId: '', pid: 0, cwd: '', entrypoint: 'unknown', startedAt: 0 });
+          continue;
+        }
         const d = raw as Record<string, unknown>;
-        if (d['sessionId'] === sessionId) return parseEntrypoint(d['entrypoint']);
-      } catch { /* skip */ }
+        visit({
+          file,
+          sessionId: typeof d['sessionId'] === 'string' ? d['sessionId'] : '',
+          pid: typeof d['pid'] === 'number' ? d['pid'] : 0,
+          cwd: typeof d['cwd'] === 'string' ? d['cwd'] : '',
+          entrypoint: entrypointFromConfigHome(d['entrypoint'], home.source),
+          startedAt: typeof d['startedAt'] === 'number' ? d['startedAt'] : 0,
+        });
+      } catch (e) {
+        visit({ file, sessionId: '', pid: 0, cwd: '', entrypoint: 'unknown', startedAt: -1 });
+        void e;
+      }
     }
-  } catch { /* ignore */ }
-  return 'unknown';
+  }
+}
+
+/** sessionId 로 세션 레코드 하나를 찾는다. 없으면 null. */
+function findSessionRecord(sessionId: string): SessionRecord | null {
+  let hit: SessionRecord | null = null;
+  forEachSessionRecord((rec) => {
+    if (hit === null && rec.sessionId === sessionId) hit = rec;
+  });
+  return hit;
+}
+
+/** sessionId → entrypoint 조회. 세션 파일이 없으면 'unknown' */
+export function findEntrypointBySession(sessionId: string): SessionEntrypoint {
+  return findSessionRecord(sessionId)?.entrypoint ?? 'unknown';
 }
 
 /** sessionId → cwd 조회 (세션 파일에서). sessionCwds에 없을 때의 폴백. */
 export function findCwdBySession(sessionId: string): string | null {
-  try {
-    const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith('.json'));
-    for (const file of files) {
-      try {
-        const raw: unknown = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf8'));
-        if (typeof raw !== 'object' || raw === null) continue;
-        const d = raw as Record<string, unknown>;
-        if (d['sessionId'] === sessionId && typeof d['cwd'] === 'string') {
-          return d['cwd'];
-        }
-      } catch { /* skip */ }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const cwd = findSessionRecord(sessionId)?.cwd;
+  return cwd ? cwd : null;
 }
 
 /** sessionId → PID 조회 (세션 파일에서) */
 export function findPidBySession(sessionId: string): number | null {
-  try {
-    const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith('.json'));
-    for (const file of files) {
-      try {
-        const raw: unknown = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf8'));
-        if (typeof raw !== 'object' || raw === null) continue;
-        const d = raw as Record<string, unknown>;
-        if (d['sessionId'] === sessionId && typeof d['pid'] === 'number') {
-          return d['pid'];
-        }
-      } catch { /* skip */ }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const pid = findSessionRecord(sessionId)?.pid;
+  return pid ? pid : null;
 }
 
 export function isProcessAlive(pid: number): boolean {
@@ -167,7 +200,7 @@ export interface SessionLiveness {
   cwd: string;
   entrypoint: SessionEntrypoint;
   startedAt: number;
-  /** §5.7 #24 (a) PID alive + (c) entrypoint=vscode 둘 다 통과 = 살아있는 Hook 에이전트 후보. */
+  /** §5.7 #24 (a) PID alive + (c) 인터랙티브 진입점 둘 다 통과 = 살아있는 Hook 에이전트 후보. */
   live: boolean;
   /** live=false 사유 (또는 'ok') — 진단 로그용. */
   reason: string;
@@ -175,8 +208,13 @@ export interface SessionLiveness {
 
 /**
  * v1.2 Session Liveness Watcher (§5.7 #24) — **단일 생존 판정 함수**.
- * `~/.claude/sessions/*.json` 을 한 번 읽어, 각 세션이 Hook 에이전트 버블 후보로
- * 살아있는지를 (a) PID alive + (c) entrypoint=vscode 기준으로 판정한다.
+ * 모든 설정 홈(`~/.claude` + Cowork 세션 홈들)의 `sessions/*.json` 을 한 번 읽어, 각 세션이
+ * Hook 에이전트 버블 후보로 살아있는지를 (a) PID alive + (c) **인터랙티브 진입점** 기준으로 판정한다.
+ *
+ * (c) 는 오랫동안 `entrypoint === 'vscode'` 였다. 그 조건이 뜻하려던 것은 "사용자가 직접 연
+ * 인터랙티브 세션"인데 **VS Code 라는 한 제품의 이름으로 적혀 있어서**, 같은 성격인 Cowork 가
+ * 들어오자 그대로 탈락했다. 이제 뜻은 술어(`isInteractiveEntrypoint`)가 갖고 제품 이름은 그
+ * 안에만 있다 — 기존 VS Code 판정은 한 줄도 바뀌지 않는다.
  *
  * 에이전트를 "추가하는" 경로(discoverSessions/seedAgents)와 "제거하는"
  * 경로(SessionLifecycleManager.pollOnce → readAliveSessionIds)가 **모두 이 함수**를
@@ -186,31 +224,25 @@ export interface SessionLiveness {
  */
 export function scanSessionLiveness(): SessionLiveness[] {
   const out: SessionLiveness[] = [];
-  try {
-    const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith('.json'));
-    for (const file of files) {
-      try {
-        const raw: unknown = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf8'));
-        if (typeof raw !== 'object' || raw === null) {
-          out.push({ file, sessionId: '', pid: 0, cwd: '', entrypoint: 'unknown', startedAt: 0, live: false, reason: 'not-object' });
-          continue;
-        }
-        const d = raw as Record<string, unknown>;
-        const sessionId = typeof d['sessionId'] === 'string' ? d['sessionId'] : '';
-        const pid = typeof d['pid'] === 'number' ? d['pid'] : 0;
-        const cwd = typeof d['cwd'] === 'string' ? d['cwd'] : '';
-        const entrypoint = parseEntrypoint(d['entrypoint']);
-        const startedAt = typeof d['startedAt'] === 'number' ? d['startedAt'] : 0;
-        const base = { file, sessionId, pid, cwd, entrypoint, startedAt };
-        if (!sessionId || !pid) { out.push({ ...base, live: false, reason: 'missing-sid-or-pid' }); continue; }
-        if (!isProcessAlive(pid)) { out.push({ ...base, live: false, reason: 'pid-dead' }); continue; }
-        if (entrypoint !== 'vscode') { out.push({ ...base, live: false, reason: 'not-vscode' }); continue; }
-        out.push({ ...base, live: true, reason: 'ok' });
-      } catch (e) {
-        out.push({ file, sessionId: '', pid: 0, cwd: '', entrypoint: 'unknown', startedAt: 0, live: false, reason: `parse-error: ${String(e)}` });
-      }
+  forEachSessionRecord((rec) => {
+    const base = {
+      file: rec.file,
+      sessionId: rec.sessionId,
+      pid: rec.pid,
+      cwd: rec.cwd,
+      entrypoint: rec.entrypoint,
+      startedAt: Math.max(0, rec.startedAt),
+    };
+    // `startedAt === -1` 은 스캐너가 파싱에 실패했다는 표식(위 forEachSessionRecord).
+    if (rec.startedAt === -1) { out.push({ ...base, live: false, reason: 'parse-error' }); return; }
+    if (!rec.sessionId || !rec.pid) { out.push({ ...base, live: false, reason: 'missing-sid-or-pid' }); return; }
+    if (!isProcessAlive(rec.pid)) { out.push({ ...base, live: false, reason: 'pid-dead' }); return; }
+    if (!isInteractiveEntrypoint(rec.entrypoint)) {
+      out.push({ ...base, live: false, reason: `not-interactive:${rec.entrypoint}` });
+      return;
     }
-  } catch { /* ignore */ }
+    out.push({ ...base, live: true, reason: 'ok' });
+  });
   return out;
 }
 
@@ -237,19 +269,19 @@ const ALIVE_DIAG_KEY = 'readAliveSessionIds';
  * 진단 로그를 남길지 가르는 지문 — **훅 에이전트 버블 후보의 상태**만 담는다.
  *
  * 종전엔 `JSON.stringify(scan)` 전체가 지문이었는데, `~/.claude/sessions/` 에는 몇 초 살다
- * 사라지는 CLI 세션(리플렉션·훅 워커 등)이 끊임없이 들락거린다. 그것들은 `entrypoint!=='vscode'`
- * 라 **애초에 버블이 될 수 없는데도** 목록에 들고 나는 것만으로 지문을 바꿔, "변화 지점만
+ * 사라지는 CLI 세션(리플렉션·훅 워커 등)이 끊임없이 들락거린다. 그것들은 인터랙티브 진입점이
+ * 아니라 **애초에 버블이 될 수 없는데도** 목록에 들고 나는 것만으로 지문을 바꿔, "변화 지점만
  * 남긴다"는 규약을 무력화했다(실측 2026-08-31: 2초마다 약 2.5KB 전량 덤프 — 최근 2,000줄 중
  * 344줄이 이 태그 하나였고 로그가 3일 만에 2MB 회전 상한에 닿았다. 정작 봐야 할 `removeAgent`·
  * `pollOnce.remove` 가 그 홍수에 묻힌다).
  *
- * 그래서 지문은 vscode 진입점 세션의 `sessionId:판정` 만 정렬해 담는다 — 버블이 생기거나
- * 사라지거나 탈락 사유가 바뀌면 그대로 잡히고, 나머지 잡음에는 침묵한다. CLI 세션의 개수조차
- * 넣지 않는다(그 개수야말로 매 폴링 흔들리는 값이다).
+ * 그래서 지문은 **인터랙티브 진입점**(vscode·cowork) 세션의 `sessionId:판정` 만 정렬해 담는다 —
+ * 버블이 생기거나 사라지거나 탈락 사유가 바뀌면 그대로 잡히고, 나머지 잡음에는 침묵한다.
+ * CLI 세션의 개수조차 넣지 않는다(그 개수야말로 매 폴링 흔들리는 값이다).
  */
 export function aliveDiagSignature(scan: SessionLiveness[]): string {
   return scan
-    .filter((s) => s.entrypoint === 'vscode')
+    .filter((s) => isInteractiveEntrypoint(s.entrypoint))
     .map((s) => `${s.sessionId}:${s.live ? 'ok' : s.reason}`)
     .sort()
     .join('|');
@@ -696,6 +728,23 @@ const SESSION_PATH_MISS_TTL_MS = 3000;
  *     서브에이전트가 `--isolation worktree` 로 워크트리 cwd 에서 돌아 부모 cwd-slug 와
  *     어긋나도 컨텍스트/토큰/메시지를 정확히 찾는다(버블 모델·물결 누락 원인 제거).
  */
+/**
+ * 세션 트랜스크립트(JSONL)가 살 수 있는 `projects` 루트들 — 호스트 하나 + Cowork 세션 홈들.
+ *
+ * Cowork 는 설정 홈이 세션마다 따로라 **트랜스크립트도 그 홈 안**에 쓴다
+ * (`<세션디렉터리>/.claude/projects/-sessions-<processName>/<cliSessionId>.jsonl`).
+ * 호스트 `~/.claude/projects` 만 보면 Cowork 세션의 제목·컨텍스트·토큰·대화 본문이 전부
+ * 빈손이 된다 — 버블은 훅으로 떠 있는데 내용이 영영 `(new)` 로 남는 모양이다.
+ *
+ * 호스트가 먼저다(대부분의 조회가 거기서 끝난다). 한 번 찾은 자리는 `sessionDirCache` 가
+ * 기억하므로 이 목록 순회는 **세션당 한 번**만 돈다.
+ */
+function transcriptRootsToScan(): string[] {
+  const roots = [PROJECTS_DIR];
+  for (const home of listCoworkConfigHomes()) roots.push(path.join(home.dir, 'projects'));
+  return roots;
+}
+
 export function resolveSessionJsonlPath(cwd: string, sessionId: string): string | null {
   const direct = path.join(PROJECTS_DIR, cwdToSlug(cwd), `${sessionId}.jsonl`);
   if (fs.existsSync(direct)) {
@@ -713,15 +762,23 @@ export function resolveSessionJsonlPath(cwd: string, sessionId: string): string 
   const retryAt = sessionPathMissCache.get(sessionId);
   if (retryAt !== undefined && Date.now() < retryAt) return null;
   try {
-    for (const d of fs.readdirSync(PROJECTS_DIR)) {
-      const p = path.join(PROJECTS_DIR, d, `${sessionId}.jsonl`);
-      if (fs.existsSync(p)) {
-        sessionDirCache.set(sessionId, path.join(PROJECTS_DIR, d));
-        sessionPathMissCache.delete(sessionId);
-        return p;
+    for (const projectsDir of transcriptRootsToScan()) {
+      let dirs: string[];
+      try {
+        dirs = fs.readdirSync(projectsDir);
+      } catch {
+        continue; // 그 홈에 아직 projects 가 없다 — 다음 홈으로
+      }
+      for (const d of dirs) {
+        const p = path.join(projectsDir, d, `${sessionId}.jsonl`);
+        if (fs.existsSync(p)) {
+          sessionDirCache.set(sessionId, path.join(projectsDir, d));
+          sessionPathMissCache.delete(sessionId);
+          return p;
+        }
       }
     }
-  } catch { /* PROJECTS_DIR 없음 */ }
+  } catch { /* 전역 탐색 실패 — miss 로 떨어진다 */ }
   sessionPathMissCache.set(sessionId, Date.now() + SESSION_PATH_MISS_TTL_MS);
   return null;
 }
@@ -1032,6 +1089,8 @@ interface LastAssistantState {
   pendingTail: string;
   /** 마지막 user 이후 모인 assistant 텍스트들. */
   parts: string[];
+  /** 모아 둔 것 중 **가장 늦은** assistant 줄의 시각(epoch ms). 모은 게 없으면 0. */
+  ts: number;
 }
 
 const lastAssistantCache = new ByteBudgetCache<string, LastAssistantState>({
@@ -1058,10 +1117,15 @@ function feedLastAssistantLine(state: LastAssistantState, line: string): void {
   }
   const type = typeof d['type'] === 'string' ? d['type'] : '';
   // user 를 만나면 모으던 것을 버린다 — 그래서 끝까지 먹이면 "마지막 user 이후"만 남는다.
-  if (type === 'user') { state.parts = []; return; }
+  if (type === 'user') { state.parts = []; state.ts = 0; return; }
   if (type !== 'assistant') return;
   const text = extractText(d);
-  if (text) state.parts.push(text);
+  if (!text) return;
+  state.parts.push(text);
+  // 이 글이 **언제** 쓰였는지도 같이 든다. 부르는 쪽은 "이번 턴에 쓰인 것인가"를 이 값으로 가른다
+  //   — 답이 없는 턴(`/compact` 등)이 앞 턴의 답을 제 결과로 물려받던 자리를 막는 유일한 근거다.
+  const at = typeof d['timestamp'] === 'string' ? Date.parse(d['timestamp']) : NaN;
+  if (Number.isFinite(at) && at > state.ts) state.ts = at;
 }
 
 /** `[start, end)` 를 청크로 훑어 누적 상태에 먹이고 다음 시작 오프셋을 돌려준다(§3.2.4 G축). */
@@ -1079,8 +1143,21 @@ function feedLastAssistantRange(
   return nextOffset;
 }
 
+/**
+ * 마지막 user 이후의 assistant 본문 + **그 글이 쓰인 시각**.
+ *
+ * 시각이 함께 나와야 부르는 쪽이 "이번 턴에 쓰인 글인가"를 가를 수 있다. 이 값이 없던 동안
+ * `/compact` 처럼 **제 답이 없는 턴**이 이 폴백을 타고 앞 턴의 답을 제 결과로 저장했고,
+ * 화면은 그 저장값을 그 턴의 답으로 그려 같은 말이 두 번 읽혔다(§5.5 #17-12 ③-4).
+ */
+export interface LastAssistantEntry {
+  text: string;
+  /** 그 글이 트랜스크립트에 쓰인 시각(epoch ms). 줄에 시각이 없으면 0. */
+  ts: number;
+}
+
 /** JSONL **경로로 직접** 읽는 핵심 — 증분 상태 관리가 전부 여기 있다(테스트는 이쪽을 쓴다). */
-export function readLastAssistantMessageByPath(jsonlPath: string): string | null {
+export function readLastAssistantEntryByPath(jsonlPath: string): LastAssistantEntry | null {
   try {
     const stat = fs.statSync(jsonlPath);
     const cached = lastAssistantCache.get(jsonlPath);
@@ -1099,24 +1176,31 @@ export function readLastAssistantMessageByPath(jsonlPath: string): string | null
       lastAssistantCache.refresh(jsonlPath);
     } else {
       // 첫 조회 또는 파일이 줄어듦(재작성/rotate) — 전체 재파싱.
-      state = { fileSize: stat.size, mtimeMs: stat.mtimeMs, parsedBytes: 0, pendingTail: '', parts: [] };
+      state = { fileSize: stat.size, mtimeMs: stat.mtimeMs, parsedBytes: 0, pendingTail: '', parts: [], ts: 0 };
       state.parsedBytes = feedLastAssistantRange(state, jsonlPath, 0, stat.size);
       lastAssistantCache.set(jsonlPath, state);
     }
 
     // 미완결 꼬리(개행 없이 끝난 마지막 줄)는 결과에만 반영 — 누적 상태는 건드리지 않는다.
     let parts = state.parts;
+    let ts = state.ts;
     if (state.pendingTail) {
       const view: LastAssistantState = { ...state, parts: state.parts.slice() };
       feedLastAssistantLine(view, state.pendingTail);
       parts = view.parts;
+      ts = view.ts;
     }
 
     if (parts.length === 0) return null;
-    return parts.join('\n\n');
+    return { text: parts.join('\n\n'), ts };
   } catch {
     return null;
   }
+}
+
+/** 본문만 필요한 자리(요약·표시)를 위한 얇은 겉껍질. 시각으로 갈라야 하는 자리는 위쪽을 쓴다. */
+export function readLastAssistantMessageByPath(jsonlPath: string): string | null {
+  return readLastAssistantEntryByPath(jsonlPath)?.text ?? null;
 }
 
 /**
@@ -1124,9 +1208,14 @@ export function readLastAssistantMessageByPath(jsonlPath: string): string | null
  * 여러 턴에 걸친 작업 보고를 하나로 합친다.
  */
 export function readLastAssistantMessage(cwd: string, sessionId: string): string | null {
+  return readLastAssistantEntry(cwd, sessionId)?.text ?? null;
+}
+
+/** 위와 같되 **쓰인 시각**까지 — 턴 귀속을 따져야 하는 자리(명령 결과 복구)가 쓴다. */
+export function readLastAssistantEntry(cwd: string, sessionId: string): LastAssistantEntry | null {
   const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
   if (!jsonlPath) return null;
-  return readLastAssistantMessageByPath(jsonlPath);
+  return readLastAssistantEntryByPath(jsonlPath);
 }
 
 /**
@@ -1798,7 +1887,7 @@ const lastDiscoverySignature = new Map<string, string>();
  * @param projectCwd 현재 프로젝트 cwd — 이 경로의 세션만 포함
  * startedAt 기준 최신순 정렬, INITIAL_AGENT_COUNT개까지.
  *
- * §5.7 #24: 생존 판정((a) PID alive + (c) entrypoint=vscode)은 `scanSessionLiveness`
+ * §5.7 #24: 생존 판정((a) PID alive + (c) 인터랙티브 진입점)은 `scanSessionLiveness`
  * 단일 함수에 위임 — pollOnce/readAliveSessionIds(제거 경로)와 완전히 같은 기준을
  * 쓴다. 여기서는 그 위에 (b) cwd-프로젝트 일치만 추가로 적용한다.
  */
@@ -1808,7 +1897,7 @@ export function discoverSessions(projectCwd: string): LocalSession[] {
     const sessions: LocalSession[] = [];
 
     for (const s of scanSessionLiveness()) {
-      // §5.7 #24 (a) PID alive + (c) entrypoint=vscode — 추가/제거 공유 단일 판정.
+      // §5.7 #24 (a) PID alive + (c) 인터랙티브 진입점 — 추가/제거 공유 단일 판정.
       // 죽은 PID 의 stale 세션 JSON(완료된 스킬/서브에이전트 서브프로세스 등)을
       // 여기서 걸러내야 seedAgents 가 다시 띄우지 않는다(깜빡임 차단).
       if (!s.live || !s.cwd) continue;

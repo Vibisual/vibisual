@@ -42,7 +42,7 @@ const inspector = defineInspector({
   badge: {
     match: (ctx) => overthinking(ctx),
     text: () => '',
-    icon: ICONS.brain,
+    icon: ICONS.think,
   },
 });
 

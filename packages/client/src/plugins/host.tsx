@@ -25,9 +25,9 @@ import type {
   PluginSeverity,
   PluginTranslate,
 } from '@vibisual/plugins';
-import { resolveEnabledPluginsFor } from '@vibisual/plugins';
+import { hasOwnToggle, resolveEnabledPluginsFor } from '@vibisual/plugins';
 import { PLUGIN_CLIENT_MODULES } from '@vibisual/plugins/client';
-import { useGraphStore, selectActiveBrainSummary, selectActivePluginFacts, selectActivePluginProjectPath } from '../stores/graphStore.js';
+import { useGraphStore, selectActiveAutoGoalSummary, selectActivePluginFacts, selectActivePluginProjectPath } from '../stores/graphStore.js';
 import { orderPanelSections } from './panelOrder.js';
 import { clientPathPlatform } from '../utils/platform.js';
 import { PluginErrorBoundary } from './PluginErrorBoundary.js';
@@ -71,7 +71,9 @@ export function useActivePluginModules(): PluginClientModule[] {
       projectPath,
       clientPathPlatform(),
     );
-    return PLUGIN_CLIENT_MODULES.filter((m) => active.has(m.manifest.id));
+    // §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드는 켬 집합을 묻지 않는다. 카드는 계기판이지
+    //   스위치가 아니라서, 목록에서 내렸다고 버블의 계기판까지 사라지면 켠 결과를 볼 자리가 없어진다.
+    return PLUGIN_CLIENT_MODULES.filter((m) => hasOwnToggle(m.manifest) || active.has(m.manifest.id));
   }, [byProject, legacyGlobal, projectPath]);
 }
 
@@ -97,10 +99,10 @@ function usePluginData(modules: PluginClientModule[], bubbleId: string): PluginA
   const runningTasks = useGraphStore((s) => (needs.has('runningTasks') ? s.runningSubagentTasks[bubbleId] : undefined));
   const agentReports = useGraphStore((s) => (needs.has('agentReports') ? s.agentReports[bubbleId] : undefined));
   const agentReviews = useGraphStore((s) => (needs.has('agentReviews') ? s.agentReviews[bubbleId] : undefined));
-  const brain = useGraphStore((s) => (needs.has('brain') ? selectActiveBrainSummary(s) : undefined));
+  // §5.10 — 되풀이가 절차로 굳은 정도. 프로젝트 단위라 버블과 무관하게 같은 값이 온다.
+  const autoGoal = useGraphStore((s) => (needs.has('autoGoal') ? selectActiveAutoGoalSummary(s) : undefined));
   // §5.11 v4.65 — 집행이 실제로 무엇을 보고 판단했는지. 프로젝트 단위라 버블과 무관하게 같은 값이 온다.
   const pluginFacts = useGraphStore((s) => (needs.has('pluginFacts') ? selectActivePluginFacts(s) : undefined));
-  const brainInjections = useGraphStore((s) => (needs.has('brainInjections') ? s.brainInjections[bubbleId] : undefined));
   const captureBubbles = useGraphStore((s) => (needs.has('captureBubbles') ? s.captureBubbles : undefined));
   // bash 는 세션 id 로 저장돼 있고 에이전트는 자기 세션 목록을 갖고 있다 — 여기서 그 둘을 잇는다.
   const bashStore = useGraphStore((s) => (needs.has('bashCommands') ? s.bashHistory : undefined));
@@ -126,8 +128,8 @@ function usePluginData(modules: PluginClientModule[], bubbleId: string): PluginA
   ));
 
   return useMemo(
-    () => ({ agentEvents, subAgents, runningTasks, agentReports, agentReviews, brain, brainInjections, taskEdges, captureBubbles, bashCommands, pluginFacts }),
-    [agentEvents, subAgents, runningTasks, agentReports, agentReviews, brain, brainInjections, taskEdges, captureBubbles, bashCommands, pluginFacts],
+    () => ({ agentEvents, subAgents, runningTasks, agentReports, agentReviews, autoGoal, taskEdges, captureBubbles, bashCommands, pluginFacts }),
+    [agentEvents, subAgents, runningTasks, agentReports, agentReviews, autoGoal, taskEdges, captureBubbles, bashCommands, pluginFacts],
   );
 }
 
@@ -330,8 +332,11 @@ function HeaderSlotInner({ modules }: { modules: PluginClientModule[] }): React.
 
   if (items.length === 0) return null;
 
+  // `app-nodrag` — 이 슬롯은 헤더(`app-drag`) 안에서 그려진다. 빠져나오지 않으면 그 자리가 OS
+  // 캡션이라 카드가 낸 버튼에 **손짓이 도착하지 않는다**(눌러도 창만 끌린다). 헤더의 다른 항목들이
+  // 전부 `app-nodrag` 인 것과 같은 이유다.
   return (
-    <div className="flex items-center gap-1">
+    <div className="app-nodrag flex items-center gap-1">
       {items.map((i) => (
         <PluginErrorBoundary key={i.id} pluginId={i.pluginId}>
           <span>{i.node}</span>

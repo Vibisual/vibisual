@@ -48,12 +48,19 @@ export interface RectWire { x: number; y: number; width: number; height: number 
 export interface PointWire { x: number; y: number }
 
 export interface PackagedWindowApi {
+  moveSelf?(phase: 'start' | 'move' | 'end'): Promise<boolean>;
   detach(payload: DetachPayloadWire): Promise<{ windowId: number; reused: boolean }>;
   closeDetached(tabKey: string): Promise<boolean>;
   closeSelf(): Promise<boolean>;
   minimizeSelf(): Promise<boolean>;
   toggleMaximizeSelf(): Promise<boolean>;
   onMaximizeState(cb: (payload: { maximized: boolean }) => void): () => void;
+  /**
+   * §3.7 v2.10 — main 이 창 상태 전이(show·restore·maximize·전체화면)를 알려 오는 창구.
+   * 렌더러는 그때 드래그 영역을 다시 신고한다(`dragRegionRefresh`). 구버전 preload 에는
+   * 없을 수 있어 **선택 속성**이다 — 없으면 브라우저 계기(visibilitychange·focus)만으로 간다.
+   */
+  onDragRegionsRefresh?(cb: () => void): () => void;
   listDetached(): Promise<DetachedTabInfoWire[]>;
   hasTab(tabKey: string): Promise<boolean>;
   cursorScreen(): Promise<PointWire>;
@@ -100,9 +107,27 @@ export interface PackagedOverlayApi {
     /**
      * §17-6 (H-4) — 앱 경계를 넘는 **그 순간** 만들어지는 창. 잡고 있던 지점을 그대로 물려받아
      * 커서에 매달린 채 뜬다(끌던 손 아래에서 창이 이어진다).
+     *
+     * (H-12) `label`·`hint` 는 그 창이 **되돌아올 때** 그릴 윤곽선에 적을 말이다 — main 에는
+     * 번역이 없으므로 이 판의 로케일로 지어 함께 맡긴다.
      */
-    follow?: { grabX: number; grabY: number };
+    follow?: { grabX: number; grabY: number; label?: string; hint?: string; settled?: boolean };
   }): Promise<{ windowId: number; reused: boolean }>;
+  /**
+   * §17-6 (H-25) — **놓기 전에 미리 짓는다.** 선이 무장되는 순간(나갈 뜻이 분명한 자리)에 부른다.
+   *
+   * 지어 두는 창은 부팅만 하고 보이지 않으므로 화면은 그대로 선 하나다. 손을 떼면 위 `open` 이
+   * 그 창을 재사용해 자리만 옮기므로, 창 짓기가 뗌 프레임에 몰리지 않는다.
+   * 구버전 preload 에는 없으므로 **선택 속성** — 없으면 종전대로 뗌에 창을 짓는다(⑥).
+   */
+  warm?(payload: {
+    agentId: string;
+    projectId: string;
+    size?: { width: number; height: number };
+    handoff?: unknown;
+  }): Promise<boolean>;
+  /** §17-6 (H-25) ⑤ — 나가지 않기로 끝난 판이 예열 창을 거둔다(이미 태어난 창은 안 건드린다). */
+  warmCancel?(agentId: string): Promise<boolean>;
   /** §17-6 (H) — 새로 뜬 창이 자기 짐을 꺼낸다(한 번 꺼내면 사라진다. 없으면 null). */
   takeHandoff(agentId: string): Promise<unknown>;
   close(agentId: string): Promise<boolean>;
@@ -121,7 +146,13 @@ export interface PackagedOverlayApi {
    * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
    * 그 자리에서 앱 안 IDE 로 돌아간다.
    */
-  dragStart(payload?: { redockOnEnter?: boolean; handoff?: unknown }): Promise<boolean>;
+  dragStart(payload?: {
+    redockOnEnter?: boolean;
+    handoff?: unknown;
+    /** (H-12) 되돌아오는 구간의 윤곽선에 적을 이름·안내(main 에는 번역이 없다). */
+    label?: string;
+    hint?: string;
+  }): Promise<boolean>;
   dragEnd(): Promise<boolean>;
   /** §17-6 (H-4) — **다른 창의** 매달림 끝내기(앱에서 끌어낸 창은 손이 메인 창에 있다). */
   dragEndFor?(agentId: string): Promise<boolean>;
@@ -138,7 +169,10 @@ export interface PackagedOverlayApi {
     label?: string;
     /** 지금 손을 떼도 그대로 나가는가 — 선이 밝아져 놓기 전에 그것을 말한다. */
     armed?: boolean;
+    /** (H-19) 선 안에 적을 한 줄 — 나가는 길에도 선이 말한다(본체가 숨어 안내 띠가 없다). */
+    hint?: string;
   }): Promise<boolean>;
+
   /** §17-6 (H-6) — 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낸다. */
   ghostNudge?(payload: { dx: number; dy: number }): Promise<boolean>;
   /** §17-6 (H-6) — 윤곽선 걷기(도로 앱 안 · 손 뗌). 밖으로 나간 경우는 main 이 스스로 걷는다. */
@@ -158,18 +192,21 @@ export interface PackagedOverlayApi {
   paneDragWatch?(on: boolean): Promise<boolean>;
   /** §17-6 (H-8) — 커서가 이 창 밖으로 나갔다(한 판에 한 번, **화면 좌표**). */
   onPaneDragEscape?(cb: (payload: { cursor: { x: number; y: number } }) => void): () => void;
-  /** §17-6 (H-4) — 이 창이 커서에 매달려 있는가(매달린 창도 뗌을 함께 듣는다). */
-  onFollowDragState?(cb: (payload: { following: boolean }) => void): () => void;
   /**
-   * §17-6 (H) — 꺼낸 IDE 창을 **끌어다 앱 안으로 합치기**. 잡으면 창이 칩으로 줄어 커서를
-   * 따라오고, 메인 창 위에서 놓으면 합쳐진다(밖에서 놓으면 원래 자리로 되돌아온다).
+   * §17-6 (H-4) — 이 창이 커서에 매달려 있는가(매달린 창도 뗌을 함께 듣는다).
+   *
+   * (H-23) 메인 창도 받는다 — 들어오는 판은 창이 숨어 그 렌더러가 뗌을 못 듣는다. `agentId` 는
+   * **누구의 판인가**이고, 구버전 preload 에는 없으므로 선택 속성이다(없으면 자기 창의 판).
    */
-  redockDragStart(): Promise<boolean>;
-  redockDragEnd(payload: { commit: boolean; handoff?: unknown }): Promise<boolean>;
-  /** §17-6 (H) — 합치기 드래그 상태(칩 모양 전환·놓을 자리 강조) 구독. */
-  onRedockDragState(cb: (payload: { dragging: boolean; hovering: boolean }) => void): () => void;
+  onFollowDragState?(cb: (payload: { following: boolean; agentId?: string }) => void): () => void;
   /** §17-6 (H) — 이미 서 있던 창에 짐이 뒤늦게 도착했을 때. */
   onPaneHandoff(cb: (payload: { agentId: string; handoff: unknown }) => void): () => void;
+  /**
+   * §17-6 (H-16) — **앱 안에서 이 창을 불렀다**(그 버블 더블클릭). main 이 창을 앞으로
+   * 세운 직후에 온다 — 받는 창은 그 손짓이 자기에게 닿았다고 짧게 한 번 비춘다.
+   * 구버전 preload 에는 없으므로 **선택 속성**이다.
+   */
+  onAttention?(cb: (payload: { agentId: string }) => void): () => void;
   list(): Promise<OverlayListWire>;
   setVisible(visible: boolean): Promise<boolean>;
   /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)". */
@@ -184,6 +221,11 @@ export interface PackagedOverlayApi {
     agentId: string;
     projectId: string;
     openIde?: boolean;
+    /**
+     * §17-6 (H-9) — **닫기**가 타는 길. 앱 안으로 되돌아가되 IDE 는 열지 않고, 이미 열려 있는
+     * 남의 창도 닫지 않는다(우클릭 점프의 "앞 창 하나 닫기"는 닫기의 규율이 아니다).
+     */
+    keepPanes?: boolean;
     /** §17-6 (H) — 되돌아가며 들고 가는 짐. 메인 창이 꺼내 그 창을 이어 세운다. */
     handoff?: unknown;
   }): Promise<boolean>;
@@ -193,6 +235,8 @@ export interface PackagedOverlayApi {
       agentId: string;
       projectId: string;
       openIde?: boolean;
+      /** §17-6 (H-9) — 닫기로 돌아온 길. 그 버블만 보여 주고 앱 안 창은 그대로 둔다. */
+      keepPanes?: boolean;
       hasHandoff?: boolean;
       /**
        * §17-6 (H-4) — 끌던 **도중에** 돌아온 창. 앱 안에 다시 선 창이 그 드래그를 이어받는다
@@ -205,6 +249,8 @@ export interface PackagedOverlayApi {
         height: number;
         /** 커서의 화면 좌표 — 받는 창이 첫 이벤트를 기다리지 않고 곧바로 손 아래에 앉는다. */
         cursor?: { x: number; y: number };
+        /** (H-17) 손이 아직 눌려 있는가 — 거짓이면 앱 안 창은 자리만 물려받고 그대로 선다. */
+        dragging?: boolean;
       };
     }) => void,
   ): () => void;
@@ -256,6 +302,8 @@ export interface PackagedMobileApi {
   /** §4 v3.66 — QR 페어링 티켓(3분) 발급/폐기. */
   issueQr(): Promise<MobileAccessState>;
   revokeQr(): Promise<MobileAccessState>;
+  /** 공유기에 손으로 만든 포워딩 규칙을 지웠다는 확인 — 뒷정리 안내를 내린다. */
+  ackManualForward(): Promise<MobileAccessState>;
   onStatus(cb: (state: MobileAccessState) => void): () => void;
 }
 

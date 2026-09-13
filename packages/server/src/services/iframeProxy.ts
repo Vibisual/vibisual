@@ -9,7 +9,7 @@ import net from 'node:net';
 import type { Request, Response } from 'express';
 import { IFRAME_PROXY_PATH } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { buildPreviewPickerScript } from './previewPicker.js';
+import { buildPreviewInjectionTail } from './previewPicker.js';
 
 /**
  * 보안 — SSRF 가드. 이 프록시는 **로컬 dev 서버 프리뷰** 전용이므로
@@ -215,7 +215,14 @@ export async function iframeProxyHandler(req: Request, res: Response): Promise<v
 
       // §7.11 (판올림 번호 발급 대기) — 요소 집기(picker) 는 문서가 다 선 뒤에 붙인다(`</body>` 앞).
       //   항상 넣되 **기본 비활성**이라, 부모가 켜기 전까지는 아무 것도 하지 않는다.
-      const picker = buildPreviewPickerScript(proxyBase, target);
+      //
+      // §7.11 (G) — 같은 자리에 **인스펙터 응답 조각**(§5.5 #17-27 ⑮ (i))도 함께 넣는다.
+      //   패키지 앱에서 이 프리뷰는 `vibproxy://` 라 우리 창과 오리진이 달라, 인스펙터가
+      //   `contentDocument` 를 못 읽고 그 자리에서 포기한다 — Alt 를 눌러도 강조 상자가 뜰 곳이
+      //   없다. 편집창 미리보기가 이미 쓰고 있는 그 조각을 그대로 실어 **묻는 말에 답하게** 한다
+      //   (새 창구 ❌ — 부모가 좌표를 묻고 페이지가 요소를 답하는 기존 대화를 그대로 쓴다).
+      //   원본 위치(`data-vib-src`)는 우리가 내보낸 파일에만 있으므로 여기서는 `at:null` 로 온다.
+      const picker = buildPreviewInjectionTail(proxyBase, target);
       html = /<\/body\s*>/i.test(html)
         ? html.replace(/<\/body\s*>/i, () => `${picker}</body>`)
         : html + picker;

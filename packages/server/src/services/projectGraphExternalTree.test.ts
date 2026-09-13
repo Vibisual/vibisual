@@ -39,6 +39,12 @@ afterEach(() => {
 function makeGraph(): ProjectGraph {
   const graph = new ProjectGraph();
   graph.registerProject(projRoot);
+  // §2.1 (B) — 이 파일이 보증하는 것은 **접합 트리 그 자체**(부모가 같으면 같은 버블 밑으로)다.
+  //   예산제 승격은 그 위에 얹히는 별개 축이라, 여기서는 예산을 최소로 두어 꺼내지 않게 한다
+  //   (`room = 예산 - 트리 루트 수` 라 1 이면 승격 0). 승격 동작은
+  //   `projectGraphExternalPromotion.test.ts` 가 따로 고정한다 — 한 파일이 두 축을 함께 재면
+  //   어느 쪽이 깨졌는지 알 수 없다.
+  graph.setExternalTopBudget(1);
   return graph;
 }
 

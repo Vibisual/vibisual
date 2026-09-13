@@ -1,6 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useScrollReveal } from '../../hooks/useScrollReveal.js';
 import { PreviewSnipOverlay } from './PreviewSnipOverlay.js';
 import type { PreviewPicker } from './usePreviewPicker.js';
 import type { PreviewSnip } from './usePreviewSnip.js';
@@ -52,10 +53,25 @@ export function PreviewFrames({
 
   const compare = picker.compareWidths;
 
+  // 넘치는 폭은 여기가 가로 스크롤로 받는데(§7.16), 그 스크롤바는 **앱 공용 톤**(`scrollbar-thin`)
+  // 이라 기본이 숨김이다. 굴리기만 한 사용자에게도 뜨도록 `data-scrolling` 을 함께 건다.
+  // 한 폭·비교 중 화면에 있는 것은 언제나 하나라 상태도 하나면 된다.
+  const scrollReveal = useScrollReveal();
+
+  // 그 스크롤바를 **마우스만 대도** 뜨게 하는 나머지 반쪽. `.scrollbar-thin:hover` 는 여기서 서지
+  // 않는다 — 프리뷰 본체는 다른 오리진 iframe 이라, 마우스가 그 위로 들어가는 순간 이 상자는 아무
+  // 것도 받지 못한다(인스펙터가 켜질 때 iframe 의 `pointer-events` 를 일부러 끄는 것도 같은 까닭).
+  // 그래서 안에서 알려 온 신고(§7.11 다리)를 `:hover` 자리에 세운다.
+  const hoverReveal = picker.hovered ? 'true' : 'false';
+
   return (
     <div className={`relative flex min-h-0 flex-1 overflow-hidden ${className ?? ''}`} style={style}>
       {compare === null ? (
-        <div className="flex min-h-0 flex-1 justify-center overflow-auto">
+        <div
+          className="scrollbar-thin flex min-h-0 flex-1 justify-center overflow-auto"
+          {...scrollReveal}
+          data-hovering={hoverReveal}
+        >
           <iframe
             key={reloadKey}
             ref={attachPrimary}
@@ -71,7 +87,11 @@ export function PreviewFrames({
         </div>
       ) : (
         // 비교 줄 — 칸마다 이름·폭을 머리에 달아 어느 폭이 깨졌는지 바로 보이게 한다.
-        <div className="flex min-h-0 flex-1 overflow-auto">
+        <div
+          className="scrollbar-thin flex min-h-0 flex-1 overflow-auto"
+          {...scrollReveal}
+          data-hovering={hoverReveal}
+        >
           {compare.map((entry, index) => (
             <div
               key={entry.id}

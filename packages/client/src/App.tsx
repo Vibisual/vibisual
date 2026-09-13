@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useDetachedSync } from './hooks/useDetachedSync.js';
 import { useOverlaySync } from './hooks/useOverlaySync.js';
 import { useOverlayReveal } from './hooks/useOverlayReveal.js';
+import { useDetachedFollowRelease } from './hooks/useDetachedFollowRelease.js';
 import { useCommandCenterReveal } from './hooks/useCommandCenterReveal.js';
 import { useMobileBackAsEscape } from './hooks/useMobileBackAsEscape.js';
 import { useLowPowerMode } from './hooks/useIsMobile.js';
@@ -12,8 +13,8 @@ import { CanvasLoadingHint } from './components/BubbleMap/CanvasLoadingHint.js';
 import { TrashToolbar } from './components/BubbleMap/TrashToolbar.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
-import { BrainLibraryOverlay } from './components/Panel/BrainLibraryOverlay.js';
 import { GuideWindow } from './components/Guide/GuideWindow.js';
+import { OptionsWindowHost } from './components/Options/OptionsWindowHost.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
 import { MediaConvertDialog } from './components/IDE/MediaConvertDialog.js';
@@ -26,6 +27,9 @@ import { ClaudeVersionGate } from './components/Panel/ClaudeVersionGate.js';
 import { LoginWindow } from './components/Auth/LoginWindow.js';
 import { ClaudeSetupGate, ClaudeSetupBanner } from './components/Auth/ClaudeSetupGate.js';
 import { ProjectFolderGate, ProjectFolderBanner } from './components/Auth/ProjectFolderGate.js';
+import { EngineChooserGate } from './components/Engine/EngineChooserGate.js';
+import { CodexSetupGate, CodexSetupBanner } from './components/Codex/CodexSetupGate.js';
+import { CodexLoginWindow } from './components/Codex/CodexLoginWindow.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useGraphStore } from './stores/graphStore.js';
 import { useIDEDockLayout } from './components/IDE/useIDEDockLayout.js';
@@ -53,6 +57,9 @@ export function App(): React.JSX.Element {
   useOverlaySync();
   // SCENARIO.md §5.5 #17-6 (G) v2.82 — 오버레이 버블 우클릭 "본체로 점프" 신호 수신(메인 윈도우 한정).
   useOverlayReveal();
+  // SCENARIO.md §5.5 #17-6 (H-23) — 밖의 IDE 창이 앱 안으로 들어오는 판의 **뗌을 메인 창도 듣는다**.
+  //   그 판은 들어온 순간 창을 숨기는데, 숨는 창은 마우스 캡처를 잃어 제 뗌을 못 듣는다(메인 윈도우 한정).
+  useDetachedFollowRelease();
   // SCENARIO.md §5.12 (D) v4.43 — 지휘통제실 카드 [이동] 신호 수신(메인 윈도우 한정).
   useCommandCenterReveal();
   // §4 v3.16 — 모바일 웹 브라우저의 back 버튼을 ESC(오버레이·팝업 닫기)처럼 동작시켜 앱 이탈 방지.
@@ -71,9 +78,7 @@ export function App(): React.JSX.Element {
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
   // §5.13 (M) v4.68 — 앱 버블도 선택하면 우측 옵션 패널이 뜬다(캡처 버블과 같은 자리).
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
-  const selectedBrainCardId = useGraphStore((s) => s.selectedBrainCardId);
   // §5.10 v3.49 — 기억 피드 오버레이가 열려 있으면 카드 상세는 오버레이 우측 pane 이 담당(App DetailPanel 은 억제).
-  const brainFeedOpen = useGraphStore((s) => s.brainFeed !== null);
   const agentPhase = useGraphStore((s) => s.agentPhase);
   const debugMode = useGraphStore((s) => s.debugMode);
   const activeIframeId = useGraphStore((s) => s.activeIframeId);
@@ -113,6 +118,9 @@ export function App(): React.JSX.Element {
       {/* §4 (첫 실행 설치 온보딩) — 게이트를 [나중에]로 닫았을 때 남는 배너. 헤더보다 위에 둬야
           "에이전트를 아직 못 돌린다"는 사실이 화면 맨 처음에 읽힌다. */}
       <ClaudeSetupBanner />
+      {/* §5.25 (D) — 코덱스 설치 배너. **코덱스를 고른 사람에게만** 뜬다(다른 엔진을 쓰는 사람의
+          화면 위에 늘 떠 있으면 그건 안내가 아니라 광고다). */}
+      <CodexSetupBanner />
       {/* §4 (첫 실행 온보딩) ③ — 설치 배너와 같은 자리. 순서 판정이 한 번에 한 칸만 내주므로
           둘이 동시에 뜨지 않는다. */}
       <ProjectFolderBanner />
@@ -154,7 +162,7 @@ export function App(): React.JSX.Element {
             </>
           )}
         </main>
-        {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || selectedAppBubbleId !== null || (selectedBrainCardId !== null && !brainFeedOpen)) && !activeIframeTab && (
+        {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || selectedAppBubbleId !== null ) && !activeIframeTab && (
           <DetailPanel
             onClose={() => {
               const s = useGraphStore.getState();
@@ -163,16 +171,18 @@ export function App(): React.JSX.Element {
               s.selectCommentBox(null);
               s.selectCaptureBubble(null);
               s.selectAppBubble(null);
-              s.selectBrainCard(null);
             }}
           />
         )}
       </div>
-      <BrainLibraryOverlay />
       {/* §5.10 — 사용법 가이드. 여는 문이 여럿(File 메뉴 · 메모리 라이브러리 [사용법])이라
           창은 여기서 전역 1회만 마운트하고 열림 여부는 스토어가 들고 있다. */}
       <GuideWindowHost />
-      {/* §5.10 (H) — 첫 실행 두뇌 안내 배너는 폐기됐다(사용자 결정 2026-08-26). 켜는 자리는 설정 창 `Project Brain` 탭과 캔버스 우클릭. */}
+      {/* §5.10 (O) — 옵션 창. 여는 문이 여럿이라 창은 여기서 한 번만 그리고 열림 여부는
+          스토어(`optionsCategory`)가 든다 — 가이드와 같은 문법. */}
+      <OptionsWindowHost />
+      {/* §5.10 — 첫 실행 안내 배너는 두지 않는다(사용자 결정 2026-08-26).
+          자동 목표를 켜는 자리는 활동바 **목표** 칸의 3층 스위치 하나다. */}
       {/* InspectorOverlay 는 main.tsx 에서 전역 1회 마운트 — 여기서 또 그리면 복사가 두 번 일어난다. */}
       <WorktreeDeleteDialog />
       {/* §5.10 v4.84 — 휴지통 영구 삭제 확인. 트리거(툴바·Delete 키)와 같은 창의 스토어를 보므로
@@ -189,7 +199,14 @@ export function App(): React.JSX.Element {
       <ClaudeVersionGate />
       {/* §4 (첫 실행 설치 온보딩) — 설치 게이트. 로그인보다 **앞** 단계라 z-index 도 위다
           (CLI 가 없으면 로그인 자체가 불가능하다). 로그인과 같은 이유로 메인 창에만 마운트. */}
+      {/* §5.25 (C) — 첫 진입 엔진 선택. 설치보다 **앞선 질문**이라 z-index 도 위다(100_800).
+          기본값만 정하고 나머지 둘을 잠그지 않는다 — 셋 다 병행해 쓸 수 있다. */}
+      <EngineChooserGate />
       <ClaudeSetupGate />
+      {/* §5.25 (D)(E) — 코덱스 설치·로그인. 클로드 것과 같은 층에 나란히 선다. 코덱스를 고른
+          적 있는 사용자에게만 저절로 뜨므로, 그 밖에는 이 두 줄이 아무것도 그리지 않는다. */}
+      <CodexSetupGate />
+      <CodexLoginWindow />
       {/* §4 v4.82 — 로그인 게이트. main.tsx(공통 부팅 지점)가 아니라 여기 — 별창마다 같은 모달이
           겹쳐 뜨면 안 되고, 로그인은 메인 창에서 한 번만 물으면 되는 일이다. */}
       <LoginWindow />

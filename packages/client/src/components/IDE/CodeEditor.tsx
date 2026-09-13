@@ -1,4 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// §6 — 저장 키를 여기서 정하지 않는다(사용자가 바꾸면 그대로 따라간다).
+import { useCommand } from '../../hooks/useCommand.js';
 import { highlightCode, type CodeLine } from './codeHighlight.js';
 import { TOKEN_CLASS } from './codeLanguages.js';
 import { applyDedent, applyIndent } from './editorModel.js';
@@ -277,12 +279,6 @@ export const CodeEditor = memo(function CodeEditor({
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     const el = e.currentTarget;
 
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-      e.preventDefault();
-      onSave();
-      return;
-    }
-
     if (e.key === 'Tab' && !readOnly) {
       e.preventDefault();
       const out = e.shiftKey
@@ -291,7 +287,18 @@ export const CodeEditor = memo(function CodeEditor({
       pendingSelection.current = { start: out.selectionStart, end: out.selectionEnd };
       onChange(out.text);
     }
-  }, [onChange, onSave, readOnly]);
+  }, [onChange, readOnly]);
+
+  /**
+   * 저장 — 키는 §6 레지스트리가 정한다(`editor.save`).
+   *
+   * **내 textarea 안에서 난 키만** 받는다. 분할 편집기처럼 편집창이 둘 이상 떠 있을 때
+   * 등록만 해 두면 나중에 마운트된 쪽이 가져가 **엉뚱한 파일이 저장된다**.
+   */
+  useCommand('editor.save', (e) => {
+    if (e.target !== textareaRef.current) return false;
+    onSave();
+  });
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden bg-gray-950">

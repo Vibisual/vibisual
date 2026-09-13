@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { QueuedCommand, SubAgentStreamEvent, AgentReport, AgentList } from '@vibisual/shared';
-import { buildBaseItems, IncrementalStreamParser, mergeCardsIntoItems, isHiddenSystem, type StreamItemFull, type BaseItemsResult } from './streamItems.js';
+import { buildBaseItems, IncrementalStreamParser, mergeCardsIntoItems, isHiddenSystem, turnOfEvent, dispatchedTurnAnchorsAsc, type StreamItemFull, type BaseItemsResult, type StreamCommand } from './streamItems.js';
 
 // ─── 시드 PRNG (mulberry32) — 재현 가능한 랜덤 ───
 function mulberry32(seed: number): () => number {
@@ -21,8 +21,8 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-type EvtType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'pulse' | 'hidden';
-const EVT_TYPES: EvtType[] = ['text', 'thinking', 'tool_use', 'tool_result', 'result', 'error', 'system', 'pulse', 'hidden'];
+type EvtType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'pulse' | 'hidden' | 'image';
+const EVT_TYPES: EvtType[] = ['text', 'thinking', 'tool_use', 'tool_result', 'result', 'error', 'system', 'pulse', 'hidden', 'image'];
 const TOOLS = ['Grep', 'Read', 'Glob', 'Bash', 'TodoWrite'];
 
 /** §5.5 #17-12 — TodoWrite 는 계획 블록으로 승격된다. 유효 JSON(승격)과 깨진 입력(도구 상자 폴백) 둘 다 흘린다. */
@@ -43,7 +43,9 @@ function genEvents(rnd: () => number, n: number): SubAgentStreamEvent[] {
     ts += 1 + Math.floor(rnd() * 5);
     const kind = EVT_TYPES[Math.floor(rnd() * EVT_TYPES.length)]!;
     const id = `e${i}`;
-    const base = { id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts };
+    // §5.5 #17-12 ③-3 — 일부 줄에 턴 세대 도장을 찍는다(명령은 c0~c2). 도장이 시각을 이기는 귀속과
+    //   도장 없는 줄의 시각 귀속이 두 파서에서 같은 커버리지를 내는지 등가성이 함께 본다.
+    const base = { id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts, ...(rnd() < 0.2 ? { turnId: `c${Math.floor(rnd() * 3)}` } : {}) };
     switch (kind) {
       case 'text': out.push({ ...base, eventType: 'text', content: `t${i}_${Math.floor(rnd() * 100)}` }); break;
       // §5.5 #17-39 — 사고 길이를 문턱 양쪽으로 섞는다. 짧기만 하면 자국이 한 번도 안 생겨
@@ -63,6 +65,9 @@ function genEvents(rnd: () => number, n: number): SubAgentStreamEvent[] {
       case 'pulse': out.push({ ...base, eventType: 'system', content: `[thinking_tokens]` }); break;
       // §5.5 #17-13 ⑤-4 — 숨김은 `status` 뿐 아니라 살림성 통지(`*_changed`)도 포함한다.
       case 'hidden': out.push({ ...base, eventType: 'system', content: rnd() < 0.5 ? `[status]` : `[commands_changed]` }); break;
+      // §5.25 (O) — 그림은 **전선에서는 `text`** 지만 화면 항목으로는 따로 선다. 무작위 열에 섞어
+      //   두 파서가 같은 자리에서 런을 끊는지 본다 — 한쪽만 합치면 그 프레임부터 대화가 어긋난다.
+      case 'image': out.push({ ...base, eventType: 'text', content: `img${i}.png`, imagePath: `C:/x/img${i}.png` }); break;
     }
   }
   return out;
@@ -97,6 +102,8 @@ function normItem(it: StreamItemFull): unknown {
     // §5.5 #17-39 — 본문의 끝 시각(작성 자국)도 렌더에 쓰이므로 등가성 비교에 넣는다.
     case 'text': return { k: 'text', id: it.id, c: it.content, ts: it.timestamp, end: it.endedAt };
     case 'system': case 'result': case 'error': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
+    // §5.25 (O) — 그림도 이름까지 비교한다. default 로 흘리면 두 파서가 다른 이름을 적어도 통과한다.
+    case 'image': return { k: 'image', id: it.id, c: it.content, ts: it.timestamp };
     case 'tool': return { k: 'tool', id: it.id, n: it.toolName, in: it.input, out: it.output, a: it.isActive, ts: it.timestamp };
     case 'command': return { k: 'command', id: it.id, p: it.prompt, r: it.result, s: it.status, e: it.error, ts: it.timestamp };
     case 'thinking-live': return { k: 'thinking-live', id: it.id, m: it.mode, ts: it.timestamp };
@@ -468,6 +475,120 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
 });
 
 // §5.5 #17-13 ⑤-4 — "명령 목록 변경" 같은 살림성 칩은 어느 밀도에서도 안 그린다.
+describe('§5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 세션이 아니라 턴 단위로 갈린다', () => {
+  const S = 'S';
+  const ev = (id: string, ts: number, extra: Partial<SubAgentStreamEvent> & { eventType: SubAgentStreamEvent['eventType'] }): SubAgentStreamEvent =>
+    ({ id, subAgentId: S, parentAgentId: 'P', timestamp: ts, content: `${id}-body`, ...extra }) as SubAgentStreamEvent;
+  const cmd = (id: string, ts: number, extra: Partial<QueuedCommand> = {}): QueuedCommand =>
+    ({ id, text: `prompt ${id}`, timestamp: ts, subAgentId: S, status: 'completed', startedAt: ts, result: `answer ${id}`, ...extra }) as QueuedCommand;
+  const commandOf = (r: BaseItemsResult, id: string): StreamCommand => {
+    const hit = r.items.find((it) => it.kind === 'command' && it.id === `cmd-${id}`);
+    if (!hit || hit.kind !== 'command') throw new Error(`command ${id} missing`);
+    return hit;
+  };
+
+  it('복원 창 밖으로 밀려난 턴은 저장된 결과로 말한다 — 창 안의 턴만 결과를 비운다', () => {
+    const commands = [cmd('c1', 100), cmd('c2', 200)];
+    const events = [ev('e1', 210, { eventType: 'text' })]; // c1 의 본문은 창 밖
+    const r = buildBaseItems(events, commands);
+    expect(commandOf(r, 'c1').result).toBe('answer c1');
+    expect(commandOf(r, 'c2').result).toBe('');
+  });
+
+  it('턴 세대 도장(turnId)이 있으면 시각과 무관하게 그 턴의 말이다', () => {
+    const commands = [cmd('c1', 100), cmd('c2', 200)];
+    // 시각은 c2 자리지만 도장은 c1 — 앞 턴이 띄운 백단 작업이 뒤늦게 뱉은 줄.
+    const events = [ev('e1', 250, { eventType: 'text', turnId: 'c1' })];
+    const r = buildBaseItems(events, commands);
+    expect(commandOf(r, 'c1').result).toBe('');
+    expect(commandOf(r, 'c2').result).toBe('answer c2');
+  });
+
+  it('그 턴에 도구 줄만 남았으면(본문 ❌) 결과를 그대로 보인다', () => {
+    const commands = [cmd('c1', 100)];
+    const events = [ev('e1', 110, { eventType: 'tool_use', toolName: 'Read' }), ev('e2', 111, { eventType: 'tool_result', toolName: 'Read' })];
+    expect(commandOf(buildBaseItems(events, commands), 'c1').result).toBe('answer c1');
+  });
+
+  it('그림·중첩 Task 의 말은 답으로 치지 않는다 — 부모 자신의 본문·result 줄만', () => {
+    const commands = [cmd('c1', 100)];
+    const onlyImage = [ev('e1', 110, { eventType: 'text', imagePath: 'C:/x/a.png' })];
+    const onlyNested = [ev('e1', 110, { eventType: 'text', nestedUnderToolUseId: 'tu-1' })];
+    const resultLine = [ev('e1', 110, { eventType: 'result' })];
+    expect(commandOf(buildBaseItems(onlyImage, commands), 'c1').result).toBe('answer c1');
+    expect(commandOf(buildBaseItems(onlyNested, commands), 'c1').result).toBe('answer c1');
+    expect(commandOf(buildBaseItems(resultLine, commands), 'c1').result).toBe('');
+  });
+
+  it('스트림이 아예 없으면 종전대로 모든 결과가 보인다', () => {
+    const commands = [cmd('c1', 100), cmd('c2', 200)];
+    const r = buildBaseItems([], commands);
+    expect(commandOf(r, 'c1').result).toBe('answer c1');
+    expect(commandOf(r, 'c2').result).toBe('answer c2');
+  });
+
+  it('첫 명령보다 앞선 복원 본문은 어느 턴의 답도 아니다', () => {
+    const commands = [cmd('c1', 100)];
+    const events = [ev('e0', 50, { eventType: 'text' })];
+    expect(commandOf(buildBaseItems(events, commands), 'c1').result).toBe('answer c1');
+  });
+
+  it('실패 사유도 턴 단위 — 다른 턴의 오류 줄이 내 사유를 지우지 않는다', () => {
+    const err = { code: 'exit' as const, exitCode: 1, detail: 'boom' };
+    const commands = [
+      cmd('c1', 100, { status: 'error', result: undefined, error: err }),
+      cmd('c2', 200, { status: 'error', result: undefined, error: err }),
+    ];
+    const events = [ev('e1', 210, { eventType: 'error', content: '[exit:1] boom' })];
+    const r = buildBaseItems(events, commands);
+    expect(commandOf(r, 'c1').error).toEqual(err);
+    expect(commandOf(r, 'c2').error).toBeUndefined();
+  });
+
+  it('증분: 옛 턴의 본문이 뒤늦게 와도(도장) 그 말풍선의 결과가 접힌다 — 전체 재구축과 같다', () => {
+    const commands = [cmd('c1', 100), cmd('c2', 200)];
+    const parser = new IncrementalStreamParser();
+    const first = [ev('e1', 210, { eventType: 'text', turnId: 'c2' })];
+    expect(commandOf(parser.sync(first, commands), 'c1').result).toBe('answer c1');
+    const late = [...first, ev('e2', 220, { eventType: 'text', turnId: 'c1' })];
+    const inc = parser.sync(late, commands);
+    expect(commandOf(inc, 'c1').result).toBe('');
+    expect(normBase(inc)).toEqual(normBase(buildBaseItems(late, commands)));
+  });
+
+  it('증분: 앞쪽 절단으로 턴이 창 밖으로 나가면 결과가 다시 보인다 — 전체 재구축과 같다', () => {
+    const commands = [cmd('c1', 100), cmd('c2', 200)];
+    const parser = new IncrementalStreamParser();
+    const all = [ev('e1', 110, { eventType: 'text' }), ev('e2', 210, { eventType: 'text' })];
+    expect(commandOf(parser.sync(all, commands), 'c1').result).toBe('');
+    const trimmed = all.slice(1);
+    const inc = parser.sync(trimmed, commands);
+    expect(commandOf(inc, 'c1').result).toBe('answer c1');
+    expect(normBase(inc)).toEqual(normBase(buildBaseItems(trimmed, commands)));
+  });
+
+  it('증분: 명령이 끝나 결과가 채워져도(commands 만 변경) 창 안의 턴은 결과를 비운 채 유지된다', () => {
+    const running = [cmd('c1', 100, { status: 'executing', result: undefined })];
+    const parser = new IncrementalStreamParser();
+    const events = [ev('e1', 110, { eventType: 'text' })];
+    expect(commandOf(parser.sync(events, running), 'c1').result).toBe('');
+    const done = [cmd('c1', 100)];
+    const inc = parser.sync(events, done);
+    expect(commandOf(inc, 'c1').result).toBe('');
+    expect(normBase(inc)).toEqual(normBase(buildBaseItems(events, done)));
+  });
+
+  it('turnOfEvent — 경계 시각과 같은 줄은 그 명령의 턴이다(crossesCommand 와 같은 경계)', () => {
+    const anchors = dispatchedTurnAnchorsAsc([cmd('c1', 100), cmd('c2', 200), cmd('c3', 300, { status: 'queued', startedAt: undefined })]);
+    expect(anchors.map((a) => a.id)).toEqual(['c1', 'c2']); // 아직 안 나간 명령은 경계가 아니다
+    expect(turnOfEvent(ev('a', 99, { eventType: 'text' }), anchors)).toBeNull();
+    expect(turnOfEvent(ev('b', 100, { eventType: 'text' }), anchors)).toBe('c1');
+    expect(turnOfEvent(ev('c', 199, { eventType: 'text' }), anchors)).toBe('c1');
+    expect(turnOfEvent(ev('d', 200, { eventType: 'text' }), anchors)).toBe('c2');
+    expect(turnOfEvent(ev('e', 5, { eventType: 'text', turnId: 'c2' }), anchors)).toBe('c2');
+  });
+});
+
 describe('isHiddenSystem — 살림성 통지는 항목이 되지 않는다', () => {
   const sys = (content: string): SubAgentStreamEvent => ({
     id: 'x', subAgentId: 'S', parentAgentId: 'P', timestamp: 1, eventType: 'system', content,
@@ -500,5 +621,65 @@ describe('isHiddenSystem — 살림성 통지는 항목이 되지 않는다', ()
     expect(full.items.some((it) => it.kind === 'system')).toBe(false);
     const parser = new IncrementalStreamParser();
     expect(normBase(parser.sync(events, []))).toEqual(normBase(full));
+  });
+});
+
+/**
+ * §5.25 (O) — **그림은 말풍선 런에 섞이지 않는다.**
+ *
+ * 이 자리가 이 기능에서 가장 조용히 깨지는 곳이다. 연속된 `text` 는 한 말풍선으로 합쳐지는데,
+ * 그림도 전선에서는 `text` 라 아무 조치 없이 두면 합쳐진다 — 그러면 `imagePath` 가 버려져
+ * **그림은 사라지고 파일 이름만 문장 중간에 끼어든다.** 화면은 멀쩡해 보이고 오류도 안 난다.
+ */
+describe('§5.25 (O) 그림은 말풍선에 합쳐지지 않는다', () => {
+  const base = { subAgentId: 'S', parentAgentId: 'P' };
+  const events: SubAgentStreamEvent[] = [
+    { ...base, id: 'a', timestamp: 10, eventType: 'text', content: '이렇게 그려 봤습니다.' },
+    { ...base, id: 'b', timestamp: 11, eventType: 'text', content: 'exec-1.png', imagePath: 'C:/x/exec-1.png' },
+    { ...base, id: 'c', timestamp: 12, eventType: 'text', content: '마음에 드시면 말씀 주세요.' },
+  ];
+
+  it('앞뒤 말풍선 사이에 그림이 **따로** 선다(한 덩어리 ❌)', () => {
+    const got = buildBaseItems(events, []).items;
+    expect(got.map((i) => i.kind)).toEqual(['text', 'image', 'text']);
+    expect(got[1]).toMatchObject({ kind: 'image', id: 'b', content: 'exec-1.png' });
+    // 앞 말풍선에 파일 이름이 딸려 들어가지 않았는지 — 합쳐지면 여기가 먼저 깨진다.
+    expect((got[0] as { content: string }).content).toBe('이렇게 그려 봤습니다.');
+    expect((got[2] as { content: string }).content).toBe('마음에 드시면 말씀 주세요.');
+  });
+
+  it('증분 파서도 같은 자리에서 끊는다', () => {
+    const parser = new IncrementalStreamParser();
+    // 한 장씩 흘려 넣어도(실제 도착 모양) 결과가 같아야 한다.
+    parser.sync(events.slice(0, 1), []);
+    parser.sync(events.slice(0, 2), []);
+    const got = parser.sync(events, []).items;
+    expect(got.map((i) => i.kind)).toEqual(['text', 'image', 'text']);
+  });
+
+  it('그림이 연달아 와도 한 장씩 선다', () => {
+    const two: SubAgentStreamEvent[] = [
+      { ...base, id: 'x', timestamp: 10, eventType: 'text', content: 'a.png', imagePath: 'C:/x/a.png' },
+      { ...base, id: 'y', timestamp: 11, eventType: 'text', content: 'b.png', imagePath: 'C:/x/b.png' },
+    ];
+    expect(buildBaseItems(two, []).items.map((i) => i.kind)).toEqual(['image', 'image']);
+  });
+
+  it('`imagePath` 가 없는 `text` 는 종전 그대로 합쳐진다 — 클로드 대화가 달라지지 않는다', () => {
+    const plain: SubAgentStreamEvent[] = [
+      { ...base, id: 'p', timestamp: 10, eventType: 'text', content: '앞' },
+      { ...base, id: 'q', timestamp: 11, eventType: 'text', content: '뒤' },
+    ];
+    const got = buildBaseItems(plain, []).items;
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ kind: 'text', content: '앞뒤' });
+  });
+
+  it('빈 문자열 `imagePath` 는 그림으로 치지 않는다 — 빈 값이 새어 들어와도 말풍선이 쪼개지지 않게', () => {
+    const odd: SubAgentStreamEvent[] = [
+      { ...base, id: 'p', timestamp: 10, eventType: 'text', content: '앞' },
+      { ...base, id: 'q', timestamp: 11, eventType: 'text', content: '뒤', imagePath: '' },
+    ];
+    expect(buildBaseItems(odd, []).items.map((i) => i.kind)).toEqual(['text']);
   });
 });

@@ -90,6 +90,13 @@ $RECYCLE.BIN/
 .claude/
 .mddbai/
 
+# Codex per-project state and local agent instructions
+.codex/
+AGENTS.md
+CODEX.md
+# `codex app-server generate-json-schema` 출력 — 참조하는 코드가 없는 임시 생성물
+/.codex-schema-tmp/
+
 # Test / coverage
 coverage/
 .nyc_output/

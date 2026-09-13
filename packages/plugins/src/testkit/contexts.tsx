@@ -9,7 +9,7 @@
  */
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
 import type {
-  AgentConfig, AgentEvent, AgentReport, AgentReview, CaptureBubble, SubAgent, TaskEdge, TodoItem,
+  AgentConfig, AgentEvent, AgentReport, AgentReview, AutoGoalSummary, CaptureBubble, SubAgent, TaskEdge, TodoItem,
 } from '@vibisual/shared';
 import type { PluginBubbleContext, PluginTranslate } from '../types.js';
 
@@ -68,6 +68,27 @@ export const edge = (patch: Partial<TaskEdge> = {}): TaskEdge => ({
   status: 'idle', forwardMode: 'auto', templateId: null, createdAt: 1, ...patch,
 });
 
+/**
+ * §5.10 — 자동 목표 요약 픽스처.
+ *
+ * 칸이 열둘이라 컨텍스트마다 손으로 적으면 한 칸을 빠뜨려도 아무도 모른다. 기본값은 **다 0 이되
+ * 켜져 있는** 상태다 — "켜 뒀는데 아직 아무것도 없다"가 카드가 가장 자주 만나는 자리이기 때문이다.
+ */
+export const goal = (patch: Partial<AutoGoalSummary> = {}): AutoGoalSummary => ({
+  enabled: true,
+  skillCount: 0,
+  candidateCount: 0,
+  dismissedCount: 0,
+  anchoredCount: 0,
+  fromCommand: 0,
+  fromStep: 0,
+  observed: 0,
+  minRuns: 3,
+  topRuns: 0,
+  totalRuns: 0,
+  ...patch,
+});
+
 export const capture = (patch: Partial<CaptureBubble> = {}): CaptureBubble => ({
   id: 'cap1', projectName: 'vibisual', x: 0, y: 0, width: 320, height: 200,
   sourceId: 'src-1', sourceName: 'window', sourceKind: 'window', createdAt: 1, updatedAt: 1, ...patch,
@@ -111,20 +132,12 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         runningTasks: [{ id: 't1', parentAgentId: 'agent-1', startedAt: 900_000 }],
         agentReports: [report({ userActions: ['y'], learned: ['z'] })],
         agentReviews: [review({ checkpoints: ['p'] })],
-        brain: {
-          cardCount: 40,
-          unseenCount: 2,
-          agentCardCounts: {},
-          needsCheckCount: 3,
-          archivedCount: 1,
-          currentCount: 20,
-          contestedCount: 2,
-          reviewCount: 4,
-        },
-        brainInjections: [
-          { id: 'i1', agentId: 'agent-1', at: 1, cardIds: ['c1'], cardTitles: ['t'], trigger: 'spawn' },
-          { id: 'i2', agentId: 'agent-1', at: 2, cardIds: ['c2'], cardTitles: ['t2'], trigger: 'search' },
-        ],
+        // 양쪽 원천에서 자랐고, 물린 것도 앵커도 있고, 순 재발이 저장고보다 많다(점진 공개 `repeating`).
+        autoGoal: goal({
+          skillCount: 20, candidateCount: 3, dismissedCount: 1, anchoredCount: 12,
+          fromCommand: 15, fromStep: 8, observed: 400, topRuns: 6, totalRuns: 120,
+          recentSkillName: '릴리스 굽기',
+        }),
         taskEdges: [
           edge({ kind: 'critique' }),
         ],
@@ -142,6 +155,14 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
             hasChangeLog: true, rivals: ['CLAUDE.md', 'CONTRIBUTING.md'], alignedRivals: ['docs/rules/README.md'],
             sources: 3, driftDays: 2, stale: false,
           },
+          // §5.11 정독 게이트 — 필수 절을 **전부 끝까지 읽은** 상태. 실측을 안 주면 이 카드는
+          //   "측정 전" 분기만 밟고 나머지 다섯 등급이 통째로 미검증으로 남는다.
+          'spec-driven': {
+            strength: 'observe', indexDocs: 12, indexUnits: 340, indexTruncated: false,
+            requiredTotal: 3, satisfied: 3, citationsVerified: 3, citationsFailed: 0,
+            coverage: 1, citation: 1, depth: 1, freshness: 1, staleDocs: 0,
+            roots: ['docs/scenario'], openUnits: [],
+          },
         },
       },
     },
@@ -157,9 +178,17 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         permissionTimeoutPolicy: 'deny',
       }),
       data: {
-        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        agentEvents: [], subAgents: [], taskEdges: [], bashCommands: [],
         // 실측은 했는데 **SSOT 문서를 못 찾은** 상태 — "없음"과 "아직 안 재봤음"은 다른 화면이다.
-        pluginFacts: { 'ssot-drift': { doc: '', hasChangeLog: false, rivals: [], sources: 0 } },
+        pluginFacts: {
+          'ssot-drift': { doc: '', hasChangeLog: false, rivals: [], sources: 0 },
+          // 훑었는데 기획 문서가 하나도 없는 상태 — "없음"과 "아직 안 재봤음"은 다른 화면이다.
+          'spec-driven': {
+            strength: 'observe', indexDocs: 0, indexUnits: 0, indexTruncated: false,
+            requiredTotal: 0, satisfied: 0, citationsVerified: 0, citationsFailed: 0,
+            coverage: 1, citation: 0, depth: 1, freshness: 1, staleDocs: 0, roots: [], openUnits: [],
+          },
+        },
       },
     },
     // ⑤ 에이전트가 아닌 버블 — match 가 걸러야 정상이지만, 걸러지지 않아도 던지면 안 된다.
@@ -182,7 +211,6 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         // 살아 있는데 7시간 조용 — forgotten 문턱(6시간)을 넘긴다.
         subAgents: [sub({ status: 'running' as SubAgent['status'], lastActivityAt: NOW - 7 * 60 * 60_000 })],
         runningTasks: [],
-        brainInjections: [],
         taskEdges: [],
         bashCommands: [],
       },
@@ -205,11 +233,19 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         subAgents: [sub({ status: 'running' as SubAgent['status'], lastActivityAt: NOW - 45 * 60_000 })],
         // 동시에 여러 갈래 — fan-out 의 "넓음" 문구.
         runningTasks: Array.from({ length: 6 }, (_, i) => ({ id: `rt${i}`, parentAgentId: 'agent-1', startedAt: NOW - 5 * 60_000 })),
-        brainInjections: [],
         taskEdges: [],
         bashCommands: [],
         // 지시가 **두 곳**인 가운데 등급 + `Change Log` 절이 아직 없는 문서.
-        pluginFacts: { 'ssot-drift': { doc: 'docs/SSOT.md', hasChangeLog: false, rivals: ['CLAUDE.md'], sources: 2 } },
+        pluginFacts: {
+          'ssot-drift': { doc: 'docs/SSOT.md', hasChangeLog: false, rivals: ['CLAUDE.md'], sources: 2 },
+          // 색인은 있는데 **이번 턴에 걸린 절이 없는** 상태 — 조용한 것이 정상인 자리다.
+          'spec-driven': {
+            strength: 'warn', indexDocs: 4, indexUnits: 62, indexTruncated: false,
+            requiredTotal: 0, satisfied: 0, citationsVerified: 0, citationsFailed: 0,
+            coverage: 1, citation: 0, depth: 1, freshness: 1, staleDocs: 0,
+            roots: ['specs'], openUnits: [],
+          },
+        },
       },
     },
     // ⑧ **위험 명령 전종** — 탐지기의 종류별 문구는 그 종류가 실제로 걸려야만 그려진다.
@@ -232,7 +268,6 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
           { id: 'x6', command: 'chmod -R 777 /srv/app', timestamp: 6 },
           { id: 'x7', command: 'git reset --hard origin/main', timestamp: 7 },
         ],
-        brainInjections: [],
         taskEdges: [],
       },
     },
@@ -260,17 +295,26 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         runningTasks: [],
         agentReports: [report({ id: 'r9', learned: ['교훈'] })],
         agentReviews: [review({ id: 'v9', checkpoints: ['p'] })],
-        brain: {
-          cardCount: 30, unseenCount: 0, agentCardCounts: {}, needsCheckCount: 0,
-          archivedCount: 0, currentCount: 30, contestedCount: 0, reviewCount: 0,
-        },
-        brainInjections: [{ id: 'i9', agentId: 'agent-1', at: 1, cardIds: ['c'], cardTitles: ['t'], trigger: 'spawn' }],
+        // 전부 굳었고 기다리는 것도 물린 것도 없다. 원천이 단계 쪽뿐이라 "밀어넣기만" 등급도 여기서 밟힌다.
+        autoGoal: goal({
+          skillCount: 12, fromStep: 12, observed: 50, topRuns: 1, totalRuns: 12,
+          recentSkillName: '테스트 돌리기',
+        }),
         taskEdges: [edge({ id: 'te9', status: 'completed', forwardMode: 'manual', kind: 'command' })],
         captureBubbles: [],
         // 위험하지 않은 명령만 — tool-misuse / data-exfiltration 의 "깨끗함" 등급.
         bashCommands: [{ id: 'ok1', command: 'git status', timestamp: 1 }, { id: 'ok2', command: 'ls -al', timestamp: 2 }],
         // 지시가 **한 곳**뿐인 가장 건강한 상태 — 경쟁 문서가 없을 때의 문구를 밟는다.
-        pluginFacts: { 'ssot-drift': { doc: 'docs/SCENARIO.md', hasChangeLog: true, rivals: [], sources: 1 } },
+        pluginFacts: {
+          'ssot-drift': { doc: 'docs/SCENARIO.md', hasChangeLog: true, rivals: [], sources: 1 },
+          // 필수 4절 중 1절만 정독한 상태 — 이 게이트가 실제로 막으려는 바로 그 화면.
+          'spec-driven': {
+            strength: 'warn', indexDocs: 6, indexUnits: 121, indexTruncated: true,
+            requiredTotal: 4, satisfied: 1, citationsVerified: 1, citationsFailed: 0,
+            coverage: 0.25, citation: 1, depth: 0.4, freshness: 1, staleDocs: 0,
+            roots: ['docs'], openUnits: ['REQ-2', 'REQ-3', 'REQ-4'],
+          },
+        },
       },
     },
     // ⑩ **가운데 지점** — 좋음도 나쁨도 아닌 중간 등급. 양 끝만 밟으면 가운데 문구가 미검증으로 남는다.
@@ -291,7 +335,6 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         runningTasks: [{ id: 'mt1', parentAgentId: 'agent-1', startedAt: NOW - 60_000 }],
         // 창만 있고 화면 캡처는 없음 — computer-use 의 "보고만 있음".
         captureBubbles: [capture({ id: 'cap1', sourceKind: 'window', sourceName: 'w' })],
-        brainInjections: [],
         taskEdges: [],
         bashCommands: [],
       },
@@ -308,7 +351,6 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         // 화면 자체를 잡고 있는 상태 — computer-use 의 "조작 중".
         captureBubbles: [capture({ id: 'cap2', sourceKind: 'screen', sourceName: 's' })],
         runningTasks: [],
-        brainInjections: [],
         taskEdges: [],
         bashCommands: [],
       },
@@ -330,7 +372,6 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         agentEvents: Array.from({ length: 45 }, (_, i) => event({ id: `a${i}`, timestamp: NOW - (45 - i) * 60_000 })),
         subAgents: [sub({ contextUsed: 60_000, contextMax: 200_000, totalInputTokens: 2_000_000, totalOutputTokens: 200_000, lastActivityAt: NOW - 60_000 })],
         runningTasks: Array.from({ length: 4 }, (_, i) => ({ id: `st${i}`, parentAgentId: 'agent-1', startedAt: NOW - 60_000 })),
-        brainInjections: [],
         taskEdges: [],
         bashCommands: [],
       },
@@ -347,7 +388,8 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         agentEvents: [event({ id: 'ro1', timestamp: NOW - 60_000 })],
         subAgents: [],
         runningTasks: [],
-        brainInjections: [],
+        // 굳은 절차는 있는데 **앵커가 없다** — 그라운딩 `partial` · 골든셋 `partial` 이 여기서 나온다.
+        autoGoal: goal({ skillCount: 4, fromStep: 4, observed: 20, topRuns: 1, totalRuns: 4 }),
         taskEdges: [],
         bashCommands: [],
       },
@@ -377,17 +419,15 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         runningTasks: [],
         agentReports: [report({ id: 'or1', learned: [] })],
         agentReviews: [review({ id: 'ov1' })],
-        // 카드가 예산(300장)을 넘겨 포화 상태이고, 파일로 감당할 규모도 넘었다. (Brain 예산 — count-ok)
-        brain: {
-          cardCount: 2_500, unseenCount: 0, agentCardCounts: {}, needsCheckCount: 0,
-          archivedCount: 0, currentCount: 2_400, contestedCount: 0, reviewCount: 0,
-        },
-        // 한 번에 상한(3장)보다 많이 실어 나르고, 같은 묶음이 되풀이되고, 검색이 두 번 이상 일어났다.
-        brainInjections: [
-          { id: 'oi1', agentId: 'agent-1', at: 1, cardIds: ['a', 'b', 'c', 'd', 'e'], cardTitles: ['t'], trigger: 'spawn', repeatCount: 4 },
-          { id: 'oi2', agentId: 'agent-1', at: 2, cardIds: ['f', 'g', 'h', 'i'], cardTitles: ['t'], trigger: 'search', repeatCount: 3 },
-          { id: 'oi3', agentId: 'agent-1', at: 3, cardIds: ['j', 'k', 'l', 'm'], cardTitles: ['t'], trigger: 'search' },
-        ],
+        /*
+         * 절차가 예산(`AUTO_GOAL_SKILL_BUDGET` = 40)을 한참 넘겨 포화이고, 파일로 감당할 규모도 넘었다.
+         * 이 조합에서만 나오는 등급 셋 — 망각 `full` · 벡터DB `outgrown` · 재순위 `loose`.
+         */
+        autoGoal: goal({
+          skillCount: 2_400, candidateCount: 100, dismissedCount: 30, anchoredCount: 900,
+          fromCommand: 2_000, fromStep: 500, observed: 9_000, topRuns: 9, totalRuns: 3_000,
+          recentSkillName: '배포 점검',
+        }),
         // 전부 자동 전달이라 중간에 사람이 끊는 지점이 없다 — 연쇄 실패의 "점검 없음".
         taskEdges: [
           edge({ id: 'oe1', templateId: 'tpl-1', kind: 'command' }),
@@ -407,8 +447,8 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         agentEvents: [event({ id: 'e0', timestamp: NOW - 60_000 })],
         subAgents: [sub({ lastActivityAt: NOW - 60_000 })],
         runningTasks: [],
-        // 검색은 돌았는데 실어 온 카드가 없다.
-        brainInjections: [{ id: 'qe1', agentId: 'agent-1', at: 1, cardIds: [], cardTitles: [], trigger: 'search' }],
+        // 되풀이는 보였는데 아직 한 장도 안 굳었다 — 질의 재작성의 "빈손" 등급이 여기서만 나온다.
+        autoGoal: goal({ candidateCount: 2, fromCommand: 2, observed: 30, topRuns: 2, totalRuns: 4 }),
         taskEdges: [],
         bashCommands: [],
       },
@@ -425,7 +465,6 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         agentEvents: Array.from({ length: 20 }, (_, i) => event({ id: `h${i}`, timestamp: NOW - 60_000 + i * 1_000 })),
         subAgents: [sub({ lastActivityAt: NOW - 1_000 })],
         runningTasks: [],
-        brainInjections: [],
         taskEdges: [],
         bashCommands: [],
       },
@@ -444,11 +483,18 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
       customCreated: true,
       agentConfig: cfg(),
       data: {
-        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        agentEvents: [], subAgents: [], taskEdges: [], bashCommands: [],
         pluginFacts: {
           'ssot-drift': {
             doc: 'docs/GDD.md', docState: 'thin', bodyChars: 42, headings: 1,
             hasChangeLog: false, rivals: [], alignedRivals: [], sources: 1,
+          },
+          // 인용을 냈는데 **원문과 어긋난** 상태 — 안 읽은 것보다 나쁘다(근거가 있는 것처럼 보인다).
+          'spec-driven': {
+            strength: 'enforce', indexDocs: 3, indexUnits: 48, indexTruncated: false,
+            requiredTotal: 2, satisfied: 1, citationsVerified: 1, citationsFailed: 1,
+            coverage: 0.5, citation: 0.5, depth: 0.6, freshness: 0.5, staleDocs: 1,
+            roots: ['기획'], openUnits: ['REQ-7'],
           },
         },
       },
@@ -460,7 +506,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
       customCreated: true,
       agentConfig: cfg(),
       data: {
-        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        agentEvents: [], subAgents: [], taskEdges: [], bashCommands: [],
         pluginFacts: {
           'ssot-drift': {
             doc: '', configured: 'docs/GDD.md', docState: 'configMissing', bodyChars: 0, headings: 0,
@@ -476,7 +522,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
       customCreated: true,
       agentConfig: cfg(),
       data: {
-        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        agentEvents: [], subAgents: [], taskEdges: [], bashCommands: [],
         pluginFacts: {
           'ssot-drift': {
             doc: 'docs/SPEC.md', docState: 'ok', bodyChars: 8_000, headings: 20,
@@ -501,7 +547,24 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
       customCreated: true,
       agentConfig: cfg({ rules: '규'.repeat(50_000) }),
       data: {
-        agentEvents: [], subAgents: [], runningTasks: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        agentEvents: [], subAgents: [], runningTasks: [], taskEdges: [], bashCommands: [],
+      },
+    },
+    /*
+     * ㉑ **정독을 아직 안 켠 프로젝트** (§5.5 #17-44 ⑧).
+     *
+     * 켬/끔이 프로젝트·에이전트·세션 3층으로 열리면서 기본이 **꺼짐**이 됐다. 그 상태의 실측은 값이 아니라
+     * `specEnabled: false` 한 칸이고, 카드는 그것을 보고 "꺼짐"이라 적는다 — "측정 전"으로 그리면 사용자는
+     * 재는 중인 줄 알고 기다리다가 켜야 한다는 것을 영영 모른다. 그 분기를 밟는 자리가 여기다.
+     */
+    {
+      ...base,
+      now: NOW,
+      customCreated: true,
+      agentConfig: cfg(),
+      data: {
+        agentEvents: [], subAgents: [], runningTasks: [], taskEdges: [], bashCommands: [],
+        pluginFacts: { 'spec-driven': { specEnabled: false } },
       },
     },
   ];

@@ -21,6 +21,7 @@ import type {
   ProjectAgentCounts,
   QueuedCommand,
   RunningSubagentTask,
+  SessionRunInputs,
   SessionRunState,
   SubAgent,
 } from '@vibisual/shared';
@@ -52,6 +53,11 @@ export interface HeaderAgentCounts {
   running: number;
   /** 방금 끝난(`completed`) 버블 수 — 도트 색 판정용. */
   completed: number;
+  /**
+   * §2.4 (한도 정지) — 그중 **요금제 한도로 끊긴 채 다시 돌지 않은** 세션 수.
+   * 도는 것이 하나도 없는데 이 수가 0 이 아니면 배지는 주황이다(끝난 게 아니라 멈춘 것이다).
+   */
+  limited: number;
 }
 
 export const EMPTY_HEADER_AGENT_COUNTS: HeaderAgentCounts = {
@@ -59,6 +65,7 @@ export const EMPTY_HEADER_AGENT_COUNTS: HeaderAgentCounts = {
   sessions: 0,
   running: 0,
   completed: 0,
+  limited: 0,
 };
 
 /**
@@ -94,6 +101,9 @@ export function computeHeaderAgentCounts(src: HeaderAgentCountSources): HeaderAg
     const share = agentBadgeShare({ bubbleRunning: bubbleRunning(agent), sessionRunning });
     counts.sessions += share.sessions;
     counts.running += share.running;
+    // §2.4 (한도 정지) — 서버 집계(`getAgentCountsByProject`)와 **같은 규칙**이다:
+    //   한도 표식이 서 있고 지금 돌지 않는 세션만 센다(주황과 파랑이 같은 세션을 두고 다투지 않게).
+    counts.limited += subs.filter((sub, i) => sub.usageLimit !== undefined && !sessionRunning[i]).length;
   }
 
   return counts;
@@ -111,6 +121,8 @@ export function headerCountsFromServed(served: ProjectAgentCounts): HeaderAgentC
     sessions: served.sessions,
     running: served.running,
     completed: served.completed,
+    // 이 축이 생기기 전 스냅샷에는 없다 — 없으면 "멈춘 것이 없다"로 읽는다(§3.2.1-5 하위 호환).
+    limited: served.limited ?? 0,
   };
 }
 
@@ -151,6 +163,29 @@ export interface AgentRunSummary {
   sessions: number;
   /** 그중 지금 도는 수. */
   running: number;
+  /** §2.4 (한도 정지) — 그중 한도로 끊긴 채 다시 돌지 않은 수. 줄에 "N개 멈춤"으로 적는다. */
+  limited: number;
+  /**
+   * 원문에 적힌 리셋 표기(`10pm (Asia/Seoul)`) — **번역하지 않는다**(사용자가 CLI 에서 본 그 글자다).
+   * 카운트다운으로 바꾸지 않는 이유: 1분마다 돌아야 하는 시계를 헤더 메뉴에 들이지 않기 위해서다.
+   */
+  limitLabel?: string;
+  /** 한도 통지 원문 한 줄 — 툴팁에 그대로 붙인다. */
+  limitMessage?: string;
+  /**
+   * (판올림 번호 발급 대기) **그 색이 가리키는 세션** — 목록에서 이 줄을 누르면 창에 서야 할 세션.
+   *
+   * 줄의 색은 "이 버블 어딘가에 그런 세션이 있다"만 말한다. 그런데 창은 **마지막에 보던 세션**을
+   * 그대로 열었으므로, 주황 줄을 눌러도 조용한 세션이 떠 멈춘 자리를 다시 손으로 찾아야 했다
+   * (사용자 지시 — "각 색별로 저 버튼을 클릭한 경우 그 세션이 열려 있어야지"). 색과 세션을 **같은
+   * 계산에서** 내면 둘이 갈라질 자리가 없다.
+   *
+   * 고르는 규칙은 하나다 — 그 색을 만든 세션들 중 **가장 최근에 움직인 것**(`lastActivityAt`).
+   * `done`(회색 = 조용함)은 고르지 않고 `null` 이다: 그 색은 특정 세션이 만든 것이 아니라 "아무 일도
+   * 없다"이므로, 그때 열 것은 **마지막에 보던 세션**(버블 더블클릭과 같은 답)이다. 색이 버블 상태에서만
+   * 온 경우(권한 대기로 도는 버블 · `error` 버블에 성한 세션들)도 짚을 세션이 없어 `null` 이다.
+   */
+  focusSessionId: string | null;
 }
 
 /** `resolveAgentRunSummary` 가 store 에서 집어 오는 조각들. */
@@ -167,7 +202,8 @@ export interface AgentRunSummarySources {
  *
  * 우선순위는 **도는 것이 먼저**다 — 지난 턴이 실패했든 예전에 끝났든, 지금 도는 세션이 하나라도
  * 있으면 사용자에게 그 줄은 "도는 중"이다(배지의 `running > 0 → 파랑` 과 같은 감각). 그다음이
- * 실패, 그다음이 "끝났는데 아직 안 봤다", 마지막이 조용함이다.
+ * **한도 정지**(§2.4 — 사용자가 무시하고 다시 돌린 것이 아니면 그 줄은 멈춰 있는 것이고, 사유가
+ * 실패보다 구체적이라 앞선다), 그다음이 실패, 그다음이 "끝났는데 아직 안 봤다", 마지막이 조용함이다.
  *
  * ⚠ `running` 숫자는 `isSessionRunning` 으로, 색은 `resolveSessionRunState` 로 각각 낸다 —
  *   후자는 `error` 를 먼저 보므로(실패한 턴이 자식 때문에 "도는 중"으로 세탁되면 안 된다) 그것으로
@@ -195,11 +231,56 @@ export function resolveAgentRunSummary(
 
   const state: SessionRunState = share.running > 0
     ? 'running'
-    : bubbleState === 'error' || sessionStates.includes('error')
-      ? 'error'
-      : agent.status === 'completed' || sessionStates.includes('doneUnseen')
-        ? 'doneUnseen'
-        : 'done';
+    : sessionStates.includes('limited')
+      ? 'limited'
+      : bubbleState === 'error' || sessionStates.includes('error')
+        ? 'error'
+        : agent.status === 'completed' || sessionStates.includes('doneUnseen')
+          ? 'doneUnseen'
+          : 'done';
 
-  return { state, sessions: share.sessions, running: share.running };
+  // §2.4 (한도 정지) — 표시 재료는 **끊긴 것으로 판정된 세션**에서만 꺼낸다(다시 돌린 세션에
+  //   남아 있는 옛 표식을 주워 오면 도는 줄에 "멈춤"이 붙는다).
+  const limitedSubs = subs.filter((_, i) => sessionStates[i] === 'limited');
+  const notice = limitedSubs.map((s) => s.usageLimit).find((u) => u !== undefined);
+
+  return {
+    state,
+    sessions: share.sessions,
+    running: share.running,
+    limited: limitedSubs.length,
+    focusSessionId: pickFocusSession(subs, inputs, sessionStates, state),
+    ...(notice?.resetsLabel ? { limitLabel: notice.resetsLabel } : {}),
+    ...(notice?.message ? { limitMessage: notice.message } : {}),
+  };
+}
+
+/**
+ * (판올림 번호 발급 대기) **그 색을 만든 세션들 중 가장 최근 것**을 짚는다 — `focusSessionId` 의 산식.
+ *
+ * 매칭 술어가 `running` 만 다른 이유: 줄이 파란 근거는 `agentBadgeShare`(→ `isSessionRunning`)인데
+ * 세션 도트의 색(`resolveSessionRunState`)은 `error` 를 먼저 보므로, 실패 표식이 남은 채 명령이
+ * 도는 세션은 **줄은 파란데 그 세션의 색은 빨강**이 된다. 여기서 색표로만 맞추면 그런 줄은 짚을 것을
+ * 못 찾아 조용한 세션으로 열린다 — 파랑의 근거와 같은 술어를 써야 "도는 것 중 최근"이 실제로 나온다.
+ *
+ * `done` 은 고르지 않는다(그 색은 세션이 만든 것이 아니다 — 마지막에 보던 세션이 답이다).
+ * 동점이면 **먼저 선 세션**이 이긴다(`>` 비교) — 목록이 프레임마다 흔들리지 않게 하는 결정론.
+ */
+function pickFocusSession(
+  subs: readonly SubAgent[],
+  inputs: readonly SessionRunInputs[],
+  sessionStates: readonly SessionRunState[],
+  state: SessionRunState,
+): string | null {
+  if (state === 'done') return null;
+  const matches = (i: number): boolean => (
+    state === 'running' ? isSessionRunning(inputs[i]!) : sessionStates[i] === state
+  );
+  let best: SubAgent | null = null;
+  for (let i = 0; i < subs.length; i += 1) {
+    if (!matches(i)) continue;
+    const sub = subs[i]!;
+    if (best === null || sub.lastActivityAt > best.lastActivityAt) best = sub;
+  }
+  return best?.id ?? null;
 }

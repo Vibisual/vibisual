@@ -8,9 +8,16 @@
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { judgeTrifecta } from '../sdk/index.js';
 import { judgeBlastRadius } from '../sdk/index.js';
+import { readAutoGoal } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 
-/** ASI01 목표 탈취 · ASI02 도구 오남용 · ASI03 신원 · ASI06 기억 오염 · ASI10 통제 이탈에 대응하는 관측치. */
+/**
+ * ASI01 목표 탈취 · ASI02 도구 오남용 · ASI03 신원 · ASI06 기억 오염 · ASI10 통제 이탈에 대응하는 관측치.
+ *
+ * ASI06 자리에 서는 것은 **승인 없이 실리는 절차가 있는가**다(§5.10). 자동 목표는 사용자
+ * 지시대로 승인 버튼 없이 굳히므로, 굳은 것이 이 자리 프롬프트에 실리고 있다면 그 사실 자체가
+ * 이 축에서 세어야 할 관측치다 — 위험하다는 뜻이 아니라 **보고 있어야 한다**는 뜻이다.
+ */
 function flags(ctx: PluginBubbleContext): number {
   const trifecta = judgeTrifecta(ctx.agentConfig);
   const radius = judgeBlastRadius(ctx.agentConfig);
@@ -18,14 +25,14 @@ function flags(ctx: PluginBubbleContext): number {
     trifecta.level === 'critical',
     radius.score >= 3,
     ctx.agentConfig?.permissionMode === 'bypassPermissions',
-    (ctx.data.brain?.needsCheckCount ?? 0) > 0,
+    readAutoGoal(ctx).carried > 0,
     !ctx.customCreated,
   ].filter(Boolean).length;
 }
 
 const inspector = defineInspector({
   id: 'owasp-asi', i18nKey: 'owaspAsi', name: 'OWASP ASI Top 10', category: 'security',
-  needs: ['brain'],
+  needs: ['autoGoal'],
   match: (ctx) => ctx.bubbleType === 'agent',
   status: (ctx) => {
     const n = flags(ctx);

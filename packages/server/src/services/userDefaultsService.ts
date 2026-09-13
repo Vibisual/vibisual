@@ -18,7 +18,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { UserDefaults, UserDefaultsPatch } from '@vibisual/shared';
-import { AGENT_TOOLS_BACKFILL_GEN, backfillAgentTools } from '@vibisual/shared';
+import { AGENT_TOOLS_BACKFILL_GEN, backfillAgentTools, providerForEngine } from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 /**
@@ -61,6 +61,7 @@ const STORE_FILE = path.join(STORE_DIR, 'user-defaults.json');
 
 class UserDefaultsService {
   private defaults: UserDefaults;
+  private writes: Promise<unknown> = Promise.resolve();
   private listeners = new Set<(d: UserDefaults) => void>();
 
   constructor() {
@@ -112,7 +113,13 @@ class UserDefaultsService {
    * 이유로 통째 교체지만, 맵 자체를 통째 교체하면 **클라가 보낸 한 프로젝트만 남고 나머지 프로젝트의
    * 설정이 전부 사라진다**(창 두 개를 띄워 두면 곧바로 재현된다).
    */
-  async update(patch: UserDefaultsPatch): Promise<UserDefaults> {
+  update(patch: UserDefaultsPatch): Promise<UserDefaults> {
+    const write = this.writes.then(() => this.updateNow(patch));
+    this.writes = write.catch(() => {});
+    return write;
+  }
+
+  private async updateNow(patch: UserDefaultsPatch): Promise<UserDefaults> {
     const prev = this.defaults;
     const next: UserDefaults = {
       ...prev,
@@ -131,10 +138,24 @@ class UserDefaultsService {
       // §4 (Claude Code CLI 자동 업데이트) — 다른 카테고리와 같은 부분 머지. 미설정 = 켬이라
       // 이 키가 없는 기존 사용자는 앱을 켤 때 CLI 가 최신으로 유지된다.
       claudeAutoUpdate: mergeCategory(prev.claudeAutoUpdate, patch.claudeAutoUpdate),
-      updatedAt: Date.now(),
+      updatedAt: Math.max(Date.now(), (prev.updatedAt ?? 0) + 1),
     };
+    const oldEngine = prev.engineChoice?.kind ?? 'claude';
+    const newEngine = next.engineChoice?.kind ?? 'claude';
+    next.engineConfigs = { ...prev.engineConfigs, [oldEngine]: prev.agentConfig, ...patch.engineConfigs };
+    next.projectEngineConfigs = { ...prev.projectEngineConfigs };
+    for (const [project, configs] of Object.entries(patch.projectEngineConfigs ?? {})) {
+      next.projectEngineConfigs[project] = { ...prev.projectEngineConfigs?.[project], ...configs };
+    }
+    if (oldEngine !== newEngine) {
+      next.agentConfig = { ...next.engineConfigs[newEngine], provider: next.engineConfigs[newEngine]?.provider ?? providerForEngine(newEngine) };
+      if (newEngine === 'claude') delete next.agentConfig.provider;
+    } else if (patch.engineConfigs?.[newEngine]) {
+      next.agentConfig = { ...patch.engineConfigs[newEngine] };
+    }
+    next.engineConfigs[newEngine] = next.agentConfig;
     this.defaults = next;
-    await this.save();
+    try { await this.save(); } catch (error) { this.defaults = prev; throw error; }
     this.emit();
     return next;
   }
@@ -147,6 +168,7 @@ class UserDefaultsService {
       await fs.rename(tmp, STORE_FILE);
     } catch (err) {
       logger.warn(`[userDefaults] save failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
     }
   }
 

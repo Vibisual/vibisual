@@ -1,22 +1,16 @@
+import { readCodexUsage } from './services/codexUsageService.js';
 import express from 'express';
 import cors from 'cors';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { resolveBinary } from './services/binLocator.js';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
-  BRAIN_AXIS_IDS,
-  BRAIN_CURATOR_PAGE_SIZE,
-  BRAIN_TOPIC_MISC,
-  buildBrainSkillsSection,
-  buildBrainNudgeSection,
-  resolveBrainProjectKey,
-  type BrainActivation,
-  type BrainAxisId,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_STEP_SKILLS_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, CONTEXT_SCOPE_LEVELS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
 } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind, ChatCommandTarget, ChatCommandSession } from '@vibisual/shared';
 import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
 // §4 (설정 3층) — 빠진 칸을 상수로 메우지 않기 위한 기준선(내장 + 설정 창).
 import { resolveAgentDefaults } from '@vibisual/shared';
@@ -24,7 +18,7 @@ import { resolveAgentDefaults } from '@vibisual/shared';
 import { NO_PROJECT_FOLDER_ERROR } from '@vibisual/shared';
 // §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
 import { sanitizeCmdPaneTree, CMD_CLI_KINDS, sanitizeSessionMemos } from '@vibisual/shared';
-import type { CmdTerminalSignal, CmdCliKind } from '@vibisual/shared';
+import type { CmdTerminalSignal, CmdCliKind, AgentDefinition } from '@vibisual/shared';
 import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal, getCmdTerminalController } from './services/cmdTerminalController.js';
 // §7.10 — 워크트리 삭제 직전 회수(그 안에서 돌던 프로세스·에이전트).
 import { reapWorktree, selectWorktreeAgents, EMPTY_REAP, type WorktreeReapResult } from './services/worktreeReaper.js';
@@ -38,25 +32,28 @@ import { reapWorktree, selectWorktreeAgents, EMPTY_REAP, type WorktreeReapResult
 function isCmdTermId(v: string): boolean {
   return /^(?:term|run):[\w.-]{1,64}:[\w.-]{1,64}(?:#[\w-]{1,32})?$/.test(v);
 }
-import { WORKSPACE_SITE_PATH, WORKSPACE_SITE_REWRITE_MAX_BYTES, workspaceSiteMime, workspaceSiteBase, parseWorkspaceSitePath, rewriteWorkspaceSiteHtml, rewriteWorkspaceSiteCss, injectWorkspaceSiteAgents, annotateWorkspaceSiteSource, workspaceSiteRewriteKind, WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
+import { WORKSPACE_SITE_PATH, WORKSPACE_SITE_REWRITE_MAX_BYTES, workspaceSiteMime, workspaceSiteBase, parseWorkspaceSitePath, rewriteWorkspaceSiteHtml, rewriteWorkspaceSiteCss, injectWorkspaceSiteAgents, annotateWorkspaceSiteSource, workspaceSiteRewriteKind, WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
 import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS, BG_TASK_PROBE_LIMITS, BG_TASK_PROBE_MODELS, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeSettings } from '@vibisual/shared';
+// §6 단축키 SSOT — 기본 바인딩 표 + 식별자 검증(서버는 받은 값을 믿지 않는다).
+import { defaultKeymap, isCommandId } from '@vibisual/shared';
 // §2.4 — 세션 생존 판정 설정(위 백그라운드 판정과 같은 계약).
 import { SESSION_PROBE_LIMITS, SESSION_PROBE_MODELS, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeSettings } from '@vibisual/shared';
+// §2.1 (B) — 최상위 외부 폴더 예산의 범위·기본값(설정 UI 와 서버가 같은 표를 본다).
+import { EXTERNAL_TOP_BUDGET_BOUNDS, EXTERNAL_TOP_BUDGET_DEFAULT } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
 import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual/shared';
 import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
 import type { StorageCleanupResult, ProjectInfo } from '@vibisual/shared';
 import { scanStorageUsage, runStorageCleanup, listTrash, restoreFromTrash } from './services/storageRetention.js';
 // §5.5 #17-20 ⑥ v4.74 — MCP 프리셋 검증(모르는 id 는 설정에 남기지 않는다).
-import { findMcpPreset, normalizeAgentProvider, normalizeAgentMemoryScope, normalizeSubagentDepth, normalizeBashTimeoutMs, AVAILABLE_SETTING_SOURCES, AVAILABLE_AUTOCOMPACT_VALUES } from '@vibisual/shared';
+import { findMcpPreset, normalizeAgentProvider, normalizeAgentMemoryScope, normalizeSubagentDepth, normalizeBashTimeoutMs, normalizePluginDirs, AVAILABLE_SETTING_SOURCES, AVAILABLE_AUTOCOMPACT_VALUES } from '@vibisual/shared';
 // §5.5 #17-20 ⑫ v4.94 — 디버그 포트 기본값(비어 있는 자리 찾기의 출발점)
 import { DEBUG_PORT_BASE } from '@vibisual/shared';
 import { REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REASON_MAX } from '@vibisual/shared';
-import { serializeAppliesTo } from './services/brainCanonical.js';
 // §5.5 #17-11 v3.79 — 세션 반복 실행(루프).
 import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalStatus, SessionGoalProgressSource, SessionGoalStepStatus } from '@vibisual/shared';
-import { SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule, shouldCompactAfterTurn } from '@vibisual/shared';
+import { TOKEN_SAVER_LIMITS, DEFAULT_TOKEN_SAVER_SETTINGS, normalizeTokenSaverSettings, TOKEN_SAVER_PRESET_VALUES, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule, shouldCompactAfterTurn, planSilentPreCompact, isInternalSlashCommand, withoutSlashCommandFlag } from '@vibisual/shared';
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
 // §5.5 #17-35 — 검증(Verify): 프롬프트 조립·판정 해석은 화면 없이 시험되는 순수 모듈에 있다.
@@ -97,19 +94,41 @@ import { classifyToolRiskOnHost } from './services/auditLog.js';
 import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
-import { BUBBLE_COLORS, READ_TOOLS, shouldAskForTool, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX, CHECKPOINT_QUIET_SWEEP_MS, PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_SWEEP_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS } from '@vibisual/shared';
+import { BUBBLE_COLORS, READ_TOOLS, shouldAskForTool, applyIngressPermissionGuard, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE, redactSecrets, CUSTOM_AGENT_MAX_PER_PROJECT, COMMAND_QUEUE_MAX_PER_SESSION, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX, CHECKPOINT_QUIET_SWEEP_MS, PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_SWEEP_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
-import { brainActivationFor, brainAxisEnabledFor, brainEnabledFor } from './services/brainActivation.js';
-import { getBrainSkillService } from './services/brainSkillService.js';
-import { recallFromSessions } from './services/brainRecallService.js';
-import { applyGrounding } from './services/brainGrounding.js';
-import { claimNudgeSlot } from './services/brainNudge.js';
-import { mountPluginRoutes, buildPluginPromptSection, buildPluginPromptSectionParts, getPluginFactsForProjects } from './services/pluginHost.js';
+import { resolveAgentMemoryDirOverride } from './services/agentMemoryService.js';
+import {
+  mountPluginRoutes, buildPluginPromptSection, buildPluginPromptSectionParts, getPluginFactsForProjects,
+  // §5.11 정독 게이트 — 판정·게이트 창구(판정 자체는 플러그인 순수 함수 하나가 한다).
+  getSpecReadingStates, specStopGate, specWriteGate, verifySpecCitationsFrom,
+} from './services/pluginHost.js';
+import { normalizeSpecSettings, buildSpecSystemRules, SPEC_DRIVEN_ID } from '@vibisual/plugins';
+// §5.5 #17-44 ⑧ — 켬/끔 3층. 층 하나만 갈아 끼우는 순수 함수와 층 목록은 shared 가 소유한다.
+import { SPEC_SCOPE_ORDER, withSpecReadingScope } from '@vibisual/shared';
+// §5.10 자동 목표 — 3층 켬/끔 + 되풀이 절차를 스킬로 굳히는 창구.
+import {
+  AUTO_GOAL_SCOPE_ORDER,
+  normalizeAutoGoalSettings,
+  withAutoGoalDismissed,
+  withAutoGoalScope,
+  type AutoGoalScope,
+} from '@vibisual/shared';
+import {
+  deleteAutoGoalSkill,
+  getAutoGoalState,
+  readAutoGoalSkillBody,
+  buildAutoGoalPromptBlock,
+} from './services/autoGoalService.js';
+import type { SpecReadingScope, SpecReadingSettings } from '@vibisual/shared';
+import { specReadingService } from './services/specReadingService.js';
+
+/** §5.11 정독 게이트 — "이 파일을 건드렸다"로 세는 도구들(경로 축 라우팅의 재료). */
+const SPEC_TOUCH_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 // §5.5 #17-28 — 컨텍스트 주입원: 계측(인벤토리) + 최종 게이트 + spawn 스위치.
-import type { ContextInventory } from '@vibisual/shared';
+import type { ContextInventory, ContextScopeLevel } from '@vibisual/shared';
 import {
   buildContextInventory,
   isContextSourceOn,
@@ -127,6 +146,10 @@ import {
   getInstructionsLoaded,
   summarizeInstructionsLoaded,
 } from './services/instructionsLoadedService.js';
+// §5.26 (B) — 팀원 이름 추출(판본마다 자리가 달라 넓게 받는다).
+import { extractTeammateNames } from './services/insuranceLedger.js';
+// §5.26 (E) — 복원 브리핑 문구 조립(요약이 안 실은 것만 · 한 턴 한정).
+import { buildRecoveryBlock, hasNotCarried } from './services/compactDiff.js';
 import {
   recordSubagentStatusLine,
   getSubagentStatusLine,
@@ -134,9 +157,6 @@ import {
 } from './services/subagentStatusLineService.js';
 import { mountAppRoutes } from './services/appHost.js';
 import { distillFeedbackToRules } from './services/feedbackDistillService.js';
-import { getBrainService, sweepAllBrainStaleCards } from './services/brainService.js';
-import { analyzeBrainMigration, applyBrainMigration } from './services/brainMigration.js';
-import { scheduleBrainReflection, isBrainReflectionCwd } from './services/brainReflectionService.js';
 import { isPortAlive, killByPort, respawn, setVibisualOwnPorts } from './services/processChecker.js';
 // §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼).
 import type { PlayBubble, PlayRecipe, SpecDoc } from '@vibisual/shared';
@@ -171,6 +191,9 @@ import type {
   WorkspaceEntryMoveRequest,
   WorkspaceEntryRenameRequest,
 } from '@vibisual/shared';
+// §5.5 #17-33 ⑦ / #17-2·#17-4 — 플러그인 갱신 + "이 스킬이 실제로 실리는가" 판정.
+import type { AvailableSkill, ClaudePluginInventory, ClaudePluginPlacement } from '@vibisual/shared';
+import { normalizePluginRefreshSettings, placementAppliesHere } from '@vibisual/shared';
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
 import { scanRunConfigs } from './services/runConfigScanner.js';
 import { listExternalDebuggers, launchExternalDebugger } from './services/externalDebuggerService.js';
@@ -184,15 +207,24 @@ import {
   uninstallClaudePlugin,
   addClaudeMarketplace,
   removeClaudeMarketplace,
+  updateClaudeMarketplaces,
+  updateClaudePlugin,
   type PluginMutationResult,
 } from './services/claudePluginService.js';
+// §5.5 #17-33 ⑦ — 손으로 하던 갱신을 앱이 대신하는 자리(마켓 클론 + 뒤처진 설치본).
+import {
+  runClaudePluginRefresh,
+  startClaudePluginAutoRefresh,
+  onClaudePluginRefreshed,
+  isClaudePluginRefreshRunning,
+} from './services/claudePluginRefresh.js';
 import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 // §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층(런타임 무관 중단점·스텝·변수)
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe } from './services/appState.js';
-import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
+import { ensureHooksInstalledEverywhere, installHooksIntoNewCoworkHomes } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
 import {
@@ -215,6 +247,14 @@ import type { UsageProbeFailure, UsageProbeSnapshot } from './services/claudeUsa
 import { getMemoryDiagnostics, startMemoryMonitor, pressureLevelOf, sampleMemory } from './services/memoryMonitor.js';
 import { claudeAuthService } from './services/claudeAuthService.js';
 import { claudeSetupService } from './services/claudeSetupService.js';
+import { codexAuthService } from './services/codexAuthService.js';
+import { codexSetupService } from './services/codexSetupService.js';
+import { codexModelService } from './services/codexModelService.js';
+import { codexInventoryService } from './services/codexInventoryService.js';
+import { codexReviewService } from './services/codexReviewService.js';
+import { isCodexImageFile } from './services/codexStreamMap.js';
+import type { CodexReviewMode } from '@vibisual/shared';
+import { getCodexHookState, installCodexHooks, uninstallCodexHooks } from './services/codexHookInstaller.js';
 import { invalidateClaudeBinCache, setClaudeBinOverrideWriter } from './services/claudeBin.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
 import type { AgentProvider } from '@vibisual/shared';
@@ -241,6 +281,8 @@ import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler 
 import { discoverSessions, findPidBySession, isProcessAlive, readContextInfo, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
 import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
+// §5.5 #17-17 ⑪(l) — 에이전트가 답 안에 끼워 넣은 무대 블록을 스트림에서 수확한다(새 창구 ❌).
+import { StageBlockIngest } from './services/stageBlockIngest.js';
 // §5.5 #17-9 ⑦ — 자식 도구 한 줄 요약 · Task 결과 본문 추출(판본 흔들림을 흡수하는 순수 함수).
 import { describeToolTarget, extractTaskResultText } from './services/subagentActivity.js';
 import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree, unregisterSpawnedPid } from './services/processTree.js';
@@ -260,15 +302,6 @@ import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/di
 import { CheckpointCoalescer, setActiveCheckpointCoalescer } from './services/checkpointCoalescer.js';
 import { diagnosticService } from './services/diagnosticService.js';
 
-// §5.10 Project Brain — 파일 접근 경고를 세션+파일 조합당 1회만 내기 위한 인메모리 집합.
-//   런타임 전용(영속 X). O(1) 조회 — LLM/스캔 없이 hook 동기 경로에서 즉답.
-const brainFileWarned = new Set<string>();
-function normPathForWarn(p: string): string {
-  // 경고 1회 판정 키 — linux 에서 접으면 `src/Foo.ts` 경고가 `src/foo.ts` 를 삼킨다.
-  return pathKey(p);
-}
-
-
 // §3.7 — desktop in-process 진입점이 server 코어를 라이브러리로 쓰기 위한 re-export.
 // `@vibisual/server` 단일 import 지점에서 코어 API를 모두 가져갈 수 있게 한다.
 export { setBroadcastSink, broadcast, type BroadcastSink } from './broadcastBus.js';
@@ -286,14 +319,15 @@ export {
   type ClientConnection,
 } from './websocket.js';
 // desktop in-process 모드는 hook 전용 loopback 리스너 포트로 직접 훅을 설치한다.
-export { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
+export { ensureClaudeHooksInstalled, ensureHooksInstalledEverywhere } from './services/hookInstaller.js';
+export type { HookInstallAllResult } from './services/hookInstaller.js';
 // §4 v3.60 — 사용량 수집기(statusLine). desktop main 이 부팅 시 "이미 설치된 경우에만" 포트·토큰을 갱신한다.
 export { refreshStatusLineIfInstalled } from './services/statusLineInstaller.js';
 // §4 v1.98 — 진단 에러 로그: desktop main 이 자기 프로세스 에러를 recordDiagnostic 으로 적재.
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
-export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
+export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, buildAgentTokenSaverEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
 // §5.11 v4.65 — CMD 세션에도 집행 플러그인의 지시를 싣는다(desktop 터미널 매니저가 rules 파일에 함께 기록).
 export { buildInteractivePluginBlockForAgent } from './services/pluginHost.js';
 // § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
@@ -304,6 +338,43 @@ export { killTree } from './services/processTree.js';
  */
 export function getUiLocale(): UiLocale {
   return graphManager.getUiLocale();
+}
+/**
+ * §4 메신저 브리지 — 폰에서 고를 수 있는 **명령 대상 전량**(프로젝트 → 에이전트 → 세션).
+ *
+ * **왜 팬아웃 스냅샷을 쓰지 않나.** 브리지의 다른 조회는 전부 `setBroadcastSink` 로 받은
+ * 스냅샷에서 하지만(별도 레일 ❌), 그것은 §9 **스코프드** 스냅샷이라 붙어 있는 창이 선언하지
+ * 않은 프로젝트의 `agents`·`subAgents` 가 **필드째 빠져 있다**. 밖에서 폰으로 고르는 목록이
+ * 집 PC 에 지금 어떤 탭이 열려 있느냐로 달라지면, 사용자에게는 에이전트가 사라진 것으로 보인다
+ * — 그건 최적화가 아니라 기능 손상이다(§9 ④ "전역 집계는 범위와 무관하게 항상 전량"과 같은 칸).
+ * 그래서 이 한 조회만 `getSnapshot()`(범위 미적용 · 서버 내부용)에서 만든다.
+ *
+ * `getUiLocale()` 과 같은 얇은 주입이다 — desktop main 은 `graphManager` 를 직접 알지 못한다.
+ */
+export function listChatCommandTargets(): ChatCommandTarget[] {
+  const snap = graphManager.getSnapshot();
+  const out: ChatCommandTarget[] = [];
+  for (const agent of snap.agents) {
+    // §5.5 #17-29 — 훅 버블은 읽기 전용이라 목록에도 올리지 않는다(골라도 서버가 403 이다).
+    if (agent.customCreated !== true || typeof agent.path !== 'string' || !agent.path) continue;
+    const sessions: ChatCommandSession[] = subAgentManager.getAllSubs(agent.id).map((sub) => ({
+      id: sub.id,
+      label: sub.label,
+      status: sub.status,
+      ...(sub.lastCommand ? { lastCommand: sub.lastCommand } : {}),
+      ...(sub.dormant ? { dormant: true } : {}),
+      ...(sub.blocked ? { blocked: true } : {}),
+    }));
+    out.push({
+      agentId: agent.id,
+      label: agent.label,
+      sessionId: agent.path,
+      project: snap.agentProjects[agent.id] ?? '',
+      queued: (snap.commandQueues[agent.id] ?? []).length,
+      sessions,
+    });
+  }
+  return out;
 }
 /**
  * §5.5 #17-20 ⑩ v4.94 — 앱이 접힐 때 붙어 있던 디버그 세션을 정리한다.
@@ -397,6 +468,16 @@ export function setHookListenerIdentityFile(filePath: string): void {
 let hookHandlerPath: string | null = null;
 export function setHookHandlerPath(filePath: string): void {
   hookHandlerPath = filePath;
+}
+
+/**
+ * §5.25 (I) — 코덱스 훅 설치에 필요한 값(포트·핸들러 경로·토큰). desktop main 이 클로드 훅을
+ * 설치하는 그 자리에서 함께 주입한다. **설치는 여기서 자동으로 돌지 않는다** — 코덱스 훅은
+ * 기본 꺼짐이고 사용자가 켤 때만 REST 로 깔린다(남의 전역 설정을 말없이 건드리지 않는다).
+ */
+let codexHookContext: { port: number; handlerPath: string; token: string } | null = null;
+export function setCodexHookContext(ctx: { port: number; handlerPath: string; token: string }): void {
+  codexHookContext = ctx;
 }
 
 export interface RunServerHandle { app: import('express').Express; }
@@ -501,6 +582,8 @@ export async function runServer(): Promise<RunServerHandle> {
   // §5.11 v4.65 — 집행 플러그인이 무엇을 보고 판단했는지를 카드가 그릴 수 있게 스냅샷에 실어 보낸다.
   //   열려 있는 프로젝트만 묻고, 켠 집행 모듈이 없으면 undefined 라 필드 자체가 생기지 않는다.
   graphManager.setPluginFactsProvider(() => getPluginFactsForProjects(graphManager.getProjectRoots()));
+  // §5.11 정독 게이트 — 세션별 정독 상태도 같은 provider 방식으로 한 곳에서 얹는다(방송 지점 누락 방지).
+  graphManager.setSpecReadingProvider(() => getSpecReadingStates());
   graphManager.setOnMutated(() => broadcastSnapshot());
   gitStatusService.setChangeListener(() => broadcastSnapshot());
   // §9 v3.45 — agentTracker 의 Stop/dismiss 스냅샷 송신도 디바운스 경로로 위임.
@@ -546,6 +629,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   // §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT)
+  app.get('/api/codex-usage', async (_req, res) => {
+    try { res.json(await readCodexUsage()); } catch { res.status(500).json({ windows: [], fetchedAt: Date.now(), error: 'unavailable' }); }
+  });
   app.get('/api/user-defaults', (_req, res) => {
     res.json(userDefaultsService.get());
   });
@@ -700,17 +786,6 @@ export async function runServer(): Promise<RunServerHandle> {
         const ownerTermId = headerValue('x-vibisual-owner-term-id');
         if (ownerTermId) body._vibisualOwnerTermId = ownerTermId;
       }
-      // §5.10 v3.76 — **우리가 띄운 리플렉션 자식(`claude -p`)의 훅은 통째로 무시한다.**
-      // 자식은 전역 settings.json 의 Vibisual 훅을 그대로 실행하므로(SessionStart→Stop), 이 이벤트가
-      // 서버로 들어오면 ① markActive/markStop 이 "전체 활성 세션 0" 전이를 만들어 클라 완료 차임이
-      // 울리고 ② triggerBrainReflection 이 그 자식 세션을 다시 리플렉션 예약해 5분 40초 주기로 자기
-      // 자신을 무한 재점화하며 ③ registerProject 가 임시 폴더를 유령 프로젝트로 등록해 기억 카드까지
-      // 그쪽에 쌓였다(실측 51장). 자식 활동은 사용자 작업이 아니므로 그래프·상태 어디에도 넣지 않는다.
-      if (isBrainReflectionCwd(body.cwd)) {
-        res.json({ continue: true });
-        return;
-      }
-
       // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그면 상태/그래프 귀속을 그 CMD 버블 세션으로
       //   일원화한다. 이후 markActive/markStop·Notification·processHookEvent 가 모두 CMD 버블을
       //   가리켜 별개 Hook 버블/오완료(recompute) 대신 Hook 에이전트와 동일한 라이프사이클
@@ -881,13 +956,6 @@ export async function runServer(): Promise<RunServerHandle> {
       // 자기 Stop 이 이어서 상태를 올바로 매긴다.
       if (isOwnStop) {
         agentTracker.markStop(body.session_id);
-        /*
-         * §5.10 — 세션 종료 시 리플렉션 예약(디바운스, 실패해도 무시). managed/CMD/hook 세션 공통.
-         *
-         * `SessionEnd` 에서는 **예약하지 않는다** — 직전 `Stop` 이 이미 같은 세션을 예약했고,
-         * 리플렉션은 매 예약마다 자식을 띄우는 축이라(자기증식 전례) 종료 한 번에 두 번 태울 이유가 없다.
-         */
-        if (!isSessionEnd) triggerBrainReflection(body.session_id, body.cwd);
       } else if (marksActivity(body.hook_event_name)) {
         agentTracker.markActive(body.session_id);
       }
@@ -917,11 +985,53 @@ export async function runServer(): Promise<RunServerHandle> {
         // broadcast 는 도구 이벤트 처리부에서 이미 일어나므로 별도 호출 불필요.
       }
 
+      // §5.26 (B) — 팀 구성은 압축이 통째로 지우는 축인데 그래프에는 남는 자리가 없다.
+      //   훅이 지나갈 때 이름을 합집합으로 모아 두면 압축 마커에 그대로 실려 나간다.
+      if (body.hook_event_name === 'TeammateIdle' || body.hook_event_name === 'SubagentStart') {
+        const names = extractTeammateNames(body as unknown as Record<string, unknown>);
+        if (names.length > 0) graphManager.noteTeammates(body.session_id, names);
+      }
+
       // §4 v1.50 — PreCompact 카운터 증가.
+      // §5.26 (B) 1단계 — **같은 자리에서 압축 직전 사본을 뜬다.** 이 한 번을 놓치면 그 세션이
+      //   무엇을 붙잡고 있었는지 다시 알 길이 없다: 컨텍스트 눈금은 훅에 실려 오지 않고
+      //   (claude-code#44790), 압축이 끝나면 원문 자리에 요약이 앉는다.
       if (body.hook_event_name === 'PreCompact') {
         graphManager.recordCompact(body.session_id);
+        const ownerAgentId = bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id;
+        const runningTasks = ownerAgentId
+          ? (subAgentManager.getRunningSubagentTasks()?.[ownerAgentId] ?? [])
+            .map((t) => t.description ?? t.subagentType ?? t.agentType ?? '')
+            .filter((t): t is string => t.length > 0)
+          : [];
+        const marker = graphManager.recordCompactMarker({
+          sessionId: body.session_id,
+          ...(body.transcript_path ? { transcriptPath: body.transcript_path } : {}),
+          ...(body.trigger ? { trigger: body.trigger } : {}),
+          ...(bgOwnerSub?.id ? { subAgentId: bgOwnerSub.id } : {}),
+          ...(body.cwd ? { cwd: body.cwd } : {}),
+          ...(runningTasks.length > 0 ? { runningTasks } : {}),
+          ...(body.last_assistant_message ? { lastAssistantTail: body.last_assistant_message } : {}),
+        });
+        // ⚠ 미러 복사는 **응답을 보낸 뒤**에 돈다. `PreCompact` 는 막을 수 있는 훅이라(비정상 종료면
+        //   압축이 통째로 취소된다) 여기서 파일을 통째로 긁으면 사용자의 압축이 우리 I/O 만큼
+        //   늦어지고, 최악에는 우리 때문에 압축이 안 돈다. JSONL 은 append-only 라 조금 늦게 떠도
+        //   같은 바이트다 — 그래서 무거운 쪽만 뒤로 미룰 수 있다(§5.26 (B)).
+        if (marker) setImmediate(() => graphManager.mirrorCompactMarker(marker));
         broadcastSnapshot();
-        saveCheckpoint(); // compactCounts 는 영속화 대상
+        saveCheckpoint(); // compactCounts + §5.26 보험 색인은 영속화 대상
+      }
+
+      if (body.hook_event_name === 'PostCompact') {
+        /*
+         * §5.26 (D) — **압축이 끝났다는 CLI 자신의 신고.** 이 한 줄이 (D) 판정의 신뢰도를 가른다.
+         *
+         * 이것이 없으면 스윕은 "요약을 우리가 못 읽었다"와 "압축이 아예 안 됐다"를 트랜스크립트
+         * 성장 여부만으로 갈라야 하는데, 그 둘은 결말이 정반대다(전자는 그냥 계속 일하면 되고,
+         * 후자는 `/clear` 말고 길이 없는 교착이다). 표식만 남기고 대조는 스윕에 맡긴다 —
+         * 지금 읽으면 요약이 아직 파일에 안 내려가 빈 꼬리를 요약으로 읽을 수 있다.
+         */
+        if (graphManager.notePostCompact(body.session_id)) saveCheckpoint();
       }
 
       /*
@@ -996,6 +1106,57 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
+       * §5.11 정독 게이트 — **읽기 영수증은 여기서만 쌓인다.**
+       *
+       * "기획을 끝까지 읽었는가"는 파일을 봐서는 알 수 없다 — 그건 도구 호출 이력이고, 그 이력이
+       * 서버에 도착하는 자리가 이 훅 하나뿐이다. 우리가 띄운 세션이든 사용자가 자기 에디터에서 돌리는
+       * 세션이든 같은 문으로 오므로, 여기 한 번 붙이면 두 경우가 같은 원장을 쓴다.
+       *
+       * 판정은 하지 않는다(절을 자르고 커버율을 재는 것은 플러그인 순수 함수 하나뿐이다). 여기서는
+       * **무엇을 열었는지**만 남긴다.
+       */
+      const specSubId = bgOwnerSub?.id;
+      const specAgentId = bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id;
+      const specProject = specAgentId ? graphManager.getProjectPathForAgent(specAgentId) : null;
+      if (specSubId && specProject) {
+        const at = Date.now();
+        if (body.hook_event_name === 'UserPromptSubmit' && typeof body.prompt === 'string') {
+          // 턴이 새로 시작했으므로 지난 턴의 되돌림 횟수도 함께 되돌린다 — 안 그러면 한 세션에서 한 번만 막을 수 있다.
+          // 우리가 띄운 세션의 본문은 조립 시점(`processNextCommand`)에 이미 적혔다 — 훅이 주는 것은 앞말이 붙은
+          //   조립본이라 그대로 담으면 지난 정독 블록이 이번 라우팅 재료가 된다. 조립본이 아닐 때만 여기서 적는다.
+          specReadingService.notePromptFromHook(specSubId, specProject, body.prompt, at);
+          specReadingService.resetStopRetries(specSubId);
+        }
+        if (body.hook_event_name === 'PostToolUse' && typeof body.tool_name === 'string') {
+          specReadingService.noteToolUse(specSubId, specProject, body.tool_name, body.tool_input, body.tool_response, at);
+          if (SPEC_TOUCH_TOOLS.has(body.tool_name)) {
+            const target = body.tool_input?.['file_path'] ?? body.tool_input?.['notebook_path'];
+            if (typeof target === 'string') specReadingService.noteTouched(specSubId, specProject, target, at);
+          }
+        }
+        // 턴을 끝내며 낸 글에서 인용을 뽑아 **원문과 대조**한다. 이 축이 없으면 인용도 지어낼 수 있다.
+        if (isTurnEndEvent && typeof body.last_assistant_message === 'string') {
+          verifySpecCitationsFrom(specSubId, body.last_assistant_message, specProject);
+        }
+      }
+
+      /*
+       * §5.11 정독 게이트 — 강도 `경고`의 집행 자리.
+       *
+       * 안 연 필수 절을 남긴 채 턴을 끝내려 하면 `Stop` 을 되돌려 보낸다. 되돌림 횟수는 상한이 있고,
+       * 상한에 닿으면 **더 막지 않는다** — 끝내지 못하는 세션이 이 기능이 낼 수 있는 최악의 결과다.
+       * 서브에이전트 종료·세션 종료는 대상이 아니다(부모의 자기 턴이 끝날 때만 묻는다).
+       */
+      if (isTurnEndEvent && !isSubagentStop && !isSessionEnd && specSubId && specProject) {
+        const gate = specStopGate(specSubId, specProject);
+        if (gate.block && gate.reason) {
+          broadcastSnapshot();
+          res.json({ decision: 'block', reason: gate.reason });
+          return;
+        }
+      }
+
+      /*
        * §5.11 v4.67 — **집행의 네 번째 주입 지점: 훅으로 붙은 외부 세션.**
        *
        * 그전까지 집행이 닿는 곳은 우리가 띄운 세션 셋뿐이었다(첫 스폰 `contextSummary` · 이어지는 턴
@@ -1015,17 +1176,35 @@ export async function runServer(): Promise<RunServerHandle> {
         //   여기서도 안 나간다("여기가 최종"이 우리가 띄운 세션에만 해당하면 반쪽짜리다).
         const hookAgent = graphManager.getAgentBySession(body.session_id);
         const hookProjectKey = hookAgent ? graphManager.getAgentProjectName(hookAgent.id) : null;
-        const enforcement = isContextSourceOn(
-          graphManager.getContextOverrides(),
-          { projectKey: hookProjectKey, subAgentId: null },
-          CONTEXT_SOURCE_IDS.hookEnforcement,
-        )
+        const ctxScope = { projectKey: hookProjectKey, agentId: hookAgent?.id ?? null, subAgentId: null };
+        const overrides = graphManager.getContextOverrides();
+        const enforcement = isContextSourceOn(overrides, ctxScope, CONTEXT_SOURCE_IDS.hookEnforcement)
           ? buildHookEnforcementBlock(body)
           : '';
-        if (enforcement) {
+        /*
+         * §5.26 (E) 3단계 — **훅으로 붙은 외부 세션에도** 복원 브리핑이 닿아야 한다.
+         *
+         * 압축은 우리가 띄운 세션보다 사용자가 자기 에디터에서 직접 돌리는 세션에서 더 자주 겪는
+         * 일이고, 그쪽은 우리가 프롬프트를 조립해 주지 않으므로 이 응답이 유일한 통로다.
+         *
+         * 집행 블록과 **스위치를 나눠 둔다** — 하나로 묶으면 플러그인 집행을 껐다는 이유로
+         * 복원까지 함께 꺼진다(사용자가 끈 것은 그게 아니다).
+         *
+         * 여기서는 고르기와 못 박기를 한 동작으로 한다(`take`) — 조립과 발송이 이 한 줄 안에서
+         * 끝나 그 사이에 표를 재는 경로가 끼어들 수 없기 때문이다.
+         */
+        let recovery = '';
+        if (isContextSourceOn(overrides, ctxScope, CONTEXT_SOURCE_IDS.compactRecovery)) {
+          const marker = graphManager.takeCompactBriefing(body.session_id);
+          if (marker?.outcome && hasNotCarried(marker.outcome.notCarried)) {
+            recovery = buildRecoveryBlock(marker.outcome.notCarried);
+          }
+        }
+        const additionalContext = enforcement + recovery;
+        if (additionalContext) {
           res.json({
             continue: true,
-            hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: enforcement },
+            hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext },
           });
           return;
         }
@@ -1375,17 +1554,64 @@ export async function runServer(): Promise<RunServerHandle> {
    * 승격되면 순수 전달 이벤트에서 `handler.mjs` 자식 프로세스가 사라진다 — 이벤트를 15종에서
    * 33종으로 늘린 지금 그 차이가 크다.
    */
-  async function refreshHookTransport(reason: string): Promise<void> {
+  /**
+   * §3.6 — 마지막으로 **성공한** 설치 조건(전송 경로·CLI 판올림).
+   *
+   * 새로 생긴 Cowork 홈에도 **같은 조건**으로 깔아야 한다. 이게 없으면 HTTP 로 승격된 뒤에
+   * 열린 Cowork 세션만 옛 command 블록을 받아, 같은 앱 안에서 세션마다 전송 경로가 갈린다.
+   */
+  let lastHookInstallOptions: { transport: 'http' | 'command'; cliVersion: string | null } = {
+    transport: 'command',
+    cliVersion: null,
+  };
+
+  /**
+   * 지금 훅을 설치해도 되는가 — 되면 그 대상(포트·핸들러·토큰)을, 아니면 null.
+   *
+   * 불리언을 돌려주면 호출부에서 타입 좁히기가 풀려 `as number` 를 쓰게 된다. 값으로 돌려주면
+   * 게이트와 좁히기가 한 번에 끝난다.
+   */
+  function hookInstallTarget(): { port: number; handlerPath: string; token: string } | null {
     const skip = process.env['VIBISUAL_SKIP_HOOK_INSTALL'];
-    if (skip === '1' || skip === 'true') return;
-    if (process.env['VIBISUAL_HOME']?.trim()) return;
-    if (hookListenerPort === null || hookListenerToken === null || hookHandlerPath === null) return;
+    if (skip === '1' || skip === 'true') return null;
+    if (process.env['VIBISUAL_HOME']?.trim()) return null;
+    if (hookListenerPort === null || hookListenerToken === null || hookHandlerPath === null) return null;
+    return { port: hookListenerPort, handlerPath: hookHandlerPath, token: hookListenerToken };
+  }
+
+  /**
+   * 새로 나타난 Cowork 세션 홈에만 훅을 심는다 — 세션 스캔 스윕(10초)이 부른다.
+   * 호스트 홈은 건드리지 않는다(부팅 설치·전송 경로 승격이 이미 맡는다).
+   */
+  function installHooksIntoNewCoworkHomesIfReady(): void {
+    const t = hookInstallTarget();
+    if (!t) return;
+    try {
+      const n = installHooksIntoNewCoworkHomes(t.port, t.handlerPath, t.token, lastHookInstallOptions);
+      if (n > 0) logger.info(`[hooks] cowork: ${n} new session home(s) hooked`);
+    } catch (err) {
+      logger.warn(`[hooks] cowork install sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function refreshHookTransport(reason: string): Promise<void> {
+    const t = hookInstallTarget();
+    if (!t) return;
     try {
       const info = await getClaudeVersionInfo();
-      const r = ensureClaudeHooksInstalled(hookListenerPort, hookHandlerPath, hookListenerToken, {
+      // §3.6 — 호스트 홈 + Cowork 세션 홈들에 같은 블록을 심는다. Cowork 는 설정 홈이 세션마다
+      //   따로라 우리 `~/.claude/settings.json` 을 보지 않는다(#63360) — 그 홈에 심어야 발화한다.
+      const all = ensureHooksInstalledEverywhere(t.port, t.handlerPath, t.token, {
         transport: 'http',
         cliVersion: info.current,
       });
+      const r = all.host;
+      // 요청값을 기억한다(결과값이 아니라) — 홈마다 `allowedHttpHookUrls` 가 다를 수 있어
+      //   최종 판정은 각 홈에서 `resolveTransport` 가 다시 내려야 한다.
+      if (!r.error) lastHookInstallOptions = { transport: 'http', cliVersion: info.current ?? null };
+      if (all.coworkInstalled > 0) {
+        logger.info(`[hooks] cowork: ${all.coworkInstalled}/${all.cowork.length} session home(s) updated (${reason})`);
+      }
       if (r.error) {
         logger.warn(`[hooks] transport refresh failed (${reason}): ${r.error.message}`);
         return;
@@ -1442,6 +1668,262 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // 부팅 직후 1회 판정. 로그인 판정보다 먼저 떠야 게이트 순서(설치 → 로그인)가 뒤집히지 않는다.
   setTimeout(() => { void claudeSetupService.refresh().catch(() => {}); }, 1_200);
+
+  /**
+   * §5.25 — 코덱스 창구 셋(설치·로그인·모델 목록·훅).
+   *
+   * 클로드 쪽과 **같은 모양**이다: 상태는 스냅샷으로도 흘러가므로 클라는 평소 스냅샷만 봐도 되고,
+   * REST 는 사용자가 버튼을 눌렀을 때의 즉시 확인 창구다. 새 전달 방식을 만들지 않는다.
+   */
+  async function refreshCodexAuth(): Promise<import('@vibisual/shared').CodexAuthStatus> {
+    const before = graphManager.getCodexAuth();
+    const status = await codexAuthService.refresh();
+    graphManager.setCodexAuth(status);
+    // 값이 그대로면 브로드캐스트하지 않는다(폴링이 스냅샷을 흔들지 않게 — 클로드와 같은 규약).
+    const changed =
+      before === undefined ||
+      before.loggedIn !== status.loggedIn ||
+      before.error !== status.error ||
+      before.authMethod !== status.authMethod ||
+      before.account !== status.account;
+    if (changed) broadcastSnapshot();
+    return status;
+  }
+
+  codexSetupService.onChange((state) => {
+    graphManager.setCodexSetup(state);
+    broadcastSnapshot();
+  });
+
+  app.get('/api/codex-setup', (_req, res) => {
+    const cached = graphManager.getCodexSetup();
+    if (cached) { res.json(cached); return; }
+    void codexSetupService.refresh()
+      .then((state) => res.json(state))
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  app.post('/api/codex-setup/refresh', (_req, res) => {
+    void codexSetupService.refresh()
+      .then((state) => res.json(state))
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  app.post('/api/codex-setup/install', (_req, res) => {
+    try {
+      const progress = codexSetupService.startInstall();
+      res.json({ ok: progress.status !== 'error', progress });
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/codex-auth', (_req, res) => {
+    const cached = graphManager.getCodexAuth();
+    if (cached) { res.json(cached); return; }
+    void refreshCodexAuth()
+      .then((status) => res.json(status))
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  app.post('/api/codex-auth/refresh', (_req, res) => {
+    void refreshCodexAuth()
+      .then((status) => res.json(status))
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  app.post('/api/codex-auth/logout', (_req, res) => {
+    void codexAuthService.logout()
+      .then((result) => {
+        graphManager.setCodexAuth(result.status);
+        broadcastSnapshot();
+        res.json(result);
+      })
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  /**
+   * §5.25 (M) — 인벤토리를 읽을 프로젝트 폴더. 버블을 주면 그 버블의 프로젝트, 아니면 지금 루트.
+   * 폴더를 못 찾으면 `null` — 그때는 홈의 `AGENTS.md` 만 보고 프로젝트 자리는 아예 그리지 않는다.
+   */
+  const codexInventoryCwd = (agentIdParam: unknown): string | null => {
+    const agentId = typeof agentIdParam === 'string' && agentIdParam.trim() ? agentIdParam.trim() : '';
+    if (agentId) return graphManager.getProjectPathForAgent(agentId) ?? graphManager.getRoot() ?? null;
+    return graphManager.getRoot() ?? null;
+  };
+
+  /** §5.25 (G) — 모델 목록. 코덱스가 캐시해 둔 것을 **읽기만** 한다(우리가 표를 들지 않는다). */
+  app.get('/api/codex-models', (_req, res) => {
+    try {
+      const catalog = codexModelService.get() ?? codexModelService.refresh();
+      graphManager.setCodexModels(catalog);
+      res.json(catalog);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/codex-models/refresh', (_req, res) => {
+    try {
+      const catalog = codexModelService.refresh();
+      // 스냅샷에도 실어 준다 — 설정 창 말고도(버블 라벨·오른쪽 패널) 이 목록을 보는 자리가 있어,
+      //   REST 응답만 돌려주면 그 화면들은 다음 새로고침까지 옛 목록을 든다.
+      graphManager.setCodexModels(catalog);
+      broadcastSnapshot();
+      res.json(catalog);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.25 (M) — 코덱스가 들고 있는 것들(MCP·스킬·플러그인·훅·`AGENTS.md`). **읽기만** 한다.
+   *
+   * `agentId` 를 주면 그 버블의 프로젝트 폴더에서 `AGENTS.md` 를 찾는다 — 다섯 갈래 중
+   * 그것만 프로젝트마다 다르기 때문이다(나머지 넷은 기기 단위).
+   */
+  app.get('/api/codex-inventory', async (req, res) => {
+    try {
+      const cwd = codexInventoryCwd(req.query['agentId']);
+      const inventory = codexInventoryService.getFor(cwd)
+        ?? await codexInventoryService.refresh(cwd, codexHookContext?.handlerPath ?? null);
+      graphManager.setCodexInventory(inventory);
+      res.json(inventory);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/codex-inventory/refresh', async (req, res) => {
+    try {
+      const cwd = codexInventoryCwd(req.query['agentId']);
+      const inventory = await codexInventoryService.refresh(cwd, codexHookContext?.handlerPath ?? null);
+      // 모델 목록과 같은 이유로 스냅샷에도 실어 준다 — 이 목록을 보는 자리가 IDE 말고도 있다.
+      graphManager.setCodexInventory(inventory);
+      broadcastSnapshot();
+      res.json(inventory);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.25 (N) — `codex review`. 검증 칸의 코덱스 대응물이며 **사용자가 누를 때만** 돈다
+   * (모델을 부르는 일이라 비용이 사용자 것이다 — §5.5 #17-35 가 검증 자동 실행을 뺀 것과 같은 판단).
+   *
+   * 기다리지 않고 즉시 답한다 — 몇 분이 걸릴 수 있어, 끝나면 스냅샷으로 알린다.
+   */
+  app.post('/api/codex-review', (req, res) => {
+    const body = req.body as { agentId?: unknown; mode?: unknown; target?: unknown };
+    const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+    if (!agentId) {
+      res.status(400).json({ error: 'agentId required' });
+      return;
+    }
+    const cwd = graphManager.getAgentCwdByAgentId(agentId)
+      ?? graphManager.getProjectPathForAgent(agentId)
+      ?? graphManager.getRoot();
+    if (!cwd) {
+      res.status(400).json({ error: 'no project folder for this agent' });
+      return;
+    }
+    const rawMode = body.mode;
+    const mode: CodexReviewMode = rawMode === 'base' || rawMode === 'commit' ? rawMode : 'uncommitted';
+    const target = typeof body.target === 'string' ? body.target : undefined;
+    try {
+      const run = codexReviewService.start({
+        agentId,
+        cwd,
+        mode,
+        ...(target ? { target } : {}),
+        ...(((): { permissionMode?: string } => {
+          const pm = graphManager.getAgentConfig(agentId)?.permissionMode;
+          return pm ? { permissionMode: pm } : {};
+        })()),
+        onChange: () => {
+          graphManager.setCodexReviews(codexReviewService.list());
+          broadcastSnapshot();
+        },
+      });
+      graphManager.setCodexReviews(codexReviewService.list());
+      broadcastSnapshot();
+      res.json(run);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/codex-review', (_req, res) => {
+    try {
+      res.json({ runs: codexReviewService.list() });
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.25 (I) — 코덱스 훅. **기본 꺼짐**이라 사용자가 켤 때만 깔린다.
+   * 설치 뒤에도 코덱스 자신의 훅 신뢰 절차가 한 번 더 남아 있으며, 우리는 그것을 우회하지 않는다.
+   */
+  app.get('/api/codex-hooks', (_req, res) => {
+    try {
+      const state = getCodexHookState(codexHookContext?.handlerPath ?? null);
+      graphManager.setCodexHooks(state);
+      res.json(state);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/codex-hooks/install', (_req, res) => {
+    const ctx = codexHookContext;
+    if (!ctx) {
+      res.status(503).json({ error: 'hook context not ready' });
+      return;
+    }
+    try {
+      const state = installCodexHooks(ctx.handlerPath, ctx.port, ctx.token);
+      graphManager.setCodexHooks(state);
+      broadcastSnapshot();
+      res.json(state);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/codex-hooks/uninstall', (_req, res) => {
+    const ctx = codexHookContext;
+    if (!ctx) {
+      res.status(503).json({ error: 'hook context not ready' });
+      return;
+    }
+    try {
+      const state = uninstallCodexHooks(ctx.handlerPath);
+      graphManager.setCodexHooks(state);
+      broadcastSnapshot();
+      res.json(state);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // 부팅 직후 1회 판정. 코덱스를 안 쓰는 사용자에게도 돈다 — 우클릭 메뉴가 "준비 안 됨"을
+  //   말하려면 판정이 있어야 하고, 판정 자체는 `codex --version` 한 번이라 값이 싸다.
+  setTimeout(() => {
+    void codexSetupService.refresh()
+      .then((state) => {
+        // 설치돼 있을 때만 로그인·모델·훅까지 본다(없는 CLI 에 세 번 더 묻지 않는다).
+        if (state.phase !== 'ready') return;
+        void refreshCodexAuth().catch(() => {});
+        try {
+          graphManager.setCodexModels(codexModelService.refresh());
+        } catch { /* 캐시 없음은 정상 */ }
+        try {
+          graphManager.setCodexHooks(getCodexHookState(codexHookContext?.handlerPath ?? null));
+        } catch { /* 훅 파일 없음은 정상 */ }
+      })
+      .catch(() => {});
+  }, 2_000);
 
   /**
    * §4 (Claude Code CLI 자동 업데이트) — 앱을 켤 때 1회 CLI 를 최신으로 맞춘다(기본 켬).
@@ -1546,6 +2028,9 @@ export async function runServer(): Promise<RunServerHandle> {
         res.json({ killed: false, servers: graphManager.getRunningServers() });
         return;
       }
+      // §7.11 포트 인계 — 죽이기 **전에** 기동 명령을 넘겨받는다. 프로세스가 사라지면 OS 어디에도
+      // 그 명령이 남지 않아 Start 가 영영 못 열린다. 신고 시점 인계가 이미 성공했으면 no-op.
+      if (target.reportedOnly) await graphManager.takeoverServerEntry(id);
       const killed = await killByPort(target.port);
       target.alive = false;
       // §7.11 v1.29 — 매칭 iframe 위성 iframeAlive=false 즉시 반영 (5초 스윕 대기 없이 active→idle 전환)
@@ -1575,18 +2060,28 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'server not found' });
         return;
       }
-      // §7.11 v3.85 — 에이전트 신고로만 알게 된 서버는 기동 명령을 모른다. 여기서 kill 부터 하면
-      // respawn 이 불가능해 사용자의 서버만 죽는다 — kill 없이 거절한다(클라도 버튼 disabled).
+      // §7.11 포트 인계 — 에이전트가 켠 서버를 **여기서 넘겨받는다.** 신고 전용 entry 는 기동 명령을
+      // 모르지만, 그 프로세스가 아직 살아 있다면 OS 프로세스 테이블에 명령이 그대로 있다.
+      // 읽어 내면 그때부터 우리 서버처럼 껐다 켤 수 있다(v3.85 는 여기서 그냥 거절했다).
+      if (target.reportedOnly) await graphManager.takeoverServerEntry(id);
+      // 인계에 실패했을 때만 거절한다. 여기서 kill 부터 하면 respawn 이 불가능해
+      // 사용자의 서버만 죽는다 — kill 없이 거절한다(클라도 버튼 disabled).
       if (target.reportedOnly) {
-        res.status(409).json({ error: 'command unknown (agent-reported server)' });
+        logger.warn(`Restart refused (port ${String(target.port ?? '?')}): takeover failed — start command unreadable`);
+        // 인계 실패 표식(`takeoverFailed`)을 화면까지 흘려보낸다 — 안 보내면 버튼은 열려 있는데
+        // 눌러도 아무 일이 없는 채로 남아 사용자가 이유를 알 길이 없다.
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
+        res.status(409).json({ error: 'command unknown (takeover failed)', takeoverFailed: true });
         return;
       }
       // kill
       if (target.port) await killByPort(target.port);
       // §7.11 v2.22 — owning session 의 cwd 로 respawn. 누락 시 명령이 의존하는 파일/스크립트
       // (`node my-server.js` 등)을 못 찾고 즉시 종료된다. windowsHide 는 respawn 내부에서 처리.
+      // §7.11 포트 인계 — 인계로 알아낸 **그 프로세스의 실제 cwd** 가 있으면 그쪽이 우선이다
+      // (에이전트가 하위 폴더에서 띄운 서버는 세션 cwd 로 되살리면 파일을 못 찾는다).
       const owner = graphManager.findServerOwnerSession(id);
-      respawn(target.command, owner?.cwd);
+      respawn(target.command, target.cwd ?? owner?.cwd);
       target.startedAt = Date.now();
       target.alive = true;
       // §7.11 v2.23 — respawn 직후 매칭 iframe 위성의 owning-shell 분리. Vibisual detached child 는
@@ -1752,9 +2247,14 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   function archiveCompletedCommands(sessionId: string, cmds: QueuedCommand[]): void {
     if (cmds.length === 0) return;
+    // §5.3 #9-1 (P) — 이 아카이브는 **사용자 말풍선**이다. 우리가 끼운 조용한 압축은 사용자가
+    //   넣은 적이 없으므로 여기 들어오지 않는다 — 화면에서 거르는 것보다 아예 안 쌓는 쪽이
+    //   맞다(안 그러면 보이지도 않는 줄이 말풍선 상한을 먹어 진짜 대화가 앞에서 잘린다).
+    const visible = cmds.filter((c) => !c.silent);
+    if (visible.length === 0) return;
     let archive = completedCommandArchive.get(sessionId);
     if (!archive) { archive = []; completedCommandArchive.set(sessionId, archive); }
-    archive.push(...cmds);
+    archive.push(...visible);
     const cap = appStateGetRetention().completedCommandMaxPerSession;
     if (cap > 0 && archive.length > cap) archive.splice(0, archive.length - cap);
   }
@@ -1805,12 +2305,15 @@ export async function runServer(): Promise<RunServerHandle> {
       'instruction **원문을 그대로** heredoc 본문에 넣어 stdin 으로 보낸다. **JSON 손조립·escape 일절 없음** — `edgeId` 는 URL 쿼리로, instruction 은 raw 본문 전체로 서버가 받는다. 한글·일본어·중국어·아랍어·이모지·싱글쿼트·백슬래시·따옴표·여러 줄 전부 escape 없이 안전. **절대 파일로 쓰지 말 것** — `.tmp-*` 등 임시 파일 생성·`Write` 후 `--data @file` 우회 금지. heredoc stdin 만 사용(동시 dispatch 시 디스크 레이스 없음).',
       '',
       '```bash',
-      `curl -s -X POST '${serverBase}/api/task-edges/dispatch?edgeId=<id>' \\`,
+      `curl -s -X POST "\${${AGENT_CARD_ENV_BASE}:-${serverBase}}/api/task-edges/dispatch?edgeId=<id>" \\`,
+      `  -H "x-vibisual-hook-token: \$${AGENT_CARD_ENV_TOKEN}" \\`,
       '  -H \'Content-Type: text/plain; charset=utf-8\' \\',
       '  --data-binary @- <<\'VIBISUAL_EDGE_PAYLOAD_EOF\'',
       '<instruction 전문 — 그대로 붙여넣기, JSON·쉘 escape 불필요, 여러 줄 OK>',
       'VIBISUAL_EDGE_PAYLOAD_EOF',
       '```',
+      '',
+      `**인증 필수**: 위 \`x-vibisual-hook-token\` 헤더가 없으면 401 이다. 값은 환경변수 \`${AGENT_CARD_ENV_TOKEN}\` 에 이미 들어 있으니 위 예시를 그대로 쓰면 된다(카드 5경로와 같은 규약).`,
       '',
       '주의: `<id>` 자리에 아래 목록의 edgeId 를 그대로 넣는다(URL-safe, 인코딩 불필요). delimiter 는 싱글쿼트로 감싼 `<<\'VIBISUAL_EDGE_PAYLOAD_EOF\'` 형태 유지(쉘 변수·백틱 치환 차단). instruction 본문에 `VIBISUAL_EDGE_PAYLOAD_EOF` 가 한 줄로 등장할 가능성이 있으면 delimiter 만 다른 이름으로 변경. (기존 `{"edgeId":..,"instruction":..}` JSON 본문 방식도 서버가 후방호환 수용하지만, 신규 호출은 escape 불가능한 위 raw 방식만 쓴다.)',
       '',
@@ -1820,7 +2323,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const target = allAgents.find((a) => a.id === edge.targetAgentId);
       const cfg = graphManager.getAgentConfig(edge.targetAgentId);
       const targetLabel = target?.label ?? edge.targetAgentId;
-      const modelStr = cfg?.model ?? 'unknown';
+      const modelStr = cfg?.provider?.kind === 'codex-cli' ? cfg.provider.modelId : cfg?.model ?? 'unknown';
       const toolsStr = cfg?.tools && cfg.tools.length > 0 ? cfg.tools.join(', ') : 'default';
       const returnFmt = edge.returnFormat ?? 'summary';
       const policy = edge.delegationPolicy ?? 'strict';
@@ -1888,103 +2391,16 @@ export async function runServer(): Promise<RunServerHandle> {
     return strip;
   }
 
-  /**
-   * §5.10 v3.74 스폰 브리핑용 기억 블록 조립 — **프로젝트 카드를 전량 밀어넣지 않는다.**
+  /*
+   * §5.10 — **기억 카드 브리핑·세션 리플렉션은 걷었다.**
    *
-   * 담기는 것: ① 상시 규칙(`always: true`, `BRAIN_ALWAYS_RULE_MAX`) ② 태스크 관련 top-K(축소)
-   * ③ 그 에이전트 자신의 카드. 프로젝트 층의 나머지는 **주제 색인**(별도 블록)으로 안내만 하고,
-   * 에이전트가 자기 작업에 해당하는 주제 문서를 그 시점에 읽는다.
+   * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 여기 있던 두 함수는
+   * ① 스폰마다 카드 top-K 를 프롬프트에 얹고 ② 세션이 끝날 때마다 `claude -p` 자식을 띄워
+   * 대화를 되짚게 했다. ②는 끈 사람에게도 토큰이 새던 축이라 **함수째** 없앤다 — 판정 한 줄만
+   * 남겨 두면 다음 사람이 그 줄을 되살리는 것으로 자식 스폰이 통째로 돌아온다.
    *
-   * 종전에는 ①이 "모든 rule 전량(상한 20)"이라 규칙이 쌓일수록 무관한 카드가 선형으로 늘었다
-   * (실측: 사용량 작업 브리핑 13장 중 상위 6장이 관련도 심사를 안 거친 rule 전량).
-   * 반환 = 요약 블록 + 실제 담긴 카드(주입 이벤트/참조 갱신용).
+   * 되풀이한 절차를 굳히는 일은 `autoGoalService` 가 이어받았다. 그쪽은 LLM 을 부르지 않는다.
    */
-  function buildBrainBriefing(agentId: string, root: string, taskText: string): { block: string; cards: BrainCard[] } {
-    const svc = getBrainService(root);
-    // §5.10 v3.81-G — **강제 필터가 랭킹보다 먼저 온다.** 후보 풀 자체가 "현재 진실"뿐이다:
-    //   current 로 선택됨 ∧ verified ∧ 범위 일치 ∧ 유효기간 내 ∧ 충돌·확인필요 아님.
-    //   pinned·always 도 이 필터를 우회하지 못하고, 도움률·최근성은 여기 관여하지 않는다.
-    // §5.10 v2 (G) — 운영자 프로필(`scope: 'user'`)은 그 축이 켜져 있을 때만 나간다.
-    //   사람에 대한 관찰이라 원하지 않는 사용자에게는 한 줄도 실리지 않아야 한다.
-    const operatorOn = brainAxisEnabledFor(root, 'operator');
-    const pool = svc.selectCurrent({ agentId })
-      // §H — 경험 계층(lesson/mistake)은 그 자체로 현재 진실이 아니다. 규칙으로 승격된 것만 나간다.
-      .filter((c) => !BRAIN_EXPERIENCE_TYPES.includes(c.type))
-      .filter((c) => operatorOn || c.scope !== 'user');
-
-    const picked: BrainCard[] = [];
-    const seen = new Set<string>();
-    const add = (c: BrainCard): void => {
-      if (!seen.has(c.id)) { seen.add(c.id); picked.push(c); }
-    };
-    // 1) 상시 규칙(always) — 이제는 "현재 진실인 상시 규칙"만 남는다.
-    pool.filter((c) => c.always).forEach(add);
-    // 2) 태스크 관련 top-K — 같은 풀 안에서 랭킹(관련도 우세 + 도움률/신선도).
-    if (taskText.trim()) {
-      svc.rankCards(pool, { text: taskText })
-        .slice(0, BRAIN_INJECTION_TOP_K)
-        .forEach((r) => add(r.card));
-    }
-
-    const budgetChars = BRAIN_INJECTION_TOKEN_BUDGET * 4;
-    const lines: string[] = [];
-    const cards: BrainCard[] = [];
-    let used = 0;
-    for (const c of picked) {
-      const layer = c.scope === 'project' ? '프로젝트' : '개별';
-      const firstLine = c.body ? c.body.split('\n').find((l) => l.trim()) ?? '' : '';
-      // v3.81 — 진실 주소·적용 범위·출처·마지막 검증 시각을 함께 싣는다(요건: 왜 이게 현재 진실인지
-      //   모델이 스스로 판단할 수 있게). id 는 종전대로 helpfulMemoryIds 신고에 쓰인다.
-      const meta = [
-        c.canonicalKey ? `key=${c.canonicalKey}` : '',
-        serializeAppliesTo(c.appliesTo) ? `scope=${serializeAppliesTo(c.appliesTo)}` : '',
-        c.files.length > 0 ? `출처=${c.files[0]}${c.files.length > 1 ? ` 외 ${c.files.length - 1}` : ''}` : '',
-        c.verifiedAt ? `검증=${new Date(c.verifiedAt).toISOString().slice(0, 10)}` : '',
-      ].filter(Boolean).join(' · ');
-      const line = `- [${c.id}] (${c.type}/${layer}) ${c.title}${firstLine ? `: ${firstLine.trim()}` : ''}`
-        + (meta ? `\n    ${meta}` : '');
-      if (used + line.length > budgetChars && cards.length > 0) break;
-      lines.push(line);
-      used += line.length;
-      cards.push(c);
-    }
-    // §G — **현재 진실을 확인할 수 없으면 침묵하지 않는다.** 값이 갈려 current 를 잃은 슬롯은
-    //   "확인된 현재 정보 없음"으로 알려, 모델이 옛 값을 아무거나 집어 쓰지 않게 한다.
-    for (const slot of svc.listContested()) {
-      const line = `- (확인된 현재 정보 없음) ${slot.canonicalKey}${slot.scopeKey ? ` [${slot.scopeKey}]` : ''}`
-        + ` — 후보 ${slot.contenders.length}건이 충돌 중이다. 필요하면 직접 확인하고 신고하라.`;
-      if (used + line.length > budgetChars) break;
-      lines.push(line);
-      used += line.length;
-    }
-    return { block: lines.join('\n'), cards };
-  }
-
-  /**
-   * §5.10 — 세션 리플렉션 예약 헬퍼. 세션 소속 에이전트를 보고 저장 층(project/agent)·루트를 정한다.
-   * 실패해도 조용히 무시(호출 경로 보호).
-   */
-  function triggerBrainReflection(sessionId: string, cwd?: string): void {
-    try {
-      if (!sessionId) return;
-      const agent = graphManager.getAgentBySession(sessionId);
-      const scope: BrainCardScope = agent?.customCreated ? 'agent' : 'project';
-      const agentId = agent?.customCreated ? agent.id : undefined;
-      const root = (agentId ? graphManager.getProjectPathForAgent(agentId) : null)
-        ?? graphManager.getAgentCwd(sessionId)
-        ?? cwd
-        ?? graphManager.getRoot()
-        ?? undefined;
-      const effCwd = graphManager.getAgentCwd(sessionId) ?? cwd ?? root;
-      if (!root || !effCwd) return;
-      // §5.10 v2 (H) 게이트 ① 수집 — 두뇌가 꺼진 프로젝트는 리플렉션 자식 세션을 **아예 띄우지 않는다**.
-      //   기본 off 의 값어치가 여기서 나온다(끈 사용자에게 토큰 0).
-      if (!brainEnabledFor(root)) return;
-      scheduleBrainReflection({ sessionId, cwd: effCwd, root, scope, agentId });
-    } catch (e) {
-      logger.warn('[brain] reflection trigger failed', e as Error);
-    }
-  }
 
   /**
    * §5.5 #17-18 v4.68 — **즉시(immediate) 덧말**: 지금 도는 턴을 끊는다(soft interrupt).
@@ -2049,20 +2465,27 @@ export async function runServer(): Promise<RunServerHandle> {
     commandText: string;
   }): {
     parts: MeasuredPart[];
-    brief: { block: string; cards: { id: string; title: string }[] };
-    brainRoot: string;
-    /** §5.10 v2 (B) — 이번 턴에 실린 스킬 id. 실제로 보냈을 때만 노출을 적기 위해 돌려준다. */
-    skillIds: string[];
+    projectRoot: string;
     /**
      * §5.5 #17-28 ⑧(c) — 목표 블록의 두 절반. 표(인벤토리)는 둘을 합쳐 한 줄로 재지만, 실제 발송은
      * 갈라진다 — 상태는 매 턴 프롬프트로, 규약은 스폰의 `--append-system-prompt` 로.
      */
     goalParts: { state: string; protocol: string };
+    /**
+     * §5.11 정독 게이트 — 안 변하는 규칙 한 벌. 목표 규약과 같은 자리(`--append-system-prompt`)로 나간다.
+     * 정독 블록이 이 턴에 실릴 때만 비어 있지 않고, 주입원 창의 `plugin:spec-driven` 스위치를 따른다.
+     */
+    specSystemRules: string;
+    /**
+     * §5.26 (E) — 이번 턴 복원 브리핑이 실렸다면 그 마커. **여기서 못 박지 않는다** —
+     * 이 함수는 주입원 표를 재는 데도 쓰이므로(부작용 없음이 계약) 창 한 번 여는 것으로
+     * 브리핑이 소모되면 안 된다. 실제로 보낸 호출부가 `markCompactBriefed()` 로 못 박는다.
+     */
+    recoveryMarker?: { projectName: string; id: string };
   } {
     const { agent, cwd, agentConfig, subAgentId } = input;
     const parts: MeasuredPart[] = [];
-    const brainRoot = graphManager.getProjectPathForAgent(agent.id) ?? cwd;
-    let brief: { block: string; cards: { id: string; title: string }[] } = { block: '', cards: [] };
+    const projectRoot = graphManager.getProjectPathForAgent(agent.id) ?? cwd;
 
     parts.push({
       id: CONTEXT_SOURCE_IDS.skillsPrefix,
@@ -2084,6 +2507,19 @@ export async function runServer(): Promise<RunServerHandle> {
         ? buildAgentSelfCompactRule(agent.id, subAgentId)
         : '',
     });
+    // §5.26 (E) 3단계 — 압축 뒤 **딱 한 턴만** 실리는 복원 브리핑. 평소에는 빈 줄(0자)이다.
+    //   마커는 Claude 세션 id 로 서 있으므로 우리 탭 id 가 아니라 그 세션 id 로 되짚는다.
+    let recoveryBlock = '';
+    let recoveryMarker: { projectName: string; id: string } | undefined;
+    {
+      const claudeSid = subAgentId ? subAgentManager.getSub(subAgentId)?.sessionId : undefined;
+      const marker = claudeSid ? graphManager.peekCompactBriefing(claudeSid) : undefined;
+      if (marker?.outcome && hasNotCarried(marker.outcome.notCarried)) {
+        recoveryBlock = buildRecoveryBlock(marker.outcome.notCarried);
+        if (recoveryBlock) recoveryMarker = { projectName: marker.projectName, id: marker.id };
+      }
+    }
+    parts.push({ id: CONTEXT_SOURCE_IDS.compactRecovery, text: recoveryBlock });
     parts.push({ id: CONTEXT_SOURCE_IDS.edges, text: buildOutboundEdgesRulesSection(agent.id) });
     parts.push({
       id: CONTEXT_SOURCE_IDS.feedback,
@@ -2092,12 +2528,21 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // §5.11 — 켠 집행 플러그인은 **한 장씩** 선다(개별로 끌 수 있어야 하므로) + 그 위에 전체 스위치 하나.
     const pluginBlocks = buildPluginPromptSectionParts({
-      projectPath: brainRoot,
+      projectPath: projectRoot,
       cwd,
       agentId: agent.id,
       agentLabel: agent.label,
       customCreated: Boolean(agent.customCreated),
+      // §5.11 정독 게이트 — 원장 키. 있으면 호스트가 이 세션의 읽기 영수증을 컨텍스트에 채운다.
+      ...(subAgentId ? { subAgentId } : {}),
+      // §5.11 — 우리가 띄운 세션은 규칙 줄을 시스템 프롬프트에 따로 싣는다(아래 `specSystemRules`). 매 턴 블록은
+      //   목록·강도만. 훅 세션은 시스템 프롬프트가 없어 종전대로 규칙까지 함께 실린다.
+      ...(agent.customCreated ? { promptRulesInSystem: true } : {}),
     });
+    // 정독 블록이 실릴 때만 규칙도 나간다 — 블록이 비면(꺼짐·기획 없음) 규칙만 홀로 서는 일이 없다.
+    const specSystemRules = agent.customCreated && pluginBlocks.some((p) => p.id === SPEC_DRIVEN_ID && p.block.trim() !== '')
+      ? buildSpecSystemRules()
+      : '';
     parts.push({
       id: CONTEXT_SOURCE_IDS.plugins,
       text: '',
@@ -2142,11 +2587,26 @@ export async function runServer(): Promise<RunServerHandle> {
           goalText: goal.text.trim(),
           percent: goal.percent,
           ...(goal.steps.length > 0
-            ? { steps: goal.steps.map((s) => ({ text: s.text, status: s.status })) }
+            ? {
+              // §5.5 #17-17 ⑪(d)(i) — `authoredBy`·`kind` 를 **떨어뜨리지 않는다.**
+              //   종전에는 `{text,status}` 만 넘겨, ⑪(d) 가 세운 `[사용자 추가]` 표시가 주입
+              //   블록에 영영 뜨지 않았다(모델은 "지울 수 없는 단계"라는 말을 들은 적이 없다).
+              //   `kind` 는 무대가 읽는 축이라 자기가 붙였던 종류를 봐야 같은 키를 이어 쓴다.
+              steps: goal.steps.map((s, i) => ({
+                text: s.text,
+                status: s.status,
+                ...(s.authoredBy ? { authoredBy: s.authoredBy } : {}),
+                ...(s.kind ? { kind: s.kind } : {}),
+                // ⑰(b) — 행 표식도 떨어뜨리지 않는다(첫 단계의 표식은 뜻이 없다).
+                ...(i > 0 && s.parallel ? { parallel: true } : {}),
+              })),
+            }
             : {}),
           authoredBy: goal.authoredBy,
           ...(goal.note ? { note: goal.note } : {}),
           revision: goal.revision,
+          // ⑪(i) — 있는 종류를 먼저 쓰게 한다(없으면 매번 새 키를 지어내 카드가 흩어진다).
+          kinds: graphManager.getVisualKindKeysForSession(subAgentId),
         };
         goalParts.state = buildSessionGoalState(goalArgs);
         goalParts.protocol = buildSessionGoalProtocol(goalArgs);
@@ -2155,56 +2615,29 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     parts.push({ id: CONTEXT_SOURCE_IDS.goal, text: goalText });
 
-    // §5.10 Brain — 카드 브리핑 · 주제 색인 · 그 둘을 감싸는 규칙 틀. 세 줄로 갈라 각각 끌 수 있게 한다.
-    let cardsBlock = '';
-    let topicIndexBlock = '';
-    let brainFrame = '';
-    // §5.10 v2 (B) — 스킬(절차적 기억) 줄. 카드가 "무엇이 사실인가"라면 이쪽은 "이럴 땐 이렇게 한다".
-    let skillsBlock = '';
-    let pickedSkillIds: string[] = [];
-    // §5.10 v2 (H) 게이트 ② 주입 — 꺼진 두뇌는 브리핑을 **조립조차 하지 않는다**.
-    //   조각을 안 만들면 §5.5 컨텍스트 목록에도 안 뜨고(꺼진 기능이 목록에 남지 않는다) 조립 비용도 0 이다.
-    if (custom && brainEnabledFor(brainRoot)) {
+    /*
+     * §5.10 — **자동 목표**: 이 프로젝트에서 되풀이해 온 절차의 목록.
+     *
+     * 위 네 줄과 달리 여기 실리는 것은 이름과 한 줄 설명뿐이고, 꺼져 있으면 `undefined` 라
+     * **한 글자도 실리지 않는다**(3층 어디에도 켬이 없으면 이 기능은 없는 것과 같아야 한다).
+     * 판정은 shared 순수 함수 하나(`resolveAutoGoalEnabled`)가 소유한다 — 화면·집행이 같은
+     * 답을 봐야 "켜졌다는데 프롬프트엔 안 실린다"가 안 생긴다.
+     */
+    // 같은 프로젝트 뿌리를 본다 — 절차는 프로젝트의 것이고, 뿌리가 갈리면 옆 프로젝트의 절차가 실린다.
+    const autoGoalRoot = projectRoot;
+    if (autoGoalRoot) {
       try {
-        brief = buildBrainBriefing(agent.id, brainRoot, input.commandText);
-        cardsBlock = brief.block;
-        const brainSvc = getBrainService(brainRoot);
-        topicIndexBlock = buildBrainTopicIndexSection({
-          project: brainSvc.listTopicIndex(),
-          agent: brainSvc.listTopicIndex(agent.id),
-        });
-        // §5.10 v2 (B) — 축 'skills' 가 켜져 있을 때만 절차를 고른다. 지금 작업(commandText)과
-        //   맞는 것만 오므로 목록이 길어지지 않는다(카드 top-K 와 별개 예산).
-        if (brainAxisEnabledFor(brainRoot, 'skills')) {
-          const picked = getBrainSkillService(brainRoot)
-            .selectForTask(input.commandText, { agentId: agent.id });
-          pickedSkillIds = picked.map((s) => s.id);
-          skillsBlock = buildBrainSkillsSection(picked);
-        }
-        // §5.10 v2 (D) — 넛지는 축 + 세션 빈도 상한을 통과했을 때만 붙는다. 틀 안에 들어가므로
-        //   별도 컨텍스트 줄을 만들지 않는다(축 스위치가 이미 그 역할을 한다).
-        const nudgeBlock = claimNudgeSlot(brainRoot, subAgentId ?? agent.id)
-          ? buildBrainNudgeSection()
-          : '';
-        // 틀만의 크기 = 전체에서 내용물을 뺀 것 — 네 줄의 합이 실제 주입량과 정확히 같아진다.
-        const whole = buildBrainRulesSection({
-          serverBase: ruleArgs.serverBase,
-          serverToken: ruleArgs.serverToken,
-          cardsBlock,
-          topicIndexBlock,
-          skillsBlock,
-          nudgeBlock,
-          ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
-        });
-        brainFrame = whole.replace(cardsBlock, '').replace(topicIndexBlock, '').replace(skillsBlock, '');
+        const block = buildAutoGoalPromptBlock(
+          autoGoalRoot,
+          graphManager.getAutoGoalSettings(autoGoalRoot),
+          { agentId: agent.id, subAgentId: subAgentId ?? null },
+        );
+        if (block) parts.push({ id: CONTEXT_SOURCE_IDS.autoGoalSkills, text: block, defaultEnabled: true });
       } catch (e) {
-        logger.warn('[brain] briefing assemble failed', e as Error);
+        // 절차 목록을 못 실었다고 명령이 멈추면 안 된다 — 다음 턴이 다시 시도한다.
+        logger.warn('[auto-goal] prompt block failed', e as Error);
       }
     }
-    parts.push({ id: CONTEXT_SOURCE_IDS.brainCards, text: cardsBlock, detail: String(brief.cards.length) });
-    parts.push({ id: CONTEXT_SOURCE_IDS.brainTopics, text: topicIndexBlock });
-    parts.push({ id: CONTEXT_SOURCE_IDS.brainSkills, text: skillsBlock, detail: String(pickedSkillIds.length) });
-    parts.push({ id: CONTEXT_SOURCE_IDS.brainRules, text: brainFrame });
 
     // §5.11 v4.67 — 훅으로 붙은 외부 세션의 주입 통로. 글자 수로 잴 수 있는 블록이 아니라 **경로 스위치**라
     //   0자여도 켜져 있는 것이 맞다(실제 내용은 위 플러그인 줄들이 보여 준다).
@@ -2213,15 +2646,112 @@ export async function runServer(): Promise<RunServerHandle> {
       parts.push({ id: CONTEXT_SOURCE_IDS.hookEnforcement, text: '', defaultEnabled: true });
     }
 
-    return { parts, brief, brainRoot, skillIds: pickedSkillIds, goalParts };
+    return { parts, projectRoot, goalParts, specSystemRules, ...(recoveryMarker ? { recoveryMarker } : {}) };
   }
 
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
    *  동일 subAgentId는 직렬(한 세션당 한 명령), 서로 다른 subAgentId끼리는 병렬로 시작.
    *  null subAgentId는 하나의 슬롯으로 묶어 기존 직렬 동작 유지. */
+  // ─── §5.3 #9-1 토큰 절약 런타임 (N 동시 가동 상한 · O 스폰 시차 · P 턴 예산) ───
+  //
+  // 셋 다 **명령을 버리지 않는다** — 미루기만 한다. 거절된 명령은 `queued` 그대로 남고,
+  // 슬롯이 비거나(N) 시차가 지나면(O) 같은 큐에서 그대로 나간다. 사용자가 보낸 것이 조용히
+  // 사라지면 그건 절약이 아니라 사고다.
+
+  /**
+   * (O) 마지막 **첫 스폰** 시각. 세션이 아니라 **앱 단위**다 — 접두 캐시는 세션이 아니라 계정이
+   * 공유하므로, 시차를 둬야 하는 상대는 "다른 세션의 첫 스폰"이다.
+   */
+  let lastFreshSpawnAt = 0;
+  /** (O) 시차로 미뤄 둔 세션의 재시도 타이머. **세션당 하나** — 여러 개가 걸리면 같은 명령이 여러 번 나간다. */
+  const staggerTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** (P) sub 별 "마지막 압축 이후 턴 수". 압축이 큐에 들어가는 순간 0 으로 돌아간다. */
+  const turnsSinceCompact = new Map<string, number>();
+
+  /**
+   * (N) 지금 턴을 처리 중인 세션 수.
+   *
+   * 사용자가 직접 치는 CMD(PTY) 세션은 **세지 않는다** — 우리가 dispatch 하는 자식이 아니라
+   * 사람의 터미널이라, 그것을 슬롯으로 세면 사용자가 터미널을 하나 열어 둔 것만으로 에이전트가
+   * 굶는다(§2.4 `cmdDrivenSubs` 제외 목록과 같은 판단).
+   */
+  function countRunningTurns(): number {
+    const running = new Set<string>();
+    for (const [sid, queue] of commandQueues) {
+      for (const c of queue) {
+        if (c.status !== 'executing') continue;
+        if (c.subAgentId) {
+          const sub = subAgentManager.getSub(c.subAgentId);
+          const cfg = sub ? graphManager.getAgentConfig(sub.parentAgentId) : undefined;
+          if (cfg?.executionMode === 'interactive-terminal') continue;
+          running.add(c.subAgentId);
+        } else {
+          running.add(`session:${sid}`);
+        }
+      }
+    }
+    return running.size;
+  }
+
+  /** (O) 이 명령이 **새 세션을 띄우는가** — `--resume` 턴은 이미 자기 캐시가 있어 시차 대상이 아니다. */
+  function isFreshSpawn(cmd: QueuedCommand): boolean {
+    if (!cmd.subAgentId) return true;
+    const sub = subAgentManager.getSub(cmd.subAgentId);
+    return !sub?.sessionId;
+  }
+
+  /** (O) 시차가 지난 뒤 그 세션을 다시 두드린다. 이미 예약돼 있으면 겹쳐 걸지 않는다. */
+  function scheduleStaggerRetry(sessionId: string, waitMs: number): void {
+    if (staggerTimers.has(sessionId)) return;
+    const timer = setTimeout(() => {
+      staggerTimers.delete(sessionId);
+      processNextCommand(sessionId);
+    }, Math.max(1, Math.min(waitMs, TOKEN_SAVER_LIMITS.spawnStaggerMs.max)));
+    timer.unref?.();
+    staggerTimers.set(sessionId, timer);
+  }
+
+  /**
+   * (N·O) 이 명령을 지금 내보내도 되는가.
+   *
+   * **켠 축이 없으면 판정 자체를 건너뛴다** — 이 기능을 안 쓰는 사용자에게는 함수 호출 하나
+   * 외에 아무 일도 일어나지 않는다(§5.3 #9-1 무변경 근거).
+   */
+  function tokenSaverAdmits(cmd: QueuedCommand, sessionId: string): boolean {
+    const saver = appStateGetTokenSaver();
+    if (saver.maxConcurrentAgents > 0 && countRunningTurns() >= saver.maxConcurrentAgents) {
+      return false; // 슬롯 없음 — 턴이 끝날 때 `pumpTokenSaverQueues` 가 깨운다.
+    }
+    if (saver.spawnStaggerMs > 0 && isFreshSpawn(cmd)) {
+      const wait = lastFreshSpawnAt + saver.spawnStaggerMs - Date.now();
+      if (wait > 0) { scheduleStaggerRetry(sessionId, wait); return false; }
+    }
+    return true;
+  }
+
+  /**
+   * (N) 슬롯이 비었다 — 상한에 걸려 기다리던 세션을 깨운다.
+   *
+   * **턴이 끝나는 자리에서만** 부른다(새 주기 타이머 ❌ — §2.4 "새 타이머 ❌" 와 같은 규율).
+   * 슬롯이 다시 차면 즉시 멈춘다: 한 바퀴에 상한을 넘겨 내보내면 상한이 있으나 마나가 된다.
+   */
+  function pumpTokenSaverQueues(): void {
+    const saver = appStateGetTokenSaver();
+    if (saver.maxConcurrentAgents <= 0) return;
+    for (const [sid, queue] of [...commandQueues]) {
+      if (countRunningTurns() >= saver.maxConcurrentAgents) break;
+      if (!queue.some((c) => c.status === 'queued')) continue;
+      processNextCommand(sid);
+    }
+  }
+
   function processNextCommand(sessionId: string): void {
     const queue = commandQueues.get(sessionId);
     if (!queue) return;
+
+    // §5.3 #9-1 (P) — 아래에서 큐 스냅샷을 뜨기 **전에** 조용한 선행 압축을 끼운다. 뒤에 넣으면
+    //   그 스냅샷에 없어 이번 라운드에 안 나가고, 사용자 명령이 먼저 실려 압축이 뒤로 밀린다.
+    injectSilentPreCompact(queue, sessionId);
 
     const agent = graphManager.getAgentBySession(sessionId);
     if (!agent) return;
@@ -2259,6 +2789,10 @@ export async function runServer(): Promise<RunServerHandle> {
       if (next.status !== 'queued') continue;
       if (!queue.includes(next)) continue; // 앞선 명령에 흡수됨 — 이 턴에 이미 실려 나갔다.
       if (busy.has(next.subAgentId)) continue;
+      // §5.3 #9-1 (N·O) — 동시 가동 상한·스폰 시차. **부수효과보다 먼저** 본다(합치기·목표 시딩이
+      //   돌고 난 뒤 미루면 그 일들이 다음 라운드에 또 돈다). 거절은 미룸이지 버림이 아니다.
+      if (!tokenSaverAdmits(next, sessionId)) continue;
+      const freshSpawn = isFreshSpawn(next);
       busy.add(next.subAgentId); // 같은 sub에 두 개 동시 dispatch 금지
       // §5.5 #17-18 v4.68 — 뒤따르는 합치기 덧말을 이 명령에 흡수(= 한 턴에 함께 보낸다).
       //   프롬프트 조립(목표 시딩·브리핑)보다 **먼저** 해야 합쳐진 본문이 그 입력으로 쓰인다.
@@ -2282,6 +2816,17 @@ export async function runServer(): Promise<RunServerHandle> {
 
       // §5.5 #17-28 — 이 턴에 실릴 수 있는 조각 전부를 이름표와 함께 받아, **게이트를 통과한 것만**
       //   순서대로 붙인다. 화면(`/api/context-inventory`)이 같은 함수를 쓰므로 표와 프롬프트가 어긋날 수 없다.
+      // §5.11 정독 게이트 — 라우팅 재료는 **이번 턴 본문**이고, 조립보다 먼저 적혀야 이번 턴 블록이 그것으로
+      //   절을 고른다. 훅(`UserPromptSubmit`)은 앞말이 붙은 조립본을 한 턴 늦게 주므로 재료로 쓰지 않는다.
+      if (next.subAgentId && typeof next.text === 'string') {
+        specReadingService.notePrompt(
+          next.subAgentId,
+          graphManager.getProjectPathForAgent(agent.id) ?? cwd,
+          next.text,
+          Date.now(),
+          'assembly',
+        );
+      }
       const assembled = assembleContextParts({
         agent,
         cwd,
@@ -2290,8 +2835,9 @@ export async function runServer(): Promise<RunServerHandle> {
         commandText: next.text ?? '',
       });
       const partText = new Map(assembled.parts.map((p) => [p.id, p.text]));
-      const ctxScope = { projectKey: contextProjectKey, subAgentId: next.subAgentId };
-      /** 이 조각을 실을까 — 세션 층 > 프로젝트 층 > 기본(켜짐). 끈 것은 빈 문자열이 된다. */
+      // 층 셋을 다 넘긴다 — 하나라도 빠뜨리면 그 층에 걸어 둔 사용자의 뜻이 프롬프트에서 무시된다.
+      const ctxScope = { projectKey: contextProjectKey, agentId: agent.id, subAgentId: next.subAgentId };
+      /** 이 조각을 실을까 — 세션 층 > 에이전트 층 > 프로젝트 층 > 기본(켜짐). 끈 것은 빈 문자열이 된다. */
       const take = (id: string): string =>
         isContextSourceOn(contextOverrides, ctxScope, id) ? (partText.get(id) ?? '') : '';
 
@@ -2327,7 +2873,10 @@ export async function runServer(): Promise<RunServerHandle> {
       const goalOn = !!take(CONTEXT_SOURCE_IDS.goal);
       const goalBlock = goalOn ? assembled.goalParts.state : '';
       const goalProtocolBlock = goalOn ? assembled.goalParts.protocol : '';
-      const appendSystemPrompt = intentBlock + goalProtocolBlock;
+      // §5.11 — 정독 규칙 줄은 목표 규약과 같은 자리로 간다. 주입원 창에서 그 카드를 껐으면 규칙도 함께 빠진다
+      //   (블록은 목록만 싣도록 이미 조립됐으므로, 여기서 빠뜨리면 규칙이 어디에도 없다 — 둘은 한 벌이다).
+      const specRulesBlock = pluginsOn && take(`${CONTEXT_PLUGIN_ID_PREFIX}${SPEC_DRIVEN_ID}`) ? assembled.specSystemRules : '';
+      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock;
       // §5.5 #17-28 ⑧(a) — 공통 규약은 **카드가 하나라도 켜져 있을 때만** 앞세운다. 전부 꺼 두면
       //   공통 규약도 함께 빠져 "끈 기능의 설명만 남는" 상태가 생기지 않는다.
       // §5.5 #17-28 ⑧(d) — 번호 목록·서버 iframe 규약은 걷었다. 목록 정렬은 클라의 마크다운 렌더가,
@@ -2336,50 +2885,11 @@ export async function runServer(): Promise<RunServerHandle> {
       const cardBodies = take(CONTEXT_SOURCE_IDS.cardReport) + take(CONTEXT_SOURCE_IDS.cardQuestion)
         + take(CONTEXT_SOURCE_IDS.cardReview);
       const cardsRules = cardBodies ? take(CONTEXT_SOURCE_IDS.cardCommon) + cardBodies : '';
-      // §5.10 v3.74 스폰 브리핑 — 상시 규칙 + 태스크 top-K + 자기 카드 + **주제 색인** + 능동 검색 안내.
-      //   틀(brainRules)을 끄면 안에 들 것이 없으므로 카드·색인도 함께 빠진다.
-      const brainFrame = take(CONTEXT_SOURCE_IDS.brainRules);
-      const brainCards = take(CONTEXT_SOURCE_IDS.brainCards);
-      const brainTopics = take(CONTEXT_SOURCE_IDS.brainTopics);
-      const brainSkills = take(CONTEXT_SOURCE_IDS.brainSkills);
-      const brainBlock = brainFrame
-        ? buildBrainRulesSection({
-          serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
-          serverToken: hookListenerToken ?? '',
-          cardsBlock: brainCards,
-          topicIndexBlock: brainTopics,
-          skillsBlock: brainSkills,
-          ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
-        })
-        : '';
-      const dispatchContext = contextSummary + cardsRules + goalBlock + brainBlock;
-
-      // §5.10 v2 (B) — 스킬도 같은 규율. 실제로 실어 보냈을 때만 노출을 적는다.
-      if (brainSkills && assembled.skillIds.length > 0) {
-        try {
-          getBrainSkillService(assembled.brainRoot).touchReferences(assembled.skillIds);
-        } catch (e) {
-          logger.warn('[brain-skill] touchReferences failed', e as Error);
-        }
-      }
-
-      // 실제로 카드를 실어 보냈을 때만 참조 기록·주입 이벤트를 남긴다(끈 턴을 "주입했다"고 기록하면
-      // 랭킹이 거짓 신호를 먹는다 — 표시와 실측이 갈리는 그 지점).
-      if (brainCards && assembled.brief.cards.length > 0) {
-        try {
-          getBrainService(assembled.brainRoot).touchReferences(assembled.brief.cards.map((c) => c.id));
-          graphManager.addBrainInjection({
-            id: randomUUID(),
-            agentId: agent.id,
-            at: Date.now(),
-            cardIds: assembled.brief.cards.map((c) => c.id),
-            cardTitles: assembled.brief.cards.map((c) => c.title),
-            trigger: 'spawn',
-          });
-        } catch (e) {
-          logger.warn('[brain] injection record failed', e as Error);
-        }
-      }
+      // §5.26 (E) 3단계 — 압축 뒤 복원 브리핑. 평소에는 빈 문자열이고, 실릴 때도 **한 턴뿐**이다.
+      //   `dispatchContext`(첫 스폰)와 `livePreamble`(이어지는 턴) 둘 다에 붙이지만 `execute` 가
+      //   sessionId 유무로 갈라 쓰므로 한 턴에 두 번 실리지 않는다(집행 블록과 같은 자리·같은 이유).
+      const recoveryBlock = take(CONTEXT_SOURCE_IDS.compactRecovery);
+      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock;
 
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -2389,10 +2899,19 @@ export async function runServer(): Promise<RunServerHandle> {
       //   (첫 스폰 경로는 preamble 을 쓰지 않으니 중복되지 않는다 — `execute` 가 sessionId 유무로 갈라 쓴다.)
       // §5.5 #17-17 ②-2 v4.72 — "의도 먼저 + 계획을 세워라"도 같은 함정 위에 있었다(첫 스폰에만 실리면
       //   두 번째 턴부터는 계획을 세우라는 말을 아무도 안 한다). 짧은 블록이라 매 턴 실어도 비용이 미미하다.
-      const livePreamble = edgesBlock + pluginBlock + goalBlock;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
       const spawnSwitches = buildSpawnContextSwitches(contextOverrides, ctxScope);
+      // §5.5 #17-28 ⑩ (c) — 우리가 내부적으로 쏘는 `/compact`·`/clear` 가 실리는 턴에는
+      //   **슬래시 차단 플래그 하나만** 뺀다. 그 플래그는 사용자 스킬만이 아니라 CLI 내장 명령의
+      //   등록까지 막아, 이 표의 어느 줄도 "자동 압축"이라 적혀 있지 않은데 자동 압축이 꺼졌다
+      //   (실측: 322k 세션 24시간 `compact_boundary` 0건 — 발사 2회가 모두 거절).
+      //   폭은 **이 한 턴**이다(헤드리스는 `--resume` 도 매 턴 새 프로세스). 그 턴에 실리는 것은
+      //   명령 한 줄뿐이라 사용자 스킬이 낄 자리가 없고, 나머지 스위치는 그대로 꺼진 채 간다.
+      const spawnArgs = isInternalSlashCommand(next.text)
+        ? withoutSlashCommandFlag(spawnSwitches.args)
+        : spawnSwitches.args;
       // §5.5 #17-28 ⑧(b) — 카드 curl 이 쓸 주소·토큰을 **환경변수로** 자식에게 넘긴다. 종전에는 이
       //   두 값을 프롬프트 안 bash 프렐류드(596 토큰 × 8벌)가 매번 파일에서 읽어 왔다. 환경은 자식이
       //   뜰 때 정해지므로 `--resume` 재스폰마다 최신값이고, 프롬프트에는 한 글자도 실리지 않는다.
@@ -2401,11 +2920,28 @@ export async function runServer(): Promise<RunServerHandle> {
         [AGENT_CARD_ENV_TOKEN]: hookListenerToken ?? '',
       };
       subAgentManager.execute(next, cwd, dispatchContext, effectiveConfig, livePreamble, {
+        ...(agentConfig?.provider?.kind === 'codex-cli' && graphManager.getOutboundTaskEdges(agent.id).some((e) => isEdgeTargetViable(e.targetAgentId)) ? {
+          codexEdgeConfig: {
+            helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
+            nodeBin: resolveBinary('node') ?? '',
+            edgeIds: graphManager.getOutboundTaskEdges(agent.id).filter((e) => isEdgeTargetViable(e.targetAgentId)).map((e) => e.id),
+            restrictedTools: [...stripSet],
+          },
+        } : {}),
         customParent: !!agent.customCreated,
-        ...(spawnSwitches.args.length > 0 ? { extraArgs: spawnSwitches.args } : {}),
+        ...(spawnArgs.length > 0 ? { extraArgs: spawnArgs } : {}),
         extraEnv: { ...cardEnv, ...spawnSwitches.env },
         ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
       });
+      // §5.26 (E) — **실어 보낸 뒤에** 못 박는다. 조립 단계에서 찍으면 주입원 표를 여는 것만으로
+      //   그 세션의 브리핑이 사라진다(같은 함수로 재기 때문에). 여기까지 왔다는 것은 자식에게
+      //   실제로 넘어갔다는 뜻이다.
+      if (recoveryBlock && assembled.recoveryMarker) {
+        graphManager.markCompactBriefed(assembled.recoveryMarker.projectName, assembled.recoveryMarker.id);
+      }
+      // §5.3 #9-1 (O) — **실어 보낸 뒤에** 시계를 돌린다. 조립 중에 찍으면 게이트에 막혀 못 나간
+      //   명령까지 시차를 소비해, 다음 차례가 이유 없이 한 칸 더 기다린다.
+      if (freshSpawn) lastFreshSpawnAt = Date.now();
       dispatched = true;
     }
 
@@ -2614,6 +3150,12 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
     };
     queue.push(cmd);
+    // §5.26 (F)(b) — **압축일 때만** 보낸 시각을 적는다. `/clear` 는 `PreCompact` 를 내지 않으므로
+    //   여기까지 적으면 영영 오지 않을 것을 기다려 `rejected` 가 상주한다(늑대소년의 정확한 모양).
+    if (loop.contextMode !== 'clear') {
+      const loopSessionId = subAgentManager.getSub(subAgentId)?.sessionId;
+      if (loopSessionId) graphManager.markCompactSent(loopSessionId, Date.now());
+    }
     clearSessionLoopTimer(subAgentId);
     graphManager.updateSessionLoop(subAgentId, {
       status: 'running',
@@ -2635,6 +3177,22 @@ export async function runServer(): Promise<RunServerHandle> {
    * 런타임 전용(재시작하면 사라짐) — 못 돈 요청은 다음 턴에 에이전트가 다시 부르면 그만이다.
    */
   const compactRequestedSubs = new Set<string>();
+
+  /**
+   * §5.3 #9-1 (P) — **접기로 정해졌으나 아직 안 접은 세션**(subAgentId).
+   *
+   * 종전에는 턴이 끝나는 자리에서 판정과 실행이 한 몸이었다 — 참이면 그 자리에서 `/compact` 를
+   * 큐에 얹었다. 그 자리는 **사용자가 결과를 받아 든 다음**이라, 아무도 기다리지 않는 시간에
+   * 화면이 혼자 2~3분 더 도는 것으로 보였다(압축 1회 실측 평균 150초 정지).
+   *
+   * 이제 판정은 그대로 턴 경계에서 하되 결과를 여기 적어 두기만 하고, 실제 압축은 그 세션에
+   * **다음 명령이 나가기 직전**에 `injectSilentPreCompact` 가 조용히 끼워 넣는다. 그 명령은 어차피
+   * 사용자가 기다리는 턴이라, 압축은 그 대기 안으로 숨고 화면에는 "생각 중"만 보인다.
+   *
+   * 런타임 전용(영속 ❌ · 새 필드 ❌) — 재시작하면 사라지지만 컨텍스트 축은 다음 턴 끝에 같은
+   * 판정이 다시 나오고, 턴 예산 축도 카운터와 함께 0부터 다시 센다. 잃어도 대화는 그대로다.
+   */
+  const pendingPreCompact = new Set<string>();
 
   /**
    * §4 (CLI 사양 추종) — 이 세션의 컨텍스트가 **지금 몇 토큰 차 있는가**(창 크기와 함께).
@@ -2660,7 +3218,11 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §4 (CLI 사양 추종) — 턴이 끝났다. 압축을 걸어야 하면 그 세션 큐에 `/compact` 한 건을 얹는다.
+   * §4 (CLI 사양 추종) — 턴이 끝났다. 압축을 걸어야 하면 **다음 명령 앞에 접으라고 적어 둔다.**
+   *
+   * §5.3 #9-1 (P) — 여기서 큐에 얹지 않는 것이 핵심이다. 판정만 하고 `pendingPreCompact` 에
+   * 표식을 남기면, 그 세션에 다음 명령이 나가기 직전에 `injectSilentPreCompact` 가 조용한
+   * `/compact` 를 그 앞에 끼운다. 사용자 눈에는 자기가 방금 넣은 명령이 진행 중일 뿐이다.
    *
    * **켜고 끄는 스위치가 없다.** 사용자가 고르는 숫자는 자동 압축 값 하나뿐이고, 접는 자리는 언제나
    * 턴 경계다 — 창 크기와 턴 경계 체크박스가 같은 일을 하며 헷갈리게 하던 것을 하나로 합쳤다.
@@ -2673,15 +3235,25 @@ export async function runServer(): Promise<RunServerHandle> {
    *
    * 새 실행 레일이 아니라 §5.5 #17-11 ⑪ 이 쓰는 그 명령 큐다(사용자가 입력창에 치는 것과 같은 길).
    *
-   * 안 쏘는 자리를 분명히 한다:
+   * 안 적는 자리를 분명히 한다:
    *  - 방금 끝난 것이 **압축 자신**이면 ❌ — 압축이 압축을 부르는 무한 고리가 된다.
    *  - 그 세션에 **루프가 `contextMode` 로 이미 압축을 담당**하면 ❌ — 회차 경계에서 두 번 돈다.
-   *  - 큐에 아직 안 끝난 명령이 있으면 ❌ — 직렬 보장(루프 압축과 같은 규약). 다음 턴 끝에 다시 본다.
    *  - 컨텍스트를 **못 재면** ❌ — 아래 `readTurnEndContext` 참고(모르면 쏘지 않는다).
+   *
+   * ⚠ 종전에 있던 "큐에 안 끝난 명령이 있으면 ❌"는 **없앴다.** 그 가드는 "지금 큐에 얹으면 겹쳐
+   * 쏜다"를 막던 것인데, 이제 얹는 것이 아니라 적어 두는 것이라 겹칠 자리가 없다. 오히려 그때가
+   * 적어 둬야 할 자리다 — 기다리는 명령이 이미 있다는 것은 곧 **압축이 숨을 대기가 있다**는 뜻이다.
    */
   function maybeCompactAfterTurn(cmd: QueuedCommand, sessionId: string): boolean {
     const subAgentId = cmd.subAgentId;
     if (!subAgentId) return false;
+
+    // §5.3 #9-1 (P) — 턴 하나가 끝났다. **판정보다 먼저** 세어야 이번 턴이 예산에 포함된다.
+    //   sub.id 가 키라 스폰할수록 늘므로 §3.2.4 F′축으로 묶는다(다시 만들 수 있는 파생물이다 —
+    //   잃어도 카운트가 0부터 다시 셀 뿐 대화는 그대로다).
+    const turnsNow = (turnsSinceCompact.get(subAgentId) ?? 0) + 1;
+    turnsSinceCompact.set(subAgentId, turnsNow);
+    capMapSize(turnsSinceCompact, SESSION_KEYED_MAP_MAX);
 
     const requested = compactRequestedSubs.delete(subAgentId);
     const sub = subAgentManager.getSub(subAgentId);
@@ -2698,6 +3270,12 @@ export async function runServer(): Promise<RunServerHandle> {
       userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
       contextUsed: ctx?.used,
       contextMax: ctx?.max,
+      // §5.3 #9-1 (P) — 턴 예산. 컨텍스트 축과 직교하며, 창이 커서 발동선에 영영 못 닿는
+      //   세션(1M)에서도 이 축은 걸린다.
+      turnsSinceCompact: turnsNow,
+      turnBudget: appStateGetTokenSaver().sessionTurnBudget,
+      // §5.3 #9-1 (Q) — 스폰이 실은 창과 **같은 값**으로 발동선을 잡는다(어긋나면 우리 차례가 안 온다).
+      tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow,
     })) return false;
 
     // 압축이 압축을 부르지 않게. 사용자가 직접 친 `/compact` 뒤에도 또 쏘지 않는다.
@@ -2708,22 +3286,65 @@ export async function runServer(): Promise<RunServerHandle> {
     const loop = graphManager.getSessionLoop(subAgentId);
     if (loop?.enabled && loop.contextMode !== 'none') return false;
 
-    let queue = commandQueues.get(sessionId);
-    if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
-    if (queue.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'))) {
-      return false;
-    }
-
-    queue.push({
-      id: `cmd-${Date.now()}-turncompact`,
-      text: AGENT_COMPACT_COMMAND,
-      timestamp: Date.now(),
-      subAgentId,
-      status: 'queued',
-    });
-    logger.info(`[turn-compact] queued ${AGENT_COMPACT_COMMAND} sub=${subAgentId} by=${requested ? 'agent' : 'config'}${ctx ? ` used=${ctx.used}` : ''}`);
-    processNextCommand(sessionId);
+    // §5.3 #9-1 (P) — 이미 적혀 있으면 그만이다. 여러 턴이 잇따라 예산을 넘겨도 끼는 압축은 한 번뿐.
+    if (pendingPreCompact.has(subAgentId)) return false;
+    pendingPreCompact.add(subAgentId);
+    capSetSize(pendingPreCompact, SESSION_KEYED_MAP_MAX);
+    // §5.3 #9-1 (P) — 압축을 **걸기로 정한 순간** 카운터를 0 으로 돌린다. 실패해도 되돌리지
+    //   않는다 — 되돌리면 거절당한 세션이 매 턴 압축을 재예약해 그 자체가 토큰 폭식이 된다.
+    turnsSinceCompact.set(subAgentId, 0);
+    logger.info(`[turn-compact] pending ${AGENT_COMPACT_COMMAND} before next command sub=${subAgentId} by=${requested ? 'agent' : 'config'}${ctx ? ` used=${ctx.used}` : ''}`);
+    // ⚠ `markCompactSent`(§5.26 (F)(b))는 여기서 찍지 않는다 — 아직 **보내지 않았다.** 여기서
+    //   찍으면 "보냈는데 `PreCompact` 가 안 온다"를 재는 그 축이, 사용자가 다음 명령을 넣기
+    //   전까지의 조용한 시간을 전부 거절로 읽는다(늑대소년). 찍는 자리는 실제로 끼우는 순간이다.
+    //
+    // 큐를 두드리지도 않는다 — 지금 새로 나갈 것이 없고, 기다리던 명령이 있었다면 그것은 이 턴이
+    //   끝나는 기존 경로가 이어서 두드린다. 그 두드림이 아래 `injectSilentPreCompact` 를 지난다.
     return true;
+  }
+
+  /**
+   * §5.3 #9-1 (P) — **다음 명령이 나가기 직전, 그 앞에 조용한 `/compact` 를 끼운다.**
+   *
+   * `processNextCommand` 가 큐 스냅샷을 뜨기 **전에** 돈다(뜬 뒤에 넣으면 끼운 명령이 그 스냅샷에
+   * 없어 이번 라운드에 안 나가고, 사용자 명령이 먼저 실려 압축이 뒤로 밀린다).
+   *
+   * 끼우지 않는 자리:
+   *  - 그 sub 가 **이미 돌고 있으면** ❌ — 지금 나갈 자리가 아니다. 그 턴이 끝나면 다시 여기를 지난다.
+   *  - 앞에 설 명령이 **우리 내부 슬래시 명령**이면 ❌ — 압축 앞의 압축·`/clear` 앞의 압축은 낭비다.
+   *  - 그 sub 에 **기다리는 명령이 하나도 없으면** ❌ — 끼울 앞자리가 없다. 표식은 그대로 남아
+   *    다음 명령을 기다린다(사용자가 오늘 더 안 쓰면 압축도 안 돈다 — 그것이 이 축의 의도다).
+   */
+  function injectSilentPreCompact(queue: QueuedCommand[], sessionId: string): void {
+    if (pendingPreCompact.size === 0) return;
+    // 자리 판정은 shared 순수 함수가 소유한다(시험이 같은 함수를 부른다 — §5.3 #9-1 (P)).
+    const { slots, drop } = planSilentPreCompact(queue, pendingPreCompact);
+    for (const subAgentId of drop) pendingPreCompact.delete(subAgentId);
+    // `slots` 는 index 내림차순 — 뒤에서부터 넣어야 앞 자리가 안 밀린다.
+    for (const slot of slots) {
+      pendingPreCompact.delete(slot.subAgentId);
+      queue.splice(slot.index, 0, {
+        id: `cmd-${Date.now()}-precompact`,
+        text: AGENT_COMPACT_COMMAND,
+        timestamp: Date.now(),
+        subAgentId: slot.subAgentId,
+        status: 'queued',
+        // §5.5 #17-18 v4.68 — **자기 턴으로 나간다.** 기본값(합치기)로 두면 `absorbMergeFollowUps`
+        //   가 이 압축을 base 로 삼아 **뒤에 선 사용자 명령을 자기 텍스트에 흡수하고 큐에서 지운다.**
+        //   그러면 CLI 에는 `/compact` 로 시작하는 한 덩어리가 나가고, CLI 는 맨 앞의 슬래시 명령만
+        //   읽고 끝내므로 **그 턴의 사용자 지시가 통째로 사라진다**(실측: 화면에 압축 거절 한 줄만
+        //   남고 자기가 친 말은 없어졌다). `followUpMerge` 쪽에도 같은 가드가 있다 — 둘 다 둔다.
+        dispatchMode: 'wait',
+        // §5.3 #9-1 (P) — 화면에는 그리지 않는다. 실행 경로는 다른 명령과 완전히 같다.
+        silent: true,
+      });
+      // §5.26 (F)(b) — **이제** 보낸다. 이 줄이 없으면 CLI 가 명령을 거절해도(2.1.263 은
+      //   `is_error: false` 로 돌려준다) 로그만 남아 성공처럼 지나간다.
+      //   키는 CLI 세션 UUID 다(`subAgentId` 아님 — §5.26 (I)(c) "두 id 를 맞대지 않는다").
+      const compactSessionId = subAgentManager.getSub(slot.subAgentId)?.sessionId;
+      if (compactSessionId) graphManager.markCompactSent(compactSessionId, Date.now());
+      logger.info(`[turn-compact] injected silent ${AGENT_COMPACT_COMMAND} ahead of ${slot.beforeCommandId} sub=${slot.subAgentId} session=${sessionId}`);
+    }
   }
 
   /** 다음 회차 예약. delay 0 이면 즉시 발사, 아니면 타이머 + `nextRunAt` 표기(스윕이 안전망). */
@@ -3524,6 +4145,19 @@ export async function runServer(): Promise<RunServerHandle> {
 
     let queue = commandQueues.get(sessionId);
     if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+    /*
+     * §5.3 #9 (판올림 번호 발급 대기) — **대기열 상한은 loopback 유입에만 건다.**
+     *   에이전트는 이 창구로 **자기 세션에** 명령을 넣을 수 있고 Stop 훅이 그것을 꺼내 다시 띄우므로,
+     *   상한이 없으면 "끝나면 나를 다시 불러라"가 끊기지 않는 고리가 된다. 사용자가 손으로 쌓는
+     *   명령(렌더러 IPC)은 실측 한 자릿수라 여기서 막지 않는다 — 사람이 스스로 멈출 수 있는 축에
+     *   상한을 걸면 그저 불편해질 뿐이다.
+     */
+    if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE
+      && queue.filter((c) => c.status === 'queued').length >= COMMAND_QUEUE_MAX_PER_SESSION) {
+      logger.warn(`commands(${sessionId}): loopback ingress refused — queue already at ${COMMAND_QUEUE_MAX_PER_SESSION} (§5.3 #9)`);
+      res.status(429).json({ ok: false, error: 'command-queue-full', limit: COMMAND_QUEUE_MAX_PER_SESSION });
+      return;
+    }
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now()}-${queue.length}`,
       text: text.trim(),
@@ -3610,18 +4244,35 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
   });
 
-  /** PUT /api/commands/:sessionId/reorder — 순서 변경 */
+  /**
+   * PUT /api/commands/:sessionId/reorder — 순서 변경.
+   *
+   * §5.3 #9-1 (P) — **자리(index)가 아니라 명령(id)으로 받는다.** 화면이 큐를 그대로 그리던 때에는
+   * 둘이 같았지만, 이제 우리가 끼운 조용한 압축은 화면에서 빠지므로 **화면의 3번째와 큐의 3번째가
+   * 다르다**. 자리로 받으면 사용자가 옮긴 것과 서버가 옮기는 것이 어긋난다.
+   * 옛 클라이언트가 보내는 `fromIndex`/`toIndex` 도 그대로 받는다(id 가 없을 때만).
+   */
   app.put('/api/commands/:sessionId/reorder', (req, res) => {
     const { sessionId } = req.params;
-    const { fromIndex, toIndex } = req.body as { fromIndex?: number; toIndex?: number };
-    if (typeof fromIndex !== 'number' || typeof toIndex !== 'number') {
-      res.status(400).json({ error: 'fromIndex and toIndex required' });
-      return;
-    }
+    const { fromIndex, toIndex, fromId, toId } = req.body as {
+      fromIndex?: number; toIndex?: number; fromId?: string; toId?: string;
+    };
     const queue = commandQueues.get(sessionId);
     if (!queue) { res.json({ ok: true }); return; }
-    const [moved] = queue.splice(fromIndex, 1);
-    if (moved) queue.splice(toIndex, 0, moved);
+    const from = typeof fromId === 'string' ? queue.findIndex((c) => c.id === fromId) : fromIndex;
+    const to = typeof toId === 'string' ? queue.findIndex((c) => c.id === toId) : toIndex;
+    if (typeof from !== 'number' || typeof to !== 'number') {
+      res.status(400).json({ error: 'fromId/toId (or fromIndex/toIndex) required' });
+      return;
+    }
+    // 못 찾은 id(-1)·범위 밖 자리는 **조용히 무시한다** — 그 사이 명령이 끝나 큐에서 빠진 것이라
+    //   사용자 잘못이 아니고, 억지로 splice 하면 엉뚱한 명령이 움직인다.
+    if (from < 0 || from >= queue.length || to < 0 || to >= queue.length || from === to) {
+      res.json({ ok: true });
+      return;
+    }
+    const [moved] = queue.splice(from, 1);
+    if (moved) queue.splice(to, 0, moved);
     res.json({ ok: true });
     broadcastSnapshot();
   });
@@ -3801,21 +4452,36 @@ export async function runServer(): Promise<RunServerHandle> {
    * §5.5 #17-17 v4.47 — 외부(에이전트 curl·렌더러)에서 온 단계 배열을 신뢰 가능한 형태로 정리.
    * 잡스러운 항목은 조용히 버린다 — 신고 하나가 형식이 틀렸다고 진행 갱신 전체를 막을 이유는 없다.
    */
-  function parseGoalSteps(raw: unknown[]): { text: string; status?: SessionGoalStepStatus }[] {
-    const out: { text: string; status?: SessionGoalStepStatus }[] = [];
+  function parseGoalSteps(
+    raw: unknown[],
+  ): { text: string; status?: SessionGoalStepStatus; kind?: string; confidence?: 'high' | 'low'; parallel?: boolean }[] {
+    const out: { text: string; status?: SessionGoalStepStatus; kind?: string; confidence?: 'high' | 'low'; parallel?: boolean }[] = [];
     for (const item of raw) {
       if (typeof item === 'string') {
         if (item.trim()) out.push({ text: item.trim() });
         continue;
       }
       if (!item || typeof item !== 'object') continue;
-      const rec = item as { text?: unknown; status?: unknown };
+      const rec = item as { text?: unknown; status?: unknown; kind?: unknown; confidence?: unknown; parallel?: unknown };
       const text = typeof rec.text === 'string' ? rec.text.trim() : '';
       if (!text) continue;
       const status = rec.status === 'done' || rec.status === 'in_progress' || rec.status === 'pending'
         ? (rec.status as SessionGoalStepStatus)
         : undefined;
-      out.push({ text, ...(status ? { status } : {}) });
+      // §5.5 #17-17 ⑪(a)(e) — 종류·확신은 `rebuildGoalSteps` 가 이미 받을 줄 아는데 이 체가 버리고
+      //   있었다. 그래서 에이전트가 `kind` 를 실어 보내도 무대는 영원히 중립 점이었다 — 블록(⑪(l))과
+      //   REST 가 같은 답을 내야 하므로 여기서도 통과시킨다.
+      const kind = typeof rec.kind === 'string' && rec.kind.trim() ? rec.kind.trim().slice(0, 40) : undefined;
+      const confidence = rec.confidence === 'low' || rec.confidence === 'high' ? rec.confidence : undefined;
+      // §5.5 #17-17 ⑰(b) — 행 표식은 3값이다: `true` 붙임 · `false` 뗌 · 없음 = 이전 값 유지. 불리언만 받는다.
+      const parallel = rec.parallel === true ? true : rec.parallel === false ? false : undefined;
+      out.push({
+        text,
+        ...(status ? { status } : {}),
+        ...(kind ? { kind } : {}),
+        ...(confidence ? { confidence } : {}),
+        ...(parallel !== undefined ? { parallel } : {}),
+      });
     }
     return out;
   }
@@ -3970,6 +4636,106 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
+  // ─── §5.5 #17-17 ⑪ 살아 있는 단계 지도 REST ───
+  //
+  // ⑪(d) — 단계 편집(`/steps`)은 **loopback 화이트리스트 밖**이다: 끼워 넣기는 사용자만 하는 일이고,
+  // 에이전트는 종전대로 `/progress` 로만 자기 목록을 갱신한다(⑤ 의 "목표는 사용자의 것" 유지).
+
+  /**
+   * ⑪(d) — PUT /api/session-goal/:agentId/:subId/steps — 사용자가 단계 목록을 통째로 다시 세운다.
+   *
+   * ⑲ — **새로 들어온 본문만** `authoredBy='user'` 로 선다(그래야 다음 턴에 세션이 자기 계획을
+   * 보내도 지워지지 않고, 주입 블록이 "네가 지울 수 없다"고 말할 근거가 된다). 재사용분은 원래
+   * 주인을 지킨다 — 순서·행 바꾸기도 이 문으로 오기 때문에, 통째로 박으면 노드 한 번 끄는 것으로
+   * 에이전트 단계 전부가 불멸이 되어 목록이 라운드마다 저절로 섞였다.
+   */
+  app.put('/api/session-goal/:agentId/:subId/steps', (req, res) => {
+    const { subId } = req.params;
+    const raw = Array.isArray(req.body?.steps) ? req.body.steps : null;
+    if (!raw) return res.status(400).json({ error: 'steps array required' });
+    const goal = graphManager.setUserGoalSteps(subId, raw);
+    if (!goal) return res.status(404).json({ error: 'goal not found' });
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, goal });
+  });
+
+  /**
+   * ⑪(i) — PUT /api/session-goal/:agentId/:subId/steps/:stepId/kind — 한 단계의 **종류만** 바꾼다.
+   *
+   * `/steps`(⑪(d)) 와 일부러 갈라 둔 문이다 — 그쪽은 목록을 통째로 다시 세우면서 **전부 사용자
+   * 소유로 바꾼다.** 종류를 고르는 것은 소유를 옮기는 일이 아니므로 여기로 온다. `kind` 를 비우면
+   * 종류가 떨어진다(중립 점으로 되돌아간다). loopback 화이트리스트 밖 — 고르는 것은 사용자다.
+   */
+  app.put('/api/session-goal/:agentId/:subId/steps/:stepId/kind', (req, res) => {
+    const { subId, stepId } = req.params;
+    const raw = req.body?.kind;
+    const kind = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+    const goal = graphManager.setGoalStepKind(subId, stepId, kind);
+    if (!goal) return res.status(404).json({ error: 'step not found' });
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, goal });
+  });
+
+  /**
+   * ⑪(a)(b) — PUT /api/visual-kind/:key — 종류 카드 생성·수정.
+   * 에이전트가 새 종류를 만들 때도 이 문으로 온다(글리프는 `sanitizeGlyphPath` 통과분만).
+   */
+  app.put('/api/visual-kind/:key', (req, res) => {
+    const card = graphManager.upsertVisualKind({
+      key: req.params.key,
+      label: typeof req.body?.label === 'string' ? req.body.label : undefined,
+      glyph: typeof req.body?.glyph === 'string' ? req.body.glyph : undefined,
+      color: typeof req.body?.color === 'string' ? req.body.color : undefined,
+      // ⑪(i) — 무대 세 칸. 검증(경로 문법·골격 목록·길이)은 전부 ProjectGraph 가 한다 —
+      //   여기서 한 번 더 거르면 규칙이 두 벌이 되어 한쪽만 고쳐지는 날이 온다.
+      scene: req.body?.scene,
+      surface: req.body?.surface,
+      blurb: req.body?.blurb,
+      // ⑪(m) — 밑그림 이름. 안 낸 칸만 채우므로 여기서도 검증 없이 그대로 넘긴다.
+      from: req.body?.from,
+    });
+    if (!card) return res.status(400).json({ error: 'invalid key' });
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, card });
+  });
+
+  /** ⑪(c) — POST /api/visual-kind/:key/pin — 고정·해제(고정한 카드는 시들지 않는다). */
+  app.post('/api/visual-kind/:key/pin', (req, res) => {
+    const card = graphManager.setVisualKindPinned(req.params.key, req.body?.pinned !== false);
+    if (!card) return res.status(404).json({ error: 'kind not found' });
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, card });
+  });
+
+  /** ⑪(c) — POST /api/visual-kind/:key/trash — 휴지통으로 보내거나 꺼낸다(씨앗은 버려지지 않는다). */
+  app.post('/api/visual-kind/:key/trash', (req, res) => {
+    const card = graphManager.setVisualKindTrashed(req.params.key, req.body?.trashed !== false);
+    if (!card) return res.status(404).json({ error: 'kind not found' });
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, card });
+  });
+
+  /**
+   * §5.5 #17-17 ⑫(b) — POST /api/goal-action/pin — 팔레트 한 칸 고정·해제.
+   *
+   * 팔레트 **목록을 고치는 문은 없다** — 목록은 배운 것에서 파생되므로 사용자가 칸을 만들거나
+   * 지우는 것이 아니라, 자주 쓰는 것이 저절로 오르고 안 쓰면 내려간다(⑫(a)). 사용자가 손댈 수
+   * 있는 것은 "이건 항상 앞에 둬라"뿐이고 그것이 이 문이다.
+   */
+  app.post('/api/goal-action/pin', (req, res) => {
+    const id = typeof req.body?.id === 'string' ? req.body.id.trim() : '';
+    if (!id) return res.status(400).json({ error: 'id required' });
+    const pinned = graphManager.setGoalActionPinned(id, req.body?.pinned !== false);
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, id, pinned });
+  });
+
   // ─── §5.5 #17-28 — 컨텍스트 주입원 통제 REST ───
   //
   // 조회는 **매번 다시 잰다**(캐시 ❌). 사용자가 이 창을 여는 순간이 "지금 무엇이 실리는가"를 묻는
@@ -3989,6 +4755,9 @@ export async function runServer(): Promise<RunServerHandle> {
     const projectPath = graphManager.getProjectPathForAgent(agentId) ?? graphManager.getRoot() ?? '';
     const cwd = graphManager.getAgentCwdByAgentId(agentId) ?? projectPath;
     const agentConfig = graphManager.getAgentConfig(agentId);
+    // §5.10 (O) — 자동 기억 폴더는 에이전트 설정 「기억」 범위를 따른다(스폰이 `prepareAgentSettings` 에 넘기는
+    //   것과 같은 입력). 안 넘기면 `user`/`project`/`local` 로 둔 에이전트의 표가 레포 공용 폴더를 잘못 센다.
+    const memoryDir = resolveAgentMemoryDirOverride(agentConfig?.memory, agentId, cwd);
     // 프롬프트를 만드는 그 함수로 잰다 — 표와 실제 주입이 갈라질 수 없는 유일한 방법.
     // Brain 브리핑은 **명령 본문으로 랭킹**되므로, 잴 때도 그 세션이 마지막에 받은 명령을 넣는다
     //   (목표 카드가 그 문장을 이미 들고 있어 새로 저장할 것이 없다). 없으면 상시 규칙만 잡힌다.
@@ -4009,6 +4778,7 @@ export async function runServer(): Promise<RunServerHandle> {
       parts: assembled.parts,
       ...(agentConfig ? { agentConfig } : {}),
       ...(graphManager.getContextOverrides() ? { overrides: graphManager.getContextOverrides() } : {}),
+      ...(memoryDir ? { memoryDir } : {}),
     });
     return { inventory, parts: assembled.parts };
   }
@@ -4096,9 +4866,18 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * 요청이 말한 층을 **정본 어휘로만** 받는다 — 모르는 값은 가장 넓은 층(프로젝트)으로 떨어진다.
+   * 층을 문자열 비교로 그때그때 판정하면(`scope === 'session'` 식) 층이 늘 때마다 분기가 갈라져
+   * 한 곳을 빠뜨리게 된다.
+   */
+  function parseContextScopeLevel(raw: unknown): ContextScopeLevel {
+    return CONTEXT_SCOPE_LEVELS.includes(raw as ContextScopeLevel) ? (raw as ContextScopeLevel) : 'project';
+  }
+
+  /**
    * PUT /api/context-overrides/:agentId — 주입원 한 줄의 켬/끔.
-   * body: `{ sourceId, enabled: boolean|null, scope: 'project'|'session', subAgentId? }`
-   * `enabled: null` 은 오버라이드 해제(기본값으로 되돌림).
+   * body: `{ sourceId, enabled: boolean|null, scope: 'project'|'agent'|'session', subAgentId? }`
+   * `enabled: null` 은 **그 층의** 명시값 해제(= 위층에서 물려받음).
    */
   app.put('/api/context-overrides/:agentId', (req, res) => {
     try {
@@ -4109,15 +4888,16 @@ export async function runServer(): Promise<RunServerHandle> {
       const enabled = body.enabled === null ? null : body.enabled === true ? true : body.enabled === false ? false : undefined;
       if (enabled === undefined) return res.status(400).json({ error: 'enabled must be boolean or null' });
 
-      const sessionScope = body.scope === 'session';
+      const level = parseContextScopeLevel(body.scope);
       const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
-      if (sessionScope && !subAgentId) return res.status(400).json({ error: 'subAgentId required for session scope' });
+      if (level === 'session' && !subAgentId) return res.status(400).json({ error: 'subAgentId required for session scope' });
+      // 프로젝트 층은 키가 있어야 걸린다. 못 구하면 **조용히 무시되지 않게** 여기서 되돌려 준다 —
+      //   저장은 안 됐는데 200 을 받으면 화면은 껐다고 믿고 프롬프트에는 계속 실린다.
+      const projectKey = graphManager.getAgentProjectName(agentId) ?? '';
+      if (level === 'project' && !projectKey) return res.status(409).json({ error: 'project key not resolved for agent' });
 
       graphManager.setContextOverride(
-        {
-          agentId,
-          ...(sessionScope ? { subAgentId } : { projectKey: graphManager.getAgentProjectName(agentId) ?? '' }),
-        },
+        { level, agentId, projectKey, ...(subAgentId ? { subAgentId } : {}) },
         sourceId,
         enabled,
       );
@@ -4130,18 +4910,19 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** DELETE /api/context-overrides/:agentId?scope=project|session&sub=… — 그 층을 전부 기본값으로. */
+  /** DELETE /api/context-overrides/:agentId?scope=project|agent|session&sub=… — 그 층만 비운다(위층은 그대로). */
   app.delete('/api/context-overrides/:agentId', (req, res) => {
     try {
       const { agentId } = req.params;
-      const sessionScope = req.query['scope'] === 'session';
+      const level = parseContextScopeLevel(req.query['scope']);
       const subAgentId = typeof req.query['sub'] === 'string' ? String(req.query['sub']) : '';
-      if (sessionScope && !subAgentId) return res.status(400).json({ error: 'sub required for session scope' });
-      graphManager.clearContextOverrides(
-        sessionScope
-          ? { subAgentId }
-          : { projectKey: graphManager.getAgentProjectName(agentId) ?? '' },
-      );
+      if (level === 'session' && !subAgentId) return res.status(400).json({ error: 'sub required for session scope' });
+      graphManager.clearContextOverrides({
+        level,
+        agentId,
+        projectKey: graphManager.getAgentProjectName(agentId) ?? '',
+        ...(subAgentId ? { subAgentId } : {}),
+      });
       broadcastSnapshot();
       saveCheckpoint();
       return res.json({ ok: true, overrides: graphManager.getContextOverrides() ?? null });
@@ -4171,6 +4952,27 @@ export async function runServer(): Promise<RunServerHandle> {
             ? { provider }
             : undefined;
       if (!graphManager.hasOpenProject()) return respondNoProjectFolder(res, 'create-custom-agent');
+      /*
+       * §5.3 #10 (판올림 번호 발급 대기) — **정원.** 이 창구는 §3.7 빌더 구축 경로라 loopback
+       *   토큰만 있으면 닿는데 개수 제한이 없었다. "끝나면 새 에이전트를 둘 만들어라" 한 줄이면
+       *   버블과 자식 프로세스가 기하급수로 늘고, 만들어진 자식이 같은 규칙을 물려받아 자기증식이
+       *   성립한다. 정원은 프로젝트별로 세고 **커스텀만** 센다 — 훅으로 붙은 외부 세션 버블은
+       *   우리가 띄운 것이 아니라 사용자의 에디터가 띄운 것이라 우리가 정원으로 막을 자리가 아니다.
+       */
+      const liveCustom = graphManager.getSnapshot().agents
+        .filter((a) => a.customCreated && graphManager.getAgentProjectName(a.id) === (project ?? graphManager.getPrimaryProjectName()))
+        .length;
+      if (liveCustom >= CUSTOM_AGENT_MAX_PER_PROJECT) {
+        logger.warn(`create-custom-agent refused — project already has ${liveCustom} custom agents (max ${CUSTOM_AGENT_MAX_PER_PROJECT})`);
+        res.status(429).json({
+          ok: false,
+          error: 'custom-agent-limit',
+          limit: CUSTOM_AGENT_MAX_PER_PROJECT,
+          current: liveCustom,
+          hint: 'Delete unused agent bubbles first, or raise the limit in the source constant.',
+        });
+        return;
+      }
       const agent = graphManager.createCustomAgent(label ?? '', position, project ?? null, options);
       if (!agent) return respondNoProjectFolder(res, 'create-custom-agent');
       broadcastSnapshot();
@@ -4254,899 +5056,13 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.10 Project Brain — 기억 카드 REST (CommentBox 관례 + 프로젝트 스코프) ───
-
-  /**
-   * §5.10 v2 (H) — **게이트 ④ REST.** 두뇌가 꺼진 프로젝트에서는 브레인 API 를 닫는다.
+  /*
+   * §5.10 — **기억 카드 REST 는 통째로 걷었다.**
    *
-   * 예외는 활성화 자체를 읽고 쓰는 `/api/brain/activation` 뿐이다 — 켜기 UI 가
-   * "몇 장이 잠들어 있는지"를 보여줘야 하므로 꺼진 상태에서도 답해야 한다.
-   * 이 미들웨어는 아래 브레인 라우트들보다 **먼저** 등록돼야 한다(Express 는 등록 순서로 매칭).
+   * 카드·주제·규칙·큐레이터·이주·근거·회상·파일 메모까지 37개 경로가 여기 있었다. 그것을 부르는
+   * 화면이 하나도 남지 않은 지금, 남겨 두면 화면 없는 열린 문이 될 뿐이다.
+   * 되풀이한 절차를 굳히는 일은 `/api/auto-goal/*` 다섯 경로가 이어받았다(위쪽, 정독 옆).
    */
-  app.use('/api/brain', (req, res, next) => {
-    if (req.path === '/activation') { next(); return; }
-    const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-    const root = graphManager.resolveBrainRoot(project);
-    if (brainEnabledFor(root)) { next(); return; }
-    res.status(403).json({ ok: false, error: 'brain-disabled' });
-  });
-
-  /**
-   * §5.10 v2 (H) — GET /api/brain/activation?project=
-   *
-   * 게이트를 통과하는 **유일한 예외**. 꺼져 있어도 답한다 — 응답의 `sleepingCardCount` 가
-   * 첫 실행 1회 안내("두뇌에 N장이 잠들어 있습니다 — 켤까요?")의 근거다.
-   * 카드 **본문은 싣지 않는다**(꺼진 두뇌의 내용이 새 나가지 않게).
-   */
-  app.get('/api/brain/activation', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) {
-        res.json({ root: null, enabled: false, activation: null, axes: [], sleepingCardCount: 0 });
-        return;
-      }
-      const activation = brainActivationFor(root);
-      let sleepingCardCount = 0;
-      try { sleepingCardCount = getBrainService(root).getSummary().cardCount; } catch { /* best effort */ }
-      res.json({
-        root,
-        enabled: activation?.enabled === true,
-        activation: activation ?? null,
-        axes: BRAIN_AXIS_IDS.map((id) => ({ id, enabled: brainAxisEnabledFor(root, id) })),
-        sleepingCardCount,
-      });
-    } catch (err) {
-      logger.error('GET /api/brain/activation failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v2 (H) — PUT /api/brain/activation — 마스터·축 켜고 끄기, 그리고 1회 안내 표시 기록.
-   *
-   * `prompted: true` 는 **거절했을 때도** 보낸다 — `promptedAt` 이 남아야 다시 묻지 않는다.
-   * 끄기는 동작 정지일 뿐이라 **카드 파일은 건드리지 않는다**(§5.11 "끄면 지우지 않는다" 승계).
-   */
-  app.put('/api/brain/activation', async (req, res) => {
-    try {
-      const body = (req.body ?? {}) as {
-        project?: string;
-        enabled?: boolean;
-        axes?: Record<string, unknown>;
-        prompted?: boolean;
-      };
-      const root = graphManager.resolveBrainRoot(typeof body.project === 'string' ? body.project : undefined);
-      if (!root) {
-        res.status(400).json({ ok: false, error: 'no project' });
-        return;
-      }
-      const prev = userDefaultsService.get().brainByProject ?? {};
-      // 플랫폼을 넘겨 linux 에서 케이스만 다른 두 프로젝트가 한 칸을 공유하지 않게 한다.
-      // (`resolveBrainProjectKey` 는 못 찾으면 예전 소문자 키도 한 번 더 본다 — 기존 설정 보존.)
-      const key = resolveBrainProjectKey(prev, root, process.platform);
-      const cur: BrainActivation = prev[key] ?? { enabled: false };
-      const next: BrainActivation = { ...cur };
-      if (typeof body.enabled === 'boolean') {
-        next.enabled = body.enabled;
-        if (body.enabled) next.enabledAt = Date.now();
-      }
-      if (body.axes && typeof body.axes === 'object') {
-        // 모르는 축 이름은 버린다 — 오타가 조용히 저장돼 영영 안 읽히는 스위치가 되는 것을 막는다.
-        const axes: Partial<Record<BrainAxisId, boolean>> = { ...cur.axes };
-        for (const id of BRAIN_AXIS_IDS) {
-          const v = body.axes[id];
-          if (typeof v === 'boolean') axes[id] = v;
-        }
-        next.axes = axes;
-      }
-      if (body.prompted === true) next.promptedAt = Date.now();
-      await userDefaultsService.update({ brainByProject: { ...prev, [key]: next } });
-      // 켜짐이 바뀌면 표시(게이트 ③)가 달라지므로 스냅샷을 다시 보낸다.
-      broadcastSnapshot();
-      res.json({ ok: true, root, activation: next });
-    } catch (err) {
-      logger.error('PUT /api/brain/activation failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  // ── §5.10 v2 (B) 스킬 자산 ───────────────────────────────────────────────
-  // 카드와 나란한 자산이라 라우트도 카드 옆에 둔다. 전부 위 게이트 ④ 안쪽이다
-  // (두뇌가 꺼진 프로젝트에서는 403 — 스킬도 두뇌의 일부다).
-
-  /** GET /api/brain/skills?project=&scope=&agentId=&includeArchived= — 스킬 목록. */
-  app.get('/api/brain/skills', (req, res) => {
-    try {
-      const root = graphManager.resolveBrainRoot(
-        typeof req.query.project === 'string' ? req.query.project : undefined,
-      );
-      if (!root) { res.json({ skills: [] }); return; }
-      const scope = req.query.scope === 'agent' ? 'agent' : req.query.scope === 'user' ? 'user' : undefined;
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      const skills = getBrainSkillService(root).listSkills({
-        ...(scope ? { scope } : {}),
-        ...(agentId ? { agentId } : {}),
-        ...(req.query.includeArchived === 'true' ? { includeArchived: true } : {}),
-      });
-      res.json({ skills });
-    } catch (err) {
-      logger.error('GET /api/brain/skills failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * POST /api/brain/skills — 절차를 굳힌다.
-   * 에이전트가 직접 부르는 자리이기도 하다(리플렉션이 뽑은 초안 · lesson 승급).
-   */
-  app.post('/api/brain/skills', (req, res) => {
-    try {
-      const b = (req.body ?? {}) as Record<string, unknown>;
-      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
-      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
-      const name = typeof b.name === 'string' ? b.name.trim() : '';
-      const description = typeof b.description === 'string' ? b.description.trim() : '';
-      const body = typeof b.body === 'string' ? b.body : '';
-      // agentskills.io 필수 두 필드가 없으면 스킬이 아니다 — 빈 껍데기를 만들지 않는다.
-      if (!name || !description || !body.trim()) {
-        res.status(400).json({ ok: false, error: 'name, description, body are required' });
-        return;
-      }
-      const scope: BrainCardScope = b.scope === 'agent' ? 'agent' : b.scope === 'user' ? 'user' : 'project';
-      const skill = getBrainSkillService(root).createSkill({
-        name,
-        description,
-        body,
-        scope,
-        ...(typeof b.id === 'string' ? { id: b.id } : {}),
-        ...(typeof b.agentId === 'string' ? { agentId: b.agentId } : {}),
-        ...(typeof b.topic === 'string' ? { topic: b.topic } : {}),
-        ...(Array.isArray(b.files) ? { files: b.files.filter((f): f is string => typeof f === 'string') } : {}),
-        ...(typeof b.sourceSessionId === 'string' ? { sourceSessionId: b.sourceSessionId } : {}),
-        ...(Array.isArray(b.originCardIds)
-          ? { originCardIds: b.originCardIds.filter((f): f is string => typeof f === 'string') }
-          : {}),
-      });
-      broadcastSnapshot();
-      res.json({ ok: true, skill });
-    } catch (err) {
-      logger.error('POST /api/brain/skills failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** PATCH /api/brain/skills/:id — 개정(옛 판은 보존된다). */
-  app.patch('/api/brain/skills/:id', (req, res) => {
-    try {
-      const b = (req.body ?? {}) as Record<string, unknown>;
-      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
-      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
-      const skill = getBrainSkillService(root).reviseSkill(String(req.params.id ?? ''), {
-        ...(typeof b.name === 'string' ? { name: b.name } : {}),
-        ...(typeof b.description === 'string' ? { description: b.description } : {}),
-        ...(typeof b.body === 'string' ? { body: b.body } : {}),
-        ...(typeof b.topic === 'string' ? { topic: b.topic } : {}),
-        ...(Array.isArray(b.files) ? { files: b.files.filter((f): f is string => typeof f === 'string') } : {}),
-      });
-      if (!skill) { res.status(404).json({ ok: false, error: 'not found' }); return; }
-      broadcastSnapshot();
-      res.json({ ok: true, skill });
-    } catch (err) {
-      logger.error('PATCH /api/brain/skills/:id failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** POST /api/brain/skills/:id/:action — activate | archive | helpful. */
-  app.post('/api/brain/skills/:id/:action', (req, res) => {
-    try {
-      const b = (req.body ?? {}) as Record<string, unknown>;
-      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
-      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
-      const svc = getBrainSkillService(root);
-      const id = String(req.params.id ?? '');
-      const action = String(req.params.action ?? '');
-      const skill = action === 'activate' ? svc.activateSkill(id)
-        : action === 'archive' ? svc.archiveSkill(id)
-          : action === 'helpful' ? svc.markHelpful(id)
-            : undefined;
-      if (skill === undefined) { res.status(400).json({ ok: false, error: 'unknown action' }); return; }
-      if (skill === null) { res.status(404).json({ ok: false, error: 'not found' }); return; }
-      broadcastSnapshot();
-      res.json({ ok: true, skill });
-    } catch (err) {
-      logger.error('POST /api/brain/skills/:id/:action failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * GET /api/brain/skill-candidates?project= — lesson 승급 후보.
-   * "같은 주제 lesson 이 N장 모였다 = 한 절차를 여러 번 다시 배우고 있다"는 신호다.
-   */
-  app.get('/api/brain/skill-candidates', (req, res) => {
-    try {
-      const root = graphManager.resolveBrainRoot(
-        typeof req.query.project === 'string' ? req.query.project : undefined,
-      );
-      if (!root) { res.json({ candidates: [] }); return; }
-      const cards = getBrainService(root).listCards({});
-      const candidates = getBrainSkillService(root).promotionCandidates(cards);
-      // 카드 본문은 목록에 싣지 않는다(스냅샷·목록은 요약만 — §9 perf 와 같은 규율).
-      res.json({
-        candidates: candidates.map((c) => ({
-          topic: c.topic,
-          scope: c.scope,
-          ...(c.agentId ? { agentId: c.agentId } : {}),
-          count: c.cards.length,
-          cards: c.cards.map((k) => ({ id: k.id, title: k.title })),
-        })),
-      });
-    } catch (err) {
-      logger.error('GET /api/brain/skill-candidates failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v2 (F) — GET /api/brain/curator?project= — **입양 대기 레일.**
-   *
-   * 실측에서 새는 자리가 셋이었다: `topic: misc` 102장(31%) · `refCount: 0` 263장(80%) ·
-   * `verifyState: candidate` 234장. 셋 다 "쌓였지만 쓰이지 않는" 상태이고, 흩어져 있으면
-   * 아무도 손대지 않는다. 한 화면에 모아 **사유별로** 보여 준다.
-   */
-  app.get('/api/brain/curator', (req, res) => {
-    try {
-      const root = graphManager.resolveBrainRoot(
-        typeof req.query.project === 'string' ? req.query.project : undefined,
-      );
-      if (!root) { res.json({ cards: [], counts: { misc: 0, unreferenced: 0, candidate: 0 } }); return; }
-      if (!brainAxisEnabledFor(root, 'curator')) {
-        res.status(403).json({ ok: false, error: 'brain-axis-disabled', axis: 'curator' });
-        return;
-      }
-      const all = getBrainService(root).listCards({});
-      const counts = { misc: 0, unreferenced: 0, candidate: 0 };
-      const picked: { card: (typeof all)[number]; reasons: string[] }[] = [];
-      for (const c of all) {
-        const reasons: string[] = [];
-        if (!c.topic || c.topic === BRAIN_TOPIC_MISC) { reasons.push('misc'); counts.misc++; }
-        if ((c.refCount ?? 0) === 0) { reasons.push('unreferenced'); counts.unreferenced++; }
-        if ((c.verifyState ?? 'candidate') === 'candidate') { reasons.push('candidate'); counts.candidate++; }
-        if (reasons.length > 0) picked.push({ card: c, reasons });
-      }
-      // 사유가 많은 것부터 — 세 가지에 다 걸린 카드가 가장 먼저 손댈 자리다.
-      picked.sort((a, b) => b.reasons.length - a.reasons.length || b.card.updatedAt - a.card.updatedAt);
-      res.json({
-        counts,
-        cards: picked.slice(0, BRAIN_CURATOR_PAGE_SIZE).map((p) => ({ ...p.card, curatorReasons: p.reasons })),
-        total: picked.length,
-      });
-    } catch (err) {
-      logger.error('GET /api/brain/curator failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v2 (E) — POST /api/brain/cards/:id/ground — 이 카드를 **지금 코드와 대조**한다.
-   *
-   * 통과하면 기존 승격 관문(`confirmCard`)이 `repository-source` 권위로 올린다.
-   * 실패해도 강등하지 않는다 — 증거를 못 찾은 것과 틀린 것은 다르다.
-   */
-  app.post('/api/brain/cards/:id/ground', (req, res) => {
-    try {
-      const b = (req.body ?? {}) as Record<string, unknown>;
-      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
-      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
-      if (!brainAxisEnabledFor(root, 'grounding')) {
-        res.status(403).json({ ok: false, error: 'brain-axis-disabled', axis: 'grounding' });
-        return;
-      }
-      const result = applyGrounding(root, String(req.params.id ?? ''));
-      if (!result) { res.status(404).json({ ok: false, error: 'not found' }); return; }
-      broadcastSnapshot();
-      res.json({ ok: true, result, card: getBrainService(root).getCard(String(req.params.id ?? '')) });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/ground failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v2 (C) — GET /api/brain/recall?q=&project= — **과거 세션 본문** 회상.
-   *
-   * 카드 검색(`/api/brain/search`)과 짝이지만 찾는 대상이 다르다: 카드는 리플렉션이 남길 만하다고
-   * 판단한 것만 있고, 이쪽은 **그때 실제로 오간 대화**다("그때 이거 어떻게 고쳤더라").
-   * 에이전트가 직접 부르는 자리라 loopback 화이트리스트에도 올라간다.
-   */
-  app.get('/api/brain/recall', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) { res.json({ hits: [] }); return; }
-      if (!brainAxisEnabledFor(root, 'recall')) {
-        // 조용히 빈 배열을 주면 "찾은 게 없다"와 구별이 안 된다 — 꺼져 있음을 말해 준다.
-        res.status(403).json({ ok: false, error: 'brain-axis-disabled', axis: 'recall' });
-        return;
-      }
-      const q = typeof req.query.q === 'string' ? req.query.q : '';
-      if (!q.trim()) { res.status(400).json({ ok: false, error: 'q is required' }); return; }
-      const limit = Number(req.query.limit);
-      const hits = recallFromSessions({
-        root,
-        cwd: root,
-        query: q,
-        ...(Number.isFinite(limit) && limit > 0 ? { options: { limit } } : {}),
-      });
-      res.json({ hits });
-    } catch (err) {
-      logger.error('GET /api/brain/recall failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-  /**
-   * GET /api/brain/feed?project=&scope=&agentId=&q= — v3.49 유튜브식 피드(우더블클릭 오버레이).
-   * ctx.text = q; agentId 가 있으면 그 에이전트가 최근 참조한 파일들을 ctx.files 로 실어 related 랭킹을 보정한다
-   * (graphManager.getAgentRecentFiles — best-effort, 없으면 파일 컨텍스트 생략). 읽기 전용(broadcast 없음).
-   */
-  app.get('/api/brain/feed', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const scope: BrainCardScope = req.query.scope === 'agent' ? 'agent' : 'project';
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ feed: { sections: { related: [], recent: [], frequent: [], resurface: [] }, totalCount: 0 } });
-      const files = scope === 'agent' && agentId ? graphManager.getAgentRecentFiles(agentId) : [];
-      const ctx = (q && q.trim()) || files.length > 0
-        ? { text: q && q.trim() ? q : undefined, files: files.length > 0 ? files : undefined }
-        : undefined;
-      const feed = getBrainService(root).getFeed({ scope, agentId, ctx });
-      res.json({ feed });
-    } catch (err) {
-      logger.error('GET /api/brain/feed failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.74 — GET /api/brain/topics?project= — 프로젝트 층 주제 색인(카드 있는 주제만).
-   * 스폰 브리핑에 실리는 것과 같은 목록. 에이전트는 색인의 `docPath` 를 Read 하거나 아래 :slug 로 받는다.
-   */
-  app.get('/api/brain/topics', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ topics: [] });
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      res.json({ topics: getBrainService(root).listTopicIndex(agentId) });
-    } catch (err) {
-      logger.error('GET /api/brain/topics failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.74 — GET /api/brain/topics/:slug?project= — 주제 문서 본문(마크다운).
-   * 파일을 직접 Read 할 수 없는 경로(원격·다른 cwd)를 위한 창구 — 내용은 문서 파일과 동일하게 렌더한다.
-   * 카드가 하나도 없는 주제는 404(빈 문서를 헛읽지 않게).
-   */
-  app.get('/api/brain/topics/:slug', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no brain root' });
-      const svc = getBrainService(root);
-      const slug = String(req.params.slug ?? '');
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      const cards = svc.listCardsByTopic(slug, agentId);
-      if (cards.length === 0) return res.status(404).json({ error: 'topic not found or empty' });
-      // 주제 문서 열람도 참조로 집계한다(브리핑 주입과 같은 기준 — 랭킹 신선도에 반영).
-      svc.touchReferences(cards.map((c) => c.id));
-      // v3.75 — UI(기억 라이브러리)는 카드별 버튼(👍·편집)이 필요해 JSON 을 쓰고,
-      //   에이전트는 마크다운 문서를 그대로 읽는다. 같은 데이터의 두 표현.
-      if (req.query.format === 'json') return res.json({ cards });
-      res.type('text/markdown; charset=utf-8').send(svc.renderTopicDoc(slug, agentId));
-    } catch (err) {
-      logger.error('GET /api/brain/topics/:slug failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** GET /api/brain/cards?scope=&agentId=&project= — 카드 목록(본문 포함, lazy fetch). */
-  app.get('/api/brain/cards', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
-        ? (req.query.scope as BrainCardScope) : undefined;
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ cards: [] });
-      res.json({ cards: getBrainService(root).listCards({ scope, agentId }) });
-    } catch (err) {
-      logger.error('GET /api/brain/cards failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** POST /api/brain/cards — 수동 저장("두뇌에 기억"). 중복 검사 창구 경유. */
-  app.post('/api/brain/cards', (req, res) => {
-    try {
-      const body = (req.body ?? {}) as Partial<BrainCardInput> & { project?: string };
-      const type = body.type as BrainCardType;
-      const scope = body.scope as BrainCardScope;
-      if (!type || (scope !== 'project' && scope !== 'agent') || typeof body.title !== 'string' || !body.title.trim()) {
-        return res.status(400).json({ error: 'type/scope/title required' });
-      }
-      const root = graphManager.resolveBrainRoot(body.project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).saveCard({
-        type,
-        scope,
-        agentId: scope === 'agent' ? body.agentId : undefined,
-        title: body.title,
-        body: typeof body.body === 'string' ? body.body : '',
-        files: Array.isArray(body.files) ? body.files.filter((f): f is string => typeof f === 'string') : [],
-        sourceSessionId: typeof body.sourceSessionId === 'string' ? body.sourceSessionId : undefined,
-        pinned: body.pinned === true,
-        seen: true, // 사용자가 직접 만든 카드는 이미 "본" 것.
-      });
-      graphManager.notifyBrainChanged(body.project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** PATCH /api/brain/cards/:id — 부분 편집(undefined 필드는 유지 — PUT-wipe 회피). */
-  app.patch('/api/brain/cards/:id', (req, res) => {
-    try {
-      const { id } = req.params;
-      const body = (req.body ?? {}) as Partial<BrainCard> & { project?: string };
-      const root = graphManager.resolveBrainRoot(body.project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).updateCard(id, {
-        type: body.type,
-        title: body.title,
-        body: body.body,
-        files: body.files,
-        sourceSessionId: body.sourceSessionId,
-        pinned: body.pinned,
-        status: body.status,
-        seen: body.seen,
-        // §5.10 v3.74 — 주제 재지정(오분류 교정) + 상시 규칙 토글. 프로젝트 층 rule 에서만 의미.
-        topic: body.topic,
-        always: body.always,
-      });
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(body.project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('PATCH /api/brain/cards failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** DELETE /api/brain/cards/:id — 카드 삭제(파괴적 — 클라에서 확인 후). */
-  app.delete('/api/brain/cards/:id', (req, res) => {
-    try {
-      const { id } = req.params;
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const ok = getBrainService(root).deleteCard(id);
-      if (!ok) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true });
-    } catch (err) {
-      logger.error('DELETE /api/brain/cards failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** POST /api/brain/cards/:id/promote — 개별(agent) 카드를 프로젝트 두뇌로 승격(이동). */
-  app.post('/api/brain/cards/:id/promote', (req, res) => {
-    try {
-      const { id } = req.params;
-      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).promoteCard(id);
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/promote failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** POST /api/brain/cards/:id/seen — "최근 저장" 검토함 확인(배지 카운트 감소). */
-  app.post('/api/brain/cards/:id/seen', (req, res) => {
-    try {
-      const { id } = req.params;
-      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).markSeen(id);
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/seen failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * POST /api/brain/cards/:id/helpful — v3.49 사용자 👍 "도움됨"(helpfulCount++). 파일은 디바운스 flush 로 영속.
-   * **broadcast/saveCheckpoint 없음**(helpfulCount 는 스냅샷 요약에 없어 재계산 불요 — 비용 절감). 캐시만 무효화.
-   */
-  app.post('/api/brain/cards/:id/helpful', (req, res) => {
-    try {
-      const { id } = req.params;
-      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).markHelpful(id);
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/helpful failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.78 — GET /api/brain/needs-check?project=&scope=&agentId= — **"확인 필요"** 목록.
-   * 연결 파일이 수정돼 앵커가 깨진 카드들. 기억 화면 주제 레일 맨 위 특수 항목의 데이터원.
-   */
-  app.get('/api/brain/needs-check', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ cards: [] });
-      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
-        ? (req.query.scope as BrainCardScope) : undefined;
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      res.json({ cards: getBrainService(root).listNeedsCheck({ scope, agentId }) });
-    } catch (err) {
-      logger.error('GET /api/brain/needs-check failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.78 — GET /api/brain/archive?project=&scope=&agentId= — **"정리됨"** 되돌림 목록.
-   * 예산제로 보관된 카드들(파일은 `archive/` 에 그대로 있다 — 삭제된 게 아니다).
-   */
-  app.get('/api/brain/archive', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ cards: [] });
-      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
-        ? (req.query.scope as BrainCardScope) : undefined;
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      res.json({ cards: getBrainService(root).listArchived({ scope, agentId }) });
-    } catch (err) {
-      logger.error('GET /api/brain/archive failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.81-B — GET /api/brain/current?project= — **현재 진실 인덱스**(계산 결과).
-   * 슬롯별 상태(current/contested/none)와 다투는 카드 id 를 그대로 내려준다.
-   */
-  app.get('/api/brain/current', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ entries: [] });
-      res.json({ entries: getBrainService(root).listCurrentEntries() });
-    } catch (err) {
-      logger.error('GET /api/brain/current failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.81 — GET /api/brain/review-queue?project=&scope=&agentId= — **사람의 판단을 기다리는 카드**
-   * (후보·충돌·확인 필요). 기억 화면 주제 레일의 특수 항목 데이터원.
-   */
-  app.get('/api/brain/review-queue', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ cards: [], contested: [] });
-      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
-        ? (req.query.scope as BrainCardScope) : undefined;
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      const svc = getBrainService(root);
-      res.json({ cards: svc.listReviewQueue({ scope, agentId }), contested: svc.listContested() });
-    } catch (err) {
-      logger.error('GET /api/brain/review-queue failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.81 — POST /api/brain/cards/:id/confirm — **사용자 명시 승인**(후보 → 현재 진실).
-   * 같은 슬롯의 옛 진실은 §C 순서로 닫힌다(새 카드 먼저 쓰고 → 옛 카드 닫기). 삭제 ❌.
-   */
-  app.post('/api/brain/cards/:id/confirm', (req, res) => {
-    try {
-      const body = (req.body ?? {}) as { project?: string; reviewAfter?: number };
-      const root = graphManager.resolveBrainRoot(body.project);
-      if (!root) return res.status(404).json({ error: 'no brain root' });
-      const card = getBrainService(root).confirmCard(String(req.params.id ?? ''), {
-        authority: 'user-explicit',
-        ...(typeof body.reviewAfter === 'number' ? { reviewAfter: body.reviewAfter } : {}),
-      });
-      if (!card) return res.status(404).json({ error: 'not found' });
-      graphManager.notifyBrainChanged(body.project);
-      broadcastSnapshot();
-      res.json({ card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/confirm failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** §5.10 v3.81 — POST /api/brain/cards/:id/reject — 사용자 거부(파일 보존, 영구 주입 제외). */
-  app.post('/api/brain/cards/:id/reject', (req, res) => {
-    try {
-      const body = (req.body ?? {}) as { project?: string };
-      const root = graphManager.resolveBrainRoot(body.project);
-      if (!root) return res.status(404).json({ error: 'no brain root' });
-      const card = getBrainService(root).rejectCard(String(req.params.id ?? ''));
-      if (!card) return res.status(404).json({ error: 'not found' });
-      graphManager.notifyBrainChanged(body.project);
-      broadcastSnapshot();
-      res.json({ card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/reject failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.81 단계 ⑨ — POST /api/brain/migrate/apply — **이행 적용**(frontmatter 필드 추가만).
-   *
-   * 본문·기존 값·파일 위치를 건드리지 않고 `canonicalKey`·`appliesTo`·`authority`·`verifyState` 만
-   * 채운다. 기본은 **엄격안**(전부 `candidate`) — `verifyIntactFacts` 를 켤 때만 출처가 온전한
-   * `fact` 를 `repository-source` 권위로 올린다. 재실행해도 결과가 같다(이미 키가 있으면 건너뜀).
-   */
-  app.post('/api/brain/migrate/apply', (req, res) => {
-    try {
-      const body = (req.body ?? {}) as {
-        project?: string;
-        resolutions?: Record<string, { canonicalKey?: string; appliesTo?: Record<string, string> }>;
-        verifyIntactFacts?: boolean;
-        dryRun?: boolean;
-      };
-      const root = graphManager.resolveBrainRoot(body.project);
-      if (!root) return res.status(404).json({ error: 'no brain root' });
-      const result = applyBrainMigration(getBrainService(root), root, {
-        resolutions: body.resolutions ?? {},
-        verifyIntactFacts: body.verifyIntactFacts === true,
-        dryRun: body.dryRun === true,
-      });
-      graphManager.notifyBrainChanged(body.project);
-      broadcastSnapshot();
-      res.json(result);
-    } catch (err) {
-      logger.error('POST /api/brain/migrate/apply failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.81 단계 ① — GET /api/brain/migrate/dry-run?project= — **읽기 전용 이행 감사.**
-   *
-   * 저장고(Evidence)/SSOT(Canonical) 분리 전에 지금 카드가 어느 쪽 자격인지 세어 보는 보고서.
-   * **파일을 쓰지 않는다** — 카드 상태도 바꾸지 않고, 같은 카드 집합이면 몇 번을 돌려도 같은 결과다.
-   * 닫힌 카드·보관 카드까지 전부 넘긴다(이행 대상은 "지금 보이는 것"이 아니라 저장고 전량이므로).
-   */
-  app.get('/api/brain/migrate/dry-run', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no brain root' });
-      const cards = getBrainService(root).listCards({ includeClosed: true, includeArchived: true });
-      res.json(analyzeBrainMigration(cards, root));
-    } catch (err) {
-      logger.error('GET /api/brain/migrate/dry-run failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** §5.10 v3.78 — GET /api/brain/cards/:id/chain?project= — 대체 이력 체인(옛 카드 ↔ 새 카드). */
-  app.get('/api/brain/cards/:id/chain', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ older: [], newer: [] });
-      res.json(getBrainService(root).getSupersedeChain(String(req.params.id ?? '')));
-    } catch (err) {
-      logger.error('GET /api/brain/cards/:id/chain failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.78 — POST /api/brain/cards/:id/verify — "지금도 맞음". 앵커를 현재 해시로 다시 박고
-   * 확인 필요를 해제한다. 사용자 버튼 채널(에이전트 채널은 작업 신고 `helpfulMemoryIds`).
-   */
-  app.post('/api/brain/cards/:id/verify', (req, res) => {
-    try {
-      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).reverifyCard(String(req.params.id ?? ''));
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      broadcastSnapshot();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/verify failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * §5.10 v3.78 — POST /api/brain/cards/:id/stale — "낡음". 대체 후보로 적립하고 누적되면 자동 보관.
-   * 파일 삭제 ❌ — "정리됨"에서 되돌릴 수 있다(자동 삭제 금지 원칙 준수).
-   */
-  app.post('/api/brain/cards/:id/stale', (req, res) => {
-    try {
-      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).markStale(String(req.params.id ?? ''));
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/stale failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /** §5.10 v3.78 — POST /api/brain/cards/:id/restore — "정리됨" 되돌리기(보관 → 활성). */
-  app.post('/api/brain/cards/:id/restore', (req, res) => {
-    try {
-      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.status(404).json({ error: 'no project root' });
-      const card = getBrainService(root).restoreCard(String(req.params.id ?? ''));
-      if (!card) return res.status(404).json({ error: 'card not found' });
-      graphManager.notifyBrainChanged(project);
-      broadcastSnapshot();
-      saveCheckpoint();
-      res.json({ ok: true, card });
-    } catch (err) {
-      logger.error('POST /api/brain/cards/:id/restore failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * GET /api/brain/search?q=&scope=&agentId=&project= — 능동 검색(두 층 합산, 경량 텍스트).
-   * loopback 화이트리스트에 포함(에이전트가 토큰 인증으로 직접 호출). 참조 카운트 갱신.
-   */
-  app.get('/api/brain/search', (req, res) => {
-    try {
-      const q = typeof req.query.q === 'string' ? req.query.q : '';
-      if (!q.trim()) return res.json({ results: [] });
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
-        ? (req.query.scope as BrainCardScope) : undefined;
-      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ results: [] });
-      const svc = getBrainService(root);
-      // §5.10 v3.81-G — **기본 검색은 현재 진실만.** 저장고 전체를 뒤지려면 `all=1` 을 명시해야 한다
-      //   (기억 화면은 사람이 자기 기록을 보는 곳이라 항상 all=1 을 붙인다). 에이전트가 무심코
-      //   검색했다가 미검증 후보를 현재 규칙으로 읽는 일을 막는 자리.
-      const includeAll = req.query.all === '1' || req.query.all === 'true';
-      const found = svc.search(q, { scope, agentId });
-      const currentIds = includeAll ? null : new Set(svc.selectCurrent({ agentId }).map((c) => c.id));
-      const results = currentIds ? found.filter((c) => currentIds.has(c.id)) : found;
-      if (results.length > 0) {
-        svc.touchReferences(results.map((c) => c.id));
-        // 능동 검색 주입 신호(스냅샷 칩 연출). agentId 있을 때만 귀속.
-        if (agentId) {
-          const ev: BrainInjectionEvent = {
-            id: randomUUID(),
-            agentId,
-            at: Date.now(),
-            cardIds: results.map((c) => c.id),
-            cardTitles: results.map((c) => c.title),
-            trigger: 'search',
-          };
-          graphManager.addBrainInjection(ev);
-        }
-        graphManager.notifyBrainChanged(project);
-      }
-      // 결과에 출처 층 표시(scope 필드가 이미 층 정보). 본문 포함.
-      res.json({ results });
-    } catch (err) {
-      logger.error('GET /api/brain/search failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  /**
-   * POST /api/brain/file-notes — 파일 접근 경고(hook PostToolUse Edit/Write). loopback 화이트리스트.
-   * un-warned 실수/교훈 카드가 그 파일에 매칭되면 {warning} 반환(세션+파일당 1회), 아니면 204.
-   * **broadcast 금지**(§9 perf — per-tool-event). O(map lookup) — LLM/스캔 없음.
-   *
-   * §5.10 v3.78 — 이 경로가 **코드 변경 기반 무효화**의 유일한 방아쇠다. Edit/Write 를 전수로 받는
-   * 자리가 여기뿐이라, 경고를 낼지 말지(세션당 1회 가드)와 **무관하게** 먼저 앵커를 무효화한다.
-   * 가드 뒤에 두면 같은 파일을 두 번째 고칠 때부터 무효화가 통째로 사라진다(고질병 ②의 재발 지점).
-   */
-  app.post('/api/brain/file-notes', (req, res) => {
-    try {
-      const body = (req.body ?? {}) as { session_id?: string; file_path?: string };
-      const sessionId = typeof body.session_id === 'string' ? body.session_id : '';
-      const filePath = typeof body.file_path === 'string' ? body.file_path : '';
-      if (!sessionId || !filePath) return res.status(204).end();
-      const root = graphManager.getAgentCwd(sessionId) ?? graphManager.getRoot();
-      if (!root) return res.status(204).end();
-      const svc = getBrainService(root);
-      // ① 무효화 먼저 — 경고 가드보다 앞. 상태가 실제로 바뀐 카드가 있으면 요약(needsCheckCount)을
-      //    다시 계산해야 하므로 캐시만 무효화한다(broadcast 는 하지 않는다 — per-tool-event 라 비싸다).
-      if (svc.noteFilesEdited([filePath]) > 0) graphManager.notifyBrainChanged();
-      // ② 경고는 종전대로 세션+파일당 1회.
-      const warnKey = `${sessionId}::${normPathForWarn(filePath)}`;
-      if (BRAIN_FILE_WARN_ONCE_PER_SESSION && brainFileWarned.has(warnKey)) return res.status(204).end();
-      const cards = svc.getCardsForFiles([filePath]);
-      if (cards.length === 0) return res.status(204).end();
-      brainFileWarned.add(warnKey);
-      svc.touchReferences(cards.map((c) => c.id));
-      const agentId = graphManager.findAgentIdBySession(sessionId);
-      if (agentId) {
-        graphManager.addBrainInjection({
-          id: randomUUID(),
-          agentId,
-          at: Date.now(),
-          cardIds: cards.map((c) => c.id),
-          cardTitles: cards.map((c) => c.title),
-          trigger: 'file',
-        });
-        graphManager.notifyBrainChanged();
-      }
-      // §5.10 v3.81-H — 실수/교훈은 **경험 계층**이라 그 자체로 현재 규칙이 아니다. 경고는 계속
-      //   보내되(같은 실수 반복 차단이 이 경로의 존재 이유) "참고"임을 머리에 명시한다.
-      const warning = [
-        `[Project Brain · 참고 — 과거 경험] 이 파일에 연결된 실수/교훈 ${cards.length}건이 있습니다.`
-        + ` 검증된 현재 규칙이 아니라 과거 기록이니 지금 코드와 대조해서 참고하세요:`,
-        ...cards.map((c) => `- [${c.id}] (${c.type}) ${c.title}${c.body ? `: ${c.body.split('\n')[0]}` : ''}${svc.staleHint(c)}`),
-      ].join('\n');
-      res.json({ warning });
-    } catch (err) {
-      logger.error('POST /api/brain/file-notes failed', err);
-      res.status(204).end();
-    }
-  });
 
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 (캔버스 우클릭 메뉴) */
   app.post('/api/create-auto-agent', (req, res) => {
@@ -6455,28 +6371,74 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const sessionId = graphManager.findSessionByAgentId(agentId);
+      // 실패 표식은 **버블이 아니라 sub 에 걸려 있다.** 부모 버블의 `error` 는
+      // `recomputeCustomAgentStatus` 가 `subs.some(s => s.status === 'error')` 로 매 스윕(10초)
+      // 다시 만들어 내는 파생값이라, 버블만 idle 로 내리면 그 자리에서 빨강이 되살아난다
+      // (사용자 보고 "확인해서 껐는데 프로젝트를 오가면 다시 빨간불"). 근거를 함께 걷어야
+      // 확인이 확인으로 남는다. 세션 유무와 무관하므로 아래 `if (sessionId)` 밖에서 부른다.
+      const clearedErrors = subAgentManager.acknowledgeErrorSubs(agentId);
       let purged = 0;
+      let wasSessionEnd = false;
       if (sessionId) {
         // 확인 dismiss 는 이제 `idle` 잔상 버블에서도 온다(§2.4 — 종료·크래시로 남은 것을
         // 눌러서 걷는 길). 그 클릭은 "세션이 방금 끝났다"가 아니므로 아래 두 가지를 가른다.
         const statusBefore = graphManager.getAgentBySession(sessionId)?.status;
-        const wasSessionEnd = statusBefore === 'completed' || statusBefore === 'error';
+        wasSessionEnd = statusBefore === 'completed' || statusBefore === 'error';
         purged = agentTracker.dismiss(sessionId).length;
-        // §5.10 — 리플렉션은 **진짜 세션 종료 신호**에만 예약한다(실패 무시). idle 잔상을 누를
-        //   때마다 걸면 클릭 한 번이 리플렉션 한 벌이 되어 토큰이 샌다.
-        if (wasSessionEnd) triggerBrainReflection(sessionId);
-        // markAgentIdle 이 파일/폴더 엣지를 삭제 → 클라에 즉시 반영해야
-        // 완료 에이전트 dismiss 시 폴더 버블이 화면에서 사라진다(고정 제외).
-        // 형제 변이 엔드포인트와 동일하게 broadcast + saveCheckpoint 쌍으로 마감.
-        // 걷을 것도 끝낼 세션도 없었으면(이미 idle + 전유 버블 0) 저장까지 갈 이유가 없다.
-        if (wasSessionEnd || purged > 0) {
-          broadcastSnapshot();
-          saveCheckpoint();
-        }
       }
-      res.json({ ok: true, purged });
+      // markAgentIdle 이 파일/폴더 엣지를 삭제 → 클라에 즉시 반영해야
+      // 완료 에이전트 dismiss 시 폴더 버블이 화면에서 사라진다(고정 제외).
+      // 형제 변이 엔드포인트와 동일하게 broadcast + saveCheckpoint 쌍으로 마감.
+      // 걷을 것도 끝낼 세션도 없었으면(이미 idle + 전유 버블 0 + 실패 sub 0) 저장까지 갈 이유가 없다.
+      // `clearedErrors` 를 조건에 넣지 않으면 sub 의 `error` 가 디스크에 남아 재기동 때 되살아난다.
+      if (wasSessionEnd || purged > 0 || clearedErrors > 0) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+      res.json({ ok: true, purged, clearedErrors });
     } catch (err) {
       logger.error('POST /api/dismiss-agent failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/usage-limit-ack — §2.4 (한도 정지) **사용자가 주황불을 확인했다.**
+   *
+   * body `{ subAgentIds?: string[], agentIds?: string[] }` — 둘 다 줘도 되고 합집합으로 걷는다.
+   *  · `subAgentIds` : 세션 하나를 콕 짚은 손짓(탭 클릭·목록 줄).
+   *  · `agentIds`    : 그 버블에 달린 **멈춘 세션 전부**(에이전트 줄 클릭·"전부 확인").
+   *
+   * **어느 세션을 걷을지는 서버가 정한다** — 클라는 대상만 가리키고, "그게 지금 멈춰 있는가"는
+   * `listUsageLimitedSubIds` 가 판정한다(§3.1 서버 = SSOT).
+   *
+   * 표식은 체크포인트에 실리므로(§5.5 #17-47 (C) — 앱을 껐다 켜도 참인 사실이라 일부러 살려 둔다)
+   * 걷었으면 **반드시 저장까지 간다**. 저장을 빼면 재기동 때 확인이 없던 일이 된다
+   * (`/api/dismiss-agent` 의 `clearedErrors` 가 같은 이유로 저장 조건에 들어가 있다).
+   */
+  app.post('/api/usage-limit-ack', (req, res) => {
+    try {
+      const body = req.body as { subAgentIds?: unknown; agentIds?: unknown } | undefined;
+      const asIds = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+      const subIds = asIds(body?.subAgentIds);
+      const agentIds = asIds(body?.agentIds);
+      if (subIds.length === 0 && agentIds.length === 0) {
+        res.status(400).json({ error: 'subAgentIds or agentIds required' });
+        return;
+      }
+      const targets = new Set<string>(subIds);
+      for (const agentId of agentIds) {
+        for (const id of subAgentManager.listUsageLimitedSubIds(agentId)) targets.add(id);
+      }
+      const cleared = subAgentManager.acknowledgeUsageLimits(targets);
+      if (cleared.length > 0) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+      res.json({ ok: true, cleared });
+    } catch (err) {
+      logger.error('POST /api/usage-limit-ack failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -6597,8 +6559,20 @@ export async function runServer(): Promise<RunServerHandle> {
    * §5.5 #17-10 v3.53 — 이제 이 라우트는 **스코프를 좁힐 세션이 없는 메인 탭 전용**이다.
    * 세션 탭이 열려 있을 때의 [중지] 는 위 `/:subId/stop-session` 으로 간다(다른 탭 보호).
    */
-  app.post('/api/subagents/:agentId/stop-all', (req, res) => {
-    const { agentId } = req.params;
+  /**
+   * 위 3단 중지의 **몸통** — 에이전트 하나에 적용한다.
+   *
+   * `POST /api/subagents/:agentId/stop-all` 과 §5.4 #14-3 프로젝트 탭 닫기 확인 팝업의 [닫기] 가
+   * 같은 함수를 쓴다. 두 벌로 나뉘면 한쪽만 고쳐져 "[중지]로 멈춘 것과 탭을 닫아 멈춘 것이 다르다"가
+   * 된다(§2.1 셸 토크나이저 한 벌과 같은 규율). broadcast·저장은 **호출자가** 한 번만 한다 —
+   * 프로젝트 단위로 수십 개를 돌 때 에이전트마다 스냅샷을 뿌리면 그 자체가 부하다.
+   */
+  function stopAllSessionsForAgent(agentId: string): {
+    stopped: number;
+    cancelledQueued: number;
+    sealedExecuting: number;
+    loopsStopped: number;
+  } {
     const stopped = subAgentManager.stopAll(agentId);
     // §5.5 #17-11 v3.79 — 이 에이전트의 모든 세션 루프도 함께 끈다(전체 중지의 의미 그대로).
     const loopsStopped = stopSessionLoopsForAgent(agentId);
@@ -6635,13 +6609,61 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
 
-    logger.info(
-      `[stop-all] agent=${agentId} stoppedSubs=${stopped.length} cancelledQueued=${cancelledQueued} sealedExecuting=${sealedExecuting} loopsStopped=${loopsStopped}`,
-    );
     graphManager.recomputeCustomAgentStatus(agentId);
+    return { stopped: stopped.length, cancelledQueued, sealedExecuting, loopsStopped };
+  }
+
+  app.post('/api/subagents/:agentId/stop-all', (req, res) => {
+    const { agentId } = req.params;
+    const r = stopAllSessionsForAgent(agentId);
+
+    logger.info(
+      `[stop-all] agent=${agentId} stoppedSubs=${r.stopped} cancelledQueued=${r.cancelledQueued} sealedExecuting=${r.sealedExecuting} loopsStopped=${r.loopsStopped}`,
+    );
     broadcastSnapshot();
     saveCheckpoint();
-    res.json({ ok: true, stopped: stopped.length, cancelledQueued, sealedExecuting, loopsStopped });
+    res.json({ ok: true, ...r });
+  });
+
+  /**
+   * §5.4 #14-3 — POST /api/projects/:name/stop-agents — **탭 하나(또는 전체)의 에이전트를 멈춘다.**
+   *
+   * 프로젝트 탭 × 확인 팝업의 [닫기] 가 부르는 자리다. 클라가 에이전트 목록을 만들어 하나씩 부르지
+   * 않는 이유는 §3.1(서버 = SSOT) 이다 — 배경 탭의 에이전트 버블은 클라 스냅샷에 안 실려 오는
+   * 경우가 있어(§9 스코프드 구독) 클라가 세면 "멈출 게 없다"가 되고, 정작 프로세스는 살아남는다.
+   *
+   * body `{ scope: 'project' | 'all' }` — `'all'` 이면 팝업의 **모든 에이전트 강제 종료** 옵션이라
+   * 열려 있는 모든 인스턴스를 훑는다. 도는 게 없어도 200(멱등) — 두 번 눌러도 에러가 뜨지 않게.
+   */
+  app.post('/api/projects/:name/stop-agents', (req, res) => {
+    try {
+      const ref = decodeURIComponent(req.params.name);
+      const scope = (req.body as { scope?: string } | undefined)?.scope === 'all' ? 'all' : 'project';
+      const agentIds = graphManager.listAgentIdsForProject(scope === 'all' ? null : ref);
+
+      let stopped = 0;
+      let cancelledQueued = 0;
+      let sealedExecuting = 0;
+      let loopsStopped = 0;
+      for (const agentId of agentIds) {
+        const r = stopAllSessionsForAgent(agentId);
+        stopped += r.stopped;
+        cancelledQueued += r.cancelledQueued;
+        sealedExecuting += r.sealedExecuting;
+        loopsStopped += r.loopsStopped;
+      }
+
+      logger.info(
+        `[stop-agents] scope=${scope} ref=${ref} agents=${agentIds.length} stoppedSubs=${stopped} cancelledQueued=${cancelledQueued} sealedExecuting=${sealedExecuting} loopsStopped=${loopsStopped}`,
+      );
+      // broadcast·저장은 여기서 **한 번만** — 에이전트마다 뿌리면 그 자체가 부하다.
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, scope, agents: agentIds.length, stopped, cancelledQueued, sealedExecuting, loopsStopped });
+    } catch (err) {
+      logger.error('POST /api/projects/:name/stop-agents failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   /**
@@ -6677,6 +6699,9 @@ export async function runServer(): Promise<RunServerHandle> {
     graphManager.deleteSessionGoal(subId);
     // §5.5 #17-28 v4.96 — 그 탭에만 걸어 둔 주입원 오버라이드도 함께(좀비 설정 차단 — 같은 규칙).
     graphManager.deleteContextOverridesForSession(subId);
+    // §5.11 정독 게이트 — 읽기 영수증 원장도 같은 수명이다. 남겨 두면 없는 탭의 정독 숫자가
+    //   활동바·정독 뷰에 계속 뜬다(닫은 탭의 좀비 상태 — 루프·목표와 같은 규칙).
+    specReadingService.forget(subId);
     broadcastSnapshot();
     saveCheckpoint();
     res.json({ ok: true });
@@ -6707,6 +6732,8 @@ export async function runServer(): Promise<RunServerHandle> {
       graphManager.deleteSessionGoal(id);
       // §5.5 #17-28 v4.96 — 세션 층 오버라이드도 동반 삭제.
       graphManager.deleteContextOverridesForSession(id);
+      // §5.11 정독 게이트 — 원장도 동반 삭제(개별 DELETE 경로와 같은 규칙).
+      specReadingService.forget(id);
     }
     if (removed > 0) {
       broadcastSnapshot();
@@ -6778,23 +6805,6 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  /** POST /api/subagents/:agentId/:subId/summary — §5.5 #17-8 v2.95 세션 자기요약.
-   *  카드가 없는 세션을 요약 보드에서 한 줄로 보여주기 위해, 그 세션의 claude 대화를 `--resume` 해
-   *  헤드리스 1턴 한국어 요약을 받아 `{ ok, text }` 로 반환. 표시 전용 — 그래프 상태/체크포인트 무관. */
-  app.post('/api/subagents/:agentId/:subId/summary', async (req, res) => {
-    const { agentId, subId } = req.params;
-    try {
-      const result = await subAgentManager.summarizeSession(agentId, subId);
-      if (!result.ok) {
-        res.status(result.error === 'no-conversation' ? 404 : 502).json(result);
-        return;
-      }
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
   /** GET /api/subagent-streams/:agentId — 에이전트 전체 서브에이전트 스트림 버퍼 (IDE 열 때 초기 데이터).
    *  버퍼는 emit 시점에 디스크 append-only로 기록되므로(streamBufferStore), 서버 재시작 후에도 live와 동일한 타임라인이 복원된 상태다. */
   app.get('/api/subagent-streams/:agentId', (req, res) => {
@@ -6815,6 +6825,41 @@ export async function runServer(): Promise<RunServerHandle> {
     // 부모 id 를 함께 넘긴다 — 복원 직후처럼 그 sub 가 아직 index 에 없어도 디스크에서 읽어 준다
     // (빈 배열이 나가면 클라가 얕은 창에 갇혀 대화 중간이 빈 채로 굳는다).
     res.json({ events: subAgentManager.getStreamBuffer(subId, agentId) });
+  });
+
+  /**
+   * GET /api/codex-image/:agentId/:subId/:eventId — §5.25 (O) 엔진이 대화에 내건 그림 한 장.
+   *
+   * **클라가 준 경로를 열지 않는다.** 여는 파일은 오직 **우리 스트림이 스스로 적어 둔 것**이다 —
+   * 이벤트 id 로 그 세션의 스트림을 되짚어 거기 적힌 `imagePath` 만 연다. 그래서 이 문으로는
+   * 코덱스가 그 대화에서 실제로 보여 준 그림 말고는 아무것도 나오지 않는다(경로를 인자로 받으면
+   * 그 순간 이 라우트는 "아무 파일이나 읽어 주는 문"이 된다 — 시연 프레임 라우트가 `rel` 을
+   * 레코드와 대조하는 것과 같은 규율).
+   *
+   * 스트림은 디스크에 남고 `getStreamBuffer` 가 그것을 되읽으므로, **서버를 껐다 켜도** 옛 대화의
+   * 그림이 그대로 뜬다(따로 등록부를 두면 그 등록부만 사라지는 날이 온다).
+   */
+  app.get('/api/codex-image/:agentId/:subId/:eventId', (req, res) => {
+    const { agentId, subId, eventId } = req.params;
+    const events = subAgentManager.getStreamBuffer(subId, agentId);
+    const hit = events.find((e) => e.id === eventId);
+    const filePath = hit?.imagePath ?? '';
+    if (!filePath) { res.status(404).json({ error: 'not found' }); return; }
+    // 스트림에 적혔더라도 다시 한 번 본다 — 적히는 쪽이 느슨해지는 날 이 문이 함께 느슨해지지 않게.
+    if (!isCodexImageFile(filePath)) { res.status(403).json({ error: 'not an image' }); return; }
+    const resolved = path.resolve(filePath);
+    // 그림은 사용자의 기계 곳곳에 있다(프로젝트 폴더·코덱스 홈·임시 폴더) — 폴더로 가둘 수 없어
+    //   **기록과의 일치**가 유일한 관문이다. 그 대신 심볼릭 링크로 새어 나가지 않게 실경로로 편다.
+    let real: string;
+    try {
+      real = fs.realpathSync(resolved);
+    } catch {
+      res.status(404).json({ error: 'file missing' }); return;
+    }
+    if (!isCodexImageFile(real)) { res.status(403).json({ error: 'not an image' }); return; }
+    const ext = real.slice(real.lastIndexOf('.') + 1).toLowerCase();
+    res.type(ext === 'jpg' ? 'image/jpeg' : `image/${ext}`);
+    fs.createReadStream(real).pipe(res);
   });
 
   /** PATCH /api/bubble/:nodeId/label — 버블 이름 변경 */
@@ -6838,14 +6883,12 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── Skills Discovery ───
 
-  interface SkillInfo {
-    name: string;
-    description: string;
-    /** project = 프로젝트 `.claude`, global = 홈 `~/.claude`(모든 프로젝트 공통), plugin = 설치 플러그인. */
-    source: 'project' | 'global' | 'plugin';
-    /** 플러그인 스킬일 때 소속 플러그인 이름 (예: "claude-code-harness", "frontend-design") */
-    pluginName?: string;
-  }
+  /**
+   * §5.5 #17-2/#17-4 — 목록 한 줄. 정의는 `@vibisual/shared` 의 `AvailableSkill` 하나이고
+   * (#17-33 ⑦ 에서 `installed`/`enabled`/`pluginId` 가 붙었다) 여기서는 별칭만 둔다 —
+   * 서버와 화면이 각자 모양을 들면 새 칸이 한쪽에만 생겨 조용히 어긋난다.
+   */
+  type SkillInfo = AvailableSkill;
 
   /** SKILL.md frontmatter에서 name/description 파싱 */
   function parseSkillMd(filePath: string): { name: string; description: string } | null {
@@ -6935,6 +6978,87 @@ export async function runServer(): Promise<RunServerHandle> {
     return results;
   }
 
+  // ─── §5.5 #17-33 ⑦ — "이 플러그인 스킬이 실제로 실리는가" 판정 ───
+  //
+  // 종전 목록은 `~/.claude/plugins/marketplaces/**` 폴더를 그대로 훑어 **깔지도 켜지도 않은
+  // 스킬까지** plugin 그룹에 실었다. 고르면 프롬프트 앞에 `/이름` 이 붙어 나가지만(`skillsPrefix`)
+  // CLI 는 그 슬래시를 풀지 못한다 — 화면은 "있다" 고 하고 실제로는 안 먹는 자리였다.
+  // #17-33 ② 가 세운 "진실은 CLI 자신의 답" 을 이 목록도 따르게 한다.
+
+  /**
+   * 플러그인 설치·활성 상태 메모.
+   *
+   * `/api/claude-plugins`(플러그인 창) 은 ② 대로 **캐시 없이** 매번 CLI 에 다시 묻는다 — 그 화면의
+   * 새로고침이 곧 그 호출이기 때문이다. 반면 이 목록은 IDE 를 열 때마다, 세션 입력창을 띄울 때마다
+   * 불리므로 그때마다 461ms 짜리 스폰을 태울 수 없다. **소비자가 다르면 계약도 다르다** — 여기서만
+   * 짧게 들고, 플러그인을 바꾸는 아홉 동작과 자동 갱신이 끝날 때 **한 곳에서** 버린다.
+   */
+  const pluginStateCache = new Map<string, { at: number; inv: ClaudePluginInventory }>();
+  const PLUGIN_STATE_TTL_MS = 60_000;
+
+  /** 메모를 버린다 — 플러그인 상태를 바꾼 모든 자리가 이 하나를 부른다(빠뜨리면 목록이 옛 상태로 굳는다). */
+  function invalidatePluginStateCache(): void {
+    pluginStateCache.clear();
+  }
+  // 자동 갱신이 끝나면(마켓을 끌어왔거나 설치본을 올렸으면) 목록도 다시 세어야 한다.
+  onClaudePluginRefreshed(invalidatePluginStateCache);
+
+  async function getPluginState(projectPath: string): Promise<ClaudePluginInventory | null> {
+    const key = pathKey(projectPath);
+    const hit = pluginStateCache.get(key);
+    if (hit && Date.now() - hit.at < PLUGIN_STATE_TTL_MS) return hit.inv;
+    const inv = await scanClaudePlugins(projectPath);
+    // 못 물었으면 메모하지 않는다 — 사유를 60초 동안 붙들면 CLI 가 돌아와도 목록이 안 살아난다.
+    if (inv.unavailable) return null;
+    pluginStateCache.set(key, { at: Date.now(), inv });
+    return inv;
+  }
+
+  /** 스킬 한 줄에 새길 날것 세 칸 — 접는 것은 화면이 아니라 shared 의 `resolveSkillPluginState` 다. */
+  type SkillPluginStatus = { id: string; installed: boolean; enabled: boolean; placement?: ClaudePluginPlacement };
+
+  /** 같은 이름이 여러 자리에 깔렸을 때 **이 세션에 실제로 오는 쪽**이 이긴다. 클수록 이긴다. */
+  function skillStatusRank(st: SkillPluginStatus): number {
+    if (st.placement === 'other-project') return 0;
+    return st.enabled ? 2 : 1;
+  }
+
+  /**
+   * 플러그인 이름 → 이 세션에서의 상태. CLI 에 못 물었으면 `null` 을 돌려주고, 그때는
+   * **아무 표식도 달지 않는다** — "안 깔렸다" 고 잘못 적어 멀쩡한 스킬에 설치 단추를 붙이는 것이
+   * 목록이 잠깐 비는 것보다 나쁘다.
+   */
+  async function pluginSkillStatus(
+    projectPath: string | null,
+  ): Promise<Map<string, SkillPluginStatus> | null> {
+    if (!projectPath) return null;
+    const inv = await getPluginState(projectPath);
+    if (!inv) return null;
+    const byName = new Map<string, SkillPluginStatus>();
+    // 깔린 것 먼저 — 같은 이름이 마켓에도 있으면 **깔린 쪽이 이긴다**(그것이 실제로 도는 것이다).
+    for (const p of inv.installed) {
+      const cand: SkillPluginStatus = {
+        id: p.id,
+        installed: true,
+        // 깔림과 켜짐은 다른 상태이고(③), 남의 프로젝트에 매인 것은 켜져 있어도 이 세션엔 안 온다.
+        enabled: p.enabled && placementAppliesHere(p.placement),
+        // ⑦ — 화면이 `꺼짐`(사용자가 끔)과 `다른 프로젝트`(여기엔 설치본이 없음)를 가르는 칸.
+        // 이 칸이 없으면 둘이 같은 `enabled:false` 로 접혀 뒤쪽에 틀린 처방(`enable`)이 나간다.
+        placement: p.placement,
+      };
+      // 같은 플러그인이 **여러 자리에 깔려 있을 수 있다**(user 한 벌 + 남의 프로젝트 한 벌).
+      // 그냥 덮어쓰면 CLI 가 준 순서에 따라 멀쩡한 것이 남의 자리 것에 밀려 사라진다 —
+      // 이 세션에 실제로 오는 쪽을 남긴다.
+      const prev = byName.get(p.name);
+      if (!prev || skillStatusRank(cand) > skillStatusRank(prev)) byName.set(p.name, cand);
+    }
+    for (const m of inv.market) {
+      if (byName.has(m.name)) continue;
+      byName.set(m.name, { id: m.id, installed: false, enabled: false });
+    }
+    return byName;
+  }
+
   /**
    * GET /api/available-skills — 프로젝트 + 설치 플러그인 스킬 목록.
    * §5.5 #17-2/#17-4 v2.59 — `?agent=<id>`(권위) 또는 `?project=<name>` 지정 시 그 프로젝트의
@@ -6990,7 +7114,28 @@ export async function runServer(): Promise<RunServerHandle> {
       logger.info(`[skills] agent="${agentParam}" project="${projectParam}" → path=${scopedPath ?? 'null'} dirs=${projectDirs.length} projectSkills=${projectSkillCount} globalSkills=${skills.length - projectSkillCount}`);
 
       // 2) 설치된 플러그인 스킬: ~/.claude/plugins/marketplaces/*/
+      //
+      // 카탈로그(무엇이 있는가)는 여전히 이 폴더에서 읽는다 — 마켓 클론은 스킬 본문을 들고 있는
+      // 유일한 자리이고, 여기서 읽는 것은 파일일 뿐이라 값이 싸다. **바뀐 것은 그 다음이다**:
+      // 읽은 항목마다 #17-33 ⑦ 의 판정(`pluginSkillStatus`)을 붙여 **깔렸는지·켜졌는지**를 함께
+      // 싣는다. 종전에는 이 표식이 없어, 안 깔린 스킬을 고르면 프롬프트에 `/이름` 만 붙고
+      // CLI 는 그것을 풀지 못한 채 평문으로 흘려보냈다.
       const pluginsBase = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces');
+      const pluginStatus = await pluginSkillStatus(scopedPath);
+      /** 카탈로그 한 줄에 이 세션에서의 상태를 새긴다. CLI 에 못 물었으면 아무 표식도 안 단다. */
+      const markPluginSkill = (s: SkillInfo, pluginName: string): SkillInfo => {
+        if (!pluginStatus) return s;
+        const st = pluginStatus.get(pluginName);
+        // 마켓에도 설치본에도 없는 폴더(사용자가 손으로 넣은 것 등)는 판정 대상이 아니다.
+        if (!st) return s;
+        return {
+          ...s,
+          pluginId: st.id,
+          installed: st.installed,
+          enabled: st.enabled,
+          ...(st.placement ? { placement: st.placement } : {}),
+        };
+      };
       try {
         if (fs.existsSync(pluginsBase)) {
           // 마켓플레이스 → 플러그인 → skills/ 탐색
@@ -7001,7 +7146,7 @@ export async function runServer(): Promise<RunServerHandle> {
             const topSkills = path.join(mpDir, 'skills');
             const pluginLabel = marketplace.name.replace(/-marketplace$/, '');
             for (const s of scanSkillsDir(topSkills, 'plugin', pluginLabel)) {
-              if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
+              if (!seen.has(s.name)) { seen.add(s.name); skills.push(markPluginSkill(s, pluginLabel)); }
             }
             // plugins/ 하위 (claude-plugins-official 등)
             const pluginsSubDir = path.join(mpDir, 'plugins');
@@ -7011,7 +7156,7 @@ export async function runServer(): Promise<RunServerHandle> {
                   if (!plugin.isDirectory()) continue;
                   const pSkills = path.join(pluginsSubDir, plugin.name, 'skills');
                   for (const s of scanSkillsDir(pSkills, 'plugin', plugin.name)) {
-                    if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
+                    if (!seen.has(s.name)) { seen.add(s.name); skills.push(markPluginSkill(s, plugin.name)); }
                   }
                 }
               }
@@ -7019,6 +7164,24 @@ export async function runServer(): Promise<RunServerHandle> {
           }
         }
       } catch { /* ignore */ }
+
+      /*
+       * §5.5 #17-2 (보강) — **이 프로젝트에서 슬래시가 꺼져 있는가.**
+       *
+       * 꺼져 있으면 스폰마다 `--disable-slash-commands` 가 붙어 아래 `skills`·`builtins` 가
+       * **전부** 거절된다(내장 명령도 — 실측 2.1.263). 드롭다운은 그 축을 아예 몰라 죽은 목록을
+       * 멀쩡히 그렸다. 판정은 주입원 표를 그리는 그 함수 그대로다(두 벌이 되면 화면과 실제가 갈린다).
+       * 목록을 **걸러내지는 않는다** — 무엇이 있었는지는 그대로 보이고, 안 된다는 사실만 더한다.
+       */
+      const slashProjectKey = agentParam
+        ? graphManager.getAgentProjectName(agentParam)
+        : (projectParam || null);
+      const slashCommandsEnabled = isContextSourceOn(
+        graphManager.getContextOverrides(),
+        { projectKey: slashProjectKey, agentId: agentParam || null, subAgentId: null },
+        CONTEXT_SOURCE_IDS.slashCommands,
+        true,
+      );
 
       // §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령은 별도 배열로. skills 에 섞지 않아
       // Skills 사이드바(#17-4)는 불변, `/` 자동완성 드롭다운만 병행 표시한다.
@@ -7028,6 +7191,7 @@ export async function runServer(): Promise<RunServerHandle> {
         builtins: BUILTIN_SLASH_COMMANDS,
         order: appStateGetSkillOrder(),
         favorites: appStateGetSkillFavorites(),
+        slashCommandsEnabled,
       });
     } catch (err) {
       logger.error('GET /api/available-skills failed', err);
@@ -7349,24 +7513,80 @@ export async function runServer(): Promise<RunServerHandle> {
         while (nextHistory.length > RULES_HISTORY_MAX) nextHistory.shift();
       }
 
+      /*
+       * §5.3 #12-1 — **권한 축은 사용자만 올린다.**
+       *
+       * 이 창구는 §3.7 빌더 구축 경로라 loopback 토큰만 있으면 닿고, 그 토큰은 우리가 스폰한
+       * 에이전트의 env·프롬프트에 실려 나간다 — 토큰 보유가 곧 사용자 의사가 아니다. 표식은
+       * desktop main 의 리스너가 재디스패치 직전에 **덮어써서** 심는다(클라가 보낸 같은 이름의
+       * 헤더는 신뢰하지 않는다). 판정 자체는 화면 없이 시험되는 shared 순수 함수 한 곳에 있다.
+       */
+      const fromLoopback = req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE;
+      const guarded = applyIngressPermissionGuard(
+        {
+          permissionMode: typeof body.permissionMode === 'string' ? body.permissionMode : base.permissionMode,
+          tools,
+          disallowedTools: Array.isArray(body.disallowedTools)
+            ? body.disallowedTools.filter((t): t is string => typeof t === 'string')
+            : undefined,
+          // §5.3 #12-1-A — 도구별 확인 목록. `disallowedTools` 와 같은 규약(창은 항상 전량을 보낸다).
+          askTools: Array.isArray(body.askTools)
+            ? body.askTools.filter((t): t is string => typeof t === 'string')
+            : undefined,
+        },
+        prev
+          ? {
+              permissionMode: prev.permissionMode,
+              tools: [...prev.tools],
+              disallowedTools: prev.disallowedTools,
+              askTools: prev.askTools,
+            }
+          : undefined,
+        fromLoopback,
+      );
+      // 막은 것은 조용히 넘기지 않는다 — 아무 기록이 없으면 "왜 안 먹었나"를 되짚을 수 없다.
+      if (guarded.frozen.length > 0) {
+        logger.warn(
+          `agent-config(${agentId}): loopback ingress tried to change ${guarded.frozen.join(', ')} — kept previous values (§5.3 #12-1)`,
+        );
+      }
+      if (guarded.downgraded) {
+        logger.warn(
+          `agent-config(${agentId}): loopback ingress asked for bypassPermissions — stored acceptEdits instead (§5.3 #12-1)`,
+        );
+      }
+
       const config: AgentConfig = {
         model: typeof body.model === 'string' ? body.model : base.model,
-        tools,
-        permissionMode: typeof body.permissionMode === 'string' ? body.permissionMode : base.permissionMode,
+        tools: guarded.tools,
+        permissionMode: guarded.permissionMode,
         skills: Array.isArray(body.skills) ? body.skills.filter((s): s is string => typeof s === 'string') : [...base.skills],
         color: typeof body.color === 'string' ? body.color : undefined,
         maxTurns: typeof body.maxTurns === 'number' ? body.maxTurns : undefined,
         isolation: typeof body.isolation === 'string' ? body.isolation : undefined,
         effort: typeof body.effort === 'string' ? body.effort : undefined,
-        disallowedTools: Array.isArray(body.disallowedTools) ? body.disallowedTools.filter((t): t is string => typeof t === 'string') : undefined,
+        disallowedTools: guarded.disallowedTools,
+        /*
+         * §5.3 #12-1-A — 도구별 확인 목록. **여기 없으면 저장할 때마다 사라진다.**
+         *
+         * 이 핸들러는 body 로 `AgentConfig` 한 벌을 새로 짓고 `setAgentConfig` 는 저장분을 병합
+         * 없이 통째로 갈아치운다. 그래서 이 칸이 빠져 있던 동안에는 설정창이 목록을 제대로
+         * 보내도 매 저장마다 조용히 비워졌고, `shouldAskForTool` 은 늘 false 를 냈다 —
+         * 화면에는 "켰는데 안 먹는다"로만 보인다. `PUT → GET` 왕복 회귀가 이 자리를 지킨다.
+         */
+        askTools: guarded.askTools,
         memory: normalizeAgentMemoryScope(body.memory),
         // §5.3 v4.89 — 서브에이전트 중첩 깊이. 범위를 벗어난 값은 저장하지 않는다(CLI 기본 3층 유지).
         subagentDepth: normalizeSubagentDepth(body.subagentDepth),
-        rules: nextRules.trim() ? nextRules : undefined,
+        // §4 (설정 3층) — 빈 규칙을 `undefined` 로 접으면 **위층이 깔아 둔 규칙을 이 버블에서
+        //   지울 수 없다**(저장분에 키가 없으면 읽는 순간 위층이 도로 얹힌다). 빈 문자열은
+        //   기본값과 대조돼 필요할 때만 남는다.
+        rules: nextRules,
         rulesHistory: nextHistory.length > 0 ? nextHistory : undefined,
         // §5.3 #12-1 v1.87 — permissionPromptMode/permissionPromptAllowPatterns 제거. 권한 축은 permissionMode 단일.
         // §5.3 #12-1 v1.90 — 60초 무응답 fallback. 'deny' 만 유효, 그 외(기본)는 undefined=allow 로 저장.
-        permissionTimeoutPolicy: body.permissionTimeoutPolicy === 'deny' ? 'deny' : undefined,
+        permissionTimeoutPolicy: body.permissionTimeoutPolicy === 'deny' ? 'deny'
+          : body.permissionTimeoutPolicy === 'allow' ? 'allow' : undefined,
         // §5.3 #28 v1.47 — Custom Mode (conti/review/debug). 그 외는 undefined.
         customMode: incomingCustomMode,
         // §4 v1.53 — 1M 컨텍스트 토글. **기본 1M** (undefined → 1M 적용).
@@ -7376,6 +7596,13 @@ export async function runServer(): Promise<RunServerHandle> {
         contextWindow: body.contextWindow === '200k' ? '200k' : body.contextWindow === '1m' ? '1m' : undefined,
         // §4 v1.53 — 프리셋 트레이스 메타. 값 검증은 클라에 위임(자유 문자열).
         presetId: typeof body.presetId === 'string' && body.presetId.trim() ? body.presetId.trim() : undefined,
+        /*
+         * §4 v2.38 — 모델 풀ID 핀. **여기 없으면 저장할 때마다 사라진다** — `askTools` 와 같은
+         * 사고이며(이 핸들러는 body 로 한 벌을 새로 짓고 저장은 통째로 갈아치운다), 그동안 설정
+         * 창에서 버전을 박아도 다음 저장 한 번에 alias 로 되돌아갔다. `''` 는 alias=latest 라
+         * 빈 문자열을 그대로 받아야 위층의 핀을 이 버블에서 풀 수 있다.
+         */
+        modelVersion: typeof body.modelVersion === 'string' ? body.modelVersion.trim() : undefined,
         // §4 v2.63 — executionMode 는 에이전트 정체성(CMD vs 헤드리스)이라 AgentConfigPopup 이 보내지 않는다.
         //   PUT 이 config 를 새로 빌드하므로 여기서 prev 값을 명시 보존하지 않으면 설정 저장 시 CMD→커스텀 으로
         //   되돌아간다(회귀). body 에 명시값이 오면 그걸, 아니면 이전 값을 유지.
@@ -7392,7 +7619,8 @@ export async function runServer(): Promise<RunServerHandle> {
         //   저장하는 순간 고른 CLI 가 조용히 claude 로 되돌아가는 것을 막는다.
         cliKind: CMD_CLI_KINDS.some((k) => k.value === body.cliKind) ? (body.cliKind as CmdCliKind) : prev?.cliKind,
         // §4 v2.88 — API 비용 상한(달러). 양수만 저장, 그 외(0/미설정)는 undefined = 무제한.
-        maxBudgetUsd: typeof body.maxBudgetUsd === 'number' && body.maxBudgetUsd > 0 ? body.maxBudgetUsd : undefined,
+        //   0 = 무제한. 위층이 건 상한을 이 버블에서 푸는 표기라 그대로 받는다(음수만 버린다).
+        maxBudgetUsd: typeof body.maxBudgetUsd === 'number' && body.maxBudgetUsd >= 0 ? body.maxBudgetUsd : undefined,
         // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택. 알 수 없는 id 는 여기서 걸러 두면
         //   스폰 인자 조립(`prepareMcpConfig`)이 옛 설정에 흔들리지 않는다. `executionMode` 와
         //   같은 이유로 **body 에 없으면 이전 값을 유지**한다 — 이 필드를 모르는 창(에이전트
@@ -7400,42 +7628,78 @@ export async function runServer(): Promise<RunServerHandle> {
         mcpServers: Array.isArray(body.mcpServers)
           ? body.mcpServers.filter((id): id is string => typeof id === 'string' && !!findMcpPreset(id))
           : prev?.mcpServers,
-        // §4 (CLI 사양 추종) — 설치된 CLI 가 받는 신규 옵션들. 값 검증은 여기서 좁게 하고
-        //   (알 수 없는 값은 저장하지 않는다 = 플래그 미전달), 실제 인자 조립은 `buildConfigArgs` 한 곳.
-        fallbackModel: typeof body.fallbackModel === 'string' && body.fallbackModel.trim()
-          ? body.fallbackModel.trim() : undefined,
-        autoCompact: typeof body.autoCompact === 'string' && AVAILABLE_AUTOCOMPACT_VALUES.includes(body.autoCompact.trim()) && body.autoCompact.trim()
+        /*
+         * §4 (설정 3층) — 설치된 CLI 가 받는 옵션들. 값 검증은 여기서 좁게 하고, 실제 인자
+         * 조립은 `buildConfigArgs` 한 곳이다.
+         *
+         * ⚠ **"안 보냈다"와 "비워서 보냈다"를 가른다.** 저장은 `sparsifyAgentConfig` 가 위층
+         * (설정 창 › Agent Defaults)과 대조해 갈라진 칸만 남기는데, 빈 값을 `undefined` 로
+         * 접으면 그 비교에 **아예 오르지 못한다** — 저장분에 키가 없으니 읽는 순간 위층이 도로
+         * 얹히고, 사용자 눈에는 "껐는데 프로젝트 설정을 계속 따라간다"로 보인다. 그래서 키가
+         * **있으면** 그 값을(빈 값 포함) 그대로 받고, **없을 때만** undefined 다 — 키를 일부만
+         * 보내는 경로(루프백 빌더)는 종전대로 위층을 따른다.
+         */
+        fallbackModel: typeof body.fallbackModel === 'string' ? body.fallbackModel.trim() : undefined,
+        //   `''` 는 목록의 첫 값 = "미설정(위층을 따름)" 이라 유효값이다. 알 수 없는 값만 버린다.
+        autoCompact: typeof body.autoCompact === 'string' && AVAILABLE_AUTOCOMPACT_VALUES.includes(body.autoCompact.trim())
           ? body.autoCompact.trim() : undefined,
         // §4 (CLI 사양 추종) — 턴 경계 압축은 스위치가 아니라 `autoCompact` 값에서 파생된다(합쳐진 축).
         //   여기 남은 것은 **에이전트가 스스로 부르는** 직교 축 하나뿐이다.
-        agentCanCompact: body.agentCanCompact === true ? true : undefined,
-        excludeDynamicSystemPromptSections: body.excludeDynamicSystemPromptSections === true ? true : undefined,
+        agentCanCompact: typeof body.agentCanCompact === 'boolean' ? body.agentCanCompact : undefined,
+        excludeDynamicSystemPromptSections: typeof body.excludeDynamicSystemPromptSections === 'boolean' ? body.excludeDynamicSystemPromptSections : undefined,
         settingSources: Array.isArray(body.settingSources)
-          ? (() => {
-              const picked = body.settingSources.filter((s): s is string => typeof s === 'string' && AVAILABLE_SETTING_SOURCES.includes(s));
-              return picked.length > 0 ? picked : undefined;
-            })()
+          ? body.settingSources.filter((s): s is string => typeof s === 'string' && AVAILABLE_SETTING_SOURCES.includes(s))
           : undefined,
-        safeMode: body.safeMode === true ? true : undefined,
+        safeMode: typeof body.safeMode === 'boolean' ? body.safeMode : undefined,
         // §4 (Fast 모드) — settings 키로만 켜지는 축(플래그 아님). 모델 지원 여부는 저장이 아니라
         //   스폰부(`wantsFastMode`)가 판정한다 — 사용자가 모델을 Opus 로 되돌리면 값이 그대로 살아난다.
-        fastMode: body.fastMode === true ? true : undefined,
-        // §4 (Thinking on/off) — 사고도 settings 키로만 꺼지는 축이며 **기본이 켬**이라,
-        //   명시 `false` 만 저장한다(미지정·true = 켬 = 키를 안 만든다 = 종전과 같은 스폰).
-        thinking: body.thinking === false ? false : undefined,
-        // §4 (스트림 3종) — ①은 **기본 켬**이라 저장 규약이 반대다: 명시 `false` 만 남기고
-        //   그 밖(미지정·true)은 undefined = 켬. ②③은 평범하게 true 만 저장한다.
-        forwardSubagentText: body.forwardSubagentText === false ? false : undefined,
-        replayUserMessages: body.replayUserMessages === true ? true : undefined,
-        promptSuggestions: body.promptSuggestions === true ? true : undefined,
-        // §4 (CLI 사양 추종) — Bash 타임아웃(ms). 범위를 벗어나면 저장하지 않는다(= 미설정 = CLI 기본).
-        bashDefaultTimeoutMs: normalizeBashTimeoutMs(body.bashDefaultTimeoutMs),
-        bashMaxTimeoutMs: normalizeBashTimeoutMs(body.bashMaxTimeoutMs),
+        fastMode: typeof body.fastMode === 'boolean' ? body.fastMode : undefined,
+        // §4 (Thinking on/off) — 사고도 settings 키로만 꺼지는 축이며 **기본이 켬**이다. 위층이
+        //   꺼 둔 것을 이 버블에서 켜려면 명시 `true` 가 저장돼야 하므로 둘 다 받는다.
+        thinking: typeof body.thinking === 'boolean' ? body.thinking : undefined,
+        // §4 (스트림 3종) — ①은 기본 켬, ②③은 기본 끔. 방향은 달라도 규약은 하나다.
+        forwardSubagentText: typeof body.forwardSubagentText === 'boolean' ? body.forwardSubagentText : undefined,
+        replayUserMessages: typeof body.replayUserMessages === 'boolean' ? body.replayUserMessages : undefined,
+        promptSuggestions: typeof body.promptSuggestions === 'boolean' ? body.promptSuggestions : undefined,
+        /*
+         * §4 (CLI 사양 추종) — 훅 생명주기를 스트림에 끼운다(`--include-hook-events`).
+         * **여기 없으면 저장할 때마다 사라진다** — `subAgentManager` 가 실제로 읽어 플래그를
+         * 붙이는 축인데 이 핸들러가 짓지 않아, 켜도 다음 저장 한 번에 도로 꺼졌다.
+         */
+        includeHookEvents: typeof body.includeHookEvents === 'boolean' ? body.includeHookEvents : undefined,
+        // §4 (CLI 사양 추종) — Bash 타임아웃(ms). 0/범위 밖은 미설정이고, 그 0 이 위층의
+        //   타임아웃을 이 버블에서 푸는 표기라 키가 오면 그대로 받는다.
+        bashDefaultTimeoutMs: body.bashDefaultTimeoutMs === undefined ? undefined : (normalizeBashTimeoutMs(body.bashDefaultTimeoutMs) ?? 0),
+        bashMaxTimeoutMs: body.bashMaxTimeoutMs === undefined ? undefined : (normalizeBashTimeoutMs(body.bashMaxTimeoutMs) ?? 0),
+        /*
+         * §5.3 #9-1 (J~M) — 이 에이전트만의 토큰 절약. 숫자 축은 **0 이 "전역을 따른다"** 는
+         * 표기라 그대로 받아 저장한다(범위 클램프는 `buildTokenSaverEnv` 가 env 를 만들 때 건다 —
+         * 판정을 두 곳에 두면 한쪽만 고쳐져 어긋난다).
+         */
+        bashMaxOutputChars: typeof body.bashMaxOutputChars === 'number' ? Math.max(0, Math.floor(body.bashMaxOutputChars)) : undefined,
+        mcpMaxOutputTokens: typeof body.mcpMaxOutputTokens === 'number' ? Math.max(0, Math.floor(body.mcpMaxOutputTokens)) : undefined,
+        maxOutputTokens: typeof body.maxOutputTokens === 'number' ? Math.max(0, Math.floor(body.maxOutputTokens)) : undefined,
+        maxThinkingTokens: typeof body.maxThinkingTokens === 'number' ? Math.max(0, Math.floor(body.maxThinkingTokens)) : undefined,
+        autoCompactPct: typeof body.autoCompactPct === 'number' ? Math.max(0, Math.min(100, Math.floor(body.autoCompactPct))) : undefined,
+        disableNonEssentialModelCalls: typeof body.disableNonEssentialModelCalls === 'boolean' ? body.disableNonEssentialModelCalls : undefined,
         betas: Array.isArray(body.betas)
-          ? (() => {
-              const picked = body.betas.filter((b): b is string => typeof b === 'string' && b.trim().length > 0).map((b) => b.trim());
-              return picked.length > 0 ? picked : undefined;
-            })()
+          ? body.betas.filter((b): b is string => typeof b === 'string' && b.trim().length > 0).map((b) => b.trim())
+          : undefined,
+        /*
+         * §4 (CLI 사양 추종) — 세션 한정 서브에이전트 정의(`--agents`)와 플러그인 폴더
+         * (`--plugin-dir`). 둘 다 **여기 없으면 저장할 때마다 사라졌다**(스폰부는 읽는데 이
+         * 핸들러가 짓지 않았다). 필수 칸이 빈 정의는 서버에서도 한 번 더 접는다 — 반쯤 채운
+         * 채로 나가면 CLI 가 인자 파싱에서 거부해 그 에이전트가 통째로 못 뜬다.
+         */
+        agentDefinitions: Array.isArray(body.agentDefinitions)
+          ? (body.agentDefinitions as AgentDefinition[]).filter(
+              (d) => !!d && typeof d.name === 'string' && d.name.trim() !== ''
+                && typeof d.description === 'string' && d.description.trim() !== ''
+                && typeof d.prompt === 'string' && d.prompt.trim() !== '',
+            )
+          : undefined,
+        pluginDirs: Array.isArray(body.pluginDirs)
+          ? normalizePluginDirs(body.pluginDirs.filter((d): d is string => typeof d === 'string'))
           : undefined,
       };
       // §5.3 #28 v1.47 — Custom Mode 는 커스텀 에이전트(customCreated=true) 에만 켤 수 있음.
@@ -7574,6 +7838,30 @@ export async function runServer(): Promise<RunServerHandle> {
       const askedByTool = shouldAskForTool(config.askTools, toolName)
         && mode !== 'plan' && mode !== 'dontAsk';
 
+      /*
+       * §5.11 정독 게이트 — 강도 `차단`의 집행 자리.
+       *
+       * 안 연 필수 절을 남긴 채 **코드를 고치려 하면** 그 편집을 거부한다. 자리가 여기인 이유는
+       * 도구별 확인 목록과 같다 — `bypassPermissions`·`acceptEdits` 의 편집 통과보다 **앞**이어야
+       * 그 모드들에서 실제로 붙잡힌다(뒤에 두면 켜 두고도 영영 안 탄다).
+       *
+       * **커스텀 에이전트 전용**이라는 경계는 위에서 이미 서 있다(`view-only-agent`). 사용자가 자기
+       * 에디터에서 하던 편집을 우리 설정으로 거부하는 일은 이 기능에서도 일어나지 않는다 —
+       * 그쪽에는 알림과 `Stop` 되돌림(강도 2)까지만 간다.
+       */
+      if (EDIT_TOOLS.has(toolName) && typeof body.subAgentId === 'string' && body.subAgentId) {
+        const target = toolInput?.['file_path'] ?? toolInput?.['notebook_path'];
+        const specGate = specWriteGate(body.subAgentId, typeof target === 'string' ? target : '', {
+          customCreated: true,
+        });
+        if (specGate.deny && specGate.reason) {
+          noteAuditDecision('deny', 'policy', 'spec-reading');
+          broadcastSnapshot();
+          res.json({ ok: true, decision: 'deny', reason: specGate.reason });
+          return;
+        }
+      }
+
       // §5.22 — `!escalate` 가 붙은 단축은 **위험 3종이 아닐 때만** 탄다. 경계를 끄면
       //   `escalate` 가 늘 false 라 아래는 종전 그대로 동작한다.
       if (!escalate && !askedByTool && mode === 'bypassPermissions') {
@@ -7709,6 +7997,197 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, log: log ?? null, boundary: graphManager.getAuditBoundary(projectName) });
     } catch (err) {
       logger.error('GET /api/audit-log failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  // ─── §5.26 / §7.23 — 컨텍스트 보험 창구 ───
+  //
+  // 전부 **사용자가 눌렀을 때만** 도는 길이다. 이 절의 자동 동작은 사본을 뜨는 것과 대조하는
+  // 것까지이고, 되돌리기·부활·압축 보내기는 여기 여섯 라우트로만 일어난다(§5.26 (J)).
+
+  /**
+   * GET /api/insurance/:projectName — 그 프로젝트의 원장 전문 + 파생 두 축(감시·부활 후보).
+   * 팝업(§7.23)이 열릴 때 한 번 부른다. 방송 스냅샷은 최근분만 싣고, 전문은 여기로 온다.
+   */
+  app.get('/api/insurance/:projectName', (req, res) => {
+    try {
+      const projectName = decodeURIComponent(req.params['projectName'] ?? '');
+      if (!projectName) {
+        res.status(400).json({ ok: false, error: 'projectName required' });
+        return;
+      }
+      const ledger = graphManager.getInsuranceLedger(projectName);
+      res.json({ ok: true, ledger: ledger ?? null });
+    } catch (err) {
+      logger.error('GET /api/insurance failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * GET /api/insurance/:projectName/preimage/:id — 사본 한 건의 내용(§7.23 `[미리보기]`).
+   *
+   * `text: null` 은 **이진이거나 예산에 밀려 사라진 것**이다 — 화면은 그때 "미리볼 수 없다"고
+   * 적어야지 빈 문서를 그리면 안 된다(사본이 비었다는 뜻으로 읽힌다).
+   */
+  app.get('/api/insurance/:projectName/preimage/:id', (req, res) => {
+    try {
+      const projectName = decodeURIComponent(req.params['projectName'] ?? '');
+      const id = req.params['id'] ?? '';
+      if (!projectName || !id) {
+        res.status(400).json({ ok: false, error: 'projectName and id required' });
+        return;
+      }
+      const found = graphManager.readInsuranceBlob(projectName, id);
+      if (!found) {
+        res.status(404).json({ ok: false, error: 'preimage not found' });
+        return;
+      }
+      res.json({ ok: true, preimage: found.preimage, text: found.text });
+    } catch (err) {
+      logger.error('GET /api/insurance preimage failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/insurance/restore-file — 사본으로 되돌린다(§7.23 `[다시 읽히기]`).
+   *
+   * 되돌리기 자체가 파일을 바꾸는 일이므로 **되돌리기 직전의 내용도 사본으로 뜬다**
+   * (`undoId`) — 잘못 눌러도 한 번 더 되돌아갈 자리가 있어야 한다.
+   */
+  app.post('/api/insurance/restore-file', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { projectName?: unknown; id?: unknown };
+      const projectName = typeof body.projectName === 'string' ? body.projectName.trim() : '';
+      const id = typeof body.id === 'string' ? body.id.trim() : '';
+      if (!projectName || !id) {
+        res.status(400).json({ ok: false, error: 'projectName and id required' });
+        return;
+      }
+      const out = graphManager.restoreInsuranceFile(projectName, id);
+      if (!out.ok) {
+        res.status(409).json({ ok: false, error: 'restore failed (blob gone or unwritable)' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, ...(out.undoId ? { undoId: out.undoId } : {}) });
+    } catch (err) {
+      logger.error('POST /api/insurance/restore-file failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/insurance/resurrect — 죽은 세션 하나를 탭에 입힌다(§5.26 (G) 5단계).
+   *
+   * `mode: 'resume'` 은 그 대화를 그대로 이어받고(다음 명령이 `--resume` 로 나간다),
+   * `'fresh'` 는 새 탭만 열고 사본은 팝업에서 읽게 둔다 — 이어붙이기가 위험할 만큼 큰
+   * 기록(`resumeRisky`)이나 사본만 남은 것(`mirroredOnly`)에는 이쪽이 정직한 선택이다.
+   */
+  app.post('/api/insurance/resurrect', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { agentId?: unknown; sessionId?: unknown; mode?: unknown; label?: unknown };
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+      const mode = body.mode === 'fresh' ? 'fresh' : 'resume';
+      if (!agentId || !sessionId) {
+        res.status(400).json({ ok: false, error: 'agentId and sessionId required' });
+        return;
+      }
+      if (isReadOnlyHookAgentId(agentId)) {
+        res.status(403).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
+        return;
+      }
+      // 살아 있는 세션을 되살리면 한 대화를 두 탭이 민다 — 여기서 막는다(§5.26 (G)).
+      if (graphManager.getAgentBySession(sessionId)) {
+        res.status(409).json({ ok: false, error: 'session is alive' });
+        return;
+      }
+      const sub = subAgentManager.create(agentId);
+      const label = typeof body.label === 'string' ? body.label : '';
+      const adopted = mode === 'resume'
+        ? subAgentManager.adoptSession(sub.id, sessionId, label)
+        : false;
+      /*
+       * §5.26 (G) — 이어받은 경우에만 확인을 건다.
+       *
+       * `fresh` 는 새 대화라 죽기 전 크기와 비교할 것이 애초에 없다(비어 있는 게 정상이다).
+       * `resume` 만 "성공한 얼굴로 빈 문맥"이 가능한 경로라 여기서만 재는 것이 맞다(#43696).
+       */
+      if (adopted) graphManager.armResumeCheck(sessionId);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, subAgent: sub, mode, adopted });
+    } catch (err) {
+      logger.error('POST /api/insurance/resurrect failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/insurance/snapshot — 지금 이 세션의 사본을 손으로 뜬다(§7.23 `[지금 사본 뜨기]`).
+   *
+   * `PreCompact` 를 기다리지 않고 같은 마커를 만든다. 자동압축이 안 도는 것 같을 때 (F) 가
+   * 내주는 손잡이 둘 중 하나이며, `trigger: 'manual'` 로 적혀 이력에서 구분된다.
+   */
+  app.post('/api/insurance/snapshot', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { sessionId?: unknown; subAgentId?: unknown };
+      const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId.trim() : '';
+      const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim()
+        ? body.sessionId.trim()
+        : (subAgentId ? subAgentManager.getSub(subAgentId)?.sessionId ?? '' : '');
+      if (!sessionId) {
+        res.status(400).json({ ok: false, error: 'sessionId (or a subAgentId with one) required' });
+        return;
+      }
+      const marker = graphManager.recordCompactMarker({
+        sessionId,
+        trigger: 'manual',
+        ...(subAgentId ? { subAgentId } : {}),
+      });
+      if (!marker) {
+        res.status(409).json({ ok: false, error: 'no transcript for this session' });
+        return;
+      }
+      // 미러는 응답 뒤에 — 훅 경로와 같은 규율이다(사용자를 기다리게 하지 않는다).
+      setImmediate(() => graphManager.mirrorCompactMarker(marker));
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, marker });
+    } catch (err) {
+      logger.error('POST /api/insurance/snapshot failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/insurance/compact — 사용자가 직접 압축을 보낸다(§7.23 `[압축 보내기]`).
+   *
+   * `/api/agent-compact` 와 **같은 대기표**를 쓴다(턴이 끝나는 자리에서 `/compact` 가 큐에
+   * 얹힌다 — 일하던 것이 도중에 잘리지 않는다). 다만 그쪽의 `agentCanCompact` 관문은 없다:
+   * 그 스위치는 "에이전트가 스스로 부를 수 있는가"이고, 여기서 누른 것은 사용자다.
+   */
+  app.post('/api/insurance/compact', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { subAgentId?: unknown };
+      const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId.trim() : '';
+      if (!subAgentId) {
+        res.status(400).json({ ok: false, error: 'subAgentId required' });
+        return;
+      }
+      if (!subAgentManager.getSub(subAgentId)) {
+        res.status(404).json({ ok: false, error: 'unknown subAgentId' });
+        return;
+      }
+      compactRequestedSubs.add(subAgentId);
+      logger.info(`[turn-compact] requested by user sub=${subAgentId} (§5.26 F)`);
+      res.json({ ok: true, scheduled: 'end-of-turn' });
+    } catch (err) {
+      logger.error('POST /api/insurance/compact failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
@@ -8305,46 +8784,8 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ ok: false, error: 'agent not found' });
         return;
       }
-      // §5.10 — learned → 개별(agent) 기억 카드. 실패해도 신고 자체는 성공 처리.
-      if (learned.length > 0) {
-        try {
-          const root = graphManager.getProjectPathForAgent(body.agentId) ?? graphManager.getRoot();
-          if (root) {
-            const svc = getBrainService(root);
-            for (const line of learned) {
-              svc.saveCard({
-                type: 'lesson',
-                scope: 'agent',
-                agentId: body.agentId,
-                title: line.slice(0, 60),
-                body: line,
-                seen: false,
-              });
-            }
-            graphManager.notifyBrainChanged();
-          }
-        } catch (e) {
-          logger.warn('[brain] learned card save failed', e as Error);
-        }
-      }
-      // §5.10 v3.49 — helpfulMemoryIds → markHelpful(랭킹 도움됨 신호). best-effort, 미지 id 는 무시.
-      // §5.10 v3.81 — **여기서 재검증을 함께 하지 않는다.** v3.78 은 "도움됨"이 오면 앵커를 다시 박고
-      //   확인 필요를 풀었는데, 그건 **유용성 신호를 사실성 판정으로 승격**시키는 자리였다(에이전트가
-      //   "유용했다"고만 해도 낡은 카드가 현재 진실로 되돌아왔다). 재검증은 출처 자동 대조와
-      //   사용자 [지금도 맞음] 두 경로로만 한다. 낡음 신고는 종전대로 적립(누적 시 보관, 삭제 ❌).
-      if (helpfulMemoryIds.length > 0 || staleMemoryIds.length > 0) {
-        try {
-          const root = graphManager.getProjectPathForAgent(body.agentId) ?? graphManager.getRoot();
-          if (root) {
-            const svc = getBrainService(root);
-            for (const cid of helpfulMemoryIds) svc.markHelpful(cid);
-            for (const cid of staleMemoryIds) svc.markStale(cid);
-            if (staleMemoryIds.length > 0) graphManager.notifyBrainChanged();
-          }
-        } catch (e) {
-          logger.warn('[brain] memory feedback failed', e as Error);
-        }
-      }
+      // §5.10 — 교훈(`learned`)·도움/낡음 신고는 **신고 카드 안에 그대로 남는다.**
+      //   기억 카드로 옮겨 심던 갈래만 걷었다(카드 저장고가 폐기됐다).
       broadcast({ type: 'agent_report', payload: { agentId: report.agentId, subAgentId: report.subAgentId } } as WSMessage);
       broadcastSnapshot();
       saveCheckpoint();
@@ -10329,6 +10770,23 @@ export async function runServer(): Promise<RunServerHandle> {
    * (화면의 새로고침이 곧 이 호출). CLI 는 `cwd` 로 `project`/`local` 범위를 해석하므로 그 프로젝트에서 띄운다.
    * 경로 가드는 탐색기·MCP·훅과 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
    */
+  /**
+   * §5.5 #17-33 ⑦ — 인벤토리에 **마지막 마켓 갱신 시각**을 얹는다.
+   *
+   * CLI 는 클론이 언제 끌려왔는지 알려 주지 않고 `known_marketplaces.json` 을 읽는 것은 ② 가
+   * 막으므로, **우리가 부른 시각을 우리가 적는다.** 이 한 줄이 없어서 실측 클론이 36일 멈춰 있는
+   * 동안 화면은 아무 말도 하지 않았다.
+   */
+  async function inventoryWithRefreshMarks(projectPath: string): Promise<ClaudePluginInventory> {
+    const inv = await scanClaudePlugins(projectPath);
+    const refresh = appStateGetClaudePluginRefresh();
+    return {
+      ...inv,
+      ...(refresh.lastMarketAt ? { marketRefreshedAt: refresh.lastMarketAt } : {}),
+      ...(refresh.lastError ? { marketRefreshError: refresh.lastError } : {}),
+    };
+  }
+
   app.get('/api/claude-plugins', (req, res) => {
     void (async () => {
       try {
@@ -10343,12 +10801,41 @@ export async function runServer(): Promise<RunServerHandle> {
           res.status(403).json({ error: 'Path outside project root' });
           return;
         }
-        res.json(await scanClaudePlugins(resolvedRoot));
+        res.json(await inventoryWithRefreshMarks(resolvedRoot));
       } catch (err) {
         logger.error('GET /api/claude-plugins failed', err);
         res.status(500).json({ error: 'Internal server error' });
       }
     })();
+  });
+
+  /**
+   * §5.5 #17-33 ⑦ — 자동 갱신 설정 읽기/쓰기.
+   *
+   * 플러그인은 사용자 컴퓨터에서 임의 코드를 도는 물건이라 **끌 자리가 반드시 있어야 한다.**
+   * 다만 기본은 켬이다 — 켤 자리를 못 찾아 36일 멈춰 있는 것보다 끄고 싶은 사람이 끄는 편이 낫다.
+   */
+  app.get('/api/claude-plugin-refresh', (_req, res) => {
+    res.json({ ok: true, ...appStateGetClaudePluginRefresh(), running: isClaudePluginRefreshRunning() });
+  });
+
+  app.put('/api/claude-plugin-refresh', (req, res) => {
+    try {
+      const body = req.body as { market?: unknown; plugins?: unknown; intervalHours?: unknown };
+      const current = appStateGetClaudePluginRefresh().settings;
+      // 부분 페이로드로 와도 나머지를 강등시키지 않는다(§5.3 #12-1 agent-config 가 겪은 그 사고).
+      appStateSetClaudePluginRefresh({
+        settings: normalizePluginRefreshSettings({
+          market: typeof body.market === 'boolean' ? body.market : current.market,
+          plugins: typeof body.plugins === 'boolean' ? body.plugins : current.plugins,
+          intervalHours: typeof body.intervalHours === 'number' ? body.intervalHours : current.intervalHours,
+        }),
+      });
+      res.json({ ok: true, ...appStateGetClaudePluginRefresh() });
+    } catch (err) {
+      logger.error('PUT /api/claude-plugin-refresh failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   /**
@@ -10417,17 +10904,51 @@ export async function runServer(): Promise<RunServerHandle> {
             result = await removeClaudeMarketplace(resolvedRoot, source.trim());
             break;
           }
+          // §5.5 #17-33 ⑦ — 여기부터 셋이 "손으로 하던 갱신" 을 앱 안으로 들인 자리다.
+          case 'marketplace-update': {
+            // `source` 는 선택 — 없으면 붙어 있는 마켓 전부(CLI 규약 그대로).
+            result = await updateClaudeMarketplaces(
+              resolvedRoot,
+              typeof source === 'string' ? source.trim() : undefined,
+            );
+            if (result.ok) appStateSetClaudePluginRefresh({ lastMarketAt: Date.now(), lastError: null });
+            else appStateSetClaudePluginRefresh({ lastError: result.reason });
+            break;
+          }
+          case 'update': {
+            if (typeof id !== 'string' || id.length === 0) {
+              res.status(400).json({ error: 'id required' });
+              return;
+            }
+            result = await updateClaudePlugin(resolvedRoot, id, pluginScope);
+            break;
+          }
+          case 'update-all': {
+            // 마켓을 먼저 끌어오고 뒤처진 것을 올린다 — 순서가 뒤집히면 옛 마켓으로 견줘 새 판을 놓친다.
+            const refreshed = await runClaudePluginRefresh(resolvedRoot, { force: true, market: true, plugins: true });
+            const failed = refreshed.plugins.failed;
+            result = failed.length === 0
+              ? { ok: true }
+              // 일부만 실패해도 사유는 CLI 출력 그대로 — 우리가 요약하면 원인이 지워진다(④).
+              : { ok: false, reason: failed.map((f) => `${f.id}: ${f.reason}`).join(' / ').slice(0, 400) };
+            break;
+          }
           default:
             res.status(400).json({ error: 'unknown action' });
             return;
         }
 
+        // §5.5 #17-33 ⑦ — **아홉 동작이 전부 플러그인 상태를 바꾼다.** 스킬 목록이 들고 있는
+        // "이 플러그인이 켜져 있는가" 메모를 여기서 한 번에 버린다. 갈래마다 따로 버리면
+        // 언젠가 하나를 빠뜨리고, 그 빠뜨림은 "왜 목록이 그대로지" 라는 로직 버그로 오진된다.
+        invalidatePluginStateCache();
+
         if (!result.ok) {
           // 실패해도 목록은 함께 준다 — 실패 뒤 화면이 옛 상태로 남아 있으면 무엇이 됐는지 알 수 없다.
-          res.status(400).json({ error: result.reason, inventory: await scanClaudePlugins(resolvedRoot) });
+          res.status(400).json({ error: result.reason, inventory: await inventoryWithRefreshMarks(resolvedRoot) });
           return;
         }
-        res.json({ ok: true, inventory: await scanClaudePlugins(resolvedRoot) });
+        res.json({ ok: true, inventory: await inventoryWithRefreshMarks(resolvedRoot) });
       } catch (err) {
         logger.error('POST /api/claude-plugins/action failed', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -10488,6 +11009,313 @@ export async function runServer(): Promise<RunServerHandle> {
   app.get('/api/debug/sessions', (_req, res) => {
     res.json({ sessions: debugSessionManager.list() });
   });
+
+  /*
+   * §5.11 정독 게이트 — 설정 창구.
+   *
+   * 자리가 플러그인 폴더가 아니라 여기인 이유: **이 값은 호스트 소유**다(체크포인트에 저장되고,
+   * 게이트가 훅·권한 경로에서 읽는다). 플러그인 폴더의 REST(`/api/plugins/<id>/*`)는 그 카드가
+   * 자기 파일을 다루는 창구이고, 이것은 `verificationRuns`·`sessionLoops` 와 같은 축의 세션 설정이다.
+   *
+   * 저장소의 `.vibisual/spec.json`(팀이 git 으로 공유하는 기획 뿌리·경로 매핑)은 **여기서 쓰지 않는다** —
+   * 화면 토글 하나로 사용자의 작업 트리를 건드리면 안 되기 때문이다. 그 파일은 손으로 적고, 이 창구가
+   * 저장하는 것은 이 기기의 선택(강도·면제·상한)이며, 판정에서는 파일이 바닥·이 값이 덮개다.
+   */
+  app.get('/api/spec-reading/settings', (req, res) => {
+    try {
+      const projectPath = typeof req.query['projectPath'] === 'string' ? req.query['projectPath'] : '';
+      if (!projectPath) {
+        res.status(400).json({ ok: false, error: 'projectPath required' });
+        return;
+      }
+      res.json({ ok: true, settings: graphManager.getSpecReadingSettings(projectPath) ?? null });
+    } catch (err) {
+      logger.error('GET /api/spec-reading/settings failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/spec-reading/settings — **전량 교체.**
+   *
+   * 부분 페이로드를 받지 않는 이유는 `agent-config` 가 겪은 그대로다 — 한 칸만 보내면 나머지가
+   * 기본값으로 강등되고, 그 사고는 조용하다. 값 검증은 플러그인의 `normalizeSpecSettings` 하나가 한다
+   * (서버가 자기 검증을 따로 들면 화면이 저장했다고 말한 값과 게이트가 읽는 값이 갈린다).
+   */
+  app.put('/api/spec-reading/settings', (req, res) => {
+    try {
+      const body = req.body as { projectPath?: unknown; settings?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      if (!projectPath || !body.settings || typeof body.settings !== 'object') {
+        res.status(400).json({ ok: false, error: 'projectPath and settings required' });
+        return;
+      }
+      const normalized = normalizeSpecSettings(body.settings as Partial<SpecReadingSettings>);
+      const saved = graphManager.setSpecReadingSettings(projectPath, normalized);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('PUT /api/spec-reading/settings failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/spec-reading/waive — 절 하나를 면제한다(또는 되돌린다).
+   *
+   * **면제는 사용자만 줄 수 있다.** 에이전트가 스스로 면제할 수 있으면 이 게이트는 아무것도 아니게
+   * 되므로, 이 창구는 화면에서만 불린다(에이전트에게는 이 경로를 알려 주지 않는다).
+   */
+  app.post('/api/spec-reading/waive', (req, res) => {
+    try {
+      const body = req.body as { projectPath?: unknown; unitId?: unknown; waived?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const unitId = typeof body.unitId === 'string' ? body.unitId.trim() : '';
+      if (!projectPath || !unitId) {
+        res.status(400).json({ ok: false, error: 'projectPath and unitId required' });
+        return;
+      }
+      const current = graphManager.getSpecReadingSettings(projectPath) ?? normalizeSpecSettings({});
+      const list = new Set(current.waived ?? []);
+      if (body.waived === false) list.delete(unitId);
+      else list.add(unitId);
+      const next = normalizeSpecSettings({ ...current, waived: [...list] });
+      const saved = graphManager.setSpecReadingSettings(projectPath, next);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('POST /api/spec-reading/waive failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/spec-reading/scope — §5.5 #17-44 ⑧ **켬/끔 3층을 한 칸만** 갈아 끼운다.
+   *
+   * 왜 전용 창구인가 — 위 `PUT /settings` 는 전량 교체라, 활동바 팝오버가 그것으로 켜면 강도·면제·뿌리가
+   * 함께 실려 나간다. 화면이 그 셋을 모르는 상태에서 보내면 **나머지가 기본값으로 강등**되고 그 사고는
+   * 조용하다(§4 `agent-config` PUT 이 겪은 그대로). 여기서는 서버가 지금 값을 읽어 그 한 칸만 바꾼다.
+   *
+   * `enabled: null` 은 **그 칸을 지운다**(= 위 층에서 물려받도록 되돌린다). `false` 와 다르다 —
+   * 그 둘을 구분하지 못하면 "프로젝트에서 켜고 이 세션만 끄기"를 표현할 수 없다.
+   */
+  app.post('/api/spec-reading/scope', (req, res) => {
+    try {
+      const body = req.body as { projectPath?: unknown; scope?: unknown; id?: unknown; enabled?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const scope = body.scope as SpecReadingScope;
+      if (!projectPath || !SPEC_SCOPE_ORDER.includes(scope)) {
+        res.status(400).json({ ok: false, error: 'projectPath and scope required' });
+        return;
+      }
+      // 에이전트·세션 층은 그 id 가 있어야 칸을 만든다 — 없으면 어느 칸을 켰는지 아무도 모르는 값이 남는다.
+      const id = typeof body.id === 'string' && body.id.trim() !== '' ? body.id.trim() : null;
+      if (scope !== 'project' && id === null) {
+        res.status(400).json({ ok: false, error: 'id required for agent/session scope' });
+        return;
+      }
+      const enabled = body.enabled === null ? null : body.enabled === true ? true : body.enabled === false ? false : undefined;
+      if (enabled === undefined) {
+        res.status(400).json({ ok: false, error: 'enabled must be true, false or null' });
+        return;
+      }
+      const current = graphManager.getSpecReadingSettings(projectPath) ?? normalizeSpecSettings({});
+      const next = normalizeSpecSettings(withSpecReadingScope(current, scope, id, enabled));
+      const saved = graphManager.setSpecReadingSettings(projectPath, next);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      // 판정 메모는 저장된 설정을 지문으로 쓰므로 이 방송 한 번에 배지·뷰가 곧바로 새 값을 그린다.
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('POST /api/spec-reading/scope failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  // ─── §5.10 자동 목표 — 되풀이한 일을 스킬로 굳힌다 (기본 off · 3층) ───
+  //
+  // 창구가 넷인 이유는 정독(#17-44 ⑧(e))과 같다: **켬/끔은 전용 창구가 한 칸만 갈아 끼운다.**
+  // 전량 교체로 켜면 화면이 모르는 값(물린 후보 목록)이 함께 실려 나가 기본값으로 강등되고,
+  // 그 사고는 조용하다(§4 `agent-config` PUT 이 겪은 그대로).
+
+  /**
+   * GET /api/auto-goal/state — 이 자리에서 자동 목표가 무엇을 보고 있는가.
+   *
+   * **꺼져 있으면 훑지 않는다** — 후보 0건·`observed` 0 이고, 이미 지어진 스킬 목록만 돌려준다
+   * (껐다고 그동안 만든 것까지 사라지면 안 된다). 켜져 있으면 이 호출이 분석을 돌리고, 문턱을
+   * 넘은 후보를 그 자리에서 스킬로 굳힌다(쿨다운이 걸려 있어 창을 껐다 켜도 다시 세지 않는다).
+   */
+  app.get('/api/auto-goal/state', (req, res) => {
+    try {
+      const projectPath = typeof req.query['projectPath'] === 'string' ? req.query['projectPath'] : '';
+      if (!projectPath) {
+        res.status(400).json({ ok: false, error: 'projectPath required' });
+        return;
+      }
+      // 열려 있는 프로젝트만 연다 — 아무 경로나 적어 남의 폴더 절차를 읽어 가는 길을 막는다.
+      const root = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!root) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      const agentId = typeof req.query['agentId'] === 'string' ? req.query['agentId'] : null;
+      const subAgentId = typeof req.query['subAgentId'] === 'string' ? req.query['subAgentId'] : null;
+      const settings = graphManager.getAutoGoalSettings(root);
+      const material = graphManager.getAutoGoalMaterial(root);
+      const state = getAutoGoalState(root, settings, { agentId, subAgentId }, material);
+      res.json({ ok: true, state, settings: settings ?? null });
+    } catch (err) {
+      logger.error('GET /api/auto-goal/state failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/auto-goal/scope — **켬/끔 3층을 한 칸만** 갈아 끼운다(정독과 같은 규약).
+   *
+   * `enabled: null` 은 **그 칸을 지운다**(= 위 층에서 물려받도록 되돌린다). `false` 와 다르다 —
+   * 그 둘을 구분하지 못하면 "프로젝트에서 켜고 이 세션만 끄기"를 표현할 수 없다.
+   */
+  app.post('/api/auto-goal/scope', (req, res) => {
+    try {
+      const body = req.body as { projectPath?: unknown; scope?: unknown; id?: unknown; enabled?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const scope = body.scope as AutoGoalScope;
+      if (!projectPath || !AUTO_GOAL_SCOPE_ORDER.includes(scope)) {
+        res.status(400).json({ ok: false, error: 'projectPath and scope required' });
+        return;
+      }
+      // 에이전트·세션 층은 그 id 가 있어야 칸을 만든다 — 없으면 어느 칸을 켰는지 아무도 모르는 값이 남는다.
+      const id = typeof body.id === 'string' && body.id.trim() !== '' ? body.id.trim() : null;
+      if (scope !== 'project' && id === null) {
+        res.status(400).json({ ok: false, error: 'id required for agent/session scope' });
+        return;
+      }
+      const enabled = body.enabled === null ? null : body.enabled === true ? true : body.enabled === false ? false : undefined;
+      if (enabled === undefined) {
+        res.status(400).json({ ok: false, error: 'enabled must be true, false or null' });
+        return;
+      }
+      const current = graphManager.getAutoGoalSettings(projectPath) ?? {};
+      const next = normalizeAutoGoalSettings(withAutoGoalScope(current, scope, id, enabled));
+      const saved = graphManager.setAutoGoalSettings(projectPath, next);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('POST /api/auto-goal/scope failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/auto-goal/dismiss — 후보 하나를 물린다(또는 그 물림을 푼다).
+   *
+   * **지우는 것이 아니라 덮는 것이다** — 같은 절차가 계속 관찰돼도 제안만 멈춘다. 이 창구는
+   * 화면에서만 불린다(에이전트가 스스로 자기 제안을 물릴 수 있으면 이 목록은 아무것도 아니게 된다).
+   */
+  app.post('/api/auto-goal/dismiss', (req, res) => {
+    try {
+      const body = req.body as { projectPath?: unknown; candidateId?: unknown; dismissed?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const candidateId = typeof body.candidateId === 'string' ? body.candidateId.trim() : '';
+      if (!projectPath || !candidateId) {
+        res.status(400).json({ ok: false, error: 'projectPath and candidateId required' });
+        return;
+      }
+      const current = graphManager.getAutoGoalSettings(projectPath) ?? {};
+      const next = normalizeAutoGoalSettings(withAutoGoalDismissed(current, candidateId, body.dismissed !== false));
+      const saved = graphManager.setAutoGoalSettings(projectPath, next);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('POST /api/auto-goal/dismiss failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /** GET /api/auto-goal/skills/:id — 굳어진 절차의 **본문 원문**(화면이 펼쳐 보일 때). */
+  app.get('/api/auto-goal/skills/:id', (req, res) => {
+    try {
+      const projectPath = typeof req.query['projectPath'] === 'string' ? req.query['projectPath'] : '';
+      const id = typeof req.params['id'] === 'string' ? req.params['id'] : '';
+      if (!projectPath || !id) {
+        res.status(400).json({ ok: false, error: 'projectPath and id required' });
+        return;
+      }
+      const root = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!root) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      const body = readAutoGoalSkillBody(root, id);
+      if (body === null) {
+        res.status(404).json({ ok: false, error: 'skill not found' });
+        return;
+      }
+      res.json({ ok: true, body });
+    } catch (err) {
+      logger.error('GET /api/auto-goal/skills/:id failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * DELETE /api/auto-goal/skills/:id — 굳어진 절차 한 장을 지운다.
+   *
+   * **사용자만 지운다.** 자동으로 지우는 경로는 두지 않는다 — 총량은 예산(`AUTO_GOAL_SKILL_BUDGET`)
+   * 으로 묶고, 넘치면 더 짓지 않을 뿐 있던 것을 없애지 않는다(§5.10 "자동 삭제 금지" 승계).
+   * 지운 절차는 함께 물려 둔다 — 안 그러면 다음 분석이 같은 것을 곧바로 다시 짓는다.
+   */
+  app.delete('/api/auto-goal/skills/:id', (req, res) => {
+    try {
+      const projectPath = typeof req.query['projectPath'] === 'string' ? req.query['projectPath'] : '';
+      const id = typeof req.params['id'] === 'string' ? req.params['id'] : '';
+      const candidateId = typeof req.query['candidateId'] === 'string' ? req.query['candidateId'] : '';
+      if (!projectPath || !id) {
+        res.status(400).json({ ok: false, error: 'projectPath and id required' });
+        return;
+      }
+      const root = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!root) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      const removed = deleteAutoGoalSkill(root, id);
+      if (candidateId) {
+        const current = graphManager.getAutoGoalSettings(root) ?? {};
+        const next = normalizeAutoGoalSettings(withAutoGoalDismissed(current, candidateId, true));
+        graphManager.setAutoGoalSettings(root, next);
+        scheduleCheckpoint();
+      }
+      res.json({ ok: true, removed });
+    } catch (err) {
+      logger.error('DELETE /api/auto-goal/skills/:id failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
 
   /**
    * GET /api/debug/free-port?base= — 실제로 비어 있는 디버그 포트.
@@ -10900,20 +11728,191 @@ export async function runServer(): Promise<RunServerHandle> {
   app.put('/api/retention-settings', (req, res) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const patch: Record<string, number> = {};
+      // §5.26 — 보존 축에 **숫자가 아닌 칸**이 생겼다(`insuranceMirror` 스위치). 종전처럼 숫자만
+      //   받으면 그 스위치는 화면에서 눌러도 서버에 영영 닿지 않는다 — 값의 종류로 갈라 받는다.
+      const patch: Record<string, number | boolean> = {};
       for (const key of Object.keys(DEFAULT_RETENTION_SETTINGS)) {
         const v = body[key];
         if (typeof v === 'number' && Number.isFinite(v)) patch[key] = v;
+        else if (typeof v === 'boolean') patch[key] = v;
       }
       const settings = appStateSetRetention(patch as Partial<typeof DEFAULT_RETENTION_SETTINGS>);
       // 상한이 내려갔으면 즉시 반영해야 "적용했는데 그대로다"로 보이지 않는다.
       for (const inst of graphManager.getInstancesForRetention()) inst.pruneFileEditRetention();
       // §5.22 감사 원장도 같은 자리에서 — 조용한 프로젝트는 다음 도구 호출까지 옛 크기 그대로다.
       graphManager.applyAuditRetention();
+      // §5.26 보험 저장고도 같은 자리에서 — 여기가 유일하게 "예산을 줄였다"를 아는 순간이라,
+      //   빠뜨리면 사용자가 256MB 를 64MB 로 내려도 디스크는 그대로 남는다.
+      if (graphManager.applyInsuranceRetention()) saveCheckpoint();
       broadcastSnapshot();
       res.json({ settings, limits: RETENTION_LIMITS, defaults: DEFAULT_RETENTION_SETTINGS });
     } catch (err) {
       logger.error('PUT /api/retention-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── §5.3 #9-1 토큰 절약 ───
+  //
+  // 보존 정책(§3.2.3)과 **같은 모양**의 창구다 — 머신 단위 설정 하나, 정규화는 shared 한 곳,
+  // `0` 은 "그 축 끔". 다른 점은 대상이 디스크가 아니라 스폰 정책이라는 것뿐이다.
+
+  /** GET /api/token-saver-settings — 현재 설정 + 입력 한계 + 기본값 + 프리셋 세 벌. */
+  app.get('/api/token-saver-settings', (_req, res) => {
+    try {
+      res.json({
+        settings: appStateGetTokenSaver(),
+        limits: TOKEN_SAVER_LIMITS,
+        defaults: DEFAULT_TOKEN_SAVER_SETTINGS,
+        presets: TOKEN_SAVER_PRESET_VALUES,
+      });
+    } catch (err) {
+      logger.error('GET /api/token-saver-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/token-saver-settings — 부분 갱신. 정규화(범위 클램프·바닥·프리셋 재판정)는 shared 한 곳.
+   *
+   * `preset` 이름을 주면 **그 벌의 값으로 통째 교체**한다(칸을 하나씩 보내는 것과 같은 결과라
+   * 판정 경로가 둘로 갈리지 않는다). 이름과 개별 값이 함께 오면 **개별 값이 이긴다** — 사용자가
+   * 프리셋을 고른 뒤 한 칸을 고친 그 순서를 그대로 따르는 것이 덜 놀랍다.
+   */
+  app.put('/api/token-saver-settings', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const presetName = typeof body['preset'] === 'string' ? String(body['preset']) : '';
+      const base = (presetName === 'off' || presetName === 'balanced' || presetName === 'saver')
+        ? TOKEN_SAVER_PRESET_VALUES[presetName]
+        : appStateGetTokenSaver();
+      const { preset: _ignoredPreset, ...baseValues } = base;
+      const patch: Record<string, number | boolean | string> = { ...baseValues };
+      for (const key of Object.keys(DEFAULT_TOKEN_SAVER_SETTINGS)) {
+        const v = body[key];
+        if (typeof v === 'number' && Number.isFinite(v)) patch[key] = v;
+        else if (typeof v === 'boolean') patch[key] = v;
+        // (Q) 압축 창은 문자열 축이다 — 목록 밖 값은 정규화가 '' 로 되돌린다.
+        else if (typeof v === 'string' && key === 'autoCompactWindow') patch[key] = v;
+      }
+      delete patch['preset']; // 값에서 다시 판정한다 — 들어온 이름을 그대로 믿지 않는다(위에서 이미 뺐다).
+      const settings = appStateSetTokenSaver(patch as Partial<typeof DEFAULT_TOKEN_SAVER_SETTINGS>);
+      // 상한이 **올라갔으면** 기다리던 명령이 지금 나갈 수 있다 — 여기가 그것을 아는 유일한 순간이다
+      // (다음 턴 종료까지 기다리면 "적용했는데 아무 일도 안 일어난다"로 보인다).
+      pumpTokenSaverQueues();
+      broadcastSnapshot();
+      res.json({
+        settings,
+        limits: TOKEN_SAVER_LIMITS,
+        defaults: DEFAULT_TOKEN_SAVER_SETTINGS,
+        presets: TOKEN_SAVER_PRESET_VALUES,
+      });
+    } catch (err) {
+      logger.error('PUT /api/token-saver-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── §6 단축키 재매핑 ───
+  //
+  // 정본은 `shared/keymap.ts` 의 `COMMANDS` 표다. 서버는 **사용자가 바꾼 것만** 들고 있고,
+  // 기본값은 코드에 있으므로 여기 오지 않는다 — 그래야 다음 판올림에서 기본 바인딩을 고치면
+  // 사용자가 안 건드린 칸이 자동으로 새 값을 따라간다.
+
+  /** GET /api/keymap — 사용자 덮어쓰기 + 기본값(설정 UI 가 "되돌리기"에 쓴다). */
+  app.get('/api/keymap', (_req, res) => {
+    try {
+      res.json({ overrides: appStateGetKeymap(), defaults: defaultKeymap() });
+    } catch (err) {
+      logger.error('GET /api/keymap failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/keymap — 부분 갱신.
+   *
+   * 본문은 `{ overrides?: Record<CommandId, string|null>, reset?: CommandId[] }`.
+   * `overrides` 의 `null` 은 **해제**(키보드에서 내림)이고, `reset` 은 **기본값 복귀**다 —
+   * 둘을 한 값으로 뭉개면 "되돌리기"가 "해제"가 되어 사용자가 그 명령을 영영 못 쓰게 된다.
+   * 정규화(모르는 명령·못 읽는 바인딩 버리기)는 shared 한 곳에서.
+   */
+  app.put('/api/keymap', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { overrides?: unknown; reset?: unknown };
+      const patch: Record<string, string | null> = {};
+      if (body.overrides && typeof body.overrides === 'object' && !Array.isArray(body.overrides)) {
+        for (const [id, value] of Object.entries(body.overrides as Record<string, unknown>)) {
+          if (!isCommandId(id)) continue;
+          if (value === null) patch[id] = null;
+          else if (typeof value === 'string') patch[id] = value;
+        }
+      }
+      const reset = Array.isArray(body.reset)
+        ? body.reset.filter((id): id is string => typeof id === 'string' && isCommandId(id))
+        : [];
+      const overrides = appStateSetKeymap(patch, reset);
+      // 창이 여럿이면 다른 창도 즉시 같은 키를 써야 한다 — 안 그러면 창마다 다른 단축키가 된다.
+      broadcast({ type: 'keymap_updated', timestamp: Date.now(), payload: overrides });
+      res.json({ overrides, defaults: defaultKeymap() });
+    } catch (err) {
+      logger.error('PUT /api/keymap failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** DELETE /api/keymap — 전부 기본값으로. */
+  app.delete('/api/keymap', (_req, res) => {
+    try {
+      const overrides = appStateResetKeymap();
+      broadcast({ type: 'keymap_updated', timestamp: Date.now(), payload: overrides });
+      res.json({ overrides, defaults: defaultKeymap() });
+    } catch (err) {
+      logger.error('DELETE /api/keymap failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── §5.5 #16-1 IDE 활동바 구성(순서·제외) ───
+  //
+  // 단축키와 **같은 모양의 창구**다 — 머신 단위 설정이고, 저장되는 것은 사용자가 바꾼 것뿐이며,
+  // 창이 여럿이면 WS 로 다른 창도 즉시 같은 배치를 쓴다. 다른 점은 하나: **서버는 항목 이름을
+  // 모른다**(문자열 배열만 정규화한다). 무엇이 실재하는 뷰인지는 클라의 정본 표가 판정하므로,
+  // 다음 판올림에서 활동바 칸이 늘어도 이 라우트는 안 고친다(`/api/skill-order` 와 같은 규약).
+
+  /** GET /api/ide-activity-bar — 사용자가 정한 활동바 순서·제외 목록. */
+  app.get('/api/ide-activity-bar', (_req, res) => {
+    try {
+      res.json({ prefs: appStateGetIDEActivityBar() });
+    } catch (err) {
+      logger.error('GET /api/ide-activity-bar failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/ide-activity-bar — 부분 갱신.
+   *
+   * 본문은 `{ order?: string[], hidden?: string[], reset?: true }`. `order`·`hidden` 은 **언급한
+   * 칸만** 치환한다(순서를 바꿨다고 제외 목록이 함께 날아가면 안 된다).
+   */
+  app.put('/api/ide-activity-bar', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { order?: unknown; hidden?: unknown; reset?: unknown };
+      const list = (v: unknown): string[] | undefined => (
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x) : undefined
+      );
+      const prefs = body.reset === true
+        ? appStateResetIDEActivityBar()
+        : appStateSetIDEActivityBar({
+          ...(list(body.order) !== undefined ? { order: list(body.order)! } : {}),
+          ...(list(body.hidden) !== undefined ? { hidden: list(body.hidden)! } : {}),
+        });
+      // 창이 여럿이면 다른 창도 즉시 같은 배치를 써야 한다 — 창마다 항목 순서가 다르면 그게 곧 버그다.
+      broadcast({ type: 'ide_activity_bar_updated', timestamp: Date.now(), payload: prefs });
+      res.json({ prefs });
+    } catch (err) {
+      logger.error('PUT /api/ide-activity-bar failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -11002,6 +12001,38 @@ export async function runServer(): Promise<RunServerHandle> {
       });
     } catch (err) {
       logger.error('PUT /api/session-probe-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §2.1 (B) — GET /api/external-folder-budget
+   * 최상위에 동시에 세울 외부 폴더 예산 + 입력 범위 + 기본값(설정 UI 의 "되돌리기"용).
+   */
+  app.get('/api/external-folder-budget', (_req, res) => {
+    try {
+      res.json({
+        budget: appStateGetExternalTopBudget(),
+        bounds: EXTERNAL_TOP_BUDGET_BOUNDS,
+        defaults: EXTERNAL_TOP_BUDGET_DEFAULT,
+      });
+    } catch (err) {
+      logger.error('GET /api/external-folder-budget failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §2.1 (B) — PUT /api/external-folder-budget. 정규화(범위 클램프)는 shared 한 곳에서. */
+  app.put('/api/external-folder-budget', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const budget = appStateSetExternalTopBudget(body['budget']);
+      // 저장과 동시에 그래프에 먹인다 — 트리가 곧바로 다시 서고 다음 스냅샷부터 새 밀도로 그려진다.
+      graphManager.setExternalTopBudget(budget);
+      broadcastSnapshot();
+      res.json({ budget, bounds: EXTERNAL_TOP_BUDGET_BOUNDS, defaults: EXTERNAL_TOP_BUDGET_DEFAULT });
+    } catch (err) {
+      logger.error('PUT /api/external-folder-budget failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -11141,12 +12172,116 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       if (appStateRemoved) logger.info(`AppState: openProjects -= ${idPath} ("${rawName}")`);
+      // §5.4 #14-4 — 닫은 탭을 "다시 열기" 스택에 올린다. **여기가 유일한 등록 지점**이다:
+      //   × 버튼·컨텍스트 메뉴(닫기/다른 탭/좌우/모두)·별창 X(#14-1 (E)) 가 전부 이 DELETE 를
+      //   지나므로, 닫는 길이 늘어도 기록이 새지 않는다. 분리(detach)는 이 길로 오지 않는다 —
+      //   #14-1 (F) 대로 분리는 닫기가 아니라 표시 라우팅이라 스택에 들어가면 안 된다.
+      appStatePushClosedTab({
+        key: `p:${rawName}`,
+        kind: 'project',
+        label: rawName,
+        closedAt: Date.now(),
+        path: idPath,
+      });
       res.json({ ok: true });
       broadcastSnapshot();
       saveCheckpoint();
     } catch (err) {
       logger.error('DELETE /api/projects/:name failed', err);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── §5.4 #14-4 "닫은 탭 다시 열기" ───
+  //
+  // 브라우저의 Ctrl+Shift+T 와 같은 동작. 목록의 SSOT 는 머신 단위 `AppState.recentlyClosedTabs`
+  // 이고(탭을 여닫는 다른 상태와 같은 축), 클라이언트는 스냅샷에 실려 오는 그 목록을 **그리기만**
+  // 한다. 프로젝트 탭의 등록은 `DELETE /api/projects/:name` 이 서버에서 직접 하므로, 클라가
+  // 따로 신고하는 것은 서버가 모르는 iframe 탭뿐이다.
+
+  /**
+   * POST /api/closed-tabs — 닫은 탭 1건 등록(**iframe 탭 전용**).
+   *
+   * 프로젝트 탭은 이 창구를 쓰지 않는다 — DELETE 가 이미 올린 것을 한 번 더 올리면 같은 항목이
+   * 두 번 접히며 `closedAt` 만 흔들린다. 그래서 `kind: 'project'` 는 여기서 거절한다.
+   */
+  app.post('/api/closed-tabs', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { key?: unknown; label?: unknown; url?: unknown; serverKind?: unknown };
+      const key = typeof body.key === 'string' ? body.key.trim() : '';
+      const url = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!key || !url) {
+        res.status(400).json({ ok: false, error: 'key and url are required' });
+        return;
+      }
+      const list = appStatePushClosedTab({
+        key,
+        kind: 'iframe',
+        label: typeof body.label === 'string' && body.label ? body.label : key.slice(2),
+        closedAt: Date.now(),
+        url,
+        ...(body.serverKind === 'frontend' || body.serverKind === 'backend' ? { serverKind: body.serverKind } : {}),
+      });
+      res.json({ ok: true, closedTabs: list });
+      broadcastSnapshot();
+    } catch (err) {
+      logger.error('POST /api/closed-tabs failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/closed-tabs/reopen — 한 건을 되연다. `key` 를 안 주면 **가장 최근에 닫은 것**.
+   *
+   * 프로젝트면 여기서 `registerProject` → `showProject` 까지 한다. §5.4 #14 v1.34 가 정한 대로
+   * `hiddenProjects` 를 푸는 것은 **사용자 명시 액션뿐**이고, 이 창구가 폴더 선택과 나란한 그
+   * 두 번째 경로다(문서가 예고해 둔 "Recently closed 복원 UI").
+   *
+   * ⚠ **폴더가 사라졌으면 열지 않고 항목을 버린다.** 없는 경로로 `registerProject` 를 부르면
+   *   유령 프로젝트가 생기고, 목록에 그대로 두면 눌러도 깨지기만 하는 항목이 남는다.
+   */
+  app.post('/api/closed-tabs/reopen', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { key?: unknown };
+      const key = typeof body.key === 'string' && body.key ? body.key : undefined;
+      const entry = appStateTakeClosedTab(key);
+      if (!entry) {
+        res.status(404).json({ ok: false, error: 'no closed tab to reopen' });
+        return;
+      }
+      if (entry.kind !== 'project') {
+        // iframe 탭은 클라이언트 로컬 상태다 — 꺼내 주기만 하면 저쪽이 그대로 되살린다.
+        res.json({ ok: true, entry, closedTabs: appStateGetClosedTabs() });
+        broadcastSnapshot();
+        return;
+      }
+      const projectPath = entry.path ?? '';
+      if (!projectPath || !fs.existsSync(projectPath)) {
+        logger.info(`closed-tabs: reopen 대상 폴더가 없어 항목을 버린다 — ${projectPath}`);
+        res.status(410).json({ ok: false, error: 'missing', entry, closedTabs: appStateGetClosedTabs() });
+        broadcastSnapshot();
+        return;
+      }
+      const info = graphManager.registerProject(projectPath);
+      graphManager.showProject(info.name);
+      res.json({ ok: true, entry, project: info, closedTabs: appStateGetClosedTabs() });
+      broadcastSnapshot();
+      saveCheckpoint();
+    } catch (err) {
+      logger.error('POST /api/closed-tabs/reopen failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /** DELETE /api/closed-tabs — 목록 비우기(메뉴의 "목록 지우기"). */
+  app.delete('/api/closed-tabs', (_req, res) => {
+    try {
+      const removed = appStateClearClosedTabs();
+      res.json({ ok: true, removed });
+      if (removed > 0) broadcastSnapshot();
+    } catch (err) {
+      logger.error('DELETE /api/closed-tabs failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });
 
@@ -12725,7 +13860,20 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(typeof body.root === 'string' && body.root.trim() ? { root: body.root.trim() } : {}),
         ...(typeof body.port === 'number' && Number.isFinite(body.port) ? { port: body.port } : {}),
         ...(typeof body.openPath === 'string' && body.openPath.trim() ? { openPath: body.openPath.trim() } : {}),
-        ...(typeof body.label === 'string' && body.label.trim() ? { label: body.label.trim() } : {}),
+        /*
+         * §보안 감사 2026-09-09 — **에이전트가 등록한 명령에는 별명을 붙이지 못한다.**
+         *
+         * 이 창구는 loopback 토큰만 있으면 닿고, 그 토큰은 우리가 스폰한 에이전트의 env·프롬프트에
+         * 실려 나간다. 버블에 보이는 이름이 곧 사용자가 누를 때 기대하는 것인데, 이름을 명령과 따로
+         * 정할 수 있으면 `label:"개발 서버"` 를 달아 두고 `command` 에는 다른 것을 넣을 수 있다 —
+         * 사용자는 무엇이 도는지 모르는 채로 누르게 된다.
+         *
+         * 실행할 명령이 없는 정적 서빙(`kind='static'`)에는 가릴 것이 없으므로 그대로 받는다.
+         * 화면 쪽 짝은 `PlayNode` 의 `subLabel` — 이름이 명령과 다르면 명령 원문을 함께 보여 준다.
+         */
+        ...(kind === 'static' && typeof body.label === 'string' && body.label.trim()
+          ? { label: body.label.trim() }
+          : {}),
         source: 'agent',
       };
       const projectPath = playProjectPath(bubble.projectName);
@@ -14011,6 +15159,11 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     const edge = graphManager.getTaskEdge(edgeId);
     if (!edge) { res.status(404).json({ ok: false, error: 'edge not found' }); return; }
+    const bridgeSource = req.headers['x-vibisual-source-agent'];
+    if (bridgeSource !== undefined && bridgeSource !== edge.sourceAgentId) {
+      res.status(403).json({ ok: false, error: 'edge does not belong to the source agent' });
+      return;
+    }
     if ((edge.bundleRole ?? 'primary') !== 'primary') {
       res.status(400).json({ ok: false, error: 'dispatch only allowed on primary/command edge, not auto-artifact' });
       return;
@@ -14021,6 +15174,15 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!targetAgent) { res.status(404).json({ ok: false, error: 'target agent not found' }); return; }
 
     const sessionId = targetAgent.path;
+    // §5.3 #9 (판올림 번호 발급 대기) — `/api/commands` 와 **같은 상한**. 이쪽은 남의 세션을 부르는
+    //   경로라 A→B→A 로 서로를 채우는 고리가 성립한다. 상한 검사는 subAgent 를 만들기 **전**이다
+    //   (뒤에 두면 거절하면서도 빈 세션 탭이 하나 남는다).
+    const pendingForTarget = (commandQueues.get(sessionId) ?? []).filter((c) => c.status === 'queued').length;
+    if (pendingForTarget >= COMMAND_QUEUE_MAX_PER_SESSION) {
+      logger.warn(`dispatch(${edgeId}): refused — target queue already at ${COMMAND_QUEUE_MAX_PER_SESSION} (§5.3 #9)`);
+      res.status(429).json({ ok: false, error: 'command-queue-full', limit: COMMAND_QUEUE_MAX_PER_SESSION });
+      return;
+    }
     // v1.32 dispatch 수정 — /api/commands 핸들러와 동일하게 subAgent 를 새로 create 해서
     // cmd.subAgentId 에 실어 큐잉. 그래야 `processNextCommand → subAgentManager.execute` 가
     // 새 Claude 서브프로세스를 스폰하고 IDE 에 탭이 뜬다. null 로 두면 execute 가 조용히 return.
@@ -14393,6 +15555,12 @@ export async function runServer(): Promise<RunServerHandle> {
     const prunedNames = appStatePruneStaleProjectNames((p) => {
       try { return fs.existsSync(p); } catch { return false; }
     });
+    // §5.4 #14-4 — "다시 열기" 목록도 같은 회차에 훑는다. 폴더를 지운 뒤에도 이름이 남아 있으면
+    //   눌렀을 때 없는 경로가 유령 프로젝트로 등록된다(#62959 반면교사).
+    const prunedClosed = appStatePruneMissingClosedTabs((p) => {
+      try { return fs.existsSync(p); } catch { return false; }
+    });
+    if (prunedClosed > 0) logger.info(`Boot: recentlyClosedTabs ${prunedClosed} entry(ies) dropped (folder gone).`);
     logger.info(`Boot: hydrated ${hydratedCount}/${validMetas.length} project(s) from openProjects (${stalePaths.length} stale entry(ies) cleaned, ${prunedNames} name-cache pruned, ${metas.length - validMetas.length} ghost(s) skipped).`);
 
     // §3.2.3 — 부팅 시 1회 보존 정리. Claude Code 의 "시작할 때 정리" 타이밍과 같되,
@@ -14401,6 +15569,12 @@ export async function runServer(): Promise<RunServerHandle> {
     try {
       runProjectStorageCleanup();
       for (const inst of graphManager.getInstancesForRetention()) inst.pruneFileEditRetention();
+      // §5.26 (H) 보험 저장고도 같은 자리에서. 종전에는 이 줄이 없어 `applyInsuranceRetention()` 의
+      //   유일한 호출자가 `PUT /api/retention-settings` 뿐이었다 — 사용자가 옵션창에서 보존 값을
+      //   손으로 바꾸지 않는 한 나이 만료(14일)도 고아 회수도 영영 돌지 않았다(실측 2026-09-09:
+      //   금고 76MB 중 고아 blob 177개 22.5MB). 보험은 우리가 프로젝트 폴더에 쓰는 것 중 가장
+      //   커질 수 있는 물건이라 이 자리를 비워 두면 안 된다.
+      if (graphManager.applyInsuranceRetention()) saveCheckpoint();
     } catch (err) {
       // 정리 실패는 기동을 막지 않는다 — 용량이 조금 더 남을 뿐이다.
       logger.warn(`Boot storage cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -14454,7 +15628,83 @@ export async function runServer(): Promise<RunServerHandle> {
     streamBatch = [];
     broadcast({ type: 'sub_agent_stream_batch', timestamp: Date.now(), payload: batch });
   };
+  /**
+   * §5.5 #17-17 ⑪(l) — **무대 블록.** 에이전트가 말하다가 코드블록처럼 끼워 넣은 신고를 수확한다.
+   *
+   * 블록이 여는 펜스와 닫는 펜스가 서로 다른 이벤트에 실려 오므로(토큰 델타) 세션별 꼬리 버퍼가
+   * 필요하고, 같은 블록을 두 번 적용하지 않도록 원문 지문을 기억한다 — 둘 다 `StageBlockIngest` 가 한다.
+   */
+  const stageBlockIngest = new StageBlockIngest();
+
+  /**
+   * ⑪(l) — 수확한 지시를 **기존 문으로** 적용한다. 새 저장 경로를 만들지 않는 것이 요점이다 —
+   * REST(`/progress`·`/api/visual-kind`)로 들어온 신고와 **같은 검증·같은 병합**을 통과해야
+   * "블록으로 냈을 때만 다르게 동작하는" 두 번째 진실이 생기지 않는다.
+   */
+  const applyStageDirective = (
+    agentId: string,
+    subAgentId: string,
+    directive: import('@vibisual/shared').StageBlockDirective,
+  ): boolean => {
+    let changed = false;
+
+    // 종류 카드가 먼저다 — 같은 블록에서 만든 종류를 그 아래 단계가 `@key` 로 가리키기 때문이다.
+    for (const kind of directive.kinds ?? []) {
+      const card = graphManager.upsertVisualKind({
+        key: kind.key,
+        ...(kind.label ? { label: kind.label } : {}),
+        ...(kind.glyph ? { glyph: kind.glyph } : {}),
+        ...(kind.color ? { color: kind.color } : {}),
+        ...(kind.scene ? { scene: kind.scene } : {}),
+        ...(kind.surface ? { surface: kind.surface } : {}),
+        ...(kind.blurb ? { blurb: kind.blurb } : {}),
+        ...(kind.from ? { from: kind.from } : {}),
+      });
+      if (card) changed = true;
+    }
+
+    const hasGoalPart =
+      !!directive.goal || !!directive.note || directive.percent !== undefined || !!directive.steps;
+    if (!hasGoalPart) return changed;
+
+    // 아직 목표 카드가 없다 = 이 세션이 명령 없이 스스로 목록을 세웠다. 계획 경로와 같은 문으로 태운다.
+    if (!graphManager.getSessionGoal(subAgentId) && directive.steps && directive.steps.length > 0) {
+      const sub = subAgentManager.getSub(subAgentId);
+      const seedCommand = directive.goal ?? sub?.lastCommand;
+      const born = graphManager.syncSessionGoalFromPlan(subAgentId, {
+        agentId,
+        ...(seedCommand ? { command: seedCommand } : {}),
+        steps: directive.steps,
+      });
+      if (born) changed = true;
+    }
+
+    const goal = graphManager.noteSessionGoalProgress(subAgentId, {
+      ...(directive.goal ? { goal: directive.goal } : {}),
+      ...(directive.note ? { note: directive.note } : {}),
+      ...(directive.percent !== undefined ? { percent: directive.percent } : {}),
+      ...(directive.steps ? { steps: directive.steps } : {}),
+      source: 'agent',
+    });
+    return changed || !!goal;
+  };
+
   subAgentManager.setOnStreamEvent((event) => {
+    // §5.5 #17-17 ⑪(l) — 답 본문에 끼워 넣은 무대 블록. 닫힌 블록만, 한 번만 적용된다.
+    if (event.eventType === 'text' && event.content) {
+      try {
+        let touched = false;
+        for (const directive of stageBlockIngest.push(event.subAgentId, event.content, event.turnId)) {
+          if (applyStageDirective(event.parentAgentId, event.subAgentId, directive)) touched = true;
+        }
+        // 저장은 부르지 않는다 — 여기는 답변 텍스트가 전부 지나가는 자리라, 아래 계획 경로와 같은
+        //   규율(§9 v3.45)로 브로드캐스트만 하고 디스크는 기존 스윕에 맡긴다.
+        if (touched) broadcastSnapshot();
+      } catch (err) {
+        // 표시용이라 스트림을 막지 않는다 — 블록 하나가 이상해도 대화는 그대로 흘러야 한다.
+        logger.warn(`[stage-block] ingest failed sub=${event.subAgentId}: ${String(err)}`);
+      }
+    }
     // §5.5 #17-17 ⑨ v4.59 — 목표 단계 동기화의 **두 번째 입구**. 훅(PreToolUse/TodoWrite)이 늦거나
     //   닿지 않아도(훅 미설치·스테일 포트·외부 세션) 세션이 세운 계획이 목표창에 그대로 반영된다.
     //   두 입구가 같은 syncSessionGoalFromPlan 으로 모이므로 어느 쪽이 먼저 와도 결과가 같고,
@@ -14654,6 +15904,11 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!name) return null;
     return graphManager.getProjectByName(name) ?? null;
   });
+  // 위 해석이 `null` 을 줄 때의 **되찾기 후보**(§5.5 `findStreamDirFor` ③). 소속은 `sessionCwds`·
+  // `agents` 맵을 훑어 찾는데, 프로젝트 탭을 닫았다 오가면 그 에이전트가 두 맵에서 빠져 폴더를
+  // 짚지 못한다 — 그러면 디스크에 온전한 대화가 있는데도 빈 배열이 나가 화면이 굳는다.
+  // 워크트리도 독립 프로젝트로 등록되므로 이 목록에 함께 들어온다.
+  subAgentManager.setAllProjectsProvider(() => Object.values(graphManager.getProjects()));
 
   // 커스텀 에이전트 상태 = 소속 서브에이전트 집계.
   // 서브 활동 시작/종료 시마다 부모 커스텀 버블의 active/completed 전이를 재계산.
@@ -15194,6 +16449,9 @@ export async function runServer(): Promise<RunServerHandle> {
       // §4 (CLI 사양 추종) — 턴 경계 압축. 루프 전진 **뒤**에 본다 — 루프가 이 회차로 `contextMode`
       //   정리를 걸었으면 그쪽이 이미 큐에 있어 직렬 가드에 막히므로 두 벌로 쏘지 않는다.
       for (const cmd of done) maybeCompactAfterTurn(cmd, sessionId);
+      // §5.3 #9-1 (N) — 이 턴이 슬롯 하나를 비웠다. 상한에 걸려 기다리던 **다른 세션**을 깨운다.
+      //   자기 세션은 아래 기존 경로가 이미 두드리므로 여기서 하는 일은 "남의 큐" 뿐이다.
+      pumpTokenSaverQueues();
 
       archiveCompletedCommands(sessionId, done);
       const remaining = queue.filter((c) => c.status === 'queued' || c.status === 'executing');
@@ -15287,6 +16545,18 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     lifecycle.start();
 
+    // §5.5 #17-33 ⑦ — 공식 마켓·설치본 자동 갱신. **부를 자리가 없어서** 실측 마켓 클론이
+    // 36일 멈춰 있었고, 그동안 Anthropic 이 낸 스킬은 앱 어디에도 나타나지 않았다.
+    // CLI 는 `cwd` 로 범위를 해석하므로 어느 프로젝트에서 띄울지를 여기서 정해 넘긴다 —
+    // 마켓 클론(`~/.claude/plugins`)은 어차피 하나뿐이라 어느 프로젝트든 같은 것을 끌어온다.
+    startClaudePluginAutoRefresh(() => {
+      const snap = graphManager.getSnapshot();
+      const last = loadAppState().lastActiveProject;
+      // 마지막으로 보던 프로젝트가 아직 열려 있으면 그것으로, 아니면 열린 것 아무거나.
+      const byLast = last ? Object.values(snap.projects).find((p) => samePath(p.path, last)) : undefined;
+      return (byLast ?? Object.values(snap.projects)[0])?.path ?? null;
+    });
+
     // 재기동 정합성 보정: 체크포인트 복원으로 subs 는 idle 이지만 커스텀 부모 버블이
     // 이전 세션 상태(active) 로 남아있을 수 있으니 여기서 한 번 sweep.
     if (graphManager.recomputeAllCustomAgentStatuses()) {
@@ -15322,11 +16592,16 @@ export async function runServer(): Promise<RunServerHandle> {
     setInterval(() => {
       let needsBroadcast = false;
 
-      // SCENARIO §5.7 #24: ~/.claude/sessions/<PID>.json 을 10초마다 스캔하여
-      // entrypoint=vscode + cwd 일치 + JSONL 활성 조건을 만족하는 신규 세션을 시딩.
+      // SCENARIO §5.7 #24: 모든 설정 홈(`~/.claude` + Cowork 세션 홈)의 `sessions/<PID>.json` 을
+      // 10초마다 스캔하여 인터랙티브 진입점 + cwd 일치 + JSONL 활성 조건을 만족하는 신규 세션을 시딩.
       // SessionStart 훅이 놓친 케이스(창 재오픈, 훅 미설치 등)의 폴백.
       const seeded = graphManager.scanAllProjects();
       if (seeded) needsBroadcast = true;
+
+      // §3.6 — 사용자가 Cowork 에서 새 대화를 열면 설정 홈이 하나 생긴다. 그 홈에 우리 블록이
+      //   깔리기 전에 CLI 가 설정을 읽으면 그 세션은 훅이 0건이라 캔버스에 한 획도 안 남는다.
+      //   부팅 1회로는 그 뒤에 생긴 세션이 전부 새어 나가므로 이 스윕에 얹는다(새 타이머 ❌).
+      installHooksIntoNewCoworkHomesIfReady();
 
       // 제목 미확정 에이전트 재조회 (JSONL 생성 대기)
       if (graphManager.hasPendingTitles()) {
@@ -15408,11 +16683,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // v1.60: completed → idle 자동 페이드 (AGENT_FADE_DURATION=60s 경과 분).
       // 사용자 클릭 dismiss 없어도 시안 글로우가 자연 소멸 → 다음 작업이 깨끗한 상태에서 시작.
       const expiredCompleted = graphManager.expireCompletedAgents();
-      // §5.10 — 카드 연결 파일 소실 → ghost(재검토) 신선도 sweep(주기, per-event ❌). 변화 시 요약 갱신.
-      let brainChanged = false;
-      try { brainChanged = sweepAllBrainStaleCards(); } catch { /* best effort */ }
-      if (brainChanged) graphManager.notifyBrainChangedAll();
-      if (expiredParents.length > 0 || expiredSubs.length > 0 || expiredCompleted.length > 0 || brainChanged) {
+      if (expiredParents.length > 0 || expiredSubs.length > 0 || expiredCompleted.length > 0) {
         broadcastSnapshot();
         saveCheckpoint();
       }
@@ -15442,6 +16713,10 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // §2.4 — **"실행중…"이 진짜인가**를 에이전트가 확인한다. 위와 같은 이유로 부팅 때 한 번 먹인다.
     subAgentManager.setSessionProbeSettings(appStateGetSessionProbe());
+
+    // §2.1 (B) — 최상위 외부 폴더 예산도 같은 규약이다. 이 주입이 빠지면 사용자가 정한 밀도가
+    //   재기동마다 기본값(12)으로 되돌아간다(설정은 저장돼 있는데 아무도 안 읽는 상태).
+    graphManager.setExternalTopBudget(appStateGetExternalTopBudget());
     //   10분마다 **한 건**만 물어본다. 이 축이 메우는 자리는 위 다섯 장치가 손댈 수 없는 곳이다 —
     //   `hasLivingWork` 이 참이라 아무도 못 걷는데 실제로는 끝났거나 멈춘 세션. 그 판정은 마지막
     //   기록의 *뜻*을 읽어야 나오므로 코드가 아니라 모델이 답한다(§2.4 · `sessionLivenessProbe.ts`).
@@ -15516,6 +16791,25 @@ export async function runServer(): Promise<RunServerHandle> {
         }
         broadcastSnapshot();
         saveCheckpoint();
+      }
+
+      /*
+       * §5.26 (D)(F) — 컨텍스트 보험의 주기 몫. **새 타이머를 만들지 않는다** — 이 루프가 이미
+       * 5초마다 "화면에 적힌 것과 사실"을 대조하는 자리라, 보험의 두 판정도 같은 성질이다.
+       *
+       *  - 2단계 대조: `PreCompact` 를 받아 둔 마커 중 아직 결과가 없는 것만 본다(모델 호출 ❌ —
+       *    마커의 바이트 오프셋 뒤에 붙은 요약 구간에 항목이 나타나는지만 훑는다).
+       *  - 4단계 감시: 컨텍스트가 찼는데 압축이 안 도는 세션을 등급으로 매긴다. **자동 조치 ❌** —
+       *    사용자가 누를 손잡이만 켠다(§5.26 (F)).
+       */
+      const outcomeChanged = graphManager.sweepCompactOutcomes();
+      // §5.26 (G) — 되살아난 세션이 정말 문맥을 받았는지. 첫 턴이 돌면 그때 판정된다.
+      const resumeChanged = graphManager.sweepResumeChecks();
+      const watchChanged = graphManager.refreshCompactWatch();
+      if (outcomeChanged || resumeChanged || watchChanged) {
+        broadcastSnapshot();
+        // 대조 결과·되살리기 확인은 원장에 남는다(감시는 파생이라 ❌)
+        if (outcomeChanged || resumeChanged) saveCheckpoint();
       }
 
       const interrupted = graphManager.findInterruptedActiveSessions();

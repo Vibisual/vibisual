@@ -12,7 +12,7 @@
   ],
   "clientOnly": false,
   "needs": [
-    "brain"
+    "autoGoal"
   ],
   "hostApi": 1
 }

@@ -28,6 +28,8 @@
  *  - **컨텍스트 창 크기(`max`)**: 실측이 없으면 **그 모델의 창 크기**(레지스트리)를 쓴다. 창 크기는
  *    세션이 아니라 모델의 성질이므로, 첫 턴 전에도 `0/1.0M` 이 참이다.
  */
+import { isThinkingEnabled, resolveCmdCliKind } from '@vibisual/shared';
+
 export interface StatusBarScopeSource {
   /** 마지막 턴이 실제로 쓴 모델(세션) 또는 버블에 채워진 모델. */
   modelName?: string;
@@ -121,4 +123,46 @@ export function resolveStatusBarUsage(
     inputTokens: src.totalInputTokens ?? 0,
     outputTokens: src.totalOutputTokens ?? 0,
   };
+}
+
+/**
+ * §4 (Thinking on/off) — 상태바에 **「확장 사고 꺼짐」을 띄울 것인가.**
+ *
+ * 체크를 풀면 스폰 설정 파일에 `alwaysThinkingEnabled: false` 가 실리고, 그때부터 이 에이전트에서
+ * 스폰되는 세션은 답하기 전 사고 단계를 거치지 않는다. 그런데 그 사실이 보이는 자리가 **설정 창을
+ * 다시 여는 것**뿐이라, 세션을 열어 놓고 보는 사람에게는 "왜 오늘따라 바로 답하지"를 설명할 근거가
+ * 화면 어디에도 없었다(사용자 지시로 생긴 칸). 자동 압축 칸과 같은 성격이다 — 설정이 세션의 실제
+ * 동작을 바꾸는데 그 설정은 다른 창에 있다.
+ *
+ * 판정을 컴포넌트가 아니라 여기 두는 이유는 이 파일이 있는 이유와 같다: **화면에는 그리는 일만
+ * 남긴다.** 아래 네 갈래는 전부 "그 세션이 이 설정을 실제로 받았는가"라는 한 질문이고, 그 답이
+ * 화면 코드에 흩어지면 자리마다 다른 답을 하게 된다(모델 칸이 겪은 사고 그대로다).
+ *
+ * **끔만 신고한다.** 켬이 기본(`undefined` = 켬)이라 늘 띄우면 거의 모든 상태바에 아무 정보 없는
+ * 낱말이 하나 더 붙는다. 판정은 shared 한 곳(`isThinkingEnabled`)을 쓴다 — 서버의 설정 파일
+ * 조립과 같은 함수를 봐야 화면과 실제가 갈라지지 않는다.
+ *
+ * **안 띄우는 셋** — 전부 "저장은 되는데 아무 일도 일어나지 않는 손잡이는 거짓말이다"(§5.19 (G))
+ * 라는 같은 판정이다.
+ *  - **훅 버블**(`isCustom === false`): 우리가 띄운 세션이 아니라 이 설정이 닿지 않는다.
+ *  - **프로바이더 버블**(코덱스·로컬): 클로드 CLI 의 settings 키라 그 턴이 읽지 않는다.
+ *  - **클로드가 아닌 CMD 갈래**(`CMD_CLI_KINDS[].managed === false`): 우리가 조립한 인자·설정
+ *    파일을 하나도 안 붙인다. `cliKind` 가 없으면(헤드리스 버블) 표의 기본 행 = 클로드다.
+ */
+export function resolveStatusBarThinkingOff(input: {
+  /** 우리가 띄운 버블인가. 훅 버블이면 `false`. */
+  isCustom: boolean;
+  /** 프로바이더 버블이면 그 갈래. 클로드 경로면 `undefined`. */
+  providerKind?: string;
+  /** CMD 버블의 CLI 갈래. 헤드리스 버블은 `undefined`(= 클로드). */
+  cliKind?: string;
+  /** 이 에이전트에 실린 값(스냅샷 `agentConfigs` — 서버가 이미 3층을 겹쳐 준 완성본). */
+  agentThinking?: boolean;
+  /** 설정 창 전역 기본값. **그 에이전트를 아예 모를 때만** 쓰인다. */
+  userDefaultThinking?: boolean;
+}): boolean {
+  if (!input.isCustom) return false;
+  if (input.providerKind) return false;
+  if (!resolveCmdCliKind(input.cliKind).managed) return false;
+  return !isThinkingEnabled(input.agentThinking ?? input.userDefaultThinking);
 }

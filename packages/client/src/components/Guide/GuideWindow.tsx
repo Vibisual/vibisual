@@ -10,14 +10,16 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
-// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
-//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
-import { shortcutLabel } from '../../utils/platform.js';
+// §6 — 단축키는 레지스트리가 정본이다. 문장 안에 키를 적어야 할 때도 하드코딩 대신 **지금
+//   배정된 값**을 라벨로 바꿔 쓴다(재매핑·mac 기호가 자동으로 따라온다).
+import { ShortcutList } from '../Shortcuts/ShortcutList.js';
+import { bindingLabel } from '../Shortcuts/bindingLabel.js';
+import { useKeymapStore } from '../../stores/keymap.js';
 
 type CategoryKey =
   | 'start'
   | 'bubbleMap'
-  | 'memory'
+  | 'autoGoal'
   | 'agents'
   | 'taskEdges'
   | 'ide'
@@ -28,6 +30,18 @@ type CategoryKey =
 interface GuideEntry {
   title: string;
   desc: string;
+}
+
+interface GuideSection {
+  intro: string;
+  entries: GuideEntry[];
+  /**
+   * 글로 설명할 수 없는 부분 — 지금은 §6 단축키 목록 하나다.
+   *
+   * 단축키를 문장으로 적으면 사용자가 키를 바꾼 순간 도움말이 거짓말이 된다. 그래서
+   * 그 절만 **레지스트리가 그리는 실물**로 바꾼다(글은 표가 못 말하는 것만 남는다).
+   */
+  extra?: React.ReactNode;
 }
 
 interface GuideWindowProps {
@@ -63,8 +77,8 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
     { key: 'bubbleMap', label: t('panel.guide.cat.bubbleMap', { defaultValue: 'Bubble Map' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="7" cy="8" r="3"/><circle cx="17" cy="7" r="2"/><circle cx="15" cy="17" r="3.5"/><path d="M9.5 9.7l3.7 5M9.7 7.4l5.4-.3"/></svg>
     ) },
-    { key: 'memory', label: t('panel.guide.cat.memory', { defaultValue: 'Project Memory' }), icon: (
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M7 7.5V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1.5"/><path d="M5 14h7M5 17h4.5"/></svg>
+    { key: 'autoGoal', label: t('panel.guide.cat.autoGoal', { defaultValue: 'Procedure detection' }), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8V6a2 2 0 0 1 2-2h2M16 4h3a2 2 0 0 1 2 2v2M21 16v2a2 2 0 0 1-2 2h-3M8 20H5a2 2 0 0 1-2-2v-2"/><path d="M8 9.5h8M8 12.5h8M8 15.5h4.5"/></svg>
     ) },
     { key: 'agents', label: t('panel.guide.cat.agents', { defaultValue: 'Agents' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 8V5M9 13h.01M15 13h.01"/><circle cx="12" cy="4" r="1"/></svg>
@@ -86,7 +100,10 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
     ) },
   ], [t]);
 
-  const sections = useMemo<Record<CategoryKey, { intro: string; entries: GuideEntry[] }>>(() => ({
+  // 도움말 문장에 섞여 들어가는 키 — 스토어가 바뀌면 문장도 다시 만들어진다.
+  const resolved = useKeymapStore((st) => st.resolved);
+
+  const sections = useMemo<Record<CategoryKey, GuideSection>>(() => ({
     start: {
       intro: t('panel.guide.start.intro', { defaultValue: 'Vibisual visualizes what your AI agents are doing, in real time, as a bubble map.' }),
       entries: [
@@ -136,7 +153,8 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
         { title: t('panel.guide.navigation.panT', { defaultValue: 'Pan & zoom' }), desc: t('panel.guide.navigation.panD', { defaultValue: 'Drag the canvas to pan and scroll to zoom; the minimap shows where you are.' }) },
         { title: t('panel.guide.navigation.tabsT', { defaultValue: 'Tabs & detach' }), desc: t('panel.guide.navigation.tabsD', { defaultValue: 'Each open folder is a tab; drag a tab out of the bar to pop it into its own window.' }) },
         { title: t('panel.guide.navigation.inspectorT', { defaultValue: 'Inspector' }), desc: t('panel.guide.navigation.inspectorD', { defaultValue: 'Hold Alt to highlight elements and click to copy; Shift-drag to select a region.' }) },
-        { title: t('panel.guide.navigation.copyT', { defaultValue: 'Copy & paste' }), desc: t('panel.guide.navigation.copyD', { copy: shortcutLabel('Ctrl+C'), paste: shortcutLabel('Ctrl+V'), defaultValue: 'Select custom agents and edges, then {{copy}} / {{paste}} to clone them into another project.' }) },
+        // 키는 §6 레지스트리의 **지금 값**이다 — 사용자가 바꾸면 이 문장도 함께 바뀐다.
+        { title: t('panel.guide.navigation.copyT', { defaultValue: 'Copy & paste' }), desc: t('panel.guide.navigation.copyD', { copy: bindingLabel(resolved['canvas.copy']), paste: bindingLabel(resolved['canvas.paste']), defaultValue: 'Select custom agents and edges, then {{copy}} / {{paste}} to clone them into another project.' }) },
       ],
     },
     history: {
@@ -146,32 +164,43 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
         { title: t('panel.guide.history.replayT', { defaultValue: 'History replay' }), desc: t('panel.guide.history.replayD', { defaultValue: 'Scrub a timeline to replay how the map grew over a session.' }) },
       ],
     },
-    memory: {
-      intro: t('panel.guide.memory.intro', { defaultValue: "Project Memory keeps what worked and loads it back into your next task. It ships turned off — you switch it on per project, and switching it off never deletes anything." }),
+    autoGoal: {
+      intro: t('panel.guide.autoGoal.intro', { defaultValue: "Procedure detection watches what you and your agents actually repeat, and writes the repeated work down as a reusable procedure. It ships turned off — you switch it on per project, per agent or per session." }),
       entries: [
-        { title: t('panel.guide.memory.turnOnT', { defaultValue: "Turning it on" }), desc: t('panel.guide.memory.turnOnD', { defaultValue: "Right-click empty canvas and pick \"Turn on Project Memory\", or open File > Options > Project Memory. It applies immediately — no restart." }) },
-        { title: t('panel.guide.memory.bubbleT', { defaultValue: "The memory bubble" }), desc: t('panel.guide.memory.bubbleD', { defaultValue: "Once on, an indigo bubble sits on the canvas with the number of stored cards. Double-click it to open the library; hover for a summary." }) },
-        { title: t('panel.guide.memory.skillsT', { defaultValue: "Procedural memory" }), desc: t('panel.guide.memory.skillsD', { defaultValue: "When a complex job finishes, the steps are distilled into a procedure. Next time a similar task starts, that procedure is loaded into the prompt automatically." }) },
-        { title: t('panel.guide.memory.recallT', { defaultValue: "Recall" }), desc: t('panel.guide.memory.recallD', { defaultValue: "Searches the text of past sessions, not just saved cards — for the answer that was never written down as a card." }) },
-        { title: t('panel.guide.memory.groundingT', { defaultValue: "Grounding" }), desc: t('panel.guide.memory.groundingD', { defaultValue: "A card is only treated as current truth after the files it points at are checked against the code that exists right now." }) },
-        { title: t('panel.guide.memory.curatorT', { defaultValue: "Curator" }), desc: t('panel.guide.memory.curatorD', { defaultValue: "Cards that were never read, never classified, or are still candidates collect in one rail so you can sort or promote them in a batch." }) },
-        { title: t('panel.guide.memory.operatorT', { defaultValue: "Operator profile" }), desc: t('panel.guide.memory.operatorD', { defaultValue: "Working habits it notices are stored on this machine only. Nothing is sent anywhere." }) },
-        { title: t('panel.guide.memory.railsT', { defaultValue: "The five rails" }), desc: t('panel.guide.memory.railsD', { defaultValue: "The library\\u2019s left column: Needs check, Pending review, Procedures, To sort, Archived." }) },
-        { title: t('panel.guide.memory.keepsT', { defaultValue: "Nothing is thrown away" }), desc: t('panel.guide.memory.keepsD', { defaultValue: "Turning memory off stops the work, not the storage. Cards stay on disk under .vibisual/brain and pick up where they left off when you switch it back on." }) },
+        { title: t('panel.guide.autoGoal.turnOnT', { defaultValue: "Turning it on" }), desc: t('panel.guide.autoGoal.turnOnD', { procedures: t('ide.activityBar.autoGoal'), defaultValue: "Open {{procedures}} in the activity bar. Three switches stack there — whole project, this agent, this session — and the lower one overrides the one above it. Each click cycles On → Off → Inherit." }) },
+        { title: t('panel.guide.autoGoal.watchesT', { defaultValue: "What it watches" }), desc: t('panel.guide.autoGoal.watchesD', { defaultValue: "Runs of shell commands an agent actually executed, and step groups you pinned to the stage yourself. Nothing is sent anywhere — the analysis is a plain count that happens on this machine." }) },
+        { title: t('panel.guide.autoGoal.thresholdT', { defaultValue: "The threshold" }), desc: t('panel.guide.autoGoal.thresholdD', { defaultValue: "A run has to come back the same way several times before it becomes a procedure. Until then it sits in the candidate list with a progress bar, so you can see what is about to be written." }) },
+        { title: t('panel.guide.autoGoal.filesT', { defaultValue: "Where procedures live" }), desc: t('panel.guide.autoGoal.filesD', { defaultValue: "Each one is a plain SKILL.md under .vibisual/skills in your project, with the agentskills.io frontmatter. Open it, edit it, commit it — a file you edited by hand is never overwritten." }) },
+        { title: t('panel.guide.autoGoal.promptT', { defaultValue: "What reaches the prompt" }), desc: t('panel.guide.autoGoal.promptD', { defaultValue: "Only the name, one line of description and the file path. The body stays on disk and the agent opens it when the work matches, so twenty procedures still cost almost nothing." }) },
+        { title: t('panel.guide.autoGoal.dismissT', { defaultValue: "Turning one down" }), desc: t('panel.guide.autoGoal.dismissD', { defaultValue: "Dismissing a candidate stops the suggestion, it does not erase the observation. The same run can keep happening — procedure detection simply stops offering to write it down." }) },
+        { title: t('panel.guide.autoGoal.keepsT', { defaultValue: "Nothing is thrown away" }), desc: t('panel.guide.autoGoal.keepsD', { defaultValue: "Switching it off stops the analysis, not the storage. Procedures already written stay in your project and are yours to keep, and nothing is ever deleted automatically." }) },
       ],
     },
     shortcuts: {
       intro: t('panel.guide.shortcuts.intro', { defaultValue: 'Keyboard shortcuts speed up navigation and editing. They pause while you type in an input or terminal.' }),
+      // 목록은 §6 레지스트리가 그린다 — 여기 키를 적지 않으므로 재매핑해도 어긋나지 않고,
+      //   mac 기호도 자동이다. 연필을 눌러 이 자리에서 바로 바꿀 수 있다.
+      extra: (
+        <>
+          <ShortcutList />
+          <p className="text-[12px] text-gray-500">
+            {/* 화면 이름은 보간으로 받는다(§i18n 라벨 참조 규칙 — 박으면 12개 로케일이 틀어진다). */}
+            {t('panel.guide.shortcuts.remapNote', {
+              options: t('panel.options.title'),
+              keyboard: t('panel.options.categories.keyboard'),
+              defaultValue: 'Click the pencil on a shortcut to change it — conflicts are checked as you press. {{options}} › {{keyboard}} has the full list with search, import and export.',
+            })}
+          </p>
+        </>
+      ),
       entries: [
-        { title: t('panel.guide.shortcuts.bookmarkT', { defaultValue: 'Bubble bookmarks' }), desc: t('panel.guide.shortcuts.bookmarkD', { defaultValue: 'Alt+1…0 pins a bubble or session to a slot; press 1…0 to jump back to it.' }) },
-        // §5.5 #17-37 — Tab 계열은 mac 에서 Command 가 아니라 진짜 Control 이다(Cmd+Tab 은 OS 앱 전환).
-        { title: t('panel.guide.shortcuts.sessionTabsT', { defaultValue: 'Session tabs' }), desc: t('panel.guide.shortcuts.sessionTabsD', { cycle: shortcutLabel('Control+Tab'), cycleBack: shortcutLabel('Control+Shift+Tab'), pageNext: shortcutLabel('Ctrl+PageDown'), pagePrev: shortcutLabel('Ctrl+PageUp'), first: shortcutLabel('Ctrl+1'), last: shortcutLabel('Ctrl+9'), defaultValue: '{{cycle}} / {{cycleBack}} steps to the next or previous session tab in the front IDE window, and {{pageNext}} / {{pagePrev}} do the same. {{first}}…{{last}} jumps straight to the Nth tab; {{last}} is always the last one.' }) },
-        { title: t('panel.guide.shortcuts.copyT', { defaultValue: 'Copy / paste' }), desc: t('panel.guide.shortcuts.copyD', { copy: shortcutLabel('Ctrl+C'), paste: shortcutLabel('Ctrl+V'), defaultValue: '{{copy}} / {{paste}} copies and pastes selected agents, edges and comment boxes.' }) },
+        // 아래 둘은 **레지스트리에 없는** 동작이다(제스처 · 여러 화면이 각자 처리하는 Esc).
+        //   표에 넣으면 "바꿀 수 있다"고 거짓말하는 스위치가 되므로 글로만 남긴다.
         { title: t('panel.guide.shortcuts.inspectorT', { defaultValue: 'Inspector' }), desc: t('panel.guide.shortcuts.inspectorD', { defaultValue: 'Hold Alt to inspect and click to copy an element; Shift-drag for region select.' }) },
         { title: t('panel.guide.shortcuts.closeT', { defaultValue: 'Close & cancel' }), desc: t('panel.guide.shortcuts.closeD', { defaultValue: 'Esc closes menus, popups and the IDE overlay.' }) },
       ],
     },
-  }), [t]);
+  }), [t, resolved]);
 
   if (!open) return null;
 
@@ -224,6 +253,8 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
                 </h4>
                 <p className="mt-1 text-[12px] text-gray-500">{active.intro}</p>
               </div>
+
+              {active.extra}
 
               <div className="flex flex-col gap-2">
                 {active.entries.map((entry) => (

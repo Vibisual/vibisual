@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "Split too finely and context breaks; keep chunks too large and unrelated content rides along. In Vibisual one memory card is one chunk, so card size is the quality knob.",
+    "desc": "Split too finely and context breaks; keep chunks too large and unrelated content rides along. In Vibisual one procedure is one chunk — a whole repeated run lands in a single file — so what goes into that run is the quality knob.",
     "heading": "Chunking",
     "level": {
-      "none": "No memory yet",
-      "perCard": "One card per chunk"
+      "none": "Nothing written yet",
+      "perCard": "One procedure per chunk"
     },
     "check": {
-      "cards": "Cards",
+      "cards": "Procedures",
       "unit": "Chunk unit"
     },
-    "card": "one memory card",
-    "note": "Because topics group the cards, chunk boundaries do not need separate tuning here — writing one idea per card does that job."
+    "card": "one procedure",
+    "note": "A repeated run defines its own boundary, so chunk edges need no separate tuning here — keeping one job per procedure does that work."
   },
   "ko": {
-    "desc": "너무 잘게 나누면 맥락이 끊기고 너무 크면 무관한 내용이 딸려 옵니다. Vibisual 에서는 기억 카드 한 장이 곧 한 덩어리라, 카드 크기가 품질 손잡이입니다.",
+    "desc": "너무 잘게 나누면 맥락이 끊기고 너무 크면 무관한 내용이 딸려 옵니다. Vibisual 에서는 절차 한 벌이 곧 한 덩어리라 — 되풀이한 일 한 벌이 파일 하나가 됩니다 — 그 한 벌에 무엇이 들어가는지가 품질 손잡이입니다.",
     "heading": "청킹",
     "level": {
-      "none": "아직 기억 없음",
-      "perCard": "카드 하나가 한 덩어리"
+      "none": "아직 적힌 절차 없음",
+      "perCard": "절차 한 벌이 한 덩어리"
     },
     "check": {
-      "cards": "카드 수",
+      "cards": "절차 수",
       "unit": "덩어리 단위"
     },
-    "card": "기억 카드 한 장",
-    "note": "주제가 카드를 묶어 주므로 경계를 따로 조율할 필요가 없습니다 — 카드 하나에 한 가지만 적는 것이 그 일을 합니다."
+    "card": "절차 한 벌",
+    "note": "되풀이한 일이 스스로 경계를 정하므로 덩어리 경계를 따로 조율할 필요가 없습니다 — 절차 한 벌에 일 하나만 두는 것이 그 일을 합니다."
   },
   "ja": {
     "level": {

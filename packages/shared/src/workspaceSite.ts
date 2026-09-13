@@ -25,6 +25,7 @@ import {
   WORKSPACE_MEDIA_MIME_BY_EXT,
   workspaceFileExt,
 } from './constants.js';
+import { previewScrollbarInjection } from './previewScrollbar.js';
 
 /** 경로형 창구의 접두어. 서버 라우트·클라 URL 조립·main 의 `protocol.handle` 허용 목록이 함께 본다. */
 export const WORKSPACE_SITE_PATH = '/api/workspace-site';
@@ -240,21 +241,28 @@ export function workspaceSiteReporterScript(): string {
  * 때문이다. 대소문자·속성이 붙은 태그도 잡는다(`<HEAD>`·`<html lang="ko">`).
  *
  * 얹는 것은 위치 신고(b)와 요소 집기(i) 둘뿐이고, 둘 다 **부모와의 대화**만 한다 — 페이지의
- * 스타일·전역·네트워크에는 손대지 않는다.
+ * 전역·네트워크에는 손대지 않는다.
+ *
+ * 여기에 **스크롤바 톤 한 벌**(`previewScrollbarInjection`)이 더 붙는다 — 미리보기 iframe 안쪽에
+ * 브라우저 기본 스크롤바가 그어지는 것을 앱 톤으로 바꾸라는 사용자 지시. 이것만 **맨 뒤**에
+ * 붙이는데, 페이지의 스타일시트보다 늦게 서야 기본값을 덮기 때문이다(앞의 두 조각은 반대로 이르게
+ * 서야 한다 — 그래서 넣는 자리가 갈린다). 건드리는 것은 스크롤바뿐이고, 자기 스크롤바를 직접 꾸민
+ * 페이지는 특정도로 여전히 이긴다.
  */
 export function injectWorkspaceSiteAgents(html: string): string {
   const script = workspaceSiteReporterScript() + workspaceSiteInspectorScript();
+  const tail = previewScrollbarInjection();
   const head = /<head\b[^>]*>/i.exec(html);
   if (head) {
     const at = head.index + head[0].length;
-    return html.slice(0, at) + script + html.slice(at);
+    return html.slice(0, at) + script + html.slice(at) + tail;
   }
   const htmlTag = /<html\b[^>]*>/i.exec(html);
   if (htmlTag) {
     const at = htmlTag.index + htmlTag[0].length;
-    return html.slice(0, at) + script + html.slice(at);
+    return html.slice(0, at) + script + html.slice(at) + tail;
   }
-  return script + html;
+  return script + html + tail;
 }
 
 // ─── ⑮ (i) 페이지 안의 요소를 Alt 로 집는다 ──────────────────────────────────

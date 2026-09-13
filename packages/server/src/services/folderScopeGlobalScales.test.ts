@@ -14,7 +14,8 @@ vi.mock('./appState.js', async (importOriginal) => {
  *
  * 이 두 값은 "상대 척도" 라 입력이 줄면 화면이 통째로 달라진다.
  *  · `fileSizeRange` — 파일 버블의 크기가 서로 대비되는 기준
- *  · `readCountMaxByProject` — §5.24 히트맵의 색이 서로 대비되는 기준
+ *  · `readCountMaxByProject` / `writeCountMaxByProject` — §5.24 히트맵의 색이 서로 대비되는 기준
+ *    (축 토글이 생긴 뒤로 **두 축을 따로** 잰다 — 한 자를 나눠 쓰면 쓰기 지도가 통째로 눌린다)
  *
  * 종전에는 클라가 **받은 스냅샷에서** 쟀다. 폴더 범위를 좁히는 순간 그 입력이 줄어들어,
  * 폴더에 들어갔다 나올 때마다 버블 크기와 히트맵 색이 바뀐다 — 성능을 얻고 화면을 잃는
@@ -50,6 +51,18 @@ function seedFiles(manager: ProjectGraphManager, root: string): void {
       cwd: root,
     });
   }
+}
+
+/** 같은 파일을 지정한 도구로 한 번 만진다(§5.24 축 판정은 도구 이름이 가른다). */
+function hit(manager: ProjectGraphManager, root: string, tool: string, abs: string, tag: string): void {
+  manager.processHookEvent({
+    session_id: SESSION,
+    hook_event_name: 'PostToolUse',
+    tool_name: tool,
+    tool_use_id: `u-${tag}`,
+    tool_input: { file_path: abs },
+    cwd: root,
+  });
 }
 
 afterEach(() => {
@@ -88,12 +101,59 @@ describe('§9 폴더 스코프 — 전역 상대 척도', () => {
     expect(narrow?.[name] ?? 0).toBeGreaterThan(0);
   });
 
-  it('두 값은 내부 조회용 스냅샷에도 그대로 실린다(같은 산식 한 벌)', () => {
+  it('쓰기 축 척도도 같이 실리고 범위와 무관하다 — 읽기 축과 섞이지 않는다', () => {
+    const { manager, name, root } = setup();
+    seedFiles(manager, root);
+    const shallow = path.join(root, 'top.txt');
+    // 읽기 3회 · 쓰기 1회 — 두 축이 한 자를 나눠 쓰면 이 차이가 화면에서 사라진다.
+    hit(manager, root, 'Read', shallow, 'r2');
+    hit(manager, root, 'Read', shallow, 'r3');
+    hit(manager, root, 'Edit', shallow, 'w1');
+
+    manager.setClientProjectScope({}, [name], []);
+    const narrow = manager.getBroadcastSnapshot();
+    manager.setClientProjectScope({}, [name]);
+    const full = manager.getBroadcastSnapshot();
+
+    expect(narrow.writeCountMaxByProject).toBeDefined();
+    expect(narrow.writeCountMaxByProject).toEqual(full.writeCountMaxByProject);
+    expect(narrow.writeCountMaxByProject?.[name] ?? 0).toBe(1);
+    expect(narrow.readCountMaxByProject?.[name] ?? 0).toBeGreaterThan(
+      narrow.writeCountMaxByProject?.[name] ?? 0,
+    );
+  });
+
+  it('§5.24 분위수 분포도 범위와 무관하게 같다 — 좁히면 순위가 뒤집혀 색이 통째로 바뀐다', () => {
+    const { manager, name, root } = setup();
+    seedFiles(manager, root);
+    const shallow = path.join(root, 'top.txt');
+    hit(manager, root, 'Read', shallow, 'q1');
+    hit(manager, root, 'Read', shallow, 'q2');
+    hit(manager, root, 'Edit', shallow, 'q3');
+
+    manager.setClientProjectScope({}, [name], []);
+    const narrow = manager.getBroadcastSnapshot();
+    manager.setClientProjectScope({}, [name]);
+    const full = manager.getBroadcastSnapshot();
+
+    expect(narrow.readCountQuantilesByProject).toBeDefined();
+    expect(narrow.readCountQuantilesByProject).toEqual(full.readCountQuantilesByProject);
+    expect(narrow.writeCountQuantilesByProject).toEqual(full.writeCountQuantilesByProject);
+    // 표본의 끝은 그 축의 최대값이어야 한다 — 색과 눈금이 같은 척도를 보는지의 판정.
+    const readSamples = narrow.readCountQuantilesByProject?.[name] ?? [];
+    expect(readSamples.length).toBeGreaterThan(0);
+    expect(readSamples[readSamples.length - 1]).toBe(narrow.readCountMaxByProject?.[name]);
+  });
+
+  it('다섯 값은 내부 조회용 스냅샷에도 그대로 실린다(같은 산식 한 벌)', () => {
     const { manager, root } = setup();
     seedFiles(manager, root);
 
     const internal = manager.getSnapshot();
     expect(internal.fileSizeRange).toBeDefined();
     expect(internal.readCountMaxByProject).toBeDefined();
+    expect(internal.writeCountMaxByProject).toBeDefined();
+    expect(internal.readCountQuantilesByProject).toBeDefined();
+    expect(internal.writeCountQuantilesByProject).toBeDefined();
   });
 });

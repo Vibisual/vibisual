@@ -16,7 +16,7 @@
  */
 import type { PlatformName } from '@vibisual/shared';
 import type { PluginFactMap, PluginPromptContext, PluginPromptModule } from './types.js';
-import { getPluginManifest, resolveEnabledPluginsFor, type PluginEnablementSource } from './registry.js';
+import { getPluginManifest, hasOwnToggle, resolveEnabledPluginsFor, type PluginEnablementSource } from './registry.js';
 import { enforcement as eA2a } from './a2a/enforce.js';
 import { enforcement as eAcpAnp } from './acp-anp/enforce.js';
 import { enforcement as eAdrPresence } from './adr-presence/enforce.js';
@@ -253,7 +253,14 @@ export function activePromptModules(
   platform?: PlatformName,
 ): PluginPromptModule[] {
   const enabled = resolveEnabledPluginsFor(source, projectId, platform);
-  return PLUGIN_PROMPT_MODULES.filter((m) => enabled.has(m.id) && getPluginManifest(m.id) !== undefined);
+  return PLUGIN_PROMPT_MODULES.filter((m) => {
+    const manifest = getPluginManifest(m.id);
+    if (manifest === undefined) return false;
+    // §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드는 켬 집합을 묻지 않는다. 여기서 한 번 더 물으면
+    //   관문이 둘이 되어 "뷰에서 켰는데 프롬프트엔 안 실린다"가 만들어진다. 그 카드의 블록 자신이 자기
+    //   스위치를 보고, 꺼진 층이면 `undefined` 를 내어 한 글자도 싣지 않는다.
+    return hasOwnToggle(manifest) || enabled.has(m.id);
+  });
 }
 
 /**

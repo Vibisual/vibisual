@@ -1,11 +1,11 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { RUN_OUTPUT_BUFFER_LINES, matchProblemLine } from '@vibisual/shared';
+import { RUN_OUTPUT_BUFFER_LINES } from '@vibisual/shared';
 
 import { useGraphStore, selectPaneProjectPath } from '../../stores/graphStore.js';
 import { useIDEPaneKey } from './idePane.js';
-import { toWorkspaceRelative } from './debugPaths.js';
+import { ProblemOutputLine } from './ProblemOutputLine.js';
 
 import { getRunTail, stopRun, useRunSessions } from '../../stores/runSessions.js';
 
@@ -17,49 +17,6 @@ import { getRunTail, stopRun, useRunSessions } from '../../stores/runSessions.js
  * 더 실행된다 — 실패 로그를 보려다 실패한 서버를 또 띄우는 셈이다. 그래서 살아 있든 끝났든
  * 같은 창구(우리 링버퍼)로 그린다. 색은 잃지만 동작은 하나이고 예측 가능하다.
  */
-/** 심각도 → 색. 표에 안 걸린 줄은 색을 얻지 않는다(모르는 것을 아는 척 칠하지 않는다). */
-const SEVERITY_CLASS: Record<'error' | 'warning' | 'info', string> = {
-  error: 'text-rose-300',
-  warning: 'text-amber-300',
-  info: 'text-sky-300/80',
-};
-
-/**
- * §5.5 #17-20 ⑪ v4.94 — 출력 한 줄.
- *
- * 공통 매처(`matchProblemLine`)가 "파일:줄:열 + 심각도" 를 뽑으면 색을 얻고, 파일이 잡히고
- * 그것이 프로젝트 안이면 **눌러서 내장 편집창의 그 줄로 연다**. node·tsc·python·go·rust·
- * MSVC·언리얼이 전부 같은 표를 타므로 이 컴포넌트에는 런타임 분기가 없다.
- */
-const OutputLine = memo(function OutputLine({
-  line,
-  root,
-  onOpen,
-}: {
-  line: string;
-  root: string | null;
-  onOpen: (relPath: string) => void;
-}): React.JSX.Element {
-  const problem = useMemo(() => matchProblemLine(line), [line]);
-  const relPath = useMemo(
-    () => (problem?.file && root ? toWorkspaceRelative(problem.file, root) : null),
-    [problem, root],
-  );
-  const tone = problem ? SEVERITY_CLASS[problem.severity] : undefined;
-
-  if (relPath) {
-    return (
-      <div
-        onClick={() => onOpen(relPath)}
-        className={`cursor-pointer whitespace-pre-wrap break-all underline decoration-dotted underline-offset-2 hover:bg-gray-800/60 ${tone ?? ''}`}
-      >
-        {line}
-      </div>
-    );
-  }
-  return <div className={`whitespace-pre-wrap break-all ${tone ?? ''}`}>{line.length > 0 ? line : ' '}</div>;
-});
-
 export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { onClose: () => void }): React.JSX.Element | null {
   const { t } = useTranslation();
   const runId = useRunSessions((s) => s.outputRunId);
@@ -190,7 +147,7 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
         ) : (
           lines.map((line, i) => (
             // 줄 순서가 곧 정체성이라 index 키가 맞다(중간 삽입·정렬이 없고 뒤로만 늘어난다).
-            <OutputLine key={i} line={line} root={rootPath} onOpen={handleOpenProblemFile} />
+            <ProblemOutputLine key={i} line={line} root={rootPath} onOpen={handleOpenProblemFile} />
           ))
         )}
       </div>

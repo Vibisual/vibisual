@@ -90,6 +90,9 @@ export const DELTA_SLICE_KEYS = [
   'agentReviews',
   'agentLists',
   'sessionGoals',
+  // §5.5 #17-17 ⑪ — 시각 종류 카드. 카드 하나가 통째로 교체되는 자리(`visualKinds.set(k, next)`)라
+  //   목표와 같은 모양이고, `memoSlice` 가 순회 결과의 참조를 지키므로 정지 상태에서는 통째로 빠진다.
+  'visualKinds',
   'agentFeedbacks',
   'brainInjections',
   // 아래 둘은 `GraphSnapshot` 에서 **필수** 필드라 `GraphSnapshotWire` 가 따로 optional 로 연다.
@@ -97,6 +100,10 @@ export const DELTA_SLICE_KEYS = [
   // 노드가 새로 뜨거나 사라질 때만 바뀌므로 정지 상태에서는 통째로 빠진다.
   'agentEvents',
   'nodeProjects',
+  // §5.11 정독 게이트 — 세션 하나가 절 목록·열람 구간·게이트 이력을 들어 슬라이스 중 무거운 축이다.
+  //   `getSpecReadingStates` 가 원장 판 번호로 메모해 **안 바뀐 세션은 같은 객체를 그대로** 돌려주므로
+  //   정지 상태에서는 통째로 빠진다(참조를 못 지키면 여기 넣으면 안 된다 — 위 경고 참고).
+  'specReading',
 ] as const;
 
 /** `DELTA_SLICE_KEYS` 의 한 항목. */

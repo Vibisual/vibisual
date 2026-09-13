@@ -16,6 +16,9 @@ export type {
   ClaudeAuthLoginMode,
   UsageCollectorStatus,
   BubbleType,
+  TidyBand,
+  TidySort,
+  TidyGeometry,
   CaptureSourceKind,
   CaptureSourceInfo,
   AppBubble,
@@ -62,6 +65,20 @@ export type {
   AuditRetired,
   AuditCounts,
   ProjectAuditLog,
+  CompactWorkingSet,
+  CompactNotCarried,
+  CompactOutcome,
+  CompactFailReason,
+  CompactMarker,
+  PreimageSkipReason,
+  FilePreimage,
+  InsuranceRetired,
+  CompactWatchLevel,
+  CompactWatchState,
+  ResurrectableSession,
+  InsuranceCounts,
+  InsuranceSessionCounts,
+  ProjectInsuranceLedger,
   CaptureMouseInput,
   CaptureKeyInput,
   CaptureInputEvent,
@@ -90,36 +107,6 @@ export type {
   AgentFeedbackVerdict,
   AgentFeedbackTargetType,
   AgentFeedback,
-  BrainCardType,
-  BrainCardScope,
-  BrainCardStatus,
-  BrainVerifyState,
-  BrainAuthority,
-  BrainObservation,
-  BrainAppliesTo,
-  BrainCurrentEntry,
-  BrainAnchor,
-  BrainCard,
-  BrainCardInput,
-  BrainSaveOutcome,
-  BrainSaveResult,
-  BrainSummary,
-  BrainInjectionEvent,
-  BrainFeedSectionKey,
-  BrainFeed,
-  BrainTopicDef,
-  BrainTopicIndexEntry,
-  BrainMigrationNote,
-  BrainMigrationKeySuggestion,
-  BrainMigrationDuplicateGroup,
-  BrainMigrationConflictPair,
-  BrainMigrationCounts,
-  BrainMigrationReport,
-  BrainAxisId,
-  BrainActivation,
-  BrainSkillStatus,
-  BrainSkill,
-  BrainRecallHit,
   GraphSnapshot,
   GraphSnapshotWire,
   GraphSnapshotDeltas,
@@ -154,6 +141,11 @@ export type {
   SessionGoalStatus,
   SessionGoalStep,
   SessionGoalStepStatus,
+  VisualKindCard,
+  VisualKindStatus,
+  VisualKindSurface,
+  GoalActionCard,
+  GoalActionSource,
   SessionGoalProgress,
   SessionGoalProgressSource,
   ContextSourceCategory,
@@ -163,6 +155,7 @@ export type {
   ContextInventory,
   ContextOverrideMap,
   ContextOverrides,
+  ContextScopeLevel,
   ContextSourcePreview,
   SubAgent,
   SubAgentStatus,
@@ -227,6 +220,27 @@ export type {
   PluginCategory,
   PluginManifest,
   PluginFactMap,
+  // §5.11 정독 게이트 · §5.5 #17-44
+  SpecGateStrength,
+  SpecUnitStatus,
+  SpecUnit,
+  SpecIndex,
+  SpecReadSpan,
+  SpecCitation,
+  SpecRequiredEntry,
+  SpecTrust,
+  SpecGateEvent,
+  SpecReadingState,
+  SpecReadingRoute,
+  SpecReadingSettings,
+  SpecReadingScope,
+  AutoGoalScope,
+  AutoGoalSource,
+  AutoGoalCandidate,
+  AutoGoalSkillSummary,
+  AutoGoalState,
+  AutoGoalSummary,
+  AutoGoalSettings,
   StreamEventType,
   SubAgentStreamEvent,
   TaskEdgeStatus,
@@ -271,7 +285,11 @@ export type {
   ServerLogAppendPayload,
   AppState,
   AppStatePatch,
+  ClosedTabEntry,
+  IDEActivityBarPrefs,
   RetentionSettings,
+  TokenSaverSettings,
+  TokenSaverPreset,
   BackgroundTaskVerdict,
   SessionLivenessVerdict,
   SessionLivenessProbeResult,
@@ -312,6 +330,27 @@ export type {
   // §5.19 All Model — 로컬 LLM
   AgentProviderKind,
   AgentProvider,
+  // §5.25 Codex — 두 번째 엔진
+  AgentEngineKind,
+  EngineChoice,
+  CodexAuthStatus,
+  CodexAuthProbeError,
+  CodexAuthLoginMode,
+  CodexSetupPhase,
+  CodexSetupState,
+  CodexSetupProgress,
+  CodexModelEntry,
+  CodexModelCatalog,
+  CodexHookState,
+  CodexMcpServerEntry,
+  CodexSkillEntry,
+  CodexSkillSource,
+  CodexPluginEntry,
+  CodexHookEntry,
+  CodexAgentsDocEntry,
+  CodexInventory,
+  CodexReviewMode,
+  CodexReviewRun,
   LocalEngineBackend,
   LocalEngineProgress,
   LocalEngineState,
@@ -361,6 +400,8 @@ export type {
   ChatPairTicket,
   ChatChannelState,
   ChatBridgeState,
+  ChatCommandSession,
+  ChatCommandTarget,
   ChatAction,
   ChatCard,
   TermCreateFrame,
@@ -376,7 +417,14 @@ export type {
 export type { ModelPricing, ModelPricingSource } from './constants.js';
 /** §5.19 (H) — 로컬 도구 한 건의 처리 방식(allow/ask/deny). */
 export type { LocalToolGate } from './constants.js';
+// §5.3 #12-1 — 권한 축 동결 판정의 입·출력.
+export type { AgentPermissionAxes, IngressPermissionGuardResult } from './constants.js';
 export type { CompactAfterTurnInput } from './constants.js';
+export type { NumericTokenSaverKey } from './constants.js';
+/** §3.2.3 — 보존 설정 중 숫자 축만. 스위치 축은 min/max/step 이 뜻을 갖지 않는다. */
+export type { NumericRetentionKey } from './constants.js';
+// §5.5 #17-28 — 주입원 통제 3층(프로젝트/에이전트/세션) 판정에 쓰는 모양.
+export type { ContextOverrideLayers, ContextScopeKeys } from './constants.js';
 
 export {
   DEFAULT_PORT,
@@ -404,6 +452,10 @@ export {
   HEAT_MAX_SIZE,
   HEATMAP_RAMP,
   HEATMAP_ZERO_COLOR,
+  HEAT_CURVES,
+  DEFAULT_HEAT_CURVE,
+  HEAT_QUANTILE_BINS,
+  HEAT_LEGEND_TICKS,
   MAX_BASH_HISTORY,
   MAX_FILE_EDITS,
   MAX_WRITE_DIFF_BYTES,
@@ -451,6 +503,22 @@ export {
   RETENTION_LIMITS,
   normalizeRetentionSettings,
   isExpiredByDays,
+  // §5.3 #9-1 토큰 절약 (토큰 축 J~P)
+  TOKEN_SAVER_TURN_BUDGET_FLOOR,
+  TOKEN_SAVER_OUTPUT_FLOOR,
+  DEFAULT_TOKEN_SAVER_SETTINGS,
+  TOKEN_SAVER_LIMITS,
+  TOKEN_SAVER_PRESET_VALUES,
+  detectTokenSaverPreset,
+  normalizeTokenSaverSettings,
+  resolveEffectiveAutoCompact,
+  resolveTokenSaverNumber,
+  buildTokenSaverEnv,
+  // §5.26 컨텍스트 보험 — 보존 축(사용자 조절 가능)
+  INSURANCE_RETENTION_DAYS,
+  INSURANCE_VAULT_MAX_MB,
+  INSURANCE_MARKERS_MAX_PER_PROJECT,
+  INSURANCE_PREIMAGES_MAX_PER_PROJECT,
   // §3.2.4 런타임 메모리 자정작용
   SESSION_CACHE_BYTE_BUDGET,
   SESSION_CACHE_MAX_ENTRIES,
@@ -464,6 +532,14 @@ export {
   SESSION_KEYED_MAP_MAX,
   DEFAULT_MAX_SATELLITES,
   SATELLITE_MAX_BOUNDS,
+  // §2.1 외부 폴더 표시 규약 — 요약 · 예산 · 접기 · 이름
+  EXTERNAL_SUMMARY_CHIPS,
+  EXTERNAL_TOP_BUDGET_DEFAULT,
+  EXTERNAL_TOP_BUDGET_BOUNDS,
+  EXTERNAL_PROMOTION_PER_PARENT,
+  EXTERNAL_PROMOTION_HALF_LIFE_MS,
+  EXTERNAL_FOLDER_MAX,
+  EXTERNAL_PLACE_PATTERNS,
   // §7.5 폴더 목록 지연 로딩
   FOLDER_FILES_PAGE_SIZE,
   FOLDER_FILES_PAGE_MAX,
@@ -500,10 +576,14 @@ export {
   workspaceImageMime,
   MAX_AGENTS,
   MAX_AGENT_EVENTS,
+  CUSTOM_AGENT_MAX_PER_PROJECT,
+  COMMAND_QUEUE_MAX_PER_SESSION,
   INITIAL_AGENT_COUNT,
   BUBBLE_TTL,
   AGENT_FADE_DURATION,
   SESSION_SCAN_INTERVAL,
+  COWORK_HOME_CACHE_MS,
+  COWORK_HOME_SCAN_MAX,
   AGENT_IDLE_THRESHOLD_MS,
   SUBAGENT_DORMANT_IDLE_MS,
   AGENT_IDLE_SWEEP_INTERVAL_MS,
@@ -531,6 +611,7 @@ export {
   POSITION_SAVE_INTERVAL,
   CHECKPOINT_BACKUP_GENERATIONS,
   APP_STATE_BACKUP_GENERATIONS,
+  MAX_RECENTLY_CLOSED_TABS,
   DELETED_AGENT_TOMBSTONE_MAX,
   CHECKPOINT_EMPTY_GUARD_MIN_PRIOR,
   CHECKPOINT_SHRINK_GUARD_MIN_PRIOR,
@@ -582,7 +663,11 @@ export {
   CONTEXT_PLUGIN_ID_PREFIX,
   CONTEXT_PREVIEW_MAX_CHARS,
   CONTEXT_SPAWN_SWITCHES,
+  CONTEXT_SCOPE_LEVELS,
   resolveContextEnabled,
+  contextOverrideAt,
+  contextInheritedAt,
+  contextScopeStates,
   IFRAME_BUBBLE_HEIGHT,
   FRONTEND_SERVER_PATTERNS,
   LOOPBACK_SNIFF_URLS_PER_BASH,
@@ -646,6 +731,9 @@ export {
   TURN_COMPACT_TRIGGER_RATIO,
   shouldCompactAfterTurn,
   AGENT_COMPACT_COMMAND,
+  displayCommands,
+  isInternalSlashCommand,
+  withoutSlashCommandFlag,
   buildAgentSelfCompactRule,
   DEFAULT_AGENT_CONFIG,
   AGENT_MEMORY_SCOPES,
@@ -676,6 +764,14 @@ export {
   COMMENT_BOX_DEFAULTS,
   COMMENT_BOX_LOD,
   CANVAS_LOD,
+  LINK_FOCUS,
+  TIDY_BAND_ORDER,
+  TIDY_LAYOUT,
+  TIDY_SORTS,
+  DEFAULT_TIDY_SORT,
+  normalizeTidySort,
+  tidyGeometryOf,
+  LAYOUT_BOUNDS_DEFAULT,
   COMMENT_BOX_PALETTE,
   SESSION_MEMO,
   SESSION_MEMO_PALETTE,
@@ -714,6 +810,8 @@ export {
   CMD_WAIT_POLL_MS,
   CMD_READ_MAX_LINES,
   CMD_SEND_MAX_CHARS,
+  CMD_SEND_CONTROL_CHARS,
+  sanitizeCmdPrefill,
   CMD_PANE_RATIO_MIN,
   CMD_PANE_RATIO_MAX,
   CMD_PANE_MAX,
@@ -769,6 +867,8 @@ export {
   buildAgentReportRules,
   AGENT_CARD_ENV_BASE,
   AGENT_CARD_ENV_TOKEN,
+  LOOPBACK_INGRESS_HEADER,
+  LOOPBACK_INGRESS_VALUE,
   AGENT_QUESTIONS_MAX_PER_AGENT,
   buildAgentQuestionRules,
   AGENT_REVIEWS_MAX_PER_AGENT,
@@ -777,11 +877,18 @@ export {
   DIFF_COMMENT_MAX,
   PREVIEW_PICK_SOURCE,
   PREVIEW_PICK_TEXT_MAX,
+  PREVIEW_ALT_MESSAGE,
+  PREVIEW_ALT_CAPTURE_MESSAGE,
+  PREVIEW_ALT_CAPTURE_DEFAULT,
+  PREVIEW_HOVER_MESSAGE,
   PREVIEW_DEVICE_PRESETS,
   PREVIEW_SNIP_MIN_PX,
   resolveCompareWidths,
   STREAM_COMPACT_TEXT_CLAMP_LINES,
   STREAM_COMPACT_TEXT_CLAMP_CHARS,
+  STREAM_COMPACT_TEXT_TAIL_LINES,
+  STREAM_COMPACT_TEXT_TAIL_CHARS,
+  STREAM_COMPACT_TEXT_MIN_HIDDEN_CHARS,
   STREAM_COMPACT_LIST_PREVIEW,
   STREAM_COMPACT_SUMMARY_CHARS,
   buildAgentReviewRules,
@@ -909,6 +1016,29 @@ export {
   normalizeAuditBoundary,
   isDefaultAuditBoundary,
   emptyAuditCounts,
+  // §5.26 — 컨텍스트 보험(판정·형식 상수. 보존 축은 위쪽 §3.2.3 블록에 있다).
+  INSURANCE_DIR,
+  INSURANCE_BLOBS_DIR,
+  INSURANCE_TRANSCRIPTS_DIR,
+  INSURANCE_HEAD_HASH_BYTES,
+  INSURANCE_TAIL_MAX_CHARS,
+  INSURANCE_WORKING_SET_MAX,
+  INSURANCE_PREIMAGE_MAX_BYTES,
+  INSURANCE_COMPACT_TIMEOUT_MS,
+  INSURANCE_SUMMARY_SCAN_MAX_BYTES,
+  INSURANCE_TITLE_SCAN_MAX_BYTES,
+  INSURANCE_OVERDUE_RATIO,
+  INSURANCE_STALL_RATIO,
+  INSURANCE_COMPACT_SEND_TIMEOUT_MS,
+  INSURANCE_OVERDUE_MS,
+  INSURANCE_OVERDUE_GROWTH_BYTES,
+  INSURANCE_BRIEF_MAX_CHARS,
+  INSURANCE_LESSON_REPEAT,
+  INSURANCE_RESUME_RISK_BYTES,
+  INSURANCE_RESUME_SHORTFALL_RATIO,
+  INSURANCE_SNAPSHOT_MARKERS,
+  INSURANCE_SNAPSHOT_PREIMAGES,
+  INSURANCE_LIST_PAGE_SIZE,
   AGENT_FEEDBACK_MAX_PER_AGENT,
   AGENT_FEEDBACK_DIGEST_MAX,
   AGENT_FEEDBACK_DISTILL_MAX,
@@ -953,6 +1083,35 @@ export {
   SESSION_GOAL_HISTORY_MAX,
   SESSION_GOAL_STEPS_MAX,
   SESSION_GOAL_STEP_TEXT_MAX,
+  SESSION_GOAL_PAST_TEXT_MAX,
+  SESSION_GOAL_STEP_SKILLS_MAX,
+  SVG_PATH_MAX,
+  VISUAL_KIND_MAX,
+  VISUAL_KIND_DORMANT_REF,
+  VISUAL_KIND_TRASH_DAYS,
+  VISUAL_KIND_SEEDS,
+  VISUAL_KIND_STARTERS,
+  GOAL_ACTION_MIN_REPEAT,
+  GOAL_ACTION_SKILL_MIN_REPEAT,
+  GOAL_ACTION_MAX,
+  GOAL_ACTION_LABEL_MAX,
+  GOAL_ACTION_PAYLOAD_MAX,
+  VISUAL_SCENE_PATHS_MAX,
+  VISUAL_SCENE_VIEWBOX,
+  VISUAL_KIND_BLURB_MAX,
+  VISUAL_KIND_SURFACES,
+  // §5.5 #17-17 ㉒ — 무대 실황.
+  STAGE_SURFACE_APPS,
+  STAGE_WINDOW_FALLBACK_MS,
+  VISUAL_SCENE_TEMPLATES,
+  GOAL_FLOW_TEMPLATES,
+  findSceneTemplate,
+  applySceneTemplate,
+  sanitizeGlyphPath,
+  sanitizeScenePaths,
+  normalizeKindSurface,
+  sanitizeKindBlurb,
+  mergeGoalSteps,
   buildSessionGoalRules,
   buildSessionGoalState,
   buildSessionGoalProtocol,
@@ -960,8 +1119,10 @@ export {
   // §5.19 All Model — 로컬 LLM
   ALL_MODEL_INSTALL_ID,
   LOCAL_AGENT_COLOR,
+  CODEX_AGENT_COLOR,
   LLAMA_RELEASE_LATEST_API,
   LLAMA_RELEASES_LIST_API,
+  parseAssetSha256,
   LOCAL_ENGINE_DEFAULT_BACKENDS,
   LOCAL_MODEL_MAX_LOADED,
   LOCAL_MODEL_IDLE_UNLOAD_MS,
@@ -1010,6 +1171,8 @@ export {
   LOCAL_WEB_SEARCH_API_URL,
   LOCAL_WEB_SEARCH_TIMEOUT_MS,
   LOCAL_TOOL_COMMAND_TIMEOUT_MS,
+  LOCAL_BASH_ESCAPE_PATTERNS,
+  detectLocalBashEscape,
   LOCAL_TOOL_DEFS,
   LOCAL_TOOL_NAMES,
   LOCAL_READ_ONLY_TOOLS,
@@ -1021,9 +1184,38 @@ export {
   LOCAL_NETWORK_TOOLS,
   resolveLocalToolGate,
   shouldAskForTool,
+  // §5.3 #12-1 — 권한 축은 사용자만 올린다(loopback 유입 동결).
+  applyIngressPermissionGuard,
   canPromptForPermission,
   normalizeAgentProvider,
   ALL_MODEL_DEFAULT_LABEL_RE,
+  // §5.25 Codex
+  CODEX_SETUP_INSTALL_COMMAND,
+  CODEX_SETUP_DOCS_URL,
+  CODEX_SETUP_PROBE_TIMEOUT_MS,
+  CODEX_SETUP_INSTALL_TIMEOUT_MS,
+  CODEX_SETUP_VERIFY_RETRY_INTERVAL_MS,
+  CODEX_SETUP_VERIFY_RETRY_MAX,
+  CODEX_SETUP_OUTPUT_MAX_CHARS,
+  CODEX_AUTH_PROBE_TIMEOUT_MS,
+  CODEX_AUTH_LOGOUT_TIMEOUT_MS,
+  CODEX_AUTH_POLL_INTERVAL_MS,
+  CODEX_AUTH_LOGIN_POLL_INTERVAL_MS,
+  CODEX_AUTH_LOGIN_TERM_ID,
+  CODEX_AUTH_TERMINAL_REVEAL_MS,
+  CODEX_HOME_ENV,
+  CODEX_HOME_DIRNAME,
+  CODEX_MODELS_CACHE_FILENAME,
+  CODEX_HOOKS_FILENAME,
+  CODEX_HOOK_MARKER,
+  CODEX_HOOK_EVENTS,
+  CODEX_PERMISSION_MAP,
+  CODEX_PERMISSION_FALLBACK,
+  resolveCodexPermission,
+  CODEX_DEFAULT_LABEL_RE,
+  providerForEngine,
+  engineForProvider,
+  agentModelLabelOf,
   buildCmdCardProtocolRules,
   MOBILE_PAIR_CODE_LENGTH,
   MOBILE_PAIR_MAX_ATTEMPTS,
@@ -1034,8 +1226,11 @@ export {
   MOBILE_UPNP_LEASE_S,
   MOBILE_QR_TICKET_TTL_MS,
   MOBILE_QR_TOKEN_BYTES,
+  MOBILE_QR_MAX_USES,
   MOBILE_QR_PATH,
   MOBILE_QR_PARAM,
+  MOBILE_VPN_ADAPTERS,
+  MOBILE_VIRTUAL_ADAPTERS,
   CHAT_PAIR_TICKET_TTL_MS,
   CHAT_PAIR_TOKEN_BYTES,
   CHAT_PAIR_MAX_ATTEMPTS,
@@ -1061,78 +1256,13 @@ export {
   CHAT_LOG_MAX_LINES,
   CHAT_LOG_BUFFER_LINES,
   CHAT_BRIDGE_FILE,
+  CHAT_PICK_MAX,
+  CHAT_PICK_LABEL_MAX,
+  CHAT_PICK_TOKEN_HEX,
+  CHAT_PICK_AUTO_SESSION,
+  CHAT_TARGETS_TTL_MS,
   DEFAULT_CHAT_VERBOSITY,
-  BRAIN_SESSION_CANDIDATE_MAX,
-  BRAIN_INJECTION_TOP_K,
-  BRAIN_ALWAYS_RULE_MAX,
-  BRAIN_TOPICS,
-  BRAIN_CANONICAL_TYPES,
-  BRAIN_EXPERIENCE_TYPES,
-  BRAIN_CANONICAL_AREAS,
-  BRAIN_AUTHORITY_RANK,
-  BRAIN_AUTHORITY_VERIFIABLE_MIN,
-  BRAIN_POLICY_TYPES,
-  BRAIN_OBSERVATION_KEEP,
-  BRAIN_SCOPE_AXES,
-  BRAIN_KEY_SUBJECT_FILE_PATTERN,
-  BRAIN_SCOPE_SPLIT_PATTERN,
-  BRAIN_MIGRATION_LIST_MAX,
-  BRAIN_MIGRATION_DUP_TITLE_MIN,
-  BRAIN_TOPIC_MISC,
-  BRAIN_TOPIC_MISC_TITLE,
-  BRAIN_TOPIC_MISC_WHEN_TO_READ,
-  BRAIN_STALE_THRESHOLD_MS,
-  BRAIN_INJECTION_TOKEN_BUDGET,
-  BRAIN_INJECTIONS_MAX_PER_AGENT,
-  BRAIN_REFLECTION_MIN_EVENTS,
-  BRAIN_REFLECTION_DEBOUNCE_MS,
-  BRAIN_REFLECTION_MAX_PER_HOUR,
-  BRAIN_REFLECTION_MAX_CONCURRENT,
-  BRAIN_REFLECTION_CWD_DIRNAME,
   COMPLETION_CHIME_DEDUPE_MS,
-  BRAIN_REFLECTION_MIN_NEW_LINES,
-  BRAIN_REFLECTION_EMPTY_STREAK_THRESHOLD,
-  BRAIN_REFLECTION_BACKOFF_MAX_MS,
-  BRAIN_REFLECTION_TEXT_MAX_CHARS,
-  BRAIN_REFLECTION_TOOL_RESULT_MAX_CHARS,
-  BRAIN_REFLECTION_SYSTEM_PROMPT,
-  BRAIN_REFLECTION_DISALLOWED_TOOLS,
-  BRAIN_REF_FLUSH_MS,
-  BRAIN_FILE_WARN_ONCE_PER_SESSION,
-  BRAIN_SEARCH_MAX_RESULTS,
-  BRAIN_REFLECTION_INPUT_MAX_CHARS,
-  BRAIN_DEDUP_JACCARD_THRESHOLD,
-  BRAIN_FEED_SECTION_SIZE,
-  BRAIN_RANK_W_RELEVANCE,
-  BRAIN_RANK_W_HELPFUL,
-  BRAIN_RANK_W_FRESHNESS,
-  BRAIN_RANK_W_PINNED,
-  BRAIN_HELPFUL_SMOOTH_ALPHA,
-  BRAIN_HELPFUL_SMOOTH_BETA,
-  BRAIN_FRESHNESS_HALF_LIFE_MS,
-  BRAIN_DEMOTE_IMPRESSION_MIN,
-  BRAIN_DEMOTE_FACTOR,
-  BRAIN_RESURFACE_MIN_AGE_MS,
-  BRAIN_CONTRADICT_JACCARD_MIN,
-  BRAIN_SUPERSEDE_CANDIDATE_MAX,
-  BRAIN_NEGATION_PATTERN,
-  BRAIN_ANCHOR_SHA_LEN,
-  BRAIN_ANCHOR_MAX_FILE_BYTES,
-  BRAIN_STALE_REPORT_ARCHIVE_MIN,
-  BRAIN_TOPIC_CARD_BUDGET,
-  BRAIN_PROJECT_CARD_BUDGET,
-  BRAIN_AGENT_CARD_BUDGET,
-  BRAIN_TOPIC_DOC_CORE_N,
-  BRAIN_ARCHIVE_DIRNAME,
-  BRAIN_ARCHIVE_LIST_MAX,
-  BRAIN_REFLECTION_KNOWN_TITLE_MAX,
-  BRAIN_DEMOTE_UNREFERENCED_MS,
-  BRAIN_REFLECTION_PROMPT,
-  buildBrainReflectionPrompt,
-  buildBrainRulesSection,
-  buildBrainSkillsSection,
-  buildBrainNudgeSection,
-  buildBrainTopicIndexSection,
   USAGE_LIMIT_WARN_PCT,
   USAGE_LIMIT_DANGER_PCT,
   CLAUDE_USAGE_POLL_INTERVAL_MS,
@@ -1149,31 +1279,64 @@ export {
   PLUGIN_ID_PATTERN,
   APP_API_PREFIX,
   PLUGIN_API_PREFIX,
-  BRAIN_AXIS_IDS,
-  DEFAULT_BRAIN_AXES,
-  resolveBrainProjectKey,
-  resolveBrainActivation,
-  isBrainEnabled,
-  isBrainAxisEnabled,
-  shouldPromptBrainActivation,
-  BRAIN_SKILLS_DIRNAME,
-  BRAIN_SKILL_FILENAME,
-  BRAIN_SKILL_INJECTION_TOP_K,
-  BRAIN_SKILL_DESCRIPTION_MAX_CHARS,
-  BRAIN_SKILL_BODY_MAX_CHARS,
-  BRAIN_SKILL_BUDGET,
-  BRAIN_SKILL_PROMOTE_MIN_LESSONS,
-  BRAIN_SKILL_DRAFT_MIN_TOOL_CALLS,
-  BRAIN_RECALL_MAX_RESULTS,
-  BRAIN_RECALL_EXCERPT_CHARS,
-  BRAIN_RECALL_SESSION_SCAN_MAX,
-  BRAIN_BIGRAM_MIN_SCORE,
-  BRAIN_NUDGE_MIN_INTERVAL_MS,
-  BRAIN_NUDGE_MAX_PER_SESSION,
-  BRAIN_GROUNDING_MAX_FILE_BYTES,
-  BRAIN_GROUNDING_MIN_ANCHOR_HIT_RATIO,
-  BRAIN_CURATOR_PAGE_SIZE,
-  BRAIN_OPERATOR_CARD_BUDGET,
+  SECRET_REDACTION_PATTERNS,
+  SECRET_REDACTION_MASK,
+  redactSecrets,
+  // §5.11 정독 게이트 · §5.5 #17-44
+  SPEC_DOC_ROOT_CANDIDATES,
+  SPEC_DOC_EXTENSIONS,
+  SPEC_DOC_SCAN_MAX_DEPTH,
+  SPEC_DOC_FILE_MAX,
+  SPEC_ID_PATTERN_DEFAULT,
+  SPEC_UNIT_TOKEN_MAX,
+  SPEC_ITEM_PATTERN_DEFAULT,
+  SPEC_RESPLIT_DEPTH_MAX,
+  SPEC_ITEM_LABEL_MAX,
+  SPEC_TITLE_MIN_HITS,
+  SPEC_TITLE_STOPWORDS,
+  SPEC_RARE_TITLE_HIT_WEIGHT,
+  SPEC_RARE_TITLE_DF_RATIO,
+  SPEC_RARE_TITLE_MIN_UNITS,
+  SPEC_TITLE_HEAD_PARTS,
+  SPEC_DOC_SKIP_SEGMENTS,
+  SPEC_DOC_SKIP_FILE_PATTERN,
+  SPEC_DOC_LIST_MAX,
+  SPEC_INDEX_SKIPPED_LIST_MAX,
+  SPEC_CITATION_ACTUAL_MAX,
+  SPEC_REQUIREMENT_MARKERS,
+  SPEC_REQUIRED_MAX,
+  SPEC_UNIT_MAX,
+  SPEC_FULL_READ_LINE_MAX,
+  SPEC_GREP_CONTEXT_LINES,
+  SPEC_COVER_SATISFIED_RATIO,
+  SPEC_STOP_RETRY_DEFAULT,
+  SPEC_STOP_RETRY_LIMIT,
+  SPEC_SPANS_PER_FILE_MAX,
+  SPEC_LEDGER_SESSION_MAX,
+  SPEC_GATE_EVENT_MAX,
+  SPEC_LEDGER_FILE_MAX,
+  SPEC_PROMPT_KEEP_CHARS,
+  SPEC_TOUCHED_PATH_MAX,
+  SPEC_CITATION_SESSION_MAX,
+  SPEC_WIRE_FILE_MAX,
+  SPEC_WIRE_SPANS_PER_FILE,
+  SPEC_INDEX_TTL_MS,
+  SPEC_CITATION_MIN_CHARS,
+  SPEC_CITATION_MAX_CHARS,
+  SPEC_SETTINGS_FILE,
+  SPEC_GATE_STRENGTHS,
+  SPEC_SCOPE_ENTRY_MAX,
+  DEFAULT_SPEC_READING_SETTINGS,
+  AUTO_GOAL_MIN_RUNS,
+  AUTO_GOAL_SEQUENCE_MIN,
+  AUTO_GOAL_SEQUENCE_MAX,
+  AUTO_GOAL_WINDOW_MS,
+  AUTO_GOAL_CANDIDATE_MAX,
+  AUTO_GOAL_TITLE_MAX,
+  AUTO_GOAL_STEP_MAX,
+  AUTO_GOAL_DISMISSED_MAX,
+  AUTO_GOAL_SCAN_TAIL,
+  AUTO_GOAL_SKILL_BUDGET,
 } from './constants.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)
@@ -1182,6 +1345,31 @@ export type { StampSpec } from './constants.js';
 export type { PreviewCompareWidth } from './constants.js';
 /** §5.20 — 선반 가져오기 판정 결과(클라·서버 공용 순수 함수의 반환형). */
 export type { ShelfImportDraftItem, ShelfImportResult } from './constants.js';
+/** §5.5 #17-17 ⑪(a)(i) — 카드 씨앗·시작 카드가 공유하는 모양. */
+export type { VisualKindPreset, VisualSceneTemplate, GoalFlowTemplate, GoalFlowTemplateStep, SceneTemplateMerge } from './constants.js';
+
+// ─── §5.5 #17-17 ⑪(l) 무대 블록 — 코드블록처럼 끼워 넣는 진행 신고 ───
+// 서버가 스트림에서 수확할 때와 클라가 대화에 그릴 때가 **같은 답**을 내야 하므로 파서는 여기 한 벌뿐이다.
+export type {
+  StageBlockStepStatus,
+  StageBlockStep,
+  StageBlockKind,
+  StageBlockDirective,
+  StageBlockSpan,
+} from './stageBlock.js';
+export {
+  STAGE_BLOCK_LANGS,
+  STAGE_BLOCK_KINDS_MAX,
+  STAGE_BLOCK_STEPS_MAX,
+  isStageBlockLang,
+  extractStageBlocks,
+  parseStageBlockBody,
+  parseStageBlocks,
+} from './stageBlock.js';
+
+// §5.5 #17-17 ⑫ — 무대 팔레트: 배운 행동을 짓는 순수 집계.
+export type { GoalActionInput } from './goalActions.js';
+export { buildGoalActions } from './goalActions.js';
 
 /** §5.21 — 금액 색조(배지·표 공용). */
 export type { CostTone } from './constants.js';
@@ -1211,7 +1399,10 @@ export {
 export type { SliceScopeGroup, ScopableSliceKey, AlwaysShippedSliceKey } from './sliceScope.js';
 
 // §3.2.4 F축 — 바이트 예산 LRU 캐시.
-export { ByteBudgetCache, approximateStringBytes, capMapSize } from './byteBudgetCache.js';
+export { ByteBudgetCache, approximateStringBytes, capMapSize, capSetSize } from './byteBudgetCache.js';
+// §5.3 #9-1 (P) — 조용한 선행 압축의 자리 판정(순수).
+export { planSilentPreCompact } from './silentPreCompact.js';
+export type { PreCompactQueueItem, PreCompactSlot, PreCompactPlan } from './silentPreCompact.js';
 export type {
   ByteBudgetCacheOptions,
   ByteBudgetCacheStats,
@@ -1289,9 +1480,38 @@ export type {
   ClaudePluginEntry,
   ClaudeMarketPlugin,
   ClaudeMarketplaceEntry,
+  ClaudeMarketplaceKind,
   ClaudePluginInventory,
+  ClaudePluginActionKind,
+  ClaudePluginAutoRefreshSettings,
+  ClaudePluginRefreshState,
+  ClaudePluginRefreshResult,
 } from './types.js';
 export { resolvePluginPlacement, splitPluginId, normalizePluginPath, placementAppliesHere } from './claudePlugin.js';
+export { KNOWN_CLAUDE_MARKETPLACES, classifyMarketplace, suggestedMarketplaces } from './claudePlugin.js';
+// §5.5 #17-33 ⑦ — 갱신 판정. 화면 배지와 자동 갱신이 **같은 함수**를 읽어야 어긋나지 않는다.
+export {
+  comparePluginVersions,
+  pluginsNeedingUpdate,
+  annotatePluginUpdates,
+  normalizePluginRefreshSettings,
+  isPluginRefreshDue,
+} from './claudePlugin.js';
+export {
+  CLAUDE_PLUGIN_REFRESH_DEFAULTS,
+  CLAUDE_PLUGIN_REFRESH_MIN_INTERVAL_HOURS,
+  CLAUDE_PLUGIN_REFRESH_MAX_INTERVAL_HOURS,
+  CLAUDE_PLUGIN_REFRESH_STARTUP_DELAY_MS,
+  CLAUDE_PLUGIN_REFRESH_TICK_MS,
+  CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP,
+  CLAUDE_PLUGIN_REFRESH_MAX_PER_RUN,
+} from './constants.js';
+
+// §5.5 #17-2/#17-4 — 스킬 목록 한 줄. 목록에 있는 `plugin` 항목은 **실제로 실릴 수 있는 것**이어야 한다.
+export type { AvailableSkill, AvailableSkillSource, SkillPluginState } from './types.js';
+// §5.5 #17-33 ⑦ — 상태 태그. 세 자리(사이드바·에이전트 설정·`/` 자동완성)가 **이 한 함수**를 읽는다.
+export { resolveSkillPluginState, skillFixAction, skillLoadsNow } from './claudePlugin.js';
+
 export type { DebugLaunchRecipe } from './constants.js';
 export {
   RUN_CONFIG_MAX,
@@ -1344,6 +1564,18 @@ export {
   agentBadgeShare,
 } from './sessionRunState.js';
 
+// §2.4 (한도 정지) — "한도로 끊긴 턴"을 알아보는 판정 한 벌. 스트림 경로가 셋이라 여기 한 곳에 둔다.
+export type { UsageLimitKind, UsageLimitStop } from './usageLimitStop.js';
+export {
+  USAGE_LIMIT_MESSAGE_MAX,
+  USAGE_LIMIT_RESET_LABEL_MAX,
+  USAGE_LIMIT_NOTICE_MAX,
+  matchUsageLimitNotice,
+  parseUsageLimitResetLabel,
+  detectUsageLimitInText,
+  detectUsageLimitStop,
+} from './usageLimitStop.js';
+
 // 경로 대소문자 정책 SSOT — Linux 는 대소문자를 구분하므로 무조건 소문자로 접으면 안 된다.
 // shared 는 브라우저에서도 로드되므로 플랫폼은 인자로 받는다(pathCase.ts 머리말 참조).
 export type { PlatformName } from './pathCase.js';
@@ -1372,6 +1604,48 @@ export {
 // 주기 체크가 실패했다는 이유로 이미 받아 둔 업데이트를 못 깔게 되던 것을 여기서 막는다.
 export type { UpdateEvent } from './updateState.js';
 export { reduceUpdateState, compareVersions, isNewerVersion } from './updateState.js';
+// §5.10 — 자동 목표. 켬/끔 3층 판정 + 되풀이 절차 마이닝(모델 ❌ · 순수 함수).
+export type {
+  AutoGoalEnablement,
+  AutoGoalScopeIds,
+  AutoGoalScopeState,
+} from './autoGoalScope.js';
+export {
+  AUTO_GOAL_SCOPE_ORDER,
+  resolveAutoGoalEnabled,
+  autoGoalActiveAnywhere,
+  resolveAutoGoalProjectRoot,
+  autoGoalScopeStates,
+  withAutoGoalScope,
+  withAutoGoalDismissed,
+  capAutoGoalMap,
+  normalizeAutoGoalSettings,
+  normalizeAutoGoalScopeMap,
+} from './autoGoalScope.js';
+export type { AutoGoalMiningInput, AutoGoalMiningResult } from './autoGoalMining.js';
+export {
+  mineAutoGoalCandidates,
+  autoGoalSequenceId,
+  autoGoalTitle,
+  autoGoalSkillBody,
+  autoGoalSkillDescription,
+  isSubsequenceRun,
+} from './autoGoalMining.js';
+// §5.5 #17-44 ⑧ — 정독 켬/끔 3층 판정(프로젝트·에이전트·세션). 서버·클라·플러그인이 같은 함수를 부른다.
+export {
+  SPEC_SCOPE_ORDER,
+  resolveSpecReadingEnabled,
+  specReadingScopeStates,
+  withSpecReadingScope,
+  capScopeMap,
+  normalizeScopeMap,
+} from './specReadingScope.js';
+export type {
+  SpecReadingEnablement,
+  SpecReadingScopeIds,
+  SpecReadingScopeState,
+} from './specReadingScope.js';
+
 // §4 — 업데이트 피드를 어디서 받는가. 기본은 GitHub 그대로이고, 프록시 주소가 설정돼 있고
 // 실제로 닿을 때만 그쪽으로 간다(https 강제 · 닿지 않으면 폴백). 판정은 순수 함수라
 // 세 플랫폼·네 실패 모양을 실기 없이 전부 시험할 수 있다.
@@ -1387,6 +1661,8 @@ export type {
 } from './externalOpen.js';
 export {
   LINUX_BROWSER_BINARIES,
+  ALLOWED_EXTERNAL_SCHEMES,
+  isAllowedExternalUrl,
   needsBrowserProbe,
   hasLinuxBrowserHandler,
   resolveExternalOpenNotice,
@@ -1436,17 +1712,42 @@ export {
   extractWebEntry,
 } from './webToolEntry.js';
 
-// §5.24 — 읽기 히트맵. 서버가 `toolAxis()` 로 카운터를 가르고, 클라가 같은 파일의 `heatRatio`/
-// `heatColor`/`heatSize` 로 그 값을 지름·색으로 옮긴다. 판정이 두 벌이면 "숫자는 올랐는데 색이
-// 안 변하는" 상태가 된다.
-export type { HeatScale, ToolAxis } from './heatmap.js';
+// §5.24 — 히트맵(읽기·쓰기 두 축). 서버가 `toolAxis()` 로 카운터를 가르고, 클라가 같은 파일의
+// `heatValueOf`/`heatRatio`/`heatColor`/`heatSize`/`formatHeatCount` 로 그 값을 지름·색·숫자로
+// 옮긴다. 판정이 두 벌이면 "숫자는 올랐는데 색이 안 변하는" 상태가 된다.
+export type { HeatCounts, HeatCurve, HeatScale, ToolAxis } from './heatmap.js';
 export {
   toolAxis,
   isHeatBubbleType,
+  heatValueOf,
   heatRatio,
   heatColor,
   heatSize,
+  formatHeatCount,
+  heatQuantileSamples,
+  heatCountAtRatio,
+  heatLegendTicks,
+  normalizeHeatCurve,
 } from './heatmap.js';
+
+// §2.1 — 외부 폴더 버블의 "무엇을 보여 줄까" 판정. 서버가 트리를 세울 때와 클라이언트가 그릴
+// 때가 **같은 답**을 내야 한다(두 벌이 되면 한쪽만 고쳐져 화면과 숫자가 어긋난다).
+export type { ExternalPlacePattern } from './constants.js';
+export type {
+  ExternalPlaceContext,
+  ExternalPromotionInput,
+  ExternalPromotionCandidate,
+} from './externalFolderView.js';
+export {
+  externalPlaceKeyFor,
+  externalPlaceHint,
+  isVolatileSegment,
+  volatileFoldTarget,
+  volatilePlaceOf,
+  externalPromotionScore,
+  pickPromotedExternalFolders,
+  normalizeExternalTopBudget,
+} from './externalFolderView.js';
 
 // §2.1 #3 — 편집 계열 도구(`Edit`/`MultiEdit`/`Write`/`NotebookEdit`)의 **입력 모양**을 아는
 // 유일한 자리. 종전에는 클라 `IDE/diffTool.ts` 한 곳에만 있어 서버 그래프가 `MultiEdit`/
@@ -1480,12 +1781,14 @@ export {
 
 // §5.5 #17-6 (H-4) — 끌고 다니는 창의 "앱 안/밖" 판정. 창을 움직이는 쪽(Electron main)과
 // 규칙이 갈라지지 않게 순수 함수 한 곳에 둔다(화면 API ❌ — 숫자만 본다).
-export type { ScreenRect, AppEntryStep } from './windowDragRegion.js';
+export type { ScreenRect, AppEntryStep, RedockDwellStep } from './windowDragRegion.js';
 export {
   DETACHED_REDOCK_INSET_PX,
+  REDOCK_DWELL_MS,
   isCursorDeepInside,
   isCursorOutsideRect,
   stepAppEntry,
+  stepRedockDwell,
 } from './windowDragRegion.js';
 
 // §5.5 #17-27 ⑮ — HTML 을 페이지로 여는 **경로형** 창구의 규약. 조립(클라 iframe src)과
@@ -1514,6 +1817,15 @@ export {
   workspaceSiteInspectorScript,
 } from './workspaceSite.js';
 
+// 프리뷰 **안쪽 문서**의 스크롤바 톤. iframe 경계를 CSS 가 못 넘으므로, 페이지를 실어 보내는
+// 두 자리(프리뷰 프록시 · 워크스페이스 사이트)가 같은 조각 하나를 함께 넣는다.
+export {
+  PREVIEW_SCROLLBAR_HOLD_MS,
+  PREVIEW_SCROLLBAR_ACTIVE_ATTR,
+  PREVIEW_SCROLLBAR_TRACK_VAR,
+  previewScrollbarInjection,
+} from './previewScrollbar.js';
+
 // §5.5 #17-19 ⑦ — 탐색기가 만들거나 바꿔 다는 **이름**의 판정. 입력창(클라)과 디스크(서버)가
 // 같은 규칙 하나를 봐야 "화면은 받아 줬는데 서버가 거절"이 생기지 않는다.
 export type { WorkspaceEntryNameError } from './workspaceEntryName.js';
@@ -1530,6 +1842,9 @@ export {
   isLoopbackPreviewUrl,
   loopbackUrlVariants,
   extractLoopbackUrls,
+  isDocumentContentType,
+  serverRootUrl,
+  previewUrlForServer,
 } from './loopbackUrl.js';
 
 // §4 (첫 실행 온보딩) — ①설치 → ②로그인 → ③프로젝트 폴더. 세 게이트와 생성 REST 가 같은
@@ -1612,3 +1927,108 @@ export {
   downsampleTo16k,
   float32Bytes,
 } from './voiceAsr.js';
+
+// §5.26 / §7.23 — 세션 한 줄이 무엇에 대한 것이었나(첫 프롬프트 → 한 줄 제목).
+export { sessionTitleFromPrompt, SESSION_TITLE_MAX_CHARS } from './sessionTitle.js';
+
+// §5.10 (N) — 기억 정리를 에이전트에게 맡길 때 보내는 지시문. **UI 문자열이 아니라 지시문**이라
+
+// §6 — 앱 단축키 SSOT. `COMMANDS` 한 표에서 실제 키 판정·화면 힌트·설정 화면·충돌 판정이
+// 전부 나온다. 표에 없는 키는 힌트에도 설정에도 뜨지 않는다(거짓말하지 않는 것이 첫 규칙).
+export type {
+  CommandScope,
+  CommandDef,
+  CommandId,
+  ParsedBinding,
+  KeyEventLike,
+  KeymapOverrides,
+  BindingIssueKind,
+  BindingIssue,
+} from './keymap.js';
+export {
+  COMMANDS,
+  commandDef,
+  COMMAND_IDS,
+  COMMAND_SCOPES,
+  SCOPE_PARENT,
+  PLACEHOLDER_KEYS,
+  PLACEHOLDER_LABEL,
+  OS_RESERVED_BINDINGS,
+  scopeChain,
+  scopeRelation,
+  keyTokenFromCode,
+  codesForKeyToken,
+  parseBinding,
+  formatBinding,
+  normalizeBinding,
+  expandBinding,
+  matchesBinding,
+  bindingFromEvent,
+  isCommandId,
+  defaultKeymap,
+  normalizeKeymapOverrides,
+  resolveKeymap,
+  inspectBinding,
+  blocksAssignment,
+  findKeymapConflicts,
+} from './keymap.js';
+
+// ─── §5.5 #16-1 IDE 활동바 구성(순서·제외) 순수 로직 ───
+export {
+  normalizeIDEActivityBarPrefs,
+  resolveActivityOrder,
+  moveActivityItem,
+  applyVisibleOrder,
+} from './ideActivityBar.js';
+
+// ─── §5.4 #14-4 "닫은 탭 다시 열기" 스택 (순수 로직) ───
+export {
+  closedTabDedupeKey,
+  normalizeClosedTabEntries,
+  pushClosedTabEntry,
+  takeClosedTabEntry,
+  pruneMissingClosedTabs,
+} from './closedTabs.js';
+
+// ─── §4 (판올림 번호 발급 대기) 모바일 접속 주소의 정체 판정 (순수 로직) ───
+// 주소만 나열하면 Tailscale 의 `100.77.x.x` 와 진짜 랜 `192.168.x.x` 가 구별되지 않는다.
+// 서버(desktop main)가 판정해 넘기고 클라이언트는 그대로 그린다 — 두 벌이 되면 어긋난다.
+export type { MobileAdapterPattern } from './constants.js';
+export type { MobileAddressKind, MobileAddressEntry, MobileAddressInput } from './mobileAddress.js';
+export {
+  MOBILE_ADDRESS_KIND_ORDER,
+  MOBILE_QR_KIND_ORDER,
+  isMobileAddressReachable,
+  isCgnatAddress,
+  isPrivateLanAddress,
+  isLinkLocalAddress,
+  classifyMobileAddress,
+  buildMobileAddressEntries,
+} from './mobileAddress.js';
+
+// ─── §5.7 #24 세션 진입점 판정 (순수 로직) ───
+// 종전 게이트는 `entrypoint === 'vscode'` 한 줄이라 "사용자가 직접 연 세션"이라는 **뜻**을
+// VS Code 라는 **제품 이름**으로 적어 두고 있었다. 뜻은 술어(`isInteractiveEntrypoint`)로,
+// 제품 이름은 그 안으로 넣는다 — 새 진입점은 술어 한 곳만 고치면 된다.
+export type { SessionEntrypoint } from './sessionEntrypoint.js';
+export {
+  parseSessionEntrypoint,
+  isInteractiveEntrypoint,
+  entrypointFromConfigHome,
+} from './sessionEntrypoint.js';
+
+// ─── §3.6 Cowork 로컬 세션 디스크 규약 (순수 경로 계산) ───
+// Cowork 는 설정 홈을 세션마다 따로 잡아 우리 `~/.claude/settings.json` 을 보지 않는다.
+// 그 세션의 홈을 계산해 같은 훅 블록을 심으면 같은 코어가 같은 훅을 쏜다.
+export type { CoworkPathEnv } from './coworkSessionPaths.js';
+export {
+  COWORK_SESSION_DIR_NAMES,
+  COWORK_SESSION_DEPTH,
+  claudeDesktopUserDataDir,
+  coworkSessionRootDirs,
+  isCoworkSessionDirName,
+  coworkConfigHome,
+  coworkSessionOutputsDir,
+} from './coworkSessionPaths.js';
+
+export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';

@@ -1,15 +1,23 @@
 /**
- * spec-driven — 집행(§5.11 v4.59).
+ * spec-driven — 집행(§5.11 정독 게이트).
  *
- * 이 카드가 재는 것을 **실제로 지키게** 하는 규칙. 켜 두면 이 프로젝트 에이전트의 매 턴 프롬프트에 실린다.
+ * v4.59 의 이 파일은 고정 두 줄이었다("명세를 먼저 읽어라"). 부탁은 지켜졌는지 잴 수 없어서, 실제로는
+ * 대충 보고 "확인했다"로 끝나는 것을 하나도 못 막았다 — 사용자가 겪은 문제가 정확히 그것이다.
+ *
+ * 그래서 이 카드는 `ssot-drift` 와 같은 자리로 올라간다. 판정·문구는 전부 `spec.ts`(순수 함수)에 있고
+ * 여기서는 id 와 묶기만 한다 — 규율을 바꾸려면 테스트가 걸려 있는 그 파일 하나만 고치면 되게.
+ *
+ * ⚠ **카드(`index.tsx`)를 import 하지 않는다.** 그것을 물면 서버가 프롬프트 한 줄 만들려고 React 를
+ * 끌어온다(집행 배럴은 서버 전용). id 는 문자열로 직접 든다.
  */
-import { defineEnforcement } from '../sdk/index.js';
+import type { PluginPromptModule } from '../sdk/index.js';
+import { buildSpecPromptBlock, surveySpecFacts } from './spec.js';
 
-export const enforcement = defineEnforcement({
-  id: "spec-driven",
-  title: "명세에서 코드로",
-  rules: [
-    "구현 전에 명세가 있는지 확인하고, 있으면 명세를 먼저 읽어라.",
-    "명세와 다르게 만들지 마라 — 바꿔야 하면 명세를 먼저 고치고 그 다음에 구현하라.",
-  ],
-});
+export const SPEC_DRIVEN_ID = 'spec-driven';
+
+export const enforcement: PluginPromptModule = {
+  id: SPEC_DRIVEN_ID,
+  buildBlock: buildSpecPromptBlock,
+  // 프롬프트에 실은 판단 근거를 카드·활동바가 같은 값으로 그린다(둘 다 `evaluateSpecReading` 하나에서 나온다).
+  survey: surveySpecFacts,
+};

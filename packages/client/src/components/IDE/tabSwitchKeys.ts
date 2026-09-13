@@ -1,14 +1,15 @@
 /**
- * tabSwitchKeys.ts — **§5.5 #17-37 세션 탭 전환 단축키의 판정 한 곳.**
+ * tabSwitchKeys.ts — **§5.5 #17-37 세션 탭 전환의 "어느 탭으로 갈까" 한 곳.**
  *
- * 키를 뜻으로 바꾸는 일(`resolveTabSwitchIntent`)과, 그 뜻을 탭 순서에 적용해 갈 곳을 고르는
- * 일(`applyTabSwitch`)만 한다. DOM·스토어·React 를 모르는 순수 함수라 실기(mac·리눅스) 없이도
- * 세 OS 의 조합을 단위 테스트로 전부 확인할 수 있다 — 우리에게는 이것이 규칙을 지켰는지 확인하는
- * 유일한 방법이다([docs/rules/multiplatform.md] "플랫폼 분기는 인자로 받는다").
+ * ⚠ **키를 읽는 일은 여기서 하지 않는다.** 어떤 키가 이 동작인지는 §6 단축키 레지스트리
+ * (`shared/keymap.ts` 의 `COMMANDS`)가 정하고, `useCommand` 가 그 판정을 한 곳에서 한다 —
+ * 그래야 사용자가 키를 바꾸면 이 파일을 한 줄도 안 고치고 그대로 따라간다. 여기 남은 일은
+ * **명령을 뜻으로 옮기고**(`tabSwitchIntentOf`) 그 뜻을 탭 순서에 적용하는 것(`applyTabSwitch`)뿐이다.
  *
- * 배정(#17-37 ①): `Ctrl+Tab`/`Ctrl+Shift+Tab` 순환 · `Ctrl+PageDown`/`Ctrl+PageUp` 같은 동작의
- * 별칭 · `Ctrl+1`~`Ctrl+9` N번째 탭 직행(**9 는 언제나 마지막 탭**).
+ * DOM·스토어·React 를 모르는 순수 함수라 실기(mac·리눅스) 없이도 단위 테스트로 고정할 수 있다.
  */
+
+import type { CommandId } from '@vibisual/shared';
 
 /** 탭 하나를 가리키는 값. `null` = 메인(에이전트 전체) 탭 — 훅 에이전트에만 있다. */
 export type TabKey = string | null;
@@ -19,54 +20,36 @@ export type TabSwitchIntent =
   | { kind: 'index'; index: number }
   | { kind: 'last' };
 
-/** `KeyboardEvent` 중 판정에 쓰는 것만. 테스트가 이벤트를 만들지 않아도 되게 좁게 받는다. */
-export interface TabSwitchKeyLike {
-  /** 자판 배열과 무관한 물리 키(`Tab`·`PageDown`·`Digit3`·`Numpad3`). */
-  code: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-}
-
-/** `Ctrl+숫자` 로 받는 자리 — `Digit1`~`Digit9` 와 숫자패드 둘 다. */
-const DIGIT_CODE = /^(?:Digit|Numpad)([1-9])$/;
+/** 이 모듈이 아는 탭 전환 명령. `COMMANDS` 표의 `ide.tab*` 다섯이다. */
+export type TabSwitchCommandId = Extract<CommandId, `ide.tab${string}`>;
 
 /**
- * 키 → 뜻. 우리 것이 아니면 `null`(그 자리에서 손을 뗀다).
+ * 명령 → 뜻.
  *
- * ⚠ **Tab 계열만 `ctrlKey` 를 곧이곧대로 본다.** 이 저장소의 다른 단축키는 전부
- * `ctrlKey || metaKey` 지만(mac 은 ⌘), **`⌘Tab` 은 macOS 의 앱 전환**이라 애초에 우리에게
- * 도달하지 않는다 — VS Code 가 mac 에서만 `⌃Tab` 을 쓰는 이유이고 그래서 mac 에서도 진짜
- * Control 로 못 박는다(#17-37 ③). PageUp/PageDown·숫자는 종전 규약대로 `ctrlKey || metaKey`.
+ * `ide.tabNth` 만 **눌린 숫자**가 필요하다 — 그 숫자는 호출부가 이벤트에서 뽑아 넘긴다
+ * (`keyTokenFromCode`). 나머지 넷은 키와 무관하게 뜻이 고정이다.
  *
- * `Alt` 가 눌린 조합은 통째로 비켜선다 — `Alt+숫자` 는 §5.4 #30 북마크 지정의 것이고,
- * `Ctrl+Alt` 는 일부 유럽 자판에서 AltGr 이라 글자 입력을 가로챌 수 있다(#17-1 과 같은 규율).
+ * ⚠ **`9` 는 "아홉 번째"가 아니라 마지막**이다(브라우저·VS Code 관례) — 탭이 셋이면 `Ctrl+9` 는
+ * 세 번째다. 사용자가 그 자리를 다른 숫자로 바꿔도 이 규칙은 **마지막 숫자**를 따라간다.
  */
-export function resolveTabSwitchIntent(e: TabSwitchKeyLike): TabSwitchIntent | null {
-  if (e.altKey) return null;
-
-  if (e.code === 'Tab') {
-    if (!e.ctrlKey) return null;
-    return { kind: 'cycle', delta: e.shiftKey ? -1 : 1 };
+export function tabSwitchIntentOf(
+  id: TabSwitchCommandId,
+  digit?: number,
+): TabSwitchIntent | null {
+  switch (id) {
+    case 'ide.tabNext':
+    case 'ide.tabNextAlt':
+      return { kind: 'cycle', delta: 1 };
+    case 'ide.tabPrev':
+    case 'ide.tabPrevAlt':
+      return { kind: 'cycle', delta: -1 };
+    case 'ide.tabNth': {
+      if (digit === undefined || !Number.isInteger(digit) || digit < 1 || digit > 9) return null;
+      return digit === 9 ? { kind: 'last' } : { kind: 'index', index: digit - 1 };
+    }
+    default:
+      return null;
   }
-
-  const mod = e.ctrlKey || e.metaKey;
-  if (!mod) return null;
-  // 아래 둘은 Shift 를 쓰지 않는다 — 브라우저에서 `Ctrl+Shift+PageDown` 은 "탭을 옮기는" 뜻이라
-  //   같은 손짓이 우리에게서 다른 일을 하면 안 된다(지금은 옮기기가 없으므로 그냥 비켜선다).
-  if (e.shiftKey) return null;
-
-  if (e.code === 'PageDown') return { kind: 'cycle', delta: 1 };
-  if (e.code === 'PageUp') return { kind: 'cycle', delta: -1 };
-
-  const digit = DIGIT_CODE.exec(e.code);
-  if (digit) {
-    const n = Number(digit[1]);
-    // 9 는 "아홉 번째"가 아니라 **마지막**이다(브라우저 관례) — 탭이 셋이면 `Ctrl+9` 는 세 번째다.
-    return n === 9 ? { kind: 'last' } : { kind: 'index', index: n - 1 };
-  }
-  return null;
 }
 
 /**
