@@ -775,7 +775,7 @@ export const IDETabBar = memo(function IDETabBar({
                 // **지금 보고 있는 탭**에만 띄우고, 손가락 크기에 맞춰 조금 키운다.
                 isActive ? 'pointer-coarse:h-5 pointer-coarse:w-5 pointer-coarse:opacity-100' : ''
               }`}
-              aria-label={`Close ${sub.label}`}
+              aria-label={t('ide.tabbar.closeTabNamed', { name: sub.label })}
               title={t('ide.tabbar.closeTab')}
             >
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>

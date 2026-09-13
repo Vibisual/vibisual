@@ -140,7 +140,7 @@ export const IframeServerCard = memo(function IframeServerCard({
           >
             <path d="M21 12a9 9 0 1 1-2.63-6.36M21 3v6h-6" />
           </svg>
-          Restart
+          {t('panel.serverList.restartLabel')}
         </button>
 
         {alive ? (
@@ -154,7 +154,7 @@ export const IframeServerCard = memo(function IframeServerCard({
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
               <rect x="6" y="6" width="12" height="12" rx="1" />
             </svg>
-            Stop
+            {t('panel.serverList.stopLabel')}
           </button>
         ) : (
           <button
@@ -171,7 +171,7 @@ export const IframeServerCard = memo(function IframeServerCard({
             >
               <polygon points="6,4 20,12 6,20" />
             </svg>
-            Start
+            {t('panel.serverList.startLabel')}
           </button>
         )}
       </div>

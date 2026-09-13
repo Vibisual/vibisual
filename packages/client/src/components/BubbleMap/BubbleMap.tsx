@@ -70,6 +70,7 @@ import { TaskEdgeComponent } from './TaskEdgeComponent.js';
 import { TaskEdgePopup } from './TaskEdgePopup.js';
 import { TaskEdgeDragPreview } from './TaskEdgeDragPreview.js';
 import { TaskEdgePopupPreview } from './TaskEdgePopupPreview.js';
+import { isTaskEdgePopupOwnedByActiveProject } from './taskEdgePopupOwner.js';
 import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets.js';
 // §5.4 #33 — 버블 정리. 물리가 말하지 않는 "어디에 놓을까"를 정하는 순수 기하.
 import { computeTidyLayout, computeTidySatellites, tidyBandOf, type TidyItem, type TidyParentSeat, type TidySatellite } from './tidyLayout.js';
@@ -300,6 +301,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     targetAgentId: string;
     screenX: number;
     screenY: number;
+    /** 연 순간의 활성 프로젝트 — 생성창도 그 프로젝트에 귀속된다(`taskEdgePopupOwner.ts`). */
+    projectName: string | null;
   } | null>(null);
 
   // ── 커스텀 Task Edge 드래그 (테두리 아무 곳에서 시작) ──
@@ -344,6 +347,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         targetAgentId: validTargetId,
         screenX: e.clientX,
         screenY: e.clientY,
+        projectName: useGraphStore.getState().activeProject,
       });
       useGraphStore.getState().endTaskEdgeDrag();
     };
@@ -3148,7 +3152,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         </div>,
         document.body,
       )}
-      {taskEdgePopup && (
+      {/* 태스크 엣지 설정창(생성·편집)은 연 프로젝트에만 선다 — 다른 탭에 있는 동안은 그리지 않고,
+          돌아오면 그 자리에 다시 선다. "엣지가 스토어에 있나"로는 못 가른다: 독립 창이 앞 프로젝트를
+          구독 범위에 붙들면 그 엣지가 이 창 스토어에도 남는다(`taskEdgePopupOwner.ts`). */}
+      {taskEdgePopup && isTaskEdgePopupOwnedByActiveProject(taskEdgePopup.projectName, activeProject) && (
         <>
           {/* popup 뒤에 source↔target 을 잇는 엣지 예시 — Connect 시 실제 엣지로 대체됨 */}
           <TaskEdgePopupPreview
@@ -3169,7 +3176,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           />
         </>
       )}
-      {taskEdgeEditPopup && storeTaskEdges[taskEdgeEditPopup.edgeId] && (
+      {taskEdgeEditPopup
+        && isTaskEdgePopupOwnedByActiveProject(taskEdgeEditPopup.projectName, activeProject)
+        && storeTaskEdges[taskEdgeEditPopup.edgeId] && (
         <TaskEdgePopup
           editingEdgeId={taskEdgeEditPopup.edgeId}
           sourceAgentId={storeTaskEdges[taskEdgeEditPopup.edgeId]!.sourceAgentId}

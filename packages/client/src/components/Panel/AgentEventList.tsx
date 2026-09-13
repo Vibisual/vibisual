@@ -161,7 +161,10 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
                   <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
                 </svg>
                 <span className="text-xs font-semibold text-indigo-400">
-                  Todos ({event.todos.filter((t) => t.status === 'completed').length}/{event.todos.length})
+                  {t('panel.agentEventList.todos', {
+                    done: event.todos.filter((todo) => todo.status === 'completed').length,
+                    total: event.todos.length,
+                  })}
                 </span>
               </div>
               <ul className="flex flex-col gap-1">
@@ -225,6 +228,7 @@ export const AgentEventList = memo(function AgentEventList({
   completedCommands = [],
   sessionId,
 }: AgentEventListProps): React.JSX.Element | null {
+  const { t } = useTranslation();
   const [selected, setSelected] = useState<AgentEvent | null>(null);
   /** 선택된 항목의 세션 ID (서브에이전트면 서브 세션, 아니면 부모 세션) */
   const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(undefined);
@@ -290,7 +294,7 @@ export const AgentEventList = memo(function AgentEventList({
     <>
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">
-          Results ({results.length})
+          {t('panel.agentEventList.results', { count: results.length })}
         </span>
         <ScrollFade maxHeight={256}>
           <ul className="flex flex-col gap-1.5">
@@ -307,14 +311,14 @@ export const AgentEventList = memo(function AgentEventList({
                 </p>
                 {/* Todo 요약 (있을 때만) */}
                 {item.todos && item.todos.length > 0 && (() => {
-                  const done = item.todos.filter((t) => t.status === 'completed').length;
+                  const done = item.todos.filter((todo) => todo.status === 'completed').length;
                   return (
                     <div className="mt-1 flex items-center gap-1.5 rounded bg-indigo-500/10 px-1.5 py-0.5">
                       <svg className="h-3 w-3 flex-shrink-0 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                         <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
                       </svg>
                       <span className="text-[12px] text-indigo-300/80">
-                        Todos {done}/{item.todos.length}
+                        {t('panel.agentEventList.todosCompact', { done, total: item.todos.length })}
                       </span>
                     </div>
                   );

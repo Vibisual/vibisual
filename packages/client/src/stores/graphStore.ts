@@ -2293,8 +2293,9 @@ interface GraphState {
   updateTaskEdgeDrag: (clientX: number, clientY: number) => void;
   setTaskEdgeDragFollow: () => void;
   endTaskEdgeDrag: () => void;
-  /** Task Edge 편집 팝업 (아이콘 더블클릭 시 오픈) */
-  taskEdgeEditPopup: { edgeId: string; screenX: number; screenY: number } | null;
+  /** Task Edge 편집 팝업 (아이콘 더블클릭 시 오픈).
+   *  `projectName` = 연 순간의 활성 프로젝트 — 설정창은 그 프로젝트에 귀속된다(`taskEdgePopupOwner.ts`). */
+  taskEdgeEditPopup: { edgeId: string; screenX: number; screenY: number; projectName: string | null } | null;
   openTaskEdgeEdit: (edgeId: string, screenX: number, screenY: number) => void;
   closeTaskEdgeEdit: () => void;
 
@@ -4902,6 +4903,10 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       navStack: [],
       selectedNodeId: null,
       selectIntentId: null,
+      // 엣지 선택도 노드처럼 따라가지 않는다. 독립 창이 앞 프로젝트를 구독 범위에 붙들면 그 엣지가
+      //   스토어에 남아 DetailPanel 이 옮겨 간 프로젝트 위에 앞 프로젝트의 엣지를 띄우고, 그 [편집]이
+      //   설정창을 이쪽 프로젝트 소속으로 다시 연다(`taskEdgePopupOwner.ts`).
+      selectedTaskEdgeId: null,
       activeIframeId: null,
       // §5.10 — 프로젝트 전환 시 내부(휴지통) 뷰는 리셋(전역 전이 상태, 영속 X).
       interiorView: null,
@@ -5097,6 +5102,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       navStack: [],
       selectedNodeId: null,
       selectIntentId: null,
+      selectedTaskEdgeId: null, // setActiveProject 와 같은 이유
       activeIframeId: null,
     })),
   setActiveIframeIdLocal: (id) => set(() => ({ activeIframeId: id })),
@@ -5319,7 +5325,10 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   ),
   endTaskEdgeDrag: () => set({ taskEdgeDrag: null, connectingFrom: null }),
   taskEdgeEditPopup: null,
-  openTaskEdgeEdit: (edgeId, screenX, screenY) => set({ taskEdgeEditPopup: { edgeId, screenX, screenY } }),
+  // 연 프로젝트를 함께 적는다 — 그리는 쪽은 "스토어에 있나"가 아니라 이것으로 가른다(`taskEdgePopupOwner.ts`).
+  openTaskEdgeEdit: (edgeId, screenX, screenY) => set({
+    taskEdgeEditPopup: { edgeId, screenX, screenY, projectName: get().activeProject },
+  }),
   closeTaskEdgeEdit: () => set({ taskEdgeEditPopup: null }),
 
   taskEdgePreview: null,

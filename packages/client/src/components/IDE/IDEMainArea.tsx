@@ -19,6 +19,7 @@ import { useIDEPaneValue } from './idePane.js';
 import { useSplitCellFocused, useSplitCellSession } from './splitCellContext.js';
 import type { AgentSessionInputAttachment, EditorFollowMark } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
+import { builtinSlashDescription } from './slashBuiltinDesc.js';
 // §5.5 #17-33 ⑦ — 스킬 상태 태그. 여기서는 **표시 전용**(`onFix` 를 안 넘긴다).
 import { SkillStateTag } from '../SkillStateTag.js';
 import { useSessionStop } from '../../hooks/useSessionStop.js';
@@ -908,7 +909,7 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
         onClick={toggleOpen}
         {...streamToggleProps(open)}
         className={`group/hdr flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors ${headerBg}`}
-        title={open ? 'Click to collapse' : 'Click to expand'}
+        title={open ? t('ide.streamRenderer.clickToCollapse') : t('ide.streamRenderer.clickToExpand')}
       >
         {/* 시간 */}
         <span className="flex-shrink-0 select-none text-[12px] text-gray-500">
@@ -1044,7 +1045,7 @@ const API_BASE = '';
 type PastedAttachment = AgentSessionInputAttachment;
 
 function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // §5.5 #17-12 ③ v4.64 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구이자, 이제 화면에서도 유일한 [중지].
   const { stopping, stop: handleStop } = useSessionStop(agentId, activeSessionId);
   const addCommand = useGraphStore((s) => s.addCommand);
@@ -1865,7 +1866,13 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               const accentText = item.kind === 'builtin'
                 ? 'text-sky-400'
                 : item.skill.source === 'project' ? 'text-emerald-400' : 'text-purple-400';
-              const description = item.kind === 'builtin' ? item.builtin.description : item.skill.description;
+              // §5.5 #17-2 (보강) — 내장 명령 설명만 로케일을 따른다(스킬 설명은 작성자의 말 그대로).
+              const description = item.kind === 'builtin'
+                ? builtinSlashDescription(item.builtin.name, item.builtin.description, {
+                    enCopy: (key) => i18n.getResource('en', 'translation', key),
+                    translate: (key) => t(key),
+                  })
+                : item.skill.description;
               return (
                 <button
                   key={`${item.kind}:${item.name}`}

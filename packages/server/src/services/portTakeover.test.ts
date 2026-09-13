@@ -7,7 +7,9 @@ import {
   parsePsArgs,
   parseWinCommandLine,
   shellJoinArgv,
+  takeoverProbeTimeoutMs,
 } from './portTakeover.js';
+import { PROCESS_LIST_TIMEOUT_MS } from './processDescendants.js';
 
 /**
  * §7.11 포트 인계 — 포트 인계의 **조회 계획과 파서**를 세 OS 모두에 대해 고정한다.
@@ -42,6 +44,14 @@ describe('§7.11 포트 인계 — 플랫폼별 조회 계획', () => {
     expect(buildTakeoverProbes('linux', 0)).toEqual([]);
     expect(buildTakeoverProbes('win32', -1)).toEqual([]);
     expect(buildTakeoverProbes('darwin', 1.5)).toEqual([]);
+  });
+
+  it('win32 조회는 PowerShell 기동을 기다려 준다 (바쁜 기기에서 4초에 잘려 명령을 못 읽었다)', () => {
+    // 같은 Win32_Process 질의로 프로세스 목록을 뜨는 쪽보다 짧으면 인계만 먼저 포기한다.
+    expect(takeoverProbeTimeoutMs('win32')).toBeGreaterThanOrEqual(PROCESS_LIST_TIMEOUT_MS);
+    // ps·lsof 는 가벼운 도구다 — POSIX 에서 기다림을 늘릴 이유는 없다.
+    expect(takeoverProbeTimeoutMs('linux')).toBe(4_000);
+    expect(takeoverProbeTimeoutMs('darwin')).toBe(4_000);
   });
 });
 

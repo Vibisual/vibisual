@@ -43,13 +43,14 @@ async function spawnServer(port: number): Promise<void> {
 
 /**
  * 인계 조회를 몇 번까지 해 보나. 조회 한 번은 외부 명령(Windows: `netstat` → PowerShell)을 부르고
- * 각각 실제 코드의 상한(3초·4초)을 그대로 쓴다. GitHub 의 windows-latest 러너는 PowerShell 을 처음
- * 띄우는 것만으로 그 상한을 넘기기도 한다 — 2026-09-13 CI 에서 netstat 은 pid 를 찾았는데 명령줄을
- * 못 읽고 4.2초에 null 이었다(같은 러너의 앞선 CI 는 3.0초에 통과, ubuntu·macos 는 통과). 첫 한 번의
- * 빈손은 사슬이 끊겨서가 아니라 러너가 느려서일 수 있으니, 판정은 그대로 두고(결국 node 명령줄을
- * 읽어 와야 통과한다) 디스크 캐시에 올라온 뒤에 다시 묻는다.
+ * 각각 실제 코드의 상한(3초 · `takeoverProbeTimeoutMs`)을 그대로 쓴다. GitHub 의 windows-latest
+ * 러너는 시험 스위트가 CPU 를 쓰는 동안 PowerShell 기동만으로 4초를 넘긴다 — 2026-09-13 CI 에서
+ * netstat 은 pid 를 찾았는데 명령줄 조회가 4.2초에 잘렸고(재실행은 3.0초에 통과), 재시도를 셋으로
+ * 늘린 다음 회차(#39)에서도 세 번 모두 4초에 잘렸다. 시험을 늘려서 풀 일이 아니라 제품의 상한이
+ * 좁았던 것이라 Windows 상한을 넓혔고, 여기서는 첫 기동이 디스크 캐시에 올라온 뒤 한 번만 더 묻는다.
+ * 판정은 그대로다 — 결국 node 명령줄을 읽어 와야 통과한다.
  */
-const TAKEOVER_ATTEMPTS = 3;
+const TAKEOVER_ATTEMPTS = 2;
 
 describe('§7.11 포트 인계 — 실제 프로세스에서 되찾기', () => {
   it('띄워 둔 서버의 포트만 알아도 그 기동 명령을 읽어 온다', async () => {
@@ -63,7 +64,7 @@ describe('§7.11 포트 인계 — 실제 프로세스에서 되찾기', () => {
     expect(taken?.command.toLowerCase()).toContain('node');
     expect(taken?.command).toContain(String(port));
     expect(taken?.pid).toBeGreaterThan(0);
-    // 최악: listen 대기 8초 + 조회 3번 × (3초 + 4초) = 29초 — 기존 30초로는 마지막 조회가 잘린다.
+    // 최악: listen 대기 8초 + 조회 2번 × (3초 + 15초) = 44초.
   }, 60000);
 
   it('아무도 없는 포트는 인계하지 않는다 (엉뚱한 프로세스를 잡지 않는다)', async () => {

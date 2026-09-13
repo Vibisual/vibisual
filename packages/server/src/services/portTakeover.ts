@@ -24,8 +24,20 @@ import fs from 'node:fs';
 import { logger } from '../logger.js';
 import { findPortOwnerPids, isVibisualOwnPort } from './processChecker.js';
 
-/** 프로세스 정보 조회 1회당 상한. 넘으면 "못 읽었다"로 보고 다음 후보로 넘어간다. */
-const PROBE_TIMEOUT_MS = 4000;
+/**
+ * 프로세스 정보 조회 1회당 상한. 넘으면 "못 읽었다"로 보고 다음 후보로 넘어간다.
+ *
+ * Windows 는 조회 한 번이 PowerShell(.NET) 기동 + WMI 질의라 POSIX 의 `ps`·`lsof` 와 무게가 다르다.
+ * CPU 가 바쁜 기기에서는 기동만으로 4초를 넘긴다 — 2026-09-13 windows-latest 러너에서 시험 스위트가
+ * 함께 돌던 중 netstat 은 pid 를 찾았는데 이 조회가 세 번 연달아 4초에 잘렸다(같은 질의로 프로세스
+ * 목록을 뜨는 `processDescendants.ts` 는 8초를 준다). 잘려도 아무것도 죽이지 않지만 그 서버는
+ * "재시작 불가"로 남고, 신고 직후의 조회는 프로세스가 살아 있을 때만 가능하므로 넉넉히 준다.
+ *
+ * @param platform 세 OS 를 한 기기에서 테스트하기 위해 인자로 받는다.
+ */
+export function takeoverProbeTimeoutMs(platform: NodeJS.Platform): number {
+  return platform === 'win32' ? 15_000 : 4_000;
+}
 
 /** 인계 결과. `command` 는 셸 한 줄로 다시 띄울 수 있는 형태다. */
 export interface PortTakeover {
@@ -150,9 +162,9 @@ export function isUnusableTakeoverCommand(command: string): boolean {
 
 // ─── 조회 실행 ───
 
-function runProbeExec(command: string): Promise<string | null> {
+function runProbeExec(command: string, timeoutMs: number): Promise<string | null> {
   return new Promise((resolve) => {
-    exec(command, { timeout: PROBE_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+    exec(command, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => {
       // `ps`/`lsof` 는 "그런 PID 없음"을 exit 1 로 알린다 — stdout 이 있으면 그대로 쓴다.
       resolve(String(stdout ?? '') || (err ? null : ''));
     });
@@ -186,7 +198,7 @@ export async function readProcessStart(
       try { cwd = fs.readlinkSync(probe.path) || null; } catch { /* 다음 후보로 */ }
       continue;
     }
-    const out = await runProbeExec(probe.command);
+    const out = await runProbeExec(probe.command, takeoverProbeTimeoutMs(platform));
     if (out == null) continue;
     if (probe.parse === 'ps-args') { const v = parsePsArgs(out); if (v) { command = v; via ||= 'ps'; } }
     else if (probe.parse === 'win-cmdline') { const v = parseWinCommandLine(out); if (v) { command = v; via ||= 'Get-CimInstance'; } }
