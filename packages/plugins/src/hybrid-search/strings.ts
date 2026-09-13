@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "Keyword search is strong on exact names and paths; semantic search is strong when the wording differs. Vibisual searches memory on the keyword axis only, which is a deliberate choice at this scale.",
+    "desc": "Keyword search is strong on exact names and paths; semantic search is strong when the wording differs. Vibisual searches procedures on the keyword axis only, which is a deliberate choice at this scale.",
     "heading": "Hybrid Search",
     "level": {
-      "none": "No memory yet",
+      "none": "Nothing written yet",
       "keyword": "Keyword axis"
     },
     "check": {
       "axis": "Search axis",
-      "cards": "Cards"
+      "cards": "Procedures"
     },
     "keywordOnly": "keyword only",
-    "note": "At a few hundred entries the second axis costs more to run than it returns. This card exists to notice when that stops being true."
+    "note": "At a few dozen procedures the second axis costs more to run than it returns. This card exists to notice when that stops being true."
   },
   "ko": {
-    "desc": "키워드 검색은 정확한 이름·경로에 강하고 의미 검색은 표현이 다를 때 강합니다. Vibisual 의 기억 검색은 키워드 축만 쓰며, 이 규모에서는 의도한 선택입니다.",
+    "desc": "키워드 검색은 정확한 이름·경로에 강하고 의미 검색은 표현이 다를 때 강합니다. Vibisual 의 절차 검색은 키워드 축만 쓰며, 이 규모에서는 의도한 선택입니다.",
     "heading": "하이브리드 검색",
     "level": {
-      "none": "아직 기억 없음",
+      "none": "아직 적힌 절차 없음",
       "keyword": "키워드 축"
     },
     "check": {
       "axis": "검색 축",
-      "cards": "카드 수"
+      "cards": "절차 수"
     },
     "keywordOnly": "키워드만",
-    "note": "수백 건 규모에서는 두 번째 축이 돌리는 비용보다 돌려주는 것이 적습니다. 이 카드는 그게 더는 참이 아니게 되는 때를 알아채기 위한 것입니다."
+    "note": "수십 벌 규모에서는 두 번째 축이 돌리는 비용보다 돌려주는 것이 적습니다. 이 카드는 그게 더는 참이 아니게 되는 때를 알아채기 위한 것입니다."
   },
   "ja": {
     "level": {

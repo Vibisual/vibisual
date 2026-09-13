@@ -38,6 +38,7 @@ export {
   selectProjectEnabledList,
   resolveEnabledPluginsFor,
   isPluginEnabledFor,
+  hasOwnToggle,
   withProjectEnabled,
   resolveProjectKey,
   unsupportedContributions,
@@ -62,6 +63,41 @@ export {
   SSOT_STALE_DAYS,
 } from './ssot-drift/ssot.js';
 export type { SsotSurvey, SsotConfig, SsotDocState } from './ssot-drift/ssot.js';
+
+/**
+ * §5.11 정독 게이트 — 절 색인·라우팅·영수증·인용 확증의 **판정 전부**(순수 함수, `spec.test.ts`).
+ *
+ * 서버가 이것을 그대로 부른다. 서버가 자기 판정을 따로 들면 프롬프트에 실린 판단과 게이트가 막는 근거가
+ * 갈리고, 그러면 "화면은 초록인데 막힌다"가 만들어진다 — 사용자가 이 기능을 못 믿게 되는 정확한 경로다.
+ */
+export {
+  evaluateSpecReading,
+  buildSpecIndex,
+  buildSpecIndexCached,
+  clearSpecIndexCache,
+  buildSpecPromptBlock,
+  buildSpecSystemRules,
+  surveySpecFacts,
+  readSpecSettings,
+  normalizeSpecSettings,
+  routeRequiredUnits,
+  classifySpans,
+  computeTrust,
+  verifyCitation,
+  extractCitations,
+  unitAt,
+  splitUnits,
+  slugify,
+  countRequirements,
+  tokenize,
+  matchGlob,
+  shapePath,
+  specPlatform,
+  spanFromRead,
+  spanFromGrep,
+} from './spec-driven/spec.js';
+export type { SpecReadingEvaluation } from './spec-driven/spec.js';
+export { SPEC_DRIVEN_ID } from './spec-driven/enforce.js';
 
 export { LETHAL_TRIFECTA_ID, lethalTrifectaManifest } from './lethal-trifecta/manifest.js';
 export {

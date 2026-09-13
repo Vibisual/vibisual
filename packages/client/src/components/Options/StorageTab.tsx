@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  NumericRetentionKey,
   RetentionLogEntry,
   RetentionSettings,
   StorageCleanupResult,
@@ -39,7 +40,13 @@ function formatBytes(bytes: number): string {
  * 감사 원장 축(`auditEntryMaxPerProject`)은 §5.22 타임라인 팝업에도 같은 값이 걸려 있다 —
  * 두 화면이 한 값을 보므로 여기서 고치면 그쪽도 다음에 열 때 따라온다.
  */
-const FIELDS: { key: keyof RetentionSettings; unit: 'days' | 'count' | 'seconds' }[] = [
+/**
+ * 숫자 축만 이 표에 선다 — 그래서 키 타입이 `keyof RetentionSettings` 가 아니라
+ * `NumericRetentionKey` 다. §5.26 이 보존 설정에 **스위치 하나**(`insuranceMirror`)를 더하면서
+ * 두 종류가 섞였고, 종전 타입 그대로 두면 `RETENTION_LIMITS[key]`(숫자 축만 가진 표)를 인덱스할 수
+ * 없다. 스위치는 아래 `SWITCHES` 가 따로 그린다 — 숫자 입력칸으로 그릴 수 없는 값이라 그렇다.
+ */
+const FIELDS: { key: NumericRetentionKey; unit: 'days' | 'count' | 'seconds' | 'megabytes' }[] = [
   { key: 'fileEditRetentionDays', unit: 'days' },
   { key: 'maxFileEditPaths', unit: 'count' },
   { key: 'fileEditMergeWindowMs', unit: 'seconds' },
@@ -48,11 +55,19 @@ const FIELDS: { key: keyof RetentionSettings; unit: 'days' | 'count' | 'seconds'
   { key: 'attachmentRetentionDays', unit: 'days' },
   { key: 'auditEntryMaxPerProject', unit: 'count' },
   { key: 'trashRetentionDays', unit: 'days' },
+  // §5.26 — 컨텍스트 보험. 나이 한 축 + 저장고 예산 한 축.
+  { key: 'insuranceRetentionDays', unit: 'days' },
+  { key: 'insuranceVaultMaxMB', unit: 'megabytes' },
+];
+
+/** 켬/끔으로만 있는 축 — 숫자 칸으로 그릴 수 없어 표를 나눈다. */
+const SWITCHES: { key: 'insuranceMirror' }[] = [
+  { key: 'insuranceMirror' },
 ];
 
 const USAGE_KIND_ORDER: StorageUsageKind[] = [
   'checkpoint', 'activity', 'identity', 'checkpointBackups',
-  'subStreams', 'attachments', 'trash', 'brain', 'logs', 'video', 'other',
+  'subStreams', 'attachments', 'insurance', 'trash', 'skills', 'logs', 'video', 'other',
 ];
 
 interface StorageTabProps {
@@ -78,7 +93,8 @@ export function StorageTab({ onDirtyChange }: StorageTabProps = {}): React.JSX.E
   const [restoring, setRestoring] = useState<string | null>(null);
 
   const dirty = useMemo(
-    () => FIELDS.some((f) => settings[f.key] !== savedSettings[f.key]),
+    () => FIELDS.some((f) => settings[f.key] !== savedSettings[f.key])
+      || SWITCHES.some((f) => settings[f.key] !== savedSettings[f.key]),
     [settings, savedSettings],
   );
 
@@ -238,6 +254,27 @@ export function StorageTab({ onDirtyChange }: StorageTabProps = {}): React.JSX.E
             </label>
           );
         })}
+
+        {/* §5.26 — 켬/끔 축. 끄면 마커(수백 바이트)만 남고 트랜스크립트 사본은 뜨지 않는다. */}
+        {SWITCHES.map(({ key }) => (
+          <label key={key} className="flex items-center justify-between gap-3 rounded border border-gray-700/50 bg-gray-900/40 px-3 py-2">
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-xs text-gray-200">
+                {t(`panel.options.storage.fields.${key}.label`, { defaultValue: key })}
+              </span>
+              <span className="truncate text-[12px] leading-relaxed text-gray-500">
+                {t(`panel.options.storage.fields.${key}.desc`, { defaultValue: '' })}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={settings[key]}
+              onChange={(e) => setSettings((s) => ({ ...s, [key]: e.target.checked }))}
+              aria-label={t(`panel.options.storage.fields.${key}.label`, { defaultValue: key })}
+              className="h-4 w-4 shrink-0 accent-blue-500"
+            />
+          </label>
+        ))}
 
         <div className="flex items-center gap-2 pt-1">
           <button

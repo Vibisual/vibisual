@@ -2,21 +2,28 @@ import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
-import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
-import { heatColor, heatRatio, isHeatBubbleType } from '@vibisual/shared';
+import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG, LINK_FOCUS, agentModelLabelOf } from '@vibisual/shared';
+import { externalPlaceHint, formatHeatCount, heatColor, heatRatio, heatValueOf, isHeatBubbleType } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
-import { useGraphStore, selectIDEActiveSessionForAgent, selectActiveBrainSummary, selectSpecStaleTitle } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEActiveSessionForAgent, selectSpecStaleTitle } from '../../stores/graphStore.js';
 import { isAgentDormant } from '../../utils/sessionStatus.js';
+// §5.4 #34 — 우클릭 메뉴는 캔버스가 그린다(원형 버블 안에서 그리면 잘린다). 여기서는 요청만 낸다.
+import { BUBBLE_MENU_EVENT, type BubbleMenuRequest } from './BubbleContextMenu.js';
 import { PluginBubbleBadgeSlot } from '../../plugins/host.js';
 // §5.19 (G) — 로컬 버블 정체 판정은 패널과 **같은 함수**를 쓴다(두 화면이 어긋나지 않게).
 import { localProviderOf, localModelLabelOf } from '../LocalModel/localModelEntry.js';
+import { codexProviderOf, codexModelLabelOf } from '../Codex/codexModelEntry.js';
 // §2.4 버블 타이포 오토핏 — 하단 블록 예약·요약·현(chord) 폭 계산은 전부 이 순수 모듈이 한다.
 import { planBubbleText, BUBBLE_LINE_HEIGHT, type BubbleBottomLine, type BubbleCenterExtra } from './bubbleTextFit.js';
 // 클릭=선택 / 더블클릭=열기 를 가르는 상태기계는 캔버스 **공용 한 벌**이다 — 이 버블이 그 기준이고,
 // 앱·캡처·스펙·랩·선반·플레이·메모 버블이 같은 것을 쓴다(따로 두면 손버릇이 갈린다).
 import { SELECT_DEFER_MS, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { shouldDismissOnSelect } from './agentDismiss.js';
+// §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 잡으면 그 무리만 남고 나머지는 뒤로 물러난다.
+import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
+import { linkFocusNodeStyle } from './linkedBubbles.js';
+import { BRAND_ICON_PATHS } from './brandIconPaths.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -28,7 +35,19 @@ interface BubbleNodeComponentProps {
 
 // ─── 아이콘 SVG paths — config의 icon 필드로 선택 ───
 
-const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string; fill: boolean }> = {
+type BubbleIconKind = BubbleStyleConfig['icon'] | 'claude' | 'codex';
+
+const ICON_PATHS: Record<BubbleIconKind, { viewBox: string; d: string; fill: boolean }> = {
+  codex: {
+    viewBox: '0 0 24 24',
+    d: BRAND_ICON_PATHS.codex,
+    fill: true,
+  },
+  claude: {
+    viewBox: '0 0 24 24',
+    d: BRAND_ICON_PATHS.claude,
+    fill: true,
+  },
   agent: {
     viewBox: '0 0 24 24',
     d: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4',
@@ -86,13 +105,6 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
     d: 'M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z M19 16l.7 1.8L21.5 19l-1.8.7L19 22l-.7-1.8L16.5 19l1.8-.7L19 16z',
     fill: false,
   },
-  // §5.10 — 메모리 버블. **두뇌 lobes 폐기** — 이름이 메모리인데 뇌를 그리면 은유가 두 벌이 된다.
-  //   쌓인 카드 두 장 + 본문 줄: 이 버블이 들고 있는 것(기억 카드)을 그대로 그린 것이다.
-  brain: {
-    viewBox: '0 0 24 24',
-    d: 'M4 10h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z M7 7.5V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1.5 M5 14h7 M5 17h4.5',
-    fill: false,
-  },
   // §5.10 — 커스텀 에이전트 휴지통 버블(trash-2)
   trash: {
     viewBox: '0 0 24 24',
@@ -131,9 +143,32 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
   },
 };
 
-function BubbleIcon({ icon, px }: { icon: BubbleStyleConfig['icon']; px?: number }): React.JSX.Element {
+/** claude·codex 는 우리가 그린 lucide 톤 글리프가 아니라 **브랜드 로고**다(속이 꽉 찬 그림). */
+function isBrandIcon(icon: BubbleIconKind): boolean {
+  return icon === 'claude' || icon === 'codex';
+}
+
+/**
+ * 브랜드 로고는 선으로 그린 아이콘과 시각 무게가 다르다 — 같은 px·같은 흰색이면 혼자 한 덩어리로
+ * 튀어 버블의 주인공(라벨)을 눌러 버린다. 그래서 두 곳을 낮춘다.
+ *
+ * - 크기: 선 아이콘의 0.74 배. 채워진 그림은 같은 변 길이에서 훨씬 넓은 면적을 먹는다.
+ * - 농도: 선 아이콘의 채움(0.3 + 또렷한 윤곽)과 라벨(흰색)의 **사이**. 브랜드 로고는 윤곽선을
+ *   씌우면 얇은 갈래가 뭉개지므로 stroke 대신 채움 농도만 내려 버블 그라디언트가 비쳐 보이게 한다.
+ */
+const BRAND_ICON_SCALE = 0.74;
+const BRAND_ICON_FILL_OPACITY = 0.55;
+
+function BubbleIcon({ icon, px }: { icon: BubbleIconKind; px?: number }): React.JSX.Element {
   const cfg = ICON_PATHS[icon];
   const s = px ?? 20;
+  if (isBrandIcon(icon)) {
+    return (
+      <svg width={s} height={s} viewBox={cfg.viewBox} fill="white" fillOpacity={BRAND_ICON_FILL_OPACITY} fillRule="evenodd" aria-hidden="true" className="shrink-0">
+        <path d={cfg.d} />
+      </svg>
+    );
+  }
   return (
     <svg width={s} height={s} viewBox={cfg.viewBox} fill={cfg.fill ? 'white' : 'none'} fillOpacity={cfg.fill ? 0.3 : undefined} stroke="white" strokeWidth={cfg.fill ? 1.5 : 2}>
       <path d={cfg.d} />
@@ -246,24 +281,17 @@ const RIGHT_DBLCLICK_MS = 350;
  * 빈 엘리먼트 없이 정확히 한 번만 재생되고 언마운트되게 한다(종전 4000ms 는
  * `animate-ping` 무한 반복을 시간으로 끊던 값이라 1회 연출엔 과했다).
  */
-const BRAIN_INJECT_PULSE_MS = 1450;
 
 /** §5.10 v3.82 — 주입 아크가 테두리 바깥을 돌 때 stroke 가 잘리지 않도록 두는 여백(px). */
-const BRAIN_SWEEP_MARGIN = 6;
-
 /**
- * §5.10 v3.49 — 이 버블의 우측 더블클릭 대상. null 이면 기억 대상 아님.
- *  Brain 상주 버블·커스텀 에이전트(휴지통 내부의 trashed 포함) → 기억 피드 오버레이,
- *  휴지통 상주 버블 → 기존 버블 내부 진입.
+ * §5.10 — 이 버블의 우측 더블클릭 대상. null 이면 대상 아님.
+ *
+ * 종전에는 메모리 버블·커스텀 에이전트가 기억 피드 오버레이를 열었으나 그 축이 폐기돼
+ * **휴지통 하나만** 남았다. 남은 제스처는 "안으로 들어간다" 한 뜻이다.
  */
-type RightDblTarget =
-  | { kind: 'brainFeed'; scope: 'project' }
-  | { kind: 'agentFeed'; agentId: string }
-  | { kind: 'trash' };
+type RightDblTarget = { kind: 'trash' };
 function interiorTargetFor(data: BubbleData): RightDblTarget | null {
-  if (data.id === '__brain__') return { kind: 'brainFeed', scope: 'project' };
   if (data.id === '__trash__') return { kind: 'trash' };
-  if (data.bubbleType === 'agent' && data.customCreated) return { kind: 'agentFeed', agentId: data.id };
   return null;
 }
 
@@ -286,27 +314,38 @@ export const BubbleNode = memo(function BubbleNode({
   const customColor = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.color : undefined);
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트면 라벨 옆 'CMD' 배지로 구분.
   const isCmdAgent = useGraphStore((s) => data.bubbleType === 'agent' && s.agentConfigs[data.id]?.executionMode === 'interactive-terminal');
-  // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움
+  // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움.
+  // §5.25 (J) — 주어는 `config.model` 하나가 아니라 **모델 칸 + 엔진 축** 둘이다(엔진을 안 보면
+  //   코덱스 버블이 클로드 기본값 `opus` 를 자기 이름으로 말한다). 판정은 `agentModelLabelOf` 가
+  //   하고, 여기서는 그 둘을 **원시값으로** 집는다 — 객체를 새로 만들어 돌려주면 매 프레임 새
+  //   참조라 무변화에도 리렌더가 돈다(파생 선택자 함정).
   const configModel = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.model : undefined);
+  const configProviderKind = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.kind : undefined);
+  const configProviderModelId = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.modelId : undefined);
+  const configProviderModelName = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.modelName : undefined);
+  const idleModelConfig = useMemo(
+    () => (configProviderKind
+      ? { model: configModel, provider: { kind: configProviderKind, modelId: configProviderModelId ?? '', modelName: configProviderModelName } }
+      : { model: configModel }),
+    [configModel, configProviderKind, configProviderModelId, configProviderModelName],
+  );
   /**
    * §5.19 (G) — All Model(로컬 LLM) 버블의 정체. 있으면 아래 모델·문맥·토큰 세 줄이 진실을
    * 가져올 곳은 클로드 세션이 아니라 이 프로바이더다 — `config.model`(기본값 `opus`)은 로컬 턴이
    * 읽지도 않는 칸이라 그대로 적으면 버블이 자기 정체를 거짓으로 말한다.
    */
   const localProvider = useGraphStore((s) => (data.bubbleType === 'agent' ? localProviderOf(s.agentConfigs[data.id]) : null));
+  /**
+   * §5.25 (J) — 코덱스 버블의 정체. 로컬과 같은 이유로 따로 든다: `config.model`(기본값 `opus`)
+   * 은 코덱스 턴이 읽지도 않는 칸이라, 그대로 적으면 코덱스 버블이 자기를 클로드로 말한다.
+   *
+   * **문맥 상한은 없다** — 코덱스는 왕복마다 쓴 양만 알려 주고 상한은 말해 주지 않는다.
+   * 없는 값을 지어내면 물결이 거짓 비율로 찬다(§5.19 가 로컬에서 상한을 받아 쓴 것과 다른 자리).
+   */
+  const codexProvider = useGraphStore((s) => (data.bubbleType === 'agent' ? codexProviderOf(s.agentConfigs[data.id]) : null));
+  const isCodexAgent = codexProvider !== null;
   // §5.11 v3.88 — 플러그인 배지 슬롯에 넘길 읽기 전용 설정. 에이전트 버블이 아니면 undefined 라 슬롯이 그냥 빈다.
   const pluginAgentConfig = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id] : undefined);
-  // §5.10 — Brain 상주 버블: 두뇌 요약(카드 수/미확인/최근 제목). brain 타입 버블에서만 의미.
-  const brainSummary = useGraphStore((s) => data.bubbleType === 'brain' ? selectActiveBrainSummary(s) : null);
-  // §5.10 — 주입 발생 시 Brain 버블에 일시 펄스(4s time-limited). 최근 주입 시각(모든 에이전트 통틀어) max.
-  const latestInjectionAt = useGraphStore((s) => {
-    if (data.bubbleType !== 'brain') return 0;
-    let m = 0;
-    for (const list of Object.values(s.brainInjections)) {
-      for (const ev of list) if (ev.at > m) m = ev.at;
-    }
-    return m;
-  });
   /**
    * §5.15 — 이 에이전트 버블이 스펙에서 나온 작업 카드이고, 그 스펙이 카드 생성 이후
    * 바뀌었으면 스펙 제목을 돌려준다(아니면 null).
@@ -322,39 +361,7 @@ export const BubbleNode = memo(function BubbleNode({
   //   store.agents 는 전 프로젝트 합본이라 여기서 세면 다른 프로젝트의 휴지통까지 합산된다(§3.5 프로젝트
   //   독립성 위반). 개수는 BubbleMap 이 프로젝트 필터를 거쳐 data.activity 로 실어 보낸다.
   const trashedCount = data.bubbleType === 'trash' ? data.activity : 0;
-  const isBrainBubble = data.bubbleType === 'brain';
   const isTrashBubble = data.bubbleType === 'trash';
-  // §5.10 v3.86 — 파일 버블의 실수/교훈 마커는 제거됐다. 그 정보는 에이전트가 file-notes 훅 주입으로
-  //   본문까지 받으므로(§7.4), 캔버스에는 "지금 행동이 필요한 것"만 남긴다.
-  // §5.10 v3.82 — Brain 버블의 두 신호 축. 좌상단 = 새로 저장된 기억(자동 저장분 가시화),
-  //   우상단 = 사람 판단을 기다리는 카드(v3.81 — 확인해야 AI 에게 전달되는 유일한 행동 유발 수).
-  const brainUnseen = isBrainBubble ? (brainSummary?.unseenCount ?? 0) : 0;
-  const brainReview = isBrainBubble ? (brainSummary?.reviewCount ?? 0) : 0;
-
-  // §5.10 v3.82 — 본체에서 뺀 최근 카드 제목 + 두 배지 수치를 네이티브 툴팁으로 모은다.
-  //   맨 끝 줄은 우더블클릭(기억 라이브러리)이라는 비자명한 제스처의 발견 경로다.
-  const brainBubbleTip = useMemo(() => {
-    if (!isBrainBubble) return undefined;
-    const lines = [t('brain.tipCards', { defaultValue: '기억 {{n}}장', n: brainSummary?.cardCount ?? 0 })];
-    if (brainReview > 0) lines.push(t('brain.tipReview', { defaultValue: '검토 대기 {{n}}장', n: brainReview }));
-    if (brainUnseen > 0) lines.push(t('brain.tipUnseen', { defaultValue: '새 기억 {{n}}장', n: brainUnseen }));
-    if (brainSummary?.recentCardTitle) {
-      lines.push(t('brain.tipRecent', { defaultValue: '최근: {{title}}', title: brainSummary.recentCardTitle }));
-    }
-    lines.push(t('brain.tipOpen', { defaultValue: '오른쪽 더블클릭 — 기억 라이브러리 열기' }));
-    return lines.join('\n');
-  }, [isBrainBubble, brainSummary?.cardCount, brainSummary?.recentCardTitle, brainReview, brainUnseen, t]);
-
-  // §5.10 — 주입 펄스: 최근 주입 직후 1회 연출을 켜고, 남은 시간 뒤 자동 해제(무한 애니메이션 방지).
-  const [injectionPulse, setInjectionPulse] = useState(false);
-  useEffect(() => {
-    if (!isBrainBubble || latestInjectionAt <= 0) { setInjectionPulse(false); return; }
-    const remain = latestInjectionAt + BRAIN_INJECT_PULSE_MS - Date.now();
-    if (remain <= 0) { setInjectionPulse(false); return; }
-    setInjectionPulse(true);
-    const timer = setTimeout(() => setInjectionPulse(false), remain);
-    return () => clearTimeout(timer);
-  }, [isBrainBubble, latestInjectionAt]);
   // §5.24 — 히트맵 척도. 켜져 있고 이 버블이 "읽히는 것"일 때만 색·지름이 갈린다.
   const heat = useHeatScale();
   const heatOn = !!heat && isHeatBubbleType(data.bubbleType);
@@ -363,17 +370,40 @@ export const BubbleNode = memo(function BubbleNode({
     //   말하기 때문이다. 대상은 file/폴더/domain 넷뿐이고 에이전트는 애초에 대상이 아니라
     //   `AgentConfig.color` 오버라이드와 부딪히지 않는다.
     if (heatOn && heat) {
-      const r = heatRatio(data.readCount, heat);
+      const r = heatRatio(heatValueOf(data, heat.axis), heat);
       // 글로우는 한 단계 더 뜨겁게 — 본체와 같은 색이면 평평해 보인다.
       return { ...baseStyle, color: heatColor(r), glow: heatColor(Math.min(1, r + 0.25)) };
     }
-    if (!customColor) return baseStyle;
-    return { ...baseStyle, color: customColor, glow: customColor };
-  }, [baseStyle, customColor, heatOn, heat, data.readCount]);
+    // Provider identity stays visible even when the agent has a custom body color.
+    const providerStyle = isCodexAgent
+      ? { ...baseStyle, color: '#8B5CF6', glow: '#C4B5FD',
+          ringIdle: 'border-violet-300',
+          ringActive: 'border-violet-400 shadow-lg shadow-violet-500/30' }
+      : baseStyle;
+    if (!customColor) return providerStyle;
+    return { ...providerStyle, color: customColor, glow: customColor };
+  }, [baseStyle, customColor, isCodexAgent, heatOn, heat,
+    data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount]);
+  /**
+   * §5.24 — 히트 숫자 배지가 적을 값. **색·지름과 같은 `heatValueOf` 한 함수에서 나온다** —
+   * §2.1 (A) 접합이 자손 합으로 뜨겁게 칠해졌는데 숫자만 자기 카운터(=0)를 적으면 한 버블이
+   * 두 가지 말을 한다.
+   */
+  const heatBadge = useMemo(() => {
+    if (!heatOn || !heat) return null;
+    const value = heatValueOf(data, heat.axis);
+    return {
+      value,
+      axis: heat.axis,
+      label: formatHeatCount(value),
+      ring: heatColor(heatRatio(value, heat)),
+    };
+  }, [heatOn, heat,
+    data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount]);
   const localRange = (data as Record<string, unknown>)['_localRange'] as { min: number; max: number } | undefined;
   const globalRange = useGraphStore((s) => s.fileSizeRange);
   const range = localRange ?? globalRange;
-  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, range, heat]);
+  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, range, heat]);
   // 단일 스케일 팩터 — 모든 텍스트/아이콘이 이 비율로 비례 축소/확대
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
@@ -403,12 +433,27 @@ export const BubbleNode = memo(function BubbleNode({
     data.bubbleType === 'worktree' ||
     data.bubbleType === 'pipeline' ||
     data.bubbleType === 'conti' ||
-    data.bubbleType === 'brain' ||
     data.bubbleType === 'trash' ||
     data.id.startsWith('sat-') ||
     data.id === '__root_home__' ||
     data.id === '__pipeline_parent__';
   const isDespawning = !!(data as Record<string, unknown>)._despawning;
+
+  /**
+   * §5.4 #31 연결 무리 강조 — 이 버블이 지금 잡힌 무리에서 맡은 자리.
+   *
+   * 구독하는 것은 **판정 결과 한 글자**다(§9 "버블은 자기 것만 구독한다"). 무리 객체를 구독하면
+   * 무리가 바뀔 때마다 화면의 모든 버블이 깨어난다.
+   */
+  const linkRole = useLinkRole(data.id);
+  const linkPhase = useLinkFocusStore((s) => s.phase);
+  /**
+   * Ctrl/Cmd 를 쥐고 있는 동안에는 테두리 연결 손짓(Task Edge)을 재운다 — 같은 테두리에서 두
+   * 동작이 경합하면 "무리를 잡으려다 엣지가 그어지는" 일이 생긴다. 수식 키를 쥔 쪽이 명시적이라
+   * 그쪽에 자리를 내준다.
+   */
+  const linkModifierHeld = useLinkFocusStore((s) => s.modifierHeld);
+  const linkVisual = useMemo(() => linkFocusNodeStyle(linkRole, linkPhase), [linkRole, linkPhase]);
 
   // 선택 하이라이트 링 — store.selectIntentId(클릭 확정 즉시 갱신, DetailPanel 지연과 무관).
   // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 동일 규칙으로 비교.
@@ -498,20 +543,35 @@ export const BubbleNode = memo(function BubbleNode({
    * 적는다 — 자세한 안내는 그 버블을 눌렀을 때 뜨는 설치 창이 한다).
    */
   const localModelLabel = localModelLabelOf(localProvider, t('ide.overlay.localLabel', { defaultValue: 'All Model' }));
+  const codexModelLabel = codexModelLabelOf(codexProvider, t('ide.overlay.codexLabel', { defaultValue: 'Codex' }));
   /** 클로드 별칭만 접는다(`claude-` 접두·날짜 꼬리) — 로컬 파일명은 그 규칙의 대상이 아니다. */
-  const modelLineText = localModelLabel ?? (effectiveModelName ? formatModelName(effectiveModelName) : '');
+  const modelLineText = localModelLabel ?? codexModelLabel ?? (effectiveModelName ? formatModelName(effectiveModelName) : '');
+  /**
+   * §5.25 (J) — **아직 한 턴도 안 돈 버블**의 모델 한 줄. 위 `modelLineText` 는 실측(`data.modelName`)
+   * 을 주어로 삼는데, 첫 턴 전에는 그 값이 없어 설정에서 가져와야 한다. 그 설정 칸(`config.model`)
+   * 이 클로드 전용이고 기본값이 `opus` 라 — 엔진을 안 보면 코덱스 버블이 `opus` 라고 말한다.
+   * 판정은 `agentModelLabelOf` 한 곳이라 엔진이 늘어도 이 줄은 따라온다.
+   */
+  const idleModelText = useMemo(() => {
+    const label = agentModelLabelOf(idleModelConfig, {
+      codex: t('ide.overlay.codexLabel', { defaultValue: 'Codex' }),
+      local: t('ide.overlay.localLabel', { defaultValue: 'All Model' }),
+    });
+    if (!label) return '';
+    // 접기는 클로드 별칭에만 쓴다 — 로컬 파일명·코덱스 slug 는 그 규칙의 대상이 아니다.
+    return idleModelConfig?.provider ? label : formatModelName(label);
+  }, [idleModelConfig, t]);
   // 로컬 문맥은 엔진이 왕복마다 돌려준 값이다(클로드 세션의 contextUsed/Max 는 로컬에 없어 종전에는
   //   물결도 숫자도 영영 비어 있었다). 물결 높이와 아래 숫자가 같은 출처를 봐야 둘이 어긋나지 않는다.
   const effectiveContextUsed = localProvider
     ? localProvider.contextUsed
+    : codexProvider ? (effectiveSubOverride ? effectiveSubOverride.contextUsed : data.contextUsed ?? codexProvider.contextUsed)
     : effectiveSubOverride ? effectiveSubOverride.contextUsed : data.contextUsed;
   const effectiveContextMax = localProvider
     ? localProvider.contextLimit
+    // Codex rollout supplies the actual session window, including CLI configuration.
+    : codexProvider ? (effectiveSubOverride ? effectiveSubOverride.contextMax : data.contextMax ?? codexProvider.contextLimit)
     : effectiveSubOverride ? effectiveSubOverride.contextMax : data.contextMax;
-  // 로컬 누적 토큰 — 청구가 아니라 양과 속도의 감각이라, 같은 자리에 같은 모양(`입+출`)으로 적는다.
-  const lineInputTokens = localProvider ? (localProvider.tokensIn ?? 0) : (data.totalInputTokens ?? 0);
-  const lineOutputTokens = localProvider ? (localProvider.tokensOut ?? 0) : (data.totalOutputTokens ?? 0);
-
   const contextRatio = isAgent && effectiveContextMax ? (effectiveContextUsed ?? 0) / effectiveContextMax : 0;
 
   // §5.7 #26 — 워크트리 생성 연출은 폐기됐다. 남은 표식은 **실패** 하나뿐이다.
@@ -527,6 +587,13 @@ export const BubbleNode = memo(function BubbleNode({
     const ratio = Math.max(0, 1 - elapsed / total);
     return Math.max(0.15, ratio * 0.85 + 0.15); // 0.15 ~ 1.0 범위
   }, [isDisappearing, data.disappearStartedAt, data.disappearAt]);
+
+  /** §5.4 #31 — 무리 강조가 **곱해질** 원래 투명도(사라지는 중 / 죽은 프리뷰). 없으면 불투명. */
+  const baseOpacity: number | undefined = isDisappearing
+    ? disappearOpacity
+    : isIframe && data.iframeAlive === false
+      ? 0.35
+      : undefined;
 
   const ringClass = isAwaitingPermission
     ? 'border-amber-400 shadow-lg shadow-amber-400/40 animate-pulse'
@@ -577,6 +644,12 @@ export const BubbleNode = memo(function BubbleNode({
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isAgent || overlayMode) return;
+    // §5.4 #31 — Ctrl/Cmd 를 쥐고 있는 동안은 무리 잡기가 테두리를 쓴다. 연결 손짓은 재운다.
+    if (linkModifierHeld) {
+      clearHoverTimer();
+      setNearBorder((prev) => (prev ? false : prev));
+      return;
+    }
     if (isOnBorder(e)) {
       if (hoverTimer.current == null) {
         hoverTimer.current = setTimeout(() => {
@@ -588,7 +661,7 @@ export const BubbleNode = memo(function BubbleNode({
       clearHoverTimer();
       setNearBorder((prev) => (prev ? false : prev));
     }
-  }, [isAgent, isOnBorder, clearHoverTimer]);
+  }, [isAgent, overlayMode, isOnBorder, clearHoverTimer, linkModifierHeld]);
   const handleMouseLeave = useCallback(() => {
     clearHoverTimer();
     setNearBorder(false);
@@ -659,6 +732,16 @@ export const BubbleNode = memo(function BubbleNode({
       store.setSelectIntent(intentId);
     },
     ignore: (e) => {
+      // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 누르면 그건 "무리를 잡는" 손짓이다.
+      //   ① 미리보기를 확정으로 올려 누르는 순간 세기가 한 단계 오르게 하고(무리 계산은 이미
+      //      hover 가 해 뒀다 — 이 컴포넌트는 화면에 그려진 엣지 목록을 모른다),
+      //   ② 선택으로는 치지 않는다(선택 링·우측 패널 ❌ — 강조와 겹쳐 무엇을 보는 중인지 흐려진다).
+      //   `stopPropagation` 은 하지 않는다 — React Flow 의 노드 드래그가 그대로 살아 있어야
+      //   그 손짓이 곧 동반 이동이 된다. 테두리 판정보다 **앞**에 둔다(수식 키 쪽이 명시적).
+      if (isAgent && !overlayMode && linkModifierHeld) {
+        promoteLinkGrab(data.id);
+        return true;
+      }
       // 커스텀 에이전트 테두리 클릭 → 연결 모드 진입 (노드 이동 차단).
       // Hook 에이전트/파이프라인/서브에이전트는 Task Edge 소스가 될 수 없다.
       if (isAgent && data.customCreated && !overlayMode && isOnBorder(e)) {
@@ -672,6 +755,19 @@ export const BubbleNode = memo(function BubbleNode({
     },
   });
 
+  /**
+   * §5.4 #31 — 손을 뗐다. 끌지 않고 누르기만 했다면 확정(`grab`)을 **미리보기로 되돌린다**
+   * (수식 키를 놓았으면 스토어가 알아서 걷는다).
+   *
+   * 끌었을 때는 이 자리에 `pointerup` 이 오지 않을 수 있다(React Flow 의 드래그가 포인터를
+   * 붙잡는다) — 그 경로는 `onNodeDragStop` 이 같은 함수를 부르므로 둘 중 무엇이 먼저 와도
+   * 결과가 같다(멱등).
+   */
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    gesture.handlers.onPointerUp(e);
+    releaseLinkGrab();
+  }, [gesture]);
+
   // 더블클릭 — 열림 애니메이션. 첫 줄에서 보류 단일선택 + 1타 하이라이트를 함께 접는다.
   const handleDoubleClick = useCallback(() => {
     gesture.cancelPendingSelect();
@@ -680,30 +776,45 @@ export const BubbleNode = memo(function BubbleNode({
     openTimer.current = setTimeout(() => { setOpening(false); openTimer.current = null; }, 500);
   }, [gesture]);
 
-  // §5.10 — 우측 더블클릭 = 기억(머릿속) 내부 진입. 우클릭 1회는 브라우저 메뉴만 억제하고 통과,
-  //   350ms 내 2번째 우클릭이면 내부 진입. 좌클릭 SELECT_DEFER_MS 상태기계는 건드리지 않는다.
+  // §5.10 — 우측 더블클릭 = 기억(머릿속) 내부 진입.
+  // §5.4 #34 — 그리고 **우클릭 1회 = 이 버블의 메뉴**(휴지통으로 이동·삭제). 둘은 같은 손짓의
+  //   1타·2타라, 우더블클릭 대상인 버블에서는 메뉴를 `RIGHT_DBLCLICK_MS` 만큼 **미뤄** 연다 —
+  //   그 창 안에 2타가 오면 미뤄 둔 메뉴를 접고 기억 화면으로 간다. 대상이 아닌 버블은 기다릴
+  //   이유가 없으므로 즉시 연다. 좌클릭 SELECT_DEFER_MS 상태기계는 건드리지 않는다.
   const lastRightClickRef = useRef(0);
+  const menuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (menuTimerRef.current) clearTimeout(menuTimerRef.current); }, []);
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     // 노드 위 우클릭은 브라우저 기본 메뉴를 항상 억제(캔버스 생성 메뉴는 pane 우클릭 전용).
     e.preventDefault();
+    // 좌표는 **지금** 뽑는다 — 미뤄서 여는 경로에서는 이벤트가 이미 지나간 뒤에 쓰이기 때문이다.
+    const screenX = e.clientX;
+    const screenY = e.clientY;
+    const openMenu = (): void => {
+      window.dispatchEvent(
+        new CustomEvent<BubbleMenuRequest>(BUBBLE_MENU_EVENT, { detail: { nodeId, screenX, screenY } }),
+      );
+    };
     const target = interiorTargetFor(data);
-    if (!target) return;
+    if (!target) { openMenu(); return; }
     const now = Date.now();
     if (now - lastRightClickRef.current <= RIGHT_DBLCLICK_MS) {
       lastRightClickRef.current = 0;
+      // 2타가 왔다 — 미뤄 둔 메뉴는 열리지 않는다.
+      if (menuTimerRef.current) { clearTimeout(menuTimerRef.current); menuTimerRef.current = null; }
       e.stopPropagation();
       // 보류 중 단일선택 + 1타에서 떴던 링을 함께 접는다(좌더블클릭과 같은 처리).
       gesture.cancelPendingSelect();
       const store = useGraphStore.getState();
       store.setSelectIntent(null);
-      // §5.10 v3.49 — 좌더블클릭=IDE(작업) / 우더블클릭=기억(머릿속) 대칭.
-      if (target.kind === 'trash') store.enterInterior({ kind: 'trash' });
-      else if (target.kind === 'brainFeed') store.openBrainFeed({ scope: 'project' });
-      else store.openBrainFeed({ scope: 'agent', agentId: target.agentId });
+      // §5.10 — 남은 우더블클릭은 휴지통 진입 하나다(기억 피드는 폐기).
+      store.enterInterior({ kind: 'trash' });
       return;
     }
     lastRightClickRef.current = now;
-  }, [data, gesture]);
+    if (menuTimerRef.current) clearTimeout(menuTimerRef.current);
+    menuTimerRef.current = setTimeout(() => { menuTimerRef.current = null; openMenu(); }, RIGHT_DBLCLICK_MS);
+  }, [data, gesture, nodeId]);
 
   // 모든 버블은 원형 (size = 지름)
   const bubbleWidth = size;
@@ -718,33 +829,23 @@ export const BubbleNode = memo(function BubbleNode({
   const sunR = size / 2;                        // 필라멘트를 버블 테두리 바로 위에 (안쪽은 클립)
   const sunFilterId = `sun-${String(nodeId).replace(/[^\w-]/g, '')}`;
 
-  // ── §5.10 v3.82 Brain 전용 지오메트리 ──
-  // 주입 아크는 테두리 바로 바깥을 도므로 stroke 굵기만큼 여백을 준 별도 박스에 그린다.
-  const brainSweepBox = size + BRAIN_SWEEP_MARGIN * 2;
-  // 배지는 어떤 배율에서도 두 자리 숫자가 읽히도록 하한을 둔다(종전 14px·7px 은 판독 불가였다).
-  const brainBadgeSize = Math.max(18, Math.round(21 * ts));
-  const brainBadgeFont = Math.max(11, Math.round(13 * ts));
   /**
-   * §5.10 — 배지를 **원의 45° 림 위**에 앉히는 오프셋.
-   * 종전 `top/left: -1` 은 감싸는 사각형의 모서리 기준이라, 원형 버블에서는 배지가 림에서
-   * 떨어져 허공에 뜬 것처럼 보였다(127px 실측 약 6px). 배지 중심을 `r·cos45°` 지점에 두면
-   * 림에 반쯤 걸쳐 버블에 붙은 표식으로 읽힌다.
+   * §5.24 — 히트 배지 지오메트리. 자리는 **원의 45° 림 위**다(감싸는 사각형의 모서리에 두면
+   * 원형 버블에서 배지가 림에서 떨어져 허공에 뜬 것처럼 보인다). 히트 버블은 44~150px 로 작아질 수 있어
+   * 하한을 두지 않으면 가장 차가운 버블의 숫자가 판독 불가가 된다.
    */
-  const brainBadgeInset = Math.max(0, Math.round((size / 2) * (1 - Math.SQRT1_2) - brainBadgeSize / 2));
-  /**
-   * §5.10 — 메모리 버블 중앙 열은 **카드 수 하나**다(이름은 아래 하단 블록이 맡는다).
-   * 예약(`centerExtras`)과 실제 렌더가 같은 값을 써야 숫자가 잘리지 않으므로 여기서 한 번만 센다.
-   */
-  const brainCountFont = Math.max(20, Math.round(34 * ts));
-  /** §5.10 — 메모리 버블 이름 줄(하단 블록). §9 한글 가독 하한 12px 아래로 내려가지 않는다. */
-  const brainLabelFont = Math.max(12, Math.round(12 * ts));
+  const heatBadgeSize = Math.max(17, Math.round(20 * ts));
+  const heatBadgeFont = Math.max(11, Math.round(12 * ts));
+  const heatBadgeInset = Math.max(0, Math.round((size / 2) * (1 - Math.SQRT1_2) - heatBadgeSize / 2));
 
   // 테두리 두께: 기본 2px → 근접 시 4px, 연결 타겟 시 4px + 색상 변경
   const borderWidth = nearBorder || isConnectTarget ? 4 : 2;
   const borderHighlight = isConnectTarget
     ? 'border-cyan-400 shadow-lg shadow-cyan-400/40'
     : nearBorder
-      ? 'border-blue-400 shadow-md shadow-blue-400/30'
+      ? codexProvider
+        ? 'border-violet-200 shadow-md shadow-violet-400/30'
+        : 'border-blue-400 shadow-md shadow-blue-400/30'
       : '';
 
   // §4 v2.63 — 에이전트 종류 구분 배지(라벨 아래): All Model(로컬 LLM) / CMD(인터랙티브 터미널) /
@@ -755,15 +856,23 @@ export const BubbleNode = memo(function BubbleNode({
   //   여기에 `Custom` 을 달면 캔버스가 정체를 거짓으로 말한다 — 설정 창도 IDE 상태바도 이미
   //   `All Model` 이라 부르는데 버블만 다른 이름을 쓰면 같은 것이 두 이름으로 불린다.
   //   본체가 무채색(그레이파이트)이라 배지는 밝은 쪽으로 잡아야 읽힌다(훅의 어두운 슬레이트와 구분).
+  //   §5.25 (B) — 코덱스 버블의 배지는 `Custom` 이 아니라 **Codex** 다. 위 All Model 과 같은 이유로,
+  //   엔진이 다른데 같은 이름을 달면 캔버스가 정체를 거짓으로 말한다(우클릭 메뉴·설정 창·IDE 가
+  //   이미 `Codex` 라 부른다). 그리고 남은 커스텀 에이전트는 실제로 **클로드**가 도는 것이므로
+  //   배지도 `Claude` 라 쓴다 — "Custom" 은 엔진 축이 하나뿐이던 시절의 이름이었다.
   const agentBadge = localProvider
     ? { text: 'All Model', cls: 'bg-slate-200/25 text-slate-50' }
-    : isCmdAgent
-      ? { text: 'CMD', cls: 'bg-teal-500/25 text-teal-100' }
-      : isAgent && data.customCreated
-        ? { text: 'Custom', cls: 'bg-indigo-500/25 text-indigo-100' }
-        : isAgent
-          ? { text: 'Hook', cls: 'bg-slate-500/30 text-slate-200' }
-          : null;
+    : codexProvider
+      ? { text: 'Codex', cls: 'bg-violet-400/25 text-violet-100 ring-1 ring-inset ring-violet-300/40' }
+      : isCmdAgent
+        ? { text: 'CMD', cls: 'bg-teal-500/25 text-teal-100' }
+        : isAgent && data.customCreated
+          ? { text: 'Claude', cls: 'bg-indigo-500/25 text-indigo-100' }
+          : isAgent
+            ? { text: 'Claude', cls: 'bg-indigo-500/25 text-indigo-100' }
+            : null;
+  // Engine identity is the main badge; hook tracking is a smaller, separate line.
+  const showHookLabel = isAgent && !data.customCreated && !isCmdAgent && !localProvider;
 
   /**
    * §2.4 버블 타이포 오토핏 ① — 하단 블록을 **그릴 줄의 목록**으로 먼저 세운다.
@@ -773,24 +882,10 @@ export const BubbleNode = memo(function BubbleNode({
   const bottomLines = useMemo<BubbleBottomLine[]>(() => {
     const px = (n: number, floor: number) => Math.max(floor, Math.round(n * ts));
     const lines: BubbleBottomLine[] = [];
-    // §5.10 — 메모리 버블의 이름 줄. 규칙은 "중앙에 두는 것은 둘까지(쌓인 카드 실루엣 + 카드 수)"
-    //   이므로 이름은 중앙 열이 아니라 이 하단 블록이 맡는다. 중앙에 두던 종전 구현은 127px 원에서
-    //   11×ts = **9px 한글**로 렌더돼 획이 제 색에 도달하지 못했다(§9 실측 7.7%) — 색이 아니라
-    //   크기 문제라, 자리를 옮기면서 하한을 12px 로 못 박는다.
-    if (isBrainBubble) {
-      lines.push({
-        key: 'brainLabel',
-        text: data.label,
-        fontSize: brainLabelFont,
-        cls: 'font-medium tracking-wide text-white/80',
-        priority: 100,
-      });
-      return lines;
-    }
     // 에이전트: 모델명 + 컨텍스트 + 상태 + 토큰 합산.
     // 버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
     // 긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인.
-    if (isAgent && (localModelLabel ?? effectiveModelName)) {
+    if (isAgent && (localModelLabel ?? codexModelLabel ?? effectiveModelName)) {
       // §5.19 (G) — 로컬 모델명은 파일명이라 길 수 있다. 원 밖으로 삐져나가는 대신 현(chord) 폭에
       //   맞춰 잘리고 전체 이름은 툴팁으로 남는다(클로드 별칭은 짧아 잘릴 일이 없다).
       lines.push({
@@ -802,10 +897,10 @@ export const BubbleNode = memo(function BubbleNode({
         title: localModelLabel ?? undefined,
         summarize: 'middle',
       });
-      if (effectiveContextMax) {
+      if (effectiveContextMax || (codexModelLabel && effectiveContextUsed !== undefined)) {
         lines.push({
           key: 'context',
-          text: `${formatTokenCount(effectiveContextUsed ?? 0)}/${formatTokenCount(effectiveContextMax)}`,
+          text: `${formatTokenCount(effectiveContextUsed ?? 0)}/${effectiveContextMax ? formatTokenCount(effectiveContextMax) : '?'}`,
           fontSize: px(8, 5),
           cls: 'text-white/50',
           priority: 80,
@@ -826,7 +921,7 @@ export const BubbleNode = memo(function BubbleNode({
       // §5.19 (G) — 로컬 버블은 모델명이 설정에서 곧장 오므로 아래 idle empty-state 분기를 타지
       //   않는다. 그 분기가 하던 "대기" 한 줄을 여기서 이어 받는다 — 정체를 바로잡으면서 상태를
       //   잃으면 사용자는 이 버블이 쉬는 중인지 죽은 것인지 구분할 수 없다.
-      if (localModelLabel && !isDormant && !isActive && !isCreatingError) {
+      if ((localModelLabel || (codexModelLabel && effectiveContextUsed === undefined)) && !isDormant && !isActive && !isCreatingError) {
         lines.push({
           key: 'idle',
           text: t('common.bubble.idle'),
@@ -836,26 +931,24 @@ export const BubbleNode = memo(function BubbleNode({
           mergeGroup: 'status',
         });
       }
-      if (lineInputTokens > 0) {
-        // `*` = 자식 세션 몫이 섞여 있다는 표식. 로컬 누적은 이 버블 자기 왕복만 세므로 안 붙인다.
-        const shared = !localProvider && (data.totalInputTokens ?? 0) > (data.ownInputTokens ?? 0) ? ' *' : '';
-        lines.push({
-          key: 'tokens',
-          text: `${formatTokenCount(lineInputTokens)}+${formatTokenCount(lineOutputTokens)}${shared}`,
-          fontSize: px(7, 5),
-          cls: 'text-amber-300/60',
-          priority: 40,
-        });
-      }
+      // 누적 토큰 줄(`입+출` + 공유 표식 `*`)은 버블에서 걷었다 — 되살리지 마라. 세션 누적은
+      //   금세 억 단위로 자라 `973.1M+6.3M *` 처럼 하단에서 가장 긴 줄이 되고, 그 길이 때문에
+      //   오토핏 축약 사다리가 정작 봐야 할 모델명·컨텍스트를 먼저 줄였다. 값 자체는 IDE 상태바
+      //   (`statusBarContext`) · DetailPanel 세션 목록(`panel.subAgent.tokensInOut`) · 사용량
+      //   팝업(`UsagePopup`)에 그대로 있어 캔버스에서 지워도 잃는 정보가 없다.
       return lines;
     }
     // §2.4 v1.67/v1.69 — 라이브 세션 전 에이전트 idle empty-state (커스텀+훅 공통).
-    //   configModel(AgentConfig)이 있으면(커스텀) 모델명도, 없으면(훅) 상태 줄만.
+    //   설정에서 모델을 알 수 있으면(커스텀) 모델명도, 없으면(훅) 상태 줄만.
+    // §5.25 (J) — **엔진을 보고 적는다.** 종전에는 이 줄만 `config.model` 을 그대로 썼고,
+    //   그 칸의 기본값이 `opus` 라 **아직 한 턴도 안 돈 코덱스·로컬 버블이 `opus` 로 떴다**
+    //   (사용자 보고 — "GPT 에이전트 버블인데 왜 이름에 opus 가 뜨냐"). 위 활성 경로는 이미
+    //   프로바이더를 보고 있었는데 이 idle 경로만 빠져 있던, 화면마다 따로 판정한 대가다.
     if (isAgent && !isActive && contextRatio === 0 && !isCreatingError) {
-      if (configModel) {
+      if (idleModelText) {
         lines.push({
           key: 'model',
-          text: formatModelName(configModel),
+          text: idleModelText,
           fontSize: px(9, 5),
           cls: 'font-semibold text-white/70',
           priority: 100,
@@ -877,10 +970,47 @@ export const BubbleNode = memo(function BubbleNode({
       //   §2.1 #5 접합 트리 — 만진 파일이 없는 **접합** 외부 폴더는 위성이 0이다.
       //   그대로 두면 "0 files" 로 떠서 빈 버블처럼 보이므로 하위 폴더 수로 떨어진다.
       const satCount = data.satelliteFileCount ?? 0;
-      const count = data.bubbleType === 'external_folder'
-        ? (satCount > 0 ? satCount : (data.childCount ?? 0))
+      const isExternalFolder = data.bubbleType === 'external_folder';
+      // §2.1 (A) — 접합은 자기 위성이 0이라 종전에는 **직속 자식 수**로 떨어졌다(`4` 가 25곳을
+      //   대표했다). 그 아래에서 실제로 만진 파일 수가 있으면 그것을 먼저 말한다.
+      const descFiles = data.externalDescendantFiles ?? 0;
+      const descFolders = data.externalDescendantFolders ?? 0;
+      const count = isExternalFolder
+        ? (satCount > 0 ? satCount : (descFiles > 0 ? descFiles : (data.childCount ?? 0)))
         : (data.childCount ?? 0);
       lines.push({ key: 'files', text: `${count} files`, fontSize: px(10, 6), cls: 'text-white/60', priority: 100 });
+      if (isExternalFolder && descFolders > 0) {
+        // "그 안에 몇 곳이 있나" — 접합이 자기 크기를 말하는 유일한 숫자.
+        lines.push({
+          key: 'extFolders',
+          text: t('canvas.external.descendantFolders', { count: descFolders }),
+          fontSize: px(8, 5),
+          cls: 'text-white/45',
+          priority: 80,
+        });
+      }
+      if (isExternalFolder && (data.externalFoldedPlaces ?? 0) > 1) {
+        // §2.1 (C) — 세션마다 새로 생기는 자리를 몇 곳 접었나("세션 4곳").
+        lines.push({
+          key: 'extFolded',
+          text: t('canvas.external.foldedPlaces', { count: data.externalFoldedPlaces ?? 0 }),
+          fontSize: px(8, 5),
+          cls: 'text-white/40',
+          priority: 60,
+        });
+      }
+      const summaryChips = isExternalFolder ? data.externalSummaryChips : undefined;
+      if (summaryChips && summaryChips.length > 0) {
+        // "그 안에 **무엇이** 있나" — 경로만 적힌 접합이 아무 말도 하지 않던 자리를 메운다.
+        lines.push({
+          key: 'extChips',
+          text: summaryChips.join(' · '),
+          fontSize: px(8, 5),
+          cls: 'text-white/50',
+          priority: 90,
+          summarize: 'middle',
+        });
+      }
       return lines;
     }
     if (isIframe) {
@@ -896,24 +1026,24 @@ export const BubbleNode = memo(function BubbleNode({
     }
     return lines;
   }, [
-    ts, isAgent, isFolder, isIframe, localModelLabel, effectiveModelName, modelLineText,
+    ts, isAgent, isFolder, isIframe, localModelLabel, codexModelLabel, effectiveModelName, modelLineText,
     effectiveContextMax, effectiveContextUsed, isDormant, isActive, isCreatingError,
-    lineInputTokens, lineOutputTokens, localProvider, contextRatio, configModel, t,
-    data.totalInputTokens, data.ownInputTokens, data.bubbleType, data.satelliteFileCount,
-    data.childCount, data.serverKind, isBrainBubble, brainLabelFont, data.label,
+    contextRatio, configModel, t,
+    data.bubbleType, data.satelliteFileCount,
+    data.childCount, data.serverKind,
+    // §2.1 (A)(C) — 외부 폴더 요약. 값이 바뀌면 줄이 다시 서야 한다.
+    data.externalDescendantFiles, data.externalDescendantFolders,
+    data.externalFoldedPlaces, data.externalSummaryChips,
   ]);
 
   /** 중앙 열에 라벨·배지 말고 더 얹히는 줄 — 예약 계산에 함께 들어가야 라벨이 잘리지 않는다. */
   const centerExtras = useMemo<BubbleCenterExtra[]>(() => {
     const extras: BubbleCenterExtra[] = [];
+    if (showHookLabel) extras.push({ fontSize: Math.max(4, Math.round(6 * ts)) });
     if (data.lastTool && isActive && size >= 55) extras.push({ fontSize: Math.max(6, Math.round(11 * ts)) });
-    // §5.10 — 메모리 버블의 카드 수 줄. 중앙 열에 남은 유일한 요소이므로 예약도 이 숫자 하나다.
-    //   `leading-none` 으로 그리므로 행 높이 배수도 1 을 준다 — 기본값(1.5)으로 두면 실제보다
-    //   절반이 더 잡혀 오토핏이 공연히 사다리를 내려간다.
-    if (isBrainBubble) extras.push({ fontSize: brainCountFont, lineHeight: 1 });
     if (isTrashBubble && trashedCount > 0) extras.push({ fontSize: Math.max(6, Math.round(9 * ts)) });
     return extras;
-  }, [data.lastTool, isActive, size, ts, isBrainBubble, brainCountFont, isTrashBubble, trashedCount]);
+  }, [showHookLabel, data.lastTool, isActive, size, ts, isTrashBubble, trashedCount]);
 
   /** 하단 블록 바닥 여백 — 폴더만 종전 값(8·ts)을 그대로 지킨다(보이던 자리를 옮기지 않는다). */
   const bottomOffset = isFolder ? Math.max(4, Math.round(8 * ts)) : Math.max(3, Math.round(6 * ts));
@@ -923,23 +1053,50 @@ export const BubbleNode = memo(function BubbleNode({
    * 원 안에 다 안 들어가면 간격 밀기 → 줄 병합 요약 → 라벨 가운데 줄임 → 최하 줄 접기 순으로
    * 내려간다. 접힌 내용은 `foldedText` 로 돌아와 툴팁에 남으므로 정보는 사라지지 않는다.
    */
+  /**
+   * §2.1 (D) — 알려진 자리면 경로 대신 그 자리의 **이름**을 보여 준다.
+   *
+   * `c--users-dev-work-my-app` 같은 slug 와 세션 UUID 는 읽을 수 없다.
+   * 서버는 문구가 아니라 **i18n 키**만 실어 보내므로(12개 로케일) 고르는 것은 여기다.
+   * 번역이 없으면 종전 라벨 그대로 — 경로·`absolutePath`·열기 동작은 한 글자도 바뀌지 않는다.
+   */
+  const displayLabel = useMemo(() => {
+    const placeKey = data.externalPlaceKey;
+    if (!placeKey) return data.label;
+    // 같은 이름의 자리가 여럿 생기는 곳(프로젝트별 기록 · 스킬)은 그 자리를 가르는 조각을 함께 넣는다 —
+    //   이름만 넣으면 둘이 똑같아져 읽히게 만들려던 것이 오히려 구분을 지운다.
+    const hint = externalPlaceHint(data.absolutePath ?? data.path, placeKey);
+    const named = t(`canvas.externalPlace.${placeKey}`, { name: hint, defaultValue: '' });
+    // 구분자를 못 뽑았으면 넘기는 구두점을 걷는다. 걷는 것은 **힌트가 빈 때뿐**이다 — 어떤 글자가
+    //   구분자인지는 로케일마다 다른데(`·` · `–` · `：` …), 힌트가 있는 문장까지 걷으면 멀집한 끝글자를
+    //   잘라 버린다. 남는 글자가 없으면 종전 라벨이 더 정확하다.
+    const cleaned = hint ? named : named.replace(/[\s·・:：|/,、\-–—]+$/u, '');
+    return cleaned.trim() || data.label;
+  }, [data.externalPlaceKey, data.absolutePath, data.path, data.label, t]);
+
+  /**
+   * §2.4 오토핏 — 중앙 아이콘. 종류와 px 를 **여기 한 곳에서** 정하고 예약(`iconPx`)과 실제 렌더가
+   * 같은 값을 쓴다. 둘이 갈리면 예약 높이가 실제 높이와 어긋나 중앙 열이 하단 블록을 파고든다.
+   */
+  const bubbleIcon: BubbleIconKind = codexProvider ? 'codex' : isAgent && !localProvider ? 'claude' : style.icon;
+  const bubbleIconPx = isBrandIcon(bubbleIcon)
+    ? Math.max(10, Math.round(32 * ts * BRAND_ICON_SCALE))
+    : Math.max(12, Math.round(32 * ts));
+
   const fit = useMemo(() => planBubbleText({
     size,
     ts,
     borderWidth,
-    // §5.10 — 메모리 버블의 아이콘은 중앙 열이 아니라 **배경 워터마크**이고, 이름도 하단 블록으로
-    //   내려갔다. 둘 다 0 으로 넘겨야 예약이 실제 렌더와 맞는다(종전에는 없는 아이콘 27px + 없는
-    //   라벨 한 줄이 유령으로 잡혀 오토핏이 사다리를 한 칸 더 내려갔다).
-    iconPx: isBrainBubble ? 0 : Math.max(12, Math.round(32 * ts)),
-    label: isBrainBubble ? '' : data.label,
-    labelFontSize: isBrainBubble ? 0 : Math.max(7, Math.round(13 * ts)),
+    iconPx: bubbleIconPx,
+    label: displayLabel,
+    labelFontSize: Math.max(7, Math.round(13 * ts)),
     labelMaxLines: isAgent ? 2 : 1,
     labelWidthRatio: BUBBLE_TEXT_WIDTH_RATIO,
     badge: agentBadge ? { text: agentBadge.text, fontSize: Math.max(5, Math.round(8 * ts)) } : null,
     centerExtras,
     bottomLines,
     bottomOffset,
-  }), [size, ts, borderWidth, data.label, isAgent, isBrainBubble, agentBadge?.text, centerExtras, bottomLines, bottomOffset]);
+  }), [size, ts, borderWidth, bubbleIconPx, displayLabel, isAgent, agentBadge?.text, centerExtras, bottomLines, bottomOffset]);
 
   return (
     <div
@@ -951,79 +1108,60 @@ export const BubbleNode = memo(function BubbleNode({
         ...{
           width: bubbleWidth,
           height: bubbleHeight,
-          opacity: isDisappearing
-            ? disappearOpacity
-            : isIframe && data.iframeAlive === false
-              ? 0.35
-              : undefined,
-          transition: 'width 0.45s cubic-bezier(0.4, 0, 0.2, 1), height 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease-out',
+          // §5.4 #31 — 무리 강조는 이 버블이 이미 가진 투명도에 **곱한다**. 덮어쓰면 사라지는 중인
+          // 버블이나 죽은 프리뷰가 강조 때문에 멀쩡해 보인다.
+          opacity: linkVisual.opacityMul === 1 ? baseOpacity : (baseOpacity ?? 1) * linkVisual.opacityMul,
+          filter: linkVisual.filter ?? undefined,
+          // 무리 강조는 손끝 반응이라 페이드(0.4s)보다 빨라야 한다 — 걸린 동안만 짧은 곡선을 쓴다.
+          transition: `width 0.45s cubic-bezier(0.4, 0, 0.2, 1), height 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity ${
+            linkRole === 'off' ? '0.4s ease-out' : `${LINK_FOCUS.TRANSITION_MS}ms ease-out`
+          }, filter ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
         },
         cursor: nearBorder ? 'crosshair' : undefined,
       }}
     >
+      {/* §5.4 #31 — 무리 안 버블의 흰 빛 링·글로우. 본체 위에 얹되(z-10) 클릭은 통과시킨다.
+          별도 겹면인 이유는 본체 div 가 자기 테두리·그림자를 이미 쓰고 있어서다(덮어쓰면
+          카테고리 색 테두리가 사라진다). */}
+      {linkVisual.boxShadow !== null && (
+        <span
+          className="pointer-events-none absolute inset-0 z-10 rounded-full"
+          style={{ boxShadow: linkVisual.boxShadow, transition: `box-shadow ${LINK_FOCUS.TRANSITION_MS}ms ease-out` }}
+        />
+      )}
       <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} />
       <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} />
 
-      {/* §5.10 v3.82 — 주입 1회 연출: 안쪽 블룸 + 림을 도는 아크 스윕(종전 animate-ping 대체).
-          아크는 pathLength=100 이라 버블 크기가 변해도 대시 비율이 그대로다. */}
-      {isBrainBubble && injectionPulse && (
-        <>
-          {/* z-10 필수 — 본체 div 가 DOM 상 뒤에 있어 불투명하게 덮으므로, 위로 올려야 표면에서 빛난다. */}
-          <span
-            className="animate-brain-inject-bloom pointer-events-none absolute inset-0 z-10 rounded-full"
-            style={{ background: `radial-gradient(circle at 50% 50%, ${style.glow}00 40%, ${style.glow}59 76%, ${style.glow}00 100%)` }}
-          />
-          <svg
-            className="pointer-events-none absolute z-10"
-            width={brainSweepBox}
-            height={brainSweepBox}
-            viewBox={`0 0 ${brainSweepBox} ${brainSweepBox}`}
-            style={{ left: -BRAIN_SWEEP_MARGIN, top: -BRAIN_SWEEP_MARGIN, filter: `drop-shadow(0 0 3px ${style.glow})` }}
-            fill="none"
-          >
-            <circle
-              className="animate-brain-inject-sweep"
-              cx={brainSweepBox / 2}
-              cy={brainSweepBox / 2}
-              r={size / 2 + 1}
-              pathLength={100}
-              // 림 자체가 인디고라 같은 계열로는 아크가 묻힌다 — 흰빛 + glow 번짐으로 "빛이 돈다"로 읽히게.
-              stroke="#ffffff"
-              strokeOpacity={0.92}
-              strokeWidth={3}
-              strokeLinecap="round"
-              strokeDasharray="9 41"
-            />
-          </svg>
-        </>
-      )}
-
-      {/* §5.10 v3.82 — 검토 대기 배지(우상단, 앰버): 사용자가 확인해야 AI 에게 전달되는 카드 수.
-          Brain 에서 사람 손이 필요한 유일한 수라 가장 눈에 띄는 자리에 둔다.
-          자리는 사각 모서리가 아니라 **원의 45° 림 위**(`brainBadgeInset`). */}
-      {isBrainBubble && brainReview > 0 && (
+      {/* §5.24 — 히트 숫자 배지. 램프는 순서만 주고 양은 주지 않아서, 켠 동안은 그 값을 숫자로도 적는다.
+          **칩은 어둡게 두고 글자는 흰색, 히트색은 링·글로우가 맡는다** — 본체와 같은 히트색으로 채우면
+          뜨거운 버블 위에서 배지가 얼룩으로 뭉개지고, 차가운 남색 글자는 어두운 칩 위에서 읽히지 않는다.
+          네 자리부터는 `1.2k` 로 접고(버블 안에서 다섯 글자는 안 읽힌다) 정확한 값은 title 에 남는다. */}
+      {heatBadge && (
         <span
-          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-amber-400 font-bold tabular-nums text-gray-950 ring-2 ring-gray-950"
-          style={{ top: brainBadgeInset, right: brainBadgeInset, minWidth: brainBadgeSize, height: brainBadgeSize, fontSize: brainBadgeFont, padding: '0 5px' }}
-          title={t('brain.reviewBadge', { defaultValue: '검토 대기 {{n}}장', n: brainReview })}
+          className={`pointer-events-none absolute z-20 flex items-center justify-center rounded-full font-bold tabular-nums leading-none tracking-tight ${
+            heatBadge.value > 0
+              ? 'bg-gray-950/85 text-gray-50'
+              // 0 은 뒤로 물러난다 — 한 번도 안 읽은 버블이 많은 지도에서 회색 숫자가 앞줄에 서면
+              //   정작 뜨거운 곳의 숫자가 묻힌다(지우지는 않는다 — "왜 얘는 안 봤지?"가 이 절의 질문이다).
+              : 'bg-gray-950/60 text-gray-400 opacity-75'
+          }`}
+          style={{
+            top: heatBadgeInset,
+            right: heatBadgeInset,
+            minWidth: heatBadgeSize,
+            height: heatBadgeSize,
+            padding: '0 5px',
+            fontSize: heatBadgeFont,
+            // 동적 색은 캔버스 전반과 같이 style 로 준다(램프 색은 Tailwind 클래스로 표현할 수 없다).
+            boxShadow: heatBadge.value > 0
+              ? `0 0 0 1.5px ${heatBadge.ring}, 0 0 9px ${heatBadge.ring}80`
+              : `0 0 0 1.5px ${heatBadge.ring}`,
+          }}
+          title={heatBadge.axis === 'write'
+            ? t('canvas.heatmap.badgeWrite', { n: heatBadge.value.toLocaleString() })
+            : t('canvas.heatmap.badgeRead', { n: heatBadge.value.toLocaleString() })}
         >
-          {brainReview > 99 ? '99+' : brainReview}
-        </span>
-      )}
-
-      {/* §5.10 — 새 기억 배지(좌상단): 자동 저장돼 아직 사용자가 안 본 카드 수. 두 가지를 고쳤다.
-          ① **밝은 바탕 + 인디고 글자** — 인디고 본체 위의 인디고 배지(구 `bg-indigo-400`)는 대비가
-             서지 않아 배지인지 얼룩인지 구분되지 않았다.
-          ② **`+N` 표기** — 아직 아무것도 안 본 흔한 상태에서는 `unseenCount === cardCount` 라
-             중앙의 총합과 **같은 숫자**가 두 번 나온다(실측 32/32/2 — 원 하나에 숫자 셋).
-             `+` 를 붙이면 총합이 아니라 **증분**으로 읽혀 중복 인상이 사라진다. */}
-      {isBrainBubble && brainUnseen > 0 && (
-        <span
-          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-indigo-300 font-bold tabular-nums text-indigo-950 ring-2 ring-gray-950"
-          style={{ top: brainBadgeInset, left: brainBadgeInset, minWidth: brainBadgeSize, height: brainBadgeSize, fontSize: brainBadgeFont, padding: '0 5px' }}
-          title={t('brain.unseenBadge', { defaultValue: '미확인 {{n}}장', n: brainUnseen })}
-        >
-          {brainUnseen > 99 ? '99+' : `+${brainUnseen}`}
+          {heatBadge.label}
         </span>
       )}
 
@@ -1057,26 +1195,17 @@ export const BubbleNode = memo(function BubbleNode({
       <div
         className={`bubble-body bubble-press absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-full ${borderHighlight || ringClass} ${isDisappearing ? 'bubble-ghost' : ''} ${isTrashBubble && trashedCount === 0 ? 'opacity-50' : ''}`}
         {...gesture.handlers}
+        onPointerUp={handlePointerUp}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         style={{
           borderWidth,
           borderStyle: 'solid',
-          // §5.10 — 메모리 버블 테두리는 **인라인**으로 준다. `style.ringIdle` 의 `border-*` 유틸리티는
-          //   `packages/shared` 에 문자열로만 있어 Tailwind 소스 스캔에 잡히지 않는다(실측: 빌드 CSS 에
-          //   `border-stone-400`·`border-indigo-*` 없음). 클래스가 없으면 `border-color` 가 `currentColor`
-          //   로 떨어져 **흰 링**이 그려졌다 — 스크린샷의 두꺼운 흰 테두리가 그것이었다.
-          //   연결 손짓 중(`nearBorder`/`isConnectTarget`)에는 비워 강조 클래스(클라 소스라 스캔됨)에 넘긴다.
-          borderColor: isBrainBubble && !nearBorder && !isConnectTarget ? `${style.color}99` : undefined,
           // §2.4 오토핏 — 하단 블록 높이만큼 바닥 예약. 값은 **그릴 줄에서 계산**한다(고정 3줄치 ❌).
           // justify-center 가 이 영역 위에서만 일어나 2줄 라벨이 길어져도 위로 밀려 겹치지 않음.
           // absolute 하단 블록은 padding box 기준이라 이 padding 에 안 밀리고 바닥 유지.
           paddingBottom: fit.paddingBottom || undefined,
           transition: 'border-width 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
-          // §5.10 — 메모리 버블은 **평면**이다. 구 orb(좌상단 하이라이트 그라디언트 + 가장자리 검은
-          //   비네트)는 광택 나는 구슬처럼 보여 걷어냈다(사용자 지적 — "볼록 튀어나온 구시대 디자인").
-          //   남은 것은 단색 틴트 하나뿐이라 원이 표면으로 읽히고, 무엇이 담겼는지는 색이 아니라
-          //   워터마크 아이콘·카드 수·이름이 말한다. 색은 여전히 style 파생(§2.2 팔레트).
           background: isCreatingError
             ? 'radial-gradient(circle at 35% 35%, #fca5a5, #ef4444)'
             : isAgent && contextRatio > 0
@@ -1084,14 +1213,18 @@ export const BubbleNode = memo(function BubbleNode({
               : isAgent
                 // §2.4 v1.68/v1.69 — 모든 에이전트(커스텀+훅)는 컨텍스트 물결과 동일한 반투명 배경으로 시작
                 ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
-                : isBrainBubble
-                  ? `${style.color}66`
-                  : isActive
-                    ? `radial-gradient(circle at 35% 35%, ${style.glow}, ${style.color})`
-                    : `radial-gradient(circle at 35% 35%, ${style.glow}90, ${style.color}CC)`,
+                : isActive
+                ? `radial-gradient(circle at 35% 35%, ${style.glow}, ${style.color})`
+                : `radial-gradient(circle at 35% 35%, ${style.glow}90, ${style.color}CC)`,
         }}
-        title={isBrainBubble ? brainBubbleTip : undefined}
       >
+        {codexProvider && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute rounded-full border border-violet-300/25"
+            style={{ inset: Math.max(4, Math.round(6 * ts)) }}
+          />
+        )}
         {/* 에이전트 물결 채움 */}
         {isAgent && contextRatio > 0 && (
           <WaveFill ratio={contextRatio} color={style.color} />
@@ -1104,60 +1237,37 @@ export const BubbleNode = memo(function BubbleNode({
         {/* §2.4 오토핏 — gap·라벨 줄 수·배지 표시 여부는 fit 이 정한다(원 안에 들어갈 때까지 단계적으로).
             maxHeight 는 마지막 안전망 — 사다리를 다 내려가고도 안 들어가는 아주 작은 버블에서
             중앙 열이 예약 영역(하단 블록 자리)으로 흘러드는 것을 막는다(겹침 대신 잘림). */}
-        {/* §5.10 — 메모리 버블 **배경 워터마크**. 종전에는 아이콘·라벨·숫자·단위 네 요소가
-            중앙 열에 세로로 쌓여 116px 원 안에서 서로 크기를 다퉜다("디자인이 구리다"의 실체).
-            아이콘을 배경으로 내리면 전경에는 카드 수 하나만 남고, 무엇이 담긴 버블인지는
-            이 카드 실루엣이 말한다. 버블 지름에 비례하므로 축소 배율에서도 같은 인상.
-            더 크게·더 옅게(0.17 → 0.12) 두어 요소가 아니라 **질감**으로 읽히게 하고, 숫자와
-            같은 상자에서 중앙정렬한다(하단 블록 예약을 함께 받아 숫자와 축이 어긋나지 않게). */}
-        {isBrainBubble && (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center opacity-[0.12]"
-            style={{ paddingBottom: fit.paddingBottom || undefined }}
-          >
-            <BubbleIcon icon={style.icon} px={Math.max(28, Math.round(size * 0.58))} />
-          </span>
-        )}
         <div
           className="z-10 flex flex-col items-center justify-center overflow-hidden"
           style={{ gap: fit.centerGap, maxHeight: fit.centerMaxHeight }}
         >
-          {!isBrainBubble && <BubbleIcon icon={style.icon} px={Math.max(12, Math.round(32 * ts))} />}
-          {/* §5.10 — 카드 수는 이 버블의 주인공이고, 중앙 열에 남은 **유일한** 요소다.
-              단위("장")도 이름도 여기 없다 — 단위는 축소 배율에서 가장 먼저 뭉개지고, 이름은
-              하단 블록으로 내려가 12px 하한을 받는다. 비운 만큼 숫자를 키운다(26×ts → 34×ts).
-              0 장이면 흐리게 — 아직 아무것도 안 쌓인 버블이 가득 찬 버블처럼 보이지 않게. */}
-          {isBrainBubble && (
-            <span
-              className={`bubble-brain-count font-semibold tabular-nums leading-none tracking-tight ${
-                (brainSummary?.cardCount ?? 0) > 0 ? 'text-white' : 'text-white/45'
-              }`}
-              style={{ fontSize: brainCountFont }}
-            >
-              {brainSummary?.cardCount ?? 0}
-            </span>
-          )}
-          {!isBrainBubble && (
-            <span
-              className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
-              style={{
-                maxWidth: fit.labelMaxWidth,
-                fontSize: Math.max(7, Math.round(13 * ts)),
-              }}
-              title={isFolder
-                ? (data.absolutePath ?? data.label)
-                : (isAgent || fit.labelText !== data.label) ? data.label : undefined}
-            >
-              {fit.labelText}
-            </span>
-          )}
+          <BubbleIcon icon={bubbleIcon} px={bubbleIconPx} />
+          <span
+            className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
+            style={{
+              maxWidth: fit.labelMaxWidth,
+              fontSize: Math.max(7, Math.round(13 * ts)),
+            }}
+            title={isFolder
+              ? (data.absolutePath ?? data.label)
+              : (isAgent || fit.labelText !== displayLabel) ? displayLabel : undefined}
+          >
+            {fit.labelText}
+          </span>
           {fit.showBadge && agentBadge && (
             <span
               className={`rounded px-1 font-bold uppercase tracking-wide ${agentBadge.cls}`}
               style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}
             >
               {agentBadge.text}
+            </span>
+          )}
+          {fit.showBadge && showHookLabel && (
+            <span
+              className="font-medium tracking-widest text-white/45"
+              style={{ fontSize: Math.max(4, Math.round(6 * ts)) }}
+            >
+              HOOK
             </span>
           )}
           {data.lastTool && isActive && size >= 55 && (
@@ -1173,7 +1283,7 @@ export const BubbleNode = memo(function BubbleNode({
           {/* §5.10 — 휴지통 버블: 버려진 에이전트 수 */}
           {isTrashBubble && trashedCount > 0 && (
             <span className="font-semibold text-white/80" style={{ fontSize: Math.max(6, Math.round(9 * ts)) }}>
-              {t('brain.trashCountShort', { defaultValue: '{{n}}개', n: trashedCount })}
+              {t('trash.trashCountShort', { defaultValue: '{{n}}개', n: trashedCount })}
             </span>
           )}
         </div>

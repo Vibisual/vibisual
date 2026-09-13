@@ -19,12 +19,19 @@
 
 import type { SubAgentStatus } from './types.js';
 
-/** 화면이 그리는 세션 상태 — 색·라벨은 이 4값에만 대응한다. */
+/** 화면이 그리는 세션 상태 — 색·라벨은 이 5값에만 대응한다. */
 export type SessionRunState =
   /** 지금 돌고 있다. */
   | 'running'
   /** 실패로 끝났다. */
   | 'error'
+  /**
+   * **요금제 한도에 닿아 하던 일이 끊겼다** — 실패도, 끝남도 아니다(§2.4 한도 정지).
+   *
+   * CLI 는 이때 실패하지 않는다. 합성 통지 한 줄을 적고 정상 종료하므로, 이 값이 없으면 그
+   * 세션은 `doneUnseen`(초록 "끝남")으로 내려앉아 **멈춘 사실이 화면 어디에도 남지 않는다.**
+   */
+  | 'limited'
   /** 끝났고 사용자가 아직 확인하지 않았다(= 눈에 띄어야 한다). */
   | 'doneUnseen'
   /** 끝났고 확인까지 됐다(= 조용해야 한다). */
@@ -42,6 +49,11 @@ export interface SessionRunInputs {
   hasQueuedCommand: boolean;
   /** 사용자가 이 세션의 완료를 확인했는가(`acknowledgedSubAgents`). */
   acknowledged: boolean;
+  /**
+   * 이 세션이 **한도로 끊긴 채 아직 다시 돌지 않았는가**(`SubAgent.usageLimit`).
+   * 서버가 세우고 다음 명령이 나갈 때 서버가 걷는다 — 여기서 시간을 재거나 만료시키지 않는다(§3.1).
+   */
+  usageLimited: boolean;
 }
 
 /** 아무것도 모를 때의 기본값 — 호출부가 아는 것만 덮어쓰면 된다. */
@@ -51,6 +63,7 @@ export const EMPTY_SESSION_RUN_INPUTS: SessionRunInputs = {
   runningTaskCount: 0,
   hasQueuedCommand: false,
   acknowledged: false,
+  usageLimited: false,
 };
 
 /**
@@ -84,10 +97,15 @@ export function hasSessionWork(inputs: SessionRunInputs): boolean {
  * `error` 를 **가장 먼저** 본다 — 실패한 턴은 자식이 백단에 남아 있다는 이유로 "도는 중"으로
  * 세탁되면 안 된다(서버 `syncBgSubStatus` 가 지키는 원칙과 같다). 실제로 새 명령이 나가면 서버가
  * dispatch 에서 `status` 를 `active` 로 덮으므로, 여기서 error 를 앞세워도 다음 실행을 가리지 않는다.
+ *
+ * **`limited` 는 `running` 다음, `doneUnseen` 앞이다.** 사용자가 한도를 무시하고 그 세션을 다시
+ * 돌렸으면 그것은 도는 중이고(파랑이 이긴다), 아직 안 돌렸으면 그 세션은 **끝난 것이 아니라 끊긴
+ * 것**이라 초록 "끝남"으로 내려가면 안 된다 — 그 강등이 바로 이 축이 생긴 이유다.
  */
 export function resolveSessionRunState(inputs: SessionRunInputs): SessionRunState {
   if (inputs.subStatus === 'error') return 'error';
   if (isSessionRunning(inputs)) return 'running';
+  if (inputs.usageLimited) return 'limited';
   if (inputs.subStatus === 'idle' && !inputs.acknowledged) return 'doneUnseen';
   return 'done';
 }

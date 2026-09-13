@@ -4,7 +4,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { exec, spawn } from 'node:child_process';
-import { loopbackUrlVariants } from '@vibisual/shared';
+import { loopbackUrlVariants, previewUrlForServer } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { killTree } from './processTree.js';
 
@@ -44,7 +44,7 @@ export function isPortAlive(port: number): Promise<boolean> {
  * status < 400 이면 serving, 4xx/5xx·연결 실패·타임아웃은 not serving. 본문은 안 읽고 즉시 파기.
  */
 export function isUrlServing(rawUrl: string, timeoutMs = HTTP_PROBE_TIMEOUT): Promise<boolean> {
-  return probeUrlServing(rawUrl, timeoutMs);
+  return probeUrl(rawUrl, timeoutMs).then((r) => r.ok);
 }
 
 /**
@@ -62,31 +62,71 @@ export async function resolveServingUrl(
   rawUrl: string,
   timeoutMs = HTTP_PROBE_TIMEOUT,
 ): Promise<string | null> {
+  return (await resolveServingTarget(rawUrl, timeoutMs))?.url ?? null;
+}
+
+/** 응답한 주소 + 그 응답이 무엇이었는지(`Content-Type`). 프리뷰 주소 판정에 필요하다. */
+export interface ServingTarget {
+  /** 실제로 2xx/3xx 를 준 주소(별칭 순회 결과). */
+  url: string;
+  /** 그 응답의 `Content-Type` 헤더. 안 보내는 서버도 있어 optional. */
+  contentType?: string;
+}
+
+/** {@link resolveServingUrl} 과 같은 별칭 순회를 하되, 응답의 `Content-Type` 까지 들고 온다. */
+export async function resolveServingTarget(
+  rawUrl: string,
+  timeoutMs = HTTP_PROBE_TIMEOUT,
+): Promise<ServingTarget | null> {
   const candidates = loopbackUrlVariants(rawUrl);
   for (const candidate of candidates.length > 0 ? candidates : [rawUrl]) {
-    if (await probeUrlServing(candidate, timeoutMs)) return candidate;
+    const res = await probeUrl(candidate, timeoutMs);
+    if (res.ok) return { url: candidate, contentType: res.contentType };
   }
   return null;
 }
 
-function probeUrlServing(rawUrl: string, timeoutMs: number): Promise<boolean> {
+/**
+ * §7.11 — **프리뷰 버블에 실을 주소**를 정한다(응답하지 않으면 null).
+ *
+ * {@link resolveServingUrl} 이 "어느 이름으로 불러야 붙는가"를 풀었다면, 이쪽은 "그 주소를
+ * 그대로 열어도 되는가"를 푼다. 감지 폴백이 주운 주소는 대개 에이전트가 확인차 친 API 경로라
+ * (`curl …/api/backtest/state`) 그대로 열면 사람이 볼 화면이 아니라 JSON 이 뜬다. 판정 규칙은
+ * shared `previewUrlForServer` 한 곳에 있고(순수 함수 — 서버·클라가 같은 답을 낸다), 여기서는
+ * 그 답이 원래 주소와 다를 때 **정문이 실제로 응답하는지 한 번 더 확인**한다. 정문이 죽어 있으면
+ * 확인된 원래 주소를 그대로 쓴다 — 열리는 주소를 버리고 안 열리는 주소로 바꾸지 않는다.
+ */
+export async function resolvePreviewUrl(
+  rawUrl: string,
+  timeoutMs = HTTP_PROBE_TIMEOUT,
+): Promise<string | null> {
+  const target = await resolveServingTarget(rawUrl, timeoutMs);
+  if (!target) return null;
+  const preview = previewUrlForServer(target.url, target.contentType);
+  if (preview === target.url) return target.url;
+  const rootTarget = await resolveServingTarget(preview, timeoutMs);
+  return rootTarget?.url ?? target.url;
+}
+
+function probeUrl(rawUrl: string, timeoutMs: number): Promise<{ ok: boolean; contentType?: string }> {
   return new Promise((resolve) => {
     let parsed: URL;
-    try { parsed = new URL(rawUrl); } catch { resolve(false); return; }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') { resolve(false); return; }
+    try { parsed = new URL(rawUrl); } catch { resolve({ ok: false }); return; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') { resolve({ ok: false }); return; }
     const lib = parsed.protocol === 'https:' ? https : http;
     let settled = false;
-    const done = (ok: boolean): void => {
+    const done = (ok: boolean, contentType?: string): void => {
       if (settled) return;
       settled = true;
-      resolve(ok);
+      resolve({ ok, contentType });
     };
     try {
       // localhost self-signed 대비 rejectUnauthorized:false — 표시용 probe 라 인증서 무관.
       const req = lib.request(rawUrl, { method: 'GET', timeout: timeoutMs, rejectUnauthorized: false }, (res) => {
         const status = res.statusCode ?? 0;
-        res.destroy(); // 상태코드만 필요 — 본문은 버린다
-        done(status >= 200 && status < 400);
+        const ct = res.headers['content-type'];
+        res.destroy(); // 상태코드·헤더만 필요 — 본문은 버린다
+        done(status >= 200 && status < 400, typeof ct === 'string' ? ct : undefined);
       });
       req.once('timeout', () => { req.destroy(); done(false); });
       req.once('error', () => done(false));
@@ -251,21 +291,31 @@ function lookupViaProc(port: number): LookupResult {
 }
 
 /**
- * 포트를 LISTEN 중인 프로세스를 찾아 **트리째** 종료한다.
+ * 포트 점유자 조회 결과 — {@link killByPortDetailed} 와 {@link findPortOwnerPids} 의 공통 반환.
+ *
+ * `anyToolWorked` 가 **결과의 신뢰도**다. `pids` 가 비었을 때 이 값이 false 면 "볼 도구가 없어서
+ * 못 봤다"이고, true 면 "정말 아무도 LISTEN 하지 않는다"이다 — 두 경우의 처방이 다르다.
+ */
+export interface PortOwnerLookup {
+  pids: number[];
+  anyToolWorked: boolean;
+  via?: string;
+}
+
+/**
+ * 포트를 LISTEN 중인 프로세스의 PID 를 찾는다(종료하지 않는다).
  *
  * 조회 수단은 플랫폼별 후보를 순서대로 시도하고, 하나라도 "동작했다"면 그 결과를 채택한다.
  *   - Windows: `netstat -ano -p TCP`
  *   - POSIX  : `lsof` → `ss` → `fuser` → `/proc/net/tcp`
- * 전부 없으면 `no-tool` — 호출자가 "포트가 비었다"와 구분할 수 있다.
  *
- * 종료는 {@link killTree} 로 위임한다(이전엔 `taskkill /F`(트리 아님) / `kill`(SIGTERM, 손자 잔존)을
- * 여기서 따로 재구현했다). `respawn` 이 띄운 dev 서버는 `shell:true` 라 최상단이 셸이고 실제 서버는
- * 그 자식 — 단일 kill 로는 포트가 안 놓인다.
+ * {@link killByPortDetailed}(죽이기)와 §7.11 포트 인계(살려 둔 채 기동 명령 읽기)가 **같은
+ * 조회 경로를 공유**해야 한다 — 한쪽만 도구 후보가 늘거나 파서가 고쳐지면 "끌 수는 있는데 넘겨받지는
+ * 못하는" 비대칭이 생긴다.
  */
-export async function killByPortDetailed(port: number): Promise<KillByPortResult> {
-  // 보안: port 는 셸 문자열에 보간되므로 정수가 아니면 즉시 거부(인젝션 차단).
+export async function findPortOwnerPids(port: number): Promise<PortOwnerLookup> {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    return { killed: false, outcome: 'invalid-port', pids: [] };
+    return { pids: [], anyToolWorked: false };
   }
 
   const candidates: { via: string; run: () => Promise<LookupResult> | LookupResult }[] = IS_WIN
@@ -288,18 +338,41 @@ export async function killByPortDetailed(port: number): Promise<KillByPortResult
     //   `pid=` 를 감추고, `lsof` 는 남의 소유 프로세스를 아예 안 보여준다. 즉 "0건"은 "포트가 비었다"의
     //   증거가 아니다. 다음 도구(최종적으로 커널의 /proc/net/tcp)까지 다 본 뒤에 판정한다.
     if (res.pids.length === 0) continue;
-    // 자살 방지: 우리 자신/부모가 그 포트를 쥐고 있으면 죽이지 않는다(그룹 킬이면 앱 전체가 내려간다).
-    const targets = res.pids.filter((pid) => pid !== process.pid && pid !== process.ppid);
-    if (targets.length === 0) {
-      logger.warn(`killByPort(${port}): port is held by this process — refusing to kill self`);
-      return { killed: false, outcome: 'self', pids: res.pids, via: c.via };
-    }
-    for (const pid of targets) killTree(pid);
-    logger.info(`killByPort(${port}): killed tree(s) ${targets.join(', ')} via ${c.via}`);
-    return { killed: true, outcome: 'killed', pids: targets, via: c.via };
+    return { pids: res.pids, anyToolWorked: true, via: c.via };
+  }
+  return { pids: [], anyToolWorked };
+}
+
+/**
+ * 포트를 LISTEN 중인 프로세스를 찾아 **트리째** 종료한다.
+ *
+ * 조회는 {@link findPortOwnerPids} 에 위임한다. 전부 없으면 `no-tool` — 호출자가 "포트가 비었다"와
+ * 구분할 수 있다.
+ *
+ * 종료는 {@link killTree} 로 위임한다(이전엔 `taskkill /F`(트리 아님) / `kill`(SIGTERM, 손자 잔존)을
+ * 여기서 따로 재구현했다). `respawn` 이 띄운 dev 서버는 `shell:true` 라 최상단이 셸이고 실제 서버는
+ * 그 자식 — 단일 kill 로는 포트가 안 놓인다.
+ */
+export async function killByPortDetailed(port: number): Promise<KillByPortResult> {
+  // 보안: port 는 셸 문자열에 보간되므로 정수가 아니면 즉시 거부(인젝션 차단).
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return { killed: false, outcome: 'invalid-port', pids: [] };
   }
 
-  if (!anyToolWorked) {
+  const lookup = await findPortOwnerPids(port);
+  if (lookup.pids.length > 0) {
+    // 자살 방지: 우리 자신/부모가 그 포트를 쥐고 있으면 죽이지 않는다(그룹 킬이면 앱 전체가 내려간다).
+    const targets = lookup.pids.filter((pid) => pid !== process.pid && pid !== process.ppid);
+    if (targets.length === 0) {
+      logger.warn(`killByPort(${port}): port is held by this process — refusing to kill self`);
+      return { killed: false, outcome: 'self', pids: lookup.pids, ...(lookup.via ? { via: lookup.via } : {}) };
+    }
+    for (const pid of targets) killTree(pid);
+    logger.info(`killByPort(${port}): killed tree(s) ${targets.join(', ')} via ${lookup.via}`);
+    return { killed: true, outcome: 'killed', pids: targets, ...(lookup.via ? { via: lookup.via } : {}) };
+  }
+
+  if (!lookup.anyToolWorked) {
     logger.warn(
       `killByPort(${port}): no way to inspect port owners on this system — ` +
         `install one of lsof / iproute2(ss) / psmisc(fuser), or run on a kernel exposing /proc/net/tcp`,

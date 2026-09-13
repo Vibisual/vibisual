@@ -12,6 +12,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, AutoAgentSummary, AutoAgentClarifyingQuestion, SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
+// §5.3 #9-1 (P) — 조용한 선행 압축은 감추고, 그 진행 표시는 뒤에 선 명령이 물려받는다.
+import { displayCommands } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { StreamRenderer } from '../IDE/StreamRenderer.js';
 import { AutoAgentRunView } from './AutoAgentRunView.js';
@@ -217,7 +219,8 @@ interface BuilderActivityWindowProps {
 const BuilderActivityWindow = memo(function BuilderActivityWindow({ agentId, phase }: BuilderActivityWindowProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const subAgentStreams = useGraphStore((s) => s.subAgentStreams);
-  const commands = useGraphStore((s) => s.queuedCommands[agentId] ?? EMPTY_COMMANDS);
+  const rawCommands = useGraphStore((s) => s.queuedCommands[agentId] ?? EMPTY_COMMANDS);
+  const commands = displayCommands(rawCommands);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 이 버블(=빌더 세션)에 속한 모든 스트림 이벤트를 시간순으로 병합.

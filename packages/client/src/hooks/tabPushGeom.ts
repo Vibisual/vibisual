@@ -4,6 +4,11 @@
 // 모은다. 이 파일은 DOM 을 만지지 않는다 — 좌표와 순서만 받아 "어느 탭이 몇 px 밀렸고, 얼마 동안,
 // 얼마나 늦게 제자리에 앉는가"만 답한다(`floatingWindowGeom` 선례). 실제 style 적용은
 // `useTabPushAnimation` 이 한다.
+//
+// **가로만의 물건이 아니다 (§5.5 #16-1).** 세로로 선 IDE 활동바도 같은 손맛을 써야 하므로
+// (사용자 지시: "앱들처럼 … 아래로 내리면 직관적으로 아래 아이콘이 밀려야지") 판정은 축 중립
+// (`resolveAxisReorder`)으로 두고, 종전 `pointerX`/`targetLeft`/`targetWidth` 이름의 가로 API 는
+// 그 위의 얇은 껍데기로 남긴다 — 두 벌이 되면 한쪽만 고쳐져 손맛이 갈린다.
 
 /** 밀어내기 손맛의 모든 수치 — 값 조정은 여기 한 곳(매직넘버 산개 ❌). */
 export const TAB_PUSH = {
@@ -88,6 +93,23 @@ export function planTabPush(input: TabPushPlanInput): TabPushStep[] {
   return steps;
 }
 
+/** 밀어내기가 도는 축. 가로로 선 줄(탭바)은 `'x'`, 세로로 선 줄(활동바)은 `'y'`. */
+export type PushAxis = 'x' | 'y';
+
+export interface AxisReorderInput {
+  /** 지금 순서(숨은 항목 포함 전체 — 키로 다루므로 사이에 안 보이는 것이 껴 있어도 안전하다). */
+  order: readonly string[];
+  /** 끌고 있는 항목. */
+  movedKey: string;
+  /** 커서가 올라가 있는 항목. */
+  targetKey: string;
+  /** 축 방향 커서 좌표(뷰포트 기준 — 가로면 x, 세로면 y). */
+  pointer: number;
+  /** 대상 항목의 뷰포트 기준 시작 좌표와 길이(가로면 left·width, 세로면 top·height). */
+  targetStart: number;
+  targetSize: number;
+}
+
 export interface TabReorderInput {
   /** 지금 순서(숨은 탭 포함 전체 — 키로 다루므로 숨은 탭이 사이에 껴 있어도 안전하다). */
   order: readonly string[];
@@ -103,19 +125,36 @@ export interface TabReorderInput {
 }
 
 /**
- * 자리를 **언제** 바꿀지 — 커서가 대상 탭의 중앙선을 **넘어섰을 때만** 바꾼다.
+ * 자리를 **언제** 바꿀지 — 커서가 대상 항목의 중앙선을 **넘어섰을 때만** 바꾼다(축 중립).
  *
- * 넘기 전에 바꾸면 자리가 바뀌자마자 커서가 다시 반대편 탭 위에 놓여 두 탭이 매 프레임 자리를
+ * 넘기 전에 바꾸면 자리가 바뀌자마자 커서가 다시 반대편 항목 위에 놓여 둘이 매 프레임 자리를
  * 맞바꾸는 떨림(oscillation)이 생긴다. 중앙선 규칙은 그 되돌이를 구조적으로 막는다.
+ *
+ * `movingForward` = 순서상 **뒤쪽으로** 가는 중인가(가로면 오른쪽, 세로면 아래쪽).
  */
+export function crossedAxisMidpoint(input: {
+  pointer: number;
+  targetStart: number;
+  targetSize: number;
+  movingForward: boolean;
+}): boolean {
+  const mid = input.targetStart + input.targetSize / 2;
+  return input.movingForward ? input.pointer >= mid : input.pointer <= mid;
+}
+
+/** 위 판정의 가로 이름 껍데기 — 종전 호출부가 쓰는 어휘 그대로. */
 export function crossedTabMidpoint(input: {
   pointerX: number;
   targetLeft: number;
   targetWidth: number;
   movingRight: boolean;
 }): boolean {
-  const mid = input.targetLeft + input.targetWidth / 2;
-  return input.movingRight ? input.pointerX >= mid : input.pointerX <= mid;
+  return crossedAxisMidpoint({
+    pointer: input.pointerX,
+    targetStart: input.targetLeft,
+    targetSize: input.targetWidth,
+    movingForward: input.movingRight,
+  });
 }
 
 /**
@@ -133,22 +172,34 @@ export function moveKeyToward(order: readonly string[], movedKey: string, target
 }
 
 /**
- * 드래그 중 새 순서를 낸다 — 아직 중앙선을 안 넘었거나 바뀔 게 없으면 `null`(그대로 두라는 뜻).
+ * 드래그 중 새 순서를 낸다(축 중립) — 아직 중앙선을 안 넘었거나 바뀔 게 없으면 `null`(그대로 두라는 뜻).
  */
-export function resolveTabReorder(input: TabReorderInput): string[] | null {
+export function resolveAxisReorder(input: AxisReorderInput): string[] | null {
   const { order, movedKey, targetKey } = input;
   if (movedKey === targetKey) return null;
   const from = order.indexOf(movedKey);
   const to = order.indexOf(targetKey);
   if (from < 0 || to < 0) return null;
-  const crossed = crossedTabMidpoint({
-    pointerX: input.pointerX,
-    targetLeft: input.targetLeft,
-    targetWidth: input.targetWidth,
-    movingRight: from < to,
+  const crossed = crossedAxisMidpoint({
+    pointer: input.pointer,
+    targetStart: input.targetStart,
+    targetSize: input.targetSize,
+    movingForward: from < to,
   });
   if (!crossed) return null;
   return moveKeyToward(order, movedKey, targetKey);
+}
+
+/** 위 재정렬의 가로 이름 껍데기 — 종전 호출부(`TabBar`·`IDETabBar`)가 쓰는 어휘 그대로. */
+export function resolveTabReorder(input: TabReorderInput): string[] | null {
+  return resolveAxisReorder({
+    order: input.order,
+    movedKey: input.movedKey,
+    targetKey: input.targetKey,
+    pointer: input.pointerX,
+    targetStart: input.targetLeft,
+    targetSize: input.targetWidth,
+  });
 }
 
 /** 두 순서가 같은가(길이·자리 모두). */

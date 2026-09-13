@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import { DetachedShell, parseDetachedHash } from './components/Layout/DetachedShell.js';
+import { ShortcutsHost } from './components/Shortcuts/ShortcutsHost.js';
 import { OverlayShell, parseOverlayHash } from './components/Layout/OverlayShell.js';
 import { OverlayMenuShell, parseOverlayMenuHash } from './components/Layout/OverlayMenuShell.js';
 import { CommandCenterShell, parseCommandCenterHash } from './components/CommandCenter/CommandCenterShell.js';
@@ -13,6 +14,7 @@ import { GlobalTextFieldContextMenu } from './components/Layout/GlobalTextFieldC
 import { ExternalOpenNotice } from './components/Layout/ExternalOpenNotice.js';
 import { installRendererDiagnostics } from './utils/diagnostics.js';
 import { installPersistFlushBridge } from './utils/persistFlush.js';
+import { installDragRegionKeepalive } from './utils/dragRegionKeepalive.js';
 // §5.5 — 읽기 설정 글꼴은 OS 설치에 기대지 않고 앱에 동봉해 싣는다(`scripts/fetch-reading-fonts.mjs`).
 // index.css 보다 먼저 실어야 `--font-sans` 첫 후보(Pretendard)가 첫 페인트부터 잡힌다.
 import './assets/fonts/fonts.css';
@@ -29,6 +31,17 @@ installRendererDiagnostics();
 // 뜨지 않는다. **창 종류를 가리지 않아야 하므로 shell 안이 아니라 부팅 지점에 둔다** —
 // 별창·오버레이 창·지휘통제실 창·내부 앱 창에도 입력칸이 있다(InspectorOverlay 와 같은 이유).
 installPersistFlushBridge();
+
+// §3.7 v2.10 — **타이틀바를 잡으면 창이 움직인다**를 창이 돌아올 때마다 다시 못 박는다.
+//
+// OS 가 아는 드래그 영역은 렌더러가 신고한 목록인데, Chromium 은 그 목록이 **달라졌을 때만**
+// 보낸다. 창이 숨었다 돌아오는 사이 그 신고를 한 번 놓치면 헤더는 정적이라 다시 신고할 계기가
+// 영영 오지 않아, CSS 는 `app-drag` 그대로인데 OS 만 모르는 상태로 굳는다(사용자 보고 —
+// "최소화하거나 앱이 새로 켜지면 간헐적으로 잡고 못 옮긴다"). 까닭과 규약은 `dragRegionRefresh`.
+//
+// 위 둘과 같은 이유로 **부팅 지점**에 둔다 — 타이틀바를 가진 창이 메인 하나가 아니다(별창 미니
+// 타이틀바·지휘통제실·오버레이 위젯·내부 앱 셸이 전부 `.app-drag` 를 쓴다).
+installDragRegionKeepalive();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
@@ -89,6 +102,9 @@ createRoot(rootElement).render(
         (로그인 창·IDE 별창·내부 앱 창 …) 리눅스에서는 shell.openExternal 이 실패해도 resolve 해
         renderer 가 스스로는 알 수 없다 — main 이 알려 준다. 위 둘과 같은 이유로 부팅 지점에 둔다. */}
     <ExternalOpenNotice />
+    {/* §6 — 단축키 판(`Ctrl+/`)과 "이건 키로도 됩니다" 알림. 위 셋과 같은 이유로 부팅 지점에 둔다
+        — 어느 창에서든 물어볼 수 있어야 하고, shell 안에 두면 별창에서는 답이 없다. */}
+    <ShortcutsHost />
     {detached ? (
       <DetachedShell kind={detached.kind} tabKey={detached.tabKey} />
     ) : overlay ? (

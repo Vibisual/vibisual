@@ -43,11 +43,16 @@ import {
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
+import { ProviderTabs } from '../Engine/ProviderTabs.js';
+import { ProviderDefaults, ProjectProviderDefaults } from './ProviderDefaults.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
+// §6 — 단축키 설정(목록은 `COMMANDS` 표에서 자동 생성).
+import { KeyboardTab } from './KeyboardTab.js';
 import { BgTaskProbeSection } from './BgTaskProbeSection.js';
 import { SessionProbeSection } from './SessionProbeSection.js';
-import { BrainSettingsTab } from '../Panel/BrainActivationPanel.js';
+import { ExternalFolderSection } from './ExternalFolderSection.js';
+import { TokenSaverSection } from './TokenSaverSection.js';
 import { NumberStepper } from './NumberStepper.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
@@ -62,7 +67,7 @@ const MAX_TURNS_STEP = 10;
 const BUDGET_USD_STEP = 1;
 const BASH_TIMEOUT_STEP_SEC = 10;
 
-type CategoryKey = 'account' | 'agent' | 'appearance' | 'brain' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
+export type CategoryKey = 'account' | 'project' | 'agent' | 'appearance' | 'keyboard' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
@@ -87,9 +92,11 @@ const bashMsToSec = (ms: number | undefined): number => (typeof ms === 'number' 
 interface OptionsWindowProps {
   open: boolean;
   onClose: () => void;
+  /** §5.10 (O) — 열릴 때 먼저 보일 카테고리. 다른 화면(기억 정리 칸)이 특정 탭으로 곧장 들어올 때 쓴다. */
+  initialCategory?: CategoryKey;
 }
 
-export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.Element | null {
+export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const userDefaults = useGraphStore((s) => s.userDefaults);
   // §4 — Apply 응답을 그 자리에서 스토어에 앉힌다. WS 를 기다리면 그 사이에 배치 타이머가
@@ -101,15 +108,23 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const uiLocale = useGraphStore((s) => s.uiLocale);
   const setUiLocale = useGraphStore((s) => s.setUiLocale);
 
-  const [category, setCategory] = useState<CategoryKey>('agent');
+  const [category, setCategory] = useState<CategoryKey>(initialCategory ?? 'agent');
+  // 열릴 때마다 지정된 탭으로 — 닫혔다 다른 문으로 다시 열리면 그 문이 가리키는 탭이 먼저 보여야 한다.
+  useEffect(() => {
+    if (open && initialCategory) setCategory(initialCategory);
+  }, [open, initialCategory]);
 
+  const mainEngine = userDefaults?.engineChoice?.kind ?? 'claude';
+  const [settingsEngine, setSettingsEngine] = useState(mainEngine);
+  useEffect(() => { if (open) setSettingsEngine(mainEngine); }, [open, mainEngine]);
+  const claudeDefaults = mainEngine === 'claude' ? userDefaults?.agentConfig : userDefaults?.engineConfigs?.claude;
   // Agent Defaults 폼 state — 초기값은 userDefaults.agentConfig 위에 DEFAULT_AGENT_CONFIG 깔기
   const baseAgent: AgentConfig = useMemo(() => ({
     ...DEFAULT_AGENT_CONFIG,
-    ...(userDefaults?.agentConfig ?? {}),
-    tools: userDefaults?.agentConfig?.tools ?? [...DEFAULT_AGENT_CONFIG.tools],
-    skills: userDefaults?.agentConfig?.skills ?? [...DEFAULT_AGENT_CONFIG.skills],
-  }), [userDefaults]);
+    ...(claudeDefaults ?? {}),
+    tools: claudeDefaults?.tools ?? [...DEFAULT_AGENT_CONFIG.tools],
+    skills: claudeDefaults?.skills ?? [...DEFAULT_AGENT_CONFIG.skills],
+  }), [claudeDefaults]);
 
   const [model, setModel] = useState(baseAgent.model);
   const [modelVersion, setModelVersion] = useState<string | undefined>(baseAgent.modelVersion);
@@ -155,10 +170,14 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [saveError, setSaveError] = useState(false);
   // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
   //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
+  const [providerDirty, setProviderDirty] = useState(false);
   const [storageDirty, setStorageDirty] = useState(false);
   // §5.5 #17-9 ⑭(g) — Advanced 탭의 판정 설정도 같은 이유로 자기 dirty 를 위로 올린다.
   const [bgProbeDirty, setBgProbeDirty] = useState(false);
   const [sessionProbeDirty, setSessionProbeDirty] = useState(false);
+  const [tokenSaverDirty, setTokenSaverDirty] = useState(false);
+  // §2.1 (B) — 외부 폴더 예산도 같은 문법(머신 단위 설정 · 자기 REST · 미저장만 창에 올림).
+  const [externalBudgetDirty, setExternalBudgetDirty] = useState(false);
   // §4 — 저장 없이 나가려 할 때 뜨는 우리 디자인 확인 팝업(종전 `window.confirm` 대체).
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
@@ -248,9 +267,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
    * 그랬다 — `window.confirm` 은 Cancel 버튼에만 걸려 있었다).
    */
   const requestClose = useCallback(() => {
-    if (dirty || storageDirty || bgProbeDirty || sessionProbeDirty) { setConfirmDiscardOpen(true); return; }
+    if (dirty || providerDirty || storageDirty || bgProbeDirty || sessionProbeDirty || externalBudgetDirty || tokenSaverDirty) { setConfirmDiscardOpen(true); return; }
     onClose();
-  }, [dirty, storageDirty, bgProbeDirty, sessionProbeDirty, onClose]);
+  }, [dirty, providerDirty, storageDirty, bgProbeDirty, sessionProbeDirty, externalBudgetDirty, tokenSaverDirty, onClose]);
 
   const handleKeepEditing = useCallback(() => setConfirmDiscardOpen(false), []);
 
@@ -408,7 +427,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           disallowedTools: disallowedTools.length > 0 ? disallowedTools : null,
           rules: rules.trim() || null,
           color: color || null,
-          skills: [...(userDefaults?.agentConfig?.skills ?? DEFAULT_AGENT_CONFIG.skills)],
+          skills: [...(claudeDefaults?.skills ?? DEFAULT_AGENT_CONFIG.skills)],
           fallbackModel: fallbackModel.trim() || null,
           autoCompact: autoCompact.trim() || null,
           agentCanCompact: agentCanCompact ? true : null,
@@ -429,6 +448,12 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
         advanced: { ...(userDefaults?.advanced ?? {}), terminalScrollbackLines: clampTerminalScrollback(terminalScrollback) },
         notifications: { ...(userDefaults?.notifications ?? {}), cmdBlocked: cmdBlockedNotify },
       };
+      const claudeConfig = { ...claudeDefaults } as Record<string, unknown>;
+      for (const [key, value] of Object.entries(patch.agentConfig ?? {})) {
+        if (value === null) delete claudeConfig[key]; else claudeConfig[key] = value;
+      }
+      patch.engineConfigs = { claude: claudeConfig };
+      delete patch.agentConfig;
       const res = await fetch(`${API_BASE}/api/user-defaults`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -445,11 +470,12 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { setSaveError(true); }
     finally { setSaving(false); }
-  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
+  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify, claudeDefaults]);
 
   if (!open) return null;
 
   const categories: { key: CategoryKey; label: string; icon: React.JSX.Element }[] = [
+    { key: 'project', label: t('providers.project'), icon: <span>▣</span> },
     // §4 v4.82 — Account. 로그인 계정 확인 + 로그아웃이 여기 있다(File > Options > Account).
     { key: 'account', label: t('panel.options.categories.account', { defaultValue: 'Account' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -460,10 +486,16 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     { key: 'appearance', label: t('panel.options.categories.appearance', { defaultValue: 'Appearance' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>
     ) },
-    // §5.10 (H) — 프로젝트 두뇌 켜고 끄기. **꺼져 있을 때도 보이는 자리**여야 한다
-    //   (게이트 ③ 이 Brain 버블을 지우므로 두뇌 안에 두면 켤 방법이 사라진다).
-    { key: 'brain', label: t('panel.options.categories.brain', { defaultValue: 'Project Brain' }), icon: (
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 1 2.2A3 3 0 0 0 9 19h6a3 3 0 0 0 2-5.8A3 3 0 0 0 18 11a3 3 0 0 0-3-3 3 3 0 0 0-3-3Z"/><path d="M12 5v14"/></svg>
+    /*
+     * §5.10 — **`brain`(Project Brain) 탭은 걷었다.**
+     *
+     * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐고, 그 자리를 대신하는 자동 목표는
+     * **자기 화면 안에서 켜고 끈다**(IDE `목표` 뷰). 설정 창에 스위치를 한 번 더 두면 켜는 자리가
+     * 둘이 되어 "뷰에서 켰는데 왜 안 도는지"를 찾을 길이 없어진다(#17-44 ⑧(d) 의 그 결론).
+     */
+    // §6 — 단축키. 목록은 `COMMANDS` 표에서 나오므로 손으로 적을 것이 없다.
+    { key: 'keyboard', label: t('panel.options.categories.keyboard', { defaultValue: 'Keyboard' }), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
     ) },
     // §3.2.3 — 보존 설정 + 저장소 사용량. "몰래 지우지 않는다"를 성립시키는 자리.
     { key: 'storage', label: t('panel.options.categories.storage', { defaultValue: 'Storage' }), icon: (
@@ -509,6 +541,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               <button
                 key={c.key}
                 type="button"
+                disabled={providerDirty && category !== c.key}
                 onClick={() => setCategory(c.key)}
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
                   category === c.key
@@ -524,7 +557,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
           {/* Right pane */}
           <div className="flex-1 overflow-y-auto p-5">
-            {category === 'agent' && (
+            {category === 'agent' && <ProviderTabs value={settingsEngine} onChange={setSettingsEngine} disabled={dirty || providerDirty} />}
+            {category === 'agent' && settingsEngine !== 'claude' && <ProviderDefaults key={settingsEngine} engine={settingsEngine} onDirtyChange={setProviderDirty} />}
+            {category === 'project' && <ProjectProviderDefaults onDirtyChange={setProviderDirty} />}
+            {category === 'agent' && settingsEngine === 'claude' && (
               <div className="flex flex-col gap-4">
                 <div className="border-b border-gray-700/50 pb-2">
                   <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.categories.agent', { defaultValue: 'Agent Defaults' })}</h4>
@@ -970,10 +1006,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
             {category === 'account' && <AccountTab />}
 
+            {category === 'keyboard' && <KeyboardTab />}
             {category === 'storage' && <StorageTab onDirtyChange={setStorageDirty} />}
 
-            {/* §5.10 (H) — 즉시 반영이라 Apply/dirty 대상이 아니다(§5.11 플러그인 창과 같은 문법). */}
-            {category === 'brain' && <BrainSettingsTab />}
 
             {category === 'version' && (
               <VersionTab
@@ -1008,6 +1043,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   </p>
                 </div>
 
+                {/* §5.3 #9-1 — 토큰 절약(J~P). 아래 손잡이들과 같은 문법(머신 단위 설정 · 자기 REST ·
+                    미저장만 창에 올림)이고, **효과가 가장 큰 축이라 맨 위**에 둔다. */}
+                <TokenSaverSection onDirtyChange={setTokenSaverDirty} />
+
                 {/* §5.5 #17-9 ⑭(g) — 조용한 백그라운드 작업의 자동 판정. 머신 단위 설정이라
                     Storage 탭과 같은 문법으로 자기 REST 를 직접 읽고 쓰고, 미저장만 창에 올린다. */}
                 <BgTaskProbeSection onDirtyChange={setBgProbeDirty} />
@@ -1015,6 +1054,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                 {/* §2.4 — "실행중…" 으로 굳은 세션의 자동 판정. 바로 위와 같은 문법(머신 단위
                     설정 · 자기 REST · 미저장만 창에 올림)이라 두 손잡이가 나란히 읽힌다. */}
                 <SessionProbeSection onDirtyChange={setSessionProbeDirty} />
+
+                {/* §2.1 (B) — 프로젝트 밖 폴더가 캔버스에 몇 개까지 펼쳐지는가.
+                    위 둘과 같은 문법이라 세 손잡이가 나란히 읽힌다. */}
+                <ExternalFolderSection onDirtyChange={setExternalBudgetDirty} />
               </div>
             )}
 
@@ -1040,7 +1083,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               </div>
             )}
 
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'storage' && category !== 'brain' && category !== 'advanced' && category !== 'notifications' && (
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>

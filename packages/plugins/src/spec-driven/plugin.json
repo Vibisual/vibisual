@@ -11,9 +11,7 @@
   ],
   "clientOnly": false,
   "needs": [
-    "agentEvents",
-    "agentReviews",
-    "subAgents"
+    "pluginFacts"
   ],
   "hostApi": 1
 }

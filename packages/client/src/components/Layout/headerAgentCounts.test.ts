@@ -35,7 +35,12 @@ function agent(id: string, patch: Partial<BubbleData> = {}): BubbleData {
   };
 }
 
-function sub(id: string, parentAgentId: string, status: SubAgent['status'] = 'idle'): SubAgent {
+function sub(
+  id: string,
+  parentAgentId: string,
+  status: SubAgent['status'] = 'idle',
+  patch: Partial<SubAgent> = {},
+): SubAgent {
   return {
     id,
     sessionId: `sess-${id}`,
@@ -44,8 +49,17 @@ function sub(id: string, parentAgentId: string, status: SubAgent['status'] = 'id
     status,
     createdAt: 0,
     lastActivityAt: 0,
+    ...patch,
   };
 }
+
+/** §2.4 (한도 정지) — 서버가 세워 둔 표식 한 벌(실측 원문 그대로). */
+const LIMIT: SubAgent['usageLimit'] = {
+  kind: 'session',
+  at: 1,
+  message: "You've hit your session limit · resets 10pm (Asia/Seoul)",
+  resetsLabel: '10pm (Asia/Seoul)',
+};
 
 function cmd(id: string, subAgentId: string | null, status: QueuedCommand['status']): QueuedCommand {
   return { id, text: 'x', timestamp: 0, subAgentId, status };
@@ -110,7 +124,7 @@ describe('computeHeaderAgentCounts — 세션 축 실행 집계', () => {
       agentProjects: { a1: PROJECT },
       subAgents: { a1: subs },
     }));
-    expect(counts).toEqual({ agents: 1, sessions: 12, running: 5, completed: 0 });
+    expect(counts).toEqual({ agents: 1, sessions: 12, running: 5, completed: 0, limited: 0 });
   });
 
   it('세션이 없는 버블(훅 에이전트)은 자기 자신이 한 단위다', () => {
@@ -118,7 +132,7 @@ describe('computeHeaderAgentCounts — 세션 축 실행 집계', () => {
       agents: [agent('h1', { status: 'active', customCreated: false })],
       agentProjects: { h1: PROJECT },
     }));
-    expect(counts).toEqual({ agents: 1, sessions: 1, running: 1, completed: 0 });
+    expect(counts).toEqual({ agents: 1, sessions: 1, running: 1, completed: 0, limited: 0 });
   });
 
   it('세션은 조용한데 버블만 active 면 1 로 친다 — 권한 대기·자식 Task 대기', () => {
@@ -180,12 +194,17 @@ describe('computeHeaderAgentCounts — 세션 축 실행 집계', () => {
 });
 
 describe('resolveHeaderAgentCounts — 서버 집계 우선', () => {
-  const served: ProjectAgentCounts = { total: 3, active: 1, completed: 0, sessions: 24, running: 5 };
+  const served: ProjectAgentCounts = { total: 3, active: 1, completed: 0, sessions: 24, running: 5, limited: 0 };
 
   it('서버가 준 집계가 있으면 그것을 쓴다(배경 탭도 숫자가 살아 있다)', () => {
     expect(resolveHeaderAgentCounts(served, sources())).toEqual({
-      agents: 3, sessions: 24, running: 5, completed: 0,
+      agents: 3, sessions: 24, running: 5, completed: 0, limited: 0,
     });
+  });
+
+  it('한도 축이 없는 옛 집계는 "멈춘 것이 없다"로 읽는다(에러 ❌ · §3.2.1-5)', () => {
+    const old = { total: 3, active: 1, completed: 0, sessions: 24, running: 5 } as ProjectAgentCounts;
+    expect(resolveHeaderAgentCounts(old, sources()).limited).toBe(0);
   });
 
   it('세션 축이 없는 옛 집계는 절반만 믿지 않고 통째로 직접 센다', () => {
@@ -195,7 +214,7 @@ describe('resolveHeaderAgentCounts — 서버 집계 우선', () => {
       agentProjects: { a1: PROJECT },
       subAgents: { a1: [sub('s0', 'a1', 'active'), sub('s1', 'a1', 'active')] },
     }));
-    expect(counts).toEqual({ agents: 1, sessions: 2, running: 2, completed: 0 });
+    expect(counts).toEqual({ agents: 1, sessions: 2, running: 2, completed: 0, limited: 0 });
   });
 
   it('집계가 아예 없으면 직접 센다', () => {
@@ -281,6 +300,48 @@ describe('resolveAgentRunSummary — 목록 한 줄의 실행 상태', () => {
       .toMatchObject({ sessions: 1, running: 0 });
   });
 
+  // §2.4 (한도 정지) — 원증상: 한도로 멎은 세션이 초록 "끝남"으로 보였다(CLI 가 exit 0 이라).
+  it('한도로 끊긴 세션은 끝남이 아니라 멈춤이다 — 초록으로 내려가지 않는다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'idle', { usageLimit: LIMIT })] },
+    }));
+    expect(summary.state).toBe('limited');
+    expect(summary.limited).toBe(1);
+    expect(summary.limitLabel).toBe('10pm (Asia/Seoul)');
+    expect(summary.limitMessage).toContain('session limit');
+  });
+
+  it('무시하고 다시 돌린 세션이 있으면 파랑이 이긴다 — 사용자가 정한 우선순위', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: {
+        a1: [sub('s0', 'a1', 'idle', { usageLimit: LIMIT }), sub('s1', 'a1', 'active')],
+      },
+    }));
+    expect(summary.state).toBe('running');
+  });
+
+  it('한도가 실패보다 앞선다 — 사유가 더 구체적이라 그 줄이 무엇을 기다리는지 말해 준다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: {
+        a1: [sub('s0', 'a1', 'idle', { usageLimit: LIMIT }), sub('s1', 'a1', 'error')],
+      },
+    }));
+    expect(summary.state).toBe('limited');
+  });
+
+  it('배지 집계도 같은 규칙으로 센다 — 도는 세션의 옛 표식은 주황으로 세지 않는다', () => {
+    const agents = [agent('a1'), agent('a2')];
+    const agentProjects = { a1: PROJECT, a2: PROJECT };
+    const subAgents = {
+      a1: [sub('s0', 'a1', 'idle', { usageLimit: LIMIT })],
+      // 다시 돌아 active 인데 표식이 아직 남아 있는 한 프레임 — 파랑과 주황이 겹치면 안 된다.
+      a2: [sub('s1', 'a2', 'active', { usageLimit: LIMIT })],
+    };
+    const counts = computeHeaderAgentCounts(sources({ agents, agentProjects, subAgents }));
+    expect(counts.limited).toBe(1);
+    expect(counts.running).toBe(1);
+  });
+
   it('줄들의 합이 배지 숫자와 같다 — 목록과 배지가 다른 말을 하면 안 된다', () => {
     const agents = [
       agent('a1', { status: 'active' }),
@@ -300,5 +361,102 @@ describe('resolveAgentRunSummary — 목록 한 줄의 실행 상태', () => {
     const rows = agents.map((a) => resolveAgentRunSummary(a, runSources({ subAgents, queuedCommands })));
     expect(rows.reduce((n, r) => n + r.running, 0)).toBe(counts.running);
     expect(rows.reduce((n, r) => n + r.sessions, 0)).toBe(counts.sessions);
+  });
+});
+
+/**
+ * (판올림 번호 발급 대기) **색을 눌렀으면 그 색의 세션이 떠야 한다** — `focusSessionId`.
+ *
+ * 실제 사고 재현: 목록의 주황 줄을 눌러 창을 열어도 **마지막에 보던 세션**이 떴다. 색은
+ * "이 버블 어딘가에 멈춘 것이 있다"까지만 말하고, 어느 탭인지는 사용자가 다시 찾아야 했다.
+ */
+describe('resolveAgentRunSummary — 그 색이 가리키는 세션(focusSessionId)', () => {
+  it('파랑이면 도는 세션 중 가장 최근에 움직인 것', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: {
+        a1: [
+          sub('s-old', 'a1', 'active', { lastActivityAt: 10 }),
+          sub('s-quiet', 'a1', 'idle', { lastActivityAt: 999 }),
+          sub('s-new', 'a1', 'active', { lastActivityAt: 20 }),
+        ],
+      },
+    }));
+    expect(summary.state).toBe('running');
+    expect(summary.focusSessionId).toBe('s-new');
+  });
+
+  it('주황이면 멈춘 세션 중 가장 최근 — 조용한 세션은 짚지 않는다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: {
+        a1: [
+          sub('s-quiet', 'a1', 'idle', { lastActivityAt: 900 }),
+          sub('s-stop1', 'a1', 'idle', { lastActivityAt: 10, usageLimit: LIMIT }),
+          sub('s-stop2', 'a1', 'idle', { lastActivityAt: 30, usageLimit: LIMIT }),
+        ],
+      },
+    }));
+    expect(summary.state).toBe('limited');
+    expect(summary.focusSessionId).toBe('s-stop2');
+  });
+
+  it('빨강이면 실패한 세션 중 가장 최근', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: {
+        a1: [
+          sub('s-err1', 'a1', 'error', { lastActivityAt: 50 }),
+          sub('s-err2', 'a1', 'error', { lastActivityAt: 5 }),
+        ],
+      },
+    }));
+    expect(summary.state).toBe('error');
+    expect(summary.focusSessionId).toBe('s-err1');
+  });
+
+  it('초록이면 끝났는데 안 본 세션 중 가장 최근 — 이미 확인한 것은 짚지 않는다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: {
+        a1: [
+          sub('s-seen', 'a1', 'idle', { lastActivityAt: 900 }),
+          sub('s-unseen', 'a1', 'idle', { lastActivityAt: 7 }),
+        ],
+      },
+      acknowledged: { 's-seen': true as const },
+    }));
+    expect(summary.state).toBe('doneUnseen');
+    expect(summary.focusSessionId).toBe('s-unseen');
+  });
+
+  it('회색(조용함)은 짚지 않는다 — 그때 열 것은 마지막에 보던 세션이다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'idle'), sub('s1', 'a1', 'idle')] },
+      acknowledged: { s0: true as const, s1: true as const },
+    }));
+    expect(summary.state).toBe('done');
+    expect(summary.focusSessionId).toBeNull();
+  });
+
+  // 줄이 파란 근거는 `isSessionRunning` 인데 세션 도트는 `error` 를 먼저 본다 — 색표로만 맞추면
+  // 이 줄은 짚을 것을 못 찾아 조용한 세션으로 열린다.
+  it('실패 표식이 남은 채 명령이 도는 세션도 파랑의 근거라면 짚는다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'error', { lastActivityAt: 3 })] },
+      queuedCommands: { a1: [cmd('c1', 's0', 'executing')] },
+    }));
+    expect(summary.state).toBe('running');
+    expect(summary.focusSessionId).toBe('s0');
+  });
+
+  it('색이 버블에서만 왔으면 짚을 세션이 없다 — 권한 대기로 도는 버블', () => {
+    const summary = resolveAgentRunSummary(agent('a1', { status: 'awaiting_permission' }), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'idle')] },
+      acknowledged: { s0: true as const },
+    }));
+    expect(summary.state).toBe('running');
+    expect(summary.focusSessionId).toBeNull();
+  });
+
+  it('세션이 하나도 없는 버블도 짚을 것이 없다', () => {
+    expect(resolveAgentRunSummary(agent('a1', { status: 'error' }), runSources()).focusSessionId)
+      .toBeNull();
   });
 });

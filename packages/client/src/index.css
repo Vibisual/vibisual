@@ -46,12 +46,71 @@ html:lang(hi) {
 
 /* §3.7 v2.10 — 통합 타이틀바 드래그 영역. Electron `titleBarStyle: 'hidden'` +
  * `titleBarOverlay`(Windows) / 트래픽 라이트(Mac) 위에 React 헤더가 타이틀바 역할을 한다.
- * Header 루트는 `app-drag` 로 윈도우 드래그 가능, 안의 버튼/메뉴는 `app-nodrag` 로 클릭 가능. */
+ * Header 루트는 `app-drag` 로 윈도우 드래그 가능, 안의 버튼/메뉴는 `app-nodrag` 로 클릭 가능.
+ *
+ * **드래그 영역에서는 글자가 잡히면 안 된다 (판올림 번호 발급 대기).** 종전에는 이 블록에
+ * `-webkit-app-region` 두 줄뿐이라, 헤더의 로고("Vibisual")와 File 메뉴("파일") 글자가 그대로
+ * 선택 가능한 텍스트였다. 창을 옮기려고 그 자리를 잡아 끌면 OS 창 이동 대신 **글자 선택**이 되고,
+ * 한 번 선택이 남으면 그 위를 다시 잡는 손짓은 Chromium 이 **선택 텍스트의 드래그앤드롭**으로
+ * 읽어 버려 창 이동이 그 뒤로 통째로 막혔다(사용자 보고 — "글자 선택 모드로 빠지더니 그 후로
+ * 동작을 안 해"). 같은 성격의 다른 타이틀바(`TabBar` 탭 · `DetachedShell` 미니 타이틀바)는
+ * 저마다 `select-none` 을 달고 있었지만 **정작 메인 헤더 루트만 빠져 있었다** — 그래서 방어를
+ * 컴포넌트마다 흩뿌리지 않고 드래그 영역의 정의 자체에 못 박는다. 이 규칙 하나로 헤더뿐 아니라
+ * 앱 안 창 셸들(`Vibi3DShell`·`VibisoundShell`·`VideoStudioShell`)·지휘통제실·오버레이 창의
+ * 드래그 영역이 함께 덮인다. `-webkit-user-drag: none` 은 남은 한 갈래(요소 자체를 끌어 만드는
+ * 네이티브 DnD)를 막는다. **이 두 줄을 지우지 말 것 — 지우면 창이 안 움직이는 증상으로 돌아온다.** */
 .app-drag {
   -webkit-app-region: drag;
   app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+/* 다만 드래그 영역 **안의 입력칸**은 선택·캐럿이 살아야 한다 — 헤더 안에 실제로 하나 있다
+ * (`TabBar` 탭 이름 바꾸기 인라인 입력). 폼 컨트롤은 브라우저마다 상속 처리가 갈리므로
+ * 기대에 맡기지 않고 여기서 명시적으로 되돌린다. */
+.app-drag input,
+.app-drag textarea,
+.app-drag [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* 정적 로고 상자는 창 드래그 hit target 으로 남긴다.
+ * pointer-events:none 은 내부 장식에만 적용한다. 상자까지 제외하면
+ * 로고 자리의 hit target 이 바깥 레이아웃으로 넘어간다.
+ * .app-drag 와 함께 사용해 선택 방지와 드래그 영역 재신고도 적용한다. */
+.app-drag-label {
+  pointer-events: auto;
+}
+.app-drag-label * {
+  pointer-events: none;
 }
 .app-nodrag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* §5.4 #14-2 / §5.5 #16-1 (E) — **꾹 눌러 항목을 집어 든 동안.**
+ *
+ * 두 가지를 함께 막는다.
+ *
+ * ① **커서·선택** — 끄는 내내 손은 무언가를 쥐고 있으므로 커서가 그것을 말해야 하고, 지나는
+ *    자리의 글자가 선택되면 "쥐고 있다"는 감각이 끊긴다(#17-34 분할 손잡이가 이미 쓰는 수법을
+ *    클래스로 옮긴 것 — 그쪽은 `body.style` 을 직접 만진다).
+ *
+ * ② **창 이동 영역** — `-webkit-app-region: drag` 인 자리는 OS 캡션이라 손짓이 렌더러에 아예
+ *    도착하지 않는다. 탭을 헤더 쪽으로 가져가는 순간 `pointermove` 가 끊겨 고스트가 그 자리에
+ *    얼어붙고, 거기서 손을 떼면 `pointerup` 도 오지 않아 끌던 것이 화면에 그대로 남는다. 그래서
+ *    **끄는 동안만** 비켜 준다(항상 끄면 창을 못 옮긴다). 종전 네이티브 DnD 에는 이 문제가
+ *    없었다 — 그쪽은 OS 드래그 루프라 캡션과 무관했고, 포인터로 옮기면서 새로 생긴 자리다.
+ *    자손까지 일괄로 거는 것이 맞다(캡션 판정은 가장 안쪽 요소의 값으로 결정된다). */
+body.vib-pointer-drag {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+body.vib-pointer-drag .app-drag,
+body.vib-pointer-drag .app-drag * {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -126,6 +185,8 @@ html:lang(hi) {
   transition: none;
 }
 
+/* §5.1 #3-2 — 활성 신호는 이 링 두 겹이 전부다. 시작 불투명도 `0.4` 를 올리지 마라:
+ * 2026-09-09 에 0.62 로 올리고 광륜·궤도 아크를 얹었다가 사용자 지시로 되돌린 값이다. */
 @keyframes pulse-ring {
   0% {
     transform: scale(1);
@@ -349,6 +410,28 @@ html:lang(hi) {
   }
 }
 
+/* (판올림 번호 발급 대기) **눌러 들어간 세션의 여운** — 누른 색이 그 자리에서 10초간 뛴다.
+   [창과 버블] 목록에서 색을 눌러 들어가면 도착과 동시에 그 색이 걷혀(누름 = 확인) 무슨 색을
+   눌렀는지 알아볼 수 없던 것을 메운다(§5.5 #17-1). 1초 × 10회 = 사용자가 정한 10초이고,
+   횟수가 정해져 있어 **스스로 멎는다** — 상시 도는 애니메이션이 아니라 발열원이 아니다(§9).
+   크기까지 함께 줄었다 커지는 이유는 도트가 6px 이라 투명도만으로는 눈에 안 띄기 때문이다. */
+@keyframes session-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.18; transform: scale(0.7); }
+}
+
+@utility animate-session-glow {
+  animation: session-glow 1s ease-in-out 10;
+}
+
+/* 애니메이션을 줄여 달라고 한 사용자에게는 **뛰지 않는 색만** 남긴다 — 여운의 본체는 색이지
+   움직임이 아니라, 색이 10초 더 서 있는 것만으로 "방금 그걸 눌렀다"가 전해진다. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-session-glow {
+    animation: none;
+  }
+}
+
 /* §5.5 #17-27 ⑪ (h) — 방금 따라간 것을 말하는 **순간 알림**.
    상태바에 상주하던 칩·배지를 걷어낸 자리다 — 알아야 할 순간에만 떠올랐다 스스로 걷힌다.
    변형(transform)과 불투명도만 다루므로 컴포지터 친화적이고(§9), 한 번짜리라 발열원이 아니다. */
@@ -514,6 +597,24 @@ html:lang(hi) {
   background: rgba(148, 163, 184, 0.5);
 }
 
+/* 굴리는 동안에도 뜬다 — hover 와 짝이 되는 **두 번째 입구**.
+ * 스크롤바가 기본 숨김이라, 마우스를 올리지 않고 휠·터치·키보드로 굴리기만 한 사용자에게는
+ * "여기 더 있다"가 아무 데도 안 보인다. `useScrollReveal` 이 스크롤 중 이 속성을 켜고 손을 뗀 뒤
+ * 잠깐 있다가 끈다. 색은 hover 와 같은 값이라 어느 경로로 떠도 같은 모양이다.
+ *
+ * `data-hovering` 은 **세 번째 입구**다(§7.16 프리뷰). 상자 안이 다른 오리진 iframe 이면 마우스가
+ * 그 위로 들어가는 순간 이 문서는 아무 것도 받지 못해 `:hover` 가 서지 않는다 — 그 자리를 안에서
+ * 온 신고로 대신 채운다. 값이 같으므로 어느 입구로 떠도 모양은 하나다. */
+.scrollbar-thin[data-scrolling='true'],
+.scrollbar-thin[data-hovering='true'] {
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+.scrollbar-thin[data-scrolling='true']::-webkit-scrollbar-thumb,
+.scrollbar-thin[data-hovering='true']::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+}
+
 /* ─── 스크롤 페이드 — 물결 그라데이션 + 애니메이션 ─── */
 
 .scroll-fade {
@@ -585,6 +686,13 @@ html:lang(hi) {
 /* 가로 스크롤바 — .scrollbar-thin 의 가로 보강 (높이만 추가) */
 .scrollbar-thin::-webkit-scrollbar:horizontal {
   height: 5px;
+}
+
+/* 트랙 여백은 **구르는 축**으로 준다. 세로용 `margin: 4px 0` 이 가로 트랙에 그대로 걸리면
+ * 5px 짜리 트랙이 위아래로 눌려 썸이 그려질 자리가 남지 않는다(끝을 4px 씩 비우려던 여백이
+ * 가로에서는 스크롤바를 지우는 값이 된다). */
+.scrollbar-thin::-webkit-scrollbar-track:horizontal {
+  margin: 0 4px;
 }
 
 /* 네이티브 스크롤바 완전 제거 (오버레이 썸을 별도 DOM 으로 그릴 때) */
@@ -926,12 +1034,23 @@ html.overlay-window #root {
 /* §5.5 #17-6 v2.73 — 오버레이 창 내 클릭/드래그 영역 분리.
  * 빈 캔버스(.react-flow__pane)를 잡으면 OS 창 이동(-webkit-app-region: drag),
  * 버블 노드(.react-flow__node)는 no-drag 라 클릭/더블클릭/드래그(노드 물리)가 그대로 동작.
- * app-drag 컨테이너로 감싸면 마우스 이벤트가 OS 로 가로채여 버블이 안 눌리는 문제를 이 분리로 해결. */
-html.overlay-window .react-flow__pane {
+ * app-drag 컨테이너로 감싸면 마우스 이벤트가 OS 로 가로채여 버블이 안 눌리는 문제를 이 분리로 해결.
+ *
+ * ⚠ (판올림 번호 발급 대기) **이 규칙은 접힌 버블 캔버스 하나만의 것이다** — `.overlay-window` 만으로
+ * 받으면 그 창 안의 **모든** React Flow 가 OS 캡션이 된다. 그 창은 펼치면 `AgentIDEOverlay`(fullWindow)
+ * 가 통째로 채우고 접힌 버블 캔버스는 아예 렌더되지 않으므로, 펼친 동안 이 규칙이 실제로 잡는 것은
+ * **무대(§5.5 #17-17 ⑭)의 지도 캔버스뿐**이었다. 캡션 위에서는 손짓이 렌더러에 도착하지 않아(위
+ * `body.vib-pointer-drag` 주석 ②) 빈 자리를 끌면 지도가 밀리는 대신 **창이 통째로 따라왔고**,
+ * ⑭(e) 가 약속한 "팬은 왼쪽·가운데 버튼, 확대는 휠"이 독립 창에서만 통째로 죽었다(사용자 보고).
+ * 그래서 앞에 `.overlay-bubble-canvas`(`OverlayShell` 의 접힌 버블 컨테이너)를 세워 **그 캔버스에만**
+ * 건다. 앞으로 이 창 안에 어떤 캔버스가 더 서든 이 규칙에 걸리지 않는다. */
+html.overlay-window .overlay-bubble-canvas .react-flow__pane {
   -webkit-app-region: drag;
+  app-region: drag;
 }
-html.overlay-window .react-flow__node {
+html.overlay-window .overlay-bubble-canvas .react-flow__node {
   -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 /* §5.5 #17 대화 인-페이지 검색(Ctrl+F) — 찾은 텍스트 하이라이트 두 벌.
@@ -960,4 +1079,34 @@ html.overlay-window .react-flow__node {
     linear-gradient(45deg, rgb(55 65 81 / 0.55) 25%, transparent 25%, transparent 75%, rgb(55 65 81 / 0.55) 75%);
   background-position: 0 0, 8px 8px;
   background-size: 16px 16px;
+}
+
+/* §5.5 #17-6 (H-16) — 밖에 나가 있는 IDE 창을 앱 안 버블 더블클릭으로 **불렀을 때의 대답**.
+ *
+ * 그 창은 상시-위라 이미 보이고 있는 경우가 많다 — 그때 앞으로 세우기만 하면 화면이 그대로여서
+ * "내 더블클릭이 저 창에 닿았다" 가 어디에도 나타나지 않는다(누른 사람은 안 먹은 줄 안다).
+ * 그래서 창 가장자리를 한 번 두르고 안쪽을 아주 옅게 씻어 내린다 — 눌린 자리가 되밀리는 느낌이라
+ * "이 창이 방금 클릭됐다" 로 읽힌다. 0.5초 안에 끝나고, 클릭통과라 그리는 동안에도 창은 그대로 쓴다.
+ * transform/opacity 만 움직이므로 컴포지터가 처리한다(§9 — 메인스레드 부하 없음). */
+@keyframes overlay-attention {
+  0% {
+    opacity: 0;
+    transform: scale(1.014);
+  }
+  16% {
+    opacity: 1;
+    transform: scale(0.997);
+  }
+  46% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+@utility animate-overlay-attention {
+  animation: overlay-attention 0.46s cubic-bezier(0.22, 1, 0.36, 1);
 }

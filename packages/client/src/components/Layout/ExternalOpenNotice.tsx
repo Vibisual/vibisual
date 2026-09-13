@@ -58,14 +58,21 @@ export function ExternalOpenNotice(): React.ReactElement | null {
 
   if (!failure) return null;
 
+  // `blocked-scheme` 은 "못 열었다"가 아니라 **일부러 안 열었다**이다(§보안 감사 2026-09-09) —
+  // 브라우저로 넘길 수 없는 스킴(`file:`·`ms-msdt:` 등)은 OS 프로그램을 여는 문이 되므로
+  // 아예 시도하지 않는다. 그래도 주소는 [복사] 로 손에 쥐여 주는 규약은 그대로다.
   const message =
     failure.reason === 'no-browser'
       ? t('common.externalOpen.noBrowser', {
           defaultValue: '브라우저를 찾지 못했습니다 — 링크를 복사해 여세요',
         })
-      : t('common.externalOpen.openFailed', {
-          defaultValue: '링크를 열지 못했습니다 — 링크를 복사해 여세요',
-        });
+      : failure.reason === 'blocked-scheme'
+        ? t('common.externalOpen.blockedScheme', {
+            defaultValue: '브라우저로 열 수 있는 주소가 아니라 열지 않았습니다 — 필요하면 복사해 확인하세요',
+          })
+        : t('common.externalOpen.openFailed', {
+            defaultValue: '링크를 열지 못했습니다 — 링크를 복사해 여세요',
+          });
 
   return createPortal(
     <div

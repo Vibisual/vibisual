@@ -8,6 +8,7 @@
  *    세션이 다르면 다르다. 하드코딩된 것은 "무엇을 끌 수 있는가"의 어휘(`CONTEXT_SOURCE_IDS`)뿐이다.
  *  · **여기가 최종** — 다른 화면(플러그인 창·에이전트 설정)에서 켜져 있어도 여기서 끄면 안 실린다.
  *    판정은 `resolveContextEnabled` 한 곳에서만 하고, 서버(주입)와 클라(표시)가 그것을 함께 쓴다.
+ *    층은 셋 — 프로젝트 전체 > 이 에이전트 버블 > 이 세션 탭 순으로 좁아지고, **좁은 쪽이 이긴다**.
  *  · **못 끄는 것은 못 끈다고 말한다** — Claude Code 내부 프롬프트처럼 손댈 수 없는 줄은 계측만 하고
  *    토글을 잠근다. 끌 수 있는 척하면 사용자는 껐다고 믿는데 프롬프트에는 계속 실린다.
  *
@@ -23,14 +24,18 @@ import type {
   ContextOverrides,
   ContextSourceChild,
   ContextSourceItem,
+  ContextScopeLevel,
 } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
+  CONTEXT_SCOPE_LEVELS,
   CONTEXT_SOURCE_IDS,
   CONTEXT_SPAWN_SWITCHES,
   GIT_STATUS_ESTIMATE,
   SYSTEM_PROMPT_ESTIMATE,
   TOOL_SCHEMA_ESTIMATE,
+  contextOverrideAt,
+  contextScopeStates,
   estimateTokens,
   resolveContextEnabled,
 } from '@vibisual/shared';
@@ -292,17 +297,20 @@ const PART_LABEL_KEYS: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.cardQuestion]: 'ide.context.src.cardQuestion',
   [CONTEXT_SOURCE_IDS.cardReview]: 'ide.context.src.cardReview',
   [CONTEXT_SOURCE_IDS.goal]: 'ide.context.src.goal',
-  [CONTEXT_SOURCE_IDS.brainCards]: 'ide.context.src.brainCards',
-  [CONTEXT_SOURCE_IDS.brainTopics]: 'ide.context.src.brainTopics',
-  [CONTEXT_SOURCE_IDS.brainRules]: 'ide.context.src.brainRules',
+  [CONTEXT_SOURCE_IDS.autoGoalSkills]: 'ide.context.src.autoGoalSkills',
   [CONTEXT_SOURCE_IDS.hookEnforcement]: 'ide.context.src.hookEnforcement',
   [CONTEXT_SOURCE_IDS.plugins]: 'ide.context.src.plugins',
 };
 
-/** 우리 조립 블록의 분류 — 대부분 `vibisual` 이지만 기억·플러그인은 제 분류로 간다. */
+/**
+ * 우리 조립 블록의 분류 — 대부분 `vibisual` 이지만 플러그인은 제 분류로 간다.
+ *
+ * §5.10 — 자동 목표 줄은 `vibisual` 이다. 폐기된 브레인 네 줄은 `memory` 로 갔었지만,
+ * 그것은 **남의 저장고**(디스크의 카드 더미)를 읽어 오는 줄이었기 때문이다. 자동 목표 줄은
+ * 우리가 그 자리에서 조립해 넣는 색인이라 나머지 조립 블록과 같은 칸에 서는 것이 맞다.
+ */
 function partCategory(id: string): ContextSourceItem['category'] {
   if (id.startsWith('plugin:') || id === CONTEXT_SOURCE_IDS.plugins) return 'plugins';
-  if (id.startsWith('vibisual.brain')) return 'memory';
   return 'vibisual';
 }
 
@@ -328,15 +336,35 @@ function sumChildren(children: ContextSourceChild[]): { chars: number; tokens: n
 export function buildContextInventory(input: InventoryInput): ContextInventory {
   const home = input.home ?? os.homedir();
   const items: ContextSourceItem[] = [];
-  const scopeKeys = { projectKey: input.projectKey, subAgentId: input.subAgentId };
+  // 세 층의 키를 모두 넘긴다 — 프로젝트 전체 · 이 에이전트 버블 · 이 세션 탭.
+  //   없는 키(세션 탭을 안 열었을 때의 `subAgentId`)는 그 층을 건너뛴다는 뜻이라 그대로 둔다.
+  const scopeKeys = { projectKey: input.projectKey, agentId: input.agentId, subAgentId: input.subAgentId };
 
-  /** 오버라이드까지 얹어 한 줄을 완성한다 — 최종 판정은 여기 한 곳뿐이다. */
-  const push = (item: Omit<ContextSourceItem, 'enabled' | 'overrideScope'>): void => {
+  /**
+   * 오버라이드까지 얹어 한 줄을 완성한다 — 최종 판정은 여기 한 곳뿐이다.
+   *
+   * `enabled` 는 **실제로 프롬프트에 실리는 값**(세션>에이전트>프로젝트>기본)이고, 화면이 고른 층의
+   * 스위치를 그릴 값은 `scopeStates` 에 층마다 따로 담는다. 둘을 하나로 합쳐 두면 아래층에 명시값이
+   * 걸린 줄은 위층에서 아무리 눌러도 스위치가 안 움직인다 — 그것이 종전의 "동작을 안 한다"였다.
+   */
+  const push = (item: Omit<ContextSourceItem, 'enabled' | 'overrideScope' | 'scopeStates' | 'scopeOverrides'>): void => {
     const resolved = resolveContextEnabled(input.overrides, scopeKeys, item.id, item.defaultEnabled);
+    // 못 끄는 줄(`none`)은 오버라이드를 아예 태우지 않는다 — 끌 수 있는 척하지 않는다(③).
+    if (item.control === 'none') {
+      items.push({ ...item, enabled: item.defaultEnabled });
+      return;
+    }
+    const scopeOverrides: Partial<Record<ContextScopeLevel, boolean>> = {};
+    for (const lv of CONTEXT_SCOPE_LEVELS) {
+      const v = contextOverrideAt(input.overrides, scopeKeys, item.id, lv);
+      if (typeof v === 'boolean') scopeOverrides[lv] = v;
+    }
     items.push({
       ...item,
-      enabled: item.control === 'none' ? item.defaultEnabled : resolved.enabled,
-      ...(item.control !== 'none' && resolved.scope ? { overrideScope: resolved.scope } : {}),
+      enabled: resolved.enabled,
+      ...(resolved.scope ? { overrideScope: resolved.scope } : {}),
+      scopeStates: contextScopeStates(input.overrides, scopeKeys, item.id, item.defaultEnabled),
+      ...(Object.keys(scopeOverrides).length > 0 ? { scopeOverrides } : {}),
     });
   };
 
@@ -624,7 +652,7 @@ export function readContextSourceFile(
  */
 export function isContextSourceOn(
   overrides: ContextOverrides | undefined,
-  scope: { projectKey?: string | null; subAgentId?: string | null },
+  scope: { projectKey?: string | null; agentId?: string | null; subAgentId?: string | null },
   sourceId: string,
   defaultEnabled = true,
 ): boolean {
@@ -639,7 +667,7 @@ export function isContextSourceOn(
  */
 export function buildSpawnContextSwitches(
   overrides: ContextOverrides | undefined,
-  scope: { projectKey?: string | null; subAgentId?: string | null },
+  scope: { projectKey?: string | null; agentId?: string | null; subAgentId?: string | null },
 ): { args: string[]; env: Record<string, string> } {
   const args: string[] = [];
   const env: Record<string, string> = {};

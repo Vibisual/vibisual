@@ -11,8 +11,8 @@
  * 한쪽은 "다름", 다른 쪽은 "같음"이라 답하는 날이 온다.
  */
 
-import type { AgentConfig, AgentDefinition, UserDefaults } from './types.js';
-import { AGENT_TOOLS_BACKFILL_GEN, DEFAULT_AGENT_CONFIG, backfillAgentTools, buildAgentsFlagJson } from './constants.js';
+import type { AgentConfig, AgentDefinition, AgentEngineKind, UserDefaults } from './types.js';
+import { AGENT_TOOLS_BACKFILL_GEN, DEFAULT_AGENT_CONFIG, backfillAgentTools, buildAgentsFlagJson, engineForProvider, providerForEngine } from './constants.js';
 
 /**
  * 비교에서 빼는 축 — **버블마다 다른 게 정상**인 정체성과, 이 창이 만지지 않는 통과용 필드.
@@ -85,6 +85,13 @@ export const AGENT_CONFIG_COMPARED_FIELDS = [
   'pluginDirs',
   'bashDefaultTimeoutMs',
   'bashMaxTimeoutMs',
+  // §5.3 #9-1 (J~M) — 이 에이전트만의 토큰 절약. 전부 0 = 전역을 따름이라 기본값과 같으면 표식이 없다.
+  'bashMaxOutputChars',
+  'mcpMaxOutputTokens',
+  'maxOutputTokens',
+  'maxThinkingTokens',
+  'autoCompactPct',
+  'disableNonEssentialModelCalls',
   'skills',
 ] as const;
 
@@ -98,7 +105,7 @@ export type AgentConfigComparedField = (typeof AGENT_CONFIG_COMPARED_FIELDS)[num
 export const AGENT_MAX_TURNS_UI_FALLBACK = 3000;
 
 /** 전역 기본값이 정하지 못하는(= 그 창에 칸이 없는) 축은 내장 기본이 곧 기본값이다. */
-type AgentDefaultsSource = Pick<UserDefaults, 'agentConfig'> | null | undefined;
+type AgentDefaultsSource = Pick<UserDefaults, 'agentConfig' | 'engineChoice' | 'engineConfigs' | 'projectEngineConfigs'> | null | undefined;
 
 /**
  * 그 시점의 **기본값 한 벌**(= 3층 중 아래 두 층). `DEFAULT_AGENT_CONFIG` 위에 설정 창이 저장한
@@ -112,13 +119,20 @@ type AgentDefaultsSource = Pick<UserDefaults, 'agentConfig'> | null | undefined;
  * 현행 세대 도장이 이미 찍혀 있어 백필이 "이미 돌았다"고 판단한다. 그래서 판올림 전에 저장된
  * 11종짜리 프리셋이 48종 목록을 가리고도 아무 검사에 걸리지 않았다(실측).
  */
-export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource): AgentConfig {
+export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource, engine?: AgentEngineKind, projectPath?: string | null): AgentConfig {
   const merged: AgentConfig = {
     ...DEFAULT_AGENT_CONFIG,
     tools: [...DEFAULT_AGENT_CONFIG.tools],
     skills: [...DEFAULT_AGENT_CONFIG.skills],
   };
-  const preset = userDefaults?.agentConfig ? backfillAgentTools(userDefaults.agentConfig) : undefined;
+  const main = userDefaults?.engineChoice?.kind ?? engineForProvider(userDefaults?.agentConfig?.provider);
+  const selected = engine ?? main;
+  const global = selected === main ? userDefaults?.agentConfig : userDefaults?.engineConfigs?.[selected];
+  const project = projectPath ? userDefaults?.projectEngineConfigs?.[projectPath]?.[selected] : undefined;
+  const config = { ...global, ...project };
+  if (selected !== 'claude') config.provider = { ...providerForEngine(selected)!, ...global?.provider, ...project?.provider };
+  else delete config.provider;
+  const preset = backfillAgentTools(config);
   if (preset) {
     for (const [key, value] of Object.entries(preset)) {
       if (value === undefined) continue;
@@ -238,12 +252,21 @@ export function diffAgentConfigFromDefaults(
 export function resolveAgentConfig(
   overrides?: Partial<AgentConfig> | null,
   userDefaults?: AgentDefaultsSource,
+  projectPath?: string | null,
 ): AgentConfig {
-  const merged = resolveAgentDefaults(userDefaults);
+  const merged = resolveAgentDefaults(userDefaults, overrides ? engineForProvider(overrides.provider) : undefined, projectPath);
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
       if (value === undefined) continue;
       (merged as unknown as Record<string, unknown>)[key] = Array.isArray(value) ? [...value] : value;
+    }
+  }
+  if (overrides?.provider) {
+    const inherited = resolveAgentDefaults(userDefaults, engineForProvider(overrides.provider), projectPath).provider;
+    merged.provider = { ...inherited, ...overrides.provider };
+    if (!overrides.provider.modelId && inherited?.modelId) {
+      merged.provider.modelId = inherited.modelId;
+      merged.provider.modelName = inherited.modelName;
     }
   }
   return merged;

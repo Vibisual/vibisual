@@ -1,13 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppState, AppStatePatch, RetentionSettings } from '@vibisual/shared';
+import type { AppState, AppStatePatch, RetentionSettings, KeymapOverrides, ClosedTabEntry,
+  ClaudePluginAutoRefreshSettings, ClaudePluginRefreshState, TokenSaverSettings } from '@vibisual/shared';
 import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTaskProbeSettings,
-  normalizeSessionProbeSettings, type BackgroundTaskProbeSettings,
-  type SessionLivenessProbeSettings } from '@vibisual/shared';
+  normalizeSessionProbeSettings, normalizeExternalTopBudget, normalizeKeymapOverrides,
+  normalizePluginRefreshSettings, CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP,
+  normalizeClosedTabEntries, pushClosedTabEntry, takeClosedTabEntry, pruneMissingClosedTabs,
+  normalizeIDEActivityBarPrefs,
+  type BackgroundTaskProbeSettings,
+  type IDEActivityBarPrefs,
+  type SessionLivenessProbeSettings, normalizeTokenSaverSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
-import { pathKey } from './pathKey.js';
+import { pathKey, HOST_PLATFORM } from './pathKey.js';
 import { logger } from '../logger.js';
 
 // v1.52: AppState = Vibisual 인스턴스 자체 상태 (어떤 프로젝트의 데이터도 아님 → 머신 단위 글로벌).
@@ -183,9 +189,27 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     // §3.2.3 — 저장돼 있을 때만 실는다. 없으면 undefined 로 두어 `appStateGetRetention()` 이
     // 기본값을 내주게 한다(구버전 AppState 하위호환 + 기본값이 나중에 바뀌면 자동 추종).
     retention: raw.retention ? normalizeRetentionSettings(raw.retention) : undefined,
+    // §5.3 #9-1 — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
+    tokenSaver: raw.tokenSaver ? normalizeTokenSaverSettings(raw.tokenSaver) : undefined,
     // §5.5 #17-9 ⑭(g) — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
     bgTaskProbe: raw.bgTaskProbe ? normalizeBgTaskProbeSettings(raw.bgTaskProbe) : undefined,
     sessionProbe: raw.sessionProbe ? normalizeSessionProbeSettings(raw.sessionProbe) : undefined,
+    // §2.1 (B) — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
+    externalTopBudget: typeof raw.externalTopBudget === 'number'
+      ? normalizeExternalTopBudget(raw.externalTopBudget)
+      : undefined,
+    // §6 — 같은 규약: **바꾼 것만** 저장돼 있고, 없으면 undefined 로 두어 코드의 기본 바인딩을
+    //   따라간다(다음 판올림에서 기본값을 고치면 안 건드린 칸은 자동으로 새 값이 된다).
+    keymap: raw.keymap ? normalizeKeymapOverrides(raw.keymap) : undefined,
+    // §5.5 #16-1 — 같은 규약: 만진 적 없으면 undefined 로 두어 코드의 기본 순서를 따라간다
+    //   (그래야 다음 판올림에서 활동바 항목을 늘려도 안 건드린 사용자에게 그대로 나타난다).
+    ideActivityBar: normalizeIDEActivityBarPrefs(raw.ideActivityBar),
+    // §5.4 #14-4 — 되열 수 없는 모양(경로·주소 없음)은 여기서 걸러 낸다. 저장된 것이 없으면
+    //   빈 배열이 아니라 undefined 로 둔다 — 안 그러면 한 번도 탭을 닫은 적 없는 사용자의
+    //   app-state.json 에 빈 칸이 새로 생겨 매 저장이 diff 를 만든다.
+    recentlyClosedTabs: raw.recentlyClosedTabs
+      ? normalizeClosedTabEntries(raw.recentlyClosedTabs, HOST_PLATFORM)
+      : undefined,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
   };
 }
@@ -298,8 +322,12 @@ export function saveAppState(state: AppState): void {
     atomicWriteFileSync(APP_STATE_FILE, JSON.stringify(withTimestamp, null, 2));
     cached = withTimestamp;
     retentionMemo = null; // 다른 경로가 상태를 통째로 갈아끼웠을 수 있다 — 다음 조회 때 다시 만든다.
+    tokenSaverMemo = null; // §5.3 #9-1 — 같은 이유로 함께 비운다(한쪽만 비우면 설정이 어긋난다).
     bgTaskProbeMemo = null; // 같은 이유 — 두 메모가 갈리면 한쪽만 옛 값을 들고 판정한다.
     sessionProbeMemo = null; // 같은 이유 — 세션 판정 설정도 같은 창구를 탄다.
+    externalTopBudgetMemo = null; // 같은 이유 — 외부 폴더 예산(§2.1 (B))도 같은 창구를 탄다.
+    keymapMemo = null; // 같은 이유 — 단축키(§6)도 같은 창구를 탄다.
+    ideActivityBarMemo = null; // 같은 이유 — 활동바 구성(§5.5 #16-1)도 같은 창구를 탄다.
   } catch (err) {
     logger.error(`AppState save failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -348,6 +376,34 @@ export function appStateSetRetention(patch: Partial<RetentionSettings>): Retenti
   return merged;
 }
 
+// ─── 토큰 절약 (§5.3 #9-1) ───
+//
+// 보존 정책과 같은 결이다 — **머신 단위**라 여기 살고, 판정은 여기 하나를 통과하며, 스폰마다
+// 불리므로 정규화 결과를 메모해 둔다. 다른 점은 대상이 디스크가 아니라 **스폰 정책**이라는 것뿐.
+
+let tokenSaverMemo: TokenSaverSettings | null = null;
+
+/**
+ * §5.3 #9-1 — 현재 토큰 절약 설정. 저장된 값이 없으면 `DEFAULT_TOKEN_SAVER_SETTINGS`(전 축 끔).
+ *
+ * ⚠ 숫자 축의 `0` 은 상한이 아니라 **"그 축을 끔"** 이다 — 호출부가 그대로 존중해야 한다
+ * (`buildTokenSaverEnv` 는 0 이면 env 키 자체를 만들지 않는다).
+ */
+export function appStateGetTokenSaver(): TokenSaverSettings {
+  if (tokenSaverMemo) return tokenSaverMemo;
+  tokenSaverMemo = normalizeTokenSaverSettings(loadAppState().tokenSaver);
+  return tokenSaverMemo;
+}
+
+/** 토큰 절약 설정 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본(`preset` 은 값에서 재판정된다). */
+export function appStateSetTokenSaver(patch: Partial<TokenSaverSettings>): TokenSaverSettings {
+  const merged = normalizeTokenSaverSettings({ ...appStateGetTokenSaver(), ...patch });
+  const current = loadAppState();
+  saveAppState({ ...current, tokenSaver: merged });
+  tokenSaverMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return merged;
+}
+
 let bgTaskProbeMemo: BackgroundTaskProbeSettings | null = null;
 
 /**
@@ -392,6 +448,116 @@ export function appStateSetSessionProbe(
   saveAppState({ ...current, sessionProbe: merged });
   sessionProbeMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
   return merged;
+}
+
+let externalTopBudgetMemo: number | null = null;
+
+/**
+ * §2.1 (B) — 최상위에 동시에 세울 **외부 폴더 예산**.
+ *
+ * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
+ * 저장된 값이 없거나 범위를 벗어나면 `normalizeExternalTopBudget` 이 기본값·경계로 접는다.
+ */
+export function appStateGetExternalTopBudget(): number {
+  if (externalTopBudgetMemo !== null) return externalTopBudgetMemo;
+  externalTopBudgetMemo = normalizeExternalTopBudget(loadAppState().externalTopBudget);
+  return externalTopBudgetMemo;
+}
+
+/** 예산 갱신 → 정규화 후 저장. 반환은 저장된 최종본(클램프된 값일 수 있다). */
+export function appStateSetExternalTopBudget(value: unknown): number {
+  const next = normalizeExternalTopBudget(value);
+  const current = loadAppState();
+  saveAppState({ ...current, externalTopBudget: next });
+  externalTopBudgetMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return next;
+}
+
+let keymapMemo: KeymapOverrides | null = null;
+
+/**
+ * §6 — 사용자가 바꾼 단축키만. 저장된 값이 없으면 빈 객체(= 전부 기본 바인딩).
+ *
+ * 위 설정들과 같은 이유로 **머신 단위**다 — 손에 익은 키가 프로젝트마다 달라질 이유가 없다.
+ */
+export function appStateGetKeymap(): KeymapOverrides {
+  if (keymapMemo) return keymapMemo;
+  keymapMemo = normalizeKeymapOverrides(loadAppState().keymap);
+  return keymapMemo;
+}
+
+/**
+ * 단축키 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본.
+ *
+ * ⚠ 값의 **세 가지 뜻**을 구분한다 — `string`(그 키로 바꿈) · `null`(해제, 키보드에서 내림) ·
+ * `undefined`(그 칸은 이번 요청에서 언급 안 함). 셋을 뭉개면 "되돌리기"가 "해제"가 된다.
+ * 기본값으로 되돌리려면 `resetKeys` 로 그 명령을 지운다.
+ */
+export function appStateSetKeymap(
+  patch: KeymapOverrides,
+  resetKeys: readonly string[] = [],
+): KeymapOverrides {
+  const merged: Record<string, string | null> = { ...appStateGetKeymap() };
+  for (const [id, value] of Object.entries(patch)) merged[id] = value;
+  for (const id of resetKeys) delete merged[id];
+  const normalized = normalizeKeymapOverrides(merged);
+  const current = loadAppState();
+  saveAppState({ ...current, keymap: normalized });
+  keymapMemo = normalized; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return normalized;
+}
+
+/** 전부 기본값으로. */
+export function appStateResetKeymap(): KeymapOverrides {
+  const current = loadAppState();
+  saveAppState({ ...current, keymap: {} });
+  keymapMemo = {};
+  return {};
+}
+
+let ideActivityBarMemo: IDEActivityBarPrefs | null = null;
+
+/**
+ * §5.5 #16-1 — IDE 활동바 구성. 만진 적 없으면 빈 객체(= 코드의 기본 순서 그대로 전부 보임).
+ *
+ * 단축키와 같은 이유로 **머신 단위**다 — 활동바는 프로젝트의 것이 아니라 그 사람이 손에 익힌
+ * 자리다. **서버는 항목 이름을 모른다**: 여기서 하는 일은 문자열 배열을 정규화해 들고 있는 것뿐이고,
+ * 무엇이 실재하는 뷰인지는 클라의 정본 표가 판정한다(`skillOrder` 와 같은 규약).
+ */
+export function appStateGetIDEActivityBar(): IDEActivityBarPrefs {
+  if (ideActivityBarMemo) return ideActivityBarMemo;
+  ideActivityBarMemo = normalizeIDEActivityBarPrefs(loadAppState().ideActivityBar) ?? {};
+  return ideActivityBarMemo;
+}
+
+/**
+ * 활동바 구성 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본.
+ *
+ * `order`·`hidden` 은 **언급한 칸만** 치환한다(둘은 서로 다른 축이라, 순서를 바꿨다고 제외
+ * 목록이 함께 날아가면 안 된다 — `keymap` 의 `undefined` = "이번 요청에서 언급 안 함"과 같은 뜻).
+ */
+export function appStateSetIDEActivityBar(patch: {
+  order?: readonly string[];
+  hidden?: readonly string[];
+}): IDEActivityBarPrefs {
+  const current = appStateGetIDEActivityBar();
+  const merged = {
+    order: patch.order !== undefined ? [...patch.order] : (current.order ?? []),
+    hidden: patch.hidden !== undefined ? [...patch.hidden] : (current.hidden ?? []),
+  };
+  const normalized = normalizeIDEActivityBarPrefs(merged) ?? {};
+  const state = loadAppState();
+  saveAppState({ ...state, ideActivityBar: normalized });
+  ideActivityBarMemo = normalized; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return normalized;
+}
+
+/** 활동바를 코드의 기본 배치로 되돌린다(순서·제외 둘 다). */
+export function appStateResetIDEActivityBar(): IDEActivityBarPrefs {
+  const state = loadAppState();
+  saveAppState({ ...state, ideActivityBar: undefined });
+  ideActivityBarMemo = {};
+  return {};
 }
 
 /** openProjects에 프로젝트 추가 (정규화 경로 기준 중복 체크). 새로 추가/이름변경 시 true.
@@ -471,6 +637,63 @@ export function appStatePruneStaleProjectNames(exists: (p: string) => boolean): 
   return removed;
 }
 
+// ─── §5.4 #14-4 "닫은 탭 다시 열기" 스택 ───
+//
+// 여기가 **유일한 창구**다. 목록을 쌓는 규칙(중복 접기·상한·최신이 앞)은 shared 의 순수 함수가
+// 쥐고 있고, 이 층은 그것을 디스크에 앉히기만 한다 — `patchAppState` 로 통째 덮어쓰는 길을
+// 열어 두지 않은 이유이기도 하다(부분 페이로드가 목록을 통째로 날리는 사고를 원천 차단).
+
+/** 지금 스택. 저장된 것이 없으면 빈 배열. */
+export function appStateGetClosedTabs(): ClosedTabEntry[] {
+  return loadAppState().recentlyClosedTabs ?? [];
+}
+
+/** 닫은 탭 한 건을 스택 맨 앞에 올린다. 실제로 바뀌었으면 저장하고 최종본을 돌려준다. */
+export function appStatePushClosedTab(entry: ClosedTabEntry): ClosedTabEntry[] {
+  const current = loadAppState();
+  const next = pushClosedTabEntry(current.recentlyClosedTabs ?? [], entry, HOST_PLATFORM);
+  saveAppState({ ...current, recentlyClosedTabs: next });
+  return next;
+}
+
+/**
+ * 스택에서 한 건을 꺼낸다(= 다시 열기). `key` 를 안 주면 가장 최근 것.
+ *
+ * **꺼내는 것과 지우는 것이 한 동작**이다 — 되열고 나서 따로 지우게 하면 그 사이에 앱이 죽었을 때
+ * 이미 열려 있는 탭이 목록에도 남아, 다시 눌러도 아무 일이 없는 항목이 된다.
+ */
+export function appStateTakeClosedTab(key?: string): ClosedTabEntry | null {
+  const current = loadAppState();
+  const { entry, rest } = takeClosedTabEntry(current.recentlyClosedTabs ?? [], key);
+  if (!entry) return null;
+  saveAppState({ ...current, recentlyClosedTabs: rest });
+  return entry;
+}
+
+/** 스택을 비운다(메뉴의 "목록 지우기"). 지운 건수를 돌려준다. */
+export function appStateClearClosedTabs(): number {
+  const current = loadAppState();
+  const had = (current.recentlyClosedTabs ?? []).length;
+  if (had === 0) return 0;
+  saveAppState({ ...current, recentlyClosedTabs: [] });
+  return had;
+}
+
+/**
+ * 디스크에서 사라진 프로젝트 항목을 걷어낸다(부팅 1회 — `appStatePruneStaleProjectNames` 와 짝).
+ *
+ * 이걸 안 하면 폴더를 지운 뒤에도 메뉴에 이름이 남고, 누르면 `registerProject` 가 없는 경로를
+ * 유령 프로젝트로 등록한다(§3.2.3 이 반면교사로 든 "눌리면 깨지는 유령 항목"이 그 자리다).
+ */
+export function appStatePruneMissingClosedTabs(exists: (p: string) => boolean): number {
+  const current = loadAppState();
+  const list = current.recentlyClosedTabs ?? [];
+  if (list.length === 0) return 0;
+  const { kept, removed } = pruneMissingClosedTabs(list, exists);
+  if (removed > 0) saveAppState({ ...current, recentlyClosedTabs: kept });
+  return removed;
+}
+
 /** §5.5 #17-4/#17-5 — SkillsView 고정 순서 조회. 항상 {project,global,plugin} shape 보장(빈 배열 기본). */
 export function appStateGetSkillOrder(): { project: string[]; global: string[]; plugin: string[] } {
   const current = loadAppState();
@@ -527,6 +750,47 @@ export function appStateSetSkillFavorites(favorites: string[]): void {
     clean.push(x);
   }
   saveAppState({ ...current, skillFavorites: clean.length > 0 ? clean : undefined });
+}
+
+// ─── §5.5 #17-33 ⑦ — Claude Code 플러그인 자동 갱신 (머신 단위) ───
+
+/**
+ * 자동 갱신 상태 조회 — 설정은 항상 정규화해서 준다(구버전 AppState·손으로 고친 값 대비).
+ *
+ * **머신 단위**로 두는 이유: 마켓 클론(`~/.claude/plugins`)은 어느 프로젝트를 열든 하나뿐이라
+ * 프로젝트마다 다른 주기를 둘 이유가 없다(`retention` 과 같은 결).
+ */
+export function appStateGetClaudePluginRefresh(): Required<Pick<ClaudePluginRefreshState, 'settings'>> & ClaudePluginRefreshState {
+  const current = loadAppState();
+  const raw = current.claudePluginRefresh ?? {};
+  return { ...raw, settings: normalizePluginRefreshSettings(raw.settings) };
+}
+
+/**
+ * 자동 갱신 상태를 병합 저장. **넘긴 칸만 바꾼다** — 마지막 시각을 찍는 호출이 설정을 지우면
+ * 사용자가 끈 것이 되살아난다(§5.5 #12-1 agent-config 부분 페이로드가 겪은 그 강등).
+ *
+ * `lastError` 는 `null` 을 넘겨 지운다(성공했을 때 옛 사유가 화면에 남으면 안 된다).
+ */
+export function appStateSetClaudePluginRefresh(patch: {
+  settings?: ClaudePluginAutoRefreshSettings;
+  lastMarketAt?: number;
+  lastPluginAt?: number;
+  lastUpdatedIds?: string[];
+  lastError?: string | null;
+}): void {
+  const current = loadAppState();
+  const prev = current.claudePluginRefresh ?? {};
+  const next: ClaudePluginRefreshState = { ...prev };
+  if (patch.settings) next.settings = normalizePluginRefreshSettings(patch.settings);
+  if (typeof patch.lastMarketAt === 'number') next.lastMarketAt = patch.lastMarketAt;
+  if (typeof patch.lastPluginAt === 'number') next.lastPluginAt = patch.lastPluginAt;
+  if (patch.lastUpdatedIds) {
+    next.lastUpdatedIds = patch.lastUpdatedIds.slice(0, CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP);
+  }
+  if (patch.lastError === null) delete next.lastError;
+  else if (typeof patch.lastError === 'string') next.lastError = patch.lastError.slice(0, 400);
+  saveAppState({ ...current, claudePluginRefresh: next });
 }
 
 /** 캐시만 리셋 (테스트용). */

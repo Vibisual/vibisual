@@ -7,34 +7,34 @@
  */
 export const strings = {
   "en": {
-    "desc": "When new knowledge conflicts with old, closing beats deleting. Two timestamps — opened and closed — give an immutable record and a clean present at once.",
+    "desc": "When new knowledge conflicts with old, closing beats deleting. Turning a run down stops the suggestion without erasing the observation, which keeps an immutable record and a clean present at once.",
     "heading": "Supersede",
     "level": {
-      "none": "No memory yet",
+      "none": "Not on yet",
       "flat": "No history yet",
       "history": "History kept"
     },
     "check": {
-      "stored": "Stored",
-      "current": "Current",
-      "closed": "Closed"
+      "stored": "In store",
+      "current": "Settled procedures",
+      "closed": "Turned down"
     },
-    "note": "Contradiction is not similarity alone — negation matters, so that “use A” and “never use A” are recognised as the same subject."
+    "note": "Deleting what you turned down loses the reason you turned it down — the next analysis would simply offer it again."
   },
   "ko": {
-    "desc": "새 지식이 옛 지식과 충돌할 때는 지우는 것보다 닫는 것이 낫습니다. 연 시각과 닫힌 시각 두 축이 불변 기록과 깨끗한 현재를 동시에 줍니다.",
+    "desc": "새 지식이 옛 지식과 충돌할 때는 지우는 것보다 닫는 것이 낫습니다. 일을 물리면 제안은 멈추되 관찰은 지워지지 않아, 불변 기록과 깨끗한 현재를 동시에 갖게 됩니다.",
     "heading": "대체",
     "level": {
-      "none": "아직 기억 없음",
+      "none": "아직 켜지 않음",
       "flat": "아직 이력 없음",
       "history": "이력 보존됨"
     },
     "check": {
-      "stored": "저장 장수",
-      "current": "현재 진실",
-      "closed": "닫힌 이력"
+      "stored": "저장고에",
+      "current": "굳은 절차",
+      "closed": "물린 것"
     },
-    "note": "모순 판정은 유사도만으로는 부족합니다 — 부정 극성까지 봐야 \"A 를 쓴다\"와 \"A 를 쓰지 마라\"가 같은 주제의 대체 관계로 잡힙니다."
+    "note": "물린 것을 지워 버리면 물린 이유까지 사라집니다 — 다음 분석이 같은 것을 그대로 다시 내놓습니다."
   },
   "ja": {
     "level": {

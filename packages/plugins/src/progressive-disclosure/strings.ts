@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "Rather than loading everything up front, hand over an index and let the body be fetched when it matters. This card watches whether the same bundle keeps getting re-injected instead.",
+    "desc": "Rather than loading everything up front, hand over an index and let the body be fetched when it matters. This card watches whether the same work keeps being redone instead of written down once.",
     "heading": "Progressive Disclosure",
     "level": {
-      "none": "No injections",
+      "none": "Nothing scanned",
       "lean": "Lean",
       "repeating": "Repeating"
     },
     "check": {
-      "events": "Injection events",
-      "repeats": "Repeated",
-      "cards": "Cards total"
+      "events": "Actions scanned",
+      "repeats": "Net repeats",
+      "cards": "Carried in prompt"
     },
     "note": "Pasting whole documents is manufacturing context rot on purpose. “If the task is X, read file Y” is the same idea done cheaply."
   },
   "ko": {
-    "desc": "전부 미리 넣는 대신 목차를 주고 필요할 때 본문을 읽게 하는 방식입니다. 이 카드는 같은 묶음이 계속 재주입되고 있지는 않은지 봅니다.",
+    "desc": "전부 미리 넣는 대신 목차를 주고 필요할 때 본문을 읽게 하는 방식입니다. 이 카드는 같은 일이 한 번 적히는 대신 계속 다시 되고 있지는 않은지 봅니다.",
     "heading": "점진적 공개",
     "level": {
-      "none": "주입 없음",
+      "none": "훑은 행동 없음",
       "lean": "가벼움",
-      "repeating": "반복 주입"
+      "repeating": "되풀이 중"
     },
     "check": {
-      "events": "주입 이벤트",
-      "repeats": "반복 횟수",
-      "cards": "카드 총수"
+      "events": "훑은 행동",
+      "repeats": "남은 되풀이",
+      "cards": "프롬프트에 실림"
     },
     "note": "문서를 통째로 붙여넣는 것은 컨텍스트 부패를 스스로 만드는 짓입니다. \"어떤 작업이면 어느 파일을 읽어라\" 색인이 같은 일을 훨씬 싸게 합니다."
   },

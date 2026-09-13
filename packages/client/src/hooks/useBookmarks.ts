@@ -1,6 +1,9 @@
 /**
  * §5.4 #30 v2.66 — 버블 북마크 / 단축키 점프 (언리얼 엔진 카메라 북마크 식).
  *
+ * 키 배정은 §6 단축키 레지스트리(`bookmark.assign` / `bookmark.jump`)가 정한다 — 사용자가 설정에서
+ * 바꾸면 이 파일을 한 줄도 안 고치고 그대로 따라간다. 아래 설명의 키는 **기본값**이다.
+ *
  * Alt + 1~0 : 현재 대상을 슬롯 N(0=10)에 지정.
  *             - IDE 오버레이가 열려 있으면 그 에이전트 + 현재 세션 탭을 `session` 북마크로,
  *             - 아니면 선택된 버블을 `bubble` 북마크로(소속 프로젝트 + 드릴다운 폴더 컨텍스트 포함).
@@ -12,11 +15,15 @@
  *
  * - 영속화는 localStorage(`vibisual:bookmarks`) — tabPins/defaultSubAgents 와 동형. 서버/스냅샷/체크포인트 미관여.
  * - INPUT/TEXTAREA/contentEditable(xterm 터미널 helper textarea·IDE 입력창 포함) 포커스에서는 비활성.
- * - 키 판별은 레이아웃 독립 `e.code`(Digit0~9 / Numpad0~9).
+ *   지정만 예외로 **IDE 안에서는** 입력칸에서도 받는다(`Alt+숫자` 는 일반 타이핑이 아니다).
+ * - 키 판별은 레이아웃 독립 `e.code` — 레지스트리의 `matchesBinding` 이 한 곳에서 한다.
  */
 
-import { useEffect } from 'react';
+import { useCallback } from 'react';
+import { keyTokenFromCode } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../stores/graphStore.js';
+// §6 — 어떤 키가 이 동작인지는 레지스트리가 정한다(여기 키를 적지 않는다).
+import { useCommand, isEditableTarget } from './useCommand.js';
 
 const BOOKMARKS_STORAGE_KEY = 'vibisual:bookmarks';
 
@@ -98,12 +105,6 @@ function slotLabel(key: string): string {
   return key === '0' ? '10' : key;
 }
 
-/** e.code 에서 슬롯 키('0'~'9')를 추출. 숫자가 아니면 null. */
-function slotKeyFromCode(code: string): string | null {
-  const m = /^(?:Digit|Numpad)([0-9])$/.exec(code);
-  return m ? m[1]! : null;
-}
-
 function readMap(): BookmarkMap {
   try {
     const raw = window.localStorage.getItem(BOOKMARKS_STORAGE_KEY);
@@ -137,151 +138,144 @@ interface Params {
 }
 
 export function useBookmarks({ onToast, messages }: Params): void {
-  useEffect(() => {
-    function isEditableTarget(target: EventTarget | null): boolean {
-      if (!(target instanceof HTMLElement)) return false;
-      const tag = target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return true;
-      return false;
-    }
+  /** 키 이벤트가 IDE 오버레이 DOM 안에서 일어났는지(=사용자가 IDE 를 보고 있는지). */
+  const isInIDE = useCallback((target: EventTarget | null): boolean => {
+    return target instanceof HTMLElement && !!target.closest('[data-ide-overlay]');
+  }, []);
 
-    /** 키 이벤트가 IDE 오버레이 DOM 안에서 일어났는지(=사용자가 IDE 를 보고 있는지). */
-    function isInIDE(target: EventTarget | null): boolean {
-      return target instanceof HTMLElement && !!target.closest('[data-ide-overlay]');
-    }
+  function assign(slotKey: string, inIDE: boolean): void {
+    const st = useGraphStore.getState();
+    const ide = selectIDEOverlay(st);
+    // `selectIntentId` 는 선택 링 한 칸이라 **앱·캡처 같은 store 채널 버블 id 도 들어온다**
+    //   (더블클릭 지연 창 동안 링만 먼저 켜지는 구간 — `bubbleSelectGesture`).
+    //   버블 북마크가 가리킬 수 있는 것은 노드 버블뿐이므로, 폴백은 `nodeMap` 에 있는 id 만 받는다.
+    //   `selectedNodeId` 는 그대로 통과시킨다 — `__trash__` 처럼 캔버스가 합성한 버블은
+    //   `nodeMap` 에 없지만 정당한 북마크 대상이다.
+    const intentId = st.selectIntentId;
+    const nodeId = st.selectedNodeId
+      ?? (intentId !== null && st.nodeMap[intentId] !== undefined ? intentId : null);
+    let bm: Bookmark | null = null;
 
-    function assign(slotKey: string, inIDE: boolean): void {
-      const st = useGraphStore.getState();
-      const ide = selectIDEOverlay(st);
-      // `selectIntentId` 는 선택 링 한 칸이라 **앱·캡처 같은 store 채널 버블 id 도 들어온다**
-      //   (더블클릭 지연 창 동안 링만 먼저 켜지는 구간 — `bubbleSelectGesture`).
-      //   버블 북마크가 가리킬 수 있는 것은 노드 버블뿐이므로, 폴백은 `nodeMap` 에 있는 id 만 받는다.
-      //   `selectedNodeId` 는 그대로 통과시킨다 — `__brain__`·`__trash__` 처럼 캔버스가 합성한
-      //   버블은 `nodeMap` 에 없지만 정당한 북마크 대상이다.
-      const intentId = st.selectIntentId;
-      const nodeId = st.selectedNodeId
-        ?? (intentId !== null && st.nodeMap[intentId] !== undefined ? intentId : null);
-      let bm: Bookmark | null = null;
-
-      const sessionBookmark = (): SessionBookmark | null => {
-        if (!ide.agentId || !ide.projectId) return null;
-        return {
-          kind: 'session',
-          projectName: ide.projectId,
-          agentId: ide.agentId,
-          sessionId: ide.activeSessionId,
-          label: st.nodeMap[ide.agentId]?.label ?? ide.agentId,
-        };
+    const sessionBookmark = (): SessionBookmark | null => {
+      if (!ide.agentId || !ide.projectId) return null;
+      return {
+        kind: 'session',
+        projectName: ide.projectId,
+        agentId: ide.agentId,
+        sessionId: ide.activeSessionId,
+        label: st.nodeMap[ide.agentId]?.label ?? ide.agentId,
       };
-      const bubbleBookmark = (): BubbleBookmark | null => {
-        if (!nodeId || !st.activeProject) return null;
-        return {
-          kind: 'bubble',
-          projectName: st.activeProject,
-          folderId: st.currentFolderId,
-          nodeId,
-          label: st.nodeMap[nodeId]?.label ?? nodeId,
-        };
+    };
+    const bubbleBookmark = (): BubbleBookmark | null => {
+      if (!nodeId || !st.activeProject) return null;
+      return {
+        kind: 'bubble',
+        projectName: st.activeProject,
+        folderId: st.currentFolderId,
+        nodeId,
+        label: st.nodeMap[nodeId]?.label ?? nodeId,
       };
+    };
 
-      const sb = sessionBookmark();
-      const bb = bubbleBookmark();
-      // "지금 앞에 떠 있는 IDE" = 모달/플로팅(도킹 아님) 으로 캔버스를 덮고 있는 상태.
-      // 이때는 클릭(포커스)·이전 선택과 무관하게 그 IDE 를 그대로 잡는다(사용자: "지금 떠있는 상태를 지정").
-      const ideForeground = !!sb && !ide.dockSide;
-      // 우선순위:
-      //   (1) 포커스가 IDE 안(=IDE 를 보는 중) → 그 세션.
-      //   (2) IDE 가 앞에 떠 있으면(모달/플로팅) → 그 세션. 클릭 불필요, 이전 선택 무시.
-      //   (3) IDE(도킹 포함)가 열려 있고, 그 에이전트와 "다른" 버블을 따로 고르지 않았으면 → 그 세션.
-      //   (4) 캔버스에서 IDE 의 에이전트와 다른 버블을 선택 중이면 → 그 버블(도킹된 무관 IDE 보다 우선).
-      //   (5) IDE 도 선택도 없으면 → 없음.
-      if (inIDE) {
-        bm = sb ?? bb;
-      } else if (ideForeground) {
-        bm = sb;
-      } else if (sb && (!nodeId || nodeId === sb.agentId)) {
-        bm = sb;
-      } else {
-        bm = bb ?? sb;
-      }
-
-      if (!bm) {
-        onToast(messages.assignEmpty, 'error');
-        return;
-      }
-      const map = readMap();
-      map[slotKey] = bm;
-      writeMap(map);
-      onToast(messages.assigned(slotLabel(slotKey), bm.label), 'success');
+    const sb = sessionBookmark();
+    const bb = bubbleBookmark();
+    // "지금 앞에 떠 있는 IDE" = 모달/플로팅(도킹 아님) 으로 캔버스를 덮고 있는 상태.
+    // 이때는 클릭(포커스)·이전 선택과 무관하게 그 IDE 를 그대로 잡는다(사용자: "지금 떠있는 상태를 지정").
+    const ideForeground = !!sb && !ide.dockSide;
+    // 우선순위:
+    //   (1) 포커스가 IDE 안(=IDE 를 보는 중) → 그 세션.
+    //   (2) IDE 가 앞에 떠 있으면(모달/플로팅) → 그 세션. 클릭 불필요, 이전 선택 무시.
+    //   (3) IDE(도킹 포함)가 열려 있고, 그 에이전트와 "다른" 버블을 따로 고르지 않았으면 → 그 세션.
+    //   (4) 캔버스에서 IDE 의 에이전트와 다른 버블을 선택 중이면 → 그 버블(도킹된 무관 IDE 보다 우선).
+    //   (5) IDE 도 선택도 없으면 → 없음.
+    if (inIDE) {
+      bm = sb ?? bb;
+    } else if (ideForeground) {
+      bm = sb;
+    } else if (sb && (!nodeId || nodeId === sb.agentId)) {
+      bm = sb;
+    } else {
+      bm = bb ?? sb;
     }
 
-    function jump(slotKey: string): void {
-      const map = readMap();
-      const bm = map[slotKey];
-      if (!bm) {
-        onToast(messages.jumpEmpty(slotLabel(slotKey)), 'error');
-        return;
-      }
-      const store = useGraphStore.getState();
-      // 생존 게이트 — 프로젝트가 없거나(종전 판정) 대상 노드가 스냅샷에서 사라졌으면 아무것도
-      //   바꾸지 않는다. 특히 session 점프를 그냥 통과시키면 도킹 슬롯이 사라진 에이전트를 가리켜
-      //   "IDE 는 안 보이는데 도크 폭만 남는" 빈 칸이 된다(resolveJumpTarget 주석 참조).
-      const decision = resolveJumpTarget(bm, store);
-      if (!decision.ok) {
-        onToast(messages.jumpMissing, 'error');
-        return;
-      }
+    if (!bm) {
+      onToast(messages.assignEmpty, 'error');
+      return;
+    }
+    const map = readMap();
+    map[slotKey] = bm;
+    writeMap(map);
+    onToast(messages.assigned(slotLabel(slotKey), bm.label), 'success');
+  }
 
-      if (bm.kind === 'session') {
-        store.setActiveProject(bm.projectName);
-        // stub(미hydrate) 프로젝트는 아직 버블이 없다 — 탭만 열어 주고 IDE 는 열지 않는다.
-        //   여기서 openIDEOverlay 를 부르면 그리지도 못할 에이전트로 도킹 슬롯이 만들어진다.
-        if (!decision.stub) {
-          store.focusOnNode(bm.agentId);
-          store.openIDEOverlay(bm.agentId);
-          const subs = useGraphStore.getState().subAgents[bm.agentId] ?? [];
-          if (bm.sessionId && subs.some((s) => s.id === bm.sessionId)) {
-            store.setIDEActiveSession(bm.sessionId);
-          } else {
-            // 세션이 사라졌으면 메인 세션으로 폴백
-            store.setIDEActiveSession(null);
-          }
-        }
-      } else {
-        store.setActiveProject(bm.projectName);
-        // 버블 북마크는 캔버스의 버블을 보여주는 용도 — 직전 세션 점프로 열린 IDE 오버레이가
-        // 남아 캔버스를 가리지 않도록, 그 프로젝트의 IDE 창을 닫는다.
-        store.closeIDEOverlay();
-        if (!decision.stub) {
-          if (bm.folderId) store.enterFolderDeep(bm.folderId);
-          store.focusOnNode(bm.nodeId);
-          store.selectNode(bm.nodeId);
+  function jump(slotKey: string): void {
+    const map = readMap();
+    const bm = map[slotKey];
+    if (!bm) {
+      onToast(messages.jumpEmpty(slotLabel(slotKey)), 'error');
+      return;
+    }
+    const store = useGraphStore.getState();
+    // 생존 게이트 — 프로젝트가 없거나(종전 판정) 대상 노드가 스냅샷에서 사라졌으면 아무것도
+    //   바꾸지 않는다. 특히 session 점프를 그냥 통과시키면 도킹 슬롯이 사라진 에이전트를 가리켜
+    //   "IDE 는 안 보이는데 도크 폭만 남는" 빈 칸이 된다(resolveJumpTarget 주석 참조).
+    const decision = resolveJumpTarget(bm, store);
+    if (!decision.ok) {
+      onToast(messages.jumpMissing, 'error');
+      return;
+    }
+
+    if (bm.kind === 'session') {
+      store.setActiveProject(bm.projectName);
+      // stub(미hydrate) 프로젝트는 아직 버블이 없다 — 탭만 열어 주고 IDE 는 열지 않는다.
+      //   여기서 openIDEOverlay 를 부르면 그리지도 못할 에이전트로 도킹 슬롯이 만들어진다.
+      if (!decision.stub) {
+        store.focusOnNode(bm.agentId);
+        store.openIDEOverlay(bm.agentId);
+        const subs = useGraphStore.getState().subAgents[bm.agentId] ?? [];
+        if (bm.sessionId && subs.some((s) => s.id === bm.sessionId)) {
+          store.setIDEActiveSession(bm.sessionId);
+        } else {
+          // 세션이 사라졌으면 메인 세션으로 폴백
+          store.setIDEActiveSession(null);
         }
       }
-      onToast(messages.jumped(bm.label), 'success');
-    }
-
-    function handleKey(e: KeyboardEvent): void {
-      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-      const slotKey = slotKeyFromCode(e.code);
-      if (slotKey === null) return;
-      const editable = isEditableTarget(e.target);
-      const inIDE = isInIDE(e.target);
-      if (e.altKey) {
-        // 지정: Alt+숫자는 일반 타이핑이 아니므로 IDE 안(터미널 textarea 등)에서도 허용 —
-        //   단, IDE 가 아닌 일반 입력칸에서 타이핑 중이면 가로채지 않는다.
-        if (editable && !inIDE) return;
-        e.preventDefault();
-        assign(slotKey, inIDE);
-      } else {
-        // 점프: 숫자 타이핑을 가로채지 않도록 입력칸 포커스면 비활성.
-        if (editable) return;
-        e.preventDefault();
-        jump(slotKey);
+    } else {
+      store.setActiveProject(bm.projectName);
+      // 버블 북마크는 캔버스의 버블을 보여주는 용도 — 직전 세션 점프로 열린 IDE 오버레이가
+      // 남아 캔버스를 가리지 않도록, 그 프로젝트의 IDE 창을 닫는다.
+      store.closeIDEOverlay();
+      if (!decision.stub) {
+        if (bm.folderId) store.enterFolderDeep(bm.folderId);
+        store.focusOnNode(bm.nodeId);
+        store.selectNode(bm.nodeId);
       }
     }
+    onToast(messages.jumped(bm.label), 'success');
+  }
 
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [onToast, messages]);
+
+  // 자리표(`Alt+1…0`)라 **어느 숫자를 눌렀는지**는 이벤트에서만 알 수 있다.
+  const slotOf = useCallback((code: string): string | null => {
+    const token = keyTokenFromCode(code);
+    return token && /^[0-9]$/.test(token) ? token : null;
+  }, []);
+
+  useCommand('bookmark.assign', (e) => {
+    const slotKey = slotOf(e.code);
+    if (slotKey === null) return false;
+    const inIDE = isInIDE(e.target);
+    // 지정은 IDE 안(터미널 textarea 등)에서도 허용 — 단, IDE 가 아닌 일반 입력칸에서 타이핑
+    //   중이면 가로채지 않는다(표의 `typingSafe: true` 가 여기까지 흘려보내 주고, 그 다음의
+    //   섬세한 판정은 이 자리가 한다).
+    if (isEditableTarget(e.target) && !inIDE) return false;
+    assign(slotKey, inIDE);
+  });
+
+  useCommand('bookmark.jump', (e) => {
+    const slotKey = slotOf(e.code);
+    if (slotKey === null) return false;
+    // 점프는 표의 `typingSafe` 가 없으므로 입력칸에서는 애초에 여기 오지 않는다.
+    jump(slotKey);
+  });
 }

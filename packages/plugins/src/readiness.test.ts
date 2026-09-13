@@ -87,3 +87,24 @@ describe('노출 게이트 — 매니페스트와 실제 집행', () => {
     expect(silent.map((m) => m.id)).toEqual([]);
   });
 });
+
+/**
+ * §5.5 #17-44 ⑧(d) — 손잡이가 **자기 화면에 있는** 카드(`ownToggle`).
+ *
+ * 이 축은 위 노출 게이트의 유일한 예외다. 목록에서 빠지므로 그 카드를 끌 자리는 **다른 화면에 있어야**
+ * 하고, 없으면 §5.11 이 막으려는 바로 그 유령("어디에서도 못 끄는데 프롬프트에는 실린다")이 된다.
+ * 그 "다른 화면"이 있는지는 코드로 셀 수 없으므로, 대신 **그 화면을 가질 자격**을 못 박는다 —
+ * 프로젝트를 실제로 훑는 카드만(`enforcesProject`) 이 예외를 쓸 수 있다.
+ */
+describe('손잡이가 자기 화면에 있는 카드 — §5.5 #17-44 ⑧(d)', () => {
+  it('ownToggle 은 enforcesProject 인 카드만 쓴다 — 훑지도 않는 카드를 목록에서 빼면 그냥 사라진 것이다', () => {
+    const bad = PLUGIN_MANIFESTS.filter((m) => m.ownToggle === true && m.enforcesProject !== true);
+    expect(bad.map((m) => m.id)).toEqual([]);
+  });
+
+  it('ownToggle 카드도 집행 모듈을 그대로 갖는다 — 목록에서 내린 것이지 기능을 끈 것이 아니다', () => {
+    const ids = new Set(PLUGIN_PROMPT_MODULES.map((m) => m.id));
+    const missing = PLUGIN_MANIFESTS.filter((m) => m.ownToggle === true && !ids.has(m.id));
+    expect(missing.map((m) => m.id)).toEqual([]);
+  });
+});

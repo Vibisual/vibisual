@@ -24,7 +24,7 @@ import type {
   ClaudePluginInventory,
   ClaudePluginScope,
 } from '@vibisual/shared';
-import { resolvePluginPlacement, splitPluginId } from '@vibisual/shared';
+import { annotatePluginUpdates, classifyMarketplace, resolvePluginPlacement, splitPluginId } from '@vibisual/shared';
 
 import { logger } from '../logger.js';
 
@@ -200,7 +200,8 @@ function collectMarketplaces(market: ClaudeMarketPlugin[]): ClaudeMarketplaceEnt
     counts.set(p.marketplace, (counts.get(p.marketplace) ?? 0) + 1);
   }
   return [...counts.entries()]
-    .map(([name, pluginCount]) => ({ name, pluginCount }))
+    // 갈래는 shared 순수 함수 한 곳에서 판정한다 — 화면이 따로 세면 칩과 목록이 어긋난다(§5.5 #17-42 ⑤).
+    .map(([name, pluginCount]) => ({ name, pluginCount, kind: classifyMarketplace(name) }))
     .sort((a, b) => b.pluginCount - a.pluginCount);
 }
 
@@ -244,7 +245,10 @@ export function parsePluginListOutput(stdout: string, projectPath: string): Clau
 
   return {
     projectPath,
-    installed,
+    // §5.5 #17-33 ⑦ — "새 판이 있다" 표식은 여기서 한 번만 새긴다. CLI 는 알려 주지 않으므로
+    // 설치본 판과 마켓 판을 대조하는데, 그 판정은 shared 순수 함수 하나이고 화면·자동 갱신이
+    // 같은 것을 읽는다(두 벌이면 적어 둔 수와 실제로 올라가는 것이 어긋난다).
+    installed: annotatePluginUpdates(installed, market),
     market,
     marketplaces: collectMarketplaces(market),
     scannedAt: Date.now(),
@@ -332,4 +336,40 @@ export function addClaudeMarketplace(projectPath: string, source: string): Promi
 export function removeClaudeMarketplace(projectPath: string, name: string): Promise<PluginMutationResult> {
   return execClaude(['plugin', 'marketplace', 'remove', name], projectPath, MUTATE_TIMEOUT_MS)
     .then((res) => toResult(res, `marketplace remove ${name}`));
+}
+
+/**
+ * §5.5 #17-33 ⑦ — 마켓 클론을 원본에서 다시 끌어온다. `name` 없이 부르면 **전부**(CLI 규약).
+ *
+ * **이 함수가 없어서 병목이 있었다.** 마켓 클론은 누가 이것을 부르기 전까지 영영 그대로다 —
+ * 실측(2026-09-09) 공식 마켓 매니페스트는 2026-08-04 에 멈춰 36일 낡아 있었고, 그동안
+ * Anthropic 이 낸 스킬은 앱 어디에도 나타나지 않았다. 종전에는 사용자가 터미널로 나가
+ * `/plugin marketplace update` 를 직접 쳐야 했다.
+ *
+ * git 을 타므로 변경 타임아웃(180초)을 그대로 쓴다.
+ */
+export function updateClaudeMarketplaces(projectPath: string, name?: string): Promise<PluginMutationResult> {
+  const args = name && name.trim().length > 0
+    ? ['plugin', 'marketplace', 'update', name.trim()]
+    : ['plugin', 'marketplace', 'update'];
+  return execClaude(args, projectPath, MUTATE_TIMEOUT_MS)
+    .then((res) => toResult(res, `marketplace update ${name ?? '(all)'}`));
+}
+
+/**
+ * §5.5 #17-33 ⑦ — 설치본 하나를 최신 판으로 — `claude plugin update <id> --scope <범위> --yes`.
+ *
+ * `--yes` 는 설치와 같은 이유로 필수다(TTY 가 아닌 우리 스폰은 확인 프롬프트에 걸려 멈춘다 —
+ * CLI 도움말이 "required when stdin or stdout is not a TTY" 로 못 박고 있다).
+ *
+ * CLI 는 "restart required to apply" 라고 답하는데, 우리는 턴마다 세션을 새로 스폰하므로
+ * **다음 스폰부터 자연히 적용된다** — 앱을 재기동할 이유가 없다.
+ */
+export function updateClaudePlugin(
+  projectPath: string,
+  id: string,
+  scope: ClaudePluginScope,
+): Promise<PluginMutationResult> {
+  return execClaude(['plugin', 'update', id, '--scope', scope, '--yes'], projectPath, MUTATE_TIMEOUT_MS)
+    .then((res) => toResult(res, `update ${id}`));
 }

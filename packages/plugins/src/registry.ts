@@ -127,8 +127,8 @@ import { agentRegistryManifest } from './agent-registry/index.js';
 /**
  * 호스트가 실제로 채워 주는 데이터 축의 **단일 출처**.
  *
- * 이 목록을 손으로 두 곳(타입 유니온 + 검증)에 두면 축을 늘릴 때 한쪽을 빠뜨린다 — 실제로 5차 배치에서
- * `brain` 축을 더하고 검증 목록을 안 고쳐 테스트가 걸렸다. 축 추가는 여기 한 줄 + 호스트 `usePluginData` 한 줄.
+ * 이 목록을 손으로 두 곳(타입 유니온 + 검증)에 두면 축을 늘릴 때 한쪽을 빠뜨린다 — 실제로 한 축을 더하고
+ * 검증 목록을 안 고쳐 테스트가 걸린 적이 있다. 축 추가는 여기 한 줄 + 호스트 `usePluginData` 한 줄.
  */
 export const PLUGIN_DATA_NEEDS: readonly PluginDataNeed[] = [
   'agentEvents',
@@ -136,8 +136,8 @@ export const PLUGIN_DATA_NEEDS: readonly PluginDataNeed[] = [
   'runningTasks',
   'agentReports',
   'agentReviews',
-  'brain',
-  'brainInjections',
+  // ⑲ — 되풀이가 절차로 굳은 정도. 폐기된 `brain` 축이 앉아 있던 자리다(통폐합).
+  'autoGoal',
   'taskEdges',
   'captureBubbles',
   'bashCommands',
@@ -393,6 +393,19 @@ export function isPluginEnabledFor(
   platform?: PlatformName,
 ): boolean {
   return resolveEnabledPluginsFor(source, projectId, platform).has(id);
+}
+
+/**
+ * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 **이 기능 자신의 화면**에 있는가.
+ *
+ * 그런 카드는 Plugins 창 목록에 서지 않고(디버그 모드에서도), 집행 배럴·클라 카드 호스트가 켬 집합을
+ * 묻지 않고 통과시킨다 — 판정은 그 기능 자신의 스위치 하나로 좁혀진다. 관문이 둘이면 뷰에서 켠 것이
+ * 왜 안 도는지가 화면 밖에 남는다.
+ *
+ * **판정이 여기 하나뿐이어야** 목록·집행·카드가 같은 답을 말한다(§5.11 v4.65 규율).
+ */
+export function hasOwnToggle(manifest: PluginManifest | undefined): boolean {
+  return manifest?.ownToggle === true;
 }
 
 /**

@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "First-pass retrieval casts wide; reranking lifts what is actually relevant. Vibisual injects only the top few cards, so that cap is the reranking result.",
+    "desc": "First-pass retrieval casts wide; reranking lifts what is actually relevant. Vibisual caps how many procedures may exist at all, so that budget is the reranking result.",
     "heading": "Reranking",
     "level": {
-      "none": "No injections",
+      "none": "Nothing carried",
       "tight": "Within the cap",
       "loose": "Above the cap"
     },
     "check": {
-      "perEvent": "Cards per injection",
+      "perEvent": "Procedures carried",
       "topK": "Cap"
     },
-    "note": "A tight cap is what keeps retrieval from turning into another source of context rot."
+    "note": "A tight cap is what keeps the index from turning into another source of context rot."
   },
   "ko": {
-    "desc": "1차 검색은 넓게 건지고 재순위화가 실제로 관련 있는 것을 위로 올립니다. Vibisual 은 상위 몇 장만 주입하므로 그 상한이 곧 재순위 결과입니다.",
+    "desc": "1차 검색은 넓게 건지고 재순위화가 실제로 관련 있는 것을 위로 올립니다. Vibisual 은 절차가 존재할 수 있는 총량 자체를 막아 두므로 그 예산이 곧 재순위 결과입니다.",
     "heading": "재순위화",
     "level": {
-      "none": "주입 없음",
+      "none": "실린 것 없음",
       "tight": "상한 안",
       "loose": "상한을 넘김"
     },
     "check": {
-      "perEvent": "주입당 카드",
+      "perEvent": "실린 절차",
       "topK": "상한"
     },
-    "note": "상한을 좁게 두는 것이 검색이 또 다른 컨텍스트 부패원이 되는 것을 막습니다."
+    "note": "상한을 좁게 두는 것이 색인이 또 다른 컨텍스트 부패원이 되는 것을 막습니다."
   },
   "ja": {
     "level": {

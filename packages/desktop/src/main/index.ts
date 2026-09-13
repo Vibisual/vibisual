@@ -1,19 +1,20 @@
 import { join } from 'node:path';
 import { createServer, type Server as HttpServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { app, shell, BrowserWindow, protocol, screen, dialog, Notification, session } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
-import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH } from '@vibisual/shared';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
+import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
+import { keepDragRegionsFresh } from './dragRegions';
 // §9 — 스냅샷 팬아웃(1회 인코딩 → 창마다 바이트 postMessage, 실패 시 종전 send 폴백).
 import { broadcastToWindows, initWsFanout } from './wsFanout';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
-import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays, closeAllCommandCenters } from './windowManager';
+import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays, closeAllCommandCenters, raiseExpandedOverlaysForMainFocus } from './windowManager';
 import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
 // §4 메신저 원격제어 브리지 — 아웃바운드 전용(우리는 포트를 열지 않는다). 기본 OFF.
 import { chatBroadcast, initChatBridge, stopChatBridge } from './chat';
@@ -65,6 +66,23 @@ let hookToken: string = randomBytes(24).toString('hex');
 
 export function getHookToken(): string {
   return hookToken;
+}
+
+/**
+ * §보안 감사 2026-09-09 — loopback 토큰 비교는 **걸리는 시간이 값에 따라 달라지면 안 된다.**
+ *
+ * `!==` 는 첫 번째로 다른 글자에서 곧바로 끝난다. 이 리스너는 같은 PC 의 아무 프로그램이나
+ * 두드릴 수 있고 횟수 제한도 없으므로, 응답 시간을 쌓으면 토큰을 앞에서부터 한 글자씩 맞춰
+ * 나갈 수 있다. 토큰 하나면 이 리스너의 화이트리스트 전체(카드·설정·명령 큐)에 닿는다.
+ *
+ * 길이도 먼저 재지 않는다 — 길이 자체가 신호가 된다. 양쪽을 sha256 으로 접어 **항상 같은 32
+ * 바이트**를 `timingSafeEqual` 로 비교한다(길이가 다르면 그 함수가 던지므로 접는 것이 필수다).
+ */
+function isValidHookToken(incoming: string | string[] | undefined): boolean {
+  if (typeof incoming !== 'string') return false;
+  const a = createHash('sha256').update(incoming).digest();
+  const b = createHash('sha256').update(hookToken).digest();
+  return timingSafeEqual(a, b);
 }
 
 // crashLog(§4 v1.98 확장) — 네이티브 크래시 minidump 수집을 app ready·창 생성 전에 켜고,
@@ -140,7 +158,27 @@ function createWindow(): void {
     },
   });
 
+  // §3.7 v2.10 — **타이틀바를 잡으면 창이 움직인다**를 창이 돌아올 때마다 다시 신고시킨다.
+  //   OS 가 아는 드래그 영역은 렌더러가 신고한 목록이고 Chromium 은 그것이 달라졌을 때만 보낸다.
+  //   최소화 복원은 크기가 그대로라 레이아웃이 안 바뀌므로 그 계기가 스스로는 오지 않는다
+  //   (사용자 보고 — "최소화하거나 앱이 새로 켜지면 간헐적으로 헤더를 잡고 못 옮긴다").
+  keepDragRegionsFresh(mainWindow);
+
   mainWindow.on('ready-to-show', () => mainWindow.show());
+
+  // §5.5 #17-6 (E-2) — **본체 창을 고르면 밖의 펼친 IDE 창이 따라 올라온다.**
+  //   펼친 IDE 는 (E) 개정으로 보통 층이라 다른 앱 뒤에 깔릴 수 있는데, `skipTaskbar:true` 라
+  //   작업표시줄에도 없어 깔리면 되돌릴 길이 없다. 포커스는 옮기지 않고 Z 순서만 올린다.
+  mainWindow.on('focus', () => {
+    raiseExpandedOverlaysForMainFocus();
+    // Windows 는 전면화가 아직 끝나지 않은 이 시점에 밟으면 OS 가 그 순서를 되돌린다 —
+    //   한 프레임 뒤 한 번 더 밟는다(멱등). 그 사이 사용자가 다른 앱으로 갔으면 올릴 이유가
+    //   없으므로, 그때도 본체가 여전히 포커스인지 확인한 뒤에만 밟는다.
+    setTimeout(() => {
+      if (mainWindow.isDestroyed() || !mainWindow.isFocused()) return;
+      raiseExpandedOverlaysForMainFocus();
+    }, 60);
+  });
 
   // §3.7 — 최대화 후 복원(restore) 시 OS 기본 동작은 직전 위치·크기로 되돌리는데, 화면이 작거나
   // 직전 bounds 가 거의 풀스크린이면 "복원했는지 모를" 만큼 차이가 안 난다. 복원 시에는 항상
@@ -239,16 +277,15 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
 
     // /health is public — health checks must not require auth.
     const isHealth = path === '/health';
-    // dispatch 라우트는 외부 `claude` 자식 프로세스(서브에이전트 LLM) 가 호출자라
-    // per-launch 토큰을 전달받을 채널이 없다. listener 가 127.0.0.1 에만 listen 하고
-    // dispatch 핸들러 자체가 edgeId/target 등록 여부를 검증하므로(:3634-3643) 임의 호출
-    // 차단은 이미 보장됨. 토큰 게이트는 hook 이벤트·permission-check·ask-user-question
-    // 라우트에서만 유지하고 dispatch 만 면제. (회귀 픽스 — 토큰 도입 PR 이 dispatch
-    // 송신측에 토큰 전달 채널을 추가하지 않아 401 로 영구 차단되던 것 해소.)
-    const isDispatch = path === '/api/task-edges/dispatch';
+    // §3.7 (판올림 번호 발급 대기) — **dispatch 면제 폐기.** 종전 주석은 "dispatch 호출자에게는
+    // 토큰 전달 채널이 없다"였는데, §5.5 #17-28 ⑧(b) 가 자식 환경에 `VIBISUAL_TOKEN` 을 넣기
+    // 시작한 뒤로 그 전제는 사실이 아니다(카드 5경로가 이미 그 값을 쓴다). 면제가 남아 있는 동안
+    // 이 경로는 **인증 없이 임의 지시문으로 새 에이전트를 스폰**할 수 있었다 — `edgeId` 존재
+    // 검사는 호출자를 확인하지 않고, `express.text()` 를 타는 `text/plain` 본문이라 브라우저의
+    // 단순 요청(preflight 없음)으로도 닿는다. 이제 `/health` 만 면제한다.
 
     // §5.3 #10-2 v2.47 — 하네스 빌더 구축 경로. 외부 빌더(spawn 된 claude)가 버블·엣지·설정·
-    // kickoff 를 만들려면 이 loopback 으로 와야 한다. 토큰 게이트 필수(아래 분기 — health/dispatch 만 면제).
+    // kickoff 를 만들려면 이 loopback 으로 와야 한다. 토큰 게이트 필수(아래 분기 — `/health` 만 면제).
     const isBuilderPath =
       path === '/api/create-custom-agent' ||
       path === '/api/task-edges' ||
@@ -263,7 +300,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     // §5.5 #17-17 v4.46 — 세션 목표 진행률 신고. 주입 지시문을 받은 외부 `claude` 프로세스가
     // 유일한 호출자라 이 loopback 이 통로다. **`/progress` 로 끝나는 경로만** 연다 —
     // 목표 문장 자체를 고치는 PUT/DELETE 는 열지 않는다(목표는 사용자의 것이다).
-    // 토큰 게이트 필수(아래 분기 — health/dispatch 만 면제).
+    // 토큰 게이트 필수(아래 분기 — `/health` 만 면제).
     const isSessionGoalProgressPath =
       path.startsWith('/api/session-goal/') && path.endsWith('/progress');
 
@@ -297,18 +334,6 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       // §5.14 v4.62 — 플레이 버블의 실행 레시피 등록. **등록만** 열고 기동(`/start`)은 열지 않는다
       //   — 서버를 켜는 것은 사용자가 버튼을 누를 때의 일이다. 토큰 인증 필수.
       path !== '/api/play-recipe' &&
-      // §5.10 — Project Brain 능동 검색(에이전트가 과거 기억을 직접 조회). 토큰 인증 필수.
-      path !== '/api/brain/search' &&
-      // §5.10 v2 (C) — 회상. 카드가 아니라 **과거 세션 본문**을 찾는다(검색과 짝이지만 대상이 다르다).
-      //   읽기 전용 + 토큰 인증 필수 + 두뇌가 꺼진 프로젝트에서는 서버가 403 으로 막는다.
-      path !== '/api/brain/recall' &&
-      // §5.10 — Project Brain 파일 접근 경고(hook PostToolUse Edit/Write). 토큰 인증 필수.
-      path !== '/api/brain/file-notes' &&
-      // §5.10 v3.74 — 주제 색인/주제 문서 열람. 스폰 브리핑이 카드 전량 주입 대신 색인만 싣게
-      //   바뀌었으므로, 에이전트가 "필요한 주제만 그 시점에 읽는" 경로가 반드시 열려 있어야 한다
-      //   (파일 Read 가 막힌 cwd·원격에서도 닿게). 읽기 전용 + 토큰 인증 필수.
-      path !== '/api/brain/topics' &&
-      !path.startsWith('/api/brain/topics/') &&
       // §4 v3.60 — 사용량 수집기(statusLine)가 미는 Claude.ai 한도 사용률. Claude Code 가
       //   statusLine 스크립트를 외부 프로세스로 돌리므로 이 loopback 이 유일한 도달 경로다.
       //   토큰 인증 필수(아래 분기).
@@ -326,14 +351,11 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       return;
     }
 
-    if (!isHealth && !isDispatch) {
-      const incoming = req.headers['x-vibisual-hook-token'];
-      if (incoming !== hookToken) {
-        res.statusCode = 401;
-        res.end('Unauthorized');
-        req.resume();
-        return;
-      }
+    if (!isHealth && !isValidHookToken(req.headers['x-vibisual-hook-token'])) {
+      res.statusCode = 401;
+      res.end('Unauthorized');
+      req.resume();
+      return;
     }
 
     // §3.7 v2.8 — hook 수신 외에 커스텀 위임 엣지 dispatch 도 외부 claude 프로세스가 호출하는
@@ -345,10 +367,17 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('error', () => { try { res.statusCode = 400; res.end(); } catch { /* socket gone */ } });
     req.on('end', () => {
+      // §5.3 #12-1 — **이 요청이 어디서 왔는지 표시한다.** 여기 닿은 것은 전부 우리가 스폰한
+      //   외부 프로세스(빌더 포함)의 curl 이고, 그 토큰은 그 프로세스의 env·프롬프트에 실려
+      //   나간 값이라 **토큰 보유가 곧 사용자 의사가 아니다.** 서버는 이 표식을 보고 권한 축을
+      //   동결한다. 클라가 같은 이름의 헤더를 보냈어도 **덮어쓴다** — 위조는 제약을 더할 뿐이라
+      //   안전하고, 반대로 지우지 못하게 하는 것이 이 한 줄의 전부다.
+      const ingressHeaders = { ...(req.headers as Record<string, string | string[]>) };
+      ingressHeaders[LOOPBACK_INGRESS_HEADER] = LOOPBACK_INGRESS_VALUE;
       void inject(expressApp as unknown as DispatchFunc, {
         method: (req.method ?? 'GET') as 'GET',
         url: req.url ?? path,
-        headers: req.headers as Record<string, string | string[]>,
+        headers: ingressHeaders,
         payload: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
       }).then((injected) => {
         res.statusCode = injected.statusCode;
@@ -558,7 +587,17 @@ async function bootBackend(): Promise<void> {
     // §4 v3.60 — 사용량 수집기(statusLine)도 같은 핸들러를 쓴다. 사용자가 팝업에서 켤 때
     //   server 가 이 경로로 명령을 조립하도록 주입.
     setHookHandlerPath(handlerPath);
-    const r = ensureClaudeHooksInstalled(hookPort, handlerPath, hookToken);
+    // §5.25 (I) — 코덱스 훅에 필요한 값도 같은 자리에서 넘긴다. **여기서 설치하지는 않는다** —
+    //   코덱스 훅은 기본 꺼짐이고 사용자가 켤 때만 REST 로 깔린다(남의 전역 설정을 말없이 건드리지 않는다).
+    setCodexHookContext({ port: hookPort, handlerPath, token: hookToken });
+    // §3.6 — 호스트 `~/.claude` 하나가 아니라 **우리가 아는 모든 설정 홈**에 심는다.
+    //   Cowork(Claude Desktop 로컬 세션)는 설정 홈을 세션마다 따로 잡아 우리 훅을 보지 않았다
+    //   (anthropics/claude-code#63360) — 그래서 Cowork 작업은 캔버스에 한 획도 남지 않았다.
+    const all = ensureHooksInstalledEverywhere(hookPort, handlerPath, hookToken);
+    const r = all.host;
+    if (all.coworkInstalled > 0) {
+      console.log(`[main] hooks installed into ${all.coworkInstalled} Cowork session home(s)`);
+    }
     if (r.error) {
       console.warn(`[main] hook installer failed: ${r.error.message} — 훅 이벤트가 0건일 수 있음`);
     } else if (r.installed) {

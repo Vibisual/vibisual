@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   TAB_PUSH,
   applyLocalOrder,
+  crossedAxisMidpoint,
   crossedTabMidpoint,
   moveKeyToward,
   planTabPush,
+  resolveAxisReorder,
   resolveTabReorder,
   sameMembers,
   sameOrder,
@@ -50,6 +52,53 @@ describe('resolveTabReorder — 중앙선을 넘어야 자리가 바뀐다', () 
   it('중앙선 정확히 위는 넘은 것으로 친다(양방향 모두 반응)', () => {
     expect(crossedTabMidpoint({ pointerX: 150, targetLeft: 100, targetWidth: 100, movingRight: true })).toBe(true);
     expect(crossedTabMidpoint({ pointerX: 150, targetLeft: 100, targetWidth: 100, movingRight: false })).toBe(true);
+  });
+});
+
+describe('resolveAxisReorder — 세로로 선 줄도 같은 손맛을 쓴다 (§5.5 #16-1 활동바)', () => {
+  // 40px 칸이 위에서부터 붙어 있는 가상의 활동바(가로 탭바를 90도 돌린 것).
+  const order = ['mcp', 'files', 'goal'];
+  const slot = { targetStart: 40, targetSize: 40 }; // files 의 자리
+
+  it('아래로 끌 때 중앙선 앞이면 그대로 둔다', () => {
+    expect(resolveAxisReorder({
+      order, movedKey: 'mcp', targetKey: 'files', pointer: 59, ...slot,
+    })).toBeNull();
+  });
+
+  it('아래로 끌어 중앙선을 넘으면 그 칸 뒤로 간다 — 지나온 칸이 위로 밀린다', () => {
+    expect(resolveAxisReorder({
+      order, movedKey: 'mcp', targetKey: 'files', pointer: 61, ...slot,
+    })).toEqual(['files', 'mcp', 'goal']);
+  });
+
+  it('위로 끌 때는 반대 — 중앙선 아래면 그대로, 넘으면 그 칸 앞으로', () => {
+    expect(resolveAxisReorder({
+      order, movedKey: 'goal', targetKey: 'files', pointer: 61, ...slot,
+    })).toBeNull();
+    expect(resolveAxisReorder({
+      order, movedKey: 'goal', targetKey: 'files', pointer: 59, ...slot,
+    })).toEqual(['mcp', 'goal', 'files']);
+  });
+
+  it('가로 API 는 세로 판정의 껍데기다 — 두 벌이 되면 손맛이 갈린다', () => {
+    // 같은 기하를 축 이름만 바꿔 넣으면 답이 같아야 한다.
+    expect(resolveTabReorder({
+      order: ['a', 'b', 'c'], movedKey: 'a', targetKey: 'b', pointerX: 151, targetLeft: 100, targetWidth: 100,
+    })).toEqual(resolveAxisReorder({
+      order: ['a', 'b', 'c'], movedKey: 'a', targetKey: 'b', pointer: 151, targetStart: 100, targetSize: 100,
+    }));
+    expect(crossedAxisMidpoint({ pointer: 60, targetStart: 40, targetSize: 40, movingForward: true })).toBe(true);
+    expect(crossedAxisMidpoint({ pointer: 60, targetStart: 40, targetSize: 40, movingForward: false })).toBe(true);
+  });
+
+  it('밀린 거리 계산은 축을 모른다 — 세로 좌표를 그대로 넣어도 같은 답이다', () => {
+    // `planTabPush` 가 받는 것은 "축 방향 좌표"뿐이라 세로 목록도 그대로 쓴다(별도 함수 ❌).
+    const previous = new Map([['mcp', 0], ['files', 40]]);
+    const next = new Map([['mcp', 40], ['files', 0]]);
+    const steps = planTabPush({ previous, next, leadKey: 'mcp', order: ['files', 'mcp'] });
+    expect(steps.find((s) => s.key === 'mcp')?.shiftPx).toBe(-40);
+    expect(steps.find((s) => s.key === 'files')?.shiftPx).toBe(40);
   });
 });
 

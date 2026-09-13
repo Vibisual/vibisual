@@ -6,12 +6,17 @@
  *
  * 규율:
  *  · 목록은 **열 때마다 서버에서 다시 잰다**(캐시 ❌ — 캐시된 표는 옛날 답을 준다).
- *  · 토글은 **여기가 최종**이다. 프로젝트 층과 세션 층 중 어디에 걸지는 위 스위치가 정한다.
+ *  · 토글은 **여기가 최종**이다. 층 셋(프로젝트 전체 · 이 에이전트 버블 · 이 세션) 중 어디에 걸지는
+ *    위 스위치가 정하고, **아래로 갈수록 우선**한다 — 위층을 바꾸면 자기 값을 안 정한 아래층은
+ *    따라 움직이고, 자기 값을 정한 층은 그때부터 위층을 무시한다.
+ *  · **보고 있는 층의 값을 그린다.** 어느 층을 골랐든 최종값만 그리면, 아래층에 명시값이 걸린 줄은
+ *    위층에서 눌러도 스위치가 안 움직여 고장으로 보인다(그것이 종전의 "동작을 안 한다"였다).
  *  · 못 끄는 줄은 잠긴 채로 이유를 말한다 — 끌 수 있는 척하지 않는다.
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ContextInventory, ContextSourceItem } from '@vibisual/shared';
+import type { ContextInventory, ContextScopeLevel, ContextSourceItem } from '@vibisual/shared';
+import { CONTEXT_SCOPE_LEVELS } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -27,6 +32,16 @@ import {
 } from './contextInventoryView.js';
 import { useContextAbout } from './useContextAbout.js';
 import { IDEContextSourceDialog } from './IDEContextSourceDialog.js';
+import {
+  CONTEXT_SCOPE_TAB_KEY,
+  lowerOverrideLevels,
+  hasOwnOverride,
+  nextOverrideValue,
+  optimisticScopeChange,
+  scopeSelectable,
+  scopeStateOf,
+  sumTokensAtScope,
+} from './contextScopeView.js';
 
 const SORT_KEYS: { key: ContextSortKey; labelKey: string }[] = [
   { key: 'category', labelKey: 'ide.context.sort.category' },
@@ -51,11 +66,14 @@ function formatDay(ts?: number): string {
 /** 한 줄 — 제목·토큰·통제 배지·토글 + (있으면) 펼쳐지는 내역. */
 const SourceRow = memo(function SourceRow({
   item,
+  scope,
   onToggle,
   onOpenDetail,
   busy,
 }: {
   item: ContextSourceItem;
+  /** 지금 보고 있는 층 — 스위치가 그리는 값도, 누를 때 저장되는 층도 이것이다. */
+  scope: ContextScopeLevel;
   onToggle: (item: ContextSourceItem, next: boolean) => void;
   /** §5.5 #17-28 ⑦ — 제목을 누르면 이 줄이 무엇인지 말해 주는 상세창이 뜬다. */
   onOpenDetail: (item: ContextSourceItem) => void;
@@ -67,30 +85,36 @@ const SourceRow = memo(function SourceRow({
   const title = item.labelKey ? t(item.labelKey) : item.title;
   const lockable = item.control === 'session' || item.control === 'spawn';
   const children = item.children ?? [];
+  /** 이 층에서 본 값 — 최종값(`item.enabled`)이 아니다. 아래층이 따로 정했으면 둘은 다를 수 있다. */
+  const on = scopeStateOf(item, scope);
+  /** 이 층이 자기 값을 들고 있나(= 위층을 안 따라가는 상태). */
+  const own = hasOwnOverride(item, scope);
+  /** 아래층이 자기 값을 정해 둬서, 여기를 바꿔도 저기는 안 따라오는 층들. */
+  const lower = lowerOverrideLevels(item, scope);
 
   return (
-    <li className={`rounded px-1.5 py-1.5 transition-colors ${item.enabled ? 'hover:bg-gray-700/40' : 'bg-gray-800/40 hover:bg-gray-700/30'}`}>
+    <li className={`rounded px-1.5 py-1.5 transition-colors ${on ? 'hover:bg-gray-700/40' : 'bg-gray-800/40 hover:bg-gray-700/30'}`}>
       <div className="flex items-start gap-1.5">
         {/* 토글 — 못 끄는 줄은 잠긴 상태로 그린다(눌러도 아무 일이 없다는 것이 보이게). */}
         <button
           type="button"
           disabled={!lockable || busy}
-          onClick={() => onToggle(item, !item.enabled)}
+          onClick={() => onToggle(item, !on)}
           title={lockable
-            ? t(item.enabled ? 'ide.context.turnOff' : 'ide.context.turnOn')
+            ? t(on ? 'ide.context.turnOff' : 'ide.context.turnOn')
             : t(item.hintKey ?? 'ide.context.locked')}
           aria-label={title}
-          aria-pressed={item.enabled}
+          aria-pressed={on}
           className={`mt-px flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors ${
             !lockable
               ? 'cursor-not-allowed bg-gray-700/60'
-              : item.enabled
+              : on
                 ? 'bg-emerald-500/70 hover:bg-emerald-400/80'
                 : 'bg-gray-600 hover:bg-gray-500'
           }`}
         >
           <span
-            className={`h-3 w-3 rounded-full bg-white/90 transition-transform ${item.enabled ? 'translate-x-3' : 'translate-x-0'} ${
+            className={`h-3 w-3 rounded-full bg-white/90 transition-transform ${on ? 'translate-x-3' : 'translate-x-0'} ${
               !lockable ? 'opacity-40' : ''
             }`}
           />
@@ -110,7 +134,7 @@ const SourceRow = memo(function SourceRow({
                 onClick={() => onOpenDetail(item)}
                 className="block w-full text-left"
               >
-                <span className={`block truncate text-[12px] font-medium underline-offset-2 hover:underline ${item.enabled ? 'text-gray-200' : 'text-gray-500 line-through'}`}>
+                <span className={`block truncate text-[12px] font-medium underline-offset-2 hover:underline ${on ? 'text-gray-200' : 'text-gray-500 line-through'}`}>
                   {title}
                 </span>
               </button>
@@ -120,15 +144,33 @@ const SourceRow = memo(function SourceRow({
             )}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            <span className={`tabular-nums text-[12px] font-semibold ${item.enabled ? 'text-violet-300/80' : 'text-gray-600'}`}>
+            <span className={`tabular-nums text-[12px] font-semibold ${on ? 'text-violet-300/80' : 'text-gray-600'}`}>
               {item.estimated ? '~' : ''}{formatTokens(item.tokens)}
             </span>
             <span className={`rounded px-1 py-px text-[12px] ${CONTROL_STYLE[item.control] ?? CONTROL_STYLE['none']}`}>
               {t(`ide.context.control.${item.control}`)}
             </span>
-            {item.overrideScope && (
-              <span className="rounded bg-violet-500/20 px-1 py-px text-[12px] text-violet-300">
-                {t(`ide.context.scope.${item.overrideScope}`)}
+            {/* 이 층이 자기 값을 들고 있을 때만 층 배지 — 물려받는 중이면 배지가 없다(그게 "따라간다"의 표시다). */}
+            {own && (
+              <span
+                className="rounded bg-violet-500/20 px-1 py-px text-[12px] text-violet-300"
+                title={t('ide.context.ownHere', { scope: t(`ide.context.scope.${scope}`) })}
+              >
+                {t(`ide.context.scope.${scope}`)}
+              </span>
+            )}
+            {/* 아래층이 따로 정해 뒀다 — 여기를 바꿔도 저기는 안 따라온다는 것을 미리 말해 준다. */}
+            {lower.length > 0 && (
+              <span
+                className="flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-px text-[12px] text-amber-300/90"
+                title={t('ide.context.lowerOverrideHint', {
+                  scopes: lower.map((lv) => t(`ide.context.scope.${lv}`)).join(', '),
+                })}
+              >
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" /><path d="M19 12l-7 7-7-7" />
+                </svg>
+                {lower.map((lv) => t(`ide.context.scope.${lv}`)).join('·')}
               </span>
             )}
             {item.updatedAt && (
@@ -147,7 +189,7 @@ const SourceRow = memo(function SourceRow({
               </button>
             )}
           </div>
-          {item.warnKey && !item.enabled && (
+          {item.warnKey && !on && (
             <p className="mt-0.5 text-[12px] leading-snug text-amber-400/80">{t(item.warnKey)}</p>
           )}
           {open && children.length > 0 && (
@@ -174,7 +216,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<ContextSortKey>('category');
   const [desc, setDesc] = useState(true);
-  const [scope, setScope] = useState<'project' | 'session'>('project');
+  const [scope, setScope] = useState<ContextScopeLevel>('project');
   const [busy, setBusy] = useState(false);
   /** §5.5 #17-28 ⑦ — 상세창은 **id 로** 연다. 목록을 다시 재면 항목 객체는 새것이 되므로 붙들면 낡는다. */
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -197,16 +239,22 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // 세션 탭이 없으면 걸 곳이 없으므로 프로젝트 층으로 되돌린다(빈 세션 키로 저장되는 일 방지).
-  useEffect(() => { if (!activeSessionId && scope === 'session') setScope('project'); }, [activeSessionId, scope]);
+  // 세션 탭이 없으면 걸 곳이 없으므로 한 칸 위(에이전트 층)로 되돌린다(빈 세션 키로 저장되는 일 방지).
+  //   프로젝트까지 올리지 않는 것은, 사용자가 좁게 걸려던 뜻을 필요 이상으로 넓히지 않기 위함이다.
+  useEffect(() => {
+    if (!activeSessionId && scope === 'session') setScope('agent');
+  }, [activeSessionId, scope]);
 
   const handleToggle = useCallback(async (item: ContextSourceItem, next: boolean) => {
     if (!agentId) return;
+    // 세션 층을 고른 채 탭이 없으면 걸 자리가 없다 — 조용히 프로젝트에 걸지 않고 아무것도 안 한다.
+    if (scope === 'session' && !activeSessionId) return;
     setBusy(true);
-    // 낙관 반영 — 누른 즉시 줄이 반응하고, 서버 응답 뒤 실측으로 덮어쓴다.
+    // 낙관 반영 — 누른 즉시 **고른 층의** 값과 그 아래로 물려받는 층들이 함께 움직인다
+    //   (서버 응답 뒤 실측으로 덮어쓴다). 아래층이 자기 값을 들고 있으면 그 층은 그대로 둔다.
     setInventory((prev) => prev && ({
       ...prev,
-      items: prev.items.map((i) => (i.id === item.id ? { ...i, enabled: next, overrideScope: scope } : i)),
+      items: prev.items.map((i) => (i.id === item.id ? optimisticScopeChange(i, scope, next) : i)),
     }));
     try {
       await fetch(`/api/context-overrides/${encodeURIComponent(agentId)}`, {
@@ -214,10 +262,12 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceId: item.id,
-          // 기본값과 같아지면 오버라이드를 지운다(설정이 쌓이지 않게 — 되돌리기가 곧 삭제다).
-          enabled: next === item.defaultEnabled ? null : next,
-          scope: scope === 'session' && activeSessionId ? 'session' : 'project',
-          ...(scope === 'session' && activeSessionId ? { subAgentId: activeSessionId } : {}),
+          // **물려받을 값**과 같아지면 이 층의 명시값을 지운다(= 다시 위층을 따라간다).
+          //   기본값과 비교하던 종전 규칙은 "프로젝트에서 끈 줄을 세션에서 다시 켜기"를 통째로
+          //   삼켰다 — 켜자마자 명시값이 지워져 프로젝트의 끔으로 굴러떨어졌다.
+          enabled: nextOverrideValue(item, scope, next),
+          scope,
+          ...(activeSessionId ? { subAgentId: activeSessionId } : {}),
         }),
       });
     } catch {
@@ -228,13 +278,13 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
     }
   }, [agentId, scope, activeSessionId, refresh]);
 
+  /** 고른 층만 비운다 — 위층은 그대로고, 그 층은 다시 위를 따라간다. */
   const handleReset = useCallback(async () => {
     if (!agentId) return;
+    if (scope === 'session' && !activeSessionId) return;
     setBusy(true);
     try {
-      const q = scope === 'session' && activeSessionId
-        ? `?scope=session&sub=${encodeURIComponent(activeSessionId)}`
-        : '?scope=project';
+      const q = `?scope=${scope}${activeSessionId ? `&sub=${encodeURIComponent(activeSessionId)}` : ''}`;
       await fetch(`/api/context-overrides/${encodeURIComponent(agentId)}${q}`, { method: 'DELETE' });
     } catch {
       /* 무시 — refresh 가 진실을 다시 가져온다 */
@@ -253,7 +303,10 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
     return sortItems(items, sortKey, desc, titleOf);
   }, [inventory, query, sortKey, desc, titleOf]);
 
-  const totals = useMemo(() => sumTokens(inventory?.items ?? []), [inventory]);
+  // 합계도 **고른 층 기준**이다 — 표는 그 층을 그리는데 합계만 최종값이면 둘이 다른 말을 한다.
+  const totals = useMemo(() => sumTokensAtScope(inventory?.items ?? [], scope), [inventory, scope]);
+  /** 실제로 프롬프트에 나가는 최종 합계 — 위층을 보는 동안에도 "진짜 나가는 값"을 잃지 않게. */
+  const finalTotals = useMemo(() => sumTokens(inventory?.items ?? []), [inventory]);
   const groups = useMemo(() => (sortKey === 'category' ? groupByCategory(visible) : null), [sortKey, visible]);
   // 목록이 새로 고쳐져도 열려 있던 상세창은 **그 줄의 최신 상태**를 계속 비춘다(토글 직후에도 어긋나지 않게).
   const detailItem = useMemo(
@@ -278,36 +331,55 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
         </button>
       </div>
 
-      {/* 합계 — "지금 이 프롬프트가 얼마짜리인가" 한 줄. */}
+      {/* 합계 — "이 층에서 보면 얼마짜리인가" 한 줄. 최종값과 다르면 그것도 함께 말한다. */}
       <div className="flex items-baseline gap-1 rounded bg-gray-800/60 px-2 py-1">
         <span className="tabular-nums text-[13px] font-bold text-violet-300">~{formatTokens(totals.enabled)}</span>
         <span className="text-[12px] text-gray-500">/ ~{formatTokens(totals.total)}</span>
+        {totals.enabled !== finalTotals.enabled && (
+          <span
+            className="tabular-nums text-[12px] text-amber-300/90"
+            title={t('ide.context.finalDiffHint', { tokens: formatTokens(finalTotals.enabled) })}
+          >
+            → ~{formatTokens(finalTotals.enabled)}
+          </span>
+        )}
         <span className="ml-auto text-[12px] text-gray-500">{t('ide.context.tokensLabel')}</span>
       </div>
 
-      {/* 어느 층에 걸까 — 프로젝트 전체 / 이 세션만. */}
+      {/* 어느 층에 걸까 — 프로젝트 전체 / 이 에이전트 버블 / 이 세션. 아래로 갈수록 우선한다. */}
       <div className="flex items-center gap-1">
-        {(['project', 'session'] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            disabled={s === 'session' && !activeSessionId}
-            onClick={() => setScope(s)}
-            className={`flex-1 rounded px-1 py-1 text-[12px] font-semibold transition-colors ${
-              scope === s
-                ? 'bg-violet-500/25 text-violet-200'
-                : 'bg-gray-800/60 text-gray-500 hover:text-gray-300 disabled:opacity-40 disabled:hover:text-gray-500'
-            }`}
-          >
-            {t(`ide.context.scope.${s}`)}
-          </button>
-        ))}
+        {CONTEXT_SCOPE_LEVELS.map((s) => {
+          const selectable = scopeSelectable(s, Boolean(activeSessionId));
+          return (
+            <button
+              key={s}
+              type="button"
+              disabled={!selectable}
+              onClick={() => setScope(s)}
+              title={selectable ? t(`ide.context.scopeTabHint.${s}`) : t('ide.context.scopeTabNoSession')}
+              className={`min-w-0 flex-1 truncate rounded px-1 py-1 text-[12px] font-semibold transition-colors ${
+                scope === s
+                  ? 'bg-violet-500/25 text-violet-200'
+                  : 'bg-gray-800/60 text-gray-500 hover:text-gray-300 disabled:opacity-40 disabled:hover:text-gray-500'
+              }`}
+            >
+              {t(CONTEXT_SCOPE_TAB_KEY[s])}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 고른 층이 무슨 뜻인지 한 줄 + 그 층만 비우는 손잡이. */}
+      <div className="flex items-center gap-1 px-0.5">
+        <p className="min-w-0 flex-1 truncate text-[12px] leading-snug text-gray-500" title={t(`ide.context.scopeTabHint.${scope}`)}>
+          {t(`ide.context.scopeTabHint.${scope}`)}
+        </p>
         <button
           type="button"
           onClick={() => { void handleReset(); }}
-          title={t('ide.context.reset')}
-          aria-label={t('ide.context.reset')}
-          className="flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          title={t('ide.context.reset', { scope: t(`ide.context.scope.${scope}`) })}
+          aria-label={t('ide.context.reset', { scope: t(`ide.context.scope.${scope}`) })}
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
@@ -356,13 +428,13 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
                 {t(CONTEXT_CATEGORY_LABEL_KEY[g.category] ?? g.category)}
               </div>
               <ul className="flex flex-col">
-                {g.items.map((i) => <SourceRow key={i.id} item={i} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy} />)}
+                {g.items.map((i) => <SourceRow key={i.id} item={i} scope={scope} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy} />)}
               </ul>
             </div>
           ))
           : (
             <ul className="flex flex-col">
-              {visible.map((i) => <SourceRow key={i.id} item={i} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy} />)}
+              {visible.map((i) => <SourceRow key={i.id} item={i} scope={scope} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy} />)}
             </ul>
           )}
         {visible.length === 0 && (
@@ -377,6 +449,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
           agentId={agentId}
           subAgentId={activeSessionId ?? undefined}
           item={detailItem}
+          scope={scope}
           onToggle={handleToggle}
           busy={busy}
           onClose={() => setDetailId(null)}

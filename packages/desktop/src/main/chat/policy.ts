@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import {
-  CHAT_LOG_AGENT_MAX, CHAT_PAIR_ATTEMPT_MAX, CHAT_PENDING_ACTION_MAX, CHAT_UNPAIRED_NOTICE_MS,
+  CHAT_LOG_AGENT_MAX, CHAT_PAIR_ATTEMPT_MAX, CHAT_PENDING_ACTION_MAX, CHAT_PICK_TOKEN_HEX,
+  CHAT_UNPAIRED_NOTICE_MS,
 } from '@vibisual/shared';
 import type { ChatCard, ChatChannelKind, ChatVerbosity, SessionGoal } from '@vibisual/shared';
 import { passesVerbosity } from './cards';
@@ -120,4 +122,40 @@ export function goalSignature(goal: SessionGoal): string {
 /** 페어링 실패 누적·안내 쿨다운의 키. 전역 잠금이 아니라 발신자별(소유자 lockout 방지). */
 export function peerKey(kind: ChatChannelKind, chatId: string): string {
   return `${kind}:${chatId}`;
+}
+
+// ─── 3단계 선택 (프로젝트 → 커스텀 에이전트 → 세션) ──────────────────────────
+//
+// 버튼이 실어 보낼 수 있는 글자에는 **바깥이 정한 상한**이 있다 — 텔레그램 `callback_data` 는
+// 64바이트다. 프로젝트 표시명은 사용자 폴더 이름이라 길이도 문자도 우리가 정하지 못하고,
+// 한글 한 자가 UTF-8 3바이트라 스무 자면 이미 넘친다. 넘치면 텔레그램이 **카드 전체를 거절**해
+// 목록이 아예 안 뜬다 — 조용히 실패하는 자리라 규칙을 여기 순수 함수로 못박고 테스트로 고정한다.
+//
+// 그래서 값은 해시로 접어 보내고, 눌렸을 때 **그 시점 목록에서 되찾는다.** 목록을 다시 만들어
+// 대조하므로 그 사이 사라진 항목은 자연히 못 찾고(= "사라졌다" 안내), 인덱스로 보냈을 때처럼
+// **엉뚱한 대상이 선택되는 일이 구조적으로 불가능**하다.
+
+/** 긴 값을 버튼에 실을 수 있는 짧은 토큰으로 접는다. 되돌릴 수 없고, 되찾기는 대조로 한다. */
+export function pickToken(value: string): string {
+  return createHash('sha1').update(value).digest('hex').slice(0, CHAT_PICK_TOKEN_HEX);
+}
+
+/** 선택 버튼 하나의 `actionId`. `<접두사>:<토큰>` — 접두사가 어느 단계인지 말한다. */
+export function pickActionId(prefix: string, value: string): string {
+  return `${prefix}:${pickToken(value)}`;
+}
+
+/**
+ * 눌린 버튼이 가리키는 값을 **지금 목록에서** 되찾는다. 없으면 `null`(사라진 항목).
+ *
+ * 원문도 함께 받아 주는 이유는 하위호환 하나뿐이다 — 종전 `/agents` 는 `a:<agentId>` 로
+ * agentId 를 그대로 실어 보냈고, 그 카드가 아직 폰의 대화 기록에 남아 있다.
+ */
+export function resolvePick(actionId: string, prefix: string, candidates: readonly string[]): string | null {
+  const head = `${prefix}:`;
+  if (!actionId.startsWith(head)) return null;
+  const token = actionId.slice(head.length);
+  if (!token) return null;
+  for (const c of candidates) if (c === token || pickToken(c) === token) return c;
+  return null;
 }

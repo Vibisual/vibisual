@@ -4,7 +4,7 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { QueuedCommand, SubAgent } from '@vibisual/shared';
 // §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
-import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisual/shared';
+import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE, displayCommands } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -546,7 +546,9 @@ export const CommandQueue = memo(function CommandQueue({
 }: CommandQueueProps): React.JSX.Element {
   const { t } = useTranslation();
   const allQueues = useGraphStore((s) => s.queuedCommands);
-  const commands = allQueues[agentId] ?? EMPTY_COMMANDS;
+  // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 대기열에 뜨지 않는다(사용자가 넣은 명령이 아니다).
+  //   그래서 **화면의 자리와 큐의 자리가 다르고**, 아래 재정렬은 자리가 아니라 id 로 보낸다.
+  const commands = displayCommands(allQueues[agentId] ?? EMPTY_COMMANDS);
   const addCommand = useGraphStore((s) => s.addCommand);
   const reorderCommands = useGraphStore((s) => s.reorderCommands);
   const [showPopup, setShowPopup] = useState(false);
@@ -571,11 +573,15 @@ export const CommandQueue = memo(function CommandQueue({
 
   const handleDrop = useCallback(() => {
     if (dragIndex !== null && overIndex !== null && dragIndex !== overIndex) {
-      reorderCommands(agentId, dragIndex, overIndex);
+      // 드래그 시각 상태는 **보이는 목록**의 자리다. 서버 큐에는 안 보이는 명령이 섞여 있을 수
+      //   있으므로 자리를 그대로 보내면 엉뚱한 것이 움직인다 — 명령 자체(id)를 가리킨다.
+      const from = commands[dragIndex];
+      const to = commands[overIndex];
+      if (from && to) reorderCommands(agentId, from.id, to.id);
     }
     setDragIndex(null);
     setOverIndex(null);
-  }, [dragIndex, overIndex, agentId, reorderCommands]);
+  }, [dragIndex, overIndex, agentId, commands, reorderCommands]);
 
   const handleDragEnd = useCallback(() => {
     setDragIndex(null);

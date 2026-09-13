@@ -3,11 +3,11 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
+import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
 import { useSessionRunning } from '../../hooks/useSessionRunning.js';
-import { clampStreamText } from './streamDensity.js';
+import { clampStreamText, COMPACT_TEXT_CLAMP, turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, type TurnCoverage } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { PlanBlock } from './PlanBlock.js';
@@ -19,15 +19,20 @@ import { useIDEPaneValue } from './idePane.js';
 import { useSplitCellFocused, useSplitCellSession } from './splitCellContext.js';
 import type { AgentSessionInputAttachment, EditorFollowMark } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
+// §5.5 #17-33 ⑦ — 스킬 상태 태그. 여기서는 **표시 전용**(`onFix` 를 안 넘긴다).
+import { SkillStateTag } from '../SkillStateTag.js';
 import { useSessionStop } from '../../hooks/useSessionStop.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { openWebSearch } from './webSearchUrl.js';
 import { StreamRenderer, StreamEndGap, type StreamRendererHandle } from './StreamRenderer.js';
+import { StreamImageThumb } from './StreamImageThumb.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
+import { providerBadgeOf } from './ideProviderViews.js';
 import { ImageLightboxView } from './ImageAnnotator.js';
 import { decideFollow } from './followDecision.js';
 import { FOLLOW_SKIP_SHORT_KEYS, followSessionKey } from './editorFollow.js';
 import { useVirtuosoFrontShift } from './frontShift.js';
+import { VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
 import { readingItemAttrsNoProse } from './reading/readingModel.js';
 import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection, markRange, clearFindHighlight, highlightSearchMatches } from './bookmarkScroll.js';
@@ -46,7 +51,7 @@ import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndic
 import { collectThinkRuns, shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
-import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
+import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
 // §5.5 #17-38 — 음성 받아쓰기. 마이크 수명은 훅이, 키·글 끼우기 판정은 shared 가, "듣는 중" 표시는 오버레이가 맡는다.
@@ -167,7 +172,7 @@ function performBookmarkScroll(container: HTMLElement, anchorId: string | undefi
 
 interface TerminalEntry {
   id: string;
-  type: 'command' | 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'step';
+  type: 'command' | 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'step' | 'image';
   text: string;
   timestamp: number;
   sessionLabel?: string;
@@ -179,6 +184,12 @@ interface TerminalEntry {
   endedAt?: number;
   /** §5.5 #17-39 — 사고 자국의 분량(글자). `text` 는 비어 있다 — 사고 **원문은 담지 않는다**. */
   stepChars?: number;
+  /**
+   * §5.25 (O) — `type==='image'` 일 때 그 그림이 나온 세션. 그림을 청하는 주소가
+   * `<agentId>/<subAgentId>/<eventId>` 라, 전체 보기에서는 어느 세션의 줄인지 여기 적어야 한다
+   * (`sessionLabel` 은 사람이 읽는 이름이라 주소로 못 쓴다).
+   */
+  imageSubAgentId?: string;
   /**
    * `type==='command'` 일 때 **내가 보낸 시각**. 위 `timestamp` 는 §5.5 #17-18 ⑥ 대로 말풍선이 설
    * 자리(= 나간 시각 · 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)라 시각 표기에 쓸 수 없다.
@@ -411,12 +422,15 @@ function buildEntries(
         if (isHiddenSystemEvent(evt)) continue; // §5.5 #17-13 ⑤-4 — 살림성 칩(`*_changed`)·`status` 는 원문 밀도에서도 안 그린다
         entries.push({
           id: evt.id,
-          type: evt.eventType,
+          // §5.25 (O) — 그림은 전선에서 `text` 지만 여기서 갈라 세운다. 그냥 두면 아래 합치기가
+          //   앞 말풍선에 붙여 그림이 사라지고 파일 이름만 문장에 끼어든다(Sub 탭과 같은 규약).
+          type: evt.imagePath ? 'image' : evt.eventType,
           // §5.5 #17-12 ③ — 오류 줄만 서버 원문(`[code:exit] …`)이라 여기서 문장으로 편다.
           text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
           timestamp: evt.timestamp,
           sessionLabel: label,
           toolName: evt.toolName,
+          ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
         });
       }
       // §5.5 #17-39 — 사고는 위에서 본문으로 안 쌓았지만, **얼마나 걸렸는지는 남긴다**.
@@ -431,10 +445,12 @@ function buildEntries(
         if (isHiddenSystemEvent(evt)) continue; // §5.5 #17-13 ⑤-4 — 살림성 칩(`*_changed`)·`status` 는 원문 밀도에서도 안 그린다
         entries.push({
           id: evt.id,
-          type: evt.eventType,
+          // §5.25 (O) — 전체 보기 루프와 같은 규약(둘이 어긋나면 탭에 따라 그림이 있고 없다).
+          type: evt.imagePath ? 'image' : evt.eventType,
           text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
           timestamp: evt.timestamp,
           toolName: evt.toolName,
+          ...(evt.imagePath ? { imageSubAgentId: activeSessionId } : {}),
         });
       }
       // §5.5 #17-39 — 사고 자국(세션 하나만 볼 때도 전체 보기와 같은 규칙).
@@ -442,16 +458,27 @@ function buildEntries(
     }
   }
 
-  // completed/error 명령의 결과 — 스트림 result 이벤트가 없을 때만 cmd.result 폴백 (프롬프트는 위에서 이미 push)
+  // completed/error 명령의 결과 — **그 턴의 말이 스트림에 남아 있지 않을 때만** cmd.result 폴백 (프롬프트는 위에서 이미 push).
+  //   §5.5 #17-12 ③-3 — Sub 탭과 같은 턴 단위 판정(`turnCoverageOf`). 종전에는 세션 전체에 result 줄이 하나라도
+  //   있으면 모든 말풍선의 결과를 숨겼고, 반대로 없으면 창 안의 턴까지 본문과 결과를 두 번 실었다.
+  const coverageBySub = new Map<string, TurnCoverage>();
+  const coverageFor = (subId: string): TurnCoverage => {
+    let cov = coverageBySub.get(subId);
+    if (!cov) {
+      cov = turnCoverageOf(streams[subId] ?? [], dispatchedTurnAnchorsAsc(commands.filter((c) => c.subAgentId === subId)));
+      coverageBySub.set(subId, cov);
+    }
+    return cov;
+  };
   for (const cmd of targetCmds) {
     if (cmd.status !== 'completed' && cmd.status !== 'error') continue;
     const sessionLabel = activeSessionId === null && cmd.subAgentId
       ? subLabelMap.get(cmd.subAgentId)
       : undefined;
 
-    const subStreams = cmd.subAgentId ? (streams[cmd.subAgentId] ?? []) : [];
-    // §5.5 #17-12 ③ — 실패 사유. 스트림에 오류 줄이 이미 있으면 그 자리가 진짜 시점이므로 겹쳐 쓰지 않는다.
-    if (cmd.status === 'error' && cmd.error && !subStreams.some((e) => e.eventType === 'error')) {
+    const coverage = cmd.subAgentId ? coverageFor(cmd.subAgentId) : emptyTurnCoverage();
+    // §5.5 #17-12 ③ — 실패 사유. 그 턴의 오류 줄이 스트림에 이미 있으면 그 자리가 진짜 시점이므로 겹쳐 쓰지 않는다.
+    if (cmd.status === 'error' && cmd.error && !coverage.failed.has(cmd.id)) {
       entries.push({
         id: `cmderr-${cmd.id}`,
         type: 'error',
@@ -462,8 +489,8 @@ function buildEntries(
       });
     }
     if (!cmd.result) continue;
-    const hasResultStream = subStreams.some((e) => e.eventType === 'result');
-    if (hasResultStream) continue;
+    // 그 턴의 본문·result 줄이 버퍼에 있으면 답은 이미 스트림에서 그려진다 — 창 밖으로 밀려난 턴만 여기서 말한다.
+    if (coverage.answered.has(cmd.id)) continue;
 
     entries.push({
       id: `cmdres-${cmd.id}`,
@@ -498,34 +525,6 @@ function buildEntries(
 
 /** tool_use+tool_result 쌍을 접을 수 있는 그룹으로, 연속 text를 하나로 묶기.
  *  §5.5 #17-15 — 사고는 buildEntries 단계에서 이미 빠졌다(묶을 대상이 없다). */
-/**
- * §5.5 #17-26 ① — 간결에서 **턴마다 AI 본문의 처음 것과 마지막 것만** 남긴다
- * (Sub 탭 `streamDensity.keepFirstAndLastText` 와 같은 규칙, 자료형만 다르다).
- *
- * 턴 경계는 사용자 명령(`command`) 항목. 첫 본문 = 의도 선언, 마지막 본문 = 결론·질문이고 사이의 본문은
- * 도구를 감싼 진행 나레이션이라 도구를 숨긴 화면에서 맥락 없는 토막이 된다. 빈 본문은 후보로 세지 않는다.
- */
-function keepFirstAndLastMainText(items: TerminalItem[]): TerminalItem[] {
-  const keep = new Set<string>();
-  let firstOfTurn: string | null = null;
-  let lastOfTurn: string | null = null;
-  const closeTurn = (): void => {
-    if (firstOfTurn) keep.add(firstOfTurn);
-    if (lastOfTurn) keep.add(lastOfTurn);
-    firstOfTurn = null;
-    lastOfTurn = null;
-  };
-  for (const it of items) {
-    if (it.kind !== undefined) continue;
-    if (it.type === 'command') { closeTurn(); continue; }
-    if (it.type !== 'text' || it.text.trim() === '') continue;
-    if (!firstOfTurn) firstOfTurn = it.id;
-    else lastOfTurn = it.id;
-  }
-  closeTurn();
-  return items.filter((it) => it.kind !== undefined || it.type !== 'text' || keep.has(it.id));
-}
-
 /**
  * §5.5 #17-12 — 메인 탭 밀도 적용(Sub 탭 streamDensity 와 같은 규칙, 자료형만 다르다).
  *  - 연속 동종 도구 묶음(진행 중 제외)을 `도구 ×N` 한 줄로 합친다.
@@ -620,7 +619,10 @@ function applyMainDensity(items: TerminalItem[], density: StreamDensity): Termin
         if (e.type === 'system' && !isSystemSubtypeChip(e.text)) compacted.push(e);
       }
     }
-    return keepFirstAndLastMainText(compacted);
+    // §5.5 #17-43 — 본문은 **하나도 걸러내지 않는다**(Sub 탭 `applyStreamDensity` 와 동일). 종전
+    //   규칙(#17-26 ①)의 "턴당 처음·마지막" 상한이 사이의 발견·경고·결정까지 잘라 냈다. 간결이 숨기는
+    //   것은 명령창(도구 묶음)뿐이다.
+    return compacted;
   }
   return out;
 }
@@ -708,53 +710,54 @@ function TerminalStepLine({ entry }: { entry: TerminalEntry }): React.JSX.Elemen
   return <StepTraceLine text={thinkTraceText(t, i18n.language, ms, entry.stepChars ?? 0)} />;
 }
 
-function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; density: StreamDensity; exempt: boolean }): React.JSX.Element {
+/** 본문 한 덩이의 평문 클래스 — 접힌 본문은 머리·꼬리 **두 덩이**로 그리므로 한 곳에 둔다(§5.5 #17-46 ③). */
+const TERMINAL_TEXT_CLASS = 'block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200';
+
+function TerminalTextLine({ entry, density, exempt, run }: { entry: TerminalEntry; density: StreamDensity; exempt: boolean; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  // §5.5 #17-46 — 간결에서는 **머리와 꼬리만 남기고 가운데**를 접는다(Sub 탭 `TextBlock` 과 같은 규칙·같은 설정).
+  //   평문(`whitespace-pre-wrap`)으로 그리므로 마크다운 코드펜스 보정(#17-46 ④)은 끈 설정을 쓴다.
   const clamped = useMemo(
-    () => (density === 'compact' && !exempt
-      ? clampStreamText(entry.text, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS)
-      : null),
+    () => (density === 'compact' && !exempt ? clampStreamText(entry.text, COMPACT_TEXT_CLAMP) : null),
     [density, exempt, entry.text],
   );
   const [open, toggleOpen] = useStreamToggle(`text-more-${entry.id}`, false);
-  const body = clamped && !open ? clamped.text : entry.text;
+  const folded = clamped !== null && !open;
   // §5.5 #17-39 — 작성 자국(Sub 탭 TextBlock 과 같은 문턱·같은 문구 함수). 메인 탭의 본문 항목은
   //   buildEntries 가 연속 델타를 합쳐 만든 것이라 끝 시각이 따로 없다 — 분량만 적는다(시간은 0).
   const writeTrace = density !== 'compact' && shouldTraceWriting(entry.text.length)
     ? writeTraceText(t, i18n.language, (entry.endedAt ?? entry.timestamp) - entry.timestamp, entry.text.length)
     : null;
   return (
-    <div className="px-3 py-1 max-md:px-1.5">
+    // §5.5 #17-45 — 세로 여백은 본문 칸이 갖는다(Sub 탭 `TextBlock` 과 같은 구조 — 왼쪽 말머리 칸이
+    //   항목 높이를 꽉 채워야 런의 실선이 끊기지 않는다). `solo` 는 종전과 높이가 같다.
+    <div className="px-3 max-md:px-1.5">
       <div className="flex gap-2">
-        <AiSpeakerGlyph />
-        <div className="min-w-0 flex-1">
-          <span className="block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200">
+        <AiSpeakerGlyph run={run} />
+        <div className={`min-w-0 flex-1 ${run === 'mid' || run === 'tail' ? 'py-0.5' : 'py-1'}`}>
+          {/* §5.5 #17-46 ③ — 접힌 동안은 [머리 · 접기 손잡이 · 꼬리], 펼치면 [본문 전체 · 접기] 종전 모양. */}
+          <span className={TERMINAL_TEXT_CLASS}>
             {entry.sessionLabel && (
               <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[12px] font-semibold text-cyan-400/80">
                 {entry.sessionLabel}
               </span>
             )}
-            {body}
+            {folded ? clamped.head : entry.text}
           </span>
-          {clamped && (
-            <button
-              type="button"
-              onClick={toggleOpen}
-              className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
-            >
-              <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              {open ? t('ide.streamRenderer.showLess') : t('ide.streamRenderer.showMoreLines', { count: clamped.hiddenLines })}
-            </button>
+          {folded && (
+            <>
+              <StreamTextFold open={false} hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />
+              <span className={TERMINAL_TEXT_CLASS}>{clamped.tail}</span>
+            </>
           )}
+          {clamped !== null && open && <StreamTextFold open hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />}
         </div>
       </div>
     </div>
   );
 }
 
-function TerminalLine({ entry, density, exempt, agentId }: { entry: TerminalEntry; density?: StreamDensity; exempt?: boolean; agentId?: string }): React.JSX.Element {
+function TerminalLine({ entry, density, exempt, run, agentId }: { entry: TerminalEntry; density?: StreamDensity; exempt?: boolean; run?: SpeechRunPos; agentId?: string }): React.JSX.Element {
   // §5.5 #17-39 — 단계 자국(끝난 사고 런). Sub 탭과 **같은 조각·같은 문구 함수**를 쓴다.
   if (entry.type === 'step') return <TerminalStepLine entry={entry} />;
   // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
@@ -780,7 +783,26 @@ function TerminalLine({ entry, density, exempt, agentId }: { entry: TerminalEntr
   // AI 일상 대화(assistant text)는 Sub 탭 TextBlock 과 동일하게 박스 없이 평범한 본문 + 왼쪽 스파클
   // 글리프로만 표식한다(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분).
   if (entry.type === 'text') {
-    return <TerminalTextLine entry={entry} density={density ?? 'standard'} exempt={exempt ?? false} />;
+    return <TerminalTextLine entry={entry} density={density ?? 'standard'} exempt={exempt ?? false} run={run ?? 'solo'} />;
+  }
+  // §5.25 (O) — 엔진이 내건 그림. **Sub 탭과 같은 조각**을 쓴다(두 벌로 두면 한쪽만 고쳐진다).
+  //   밀도로 접지 않는다 — 그림은 줄이면 아무 말도 못 한다.
+  if (entry.type === 'image') {
+    return (
+      <div className="px-3 py-1.5 max-md:px-1.5">
+        {entry.sessionLabel && (
+          <span className="mb-0.5 mr-1.5 inline-block rounded bg-cyan-500/15 px-1 py-0.5 text-[12px] font-semibold text-cyan-400/80">
+            {entry.sessionLabel}
+          </span>
+        )}
+        <StreamImageThumb
+          agentId={agentId}
+          subAgentId={entry.imageSubAgentId}
+          eventId={entry.id}
+          name={entry.text}
+        />
+      </div>
+    );
   }
   const style = TYPE_STYLES[entry.type] ?? TYPE_STYLES['text']!;
 
@@ -1233,7 +1255,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // v2.59 — 이 에이전트가 속한 프로젝트의 스킬만 자동완성(탭별 개별 조회).
   // v3.19 — CLI 내장 슬래시 명령(builtins)도 병행 표시(드롭다운 전용 — Skills 사이드바 불변).
   const slashProjectName = useGraphStore((s) => s.agentProjects[agentId]);
-  const { skills: availableSkills, builtins: builtinCommands, loaded: skillsLoaded } = useAvailableSkills(slashProjectName, agentId);
+  const { skills: availableSkills, builtins: builtinCommands, loaded: skillsLoaded, slashCommandsEnabled } = useAvailableSkills(slashProjectName, agentId);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashListRef = useRef<HTMLDivElement>(null);
   // 방향키 이동일 때만 활성 항목 스크롤 추종 — hover 로 인한 setSlashIndex 까지 추종하면
@@ -1422,16 +1444,18 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // 매칭 0개여도 드롭다운은 열려 "No matching skills" hint 표기.
   // v3.19 — 디스크 스킬 뒤에 CLI 내장 명령을 병행 매칭(별칭 포함). 같은 이름은 스킬이 이긴다
   //   (Claude Code 규칙: project/personal 커맨드가 built-in 을 가림).
-  // §5.19 (G) — 로컬 버블(All Model)에는 클로드 CLI 의 슬래시 명령·스킬이 없다. 목록을 띄우면
-  //   고를 수 있는 것처럼 보이지만 실제로는 그 텍스트가 모델에게 그대로 흘러갈 뿐이다.
-  const isLocalProviderAgent = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
+  // §5.19 (G) · §5.25 (B) — 프로바이더 버블(All Model·코덱스)에는 **클로드 CLI 의** 슬래시 명령·스킬이
+  //   없다. 목록을 띄우면 고를 수 있는 것처럼 보이지만 실제로는 그 텍스트가 엔진에게 그대로 흘러갈 뿐이다.
+  //   코덱스에는 코덱스의 슬래시 명령이 따로 있으나 그 목록은 그쪽 CLI 가 쥐고 있어 우리에게 오지 않는다 —
+  //   모르는 목록을 지어내느니 목록을 띄우지 않는다.
+  const isProviderAgent = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
   // §4 (슬래시 명령 가용성) — CMD 버블(`interactive-terminal`)은 진짜 REPL 이라 화면 있는 명령도 전부 된다.
   //   헤드리스일 때만 "터미널 필요" 배지를 단다 — 되는 곳에서 안 된다고 하면 그게 더 나쁜 거짓말이다.
   const isInteractiveTerminalAgent = useGraphStore(
     (s) => (agentId ? s.agentConfigs[agentId]?.executionMode === 'interactive-terminal' : false),
   );
   const slashState = useMemo(() => {
-    if (isLocalProviderAgent) return null;
+    if (isProviderAgent) return null;
     if (!text.startsWith('/')) return null;
     const firstWord = text.slice(1).split(/\s/)[0] ?? '';
     if (text.length > firstWord.length + 1) return null;
@@ -1451,7 +1475,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       ...builtinMatched.map((c): SlashItem => ({ kind: 'builtin', name: c.name, builtin: c })),
     ];
     return { filter, matched };
-  }, [text, availableSkills, builtinCommands, isLocalProviderAgent]);
+  }, [text, availableSkills, builtinCommands, isProviderAgent]);
 
   const slashOpen = slashState !== null;
   const slashKey = slashState?.filter ?? '';
@@ -1508,6 +1532,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     ]
       .filter((c) => c.subAgentId === activeSessionId) // 세션 단위 — 옆 탭 명령이 섞이지 않게
       .filter((c) => !c.edgeId) // Task Edge 로 주입된 것은 사용자가 친 명령이 아니다
+      .filter((c) => !c.silent) // §5.3 #9-1 (P) — 우리가 끼운 압축도 사용자가 친 것이 아니다(↑ 로 나오면 안 된다)
       .sort((a, b) => a.timestamp - b.timestamp)
       .map((c) => c.text ?? '');
     seedCommandHistory(agentId, activeSessionId, seen);
@@ -1804,6 +1829,28 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
       {slashOpen && slashState && (
         <div ref={slashListRef} className={`absolute bottom-full left-0 right-0 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin ${voiceActive ? 'mb-[46px]' : 'mb-1'}`}>
+          {/* §5.5 #17-2 (보강) — 주입원 통제로 슬래시가 꺼진 프로젝트에서는 **목록 전부**가 거절된다.
+              항목마다 배지를 달면 개별 축(터미널 전용·미설치)의 배지가 묻히므로 머리에 한 줄만 세우고,
+              끄는 자리를 가리킨다. 목록 자체는 걸러내지 않는다 — 켠 뒤에 무엇을 얻는지 보여야 한다. */}
+          {!slashCommandsEnabled && (
+            <div className="sticky top-0 z-10 flex items-start gap-1.5 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[12px] leading-snug text-amber-300/90">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="mt-px h-3.5 w-3.5 flex-shrink-0"
+                aria-hidden="true"
+              >
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+              <span>{t('ide.mainArea.slashDisabledByContext', { contextSources: t('ide.activityBar.context') })}</span>
+            </div>
+          )}
           {slashState.matched.length === 0 ? (
             <div className="px-3 py-2 text-[12px] text-gray-500">
               {skillsLoaded ? t('ide.mainArea.slashEmpty') : t('ide.mainArea.slashLoading')}
@@ -1835,6 +1882,12 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
                         {item.skill.pluginName}
                       </span>
                     )}
+                    {/*
+                      §5.5 #17-33 ⑦ — 이 항목을 골라도 CLI 가 슬래시를 못 푸는 경우를 말해 준다.
+                      여기서는 **알리기만** 한다 — 타이핑 중에 뜬 드롭다운의 한 항목이 git 을 타는
+                      설치를 시작하면 그게 더 놀랍다. 깔러 가는 자리는 Skills 사이드바와 플러그인 창이다.
+                    */}
+                    {item.kind === 'skill' && <SkillStateTag skill={item.skill} />}
                     {item.kind === 'builtin' && (
                       <span className="rounded bg-sky-500/15 px-1 py-0.5 text-[12px] uppercase tracking-wide text-sky-400/80">
                         {t('ide.mainArea.slashBuiltin')}
@@ -2154,26 +2207,49 @@ function StreamLocalContextGauge({ used, limit }: { used: number; limit: number 
   );
 }
 
-function StreamLocalModelButton(): React.JSX.Element | null {
+/**
+ * §5.19 (G) · §5.25 (B) — 이 창을 문 **프로바이더 버블의 정체 뱃지.** 창 이름 옆이 아니라
+ * 하단 상태바에 선다(사용자 지시).
+ *
+ * **`!!provider` 로 묶지 않는다.** 프로바이더가 둘이 된 뒤로 그 판정은 코덱스 버블에게
+ * `All Model` 이라고 말하고, 눌리면 **로컬 모델 설치 창**을 연다 — 자기 정체를 틀리게 말하는
+ * 화면이다(`openIDEOverlay` 가 같은 이유로 `kind` 로 갈린 그 자리와 한 쌍이다).
+ *
+ * 코덱스 쪽이 **누를 수 없는** 것은 일부러다 — 로컬은 여기서 바로 바꿀 창(`localModelWindow`)이
+ * 있지만 코덱스 모델은 버블 설정 창에서 고른다. 없는 창을 약속하느니 사실만 적는다.
+ */
+function StreamProviderModelButton(): React.JSX.Element | null {
   const { t } = useTranslation();
   const agentId = useIDEPaneValue((o) => o.agentId);
   const provider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
   const openLocalModelWindow = useGraphStore((s) => s.openLocalModelWindow);
-  if (!agentId || !provider) return null;
+  const badge = providerBadgeOf(provider);
+  if (!agentId || !provider || !badge) return null;
+  const engineLabel = badge.engine === 'codex'
+    ? t('ide.overlay.codexLabel', { defaultValue: 'Codex' })
+    : t('ide.overlay.localLabel', { defaultValue: 'All Model' });
+  const body = (
+    <>
+      <span className="flex-shrink-0">{engineLabel}</span>
+      {badge.model && (
+        <span className="max-w-[180px] truncate font-normal text-slate-400">{badge.model}</span>
+      )}
+      {/* 코덱스는 문맥 **상한**을 신고하지 않는다 — 그래서 물결이 차지 않고, 여기서도 게이지가 없다. */}
+      {provider.contextUsed !== undefined && provider.contextLimit !== undefined && (
+        <StreamLocalContextGauge used={provider.contextUsed} limit={provider.contextLimit} />
+      )}
+    </>
+  );
+  const shell = 'flex min-w-0 items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300';
+  if (!badge.switchable) return <span className={shell}>{body}</span>;
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); openLocalModelWindow(agentId); }}
-      className="flex min-w-0 items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-slate-500/25"
+      className={`${shell} transition-colors hover:bg-slate-500/25`}
       title={t('ide.overlay.localSwitchModel', { defaultValue: '이 버블이 쓸 모델 바꾸기' })}
     >
-      <span className="flex-shrink-0">{t('ide.overlay.localLabel', { defaultValue: 'All Model' })}</span>
-      {provider.modelName && (
-        <span className="max-w-[180px] truncate font-normal text-slate-400">{provider.modelName}</span>
-      )}
-      {provider.contextUsed !== undefined && provider.contextLimit !== undefined && (
-        <StreamLocalContextGauge used={provider.contextUsed} limit={provider.contextLimit} />
-      )}
+      {body}
     </button>
   );
 }
@@ -2336,7 +2412,7 @@ const STATUS_SUMMARY_CLASS = 'min-w-[6rem] flex-1 truncate text-[12px]';
 function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX.Element {
   return (
     <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-      <StreamLocalModelButton />
+      <StreamProviderModelButton />
       <StreamDensityToggle />
       <StreamFollowToggle />
       {jumpHint && (
@@ -2370,24 +2446,40 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const recompute = (): void => {
+    const measure = (): void => {
       const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
       if (atBottom) { setViewedId((p) => (p === null ? p : null)); return; }
+      // Sub 탭 — 가상 리스트(virtuoso)는 뷰포트 밖 항목을 렌더하지 않으므로 **DOM 에 있는 명령 블록만**
+      //   훑으면 틀린다: 응답이 긴 턴 사이에서는 명령 블록이 한 장도 렌더되지 않아, 위로 올려 내 말풍선을
+      //   지나쳐도 이 줄이 옛 프롬프트로 바뀌지 않았다(옛 말풍선이 선렌더 버퍼 1600px 안에 들어와야 바뀜
+      //   = "중간쯤 올라가야 바뀐다"). 렌더러가 맨 위 항목의 **소속 명령을 인덱스로** 되짚어 준다.
+      const owned = streamRef.current?.viewedCommandId() ?? null;
+      if (owned !== null) { setViewedId((p) => (p === owned ? p : owned)); return; }
+      // 메인(Agent) 탭 — 스트림 렌더러가 없고 타임라인에 명령 블록도 없다. 종전 DOM 판정을 그대로 둔다.
       const containerTop = container.getBoundingClientRect().top;
       const blocks = Array.from(container.querySelectorAll<HTMLElement>('[data-cmd-id]'));
       let current: string | null = null;
       for (const el of blocks) {
-        // 뷰포트 상단(여백 24px 보정)을 지난 마지막 블록 = 사용자가 보고 있는 커맨드.
-        if (el.getBoundingClientRect().top - containerTop <= 24) current = el.dataset.cmdId ?? null;
+        // 뷰포트 상단(여백 보정)을 지난 마지막 블록 = 사용자가 보고 있는 커맨드.
+        if (el.getBoundingClientRect().top - containerTop <= VIEWED_TOP_MARGIN) current = el.dataset.cmdId ?? null;
       }
       // 맨 위로 스크롤해 어떤 블록도 상단을 지나지 못했으면 첫 블록을 대상으로.
       if (current === null && blocks[0]) current = blocks[0].dataset.cmdId ?? null;
       setViewedId((p) => (p === current ? p : current));
     };
-    recompute();
+    // 스크롤 한 번에 측정 한 번(프레임 단위 합침) — 휠을 굴리는 동안 레이아웃을 되풀이해 재지 않게.
+    let raf = 0;
+    const recompute = (): void => {
+      if (raf !== 0) return;
+      raf = window.requestAnimationFrame(() => { raf = 0; measure(); });
+    };
+    measure();
     container.addEventListener('scroll', recompute, { passive: true });
-    return () => container.removeEventListener('scroll', recompute);
-  }, [scrollRef, commands]);
+    return () => {
+      if (raf !== 0) window.cancelAnimationFrame(raf);
+      container.removeEventListener('scroll', recompute);
+    };
+  }, [scrollRef, streamRef, commands]);
 
   // viewedId(=data-cmd-id, `cmd-${id}`)가 가리키는 커맨드를 우선, 없으면 기본 대상.
   const target = useMemo(() => {
@@ -2636,8 +2728,11 @@ export const IDEMainArea = memo(function IDEMainArea({
   const queuedCmds = useGraphStore((s) => s.queuedCommands[agentId] ?? EMPTY_COMMANDS);
   const completedCmds = useGraphStore((s) => s.completedCommands[agentId] ?? EMPTY_COMMANDS);
   // queued/executing + completed/error 를 시간순으로 합친다 — 완료 후에도 프롬프트 이력 유지 (CommandQueue와 동일).
+  // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 **말풍선이 되지 않는다.** 사용자가 넣은 적이 없는
+  //   명령이라, 여기 뜨면 자기가 치지도 않은 `/compact` 가 자기 대화에 섞여 보인다. 세션이 "돌고
+  //   있다"는 판정(useSessionRunning)은 그 명령을 그대로 세므로 화면은 계속 "생각 중"이다.
   const commands = useMemo(
-    () => [...queuedCmds, ...completedCmds].sort((a, b) => a.timestamp - b.timestamp),
+    () => [...displayCommands(queuedCmds), ...completedCmds].sort((a, b) => a.timestamp - b.timestamp),
     [queuedCmds, completedCmds],
   );
   const subAgents = useGraphStore((s) => s.subAgents[agentId] ?? EMPTY_SUBS);
@@ -2979,15 +3074,6 @@ export const IDEMainArea = memo(function IDEMainArea({
         },
       },
       {
-        label: t('ide.mainArea.ctxSaveToBrain', { defaultValue: '메모리에 기억' }),
-        disabled: !hasSel,
-        disabledTitle: selectionRequired,
-        onClick: () => {
-          if (!sel) return;
-          void useGraphStore.getState().saveBrainCardFromText(sel, agentId, activeSessionId);
-        },
-      },
-      {
         label: t('ide.mainArea.ctxQuoteReply'),
         disabled: !hasSel || isReadOnly,
         disabledTitle: !hasSel ? selectionRequired : undefined,
@@ -3253,6 +3339,32 @@ export const IDEMainArea = memo(function IDEMainArea({
     }
     return null;
   }, [mainTimeline]);
+
+  // §5.5 #17-12 ①-2 — 자르지 않는 두 번째 자리 = 턴의 **여는 본문**(의도 선언). Sub 탭과 같은 순수 함수로
+  //   판정해 두 탭이 어긋나지 않게 한다(같은 턴이 탭에 따라 접히고 안 접히면 그게 더 헷갈린다).
+  const mainOpeningTextIds = useMemo(
+    () => turnOpeningTextIds(mainTimeline.map((n) => {
+      const id = mainTimelineNodeId(n);
+      if (n.t !== 'item' || n.item.kind !== undefined) return { id, role: 'other' as const };
+      if (n.item.type === 'command') return { id, role: 'command' as const };
+      return { id, role: n.item.type === 'text' ? 'text' as const : 'other' as const };
+    })),
+    [mainTimeline],
+  );
+
+  // §5.5 #17-45 — 연속 발화 런(Sub 탭과 **같은 순수 함수**). 간결에서만 켠다.
+  //   주인은 **세션 이름표**다 — 전체 보기에서는 여러 세션의 말이 한 타임라인에 섞여 오므로,
+  //   세션이 바뀌면 다른 사람의 말이라 런을 끊어야 한다(Sub 탭의 중첩 서브에이전트와 같은 자리).
+  const mainSpeechRuns = useMemo(
+    () => (density === 'compact'
+      ? speechRunPositions(mainTimeline.map((n) => {
+        const id = mainTimelineNodeId(n);
+        const isText = n.t === 'item' && n.item.kind === undefined && n.item.type === 'text';
+        return { id, text: isText, owner: isText ? (n.item as TerminalEntry).sessionLabel : undefined };
+      }))
+      : NO_SPEECH_RUNS),
+    [mainTimeline, density],
+  );
 
   // v2.99 — 세션(탭) 전환 시 위치 복원: 자식(StreamRenderer / 메인 Virtuoso)을 key={sessionKey} 로 재마운트하고
   //   restoreStateFrom 으로 그 세션의 저장 스냅샷(측정된 항목 높이 + 스크롤 위치)을 받아 **재측정 출렁임 없이**
@@ -3890,7 +4002,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                             ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
                               ? <ThinkingLiveLine label={n.item.mode === 'working' ? t('ide.streamRenderer.working') : t('ide.streamRenderer.thinking')} mode={n.item.mode} />
-                              : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId} agentId={agentId} />}
+                              : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId || mainOpeningTextIds.has(itemId)} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
                     </div>
                   );
                 }}

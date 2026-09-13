@@ -7,36 +7,36 @@
  */
 export const strings = {
   "en": {
-    "desc": "Scale decides storage. A few hundred entries belong in files with text search; hundreds of thousands justify a vector store. Choosing infrastructure before measuring scale is the common over-design.",
+    "desc": "Scale decides storage. A few dozen procedures belong in files with text search; hundreds of thousands of entries justify a vector store. Choosing infrastructure before measuring scale is the common over-design.",
     "heading": "Vector DB",
     "level": {
-      "none": "No memory yet",
+      "none": "Nothing written yet",
       "fits": "Files still fit",
       "outgrown": "Outgrowing files"
     },
     "check": {
-      "cards": "Cards stored",
+      "cards": "In store",
       "storage": "Storage",
       "limit": "File-scale limit"
     },
     "files": "markdown files",
-    "note": "Vibisual keeps memory in files on purpose. This card exists to notice the day that choice stops paying off."
+    "note": "Vibisual keeps procedures in files on purpose. This card exists to notice the day that choice stops paying off."
   },
   "ko": {
-    "desc": "규모가 저장 방식을 정합니다. 수백 건이면 파일 + 텍스트 검색, 수십만 건이면 벡터 DB 입니다. 규모를 재기 전에 인프라부터 고르는 것이 가장 흔한 과잉 설계입니다.",
+    "desc": "규모가 저장 방식을 정합니다. 수십 벌이면 파일 + 텍스트 검색, 수십만 건이면 벡터 DB 입니다. 규모를 재기 전에 인프라부터 고르는 것이 가장 흔한 과잉 설계입니다.",
     "heading": "벡터 DB",
     "level": {
-      "none": "아직 기억 없음",
+      "none": "아직 적힌 절차 없음",
       "fits": "파일로 충분",
       "outgrown": "파일 규모를 넘어섬"
     },
     "check": {
-      "cards": "저장 장수",
+      "cards": "저장고에",
       "storage": "저장 방식",
       "limit": "파일 규모 한계"
     },
     "files": "마크다운 파일",
-    "note": "Vibisual 은 의도적으로 기억을 파일에 둡니다. 이 카드는 그 선택이 더는 유리하지 않게 되는 날을 알아채기 위한 것입니다."
+    "note": "Vibisual 은 의도적으로 절차를 파일에 둡니다. 이 카드는 그 선택이 더는 유리하지 않게 되는 날을 알아채기 위한 것입니다."
   },
   "ja": {
     "level": {

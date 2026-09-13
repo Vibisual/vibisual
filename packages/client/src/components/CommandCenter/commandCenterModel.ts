@@ -9,7 +9,7 @@ import type {
   RunningSubagentTask,
   SubAgent,
 } from '@vibisual/shared';
-import { isReadOnlyHookAgent, hasSessionWork } from '@vibisual/shared';
+import { isReadOnlyHookAgent, hasSessionWork, displayCommands } from '@vibisual/shared';
 import type { SessionRunInputs } from '@vibisual/shared';
 import { NODE_STATUS_AS_SUB_STATUS } from '../../utils/sessionStatus.js';
 
@@ -193,7 +193,9 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
   // 프롬프트 바닥을 **먼저** 깐다 — 카드 수집이 이 값으로 지나간 카드를 걸러 내기 때문이다.
   for (const agentId of agentIds) {
     let agentFloor = 0;
-    for (const list of [queuedCommands[agentId], completedCommands[agentId]]) {
+    // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 **프롬프트가 아니다.** 바닥을 올리면 그보다 먼저
+    //   태어난 카드가 "사용자가 이미 답한 것"으로 오해돼 기다리는 목록에서 사라진다.
+    for (const list of [displayCommands(queuedCommands[agentId]), completedCommands[agentId]]) {
       for (const cmd of list ?? []) {
         if (cmd.timestamp > agentFloor) agentFloor = cmd.timestamp;
         const k = sessionKey(agentId, cmd.subAgentId);
@@ -236,7 +238,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
       const prev = reportByKey.get(k);
       if (!prev || r.createdAt > prev.createdAt) reportByKey.set(k, r);
     }
-    for (const cmd of queuedCommands[agentId] ?? []) {
+    for (const cmd of displayCommands(queuedCommands[agentId])) {
       if (cmd.status !== 'queued' && cmd.status !== 'executing') continue;
       const k = sessionKey(agentId, cmd.subAgentId);
       queuedByKey.set(k, (queuedByKey.get(k) ?? 0) + 1);
@@ -279,6 +281,8 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
       contextUsed: number | undefined;
       contextMax: number | undefined;
       acked: boolean;
+      /** §2.4 (한도 정지) — 이 세션이 한도로 끊긴 채 다시 돌지 않았는가. 버블(메인 탭)에는 없는 축. */
+      usageLimited: boolean;
     }> = [
       {
         subAgentId: null,
@@ -292,6 +296,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         contextUsed: undefined,
         contextMax: undefined,
         acked: true,
+        usageLimited: false,
       },
       ...subs.map((sub) => ({
         subAgentId: sub.id,
@@ -305,6 +310,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         contextUsed: sub.contextUsed,
         contextMax: sub.contextMax,
         acked: !!acknowledgedSubAgents[sub.id],
+        usageLimited: sub.usageLimit !== undefined,
       })),
     ];
 
@@ -325,6 +331,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         hasQueuedCommand: queuedCount > 0,
         runningTaskCount,
         acknowledged: s.acked,
+        usageLimited: s.usageLimited,
       };
 
       let lane: CommandCenterLane;

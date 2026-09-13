@@ -149,7 +149,7 @@ describe('① 아무것도 안 바꾸면 키맵 슬라이스가 같은 참조다
     const s1 = g.getSnapshot();
     // 스냅샷 캐시만 무효화하고 키맵 소스는 하나도 안 건드리는 창구.
     // 이게 없으면 스냅샷 통째 캐시에 가려 슬라이스 memo 가 실제로 도는지 확인할 수 없다.
-    g.notifyBrainChanged();
+    g.invalidateSnapshotCache();
     const s2 = g.getSnapshot();
 
     expect(s2).not.toBe(s1);                        // 스냅샷 자체는 새로 지어졌고

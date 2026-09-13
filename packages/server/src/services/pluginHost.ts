@@ -21,8 +21,19 @@ import type {
   PluginFactMap, PluginPromptContext, PluginServerHost, PluginServerModule,
 } from '@vibisual/plugins';
 import {
-  PLUGIN_MANIFESTS, isPluginEnabledFor, resolveEnabledPluginsFor, validateRegistry,
+  PLUGIN_MANIFESTS, hasOwnToggle, isPluginEnabledFor, resolveEnabledPluginsFor, validateRegistry,
 } from '@vibisual/plugins';
+// §5.11 정독 게이트 — 판정은 전부 이 순수 함수들이 한다(서버가 자기 판정을 따로 들지 않는다).
+import {
+  buildSpecIndexCached, evaluateSpecReading, extractCitations, readSpecSettings, verifyCitation,
+} from '@vibisual/plugins';
+import {
+  DEFAULT_SPEC_READING_SETTINGS, SPEC_INDEX_TTL_MS, SPEC_WIRE_FILE_MAX, SPEC_WIRE_SPANS_PER_FILE,
+  resolveSpecReadingEnabled,
+} from '@vibisual/shared';
+import type { SpecReadSpan, SpecReadingSettings, SpecReadingState, SpecRequiredEntry } from '@vibisual/shared';
+import { specReadingService } from './specReadingService.js';
+import { subAgentManager } from './subAgentManager.js';
 import { PLUGIN_SERVER_MODULES } from '@vibisual/plugins/server';
 import { buildPluginPromptParts, collectPluginFacts } from '@vibisual/plugins/prompt';
 import { atomicWriteFileSync } from './statePersistence.js';
@@ -94,6 +105,31 @@ const readCache = new Map<string, { key: string; text: string; at: number }>();
 const READ_CACHE_MAX = 8;
 
 /**
+ * §5.11 정독 게이트 — 폴더 훑기의 **호스트 쪽 상한**.
+ *
+ * 플러그인이 `opts` 로 더 큰 값을 불러도 여기서 잘린다. 훑는 양을 플러그인의 성실성에 맡기면 깊은 트리
+ * 하나로 색인 한 번이 곧 UI 정지가 된다 — 서버가 메인 프로세스와 한 몸이기 때문이다.
+ */
+const PLUGIN_LIST_DEPTH_MAX = 6;
+const PLUGIN_LIST_LIMIT_MAX = 500;
+const PLUGIN_LIST_ENTRIES_MAX = 4_000;
+
+/**
+ * 훑을 때 아예 내려가지 않는 폴더.
+ *
+ * 산출물·의존성 폴더에는 마크다운이 수천 장 있고(패키지마다 README 가 있다) 그중 기획 문서는 하나도
+ * 없다. 상한으로 자르면 **진짜 기획 문서가 그 뒤로 밀려** 색인에서 빠지므로, 자르기 전에 걸러야 한다.
+ */
+const PLUGIN_LIST_SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', 'out', 'release', 'coverage',
+  '.next', '.turbo', '.cache', '.vite', 'vendor', '__pycache__',
+]);
+
+/** 같은 폴더를 한 턴에 두 번 훑지 않는다(읽기 캐시와 같은 규율·같은 창). */
+const listCache = new Map<string, { files: string[]; at: number }>();
+const LIST_CACHE_MAX = 16;
+
+/**
  * 플러그인에게 넘길 **좁은 파일 탐침** (§5.11 v4.57).
  *
  * 플러그인이 `node:fs` 를 직접 물면 "프로젝트 안"이라는 경계가 각 플러그인의 성실성에 달리게 된다.
@@ -101,7 +137,9 @@ const READ_CACHE_MAX = 8;
  * 절대경로·`..` 탈출·심링크로 루트를 벗어나는 경로는 **존재하지 않는 것으로 취급**한다(던지지 않는다 —
  * 프롬프트 조립이 파일 하나 때문에 실패하면 그 턴 전체가 막힌다).
  */
-function makeProjectProbe(projectPath: string): Pick<PluginPromptContext, 'fileExists' | 'readFile' | 'fileMtimeMs'> {
+function makeProjectProbe(
+  projectPath: string,
+): Pick<PluginPromptContext, 'fileExists' | 'readFile' | 'fileMtimeMs' | 'listFiles' | 'platform'> {
   const root = path.resolve(projectPath);
   const resolveInside = (relPath: string): string | null => {
     if (typeof relPath !== 'string' || relPath.trim() === '') return null;
@@ -112,6 +150,76 @@ function makeProjectProbe(projectPath: string): Pick<PluginPromptContext, 'fileE
     return abs;
   };
   return {
+    /**
+     * §5.11 정독 게이트 — 경로를 **키로 쓸 때만** 이 값이 필요하다(멀티플랫폼 1축).
+     *
+     * 색인이 든 문서 경로와 훅이 남긴 열람 경로를 맞춰 보려면 케이스 정책이 있어야 하는데, 플러그인
+     * 패키지는 클라에서도 로드되므로 `process.platform` 을 스스로 읽을 수 없다. 그래서 호스트가 넘긴다.
+     */
+    platform: process.platform,
+    /**
+     * §5.11 정독 게이트 — 폴더 하나를 훑어 **루트 기준 상대경로** 목록을 준다.
+     *
+     * `fileExists`/`readFile` 만으로는 "기획 문서가 어디에 몇 개 있는가"를 물을 수 없다. 후보 경로를
+     * 손으로 나열하는 방식은 `docs/기획/전투.md` 처럼 프로젝트마다 다른 이름 앞에서 그대로 헛돈다
+     * (`ssot-drift` 가 v4.67 에 후보 8개 하드코딩으로 겪은 실패가 그것이다).
+     *
+     * 경계는 다른 탐침과 같다 — 루트 밖은 존재하지 않는 것으로 취급하고, **심링크 폴더에는 안 내려간다**
+     * (링크를 따라가면 루트 밖으로 나가거나 순환에 빠진다). 던지지 않는다.
+     */
+    listFiles: (relDir, opts) => {
+      const abs = resolveInside(relDir);
+      if (!abs) return [];
+      const depthMax = Math.min(Math.max(1, Math.trunc(opts?.maxDepth ?? PLUGIN_LIST_DEPTH_MAX)), PLUGIN_LIST_DEPTH_MAX);
+      const limit = Math.min(Math.max(1, Math.trunc(opts?.limit ?? PLUGIN_LIST_LIMIT_MAX)), PLUGIN_LIST_LIMIT_MAX);
+      const exts = (opts?.extensions ?? []).map((e) => e.toLowerCase());
+      const cacheKey = `${abs}|${depthMax}|${limit}|${exts.join(',')}`;
+      const hit = listCache.get(cacheKey);
+      if (hit && Date.now() - hit.at < PLUGIN_READ_TTL_MS) return hit.files;
+
+      const out: string[] = [];
+      let seen = 0;
+      const walk = (dir: string, depth: number): void => {
+        if (out.length >= limit || seen >= PLUGIN_LIST_ENTRIES_MAX || depth > depthMax) return;
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return; // 권한이 없는 폴더 하나 때문에 색인이 통째로 빠지면 안 된다
+        }
+        // 파일시스템마다 다른 `readdir` 순서를 고정한다 — 순서가 흔들리면 상한에 걸리는 문서가 매번 달라진다.
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        const subDirs: string[] = [];
+        for (const entry of entries) {
+          if (out.length >= limit || seen >= PLUGIN_LIST_ENTRIES_MAX) return;
+          seen++;
+          if (entry.isSymbolicLink()) continue;
+          if (entry.isDirectory()) {
+            if (PLUGIN_LIST_SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+            subDirs.push(path.join(dir, entry.name));
+            continue;
+          }
+          if (!entry.isFile()) continue;
+          if (exts.length > 0 && !exts.some((e) => entry.name.toLowerCase().endsWith(e))) continue;
+          out.push(path.relative(root, path.join(dir, entry.name)).split(path.sep).join('/'));
+        }
+        // 같은 층의 파일을 먼저 담고 그다음에 내려간다 — 얕은 문서가 상한 밖으로 밀리지 않게.
+        for (const sub of subDirs) walk(sub, depth + 1);
+      };
+      try {
+        if (!fs.statSync(abs).isDirectory()) return [];
+        walk(abs, 1);
+      } catch {
+        return [];
+      }
+
+      if (!listCache.has(cacheKey) && listCache.size >= LIST_CACHE_MAX) {
+        const oldest = listCache.keys().next();
+        if (!oldest.done) listCache.delete(oldest.value);
+      }
+      listCache.set(cacheKey, { files: out, at: Date.now() });
+      return out;
+    },
     fileExists: (relPath) => {
       const abs = resolveInside(relPath);
       if (!abs) return false;
@@ -178,7 +286,53 @@ function makeProjectProbe(projectPath: string): Pick<PluginPromptContext, 'fileE
 }
 
 /** `buildPluginPromptSection` 이 받는 것 — 파일 탐침은 호스트가 채우므로 호출부는 몰라도 된다. */
-export type PluginPromptRequest = Omit<PluginPromptContext, 'fileExists' | 'readFile'>;
+export type PluginPromptRequest = Omit<
+  PluginPromptContext,
+  'fileExists' | 'readFile' | 'listFiles' | 'platform' | 'promptText' | 'touchedPaths' | 'readingSpans' | 'readingCitations' | 'specSettings'
+> & {
+  /**
+   * §5.11 정독 게이트 — 이 턴을 내는 세션(`SubAgent.id` = 원장 키).
+   *
+   * 있으면 호스트가 그 세션의 **읽기 영수증·이번 턴 프롬프트·건드린 경로**를 컨텍스트에 채운다.
+   * 호출부가 원장을 직접 만지지 않게 하는 것이 요점이다 — 만지기 시작하면 프롬프트 조립 경로마다
+   * 조금씩 다른 재료가 실려 같은 세션이 자리마다 다른 판정을 받는다.
+   */
+  subAgentId?: string;
+};
+
+/**
+ * §5.11 정독 게이트 — 이 세션의 원장·설정을 컨텍스트 필드로 옮긴다.
+ *
+ * 원장은 `specReadingService`(휘발), 설정은 체크포인트(영속)에 있고 둘 다 플러그인이 닿을 수 없는
+ * 자리다. 여기서 한 번만 모아 넘기므로 판정 함수는 "누가 채워 줬는지" 를 몰라도 된다.
+ */
+function readingFieldsFor(
+  projectPath: string,
+  subAgentId: string | undefined,
+): Pick<PluginPromptContext, 'promptText' | 'touchedPaths' | 'readingSpans' | 'readingCitations' | 'specSettings'> {
+  // 이 축이 못 서더라도 **나머지 집행은 그대로 실려야 한다** — 설정 조회 하나가 실패해서 켠 카드
+  //   전부가 프롬프트에서 사라지면, 사용자는 켰는데 아무 일도 안 일어나는 상태를 보게 된다.
+  let settings: SpecReadingSettings | undefined;
+  let ledger: ReturnType<typeof specReadingService.contextFieldsFor>;
+  try {
+    settings = graphManager.getSpecReadingSettings?.(projectPath);
+    ledger = subAgentId ? specReadingService.contextFieldsFor(subAgentId) : undefined;
+  } catch {
+    settings = undefined;
+    ledger = undefined;
+  }
+  return {
+    ...(settings ? { specSettings: settings } : {}),
+    ...(ledger
+      ? {
+          promptText: ledger.promptText,
+          touchedPaths: ledger.touchedPaths,
+          readingSpans: ledger.readingSpans,
+          readingCitations: ledger.readingCitations,
+        }
+      : {}),
+  };
+}
 
 /**
  * §5.11 v4.57 — 이 프로젝트에서 **켜진 집행 플러그인들의 지시 블록**을 조립한다.
@@ -200,7 +354,11 @@ export function buildPluginPromptSection(req: PluginPromptRequest): string {
 export function buildPluginPromptSectionParts(req: PluginPromptRequest): { id: string; block: string }[] {
   if (!req.projectPath) return [];
   try {
-    const ctx: PluginPromptContext = { ...req, ...makeProjectProbe(req.projectPath) };
+    const ctx: PluginPromptContext = {
+      ...req,
+      ...readingFieldsFor(req.projectPath, req.subAgentId),
+      ...makeProjectProbe(req.projectPath),
+    };
     const parts = buildPluginPromptParts(userDefaultsService.get(), req.projectPath, ctx, (id, err) =>
       logger.warn(`[plugins] prompt block failed: ${id} — ${err instanceof Error ? err.message : String(err)}`),
       process.platform,
@@ -232,6 +390,14 @@ const factsStore = new Map<string, { facts: Record<string, PluginFactMap>; at: n
 
 /** 조회 시 다시 재는 최소 간격 — 켠 집합이 바뀌면 이 창을 무시하고 즉시 다시 잰다(토글 즉시성). */
 const FACTS_TTL_MS = 30_000;
+
+/**
+ * §5.5 #17-44 ⑧(d) — 켬 목록을 묻지 않는 카드가 **하나라도** 등록돼 있는가.
+ *
+ * 있으면 "이 프로젝트에서 켠 것이 0개"여도 실측을 낼 것이 남아 있다. 등록부에서 뽑으므로
+ * 그 축을 쓰는 카드가 늘거나 없어져도 이 판정이 따라온다(손으로 적으면 여기만 조용히 낡는다).
+ */
+const HAS_OWN_TOGGLE = PLUGIN_MANIFESTS.some(hasOwnToggle);
 
 /** 켬/끔 상태의 지문 — 이 값이 바뀌면 캐시를 버린다. */
 function enabledFingerprint(projectPath: string): string {
@@ -267,7 +433,9 @@ export function getPluginFactsFor(projectPath: string): Record<string, PluginFac
     const enabledKey = enabledFingerprint(projectPath);
     const hit = factsStore.get(key);
     if (hit && hit.enabledKey === enabledKey && Date.now() - hit.at < FACTS_TTL_MS) return hit.facts;
-    if (enabledKey === '') return {};
+    // §5.5 #17-44 ⑧(d) — 켠 것이 하나도 없어도 손잡이가 자기 화면에 있는 카드는 실측을 낸다.
+    //   여기서 조기 반환하면 그 카드의 계기판이 "측정 전"에 영영 머물러, 꺼져 있다는 사실조차 못 그린다.
+    if (enabledKey === '' && !HAS_OWN_TOGGLE) return {};
 
     const ctx: PluginPromptContext = {
       projectPath,
@@ -442,4 +610,284 @@ export function mountPluginRoutes(app: Express): void {
   }
 
   logger.info(`[plugins] registry: ${PLUGIN_MANIFESTS.length} manifest(s), ${PLUGIN_SERVER_MODULES.length} server module(s)`);
+}
+
+// ─── §5.11 정독 게이트 — 판정·게이트 창구 ────────────────────────────────────
+
+/**
+ * 이 세션의 정독 상태 한 벌.
+ *
+ * 판정은 플러그인의 `evaluateSpecReading` **하나**가 하고, 여기서는 파일 탐침과 원장을 붙여 주기만
+ * 한다. 서버가 자기 판정을 따로 들면 프롬프트에 실린 판단과 게이트가 막는 근거가 갈리고, 그러면
+ * "화면은 초록인데 막힌다"가 만들어진다 — 사용자가 이 기능을 못 믿게 되는 정확한 경로다.
+ *
+ * 이 카드를 안 켠 프로젝트에서는 **아무것도 계산하지 않는다**(끈 프로젝트는 이 기능이 없던 때와 같아야 한다).
+ */
+/**
+ * 히트맵을 **전선 크기로** 줄인다 — 원장이 드는 양과 화면에 싣는 양은 다른 문제다.
+ *
+ * 원장은 판정 재료라 파일 60개 x 구간 200개까지 든다. 그것을 그대로 실으면 세션 하나가 매
+ * 브로드캐스트(16~250ms)마다 수백 KB 를 밀어낸다(§9 전선 예산). 사용자가 실제로 보는 것은 **필수 절이
+ * 가리키는 문서**와 방금 연 몇 개다 — 필수 절 쪽은 상한과 무관하게 항상 싣고, 나머지는 최근 순으로 채운다.
+ *
+ * 원장의 배열을 그대로 넘기지 않고 **복사**한다. 같은 배열을 스냅샷에 실으면 다음 `Read` 가 그 배열을
+ * 밀어 넣는 순간 이미 보낸 스냅샷의 내용까지 뒤에서 바뀐다(증분 비교의 기준점이 흔들린다).
+ */
+function shapeSpansForWire(
+  spans: Readonly<Record<string, readonly SpecReadSpan[]>>,
+  required: readonly SpecRequiredEntry[],
+  fileLines: Record<string, number>,
+): { spans: Record<string, SpecReadSpan[]>; fileLines: Record<string, number> } {
+  const pinned = new Set(required.map((r) => r.file));
+  const rest = Object.keys(spans)
+    .filter((f) => !pinned.has(f))
+    .sort((a, b) => lastSpanAt(spans[b]) - lastSpanAt(spans[a]));
+  const keep = [
+    ...Object.keys(spans).filter((f) => pinned.has(f)),
+    ...rest.slice(0, Math.max(0, SPEC_WIRE_FILE_MAX - pinned.size)),
+  ].sort();
+
+  const outSpans: Record<string, SpecReadSpan[]> = {};
+  const outLines: Record<string, number> = {};
+  for (const file of keep) {
+    const list = spans[file] ?? [];
+    // 넘치면 **오래된 구간**을 버린다 — 남길 것은 방금 연 쪽이다. 정렬은 줄 번호 순이어야 히트맵이
+    //   매번 같은 모양으로 그려지고, 그래야 증분 비교도 내용이 같을 때 같다고 판정한다.
+    const trimmed = list.length > SPEC_WIRE_SPANS_PER_FILE
+      ? list.slice(list.length - SPEC_WIRE_SPANS_PER_FILE)
+      : list;
+    outSpans[file] = [...trimmed].sort((a, b) => a.fromLine - b.fromLine);
+    const total = fileLines[file];
+    if (typeof total === 'number') outLines[file] = total;
+  }
+  return { spans: outSpans, fileLines: outLines };
+}
+
+/** 이 파일에서 마지막으로 연 시각 — 최근 순 정렬의 자다. */
+function lastSpanAt(list: readonly SpecReadSpan[] | undefined): number {
+  let at = 0;
+  for (const s of list ?? []) if (s.at > at) at = s.at;
+  return at;
+}
+
+/**
+ * 세션별 마지막 정독 상태 — **참조를 지키기 위한 자리**다.
+ *
+ * 이 슬라이스는 증분(`DELTA_SLICE_KEYS`)을 타는데, 매 스냅샷마다 새 객체를 지으면 증분이 "전부 바뀜"으로
+ * 잡혀 부피가 줄기는커녕 `changed` 사본만 한 벌 더 든다. 원장 판 번호가 그대로면 **직전 객체를 그대로**
+ * 돌려주는 것이 그 조건을 세우는 방법이다(`ProjectGraph.stableCopy` 와 같은 수법).
+ */
+const specStateCache = new Map<string, { key: string; builtAt: number; state: SpecReadingState | undefined }>();
+
+/**
+ * §5.5 #17-44 ⑧ — 이 세션의 소속 에이전트 버블 id. 못 찾으면 빈 문자열이다.
+ *
+ * 켬/끔 3층의 가운데 칸을 고르는 열쇠다. 못 찾았다고 판정을 멈추지 않는다 — 그 층만 조용히 접히고
+ * 프로젝트 층이 그대로 답한다(§5.11 선택 탐침과 같은 규율).
+ */
+function ownerAgentIdOf(subAgentId: string): string {
+  for (const sub of subAgentManager.getAllSubsFlat()) if (sub.id === subAgentId) return sub.parentAgentId;
+  return '';
+}
+
+export function getSpecReadingState(subAgentId: string, projectPath?: string): SpecReadingState | undefined {
+  const project = projectPath ?? specReadingService.projectOf(subAgentId);
+  if (!subAgentId || !project) return undefined;
+  // §5.5 #17-44 ⑧(d) — 플러그인 켬/끔은 더 묻지 않는다. 이 카드는 목록에서 내렸으므로 그 판정이
+  //   영원히 false 가 되고, 남겨 두면 계측·게이트가 통째로 죽는다. 관문은 아래 3층 하나다.
+  try {
+    const version = specReadingService.versionOf(subAgentId);
+    const fields = readingFieldsFor(project, subAgentId);
+    // 설정은 원장과 **따로** 바뀐다(사용자가 강도를 바꾼 순간). 판 번호에 같이 묶지 않으면 바꾼 설정이
+    //   다음 도구 호출 때까지 화면에 안 나타난다 — 읽히지 않는 설정 스위치가 되는 자리다.
+    const key = `${version}|${JSON.stringify(fields.specSettings ?? null)}`;
+    const hit = specStateCache.get(subAgentId);
+    // 파일 쪽 근거(`.vibisual/spec.json`·문서 mtime)는 판 번호가 없다. 색인 캐시와 **같은 수명**으로
+    //   다시 재어 그 변화가 늦어도 한 주기 안에는 반영되게 한다.
+    if (hit && hit.key === key && Date.now() - hit.builtAt < SPEC_INDEX_TTL_MS) return hit.state;
+
+    const ctx: PluginPromptContext = {
+      projectPath: project,
+      cwd: project,
+      // §5.5 #17-44 ⑧ — 켬/끔 3층이 이 둘로 칸을 고른다. 종전에는 빈 문자열이라 에이전트·세션 층을
+      //   물어볼 수조차 없었다.
+      agentId: ownerAgentIdOf(subAgentId),
+      subAgentId,
+      agentLabel: '',
+      customCreated: true,
+      ...fields,
+      ...makeProjectProbe(project),
+    };
+    /*
+     * §5.5 #17-44 ⑧ — 3층 스위치. 꺼져 있으면 **계측 자체를 세우지 않는다**(배지·뷰·게이트가 함께 조용).
+     *
+     * 판정에 파일 설정(`.vibisual/spec.json`)까지 넣으려고 ctx 를 만든 **뒤에** 묻는다 — 체크포인트만
+     * 보면 팀이 그 파일로 켠 프로젝트에서 프롬프트는 실리는데 화면만 비는 어긋남이 생긴다(v4.65 규율).
+     * 꺼짐도 **같은 메모에 담는다** — 안 담으면 스냅샷마다(16~250ms) 그 파일을 다시 읽게 된다.
+     */
+    if (!resolveSpecReadingEnabled(readSpecSettings(ctx), { agentId: ctx.agentId, subAgentId })) {
+      specStateCache.set(subAgentId, { key, builtAt: Date.now(), state: undefined });
+      return undefined;
+    }
+    const evaluation = evaluateSpecReading(ctx);
+    const view = specReadingService.viewFieldsFor(subAgentId);
+    const shaped = shapeSpansForWire(fields.readingSpans ?? {}, evaluation.required, view?.fileLines ?? {});
+    const state: SpecReadingState = {
+      strength: evaluation.settings.strength,
+      indexUnits: evaluation.index.units.length,
+      indexDocs: evaluation.index.docCount,
+      indexTruncated: evaluation.index.truncated,
+      indexedAt: evaluation.index.builtAt,
+      required: evaluation.required,
+      spans: shaped.spans,
+      fileLines: shaped.fileLines,
+      trust: evaluation.trust,
+      gate: view?.gate ?? [],
+      stopRetries: view?.stopRetries ?? 0,
+      // 재는 시각이 아니라 **원장의 판 번호**다. 여기에 `Date.now()` 를 쓰면 내용이 같아도 매번 다른
+      //   객체가 되어 위 캐시가 무의미해진다.
+      updatedAt: version,
+      // §5.5 #17-44 ③-1 — 무엇이 색인 밖으로 밀렸는지·어디를 훑었는지. "문서 120개를 색인했다"만으로는 알 수 없다.
+      indexSkipped: evaluation.index.skippedCount,
+      indexSkippedDocs: evaluation.index.skippedDocs,
+      indexExcluded: evaluation.index.excludedCount,
+      roots: evaluation.index.roots,
+    };
+    // 다시 계산했는데 내용이 같으면(색인만 다시 세운 경우 등) 직전 객체를 그대로 쓴다.
+    const same = hit && JSON.stringify(hit.state) === JSON.stringify(state) ? hit.state : state;
+    specStateCache.set(subAgentId, { key, builtAt: Date.now(), state: same });
+    return same;
+  } catch (err) {
+    logger.warn(`[spec] state failed: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+/** 스냅샷에 실을 세션별 정독 상태. 원장을 든 세션만 담고, 하나도 없으면 `undefined`(필드 자체가 안 생긴다). */
+export function getSpecReadingStates(): Record<string, SpecReadingState> | undefined {
+  const out: Record<string, SpecReadingState> = {};
+  const live = new Set<string>();
+  for (const subAgentId of specReadingService.sessionIds()) {
+    live.add(subAgentId);
+    const state = getSpecReadingState(subAgentId);
+    if (state) out[subAgentId] = state;
+  }
+  // 원장이 사라진 세션의 메모까지 남겨 두면 그 자리가 §3.2.4 의 "키 개수엔 캡이 없다" 그대로가 된다.
+  for (const id of [...specStateCache.keys()]) if (!live.has(id)) specStateCache.delete(id);
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** 테스트 전용 — 정독 상태 메모를 비운다. */
+export function resetSpecReadingStateCache(): void {
+  specStateCache.clear();
+}
+
+/**
+ * 에이전트가 낸 글에서 인용을 뽑아 **원문과 대조**하고 원장에 남긴다.
+ *
+ * 뽑는 형식은 프롬프트가 시키는 형식과 같은 파일(`spec.ts`)에 있다 — 둘이 갈리면 에이전트는 시킨 대로
+ * 적었는데 우리는 못 알아보고 "인용 없음"으로 판정하게 되고, 그러면 게이트가 성실한 쪽을 벌한다.
+ */
+export function verifySpecCitationsFrom(subAgentId: string, text: string, projectPath?: string): void {
+  const project = projectPath ?? specReadingService.projectOf(subAgentId);
+  if (!subAgentId || !project || typeof text !== 'string' || text.trim() === '') return;
+  try {
+    const ctx: PluginPromptContext = {
+      projectPath: project,
+      cwd: project,
+      agentId: ownerAgentIdOf(subAgentId),
+      subAgentId,
+      agentLabel: '',
+      customCreated: true,
+      ...readingFieldsFor(project, subAgentId),
+      ...makeProjectProbe(project),
+    };
+    const settings = readSpecSettings(ctx);
+    // §5.5 #17-44 ⑧ — 꺼져 있으면 인용도 대조하지 않는다. 대조 결과가 원장에 쌓이면 나중에 켰을 때
+    //   **끄고 있던 동안의 판정**이 화면에 뜬다 — 그때 사용자는 자기가 안 켠 것이 어디서 왔는지 모른다.
+    if (!resolveSpecReadingEnabled(settings, { agentId: ctx.agentId, subAgentId })) return;
+    const index = buildSpecIndexCached(ctx, settings);
+    if (index.units.length === 0) return;
+    const found = extractCitations(text, index, process.platform);
+    if (found.length === 0) return;
+    specReadingService.setCitations(subAgentId, project, found.map((c) => verifyCitation(ctx, c)));
+  } catch (err) {
+    logger.warn(`[spec] citation check failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * 턴을 끝내려는 지금, **안 연 필수 절이 남았는가**(강도 `warn` 이상).
+ *
+ * 되돌릴 이유가 있으면 그 이유 문장을 준다. 되돌림 횟수가 상한에 닿으면 **더 막지 않는다** —
+ * 막힌 채 끝나지 못하는 세션이 이 기능이 낼 수 있는 최악의 결과이기 때문이다.
+ */
+export function specStopGate(subAgentId: string, projectPath?: string): { block: boolean; reason?: string } {
+  const project = projectPath ?? specReadingService.projectOf(subAgentId);
+  if (!subAgentId || !project) return { block: false };
+  const state = getSpecReadingState(subAgentId, project);
+  if (!state || state.strength === 'observe') return { block: false };
+  const open = state.required.filter((r) => r.status === 'open');
+  const badCitations = state.trust.citationsFailed;
+  if (open.length === 0 && badCitations === 0) return { block: false };
+
+  const settings = graphManager.getSpecReadingSettings(project);
+  const limit = settings?.stopRetries ?? DEFAULT_SPEC_READING_SETTINGS.stopRetries;
+  if (state.stopRetries >= limit) {
+    specReadingService.noteGate(subAgentId, project, {
+      at: Date.now(),
+      kind: 'retry-exhausted',
+      unitIds: open.map((r) => r.unitId),
+    });
+    return { block: false };
+  }
+
+  specReadingService.bumpStopRetry(subAgentId, project);
+  specReadingService.noteGate(subAgentId, project, {
+    at: Date.now(),
+    kind: 'stop-block',
+    unitIds: open.map((r) => r.unitId),
+  });
+  const lines = open.map((r) => `- \`${r.unitId}\` ${r.title} — \`${r.file}:${r.startLine}-${r.endLine}\``);
+  const citationLine = badCitations > 0
+    ? `\n인용 ${badCitations}건이 원문과 달랐다. 그 줄을 다시 열어 실제 문장으로 고쳐 적어라.`
+    : '';
+  return {
+    block: true,
+    reason: [
+      '기획 정독이 아직 안 끝났다. 아래 절을 `Read` 의 `offset`·`limit` 으로 끝까지 열고, 절마다 `파일:줄` "원문 한 문장" 을 적어라.',
+      ...lines,
+      citationLine,
+    ].filter((l) => l !== '').join('\n'),
+  };
+}
+
+/**
+ * 이 편집을 지금 허용할 것인가(강도 `enforce`).
+ *
+ * **커스텀 에이전트에만 선다.** 외부 훅으로 붙은 세션의 편집을 우리가 거부하면 사용자가 자기 터미널에서
+ * 하던 일이 우리 설정 때문에 막히는 셈이고, 그 경계는 §5.3 #12-1 이 이미 그어 둔 것이다.
+ */
+export function specWriteGate(
+  subAgentId: string,
+  filePath: string,
+  opts: { customCreated: boolean; projectPath?: string },
+): { deny: boolean; reason?: string } {
+  if (!opts.customCreated) return { deny: false };
+  const project = opts.projectPath ?? specReadingService.projectOf(subAgentId);
+  if (!subAgentId || !project) return { deny: false };
+  const state = getSpecReadingState(subAgentId, project);
+  if (!state || state.strength !== 'enforce') return { deny: false };
+  const open = state.required.filter((r) => r.status === 'open');
+  if (open.length === 0) return { deny: false };
+  specReadingService.noteGate(subAgentId, project, {
+    at: Date.now(),
+    kind: 'write-deny',
+    unitIds: open.map((r) => r.unitId),
+    detail: filePath,
+  });
+  return {
+    deny: true,
+    reason: `기획 정독 미완 — ${open.map((r) => `${r.unitId}(${r.file}:${r.startLine}-${r.endLine})`).join(' · ')} 을(를) 먼저 열어라.`,
+  };
 }

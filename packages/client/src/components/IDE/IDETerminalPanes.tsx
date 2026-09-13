@@ -115,11 +115,11 @@ export function IDETerminalPanes({ agentId, sessionId }: IDETerminalPanesProps):
     setZoomPane((cur) => (cur === targetPaneId ? null : targetPaneId));
   }, []);
 
-  const handleResize = useCallback((firstLeafId: string, ratio: number) => {
+  const handleResize = useCallback((secondHeadLeafId: string, ratio: number) => {
     setOverride((cur) => {
       const base = cur ? cur.tree : serverTree;
       if (!base) return cur; // 분할이 없으면 옮길 경계선도 없다.
-      return { tree: applyRatio(base, firstLeafId, ratio) };
+      return { tree: applyRatio(base, secondHeadLeafId, ratio) };
     });
   }, [serverTree]);
 
@@ -159,22 +159,30 @@ export function IDETerminalPanes({ agentId, sessionId }: IDETerminalPanesProps):
   );
 }
 
-/** split 노드를 **그 첫 자식의 첫 leaf id** 로 식별해 비율만 갈아 끼운다(leaf id 는 트리 안에서 유일). */
-function applyRatio(node: CmdPaneNode, firstLeafId: string, ratio: number): CmdPaneNode {
+/**
+ * split 노드를 **그 둘째 자식의 첫 leaf id** 로 식별해 비율만 갈아 끼운다.
+ *
+ * ⚠ *첫째* 자식의 첫 leaf 로 식별하면 안 된다 — leaf id 자체는 트리 안에서 유일하지만
+ * "첫째 자식의 첫 leaf" 는 **조상과 자손이 나눠 갖는다**. `row[ col[leaf0, leaf2], leaf1 ]`
+ * 처럼 첫 pane 을 한 번 더 분할하면 바깥 row 와 안쪽 col 이 둘 다 `'0'` 이 되어, 경계선 하나를
+ * 끌었는데 두 경계선이 같이 움직였다(그 비율이 `handleResizeEnd` 로 서버에 저장까지 됐다).
+ * 둘째 자식의 첫 leaf 는 split 마다 유일하다 — `resizeCmdPane`(shared) 머리말이 같은 규약이다.
+ */
+function applyRatio(node: CmdPaneNode, secondHeadLeafId: string, ratio: number): CmdPaneNode {
   if (node.type === 'leaf') return node;
   const clamped = Math.max(CMD_PANE_RATIO_MIN, Math.min(CMD_PANE_RATIO_MAX, ratio));
-  const head = collectCmdPaneIds(node.children[0])[0];
+  const head = collectCmdPaneIds(node.children[1])[0];
   const children: [CmdPaneNode, CmdPaneNode] = [
-    applyRatio(node.children[0], firstLeafId, ratio),
-    applyRatio(node.children[1], firstLeafId, ratio),
+    applyRatio(node.children[0], secondHeadLeafId, ratio),
+    applyRatio(node.children[1], secondHeadLeafId, ratio),
   ];
-  return head === firstLeafId ? { ...node, ratio: clamped, children } : { ...node, children };
+  return head === secondHeadLeafId ? { ...node, ratio: clamped, children } : { ...node, children };
 }
 
 interface PaneNodeProps {
   node: CmdPaneNode;
   renderLeaf: (id: string) => React.JSX.Element;
-  onResize: (firstLeafId: string, ratio: number) => void;
+  onResize: (secondHeadLeafId: string, ratio: number) => void;
   onResizeEnd: () => void;
 }
 
@@ -186,7 +194,8 @@ function PaneNode({ node, renderLeaf, onResize, onResizeEnd }: PaneNodeProps): R
   }
 
   const isRow = node.dir === 'row';
-  const firstLeafId = collectCmdPaneIds(node.children[0])[0] ?? '0';
+  // 이 경계선이 움직일 split 노드의 열쇠 — `applyRatio` 머리말대로 **둘째** 자식의 첫 leaf 다.
+  const secondHeadLeafId = collectCmdPaneIds(node.children[1])[0] ?? '0';
 
   // 경계선 드래그 — pointer capture 로 커서가 xterm 위로 들어가도 이벤트를 놓치지 않는다.
   //   capture 는 **경계선 엘리먼트 자신**에 건다(e.target 은 캡처 중 바뀔 수 있다).
@@ -202,7 +211,7 @@ function PaneNode({ node, renderLeaf, onResize, onResizeEnd }: PaneNodeProps): R
     const ratio = isRow
       ? (e.clientX - rect.left) / Math.max(1, rect.width)
       : (e.clientY - rect.top) / Math.max(1, rect.height);
-    onResize(firstLeafId, ratio);
+    onResize(secondHeadLeafId, ratio);
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;

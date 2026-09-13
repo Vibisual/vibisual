@@ -11,7 +11,7 @@
   ],
   "clientOnly": false,
   "needs": [
-    "brainInjections"
+    "autoGoal"
   ],
   "hostApi": 1
 }

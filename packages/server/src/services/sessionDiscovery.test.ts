@@ -16,6 +16,7 @@ import { MAX_AGENT_EVENTS } from '@vibisual/shared';
 import {
   readUserMessagesByPath,
   readLastAssistantMessageByPath,
+  readLastAssistantEntryByPath,
   __resetSessionCachesForTest,
 } from './sessionDiscovery.js';
 
@@ -184,6 +185,20 @@ describe('readLastAssistantMessage — 증분 == 전량 재스캔', () => {
     const incremental = readLastAssistantMessageByPath(fp);
     expect(incremental).toEqual(fullLastAssistant());
     expect(incremental).toBe('늦은 답');
+  });
+
+  // 어느 턴의 글인가 — 시각이 함께 나와야 부르는 쪽이 가를 수 있다(§5.5 #17-12 ③-4).
+  it('되찾은 글이 **언제 쓰였는지**를 함께 돌려준다', () => {
+    append([userLine('q1'), assistantLine('a1')]);
+    const first = readLastAssistantEntryByPath(fp);
+    expect(first?.text).toBe('a1');
+    expect(first?.ts).toBeGreaterThan(0);
+
+    append([userLine('q2'), assistantLine('a2')]);
+    const second = readLastAssistantEntryByPath(fp);
+    expect(second?.text).toBe('a2');
+    // 새 user 가 오면 시각도 함께 버려지고 뒤에 온 글의 시각만 남는다.
+    expect(second!.ts).toBeGreaterThan(first!.ts);
   });
 
   // ⚠ 트랜스크립트는 append-only 라, 증분이 보장하는 되돌림은 **파일이 줄어든 경우**다

@@ -30,7 +30,7 @@ import type {
   StorageUsageReport,
   WorktreeStorageUsage,
 } from '@vibisual/shared';
-import { isExpiredByDays, RETENTION_LOG_MAX } from '@vibisual/shared';
+import { INSURANCE_DIR, isExpiredByDays, RETENTION_LOG_MAX } from '@vibisual/shared';
 import type { RetentionLogEntry } from '@vibisual/shared';
 import { appStateGetRetention } from './appState.js';
 import { projectDirForInfo } from './statePersistence.js';
@@ -105,6 +105,9 @@ function kindForTrashRel(trashRel: string): RetentionLogEntry['kind'] | null {
   const head = trashRel.replace(/\\/g, '/').split('/')[0];
   if (head === 'attachments') return 'attachments';
   if (head === 'sub-streams') return 'subStreams';
+  // §5.26 저장고도 휴지통을 거친다 — 여기서 갈래를 못 알아보면 옮겨는 놓고 목록에 안 떠서
+  // 사용자가 되돌릴 수단이 사라진다(옮긴 의미가 없어진다).
+  if (head === INSURANCE_DIR) return 'insurance';
   return null;
 }
 
@@ -112,6 +115,10 @@ function kindForTrashRel(trashRel: string): RetentionLogEntry['kind'] | null {
  * 파일을 휴지통으로 옮긴다. 같은 이름이 이미 있으면 `-1`, `-2` 를 붙여 덮어쓰기를 피한다.
  * 반환은 실제로 들어간 휴지통 상대경로(복원 요청에 그대로 쓰인다). 실패하면 null.
  */
+export function moveFileToTrash(saveDir: string, trashRel: string, absPath: string): string | null {
+  return moveToTrash(saveDir, trashRel, absPath);
+}
+
 function moveToTrash(saveDir: string, trashRel: string, absPath: string): string | null {
   const base = path.join(saveDir, TRASH_SUBDIR);
   let rel = trashRel.replace(/\\/g, '/');
@@ -349,9 +356,20 @@ export function scanProjectStorage(info: ProjectInfo): ProjectStorageUsage {
   const subStreams = measureDir(path.join(saveDir, 'sub-streams'));
   const trash = measureDir(path.join(saveDir, TRASH_SUBDIR));
   const attachments = measureDir(path.join(vibiDir, 'attachments'));
-  const brain = measureDir(path.join(vibiDir, 'brain'));
+  /*
+   * 절차 저장고 — 새 자리와 **옛 브레인 자리를 합쳐** 한 줄로 센다(§5.10 통폐합).
+   * 옛 자리는 아직 읽기 전용으로 읽히므로(`listAutoGoalSkills`) 표에서 빼면 실제로 차지한 용량이
+   * 총합에서 사라진다 — 사용자가 지우지도 않았는데 숫자가 줄면 이 표는 그 순간 거짓말이 된다.
+   */
+  const newSkills = measureDir(path.join(vibiDir, 'skills'));
+  const legacySkills = measureDir(path.join(vibiDir, 'brain'));
+  const skills = {
+    bytes: newSkills.bytes + legacySkills.bytes,
+    files: newSkills.files + legacySkills.files,
+  };
   const logs = measureDir(path.join(vibiDir, 'logs'));
   const video = measureDir(path.join(vibiDir, 'video'));
+  const insurance = measureDir(path.join(saveDir, INSURANCE_DIR));
 
   const entries: StorageUsageEntry[] = [
     add('checkpoint', cp),
@@ -364,9 +382,10 @@ export function scanProjectStorage(info: ProjectInfo): ProjectStorageUsage {
     }),
     add('subStreams', subStreams),
     add('attachments', attachments),
+    add('insurance', insurance),
     // 휴지통은 본체와 따로 세운다 — 합치면 "정리했는데 왜 안 줄었나"가 안 보인다.
     add('trash', trash),
-    add('brain', brain),
+    add('skills', skills),
     add('logs', logs),
     add('video', video),
   ].filter((e) => e.bytes > 0);

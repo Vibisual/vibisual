@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { shortcutLabel } from '../../utils/platform.js';
+// §6 — 툴팁에 넣을 키는 레지스트리에서 읽는다(하드코딩하면 재매핑에 뒤처진다).
+import { useBindingLabel } from '../Shortcuts/useBindingLabel.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions } from './idePane.js';
 import { CodeEditor, type FollowRange } from './CodeEditor.js';
@@ -28,13 +29,21 @@ import { bakeMimeFor, canOverwriteWorkspaceImage } from './workspaceImageSave.js
 import { imageMetaLabel } from './editorImageMeta.js';
 import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 import { dragEditorWidth, type EditorResizeDrag } from './ideResponsive.js';
+import { IDEStageView } from './IDEStageView.js';
 
 /**
- * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 편집창**.
+ * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 판**.
  *
  * 덮개가 아니라 형제다(§5.5 #17-27 ①) — 사용자는 에이전트가 말하는 것을 보면서 그 파일을 읽는다.
- * 이 컴포넌트가 하는 일은 셋: 탭 줄(열어 둔 파일) · 손잡이 줄(저장·다시 읽기·밖에서 열기·닫기) ·
+ * 이 컴포넌트가 하는 일은 셋: 탭 줄(열어 둔 것들) · 손잡이 줄(저장·다시 읽기·밖에서 열기·닫기) ·
  * 본문(`CodeEditor`). 읽기·저장은 `useEditorDocs` 가, 색 구분은 `codeHighlight` 가 맡는다.
+ *
+ * §5.5 #17-17 ㉔ — **우측에 서는 판은 이것 하나다.** 종전에는 무대(`IDEStageView`)가 자기 껍데기·자기
+ * 폭 손잡이·자기 [닫기] 를 들고 이 판과 **나란히** 섰다 — 둘 다 열면 대화가 두 번 좁아졌고, 같은 자리에
+ * 뜨는 것들(무대·파일·이미지·HTML·PDF)이 서로 다른 문법으로 열리고 닫혔다(사용자 지시: "이쪽에 열리는
+ * 탭들은 전부 하나의 탭 안에 들어가야지"). 이제 그 전부가 **이 판의 탭**이다 — 맨 앞이 무대, 그 뒤가 파일.
+ * 무엇을 비추는가는 `activePath` 하나가 정한다: `null` 이면 무대(열려 있을 때), 아니면 그 파일.
+ * 새 상태를 만들지 않았으므로 "무대인 동시에 파일" 같은 어긋난 조합이 애초에 없다.
  */
 
 /**
@@ -78,7 +87,15 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
     closeEditorFile: closeFile,
     setEditorFileDirty: setDirty,
     setEditorTabsPinned,
+    setStageOpen,
   } = useIDEPaneActions();
+  /**
+   * §5.5 #17-17 ㉔ — 무대가 이 판의 탭으로 서 있나. 비추고 있는가는 **활성 파일이 없는가**로 정한다
+   * (새 플래그 ❌ — 두 값을 따로 들면 "무대이면서 파일"이 되는 조합이 생기고, 그 조합은 화면에
+   * 둘 중 무엇을 그릴지 아무도 모른다). 여닫는 것은 그래서 곧 탭을 고르고 놓는 일이다(스토어 쪽 주석).
+   */
+  const stageOpen = useIDEPaneValue((o) => o.stageOpen);
+  const stageActive = stageOpen && activePath === null;
   /** §5.5 #17-27 ⑯ — 탭 줄이 세션을 따라 바뀌지 않게 붙들어 두었는가. */
   const tabsPinned = useIDEPaneValue((o) => o.editorPinned);
   const toggleTabsPinned = useCallback((): void => {
@@ -354,6 +371,13 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
     if (activePath) save(activePath, { force });
   }, [activePath, save]);
 
+  // 저장 버튼 툴팁의 키 — §6 레지스트리의 지금 값이다(재매핑하면 툴팁도 따라 바뀐다).
+  //   해제하면 괄호가 빈 채로 남으므로 키 없는 라벨로 갈아탄다.
+  const saveKeyLabel = useBindingLabel('editor.save');
+  const saveTitle = saveKeyLabel
+    ? t('ide.editor.save', { shortcut: saveKeyLabel })
+    : t('ide.editor.ctx.save');
+
   /**
    * §5.5 #17-27 ⑫ — 디스크의 읽기 전용 잠금을 풀고 저장한다(Perforce 체크아웃 전 파일 등).
    * 충돌 대조는 그대로 지난다 — 잠겼다는 이유로 남의 편집을 덮지 않는다.
@@ -388,9 +412,14 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
     closeTabs([relPath]);
   }, [closeTabs]);
 
+  /**
+   * 탭 줄 오른쪽의 [판 닫기] — 이 판에 서 있는 것을 **전부** 내린다.
+   * ㉔ 이후로 그 "전부"에는 무대도 든다(파일만 닫으면 무대만 남은 판에서 이 손잡이가 헛버튼이 된다).
+   */
   const handleCloseAll = useCallback((): void => {
     closeTabs(files.map((f) => f.relPath));
-  }, [closeTabs, files]);
+    if (stageOpen) setStageOpen(false);
+  }, [closeTabs, files, stageOpen, setStageOpen]);
 
   const handleOpenExternal = useCallback((): void => {
     if (active) openFileByPath(active.absPath, active.relPath);
@@ -568,7 +597,9 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
   }, []);
 
-  if (files.length === 0 || !activePath) return null;
+  // ㉔ — 이 판이 서는 조건. 종전 편집창의 그 조기 반환에 **무대 축 하나가 더해진 것**뿐이다:
+  //   비출 파일이 있거나, 무대가 열려 있거나. 둘 다 아니면 한 픽셀도 차지하지 않는다.
+  if (!stageActive && (files.length === 0 || !activePath)) return null;
 
   // 덮개로 뜰 때도 **활동바까지 먹지는 않는다** — 활동바가 아직 자리에 서 있는 폭(창만 좁힌
   //   데스크톱)에서 `inset-0` 으로 덮으면 사이드바를 되부를 유일한 손잡이가 가려진다. 활동바가
@@ -621,18 +652,28 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
       <IDEEditorTabs
         files={files}
         labels={labels}
-        activePath={activePath}
+        activePath={activePath ?? ''}
         onSelect={setActive}
         onClose={handleCloseTab}
         onCloseAll={handleCloseAll}
         onTabContextMenu={handleTabContextMenu}
         pinned={tabsPinned}
         onTogglePinned={toggleTabsPinned}
+        // ㉔ — 무대 탭. 고르는 것은 "활성 파일을 비우는 것"이고, 닫는 것은 무대 자체를 내리는 것이다
+        //   (닫으면 스토어가 남은 파일 중 첫 것으로 되돌린다 — 판이 빈 채로 서 있지 않게).
+        stageTab={stageOpen ? {
+          active: stageActive,
+          label: t('ide.stage.title'),
+          onSelect: () => setActive(null),
+          onClose: () => setStageOpen(false),
+        } : undefined}
       />
 
       {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠. 켜져 있는 동안만 서고, 방금 무엇을 했는지(자동으로 다시 읽었다는
-          사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록. */}
-      {followOn && (
+          사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록.
+          ㉔ — 무대 탭에는 서지 않는다: 문구가 "그 파일을 다시 읽었다"라 비추는 것이 파일일 때만 참이고,
+          무대는 그 자체가 도는 단계를 따라가므로 따로 알릴 것이 없다(⑯ 이 두 축을 한 스위치로 묶었다). */}
+      {!stageActive && followOn && (
         <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[12px] ${
           bannerSkip
             ? 'border-amber-500/40 bg-amber-500/10 text-amber-200/90'
@@ -683,7 +724,10 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
         </div>
       )}
 
-      {/* 손잡이 줄 — 전체 경로(누르면 그 폴더가 열린다) + 저장·다시 읽기·밖에서 열기 */}
+      {/* 손잡이 줄 — 전체 경로(누르면 그 폴더가 열린다) + 저장·다시 읽기·밖에서 열기.
+          ㉔ — 무대 탭에는 이 줄이 서지 않는다(무대에는 경로도 저장도 없다). 그 자리에는 무대가
+          자기 손잡이 줄을 같은 높이·같은 톤으로 세운다(`IDEStageView` — 탭을 옮겨도 줄이 안 튄다). */}
+      {!stageActive && (
       <div className="flex items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <button
           type="button"
@@ -707,8 +751,8 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
           type="button"
           onClick={() => handleSave()}
           disabled={!dirty || doc?.saving}
-          title={t('ide.editor.save', { shortcut: shortcutLabel('Ctrl+S') })}
-          aria-label={t('ide.editor.save', { shortcut: shortcutLabel('Ctrl+S') })}
+          title={saveTitle}
+          aria-label={saveTitle}
           className={`rounded p-0.5 transition-colors hover:bg-gray-800 disabled:opacity-30 ${dirty ? 'text-emerald-400' : 'text-gray-500'}`}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -806,8 +850,10 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
           </button>
         )}
       </div>
+      )}
 
-      {/* 알림 줄 — 충돌 / 읽기 전용 / 저장 실패는 본문 위에 그대로 적는다(조용히 삼키지 않는다). */}
+      {/* 알림 줄 — 충돌 / 읽기 전용 / 저장 실패는 본문 위에 그대로 적는다(조용히 삼키지 않는다).
+          무대 탭에서는 `doc` 이 없으므로 이 줄들은 저절로 서지 않는다(조건을 따로 달 필요가 없다). */}
       {doc?.conflict && (
         <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[12px] text-amber-200">
           <span className="min-w-0 flex-1">{t('ide.editor.conflict')}</span>
@@ -874,7 +920,10 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
       )}
 
       {/* 본문 */}
-      {!doc || doc.status === 'loading' ? (
+      {stageActive ? (
+        /* ㉔ — 무대 탭의 몸통. 파일 본문과 **같은 자리**를 쓴다(형제로 서면 판이 둘로 갈린다). */
+        <IDEStageView />
+      ) : !doc || doc.status === 'loading' ? (
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.loading')}</p>
       ) : doc.status === 'error' ? (
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.editor.readError')}</p>

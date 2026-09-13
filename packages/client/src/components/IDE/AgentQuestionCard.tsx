@@ -88,6 +88,35 @@ function SelectionIcon(): React.JSX.Element {
 }
 
 /**
+ * §4 (판올림 번호 발급 대기) — **즉시 전송은 두 번 눌러야 나간다.**
+ *
+ * 이 상자의 프롬프트는 **모델이 쓴 글**이다. 그런데 종전에는 한 번의 클릭이 그 글을 그대로 세션에
+ * 새 명령으로 밀어 넣었다 — 아이콘 하나 옆에 나란히 붙은 복사 버튼을 겨누다 빗맞아도 전송이었다.
+ * 사람이 루프 안에 있다는 것은 "화면에 떠 있었다"가 아니라 **보내겠다고 한 번 더 말했다**는 뜻이다.
+ *
+ * 모달을 새로 만들지 않는다(카드가 스트림 안에 있어 모달은 스크롤을 뺏는다) — 첫 클릭은 버튼을
+ * **겨눔** 상태로 바꾸고, 그 상태에서 다시 눌러야 나간다. 겨눔은 `INSTANT_ARM_MS` 뒤 스스로 풀려
+ * 눌러 둔 채 잊은 버튼이 나중에 오발하지 않는다.
+ */
+const INSTANT_ARM_MS = 4000;
+
+function useInstantArm(onInstant: () => void): { armed: boolean; onArmOrSend: () => void } {
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<number | null>(null);
+  const onArmOrSend = useCallback(() => {
+    if (armTimer.current !== null) window.clearTimeout(armTimer.current);
+    if (!armed) {
+      setArmed(true);
+      armTimer.current = window.setTimeout(() => setArmed(false), INSTANT_ARM_MS);
+      return;
+    }
+    setArmed(false);
+    onInstant();
+  }, [armed, onInstant]);
+  return { armed, onArmOrSend };
+}
+
+/**
  * 복사 동작 한 벌(클립보드 쓰기 + 1.4s 체크 피드백). 카드 안 복사 버튼이 셋(헤더 / 질문 하나 /
  * 답지)이라 각자 타이머·상태를 따로 들면 피드백 시간이 제각각이 된다 — 한 곳에 둔다.
  * `getText()` 가 빈 문자열이면 아무 일도 하지 않는다(복사할 게 없을 때 헛된 체크 표시 ❌).
@@ -252,6 +281,7 @@ const PromptBox = memo(function PromptBox({
 
   const getPromptText = useCallback(() => (inert ? '' : prompt), [prompt, inert]);
   const { copied, onCopy } = useCopyAction(getPromptText);
+  const { armed, onArmOrSend } = useInstantArm(onInstant);
 
   // 우상단 버튼 묶음이 실제로 먹는 폭을 재서 본문이 그만큼 비켜 가게 한다.
   //
@@ -279,7 +309,14 @@ const PromptBox = memo(function PromptBox({
     ro.observe(overlay);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [copied, wasSent, inert, t]);
+  }, [copied, wasSent, armed, inert, t]);
+
+  // 버튼은 **누르면 벌어지는 일**을 적는다 — 겨눔 상태에서는 "한 번 더 누르면 나간다"를 말한다.
+  const instantLabel = wasSent
+    ? t('ide.question.instantSent')
+    : armed
+      ? t('ide.question.instantConfirm')
+      : t('ide.question.instant');
 
   return (
     <div className="group/prompt mt-1.5 flex items-start gap-2">
@@ -323,20 +360,22 @@ const PromptBox = memo(function PromptBox({
           </button>
           <button
             type="button"
-            onClick={onInstant}
+            onClick={onArmOrSend}
             disabled={inert}
-            title={wasSent ? t('ide.question.instantSent') : t('ide.question.instant')}
-            aria-label={wasSent ? t('ide.question.instantSent') : t('ide.question.instant')}
+            title={instantLabel}
+            aria-label={instantLabel}
             className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-semibold transition-colors ${
               wasSent
                 ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
                 : dimmed
                   ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
-                  : 'border-sky-500/40 bg-sky-500/15 text-sky-300 hover:border-sky-400/60 hover:bg-sky-500/25 hover:text-sky-200'
+                  : armed
+                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                    : 'border-sky-500/40 bg-sky-500/15 text-sky-300 hover:border-sky-400/60 hover:bg-sky-500/25 hover:text-sky-200'
             }`}
           >
             {wasSent ? <CheckIcon /> : <ZapIcon />}
-            <span>{wasSent ? t('ide.question.instantSent') : t('ide.question.instant')}</span>
+            <span>{instantLabel}</span>
           </button>
         </div>
       </div>

@@ -7,34 +7,34 @@
  */
 export const strings = {
   "en": {
-    "desc": "Ordinary injection dies with the session; poisoned memory stays and infects future ones. Worse, it is trusted more because it looks like something the system learned.",
+    "desc": "Ordinary injection dies with the session; something false written into the procedure store stays and infects future ones. Worse, it is trusted more because it looks like something the system learned.",
     "heading": "Memory Poisoning",
     "level": {
-      "none": "No memory yet",
+      "none": "Not on yet",
       "clean": "Nothing pending",
       "review": "Pending judgement"
     },
     "check": {
-      "contested": "Contested",
-      "needsCheck": "Flagged stale",
-      "cards": "Cards stored"
+      "contested": "Turned down",
+      "needsCheck": "Awaiting judgement",
+      "cards": "In store"
     },
-    "note": "Promotion into memory needs provenance — a fact from the user and a line read out of an external document must not be stored at the same trust level."
+    "note": "Procedures are written without an approval button, so the record of what you turned down is the only provenance trail — it is the one place a human decision is kept."
   },
   "ko": {
-    "desc": "일반 인젝션은 세션이 끝나면 사라지지만, 오염된 기억은 남아 미래의 세션을 감염시킵니다. 게다가 \"시스템이 학습한 것\"이라 더 신뢰받습니다.",
+    "desc": "일반 인젝션은 세션이 끝나면 사라지지만, 절차 저장고에 잘못 적힌 것은 남아 미래의 세션을 감염시킵니다. 게다가 \"시스템이 학습한 것\"이라 더 신뢰받습니다.",
     "heading": "기억 오염",
     "level": {
-      "none": "아직 기억 없음",
+      "none": "아직 켜지 않음",
       "clean": "대기 중인 것 없음",
       "review": "판단 대기 있음"
     },
     "check": {
-      "contested": "값이 갈림",
-      "needsCheck": "확인 필요",
-      "cards": "저장 장수"
+      "contested": "물린 것",
+      "needsCheck": "판단 대기",
+      "cards": "저장고에"
     },
-    "note": "기억으로 승급시키는 경로에 출처 검증이 필요합니다 — 사용자 발화에서 나온 사실과 외부 문서에서 읽은 내용을 같은 신뢰도로 저장하면 안 됩니다."
+    "note": "절차는 승인 버튼 없이 적히므로, 무엇을 물렸는지의 기록이 유일한 출처 흔적입니다 — 사람의 판단이 남는 자리가 거기뿐입니다."
   },
   "ja": {
     "level": {

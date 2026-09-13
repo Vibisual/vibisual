@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { clampUsagePct, usageTextToneClass } from '../../utils/usageLimits.js';
+import { useCodexUsage } from '../../hooks/useCodexUsage.js';
 import { UsagePopup } from '../Panel/UsagePopup.js';
 
 // SCENARIO.md §4 v1.50 / v3.60 — 헤더 사용량 필.
@@ -18,6 +19,9 @@ import { UsagePopup } from '../Panel/UsagePopup.js';
 // §4 — 값은 이제 대화형 세션 없이도 들어온다. 서버가 `claude -p "/usage"` 를 주기적으로
 // 돌려(모델 호출 0턴 = 과금 없음) 받아 오고, statusLine 수집기는 대화형 세션이 떠 있는 동안
 // 그 사이를 더 촘촘히 메우는 보조가 됐다. 그래서 `-` 는 "켜라"가 아니라 대개 "곧 들어온다"다.
+//
+// 필 안에는 엔진 글리프를 넣지 않는다(사용자 요청) — 링 하나만 선다. 지금 엔진이 무엇인지는
+// 툴팁 첫 토막과 팝업이 이미 말하고, 헤더 우측 클러스터는 폭이 늘어나면 배지들이 밀린다.
 
 /** 사용률 링 + 원 안 숫자. 이모지·이미지 ❌ — 순수 SVG. */
 function UsageRing({ pct }: { pct: number | null }): React.JSX.Element {
@@ -64,6 +68,9 @@ function UsageRing({ pct }: { pct: number | null }): React.JSX.Element {
 
 export function UsagePill(): React.JSX.Element {
   const { t } = useTranslation();
+  const main = useGraphStore(s => s.userDefaults?.engineChoice?.kind ?? 'claude');
+  const codexLoggedIn = useGraphStore(s => s.codexAuth?.loggedIn === true);
+  const { usage: codexUsage } = useCodexUsage(main === 'codex' && codexLoggedIn);
   const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
   const [open, setOpen] = useState(false);
@@ -71,19 +78,19 @@ export function UsagePill(): React.JSX.Element {
   // §4 — 1차 = 서버가 조립한 세션 한도(`claude -p "/usage"` probe 와 statusLine 중 더 최근 것).
   //   그마저 비면 statusLine 이 밀어준 §4 v1.50 원본 값으로 폴백.
   const session = claudeUsage?.limits.find((l) => l.kind === 'session' || l.group === 'session');
-  const raw = session?.percent ?? rateLimits?.used5h;
+  const raw = main === 'claude' ? session?.percent ?? rateLimits?.used5h : main === 'codex' && codexLoggedIn ? (codexUsage?.windows.find(w => w.id === 'codex:primary') ?? codexUsage?.windows[0])?.usedPercent : undefined;
   const pct = typeof raw === 'number' ? clampUsagePct(raw) : null;
 
   const tone = pct === null ? 'text-gray-500' : usageTextToneClass(pct);
   // 값이 없을 때 "켜라" 와 "기다리는 중" 을 구분한다 — 수집기가 이미 켜져 있는데 "클릭해서
   // 켜기" 라고 하면 사용자가 켜진 스위치를 다시 누르게 된다(§4 v3.60 재설치 사고의 출발점).
-  const title = pct !== null
+  const title = `${t(`providers.${main}`)} · ` + (main === 'local' ? t('providers.localUsage') : main === 'codex' ? (pct !== null ? `${Math.round(pct)}%` : t(codexLoggedIn ? 'providers.noUsage' : 'providers.signIn')) : pct !== null
     ? t('header.usage.tooltip', { percent: Math.round(pct) })
     : claudeUsage?.error === 'cli-unavailable'
       ? t('header.usage.tooltipCliUnavailable')
       : claudeUsage?.error === 'awaiting-statusline'
         ? t('header.usage.tooltipWaiting')
-        : t('header.usage.tooltipNoData');
+        : t('header.usage.tooltipNoData'));
 
   return (
     <>

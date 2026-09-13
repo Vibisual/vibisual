@@ -19,13 +19,20 @@ import type { PluginPromptContext } from './types.js';
 const SRC = path.resolve(__dirname);
 const ids = PLUGIN_MANIFESTS.map((m) => m.id);
 
-/** 아무 프로젝트나 하나 — 집행 블록은 프로젝트 사정과 무관하게 "낼 말"이 있어야 한다. */
+/**
+ * 아무 프로젝트나 하나 — 집행 블록은 프로젝트 사정과 무관하게 "낼 말"이 있어야 한다.
+ *
+ * 다만 §5.5 #17-44 ⑧ 이후 `spec-driven` 은 **사용자가 켠 뒤에만** 말한다(기본 꺼짐). 이 검사가 묻는 것은
+ * "켰는데 아무 말도 안 하나"이므로 그 스위치를 켜 둔 상태로 들어간다 — 안 켜면 이 카드만 늘 침묵해
+ * 검사가 자기 물음을 못 던진다.
+ */
 const ctx: PluginPromptContext = {
   projectPath: 'C:/repo/x',
   cwd: 'C:/repo/x',
   agentId: 'agent-1',
   agentLabel: 'Agent',
   customCreated: true,
+  specSettings: { strength: 'observe', enabledProject: true },
   fileExists: () => false,
   readFile: () => null,
 };

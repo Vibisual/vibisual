@@ -35,6 +35,7 @@ const CONN_DOT: Record<HeaderProps['connectionStatus'], string> = {
 
 // §3.7 v2.15 — 색 신호는 좌측 dot 한 점이 전담. 박스는 항상 동일한 중성 톤.
 //   active > 0          → 파랑 깜빡
+//   limited > 0 only    → 주황 깜빡 (§2.4 한도 정지 — 도는 것이 없는데 끊긴 세션이 남아 있다)
 //   completed > 0 only  → 녹색 깜빡
 //   전부 idle           → 회색 정적
 //   0개                 → 배지 자체를 숨김
@@ -89,8 +90,13 @@ export function Header({
   // prop `agentPhase` 는 전역값이라 탭 전환 시 갱신되지 않음 → 로컬 파생값 사용.
   void agentPhase;
 
+  // §2.4 (한도 정지) — **도는 것이 이긴다.** 한도를 무시하고 다시 돌린 세션이 하나라도 있으면
+  //   그 프로젝트는 여전히 일하는 중이라 파랑이다. 도는 것이 하나도 없는데 끊긴 세션이 남아 있으면,
+  //   그때가 사용자가 알아야 하는 순간이다 — 초록(끝남)으로 내려가면 멈춘 사실이 사라진다.
   const dotState: AgentDotState =
-    counts.running > 0 ? 'active' : counts.completed > 0 ? 'completed' : 'idle';
+    counts.running > 0 ? 'active'
+      : counts.limited > 0 ? 'limited'
+        : counts.completed > 0 ? 'completed' : 'idle';
   const badgeVisible = counts.agents > 0;
 
   const connLabel: Record<HeaderProps['connectionStatus'], string> = {
@@ -108,16 +114,25 @@ export function Header({
           sessions: counts.sessions,
           agents: counts.agents,
         })
-        : t('header.agentStatus.tooltipIdle', {
-          sessions: counts.sessions,
-          agents: counts.agents,
-        });
+        // §2.4 (한도 정지) — 도는 것이 없을 때는 "몇 개가 멈춰 있는지"가 유일하게 급한 사실이다.
+        : counts.limited > 0
+          ? t('header.agentStatus.tooltipLimited', {
+            limited: counts.limited,
+            sessions: counts.sessions,
+            agents: counts.agents,
+          })
+          : t('header.agentStatus.tooltipIdle', {
+            sessions: counts.sessions,
+            agents: counts.agents,
+          });
 
   return (
     // §3.7 v2.10/v2.12/v2.13 — 통합 타이틀바 한 줄(VS Code 톤). `app-drag` 로 헤더 전체가
     // 윈도우 드래그 영역. 우측 `pr-36`(=144px) 가 Windows titleBarOverlay 의 윈도우 컨트롤 폭
     // (기본 138px) 자리를 비워둔다. 내부 interactive 요소는 `app-nodrag` 로 클릭 복귀.
     // v2.13 — 한 줄 통합: h-9(36px), 로고 + File + (구분선) + 프로젝트 탭 + (드래그 spacer) + 우측 컨트롤.
+    // 여기에 `select-none` 을 다시 붙이지 말 것 — 글자 선택 차단은 `.app-drag` 정의(`index.css`)가
+    // 한 곳에서 소유한다(앱 안 창 셸·지휘통제실·오버레이 창의 드래그 영역까지 같은 규칙으로 덮인다).
     // §4 v3.16 — pr-36(윈도우 컨트롤 오버레이 자리)은 packaged Electron 에서만. 모바일/웹
     // 브라우저에는 네이티브 min/max/close 가 없어 144px 이 통째로 낭비돼 탭 영역을 짓눌렀다.
     //
@@ -139,12 +154,41 @@ export function Header({
       {/* 좌측: 로고 + File 메뉴 + 프로젝트 탭 — 탭이 많아지면 내부에서 가로 스크롤. */}
       <div className="flex min-w-0 flex-1 items-stretch">
         {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스.
-            §4 v3.24 — 폰(max-md)에선 로고 블록 전체(dot 포함)를 숨겨 File+탭만 남긴다. */}
-        <div className="flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden">
+            §4 v3.24 — 폰(max-md)에선 로고 블록 전체(dot 포함)를 숨겨 File+탭만 남긴다.
+            로고 상자 자체를 OS 드래그 영역으로 신고하고, 내부 점과 글자만 포인터에서 제외한다. */}
+        <div className="app-drag-label app-drag relative flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden">
           <div className="h-3 w-3 rounded-full bg-gradient-to-br from-blue-400 to-violet-500" />
           <span className="text-[12px] font-semibold tracking-tight text-white/90">
             {t('header.logo.name')}
           </span>
+          {window.api?.window?.moveSelf && (
+            <div
+              className="app-nodrag absolute inset-0 z-10"
+              style={{ pointerEvents: 'auto' }}
+              aria-hidden="true"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                void window.api?.window?.moveSelf?.('start');
+              }}
+              onPointerMove={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  void window.api?.window?.moveSelf?.('move');
+                }
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                  void window.api?.window?.moveSelf?.('end');
+                }
+              }}
+              onPointerCancel={() => { void window.api?.window?.moveSelf?.('end'); }}
+              onLostPointerCapture={() => { void window.api?.window?.moveSelf?.('end'); }}
+              onDoubleClick={() => { void window.api?.window?.toggleMaximizeSelf(); }}
+            />
+          )}
         </div>
 
         {/* File 메뉴 */}
@@ -201,6 +245,7 @@ export function Header({
             badgeState={badgeVisible ? dotState : null}
             badgeRunning={counts.running}
             badgeSessions={counts.sessions}
+            badgeLimited={counts.limited}
             badgeTitle={t('header.agentStatus.tooltipMenu', { status: phaseTooltip })}
             canOpenCommandCenter={canOpenCommandCenter}
             onOpenCommandCenter={openCommandCenter}

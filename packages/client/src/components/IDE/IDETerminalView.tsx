@@ -22,11 +22,13 @@ import {
   type CmdTerminalState,
 } from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+// §6 — 어떤 키가 복사·붙여넣기인지는 레지스트리가 정한다(여기 키를 적지 않는다).
+import { useCommand } from '../../hooks/useCommand.js';
+import type { CommandId } from '@vibisual/shared';
+import { KeyHint } from '../Shortcuts/KeyHint.js';
+import { useTitleWithBinding } from '../Shortcuts/useBindingLabel.js';
 import { openWebSearch } from './webSearchUrl.js';
 import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
-// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
-//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
-import { shortcutLabel } from '../../utils/platform.js';
 import { TERMINAL_FONT_STACK, ensureTerminalFonts } from '../../utils/terminalFont.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
@@ -280,6 +282,59 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const actionsRef = useRef({ copySelection, paste, selectAll, clearTerminal, applyFontSize, openSearch });
   actionsRef.current = { copySelection, paste, selectAll, clearTerminal, applyFontSize, openSearch };
 
+  // 툴팁 안의 키도 레지스트리에서 — 재매핑하면 이 문구가 함께 바뀐다.
+  const findTitle = useTitleWithBinding(t('ide.terminal.find'), 'terminal.find');
+
+  /**
+   * 이 키가 **이 터미널**의 것인가.
+   *
+   * 화면에 터미널이 여럿(분할·여러 세션) 뜨므로, 등록만 해 두면 뒤에 마운트된 터미널이 앞의
+   * 키를 가져간다. 이벤트가 난 자리가 내 host 안일 때만 받는다 — 판정 근거가 DOM 이라
+   * "지금 어느 터미널이 활성인가"라는 별도 상태를 둘 필요가 없다.
+   */
+  const isMine = useCallback((e: KeyboardEvent): boolean => {
+    const host = hostRef.current;
+    return !!host && e.target instanceof Node && host.contains(e.target);
+  }, []);
+
+  useCommand('terminal.copy', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.copySelection();
+  });
+  useCommand('terminal.paste', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.paste();
+  });
+  // 선택이 없으면 **셸의 것**이다(SIGINT) — `false` 를 돌려주면 그대로 흘러 내려간다.
+  useCommand('terminal.copyOrPass', (e) => {
+    if (!isMine(e) || !termRef.current?.hasSelection()) return false;
+    actionsRef.current.copySelection();
+  });
+  useCommand('terminal.pasteAlt', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.paste();
+  });
+  useCommand('terminal.find', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.openSearch();
+  });
+  useCommand('terminal.selectAll', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.selectAll();
+  });
+  useCommand('terminal.fontIncrease', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.applyFontSize(fontSizeRef.current + 1);
+  });
+  useCommand('terminal.fontDecrease', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.applyFontSize(fontSizeRef.current - 1);
+  });
+  useCommand('terminal.fontReset', (e) => {
+    if (!isMine(e)) return false;
+    actionsRef.current.applyFontSize(FONT_SIZE_DEFAULT);
+  });
+
   // ── xterm 생성/재부착 ────────────────────────────────────────────────────
   useEffect(() => {
     const host = hostRef.current;
@@ -361,29 +416,10 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     //   동봉 글꼴은 font-display: swap 이라 지금 재면 OS 폴백(좁은 글꼴)의 폭으로 열 수가 잡히고,
     //   그 값이 그대로 셸에 실려 가 줄이 창을 넘어간다(ensureTerminalFonts 주석).
 
-    // 커스텀 키 핸들러 — 복붙/검색/폰트 단축키. return false = xterm 이 PTY stdin 으로 보내지 않음.
-    term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown') return true;
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return true;
-      const a = actionsRef.current;
-      // Ctrl+Shift+C / Ctrl+Shift+V — 명시적 복사/붙여넣기.
-      if (e.shiftKey && e.code === 'KeyC') { a.copySelection(); return false; }
-      if (e.shiftKey && e.code === 'KeyV') { a.paste(); return false; }
-      if (e.shiftKey) return true;
-      // Ctrl+C — 선택이 있으면 복사, 없으면 통과(셸 SIGINT 보존).
-      if (e.code === 'KeyC') {
-        if (term.hasSelection()) { a.copySelection(); return false; }
-        return true;
-      }
-      if (e.code === 'KeyV') { a.paste(); return false; }
-      if (e.code === 'KeyF') { a.openSearch(); return false; }
-      if (e.code === 'KeyA') { a.selectAll(); return false; }
-      if (e.code === 'Equal' || e.code === 'NumpadAdd') { a.applyFontSize(fontSizeRef.current + 1); return false; }
-      if (e.code === 'Minus' || e.code === 'NumpadSubtract') { a.applyFontSize(fontSizeRef.current - 1); return false; }
-      if (e.code === 'Digit0' || e.code === 'Numpad0') { a.applyFontSize(FONT_SIZE_DEFAULT); return false; }
-      return true;
-    });
+    // ⚠ 복붙·검색·폰트 단축키는 여기 없다 — §6 레지스트리(`useCommand`)가 창 capture 단계에서
+    //   먼저 판정하고, 우리 것이면 `stopPropagation()` 으로 삼켜 xterm 에 닿지 않게 한다.
+    //   그래서 `attachCustomKeyEventHandler` 로 한 벌 더 볼 필요가 없다(두 벌이면 재매핑이
+    //   한쪽에만 반영돼 "설정은 바뀌었는데 터미널만 옛 키"가 된다).
 
     // §4 v2.89 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 **터미널에서 숨기고**(feed 가
     //   그 줄을 뺀 문자열을 돌려줌 → claude TUI 무간섭), 파싱한 카드는 onCard 로 받아 우측 DOM 패널이 렌더.
@@ -650,7 +686,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
             <button
               type="button"
               onClick={() => openSearch()}
-              title={`${t('ide.terminal.find')} (${shortcutLabel('Ctrl+F')})`}
+              title={findTitle}
               aria-label={t('ide.terminal.find')}
               className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
             >
@@ -776,12 +812,12 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           className="fixed z-[1000] min-w-[200px] rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
           style={{ left: menu.x, top: menu.y }}
         >
-          <TerminalMenuItem label={t('ide.terminal.copy')} shortcut={shortcutLabel('Ctrl+C')} disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.terminal.copy')} cmd="terminal.copyOrPass" disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />
           <TerminalMenuItem label={t('ide.mainArea.ctxSearchWeb')} disabled={!hasSelection()} onClick={() => { searchWeb(); setMenu(null); }} />
-          <TerminalMenuItem label={t('ide.terminal.paste')} shortcut={shortcutLabel('Ctrl+V')} onClick={() => { paste(); setMenu(null); }} />
-          <TerminalMenuItem label={t('ide.terminal.selectAll')} shortcut={shortcutLabel('Ctrl+A')} onClick={() => { selectAll(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.terminal.paste')} cmd="terminal.pasteAlt" onClick={() => { paste(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.terminal.selectAll')} cmd="terminal.selectAll" onClick={() => { selectAll(); setMenu(null); }} />
           <div className="my-1 h-px bg-gray-700/70" />
-          <TerminalMenuItem label={t('ide.terminal.find')} shortcut={shortcutLabel('Ctrl+F')} onClick={() => { setMenu(null); openSearch(); }} />
+          <TerminalMenuItem label={t('ide.terminal.find')} cmd="terminal.find" onClick={() => { setMenu(null); openSearch(); }} />
           <TerminalMenuItem label={t('ide.terminal.clear')} onClick={() => { clearTerminal(); setMenu(null); }} />
           {(onSplit || onToggleZoom || onClosePane) && <div className="my-1 h-px bg-gray-700/70" />}
           {onSplit && (
@@ -817,9 +853,10 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   );
 }
 
-function TerminalMenuItem({ label, shortcut, disabled, onClick }: {
+function TerminalMenuItem({ label, cmd, disabled, onClick }: {
   label: string;
-  shortcut?: string;
+  /** §6 단축키 명령 — 표시할 키는 레지스트리에서 읽는다(재매핑하면 메뉴도 함께 바뀐다). */
+  cmd?: CommandId;
   disabled?: boolean;
   onClick: () => void;
 }): React.JSX.Element {
@@ -831,7 +868,8 @@ function TerminalMenuItem({ label, shortcut, disabled, onClick }: {
       className="flex w-full items-center justify-between gap-4 px-3 py-1.5 text-left text-[12px] text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-600 disabled:hover:bg-transparent"
     >
       <span>{label}</span>
-      {shortcut && <span className="font-mono text-[12px] text-gray-500">{shortcut}</span>}
+      {/* 메뉴 항목은 읽기 전용 — 바꾸는 자리는 오버레이(Ctrl+/)와 설정 탭이다. */}
+      {cmd && <KeyHint cmd={cmd} editable={false} />}
     </button>
   );
 }

@@ -114,3 +114,43 @@ describe('helpLines', () => {
     expect(line).not.toContain('{');
   });
 });
+
+describe('3단계 선택 명령 (/projects · /sessions)', () => {
+  const s = chatStrings('ko');
+
+  it('`/projects` 와 `/sessions` 를 우리 것으로 가로챈다', () => {
+    expect(parseChatCommand('/projects')).toEqual({ type: 'projects' });
+    expect(parseChatCommand('/sessions')).toEqual({ type: 'sessions' });
+  });
+
+  it('그룹 대화의 봇 이름 꼬리를 떼고 본다', () => {
+    expect(parseChatCommand('/projects@MyVibiBot')).toEqual({ type: 'projects' });
+    expect(parseChatCommand('/sessions@MyVibiBot')).toEqual({ type: 'sessions' });
+  });
+
+  it('대소문자를 가리지 않는다', () => {
+    expect(parseChatCommand('/Projects')).toEqual({ type: 'projects' });
+    expect(parseChatCommand('/SESSIONS')).toEqual({ type: 'sessions' });
+  });
+
+  it('비슷하지만 우리 것이 아닌 이름은 프롬프트로 흘려보낸다', () => {
+    // `OWNED` 에 없는 슬래시 명령은 CLI 의 것일 수 있으므로 삼키지 않는다.
+    expect(parseChatCommand('/project')).toEqual({ type: 'prompt', text: '/project' });
+    expect(parseChatCommand('/session')).toEqual({ type: 'prompt', text: '/session' });
+  });
+
+  it('도움말이 세 칸을 모두 안내한다', () => {
+    const joined = helpLines(true, s).join('\n');
+    for (const cmd of ['/projects', '/agents', '/sessions']) {
+      expect(joined).toContain(cmd);
+    }
+  });
+
+  it('새 명령 이름도 번역하지 않는다 — 그 글자를 그대로 쳐야 동작한다', () => {
+    for (const locale of ['en', 'ja', 'de', 'hi', 'es-419']) {
+      const joined = helpLines(true, chatStrings(locale)).join('\n');
+      expect(joined).toContain('/projects');
+      expect(joined).toContain('/sessions');
+    }
+  });
+});

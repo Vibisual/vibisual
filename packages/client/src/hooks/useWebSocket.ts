@@ -4,6 +4,9 @@ import { applyKeyedSliceDelta, DELTA_SLICE_KEYS, MAX_RECONNECT_ATTEMPTS, RECONNE
 // §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
 import { carryForwardScopedSlices, type SliceScopeGroup } from '@vibisual/shared';
 import { useGraphStore, selectRenderedIDEPaneKeys } from '../stores/graphStore.js';
+// §6 — 단축키는 프로젝트가 아니라 기계의 것이라 별도 스토어에 산다(graphStore ❌).
+import { useKeymapStore } from '../stores/keymap.js';
+import { useIDEActivityBarStore } from '../stores/ideActivityBar.js';
 import { useActivePluginModules } from '../plugins/host.js';
 import { batchStoreNotify } from '../stores/batchedNotify.js';
 import { structuralShare } from '../stores/structuralShare.js';
@@ -62,22 +65,46 @@ const EMPTY_RECORD: Record<string, never> = {};
 const EMPTY_LIST: never[] = [];
 
 /**
- * §9 슬라이스 스코프 — **이 창이 메인 캔버스 창인가.**
+ * §9 슬라이스 스코프 — **이 창이 자기가 읽는 슬라이스를 말할 수 있는가.**
  *
  * `main.tsx` 의 창 라우팅은 전부 `location.hash` 로 갈린다(별창 `#detached=…` · 버블 오버레이
  * `#overlay=…` · 우클릭 메뉴 `#overlaymenu=…` · 지휘통제실 `#command=…` · 내부 앱 `#app=…`).
  * 해시가 비어 있는 창이 곧 메인 캔버스 창(`App`)이다.
  *
- * **왜 메인 창만 선언하나**: 슬라이스 선언은 "이 창이 무엇을 읽는가"인데, 그 판정을 창 종류마다
- * 확증하지 못했다. 예를 들어 지휘통제실(`CommandCenterBoard`)은 IDE 레인 없이도 `agentReports`·
+ * **왜 창을 가리나**: 슬라이스 선언은 "이 창이 무엇을 읽는가"인데, 그 판정을 창 종류마다
+ * 확증해야 한다. 예를 들어 지휘통제실(`CommandCenterBoard`)은 IDE 레인 없이도 `agentReports`·
  * `agentReviews`·`agentQuestions` 를 읽는다 — 그 창이 "안 읽는다"고 잘못 선언하면 보드가 빈다.
  * 확증 못 한 창은 **선언 자체를 안 한다**. 미선언 창이 하나라도 있으면 합집합이 통째로 전량이
- * 되므로(§9 안전 기본값), 보조 창이 떠 있는 동안에는 이 축이 아무것도 좁히지 않을 뿐 **틀린
- * 값이 가지는 않는다.** 창별 판정을 넓히는 것은 그 창 파일들과 함께 해야 할 다음 작업이다.
+ * 되므로(§9 안전 기본값), 그런 창이 떠 있는 동안에는 이 축이 아무것도 좁히지 않을 뿐 **틀린
+ * 값이 가지는 않는다.**
+ *
+ * ── 버블 오버레이 창(`#overlay=…`)을 선언 쪽에 넣은 까닭 (§5.5 #17-6 (H-4)) ──────────
+ *
+ * 그 창은 **끌어내는 순간 태어난다.** 그때까지 좁혀져 있던 이 축이 그 창 하나의 침묵으로 통째로
+ * 전량으로 되돌아가고, 되돌아간 스냅샷은 **모든 창에** 나간다(합집합은 한 벌뿐 — `sliceScope.ts`
+ * 함정 ①). 실측(살아 있는 checkpoint.json): `agentReports` 256.9KB · `sessionGoals` 216.3KB ·
+ * `agentReviews` 168.7KB · `agentQuestions` 93.2KB · `agentLists` 16.0KB — 합 **752.9KB** 가
+ * 매 브로드캐스트마다 되살아나 IPC 의 동기 structuredClone → 역직렬화 → `structuralShare` 비교를
+ * 전부 다시 탄다. 사용자에게는 **끌어낸 직후 앱 전체가 멎는 것**으로 읽힌다(사용자 보고 — "밖으로
+ * 빼내고 나면 갑자기 렉이 심하게 걸리고 바로 동작 안 한다").
+ *
+ * 이 창은 자기가 읽는 것을 **말할 수 있다**: 그리는 것이 `BubbleNode`(+ 플러그인 배지 슬롯) 와
+ * `AgentIDEOverlay` 와 `PermissionPromptStack` 뿐이고, 그 셋의 독자는 아래 두 그룹이 이미 덮는다
+ * (`ideLane` — IDE 안쪽 전부 · `pluginAgentData` — 버블 배지). `OverlayShell` 이 부팅 때
+ * `setActiveProjectLocal(projectId)` 로 자기 프로젝트를 고정하므로 `selectRenderedIDEPaneKeys`
+ * 도 이 창에서 제 슬롯을 정확히 센다 — 메인 창과 같은 산식이 그대로 성립한다.
  */
-function isMainCanvasWindow(): boolean {
+export function canDeclareSliceScopeForHash(hash: string): boolean {
+  const h = hash.replace(/^#/, '');
+  if (h.length === 0) return true;                 // 메인 캔버스 창(`App`)
+  // 버블 오버레이 창 — 위 주석의 근거로 메인 창과 같은 산식을 쓴다. `parseOverlayHash` 와 같은
+  //   판정을 여기서 다시 하지 않고 접두만 본다(그 함수를 부르면 훅이 레이아웃 모듈에 매인다).
+  return new URLSearchParams(h).get('overlay') === '1';
+}
+
+function canDeclareSliceScope(): boolean {
   if (typeof window === 'undefined') return false; // 판정 불가 → 선언하지 않는다(= 전량)
-  return window.location.hash.replace(/^#/, '').length === 0;
+  return canDeclareSliceScopeForHash(window.location.hash);
 }
 
 function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
@@ -223,8 +250,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       snap.captureBubbles ?? [],
       snap.contis ?? {},
       snap.activeContiWork ?? {},
-      snap.brain ?? {},
-      snap.brainInjections ?? {},
+      snap.autoGoal ?? {},
     );
     // §9 스코프드 구독 — 프로젝트별 에이전트 집계(탭 배지). **구독 범위 밖 프로젝트도 들어 있다.**
     //   같은 이유로 별도 액션(loadSnapshot 위치 인자 ❌).
@@ -238,7 +264,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     useGraphStore.getState().applySnapshotFolderScope(snap.scopedFolders);
     // §9 폴더 스코프 — 서버가 전량으로 잰 상대 척도(파일 크기 · 히트맵). **loadSnapshot 뒤**라야
     //   직접 잰 값을 덮는다. 안 오면(구버전 서버) 아무것도 안 하므로 종전 동작 그대로다.
-    useGraphStore.getState().applySnapshotScales(snap.fileSizeRange, snap.readCountMaxByProject);
+    useGraphStore.getState().applySnapshotScales(
+      snap.fileSizeRange,
+      snap.readCountMaxByProject,
+      snap.writeCountMaxByProject,
+      // §5.24 — `quantile` 곡선의 분포도 최대값과 **같은 칸**이다(전량으로 잰 값이라야 폴더를
+      //   드나들 때 순위가 뒤집히지 않는다).
+      snap.readCountQuantilesByProject,
+      snap.writeCountQuantilesByProject,
+    );
     // §5.13 v4.45 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 의 위치 인자를 늘리면
     //   호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
     useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? EMPTY_LIST);
@@ -254,6 +288,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     useGraphStore.getState().applyCostMaps(snap.costMaps ?? EMPTY_LIST);
     // §5.22 — 감사 원장. 위험·거부 집계까지 서버가 접어 실어 주므로 그대로 넣는다.
     useGraphStore.getState().applyAuditLogs(snap.auditLogs ?? EMPTY_LIST);
+    // §5.26 — 컨텍스트 보험 원장. 감사 원장과 같은 자리·같은 규율(서버가 접은 값을 그대로 받는다).
+    useGraphStore.getState().applyContextInsurance(snap.contextInsurance ?? EMPTY_LIST);
     // §5.16 — 리뷰·승인 레인. 서버가 전량을 싣고, 사람이 치운 리뷰는 곧 사라짐으로 반영된다.
     useGraphStore.getState().applyReviewRequests(snap.reviewRequests ?? EMPTY_LIST);
     // §5.5 #17-20 ⑩ v4.94 — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 이 값을 그린다.
@@ -270,6 +306,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyClaudeAuth(snap.claudeAuth);
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정(글로벌). 미설치면 ClaudeSetupGate 가 이 값을 보고 뜬다.
     store.applyClaudeSetup(snap.claudeSetup);
+    // §5.25 — 코덱스 네 칸(설치·로그인·모델·훅). 클로드와 같은 자리에서 같은 모양으로 받는다.
+    store.applyCodexSetup(snap.codexSetup);
+    store.applyCodexAuth(snap.codexAuth);
+    store.applyCodexModels(snap.codexModels);
+    store.applyCodexInventory(snap.codexInventory);
+    store.applyCodexReviews(snap.codexReviews);
+    store.applyCodexHooks(snap.codexHooks);
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyAutoAgentRuns(snap.autoAgentRuns);
@@ -287,8 +330,12 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyVerificationRuns(snap.verificationRuns);
     // §5.5 #17-35 ⑨ — 시연 목록도 검증 이력 바로 옆자리에서 전량 교체한다.
     store.applyVerificationDemos(snap.verificationDemos);
+    // §5.11 정독 게이트 — 세션별 기획 정독 상태(활동바 배지 + 정독 뷰의 원본).
+    store.applySpecReading(snap.specReading);
     // §5.5 #17-17 v4.46 — 세션 목표(활동바 퍼센트 배지 + 목표 패널의 원본).
     store.applySessionGoals(snap.sessionGoals);
+    store.applyVisualKinds(snap.visualKinds);
+    store.applyGoalActions(snap.goalActions);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     // §5.19 — 로컬 LLM 상태(엔진·모델·내려받기). 스냅샷이 진실이고, 사이사이는 아래 진행 push 가 채운다.
@@ -597,6 +644,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             }
             break;
           }
+
+          // §5.25 (D) — 코덱스 설치 진행. 게이트가 이 값으로 로그를 보여준다.
+          case 'codex_setup_progress': {
+            const p = parsed.payload as import('@vibisual/shared').CodexSetupProgress;
+            if (p && typeof p.setupId === 'string') {
+              store.setCodexSetupProgress(p);
+            }
+            break;
+          }
           case 'model_registry_updated': {
             // §4 v2.38 — 시드→api-merged 전환 또는 TTL refresh 시 단독 push.
             store.applyModelRegistry(parsed.payload as import('@vibisual/shared').ModelRegistry);
@@ -620,6 +676,18 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           case 'user_defaults_updated': {
             // §4 v2.42 — 사용자가 Options 창에서 Apply → 다른 창들도 즉시 반영.
             store.applyUserDefaults(parsed.payload as import('@vibisual/shared').UserDefaults);
+            break;
+          }
+          case 'keymap_updated': {
+            // §6 — 단축키 재매핑. 창이 여럿일 때 다른 창도 즉시 같은 키를 쓴다(안 그러면
+            //   창마다 다른 단축키가 되고, 그건 사용자에게 "가끔 안 먹는다"로 보인다).
+            useKeymapStore.getState().applyOverrides(parsed.payload);
+            break;
+          }
+          case 'ide_activity_bar_updated': {
+            // §5.5 #16-1 — 활동바 배치. 단축키와 같은 이유로 창이 여럿이면 다른 창도 즉시
+            //   같은 자리를 써야 한다 — 한 창에서 내려놓은 칸이 옆 창에 남아 있으면 그것이 곧 버그 신고다.
+            useIDEActivityBarStore.getState().applyPrefs(parsed.payload);
             break;
           }
         }
@@ -743,8 +811,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     return false;
   }, [activePluginModules]);
   const sliceGroupsKey = useMemo(() => {
-    // 보조 창(별창·오버레이·지휘통제실·내부 앱)은 **선언하지 않는다** — `isMainCanvasWindow` 주석 참조.
-    if (!isMainCanvasWindow()) return null;
+    // 자기가 읽는 것을 확증하지 못한 창(별창·지휘통제실·내부 앱)은 **선언하지 않는다**
+    //   — 판정과 근거는 `canDeclareSliceScope` 주석이 소유한다.
+    if (!canDeclareSliceScope()) return null;
     const groups: SliceScopeGroup[] = [];
     if (ideLaneOpen) groups.push('ideLane');
     if (pluginReadsAgentData) groups.push('pluginAgentData');

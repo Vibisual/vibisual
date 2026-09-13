@@ -9,14 +9,23 @@ import { TabContextMenu } from '../Layout/TabContextMenu.js';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
-import { applyLocalOrder, resolveTabReorder, sameMembers, sameOrder } from '../../hooks/tabPushGeom.js';
-import { SESSION_STATUS_DOT, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { applyLocalOrder, sameMembers, sameOrder } from '../../hooks/tabPushGeom.js';
+// §5.4 #14-2 — 꾹 눌러 집어 드는 손짓 한 벌(활동바·프로젝트 탭과 같은 훅).
+import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
+import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
 import { serializeRunningLoops, parseRunningLoops } from './sessionLoopIndicator.js';
-// §5.5 #17-34 — 탭을 본문으로 끌면 화면이 나뉜다. 탭바는 짐표만 실어 주고 판정·배치는 분할 쪽이 한다.
-import { SESSION_DRAG_MIME, encodeSessionDrag, sessionIdMime, sessionOwnerMime } from './splitDrop.js';
+// §5.5 #17-34 / §5.4 #14-2 — 탭을 본문으로 끌면 화면이 나뉜다. 탭은 이제 **꾹 눌러 집어 들고**
+//   (네이티브 DnD ❌ — 활동바와 같은 손맛), 어느 자리에 떨어지는지는 이 버스가 판정 쪽으로 날라 준다.
+import {
+  beginPointerSessionDrag, cancelPointerSessionDrag, endPointerSessionDrag, movePointerSessionDrag,
+} from './sessionDragBus.js';
 import { cellSessionIds } from './splitLayout.js';
 // §5.5 #17-37 — 세션 탭 전환 단축키. 키를 뜻으로, 뜻을 갈 탭으로 바꾸는 판정은 저 모듈 한 곳에 있다.
-import { resolveTabSwitchIntent, applyTabSwitch, type TabKey } from './tabSwitchKeys.js';
+import { tabSwitchIntentOf, applyTabSwitch, type TabKey, type TabSwitchCommandId } from './tabSwitchKeys.js';
+// §6 — 어떤 키가 이 동작인지는 레지스트리가 정한다(여기 키를 적지 않는다).
+import { useCommand } from '../../hooks/useCommand.js';
+import { keyTokenFromCode } from '@vibisual/shared';
+import { notePointerUse } from '../../stores/keyPromoter.js';
 import { useIDESlotKey } from './ideSlot.js';
 import { useSelectSessionInSplit } from './useSplitDrop.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
@@ -39,6 +48,17 @@ interface IDETabBarProps {
 
 // 도트 색표는 `utils/sessionStatus` 한 곳에 산다 — 종전에는 같은 표가 여기·사이드바·패널 세 벌로
 // 복사돼 있었고 확인(ack) 반영 여부까지 갈려, 같은 세션이 화면마다 다른 색으로 보였다.
+
+/**
+ * 훅 에이전트의 메인 탭(세션 `null`)을 끌 때 쓰는 키 — 실제 세션 id(`sub-…`)와 겹치지 않는다.
+ * 끌기 훅은 키 문자열로만 돌아가므로 `null` 을 그대로 넘길 수 없다.
+ */
+const MAIN_TAB_DRAG_KEY = '@main';
+
+/** 끌기 키를 세션 id 로 되돌린다 — 메인 탭만 `null` 이다. */
+function sessionIdOfDragKey(key: string): string | null {
+  return key === MAIN_TAB_DRAG_KEY ? null : key;
+}
 
 /**
  * §5.5 #17-9 ④(b) v5.03 — 가려진 실행 알림 한 쪽을 갱신.
@@ -70,6 +90,8 @@ export const IDETabBar = memo(function IDETabBar({
   const { setSession } = useIDEPaneActions();
   const tabPins = useGraphStore((s) => s.tabPins);
   const acknowledgedSubAgents = useGraphStore((s) => s.acknowledgedSubAgents);
+  // (판올림 번호 발급 대기) 눌러 들어간 색의 여운 — 스토어 필드 그대로 구독한다(참조 안정).
+  const sessionFocusGlow = useGraphStore((s) => s.sessionFocusGlow);
   // §5.5 #17-27 ⑪ (h) ⑤ — 추종 켜짐은 탭에 표시하지 않는다(토글과 추종 띠가 말한다).
   const defaultSubAgents = useGraphStore((s) => s.defaultSubAgents);
   const defaultSubId = agentId ? defaultSubAgents[agentId] ?? null : null;
@@ -128,116 +150,26 @@ export const IDETabBar = memo(function IDETabBar({
     setEditValue('');
   }, []);
 
-  // F2 단축키 — 활성 탭의 인라인 이름 편집을 시작(VS Code 동일). 이미 편집 중이거나 활성 탭이
-  // 없으면 무시. 임베디드 터미널이 포커스를 쥔 상태(xterm textarea)에서도 동작해야 하므로
-  // input/textarea 포커스를 가드하지 않는다 — 대신 editingId 로 리네임 입력 자기 자신만 제외.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key !== 'F2') return;
-      if (editingId) return;
-      if (!activeSessionId) return;
-      if (!subAgents.some((s) => s.id === activeSessionId)) return;
-      e.preventDefault();
-      startRename(activeSessionId);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editingId, activeSessionId, subAgents, startRename]);
+  // 활성 탭의 인라인 이름 편집(VS Code 의 F2 자리) — 키 배정은 §6 레지스트리(`ide.renameTab`).
+  //   임베디드 터미널이 포커스를 쥔 상태(xterm textarea)에서도 동작해야 해서 표에서 `typingSafe` 다.
+  //   대신 **리네임 입력 자기 자신**만 `editingId` 로 제외한다.
+  useCommand('ide.renameTab', () => {
+    if (editingId) return false;
+    if (!activeSessionId) return false;
+    if (!subAgents.some((s) => s.id === activeSessionId)) return false;
+    startRename(activeSessionId);
+  });
 
-  // 드래그 재정렬 — 끌고 있는 탭 id + 커밋 왕복 동안 화면을 붙들어 두는 로컬 순서.
+  // --- 가로 스크롤 컨테이너 (탭이 많아지면 좌/우 페이드 + wheel 가로 스크롤 + 오버레이 썸) ---
+  // 네이티브 스크롤바는 레이아웃 점유로 탭을 줄이기 때문에 hide 하고, 오버레이 썸을 별도 DOM 으로 그린다(VS Code 식).
+  // 페이드/썸 갱신은 imperative ref 조작 — 스크롤·리사이즈마다 React 리렌더 없이 즉시 반영.
+  //   **끄는 손짓도 이 칸을 기준으로 잰다**(중앙선·가장자리 자동 스크롤)므로 선언이 여기 앞에 있다.
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 드래그 재정렬 — 커밋 왕복 동안 화면을 붙들어 두는 로컬 순서(§5.4 #14-2 (C)).
   // §5.4 #14 밀어내기: 손이 지나가는 즉시 옆 탭이 비켜서야 하므로(드롭까지 기다린 뒤 서버 왕복 ❌)
   //   순서는 여기서 먼저 바뀌고, 손을 뗄 때 그 순서를 그대로 서버에 커밋한다.
-  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [localOrder, setLocalOrder] = useState<string[] | null>(null);
-
-  // 화면에 그릴 순서 = 서버 목록 + (있으면) 로컬 순서 덧씌움.
-  const orderedSubs = useMemo(
-    () => (localOrder ? applyLocalOrder(subAgents, localOrder, (s) => s.id) : subAgents),
-    [subAgents, localOrder],
-  );
-
-  // 서버가 같은 순서를 돌려줬거나(커밋 반영) 식구가 달라지면(탭 추가·삭제) 로컬 순서는 소임을 다한다.
-  useEffect(() => {
-    if (!localOrder) return;
-    const ids = subAgents.map((s) => s.id);
-    if (sameOrder(ids, localOrder) || !sameMembers(ids, localOrder)) setLocalOrder(null);
-  }, [subAgents, localOrder]);
-
-  // §5.5 #17-37 — 세션 탭 전환 단축키가 세는 대상 = **탭 줄에 실제로 그려진 순서**(드래그로 바꾼
-  //   로컬 순서 포함). 훅 에이전트의 메인 탭(세션 `null`)도 한 칸으로 센다 — 커스텀에는 그 탭이 없다.
-  const tabOrder = useMemo<TabKey[]>(
-    () => [...(isCustom ? [] : [null]), ...orderedSubs.map((s) => s.id)],
-    [isCustom, orderedSubs],
-  );
-
-  // §5.5 #17-37 — 판정은 순수 모듈(`tabSwitchKeys`)이 하고, 여기서는 그 결과를 **탭을 누르는 그 문**
-  //   으로 흘린다(#17-37 ⑥ — 분할 창에서 이미 떠 있는 세션이면 초점만 그 칸으로 간다).
-  //   ⚠ capture 단계 + `stopPropagation` — 글을 쓰다가 옆 세션을 보러 가는 동작이라 입력창·xterm
-  //   터미널에 포커스가 있어도 먹어야 하고, 삼키지 않으면 터미널이 같은 키를 셸로 흘려보낸다(④).
-  useEffect(() => {
-    // 창이 여럿이면 맨 앞 하나만 받는다 — #17-1 (H-5)·Escape 와 같은 판정(새 축 ❌).
-    if (!isFrontPane) return;
-    const onSwitchKey = (e: KeyboardEvent): void => {
-      const intent = resolveTabSwitchIntent(e);
-      if (!intent) return;
-      if (editingId) return; // 탭 이름을 고치는 중에는 비켜선다(F2 와 같은 자리).
-      // 우리 키로 읽혔으면 **갈 곳이 없어도 삼킨다** — 탭이 하나뿐일 때만 같은 키가 터미널에
-      //   탭 문자를 흘려보내면, 사용자에게는 단축키가 '가끔 새는' 물건이 된다.
-      e.preventDefault();
-      e.stopPropagation();
-      const next = applyTabSwitch(tabOrder, activeSessionId, intent);
-      if (next) selectSessionInSplit(next.target);
-    };
-    window.addEventListener('keydown', onSwitchKey, true);
-    return () => window.removeEventListener('keydown', onSwitchKey, true);
-  }, [isFrontPane, editingId, tabOrder, activeSessionId, selectSessionInSplit]);
-
-  const handleDragStart = useCallback((e: React.DragEvent, subId: string) => {
-    // 닫기 버튼/이름 편집 입력 위에서 시작된 드래그는 무시. 탭 div 가 draggable 이라 X 위에서 살짝만
-    // 움직여도 네이티브 dragstart 가 발화하며 click 이벤트를 삼켜 "닫기 눌러도 바로 안 닫힘"(다시 눌러야
-    // 닫힘) 버그를 유발한다. 버튼/입력에서 시작된 드래그는 막아 클릭이 정상 전달되게 한다.
-    if ((e.target as HTMLElement).closest('button, input')) {
-      e.preventDefault();
-      return;
-    }
-    setDraggingId(subId);
-    e.dataTransfer.effectAllowed = 'move';
-    // Firefox 호환 — data 없으면 드래그 취소됨
-    e.dataTransfer.setData('text/plain', subId);
-    // §5.5 #17-34 — 같은 드래그가 본문 위에서는 **화면 분할**로 읽힌다. `dragover` 중에는 값을 못 읽고
-    //   종류만 보이므로 전용 MIME 으로 실어 OS 파일 드래그와 구분되게 한다(탭 순서 바꾸기는 그대로).
-    e.dataTransfer.setData(SESSION_DRAG_MIME, encodeSessionDrag(subId));
-    // 누구의 세션인지도 **종류로** 싣는다 — 창이 여럿일 때 옆 창이 dragover 단계에서 바로 거절한다.
-    if (agentId) e.dataTransfer.setData(sessionOwnerMime(agentId), '1');
-    // 어느 세션인지도 종류로 — 이미 그것을 보여 주는 칸은 파란 박스를 띄우지 않는다.
-    e.dataTransfer.setData(sessionIdMime(subId), '1');
-  }, [agentId]);
-
-  // 자리를 내주는 순간 = 커서가 **그 탭의 중앙선을 넘었을 때**(순수 판정은 `tabPushGeom`).
-  // 넘기 전에 바꾸면 자리가 바뀌자마자 커서가 다시 반대편 탭 위에 놓여 두 탭이 매 프레임 맞바꿔진다.
-  const handleDragOver = useCallback((e: React.DragEvent, subId: string) => {
-    if (!draggingId) return;
-    // 탭바 어디서 손을 떼도 유효한 드롭이 되게 — 무효 위치면 네이티브 고스트가 되돌아가는 연출이 뜬다.
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (draggingId === subId) return;
-    // rect/좌표는 핸들러가 살아 있는 지금 읽는다(updater 안에서는 currentTarget 이 이미 비어 있다).
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pointerX = e.clientX;
-    setLocalOrder((prev) => resolveTabReorder({
-      order: prev ?? subAgents.map((s) => s.id),
-      movedKey: draggingId,
-      targetKey: subId,
-      pointerX,
-      targetLeft: rect.left,
-      targetWidth: rect.width,
-    }) ?? prev);
-  }, [draggingId, subAgents]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    // 순서는 이미 dragOver 에서 바뀌었다 — 여기서는 네이티브 되돌리기 연출만 막는다(커밋은 dragEnd).
-    e.preventDefault();
-  }, []);
 
   /**
    * 탭 순서 커밋 — **손으로 끌어 맞춘 순서와 정렬 버튼이 세운 순서가 같은 문으로 나간다**(§5.5 #17-41).
@@ -257,11 +189,107 @@ export const IDETabBar = memo(function IDETabBar({
       .catch(() => setLocalOrder(null));
   }, [agentId, subAgents]);
 
-  // 손을 떼는 순간(드롭·취소·바깥 릴리스 모두 여기로 온다) 화면에 보이는 순서를 그대로 커밋한다.
-  const handleDragEnd = useCallback(() => {
-    setDraggingId(null);
-    if (localOrder) commitOrder(localOrder);
-  }, [localOrder, commitOrder]);
+  /*
+   * ─── 꾹 눌러 자리를 옮긴다 (§5.4 #14-2 · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ───
+   *
+   * 종전에는 HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명 유령이 되고,
+   * 손에 붙어 오는 것은 탭이 아니라 브라우저가 찍은 스크린샷이며, 놓을 때는 되돌아가는 연출이 한
+   * 번 더 끼어들었다(사용자 지적 — "때서 붙이는 느낌이 너무 어색해"). 그 셋은 전부 네이티브 DnD 가
+   * 정하는 것이라 CSS 로는 손댈 수 없어, 제스처를 통째로 포인터로 옮긴다.
+   *
+   * **본문 위 분할(#17-34)도 이 손짓이 함께 나른다** — 종전에 짐을 실어 나르던 `dataTransfer` 가
+   * 사라지므로, 끌고 있는 세션이 무엇인지를 `sessionDragBus` 가 들고 드롭 자리에 알린다.
+   */
+  const dragApi = usePointerDragReorder({
+    axis: 'x',
+    container: scrollRef,
+    keyAttribute: 'data-tab-id',
+    order: localOrder ?? subAgents.map((s) => s.id),
+    // 닫기 버튼·이름 편집 입력 위에서 시작된 누르기는 그 위젯의 것이다(종전 `closest('button, input')` 가드).
+    ignoreSelector: 'button, input',
+    onDragStart: (key, p) => {
+      if (!agentId) return;
+      beginPointerSessionDrag({ sessionId: sessionIdOfDragKey(key), agentId, fromCellId: null });
+      movePointerSessionDrag(p.x, p.y);
+    },
+    onDragMove: (_key, p) => { movePointerSessionDrag(p.x, p.y); },
+    onCommit: (next, p) => {
+      // 탭바 안에서 놓았으면 버스를 받아 주는 자리가 없어 그대로 흘러가고, 본문 위였으면 그 칸이 받는다.
+      endPointerSessionDrag(p.x, p.y);
+      if (next) commitOrder(next);
+    },
+    onCancel: () => { cancelPointerSessionDrag(); },
+  });
+
+  // 화면에 그릴 순서 = 서버 목록 + (있으면) 로컬 순서 덧씌움. 끄는 동안에는 손이 만든 순서가 이긴다.
+  const liveOrder = dragApi.localOrder ?? localOrder;
+  const orderedSubs = useMemo(
+    () => (liveOrder ? applyLocalOrder(subAgents, liveOrder, (s) => s.id) : subAgents),
+    [subAgents, liveOrder],
+  );
+
+  /** 고스트에 그릴 이름 — 메인 탭은 세션이 없으므로 그 라벨을 쓴다. */
+  const ghostLabel = useMemo((): string => {
+    const key = dragApi.dragKey;
+    if (key === null) return '';
+    if (key === MAIN_TAB_DRAG_KEY) return t('ide.tabbar.agentTabLabel');
+    const sub = subAgents.find((s) => s.id === key);
+    return sub ? displayLabel(sub) : key;
+  }, [dragApi.dragKey, subAgents, displayLabel, t]);
+
+  // 서버가 같은 순서를 돌려줬거나(커밋 반영) 식구가 달라지면(탭 추가·삭제) 로컬 순서는 소임을 다한다.
+  useEffect(() => {
+    if (!localOrder) return;
+    const ids = subAgents.map((s) => s.id);
+    if (sameOrder(ids, localOrder) || !sameMembers(ids, localOrder)) setLocalOrder(null);
+  }, [subAgents, localOrder]);
+
+  // §5.5 #17-37 — 세션 탭 전환 단축키가 세는 대상 = **탭 줄에 실제로 그려진 순서**(드래그로 바꾼
+  //   로컬 순서 포함). 훅 에이전트의 메인 탭(세션 `null`)도 한 칸으로 센다 — 커스텀에는 그 탭이 없다.
+  const tabOrder = useMemo<TabKey[]>(
+    () => [...(isCustom ? [] : [null]), ...orderedSubs.map((s) => s.id)],
+    [isCustom, orderedSubs],
+  );
+
+  // §5.5 #17-37 / §6 — 키 판정은 레지스트리(`useCommand`)가 하고, 여기서는 그 뜻을 **탭을 누르는
+  //   그 문**으로 흘린다(#17-37 ⑥ — 분할 창에서 이미 떠 있는 세션이면 초점만 그 칸으로 간다).
+  //   ⚠ 창이 여럿이면 맨 앞 하나만 받는다(#17-1 (H-5)·Escape 와 같은 판정 — 새 축 ❌), 탭 이름을
+  //   고치는 중에는 비켜선다(F2 와 같은 자리). 그 둘을 `enabled` 로 표현하면 **꺼져 있는 동안 키를
+  //   삼키지도 않는다**(종전 동작 그대로 — 이름 편집 중의 Ctrl+Tab 은 우리 것이 아니다).
+  //   입력창·xterm 터미널에 포커스가 있어도 먹어야 하므로 표의 `typingSafe: true` 가 그 자리를 맡고,
+  //   디스패처가 삼켜(`stopPropagation`) 터미널이 같은 키를 셸로 흘려보내지 않게 한다(④).
+  const switchEnabled = isFrontPane && !editingId;
+  const runSwitch = useCallback((id: TabSwitchCommandId, digit?: number): void => {
+    const intent = tabSwitchIntentOf(id, digit);
+    if (!intent) return;
+    const next = applyTabSwitch(tabOrder, activeSessionId, intent);
+    // 갈 곳이 없어도 **디스패처는 이미 삼켰다** — 탭이 하나뿐일 때만 같은 키가 터미널에 탭 문자를
+    //   흘려보내면, 사용자에게는 단축키가 '가끔 새는' 물건이 된다(종전 규약 유지).
+    if (next) selectSessionInSplit(next.target);
+  }, [tabOrder, activeSessionId, selectSessionInSplit]);
+
+  useCommand('ide.tabNext', () => runSwitch('ide.tabNext'), { enabled: switchEnabled });
+  useCommand('ide.tabPrev', () => runSwitch('ide.tabPrev'), { enabled: switchEnabled });
+  useCommand('ide.tabNextAlt', () => runSwitch('ide.tabNextAlt'), { enabled: switchEnabled });
+  useCommand('ide.tabPrevAlt', () => runSwitch('ide.tabPrevAlt'), { enabled: switchEnabled });
+  /**
+   * 탭을 **마우스로** 눌렀다 — 그것이 바로 옆 탭이면 "옆으로 한 칸"과 같은 동작이다.
+   * 이 신고가 몇 번 쌓이면 그 자리에서 "키로도 됩니다"가 뜬다(`stores/keyPromoter.ts`).
+   * 멀리 있는 탭을 누른 것은 **세지 않는다** — 그건 단축키로 대신할 수 있는 동작이 아니다.
+   */
+  const notePointerTabSwitch = useCallback((target: TabKey): void => {
+    const from = tabOrder.indexOf(activeSessionId);
+    const to = tabOrder.indexOf(target);
+    if (from < 0 || to < 0) return;
+    if (to === from + 1) notePointerUse('ide.tabNext');
+    else if (to === from - 1) notePointerUse('ide.tabPrev');
+  }, [tabOrder, activeSessionId]);
+
+  useCommand('ide.tabNth', (e) => {
+    // 자리표(`Ctrl+1…9`)라 **어느 숫자를 눌렀는지**는 이벤트에서만 알 수 있다.
+    const token = keyTokenFromCode(e.code);
+    runSwitch('ide.tabNth', token && /^[0-9]$/.test(token) ? Number(token) : undefined);
+  }, { enabled: switchEnabled });
 
   // 활성 탭이 닫히는 집합에 포함되면 인접한 생존 탭(앞→뒤 순)으로 이동, 없으면 null.
   // 단일/일괄 닫기 공용 — 일괄 닫기에서 active 가 대상에 있어도 한 번에 올바른 생존 탭을 고른다.
@@ -373,10 +401,7 @@ export const IDETabBar = memo(function IDETabBar({
     requestClose([subId]);
   }, [requestClose]);
 
-  // --- 가로 스크롤 (탭이 많아지면 좌/우 페이드 + wheel 가로 스크롤 + 오버레이 썸) ---
-  // 네이티브 스크롤바는 레이아웃 점유로 탭을 줄이기 때문에 hide 하고, 오버레이 썸을 별도 DOM 으로 그린다(VS Code 식).
-  // 페이드/썸 갱신은 imperative ref 조작 — 스크롤·리사이즈마다 React 리렌더 없이 즉시 반영.
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // 페이드·썸의 나머지 손잡이(스크롤 칸 자체는 위에서 이미 선언했다 — 끄는 손짓이 그것을 기준으로 잰다).
   const fadeLeftRef = useRef<HTMLDivElement>(null);
   const fadeRightRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
@@ -506,7 +531,7 @@ export const IDETabBar = memo(function IDETabBar({
     container: scrollRef,
     keyAttribute: 'data-tab-id',
     order: orderedSubs.map((s) => s.id),
-    leadKey: draggingId,
+    leadKey: dragApi.dragKey,
   });
 
   // 휠은 기본적으로 세로지만 가로 스크롤 영역에서는 가로로 변환 — VS Code 동일 동작.
@@ -607,21 +632,21 @@ export const IDETabBar = memo(function IDETabBar({
       {!isCustom && (
         <button
           type="button"
-          draggable
           // §5.5 #17-34 — 메인 탭도 칸으로 끌어 놓을 수 있다(세션 `null` = 에이전트 전체 합본).
-          onDragStart={(e) => {
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', encodeSessionDrag(null));
-            e.dataTransfer.setData(SESSION_DRAG_MIME, encodeSessionDrag(null));
-            if (agentId) e.dataTransfer.setData(sessionOwnerMime(agentId), '1');
-            e.dataTransfer.setData(sessionIdMime(null), '1');
+          //   이 탭은 스크롤 칸 **밖**이라 재정렬 대상이 아니다 — 같은 훅이 받되 순서는 그대로 두고
+          //   버스만 돈다(measure 에 안 잡히므로 `resolveAxisReorder` 가 늘 `null` 을 낸다).
+          onPointerDown={(e) => { dragApi.onPointerDown(e, MAIN_TAB_DRAG_KEY); }}
+          onClick={() => {
+            if (dragApi.consumeClick()) return;
+            notePointerTabSwitch(null);
+            selectSessionInSplit(null);
           }}
-          onClick={() => { selectSessionInSplit(null); }}
+          style={dragApi.dragKey !== null ? { touchAction: 'none' } : undefined}
           className={`flex h-8 flex-shrink-0 items-center gap-1.5 border-r border-gray-700 px-3 text-xs transition-colors ${
             activeSessionId === null
               ? 'border-b-2 border-b-blue-400 bg-gray-800 text-white'
               : 'bg-gray-900/40 text-gray-400 hover:bg-gray-800/60 hover:text-gray-300'
-          }`}
+          } ${dragApi.dragKey === MAIN_TAB_DRAG_KEY ? 'opacity-0' : ''}`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
           <HoverTooltip className="max-w-[100px] truncate max-md:max-w-[4.5rem]" label={t('ide.tabbar.agentTabLabel')} />
@@ -639,7 +664,9 @@ export const IDETabBar = memo(function IDETabBar({
         const isActive = activeSessionId === sub.id;
         // 도트 색 = 공유 판정(실행/실패/완료·미확인/완료·확인) → 공유 색표. 규약은 한 곳에만 있다.
         const isAcked = !!acknowledgedSubAgents[sub.id];
-        const dot = SESSION_STATUS_DOT[sessionRunStateOf(sub, isAcked, busySubIds.has(sub.id))];
+        // (판올림 번호 발급 대기) 방금 눌러 들어간 색이 10초간 남아 뛴다 — 도착과 동시에 색이
+        //   꺼져 무엇을 눌렀는지 알 수 없던 것(§5.5 #17-1). 실제로 무슨 일이 생기면 그쪽이 이긴다.
+        const dot = sessionDotClass(sessionRunStateOf(sub, isAcked, busySubIds.has(sub.id)), sessionFocusGlow[sub.id], Date.now());
         // §4 (CMD ①) — 막힌 세션은 **새 모양을 발명하지 않고** 기존 도트에 앰버 링만 덧입힌다
         //   (§2.4 '잠듦'이 상태 유니온을 늘리지 않고 표기 한 줄만 덧붙인 것과 같은 규율).
         const blockedRing = sub.blocked ? ' ring-2 ring-amber-400/80' : '';
@@ -647,7 +674,7 @@ export const IDETabBar = memo(function IDETabBar({
         const tabTitle = [displayLabel(sub), sub.foregroundProcess, sub.blocked ? sub.blockedReason : undefined]
           .filter((x): x is string => !!x && x.length > 0)
           .join(' · ');
-        const isDragging = draggingId === sub.id;
+        const isDragging = dragApi.dragKey === sub.id;
         const inSplitCell = splitCellSessions.has(sub.id);
         const isPinned = !!tabPins[`subagent:${sub.id}`];
         const isDefault = defaultSubId === sub.id;
@@ -660,24 +687,35 @@ export const IDETabBar = memo(function IDETabBar({
             : t('ide.loop.progressInfinite', { done: loopRun.completed })}`
           : '';
         return (
+          // 밀림 재생(`useTabPushAnimation`)이 미는 것은 이 겉칸이다 — 탭 본체가 고스트로 떠나도
+          //   자리는 남아 있어야 하고(점선 홈), 자리를 미는 것과 본체를 숨기는 것이 같은 노드면
+          //   `opacity-0` 이 홈까지 지운다(활동바 §5.5 #16-1 (E) 와 같은 구조).
           <div
             key={sub.id}
             data-tab-id={sub.id}
-            draggable
-            onDragStart={(e) => handleDragStart(e, sub.id)}
-            onDragOver={(e) => handleDragOver(e, sub.id)}
-            onDrop={handleDrop}
-            onDragEnd={handleDragEnd}
-            onClick={() => { selectSessionInSplit(sub.id); }}
+            className="relative flex flex-shrink-0 items-end"
+          >
+            {isDragging && (
+              <span className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 rounded-t border border-dashed border-blue-400/60 bg-blue-400/10" />
+            )}
+          <div
+            onPointerDown={(e) => { dragApi.onPointerDown(e, sub.id); }}
+            onClick={() => {
+              if (dragApi.consumeClick()) return;
+              notePointerTabSwitch(sub.id);
+              selectSessionInSplit(sub.id);
+            }}
             onContextMenu={(e) => handleContextMenu(e, sub.id, index)}
-            className={`group relative flex h-8 flex-shrink-0 cursor-pointer items-center gap-1.5 border-r border-gray-700 pl-3 pr-1.5 text-xs transition-colors ${
+            // 끄는 동안 브라우저가 스크롤·선택으로 가로채지 않게(터치·펜 포함).
+            style={dragApi.dragKey !== null ? { touchAction: 'none' } : undefined}
+            className={`group relative flex h-8 flex-shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-gray-700 pl-3 pr-1.5 text-xs transition-colors ${
               isActive
                 ? 'border-b-2 border-b-blue-400 bg-gray-800 text-white'
                 : inSplitCell
                   // §5.5 #17-34 — 초점은 아니지만 **지금 옆 칸에 떠 있는** 세션. 옅은 밑줄로 그 사실만 말한다.
                   ? 'border-b-2 border-b-blue-400/40 bg-gray-800/50 text-gray-300 hover:bg-gray-800/70'
                   : 'bg-gray-900/40 text-gray-400 hover:bg-gray-800/60 hover:text-gray-300'
-            } ${isDragging ? 'opacity-40' : ''}`}
+            } ${isDragging ? 'opacity-0' : ''}`}
           >
             {isPinned && (
               <span className="flex-shrink-0 cursor-help" title={t('tabMenu.pinTooltip')}>
@@ -745,6 +783,7 @@ export const IDETabBar = memo(function IDETabBar({
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
+          </div>
           </div>
         );
           })}
@@ -845,6 +884,9 @@ export const IDETabBar = memo(function IDETabBar({
             // §5.4 #14-1 — IDE 서브에이전트 탭은 detach 미지원. showDetach=false 라 도달하지 않지만
             // 타입 좁힘을 위해 가드.
             if (action === 'detach') return;
+            // §5.4 #14-4 — "닫은 탭 다시 열기"는 프로젝트 탭바만의 것이다(onReopen 미전달 →
+            //   메뉴에 항목 자체가 없다). 도달하지 않지만 타입 좁힘을 위한 가드.
+            if (action === 'reopenClosed' || action === 'recentlyClosed') return;
             if (action === 'rename') { startRename(ctx.subId); return; }
             handleCtxAction(action);
           }}
@@ -892,6 +934,37 @@ export const IDETabBar = memo(function IDETabBar({
                 </button>
               </div>
             </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/*
+        손에 들린 탭. **`document.body` 로 내보낸다** — IDE 창은 DOM 상 캔버스의 자식이고(§5.5 #17-6)
+        그 위에는 React Flow 의 `transform` 이 걸려 있어, 여기서 `fixed` 를 쓰면 뷰포트가 아니라
+        그 변환된 조상 기준이 돼 고스트가 커서에서 어긋난다(활동바가 배운 것과 같은 함정).
+        자리는 렌더가 아니라 훅이 `transform` 으로 준다(프레임마다 리렌더 ❌).
+      */}
+      {dragApi.dragKey !== null && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={dragApi.ghostRef}
+          aria-hidden
+          className="pointer-events-none fixed left-0 top-0 z-[200] will-change-transform"
+          /*
+           * **집어 든 순간 원본이 차지하던 치수를 그대로 입는다.**
+           *
+           * 종전에는 고스트가 원본을 흉내 낸 미니어처였다(`px-3` + `max-w-[160px]`). 그런데 세션
+           * 탭의 폭은 라벨 자리 `w-[120px]` + 닫기 버튼 `w-4` + 핀/기본/루프 글리프가 함께 정하는
+           * 값이라, 흉내로는 맞출 수가 없다 — 라벨이 짧으면 고스트가 원본의 **절반**으로 줄어
+           * 집어 드는 순간 크기가 툭 튀었다(사용자 지적). 활동바가 안 어긋났던 것은 원본이
+           * `h-10 w-10` 고정이라 우연히 맞았기 때문이고, 그 우연에 기대지 않는 것이 이 한 줄이다.
+           */
+          style={dragApi.dragSize ?? undefined}
+        >
+          {/* 안쪽은 원본 탭과 같은 뼈대(`pl-3 pr-1.5 gap-1.5` + 도트 + 라벨). 치수는 겉이 정한다. */}
+          <div className="flex h-full w-full items-center gap-1.5 rounded border border-blue-400/70 bg-gray-800 pl-3 pr-1.5 text-xs text-white shadow-lg shadow-black/60">
+            <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" />
+            <span className="min-w-0 flex-1 truncate">{ghostLabel}</span>
           </div>
         </div>,
         document.body,

@@ -45,13 +45,21 @@
       "tooltipWaiting": "Aún no hay agentes en este proyecto",
       "tooltipWorking": "Este proyecto: {{agents}} agentes · {{running}} de {{sessions}} sesiones en ejecución",
       "tooltipIdle": "Este proyecto: {{agents}} agentes · {{sessions}} sesiones — nada en ejecución ahora",
+      "tooltipLimited": "Este proyecto: {{agents}} agentes · {{sessions}} sesiones — {{limited}} detenidas por el límite de uso",
       "tooltipMenu": "{{status}} · Haz clic para abrir Ventanas y burbujas"
     },
     "tab": {
       "closeProject": "Cerrar proyecto",
       "closeTab": "Cerrar pestaña",
       "unloadedProject": "No cargado",
-      "clickToLoad": "Clic para cargar proyecto"
+      "clickToLoad": "Clic para cargar proyecto",
+      "confirmCloseTitle": "Hay agentes en ejecución",
+      "confirmCloseMessage": "Todavía hay agentes en ejecución. ¿Quieres cerrar? ({{count}} sesiones activas)",
+      "confirmCloseHint": "{{close}} solo cierra la pestaña; sus agentes siguen ejecutándose en segundo plano. Activa {{force}} para detenerlos todos antes de cerrar.",
+      "confirmCloseConfirm": "Cerrar",
+      "confirmCloseCancel": "Cancelar",
+      "confirmCloseForceAll": "Forzar la detención de todos los agentes",
+      "confirmCloseForceAllHint": "Detiene los agentes de todos los proyectos abiertos y luego cierra."
     },
     "usage": {
       "tooltip": "Sesión actual: {{percent}}% del límite de 5 horas usado — haz clic para ver detalles",
@@ -71,7 +79,12 @@
       "hint": "Contraer no es cerrar: la ventana solo sale de la pantalla y te devuelve el lienzo.",
       "commandCenterHint": "Abrir el Centro de control — mira qué está esperando en este proyecto",
       "openNew": "Abrir en una ventana nueva",
-      "bringToFront": "Traer al frente",
+      "soloFocus": "Mostrar solo esta ventana (contraer las demás)",
+      "limited": "detenido",
+      "limitedUntil": "se restablece a las {{at}}",
+      "limitedBanner": "{{count}} sesión(es) detenida(s) por el límite de uso — aparecen primero abajo",
+      "limitedAck": "Entendido",
+      "limitedAckHint": "Quita la marca naranja: las sesiones y las conversaciones se mantienen",
       "settings": "Ajustes del Agent",
       "expand": "Expandir",
       "collapse": "Contraer",
@@ -101,6 +114,10 @@
     "projectFolderBanner": {
       "text": "No hay ninguna carpeta de proyecto abierta — los agentes todavía no tienen dónde trabajar.",
       "action": "Elegir carpeta"
+    },
+    "codexSetupBanner": {
+      "text": "La Codex CLI no está instalada — los agents de Codex aún no pueden ejecutarse.",
+      "action": "Instalar"
     }
   },
   "panel": {
@@ -109,13 +126,12 @@
       "openFolder": "Abrir carpeta...",
       "options": "Opciones…",
       "guide": "Guía",
-      "mobileAccess": "Acceso móvil…",
       "plugins": "Complementos…",
-      "remoteControl": "Control remoto…"
+      "remoteAccess": "Acceso remoto…"
     },
     "mobileAccess": {
       "title": "Acceso móvil",
-      "subtitle": "Abre Vibisual en el navegador de tu teléfono usando la misma red Wi-Fi. Actívalo, abre la dirección de abajo en tu teléfono y luego introduce el código de emparejamiento.",
+      "subtitle": "Abre Vibisual en el navegador de tu teléfono. Actívalo, abre una de las direcciones de abajo en el teléfono e introduce el código de emparejamiento.",
       "statusOn": "Escuchando en tu red local",
       "statusOff": "Desactivado",
       "enable": "Activar",
@@ -137,20 +153,51 @@
       "externalReachable": "Accesible — conéctate desde fuera en",
       "externalHttpsNote": "Usa un certificado autofirmado — tu teléfono mostrará una advertencia de seguridad la primera vez. Toca \"Avanzado → continuar\" para seguir; la conexión sigue estando cifrada.",
       "qrTitle": "Emparejamiento con QR",
-      "qrSubtitle": "Escanéalo con la cámara de tu teléfono — Vibisual se abre y se empareja solo, sin dirección ni código que escribir. Cada QR es válido durante {{minutes}} minutos.",
+      "qrSubtitle": "Escanea con la cámara del móvil: Vibisual se abre y se empareja solo, sin escribir dirección ni código. Cada QR sirve {{minutes}} minutos y para {{max}} dispositivos como máximo.",
       "qrIssue": "Generar QR",
       "qrReissue": "Generar nuevo QR",
       "qrRevoke": "Revocar ahora",
       "qrDownload": "Guardar imagen",
       "qrTarget": "Dirección a codificar",
-      "qrTargetLan": "Wi-Fi",
-      "qrTargetExternal": "Internet",
       "qrExpiresIn": "Válido durante {{time}}",
       "qrExpired": "Caducado — genera un nuevo QR.",
-      "qrPairedCount": "Emparejados con este QR: {{count}}"
+      "qrPairedCount": "Dispositivos emparejados con este QR: {{count}}/{{max}}",
+      "addr": {
+        "recommended": "Usa esta dirección",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "others": "Otras direcciones",
+        "noneUsable": "Ninguna dirección de este PC es accesible desde un teléfono. Conecta este PC al Wi-Fi o a un router y vuelve a abrir esta ventana.",
+        "blockedToggle": "No funcionan desde un teléfono ({{count}})",
+        "adapter": "Adaptador de red: {{name}}",
+        "kind": {
+          "lan": "Mismo Wi-Fi",
+          "vpn": "Red privada",
+          "external": "IP externa",
+          "virtual": "Solo este PC",
+          "linkLocal": "Sin dirección",
+          "other": "No identificada"
+        },
+        "hint": {
+          "lan": "Tu red de casa o de la oficina. Funciona siempre que tu teléfono esté en el mismo Wi-Fi o router que este PC.",
+          "vpn": "La asigna una app de red privada como Tailscale o ZeroTier, no tu router. Solo funciona si tu teléfono ha iniciado sesión en la misma red privada, pero entonces funciona desde cualquier sitio, incluidos los datos móviles.",
+          "vpnNamed": "La asigna {{product}}, no tu router. Solo funciona si tu teléfono ha iniciado sesión en la misma red de {{product}}, pero entonces funciona desde cualquier sitio, incluidos los datos móviles.",
+          "external": "Llega a este PC por internet, a través del puerto que abrió tu router.",
+          "virtual": "Pertenece a un adaptador de red virtual que solo existe dentro de este PC. Un teléfono nunca puede alcanzarla.",
+          "virtualNamed": "Pertenece a {{product}}, un adaptador virtual que solo existe dentro de este PC. Un teléfono nunca puede alcanzarla.",
+          "linkLocal": "Este adaptador nunca recibió una dirección de red, así que no es accesible desde ningún sitio. Comprueba el cable o la conexión Wi-Fi.",
+          "other": "Vibisual no pudo identificar esta dirección. Aun así podría funcionar: pruébala si las anteriores no van."
+        }
+      },
+      "externalManualWarn": "Esta regla permanece en el router aunque cierres o desinstales Vibisual — a diferencia del puerto que la app abre automáticamente (UPnP), nunca caduca. Bórrala en el router cuando ya no la necesites.",
+      "externalAutoResume": "Una vez activado, vuelve a abrirse cada vez que arranca la aplicación. Déjalo desactivado cuando no lo uses — los escáneres automáticos encuentran un puerto recién abierto en cuestión de minutos.",
+      "certFingerprintTitle": "Huella del certificado (SHA-256)",
+      "certFingerprintNote": "Cuando el teléfono muestre el aviso de seguridad, abre los detalles del certificado y comprueba que la huella coincide con este valor. Si es distinta, alguien está interceptando la conexión — no continües.",
+      "forwardCleanupTitle": "Puede que siga abierta una regla en el router",
+      "forwardCleanupBody": "{{external}} está desactivado, pero Vibisual no puede eliminar una redirección de puertos que creaste a mano — bórrala en la página de administración del router. Si la dejas, cualquier programa que use ese puerto después quedará expuesto a internet.",
+      "forwardCleanupDone": "Ya la he borrado"
     },
     "remoteControl": {
-      "title": "Control remoto",
       "subtitle": "Controla Vibisual desde una aplicación de mensajería. La app inicia la conexión de salida, así que no hay que abrir ningún puerto ni confiar en ningún certificado — funciona incluso detrás de CGNAT.",
       "channel": {
         "telegram": "Telegram",
@@ -206,7 +253,8 @@
         "cards": "Solo las tarjetas y los resúmenes salen de este ordenador. Pide la salida sin procesar con /log cuando la necesites.",
         "full": "Las respuestas y el razonamiento se retransmiten a medida que llegan. La salida de las herramientas y los diffs se siguen reteniendo."
       },
-      "securityNote": "Solo los chats que emparejaste pueden enviar comandos. Al resto se le responde, como mucho, una línea de «sin conexión». Nunca se abre una terminal por mensajería."
+      "securityNote": "Solo los chats que emparejaste pueden enviar comandos. Al resto se le responde, como mucho, una línea de «sin conexión». Nunca se abre una terminal por mensajería.",
+      "verbosityShared": "Este ajuste se aplica tanto a Telegram como a Discord."
     },
     "guide": {
       "title": "Guía",
@@ -220,7 +268,7 @@
         "navigation": "Navegación",
         "history": "Historial y guardado",
         "shortcuts": "Atajos",
-        "memory": "Memoria del proyecto"
+        "autoGoal": "Detección de procedimientos"
       },
       "start": {
         "intro": "Vibisual visualiza lo que hacen tus agentes de IA, en tiempo real, como un Bubble Map.",
@@ -293,37 +341,28 @@
       },
       "shortcuts": {
         "intro": "Los atajos de teclado agilizan la navegación y la edición. Se desactivan mientras escribes en un campo o terminal.",
-        "bookmarkT": "Marcadores de burbujas",
-        "bookmarkD": "Alt+1…0 ancla una burbuja o sesión a una ranura; pulsa 1…0 para volver a ella.",
-        "sessionTabsT": "Pestañas de sesión",
-        "sessionTabsD": "{{cycle}} / {{cycleBack}} pasa a la pestaña de sesión siguiente o anterior de la ventana del IDE en primer plano ({{pageNext}} / {{pagePrev}} hacen lo mismo). {{first}}…{{last}} salta directamente a la pestaña N; {{last}} es siempre la última.",
-        "copyT": "Copiar / pegar",
-        "copyD": "{{copy}} / {{paste}} copia y pega los agentes, edges y cuadros de comentario seleccionados.",
         "inspectorT": "Inspector",
         "inspectorD": "Mantén pulsada Alt para inspeccionar y haz clic para copiar un elemento; Shift+arrastrar para seleccionar una región.",
         "closeT": "Cerrar y cancelar",
-        "closeD": "Esc cierra menús, ventanas emergentes y el overlay del IDE."
+        "closeD": "Esc cierra menús, ventanas emergentes y el overlay del IDE.",
+        "remapNote": "Haz clic en el lápiz de un atajo para cambiarlo — los conflictos se comprueban a medida que pulsas. {{options}} › {{keyboard}} tiene la lista completa con búsqueda, importación y exportación."
       },
-      "memory": {
-        "intro": "La memoria del proyecto guarda lo que funcionó y lo vuelve a cargar en la siguiente tarea. Viene desactivada — se activa por proyecto, y desactivarla nunca borra nada.",
-        "turnOnT": "Cómo activarla",
-        "turnOnD": "Clic derecho en el lienzo vacío y «Activar la memoria del proyecto», o Archivo > Opciones > Memoria del proyecto. Se aplica al instante — sin reiniciar.",
-        "bubbleT": "La burbuja de memoria",
-        "bubbleD": "Al activarla aparece una burbuja índigo en el lienzo con el número de tarjetas guardadas. Doble clic abre la biblioteca; al pasar el cursor muestra un resumen.",
-        "skillsT": "Memoria de procedimientos",
-        "skillsD": "Cuando termina un trabajo complejo, sus pasos se condensan en un procedimiento. La próxima vez que empiece algo parecido, ese procedimiento se carga solo en el prompt.",
-        "recallT": "Recuerdo",
-        "recallD": "Busca en el texto de sesiones pasadas, no solo en las tarjetas — para la respuesta que nunca se anotó como tarjeta.",
-        "groundingT": "Verificación de evidencia",
-        "groundingD": "Una tarjeta solo cuenta como verdad actual después de contrastar los archivos que cita con el código que existe ahora.",
-        "curatorT": "Curaduría",
-        "curatorD": "Las tarjetas nunca leídas, sin clasificar o aún candidatas se reúnen en una columna para clasificarlas, promoverlas o descartarlas en bloque.",
-        "operatorT": "Perfil del operador",
-        "operatorD": "Los hábitos de trabajo detectados se guardan solo en este equipo. No se envía nada a ninguna parte.",
-        "railsT": "Las cinco columnas",
-        "railsD": "Columna izquierda de la biblioteca: Por revisar, Pendiente de revisión, Procedimientos, Por ordenar, Archivado.",
-        "keepsT": "No se tira nada",
-        "keepsD": "Desactivarla detiene el trabajo, no el almacenamiento. Las tarjetas siguen en .vibisual/brain y retoman donde quedaron."
+      "autoGoal": {
+        "intro": "Detección de procedimientos observa lo que tú y tus agents realmente repetís, y anota el trabajo repetido como un procedimiento reutilizable. Viene desactivada por defecto — la activas por proyecto, por agent o por sesión.",
+        "turnOnT": "Activarlo",
+        "turnOnD": "Abre {{procedures}} en la barra de actividad. Ahí se apilan tres interruptores — todo el proyecto, este agent, esta sesión — y el de abajo anula al de arriba. Cada clic recorre el ciclo Activado → Desactivado → Heredado.",
+        "watchesT": "Qué observa",
+        "watchesD": "Ejecuciones de comandos de shell que un agent ejecutó de verdad, y grupos de pasos que tú mismo fijaste en el stage. No se envía nada a ningún sitio — el análisis es un simple recuento que ocurre en este ordenador.",
+        "thresholdT": "El umbral",
+        "thresholdD": "Una misma ejecución tiene que repetirse varias veces antes de convertirse en procedimiento. Hasta entonces, se queda en la lista de candidatos con una barra de progreso, para que puedas ver qué está a punto de escribirse.",
+        "filesT": "Dónde viven los procedimientos",
+        "filesD": "Cada uno es un SKILL.md sencillo dentro de .vibisual/skills en tu proyecto, con el frontmatter de agentskills.io. Ábrelo, edítalo, haz commit — un fichero que hayas editado a mano nunca se sobrescribe.",
+        "promptT": "Qué llega al prompt",
+        "promptD": "Solo el nombre, una línea de descripción y la ruta del fichero. El cuerpo se queda en el disco y el agent lo abre cuando el trabajo coincide, así que veinte procedimientos casi no cuestan nada.",
+        "dismissT": "Descartar uno",
+        "dismissD": "Rechazar un candidato detiene la sugerencia. No borra la observación. La misma ejecución puede seguir repitiéndose — la detección de procedimientos simplemente deja de sugerir anotarla.",
+        "keepsT": "Nada se tira",
+        "keepsD": "Desactivarlo detiene el análisis, no el almacenamiento. Los procedimientos ya escritos se quedan en tu proyecto y son tuyos, y nunca se elimina nada automáticamente."
       }
     },
     "options": {
@@ -349,7 +388,7 @@
         "version": "Versión",
         "account": "Cuenta",
         "storage": "Almacenamiento",
-        "brain": "Memoria del proyecto"
+        "keyboard": "Teclado"
       },
       "appearance": {
         "intro": "Personaliza el aspecto de Vibisual.",
@@ -406,7 +445,7 @@
         "color": "Color de bubble predeterminado (hex, opcional)"
       },
       "account": {
-        "intro": "La cuenta de Claude Code que Vibisual usa para ejecutar agentes. Cerrar sesión aquí también cierra la sesión de Claude Code.",
+        "introEngines": "Las cuentas que usa Vibisual para ejecutar agents. Cerrar sesión aquí cierra la sesión de esa CLI.",
         "signedIn": "Sesión iniciada",
         "signedOut": "Sin sesión iniciada",
         "unknown": "No se pudo comprobar el estado de la sesión",
@@ -417,6 +456,9 @@
         "provider": "Proveedor",
         "logout": "Cerrar sesión",
         "logoutConfirm": "¿Cerrar la sesión de Claude Code?",
+        "codexLogoutConfirm": "¿Cerrar sesión de Codex?",
+        "codexUnknownDesc": "El binario codex no ha respondido. Se desconoce el estado de la sesión, así que no se ha cambiado nada.",
+        "codexNotInstalled": "Codex todavía no está instalado. Instálalo primero y luego inicia sesión.",
         "logoutYes": "Cerrar sesión",
         "logoutNo": "Mantener la sesión",
         "loggingOut": "Cerrando sesión…",
@@ -445,7 +487,8 @@
         "units": {
           "days": "días",
           "count": "elementos",
-          "seconds": "seg"
+          "seconds": "seg",
+          "megabytes": "MB"
         },
         "fields": {
           "fileEditRetentionDays": {
@@ -479,6 +522,18 @@
           "trashRetentionDays": {
             "label": "Papelera",
             "desc": "Cuántos días siguen siendo restaurables los archivos limpiados antes de borrarse definitivamente. 0 = conservar siempre."
+          },
+          "insuranceRetentionDays": {
+            "label": "Seguro de contexto",
+            "desc": "Cuánto tiempo se conservan las instantáneas de compactación y las copias de ficheros previas a la escritura. 0 = conservar para siempre."
+          },
+          "insuranceVaultMaxMB": {
+            "label": "Presupuesto de la bóveda del seguro",
+            "desc": "Presupuesto de disco para la bóveda del seguro. Al superar el presupuesto, primero se descartan las copias de las transcripciones y después las copias de ficheros más antiguas. 0 = sin límite."
+          },
+          "insuranceMirror": {
+            "label": "Copiar transcripciones",
+            "desc": "También copia la transcripción de la sesión en el momento de la compactación. Si está desactivado, solo se conserva la entrada del índice, que sobrevive a la compactación y a /clear, pero no a una limpieza externa."
           }
         },
         "kinds": {
@@ -488,11 +543,12 @@
           "identity": "Identidad",
           "subStreams": "Transcripciones",
           "attachments": "Adjuntos",
-          "brain": "Memoria",
+          "insurance": "Seguro de contexto",
           "logs": "Registros",
           "video": "Vídeo",
           "other": "Otro",
-          "trash": "Papelera"
+          "trash": "Papelera",
+          "skills": "Procedimientos"
         },
         "error": {
           "load": "No se pudieron cargar los ajustes de retención.",
@@ -538,11 +594,89 @@
         "sessionProbeModel": "Modelo que responde",
         "sessionProbeModelDesc": "Se le pregunta una vez, sin herramientas y sin acceso a tu proyecto: solo un breve final de lo último que esa sesión dijo e hizo. Se pregunta como mucho por una sesión a la vez y no más de 12 veces por hora.",
         "sessionProbeLoadError": "No se pudo leer el ajuste actual.",
-        "sessionProbeSaveError": "No se pudo guardar. No se cambió nada."
+        "sessionProbeSaveError": "No se pudo guardar. No se cambió nada.",
+        "externalBudgetTitle": "Carpetas fuera del proyecto",
+        "externalBudgetIntro": "Cuando un agente accede a una carpeta fuera del proyecto, ese lugar recibe su propia burbuja. Si se dejan sin control, esas burbujas acaban saturando el mapa o colapsando en una única burbuja que no aporta ninguna información. Este número determina cuántas de ellas se muestran a la vez en el nivel superior: los lugares con más actividad y los más recientes lo ocupan primero, y los que dejan de tener actividad se repliegan bajo su carpeta padre.",
+        "externalBudgetLabel": "Carpetas externas mostradas en el nivel superior",
+        "externalBudgetDesc": "Las carpetas fijadas no cuentan para este número: una carpeta que hayas fijado permanece siempre en el nivel superior. Este ajuste no elimina nada: los lugares que no caben se repliegan bajo una burbuja padre que indica cuántos hay dentro.",
+        "externalBudgetLoadError": "No se ha podido leer el ajuste actual.",
+        "externalBudgetSaveError": "No se ha podido guardar. No se ha cambiado nada."
       },
       "notifications": {
         "cmdBlocked": "Avisar cuando una sesión CMD esté esperando entrada",
         "cmdBlockedDesc": "Solo avisa mientras estás mirando otra pestaña o ventana — si la ventana tiene el foco, ya está en pantalla."
+      },
+      "engines": {
+        "title": "Motores",
+        "intro": "Los tres motores se pueden usar a la vez. El valor predeterminado solo decide con qué motor empieza un agent nuevo.",
+        "defaultLabel": "Predeterminado para agents nuevos",
+        "change": "Cambiar",
+        "install": "Instalar",
+        "signIn": "Iniciar sesión",
+        "signOut": "Cerrar sesión",
+        "installed": "Instalado",
+        "notInstalled": "No instalado",
+        "signedIn": "Sesión iniciada",
+        "signedOut": "Sesión no iniciada",
+        "authUnknown": "Estado de inicio de sesión desconocido",
+        "localModels": "{{count}} modelo(s)",
+        "localHint": "Haz clic con el botón derecho en el lienzo y luego en All Model. La descarga del motor y de los modelos ocurre en esa ventana.",
+        "codexHooks": "Mostrar las sesiones de Codex ejecutadas fuera de Vibisual",
+        "codexHooksDesc": "Añade hooks de Vibisual a la configuración de Codex para que las sesiones iniciadas en una terminal o en un editor también aparezcan en el lienzo.",
+        "codexHooksTrust": "Codex te pedirá que confíes en los hooks nuevos una vez, la próxima vez que lo inicies. Hasta que aceptes, no se reenvía nada.",
+        "hooksOn": "Activado",
+        "hooksOff": "Desactivado",
+        "working": "Trabajando…"
+      },
+      "keyboard": {
+        "intro": "Aquí aparecen todos los atajos de la aplicación. Haz clic en el lápiz junto a un atajo para cambiarlo — los conflictos se comprueban a medida que pulsas.",
+        "search": "Buscar comandos o teclas",
+        "filterAll": "Todos",
+        "filterConflicts": "Conflictos",
+        "filterChanged": "Cambiados",
+        "changed": "cambiado",
+        "conflict": "conflicto",
+        "empty": "No hay coincidencias.",
+        "resetOne": "Restaurar valor predeterminado",
+        "resetAll": "Restaurar todos los valores predeterminados",
+        "resetDone": "Se han restaurado todos los valores predeterminados.",
+        "export": "Exportar",
+        "import": "Importar",
+        "imported": "Se han importado {{count}} atajos.",
+        "importFailed": "No se ha podido leer ese fichero."
+      },
+      "tokenSaver": {
+        "title": "Ahorro de tokens",
+        "intro": "Casi todo lo que pagas es relectura: medido a lo largo de cinco horas, el 96,5 % de los tokens de entrada eran la conversación volviendo a enviarse en el siguiente turno. Así que las dos cosas que merece la pena controlar son cuánto entra en el contexto por turno y en cuántos turnos se vuelve a leer. Cada ajuste de aquí es una de esas dos cosas, y 0 siempre significa que esa está desactivada.",
+        "preset": "Preajuste",
+        "presetOff": "Desactivado",
+        "presetBalanced": "Equilibrado",
+        "presetSaver": "Ahorro",
+        "presetCustom": "Personalizado",
+        "presetDesc": "Los preajustes solo rellenan los campos de abajo — no se aplica nada hasta que guardes. Desactivado es, byte a byte, el comportamiento que tenías antes de que existiera esta pantalla.",
+        "bashMaxOutputChars": "Máximo de caracteres de la salida de shell mantenidos en el contexto",
+        "bashMaxOutputCharsDesc": "La mayor fuente de crecimiento del contexto, con diferencia. La salida que entra una vez se vuelve a leer en cada turno posterior de esa sesión, así que recortarla aquí la recorta para toda la sesión. 0 deja el valor predeterminado de la CLI (30.000).",
+        "mcpMaxOutputTokens": "Máximo de tokens de la salida de herramientas MCP",
+        "mcpMaxOutputTokensDesc": "La misma idea para las herramientas MCP. No cambia nada para los agents sin ningún servidor MCP conectado. 0 deja el valor predeterminado de la CLI.",
+        "maxOutputTokens": "Máximo de tokens que escribe el modelo por turno",
+        "maxOutputTokensDesc": "Los tokens escritos cuestan unas cinco veces más que los tokens leídos, y todo lo escrito también permanece en el contexto. Si lo pones demasiado bajo, las respuestas se cortan a mitad de frase y pagas otra vez por rehacerlas. 0 deja el valor predeterminado del modelo.",
+        "maxThinkingTokens": "Máximo de tokens dedicados a pensar",
+        "maxThinkingTokensDesc": "Limita la duración del pensamiento extendido. Es independiente de activar o desactivar el pensamiento, y del nivel de esfuerzo. 0 deja el valor predeterminado del modelo.",
+        "autoCompactPct": "Compactar cuando la ventana esté así de llena (%)",
+        "autoCompactPctDesc": "Pliega la conversación antes de lo habitual. Solo tienen efecto los valores más bajos. Compactar es en sí mismo una petición grande, así que plegar demasiado a menudo cuesta más de lo que ahorra. 0 deja el valor predeterminado de la CLI.",
+        "maxConcurrentAgents": "Sesiones que pueden ejecutarse al mismo tiempo",
+        "maxConcurrentAgentsDesc": "Dieciséis sesiones ejecutándose a la vez cuestan dieciséis veces más a la vez. Los comandos que superan el límite nunca se descartan — esperan en su cola y salen en cuanto se libera un hueco. Los terminales en los que escribes tú mismo no cuentan. 0 significa sin límite.",
+        "spawnStaggerMs": "Intervalo entre el inicio de sesiones nuevas (ms)",
+        "spawnStaggerMsDesc": "Las sesiones que se inician en el mismo instante no pueden reutilizar el prefijo en caché de las demás, así que cada una escribe el suyo desde cero. Un intervalo breve permite que las siguientes lean la caché en su lugar, a una décima parte del precio. Solo se aplica a sesiones completamente nuevas. 0 significa sin intervalo.",
+        "sessionTurnBudget": "Compactar una sesión tras este número de turnos",
+        "sessionTurnBudgetDesc": "Una sesión larga vuelve a leer todo su historial en cada turno, así que el coste de dejarla en marcha crece con el cuadrado de su duración. Esto la pliega en cuanto se alcanza el número de turnos. Nunca inicia una sesión nueva — se conserva tu conversación. 0 significa sin límite.",
+        "disableNonEssential": "Omitir llamadas al modelo en segundo plano para títulos y resúmenes",
+        "disableNonEssentialDesc": "Son pequeñas llamadas adicionales que hace la CLI por comodidad. Aquí los nombres de las pestañas de sesión se derivan de tu primera instrucción sin llamar a ningún modelo, así que activar esto apenas te cuesta nada visible.",
+        "loadError": "No se ha podido leer el ajuste actual.",
+        "saveError": "No se ha podido guardar. No se ha cambiado nada.",
+        "autoCompactWindow": "Plegar la conversación en cuanto alcance",
+        "autoCompactWindowOff": "Dejar como está configurado",
+        "autoCompactWindowDesc": "La palanca individual más grande aquí. Medido durante tres días, las sesiones se situaron en una mediana de 186k tokens, y todo lo que superaba los 200k suponía el 62 % de toda la entrada — cada turno vuelve a leer eso. Reducir la ventana de 400k a 200k redujo la entrada en un 27 %, y a 100k en un 59 %, para el mismo trabajo. Solo se estrecha: gana el agente o el valor predeterminado que ya sea más bajo. Plegar en sí es una solicitud grande, así que el ajuste más bajo no es automáticamente el más barato."
       }
     },
     "autoAgent": {
@@ -1190,7 +1324,28 @@
         "on": "activado",
         "off": "desactivado"
       },
-      "contextNotAccessible": "No accesible (interno de Claude Code)"
+      "contextNotAccessible": "No accesible (interno de Claude Code)",
+      "codex": {
+        "noModel": "Aún no se ha elegido ningún modelo",
+        "modelTip": "El modelo de Codex con el que habla esta burbuja. Vibisual siempre lo envía de forma explícita, así que nunca recurre al modelo predeterminado de tu fichero de configuración de Codex.",
+        "noModelList": "Todavía no se ha leído la lista de modelos — al ejecutar Codex una vez, se crea.",
+        "reloadModels": "Recargar",
+        "effort": "Esfuerzo de razonamiento",
+        "effortTip": "Cuanto más alto, más tiempo piensa y más tokens consume. Solo se muestran los niveles que este modelo admite.",
+        "effortDefault": "Predeterminado del motor",
+        "toolsManaged": "Gestionado por la Codex CLI"
+      },
+      "tokenSaver": {
+        "label": "Ahorro de tokens",
+        "tip": "Límites solo para este agent. 0 significa que sigue el ajuste global en Opciones › Avanzado › Ahorro de tokens. Un agent puede endurecer los límites globales, pero no relajarlos.",
+        "bashOutput": "Salida de shell (caracteres)",
+        "mcpOutput": "Salida de MCP (tokens)",
+        "output": "Respuesta (tokens)",
+        "thinking": "Pensamiento (tokens)",
+        "compactPct": "Compactar al (%)",
+        "noExtraCalls": "Omitir llamadas adicionales",
+        "hint": "Deja todos los campos en 0 para seguir el ajuste global."
+      }
     },
     "permissionPrompt": {
       "title": "Permiso necesario",
@@ -1363,10 +1518,22 @@
       "clearCancel": "Cancelar",
       "kindSearch": "Búsqueda",
       "kindFetch": "Descarga",
-      "checkHint": "Marcar elimina esta entrada",
+      "checkHint": "Eliminar esta entrada",
       "openExternal": "Abrir en el navegador",
       "resultCount": "{{count}} resultados",
-      "truncated": "…(recortado)"
+      "truncated": "…(recortado)",
+      "openDetail": "Ver detalles",
+      "moreHosts": "+{{count}} más",
+      "detailClose": "Cerrar",
+      "detailQueryLabel": "Búsqueda",
+      "detailUrlLabel": "URL",
+      "detailPromptLabel": "Se preguntó",
+      "detailResultLabel": "Resultado",
+      "detailNoResult": "No se obtuvo ningún resultado",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copyResult": "Copiar resultado",
+      "deleteEntry": "Eliminar entrada"
     },
     "rootFileList": {
       "files": "Archivos",
@@ -1385,7 +1552,9 @@
       "stop": "Detener servidor",
       "start": "Iniciar servidor",
       "noEntry": "No hay entrada de servidor coincidente",
-      "noCommand": "Reinicio no disponible: comando de inicio desconocido (servidor informado por el agente)"
+      "noCommand": "Reinicio no disponible: ya está detenido, el comando de inicio ya no se puede obtener (servidor informado por el agente)",
+      "takeover": "Reiniciar tomando el control: Vibisual adopta el servidor que inició el agente",
+      "takeoverFailed": "No se pudo tomar el control: no se pudo leer el comando de inicio (pertenece a otra cuenta o falta la herramienta de consulta)"
     },
     "subAgent": {
       "heading": "SubAgentes ({{count}})",
@@ -1393,7 +1562,8 @@
         "idle": "inactivo",
         "running": "ejecutando",
         "done": "terminado",
-        "error": "error"
+        "error": "error",
+        "limited": "límite alcanzado"
       },
       "probe": {
         "checking": "comprobando…",
@@ -1492,7 +1662,19 @@
       "errCliUnavailable": "No se pudo ejecutar el comando `claude` para leer tu uso. Revisa la ruta de Claude Code en Opciones → Version y vuelve a actualizar.",
       "errUnauthorized": "La sesión guardada de Claude caducó. Ejecuta Claude Code una vez y se renueva solo: los números vuelven automáticamente.",
       "errNetwork": "No se pudo contactar con Claude ahora mismo. Se muestran los últimos valores recibidos.",
-      "refreshFailed": "Error al actualizar"
+      "refreshFailed": "Error al actualizar",
+      "hwUnknown": "Todavía no se han leído los recursos de este PC.",
+      "hwCpu": "CPU",
+      "hwCpuHint": "{{model}} · {{cores}} núcleos",
+      "hwCores": "{{cores}} núcleos",
+      "hwCpuUnreadable": "Este sistema operativo no ha informado de ningún núcleo de CPU.",
+      "hwRam": "RAM",
+      "hwBytes": "{{used}} de {{total}} en uso",
+      "hwNoDevice": "No se ha encontrado ningún acelerador — los modelos se ejecutan aquí en la CPU.",
+      "hwDevicesUnknown": "Los aceleradores se leen desde el motor, así que aparecen en cuanto este esté instalado.",
+      "hwLoaded": "Modelos cargados en memoria",
+      "hwLoadedNone": "Ahora mismo no hay ningún modelo cargado.",
+      "hwHint": "All Model no tiene límite de suscripción — lo que gasta es este PC. Las burbujas con modelos distintos consumen cada una su propia memoria, mientras que las que comparten un mismo modelo comparten una sola instancia."
     },
     "plugins": {
       "title": "Complementos",
@@ -1524,7 +1706,6 @@
         "restRoute": "Ruta REST",
         "wsMessage": "Mensaje WS",
         "agentConfigField": "Ajuste de Agent",
-        "brainCardKind": "Tipo de tarjeta",
         "bubbleType": "Tipo de burbuja",
         "edgeKind": "Tipo de conexión"
       },
@@ -1557,12 +1738,11 @@
         "runningTasks": "tareas en curso",
         "agentReports": "informes",
         "agentReviews": "revisiones",
-        "brain": "memoria",
-        "brainInjections": "memoria inyectada",
         "taskEdges": "entregas",
         "captureBubbles": "capturas",
         "bashCommands": "comandos ejecutados",
-        "pluginFacts": "mediciones de aplicación"
+        "pluginFacts": "mediciones de aplicación",
+        "autoGoal": "detección de procedimientos"
       }
     },
     "login": {
@@ -1843,6 +2023,152 @@
     "folderList": {
       "loadingMore": "Cargando más… ({{loaded}} / {{total}})",
       "retry": "No se pudo cargar — reintentar"
+    },
+    "engineChooser": {
+      "title": "Elige el motor de tus agents",
+      "intro": "Vibisual puede trabajar con tres motores distintos. Elige uno para empezar — Vibisual te guiará paso a paso por la instalación y el inicio de sesión.",
+      "claude": {
+        "name": "Claude Code",
+        "desc": "Cuenta de Anthropic. El motor sobre el que se construyó Vibisual.",
+        "need": "Instalar + iniciar sesión"
+      },
+      "codex": {
+        "name": "Codex",
+        "desc": "Cuenta de OpenAI. Ejecuta la Codex CLI como segundo motor.",
+        "need": "Instalar + iniciar sesión"
+      },
+      "local": {
+        "name": "Modelos locales",
+        "desc": "Sin cuenta, sin coste. Ejecuta modelos en este ordenador.",
+        "need": "Solo descarga"
+      },
+      "note": "Esto solo establece el valor predeterminado para los agents nuevos. Los tres siguen disponibles a la vez, y puedes configurar los demás más adelante en Opciones.",
+      "later": "Decidir más tarde"
+    },
+    "codexSetup": {
+      "title": "Instalar Codex CLI",
+      "intro": "Los agents de Codex se ejecutan mediante la Codex CLI, que todavía no está instalada en este ordenador. Instálala aquí — no hace falta ninguna terminal.",
+      "commandLabel": "Comando de instalación",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "manualOnly": "No se ha encontrado npm, así que Vibisual no puede instalarlo por ti. Instala Node.js, ejecuta el comando de arriba en una terminal y luego elige «Comprobar de nuevo».",
+      "failed": "La instalación no se ha completado. Ejecuta el comando de arriba en una terminal y luego elige «Comprobar de nuevo».",
+      "installing": "Instalando…",
+      "installDone": "Instalado",
+      "installFailed": "Instalación fallida",
+      "docs": "Guía oficial de instalación",
+      "ready": "La Codex CLI está lista. Continuando…",
+      "readyNext": "Siguiente: inicia sesión en tu cuenta de OpenAI.",
+      "continue": "Continuar",
+      "recheck": "Comprobar de nuevo",
+      "rechecking": "Comprobando…",
+      "later": "Más tarde",
+      "install": "Instalar",
+      "retry": "Reintentar"
+    },
+    "codexLogin": {
+      "title": "Iniciar sesión en Codex",
+      "intro": "Los agents de Codex se ejecutan con tu cuenta de OpenAI. Inicia sesión aquí — no hace falta una terminal aparte.",
+      "modeBrowser": "Inicio de sesión con el navegador",
+      "modeBrowserDesc": "Abre la página de tu cuenta de ChatGPT y vuelve automáticamente.",
+      "modeDevice": "Código de dispositivo",
+      "modeDeviceDesc": "Para ordenadores que no pueden abrir un navegador — introduce un código en otro dispositivo.",
+      "openBrowser": "Aprueba el inicio de sesión en tu navegador y luego vuelve aquí.",
+      "openBrowserBtn": "Abrir en el navegador",
+      "copyUrl": "Copiar enlace",
+      "copied": "Copiado",
+      "starting": "Iniciando sesión…",
+      "codePrompt": "Pega el código que aparece en tu navegador.",
+      "codePlaceholder": "Código de autorización",
+      "sendCode": "Enviar",
+      "failed": "El inicio de sesión no se ha completado. Revisa la terminal de abajo e inténtalo de nuevo.",
+      "noTerminal": "Esta ventana no puede ejecutar una terminal aquí. Abre Vibisual en la aplicación de escritorio para iniciar sesión.",
+      "startFailed": "No se ha podido iniciar el proceso de inicio de sesión.",
+      "showTerminal": "Terminal",
+      "success": "Sesión iniciada. Cerrando…",
+      "successNext": "Siguiente: elige la carpeta del proyecto en la que trabajarán tus agents.",
+      "recheck": "Comprobar de nuevo",
+      "later": "Más tarde",
+      "stop": "Detener",
+      "start": "Iniciar sesión"
+    },
+    "insurance": {
+      "title": "Seguro de contexto",
+      "close": "Cerrar",
+      "vaultSize": "bóveda {{size}}",
+      "vaultSizeTip": "Cuánto disco ocupa la bóveda de este proyecto. No se puede dividir por sesión: las copias se comparten entre sesiones por hash de contenido.",
+      "scopeLabel": "Ámbito",
+      "scope": {
+        "session": "Esta sesión",
+        "sessionTip": "Solo lo ocurrido en la sesión que estás viendo.",
+        "agent": "Este agent",
+        "agentTip": "Todo lo de todas las sesiones de esta burbuja.",
+        "project": "Este proyecto",
+        "projectTip": "Todo lo que hay en la bóveda de este proyecto."
+      },
+      "tabs": {
+        "compacts": "Compactaciones",
+        "notCarried": "Fuera del resumen",
+        "preimages": "Copias de ficheros",
+        "resurrect": "Revivir"
+      },
+      "trigger": {
+        "auto": "automático",
+        "manual": "manual"
+      },
+      "copyMirrored": "copia conservada",
+      "copyIndexOnly": "solo índice",
+      "pending": "comparando",
+      "unreadable": "resumen ilegible",
+      "resumeShortfall": "contexto no cargado",
+      "failed": {
+        "no-summary": "sin resumen",
+        "transcript-gone": "sin transcripción"
+      },
+      "carried": "{{count}} conservados",
+      "skip": {
+        "too-large": "demasiado grande",
+        "unreadable": "ilegible",
+        "budget": "descartado por espacio"
+      },
+      "action": {
+        "edited": "antes de editar",
+        "shell": "antes de un comando de shell",
+        "created": "el fichero no existía"
+      },
+      "preview": "Vista previa",
+      "closePreview": "Cerrar vista previa",
+      "previewUnavailable": "Esta copia no se puede mostrar aquí — es binaria, o se descartaron los bytes para mantenerse dentro del presupuesto de la bóveda.",
+      "restore": "Recuperar",
+      "restoreAsDelete": "Restaurar eliminando",
+      "restoredAt": "restaurado {{at}}",
+      "resumeMode": "Continuarla",
+      "freshMode": "Nueva pestaña",
+      "mirroredOnly": "solo copia",
+      "resumeRisky": "grande",
+      "ncNote": "Es posible que el resumen los haya reformulado en lugar de descartarlos — esta lista solo indica que no aparecieron en él.",
+      "nc": {
+        "goal": "Objetivo",
+        "goalSteps": "Pasos restantes",
+        "openFiles": "Ficheros abiertos",
+        "recentEdits": "Ficheros editados",
+        "runningTasks": "Tareas en ejecución",
+        "teammates": "Compañeros de equipo"
+      },
+      "emptyCompacts": "Todavía no se ha registrado ninguna compactación para este proyecto. En cuanto ocurra una, aquí aparecerá una instantánea.",
+      "emptyNotCarried": "Todavía no hay nada que comparar. Después de una compactación, aquí aparece lo que el resumen no pareció conservar.",
+      "emptyPreimages": "Todavía no hay copias de ficheros. Vibisual toma una copia justo antes de que una herramienta sobrescriba un fichero, para que puedas recuperar el contenido anterior.",
+      "emptyResurrect": "No hay sesiones que se puedan revivir. Las conversaciones que perdieron su burbuja — después de un /clear, una compactación fallida o una caída — aparecen aquí.",
+      "emptyInScope": "Nada aquí todavía en {{scope}}.",
+      "widenTo": "Buscar en {{scope}} ({{count}})",
+      "untitledSession": "Conversación sin título",
+      "revisionOf": "rev {{index}}/{{total}}"
+    },
+    "remoteAccess": {
+      "title": "Acceso remoto",
+      "categories": {
+        "mobile": "Navegador del teléfono"
+      }
     }
   },
   "ide": {
@@ -1879,6 +2205,11 @@
       "redo": "Rehacer ({{shortcut}})",
       "clear": "Borrar todas las marcas",
       "download": "Descargar PNG",
+      "copy": "Copiar al portapapeles ({{shortcut}})",
+      "copied": "Copiado al portapapeles",
+      "copyUnsupported": "Este entorno no puede poner imágenes en el portapapeles: usa {{download}} en su lugar.",
+      "copyDenied": "El portapapeles fue bloqueado. Haz clic en la imagen y vuelve a intentarlo.",
+      "copyFailed": "No se pudo copiar la imagen marcada.",
       "saveReplace": "Guardar",
       "saveAttach": "Adjuntar copia marcada",
       "saveFile": "Guardar en el fichero",
@@ -1929,10 +2260,11 @@
       "popOutGhostHint": "Sigue arrastrando para convertirla en una ventana aparte",
       "popOutGhostArmedHint": "Suelta para convertirla en una ventana aparte",
       "popOutLabel": "Desacoplar en una ventana aparte",
-      "returnToApp": "Devolver a la aplicación",
-      "returnToAppHint": "Haz clic para devolverla a la aplicación · arrástrala sobre la ventana de la aplicación para fusionarla",
-      "redockDropHint": "Suelta aquí para fusionarla con la aplicación",
-      "redockKeepHint": "Suelta en otro sitio para dejarla aparte"
+      "toBubble": "Convertir en burbuja del overlay",
+      "toBubbleHint": "Reduce esta ventana a una burbuja del overlay de escritorio · haz doble clic en la burbuja para volver a abrirla",
+      "redockDwellHint": "Suelta para fusionarla con la aplicación",
+      "codexLabel": "Codex",
+      "codexContextUsed": "Esta conversación ha usado {{used}} tokens de contexto — el motor no indica ningún límite"
     },
     "tabbar": {
       "newSession": "Nueva sesión",
@@ -2023,6 +2355,7 @@
       "historyHintNext": "Pulsa otra vez para el comando más antiguo",
       "slashBuiltin": "integrado",
       "slashNeedsTerminal": "requiere terminal",
+      "slashDisabledByContext": "Las skills y los comandos de barra están desactivados en este proyecto, así que nada de lo siguiente se ejecutará. Puedes volver a activarlos en {{contextSources}}, en la barra de actividad. (La compactación que enviamos nosotros sigue funcionando.)",
       "slashEmpty": "No hay habilidades coincidentes",
       "slashLoading": "Cargando habilidades…",
       "ctxCopy": "Copiar",
@@ -2040,7 +2373,6 @@
       "inputCtxCopy": "Copiar",
       "inputCtxPaste": "Pegar",
       "inputCtxSelectAll": "Seleccionar todo",
-      "ctxSaveToBrain": "Guardar en el Memoria",
       "stopAll": "Detener todo",
       "stopAllTitle": "Detiene todo lo que este agente está ejecutando (otras pestañas + tareas en segundo plano)",
       "stopSessionTitle": "Detiene esta sesión y los subagentes que inició (las demás pestañas de sesión siguen en ejecución)",
@@ -2142,14 +2474,25 @@
       "context": "Fuentes de contexto",
       "skills": "Habilidades",
       "bookmarks": "Marcadores",
-      "sessionSummary": "Resúmenes de sesión",
       "runningSubagents": "Tareas en segundo plano ({{count}})",
       "loop": "Bucle de repetición",
       "goal": "Objetivo",
+      "autoGoal": "Detección de procedimientos",
       "debug": "Ejecutar y depurar",
       "hooks": "Hooks de sesión",
       "plugins": "Plugins de Claude Code",
-      "verify": "Verificar"
+      "verify": "Verificar",
+      "specReading": "Lectura",
+      "customize": "Personalizar barra de actividad",
+      "resetLayout": "Diseño predeterminado",
+      "dragHint": "Mantén pulsado un elemento y arrástralo para reordenar",
+      "shownSection": "Visibles",
+      "excludedSection": "Excluidos",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "exclude": "Quitar de la barra",
+      "add": "Añadir a la barra",
+      "noExcluded": "No hay elementos excluidos"
     },
     "mcp": {
       "title": "Servidores MCP",
@@ -2340,30 +2683,6 @@
       "close": "Cerrar",
       "sourceGone": "El origen ya no existe"
     },
-    "sessionSummary": {
-      "title": "Resúmenes de sesión",
-      "close": "Cerrar",
-      "empty": "Aún no hay sesiones que resumir.",
-      "jump": "Abrir esta sesión",
-      "closeSession": "Cerrar esta sesión",
-      "closeBlocked": "Solo se pueden cerrar las sesiones inactivas y revisadas",
-      "closeTidied": "Cerrar ordenadas ({{count}})",
-      "closeTidiedHint": "Cierra todas las sesiones inactivas y revisadas (se conservan en el Historial)",
-      "getSummary": "Resumir",
-      "summarizing": "Resumiendo…",
-      "resummarize": "Volver a resumir",
-      "noCards": "No hay tarjetas de informe en esta sesión.",
-      "summaryError": "No se pudo resumir esta sesión.",
-      "closedBadge": "Cerrada",
-      "dismiss": "Descartar",
-      "secDid": "Hecho",
-      "secChanges": "Cambios",
-      "secUserActions": "Tus acciones",
-      "secCheckpoints": "Control",
-      "secQuestions": "Preguntas",
-      "secList": "Lista",
-      "secNext": "Siguiente"
-    },
     "sidebar": {
       "files": "Archivos ({{count}})",
       "noFileEdits": "Sin ediciones de ficheros aún",
@@ -2536,6 +2855,8 @@
       "statusTip": "Estado de ejecución de la sesión que se muestra aquí: en curso, esperando, terminada o con error.",
       "modelTip": "El modelo que esta sesión usó realmente en su último turno. Antes del primer turno se muestra el modelo configurado para este agente.",
       "modelUnknown": "desconocido",
+      "thinkingOff": "Pensamiento extendido desactivado",
+      "thinkingOffTip": "Este agente funciona con el pensamiento extendido desactivado, así que las sesiones lanzadas aquí responden sin pasar por el razonamiento. El interruptor es la casilla {{thinking}}: por agente en {{agentSettings}}, o para todos en {{file}} > {{options}} > {{agentDefaults}}.",
       "context": "ctx: {{used}}/{{max}}",
       "contextTip": "Cómo de llena está la ventana de contexto ahora mismo: la entrada del último turno frente a la ventana de este modelo. No es un total acumulado; baja después de una compactación.",
       "tokens": "{{in}} entrada / {{out}} salida",
@@ -2544,7 +2865,11 @@
       "autoCompactTip": "Cuando el contexto alcanza este tamaño, la CLI resume la conversación por sí sola. Cámbialo por agente en Configuración del Agent, o para todos en Archivo > Opciones > Ajustes predeterminados del Agent.",
       "sessionOne": "{{count}} sesión",
       "sessionMany": "{{count}} sesiones",
-      "sessionsTip": "Cuántas pestañas de sesión hay abiertas en este agente."
+      "sessionsTip": "Cuántas pestañas de sesión hay abiertas en este agente.",
+      "contextOverdueTip": "El contexto de esta sesión está casi lleno y sigue creciendo, pero no se ha ejecutado ninguna compactación. Haz clic para abrir el Seguro de contexto.",
+      "contextStalledTip": "La ventana de contexto de esta sesión está prácticamente llena y no se ha ejecutado ninguna compactación. Haz clic para abrir el Seguro de contexto.",
+      "contextRejectedTip": "Enviamos un comando de compactación, pero Claude Code no llegó a iniciarla: fue rechazada. Lo habitual es que las skills y los comandos de barra estén desactivados en este proyecto, en {{contextSources}}. Haz clic para abrir el Seguro de contexto.",
+      "failedCompactsTip": "Compactaciones fallidas en esta sesión: {{count}}. Haz clic para abrir el seguro de contexto y ver qué se conservó."
     },
     "search": {
       "placeholder": "Buscar en la conversación",
@@ -2570,6 +2895,8 @@
       "taskSummary": "Resumen de la tarea",
       "thinkingTokens": "Pensando",
       "compactBoundary": "Contexto compactado",
+      "commandReceived": "Comando recibido",
+      "codeChangePublished": "Cambio de código publicado",
       "status": "Estado",
       "backgroundTasksChanged": "Tareas en segundo plano actualizadas",
       "commandsChanged": "Comandos actualizados",
@@ -2625,7 +2952,8 @@
       "restartResumed": "Se interrumpió al cerrarse la app; se reanudó en la sesión guardada.",
       "nestedSubagent": "Subagente",
       "commandReceived": "Comando recibido",
-      "promptSuggestion": "Siguiente prompt sugerido"
+      "promptSuggestion": "Siguiente prompt sugerido",
+      "imageMissing": "(imagen no disponible)"
     },
     "report": {
       "title": "Informe de trabajo",
@@ -2639,6 +2967,7 @@
       "copy": "Copiar",
       "copied": "Copiado",
       "instant": "Enviar ahora",
+      "instantConfirm": "Pulsa de nuevo para enviar",
       "instantSent": "Enviado",
       "copyCard": "Copiar tarjeta",
       "copyQuestions": "Copiar preguntas",
@@ -2847,8 +3176,8 @@
     "follow": {
       "label": "Seguir",
       "labelOn": "Siguiendo",
-      "tipOn": "Siguiendo las ediciones de esta sesión: el editor abre el archivo que edita y salta a las líneas cambiadas. Haz clic para detener.",
-      "tipOff": "Seguir las ediciones de esta sesión: el editor abre el archivo que edita y salta a las líneas cambiadas. Cada sesión tiene su propio interruptor.",
+      "tipOn": "Siguiendo esta sesión: el editor abre el archivo que edita y salta a las líneas cambiadas, y el escenario va al paso en curso. Haz clic para detener.",
+      "tipOff": "Seguir esta sesión: el editor abre el archivo que edita y salta a las líneas cambiadas, y el escenario va al paso en curso. Cada sesión tiene su propio interruptor.",
       "lineShort": "L{{line}}",
       "stop": "Detener",
       "bannerIdle": "El editor saltará aquí cuando esta sesión edite un archivo.",
@@ -2939,7 +3268,7 @@
       "title": "Fuentes de contexto",
       "tokensLabel": "tokens en este prompt",
       "refresh": "Volver a medir ahora",
-      "reset": "Restablecer esta capa a sus valores predeterminados",
+      "reset": "Borrar la capa de {{scope}} (vuelve a seguir la capa superior)",
       "searchPlaceholder": "Buscar fuentes, archivos, rutas…",
       "loading": "Midiendo…",
       "empty": "Nada coincide.",
@@ -2954,7 +3283,8 @@
       },
       "scope": {
         "project": "Proyecto",
-        "session": "Esta sesión"
+        "agent": "Agent",
+        "session": "Sesión"
       },
       "control": {
         "session": "instrucción",
@@ -2984,9 +3314,6 @@
         "cardList": "Protocolo de tarjeta de lista numerada",
         "cardIframe": "Protocolo de vista previa del servidor",
         "goal": "Objetivo de la sesión",
-        "brainCards": "Briefing del Memoria del proyecto",
-        "brainTopics": "Índice de temas del Memoria",
-        "brainRules": "Marco de reglas del Memoria",
         "hookEnforcement": "Inyección de sesión por hook",
         "plugins": "Todos los complementos de aplicación",
         "claudeMd": "Archivos CLAUDE.md",
@@ -3000,8 +3327,9 @@
         "mcp": "Servidores MCP",
         "hooks": "Hooks",
         "systemPrompt": "Prompt del sistema de Claude Code",
-        "brainSkills": "Procedimientos dla memoria",
-        "compactSelf": "Autocompactación del Agent"
+        "compactSelf": "Autocompactación del Agent",
+        "compactRecovery": "Nota de recuperación posterior a la compactación",
+        "autoGoalSkills": "Procedimientos detectados"
       },
       "hint": {
         "tools": "Elige la lista de herramientas en Configuración del Agent",
@@ -3021,7 +3349,6 @@
         "filesLabel": "Archivos ({{count}})",
         "stateOn": "Activado — va en el próximo prompt",
         "stateOff": "Desactivado — se excluye del próximo prompt",
-        "overrideBy": "Lo cambiaste a nivel de {{scope}}",
         "sizeLine": "{{chars}} caracteres · ~{{tokens}} tokens",
         "loading": "Leyendo…",
         "error": "No se pudo leer esta fuente.",
@@ -3031,7 +3358,10 @@
         "openInEditor": "Abrir en el editor integrado",
         "openOutside": "Abrir fuera de la app",
         "copy": "Copiar",
-        "copied": "Copiado"
+        "copied": "Copiado",
+        "setHere": "Definido aquí, en la capa de {{scope}}.",
+        "inheritedHere": "Heredado de la capa superior — no hay nada definido en la capa de {{scope}}.",
+        "lowerOverride": "Definido por separado más abajo ({{scopes}}), así que el prompt recibe en realidad: {{state}}"
       },
       "about": {
         "control": {
@@ -3101,20 +3431,10 @@
             "more": "Viene de la tarjeta de objetivo, para que el agente sepa en qué punto del plan está.",
             "off": "El agente deja de ver el objetivo y su lista de progreso. La ventana de objetivo en sí se mantiene."
           },
-          "brainCards": {
-            "what": "Tarjetas de memoria del Memoria del proyecto que coinciden con lo que acabas de pedir.",
-            "more": "Se clasifican según tu mensaje, más las reglas marcadas como siempre activas. Se guardan en .vibisual/brain de este proyecto.",
-            "off": "El agente empieza sin las lecciones que este proyecto ya ha aprendido."
-          },
-          "brainTopics": {
-            "what": "El índice de esas memorias — solo nombres de tema, no su contenido.",
-            "more": "Permite al agente abrir solo el archivo del tema que necesita, en vez de cargar todas las tarjetas.",
-            "off": "El agente ya no puede buscar memorias anteriores por tema."
-          },
-          "brainRules": {
-            "what": "La nota breve que explica qué son esas tarjetas de memoria y cómo tratarlas.",
-            "more": "Sin ella, el agente recibe las tarjetas pero sin instrucciones sobre qué hacer con ellas.",
-            "off": "Las tarjetas de memoria llegan sin ninguna explicación."
+          "compactRecovery": {
+            "what": "Una nota de un solo turno que enumera lo que el resumen de la compactación no pareció conservar.",
+            "more": "Se genera a partir de la instantánea tomada justo antes de la compactación, comparada con el texto del resumen. Se envía una sola vez y no se repite.",
+            "off": "Si lo desactivas, la sesión continuará tras una compactación sin ninguna nota sobre lo que quedó fuera del resumen."
           },
           "hookEnforcement": {
             "what": "El bloque que Vibisual inyecta en las sesiones que se conectaron por su cuenta mediante hooks de Claude Code.",
@@ -3186,15 +3506,15 @@
             "more": "Registrados en settings.json. Añaden casi ningún token, pero todo evento pasa por ellos.",
             "off": "Los hooks se quitan en settings.json, no aquí. Sin ellos, Vibisual deja de ver esta sesión."
           },
-          "brainSkills": {
-            "what": "Procedimientos aprendidos en este proyecto, cargados si la tarea coincide.",
-            "more": "Se eligen por su descripción, así solo se cargan las pertinentes.",
-            "off": "El agente vuelve a deducir cada procedimiento desde cero."
-          },
           "compactSelf": {
             "what": "La ventanilla por la que el propio agente pide compactar la conversación.",
             "more": "Solo se envía a agentes con «Permitir que el agente compacte durante el trabajo» activado. La compactación se ejecuta al final de ese turno, nunca a mitad de tarea.",
             "off": "El agente ya no puede pedirlo; solo quedan el umbral de ventana y la compactación en el límite del turno. Desactivado no se inyecta nada, así que cuesta cero tokens."
+          },
+          "autoGoalSkills": {
+            "what": "Los procedimientos anotados a partir del trabajo que este proyecto sigue repitiendo.",
+            "more": "Solo se envían el nombre, una línea de descripción y la ruta del fichero. El cuerpo se queda en .vibisual/skills y el agent lo abre cuando el trabajo coincide.",
+            "off": "El agent vuelve a resolver cada uno de esos procedimientos desde cero."
           }
         },
         "cat": {
@@ -3234,27 +3554,38 @@
             "off": "Esto no nos corresponde desactivarlo; se mide para que el total sea honesto."
           }
         }
-      }
+      },
+      "scopeTab": {
+        "project": "Todo el proyecto",
+        "agent": "Este agent",
+        "session": "Esta sesión"
+      },
+      "scopeTabHint": {
+        "project": "Se aplica a todos los agents y sesiones de este proyecto.",
+        "agent": "Se aplica a todas las sesiones de esta burbuja de agent. Tiene prioridad sobre la capa del proyecto.",
+        "session": "Se aplica solo a esta pestaña de sesión. Tiene prioridad sobre todas las capas por encima."
+      },
+      "scopeTabNoSession": "Abre primero una pestaña de sesión — todavía no hay nada a lo que vincular esto.",
+      "ownHere": "Definido aquí, en la capa de {{scope}} — ya no sigue a la capa superior.",
+      "lowerOverrideHint": "Definido por separado más abajo ({{scopes}}), así que cambiarlo aquí no lo moverá allí.",
+      "finalDiffHint": "Lo que realmente entra en el prompt ahora mismo: ~{{tokens}}."
     },
     "goal": {
       "title": "Objetivo",
       "pickSession": "Elige una sesión para ver su objetivo.",
       "waiting": "Aún no hay ningún objetivo. Aparecerá en cuanto la sesión trace un plan.",
-      "setManually": "Escribe uno tú mismo",
-      "textPlaceholder": "¿Qué debería lograr esta sesión?",
-      "textHint": "En cuanto edites tú el texto, la sesión deja de reescribirlo.",
-      "create": "Crear",
-      "update": "Actualizar",
-      "cancel": "Cancelar",
-      "editHint": "Editar el objetivo",
+      "sample": {
+        "badge": "Ejemplo",
+        "text": "Terminar la tarea y comprobar que funciona",
+        "stepDone": "Buscar qué cambiar",
+        "stepRunning": "Hacer el cambio",
+        "stepPending": "Comprobar que funciona"
+      },
       "stepCount": "{{done}} / {{total}} pasos",
       "stepRemaining": "{{count}} restantes",
       "noSteps": "Aún no hay pasos",
       "byUser": "Definido por ti",
       "bySession": "Definido por la sesión",
-      "toggleStep": "Alternar este paso",
-      "removeStep": "Quitar este paso",
-      "addStepPlaceholder": "Añadir un paso…",
       "historyLabel": "Historial",
       "achieve": "Marcar como conseguido",
       "resume": "Reabrir",
@@ -3268,7 +3599,8 @@
         "agent": "Informado por el agente",
         "user": "Ajustado por ti",
         "plan": "Derivado del plan"
-      }
+      },
+      "openStage": "Abrir vista"
     },
     "hooks": {
       "title": "Hooks de sesión",
@@ -3357,6 +3689,39 @@
         "global": "Instalado para tu usuario — se cargan en todos los proyectos.",
         "this-project": "Instalado solo para este proyecto — se cargan en las sesiones que ejecutes aquí.",
         "other-project": "Instalado, pero vinculado a otro proyecto, así que no se cargan en esta sesión."
+      },
+      "marketAll": "Todo",
+      "marketShowing": "Mostrando {{shown}} de {{total}}",
+      "marketSuggestHint": "Mercados gestionados por Anthropic que aún no has añadido.",
+      "marketAdding": "Añadiendo…",
+      "emptyMarketFiltered": "Ningún plugin de {{marketplace}} coincide con tu búsqueda.",
+      "marketKind": {
+        "official": "Oficial",
+        "community": "Comunidad"
+      },
+      "marketKindName": {
+        "official": "Mercado oficial de Anthropic",
+        "community": "Mercado comunitario de Anthropic"
+      },
+      "update": "Actualizar",
+      "updating": "Actualizando…",
+      "updateAll": "Actualizar todos",
+      "updateMarket": "Actualizar Marketplace",
+      "updatingMarket": "Actualizando…",
+      "marketUpdatedAt": "Marketplace actualizado {{when}}",
+      "marketNeverUpdated": "El marketplace nunca se ha actualizado en este ordenador",
+      "marketRefreshFailed": "La última actualización del marketplace no se ha completado. Puede que falten plugins nuevos en esta lista.",
+      "outdatedCount": "{{count}} plugin tiene una versión más reciente",
+      "outdatedCount_other": "{{count}} plugins tienen una versión más reciente",
+      "autoRefresh": "Mantener al día:",
+      "autoRefreshEvery": "cada {{hours}} h",
+      "autoRefreshAxis": {
+        "market": "Marketplace",
+        "plugins": "Instalados"
+      },
+      "autoRefreshHint": {
+        "market": "Descarga las listas del marketplace de forma periódica para que los plugins recién publicados aparezcan aquí por sí solos.",
+        "plugins": "Actualiza los plugins instalados a su versión más reciente de forma periódica. Esto cambia código que se ejecuta en tu ordenador."
       }
     },
     "split": {
@@ -3370,6 +3735,89 @@
       "foreignSession": "Esa sesión pertenece a otra burbuja",
       "tooSmall": "Demasiado pequeño para dividir",
       "alreadyHere": "Ya se muestra aquí"
+    },
+    "specReading": {
+      "scope": {
+        "title": "Activar la lectura",
+        "project": "Todo el proyecto",
+        "agent": "Este agente",
+        "session": "Esta sesión",
+        "inherited": "Heredado",
+        "on": "Activada",
+        "off": "Desactivada",
+        "hint": "Los niveles inferiores anulan a los superiores. Cada clic alterna activada → desactivada → heredado.",
+        "unavailable": "No se puede elegir aquí: abre antes un agente y una pestaña de sesión.",
+        "effectiveOn": "La lectura está activa en esta sesión.",
+        "effectiveOff": "La lectura está desactivada: no se mide nada ni se añade nada al prompt."
+      },
+      "title": "Lectura",
+      "pickSession": "La lectura se mide por pestaña de sesión. Abre primero una pestaña de sesión.",
+      "empty": "Todavía no se ha medido nada en esta sesión.",
+      "hint": "En cuanto se abre un documento de especificación, aquí aparece qué sección se leyó y cuántas líneas. Actívalo con los interruptores de arriba.",
+      "indexSummary": "{{docs}} documento(s) · {{units}} sección(es) indexados",
+      "indexTruncated": "Demasiadas secciones — solo se indexó una parte",
+      "indexSkipped": "{{count}} documento(s) fuera del índice (límite)",
+      "indexExcluded": "{{count}} fichero(s) de copia de seguridad/archivo excluido(s)",
+      "trustTitle": "Confianza",
+      "axis": {
+        "coverage": "Leído",
+        "citation": "Citas",
+        "depth": "Profundidad",
+        "freshness": "Vigencia"
+      },
+      "trustDetail": "{{satisfied}}/{{total}} secciones requeridas cumplidas · {{verified}} cita(s) confirmada(s) · {{failed}} sin coincidencia · {{stale}} documento(s) modificados tras la lectura",
+      "requiredTitle": "Requerido en este turno",
+      "requiredNone": "Ninguna sección es obligatoria en este turno.",
+      "via": {
+        "prompt": "por la petición",
+        "path": "por la ruta tocada",
+        "route": "asignado"
+      },
+      "covered": "{{pct}} leído",
+      "partial": "parcial",
+      "tokens": "~{{n}} tokens",
+      "oversized": "sección grande — acotar con Grep y luego usar Read solo ahí",
+      "citationOk": "la cita coincide",
+      "citationBad": "la cita no coincide",
+      "citationShow": "Comparar con el fichero",
+      "citationHide": "Ocultar comparación",
+      "citationQuote": "Cita del agent",
+      "citationActual": "En el fichero (líneas {{from}}–{{to}})",
+      "citationActualMissing": "No se ha podido leer el fichero en esas líneas.",
+      "openInEditor": "Abrir {{file}} líneas {{from}}–{{to}} en el editor",
+      "waive": "Eximir",
+      "unwaive": "Quitar exención",
+      "heatTitle": "Rastro de lectura",
+      "heatNone": "Aún no se ha abierto ningún documento.",
+      "heatLegend": "El verde cuenta como leído; el ámbar es parcial (lectura completa degradada o contexto de búsqueda).",
+      "lineTotal": "{{count}} líneas",
+      "scaleUnknown": "escala desconocida",
+      "gateTitle": "Lo que hizo el control",
+      "gateNone": "No se bloqueó nada en esta sesión.",
+      "gateKind": {
+        "stop-block": "devolvió el turno",
+        "write-deny": "denegó una edición",
+        "retry-exhausted": "límite de reintentos alcanzado — se dejó pasar"
+      },
+      "stopRetries": "Devuelto {{count}} vez/veces en esta sesión.",
+      "indexTitle": "Índice",
+      "rootsUsed": "Escaneado: {{roots}}",
+      "rootsPlaceholder": "Una carpeta por línea, relativa al proyecto. Vacío = valores predeterminados ({{defaults}})",
+      "rootsSave": "Guardar carpetas raíz",
+      "rootsHint": "Se aplica a partir del próximo turno.",
+      "skippedTitle": "Fuera del índice ({{count}})",
+      "skippedMore": "…y {{count}} más",
+      "strengthTitle": "Intensidad",
+      "strength": {
+        "observe": "Avisar",
+        "warn": "Devolver",
+        "enforce": "Bloquear"
+      },
+      "strengthHint": {
+        "observe": "Solo mide, nunca bloquea. Úsalo mientras compruebas primero las cifras.",
+        "warn": "Si al terminar el turno quedan secciones requeridas sin leer, se devuelve para que siga leyendo.",
+        "enforce": "Las ediciones se deniegan mientras haya secciones requeridas sin leer. Al alcanzar el límite de reintentos deja de bloquear."
+      }
     },
     "verify": {
       "title": "Verificar",
@@ -3443,6 +3891,250 @@
           "framesFull": "Esta demostración ya tiene el máximo de imágenes."
         }
       }
+    },
+    "codex": {
+      "reload": "Recargar",
+      "loading": "Leyendo lo que tiene Codex...",
+      "readFailed": "No se ha podido leer esta lista ({{reason}}).",
+      "mcp": {
+        "title": "MCP",
+        "empty": "No hay servidores MCP configurados en Codex.",
+        "readOnly": "Solo lectura. Añádelos o quítalos con la Codex CLI - Vibisual nunca modifica tu configuración de Codex."
+      },
+      "skills": {
+        "title": "Habilidades",
+        "empty": "Todavía no hay habilidades disponibles en Codex. Una habilidad es una carpeta que contiene un SKILL.md.",
+        "searchPlaceholder": "Buscar habilidades",
+        "noMatch": "Ninguna habilidad coincide con «{{query}}».",
+        "favorites": "Favoritas {{count}}",
+        "groupUser": "Tuyas {{count}}",
+        "groupSystem": "Incluidas {{count}}",
+        "groupPlugin": "De complementos {{count}}",
+        "hint": "Haz clic en una habilidad para ponerla en el campo de texto. Estas carpetas son de Codex, así que aquí son de solo lectura."
+      },
+      "plugins": {
+        "title": "Plugins",
+        "empty": "No se han encontrado plugins de Codex.",
+        "installedCount": "{{count}} instalados",
+        "enabled": "Instalado, activado",
+        "disabled": "Instalado, desactivado",
+        "notInstalled": "No instalado"
+      },
+      "hooks": {
+        "title": "Hooks",
+        "empty": "No hay hooks de Codex instalados.",
+        "ours": "Vibisual",
+        "switchHint": "Activa o desactiva los hooks de Vibisual en {{options}}, dentro de {{engines}}."
+      },
+      "context": {
+        "title": "Contexto",
+        "empty": "Nada que mostrar.",
+        "scopeHome": "Tu directorio de Codex",
+        "scopeProject": "Este proyecto",
+        "lines": "{{count}} líneas",
+        "missing": "No hay AGENTS.md aquí.",
+        "readOnly": "Codex lee AGENTS.md por su cuenta. Vibisual muestra lo que hay ahí, pero no lo activa ni lo desactiva."
+      },
+      "review": {
+        "title": "Revisión",
+        "intro": "Le pide a Codex que lea tus cambios de git y señale los problemas. No ejecuta la aplicación.",
+        "modeUncommitted": "Sin confirmar",
+        "modeBase": "Contra una rama",
+        "modeCommit": "Un commit",
+        "basePlaceholder": "Rama con la que comparar, p. ej. main",
+        "commitPlaceholder": "SHA del commit",
+        "fallbackNote": "Nada rellenado - esto revisará los cambios sin confirmar en su lugar.",
+        "start": "Iniciar revisión",
+        "running": "Revisando...",
+        "costNote": "Esto ejecuta un turno de Codex y usa tu cuenta de OpenAI, así que solo se ejecuta cuando pulsas el botón.",
+        "empty": "Todavía no hay revisiones."
+      }
+    },
+    "goalMap": {
+      "title": "Mapa de pasos",
+      "empty": "Aún no hay pasos. Aparecerán aquí cuando la sesión haga un plan.",
+      "insertPrompt": "Describe el paso a insertar. El agente no puede eliminarlo y lo ejecutará.",
+      "kind": "Tipo",
+      "owner": "Autor",
+      "byUser": "Insertado por ti",
+      "bySession": "Escrito por la sesión",
+      "updatedAt": "Actualizado",
+      "trashed": "Papelera"
+    },
+    "stage": {
+      "title": "Escenario",
+      "running": "en curso",
+      "noKind": "Sin tipo",
+      "waiting": "Aún no hay ningún paso que mostrar.",
+      "surfaceBlurb": {
+        "source": "Revisa el código.",
+        "log": "Lee la salida.",
+        "diff": "Revisa los cambios.",
+        "web": "Busca en la web.",
+        "terminal": "Lo ejecuta en la terminal.",
+        "docs": "Repasa la documentación.",
+        "none": "Avanza en este paso.",
+        "image": "Dibuja una imagen.",
+        "model3d": "Trabaja en un modelo 3D.",
+        "video": "Edita el vídeo.",
+        "audio": "Edita el audio."
+      },
+      "kinds": {
+        "trashed": "Papelera {{count}}",
+        "pin": "Fijar para que no se marchite",
+        "unpin": "Dejar de fijar",
+        "trash": "Mover a la papelera",
+        "restore": "Restaurar"
+      },
+      "rail": "Progreso",
+      "block": {
+        "lowConfidence": "Solo se sabe probando"
+      },
+      "flow": {
+        "title": "Empezar desde un flujo",
+        "hint": "Los pasos pasan a ser tuyos: la sesión los recoge, los completa y puede añadir más por su cuenta.",
+        "feature": {
+          "title": "Añadir una funcionalidad",
+          "steps": {
+            "survey": "Encontrar dónde va",
+            "design": "Diseñarla",
+            "implement": "Implementar",
+            "build": "Compilar",
+            "test": "Probar"
+          }
+        },
+        "bugfix": {
+          "title": "Corregir un error",
+          "steps": {
+            "reproduce": "Reproducir",
+            "cause": "Encontrar la causa",
+            "fix": "Corregirlo",
+            "regress": "Fijarlo con una prueba"
+          }
+        },
+        "refactor": {
+          "title": "Refactorizar",
+          "steps": {
+            "scope": "Definir el alcance",
+            "move": "Mover el código",
+            "build": "Compilar",
+            "test": "Probar"
+          }
+        },
+        "release": {
+          "title": "Publicar",
+          "steps": {
+            "changelog": "Escribir el registro de cambios",
+            "bump": "Incrementar la versión",
+            "build": "Compilar",
+            "publish": "Etiquetar y publicar"
+          }
+        },
+        "investigate": {
+          "title": "Investigarlo",
+          "steps": {
+            "sweep": "Rastrear el código",
+            "read": "Leer las partes importantes",
+            "summarize": "Escribir lo que has encontrado"
+          }
+        }
+      },
+      "actions": {
+        "empty": "Aún no se ha aprendido nada. Usa una skill o repite un comando y se acumulará aquí.",
+        "pin": "Mantener al principio",
+        "unpin": "Quitar fijado"
+      },
+      "menu": {
+        "title": "Añadir nodo",
+        "nodeTitle": "Esta etapa",
+        "search": "Buscar por nombre",
+        "noMatch": "No hay coincidencias.",
+        "newStep": "Escribirlo tú mismo",
+        "newStepHint": "Escribe un paso y colócalo aquí",
+        "groupActions": "Acciones aprendidas",
+        "groupKinds": "Tipos",
+        "groupCanvas": "Lienzo",
+        "focusStep": "Enfocar esta etapa",
+        "clearWires": "Desconectar líneas",
+        "clearWiresHint": "Elimina solo las líneas que trazaste: las que dibuja el orden se mantienen",
+        "pinInTitle": "Línea entrante",
+        "pinOutTitle": "Línea saliente",
+        "breakPin": "Cortar",
+        "breakPinInHint": "Este paso queda junto al anterior, así que esa línea desaparece",
+        "breakPinOutHint": "Los pasos siguientes se unen a esta fila y las líneas salientes desaparecen",
+        "breakPinNone": "En este punto no hay nada que cortar.",
+        "clearKind": "Quitar el tipo",
+        "autoLayout": "Orden automático",
+        "autoLayoutHint": "Borra las posiciones colocadas a mano y alinea los nodos por orden",
+        "readOnly": "Hace falta una sesión con objetivo para colocar pasos.",
+        "emptyHint": "Haz clic derecho en un espacio vacío para añadir un nodo.",
+        "parallelOn": "Poner junto al paso anterior",
+        "parallelOff": "Volver a la secuencia",
+        "parallelHint": "Los pasos de la misma fila no se esperan entre sí: la sesión los reparte entre subagentes o agentes en segundo plano",
+        "deleteStep": "Eliminar este paso",
+        "deleteStepHint": "Lo quita de la lista: un paso escrito por la sesión puede volver en el próximo informe",
+        "deleteStepConfirm": "¿Eliminar el paso «{{text}}» de la lista?",
+        "groupSkills": "Skills instaladas",
+        "skillsEmpty": "No hay skills disponibles en esta sesión.",
+        "groupAutoGoalSkills": "Procedimientos detectados",
+        "autoGoalSkillsEmpty": "Todavía no ha crecido ningún procedimiento aquí."
+      },
+      "parallel": {
+        "badge": "Se ejecuta en paralelo con el paso anterior"
+      },
+      "pin": {
+        "in": "Línea entrante: suéltala en el punto inferior de otro paso y este paso irá justo después · {{shortcut}}+clic o clic derecho para cortar",
+        "out": "Línea saliente: suéltala en el punto superior de otro paso y ese paso irá justo después de este · {{shortcut}}+clic o clic derecho para cortar"
+      },
+      "history": {
+        "chip": "Revisión {{count}}",
+        "title": "Cómo cambió el objetivo",
+        "current": "Ahora",
+        "empty": "No se conserva ninguna redacción anterior."
+      },
+      "subagentsRunning": "{{count}} subagentes en ejecución",
+      "surfaceName": {
+        "source": "Código",
+        "log": "Salida",
+        "diff": "Cambios",
+        "web": "Web",
+        "terminal": "Terminal",
+        "docs": "Docs",
+        "image": "Imagen",
+        "model3d": "3D",
+        "video": "Vídeo",
+        "audio": "Audio",
+        "none": "—"
+      },
+      "live": {
+        "collapse": "Contraer vista en vivo",
+        "expand": "Expandir vista en vivo",
+        "count": "{{count}} elementos",
+        "search": "Búsqueda"
+      }
+    },
+    "autoGoal": {
+      "title": "Detección de procedimientos",
+      "about": "Detecta el trabajo que siempre haces en el mismo orden y anota esa ejecución como un procedimiento.",
+      "scope": {
+        "project": "Todo el proyecto",
+        "agent": "Este agent",
+        "session": "Esta sesión",
+        "inherited": "Heredado",
+        "on": "Activado",
+        "off": "Desactivado",
+        "hint": "El de abajo anula al de arriba. Cada clic recorre el ciclo Activado → Desactivado → Heredado.",
+        "unavailable": "No se puede seleccionar aquí — abre primero un agent y una pestaña de sesión.",
+        "effectiveOn": "Observando el trabajo que se repite.",
+        "effectiveOff": "Desactivado — no se escanea nada y nada llega al prompt."
+      },
+      "groupSkills": "Anotados {{count}}",
+      "groupBrewing": "Casi listos {{count}}",
+      "skillMeta": "{{steps}} pasos · repetido {{runs}}×",
+      "removeSkill": "Eliminar este procedimiento (no se volverá a escribir)",
+      "dismiss": "Esto no es un procedimiento (no se volverá a sugerir)",
+      "watching": "Se han escaneado {{observed}} acciones — una ejecución se anota en cuanto el mismo orden se repite {{runs}} veces.",
+      "empty": "Todavía no hay nada que escanear. Esto se va llenando en cuanto tus agents empiezan a trabajar."
     }
   },
   "bubbleMap": {
@@ -3714,7 +4406,10 @@
     "detach": "Separar a nueva ventana",
     "rename": "Renombrar",
     "splitRight": "Dividir a la derecha",
-    "splitDown": "Dividir abajo"
+    "splitDown": "Dividir abajo",
+    "reopenClosed": "Volver a abrir pestaña cerrada",
+    "recentlyClosed": "Pestañas cerradas recientemente",
+    "clearRecentlyClosed": "Borrar lista"
   },
   "overlay": {
     "sendToOverlay": "Saca esta burbuja como un widget de escritorio siempre encima",
@@ -3768,16 +4463,45 @@
       "unlock": "Desbloquear lienzo",
       "fullscreen": "Pantalla completa",
       "exitFullscreen": "Salir de pantalla completa",
-      "heatmap": "Mapa de calor de lecturas",
-      "heatmapOff": "Desactivar mapa de calor"
+      "heatmap": "Mapa de calor",
+      "heatmapOff": "Desactivar mapa de calor",
+      "tidy": "Ordenar burbujas",
+      "tidyUnavailable": "Aquí no se puede ordenar"
     },
     "heatmap": {
       "title": "Lecturas",
+      "titleWrite": "Escrituras",
       "empty": "Aún no se ha leído nada",
-      "max": "máx. {{n}}"
+      "emptyWrite": "Nada escrito todavía",
+      "max": "máx. {{n}}",
+      "axisRead": "Lectura",
+      "axisWrite": "Escritura",
+      "badgeRead": "Leído {{n}} veces",
+      "badgeWrite": "Escrito {{n}} veces",
+      "curveLabel": "Escala",
+      "curveHint": "Cómo el color sigue al recuento. Cuando un archivo destaca mucho, el logarítmico mantiene legible el resto.",
+      "curve": {
+        "log": "Log",
+        "linear": "Lineal",
+        "sqrt": "Raíz",
+        "cbrt": "Raíz cúbica",
+        "quantile": "Rango"
+      },
+      "curveRule": {
+        "log": "Extiende una distribución muy sesgada. Un archivo mucho más caliente no aplasta al resto. Opción predeterminada.",
+        "linear": "Proporción directa al número de veces. Va bien con valores repartidos de forma pareja.",
+        "sqrt": "Extiende de forma suave y conserva algo más de diferencia en la parte alta.",
+        "cbrt": "Extiende más que la raíz cuadrada y menos que el logaritmo.",
+        "quantile": "Colorea por posición, no por número de veces. Queda el orden, no lo grande que es la diferencia."
+      }
     },
     "contextMenu": {
-      "createCustomAgent": "Crear Custom Agent",
+      "engineClaude": "Claude",
+      "engineClaudeHint": "Burbujas que se ejecutan con Claude Code",
+      "engineCodex": "Codex",
+      "engineCodexHint": "Burbujas que se ejecutan con la OpenAI Codex CLI",
+      "createClaudeAgent": "Crear Claude Agent",
+      "createClaudeAgentHint": "Coloca un agente que se ejecuta con Claude Code",
       "createCmdAgent": "Crear CMD Agent",
       "createCmdAgentHint": "Terminal interactiva que manejas tú (facturación por suscripción)",
       "createAutoAgent": "Crear Auto Agent",
@@ -3801,11 +4525,8 @@
       "createLocalAgentHint": "Coloca una burbuja para un modelo que se ejecuta en este PC",
       "createShelf": "Estante de scripts",
       "createShelfHint": "Mantén a un clic de distancia los comandos y prompts que usas a menudo",
-      "brainOn": "Activar la memoria del proyecto",
-      "brainOff": "Desactivar la memoria del proyecto",
-      "brainOnHint": "Guarda los procedimientos que aprende y los carga en la siguiente tarea",
-      "brainOnHintSleeping": "{{count}} recuerdos duermen aquí",
-      "brainOffHint": "Desactivarlo no borra nada"
+      "createCodexAgent": "Crear Codex Agent",
+      "createCodexAgentHint": "Coloca un agente que se ejecuta con la OpenAI Codex CLI"
     },
     "bounds": {
       "label": "Límites del bubble",
@@ -3827,6 +4548,25 @@
       "jumped": "Saltado a {{label}}",
       "jumpEmpty": "El marcador {{slot}} está vacío",
       "jumpMissing": "El destino del marcador ya no está disponible"
+    },
+    "tidy": {
+      "done": "{{count}} burbuja(s) ordenada(s)",
+      "already": "Las burbujas ya están ordenadas",
+      "panelHint": "Ordenar por",
+      "sort": {
+        "status": "Urgencia",
+        "kind": "Mismo tipo",
+        "heat": "Más tocado",
+        "recent": "Más reciente",
+        "lineage": "Por agente"
+      },
+      "sortRule": {
+        "status": "En ejecución, en la fila superior; inactivas y carpetas, abajo",
+        "kind": "Las burbujas del mismo tipo se juntan en un mismo grupo.",
+        "heat": "La fila superior es la más leída y escrita, de izquierda a derecha",
+        "recent": "La fila superior es la recién tocada, de izquierda a derecha",
+        "lineage": "Cada agent está en el centro de lo que ha tocado"
+      }
     },
     "spec": {
       "title": "Spec",
@@ -3994,6 +4734,42 @@
       "exitCode": "Código de salida",
       "outputTruncated": "(inicio omitido)",
       "openCard": "Abrir esa tarjeta"
+    },
+    "external": {
+      "descendantFolders": "{{count}} lugares dentro",
+      "foldedPlaces": "{{count}} sesiones"
+    },
+    "externalPlace": {
+      "claudeProject": "Registro de Claude · {{name}}",
+      "claudeMemory": "Memoria de Claude · {{name}}",
+      "claudeProjects": "Registros de Claude",
+      "claudeSkills": "Habilidad de Claude · {{name}}",
+      "claudeAgents": "Agent de Claude · {{name}}",
+      "claudeCache": "Caché de Claude",
+      "claudeHome": "Inicio de Claude",
+      "claudeTemp": "Carpeta temporal de Claude · {{name}}",
+      "codexHome": "Inicio de Codex",
+      "vibisualRules": "Reglas de Vibisual",
+      "vibisualHome": "Inicio de Vibisual",
+      "tempRoot": "Carpeta temporal",
+      "appLogs": "Registros de la aplicación",
+      "appInstall": "Carpeta de instalación de la aplicación"
+    },
+    "linkFocus": {
+      "hover": "Arrastra con {{key}} para mover {{count}} burbuja(s) vinculada(s) juntas",
+      "moving": "Moviendo {{count}} burbuja(s) vinculada(s) juntas",
+      "none": "No hay nada vinculado a este agent"
+    },
+    "bubbleMenu": {
+      "moveToTrash": "Mover a la papelera",
+      "delete": "Eliminar",
+      "deleteWorktree": "Eliminar worktree…",
+      "deleteForever": "Eliminar permanentemente…",
+      "pinnedTitle": "Esta burbuja está fijada. Desfíjala primero.",
+      "moveToTrashN": "Mover {{count}} seleccionados a la papelera",
+      "deleteN": "Eliminar {{count}} seleccionados",
+      "deleteForeverN": "Eliminar {{count}} seleccionados permanentemente…",
+      "worktreeSkipped": "Excluye {{count}} burbuja(s) de worktree — elimínalas una a una."
     }
   },
   "common": {
@@ -4033,6 +4809,8 @@
       "deviceCompare": "Comparar",
       "deviceCompareTip": "Muestra todos los anchos uno junto a otro en una sola vista previa",
       "deviceTip": "Renderizar con {{width}}px de ancho",
+      "altCaptureOnHint": "Vibisual se queda con la tecla {{key}} que pulsas dentro de esta vista previa: mantén {{key}} aquí para inspeccionar elementos. Haz clic para devolver {{key}} a la app de dentro.",
+      "altCaptureOffHint": "La app de dentro de la vista previa usa {{key}}: aquí no funciona la inspección con {{key}}. Haz clic para recuperarla.",
       "pickElement": "Elegir elemento",
       "pickHint": "Haz clic en un elemento de la vista previa para describir un cambio en él",
       "pickPlaceholder": "¿Qué debería cambiar en este elemento? ({{shortcut}} para enviar)",
@@ -4056,6 +4834,8 @@
       "snipFailed": "Error al capturar: {{error}}"
     },
     "close": "Cerrar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
     "msg": {
       "requestFailed": "Failed ({{status}})"
     },
@@ -4067,211 +4847,110 @@
     "externalOpen": {
       "noBrowser": "No se encontró ningún navegador: copia el enlace y ábrelo tú mismo",
       "openFailed": "No se pudo abrir el enlace: cópialo y ábrelo tú mismo",
+      "blockedScheme": "No es una dirección web, así que no se abrió: cópiala si quieres comprobarla",
       "copy": "Copiar",
       "copied": "Copiado"
-    }
-  },
-  "brain": {
-    "bubbleLabel": "Memoria",
-    "trashBubbleLabel": "Papelera",
-    "trashCountShort": "{{n}}",
-    "unseenBadge": "{{n}} sin ver",
-    "reviewBadge": "{{n}} pendientes de revisión",
-    "tipCards": "{{n}} tarjetas de memoria",
-    "tipReview": "{{n}} esperan tu revisión",
-    "tipUnseen": "{{n}} nuevas",
-    "tipRecent": "Reciente: {{title}}",
-    "tipOpen": "Doble clic derecho: abrir la biblioteca de memoria",
-    "type": {
-      "decision": "Decisión",
-      "mistake": "Error",
-      "lesson": "Lección",
-      "rule": "Regla",
-      "fact": "Hecho"
     },
-    "scopeProject": "Memoria del proyecto",
-    "scopeAgent": "Memoria del Agent",
-    "statusGhost": "Necesita revisión",
-    "supersededNote": "Contenido anterior",
-    "needsCheckBadge": "Revisar",
-    "archivedBadge": "Archivada",
-    "needsCheckEdited": "{{files}} ha cambiado {{n}} veces desde que se escribió esta memoria — confirma que sigue coincidiendo con el código.",
-    "needsCheckReported": "Se ha informado de que esta memoria está desactualizada — confirma que sigue coincidiendo con el código.",
-    "stillValid": "Sigue siendo válida",
-    "markStale": "Desactualizada",
-    "markStaleTip": "Si se informa repetidamente, la tarjeta se archiva automáticamente. No se borra y puedes restaurarla.",
-    "restoreCard": "Restaurar",
-    "chainTitle": "Historial de sustituciones",
-    "chainOlder": "Memorias que sustituyó esta tarjeta",
-    "chainNewer": "Memoria que sustituyó a esta tarjeta (actual)",
-    "promotedFrom": "Promovida desde {{agent}}",
-    "promotedFromTip": "El agente personalizado que cultivó esta memoria",
-    "linkedFiles": "Archivos vinculados",
-    "refCount": "Referencias",
-    "lastReferenced": "Última referencia",
-    "createdAt": "Creado",
-    "sourceSession": "Sesión de origen",
-    "promote": "Promover a Memoria del proyecto",
-    "pin": "Anclar",
-    "unpin": "Desanclar",
-    "edit": "Editar",
-    "save": "Guardar",
-    "cancel": "Cancelar",
-    "delete": "Eliminar",
-    "deleteConfirm": "¿Eliminar?",
-    "deleteYes": "Eliminar",
-    "loading": "Cargando…",
-    "cardDetailTitle": "Tarjeta de memoria",
-    "summaryCards": "Tarjetas de memoria",
-    "summaryUnseen": "Sin ver",
-    "summaryCurrent": "Verdades actuales",
-    "summaryCurrentTip": "Conocimiento verificado que se entrega a la IA",
-    "summaryReview": "Pendiente de revisión",
-    "summaryReviewTip": "Candidatos que llegan a la IA solo después de que los confirmes",
-    "summaryRecent": "Guardadas recientemente",
-    "openLibrary": "Abrir la biblioteca de memoria",
-    "trashedAt": "Enviado a la papelera",
-    "trashedMemories": "Memorias del Agent",
-    "cardCountUnit": " tarjetas",
-    "restore": "Restaurar",
-    "purge": "Eliminar permanentemente",
-    "purgeConfirm": "Esto elimina todo, incluidas {{n}} tarjetas de memoria del agente.",
-    "purgeYes": "Eliminar permanentemente",
-    "purgeAll": "Eliminar todo",
-    "trashCountLabel": "{{n}} agentes en la papelera",
-    "trashDeleteHint": "Selecciona y pulsa Supr · Mayús para varios",
-    "purgeConfirmMany": "Se eliminarán {{count}} agentes y sus {{n}} tarjetas de memoria.",
-    "purgeIrreversible": "Esta acción no se puede deshacer.",
-    "trashItemsMore": "+{{n}} más",
-    "cardCountUnitSuffix": "",
-    "feed": {
-      "title": "Memoria del proyecto",
-      "agentTitle": "Memoria de este Agent",
-      "searchPlaceholder": "Buscar memorias…",
-      "sectionRelated": "Relacionado con el trabajo actual",
-      "sectionRecent": "Aprendido recientemente",
-      "sectionFrequent": "Usado con frecuencia",
-      "sectionResurface": "Vale la pena revisar",
-      "sectionAgentOwn": "Lo que ha aprendido este agente",
-      "sectionProjectRef": "Compartido del proyecto (referencia)",
-      "helpful": "Útil",
-      "refShort": "refs",
-      "helpfulShort": "útil",
-      "scopeTagProject": "Proyecto",
-      "scopeTagAgent": "Este agente",
-      "empty": "No hay memorias que mostrar.",
-      "loading": "Cargando…",
-      "total": "{{n}} tarjetas",
-      "agoNow": "ahora mismo",
-      "agoMin": "hace {{n}}m",
-      "agoHour": "hace {{n}}h",
-      "agoDay": "hace {{n}}d",
-      "agoMonth": "hace {{n}} meses",
-      "unseen": "Nuevo",
-      "helpfulCount": "{{n}} útil(es)"
-    },
-    "alwaysBadge": "Siempre",
-    "alwaysOn": "Convertir en regla permanente",
-    "alwaysOff": "Desactivar permanente",
-    "alwaysTip": "Al activarla, esta regla se incluye en cada briefing de lanzamiento sin importar el tema. Activa solo las pocas reglas que realmente aplican siempre.",
-    "topicTip": "Documento temático al que pertenece esta tarjeta",
-    "topic": {
-      "capture-remote": "Captura de pantalla y control remoto",
-      "ui-client": "UI y renderizado del cliente",
-      "worktree-isolation": "Worktrees, aislamiento y sesiones paralelas",
-      "stop-subagent": "Stop, subagentes y cola de comandos",
-      "runapp-build": "Ejecución, build y paquete de escritorio",
-      "usage-statusline": "Uso, statusLine y coste",
-      "persistence-checkpoint": "Persistencia, puntos de control y estado de la app",
-      "brain-memory": "El propio sistema de memoria",
-      "dead-code-wiring": "Código muerto y auditoría de conexiones",
-      "tooling-pitfalls": "Trampas de herramientas y sintaxis",
-      "misc": "Varios (sin clasificar)"
-    },
-    "library": {
-      "title": "Memoria",
-      "topics": "Temas",
-      "searchPlaceholder": "Buscar en la memoria",
-      "close": "Cerrar",
-      "loading": "Leyendo…",
-      "searchTitle": "Resultados de búsqueda",
-      "searchHint": "Encontrado entre temas · {{n}} tarjetas",
-      "noResults": "No hay memoria coincidente",
-      "emptyTopic": "Todavía no hay memoria en este tema",
-      "emptyTopics": "Aún no se ha recopilado ninguna memoria",
-      "openDetail": "Editar · promover · eliminar",
-      "closeDetail": "Cerrar",
-      "minimize": "Minimizar",
-      "expand": "Expandir",
-      "maximize": "Maximizar",
-      "restore": "Restaurar tamaño",
-      "needsCheck": "Revisar",
-      "needsCheckHint": "Memorias cuyos archivos vinculados cambiaron después — puede que ya no coincidan con el código",
-      "archived": "Archivadas",
-      "archivedHint": "Memorias archivadas por exceder el cupo — no se han borrado, puedes restaurarlas",
-      "review": "Pendiente de revisión",
-      "reviewHint": "Candidatos que aún no son la verdad actual: confírmalos para que lleguen a la IA",
-      "skills": "Procedimientos",
-      "skillsHint": "Procedimientos formados al repetir el trabajo: se cargan al empezarlo",
-      "curator": "Por ordenar",
-      "curatorHint": "Recuerdos sin tema, nunca leídos o aún candidatos",
-      "skillDraft": "Borrador",
-      "skillVerified": "Confirmado",
-      "skillUsed": "cargado {{count}} veces",
-      "skillHelpful": "útil {{count}} veces",
-      "howTo": "Cómo se usa"
-    },
-    "currentBadge": "Verdad actual",
-    "contestedBadge": "En conflicto",
-    "candidateBadge": "Pendiente de revisión",
-    "rejectedBadge": "Rechazado",
-    "canonicalKeyTip": "Dirección estable de este conocimiento: solo existe una verdad actual por dirección.",
-    "confirmPrompt": "Un candidato: aún no se envía a la IA.",
-    "confirmPromptContested": "Los valores entran en conflicto en esta dirección: elige el correcto para enviarlo a la IA.",
-    "confirmCurrent": "Confirmar como actual",
-    "reject": "No",
-    "rejectTip": "No se elimina nada: queda como registro y solo se excluye de la inyección.",
-    "axis": {
-      "skills": {
-        "title": "Memoria de procedimientos",
-        "hint": "Fija el procedimiento y lo carga automáticamente la próxima vez"
+    "shortcuts": {
+      "overlayTitle": "Atajos de teclado",
+      "overlayEmpty": "No hay atajos activos en esta pantalla.",
+      "overlayFooter": "Pasa el cursor sobre un atajo y haz clic en el lápiz para cambiarlo. {{options}} › {{keyboard}} tiene la lista completa.",
+      "remap": "Cambiar atajo",
+      "unbound": "sin asignar",
+      "pressKeys": "Pulsa las teclas que quieras",
+      "captureHelp": "Esc cancela · Backspace desvincula",
+      "unbindAction": "Desvincular",
+      "stealAction": "Reasignar",
+      "issue": {
+        "conflict": "Ya está en uso por {{names}}.",
+        "shadow": "Reemplaza {{names}} mientras esta área tiene el foco.",
+        "osReserved": "El sistema operativo ya usa esta combinación — la tecla nunca nos llega.",
+        "typingRisk": "Sin tecla modificadora — no se disparará mientras escribes."
       },
-      "recall": {
-        "title": "Recuerdo",
-        "hint": "Busca en sesiones anteriores, no solo en las tarjetas"
+      "promoter": {
+        "title": "{{name}} también funciona desde el teclado"
       },
-      "nudge": {
-        "title": "Empujón",
-        "hint": "De vez en cuando pide anotar lo aprendido"
+      "scope": {
+        "global": "Cualquier lugar",
+        "canvas": "Lienzo",
+        "ide": "Ventana IDE",
+        "editor": "Editor de código",
+        "terminal": "Terminal",
+        "dialog": "Diálogos"
       },
-      "grounding": {
-        "title": "Verificación de evidencia",
-        "hint": "Contrasta con el código antes de marcar como confirmado"
+      "scopeDesc": {
+        "global": "Funciona en todas partes, incluso mientras escribes.",
+        "canvas": "Funciona en el mapa de burbujas.",
+        "ide": "Funciona mientras una ventana IDE está en primer plano.",
+        "editor": "Funciona en el editor de ficheros.",
+        "terminal": "Funciona en el terminal.",
+        "dialog": "Funciona mientras un diálogo está abierto."
       },
-      "curator": {
-        "title": "Curador",
-        "hint": "Reúne los recuerdos sin clasificar y nunca leídos"
-      },
-      "operator": {
-        "title": "Perfil del operador",
-        "hint": "Anota preferencias recurrentes solo en este equipo"
+      "cmd": {
+        "global": {
+          "shortcutOverlay": "Mostrar atajos de teclado",
+          "reopenClosedTab": "Volver a abrir pestaña cerrada"
+        },
+        "canvas": {
+          "copy": "Copiar selección",
+          "paste": "Pegar",
+          "deleteSelection": "Eliminar selección"
+        },
+        "bookmark": {
+          "assign": "Asignar ranura de marcador",
+          "assignHint": "Fija la burbuja o sesión actual en la ranura 1-10 (0 = ranura 10).",
+          "jump": "Saltar a la ranura de marcador",
+          "jumpHint": "Vuelve a la burbuja o sesión fijada en esa ranura."
+        },
+        "ide": {
+          "tabNext": "Siguiente pestaña de sesión",
+          "tabPrev": "Pestaña de sesión anterior",
+          "tabNextAlt": "Siguiente pestaña de sesión (alternativo)",
+          "tabPrevAlt": "Pestaña de sesión anterior (alternativo)",
+          "tabNth": "Saltar a la pestaña de sesión N",
+          "tabNthHint": "La última tecla siempre lleva a la última pestaña, sin importar cuántas haya abiertas.",
+          "renameTab": "Cambiar el nombre de la pestaña de sesión",
+          "dockLeft": "Acoplar ventana a la izquierda",
+          "dockRight": "Acoplar ventana a la derecha",
+          "dockTop": "Acoplar ventana arriba",
+          "dockBottom": "Acoplar ventana abajo",
+          "toggleMaximize": "Maximizar o restaurar ventana",
+          "undock": "Desacoplar ventana",
+          "nextWindow": "Traer la siguiente ventana al frente"
+        },
+        "editor": {
+          "save": "Guardar fichero"
+        },
+        "terminal": {
+          "copy": "Copiar selección",
+          "paste": "Pegar",
+          "copyOrPass": "Copiar selección o enviarla al shell",
+          "copyOrPassHint": "Copia cuando hay texto seleccionado. Si no hay nada seleccionado, la tecla se envía al shell, así que la interrupción sigue funcionando.",
+          "pasteAlt": "Pegar (alternativo)",
+          "find": "Buscar en el terminal",
+          "selectAll": "Seleccionar toda la salida",
+          "fontIncrease": "Aumentar tamaño del texto del terminal",
+          "fontDecrease": "Reducir tamaño del texto del terminal",
+          "fontReset": "Restablecer tamaño del texto del terminal"
+        }
       }
     },
-    "activation": {
-      "sleeping": "Hay {{count}} recuerdos dormidos en la memoria de este proyecto. ¿Activar?",
-      "hint": "La memoria está apagado por defecto. Al activarlo reúne los procedimientos aprendidos y los aplica a la siguiente tarea. Puedes apagarlo cuando quieras: apagarlo no borra nada.",
-      "turnOn": "Activar",
-      "notNow": "Ahora no",
-      "showAxes": "Ver qué se activa",
-      "hideAxes": "Ocultar detalles",
-      "axesTitle": "Qué dejar activado",
-      "turnOff": "Apagar la memoria",
-      "offKeepsData": "Apagarlo no borra nada: al volver a activarlo, sigue donde lo dejaste.",
-      "noProject": "No hay ningún proyecto abierto",
-      "noProjectDesc": "La memoria se activa por proyecto: abre un proyecto primero.",
-      "stateOn": "La memoria de este proyecto está activada",
-      "stateOff": "La memoria de este proyecto está desactivada",
-      "sleepingCount": "{{count}} recuerdos duermen"
+    "skillState": {
+      "ready": "activo",
+      "disabled": "sin activar",
+      "otherProject": "otro proyecto",
+      "notInstalled": "sin instalar",
+      "working": "procesando…",
+      "failed": "error",
+      "failedUnknown": "motivo desconocido",
+      "readyTitle": "{{name}} está instalado y activo: esta habilidad se carga de verdad.",
+      "disabledTitle": "{{name}} está instalado pero desactivado. Pulsa para activarlo.",
+      "otherProjectTitle": "{{name}} solo está instalado en otro proyecto, así que aquí no se carga. Pulsa para instalarlo de forma global.",
+      "notInstalledTitle": "{{name}} no está instalado, así que Claude Code no puede resolver esta barra. Pulsa para instalarlo de forma global.",
+      "workingTitle": "Procesando {{name}}…",
+      "failedTitle": "No se pudo arreglar {{name}}: {{reason}}",
+      "actionInstall": "instalar",
+      "actionEnable": "activar"
     }
   },
   "commandCenter": {
@@ -4442,5 +5121,50 @@
     "archUnsupported": "No compatible con este motor",
     "hardwareGpu": "{{device}} · {{vram}} libres · {{ram}} de RAM",
     "hardwareCpu": "Sin acelerador · {{ram}} de RAM"
+  },
+  "trash": {
+    "trashBubbleLabel": "Papelera",
+    "trashCountShort": "{{n}}",
+    "cancel": "Cancelar",
+    "trashedAt": "Enviado a la papelera",
+    "restore": "Restaurar",
+    "purge": "Eliminar permanentemente",
+    "purgeConfirm": "Esto elimina todo, incluidas {{n}} tarjetas de memoria del agente.",
+    "purgeYes": "Eliminar permanentemente",
+    "purgeAll": "Eliminar todo",
+    "trashCountLabel": "{{n}} agentes en la papelera",
+    "trashDeleteHint": "Selecciona y pulsa Supr · Mayús para varios",
+    "purgeConfirmMany": "Se eliminarán {{count}} agentes y sus {{n}} tarjetas de memoria.",
+    "purgeIrreversible": "Esta acción no se puede deshacer.",
+    "trashItemsMore": "+{{n}} más"
+  },
+  "providers": {
+    "provider": "Provider",
+    "claude": "Claude",
+    "codex": "Codex",
+    "local": "All Model",
+    "main": "Main provider",
+    "mainHint": "Sets the default agent, settings tab and usage indicator. You can sign in to both providers.",
+    "saveFailed": "Could not save. Please try again.",
+    "project": "Project settings",
+    "save": "Save",
+    "saved": "Saved",
+    "model": "Model",
+    "effort": "Reasoning effort",
+    "context": "Context size",
+    "temperature": "Temperature",
+    "rules": "Instructions",
+    "default": "Default",
+    "usage": "Usage",
+    "localUsage": "All Model runs locally and has no subscription usage limit.",
+    "signIn": "Sign in to check usage.",
+    "noUsage": "Usage is unavailable for this account.",
+    "refresh": "Refresh",
+    "close": "Close",
+    "window": "{{minutes}} minute window",
+    "projectHint": "These settings apply to agents in the active project.",
+    "noProject": "Open a project to configure its providers.",
+    "webSearch": "Web search",
+    "modelVerbosity": "Response verbosity"
   }
 }

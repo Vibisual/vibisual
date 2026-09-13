@@ -1,6 +1,6 @@
 import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT } from '@vibisual/shared';
-import { heatRatio, heatSize, isHeatBubbleType } from '@vibisual/shared';
-import type { BubbleData, HeatScale } from '@vibisual/shared';
+import { heatRatio, heatSize, heatValueOf, isHeatBubbleType } from '@vibisual/shared';
+import type { BubbleData, HeatScale, ToolAxis } from '@vibisual/shared';
 
 /** 활동량 기반 크기 계산을 위한 상한 */
 const MAX_EXPECTED_ACTIVITY = 50;
@@ -17,12 +17,13 @@ export function calcBubbleSize(
   fileSizeRange?: { min: number; max: number },
   heat?: HeatScale,
 ): number {
-  // §5.24 — 히트맵 모드. 파일 용량·자식 수·activity 대신 **읽기 횟수 상대값 하나**가 지름을 정한다.
+  // §5.24 — 히트맵 모드. 파일 용량·자식 수·activity 대신 **히트 횟수 상대값 하나**가 지름을 정한다
+  //   (어느 축을 보는지는 척도가 들고 온다 — `HeatScale.axis`).
   //   대상은 "에이전트가 읽는 것"(file/internal_folder/external_folder/domain) 넷뿐이고,
   //   나머지는 아래 평상시 규칙 그대로다 — 에이전트가 쪼그라들면 무엇이 도는지 안 보이고
   //   root/back 이 작아지면 탐색 자체가 어려워진다.
   if (heat && isHeatBubbleType(bubble.bubbleType)) {
-    return heatSize(heatRatio(bubble.readCount, heat));
+    return heatSize(heatRatio(heatValueOf(bubble, heat.axis), heat));
   }
 
   // iframe 타입: 원형 버블, 고정 지름
@@ -35,12 +36,7 @@ export function calcBubbleSize(
     return calcFileBubbleSize(bubble, fileSizeRange);
   }
 
-  // §5.10 — Brain/휴지통 버블: 고정 중간 크기(홈 위성 상주).
-  //   v3.82 — Brain 만 0.42 → 0.52. 상주 지식 허브라는 위계를 크기로 주고, 본체 3행이
-  //   ts(=size/BUBBLE_TEXT_REF_SIZE) 축소를 거쳐도 전부 10px 이상으로 읽히게 하는 하한이다.
-  if (bubble.bubbleType === 'brain') {
-    return Math.round(NODE_MIN_SIZE + (NODE_MAX_SIZE - NODE_MIN_SIZE) * 0.52);
-  }
+  // §5.10 — 휴지통 버블: 고정 중간 크기(홈 위성 상주).
   if (bubble.bubbleType === 'trash') {
     return Math.round(NODE_MIN_SIZE + (NODE_MAX_SIZE - NODE_MIN_SIZE) * 0.42);
   }
@@ -59,6 +55,7 @@ export function calcBubbleSize(
   let size = NODE_MIN_SIZE + ratio * (NODE_MAX_SIZE - NODE_MIN_SIZE);
 
   // 활성 상태 부스트 (+15%)
+  // §5.1 #3-2 — 1.22 로 올렸다가 사용자 지시로 되돌린 값이다. 임의로 키우지 마라.
   if (bubble.status === 'active') {
     size = Math.min(size * 1.15, NODE_MAX_SIZE);
   }
@@ -125,26 +122,37 @@ export function calcFileSizeRange(files: BubbleData[]): { min: number; max: numb
 }
 
 /**
- * §5.24 — 히트 상대 척도를 잰다. **바닥은 언제나 0**이라 최대값 하나만 돌려준다.
+ * §5.24 — 히트 상대 척도를 **축 하나**에 대해 잰다. **바닥은 언제나 0**이라 최대값 하나면 된다.
+ *
+ * **축마다 따로 잰다** — 읽기가 쓰기보다 훨씬 큰 흔한 세션에서 한 자를 나눠 쓰면 쓰기 지도가
+ * 통째로 차갑게 눌려 축을 바꾼 보람이 없어진다.
  *
  * **프로젝트별로 잰다** — 다른 탭의 뜨거운 파일 하나가 지금 보는 프로젝트를 통째로 차갑게 눌러
  * 버리면 안 된다(§3.5 프로젝트 독립성). 소속을 모르는 노드는 **포함**한다 — 빼면 척도가 작아져
  * 실제보다 뜨겁게 보이므로, 오차의 방향을 안전한 쪽(덜 뜨겁게)으로 둔다.
+ *
+ * `values` 는 `quantile` 곡선이 읽는 **분포**다 — 서버가 전량으로 실어 주면 그쪽이 권위이고
+ * 이것은 폴백이다(최대값이 그런 것과 **같은 규칙**). 같은 순회에서 모으므로 한 바퀴로 끝난다.
  */
-export function calcReadCountRange(
+export function calcHeatCountRange(
   nodes: Iterable<BubbleData>,
   nodeProjects: Record<string, string>,
   activeProject: string | null,
-): { max: number } {
+  axis: ToolAxis,
+): { max: number; values: number[] } {
   let max = 0;
+  const values: number[] = [];
   for (const n of nodes) {
     if (!isHeatBubbleType(n.bubbleType)) continue;
     if (activeProject) {
       const owner = nodeProjects[n.id];
       if (owner !== undefined && owner !== activeProject) continue;
     }
-    const c = n.readCount;
-    if (typeof c === 'number' && Number.isFinite(c) && c > max) max = c;
+    // §2.1 (A) — 접합은 자기 히트가 늘 0 이라 자손 합을 본다(척도가 그것을 빼면 색만 뜨거워진다).
+    const c = heatValueOf(n, axis);
+    if (typeof c !== 'number' || !Number.isFinite(c) || c <= 0) continue;
+    if (c > max) max = c;
+    values.push(c);
   }
-  return { max };
+  return { max, values };
 }

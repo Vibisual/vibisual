@@ -96,6 +96,26 @@ export function capMapSize<K, V>(map: Map<K, V>, max: number): number {
   return dropped;
 }
 
+/**
+ * §3.2.4 F축(경량판) — `capMapSize` 의 `Set` 짝. 같은 규약·같은 주의사항이다.
+ *
+ * 값 없이 **키만** 들고 도는 자리(예: "이 세션은 다음 명령 앞에 접어야 한다" 같은 표식)가
+ * 세션 수만큼 늘지 않게 묶는다. `Set` 도 삽입 순서를 보존하므로 오래된 것부터 나간다.
+ *
+ * @returns 버린 개수.
+ */
+export function capSetSize<T>(set: Set<T>, max: number): number {
+  if (!Number.isFinite(max) || max <= 0) return 0; // 0 = 무제한(§3.2.3 과 같은 규약)
+  let dropped = 0;
+  while (set.size > max) {
+    const oldest = set.values().next();
+    if (oldest.done) break;
+    set.delete(oldest.value);
+    dropped += 1;
+  }
+  return dropped;
+}
+
 export class ByteBudgetCache<K, V> implements EvictableCache {
   private readonly map = new Map<K, Entry<V>>();
   private readonly sizeOf: SizeOf<V>;

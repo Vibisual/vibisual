@@ -2,8 +2,10 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react';
 import type { TaskEdgeStatus, TaskEdgeKind } from '@vibisual/shared';
-import { TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS } from '@vibisual/shared';
+import { TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, LINK_FOCUS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
+import { linkFocusEdgeStyle } from './linkedBubbles.js';
 import { computeTaskEdgePath, readRadiusFromData } from './taskEdgePath.js';
 
 /** v1.33 — 엣지 이벤트 펄스 타입. 엣지 path 를 따라 3회 날아가는 아이콘의 종류. */
@@ -177,6 +179,11 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
 
   const hasCommand = command.trim().length > 0;
 
+  // §5.4 #31 연결 무리 강조 — 활동 엣지(`CurvedEdge`)와 같은 규칙을 위임 엣지에도 그대로 건다.
+  const linkRole = useLinkEdgeRole(id);
+  const linkPhase = useLinkFocusPhase();
+  const linkVisual = linkFocusEdgeStyle(linkRole, linkPhase);
+
   return (
     <>
       <BaseEdge
@@ -184,9 +191,10 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
         path={path}
         style={{
           stroke: lineColor,
-          strokeWidth: kind === 'artifact' ? 3.5 : 2.5,
+          strokeWidth: (kind === 'artifact' ? 3.5 : 2.5) * linkVisual.widthMul,
           strokeDasharray: idleDash,
-          opacity: isAutoSibling ? 0.55 : 1,
+          opacity: (isAutoSibling ? 0.55 : 1) * linkVisual.opacityMul,
+          transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out, stroke-width ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
         }}
         markerEnd={`url(#task-arrow-${kind})`}
         interactionWidth={15}
@@ -218,7 +226,10 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             // v1.54 — auto-sibling 은 아이콘도 함께 흐리게.
-            opacity: isAutoSibling ? 0.55 : 1,
+            // §5.4 #31 — 무리 강조가 걸리면 선과 **같은 비율로** 아이콘도 물러난다(선만 흐려지고
+            //   아이콘이 또렷하면 지워진 선 위에 점만 떠 있는 그림이 된다).
+            opacity: (isAutoSibling ? 0.55 : 1) * linkVisual.opacityMul,
+            transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
           }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}

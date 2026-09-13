@@ -12,8 +12,11 @@ import {
   isLoopbackPreviewUrl,
   loopbackUrlVariants,
   extractLoopbackUrls,
+  isDocumentContentType,
+  serverRootUrl,
+  previewUrlForServer,
 } from '@vibisual/shared';
-import { resolveServingUrl, isUrlServing, setVibisualOwnPorts, isVibisualOwnPort } from './processChecker.js';
+import { resolveServingUrl, resolvePreviewUrl, isUrlServing, setVibisualOwnPorts, isVibisualOwnPort } from './processChecker.js';
 
 describe('isLoopbackHostname', () => {
   it('별칭·대역 전체를 루프백으로 본다', () => {
@@ -135,5 +138,116 @@ describe('resolveServingUrl — IPv6 전용 서버', () => {
     const port = await listenOn('127.0.0.1');
     await new Promise<void>((r) => { servers.pop()?.close(() => { r(); }); });
     expect(await resolveServingUrl(`http://127.0.0.1:${String(port)}/`)).toBeNull();
+  });
+});
+
+/**
+ * §7.11 — **프리뷰로 열 주소** 판정. 사용자 보고: "iframe 버블인데 계속
+ * `http://127.0.0.1:3456/api/backtest/state` 로 연결돼 이상한 곳으로 빠진다."
+ * 감지 폴백이 `curl` 명령에 박힌 API 경로를 통째로 주워 프리뷰 주소로 굳힌 자리다.
+ */
+describe('previewUrlForServer — 주운 주소를 그대로 열지 않는다', () => {
+  it('응답이 문서(html)면 경로를 살린다 — `/game.html` 은 보려던 그 페이지다', () => {
+    expect(previewUrlForServer('http://localhost:8080/game.html', 'text/html; charset=utf-8'))
+      .toBe('http://localhost:8080/game.html');
+    expect(previewUrlForServer('http://localhost:8080/app', 'application/xhtml+xml'))
+      .toBe('http://localhost:8080/app');
+  });
+
+  it('응답이 문서가 아니면 그 서버의 정문으로 접는다 — API 는 사람이 볼 화면이 아니다', () => {
+    expect(previewUrlForServer('http://127.0.0.1:3456/api/backtest/state', 'application/json; charset=utf-8'))
+      .toBe('http://127.0.0.1:3456/');
+    expect(previewUrlForServer('http://localhost:5173/logo.png', 'image/png'))
+      .toBe('http://localhost:5173/');
+    expect(previewUrlForServer('http://localhost:5173/readme', 'text/plain'))
+      .toBe('http://localhost:5173/');
+  });
+
+  it('경로가 없으면 이미 정문이라 손대지 않는다(응답 종류와 무관)', () => {
+    expect(previewUrlForServer('http://localhost:3000/', 'application/json')).toBe('http://localhost:3000/');
+    expect(previewUrlForServer('http://localhost:3000', 'application/json')).toBe('http://localhost:3000');
+    expect(previewUrlForServer('http://localhost:3000/?tab=2', 'text/html')).toBe('http://localhost:3000/?tab=2');
+  });
+
+  it('Content-Type 이 아예 없으면 확장자만 본다 — 모르는 것은 건드리지 않는다', () => {
+    // 헤더를 안 보내는 서버: 경로를 잃는 쪽이 더 나쁘므로 종전대로 살린다.
+    expect(previewUrlForServer('http://localhost:8080/game.html')).toBe('http://localhost:8080/game.html');
+    expect(previewUrlForServer('http://localhost:8080/dashboard')).toBe('http://localhost:8080/dashboard');
+    // 확장자만으로 확실히 페이지가 아닌 것은 접는다.
+    expect(previewUrlForServer('http://localhost:8080/state.json')).toBe('http://localhost:8080/');
+    expect(previewUrlForServer('http://localhost:8080/assets/app.CSS')).toBe('http://localhost:8080/');
+  });
+
+  it('http(s) 가 아니거나 파싱 불가면 원본 그대로', () => {
+    expect(previewUrlForServer('file:///C:/tmp/a.html', 'text/html')).toBe('file:///C:/tmp/a.html');
+    expect(previewUrlForServer('그냥 문장')).toBe('그냥 문장');
+  });
+
+  it('isDocumentContentType / serverRootUrl', () => {
+    expect(isDocumentContentType('text/html')).toBe(true);
+    expect(isDocumentContentType('TEXT/HTML; charset=utf-8')).toBe(true);
+    expect(isDocumentContentType('application/json')).toBe(false);
+    expect(isDocumentContentType(undefined)).toBe(false);
+    expect(serverRootUrl('http://127.0.0.1:3456/api/x?y=1')).toBe('http://127.0.0.1:3456/');
+    expect(serverRootUrl('그냥 문장')).toBeNull();
+  });
+});
+
+describe('resolvePreviewUrl — 정문이 실제로 응답할 때만 옮긴다', () => {
+  const servers: http.Server[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => new Promise<void>((r) => { s.close(() => { r(); }); })));
+  });
+
+  /** 라우트별 (status, content-type, body) 를 그대로 흉내내는 서버. */
+  function listenWith(routes: Record<string, { status: number; type?: string }>): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const s = http.createServer((req, res) => {
+        const route = routes[(req.url ?? '/').split('?')[0] ?? '/'];
+        if (!route) { res.writeHead(404); res.end('nope'); return; }
+        res.writeHead(route.status, route.type ? { 'Content-Type': route.type } : undefined);
+        res.end('body');
+      });
+      s.once('error', reject);
+      s.listen(0, '127.0.0.1', () => {
+        servers.push(s);
+        const addr = s.address();
+        if (addr && typeof addr === 'object') resolve(addr.port);
+        else reject(new Error('no port'));
+      });
+    });
+  }
+
+  it('JSON API 주소는 정문으로 바뀐다(그 서버의 화면이 열린다)', async () => {
+    const port = await listenWith({
+      '/': { status: 200, type: 'text/html' },
+      '/api/backtest/state': { status: 200, type: 'application/json' },
+    });
+    expect(await resolvePreviewUrl(`http://127.0.0.1:${String(port)}/api/backtest/state`))
+      .toBe(`http://127.0.0.1:${String(port)}/`);
+  });
+
+  it('정문이 죽어 있으면 확인된 원래 주소를 지킨다 — 안 열리는 주소로 바꾸지 않는다', async () => {
+    const port = await listenWith({
+      '/data.json': { status: 200, type: 'application/json' },
+      // '/' 없음 → 404
+    });
+    const asked = `http://127.0.0.1:${String(port)}/data.json`;
+    expect(await resolvePreviewUrl(asked)).toBe(asked);
+  });
+
+  it('문서 경로는 그대로 열린다', async () => {
+    const port = await listenWith({
+      '/': { status: 200, type: 'text/html' },
+      '/game.html': { status: 200, type: 'text/html' },
+    });
+    const asked = `http://127.0.0.1:${String(port)}/game.html`;
+    expect(await resolvePreviewUrl(asked)).toBe(asked);
+  });
+
+  it('아무 것도 응답하지 않으면 null', async () => {
+    const port = await listenWith({});
+    await new Promise<void>((r) => { servers.pop()?.close(() => { r(); }); });
+    expect(await resolvePreviewUrl(`http://127.0.0.1:${String(port)}/api/x`)).toBeNull();
   });
 });

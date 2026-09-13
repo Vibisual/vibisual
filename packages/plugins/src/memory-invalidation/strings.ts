@@ -7,36 +7,36 @@
  */
 export const strings = {
   "en": {
-    "desc": "Missing memory makes a model say it does not know; stale memory makes it confidently wrong. Marking rather than deleting lets the next person judge.",
+    "desc": "Missing knowledge makes a model say it does not know; stale knowledge makes it confidently wrong. Holding a run as a candidate until it has repeated enough lets you judge before it is written.",
     "heading": "Memory Invalidation",
     "level": {
-      "none": "No memory yet",
-      "clean": "Nothing flagged",
-      "pending": "Needs checking"
+      "none": "Not on yet",
+      "clean": "Nothing waiting",
+      "pending": "Waiting on the threshold"
     },
     "check": {
-      "needsCheck": "Flagged stale",
-      "review": "Awaiting judgement",
-      "cards": "Stored cards"
+      "needsCheck": "Awaiting the threshold",
+      "review": "Turned down",
+      "cards": "In store"
     },
-    "note": "In code, a change to the linked file is the most accurate staleness signal — path matching leaves almost no false positives.",
-    "notePending": "Some cards were flagged because their linked files changed. Compare them with the current code and confirm or retire them."
+    "note": "A run that has not come back often enough is not knowledge yet. The threshold is what keeps a one-off from becoming a standing instruction.",
+    "notePending": "Some runs are close to becoming procedures. Look at what they contain and turn down anything that should not be written."
   },
   "ko": {
-    "desc": "없는 기억은 모델이 모른다고 말하게 하지만, 낡은 기억은 확신에 찬 오답을 만듭니다. 즉시 지우지 않고 표시해 두면 다음 사람이 판정할 수 있습니다.",
+    "desc": "없는 지식은 모델이 모른다고 말하게 하지만, 낡은 지식은 확신에 찬 오답을 만듭니다. 충분히 되풀이될 때까지 후보로 붙잡아 두면 적히기 전에 사람이 판정할 수 있습니다.",
     "heading": "기억 무효화",
     "level": {
-      "none": "아직 기억 없음",
-      "clean": "표시된 것 없음",
-      "pending": "확인 필요"
+      "none": "아직 켜지 않음",
+      "clean": "대기 중인 것 없음",
+      "pending": "문턱 대기 중"
     },
     "check": {
-      "needsCheck": "확인 필요",
-      "review": "판단 대기",
-      "cards": "저장 장수"
+      "needsCheck": "문턱 대기",
+      "review": "물린 것",
+      "cards": "저장고에"
     },
-    "note": "코드에서는 연결된 파일의 변경이 가장 정확한 낡음 신호입니다 — 경로 일치라 오탐이 거의 없습니다.",
-    "notePending": "연결된 파일이 바뀌어 확인 필요로 표시된 카드가 있습니다. 지금 코드와 대조해 유효/무효를 확정해 주십시오."
+    "note": "충분히 되돌아오지 않은 일은 아직 지식이 아닙니다. 문턱이 한 번뿐인 일을 상시 지시로 굳히지 않게 막아 줍니다.",
+    "notePending": "절차가 되기 직전인 일이 있습니다. 내용을 보시고 적히면 안 되는 것은 물려 주십시오."
   },
   "ja": {
     "level": {

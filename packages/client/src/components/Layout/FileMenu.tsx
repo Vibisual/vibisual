@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { OptionsWindow } from '../Options/OptionsWindow.js';
 import { PluginsWindow } from '../Plugins/PluginsWindow.js';
-import { MobileAccessWindow } from './MobileAccessWindow.js';
-import { RemoteControlWindow } from './RemoteControlWindow.js';
+import { RemoteAccessWindow } from '../Remote/RemoteAccessWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -15,9 +13,10 @@ export function FileMenu(): React.JSX.Element {
   /** §5.10 — 가이드는 스토어 문 하나로 연다(메모리 라이브러리 [사용법] 과 같은 문). */
   const openGuide = useGraphStore((st) => st.openGuide);
   const [loading, setLoading] = useState(false);
-  const [optionsOpen, setOptionsOpen] = useState(false);
+  /** §5.10 (O) — 옵션 창도 가이드처럼 스토어 문 하나로 연다(기억 정리 칸의 「활성화 하러 가기」가 같은 문을 쓴다). */
+  const openOptions = useGraphStore((st) => st.openOptions);
   const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  /** §4 — 폰 브라우저·텔레그램·디스코드 세 길을 한 창에서(종전 두 항목 병합). */
   const [remoteOpen, setRemoteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -80,7 +79,7 @@ export function FileMenu(): React.JSX.Element {
           <div className="my-1 border-t border-white/[0.05]" />
           <button
             type="button"
-            onClick={() => { setOpen(false); setOptionsOpen(true); }}
+            onClick={() => { setOpen(false); openOptions(); }}
             className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -100,22 +99,10 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.plugins')}
           </button>
-          {/* §4 v3.16 — Mobile Access (packaged Electron 한정 — 모바일 브라우저에선 window.api 부재) */}
-          {isPackagedDesktop() && (
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setMobileOpen(true); }}
-              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
-            >
-              <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="14" height="20" x="5" y="2" rx="2" ry="2" />
-                <path d="M12 18h.01" />
-              </svg>
-              {t('panel.fileMenu.mobileAccess', { defaultValue: 'Mobile Access…' })}
-            </button>
-          )}
-          {/* §4 — Remote Control(메신저 브리지). 모바일 웹과 나란히 두되 방향이 반대다:
-              저쪽은 우리가 포트를 열고, 이쪽은 우리가 나가서 붙는다. packaged Electron 한정. */}
+          {/* §4 — 원격 접속. 종전에는 "Mobile Access"(웹) 와 "Remote Control"(메신저) 두 항목이
+              나란히 있었는데, 둘 다 "폰으로 이 PC 를 만진다"는 같은 일이라 이름만으로는 무엇이
+              무엇인지 알 수 없었다. 한 창 안의 세 칸(폰 브라우저·텔레그램·디스코드)으로 합쳤다.
+              packaged Electron 한정 — 모바일 브라우저에선 window.api 자체가 없다. */}
           {isPackagedDesktop() && (
             <button
               type="button"
@@ -123,10 +110,12 @@ export function FileMenu(): React.JSX.Element {
               className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
             >
               <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 12h.01" /><path d="M12 12h.01" /><path d="M16 12h.01" />
-                <path d="M21 12c0 4.418-4.03 8-9 8a9.9 9.9 0 0 1-4.2-.9L3 21l1.9-4.8A7.6 7.6 0 0 1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                <path d="M12 20h.01" />
+                <path d="M8.5 16.4a5 5 0 0 1 7 0" />
+                <path d="M5 12.9a10 10 0 0 1 14 0" />
+                <path d="M1.5 9.4a15 15 0 0 1 21 0" />
               </svg>
-              {t('panel.fileMenu.remoteControl', { defaultValue: 'Remote Control…' })}
+              {t('panel.fileMenu.remoteAccess')}
             </button>
           )}
           {/* Guide — 기능 안내 / 만든 기능 인벤토리 */}
@@ -143,10 +132,8 @@ export function FileMenu(): React.JSX.Element {
           </button>
         </div>
       )}
-      <OptionsWindow open={optionsOpen} onClose={() => setOptionsOpen(false)} />
       <PluginsWindow open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
-      <MobileAccessWindow open={mobileOpen} onClose={() => setMobileOpen(false)} />
-      <RemoteControlWindow open={remoteOpen} onClose={() => setRemoteOpen(false)} />
+      <RemoteAccessWindow open={remoteOpen} onClose={() => setRemoteOpen(false)} />
     </div>
   );
 }

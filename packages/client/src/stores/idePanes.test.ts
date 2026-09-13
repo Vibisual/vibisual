@@ -5,6 +5,7 @@ import {
   useGraphStore,
   selectProjectIDEPaneKeys,
   selectRenderedIDEPaneKeys,
+  selectIDEPaneRenderOrderKeys,
   selectVisibleDockedPanes,
   selectOrphanIDEPanes,
   selectIDEOverlay,
@@ -242,6 +243,100 @@ describe('IDE 창 여러 개 (§5.5 #17-1)', () => {
     expect(useGraphStore.getState().focusNodeId).toBeNull();
   });
 
+  // ── 하나만 남기고 본다 — [창과 버블] 목록에서 줄을 누를 때 ──────────────
+  //
+  // 사용자 지시: "여러개가 떠있는 경우 여기 창 하나를 클릭한 경우 다른 창들은 내려놓기 하고
+  // 해당 창에 포커싱해 화면도 가운데로 보이게 하고 말야". 맨 앞으로 올리기만 하면 겹친 창
+  // 아래에 그대로 묻혀 "눌렀는데 아무 일도 안 일어난" 화면이 된다.
+  it('다른 창은 접고, 고른 창만 펴서 맨 앞에 세운다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    open(A3, 'new');
+    const [k1] = panes();
+    useGraphStore.getState().soloIDEPane(k1!);
+    const st = useGraphStore.getState();
+    // 창을 닫지 않는다 — 접기는 되돌릴 수 있고 닫기는 그 창의 편집 탭·상태를 지운다.
+    expect(selectProjectIDEPaneKeys(st)).toHaveLength(3);
+    expect(selectIDEPane(st, k1!).collapsed).toBe(false);
+    for (const k of panes().filter((k) => k !== k1)) {
+      expect(selectIDEPane(st, k).collapsed).toBe(true);
+    }
+    // 화면에 그려지는 것은 그 하나뿐이고, 그것이 맨 앞이다.
+    expect(selectRenderedIDEPaneKeys(st)).toEqual([k1]);
+    expect(selectIDEOverlay(st).agentId).toBe(A1);
+  });
+
+  it('접혀 있던 창을 고르면 펴서 앞으로 올린다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1] = panes();
+    useGraphStore.getState().setIDEPaneCollapsed(k1!, true);
+    useGraphStore.getState().soloIDEPane(k1!);
+    const st = useGraphStore.getState();
+    expect(selectIDEPane(st, k1!).collapsed).toBe(false);
+    expect(selectRenderedIDEPaneKeys(st)).toEqual([k1]);
+  });
+
+  it('고른 창의 버블로 캔버스 카메라가 간다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1] = panes();
+    useGraphStore.setState({ focusNodeId: null });
+    useGraphStore.getState().soloIDEPane(k1!);
+    expect(useGraphStore.getState().focusNodeId).toBe(A1);
+  });
+
+  it('버블이 사라진 유령 창을 골라도 카메라를 던지지 않는다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1] = panes();
+    // 그 에이전트가 스냅샷에서 빠졌다 — 캔버스가 못 찾을 곳으로 보내면 `focusNodeId` 만 남아
+    //   나중에 그 id 가 다시 그려지는 엉뚱한 순간에 카메라가 튄다(`setIDEPaneCollapsed` 와 같은 규율).
+    useGraphStore.setState({ nodeMap: {}, focusNodeId: null });
+    useGraphStore.getState().soloIDEPane(k1!);
+    expect(useGraphStore.getState().focusNodeId).toBeNull();
+  });
+
+  it('휴지통으로 간 버블이면 카메라를 던지지 않는다', () => {
+    open(A1, 'new');
+    const [k1] = panes();
+    useGraphStore.setState({
+      nodeMap: { ...useGraphStore.getState().nodeMap, [A1]: { ...agentNode(A1), trashed: true } },
+      focusNodeId: null,
+    });
+    useGraphStore.getState().soloIDEPane(k1!);
+    expect(useGraphStore.getState().focusNodeId).toBeNull();
+  });
+
+  it('다른 프로젝트 탭의 창은 건드리지 않는다', () => {
+    open(A1, 'new');
+    // 다른 탭에서 창을 하나 띄워 둔다 — 지금 화면에 없으므로 접을 이유가 없고, 접으면 그 탭으로
+    //   돌아갔을 때 사용자가 만든 배치가 이유 없이 접혀 있다.
+    useGraphStore.setState({ activeProject: 'other' });
+    open(A2, 'new');
+    useGraphStore.setState({ activeProject: PROJ });
+    const [k1] = panes();
+    useGraphStore.getState().soloIDEPane(k1!);
+    expect(useGraphStore.getState().ideOverlays['other']!.collapsed).toBe(false);
+  });
+
+  it('창이 하나뿐이고 이미 맨 앞이면 앞뒤 도장을 새로 찍지 않는다', () => {
+    open(A1, 'new');
+    const before = useGraphStore.getState().idePaneSeq;
+    useGraphStore.getState().soloIDEPane(PROJ);
+    // 카메라만 옮기고 z 는 그대로다 — 클릭마다 상태가 바뀌면 리렌더만 늘어난다.
+    expect(useGraphStore.getState().idePaneSeq).toBe(before);
+    expect(useGraphStore.getState().focusNodeId).toBe(A1);
+  });
+
+  it('없는 창을 고르면 아무 일도 하지 않는다', () => {
+    open(A1, 'new');
+    useGraphStore.setState({ focusNodeId: null });
+    useGraphStore.getState().soloIDEPane('없는-키');
+    expect(useGraphStore.getState().focusNodeId).toBeNull();
+    expect(selectIDEPane(useGraphStore.getState(), PROJ).collapsed).toBe(false);
+  });
+
   // ── 사용자가 만든 배치를 앱이 지우지 않는다 ────────────────────────────
   it('떠 있는 창의 자리는 슬롯이 들고 있다(접었다 펴도·탭을 옮겨도 그 자리)', () => {
     open(A1, 'new');
@@ -360,6 +455,54 @@ describe('한 칸에 여러 창 — 탭 도킹', () => {
     expect(keys).toEqual([k1, k2]);
     // 앞에 선 창은 지문에 표시된다 — 탭 강조와 본문이 같은 판정을 읽는다.
     expect(sig.split(';').map((raw) => raw.split('|')[2])).toEqual(['1', '0']);
+  });
+
+  // ── 그리는 순서는 앞뒤 도장과 분리한다(스크롤이 맨 위로 튀던 버그) ──────────
+  //
+  //   사용자 보고: "창 A 본문을 누르고 → 창 B 를 누르고 → 다시 창 A 를 누르면 IDE 스크롤이 갑자기
+  //   맨 위로 올라간다". 원인은 `IDEPaneHost` 가 그리는 배열을 **z 오름차순**으로 정렬한 것이었다.
+  //   클릭(`focusIDEPane`)이 z 를 올리면 형제 배열의 순서가 바뀌고, React 가 그 창의 DOM 노드를
+  //   `insertBefore` 로 옮긴다 → 안에 든 스크롤 컨테이너의 `scrollTop` 이 0 으로 리셋된다.
+  //   겹침 순서는 이미 각 창의 `zIndex`(= `selectRenderedIDEPaneKeys` 의 순위)가 내므로,
+  //   **그리는 순서만** 열린 순번으로 못박아 재배치를 없앤다.
+  it('창을 앞으로 꺼내도 **그리는 순서**는 바뀌지 않는다(DOM 재배치 → scrollTop 리셋 방지)', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1, k2] = panes();
+    const before = selectIDEPaneRenderOrderKeys(useGraphStore.getState());
+
+    // 뒤에 있던 창을 눌러 앞으로 꺼낸다 — 앞뒤(z)는 바뀌어야 하고, 그리는 순서는 그대로여야 한다.
+    useGraphStore.getState().focusIDEPane(k1!);
+    const s = useGraphStore.getState();
+    expect(selectIDEPaneRenderOrderKeys(s)).toEqual(before);
+    expect(selectRenderedIDEPaneKeys(s)).toEqual([k2, k1]); // 앞뒤는 실제로 뒤집혔다
+
+    // 반대로 다시 꺼내도 마찬가지 — 몇 번을 오가도 DOM 순서는 못박혀 있다.
+    useGraphStore.getState().focusIDEPane(k2!);
+    expect(selectIDEPaneRenderOrderKeys(useGraphStore.getState())).toEqual(before);
+    expect(selectRenderedIDEPaneKeys(useGraphStore.getState())).toEqual([k1, k2]);
+  });
+
+  it('그리는 순서는 **열린 순번**이다(세 창을 뒤섞어 눌러도 고정)', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    open(A3, 'new');
+    const opened = panes(); // 열린 순번 = 슬롯 키 순번
+    const order = selectIDEPaneRenderOrderKeys(useGraphStore.getState());
+    expect(order).toEqual(opened);
+
+    for (const k of [opened[2]!, opened[0]!, opened[1]!, opened[0]!]) {
+      useGraphStore.getState().focusIDEPane(k);
+      expect(selectIDEPaneRenderOrderKeys(useGraphStore.getState())).toEqual(order);
+    }
+  });
+
+  it('접힌 창은 그리는 순서에서도 빠진다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1, k2] = panes();
+    useGraphStore.getState().setIDEPaneCollapsed(k1!, true);
+    expect(selectIDEPaneRenderOrderKeys(useGraphStore.getState())).toEqual([k2]);
   });
 
   it('칸이 하나뿐이면 탭 줄을 그리지 않는다(빈 지문)', () => {

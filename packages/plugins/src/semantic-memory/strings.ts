@@ -7,34 +7,34 @@
  */
 export const strings = {
   "en": {
-    "desc": "Counts how many facts are actually settled. What matters is not how many cards were stored but how many slots hold a single current truth; slots whose value split are waiting on a human.",
+    "desc": "Counts how much is actually settled. What matters is not how much was observed but how many runs have hardened into a procedure; the rest are still forming, waiting on the threshold.",
     "heading": "Semantic Memory",
     "level": {
-      "none": "No memory yet",
+      "none": "Not on yet",
       "settled": "Settled",
-      "contested": "Contested slots"
+      "contested": "Still forming"
     },
     "check": {
-      "cards": "Stored cards",
-      "current": "Current truths",
-      "contested": "Contested"
+      "cards": "In store",
+      "current": "Settled procedures",
+      "contested": "Still forming"
     },
-    "note": "Scale decides storage: a few hundred entries belong in files, hundreds of thousands in a vector store. Choosing infrastructure before measuring scale is the common over-design."
+    "note": "A fact layer is built out of what repeated, not out of what was merely seen once — repetition is the evidence."
   },
   "ko": {
-    "desc": "사실이 몇 개나 확정돼 있는지 셉니다. 중요한 것은 저장된 장수가 아니라 **현재 진실이 하나로 확정된 슬롯 수**이고, 값이 갈린 슬롯은 사람의 판단을 기다리는 몫입니다.",
+    "desc": "무엇이 실제로 굳었는지 셉니다. 중요한 것은 얼마나 많이 봤는지가 아니라 **몇 벌이 절차로 굳었는지**이고, 나머지는 아직 굳는 중으로 문턱을 기다립니다.",
     "heading": "의미 기억",
     "level": {
-      "none": "아직 기억 없음",
+      "none": "아직 켜지 않음",
       "settled": "확정됨",
-      "contested": "값이 갈린 슬롯 있음"
+      "contested": "굳는 중 있음"
     },
     "check": {
-      "cards": "저장 장수",
-      "current": "현재 진실",
-      "contested": "값이 갈림"
+      "cards": "저장고에",
+      "current": "굳은 절차",
+      "contested": "굳는 중"
     },
-    "note": "규모가 저장 방식을 정합니다 — 수백 건이면 파일, 수십만 건이면 벡터 DB. 규모를 재기 전에 인프라부터 고르는 것이 가장 흔한 과잉 설계입니다."
+    "note": "사실 층은 한 번 본 것이 아니라 되풀이된 것으로 쌓입니다 — 되풀이가 곧 근거입니다."
   },
   "ja": {
     "level": {

@@ -85,3 +85,67 @@ export function extractLoopbackUrls(text: string, limit = 12): string[] {
   }
   return out;
 }
+
+/** 브라우저가 **페이지로 그리는** 응답의 MIME. 프리뷰에 실을 수 있는 것은 이것뿐이다. */
+const DOCUMENT_MIME_TYPES: readonly string[] = ['text/html', 'application/xhtml+xml'];
+
+/** `Content-Type` 헤더가 페이지(문서)를 가리키는가. 파라미터(`; charset=…`)는 떼고 본다. */
+export function isDocumentContentType(contentType: string | null | undefined): boolean {
+  if (!contentType) return false;
+  const mime = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return DOCUMENT_MIME_TYPES.includes(mime);
+}
+
+/** 확장자만으로 **확실히 페이지가 아닌** 것들 — `Content-Type` 이 아예 없을 때의 보조 판정. */
+const NON_DOCUMENT_EXTENSIONS: readonly string[] = [
+  'json', 'xml', 'txt', 'csv', 'tsv', 'yaml', 'yml', 'md',
+  'js', 'mjs', 'cjs', 'ts', 'css', 'map', 'wasm',
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp',
+  'pdf', 'zip', 'gz', 'tar', 'mp3', 'mp4', 'webm', 'wav',
+];
+
+/** 경로의 마지막 조각이 위 확장자로 끝나는가(대소문자 무시). */
+function hasNonDocumentExtension(pathname: string): boolean {
+  const last = pathname.split('/').pop() ?? '';
+  const dot = last.lastIndexOf('.');
+  if (dot <= 0) return false;
+  return NON_DOCUMENT_EXTENSIONS.includes(last.slice(dot + 1).toLowerCase());
+}
+
+/** 같은 서버의 **정문**(경로·쿼리 없는 루트). 파싱 불가면 null. */
+export function serverRootUrl(rawUrl: string): string | null {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { return null; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  return `${url.protocol}//${url.host}/`;
+}
+
+/**
+ * §7.11 — **프리뷰로 열 주소**를 정한다. 주운 주소 그대로일 수도, 그 서버의 정문일 수도 있다.
+ *
+ * 감지 폴백(`extractLoopbackUrls`)은 Bash 명령어·출력에 스친 주소를 **통째로** 줍는다. 그래서
+ * `curl http://127.0.0.1:3456/api/backtest/state` 한 줄이면 그 **API 경로**가 그대로 프리뷰 주소가
+ * 됐다(사용자 보고: "iframe 버블인데 계속 `/api/backtest/state` 로 연결돼 이상한 곳으로 빠진다").
+ * 그 주소가 서버라는 것은 맞지만 — 포트는 확실히 서버다 — **그 경로가 페이지라는 뜻은 아니다.**
+ * 에이전트가 물어본 API 는 그 에이전트의 관심사이지 사람이 볼 화면이 아니다.
+ *
+ * 그렇다고 경로를 늘 버릴 수는 없다. §7.11 v2.29 가 경로를 살린 이유가 있다 — `/game.html`
+ * 처럼 **그 경로가 곧 보려던 페이지**인 경우가 있고, 그때 루트로 접으면 사용자가 원한 화면이
+ * 안 열린다. 그래서 **응답이 스스로 말하게 한다**: `Content-Type` 이 문서면 경로를 살리고,
+ * 아니면(JSON·이미지·텍스트) 같은 서버의 정문으로 접는다. 헤더가 아예 없는 서버는 종전대로
+ * 경로를 살리되, 확장자가 확실히 페이지가 아닌 것만 접는다(모르면 건드리지 않는다).
+ *
+ * 순수 함수다 — 실제로 정문이 응답하는지 확인하는 것은 호출부(`resolvePreviewUrl`)의 몫이다.
+ */
+export function previewUrlForServer(rawUrl: string, contentType?: string | null): string {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { return rawUrl; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return rawUrl;
+  // 경로가 없으면 이미 정문이다 — 접을 것이 없다.
+  if (url.pathname === '' || url.pathname === '/') return rawUrl;
+  const keepPath = contentType != null && contentType !== ''
+    ? isDocumentContentType(contentType)
+    : !hasNonDocumentExtension(url.pathname);
+  if (keepPath) return rawUrl;
+  return serverRootUrl(rawUrl) ?? rawUrl;
+}

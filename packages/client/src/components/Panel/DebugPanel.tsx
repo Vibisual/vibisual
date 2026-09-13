@@ -16,6 +16,8 @@ import { BUBBLE_COLORS, EDGE_STYLE, CANVAS_LOD } from '@vibisual/shared';
 import { BubbleNode } from '../BubbleMap/BubbleNode.js';
 import { CurvedEdge } from '../BubbleMap/CurvedEdge.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
+// 잰 치수를 노드에 도로 실어 주는 한 겹 — 없으면 이 그래프도 목록이 갱신될 때마다 **선이 사라진다**(훅 주석).
+import { useMeasuredFlowNodes } from '../../hooks/useMeasuredFlowNodes.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import {
@@ -205,6 +207,13 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
     const flowEdges = edgeList.map((e) => buildEdge(e, allBubbles));
     return { nodes: [...agentNodes, ...fileNodes], edges: flowEdges, counts };
   }, [storeAgents, storeTopFolders, storeEdges, activeProject, agentProjects, nodeProjects]);
+
+  /**
+   * 이 그래프도 파생 배열을 그대로 넘기는 controlled 캔버스다 — 잰 치수를 도로 실어 주지 않으면
+   * React Flow 가 손잡이 치수를 지워 **선이 그려지지 않는다**(무대 지도와 같은 원인, 훅 주석 참조).
+   * 버블 치수는 글로우 여백까지 재 봐야 알 수 있으므로 기본값은 넘기지 않는다 — 첫 측정이 곧 진실이다.
+   */
+  const { nodes: flowNodes, onNodesChange } = useMeasuredFlowNodes(nodes);
 
   useEffect(() => {
     if (!rfRef.current || nodes.length === 0) return;
@@ -457,8 +466,9 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
       <div className="p-4">
         <div className="aspect-square w-full overflow-hidden rounded border border-gray-800 bg-gray-950">
         <ReactFlow
-          nodes={nodes}
+          nodes={flowNodes}
           edges={edges}
+          onNodesChange={onNodesChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onInit={(i) => { rfRef.current = i; i.fitView({ padding: 0.15 }); }}

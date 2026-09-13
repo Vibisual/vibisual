@@ -1,6 +1,8 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { useGraphStore, selectIDEOverlay, countProjectBookmarks } from '../../stores/graphStore.js';
+import { applyVisibleOrder } from '@vibisual/shared';
+import { useGraphStore, countProjectBookmarks, selectActiveAutoGoalSummary } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
@@ -13,25 +15,62 @@ import { computeGoalIndicator } from './goalIndicator.js';
 import { countRunning, useRunSessions } from '../../stores/runSessions.js';
 import { fallbackViewForProvider, isViewAllowedForProvider } from './ideProviderViews.js';
 import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
+import { activityItem } from './ideActivityItems.js';
+import { ActivityIcon } from './ideActivityIcons.js';
+import { useIDEActivityBarStore, selectActivityOrder } from '../../stores/ideActivityBar.js';
+import { IDEActivityBarCustomize } from './IDEActivityBarCustomize.js';
+import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
+import { applyLocalOrder } from '../../hooks/tabPushGeom.js';
+// §5.5 #16-1 (E) — 꾹 눌러 집어 드는 손짓. 두 탭바(§5.4 #14-2)와 **같은 훅**이라 손맛이 갈리지 않는다.
+import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
 
-interface ActivityItem {
-  view: IDEViewType;
-  labelKey: string;
-  icon: string;
+/**
+ * 이 칸이 지금 무엇을 말하고 있는가 — **표기 규약 한 벌**.
+ *
+ * 종전에는 배지가 두 벌이었다: 어떤 칸은 우상단 원형 배지(북마크·요약·실행·루프), 어떤 칸은
+ * 아이콘 아래 숫자(목표·정독·서브에이전트). 그래서 40×40 칸에 숫자가 제각각 붙어 화면에서
+ * 읽히는 것이 `2 / 1` 같은 낱개 숫자의 나열이 됐다(사용자 지적). 이제 **아이콘 아래 한 줄** 하나로
+ * 모은다 — SSOT 가 "사용자가 정한 읽는 방식"이라고 못박은 쪽이고(#17-9 ⑤ v5.06 · #17-17 ⑩),
+ * 원형 배지와 달리 글리프를 가리지 않는다.
+ *
+ * `dot` 만 예외다 — 검증의 마지막 판정은 **수가 아니라 색 하나**라 숫자 자리에 넣을 것이 없다.
+ */
+interface ActivityState {
+  /** 아이콘 아래 한 줄. `null` 이면 아무것도 붙지 않는다(평소엔 조용히). */
+  badge: string | null;
+  /**
+   * 글리프와 그 숫자에 입힐 색. `null` 이면 다른 항목과 같은 회색.
+   * **점등은 글리프에만 건다** — 버튼에 색을 걸면 40×40 칸 전체가 물들어 옆 항목과 뭉쳐 보인다
+   * (#17-17 ⑩ v4.69 가 세운 규칙).
+   */
+  tone: string | null;
+  /** 지금 도는 중 — 글리프만 반짝인다. */
+  blink: boolean;
+  /** 숫자가 아닌 점 하나(검증의 마지막 판정 색). */
+  dot: string | null;
 }
 
-const ACTIVITIES: ActivityItem[] = [
-  // §5.5 #17-31 — 첫 항목은 **이 프로젝트에서 쓸 수 있는 MCP**(종전 `터미널` = 세션 목록 자리).
-  //   세션 목록은 탭 바·세션 요약이 이미 보여 주고 있었고, 여기서만 볼 수 있는 것은 무엇이
-  //   붙어 있고 무엇이 켜져 있는가다. 아이콘은 lucide plug 톤(꽂는 것) stroke SVG.
-  { view: 'mcp', labelKey: 'ide.activityBar.mcp', icon: 'M12 22v-5 M9 8V2 M15 8V2 M6 8h12v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z' },
-  { view: 'files', labelKey: 'ide.activityBar.files', icon: 'M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z' },
-  // §5.5 #17-28 v4.96 — 종전 `결과`(훅 이벤트 목록) 자리를 **컨텍스트 주입원 통제**가 잇는다.
-  //   아이콘은 "쌓여 들어가는 층"(lucide layers 톤) — 이 프롬프트 앞에 무엇이 겹쳐 실리는가.
-  { view: 'context', labelKey: 'ide.activityBar.context', icon: 'M12 2l9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 17l9 5 9-5' },
-  // §5.5 #17-4 v2.32 — Skills: lucide sparkles 톤 (별 + 작은 별 2개) stroke SVG.
-  { view: 'skills', labelKey: 'ide.activityBar.skills', icon: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z' },
-];
+const NEUTRAL: ActivityState = { badge: null, tone: null, blink: false, dot: null };
+
+/** 세 자리를 넘는 수는 읽을 이유가 없다 — 40px 칸에서는 자리만 먹는다. */
+function clampCount(n: number): string {
+  return n > 99 ? '99+' : String(n);
+}
+
+/*
+ * 길게 누르기 시간·취소 거리·가장자리 자동 스크롤 수치는 `hooks/pointerDragGeom.ts`(`POINTER_DRAG`)
+ * 한 곳에 있다 — 활동바와 두 탭바가 같은 손맛을 써야 하므로 이 자리에 사본을 두지 않는다.
+ */
+
+/** 오버레이 썸의 최소 길이(px). 칸이 많아져도 이보다 짧아지면 손에 잡히지도 눈에 띄지도 않는다. */
+const ACTIVITY_THUMB_MIN_PX = 24;
+/**
+ * 밀어내기 재생(`useTabPushAnimation`)이 칸을 알아보는 표식.
+ *
+ * 버튼의 `data-activity-view` 와 **자리가 다르다** — 재생이 미는 것은 버튼이 아니라 그것을 감싼
+ * 칸(줄 하나)이고, 그 칸이 목록의 직속 자식이어야 `offsetTop` 이 곧 줄의 자리가 된다.
+ */
+const ACTIVITY_KEY_ATTR = 'data-activity-key';
 
 export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element {
   const { t } = useTranslation();
@@ -47,22 +86,15 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   //   같은 산식(countProjectBookmarks/selectProjectBookmarks)을 써야 배지와 목록이 어긋나지 않는다.
   const bookmarkCount = useGraphStore(countProjectBookmarks);
 
-  // §5.5 #17-8 v2.95 — 세션 요약 보드 + "미확인 완료" 세션 수 배지.
-  //   v4.93 — 이 항목도 사이드바 뷰('summary') 로 바뀌었다(덮개 토글 폐지).
   const agentId = useIDEPaneValue((o) => o.agentId);
-  // §5.19 (G) — 이 IDE 가 로컬 버블(All Model)의 것인가. 그렇다면 클로드 CLI 에 매인 항목은
-  //   아예 그리지 않는다 — 없는 기능의 입구를 남겨 두면 눌러 본 사용자가 빈 화면을 본다.
-  const isLocalProvider = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
+  // §5.19 (G) · §5.25 (M) — 이 IDE 를 문 엔진이 무엇인가. **어느 엔진인지까지 봐야 한다** —
+  //   로컬 모델에는 MCP·스킬·플러그인·훅이 정말 없지만 코덱스에는 전부 있어서, 같은 목록을 쓰면
+  //   코덱스 사용자가 자기가 깔아 둔 것을 우리 창에서 못 본다(목록은 `ideProviderViews.ts` 한 곳).
+  const providerKind = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider?.kind : undefined));
   const show = useCallback(
-    (view: IDEViewType) => isViewAllowedForProvider(view, isLocalProvider),
-    [isLocalProvider],
+    (view: IDEViewType) => isViewAllowedForProvider(view, providerKind),
+    [providerKind],
   );
-  const unreviewedCount = useGraphStore((s) => {
-    const subs = agentId ? s.subAgents[agentId] : undefined;
-    if (!subs) return 0;
-    return subs.filter((su) => su.status === 'idle' && !s.acknowledgedSubAgents[su.id]).length;
-  });
-
   // §5.5 #17-20 v4.74 — 이 에이전트가 켜 둔 실행(디버그 런처)의 수. PTY 수명이라 서버 스냅샷이
   //   아니라 런타임 스토어에서 읽는다.
   const runningRuns = useRunSessions((s) => countRunning(s.sessions, agentId));
@@ -104,12 +136,30 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
       ? `${t('ide.activityBar.goal')} — ${goalInd.meter}`
       : t('ide.activityBar.goal');
 
+  /*
+   * §5.10 (P) — **절차 감지** 칸. 목표에서 갈라져 나온 칸이라 읽는 재료도 다르다: 목표는 이 세션
+   * 탭의 진행이고, 이 칸은 **이 프로젝트에 쌓인 절차**다(`autoGoal[activeProject]` — 절차는
+   * 프로젝트별로 갈라져 저장된다).
+   *
+   * 전선에는 **에이전트 층까지만** 실려 온다(세션 층 덮어쓰기는 맵이 세션 수만큼 자라지 않도록
+   * 싣지 않는다 — §5.10 (G)). 그래서 여기 점등은 "이 프로젝트·이 에이전트에서 도는가"까지이고,
+   * 세션 한 칸까지 접은 마지막 판정은 뷰 머리글의 점이 말한다(REST 응답으로 그린다).
+   */
+  const autoGoalSummary = useGraphStore(selectActiveAutoGoalSummary);
+  const autoGoalOn = autoGoalSummary
+    ? (autoGoalSummary.agentEnabled?.[agentId ?? ''] ?? autoGoalSummary.enabled)
+    : false;
+  const autoGoalSkills = autoGoalSummary?.skillCount ?? 0;
+  // 꺼져 있으면 후보는 세지 않는다 — 끄기는 삭제가 아니라 정지라 디스크에 남은 옛 후보가 그대로
+  //   있는데(§5.10 "끄면 지우지 않는다"), 그것으로 색을 켜면 훑지도 않는 칸이 계속 재촉하게 된다.
+  const autoGoalBrewing = autoGoalOn ? (autoGoalSummary?.candidateCount ?? 0) : 0;
+
   // 클로드 버블을 보다가 로컬 버블로 갈아타면 그 순간 열려 있던 뷰가 사라질 수 있다 —
   // 사이드바가 빈 채로 남지 않게 파일로 떨어뜨린다(§5.19 (G)).
   useEffect(() => {
-    const next = fallbackViewForProvider(activeView, isLocalProvider);
+    const next = fallbackViewForProvider(activeView, providerKind);
     if (next !== activeView) setActiveView(next);
-  }, [activeView, isLocalProvider, setActiveView]);
+  }, [activeView, providerKind, setActiveView]);
 
   // §5.5 #17-35 — 이 탭이 지금 검증 중인가 / 마지막 판정은 무엇인가. 원시값만 구독해
   //   스냅샷마다 새로 만들어지는 배열을 그대로 물지 않는다(zustand 파생 선택자 함정).
@@ -127,6 +177,34 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     if (verdict === 'fail') return 'bg-rose-400';
     if (verdict === 'held') return 'bg-amber-400';
     return null;
+  })();
+
+  /*
+   * §5.11 정독 게이트 — 이 세션이 **기획을 어디까지 읽었는가**.
+   *
+   * 검증 배지와 같은 규약으로 원시값 하나만 구독한다 — 정독 상태는 절 목록·구간까지 든 무거운 객체라
+   * 그대로 물면 스냅샷마다 활동바가 통째로 다시 그려진다(zustand 파생 선택자 함정).
+   * `충족/필수|인용실패|되돌림` 세 조각이면 점등·숫자·색이 전부 정해진다.
+   */
+  const readingState = useGraphStore((s) => {
+    const r = activeSessionId ? s.specReading[activeSessionId] : undefined;
+    if (!r || r.trust.requiredTotal === 0) return '';
+    return `${r.trust.satisfied}/${r.trust.requiredTotal}|${r.trust.citationsFailed}|${r.stopRetries}`;
+  });
+  const reading = ((): { badge: string; tone: string } | null => {
+    if (readingState === '') return null;
+    const [ratio = '', failed = '0', retries = '0'] = readingState.split('|');
+    // 색은 하나만 말한다 — **지금 이 세션을 믿어도 되는가.** 인용이 틀렸으면 그것이 가장 나쁜 소식이고,
+    //   다 채웠으면 초록, 되돌린 적이 있으면 amber, 그 밖에는 다른 항목과 같은 회색(평소엔 조용히).
+    const [done = '0', total = '0'] = ratio.split('/');
+    const tone = Number(failed) > 0
+      ? 'text-rose-400'
+      : done === total
+        ? 'text-emerald-400'
+        : Number(retries) > 0
+          ? 'text-amber-400'
+          : 'text-gray-500';
+    return { badge: ratio, tone };
   })();
 
   /**
@@ -156,7 +234,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     });
   }, [filesRoot, t]);
 
-  const handleClick = useCallback((view: IDEViewType) => {
+  const openView = useCallback((view: IDEViewType) => {
     // v4.93·v4.95 — 북마크·세션 요약·실행 중 서브에이전트가 차례로 덮개를 벗어, 활동바의 모든 항목이
     // 이 한 함수를 탄다(같은 항목 재클릭 = 접힘). 상호 배타로 닫아 줄 덮개는 더 이상 없다.
     if (activeView === view && !sidebarCollapsed) {
@@ -170,307 +248,391 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     }
   }, [activeView, sidebarCollapsed, sidebarDrawer, setNavOpen, setActiveView, toggleSidebar]);
 
+  /*
+   * §5.5 #17-44 ⑧(c) — **이 바에 예외는 없다.** 한때 `정독` 만 클릭 규약이 달라 켬/끔 3층 팝오버가
+   * 떴는데, 열넷 중 하나만 다른 것이 열리면 그 칸은 손에 익지 않고 고장난 칸으로 읽힌다(사용자 지시).
+   * 3층 스위치는 정독 뷰 안으로 들어갔으므로 여기서 갈릴 이유가 남지 않았다 — 모든 칸이 `openView`.
+   */
+
+  /* ─── §5.5 #16-1 사용자가 만들어 둔 배치(순서 · 내려놓은 칸) ─── */
+
+  const order = useIDEActivityBarStore(selectActivityOrder);
+  const hiddenList = useIDEActivityBarStore((s) => s.hidden);
+  const prefsLoaded = useIDEActivityBarStore((s) => s.loaded);
+  const fetchPrefs = useIDEActivityBarStore((s) => s.fetchPrefs);
+  const setOrder = useIDEActivityBarStore((s) => s.setOrder);
+  useEffect(() => { if (!prefsLoaded) void fetchPrefs(); }, [prefsLoaded, fetchPrefs]);
+
+  // 화면에 실제로 서는 칸 = 순서 − 내려놓은 것 − 이 엔진에 없는 것.
+  const visible = useMemo(
+    () => order.filter((v) => !hiddenList.includes(v) && show(v)),
+    [order, hiddenList, show],
+  );
+  // 내려놓은 칸도 **이 엔진에 있는 것만** 보여 준다 — 켤 수 없는 것을 켜라고 목록에 두면
+  // 눌러도 아무 일이 없는 죽은 줄이 된다(§5.19 (G) "없는 기능의 입구는 거짓말이다").
+  const excluded = useMemo(
+    () => order.filter((v) => hiddenList.includes(v) && show(v)),
+    [order, hiddenList, show],
+  );
+
+  /** 항목 이름 — `subagents` 만 수를 받는다. 구성 패널의 목록이 읽는 값이다. */
+  const nameOf = useCallback((view: IDEViewType): string => {
+    const item = activityItem(view);
+    if (!item) return view;
+    if (view === 'subagents') return t(item.labelKey, { count: runningCount });
+    return t(item.labelKey);
+  }, [t, runningCount]);
+
+  /**
+   * 활동바 칸의 툴팁. 이름과 **다르다** — 좁은 40px 칸이 못 담는 것을 여기서 말한다
+   * (목표는 남은 단계까지). 구성 패널은 이 긴 문장 대신 위 `nameOf` 를 쓴다.
+   */
+  const labelOf = useCallback((view: IDEViewType): string => {
+    if (view === 'goal') return goalTitle;
+    // §5.10 (P) — 아래 숫자만으로는 그것이 무엇의 수인지 알 수 없다. 목록 머리글이 쓰는 그 문장을
+    //   그대로 빌려 쓴다(새 키 ❌ — 같은 뜻에 문장이 둘이면 12 로케일에서 갈린다).
+    if (view === 'autoGoal' && autoGoalSkills > 0) {
+      return `${nameOf(view)} — ${t('ide.autoGoal.groupSkills', { count: autoGoalSkills })}`;
+    }
+    return nameOf(view);
+  }, [goalTitle, nameOf, autoGoalSkills, t]);
+
+  /** 그 칸이 지금 무엇을 말하는가(배지·점등). 항목마다 재료가 달라 여기 한 곳에서 갈린다. */
+  const stateOf = useCallback((view: IDEViewType): ActivityState => {
+    switch (view) {
+      case 'goal':
+        return {
+          badge: goalInd.meter,
+          tone: goalInd.lit ? 'text-emerald-400' : null,
+          blink: goalInd.blink,
+          dot: null,
+        };
+      case 'autoGoal':
+        // 숫자는 **굳은 절차의 양**이라 그 자체로는 재촉할 일이 아니다(북마크와 같은 규약 — 색 ❌).
+        //   색이 켜지는 때는 하나뿐이다: **곧 굳을 후보가 있을 때**(뷰에서 그 줄이 amber 인 것과 같은 뜻).
+        return {
+          badge: autoGoalSkills > 0 ? clampCount(autoGoalSkills) : null,
+          tone: autoGoalBrewing > 0 ? 'text-amber-400' : null,
+          blink: false,
+          dot: null,
+        };
+      case 'hooks':
+        return {
+          badge: null,
+          tone: hookFiring ? 'text-amber-400 drop-shadow-[0_0_5px_rgba(251,191,36,0.7)]' : null,
+          blink: hookFiring,
+          dot: null,
+        };
+      case 'debug':
+        return {
+          badge: runningRuns > 0 ? clampCount(runningRuns) : null,
+          tone: runningRuns > 0 ? 'text-amber-400' : null,
+          blink: false,
+          dot: null,
+        };
+      case 'loop':
+        return {
+          badge: loopBadge,
+          tone: loopRunning ? 'text-amber-400' : null,
+          blink: false,
+          dot: null,
+        };
+      case 'verify':
+        return {
+          badge: null,
+          tone: verifyRunning ? 'text-amber-400' : null,
+          blink: false,
+          dot: verifyDotTone,
+        };
+      case 'specReading':
+        return {
+          badge: reading?.badge ?? null,
+          tone: reading?.tone ?? null,
+          blink: false,
+          dot: null,
+        };
+      case 'subagents':
+        return {
+          badge: runningCount > 0 ? clampCount(runningCount) : null,
+          tone: runningCount > 0 ? 'text-sky-400 drop-shadow-[0_0_5px_rgba(56,189,248,0.7)]' : null,
+          blink: runningCount > 0,
+          dot: null,
+        };
+      case 'bookmarks':
+        // 보관 개수는 상태가 아니라 **양**이다 — 재촉할 일이 아니므로 색은 켜지 않는다.
+        return { badge: bookmarkCount > 0 ? clampCount(bookmarkCount) : null, tone: null, blink: false, dot: null };
+      default:
+        return NEUTRAL;
+    }
+  }, [
+    goalInd, hookFiring, runningRuns, loopBadge, loopRunning, verifyRunning, verifyDotTone,
+    reading, runningCount, bookmarkCount, autoGoalSkills, autoGoalBrewing,
+  ]);
+
+  /* ─── 꾹 눌러 자리 옮기기 — 손에 붙어 따라오고, 지나는 칸이 밀린다 ─── */
+
+  /*
+   * 종전에는 끄는 동안 **아무것도 움직이지 않았다** — 잡은 칸은 제자리에서 흐려지기만 하고,
+   * 놓일 자리는 파란 삽입선 한 줄로만 말했다. 그래서 "무엇을 들고 있는지"가 손이 아니라 목록
+   * 어딘가에 남아 있어, 스마트폰 앱 아이콘을 옮기는 것과 전혀 다른 손짓이 됐다(사용자 지시:
+   * "꾹 누르면 마우스에 아이콘이 붙어서 따라오고 아래로 내리면 직관적으로 아래 아이콘이 밀려야지").
+   *
+   * 이제 둘로 나뉜다.
+   *   ① **고스트** — 잡은 글리프가 원래 자리를 떠나 커서에 붙는다(잡은 지점 그대로).
+   *      원래 자리에는 점선 홈만 남아 "이 칸이 어디에 앉을지"를 말한다.
+   *   ② **밀림** — 커서가 이웃 칸의 **중앙선을 넘는 순간** 순서를 바꾸고, 바뀐 자리로 되돌아
+   *      앉는 재생을 건다. 삽입선 ❌ — §6 이 이미 탭바에 세워 둔 규칙과 같은 손맛이고,
+   *      기하·수치도 그 한 벌(`tabPushGeom` · `useTabPushAnimation`)을 **축만 세로로** 돌려 쓴다.
+   */
+
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * 제스처 자체(길게 누르기 · 창이 따라가는 이벤트원 · 고스트 자리 · 중앙선 밀어내기 ·
+   * 가장자리 자동 스크롤 · `click` 삼킴 · `Esc` 되돌리기)는 **공용 훅 한 벌**이 갖는다
+   * (`hooks/usePointerDragReorder.ts`). 여기 남는 것은 활동바만의 것 둘뿐이다 —
+   * `axis:'y'`(세로로 선 줄)와, 저장할 때 **전체 순서의 그 자리들에만 되꽂는** 규칙.
+   */
+  const drag = usePointerDragReorder({
+    axis: 'y',
+    container: listRef,
+    keyAttribute: ACTIVITY_KEY_ATTR,
+    order: visible,
+    onCommit: (next) => {
+      if (!next) return; // 제자리 — 저장할 것이 없다.
+      // 화면에 선 것만 끌 수 있으므로(내려놓은 칸·이 엔진에 없는 칸은 목록에 없다) 새 순서를
+      // 전체 순서의 **그 자리들**에만 되꽂는다(§5.5 #16-1 `applyVisibleOrder`).
+      void setOrder(applyVisibleOrder(order, visible, next) as IDEViewType[]);
+    },
+  });
+  const dragView = drag.dragKey as IDEViewType | null;
+  const isDragging = dragView !== null;
+
+  /**
+   * 화면에 실제로 그리는 순서 — 끄는 동안에는 로컬 순서가 이긴다.
+   *
+   * 서버 목록 위에 **덧씌우는** 것이라(치환 ❌), 끄는 사이 목록 자체가 바뀌어도(엔진 교체 ·
+   * 구성 패널에서 내려놓기) 로컬에 없는 칸이 사라지지 않고 뒤에 그대로 붙는다.
+   */
+  const shown = useMemo(
+    () => (drag.localOrder ? applyLocalOrder(visible, drag.localOrder as IDEViewType[], (v) => v) : visible),
+    [visible, drag.localOrder],
+  );
+
+  // 순서가 바뀐 그 렌더에서 **밀린 칸이 제자리로 되돌아 앉는** 재생을 건다(FLIP · 세로축).
+  useTabPushAnimation({
+    container: listRef,
+    keyAttribute: ACTIVITY_KEY_ATTR,
+    order: shown,
+    leadKey: dragView,
+    axis: 'y',
+  });
+
+  /* ─── 스크롤 레일 (오버레이 썸) ─── */
+
+  /**
+   * §5.5 #16-1 (D) — **스크롤바가 아이콘의 가운데선을 밀지 않는다(사용자 지시).**
+   *
+   * 네이티브 세로 스크롤바는 **레이아웃을 점유한다**. 폭 48px 짜리 바에서 그 몇 px 은 목록의
+   * 내용 상자만 좁히므로, 스크롤이 생기는 순간 아이콘 열이 통째로 왼쪽으로 기울고 **위에 고정된
+   * 구성 버튼과 축이 어긋났다**(사용자 보고 "가운데에서 왼쪽으로 기운다 · 지금 이상해").
+   * 게다가 `.scrollbar-thin` 의 `::-webkit-scrollbar { width: 5px }` 는 지금 엔진에서 먹지 않는다 —
+   * Chromium 121+ 는 표준 `scrollbar-width`/`scrollbar-color` 가 지정돼 있으면 webkit 유사요소의
+   * 폭 지정을 통째로 무시하고 자기 `thin` 두께를 쓴다. 그래서 실제로 밀린 양은 5px 이 아니었다.
+   *
+   * 그래서 탭바(§5.5 #17-9)가 이미 세워 둔 규약을 **축만 세로로** 돌려 쓴다: 네이티브 스크롤바는
+   * `scrollbar-overlay` 로 지우고(폭 점유 0 → 목록의 내용 상자는 늘 48px, 아이콘은 스크롤 유무와
+   * 무관하게 같은 자리) 얇은 썸을 **별도 DOM 으로 목록 위에 띄운다**(VS Code 식).
+   * 갱신은 스크롤·리사이즈마다 도는 자리라 상태가 아니라 DOM 을 직접 만진다(고스트와 같은 이유).
+   */
+  const thumbRef = useRef<HTMLDivElement | null>(null);
+
+  const updateScrollThumb = useCallback((): void => {
+    const el = listRef.current;
+    const th = thumbRef.current;
+    if (!el || !th) return;
+    const overflow = el.scrollHeight - el.clientHeight;
+    if (overflow <= 0 || el.clientHeight <= 0) {
+      th.style.opacity = '0';
+      th.style.height = '0px';
+      return;
+    }
+    const ratio = el.clientHeight / el.scrollHeight;
+    const height = Math.max(ACTIVITY_THUMB_MIN_PX, el.clientHeight * ratio);
+    const top = (el.scrollTop / overflow) * (el.clientHeight - height);
+    th.style.opacity = '1';
+    th.style.height = `${height}px`;
+    th.style.transform = `translateY(${top}px)`;
+  }, []);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    updateScrollThumb();
+    el.addEventListener('scroll', updateScrollThumb, { passive: true });
+    const ro = new ResizeObserver(updateScrollThumb);
+    ro.observe(el);
+    if (el.parentElement) ro.observe(el.parentElement);
+    const onWinResize = (): void => {
+      updateScrollThumb();
+      requestAnimationFrame(updateScrollThumb);
+    };
+    window.addEventListener('resize', onWinResize);
+    return () => {
+      el.removeEventListener('scroll', updateScrollThumb);
+      ro.disconnect();
+      window.removeEventListener('resize', onWinResize);
+    };
+  }, [updateScrollThumb]);
+
+  // 칸이 늘거나 줄면 `scrollHeight` 는 바뀌는데 **스크롤 상자 자신의 크기는 그대로**라, 위의
+  //   `ResizeObserver` 는 그 변화를 못 본다 — 목록이 갈릴 때 다시 잰다. 구독을 다시 걸지 않는
+  //   별도 효과인 이유: 끄는 동안 순서가 바뀔 때마다 관찰자를 뜯어 다시 세우지 않게.
+  useEffect(() => { updateScrollThumb(); }, [shown, updateScrollThumb]);
+
+  /* ─── 구성 패널 ─── */
+
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  // 이 엔진에 아무 칸도 없을 리는 없지만, 창이 닫힌 사이 목록이 비면 패널도 함께 닫는다.
+  useEffect(() => {
+    if (customizeOpen && visible.length === 0 && excluded.length === 0) setCustomizeOpen(false);
+  }, [customizeOpen, visible.length, excluded.length]);
+
   return (
     // §4 v3.24 — 서랍일 때는 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
     //   사이드바(v3.18 오버레이, left-12)와 나란히 뜨도록 좌측 고정 + 불투명 배경.
     //   판정은 뷰포트 미디어 쿼리가 아니라 **이 창의 폭**이다(`ideResponsive`) — 넓은 화면에서
     //   창만 좁힌 경우에도 접혀야 하고, 그 조건은 `max-md` 가 모른다.
-    <div className={`flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-gray-700 py-2 ${
+    //   §5.5 #16-1 — `relative` 는 구성 패널이 이 바의 오른쪽에 붙기 위한 기준점이다.
+    <div className={`relative flex w-12 flex-shrink-0 flex-col items-center border-r border-gray-700 ${
       navDrawer ? 'absolute inset-y-0 left-0 z-40 bg-gray-900' : 'bg-gray-900/80'
     }`}>
-      {ACTIVITIES.filter((item) => show(item.view)).map((item) => {
-        const isActive = activeView === item.view && !sidebarCollapsed;
-        return (
-          <button
-            key={item.view}
-            type="button"
-            onClick={() => handleClick(item.view)}
-            {...(item.view === 'files' ? { onContextMenu: handleFilesContextMenu } : {})}
-            className={`flex h-10 w-10 items-center justify-center rounded transition-colors ${
-              isActive
-                ? 'border-l-2 border-blue-400 bg-gray-800 text-white'
-                : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-            }`}
-            title={t(item.labelKey)}
+      {/* §5.5 #16-1 — **구성.** 무엇을 올려 두고 어떤 차례로 둘지 정하는 자리(lucide sliders 톤).
+          맨 위에 서는 이유: 아래 목록이 스크롤되는 동안에도 이 입구는 늘 같은 자리에 있어야 한다. */}
+      <button
+        type="button"
+        onClick={() => setCustomizeOpen((o) => !o)}
+        className={`mt-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded transition-colors ${
+          customizeOpen ? 'bg-gray-800 text-gray-200' : 'text-gray-600 hover:bg-gray-800 hover:text-gray-300'
+        }`}
+        title={t('ide.activityBar.customize')}
+        aria-label={t('ide.activityBar.customize')}
+        aria-expanded={customizeOpen}
+      >
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2" />
+          <circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="16" cy="18" r="2" />
+        </svg>
+      </button>
+      <div className="my-1.5 h-px w-6 flex-shrink-0 bg-gray-700/70" />
+
+      {/* 창 높이에 맞춰 **여기만** 스크롤한다 — 종전에는 바 전체가 고정 높이라 항목이 창 밖으로
+          잘려 나갔다(창을 줄이면 아래쪽 칸에 손이 닿지 않았다). 구성 버튼은 위에 남는다.
+          이 겉칸은 **오버레이 썸의 기준점**이다 — 썸을 스크롤 상자 안에 두면 내용과 함께 흘러간다. */}
+      <div className="group/actrail relative flex w-full min-h-0 flex-1 flex-col items-center">
+        <div
+          ref={listRef}
+          // `relative` 는 장식이 아니다 — 이 칸이 `offsetParent` 여야 각 줄의 `offsetTop` 이 곧
+          //   목록 안의 자리가 되고, 밀림 재생·중앙선 판정이 스크롤과 무관하게 맞는다.
+          // `scrollbar-overlay` — 네이티브 스크롤바는 **폭을 점유해** 아이콘 열을 왼쪽으로 밀므로
+          //   지우고, 대신 아래 썸을 목록 위에 띄운다(위 「스크롤 레일」 주석).
+          className="scrollbar-overlay relative flex w-full min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden pb-2"
+        >
+          {shown.map((view) => {
+            const item = activityItem(view);
+            if (!item) return null;
+            const isActive = activeView === view && !sidebarCollapsed;
+            const st = stateOf(view);
+            // 지금 손에 들려 있는 칸 — 글리프는 고스트로 떠났고 여기엔 점선 홈만 남는다.
+            const lifted = dragView === view;
+            return (
+              <div key={view} data-activity-key={view} className="relative flex w-full flex-shrink-0 justify-center">
+                {lifted && (
+                  <span className="pointer-events-none absolute inset-y-0 left-1 right-1 rounded border border-dashed border-blue-400/60 bg-blue-400/10" />
+                )}
+                <button
+                  type="button"
+                  data-activity-view={view}
+                  onClick={() => {
+                    if (drag.consumeClick()) return;
+                    openView(view);
+                  }}
+                  // 누르기만 여기서 받는다 — 그 뒤의 이동·놓기·취소는 **창**이 받는다(위 규약).
+                  //   버튼에 걸면 자리가 갈리는 순간 그 노드가 옮겨지면서 끌기가 손에서 사라진다.
+                  onPointerDown={(e) => { drag.onPointerDown(e, view); }}
+                  {...(view === 'files' ? { onContextMenu: handleFilesContextMenu } : {})}
+                  className={`relative flex h-10 w-10 flex-col items-center justify-center gap-px rounded transition-colors ${
+                    isActive
+                      ? `border-l-2 ${item.accent} bg-gray-800 text-white`
+                      : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+                  } ${lifted ? 'opacity-0' : ''}`}
+                  // 끄는 동안 브라우저가 스크롤·선택으로 가로채지 않게(터치·펜 포함).
+                  style={isDragging ? { touchAction: 'none' } : undefined}
+                  title={labelOf(view)}
+                  aria-label={labelOf(view)}
+                >
+                  <ActivityIcon
+                    view={view}
+                    className={`h-5 w-5 ${st.tone && !isActive ? st.tone : ''} ${st.blink ? 'animate-pulse' : ''}`}
+                  />
+                  {/* 숫자는 아이콘과 한 몸 — 점등이 버튼이 아니라 글리프에 사는 이상 색도 여기서 직접 준다. */}
+                  {st.badge && (
+                    <span className={`text-[12px] font-bold leading-none tabular-nums ${st.tone && !isActive ? st.tone : ''}`}>
+                      {st.badge}
+                    </span>
+                  )}
+                  {st.dot && <span className={`absolute right-1 top-1.5 h-2 w-2 rounded-full ${st.dot}`} />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {/* 오버레이 스크롤바 썸 — 목록 위로 떠서 hover 시 표시. **레이아웃 점유 0** 이라 아이콘의
+            가운데선을 밀지 않는다. 길이·자리는 `updateScrollThumb()` 이 ref 로 직접 갱신한다. */}
+        <div
+          ref={thumbRef}
+          aria-hidden
+          className="pointer-events-none absolute right-0 top-0 w-[3px] rounded-full bg-slate-400/0 transition-[background-color] duration-200 group-hover/actrail:bg-slate-400/50"
+          style={{ opacity: 0, height: 0 }}
+        />
+      </div>
+
+      {/*
+        손에 들린 칸. **`document.body` 로 내보낸다** — 활동바는 DOM 상 캔버스의 자식이고(§5.5 #17-6)
+        그 위에는 React Flow 의 `transform` 이 걸려 있어, 여기서 `fixed` 를 쓰면 뷰포트가 아니라
+        그 변환된 조상 기준이 돼 고스트가 커서에서 어긋난다.
+        자리는 렌더가 아니라 `moveGhost()` 가 transform 으로 준다(프레임마다 리렌더 ❌).
+      */}
+      {dragView && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={drag.ghostRef}
+          aria-hidden
+          className="pointer-events-none fixed left-0 top-0 z-[200] will-change-transform"
+        >
+          <div
+            // 치수는 흉내 내지 않고 **재서 물려받는다**(§5.4 #14-2 (F-2)) — 종전 `h-10 w-10` 은
+            //   원본 버튼과 우연히 같았을 뿐이라, 버튼이 커지면 조용히 어긋난다. `scale-110` 은
+            //   "들어 올렸다"는 신호라 그대로 둔다.
+            style={drag.dragSize ?? undefined}
+            className="flex scale-110 flex-col items-center justify-center gap-px rounded-lg border border-blue-400/70 bg-gray-800 text-blue-300 shadow-lg shadow-black/60"
           >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-              <path d={item.icon} />
-            </svg>
-          </button>
-        );
-      })}
-
-      {/* §5.5 #17-32 — 이 세션에 적용되는 훅. 첫 항목 MCP(무엇이 꽂혀 있나)와 같은 결의 물음
-          — **무엇이 실제로 도는가**. 아이콘은 lucide webhook 톤 stroke SVG(이모지 ❌).
-          ④ 발동 중에는 amber 로 켜지고 글리프가 깜빡인다. 점등을 **글리프에만** 거는 것은
-          #17-17 ⑩ v4.69 가 세운 규칙 그대로다 — 버튼에 색을 걸면 40×40 칸 전체가 물들어 옆
-          항목들과 뭉쳐 보인다. 여기서는 목록을 읽지 않는다(사이드바를 열지 않아도 떠 있는 자리라
-          매번 디스크를 긁을 이유가 없다) — "울리고 있나" 한 비트면 충분하다. */}
-      {show('hooks') && (
-        <button
-          type="button"
-          onClick={() => handleClick('hooks')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'hooks' && !sidebarCollapsed
-              ? 'border-l-2 border-amber-400 bg-gray-800 text-white'
-              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.hooks')}
-          aria-label={t('ide.activityBar.hooks')}
-        >
-          <svg
-            className={`h-5 w-5 ${hookFiring ? 'animate-pulse text-amber-400 drop-shadow-[0_0_5px_rgba(251,191,36,0.7)]' : ''}`}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
-          >
-            <path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2" />
-            <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
-            <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" />
-          </svg>
-        </button>
+            <ActivityIcon view={dragView} className="h-5 w-5" />
+            {stateOf(dragView).badge && (
+              <span className="text-[12px] font-bold leading-none tabular-nums">{stateOf(dragView).badge}</span>
+            )}
+          </div>
+        </div>,
+        document.body,
       )}
 
-      {/* §5.5 #17-33 — Claude Code 자신의 플러그인(명령·에이전트·스킬·훅·MCP 묶음) + 마켓플레이스.
-          훅(#17-32) 바로 옆에 서는 같은 결의 물음 — **무엇이 이 세션에 실려 있는가**.
-          §5.11 의 우리 관측 플러그인과는 다른 물건이라 아이콘도 다르다(lucide puzzle 톤 stroke SVG).
-          배지는 **이 세션에 실제로 실리는 켜진 수**만 센다(남의 프로젝트에 매인 것은 빼고) —
-          그 수가 0 이면 배지가 없다. 목록은 뷰가 읽는다(활동바가 매번 CLI 를 부르면 안 된다). */}
-      {show('plugins') && (
-        <button
-          type="button"
-          onClick={() => handleClick('plugins')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'plugins' && !sidebarCollapsed
-              ? 'border-l-2 border-indigo-400 bg-gray-800 text-white'
-              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.plugins')}
-          aria-label={t('ide.activityBar.plugins')}
-        >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15.5 3.5a2.5 2.5 0 0 0-5 0V5H7a2 2 0 0 0-2 2v3.5H3.5a2.5 2.5 0 0 0 0 5H5V19a2 2 0 0 0 2 2h3.5v-1.5a2.5 2.5 0 0 1 5 0V21H19a2 2 0 0 0 2-2v-3.5h-1.5a2.5 2.5 0 0 1 0-5H21V7a2 2 0 0 0-2-2h-3.5z" />
-          </svg>
-        </button>
-      )}
-
-      {/* §5.5 #17-17 v4.47 — 세션 목표. 누르면 사이드바가 목표 뷰(최종 목표 + todo 체크리스트)로
-          바뀌고, 같은 항목을 다시 누르면 접힌다(다른 사이드바 항목과 같은 규약).
-          ⑩ v4.61 — 색이 세 상태로 갈리고(회색 = 목표 없음·달성·중단 / emerald = 진행 중이나 세션은
-          멈춤 / **아이콘만 반짝임** = 지금 도는 중), 아이콘 아래 한 줄이 `완료/전체`(단계가 없으면
-          퍼센트)를 띄운다 — 사이드바를 열지 않아도 어디까지 왔는지 읽힌다.
-          v4.69 — 도는 중 표시는 **아이콘 하나에만** 건다. 버튼 배경·링을 칠하면 40×40 칸 전체가
-          물들어 옆 항목들과 뭉쳐 보인다(사용자 지적) — 깜빡이는 것은 그 글리프뿐이어야 한다.
-          v4.73 — 켜지는 조건은 "목표가 있다"가 아니라 **"보여줄 내용이 들어왔다"**(`goalIndicator`). 명령마다
-          카드가 자동 생성되므로 빈 0% 에도 불이 켜져 눌러 보면 빈 화면이었다 — 불은 약속이다. */}
-      {show('goal') && (
-        <button
-          type="button"
-          onClick={() => handleClick('goal')}
-          className={`relative flex h-10 w-10 flex-col items-center justify-center gap-px rounded transition-colors ${
-            activeView === 'goal' && !sidebarCollapsed
-              ? 'border-l-2 border-emerald-400 bg-gray-800 text-white'
-              : goalInd.lit
-                ? 'text-emerald-400 hover:bg-gray-800 hover:text-emerald-300'
-                : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={goalTitle}
-          aria-label={goalTitle}
-        >
-          <svg
-            className={`h-5 w-5 ${goalInd.blink ? 'animate-pulse' : ''}`}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" />
-          </svg>
-          {/* 색은 부모 text-* 를 그대로 따른다(회색/emerald 자동 추종). */}
-          {goalInd.meter && (
-            <span className="text-[12px] font-bold leading-none tabular-nums">{goalInd.meter}</span>
-          )}
-        </button>
-      )}
-
-      {/* §5.5 #17-20 v4.74 — 디버그·실행 런처. 재생 + 벌레 글리프(VS Code 의 Run and Debug 와 같은 뜻).
-          이 프로젝트의 실행 구성을 켜고 끄는 자리이자, 에이전트에 디버그 도구(MCP)를 꽂는 자리.
-          돌고 있는 실행이 있으면 amber 로 켜지고 배지에 그 수가 뜬다(루프 배지와 같은 규약). */}
-      {show('debug') && (
-        <button
-          type="button"
-          onClick={() => handleClick('debug')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'debug' && !sidebarCollapsed
-              ? 'border-l-2 border-emerald-400 bg-gray-800 text-white'
-              : runningRuns > 0
-                ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
-                : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.debug')}
-          aria-label={t('ide.activityBar.debug')}
-        >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 4l7 4-7 4z" />
-            <rect x="10" y="11" width="8" height="8" rx="4" />
-            <path d="M10 15H7M18 15h3M11.5 11.5L10 9M16.5 11.5L18 9M11.5 19l-1.5 2M16.5 19l1.5 2" />
-          </svg>
-          {runningRuns > 0 && (
-            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[12px] font-bold tabular-nums text-white">
-              {runningRuns > 99 ? '99+' : runningRuns}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* 북마크 — §5.5 #17-7 v4.93: 세션창을 덮던 패널을 폐지하고 **사이드바 뷰**로. 누르면 사이드바가
-          북마크 목록으로 바뀌고, 같은 항목을 다시 누르면 접힌다(스킬·목표·루프와 같은 규약). */}
-      {show('bookmarks') && (
-        <button
-          type="button"
-          onClick={() => handleClick('bookmarks')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'bookmarks' && !sidebarCollapsed
-              ? 'border-l-2 border-blue-400 bg-gray-800 text-white'
-              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.bookmarks')}
-          aria-label={t('ide.activityBar.bookmarks')}
-        >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-          </svg>
-          {bookmarkCount > 0 && (
-            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[12px] font-bold text-white">
-              {bookmarkCount > 99 ? '99+' : bookmarkCount}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* 세션 요약 — 쌓인 세션을 한눈에 요약 카드로. 배지 = 미확인 완료 세션 수("확인할 게 N개").
-          §5.5 #17-8 v4.93: 북마크와 함께 덮개를 벗고 사이드바 뷰가 됐다(본문을 보면서 곁눈으로 훑는 자리). */}
-      {show('summary') && (
-        <button
-          type="button"
-          onClick={() => handleClick('summary')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'summary' && !sidebarCollapsed
-              ? 'border-l-2 border-violet-400 bg-gray-800 text-white'
-              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.sessionSummary')}
-          aria-label={t('ide.activityBar.sessionSummary')}
-        >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <rect x="8" y="3" width="8" height="4" rx="1" />
-            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
-            <path d="M9 12h6" /><path d="M9 16h4" />
-          </svg>
-          {unreviewedCount > 0 && (
-            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[12px] font-bold text-white">
-              {unreviewedCount > 99 ? '99+' : unreviewedCount}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 항목은 항상 있고(설정하러 들어오는 입구),
-          배지는 지금 열린 세션 탭의 루프 진행(완료/목표 — 무한이면 완료 횟수)만 보여준다.
-          도는 동안에는 아이콘이 amber 로 켜져 "이 탭은 지금 반복 중"이 한눈에 보인다.
-          ⑨ v4.51 — 누르면 세션창을 덮는 대신 **사이드바가 루프 뷰로 바뀐다**(같은 항목 재클릭 시 접힘). */}
-      {show('loop') && (
-        <button
-          type="button"
-          onClick={() => handleClick('loop')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'loop' && !sidebarCollapsed
-              ? 'border-l-2 border-amber-400 bg-gray-800 text-white'
-              : loopRunning
-                ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
-                : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.loop')}
-          aria-label={t('ide.activityBar.loop')}
-        >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 2l4 4-4 4" />
-            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-            <path d="M7 22l-4-4 4-4" />
-            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-          </svg>
-          {loopBadge !== null && (
-            <span
-              className={`absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[12px] font-bold tabular-nums text-white ${
-                loopRunning ? 'bg-amber-500' : 'bg-gray-600'
-              }`}
-            >
-              {loopBadge}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* §5.5 #17-35 — 검증(Verify). `/verify` 를 우리 레시피·구조화 판정·영속 이력에 물린 자리.
-          도는 동안 아이콘이 amber 로 켜지고(루프와 같은 규약), 배지는 그 탭 **마지막 판정**의 색 점 하나다.
-          자동 실행은 없다 — 길고 비싼 검사라 언제 태울지는 사람이 정한다(#17-35 ⑧). */}
-      {show('verify') && (
-        <button
-          type="button"
-          onClick={() => handleClick('verify')}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            activeView === 'verify' && !sidebarCollapsed
-              ? 'border-l-2 border-sky-400 bg-gray-800 text-white'
-              : verifyRunning
-                ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
-                : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.verify')}
-          aria-label={t('ide.activityBar.verify')}
-        >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 11l3 3L22 4" />
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-          </svg>
-          {verifyDotTone && (
-            <span className={`absolute right-1 top-1.5 h-2 w-2 rounded-full ${verifyDotTone}`} />
-          )}
-        </button>
-      )}
-
-      {/* §5.5 #17-9 ⑤ v5.06 — 실행 중 서브에이전트. **항목은 늘 여기 있다**(터미널·파일·스킬과 같은
-          자리·같은 규약). 도는 게 있을 때만 나타나게 두면 그 순간을 놓친 사용자에게는 이 기능이
-          없는 것과 같다(사용자 지적) — 그래서 조건부 렌더와 "뷰 여는 동안만 회색" 예외를 함께 없앴다.
-          상태는 색과 숫자로만 말한다: 도는 중이면 sky 점등 + **아이콘 바로 아래 개수**(목표 항목의
-          진행 표기와 같은 형태 — 사용자가 정한 읽는 방식), 없으면 다른 항목과 같은 회색·숫자 없음.
-          누르면 언제나 사이드바가 이 뷰로 바뀌고(재클릭 = 접힘), 도는 게 없으면 뷰가 설명을 띄운다.
-          개수 산식은 '지금 보고 있는 탭' 한 벌 — `runningSubagents.ts`(③(a) v4.95).
-          ⑨ — 도는 중 점등은 **아이콘(과 그 아래 숫자)에만** 건다. 버튼에 색을 걸면 호버 배경까지
-          그 상태를 따라가 40×40 칸 전체가 물들어 옆 항목들과 뭉쳐 보인다(#17-17 ⑩ v4.69 와 같은 규칙) —
-          빛나는 것은 그 글리프뿐이어야 한다. 버튼 자체는 다른 항목과 같은 회색·같은 호버를 유지한다. */}
-      {show('subagents') && (
-        <button
-          type="button"
-          onClick={() => handleClick('subagents')}
-          className={`relative flex h-10 w-10 flex-col items-center justify-center gap-px rounded transition-colors ${
-            activeView === 'subagents' && !sidebarCollapsed
-              ? 'border-l-2 border-sky-400 bg-gray-800 text-white'
-              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
-          title={t('ide.activityBar.runningSubagents', { count: runningCount })}
-          aria-label={t('ide.activityBar.runningSubagents', { count: runningCount })}
-        >
-          <svg
-            className={`h-5 w-5 ${runningCount > 0 ? 'animate-pulse text-sky-400 drop-shadow-[0_0_5px_rgba(56,189,248,0.7)]' : ''}`}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
-          >
-            <line x1="6" y1="3" x2="6" y2="15" />
-            <circle cx="18" cy="6" r="3" />
-            <circle cx="6" cy="18" r="3" />
-            <path d="M18 9a9 9 0 0 1-9 9" />
-          </svg>
-          {/* 숫자는 아이콘과 한 몸 — 점등이 버튼이 아니라 글리프에 사는 이상 색도 여기서 직접 준다. */}
-          {runningCount > 0 && (
-            <span className="text-[12px] font-bold leading-none tabular-nums text-sky-400">
-              {runningCount > 99 ? '99+' : runningCount}
-            </span>
-          )}
-        </button>
+      {customizeOpen && (
+        <IDEActivityBarCustomize
+          order={order}
+          visible={visible}
+          hidden={excluded}
+          labelOf={nameOf}
+          onClose={() => setCustomizeOpen(false)}
+        />
       )}
 
       {/* §5.5 #17-19 ⑦ — 활동바 **파일** 우클릭 메뉴. 위젯은 IDE 공용 하나를 그대로 쓴다. */}

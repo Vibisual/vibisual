@@ -18,6 +18,7 @@ import { logger } from '../logger.js';
 import { atomicWriteFileSync, projectDirForInfo } from './statePersistence.js';
 import { findTailLineOffset, scanTailLines } from './jsonlChunkReader.js';
 import { isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
+import { restoreLinkedImages } from './streamLinkedImages.js';
 
 function sanitize(segment: string): string {
   // 경로 주입 방지 — 안전 문자만 허용
@@ -172,7 +173,7 @@ function readTailEvents(fp: string, subAgentId: string, max: number): SubAgentSt
       } catch { /* skip corrupt line */ }
     });
     if (events.length > max) events.splice(0, events.length - max);
-    return events;
+    return restoreLinkedImages(events, process.platform).slice(-max);
   } catch (err) {
     logger.warn(`streamBufferStore load failed (${subAgentId}): ${err instanceof Error ? err.message : String(err)}`);
     return [];
@@ -185,6 +186,23 @@ export function loadBuffer(dir: string, subAgentId: string, max: number): SubAge
   // 아직 디스크에 안 쓴 pending 이 있으면 먼저 기록해 최신 이벤트 누락 방지.
   flushFile(fp);
   return readTailEvents(fp, subAgentId, max);
+}
+
+/**
+ * 이 폴더에 그 세션의 스트림 파일이 실재하는가 — **읽지 않고 존재만** 본다.
+ *
+ * 소속 프로젝트를 잃은 세션의 스트림을 되찾을 때 쓴다(`subAgentManager.findStreamDirFor`).
+ * 후보 폴더를 여럿 훑어야 하므로 파싱까지 하면 헛일이 커진다 — 있는 자리를 고른 다음 한 번만 읽는다.
+ */
+export function hasBuffer(dir: string, subAgentId: string): boolean {
+  const fp = subFile(dir, subAgentId);
+  // 아직 디스크에 안 내려간 첫 줄이 pending 에만 있을 수 있다 — 그것도 "있다"로 친다.
+  if (pending.has(fp)) return true;
+  try {
+    return fs.existsSync(fp);
+  } catch {
+    return false;
+  }
 }
 
 /** `loadBufferIfChanged` 결과. */

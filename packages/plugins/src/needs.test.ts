@@ -44,6 +44,7 @@ const SDK_SYMBOL_SOURCE: Record<string, string> = {
   judgeTrifecta: 'sdk/judgments/trifecta.ts',
   effectiveTools: 'sdk/judgments/trifecta.ts',
   judgeBlastRadius: 'sdk/judgments/blastRadius.ts',
+  readAutoGoal: 'sdk/judgments/autoGoal.ts',
 };
 
 /**

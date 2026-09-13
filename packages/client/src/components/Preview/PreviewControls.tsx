@@ -23,6 +23,16 @@ function PickIcon(): React.JSX.Element {
   );
 }
 
+/** Alt 가로채기 아이콘 — 키를 누르는 자리(lucide `keyboard` 톤). */
+function AltKeyIcon(): React.JSX.Element {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
+    </svg>
+  );
+}
+
 /** 영역 캡처 아이콘 — 잘라내는 틀(lucide `crop` 톤). */
 function SnipIcon(): React.JSX.Element {
   return (
@@ -41,6 +51,9 @@ interface PreviewControlsProps {
 
 export function PreviewControls({ picker, snip }: PreviewControlsProps): React.JSX.Element {
   const { t } = useTranslation();
+  // 이 키의 이름은 OS 마다 다르다 — mac 은 `⌥`(Option). 번역문에 `Alt` 를 박으면 12개 로케일이
+  // 한꺼번에 틀어지므로(멀티플랫폼 5축) 라벨도 설명문도 **여기서 만든 이름 하나**를 받아 쓴다.
+  const altKey = shortcutLabel('Alt');
   return (
     // 이 줄은 **되돌아오는 유일한 문**이다(§7.16 — 조작은 헤더 한 곳). 그래서 좁아져도 줄지 않고
     // (`shrink-0`), 자리가 모자라면 잘리는 대신 아랫줄로 접힌다(`flex-wrap`) — 한 번 잘려 나가면
@@ -83,6 +96,26 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
       >
         <PickIcon />
         <span>{t('common.preview.pickElement')}</span>
+      </button>
+      {/* §7.11 (G) Alt 가로채기 — 기본은 **우리 것이 강제**(켜짐). 프리뷰 안에서 Alt 를 누르면
+          포커스가 우리 창으로 돌아와 인스펙터가 선다. 안에서 도는 앱이 Alt 를 쓰면 여기서 양보한다. */}
+      <button
+        type="button"
+        onClick={picker.toggleAltCapture}
+        aria-pressed={picker.altCapture}
+        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
+          picker.altCapture
+            ? 'border-amber-400/60 bg-amber-500/20 text-amber-200'
+            : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
+        }`}
+        title={
+          picker.altCapture
+            ? t('common.preview.altCaptureOnHint', { key: altKey })
+            : t('common.preview.altCaptureOffHint', { key: altKey })
+        }
+      >
+        <AltKeyIcon />
+        <span>{altKey}</span>
       </button>
       {/* §5.17 (B) 영역 캡처 — 그은 사각형이 이 프리뷰를 띄운 에이전트의 입력창 첨부가 된다. */}
       {snip && picker.hostAgentId !== undefined && (

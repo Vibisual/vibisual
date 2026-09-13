@@ -13,6 +13,7 @@
  *     §7.7 디버그 모드에서만 목록에 선다. 목록에 서 있으면 사용자는 "켜면 동작한다"로 읽기 때문이다.
  */
 import type { PluginCategory, PluginManifest } from '@vibisual/shared';
+import { hasOwnToggle } from '@vibisual/plugins';
 
 /** 분류를 내보이는 순서. 위험한 것부터 — 켤지 말지 판단이 가장 급한 순서다. */
 export const PLUGIN_CATEGORY_ORDER: readonly PluginCategory[] = [
@@ -60,6 +61,9 @@ export function groupPlugins(
   const needle = norm(query);
   const kept = manifests.filter(
     (m) => (!onlyEnabled || enabled.has(m.id))
+      // §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드는 켜져 있어도 이 목록에 서지 않는다.
+      //   세우면 그 칸이 두 번째 관문이 되어 "뷰에서 켰는데 안 돈다"가 만들어진다.
+      && !hasOwnToggle(m)
       // 노출 게이트 — 디버그 모드가 아니면 아직 안 만들어진 카드는 뺀다. 단 **켠 것은 남긴다**:
       //   목록에서 사라지면 끌 방법이 없어지고, 그동안 프롬프트에는 계속 실린다.
       && (showDraft || isProjectEnforcing(m) || enabled.has(m.id))

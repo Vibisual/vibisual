@@ -1,4 +1,8 @@
+import { useMemo } from 'react';
 import { BaseEdge, useInternalNode, type EdgeProps, type InternalNode } from '@xyflow/react';
+import { LINK_FOCUS } from '@vibisual/shared';
+import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
+import { linkFocusEdgeStyle } from './linkedBubbles.js';
 
 /** edge ID → 안정적인 -1.0~1.0 난수 */
 function stableRandom(id: string): number {
@@ -68,6 +72,23 @@ export function CurvedEdge({
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
 
+  // §5.4 #31 연결 무리 강조 — 무리 밖 선은 물러나고 안쪽 선은 굵고 또렷해진다.
+  //   구독은 **판정 한 글자**라(무리 객체 ❌) 자기 자리가 바뀔 때만 이 엣지가 깨어난다.
+  const linkRole = useLinkEdgeRole(id);
+  const linkPhase = useLinkFocusPhase();
+  const linkStyle = useMemo(() => {
+    const v = linkFocusEdgeStyle(linkRole, linkPhase);
+    if (v.opacityMul === 1 && v.widthMul === 1) return style;
+    const baseOpacity = typeof style?.opacity === 'number' ? style.opacity : 1;
+    const baseWidth = typeof style?.strokeWidth === 'number' ? style.strokeWidth : 1;
+    return {
+      ...style,
+      opacity: baseOpacity * v.opacityMul,
+      strokeWidth: baseWidth * v.widthMul,
+      transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out, stroke-width ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
+    };
+  }, [style, linkRole, linkPhase]);
+
   const srcR = (data as Record<string, unknown> | undefined)?.['sourceRadius'];
   const tgtR = (data as Record<string, unknown> | undefined)?.['targetRadius'];
   const srcCircle = circleFromNode(sourceNode)
@@ -124,7 +145,7 @@ export function CurvedEdge({
     <BaseEdge
       id={id}
       path={path}
-      style={style}
+      style={linkStyle}
       markerEnd={markerEnd}
       markerStart={markerStart}
       interactionWidth={interactionWidth}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveStatusBarContext, resolveStatusBarModel, resolveStatusBarUsage,
+  resolveStatusBarThinkingOff,
 } from './statusBarContext.js';
 
 /**
@@ -169,5 +170,62 @@ describe('resolveStatusBarUsage', () => {
       inputTokens: 1_267_200_000,
       outputTokens: 7_400_000,
     });
+  });
+});
+
+/**
+ * §4 (Thinking on/off) — 상태바의 「확장 사고 꺼짐」 칸.
+ *
+ * 고정하는 것은 둘이다. ① **기본이 켬**이라 단순 truthy 가 아니다 — `undefined`(한 번도 안 만짐)를
+ * 끔으로 읽으면 손댄 적 없는 모든 에이전트의 상태바에 "꺼짐"이 뜬다. ② **이 설정을 실제로 받지 않는
+ * 세션에는 안 뜬다** — 훅 버블·프로바이더 버블·클로드가 아닌 CMD 갈래. 그 셋에 띄우면 화면이
+ * "이래서 안 도는 겁니다"라고 거짓 사유를 대게 되고, 사용자는 있지도 않은 체크를 찾아 헤맨다.
+ */
+describe('resolveStatusBarThinkingOff', () => {
+  const on = { isCustom: true } as const;
+
+  it('한 번도 안 만진 에이전트(undefined)는 켬이라 안 뜬다', () => {
+    expect(resolveStatusBarThinkingOff({ ...on })).toBe(false);
+  });
+
+  it('명시 true 도 켬이라 안 뜬다', () => {
+    expect(resolveStatusBarThinkingOff({ ...on, agentThinking: true })).toBe(false);
+  });
+
+  it('명시 false 일 때만 뜬다', () => {
+    expect(resolveStatusBarThinkingOff({ ...on, agentThinking: false })).toBe(true);
+  });
+
+  it('그 에이전트가 값을 안 가졌으면 설정 창 전역을 따라간다', () => {
+    expect(resolveStatusBarThinkingOff({ ...on, userDefaultThinking: false })).toBe(true);
+  });
+
+  it('에이전트가 못 박은 값이 전역을 이긴다 — 전역이 꺼져 있어도 이 버블은 켬이다', () => {
+    expect(resolveStatusBarThinkingOff({
+      ...on, agentThinking: true, userDefaultThinking: false,
+    })).toBe(false);
+  });
+
+  it('훅 버블에는 안 뜬다 — 우리가 띄운 세션이 아니라 이 설정이 닿지 않는다', () => {
+    expect(resolveStatusBarThinkingOff({ isCustom: false, agentThinking: false })).toBe(false);
+  });
+
+  it('프로바이더 버블(코덱스·로컬)에는 안 뜬다 — 클로드 settings 키를 그 턴이 읽지 않는다', () => {
+    expect(resolveStatusBarThinkingOff({
+      ...on, providerKind: 'codex-cli', agentThinking: false,
+    })).toBe(false);
+    expect(resolveStatusBarThinkingOff({
+      ...on, providerKind: 'local-llama', agentThinking: false,
+    })).toBe(false);
+  });
+
+  it('클로드가 아닌 CMD 갈래에는 안 뜬다 — 우리가 조립한 설정 파일이 안 붙는다', () => {
+    expect(resolveStatusBarThinkingOff({ ...on, cliKind: 'gemini', agentThinking: false })).toBe(false);
+    expect(resolveStatusBarThinkingOff({ ...on, cliKind: 'shell', agentThinking: false })).toBe(false);
+  });
+
+  it('CMD 갈래가 claude 이거나 아예 없으면(헤드리스) 뜬다', () => {
+    expect(resolveStatusBarThinkingOff({ ...on, cliKind: 'claude', agentThinking: false })).toBe(true);
+    expect(resolveStatusBarThinkingOff({ ...on, cliKind: undefined, agentThinking: false })).toBe(true);
   });
 });

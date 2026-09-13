@@ -6,6 +6,9 @@ import type { SessionGoal } from '@vibisual/shared';
 import {
   canPair, canSend, goalSignature, peerKey, takeNoticeSlot,
   trimExpiring, trimLogBuffers, trimOldest, trimPairAttempts,
+  pickToken,
+  pickActionId,
+  resolvePick,
 } from './policy';
 
 // §4 메신저 브리지 — 판정 회귀. 여기 있는 것은 전부 **실제로 한 번 틀렸던 자리**다.
@@ -188,5 +191,57 @@ describe('goalSignature — 목표 카드가 스팸이 되지 않게', () => {
 describe('peerKey', () => {
   it('채널이 다르면 같은 chatId 라도 다른 키다', () => {
     expect(peerKey('telegram', '1')).not.toBe(peerKey('discord', '1'));
+  });
+});
+
+describe('3단계 선택 토큰 (pickToken / pickActionId / resolvePick)', () => {
+  // 텔레그램 `callback_data` 는 64바이트 상한이고, 넘으면 카드 **전체가 거절**되어 목록이
+  // 아예 안 뜬다. 프로젝트 표시명은 사용자 폴더 이름이라 길이도 문자도 우리가 정하지 못한다.
+  const LONG_KO = '아주아주긴한글프로젝트이름입니다이것은폴더이름일수도있습니다더길게';
+
+  it('한글 긴 이름을 실어도 버튼 하나가 64바이트를 넘지 않는다', () => {
+    const actionId = pickActionId('pj', LONG_KO);
+    expect(Buffer.byteLength(actionId, 'utf8')).toBeLessThanOrEqual(64);
+  });
+
+  it('세 단계 접두사 모두 상한 안에 든다', () => {
+    for (const prefix of ['pj', 'a', 'sn']) {
+      const actionId = pickActionId(prefix, LONG_KO + LONG_KO);
+      expect(Buffer.byteLength(actionId, 'utf8')).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('같은 값은 늘 같은 토큰, 다른 값은 다른 토큰', () => {
+    expect(pickToken('vibisual')).toBe(pickToken('vibisual'));
+    expect(pickToken('vibisual')).not.toBe(pickToken('vibisual2'));
+  });
+
+  it('눌린 버튼을 지금 목록에서 되찾는다', () => {
+    const names = ['가나다 프로젝트', 'vibisual', 'another'];
+    expect(resolvePick(pickActionId('pj', names[1]!), 'pj', names)).toBe('vibisual');
+    expect(resolvePick(pickActionId('pj', names[0]!), 'pj', names)).toBe('가나다 프로젝트');
+  });
+
+  it('목록에서 사라진 항목은 되찾지 못한다(= "사라졌다" 안내로 떨어진다)', () => {
+    const gone = pickActionId('pj', '지워진 프로젝트');
+    expect(resolvePick(gone, 'pj', ['남은 프로젝트'])).toBeNull();
+  });
+
+  it('접두사가 다르면 남의 버튼을 집지 않는다', () => {
+    const names = ['vibisual'];
+    expect(resolvePick(pickActionId('a', 'vibisual'), 'pj', names)).toBeNull();
+    // 결정 버튼(권한·질문)은 애초에 이 문을 지나지 않는다.
+    expect(resolvePick('p:req-1:a', 'pj', names)).toBeNull();
+    expect(resolvePick('q:req-1:0', 'sn', names)).toBeNull();
+  });
+
+  it('종전 카드의 원문 actionId 도 그대로 받는다(하위호환)', () => {
+    // 3단계가 생기기 전 `/agents` 는 `a:<agentId>` 로 id 를 그대로 실었고,
+    // 그 카드는 아직 폰의 대화 기록에 남아 있다.
+    expect(resolvePick('a:agent-123', 'a', ['agent-123', 'agent-456'])).toBe('agent-123');
+  });
+
+  it('토큰이 비면 아무것도 되찾지 않는다', () => {
+    expect(resolvePick('pj:', 'pj', ['x'])).toBeNull();
   });
 });

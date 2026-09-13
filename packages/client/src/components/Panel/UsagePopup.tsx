@@ -2,14 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ClaudeUsageLimit, UsageCollectorStatus } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
-import {
-  clampUsagePct,
-  usageBarToneClass,
-  usageTextToneClass,
-} from '../../utils/usageLimits.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { ProviderTabs } from '../Engine/ProviderTabs.js';
+import { useCodexUsage, refreshCodexUsage } from '../../hooks/useCodexUsage.js';
 import { CostPill } from './CostPill.js';
+import { LimitGauge } from './LimitGauge.js';
+import { LocalResourceSection } from './LocalResourceSection.js';
 
 // SCENARIO.md §4 v1.50 / v3.60 — 사용량 팝업.
 //
@@ -25,65 +24,6 @@ const API_BASE = '';
 
 interface UsagePopupProps {
   onClose: () => void;
-}
-
-/** 남은 시간 → "4시간 28분" / "12분". 초 단위는 버린다(1초마다 숫자가 튀지 않게 분 단위 표기). */
-function useCountdownLabel(resetAt: number | undefined, now: number): string | null {
-  const { t } = useTranslation();
-  if (!resetAt) return null;
-  const remainMs = resetAt - now;
-  if (remainMs <= 0) return t('panel.usage.resettingNow');
-  const totalMinutes = Math.floor(remainMs / 60_000);
-  const days = Math.floor(totalMinutes / (60 * 24));
-  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
-  const minutes = totalMinutes % 60;
-  const span = days > 0
-    ? t('panel.usage.spanDh', { d: days, h: hours })
-    : hours > 0
-      ? t('panel.usage.spanHm', { h: hours, m: minutes })
-      : t('panel.usage.spanM', { m: minutes });
-  return t('panel.usage.resetsIn', { span });
-}
-
-/** 한도 게이지 한 줄 — 큰 퍼센트 + 굵은 바 + 리셋 카운트다운. */
-function LimitGauge({
-  label,
-  used,
-  resetAt,
-  now,
-  subdued,
-}: {
-  label: string;
-  used: number | undefined;
-  resetAt: number | undefined;
-  now: number;
-  /** 모델별 한도처럼 부차적인 줄은 한 단계 작게 그린다. */
-  subdued?: boolean;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const countdown = useCountdownLabel(resetAt, now);
-  const pct = typeof used === 'number' ? clampUsagePct(used) : null;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className={`min-w-0 truncate font-semibold ${subdued ? 'text-[12px] text-gray-400' : 'text-xs text-gray-200'}`}>
-          {label}
-        </span>
-        <span className={`font-mono font-bold tabular-nums ${subdued ? 'text-sm' : 'text-lg'} ${
-          pct === null ? 'text-gray-600' : usageTextToneClass(pct)
-        }`}>
-          {pct === null ? t('panel.usage.noValue') : `${pct.toFixed(0)}%`}
-        </span>
-      </div>
-      <div className={`overflow-hidden rounded-full bg-gray-700/70 ${subdued ? 'h-1.5' : 'h-2'}`}>
-        {pct !== null && (
-          <div className={`h-full transition-all duration-500 ${usageBarToneClass(pct)}`} style={{ width: `${pct}%` }} />
-        )}
-      </div>
-      {countdown && <div className="text-[12px] text-gray-500">{countdown}</div>}
-    </div>
-  );
 }
 
 /** 직접 조회가 막혔을 때만 뜨는 안내 + statusLine 폴백 스위치 자리. */
@@ -168,6 +108,12 @@ function CollectorSection({ status, failed, busy, onToggle }: CollectorSectionPr
 
 export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps): React.JSX.Element {
   const { t } = useTranslation();
+  const main = useGraphStore(s => s.userDefaults?.engineChoice?.kind ?? 'claude');
+  const [engine, setEngine] = useState(main);
+  useEffect(() => setEngine(main), [main]);
+  const codexLoggedIn = useGraphStore(s => s.codexAuth?.loggedIn === true);
+  const claudeLoggedIn = useGraphStore(s => s.claudeAuth?.loggedIn === true);
+  const codex = useCodexUsage(engine === 'codex' && codexLoggedIn);
   const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
   const agents = useGraphStore((s) => s.agents);
@@ -199,6 +145,9 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
   const [refreshing, setRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const refresh = useCallback((): void => {
+    if (engine === 'local') return;
+    if (engine === 'codex') { if (codexLoggedIn) void refreshCodexUsage(); return; }
+    if (!claudeLoggedIn) return;
     setRefreshing(true);
     void (async () => {
       try {
@@ -211,7 +160,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
         setRefreshing(false);
       }
     })();
-  }, []);
+  }, [engine, codexLoggedIn, claudeLoggedIn]);
   useEffect(() => { refresh(); }, [refresh]);
 
   const limits = claudeUsage?.limits ?? [];
@@ -236,7 +185,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
   const weeklyReset = usingFallback ? rateLimits?.resetAt7d : weeklyAll?.resetsAt;
 
   const updatedAt = claudeUsage?.fetchedAt ?? rateLimits?.updatedAt;
-  const showCollector = usingFallback || Boolean(claudeUsage?.error);
+  const showCollector = engine === 'claude' && (usingFallback || Boolean(claudeUsage?.error));
 
   /**
    * §4 v3.63 — 카운트다운이 0 을 지나면 그 자리에서 한 번 다시 받아온다.
@@ -332,8 +281,8 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             <path d="M6 20V10" />
             <path d="M18 20V4" />
           </svg>
-          <span className="text-sm font-semibold text-gray-100">{t('panel.usage.title')}</span>
-          {claudeUsage?.plan && (
+          <span className="text-sm font-semibold text-gray-100">{t('providers.usage')} · {t(`providers.${engine}`)}</span>
+          {engine === 'claude' && claudeUsage?.plan && (
             <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-violet-300">
               {claudeUsage.plan}
             </span>
@@ -342,7 +291,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           <button
             type="button"
             onClick={refresh}
-            disabled={refreshing}
+            disabled={refreshing || codex.busy || engine === 'local'}
             title={t('panel.usage.refresh')}
             aria-label={t('panel.usage.refresh')}
             className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
@@ -365,7 +314,19 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           </button>
         </div>
 
+        <div className="px-4 pt-3"><ProviderTabs value={engine} onChange={setEngine} /></div>
         <ScrollFade fill className="min-h-0 flex-1">
+          {/* 올모델은 구독 한도가 아니라 **이 PC 의 자원**을 쓴다 — 그것이 이 탭의 사용량이다(§5.19 (F)). */}
+          {engine === 'local' && <LocalResourceSection />}
+          {engine === 'codex' && <div className="flex flex-col gap-4 p-4">
+            {!codexLoggedIn ? <button type="button" className="text-left text-xs text-blue-400" onClick={() => { const state = useGraphStore.getState(); if (state.codexSetup?.phase === 'ready') state.setCodexLoginGate({ forced: true, dismissed: false }); else state.setCodexSetupGate({ forced: true, dismissed: false }); }}>{t('providers.signIn')}</button> : <>
+              {codex.usage?.windows.map(window => <LimitGauge key={window.id} label={`${window.label} · ${window.windowDurationMins ? t('providers.window', { minutes: window.windowDurationMins }) : window.id}`} used={window.usedPercent} resetAt={window.resetsAt} now={now} />)}
+              {codex.usage?.error && <p className="text-xs text-amber-300">{t('providers.noUsage')}</p>}
+              {codex.busy && <p className="text-xs text-gray-400">{t('panel.options.account.checking')}</p>}
+              {codex.usage?.fetchedAt && <p className="text-xs text-gray-500">{t('panel.usage.lastUpdated', { time: new Date(codex.usage.fetchedAt).toLocaleTimeString() })}</p>}
+            </>}
+          </div>}
+          {engine === 'claude' && <>
           <div className="flex flex-col gap-4 px-4 py-4">
             {claudeUsage?.error && <ErrorNotice error={claudeUsage.error} />}
 
@@ -452,6 +413,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
               {t('panel.usage.localHint')}
             </div>
           </div>
+          </>}
         </ScrollFade>
 
         {/* §5.21 / §7.19 — 오늘 비용. 헤더에서 옮겨 온 자리이고, 스크롤 **밖** 바닥에 고정한다

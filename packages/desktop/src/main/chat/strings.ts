@@ -104,6 +104,38 @@ export interface ChatStrings {
   ackAnswered: string;
   ackTooLate: string;
 
+  // ─ 3단계 선택 (프로젝트 → 커스텀 에이전트 → 세션)
+  titlePickProject: string;
+  titlePickSession: string;
+  helpProjects: string;
+  helpSessions: string;
+  pickProjectHint: string;
+  pickSessionHint: string;
+  /** `{count}` */
+  pickMore: string;
+  /** `{project}` */
+  currentProject: string;
+  /** `{label}` */
+  currentSession: string;
+  currentSessionAuto: string;
+  /** `{project}` */
+  noAgentsInProject: string;
+  noSessions: string;
+  btnAutoSession: string;
+  targetSetAuto: string;
+  /** `{label}` */
+  targetSetSession: string;
+  /** 세션 목록의 상태 표식 — 이모지 대신 얇은 대괄호만(메신저에는 SVG 를 실을 수 없다). */
+  sessionActive: string;
+  sessionIdle: string;
+  sessionError: string;
+  sessionDormant: string;
+  sessionBlocked: string;
+  /** `{label}` */
+  sentToSession: string;
+  sentToAutoSession: string;
+  sessionGoneFellBack: string;
+
   // ─ 명령 결과
   unpairDone: string;
   noAgents: string;
@@ -191,6 +223,29 @@ const en: ChatStrings = {
   sendNoAgent: 'That agent is gone. Pick another one with /agents.',
   sendReadOnly: 'This agent is read-only (an external hook session).',
   sendServerError: 'The server answered {status}.',
+  titlePickProject: 'Pick a project',
+  titlePickSession: 'Pick a session',
+  helpProjects: '/projects — start again from the project list',
+  helpSessions: '/sessions — pick which session (IDE tab) this chat talks to',
+  pickProjectHint: 'Pick the project you want to work in.',
+  pickSessionHint: 'Pick the session to talk to, or start a new one.',
+  pickMore: '… +{count} more (narrow it down one step back)',
+  currentProject: 'Project: {project}',
+  currentSession: 'Session: {label}',
+  currentSessionAuto: 'Session: whichever the app picks (new conversation)',
+  noAgentsInProject: 'No agent in {project} can take commands.',
+  noSessions: 'No session yet — start a new one.',
+  btnAutoSession: '+ New session',
+  targetSetAuto: 'Your next message starts a new session.',
+  targetSetSession: 'Session {label} selected.',
+  sessionActive: '[running]',
+  sessionIdle: '[idle]',
+  sessionError: '[failed]',
+  sessionDormant: '[asleep]',
+  sessionBlocked: '[waiting for you]',
+  sentToSession: 'Sent to {label}.',
+  sentToAutoSession: 'Sent to the session the app picked.',
+  sessionGoneFellBack: 'The session you had picked is gone, so the app picked one.',
 };
 
 const ko: ChatStrings = {
@@ -263,6 +318,29 @@ const ko: ChatStrings = {
   sendNoAgent: '고른 에이전트를 찾지 못했습니다. /agents 로 다시 골라 주세요.',
   sendReadOnly: '이 에이전트는 읽기 전용입니다(외부 훅 세션).',
   sendServerError: '서버가 {status} 로 답했습니다.',
+  titlePickProject: '프로젝트 고르기',
+  titlePickSession: '세션 고르기',
+  helpProjects: '/projects — 프로젝트 목록부터 다시 고릅니다',
+  helpSessions: '/sessions — 이 대화가 말할 세션(IDE 탭)을 고릅니다',
+  pickProjectHint: '작업하실 프로젝트를 골라 주세요.',
+  pickSessionHint: '말을 걸 세션을 고르시거나 새로 시작하세요.',
+  pickMore: '… +{count}개 더 있습니다(한 칸 앞에서 좁혀 주세요)',
+  currentProject: '프로젝트: {project}',
+  currentSession: '세션: {label}',
+  currentSessionAuto: '세션: 앱이 정하는 대로(새 대화)',
+  noAgentsInProject: '{project} 에는 명령을 받을 에이전트가 없습니다.',
+  noSessions: '아직 세션이 없습니다 — 새로 시작하세요.',
+  btnAutoSession: '+ 새 세션',
+  targetSetAuto: '다음 메시지부터 새 세션으로 시작합니다.',
+  targetSetSession: '{label} 세션을 골랐습니다.',
+  sessionActive: '[도는 중]',
+  sessionIdle: '[대기]',
+  sessionError: '[실패]',
+  sessionDormant: '[잠듦]',
+  sessionBlocked: '[답을 기다리는 중]',
+  sentToSession: '{label} 로 보냈습니다.',
+  sentToAutoSession: '앱이 정한 세션으로 보냈습니다.',
+  sessionGoneFellBack: '고르셨던 세션이 사라져 앱이 정한 세션으로 보냈습니다.',
 };
 
 const ja: ChatStrings = {
@@ -335,6 +413,29 @@ const ja: ChatStrings = {
   sendNoAgent: '選んだエージェントが見つかりません。/agents で選び直してください。',
   sendReadOnly: 'このエージェントは読み取り専用です(外部フックのセッション)。',
   sendServerError: 'サーバーが {status} を返しました。',
+  titlePickProject: 'プロジェクトを選ぶ',
+  titlePickSession: 'セッションを選ぶ',
+  helpProjects: '/projects — プロジェクト一覧から選び直します',
+  helpSessions: '/sessions — この会話が話すセッション（IDE タブ）を選びます',
+  pickProjectHint: '作業するプロジェクトを選んでください。',
+  pickSessionHint: '話しかけるセッションを選ぶか、新しく始めてください。',
+  pickMore: '… 他に {count} 件（一つ前で絞ってください）',
+  currentProject: 'プロジェクト: {project}',
+  currentSession: 'セッション: {label}',
+  currentSessionAuto: 'セッション: アプリにおまかせ（新しい会話）',
+  noAgentsInProject: '{project} には命令を受けられるエージェントがありません。',
+  noSessions: 'まだセッションがありません — 新しく始めてください。',
+  btnAutoSession: '+ 新しいセッション',
+  targetSetAuto: '次のメッセージから新しいセッションで始めます。',
+  targetSetSession: 'セッション {label} を選びました。',
+  sessionActive: '[実行中]',
+  sessionIdle: '[待機]',
+  sessionError: '[失敗]',
+  sessionDormant: '[休止]',
+  sessionBlocked: '[入力待ち]',
+  sentToSession: '{label} に送りました。',
+  sentToAutoSession: 'アプリが選んだセッションに送りました。',
+  sessionGoneFellBack: '選んでいたセッションが無くなったため、アプリが選んだセッションに送りました。',
 };
 
 const zhCN: ChatStrings = {
@@ -407,6 +508,29 @@ const zhCN: ChatStrings = {
   sendNoAgent: '找不到所选代理。请用 /agents 重新选择。',
   sendReadOnly: '该代理为只读(外部钩子会话)。',
   sendServerError: '服务器返回 {status}。',
+  titlePickProject: '选择项目',
+  titlePickSession: '选择会话',
+  helpProjects: '/projects — 从项目列表重新选择',
+  helpSessions: '/sessions — 选择本对话要交流的会话（IDE 标签页）',
+  pickProjectHint: '请选择要处理的项目。',
+  pickSessionHint: '选择要对话的会话，或新建一个。',
+  pickMore: '… 还有 {count} 个（请在上一步缩小范围）',
+  currentProject: '项目：{project}',
+  currentSession: '会话：{label}',
+  currentSessionAuto: '会话：由应用决定（新对话）',
+  noAgentsInProject: '{project} 中没有可接收命令的智能体。',
+  noSessions: '还没有会话 — 新建一个吧。',
+  btnAutoSession: '+ 新建会话',
+  targetSetAuto: '下一条消息将开始新的会话。',
+  targetSetSession: '已选择会话 {label}。',
+  sessionActive: '[运行中]',
+  sessionIdle: '[空闲]',
+  sessionError: '[失败]',
+  sessionDormant: '[休眠]',
+  sessionBlocked: '[等待你的输入]',
+  sentToSession: '已发送到 {label}。',
+  sentToAutoSession: '已发送到应用选定的会话。',
+  sessionGoneFellBack: '你选择的会话已不存在，已发送到应用选定的会话。',
 };
 
 const es: ChatStrings = {
@@ -479,6 +603,29 @@ const es: ChatStrings = {
   sendNoAgent: 'Ese agente ya no está. Elige otro con /agents.',
   sendReadOnly: 'Este agente es de solo lectura (sesión de un hook externo).',
   sendServerError: 'El servidor respondió {status}.',
+  titlePickProject: 'Elige un proyecto',
+  titlePickSession: 'Elige una sesión',
+  helpProjects: '/projects — vuelve a empezar desde la lista de proyectos',
+  helpSessions: '/sessions — elige con qué sesión (pestaña del IDE) habla este chat',
+  pickProjectHint: 'Elige el proyecto en el que quieres trabajar.',
+  pickSessionHint: 'Elige la sesión con la que hablar, o empieza una nueva.',
+  pickMore: '… +{count} más (acota un paso antes)',
+  currentProject: 'Proyecto: {project}',
+  currentSession: 'Sesión: {label}',
+  currentSessionAuto: 'Sesión: la que elija la app (conversación nueva)',
+  noAgentsInProject: 'En {project} no hay ningún agente que acepte órdenes.',
+  noSessions: 'Aún no hay sesiones: empieza una nueva.',
+  btnAutoSession: '+ Sesión nueva',
+  targetSetAuto: 'El próximo mensaje empezará una sesión nueva.',
+  targetSetSession: 'Sesión {label} elegida.',
+  sessionActive: '[en marcha]',
+  sessionIdle: '[en espera]',
+  sessionError: '[falló]',
+  sessionDormant: '[dormida]',
+  sessionBlocked: '[te está esperando]',
+  sentToSession: 'Enviado a {label}.',
+  sentToAutoSession: 'Enviado a la sesión que eligió la app.',
+  sessionGoneFellBack: 'La sesión que habías elegido ya no existe; se envió a la que eligió la app.',
 };
 
 const es419: ChatStrings = {
@@ -492,6 +639,12 @@ const es419: ChatStrings = {
   pairDmOnly2: 'Mandá la misma línea al bot por mensaje directo en vez de un canal compartido.',
   sendNoAgent: 'Ese agente ya no está. Elegí otro con /agents.',
   needTarget: 'Usá /agents para elegir el agente con el que habla este chat.',
+  helpProjects: '/projects — volvé a empezar desde la lista de proyectos',
+  helpSessions: '/sessions — elegí con qué sesión (pestaña del IDE) habla este chat',
+  pickProjectHint: 'Elegí el proyecto en el que querés trabajar.',
+  pickSessionHint: 'Elegí la sesión con la que hablar, o empezá una nueva.',
+  noSessions: 'Todavía no hay sesiones: empezá una nueva.',
+  targetSetSession: 'Elegiste la sesión {label}.',
 };
 
 const fr: ChatStrings = {
@@ -564,6 +717,29 @@ const fr: ChatStrings = {
   sendNoAgent: 'Cet agent n’existe plus. Choisissez-en un autre avec /agents.',
   sendReadOnly: 'Cet agent est en lecture seule (session d’un hook externe).',
   sendServerError: 'Le serveur a répondu {status}.',
+  titlePickProject: 'Choisir un projet',
+  titlePickSession: 'Choisir une session',
+  helpProjects: '/projects — repartir de la liste des projets',
+  helpSessions: "/sessions — choisir la session (onglet de l'IDE) à qui parle ce chat",
+  pickProjectHint: 'Choisissez le projet sur lequel travailler.',
+  pickSessionHint: 'Choisissez la session à qui parler, ou démarrez-en une nouvelle.',
+  pickMore: "… +{count} autres (affinez à l'étape précédente)",
+  currentProject: 'Projet : {project}',
+  currentSession: 'Session : {label}',
+  currentSessionAuto: "Session : celle que l'app choisit (nouvelle conversation)",
+  noAgentsInProject: 'Aucun agent de {project} ne peut recevoir de commandes.',
+  noSessions: "Aucune session pour l'instant — démarrez-en une.",
+  btnAutoSession: '+ Nouvelle session',
+  targetSetAuto: 'Le prochain message démarrera une nouvelle session.',
+  targetSetSession: 'Session {label} choisie.',
+  sessionActive: '[en cours]',
+  sessionIdle: '[en attente]',
+  sessionError: '[échec]',
+  sessionDormant: '[en veille]',
+  sessionBlocked: '[vous attend]',
+  sentToSession: 'Envoyé à {label}.',
+  sentToAutoSession: "Envoyé à la session choisie par l'app.",
+  sessionGoneFellBack: "La session choisie n'existe plus ; envoyé à celle que l'app a choisie.",
 };
 
 const de: ChatStrings = {
@@ -636,6 +812,29 @@ const de: ChatStrings = {
   sendNoAgent: 'Diesen Agenten gibt es nicht mehr. Wähle mit /agents einen anderen.',
   sendReadOnly: 'Dieser Agent ist schreibgeschützt (Sitzung eines externen Hooks).',
   sendServerError: 'Der Server antwortete mit {status}.',
+  titlePickProject: 'Projekt wählen',
+  titlePickSession: 'Sitzung wählen',
+  helpProjects: '/projects — noch einmal bei der Projektliste anfangen',
+  helpSessions: '/sessions — wählen, mit welcher Sitzung (IDE-Tab) dieser Chat spricht',
+  pickProjectHint: 'Wähle das Projekt, in dem du arbeiten willst.',
+  pickSessionHint: 'Wähle die Sitzung zum Sprechen oder starte eine neue.',
+  pickMore: '… +{count} weitere (einen Schritt vorher eingrenzen)',
+  currentProject: 'Projekt: {project}',
+  currentSession: 'Sitzung: {label}',
+  currentSessionAuto: 'Sitzung: die von der App gewählte (neues Gespräch)',
+  noAgentsInProject: 'In {project} kann kein Agent Befehle annehmen.',
+  noSessions: 'Noch keine Sitzung — starte eine neue.',
+  btnAutoSession: '+ Neue Sitzung',
+  targetSetAuto: 'Die nächste Nachricht startet eine neue Sitzung.',
+  targetSetSession: 'Sitzung {label} gewählt.',
+  sessionActive: '[läuft]',
+  sessionIdle: '[wartet]',
+  sessionError: '[fehlgeschlagen]',
+  sessionDormant: '[schläft]',
+  sessionBlocked: '[wartet auf dich]',
+  sentToSession: 'An {label} gesendet.',
+  sentToAutoSession: 'An die von der App gewählte Sitzung gesendet.',
+  sessionGoneFellBack: 'Die gewählte Sitzung gibt es nicht mehr; gesendet an die von der App gewählte.',
 };
 
 const it: ChatStrings = {
@@ -708,6 +907,29 @@ const it: ChatStrings = {
   sendNoAgent: 'Quell’agente non c’è più. Scegline un altro con /agents.',
   sendReadOnly: 'Questo agente è di sola lettura (sessione di un hook esterno).',
   sendServerError: 'Il server ha risposto {status}.',
+  titlePickProject: 'Scegli un progetto',
+  titlePickSession: 'Scegli una sessione',
+  helpProjects: "/projects — riparti dall'elenco dei progetti",
+  helpSessions: "/sessions — scegli con quale sessione (scheda dell'IDE) parla questa chat",
+  pickProjectHint: 'Scegli il progetto su cui lavorare.',
+  pickSessionHint: 'Scegli la sessione con cui parlare, o avviane una nuova.',
+  pickMore: '… +{count} altre (restringi al passo precedente)',
+  currentProject: 'Progetto: {project}',
+  currentSession: 'Sessione: {label}',
+  currentSessionAuto: "Sessione: quella scelta dall'app (nuova conversazione)",
+  noAgentsInProject: 'In {project} nessun agente può ricevere comandi.',
+  noSessions: 'Ancora nessuna sessione: avviane una.',
+  btnAutoSession: '+ Nuova sessione',
+  targetSetAuto: 'Il prossimo messaggio avvierà una nuova sessione.',
+  targetSetSession: 'Sessione {label} scelta.',
+  sessionActive: '[in corso]',
+  sessionIdle: '[in attesa]',
+  sessionError: '[fallita]',
+  sessionDormant: '[dormiente]',
+  sessionBlocked: '[sta aspettando te]',
+  sentToSession: 'Inviato a {label}.',
+  sentToAutoSession: "Inviato alla sessione scelta dall'app.",
+  sessionGoneFellBack: "La sessione scelta non esiste più; inviato a quella scelta dall'app.",
 };
 
 const ptBR: ChatStrings = {
@@ -780,6 +1002,29 @@ const ptBR: ChatStrings = {
   sendNoAgent: 'Esse agente sumiu. Escolha outro com /agents.',
   sendReadOnly: 'Este agente é somente leitura (sessão de um hook externo).',
   sendServerError: 'O servidor respondeu {status}.',
+  titlePickProject: 'Escolha um projeto',
+  titlePickSession: 'Escolha uma sessão',
+  helpProjects: '/projects — recomeçar pela lista de projetos',
+  helpSessions: '/sessions — escolher com qual sessão (aba do IDE) esta conversa fala',
+  pickProjectHint: 'Escolha o projeto em que quer trabalhar.',
+  pickSessionHint: 'Escolha a sessão para conversar, ou comece uma nova.',
+  pickMore: '… +{count} outras (afine no passo anterior)',
+  currentProject: 'Projeto: {project}',
+  currentSession: 'Sessão: {label}',
+  currentSessionAuto: 'Sessão: a que o app escolher (conversa nova)',
+  noAgentsInProject: 'Nenhum agente em {project} aceita comandos.',
+  noSessions: 'Ainda não há sessões — comece uma.',
+  btnAutoSession: '+ Nova sessão',
+  targetSetAuto: 'A próxima mensagem começa uma sessão nova.',
+  targetSetSession: 'Sessão {label} escolhida.',
+  sessionActive: '[rodando]',
+  sessionIdle: '[parada]',
+  sessionError: '[falhou]',
+  sessionDormant: '[dormindo]',
+  sessionBlocked: '[esperando você]',
+  sentToSession: 'Enviado para {label}.',
+  sentToAutoSession: 'Enviado para a sessão que o app escolheu.',
+  sessionGoneFellBack: 'A sessão que você escolheu sumiu; foi enviado para a que o app escolheu.',
 };
 
 const hi: ChatStrings = {
@@ -852,6 +1097,29 @@ const hi: ChatStrings = {
   sendNoAgent: 'वह एजेंट नहीं मिला। /agents से दूसरा चुनें।',
   sendReadOnly: 'यह एजेंट सिर्फ़ पढ़ने के लिए है (बाहरी हुक का सेशन)।',
   sendServerError: 'सर्वर ने {status} लौटाया।',
+  titlePickProject: 'प्रोजेक्ट चुनें',
+  titlePickSession: 'सेशन चुनें',
+  helpProjects: '/projects — प्रोजेक्ट सूची से फिर शुरू करें',
+  helpSessions: '/sessions — चुनें कि यह चैट किस सेशन (IDE टैब) से बात करे',
+  pickProjectHint: 'जिस प्रोजेक्ट पर काम करना है उसे चुनें।',
+  pickSessionHint: 'बात करने के लिए सेशन चुनें, या नया शुरू करें।',
+  pickMore: '… +{count} और (एक कदम पहले सीमित करें)',
+  currentProject: 'प्रोजेक्ट: {project}',
+  currentSession: 'सेशन: {label}',
+  currentSessionAuto: 'सेशन: जो ऐप चुने (नई बातचीत)',
+  noAgentsInProject: '{project} में कोई एजेंट आदेश नहीं ले सकता।',
+  noSessions: 'अभी कोई सेशन नहीं — नया शुरू करें।',
+  btnAutoSession: '+ नया सेशन',
+  targetSetAuto: 'अगले संदेश से नया सेशन शुरू होगा।',
+  targetSetSession: 'सेशन {label} चुना गया।',
+  sessionActive: '[चल रहा है]',
+  sessionIdle: '[खाली]',
+  sessionError: '[विफल]',
+  sessionDormant: '[सोया हुआ]',
+  sessionBlocked: '[आपका इंतज़ार]',
+  sentToSession: '{label} को भेजा।',
+  sentToAutoSession: 'ऐप द्वारा चुने सेशन को भेजा।',
+  sessionGoneFellBack: 'आपने जो सेशन चुना था वह नहीं रहा; ऐप द्वारा चुने सेशन को भेजा गया।',
 };
 
 const id: ChatStrings = {
@@ -924,6 +1192,29 @@ const id: ChatStrings = {
   sendNoAgent: 'Agen itu sudah tidak ada. Pilih yang lain dengan /agents.',
   sendReadOnly: 'Agen ini hanya-baca (sesi hook dari luar).',
   sendServerError: 'Server menjawab {status}.',
+  titlePickProject: 'Pilih proyek',
+  titlePickSession: 'Pilih sesi',
+  helpProjects: '/projects — mulai lagi dari daftar proyek',
+  helpSessions: '/sessions — pilih sesi (tab IDE) yang diajak bicara obrolan ini',
+  pickProjectHint: 'Pilih proyek yang ingin dikerjakan.',
+  pickSessionHint: 'Pilih sesi untuk diajak bicara, atau mulai yang baru.',
+  pickMore: '… +{count} lagi (persempit di langkah sebelumnya)',
+  currentProject: 'Proyek: {project}',
+  currentSession: 'Sesi: {label}',
+  currentSessionAuto: 'Sesi: yang dipilih aplikasi (percakapan baru)',
+  noAgentsInProject: 'Tidak ada agen di {project} yang bisa menerima perintah.',
+  noSessions: 'Belum ada sesi — mulai yang baru.',
+  btnAutoSession: '+ Sesi baru',
+  targetSetAuto: 'Pesan berikutnya akan memulai sesi baru.',
+  targetSetSession: 'Sesi {label} dipilih.',
+  sessionActive: '[berjalan]',
+  sessionIdle: '[menganggur]',
+  sessionError: '[gagal]',
+  sessionDormant: '[tertidur]',
+  sessionBlocked: '[menunggu Anda]',
+  sentToSession: 'Dikirim ke {label}.',
+  sentToAutoSession: 'Dikirim ke sesi yang dipilih aplikasi.',
+  sessionGoneFellBack: 'Sesi yang Anda pilih sudah tidak ada; dikirim ke sesi pilihan aplikasi.',
 };
 
 const TABLE: Record<UiLocale, ChatStrings> = {

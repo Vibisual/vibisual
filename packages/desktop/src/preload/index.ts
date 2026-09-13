@@ -4,6 +4,10 @@ import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, Chat
 // §9 — 스냅샷 무복사 경로의 채널명·디코더. electron 무의존 순수 모듈이라 preload 번들에 그대로
 // 들어간다. main 과 **같은 상수**를 쓰게 해 채널명이 양쪽에서 따로 흘러가지 않게 한다.
 import { WS_BUFFER_CHANNEL, WS_BUFFER_READY_CHANNEL, WS_OBJECT_CHANNEL, decodeWire } from '../main/snapshotWire';
+// §3.7 v2.10 — 드래그 영역 재신고 채널. 같은 이유로 **main 과 같은 상수**를 쓴다(리터럴을 양쪽에
+// 따로 적으면 한쪽만 고쳐도 아무도 모른다). 이 모듈은 electron 을 타입으로만 쓰므로 preload
+// 번들에 그대로 들어간다.
+import { DRAG_REGIONS_REFRESH_CHANNEL } from '../main/dragRegions';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -124,6 +128,8 @@ const api = {
   },
   /** §5.4 #14-1 별창 surface. */
   window: {
+    moveSelf: (phase: 'start' | 'move' | 'end'): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:window:move-self', phase),
     detach: (payload: DetachPayloadWire): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:window:detach', payload),
     closeDetached: (tabKey: string): Promise<boolean> =>
@@ -137,6 +143,16 @@ const api = {
       const listener = (_e: unknown, payload: { maximized: boolean }): void => cb(payload);
       ipcRenderer.on('vibisual:window:maximize-state', listener);
       return () => ipcRenderer.removeListener('vibisual:window:maximize-state', listener);
+    },
+    /**
+     * §3.7 v2.10 — main 이 창 상태 전이(show·restore·maximize·전체화면)를 알려 오는 창구.
+     * 렌더러는 그때 드래그 영역을 다시 신고한다 — 최소화 복원은 창 크기가 그대로라 레이아웃이
+     * 바뀌지 않고, 환경에 따라 `visibilitychange` 도 뜨지 않아 렌더러 혼자서는 계기가 없다.
+     */
+    onDragRegionsRefresh: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on(DRAG_REGIONS_REFRESH_CHANNEL, listener);
+      return () => ipcRenderer.removeListener(DRAG_REGIONS_REFRESH_CHANNEL, listener);
     },
     listDetached: (): Promise<DetachedTabInfoWire[]> =>
       ipcRenderer.invoke('vibisual:window:list-detached'),
@@ -198,9 +214,36 @@ const api = {
        * §17-6 (H-4) — 앱 경계를 넘는 **그 순간** 만들어지는 창. 잡고 있던 지점(창 좌상단에서
        * 커서까지의 거리)을 그대로 물려받아 커서에 매달린 채 뜬다 — 끌던 손 아래에서 창이 이어진다.
        */
-      follow?: { grabX: number; grabY: number };
+      follow?: {
+        grabX: number;
+        grabY: number;
+        /** (H-12) 되돌아올 때 그릴 윤곽선에 적을 이름·안내 — main 에는 번역이 없다. */
+        label?: string;
+        hint?: string;
+        /**
+         * (H-17) **이미 놓인 자리다** — 커서에 매달리지 않고 그 자리에 선다. 손을 뗀 뒤에
+         * 태어나는 창이라 매달릴 손이 없다(매달면 창이 커서를 계속 따라다닌다).
+         */
+        settled?: boolean;
+      };
     }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:overlay:open', payload),
+    /**
+     * §17-6 (H-25) — **놓기 전에 미리 짓는다.** 나갈 뜻이 분명해지는 순간(선의 무장)에 부른다.
+     *
+     * 창을 지어 부팅만 시키고 **보여주지 않으므로** 화면은 그대로 선 하나다. 손을 떼면 위
+     * `open` 이 그 창을 재사용해 자리만 옮기므로, 창 짓기(번들·WS·스냅샷·IDE 마운트)가 뗌
+     * 프레임에 몰리지 않는다. 이미 그 에이전트의 창이 있으면 아무 일도 하지 않고 거짓을 준다.
+     */
+    warm: (payload: {
+      agentId: string;
+      projectId: string;
+      size?: { width: number; height: number };
+      handoff?: unknown;
+    }): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:warm', payload),
+    /** §17-6 (H-25) ⑤ — 나가지 않기로 끝난 판이 예열 창을 거둔다(이미 태어난 창은 건드리지 않는다). */
+    warmCancel: (agentId: string): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:warm-cancel', agentId),
     /**
      * §17-6 (H) — 새로 뜬 창이 **자기 짐**을 꺼낸다. 한 번 꺼내면 사라지고, 없으면 null 이다
      * (그때는 종전대로 첫 화면에서 시작한다 — 짐이 없다고 창이 안 뜨지는 않는다).
@@ -231,7 +274,13 @@ const api = {
      * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
      * 그 자리에서 앱 안 IDE 로 돌아간다(그때 실어 보낼 짐도 **시작할 때** 함께 맡긴다).
      */
-    dragStart: (payload?: { redockOnEnter?: boolean; handoff?: unknown }): Promise<boolean> =>
+    dragStart: (payload?: {
+      redockOnEnter?: boolean;
+      handoff?: unknown;
+      /** (H-12) 되돌아오는 구간의 윤곽선에 적을 이름·안내(그 판의 로케일로 지어 넘긴다). */
+      label?: string;
+      hint?: string;
+    }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:drag-start', payload),
     /** 버블 드래그 종료(window mouseup) — 커서 폴링 해제. */
     dragEnd: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-end'),
@@ -254,7 +303,10 @@ const api = {
       label?: string;
       /** 지금 손을 떼도 그대로 나가는가 — 선이 밝아져 놓기 **전에** 그것을 말한다. */
       armed?: boolean;
+      /** (H-19) 선 안에 적을 한 줄 — 나가는 길도 말한다(본체가 숨어 앱 안 안내 띠가 없다). */
+      hint?: string;
     }): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:ghost-show', payload),
+
     /** §17-6 (H-6) — 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낸다(어디에 설지 미리 보여 주기). */
     ghostNudge: (payload: { dx: number; dy: number }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:ghost-nudge', payload),
@@ -279,31 +331,33 @@ const api = {
       ipcRenderer.on('vibisual:ide:pane-drag-escape', listener);
       return () => ipcRenderer.removeListener('vibisual:ide:pane-drag-escape', listener);
     },
-    /** §17-6 (H-4) — 이 창이 지금 커서에 매달려 있는가(그렇다면 이 창도 뗌을 듣는다). */
-    onFollowDragState: (cb: (payload: { following: boolean }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { following: boolean }): void => cb(payload);
+    /**
+     * §17-6 (H-4) — 이 창이 지금 커서에 매달려 있는가(그렇다면 이 창도 뗌을 듣는다).
+     *
+     * (H-23) **메인 창도 이 신호를 받는다** — 들어오는 판(`redockOnEnter`)은 창이 숨는 순간
+     * 그 렌더러가 뗌을 못 듣게 되므로, 누구의 판인지(`agentId`)를 함께 실어 메인 창이 대신
+     * 듣게 한다. 받는 쪽이 자기 창인지 남의 판인지는 그 `agentId` 로 가른다.
+     */
+    onFollowDragState: (cb: (payload: { following: boolean; agentId?: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { following: boolean; agentId?: string }): void => cb(payload);
       ipcRenderer.on('vibisual:overlay:follow-drag-state', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:follow-drag-state', listener);
-    },
-    /**
-     * §17-6 (H) — 꺼낸 IDE 창을 **끌어다 앱 안으로 합치기**. 잡으면 창이 칩으로 줄어 커서를 따라오고,
-     * 메인 창 위에서 놓으면 합쳐진다(밖에서 놓으면 원래 자리로 되돌아온다).
-     */
-    redockDragStart: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:redock-drag-start'),
-    /** 합치기 드래그 종료(window mouseup). `commit` 이면 합치고, 그때 들고 갈 짐도 함께 넘긴다. */
-    redockDragEnd: (payload: { commit: boolean; handoff?: unknown }): Promise<boolean> =>
-      ipcRenderer.invoke('vibisual:overlay:redock-drag-end', payload),
-    /** §17-6 (H) — main 의 폴링이 이 창에 알리는 합치기 드래그 상태(칩 모양 전환·놓을 자리 강조). */
-    onRedockDragState: (cb: (payload: { dragging: boolean; hovering: boolean }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { dragging: boolean; hovering: boolean }): void => cb(payload);
-      ipcRenderer.on('vibisual:overlay:redock-drag-state', listener);
-      return () => ipcRenderer.removeListener('vibisual:overlay:redock-drag-state', listener);
     },
     /** §17-6 (H) — 이미 서 있던 창에 짐이 뒤늦게 도착했을 때(부팅을 다시 하지 않으므로 push 로 온다). */
     onPaneHandoff: (cb: (payload: { agentId: string; handoff: unknown }) => void): (() => void) => {
       const listener = (_e: unknown, payload: { agentId: string; handoff: unknown }): void => cb(payload);
       ipcRenderer.on('vibisual:overlay:pane-handoff', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:pane-handoff', listener);
+    },
+    /**
+     * §17-6 (H-16) — **앱 안에서 이 창을 불렀다**(그 버블 더블클릭). main 이 창을 앞으로
+     * 세운 직후에 온다 — 받는 창은 그 손짓이 자기에게 닿았다고 짧게 한 번 비춘다.
+     * 구버전 preload 에는 없으므로 **선택 속성**이다(없으면 기척 없이 앞으로 오기만 한다).
+     */
+    onAttention: (cb: (payload: { agentId: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { agentId: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:attention', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:attention', listener);
     },
     /** 현재 오버레이 목록 + 전역 토글 상태 조회(초기 동기화용). */
     list: (): Promise<OverlayListWire> => ipcRenderer.invoke('vibisual:overlay:list'),
@@ -322,17 +376,31 @@ const api = {
       agentId: string;
       projectId: string;
       openIde?: boolean;
+      /** §17-6 (H-9) — 닫기가 타는 길. 그 버블만 보여 주고 앱 안 창은 열지도 닫지도 않는다. */
+      keepPanes?: boolean;
       /** §17-6 (H) — 되돌아가며 들고 가는 짐. 메인 창이 `takeHandoff` 로 꺼내 그 창을 이어 세운다. */
       handoff?: unknown;
     }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:reveal-in-main', payload),
     /** §17-6 (G) v2.82 — 메인 윈도우 한정: 오버레이가 보낸 캔버스 점프 신호 구독. */
     onReveal: (
-      cb: (payload: { agentId: string; projectId: string; openIde?: boolean; hasHandoff?: boolean }) => void,
+      cb: (payload: {
+        agentId: string;
+        projectId: string;
+        openIde?: boolean;
+        keepPanes?: boolean;
+        hasHandoff?: boolean;
+      }) => void,
     ): (() => void) => {
       const listener = (
         _e: unknown,
-        payload: { agentId: string; projectId: string; openIde?: boolean; hasHandoff?: boolean },
+        payload: {
+          agentId: string;
+          projectId: string;
+          openIde?: boolean;
+          keepPanes?: boolean;
+          hasHandoff?: boolean;
+        },
       ): void => cb(payload);
       ipcRenderer.on('vibisual:overlay:reveal', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:reveal', listener);
@@ -436,6 +504,11 @@ const api = {
     issueQr: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:issue-qr'),
     /** §4 v3.66 — QR 페어링 티켓 즉시 폐기(이미 페어링된 기기는 유지). */
     revokeQr: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:revoke-qr'),
+    /**
+     * 공유기에 손으로 만든 포워딩 규칙을 지웠다는 확인 — 뒷정리 안내를 내린다.
+     * 우리가 지울 수 없는 규칙이라 사람이 알려 주는 것 말고는 확인할 방법이 없다.
+     */
+    ackManualForward: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:ack-manual-forward'),
     /** main 이 푸시하는 상태 변경 구독(페어링 성공/클라이언트 접속·해제 등). */
     onStatus: (cb: (state: MobileAccessState) => void): (() => void) => {
       const listener = (_e: unknown, state: MobileAccessState): void => cb(state);

@@ -25,6 +25,14 @@ const GHOST_POLL_MS = 16;
  */
 const GHOST_MAX_LIFE_MS = 20_000;
 
+/**
+ * (H-19) 선의 문서가 서기를 기다리는 상한(ms) — 영영 안 서도 렌더러가 갇히지 않게.
+ * 정상 경로는 훨씬 먼저 끝난다(data URL 한 장은 수십 ms 안에 선다).
+ */
+const GHOST_PAINT_WAIT_MS = 300;
+/** 문서가 선 뒤 첫 페인트가 화면에 닿을 한 프레임(ms). */
+const GHOST_PAINT_SETTLE_MS = 16;
+
 interface GhostState {
   window: BrowserWindow;
   timer: NodeJS.Timeout | null;
@@ -39,9 +47,44 @@ interface GhostState {
   height: number;
   /** 지금 손을 떼도 그대로 나가는가 — 선의 밝기가 그것을 미리 말한다. */
   armed: boolean;
+  /**
+   * (H-12) 선 안에 적는 한 줄 — **지금 무슨 일이 일어나는 중인지**. 빈 문자열이면 안 그린다.
+   *
+   * 들어오는 구간에서는 창이 선으로 바뀐 채 잠깐 기다리는데, 그동안 화면에 아무 말도 없으면
+   * "창이 사라졌다"로 읽힌다((H-3) 이 가장자리 버팀에서 이미 겪은 자리다). 문구는 렌더러가
+   * 자기 로케일로 지어 넘긴다 — main 에는 번역이 없다.
+   */
+  hint: string;
+  /** (H-19) 문서가 섰는가 — 그 전의 이 창은 투명한 빈 창이라 선이 아니다. */
+  loaded: boolean;
 }
 
 let ghost: GhostState | null = null;
+
+/**
+ * (H-19) 지금 선이 **실제로 그려졌는가** — 그때까지 기다린다.
+ *
+ * `showPopOutGhost` 는 창을 띄우자마자 참을 돌려주는데, `transparent` 창은 문서가 서기 전까지
+ * 투명한 빈 창이다. 렌더러가 그 참을 듣고 앱 안 윤곽선을 곧바로 내리면, 문서가 서기까지의
+ * 몇 프레임 동안 커서 아래에 아무 선도 없다 — 본체까지 숨어 있는 이제는 그 틈이 그대로 보인다.
+ * 그래서 IPC 는 문서가 선 뒤에 대답한다(상한 `GHOST_PAINT_WAIT_MS` — 영영 안 서도 갇히지 않게).
+ */
+export function whenPopOutGhostPainted(): Promise<void> {
+  const g = ghost;
+  if (!g || g.window.isDestroyed() || g.loaded) return Promise.resolve();
+  if (g.window.webContents.isDestroyed()) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, GHOST_PAINT_WAIT_MS);
+    g.window.webContents.once('did-finish-load', () => setTimeout(finish, GHOST_PAINT_SETTLE_MS));
+  });
+}
 
 /**
  * 무장 여부를 선에 반영한다 — 창을 다시 만들지 않고 클래스만 토글한다.
@@ -56,12 +99,28 @@ function applyArmed(g: GhostState): void {
     .catch(() => { /* 로드 전 — 다음 호출이 맞춘다 */ });
 }
 
+/**
+ * 안내 한 줄을 갈아 끼운다 — 창을 다시 만들지 않는다(선은 하나뿐이고 계속 이어져야 한다).
+ *
+ * 글은 `textContent` 로 넣는다 — 문구는 렌더러가 지어 넘긴 값이라 HTML 로 해석되면 안 된다.
+ * 문자열은 `JSON.stringify` 로 감싸 JS 리터럴로 만든다(따옴표·줄바꿈이 코드를 깨지 않게).
+ */
+function applyHint(g: GhostState): void {
+  if (g.window.isDestroyed() || g.window.webContents.isDestroyed()) return;
+  const js = `(function(){var h=document.getElementById('h');`
+    + `if(h){h.textContent=${JSON.stringify(g.hint)};}`
+    + `document.body&&document.body.classList.toggle('nohint',${g.hint ? 'false' : 'true'});})()`;
+  void g.window.webContents.executeJavaScript(js).catch(() => { /* 로드 전 — 다음 호출이 맞춘다 */ });
+}
+
 /** 윤곽선 창의 내용 — 창 하나에 사각형 하나. 폰트·에셋을 쓰지 않는다(동봉물 라이선스 규칙). */
-function ghostHtml(label: string): string {
-  const safe = label
+function ghostHtml(label: string, hint: string): string {
+  const esc = (s: string): string => s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+  const safe = esc(label);
+  const safeHint = esc(hint);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;
     -webkit-user-select:none;user-select:none;cursor:default}
@@ -82,9 +141,19 @@ function ghostHtml(label: string): string {
     color:rgba(237,233,254,0.95)}
   .dot{width:8px;height:8px;border-radius:50%;background:rgba(167,139,250,0.95);flex:none}
   .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  </style></head><body>
+  /* (H-12) 들어오는 구간의 한 줄 — 기다리는 동안 무슨 일이 일어나는지 말한다. */
+  .hint{position:fixed;left:0;right:0;top:34px;box-sizing:border-box;padding:7px 11px;
+    border-bottom:1px solid rgba(167,139,250,0.28);
+    background:rgba(15,23,42,0.42);
+    /* 한글 가독 하한 12px — 이 줄은 한국어 문장이 그대로 들어온다(작게 하면 못 읽는다). */
+    font:500 12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
+    color:rgba(221,214,254,0.92);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  body.nohint .hint{display:none}
+  </style></head><body${hint ? '' : ' class="nohint"'}>
   <div class="frame"></div>
   <div class="bar"><span class="dot"></span><span class="name">${safe}</span></div>
+  <div class="hint" id="h">${safeHint}</div>
   </body></html>`;
 }
 
@@ -121,12 +190,15 @@ export function showPopOutGhost(opts: {
   grabY: number;
   label?: string;
   armed?: boolean;
+  /** (H-12) 선 안에 적을 한 줄. 없으면 안 그린다(나가는 길은 앱 안 문구가 따로 말한다). */
+  hint?: string;
 }): boolean {
   const width = Math.max(120, Math.round(opts.width));
   const height = Math.max(80, Math.round(opts.height));
   const grabX = Math.round(opts.grabX);
   const grabY = Math.round(opts.grabY);
   const armed = !!opts.armed;
+  const hint = typeof opts.hint === 'string' ? opts.hint.slice(0, 160) : '';
 
   if (ghost && !ghost.window.isDestroyed()) {
     ghost.width = width;
@@ -137,6 +209,16 @@ export function showPopOutGhost(opts: {
       ghost.armed = armed;
       applyArmed(ghost);
     }
+    // 같은 선이 나가는 판 → 들어오는 판으로 이어질 수 있다(빠른 왕복) — 말도 함께 갈아 끼운다.
+    if (ghost.hint !== hint) {
+      ghost.hint = hint;
+      applyHint(ghost);
+    }
+    // §17-6 (H-10) 다시 쓰는 선은 **수명도 다시 잰다.** 앱 안 ↔ 밖을 여러 번 오가면 같은 창을
+    //   계속 갈아 끼우는데, 상한이 첫 판에서부터 흐르면 아직 끌고 있는 손 아래에서 선이 그냥
+    //   사라진다(그물이 기능을 끊는다).
+    if (ghost.lifeTimer) clearTimeout(ghost.lifeTimer);
+    ghost.lifeTimer = setTimeout(() => hidePopOutGhost(), GHOST_MAX_LIFE_MS);
     positionGhost(ghost);
     return true;
   }
@@ -186,7 +268,7 @@ export function showPopOutGhost(opts: {
   } catch {
     // 일부 플랫폼에서 없는 조합 — 선이 보이는 것이 더 중요하므로 계속 간다.
   }
-  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(ghostHtml(opts.label ?? ''))}`);
+  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(ghostHtml(opts.label ?? '', hint))}`);
 
   const state: GhostState = {
     window: win,
@@ -199,11 +281,18 @@ export function showPopOutGhost(opts: {
     width,
     height,
     armed,
+    hint,
+    loaded: false,
   };
   ghost = state;
 
-  // 문서가 서면 무장 상태를 한 번 더 박는다 — 첫 호출이 로드 전이라 삼켜졌을 수 있다.
-  win.webContents.once('did-finish-load', () => { if (ghost === state) applyArmed(state); });
+  // 문서가 서면 무장 상태·안내 줄을 한 번 더 박는다 — 첫 호출이 로드 전이라 삼켜졌을 수 있다.
+  win.webContents.once('did-finish-load', () => {
+    state.loaded = true;
+    if (ghost !== state) return;
+    applyArmed(state);
+    applyHint(state);
+  });
 
   win.on('closed', () => {
     if (ghost === state) {

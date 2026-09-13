@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { linkedImageEvents } from './streamLinkedImages.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, resolveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings } from '@vibisual/shared';
+import { appStateGetTokenSaver } from './appState.js';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText , buildTokenSaverEnv } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -43,15 +45,19 @@ import {
   type LocalHookToolEvent,
   type LocalToolVerdict,
 } from './localRunner.js';
+import { runCodexTurn, stopCodexTurn } from './codexRunner.js';
+import { codexEdgeInstructions, type CodexEdgeConfig } from './codexEdges.js';
 import { permissionBroker } from './permissionBroker.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
-import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
+import { readLastAssistantMessage, readLastAssistantEntry, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
+import type { LastAssistantEntry } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 // §5.5 #17-2 — 턴 프롬프트 조립(슬래시 명령은 앞말 없이 원문 그대로). 순수 모듈 + 단위 테스트.
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
+import { resolveTurnResult, isAnswerlessTurnText } from './turnResult.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
 import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
@@ -60,6 +66,17 @@ import { prepareAgentSettings } from './agentMemoryService.js';
 
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
+
+/**
+ * 지금 서버가 아는 **모든 프로젝트**. `AgentProjectResolver` 가 소속을 못 풀 때의 **되찾기 후보**다.
+ *
+ * 왜 따로 두는가 — `AgentProjectResolver` 는 `sessionCwds`·`agents` 맵을 훑어 소속을 찾는데,
+ * 프로젝트 탭을 닫았다 다른 곳을 오가면 그 에이전트가 두 맵에서 빠져 `null` 이 된다. 그러면
+ * `sub-streams/<agentId>/<subId>.jsonl` 이 디스크에 멀쩡히 있는데도 폴더를 짚지 못해 빈 배열이
+ * 나가고, 화면은 "대화 내역이 통째로 날아간" 모양이 된다. 소속을 잃어도 **파일이 있는 자리**는
+ * 후보를 훑으면 찾을 수 있다 — 그 길을 여는 주입선이다.
+ */
+export type AllProjectsProvider = () => ProjectInfo[];
 
 /**
  * §5.19 (H) — 로컬 세션의 **호스트 도구** 한 건. 파일이 아니라 우리 화면·설정을 움직인다
@@ -137,6 +154,12 @@ interface ConfigArgsContext {
    * 단위 테스트로 고정할 수 있다). 넘기지 않으면 에이전트 설정 → 내장 기본 2층만 본다.
    */
   userAutoCompact?: string;
+  /**
+   * §5.3 #9-1 (Q축) — 토큰 절약이 조인 압축 창. 이 조립 함수를 **순수하게** 두려고 서비스를
+   * 직접 읽지 않고 인자로 받는다(`userAutoCompact` 와 같은 이유 — 그래야 4층 해소를 단위
+   * 테스트로 고정할 수 있다). 넘기지 않으면 종전 3층 그대로다.
+   */
+  tokenSaverAutoCompact?: string;
 }
 
 /**
@@ -241,7 +264,7 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   //   invalid` 로 **즉시 종료**해 그 에이전트가 영영 못 뜬다(실측 2.1.252). 플래그를 생략하면
   //   CLI 기본(창 전체)이라 `[1m]` 스폰에서는 사실상 압축이 없고, 창에 닿을 때 CLI 가 한 번
   //   접는 최후 안전망만 남는다 — 그것이 사용자가 "끔"으로 산 상태의 정확한 의미다.
-  const resolvedAutoCompact = resolveAutoCompact(config.autoCompact, ctx?.userAutoCompact);
+  const resolvedAutoCompact = resolveEffectiveAutoCompact(config.autoCompact, ctx?.userAutoCompact, ctx?.tokenSaverAutoCompact);
   if (isAutoCompactOn(resolvedAutoCompact)) {
     args.push('--autocompact', resolvedAutoCompact);
   }
@@ -313,6 +336,24 @@ export function buildBashTimeoutEnv(config: AgentConfig | undefined): Record<str
 }
 
 /**
+ * §5.3 #9-1 (J~M) — 토큰 절약 축을 스폰 env 로.
+ *
+ * 조립 자체는 shared 순수 함수(`buildTokenSaverEnv`)가 하고 여기서는 **전역 설정을 읽어 3층을
+ * 완성**하기만 한다(에이전트 값 → 전역 값 → 미설정). 순수 함수를 밖에 둔 이유는 `normalize` 와
+ * 같다 — 서버·클라·테스트가 같은 답을 내야 하고, 두 벌이 되면 화면과 실제가 어긋난다.
+ *
+ * ⚠ **켠 축이 하나도 없으면 빈 객체**다. 이 기능을 안 쓰는 사용자의 스폰 env 는 이 절이 생기기
+ * 전과 바이트 단위로 같다(§5.3 #9-1 "미설정이면 키 자체를 넣지 않는다").
+ *
+ * 이 함수를 부르는 자리는 둘이고 그 둘이 **클로드 CLI 로 나가는 모든 경로**다 —
+ * 헤드리스(`buildConfigEnv`)와 CMD 인터랙티브 PTY(`terminalManager`). 코덱스 경로는 부르지
+ * 않는다(이 env 들은 클로드 CLI 의 규약이라 코덱스에는 뜻이 없다).
+ */
+export function buildAgentTokenSaverEnv(config: AgentConfig | undefined): Record<string, string> {
+  return buildTokenSaverEnv(config, appStateGetTokenSaver());
+}
+
+/**
  * §5.3 v4.89 — 스폰 env 에 얹을 항목(중첩 깊이 · 자동 기억 끄기).
  * 인자가 아니라 환경변수로 가는 축이라 `buildConfigArgs` 와 분리한다.
  */
@@ -325,6 +366,8 @@ function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext
   }
 
   Object.assign(env, buildBashTimeoutEnv(config));
+  // §5.3 #9-1 (J~M) — 출력 상한·압축 조기화·비필수 호출 차단. 켠 축이 없으면 아무 키도 안 붙는다.
+  Object.assign(env, buildAgentTokenSaverEnv(config));
 
   // ⚠ 위 `buildConfigArgs` 와 **같은 입력**을 줘야 한다 — 파일 이름이 본문 해시라, 한쪽만 키를
   //   더하면 인자가 가리키는 파일과 여기서 만든 파일이 서로 다른 장이 된다.
@@ -354,7 +397,11 @@ export function buildInteractiveClaudeArgs(
   config: AgentConfig,
   opts: { includeRules?: boolean; userAutoCompact?: string } = {},
 ): string[] {
-  const args = buildConfigArgs(config, { userAutoCompact: opts.userAutoCompact });
+  const args = buildConfigArgs(config, {
+    userAutoCompact: opts.userAutoCompact,
+    // §5.3 #9-1 (Q) — 사용자가 직접 치는 CMD 세션도 같은 창으로 접힌다(두 경로 한 벌).
+    tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow,
+  });
   // includeRules 기본 false — 임베디드 터미널은 셸 프롬프트에 명령을 prefill 하는데
   // 멀티라인 rules 를 한 줄 명령에 넣으면 셸 파싱이 깨진다(데스크톱 터미널 매니저 경로).
   // 직접 spawn(argv 배열) 경로에서만 includeRules:true 로 rules 를 안전히 주입.
@@ -1152,6 +1199,17 @@ export class SubAgentManager {
   private childStderrTails = new Map<string, string>();
   /** 부모 에이전트 → 프로젝트 해석 콜백 (영속화 경로 계산용) */
   private projectResolver: AgentProjectResolver | null = null;
+  /** 소속 해석이 실패했을 때 훑을 프로젝트 후보(`findStreamDirFor` ③). 없으면 그 그물만 안 쓴다. */
+  private allProjectsProvider: AllProjectsProvider | null = null;
+  /**
+   * subId → 그 세션의 스트림을 **마지막으로 읽어 낸 폴더**(`findStreamDirFor` ②).
+   *
+   * `streamDiskStamps` 와 겹쳐 보이지만 **수명이 다르다** — 저 맵은 idle 회수·탭 닫기에서 지문과
+   * 함께 지워진다(지워야 회수한 과거를 다시 읽는다). 이쪽은 "그 파일이 어느 폴더에 있나"라는
+   * 사실이라 세션이 사는 동안 변하지 않으므로 지우지 않는다. 지우면 소속을 잃은 순간
+   * 되찾을 실마리가 함께 사라진다.
+   */
+  private lastKnownStreamDirs = new Map<string, string>();
   /** §5.19 (H) — 호스트 도구 처리기. 없으면 그 도구들은 "이 세션에서는 못 쓴다"고 답한다. */
   private localHostToolHandler: LocalHostToolHandler | null = null;
   /** §5.19 (H) — 도구 이벤트를 훅으로 흘리는 곳. 없으면 아무 데도 안 간다(종전 동작). */
@@ -1212,6 +1270,22 @@ export class SubAgentManager {
    */
   private currentTurnId = new Map<string, string>();
 
+  /**
+   * §5.3 #9-1 (P) — **우리가 끼운 조용한 명령의 턴 id**(선행 `/compact`).
+   *
+   * 이 도장이 찍힌 줄은 버퍼·디스크·화면 **어디에도 남기지 않는다.** 스트림은 명령이 아니라
+   * **세션** 단위로 쌓이므로, 명령을 감추는 것(`QueuedCommand.silent` + `displayCommands`)
+   * 만으로는 그 명령이 뱉은 줄이 그대로 사용자 대화에 섞인다 — 실측으로 압축이 거절당한
+   * `Not enough messages to compact.` 한 줄이 남의 대화에 떴다(사용자 신고 2026-09-13).
+   * 기획이 "말풍선·**스트림**·대기열·명령 센터·입력 히스토리·완료 아카이브 전부"라고 못 박은
+   * 그 스트림이 여기다.
+   *
+   * 지우지 않는다 — turnId 는 명령마다 고유해 되쓰이지 않으므로 남아 있어도 오탐이 없고,
+   * 지우는 자리를 다섯 곳(마감·실패·중지·회수)에 흩으면 하나만 놓쳐도 조용히 샌다. 늘기만
+   * 하는 파생물이라 §3.2.4 F′축 상한만 건다.
+   */
+  private silentTurnIds = new Set<string>();
+
   setOnComplete(cb: () => void): void {
     this.onComplete = cb;
   }
@@ -1245,11 +1319,49 @@ export class SubAgentManager {
     this.projectResolver = resolver;
   }
 
+  /** 소속을 잃은 세션의 스트림 폴더를 되찾을 때 훑을 후보 목록(§5.5 — 아래 `findStreamDirFor`). */
+  setAllProjectsProvider(provider: AllProjectsProvider): void {
+    this.allProjectsProvider = provider;
+  }
+
   /** 부모 에이전트의 sub-streams 디렉토리 해석. 프로젝트 미확정이면 null. */
   private resolveStreamDir(parentAgentId: string): string | null {
     const info = this.projectResolver?.(parentAgentId);
     if (!info) return null;
     return streamBufferStore.subStreamsDir(info, parentAgentId);
+  }
+
+  /**
+   * 그 세션의 스트림이 **실제로 놓인 폴더**를 찾는다 — 소속 해석이 실패해도 포기하지 않는다.
+   *
+   * **왜 이게 있어야 하나**: `resolveStreamDir` 하나에 기대면, 프로젝트 탭을 닫았다 여러 곳을
+   * 오간 뒤 그 세션으로 돌아왔을 때 `projectResolver` 가 `null` 을 줘서 **디스크에 온전한 대화가
+   * 있는데도 빈 배열이 나간다**. 클라는 그 빈 응답을 몇 번 되묻다 포기하고, 화면은 말풍선과
+   * 카드만 남은 채 굳는다(2026-09-08 사용자 보고 — "대화 내역이 다 날아갔다"). 대화는 지워진 적이
+   * 없었고 **가는 길만 끊겨 있었다.**
+   *
+   * 세 순서로 찾는다. ① 소속 해석(평소 길 — 거의 항상 여기서 끝난다) ② 이 세션의 스트림을 마지막에
+   * 읽어 낸 폴더(`lastKnownStreamDirs` — 한 번이라도 읽혔으면 소속을 잃어도 자리는 안 변한다)
+   * ③ 서버가 아는 모든 프로젝트를 훑어 그 파일이 실재하는 자리(마지막 그물).
+   *
+   * ③ 은 `hasBuffer` 로 **존재만** 보므로 후보가 많아도 `stat` 몇 번이고, 찾으면 ② 에 적어 둬
+   * 다음부터는 훑지 않는다.
+   */
+  private findStreamDirFor(subAgentId: string, parentAgentId: string): string | null {
+    const direct = this.resolveStreamDir(parentAgentId);
+    if (direct) {
+      this.lastKnownStreamDirs.set(subAgentId, direct);
+      return direct;
+    }
+    const remembered = this.lastKnownStreamDirs.get(subAgentId);
+    if (remembered) return remembered;
+    for (const info of this.allProjectsProvider?.() ?? []) {
+      const dir = streamBufferStore.subStreamsDir(info, parentAgentId);
+      if (!streamBufferStore.hasBuffer(dir, subAgentId)) continue;
+      this.lastKnownStreamDirs.set(subAgentId, dir);
+      return dir;
+    }
+    return null;
   }
 
   /**
@@ -1271,6 +1383,10 @@ export class SubAgentManager {
    * 곧바로 깊은 복원분을 요청하는데 서버 `index` 에는 아직 그 sub 가 없을 수 있고, 그러면
    * 디스크에 파일이 멀쩡히 있는데도 빈 배열이 나가 화면이 얕은 창에 갇혔다. 부모를 알면
    * 폴더는 정해지므로(`sub-streams/<agentId>/<subId>.jsonl`) 힌트로 그대로 읽는다.
+   *
+   * 폴더는 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패해도(프로젝트 탭을 닫았다 오간 뒤)
+   * 기억해 둔 자리·후보 훑기로 되찾는다. 이 경로가 빈 배열을 돌려주는 순간 화면의 과거가
+   * 통째로 사라지므로, **여기서는 쉽게 포기하지 않는다.**
    */
   getStreamBuffer(subAgentId: string, parentAgentIdHint?: string): SubAgentStreamEvent[] {
     const buf = this.streamBuffers.get(subAgentId);
@@ -1278,7 +1394,7 @@ export class SubAgentManager {
     // idle 회수(sweepIdle)로 메모리에서 비워졌으면 디스크에서 복구 + 재캐시.
     const sub = this.index.get(subAgentId);
     const parentAgentId = sub?.parentAgentId ?? parentAgentIdHint;
-    const dir = parentAgentId ? this.resolveStreamDir(parentAgentId) : null;
+    const dir = parentAgentId ? this.findStreamDirFor(subAgentId, parentAgentId) : null;
     if (dir) {
       // 메모리에 아무것도 없으면(`buf === undefined`) 지문을 믿지 않고 무조건 읽는다 — 회수됐거나
       // 아직 한 번도 안 읽은 것이라, 여기서 건너뛰면 디스크의 과거가 화면에 못 올라온다.
@@ -1298,19 +1414,23 @@ export class SubAgentManager {
   getStreamBuffersForAgent(agentId: string): Record<string, SubAgentStreamEvent[]> {
     const subs = this.registry.get(agentId) ?? [];
     const result: Record<string, SubAgentStreamEvent[]> = {};
-    const dir = this.resolveStreamDir(agentId);
     for (const sub of subs) {
       let buf = this.streamBuffers.get(sub.id);
       // idle 회수로 메모리에서 비워진 sub 는 디스크에서 복구 + 재캐시(IDE 재오픈 시 빈 화면 방지).
       // ⚠ 이 조회는 그 에이전트의 **모든 sub** 를 도므로, 한 번 부를 때마다 세션 수만큼 파일을 열었다.
       //   지문이 그대로면 `stat` 한 번으로 넘어간다(반복 호출 비용이 세션 수 × 파일 크기 → 세션 수 × stat).
-      if ((!buf || buf.length === 0) && dir) {
-        const prev = buf === undefined ? undefined : this.prevStreamStamp(sub.id, dir);
-        const r = streamBufferStore.loadBufferIfChanged(dir, sub.id, MAX_STREAM_BUFFER, prev);
-        if (r.changed) {
-          this.streamDiskStamps.set(sub.id, { dir, stamp: r.stamp });
-          this.streamBuffers.set(sub.id, r.events);
-          buf = r.events;
+      //   폴더는 세션마다 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패해도(탭을 닫았다 오간 뒤)
+      //   되찾은 자리로 읽어, IDE 를 열자마자 뜨는 첫 화면이 비지 않게 한다.
+      if (!buf || buf.length === 0) {
+        const dir = this.findStreamDirFor(sub.id, agentId);
+        if (dir) {
+          const prev = buf === undefined ? undefined : this.prevStreamStamp(sub.id, dir);
+          const r = streamBufferStore.loadBufferIfChanged(dir, sub.id, MAX_STREAM_BUFFER, prev);
+          if (r.changed) {
+            this.streamDiskStamps.set(sub.id, { dir, stamp: r.stamp });
+            this.streamBuffers.set(sub.id, r.events);
+            buf = r.events;
+          }
         }
       }
       // §5.5 v4.92 — 메모리 캐시는 상한 전체를 들고 있어도 **여기서는 꼬리만** 실어 보낸다.
@@ -1581,6 +1701,16 @@ export class SubAgentManager {
     this.stampTurnId(event);
     // 턴 봉인 판정은 **버려지는 칩까지 포함해** 모든 줄을 봐야 한다 — 아래 복원 예산 컷보다 먼저.
     this.noteTurnSealSignal(event);
+    // §5.3 #9-1 (P)(a) — 조용한 압축이 뱉은 줄은 **버퍼·디스크·화면 어디에도 남기지 않는다.**
+    //   봉인 판정(바로 위)보다는 **뒤**다 — 그 턴도 끝나야 다음 명령이 나가므로 마감 신호는
+    //   그대로 받아야 한다. 감추는 것은 보이는 줄이지 "끝났다"는 사실이 아니다.
+    //   `lastActivityAt` 은 갱신한다 — 압축은 2~3분씩 걸리는데(실측 평균 150초) 이 갱신을
+    //   빠뜨리면 그동안 흐르는 줄이 하나도 없어 idle sweep 이 도는 세션을 죽은 것으로 읽는다.
+    if (event.turnId && this.silentTurnIds.has(event.turnId)) {
+      const silentSub = this.index.get(event.subAgentId);
+      if (silentSub) silentSub.lastActivityAt = Date.now();
+      return;
+    }
     // §5.5 v4.92 — 내용 없는 SDK 상태 칩(`[task_progress]`·`[thinking_tokens]` 등)은 **복원 예산에서 뺀다**.
     //   어느 밀도에서도 한 글자도 안 그려지면서 버퍼의 38%(실측)를 먹어 대화를 밀어내던 것들이다.
     //   라이브 중계(onStreamEvent)는 그대로 — 진행 표시·라이브 1줄은 이 칩들로 움직이므로 끊으면 안 된다.
@@ -1595,7 +1725,9 @@ export class SubAgentManager {
     if (!buf) {
       // idle 회수(sweepIdle)로 비워진 뒤 재개되는 경우, 디스크에서 과거를 복원해 이어붙인다 —
       // 메모리 버퍼 완전성 보장(이게 없으면 재개 후 getStreamBuffersForAgent 가 과거 누락분만 반환).
-      const dir0 = this.resolveStreamDir(event.parentAgentId);
+      // 폴더는 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패하면 과거를 못 이어붙여 **그 세션은
+      // 지금부터의 몇 줄만 남는다**(읽기 경로를 고쳐도 여기가 비면 같은 빈 화면이 된다).
+      const dir0 = this.findStreamDirFor(event.subAgentId, event.parentAgentId);
       if (dir0) {
         const r = streamBufferStore.loadBufferIfChanged(dir0, event.subAgentId, MAX_STREAM_BUFFER, undefined);
         this.streamDiskStamps.set(event.subAgentId, { dir: dir0, stamp: r.stamp });
@@ -1693,11 +1825,21 @@ export class SubAgentManager {
     let failedCount = 0;
 
     // cmd 마무리 공용 헬퍼 — terminal state 와 sub 의 final result 로 cmd 봉합.
-    const finalizeCmd = (sub: SubAgent, stateStr: string, resultText: string | undefined, detail?: string): void => {
+    //   부팅 봉합도 결과 판정은 산 경로와 **같은 자리**(`turnResultText`)를 거친다 — 답 없는 턴이
+    //   앞 턴의 답을 물려받는 자리가 여기에도 있었다(③-4).
+    const finalizeCmd = (
+      sub: SubAgent,
+      stateStr: string,
+      reported: string | undefined,
+      detail?: string,
+      cwd?: string,
+      sessionId?: string,
+    ): void => {
       const cmd = findExecutingCmd?.(sub.id);
       if (!cmd) return;
       const isError = stateStr === 'failed';
       cmd.status = isError ? 'error' : 'completed';
+      const resultText = cwd ? this.turnResultText(cmd, cwd, sessionId, reported) : reported;
       if (resultText) cmd.result = resultText;
       // §5.5 #17-12 ③ — 실패로 봉합되는 명령에는 사유를 함께 남긴다(옛 코드는 상태만 바꿔 "오류"만 남았다).
       if (isError) this.failCommand(sub, cmd, { code: 'agentView', ...(detail ? { detail } : {}) });
@@ -1744,7 +1886,7 @@ export class SubAgentManager {
                   try { resultText = readLastAssistantMessage(cwd, sessionId) ?? undefined; } catch { /* ignore */ }
                 }
                 if (resultText) sub.lastResult = resultText;
-                finalizeCmd(sub, ts, resultText, state.detail);
+                finalizeCmd(sub, ts, resultText, state.detail, cwd, sessionId);
                 // 이 세션의 실행이 끝났다 = 그 자식인 배경 작업도 끝났다(위 close 핸들러와 같은 근거).
                 this.retireLiveBackgroundTasks(sub.id);
                 this.clearPendingSubagentTasksForSession(sub.parentAgentId, sub.id);
@@ -1769,7 +1911,7 @@ export class SubAgentManager {
             try { resultText = readLastAssistantMessage(cwd, sessionId) ?? undefined; } catch { /* ignore */ }
           }
           if (resultText && !sub.lastResult) sub.lastResult = resultText;
-          finalizeCmd(sub, stateStr, resultText, currentState?.detail);
+          finalizeCmd(sub, stateStr, resultText, currentState?.detail, cwd, sessionId);
           // v1.62 fix — 다른 terminal 경로(stillWorking/finishTerminal/legacy)와 동일하게
           // 부모 커스텀 버블 재계산 + cmd 아카이브를 즉시 트리거. 누락 시 부모 배지가
           // 다음 10초 주기 sweep 까지 stale 상태로 남는다.
@@ -1787,7 +1929,7 @@ export class SubAgentManager {
           sub.lastActivityAt = Date.now();
           const resultText = (typeof finalState.output?.result === 'string' && finalState.output.result) || undefined;
           if (resultText && !sub.lastResult) sub.lastResult = resultText;
-          finalizeCmd(sub, stateStr, resultText, finalState.detail);
+          finalizeCmd(sub, stateStr, resultText, finalState.detail, cwd, sessionId);
           // v1.62 fix — gone 경로도 부모 재계산 + 아카이브 즉시 트리거 (위 분기와 동일 이유).
           this.onSubStatusChange?.(sub.parentAgentId);
           this.onComplete?.();
@@ -1813,6 +1955,38 @@ export class SubAgentManager {
     return this.registry.get(parentAgentId) ?? [];
   }
 
+  /**
+   * **확인 dismiss — 실패 표식의 근거까지 걷는다 (§2.4).**
+   *
+   * 부모 버블의 `error` 는 저장된 상태가 아니라 **파생값**이다 — `recomputeCustomAgentStatus` 가
+   * 매 스윕(`SESSION_SCAN_INTERVAL`=10초)마다 `subs.some(s => s.status === 'error')` 로 다시
+   * 계산한다. 그래서 확인 dismiss 가 버블만 `idle` 로 내리면 **다음 스윕이 같은 근거로 빨강을
+   * 그 자리에 되살린다**(사용자 보고 "확인해서 껐는데 왔다 갔다 하면 다시 빨간불"). 게다가 그
+   * `error` 는 체크포인트에 그대로 저장되므로 앱을 껐다 켜도 되살아난다. 걷어야 하는 것은
+   * 파생값이 아니라 그 **근거**다.
+   *
+   * `error` 인 sub 만 `idle` 로 되돌린다 — `active` 는 건드리지 않고(도는 세션을 끝난 것으로
+   * 만드는 일이 된다), `lastResult`·명령 이력·스트림 버퍼는 그대로 남는다. **지우는 것이 아니라
+   * 확인한 것**이다(§2.4 "정보를 지우지 않는다").
+   *
+   * 이 길은 **사용자 클릭 전용**이다. 자동 idle 스윕은 여기를 타지 않는다 — 시간이 흘렀다는
+   * 이유로 실패를 idle 로 세탁하지 않기 위함(§2.4 "거짓 idle 세탁 금지").
+   *
+   * @returns 실제로 내려간 sub 개수. 0이면 호출자가 broadcast·저장을 건너뛴다.
+   */
+  acknowledgeErrorSubs(parentAgentId: string): number {
+    let cleared = 0;
+    for (const sub of this.registry.get(parentAgentId) ?? []) {
+      if (sub.status !== 'error') continue;
+      sub.status = 'idle';
+      cleared++;
+    }
+    if (cleared > 0) {
+      logger.info(`SubAgent error acknowledged: ${cleared} sub(s) → idle (parent: ${parentAgentId})`);
+    }
+    return cleared;
+  }
+
   /** 전체 서브에이전트 flat 목록 (세션 ID 역조회용) */
   getAllSubsFlat(): SubAgent[] {
     return [...this.index.values()];
@@ -1821,110 +1995,6 @@ export class SubAgentManager {
   /** v1.33 — subAgentId 로 직접 조회. projectGraph reconcile 경로용. 없으면 undefined. */
   getSub(subAgentId: string): SubAgent | undefined {
     return this.index.get(subAgentId);
-  }
-
-  /**
-   * §5.5 #17-8 v2.95 — 세션 자기요약. 카드가 하나도 없는 세션을 한 줄로 요약하기 위해, 그 세션의
-   * claude 대화를 `--resume` 해 헤드리스 1턴(짧은 한국어 요약 프롬프트)을 spawn 하고 결과 텍스트를 돌려준다.
-   * "자기가 자기를 요약" — 세션 자신의 컨텍스트로 도므로 별도 transcript 주입이 불필요.
-   *
-   * sessionId 해석: 헤드리스/persistent 는 `sub.sessionId`, CMD 인터랙티브는 termId 기반
-   * `getCmdResumeSession('term:<agentId>:<subId>')`. 둘 다 없으면(대화 전무) null 텍스트.
-   * cwd 는 projectResolver(parentAgentId).path. 30s 타임아웃. 표시 전용이라 실패는 조용히 error.
-   */
-  async summarizeSession(parentAgentId: string, subId: string): Promise<{ ok: boolean; text?: string; error?: string }> {
-    const sub = this.index.get(subId);
-    const info = this.projectResolver?.(parentAgentId);
-    const cwd = info?.path;
-    if (!cwd) return { ok: false, error: 'project-not-resolved' };
-
-    // 세션의 claude 대화 sessionId 해석 — 헤드리스 sub.sessionId 우선, 없으면 CMD termId 매핑.
-    let sessionId = sub?.sessionId && sub.sessionId.length > 0 ? sub.sessionId : '';
-    if (!sessionId) {
-      const cmdSid = getCmdResumeSession(`term:${parentAgentId}:${subId}`);
-      if (cmdSid) sessionId = cmdSid;
-    }
-    if (!sessionId) return { ok: false, error: 'no-conversation' };
-
-    // JSONL 이 사라진 스테일 세션이면 --resume 이 확정 실패 — 미리 가드.
-    try {
-      const jsonlPath = getSessionJsonlPath(cwd, sessionId);
-      if (!fs.existsSync(jsonlPath)) return { ok: false, error: 'no-conversation' };
-    } catch { /* 경로 계산 실패는 spawn 에 맡김 */ }
-
-    const prompt =
-      '지금까지 이 세션에서 한 작업을 한국어로 3줄 이내로 요약해줘. ' +
-      '무엇을 했는지 한두 줄, 사용자가 확인하거나 직접 해야 할 게 남았으면 마지막 한 줄로. ' +
-      '머리말·인사·코드블록 없이 핵심만.';
-
-    return new Promise((resolve) => {
-      const args = ['--resume', sessionId, '--print', '--output-format', 'json', '--input-format', 'stream-json', '--verbose'];
-      let child: ChildProcess;
-      try {
-        child = spawn(CLAUDE_BIN(), args, {
-          cwd,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          shell: false,
-          // POSIX 프로세스 그룹 리더로 — 아래 done() 이 killTree 로 회수하는데, detached 없이는
-          //   `-pid` 그룹 킬이 ESRCH 로 떨어져 claude 손자(MCP 서버·worker)가 mac/linux 에서 살아남는다.
-          ...processGroupSpawnOptions(),
-          env: { ...process.env, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', PYTHONIOENCODING: 'utf-8' },
-        });
-      } catch (err) {
-        resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
-        return;
-      }
-      registerSpawnedPid(child.pid);
-      child.once('exit', () => unregisterSpawnedPid(child.pid));
-      // §5.5 #17-18 과 같은 사유 — stdin 오류(`write-after-end`·`EPIPE`)는 write() 를 감싼 try/catch 를
-      //   지나쳐 stream 의 `error` 이벤트로 온다. 듣는 사람이 없으면 메인 프로세스 uncaughtException 이
-      //   되어 그 순간 돌던 체인을 끊는다. 여기서 받아 로그로만 남기고 마무리는 close/timeout 에 맡긴다.
-      child.stdin?.on('error', (err: Error) => {
-        logger.warn(`summarizeSession stdin error: ${err.message} — child is going down`);
-      });
-
-      let stdout = '';
-      let settled = false;
-      const done = (r: { ok: boolean; text?: string; error?: string }): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        // 결과는 이미 캡처됨 — 직접 자식만 죽이면 claude 손자(node worker/MCP)가 고아로 남는다. 트리째 회수.
-        killTree(child.pid);
-        unregisterSpawnedPid(child.pid);
-        resolve(r);
-      };
-      const timer = setTimeout(() => done({ ok: false, error: 'timeout' }), 30_000);
-
-      try {
-        const inputLine = JSON.stringify({
-          type: 'user',
-          message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-        }) + '\n';
-        child.stdin?.setDefaultEncoding('utf8');
-        child.stdin?.write(inputLine, 'utf8');
-        child.stdin?.end();
-      } catch { /* stdin 실패는 close 에서 처리 */ }
-
-      child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-      child.on('error', (err) => { noteClaudeSpawnFailure(err); done({ ok: false, error: err.message }); });
-      child.on('close', () => {
-        // `--output-format json` = 마지막에 result 객체 1개. 여러 줄일 수 있어 result 타입만 추출.
-        let text = '';
-        for (const line of stdout.split('\n')) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const obj = JSON.parse(trimmed) as Record<string, unknown>;
-            if (typeof obj['result'] === 'string') text = obj['result'] as string;
-            else if (obj['type'] === 'result' && typeof obj['result'] === 'string') text = obj['result'] as string;
-          } catch { /* 부분 라인 무시 */ }
-        }
-        text = text.trim();
-        if (text) done({ ok: true, text });
-        else done({ ok: false, error: 'empty' });
-      });
-    });
   }
 
   /** 이 sub 가 지금 실제로 실행 중인가 — 살아있는 자식 프로세스(legacy) 또는 agent-view watcher 보유.
@@ -3366,6 +3436,113 @@ export class SubAgentManager {
   }
 
   /**
+   * §2.4 (한도 정지) — **CLI 가 뱉은 한 줄이 한도 통지면 그 세션에 표식을 세운다.**
+   *
+   * 한도에 닿으면 CLI 는 실패하지 않는다 — 합성 통지 한 줄(`model:"<synthetic>"`)을 적고 정상
+   * 종료하므로, 이 자리가 없으면 그 명령은 `completed` 로 봉인되고 화면에는 초록 "끝남"만 남는다.
+   * 판정 자체는 shared 한 곳(`detectUsageLimitStop`)이 소유한다 — 스트림 경로가 셋(persistent
+   * stdout · legacy stdout · agent-view JSONL watcher)이라 여기서 따로 알아보면 갈라진다.
+   *
+   * **한 턴에 한 번만 세운다.** 같은 통지가 스트림과 결과 본문에 두 번 오므로 덮어쓰면 `at` 이
+   * 뒤로 밀린다. 표식을 걷는 곳은 다음 명령이 나가는 순간(`clearUsageLimit`) 하나뿐이다.
+   *
+   * @returns 이번 호출로 표식이 새로 섰으면 `true`(호출자 broadcast 판단용).
+   */
+  private noteUsageLimitLine(sub: SubAgent, obj: unknown): boolean {
+    if (sub.usageLimit) return false;
+    const stop = detectUsageLimitStop(obj, Date.now());
+    if (!stop) return false;
+    sub.usageLimit = stop;
+    sub.lastActivityAt = Date.now();
+    logger.warn(
+      `SubAgent ${sub.id} stopped by ${stop.kind} limit${
+        stop.resetsAt ? ` (resets ${new Date(stop.resetsAt).toISOString()})` : ''
+      }: ${stop.message ?? ''}`,
+    );
+    this.onSubStatusChange?.(sub.parentAgentId);
+    return true;
+  }
+
+  /**
+   * §2.4 (한도 정지) — 턴 **결과 본문**으로 한 번 더 본다.
+   *
+   * 스트림을 놓치는 경로가 실제로 있다(legacy `--print` 는 완성 assistant 블록을 억제하고,
+   * agent-view 는 watcher 가 붙기 전 줄을 못 본다). 결과 본문에는 봉투가 없으므로 판정은
+   * **짧은 통지 한 줄**만 인정한다(`detectUsageLimitInText`) — 통지를 인용한 긴 답변까지 세면
+   * 멀쩡히 끝난 세션이 주황으로 물든다.
+   */
+  private noteUsageLimitText(sub: SubAgent, text: string | undefined): void {
+    if (!text || sub.usageLimit) return;
+    const stop = detectUsageLimitInText(text, Date.now());
+    if (!stop) return;
+    sub.usageLimit = stop;
+    logger.warn(`SubAgent ${sub.id} stopped by ${stop.kind} limit (from turn result): ${stop.message ?? ''}`);
+    this.onSubStatusChange?.(sub.parentAgentId);
+  }
+
+  /**
+   * §2.4 (한도 정지) — **다음 명령이 나가면 표식을 걷는다.**
+   *
+   * 시간으로 만료시키지 않는다. 한도가 풀려도 그 세션은 끊긴 자리에 그대로 서 있으므로("풀렸다"와
+   * "이어서 했다"는 다르다), 시간이 흘렀다는 이유로 걷지 않는다.
+   *
+   * 걷는 길은 둘이다 — 이 자리(다시 돌렸다)와 아래 `acknowledgeUsageLimits`(사용자가 확인했다).
+   * 둘 다 **사용자의 손짓**이라는 점이 같다. 자동으로 걷히는 길은 없다.
+   */
+  private clearUsageLimit(sub: SubAgent): void {
+    if (sub.usageLimit === undefined) return;
+    delete sub.usageLimit;
+  }
+
+  /**
+   * §2.4 (한도 정지) — **사용자가 확인하면 그 세션의 표식을 걷는다.**
+   *
+   * 주황불은 "손대야 다시 간다"를 말하는 자리다. 그 말을 **사용자가 읽은 순간** 그 불은 제 할 일을
+   * 다 한 것이라, 다시 돌리기 전이라도 평상태로 돌아가야 한다(사용자 지시 — "내가 클릭해서
+   * 확인하면 다시 idle 로 돌아가야지"). 종전에는 걷는 곳이 `execute` 하나뿐이라, 그 세션을 다시
+   * 돌리지 않는 한 배지가 영영 주황이었다.
+   *
+   * **끄는 것은 표식뿐이다.** `status`·`lastResult`·명령 이력·스트림은 그대로 남는다 — 지우는 것이
+   * 아니라 확인한 것이다(`acknowledgeErrorSubs` 와 같은 규율).
+   *
+   * 이 길도 **사용자 클릭 전용**이다. 어떤 스윕도 여기를 타지 않는다(시간이 흘렀다는 이유로 멈춘
+   * 사실을 세탁하지 않기 위함 — §2.4 "거짓 idle 세탁 금지").
+   *
+   * @param subAgentIds 확인할 세션들. 이미 표식이 없는 것은 조용히 건너뛴다.
+   * @returns 실제로 걷힌 sub.id 목록. 비면 호출자가 broadcast·저장을 건너뛴다.
+   */
+  acknowledgeUsageLimits(subAgentIds: Iterable<string>): string[] {
+    const cleared: string[] = [];
+    const parents = new Set<string>();
+    for (const id of subAgentIds) {
+      const sub = this.index.get(id);
+      if (!sub || sub.usageLimit === undefined) continue;
+      delete sub.usageLimit;
+      cleared.push(sub.id);
+      parents.add(sub.parentAgentId);
+    }
+    // 부모 버블의 색은 sub 들에서 다시 계산되는 파생값이다 — 걷은 뒤 한 번 알려야 캔버스가 따라온다.
+    //   부모별로 한 번만 부른다(세션 열 개가 한꺼번에 걷혀도 재계산은 부모 수만큼이면 된다).
+    for (const parentAgentId of parents) this.onSubStatusChange?.(parentAgentId);
+    if (cleared.length > 0) {
+      logger.info(`Usage limit acknowledged: ${cleared.length} session(s) cleared (${cleared.join(', ')})`);
+    }
+    return cleared;
+  }
+
+  /**
+   * §2.4 (한도 정지) — 이 에이전트에서 **한도로 멈춘 채 남아 있는** 세션 id 들.
+   *
+   * 확인 창구가 "이 줄을 눌렀다"(에이전트 하나)와 "전부 확인"(여러 에이전트) 두 손짓을 받는데,
+   * 그때마다 호출부가 `getAllSubs().filter(...)` 를 다시 적으면 판정이 갈라진다. 여기 하나로 둔다.
+   */
+  listUsageLimitedSubIds(parentAgentId: string): string[] {
+    return (this.registry.get(parentAgentId) ?? [])
+      .filter((s) => s.usageLimit !== undefined)
+      .map((s) => s.id);
+  }
+
+  /**
    * 마지막 활동 시각으로부터 thresholdMs 초과한 active/completed subagent → idle 전환.
    * 변경된 sub.id 목록 반환.
    */
@@ -3636,6 +3813,30 @@ export class SubAgentManager {
   }
 
   /**
+   * §5.26 (G) 5단계 — 죽은 세션 하나를 이 탭에 **입힌다**(부활).
+   *
+   * 새 대화를 만들지 않는다 — `sessionId` 만 채워 두면 다음 명령이 `--resume <sessionId>` 로
+   * 나가 그 대화를 그대로 이어받는다(스폰 경로가 이미 `sub.sessionId` 유무로 갈라 쓴다).
+   * 그래서 이 기능에는 새 실행 경로가 없다: 있는 길에 옛 id 를 놓아 줄 뿐이다.
+   *
+   * ⚠ **살아 있는 세션 id 를 입히면 한 대화를 두 탭이 민다.** 생사 판정은 호출부 몫이다
+   *   (여기서 하면 이 함수가 프로세스 조회를 물어야 하고, 그러면 단위 시험이 기계를 탄다).
+   *
+   * 이미 다른 대화가 붙어 있는 탭은 건드리지 않는다 — 되살리려다 멀쩡한 탭을 덮으면
+   * 그게 더 큰 손실이다. 빈 탭에만 앉는다.
+   */
+  adoptSession(subAgentId: string, sessionId: string, label?: string): boolean {
+    const sub = this.index.get(subAgentId);
+    if (!sub || !sessionId) return false;
+    if (sub.sessionId && sub.sessionId !== sessionId) return false;
+    sub.sessionId = sessionId;
+    if (label?.trim()) sub.label = label.trim().slice(0, 120);
+    sub.lastActivityAt = Date.now();
+    logger.info(`SubAgent ${sub.id} adopted dead session ${sessionId.slice(0, 8)} (§5.26 resurrect)`);
+    return true;
+  }
+
+  /**
    * 서브에이전트 탭 닫기 — 소프트 아카이브.
    * 실행 중이면 SIGTERM으로 자식 종료 → 레지스트리/index/in-memory 스트림 버퍼에서 제거 →
    * 메타를 archive Map으로 이동. disk stream buffer는 유지(restore 시 재로드).
@@ -3838,6 +4039,14 @@ export class SubAgentManager {
       return true;
     }
 
+    // §5.25 (F) — 코덱스 세션의 자식은 러너가 들고 있어 `runningChildren` 에 없다.
+    //   여기서 끊지 않으면 [중지]가 아무것도 못 멈춘 채 다음 경로로 흘러간다.
+    if (stopCodexTurn(subAgentId)) {
+      this.stoppedByUser.add(subAgentId);
+      logger.info(`SubAgent stop requested by user (codex): ${subAgentId}`);
+      return true;
+    }
+
     // §5.7 #23-2 v1.60 — agent-view 경로: supervisor 에 stop 요청. finishTerminal 에서 후처리.
     const av = this.runningAgentViewWatchers.get(subAgentId);
     if (av) {
@@ -3881,6 +4090,12 @@ export class SubAgentManager {
       this.clearLiveBackgroundTasks(sub.id);
       // §5.19 — 로컬 LLM 세션(자식 없음)도 함께 끊는다.
       if (stopLocalTurn(sub.id)) {
+        this.stoppedByUser.add(sub.id);
+        stopped.push(sub.id);
+        continue;
+      }
+      // §5.25 (F) — 코덱스 세션도 함께 끊는다(자식은 러너가 트리째 회수한다).
+      if (stopCodexTurn(sub.id)) {
         this.stoppedByUser.add(sub.id);
         stopped.push(sub.id);
         continue;
@@ -3996,6 +4211,7 @@ export class SubAgentManager {
        * 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다. 끈 것이 없으면 오지 않는다.
        */
       extraArgs?: string[];
+      codexEdgeConfig?: CodexEdgeConfig;
       /** 같은 목적의 환경변수(예: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`). */
       extraEnv?: Record<string, string>;
       /**
@@ -4021,6 +4237,7 @@ export class SubAgentManager {
     sub.status = 'active';
     // 자식/워처가 등록되기 전까지는 "죽은 active" 로 오해받지 않게 표식을 든다(생존 대조 제외).
     this.wakeSub(sub); // §2.4 (잠듦) — 명령이 들어온 순간 표식을 걷는다
+    this.clearUsageLimit(sub); // §2.4 (한도 정지) — 다시 돌린 세션은 더 이상 멈춰 있지 않다
     this.dispatchingSubs.add(sub.id);
     sub.lastCommand = cmd.text;
     sub.lastActivityAt = Date.now();
@@ -4034,6 +4251,13 @@ export class SubAgentManager {
     cmd.status = 'executing';
     // 이 턴의 도장 — 지금부터 이 세션이 뱉는 줄은 전부 이 명령의 것이다.
     this.currentTurnId.set(sub.id, cmd.id);
+    // §5.3 #9-1 (P) — 조용한 명령이면 이 턴이 뱉는 줄은 전부 감춘다(아래 `emitStreamEvent`).
+    //   여기서 등록하는 이유는 하나다 — 도장을 찍는 자리와 같은 곳이라야 "감출 턴"과 "그 턴의
+    //   줄"이 어긋날 수 없다.
+    if (cmd.silent) {
+      this.silentTurnIds.add(cmd.id);
+      capSetSize(this.silentTurnIds, SESSION_KEYED_MAP_MAX);
+    }
 
     // §5.5 #17-18 ⑥ — 이 명령이 **실제로 나간** 시각. 화면은 큐에 넣은 시각(`timestamp`)이 아니라
     //   이 값으로 말풍선 자리를 고정해 "여기서 턴이 끊겼다"를 그린다(대기·합치기는 둘 사이가
@@ -4056,8 +4280,13 @@ export class SubAgentManager {
     // §5.19 — All Model(로컬 LLM) 갈림. **이 한 곳**이 이 기능이 기존 실행 경로에 내는 유일한 자국이다.
     //   `provider` 가 없으면 아래 claude 스폰 경로가 지금까지와 한 줄도 다르지 않게 흐른다.
     if (agentConfig?.provider) {
-      // §5.19 (H) — 도구가 일할 자리는 이 세션의 프로젝트 루트다(클로드 스폰 cwd 와 같은 값).
-      this.executeLocalProvider(sub, cmd, agentConfig, parentCwd, contextSummary, livePreamble);
+      // §5.19 (H) · §5.25 (F) — 도구가 일할 자리는 이 세션의 프로젝트 루트다(클로드 스폰 cwd 와 같은 값).
+      //   프로바이더가 둘이 된 뒤로도 **갈림은 여전히 이 한 곳**이다(§4 확장 슬롯).
+      if (agentConfig.provider.kind === 'codex-cli') {
+        this.executeCodexProvider(sub, cmd, agentConfig, parentCwd, contextSummary, livePreamble, opts);
+      } else {
+        this.executeLocalProvider(sub, cmd, agentConfig, parentCwd, contextSummary, livePreamble);
+      }
       return;
     }
 
@@ -4111,6 +4340,8 @@ export class SubAgentManager {
       agentName: sub!.parentAgentId,
       projectRoot: parentCwd,
       userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
+      // §5.3 #9-1 (Q) — 절약이 조인 창. 미설정이면 위 3층 결과가 그대로 나간다.
+      tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow,
     };
     // §5.5 #17-28 — 주입원 창이 끈 줄의 CLI 인자를 뒤에 얹는다. 같은 인자가 이미 있으면 넣지 않는다.
     const configArgs = agentConfig ? buildConfigArgs(agentConfig, configCtx) : [];
@@ -4235,16 +4466,19 @@ export class SubAgentManager {
       const finishTerminal = async (state: AgentViewJobState): Promise<void> => {
         this.cancelDeferredSeal(sub.id);
 
-        // 결과 텍스트 — state.json output.result 우선, 폴백으로 JSONL last assistant.
-        let resultText: string | undefined =
-          (typeof state.output?.result === 'string' && state.output.result) || undefined;
-        if (!resultText && sub.sessionId) {
-          resultText = readLastAssistantMessage(parentCwd, sub.sessionId) ?? undefined;
-        }
+        // 결과 텍스트 — state.json output.result 우선, 폴백으로 JSONL last assistant(③-4 규칙 경유).
+        const resultText: string | undefined = this.turnResultText(
+          cmd,
+          parentCwd,
+          sub.sessionId,
+          (typeof state.output?.result === 'string' && state.output.result) || undefined,
+        );
         if (resultText) {
           sub.lastResult = resultText;
           cmd.result = resultText;
         }
+        // §2.4 (한도 정지) — 스트림을 놓쳤을 때의 마지막 그물. 결과 본문이 통지 그 자체면 세운다.
+        this.noteUsageLimitText(sub, resultText);
 
         // 토큰 집계 — 기존 readSessionTokenData 그대로 (같은 JSONL).
         try {
@@ -4310,6 +4544,9 @@ export class SubAgentManager {
           for (const evt of events) this.emitStreamEvent(evt);
         },
         onLine: (obj) => {
+          // §2.4 (한도 정지) — agent-view 는 JSONL 을 그대로 읽으므로 `quotaLimits` 봉투까지 온다
+          //   (리셋 시각을 숫자로 얻는 유일한 경로다).
+          this.noteUsageLimitLine(sub, obj);
           // assistant 메시지 = 1턴. maxTurns 초과 시 supervisor 에 stop 발사.
           if (obj['type'] === 'assistant' && !killed) {
             turnCount++;
@@ -4598,6 +4835,9 @@ export class SubAgentManager {
                 logger.warn(`SubAgent ${sub!.id} killed: max turns reached (${turnCount}/${maxTurns})`);
               }
             }
+            // §2.4 (한도 정지) — 한도 통지는 실패가 아니라 **정상 종료로 오는 합성 한 줄**이라
+            //   종료 코드만 보는 마감 경로가 놓친다. 세 스트림 경로에서 같은 판정을 태운다.
+            this.noteUsageLimitLine(sub!, obj);
             // 스트림 이벤트 파싱 + 클라이언트 중계 (한 라인이 여러 블록 가능)
             // §4 v2.88 — legacy --print 스폰은 `--include-partial-messages` 가 붙어 토큰 델타가 온다 → partialMessages:true.
             const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true, hookEvents: this.streamHookEventsOn.get(sub!.id) === true });
@@ -4776,6 +5016,9 @@ export class SubAgentManager {
       }
     }
 
+    // §2.4 (한도 정지) — legacy 경로와 같은 판정(위 주석 참조).
+    this.noteUsageLimitLine(sub, obj);
+
     // 스트림 이벤트 — 클라 중계.
     const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId, { hookEvents: this.streamHookEventsOn.get(sub.id) === true });
     for (const evt of streamEvts) this.emitStreamEvent(evt);
@@ -4852,6 +5095,175 @@ export class SubAgentManager {
    * 자식 프로세스가 없는 경로라 `runningChildren` 에 등록하지 않는다. 대신 스폰 진행 표식을
    * 즉시 걷어 "죽은 active" 대조가 이 세션을 오해하지 않게 한다.
    */
+  /**
+   * §5.25 (F) — 코덱스 턴. `executeLocalProvider` 와 **같은 뼈대**(스폰 표식 · 생존 근거 ·
+   * finish 한 곳)를 쓰되, 턴 루프를 우리가 돌지 않아 훨씬 짧다 — 대화 이력·컨텍스트 자르기·재개는
+   * CLI 몫이라 `messages[]` 를 들지 않는다.
+   */
+  private executeCodexProvider(
+    sub: SubAgent,
+    cmd: QueuedCommand,
+    config: AgentConfig,
+    parentCwd: string,
+    contextSummary: string,
+    livePreamble?: string,
+    opts?: {
+      extraEnv?: Record<string, string>;
+      appendSystemPrompt?: string;
+      codexEdgeConfig?: CodexEdgeConfig;
+    },
+  ): void {
+    const provider = config.provider;
+    if (!provider) return;
+    this.clearDispatching(sub.id);
+    // §5.19 (D) 와 같은 이유로 **스폰 표식을 걷는 그 자리에서** 생존 근거를 세운다 — 한 순간도
+    //   "아무 근거 없는 active" 가 되지 않게(그 틈이 5초 생존 대조에 걸려 도는 세션을 강등한다).
+    this.localInFlightCmd.set(sub.id, cmd);
+
+    // §5.25 (O) — `imagePath` 는 **있을 때만** 싣는다. 빈 값으로 붙이면 그림 없는 줄까지
+    //   "그림이 있었는데 못 열었다"로 읽힌다(영속 파일에도 그 거짓이 그대로 남는다).
+    const emit = (eventType: StreamEventType, content: string, imagePath?: string): void => {
+      const event: SubAgentStreamEvent = {
+        id: makeEventId(),
+        subAgentId: sub.id,
+        parentAgentId: sub.parentAgentId,
+        timestamp: Date.now(),
+        eventType,
+        content,
+        ...(imagePath ? { imagePath } : {}),
+      };
+      this.emitStreamEvent(event);
+      for (const image of linkedImageEvents(event, process.platform)) this.emitStreamEvent(image);
+    };
+
+    const emitTool = (
+      eventType: 'tool_use' | 'tool_result',
+      content: string,
+      toolName: string,
+      toolUseId: string,
+    ): void => {
+      this.emitStreamEvent({
+        id: makeEventId(),
+        subAgentId: sub.id,
+        parentAgentId: sub.parentAgentId,
+        timestamp: Date.now(),
+        eventType,
+        content,
+        toolName,
+        toolUseId,
+      });
+    };
+
+    /** 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다(로컬 경로와 같은 규율). */
+    const finish = (error: string | undefined, finalText: string): void => {
+      if (this.localInFlightCmd.get(sub.id) === cmd) this.localInFlightCmd.delete(sub.id);
+      this.cancelDeferredSeal(sub.id);
+      if (this.currentTurnId.get(sub.id) === cmd.id) this.currentTurnId.delete(sub.id);
+      const userStopped = this.stoppedByUser.delete(sub.id);
+      sub.lastActivityAt = Date.now();
+      // §2.4 (한도 정지) — 코덱스는 한도를 `{"type":"error"}` 로 신고한다(§5.25 (F)). 실패 사유와
+      //   최종 본문 둘 다 통지 자리라 함께 본다.
+      this.noteUsageLimitText(sub, error ?? finalText);
+      if (error && !userStopped) {
+        sub.status = 'error';
+        cmd.status = 'error';
+        this.failCommand(sub, cmd, { code: 'cli', detail: error });
+      } else {
+        sub.status = 'idle';
+        cmd.status = 'completed';
+        const text = userStopped ? `[Stopped by user]${finalText ? `
+
+${finalText}` : ''}` : finalText;
+        if (text) {
+          sub.lastResult = text;
+          cmd.result = text;
+        }
+      }
+      this.onSubStatusChange?.(sub.parentAgentId);
+      this.onComplete?.();
+    };
+
+    if (!provider.modelId) {
+      // 모델을 아직 안 고른 버블. 조용히 아무 일도 안 일어나는 대신 사유를 남긴다(§5.19 와 같은 처리).
+      finish('no model selected', '');
+      return;
+    }
+
+    // §5.25 (F) — 코덱스에는 시스템 프롬프트 플래그가 없다. 클로드 세션이 받는 것(프로젝트 규칙·
+    //   카드 지시문·목표·기억)을 **프롬프트 앞에 붙여** 같은 내용을 같은 순서로 싣는다.
+    const stableContext = [contextSummary.trim(), opts?.appendSystemPrompt?.trim() ?? '']
+      .filter((part) => part.length > 0)
+      .join('\n\n');
+    const systemPrompt = buildLocalSystemPrompt(stableContext, livePreamble, config.rules);
+    const edgeInstructions = opts?.codexEdgeConfig ? codexEdgeInstructions(opts.codexEdgeConfig) : '';
+    const prompt = systemPrompt ? `${systemPrompt}${edgeInstructions}
+
+${cmd.text}` : `${edgeInstructions}${cmd.text}`;
+
+    let fileEventSeq = 0;
+
+    logger.info(`SubAgent ${sub.id} codex turn: model=${provider.modelId} "${cmd.text.slice(0, 50)}..."`);
+    runCodexTurn({
+      edgeConfig: opts?.codexEdgeConfig,
+      subAgentId: sub.id,
+      cwd: parentCwd,
+      prompt,
+      model: provider.modelId,
+      ...(cmd.attachments?.length ? { images: cmd.attachments } : {}),
+      env: { ...buildBashTimeoutEnv(config), ...(opts?.extraEnv ?? {}) },
+      ...(provider.reasoningEffort ? { reasoningEffort: provider.reasoningEffort } : {}),
+      webSearch: provider.webSearch,
+      networkAccess: provider.networkAccess,
+      modelVerbosity: provider.modelVerbosity,
+      ...(config.permissionMode ? { permissionMode: config.permissionMode } : {}),
+      // 이어가기 — 클로드의 `--resume` 과 같은 자리(`SubAgent.sessionId`)를 쓴다.
+      ...(sub.sessionId ? { resumeThreadId: sub.sessionId } : {}),
+      // §5.25 (I) — 훅이 켜져 있어도 이 대화가 **버블 하나**로 남게 하는 소유자 태그.
+      ownerAgentId: sub.parentAgentId,
+      onThread: (threadId) => {
+        if (sub.sessionId !== threadId) {
+          sub.sessionId = threadId;
+          logger.info(`SubAgent ${sub.id} codex thread assigned: ${threadId}`);
+        }
+      },
+      onUsage: (usage) => {
+        // §5.19 (D) 와 **같은 자리·같은 방식** — `getAgentConfig` 가 돌려주는 살아 있는 객체에
+        //   적으면 스냅샷·체크포인트를 그대로 탄다(새 영속 필드 발명 없음).
+        // Cached input and reasoning output are subsets of input/output totals.
+        // The rollout snapshot supplies current context; exec usage is a turn aggregate.
+        provider.tokensIn = (provider.tokensIn ?? 0) + usage.inputTokens;
+        provider.tokensOut = (provider.tokensOut ?? 0) + usage.outputTokens;
+        cmd.inputTokens = usage.inputTokens;
+        cmd.outputTokens = usage.outputTokens;
+        this.onSubStatusChange?.(sub.parentAgentId);
+      },
+      onEvent: (ev) => {
+        if (ev.eventType === 'tool_use' || ev.eventType === 'tool_result') {
+          emitTool(ev.eventType, ev.content, ev.toolName ?? 'Tool', ev.toolUseId ?? makeEventId());
+          return;
+        }
+        emit(ev.eventType, ev.content, ev.imagePath);
+      },
+      onFileWrites: (paths) => {
+        // §5.25 (F) — 파일·폴더 버블은 **기존 훅 문**으로 흘린다. 새 그래프 경로를 만들지 않는다
+        //   (이 매니저는 그래프를 모른다 — `localHookEmitter` 가 그 주입선이다).
+        for (const filePath of paths) {
+          fileEventSeq += 1;
+          const event: LocalHookToolEvent = {
+            phase: 'post',
+            toolName: 'Write',
+            toolInput: { path: filePath },
+            toolUseId: `codex-file-${sub.id}-${fileEventSeq}`,
+            cwd: parentCwd,
+            toolResponse: '',
+          };
+          this.localHookEmitter?.({ agentId: sub.parentAgentId, subAgentId: sub.id }, event);
+        }
+      },
+      onDone: (error, finalText) => finish(error, finalText),
+    });
+  }
+
   private executeLocalProvider(
     sub: SubAgent,
     cmd: QueuedCommand,
@@ -5068,7 +5480,35 @@ export class SubAgentManager {
    * 로컬 세션이 아니면 false — 호출자가 기존 중지 경로로 넘어간다.
    */
   stopLocalSession(subAgentId: string): boolean {
-    return stopLocalTurn(subAgentId);
+    // §5.25 (F) — 프로바이더 세션 둘을 한 창구로 받는다(호출자는 어느 엔진인지 몰라도 된다).
+    return stopLocalTurn(subAgentId) || stopCodexTurn(subAgentId);
+  }
+
+  /**
+   * §5.5 #17-12 ③-4 — **이 턴의 답은 무엇인가.** 마감하는 모든 경로가 여기 하나를 거친다.
+   *
+   * 규칙 둘:
+   *  1. **제 답이 없는 턴(`/compact`·`/clear`)은 결과가 없다** — CLI 는 대화록을 접거나 비우기만
+   *     하고 모델은 한 마디도 하지 않는다. 종전에는 이 턴이 아래 폴백을 타고 **앞 턴의 답**을 제
+   *     결과로 저장했고, 화면은 저장된 결과를 그 말풍선의 답으로 그려(③-3) 자동 압축 직후 같은
+   *     말이 두 번 읽혔다(2026-09-09 사용자 보고 · 실측: 이 저장소 `/compact` 27건 전부 직전 답과
+   *     바이트 동일 · 그 턴의 스트림은 `compact_boundary`·`command_received` 두 줄뿐).
+   *  2. **트랜스크립트 폴백은 이번 턴에 쓰인 글만 받는다** — CLI 결과 줄을 놓친 턴의 답을 되찾는
+   *     것이 이 폴백의 일이고, 그 답은 언제나 턴이 시작된 뒤에 쓰인다. 시각이 없는 옛 줄(`ts` 0)은
+   *     가를 근거가 없으므로 종전대로 받는다.
+   */
+  private turnResultText(
+    cmd: QueuedCommand,
+    parentCwd: string,
+    sessionId: string | undefined,
+    reported: string | undefined,
+  ): string | undefined {
+    let recovered: LastAssistantEntry | null = null;
+    // 답 없는 턴은 어차피 결과가 없다 — 트랜스크립트를 읽을 이유도 없다.
+    if (!reported && sessionId && !isAnswerlessTurnText(cmd.text)) {
+      try { recovered = readLastAssistantEntry(parentCwd, sessionId); } catch { /* 트랜스크립트가 없으면 신고분만 */ }
+    }
+    return resolveTurnResult(cmd.text, reported, recovered, cmd.startedAt ?? cmd.timestamp);
   }
 
   private _finalizeLegacyCommand(
@@ -5128,15 +5568,15 @@ export class SubAgentManager {
       }
     }
 
-    // stdout에서 못 읽으면 JSONL 폴백.
-    if (!resultText && sub.sessionId) {
-      resultText = readLastAssistantMessage(parentCwd, sub.sessionId) ?? undefined;
-    }
+    // 이 턴의 답은 무엇인가 — CLI 가 신고한 결과 우선, 없으면 JSONL 폴백(③-4 의 두 규칙을 거친다).
+    resultText = this.turnResultText(cmd, parentCwd, sub.sessionId, resultText);
 
     if (resultText) {
       sub.lastResult = resultText;
       cmd.result = resultText;
     }
+    // §2.4 (한도 정지) — 스트림을 놓쳤을 때의 마지막 그물(legacy `--print` 는 완성 블록을 억제한다).
+    this.noteUsageLimitText(sub, resultText);
 
     // 토큰 사용량 — JSONL 누적 read (persistent 경로도 매 턴 누적 갱신 필요).
     if (sub.sessionId) {

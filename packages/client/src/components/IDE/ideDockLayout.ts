@@ -104,6 +104,16 @@ export const IDE_DOCK = {
   SLOT_BAND_MIN_PX: 28,
   /** 그 띠의 상한(칸 길이 대비) — 띠가 칸을 다 먹어 **탭 자리(가운데)** 가 사라지지 않게. */
   SLOT_BAND_MAX_RATIO: 0.4,
+  /**
+   * **빈 변**의 도킹 버튼이 그 벽에서 떨어지는 거리 — 스냅 띠 대비.
+   *
+   * 종전 절반(0.5 → 0.25)이다. 버튼이 띠 한가운데에 서면 화면 안쪽으로 깊이 들어와, 끌고 온
+   * 창이 버튼을 가리고 "어느 벽에 붙는 버튼인가"가 손끝에서 읽히지 않았다. 벽에 바짝 붙여야
+   * 겨누는 자리와 붙는 자리가 같은 곳으로 보인다(사용자 지적 — "더 벽 라인 쪽으로").
+   */
+  ZONE_EDGE_INSET_RATIO: 0.25,
+  /** 그 거리의 상한(px) — 큰 화면에서도 버튼이 벽에서 멀어지지 않게. 위와 같은 까닭으로 절반(60 → 30). */
+  ZONE_EDGE_INSET_MAX_PX: 30,
 } as const;
 
 /**
@@ -461,6 +471,40 @@ function resolveSlotDrop(
 }
 
 /**
+ * 커서가 그 변에서 얼마나 떨어져 있는가(px). 음수면 그 변 **밖**이다(앱 창을 벗어났다).
+ * 위쪽은 앱 통합 타이틀바(`HEADER_H`) 아래부터 잰다 — 도크가 거기서부터 시작하기 때문이다.
+ */
+export function dockSideDistance(side: IDEDockSide, cursor: { x: number; y: number }, vp: Viewport): number {
+  switch (side) {
+    case 'left': return cursor.x;
+    case 'right': return vp.w - cursor.x;
+    case 'top': return cursor.y - IDE_DOCK.HEADER_H;
+    case 'bottom': return vp.h - cursor.y;
+  }
+}
+
+/**
+ * 커서가 **스냅 폭 안에 든 변** 중 가장 가까운 것(없으면 null).
+ *
+ * `resolveDockDrop` ② 와 아래 (H-11) 벽 잠금이 같은 셈을 읽는다 — 두 곳에서 따로 재면
+ * "잠갔다는 벽"과 "붙으려던 벽"이 어긋나 잠금이 헛돈다.
+ */
+export function nearestDockSide(cursor: { x: number; y: number }, vp: Viewport): IDEDockSide | null {
+  let best: IDEDockSide | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const side of IDE_DOCK_SIDES) {
+    const d = dockSideDistance(side, cursor, vp);
+    if (d < 0 || d > snapDistance(side, vp)) continue;
+    // 같은 거리면 좌/우가 이긴다(IDE_DOCK_SIDES 순서 = 좌·우 먼저) — 모서리에서 흔들리지 않게.
+    if (d < bestDist) {
+      bestDist = d;
+      best = side;
+    }
+  }
+  return best;
+}
+
+/**
  * 커서 위치 → 도킹 자리(없으면 null).
  *
  * ① **이미 붙어 있는 칸 위**면 그 칸이 판정을 가져간다 — 가운데는 탭 합류, 스택 축 앞/뒤 띠는 새 칸.
@@ -484,25 +528,7 @@ export function resolveDockDrop(
     }
   }
 
-  const bandTop = IDE_DOCK.HEADER_H;
-  const dist: Record<IDEDockSide, number> = {
-    left: cursor.x,
-    right: vp.w - cursor.x,
-    top: cursor.y - bandTop,
-    bottom: vp.h - cursor.y,
-  };
-
-  let best: IDEDockSide | null = null;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (const side of IDE_DOCK_SIDES) {
-    const d = dist[side];
-    if (d < 0 || d > snapDistance(side, vp)) continue;
-    // 같은 거리면 좌/우가 이긴다(IDE_DOCK_SIDES 순서 = 좌·우 먼저) — 모서리에서 흔들리지 않게.
-    if (d < bestDist) {
-      bestDist = d;
-      best = side;
-    }
-  }
+  const best = nearestDockSide(cursor, vp);
   if (!best) return null;
 
   const slots = dockSlotsOf(docked, best);
@@ -601,8 +627,8 @@ function centeredRect(cx: number, cy: number, size = IDE_DOCK_ZONE_BTN): Rect {
 /**
  * 지금 붙일 수 있는 자리 전부 — 드래그 중 화면에 그린다.
  *
- * 붙은 칸이 있는 변은 그 칸 위에 (앞 / 탭 / 뒤) 세 버튼이 서고, 빈 변은 가장자리 한가운데에
- * 버튼 하나가 선다. 못 붙이는 자리는 **애초에 목록에 없다**(눌러도 안 되는 버튼 ❌).
+ * 붙은 칸이 있는 변은 그 칸 위에 (앞 / 탭 / 뒤) 세 버튼이 서고, 빈 변은 그 벽에 바짝 붙어
+ * 버튼 하나가 선다(긴 축으로는 가운데). 못 붙이는 자리는 **애초에 목록에 없다**(눌러도 안 되는 버튼 ❌).
  */
 export function dockZoneButtons(vp: Viewport, docked: DockedPane[]): DockZoneButton[] {
   const out: DockZoneButton[] = [];
@@ -612,9 +638,9 @@ export function dockZoneButtons(vp: Viewport, docked: DockedPane[]): DockZoneBut
   for (const side of IDE_DOCK_SIDES) {
     const slots = dockSlotsOf(docked, side);
     if (slots.length === 0) {
-      // 빈 변 — 가장자리 스냅 띠의 한가운데(그 자리에서 놓으면 이 변에 처음 붙는다).
+      // 빈 변 — 그 벽에 바짝(스냅 띠 안쪽 끝). 그 자리에서 놓으면 이 변에 처음 붙는다.
       const snap = snapDistance(side, vp);
-      const inset = Math.min(snap / 2, 60);
+      const inset = Math.min(snap * IDE_DOCK.ZONE_EDGE_INSET_RATIO, IDE_DOCK.ZONE_EDGE_INSET_MAX_PX);
       const cx = side === 'left' ? inset : side === 'right' ? vp.w - inset : vp.w / 2;
       const cy = side === 'top' ? bandTop + inset : side === 'bottom' ? vp.h - inset : bandTop + (vp.h - bandTop) / 2;
       out.push({ target: { side, index: 0, mode: 'insert' }, rect: centeredRect(cx, cy), kind: 'edge' });
@@ -680,6 +706,44 @@ export function isPinnedToViewportEdge(
 }
 
 /**
+ * (판올림 번호 발급 대기) (H-14) **선이 창이 되는 그 사각형** — 밖에서 끌려 들어온 창이 앱 안에
+ * 설 자리를, 방금까지 화면에 떠 있던 윤곽선과 **한 픽셀도 다르지 않게** 낸다.
+ *
+ * (H-12) 의 윤곽선은 `밖의 창 크기` 그대로를 `커서 - 잡은 지점` 에 그려 두었다. 받는 쪽이 그
+ * 값을 다시 짓지 않고 이 함수 하나를 읽어야 선과 창이 어긋나지 않는다 — 어긋나면 사용자에게는
+ * 창이 한 번 튀는 것으로 보인다.
+ *
+ * `null` 은 "이 값으로는 자리를 못 낸다"는 뜻이다(커서가 안 넘어왔거나 이 창 밖, 또는 크기가
+ * 없다). 그때는 종전대로 첫 이동이 자리를 잡는다.
+ *
+ * @param screenOrigin 이 창 콘텐츠의 좌상단 화면 좌표(`window.screenX/Y`) — 커서는 화면 좌표로 온다.
+ */
+export function resumedFloatGeom(
+  resume: {
+    grabRatioX: number;
+    grabRatioY: number;
+    width: number;
+    height: number;
+    cursor: { x: number; y: number } | null;
+  },
+  screenOrigin: { x: number; y: number },
+  vp: Viewport,
+): FloatGeom | null {
+  if (!resume.cursor) return null;
+  if (!(resume.width > 0) || !(resume.height > 0)) return null;
+  const cx = resume.cursor.x - screenOrigin.x;
+  const cy = resume.cursor.y - screenOrigin.y;
+  // 창 밖의 커서로 자리를 내면 화면 어디에도 안 보이는 곳에 창을 세우게 된다.
+  if (!(cx >= 0 && cy >= 0 && cx <= vp.w && cy <= vp.h)) return null;
+  return clampFloatGeom({
+    x: cx - resume.grabRatioX * resume.width,
+    y: cy - resume.grabRatioY * resume.height,
+    w: resume.width,
+    h: resume.height,
+  }, vp);
+}
+
+/**
  * (판올림 번호 발급 대기) (H-6) **끄는 동안**의 자리 — 크기만 정상화하고 좌표는 가두지 않는다.
  *
  * `clampFloatGeom` 은 **결과**를 위한 안전망이다(창을 화면 밖에 두고 잃지 않게). 그것을 끄는
@@ -726,6 +790,14 @@ export function isPulledFullyOut(geom: FloatGeom, vp: Viewport): boolean {
 export interface PopOutGhostDecision {
   show: boolean;
   armed: boolean;
+  /**
+   * (H-22) 이번 판정에서 커서가 **앱 밖**이었는가 — 부르는 쪽이 이 한 비트를 걸쇠로 물어 둔다.
+   *
+   * 판정 자체는 기억을 갖지 않는다(같은 입력이면 같은 답이어야 테스트가 값을 고정할 수 있다).
+   * 기억은 한 판(드래그) 동안만 사는 것이므로 그 판을 쥔 쪽이 들고, 다음 프레임에 `escaped` 로
+   * 되먹인다.
+   */
+  outside: boolean;
 }
 
 /**
@@ -752,13 +824,40 @@ export function popOutGhostDecision(input: {
   vp: Viewport;
   /** 가장자리 버팀이 선을 띄울 만큼 진행됐는가(시간 판정은 부르는 쪽 몫). */
   edgeDwell: boolean;
+  /**
+   * (H-17) 가장자리 버팀을 **끝까지** 채웠는가 — 종전에는 이 순간이 곧 "나간다"였다.
+   *
+   * 이제 나가는 일은 손을 뗄 때만 일어나므로, 그 순간이 하는 일은 선을 밝히는 것뿐이다.
+   * 시간을 재는 것은 여전히 부르는 쪽 몫이고, 여기서는 그 결과만 읽는다.
+   */
+  edgeArmed?: boolean;
+  /**
+   * (H-22) 이번 판에서 커서가 **한 번이라도 앱 밖으로 나갔는가** — 나갔으면 도로 들어와도
+   * 선은 서 있는다.
+   *
+   * (H-17) 로 "창이 바뀌는 자리는 뗌 하나"가 됐는데도 **선이 꺼지는 자리는 여전히 여럿**이었다:
+   * 밖으로 나갔다 도로 들어오면 켤 이유가 사라져 선이 꺼지고, 숨어 있던 본체가 그 자리에서
+   * 다시 나타났다(사용자 지시 — "안으로 다시 들어오면 이게 또 기존 ide창이 보인다고 마우스를
+   * 때기 전까지 계속 가상창 유지하란말야"). 한 손짓 안에서 보이는 그림이 바뀌지 않으려면,
+   * **밖으로 나간 판은 그 판이 끝날 때까지 선으로 간다**.
+   *
+   * 무장(`armed`)은 걸지 않는다 — 도로 들어와서 놓는 손은 "여기 놓겠다"이지 "밖으로
+   * 빼겠다"가 아니다. 선의 밝기가 그 차이를 미리 말한다.
+   */
+  escaped?: boolean;
 }): PopOutGhostDecision {
   const beyond = overflowPastClamp(input.geom, input.vp);
   // 커서가 앱 밖이면 **무장**이다 — 그 자리에서 손을 떼는 것은 "여기 놓겠다"는 뜻 말고 없다.
   const outside = isOutsideViewport(input.cursor, input.vp, 0);
+  // (H-17) 종전에 **그 자리에서 곧바로 나가던** 두 이유(창을 완전히 밀어냈다 · 가장자리를 다
+  //   버텼다)는 이제 나감이 아니라 무장이다. 판정을 지우지 않고 뜻만 옮긴다 — 손짓은 그대로이고
+  //   달라지는 것은 "언제 확정되는가" 하나뿐이어야 한다(사용자 지시 "마우스 놓는 순간").
+  const fullyOut = isPulledFullyOut(input.geom, input.vp);
   return {
-    show: outside || beyond > IDE_FLOAT.POP_OUT_GHOST_ENTER_PX || input.edgeDwell,
-    armed: outside || beyond >= IDE_FLOAT.POP_OUT_GHOST_COMMIT_PX,
+    // (H-22) 한 번 나간 판은 도로 들어와도 선으로 간다 — 꺼지는 자리는 뗌 하나뿐이어야 한다.
+    show: !!input.escaped || outside || fullyOut || beyond > IDE_FLOAT.POP_OUT_GHOST_ENTER_PX || input.edgeDwell,
+    armed: outside || fullyOut || beyond >= IDE_FLOAT.POP_OUT_GHOST_COMMIT_PX || !!input.edgeArmed,
+    outside,
   };
 }
 
@@ -766,6 +865,88 @@ export function popOutGhostDecision(input: {
 export function sameDockTarget(a: DockDropTarget | null, b: DockDropTarget | null): boolean {
   if (!a || !b) return a === b;
   return a.side === b.side && a.index === b.index && a.mode === b.mode;
+}
+
+/** (판올림 번호 발급 대기) (H-11) 밖에서 **돌아온 판**에서 그 벽에 붙이기를 잠가 두는 수치. */
+export const IDE_DOCK_ENTRY = {
+  /**
+   * 들어온 자리에서 **버티면** 그 벽이 다시 열린다(ms). 잠금은 없앰이 아니라 **미룸**이므로,
+   * 정말 그 벽에 붙이려는 손에게는 길이 남아 있어야 한다(꺼내기의 가장자리 버팀과 같은 어법).
+   */
+  DWELL_MS: 700,
+  /** 버팀으로 쳐 주는 흔들림(px) — 손은 완전히 멎지 않는다. 이보다 움직였으면 다시 잰다. */
+  DWELL_JITTER_PX: 8,
+} as const;
+
+/** (H-11) 돌아온 판이 잠가 둔 벽 — 어느 변인지와, 버팀을 재기 시작한 자리·시각. */
+export interface DockEntryLock {
+  /** 들어온 그 변. 이 변에 붙이는 판정만 없던 것으로 한다(나머지 셋은 그대로 산다). */
+  side: IDEDockSide;
+  /** 버팀을 재기 시작한 시각(ms). */
+  since: number;
+  /** 그때 커서 자리 — 여기서 `DWELL_JITTER_PX` 넘게 움직이면 버팀을 다시 잰다. */
+  at: { x: number; y: number };
+}
+
+/**
+ * (판올림 번호 발급 대기) (H-11) **돌아온 그 순간의 벽 붙이기를 잠근다.**
+ *
+ * 되돌아오는 판정(H-4 ④)은 앱 경계에서 48px 안쪽에서 서는데, 그 48px 은 어느 변에서 재도
+ * 도킹 스냅 폭(`snapDistance` — 화면의 12%, 최소 120px) **한복판**이다. 그래서 창이 앱 안에
+ * 다시 서는 첫 프레임에 이미 그 벽의 파란 미리보기가 떠 있고, 들여놓자마자 손을 떼면 되돌아온
+ * 창이 곧바로 벽에 붙는다 — 밖에서 안으로 들여놓는 손짓은 "여기 놓겠다"이지 "이 벽에
+ * 붙이겠다"가 아니다(사용자 보고 — "나갔다 들어왔다 하는 그 순간 해당 벽에 붙이는 이벤트를
+ * 나중에 하게 해").
+ *
+ * 잠그는 것은 **들어온 그 벽 하나**다. 네 변을 통째로 막으면 돌아오자마자 다른 벽에 붙이려는
+ * 손까지 함께 막히고, 그건 사용자가 겪은 문제가 아니다.
+ */
+export function beginDockEntryLock(
+  cursor: { x: number; y: number },
+  vp: Viewport,
+  now: number,
+): DockEntryLock | null {
+  const side = nearestDockSide(cursor, vp);
+  // 어느 벽의 띠에도 안 들어왔다 = 이미 한복판이다 — 잠글 것이 없다.
+  if (!side) return null;
+  return { side, since: now, at: { x: cursor.x, y: cursor.y } };
+}
+
+/**
+ * (H-11) 잠금을 한 프레임 진행시킨다 — `null` 이 돌아오면 **풀렸다**(그 뒤로는 다시 걸리지 않는다).
+ *
+ * 푸는 이유는 둘이고, 둘 다 "이제는 붙이려는 손"이라고 읽을 수 있는 것뿐이다.
+ * ① **안으로 들어왔다** — 그 벽의 스냅 띠를 벗어났다. 다시 그 벽으로 가는 것은 밖에서 들어온
+ *    손짓이 아니라 붙이려는 손짓이다.
+ * ② **그 자리에서 버텼다** — 띠 안에 `DWELL_MS` 동안 머물렀다. 끌고 지나가는 손과 갈리므로,
+ *    좁은 화면처럼 띠가 안쪽까지 덮는 판에서도 붙이는 길이 막히지 않는다.
+ *
+ * 커서가 다시 **밖으로** 나가면(거리 < 0) 잠금은 그대로 둔다 — 나가는 중인 손이고, 그 판정은
+ * 꺼내기(H-6·H-7)가 쥔다.
+ */
+export function stepDockEntryLock(
+  lock: DockEntryLock | null,
+  cursor: { x: number; y: number },
+  vp: Viewport,
+  now: number,
+): DockEntryLock | null {
+  if (!lock) return null;
+  const dist = dockSideDistance(lock.side, cursor, vp);
+  if (dist > snapDistance(lock.side, vp)) return null; // ① 안으로 들어왔다
+  const moved = Math.abs(cursor.x - lock.at.x) > IDE_DOCK_ENTRY.DWELL_JITTER_PX
+    || Math.abs(cursor.y - lock.at.y) > IDE_DOCK_ENTRY.DWELL_JITTER_PX;
+  if (moved) return { side: lock.side, since: now, at: { x: cursor.x, y: cursor.y } };
+  if (now - lock.since >= IDE_DOCK_ENTRY.DWELL_MS) return null; // ② 그 자리에서 버텼다
+  return lock;
+}
+
+/** (H-11) 잠긴 벽이면 그 자리를 없던 것으로 한다 — 미리보기·십자 강조·커밋이 한 판정을 읽는다. */
+export function applyDockEntryLock(
+  target: DockDropTarget | null,
+  lock: DockEntryLock | null,
+): DockDropTarget | null {
+  if (!target || !lock) return target;
+  return target.side === lock.side ? null : target;
 }
 
 // ─── 떠 있는 창의 자석 정렬 ───

@@ -62,7 +62,7 @@ const driftDays = (ctx: PluginBubbleContext): number | null => {
 
 const inspector = defineInspector({
   id: 'ssot-drift', i18nKey: 'ssotDrift', name: 'SSOT Drift', category: 'observability',
-  // v4.65 — `brain` 을 뺐다. 카드가 세는 것이 **집행 실측**으로 바뀌면서 기억 수를 읽지 않게 됐고,
+  // v4.65 — 저장고 축을 뺐다. 카드가 세는 것이 **집행 실측**으로 바뀌면서 저장 수를 읽지 않게 됐고,
   //   안 읽는 축을 선언해 두면 버블마다 쓸모없는 구독이 붙는다(`needs.test.ts` 가 이것을 잡는다).
   needs: ['pluginFacts'],
   // §5.11 노출 게이트 — 이 카드의 집행은 프로젝트를 실제로 훑는다(`ssot.ts` 의 `buildSsotPromptBlock`

@@ -11,12 +11,12 @@ export const strings = {
     "heading": "Golden Set",
     "level": {
       "empty": "Nothing accrued",
-      "partial": "Cards only",
+      "partial": "Procedures only",
       "accruing": "Accruing"
     },
     "check": {
       "lessons": "Lessons recorded",
-      "cards": "Memory cards"
+      "cards": "Procedures"
     },
     "note": "Adding a failure to the set the moment it is found is the cheapest quality infrastructure there is — one incident becomes one permanent regression test."
   },
@@ -25,12 +25,12 @@ export const strings = {
     "heading": "골든 셋",
     "level": {
       "empty": "적립된 것 없음",
-      "partial": "카드만 있음",
+      "partial": "절차만 있음",
       "accruing": "적립 중"
     },
     "check": {
       "lessons": "기록된 교훈",
-      "cards": "기억 카드"
+      "cards": "절차 수"
     },
     "note": "실패를 발견한 즉시 적립하는 습관이 가장 값싼 품질 인프라입니다 — 사고 하나가 영구적인 회귀 테스트 하나가 됩니다."
   },

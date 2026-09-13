@@ -15,10 +15,10 @@ export const strings = {
     },
     "check": {
       "context": "Context in use",
-      "injected": "Cards injected",
-      "events": "Injection events"
+      "injected": "Procedures carried",
+      "events": "Actions scanned"
     },
-    "note": "Most of a conversation should be consumed and discarded. Deciding what gets promoted is the first step of memory design."
+    "note": "Most of a conversation should be consumed and discarded. Deciding what gets promoted into a procedure is the first step of memory design."
   },
   "ko": {
     "desc": "빠르지만 세션이 끝나면 사라집니다. 이것만으로는 쓸수록 똑똑해지는 시스템이 안 되고, 반대로 모든 것을 장기 기억으로 만들려는 것도 실패합니다.",
@@ -29,10 +29,10 @@ export const strings = {
     },
     "check": {
       "context": "사용 중 컨텍스트",
-      "injected": "주입된 카드",
-      "events": "주입 이벤트"
+      "injected": "실린 절차",
+      "events": "훑은 행동"
     },
-    "note": "대화의 대부분은 그 자리에서 소비되고 버려져야 정상입니다. 무엇을 장기 기억으로 넘길지의 승급 기준이 기억 설계의 첫 단추입니다."
+    "note": "대화의 대부분은 그 자리에서 소비되고 버려져야 정상입니다. 무엇을 절차로 승급시킬지의 기준이 기억 설계의 첫 단추입니다."
   },
   "ja": {
     "level": {

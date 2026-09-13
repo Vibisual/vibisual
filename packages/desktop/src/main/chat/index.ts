@@ -6,13 +6,16 @@ import { inject, type DispatchFunc } from 'light-my-request';
 import {
   CHAT_ACTION_TTL_MS, CHAT_BRIDGE_FILE, CHAT_LOG_BUFFER_LINES, CHAT_PAIR_BAN_MS,
   CHAT_PAIR_MAX_ATTEMPTS, CHAT_PAIR_TICKET_TTL_MS, CHAT_PAIR_TOKEN_BYTES, CHAT_PEER_MAX,
+  CHAT_PICK_AUTO_SESSION, CHAT_PICK_LABEL_MAX, CHAT_PICK_MAX, CHAT_TARGETS_TTL_MS,
   DEFAULT_CHAT_VERBOSITY,
 } from '@vibisual/shared';
 import type {
-  AgentQuestions, AgentReport, AgentReview, AskUserQuestionRequest, BubbleData,
-  ChatBridgeState, ChatCard, ChatChannelError, ChatChannelKind, ChatChannelState, ChatPeer,
+  AgentQuestions, AgentReport, AgentReview, AskUserQuestionRequest,
+  ChatAction, ChatBridgeState, ChatCard, ChatChannelError, ChatChannelKind, ChatChannelState,
+  ChatCommandSession, ChatCommandTarget, ChatPeer,
   ChatVerbosity, GraphSnapshot, PermissionRequest, SessionGoal, SubAgentStreamEvent, WSMessage,
 } from '@vibisual/shared';
+import { listChatCommandTargets } from '@vibisual/server';
 import { DiscordChannel } from './discord';
 import { TelegramChannel } from './telegram';
 import { helpLines, parseChatCommand } from './commands';
@@ -21,7 +24,7 @@ import {
   reportCard, reviewCard, streamCard, textCard,
 } from './cards';
 import {
-  canPair, canSend, goalSignature, peerKey, takeNoticeSlot,
+  canPair, canSend, goalSignature, peerKey, pickActionId, resolvePick, takeNoticeSlot,
   trimExpiring, trimLogBuffers, trimPairAttempts,
 } from './policy';
 import { chatStrings, fmt } from './strings';
@@ -39,6 +42,9 @@ import type { ChatChannel, ChatInbound } from './types';
 //   · 상행 = `mobileAccess.dispatchToExpress` 와 같은 light-my-request `inject` 로 **기존 REST**.
 //            (`/api/commands/:sessionId` · `/api/permission-decide` · `/api/permission-pending`
 //             · `/api/ask-user-question/decide` · `/api/subagents/:agentId/stop-all`)
+//   · **고를 목록만은 예외** = `listChatCommandTargets()`(server 코어의 얇은 주입, `getUiLocale()`
+//     선례). 팬아웃 스냅샷은 §9 스코프드라 **열어 두지 않은 탭의 에이전트가 통째로 빠진다** —
+//     밖에서 폰으로 고르는 목록이 집 PC 의 탭 상태로 달라지면 에이전트가 사라진 것으로 보인다.
 //   · 페어링 = §4 v3.66 QR 티켓과 같은 모양(3분·메모리 전용·per-발신자 밴) + **DM 에서만**.
 //   · 언어 = `GraphSnapshot.uiLocale`(팬아웃으로 이미 오는 값). 별도 조회 레일 ❌.
 
@@ -207,7 +213,11 @@ function normalizePeer(raw: unknown): ChatPeer | null {
     // UI 가 "이 대화는 방 전체가 볼 수 있다"고 말하게 한다(§4 ④).
     direct: o['direct'] === true,
   };
+  // 겨눔 세 칸은 함께 읽고 함께 저장한다 — 하나만 왕복하면 앱을 껐다 켰을 때 화면이 말하는
+  // 대상과 명령이 가는 대상이 갈린다(영속 왕복 누락이 조용히 드러나는 자리다).
+  if (typeof o['targetProject'] === 'string') peer.targetProject = o['targetProject'];
   if (typeof o['targetAgentId'] === 'string') peer.targetAgentId = o['targetAgentId'];
+  if (typeof o['targetSubAgentId'] === 'string') peer.targetSubAgentId = o['targetSubAgentId'];
   return peer;
 }
 
@@ -505,16 +515,164 @@ async function resendPendingPermissions(kind: ChatChannelKind): Promise<void> {
 // ─── 스냅샷 조회 (별도 레일 ❌ — 팬아웃으로 받은 것만 본다) ────────────────────
 
 function agentLabel(agentId: string): string | undefined {
-  return lastSnapshot?.agents.find((a) => a.id === agentId)?.label;
+  const inSnapshot = lastSnapshot?.agents.find((a) => a.id === agentId)?.label;
+  if (inSnapshot) return inSnapshot;
+  // 범위 밖(안 열어 둔 탭)의 에이전트는 팬아웃 스냅샷에 없다 — 그래도 그 이름으로 답해야 한다.
+  return commandableAgents().find((t) => t.agentId === agentId)?.label;
 }
 
-/** 명령을 받을 수 있는 에이전트만 — 훅 버블은 읽기 전용이라 목록에도 올리지 않는다. */
-function commandableAgents(): BubbleData[] {
-  return (lastSnapshot?.agents ?? []).filter((a) => a.customCreated === true && typeof a.path === 'string' && a.path);
+// ─── 3단계 선택 (프로젝트 → 커스텀 에이전트 → 세션) ──────────────────────────
+//
+// 종전에는 `/agents` 한 장이 **모든 프로젝트의** 에이전트를 스무 개까지 섞어서 보여 줬다.
+// 프로젝트가 여럿이면 그 목록은 같은 이름의 에이전트가 나란히 선 채 어느 쪽인지 말하지 않고,
+// 스무 개를 넘기면 뒤는 아예 보이지 않는다. 게다가 세션(= IDE 탭)을 고를 수 없어서 폰에서 보낸
+// 말은 언제나 서버가 정한 정규 세션 하나로만 갔다 — PC 앞에서는 탭을 골라 말하는데 밖에서는
+// 그 축이 없었다. 그래서 좁혀 들어가는 세 칸으로 나눈다.
+//
+// 목록의 원천이 팬아웃 스냅샷이 아니라 `listChatCommandTargets()` 인 이유는 파일 머리 주석 참조.
+
+/**
+ * 목록 조회 캐시(`CHAT_TARGETS_TTL_MS`).
+ *
+ * `listChatCommandTargets()` 는 **범위 미적용 전량 스냅샷**을 만든다 — 고를 목록이 집 PC 의 탭
+ * 상태로 달라지지 않으려면 그래야 한다. 그런데 `agentLabel()` 의 폴백이 이 목록을 보므로,
+ * 캐시가 없으면 `full` 전송량에서 **스트림 이벤트마다** 전량 스냅샷을 한 번씩 만들게 된다
+ * (초당 여러 번 도는 뜨거운 경로다). 사람의 클릭 간격은 이 창보다 훨씬 길어 고르는 흐름에서는
+ * 사실상 늘 최신이다.
+ */
+let targetsCache: { at: number; list: ChatCommandTarget[] } | null = null;
+
+/** 명령을 받을 수 있는 에이전트 전량 — 훅 버블은 읽기 전용이라 목록에도 올리지 않는다. */
+function commandableAgents(): ChatCommandTarget[] {
+  const now = Date.now();
+  if (targetsCache && now - targetsCache.at < CHAT_TARGETS_TTL_MS) return targetsCache.list;
+  try {
+    const list = listChatCommandTargets();
+    targetsCache = { at: now, list };
+    return list;
+  } catch (err) {
+    // 목록을 못 만들었다고 브리지가 죽으면 안 된다(표시 경로다) — 직전 목록, 없으면 빈 목록.
+    console.warn(`[chat-bridge] target list failed: ${String(err)}`);
+    return targetsCache?.list ?? [];
+  }
 }
 
-function findAgent(agentId: string): BubbleData | undefined {
-  return commandableAgents().find((a) => a.id === agentId);
+function findAgent(agentId: string): ChatCommandTarget | undefined {
+  return commandableAgents().find((a) => a.agentId === agentId);
+}
+
+/** 이름이 있는 프로젝트만, 표시 순서를 고정해서(같은 목록이 눌릴 때마다 같은 순서여야 한다). */
+function projectNames(list: readonly ChatCommandTarget[]): string[] {
+  const names = new Set<string>();
+  for (const t of list) if (t.project) names.add(t.project);
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+function agentsInProject(list: readonly ChatCommandTarget[], project: string): ChatCommandTarget[] {
+  return list.filter((t) => t.project === project);
+}
+
+/** 목록이 상한을 넘으면 뒤를 접고 그 사실을 한 줄로 알린다(조용히 자르면 없는 것이 된다). */
+function pickActions(items: readonly { id: string; label: string }[], prefix: string): {
+  actions: ChatAction[]; overflow: number;
+} {
+  const shown = items.slice(0, CHAT_PICK_MAX);
+  return {
+    actions: shown.map((it) => ({ actionId: pickActionId(prefix, it.id), label: clip(it.label, CHAT_PICK_LABEL_MAX) })),
+    overflow: Math.max(0, items.length - shown.length),
+  };
+}
+
+/** ① 프로젝트 고르기. */
+function pickProjectsCard(peer: ChatPeer, list: readonly ChatCommandTarget[], s: ChatStrings): ChatCard {
+  const names = projectNames(list);
+  if (names.length === 0) return textCard(s.titleNoAgents, [s.noAgents]);
+  const counts = new Map(names.map((n) => [n, agentsInProject(list, n).length]));
+  const { actions, overflow } = pickActions(
+    names.map((n) => ({ id: n, label: `${n} (${String(counts.get(n) ?? 0)})` })),
+    'pj',
+  );
+  const lines = [peer.targetProject ? fmt(s.currentProject, { project: peer.targetProject }) : s.pickProjectHint];
+  if (overflow > 0) lines.push(fmt(s.pickMore, { count: overflow }));
+  return { kind: 'text', title: s.titlePickProject, lines, actions };
+}
+
+/** ② 그 프로젝트의 커스텀 에이전트 고르기. */
+function pickAgentsCard(peer: ChatPeer, list: readonly ChatCommandTarget[], project: string, s: ChatStrings): ChatCard {
+  const mine = agentsInProject(list, project);
+  if (mine.length === 0) return textCard(s.titleNoAgents, [fmt(s.noAgentsInProject, { project })]);
+  const { actions, overflow } = pickActions(
+    mine.map((t) => ({
+      id: t.agentId,
+      label: t.queued > 0 ? `${t.label} (+${String(t.queued)})` : t.label,
+    })),
+    'a',
+  );
+  const lines = [fmt(s.currentProject, { project })];
+  lines.push(peer.targetAgentId
+    ? fmt(s.currentTarget, { label: agentLabel(peer.targetAgentId) ?? peer.targetAgentId })
+    : s.noTarget);
+  if (overflow > 0) lines.push(fmt(s.pickMore, { count: overflow }));
+  return { kind: 'text', title: s.titlePickAgent, lines, actions };
+}
+
+/** 세션 한 칸의 표시 이름 — 상태와 마지막 명령이 "어느 대화였는지"를 말한다. */
+function sessionLabel(sub: ChatCommandSession, s: ChatStrings): string {
+  const mark = sub.blocked ? s.sessionBlocked
+    : sub.status === 'active' ? s.sessionActive
+    : sub.status === 'error' ? s.sessionError
+    : sub.dormant ? s.sessionDormant
+    : s.sessionIdle;
+  return sub.lastCommand ? `${sub.label} ${mark} — ${clip(sub.lastCommand, 24)}` : `${sub.label} ${mark}`;
+}
+
+/** ③ 그 에이전트의 세션 고르기. 세션이 없어도 카드는 뜬다 — "새 대화" 한 칸이 늘 있다. */
+function pickSessionsCard(peer: ChatPeer, target: ChatCommandTarget, s: ChatStrings): ChatCard {
+  const { actions, overflow } = pickActions(
+    target.sessions.map((sub) => ({ id: sub.id, label: sessionLabel(sub, s) })),
+    'sn',
+  );
+  // 서버에 맡기는 칸은 목록과 무관하게 **항상** 있다(세션이 하나도 없는 새 에이전트의 유일한 길).
+  actions.push({ actionId: `sn:${CHAT_PICK_AUTO_SESSION}`, label: s.btnAutoSession, style: 'primary' });
+  const lines = [fmt(s.currentTarget, { label: target.label })];
+  lines.push(target.sessions.length > 0 ? s.pickSessionHint : s.noSessions);
+  const current = peer.targetSubAgentId
+    ? target.sessions.find((sub) => sub.id === peer.targetSubAgentId)
+    : undefined;
+  lines.push(current ? fmt(s.currentSession, { label: current.label }) : s.currentSessionAuto);
+  if (overflow > 0) lines.push(fmt(s.pickMore, { count: overflow }));
+  return { kind: 'text', title: s.titlePickSession, lines, actions };
+}
+
+/**
+ * 지금 이 대화가 서 있는 칸에서 **다음에 골라야 할 카드**를 만든다.
+ *
+ * 세 칸을 따로 부르는 대신 이 한 곳이 "어디까지 골랐나"를 보고 정한다 — 그래서 `/projects`·
+ * `/agents`·`/sessions` 가 서로 다른 진입점이어도 사용자는 늘 이어지는 한 흐름을 본다.
+ * 프로젝트가 하나뿐이면 **자동으로 채운다**(칸이 하나인 선택은 선택이 아니다).
+ */
+function nextPickCard(peer: ChatPeer, s: ChatStrings, from: 'projects' | 'agents' | 'sessions'): ChatCard {
+  const list = commandableAgents();
+  if (list.length === 0) return textCard(s.titleNoAgents, [s.noAgents]);
+
+  const names = projectNames(list);
+  if (from === 'projects' && names.length > 1) return pickProjectsCard(peer, list, s);
+
+  let project = peer.targetProject;
+  if (!project || !names.includes(project)) {
+    if (names.length === 1) {
+      project = names[0];
+      peer.targetProject = project;
+      savePersisted();
+    } else {
+      return pickProjectsCard(peer, list, s);
+    }
+  }
+  if (from !== 'sessions') return pickAgentsCard(peer, list, project ?? '', s);
+
+  const target = peer.targetAgentId ? list.find((t) => t.agentId === peer.targetAgentId) : undefined;
+  if (!target) return pickAgentsCard(peer, list, project ?? '', s);
+  return pickSessionsCard(peer, target, s);
 }
 
 // ─── 페어링 ──────────────────────────────────────────────────────────────────
@@ -690,28 +848,20 @@ async function handleCommand(peer: ChatPeer, cmd: ReturnType<typeof parseChatCom
       return;
     }
 
-    case 'agents': {
-      const agents = commandableAgents();
-      if (agents.length === 0) {
-        replyTo(peer, textCard(s.titleNoAgents, [s.noAgents]));
-        return;
-      }
-      const actions = agents.slice(0, 20).map((a) => ({
-        actionId: `a:${a.id}`,
-        label: clip(a.label ?? a.id, 40),
-      }));
-      // 선택 버튼은 결정이 아니라 **대상 지정**이라 pendingActions 에 넣지 않는다 —
-      // 결정 레지스트리는 만료·중복 해소가 걸린 자리라 성격이 다른 것을 섞으면 둘 다 흐려진다.
-      replyTo(peer, {
-        kind: 'text',
-        title: s.titlePickAgent,
-        lines: [peer.targetAgentId
-          ? fmt(s.currentTarget, { label: agentLabel(peer.targetAgentId) ?? peer.targetAgentId })
-          : s.noTarget],
-        actions,
-      });
+    // 세 진입점이 같은 흐름의 서로 다른 칸이다 — 어디로 들어와도 `nextPickCard` 가 이어 준다.
+    // 선택 버튼은 결정이 아니라 **대상 지정**이라 pendingActions 에 넣지 않는다 —
+    // 결정 레지스트리는 만료·중복 해소가 걸린 자리라 성격이 다른 것을 섞으면 둘 다 흐려진다.
+    case 'projects':
+      replyTo(peer, nextPickCard(peer, s, 'projects'));
       return;
-    }
+
+    case 'agents':
+      replyTo(peer, nextPickCard(peer, s, 'agents'));
+      return;
+
+    case 'sessions':
+      replyTo(peer, nextPickCard(peer, s, 'sessions'));
+      return;
 
     case 'status': {
       replyTo(peer, statusCard(peer, s));
@@ -743,13 +893,31 @@ async function handleCommand(peer: ChatPeer, cmd: ReturnType<typeof parseChatCom
       const agentId = peer.targetAgentId;
       if (!agentId) { replyTo(peer, needTargetCard(s)); return; }
       const agent = findAgent(agentId);
-      if (!agent?.path) {
+      if (!agent?.sessionId) {
+        // 고른 뒤 사라진 에이전트 — 겨눔을 걷어 다음 평문이 같은 곳으로 또 가지 않게 한다.
+        clearTarget(peer, 'agent');
         replyTo(peer, textCard(s.titleCannotSend, [s.sendNoAgent]));
         return;
       }
-      const res = await callApi('POST', `/api/commands/${encodeURIComponent(agent.path)}`, { text: cmd.text });
+      // 고른 세션이 그 사이 사라졌으면 **말없이 다른 세션으로 보내지 않는다** — 폰에서 보낸 말이
+      // 엉뚱한 대화에 붙는 것이 이 축에서 가장 나쁜 실패다. 겨눔을 걷고 서버가 정하게 둔다.
+      let subAgentId = peer.targetSubAgentId;
+      let dropped: string | null = null;
+      if (subAgentId && !agent.sessions.some((sub) => sub.id === subAgentId)) {
+        dropped = subAgentId;
+        subAgentId = undefined;
+        clearTarget(peer, 'session');
+      }
+      const res = await callApi('POST', `/api/commands/${encodeURIComponent(agent.sessionId)}`, {
+        text: cmd.text,
+        ...(subAgentId ? { subAgentId } : {}),
+      });
       if (res.status === 200) {
-        replyTo(peer, textCard(s.titleSent, [clip(cmd.text, 200)], agent.label));
+        const session = subAgentId ? agent.sessions.find((sub) => sub.id === subAgentId) : undefined;
+        const lines = [clip(cmd.text, 200)];
+        lines.push(session ? fmt(s.sentToSession, { label: session.label }) : s.sentToAutoSession);
+        if (dropped) lines.push(s.sessionGoneFellBack);
+        replyTo(peer, textCard(s.titleSent, lines, agent.label));
       } else if (res.status === 403) {
         replyTo(peer, textCard(s.titleCannotSend, [s.sendReadOnly]));
       } else {
@@ -767,18 +935,43 @@ function needTargetCard(s: ChatStrings): ChatCard {
   return textCard(s.titleNeedTarget, [s.needTarget]);
 }
 
-/** `/status` — §4 v4.46 세션 목표를 그대로 읽는다(진행률을 따로 계산하지 않는다). */
+/**
+ * 겨눔을 그 칸부터 **아래로 함께** 걷는다.
+ *
+ * 프로젝트를 바꿨는데 에이전트 겨눔이 남아 있으면 화면은 새 프로젝트를 말하면서 명령은 옛
+ * 에이전트로 간다 — 사용자가 범위를 오해하는 것이 아니라 **상태가 스스로 어긋난** 자리다.
+ */
+function clearTarget(peer: ChatPeer, from: 'project' | 'agent' | 'session'): void {
+  if (from === 'project') { delete peer.targetProject; delete peer.targetAgentId; delete peer.targetSubAgentId; }
+  else if (from === 'agent') { delete peer.targetAgentId; delete peer.targetSubAgentId; }
+  else delete peer.targetSubAgentId;
+  savePersisted();
+}
+
+/**
+ * `/status` — §4 v4.46 세션 목표를 그대로 읽는다(진행률을 따로 계산하지 않는다).
+ *
+ * 목표가 없을 때 종전에는 "목표 없음" 한 줄로 끝났는데, `sessionGoals` 는 §9 슬라이스 스코프의
+ * `ideLane` 그룹이라 **IDE 레인을 안 열어 두면 아예 오지 않는다** — 그러면 도는 세션이 있어도
+ * 폰에는 늘 "없음"만 뜬다. 그래서 목표가 없으면 범위와 무관한 값(세션 상태·대기 수)으로 답한다.
+ */
 function statusCard(peer: ChatPeer, s: ChatStrings): ChatCard {
   const agentId = peer.targetAgentId;
   if (!agentId) return needTargetCard(s);
   const label = agentLabel(agentId);
+  const target = findAgent(agentId);
   const goals = Object.values(lastSnapshot?.sessionGoals ?? {}) as SessionGoal[];
-  const mine = goals.filter((g) => g.agentId === agentId && g.status === 'active');
-  if (mine.length === 0) {
-    const queued = (lastSnapshot?.commandQueues?.[agentId] ?? []).length;
-    return textCard(s.titleStatus, [queued > 0 ? fmt(s.goalQueued, { count: queued }) : s.goalNone], label);
-  }
+  const mine = goals.filter((g) => g.agentId === agentId && g.status === 'active'
+    && (!peer.targetSubAgentId || g.subAgentId === peer.targetSubAgentId));
   const lines: string[] = [];
+  if (target) {
+    const current = peer.targetSubAgentId
+      ? target.sessions.find((sub) => sub.id === peer.targetSubAgentId)
+      : undefined;
+    lines.push(current ? fmt(s.currentSession, { label: current.label }) : s.currentSessionAuto);
+    if (current) lines.push(sessionLabel(current, s));
+    if (target.queued > 0) lines.push(fmt(s.goalQueued, { count: target.queued }));
+  }
   for (const goal of mine.slice(0, 2)) {
     lines.push(clip(goal.text));
     const steps = goal.steps ?? [];
@@ -788,21 +981,74 @@ function statusCard(peer: ChatPeer, s: ChatStrings): ChatCard {
       : fmt(s.goalPercent, { percent: goal.percent }));
     if (goal.note) lines.push(clip(goal.note, 160));
   }
+  if (lines.length === 0) lines.push(s.goalNone);
   return textCard(s.titleStatus, lines, label);
 }
 
-/** `/agents` 의 선택 버튼 — 결정이 아니라 대상 지정이라 pendingActions 를 쓰지 않는다. */
+/** 선택 버튼의 접두사 — 이 셋만 대상 지정으로 가로챈다(그 밖은 결정 레지스트리의 것). */
+const PICK_PREFIXES = ['pj', 'a', 'sn'] as const;
+
+/** 이 `actionId` 가 3단계 선택 버튼인가(결정 버튼과 섞이지 않게 하는 유일한 판정). */
+function isPickAction(actionId: string): boolean {
+  return PICK_PREFIXES.some((prefix) => actionId.startsWith(`${prefix}:`));
+}
+
+/**
+ * 3단계 선택 버튼 — 결정이 아니라 대상 지정이라 pendingActions 를 쓰지 않는다.
+ *
+ * 고를 때마다 **다음 칸을 바로 띄운다**. 한 번 누를 때마다 다시 명령을 쳐야 하면 세 칸이
+ * 세 번의 왕복이 되고, 그건 폰에서 쓰라고 만든 축에서 가장 비싼 비용이다.
+ */
 function handleSelect(peer: ChatPeer, actionId: string): string | null {
-  if (!actionId.startsWith('a:')) return null;
+  if (!isPickAction(actionId)) return null;
   const s = S();
-  const agentId = actionId.slice(2);
-  const agent = findAgent(agentId);
+  const list = commandableAgents();
+
+  // ① 프로젝트
+  const project = resolvePick(actionId, 'pj', projectNames(list));
+  if (project !== null) {
+    clearTarget(peer, 'project');
+    peer.targetProject = project;
+    savePersisted();
+    replyTo(peer, pickAgentsCard(peer, list, project, s));
+    return '';
+  }
+
+  // ② 에이전트 — 고른 에이전트의 프로젝트로 첫 칸도 함께 맞춘다(둘이 어긋나지 않게).
+  const agentId = resolvePick(actionId, 'a', list.map((t) => t.agentId));
+  if (agentId !== null) {
+    const target = list.find((t) => t.agentId === agentId);
+    if (!target) return s.sendNoAgent;
+    clearTarget(peer, 'agent');
+    if (target.project) peer.targetProject = target.project;
+    peer.targetAgentId = agentId;
+    savePersisted();
+    replyTo(peer, pickSessionsCard(peer, target, s));
+    return '';
+  }
+
+  // ③ 세션 — 겨누는 에이전트의 세션만 후보다(다른 에이전트의 세션 id 가 눌려도 안 걸린다).
+  const target = peer.targetAgentId ? list.find((t) => t.agentId === peer.targetAgentId) : undefined;
+  if (actionId === `sn:${CHAT_PICK_AUTO_SESSION}`) {
+    if (!target) return s.sendNoAgent;
+    clearTarget(peer, 'session');
+    replyTo(peer, textCard(s.titleTargetSet, [s.targetSetAuto], target.label));
+    return '';
+  }
+  const subId = target ? resolvePick(actionId, 'sn', target.sessions.map((sub) => sub.id)) : null;
+  if (subId !== null && target) {
+    peer.targetSubAgentId = subId;
+    savePersisted();
+    const session = target.sessions.find((sub) => sub.id === subId);
+    replyTo(peer, textCard(s.titleTargetSet, [
+      fmt(s.targetSetSession, { label: session?.label ?? subId }),
+      s.targetSet,
+    ], target.label));
+    return '';
+  }
+
   // 고른 사이에 사라졌다 — 조용히 삼키면 사용자는 왜 안 되는지 알 길이 없다.
-  if (!agent) return s.sendNoAgent;
-  peer.targetAgentId = agentId;
-  savePersisted();
-  replyTo(peer, textCard(s.titleTargetSet, [s.targetSet], agent.label));
-  return '';
+  return s.sendNoAgent;
 }
 
 // ─── 드라이버 배선 ───────────────────────────────────────────────────────────
@@ -811,7 +1057,7 @@ function contextFor(kind: ChatChannelKind) {
   return {
     onInbound: (msg: ChatInbound): void => {
       // 대상 지정 버튼만 먼저 가로챈다(결정 레지스트리를 오염시키지 않기 위해).
-      if (msg.type === 'action' && msg.actionId.startsWith('a:')) {
+      if (msg.type === 'action' && isPickAction(msg.actionId)) {
         const peer = findPeer(kind, msg.chatId);
         if (peer) {
           const ack = handleSelect(peer, msg.actionId);
@@ -1001,5 +1247,6 @@ export function initChatBridge(expressApp: import('express').Express): void {
 
 /** before-quit — 아웃바운드 연결·타이머 정리. */
 export async function stopChatBridge(): Promise<void> {
+  targetsCache = null;
   for (const kind of KINDS) await stopChannel(kind);
 }

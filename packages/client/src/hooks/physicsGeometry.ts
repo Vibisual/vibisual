@@ -33,6 +33,27 @@ export interface PhysicsShape {
 /** 원형 버블끼리 띄워 두는 간격. 사각 요소가 낀 쌍은 0 — 붙여 놓은 변이 다시 벌어지면 안 된다. */
 export const MAGNET_GAP = 12;
 
+/**
+ * 겹침을 풀 때 얹는 되튐 세기 — **침투 깊이에 정확히 비례**한다. 바닥값을 두면 안 된다.
+ *
+ * 종전은 `max(깊이, 1) × 0.3` 이었다. 깊이가 0 에 수렴한 **쉬는 접촉**(서로 닿아 멎은 두 버블)에도
+ * 매 걸음 0.3 의 속도를 넣는다는 뜻이라, 닿아 있는 쌍이 영구 추진기가 됐다. 위성 스프링이 매 걸음
+ * 접촉을 다시 만들어 주므로 그 추진이 끊기지 않고, 무리 전체가 한 방향으로 **영원히 흘러** 결국
+ * 레이아웃 상자 끝에 가서 박혔다(같은 자리에서 태어난 버블들이 "저 멀리 가버리던" 원인).
+ * 깊이에 비례하면 접촉이 풀리는 순간 되튐도 0 이 되어 계가 스스로 멎는다.
+ */
+export const SEPARATION_BOUNCE = 0.3;
+
+/**
+ * 두 바디가 **완전히 겹쳐** 밀어낼 방향을 정할 수 없을 때 쓰는 축(px 미만 차이).
+ *
+ * 중심이 같으면 방향 벡터가 `0/0` 이라 종전에는 `nx=ny=0` 이 나가 **아무리 겹쳐도 영영 안 밀렸다**.
+ * 물리 쪽은 그것을 매 프레임 무작위 흔들림(jitter)으로 덮고 있었는데, 그 흔들림이 캔버스 전체를
+ * 상시로 떨게 만들고 정지 판정까지 막았다(`usePhysicsLayout` 참조). 대칭은 **정해진 축 하나**로
+ * 깨는 것으로 충분하다 — 결과가 재현 가능하고 테스트로 고정된다.
+ */
+export const DEGENERATE_EPSILON = 0.001;
+
 /** 이 쌍에 적용할 간격. */
 export function gapBetween(a: PhysicsShape, b: PhysicsShape): number {
   return a.shape === 'circle' && b.shape === 'circle' ? MAGNET_GAP : 0;
@@ -73,9 +94,11 @@ export function separation(a: PhysicsShape, b: PhysicsShape, gap: number): Separ
   if (a.shape === 'circle' && b.shape === 'circle') {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+    const dist = Math.sqrt(dx * dx + dy * dy);
     const minDist = a.radius + b.radius + gap;
     if (dist >= minDist) return null;
+    // 중심이 겹쳐 방향을 못 정하는 경우 — 정해진 축으로 가른다(위 DEGENERATE_EPSILON 주석).
+    if (dist < DEGENERATE_EPSILON) return { nx: 1, ny: 0, depth: minDist };
     return { nx: dx / dist, ny: dy / dist, depth: minDist - dist };
   }
 
@@ -120,4 +143,58 @@ export function separation(a: PhysicsShape, b: PhysicsShape, gap: number): Separ
   else if (nearest === toTop) uy = -1;
   else uy = 1;
   return { nx: ux * sign, ny: uy * sign, depth: circle.radius + gap + nearest };
+}
+
+/** 겹친 쌍이 이번 걸음에 각자 물러날 거리와 받을 되튐. 부호는 `Separation` 의 법선 기준이다. */
+export interface SeparationResponse {
+  /** a 가 법선(+) 방향으로 물러날 거리. */
+  aPush: number;
+  /** b 가 법선(−) 방향으로 물러날 거리. `aPush + bPush === depth` — 한 걸음에 겹침이 완전히 풀린다. */
+  bPush: number;
+  /** a 가 법선(+) 방향으로 받을 되튐 속도. 물러나지 않는 쪽은 0 이다. */
+  aBounce: number;
+  bBounce: number;
+}
+
+/**
+ * 겹침 해소의 **응답** — 누가 얼마나 물러나고 얼마나 되튀는가.
+ *
+ * `separation` 이 "어디로 얼마나"(공간)를 말한다면 이쪽은 "그 깊이를 둘이 어떻게 나누는가"다.
+ * 규칙은 셋이고, 셋 다 **한 걸음 안에서 겹침이 완전히 풀린다**는 것을 전제로 한다.
+ *
+ * 1. **한쪽만 움직일 수 있으면 그쪽이 깊이 전부**를 물러난다. 절반만 물러나면 남은 절반이 다음
+ *    걸음으로 넘어가 두 버블이 파고든 채 한동안 붙어 미끄러진다.
+ * 2. **위성은 부모가 아닌 바디에게 깊이 전부를 양보한다.** 위성의 자리는 매 걸음 스프링이 다시
+ *    만든다 — 위성을 밀어 봐야 그 변위는 곧 지워지고, 절반을 나눠 받은 **상대의 변위만 영구히
+ *    남는다.** 그 절반이 매 걸음 새로 쌓이면 위성 하나가 무한 동력이 되어 이웃을, 이웃의 무리를,
+ *    끝내 지도 전체를 한 방향으로 밀어낸다. 위성이 전부 양보하면 상대는 제자리에 있고 위성이
+ *    이웃 옆에 비켜 앉는다 — 파일 점이 폴더 버블을 캔버스 끝까지 밀고 가는 일이 없어진다.
+ * 3. **물러나지 않는 쪽은 되튐도 받지 않는다.** 변위를 0 으로 두고 속도만 주면 같은 밀림이
+ *    속도를 타고 그대로 돌아온다(2번이 막은 자리를 우회한다).
+ *
+ * 위성끼리는 반씩 나눈다 — 둘 다 스프링이 되돌리므로 어느 쪽에도 변위가 쌓이지 않는다.
+ */
+export function separationResponse(
+  a: PhysicsShape,
+  b: PhysicsShape,
+  sep: Separation,
+  aMovable: boolean,
+  bMovable: boolean,
+): SeparationResponse {
+  const bounce = sep.depth * SEPARATION_BOUNCE;
+  const give = (aShare: number): SeparationResponse => ({
+    aPush: sep.depth * aShare,
+    bPush: sep.depth * (1 - aShare),
+    aBounce: aShare > 0 ? bounce : 0,
+    bBounce: aShare < 1 ? bounce : 0,
+  });
+
+  if (!aMovable) return give(0);
+  if (!bMovable) return give(1);
+
+  const aIsSatellite = a.parentId != null;
+  const bIsSatellite = b.parentId != null;
+  if (aIsSatellite !== bIsSatellite) return give(aIsSatellite ? 1 : 0);
+
+  return give(0.5);
 }

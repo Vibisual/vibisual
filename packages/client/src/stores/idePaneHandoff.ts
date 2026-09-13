@@ -158,9 +158,18 @@ export function handoffPanePatch(
     patch.dockOrder = handoff.dockOrder;
     patch.dockSpan = handoff.dockSpan;
     patch.float = handoff.float ? { ...handoff.float } : null;
-    // 붙어 있던 창은 붙은 채로 돌아오고, 떠 있던 창은 뜬 채로 돌아온다 — 모달로 돌아오면
-    //   캔버스를 통째로 덮어 "원래 자리로 합쳤다"는 느낌이 깨진다.
-    patch.openMode = handoff.dockSide || handoff.float ? 'floating' : handoff.openMode;
+    // §5.5 #17-6 (H-26) — **앱으로 합치는 창은 언제나 떠 있는 창으로 선다.**
+    //
+    //   이 갈래는 "밖에 서 있던 창을 앱 안에 들인다" 하나뿐이고(`useOverlayReveal` · 꺼내기 실패
+    //   복구), 그 창은 **밖에서 쓰던 크기를 지고 온다**. 모달은 창이 *없던* 자리에 하나를 세울 때의
+    //   모양이라 그 크기를 `80vw×80vh` 로 부풀려 버린다 — 되돌아온 창이 저절로 확대되던 자리다.
+    //
+    //   종전에는 `dockSide || float` 가 있을 때만 `floating` 으로 하고 아니면 짐의 `openMode` 를
+    //   물려받았다. 그런데 그 값은 **독립 창 슬롯의 것**이라 늘 슬롯을 세울 때의 기본값 `'modal'`
+    //   그대로다 — 독립 창은 `fullWindow` 라 그 필드를 읽지 않아 아무도 고칠 일이 없고, 아래
+    //   `'detached'` 갈래가 자리 값을 심지 않으므로 `dockSide`·`float` 도 함께 비어 있다.
+    //   그래서 그 조건은 왕복해 돌아온 짐에서는 언제나 거짓이었다.
+    patch.openMode = 'floating';
   }
   return patch;
 }

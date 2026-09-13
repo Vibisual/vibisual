@@ -619,6 +619,11 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             )}
 
             {/* mode-delegation 안내 (도구 회수 안 함, 시스템 프롬프트로 강제) */}
+            {commandMode === 'tool-delegation' && agentConfigs[sourceAgentId]?.provider?.kind === 'codex-cli' && (
+              <p className="rounded border border-amber-400/30 bg-amber-400/5 px-2 py-2 text-xs leading-relaxed text-amber-200/80">
+                {t('panel.agentConfig.codex.edgeDelegationNote')}
+              </p>
+            )}
             {commandMode === 'mode-delegation' && (
               <div className="rounded border border-sky-400/30 bg-sky-400/5 px-2 py-1.5 text-[12px] leading-relaxed text-sky-200/80">
                 {t('bubbleMap.taskEdgePopup.commandModeModeNote')}

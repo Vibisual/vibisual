@@ -4,6 +4,7 @@ import type {
   BubbleData,
   QueuedCommand,
   RunningSubagentTask,
+  SessionRunState,
   SubAgent,
 } from '@vibisual/shared';
 import { BUBBLE_COLORS } from '@vibisual/shared';
@@ -21,7 +22,11 @@ import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import type { IDEDockSide } from '../IDE/ideDockLayout.js';
 import { useViewportSize } from '../IDE/useIDEDockLayout.js';
 import { shortcutLabel } from '../../utils/platform.js';
-import { SESSION_STATUS_DOT, SESSION_STATUS_LABEL_KEY } from '../../utils/sessionStatus.js';
+import {
+  SESSION_STATUS_LABEL_KEY,
+  sessionDotClass,
+  type SessionFocusGlow,
+} from '../../utils/sessionStatus.js';
 import { resolveAgentRunSummary, type AgentRunSummary } from './headerAgentCounts.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — **도크가 화면을 채워도 늘 닿는 자리**.
@@ -47,17 +52,21 @@ const EMPTY_SUBS: Record<string, SubAgent[]> = {};
 const EMPTY_COMMANDS: Record<string, QueuedCommand[]> = {};
 const EMPTY_TASKS: Record<string, RunningSubagentTask[]> = {};
 const EMPTY_ACK: Record<string, true> = {};
+const EMPTY_GLOW: Record<string, SessionFocusGlow> = {};
 
 /**
  * 배지 색 신호 — 좌측 dot 한 점이 전담하고 글자는 항상 같은 중성 톤(§3.7 v2.15 규약 그대로,
  * 배지가 이 메뉴의 트리거가 되면서 자리만 `Header` 에서 옮겨 왔다).
  */
-export type AgentDotState = 'idle' | 'completed' | 'active';
+export type AgentDotState = 'idle' | 'completed' | 'active' | 'limited';
 
 const BADGE_DOT: Record<AgentDotState, string> = {
   idle: 'bg-gray-400',
   completed: 'bg-emerald-400 animate-pulse',
   active: 'bg-blue-400 animate-pulse',
+  // §2.4 (한도 정지) — 세션 도트(`SESSION_STATUS_DOT.limited`)와 **같은 주황**이다. 배지에서
+  //   주황을 보고 메뉴를 열면 그 색 그대로의 줄들이 맨 위에 서 있어야 눈이 이어진다.
+  limited: 'bg-orange-400 animate-pulse',
 };
 
 interface IDEWindowsMenuProps {
@@ -73,6 +82,11 @@ interface IDEWindowsMenuProps {
   badgeRunning: number;
   /** 이 프로젝트의 세션 수 — 배지의 분모. */
   badgeSessions: number;
+  /**
+   * §2.4 (한도 정지) — 한도로 끊긴 채 다시 돌지 않은 세션 수. 0 보다 크면 메뉴 맨 위에 그 사실을
+   * 한 줄로 세운다(색만으로는 "몇 개가" 를 말할 수 없다).
+   */
+  badgeLimited: number;
   /** 배지 툴팁 — 집계 문장 + "누르면 목록이 열린다" 안내. */
   badgeTitle: string;
   /** §5.12 (A) — 지휘통제실은 desktop IPC 전용이라 채널이 없는 창에서는 항목을 그리지 않는다. */
@@ -89,6 +103,11 @@ interface WindowRow {
    * 창 유무와는 다른 축이다: 창이 없어도 도는 에이전트가 있고, 창만 띄워 둔 채 조용한 것도 있다.
    */
   run: AgentRunSummary;
+  /**
+   * (판올림 번호 발급 대기) 이 버블의 세션 중 **방금 눌러 들어간 자국** — 있으면 그 색이 줄에도
+   * 남는다. 줄의 색은 버블 단위이고 자국은 세션 단위라, 그 버블의 세션들 중 **가장 최근 자국**을 쓴다.
+   */
+  glow: SessionFocusGlow | undefined;
 }
 
 function sideLabelKey(side: IDEDockSide): string {
@@ -156,6 +175,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   badgeState,
   badgeRunning,
   badgeSessions,
+  badgeLimited,
   badgeTitle,
   canOpenCommandCenter,
   onOpenCommandCenter,
@@ -182,6 +202,9 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   const queuedCommands = useGraphStore((s) => (open ? s.queuedCommands : EMPTY_COMMANDS));
   const runningSubagentTasks = useGraphStore((s) => (open ? s.runningSubagentTasks : EMPTY_TASKS));
   const acknowledgedSubAgents = useGraphStore((s) => (open ? s.acknowledgedSubAgents : EMPTY_ACK));
+  // (판올림 번호 발급 대기) 방금 눌러 들어간 색 — 목록을 다시 열었을 때 그 줄이 아직 그 색으로
+  //   뛰고 있어야 "내가 이걸 눌렀지"가 이어진다. 닫혀 있는 동안은 그릴 일이 없어 구독하지 않는다.
+  const sessionFocusGlow = useGraphStore((s) => (open ? s.sessionFocusGlow : EMPTY_GLOW));
 
   // 배지 숫자는 늘 필요하다 — 원시값이라 싸다. **실제로 그려지는 창**만 앞 숫자로 센다
   //   (접힌 창·버블이 사라진 유령 창까지 세면 화면에 없는 것이 숫자로만 남아 헷갈린다).
@@ -215,23 +238,38 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
       runningSubagentTasks,
       acknowledged: acknowledgedSubAgents,
     };
+    // 그 버블의 세션 자국 중 가장 최근 것 — 한 버블에서 여럿을 눌렀으면 마지막 손이 이긴다.
+    const glowOf = (agentId: string): SessionFocusGlow | undefined => {
+      let best: SessionFocusGlow | undefined;
+      for (const s of subAgents[agentId] ?? []) {
+        const g = sessionFocusGlow[s.id];
+        if (g && (best === undefined || g.at > best.at)) best = g;
+      }
+      return best;
+    };
     const list = selectCanvasAgentBubbles({ agents, agentProjects, currentFolderId, worktreeProjects, activeProject })
       .map<WindowRow>((agent) => ({
         agent,
         pane: paneByAgent.get(agent.id) ?? null,
         run: resolveAgentRunSummary(agent, runSrc),
+        glow: glowOf(agent.id),
       }));
-    // 창이 있는 것부터(맨 앞 창이 위) — 지금 보고 있는 것이 목록에서도 위에 있어야 한다.
+    // §2.4 (한도 정지) — **멈춘 줄이 맨 위다.** 창이 떠 있는지보다 급하다: 한도로 끊기면 여러 개가
+    //   한꺼번에 멎는데, 그것들이 목록 아래에 흩어져 있으면 무엇을 다시 돌려야 하는지 셀 수가 없다
+    //   (사용자 지시 — "상단에 멈춘 애들 우선적으로 표시"). 멈춘 것이 없으면 아래 순서는 종전 그대로다.
+    // 그다음이 창이 있는 것(맨 앞 창이 위) — 지금 보고 있는 것이 목록에서도 위에 있어야 한다.
     // 창이 없는 것들 사이에서는 **도는 것이 먼저**다 — 에이전트가 열댓 개면 도는 줄이 목록
     //   한참 아래에 묻혀, 배지가 "4개 실행 중"이라고 말해도 그 넷을 찾을 수 없다.
     return list.sort((a, b) => {
+      const byLimited = (b.run.state === 'limited' ? 1 : 0) - (a.run.state === 'limited' ? 1 : 0);
+      if (byLimited !== 0) return byLimited;
       const byPane = (b.pane?.z ?? -1) - (a.pane?.z ?? -1);
       if (byPane !== 0) return byPane;
       return (b.run.running > 0 ? 1 : 0) - (a.run.running > 0 ? 1 : 0);
     });
   }, [
     open, agents, agentProjects, currentFolderId, worktreeProjects, activeProject, ideOverlays,
-    subAgents, queuedCommands, runningSubagentTasks, acknowledgedSubAgents,
+    subAgents, queuedCommands, runningSubagentTasks, acknowledgedSubAgents, sessionFocusGlow,
   ]);
 
   // 슬롯은 살아 있는데 버블이 사라진 창 — 화면에는 아무것도 안 뜨는데 슬롯만 남아, 종전에는
@@ -258,11 +296,76 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     useGraphStore.getState().applyIDEWindowLayout(kind, viewport);
   }, [viewport]);
 
-  const openWindow = useCallback((agentId: string) => {
-    // 이미 창이 있으면 스토어가 새로 만들지 않고 펴서 앞으로 올린다(중복 창 ❌).
-    useGraphStore.getState().openIDEOverlay(agentId, { pane: 'new' });
+  /**
+   * 목록의 줄을 누른다 — **창이 있으면 그 하나만 남기고 본다**(§5.5 #17-1 판올림 번호 발급 대기).
+   *
+   * 종전에는 창이 있어도 `openIDEOverlay` 로 **앞으로 올리기만** 했다. 그런데 창을 서넛 띄워
+   * 두면 겹쳐 쌓이므로, 목록에서 하나를 눌러도 그 창은 다른 창들 사이에 그대로 묻혀 "눌렀는데
+   * 아무 일도 안 일어난" 화면이 된다(사용자 지시 — "여러개가 떠있는 경우 … 다른 창들은
+   * 내려놓기 하고 해당 창에 포커싱해 화면도 가운데로"). 이제 다른 창은 **접고**(닫지 않는다 —
+   * 되돌릴 수 있어야 한다) 이 창만 펴서 앞에 세우며, 캔버스 카메라도 그 버블로 간다.
+   *
+   * 창이 아직 없는 줄은 종전대로 **새 창**이다(접을 다른 창이 있어도, 없던 창을 여는 것은
+   * "하나만 남기고 본다"와 다른 손짓이라 남의 배치를 건드리지 않는다).
+   *
+   * (판올림 번호 발급 대기) **그리고 그 색이 가리키는 세션이 창에 서 있어야 한다.** 종전에는 어느
+   * 색을 눌러도 창이 **마지막에 보던 세션**으로 열렸다 — 주황 줄을 눌러도 조용한 세션이 떠서, 멈춘
+   * 자리를 탭에서 다시 손으로 찾아야 했다(사용자 지시 — "각 색별로 저 버튼을 클릭한 경우 그 세션이
+   * 열려 있어야지"). 이제 줄의 색을 낸 `resolveAgentRunSummary` 가 **그 색을 만든 세션 중 가장 최근
+   * 것**(`focusSessionId`)까지 함께 돌려주고, 이 클릭이 그것을 창에 세운다. 회색(조용함) 줄은
+   * `focusSessionId` 가 `null` 이라 종전 그대로 **마지막에 보던 세션**이 뜬다 — 버블 더블클릭과 같은 답.
+   */
+  const openWindow = useCallback((
+    agentId: string,
+    pane: IDEOverlayState | null,
+    focusSessionId: string | null,
+    rowState: SessionRunState,
+  ) => {
+    // (판올림 번호 발급 대기) **누른 색의 자국을 먼저 찍는다.** 아래 확인(ack)이 돌면 그 색은
+    //   바로 걷히므로, 걷힌 뒤에 찍으면 무슨 색이었는지 알 길이 없다(`focusSessionId` 를 미리
+    //   받아 두는 것과 같은 이유). 회색 줄은 남길 것이 없어 액션 쪽에서 조용히 무시한다.
+    if (focusSessionId) useGraphStore.getState().markSessionFocusGlow(focusSessionId, rowState);
+    // §2.4 (한도 정지) — 줄을 누르는 것은 "이 에이전트를 보러 간다"이므로, 그 버블에 달린 멈춘
+    //   세션의 주황불도 이 손짓으로 확인된다(세션 탭을 눌렀을 때와 같은 규율 · §5.5 #17-47).
+    //   창을 열면 활성 세션 하나는 `setIDEActiveSession` 이 따로 걷지만, 그 버블의 **나머지**
+    //   멈춘 세션은 그 길로 닿지 않는다 — 그래서 여기서 버블 단위로 함께 걷는다.
+    //   ⚠ `focusSessionId` 는 이 걷기 **전에** 이미 정해져 있어야 한다(주황 표식을 걷고 나서 다시
+    //     고르면 방금 지운 근거로 아무것도 못 찾는다). 그래서 줄을 그릴 때 계산해 인자로 받는다.
+    useGraphStore.getState().acknowledgeUsageLimit({ agentIds: [agentId] });
+    if (pane) useGraphStore.getState().soloIDEPane(pane.paneKey);
+    else useGraphStore.getState().openIDEOverlay(agentId, { pane: 'new' });
+    // 세우는 것은 창이 선 **다음**이다 — `openIDEOverlay` 는 새 창이 설 자리(주 창 · 새 팬 · LRU
+    //   재사용)를 스스로 고르므로, 그 답을 스토어에서 되읽어야 어느 창에 세울지 알 수 있다.
+    //   밖으로 꺼낸 IDE 로 흘러갔거나(독립 창) 프로바이더 설치 창이 대신 뜬 경우에는 앱 안에 창이
+    //   서지 않는다 — 그때는 찾을 팬이 없으니 조용히 넘어간다.
+    if (focusSessionId) {
+      const after = useGraphStore.getState();
+      const owner = after.activeProject ?? after.agentProjects[agentId];
+      const target = pane
+        ? after.ideOverlays[pane.paneKey]
+        : Object.values(after.ideOverlays).find((o) => o.agentId === agentId && o.projectId === owner);
+      // 그새 사라진 세션에는 세우지 않는다(`openIDEOverlay` 의 `exists` 규율과 같은 감각).
+      const live = (after.subAgents[agentId] ?? []).some((s) => s.id === focusSessionId);
+      if (live && target?.agentId === agentId && target.activeSessionId !== focusSessionId) {
+        after.setIDEActiveSession(focusSessionId, target.paneKey);
+      }
+    }
     setOpen(false);
   }, []);
+
+  /**
+   * §2.4 (한도 정지) — 띠의 [확인]. **목록에 선 멈춘 줄을 한 번에** 확인한다.
+   *
+   * 한도에 닿으면 여럿이 한꺼번에 멎으므로(그래서 배지가 주황이 된다) 하나씩 열어 눌러야만
+   * 걷힌다면 확인 자체가 일이 된다. 메뉴는 **닫지 않는다** — 걷힌 뒤의 목록을 그 자리에서 보게 한다.
+   *
+   * 걷는 것은 표식뿐이라 세션·대화·결과는 그대로 남는다(지우는 것이 아니라 확인한 것이다).
+   */
+  const ackAllLimited = useCallback(() => {
+    const agentIds = rows.filter((r) => r.run.state === 'limited').map((r) => r.agent.id);
+    if (agentIds.length === 0) return;
+    useGraphStore.getState().acknowledgeUsageLimit({ agentIds });
+  }, [rows]);
 
   const stateLabel = useCallback((pane: IDEOverlayState): string => {
     if (pane.collapsed) return t('header.ideWindows.state.collapsed');
@@ -311,6 +414,34 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
           <div className="px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
             {t('header.ideWindows.sectionTitle')}
           </div>
+          {/* §2.4 (한도 정지) — 색은 "무슨 일이 있다"까지만 말한다. 몇 개가 멈췄는지는 글자로 적어야
+              사용자가 다시 돌릴 것을 셀 수 있다. 아래 목록은 그 줄들을 맨 위로 올려 둔 상태다. */}
+          {badgeLimited > 0 && (
+            <div className="mb-1 flex items-center gap-1.5 rounded border border-orange-400/30 bg-orange-400/10 px-2 py-1.5 text-[12px] text-orange-200">
+              <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="10" y1="9" x2="10" y2="15" />
+                <line x1="14" y1="9" x2="14" y2="15" />
+              </svg>
+              <span className="min-w-0 flex-1">
+                {t('header.ideWindows.limitedBanner', { count: badgeLimited })}
+              </span>
+              {/* §2.4 (한도 정지) — 주황불을 **끄는 자리**. 색은 "손대야 다시 간다"를 말하는데,
+                  그 말을 읽고 나면 불은 제 할 일을 다 한 것이라 여기서 걷힌다(사용자 지시 —
+                  "클릭해서 확인하면 다시 평상태로"). 다시 돌릴지는 별개의 손짓이다. */}
+              <button
+                type="button"
+                onClick={ackAllLimited}
+                title={t('header.ideWindows.limitedAckHint')}
+                className="flex flex-shrink-0 items-center gap-1 rounded border border-orange-400/40 px-1.5 py-0.5 text-[12px] font-medium text-orange-100 transition-colors hover:bg-orange-400/20"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+                {t('header.ideWindows.limitedAck')}
+              </button>
+            </div>
+          )}
           {/* (판올림 번호 발급 대기) 레이아웃 — 창이 둘 이상일 때만 뜻이 있다(하나면 정리할 것이 없다). */}
           {visibleCount + collapsedCount > 1 && (
             <div className="mb-1 flex items-center gap-0.5 border-b border-white/[0.06] px-1 pb-1.5">
@@ -346,30 +477,41 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
           {rows.length === 0 && (
             <div className="px-2 py-2 text-[12px] text-gray-500">{t('header.ideWindows.empty')}</div>
           )}
-          {rows.map(({ agent, pane, run }) => (
+          {rows.map(({ agent, pane, run, glow }) => (
             <div
               key={agent.id}
               className="group flex items-center gap-1 rounded px-1 transition-colors hover:bg-white/[0.06]"
             >
               <button
                 type="button"
-                onClick={() => openWindow(agent.id)}
-                title={`${t(SESSION_STATUS_LABEL_KEY[run.state])} · ${
-                  pane ? t('header.ideWindows.bringToFront') : t('header.ideWindows.openNew')
-                }`}
+                onClick={() => openWindow(agent.id, pane, run.focusSessionId, run.state)}
+                // 한도로 끊긴 줄은 **원문 통지**를 그대로 붙인다 — 사용자가 CLI 에서 본 그 글자가
+                //   "언제 풀리는가"를 이미 담고 있어, 우리가 다시 쓰면 틀릴 여지만 는다.
+                title={`${t(SESSION_STATUS_LABEL_KEY[run.state])}${
+                  run.limitMessage ? ` — ${run.limitMessage}` : ''
+                } · ${pane ? t('header.ideWindows.soloFocus') : t('header.ideWindows.openNew')}`}
                 className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1 text-left"
               >
                 {/* 도트는 **실행 상태**다 — 세션 탭·사이드바와 같은 표(`SESSION_STATUS_DOT`)를 쓴다.
                     종전에는 이 자리가 "창이 떠 있는가"를 세션 도트와 같은 파랑으로 그려, 도는 중인데
                     창이 없는 에이전트는 불이 꺼진 것으로 보였다. 창 유무는 오른쪽 상태 낱말
                     (`stateLabel`)과 접기/닫기 손잡이가 이미 말한다. */}
-                <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${SESSION_STATUS_DOT[run.state]}`} />
+                <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${sessionDotClass(run.state, glow, Date.now())}`} />
                 <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200">{agent.label}</span>
                 {/* 도는 세션 수 — 배지의 분자를 이 줄로 쪼갠 것이다(합이 배지와 같아야 한다).
                     조용한 줄에는 그리지 않는다(폭도 시선도 도는 줄에 쓴다). */}
                 {run.running > 0 && (
                   <span className="flex-shrink-0 text-[12px] font-medium tabular-nums text-blue-300">
                     {run.running}/{run.sessions}
+                  </span>
+                )}
+                {/* §2.4 (한도 정지) — 색은 "무슨 일인지"만 말하고 **몇 개가 언제 풀리는지**는 못
+                    말한다. 리셋 표기는 CLI 원문 그대로 붙인다(번역 ❌ — 사용자가 본 그 글자다). */}
+                {run.state === 'limited' && (
+                  <span className="flex-shrink-0 text-[12px] font-medium text-orange-300">
+                    {run.limitLabel
+                      ? t('header.ideWindows.limitedUntil', { at: run.limitLabel })
+                      : t('header.ideWindows.limited')}
                   </span>
                 )}
                 {pane && (

@@ -36,6 +36,7 @@ const REPO_ROOT = resolve(__dirname, '../..');
 function copyHookHandlerPlugin() {
   const FILES = [
     { from: resolve(REPO_ROOT, 'hooks/handler.mjs'), to: resolve(__dirname, 'out/hooks/handler.mjs') },
+    { from: resolve(REPO_ROOT, 'hooks/codex-edges.mjs'), to: resolve(__dirname, 'out/hooks/codex-edges.mjs') },
     { from: resolve(REPO_ROOT, 'hooks/lib/serverUrl.mjs'), to: resolve(__dirname, 'out/hooks/lib/serverUrl.mjs') },
     // BrowserWindow.icon (and Linux/Mac packaged window icons) need the PNG at runtime.
     // Stage it next to out/ so dev (electron-vite preview) and packaged builds resolve

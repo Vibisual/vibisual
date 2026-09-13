@@ -62,12 +62,24 @@ const WIRE_BUDGET_EXEMPT: Record<string, { reason: ExemptReason; note: string }>
   compactCounts: { reason: 'small', note: '세션당 정수 두 개' },
   autoAgentSummaries: { reason: 'small', note: '오토 에이전트당 요약 한 줄 — 본문은 여기 담지 않는다' },
   sessionLoops: { reason: 'small', note: '반복 명령 상태 — 켠 탭만 있고 필드가 몇 개다' },
-  brain: { reason: 'small', note: 'BrainSummary 는 요약 수치 — 카드 본문은 §5.10 대로 스냅샷에 안 태운다' },
+  autoGoal: { reason: 'small', note: 'AutoGoalSummary 는 프로젝트당 수치 열두 칸 — 후보·절차 목록은 규약상 REST 로만 간다' },
   activeContiWork: { reason: 'small', note: '진행 중 콘티 작업 한 건씩' },
   debugBreakpoints: { reason: 'small', note: '사용자가 찍은 중단점 — 수십 개 규모' },
   runningServers: { reason: 'small', note: 'dev 서버 항목은 포트·URL 수준' },
   skillUsageCounts: { reason: 'small', note: '스킬명 → 호출 횟수 정수 하나. 키가 늘어도 줄이 짧다' },
   pluginFacts: { reason: 'small', note: '플러그인이 신고한 짧은 사실 — 큰 본문은 규약상 금지' },
+  // 값이 `number[]` 라 스칼라 자동 면제를 못 받지만, 그 배열은 **길이가 고정**이다 —
+  //   `heatQuantileSamples` 가 노드 수와 무관하게 `HEAT_QUANTILE_BINS + 1`(=33) 칸으로 접는다.
+  //   즉 이 슬라이스 자체가 "값 전체를 전선에 싣지 않으려고" 이미 접어 둔 자리라, 증분을 붙여도
+  //   `changed` 사본만 한 벌 더 든다(매니저가 매 스냅샷마다 새 `{}` 를 지어 참조도 안 지킨다).
+  readCountQuantilesByProject: {
+    reason: 'small',
+    note: '프로젝트당 33칸으로 접힌 분포 표본 — readCountMaxByProject(스칼라 면제)와 한 쌍이고 §9 ④ 로 항상 전량',
+  },
+  writeCountQuantilesByProject: {
+    reason: 'small',
+    note: 'readCountQuantilesByProject 와 같은 칸 — 쓰기 축',
+  },
 
   // ── volatile: 매 틱 바뀌어 증분이 전량으로 회귀한다 ──────────────────────────
   commandQueues: { reason: 'volatile', note: '큐는 넣고 빼는 것이 일이라 과반 변경이 상시다' },

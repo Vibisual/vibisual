@@ -7,34 +7,34 @@
  */
 export const strings = {
   "en": {
-    "desc": "Storage policy is easier than forgetting policy. Memory that only grows loses retrieval precision until it is worse than having none.",
+    "desc": "Storage policy is easier than forgetting policy. A store that only grows loses precision until it is worse than having none.",
     "heading": "Forgetting Policy",
     "level": {
-      "none": "No memory yet",
+      "none": "Nothing written yet",
       "room": "Within budget",
       "full": "Near the budget"
     },
     "check": {
       "used": "Used of budget",
       "share": "Share",
-      "archived": "Archived"
+      "archived": "Set aside"
     },
-    "note": "The safe shape is a total budget with overflow moved to archive rather than deleted — automatic permanent deletion leaves no way back."
+    "note": "The safe shape is a total budget where the overflow is set aside rather than deleted — what you turned down stays visible, so nothing disappears without a way back."
   },
   "ko": {
-    "desc": "저장 정책보다 망각 정책이 더 어렵습니다. 기억이 쌓기만 하면 검색 정밀도가 떨어져 결국 기억이 없느니만 못한 상태가 됩니다.",
+    "desc": "저장 정책보다 망각 정책이 더 어렵습니다. 쌓기만 하는 저장고는 정밀도가 떨어져 결국 없느니만 못한 상태가 됩니다.",
     "heading": "망각 정책",
     "level": {
-      "none": "아직 기억 없음",
+      "none": "아직 적힌 절차 없음",
       "room": "예산 안",
       "full": "예산에 근접"
     },
     "check": {
       "used": "예산 대비 적재",
       "share": "비율",
-      "archived": "보관됨"
+      "archived": "물려 둔 것"
     },
-    "note": "안전한 형태는 총량 예산 + 넘치면 삭제가 아니라 **보관으로 이동**입니다 — 자동 영구 삭제는 사고 시 복구 수단이 없습니다."
+    "note": "안전한 형태는 총량 예산 + 넘치면 삭제가 아니라 **물려 두기**입니다 — 물린 것은 그대로 보이므로 되돌릴 길 없이 사라지는 것이 없습니다."
   },
   "ja": {
     "level": {

@@ -6,6 +6,7 @@ import {
   closeCmdPane,
   cmdPaneTermId,
   collectCmdPaneIds,
+  resizeCmdPane,
   resolveCmdCliKind,
   sanitizeCmdPaneTree,
   splitCmdPane,
@@ -59,6 +60,60 @@ describe('splitCmdPane / closeCmdPane', () => {
   it('없는 pane 을 지정하면 트리를 바꾸지 않는다', () => {
     const tree = splitCmdPane(null, '0', '1', 'row');
     expect(collectCmdPaneIds(splitCmdPane(tree, 'nope', '9', 'row'))).toEqual(['0', '1']);
+  });
+});
+
+describe('resizeCmdPane — 경계선 하나는 split 하나만 움직인다', () => {
+  /** 모든 split 노드의 비율을 위→아래 순서로 훑는다(경로로 구분해 어느 것이 움직였는지 본다). */
+  const ratios = (node: CmdPaneNode | null): string[] => {
+    const out: string[] = [];
+    const walk = (n: CmdPaneNode, path: string): void => {
+      if (n.type === 'leaf') return;
+      out.push(`${path}=${n.ratio}`);
+      walk(n.children[0], `${path}0`);
+      walk(n.children[1], `${path}1`);
+    };
+    if (node) walk(node, 'root');
+    return out;
+  };
+
+  /** `row[ col[leaf0, leaf2], leaf1 ]` — **첫 pane 을 한 번 더 분할한** 가장 흔한 중첩 모양. */
+  const nested = (): CmdPaneNode => {
+    const tree: CmdPaneNode = splitCmdPane(null, '0', '1', 'row');
+    return splitCmdPane(tree, '0', '2', 'column');
+  };
+
+  it('첫 pane 을 다시 분할해도 두 경계선이 함께 움직이지 않는다', () => {
+    // 이 자리가 무너지면 사용자는 가로 분할선을 끌었는데 세로 분할선까지 같이 움직이는 것을 본다.
+    //   식별 키가 "첫째 자식의 첫 leaf" 였을 때 바깥 row 와 안쪽 col 이 둘 다 '0' 이었다.
+    const tree = nested();
+    const before = ratios(tree);
+
+    const outer = resizeCmdPane(tree, '1', 0.8); // 바깥 row 의 둘째 자식(leaf1)
+    const inner = resizeCmdPane(tree, '2', 0.8); // 안쪽 col 의 둘째 자식(leaf2)
+
+    expect(ratios(outer).filter((v, i) => v !== before[i])).toEqual(['root=0.8']);
+    expect(ratios(inner).filter((v, i) => v !== before[i])).toEqual(['root0=0.8']);
+  });
+
+  it('원본 트리는 그대로 둔다(낙관 오버라이드가 옛 값을 다시 읽는다)', () => {
+    const tree = nested();
+    resizeCmdPane(tree, '1', 0.8);
+    expect(ratios(tree)).toEqual(['root=0.5', 'root0=0.5']);
+  });
+
+  it('범위를 벗어난 비율은 clamp — 경계선을 창 밖까지 끌어도 pane 이 사라지지 않는다', () => {
+    const tree = splitCmdPane(null, '0', '1', 'row');
+    const wide = resizeCmdPane(tree, '1', 5);
+    const thin = resizeCmdPane(tree, '1', -5);
+    expect(wide?.type === 'split' ? wide.ratio : null).toBe(CMD_PANE_RATIO_MAX);
+    expect(thin?.type === 'split' ? thin.ratio : null).toBe(CMD_PANE_RATIO_MIN);
+  });
+
+  it('없는 키·빈 트리는 아무것도 바꾸지 않는다', () => {
+    const tree = nested();
+    expect(ratios(resizeCmdPane(tree, 'nope', 0.9))).toEqual(ratios(tree));
+    expect(resizeCmdPane(null, '1', 0.9)).toBeNull();
   });
 });
 

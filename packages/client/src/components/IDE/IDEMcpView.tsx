@@ -233,9 +233,10 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
                   //   나머지 범위의 이름은 사용자가 직접 지은 것이라 번역 대상이 아니다.
                   const preset = entry.presetId ? findMcpPreset(entry.presetId) : undefined;
                   const label = preset ? t(preset.labelKey) : entry.name;
-                  const subtitle = preset
-                    ? preset.name
-                    : (entry.url ?? [entry.command, ...(entry.args ?? [])].filter(Boolean).join(' '));
+                  // 켜면 **이 명령이 뜬다** — 프리셋도 예외가 아니다. 종전에는 프리셋만 다정한 이름
+                  //   (`preset.name`)을 보여 줘, 무엇이 실행되는지 모르는 채로 켤 수 있었다.
+                  const commandLine = entry.url ?? [entry.command, ...(entry.args ?? [])].filter(Boolean).join(' ');
+                  const subtitle = commandLine || (preset ? preset.name : '');
                   return (
                     <li key={entry.id} className="rounded border border-gray-700/50 bg-gray-800/30 px-1.5 py-1">
                       <div className="flex items-start gap-1.5">

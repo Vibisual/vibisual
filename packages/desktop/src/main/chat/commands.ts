@@ -10,7 +10,9 @@ import type { ChatStrings } from './strings';
 /** 우리가 가로채는 명령. 이 목록에 없는 `/…` 는 **에이전트에게 그대로 넘긴다**. */
 export type ChatCommand =
   | { type: 'help' }
+  | { type: 'projects' }
   | { type: 'agents' }
+  | { type: 'sessions' }
   | { type: 'status' }
   | { type: 'stop' }
   | { type: 'log'; lines: number }
@@ -19,7 +21,7 @@ export type ChatCommand =
   | { type: 'prompt'; text: string };
 
 /** 우리 것으로 가로채는 이름들. 여기 없는 슬래시 명령은 CLI 의 것일 수 있으므로 손대지 않는다. */
-const OWNED = new Set(['help', 'agents', 'status', 'stop', 'log', 'unpair', 'start']);
+const OWNED = new Set(['help', 'projects', 'agents', 'sessions', 'status', 'stop', 'log', 'unpair', 'start']);
 
 /**
  * 폰에서 온 한 줄을 해석한다.
@@ -50,8 +52,12 @@ export function parseChatCommand(raw: string): ChatCommand | null {
     case 'start':
       // 텔레그램 딥링크가 `/start <token>` 으로 도착한다. 토큰이 없으면 안내만.
       return arg ? { type: 'pair', token: arg } : { type: 'help' };
+    case 'projects':
+      return { type: 'projects' };
     case 'agents':
       return { type: 'agents' };
+    case 'sessions':
+      return { type: 'sessions' };
     case 'status':
       return { type: 'status' };
     case 'stop':
@@ -81,7 +87,9 @@ export function clampLogLines(arg: string): number {
 export function helpLines(paired: boolean, s: ChatStrings): string[] {
   if (!paired) return [s.helpNotPaired1, s.helpNotPaired2];
   return [
+    s.helpProjects,
     s.helpAgents,
+    s.helpSessions,
     s.helpStatus,
     fmt(s.helpLog, { default: CHAT_LOG_DEFAULT_LINES, max: CHAT_LOG_MAX_LINES }),
     s.helpStop,

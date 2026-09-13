@@ -2,7 +2,7 @@
  * §5.5 #17-28 v4.96 — 주입원 계측·게이트 테스트.
  *
  * 이 기능의 유일한 실패 방식은 **화면과 프롬프트가 다른 말을 하는 것**이라, 여기서 못 박는 것도 그것이다:
- * ① 층 우선순위(세션 > 프로젝트 > 기본), ② 끈 줄은 실제로 빠진다(합계도 함께 줄어든다),
+ * ① 층 우선순위(세션 > 에이전트 > 프로젝트 > 기본), ② 끈 줄은 실제로 빠진다(합계도 함께 줄어든다),
  * ③ 못 끄는 줄은 오버라이드가 있어도 안 꺼진다, ④ 아무것도 안 껐으면 스위치가 하나도 안 나간다.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -10,6 +10,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ContextOverrides } from '@vibisual/shared';
+import {
+  isInternalSlashCommand,
+  withoutSlashCommandFlag,
+  AGENT_COMPACT_COMMAND,
+  SESSION_LOOP_COMPACT_COMMAND,
+  SESSION_LOOP_CLEAR_COMMAND,
+} from '@vibisual/shared';
 import { CONTEXT_SOURCE_IDS } from '@vibisual/shared';
 import {
   autoMemorySlug,
@@ -61,9 +68,9 @@ function parts(): MeasuredPart[] {
   ];
 }
 
-function build(overrides?: ContextOverrides, subAgentId?: string) {
+function build(overrides?: ContextOverrides, subAgentId?: string, agentId = 'agent-1') {
   return buildContextInventory({
-    agentId: 'agent-1',
+    agentId,
     ...(subAgentId ? { subAgentId } : {}),
     projectKey: 'proj',
     projectPath: projectPath(),
@@ -126,6 +133,7 @@ describe('inventory — 기본값', () => {
 describe('오버라이드 — 여기가 최종', () => {
   const off: ContextOverrides = {
     projects: { proj: { [CONTEXT_SOURCE_IDS.agentRules]: false } },
+    agents: {},
     sessions: {},
     updatedAt: 1,
   };
@@ -142,6 +150,7 @@ describe('오버라이드 — 여기가 최종', () => {
   it('세션 층이 프로젝트 층을 이긴다', () => {
     const both: ContextOverrides = {
       projects: { proj: { [CONTEXT_SOURCE_IDS.agentRules]: false } },
+      agents: {},
       sessions: { 'sub-1': { [CONTEXT_SOURCE_IDS.agentRules]: true } },
       updatedAt: 1,
     };
@@ -154,6 +163,7 @@ describe('오버라이드 — 여기가 최종', () => {
   it('끌 수 없는 줄은 오버라이드가 있어도 안 꺼진다 (끌 수 있는 척 ❌)', () => {
     const bogus: ContextOverrides = {
       projects: { proj: { [CONTEXT_SOURCE_IDS.systemPrompt]: false } },
+      agents: {},
       sessions: {},
       updatedAt: 1,
     };
@@ -163,23 +173,82 @@ describe('오버라이드 — 여기가 최종', () => {
   });
 
   it('개별 플러그인도 한 줄로 서고 따로 끌 수 있다', () => {
-    const inv = build({ projects: { proj: { 'plugin:ssot-drift': false } }, sessions: {}, updatedAt: 1 });
+    const inv = build({ projects: { proj: { 'plugin:ssot-drift': false } }, agents: {}, sessions: {}, updatedAt: 1 });
     const p = inv.items.find((i) => i.id === 'plugin:ssot-drift')!;
     expect(p.category).toBe('plugins');
     expect(p.enabled).toBe(false);
+  });
+
+  // ── 층 셋 — 사용자가 말한 그대로 "아래로 갈수록 우선" ──
+
+  const RULES = CONTEXT_SOURCE_IDS.agentRules;
+
+  it('에이전트 층이 프로젝트 층을 이기고, 세션 층이 그 둘을 다 이긴다', () => {
+    const o: ContextOverrides = {
+      projects: { proj: { [RULES]: false } },
+      agents: { 'agent-1': { [RULES]: true } },
+      sessions: { 'sub-1': { [RULES]: false } },
+      updatedAt: 1,
+    };
+    // 세션 탭 없이 보면 에이전트 층이 최종.
+    expect(build(o).items.find((i) => i.id === RULES)!.overrideScope).toBe('agent');
+    expect(build(o).items.find((i) => i.id === RULES)!.enabled).toBe(true);
+    // 자기 값을 가진 세션에서는 세션이 최종.
+    expect(build(o, 'sub-1').items.find((i) => i.id === RULES)!.overrideScope).toBe('session');
+    expect(build(o, 'sub-1').items.find((i) => i.id === RULES)!.enabled).toBe(false);
+    // 자기 값이 없는 세션은 에이전트 층을 그대로 물려받는다.
+    expect(build(o, 'sub-2').items.find((i) => i.id === RULES)!.enabled).toBe(true);
+    // 다른 에이전트는 에이전트 층에 걸리지 않아 프로젝트 층을 따른다.
+    expect(build(o, 'sub-9', 'agent-2').items.find((i) => i.id === RULES)!.enabled).toBe(false);
+  });
+
+  it('위층을 바꾸면 자기 값이 없는 아래층은 따라 움직인다 (상속)', () => {
+    const on = build().items.find((i) => i.id === RULES)!;
+    expect(on.scopeStates).toEqual({ project: true, agent: true, session: true });
+
+    const projOff: ContextOverrides = { projects: { proj: { [RULES]: false } }, agents: {}, sessions: {}, updatedAt: 1 };
+    // 프로젝트만 껐는데 에이전트·세션에서 본 값도 함께 꺼져 있다 — 이게 "자동 변경"이다.
+    expect(build(projOff, 'sub-1').items.find((i) => i.id === RULES)!.scopeStates)
+      .toEqual({ project: false, agent: false, session: false });
+  });
+
+  it('아래층이 자기 값을 가지면 위층을 바꿔도 그 층만 버틴다', () => {
+    const o: ContextOverrides = {
+      projects: { proj: { [RULES]: false } },
+      agents: {},
+      sessions: { 'sub-1': { [RULES]: true } },
+      updatedAt: 1,
+    };
+    const item = build(o, 'sub-1').items.find((i) => i.id === RULES)!;
+    expect(item.scopeStates).toEqual({ project: false, agent: false, session: true });
+    expect(item.scopeOverrides).toEqual({ project: false, session: true });
+    expect(item.enabled).toBe(true);
+  });
+
+  it('층마다 명시값만 scopeOverrides 에 서고, 물려받은 층은 비어 있다', () => {
+    const o: ContextOverrides = { projects: {}, agents: { 'agent-1': { [RULES]: false } }, sessions: {}, updatedAt: 1 };
+    const item = build(o, 'sub-1').items.find((i) => i.id === RULES)!;
+    expect(item.scopeOverrides).toEqual({ agent: false });
+    expect(item.scopeStates).toEqual({ project: true, agent: false, session: false });
+  });
+
+  it('옛 체크포인트(에이전트 층이 없던 시절)도 그대로 읽힌다', () => {
+    const legacy = { projects: { proj: { [RULES]: false } }, sessions: {}, updatedAt: 1 } as unknown as ContextOverrides;
+    expect(build(legacy).items.find((i) => i.id === RULES)!.enabled).toBe(false);
   });
 });
 
 describe('spawn 스위치 — 끈 것만 나간다', () => {
   it('아무것도 안 껐으면 인자도 환경변수도 없다 (종전과 동일한 스폰)', () => {
     expect(buildSpawnContextSwitches(undefined, { projectKey: 'proj' })).toEqual({ args: [], env: {} });
-    const noop: ContextOverrides = { projects: { proj: {} }, sessions: {}, updatedAt: 1 };
+    const noop: ContextOverrides = { projects: { proj: {} }, agents: {}, sessions: {}, updatedAt: 1 };
     expect(buildSpawnContextSwitches(noop, { projectKey: 'proj' })).toEqual({ args: [], env: {} });
   });
 
   it('CLAUDE.md 를 끄면 환경변수가, 스킬을 끄면 CLI 인자가 나간다', () => {
     const o: ContextOverrides = {
       projects: { proj: { [CONTEXT_SOURCE_IDS.claudeMd]: false, [CONTEXT_SOURCE_IDS.slashCommands]: false } },
+      agents: {},
       sessions: {},
       updatedAt: 1,
     };
@@ -191,6 +260,7 @@ describe('spawn 스위치 — 끈 것만 나간다', () => {
   it('세션 층이 프로젝트 층을 이겨 다시 켤 수 있다', () => {
     const o: ContextOverrides = {
       projects: { proj: { [CONTEXT_SOURCE_IDS.autoMemory]: false } },
+      agents: {},
       sessions: { 'sub-1': { [CONTEXT_SOURCE_IDS.autoMemory]: true } },
       updatedAt: 1,
     };
@@ -239,10 +309,105 @@ describe('게이트 — 프롬프트 경로가 쓰는 판정', () => {
   it('다른 프로젝트의 오버라이드는 이 프로젝트에 새지 않는다', () => {
     const o: ContextOverrides = {
       projects: { other: { [CONTEXT_SOURCE_IDS.goal]: false } },
+      agents: {},
       sessions: {},
       updatedAt: 1,
     };
     expect(isContextSourceOn(o, { projectKey: 'proj' }, CONTEXT_SOURCE_IDS.goal)).toBe(true);
     expect(isContextSourceOn(o, { projectKey: 'other' }, CONTEXT_SOURCE_IDS.goal)).toBe(false);
+  });
+
+  it('프롬프트 게이트도 에이전트 층을 본다 — 안 보면 그 층에 건 뜻이 무시된다', () => {
+    const o: ContextOverrides = {
+      projects: { proj: { [CONTEXT_SOURCE_IDS.goal]: true } },
+      agents: { 'agent-1': { [CONTEXT_SOURCE_IDS.goal]: false } },
+      sessions: {},
+      updatedAt: 1,
+    };
+    expect(isContextSourceOn(o, { projectKey: 'proj', agentId: 'agent-1' }, CONTEXT_SOURCE_IDS.goal)).toBe(false);
+    expect(isContextSourceOn(o, { projectKey: 'proj', agentId: 'agent-2' }, CONTEXT_SOURCE_IDS.goal)).toBe(true);
+    // 세션이 그 위에서 다시 켠다.
+    expect(isContextSourceOn(
+      { ...o, sessions: { 'sub-1': { [CONTEXT_SOURCE_IDS.goal]: true } } },
+      { projectKey: 'proj', agentId: 'agent-1', subAgentId: 'sub-1' },
+      CONTEXT_SOURCE_IDS.goal,
+    )).toBe(true);
+  });
+
+  it('spawn 스위치도 에이전트 층을 따른다', () => {
+    const o: ContextOverrides = {
+      projects: {},
+      agents: { 'agent-1': { [CONTEXT_SOURCE_IDS.autoMemory]: false } },
+      sessions: {},
+      updatedAt: 1,
+    };
+    expect(buildSpawnContextSwitches(o, { projectKey: 'proj', agentId: 'agent-1' }).env['CLAUDE_CODE_DISABLE_AUTO_MEMORY']).toBe('1');
+    expect(buildSpawnContextSwitches(o, { projectKey: 'proj', agentId: 'agent-2' }).env).toEqual({});
+  });
+});
+
+// ─── §5.5 #17-28 ⑩ (c) — 내부 압축 명령만 슬래시 차단을 비켜 간다 (2026-09-09) ───
+//
+// `--disable-slash-commands` 는 사용자 스킬만이 아니라 **CLI 내장 명령의 등록까지** 막는다
+// (실측 2.1.263). 그래서 주입원에서 그 줄을 끈 프로젝트는 우리가 쏘는 압축까지 함께 죽었다.
+// 예외의 범위가 넓어지면 사용자가 끈 스위치를 우리가 무력화하는 것이 되므로, **무엇이 예외인가**를
+// 여기서 못 박는다.
+
+describe('§5.5 #17-28 ⑩ (c) isInternalSlashCommand — 우리가 쏘는 것만', () => {
+  it('우리가 내부적으로 보내는 세 명령은 참', () => {
+    expect(isInternalSlashCommand(AGENT_COMPACT_COMMAND)).toBe(true);
+    expect(isInternalSlashCommand(SESSION_LOOP_COMPACT_COMMAND)).toBe(true);
+    expect(isInternalSlashCommand(SESSION_LOOP_CLEAR_COMMAND)).toBe(true);
+  });
+
+  it('앞뒤 공백은 다듬어 본다 — 큐에 그대로 앉는 문자열이다', () => {
+    expect(isInternalSlashCommand('  /compact  ')).toBe(true);
+  });
+
+  it('사용자가 친 다른 슬래시 명령은 거짓 — 끈 스위치를 통째로 무력화하지 않는다', () => {
+    for (const t of ['/model', '/usage', '/gpt-image', '/context', '/clear-all', '/compact now']) {
+      expect(isInternalSlashCommand(t)).toBe(false);
+    }
+  });
+
+  it('평문·빈 문자열도 거짓', () => {
+    expect(isInternalSlashCommand('')).toBe(false);
+    expect(isInternalSlashCommand('압축해 줘')).toBe(false);
+  });
+});
+
+describe('§5.5 #17-28 ⑩ (c) withoutSlashCommandFlag — 하나만 걷는다', () => {
+  it('슬래시 차단 플래그만 빠지고 나머지 스위치는 남는다', () => {
+    const o: ContextOverrides = {
+      projects: {
+        proj: {
+          [CONTEXT_SOURCE_IDS.slashCommands]: false,
+          [CONTEXT_SOURCE_IDS.claudeMd]: false,
+        },
+      },
+      agents: {},
+      sessions: {},
+      updatedAt: 1,
+    };
+    const sw = buildSpawnContextSwitches(o, { projectKey: 'proj' });
+    expect(sw.args).toContain('--disable-slash-commands');
+    // env 쪽(CLAUDE.md 등)은 이 함수가 손대지 않는다 — 주입을 되살리는 것이 아니다.
+    expect(sw.env['CLAUDE_CODE_DISABLE_CLAUDE_MDS']).toBe('1');
+
+    const stripped = withoutSlashCommandFlag(sw.args);
+    expect(stripped).not.toContain('--disable-slash-commands');
+    expect(sw.env['CLAUDE_CODE_DISABLE_CLAUDE_MDS']).toBe('1');
+  });
+
+  it('원본 배열을 건드리지 않는다(그 턴에만 쓰는 사본)', () => {
+    const args = ['--disable-slash-commands', '--foo'];
+    const out = withoutSlashCommandFlag(args);
+    expect(args).toHaveLength(2);
+    expect(out).toEqual(['--foo']);
+  });
+
+  it('플래그가 없으면 그대로 — 슬래시를 끄지 않은 프로젝트는 바이트 단위로 같다', () => {
+    expect(withoutSlashCommandFlag([])).toEqual([]);
+    expect(withoutSlashCommandFlag(['--foo'])).toEqual(['--foo']);
   });
 });

@@ -7,32 +7,32 @@
  */
 export const strings = {
   "en": {
-    "desc": "Separates memory that was pushed in at spawn from memory the agent went and looked up. Notes in files survive compaction, which is what makes this the lightest form of lasting memory.",
+    "desc": "Separates procedures that came from steps you pinned yourself from ones the agent's own command history produced. Notes in files survive compaction, which is what makes this the lightest form of lasting memory.",
     "heading": "Memory Tool",
     "level": {
       "unused": "Not used",
-      "pushed": "Pushed in only",
-      "active": "Actively searched"
+      "pushed": "From pinned steps only",
+      "active": "Grew from its own work"
     },
     "check": {
-      "spawn": "At spawn",
-      "file": "On file access",
-      "search": "Searched"
+      "spawn": "From pinned steps",
+      "file": "With file anchors",
+      "search": "From its own commands"
     },
     "note": "Try file-based notes before standing up separate vector infrastructure — the overhead is close to none."
   },
   "ko": {
-    "desc": "스폰 때 밀어넣은 기억과, 에이전트가 직접 찾아 쓴 기억을 나눠 봅니다. 파일에 적어 둔 메모는 컴팩션에도 살아남는다는 점이 이 방식의 결정적 성질입니다.",
+    "desc": "사용자가 직접 꽂은 단계에서 온 절차와, 에이전트의 명령 이력이 만들어 낸 절차를 나눠 봅니다. 파일에 적어 둔 메모는 컴팩션에도 살아남는다는 점이 이 방식의 결정적 성질입니다.",
     "heading": "기억 도구",
     "level": {
       "unused": "쓰지 않음",
-      "pushed": "밀어넣기만",
-      "active": "능동 검색함"
+      "pushed": "꽂은 단계에서만",
+      "active": "스스로 한 일에서 자람"
     },
     "check": {
-      "spawn": "스폰 시",
-      "file": "파일 접근 시",
-      "search": "능동 검색"
+      "spawn": "꽂은 단계에서",
+      "file": "파일이 붙은 것",
+      "search": "스스로 친 명령에서"
     },
     "note": "별도 벡터 인프라를 세우기 전에 파일 메모부터 해 보는 것이 권장 순서입니다 — 오버헤드가 거의 없습니다."
   },

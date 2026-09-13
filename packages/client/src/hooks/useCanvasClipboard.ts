@@ -1,6 +1,9 @@
 /**
  * §5.4 #29 v1.51 — Vibisual 내부 캔버스 클립보드 훅.
  *
+ * 키 배정은 §6 단축키 레지스트리(`canvas.copy` / `canvas.paste`)가 정한다 — 사용자가 설정에서
+ * 바꾸면 이 파일을 한 줄도 안 고치고 그대로 따라간다. 아래 설명의 키는 **기본값**이다.
+ *
  * Ctrl/Cmd+C : 선택된 커스텀 에이전트 + Task Edge + Comment Box 묶음을
  *              localStorage 단일 슬롯에 직렬화 (시스템 클립보드와 분리).
  * Ctrl/Cmd+V : 활성 프로젝트 캔버스의 마우스 위치에 anchor 를 두고
@@ -12,7 +15,7 @@
  * - rulesHistory 등 런타임 데이터는 strip — 클립보드를 타고 누적되지 않도록.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import type { Node, Edge, ReactFlowInstance } from '@xyflow/react';
 import {
@@ -32,6 +35,8 @@ import type {
   BubbleData,
 } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../stores/graphStore.js';
+// §6 — 어떤 키가 이 동작인지는 레지스트리가 정한다(여기 키를 적지 않는다).
+import { useCommand } from './useCommand.js';
 
 interface Params {
   rfRef: RefObject<ReactFlowInstance | null>;
@@ -101,14 +106,38 @@ export function useCanvasClipboard({
     return () => window.removeEventListener('mousemove', onMove);
   }, []);
 
-  useEffect(() => {
-    function isEditableTarget(target: EventTarget | null): boolean {
-      if (!(target instanceof HTMLElement)) return false;
-      const tag = target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return true;
-      return false;
-    }
+  // 실제 동작은 아래 효과가 만들어 여기 걸어 둔다(효과 안의 클로저가 최신 refs·props 를 본다).
+  const copyRef = useRef<(() => void) | null>(null);
+  const pasteRef = useRef<(() => void | Promise<void>) | null>(null);
 
+  /**
+   * 지금 캔버스 클립보드를 써도 되는 자리인가.
+   *
+   * `false` 를 돌려주면 `useCommand` 는 **처리하지 않은 것으로 보고 키를 흘려보낸다** —
+   * 그래서 텍스트를 선택해 둔 상태의 `Ctrl+C` 는 종전대로 네이티브 복사가 된다(가로채면
+   * 캔버스 위에서 글자를 복사할 방법이 사라진다).
+   */
+  const clipboardUsable = useCallback((): boolean => {
+    if (currentFolderId !== null) return false; // 메인 뷰 전용
+    // IDE 오버레이가 열려 있으면 캔버스 클립보드 비활성 — 출력 영역(div/span/pre) 텍스트 선택 후
+    //   Ctrl+C 가 네이티브 복사로 가도록 보존. `selectIDEOverlay` 는 활성 탭의 슬롯만 본다.
+    if (selectIDEOverlay(useGraphStore.getState()).agentId) return false;
+    // 실제 텍스트가 선택돼 있으면(코멘트박스 등 비-INPUT 영역) 네이티브 복사 우선.
+    if ((window.getSelection()?.toString() ?? '').trim().length > 0) return false;
+    return true;
+  }, [currentFolderId]);
+
+  useCommand('canvas.copy', () => {
+    if (!clipboardUsable() || !copyRef.current) return false;
+    copyRef.current();
+  });
+
+  useCommand('canvas.paste', () => {
+    if (!clipboardUsable() || !pasteRef.current) return false;
+    void pasteRef.current();
+  });
+
+  useEffect(() => {
     function handleCopy(): void {
       const flowNodes = flowNodesRef.current ?? [];
       const flowEdges = flowEdgesRef.current ?? [];
@@ -311,29 +340,10 @@ export function useCanvasClipboard({
       }
     }
 
-    function handleKey(e: KeyboardEvent): void {
-      if (currentFolderId !== null) return; // 메인 뷰 전용
-      // IDE 오버레이 모달이 열려 있으면 캔버스 클립보드 비활성 —
-      // 출력 영역(div/span/pre) 텍스트 선택 후 Ctrl+C 가 네이티브 복사로 가도록 보존.
-      // selectIDEOverlay 는 활성 탭의 IDE 슬롯만 반환하므로 다른 탭 IDE 는 영향 X.
-      if (selectIDEOverlay(useGraphStore.getState()).agentId) return;
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.altKey || e.shiftKey) return;
-      if (isEditableTarget(e.target)) return;
-      // 실제 텍스트가 선택돼 있으면(코멘트박스 등 비-INPUT 영역) 네이티브 복사 우선.
-      if ((window.getSelection()?.toString() ?? '').trim().length > 0) return;
-      const key = e.key.toLowerCase();
-      if (key === 'c') {
-        e.preventDefault();
-        handleCopy();
-      } else if (key === 'v') {
-        e.preventDefault();
-        void handlePaste();
-      }
-    }
-
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    // §6 — 키 판정은 레지스트리(`useCommand`)가 한 곳에서 한다. 이 효과는 **무엇을 할지**만
+    //   내놓고, 언제 할지는 아래 `useCommand` 두 줄이 정한다(리스너를 여기서 또 걸지 않는다).
+    copyRef.current = handleCopy;
+    pasteRef.current = handlePaste;
   }, [
     rfRef,
     rfContainerRef,

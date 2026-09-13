@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { SESSION_GOAL_PAST_TEXT_MAX } from '@vibisual/shared';
 
 // §4 (설정 3층) — 에이전트 설정이 이제 전역 옵션 위에서 해소되므로, 이 파일이 실제
 //   `~/.vibisual/user-defaults.json`(사용자 기기마다 다르다)을 읽으면 도구 단언이 기기에 따라
@@ -439,5 +440,231 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
     expect(graph.deleteSessionGoalsForAgent(a.id).sort()).toEqual(['sub-a1', 'sub-a2']);
     expect(graph.getSessionGoal('sub-a1')).toBeUndefined();
     expect(graph.getSessionGoal('sub-b1')).toBeDefined();
+  });
+});
+
+/**
+ * §5.5 #17-17 ⑰(a) — **나란히 놓인 행**은 순서 목록 위의 표식 하나(`parallel`)다.
+ *
+ * 조용히 깨지는 자리가 셋이다: (1) 에이전트가 목록을 다시 신고할 때 표식을 안 적으면 사용자가
+ * 나란히 놓은 행이 풀린다(→ 안 적으면 물려받는다). (2) 순서가 같다고 표식 변화를 버리면 [나란히 놓기]가
+ * 화면에 안 선다. (3) 체크포인트를 왕복하며 사라지거나, 손으로 고친 파일의 `"true"` 가 표식으로 선다.
+ */
+describe('ProjectGraph — 나란히 놓인 행(parallel)', () => {
+  it('사용자 문(setUserGoalSteps)은 표식을 그대로 싣고, 없으면 필드도 없다', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    const goal = graph.setUserGoalSteps('sub-a', [
+      { text: '서버' },
+      { text: '클라', parallel: true },
+      { text: '빌드', parallel: false },
+    ]);
+    expect(goal?.steps.map((s) => s.parallel)).toEqual([undefined, true, undefined]);
+    expect(goal?.steps[2]).not.toHaveProperty('parallel');
+  });
+
+  it('에이전트 신고는 표식을 안 적으면 물려받고, false 로 적으면 뗀다', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    graph.setUserGoalSteps('sub-a', [{ text: '서버' }, { text: '클라', parallel: true }]);
+
+    // 표식 없이 같은 목록을 다시 신고 — 사용자가 나란히 놓은 행이 살아남는다.
+    const inherited = graph.noteSessionGoalProgress('sub-a', {
+      steps: [{ text: '서버', status: 'done' }, { text: '클라', status: 'in_progress' }],
+      source: 'agent',
+    });
+    expect(inherited?.steps.map((s) => s.parallel)).toEqual([undefined, true]);
+    expect(inherited?.steps.map((s) => s.status)).toEqual(['done', 'in_progress']);
+
+    // 명시적으로 false — 행에서 뗀다.
+    const detached = graph.noteSessionGoalProgress('sub-a', {
+      steps: [{ text: '서버', status: 'done' }, { text: '클라', status: 'in_progress', parallel: false }],
+      source: 'agent',
+    });
+    expect(detached?.steps[1]).not.toHaveProperty('parallel');
+  });
+
+  it('사용자 목록을 세션이 통째로 다시 신고해도 두 배가 되지 않는다(⑪(d) 정정) — 물려받기가 설 자리', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    const mine = graph.setUserGoalSteps('sub-a', [{ text: 'A' }, { text: 'B', parallel: true }, { text: 'C' }]);
+    const ids = mine?.steps.map((s) => s.id);
+
+    // 규약대로 "목록 전체를 통째로" — 사용자 단계의 본문이 그대로 실려 온다(id 는 본문 일치로 재사용된다).
+    const again = graph.noteSessionGoalProgress('sub-a', {
+      steps: [{ text: 'A', status: 'done' }, { text: 'B', status: 'in_progress' }, { text: 'C', status: 'pending' }],
+      source: 'agent',
+    });
+    expect(again?.steps).toHaveLength(3);
+    expect(again?.steps.map((s) => s.id)).toEqual(ids);
+    expect(again?.steps.map((s) => s.status)).toEqual(['done', 'in_progress', 'pending']);
+    expect(again?.steps.map((s) => s.parallel)).toEqual([undefined, true, undefined]);
+    expect(again?.steps.every((s) => s.authoredBy === 'user')).toBe(true);
+  });
+
+  /**
+   * §5.5 #17-17 ⑲ — **차례를 바꾼다고 남의 단계가 내 것이 되지는 않는다.**
+   *
+   * ⑰(a) 로 순서·행 바꾸기가 끼워 넣기와 같은 문(`setUserGoalSteps`)으로 들어오면서, 무대에서
+   * 노드를 한 번 끄는 것만으로 에이전트가 쓴 단계 **전부**가 `authoredBy='user'` 로 박혔다.
+   * 그 뒤로는 `mergeGoalSteps` 가 그것들을 영원히 붙들어, 에이전트가 다음 라운드에 계획을
+   * 갈아입어도 지난 단계가 목록에 남고 앵커가 사라진 것은 꼬리로 밀린다 — 화면에서는 여러
+   * 라운드의 단계가 뒤섞여 보인다(사용자 지적 "중간에 마음대로 섞여 버리던데").
+   */
+  it('⑲ 순서만 바꾼 것은 소유를 옮기지 않는다 — 다음 라운드에 옛 단계가 따라오지 않는다', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    const planned = graph.noteSessionGoalProgress('sub-a', {
+      steps: [{ text: 'A' }, { text: 'B' }, { text: 'C' }],
+      source: 'agent',
+    });
+    expect(planned?.steps.some((s) => s.authoredBy === 'user')).toBe(false);
+
+    // 무대에서 노드를 끌어 차례를 바꾼다 — 캔버스는 목록 **전체**를 이 문으로 보낸다(⑰(a)).
+    const reordered = graph.setUserGoalSteps('sub-a', [{ text: 'C' }, { text: 'A' }, { text: 'B' }]);
+    expect(reordered?.steps.map((s) => s.text)).toEqual(['C', 'A', 'B']);
+    expect(reordered?.steps.some((s) => s.authoredBy === 'user')).toBe(false);
+    // 끼워 넣은 시각도 붙지 않는다 — 없는 사실을 기록하면 다음 규칙이 그걸 근거로 삼는다.
+    expect(reordered?.steps.some((s) => s.injectedAt !== undefined)).toBe(false);
+
+    // 에이전트가 계획을 갈아입는다 — 옛 단계는 남지 않는다.
+    const next = graph.noteSessionGoalProgress('sub-a', {
+      steps: [{ text: 'D' }, { text: 'E' }],
+      source: 'agent',
+    });
+    expect(next?.steps.map((s) => s.text)).toEqual(['D', 'E']);
+  });
+
+  it('⑲ 사용자가 **새로 써 넣은** 본문은 그대로 사용자 것이다 — 세션이 지우지 못한다(⑪(d) 불변)', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    graph.noteSessionGoalProgress('sub-a', { steps: [{ text: 'A' }, { text: 'B' }], source: 'agent' });
+
+    // 우클릭으로 A 와 B 사이에 하나 끼워 넣는다(캔버스는 목록 전체를 보낸다).
+    const mixed = graph.setUserGoalSteps('sub-a', [{ text: 'A' }, { text: '내가 넣은 일' }, { text: 'B' }]);
+    const owners = new Map(mixed?.steps.map((s) => [s.text, s.authoredBy]) ?? []);
+    expect(owners.get('내가 넣은 일')).toBe('user');
+    expect(owners.get('A')).toBe('session');
+    expect(owners.get('B')).toBe('session');
+    expect(mixed?.steps.find((s) => s.text === '내가 넣은 일')?.injectedAt).toBeGreaterThan(0);
+
+    // 세션이 자기 목록만 다시 보내도 사용자 단계는 앵커(A) 뒤에 남는다.
+    //   (합친 결과가 지금과 같으면 갱신은 `undefined` 를 낸다 — 그것이 정상이라 목록은 그래프에서 읽는다.)
+    graph.noteSessionGoalProgress('sub-a', { steps: [{ text: 'A' }, { text: 'B' }], source: 'agent' });
+    expect(graph.getSessionGoal('sub-a')?.steps.map((s) => s.text)).toEqual(['A', '내가 넣은 일', 'B']);
+  });
+
+  it('표식만 바뀐 신고도 변화다 — 같은 순서라고 버리면 [나란히 놓기]가 화면에 안 선다', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    const steps = [{ text: 'A', status: 'pending' as const }, { text: 'B', status: 'pending' as const }];
+    graph.noteSessionGoalProgress('sub-a', { steps, source: 'agent' });
+    expect(graph.noteSessionGoalProgress('sub-a', { steps, source: 'agent' })).toBeUndefined();
+
+    const withRow = graph.noteSessionGoalProgress('sub-a', {
+      steps: [steps[0]!, { ...steps[1]!, parallel: true }],
+      source: 'agent',
+    });
+    expect(withRow?.steps.map((s) => s.parallel)).toEqual([undefined, true]);
+  });
+
+  it('표식은 체크포인트를 왕복하고, 정규화가 true 아닌 값을 버린다', () => {
+    const { graph, projectName } = seededGraph();
+    const agent = graph.createCustomAgent('Goalie', undefined, projectName);
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '목표' });
+    graph.setUserGoalSteps('sub-a', [{ text: '서버' }, { text: '클라', parallel: true }]);
+
+    const cp = graph.toProjectCheckpoint(projectName);
+    expect(cp.sessionGoals?.['sub-a']?.steps.map((s) => s.parallel)).toEqual([undefined, true]);
+
+    const revived = new ProjectGraph();
+    revived.restoreFromCheckpoint(cp);
+    expect(revived.getSessionGoal('sub-a')?.steps.map((s) => s.parallel)).toEqual([undefined, true]);
+
+    // 손으로 고친 파일이 "true" 문자열·1 같은 값을 들고 와도 표식으로 서지 않는다.
+    const tampered = JSON.parse(JSON.stringify(cp)) as typeof cp;
+    const raw = tampered.sessionGoals?.['sub-a']?.steps as unknown as Record<string, unknown>[];
+    raw[0]!['parallel'] = 'true';
+    raw[1]!['parallel'] = 1;
+    const strict = new ProjectGraph();
+    strict.restoreFromCheckpoint(tampered);
+    expect(strict.getSessionGoal('sub-a')?.steps.map((s) => s.parallel)).toEqual([undefined, undefined]);
+  });
+});
+
+/**
+ * §5.5 #17-17 ⑰(c) — **목표 변천**(`pastTexts`). 문장이 바뀔 때 옛 문장이 링으로 밀린다 — 밀어 넣는
+ * 자리가 하나(`pushPastText`)라, 여기서는 그 자리를 지나는 세 길(사용자 문·에이전트 다듬기·새 명령)을
+ * 전부 지난다. 링의 길이는 `SESSION_GOAL_PAST_TEXT_MAX` 하나가 정한다.
+ */
+describe('ProjectGraph — 목표 변천(pastTexts)', () => {
+  it('문장이 실제로 바뀔 때만 옛 문장이 밀려 들어간다(같은 문장 재저장은 아니다)', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '첫 문장' });
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toBeUndefined();
+
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '첫 문장' });
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toBeUndefined();
+
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '둘째 문장' });
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(['첫 문장']);
+  });
+
+  it('에이전트가 다듬은 문장도, 새 명령이 세운 문장도 변천에 남는다', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: '첫 번째 일' });
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toBeUndefined();
+
+    // 문장만 다듬는 신고는 단계·퍼센트가 없으면 버려진다(갱신할 게 없다는 종전 규칙) — 목록과 함께 다듬는다.
+    graph.noteSessionGoalProgress('sub-a', {
+      goal: '첫 번째 일을 테스트까지', steps: [{ text: 'A', status: 'pending' }], source: 'agent',
+    });
+    expect(graph.getSessionGoal('sub-a')?.text).toBe('첫 번째 일을 테스트까지');
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(['첫 번째 일']);
+
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: '두 번째 일' });
+    expect(graph.getSessionGoal('sub-a')?.text).toBe('두 번째 일');
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(['첫 번째 일', '첫 번째 일을 테스트까지']);
+  });
+
+  it('변천은 최근 몇 문장만 남는다(SESSION_GOAL_PAST_TEXT_MAX) — 오래 도는 세션이라도 부풀지 않는다', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Goalie');
+    const total = SESSION_GOAL_PAST_TEXT_MAX + 3;
+    for (let i = 0; i <= total; i += 1) {
+      graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: `문장 ${i}` });
+    }
+    expect(graph.getSessionGoal('sub-a')?.text).toBe(`문장 ${total}`);
+    expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(
+      Array.from({ length: SESSION_GOAL_PAST_TEXT_MAX }, (_, k) => `문장 ${total - SESSION_GOAL_PAST_TEXT_MAX + k}`),
+    );
+  });
+
+  it('변천은 체크포인트를 왕복하고, 없는 구버전 파일도 그대로 열린다', () => {
+    const { graph, projectName } = seededGraph();
+    const agent = graph.createCustomAgent('Goalie', undefined, projectName);
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '처음' });
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '나중' });
+
+    const cp = graph.toProjectCheckpoint(projectName);
+    expect(cp.sessionGoals?.['sub-a']?.pastTexts).toEqual(['처음']);
+    const revived = new ProjectGraph();
+    revived.restoreFromCheckpoint(cp);
+    expect(revived.getSessionGoal('sub-a')?.pastTexts).toEqual(['처음']);
+
+    const legacy = JSON.parse(JSON.stringify(cp)) as typeof cp;
+    delete (legacy.sessionGoals?.['sub-a'] as unknown as Record<string, unknown>)['pastTexts'];
+    const old = new ProjectGraph();
+    old.restoreFromCheckpoint(legacy);
+    expect(old.getSessionGoal('sub-a')?.text).toBe('나중');
+    expect(old.getSessionGoal('sub-a')?.pastTexts).toBeUndefined();
   });
 });

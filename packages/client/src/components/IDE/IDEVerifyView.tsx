@@ -199,12 +199,20 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
 
   return (
     <div className="flex min-h-0 flex-col">
-      <div className="flex flex-shrink-0 items-center justify-between gap-1 px-3 pt-2">
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.verify.title')}</span>
+      {/* 루프 뷰 헤더와 같은 규약 — 좁은 서랍·긴 로케일에서 배지가 패널 테두리 밖으로 밀려 잘리던
+          자리다(자세한 근거는 IDELoopView 의 같은 줄 주석). 제목이 먼저 줄고, 못 서면 배지가
+          아랫줄로 내려가며, `pb-1.5` 가 스크롤 상단 그라데이션과 배지 사이를 띄운다. */}
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1 px-3 pb-1.5 pt-2">
+        <span
+          title={t('ide.verify.title')}
+          className="min-w-0 flex-1 basis-20 truncate text-[12px] font-semibold uppercase tracking-wider text-gray-500"
+        >
+          {t('ide.verify.title')}
+        </span>
         {active && (
-          <span className="flex flex-shrink-0 items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-amber-300">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-            {t('ide.verify.running')}
+          <span className="ml-auto flex max-w-full flex-shrink-0 items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-amber-300">
+            <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-amber-400" />
+            <span className="min-w-0 truncate" title={t('ide.verify.running')}>{t('ide.verify.running')}</span>
           </span>
         )}
       </div>

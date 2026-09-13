@@ -20,6 +20,7 @@ import type { PluginManifest } from '@vibisual/shared';
 import {
   PLUGIN_MANIFESTS,
   resolveEnabledPluginsFor,
+  hasOwnToggle,
   resolveProjectKey,
   unsupportedContributions,
   withProjectEnabled,
@@ -73,11 +74,22 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
    * 원천적으로 생기지 않는다(끄려면 보여야 한다).
    */
   const gated = useMemo(
-    () => PLUGIN_MANIFESTS.filter((m) => debugMode || isProjectEnforcing(m) || enabledSet.has(m.id)),
+    // §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드(`ownToggle`)는 디버그 모드에서도 세우지 않는다.
+    //   여기 서면 그 칸이 두 번째 관문이 되어, 뷰에서 켠 것이 왜 안 도는지가 이 목록 안에 숨는다.
+    () => PLUGIN_MANIFESTS.filter((m) => !hasOwnToggle(m) && (debugMode || isProjectEnforcing(m) || enabledSet.has(m.id))),
     [debugMode, enabledSet],
   );
+  /** 이 창이 관리하는 카드 전체 — `ownToggle` 은 애초에 이 창의 소관이 아니라 분모에서 뺀다. */
+  const managed = useMemo(() => PLUGIN_MANIFESTS.filter((m) => !hasOwnToggle(m)), []);
   /** 아직 안 만들어져 지금 숨어 있는 카드 수 — 스위치에 그대로 세운다(몇 장이 잠겨 있는지 말한다). */
-  const hiddenCount = PLUGIN_MANIFESTS.length - gated.length;
+  const hiddenCount = managed.length - gated.length;
+  /**
+   * 켠 수 — **이 창이 관리하는 것만** 센다.
+   *
+   * `enabledSet` 을 그대로 세면 저장 목록에 남아 있는 `ownToggle` 카드가 분자에만 더해져 `112 / 111`
+   * 이 된다(그 카드는 분모인 `gated` 에서 빠졌으므로). 끄면 지우지 않는 규약상 그 id 는 계속 남는다.
+   */
+  const enabledCount = useMemo(() => managed.filter((m) => enabledSet.has(m.id)).length, [managed, enabledSet]);
 
   // 목록을 거르고 묶는 판단은 `pluginList.ts` 가 한다 — 여기서는 결과를 그리기만 한다.
   const groups = useMemo(
@@ -200,7 +212,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
             {t('panel.plugins.title')}
             {/* 켠 수를 창 머리에 둔다 — 111종 중 무엇이 켜져 있는지가 가장 먼저 궁금한 정보다. */}
             <span className="text-[12px] font-normal text-gray-500">
-              {t('panel.plugins.enabledCount', { on: enabledSet.size, total: gated.length })}
+              {t('panel.plugins.enabledCount', { on: enabledCount, total: gated.length })}
             </span>
             {saving && <span className="text-xs font-normal text-gray-500">{t('panel.plugins.saving')}</span>}
           </h3>

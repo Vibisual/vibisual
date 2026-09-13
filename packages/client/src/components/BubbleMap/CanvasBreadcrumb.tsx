@@ -68,7 +68,7 @@ export function CanvasBreadcrumb(): React.JSX.Element | null {
   if (interiorView?.kind === 'trash') {
     breadcrumbs.push({
       id: '__trash__',
-      label: t('brain.trashBubbleLabel', { defaultValue: '휴지통' }),
+      label: t('trash.trashBubbleLabel', { defaultValue: '휴지통' }),
       interior: true,
     });
   }

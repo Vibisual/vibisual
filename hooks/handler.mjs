@@ -33,9 +33,6 @@ const SERVER_URL = `${BASE}/api/hook-event`;
 const COMMANDS_URL = `${BASE}/api/commands`;
 const PERMISSION_CHECK_URL = `${BASE}/api/permission-check`;
 const ASK_USER_QUESTION_URL = `${BASE}/api/ask-user-question`;
-// §5.10 Project Brain — 파일 접근 경고. PostToolUse Edit/Write 시 짧게(300ms) 물어보고,
-//   매칭되는 실수/교훈 카드가 있으면 additionalContext 로 모델에 주입(같은 실수 반복 차단).
-const BRAIN_FILE_NOTES_URL = `${BASE}/api/brain/file-notes`;
 // §4 v3.60 — 사용량 수집기(statusLine). Claude Code 가 플랜 한도 사용률을 외부에 주는 유일한
 //   공식 경로가 statusLine stdin JSON 이라, `--statusline` 으로 불리면 그 값만 뽑아 푸시한다.
 const RATE_LIMITS_URL = `${BASE}/api/rate-limits`;
@@ -53,10 +50,10 @@ const TOKEN = readArg('--token');
 /**
  * §3.6 (판올림 번호 발급 대기) — **기억 카드 주입 전용 모드.**
  *
- * HTTP 훅 경로에서 `PostToolUse` 는 두 갈래로 갈린다: 추적은 CLI 가 우리 서버로 직접 POST 하고,
- * 기억 카드 주입(§5.10)만 이 스크립트가 맡는다 — 그것도 `if: Edit` / `if: Write` 로 걸려 있어
- * **그 두 도구에서만 프로세스가 뜬다**(종전에는 모든 도구 호출마다 떴다). 이 모드에서는 추적
- * 전송을 하지 않는다. 안 그러면 같은 이벤트가 두 번 처리된다.
+ * §5.10 — **옛 설치문만 이 플래그를 단다.** 기억 카드 주입이 폐기돼 이 모드가 할 일은
+ * 없어졌지만, 사용자의 `settings.json` 에 남아 있는 옛 엔트리가 설치기에 다시 쓰이기 전까지는
+ * 그대로 불린다. 그때 플래그를 모르는 척하면 같은 `PostToolUse` 가 두 번 추적돼 편집 이력이
+ * 두 벌로 쌓인다 — **아무것도 안 하고 조용히 끝내는 것**이 이 모드의 새 계약이다.
  */
 const BRAIN_NOTES_ONLY = process.argv.includes('--brain-notes-only');
 function hookHeaders(extra) {
@@ -184,33 +181,6 @@ async function checkAskUserQuestion(payload) {
     return { continue: true };
   } catch {
     return { continue: true };
-  }
-}
-
-/**
- * §5.10 — PostToolUse Edit/Write 파일 접근 경고. 서버가 그 파일에 연결된 un-warned 실수/교훈
- * 카드를 O(1) 조회해 있으면 {warning} 을, 없으면 204 를 준다. 300ms 안에 못 받으면 조용히 통과
- * (fail-open — 편집 흐름을 절대 막지 않는다). 반환=경고 문자열 또는 null.
- */
-async function checkBrainFileNotes(payload) {
-  try {
-    const ti = payload && payload.tool_input;
-    const filePath = ti && typeof ti.file_path === 'string' ? ti.file_path : '';
-    if (!filePath || !payload.session_id) return null;
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 300);
-    const res = await fetch(BRAIN_FILE_NOTES_URL, {
-      method: 'POST',
-      headers: hookHeaders({}),
-      body: JSON.stringify({ session_id: payload.session_id, file_path: filePath }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(tid));
-    if (!res || res.status === 204 || !res.ok) return null;
-    const data = await res.json().catch(() => null);
-    if (data && typeof data.warning === 'string' && data.warning) return data.warning;
-    return null;
-  } catch {
-    return null;
   }
 }
 
@@ -496,7 +466,6 @@ async function main() {
 
   const isPreToolUse = payload.hook_event_name === 'PreToolUse';
   const isStop = payload.hook_event_name === 'Stop';
-  const isPostToolUse = payload.hook_event_name === 'PostToolUse';
   // §5.11 v4.67 — 켠 플러그인의 집행(SSOT 규율 등)을 이 세션에도 싣는 유일한 통로.
   //   서버가 같은 `/api/hook-event` 응답에 additionalContext 를 실어 주므로 새 경로가 필요 없다.
   const isUserPromptSubmit = payload.hook_event_name === 'UserPromptSubmit';
@@ -559,23 +528,14 @@ async function main() {
     }
     process.stdout.write(JSON.stringify(response) + '\n');
     return; // 트래킹 전송을 이미 마쳤다(위 fetch 가 그 역할을 겸한다).
-  } else if (isPostToolUse && (payload.tool_name === 'Edit' || payload.tool_name === 'Write')) {
-    // §5.10 — 편집 직후 그 파일의 실수/교훈 카드를 짧게 조회해 있으면 모델에 경고 주입.
-    const warning = await checkBrainFileNotes(payload);
-    response = warning
-      ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: warning } }
-      : { continue: true };
   } else {    // 기존 fire-and-forget 경로 — 즉시 continue 응답.
     response = { continue: true };
   }
   // Write stdout BEFORE the tracking fetch so Claude Code unblocks immediately.
   process.stdout.write(JSON.stringify(response) + '\n');
 
-  // §3.6 — `--brain-notes-only` 실행은 **기억 카드 주입 전용**이다. 추적은 같은 이벤트에 붙은
-  //   HTTP 엔트리가 맡으므로 여기서 또 보내면 같은 이벤트가 서버에서 두 번 처리된다(파일 편집
-  //   이력이 두 벌로 쌓인다). `if: Edit`/`if: Write` 필터가 이미 좁혀 주지만 **분기 안이 아니라
-  //   여기서** 막는다 — 필터가 바뀌거나 옛 설정이 남아 다른 이벤트가 들어와도 이 모드에서는
-  //   한 건도 나가지 않아야 한다(플래그 이름이 곧 규약이다).
+  // §5.10 — 옛 `--brain-notes-only` 엔트리는 **한 건도 내보내지 않는다.** 같은 이벤트에
+  //   붙은 HTTP 엔트리가 추적을 이미 맡고 있어, 여기서 또 보내면 편집 이력이 두 벌로 쌓인다.
   if (BRAIN_NOTES_ONLY) return;
 
   // 권한 결과와 별도로 버블맵 트래킹용 /api/hook-event 는 모든 이벤트에 대해 전송.

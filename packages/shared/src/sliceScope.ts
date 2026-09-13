@@ -60,11 +60,11 @@ export const SLICE_SCOPE_GROUPS = {
   /**
    * **IDE 레인이 열려 있다**(`selectRenderedIDEPaneKeys(state).length > 0`).
    *
-   * 아래 여덟은 독자가 전부 `AgentIDEOverlay` 안쪽이다(2026-09-02 전수 확인):
-   *  · `agentReports`      — IDEMainArea · IDESessionSummaryView · IDETabSortMenu
-   *  · `agentReviews`      — 위와 같은 셋
-   *  · `agentQuestions`    — 위와 같은 셋
-   *  · `agentLists`        — IDEMainArea · IDESessionSummaryView
+   * 아래 일곱은 독자가 전부 `AgentIDEOverlay` 안쪽이다(2026-09-02 전수 확인):
+   *  · `agentReports`      — IDEMainArea · IDETabSortMenu
+   *  · `agentReviews`      — 위와 같은 둘
+   *  · `agentQuestions`    — 위와 같은 둘
+   *  · `agentLists`        — IDEMainArea
    *  · `sessionGoals`      — IDEActivityBar · IDESidebar
    *  · `verificationRuns`  — IDEActivityBar · IDEVerifyView · VerifyRecorderHost(VerifyDemoLayer)
    *  · `verificationDemos` — IDEVerifyView
@@ -142,7 +142,10 @@ export const ALWAYS_SHIPPED_SLICES = {
   agentPhase: '헤더 상태 — 전역 집계',
   appState: '탭 라이프사이클 SSOT',
   fileSizeRange: '전량으로 잰 상대 척도(좁히면 버블 크기가 흔들린다)',
-  readCountMaxByProject: '전량으로 잰 히트맵 척도 — 위와 같은 이유',
+  readCountMaxByProject: '전량으로 잰 히트맵 척도(읽기 축) — 위와 같은 이유',
+  writeCountMaxByProject: '전량으로 잰 히트맵 척도(쓰기 축) — 읽기 축과 한 쌍이라 같은 칸이다',
+  readCountQuantilesByProject: '전량으로 잰 히트 분포 표본(읽기 축) — 좁히면 순위가 뒤집혀 색이 통째로 바뀐다',
+  writeCountQuantilesByProject: '전량으로 잰 히트 분포 표본(쓰기 축) — 읽기 축과 한 쌍이라 같은 칸이다',
 
   // ── 캔버스 골격 — 버블·엣지가 사라지면 화면이 빈다 ────────────────────────────
   agents: '캔버스의 에이전트 버블',

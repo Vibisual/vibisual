@@ -136,7 +136,9 @@ export function buildBodyMenuItems(
     {
       id: 'save',
       label: t('ide.editor.ctx.save'),
-      hint: shortcutLabel('Ctrl+S'),
+      // 저장만 우리 명령이다 — 위의 잘라내기·붙여넣기·되돌리기는 브라우저가 처리하므로
+      //   레지스트리에 넣지 않고 표기(`hint`)만 남긴다(§6 "핸들러가 표를 보는 것만 등록").
+      cmd: 'editor.save',
       separatorBefore: true,
       disabled: !state.dirty,
       disabledTitle: t('ide.editor.ctx.nothingToSave'),

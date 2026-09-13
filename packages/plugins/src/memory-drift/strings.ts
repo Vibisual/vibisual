@@ -7,36 +7,36 @@
  */
 export const strings = {
   "en": {
-    "desc": "Repeatedly rewriting a memory polishes it away from the original until invented detail hardens into fact. The defence is to keep entries immutable.",
+    "desc": "Rewriting what was stored polishes it away from the original until invented detail hardens into fact. The defence here is that steps are kept as the command text that ran.",
     "heading": "Memory Drift",
     "level": {
-      "none": "No memory yet",
-      "immutable": "Immutable entries",
+      "none": "Not on yet",
+      "immutable": "Original text kept",
       "queued": "Waiting on judgement"
     },
     "check": {
       "rewrite": "Rewrite path",
-      "review": "Awaiting judgement",
-      "unseen": "Unseen"
+      "review": "Awaiting the threshold",
+      "unseen": "Set aside"
     },
     "noRewritePath": "none by design",
-    "note": "Updates are a new entry plus closing the old one. There is no path where the model rewrites an existing body."
+    "note": "Nothing is summarised on the way in, and a procedure file you edited by hand is never overwritten by the next analysis."
   },
   "ko": {
-    "desc": "기억을 반복해 다시 쓰면 매번 조금씩 다듬어지다 원본에 없던 내용이 사실로 굳습니다. 가장 확실한 방어는 항목을 불변으로 두는 것입니다.",
+    "desc": "저장된 것을 다시 쓰면 매번 조금씩 다듬어지다 원본에 없던 내용이 사실로 굳습니다. 여기서의 방어는 단계를 실제로 돌아간 명령 그대로 두는 것입니다.",
     "heading": "기억 표류",
     "level": {
-      "none": "아직 기억 없음",
-      "immutable": "불변 저장",
+      "none": "아직 켜지 않음",
+      "immutable": "원문 그대로 보존",
       "queued": "판단 대기 있음"
     },
     "check": {
       "rewrite": "재작성 경로",
-      "review": "판단 대기",
-      "unseen": "미확인"
+      "review": "문턱 대기",
+      "unseen": "물려 둔 것"
     },
     "noRewritePath": "설계상 없음",
-    "note": "갱신은 새 항목 추가 + 옛 항목 닫기로 처리합니다. 모델이 기존 본문을 다시 쓰는 경로 자체를 만들지 않았습니다."
+    "note": "들어올 때 요약하지 않고, 손으로 고친 절차 파일은 다음 분석이 덮어쓰지 않습니다."
   },
   "ja": {
     "level": {

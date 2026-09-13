@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
-import { LAYOUT_CENTER_X, LAYOUT_CENTER_Y } from '@vibisual/shared';
+import { LAYOUT_BOUNDS_DEFAULT, LAYOUT_CENTER_X, LAYOUT_CENTER_Y } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 
 /**
@@ -20,8 +20,8 @@ const HIT_THICKNESS = 16;
 const MIN_HALF = 300;
 const MAX_HALF = 8000;
 
-const DEFAULT_HW = 1500;
-const DEFAULT_HH = 1100;
+const DEFAULT_HW = LAYOUT_BOUNDS_DEFAULT.hw;
+const DEFAULT_HH = LAYOUT_BOUNDS_DEFAULT.hh;
 
 export function LayoutBoundsBox(): React.JSX.Element | null {
   const { t } = useTranslation();

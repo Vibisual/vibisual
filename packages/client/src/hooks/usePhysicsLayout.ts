@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { Node } from '@xyflow/react';
-import { LAYOUT_CENTER_X, LAYOUT_CENTER_Y } from '@vibisual/shared';
+import { LAYOUT_BOUNDS_DEFAULT, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { isCanvasCovered, subscribeCanvasCovered } from '../stores/canvasVisibility.js';
 import {
@@ -10,8 +10,17 @@ import {
   gapBetween,
   massOf,
   separation,
+  separationResponse,
   type PhysicsGroup,
 } from './physicsGeometry.js';
+import {
+  PHYSICS_STEP_MS,
+  SPRING_APPROACH_PER_STEP,
+  clampElapsed,
+  drainSteps,
+  isAtRest,
+  nextQuietSteps,
+} from './physicsStep.js';
 
 export type { PhysicsGroup } from './physicsGeometry.js';
 
@@ -65,18 +74,15 @@ interface PhysicsBody {
   movable: boolean;
   /** 함께 끌고 갈 바디 id(코멘트 박스 멤버). */
   carryIds: string[] | null;
+  /** 이번 걸음을 시작한 자리 — 걸음이 끝난 뒤 "얼마나 움직였나"를 재는 기준(정지 판정·렌더 통지). */
+  stepX: number;
+  stepY: number;
 }
 
 const REPULSION_STRENGTH = 800;
 const REPULSION_RANGE = 120;
 const DAMPING = 0.88;
 const MAX_VELOCITY = 4;
-const JITTER = 0.05;
-const FPS = 30;
-const FRAME_MS = 1000 / FPS;
-/** 자동 슬립 판정: 연속 N프레임 동안 총 운동에너지 < 임계값이면 슬립 */
-const SLEEP_THRESHOLD = 0.1;
-const SLEEP_FRAMES = 15;
 /**
  * 부모 버블이 사각 바운딩 박스를 벗어나려 하면 경계에서 클램프 + 약한 안쪽 반발.
  * 박스 크기는 graphStore.layoutBoundsHalfWidth/Height (사용자 조절 가능, §3.3),
@@ -100,6 +106,12 @@ export interface PhysicsHandlers {
   onSatelliteDragStop: (id: string) => void;
   /** 뷰 전환 시 물리 일시 정지 → 바디 리셋 */
   pauseAndReset: () => void;
+  /**
+   * §5.4 #33 — 지정한 시간 동안 물리를 재운다. 좌표를 **우리가 직접 몰아가는** 동안(정리 이동)
+   * 물리가 같은 프레임에 반발력을 얹으면 가는 길이 흔들린다. 바디는 그대로 두므로 시간이 지나면
+   * 그 자리에서 자연스럽게 이어 간다(`pauseAndReset` 과 달리 잔여 속도도 건드리지 않는다).
+   */
+  pauseFor: (ms: number) => void;
   /** 물리 엔진 깨우기 (드래그 등 사용자 인터랙션 시) */
   wake: () => void;
 }
@@ -122,6 +134,10 @@ export function usePhysicsLayout(
   const bodiesRef = useRef<Map<string, PhysicsBody>>(new Map());
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
+  /** 아직 걸음으로 못 바꾼 잔여 시간(ms). 이것을 버리면 걸음 간격이 들쭉날쭉해진다(§physicsStep). */
+  const stepDebtRef = useRef(0);
+  /** 마지막 화면 반영 이후 쌓인 이동량(px). 렌더 문턱을 넘을 때만 `setNodes` 를 부른다. */
+  const pendingMoveRef = useRef(0);
   const parentMap = useRef<Map<string, string>>(new Map());
   const pausedUntilRef = useRef(0);
   /** 자동 슬립: 정지 상태 연속 프레임 카운터 */
@@ -148,13 +164,24 @@ export function usePhysicsLayout(
   const ensureRunning = useCallback((): void => {
     if (rafRef.current != null) return;
     if (isCanvasUnseen()) return;
+    // 재점화는 언제나 시계 0 에서 — 멈춰 있던 시간이 첫 프레임에 한꺼번에 밀려들지 않게.
+    lastFrameRef.current = 0;
+    stepDebtRef.current = 0;
     const loop = (ts: number): void => {
       if (sleepingRef.current || isCanvasUnseen()) {
         rafRef.current = null; // 다음 wake/visibilitychange/덮임해제 에서 ensureRunning 이 재점화
+        lastFrameRef.current = 0;
+        stepDebtRef.current = 0;
         return;
       }
-      if (ts - lastFrameRef.current >= FRAME_MS) {
-        lastFrameRef.current = ts;
+      // 걸음 간격을 **시뮬레이션 시간**으로 고정한다. 잔여를 버리던 종전 방식은 60Hz 화면에서
+      // 33ms·50ms 가 번갈아 나와(초당 걸음도 30→24) 버블이 끊겨 움직였다 — `physicsStep` 주석.
+      const elapsed = clampElapsed(lastFrameRef.current, ts);
+      lastFrameRef.current = ts;
+      const plan = drainSteps(stepDebtRef.current + elapsed);
+      stepDebtRef.current = plan.rest;
+      for (let i = 0; i < plan.steps; i++) {
+        if (sleepingRef.current) break;
         tickRef.current();
       }
       rafRef.current = requestAnimationFrame(loop);
@@ -168,8 +195,8 @@ export function usePhysicsLayout(
     const proj = s.activeProject;
     return proj ? s.layoutBoundsByProject[proj] : undefined;
   });
-  const hwInit = activeBounds?.hw ?? 1500;
-  const hhInit = activeBounds?.hh ?? 1100;
+  const hwInit = activeBounds?.hw ?? LAYOUT_BOUNDS_DEFAULT.hw;
+  const hhInit = activeBounds?.hh ?? LAYOUT_BOUNDS_DEFAULT.hh;
   const boundsRef = useRef({ hw: hwInit, hh: hhInit });
   useEffect(() => {
     boundsRef.current = { hw: hwInit, hh: hhInit };
@@ -267,6 +294,7 @@ export function usePhysicsLayout(
           external: false,
           movable: true,
           carryIds: null,
+          stepX: cx, stepY: cy,
         });
       }
     }
@@ -320,6 +348,7 @@ export function usePhysicsLayout(
           external: true,
           movable: ext.movable,
           carryIds: ext.carryIds ?? null,
+          stepX: cx, stepY: cy,
         });
       }
     }
@@ -369,7 +398,7 @@ export function usePhysicsLayout(
     const body = bodiesRef.current.get(id);
     if (!body) return;
     body.dragging = false;
-    // 릴리즈 순간 잔여 속도 초기화. 안 하면 드래그 중 누적된 반발/스프링/jitter가
+    // 릴리즈 순간 잔여 속도 초기화. 안 하면 드래그 중 누적된 반발·스프링이
     // 릴리즈 직후 한 방향으로 계속 밀어버린다.
     body.vx = 0;
     body.vy = 0;
@@ -379,8 +408,9 @@ export function usePhysicsLayout(
         const dx = body.x - parent.x;
         const dy = body.y - parent.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        // 원래 궤도 반경 = 부모 반경 + 위성 반경 + 간격
-        const orbitR = parent.radius + body.radius + 20;
+        // 원래 궤도 반경 = 부모 반경 + 위성 반경 + 간격. **§5.4 #33 정리 배치가 같은 값을 쓴다** —
+        // 두 곳이 따로 들면 정리한 궤도를 이 스프링이 조금씩 당겨 스스로 풀어 버린다.
+        const orbitR = parent.radius + body.radius + SATELLITE_ORBIT_GAP;
         // 방향은 유지, 거리만 궤도로
         body.offsetX = (dx / dist) * orbitR;
         body.offsetY = (dy / dist) * orbitR;
@@ -390,23 +420,37 @@ export function usePhysicsLayout(
 
   const tick = useCallback(() => {
     if (sleepingRef.current) return;
-    if (Date.now() < pausedUntilRef.current) return;
+    if (Date.now() < pausedUntilRef.current) return; // 정리 이동 중 — 잠들면 안 된다(재개할 손이 없다)
+
+    /** 밀 것이 없다 = 조용한 걸음. 세지 않으면 빈 캔버스에서 rAF 가 영영 안 꺼진다. */
+    const idleStep = (): void => {
+      quietFramesRef.current = nextQuietSteps(0, quietFramesRef.current);
+      if (isAtRest(quietFramesRef.current)) {
+        sleepingRef.current = true;
+        onSleep?.();
+      }
+    };
+
     const bodies = bodiesRef.current;
-    if (bodies.size === 0) return;
+    if (bodies.size === 0) { idleStep(); return; }
 
     const all = Array.from(bodies.values());
     const satellites = all.filter((b) => b.parentId !== null);
-    if (satellites.length === 0 && !forceRun) return;
-    if (satellites.length === 0 && all.length < 2) return;
+    if (satellites.length === 0 && (!forceRun || all.length < 2)) { idleStep(); return; }
 
-    // 코멘트 박스는 멤버를 데리고 움직인다 — 이번 틱의 시작 위치를 기억해 두고 마지막에 변위를 전달.
+    // 이번 걸음을 시작한 자리를 남긴다 — 걸음이 끝나면 "실제로 얼마나 움직였나"를 여기서 잰다.
+    //   ① 정지 판정(속도 합 ❌ — 스프링은 속도를 거치지 않고 좌표를 직접 옮기므로 속도로는 안 보인다)
+    //   ② 화면 반영 여부. 코멘트 박스가 멤버를 데려갈 변위도 같은 기준을 쓴다(별도 스냅샷 ❌).
+    for (const body of all) {
+      body.stepX = body.x;
+      body.stepY = body.y;
+    }
     const carriers = all.filter((b) => b.carryIds != null && b.carryIds.length > 0 && b.movable && !b.dragging);
-    const carrierStart = carriers.map((b) => ({ body: b, x: b.x, y: b.y }));
 
     // 부모로의 복귀 경로가 막힌 위성 검출 — 이 위성들은 이번 프레임 완전 정지.
     // 조건: 다른 버블 B가 (1) 부모와 이미 최소거리로 붙어 있고(=더 밀 공간 없음)
     // (2) sat과 parent 사이에 끼어 있고 (3) sat과 충돌권 내에 있음.
-    // 차단된 위성은 스프링·지터·반발력 전부 적용 안 함 → 평형점에서 안 떨림.
+    // 차단된 위성은 스프링·반발력 전부 적용 안 함 → 평형점에서 안 떨림.
     // 다음 프레임에 블로커가 비키면(혹은 위치가 바뀌면) 차단 해제되어 자연스럽게 복귀 재개.
     const frozenSatIds = new Set<string>();
     for (const sat of satellites) {
@@ -447,14 +491,15 @@ export function usePhysicsLayout(
       const targetY = parent.y + sat.offsetY;
       const dx = targetX - sat.x;
       const dy = targetY - sat.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-      const t = Math.min(dist * dist * 0.00005, 0.25);
-      sat.x += dx * t;
-      sat.y += dy * t;
+      // 남은 거리의 **일정 비율**로 좁힌다(지수 감쇠). 종전 `거리² × 0.00005` 는 멀리서 25%씩
+      // 순간이동하다 가까이서 걸음당 0.4px 로 기어, 마지막 20px 이 렌더 문턱에 걸려 툭툭 끊겼다.
+      sat.x += dx * SPRING_APPROACH_PER_STEP;
+      sat.y += dy * SPRING_APPROACH_PER_STEP;
 
-      sat.vx += (Math.random() - 0.5) * JITTER;
-      sat.vy += (Math.random() - 0.5) * JITTER;
+      // 무작위 흔들림(jitter) 폐기 — 완전히 겹친 쌍의 대칭을 깨려고 **모든 위성을 상시로 떨게**
+      // 하던 값이다. 캔버스 전체가 미세하게 진동했고, 그 진동이 정지 판정까지 막아 rAF 가 영영
+      // 안 꺼졌다. 대칭 깨기는 `physicsGeometry.separation` 이 정해진 축으로 결정론적으로 한다.
     }
 
     // 자석 반발 — 균일 공간 해시 그리드로 O(N²) → O(N) 최적화.
@@ -508,10 +553,13 @@ export function usePhysicsLayout(
             const sep = separation(a, b, gapBetween(a, b));
 
             if (sep) {
-              const correction = sep.depth / 2;
-              const bounce = Math.max(sep.depth, 1) * 0.3;
-              if (aMovable) { a.x += sep.nx * correction; a.y += sep.ny * correction; a.vx += sep.nx * bounce; a.vy += sep.ny * bounce; }
-              if (bMovable) { b.x -= sep.nx * correction; b.y -= sep.ny * correction; b.vx -= sep.nx * bounce; b.vy -= sep.ny * bounce; }
+              // 깊이를 누가 얼마나 나눠 물러나고 얼마나 되튀는지는 `separationResponse` 한 곳이 정한다
+              // — 한쪽만 움직일 수 있으면 그쪽이 전부, 위성은 부모 아닌 바디에게 전부 양보, 물러나지
+              // 않는 쪽은 되튐도 없다. 그 셋 중 하나라도 어기면 매 걸음의 잔여 변위가 상대에게만
+              // 쌓여 지도가 한 방향으로 영원히 흐른다(그 근거는 저쪽 주석에 있다).
+              const res = separationResponse(a, b, sep, aMovable, bMovable);
+              if (aMovable) { a.x += sep.nx * res.aPush; a.y += sep.ny * res.aPush; a.vx += sep.nx * res.aBounce; a.vy += sep.ny * res.aBounce; }
+              if (bMovable) { b.x -= sep.nx * res.bPush; b.y -= sep.ny * res.bPush; b.vx -= sep.nx * res.bBounce; b.vy -= sep.ny * res.bBounce; }
             } else if (a.shape === 'circle' && b.shape === 'circle') {
               // 근거리 반발은 원형 버블 사이에서만 — 사각 창까지 서로 밀어내면 사용자가 붙여 둔
               // 배치가 이유 없이 흩어진다(겹칠 때만 정리).
@@ -521,9 +569,14 @@ export function usePhysicsLayout(
               if (dist < REPULSION_RANGE) {
                 const nx = dx / dist;
                 const ny = dy / dist;
-                const force = REPULSION_STRENGTH / (dist * dist);
+                // 사정거리 끝에서 0 이 되게 깎는다. 종전엔 `1/d²` 를 120px 에서 **뚝 끊어** 그 선을
+                // 넘나드는 버블이 밀렸다 안 밀렸다 하며 툭 튀었다(경계에서의 힘 불연속).
+                const force = (REPULSION_STRENGTH / (dist * dist)) * (1 - dist / REPULSION_RANGE);
+                // 밀어내기는 **대칭**이다. 종전엔 b 만 절반(×0.5)을 받아 쌍의 무게중심이 매 걸음
+                // a 쪽으로 밀려났는데, a·b 를 가르는 기준이 노드 id 순서라 캔버스가 **id 가 작은
+                // 쪽으로 계속 흘렀다**(사용자가 옮겨 놓은 자리가 스스로 흐트러지던 원인).
                 if (aMovable) { a.vx += nx * force; a.vy += ny * force; }
-                if (bMovable) { b.vx -= nx * force * 0.5; b.vy -= ny * force * 0.5; }
+                if (bMovable) { b.vx -= nx * force; b.vy -= ny * force; }
               }
             }
           }
@@ -532,8 +585,6 @@ export function usePhysicsLayout(
     }
 
     // 속도 적용 — 위성은 가볍고, 버블/사각 창은 무겁지만 밀리긴 함
-    let changed = false;
-    let totalEnergy = 0;
     for (const body of all) {
       if (body.dragging || !body.movable) continue;
       const mass = massOf(body);
@@ -546,11 +597,9 @@ export function usePhysicsLayout(
         body.vx = (body.vx / speed) * MAX_VELOCITY;
         body.vy = (body.vy / speed) * MAX_VELOCITY;
       }
-      totalEnergy += speed;
       if (Math.abs(body.vx) > 0.01 || Math.abs(body.vy) > 0.01) {
         body.x += body.vx;
         body.y += body.vy;
-        changed = true;
       }
 
       // 사각 바운딩 가드 — 버블·사각 창이 박스 밖으로 나가려 하면 경계에서 클램프 + 안쪽으로 약한 반발.
@@ -563,41 +612,52 @@ export function usePhysicsLayout(
         const maxY = LAYOUT_CENTER_Y + hh - body.halfH;
         // 박스보다 큰 요소(대형 iframe 등)는 클램프가 서로 상충하므로 건너뛴다.
         if (minX <= maxX) {
-          if (body.x < minX) { body.x = minX; if (body.vx < 0) body.vx = -body.vx * BOUNDS_BOUNCE; changed = true; }
-          else if (body.x > maxX) { body.x = maxX; if (body.vx > 0) body.vx = -body.vx * BOUNDS_BOUNCE; changed = true; }
+          if (body.x < minX) { body.x = minX; if (body.vx < 0) body.vx = -body.vx * BOUNDS_BOUNCE; }
+          else if (body.x > maxX) { body.x = maxX; if (body.vx > 0) body.vx = -body.vx * BOUNDS_BOUNCE; }
         }
         if (minY <= maxY) {
-          if (body.y < minY) { body.y = minY; if (body.vy < 0) body.vy = -body.vy * BOUNDS_BOUNCE; changed = true; }
-          else if (body.y > maxY) { body.y = maxY; if (body.vy > 0) body.vy = -body.vy * BOUNDS_BOUNCE; changed = true; }
+          if (body.y < minY) { body.y = minY; if (body.vy < 0) body.vy = -body.vy * BOUNDS_BOUNCE; }
+          else if (body.y > maxY) { body.y = maxY; if (body.vy > 0) body.vy = -body.vy * BOUNDS_BOUNCE; }
         }
       }
     }
 
     // 코멘트 박스가 움직인 만큼 멤버 버블도 같은 변위로 데려간다 — 안 그러면 그룹이 어긋나고
     // 다음 멤버십 재계산에서 자식이 통째로 빠져 버린다.
-    for (const start of carrierStart) {
-      const dx = start.body.x - start.x;
-      const dy = start.body.y - start.y;
+    for (const carrier of carriers) {
+      const dx = carrier.x - carrier.stepX;
+      const dy = carrier.y - carrier.stepY;
       if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) continue;
-      for (const childId of start.body.carryIds ?? []) {
+      for (const childId of carrier.carryIds ?? []) {
         const child = bodies.get(childId);
         if (!child || child.dragging || !child.movable) continue;
         child.x += dx;
         child.y += dy;
-        changed = true;
       }
     }
 
-    // 자동 슬립: 총 운동에너지가 임계값 이하로 N프레임 연속이면 슬립
-    if (totalEnergy < SLEEP_THRESHOLD) {
-      quietFramesRef.current += 1;
-      if (quietFramesRef.current >= SLEEP_FRAMES) {
-        sleepingRef.current = true;
-        onSleep?.();
-      }
-    } else {
-      quietFramesRef.current = 0;
+    // 이번 걸음에 **가장 많이 움직인 바디**가 얼마나 갔나. 정지 판정과 화면 반영이 같은 값을 본다.
+    //   종전에는 속도의 **합**으로 정지를 판정해서, 바디가 많을수록 합이 커져 전부 사실상 멈춰
+    //   있어도 잠들지 못했다(=상시 rAF). 그리고 스프링은 속도를 거치지 않고 좌표를 직접 옮기므로
+    //   속도로 재면 스프링 복귀가 통째로 "안 움직인 것"이 되어 화면에도 안 그려졌다.
+    let maxMove = 0;
+    for (const body of all) {
+      if (body.dragging) continue;
+      const moved = Math.hypot(body.x - body.stepX, body.y - body.stepY);
+      if (moved > maxMove) maxMove = moved;
     }
+
+    quietFramesRef.current = nextQuietSteps(maxMove, quietFramesRef.current);
+    if (isAtRest(quietFramesRef.current)) {
+      sleepingRef.current = true;
+      onSleep?.();
+    }
+
+    // 화면 반영은 **쌓인 이동량**이 렌더 문턱을 넘을 때. 걸음마다 조금씩만 가는 느린 복귀도
+    // 몇 걸음이 모이면 반드시 그려진다(걸음 단위로만 재면 문턱 아래 이동이 영영 안 그려진다).
+    pendingMoveRef.current += maxMove;
+    const changed = pendingMoveRef.current >= MIN_DISPLACEMENT;
+    if (changed) pendingMoveRef.current = 0;
 
     if (changed) {
       // setNodes 내부에서 실제 변화 있는 노드만 교체 (서브픽셀 떨림 → setNodes 호출 자체 최소화)
@@ -660,11 +720,17 @@ export function usePhysicsLayout(
     ensureRunning();
   }, [ensureRunning]);
 
+  const pauseFor = useCallback((ms: number) => {
+    // 이미 더 긴 정지가 걸려 있으면 줄이지 않는다 — 짧은 호출이 긴 정지를 깨우면 안 된다.
+    pausedUntilRef.current = Math.max(pausedUntilRef.current, Date.now() + ms);
+    quietFramesRef.current = 0;
+  }, []);
+
   const wake = useCallback(() => {
     sleepingRef.current = false;
     quietFramesRef.current = 0;
     ensureRunning();
   }, [ensureRunning]);
 
-  return { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, wake };
+  return { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, pauseFor, wake };
 }

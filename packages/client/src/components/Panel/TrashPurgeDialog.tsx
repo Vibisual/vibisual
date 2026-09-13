@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useGraphStore, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 /** 목록에 이름을 몇 개까지 펼칠지 — 나머지는 "외 N개" 로 접는다. */
@@ -21,7 +21,6 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
   const close = useGraphStore((s) => s.closeTrashPurge);
   const purgeTrashedAgents = useGraphStore((s) => s.purgeTrashedAgents);
   const nodeMap = useGraphStore((s) => s.nodeMap);
-  const brainSummary = useGraphStore(selectActiveBrainSummary);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
@@ -45,7 +44,6 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
   if (!target) return null;
 
   const ids = target.ids;
-  const cardCount = ids.reduce((sum, id) => sum + (brainSummary?.agentCardCounts[id] ?? 0), 0);
   const names = ids.map((id) => nodeMap[id]?.label ?? id);
 
   return (
@@ -55,16 +53,15 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
     >
       <div className="w-[clamp(20rem,34vw,28rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="border-b border-gray-800 px-5 py-3">
-          <div className="text-sm font-semibold text-gray-100">{t('brain.purge', { defaultValue: '영구 삭제' })}</div>
+          <div className="text-sm font-semibold text-gray-100">{t('trash.purge', { defaultValue: '영구 삭제' })}</div>
         </div>
         <div className="px-5 py-4">
           <div className="mb-3 text-sm text-red-300">
             {ids.length === 1
-              ? t('brain.purgeConfirm', { defaultValue: '개별 기억 {{n}}장 포함 전부 삭제됩니다.', n: cardCount })
-              : t('brain.purgeConfirmMany', {
-                defaultValue: '에이전트 {{count}}개와 개별 기억 {{n}}장이 전부 삭제됩니다.',
+              ? t('trash.purgeConfirm', { defaultValue: '되돌릴 수 없습니다 — 이 에이전트가 통째로 지워집니다.' })
+              : t('trash.purgeConfirmMany', {
+                defaultValue: '에이전트 {{count}}개가 통째로 지워집니다.',
                 count: ids.length,
-                n: cardCount,
               })}
           </div>
           <ul className="mb-3 max-h-40 space-y-1 overflow-auto rounded border border-gray-800 bg-gray-800/40 p-2 text-xs text-gray-300">
@@ -73,12 +70,12 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
             ))}
             {names.length > NAME_PREVIEW_MAX && (
               <li className="text-gray-500">
-                {t('brain.trashItemsMore', { defaultValue: '외 {{n}}개', n: names.length - NAME_PREVIEW_MAX })}
+                {t('trash.trashItemsMore', { defaultValue: '외 {{n}}개', n: names.length - NAME_PREVIEW_MAX })}
               </li>
             )}
           </ul>
           <div className="mb-4 text-xs text-gray-400">
-            {t('brain.purgeIrreversible', { defaultValue: '되돌릴 수 없습니다.' })}
+            {t('trash.purgeIrreversible', { defaultValue: '되돌릴 수 없습니다.' })}
           </div>
           <div className="flex justify-end gap-2">
             <button
@@ -86,7 +83,7 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
               onClick={close}
               className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:bg-gray-700"
             >
-              {t('brain.cancel', { defaultValue: '취소' })}
+              {t('trash.cancel', { defaultValue: '취소' })}
             </button>
             <button
               type="button"
@@ -94,7 +91,7 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
               onClick={() => { void confirm(); }}
               className="rounded border border-red-700 bg-red-800 px-3 py-1.5 text-sm text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {t('brain.purgeYes', { defaultValue: '영구 삭제' })}
+              {t('trash.purgeYes', { defaultValue: '영구 삭제' })}
             </button>
           </div>
         </div>

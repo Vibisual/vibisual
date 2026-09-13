@@ -111,10 +111,26 @@ describe('resolveSessionRunState — 화면이 그릴 한 값', () => {
   it('completed 는 미확인 강조 대상이 아니다', () => {
     expect(resolveSessionRunState(inputs({ subStatus: 'completed' }))).toBe('done');
   });
+
+  // §2.4 (한도 정지) — 한도 종료는 exit 0 으로 온다. 이 축이 없으면 아래 첫 번째가 doneUnseen 이다.
+  it('한도로 끊긴 세션은 "끝남"이 아니라 limited 다', () => {
+    expect(resolveSessionRunState(inputs({ subStatus: 'idle', usageLimited: true })))
+      .toBe('limited');
+  });
+
+  it('확인까지 눌러도 한도로 끊긴 사실은 회색으로 내려가지 않는다', () => {
+    expect(resolveSessionRunState(inputs({ subStatus: 'idle', acknowledged: true, usageLimited: true })))
+      .toBe('limited');
+  });
+
+  it('무시하고 다시 돌리면 파랑이 이긴다 — 도는 것이 한도 표식보다 앞선다', () => {
+    expect(resolveSessionRunState(inputs({ subStatus: 'active', usageLimited: true })))
+      .toBe('running');
+  });
 });
 
-describe('표시 규약 — 네 상태 전부 색·라벨이 있다', () => {
-  const states = ['running', 'error', 'doneUnseen', 'done'] as const;
+describe('표시 규약 — 다섯 상태 전부 색·라벨이 있다', () => {
+  const states = ['running', 'error', 'limited', 'doneUnseen', 'done'] as const;
 
   it('색표에 빠진 상태가 없다', () => {
     for (const s of states) expect(SESSION_STATUS_DOT[s]).toBeTruthy();
@@ -127,6 +143,12 @@ describe('표시 규약 — 네 상태 전부 색·라벨이 있다', () => {
   it('미확인 완료만 초록으로 강조된다', () => {
     expect(SESSION_STATUS_DOT.doneUnseen).toContain('emerald');
     expect(SESSION_STATUS_DOT.done).not.toContain('emerald');
+  });
+
+  it('한도 정지는 실패의 빨강도, 완료의 초록도 아닌 주황이다', () => {
+    expect(SESSION_STATUS_DOT.limited).toContain('orange');
+    expect(SESSION_STATUS_DOT.limited).not.toContain('red');
+    expect(SESSION_STATUS_DOT.limited).not.toContain('emerald');
   });
 });
 
@@ -164,6 +186,12 @@ describe('sessionRunStateOf — 도트를 그리는 모든 화면의 공통 입�
   it('실행 중은 확인 여부와 무관하다', () => {
     const s = sub({ status: 'active' });
     expect(sessionRunStateOf(s, true)).toBe('running');
+  });
+
+  // §2.4 (한도 정지) — 서버가 세워 둔 사실을 이 입구가 접어야 탭 도트까지 주황이 된다.
+  it('서버가 세운 한도 표식을 그대로 읽는다', () => {
+    const s = sub({ status: 'idle', usageLimit: { kind: 'session', at: 1, message: 'x' } });
+    expect(sessionRunStateOf(s, true)).toBe('limited');
   });
 });
 

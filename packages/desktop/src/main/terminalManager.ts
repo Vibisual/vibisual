@@ -2,7 +2,7 @@ import { existsSync, statSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import * as pty from 'node-pty';
-import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, type CmdTerminalController } from '@vibisual/server';
+import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, buildAgentTokenSaverEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, type CmdTerminalController } from '@vibisual/server';
 import { isPathWithin } from '@vibisual/shared';
 import type { AgentConfig } from '@vibisual/shared';
 import {
@@ -354,6 +354,9 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
         // §4 (CLI 사양 추종) — Bash 타임아웃. 헤드리스 스폰(buildConfigEnv)과 같은 함수를 써
         //   "설정한 세팅 그대로"가 인터랙티브 터미널에도 적용된다. claude 갈래에만.
         ...(managed ? buildBashTimeoutEnv(spec.config) : {}),
+        // §5.3 #9-1 (J~M) — 토큰 절약 축. 같은 규율로 헤드리스와 **한 벌**을 쓴다 —
+        //   설정 창에서 켠 절약이 사용자가 직접 치는 CMD 세션에도 그대로 걸린다.
+        ...(managed ? buildAgentTokenSaverEnv(spec.config) : {}),
         // 디버그 모드가 실어 보내는 것(NODE_OPTIONS 등) + 실행 구성의 env.
         ...(spec.env ?? {}),
       },

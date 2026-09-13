@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { SESSION_STATUS_DOT, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
 import { IDEMainArea } from './IDEMainArea.js';
 import { IDESplitCellContext, type IDESplitCellValue } from './splitCellContext.js';
 import {
@@ -64,7 +64,7 @@ export const IDESplitCellView = memo(function IDESplitCellView({
   cellTotal,
 }: IDESplitCellViewProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { state: dropState, handlers } = useSplitDrop(slotKey, cell.id, agentId, cell.sessionId);
+  const { state: dropState, handlers, dropRef } = useSplitDrop(slotKey, cell.id, agentId, cell.sessionId);
   const focusCell = useGraphStore((s) => s.focusIDESplitCell);
   const closeCell = useGraphStore((s) => s.closeIDESplitCell);
   const resetSplit = useGraphStore((s) => s.resetIDESplit);
@@ -72,6 +72,7 @@ export const IDESplitCellView = memo(function IDESplitCellView({
   const subAgents = useGraphStore((s) => s.subAgents[agentId] ?? EMPTY_SUBS);
   const subAgentLabels = useGraphStore((s) => s.subAgentLabels);
   const acknowledged = useGraphStore((s) => s.acknowledgedSubAgents);
+  const sessionFocusGlow = useGraphStore((s) => s.sessionFocusGlow);
   // 도트 색은 탭바와 **같은 표**를 쓴다(사본 ❌ — 같은 세션이 자리마다 다른 색이면 안 된다).
   const busySubKey = useGraphStore((s) => serializeBusySubIds(s.runningSubagentTasks[agentId]));
   const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
@@ -80,8 +81,9 @@ export const IDESplitCellView = memo(function IDESplitCellView({
   const label = cell.sessionId === null
     ? t('ide.tabbar.agentTabLabel')
     : subAgentLabels[cell.sessionId] ?? sub?.label ?? cell.sessionId;
+  // 여운(눌러 들어간 색)도 탭바와 **같은 함수**로 합친다 — 같은 세션이 자리마다 다른 색이면 안 된다.
   const dot = sub
-    ? SESSION_STATUS_DOT[sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id))]
+    ? sessionDotClass(sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id)), sessionFocusGlow[sub.id], Date.now())
     : 'bg-gray-400';
 
   // 칸 안 아무 데나 누르면 그 칸이 초점을 갖고, 탭바·사이드바·상태바가 그 세션을 따라본다.
@@ -111,6 +113,8 @@ export const IDESplitCellView = memo(function IDESplitCellView({
 
   return (
     <div
+      // 네이티브 짐(칸 머리띠)과 포인터로 집어 든 세션 탭이 **같은 자리**에 떨어진다(§5.4 #14-2).
+      ref={dropRef}
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       onMouseDownCapture={handleFocus}
       onDragEnter={handlers.onDragEnter}

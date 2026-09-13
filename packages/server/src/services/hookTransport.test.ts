@@ -31,7 +31,6 @@ const {
   hookEventUrl,
   HOOK_EVENTS,
   HANDLER_EVENTS,
-  BRAIN_NOTE_TOOLS,
   HTTP_HOOK_MIN_CLI_VERSION,
 } = await import('./hookInstaller.js');
 
@@ -212,23 +211,17 @@ describe('§3.6 — 훅 엔트리 모양', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-describe('§3.6 / §5.10 — PostToolUse if 필터(헛스폰 제거)', () => {
-  it('http 경로: 기억 카드 주입은 Edit/Write 에만, 추적은 HTTP 한 장', () => {
+describe('§3.6 / §5.10 — PostToolUse 는 전송 한 장', () => {
+  it('http 경로: 갈래 없이 HTTP 한 장 — 편집마다 뜨던 전용 프로세스가 없다', () => {
     const entries = entriesOf('PostToolUse', 'http');
     const commands = entries.filter((e) => e.type === 'command');
     const https = entries.filter((e) => e.type === 'http');
 
-    expect(commands).toHaveLength(BRAIN_NOTE_TOOLS.length);
-    expect(commands.map((e) => e.if)).toEqual([...BRAIN_NOTE_TOOLS]);
+    // §5.10 — 기억 카드 갈래가 폐기돼 `PostToolUse` 는 전송 한 장으로 돌아왔다.
+    //   편집할 때마다 뜨던 전용 Node 프로세스가 사라졌다는 뜻이라, 그 없음을 여기서 고정한다.
+    expect(commands).toHaveLength(0);
     expect(https).toHaveLength(1);
     expect(https[0]?.if).toBeUndefined();
-  });
-
-  it('기억 카드 전용 엔트리는 추적을 중복으로 보내지 않는다', () => {
-    const commands = entriesOf('PostToolUse', 'http').filter((e) => e.type === 'command');
-    for (const e of commands) {
-      expect(e.args).toContain('--brain-notes-only');
-    }
   });
 
   it('command 폴백에서는 종전대로 한 장이 두 일을 겸한다(필터 없음)', () => {

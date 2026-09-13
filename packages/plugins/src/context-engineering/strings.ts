@@ -7,7 +7,7 @@
  */
 export const strings = {
   "en": {
-    "desc": "Counts how many of the context patterns this agent actually uses — index over injection, tool trimming, active retrieval, thinking control.",
+    "desc": "Counts how many of the context patterns this agent actually uses — growing procedures instead of re-explaining, tool trimming, anchoring back to real files, thinking control.",
     "heading": "Context Engineering",
     "level": {
       "default": "Defaults only",
@@ -17,12 +17,12 @@ export const strings = {
     "check": {
       "applied": "Patterns applied",
       "tools": "Tools loaded",
-      "memory": "Memory injections"
+      "memory": "Procedures carried"
     },
     "note": "The question moved from “how do I word the prompt” to “what do I show it”."
   },
   "ko": {
-    "desc": "이 에이전트가 컨텍스트 패턴을 몇 개나 실제로 쓰는지 셉니다 — 밀어넣기 대신 색인, 도구 정리, 능동 검색, 사고 조절.",
+    "desc": "이 에이전트가 컨텍스트 패턴을 몇 개나 실제로 쓰는지 셉니다 — 매번 다시 설명하는 대신 절차 기르기, 도구 정리, 실제 파일에 매기, 사고 조절.",
     "heading": "컨텍스트 엔지니어링",
     "level": {
       "default": "기본값뿐",
@@ -32,7 +32,7 @@ export const strings = {
     "check": {
       "applied": "적용된 패턴",
       "tools": "실린 도구",
-      "memory": "기억 주입"
+      "memory": "실린 절차"
     },
     "note": "질문이 \"프롬프트를 어떻게 쓰나\"에서 \"무엇을 보여줄까\"로 바뀌었습니다."
   },

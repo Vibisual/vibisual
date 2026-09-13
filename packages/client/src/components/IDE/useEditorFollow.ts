@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { selectIDEOverlay, useGraphStore } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import {
@@ -30,8 +30,34 @@ import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 export function useEditorFollow(agentId: string, activeSessionId: string | null, narrow: boolean): void {
   const sessionKey = followSessionKey(agentId, activeSessionId);
   const enabled = useGraphStore((s) => s.ideEditorFollow[sessionKey] === true);
-  const streams = useGraphStore((s) => s.subAgentStreams);
   const subAgents = useGraphStore((s) => (agentId ? s.subAgents[agentId] : undefined));
+
+  // 볼 스트림 — 세션 탭이면 그 세션 하나, 전체 보기면 이 에이전트의 모든 세션.
+  const watchedIds = useMemo(
+    () => (activeSessionId !== null ? [activeSessionId] : (subAgents ?? []).map((sa) => sa.id)),
+    [activeSessionId, subAgents],
+  );
+
+  // §9 **구독은 맵이 아니라 자기 키까지 내려간다** — 종전에는 `s.subAgentStreams` **맵 통째**를
+  //   구독했다. 그 맵은 스트림이 한 줄 흐를 때마다 새 참조가 되므로(`appendStreamEvents` 의
+  //   `{ ...s.subAgentStreams }`), **어느 버블의 어느 세션이 말하든** 열려 있는 IDE 창 전부의
+  //   이 효과가 50ms(`WS_STREAM_BATCH_INTERVAL`) 마다 다시 돌았고, 그때마다 자기 세션의 마지막
+  //   `FOLLOW_SCAN_LIMIT`(400)건을 재주사했다(`latestCompletedEdit` — `tool_use` 마다 편집 입력
+  //   `JSON.parse`). 창이 여럿이면 그 비용이 창 수만큼 곱해진다.
+  //   이제 보는 세션만 본다. 값은 **원시 문자열 하나**(합계 길이 : 가장 늦은 시각)라, 그 세션에
+  //   새 줄이 흐르지 않으면 참조가 바뀌어도 이 훅은 깨어나지 않는다(§9 「버블은 자기 것만 구독한다」).
+  const streamsVersion = useGraphStore((s) => {
+    let total = 0;
+    let newest = 0;
+    for (const id of watchedIds) {
+      const arr = s.subAgentStreams[id];
+      if (!arr || arr.length === 0) continue;
+      total += arr.length;
+      const ts = arr[arr.length - 1]!.timestamp;
+      if (ts > newest) newest = ts;
+    }
+    return `${total}:${newest}`;
+  });
   const { openEditorFile: openFile } = useIDEPaneActions();
   const setSignal = useGraphStore((s) => s.setIdeEditorFollowSignal);
   const setLast = useGraphStore((s) => s.setIdeEditorFollowLast);
@@ -57,10 +83,9 @@ export function useEditorFollow(agentId: string, activeSessionId: string | null,
   useEffect(() => {
     if (!agentId) return;
 
-    // 볼 스트림 고르기 — 세션 탭이면 그 세션 하나, 전체 보기면 이 에이전트의 모든 세션.
-    const sessionIds = activeSessionId !== null
-      ? [activeSessionId]
-      : (subAgents ?? []).map((sa) => sa.id);
+    // 버퍼 자체는 구독하지 않고 **깨어난 그 시점의 최신값**을 읽는다(위 `streamsVersion` 참조).
+    const streams = useGraphStore.getState().subAgentStreams;
+    const sessionIds = watchedIds;
 
     /** 지금 스트림들의 가장 최근 시각 — 기준선을 처음 잡을 때 쓴다. */
     const newestAcross = (): number => {
@@ -143,7 +168,7 @@ export function useEditorFollow(agentId: string, activeSessionId: string | null,
       at: latest.at,
     });
   }, [
-    enabled, agentId, activeSessionId, sessionKey, streams, subAgents,
+    enabled, agentId, activeSessionId, sessionKey, streamsVersion, watchedIds,
     rootPath, narrow, editorOpen, openFile, setSignal, setLast, setPending,
   ]);
 }

@@ -23,6 +23,7 @@ import { execFile } from 'node:child_process';
 import { BrowserWindow, shell, type WebContents } from 'electron';
 import {
   LINUX_BROWSER_BINARIES,
+  isAllowedExternalUrl,
   needsBrowserProbe,
   resolveExternalOpenNotice,
   type ExternalOpenFailure,
@@ -150,6 +151,23 @@ export function openExternalWithNotice(
   /** 화면 안내와 **별개로** 남길 기록이 있는 호출부(예: 업데이터 진단)를 위한 선택 훅. */
   onFailure?: (payload: ExternalOpenFailure) => void,
 ): void {
+  // §보안 감사 2026-09-09 — **열기 전에** 스킴부터 본다.
+  //
+  // `shell.openExternal` 은 브라우저를 여는 함수가 아니라 **OS 프로토콜 핸들러를 그대로 부르는**
+  // 함수다. 그런데 여기 오는 주소는 우리가 만든 것이 아니다 — 에이전트가 흘린 마크다운 링크,
+  // 훅이 등록한 카드, 내부 앱이 그린 화면의 `window.open` 이 전부 이 한 곳으로 모인다. 즉 이 PC
+  // 안의 다른 프로그램·에이전트가 쓴 문자열이 그대로 핸들러 인자가 되던 자리다.
+  //
+  // 막았을 때도 **주소는 손에 쥐여 준다**(안내창의 [복사]) — 이 파일의 규약 그대로, 우리가 대신
+  // 열어 주지도 않고 조용히 삼키지도 않는다.
+  if (!isAllowedExternalUrl(url)) {
+    console.warn(`[externalOpen] blocked-scheme — ${url}`);
+    const blocked: ExternalOpenFailure = { url, reason: 'blocked-scheme' };
+    notifyFailure(sender, blocked);
+    onFailure?.(blocked);
+    return;
+  }
+
   let openRejected = false;
   void shell
     .openExternal(url)

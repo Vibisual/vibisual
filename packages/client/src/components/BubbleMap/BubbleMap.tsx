@@ -15,9 +15,20 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
-import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo } from '@vibisual/shared';
-import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
+import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo, TidySort } from '@vibisual/shared';
+import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
 import { BubbleNode } from './BubbleNode.js';
+// §5.4 #34 — 삭제 규칙 두 손(Delete 키 · 버블 우클릭 메뉴)이 나눠 쓰는 판정·메뉴.
+import {
+  bubbleDeleteAction,
+  planSelectionDelete,
+  runBubbleDelete,
+  runSelectionDelete,
+  type SelectedFlowEdge,
+  type SelectedFlowNode,
+} from './bubbleDeleteAction.js';
+import { BubbleContextMenu, BUBBLE_MENU_EVENT, type BubbleMenuRequest } from './BubbleContextMenu.js';
+import { useCommand } from '../../hooks/useCommand.js';
 import { CommentBoxNode } from './CommentBoxNode.js';
 import { CaptureNode, CAPTURE_REPICK_EVENT } from './CaptureNode.js';
 import { AppBubbleNode } from './AppBubbleNode.js';
@@ -37,13 +48,12 @@ import { CaptureSourcePicker } from './CaptureSourcePicker.js';
 import { PlaytestClipWindows } from './PlaytestClipWindow.js';
 import { CurvedEdge } from './CurvedEdge.js';
 import { EdgeMask } from './EdgeMask.js';
-import { useGraphStore, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useGraphStore } from '../../stores/graphStore.js';
 import { placeSatellitePositions } from '../../utils/satellite.js';
 import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type PhysicsMove } from '../../hooks/usePhysicsLayout.js';
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
-import { useBrainActivation } from '../../hooks/useBrainActivation.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { canCreateMainViewBubble } from './canvasScope.js';
@@ -61,10 +71,27 @@ import { TaskEdgePopup } from './TaskEdgePopup.js';
 import { TaskEdgeDragPreview } from './TaskEdgeDragPreview.js';
 import { TaskEdgePopupPreview } from './TaskEdgePopupPreview.js';
 import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets.js';
+// §5.4 #33 — 버블 정리. 물리가 말하지 않는 "어디에 놓을까"를 정하는 순수 기하.
+import { computeTidyLayout, computeTidySatellites, tidyBandOf, type TidyItem, type TidyParentSeat, type TidySatellite } from './tidyLayout.js';
+// §5.4 #33 (I) — "누구와 함께 앉나"는 여기가 쥔다(배치 기하와 갈라 둔다).
+import { computeTidyGrouping, type TidySortItem } from './tidySort.js';
+import { useHeatScale } from '../../hooks/useHeatScale.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress, isNarrowViewportNow } from '../../hooks/useIsMobile.js';
 import { isCanvasSurfaceTarget } from './canvasSurface.js';
+// §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 잡으면 무리만 남고, 그대로 끌면 무리가 함께 간다.
+import {
+  clearLinkFocus,
+  clearLinkHover,
+  currentLinkPhase,
+  focusLinkGroup,
+  isLinkModifierHeld,
+  releaseLinkGrab,
+  setLinkModifierHeld,
+} from '../../stores/linkFocus.js';
+import { LinkFocusHint } from './LinkFocusHint.js';
+import type { LinkSatelliteRef } from './linkedBubbles.js';
 import { folderCandidates, resolveSatelliteFolderId } from './satelliteNavigate.js';
 import { useTranslation } from 'react-i18next';
 
@@ -84,11 +111,30 @@ const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent }
 /** 물리로 움직인 store 기반 요소의 종류 — 이동 반영/영속화 경로가 종류마다 다르다. */
 type PhysicsExternalKind = 'comment' | 'capture' | 'app' | 'play' | 'playPreview' | 'spec' | 'lab' | 'shelf';
 
+/**
+ * §5.4 #34 — 우클릭 메뉴가 **지금 무엇을 지울 참인가.** 여는 순간 확정해 담아 둔다 — 메뉴가 떠
+ * 있는 동안 선택이 바뀌어도 눌렀을 때 지워지는 것은 그때 본 그것이어야 하기 때문이다.
+ */
+interface BubbleMenuTarget {
+  nodes: SelectedFlowNode[];
+  edges: SelectedFlowEdge[];
+  screenX: number;
+  screenY: number;
+}
+
 /** §4 v3.71 — 덮였을 때 캔버스에 씌우는 스타일(참조 고정 — 매 렌더 새 객체 ❌). */
 const HIDDEN_CANVAS_STYLE: React.CSSProperties = { visibility: 'hidden' };
 
-/** v4.84 — 누적 선택 키(Shift 추가). 모듈 상수 = 매 렌더 새 배열이면 키 리스너가 다시 걸린다. */
-const MULTI_SELECT_KEYS = ['Shift', 'Control', 'Meta'];
+/**
+ * 누적(다중) 선택 키 — **Shift 하나뿐**이다. 모듈 상수인 이유는 매 렌더 새 배열이면 키 리스너가
+ * 다시 걸리기 때문.
+ *
+ * v4.84 는 React Flow 기본값(Ctrl/Meta)에 Shift 를 더했지만, §5.4 #31 이 **Ctrl/Cmd 를 연결 무리
+ * 잡기에 쓰면서** 그 둘을 돌려주었다. 같은 키가 "누적 선택"과 "무리 잡기" 둘 다이면 Ctrl+클릭
+ * 한 번에 선택 토글과 무리 강조가 동시에 일어난다. §5.4 #29 복사·붙여넣기의 정본 문구도
+ * "**Shift** 다중 선택"이라 이쪽이 원래의 규약이다(Shift+드래그 박스 선택도 종전대로).
+ */
+const MULTI_SELECT_KEYS = ['Shift'];
 
 // ─── 컴포넌트 ───
 
@@ -110,7 +156,6 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const currentFolderId = useGraphStore((s) => s.currentFolderId);
   // §5.10 — 휴지통 내부 뷰 상태(currentFolderId 와 독립 축). 기억은 v3.49 피드 오버레이가 담당.
   const interiorView = useGraphStore((s) => s.interiorView);
-  const brainSummary = useGraphStore(selectActiveBrainSummary);
   const pendingFocus = useGraphStore((s) => s.pendingFocus);
   const focusNodeId = useGraphStore((s) => s.focusNodeId);
   const debugMode = useGraphStore((s) => s.debugMode);
@@ -920,6 +965,54 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return () => window.removeEventListener(CAPTURE_REPICK_EVENT, onRepick);
   }, []);
 
+  // §5.4 #34 — 버블 위 우클릭 메뉴. **여는 곳은 노드, 그리는 곳은 여기다** — 노드 안에서 그리면
+  //   원형 버블의 `overflow-hidden` 에 잘리고 형제 버블에 가린다(CaptureNode 의 repick 위임과 같은
+  //   패턴 · 캡처 클립 창도 같은 이유로 여기서 그린다).
+  const [bubbleMenu, setBubbleMenu] = useState<BubbleMenuTarget | null>(null);
+
+  /**
+   * 메뉴의 대상을 **여는 순간** 확정한다 — 메뉴가 열린 뒤 선택이 바뀌어도 눌렀을 때 지워지는 것은
+   * 그때 본 그것이어야 한다. 규칙은 탐색기·파인더와 같다.
+   *   · 묶음 상자 위에서 불렀으면(`nodeId === null`) → 고른 것 전부
+   *   · 고른 것 안의 버블 위에서 불렀고 여럿이면 → 고른 것 전부
+   *   · 고르지 않은 버블 위에서 불렀으면 → **그 하나만**(남의 묶음을 지우지 않는다)
+   */
+  const openBubbleMenuAt = useCallback((nodeId: string | null, screenX: number, screenY: number) => {
+    const selNodes = flowNodesRef.current.filter((nd) => nd.selected);
+    const selEdges = flowEdgesRef.current.filter((ed) => ed.selected);
+    const many = selNodes.length + selEdges.length > 1;
+    const inSelection = nodeId != null && selNodes.some((nd) => nd.id === nodeId);
+    if (nodeId == null || (inSelection && many)) {
+      if (selNodes.length + selEdges.length === 0) return;
+      setBubbleMenu({ nodes: selNodes, edges: selEdges, screenX, screenY });
+      return;
+    }
+    const one = flowNodesRef.current.find((nd) => nd.id === nodeId);
+    if (!one) return;
+    setBubbleMenu({ nodes: [one], edges: [], screenX, screenY });
+  }, []);
+
+  useEffect(() => {
+    function onBubbleMenu(e: Event): void {
+      const d = (e as CustomEvent<BubbleMenuRequest>).detail;
+      if (!d) return;
+      openBubbleMenuAt(d.nodeId, d.screenX, d.screenY);
+    }
+    window.addEventListener(BUBBLE_MENU_EVENT, onBubbleMenu);
+    return () => window.removeEventListener(BUBBLE_MENU_EVENT, onBubbleMenu);
+  }, [openBubbleMenuAt]);
+  const closeBubbleMenu = useCallback(() => setBubbleMenu(null), []);
+
+  /**
+   * 묶음 상자(`.react-flow__nodesselection-rect`) 위 우클릭. **이 손잡이가 없으면 지우려던 손이
+   * 만들기 목록을 받는다** — 그 상자는 `pointer-events: all` 로 묶인 버블을 통째로 가려서, 우클릭이
+   * 버블에 닿지 못하고 빈 곳 메뉴로 샜다(2026-09-11 사용자 보고).
+   */
+  const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    openBubbleMenuAt(null, e.clientX, e.clientY);
+  }, [openBubbleMenuAt]);
+
   const handleCapturePick = useCallback((source: CaptureSourceInfo) => {
     const picker = capturePicker;
     setCapturePicker(null);
@@ -1180,7 +1273,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // forceRun=true — 캔버스 버블은 **항상** 물리 대상이다. 종전엔 false 라, 파일 위성이 하나도 없으면
   // (= 에이전트가 조용한 평소 상태) 물리 틱이 통째로 건너뛰어 버블끼리 겹쳐도 밀려나지 않고 사각
   // 바운딩 박스 클램프도 멈췄다. 슬립 수렴은 그대로라 유휴 시 rAF 비용은 종전과 같다.
-  const { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, wake } = usePhysicsLayout(
+  const { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, pauseFor, wake } = usePhysicsLayout(
     flowNodes, setFlowNodes, satelliteLinks, handlePhysicsSettle, true, physicsExternals, applyPhysicsMoves,
   );
 
@@ -1293,23 +1386,24 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return out;
   }, [storeSatellites, contiSatellites]);
 
-  // §5.10 v2 (H) — 두뇌 켜짐 여부. 서버와 **같은 판정 함수**를 쓰는 훅 하나에서만 온다.
-  const { enabled: brainEnabled } = useBrainActivation();
-
-  // §5.10 — 최상위 캔버스 상주 버블: Brain(두뇌가 켜졌을 때만) + 휴지통(항상, 비면 dimmed).
+  /*
+   * §5.10 — **메모리(Brain) 버블은 캔버스에서 걷혔다.**
+   *
+   * 사용자 지시(전면 개편): "기억·메모리·브레인 이런 거 다 버리고 자동 목표라는 이름으로."
+   * 그 버블이 열던 화면(기억 라이브러리)은 폐기됐고, 살아남은 일 — 되풀이한 절차를 스킬로 굳히는
+   * 것 — 은 IDE `목표` 뷰의 자동 목표 블록으로 옮겨 갔다.
+   *
+   * **버블이 아닌 이유**는 #17-44 가 정독을 활동바에 둔 것과 같다: 이 정보는 지금 열어 둔 세션·
+   * 프로젝트의 것이라 캔버스의 전역 좌표가 아니라 IDE 의 축에 속한다.
+   *
+   * 휴지통(`trash`)은 그대로 남는다 — 커스텀 에이전트 휴지통은 기억과 무관한 기능이고,
+   * §5.10 (J) 도 "휴지통은 무관하므로 그대로"라고 이미 못 박았다.
+   */
   const residentBubbles = useMemo<BubbleData[]>(() => {
     if (!activeProject) return [];
-    const brain: BubbleData = {
-      id: '__brain__',
-      label: t('brain.bubbleLabel', { defaultValue: '메모리' }),
-      bubbleType: 'brain',
-      path: '',
-      status: 'idle',
-      activity: brainSummary?.cardCount ?? 0,
-    };
     const trash: BubbleData = {
       id: '__trash__',
-      label: t('brain.trashBubbleLabel', { defaultValue: '휴지통' }),
+      label: t('trash.trashBubbleLabel', { defaultValue: '휴지통' }),
       bubbleType: 'trash',
       path: '',
       status: 'idle',
@@ -1317,10 +1411,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       //   같은 배열에서 뽑아, 뚜껑(개수)과 속(목록)이 절대 어긋나지 않게 한다.
       activity: trashedAgents.length,
     };
-    // §5.10 v2 (H) 게이트 ③ 표시 — 두뇌가 꺼진 프로젝트에는 **버블 자체를 세우지 않는다**.
-    //   휴지통은 두뇌와 무관하므로 그대로 남는다. 켜는 자리는 캔버스 우클릭 메뉴와 설정 창 `Project Brain` 탭 둘이다.
-    return brainEnabled ? [brain, trash] : [trash];
-  }, [activeProject, brainEnabled, brainSummary?.cardCount, trashedAgents.length, t]);
+    return [trash];
+  }, [activeProject, trashedAgents.length, t]);
 
   // 메인 뷰 데이터
   const mainViewData = useBubbleLayout({
@@ -1686,8 +1778,6 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const store = useGraphStore.getState();
     // §5.10 — 휴지통 내부 back → 내부 종료(캔버스 복귀).
     if (data.id === '__interior_back__') { store.exitInterior(); return; }
-    // §5.10 v3.49 — Brain 상주 버블 좌더블클릭 → 기억 피드 오버레이(우더블클릭과 동일, 발견성).
-    if (data.id === '__brain__') { store.openBrainFeed({ scope: 'project' }); return; }
     // 휴지통은 기존 버블 진입 방식 유지(소수라 피드 불요).
     if (data.id === '__trash__') { store.enterInterior({ kind: 'trash' }); return; }
     // §5.10 — trashed 커스텀 에이전트는 IDE 사용 불가(휴지통 내부). 좌더블클릭 무시.
@@ -1934,6 +2024,231 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     recomputeAllBoxesRef.current = recomputeAllBoxesInActiveProject;
   }, [recomputeAllBoxesInActiveProject]);
 
+  // ─── §5.4 #33 버블 정리 ───
+  //
+  // 물리(`usePhysicsLayout`)는 **겹치지 않게** 밀어낼 뿐 어디에 놓을지는 말하지 않는다. 그래서
+  // 오래 쓴 캔버스는 겹치지는 않지만 아무 뜻도 없는 배치로 굳는다. 이 버튼이 정하는 것이 그 "뜻" —
+  // 도는 것이 가운데, 손이 가야 하는 것이 그다음, 쉬는 것과 폴더가 바깥(`TIDY_BAND_ORDER`).
+  //
+  // **좌표를 우리가 직접 몰아간다** — 계산한 자리로 순간이동시키면 무엇이 어디로 갔는지 눈이 따라갈
+  // 수 없어서 "정리됐다"가 아니라 "화면이 바뀌었다"로 읽힌다. 가는 동안 물리는 재우고(`pauseFor`),
+  // 도착하면 깨워(`wake`) 남은 겹침만 물리에게 넘긴다.
+  const heatScale = useHeatScale();
+  /**
+   * §5.4 #33 (I-2) `heat` 기준이 잴 축 — **§5.24 히트맵이 쥔 그 축**이다(`useHeatScale` 은
+   * 히트맵이 꺼져 있으면 `undefined` 라 여기서 쓸 수 없다; 정렬은 히트맵과 무관하게 돌아야 한다).
+   * 축을 여기서 또 고르게 하면 같은 사실을 말하는 곳이 둘이 되어 한쪽만 고쳐진다.
+   */
+  const tidyHeatAxis = useGraphStore((s) => s.heatAxis);
+  const globalFileSizeRange = useGraphStore((s) => s.fileSizeRange);
+  const layoutBoundsForTidy = useGraphStore((s) => (s.activeProject ? s.layoutBoundsByProject[s.activeProject] : undefined));
+  const tidyRafRef = useRef<number | null>(null);
+  const [tidying, setTidying] = useState(false);
+
+  /** 진행 중인 정리 이동을 그 자리에서 멈춘다(드래그가 끼어들거나 화면을 떠날 때). */
+  const cancelTidy = useCallback(() => {
+    if (tidyRafRef.current == null) return;
+    cancelAnimationFrame(tidyRafRef.current);
+    tidyRafRef.current = null;
+    setTidying(false);
+  }, []);
+  useEffect(() => cancelTidy, [cancelTidy]);
+
+  /** 렌더되는 지름 — `BubbleNode` 와 **같은 자**를 쓴다(어긋나면 그 버블만 이웃을 밟는다). */
+  const tidyDiameterOf = useCallback((node: Node): number => {
+    const data = node.data as unknown as BubbleData | undefined;
+    if (!data) return node.measured?.width ?? (typeof node.width === 'number' ? node.width : NODE_MIN_SIZE);
+    const localRange = (node.data as Record<string, unknown>)['_localRange'] as { min: number; max: number } | undefined;
+    return calcBubbleSize(data, localRange ?? globalFileSizeRange, heatScale);
+  }, [globalFileSizeRange, heatScale]);
+
+  /**
+   * 지금 화면에서 정리 대상이 되는 버블.
+   *
+   * 빼는 것 셋 — ① `type!=='bubble'`(앱·플레이·스펙·랩·선반·캡처·메모는 store 가 좌표를 쥔 창이라
+   * 저마다 드래그 락 + PATCH 한 쌍이 필요하다, §5.4 #31 (F) 와 같은 이유) ② 탐색 손잡이·안 그리는
+   * 타입(`tidyBandOf` 가 `null`) ③ **메모 상자에 담긴 버블** — 사용자가 손으로 묶어 둔 것이라
+   * 밖으로 끌어내면 그 묶음이 그대로 풀린다(멤버십 재계산이 자식을 통째로 뺀다).
+   */
+  const collectTidyTargets = useCallback((sort: TidySort): {
+    items: TidyItem[];
+    sats: TidySatellite[];
+    order: readonly string[];
+    anchors: ReadonlyMap<string, string>;
+  } => {
+    const boxed = new Set<string>();
+    for (const box of scopedCommentBoxes) {
+      for (const id of box.childNodeIds) boxed.add(id);
+    }
+    const satParentById = new Map<string, string>();
+    for (const info of satInfosRef.current) satParentById.set(info.bubble.id, info.parentId);
+
+    // 무리 나눔에 넘길 값은 여기서 한 번만 모은다 — `heatValueOf` 는 **색·지름이 쓰는 그 함수**라
+    // 히트맵을 켠 채 `heat` 로 정리하면 색과 자리가 같은 말을 한다(§5.4 #33 I-2).
+    const picked: { item: TidyItem; sortItem: TidySortItem }[] = [];
+    const sats: TidySatellite[] = [];
+    for (const node of flowNodesRef.current) {
+      if (node.type !== 'bubble') continue;
+      if (boxed.has(node.id)) continue;
+      const data = node.data as unknown as BubbleData | undefined;
+      if (!data) continue;
+      const band = tidyBandOf(data.bubbleType, data.status);
+      if (band === null) continue;
+      const diameter = tidyDiameterOf(node);
+      const cx = node.position.x + diameter / 2;
+      const cy = node.position.y + diameter / 2;
+      const parentId = satParentById.get(node.id);
+      if (parentId) { sats.push({ id: node.id, parentId, diameter, cx, cy }); continue; }
+      picked.push({
+        // `group` 은 바로 아래 나눔이 채운다 — 기준마다 뜻이 달라 여기서 미리 정할 수 없다.
+        item: { id: node.id, diameter, group: band, cx, cy },
+        sortItem: {
+          id: node.id,
+          bubbleType: data.bubbleType,
+          status: data.status,
+          heat: heatValueOf(data, tidyHeatAxis),
+          lastActivity: data.lastActivity,
+        },
+      });
+    }
+
+    // 무리 나눔은 `tidySort.ts` 한 곳이 쥔다 — 여기(배치 호출부)는 그 답을 받아 옮길 뿐이다.
+    // 칸 안 순서(`rank`)와 무리의 주인(`anchorByGroup`)도 그쪽이 낸다(§5.4 #33 I-2·I-3).
+    const grouping = computeTidyGrouping(picked.map((p) => p.sortItem), sort, {
+      edges: flowEdgesRef.current,
+    });
+    const items = picked.map((p) => ({
+      ...p.item,
+      group: grouping.groupById.get(p.item.id) ?? p.item.group,
+      rank: grouping.rankById.get(p.item.id),
+    }));
+    return { items, sats, order: grouping.order, anchors: grouping.anchorByGroup };
+  }, [scopedCommentBoxes, tidyDiameterOf, tidyHeatAxis]);
+
+  const handleTidy = useCallback((sort: TidySort) => {
+    // 내부 뷰(휴지통)의 좌표는 임시 나열이라 저장하지 않는다 — 여기서 정리하면 원래 자리를 잃는다.
+    if (interiorViewRef.current !== null) return;
+    cancelTidy();
+    const { items, sats, order, anchors } = collectTidyTargets(sort);
+    if (items.length === 0) return;
+
+    // 세로 눌림·줄 예산은 캔버스 바운딩 박스에서 그대로 딴다 — 물리가 클램프하는 상자와 같은
+    // 모양이라야 정리한 자리가 상자 밖으로 나가 도로 눌리지 않는다(§3.3 layoutBounds).
+    const hw = layoutBoundsForTidy?.hw ?? LAYOUT_BOUNDS_DEFAULT.hw;
+    const hh = layoutBoundsForTidy?.hh ?? LAYOUT_BOUNDS_DEFAULT.hh;
+    const center = { x: LAYOUT_CENTER_X, y: LAYOUT_CENTER_Y };
+    // 기하는 기준이 정한다 — 순위 없는 분류를 줄로 세우지 않기 위한 축이다(§5.4 #33 I-1).
+    const seats = computeTidyLayout(items, {
+      center,
+      aspect: hh / hw,
+      groupOrder: order,
+      geometry: tidyGeometryOf(sort),
+      width: hw * 2,
+      anchorByGroup: anchors,
+    });
+
+    const diameterById = new Map<string, number>();
+    for (const it of items) diameterById.set(it.id, it.diameter);
+    for (const s of sats) diameterById.set(s.id, s.diameter);
+
+    const parentSeats = new Map<string, TidyParentSeat>();
+    for (const seat of seats) {
+      parentSeats.set(seat.id, {
+        cx: seat.cx,
+        cy: seat.cy,
+        diameter: diameterById.get(seat.id) ?? NODE_MIN_SIZE,
+        bandIndex: seat.bandIndex,
+      });
+    }
+    const satSeats = computeTidySatellites(sats, parentSeats);
+
+    // 좌상단 기준으로 환산해 둔다 — 노드 좌표계가 좌상단이라 매 프레임 다시 계산하지 않게.
+    const from = new Map<string, XYPosition>();
+    const to = new Map<string, XYPosition>();
+    const delayById = new Map<string, number>();
+    const satIds = new Set<string>();
+    const nodeById = new Map<string, Node>();
+    for (const n of flowNodesRef.current) nodeById.set(n.id, n);
+    const register = (seatId: string, cx: number, cy: number, bandIndex: number, isSat: boolean): void => {
+      const node = nodeById.get(seatId);
+      if (!node) return;
+      const r = (diameterById.get(seatId) ?? NODE_MIN_SIZE) / 2;
+      const target = { x: cx - r, y: cy - r };
+      if (Math.abs(target.x - node.position.x) < TIDY_LAYOUT.SETTLED_EPSILON
+        && Math.abs(target.y - node.position.y) < TIDY_LAYOUT.SETTLED_EPSILON) return;
+      from.set(seatId, { x: node.position.x, y: node.position.y });
+      to.set(seatId, target);
+      delayById.set(seatId, bandIndex * TIDY_LAYOUT.BAND_STAGGER_MS);
+      if (isSat) satIds.add(seatId);
+    };
+    for (const seat of seats) register(seat.id, seat.cx, seat.cy, seat.bandIndex, false);
+    for (const seat of satSeats) register(seat.id, seat.cx, seat.cy, seat.bandIndex, true);
+    const moved = to.size;
+    if (moved === 0) {
+      setCanvasToast({ msg: t('canvas.tidy.already', { defaultValue: 'Bubbles are already tidy' }), kind: 'success' });
+      return;
+    }
+
+    let maxDelay = 0;
+    for (const d of delayById.values()) if (d > maxDelay) maxDelay = d;
+    const span = TIDY_LAYOUT.DURATION_MS + maxDelay;
+    // 도착한 뒤에도 한 박자 더 재운다 — 마지막 프레임이 화면에 반영되기 전에 물리가 깨면
+    // 그 한 틱이 방금 앉힌 자리를 밀어 "다 왔다가 튀는" 것처럼 보인다.
+    pauseFor(span + TIDY_LAYOUT.DURATION_MS);
+    setTidying(true);
+
+    const startedAt = performance.now();
+    const step = (now: number): void => {
+      const elapsed = now - startedAt;
+      const frame = new Map<string, XYPosition>();
+      for (const [id, target] of to) {
+        const origin = from.get(id);
+        if (!origin) continue;
+        const p = Math.min(1, Math.max(0, (elapsed - (delayById.get(id) ?? 0)) / TIDY_LAYOUT.DURATION_MS));
+        // easeInOutCubic — 천천히 떠서 천천히 앉는다. 되튐(overshoot)은 쓰지 않는다,
+        // 수십 개가 한꺼번에 되튀면 정돈이 아니라 소란으로 읽힌다.
+        const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+        frame.set(id, { x: origin.x + (target.x - origin.x) * e, y: origin.y + (target.y - origin.y) * e });
+      }
+      // 스냅샷이 도중에 도착해도 이 자리를 지키도록 캐시에 먼저 적어 둔다(동기화 effect 가 여기서 읽는다).
+      for (const [id, pos] of frame) positionsRef.current.set(id, pos);
+      setFlowNodes((cur) => cur.map((n) => {
+        const pos = frame.get(n.id);
+        if (!pos) return n;
+        if (n.position.x === pos.x && n.position.y === pos.y) return n;
+        return { ...n, position: pos };
+      }));
+
+      if (elapsed < span) {
+        tidyRafRef.current = requestAnimationFrame(step);
+        return;
+      }
+      tidyRafRef.current = null;
+      setTidying(false);
+      // 위성은 부모 기준 궤도 오프셋을 다시 잡아 줘야 스프링이 옛 자리로 되끌지 않는다
+      // (메모 상자 텔레포트가 세운 규약 그대로 — drag 로 알린 뒤 즉시 dragStop).
+      for (const id of satIds) {
+        const pos = to.get(id);
+        if (!pos) continue;
+        onSatelliteDrag(id, pos.x, pos.y);
+        onSatelliteDragStop(id);
+      }
+      wake();
+      // 버블이 옮겨졌으니 어느 메모 상자에 속하는지 다시 판정하고, 앉은 자리를 저장한다.
+      // **다음 프레임에** 한다 — 방금 부른 `setFlowNodes` 가 아직 커밋되지 않아 `flowNodesRef` 에는
+      // 직전 프레임 좌표가 들어 있고, 그대로 저장하면 마지막 한 걸음이 빠진 자리가 디스크에 남는다.
+      requestAnimationFrame(() => {
+        recomputeAllBoxesRef.current();
+        flushPositionsFetch();
+      });
+      setCanvasToast({ msg: t('canvas.tidy.done', { count: moved, defaultValue: 'Tidied {{count}} bubble(s)' }), kind: 'success' });
+    };
+    tidyRafRef.current = requestAnimationFrame(step);
+  }, [
+    cancelTidy, collectTidyTargets, layoutBoundsForTidy, pauseFor, setFlowNodes,
+    onSatelliteDrag, onSatelliteDragStop, wake, flushPositionsFetch, t,
+  ]);
+
   /**
    * 현재 다중 선택(React Flow native)된 버블들의 bounding box 로 Comment Box 생성.
    * 선택이 없거나 메인 뷰가 아니면 무시.
@@ -1988,8 +2303,124 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     })();
   }, [currentFolderId, activeProject, recomputeBoxMembership]);
 
-  const handleNodeDragStart = useCallback((_: React.MouseEvent, node: Node) => {
+  // ─── §5.4 #31 연결 무리: 수식 키 감지 · 미리보기 · 동반 이동 ───
+
+  /** 지금 마우스가 올라가 있는 노드 — Ctrl 을 **나중에** 눌러도 그 자리에서 미리보기가 뜨게. */
+  const hoveredNodeRef = useRef<Node | null>(null);
+  /** 무리 드래그 중 스냅샷 — CommentBox 동반 이동과 같은 offset-only 방식. */
+  const linkDragRef = useRef<{ focusId: string; snapshot: Map<string, XYPosition> } | null>(null);
+
+  /** 위성 관계를 무리 계산이 먹는 모양으로 — `store.satellites` + 지금 뷰의 것을 합친다. */
+  const linkSatelliteRefs = useCallback((): LinkSatelliteRef[] => {
+    const out: LinkSatelliteRef[] = [];
+    const seen = new Set<string>();
+    for (const [pid, sats] of Object.entries(useGraphStore.getState().satellites)) {
+      for (const s of sats) { if (!seen.has(s.id)) { seen.add(s.id); out.push({ parentId: pid, id: s.id }); } }
+    }
+    for (const info of satInfosRef.current) {
+      if (!seen.has(info.bubble.id)) { seen.add(info.bubble.id); out.push({ parentId: info.parentId, id: info.bubble.id }); }
+    }
+    return out;
+  }, []);
+
+  /** 이 노드를 무리의 중심으로 잡을 수 있는가 — 에이전트 버블(커스텀·훅 공통)만. */
+  const isLinkGrabNode = useCallback((node: Node | null): boolean => {
+    if (node === null || node.type !== 'bubble') return false;
+    return (node.data as unknown as BubbleData | undefined)?.bubbleType === 'agent';
+  }, []);
+
+  /** 무리를 잡는다(미리보기 또는 확정). 잡을 수 없는 자리면 false. */
+  const grabLinkGroup = useCallback((node: Node, phase: 'hover' | 'grab'): boolean => {
+    if (!isLinkGrabNode(node)) return false;
+    // 화면에서 사라진 버블은 잡지 않는다 — 노드가 언마운트되면 `mouseleave` 가 오지 않아
+    // `hoveredNodeRef` 에 죽은 노드가 남는데, 그걸로 무리를 계산하면 엣지가 하나도 안 걸려
+    // "연결된 버블이 없습니다" 라는 거짓 안내가 뜬다.
+    if (!flowNodesRef.current.some((n) => n.id === node.id)) return false;
+    focusLinkGroup(node.id, flowEdgesRef.current, linkSatelliteRefs(), phase);
+    return true;
+  }, [isLinkGrabNode, linkSatelliteRefs]);
+
+  const handleNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
+    hoveredNodeRef.current = node;
+    if (currentLinkPhase() === 'grab') return; // 끌고 있는 중엔 다른 버블로 옮겨 가지 않는다
+    if (!isLinkModifierHeld()) return;
+    grabLinkGroup(node, 'hover');
+  }, [grabLinkGroup]);
+
+  const handleNodeMouseLeave = useCallback((_: React.MouseEvent, node: Node) => {
+    if (hoveredNodeRef.current?.id === node.id) hoveredNodeRef.current = null;
+    clearLinkHover(node.id);
+  }, []);
+
+  /**
+   * 수식 키(Ctrl/Cmd) 홀드 감시.
+   *
+   * 판정은 **`ctrlKey || metaKey`** 다 — mac 은 Cmd, win/linux 는 Ctrl 이 같은 자리를 맡는다
+   * (멀티플랫폼 단축키 축). 키를 누른 그 순간 이미 버블 위에 마우스가 있으면 `mouseenter` 가
+   * 다시 오지 않으므로, 여기서 `hoveredNodeRef` 를 보고 그 자리에서 미리보기를 켠다.
+   */
+  useEffect(() => {
+    const sync = (e: KeyboardEvent): void => {
+      const held = e.ctrlKey || e.metaKey;
+      const before = isLinkModifierHeld();
+      setLinkModifierHeld(held);
+      if (!held || before) return; // 반복 발화(auto-repeat)에 매번 다시 계산하지 않는다
+      const hovered = hoveredNodeRef.current;
+      if (hovered !== null && currentLinkPhase() !== 'grab') grabLinkGroup(hovered, 'hover');
+    };
+    const onEscape = (e: KeyboardEvent): void => { if (e.key === 'Escape') clearLinkFocus(); };
+    const release = (): void => { setLinkModifierHeld(false); clearLinkFocus(); };
+    window.addEventListener('keydown', sync);
+    window.addEventListener('keyup', sync);
+    window.addEventListener('keydown', onEscape);
+    // 창이 포커스를 잃으면 keyup 이 오지 않는다 — 그대로 두면 강조가 눌린 채 굳는다.
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('keydown', sync);
+      window.removeEventListener('keyup', sync);
+      window.removeEventListener('keydown', onEscape);
+      window.removeEventListener('blur', release);
+      release();
+    };
+  }, [grabLinkGroup]);
+
+  /**
+   * 보던 화면이 바뀌면 무리를 놓는다 — 폴더로 들어가거나, 내부 뷰를 열거나, 탭을 옮기면
+   * 무리 안의 버블이 화면에서 통째로 빠진다. 그대로 두면 아무것도 없는 캔버스가 흐려진 채
+   * 남는다(중심 버블이 없으니 `mouseleave` 로도 안 걷힌다).
+   */
+  useEffect(() => {
+    clearLinkFocus();
+    hoveredNodeRef.current = null;
+    linkDragRef.current = null;
+  }, [currentFolderId, activeProject, interiorView]);
+
+  const handleNodeDragStart = useCallback((event: React.MouseEvent, node: Node) => {
     setCtxMenu(null);
+    // §5.4 #33 — 손이 끼어들면 정리 이동은 그 자리에서 멈춘다(사용자 손이 언제나 이긴다).
+    cancelTidy();
+
+    // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 끌면 그 무리가 함께 간다.
+    //   시작 좌표를 통째로 찍어 두고(offset-only) 매 프레임 같은 변위를 먹인다 — 누적 dx 로
+    //   따라가면 스냅샷이 없는 프레임에서 변위가 두 번 먹는 사고가 난다(CommentBox 선례).
+    linkDragRef.current = null;
+    if ((event.ctrlKey || event.metaKey || isLinkModifierHeld()) && isLinkGrabNode(node)) {
+      const group = focusLinkGroup(node.id, flowEdgesRef.current, linkSatelliteRefs(), 'grab');
+      const snapshot = new Map<string, XYPosition>();
+      snapshot.set(node.id, { x: node.position.x, y: node.position.y });
+      for (const id of group.nodeIds) {
+        const n = flowNodesRef.current.find((x) => x.id === id);
+        // `type!=='bubble'` = store 가 좌표를 쥔 창 버블(앱·플레이·스펙·랩·선반·캡처·메모).
+        // 저쪽은 저마다 드래그 락 + PATCH 한 쌍이 필요해 여기서 같이 옮기면 좌표가 어긋난다.
+        // 강조는 그대로 받고 **이동만** 빠진다.
+        if (!n || n.type !== 'bubble') continue;
+        snapshot.set(id, { x: n.position.x, y: n.position.y });
+        // 물리 body 를 dragging 으로 마킹 — 안 하면 매 tick 자석·바운드가 끌어당겨 무리가 어긋난다.
+        onSatelliteDrag(id, n.position.x, n.position.y);
+      }
+      linkDragRef.current = { focusId: node.id, snapshot };
+    }
+
     // §5.13 앱 버블 드래그 시작 — geometry 락(WS snapshot 회귀 방지). 동반 이동 없음.
     if (node.type === 'appNode') {
       useGraphStore.getState().setAppBubbleDragLock(node.id, true);
@@ -2066,11 +2497,31 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       }
       commentDragStartRef.current = { boxId: node.id, snapshot: snap };
     }
-  }, [onSatelliteDrag]);
+  }, [onSatelliteDrag, isLinkGrabNode, linkSatelliteRefs, cancelTidy]);
 
   const handleNodeDrag = useCallback((event: React.MouseEvent, node: Node) => {
     positionsRef.current.set(node.id, node.position);
     onSatelliteDrag(node.id, node.position.x, node.position.y);
+
+    // §5.4 #31 — 무리 동반 이동. 시작 스냅샷 + 지금까지의 총 변위로 **절대 좌표**를 다시 계산한다.
+    //   (CommentBox 와 같은 방식 — 누적 dx 를 더해 가면 프레임이 빠지거나 겹칠 때 변위가 어긋난다.)
+    const linkDrag = linkDragRef.current;
+    if (linkDrag !== null && linkDrag.focusId === node.id) {
+      const start = linkDrag.snapshot.get(node.id);
+      if (start) {
+        const dx = node.position.x - start.x;
+        const dy = node.position.y - start.y;
+        setFlowNodes((cur) => cur.map((n) => {
+          if (n.id === node.id) return n;
+          const s = linkDrag.snapshot.get(n.id);
+          if (!s) return n;
+          const nextPos = { x: s.x + dx, y: s.y + dy };
+          positionsRef.current.set(n.id, nextPos);
+          onSatelliteDrag(n.id, nextPos.x, nextPos.y);
+          return { ...n, position: nextPos };
+        }));
+      }
+    }
 
     // §5.13 앱 버블 드래그 중 — 매 프레임 store 에 낙관 반영해야 손을 따라온다.
     // 앱 버블은 flowNodes(useNodesState) 가 아니라 store(appBubbles) 에서 position 을 받는 노드라,
@@ -2162,6 +2613,18 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
     onSatelliteDragStop(node.id);
+
+    // §5.4 #31 — 무리 동반 이동 종료. 물리 dragging 마킹을 풀어 다시 물리 관할로 돌려보내고,
+    //   강조는 수식 키를 아직 쥐고 있으면 미리보기로 내려앉는다(연달아 옮기는 손을 끊지 않게).
+    //   최종 좌표 저장은 이 함수 맨 끝의 `flushPositionsFetch()` 한 곳이 맡는다 — 동반 이동분도
+    //   이미 `flowNodes` 에 들어가 있어 같은 payload 로 함께 나간다.
+    if (linkDragRef.current !== null) {
+      for (const id of linkDragRef.current.snapshot.keys()) {
+        if (id !== node.id) onSatelliteDragStop(id);
+      }
+      linkDragRef.current = null;
+      releaseLinkGrab();
+    }
 
     // §5.13 v4.45 — 앱 버블 드래그 종료. 화면을 먼저 옮기고 서버에 알린다(왕복을 기다리지 않게).
     if (node.type === 'appNode') {
@@ -2267,8 +2730,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       //     산출 — 드래그 중간 상태나 누적 dx 의존성을 끊어 변위 2배 적용 같은 race 제거.
       const proj = store.activeProject;
       const bounds = proj ? store.layoutBoundsByProject[proj] : undefined;
-      const hw = bounds?.hw ?? 1500;
-      const hh = bounds?.hh ?? 1100;
+      const hw = bounds?.hw ?? LAYOUT_BOUNDS_DEFAULT.hw;
+      const hh = bounds?.hh ?? LAYOUT_BOUNDS_DEFAULT.hh;
       const minX = LAYOUT_CENTER_X - hw;
       const maxX = LAYOUT_CENTER_X + hw;
       const minY = LAYOUT_CENTER_Y - hh;
@@ -2378,145 +2841,120 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     });
   }, [focusNodeId, flowNodes]);
 
-  // Delete 키 → 선택된 버블/엣지/코멘트 삭제 (단일 + Shift-드래그 다중 선택 모두 지원)
-  useEffect(() => {
-    function handleDelete(e: KeyboardEvent): void {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-      if (target.closest?.('[data-capture-control="on"]')) return; // §5.9 제어 중 캡처 버블은 전역 단축키 제외
-      if (target.closest?.('[data-app-window]')) return; // §5.13 (S) 앱 안 창 안에서 누른 키는 캔버스 것이 아니다
-      const state = useGraphStore.getState();
+  // §5.4 #34 — 고른 것 지우기(단일 + Shift 다중 공용). **어떤 키인지는 여기서 정하지 않는다** —
+  //   §5.24 #32 레지스트리(`canvas.deleteSelection`)가 정하고, 그 한 벌이 스코프·입력칸 회피·IME
+  //   조합·모디파이어 판정을 함께 맡는다. 종전에는 이 자리가 옛 window 리스너라 `Backspace` 까지
+  //   받았고 스코프가 없어, **IDE 창·팝업 안에서 누른 지우기가 캔버스의 버블을 휴지통으로 보냈다**
+  //   (2026-09-11 실측 — 도는 에이전트가 사라졌고 사용자는 누른 적이 없었다).
+  const handleDelete = useCallback((e: KeyboardEvent): boolean | void => {
+    const target = e.target as HTMLElement | null;
+    // 아래 둘은 스코프로 갈리지 않는다 — 같은 `canvas` 스코프 안에 있으면서 자기 키를 쓰는
+    //   자리라, "이번엔 내 것이 아니다"(`false`)로 넘겨 원래 가던 곳으로 흘려보낸다.
+    if (target?.closest?.('[data-capture-control="on"]')) return false; // §5.9 제어 중 캡처 버블
+    if (target?.closest?.('[data-app-window]')) return false; // §5.13 (S) 앱 안 창
+    const state = useGraphStore.getState();
 
-      // React Flow native 다중 선택 — flowNodes/flowEdges 의 selected:true 를 진실의 원천으로
-      const selectedFlowNodes = flowNodesRef.current.filter((n) => n.selected);
-      const selectedFlowEdges = flowEdgesRef.current.filter((ed) => ed.selected);
+    // React Flow native 다중 선택 — flowNodes/flowEdges 의 selected:true 를 진실의 원천으로
+    const selectedFlowNodes = flowNodesRef.current.filter((n) => n.selected);
+    const selectedFlowEdges = flowEdgesRef.current.filter((ed) => ed.selected);
 
-      // §5.10 v4.84 — 휴지통 내부의 Delete = 영구 삭제(확인 팝업 경유, 단일·Shift 다중 공용).
-      //   아래 일반 경로로 내려가면 이미 버려진 에이전트를 다시 "휴지통 이동" 시키려다 실패해
-      //   버블만 화면에서 사라지고 identity·기억 카드·스트림 파일은 디스크에 남는다.
-      if (state.interiorView?.kind === 'trash') {
-        const ids: string[] = [];
-        for (const n of selectedFlowNodes) {
-          if (n.type !== 'bubble') continue;
-          if (state.nodeMap[n.id]?.trashed) ids.push(n.id);
-        }
-        // React Flow 선택이 비어 있어도 store 단일 선택(패널에서 고른 경우)은 살아 있을 수 있다.
-        if (ids.length === 0 && state.selectedNodeId && state.nodeMap[state.selectedNodeId]?.trashed) {
-          ids.push(state.selectedNodeId);
-        }
-        if (ids.length > 0) state.requestTrashPurge(ids);
-        return;
+    // §5.10 v4.84 — 휴지통 내부의 Delete = 영구 삭제(확인 팝업 경유, 단일·Shift 다중 공용).
+    //   아래 일반 경로로 내려가면 이미 버려진 에이전트를 다시 "휴지통 이동" 시키려다 실패해
+    //   버블만 화면에서 사라지고 identity·기억 카드·스트림 파일은 디스크에 남는다.
+    if (state.interiorView?.kind === 'trash') {
+      // §5.4 #34 — 추림은 우클릭 메뉴와 **같은 한 벌**이다(둘이 각자 세면 한쪽이 빠진다).
+      const ids = planSelectionDelete(selectedFlowNodes, [], state.nodeMap, { inTrashView: true }).purgeIds;
+      // React Flow 선택이 비어 있어도 store 단일 선택(패널에서 고른 경우)은 살아 있을 수 있다.
+      if (ids.length === 0 && state.selectedNodeId && state.nodeMap[state.selectedNodeId]?.trashed) {
+        ids.push(state.selectedNodeId);
       }
-
-      // 다중(2개 이상) 선택이 있으면 일괄 삭제 경로
-      if (selectedFlowNodes.length + selectedFlowEdges.length > 1) {
-        // 1) Task 엣지 일괄 삭제
-        for (const ed of selectedFlowEdges) {
-          if (ed.type !== 'taskEdge') continue;
-          const taskEdgeId = (ed.data as { taskEdgeId?: string } | undefined)?.taskEdgeId
-            ?? (ed.id.startsWith('task-') ? ed.id.slice(5) : ed.id);
-          state.deleteTaskEdge(taskEdgeId);
-        }
-        // 2) Comment Box 일괄 삭제
-        for (const n of selectedFlowNodes) {
-          if (n.type !== 'commentBox') continue;
-          const boxId = (n.data as { commentBoxId?: string } | undefined)?.commentBoxId ?? n.id;
-          void state.deleteCommentBox(boxId);
-        }
-        // 2-1) 캡처 버블 일괄 삭제
-        for (const n of selectedFlowNodes) {
-          if (n.type !== 'captureNode') continue;
-          const capId = (n.data as { captureBubbleId?: string } | undefined)?.captureBubbleId ?? n.id;
-          void state.deleteCaptureBubble(capId);
-        }
-        // 3) 버블 일괄 삭제 — root 는 보호, worktree 는 가드 다이얼로그가 있어 단건 처리만 가능하므로 스킵.
-        //     개별 DELETE 를 N 번 쏘면 서버가 스냅샷을 N 번 브로드캐스트해 버블이 여러 번 나눠 사라진다.
-        //     ID 를 모아 단일 batch 엔드포인트로 보내 한 번의 스냅샷으로 동시 제거한다.
-        const bubbleIdsToDelete: string[] = [];
-        for (const n of selectedFlowNodes) {
-          if (n.type !== 'bubble') continue;
-          const node = state.nodeMap[n.id];
-          if (!node || node.bubbleType === 'root' || node.bubbleType === 'worktree') continue;
-          bubbleIdsToDelete.push(n.id);
-        }
-        if (bubbleIdsToDelete.length > 0) {
-          fetch('/api/bubbles/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: bubbleIdsToDelete }),
-          }).catch(() => {});
-        }
-        // 단일 선택 store 도 정리 — 패널 잔존 방지
-        state.selectNode(null);
-        if (state.selectedCommentBoxId) state.selectCommentBox(null);
-        if (state.selectedCaptureBubbleId) state.selectCaptureBubble(null);
-        if (state.selectedAppBubbleId) state.selectAppBubble(null);
-        if (state.selectedPlayBubbleId) state.selectPlayBubble(null);
-        if (state.selectedSpecDocId) state.selectSpecDoc(null);
-        if (state.selectedLabRunId) state.selectLabRun(null);
-        if (state.selectedShelfBubbleId) state.selectShelfBubble(null);
-        if (state.selectedTaskEdgeId) state.selectTaskEdge(null);
-        return;
-      }
-
-      // 단일 선택 경로 (기존 동작 유지)
-      if (state.selectedCaptureBubbleId) {
-        void state.deleteCaptureBubble(state.selectedCaptureBubbleId);
-        return;
-      }
-      // §5.14 플레이 버블 — 앱 버블과 같은 자리, 같은 규칙(핀이면 서버가 409 로 거절).
-      if (state.selectedPlayBubbleId) {
-        void state.deletePlayBubble(state.selectedPlayBubbleId);
-        return;
-      }
-      // §5.15 스펙 보드 — 같은 자리, 같은 규칙. 스펙만 지우고 거기서 나온 작업 카드는 남는다.
-      if (state.selectedSpecDocId) {
-        void state.deleteSpecDoc(state.selectedSpecDocId);
-        return;
-      }
-      // §5.18 에이전트 랩 — 같은 자리, 같은 규칙. 랩만 지우고 변형이 만든 카드·워크트리는 남는다.
-      if (state.selectedLabRunId) {
-        void state.deleteLabRun(state.selectedLabRunId);
-        return;
-      }
-      // §5.20 스크립트 선반 — 같은 자리, 같은 규칙(고정돼 있으면 서버가 409 로 거절).
-      if (state.selectedShelfBubbleId) {
-        void state.deleteShelfBubble(state.selectedShelfBubbleId);
-        return;
-      }
-      // §5.13 앱 버블 — 캡처 버블과 같은 자리, 같은 규칙. 핀이 걸려 있으면 서버가 거절한다(§2.4).
-      if (state.selectedAppBubbleId) {
-        void state.deleteAppBubble(state.selectedAppBubbleId);
-        return;
-      }
-      if (state.selectedCommentBoxId) {
-        void state.deleteCommentBox(state.selectedCommentBoxId);
-        return;
-      }
-      if (state.selectedTaskEdgeId) {
-        state.deleteTaskEdge(state.selectedTaskEdgeId);
-        state.selectTaskEdge(null);
-        return;
-      }
-      // store 가 비어 있어도 React Flow 단일 선택(selected:true) 은 살아있을 수 있어 보강
-      const fallbackNodeId = state.selectedNodeId
-        ?? selectedFlowNodes.find((n) => n.type === 'bubble')?.id
-        ?? null;
-      if (!fallbackNodeId) return;
-      const node = state.nodeMap[fallbackNodeId];
-      if (node?.bubbleType === 'root') return;
-      // worktree 버블은 merge 가드 + 폴더 삭제를 포함한 전용 흐름으로 분기 (SSOT §5.7 #26 v1.20)
-      if (node?.bubbleType === 'worktree') {
-        state.requestWorktreeDelete(fallbackNodeId, node.label);
-        return;
-      }
-      fetch(`/api/bubble/${fallbackNodeId}`, { method: 'DELETE' }).catch(() => {});
-      state.selectNode(null);
+      if (ids.length > 0) state.requestTrashPurge(ids);
+      return;
     }
-    window.addEventListener('keydown', handleDelete);
-    return () => window.removeEventListener('keydown', handleDelete);
+
+    // 다중(2개 이상) 선택이 있으면 일괄 삭제 경로
+    if (selectedFlowNodes.length + selectedFlowEdges.length > 1) {
+      // §5.4 #34 — 무엇을 담고 무엇을 뺄지도, 어떻게 보낼지도 **묶음 우클릭 메뉴와 한 벌**이다.
+      //   일괄에는 한 번의 스냅샷으로 지울 수 있는 것만 담는다(워크트리는 가드 다이얼로그가 있어
+      //   단건만, 골격은 애초에 대상이 아니다). 개별 DELETE 를 N 번 쏘면 서버가 스냅샷을 N 번
+      //   브로드캐스트해 버블이 여러 번 나눠 사라지므로 배치 창구 하나로 보낸다.
+      runSelectionDelete(
+        planSelectionDelete(selectedFlowNodes, selectedFlowEdges, state.nodeMap, { inTrashView: false }),
+        {
+          requestTrashPurge: state.requestTrashPurge,
+          deleteTaskEdge: state.deleteTaskEdge,
+          deleteCommentBox: state.deleteCommentBox,
+          deleteCaptureBubble: state.deleteCaptureBubble,
+        },
+      );
+      // 단일 선택 store 도 정리 — 패널 잔존 방지
+      state.selectNode(null);
+      if (state.selectedCommentBoxId) state.selectCommentBox(null);
+      if (state.selectedCaptureBubbleId) state.selectCaptureBubble(null);
+      if (state.selectedAppBubbleId) state.selectAppBubble(null);
+      if (state.selectedPlayBubbleId) state.selectPlayBubble(null);
+      if (state.selectedSpecDocId) state.selectSpecDoc(null);
+      if (state.selectedLabRunId) state.selectLabRun(null);
+      if (state.selectedShelfBubbleId) state.selectShelfBubble(null);
+      if (state.selectedTaskEdgeId) state.selectTaskEdge(null);
+      return;
+    }
+
+    // 단일 선택 경로 (기존 동작 유지)
+    if (state.selectedCaptureBubbleId) {
+      void state.deleteCaptureBubble(state.selectedCaptureBubbleId);
+      return;
+    }
+    // §5.14 플레이 버블 — 앱 버블과 같은 자리, 같은 규칙(핀이면 서버가 409 로 거절).
+    if (state.selectedPlayBubbleId) {
+      void state.deletePlayBubble(state.selectedPlayBubbleId);
+      return;
+    }
+    // §5.15 스펙 보드 — 같은 자리, 같은 규칙. 스펙만 지우고 거기서 나온 작업 카드는 남는다.
+    if (state.selectedSpecDocId) {
+      void state.deleteSpecDoc(state.selectedSpecDocId);
+      return;
+    }
+    // §5.18 에이전트 랩 — 같은 자리, 같은 규칙. 랩만 지우고 변형이 만든 카드·워크트리는 남는다.
+    if (state.selectedLabRunId) {
+      void state.deleteLabRun(state.selectedLabRunId);
+      return;
+    }
+    // §5.20 스크립트 선반 — 같은 자리, 같은 규칙(고정돼 있으면 서버가 409 로 거절).
+    if (state.selectedShelfBubbleId) {
+      void state.deleteShelfBubble(state.selectedShelfBubbleId);
+      return;
+    }
+    // §5.13 앱 버블 — 캡처 버블과 같은 자리, 같은 규칙. 핀이 걸려 있으면 서버가 거절한다(§2.4).
+    if (state.selectedAppBubbleId) {
+      void state.deleteAppBubble(state.selectedAppBubbleId);
+      return;
+    }
+    if (state.selectedCommentBoxId) {
+      void state.deleteCommentBox(state.selectedCommentBoxId);
+      return;
+    }
+    if (state.selectedTaskEdgeId) {
+      state.deleteTaskEdge(state.selectedTaskEdgeId);
+      state.selectTaskEdge(null);
+      return;
+    }
+    // store 가 비어 있어도 React Flow 단일 선택(selected:true) 은 살아있을 수 있어 보강
+    const fallbackNodeId = state.selectedNodeId
+      ?? selectedFlowNodes.find((n) => n.type === 'bubble')?.id
+      ?? null;
+    if (!fallbackNodeId) return;
+    const node = state.nodeMap[fallbackNodeId];
+    if (!node) return;
+    // §5.4 #34 — 판정도 실행도 `bubbleDeleteAction` 한 곳이다(버블 우클릭 메뉴가 같은 함수를 쓴다).
+    //   워크트리 전용 흐름(§5.7 #26 v1.20)·휴지통 영구 삭제(§5.10 v4.84)도 그 안에서 갈린다.
+    runBubbleDelete(fallbackNodeId, node.label, bubbleDeleteAction(node, { inTrashView: false }), {
+      requestTrashPurge: state.requestTrashPurge,
+      requestWorktreeDelete: state.requestWorktreeDelete,
+      selectNode: state.selectNode,
+    });
   }, []);
+  useCommand('canvas.deleteSelection', handleDelete);
 
   // v1.45 — C 키 → 현재 다중 선택된 버블들을 감싸는 Comment Box 생성 (언리얼 블프 스타일)
   useEffect(() => {
@@ -2620,15 +3058,17 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handleCtxClose}
+        onSelectionContextMenu={handleSelectionContextMenu}
         onInit={(i) => { rfRef.current = i; }}
         defaultEdgeOptions={{ style: { stroke: EDGE_STYLE.inactiveColor, strokeWidth: EDGE_STYLE.inactiveWidth }, type: 'curved', focusable: false, interactionWidth: 0 }}
         minZoom={zoomCtrlHeld || mobileZoom ? 0.1 : 0.5}
         maxZoom={zoomCtrlHeld ? 4 : 2}
         fitViewOptions={mobileZoom ? { maxZoom: 1.2 } : undefined}
         elevateNodesOnSelect={false}
-        // v4.84 — 누적(다중) 선택 키에 Shift 를 더한다. React Flow 기본은 Ctrl/Meta 뿐이라
-        //   "Shift 로 여러 개 골라 Delete" 가 안 됐다(Shift+드래그 박스 선택은 종전대로 유지).
+        // 누적(다중) 선택 키 = Shift. Ctrl/Cmd 는 §5.4 #31 연결 무리 잡기가 쓴다(위 상수 주석).
         multiSelectionKeyCode={MULTI_SELECT_KEYS}
+        onNodeMouseEnter={handleNodeMouseEnter}
+        onNodeMouseLeave={handleNodeMouseLeave}
         fitView proOptions={{ hideAttribution: true }}
         // §4 v3.71 — 뷰포트 밖 노드·엣지는 아예 렌더하지 않는다(React Flow 표준 컬링).
         onlyRenderVisibleElements={CANVAS_LOD.CULL_OFFSCREEN}
@@ -2642,7 +3082,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         {currentFolderId === null && interiorView === null && <LayoutBoundsBox />}
         {/* §5.9 캡처 버블 이어 붙이기 — 드래그·리사이즈 중 자석이 걸린 축을 보여 주는 가이드선. */}
         <CaptureSnapGuides />
-        <CanvasControls />
+        {/* §5.4 #31 — 무리를 잡고 있는 동안만 뜨는 한 줄("몇 개가 함께 가는가"). */}
+        <LinkFocusHint />
+        <CanvasControls
+          onTidy={handleTidy}
+          tidyBusy={tidying}
+          tidyDisabled={interiorView !== null}
+        />
         {debugMode && <DebugOverlay flowNodes={flowNodes} />}
         <DebugResizeRefresher flowNodes={flowNodes} debugMode={debugMode} />
       </ReactFlow>
@@ -2664,6 +3110,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           onCreateLab={handleCreateLab}
           onCreateShelf={handleCreateShelf}
           onClose={handleCtxClose}
+        />
+      )}
+      {/* §5.4 #34 — 버블·묶음 위 우클릭 메뉴(휴지통으로 이동·삭제). 빈 곳 메뉴와 자리가 갈린다. */}
+      {bubbleMenu && (
+        <BubbleContextMenu
+          nodes={bubbleMenu.nodes}
+          edges={bubbleMenu.edges}
+          x={bubbleMenu.screenX}
+          y={bubbleMenu.screenY}
+          onClose={closeBubbleMenu}
         />
       )}
       {/* §5.9 화면/프로그램 캡처 소스 선택 팝업 (생성/다시 선택 공용). */}

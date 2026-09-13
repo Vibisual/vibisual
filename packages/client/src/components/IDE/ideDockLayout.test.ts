@@ -10,6 +10,7 @@ import {
   isPinnedToViewportEdge,
   isPulledFullyOut,
   overflowPastClamp,
+  resumedFloatGeom,
   popOutGhostDecision,
   splitSpansFromDrag,
   cascadeFloatGeoms,
@@ -29,9 +30,17 @@ import {
   orderForInsert,
   previewDockRect,
   resolveDockDrop,
+  IDE_DOCK_ENTRY,
+  applyDockEntryLock,
+  beginDockEntryLock,
+  nearestDockSide,
+  snapDistance,
+  stepDockEntryLock,
   type DockedPane,
+  type IDEDockSide,
   type FloatGeom,
 } from './ideDockLayout.js';
+import { DETACHED_REDOCK_INSET_PX } from '@vibisual/shared';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — 창을 여러 개 붙이는 순간 좌표는 (변 × 스택 순서 × 반대편 도크)
 // 의 함수가 된다. 화면으로만 확인하면 "한 변에 두 개"·"네 변 동시" 같은 조합이 회귀해도 모른다.
@@ -284,6 +293,30 @@ describe('도킹 십자 위젯(dockZoneButtons)', () => {
     expect(zones).toHaveLength(4);
     expect(zones.every((z) => z.kind === 'edge')).toBe(true);
     expect(new Set(zones.map((z) => z.target.side))).toEqual(new Set(['left', 'right', 'top', 'bottom']));
+  });
+
+  it('빈 변의 버튼은 **벽에 바짝** 붙는다 — 스냅 띠 한가운데가 아니다', () => {
+    const zones = dockZoneButtons(VP, []);
+    const centerOf = (side: IDEDockSide) => {
+      const z = zones.find((v) => v.target.side === side)!;
+      return { x: z.rect.x + z.rect.w / 2, y: z.rect.y + z.rect.h / 2 };
+    };
+    const inset = IDE_DOCK.ZONE_EDGE_INSET_MAX_PX;
+    expect(centerOf('left').x).toBeCloseTo(inset, 0);
+    expect(centerOf('right').x).toBeCloseTo(VP.w - inset, 0);
+    expect(centerOf('top').y).toBeCloseTo(IDE_DOCK.HEADER_H + inset, 0);
+    expect(centerOf('bottom').y).toBeCloseTo(VP.h - inset, 0);
+    // 벽 쪽 절반 안 — 스냅 띠의 한가운데(옛 자리)보다 확실히 벽에 가깝다.
+    for (const side of ['left', 'right', 'top', 'bottom'] as IDEDockSide[]) {
+      expect(inset).toBeLessThan(snapDistance(side, VP) / 2);
+    }
+    // 화면 밖으로 잘리지 않는다.
+    for (const z of zones) {
+      expect(z.rect.x).toBeGreaterThanOrEqual(0);
+      expect(z.rect.y).toBeGreaterThanOrEqual(IDE_DOCK.HEADER_H - z.rect.h);
+      expect(z.rect.x + z.rect.w).toBeLessThanOrEqual(VP.w);
+      expect(z.rect.y + z.rect.h).toBeLessThanOrEqual(VP.h);
+    }
   });
 
   it('붙은 칸 위에는 앞/탭/뒤 세 버튼이 선다', () => {
@@ -574,6 +607,88 @@ describe('선을 켜는 이유는 셋이다(H-7 popOutGhostDecision)', () => {
     expect(popOutGhostDecision({ geom: near, cursor, vp: VP, edgeDwell: false }).armed).toBe(false);
     expect(popOutGhostDecision({ geom: far, cursor, vp: VP, edgeDwell: false }).armed).toBe(true);
   });
+
+  // §5.5 #17-6 (H-17) — **끄는 도중에는 아무 이유로도 나가지 않는다.** 종전에 "그 자리에서
+  //   곧바로 독립 창"이던 두 이유(창을 완전히 밀어냈다 · 가장자리를 다 버텼다)는 이제 나감이
+  //   아니라 **무장**이다(사용자 지시 — "마우스 놓기 전까지 가상의 창 그대로 유지해").
+  //   판정을 지운 것이 아니라 뜻만 옮겼으므로, 손짓 자체는 종전과 똑같이 닿아야 한다.
+  it('(H-17) 창을 앱 밖으로 완전히 밀어내면 **무장**한다 — 종전에는 그 자리에서 나갔다', () => {
+    const geom = { x: VP.w + 10, y: HEADER, w: W, h: H };
+    // 커서는 아직 앱 안이다(가운데를 잡고 창만 밀어낸 손) — 그런데도 뜻은 분명하다.
+    const cursor = { x: VP.w - 30, y: 300 };
+    expect(isOutsideViewport(cursor, VP)).toBe(false);
+    const d = popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false });
+    expect(d.show).toBe(true);
+    expect(d.armed).toBe(true);
+  });
+
+  it('(H-17) 가장자리 버팀을 다 채우면 무장한다 — 최대화된 단일 모니터도 놓기만 하면 나간다', () => {
+    const geom = { x: 100, y: HEADER + 100, w: W, h: H };
+    const cursor = { x: VP.w - 1, y: 300 };
+    // 버팀이 선을 띄우기만 한 동안에는 아직 무장이 아니다(보여 주는 구간).
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: true }).armed).toBe(false);
+    // 다 채우면 밝아진다 — 그리고 그때도 나가지는 않는다(나가는 것은 뗌의 일).
+    const armed = popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: true, edgeArmed: true });
+    expect(armed.show).toBe(true);
+    expect(armed.armed).toBe(true);
+  });
+
+  it('(H-17) 파킹은 여전히 조용하다 — 무장도 하지 않는다', () => {
+    const parked = { x: VP.w - IDE_FLOAT.KEEP_VISIBLE.x, y: HEADER, w: W, h: H };
+    const cursor = { x: VP.w - 2, y: HEADER + 20 };
+    const d = popOutGhostDecision({ geom: parked, cursor, vp: VP, edgeDwell: false });
+    expect(d.show).toBe(false);
+    expect(d.armed).toBe(false);
+  });
+
+  // §5.5 #17-6 (H-22) — **한 번 나간 판은 도로 들어와도 선으로 간다.** (H-17) 로 창이 바뀌는
+  //   자리는 뗌 하나가 됐지만 **선이 꺼지는 자리**는 여럿이었다 — 도로 들어오면 켤 이유가
+  //   사라져 선이 꺼지고 숨어 있던 본체가 다시 나타났다(사용자 지시 — "마우스 때기 전까지
+  //   계속 가상창 유지"). 기억은 판정이 아니라 판이 들되, 되먹일 자리는 여기 하나다.
+  it('(H-22) 나갔던 판은 도로 들어와도 선이 서 있다 — 걸쇠가 없으면 꺼지던 자리', () => {
+    const grabX = 350;
+    // 앱 한복판 — 걸쇠가 없으면 켤 이유가 하나도 없는 자리다.
+    const cursor = { x: Math.round(VP.w / 2), y: 300 };
+    const geom = geomFor(cursor.x, grabX);
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false }).show).toBe(false);
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false, escaped: true }).show).toBe(true);
+  });
+
+  it('(H-22) 걸쇠는 선을 세울 뿐 무장하지 않는다 — 들어와서 놓는 손은 "여기 놓겠다"다', () => {
+    const grabX = 350;
+    const cursor = { x: Math.round(VP.w / 2), y: 300 };
+    const geom = geomFor(cursor.x, grabX);
+    const d = popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false, escaped: true });
+    expect(d.show).toBe(true);
+    expect(d.armed).toBe(false);
+  });
+
+  it('(H-22) 밖에 있는 동안에는 걸쇠 없이도 그대로다 — 걸쇠는 켜는 이유를 늘리지 않는다', () => {
+    const grabX = 350;
+    const cursor = { x: VP.w + 4, y: 300 };
+    const geom = geomFor(cursor.x, grabX);
+    const bare = popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false });
+    const latched = popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false, escaped: true });
+    expect(bare).toEqual(latched);
+    expect(bare.armed).toBe(true);
+  });
+
+  it('(H-22) 걸쇠를 물 자리를 판정이 알려 준다 — 부르는 쪽이 커서 판정을 따로 쓰지 않게', () => {
+    const grabX = 350;
+    const inside = { x: Math.round(VP.w / 2), y: 300 };
+    const outside = { x: VP.w + 1, y: 300 };
+    expect(popOutGhostDecision({ geom: geomFor(inside.x, grabX), cursor: inside, vp: VP, edgeDwell: false }).outside).toBe(false);
+    expect(popOutGhostDecision({ geom: geomFor(outside.x, grabX), cursor: outside, vp: VP, edgeDwell: false }).outside).toBe(true);
+  });
+
+  it('(H-22) 걸쇠는 판정이 기억하지 않는다 — 같은 입력이면 같은 답이어야 값이 고정된다', () => {
+    const grabX = 350;
+    const out = { x: VP.w + 4, y: 300 };
+    const back = { x: Math.round(VP.w / 2), y: 300 };
+    // 나갔다 들어온 순서로 두 번 불러도, 걸쇠를 먹이지 않으면 두 번째 답은 "안 뜬다"다.
+    popOutGhostDecision({ geom: geomFor(out.x, grabX), cursor: out, vp: VP, edgeDwell: false });
+    expect(popOutGhostDecision({ geom: geomFor(back.x, grabX), cursor: back, vp: VP, edgeDwell: false }).show).toBe(false);
+  });
 });
 
 // (판올림 번호 발급 대기) §5.5 #17-1 — **자석 밀기.** 종전에는 창끼리 부딪히면 자석이 선에 붙여
@@ -708,5 +823,131 @@ describe('도크 밀기(pushDockSize)', () => {
 
   it('밀어도 자기 하한 아래로는 안 내려간다', () => {
     expect(pushDockSize('left', 10, VP, []).size).toBe(IDE_DOCK.MIN_SIZE);
+  });
+});
+
+// (판올림 번호 발급 대기) §5.5 #17-6 (H-11) — 밖으로 꺼냈다 **끌고 들어온** 그 순간의 벽 붙이기.
+//   되돌아오는 문턱(48px)이 도킹 스냅 폭(≥120px) 한복판이라, 이어받는 첫 프레임에 이미 그 벽의
+//   미리보기가 떠 있었다(사용자 보고 — "나갔다 들어왔다 하는 그 순간 해당 벽에 붙이는 이벤트를
+//   나중에 하게 해"). 화면으로는 "가끔 붙는다"로만 보이므로 판정을 여기서 못 박는다.
+describe('돌아온 판의 벽 잠금(H-11)', () => {
+  /** 앱 왼쪽 경계에서 되돌아오는 문턱만큼 들어온 자리 — 실제 재진입이 서는 그 지점. */
+  const entryLeft = { x: DETACHED_REDOCK_INSET_PX, y: 400 };
+
+  it('되돌아오는 문턱은 도킹 스냅 폭 **안쪽**이다 — 이것이 잠금이 필요한 까닭이다', () => {
+    expect(DETACHED_REDOCK_INSET_PX).toBeLessThan(snapDistance('left', VP));
+    // 잠그지 않으면 들어오는 그 자리가 곧 왼쪽 도킹 자리다.
+    expect(resolveDockDrop(entryLeft, VP, [])).toEqual({ side: 'left', index: 0, mode: 'insert' });
+  });
+
+  it('들어온 벽은 잠긴다 — 들여놓자마자 손을 떼도 붙지 않는다', () => {
+    const lock = beginDockEntryLock(entryLeft, VP, 0);
+    expect(lock?.side).toBe('left');
+    expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), lock)).toBeNull();
+  });
+
+  it('잠기는 것은 그 벽 하나뿐 — 돌아오자마자 다른 벽에 붙이는 손은 막지 않는다', () => {
+    const lock = beginDockEntryLock(entryLeft, VP, 0);
+    const toTop = { x: VP.w / 2, y: HEADER + 20 };
+    expect(applyDockEntryLock(resolveDockDrop(toTop, VP, []), lock)).toEqual({ side: 'top', index: 0, mode: 'insert' });
+  });
+
+  it('안으로 들어오면 풀린다 — 그 뒤 그 벽으로 되돌아가면 평소대로 붙는다', () => {
+    const lock = beginDockEntryLock(entryLeft, VP, 0);
+    const inside = { x: snapDistance('left', VP) + 40, y: 400 };
+    const released = stepDockEntryLock(lock, inside, VP, 100);
+    expect(released).toBeNull();
+    expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), released)).toEqual({ side: 'left', index: 0, mode: 'insert' });
+  });
+
+  it('띠 안에서 끌고 다니는 동안에는 계속 잠겨 있다 — 버팀은 움직일 때마다 다시 잰다', () => {
+    let lock = beginDockEntryLock(entryLeft, VP, 0);
+    // 아래로 훑어 내리는 손 — 매번 흔들림 한도를 넘으므로 버팀이 쌓이지 않는다.
+    for (let t = 100; t <= IDE_DOCK_ENTRY.DWELL_MS * 3; t += 100) {
+      lock = stepDockEntryLock(lock, { x: entryLeft.x, y: 400 + t }, VP, t);
+      expect(lock).not.toBeNull();
+    }
+    expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), lock)).toBeNull();
+  });
+
+  it('그 자리에서 버티면 풀린다 — 잠금은 없앰이 아니라 미룸이다', () => {
+    const lock = beginDockEntryLock(entryLeft, VP, 0);
+    const held = { x: entryLeft.x + IDE_DOCK_ENTRY.DWELL_JITTER_PX, y: entryLeft.y };
+    expect(stepDockEntryLock(lock, held, VP, IDE_DOCK_ENTRY.DWELL_MS - 1)).not.toBeNull();
+    expect(stepDockEntryLock(lock, held, VP, IDE_DOCK_ENTRY.DWELL_MS)).toBeNull();
+  });
+
+  it('다시 밖으로 나가는 중에는 잠금을 유지한다 — 나가는 판정은 꺼내기가 쥔다', () => {
+    const lock = beginDockEntryLock(entryLeft, VP, 0);
+    expect(stepDockEntryLock(lock, { x: -30, y: 400 }, VP, 50)?.side).toBe('left');
+  });
+
+  it('한복판에서 이어받으면 잠글 것이 없다 — 어느 벽도 겨누고 있지 않다', () => {
+    expect(beginDockEntryLock({ x: VP.w / 2, y: VP.h / 2 }, VP, 0)).toBeNull();
+    // 잠금이 없으면 판정은 손대지 않은 그대로 지나간다.
+    const target = resolveDockDrop(entryLeft, VP, []);
+    expect(applyDockEntryLock(target, null)).toBe(target);
+  });
+
+  it('잠근 벽은 `resolveDockDrop` 이 고르는 벽과 같은 셈에서 나온다 — 모서리에서 어긋나지 않게', () => {
+    const corner = { x: 20, y: HEADER + 10 };
+    expect(nearestDockSide(corner, VP)).toBe(resolveDockDrop(corner, VP, [])?.side);
+    expect(nearestDockSide({ x: VP.w / 2, y: VP.h / 2 }, VP)).toBeNull();
+  });
+});
+
+// §5.5 #17-6 (H-14) — **선이 창이 되는 그 사각형.** (H-12) 의 윤곽선은 밖의 창 크기 그대로를
+// `커서 - 잡은 지점` 에 그려 두었다. 앱 안에 서는 창이 그 사각형을 그대로 이어받아야 "가상 창이
+// 그대로 실물이 됐다"가 되고, 어긋나면 사용자에게는 창이 한 번 튀는 것으로 보인다.
+describe('resumedFloatGeom — 밖에서 끌려 들어온 창이 설 자리', () => {
+  const VP = { w: 1600, h: 900 };
+  const ORIGIN = { x: 100, y: 50 };
+
+  it('윤곽선과 **같은 사각형**을 낸다 — 커서에서 잡은 지점만큼 뺀 자리에 밖의 창 크기 그대로', () => {
+    const geom = resumedFloatGeom(
+      { grabRatioX: 0.25, grabRatioY: 0.02, width: 800, height: 600, cursor: { x: 700, y: 400 } },
+      ORIGIN,
+      VP,
+    );
+    // 창 안 커서 = (600, 350), 잡은 지점 = (200, 12) → 좌상단 (400, 338)
+    expect(geom).toEqual({ x: 400, y: 338, w: 800, h: 600 });
+  });
+
+  it('커서가 안 넘어왔으면 null — 그때는 첫 이동이 자리를 잡는다', () => {
+    expect(resumedFloatGeom(
+      { grabRatioX: 0.5, grabRatioY: 0, width: 800, height: 600, cursor: null },
+      ORIGIN,
+      VP,
+    )).toBeNull();
+  });
+
+  it('커서가 이 창 밖이면 null — 화면 어디에도 안 보이는 곳에 창을 세우지 않는다', () => {
+    expect(resumedFloatGeom(
+      { grabRatioX: 0.5, grabRatioY: 0, width: 800, height: 600, cursor: { x: 90, y: 400 } },
+      ORIGIN,
+      VP,
+    )).toBeNull();
+    expect(resumedFloatGeom(
+      { grabRatioX: 0.5, grabRatioY: 0, width: 800, height: 600, cursor: { x: 700, y: 1000 } },
+      ORIGIN,
+      VP,
+    )).toBeNull();
+  });
+
+  it('크기를 못 받았으면 null — 0×0 짜리 창을 손에 매달지 않는다', () => {
+    expect(resumedFloatGeom(
+      { grabRatioX: 0.5, grabRatioY: 0, width: 0, height: 0, cursor: { x: 700, y: 400 } },
+      ORIGIN,
+      VP,
+    )).toBeNull();
+  });
+
+  it('놓일 자리는 안전망을 지난다 — 타이틀바가 헤더에 깔리면 잡을 수가 없다', () => {
+    const geom = resumedFloatGeom(
+      { grabRatioX: 0.5, grabRatioY: 0, width: 800, height: 600, cursor: { x: 500, y: 10 } },
+      { x: 0, y: 0 },
+      VP,
+    );
+    expect(geom?.y).toBe(IDE_DOCK.HEADER_H);
   });
 });

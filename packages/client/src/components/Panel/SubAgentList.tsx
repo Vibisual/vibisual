@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { SESSION_STATUS_DOT, SESSION_STATUS_LABEL_KEY, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { SESSION_STATUS_LABEL_KEY, sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
 
 interface SubAgentListProps {
   subAgents: SubAgent[];
@@ -28,6 +28,7 @@ export const SubAgentList = memo(function SubAgentList({
   const { t } = useTranslation();
   // IDE 탭바와 같은 규약 — 확인한 세션은 조용한 색으로 내려간다.
   const acknowledged = useGraphStore((s) => s.acknowledgedSubAgents);
+  const sessionFocusGlow = useGraphStore((s) => s.sessionFocusGlow);
   // 백단 작업을 가진 세션은 IDE 탭바와 같이 도트가 켜진다(부모 id 는 목록의 sub 에서 얻는다).
   const parentAgentId = subAgents[0]?.parentAgentId;
   const busySubKey = useGraphStore((s) => serializeBusySubIds(parentAgentId ? s.runningSubagentTasks[parentAgentId] : undefined));
@@ -50,7 +51,7 @@ export const SubAgentList = memo(function SubAgentList({
               {/* 1행: 도트 + 이름 + 상태. 이름은 긴 경로가 와도 한 줄로 잘린다(전체는 title 로).
                   종전에는 잘림이 없어 경로가 오른쪽 칸(상태·토큰) 위로 넘어가 겹쳐 보였다. */}
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${SESSION_STATUS_DOT[runState]}`} />
+                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${sessionDotClass(runState, sessionFocusGlow[sub.id], Date.now())}`} />
                 <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-200" title={sub.label}>
                   {sub.label}
                 </span>

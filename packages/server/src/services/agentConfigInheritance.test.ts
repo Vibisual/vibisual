@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { AgentConfig, ProjectCheckpoint, UserDefaults } from '@vibisual/shared';
 import { AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
@@ -213,5 +214,168 @@ describe('§4 설정 3층 — 영속화', () => {
     expect(restored.getAgentConfigOverrides(agent.id)?.model).toBeUndefined();
     setGlobalDefaults({ model: 'haiku' });
     expect(restored.getAgentConfig(agent.id)?.model).toBe('haiku');
+  });
+});
+
+/*
+ * §4 (설정 3층) — **반대 방향.** 위 (1)~(4) 가 "위층이 아래로 내려오는가"였다면 이쪽은
+ * "아래층이 위층을 끌 수 있는가"다. 3층을 놓고도 아래층이 "이 버블은 안 쓴다"를 말할 방법이
+ * 없으면 전역에서 켠 축은 그 버블에서 **영영 못 끈다** — 창은 껐다고 보여 주는데 저장분에는
+ * 그 뜻이 없어, 읽는 순간 위층이 도로 얹힌다(사용자 눈에는 "개별 설정이 안 먹는다"로 보인다).
+ *
+ * 근본 원인은 **미설정을 `undefined` 로 담은 것**이다. `sparsifyAgentConfig` 는 넘어온 객체의
+ * 키를 도는데 `undefined` 는 `JSON.stringify` 가 키째 버리므로 그 비교에 **아예 오르지 못한다**.
+ * 설정 창이 `null` 로 푼 것과 같은 문제이고(§4 "전역 옵션을 다시 끌 수 없던 것"), 아래층은
+ * 그 축의 **미설정 표기**(false · '' · [] · 0)를 명시로 보내 푼다.
+ */
+describe('§4 설정 3층 — 위층이 켠 것을 아래층에서 끌 수 있다', () => {
+  it('전역이 켠 스위치를 이 버블에서 끄면 그 끔이 못 박힌다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ agentCanCompact: true });
+    const agent = graph.createCustomAgent('Compact');
+    expect(graph.getAgentConfig(agent.id)?.agentCanCompact).toBe(true);
+
+    // 창이 보내는 완성본 — 끔은 undefined 가 아니라 **명시 false** 다.
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { agentCanCompact: false }));
+
+    expect(graph.getAgentConfigOverrides(agent.id)?.agentCanCompact).toBe(false);
+    expect(graph.getAgentConfig(agent.id)?.agentCanCompact).toBe(false);
+  });
+
+  it('못 박은 끔은 전역을 나중에 또 켜도 흔들리지 않는다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ agentCanCompact: true });
+    const agent = graph.createCustomAgent('Pinned');
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { agentCanCompact: false }));
+
+    setGlobalDefaults({ agentCanCompact: true, model: 'sonnet' });
+
+    // 손댄 칸은 그 버블의 뜻이 이기고, 안 건드린 칸은 여전히 위층을 따라간다.
+    expect(graph.getAgentConfig(agent.id)?.agentCanCompact).toBe(false);
+    expect(graph.getAgentConfig(agent.id)?.model).toBe('sonnet');
+  });
+
+  it('전역이 깔아 둔 규칙을 이 버블에서 비울 수 있다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ rules: '전역 규칙' });
+    const agent = graph.createCustomAgent('NoRules');
+    expect(graph.getAgentConfig(agent.id)?.rules).toBe('전역 규칙');
+
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { rules: '' }));
+
+    expect(graph.getAgentConfig(agent.id)?.rules).toBe('');
+  });
+
+  it('전역이 고른 목록을 이 버블에서 빈 목록으로 되돌릴 수 있다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ settingSources: ['user', 'project'] });
+    const agent = graph.createCustomAgent('NoSources');
+    expect(graph.getAgentConfig(agent.id)?.settingSources).toEqual(['user', 'project']);
+
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { settingSources: [] }));
+
+    expect(graph.getAgentConfig(agent.id)?.settingSources).toEqual([]);
+  });
+
+  it('전역이 건 예산 상한을 이 버블에서 0(무제한)으로 풀 수 있다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ maxBudgetUsd: 5 });
+    const agent = graph.createCustomAgent('NoBudget');
+    expect(graph.getAgentConfig(agent.id)?.maxBudgetUsd).toBe(5);
+
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { maxBudgetUsd: 0 }));
+
+    expect(graph.getAgentConfig(agent.id)?.maxBudgetUsd).toBe(0);
+  });
+
+  // **켬이 기본**인 축은 방향이 반대다 — 위층이 꺼 둔 것을 아래층에서 켜려면 명시 `true` 가
+  //   저장돼야 한다. 종전에는 그게 undefined 로 접혀 한 번 끈 전역을 버블마다 되살릴 수 없었다.
+  it('전역이 꺼 둔 켬-기본 축을 이 버블에서 다시 켤 수 있다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ thinking: false });
+    const agent = graph.createCustomAgent('Thinker');
+    expect(graph.getAgentConfig(agent.id)?.thinking).toBe(false);
+
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { thinking: true }));
+
+    expect(graph.getAgentConfig(agent.id)?.thinking).toBe(true);
+  });
+
+  // 반대쪽 사고 — 명시 표기를 실어 보낸다고 **안 건드린 칸까지 못 박히면** 3층이 도로 씨앗
+  //   모델이 된다(창을 열어 저장만 해도 그 시점 전역값 한 벌이 굳던 판올림 전 동작).
+  it('아무것도 안 고치고 저장하면 못 박히는 칸이 없다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ agentCanCompact: true, rules: '전역 규칙', maxBudgetUsd: 5, settingSources: ['user'] });
+    const agent = graph.createCustomAgent('Untouched');
+
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, {}));
+
+    expect(graph.getAgentConfigOverrides(agent.id)).toEqual({});
+    setGlobalDefaults({ agentCanCompact: false, rules: '바뀐 규칙', maxBudgetUsd: 9, settingSources: [] });
+    expect(graph.getAgentConfig(agent.id)?.agentCanCompact).toBe(false);
+    expect(graph.getAgentConfig(agent.id)?.rules).toBe('바뀐 규칙');
+    expect(graph.getAgentConfig(agent.id)?.maxBudgetUsd).toBe(9);
+  });
+});
+
+/*
+ * §4 (설정 3층) — `PUT /api/agent-config/:agentId` 는 body 로 `AgentConfig` **한 벌을 새로 짓고**
+ * `setAgentConfig` 는 저장분을 병합 없이 통째로 갈아치운다. 그래서 그 조립에서 빠진 축은
+ * **저장할 때마다 조용히 사라진다** — 화면에는 "켰는데 안 먹는다"로만 보인다.
+ *
+ * 실제로 `modelVersion`(모델 풀ID 핀) · `includeHookEvents` · `agentDefinitions` · `pluginDirs`
+ * 넷이 그렇게 빠져 있었고, 넷 다 스폰부(`subAgentManager`)가 읽는 축이라 설정은 되는데 다음
+ * 저장 한 번에 도로 꺼졌다. `askTools` 가 같은 사고를 겪은 뒤 남긴 경고가 그 자리에 있었지만
+ * 목록을 지키는 검사가 없어 같은 일이 되풀이됐다 — 이 테스트가 그 목록이다.
+ */
+describe('§4 설정 3층 — PUT 이 비교 대상 축을 하나도 빠뜨리지 않는다', () => {
+  /** PUT 핸들러가 짓는 `AgentConfig` 조립 블록만 잘라 온다. */
+  function putConfigBlock(): string {
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
+    const start = source.indexOf("app.put('/api/agent-config/:agentId'");
+    expect(start).toBeGreaterThan(-1);
+    const bodyStart = source.indexOf('const config: AgentConfig = {', start);
+    expect(bodyStart).toBeGreaterThan(-1);
+    const bodyEnd = source.indexOf('\n      };', bodyStart);
+    expect(bodyEnd).toBeGreaterThan(bodyStart);
+    return source.slice(bodyStart, bodyEnd);
+  }
+
+  it('AGENT_CONFIG_COMPARED_FIELDS 가 전부 PUT 조립에 있다', async () => {
+    const { AGENT_CONFIG_COMPARED_FIELDS } = await import('@vibisual/shared');
+    const block = putConfigBlock();
+
+    const missing = AGENT_CONFIG_COMPARED_FIELDS.filter((f) => !new RegExp(`^\\s*${f}:`, 'm').test(block));
+    expect(missing).toEqual([]);
+  });
+
+  /*
+   * 목록에 있는 것만으로는 모자란다 — 진짜 사고가 난 자리는 **값 정규화**다.
+   * `body.X === true ? true : undefined` 는 창이 보낸 명시 `false` 를 undefined 로 뭉개고,
+   * 그러면 `sparsifyAgentConfig` 비교에 오르지 못해 읽는 순간 위층이 도로 얹힌다. 규약은
+   * 하나다 — **키가 오면 그 값을(빈 값 포함) 받고, 키가 없을 때만 undefined.**
+   */
+  it('스위치 축은 body 의 명시 false 를 그대로 받는다', () => {
+    const block = putConfigBlock();
+    const BOOLEAN_FIELDS = [
+      'agentCanCompact', 'excludeDynamicSystemPromptSections', 'safeMode', 'fastMode',
+      'thinking', 'forwardSubagentText', 'replayUserMessages', 'promptSuggestions', 'includeHookEvents',
+    ];
+
+    const folded = BOOLEAN_FIELDS.filter(
+      (f) => !new RegExp(`${f}: typeof body\\.${f} === 'boolean'`).test(block),
+    );
+    expect(folded).toEqual([]);
+  });
+
+  it('문자열·목록 축은 body 의 빈 값을 그대로 받는다', () => {
+    const block = putConfigBlock();
+
+    // `&& body.X.trim()` 을 덧붙이면 빈 문자열이 undefined 로 접혀 위층을 못 지운다.
+    expect(block).toMatch(/fallbackModel: typeof body\.fallbackModel === 'string' \? body\.fallbackModel\.trim\(\) : undefined/);
+    expect(block).not.toMatch(/autoCompact:[^;]*&& body\.autoCompact\.trim\(\)\s*\n/);
+    // 빈 목록을 undefined 로 접으면 위층이 고른 목록을 비울 수 없다.
+    expect(block).not.toMatch(/picked\.length > 0 \? picked : undefined/);
+    expect(block).toMatch(/^\s*rules: nextRules,/m);
   });
 });

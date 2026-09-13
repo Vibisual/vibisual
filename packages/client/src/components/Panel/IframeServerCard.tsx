@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, ServerEntry } from '@vibisual/shared';
+import { serverRespawnGate } from './serverRespawnGate.js';
 
 interface IframeServerCardProps {
   node: BubbleData;
@@ -48,10 +49,19 @@ export const IframeServerCard = memo(function IframeServerCard({
   }, [runningServers, node.shellId, node.url]);
 
   const serverId = entry?.id ?? null;
-  // §7.11 v3.85 — 에이전트 신고로만 알게 된 서버는 기동 명령을 몰라 respawn 이 불가능하다.
+  const alive = node.iframeAlive === true;
+  // §7.11 v3.85 — 에이전트 신고로만 알게 된 서버는 기동 명령을 몰라 respawn 이 불가능했다.
   // Stop(killByPort)은 포트만 알면 되므로 그대로 활성 — 이 구분이 없으면 신고 iframe 은
   // 서버가 running 인데도 Stop 이 회색으로 잠겨 사용자가 서버를 끌 수 없었다.
-  const canRespawn = entry !== null && entry.reportedOnly !== true;
+  //
+  // §7.11 포트 인계 — "명령 미상"은 이제 **영구 판정이 아니다.** 그 프로세스가 아직 살아 있다면
+  // 서버가 OS 프로세스 테이블에서 기동 명령을 읽어 인계한다(takeover). 그래서 살아 있는 신고
+  // 서버의 Restart/Start 는 **연다** — 에이전트가 켠 서버도 사용자가 껐다 켤 수 있어야 한다.
+  // 영구 불가는 딱 하나, **이미 꺼져서 읽어 올 프로세스가 없는** 신고 서버뿐이다.
+  const processUp = alive || entry?.alive === true;
+  const restartGate = serverRespawnGate(entry, 'restart', processUp);
+  const startGate = serverRespawnGate(entry, 'start', processUp);
+  const canRespawn = restartGate.canRespawn;
 
   const handleRestart = useCallback(async () => {
     if (!serverId || !canRespawn || busy) return;
@@ -78,7 +88,6 @@ export const IframeServerCard = memo(function IframeServerCard({
     finally { setBusy(null); }
   }, [serverId, canRespawn, busy]);
 
-  const alive = node.iframeAlive === true;
   const kindLabel = node.serverKind === 'frontend' ? 'FE' : node.serverKind === 'backend' ? 'BE' : '?';
   const kindClasses = node.serverKind === 'frontend'
     ? 'bg-sky-500/20 text-sky-300'
@@ -119,13 +128,7 @@ export const IframeServerCard = memo(function IframeServerCard({
           type="button"
           onClick={handleRestart}
           disabled={!canRespawn || busy !== null}
-          title={
-            !serverId
-              ? t('panel.serverList.noEntry')
-              : canRespawn
-                ? t('panel.serverList.restart')
-                : t('panel.serverList.noCommand')
-          }
+          title={t(restartGate.titleKey)}
           className="flex flex-1 items-center justify-center gap-1.5 rounded border border-sky-700/60 bg-sky-900/40 px-2 py-1 text-xs text-sky-200 transition-colors hover:bg-sky-800/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           <svg
@@ -158,13 +161,7 @@ export const IframeServerCard = memo(function IframeServerCard({
             type="button"
             onClick={handleStart}
             disabled={!canRespawn || busy !== null}
-            title={
-              !serverId
-                ? t('panel.serverList.noEntry')
-                : canRespawn
-                  ? t('panel.serverList.start')
-                  : t('panel.serverList.noCommand')
-            }
+            title={t(startGate.titleKey)}
             className="flex flex-1 items-center justify-center gap-1.5 rounded border border-emerald-700/60 bg-emerald-900/40 px-2 py-1 text-xs text-emerald-200 transition-colors hover:bg-emerald-800/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <svg

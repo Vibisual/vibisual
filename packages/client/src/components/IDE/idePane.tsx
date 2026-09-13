@@ -76,6 +76,11 @@ export interface IDEPaneActions {
   setSession: (sessionId: string | null) => void;
   setActiveView: (view: IDEViewType) => void;
   toggleSidebar: () => void;
+  /**
+   * §5.5 #17-17 ⑪(k) — 무대(단계 지도)를 이 창 우측에 열고 닫는다.
+   * 값을 안 주면 뒤집는다([뷰 보기]), 명시하면 그 값으로(무대의 [닫기]).
+   */
+  setStageOpen: (open?: boolean) => void;
   close: () => void;
 }
 
@@ -96,6 +101,7 @@ export function useIDEPaneActions(): IDEPaneActions {
     setSession: (sessionId) => useGraphStore.getState().setIDEActiveSession(sessionId, paneKey),
     setActiveView: (view) => useGraphStore.getState().setIDEActiveView(view, paneKey),
     toggleSidebar: () => useGraphStore.getState().toggleIDESidebar(paneKey),
+    setStageOpen: (open) => useGraphStore.getState().setIDEStageOpen(open, paneKey),
     close: () => useGraphStore.getState().closeIDEOverlay(paneKey),
   }), [paneKey]);
 }

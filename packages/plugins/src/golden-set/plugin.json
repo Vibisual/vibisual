@@ -12,7 +12,7 @@
   "clientOnly": false,
   "needs": [
     "agentReports",
-    "brain",
+    "autoGoal",
     "agentEvents",
     "subAgents"
   ],

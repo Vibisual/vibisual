@@ -1,4 +1,5 @@
-import type { ClaudeAuthStatus, ClaudeSetupState } from '@vibisual/shared';
+import type { ClaudeAuthStatus, ClaudeSetupState, EngineChoice } from '@vibisual/shared';
+import { claudeGatesMayAutoOpen } from '../Engine/engineChoiceFlow.js';
 
 /**
  * §4 (첫 실행 설치 온보딩) — 설치 게이트의 **판정만** 모아 둔 곳.
@@ -31,11 +32,21 @@ export function isSetupGateOpen(input: {
   justCompleted: boolean;
   forced: boolean;
   dismissed: boolean;
+  /**
+   * §5.25 (C) — 이 사용자가 첫 진입에서 고른 엔진. 없으면 클로드로 읽는다(이 앱의 출발점이라
+   * "고른 기록 없음"은 클로드다 — 그래서 쓰던 사람의 온보딩은 종전 그대로다).
+   *
+   * 코덱스·로컬을 고른 사람에게 이 창이 저절로 뜨면, 방금 "이걸 쓰겠다"고 답한 것을 무시하고
+   * 다른 제품을 깔라고 막아서는 화면이 된다. 배너와 옵션창은 그대로 남아 있어 언제든 직접
+   * 열 수 있고, 그때는 `forced` 라 이 판정을 타지 않는다.
+   */
+  engineChoice?: EngineChoice | undefined;
 }): boolean {
-  const { setup, justCompleted, forced, dismissed } = input;
+  const { setup, justCompleted, forced, dismissed, engineChoice } = input;
   if (!setup) return false;
   if (justCompleted) return true;
   if (forced) return true;
+  if (!claudeGatesMayAutoOpen(engineChoice)) return false;
   return isSetupPending(setup) && !dismissed;
 }
 
