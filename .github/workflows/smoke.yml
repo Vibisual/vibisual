@@ -474,8 +474,26 @@ jobs:
           #    run #1·#2 의 win 실패가 이 자리였다(고정 20초 대기로도 모자랐다) — 그래서 시간이
           #    아니라 **결과가 나타날 때까지** 기다린다. 종료 코드도 남긴다(0 이 아니면 설치 자체가
           #    거절된 것이라 그 뒤 탐색은 의미가 없다).
+          # 러너 하드웨어를 남긴다 — 설치 프로그램이 0xC0000005 로 죽는 회차가 러너에 따라 갈리는지
+          # 대조하려는 것이다(2026-09-13 v0.1.24: **같은 설치본**이 한 러너에선 설치·25초 생존, 동시에
+          # 다른 러너에선 2초 만에 exit=-1073741819. 스모크 23회 중 4회가 이 코드였다).
+          $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
+          Write-Host "runner cpu: $cpu · logical=$([Environment]::ProcessorCount) · os=$([Environment]::OSVersion.VersionString)"
+          $installStart = Get-Date
           $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
           Write-Host "installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) {
+            # 판정은 바꾸지 않는다(아래에서 그대로 실패한다) — **어느 모듈이 죽었는지**만 남긴다.
+            # Application Error(1000)에 죽은 모듈·예외 코드·오프셋이, WER(1001)에 버킷이 적힌다.
+            Write-Host "== 설치 프로그램 충돌 기록(Application 로그 1000·1001) =="
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001; StartTime = $installStart.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+              Select-Object -First 4 | ForEach-Object { Write-Host "---- [$($_.Id)] $($_.TimeCreated.ToString('HH:mm:ss'))"; Write-Host $_.Message }
+            Write-Host "== 설치 프로그램이 풀어 둔 플러그인(%TEMP%\ns*.tmp) =="
+            Get-ChildItem $env:TEMP -Directory -Filter 'ns*.tmp' -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "   $($_.FullName)"
+              Get-ChildItem $_.FullName -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "      $($_.Name)  $($_.Length)" }
+            }
+          }
 
           function Find-VibisualExe {
             # ① 관례 경로 → ② 레지스트리(가장 확실: NSIS 가 UninstallString 에 설치 폴더를 적는다)
