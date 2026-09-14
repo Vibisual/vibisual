@@ -4,7 +4,6 @@ import type { AgentEngineKind, ClaudeAuthStatus, CodexAuthStatus } from '@vibisu
 import { useGraphStore } from '../../stores/graphStore.js';
 import { EngineIcon } from '../Engine/engineIcons.js';
 import { ProviderTabs } from '../Engine/ProviderTabs.js';
-import { MainProviderSelect } from './MainProviderSelect.js';
 import { CodexHooksToggle } from './EnginesSection.js';
 
 const API_BASE = '';
@@ -68,7 +67,6 @@ export function AccountTab(): React.JSX.Element {
         </p>
       </div>
 
-      <MainProviderSelect />
       <ProviderTabs value={accountEngine} onChange={setAccountEngine} />
       {/* 클로드 계정 */}
       {accountEngine === 'claude' && <AccountCard

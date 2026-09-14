@@ -20,7 +20,7 @@ Design your agent team on a canvas, watch them work, and edit right there.
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Vibisual/vibisual?color=blue)](https://github.com/Vibisual/vibisual/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/Vibisual/vibisual/ci.yml?branch=main&label=build)](https://github.com/Vibisual/vibisual/actions/workflows/ci.yml)
-[![Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FVibisual%2Fvibisual%2Fmetrics%2Fbadge-downloads.json)](https://github.com/Vibisual/vibisual/releases)
+[![Downloads](https://img.shields.io/github/downloads/Vibisual/vibisual/total?label=downloads&color=blue)](https://github.com/Vibisual/vibisual/releases)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 [![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-7c3aed)](https://claude.com/claude-code)
 [![Status: early](https://img.shields.io/badge/status-early-orange)](#)

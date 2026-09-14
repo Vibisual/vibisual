@@ -6,6 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen, dialog, Notification, sess
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
+import { followOuterDisconnect, isDispatchHoldPath, type InjectDispatch } from './injectDisconnect';
 import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
@@ -309,8 +310,12 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/health' &&
       path !== '/api/hook-event' &&
       path !== '/api/permission-check' &&
+      path !== '/api/codex-tool-check' &&
       path !== '/api/ask-user-question' &&
       path !== '/api/task-edges/dispatch' &&
+      // §5.3 #10-2 (위임 결과 복구) — 끊긴 뒤 결과를 다시 받는 조회(`GET …/:cmdId`)와 취소(`POST …/:cmdId/cancel`).
+      //   부르는 쪽이 dispatch 와 같은 외부 프로세스라 같은 통로가 필요하다. 토큰 인증 필수(아래 분기).
+      !path.startsWith('/api/task-edges/dispatch/') &&
       // §4 v2.52 — 커스텀/스폰 에이전트의 작업 신고(did/userActions). 토큰 인증 필수(아래 분기).
       path !== '/api/agent-report' &&
       // §4 (CLI 사양 추종) — 에이전트 자율 컨텍스트 압축 요청. 큐에 얹는 시점은 그 턴이 끝난 뒤라
@@ -374,7 +379,11 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       //   안전하고, 반대로 지우지 못하게 하는 것이 이 한 줄의 전부다.
       const ingressHeaders = { ...(req.headers as Record<string, string | string[]>) };
       ingressHeaders[LOOPBACK_INGRESS_HEADER] = LOOPBACK_INGRESS_VALUE;
-      void inject(expressApp as unknown as DispatchFunc, {
+      // §5.3 #10-2 — 결과를 붙드는 dispatch·조회는 바깥 호출자가 끊기면 안쪽 응답도 끊는다. 안 그러면 끊긴 호출자에게
+      //   결과를 건넸다고 적혀, 그 결과를 기다리던 턴이 받지 못한 채 완료로 끝날 수 있다.
+      const target = expressApp as unknown as InjectDispatch;
+      const dispatchFn = (isDispatchHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;
+      void inject(dispatchFn, {
         method: (req.method ?? 'GET') as 'GET',
         url: req.url ?? path,
         headers: ingressHeaders,
@@ -385,6 +394,8 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
         if (typeof ct === 'string') res.setHeader('content-type', ct);
         res.end(injected.payload);
       }).catch((err: unknown) => {
+        // 바깥이 먼저 끊겨 안쪽을 끊은 경우 — 받을 쪽이 없다.
+        if (res.writableEnded || res.destroyed) return;
         res.statusCode = 500;
         res.end(`hook dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
       });

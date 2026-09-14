@@ -91,6 +91,7 @@ import { permissionBroker } from './services/permissionBroker.js';
 import { shouldEscalateRisk, normalizeAuditBoundary } from '@vibisual/shared';
 // §5.22 — 위험 판정은 호스트 값(플랫폼·홈)을 물린 이 창구 하나로. 승인 카드와 타임라인이 같은 답을 본다.
 import { classifyToolRiskOnHost } from './services/auditLog.js';
+import { CodexApprovalMemory, codexApprovalKey, codexPermissionHooksRequired, planCodexPermission, type CodexPermissionHookEvent } from './services/codexPermissionPolicy.js';
 import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -223,7 +224,7 @@ import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebFoldPerAgent, appStateSetWebFoldPerAgent, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
 import { ensureHooksInstalledEverywhere, installHooksIntoNewCoworkHomes } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -251,6 +252,7 @@ import { codexAuthService } from './services/codexAuthService.js';
 import { codexSetupService } from './services/codexSetupService.js';
 import { codexModelService } from './services/codexModelService.js';
 import { codexInventoryService } from './services/codexInventoryService.js';
+import { readCodexEffectiveConfigFor } from './services/codexConfigService.js';
 import { codexReviewService } from './services/codexReviewService.js';
 import { isCodexImageFile } from './services/codexStreamMap.js';
 import type { CodexReviewMode } from '@vibisual/shared';
@@ -276,11 +278,33 @@ import { getLocalHardware, invalidateLocalHardware } from './services/localHardw
 import { toLocalHookPayload } from './services/localHookPayload.js';
 import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, listRepoFiles, searchCatalog, setModelDownloadedHook } from './services/localModelService.js';
 import { listLoadedModels, verifyModelOutput } from './services/localRunner.js';
+import { getLocalSampling } from './services/localSamplingService.js';
 import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache, autoUpdateClaudeIfEnabled, onClaudeInstallSettled } from './services/claudeVersionService.js';
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readContextInfo, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
 import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
+// §5.3 #10-2 (위임 결과 복구) — dispatch 결과를 대기 소켓과 따로 쥐는 장부 · 대기 허브 · 소유권 판정.
+import {
+  createDispatchJobRegistry,
+  createDispatchWaiterHub,
+  dispatchOutcomeFromCommand,
+  dispatchRequestFingerprint,
+  isDispatchJobSucceeded,
+  isDispatchRequestKeyConflict,
+  isTerminalDispatchJobStatus,
+  parseDispatchRequestKey,
+  dispatchStatusGrantInstructions,
+  parseDispatchStatusGrants,
+  parseDispatchStatusWaitMs,
+  parseDispatchWait,
+  resolveDispatchRequester,
+  toDispatchJobView,
+  undeliveredDispatchResultInstructions,
+  waitForDispatchStatus,
+  type DispatchJob,
+  type DispatchJobOutcome,
+} from './services/taskEdgeDispatchJobs.js';
 // §5.5 #17-17 ⑪(l) — 에이전트가 답 안에 끼워 넣은 무대 블록을 스트림에서 수확한다(새 창구 ❌).
 import { StageBlockIngest } from './services/stageBlockIngest.js';
 // §5.5 #17-9 ⑦ — 자식 도구 한 줄 요약 · Task 결과 본문 추출(판본 흔들림을 흡수하는 순수 함수).
@@ -1777,6 +1801,28 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * §4 v2.38 / §4 (상태바 모델 칸 ③) — 클로드 모델 레지스트리. v2.38 이 적어 두고 만들지 않았던 조회 창구다.
+   * 스냅샷·WS(`model_registry_updated`)가 이미 나르므로 이것은 **WS 도착 전 빈 화면 방지**용이다.
+   */
+  app.get('/api/models', (_req, res) => {
+    res.json({ ok: true, registry: modelRegistryService.getRegistry() });
+  });
+
+  /**
+   * §4 (상태바 모델 칸 ③) — 모델 창을 열 때의 "한 번 더 확인". 실행본이 바뀌었으면 강도 등급을 다시
+   * 긁고, 키가 있으면 `/v1/models` 를 다시 받는다(하한 안이면 건너뜀). 끝난 레지스트리를 돌려준다 —
+   * 내용이 바뀌었으면 서비스 구독이 이미 방송했으므로 여기서 한 번 더 쏘지 않는다.
+   */
+  app.post('/api/models/refresh', async (_req, res) => {
+    try {
+      const registry = await modelRegistryService.refreshNow();
+      res.json({ ok: true, registry });
+    } catch {
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
    * §5.25 (M) — 코덱스가 들고 있는 것들(MCP·스킬·플러그인·훅·`AGENTS.md`). **읽기만** 한다.
    *
    * `agentId` 를 주면 그 버블의 프로젝트 폴더에서 `AGENTS.md` 를 찾는다 — 다섯 갈래 중
@@ -1802,6 +1848,19 @@ export async function runServer(): Promise<RunServerHandle> {
       graphManager.setCodexInventory(inventory);
       broadcastSnapshot();
       res.json(inventory);
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.25 (G-2) — 코덱스가 그 버블의 작업 폴더에서 겹칠 설정 파일들. **읽기만** 한다.
+   * 설정 창이 빈 선택지에 "지금 적용되는 값"을 적는 데 쓴다. 폴더를 못 찾으면 홈 기준(프로젝트 겹 없음).
+   */
+  app.get('/api/codex-config', (req, res) => {
+    try {
+      const cwd = codexInventoryCwd(req.query['agentId']) ?? os.homedir();
+      res.json(readCodexEffectiveConfigFor(cwd));
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -2307,6 +2366,8 @@ export async function runServer(): Promise<RunServerHandle> {
       '```bash',
       `curl -s -X POST "\${${AGENT_CARD_ENV_BASE}:-${serverBase}}/api/task-edges/dispatch?edgeId=<id>" \\`,
       `  -H "x-vibisual-hook-token: \$${AGENT_CARD_ENV_TOKEN}" \\`,
+      // §5.3 #10-2 — 이 턴(세션)에 결과를 묶는 표식. 결과를 받기 전에 턴이 완료로 끝나지 않게 서버가 이 id 로 묶는다.
+      '  -H "x-vibisual-source-subagent: $VIBISUAL_SUBAGENT_ID" \\',
       '  -H \'Content-Type: text/plain; charset=utf-8\' \\',
       '  --data-binary @- <<\'VIBISUAL_EDGE_PAYLOAD_EOF\'',
       '<instruction 전문 — 그대로 붙여넣기, JSON·쉘 escape 불필요, 여러 줄 OK>',
@@ -2314,6 +2375,12 @@ export async function runServer(): Promise<RunServerHandle> {
       '```',
       '',
       `**인증 필수**: 위 \`x-vibisual-hook-token\` 헤더가 없으면 401 이다. 값은 환경변수 \`${AGENT_CARD_ENV_TOKEN}\` 에 이미 들어 있으니 위 예시를 그대로 쓰면 된다(카드 5경로와 같은 규약).`,
+      '',
+      // §5.3 #10-2 — 결과를 돌려받는 엣지에서 진행 중 응답은 "접수됨"이지 결과가 아니다. 다시 부르면 같은 일이 두 번 돈다.
+      `**결과를 기다리던 응답이 \`"pending":true\`(202 \`timedOut\` 포함)이면**: 작업은 계속 돈다. 같은 일을 다시 dispatch 하지 말고 \`curl -s -H "x-vibisual-hook-token: \$${AGENT_CARD_ENV_TOKEN}" "\${${AGENT_CARD_ENV_BASE}:-${serverBase}}<statusUrl>&waitMs=60000"\` 를 status 가 completed·error·cancelled 가 될 때까지 되풀이한다. 결과를 받지 않고 끝낸 턴은 실패로 기록된다.`,
+      '',
+      // §5.3 #10-2 위임 조회 — 권한은 명시한 목록으로만 건너간다. 헤더 없이 "확인해 달라"고만 맡기면 대상은 403 이다.
+      '**이미 띄운 작업의 결과 확인을 맡길 때**: 위 curl 에 `-H "x-vibisual-source-agent: $VIBISUAL_PARENT_AGENT_ID" -H "x-vibisual-status-cmd-ids: <cmdId>[,<cmdId>]"` 를 더한다. 대상은 이 위임이 도는 동안 그 cmdId 만 조회할 수 있다(취소 ❌). 이 헤더 없이 맡기면 대상의 조회는 403 이다.',
       '',
       '주의: `<id>` 자리에 아래 목록의 edgeId 를 그대로 넣는다(URL-safe, 인코딩 불필요). delimiter 는 싱글쿼트로 감싼 `<<\'VIBISUAL_EDGE_PAYLOAD_EOF\'` 형태 유지(쉘 변수·백틱 치환 차단). instruction 본문에 `VIBISUAL_EDGE_PAYLOAD_EOF` 가 한 줄로 등장할 가능성이 있으면 delimiter 만 다른 이름으로 변경. (기존 `{"edgeId":..,"instruction":..}` JSON 본문 방식도 서버가 후방호환 수용하지만, 신규 호출은 escape 불가능한 위 raw 방식만 쓴다.)',
       '',
@@ -2889,7 +2956,15 @@ export async function runServer(): Promise<RunServerHandle> {
       //   `dispatchContext`(첫 스폰)와 `livePreamble`(이어지는 턴) 둘 다에 붙이지만 `execute` 가
       //   sessionId 유무로 갈라 쓰므로 한 턴에 두 번 실리지 않는다(집행 블록과 같은 자리·같은 이유).
       const recoveryBlock = take(CONTEXT_SOURCE_IDS.compactRecovery);
-      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock;
+      // §5.3 #10-2 위임 조회 — 부모가 이 위임과 함께 넘긴 조회 목록. 위임이 끝났으면 비어 창구를 싣지 않는다.
+      //   코덱스는 MCP `status` 도구로(아래 codexEdgeConfig), 클로드는 자기 id 로 부르는 GET 안내로 받는다.
+      const statusGrantsForTurn = next.edgeId ? dispatchJobs.activeStatusGrantsFor(next.id) : [];
+      const statusGrantBlock = agentConfig?.provider?.kind === 'codex-cli' ? '' : dispatchStatusGrantInstructions(statusGrantsForTurn);
+      // §5.3 #10-2 — 이 세션이 띄우고 아직 받지 못한 결과. 턴 끝 가드(`failIfDispatchResultMissing`)와 같은 목록이라
+      //   실패 사유에 적힌 cmdId 로 다음 턴이 다시 dispatch 하지 않고 이어 받는다. 코덱스는 codexEdgeConfig 로 간다.
+      const undeliveredForTurn = next.subAgentId ? pendingDispatchResultsFor(next.subAgentId) : [];
+      const undeliveredBlock = agentConfig?.provider?.kind === 'codex-cli' ? '' : undeliveredDispatchResultInstructions(undeliveredForTurn);
+      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock;
 
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -2899,7 +2974,7 @@ export async function runServer(): Promise<RunServerHandle> {
       //   (첫 스폰 경로는 preamble 을 쓰지 않으니 중복되지 않는다 — `execute` 가 sessionId 유무로 갈라 쓴다.)
       // §5.5 #17-17 ②-2 v4.72 — "의도 먼저 + 계획을 세워라"도 같은 함정 위에 있었다(첫 스폰에만 실리면
       //   두 번째 턴부터는 계획을 세우라는 말을 아무도 안 한다). 짧은 블록이라 매 턴 실어도 비용이 미미하다.
-      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
       const spawnSwitches = buildSpawnContextSwitches(contextOverrides, ctxScope);
@@ -2920,12 +2995,35 @@ export async function runServer(): Promise<RunServerHandle> {
         [AGENT_CARD_ENV_TOKEN]: hookListenerToken ?? '',
       };
       subAgentManager.execute(next, cwd, dispatchContext, effectiveConfig, livePreamble, {
-        ...(agentConfig?.provider?.kind === 'codex-cli' && graphManager.getOutboundTaskEdges(agent.id).some((e) => isEdgeTargetViable(e.targetAgentId)) ? {
+        ...(agentConfig?.provider?.kind === 'codex-cli' && hasCodexToolRestrictions(agentConfig.provider.codexTools) ? {
+          codexToolHook: {
+            helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
+            nodeBin: resolveBinary('node') ?? '',
+            policy: agentConfig.provider.codexTools!,
+          },
+        } : {}),
+        // §5.25 (H) — 권한 모드·감사 경계를 코덱스 턴에서 집행하는 훅. 승인 카드·원장은 클로드와 같은 창구다.
+        //   커스텀 버블에만 싣는다 — 권한 창구는 훅으로 붙은 버블(view-only)의 호출을 막지 않는다.
+        ...(agentConfig?.provider?.kind === 'codex-cli' && agent.customCreated ? {
+          codexPermissionHook: {
+            helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
+            nodeBin: resolveBinary('node') ?? '',
+            required: codexPermissionHooksRequired(
+              agentConfig.permissionMode,
+              graphManager.getAuditBoundary(graphManager.getAgentProjectName(agent.id) ?? ''),
+            ),
+          },
+        } : {}),
+        // §5.3 #10-2 위임 조회 — 나가는 엣지가 없어도 조회를 넘겨받은 턴이면 다리를 싣는다(`status` 만, dispatch 는 숨는다).
+        //   받지 못한 결과가 남은 턴도 같다 — 그 결과를 이어 받을 `status` 가 있어야 한다.
+        ...(agentConfig?.provider?.kind === 'codex-cli' && (graphManager.getOutboundTaskEdges(agent.id).some((e) => isEdgeTargetViable(e.targetAgentId)) || statusGrantsForTurn.length > 0 || undeliveredForTurn.length > 0) ? {
           codexEdgeConfig: {
             helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
             nodeBin: resolveBinary('node') ?? '',
             edgeIds: graphManager.getOutboundTaskEdges(agent.id).filter((e) => isEdgeTargetViable(e.targetAgentId)).map((e) => e.id),
             restrictedTools: [...stripSet],
+            ...(statusGrantsForTurn.length ? { statusCmdIds: statusGrantsForTurn } : {}),
+            ...(undeliveredForTurn.length ? { pendingResults: undeliveredForTurn.map(({ cmdId, status }) => ({ cmdId, status })) } : {}),
           },
         } : {}),
         customParent: !!agent.customCreated,
@@ -4218,7 +4316,11 @@ export async function runServer(): Promise<RunServerHandle> {
     const queue = commandQueues.get(sessionId);
     if (!queue) { res.json({ ok: true }); return; }
     const idx = queue.findIndex((c) => c.id === commandId);
-    if (idx >= 0) queue.splice(idx, 1);
+    const [removed] = idx >= 0 ? queue.splice(idx, 1) : [];
+    // §5.3 #10-2 — 안 나간 위임 명령을 지우면 그 작업은 취소로 끝난다(장부·동기 대기·엣지가 함께 내려간다).
+    if (removed?.status === 'queued') {
+      settleDispatchCommand(removed, { outcome: { status: 'cancelled', errorMessage: 'removed from queue before start' }, updateEdge: true, neverStarted: true });
+    }
     res.json({ ok: true });
     broadcastSnapshot();
   });
@@ -4936,18 +5038,21 @@ export async function runServer(): Promise<RunServerHandle> {
    *  §4 v2.63 — `executionMode:'interactive-terminal'` 이면 CMD(인터랙티브 터미널) 에이전트로 baked. */
   app.post('/api/create-custom-agent', (req, res) => {
     try {
-      const { label, x, y, project, executionMode, provider: providerRaw } = req.body as {
+      const { label, x, y, project, executionMode, provider: providerRaw, cliKind: cliKindRaw } = req.body as {
         label?: string; x?: number; y?: number; project?: string;
         executionMode?: 'headless' | 'interactive-terminal';
         // §5.19 (B) — All Model 버블. **모델 없이도 온다** — 우클릭으로 고른 순간 버블이 먼저 생기고
         //   모델은 그 버블을 눌렀을 때 매인다(진입 순서 역전). 그래서 modelId 가 비었다고 버리면 안 된다.
         provider?: unknown;
+        // §5.25 (B-1) — CMD 터미널이 채울 CLI(Codex 칸의 "Codex CMD" = `codex`). 표에 있는 값만 받는다.
+        cliKind?: unknown;
       };
       const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
       const provider: AgentProvider | undefined = normalizeAgentProvider(providerRaw);
+      const cliKind = CMD_CLI_KINDS.some((k) => k.value === cliKindRaw) ? (cliKindRaw as CmdCliKind) : undefined;
       const options =
         executionMode === 'interactive-terminal'
-          ? { executionMode, ...(provider ? { provider } : {}) }
+          ? { executionMode, ...(provider ? { provider } : {}), ...(cliKind ? { cliKind } : {}) }
           : provider
             ? { provider }
             : undefined;
@@ -6513,12 +6618,19 @@ export async function runServer(): Promise<RunServerHandle> {
       for (const c of queue) {
         // 다른 세션 소유 명령은 손대지 않는다 — 이 라우트의 존재 이유.
         if (c.subAgentId !== subId) { remaining.push(c); continue; }
-        if (c.status === 'queued') { cancelledQueued++; continue; }
+        if (c.status === 'queued') {
+          cancelledQueued++;
+          // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
+          settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+          continue;
+        }
         if (c.status === 'executing' && !subAgentManager.isSubRunning(subId)) {
           c.status = 'completed';
           c.result = '[Stopped by user]';
           sealedExecuting++;
           sealed.push(c);
+          // §5.3 #10-2 — 이 봉합은 완료 콜백을 거치지 않는다. 장부·대기·엣지를 여기서 함께 내린다.
+          settleDispatchCommand(c, { updateEdge: true });
           const sealedSub = subAgentManager.getSub(subId);
           if (sealedSub && sealedSub.status === 'active') {
             sealedSub.status = 'idle';
@@ -6587,13 +6699,20 @@ export async function runServer(): Promise<RunServerHandle> {
       // `[Stopped by user]` 로 남아야 사용자가 "왜 사라졌지"를 겪지 않는다.
       const sealed: QueuedCommand[] = [];
       for (const c of queue) {
-        if (c.status === 'queued') { cancelledQueued++; continue; }
+        if (c.status === 'queued') {
+          cancelledQueued++;
+          // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
+          settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+          continue;
+        }
         if (c.status === 'executing' && !(c.subAgentId && subAgentManager.isSubRunning(c.subAgentId))) {
           // 자식은 이미 없는데 executing 으로 굳어 있던 건 — 여기서 봉합해야 UI 가 Run 으로 돌아온다.
           c.status = 'completed';
           c.result = '[Stopped by user]';
           sealedExecuting++;
           sealed.push(c);
+          // §5.3 #10-2 — 이 봉합은 완료 콜백을 거치지 않는다. 장부·대기·엣지를 여기서 함께 내린다.
+          settleDispatchCommand(c, { updateEdge: true });
           const sealedSub = c.subAgentId ? subAgentManager.getSub(c.subAgentId) : undefined;
           if (sealedSub && sealedSub.status === 'active') {
             sealedSub.status = 'idle';
@@ -6825,6 +6944,26 @@ export async function runServer(): Promise<RunServerHandle> {
     // 부모 id 를 함께 넘긴다 — 복원 직후처럼 그 sub 가 아직 index 에 없어도 디스크에서 읽어 준다
     // (빈 배열이 나가면 클라가 얕은 창에 갇혀 대화 중간이 빈 채로 굳는다).
     res.json({ events: subAgentManager.getStreamBuffer(subId, agentId) });
+  });
+
+  /**
+   * GET /api/subagent-streams/:agentId/:subId/older?beforeId=&beforeTs=&limit= — §5.5 #17-12 복원 창 **위쪽** 한 쪽.
+   *
+   * 깊은 복원분(마지막 `MAX_STREAM_BUFFER` 건)보다 오래된 대화는 종전엔 받아 올 길이 없어, 긴 대화를 다시
+   * 열면 앞 턴들이 말풍선과 저장된 마지막 답만 남았다. 사용자가 그 경계 가까이 올라왔을 때만 클라가 부른다
+   * (IDE 여는 비용은 그대로). 컴팩션으로 보관 파일에 옮겨진 앞부분까지 거슬러 읽는다.
+   */
+  app.get('/api/subagent-streams/:agentId/:subId/older', (req, res) => {
+    const { agentId, subId } = req.params;
+    const beforeId = typeof req.query.beforeId === 'string' && req.query.beforeId !== '' ? req.query.beforeId : undefined;
+    const beforeTs = typeof req.query.beforeTs === 'string' ? Number(req.query.beforeTs) : Number.NaN;
+    const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : Number.NaN;
+    res.json(subAgentManager.getOlderStreamEvents(
+      subId,
+      agentId,
+      { ...(beforeId ? { beforeId } : {}), ...(Number.isFinite(beforeTs) ? { beforeTs } : {}) },
+      Number.isFinite(limit) ? limit : undefined,
+    ));
   });
 
   /**
@@ -7613,7 +7752,7 @@ export async function runServer(): Promise<RunServerHandle> {
         // §5.19 (B) — provider(All Model 의 정체)는 executionMode 와 같은 규약이다: **body 에 없으면
         //   이전 값을 유지**한다. 이 축을 모르는 창(에이전트 설정 팝업)이 저장하는 순간 provider 가
         //   지워지면 All Model 버블이 조용히 클로드 버블로 되돌아간다. 모델을 새로 매는 것도 이 통로다.
-        provider: normalizeAgentProvider(body.provider) ?? prev?.provider,
+        provider: fromLoopback ? prev?.provider : normalizeAgentProvider(body.provider) ?? prev?.provider,
         // §4 (CMD 터미널 업그레이드 ⑧) — CMD 버블이 띄울 CLI. `executionMode`·`provider` 와 **같은
         //   규약**이다: body 에 유효값이 오면 그걸, 없으면 이전 값을 유지한다. 이 축을 모르는 창이
         //   저장하는 순간 고른 CLI 가 조용히 claude 로 되돌아가는 것을 막는다.
@@ -7736,6 +7875,64 @@ export async function runServer(): Promise<RunServerHandle> {
    * PreToolUse 훅이 동기 호출. 해당 세션/subagent 가 Vibisual 관할 + ask 모드면 broker 에 큐잉 후
    * 사용자 결정을 기다렸다가 `{decision:'allow'|'deny'}` 반환. 그 외는 즉시 allow.
    */
+  // Codex named-tool gate. Kept separate from sandbox/audit approval: allowing a
+  // tool here never grants sandbox access or skips the other permission hooks.
+  app.post('/api/codex-tool-check', async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const agentId = typeof body.parentAgentId === 'string' ? body.parentAgentId : '';
+      const node = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
+      const config = graphManager.getAgentConfig(agentId);
+      if (!node?.customCreated || config?.provider?.kind !== 'codex-cli' || typeof body.toolName !== 'string') {
+        res.json({ decision: 'deny', reason: 'not-managed' }); return;
+      }
+      const projectName = graphManager.getAgentProjectName(agentId) ?? '';
+      const toolInput = body.toolInput && typeof body.toolInput === 'object' ? body.toolInput : {};
+      const auditEntryId = graphManager.recordAuditCall({
+        projectName, agentId, agentLabel: node.label ?? agentId,
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : '',
+        subAgentId: typeof body.subAgentId === 'string' ? body.subAgentId : undefined,
+        toolName: body.toolName, toolInput,
+        roots: graphManager.getAuditRoots(projectName, typeof body.cwd === 'string' ? body.cwd : null),
+        awaitHookEvent: true,
+      });
+      const note = (decision: 'allow' | 'deny', source: AuditDecisionSource, reason: string) => {
+        if (auditEntryId) graphManager.recordAuditDecision(projectName, auditEntryId, decision, source, reason);
+      };
+      const decision = decideCodexTool(config.provider.codexTools, body.toolName);
+      if (decision !== 'ask') {
+        if (decision === 'deny') note('deny', 'policy', 'tool-policy');
+        res.json({ decision, reason: 'tool-policy' }); return;
+      }
+      if (config.permissionMode === 'dontAsk') {
+        note('deny', 'policy', 'dont-ask');
+        res.json({ decision: 'deny', reason: 'dont-ask' }); return;
+      }
+      graphManager.setPermissionWaiting(agentId, true);
+      broadcastSnapshot();
+      try {
+        const result = await permissionBroker.request({
+          agentId, agentLabel: node.label ?? agentId, agentColor: config.color ?? BUBBLE_COLORS.agent,
+          projectName, toolName: body.toolName,
+          toolInput,
+          subAgentId: typeof body.subAgentId === 'string' ? body.subAgentId : undefined,
+          askedByTool: true,
+          ...(auditEntryId ? { auditEntryId } : {}),
+        }, config.permissionTimeoutPolicy === 'allow' ? 'allow' : 'deny');
+        note(result.decision, result.reason === 'timeout' ? 'timeout' : 'user', result.reason ?? 'user');
+        res.json({ decision: result.decision, reason: result.reason ?? 'user' });
+      } finally {
+        graphManager.setPermissionWaiting(agentId, false);
+        broadcastSnapshot();
+      }
+    } catch (error) {
+      logger.error('POST /api/codex-tool-check failed', error);
+      res.status(500).json({ decision: 'deny', reason: 'internal-error' });
+    }
+  });
+
+  // §5.25 (H) — 코덱스 재시도·승인 요청이 앞 카드의 답을 잇는 짧은 기억(2분). 서버 수명 동안 한 벌.
+  const codexApprovalMemory = new CodexApprovalMemory();
   app.post('/api/permission-check', async (req, res) => {
     try {
       interface Body {
@@ -7747,11 +7944,29 @@ export async function runServer(): Promise<RunServerHandle> {
         toolName?: string;
         toolInput?: Record<string, unknown>;
         cwd?: string;
+        /** §5.25 (H) — `codex-edges.mjs permission` 이 보낸 요청이면 'codex'. 없으면 클로드 훅(handler.mjs). */
+        engine?: string;
+        /** §5.25 (H) — 코덱스 훅 이벤트(`PreToolUse` | `PermissionRequest`). */
+        hookEvent?: string;
+        /** §5.25 (H) — 코덱스 PreToolUse 의 `tool_use_id`. 원장 줄을 훅 추적 이벤트와 잇는다. */
+        toolUseId?: string;
       }
       const body = (req.body ?? {}) as Body;
 
       const toolName = typeof body.toolName === 'string' ? body.toolName : '';
       const toolInput = (body.toolInput ?? {}) as Record<string, unknown>;
+      // §5.25 (H) — 코덱스 권한 훅의 이벤트. 샌드박스 밖 실행을 묻는 `PermissionRequest` 에 "관할 밖이니
+      //   통과"를 답하면 사람 없이 샌드박스가 풀린다 — 그 이벤트의 관할 밖 답은 거부다(문구는 훅이 고른다).
+      const codexEvent: CodexPermissionHookEvent | null = body.engine !== 'codex' ? null
+        : body.hookEvent === 'PreToolUse' || body.hookEvent === 'PermissionRequest' ? body.hookEvent : null;
+      if (body.engine === 'codex' && !codexEvent) {
+        res.status(400).json({ ok: false, decision: 'deny', reason: 'invalid-hook-event' });
+        return;
+      }
+      const passUnmanaged = (reason: string): void => {
+        if (codexEvent === 'PermissionRequest') res.json({ ok: true, decision: 'deny', reason: 'not-managed' });
+        else res.json({ ok: true, decision: 'allow', reason });
+      };
 
       // 1) 관할 에이전트 resolve — parentAgentId 우선, 그 다음 sessionId 역방향.
       let agentId: string | null = body.parentAgentId ?? null;
@@ -7760,7 +7975,7 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       if (!agentId) {
         // Vibisual 관할이 아님 — 즉시 통과
-        res.json({ ok: true, decision: 'allow', reason: 'not-managed' });
+        passUnmanaged('not-managed');
         return;
       }
 
@@ -7769,14 +7984,102 @@ export async function runServer(): Promise<RunServerHandle> {
       // 절대 승인 모달을 띄우지 않는다(이 세션 자신의 도구 호출을 막아선 안 됨).
       const agentNode = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
       if (!agentNode || !agentNode.customCreated) {
-        res.json({ ok: true, decision: 'allow', reason: 'view-only-agent' });
+        passUnmanaged('view-only-agent');
         return;
       }
 
       const config = graphManager.getAgentConfig(agentId);
       if (!config) {
         // 설정 없음 — 막을 근거 없음, 통과
-        res.json({ ok: true, decision: 'allow', reason: 'no-config' });
+        passUnmanaged('no-config');
+        return;
+      }
+
+      /*
+       * §5.25 (H) — 코덱스 버블의 권한 모드·감사 경계.
+       *
+       * 이 버블의 주인은 앱이 턴마다 싣는 권한 훅(`codex-edges.mjs permission`)이다. 사용자가 켠 전역
+       * 코덱스 훅(§5.25 (I), `handler.mjs`)도 같은 호출로 여기 오므로 그쪽은 비켜 선다 — 안 비키면 한
+       * 호출에 승인 카드가 두 장 뜬다(`codex-app-hook` 은 handler.mjs 가 개입하지 않는 통과 사유다).
+       *
+       * 판정은 `planCodexPermission` 한 곳이 한다. 모드는 코덱스 샌드박스·승인 정책이 집행하고, 이
+       * 창구는 코덱스가 샌드박스 밖을 물을 때(PermissionRequest)만 카드를 띄운다. 감사 경계는 모드와
+       * 따로, 실행 전(PreToolUse) 위험 호출을 붙잡는다. 카드·60초 정책·원장은 아래 클로드 경로와 같다.
+       */
+      if (!codexEvent && config.provider?.kind === 'codex-cli') {
+        res.json({ ok: true, decision: 'allow', reason: 'codex-app-hook' });
+        return;
+      }
+      if (codexEvent) {
+        const codexSessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+        const codexSubAgentId = typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined;
+        const codexProject = graphManager.getAgentProjectName(agentId) ?? '';
+        const codexRoots = graphManager.getAuditRoots(codexProject, body.cwd ?? null);
+        const codexRisk = classifyToolRiskOnHost(toolName, toolInput, codexRoots);
+        const codexEscalate = codexRisk.length > 0
+          && shouldEscalateRisk(graphManager.getAuditBoundary(codexProject), codexRisk);
+        const approvalKey = codexApprovalKey(agentId, codexSessionId, toolName, toolInput);
+        const plan = planCodexPermission({
+          event: codexEvent,
+          permissionMode: config.permissionMode,
+          escalate: codexEscalate,
+          consumeApproval: () => codexApprovalMemory.consume(approvalKey, codexEvent),
+        });
+        // 한 호출은 원장 한 줄 — 승인 요청(`tool_use_id` 없음)과 허용된 재시도는 앞 PreToolUse 가 적은 줄을 잇는다.
+        const reusedEntry = codexEvent === 'PermissionRequest' || (plan.kind === 'allow' && plan.reason === 'approved')
+          ? codexApprovalMemory.entryFor(approvalKey)
+          : undefined;
+        const codexEntryId = reusedEntry ?? graphManager.recordAuditCall({
+          projectName: codexProject,
+          sessionId: codexSessionId,
+          agentId,
+          ...(codexSubAgentId ? { subAgentId: codexSubAgentId } : {}),
+          ...(agentNode.label ? { agentLabel: agentNode.label } : {}),
+          ...(config.color ? { agentColor: config.color } : {}),
+          toolName,
+          toolInput,
+          ...(typeof body.toolUseId === 'string' && body.toolUseId ? { toolUseId: body.toolUseId } : {}),
+          roots: codexRoots,
+        });
+        if (codexEntryId && !reusedEntry) codexApprovalMemory.rememberEntry(approvalKey, codexEntryId);
+        const noteCodexDecision = (decision: 'allow' | 'deny', source: AuditDecisionSource, reason?: string): void => {
+          if (codexEntryId) graphManager.recordAuditDecision(codexProject, codexEntryId, decision, source, reason);
+        };
+        if (plan.kind === 'allow') {
+          if ('policy' in plan && plan.policy) noteCodexDecision('allow', 'policy', plan.policy);
+          res.json({ ok: true, decision: 'allow', reason: plan.reason });
+          return;
+        }
+        if (plan.kind === 'deny') {
+          noteCodexDecision('deny', 'policy', plan.reason);
+          res.json({ ok: true, decision: 'deny', reason: plan.reason, mode: config.permissionMode || 'default' });
+          return;
+        }
+        graphManager.setPermissionWaiting(agentId, true);
+        if (codexEvent === 'PreToolUse' && codexEntryId) graphManager.markAuditEscalated(codexProject, codexEntryId);
+        broadcastSnapshot();
+        let codexDecision;
+        try {
+          codexDecision = await permissionBroker.request({
+            agentId,
+            subAgentId: codexSubAgentId,
+            agentLabel: agentNode.label ?? agentId,
+            agentColor: config.color ?? BUBBLE_COLORS.agent,
+            projectName: codexProject,
+            toolName,
+            toolInput,
+            ...(codexRisk.length > 0 ? { risk: codexRisk } : {}),
+            // PreToolUse 에서 묻는 것은 늘 경계가 붙잡은 호출이다. 승인 요청은 모드가 원래 묻는 자리다.
+            ...(codexEvent === 'PreToolUse' ? { escalated: true } : {}),
+            ...(codexEntryId ? { auditEntryId: codexEntryId } : {}),
+          }, config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow');
+        } finally {
+          graphManager.setPermissionWaiting(agentId, false);
+          broadcastSnapshot();
+        }
+        noteCodexDecision(codexDecision.decision, codexDecision.reason === 'timeout' ? 'timeout' : 'user', codexDecision.reason);
+        if (codexEvent === 'PreToolUse' && codexDecision.decision === 'allow') codexApprovalMemory.grant(approvalKey);
+        res.json({ ok: true, decision: codexDecision.decision, reason: codexDecision.reason });
         return;
       }
 
@@ -8514,6 +8817,20 @@ export async function runServer(): Promise<RunServerHandle> {
       } catch (err) {
         logger.error('DELETE /api/local-llm/models failed', err);
         res.status(500).json({ ok: false, error: (err as Error).message });
+      }
+    })();
+  });
+
+  /**
+   * §5.25 (G-2) — GET /api/local-llm/models/:modelId/sampling — 온도를 비워 두면 실제로 쓰이는 값과 출처.
+   * 읽기만 한다(엔진을 올리지 않는다). 모르면 `temperature: null`.
+   */
+  app.get('/api/local-llm/models/:modelId/sampling', (req, res) => {
+    void (async (): Promise<void> => {
+      try {
+        res.json(await getLocalSampling(req.params.modelId ?? ''));
+      } catch {
+        res.json({ temperature: null, source: null });
       }
     })();
   });
@@ -12037,6 +12354,31 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /** §5.23 접어 보기 — GET /api/web-fold. 에이전트마다 웹 버블 하나로 접는지(머신 단위 앱 설정). */
+  app.get('/api/web-fold', (_req, res) => {
+    try {
+      res.json({ enabled: appStateGetWebFoldPerAgent() });
+    } catch (err) {
+      logger.error('GET /api/web-fold failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §5.23 접어 보기 — PUT /api/web-fold `{ enabled }`. `true` 만 켠다(그 밖의 값은 끔). */
+  app.put('/api/web-fold', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const enabled = appStateSetWebFoldPerAgent(body['enabled']);
+      // 저장과 동시에 그래프에 먹인다 — 판이 올라 다음 스냅샷부터 접힌(또는 풀린) 모양으로 그려진다.
+      graphManager.setWebFoldPerAgent(enabled);
+      broadcastSnapshot();
+      res.json({ enabled });
+    } catch (err) {
+      logger.error('PUT /api/web-fold failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /** GET /api/storage-usage — 어디가 몇 MB 인지 실측(디스크를 훑으므로 사용자가 열 때만 돈다). */
   app.get('/api/storage-usage', (_req, res) => {
     try {
@@ -15118,27 +15460,202 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // v1.32 — Task Edge dispatch 대기 promise 레지스트리 (cmdId → resolve/timer)
-  interface PendingDispatch {
-    resolve: (v: { completed: true; status: 'completed' | 'error'; result?: string; errorMessage?: string }) => void;
-    /** v1.84 — 무제한(유효 timeout ≤0) 엣지는 타이머를 설치하지 않으므로 optional. clearTimeout(undefined) 는 no-op. */
-    timer?: NodeJS.Timeout;
-    edgeId: string;
-  }
-  const pendingDispatches = new Map<string, PendingDispatch>();
+  // §5.3 #10-2 (위임 결과 복구) — 결과는 대기 소켓이 아니라 장부가 쥔다. 대기는 여럿이 걸 수 있고 하나가
+  //   풀려도(제한시간·연결 끊김) 작업은 그대로 돈다. 끝나면 장부에 적히고 그때 남아 있는 대기에만 건넨다.
+  //   (v1.32 의 `pendingDispatches` — cmdId 하나에 소켓 하나 — 를 대체한다.) 메모리 장부라 앱 재시작을 넘지 않는다.
+  const dispatchJobs = createDispatchJobRegistry();
+  const dispatchWaiters = createDispatchWaiterHub<DispatchJob>();
+  const DISPATCH_LOOKUP_HTTP_STATUS = { 'requester-required': 400, forbidden: 403, 'not-found': 404 } as const;
+
+  /**
+   * §5.3 #10-2 — 이 세션이 띄우고 아직 끝난 결과를 받지 못한 위임. 턴 끝 가드와 다음 턴 안내가 같은 목록을 쓴다.
+   * 엣지를 지운 작업은 뺀다 — 사용자가 걷어 낸 위임 때문에 그 세션의 턴이 계속 실패로 끝나지 않게.
+   */
+  const pendingDispatchResultsFor = (subAgentId: string): DispatchJob[] =>
+    dispatchJobs.listUndelivered({ requesterSubAgentId: subAgentId }).filter((job) => !!graphManager.getTaskEdge(job.edgeId));
+
+  /** `agentId` — 이 주소를 받을 조회자. 위임 조회자에게 소스 id 를 실어 주면 남의 이름으로 부르게 된다. */
+  const dispatchStatusUrl = (job: DispatchJob, agentId: string = job.sourceAgentId): string =>
+    `/api/task-edges/dispatch/${encodeURIComponent(job.cmdId)}?agentId=${encodeURIComponent(agentId)}`;
+
+  /** 결과를 받아야 하는 작업인데 아직 끝나지 않았다 — 이 응답은 "접수됨"이지 결과가 아니다. */
+  const isDispatchResultPending = (job: DispatchJob): boolean =>
+    job.expectsResult === true && !isTerminalDispatchJobStatus(job.status);
+
+  /** 진행 중 응답에 싣는 다음 할 일 — 다시 dispatch 하면 같은 일이 두 번 돈다. */
+  const dispatchPendingNext = (job: DispatchJob): string =>
+    `The task is still ${job.status} and its result has not reached you. Do not dispatch it again. `
+    + `Retrieve it with this cmdId (GET statusUrl with &waitMs=60000, or the status tool) until status is completed, error or cancelled; `
+    + 'ending the turn without the result is recorded as a failure.';
+
+  /**
+   * dispatch 응답 몸체 — 기다린 쪽·선반환·재시도가 같은 모양을 받는다. `ok` 는 끝난 작업이면 "끝까지 해냈다",
+   * 결과를 받아야 하는 작업이 아직 도는 중이면 `false`(+`pending`) — 결과 없는 접수를 성공으로 읽지 않게. 그 외 접수는 `true`.
+   */
+  const dispatchResponseBody = (job: DispatchJob, extra: Record<string, unknown>): Record<string, unknown> => {
+    const pending = isDispatchResultPending(job);
+    return {
+      ok: isTerminalDispatchJobStatus(job.status) ? isDispatchJobSucceeded(job) : !pending,
+      dispatched: true,
+      cmdId: job.cmdId,
+      status: job.status,
+      ...(job.result !== undefined ? { result: job.result } : {}),
+      ...(job.errorMessage !== undefined ? { errorMessage: job.errorMessage } : {}),
+      ...(job.usageLimit ? { usageLimit: job.usageLimit } : {}),
+      ...(job.requestKey !== undefined ? { requestKey: job.requestKey } : {}),
+      ...(job.statusGrants?.length ? { statusGrants: job.statusGrants } : {}),
+      statusUrl: dispatchStatusUrl(job),
+      ...(pending ? { pending: true, next: dispatchPendingNext(job) } : {}),
+      ...extra,
+    };
+  };
+
+  /**
+   * 끝난 결과를 실은 응답이 **다 나간 뒤에** 요청자가 받은 것으로 적는다(`finish`). 쓰기 전에 연결이 끊기면 적지 않는다 —
+   * 그 결과는 cmdId 로 다시 받는다. 진행 중 응답·결과를 받지 않아도 되는 작업은 적지 않는다.
+   */
+  const markDispatchDeliveredOnFinish = (res: express.Response, job: DispatchJob): void => {
+    if (job.expectsResult !== true || !isTerminalDispatchJobStatus(job.status)) return;
+    // 이미 끊긴 응답(loopback 주입 응답은 끊긴 뒤에도 `end` 에서 finish 를 낸다)은 받은 것이 아니다.
+    if (res.destroyed) return;
+    res.once('finish', () => { if (!res.destroyed) dispatchJobs.markDelivered(job.cmdId); });
+  };
+
+  /**
+   * §5.3 #10-2 — 이 dispatch 를 부른 세션(서브에이전트). 결과를 **그 턴**에 묶는 키다.
+   * 이름(`x-vibisual-source-subagent`)을 밝혔으면 소스 에이전트의 세션이어야 한다(자기 신고라 위조 방지가 아니라 오조회 방지).
+   * 이름이 없으면 소스 에이전트에서 **지금 도는 세션이 딱 하나일 때만** 그 세션으로 본다 — 둘 이상이면 누구인지 모르므로 묶지 않는다.
+   */
+  const resolveDispatchRequesterSub = (
+    raw: unknown,
+    sourceAgentId: string,
+  ): { ok: true; subAgentId?: string } | { ok: false; httpStatus: number; error: string } => {
+    const named = resolveDispatchRequester(raw);
+    if (!named.ok) return { ok: false, httpStatus: 400, error: 'conflicting-requester-subagent' };
+    if (named.agentId !== undefined) {
+      return subAgentManager.getSub(named.agentId)?.parentAgentId === sourceAgentId
+        ? { ok: true, subAgentId: named.agentId }
+        : { ok: false, httpStatus: 403, error: 'subagent does not belong to the source agent' };
+    }
+    const running = new Set<string>();
+    for (const queue of commandQueues.values()) {
+      for (const c of queue) {
+        if (c.status === 'executing' && c.subAgentId && subAgentManager.getSub(c.subAgentId)?.parentAgentId === sourceAgentId) running.add(c.subAgentId);
+      }
+    }
+    const [only] = running;
+    return running.size === 1 && only !== undefined ? { ok: true, subAgentId: only } : { ok: true };
+  };
+
+  /** 명령이 아직 큐에 있으면 그 자리. 끝난 명령은 완료 경로가 큐에서 빼 아카이브로 옮긴다. */
+  const findQueuedDispatchCommand = (cmdId: string): { sessionId: string; cmd: QueuedCommand } | undefined => {
+    for (const [sessionId, queue] of commandQueues) {
+      const cmd = queue.find((c) => c.id === cmdId);
+      if (cmd) return { sessionId, cmd };
+    }
+    return undefined;
+  };
+
+  /** 장부를 실제 큐와 맞춘 최신 모습 — `executing` 은 여기서 적는다. 끝 상태는 명령이 큐를 떠나는 자리만 적는다. */
+  const currentDispatchJob = (cmdId: string): DispatchJob | undefined => {
+    if (findQueuedDispatchCommand(cmdId)?.cmd.status === 'executing') dispatchJobs.markExecuting(cmdId);
+    const lookup = dispatchJobs.get(cmdId);
+    return lookup.ok ? lookup.job : undefined;
+  };
+
+  /**
+   * 큐를 떠난 위임 명령 하나의 끝을 장부에 적고 기다리던 대기에 건넨다. 명령이 큐를 떠나는 **모든 자리**
+   * (완료 콜백 · 중지 · 좀비 봉합 · 큐에서 지우기 · 취소)가 여기를 지난다 — 한 곳이라도 빠지면 그 작업은
+   * 장부에서 영영 진행 중이고 동기 대기는 풀리지 않는다.
+   * `updateEdge` — 완료 콜백은 엣지를 스스로 내리므로 끄고, 완료 콜백을 거치지 않는 자리만 켠다. 규칙은 완료 콜백과
+   *   같다(`completed`→completed · 그 외→error). 한 번도 나가지 않고 걷힌 명령(`neverStarted`)은 `idle` 로 돌린다.
+   */
+  const settleDispatchCommand = (
+    cmd: QueuedCommand,
+    options: { outcome?: DispatchJobOutcome; updateEdge?: boolean; neverStarted?: boolean } = {},
+  ): void => {
+    if (!cmd.edgeId) return;
+    if (options.updateEdge) {
+      const artifact = graphManager.getBundleArtifact(cmd.edgeId);
+      if (options.neverStarted) {
+        graphManager.setTaskEdgeStatus(cmd.edgeId, 'idle');
+        if (artifact) graphManager.setTaskEdgeStatus(artifact.id, 'idle');
+      } else {
+        const edgeStatus: 'completed' | 'error' = cmd.status === 'completed' ? 'completed' : 'error';
+        const errMsg = cmd.status === 'error' ? (cmd.result ?? 'subagent error') : undefined;
+        graphManager.setTaskEdgeStatus(cmd.edgeId, edgeStatus, cmd.result, errMsg);
+        if (artifact) graphManager.setTaskEdgeStatus(artifact.id, edgeStatus, cmd.result, errMsg);
+      }
+    }
+    const usageLimit = cmd.subAgentId ? subAgentManager.getSub(cmd.subAgentId)?.usageLimit : undefined;
+    const outcome = options.outcome ?? dispatchOutcomeFromCommand(cmd, usageLimit);
+    if (!outcome) return;
+    const job = dispatchJobs.finish(cmd.id, outcome);
+    if (job) dispatchWaiters.settle(cmd.id, job);
+  };
+
+  /**
+   * 끝날 때까지 이 응답을 붙든다. 제한시간·연결 close 는 **대기만** 푼다 — 엣지·장부는 건드리지 않는다
+   * (종전: 제한시간이 엣지를 `error` 로 내렸다 — 기다림의 끝을 일의 실패로 적은 것이라 폐기).
+   * loopback 리스너는 요청을 in-process 로 다시 주입한다 — dispatch 경로는 리스너가 바깥 연결 끊김을 안쪽 응답에 넘겨
+   * 여기 `close` 로 온다(끊긴 호출자에게 결과를 "건넸다"고 적지 않게). 넘겨받지 못한 대기는 제한시간이나 작업 끝에 걷힌다.
+   */
+  const holdForDispatchResult = (
+    res: express.Response,
+    cmdId: string,
+    timeoutMs: number,
+    extra: Record<string, unknown>,
+  ): void => {
+    const latest = currentDispatchJob(cmdId);
+    if (!latest) {
+      res.status(404).json({ ok: false, error: 'not-found', cmdId });
+      return;
+    }
+    if (isTerminalDispatchJobStatus(latest.status)) {
+      markDispatchDeliveredOnFinish(res, latest);
+      res.json(dispatchResponseBody(latest, { waited: true, ...extra }));
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const release = dispatchWaiters.add(cmdId, (finished) => {
+      if (timer) clearTimeout(timer);
+      if (res.headersSent) return;
+      markDispatchDeliveredOnFinish(res, finished);
+      res.json(dispatchResponseBody(finished, { waited: true, ...extra }));
+    });
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        release();
+        if (res.headersSent) return;
+        const snapshot = currentDispatchJob(cmdId) ?? latest;
+        markDispatchDeliveredOnFinish(res, snapshot);
+        res.status(202).json(dispatchResponseBody(snapshot, { waited: true, timedOut: true, timeout: true, timeoutMs, ...extra }));
+      }, timeoutMs);
+    }
+    res.on('close', () => {
+      if (res.writableEnded) return;
+      if (timer) clearTimeout(timer);
+      release();
+    });
+  };
 
   /** v1.32 — POST /api/task-edges/dispatch — 소스 세션이 직접 호출해 엣지 위임 실행.
    *  body: { edgeId, instruction }
    *  - 타겟 에이전트 세션 큐에 edgeId 포함 명령 푸시 → subagent 가 실제 Claude 프로세스로 실행
    *  - `returnFormat='both'` 번들에 artifact 자매 엣지가 있고 그 target이 실에이전트면 완료까지 응답 홀드
-   *  - 그 외(artifact 미연결)에는 즉시 { dispatched: true } 반환 → 소스는 다른 일 진행 */
+   *  - 그 외(artifact 미연결)에는 즉시 { dispatched: true } 반환 → 소스는 다른 일 진행
+   *  §5.3 #10-2 (위임 결과 복구) — 어느 쪽이든 결과는 장부에 남고 `statusUrl` 로 다시 받는다.
+   *  - `?wait=false`(JSON `wait:false`) → 홀드 대상이어도 즉시 반환
+   *  - `requestKey`(`?requestKey=`·`x-vibisual-request-key`·JSON) → 같은 (소스·엣지·키)면 새로 띄우지 않고 기존 작업
+   *  - 요청자 id(`x-vibisual-source-agent`·`?agentId=`·JSON `agentId`)는 소스와 같아야 한다 */
   app.post('/api/task-edges/dispatch', (req, res) => {
     // 두 경로 수용:
     //  (1) 신규(권장) — raw text 본문 + `?edgeId=` 쿼리. instruction 손escape 불필요(heredoc 그대로).
     //  (2) 후방호환 — JSON 본문 `{ edgeId, instruction }`.
     let edgeId: string | undefined;
     let instruction: string | undefined;
-    const q = req.query as { edgeId?: unknown };
+    const q = req.query as { edgeId?: unknown; wait?: unknown; requestKey?: unknown; agentId?: unknown; statusCmdIds?: unknown };
+    let jsonBody: { wait?: unknown; requestKey?: unknown; agentId?: unknown; statusCmdIds?: unknown } = {};
     if (typeof req.body === 'string') {
       // express.text() 가 파싱한 raw 본문. edgeId 는 쿼리(우선) 또는 헤더.
       const qid = typeof q.edgeId === 'string' ? q.edgeId : undefined;
@@ -15147,7 +15664,8 @@ export async function runServer(): Promise<RunServerHandle> {
       // 끝의 쉘/heredoc 잔여 개행·CR 만 정리(중간 본문은 보존).
       instruction = req.body.replace(/\r\n/g, '\n').replace(/\n+$/, '');
     } else {
-      const body = (req.body ?? {}) as { edgeId?: unknown; instruction?: unknown };
+      const body = (req.body ?? {}) as { edgeId?: unknown; instruction?: unknown; wait?: unknown; requestKey?: unknown; agentId?: unknown; statusCmdIds?: unknown };
+      jsonBody = body;
       if (typeof body.edgeId === 'string') edgeId = body.edgeId;
       if (typeof body.instruction === 'string') instruction = body.instruction;
       // JSON 경로에서도 쿼리 edgeId 허용(혼용 안전).
@@ -15159,17 +15677,112 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     const edge = graphManager.getTaskEdge(edgeId);
     if (!edge) { res.status(404).json({ ok: false, error: 'edge not found' }); return; }
-    const bridgeSource = req.headers['x-vibisual-source-agent'];
-    if (bridgeSource !== undefined && bridgeSource !== edge.sourceAgentId) {
+    // §5.3 #10-2 — 요청자 id 는 헤더(코덱스 다리)·쿼리·JSON 어디로 와도 같은 규칙이다. 서로 다르면 누구인지 모른다.
+    const requester = resolveDispatchRequester(req.headers['x-vibisual-source-agent'], q.agentId, jsonBody.agentId);
+    if (!requester.ok) { res.status(400).json({ ok: false, error: requester.reason }); return; }
+    if (requester.agentId !== undefined && requester.agentId !== edge.sourceAgentId) {
       res.status(403).json({ ok: false, error: 'edge does not belong to the source agent' });
       return;
     }
+    const requesterSub = resolveDispatchRequesterSub(req.headers['x-vibisual-source-subagent'], edge.sourceAgentId);
+    if (!requesterSub.ok) { res.status(requesterSub.httpStatus).json({ ok: false, error: requesterSub.error }); return; }
+    const requesterSubAgentId = requesterSub.subAgentId;
     if ((edge.bundleRole ?? 'primary') !== 'primary') {
       res.status(400).json({ ok: false, error: 'dispatch only allowed on primary/command edge, not auto-artifact' });
       return;
     }
+    const requestKeyParse = parseDispatchRequestKey(req.headers['x-vibisual-request-key'], q.requestKey, jsonBody.requestKey);
+    if (!requestKeyParse.ok) { res.status(400).json({ ok: false, error: requestKeyParse.reason }); return; }
+    const { requestKey } = requestKeyParse;
+    // 재시도 키는 이미 끝난 결과를 돌려주는 자리다 — 바깥 프로세스는 자기가 누구인지 밝혀야 쓸 수 있다(생략으로 우회 ❌).
+    //   키 없는 dispatch 는 종전 그대로(토큰만으로) 받는다.
+    if (requestKey !== undefined && req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE && requester.agentId === undefined) {
+      res.status(400).json({ ok: false, error: 'requester-required', detail: 'requestKey needs x-vibisual-source-agent header or ?agentId=' });
+      return;
+    }
+    // §5.3 #10-2 위임 조회 — 부모가 이 위임의 대상에게 조회를 넘길 작업 목록. 목록이 곧 권한 범위라 이름을 밝힌 쪽만 넘긴다.
+    const statusGrantsParse = parseDispatchStatusGrants(req.headers['x-vibisual-status-cmd-ids'], q.statusCmdIds, jsonBody.statusCmdIds);
+    if (!statusGrantsParse.ok) { res.status(400).json({ ok: false, error: statusGrantsParse.reason }); return; }
+    const statusGrants = statusGrantsParse.cmdIds;
+    if (statusGrants.length && req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE && requester.agentId === undefined) {
+      res.status(400).json({ ok: false, error: 'requester-required', detail: 'statusCmdIds needs x-vibisual-source-agent header or ?agentId=' });
+      return;
+    }
+    const wait = parseDispatchWait(q.wait, jsonBody.wait);
+    const fingerprint = dispatchRequestFingerprint(instruction, statusGrants);
 
     const allAgents = graphManager.getSnapshot().agents;
+    // 대기 여부: artifact 엣지의 target 이 실제 살아있는 에이전트면 결과 돌려줄 채널이 있음 → 홀드.
+    // 없거나(returnFormat != 'both') artifact.targetAgentId 가 미등록이면 즉시 반환.
+    const artifact = graphManager.getBundleArtifact(edgeId);
+    const artifactTargetLive = artifact
+      ? Boolean(allAgents.find((a) => a.id === artifact.targetAgentId))
+      : false;
+    // v1.84 — 엣지 timeoutMs 가 양수면 그 ms 로 제한, 미설정/0 이면
+    // TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS(기본 0=무제한) 적용.
+    // 유효 timeout 이 ≤0 이면 타이머를 아예 설치하지 않고 타겟 완료까지 무한 홀드
+    // (§5.3 line 236/837 — 미설정=무제한, i18n placeholder "unlimited" 와 정합).
+    // §5.3 #10-2 — 제한시간이 지나면 **대기만** 푼다(엣지를 error 로 내리지 않는다).
+    const timeoutMs = edge.timeoutMs && edge.timeoutMs > 0
+      ? edge.timeoutMs
+      : TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS;
+
+    // §5.3 #10-2 — 같은 요청의 재시도면 **아무것도 새로 만들지 않는다**(서브에이전트·큐·엣지 상태 전부).
+    //   큐 상한보다 먼저 본다 — 재시도는 큐를 늘리지 않으므로 꽉 찬 큐가 막을 일이 아니다.
+    if (requestKey !== undefined) {
+      const existing = dispatchJobs.findByRequestKey(edge.sourceAgentId, edgeId, requestKey);
+      if (existing) {
+        if (isDispatchRequestKeyConflict(existing, fingerprint)) {
+          res.status(409).json({
+            ok: false,
+            error: 'request-key-reused-with-different-instruction',
+            cmdId: existing.cmdId,
+            statusUrl: dispatchStatusUrl(existing),
+          });
+          return;
+        }
+        const job = currentDispatchJob(existing.cmdId) ?? existing;
+        logger.info(`dispatch(${edgeId}): request key reused → ${job.cmdId} (${job.status}) — not re-queued`);
+        if (wait && artifactTargetLive && !isTerminalDispatchJobStatus(job.status)) {
+          holdForDispatchResult(res, job.cmdId, timeoutMs, { reused: true });
+          return;
+        }
+        markDispatchDeliveredOnFinish(res, job);
+        res.json(dispatchResponseBody(job, { waited: false, reused: true, waitForResult: artifactTargetLive, timeoutMs }));
+        return;
+      }
+    }
+
+    // §5.3 #10-2 — 요청 키가 달라도, 같은 세션이 같은 지시로 띄우고 **아직 결과를 받지 못한** 작업이 있으면 새로 띄우지 않는다.
+    //   조회가 거절·실패한 뒤 모델이 다시 dispatch 해도 같은 일이 두 번 돌지 않고 기존 cmdId 의 결과를 이어 받는다.
+    //   세션을 모르면 묶지 않는다 — 누구의 기다림인지 모르는 채 남의 작업을 넘겨주지 않는다.
+    if (artifactTargetLive && requesterSubAgentId !== undefined) {
+      const pendingSame = dispatchJobs.findUndeliveredDuplicate({ sourceAgentId: edge.sourceAgentId, edgeId, fingerprint, requesterSubAgentId });
+      if (pendingSame) {
+        const job = currentDispatchJob(pendingSame.cmdId) ?? pendingSame;
+        logger.info(`dispatch(${edgeId}): same instruction still awaiting its result → ${job.cmdId} (${job.status}) — not re-queued`);
+        if (wait && !isTerminalDispatchJobStatus(job.status)) {
+          holdForDispatchResult(res, job.cmdId, timeoutMs, { reused: true });
+          return;
+        }
+        markDispatchDeliveredOnFinish(res, job);
+        res.json(dispatchResponseBody(job, { waited: false, reused: true, waitForResult: true, timeoutMs }));
+        return;
+      }
+    }
+
+    // §5.3 #10-2 위임 조회 — 엣지 소스가 **지금** 읽을 수 있는 작업만 넘긴다(소유자이거나 살아 있는 위임을 쥔 쪽).
+    //   서브에이전트를 만들기 전이다 — 거절하면서 빈 세션 탭을 남기지 않는다.
+    const grantCheck = dispatchJobs.authorizeStatusGrants(edge.sourceAgentId, statusGrants);
+    if (!grantCheck.ok) {
+      res.status(grantCheck.reason === 'not-found' ? 404 : 403).json({
+        ok: false,
+        error: grantCheck.reason === 'not-found' ? 'status-grant-not-found' : 'status-grant-forbidden',
+        cmdId: grantCheck.cmdId,
+      });
+      return;
+    }
+
     const targetAgent = allAgents.find((a) => a.id === edge.targetAgentId);
     if (!targetAgent) { res.status(404).json({ ok: false, error: 'target agent not found' }); return; }
 
@@ -15195,12 +15808,24 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId,
     };
+    // §5.3 #10-2 — 큐에 넣기 **전에** 장부에 적는다. 넣은 직후 동기로 끝나도(스폰 실패 등) 끝을 적을 자리가 이미 있어야 한다.
+    dispatchJobs.register({
+      cmdId: cmd.id,
+      edgeId,
+      sourceAgentId: edge.sourceAgentId,
+      targetAgentId: targetAgent.id,
+      ...(requestKey !== undefined ? { requestKey } : {}),
+      fingerprint,
+      ...(statusGrants.length ? { statusGrants } : {}),
+      // 반환 엣지가 있으면 부른 쪽이 결과를 받아야 한다 — 받기 전에는 그 세션의 턴이 완료로 끝나지 않는다.
+      ...(artifactTargetLive ? { expectsResult: true } : {}),
+      ...(requesterSubAgentId !== undefined ? { requesterSubAgentId } : {}),
+    });
     const queue = commandQueues.get(sessionId) ?? [];
     queue.push(cmd);
     commandQueues.set(sessionId, queue);
 
     graphManager.setTaskEdgeStatus(edgeId, 'executing');
-    const artifact = graphManager.getBundleArtifact(edgeId);
     if (artifact) graphManager.setTaskEdgeStatus(artifact.id, 'executing');
 
     // §5.3 #28 (L) v1.58 — 타겟 에이전트가 conti-mode 면 task_edge 출처로 workId 발급.
@@ -15215,53 +15840,108 @@ export async function runServer(): Promise<RunServerHandle> {
 
     processNextCommand(sessionId);
 
-    // 대기 여부: artifact 엣지의 target 이 실제 살아있는 에이전트면 결과 돌려줄 채널이 있음 → 홀드.
-    // 없거나(returnFormat != 'both') artifact.targetAgentId 가 미등록이면 즉시 반환.
-    const artifactTargetLive = artifact
-      ? Boolean(allAgents.find((a) => a.id === artifact.targetAgentId))
-      : false;
-
-    if (!artifactTargetLive) {
-      res.json({ ok: true, dispatched: true, cmdId: cmd.id, waited: false });
+    // §5.3 #10-2 — 홀드 대상이 아니거나 `wait=false` 면 곧바로 돌려준다. 결과는 `statusUrl` 로 다시 받는다.
+    if (!artifactTargetLive || !wait) {
+      const job = currentDispatchJob(cmd.id);
+      if (job) markDispatchDeliveredOnFinish(res, job);
+      res.json(job
+        ? dispatchResponseBody(job, { waited: false, reused: false, waitForResult: artifactTargetLive, timeoutMs })
+        : { ok: true, dispatched: true, cmdId: cmd.id, waited: false });
       return;
     }
 
-    // v1.84 — 엣지 timeoutMs 가 양수면 그 ms 로 제한, 미설정/0 이면
-    // TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS(기본 0=무제한) 적용.
-    // 유효 timeout 이 ≤0 이면 타이머를 아예 설치하지 않고 타겟 완료까지 무한 홀드
-    // (§5.3 line 236/837 — 미설정=무제한, i18n placeholder "unlimited" 와 정합).
-    const timeoutMs = edge.timeoutMs && edge.timeoutMs > 0
-      ? edge.timeoutMs
-      : TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS;
+    holdForDispatchResult(res, cmd.id, timeoutMs, { reused: false });
+  });
 
-    const timer = timeoutMs > 0
-      ? setTimeout(() => {
-          const p = pendingDispatches.get(cmd.id);
-          if (!p) return;
-          pendingDispatches.delete(cmd.id);
-          graphManager.setTaskEdgeStatus(edgeId, 'error', undefined, `dispatch timeout (${timeoutMs}ms)`);
-          if (artifact) graphManager.setTaskEdgeStatus(artifact.id, 'error');
-          broadcastSnapshot();
-          saveCheckpoint();
-          res.status(504).json({ ok: false, timeout: true, cmdId: cmd.id, timeoutMs });
-        }, timeoutMs)
-      : undefined;
+  /** §5.3 #10-2 (위임 결과 복구) — 조회·취소가 함께 쓰는 요청자 판정. loopback 유입은 이름이 필수다(생략으로 우회 ❌). */
+  //   `purpose` — 조회(`'read'`)만 위임 조회를 받는다. 취소(`'cancel'`)는 소유자만.
+  const lookupDispatchJobForRequest = (
+    req: express.Request,
+    cmdId: string,
+    purpose: 'read' | 'cancel',
+  ): { ok: true; job: DispatchJob; requesterAgentId?: string } | { ok: false; httpStatus: number; error: string } => {
+    const q = req.query as { agentId?: unknown };
+    const requester = resolveDispatchRequester(req.headers['x-vibisual-source-agent'], q.agentId);
+    if (!requester.ok) return { ok: false, httpStatus: 400, error: requester.reason };
+    const lookup = dispatchJobs.get(cmdId, {
+      ...(requester.agentId !== undefined ? { requesterAgentId: requester.agentId } : {}),
+      fromLoopback: req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE,
+      purpose,
+    });
+    if (!lookup.ok) return { ok: false, httpStatus: DISPATCH_LOOKUP_HTTP_STATUS[lookup.reason], error: lookup.reason };
+    return { ok: true, job: currentDispatchJob(cmdId) ?? lookup.job, ...(requester.agentId !== undefined ? { requesterAgentId: requester.agentId } : {}) };
+  };
 
-    pendingDispatches.set(cmd.id, {
-      edgeId,
-      ...(timer !== undefined ? { timer } : {}),
-      resolve: (payload) => {
-        res.json({
-          ok: payload.status === 'completed',
-          dispatched: true,
-          waited: true,
-          cmdId: cmd.id,
-          status: payload.status,
-          ...(payload.result !== undefined ? { result: payload.result } : {}),
-          ...(payload.errorMessage !== undefined ? { errorMessage: payload.errorMessage } : {}),
-        });
+  /** §5.3 #10-2 (위임 결과 복구) — GET /api/task-edges/dispatch/:cmdId — 위임 작업의 상태·결과.
+   *  대기 소켓이 끊겼거나 `wait=false` 로 먼저 돌려받았으면 여기서 받는다. 장부는 메모리라 앱 재시작 뒤에는 404 다.
+   *  ⑨ `?waitMs=N` 이면 끝나거나 N ms(상한 120초)가 지날 때까지 붙든다 — 제한시간·close 는 대기만 걷는다. */
+  app.get('/api/task-edges/dispatch/:cmdId', (req, res) => {
+    const cmdId = req.params.cmdId;
+    const found = lookupDispatchJobForRequest(req, cmdId, 'read');
+    if (!found.ok) { res.status(found.httpStatus).json({ ok: false, error: found.error }); return; }
+    const stop = waitForDispatchStatus({
+      cmdId,
+      initial: found.job,
+      waitMs: parseDispatchStatusWaitMs((req.query as { waitMs?: unknown }).waitMs),
+      waiters: dispatchWaiters,
+      current: () => currentDispatchJob(cmdId),
+      respond: (job, { waited, timedOut }) => {
+        if (res.headersSent) return;
+        // 붙든 사이 조회 자격이 달라졌을 수 있다(위임 조회는 그 위임이 도는 동안만) — 풀 때 한 번 더 판정한다.
+        const again = waited ? lookupDispatchJobForRequest(req, cmdId, 'read') : { ok: true as const, job };
+        if (!again.ok) { res.status(again.httpStatus).json({ ok: false, error: again.error }); return; }
+        // §5.3 #10-2 — 결과를 받은 것으로 적는 쪽은 **띄운 에이전트 자신**의 조회뿐이다. 위임 조회자·앱 화면이 읽은 것은 그 턴이 받은 것이 아니다.
+        if (found.requesterAgentId !== undefined && found.requesterAgentId === again.job.sourceAgentId) markDispatchDeliveredOnFinish(res, again.job);
+        // 조회자 자신의 id 를 싣는다 — 위임 조회자에게 소스 id 를 돌려주지 않는다. `ok` 는 조회의 성공이고, 결과 여부는 `pending` 이 말한다.
+        res.json({ ok: true, job: toDispatchJobView(again.job), statusUrl: dispatchStatusUrl(again.job, found.requesterAgentId),
+          ...(waited ? { waited: true } : {}), ...(timedOut ? { timedOut: true } : {}),
+          ...(isDispatchResultPending(again.job) ? { pending: true, next: dispatchPendingNext(again.job) } : {}) });
       },
     });
+    res.on('close', () => { if (!res.writableEnded) stop(); });
+  });
+
+  /** §5.3 #10-2 (위임 결과 복구) — POST /api/task-edges/dispatch/:cmdId/cancel — 위임 작업 취소.
+   *  장부만 바꾸지 않는다. 안 나간 명령은 큐에서 걷고, 도는 명령은 기존 중지(`subAgentManager.stop`)로 끊는다 —
+   *  close 핸들러가 `[Stopped by user]` 로 봉합한 결과가 완료 콜백을 지나 `cancelled` 로 적힌다. */
+  app.post('/api/task-edges/dispatch/:cmdId/cancel', (req, res) => {
+    const found = lookupDispatchJobForRequest(req, req.params.cmdId, 'cancel');
+    if (!found.ok) { res.status(found.httpStatus).json({ ok: false, error: found.error }); return; }
+    if (isTerminalDispatchJobStatus(found.job.status)) {
+      res.status(409).json({ ok: false, error: 'already-finished', job: toDispatchJobView(found.job) });
+      return;
+    }
+    const queued = findQueuedDispatchCommand(found.job.cmdId);
+    if (!queued) {
+      // 큐에도 없고 끝 기록도 없다 — 무엇을 끊을지 모른다. 끝 상태를 지어내지 않는다.
+      res.status(409).json({ ok: false, error: 'command-not-found', job: toDispatchJobView(found.job) });
+      return;
+    }
+    const { sessionId, cmd } = queued;
+    dispatchJobs.markCancelRequested(cmd.id);
+    if (cmd.status === 'queued') {
+      commandQueues.set(sessionId, (commandQueues.get(sessionId) ?? []).filter((c) => c !== cmd));
+      settleDispatchCommand(cmd, {
+        outcome: { status: 'cancelled', errorMessage: 'cancelled before start' },
+        updateEdge: true,
+        neverStarted: true,
+      });
+      logger.info(`dispatch cancel: ${cmd.id} removed from queue before start`);
+      broadcastSnapshot();
+      saveCheckpoint();
+      const job = currentDispatchJob(cmd.id);
+      res.json({ ok: true, cancelled: true, ...(job ? { job: toDispatchJobView(job) } : {}) });
+      return;
+    }
+    const stopped = cmd.subAgentId ? subAgentManager.stop(cmd.subAgentId) : false;
+    const job = currentDispatchJob(cmd.id) ?? found.job;
+    if (!stopped) {
+      // 자식 없이 executing 으로 굳은 명령 — 좀비 봉합(`sealZombieExecutingCommands`)이 곧 걷고 그 끝이 장부에 적힌다.
+      res.status(409).json({ ok: false, error: 'not-running', job: toDispatchJobView(job) });
+      return;
+    }
+    logger.info(`dispatch cancel: ${cmd.id} stop requested (sub=${cmd.subAgentId ?? '-'})`);
+    res.status(202).json({ ok: true, cancelling: true, job: toDispatchJobView(job), statusUrl: dispatchStatusUrl(job) });
   });
 
   const port = Number(process.env['PORT']) || DEFAULT_PORT;
@@ -15908,7 +16588,12 @@ export async function runServer(): Promise<RunServerHandle> {
   // `agents` 맵을 훑어 찾는데, 프로젝트 탭을 닫았다 오가면 그 에이전트가 두 맵에서 빠져 폴더를
   // 짚지 못한다 — 그러면 디스크에 온전한 대화가 있는데도 빈 배열이 나가 화면이 굳는다.
   // 워크트리도 독립 프로젝트로 등록되므로 이 목록에 함께 들어온다.
-  subAgentManager.setAllProjectsProvider(() => Object.values(graphManager.getProjects()));
+  // §5.5 #17-12 — **stub 으로 내려간 프로젝트도** 후보에 넣는다. 백그라운드 프로젝트는 15분(메모리 압박 시 3분)
+  //   뒤 내려가는데, 로드된 프로젝트만 훑으면 그 사이 그 프로젝트 세션의 과거를 되찾을 자리가 없었다.
+  subAgentManager.setAllProjectsProvider(() => [
+    ...Object.values(graphManager.getProjects()),
+    ...Object.values(graphManager.getStubProjects()).map((meta) => meta.project),
+  ]);
 
   // 커스텀 에이전트 상태 = 소속 서브에이전트 집계.
   // 서브 활동 시작/종료 시마다 부모 커스텀 버블의 active/completed 전이를 재계산.
@@ -15923,6 +16608,9 @@ export async function runServer(): Promise<RunServerHandle> {
   // `broadcastSnapshot` 은 이미 코얼레스(leading guard + trailing flush)라 호출이 늘어도 흡수되지만,
   // `saveCheckpoint` 는 동기 저장이라 **조건을 넓히지 않는다**(§5.5 v3.45 훅 경로 프리즈 재발 방지).
   // 도트 상태는 어차피 dispatch·finalize 경로가 저장하므로 여기서 또 저장할 이유가 없다.
+  // §5.3 #10-2 — 턴이 끝나는 자리에서 "이 세션이 띄운 위임의 결과를 받았는가"를 묻는 창구. 받지 못했으면 그 턴은
+  //   완료가 아니라 실패(`dispatchResult`, 사유에 cmdId)로 끝난다 — 다음 턴 안내와 같은 목록이다.
+  subAgentManager.setPendingDispatchResultsProvider(pendingDispatchResultsFor);
   const lastSubStatusFingerprint = new Map<string, string>();
   subAgentManager.setOnSubStatusChange((parentAgentId) => {
     const bubbleChanged = graphManager.recomputeCustomAgentStatus(parentAgentId);
@@ -16332,17 +17020,8 @@ export async function runServer(): Promise<RunServerHandle> {
         graphManager.setTaskEdgeStatus(cmd.edgeId, edgeStatus, cmd.result, errMsg);
         const artifact = graphManager.getBundleArtifact(cmd.edgeId);
         if (artifact) graphManager.setTaskEdgeStatus(artifact.id, edgeStatus, cmd.result, errMsg);
-        const pending = pendingDispatches.get(cmd.id);
-        if (pending) {
-          clearTimeout(pending.timer);
-          pendingDispatches.delete(cmd.id);
-          pending.resolve({
-            completed: true,
-            status: edgeStatus,
-            ...(cmd.result !== undefined ? { result: cmd.result } : {}),
-            ...(errMsg !== undefined ? { errorMessage: errMsg } : {}),
-          });
-        }
+        // §5.3 #10-2 (위임 결과 복구) — 장부에 끝을 적고 기다리던 대기에 건넨다(엣지는 바로 위에서 이미 내렸다).
+        settleDispatchCommand(cmd);
         // v1.55 분류 (v1.56b — 사용자 강제 중단은 critique 사이클에서 전부 배제)
         const cmdEdge = graphManager.getTaskEdge(cmd.edgeId);
         if (cmdEdge?.kind === 'critique' && (cmdEdge.bundleRole ?? 'primary') === 'primary') {
@@ -16646,6 +17325,9 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.21 — 비용·토큰 지도 스윕. 훅마다 재파싱하지 않고 이 주기에만 훑으며,
     //   활성 세션만 넘긴 뒤 JSONL 스캐너가 mtime·size 로 한 번 더 걸러 변화 없으면 파일을 열지 않는다.
     setInterval(() => {
+      // §4 (상태바 모델 칸 ③(나)) — 모델 목록 주기 확인도 이 스윕에 얹는다(새 타이머 ❌). 기다리지 않는다 —
+      //   할 일이 없으면 `stat` 한 번이고, 바뀐 것이 있으면 서비스 구독이 방송한다.
+      void modelRegistryService.refreshIfDue();
       let changed = false;
       try {
         changed = graphManager.sweepCostMaps(modelRegistryService.getRegistry());
@@ -16717,6 +17399,8 @@ export async function runServer(): Promise<RunServerHandle> {
     // §2.1 (B) — 최상위 외부 폴더 예산도 같은 규약이다. 이 주입이 빠지면 사용자가 정한 밀도가
     //   재기동마다 기본값(12)으로 되돌아간다(설정은 저장돼 있는데 아무도 안 읽는 상태).
     graphManager.setExternalTopBudget(appStateGetExternalTopBudget());
+    // §5.23 — 접어 보기도 같은 규약이다. 빠지면 켜 둔 보기가 재기동마다 호스트마다 버블 하나로 돌아간다.
+    graphManager.setWebFoldPerAgent(appStateGetWebFoldPerAgent());
     //   10분마다 **한 건**만 물어본다. 이 축이 메우는 자리는 위 다섯 장치가 손댈 수 없는 곳이다 —
     //   `hasLivingWork` 이 참이라 아무도 못 걷는데 실제로는 끝났거나 멈춘 세션. 그 판정은 마지막
     //   기록의 *뜻*을 읽어야 나오므로 코드가 아니라 모델이 답한다(§2.4 · `sessionLivenessProbe.ts`).
@@ -16760,6 +17444,8 @@ export async function runServer(): Promise<RunServerHandle> {
         //   사용자가 "왜 사라졌지"를 겪지 않고 실패 사유를 평소 자리에서 본다.
         const queue = commandQueues.get(sessionId);
         if (queue) commandQueues.set(sessionId, queue.filter((c) => !sealed.includes(c)));
+        // §5.3 #10-2 — 좀비 봉합도 완료 콜백을 거치지 않는다. 위임 명령이면 장부·대기·엣지를 여기서 내린다.
+        for (const cmd of sealed) settleDispatchCommand(cmd, { updateEdge: true });
         archiveCompletedCommands(sessionId, sealed);
       }
       // §2.4 (잠듦) — 대화가 끝난 지 오래된 세션의 자식 프로세스를 회수해 메모리를 돌려준다.
@@ -16867,3 +17553,4 @@ export async function runServer(): Promise<RunServerHandle> {
 
   return { app };
 }
+import { hasCodexToolRestrictions, decideCodexTool } from '@vibisual/shared';

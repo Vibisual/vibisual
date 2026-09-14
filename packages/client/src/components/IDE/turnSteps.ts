@@ -119,6 +119,85 @@ export function collectThinkRuns(
   return runs;
 }
 
+// ─── 간결: 이어 붙은 사고 자국 합치기 ───
+
+/**
+ * 합치기가 읽는 자국 한 장의 모양. Sub 탭(`StreamStep`)·메인 탭(`TerminalEntry`)이 각자 이 모양으로 읽어 넘긴다.
+ * 자국이 아닌 항목은 `null` 로 읽혀 거기서 구간이 끊긴다.
+ */
+export interface ThinkTraceView {
+  /** 이 자국 하나가 잰 사고 시간(ms) — `endedAt - timestamp`. */
+  ms: number;
+  /** 사고 분량(글자). */
+  chars: number;
+  /** 주인. 다르면 합치지 않는다 — 부모와 중첩 Task 의 사고를 한 덩어리로 재지 않는다(`ThinkRun.nested` 와 같은 규율). */
+  owner: string | undefined;
+}
+
+/**
+ * §5.5 #17-39 ⑩ — **간결**에서 사이에 그려지는 것 없이 이어 붙은 사고 자국을 **주인별 한 줄**로 합친다.
+ *
+ * 자국은 "사고 → 명령 묶음 → 사고" 로 읽히는 표준을 전제로 밀도와 무관하게 뜬다. 그런데 간결은 그 사이의
+ * 명령 묶음을 배열에서 빼므로, 도구를 부를 때마다 짧게 생각하는 모델이면 자국만 도구 개수만큼 줄줄이 붙어
+ * `1초 미만 동안 사고함 · 88자` 가 사다리로 쌓였다(사용자 스크린샷 — "같은 게 중첩돼서 나열된다").
+ *
+ * - 시간은 **자국마다 잰 사고 시간의 합**이다. 첫 자국 시작부터 마지막 자국 끝까지의 폭으로 재면 사이의
+ *   도구 실행 시간이 사고로 적힌다 — 아무도 그만큼 생각하지 않았다.
+ * - 주인이 다르면 섞지 않는다. 한 구간에 주인이 둘이면 두 줄이고, 병렬 Task 가 번갈아 생각해도 줄 수는
+ *   주인 수를 넘지 않는다.
+ * - 합친 줄은 **그 주인의 첫 자국 id·자리**를 쓴다. 구간이 자라도 줄이 새로 생기지 않고 숫자만 오른다
+ *   (도구 묶음이 첫 도구 id 로 `×N` 만 올리는 것과 같은 규율 — 가상 리스트가 항목을 갈아 끼우지 않는다).
+ *
+ * 두 탭의 항목 모양이 달라 읽기·쓰기를 인자로 받는다(`foldTaskChips` 와 같은 갈래).
+ *
+ * @param readTrace  자국이면 그 모양, 아니면 `null`(= 여기서 구간이 끊긴다).
+ * @param writeTrace 합친 시간·분량으로 갈아 끼운 **새 항목**을 만든다(원본을 변형하지 말 것).
+ * @returns 합칠 것이 없으면 입력 배열 **그대로**(참조 보존 — 불필요한 재렌더 방지).
+ */
+export function mergeAdjacentThinkTraces<T>(
+  items: T[],
+  readTrace: (item: T) => ThinkTraceView | null,
+  writeTrace: (first: T, ms: number, chars: number) => T,
+): T[] {
+  let out: T[] | null = null;
+  let i = 0;
+  while (i < items.length) {
+    let view = readTrace(items[i]!);
+    if (view === null) {
+      out?.push(items[i]!);
+      i++;
+      continue;
+    }
+    // 구간 [i, j) — 자국이 끊김 없이 이어진 자리. 주인마다 첫 자리와 합을 모은다(Map 은 넣은 순서를 지킨다).
+    const slots = new Map<string | undefined, { at: number; ms: number; chars: number; count: number }>();
+    let j = i;
+    while (view !== null) {
+      const ms = Math.max(0, view.ms);
+      const slot = slots.get(view.owner);
+      if (slot) {
+        slot.ms += ms;
+        slot.chars += view.chars;
+        slot.count++;
+      } else {
+        slots.set(view.owner, { at: j, ms, chars: view.chars, count: 1 });
+      }
+      j++;
+      view = j < items.length ? readTrace(items[j]!) : null;
+    }
+    if (slots.size === j - i) {
+      // 주인마다 한 장뿐이다 — 합칠 것이 없으므로 원래 항목 그대로.
+      if (out) for (let k = i; k < j; k++) out.push(items[k]!);
+    } else {
+      if (!out) out = items.slice(0, i);
+      for (const slot of slots.values()) {
+        out.push(slot.count === 1 ? items[slot.at]! : writeTrace(items[slot.at]!, slot.ms, slot.chars));
+      }
+    }
+    i = j;
+  }
+  return out ?? items;
+}
+
 // ─── 도구 묶음 경과 ───
 
 /**

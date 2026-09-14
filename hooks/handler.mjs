@@ -110,8 +110,11 @@ function executeCommand(sessionId, text) {
  * 서버 unreachable / 타임아웃 / 에러는 `{continue:true}` (비-Vibisual 세션 안전장치).
  */
 
-/** 서버가 자동 통과시킨 (= Vibisual 관할 외) reason 집합. 이 경우엔 훅이 override 하지 않는다. */
-const SERVER_PASSTHROUGH_REASONS = new Set(['not-managed', 'view-only-agent']);
+/**
+ * 서버가 자동 통과시킨 (= Vibisual 관할 외) reason 집합. 이 경우엔 훅이 override 하지 않는다.
+ * `codex-app-hook` — §5.25 (H) 코덱스 버블의 권한은 앱이 턴마다 싣는 훅이 따로 판정한다(전역 코덱스 훅은 비켜 선다).
+ */
+const SERVER_PASSTHROUGH_REASONS = new Set(['not-managed', 'view-only-agent', 'codex-app-hook']);
 
 /**
  * §5.3 #12-2 v2.26 — AskUserQuestion 전용 분기.

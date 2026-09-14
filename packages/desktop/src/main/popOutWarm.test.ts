@@ -85,6 +85,15 @@ describe('③④ 뗌은 종전 길(재사용 갈래)을 그대로 탄다', () =>
     expect(born).toContain('applyAllOverlayVisibility();');
   });
 
+  it('태어난 창을 창 목록에 알린다 — 목록에서 빠져 있던 창이라, 안 알리면 본체가 끝내 그 창을 모른다((H-27) ①)', () => {
+    // 이미 펼친 채 지어져 아래 펼치기(목록을 알리는 자리)를 지나지 않는다. 본체가 "밖에 없음"으로
+    //   읽으면 (H-13) 이 앱 안에 같은 IDE 를 한 벌 더 세운다(사용자 보고).
+    const born = between(reuse, 'if (wasWarming) {', 'const activation =');
+    expect(born).toContain('broadcastOverlayList();');
+    // 비트를 푼 **뒤**에 알린다 — 먼저 알리면 `listOverlays` 가 그 창을 여전히 빼고 보낸다.
+    expect(born.indexOf('existing.warming = false;')).toBeLessThan(born.indexOf('broadcastOverlayList();'));
+  });
+
   it('윤곽선을 걷는 시점은 **그 창이 다 그렸는지**로 가른다 — 기다리는 것은 예열 창뿐이다', () => {
     expect(reuse).toContain('if (wasWarming && !existing.shellReady) armGhostHandoff(existing.id);');
     expect(reuse).toContain('else finishGhostHandoff();');

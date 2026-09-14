@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { parseCodexUsage } from './codexUsageService.js';
 describe('Codex account limits', () => {
+  it('exposes the subscription plan from current and legacy rate limits', () => {
+    expect(parseCodexUsage({ rateLimits: { planType: 'pro' } }).plan).toBe('Pro');
+    expect(parseCodexUsage({ rateLimitsByLimitId: { codex: { planType: 'plus' } } }).plan).toBe('Plus');
+    expect(parseCodexUsage({ rateLimits: { planType: 'unknown' } }).plan).toBeUndefined();
+    expect(parseCodexUsage({ rateLimits: { planType: 42 } }).plan).toBeUndefined();
+    expect(parseCodexUsage(null).plan).toBeUndefined();
+  });
   it('prefers multiple buckets, preserves zero and converts seconds to milliseconds', () => {
     const result = parseCodexUsage({ rateLimits: { primary: { usedPercent: 99 } }, rateLimitsByLimitId: {
       codex: { primary: { usedPercent: 0, resetsAt: 123, windowDurationMins: 300 }, secondary: { usedPercent: 47, windowDurationMins: 10080 } },

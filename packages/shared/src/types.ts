@@ -1509,6 +1509,9 @@ export interface ResurrectableSession {
  * 고치는 방법도 같다 — 주어를 세션으로 내리고, **집계는 클라가 다시 세지 않고 서버가 접어 준다**
  * (§3.1 · §7.23 데이터 경로).
  *
+ * **읽는 자리는 이제 보험 창이다(§5.26 (I) ⑤).** 상태바 배지는 사용자 지시로 걷었고, 창의
+ * 「압축 기록」 갈피 옆 칩이 좁힌 눈금(세션·에이전트)에서 이 줄들만 골라 더한다.
+ *
  * **0 인 세션은 싣지 않는다** — 실패가 없는 세션이 대다수라 배열은 평소 비어 있고 전선 비용이 0 이다.
  * 파생이라 체크포인트에는 넣지 않는다(`watch`/`resurrectable` 와 같은 규율).
  */
@@ -1550,7 +1553,8 @@ export interface ProjectInsuranceLedger {
   preimages: FilePreimage[];
   counts: InsuranceCounts;
   /**
-   * (I) 세션별 집계 — **상태바가 자기 세션 것만 그리게 하는 유일한 근거**.
+   * (I) 세션별 집계 — **보험 창의 실패 칩이 좁힌 눈금(세션·에이전트)의 것만 세게 하는 유일한 근거**
+   * (§5.26 (I) ⑤ — 종전에는 상태바 배지가 읽었다).
    *
    * 전선 목록(`markers`)은 `INSURANCE_SNAPSHOT_MARKERS` 로 잘려 있어 클라가 그걸 세면 서버가 아는
    * 수와 어긋난다. 그래서 **자르기 전 전체**에서 접어 여기 싣는다. 실패가 0 인 세션은 생략하므로
@@ -1948,6 +1952,13 @@ export interface BubbleData {
    * 표시 전용 파생값(핀으로 올라온 것은 `preservePinned` 가 이미 말한다).
    */
   externalPromoted?: boolean;
+  /**
+   * §5.23 접어 보기 — 이 버블이 **한 에이전트가 읽은 호스트들을 접은 것**이면 그 내역.
+   * 옵션(`AppState.webFoldPerAgent`)이 켜졌을 때만 서버 `getSnapshot` 이 호스트 버블들 대신 싣는다.
+   * **표시 전용 파생값이다** — 체크포인트에 저장하지 않고, 기록(`domainEntries`)은 속한 호스트
+   * 노드 id 에 그대로 남는다(`externalPromoted` 선례). 없으면 보통 버블.
+   */
+  webFold?: WebFoldInfo;
   fileSize?: number;
   /** fade 시작 시각 (completed → 60초 후 idle 전환) */
   fadeStartedAt?: number;
@@ -2157,6 +2168,26 @@ export interface WebEntry {
   agentId?: string;
 }
 
+/** §5.23 접어 보기 — 접힌 웹 버블 안의 호스트 한 곳. */
+export interface WebFoldHost {
+  /** 실제 호스트 노드 id — 패널이 `domainEntries[id]` 와 고정 REST 를 이 id 로 부른다. */
+  id: string;
+  host: string;
+  /** 그 호스트에 쌓인 항목 수. */
+  entryCount: number;
+  status: NodeStatus;
+  lastActivity?: number;
+  /** 그 호스트 버블의 항목 표시 상한 — 접힌 호스트는 스냅샷에 따로 실리지 않아 여기로 전한다. */
+  maxWebEntries?: number;
+}
+
+/** §5.23 접어 보기 — 접힌 웹 버블의 내역. `hosts` 는 최신 호스트가 앞이다. */
+export interface WebFoldInfo {
+  /** 이 접힌 버블의 주인 에이전트 id. */
+  agentId: string;
+  hosts: WebFoldHost[];
+}
+
 /** 실행 중인 서버 프로세스 항목 */
 export interface ServerEntry {
   id: string;
@@ -2276,6 +2307,8 @@ export interface SubAgent {
   totalOutputTokens?: number;
   /** 사용 모델명 (마지막 턴 기준) */
   modelName?: string;
+  /** 마지막 턴에서 확인된 실제 추론 강도. Codex turn_context 에서 읽는 표시용 값. */
+  reasoningEffort?: string;
   /** 현재 컨텍스트 사용량 (토큰) — JSONL에서 읽음, 스냅샷마다 재계산 */
   contextUsed?: number;
   /** 모델 최대 컨텍스트 (토큰) */
@@ -2641,11 +2674,13 @@ export type CommandDispatchMode = 'wait' | 'merge' | 'immediate';
  *  - `maxTurns`  : 설정한 최대 턴에 닿아 우리가 중단
  *  - `agentView` : agent-view 잡이 `failed` 로 끝남
  *  - `orphaned`  : 서버 재기동으로 실행 컨텍스트가 끊김
+ *  - `dispatchResult` : 결과를 받아야 하는 위임(§5.3 #10-2)의 끝난 결과를 받지 못한 채 턴이 끝남(사유는 cmdId·상태)
  */
 export type CommandErrorCode =
   | 'spawn' | 'stdin' | 'exit' | 'crash' | 'cli' | 'maxTurns' | 'agentView' | 'orphaned'
   // §5.19 — 로컬 LLM 턴 실패(엔진 미설치·모델 없음·생성 중 오류). CLI 가 없는 경로라 'cli' 와 구분한다.
-  | 'local';
+  | 'local'
+  | 'dispatchResult';
 
 /** §5.5 #17-12 ③ — 오류로 끝난 명령의 사유(표시 전용, 실행·판정 로직 미관여). */
 export interface CommandError {
@@ -4203,6 +4238,12 @@ export interface AppState {
    * optional — 없으면 `EXTERNAL_TOP_BUDGET_DEFAULT`(=12). 핀은 이 수에 들지 않는다.
    */
   externalTopBudget?: number;
+  /**
+   * §5.23 접어 보기 — 켜면 한 에이전트가 읽은 호스트들을 **에이전트마다 웹 버블 하나**로 접는다.
+   *
+   * 위 설정들과 같은 이유로 **머신 단위**다. optional — 없으면 꺼짐(호스트마다 버블 하나).
+   */
+  webFoldPerAgent?: boolean;
   /**
    * §6 — 사용자가 바꾼 **단축키**만. 안 건드린 칸은 여기 없고 코드의 기본값을 따라간다.
    *
@@ -6794,11 +6835,15 @@ export interface ModelRegistryEntry {
    * 출처:
    * - 'seed' = Anthropic 공개 문서에서 옮겨 둔 `AVAILABLE_AGENT_MODEL_FULL_IDS` (기본 소스).
    * - 'api' = `/v1/models` API 응답 머지(`ANTHROPIC_API_KEY` 가 있을 때 — 최신을 자동 추종).
+   * - 'observed' = **이 PC 대화록에 실제 API 응답으로 찍힌** 모델 ID(§4 상태바 모델 칸 ③(다)).
+   *   키가 없는 사용자에게 (api) 자리를 대신하는 출처다. 가격은 모르므로 "추정" 표식을 받는다.
    *
    * (구 'cli-scan' = CLI 실행본 raw scan 은 폐기했다. 약관상 역설계에 닿을 소지가 있었고,
    *  공개 문서 시드로 옮겨도 목록은 유지된다.)
    */
-  source: 'seed' | 'api';
+  source: 'seed' | 'api' | 'observed';
+  /** `source === 'observed'` 일 때 처음 본 시각(ms). 캐시 상한을 넘으면 오래된 것부터 버린다. */
+  observedAt?: number;
 }
 
 /** 모델 가격표 (per 1M tokens, USD). */
@@ -6822,6 +6867,11 @@ export interface ModelPricing {
 export interface ModelRegistry {
   entries: ModelRegistryEntry[];
   updatedAt: number;
+  /**
+   * §4 (상태바 모델 칸 ③) — 서버가 출처(시드·`/v1/models`·실행본 강도 등급)를 **마지막으로 확인한** 시각(ms).
+   * `updatedAt` 은 관측 한 건으로도 바뀌므로 "목록 확인 N분 전" 은 이 값을 읽는다. 없으면 `updatedAt`.
+   */
+  checkedAt?: number;
   sourceMix: 'seed-only' | 'api-merged';
   /**
    * §4 — 설치된 `claude` CLI 가 실제로 받아들이는 `--effort` 값 목록(예: `['low','medium','high','xhigh','max']`).
@@ -8915,6 +8965,8 @@ export interface AgentProvider {
   webSearch?: 'disabled' | 'cached' | 'live';
   networkAccess?: boolean;
   modelVerbosity?: 'low' | 'medium' | 'high';
+  /** App-enforced Codex tool permissions. Empty object resets to no extra restrictions. */
+  codexTools?: import('./codexToolPolicy.js').CodexToolPolicy;
 }
 
 // ─── §5.25 Codex — 같은 지도 위의 두 번째 엔진 ───
@@ -8995,6 +9047,10 @@ export interface CodexModelEntry {
   reasoningLevels: string[];
   /** 기본 강도. `reasoningLevels` 안의 값이거나 생략. */
   defaultReasoningLevel?: string;
+  /** §5.25 (G-2) — 이 모델이 답변 길이(`model_verbosity`) 조절을 받는가(`support_verbosity`). 모르면 생략. */
+  supportsVerbosity?: boolean;
+  /** §5.25 (G-2) — 답변 길이를 아무도 안 정했을 때 이 모델이 쓰는 값(`default_verbosity`). */
+  defaultVerbosity?: string;
 }
 
 /** §5.25 (G) — `GET /api/codex-models` 응답. */
@@ -9004,6 +9060,76 @@ export interface CodexModelCatalog {
   checkedAt: number;
   /** 못 읽었으면 사유(사람 읽기용). */
   error?: string;
+}
+
+/** §5.25 (G-2) — 코덱스 설정 파일 한 겹에서 읽은 값 중 **우리 설정 창과 겹치는 키만**. 없는 키는 생략. */
+export interface CodexConfigLayerValues {
+  /** `model_reasoning_effort` */
+  reasoningEffort?: string;
+  /** `model_verbosity` */
+  modelVerbosity?: string;
+  /** `web_search` */
+  webSearch?: string;
+  /** `sandbox_workspace_write.network_access` */
+  networkAccess?: boolean;
+}
+
+/**
+ * §5.25 (G-2) — 그 값이 적힌 곳. `project` 는 신뢰한 프로젝트의 `.codex/config.toml`,
+ * `profile` 은 설정 파일의 `profile = "<이름>"` 이 고른 `[profiles.<이름>]` 표다.
+ */
+export type CodexConfigLayerSource = 'profile' | 'project' | 'user' | 'system';
+
+export interface CodexConfigLayer {
+  source: CodexConfigLayerSource;
+  /** 읽은 파일의 절대 경로(화면의 설명 줄에 그대로 적는다). */
+  path: string;
+  values: CodexConfigLayerValues;
+  /** `source === 'profile'` 일 때 그 프로필 이름. */
+  profile?: string;
+}
+
+/**
+ * §5.25 (G-2) — `GET /api/codex-config` 응답. 코덱스가 **이 작업 폴더에서** 읽을 설정 파일들.
+ *
+ * `layers` 는 **이기는 순서**다(고른 프로필 → 가까운 프로젝트 파일 → 사용자 → 시스템). 값이 하나도
+ * 없는 파일도 목록에는 남는다 — 화면은 앞에서부터 그 키가 있는 첫 겹을 쓴다.
+ */
+export interface CodexEffectiveConfig {
+  cwd: string;
+  layers: CodexConfigLayer[];
+  checkedAt: number;
+}
+
+/** §5.25 (G-2) — 로컬 모델의 온도를 비워 두었을 때 실제로 쓰이는 값과 그 출처. */
+export type LocalSamplingSource =
+  /** 지금 올라가 있는 엔진이 `/props` 로 알려 준 값 — 가장 확실하다. */
+  | 'loaded'
+  /** 모델 파일(GGUF)의 `general.sampling.temp` — 엔진이 올릴 때 이 값을 쓴다. */
+  | 'model'
+  /** 설치된 `llama-server --help` 가 적어 둔 `--temp` 값. */
+  | 'engine';
+
+/** §5.25 (G-2) — `GET /api/local-llm/models/:id/sampling` 응답. 알 수 없으면 `temperature: null`. */
+export interface LocalSamplingInfo {
+  temperature: number | null;
+  source: LocalSamplingSource | null;
+  /** 문맥 칸을 비워 두었을 때 실제로 뜨는 크기. 모델 조회 전 응답(순수 판정)에는 없다. */
+  context?: LocalContextInfo;
+}
+
+/** §5.25 (G-2) — 로컬 문맥 칸을 비워 두었을 때 실제로 쓰이는 크기의 출처. */
+export type LocalContextSource =
+  /** 이미 올라가 있는 엔진이 뜬 크기 — 내리기 전까지는 칸 값과 무관하게 이 크기로 돈다. */
+  | 'loaded'
+  /** 우리가 쓰는 크기(`LOCAL_DEFAULT_CONTEXT_SIZE`)가 모델의 학습 문맥보다 커서 학습 문맥으로 깎인 값. */
+  | 'model'
+  /** `LOCAL_DEFAULT_CONTEXT_SIZE` 그대로. */
+  | 'builtin';
+
+export interface LocalContextInfo {
+  tokens: number;
+  source: LocalContextSource;
 }
 
 /**

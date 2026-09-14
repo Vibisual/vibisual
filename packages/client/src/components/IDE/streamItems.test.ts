@@ -109,7 +109,8 @@ function normItem(it: StreamItemFull): unknown {
     case 'thinking-live': return { k: 'thinking-live', id: it.id, m: it.mode, ts: it.timestamp };
     case 'plan': return { k: 'plan', id: it.id, todos: it.todos, sup: !!it.superseded, ts: it.timestamp };
     // §5.5 #17-39 — 자국은 시간·분량이 전부다. 한 필드라도 빼면 두 파서가 어긋나도 통과한다.
-    case 'step': return { k: 'step', id: it.id, ph: it.phase, ts: it.timestamp, end: it.endedAt, ch: it.chars };
+    //   주인(`nestedUnderToolUseId`)도 넣는다 — 간결 합치기(⑩)가 그 값으로 줄을 가르므로 두 파서가 같아야 한다.
+    case 'step': return { k: 'step', id: it.id, ph: it.phase, ts: it.timestamp, end: it.endedAt, ch: it.chars, nest: it.nestedUnderToolUseId };
     default: return { k: it.kind, id: it.id, ts: it.timestamp };
   }
 }
@@ -265,6 +266,8 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
       [1_000, 1_000, 200],
       [40_000, 40_000, 200],
     ]);
+    // §5.5 #17-39 ⑩ — 자국이 주인을 든다(간결에서 이어 붙어도 부모와 자식을 한 줄로 합치지 않게).
+    expect(steps.map((i) => i.nestedUnderToolUseId)).toEqual([undefined, 'task-1']);
     expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
   });
 

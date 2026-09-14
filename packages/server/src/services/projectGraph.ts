@@ -105,7 +105,7 @@ import type {
   SessionMemo,
 } from '@vibisual/shared';
 import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX, MAX_AGENTS, SATELLITE_TYPES, FOLDER_BUBBLE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_PAST_TEXT_MAX, mergeGoalSteps, sanitizeGlyphPath, sanitizeScenePaths, normalizeKindSurface, sanitizeKindBlurb, applySceneTemplate, VISUAL_KIND_SEEDS, VISUAL_KIND_STARTERS, VISUAL_KIND_MAX, VISUAL_KIND_DORMANT_REF, VISUAL_KIND_TRASH_DAYS, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX, DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, WEB_TOOLS, WEB_KEY_MARK, webNodeKey, extractWebEntry, toolAxis, buildGoalActions, isInteractiveEntrypoint } from '@vibisual/shared';
-import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry } from '@vibisual/shared';
+import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry, CmdCliKind } from '@vibisual/shared';
 import { CODEX_AGENT_COLOR } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
@@ -147,7 +147,7 @@ import {
 import os from 'node:os';
 // §4 (설정 3층) — 에이전트 설정은 **갈라진 칸만** 저장하고 읽을 때 겹친다. 접힘 규칙은
 //   화면의 "기본값과 다름" 점과 **같은 함수**를 써야 어긋나지 않는다(shared 한 곳).
-import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools } from '@vibisual/shared';
+import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools, migrateCmdAgentColor } from '@vibisual/shared';
 // §5.5 #17-36 — 스티키 메모 상한/정화(디스크·REST 에서 온 값을 그대로 믿지 않는다).
 import { SESSION_MEMO, sanitizeSessionMemos } from '@vibisual/shared';
 // §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
@@ -161,6 +161,8 @@ import { EdgeManager } from './edgeManager.js';
 import { repairAnswerlessTurnResults } from './turnResult.js';
 import { resolveFolderShipSet } from './folderScope.js';
 import { heatValueOf, isHeatBubbleType } from '@vibisual/shared';
+// §5.23 접어 보기 — 접는 규칙과 접힌 id 규약은 shared 한 곳이다(클라 화면과 서버 지우기가 같은 규약을 읽는다).
+import { foldWebBubblesPerAgent, webFoldAgentId } from '@vibisual/shared';
 import { extractBashReadPaths } from './bashReadPaths.js';
 // §2.1 #3 쓰기 축 — 셸로 고친 파일도 같은 버블 경로를 탄다(추출기는 shared 순수 모듈).
 import { extractBashWritePaths, BASH_WRITE_PATH_LIMIT, BASH_WRITE_PENDING_MAX } from '@vibisual/shared';
@@ -1277,6 +1279,16 @@ export class ProjectGraph {
    * 서버가 트리를 세울 때 쓴다. 핀(`preservePinned`)은 이 수에 들지 않는다(사용자 결정).
    */
   private externalTopBudget = EXTERNAL_TOP_BUDGET_DEFAULT;
+  /**
+   * §5.23 접어 보기 — 켜져 있으면 `getSnapshot` 이 한 에이전트가 읽은 호스트 버블들을 버블 하나로
+   * 접어 싣는다. 머신 단위 앱 설정이라 매니저가 모든 인스턴스에 밀어 준다(`externalTopBudget` 과 같은 길).
+   */
+  private webFoldPerAgent = false;
+  /**
+   * §5.23 접어 보기 — 접힌 버블의 자리(접힌 id → {x,y}). 접힌 버블은 노드 장부에 없는 **보기**라
+   * 체크포인트에 쓰지 않는다 — 비어 있으면 가장 최근 호스트의 자리를 물려받는다.
+   */
+  private webFoldPositions = new Map<string, { x: number; y: number }>();
   /** 위성 버블 위치 — 클라이언트가 계산한 위치를 서버에 동기화 (sat-{nodeId} → {x,y}) */
   private satellitePositions = new Map<string, { x: number; y: number }>();
   /** 폴더별 위성 표시 상한 — 노드의 maxSatellites 우선, 없으면 기본값(§7.5). */
@@ -2223,6 +2235,9 @@ export class ProjectGraph {
    *
    * 도구 백필은 **옮기기 전에** 돈다. 옛 저장분에는 세대 도장이 없어 목록이 짧은데, 먼저 채우지
    * 않으면 그 짧은 목록이 "사용자가 고른 목록"으로 못 박혀 앞으로 영영 새 도구를 못 받는다.
+   *
+   * §2.2 (에이전트 CMD) — CMD 색도 여기서 옮긴다. 생성 때 설정에 구워 넣는 색이라 상수만 바꾸면
+   * 이미 만든 CMD 버블은 옛 색으로 남는다(`migrateCmdAgentColor` — 옛 CMD 색일 때만 바꾼다).
    */
   private readAgentConfigOverrides(
     cp: Pick<ProjectCheckpoint, 'agentConfigs' | 'agentConfigOverrides'>,
@@ -2230,13 +2245,13 @@ export class ProjectGraph {
     const out = new Map<string, Partial<AgentConfig>>();
     if (cp.agentConfigOverrides) {
       for (const [id, overrides] of Object.entries(cp.agentConfigOverrides)) {
-        out.set(id, backfillAgentTools(overrides));
+        out.set(id, migrateCmdAgentColor(backfillAgentTools(overrides)));
       }
       return out;
     }
     const defaults = this.currentAgentDefaults();
     for (const [id, config] of Object.entries(cp.agentConfigs ?? {})) {
-      out.set(id, sparsifyAgentConfig(backfillAgentTools(config), defaults));
+      out.set(id, sparsifyAgentConfig(migrateCmdAgentColor(backfillAgentTools(config)), defaults));
     }
     return out;
   }
@@ -2453,6 +2468,17 @@ export class ProjectGraph {
     return false;
   }
 
+  /**
+   * Manager용: §5.23 접힌 웹 버블 id 인가 — 접어 보기가 켜져 있고 주인 에이전트가 이 인스턴스에 있을 때만.
+   * 접힌 버블은 노드 장부에 없어 `hasNodeId` 가 늘 false 다 — 이 판정이 없으면 지우기·자리 저장이
+   * 모르는 id 로 버려진다.
+   */
+  hasWebFoldId(id: string): boolean {
+    if (!this.webFoldPerAgent) return false;
+    const agentId = webFoldAgentId(id);
+    return agentId !== null && this.hasAgentId(agentId);
+  }
+
   /** preserve-pin 여부 (§2.4 v1.28). 대상 없으면 false. */
   isPreservePinnedById(nodeId: string): boolean {
     for (const n of this.nodes.values()) {
@@ -2469,6 +2495,11 @@ export class ProjectGraph {
     // 위성 버블 위치
     if (nodeId.startsWith('sat-')) {
       this.satellitePositions.set(nodeId, { x, y });
+      return true;
+    }
+    // §5.23 접힌 웹 버블 — 노드 장부에 없으므로 자리를 따로 들고 있다가 다음 스냅샷에 입힌다.
+    if (this.hasWebFoldId(nodeId)) {
+      this.webFoldPositions.set(nodeId, { x, y });
       return true;
     }
     // 에이전트에서 찾기
@@ -2501,6 +2532,9 @@ export class ProjectGraph {
     for (const { id, x, y } of positions) {
       if (id.startsWith('sat-')) {
         this.satellitePositions.set(id, { x, y });
+      } else if (this.hasWebFoldId(id)) {
+        // §5.23 접힌 웹 버블 — 노드 장부 밖의 보기라 자리만 따로 둔다(`updateBubblePosition` 과 같은 규칙).
+        this.webFoldPositions.set(id, { x, y });
       } else {
         const bubble = idMap.get(id);
         if (!bubble) continue;
@@ -2594,12 +2628,16 @@ export class ProjectGraph {
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
-    options?: { executionMode?: ExecutionMode; provider?: AgentProvider },
+    options?: { executionMode?: ExecutionMode; provider?: AgentProvider; cliKind?: CmdCliKind },
   ): BubbleData {
     this.agentCounter += 1;
     const sessionId = `custom-${Date.now().toString(36)}-${this.agentCounter}-${idTail()}`;
     // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트는 생성 시점에 executionMode + 구분 색 + 이름을 baked.
     const cmdMode = options?.executionMode === 'interactive-terminal';
+    // §5.25 (B-1) — 우클릭 Codex 칸의 "Codex CMD". 같은 CMD 버블이 셸에 `codex` 를 채우도록
+    //   `cliKind` 를 태어날 때 남긴다. CMD 가 아니면 버린다 — 헤드리스 스폰은 그 칸을 읽지 않는다.
+    //   `claude` 는 표의 기본 행이라 남기지 않는다(설정 창도 같은 규약으로 저장한다).
+    const cmdCliKind = cmdMode && options?.cliKind && options.cliKind !== 'claude' ? options.cliKind : undefined;
     // §5.19 (C) — All Model(로컬 LLM) 버블. CMD 와 같은 자리에서 갈리는 세 번째 갈래이고,
     //   라벨의 주인공은 에이전트 이름이 아니라 **모델명**이다(캔버스에서 무엇을 물었는지 바로 읽히게).
     //   §5.25 (B) — 코덱스도 같은 `provider` 축에 실려 오므로 **엔진별로 갈라야 한다.**
@@ -2614,6 +2652,7 @@ export class ProjectGraph {
         : codexMode ? (providerName || `Codex Agent ${this.agentCounter}`)
         // 엔진 축이 없으면 클로드다. "Custom" 은 엔진이 하나뿐이던 시절의 이름이라
         // 지금은 무엇으로 도는지를 말해 주지 않는다(§5.25 (B) 세 형제 규약).
+        : cmdCliKind === 'codex' ? `Codex CMD ${this.agentCounter}`
         : `${cmdMode ? 'CMD' : 'Claude'} Agent ${this.agentCounter}`);
     const uniqueName = this.uniqueLabel(baseName);
     const agent: BubbleData = {
@@ -2639,6 +2678,7 @@ export class ProjectGraph {
     //   §5.19 — provider 도 같은 규약: 생성 시 명시된 것만 baked. 없으면 지금까지의 claude 경로.
     this.agentConfigOverrides.set(agent.id, {
       ...(cmdMode ? { executionMode: 'interactive-terminal' as const, color: CMD_AGENT_COLOR } : {}),
+      ...(cmdCliKind ? { cliKind: cmdCliKind } : {}),
       ...(localMode && options?.provider ? { provider: options.provider, color: LOCAL_AGENT_COLOR } : {}),
       // Codex도 provider 축 자체가 정체성이다. 이 값을 남기지 않으면 전역 Claude 기본 설정을
       // 상속해 버려, Codex Agent가 화면에서 `CLAUDE / opus`로 보이고 Claude runner로 실행된다.
@@ -4490,6 +4530,51 @@ export class ProjectGraph {
     }
   }
 
+  /**
+   * §5.23 접어 보기 — 접힌 웹 버블 지우기를 **지금 접혀 보이는 호스트들로** 푼다.
+   *
+   * 그 에이전트만 읽은 호스트는 호스트 버블을 지우는 것과 같다(위 노드 분기). 다른 에이전트도 읽은
+   * 호스트는 **이 에이전트와의 화살표와 소유 기록만** 걷는다 — 옆 에이전트의 접힌 버블이 따라 줄면 안 된다.
+   * "다른 에이전트"는 스냅샷에 실리지 않은 에이전트까지 센다: 숨긴 탭의 에이전트가 읽은 호스트를 지우면
+   * 그 탭을 다시 열었을 때 읽은 흔적이 사라져 있다.
+   *
+   * @returns 풀었으면 true. 접힌 버블이 지금 스냅샷에 없으면(옵션 꺼짐·호스트 만료) false.
+   */
+  removeWebFold(foldId: string, opts: { force?: boolean; purgeTaskEdges?: boolean } = {}): boolean {
+    if (!this.hasWebFoldId(foldId)) return false;
+    // 사용자가 누른 것은 화면에 접혀 있던 모양이다 — 그 모양을 만든 스냅샷(캐시)에서 구성원을 읽는다.
+    const fold = this.getSnapshot().topFolders.find((n) => n.id === foldId)?.webFold;
+    if (!fold) return false;
+    const { agentId } = fold;
+    const agentIds = new Set<string>();
+    for (const a of this.agents.values()) agentIds.add(a.id);
+    const edges = this.mainEdges.getAll();
+    let removed = 0;
+    let detached = 0;
+    for (const host of fold.hosts) {
+      const readByOthers = edges.some((e) => {
+        const other = e.source === host.id ? e.target : e.target === host.id ? e.source : null;
+        return other !== null && other !== agentId && agentIds.has(other);
+      });
+      if (!readByOthers) {
+        this.removeBubble(host.id, opts);
+        removed++;
+        continue;
+      }
+      this.mainEdges.removeByPredicate(
+        (e) => (e.source === host.id && e.target === agentId) || (e.source === agentId && e.target === host.id),
+      );
+      const key = this.domainKeyById(host.id);
+      if (key) this.nodeAgentRefs.get(key)?.delete(agentId);
+      detached++;
+    }
+    this.webFoldPositions.delete(foldId);
+    // 노드 분기는 판을 올리지 않는다 — 여기서 올리지 않으면 캐시가 지운 버블을 한 번 더 그린다.
+    this.bumpMutationVersion();
+    logger.info(`Bubble removed: web fold of agent "${agentId}" (removed ${removed}, detached ${detached})`);
+    return true;
+  }
+
   setAutoLoadSessions(enabled: boolean): void {
     this.autoLoadSessions = enabled;
   }
@@ -5315,6 +5400,15 @@ export class ProjectGraph {
     return this.resolveTabProjectName(proj, sessionCwd);
   }
 
+  /** 에이전트 id → 그 세션이 속한 탭 프로젝트 이름. 세션 cwd 를 모르면 undefined. */
+  private agentTabProjectName(agentId: string): string | undefined {
+    for (const [sessionId, agent] of this.agents) {
+      if (agent.id !== agentId) continue;
+      return this.resolveOwnerTabProjectName(this.sessionCwds.get(sessionId)) ?? undefined;
+    }
+    return undefined;
+  }
+
   /**
    * 파일 하나의 디스크 크기 — **statSync TTL 캐시의 유일한 소유자**(2a).
    *
@@ -5428,7 +5522,9 @@ export class ProjectGraph {
       (enriched.status === 'active' || enriched.status === 'completed')
       && (node.bubbleType === 'file'
         || node.bubbleType === 'internal_folder'
-        || node.bubbleType === 'external_folder')
+        || node.bubbleType === 'external_folder'
+        // §5.23 — 도메인 버블도 폴더 버블과 같은 길을 쓴다(새 수명 규칙을 발명하지 않는다).
+        || node.bubbleType === 'domain')
     ) {
       enriched.status = 'idle';
     }
@@ -5436,14 +5532,14 @@ export class ProjectGraph {
   }
 
   /**
-   * 스냅샷 생존 필터 — §2.4: 에이전트가 엣지로 읽고/쓴 file·folder 버블 정리.
+   * 스냅샷 생존 필터 — §2.4: 에이전트가 엣지로 읽고/쓴 file·folder·domain 버블 정리.
    *
    * 에이전트 완료(`setAgentStatus('completed')`) 시 `removeAgentRefs` 가 연결된
-   * file/internal_folder/external_folder 버블을 `idle` 로 내리고 `lastActivity` 를 찍는다.
+   * file/internal_folder/external_folder/domain 버블을 `idle` 로 내리고 `lastActivity` 를 찍는다.
    * 그 후 BUBBLE_TTL(5분) 경과하면 이 필터가 false → `getSnapshot` 에서 제외 → 클라에서 사라짐.
    *
    * 제외(항상 alive):
-   *  - file/internal_folder/external_folder 외 타입(agent/root/back/ghost/iframe/pipeline/
+   *  - file/internal_folder/external_folder/domain 외 타입(agent/root/back/ghost/iframe/pipeline/
    *    worktree/bash 위성 등)은 각자 별도 라이프사이클(세션 liveness·ghost fade·
    *    bash 부모추종·상주 등)이 있어 이 TTL 정리 대상이 아니다.
    *  - 고정 버블(`preservePinned`/`pinned`, §2.4 v1.28) — 모든 소멸 경로 차단.
@@ -5455,7 +5551,9 @@ export class ProjectGraph {
     if (
       node.bubbleType !== 'file' &&
       node.bubbleType !== 'internal_folder' &&
-      node.bubbleType !== 'external_folder'
+      node.bubbleType !== 'external_folder' &&
+      // §5.23 "TTL 은 일반 버블 경로 그대로" — 이 줄이 없어 유휴 도메인 버블이 영영 남았다.
+      node.bubbleType !== 'domain'
     ) {
       return true;
     }
@@ -5713,22 +5811,56 @@ export class ProjectGraph {
       visibleProjects[info.name] = info;
     }
 
+    // §5.23 접어 보기 — 실어 보내기 직전에 **모양만** 바꿔 끼운다. 노드·엣지 장부, 기록(`domainEntries`),
+    //   체크포인트는 그대로라 옵션을 끄면 다음 스냅샷에서 호스트마다 버블 하나로 돌아온다.
+    const nodeProjects = this.buildNodeProjects();
+    const domainEntries = this.buildDomainEntriesRecord();
+    let shippedTopFolders = topFolders;
+    let shippedEdges = this.mainEdges.getAll();
+    if (this.webFoldPerAgent) {
+      const folded = foldWebBubblesPerAgent({
+        topFolders,
+        edges: shippedEdges,
+        agentIds: new Set(enrichedAgents.map((a) => a.id)),
+        entryCount: (nodeId) => domainEntries[nodeId]?.length ?? 0,
+        positionOf: (foldId) => this.webFoldPositions.get(foldId),
+      });
+      shippedTopFolders = folded.topFolders;
+      shippedEdges = folded.edges;
+      for (const [foldId, group] of folded.folds) {
+        // 귀속은 주인 에이전트의 탭 프로젝트다 — 호스트 버블 귀속(`routeWebTool`)과 같은 규칙. 모르면
+        //   구성원 호스트의 귀속을 빌린다(§5.24 척도가 프로젝트별로 잰다).
+        const owner = this.agentTabProjectName(group.agentId)
+          ?? group.hostIds.map((id) => nodeProjects[id]).find((p) => p !== undefined);
+        if (owner !== undefined) nodeProjects[foldId] = owner;
+      }
+    }
+    // 주인 에이전트가 사라진 접힌 자리는 버린다 — 에이전트가 오갈수록 쌓이기만 하는 맵이 되지 않게.
+    if (this.webFoldPositions.size > 0) {
+      const liveAgentIds = new Set<string>();
+      for (const a of this.agents.values()) liveAgentIds.add(a.id);
+      for (const foldId of [...this.webFoldPositions.keys()]) {
+        const agentId = webFoldAgentId(foldId);
+        if (agentId === null || !liveAgentIds.has(agentId)) this.webFoldPositions.delete(foldId);
+      }
+    }
+
     const snapshot: GraphSnapshot = {
       projects: visibleProjects,
       agents: enrichedAgents,
-      topFolders,
+      topFolders: shippedTopFolders,
       children,
-      edges: this.mainEdges.getAll(),
+      edges: shippedEdges,
       innerEdges,
       satellites,
       bashHistory: this.buildBashHistoryRecord(),
       runningServers: this.buildRunningServersRecord(),
       agentEvents: this.buildAgentEvents(),
       agentProjects: this.buildAgentProjects(),
-      nodeProjects: this.buildNodeProjects(),
+      nodeProjects,
       fileEdits: this.buildFileEditsRecord(),
-      // §5.23 도메인 버블별 웹 이력
-      domainEntries: this.buildDomainEntriesRecord(),
+      // §5.23 도메인 버블별 웹 이력 — 접어 보기에서도 키는 호스트 노드 id 그대로다(패널이 호스트별로 읽는다).
+      domainEntries,
       commandQueues: this.buildCommandQueuesRecord(),
       completedCommands: this.buildCompletedCommandsRecord(),
       // §5.5 #17-9 v3.51 — 지금 백단에서 도는 Task 서브에이전트(런타임 전용, 영속화 ❌ — 체크포인트
@@ -5757,15 +5889,16 @@ export class ProjectGraph {
           if (!cwd) continue; // 다른 인스턴스 소유 — 여기선 출력하지 않음
           out[agentId] = subs.map((s) => {
             if (!s.sessionId) return s;
-            const info = this.getAgentConfig(agentId)?.provider?.kind === 'codex-cli'
-              ? readCodexContext(s.sessionId)
-              : readContextInfo(cwd, s.sessionId);
+            const isCodex = this.getAgentConfig(agentId)?.provider?.kind === 'codex-cli';
+            const codexInfo = isCodex ? readCodexContext(s.sessionId) : null;
+            const info = isCodex ? codexInfo : readContextInfo(cwd, s.sessionId);
             if (!info) return s;
             return {
               ...s,
               contextUsed: info.contextUsed,
               contextMax: info.contextMax,
-              modelName: s.modelName ?? info.modelName,
+              modelName: codexInfo?.modelName ?? s.modelName ?? info.modelName,
+              ...(isCodex ? { reasoningEffort: codexInfo?.reasoningEffort } : {}),
               // §5.5 — **누적 토큰도 여기서 실어 준다.** `subAgentManager` 는 이 값을 명령이
               //   *끝날 때만* 갱신한다(터미널 경로 두 곳). 그래서 (a) 도는 중인 세션은 턴이 끝날
               //   때까지 숫자가 얼어 있었고, (b) 명령을 한 번도 마치지 않은 세션은 값이 아예 없어
@@ -12265,8 +12398,13 @@ export class ProjectGraph {
       }
       if (!hasActiveRef) {
         const node = this.nodes.get(nodePath);
-        if (node) {
-          node.status = node.bubbleType === 'ghost' ? 'disappearing' : 'idle';
+        const next = node?.bubbleType === 'ghost' ? 'disappearing' : 'idle';
+        // 시계는 **이번에 내려가는 노드만** 다시 감는다. 이 루프는 방금 끝난 에이전트의 노드만이
+        // 아니라 소유 기록이 남은 노드 전부를 돌므로, 이미 유휴인 노드까지 `now` 로 찍으면 턴이
+        // 끝날 때마다 프로젝트 전체의 유휴 버블이 5분 TTL(§2.4)을 처음부터 다시 받아 되살아난다
+        // (실측: 유휴 file/folder/domain 1,876장 중 1,592장이 같은 ms 를 달고 있었다).
+        if (node && node.status !== next) {
+          node.status = next;
           node.lastActivity = now;
         }
         if (forget) refs.clear();
@@ -13129,6 +13267,23 @@ export class ProjectGraph {
     if (next === this.externalTopBudget) return;
     this.externalTopBudget = next;
     this.rebuildExternalFolderTree();
+  }
+
+  /**
+   * §5.23 접어 보기를 켜고 끈다(옵션창 → 앱 설정 → 매니저 → 여기).
+   *
+   * 장부는 하나도 바꾸지 않고 판만 올린다 — 올리지 않으면 200ms 캐시가 옛 모양의 스냅샷을 한 번 더
+   * 돌려준다. 끌 때 접힌 자리를 비우는 것은, 다시 켰을 때 그사이 옮긴 호스트 자리를 물려받게 하려는 것이다.
+   */
+  setWebFoldPerAgent(enabled: boolean): void {
+    if (enabled === this.webFoldPerAgent) return;
+    this.webFoldPerAgent = enabled;
+    if (!enabled) this.webFoldPositions.clear();
+    this.bumpMutationVersion();
+  }
+
+  isWebFoldPerAgent(): boolean {
+    return this.webFoldPerAgent;
   }
 
   /**

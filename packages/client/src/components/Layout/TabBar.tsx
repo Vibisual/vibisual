@@ -8,7 +8,7 @@ import { HoverTooltip } from './HoverTooltip.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
 import { useCommand } from '../../hooks/useCommand.js';
 import { applyLocalOrder } from '../../hooks/tabPushGeom.js';
-// §5.4 #14-2 — 꾹 눌러 집어 드는 손짓 한 벌(활동바·IDE 세션 탭과 같은 훅).
+// §5.4 #14-2 — 집어 들어 옮기는 손짓 한 벌(활동바·IDE 세션 탭과 같은 훅 — 탭은 꾹 누르지 않고 끌어서 든다, (F-6)).
 import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
 // 화면에 선 탭만 끌 수 있으므로(별창으로 빠진 탭은 줄에 없다) 새 순서는 **그 자리들에만** 되꽂는다.
 import { applyVisibleOrder } from '@vibisual/shared';
@@ -247,15 +247,16 @@ export function TabBar(): React.JSX.Element | null {
     };
   }, []);
 
-  // --- 꾹 눌러 자리를 옮긴다 (§5.4 #14-2 · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ---
+  // --- 끌어서 자리를 옮긴다 (§5.4 #14-2 (F-6) · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ---
   //
   // 종전에는 HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명해지고, 손에 붙어
   // 오는 것은 탭이 아니라(그마저도 1×1 투명 캔버스로 지워 놓아서) 안내 카드 한 장뿐이었으며, 놓을
   // 때는 네이티브 되돌리기 연출이 한 번 더 끼어들었다(사용자 지적 — "때서 붙이는 느낌이 너무
   // 어색해"). 그 셋은 전부 네이티브 DnD 가 정하는 것이라 CSS 로는 손댈 수 없다.
   //
-  // 이제 **탭 자신이 손에 붙어 온다** — 꾹 눌러 집어 들고, 지나는 탭이 밀리고, 헤더 띠 밖에서 놓으면
-  // 별창으로 나간다(#14-1 detach 는 그대로다 — 판정 좌표만 `dragend` 에서 `pointerup` 으로 옮겼다).
+  // 이제 **탭 자신이 손에 붙어 온다** — 누른 채 끌면 곧장 집어 들고, 지나는 탭이 밀리고, 헤더 띠 밖에서
+  // 놓으면 별창으로 나간다(#14-1 detach 는 그대로다 — 판정 좌표만 `dragend` 에서 `pointerup` 으로 옮겼다).
+  // 꾹 누르는 기다림은 없다(§5.4 #14-2 (F-6)) — 문턱(`POINTER_DRAG.dragStartPx`) 안에서 떼면 평소의 클릭이다.
 
   // §5.4 #14-1 — 드래그 중 마우스가 탭바 밖에 있어 detach 가 예상되는 상태일 때 detach-hint 표시.
   const [detachHint, setDetachHint] = useState(false);
@@ -320,6 +321,8 @@ export function TabBar(): React.JSX.Element | null {
     order: visibleKeys,
     // 닫기 X 위에서 시작된 누르기는 그 버튼의 것이다(종전 `onPointerDown` stopPropagation 과 같은 뜻).
     ignoreSelector: 'button',
+    // §5.4 #14-2 (F-6) — 꾹 누르지 않는다. 누른 채 문턱을 넘게 끌면 곧장 든다(터치만 꾹 누르기로 남는다).
+    activation: 'drag',
     onDragStart: (_key, p) => { setDetachHint(p.y >= HEADER_SAFE_HEIGHT); },
     onDragMove: (_key, p) => { setDetachHint(p.y >= HEADER_SAFE_HEIGHT); },
     onCommit: (next, p, key) => {
@@ -803,7 +806,7 @@ export function TabBar(): React.JSX.Element | null {
               })()}
               <button
                 type="button"
-                // 탭 전체가 꾹 눌러 끌리므로 X 에서 시작된 누르기는 여기서 멈춰 세운다 — 끌기 훅의
+                // 탭 전체가 끌면 곧장 들리므로 X 에서 시작된 누르기는 여기서 멈춰 세운다 — 끌기 훅의
                 //   `ignoreSelector` 와 겹치는 이중 방어다(어느 한쪽이 사라져도 닫기는 닫기로 남는다).
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => handleCloseTab(e, item)}

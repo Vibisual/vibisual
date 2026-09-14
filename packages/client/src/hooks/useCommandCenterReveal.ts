@@ -20,12 +20,13 @@ export function useCommandCenterReveal(): void {
       if (known) store.setActiveProject(projectId);
       store.focusOnNode(agentId);
       store.selectNode(agentId);
-      store.openIDEOverlay(agentId);
-      if (subAgentId) {
-        // 그 세션이 아직 살아 있을 때만 탭을 옮긴다 — 없으면 메인 탭(null)에 머문다.
-        const alive = (useGraphStore.getState().subAgents[agentId] ?? []).some((s) => s.id === subAgentId);
-        if (alive) store.setIDEActiveSession(subAgentId);
-      }
+      // 그 세션이 아직 살아 있을 때만 탭을 옮긴다 — 없으면 여는 길의 기본(마지막에 보던 세션)에 둔다.
+      const live = subAgentId && (useGraphStore.getState().subAgents[agentId] ?? []).some((s) => s.id === subAgentId)
+        ? subAgentId
+        : null;
+      // §5.5 #17-6 (H-27) ⑦ 세션은 여는 길에 **실어** 보낸다. 연 다음에 키 없이 세우면 그 에이전트의
+      //   IDE 가 밖에 나가 있는 판에 앱 안의 **남의 창**이 그 세션으로 바뀌고, 밖의 창은 그대로다.
+      store.openIDEOverlay(agentId, live ? { focus: { sessionId: live } } : undefined);
     });
     return () => { off(); };
   }, []);

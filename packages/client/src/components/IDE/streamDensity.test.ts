@@ -23,6 +23,10 @@ function command(id: string): StreamItemFull {
 function error(id: string, content = '[exit:1] boom'): StreamItemFull {
   return { kind: 'error', id, content, timestamp: 1 };
 }
+/** §5.5 #17-39 — 끝난 사고 런의 자국. `ms` 는 그 자국 하나가 잰 사고 시간. */
+function step(id: string, ts: number, ms: number, chars: number, nestedUnderToolUseId?: string): StreamItemFull {
+  return { kind: 'step', id, phase: 'thinking', timestamp: ts, endedAt: ts + ms, chars, ...(nestedUnderToolUseId ? { nestedUnderToolUseId } : {}) };
+}
 
 describe('applyStreamDensity — 실패 사유(§5.5 #17-12 ③)', () => {
   it('어느 밀도에서도 오류 줄은 사라지지 않는다', () => {
@@ -255,6 +259,70 @@ describe('applyStreamDensity — §5.5 #17-43 간결은 명령창만 숨긴다(�
     expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't2']);
     expect(applyStreamDensity(items, 'standard').map((i) => i.kind))
       .toEqual(['command', 'text', 'toolgroup', 'text']);
+  });
+});
+
+describe('applyStreamDensity — §5.5 #17-39 ⑩ 간결에서 이어 붙은 사고 자국은 한 줄', () => {
+  const steps = (out: ReturnType<typeof applyStreamDensity>) => out.filter((i) => i.kind === 'step');
+
+  it('[회귀] 도구마다 끼어 있던 자국이 간결에서 사다리로 쌓이지 않는다(표준은 그대로)', () => {
+    // 사용자 스크린샷 — 도구를 부를 때마다 짧게 생각하는 모델. 간결이 묶음을 빼자 자국끼리 붙었다.
+    const items = [
+      command('c1'), text('t1', '의도'),
+      step('s1', 1_000, 0, 88), tool('a1', 'Read'),
+      step('s2', 3_000, 0, 142), tool('a2', 'Grep'),
+      step('s3', 5_000, 0, 151), tool('a3', 'Read'),
+      text('t2', '결론'),
+    ];
+    const compact = applyStreamDensity(items, 'compact');
+    expect(compact.map((i) => i.id)).toEqual(['c1', 't1', 's1', 't2']);
+    expect(steps(compact)[0]).toMatchObject({ chars: 88 + 142 + 151 });
+    // 표준은 사이에 명령 묶음이 그대로 있어 "사고 → 명령 → 사고" 로 읽힌다 — 한 줄도 바뀌지 않는다.
+    expect(applyStreamDensity(items, 'standard').map((i) => i.kind)).toEqual([
+      'command', 'text', 'step', 'toolgroup', 'step', 'toolgroup', 'step', 'toolgroup', 'text',
+    ]);
+  });
+
+  it('시간은 폭이 아니라 합이다 — 사이의 도구 실행 시간을 사고로 적지 않는다', () => {
+    const out = applyStreamDensity([step('s1', 1_000, 500, 100), tool('a1', 'Bash'), step('s2', 60_000, 400, 100)], 'compact');
+    const merged = steps(out);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.kind === 'step' && merged[0]!.timestamp).toBe(1_000);
+    // 폭(59.4초)이 아니라 두 자국이 잰 사고 시간의 합(0.9초).
+    expect(merged[0]!.kind === 'step' && merged[0]!.endedAt - merged[0]!.timestamp).toBe(900);
+  });
+
+  it('주인이 다르면(중첩 Task) 섞지 않는다', () => {
+    const nestedTool = { ...tool('n9', 'Read'), nestedUnderToolUseId: 'task-1' };
+    const out = applyStreamDensity([
+      step('p1', 1, 0, 100), tool('a1', 'Agent'),
+      step('n1', 2, 0, 100, 'task-1'), nestedTool,
+      step('p2', 3, 0, 100),
+    ], 'compact');
+    expect(steps(out).map((i) => [i.id, i.kind === 'step' && i.chars])).toEqual([['p1', 200], ['n1', 100]]);
+  });
+
+  it('간결 화면에 그려지는 것이 끼면 끊긴다(내용 있는 system 본문)', () => {
+    const out = applyStreamDensity(
+      [step('s1', 1, 0, 100), tool('a1', 'Read'), system('s9', '[Read] file not found'), tool('a2', 'Read'), step('s2', 2, 0, 100)],
+      'compact',
+    );
+    expect(out.map((i) => i.id)).toEqual(['s1', 's9', 's2']);
+  });
+
+  it('구간이 자라도 합친 줄의 id 는 첫 자국 그대로 — 줄이 새로 생기지 않고 숫자만 오른다', () => {
+    const before = applyStreamDensity([text('t1'), step('s1', 1, 0, 100), tool('a1', 'Read')], 'compact');
+    const after = applyStreamDensity([text('t1'), step('s1', 1, 0, 100), tool('a1', 'Read'), step('s2', 2, 0, 50), tool('a2', 'Read')], 'compact');
+    expect(before.map((i) => i.id)).toEqual(['t1', 's1']);
+    expect(after.map((i) => i.id)).toEqual(['t1', 's1']);
+    // 숫자가 바뀌었으니 같은 항목으로 보지 않는다 — 그 줄만 다시 그린다.
+    expect(sameDisplayItem(before[1]!, after[1]!)).toBe(false);
+  });
+
+  it('합칠 것이 없으면 자국 항목 참조가 그대로다(불필요한 재렌더 ❌)', () => {
+    const lone = step('s1', 1, 0, 100);
+    const out = applyStreamDensity([text('t1'), lone, text('t2')], 'compact');
+    expect(out[1]).toBe(lone);
   });
 });
 

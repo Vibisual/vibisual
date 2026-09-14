@@ -835,6 +835,19 @@ export function listLoadedModels(): string[] {
   return [...loaded.keys()];
 }
 
+/**
+ * §5.25 (G-2) — 이 모델을 올려 둔 엔진의 포트. 안 올라가 있으면 `null`.
+ * 준비 중일 수도 있다 — 부르는 쪽은 응답이 없으면 다음 근거로 넘어간다.
+ */
+export function loadedModelPort(modelId: string): number | null {
+  return loaded.get(modelId)?.port ?? null;
+}
+
+/** §5.25 (G-2) — 이 모델을 올려 둔 엔진이 실제로 뜬 문맥 크기. 안 올라가 있으면 `null`. */
+export function loadedModelContext(modelId: string): number | null {
+  return loaded.get(modelId)?.contextSize ?? null;
+}
+
 async function freePort(from: number): Promise<number> {
   for (let p = from; p < from + 200; p += 1) {
     const ok = await new Promise<boolean>((resolve) => {

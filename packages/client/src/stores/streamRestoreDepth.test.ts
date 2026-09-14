@@ -53,6 +53,8 @@ describe('스트림 복원 깊이 (§5.5 v4.92 ④)', () => {
       subAgentStreams: {},
       streamLastActivity: {},
       deepRestoredSessions: {},
+      streamHistoryExtra: {},
+      streamHistoryDone: {},
       ideOverlays: {},
       subAgents: {},
       activeProject: null,
@@ -188,5 +190,138 @@ describe('스트림 복원 깊이 (§5.5 v4.92 ④)', () => {
 
     expect(useGraphStore.getState().subAgentStreams[SUB_A]).toHaveLength(2000);
     expect(useGraphStore.getState().deepRestoredSessions[SUB_A]).toBe(true);
+  });
+
+  // ── §5.5 #17-12 — 복원 창 위쪽 과거를 거슬러 불러온 장부 ──
+  //
+  // 서버의 깊은 창(2,000)보다 앞은 턴마다 저장된 답만 남아 긴 대화를 올려 보면 사이 대화가 비어 보였다.
+  // 그 앞을 한 쪽씩 불러와 붙이는데, 붙인 과거가 다음 줄 도착에 도로 잘리거나 "더 없음" 표식이 남아
+  // 재요청을 막으면 같은 증상이 되살아난다. 여기서 장부의 규칙을 못 박는다.
+  describe('과거 불러오기 장부 (§5.5 #17-12)', () => {
+    it('앞에 붙이며 겹친 줄은 버리고 늘어난 만큼 상한을 넓힌다', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000, 1000) }, 'deep');
+      // 기준 줄(1000)이 경계라 한 번 더 딸려 온 경우 — 중복으로 두 번 그리면 안 된다.
+      useGraphStore.getState().prependStreamHistory(SUB_A, [...stream(SUB_A, 1000, 0), evt(SUB_A, 1000)], true);
+
+      const st = useGraphStore.getState();
+      const buf = st.subAgentStreams[SUB_A] ?? [];
+      expect(buf).toHaveLength(3000);
+      expect(buf[0]?.id).toBe(`${SUB_A}-0`);
+      expect(buf[1000]?.id).toBe(`${SUB_A}-1000`);
+      expect(new Set(buf.map((e) => e.id)).size).toBe(3000);
+      expect(st.streamHistoryExtra[SUB_A]).toBe(1000);
+      expect(st.streamHistoryDone[SUB_A]).toBeUndefined();
+    });
+
+    it('서버가 더 없다고 하면 붙인 뒤 끝 표식을 세운다', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000, 1000) }, 'deep');
+      useGraphStore.getState().prependStreamHistory(SUB_A, stream(SUB_A, 1000, 0), false);
+
+      expect(useGraphStore.getState().subAgentStreams[SUB_A]).toHaveLength(3000);
+      expect(useGraphStore.getState().streamHistoryDone[SUB_A]).toBe(true);
+    });
+
+    it('"더 있다"면서 새 줄이 없으면 끝으로 친다 — 같은 기준점으로 끝없이 묻지 않게', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000, 1000) }, 'deep');
+      const before = useGraphStore.getState().subAgentStreams[SUB_A];
+      useGraphStore.getState().prependStreamHistory(SUB_A, [evt(SUB_A, 1000)], true);
+
+      expect(useGraphStore.getState().subAgentStreams[SUB_A]).toBe(before);
+      expect(useGraphStore.getState().streamHistoryExtra[SUB_A]).toBeUndefined();
+      expect(useGraphStore.getState().streamHistoryDone[SUB_A]).toBe(true);
+    });
+
+    it('불러온 과거는 다음 줄 도착의 활성 컷에 잘리지 않는다', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, STREAM_EVENTS_MAX_PER_SESSION, 10_000) }, 'deep');
+      useGraphStore.getState().prependStreamHistory(SUB_A, stream(SUB_A, 1000, 9000), true);
+      // 넓힌 상한이 없으면 4,000 + 1,000 + 30 이 4,512 를 넘어 곧장 4,000 으로 되깎인다.
+      useGraphStore.getState().appendStreamEvents(stream(SUB_A, 30, 20_000));
+
+      const buf = useGraphStore.getState().subAgentStreams[SUB_A] ?? [];
+      expect(buf).toHaveLength(STREAM_EVENTS_MAX_PER_SESSION + 1030);
+      expect(buf[0]?.id).toBe(`${SUB_A}-9000`);
+    });
+
+    it('넓힌 상한도 넘겨 앞이 잘리면 끝 표식만 내린다(다시 거슬러 오를 수 있게)', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, STREAM_EVENTS_MAX_PER_SESSION, 10_000) }, 'deep');
+      useGraphStore.getState().prependStreamHistory(SUB_A, stream(SUB_A, 1000, 9000), false);
+      expect(useGraphStore.getState().streamHistoryDone[SUB_A]).toBe(true);
+
+      useGraphStore.getState().appendStreamEvents(stream(SUB_A, 600, 20_000));
+
+      const st = useGraphStore.getState();
+      expect(st.subAgentStreams[SUB_A]).toHaveLength(STREAM_EVENTS_MAX_PER_SESSION + 1000);
+      expect(st.streamHistoryDone[SUB_A]).toBeUndefined();
+      expect(st.streamHistoryExtra[SUB_A]).toBe(1000);
+    });
+
+    it('단건 경로도 같은 넓힌 상한을 쓴다', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, STREAM_EVENTS_MAX_PER_SESSION, 10_000) }, 'deep');
+      useGraphStore.getState().prependStreamHistory(SUB_A, stream(SUB_A, 1000, 9000), true);
+      useGraphStore.getState().appendStreamEvent(evt(SUB_A, 20_000));
+
+      expect(useGraphStore.getState().subAgentStreams[SUB_A]).toHaveLength(STREAM_EVENTS_MAX_PER_SESSION + 1001);
+    });
+
+    it('비활성 컷이 깎으면 장부를 비운다', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000, 1000) }, 'deep');
+      useGraphStore.getState().prependStreamHistory(SUB_A, stream(SUB_A, 1000, 0), false);
+      useGraphStore.getState().closeIDEOverlay();
+      useGraphStore.getState().appendStreamEvent(evt(SUB_B, 1));
+
+      const st = useGraphStore.getState();
+      expect(st.subAgentStreams[SUB_A]).toHaveLength(STREAM_EVENTS_MAX_PER_INACTIVE_SESSION);
+      expect(st.streamHistoryExtra[SUB_A]).toBeUndefined();
+      expect(st.streamHistoryDone[SUB_A]).toBeUndefined();
+    });
+
+    it('깊은 창이 같은 첫 줄로 다시 얹히면 장부를 두고, 다른 첫 줄로 교체되면 비운다', () => {
+      openIDE();
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000, 1000) }, 'deep');
+      useGraphStore.getState().prependStreamHistory(SUB_A, stream(SUB_A, 1000, 0), true);
+      // 과거를 이어 둔 버퍼 위에 깊은 창을 얹은 결과(mergeDeepWindow) — 첫 줄이 그대로다.
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 3000, 0) }, 'deep');
+      expect(useGraphStore.getState().streamHistoryExtra[SUB_A]).toBe(1000);
+
+      // 앞을 모르는 새 창으로 통째 교체 — 불러온 과거는 이 창에 없다.
+      useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000, 1200) }, 'deep');
+      expect(useGraphStore.getState().subAgentStreams[SUB_A]?.[0]?.id).toBe(`${SUB_A}-1200`);
+      expect(useGraphStore.getState().streamHistoryExtra[SUB_A]).toBeUndefined();
+    });
+  });
+
+  // ── §5.5 #17-12 — 프로젝트 왕복 ──
+  //
+  // 스코프드 스냅샷은 `subAgents` 에 지금 보는 프로젝트의 에이전트만 싣는다. 다른 프로젝트로 옮기면 열어 둔 IDE 의
+  // 에이전트가 목록에서 빠져, 그 창의 세션이(탭에서 고른 하나만 빼고) 전부 비활성으로 떨어져 300 으로 깎였다.
+  it('프로젝트를 옮겨 목록에서 에이전트가 빠져도 열어 둔 창의 세션은 깎이지 않는다', () => {
+    openIDE();
+    useGraphStore.getState().loadStreamBuffers({ [SUB_A]: stream(SUB_A, 2000) }, 'deep');
+    useGraphStore.getState().loadStreamBuffers({ [SUB_B]: stream(SUB_B, 2000) }, 'deep');
+    // 다른 프로젝트로 옮긴 뒤의 스냅샷 — 이 에이전트는 목록에 없다.
+    useGraphStore.setState({ subAgents: {} });
+    useGraphStore.getState().appendStreamEvent({ ...evt('sub-other', 1), parentAgentId: 'agent-other' });
+
+    const st = useGraphStore.getState();
+    expect(st.subAgentStreams[SUB_A]).toHaveLength(2000);
+    expect(st.subAgentStreams[SUB_B]).toHaveLength(2000);
+    expect(st.deepRestoredSessions[SUB_B]).toBe(true);
+  });
+
+  it('창을 닫으면 부모 id 로 되짚던 세션도 비활성으로 돌아간다', () => {
+    openIDE();
+    useGraphStore.getState().loadStreamBuffers({ [SUB_B]: stream(SUB_B, 2000) }, 'deep');
+    useGraphStore.setState({ subAgents: {} });
+    useGraphStore.getState().closeIDEOverlay();
+    useGraphStore.getState().appendStreamEvent({ ...evt('sub-other', 1), parentAgentId: 'agent-other' });
+
+    expect(useGraphStore.getState().subAgentStreams[SUB_B]).toHaveLength(STREAM_EVENTS_MAX_PER_INACTIVE_SESSION);
   });
 });

@@ -26,6 +26,7 @@ import {
   resurrectTitle,
   shortSessionId,
   scopeRowCount,
+  scopedFailedCompacts,
   scopedNotCarriedRows,
   showsVaultSize,
   skipReasonKey,
@@ -139,6 +140,12 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
   const ncRows = useMemo(() => scopedNotCarriedRows(led, scopeLevel, scope), [led, scopeLevel, scope]);
   /** 같은 파일의 몇 번째 판인가 — 보이는 목록 기준으로 센다(눈금을 좁히면 번호도 그 안에서 다시 매겨진다). */
   const revisions = useMemo(() => preimageRevisions(preimages), [preimages]);
+  /**
+   * §5.26 (I) ⑤ — 지금 눈금에서 실패로 끝난 압축 건수. 종전에는 IDE 상태바 컨텍스트 칸 옆의 빨간
+   * 숫자였는데, 밖에서는 무엇의 숫자인지 읽히지 않아 이 창 안으로 옮겼다(사용자 지시). 세는 것은
+   * 서버다 — 전선 `markers` 가 아니라 서버가 접은 집계를 눈금대로 읽는다.
+   */
+  const failedCompacts = scopedFailedCompacts(led, scopeLevel, scope);
 
   const restore = useCallback(async (p: FilePreimage): Promise<void> => {
     if (!activeProject) return;
@@ -259,8 +266,8 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
           })}
         </div>
 
-        {/* 갈피 */}
-        <div className="flex gap-1 border-b border-gray-700 px-3 py-2">
+        {/* 갈피 — 줄이 넘치면 다음 줄로 내린다(칩이 붙은 갈피는 긴 로케일에서 창 폭을 넘는다). */}
+        <div className="flex flex-wrap gap-1 border-b border-gray-700 px-3 py-2">
           {INSURANCE_TABS.map((id) => (
             <button
               key={id}
@@ -271,6 +278,22 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
               }`}
             >
               {t(INSURANCE_TAB_LABEL_KEY[id])}
+              {/*
+                §5.26 (I) ⑤ — 실패 건수는 목록 머리가 아니라 **갈피 이름**에 단다. 다른 갈피를 보고 있어도
+                보여야 "들어가면 확인할 수 있다"가 된다. 숫자만 두면 줄 수로 읽히므로 낱말을 함께 적고,
+                선택된 갈피의 파란 바탕 위에서도 읽히게 불투명한 빨강을 쓴다. 0 이면 서지 않는다.
+              */}
+              {id === 'compacts' && failedCompacts > 0 && (
+                <span
+                  className="ml-1.5 rounded bg-red-600 px-1 text-[12px] font-semibold tabular-nums text-white"
+                  title={t('panel.insurance.failedBadgeTip', {
+                    scope: t(INSURANCE_SCOPE_LABEL_KEY[scopeLevel]),
+                    count: failedCompacts,
+                  })}
+                >
+                  {t('panel.insurance.failedBadge', { count: failedCompacts })}
+                </span>
+              )}
             </button>
           ))}
         </div>

@@ -12,6 +12,7 @@ import type { BubbleData } from '@vibisual/shared';
 import { WS_PATH } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { coerceIDEPaneHandoff } from '../../stores/idePaneHandoff.js';
+import { coerceIDEFocusTarget, type IDEFocusTarget } from '../../stores/detachedIDEFocus.js';
 import { resolveOverlayCloseIntent } from './overlayCloseIntent.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useOverlaySync } from '../../hooks/useOverlaySync.js';
@@ -121,12 +122,24 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
   //   고른 세션). 짐은 main 이 맡아 두고 있으며 **한 번 꺼내면 사라진다** — 없으면(직접 만든
   //   버블 창이거나 이미 꺼내 갔거나) 종전대로 첫 화면에서 시작한다.
   const popOutOpenedRef = useRef(false);
+  // §5.5 #17-6 (H-27) ⑦ 짐을 **풀기 전에** 앱이 세션을 골라 이 창을 부르면(끌어낸 직후의 북마크 점프 등)
+  //   그 세션은 짐을 푼 **다음에** 세운다 — 먼저 세우면 뒤따라 풀리는 짐의 "고른 세션"이 그것을 덮는다.
+  //   버블로 태어난 창은 풀 짐이 없으므로 처음부터 풀린 판이다.
+  const popOutSettledRef = useRef(!initiallyExpanded);
+  const deferredFocusRef = useRef<IDEFocusTarget | null>(null);
+  const settlePopOut = useCallback(() => {
+    popOutSettledRef.current = true;
+    const focus = deferredFocusRef.current;
+    deferredFocusRef.current = null;
+    if (focus) openIDEOverlay(agentId, { focus });
+  }, [agentId, openIDEOverlay]);
   useEffect(() => {
     if (!initiallyExpanded || popOutOpenedRef.current || !agent) return;
     popOutOpenedRef.current = true;
     const ov = window.api?.overlay;
     if (!ov?.takeHandoff) {
       openIDEOverlay(agentId);
+      settlePopOut();
       return;
     }
     void ov.takeHandoff(agentId).then((raw) => {
@@ -136,8 +149,9 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
         handoff: coerceIDEPaneHandoff(raw),
         handoffTarget: 'detached',
       });
+      settlePopOut();
     });
-  }, [initiallyExpanded, agent, agentId, openIDEOverlay]);
+  }, [initiallyExpanded, agent, agentId, openIDEOverlay, settlePopOut]);
 
   // (판올림 번호 발급 대기) §5.5 #17-6 (H-7) — 끌어내서 만든 창은 **다 그린 뒤에** 그렇다고 말한다.
   //
@@ -252,11 +266,21 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
   }, []);
 
   // 메뉴 팝업 창의 "IDE 열기" 명령 수신 → 더블클릭과 동일 경로(openIDEOverlay)로 IDE 펼침.
+  //   §5.5 #17-6 (H-27) ⑦ 앱이 세션을 골라 이 창을 불렀으면(북마크 점프 · 지휘통제실 [이동] · 콘티 이력 ·
+  //   [창과 버블] 색 줄) `focus` 에 그 세션이 실려 온다 — 창을 펴거나 앞으로 올리면서 그 세션(북마크면
+  //   그 자리)에 세운다. 건너온 값이라 모양은 여기서 가린다(틀리면 세우지 않고 보던 세션에 둔다).
   useEffect(() => {
     const overlay = window.api?.overlay;
     if (!overlay?.onMenuCommand) return;
-    return overlay.onMenuCommand(({ command }) => {
-      if (command === 'open-ide') openIDEOverlay(agentId);
+    return overlay.onMenuCommand(({ command, focus }) => {
+      if (command !== 'open-ide') return;
+      const target = coerceIDEFocusTarget(focus);
+      if (!popOutSettledRef.current) {
+        // 짐을 푸는 중 — 창은 그 길이 연다. 세울 세션만 맡아 두었다가 짐을 푼 다음에 세운다.
+        if (target) deferredFocusRef.current = target;
+        return;
+      }
+      openIDEOverlay(agentId, target ? { focus: target } : undefined);
     });
   }, [agentId, openIDEOverlay]);
 

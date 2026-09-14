@@ -34,7 +34,7 @@ import {
   hasOverlayForAgent,
   closeOverlayByAgentId,
   closeOverlayByWindowId,
-  expandOverlayByWindowId,
+  expandOverlaySelf,
   collapseOverlayByWindowId,
   overlayShellReady,
   dismissPopOutGhost,
@@ -394,6 +394,8 @@ export function setupIpc(expressApp: Express): IpcHub {
         // (H-17) `settled` — **손이 이미 떠난 판**이다. 이 한 비트가 빠지면 놓고 나서 태어난
         //   창이 도로 커서에 매달린다(아래 재조립에서 반드시 함께 넘긴다).
         follow?: { grabX: number; grabY: number; label?: string; hint?: string; settled?: boolean };
+        // (H-27) ⑦ 그 창에 세울 세션 — main 은 뜻을 모르고 그 창의 [IDE 열기]에 실어 건네기만 한다.
+        focus?: unknown;
       },
     ): { windowId: number; reused: boolean } => {
       if (!payload || typeof payload.agentId !== 'string' || payload.agentId.length === 0) {
@@ -416,6 +418,8 @@ export function setupIpc(expressApp: Express): IpcHub {
         size,
         // §17-6 (H) — 그 창이 들고 가는 짐. main 은 뜻을 모르고 맡아만 둔다(렌더러끼리의 약속).
         handoff: payload.handoff,
+        // §17-6 (H-27) ⑦ 그 창에 세울 세션. 모양은 받는 렌더가 가린다(`coerceIDEFocusTarget`) — 여기서는 싣기만 한다.
+        focus: payload.focus,
         // §17-6 (H-4) — 앱 경계를 넘는 그 순간 태어난 창. 잡은 지점 그대로 커서에 매달아 띄운다
         //   (숫자가 아니면 무시한다 — 창 기하가 NaN 으로 무너지지 않게).
         follow: payload.follow
@@ -493,7 +497,8 @@ export function setupIpc(expressApp: Express): IpcHub {
     return typeof agentId === 'string' ? closeOverlayByAgentId(agentId) : false;
   });
   ipcMain.handle('vibisual:overlay:close-self', (event): boolean => closeOverlayByWindowId(event.sender.id));
-  ipcMain.handle('vibisual:overlay:expand-self', (event): boolean => expandOverlayByWindowId(event.sender.id));
+  // §17-6 (H-27) — 렌더가 IDE 를 열어 스스로 펴는 길. 부른 버블이면 편 뒤에 앞세우고 비추며, 본체에 알린다.
+  ipcMain.handle('vibisual:overlay:expand-self', (event): boolean => expandOverlaySelf(event.sender.id));
   ipcMain.handle('vibisual:overlay:collapse-self', (event): boolean => collapseOverlayByWindowId(event.sender.id));
   // §17-6 (H-5) — 독립 창의 [최대화/복원]. 이 창은 frame:false + transparent 라 OS 타이틀바도
   //   시스템 최대화도 없다 — 최대화는 main 이 작업영역으로 bounds 를 옮겨 직접 한다.

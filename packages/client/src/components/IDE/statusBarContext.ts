@@ -166,3 +166,78 @@ export function resolveStatusBarThinkingOff(input: {
   if (!resolveCmdCliKind(input.cliKind).managed) return false;
   return !isThinkingEnabled(input.agentThinking ?? input.userDefaultThinking);
 }
+
+/**
+ * §4 (상태바 모델 칸 ①) — 모델 칸 옆에 적는 **추론 강도** 한 조각.
+ *
+ * - `level` — 이 값이 다음 턴에 실린다(클로드 `--effort <값>` · 코덱스 `reasoningEffort`).
+ * - `unknown` — 설정에도 세션 기록에도 강도가 없다. 실제 값을 추측하지 않는다.
+ */
+export type StatusBarEffort =
+  | { kind: 'level'; value: string }
+  | { kind: 'unknown' };
+
+/**
+ * §4 (상태바 모델 칸 ①) — 모델 칸에 **추론 강도를 함께 적는가, 적는다면 무엇을.** 그리지 않으면 `null`.
+ *
+ * 명시한 강도가 있으면 다음 턴에 실릴 설정값을 쓴다. 코덱스의 미설정 값은 선택된 세션의
+ * `turn_context.effort` 로 해소한다 — config.toml 을 상속하므로 모델 카탈로그의 초기 강도와 다를 수 있다.
+ *
+ * 클로드 경로는 서버가 3층을 겹쳐 준 `AgentConfig.effort` 를 본다. `'default'`·빈 값이면 `unknown` —
+ * 서버 `buildConfigArgs` 가 `--effort` 를 **안 붙이는 바로 그 조건**이라 화면과 스폰이 갈라지지 않는다.
+ * 코덱스는 `provider.reasoningEffort`(비면 코덱스 설정 파일의 기본값).
+ *
+ * **안 그리는 셋** — 확장 사고 꺼짐 칸(`resolveStatusBarThinkingOff`)과 같은 판정이다. 그 턴이 읽지
+ * 않는 값을 적으면 화면이 거짓말을 한다(§5.19 (G)).
+ *  - 훅 버블 — 우리가 띄운 세션이 아니다.
+ *  - 로컬 버블 — 강도라는 축이 없다(창 크기·온도뿐).
+ *  - 클로드가 아닌 CMD 갈래 — 우리가 조립한 인자가 하나도 안 붙는다.
+ */
+export function resolveStatusBarEffort(input: {
+  /** 우리가 띄운 버블인가. 훅 버블이면 `false`. */
+  isCustom: boolean;
+  /** 프로바이더 버블이면 그 갈래. 클로드 경로면 `undefined`. */
+  providerKind?: string;
+  /** CMD 버블의 CLI 갈래. 헤드리스 버블은 `undefined`(= 클로드). */
+  cliKind?: string;
+  /** 이 에이전트에 실린 값(스냅샷 `agentConfigs` — 서버가 이미 3층을 겹쳐 준 완성본). */
+  agentEffort?: string;
+  /** 설정 창 전역 기본값. **그 에이전트를 아예 모를 때만** 쓰인다. */
+  userDefaultEffort?: string;
+  /** 코덱스 버블의 `provider.reasoningEffort`. */
+  codexEffort?: string;
+  /** 선택한 세션에서 확인된 강도. 다른 세션이나 버블의 값을 빌려오지 않는다. */
+  sessionEffort?: string;
+  sessionModel?: string;
+  /** 다음 턴에 선택된 코덱스 모델. 모델을 바꿨으면 옛 모델의 실측 강도를 쓰지 않는다. */
+  providerModelId?: string;
+}): StatusBarEffort | null {
+  if (!input.isCustom) return null;
+  if (input.providerKind === 'codex-cli') {
+    const configured = input.codexEffort?.trim();
+    if (configured && configured !== 'default') return { kind: 'level', value: configured };
+    const sameModel = !input.providerModelId || !input.sessionModel || input.providerModelId === input.sessionModel;
+    const observed = sameModel ? input.sessionEffort?.trim() : undefined;
+    return observed && observed !== 'default' ? { kind: 'level', value: observed } : { kind: 'unknown' };
+  }
+  if (input.providerKind) return null;
+  if (!resolveCmdCliKind(input.cliKind).managed) return null;
+  const level = (input.agentEffort ?? input.userDefaultEffort)?.trim();
+  return level && level !== 'default' ? { kind: 'level', value: level } : { kind: 'unknown' };
+}
+
+/**
+ * §4 (상태바 모델 칸 ②) — 모델 칸을 **누를 수 있는가**(누르면 설정창의 모델 구역이 칸 위에 뜬다).
+ *
+ * 누를 수 있는 것은 우리가 띄운 버블이면서 모델 설정이 실제로 그 턴에 닿는 갈래뿐이다. 훅 버블은
+ * 설정이 닿지 않고, 클로드가 아닌 CMD 갈래는 모델 칸 자체가 전달되지 않는다 — 그 둘은 종전처럼
+ * 글자로만 남는다. 프로바이더 버블(코덱스·로컬)은 헤드리스라 `cliKind` 가 없어 누를 수 있다 —
+ * 모델 구역이 그 갈래의 모델 칸(코덱스 모델·강도 / 로컬 모델·창 크기·온도)을 그린다.
+ */
+export function canOpenModelQuickSwitch(input: {
+  isCustom: boolean;
+  /** CMD 버블의 CLI 갈래. 헤드리스 버블은 `undefined`(= 클로드). */
+  cliKind?: string;
+}): boolean {
+  return input.isCustom && resolveCmdCliKind(input.cliKind).managed;
+}

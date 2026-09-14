@@ -2,7 +2,7 @@ import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
-import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG, LINK_FOCUS, agentModelLabelOf } from '@vibisual/shared';
+import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG, LINK_FOCUS, agentModelLabelOf, resolveCmdCliKind } from '@vibisual/shared';
 import { externalPlaceHint, formatHeatCount, heatColor, heatRatio, heatValueOf, isHeatBubbleType } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
@@ -274,6 +274,11 @@ const SELECT_FADE_IN_MS = 170;
 
 /** §5.10 — 우측 더블클릭(기억 내부 진입) 판정 창(ms). 우클릭 컨텍스트 메뉴와 겹치지 않게. */
 const RIGHT_DBLCLICK_MS = 350;
+/**
+ * §5.23 접어 보기 — 접힌 웹 버블이 칩으로 적는 호스트 수(최근 순). 총수는 바로 윗줄이 말하고
+ * 전부는 칩 줄 툴팁에 남으므로, 작은 원 안에서는 최근 몇 곳만 읽히면 된다.
+ */
+const WEB_FOLD_CHIP_MAX = 3;
 
 /**
  * §5.10 v3.82 — 주입 연출(림 아크 스윕 + 블룸)이 살아 있는 시간(ms).
@@ -323,12 +328,19 @@ export const BubbleNode = memo(function BubbleNode({
   const configProviderKind = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.kind : undefined);
   const configProviderModelId = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.modelId : undefined);
   const configProviderModelName = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.modelName : undefined);
-  const idleModelConfig = useMemo(
-    () => (configProviderKind
-      ? { model: configModel, provider: { kind: configProviderKind, modelId: configProviderModelId ?? '', modelName: configProviderModelName } }
-      : { model: configModel }),
-    [configModel, configProviderKind, configProviderModelId, configProviderModelName],
-  );
+  // §5.25 (B-1) — CMD 버블은 셸에 채울 CLI 가 모델 줄의 주어다(Codex CMD 아래에 `opus` 가 뜨지 않게).
+  //   판정은 `agentModelLabelOf` 가 하므로 여기서는 CMD 일 때만 그 두 칸을 실어 보낸다.
+  const configCliKind = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.cliKind : undefined);
+  const idleModelConfig = useMemo(() => {
+    const cmd = isCmdAgent ? { executionMode: 'interactive-terminal', cliKind: configCliKind } : {};
+    return configProviderKind
+      ? { model: configModel, provider: { kind: configProviderKind, modelId: configProviderModelId ?? '', modelName: configProviderModelName }, ...cmd }
+      : { model: configModel, ...cmd };
+  }, [configModel, configProviderKind, configProviderModelId, configProviderModelName, isCmdAgent, configCliKind]);
+  // 클로드가 아닌 CLI 를 채우는 CMD 는 훅이 모델을 알려 주지 않는다 — 활동 중에도 CLI 이름을 적는다.
+  const cmdCliModelLabel = isCmdAgent && !resolveCmdCliKind(configCliKind).managed
+    ? agentModelLabelOf({ executionMode: 'interactive-terminal', cliKind: configCliKind })
+    : null;
   /**
    * §5.19 (G) — All Model(로컬 LLM) 버블의 정체. 있으면 아래 모델·문맥·토큰 세 줄이 진실을
    * 가져올 곳은 클로드 세션이 아니라 이 프로바이더다 — `config.model`(기본값 `opus`)은 로컬 턴이
@@ -545,7 +557,7 @@ export const BubbleNode = memo(function BubbleNode({
   const localModelLabel = localModelLabelOf(localProvider, t('ide.overlay.localLabel', { defaultValue: 'All Model' }));
   const codexModelLabel = codexModelLabelOf(codexProvider, t('ide.overlay.codexLabel', { defaultValue: 'Codex' }));
   /** 클로드 별칭만 접는다(`claude-` 접두·날짜 꼬리) — 로컬 파일명은 그 규칙의 대상이 아니다. */
-  const modelLineText = localModelLabel ?? codexModelLabel ?? (effectiveModelName ? formatModelName(effectiveModelName) : '');
+  const modelLineText = localModelLabel ?? codexModelLabel ?? cmdCliModelLabel ?? (effectiveModelName ? formatModelName(effectiveModelName) : '');
   /**
    * §5.25 (J) — **아직 한 턴도 안 돈 버블**의 모델 한 줄. 위 `modelLineText` 는 실측(`data.modelName`)
    * 을 주어로 삼는데, 첫 턴 전에는 그 값이 없어 설정에서 가져와야 한다. 그 설정 칸(`config.model`)
@@ -558,9 +570,9 @@ export const BubbleNode = memo(function BubbleNode({
       local: t('ide.overlay.localLabel', { defaultValue: 'All Model' }),
     });
     if (!label) return '';
-    // 접기는 클로드 별칭에만 쓴다 — 로컬 파일명·코덱스 slug 는 그 규칙의 대상이 아니다.
-    return idleModelConfig?.provider ? label : formatModelName(label);
-  }, [idleModelConfig, t]);
+    // 접기는 클로드 별칭에만 쓴다 — 로컬 파일명·코덱스 slug·CMD 의 CLI 이름은 그 규칙의 대상이 아니다.
+    return 'provider' in idleModelConfig || cmdCliModelLabel ? label : formatModelName(label);
+  }, [idleModelConfig, cmdCliModelLabel, t]);
   // 로컬 문맥은 엔진이 왕복마다 돌려준 값이다(클로드 세션의 contextUsed/Max 는 로컬에 없어 종전에는
   //   물결도 숫자도 영영 비어 있었다). 물결 높이와 아래 숫자가 같은 출처를 봐야 둘이 어긋나지 않는다.
   const effectiveContextUsed = localProvider
@@ -885,7 +897,7 @@ export const BubbleNode = memo(function BubbleNode({
     // 에이전트: 모델명 + 컨텍스트 + 상태 + 토큰 합산.
     // 버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
     // 긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인.
-    if (isAgent && (localModelLabel ?? codexModelLabel ?? effectiveModelName)) {
+    if (isAgent && (localModelLabel ?? codexModelLabel ?? cmdCliModelLabel ?? effectiveModelName)) {
       // §5.19 (G) — 로컬 모델명은 파일명이라 길 수 있다. 원 밖으로 삐져나가는 대신 현(chord) 폭에
       //   맞춰 잘리고 전체 이름은 툴팁으로 남는다(클로드 별칭은 짧아 잘릴 일이 없다).
       lines.push({
@@ -964,6 +976,29 @@ export const BubbleNode = memo(function BubbleNode({
       });
       return lines;
     }
+    // §5.23 접어 보기 — 접힌 웹 버블은 "몇 곳을 읽었나"와 "어디를"을 말한다. 라벨 문자열은 서버가
+    //   가장 최근 호스트로 채워 두지만, 그 한 곳만 적으면 접혀 들어간 나머지가 화면에서 사라진다.
+    const webFold = data.webFold;
+    if (webFold && webFold.hosts.length > 0) {
+      lines.push({
+        key: 'webFoldHosts',
+        // 화면의 낱말은 "도메인"이다 — 이 버블의 상한 창이 이미 "이 도메인의 최대 항목 수"라고 부른다.
+        text: t('canvas.webFold.domainCount', { count: webFold.hosts.length }),
+        fontSize: px(10, 6),
+        cls: 'text-white/60',
+        priority: 100,
+      });
+      lines.push({
+        key: 'webFoldChips',
+        text: webFold.hosts.slice(0, WEB_FOLD_CHIP_MAX).map((h) => h.host).join(' · '),
+        fontSize: px(8, 5),
+        cls: 'text-white/50',
+        priority: 90,
+        title: webFold.hosts.map((h) => h.host).join('\n'),
+        summarize: 'middle',
+      });
+      return lines;
+    }
     if (isFolder) {
       // §2.1 v1.55 — 외부 폴더는 평탄화로 satellite 만 가지므로 satelliteFileCount 우선.
       //   내부 폴더는 기존 childCount(직속 하위 폴더 수) 우선.
@@ -1026,7 +1061,7 @@ export const BubbleNode = memo(function BubbleNode({
     }
     return lines;
   }, [
-    ts, isAgent, isFolder, isIframe, localModelLabel, codexModelLabel, effectiveModelName, modelLineText,
+    ts, isAgent, isFolder, isIframe, localModelLabel, codexModelLabel, cmdCliModelLabel, effectiveModelName, modelLineText,
     effectiveContextMax, effectiveContextUsed, isDormant, isActive, isCreatingError,
     contextRatio, configModel, t,
     data.bubbleType, data.satelliteFileCount,
@@ -1034,6 +1069,8 @@ export const BubbleNode = memo(function BubbleNode({
     // §2.1 (A)(C) — 외부 폴더 요약. 값이 바뀌면 줄이 다시 서야 한다.
     data.externalDescendantFiles, data.externalDescendantFolders,
     data.externalFoldedPlaces, data.externalSummaryChips,
+    // §5.23 접어 보기 — 속한 호스트가 늘고 줄면 개수·칩 줄이 다시 서야 한다.
+    data.webFold,
   ]);
 
   /** 중앙 열에 라벨·배지 말고 더 얹히는 줄 — 예약 계산에 함께 들어가야 라벨이 잘리지 않는다. */
@@ -1061,6 +1098,9 @@ export const BubbleNode = memo(function BubbleNode({
    * 번역이 없으면 종전 라벨 그대로 — 경로·`absolutePath`·열기 동작은 한 글자도 바뀌지 않는다.
    */
   const displayLabel = useMemo(() => {
+    // §5.23 접어 보기 — 접힌 웹 버블의 제목은 호스트가 아니라 "웹"이다. 어느 호스트들인지는 하단 줄이
+    //   말한다(IDE 무대의 웹 면과 같은 낱말 — 같은 원문에 키를 둘 두면 로케일마다 갈린다).
+    if (data.webFold) return t('ide.stage.surfaceName.web');
     const placeKey = data.externalPlaceKey;
     if (!placeKey) return data.label;
     // 같은 이름의 자리가 여럿 생기는 곳(프로젝트별 기록 · 스킬)은 그 자리를 가르는 조각을 함께 넣는다 —
@@ -1072,7 +1112,7 @@ export const BubbleNode = memo(function BubbleNode({
     //   잘라 버린다. 남는 글자가 없으면 종전 라벨이 더 정확하다.
     const cleaned = hint ? named : named.replace(/[\s·・:：|/,、\-–—]+$/u, '');
     return cleaned.trim() || data.label;
-  }, [data.externalPlaceKey, data.absolutePath, data.path, data.label, t]);
+  }, [data.webFold, data.externalPlaceKey, data.absolutePath, data.path, data.label, t]);
 
   /**
    * §2.4 오토핏 — 중앙 아이콘. 종류와 px 를 **여기 한 곳에서** 정하고 예약(`iconPx`)과 실제 렌더가

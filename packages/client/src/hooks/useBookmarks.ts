@@ -9,7 +9,8 @@
  *             - 아니면 선택된 버블을 `bubble` 북마크로(소속 프로젝트 + 드릴다운 폴더 컨텍스트 포함).
  * 1~0       : 비입력 포커스에서 슬롯 N 으로 점프.
  *             - `bubble`: 프로젝트 전환 → (폴더면 enterFolderDeep) → focusOnNode + selectNode.
- *             - `session`: 프로젝트 전환 → focusOnNode(에이전트) → openIDEOverlay → setIDEActiveSession.
+ *             - `session`: 프로젝트 전환 → focusOnNode(에이전트) → openIDEOverlay(세울 세션을 실어서).
+ *               세우는 것은 여는 길이 한다 — 창이 밖에 나가 있어도 그 창이 이 세션으로 선다(§5.5 #17-6 (H-27) ⑦).
  *             - **생존 게이트**: 대상 노드가 지금 스냅샷에 없으면 아무 상태도 바꾸지 않고 토스트만
  *               (`resolveJumpTarget` — 사라진 대상으로 점프해 도킹 슬롯만 남던 빈 도크 방지).
  *
@@ -231,14 +232,12 @@ export function useBookmarks({ onToast, messages }: Params): void {
       //   여기서 openIDEOverlay 를 부르면 그리지도 못할 에이전트로 도킹 슬롯이 만들어진다.
       if (!decision.stub) {
         store.focusOnNode(bm.agentId);
-        store.openIDEOverlay(bm.agentId);
+        // 세션이 사라졌으면 메인 세션으로 폴백
         const subs = useGraphStore.getState().subAgents[bm.agentId] ?? [];
-        if (bm.sessionId && subs.some((s) => s.id === bm.sessionId)) {
-          store.setIDEActiveSession(bm.sessionId);
-        } else {
-          // 세션이 사라졌으면 메인 세션으로 폴백
-          store.setIDEActiveSession(null);
-        }
+        const sessionId = bm.sessionId && subs.some((s) => s.id === bm.sessionId) ? bm.sessionId : null;
+        // §5.5 #17-6 (H-27) ⑦ 세션은 여는 길에 **실어** 보낸다. 연 다음에 키 없이 세우면 그 에이전트의
+        //   IDE 가 밖에 나가 있는 판에 앱 안의 **남의 창**이 그 세션으로 바뀌고, 밖의 창은 그대로다.
+        store.openIDEOverlay(bm.agentId, { focus: { sessionId } });
       }
     } else {
       store.setActiveProject(bm.projectName);

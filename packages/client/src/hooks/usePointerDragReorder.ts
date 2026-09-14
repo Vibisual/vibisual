@@ -1,4 +1,4 @@
-// §5.4 #14-2 / §5.5 #16-1 (E) — **꾹 눌러 자리를 옮기는 손짓 한 벌.**
+// §5.4 #14-2 / §5.5 #16-1 (E) — **집어 들어 자리를 옮기는 손짓 한 벌.**
 //
 // 활동바(세로)가 먼저 세운 손맛을 프로젝트 탭·IDE 세션 탭(가로)이 그대로 쓴다. 종전 두 탭바는
 // HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명 유령이 되고, 손에 붙어
@@ -6,8 +6,9 @@
 // 끼어든다(사용자 지적: "때서 붙이는 느낌이 너무 어색해"). 그 셋은 전부 네이티브 DnD 가 정하는
 // 것이라 CSS 로는 손댈 수 없다. 그래서 제스처를 통째로 포인터 이벤트로 옮긴다.
 //
-// 이 훅이 책임지는 것 — ① 길게 누르기 게이트, ② 커서에 붙는 고스트의 자리, ③ 중앙선 밀어내기
-// (`tabPushGeom` 재사용), ④ 가장자리 자동 스크롤, ⑤ 끌고 난 직후의 `click` 삼킴, ⑥ `Esc` 되돌리기.
+// 이 훅이 책임지는 것 — ① 집어 드는 문(꾹 누르기 · 누른 채 끈 거리), ② 커서에 붙는 고스트의 자리,
+// ③ 중앙선 밀어내기(`tabPushGeom` 재사용), ④ 가장자리 자동 스크롤, ⑤ 끌고 난 직후의 `click` 삼킴,
+// ⑥ `Esc` 되돌리기.
 // **그리지는 않는다** — 고스트의 모양은 줄마다 다르므로(활동바는 40px 글리프, 탭바는 라벨 달린
 // 탭) 호출부가 `ghostRef` 를 단 DOM 을 직접 그린다.
 //
@@ -15,15 +16,23 @@
 // DOM 노드를 옮기고(`insertBefore` 는 옛 부모에서 먼저 떼어 낸다) 그 찰나에 브라우저가 포인터
 // 캡처를 자동으로 푼다(`lostpointercapture`). 항목에 리스너를 걸면 위아래로 한 번 오간 것만으로
 // 끌던 것이 손에서 사라진다 — §5.5 #16-1 (E) 가 고친 바로 그 문제라 여기서도 같은 규약이다.
+//
+// **집어 드는 문만은 줄마다 고른다(§5.4 #14-2 (F-6)).** 활동바는 꾹 눌러 버틴다(`'longPress'`, 기본 —
+// §5.5 #16-1 (E) 그대로). 두 탭바는 꾹 누르지 않는다(`'drag'`) — 누른 채 `dragStartPx` 를 넘게 끌면
+// 기다림 없이 그 자리에서 들리고, 문턱 안에서 떼면 평소의 클릭이라 탭 선택은 그대로다. 터치만은
+// `'drag'` 여도 꾹 누르기다(`pressActivationFor` — 손가락으로 줄을 넘기는 스크롤을 남긴다).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
   POINTER_DRAG,
   autoScrollDirection,
+  dragStartReached,
   ghostOffset,
+  pressActivationFor,
   pressSurvivesMove,
   slotAtPointer,
   type DragSlot,
+  type PointerDragActivation,
 } from './pointerDragGeom.js';
 import { resolveAxisReorder, sameOrder, type PushAxis } from './tabPushGeom.js';
 
@@ -60,7 +69,10 @@ export interface PointerDragReorderOptions {
    * `key` 는 방금까지 손에 들려 있던 항목 — 이 시점에 `dragKey` 는 이미 비었다.
    */
   onCommit: (next: string[] | null, point: PointerDragPoint, key: string) => void;
-  /** 길게 누르기가 성립해 항목이 손에 들린 순간. */
+  /**
+   * 항목이 손에 들린 순간 — 꾹 누르기가 성립했거나(`'longPress'`), 누른 채 끈 거리가 문턱을
+   * 넘었을 때(`'drag'`). 어느 문으로 들었든 그 뒤의 흐름(고스트·밀어내기·놓기)은 같다.
+   */
   onDragStart?: (key: string, point: PointerDragPoint) => void;
   /** 끄는 동안 매 움직임. 별창 분리 힌트·분할 미리보기처럼 **줄 밖의 일**은 호출부가 판단한다. */
   onDragMove?: (key: string, point: PointerDragPoint) => void;
@@ -68,10 +80,18 @@ export interface PointerDragReorderOptions {
   onCancel?: (key: string) => void;
   /** 여기에 걸리는 곳에서 시작된 누르기는 무시한다(닫기 버튼·이름 편집 입력 등). */
   ignoreSelector?: string;
-  /** 길게 누르기 시간(ms). 기본 `POINTER_DRAG.longPressMs`. */
+  /**
+   * 어느 문으로 집어 드나. 기본 `'longPress'`(꾹 눌러 버틴다 — 활동바).
+   * `'drag'` 는 기다림 없이 누른 채 `dragStartPx` 를 넘게 끌면 든다(두 탭바 — §5.4 #14-2 (F-6)).
+   * 터치는 `'drag'` 여도 꾹 누르기다(`pressActivationFor`).
+   */
+  activation?: PointerDragActivation;
+  /** 길게 누르기 시간(ms). 기본 `POINTER_DRAG.longPressMs`. 꾹 누르기 문에서만 쓰인다. */
   longPressMs?: number;
-  /** 취소 판정 거리(px). 기본 `POINTER_DRAG.slopPx`. */
+  /** 꾹 누르기의 취소 판정 거리(px). 기본 `POINTER_DRAG.slopPx`. 꾹 누르기 문에서만 쓰인다. */
   slopPx?: number;
+  /** 끌기 문의 문턱(px) — 이 거리를 **넘게** 끌어야 든다. 기본 `POINTER_DRAG.dragStartPx`. */
+  dragStartPx?: number;
   /** 목록이 창보다 길 때 가장자리에서 따라 흐를지. 기본 `true`. */
   autoScroll?: boolean;
 }
@@ -121,8 +141,10 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     onDragMove,
     onCancel,
     ignoreSelector,
+    activation = 'longPress',
     longPressMs = POINTER_DRAG.longPressMs,
     slopPx = POINTER_DRAG.slopPx,
+    dragStartPx = POINTER_DRAG.dragStartPx,
     autoScroll = true,
   } = options;
 
@@ -136,7 +158,17 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
   const dragKeyRef = useRef<string | null>(null);
   const localOrderRef = useRef<string[] | null>(null);
   // 타이머·시작 좌표는 렌더에 쓰이지 않으므로 ref 다(상태로 두면 누를 때마다 줄이 다시 그려진다).
-  const pressRef = useRef<{ timer: number; key: string; x: number; y: number } | null>(null);
+  //   `timer` 는 꾹 누르기 문에만 있다 — 끌기 문은 시간이 아니라 거리로 들어 기다릴 것이 없고, 대신
+  //   문턱을 넘는 그 움직임에서 집어 들 항목(`target`)과 포인터(`pointerId`)를 여기서 꺼낸다.
+  const pressRef = useRef<{
+    mode: PointerDragActivation;
+    timer: number | null;
+    key: string;
+    x: number;
+    y: number;
+    target: HTMLElement;
+    pointerId: number;
+  } | null>(null);
   const suppressClickRef = useRef(false);
   const autoScrollRef = useRef<-1 | 0 | 1>(0);
   const lastPointRef = useRef<PointerDragPoint>({ x: 0, y: 0, screenX: 0, screenY: 0 });
@@ -145,14 +177,14 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
   const ghostRef = useRef<HTMLDivElement | null>(null);
 
   // 최신 옵션을 창 리스너가 늘 보게 한다 — 리스너를 매번 다시 거는 것보다 싸고 새는 자리가 없다.
-  const optionsRef = useRef({ order, onCommit, onDragStart, onDragMove, onCancel, axis, keyAttribute, autoScroll, slopPx });
-  optionsRef.current = { order, onCommit, onDragStart, onDragMove, onCancel, axis, keyAttribute, autoScroll, slopPx };
+  const optionsRef = useRef({ order, onCommit, onDragStart, onDragMove, onCancel, axis, keyAttribute, autoScroll, slopPx, dragStartPx });
+  optionsRef.current = { order, onCommit, onDragStart, onDragMove, onCancel, axis, keyAttribute, autoScroll, slopPx, dragStartPx };
   const containerRef = useRef<DragContainer>(container);
   containerRef.current = container;
 
   const clearPress = useCallback(() => {
     if (pressRef.current) {
-      window.clearTimeout(pressRef.current.timer);
+      if (pressRef.current.timer !== null) window.clearTimeout(pressRef.current.timer);
       pressRef.current = null;
     }
   }, []);
@@ -258,6 +290,29 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     };
   }, [stopTracking]);
 
+  /**
+   * 항목을 손에 든다 — 두 문(꾹 누르기 타이머 · 끌기 문턱)이 **같은 입구**로 들어온다.
+   * 입구가 두 벌이면 한쪽에만 치수·캡처가 빠져 문마다 손맛이 갈린다.
+   *
+   * `grabAt` 은 항목 안에서 잡은 지점을 잴 좌표다. 꾹 누르기는 버틴 끝의 자리(떨림만큼 움직였을 수
+   * 있다), 끌기는 **처음 누른 자리**다 — 문턱을 넘은 뒤의 자리로 재면 고스트가 끈 거리만큼 손에서
+   * 뒤처져 붙는다.
+   */
+  const beginDrag = useCallback((target: HTMLElement, pointerId: number, key: string, grabAt: { x: number; y: number }): void => {
+    // 항목 안에서 잡은 지점을 그대로 물려준다 — 고스트가 손 아래에서 순간이동하지 않게.
+    const rect = target.getBoundingClientRect();
+    grabRef.current = { x: grabAt.x - rect.left, y: grabAt.y - rect.top };
+    // 고스트가 입을 옷의 치수. `rect` 는 이미 위에서 잡은 지점을 재려고 구한 것이라 덤이다.
+    setDragSize({ width: rect.width, height: rect.height });
+    // 보조 장치다(터치에서 스크롤 가로채기를 줄인다) — 풀려도 끌기는 창 리스너로 계속된다.
+    try { target.setPointerCapture(pointerId); } catch { /* 이미 놓친 포인터는 무시 */ }
+    dragKeyRef.current = key;
+    localOrderRef.current = null;
+    setDragKey(key);
+    setLocalOrder(null);
+    optionsRef.current.onDragStart?.(key, lastPointRef.current);
+  }, []);
+
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLElement>, key: string): void => {
     // 왼쪽 버튼(또는 터치·펜)만. 우클릭은 컨텍스트 메뉴가 받는다.
     if (e.button !== 0) return;
@@ -272,29 +327,22 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     clearPress();
     lastPointRef.current = { x: e.clientX, y: e.clientY, screenX: e.screenX, screenY: e.screenY };
     startTracking();
-    const timer = window.setTimeout(() => {
-      pressRef.current = null;
-      // 항목 안에서 잡은 지점을 그대로 물려준다 — 고스트가 손 아래에서 순간이동하지 않게.
-      const rect = target.getBoundingClientRect();
-      const point = lastPointRef.current;
-      grabRef.current = { x: point.x - rect.left, y: point.y - rect.top };
-      // 고스트가 입을 옷의 치수. `rect` 는 이미 위에서 잡은 지점을 재려고 구한 것이라 덤이다.
-      setDragSize({ width: rect.width, height: rect.height });
-      // 보조 장치다(터치에서 스크롤 가로채기를 줄인다) — 풀려도 끌기는 창 리스너로 계속된다.
-      try { target.setPointerCapture(pointerId); } catch { /* 이미 놓친 포인터는 무시 */ }
-      dragKeyRef.current = key;
-      localOrderRef.current = null;
-      setDragKey(key);
-      setLocalOrder(null);
-      optionsRef.current.onDragStart?.(key, point);
-    }, longPressMs);
-    pressRef.current = { timer, key, x: e.clientX, y: e.clientY };
-  }, [clearPress, startTracking, ignoreSelector, longPressMs]);
+    // 어느 문으로 드나 — 청한 문이 끌기여도 터치는 꾹 누르기다(손가락으로 줄을 넘길 길을 남긴다).
+    const mode = pressActivationFor(activation, e.pointerType);
+    // 끌기 문은 타이머를 걸지 않는다 — 문턱은 `handlePointerMove` 가 잰다(여기서 기다리면 도로 꾹 누르기다).
+    const timer = mode === 'longPress'
+      ? window.setTimeout(() => {
+        pressRef.current = null;
+        beginDrag(target, pointerId, key, lastPointRef.current);
+      }, longPressMs)
+      : null;
+    pressRef.current = { mode, timer, key, x: e.clientX, y: e.clientY, target, pointerId };
+  }, [clearPress, startTracking, beginDrag, ignoreSelector, activation, longPressMs]);
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
     const point: PointerDragPoint = { x: e.clientX, y: e.clientY, screenX: e.screenX, screenY: e.screenY };
     const press = pressRef.current;
-    if (press) {
+    if (press?.mode === 'longPress') {
       // 아직 길게 누르기 전. 취소는 **그 줄이 스크롤되는 축만** 본다(직교축은 재지 않는다).
       const alive = pressSurvivesMove({
         axis: optionsRef.current.axis,
@@ -307,6 +355,26 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
       if (!alive) clearPress();
       lastPointRef.current = point;
       return;
+    }
+    if (press) {
+      // 끌기 문 — 기다림 없이 **처음 누른 자리에서 끈 거리**로 든다(§5.4 #14-2 (F-6)).
+      //   다른 포인터(떠 있는 펜 등)의 움직임은 이 누름의 것이 아니다.
+      if (e.pointerId !== press.pointerId) return;
+      // 버튼이 이미 떨어졌다 — `pointerup` 을 놓친 것이다(창 밖·OS 캡션 위에서 뗌). 그대로 두면
+      //   빈손으로 움직이기만 해도 탭이 들려 따라온다.
+      if ((e.buttons & 1) === 0) { clearPress(); stopTracking(); return; }
+      lastPointRef.current = point;
+      // 문턱 안의 움직임은 아직 클릭이다 — 여기서 떼면 평소대로 그 탭이 열린다.
+      if (!dragStartReached({
+        startX: press.x,
+        startY: press.y,
+        x: point.x,
+        y: point.y,
+        thresholdPx: optionsRef.current.dragStartPx,
+      })) return;
+      pressRef.current = null;
+      beginDrag(press.target, press.pointerId, press.key, { x: press.x, y: press.y });
+      // 문턱을 넘긴 이 움직임부터 곧장 끈다 — 고스트·밀어내기·줄 밖 판정이 한 박자 늦지 않게 아래로 흐른다.
     }
     const key = dragKeyRef.current;
     if (!key) return;
@@ -325,7 +393,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     }
     reorderAt(optionsRef.current.axis === 'y' ? point.y : point.x);
     optionsRef.current.onDragMove?.(key, point);
-  }, [clearPress, moveGhost, reorderAt]);
+  }, [clearPress, stopTracking, beginDrag, moveGhost, reorderAt]);
 
   /** 손을 놓으면 **어디서 놓았든** 지금 순서 그대로 앉힌다(줄 밖도 마찬가지). */
   const handlePointerUp = useCallback(() => {

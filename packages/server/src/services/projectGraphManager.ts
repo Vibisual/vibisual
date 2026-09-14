@@ -88,6 +88,7 @@ import type {
   AgentProvider,
 } from '@vibisual/shared';
 import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, EXTERNAL_TOP_BUDGET_DEFAULT, GOAL_ACTION_MAX, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
+import { webFoldAgentId } from '@vibisual/shared';
 import type { GoalActionCard } from '@vibisual/shared';
 // §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
 import {
@@ -814,6 +815,9 @@ export class ProjectGraphManager {
   /** §2.1 (B) — 최상위 외부 폴더 예산의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
   private externalTopBudget: number = EXTERNAL_TOP_BUDGET_DEFAULT;
 
+  /** §5.23 접어 보기의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
+  private webFoldPerAgent = false;
+
   getUiLocale(): UiLocale {
     return this.primaryInstance()?.getUiLocale() ?? this.uiLocale;
   }
@@ -841,6 +845,19 @@ export class ProjectGraphManager {
     for (const inst of this.instances.values()) inst.setExternalTopBudget(budget);
   }
 
+  /**
+   * §5.23 접어 보기를 살아 있는 모든 인스턴스에 먹인다. 씨앗을 남기는 이유는 `setExternalTopBudget` 과
+   * 같다 — 나중에 hydrate 되는 탭만 호스트마다 버블 하나로 돌아가면 같은 앱 안에서 보기가 갈린다.
+   */
+  setWebFoldPerAgent(enabled: boolean): void {
+    this.webFoldPerAgent = enabled;
+    for (const inst of this.instances.values()) inst.setWebFoldPerAgent(enabled);
+  }
+
+  isWebFoldPerAgent(): boolean {
+    return this.webFoldPerAgent;
+  }
+
   // ─── 새 인스턴스 생성 헬퍼 ───
 
   private scenarioSeedCache: string | null = null;
@@ -855,6 +872,8 @@ export class ProjectGraphManager {
     // §2.1 (B) — 외부 폴더 예산도 같은 이유로 물려준다. 이 줄이 없으면 나중에 hydrate 되는
     //   프로젝트만 기본값(12)으로 돌아, 같은 앱 안에서 탭마다 화면 밀도가 달라진다.
     inst.setExternalTopBudget(this.externalTopBudget);
+    // §5.23 — 접어 보기도 같은 이유로 물려준다.
+    inst.setWebFoldPerAgent(this.webFoldPerAgent);
     inst.setPoppedCommandsRef(this.poppedCommandsRef);
     inst.setCommandQueuesRef(this.commandQueuesRef);
     inst.setCompletedCommandArchiveRef(this.completedCommandArchiveRef);
@@ -2409,8 +2428,11 @@ export class ProjectGraphManager {
     }
 
     for (const pos of nonSatPositions) {
+      // §5.23 접힌 웹 버블은 노드 장부에 없다 — 주인 에이전트가 사는 인스턴스로 보낸다.
+      const foldAgentId = webFoldAgentId(pos.id);
       const inst =
-        this.findInstanceByAgentId(pos.id) ?? this.findInstanceByNodeId(pos.id);
+        (foldAgentId !== null ? this.findInstanceByAgentId(foldAgentId) : null)
+        ?? this.findInstanceByAgentId(pos.id) ?? this.findInstanceByNodeId(pos.id);
       inst?.updateBubblePosition(pos.id, pos.x, pos.y);
     }
   }
@@ -2418,6 +2440,13 @@ export class ProjectGraphManager {
   removeBubble(nodeId: string, opts: { force?: boolean; purgeTaskEdges?: boolean } = {}): void {
     // 클라이언트가 위성을 렌더할 때 ID 에 'sat-' prefix 를 붙이므로 strip 후 매칭.
     const normalized = nodeId.startsWith('sat-') ? nodeId.slice(4) : nodeId;
+    // §5.23 접힌 웹 버블 — 노드 장부에 없는 id 라 아래 가드를 못 지난다. 주인 에이전트의 인스턴스에서
+    //   지금 접혀 보이는 호스트들로 푼다(그 에이전트만 읽은 호스트는 지우고, 함께 읽은 호스트는 화살표만).
+    const foldAgentId = webFoldAgentId(normalized);
+    if (foldAgentId !== null) {
+      const inst = this.findInstanceByAgentId(foldAgentId);
+      if (inst?.removeWebFold(normalized, opts)) return;
+    }
     for (const inst of this.instances.values()) {
       if (inst.hasAgentId(normalized) || inst.hasNodeId(normalized) || inst.hasSatelliteId(normalized)) {
         inst.removeBubble(normalized, opts);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText , buildTokenSaverEnv } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText , buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -46,7 +46,8 @@ import {
   type LocalToolVerdict,
 } from './localRunner.js';
 import { runCodexTurn, stopCodexTurn } from './codexRunner.js';
-import { codexEdgeInstructions, type CodexEdgeConfig } from './codexEdges.js';
+import { codexEdgeInstructions, type CodexEdgeConfig, type CodexPermissionHookConfig, type CodexToolHookConfig } from './codexEdges.js';
+import { formatUndeliveredDispatchJobs } from './taskEdgeDispatchJobs.js';
 import { permissionBroker } from './permissionBroker.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
@@ -63,6 +64,7 @@ import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resume
 import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
 import { prepareMcpConfig } from './mcpConfigService.js';
 import { prepareAgentSettings } from './agentMemoryService.js';
+import { decidePersistentReuse, modelAxesKeyOf } from './persistentChildModelAxes.js';
 
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
@@ -712,6 +714,12 @@ const MAX_STREAM_BUFFER = 2000;
  */
 const MAX_STREAM_BUFFER_BULK = 500;
 
+/**
+ * 스트림 쓰기 폴더를 모든 프로젝트에서 훑었는데 못 찾았을 때, 같은 세션을 다시 훑기까지 쉬는 시간.
+ * 줄은 초당 수백 개씩 들어오므로 헛친 훑기(`stat` × 프로젝트 수)를 줄마다 반복하지 않게 한다.
+ */
+const STREAM_WRITE_DIR_RETRY_MS = 5_000;
+
 /** 이벤트 ID 생성 (나노초 수준 충돌 방지용 랜덤 suffix) */
 function makeEventId(): string {
   return `se-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1069,6 +1077,11 @@ export class SubAgentManager {
   private onStreamEvent: ((event: SubAgentStreamEvent) => void) | null = null;
   /** sub.status 가 변하면 부모 에이전트 ID 와 함께 호출 — 커스텀 부모 버블의 active/completed 갱신용 */
   private onSubStatusChange: ((parentAgentId: string) => void) | null = null;
+  /**
+   * §5.3 #10-2 — 이 세션이 띄우고 **아직 받지 못한** 위임 결과(cmdId·상태). 장부는 index.ts 가 쥐어 주입한다.
+   * 턴이 완료로 끝나려는 자리마다 묻는다 — 결과를 받지 못한 턴을 완료로 적지 않기 위해서다.
+   */
+  private pendingDispatchResults: ((subAgentId: string) => Parameters<typeof formatUndeliveredDispatchJobs>[0]) | null = null;
   /** v1.74 — "지금 즉시 체크포인트 저장" 요청. agent-view 매핑(agentViewShort/SessionId)을
    *  spawn 직후 영속화하기 위한 무조건 저장 훅. onSubStatusChange 는 status 변화가 없으면
    *  저장을 건너뛰어, 데몬 매핑이 디스크에 안 남는 윈도우(서버 크래시 시 reattach 불가)가 생긴다. */
@@ -1155,6 +1168,14 @@ export class SubAgentManager {
    *  result 라인 도착 시 true, 새 stdin write 직전 false. */
   private persistentChildReady = new Map<string, boolean>();
   /**
+   * §4 (상태바 모델 칸 ④) — 지금 살아 있는 지속 자식이 **뜰 때 실린 모델 축 인자의 지문**(`modelAxesKeyOf`).
+   *
+   * 재사용 경로는 인자를 다시 싣지 않으므로, 설정창에서 모델·강도를 바꿔도 이 값과 새 지문이 달라질 뿐
+   * 자식은 모른다 — 그 차이를 재사용 직전에 보고 자식을 갈아 끼운다. 스폰 자리 한 곳에서만 쓴다.
+   * sub.id 가 키라 스폰할수록 늘므로 `SESSION_KEYED_MAP_MAX` 로 캡한다(§3.2.4 F축).
+   */
+  private persistentSpawnModelKey = new Map<string, string>();
+  /**
    * §4 (CLI 사양 추종) — 이 sub 의 자식이 `--include-hook-events` 로 떴는가.
    *
    * 파서는 훅 줄을 **기본적으로 버린다**(플래그를 안 켠 세션에도 일부가 흘러들어와 대화록을
@@ -1210,6 +1231,22 @@ export class SubAgentManager {
    * 되찾을 실마리가 함께 사라진다.
    */
   private lastKnownStreamDirs = new Map<string, string>();
+  /**
+   * 부모 에이전트 → 그 에이전트의 sub-streams 폴더를 **마지막으로 짚어 낸 자리**.
+   *
+   * 폴더는 `sub-streams/<parentAgentId>` 라 같은 부모의 세션은 모두 한 폴더를 쓴다. 그래서 막 생긴
+   * 세션이라 아직 파일이 없어도(`findStreamDirFor` ③ 은 파일이 있어야 찾는다) 소속 해석이 끊긴 동안
+   * 이 자리로 이어 쓸 수 있다. `lastKnownStreamDirs` 와 같은 이유로 지우지 않는다.
+   */
+  private lastKnownAgentStreamDirs = new Map<string, string>();
+  /**
+   * 디스크의 과거를 **못 이어붙인 채** 시작된 메모리 버퍼(폴더를 못 짚은 채 첫 줄이 들어왔다).
+   * 이 표식이 있는 버퍼는 "그 세션의 전부"가 아니므로 읽기 경로가 믿고 돌려주면 안 된다 —
+   * 종전엔 그 몇 줄짜리 버퍼가 그대로 나가, 클라가 들고 있던 긴 대화를 통째로 갈아엎었다.
+   */
+  private partialStreamBuffers = new Set<string>();
+  /** 쓰기 폴더 훑기(`findStreamDirFor` ③)가 마지막으로 헛친 시각 — 줄마다 다시 훑지 않게 잠깐 쉰다. */
+  private streamWriteDirMissAt = new Map<string, number>();
   /** §5.19 (H) — 호스트 도구 처리기. 없으면 그 도구들은 "이 세션에서는 못 쓴다"고 답한다. */
   private localHostToolHandler: LocalHostToolHandler | null = null;
   /** §5.19 (H) — 도구 이벤트를 훅으로 흘리는 곳. 없으면 아무 데도 안 간다(종전 동작). */
@@ -1298,6 +1335,10 @@ export class SubAgentManager {
     this.onSubStatusChange = cb;
   }
 
+  setPendingDispatchResultsProvider(cb: (subAgentId: string) => Parameters<typeof formatUndeliveredDispatchJobs>[0]): void {
+    this.pendingDispatchResults = cb;
+  }
+
   setOnPersistNeeded(cb: () => void): void {
     this.onPersistNeeded = cb;
   }
@@ -1328,7 +1369,59 @@ export class SubAgentManager {
   private resolveStreamDir(parentAgentId: string): string | null {
     const info = this.projectResolver?.(parentAgentId);
     if (!info) return null;
-    return streamBufferStore.subStreamsDir(info, parentAgentId);
+    const dir = streamBufferStore.subStreamsDir(info, parentAgentId);
+    this.lastKnownAgentStreamDirs.set(parentAgentId, dir);
+    return dir;
+  }
+
+  /**
+   * §5.5 #17-12 — 스트림 줄을 **디스크에 쓸 폴더**. 소속 해석이 잠깐 끊겨도 쓰기를 건너뛰지 않는다.
+   *
+   * 종전엔 `resolveStreamDir` 하나에 기대, 프로젝트 탭을 닫았다 오가거나 백그라운드 프로젝트가 stub 으로
+   * 내려간 동안 들어온 줄이 **메모리에만** 남았다. idle 회수·재시작 뒤 디스크에서 다시 읽으면 그 구간이
+   * 통째로 비어, 대화 중간이 말풍선만 남았다. 순서: ① 소속 해석 ② 이 세션·이 부모가 마지막으로 쓴 폴더
+   * ③ 모든 프로젝트 훑기(파일이 실재하는 자리). ③ 이 헛치면 줄마다 다시 훑지 않게 잠깐 쉰다.
+   */
+  private resolveStreamWriteDir(subAgentId: string, parentAgentId: string): string | null {
+    const direct = this.resolveStreamDir(parentAgentId);
+    if (direct) {
+      this.lastKnownStreamDirs.set(subAgentId, direct);
+      return direct;
+    }
+    const remembered = this.lastKnownStreamDirs.get(subAgentId) ?? this.lastKnownAgentStreamDirs.get(parentAgentId);
+    if (remembered) return remembered;
+    const now = Date.now();
+    const missAt = this.streamWriteDirMissAt.get(subAgentId);
+    if (missAt !== undefined && now - missAt < STREAM_WRITE_DIR_RETRY_MS) return null;
+    const found = this.findStreamDirFor(subAgentId, parentAgentId);
+    if (found) {
+      this.streamWriteDirMissAt.delete(subAgentId);
+      return found;
+    }
+    this.streamWriteDirMissAt.set(subAgentId, now);
+    return null;
+  }
+
+  /**
+   * 디스크의 과거를 못 이어붙인 채 시작된 메모리 버퍼(`partialStreamBuffers`)를, 폴더를 되찾은 지금 메운다.
+   *
+   * 디스크 꼬리 뒤에 **메모리에만 있던 줄**(id 로 거른다)을 잇는다 — 그 줄들은 폴더를 잃은 동안 들어와
+   * 디스크에 없는, 가장 새로운 줄이다. 그 줄을 이 자리에서 디스크에도 적어 다음 회수·재시작 뒤에도 남긴다.
+   */
+  private healPartialStreamBuffer(subAgentId: string, dir: string): SubAgentStreamEvent[] {
+    const mem = this.streamBuffers.get(subAgentId) ?? [];
+    const r = streamBufferStore.loadBufferIfChanged(dir, subAgentId, MAX_STREAM_BUFFER, undefined);
+    const onDisk = new Set(r.events.map((e) => e.id));
+    const memoryOnly = mem.filter((e) => !onDisk.has(e.id));
+    for (const e of memoryOnly) streamBufferStore.appendEvent(dir, e);
+    const merged = [...r.events, ...memoryOnly];
+    if (merged.length > MAX_STREAM_BUFFER) merged.splice(0, merged.length - MAX_STREAM_BUFFER);
+    this.streamBuffers.set(subAgentId, merged);
+    // 방금 줄을 덧붙였으므로 지문은 비워 둔다 — 다음 읽기가 "변화 없음"으로 옛 지문에 막히지 않게.
+    this.streamDiskStamps.delete(subAgentId);
+    this.partialStreamBuffers.delete(subAgentId);
+    this.lastKnownStreamDirs.set(subAgentId, dir);
+    return merged;
   }
 
   /**
@@ -1355,6 +1448,12 @@ export class SubAgentManager {
     }
     const remembered = this.lastKnownStreamDirs.get(subAgentId);
     if (remembered) return remembered;
+    // ②-b 그 부모가 마지막으로 쓰던 폴더 — 폴더는 부모 단위라 이 세션 파일이 거기 실재하면 그 자리다.
+    const agentDir = this.lastKnownAgentStreamDirs.get(parentAgentId);
+    if (agentDir && streamBufferStore.hasBuffer(agentDir, subAgentId)) {
+      this.lastKnownStreamDirs.set(subAgentId, agentDir);
+      return agentDir;
+    }
     for (const info of this.allProjectsProvider?.() ?? []) {
       const dir = streamBufferStore.subStreamsDir(info, parentAgentId);
       if (!streamBufferStore.hasBuffer(dir, subAgentId)) continue;
@@ -1390,11 +1489,16 @@ export class SubAgentManager {
    */
   getStreamBuffer(subAgentId: string, parentAgentIdHint?: string): SubAgentStreamEvent[] {
     const buf = this.streamBuffers.get(subAgentId);
-    if (buf && buf.length > 0) return buf;
+    const partial = this.partialStreamBuffers.has(subAgentId);
+    if (buf && buf.length > 0 && !partial) return buf;
     // idle 회수(sweepIdle)로 메모리에서 비워졌으면 디스크에서 복구 + 재캐시.
     const sub = this.index.get(subAgentId);
     const parentAgentId = sub?.parentAgentId ?? parentAgentIdHint;
     const dir = parentAgentId ? this.findStreamDirFor(subAgentId, parentAgentId) : null;
+    // 과거를 못 이어붙인 버퍼는 폴더를 되찾는 즉시 디스크로 메운다. 못 찾았으면 **빈 배열**을 준다 —
+    //   몇 줄짜리 버퍼를 "그 세션의 전부"로 내보내면 클라가 들고 있던 긴 대화를 그것으로 갈아엎는다
+    //   (빈 응답은 클라가 버퍼를 교체하지 않고 다시 묻는다).
+    if (partial) return dir ? this.healPartialStreamBuffer(subAgentId, dir) : [];
     if (dir) {
       // 메모리에 아무것도 없으면(`buf === undefined`) 지문을 믿지 않고 무조건 읽는다 — 회수됐거나
       // 아직 한 번도 안 읽은 것이라, 여기서 건너뛰면 디스크의 과거가 화면에 못 올라온다.
@@ -1410,6 +1514,27 @@ export class SubAgentManager {
     return buf ?? [];
   }
 
+  /**
+   * §5.5 #17-12 — 복원 창(`MAX_STREAM_BUFFER`) **위쪽**의 과거 한 쪽(REST `…/:subId/older`).
+   *
+   * 메모리 버퍼는 창 안쪽만 들고 있으므로 디스크(본 파일 + 컴팩션 보관 파일)에서 읽는다. 폴더는 깊은
+   * 복원과 같은 길(`findStreamDirFor`)로 짚는다. 폴더를 못 찾았으면 `unresolved` 를 세워 돌려준다 —
+   * "더 없다"(`hasMore: false`)와 갈라야 클라가 그 세션의 과거를 영영 포기하지 않는다.
+   */
+  getOlderStreamEvents(
+    subAgentId: string,
+    parentAgentIdHint: string | undefined,
+    cursor: { beforeId?: string; beforeTs?: number },
+    limit?: number,
+  ): streamBufferStore.OlderEventsPage & { unresolved?: true } {
+    const sub = this.index.get(subAgentId);
+    const parentAgentId = sub?.parentAgentId ?? parentAgentIdHint;
+    const dir = parentAgentId ? this.findStreamDirFor(subAgentId, parentAgentId) : null;
+    if (!dir) return { events: [], hasMore: false, unresolved: true };
+    const want = limit !== undefined && Number.isFinite(limit) ? Math.floor(limit) : STREAM_HISTORY_PAGE_EVENTS;
+    return streamBufferStore.loadEventsBefore(dir, subAgentId, cursor, Math.min(Math.max(1, want), STREAM_HISTORY_PAGE_MAX));
+  }
+
   /** 에이전트의 전체 subagent 스트림 버퍼 반환 — 세션당 `MAX_STREAM_BUFFER_BULK` 까지(얕게). */
   getStreamBuffersForAgent(agentId: string): Record<string, SubAgentStreamEvent[]> {
     const subs = this.registry.get(agentId) ?? [];
@@ -1421,7 +1546,11 @@ export class SubAgentManager {
       //   지문이 그대로면 `stat` 한 번으로 넘어간다(반복 호출 비용이 세션 수 × 파일 크기 → 세션 수 × stat).
       //   폴더는 세션마다 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패해도(탭을 닫았다 오간 뒤)
       //   되찾은 자리로 읽어, IDE 를 열자마자 뜨는 첫 화면이 비지 않게 한다.
-      if (!buf || buf.length === 0) {
+      // 과거를 못 이어붙인 버퍼는 단건 경로와 같은 규칙 — 폴더를 되찾으면 메우고, 못 찾으면 싣지 않는다.
+      if (this.partialStreamBuffers.has(sub.id)) {
+        const dir = this.findStreamDirFor(sub.id, agentId);
+        buf = dir ? this.healPartialStreamBuffer(sub.id, dir) : undefined;
+      } else if (!buf || buf.length === 0) {
         const dir = this.findStreamDirFor(sub.id, agentId);
         if (dir) {
           const prev = buf === undefined ? undefined : this.prevStreamStamp(sub.id, dir);
@@ -1486,6 +1615,23 @@ export class SubAgentManager {
       content: detail ? `${head} ${detail}` : head,
     });
     logger.warn(`SubAgent ${sub.id} command failed [${error.code}]${error.exitCode !== undefined ? ` exit=${error.exitCode}` : ''}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+  }
+
+  /**
+   * §5.3 #10-2 — 완료로 끝나려는 턴이 띄운 위임의 결과를 받지 못했으면 **완료가 아니라 실패**로 고쳐 적는다.
+   *
+   * 결과가 돌아올 반환 엣지가 있는 위임은 대기가 풀려도(제한시간·조회 거절·연결 끊김) 작업이 계속 돈다.
+   * 그 자리에서 모델이 턴을 마치면 부모가 초록 "완료"로 끝나 결과를 받지 않은 채 끝난 것이 가려졌다.
+   * 사유에는 이어 받을 cmdId 와 그 순간의 상태를 싣는다 — 다음 턴이 같은 cmdId 로 조회하고 다시 띄우지 않게.
+   * 사용자 중지·이미 실패한 턴은 건드리지 않는다(호출부가 거른다).
+   */
+  private failIfDispatchResultMissing(sub: SubAgent, cmd: QueuedCommand): void {
+    if (cmd.status !== 'completed' || !this.pendingDispatchResults) return;
+    const pending = this.pendingDispatchResults(sub.id);
+    if (pending.length === 0) return;
+    sub.status = 'error';
+    cmd.status = 'error';
+    this.failCommand(sub, cmd, { code: 'dispatchResult', detail: formatUndeliveredDispatchJobs(pending) });
   }
 
   /**
@@ -1733,10 +1879,19 @@ export class SubAgentManager {
         this.streamDiskStamps.set(event.subAgentId, { dir: dir0, stamp: r.stamp });
         buf = r.events;
       } else {
+        // 과거를 못 이어붙였다 — 이 버퍼는 "그 세션의 전부"가 아니라는 표식을 남긴다. 읽기 경로는 이 표식을
+        //   보고 이 몇 줄을 권위본으로 내보내지 않으며, 폴더를 되찾는 순간 디스크로 메운다.
         buf = [];
+        this.partialStreamBuffers.add(event.subAgentId);
       }
       this.streamBuffers.set(event.subAgentId, buf);
     }
+    // 디스크 영속화 — 프로젝트별 save 디렉토리 하위 sub-streams/<agentId>/<subId>.jsonl.
+    //   §5.5 #17-12 — 소속 해석이 끊겨도 기억해 둔 폴더로 이어 쓴다(`resolveStreamWriteDir`).
+    const dir = this.resolveStreamWriteDir(event.subAgentId, event.parentAgentId);
+    // 과거 없이 시작된 버퍼가 이제 폴더를 찾았으면, 이 줄을 붙이기 **전에** 디스크 과거로 메우고
+    //   메모리에만 있던 줄을 먼저 적는다 — 그래야 파일에서도 줄 순서가 뒤집히지 않는다.
+    if (dir && this.partialStreamBuffers.has(event.subAgentId)) buf = this.healPartialStreamBuffer(event.subAgentId, dir);
     buf.push(event);
     if (buf.length > MAX_STREAM_BUFFER) buf.splice(0, buf.length - MAX_STREAM_BUFFER);
     // 거짓-완료 방지 — 스트림 이벤트가 흐르는 동안 sub 를 "살아있음" 으로 갱신.
@@ -1744,8 +1899,6 @@ export class SubAgentManager {
     // idle sweep 이 staleness 만 보고 실행 중 sub 를 idle 로 강등 → 부모 버블이 거짓 completed.
     const liveSub = this.index.get(event.subAgentId);
     if (liveSub) liveSub.lastActivityAt = Date.now();
-    // 디스크 영속화 — 프로젝트별 save 디렉토리 하위 sub-streams/<agentId>/<subId>.jsonl
-    const dir = this.resolveStreamDir(event.parentAgentId);
     if (dir) streamBufferStore.appendEvent(dir, event);
     this.onStreamEvent?.(event);
   }
@@ -1780,11 +1933,14 @@ export class SubAgentManager {
       }));
       this.registry.set(agentId, restored);
       const dir = project ? streamBufferStore.subStreamsDir(project, agentId) : null;
+      // 체크포인트의 프로젝트가 곧 그 에이전트의 폴더다 — 기억해 두면 나중에 소속 해석이 끊겨도
+      //   (프로젝트가 stub 으로 내려간 동안) 쓰기·읽기가 이 자리로 이어진다.
+      if (dir) this.lastKnownAgentStreamDirs.set(agentId, dir);
       for (const s of restored) {
         this.index.set(s.id, s);
         if (dir) {
           const buf = streamBufferStore.loadBuffer(dir, s.id, MAX_STREAM_BUFFER);
-          if (buf.length > 0) { this.streamBuffers.set(s.id, buf); loadedBuffers++; }
+          if (buf.length > 0) { this.streamBuffers.set(s.id, buf); this.lastKnownStreamDirs.set(s.id, dir); loadedBuffers++; }
         }
       }
     }
@@ -2828,6 +2984,7 @@ export class SubAgentManager {
       if (cmd.status !== 'executing') continue;
       cmd.status = 'completed';
       cmd.result = `[확인] 에이전트 판정으로 종료: ${result.reason}`;
+      this.failIfDispatchResultMissing(sub, cmd);
     }
     logger.info(`[session-probe] 종료 sub=${candidate.subId} · ${result.reason}`);
     this.onSubStatusChange?.(candidate.parentAgentId);
@@ -3227,11 +3384,16 @@ export class SubAgentManager {
       });
       this.registry.set(agentId, items);
       const dir = project ? streamBufferStore.subStreamsDir(project, agentId) : null;
+      // restore 와 같은 이유로 폴더를 기억해 둔다(소속 해석이 끊긴 동안의 쓰기·읽기 폴백).
+      if (dir && !this.lastKnownAgentStreamDirs.has(agentId)) this.lastKnownAgentStreamDirs.set(agentId, dir);
       for (const s of items) {
         this.index.set(s.id, s);
         if (dir && !this.streamBuffers.has(s.id)) {
           const buf = streamBufferStore.loadBuffer(dir, s.id, MAX_STREAM_BUFFER);
-          if (buf.length > 0) this.streamBuffers.set(s.id, buf);
+          if (buf.length > 0) {
+            this.streamBuffers.set(s.id, buf);
+            if (!this.lastKnownStreamDirs.has(s.id)) this.lastKnownStreamDirs.set(s.id, dir);
+          }
         }
       }
     }
@@ -3396,15 +3558,7 @@ export class SubAgentManager {
       if (this.runningAgentViewWatchers.has(sub.id)) continue;
 
       // ── 백그라운드가 살아 있으면 재우지 않는다(이 회수가 유일하게 되살리지 못하는 것) ──
-      if (this.bgPromotedSubs.has(sub.id)) continue;
-      const seal = this.turnSealStates.get(sub.id);
-      if (seal && listDisplayableLiveTasks(seal).length > 0) continue;
-      // 훅이 소유 세션을 못 푼 자식(`subId` 미상)은 **누구의 것인지 모른다**(§5.5 #17-9 ③(c) —
-      //   session_id/termId 로 탭을 못 풀고 처리 중인 탭도 하나가 아니면 미상으로 남는 실재 경로).
-      //   그럴 땐 이 부모의 **어느 세션도** 재우지 않는다 — 모르는 채 재우면 그 자식을 띄운 세션의
-      //   프로세스를 뺏어 백단에서 돌던 서브에이전트가 통지도 없이 죽는다.
-      const pending = this.pendingSubagentTasks.get(sub.parentAgentId);
-      if (pending && [...pending.values()].some((e) => e.subId === undefined || e.subId === sub.id)) continue;
+      if (this.hasLiveBackgroundWork(sub)) continue;
 
       // 아직 나가지 않은 명령이나 켜져 있는 루프가 있으면 곧 쓸 자식이다.
       if (hasPendingWork?.(sub.id)) continue;
@@ -3422,6 +3576,32 @@ export class SubAgentManager {
       );
     }
     return slept;
+  }
+
+  /**
+   * §2.4 (잠듦) · §4 (상태바 모델 칸 ④) — **이 sub 의 자식 안에서 백그라운드 작업이 도는가.**
+   *
+   * 지속 자식을 내리는 자리가 둘이다 — 잠듦 회수와, 모델을 바꿨을 때의 갈아 끼우기. 둘 다 `--resume` 으로
+   * 이어 가는데 `--resume` 은 대화는 되살려도 **배경 Bash·Monitor·배경 서브에이전트는 되살리지 못한다**
+   * (공식 문서 "Background Bash and monitor tasks aren't"). 그래서 두 자리가 **같은 판정 한 벌**을 본다 —
+   * 한쪽에만 항목이 늘면 다른 쪽이 작업을 조용히 죽인다.
+   *
+   * 판정은 자식 **안의** 사정만 본다. 명령 처리 중·dispatch 중 같은 "지금 이 턴" 사정은 부르는 쪽 몫이다
+   * (갈아 끼우기는 바로 그 턴을 들고 부르므로, 그 표식까지 여기서 보면 영영 못 갈아 끼운다).
+   */
+  private hasLiveBackgroundWork(sub: SubAgent): boolean {
+    if (this.bgPromotedSubs.has(sub.id)) return true;
+    // 붙들어 둔 잠정 봉인 = 앞 턴의 배경 작업을 기다리는 중이다.
+    if (this.deferredSeals.has(sub.id)) return true;
+    const seal = this.turnSealStates.get(sub.id);
+    if (seal && listDisplayableLiveTasks(seal).length > 0) return true;
+    // 훅이 소유 세션을 못 푼 자식(`subId` 미상)은 **누구의 것인지 모른다**(§5.5 #17-9 ③(c) —
+    //   session_id/termId 로 탭을 못 풀고 처리 중인 탭도 하나가 아니면 미상으로 남는 실재 경로).
+    //   그럴 땐 이 부모의 **어느 세션도** 내리지 않는다 — 모르는 채 내리면 그 자식을 띄운 세션의
+    //   프로세스를 뺏어 백단에서 돌던 서브에이전트가 통지도 없이 죽는다.
+    const pending = this.pendingSubagentTasks.get(sub.parentAgentId);
+    if (pending && [...pending.values()].some((e) => e.subId === undefined || e.subId === sub.id)) return true;
+    return false;
   }
 
   /**
@@ -3864,6 +4044,7 @@ export class SubAgentManager {
     this.currentTurnId.delete(subAgentId);
     // persistent maps cleanup — remove 시 sub 자체가 archive 되므로 turn-in-flight 추적도 폐기.
     this.persistentChildReady.delete(subAgentId);
+    this.persistentSpawnModelKey.delete(subAgentId);
     this.persistentLineBuf.delete(subAgentId);
     this.persistentInFlightCmd.delete(subAgentId);
     // 로컬 턴 표식도 같은 이유로 함께 — 남기면 사라진 탭이 부모 버블을 영영 "실행중"으로 붙든다.
@@ -4155,10 +4336,10 @@ export class SubAgentManager {
     regList.push(revived);
     this.index.set(revived.id, revived);
 
-    // 디스크 스트림 버퍼 재로드 — 프로젝트 해석 가능하면
-    const info = this.projectResolver?.(parentId);
-    if (info) {
-      const dir = streamBufferStore.subStreamsDir(info, parentId);
+    // 디스크 스트림 버퍼 재로드 — 폴더는 읽기 경로와 같은 길(`findStreamDirFor`)로 짚는다.
+    //   소속 해석 하나에 기대면 프로젝트 탭을 오간 뒤 되살린 세션이 빈 화면으로 선다.
+    const dir = this.findStreamDirFor(revived.id, parentId);
+    if (dir) {
       const buf = streamBufferStore.loadBuffer(dir, revived.id, MAX_STREAM_BUFFER);
       if (buf.length > 0) this.streamBuffers.set(revived.id, buf);
     }
@@ -4212,6 +4393,9 @@ export class SubAgentManager {
        */
       extraArgs?: string[];
       codexEdgeConfig?: CodexEdgeConfig;
+      codexToolHook?: CodexToolHookConfig;
+      /** §5.25 (H) — 코덱스 턴의 권한 다리(승인 카드·감사 원장). 코덱스 버블에만 온다. */
+      codexPermissionHook?: CodexPermissionHookConfig;
       /** 같은 목적의 환경변수(예: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`). */
       extraEnv?: Record<string, string>;
       /**
@@ -4521,6 +4705,7 @@ export class SubAgentManager {
           if (killed) this.failCommand(sub, cmd, { code: 'maxTurns', detail: `${turnCount}/${maxTurns}` });
           else this.failCommand(sub, cmd, { code: 'agentView', ...(state.detail ? { detail: state.detail } : {}) });
         }
+        if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
 
         logger.info(`SubAgent ${sub.id} agent-view finished (state=${stateStr}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
 
@@ -4633,6 +4818,31 @@ export class SubAgentManager {
     if (existingChild && !isChildStdinWritable(existingChild)) {
       this._requeueForDyingChild(sub, cmd);
       return;
+    }
+    // §4 (상태바 모델 칸 ④) — **설정창에서 모델 축을 바꿨으면 놀던 자식을 갈아 끼운다.** 재사용은 인자를
+    //   다시 싣지 않으므로 그대로 쓰면 옛 모델·옛 강도로 답한다. 이 턴은 큐로 되돌리고 자식은 의도된
+    //   종료로 내린다 — 뒤따르는 close 의 `onComplete` 가 같은 명령을 `--resume` fresh spawn 으로 다시
+    //   집는다(바로 위 창구 닫힘 · §2.4 잠듦 회수와 같은 길이다). 배경 작업이 살아 있으면 내리지 않는다.
+    if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
+      const decision = decidePersistentReuse({
+        spawnedKey: this.persistentSpawnModelKey.get(sub.id),
+        wantKey: modelAxesKeyOf(configArgs),
+        hasLiveBackgroundWork: this.hasLiveBackgroundWork(sub),
+      });
+      if (decision === 'respawn') {
+        logger.info(
+          `SubAgent ${sub.id} model axes changed since spawn (${this.persistentSpawnModelKey.get(sub.id)?.replace(/\n/g, ' ')}`
+          + ` -> ${modelAxesKeyOf(configArgs).replace(/\n/g, ' ')}) — retiring idle persistent child; cmd=${cmd.id} resumes on a fresh spawn`,
+        );
+        this.persistentSpawnModelKey.delete(sub.id);
+        this.intentionalKill.add(sub.id);
+        this._requeueForDyingChild(sub, cmd);
+        terminateChildTree(existingChild);
+        return;
+      }
+      if (decision === 'reuse-held') {
+        logger.info(`SubAgent ${sub.id} model axes changed but background work is still running in the child — reusing it for this turn`);
+      }
     }
     if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
       this.persistentChildReady.set(sub.id, false);
@@ -4752,6 +4962,9 @@ export class SubAgentManager {
       child.once('exit', () => unregisterSpawnedPid(child.pid));
 
       if (usePersistent) {
+        // §4 (상태바 모델 칸 ④) — 이 자식이 **어떤 모델 축으로 떴는지**. 재사용 직전 대조의 한쪽이다.
+        this.persistentSpawnModelKey.set(sub.id, modelAxesKeyOf(configArgs));
+        capMapSize(this.persistentSpawnModelKey, SESSION_KEYED_MAP_MAX);
         this.persistentChildReady.set(sub.id, false);
         this.persistentLineBuf.set(sub.id, '');
         this.persistentInFlightCmd.set(sub.id, {
@@ -5111,6 +5324,8 @@ export class SubAgentManager {
       extraEnv?: Record<string, string>;
       appendSystemPrompt?: string;
       codexEdgeConfig?: CodexEdgeConfig;
+      codexToolHook?: CodexToolHookConfig;
+      codexPermissionHook?: CodexPermissionHookConfig;
     },
   ): void {
     const provider = config.provider;
@@ -5178,6 +5393,7 @@ ${finalText}` : ''}` : finalText;
           sub.lastResult = text;
           cmd.result = text;
         }
+        if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
       }
       this.onSubStatusChange?.(sub.parentAgentId);
       this.onComplete?.();
@@ -5204,7 +5420,9 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
 
     logger.info(`SubAgent ${sub.id} codex turn: model=${provider.modelId} "${cmd.text.slice(0, 50)}..."`);
     runCodexTurn({
+      toolHook: opts?.codexToolHook,
       edgeConfig: opts?.codexEdgeConfig,
+      ...(opts?.codexPermissionHook ? { permissionHook: opts.codexPermissionHook } : {}),
       subAgentId: sub.id,
       cwd: parentCwd,
       prompt,
@@ -5336,6 +5554,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
           sub.lastResult = text;
           cmd.result = text;
         }
+        if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
       }
       this.onSubStatusChange?.(sub.parentAgentId);
       this.onComplete?.();
@@ -5632,6 +5851,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         });
       }
     }
+    if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
 
     logger.info(`SubAgent ${sub.id} finished (code=${code === null ? 'persistent' : code}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
     if (deleteRunningChild) this.runningChildren.delete(sub.id);

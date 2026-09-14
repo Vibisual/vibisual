@@ -6,7 +6,7 @@
  *  - `auth.error`(모름)로는 로그인 창을 세우지 않는다 — 멀쩡히 일하던 사용자를 막지 않기 위함.
  */
 import { describe, it, expect } from 'vitest';
-import type { AgentConfig, CodexAuthStatus, CodexModelEntry, CodexSetupState } from '@vibisual/shared';
+import type { AgentConfig, CodexAuthStatus, CodexEffectiveConfig, CodexModelEntry, CodexSetupState } from '@vibisual/shared';
 import {
   resolveCodexEntry,
   codexProviderOf,
@@ -14,6 +14,7 @@ import {
   codexReasoningLevelsOf,
   pickDefaultCodexModel,
   isDefaultCodexLabel,
+  resolveCodexInherited,
 } from './codexModelEntry.js';
 
 const MODELS: CodexModelEntry[] = [
@@ -165,5 +166,90 @@ describe('isDefaultCodexLabel — 사용자가 바꾼 이름은 건드리지 않
     expect(isDefaultCodexLabel('Codex')).toBe(false);
     expect(isDefaultCodexLabel('Codex 리뷰어')).toBe(false);
     expect(isDefaultCodexLabel(undefined)).toBe(false);
+  });
+});
+
+describe('resolveCodexInherited — 비워 둔 칸에 실제로 적용되는 값', () => {
+  const MODEL: CodexModelEntry = {
+    slug: 'gpt-5.1-codex',
+    displayName: 'GPT-5.1 Codex',
+    reasoningLevels: ['low', 'medium', 'high'],
+    defaultReasoningLevel: 'medium',
+    supportsVerbosity: true,
+    defaultVerbosity: 'low',
+  };
+  const config = (layers: CodexEffectiveConfig['layers']): CodexEffectiveConfig => ({ cwd: '/w', layers, checkedAt: 1 });
+  const base = { model: MODEL, modelsLoaded: true, sandbox: 'workspace-write' };
+
+  it('앞 겹이 이긴다 — 값이 없는 겹은 건너뛴다', () => {
+    const cfg = config([
+      { source: 'profile', path: '/h/config.toml', profile: 'deep', values: {} },
+      { source: 'project', path: '/w/.codex/config.toml', values: { reasoningEffort: 'high' } },
+      { source: 'user', path: '/h/config.toml', values: { reasoningEffort: 'xhigh', webSearch: 'live' } },
+    ]);
+    expect(resolveCodexInherited('reasoningEffort', { ...base, config: cfg })).toEqual({
+      kind: 'layer',
+      value: 'high',
+      source: 'project',
+      path: '/w/.codex/config.toml',
+    });
+    expect(resolveCodexInherited('webSearch', { ...base, config: cfg })).toMatchObject({ kind: 'layer', value: 'live', source: 'user' });
+  });
+
+  it('프로필 이름과 불리언 값을 그대로 넘긴다', () => {
+    const cfg = config([{ source: 'profile', path: '/h/config.toml', profile: 'deep', values: { networkAccess: true } }]);
+    expect(resolveCodexInherited('networkAccess', { ...base, config: cfg })).toEqual({
+      kind: 'layer',
+      value: 'true',
+      source: 'profile',
+      path: '/h/config.toml',
+      profile: 'deep',
+    });
+  });
+
+  it('파일에 없으면 모델이 신고한 값', () => {
+    const cfg = config([]);
+    expect(resolveCodexInherited('reasoningEffort', { ...base, config: cfg })).toEqual({ kind: 'model', value: 'medium' });
+    expect(resolveCodexInherited('modelVerbosity', { ...base, config: cfg })).toEqual({ kind: 'model', value: 'low' });
+  });
+
+  it('말투를 받지 않는 모델은 파일 값이 있어도 적용되지 않는다', () => {
+    const cfg = config([{ source: 'user', path: '/h/config.toml', values: { modelVerbosity: 'high' } }]);
+    const model = { ...MODEL, supportsVerbosity: false };
+    expect(resolveCodexInherited('modelVerbosity', { ...base, model, config: cfg })).toEqual({ kind: 'unsupported' });
+  });
+
+  it('내장 값은 문서에 적힌 것만 — 웹 검색은 샌드박스를 따른다', () => {
+    const cfg = config([]);
+    expect(resolveCodexInherited('webSearch', { ...base, config: cfg })).toEqual({ kind: 'builtin', value: 'cached' });
+    expect(resolveCodexInherited('webSearch', { ...base, sandbox: 'danger-full-access', config: cfg })).toEqual({
+      kind: 'builtin',
+      value: 'live',
+    });
+    expect(resolveCodexInherited('networkAccess', { ...base, config: cfg })).toEqual({ kind: 'builtin', value: 'false' });
+  });
+
+  it('근거가 없으면 지어내지 않는다 — 읽는 중과 모름을 가른다', () => {
+    const bare: CodexModelEntry = { slug: 'x', displayName: 'X', reasoningLevels: [] };
+    expect(resolveCodexInherited('reasoningEffort', { ...base, config: null })).toEqual({ kind: 'loading' });
+    expect(resolveCodexInherited('reasoningEffort', { ...base, model: undefined, modelsLoaded: false, config: config([]) })).toEqual({
+      kind: 'loading',
+    });
+    expect(resolveCodexInherited('reasoningEffort', { ...base, model: bare, config: config([]) })).toEqual({ kind: 'unresolved' });
+    expect(resolveCodexInherited('modelVerbosity', { ...base, model: bare, config: config([]) })).toEqual({ kind: 'unresolved' });
+  });
+});
+
+describe('resolveCodexInherited — 도구 위임 연결', () => {
+  it('위임 연결이 있으면 파일 값보다 앞서 웹 검색이 꺼진다', () => {
+    const cfg: CodexEffectiveConfig = {
+      cwd: '/w',
+      layers: [{ source: 'user', path: '/h/config.toml', values: { webSearch: 'live' } }],
+      checkedAt: 1,
+    };
+    const input = { config: cfg, model: undefined, modelsLoaded: true, sandbox: 'workspace-write', delegation: true };
+    expect(resolveCodexInherited('webSearch', input)).toEqual({ kind: 'delegation', value: 'disabled' });
+    expect(resolveCodexInherited('reasoningEffort', { ...input, config: { ...cfg, layers: [{ ...cfg.layers[0]!, values: { reasoningEffort: 'low' } }] } }))
+      .toMatchObject({ kind: 'layer', value: 'low' });
   });
 });

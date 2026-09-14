@@ -3,6 +3,8 @@ import type {
   AgentConfig,
   AgentProvider,
   CodexAuthStatus,
+  CodexConfigLayerSource,
+  CodexEffectiveConfig,
   CodexModelEntry,
   CodexSetupState,
 } from '@vibisual/shared';
@@ -109,4 +111,72 @@ export function codexReasoningLevelsOf(slug: string | undefined, models: readonl
  */
 export function isDefaultCodexLabel(label: string | undefined): boolean {
   return !!label && CODEX_DEFAULT_LABEL_RE.test(label.trim());
+}
+
+/** §5.25 (G-2) — 설정 창에서 비워 두면 코덱스가 스스로 채우는 칸. */
+export type CodexInheritedField = 'reasoningEffort' | 'modelVerbosity' | 'webSearch' | 'networkAccess';
+
+/** §5.25 (G-2) — 비워 둔 칸에 **실제로 적용되는 값**과 그 근거. */
+export type CodexInheritedValue =
+  /** 설정 파일 한 겹에 적혀 있다(프로필 · 프로젝트 · 사용자 · 시스템). */
+  | { kind: 'layer'; value: string; source: CodexConfigLayerSource; path: string; profile?: string }
+  /** 어느 파일에도 없어 모델이 신고한 값을 쓴다(`models_cache.json`). */
+  | { kind: 'model'; value: string }
+  /** 파일에도 모델에도 없어 코덱스가 정한 값을 쓴다(공개 설정 문서). */
+  | { kind: 'builtin'; value: string }
+  /** 도구 위임 연결이 이 턴의 웹 검색을 끈다(`codexEdgeOverrides` 가 맨 뒤에 싣는다). */
+  | { kind: 'delegation'; value: string }
+  /** 이 모델은 그 키를 받지 않는다 — 값이 적용되지 않는다. */
+  | { kind: 'unsupported' }
+  /** 아직 읽는 중. */
+  | { kind: 'loading' }
+  /** 읽었는데 근거가 없다 — 값을 지어내지 않는다. */
+  | { kind: 'unresolved' };
+
+/**
+ * §5.25 (G-2) — 칸을 비워 두면(`-c` 를 싣지 않으면) 코덱스가 쓰는 값.
+ *
+ * 순서는 코덱스 공개 설정 문서의 우선순위 그대로다: `-c`(비웠으니 없음) → 서버가 이기는 순서로
+ * 준 설정 파일 겹 → 모델이 신고한 기본 → 코덱스 내장 기본. 내장 기본은 문서에 적힌 것만 쓴다 —
+ * `web_search` 는 샌드박스가 `danger-full-access` 면 `live`, 아니면 `cached`, `network_access` 는 `false`.
+ */
+export function resolveCodexInherited(
+  field: CodexInheritedField,
+  input: {
+    config: CodexEffectiveConfig | null | undefined;
+    model: CodexModelEntry | undefined;
+    modelsLoaded: boolean;
+    sandbox: string;
+    /** 이 버블에서 나가는 연결이 도구 위임으로 도구를 걷어 가는가. */
+    delegation?: boolean;
+  },
+): CodexInheritedValue {
+  if (field === 'webSearch' && input.delegation) return { kind: 'delegation', value: 'disabled' };
+  // 말투를 받지 않는 모델에는 파일에 적힌 값도 실리지 않는다(코덱스가 무시한다) — 그 사실이 먼저다.
+  if (field === 'modelVerbosity' && input.model?.supportsVerbosity === false) return { kind: 'unsupported' };
+  if (!input.config) return { kind: 'loading' };
+  for (const layer of input.config.layers) {
+    const raw = layer.values[field];
+    if (raw === undefined) continue;
+    const value = typeof raw === 'boolean' ? String(raw) : raw;
+    return {
+      kind: 'layer',
+      value,
+      source: layer.source,
+      path: layer.path,
+      ...(layer.profile ? { profile: layer.profile } : {}),
+    };
+  }
+  switch (field) {
+    case 'reasoningEffort':
+      if (input.model?.defaultReasoningLevel) return { kind: 'model', value: input.model.defaultReasoningLevel };
+      return input.modelsLoaded ? { kind: 'unresolved' } : { kind: 'loading' };
+    case 'modelVerbosity':
+      if (input.model?.defaultVerbosity) return { kind: 'model', value: input.model.defaultVerbosity };
+      return input.modelsLoaded ? { kind: 'unresolved' } : { kind: 'loading' };
+    case 'webSearch':
+      return { kind: 'builtin', value: input.sandbox === 'danger-full-access' ? 'live' : 'cached' };
+    case 'networkAccess':
+      return { kind: 'builtin', value: 'false' };
+  }
 }

@@ -102,3 +102,79 @@ describe('§5.5 — 소속을 잃은 세션의 대화 되찾기', () => {
     expect(subAgentManager.getStreamBuffer(SUB, PARENT)).toEqual([]);
   });
 });
+
+/**
+ * §5.5 #17-12 — **소속 해석이 끊긴 동안 들어온 줄도 디스크에 남고, 몇 줄짜리 버퍼가 긴 대화를 덮지 않는다.**
+ *
+ * 쓰기 경로는 종전에 소속 해석 하나에만 기대, 백그라운드 프로젝트가 stub 으로 내려간 동안 들어온 줄을
+ * 메모리에만 두었다(재시작·idle 회수 뒤 그 구간이 통째로 비었다). 폴더를 못 짚은 채 시작된 버퍼는
+ * 그 몇 줄이 "그 세션의 전부"로 나가 클라가 들고 있던 긴 대화를 갈아엎었다.
+ */
+describe('§5.5 #17-12 — 소속을 잃은 동안의 쓰기·부분 버퍼', () => {
+  function linesOnDisk(parentAgentId: string, subId: string): string[] {
+    const fp = path.join(streamBufferStore.subStreamsDir(project, parentAgentId), `${subId}.jsonl`);
+    if (!fs.existsSync(fp)) return [];
+    return fs.readFileSync(fp, 'utf8').split('\n').filter(Boolean).map((l) => (JSON.parse(l) as SubAgentStreamEvent).content);
+  }
+
+  it('소속 해석이 끊겨도 그 부모가 쓰던 폴더로 이어 쓴다 — 새로 생긴 세션의 첫 줄부터', () => {
+    const PARENT = 'agent-write-fallback';
+    // 평소 — 소속이 풀려 그 부모의 폴더가 정해진다.
+    subAgentManager.setProjectResolver((id) => (id === PARENT ? project : null));
+    subAgentManager.emitSystemMessage(PARENT, 'sub-write-a', '해석될 때의 줄');
+    // 프로젝트가 stub 으로 내려가 소속 해석이 끊겼다. 훑을 후보도 없다.
+    subAgentManager.setProjectResolver(() => null);
+    subAgentManager.setAllProjectsProvider(() => []);
+    subAgentManager.emitSystemMessage(PARENT, 'sub-write-a', '끊긴 뒤의 줄');
+    subAgentManager.emitSystemMessage(PARENT, 'sub-write-b', '끊긴 뒤 새 세션의 줄');
+    streamBufferStore.flushAll();
+
+    expect(linesOnDisk(PARENT, 'sub-write-a')).toEqual(['해석될 때의 줄', '끊긴 뒤의 줄']);
+    expect(linesOnDisk(PARENT, 'sub-write-b')).toEqual(['끊긴 뒤 새 세션의 줄']);
+  });
+
+  it('폴더를 못 짚은 채 시작된 버퍼는 권위본으로 내보내지 않고, 폴더를 되찾으면 디스크 과거로 메운다', () => {
+    const PARENT = 'agent-partial';
+    const SUB = 'sub-partial';
+    writeConversationToDisk(PARENT, SUB, 50);
+    // 서버 재기동 뒤 소속도 후보도 없는 상태에서 그 세션이 다시 말한다 — 메모리에는 이 한 줄뿐이다.
+    subAgentManager.emitSystemMessage(PARENT, SUB, '폴더 없이 들어온 줄');
+
+    // 종전엔 여기서 [그 한 줄]이 나가 클라의 긴 대화를 덮었다. 빈 응답이면 클라는 교체하지 않고 다시 묻는다.
+    expect(subAgentManager.getStreamBuffer(SUB, PARENT)).toEqual([]);
+
+    subAgentManager.setAllProjectsProvider(() => [project]);
+    const healed = subAgentManager.getStreamBuffer(SUB, PARENT);
+    expect(healed).toHaveLength(51);
+    expect(healed[0]?.content).toBe('대화 0');
+    expect(healed[49]?.content).toBe('대화 49');
+    expect(healed[50]?.content).toBe('폴더 없이 들어온 줄');
+    // 메모리에만 있던 줄도 이 자리에서 디스크에 적힌다 — 다음 회수·재시작 뒤에도 남는다.
+    streamBufferStore.flushAll();
+    expect(linesOnDisk(PARENT, SUB)).toHaveLength(51);
+    expect(linesOnDisk(PARENT, SUB)[50]).toBe('폴더 없이 들어온 줄');
+  });
+
+  it('과거 구간 조회 — 복원 창(2,000건) 위쪽을 소속을 잃은 채로도 되찾아 온다', () => {
+    const PARENT = 'agent-older';
+    const SUB = 'sub-older';
+    writeConversationToDisk(PARENT, SUB, 2_600);
+    subAgentManager.setAllProjectsProvider(() => [project]);
+
+    const window = subAgentManager.getStreamBuffer(SUB, PARENT);
+    expect(window).toHaveLength(2_000);
+    expect(window[0]?.content).toBe('대화 600');
+
+    const page = subAgentManager.getOlderStreamEvents(SUB, PARENT, { beforeId: window[0]!.id, beforeTs: window[0]!.timestamp }, 1_000);
+    expect(page.events).toHaveLength(600);
+    expect(page.events[0]?.content).toBe('대화 0');
+    expect(page.events[599]?.content).toBe('대화 599');
+    expect(page.hasMore).toBe(false);
+    expect(page.unresolved).toBeUndefined();
+  });
+
+  it('과거 구간 조회에서 폴더를 못 찾으면 "더 없다"가 아니라 "못 찾았다"를 말한다', () => {
+    const page = subAgentManager.getOlderStreamEvents('sub-older-missing', 'agent-older-missing', { beforeId: 'x' }, 10);
+    expect(page).toEqual({ events: [], hasMore: false, unresolved: true });
+  });
+});

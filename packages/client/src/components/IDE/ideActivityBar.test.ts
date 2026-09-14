@@ -149,6 +149,10 @@ describe('§5.5 #16-1 활동바 화면 규약', () => {
     expect(hook).toContain('longPressMs');
     expect(hook).toContain('setPointerCapture');
     expect(hook).toContain('suppressClickRef');
+    // 활동바는 **꾹 누르기 그대로**다 — 탭바가 끌기로 갈라진 것(§5.4 #14-2 (F-6))은 탭 줄에 대한
+    //   지시였다. 훅 기본값이 꾹 누르기라 이 줄에 끌기 문을 켜는 순간 아이콘을 여는 클릭의 손맛이
+    //   바뀐다 — 바꾸려면 §5.5 #16-1 (E) 부터 고친다.
+    expect(src).not.toMatch(/activation:\s*'drag'/);
   });
 
   it('아이콘이 손에 붙어 따라온다 — 고스트는 body 로 내보내고 렌더 없이 움직인다 (사용자 지시)', () => {

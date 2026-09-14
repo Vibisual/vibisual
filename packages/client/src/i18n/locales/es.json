@@ -600,7 +600,11 @@
         "externalBudgetLabel": "Carpetas externas mostradas en el nivel superior",
         "externalBudgetDesc": "Las carpetas fijadas no cuentan para este número: una carpeta que hayas fijado permanece siempre en el nivel superior. Este ajuste no elimina nada: los lugares que no caben se repliegan bajo una burbuja padre que indica cuántos hay dentro.",
         "externalBudgetLoadError": "No se ha podido leer el ajuste actual.",
-        "externalBudgetSaveError": "No se ha podido guardar. No se ha cambiado nada."
+        "externalBudgetSaveError": "No se ha podido guardar. No se ha cambiado nada.",
+        "webFoldEnabled": "Plegar las burbujas web en una por agente",
+        "webFoldEnabledDesc": "Los dominios que leyó un agente se pliegan en una sola burbuja y, al hacer clic en ella, se listan dominio por dominio. Los dominios anclados conservan su propia burbuja. No se elimina nada: si lo desactivas, cada dominio vuelve a tener su propia burbuja.",
+        "webFoldIntro": "Cuando un agente lee la web, cada dominio que lee recibe su propia burbuja, así que un solo agente buscando información puede llenar el lienzo.",
+        "webFoldTitle": "Burbujas web"
       },
       "notifications": {
         "cmdBlocked": "Avisar cuando una sesión CMD esté esperando entrada",
@@ -826,7 +830,10 @@
       "tokenUsage": "Uso de tokens",
       "waited": "esperó {{time}}",
       "closePopup": "Cerrar ventana emergente",
-      "result": "Resultado"
+      "result": "Resultado",
+      "results": "Resultados ({{count}})",
+      "todos": "Tareas ({{done}}/{{total}})",
+      "todosCompact": "Tareas {{done}}/{{total}}"
     },
     "contiHistory": {
       "title": "Historial de Conti",
@@ -1017,7 +1024,25 @@
         "sonnet": "Rendimiento y coste equilibrados. Adecuado para la mayoría de tareas.",
         "haiku": "El más rápido y económico. Ideal para tareas sencillas de solo lectura.",
         "fable": "Máxima capacidad. Para el razonamiento más exigente y tareas de largo recorrido. Coste más alto.",
-        "unknown": "{{name}} — modelo recién publicado. Las capacidades y el coste se infieren de los valores predeterminados de la familia."
+        "unknownFamily": "{{name}} — modelo recién publicado. Las capacidades y el coste se estiman a partir de su familia."
+      },
+      "modelSection": {
+        "listChecked": "Lista comprobada {{ago}}",
+        "listNotChecked": "Lista aún sin comprobar",
+        "listChecking": "Buscando modelos nuevos…",
+        "recheckTip": "Buscar modelos nuevos ahora",
+        "source": {
+          "seed": "Lista integrada",
+          "api": "API de Anthropic",
+          "observed": "Tus sesiones",
+          "codex": "Caché de Codex"
+        },
+        "sourcesTip": "De dónde sale esta lista: la lista integrada de modelos publicados, la API de Anthropic (solo con tu propia ANTHROPIC_API_KEY; se vuelve a comprobar cada {{hours}} horas) y los ID de modelo que tus propias sesiones han usado realmente. Al abrir esta tarjeta se vuelve a comprobar.",
+        "sourcesTipCodex": "Se lee de la lista de modelos que Codex guarda en este PC; Vibisual no guarda una copia propia. Al abrir esta tarjeta se vuelve a leer.",
+        "fullSettings": "Toda la configuración",
+        "fullSettingsTip": "Amplía a todo lo que hay en {{agentSettings}}. Los valores que has cambiado aquí se mantienen.",
+        "applyNextTurn": "Los cambios guardados se aplican desde el próximo turno de este agente. El nombre del modelo en la barra de estado cambia cuando se ha ejecutado ese turno.",
+        "applyNewSession": "Un cambio de modelo se aplica a las sesiones nuevas abiertas con «+» — los terminales que ya están en ejecución mantienen lo que tenían al iniciarse."
       },
       "contextWindow": {
         "oneMillion": "Ventana de contexto de 1M"
@@ -1042,6 +1067,42 @@
         "tip": "Bloqueadas forzosamente mediante CLI --disallowedTools. Tiene precedencia sobre la lista de permitidas (Herramientas). Úsalo cuando quieras desactivar una herramienta sin reconstruir la lista de permitidas.",
         "addTool": "+ Bloquear herramienta"
       },
+      "toolTemplate": {
+        "label": "Plantilla de herramientas",
+        "option": "{{index}}. {{name}}",
+        "custom": {
+          "name": "Personalizado",
+          "desc": "Las herramientas que elegiste a mano. Al volver aquí se restaura tu propia lista."
+        },
+        "readOnly": {
+          "name": "Solo lectura",
+          "desc": "Solo lee y busca en el código. Sin editar archivos ni ejecutar comandos."
+        },
+        "review": {
+          "name": "Revisión y verificación",
+          "desc": "Lee el código y ejecuta comandos para comprobarlo (git diff, pruebas). Sin Write ni Edit."
+        },
+        "research": {
+          "name": "Investigación web",
+          "desc": "Busca y lee en la web y lo contrasta con el código. Sin ediciones ni comandos."
+        },
+        "docs": {
+          "name": "Redacción de documentos",
+          "desc": "Lee y escribe archivos. Sin ejecutar comandos."
+        },
+        "implement": {
+          "name": "Implementación",
+          "desc": "Lee, escribe y ejecuta comandos, con la lista de tareas y las skills. Sin delegación, web ni programación."
+        },
+        "orchestrate": {
+          "name": "Orquestador",
+          "desc": "Reparte el trabajo entre otros agentes y reúne los resultados. No edita archivos por sí mismo."
+        },
+        "all": {
+          "name": "Todas las herramientas",
+          "desc": "La lista oficial completa de herramientas ({{total}}) — la misma con la que empieza un agent nuevo."
+        }
+      },
       "askTools": {
         "label": "Preguntar antes de usar",
         "summary_one": "Esta 1 herramienta pide tu aprobación cada vez — sea cual sea el modo de permisos, incluso en Bypass.",
@@ -1063,7 +1124,8 @@
         "contiOffNotice": "Al guardar, el conjunto de reglas de conti se elimina (los datos de conti se conservan). Restaura las reglas anteriores manualmente desde el historial."
       },
       "rulesEditor": {
-        "help": "Reglas personalizadas inyectadas en el prompt del agente en cada ejecución (Markdown)"
+        "help": "Reglas personalizadas inyectadas en el prompt del agente en cada ejecución (Markdown)",
+        "placeholder": "# Reglas\n- Sigue el plan de implementación al pie de la letra\n- Ejecuta las pruebas después de cada cambio\n- Informa de inmediato si alguna prueba existente falla"
       },
       "rulesHistory": {
         "title": "Historial",
@@ -1091,6 +1153,7 @@
       "tools": {
         "label": "Herramientas",
         "addTool": "+ Agregar herramienta",
+        "removeTool": "Quitar {{tool}}",
         "Read": "Lee el contenido de archivos del sistema de archivos.",
         "Write": "Crea nuevos archivos o sobreescribe los existentes.",
         "Edit": "Realiza reemplazos de cadenas específicos en archivos.",
@@ -1164,7 +1227,7 @@
         "projectContext": "Solo lectura. Archivos y reglas inyectados automáticamente en cada prompt cuando este agente se ejecuta. Se actualiza al abrir.",
         "agentSettingsNote": "Estas configuraciones aplican solo cuando se ejecutan comandos desde Vibisual (ejecución de sub-agentes). No modifican la sesión propia de Claude Code del agente.",
         "memory": "Qué recuerda este agente entre sesiones y dónde se guardan esas notas.",
-        "subagentDepth": "Cuántas capas de subagentes puede crear este agente por debajo de sí mismo. 0 mantiene el valor por defecto de la CLI (3 capas); 1 desactiva el anidamiento."
+        "subagentDepthEffective": "Cuántas capas de subagents puede generar este agent por debajo de sí mismo. 0 deja que decida la CLI ({{depth}} capas); 1 desactiva el anidamiento."
       },
       "memory": {
         "label": "Memoria",
@@ -1175,7 +1238,8 @@
         "local": "Carpeta de memoria propia para este proyecto, fuera del control de versiones."
       },
       "subagentDepth": {
-        "label": "Profundidad de subagentes"
+        "label": "Profundidad de subagentes",
+        "layers": "{{count}} capas"
       },
       "cliOptions": {
         "label": "Opciones de la CLI",
@@ -1193,14 +1257,10 @@
       "autoCompact": {
         "label": "Compactado automático",
         "tip": "El tamaño de ventana con el que se mide la compactación. En la práctica plegamos al {{percent}} % de ese valor, al final de ese turno, para no cortar a mitad de tarea; si un solo turno atraviesa el margen restante, la CLI pliega a mitad de tarea.",
-        "unset": "Sin definir — sigue el valor predeterminado de la ventana de Ajustes.",
-        "unsetLabel": "sin definir",
         "auto": "auto — la CLI elige la ventana.",
         "tokens": "Tamaño de ventana de unos {{tokens}} tokens.",
         "foldsAt": "Pliega en torno a {{tokens}}, al final de ese turno.",
         "foldsAtAuto": "Pliega al {{percent}} % de la ventana que elija la CLI, al final de ese turno.",
-        "unsetDefaultLabel": "sin definir (predeterminado: desactivado)",
-        "globalTip": "Se aplica a todos los agentes que no tengan su propio valor de compactación automática, incluidos los que ya están en marcha. Déjalo sin definir para usar el valor predeterminado integrado.",
         "offLabel": "desactivado",
         "off": "desactivado — nunca se pliega. Sin llamada de resumen, así que no gasta tokens.",
         "foldsAtOff": "Nunca se pliega. Las conversaciones largas pesan más en cada turno y, cuando la ventana del modelo se llena, la CLI pliega una vez a mitad de tarea.",
@@ -1216,7 +1276,9 @@
           "everyTime": "Esta confirmación aparece cada vez que vuelves a activarlo.",
           "cancel": "Cancelar (dejarlo desactivado)",
           "enable": "Entendido: activar"
-        }
+        },
+        "unsetFollows": "Déjalo vacío para seguir el valor de {{options}}; si eso también está vacío, se aplica el valor integrado en Vibisual.",
+        "globalTipEffective": "Se aplica a todos los agents que no tengan su propio valor de compactación automática — incluidos los que ya están en ejecución. Si se deja vacío, se aplica {{value}}."
       },
       "settingSources": {
         "label": "Fuentes de ajustes",
@@ -1281,10 +1343,10 @@
       },
       "bashTimeout": {
         "label": "Tiempo límite de Bash",
-        "tip": "Límites de tiempo para la herramienta Bash. Si se deja en 0 se aplican los valores predeterminados de la CLI — los comandos sin tiempo límite explícito se detienen a los {{defaultSec}}s, y ningún comando puede ejecutarse más de {{maxSec}}s. Sube el límite Máximo cuando builds o pruebas largas se corten. Se pasa al agente como BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
-        "defaultLabel": "Predeterminado (s, 0 = valor de la CLI)",
-        "maxLabel": "Límite máximo (s, 0 = valor de la CLI)",
-        "hint": "0 mantiene los valores predeterminados de la CLI — {{defaultSec}}s por defecto, {{maxSec}}s máximo."
+        "defaultLabelSec": "Timeout (s, 0 = {{sec}} s)",
+        "maxLabelSec": "Límite máximo (s, 0 = {{sec}} s)",
+        "tipEffective": "Límites de tiempo para la herramienta Bash. Si se deja en 0, se aplican los límites propios de la CLI — los comandos sin timeout explícito se detienen a los {{defaultSec}} s, y ningún comando puede superar los {{maxSec}} s. Sube el límite máximo cuando los builds o las pruebas largas se corten. Se pasa al agent como BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
+        "hintEffective": "Aplicado ahora: timeout de {{defaultSec}} s, máximo de {{maxSec}} s."
       },
       "modelVersion": {
         "label": "Versión",
@@ -1298,13 +1360,28 @@
         "switchModel": "Cambiar modelo",
         "pickModel": "Elegir modelo",
         "temperature": "Temperatura",
-        "temperatureTip": "Un valor bajo mantiene respuestas estables y repetibles; uno alto las hace más libres. Déjalo vacío para usar el valor por defecto del motor.",
-        "temperatureDefault": "Valor por defecto del motor",
         "toolsTip": "Un modelo local siempre recibe la lista completa de herramientas de abajo: no es una lista para elegir. Justo antes de ejecutar una herramienta se aplican el modo de permisos de arriba y la ventana de aprobación, igual que en las burbujas de Claude.",
         "toolsOk": "Este modelo usa herramientas: puede leer y editar archivos.",
         "toolsNone": "Este modelo no puede usar herramientas: solo conversa.",
         "toolsUnknown": "Sin comprobar todavía: las herramientas irán en el próximo turno para averiguarlo.",
-        "toolsRecheck": "Comprobar de nuevo"
+        "toolsRecheck": "Comprobar de nuevo",
+        "temperatureTipEffective": "Un valor más bajo mantiene las respuestas estables y repetibles; uno más alto las hace más libres. Déjalo vacío para usar el valor que se muestra en el campo.",
+        "source": {
+          "loaded": "motor en ejecución",
+          "model": "fichero del modelo",
+          "engine": "motor",
+          "trained": "longitud de entrenamiento del modelo"
+        },
+        "temperatureSourceTip": {
+          "loaded": "El valor que está usando ahora mismo el motor que ejecuta este modelo.",
+          "model": "El valor recomendado en el fichero del modelo. Con el campo vacío, el motor lo usa.",
+          "engine": "Ni el motor en ejecución ni el fichero del modelo dan uno, así que se aplica el valor propio del motor."
+        },
+        "contextSourceTip": {
+          "loaded": "El motor ya se está ejecutando con este tamaño. Un valor escrito aquí se aplicará la próxima vez que se cargue el modelo.",
+          "model": "Este modelo se entrenó con una longitud menor, así que Vibisual reduce el tamaño con el que lo carga a ese valor.",
+          "builtin": "Con el campo vacío, Vibisual carga el modelo con este tamaño."
+        }
       },
       "cliKind": {
         "label": "CLI",
@@ -1317,23 +1394,78 @@
         "hint": "El agente lo pide cuando el contexto pesa; se ejecuta al final de ese turno."
       },
       "diff": {
-        "badge": "{{count}} distintos del valor predeterminado",
-        "summaryTip": "Difiere de los valores predeterminados del agente en Opciones — {{list}}",
-        "tip": "Definido solo para este agente. Predeterminado: {{value}}",
         "unset": "sin definir",
         "on": "activado",
-        "off": "desactivado"
+        "off": "desactivado",
+        "badgeOptions": "{{count}} distinto(s) de {{options}}",
+        "summaryTipOptions": "Difiere de los valores definidos para los agents nuevos en {{options}} — {{list}}",
+        "tipOptions": "Definido solo para este agent. En {{options}}: {{value}}"
       },
       "contextNotAccessible": "No accesible (interno de Claude Code)",
       "codex": {
+        "edgeDelegationNote": "La delegación de herramientas de Codex bloquea las herramientas ejecutables directas y envía el trabajo a los agentes conectados. Como los comandos de shell pueden saltarse las restricciones individuales de lectura, búsqueda o edición, este modo aplica límites más amplios. La planificación y las respuestas finales siguen disponibles. Los cambios se aplican a partir del próximo mensaje.",
         "noModel": "Aún no se ha elegido ningún modelo",
         "modelTip": "El modelo de Codex con el que habla esta burbuja. Vibisual siempre lo envía de forma explícita, así que nunca recurre al modelo predeterminado de tu fichero de configuración de Codex.",
         "noModelList": "Todavía no se ha leído la lista de modelos — al ejecutar Codex una vez, se crea.",
         "reloadModels": "Recargar",
         "effort": "Esfuerzo de razonamiento",
         "effortTip": "Cuanto más alto, más tiempo piensa y más tokens consume. Solo se muestran los niveles que este modelo admite.",
-        "effortDefault": "Predeterminado del motor",
-        "toolsManaged": "Gestionado por la Codex CLI"
+        "toolsManaged": "Gestionado por la Codex CLI",
+        "toolAsk": "Preguntar siempre",
+        "toolReset": "Restablecer: permitir todo",
+        "toolsHint": "Elige permitir, denegar o preguntar por herramienta. Permitir conserva el aislamiento y las aprobaciones. Shell y MCP también pueden leer y editar archivos; usa el modo de permisos para protegerlos.",
+        "toolHosted": "Web, imagen, computadora y subagentes nativos solo admiten permitir/denegar; no tienen un hook de aprobación. Preguntar para MCP desactiva Apps que omiten hooks. Se aplica al próximo mensaje.",
+        "toolChildren": "Se desactivan subagentes nativos y envoltorios de código para respetar las restricciones. La delegación a agentes conectados sigue el permiso MCP; el destino usa sus propios permisos.",
+        "execution": "Ejecución de Codex",
+        "permissionTip": "Configura el acceso al sistema de archivos y la política de aprobación de forma conjunta. Cuando Codex pide ir más allá de este acceso, el diálogo de aprobación de Vibisual te lo pregunta y se aplica el ajuste de 60 segundos sin respuesta. El límite de auditoría revisa por separado las llamadas de riesgo.",
+        "permission": {
+          "default": "Ediciones del espacio de trabajo · aprobación bajo petición",
+          "acceptEdits": "Permitir ediciones · aprobación bajo petición",
+          "auto": "Ediciones del espacio de trabajo · sin aprobaciones",
+          "plan": "Plan · solo lectura",
+          "dontAsk": "Solo lectura · sin aprobaciones",
+          "bypassPermissions": "Acceso completo · sin aprobaciones"
+        },
+        "webSearch": {
+          "label": "Búsqueda web",
+          "tip": "Elige cómo obtiene los resultados la herramienta de búsqueda. Es independiente del acceso a la red para los comandos.",
+          "disabled": "Desactivada",
+          "cached": "En caché",
+          "live": "En directo"
+        },
+        "verbosity": {
+          "label": "Longitud de la respuesta",
+          "tip": "Ajusta el nivel de detalle de la respuesta en los modelos compatibles. Es independiente del esfuerzo de razonamiento; la compatibilidad varía según el modelo.",
+          "low": "Concisa",
+          "medium": "Equilibrada",
+          "high": "Detallada"
+        },
+        "network": {
+          "label": "Acceso a la red para los comandos",
+          "tip": "Permite el acceso saliente a la red para comandos como la instalación de paquetes en el modo de edición del espacio de trabajo.",
+          "false": "Bloqueado",
+          "true": "Permitido"
+        },
+        "source": {
+          "profile": "perfil {{name}}",
+          "project": "fichero de configuración del proyecto",
+          "user": "fichero de configuración de Codex",
+          "system": "fichero de configuración del sistema",
+          "model": "definido por el modelo",
+          "builtin": "definido por Codex",
+          "delegation": "edge de delegación de herramientas"
+        },
+        "sourceTip": {
+          "layer": "Leído de {{path}}. Déjalo vacío para seguir ese fichero.",
+          "profile": "Leído del perfil {{name}} en {{path}}. Déjalo vacío para seguir ese fichero.",
+          "model": "Ninguno de los ficheros de configuración de Codex define esto, así que se usa el valor que indica este modelo.",
+          "builtin": "Ninguno de los ficheros de configuración de Codex define esto, así que Codex usa un valor propio. La búsqueda web sigue el modo de permisos — en tiempo real con acceso completo, en caché en caso contrario.",
+          "delegation": "Un edge de delegación de herramientas sale de esta burbuja, así que la búsqueda web está desactivada."
+        },
+        "unsupported": "No usado por este modelo",
+        "unsupportedTip": "Este modelo no acepta un ajuste de longitud de respuesta, así que Codex lo ignora.",
+        "unresolvedTip": "No se han podido leer los ficheros de configuración de Codex ni la lista de modelos, así que se desconoce el valor aplicado. Si se deja vacío, no se envía nada y decide Codex.",
+        "applyNoteEffective": "Los ajustes guardados se aplican al siguiente mensaje. Un campo vacío muestra el valor que Codex usará de verdad y de dónde viene."
       },
       "tokenSaver": {
         "label": "Ahorro de tokens",
@@ -1345,6 +1477,12 @@
         "compactPct": "Compactar al (%)",
         "noExtraCalls": "Omitir llamadas adicionales",
         "hint": "Deja todos los campos en 0 para seguir el ajuste global."
+      },
+      "effective": {
+        "resolved": "{{value}} ({{source}})",
+        "sourceOptions": "definido en {{options}}",
+        "sourceBuiltin": "integrado en Vibisual",
+        "unknown": "No se ha podido leer el valor aplicado"
       }
     },
     "permissionPrompt": {
@@ -1506,6 +1644,8 @@
       "maxTitle": "Máximo de satélites para esta carpeta",
       "maxHint": "Enter · Esc",
       "maxSave": "Guardar",
+      "maxDecrease": "Disminuir",
+      "maxIncrease": "Aumentar",
       "noVisible": "Sin ficheros visibles"
     },
     "webEntry": {
@@ -1551,6 +1691,9 @@
       "restart": "Reiniciar servidor",
       "stop": "Detener servidor",
       "start": "Iniciar servidor",
+      "restartLabel": "Reiniciar",
+      "stopLabel": "Detener",
+      "startLabel": "Iniciar",
       "noEntry": "No hay entrada de servidor coincidente",
       "noCommand": "Reinicio no disponible: ya está detenido, el comando de inicio ya no se puede obtener (servidor informado por el agente)",
       "takeover": "Reiniciar tomando el control: Vibisual adopta el servidor que inició el agente",
@@ -1868,12 +2011,12 @@
       "noAudio": "Exportado sin audio.",
       "downgraded": "El modo de renderizado se degradó: {{id}}",
       "previewFailed": "No se pudo dibujar la vista previa.",
-      "errNoDoc": "No document is open.",
-      "errNoStage": "Could not find a place to attach the stage.",
-      "errNoRenderBackend": "No render mode is available on this device.",
-      "errNoOffscreen": "Offscreen windows are not available in this build.",
-      "errNoOffscreenBridge": "The offscreen bridge is not available.",
-      "errRequestFailed": "The request failed ({{status}}).",
+      "errNoDoc": "No hay ningún documento abierto.",
+      "errNoStage": "No se ha podido encontrar un lugar para anclar el escenario.",
+      "errNoRenderBackend": "No hay ningún modo de renderizado disponible en este dispositivo.",
+      "errNoOffscreen": "Las ventanas fuera de pantalla no están disponibles en esta compilación.",
+      "errNoOffscreenBridge": "El puente fuera de pantalla no está disponible.",
+      "errRequestFailed": "La solicitud ha fallado ({{status}}).",
       "reloaded": "El documento cambió en otro lugar, así que se volvió a cargar."
     },
     "cost": {
@@ -2162,13 +2305,18 @@
       "emptyInScope": "Nada aquí todavía en {{scope}}.",
       "widenTo": "Buscar en {{scope}} ({{count}})",
       "untitledSession": "Conversación sin título",
-      "revisionOf": "rev {{index}}/{{total}}"
+      "revisionOf": "rev {{index}}/{{total}}",
+      "failedBadge": "Fallidas: {{count}}",
+      "failedBadgeTip": "Compactaciones fallidas ({{scope}}): {{count}}. Cada fila fallida lleva una etiqueta roja con el motivo."
     },
     "remoteAccess": {
       "title": "Acceso remoto",
       "categories": {
         "mobile": "Navegador del teléfono"
       }
+    },
+    "webFold": {
+      "pinDomain": "Anclar este dominio (impedir eliminar): sale de esta burbuja y vuelve a tener la suya propia"
     }
   },
   "ide": {
@@ -2270,6 +2418,7 @@
       "newSession": "Nueva sesión",
       "pastSessions": "Sesiones anteriores",
       "closeTab": "Cerrar pestaña",
+      "closeTabNamed": "Cerrar {{name}}",
       "pastSessionsClose": "Cerrar",
       "loading": "Cargando...",
       "noClosedSessions": "No hay sesiones cerradas para restaurar.",
@@ -2354,6 +2503,111 @@
       "historyHintPrev": "Pulsa otra vez para el último comando",
       "historyHintNext": "Pulsa otra vez para el comando más antiguo",
       "slashBuiltin": "integrado",
+      "slashBuiltinDesc": {
+        "add-dir": "Añade un directorio de trabajo para el acceso a ficheros durante la sesión actual",
+        "advisor": "Activa o desactiva la herramienta de asesoramiento, que consulta a un segundo modelo para obtener orientación en los momentos clave de una tarea",
+        "agents": "Desde la v2.1.198, ejecutar /agents muestra un recordatorio para pedirle a Claude que cree o gestione subagentes, o para editar .claude/agents/ o ~/.claude/ag...",
+        "artifacts": "Muestra los artefactos que posees o que se han compartido contigo; luego, adjunta uno a la sesión, ábrelo en tu navegador o copia su enlace",
+        "auto-mode-setup": "Redacta entradas de autoMode.environment a partir de tu proyecto y tus sesiones recientes; luego, revisa el borrador y guárdalo en tus ajustes de usuario",
+        "autocompact": "Configura la ventana de compactado automático: cuánto se llena la ventana de contexto antes de que Claude Code la compacte automáticamente",
+        "autofix-pr": "Genera una sesión de Claude Code on the web que vigila el PR de la rama actual y envía correcciones cuando la CI falla o los revisores dejan comentarios",
+        "background": "Desvincula la sesión actual para que se ejecute como agente en segundo plano y libera esta terminal",
+        "batch": "Orquesta cambios a gran escala en paralelo en toda una base de código",
+        "branch": "Crea una rama de la conversación actual en este punto, para que puedas probar una dirección distinta sin perder la conversación tal como está",
+        "btw": "Haz una pregunta al margen sobre la sesión actual sin añadirla a la conversación",
+        "bug": "Informa de un error o comparte tu conversación",
+        "cd": "Mueve esta sesión a un nuevo directorio de trabajo, conservando la conversación y su caché de prompts",
+        "chrome": "Configura los ajustes de Claude in Chrome",
+        "claude-api": "Carga material de referencia de Claude API y Managed Agents para el lenguaje de tu proyecto",
+        "clear": "Inicia una nueva conversación con el contexto vacío",
+        "code-review": "Revisa el diff actual, o un número de PR, una rama o una ruta que indiques, en busca de errores de corrección y oportunidades de limpieza",
+        "color": "Configura el color de la barra de prompt de la sesión actual",
+        "compact": "Libera contexto resumiendo la conversación hasta ahora",
+        "config": "Abre la interfaz de ajustes para configurar el tema, el modelo, el estilo de salida y otras preferencias",
+        "context": "Visualiza el uso actual del contexto como una cuadrícula de colores",
+        "copy": "Copia la última respuesta del asistente al portapapeles",
+        "dataviz": "Orientación de diseño para gráficos, diagramas y paneles de control",
+        "debug": "Activa el registro de depuración para la sesión actual y soluciona problemas leyendo el registro de depuración de la sesión",
+        "deep-research": "Reparte búsquedas web sobre una pregunta, obtiene y contrasta las fuentes, y sintetiza un informe con citas",
+        "design-login": "Autoriza el acceso al sistema de diseño para /design-sync con tu cuenta de claude.ai",
+        "design-sync": "Convierte el sistema de diseño de React de tu repositorio y súbelo a Claude Design, para que los diseños que genere usen tus componentes reales",
+        "desktop": "Continúa la sesión actual en la app Claude Code Desktop",
+        "diff": "Abre un visor de diffs interactivo que muestra los cambios sin confirmar y los diffs de cada turno",
+        "doctor": "Ejecuta una revisión de la configuración que diagnostica problemas y puede solucionarlos",
+        "effort": "Configura el nivel de esfuerzo: de low a xhigh, max, ultracode o auto; status lo muestra",
+        "exit": "Sal de la CLI",
+        "export": "Exporta la conversación actual como texto sin formato",
+        "fast": "Activa o desactiva el modo Fast",
+        "feedback": "Envía comentarios sobre el producto Claude Code",
+        "fewer-permission-prompts": "Analiza tus transcripciones en busca de llamadas habituales de solo lectura a Bash y MCP, y luego añade una lista de permitidos priorizada al .claude/settings.json del proyecto...",
+        "focus": "Activa o desactiva la vista de enfoque, que muestra solo tu último prompt, un resumen de una línea de las llamadas a herramientas con estadísticas de diff, y la respuesta final",
+        "fork": "Copia la conversación actual en una nueva sesión en segundo plano y sigue trabajando aquí",
+        "goal": "Define un objetivo: Claude sigue trabajando durante varios turnos hasta que se cumple la condición o el objetivo se cancela por otro motivo",
+        "heapdump": "Escribe una instantánea del heap de JavaScript y un desglose de memoria en ~/Desktop, o en tu directorio personal en Linux si no tienes una carpeta Desktop...",
+        "help": "Muestra la ayuda y los comandos disponibles",
+        "hooks": "Consulta las configuraciones de los hooks para eventos de herramientas",
+        "ide": "Gestiona las integraciones con el IDE y muestra el estado",
+        "import": "Importa la configuración de otros agentes de programación en tu ordenador, actualmente OpenAI Codex y Google Gemini CLI, a Claude Code...",
+        "init": "Inicializa el proyecto con una guía CLAUDE.md",
+        "insights": "Genera un informe en HTML que analiza tus sesiones recientes en este ordenador: en qué proyectos trabajas, cómo usas Claude Code, dónde las cosas...",
+        "install-github-app": "Instala la Claude GitHub App para un repositorio, con un paso opcional para configurar flujos de trabajo y secretos de GitHub Actions",
+        "install-slack-app": "Instala la app de Slack de Claude",
+        "keybindings": "Abre tu fichero de atajos de teclado",
+        "list-agents": "Muestra los subagentes, los compañeros del equipo de agentes y otras sesiones de Claude Code a las que Claude puede enviar mensajes, junto con el nombre que hay que usar para cada uno",
+        "login": "Inicia sesión en tu cuenta de Anthropic",
+        "logout": "Cierra sesión en tu cuenta de Anthropic",
+        "loop": "Ejecuta un prompt repetidamente mientras la sesión permanece abierta",
+        "mcp": "Gestiona las conexiones a servidores MCP y la autenticación OAuth",
+        "memory": "Edita ficheros CLAUDE.md, activa o desactiva la memoria automática, y consulta las entradas de la memoria automática",
+        "mobile": "Muestra un código QR para descargar la app móvil de Claude",
+        "model": "Cambia el modelo de IA y guárdalo como predeterminado para las nuevas sesiones",
+        "passes": "Comparte una semana gratis de Claude Code con tus amigos",
+        "permissions": "Gestiona las reglas de permitir, preguntar y denegar para los permisos de herramientas",
+        "plan": "Entra directamente en el modo de planificación desde el prompt",
+        "plugin": "Gestiona los plugins de Claude Code",
+        "powerup": "Descubre las funciones de Claude Code con lecciones interactivas rápidas y demostraciones animadas",
+        "privacy-settings": "Consulta y actualiza tus ajustes de privacidad",
+        "radio": "Abre la radio lo-fi de Claude FM en tu navegador",
+        "rate-limit-options": "Muestra formas de seguir trabajando cuando un límite de uso de claude.ai bloquea una solicitud: esperar y continuar automáticamente cuando se restablezca el límite, añadir uso...",
+        "recap": "Genera un resumen de una línea de la sesión actual bajo demanda",
+        "release-notes": "Consulta el registro de cambios en un selector de versiones interactivo",
+        "reload-plugins": "Vuelve a cargar todos los plugins activos para aplicar los cambios pendientes sin reiniciar",
+        "reload-skills": "Vuelve a analizar los directorios de habilidades y comandos para que las habilidades añadidas o modificadas en el disco durante la sesión estén disponibles sin reiniciar",
+        "remote-control": "Hace que esta sesión esté disponible para Remote Control desde claude.ai",
+        "remote-env": "Elige el entorno predeterminado para los agentes en la nube",
+        "rename": "Cambia el nombre de la sesión actual y muéstralo en la barra de prompt",
+        "resume": "Reanuda una conversación por ID o por nombre, o abre el selector de sesiones",
+        "rewind": "Rebobina la conversación o el código, o ambos, hasta un punto anterior, o resume a partir de un mensaje seleccionado",
+        "run": "Inicia y controla la app de tu proyecto para comprobar que un cambio funciona, no solo que pasa las pruebas",
+        "run-skill-generator": "Enseña a /run y /verify a compilar, iniciar y controlar la app de tu proyecto desde un entorno limpio, escribiendo una habilidad específica para el proyecto",
+        "sandbox": "Activa o desactiva el modo sandbox",
+        "schedule": "Crea, actualiza, muestra o ejecuta rutinas que se ejecutan en la nube",
+        "scroll-speed": "Ajusta la velocidad de desplazamiento de la rueda del ratón de forma interactiva, con una regla que puedes desplazar mientras el diálogo está abierto para previsualizar el cambio",
+        "security-review": "Analiza los cambios de tu rama actual en busca de vulnerabilidades de seguridad",
+        "setup-bedrock": "Configura la autenticación, la región y las versiones fijadas del modelo de Amazon Bedrock mediante un asistente interactivo",
+        "setup-vertex": "Configura la autenticación, el proyecto, la región y las versiones fijadas del modelo de Google Cloud's Agent Platform mediante un asistente interactivo",
+        "simplify": "Revisa el código modificado en busca de oportunidades de limpieza y aplica las correcciones",
+        "skills": "Muestra las habilidades disponibles",
+        "status": "Abre la interfaz de ajustes en la pestaña de estado, que muestra la versión, el modelo, la cuenta y la conectividad",
+        "statusline": "Configura la línea de estado de Claude Code",
+        "stickers": "Pide pegatinas de Claude Code",
+        "stop": "Detén la sesión en segundo plano actual",
+        "subtask": "Genera un subagente bifurcado: un subagente en segundo plano que hereda toda la conversación y trabaja en la tarea mientras tú sigues trabajando",
+        "tasks": "Consulta y gestiona el trabajo en segundo plano de la sesión actual, incluidos los subagentes que ya han terminado",
+        "team-onboarding": "Genera una guía de incorporación para el equipo a partir de tu historial de uso de Claude Code",
+        "teleport": "Trae una sesión de Claude Code on the web a esta terminal",
+        "terminal-setup": "Configura los atajos de teclado de la terminal para Shift+Enter y otros atajos",
+        "theme": "Cambia el tema de color",
+        "tui": "Configura el renderizador de la interfaz de terminal y vuelve a iniciar con tu conversación intacta",
+        "ultrareview": "Ejecuta una revisión de código profunda y multiagente en un sandbox en la nube con ultrareview",
+        "upgrade": "Abre la página de actualización en tu navegador para cambiar a un plan superior",
+        "usage": "Muestra el coste de la sesión, los límites de uso del plan y las estadísticas de actividad",
+        "usage-credits": "Configura los créditos de uso, o solicítalos a tu administrador, cuando alcances un límite",
+        "verify": "Confirma que un cambio de código hace lo que debería, compilando la app de tu proyecto, ejecutándola y observando el resultado, en lugar de basarte en...",
+        "voice": "Activa o desactiva el dictado por voz, o actívalo en un modo específico",
+        "web-setup": "Conecta tu cuenta de GitHub a Claude Code on the web usando las credenciales locales de gh CLI",
+        "workflows": "Abre la vista de progreso de los flujos de trabajo para ver, pausar, reanudar o guardar los flujos de trabajo en ejecución y completados"
+      },
       "slashNeedsTerminal": "requiere terminal",
       "slashDisabledByContext": "Las skills y los comandos de barra están desactivados en este proyecto, así que nada de lo siguiente se ejecutará. Puedes volver a activarlos en {{contextSources}}, en la barra de actividad. (La compactación que enviamos nosotros sigue funcionando.)",
       "slashEmpty": "No hay habilidades coincidentes",
@@ -2855,6 +3109,8 @@
       "statusTip": "Estado de ejecución de la sesión que se muestra aquí: en curso, esperando, terminada o con error.",
       "modelTip": "El modelo que esta sesión usó realmente en su último turno. Antes del primer turno se muestra el modelo configurado para este agente.",
       "modelUnknown": "desconocido",
+      "effortTip": "Después del punto aparece {{effort}} — tu selección explícita o el nivel real registrado en la sesión seleccionada.",
+      "modelSwitchTip": "Haz clic para cambiar el modelo aquí mismo.",
       "thinkingOff": "Pensamiento extendido desactivado",
       "thinkingOffTip": "Este agente funciona con el pensamiento extendido desactivado, así que las sesiones lanzadas aquí responden sin pasar por el razonamiento. El interruptor es la casilla {{thinking}}: por agente en {{agentSettings}}, o para todos en {{file}} > {{options}} > {{agentDefaults}}.",
       "context": "ctx: {{used}}/{{max}}",
@@ -2868,8 +3124,7 @@
       "sessionsTip": "Cuántas pestañas de sesión hay abiertas en este agente.",
       "contextOverdueTip": "El contexto de esta sesión está casi lleno y sigue creciendo, pero no se ha ejecutado ninguna compactación. Haz clic para abrir el Seguro de contexto.",
       "contextStalledTip": "La ventana de contexto de esta sesión está prácticamente llena y no se ha ejecutado ninguna compactación. Haz clic para abrir el Seguro de contexto.",
-      "contextRejectedTip": "Enviamos un comando de compactación, pero Claude Code no llegó a iniciarla: fue rechazada. Lo habitual es que las skills y los comandos de barra estén desactivados en este proyecto, en {{contextSources}}. Haz clic para abrir el Seguro de contexto.",
-      "failedCompactsTip": "Compactaciones fallidas en esta sesión: {{count}}. Haz clic para abrir el seguro de contexto y ver qué se conservó."
+      "contextRejectedTip": "Enviamos un comando de compactación, pero Claude Code no llegó a iniciarla: fue rechazada. Lo habitual es que las skills y los comandos de barra estén desactivados en este proyecto, en {{contextSources}}. Haz clic para abrir el Seguro de contexto."
     },
     "search": {
       "placeholder": "Buscar en la conversación",
@@ -3165,6 +3420,7 @@
       "maxTurns": "Detenido al alcanzar el límite de turnos máximos",
       "agentView": "La ejecución del agente terminó con un fallo",
       "orphaned": "Interrumpido al reiniciarse Vibisual",
+      "dispatchResult": "Terminó sin recibir el resultado de la tarea delegada",
       "unknown": "Fallo por un motivo desconocido"
     },
     "density": {
@@ -4251,19 +4507,19 @@
     "taskEdgeKind": {
       "command": {
         "label": "Command",
-        "description": "Instruction — \"please do this\""
+        "description": "Instrucción — «hazlo, por favor»"
       },
       "artifact": {
         "label": "Artifact",
-        "description": "Hands over the result itself — the file or diff"
+        "description": "Entrega el resultado en sí — el fichero o el diff"
       },
       "request": {
         "label": "Request",
-        "description": "Reverse request — \"I am stuck, please help\""
+        "description": "Solicitud inversa — «estoy atascado, ayuda por favor»"
       },
       "critique": {
         "label": "Critique",
-        "description": "Critique / review — audit and red-team role (the watcher)"
+        "description": "Crítica / revisión — función de auditoría y red team (el observador)"
       }
     },
     "taskEdgePopup": {
@@ -4526,7 +4782,9 @@
       "createShelf": "Estante de scripts",
       "createShelfHint": "Mantén a un clic de distancia los comandos y prompts que usas a menudo",
       "createCodexAgent": "Crear Codex Agent",
-      "createCodexAgentHint": "Coloca un agente que se ejecuta con la OpenAI Codex CLI"
+      "createCodexAgentHint": "Coloca un agente que se ejecuta con la OpenAI Codex CLI",
+      "createCodexCmdAgent": "Crear Codex CMD",
+      "createCodexCmdAgentHint": "Terminal interactiva en la que manejas tú la Codex CLI"
     },
     "bounds": {
       "label": "Límites del bubble",
@@ -4770,6 +5028,10 @@
       "deleteN": "Eliminar {{count}} seleccionados",
       "deleteForeverN": "Eliminar {{count}} seleccionados permanentemente…",
       "worktreeSkipped": "Excluye {{count}} burbuja(s) de worktree — elimínalas una a una."
+    },
+    "webFold": {
+      "domainCount_one": "{{count}} dominio",
+      "domainCount_other": "{{count}} dominios"
     }
   },
   "common": {
@@ -4837,7 +5099,7 @@
     "cancel": "Cancelar",
     "confirm": "Confirmar",
     "msg": {
-      "requestFailed": "Failed ({{status}})"
+      "requestFailed": "Fallido ({{status}})"
     },
     "minimize": "Minimizar",
     "maximize": "Maximizar",
@@ -5139,32 +5401,38 @@
     "trashItemsMore": "+{{n}} más"
   },
   "providers": {
-    "provider": "Provider",
+    "provider": "Proveedor",
     "claude": "Claude",
     "codex": "Codex",
-    "local": "All Model",
-    "main": "Main provider",
-    "mainHint": "Sets the default agent, settings tab and usage indicator. You can sign in to both providers.",
-    "saveFailed": "Could not save. Please try again.",
-    "project": "Project settings",
-    "save": "Save",
-    "saved": "Saved",
-    "model": "Model",
-    "effort": "Reasoning effort",
-    "context": "Context size",
-    "temperature": "Temperature",
-    "rules": "Instructions",
-    "default": "Default",
-    "usage": "Usage",
-    "localUsage": "All Model runs locally and has no subscription usage limit.",
-    "signIn": "Sign in to check usage.",
-    "noUsage": "Usage is unavailable for this account.",
-    "refresh": "Refresh",
-    "close": "Close",
-    "window": "{{minutes}} minute window",
-    "projectHint": "These settings apply to agents in the active project.",
-    "noProject": "Open a project to configure its providers.",
-    "webSearch": "Web search",
-    "modelVerbosity": "Response verbosity"
+    "local": "Todos los modelos",
+    "main": "Proveedor principal",
+    "mainHint": "El proveedor que hace la mayor parte del trabajo. Los agentes nuevos lo usan por defecto y el indicador de uso de arriba lo sigue, en todos los proyectos.",
+    "saveFailed": "No se ha podido guardar. Vuelve a intentarlo.",
+    "project": "Ajustes del proyecto",
+    "save": "Guardar",
+    "saved": "Guardado",
+    "model": "Modelo",
+    "effort": "Esfuerzo de razonamiento",
+    "context": "Tamaño del contexto",
+    "temperature": "Temperatura",
+    "rules": "Instrucciones",
+    "usage": "Uso",
+    "localUsage": "«Todos los modelos» se ejecuta localmente y no tiene límite de uso por suscripción.",
+    "signIn": "Inicia sesión para consultar el uso.",
+    "noUsage": "El uso no está disponible para esta cuenta.",
+    "refresh": "Actualizar",
+    "close": "Cerrar",
+    "window": "Ventana de {{minutes}} minutos",
+    "webSearch": "Búsqueda web",
+    "modelVerbosity": "Longitud de la respuesta",
+    "modelChosenOnOpen": "Todavía no hay modelo — elige uno en la configuración",
+    "modelSource": {
+      "codexFirst": "primero de la lista de Codex",
+      "localLatest": "última descarga"
+    },
+    "modelSourceTip": {
+      "codexFirst": "Si se deja vacío, un agent nuevo toma el primer modelo de la lista de Codex la primera vez que se abre.",
+      "localLatest": "Si se deja vacío, un agent nuevo toma el modelo descargado más recientemente la primera vez que se abre."
+    }
   }
 }

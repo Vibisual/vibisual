@@ -186,9 +186,13 @@ Aggregate counters — nothing more, and nothing that names a person.
   and how many people starred the repository. That data is produced by GitHub's
   servers and would exist whether or not we recorded it. A scheduled workflow
   copies it into a CSV so the project has a growth curve over time.
-  Until 2026-09-07 those download counts were mostly our own CI fetching
-  installers to test them; that fetch now goes through a private build artifact
-  instead, so the figure counts people rather than robots.
+  The download figure on the website and in the README is GitHub's own total —
+  the same number as the standard shields.io `github/downloads` badge — and it
+  counts file downloads, not people. It includes installed copies fetching
+  `latest.yml` when they check for an update, update installers and delta
+  pieces fetched by the updater, and, before 2026-09-07, our own CI fetching
+  installers to test them. GitHub does not record who downloaded a file, so
+  neither we nor anyone else can turn that total into a count of people.
 - **Update-check counts**, if the build points at our proxy — the daily,
   de-duplicated total described in item 1, broken down by platform and nothing
   else.

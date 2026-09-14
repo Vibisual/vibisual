@@ -4,6 +4,7 @@ export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelR
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 // §2.1 #3 쓰기 축 — Bash 줄의 `target`(어느 파일을 고쳤나)을 그래프와 **같은 추출기**에서 뽑는다.
 import { extractBashWritePaths } from './bashCommandPaths.js';
+import { normalizeCodexToolPolicy } from './codexToolPolicy.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -377,6 +378,15 @@ export const COMPLETED_COMMAND_MAX_PER_SESSION = 1000;
  * ⚠ **살아있는 서브에이전트의 파일은 나이와 무관하게 보존**한다(§3.2.3 — 화면에 떠 있는 대화를 지우지 않는다).
  */
 export const SUB_STREAM_RETENTION_DAYS = 30;
+
+/**
+ * §3.2.3 — 긴 대화의 스트림 파일을 컴팩션할 때 **앞부분이 옮겨 가는 보관 파일**의 꼬리 이름
+ * (`sub-streams/<agentId>/<subId>.archive.jsonl`). 컴팩션은 앞부분을 지우지 않고 여기로 옮긴다 —
+ * IDE 가 복원 창 위쪽을 거슬러 읽으므로(과거 구간 조회) 앞부분도 읽기 경로가 닿는 범위다.
+ * 세션 id 는 파일명이 될 때 `[a-zA-Z0-9_-]` 로만 접히므로, 점이 든 이 이름은 본 파일과 겹칠 수 없다.
+ * 보존 정리는 이 파일을 **주인 세션의 일부**로 본다(주인이 보호되면 함께 보호, 주인 파일이 살아 있으면 남긴다).
+ */
+export const SUB_STREAM_ARCHIVE_SUFFIX = '.archive.jsonl';
 
 /**
  * `.vibisual/attachments/<sessionId>/` 첨부 보존 기간(일). 부팅 시 1회 정리.
@@ -2361,6 +2371,30 @@ export const MODEL_SEED_ENTRIES: readonly ModelRegistryEntry[] = AVAILABLE_AGENT
 });
 
 /**
+ * §4 (상태바 모델 칸 ③(나)) — `/v1/models` 결과가 **낡았다고 보는** 나이(ms).
+ *
+ * 부팅 때 캐시 신선도와 앱이 켜져 있는 동안의 재조회 주기가 **같은 값**을 쓴다 — 종전에는 부팅
+ * 1회뿐이라, 앱을 켜 둔 채 새 모델이 나오면 재시작 전까지 목록이 그대로였다. 키가 있는 사용자만
+ * 해당하고 호출은 한 번에 한 요청이라 6시간이면 새 모델 출시를 반나절 안에 따라간다.
+ */
+export const MODEL_REGISTRY_API_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** §4 (상태바 모델 칸 ③(나)) — `/v1/models` 가 실패했을 때 다시 두드리기까지 기다리는 시간(ms). */
+export const MODEL_REGISTRY_RETRY_MS = 15 * 60 * 1000;
+
+/**
+ * §4 (상태바 모델 칸 ③) — 모델 창을 열 때의 "한 번 더 확인" 하한(ms).
+ * 창을 연달아 열고 닫아도 API 는 이 간격 안에서 한 번만 부른다(실행본 확인은 싸서 매번 한다).
+ */
+export const MODEL_REGISTRY_MANUAL_REFRESH_FLOOR_MS = 5 * 60 * 1000;
+
+/**
+ * §4 (상태바 모델 칸 ③(다)) — 대화록에서 배운 모델 ID 를 캐시에 남기는 개수 상한.
+ * 한 번 본 모델은 낡지 않아 시간 만료를 두지 않으므로 **개수**로 막는다(§9 — 키 개수엔 캡이 없다).
+ */
+export const MODEL_REGISTRY_OBSERVED_MAX = 64;
+
+/**
  * §4 v1.53 — alias 와 풀ID 합집합. CLI `--model` 가드용.
  *
  * v2.38 주의 — 이 정적 합집합은 시드 한정. 서버 `subAgentManager.buildConfigArgs` 는 런타임 레지스트리
@@ -3526,11 +3560,25 @@ export const CMD_BLOCK_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 버블의 구분 색(teal-600).
+ * §4 v2.63 · §2.2 (에이전트 CMD) — CMD(인터랙티브 터미널) 에이전트 버블의 구분 색. teal-600 에서 채도만 낮춘 회청록.
  * 우클릭 "CMD Agent" 로 생성 시 agentConfig.color 에 baked → 일반 커스텀 에이전트(blue)와 한눈에 구별.
  * 사용자가 이후 색을 바꾸면 그 값이 우선(기능 표식은 executionMode 가 전담, 색은 cosmetic).
  */
-export const CMD_AGENT_COLOR = '#0d9488';
+export const CMD_AGENT_COLOR = '#4e8e88';
+/**
+ * 지금 색 이전에 CMD 에 구워 넣었던 값들(소문자 `#rrggbb`). 색이 설정에 구워져 있어 상수만 바꾸면
+ * 이미 만든 CMD 버블은 옛 색으로 남는다 — 복원할 때 `migrateCmdAgentColor` 가 한 번 갈아 끼운다.
+ */
+export const CMD_AGENT_LEGACY_COLORS: readonly string[] = ['#0d9488'];
+/**
+ * 옛 CMD 색으로 구워진 설정만 지금 색으로 옮긴다. CMD 가 아니거나 사용자가 고른 다른 색이면 그대로 둔다
+ * (같은 teal 을 쓰는 Librarian 프리셋 같은 헤드리스 에이전트는 건드리지 않는다).
+ */
+export function migrateCmdAgentColor<T extends Partial<AgentConfig>>(config: T): T {
+  if (config.executionMode !== 'interactive-terminal' || typeof config.color !== 'string') return config;
+  if (!CMD_AGENT_LEGACY_COLORS.includes(config.color.toLowerCase())) return config;
+  return { ...config, color: CMD_AGENT_COLOR };
+}
 /**
  * §5.19 (C) — All Model(로컬 LLM) 버블 본체 색.
  * 채도 높은 원색을 하나 더 들이면 캔버스가 탁해진다 — 앱 버블이 푸시아를 걷어내고 그레이파이트로
@@ -3928,6 +3976,9 @@ export const SUBAGENT_DEPTH_MIN = 1;
 /** 중첩 깊이 상한. CLI 기본은 3층이며, 그보다 깊게 파는 것은 사고에 가깝다. */
 export const SUBAGENT_DEPTH_MAX = 5;
 
+/** 이 칸을 비워 두었을 때(0) CLI 가 쓰는 중첩 깊이. 설정 창이 "0 = 3층"을 숫자로 적을 때 쓴다(§5.25 (G-2)). */
+export const SUBAGENT_DEPTH_CLI_DEFAULT = 3;
+
 /**
  * 범위를 벗어나거나 정수가 아니면 undefined(= CLI 기본 3층 유지).
  * 0 을 "중첩 없음"으로 오해해 넣는 경우가 있어 하한을 1 로 잡고 그 아래는 버린다.
@@ -3994,7 +4045,7 @@ export function normalizeCommandDispatchMode(value: unknown): CommandDispatchMod
  * 유니언과 이 목록, 그리고 `ide.cmdError.<code>` 문자열까지 한 번에 늘린다(클라 테스트가 확인한다).
  */
 export const COMMAND_ERROR_CODES = [
-  'spawn', 'stdin', 'exit', 'crash', 'cli', 'maxTurns', 'agentView', 'orphaned', 'local',
+  'spawn', 'stdin', 'exit', 'crash', 'cli', 'maxTurns', 'agentView', 'orphaned', 'local', 'dispatchResult',
 ] as const satisfies readonly CommandErrorCode[];
 
 /** 종료 코드 유무로 문장이 갈리는 코드 — 코드가 없으면 `<code>Unknown` 문장을 쓴다. */
@@ -5264,6 +5315,17 @@ export const STREAM_EVENTS_MAX_PER_INACTIVE_SESSION = 300;
  * 해당 세션을 다시 열면 서버 버퍼(/api/subagent-streams/:agentId)에서 자동 복구.
  */
 export const STREAM_INACTIVE_SESSIONS_MAX = 20;
+
+/**
+ * §5.5 #17-12 — IDE 가 복원 창(서버 마지막 2,000건) **위쪽**을 한 번에 거슬러 받아 오는 이벤트 수.
+ * 사용자가 그 경계 가까이 올라왔을 때만 요청한다 — 여는 비용은 그대로다(§9 "안 받는 것이 유일한 절약").
+ * 받아 온 만큼은 그 세션의 활성 상한(`STREAM_EVENTS_MAX_PER_SESSION`)에 **더해진다** — 안 그러면 다음
+ * 라이브 줄이 들어오는 순간 방금 불러온 과거가 앞쪽 절단으로 도로 잘린다.
+ */
+export const STREAM_HISTORY_PAGE_EVENTS = 1000;
+
+/** 서버가 과거 구간 한 번에 내주는 최대 이벤트 수 — 요청 값이 커도 이 수로 자른다. */
+export const STREAM_HISTORY_PAGE_MAX = 2000;
 
 // ─── 서버 코어 로그 뷰어 (§7.7 v1.99) ───
 
@@ -9054,7 +9116,7 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
     kind?: unknown; modelId?: unknown; modelName?: unknown; contextSize?: unknown; temperature?: unknown;
     toolSupport?: unknown; contextUsed?: unknown; contextLimit?: unknown;
     tokensIn?: unknown; tokensOut?: unknown; reasoningEffort?: unknown;
-    webSearch?: unknown; networkAccess?: unknown; modelVerbosity?: unknown;
+    webSearch?: unknown; networkAccess?: unknown; modelVerbosity?: unknown; codexTools?: unknown;
   };
   if (raw.kind !== 'local-llama' && raw.kind !== 'codex-cli') return undefined;
   const provider: AgentProvider = {
@@ -9069,6 +9131,8 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
   }
   const modelName = typeof raw.modelName === 'string' ? raw.modelName.trim() : '';
   if (raw.kind === 'codex-cli') {
+    const codexTools = normalizeCodexToolPolicy(raw.codexTools);
+    if (codexTools) provider.codexTools = codexTools;
     if (raw.webSearch === 'disabled' || raw.webSearch === 'cached' || raw.webSearch === 'live') provider.webSearch = raw.webSearch;
     if (typeof raw.networkAccess === 'boolean') provider.networkAccess = raw.networkAccess;
     if (raw.modelVerbosity === 'low' || raw.modelVerbosity === 'medium' || raw.modelVerbosity === 'high') provider.modelVerbosity = raw.modelVerbosity;
@@ -9228,6 +9292,15 @@ export function resolveCodexPermission(mode: string | undefined): { sandbox: str
 }
 
 /**
+ * §5.25 (H) — 이 모드의 코덱스 버블이 승인 카드를 띄울 수 있는가(= 60초 무응답 정책이 뜻을 갖는가).
+ * 코덱스는 승인 정책이 `on-request` 일 때만 샌드박스 밖 실행을 묻는다. 클로드의 도구별 확인 목록
+ * (`askTools`)은 코덱스에 없으므로 보지 않는다 — 감사 경계가 따로 붙잡는 카드는 모드와 무관하다.
+ */
+export function canCodexPromptForPermission(mode: string | undefined): boolean {
+  return resolveCodexPermission(mode).approval === 'on-request';
+}
+
+/**
  * §5.25 (B) — 아직 모델을 안 문 Codex 버블의 기본 라벨 모양(`Codex Agent 3`).
  * All Model 과 같은 규약 — 이 모양이면 모델명이 그 자리를 잇고, 사용자가 바꾼 이름은 보존된다.
  *
@@ -9268,14 +9341,24 @@ export function engineForProvider(provider: AgentProvider | undefined): AgentEng
  * 화면 수만큼 고쳐야 하는 구조라 또 빠진다 — 그래서 판정을 여기 하나로 모은다.
  * 새 엔진은 `engineForProvider` 에 갈래를 더하면 부르는 쪽은 손대지 않아도 따라온다.
  *
+ * **CMD 버블은 셸에 채울 CLI 가 먼저다(§5.25 (B-1)).** 터미널이 실제로 띄우는 것은 `cliKind` 이고,
+ * 클로드가 아닌 CLI(`managed === false` — 우클릭 Codex 칸의 "Codex CMD" 등)에는 모델 칸이 전달되지
+ * 않는다. 그 버블에 `config.model` 을 적으면 코덱스 터미널 아래에 `opus` 가 뜬다 — 위와 같은 사고라
+ * CLI 이름(`Codex CLI`)을 적는다. 순수 셸이면 적을 모델이 없다. `cliKind` 는 CMD 에서만 읽는다
+ * (헤드리스로 되돌린 버블에 남은 옛 값이 클로드 세션의 모델을 가리지 않게).
+ *
  * @param config    이 에이전트의 설정(없으면 아직 안 읽힌 것 — `null` 을 돌려준다).
  * @param fallbacks 프로바이더가 모델을 아직 안 물었을 때 적을 **엔진 이름**(i18n 문구).
  * @returns `null` 이면 적을 것이 없다(훅 버블처럼 설정이 없는 자리).
  */
 export function agentModelLabelOf(
-  config: { model?: string; provider?: AgentProvider } | null | undefined,
+  config: { model?: string; provider?: AgentProvider; executionMode?: string; cliKind?: string } | null | undefined,
   fallbacks?: { codex?: string; local?: string },
 ): string | null {
+  if (config?.executionMode === 'interactive-terminal') {
+    const cli = resolveCmdCliKind(config.cliKind);
+    if (!cli.managed) return cli.bin ? cli.label : null;
+  }
   const provider = config?.provider;
   const engine = engineForProvider(provider);
   if (engine === 'claude') return config?.model || null;
@@ -9861,6 +9944,23 @@ export const AUDIT_PATH_INPUT_KEYS: readonly string[] = [
   'file_path', 'notebook_path', 'path', 'target_file',
 ];
 
+/**
+ * §5.22 · §5.25 (H) — 입력이 셸 명령이 아니라 **패치 본문**인 편집 도구(코덱스 `apply_patch`).
+ *
+ * 코덱스 훅은 패치를 `command` 칸에 싣는다. 명령으로 읽으면 본문 한 줄의 `curl`·`rm -rf` 가
+ * 위험으로 찍히고, 정작 어느 파일을 지우고 고치는지는 머리줄에만 있다.
+ */
+export const AUDIT_PATCH_TOOLS: ReadonlySet<string> = new Set(['apply_patch']);
+
+/** 패치 본문이 담겨 오는 입력 칸. */
+export const AUDIT_PATCH_INPUT_KEYS: readonly string[] = ['command', 'input', 'patch'];
+
+/** 패치 머리줄 — `*** Add File: <path>` · `*** Update File: <path>` · `*** Delete File: <path>`. */
+export const AUDIT_PATCH_FILE_HEADER_PATTERN = /^\*\*\* (Add|Update|Delete) File: (.+)$/;
+
+/** 패치의 이름 바꾸기 머리줄 — `*** Move to: <path>`. */
+export const AUDIT_PATCH_MOVE_HEADER_PATTERN = /^\*\*\* Move to: (.+)$/;
+
 /** 절대경로처럼 생긴 낱말(명령에서 뽑은 토큰 하나를 검사한다). */
 export const AUDIT_ABSOLUTE_PATH_PATTERNS: readonly RegExp[] = [
   /^[A-Za-z]:[\\/]/,   // C:\… · C:/…
@@ -10076,6 +10176,37 @@ function auditCommandPathCandidates(command: string): string[] {
   return out;
 }
 
+/** 패치 머리줄에서 뽑은 파일 조작 한 건. `move` 는 `Update File` 뒤에 붙는 새 이름이다. */
+export interface AuditPatchFileOp {
+  op: 'add' | 'update' | 'delete' | 'move';
+  path: string;
+}
+
+/**
+ * §5.22 · §5.25 (H) — 패치 본문의 머리줄만 읽어 파일 조작을 뽑는다. 본문(`+`·`-`·문맥 줄)은
+ * 보지 않는다 — 거기 적힌 명령이나 경로는 **파일 내용**이지 이 호출이 한 일이 아니다.
+ */
+export function extractPatchFileOps(patch: string): AuditPatchFileOp[] {
+  const out: AuditPatchFileOp[] = [];
+  for (const rawLine of patch.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    const file = line.match(AUDIT_PATCH_FILE_HEADER_PATTERN);
+    if (file && file[1] && file[2]?.trim()) {
+      out.push({ op: file[1].toLowerCase() as AuditPatchFileOp['op'], path: file[2].trim() });
+      continue;
+    }
+    const moved = line.match(AUDIT_PATCH_MOVE_HEADER_PATTERN);
+    if (moved && moved[1]?.trim()) out.push({ op: 'move', path: moved[1].trim() });
+  }
+  return out;
+}
+
+/** 패치 도구 입력에서 본문을 꺼낸다. 패치 도구가 아니면 undefined. */
+function auditPatchText(toolName: string, input: Record<string, unknown>): string | undefined {
+  if (!AUDIT_PATCH_TOOLS.has(toolName)) return undefined;
+  return auditFirstString(input, AUDIT_PATCH_INPUT_KEYS) ?? '';
+}
+
 /** §5.22 — `outside` 판정에 넘기는 경계. 서버가 프로젝트 루트와 세션 cwd 를 실어 준다. */
 export interface AuditRiskOptions {
   /** 이 호출이 머물러야 할 경계들. 비면 `outside` 를 판정하지 않는다. */
@@ -10096,6 +10227,8 @@ export function classifyToolRisk(
   options?: AuditRiskOptions,
 ): AuditRiskKind[] {
   const input = toolInput ?? {};
+  const patch = auditPatchText(toolName, input);
+  if (patch !== undefined) return classifyPatchRisk(extractPatchFileOps(patch), options);
   const command = typeof input['command'] === 'string' ? input['command'] : '';
   const url = auditFirstString(input, ['url', 'endpoint']);
   const filePath = auditFirstString(input, AUDIT_PATH_INPUT_KEYS);
@@ -10142,6 +10275,22 @@ export function classifyToolRisk(
 }
 
 /**
+ * §5.22 — 패치의 위험. 머리줄의 조작과 경로만 본다: 지우기는 `delete`, 설정 경로를 만들거나
+ * 고치거나 지우면 `config`, 경계 밖 경로는 `outside`. 패치는 바깥과 말하지 않으므로 `network` 는 없다.
+ */
+function classifyPatchRisk(ops: readonly AuditPatchFileOp[], options?: AuditRiskOptions): AuditRiskKind[] {
+  const found = new Set<AuditRiskKind>();
+  if (ops.some((o) => o.op === 'delete')) found.add('delete');
+  if (ops.some((o) => auditMatches(o.path, AUDIT_CONFIG_PATH_PATTERNS))) found.add('config');
+  const roots = options?.roots ?? [];
+  if (roots.length > 0) {
+    const platform = options?.platform ?? AUDIT_FALLBACK_PATH_PLATFORM;
+    if (ops.some((o) => isAuditPathOutside(o.path, roots, platform, options?.homeDir))) found.add('outside');
+  }
+  return AUDIT_RISK_KINDS.filter((k) => found.has(k));
+}
+
+/**
  * §5.22 — 원장 한 줄이 보여 줄 요약과 대상. 도구 입력 전문을 담지 않기 위한 접기다.
  */
 export function summarizeToolCall(
@@ -10150,6 +10299,16 @@ export function summarizeToolCall(
   options?: { platform?: PlatformName },
 ): { summary: string; target?: string } {
   const input = toolInput ?? {};
+  const patch = auditPatchText(toolName, input);
+  if (patch !== undefined) {
+    // 패치 본문 전문 대신 "무엇을 어디에" 한 줄 — `update a.ts · delete b.ts`.
+    const ops = extractPatchFileOps(patch);
+    if (ops.length === 0) return { summary: toolName };
+    return {
+      summary: auditClip(ops.map((o) => `${o.op} ${o.path}`).join(' · '), AUDIT_SUMMARY_MAX_CHARS),
+      target: auditClip(ops[0]!.path, AUDIT_TARGET_MAX_CHARS),
+    };
+  }
   const command = typeof input['command'] === 'string' ? input['command'] : '';
   const url = auditFirstString(input, ['url', 'endpoint']);
   const filePath = auditFirstString(input, AUDIT_PATH_INPUT_KEYS);

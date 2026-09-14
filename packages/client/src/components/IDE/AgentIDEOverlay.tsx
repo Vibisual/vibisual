@@ -88,6 +88,7 @@ import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
 import { VerifyDemoLayer } from './VerifyDemoLayer.js';
 import { IDERunOutputPanel } from './IDERunOutputPanel.js';
+import { mergeDeepWindow } from './streamHistory.js';
 import { useRunSessions } from '../../stores/runSessions.js';
 import { useReadingSettings } from './reading/useReadingSettings.js';
 // §6 — 창 배치 키는 레지스트리가 정한다(여기 조합을 적지 않는다).
@@ -2330,13 +2331,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           //   이벤트가 응답에는 없으므로, 그대로 덮으면 방금 흘러온 몇 줄이 화면에서 사라진다
           //   (에이전트가 말하는 중에 탭을 옮기면 바로 보이는 증상). 서버 응답의 마지막 시각
           //   이후분만 id 로 걸러 뒤에 이어 붙여 순서를 지킨다.
-          const lastTs = server[server.length - 1]!.timestamp;
-          const seen = new Set(server.map((e) => e.id));
+          //   §5.5 #17-12 — 버퍼가 서버 창보다 앞에서 시작해 이어지면 그 앞도 남긴다(깊은 복원이 창을 줄이지 않게).
           const prev = useGraphStore.getState().subAgentStreams[activeSessionId] ?? [];
-          const tail = prev.filter((e) => e.timestamp >= lastTs && !seen.has(e.id));
-          useGraphStore.getState().loadStreamBuffers({
-            [activeSessionId]: tail.length > 0 ? [...server, ...tail] : server,
-          }, 'deep');
+          useGraphStore.getState().loadStreamBuffers({ [activeSessionId]: mergeDeepWindow(server, prev) }, 'deep');
         })
         .catch(() => {
           if (cancelled) return;

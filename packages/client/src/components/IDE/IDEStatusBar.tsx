@@ -1,10 +1,10 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, SubAgent } from '@vibisual/shared';
 import {
   resolveAutoCompact, isAutoCompactOn, resolveAliasToLatest, getModelContextLimit,
-  agentModelLabelOf,
+  agentModelLabelOf, BUBBLE_COLORS, resolveCmdCliKind,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
@@ -13,10 +13,16 @@ import {
 } from '../../utils/sessionStatus.js';
 import { followSessionKey } from './editorFollow.js';
 import { buildDiffCommentPrompt } from './diffCommentPrompt.js';
-import { resolveStatusBarUsage, resolveStatusBarModel, resolveStatusBarThinkingOff } from './statusBarContext.js';
-import { findInsuranceLedger, sessionFailedCompacts, sessionWatchLevel } from '../../utils/insuranceView.js';
+import {
+  resolveStatusBarUsage, resolveStatusBarModel, resolveStatusBarThinkingOff,
+  resolveStatusBarEffort, canOpenModelQuickSwitch,
+} from './statusBarContext.js';
+import { findInsuranceLedger, sessionWatchLevel } from '../../utils/insuranceView.js';
 import type { InsuranceSessionScope } from '../../utils/insuranceView.js';
 import { ContextInsurancePopup } from '../Panel/ContextInsurancePopup.js';
+// §4 (상태바 모델 칸 ②) — 모델 칸을 누르면 뜨는 카드는 새 창이 아니라 **설정창의 모델 구역**이다.
+import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
+import type { PopupAnchorRect } from '../Panel/modelSectionView.js';
 
 interface IDEStatusBarProps {
   agent: BubbleData;
@@ -33,6 +39,30 @@ function formatTokenCount(tokens: number): string {
 
 function formatModelName(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+}
+
+/**
+ * §4 (상태바 모델 칸 ②) — 모델 칸을 눌렀을 때 칸 위에 뜨는 카드. **설정창(`AgentConfigPopup`)을 모델
+ * 구역만 연 것**이라 칸 규칙·저장이 설정창과 한 벌이다(여기서 고친 값이 설정창에 그대로 보인다).
+ * 설정 한 벌(`agentConfigs[id]`)은 카드가 떠 있을 때만 구독한다 — 상태바가 늘 그 객체를 구독하면
+ * 설정 어느 칸이 바뀌어도 줄 전체가 다시 그려진다(바의 선택자들이 원시값만 집는 이유와 같다).
+ */
+function StatusBarModelSwitch({ agent, anchorRect, onClose }: {
+  agent: BubbleData;
+  anchorRect: PopupAnchorRect;
+  onClose: () => void;
+}): React.JSX.Element {
+  const config = useGraphStore((s) => s.agentConfigs[agent.id]);
+  return (
+    <AgentConfigPopup
+      agentId={agent.id}
+      config={config ?? null}
+      currentColor={BUBBLE_COLORS[agent.bubbleType]}
+      onClose={onClose}
+      section="model"
+      anchorRect={anchorRect}
+    />
+  );
 }
 
 /**
@@ -95,9 +125,23 @@ export const IDEStatusBar = memo(function IDEStatusBar({
       },
     ) ?? undefined
     : undefined;
-  const configuredRaw = providerModel ?? ownModel ?? globalModel;
+  const cliKind = useGraphStore((s) => s.agentConfigs[agent.id]?.cliKind);
+  // `cliKind` 는 **CMD 버블에서만** 읽힌다 — 헤드리스 스폰은 그 칸을 보지 않는다(CMD 채움 한 곳만 읽는다).
+  //   CMD 로 한 번 돌렸다가 헤드리스로 되돌린 버블에는 옛 값이 남아 있어, 그대로 넘기면 클로드로 도는
+  //   헤드리스 세션을 "클로드가 아닌 CLI"로 읽어 아래 세 칸이 조용히 사라진다.
+  const executionMode = useGraphStore((s) => s.agentConfigs[agent.id]?.executionMode);
+  const cmdCliKind = executionMode === 'interactive-terminal' ? cliKind : undefined;
+  // §5.25 (B-1) — 클로드가 아닌 CLI 를 채우는 CMD(Codex CMD 등)에는 모델 칸이 전달되지 않는다.
+  //   `config.model`(opus)로 떨어지지 않고 CLI 이름을 적는다(순수 셸이면 적을 모델이 없다).
+  const cmdCliUnmanaged = executionMode === 'interactive-terminal' && !resolveCmdCliKind(cmdCliKind).managed;
+  const cliModel = cmdCliUnmanaged
+    ? agentModelLabelOf({ executionMode, cliKind: cmdCliKind }) ?? undefined
+    : undefined;
+  const configuredRaw = cmdCliUnmanaged ? cliModel : providerModel ?? ownModel ?? globalModel;
   // 별칭 펴기는 클로드 이름에만 쓴다 — 코덱스 slug·로컬 파일명은 그 레지스트리의 대상이 아니다.
-  const configuredModel = providerModel ?? (resolveAliasToLatest(configuredRaw, modelRegistry) ?? configuredRaw);
+  const configuredModel = cmdCliUnmanaged
+    ? cliModel
+    : providerModel ?? (resolveAliasToLatest(configuredRaw, modelRegistry) ?? configuredRaw);
   // 창 크기 폴백은 **모델을 먼저 안 뒤에야** 고를 수 있어 모델만 한 번 따로 푼다(같은 규칙,
   //   같은 함수 — 두 곳에서 따로 판정하지 않는다).
   const model = resolveStatusBarModel(agent, activeSession, configuredModel);
@@ -126,6 +170,10 @@ export const IDEStatusBar = memo(function IDEStatusBar({
    * 넘겨도 같은 색·같은 숫자가 남았다**(사용자 보고 — 세션 8개짜리 버블의 여덟 탭 전부에 `1`).
    * 위 모델·토큰 칸이 겪었던 것과 같은 사고라 고치는 방법도 같다: 원장은 그대로 두고 **내 줄만
    * 골라 본다**. 팝업(§7.23)은 여전히 프로젝트 한 장이다 — 저장고가 프로젝트 단위이기 때문이다.
+   *
+   * **실패 건수는 이 칸에서 걷었다(§5.26 (I) ⑤ · 사용자 지시).** 컨텍스트 수치 옆의 설명 없는 빨간
+   * 숫자는 무엇의 숫자인지 읽히지 않았다 — 이제 칸을 눌러 들어간 팝업의 「압축 기록」 갈피 옆에서
+   * 확인한다. 이 칸에 남는 것은 감시 등급의 색·글리프("지금 눌러 볼 이유")뿐이다.
    */
   const insuranceLedgers = useGraphStore((s) => s.contextInsurance);
   const activeProject = useGraphStore((s) => s.activeProject);
@@ -138,7 +186,6 @@ export const IDEStatusBar = memo(function IDEStatusBar({
     sessionId: activeSession?.sessionId ?? null,
   };
   const watchLevel = sessionWatchLevel(insuranceLedger, insuranceScope);
-  const failedCompacts = sessionFailedCompacts(insuranceLedger, insuranceScope);
 
   const ownAutoCompact = useGraphStore((s) => s.agentConfigs[agent.id]?.autoCompact);
   const globalAutoCompact = useGraphStore((s) => s.userDefaults?.agentConfig?.autoCompact);
@@ -149,14 +196,55 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   //   원시값이라 파생 배열/맵 구독의 리렌더 함정을 타지 않는다(위 모델·자동 압축 칸과 같은 문법).
   const ownThinking = useGraphStore((s) => s.agentConfigs[agent.id]?.thinking);
   const globalThinking = useGraphStore((s) => s.userDefaults?.agentConfig?.thinking);
-  const cliKind = useGraphStore((s) => s.agentConfigs[agent.id]?.cliKind);
   const thinkingOff = resolveStatusBarThinkingOff({
     isCustom,
     providerKind,
-    cliKind,
+    cliKind: cmdCliKind,
     agentThinking: ownThinking,
     userDefaultThinking: globalThinking,
   });
+
+  // §4 (상태바 모델 칸 ①) — 모델 옆에 붙는 추론 강도. 판정(3층 · 코덱스 갈래 · 안 띄우는 셋)은
+  //   `statusBarContext.ts` 한 곳이고, 여기서는 원시값만 집는다(위 칸들과 같은 문법).
+  const ownEffort = useGraphStore((s) => s.agentConfigs[agent.id]?.effort);
+  const globalEffort = useGraphStore((s) => s.userDefaults?.agentConfig?.effort);
+  const codexEffort = useGraphStore((s) => s.agentConfigs[agent.id]?.provider?.reasoningEffort);
+  const effort = resolveStatusBarEffort({
+    isCustom,
+    providerKind,
+    cliKind: cmdCliKind,
+    agentEffort: ownEffort,
+    userDefaultEffort: globalEffort,
+    codexEffort,
+    sessionEffort: activeSession?.reasoningEffort,
+    sessionModel: activeSession?.modelName,
+    providerModelId,
+  });
+  // 강도 칸의 이름은 갈래마다 우리 라벨이 다르다(클로드 설정창 칸 · 코덱스 칸) — 그 라벨에서 받아 적는다.
+  const effortLabel = providerKind === 'codex-cli'
+    ? t('panel.agentConfig.codex.effort')
+    : t('panel.agentConfig.effort.label');
+
+  // §4 (상태바 모델 칸 ②) — 누르면 설정창의 모델 구역이 칸 위에 뜬다. 카드가 붙을 자리는 누른 순간의
+  //   칸 사각형이다. 어느 버블의 카드인지도 함께 쥔다 — 떠 있는 동안 바가 다른 버블로 넘어가면 그
+  //   카드를 새 버블에 그리지 않는다(옛 버블 값을 든 채 새 버블에 저장하게 된다).
+  const canSwitchModel = canOpenModelQuickSwitch({ isCustom, cliKind: cmdCliKind });
+  const [modelSwitch, setModelSwitch] = useState<{ agentId: string; anchor: PopupAnchorRect } | null>(null);
+  const openModelSwitch = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setModelSwitch({ agentId: agent.id, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } });
+  }, [agent.id]);
+  const closeModelSwitch = useCallback(() => setModelSwitch(null), []);
+  const modelSwitchOpen = canSwitchModel && modelSwitch !== null && modelSwitch.agentId === agent.id;
+  const modelChipName = model ? formatModelName(model) : t('ide.statusBar.modelUnknown');
+  const modelChipEffort = effort
+    ? (effort.kind === 'level' ? effort.value : t('ide.statusBar.modelUnknown'))
+    : null;
+  const modelChipTitle = [
+    t('ide.statusBar.modelTip'),
+    effort ? t('ide.statusBar.effortTip', { effort: effortLabel }) : null,
+    canSwitchModel ? t('ide.statusBar.modelSwitchTip') : null,
+  ].filter((line): line is string => line !== null).join('\n');
 
   // ─── §5.5 #17-30 — 이 세션에 모인 diff 리뷰 코멘트를 한 명령으로 보낸다 ───
   const sessionKey = followSessionKey(agent.id, activeSession?.id ?? null);
@@ -223,13 +311,32 @@ export const IDEStatusBar = memo(function IDEStatusBar({
         )}
       </span>
 
-      {/* Model — 모르면 "모름"을 적는다. 이름 자리라 `0` 으로 대신할 수 없다. */}
-      <span
-        className="max-w-[14rem] truncate whitespace-nowrap text-gray-500"
-        title={t('ide.statusBar.modelTip')}
-      >
-        {model ? formatModelName(model) : t('ide.statusBar.modelUnknown')}
-      </span>
+      {/* Model — 모르면 "모름"을 적는다. 이름 자리라 `0` 으로 대신할 수 없다.
+          §4 (상태바 모델 칸 ①②) — 추론 강도를 **같은 칸**에 붙인다(`opus-5 · high`): "무엇으로, 얼마나
+          깊게"가 한 조각으로 읽힌다. 새 칸을 만들지 않으니 항목 순서는 그대로다. 강도는 명시 설정을
+          우선하고, 미설정 코덱스는 선택한 세션에서 확인된 강도를 적는다. 강도가 잘리는 일은 없게 모델
+          이름 쪽만 줄인다. 누를 수 있는 버블이면 설정창의 모델 구역이 칸 위에 뜬다 — 컨텍스트 칸과 같은
+          누르는 칸 모양이고, 못 누르는 버블(훅·클로드가 아닌 CMD)은 종전처럼 글자로만 남는다. */}
+      {canSwitchModel ? (
+        <button
+          type="button"
+          onClick={openModelSwitch}
+          aria-haspopup="dialog"
+          aria-expanded={modelSwitchOpen}
+          className={`flex min-w-0 max-w-[18rem] items-center gap-1 whitespace-nowrap rounded px-1 transition-colors hover:bg-white/[0.08] hover:text-gray-300 ${
+            modelSwitchOpen ? 'bg-white/[0.08] text-gray-300' : 'text-gray-500'
+          }`}
+          title={modelChipTitle}
+        >
+          <span className="min-w-0 truncate">{modelChipName}</span>
+          {modelChipEffort !== null && <span className="flex-shrink-0">· {modelChipEffort}</span>}
+        </button>
+      ) : (
+        <span className="flex min-w-0 max-w-[18rem] items-center gap-1 whitespace-nowrap text-gray-500" title={modelChipTitle}>
+          <span className="min-w-0 truncate">{modelChipName}</span>
+          {modelChipEffort !== null && <span className="flex-shrink-0">· {modelChipEffort}</span>}
+        </span>
+      )}
 
       {/* §4 (Thinking on/off) — 확장 사고를 **꺼 둔** 에이전트에서만 뜨는 칸.
           위 "값이 없다고 칸을 지우지 않는다" 규칙의 예외가 아니다 — 그 규칙은 턴마다 흔들리는
@@ -272,7 +379,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
 
       {/* Context usage — 선택한 세션 기준(없을 때만 버블 값). 못 쟀으면 `0`, 칸은 남는다.
           §5.26 (I) — 누르면 보험 팝업(§7.23)이 열린다. 자동압축이 안 도는 것 같으면 여기 색이
-          바뀌고, 압축이 실패로 못 박힌 건수가 있으면 그 숫자가 옆에 붙는다. */}
+          바뀐다. 실패로 끝난 압축 건수는 이 칸에 붙이지 않는다 — 팝업 안에서 확인한다((I) ⑤). */}
       <button
         type="button"
         onClick={() => setInsurancePopupOpen(true)}
@@ -300,16 +407,9 @@ export const IDEStatusBar = memo(function IDEStatusBar({
             <path d="M12 17h.01" />
           </svg>
         )}
-        {/* §5.26 (I) — **이 세션에서** 실패로 못 박힌 압축 건수. 숫자만 있고 아무 설명이 없으면
-            사용자가 컨텍스트 수치의 일부로 읽는다(주어가 세션으로 바뀐 지금은 더 그렇다). */}
-        {failedCompacts > 0 && (
-          <span
-            className="rounded bg-red-500/15 px-1 text-[12px] font-semibold text-red-300"
-            title={t('ide.statusBar.failedCompactsTip', { count: failedCompacts })}
-          >
-            {failedCompacts}
-          </span>
-        )}
+        {/* §5.26 (I) ⑤ — 여기에 실패 건수 배지를 **다시 붙이지 않는다**(사용자 지시 2026-09-13).
+            툴팁을 달아도 마우스를 올리기 전에는 컨텍스트 수치 옆의 `1` 이 무엇인지 읽히지 않았다.
+            그 수는 칸을 눌러 들어간 팝업의 「압축 기록」 갈피 옆 칩이 창의 범위 눈금대로 말한다. */}
       </button>
 
       {/* Token usage — 0 이어도 칸을 남긴다. 그 0 이 "이 세션은 아직 안 썼다"는 정보이고,
@@ -344,6 +444,17 @@ export const IDEStatusBar = memo(function IDEStatusBar({
           </svg>
           {t('ide.diff.sendReview', { count: reviewCount })}
         </button>
+      )}
+
+      {/* §4 (상태바 모델 칸 ②) — 설정창의 모델 구역. 카드가 스스로 body 로 portal 한다(위 팝업과 같은 이유).
+          버블이 바뀌면 새로 짓는다 — 설정창은 연 순간의 값으로 칸을 채우기 때문이다. */}
+      {modelSwitchOpen && modelSwitch && (
+        <StatusBarModelSwitch
+          key={agent.id}
+          agent={agent}
+          anchorRect={modelSwitch.anchor}
+          onClose={closeModelSwitch}
+        />
       )}
 
       {/* 상태바가 `overflow-y-auto` 안이라 팝업은 body 로 portal 한다(감사 팝업과 같은 함정). */}

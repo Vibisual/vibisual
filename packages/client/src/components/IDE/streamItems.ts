@@ -185,10 +185,18 @@ export interface StreamStep {
   phase: 'thinking';
   /** 런이 시작한 시각 = 이 자국이 설 자리(사고가 있던 그 자리). */
   timestamp: number;
-  /** 런이 끝난 시각. `timestamp` 와의 차이가 걸린 시간. */
+  /**
+   * 런이 끝난 시각. `timestamp` 와의 차이가 걸린 시간.
+   * ⚠ 간결에서 합친 자국(§5.5 #17-39 ⑩)은 `timestamp + 사고 시간의 합`이라 시각이 아니다 — **차이로만** 읽어라.
+   */
   endedAt: number;
   /** 그동안 흘러나온 사고 분량(글자 수). 원문은 어디에도 남기지 않는다. */
   chars: number;
+  /**
+   * §4 (스트림 3종 ①) — 이 사고가 **중첩 서브에이전트(Task)** 의 것이면 그 Task 호출의 id. 미설정 = 이 에이전트 자신.
+   * §5.5 #17-39 ⑩ — 간결에서 이어 붙은 자국을 합칠 때 주인이 다르면 섞지 않으려고 든다.
+   */
+  nestedUnderToolUseId?: string;
 }
 
 export interface StreamSystem {
@@ -532,6 +540,7 @@ function thinkRunToStep(run: ThinkRun): StreamStep | null {
     timestamp: run.startedAt,
     endedAt: run.endedAt,
     chars: run.chars,
+    ...(run.nested ? { nestedUnderToolUseId: run.nested } : {}),
   };
 }
 

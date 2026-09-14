@@ -7,7 +7,10 @@ import { keepDragRegionsFresh } from './dragRegions';
 import {
   isOverlaySlotUsable,
   overlayAttentionOnReuse,
+  overlayBubbleOpensIde,
+  overlayExpandAttentionDue,
   overlayFollowsMainFocus,
+  overlayOpenIdeCommand,
   overlayRaiseSteps,
   overlayReuseActivation,
   overlayTopMostFor,
@@ -602,6 +605,26 @@ interface OverlayEntry {
    * 걷을지(예열이 노린 그 순간) 종전대로 기다릴지를 이 비트가 가른다.
    */
   shellReady: boolean;
+  /**
+   * §17-6 (H-27) ④ — **앱이 이 접힌 창에 IDE 를 열라고 보낸 시각.** 없으면 `null`.
+   *
+   * 기척은 IDE 로 서 있을 때만 비추므로((H-16)) 버블에 곧바로 보내면 그대로 사라진다. 그래서
+   * 명령을 보낸 시각만 적어 두고, 렌더가 IDE 를 열어 창을 펴는 순간(`expandOverlaySelf`)
+   * 이 표식을 한 번 읽어 앞세우기와 기척을 준 뒤 지운다.
+   */
+  attentionOnExpandAt: number | null;
+  /**
+   * §17-6 (H-27) ⑦ — **이 창이 IDE 를 다 그리면 세울 세션.** 없으면 `null`.
+   *
+   * 세션을 실어 부른 판에 그 에이전트의 창이 없으면 이 길이 창을 새로 짓는데, 갓 지은 창의 렌더는
+   * 아직 [IDE 열기]를 듣고 있지 않다 — 곧바로 보내면 그대로 사라진다. 방금 끌어낸 창(펼친 채 태어나
+   * 아직 다 그리지 않은 창)도 부팅 중이면 같다(이미 듣고 있으면 그 렌더가 짐을 풀 때까지 세션을 맡아
+   * 둔다 — `OverlayShell`). 그래서 적어 두었다가 그 창이 다 그렸다고 말하는 순간(`overlayShellReady` —
+   * 짐을 풀어 IDE 가 선 **뒤**다) 한 번 건네고 지운다.
+   * 버블로 태어난 창은 그 신호를 보내지 않으므로 여기 적힌 값은 건네지지 않고 창과 함께 사라진다
+   * (그 창의 렌더는 이미 듣고 있어 곧바로 보낸 신호로 충분하다). 모양은 main 이 모른다.
+   */
+  pendingIdeFocus: unknown;
 }
 
 // 실제 BubbleNode 한 개(+선택 코로나/라벨)가 여유 있게 들어가고 살짝 드래그할 공간이 있는 컴팩트 창.
@@ -947,7 +970,16 @@ export function overlayShellReady(senderWindowId: number): boolean {
   //   아래 판정에서 걸러지는데, 뗌에 선을 곧바로 걷을지를 가르는 것이 바로 이 신호다 —
   //   여기서 흘려보내면 예열이 다 끝난 판에서도 종전처럼 기다리게 된다.
   const entry = overlaysByWindowId.get(senderWindowId);
-  if (entry) entry.shellReady = true;
+  if (entry) {
+    entry.shellReady = true;
+    // (H-27) ⑦ 갓 지은 창에 미뤄 둔 세션을 이제 건넨다 — 이 창의 렌더가 방금 IDE 를 다 그렸으니 듣고 있다.
+    //   인계 판정보다 **앞**이어야 한다 — 이 창이 선의 주인이 아니면 아래에서 곧바로 돌아간다.
+    const focus = entry.pendingIdeFocus;
+    entry.pendingIdeFocus = null;
+    if (focus !== null && focus !== undefined && !entry.window.webContents.isDestroyed()) {
+      entry.window.webContents.send('vibisual:overlay:menu-command', { command: 'open-ide', focus });
+    }
+  }
   if (!isGhostHandoffTarget(senderWindowId)) return false;
   finishGhostHandoff();
   return true;
@@ -1086,6 +1118,12 @@ export function openOverlay(opts: {
    * 무장)에 이 길로 미리 지어 두면, 뗌은 **재사용 갈래**를 타 자리 옮기기와 보여주기만 남는다.
    */
   warm?: boolean | undefined;
+  /**
+   * §17-6 (H-27) ⑦ — **그 창에 세울 세션**(북마크 점프면 그 위치까지). 앱이 세션을 골라 밖의 창을
+   * 부를 때만 싣는다. main 은 뜻을 모르고 그 창의 렌더에 [IDE 열기]와 함께 건네기만 한다 — 모양을
+   * 아는 곳은 받는 쪽(`client/stores/detachedIDEFocus.ts` 의 `coerceIDEFocusTarget`) 한 곳이다.
+   */
+  focus?: unknown;
 }): { windowId: number; reused: boolean } {
   // (판올림 번호 발급 대기) **손으로 끌어낸 창은 반드시 보여야 한다.** 전역 표시(Header 토글)가
   //   꺼진 채로 이 길을 타면 앱 안 창은 닫히는데 밖에도 아무것도 뜨지 않아, 사용자에게는 창이
@@ -1120,11 +1158,25 @@ export function openOverlay(opts: {
         overlaysUserVisible = true;
         applyAllOverlayVisibility();
       }
+      // §17-6 (H-27) ① **태어난 창은 목록에 알린다.** 예열 창은 목록에서 빠져 있다가 여기서 태어나는데,
+      //   이미 펼친 채 지어졌으니 아래 펼치기(목록을 알리는 자리)를 지나지 않고, 셸은 첫 펼침을
+      //   미러하지 않는다((H-7)). 여기서 안 알리면 본체의 `overlayWindows` 에 이 창이 끝내 없어,
+      //   (H-13) 이 "밖에 없음"으로 읽고 앱 안에 같은 IDE 를 한 벌 더 세웠다(사용자 보고).
+      broadcastOverlayList();
     }
     const activation = overlayReuseActivation(!!opts.follow, !!opts.follow?.settled);
+    // §17-6 (H-27) ③ 앱이 **접힌 버블**을 IDE 로 불렀다(끌어 넣기·짐 없이) — 창만 키우지 않고 그 창의
+    //   렌더에게 IDE 를 열게 한다. 갈림은 `overlayBubbleOpensIde` 한 곳이다.
+    const bubbleOpensIde = overlayBubbleOpensIde({
+      expanded: !!opts.expanded,
+      wasExpanded: existing.expanded,
+      follow: !!opts.follow,
+      handoff: !!opts.handoff,
+    });
     raiseOverlayWindow(existing, activation);
     // 이미 버블로 떠 있는 창을 다시 끌어냈다면 그 창을 펼쳐 준다(창 두 개 ❌ — 한 에이전트 한 창).
-    if (opts.expanded && !existing.expanded) expandOverlayByWindowId(existing.id);
+    //   (H-27) ③ 앱이 부른 버블은 여기서 펴지 않는다 — 렌더가 IDE 를 열면 미러(`expand-self`)가 편다.
+    if (opts.expanded && !existing.expanded && !bubbleOpensIde) expandOverlayByWindowId(existing.id);
     // 펼치기는 `setBounds`·`setResizable`·`show` 로 창 상태를 통째로 바꾼다 — Windows 에선 그
     //   전이가 상시-위를 조용히 풀고 Z 순서를 흩뜨리므로(§17-6 (E) v2.80), 끝난 **뒤에** 같은
     //   순서를 한 번 더 밟는다(전부 멱등이라 두 번 밟아도 안전하다).
@@ -1133,8 +1185,30 @@ export function openOverlay(opts: {
     //   이미 보이고 있던 창이면 화면이 그대로이기 때문이다. 그래서 그 창이 한 번 대답하게 한다
     //   (렌더러가 짧게 비추는 기척 — main 에는 그림이 없으므로 신호만 보낸다). 구버전 렌더러나
     //   부팅 전이면 아무도 듣지 않고 조용히 지나간다(포커싱 자체는 이미 끝난 뒤다).
-    if (overlayAttentionOnReuse(activation) && !existing.window.webContents.isDestroyed()) {
+    //   (H-27) ④ 버블은 기척을 비추지 않으므로 지금 보내지 않는다 — 편 뒤에 보낸다(아래).
+    if (!bubbleOpensIde && overlayAttentionOnReuse(activation) && !existing.window.webContents.isDestroyed()) {
       existing.window.webContents.send('vibisual:overlay:attention', { agentId: opts.agentId });
+    }
+    // §17-6 (H-27) ③④ 그 창에 [IDE 열기]를 보낸다((G) 메뉴와 같은 길 — 프로바이더 관문도 그 창이 가린다).
+    //   보낸 시각을 적어 두면 렌더가 창을 펴는 순간(`expandOverlaySelf`) 한 번 더 앞으로 세우고 비춘다.
+    //   (H-27) ⑦ 세울 세션을 실어 불렀으면 그것도 함께 싣는다 — 이미 IDE 로 서 있는 창에도 보낸다
+    //   (그 창의 렌더가 제 IDE 에 그 세션을 세운다). 보낼지·무엇을 실을지는 `overlayOpenIdeCommand` 한 곳이다.
+    const openIde = overlayOpenIdeCommand({
+      bubbleOpensIde,
+      wasExpanded: existing.expanded,
+      follow: !!opts.follow,
+      handoff: !!opts.handoff,
+      focus: opts.focus,
+    });
+    if (openIde && !existing.window.webContents.isDestroyed()) {
+      if (bubbleOpensIde) existing.attentionOnExpandAt = Date.now();
+      existing.window.webContents.send('vibisual:overlay:menu-command', openIde);
+      // 펼친 채 태어나 **아직 다 그리지 않은** 창(방금 끌어낸 창)은 부팅 중이라 지금 이 신호를 못 들을
+      //   수 있다 — 다 그렸다고 말할 때(짐을 푼 뒤) 한 번 더 건넨다. 들었다면 그 렌더가 짐을 풀 때까지
+      //   세션을 맡아 두므로(`OverlayShell`) 두 번 닿아도 같은 세션에 한 번 더 설 뿐이다.
+      if (openIde.focus !== undefined && existing.expanded && !existing.shellReady) {
+        existing.pendingIdeFocus = openIde.focus;
+      }
     }
     // (H-4) 이미 서 있던 창을 앱에서 다시 끌어냈다 — 그 창도 커서에 매달려야 "이 창이 나왔다"가
     //   된다(안 매달면 창은 제자리에 있고 손만 움직여, 끌어낸 것이 아니라 그냥 켜진 것으로 보인다).
@@ -1270,6 +1344,9 @@ export function openOverlay(opts: {
     // (H-25) ② 예열로 지은 창은 아직 태어나지 않은 것으로 친다(목록·표시·`ready-to-show` 모두에서).
     warming: !!opts.warm,
     shellReady: false,
+    attentionOnExpandAt: null,
+    // (H-27) ⑦ 펼친 채 태어나는 창만 그 신호(`shell-ready`)를 보낸다 — 버블로 태어나는 창에 적으면 영영 안 건넨다.
+    pendingIdeFocus: opts.expanded ? (opts.focus ?? null) : null,
   };
   overlaysByAgentId.set(opts.agentId, entry);
   overlaysByWindowId.set(win.id, entry);
@@ -1886,6 +1963,10 @@ export function closeOverlayByWindowId(windowId: number): boolean {
 export function expandOverlayByWindowId(windowId: number): boolean {
   const entry = overlaysByWindowId.get(windowId);
   if (!entry || entry.window.isDestroyed()) return false;
+  // §17-6 (H-27) ⑥ **이미 펼친 창은 다시 펴지 않는다.** 종전에는 이 호출이 `collapsedBounds` 를 IDE
+  //   자리로 덮어쓰고 크기를 기본값으로 되돌려 가운데에 다시 앉혔다 — 키워 둔 IDE 가 줄고, 접으면
+  //   버블이 엉뚱한 자리로 갔다(짐을 지고 접힌 창에 들어가는 길에서 main 이 편 뒤 미러가 또 폈다).
+  if (entry.expanded) return true;
   const win = entry.window;
   const cur = win.getBounds();
   entry.collapsedBounds = { x: cur.x, y: cur.y, width: cur.width, height: cur.height };
@@ -1914,6 +1995,37 @@ export function expandOverlayByWindowId(windowId: number): boolean {
   keepOverlayOnTop(win, entry.expanded);
   broadcastOverlayList();
   return true;
+}
+
+/**
+ * §17-6 (H-27) — **그 창의 렌더가 IDE 를 열어 스스로 펼 때**(`overlay:expand-self`).
+ *
+ * 펼치기는 `expandOverlayByWindowId` 그대로 하고, 접힘→펼침으로 실제로 바뀐 판에만 둘을 더한다.
+ * ④ 앱이 이 버블을 불러 둔 판(`attentionOnExpandAt` 이 5초 안)이면 펼친 **뒤에** 한 번 더 앞으로
+ * 세우고 기척을 보낸다 — 버블에 보낸 기척은 비추지 않고 사라지므로((H-16)) 여기가 대답할 자리다.
+ * ⑤ 본체에 `ide-opened` 를 알려, 앱 안에 같은 에이전트의 창이 남아 있으면 짐을 넘기고 물러나게 한다.
+ */
+export function expandOverlaySelf(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  const wasExpanded = entry.expanded;
+  const ok = expandOverlayByWindowId(windowId);
+  if (!ok || wasExpanded) return ok;
+  // 표식은 한 번만 읽는다 — 다음 펼침(사용자가 나중에 직접 편 것)까지 들고 가면 부르지 않은 창이 빛난다.
+  const due = overlayExpandAttentionDue(entry.attentionOnExpandAt, Date.now());
+  entry.attentionOnExpandAt = null;
+  if (due) {
+    // 버블의 상시-위에서 보통 층으로 막 내려온 창이다 — 그 사이 다른 앱이 끼어들었어도 다시 앞으로.
+    raiseOverlayWindow(entry, 'foreground');
+    if (!entry.window.webContents.isDestroyed()) {
+      entry.window.webContents.send('vibisual:overlay:attention', { agentId: entry.agentId });
+    }
+  }
+  const main = getMainWindow();
+  if (main && !main.isDestroyed()) {
+    main.webContents.send('vibisual:overlay:ide-opened', { agentId: entry.agentId, projectId: entry.projectId });
+  }
+  return ok;
 }
 
 // IDE 닫기(Esc/백드롭/X) → 다시 버블 크기로 축소.

@@ -30,7 +30,7 @@ import type {
   StorageUsageReport,
   WorktreeStorageUsage,
 } from '@vibisual/shared';
-import { INSURANCE_DIR, isExpiredByDays, RETENTION_LOG_MAX } from '@vibisual/shared';
+import { INSURANCE_DIR, isExpiredByDays, RETENTION_LOG_MAX, SUB_STREAM_ARCHIVE_SUFFIX } from '@vibisual/shared';
 import type { RetentionLogEntry } from '@vibisual/shared';
 import { appStateGetRetention } from './appState.js';
 import { projectDirForInfo } from './statePersistence.js';
@@ -450,6 +450,15 @@ export function scanStorageUsage(projects: ProjectInfo[]): StorageUsageReport {
   return { projects: projectUsages, worktrees, totalBytes, scannedAt: Date.now() };
 }
 
+/** 보관 파일의 주인 본 파일이 아직 보존 기간 안인가 — 없거나 못 읽으면 `false`(보관 파일 자신의 나이로 판정). */
+function isLiveStreamFileFresh(liveFile: string, days: number): boolean {
+  try {
+    return !isExpiredByDays(fs.statSync(liveFile).mtimeMs, days);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 보존 기간이 지난 `sub-streams/<agentId>/<subId>.jsonl` 정리.
  *
@@ -484,13 +493,18 @@ export function pruneSubStreams(
       }
       for (const f of files) {
         if (!f.endsWith('.jsonl')) continue;
-        const subId = f.slice(0, -'.jsonl'.length);
+        // §3.2.3 — 컴팩션 보관 파일(`<subId>.archive.jsonl`)은 그 세션의 **앞부분**이다. 주인 id 로 보존을
+        //   판정하고, 주인 본 파일이 아직 보존 기간 안이면 함께 남긴다. 따로 늙게 두면 보관 파일은 한 번
+        //   쓰인 뒤 mtime 이 멈추므로 먼저 버려지고, 다시 열었을 때 대화 앞부분만 사라진다.
+        const isArchive = f.endsWith(SUB_STREAM_ARCHIVE_SUFFIX);
+        const subId = isArchive ? f.slice(0, -SUB_STREAM_ARCHIVE_SUFFIX.length) : f.slice(0, -'.jsonl'.length);
         // 규칙 1 — 살아있는 것 + **아카이브(다시 열기 목록)** 는 나이와 무관하게 보존.
         if (protectedSubAgentIds.has(subId)) { skipped += 1; continue; }
         const fp = path.join(dir, f);
         try {
           const st = fs.statSync(fp);
           if (!isExpiredByDays(st.mtimeMs, days)) continue;
+          if (isArchive && isLiveStreamFileFresh(path.join(dir, `${subId}.jsonl`), days)) continue;
           const size = st.size;
           // 규칙 3 — 지우지 않고 휴지통으로. 실패하면 원본을 그대로 두고 넘어간다.
           if (!moveToTrash(saveDir, `sub-streams/${agentDir}/${f}`, fp)) continue;

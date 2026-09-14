@@ -18,6 +18,7 @@ it.runIf(process.env.VIBISUAL_CODEX_EDGE_LIVE_TEST === '1')('real Codex source d
   const sourceId = `live-source-${randomUUID()}`;
   const targetId = `live-target-${randomUUID()}`;
   let dispatched = 0;
+  let job: { cmdId: string; status: string; result?: string; errorMessage?: string } = { cmdId: 'live-job', status: 'executing' };
   const run = (id: string, options: Partial<CodexTurnArgs>): Promise<string> => new Promise((resolve, reject) => {
     runCodexTurn({ subAgentId: id, cwd, model: 'gpt-6-astra', reasoningEffort: 'low', permissionMode: 'auto',
       prompt: '', onThread: () => {}, onUsage: () => {}, onFileWrites: () => {},
@@ -26,18 +27,24 @@ it.runIf(process.env.VIBISUAL_CODEX_EDGE_LIVE_TEST === '1')('real Codex source d
     });
   });
   const server = createServer(async (req, res) => {
-    if (req.url !== '/api/task-edges/dispatch?edgeId=edge-live' || req.headers['x-vibisual-hook-token'] !== 'live-test-token'
+    // Status lookups carry ?waitMs=; this fixture answers at once, so the bridge falls back to its backoff.
+    if (req.method === 'GET' && req.url?.split('?')[0] === '/api/task-edges/dispatch/live-job'
+      && req.headers['x-vibisual-hook-token'] === 'live-test-token' && req.headers['x-vibisual-source-agent'] === 'live-source') {
+      res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ok: true, job })); return;
+    }
+    if (req.url !== '/api/task-edges/dispatch?edgeId=edge-live&wait=false' || req.headers['x-vibisual-hook-token'] !== 'live-test-token'
       || req.headers['x-vibisual-source-agent'] !== 'live-source') {
       res.writeHead(403); res.end('forbidden'); return;
     }
     let instruction = '';
     for await (const chunk of req) instruction += chunk;
     dispatched++;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, ...job, waitForResult: true }));
     try {
       const result = await run(targetId, { prompt: `Integration test: ${instruction}\nRead only fixture.txt in this working directory. Return its exact contents. Do not modify files or use any network service.` });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, waited: true, result }));
-    } catch (error) { res.writeHead(500); res.end(String(error)); }
+      job = { ...job, status: 'completed', result };
+    } catch (error) { job = { ...job, status: 'error', errorMessage: String(error) }; }
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const timer = setTimeout(() => { stopCodexTurn(sourceId); stopCodexTurn(targetId); }, 150000);

@@ -1464,6 +1464,10 @@ export function readContextInfo(cwd: string, sessionId: string): AgentContextInf
     }
 
     if (!view.lastModel) return null;
+    // §4 (상태바 모델 칸 ③(다)) — 레지스트리에 이 모델의 한도를 묻는 바로 이 자리가 **그 모델을 배우는** 자리다.
+    //   대화록의 `message.model` 은 이 PC 에서 실제 API 응답으로 돌아온 이름이라, 키가 없는 사용자도
+    //   새 판이 나온 뒤 한 번 쓰면 목록이 따라온다. 이미 본 이름은 Set 조회 한 번으로 끝난다.
+    modelRegistryService.noteObservedModel(view.lastModel);
     // contextMax 는 모델 레지스트리(런타임 갱신)에 의존하므로 캐시하지 않고 매번 계산한다.
     const contextMax = getModelContextLimit(view.lastModel, modelRegistryService.getRegistry());
 

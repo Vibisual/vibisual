@@ -226,6 +226,11 @@ const api = {
          */
         settled?: boolean;
       };
+      /**
+       * §17-6 (H-27) ⑦ — 그 창에 세울 세션(북마크 점프면 그 위치까지). main 은 뜻을 모르고 그 창의
+       * [IDE 열기]에 실어 건넨다 — 모양은 받는 렌더(`coerceIDEFocusTarget`)가 가린다.
+       */
+      focus?: unknown;
     }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:overlay:open', payload),
     /**
@@ -359,6 +364,15 @@ const api = {
       ipcRenderer.on('vibisual:overlay:attention', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:attention', listener);
     },
+    /**
+     * §17-6 (H-27) ⑤ — **밖의 그 창이 IDE 로 펴졌다**(메인 창만 듣는다). 앱 안에 같은 에이전트의
+     * 창이 남아 있으면 두 벌이므로, 받는 쪽은 그 창들의 짐을 밖으로 넘기고 닫는다.
+     */
+    onIdeOpened: (cb: (payload: { agentId: string; projectId: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { agentId: string; projectId: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:ide-opened', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:ide-opened', listener);
+    },
     /** 현재 오버레이 목록 + 전역 토글 상태 조회(초기 동기화용). */
     list: (): Promise<OverlayListWire> => ipcRenderer.invoke('vibisual:overlay:list'),
     /** Header 전역 토글 — 모든 오버레이 창 show/hide. */
@@ -415,9 +429,12 @@ const api = {
       ipcRenderer.invoke('vibisual:overlay:menu-action', payload),
     /** §17-6 (G) v2.87 — 메뉴 창: 자기 자신 닫기(Esc 등). */
     closeMenu: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close-menu'),
-    /** §17-6 (G) v2.87 — 버블 창: 메뉴가 보낸 명령(open-ide) 구독 → openIDEOverlay. */
-    onMenuCommand: (cb: (payload: { command: string }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { command: string }): void => cb(payload);
+    /**
+     * §17-6 (G) v2.87 — 버블 창: 메뉴가 보낸 명령(open-ide) 구독 → openIDEOverlay.
+     * (H-27) ⑦ 앱이 세션을 골라 이 창을 불렀으면 `focus` 에 그 세션이 실려 온다(모양은 받는 렌더가 가린다).
+     */
+    onMenuCommand: (cb: (payload: { command: string; focus?: unknown }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { command: string; focus?: unknown }): void => cb(payload);
       ipcRenderer.on('vibisual:overlay:menu-command', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:menu-command', listener);
     },

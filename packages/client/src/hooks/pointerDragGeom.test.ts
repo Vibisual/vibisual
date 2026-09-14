@@ -2,15 +2,65 @@ import { describe, expect, it } from 'vitest';
 import {
   POINTER_DRAG,
   autoScrollDirection,
+  dragStartReached,
   ghostOffset,
+  pressActivationFor,
   pressSurvivesMove,
   slotAtPointer,
   type DragSlot,
 } from './pointerDragGeom.js';
+import { DRAG_MOVE_THRESHOLD_PX } from '../components/BubbleMap/bubbleSelectGesture.js';
 
-// §5.4 #14-2 / §5.5 #16-1 (E) — 꾹 눌러 집어 드는 손짓의 순수 기하.
+// §5.4 #14-2 / §5.5 #16-1 (E) — 집어 드는 손짓의 순수 기하(꾹 눌러서든, 끌어서든).
 // 활동바(세로)와 두 탭바(가로)가 **같은 판정**을 쓰는 것이 이 회귀의 요지다 — 한쪽만 고쳐져
-// 손맛이 갈리는 것을 막는다.
+// 손맛이 갈리는 것을 막는다. 집어 드는 **문**만은 줄마다 고른다(탭바 = 끌기, §5.4 #14-2 (F-6)).
+
+describe('dragStartReached — 누른 채 끈 거리가 집어 들 만큼인가 (§5.4 #14-2 (F-6))', () => {
+  it('문턱을 넘어야 끌기다 — 제자리·문턱과 같은 거리는 아직 클릭이다', () => {
+    expect(dragStartReached({ startX: 100, startY: 100, x: 100, y: 100 })).toBe(false);
+    expect(dragStartReached({ startX: 100, startY: 100, x: 105, y: 100 })).toBe(false);
+    expect(dragStartReached({ startX: 100, startY: 100, x: 106, y: 100 })).toBe(true);
+    // 뒤로 끌어도 같다(부호가 아니라 거리).
+    expect(dragStartReached({ startX: 100, startY: 100, x: 94, y: 100 })).toBe(true);
+  });
+
+  it('두 축을 함께 잰다 — 탭을 아래로 내리는 손짓(별창 분리·본문 분할)도 곧장 끌기다', () => {
+    expect(dragStartReached({ startX: 100, startY: 100, x: 100, y: 106 })).toBe(true);
+    // 대각선은 직선 거리로 — 3·4 는 5 라 아직, 4·4 는 5.66 이라 넘는다.
+    expect(dragStartReached({ startX: 0, startY: 0, x: 3, y: 4 })).toBe(false);
+    expect(dragStartReached({ startX: 0, startY: 0, x: 4, y: 4 })).toBe(true);
+  });
+
+  it('문턱은 호출부가 바꿀 수 있다', () => {
+    expect(dragStartReached({ startX: 0, startY: 0, x: 3, y: 0, thresholdPx: 2 })).toBe(true);
+    expect(dragStartReached({ startX: 0, startY: 0, x: 8, y: 0, thresholdPx: 10 })).toBe(false);
+  });
+
+  it('캔버스 버블의 클릭/드래그 문턱(§6)과 같은 값이다 — 줄마다 "얼마나 끌어야 끌기인가"가 갈리지 않게', () => {
+    expect(POINTER_DRAG.dragStartPx).toBe(DRAG_MOVE_THRESHOLD_PX);
+  });
+});
+
+describe('pressActivationFor — 이 누름은 어느 문으로 집어 드나', () => {
+  it('끌기를 청하면 마우스·펜은 끌기다', () => {
+    expect(pressActivationFor('drag', 'mouse')).toBe('drag');
+    expect(pressActivationFor('drag', 'pen')).toBe('drag');
+  });
+
+  it('터치는 끌기를 청해도 꾹 누르기다 — 손가락으로 탭 줄을 넘기는 스크롤을 남긴다', () => {
+    expect(pressActivationFor('drag', 'touch')).toBe('longPress');
+  });
+
+  it('꾹 누르기를 청한 줄(활동바)은 입력 종류와 무관하게 꾹 누르기다', () => {
+    expect(pressActivationFor('longPress', 'mouse')).toBe('longPress');
+    expect(pressActivationFor('longPress', 'pen')).toBe('longPress');
+    expect(pressActivationFor('longPress', 'touch')).toBe('longPress');
+  });
+
+  it('입력 종류를 모르면(빈 문자열) 청한 그대로다 — 터치라고 밝힌 것만 꾹 누르기로 돌린다', () => {
+    expect(pressActivationFor('drag', '')).toBe('drag');
+  });
+});
 
 describe('pressSurvivesMove — 길게 누르기가 살아 있나', () => {
   it('세로 줄(활동바)은 세로 이동만 취소로 센다', () => {

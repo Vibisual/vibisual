@@ -22,7 +22,7 @@
 # 그래서 이 워크플로의 커밋이 CI 를 깨우지도 않는다.
 #   traction.csv         누적 게이지(별·포크·다운로드) — 하루 한 줄
 #   traffic.csv          그날의 유량(조회·클론) — 14일치를 매번 덮어써 결손을 스스로 메운다
-#   badge-*.json         README 배지(shields endpoint). 설치 파일만 세므로 부풀지 않는다
+#   badge-stars.json     별 수 배지(shields endpoint). 다운로드 배지는 shields 표준 `github/downloads/…/total` 을 쓴다
 #   stars-light/dark.svg 별 성장 곡선. README 가 <picture> 로 골라 쓴다
 #
 # 주의: GitHub 은 60일간 활동이 없는 저장소의 정기 워크플로를 자동으로 멈춘다.
@@ -99,7 +99,7 @@ jobs:
               echo "| --- | --- |"
               echo "| \`traction.csv\` | One row per day: stars, forks, watchers, releases, download totals. |"
               echo "| \`traffic.csv\` | One row per day: views, unique visitors, clones, unique cloners. |"
-              echo "| \`badge-*.json\` | shields.io endpoint payloads used by the README badges. |"
+              echo "| \`badge-stars.json\` | shields.io endpoint payload for a star-count badge. |"
               echo "| \`stars-*.svg\` | The star-history curve the README embeds, light and dark. |"
               echo ""
               echo "Every number here is public data that GitHub already exposes —"

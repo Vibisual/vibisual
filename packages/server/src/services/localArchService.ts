@@ -117,6 +117,11 @@ export interface GgufMeta {
    * 화면 숫자와 실제가 어긋난다. 값이 사실이어야 게이지도 사실이 된다.
    */
   contextLength: number | null;
+  /**
+   * §5.25 (G-2) — 모델 파일이 권하는 온도(`general.sampling.temp`). 엔진은 요청에 온도가 없으면
+   * 이 값을 쓴다 — 설정 창이 빈 온도 칸에 "지금 쓰이는 값"을 적는 두 번째 근거다.
+   */
+  samplingTemp: number | null;
 }
 
 /**
@@ -124,7 +129,7 @@ export interface GgufMeta {
  * 값 종류는 GGUF 규약 그대로 — 문자열/배열/숫자를 건너뛰며 앞에서부터 읽는다.
  */
 export function parseGgufMeta(buf: Buffer): GgufMeta {
-  const out: GgufMeta = { architecture: null, contextLength: null };
+  const out: GgufMeta = { architecture: null, contextLength: null, samplingTemp: null };
   try {
     if (buf.length < 24 || buf.toString('latin1', 0, 4) !== 'GGUF') return out;
     let p = 4;
@@ -160,6 +165,8 @@ export function parseGgufMeta(buf: Buffer): GgufMeta {
         case 5: return buf.readInt32LE(at);
         case 10: return Number(buf.readBigUInt64LE(at));
         case 11: return Number(buf.readBigInt64LE(at));
+        case 6: return buf.readFloatLE(at);
+        case 12: return buf.readDoubleLE(at);
         default: return null;
       }
     };
@@ -185,9 +192,13 @@ export function parseGgufMeta(buf: Buffer): GgufMeta {
         const value = num(type);
         // 키는 `<arch>.context_length` 라 구조 이름을 몰라도 꼬리로 알아본다.
         if (key.endsWith('.context_length') && value !== null && value > 0) out.contextLength = value;
+        // float32 로 적혀 0.7 이 0.699999988 로 읽힌다 — 사람이 적은 자릿수로 되돌린다.
+        if (key === 'general.sampling.temp' && value !== null && Number.isFinite(value) && value >= 0) {
+          out.samplingTemp = Number(value.toFixed(4));
+        }
       }
-      // 둘 다 찾았으면 더 볼 것이 없다 — 머리 64KB 를 끝까지 훑지 않는다.
-      if (out.architecture !== null && out.contextLength !== null) return out;
+      // 셋 다 찾았으면 더 볼 것이 없다 — 머리 64KB 를 끝까지 훑지 않는다.
+      if (out.architecture !== null && out.contextLength !== null && out.samplingTemp !== null) return out;
       if (p > buf.length) return out;
     }
     return out;
@@ -213,7 +224,7 @@ export function readLocalGgufMeta(file: string): GgufMeta {
     const read = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
     return parseGgufMeta(buf.subarray(0, read));
   } catch {
-    return { architecture: null, contextLength: null };
+    return { architecture: null, contextLength: null, samplingTemp: null };
   } finally {
     if (fd !== null) {
       try {

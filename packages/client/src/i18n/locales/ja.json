@@ -600,7 +600,11 @@
         "externalBudgetLabel": "トップレベルに表示する外部フォルダ数",
         "externalBudgetDesc": "ピン留めしたフォルダはこの数に含まれません。ピン留めしたフォルダは常にトップレベルに表示されます。この設定によって何かが削除されることはありません。収まらない場所は、内部の件数を示す親バブルの下に折りたたまれます。",
         "externalBudgetLoadError": "現在の設定を読み込めませんでした。",
-        "externalBudgetSaveError": "保存できませんでした。変更内容は反映されていません。"
+        "externalBudgetSaveError": "保存できませんでした。変更内容は反映されていません。",
+        "webFoldEnabled": "エージェントごとにウェブバブルを1つに折りたたむ",
+        "webFoldEnabledDesc": "1つのエージェントが読んだドメインが1つのバブルに折りたたまれ、クリックするとドメインごとに一覧表示されます。固定したドメインは個別のバブルのまま残ります。削除されるものはありません — オフにすると、ドメインごとのバブルに戻ります。",
+        "webFoldIntro": "エージェントがウェブを読むと、読んだドメインごとにバブルが作られるため、1つのエージェントが調べものをするだけでキャンバスが埋まってしまうことがあります。",
+        "webFoldTitle": "ウェブバブル"
       },
       "notifications": {
         "cmdBlocked": "CMDセッションが入力待ちのときに通知",
@@ -826,7 +830,10 @@
       "tokenUsage": "トークン使用量",
       "waited": "{{time}}待機",
       "closePopup": "ポップアップを閉じる",
-      "result": "結果"
+      "result": "結果",
+      "results": "結果 ({{count}})",
+      "todos": "ToDo ({{done}}/{{total}})",
+      "todosCompact": "ToDo {{done}}/{{total}}"
     },
     "contiHistory": {
       "title": "コンティ履歴",
@@ -1017,7 +1024,25 @@
         "sonnet": "性能とコストのバランス型。ほとんどのタスクに適しています。",
         "haiku": "最速・最安。シンプルな読み取り専用タスクに最適。",
         "fable": "最高性能。最も難しい推論と長時間タスクに最適。最高コスト。",
-        "unknown": "{{name}} — 新しくリリースされたモデル。性能とコストはファミリーのデフォルト値から推定されています。"
+        "unknownFamily": "{{name}}は新しくリリースされたモデルです。性能とコストはモデルファミリーから推定されています。"
+      },
+      "modelSection": {
+        "listChecked": "リスト確認: {{ago}}",
+        "listNotChecked": "リスト未確認",
+        "listChecking": "新しいモデルを確認中…",
+        "recheckTip": "今すぐ新しいモデルを確認",
+        "source": {
+          "seed": "内蔵リスト",
+          "api": "Anthropic API",
+          "observed": "自分のセッション",
+          "codex": "Codex キャッシュ"
+        },
+        "sourcesTip": "このリストの出典: リリース済みモデルの内蔵リスト、Anthropic API(自分の ANTHROPIC_API_KEY がある場合のみ・{{hours}} 時間ごとに再確認)、自分のセッションが実際に使ったモデル ID。このカードを開くたびに再確認します。",
+        "sourcesTipCodex": "Codex がこの PC に保存しているモデルリストを読み取ります — Vibisual は独自のコピーを持ちません。このカードを開くたびに読み直します。",
+        "fullSettings": "すべての設定",
+        "fullSettingsTip": "{{agentSettings}}のすべての項目に広げます。ここで変更した値はそのまま残ります。",
+        "applyNextTurn": "保存した変更は、このエージェントの次のターンから適用されます。ステータスバーのモデル名は、そのターンが実行された後に変わります。",
+        "applyNewSession": "モデルを変更すると、「+」で新しく開くセッションから適用されます。すでに実行中のターミナルは、起動時の設定のまま変わりません。"
       },
       "contextWindow": {
         "oneMillion": "コンテキストウィンドウ 1M"
@@ -1042,6 +1067,42 @@
         "tip": "CLI --disallowedToolsで強制ブロック。許可リスト（ツール）より優先されます。許可リストを再構築せずに特定ツールをOFFにしたい場合に使用してください。",
         "addTool": "+ ツールをブロック"
       },
+      "toolTemplate": {
+        "label": "ツールテンプレート",
+        "option": "{{index}}. {{name}}",
+        "custom": {
+          "name": "カスタム",
+          "desc": "手動で選んだツール一覧です。ここに戻ると選んでいた一覧が復元されます。"
+        },
+        "readOnly": {
+          "name": "読み取り専用",
+          "desc": "コードの読み取りと検索のみ行います。ファイル編集・コマンド実行はしません。"
+        },
+        "review": {
+          "name": "レビュー・検証",
+          "desc": "コードを読み、コマンドを実行して確認します(git diff・テスト)。Write・Edit はありません。"
+        },
+        "research": {
+          "name": "Web 調査",
+          "desc": "Web を検索して読み、コードと照らし合わせます。編集・コマンド実行はしません。"
+        },
+        "docs": {
+          "name": "ドキュメント作成",
+          "desc": "ファイルの読み書きのみ行います。コマンド実行はしません。"
+        },
+        "implement": {
+          "name": "実装作業",
+          "desc": "読み書き・コマンド実行に加え、タスク一覧とスキルを使います。委任・Web・スケジュールはありません。"
+        },
+        "orchestrate": {
+          "name": "オーケストレーター",
+          "desc": "作業を他のエージェントに任せ、結果をまとめます。自分ではファイルを編集しません。"
+        },
+        "all": {
+          "name": "全ツール",
+          "desc": "公式のツール一覧全体（{{total}}）です。新規agentが最初から持つのと同じ一覧です。"
+        }
+      },
       "askTools": {
         "label": "使用前に確認",
         "summary_one": "このツールは毎回、承認を求めます。パーミッションモードが何であっても、バイパスモードでも同様です。",
@@ -1063,7 +1124,8 @@
         "contiOffNotice": "保存時、Contiルールセットがクリアされます（Contiデータは保持されます）。以前のルールは履歴から手動で復元してください。"
       },
       "rulesEditor": {
-        "help": "毎回の実行時にエージェントプロンプトへ注入するカスタムルール（Markdown）"
+        "help": "毎回の実行時にエージェントプロンプトへ注入するカスタムルール（Markdown）",
+        "placeholder": "# ルール\n- 実装計画にそのまま従う\n- 変更のたびにテストを実行する\n- 既存のテストが1つでも失敗したらすぐに報告する"
       },
       "rulesHistory": {
         "title": "履歴",
@@ -1091,6 +1153,7 @@
       "tools": {
         "label": "ツール",
         "addTool": "+ ツールを追加",
+        "removeTool": "{{tool}} を削除",
         "Read": "ファイルシステムからファイルの内容を読み取ります。",
         "Write": "新しいファイルを作成、または既存ファイルを上書きします。",
         "Edit": "ファイル内の特定の文字列を置換します。",
@@ -1164,7 +1227,7 @@
         "projectContext": "読み取り専用。このエージェント実行時に全プロンプトへ自動注入されるファイルとルール。開くたびに更新。",
         "agentSettingsNote": "これらの設定はVibisualからコマンドを実行する場合（サブエージェント実行）にのみ適用されます。エージェント自身のClaude Codeセッションは変更されません。",
         "memory": "このエージェントがセッションをまたいで覚えておく内容と、その保存先。",
-        "subagentDepth": "このエージェントが自分の下に何層までサブエージェントを作れるか。0 は CLI 既定（3 層）のまま、1 で入れ子を無効にします。"
+        "subagentDepthEffective": "このagentが自身の下に何階層までサブagentを生成できるかを表します。0にするとCLIが判断します（{{depth}}階層）。1にするとネストがオフになります。"
       },
       "memory": {
         "label": "記憶",
@@ -1175,7 +1238,8 @@
         "local": "このプロジェクト専用の記憶フォルダ。バージョン管理には入れません。"
       },
       "subagentDepth": {
-        "label": "サブエージェントの深さ"
+        "label": "サブエージェントの深さ",
+        "layers": "{{count}}階層"
       },
       "cliOptions": {
         "label": "CLI オプション",
@@ -1193,14 +1257,10 @@
       "autoCompact": {
         "label": "自動圧縮",
         "tip": "圧縮の基準となるウィンドウサイズです。実際にはこの値の {{percent}}% に達したあと、そのターンが終わる位置で畳みます — 作業の途中で切られないためで、1 ターンで残りの余白を突き抜けた場合は CLI が途中で畳みます。",
-        "unset": "未設定 — 設定画面の既定値に従います。",
-        "unsetLabel": "未設定",
         "auto": "auto — CLI が幅を決めます。",
         "tokens": "ウィンドウサイズ 約 {{tokens}} トークン。",
         "foldsAt": "約 {{tokens}} に達すると、そのターンが終わる位置で畳みます。",
         "foldsAtAuto": "CLI が決めたウィンドウの {{percent}}% に達すると、そのターンが終わる位置で畳みます。",
-        "unsetDefaultLabel": "未設定（既定: オフ）",
-        "globalTip": "自動圧縮を個別に設定していないすべてのエージェントに適用されます — すでに実行中のものも含みます。未設定のままなら組み込みの既定値を使います。",
         "offLabel": "オフ",
         "off": "オフ — 圧縮しません。要約の呼び出しがないためトークンを消費しません。",
         "foldsAtOff": "圧縮しません。会話が長くなるとターンごとに重くなり、モデルのウィンドウに達すると CLI が作業の途中で一度だけ折りたたみます。",
@@ -1216,7 +1276,9 @@
           "everyTime": "この確認はオフにして再びオンにするたびに表示されます。",
           "cancel": "キャンセル（オフのまま）",
           "enable": "確認しました — オンにする"
-        }
+        },
+        "unsetFollows": "空欄のままにすると、{{options}}の値に従います。そちらも空欄の場合は、Vibisual組み込みの値が適用されます。",
+        "globalTipEffective": "独自の自動コンパクト化の値を持たないすべてのagentに、既に実行中のものも含めて適用されます。空欄のままにすると、{{value}}が適用されます。"
       },
       "settingSources": {
         "label": "設定ソース",
@@ -1281,10 +1343,10 @@
       },
       "bashTimeout": {
         "label": "Bashタイムアウト",
-        "tip": "Bashツールの時間制限。0のままだとCLIの既定値が適用されます — 明示的なタイムアウトを指定しないコマンドは{{defaultSec}}秒で停止し、どのコマンドも{{maxSec}}秒を超えて実行できません。長時間のビルドやテスト実行が途中で打ち切られる場合はMax limitを上げてください。エージェントにはBASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MSとして渡されます。",
-        "defaultLabel": "デフォルト (秒、0 = CLI既定)",
-        "maxLabel": "最大値 (秒、0 = CLI既定)",
-        "hint": "0にするとCLIの既定値のまま — デフォルト{{defaultSec}}秒、最大{{maxSec}}秒。"
+        "defaultLabelSec": "タイムアウト（秒、0のとき{{sec}}秒）",
+        "maxLabelSec": "上限（秒、0のとき{{sec}}秒）",
+        "tipEffective": "Bashツールの時間制限です。0のままにすると、CLI自体の制限が適用されます。明示的なタイムアウトを指定しないコマンドは{{defaultSec}}秒で停止し、どのコマンドも{{maxSec}}秒を超えて実行されることはありません。長時間のビルドやテスト実行が途中で打ち切られる場合は、上限を上げてください。agentにはBASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MSとして渡されます。",
+        "hintEffective": "現在の適用値：タイムアウト{{defaultSec}}秒、上限{{maxSec}}秒。"
       },
       "modelVersion": {
         "label": "バージョン",
@@ -1298,13 +1360,28 @@
         "switchModel": "モデルを変更",
         "pickModel": "モデルを選ぶ",
         "temperature": "温度",
-        "temperatureTip": "低いほど答えが安定して同じになり、高いほど自由になります。空にするとエンジンの既定値を使います。",
-        "temperatureDefault": "エンジンの既定値",
         "toolsTip": "ローカルモデルには下のツール一覧がそのまま渡ります（選ぶための一覧ではありません）。実行の直前には上の権限モードと承認ポップアップが Claude バブルとまったく同じように働きます。",
         "toolsOk": "このモデルはツールを使えます — ファイルの読み書きができます。",
         "toolsNone": "このモデルはツールを使えません — 会話だけです。",
         "toolsUnknown": "まだ確認していません — 次のターンでツールを渡して確かめます。",
-        "toolsRecheck": "もう一度確認"
+        "toolsRecheck": "もう一度確認",
+        "temperatureTipEffective": "値を低くすると安定した再現性の高い回答になり、高くすると自由度の高い回答になります。空欄のままにすると、フィールドに表示されている値が使用されます。",
+        "source": {
+          "loaded": "稼働中のエンジン",
+          "model": "モデルファイル",
+          "engine": "エンジン",
+          "trained": "モデルの学習時の長さ"
+        },
+        "temperatureSourceTip": {
+          "loaded": "このモデルを実行しているエンジンが今使用している値です。",
+          "model": "モデルファイルで推奨されている値です。フィールドを空欄にすると、エンジンがこの値を使用します。",
+          "engine": "稼働中のエンジンにもモデルファイルにもこの値がないため、エンジン自身の値が適用されます。"
+        },
+        "contextSourceTip": {
+          "loaded": "エンジンはすでにこのサイズで稼働しています。ここに入力した値は、モデルを再度読み込んだときに適用されます。",
+          "model": "このモデルはより短い長さで学習されているため、Vibisualが読み込むサイズはその長さに合わせて縮小されます。",
+          "builtin": "フィールドを空欄にすると、Vibisualはこのサイズでモデルを読み込みます。"
+        }
       },
       "cliKind": {
         "label": "CLI",
@@ -1317,23 +1394,78 @@
         "hint": "エージェントがコンテキストを重いと判断すると要求し、そのターンの終了後に実行されます。"
       },
       "diff": {
-        "badge": "既定値と異なる {{count}} 件",
-        "summaryTip": "オプションのエージェント既定値と異なる項目です — {{list}}",
-        "tip": "このエージェントだけの値です。既定値: {{value}}",
         "unset": "未設定",
         "on": "オン",
-        "off": "オフ"
+        "off": "オフ",
+        "badgeOptions": "{{options}}と異なる項目：{{count}}件",
+        "summaryTipOptions": "{{options}}で新規agent用に設定されている値と異なります：{{list}}",
+        "tipOptions": "このagentにのみ設定されています。{{options}}：{{value}}"
       },
       "contextNotAccessible": "アクセス不可（Claude Code内部）",
       "codex": {
+        "edgeDelegationNote": "Codex のツール委任は、直接実行するツールをブロックし、作業を接続されたエージェントに送ります。シェルコマンドでは読み取り・検索・編集の個別の制限を回避できるため、このモードではより広い制限がかかります。計画と最終回答は引き続き使えます。変更は次のメッセージから適用されます。",
         "noModel": "モデルはまだ選択されていません",
         "modelTip": "このバブルがやり取りするCodexモデルです。Vibisualは常にこれを明示的に送信するため、Codex設定ファイルの既定モデルにフォールバックすることはありません。",
         "noModelList": "モデル一覧はまだ読み込まれていません。Codexを一度実行すると作成されます。",
         "reloadModels": "再読み込み",
         "effort": "推論エフォート",
         "effortTip": "値が高いほど、考える時間が長くなり、消費するトークンも増えます。表示されるのは、このモデルが対応しているレベルだけです。",
-        "effortDefault": "エンジンのデフォルト",
-        "toolsManaged": "Codex CLIによる管理"
+        "toolsManaged": "Codex CLIによる管理",
+        "toolAsk": "毎回確認",
+        "toolReset": "すべて許可に戻す",
+        "toolsHint": "各ツールを許可・拒否・毎回確認に設定します。許可してもサンドボックスと承認ポリシーは維持されます。シェルやMCPでもファイルを読み書きできるため、ファイル保護には権限モードも設定してください。",
+        "toolHosted": "ウェブ・画像・コンピューター・内蔵子エージェントは承認フックがないため許可・拒否のみです。MCPの毎回確認ではフックを通らないAppsを無効化します。次のメッセージから適用されます。",
+        "toolChildren": "制限の迂回を防ぐため内蔵子エージェントとコードラッパーを無効化します。接続先への委任はMCP権限に従い、接続先は自身の権限を使います。",
+        "execution": "Codex の実行",
+        "permissionTip": "ファイルシステムへのアクセスと承認ポリシーをまとめて設定します。Codex がこの範囲を超える実行を求めると Vibisual の承認ポップアップで確認し、60 秒の無応答時設定が適用されます。監査境界は危険な呼び出しを別途確認します。",
+        "permission": {
+          "default": "ワークスペース内の編集 · 必要時に承認",
+          "acceptEdits": "編集を許可 · 必要時に承認",
+          "auto": "ワークスペース内の編集 · 承認なし",
+          "plan": "計画 · 読み取り専用",
+          "dontAsk": "読み取り専用 · 承認なし",
+          "bypassPermissions": "フルアクセス · 承認なし"
+        },
+        "webSearch": {
+          "label": "ウェブ検索",
+          "tip": "検索ツールが結果を取得する方法を選びます。コマンドのネットワークアクセスとは別の設定です。",
+          "disabled": "無効",
+          "cached": "キャッシュ検索",
+          "live": "リアルタイム検索"
+        },
+        "verbosity": {
+          "label": "応答の長さ",
+          "tip": "対応モデルで応答の詳しさを調整します。推論エフォートとは別の設定で、対応状況はモデルによって異なります。",
+          "low": "簡潔",
+          "medium": "標準",
+          "high": "詳細"
+        },
+        "network": {
+          "label": "コマンドのネットワークアクセス",
+          "tip": "ワークスペース書き込みモードで、パッケージのインストールなどのコマンドに外向きのネットワークアクセスを許可します。",
+          "false": "ブロック",
+          "true": "許可"
+        },
+        "source": {
+          "profile": "プロファイル{{name}}",
+          "project": "プロジェクト設定ファイル",
+          "user": "Codex設定ファイル",
+          "system": "システム設定ファイル",
+          "model": "モデルが設定",
+          "builtin": "Codexが設定",
+          "delegation": "ツール委任エッジ"
+        },
+        "sourceTip": {
+          "layer": "{{path}}から読み込みます。空欄のままにすると、そのファイルの値に従い続けます。",
+          "profile": "{{path}}内のプロファイル{{name}}から読み込みます。空欄のままにすると、そのファイルの値に従い続けます。",
+          "model": "Codexの設定ファイルのいずれにもこの項目は設定されていないため、このモデルが報告する値が使用されます。",
+          "builtin": "Codexの設定ファイルのいずれにもこの項目は設定されていないため、Codex自身の値が使用されます。ウェブ検索は権限モードに従い、フルアクセスではリアルタイムの結果を、それ以外はキャッシュを使用します。",
+          "delegation": "このバブルからツール委任エッジが伸びているため、ウェブ検索はオフになります。"
+        },
+        "unsupported": "このモデルでは未使用",
+        "unsupportedTip": "このモデルは応答の長さの設定を受け付けないため、Codexはこれを無視します。",
+        "unresolvedTip": "Codexの設定ファイルまたはモデル一覧を読み取れなかったため、適用される値は不明です。空欄のままにすると何も送信されず、Codexが判断します。",
+        "applyNoteEffective": "保存した設定は次のメッセージから適用されます。空欄のフィールドには、Codexが実際に使用する値とその取得元が表示されます。"
       },
       "tokenSaver": {
         "label": "トークン節約",
@@ -1345,6 +1477,12 @@
         "compactPct": "圧縮する割合 (%)",
         "noExtraCalls": "追加呼び出しを省略",
         "hint": "すべての項目を0のままにすると、グローバル設定に従います。"
+      },
+      "effective": {
+        "resolved": "{{value}}（{{source}}）",
+        "sourceOptions": "{{options}}で設定",
+        "sourceBuiltin": "Vibisual組み込み",
+        "unknown": "適用されている値を読み取れませんでした"
       }
     },
     "permissionPrompt": {
@@ -1506,6 +1644,8 @@
       "maxTitle": "このフォルダーの最大サテライト数",
       "maxHint": "Enter・Esc",
       "maxSave": "保存",
+      "maxDecrease": "減らす",
+      "maxIncrease": "増やす",
       "noVisible": "表示ファイルなし"
     },
     "webEntry": {
@@ -1551,6 +1691,9 @@
       "restart": "サーバーを再起動",
       "stop": "サーバーを停止",
       "start": "サーバーを起動",
+      "restartLabel": "再起動",
+      "stopLabel": "停止",
+      "startLabel": "起動",
       "noEntry": "一致するサーバーエントリなし",
       "noCommand": "再起動不可 — すでに停止しており起動コマンドを取得できません（エージェント報告のサーバー）",
       "takeover": "引き継いで再起動 — エージェントが起動したサーバーを Vibisual が引き受けます",
@@ -1868,12 +2011,12 @@
       "noAudio": "音声なしで書き出しました。",
       "downgraded": "レンダリングモードがダウングレードされました: {{id}}",
       "previewFailed": "プレビューを描画できませんでした。",
-      "errNoDoc": "No document is open.",
-      "errNoStage": "Could not find a place to attach the stage.",
-      "errNoRenderBackend": "No render mode is available on this device.",
-      "errNoOffscreen": "Offscreen windows are not available in this build.",
-      "errNoOffscreenBridge": "The offscreen bridge is not available.",
-      "errRequestFailed": "The request failed ({{status}}).",
+      "errNoDoc": "開いている文書がありません。",
+      "errNoStage": "ステージを取り付ける場所が見つかりませんでした。",
+      "errNoRenderBackend": "このデバイスで使えるレンダリングモードがありません。",
+      "errNoOffscreen": "このビルドではオフスクリーンウィンドウを使用できません。",
+      "errNoOffscreenBridge": "オフスクリーンブリッジを使用できません。",
+      "errRequestFailed": "リクエストに失敗しました ({{status}})。",
       "reloaded": "他の場所でドキュメントが変更されたため、再読み込みしました。"
     },
     "cost": {
@@ -2162,13 +2305,18 @@
       "emptyInScope": "{{scope}}にはまだ何もありません。",
       "widenTo": "{{scope}}を見る（{{count}}）",
       "untitledSession": "無題の会話",
-      "revisionOf": "第{{index}}/{{total}}版"
+      "revisionOf": "第{{index}}/{{total}}版",
+      "failedBadge": "失敗 {{count}}",
+      "failedBadgeTip": "失敗したコンパクト化（{{scope}}）: {{count}}件。失敗した行には、理由を示す赤いチップが付いています。"
     },
     "remoteAccess": {
       "title": "リモートアクセス",
       "categories": {
         "mobile": "スマートフォンのブラウザ"
       }
+    },
+    "webFold": {
+      "pinDomain": "このドメインを固定 (削除を防止) — このバブルから外れ、再び個別のバブルになります"
     }
   },
   "ide": {
@@ -2270,6 +2418,7 @@
       "newSession": "新しいセッション",
       "pastSessions": "過去のセッション",
       "closeTab": "タブを閉じる",
+      "closeTabNamed": "{{name}} を閉じる",
       "pastSessionsClose": "閉じる",
       "loading": "読み込み中...",
       "noClosedSessions": "復元できる閉じたセッションはありません。",
@@ -2354,6 +2503,111 @@
       "historyHintPrev": "もう一度押すと直近のコマンド",
       "historyHintNext": "もう一度押すと最も古いコマンド",
       "slashBuiltin": "組み込み",
+      "slashBuiltinDesc": {
+        "add-dir": "現在のセッション中にファイルへアクセスするための作業ディレクトリを追加します",
+        "advisor": "タスクの重要な場面で2つ目のモデルに助言を求める advisor ツールを有効化または無効化します",
+        "agents": "v2.1.198 以降、/agents は案内を表示するだけです — サブエージェントの作成や管理は Claude に頼むか、.claude/agents/ または ~/.claude/ag...",
+        "artifacts": "自分が所有する、または共有されたアーティファクトを一覧表示し、セッションへの添付、ブラウザーで開く、リンクのコピーができます",
+        "auto-mode-setup": "プロジェクトと最近のセッションから autoMode.environment のエントリを下書きし、内容を確認してユーザー設定に保存します",
+        "autocompact": "自動圧縮のしきい値を設定します: コンテキストウィンドウがどこまで埋まったら Claude Code が自動で圧縮するか",
+        "autofix-pr": "現在のブランチの PR を見守り、CI が失敗したりレビュアーがコメントを残したりしたら修正をプッシュする Claude Code on the web のセッションを起動します",
+        "background": "現在のセッションを切り離してバックグラウンドのエージェントとして実行し、このターミナルを空けます",
+        "batch": "コードベース全体にわたる大規模な変更を並列で進めます",
+        "branch": "この時点で現在の会話を分岐させ、今の会話を失わずに別の方向を試せるようにします",
+        "btw": "会話に追加せずに、現在のセッションについて横から質問します",
+        "bug": "バグを報告するか、会話を共有します",
+        "cd": "会話とプロンプトキャッシュを保ったまま、このセッションを新しい作業ディレクトリに移します",
+        "chrome": "Claude in Chrome の設定を行います",
+        "claude-api": "プロジェクトの言語向けに Claude API と Managed Agents のリファレンス資料を読み込みます",
+        "clear": "コンテキストを空にして新しい会話を始めます",
+        "code-review": "現在の差分、または指定した PR 番号・ブランチ・パスを、正しさに関わるバグと整理の余地の観点でレビューします",
+        "color": "現在のセッションのプロンプトバーの色を設定します",
+        "compact": "ここまでの会話を要約してコンテキストを空けます",
+        "config": "設定画面を開き、テーマ、モデル、出力スタイルなどを調整します",
+        "context": "現在のコンテキスト使用量を色分けしたグリッドで表示します",
+        "copy": "直前のアシスタントの応答をクリップボードにコピーします",
+        "dataviz": "チャート、グラフ、ダッシュボードのデザインガイダンス",
+        "debug": "現在のセッションのデバッグログを有効にし、セッションのデバッグログを読んで問題を調べます",
+        "deep-research": "1つの問いについてウェブ検索を並行して行い、情報源を取得して照合し、出典付きのレポートにまとめます",
+        "design-login": "claude.ai アカウントで /design-sync のデザインシステムへのアクセスを許可します",
+        "design-sync": "リポジトリの React デザインシステムを変換して Claude Design にアップロードし、生成されるデザインが実際のコンポーネントを使うようにします",
+        "desktop": "現在のセッションを Claude Code Desktop アプリで続けます",
+        "diff": "未コミットの変更とターンごとの差分を表示する対話型の差分ビューアーを開きます",
+        "doctor": "セットアップを点検して問題を診断し、修正もできます",
+        "effort": "思考深度を設定します: low〜xhigh、max、ultracode、auto のいずれか。status で現在の値を表示します",
+        "exit": "CLI を終了します",
+        "export": "現在の会話をプレーンテキストとしてエクスポートします",
+        "fast": "Fast モードのオン/オフを切り替えます",
+        "feedback": "Claude Code についての製品フィードバックを送ります",
+        "fewer-permission-prompts": "トランスクリプトからよく使われる読み取り専用の Bash・MCP ツール呼び出しを探し、優先度順の許可リストをプロジェクトの .claude/settings.json に追加して...",
+        "focus": "直前のプロンプト、編集の差分統計付きのツール呼び出しの1行要約、最終応答だけを表示するフォーカスビューを切り替えます",
+        "fork": "現在の会話を新しいバックグラウンドセッションにコピーし、ここでは作業を続けます",
+        "goal": "目標を設定します: 条件が満たされるか、別の理由で目標が解除されるまで、Claude がターンをまたいで作業を続けます",
+        "heapdump": "JavaScript のヒープスナップショットとメモリの内訳を ~/Desktop（Desktop フォルダーのない Linux ではホームディレクトリ）に書き出します。診断...",
+        "help": "ヘルプと使えるコマンドを表示します",
+        "hooks": "ツールイベントのフック設定を表示します",
+        "ide": "IDE との連携を管理し、状態を表示します",
+        "import": "このマシン上の他のコーディングエージェント（現在は OpenAI Codex と Google Gemini CLI）の設定を Claude Code に取り込みます...",
+        "init": "CLAUDE.md ガイドを作ってプロジェクトを初期化します",
+        "insights": "このマシンでの最近のセッションを分析した HTML レポートを作ります: どのプロジェクトで作業しているか、Claude Code をどう使っているか、どこで...",
+        "install-github-app": "リポジトリに Claude GitHub App をインストールします。GitHub Actions のワークフローとシークレットを設定する手順も選べます",
+        "install-slack-app": "Claude の Slack アプリをインストールします",
+        "keybindings": "キーボードショートカットのファイルを開きます",
+        "list-agents": "Claude がメッセージを送れるサブエージェント、エージェントチームのメンバー、その他の Claude Code セッションを、それぞれに使う名前とともに一覧表示します",
+        "login": "Anthropic アカウントにサインインします",
+        "logout": "Anthropic アカウントからサインアウトします",
+        "loop": "セッションが開いている間、プロンプトを繰り返し実行します",
+        "mcp": "MCP サーバーの接続と OAuth 認証を管理します",
+        "memory": "CLAUDE.md ファイルを編集し、自動記憶のオン/オフを切り替え、自動記憶の項目を表示します",
+        "mobile": "Claude モバイルアプリをダウンロードするための QR コードを表示します",
+        "model": "AI モデルを切り替え、新しいセッションの既定として保存します",
+        "passes": "Claude Code の無料1週間を友だちと共有します",
+        "permissions": "ツール権限の許可・確認・拒否のルールを管理します",
+        "plan": "プロンプトから直接プランモードに入ります",
+        "plugin": "Claude Code のプラグインを管理します",
+        "powerup": "アニメーションデモ付きの短い対話型レッスンで Claude Code の機能を紹介します",
+        "privacy-settings": "プライバシー設定を表示・更新します",
+        "radio": "ブラウザーで Claude FM の lo-fi ラジオを開きます",
+        "rate-limit-options": "claude.ai の使用量上限でリクエストがブロックされたときに作業を続ける方法を表示します: 上限のリセットを待って自動で続ける、使用量を追加する...",
+        "recap": "現在のセッションの1行要約をその場で生成します",
+        "release-notes": "対話型のバージョン選択で変更履歴を表示します",
+        "reload-plugins": "有効なプラグインをすべて再読み込みし、再起動せずに保留中の変更を反映します",
+        "reload-skills": "スキルとコマンドのディレクトリを再スキャンし、セッション中にディスク上で追加・変更されたスキルを再起動せずに使えるようにします",
+        "remote-control": "このセッションを claude.ai から Remote Control で使えるようにします",
+        "remote-env": "クラウドエージェントの既定の環境を選びます",
+        "rename": "現在のセッションの名前を変え、プロンプトバーに表示します",
+        "resume": "ID または名前で会話を再開するか、セッション選択を開きます",
+        "rewind": "会話やコード（またはその両方）を以前の時点に戻すか、選んだメッセージから要約します",
+        "run": "プロジェクトのアプリを起動して操作し、テストが通るだけでなく変更が実際に動くことを確かめます",
+        "run-skill-generator": "プロジェクト専用のスキルを書いて、クリーンな環境からプロジェクトのアプリをビルド・起動・操作する方法を /run と /verify に教えます",
+        "sandbox": "サンドボックスモードを切り替えます",
+        "schedule": "クラウドで実行されるルーティンを作成・更新・一覧表示・実行します",
+        "scroll-speed": "マウスホイールのスクロール速度を対話的に調整します。ダイアログを開いたまま定規をスクロールして変化をプレビューできます",
+        "security-review": "現在のブランチの変更にセキュリティ上の脆弱性がないか分析します",
+        "setup-bedrock": "対話型ウィザードで Amazon Bedrock の認証、リージョン、モデルの固定を設定します",
+        "setup-vertex": "対話型ウィザードで Google Cloud's Agent Platform の認証、プロジェクト、リージョン、モデルの固定を設定します",
+        "simplify": "変更したコードに整理の余地がないか見直し、修正を適用します",
+        "skills": "使えるスキルを一覧表示します",
+        "status": "設定画面をステータスタブで開き、バージョン、モデル、アカウント、接続状態を表示します",
+        "statusline": "Claude Code のステータスラインを設定します",
+        "stickers": "Claude Code のステッカーを注文します",
+        "stop": "現在のバックグラウンドセッションを停止します",
+        "subtask": "分岐したサブエージェントを起動します: 会話全体を引き継ぎ、あなたが作業を続ける間にバックグラウンドでそのタスクを進めます",
+        "tasks": "終了したサブエージェントも含め、現在のセッションのバックグラウンド作業を表示・管理します",
+        "team-onboarding": "Claude Code の利用履歴からチーム向けのオンボーディングガイドを作ります",
+        "teleport": "Claude Code on the web のセッションをこのターミナルに取り込みます",
+        "terminal-setup": "Shift+Enter などのショートカットのためにターミナルのキー割り当てを設定します",
+        "theme": "カラーテーマを変更します",
+        "tui": "ターミナル UI のレンダラーを設定し、会話をそのままにして再起動します",
+        "ultrareview": "ultrareview で、クラウドのサンドボックス上で複数エージェントによる詳細なコードレビューを行います",
+        "upgrade": "ブラウザーでアップグレードページを開き、上位プランに切り替えます",
+        "usage": "セッションのコスト、プランの使用量上限、アクティビティの統計を表示します",
+        "usage-credits": "上限に達したときに使う使用量クレジットを設定するか、管理者に依頼します",
+        "verify": "プロジェクトのアプリをビルドして実行し、結果を観察して、コードの変更が意図どおりに動くことを確かめます...",
+        "voice": "音声入力のオン/オフを切り替えるか、特定のモードで有効にします",
+        "web-setup": "ローカルの gh CLI の認証情報を使って、GitHub アカウントを Claude Code on the web に接続します",
+        "workflows": "ワークフローの進行状況ビューを開き、実行中や完了したワークフローを見守る、一時停止する、再開する、保存することができます"
+      },
       "slashNeedsTerminal": "ターミナル必須",
       "slashDisabledByContext": "このプロジェクトではスキルとスラッシュコマンドがオフになっているため、以下の項目は実行されません。アクティビティバーの「{{contextSources}}」から再度オンにできます（こちらから送るコンパクト化は引き続き動作します）。",
       "slashEmpty": "一致するスキルなし",
@@ -2855,6 +3109,8 @@
       "statusTip": "ここに表示されているセッションの実行状態です — 実行中・待機・完了・エラー。",
       "modelTip": "このセッションが最後のターンで実際に使ったモデルです。最初のターンの前は、このエージェントに設定されたモデルを表示します。",
       "modelUnknown": "不明",
+      "effortTip": "点の後は{{effort}}です。明示的に選択した値、または選択中のセッションで確認された実際の強度を表示します。",
+      "modelSwitchTip": "クリックすると、この場でモデルを変更できます。",
       "thinkingOff": "拡張思考オフ",
       "thinkingOffTip": "この Agent は拡張思考をオフにして動きます — ここから起動するセッションは、答える前に考える段階を通りません。切り替えは {{thinking}} のチェック一つです。Agent ごとは {{agentSettings}}で、全体の既定値は {{file}} > {{options}} > {{agentDefaults}}で変更します。",
       "context": "コンテキスト：{{used}}/{{max}}",
@@ -2868,8 +3124,7 @@
       "sessionsTip": "このエージェントで開いているセッションタブの数です。",
       "contextOverdueTip": "このセッションのコンテキストはほぼ埋まっており、今も増え続けていますが、コンパクト化はまだ実行されていません。クリックすると「コンテキスト保険」を開きます。",
       "contextStalledTip": "このセッションのコンテキストウィンドウは実質的に満杯で、コンパクト化はまだ実行されていません。クリックすると「コンテキスト保険」を開きます。",
-      "contextRejectedTip": "コンパクト化コマンドを送りましたが、Claude Code はコンパクト化を開始しませんでした — 拒否されています。多くの場合、このプロジェクトの「{{contextSources}}」でスキルとスラッシュコマンドがオフになっていることが原因です。クリックすると「コンテキスト保険」を開きます。",
-      "failedCompactsTip": "このセッションで失敗したコンパクト化: {{count}}件。クリックするとコンテキスト保険で何が残っているか確認できます。"
+      "contextRejectedTip": "コンパクト化コマンドを送りましたが、Claude Code はコンパクト化を開始しませんでした — 拒否されています。多くの場合、このプロジェクトの「{{contextSources}}」でスキルとスラッシュコマンドがオフになっていることが原因です。クリックすると「コンテキスト保険」を開きます。"
     },
     "search": {
       "placeholder": "会話内を検索",
@@ -3165,6 +3420,7 @@
       "maxTurns": "最大ターン数の上限で停止しました",
       "agentView": "エージェントの実行が失敗で終了しました",
       "orphaned": "アプリの再起動により中断されました",
+      "dispatchResult": "委任したタスクの結果を受け取らずに終了しました",
       "unknown": "不明な理由で失敗しました"
     },
     "density": {
@@ -4251,19 +4507,19 @@
     "taskEdgeKind": {
       "command": {
         "label": "Command",
-        "description": "Instruction — \"please do this\""
+        "description": "指示 — 「これをやってください」"
       },
       "artifact": {
         "label": "Artifact",
-        "description": "Hands over the result itself — the file or diff"
+        "description": "結果そのものを渡します — 要約ではなくファイルや差分"
       },
       "request": {
         "label": "Request",
-        "description": "Reverse request — \"I am stuck, please help\""
+        "description": "逆依頼 — 「行き詰まったので助けてください」"
       },
       "critique": {
         "label": "Critique",
-        "description": "Critique / review — audit and red-team role (the watcher)"
+        "description": "批評 / レビュー — 監査・レッドチームの役割（見張り役）"
       }
     },
     "taskEdgePopup": {
@@ -4526,7 +4782,9 @@
       "createShelf": "スクリプトシェルフ",
       "createShelfHint": "よく使うコマンドやプロンプトをワンクリックで呼び出せるようにします",
       "createCodexAgent": "Codex Agentを作成",
-      "createCodexAgentHint": "OpenAIのCodex CLIで動作するエージェントを配置"
+      "createCodexAgentHint": "OpenAIのCodex CLIで動作するエージェントを配置",
+      "createCodexCmdAgent": "Codex CMDを作成",
+      "createCodexCmdAgentHint": "Codex CLIを自分で操作するインタラクティブターミナル"
     },
     "bounds": {
       "label": "バブル境界",
@@ -4770,6 +5028,10 @@
       "deleteN": "選択した{{count}}件を削除",
       "deleteForeverN": "選択した{{count}}件を完全に削除…",
       "worktreeSkipped": "Worktreeバブル{{count}}件は除外されます。個別に削除してください。"
+    },
+    "webFold": {
+      "domainCount_one": "{{count}}件のドメイン",
+      "domainCount_other": "{{count}}件のドメイン"
     }
   },
   "common": {
@@ -4837,7 +5099,7 @@
     "cancel": "キャンセル",
     "confirm": "確定",
     "msg": {
-      "requestFailed": "Failed ({{status}})"
+      "requestFailed": "失敗 ({{status}})"
     },
     "minimize": "最小化",
     "maximize": "最大化",
@@ -5139,32 +5401,38 @@
     "trashItemsMore": "ほか {{n}}件"
   },
   "providers": {
-    "provider": "Provider",
+    "provider": "プロバイダー",
     "claude": "Claude",
     "codex": "Codex",
-    "local": "All Model",
-    "main": "Main provider",
-    "mainHint": "Sets the default agent, settings tab and usage indicator. You can sign in to both providers.",
-    "saveFailed": "Could not save. Please try again.",
-    "project": "Project settings",
-    "save": "Save",
-    "saved": "Saved",
-    "model": "Model",
-    "effort": "Reasoning effort",
-    "context": "Context size",
-    "temperature": "Temperature",
-    "rules": "Instructions",
-    "default": "Default",
-    "usage": "Usage",
-    "localUsage": "All Model runs locally and has no subscription usage limit.",
-    "signIn": "Sign in to check usage.",
-    "noUsage": "Usage is unavailable for this account.",
-    "refresh": "Refresh",
-    "close": "Close",
-    "window": "{{minutes}} minute window",
-    "projectHint": "These settings apply to agents in the active project.",
-    "noProject": "Open a project to configure its providers.",
-    "webSearch": "Web search",
-    "modelVerbosity": "Response verbosity"
+    "local": "モデル一覧",
+    "main": "メインプロバイダー",
+    "mainHint": "主に作業を任せるプロバイダーです。新しいエージェントの既定プロバイダーと上部の使用量表示がこれに従い、すべてのプロジェクトに共通で適用されます。",
+    "saveFailed": "保存できませんでした。もう一度お試しください。",
+    "project": "プロジェクト設定",
+    "save": "保存",
+    "saved": "保存しました",
+    "model": "モデル",
+    "effort": "推論エフォート",
+    "context": "コンテキストサイズ",
+    "temperature": "温度",
+    "rules": "指示",
+    "usage": "使用量",
+    "localUsage": "「モデル一覧」はローカルで実行され、サブスクリプションの使用量上限はありません。",
+    "signIn": "使用量を確認するにはサインインしてください。",
+    "noUsage": "このアカウントでは使用量を確認できません。",
+    "refresh": "更新",
+    "close": "閉じる",
+    "window": "{{minutes}}分の使用枠",
+    "webSearch": "ウェブ検索",
+    "modelVerbosity": "応答の長さ",
+    "modelChosenOnOpen": "モデル未選択（セットアップで選択）",
+    "modelSource": {
+      "codexFirst": "Codex一覧の先頭",
+      "localLatest": "最新のダウンロード"
+    },
+    "modelSourceTip": {
+      "codexFirst": "空欄のままにすると、新規agentは初めて開いたときにCodexのモデル一覧の先頭にあるモデルを使用します。",
+      "localLatest": "空欄のままにすると、新規agentは初めて開いたときに最も新しくダウンロードしたモデルを使用します。"
+    }
   }
 }

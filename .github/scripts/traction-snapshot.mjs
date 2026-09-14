@@ -23,13 +23,14 @@
 //   traction.csv        하루 한 줄, **누적 게이지**(별·포크·다운로드 총합).
 //   traffic.csv         하루 한 줄, **그날의 유량**(조회·클론). API 가 14일치를 통째로
 //                       주므로 매번 그 14일을 덮어쓴다 → 며칠 걸러도 스스로 메워진다.
-//   badge-*.json        shields.io endpoint 배지용. README 가 이걸 가리킨다.
+//   badge-stars.json    shields.io endpoint 배지용 별 수.
 //
-// ⚠️ 배지를 왜 직접 만드는지: shields 기본 `github/downloads/…/total` 은 릴리스 자산을
-//    **전부** 더한다. 우리 자산의 대부분은 electron-updater 가 갱신 확인 때마다 받아 가는
-//    `latest*.yml` 이라, 그 배지는 실제 설치본의 9배쯤으로 부풀어 보인다(실측 547 vs 59).
-//    부풀린 숫자는 언젠가 대조당하고, 그때 잃는 것이 얻은 것보다 크다. 그래서 설치 파일만
-//    세어 우리가 직접 배지 JSON 을 만든다.
+// ⚠️ 다운로드 배지는 더 만들지 않는다(2026-09-14). README 와 사이트는 shields.io 표준 배지
+//    `github/downloads/Vibisual/vibisual/total` — GitHub 가 세는 릴리스 자산 다운로드 합계를
+//    그대로 쓴다. 한때 설치 파일만 센 수를 직접 만들어 보였는데, 그 수는 "사람이 설치한 수"로
+//    읽혔고 실제로는 자동 업데이트가 받은 설치본이 대부분이었다. GitHub 카운터로는 사람을
+//    가려낼 수 없으니 공식 수를 공식 이름으로 보인다. 아래 CSV 의 설치본/메타 구분은
+//    곡선을 읽기 위한 내부 기록일 뿐 밖에 내보이는 숫자가 아니다.
 //
 // 사용법: node .github/scripts/traction-snapshot.mjs <출력 디렉터리>
 //   REPO         owner/name (기본 Vibisual/vibisual)
@@ -218,7 +219,8 @@ function writeBadge(file, label, message, color) {
   fs.writeFileSync(path.join(OUT_DIR, file), JSON.stringify(badge) + '\n');
 }
 
-writeBadge('badge-downloads.json', 'downloads', tally.total, 'blue');
+// 예전에 만들던 다운로드 배지 파일은 지운다 — 남겨 두면 누군가 다시 가리킨다.
+fs.rmSync(path.join(OUT_DIR, 'badge-downloads.json'), { force: true });
 writeBadge('badge-stars.json', 'stars', repo.stargazers_count, 'blue');
 
 console.log(tractionRow);

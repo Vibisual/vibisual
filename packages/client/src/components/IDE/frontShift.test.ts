@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { countRemovedFromFront, advanceFrontShift, type FrontShiftState } from './frontShift.js';
+import { countRemovedFromFront, advanceFrontShift, shiftAroundView, type FrontShiftState } from './frontShift.js';
 
 /**
  * 가상 리스트 앞쪽 절단(shift) 카운트 회귀 테스트 (v3.13).
@@ -68,5 +68,61 @@ describe('advanceFrontShift — 밀도 전환(resetKey)', () => {
     let st: FrontShiftState = { base: 0, prevIds: ['a', 'b', 'c'] };
     st = advanceFrontShift(st, ['b', 'c']);
     expect(st.base).toBe(1);
+  });
+});
+
+/**
+ * §5.5 #17-12 — 복원 창 위쪽 과거를 불러와 **앞에 붙이면** 기준값을 그만큼 줄여 신고해야 보던 줄이 제자리에 남는다.
+ * 붙는 자리는 맨 앞이 아닐 수 있다 — 창 밖 턴의 명령 블록(저장된 답 폴백)이 맨 위에 서 있고 과거는 그 사이로 끼어든다.
+ */
+describe('shiftAroundView — 보고 있는 자리 기준 신고', () => {
+  it('꼬리에만 붙는 스트리밍은 0 — 색인을 만들지 않는 빠른 길', () => {
+    expect(shiftAroundView(ids('a', 'b', 'c'), ids('a', 'b', 'c', 'd'), 1)).toBe(0);
+  });
+
+  it('맨 앞에 K개가 붙으면 +K', () => {
+    expect(shiftAroundView(ids('c', 'd', 'e'), ids('a', 'b', 'c', 'd', 'e'), 1)).toBe(2);
+  });
+
+  it('[회귀] 맨 위 폴백 명령 블록 사이로 끼어들어도 보는 자리 앞의 증가분을 센다', () => {
+    // 창 밖 턴 cmd-1·cmd-2 는 저장된 답으로만 서 있다가, 과거를 불러오자 그 턴의 본문(t2a·t2b)이 사이에 들어온다.
+    const prev = ids('cmd-1', 'cmd-2', 'cmd-3', 'x1', 'x2', 'x3');
+    const next = ids('cmd-1', 'cmd-2', 't2a', 't2b', 'cmd-3', 'x1', 'x2', 'x3');
+    // 맨 앞 기준(종전)으로는 0 — 화면이 불러온 분량만큼 튄다.
+    expect(countRemovedFromFront(prev, next)).toBe(0);
+    // 그려져 있던 첫 항목(x1) 기준으로는 +2.
+    expect(shiftAroundView(prev, next, 3)).toBe(2);
+  });
+
+  it('앞쪽 절단은 종전과 같은 양(−K)', () => {
+    expect(shiftAroundView(ids('a', 'b', 'c', 'd'), ids('c', 'd', 'e'), 3)).toBe(-2);
+    // 보던 항목이 절단에 함께 사라져도 아래로 내려가 남은 첫 항목으로 잰다.
+    expect(shiftAroundView(ids('a', 'b', 'c', 'd'), ids('c', 'd'), 0)).toBe(-2);
+  });
+
+  it('보던 자리 아래가 전부 사라졌으면 위로 거슬러 잰다', () => {
+    expect(shiftAroundView(ids('a', 'b', 'c'), ids('z', 'a', 'b'), 2)).toBe(1);
+  });
+
+  it('겹치는 항목이 없으면(전량 교체) 0, 순번이 목록 밖이면 끝으로 붙인다', () => {
+    expect(shiftAroundView(ids('a', 'b'), ids('x', 'y'), 1)).toBe(0);
+    expect(shiftAroundView(ids('a', 'b'), ids('z', 'a', 'b'), 99)).toBe(1);
+    expect(shiftAroundView(ids(), ids('a'), 0)).toBe(0);
+  });
+});
+
+describe('advanceFrontShift — 보고 있는 자리(viewIndex)', () => {
+  it('앞에 붙으면 기준값이 줄고, 앞이 잘리면 는다', () => {
+    let st: FrontShiftState = { base: 1000, prevIds: ids('c', 'd', 'e') };
+    st = advanceFrontShift(st, ids('a', 'b', 'c', 'd', 'e'), undefined, 0);
+    expect(st.base).toBe(998);
+    st = advanceFrontShift(st, ids('c', 'd', 'e', 'f'), undefined, 3);
+    expect(st.base).toBe(1000);
+  });
+
+  it('밀도 전환(resetKey) 렌더는 보는 자리가 있어도 세지 않는다', () => {
+    let st: FrontShiftState = { base: 1000, prevIds: ids('a', 'b', 'c'), prevKey: 'standard' };
+    st = advanceFrontShift(st, ids('group-a', 'c'), 'compact', 2);
+    expect(st.base).toBe(1000);
   });
 });

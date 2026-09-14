@@ -332,23 +332,28 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     //   ⚠ `focusSessionId` 는 이 걷기 **전에** 이미 정해져 있어야 한다(주황 표식을 걷고 나서 다시
     //     고르면 방금 지운 근거로 아무것도 못 찾는다). 그래서 줄을 그릴 때 계산해 인자로 받는다.
     useGraphStore.getState().acknowledgeUsageLimit({ agentIds: [agentId] });
-    if (pane) useGraphStore.getState().soloIDEPane(pane.paneKey);
-    else useGraphStore.getState().openIDEOverlay(agentId, { pane: 'new' });
-    // 세우는 것은 창이 선 **다음**이다 — `openIDEOverlay` 는 새 창이 설 자리(주 창 · 새 팬 · LRU
-    //   재사용)를 스스로 고르므로, 그 답을 스토어에서 되읽어야 어느 창에 세울지 알 수 있다.
-    //   밖으로 꺼낸 IDE 로 흘러갔거나(독립 창) 프로바이더 설치 창이 대신 뜬 경우에는 앱 안에 창이
-    //   서지 않는다 — 그때는 찾을 팬이 없으니 조용히 넘어간다.
-    if (focusSessionId) {
+    // 그새 사라진 세션에는 세우지 않는다(`openIDEOverlay` 의 `exists` 규율과 같은 감각).
+    const liveSession = focusSessionId
+      && (useGraphStore.getState().subAgents[agentId] ?? []).some((s) => s.id === focusSessionId)
+      ? focusSessionId
+      : null;
+    if (pane) {
+      useGraphStore.getState().soloIDEPane(pane.paneKey);
+      // 세우는 것은 창을 편 **다음**이다 — 서 있던 창이라 키로 곧장 세운다.
       const after = useGraphStore.getState();
-      const owner = after.activeProject ?? after.agentProjects[agentId];
-      const target = pane
-        ? after.ideOverlays[pane.paneKey]
-        : Object.values(after.ideOverlays).find((o) => o.agentId === agentId && o.projectId === owner);
-      // 그새 사라진 세션에는 세우지 않는다(`openIDEOverlay` 의 `exists` 규율과 같은 감각).
-      const live = (after.subAgents[agentId] ?? []).some((s) => s.id === focusSessionId);
-      if (live && target?.agentId === agentId && target.activeSessionId !== focusSessionId) {
-        after.setIDEActiveSession(focusSessionId, target.paneKey);
+      const target = after.ideOverlays[pane.paneKey];
+      if (liveSession && target?.agentId === agentId && target.activeSessionId !== liveSession) {
+        after.setIDEActiveSession(liveSession, target.paneKey);
       }
+    } else {
+      // 창이 없는 줄은 새 창이다. 세울 세션은 여는 길에 **실어** 보낸다(§5.5 #17-6 (H-27) ⑦) —
+      //   `openIDEOverlay` 는 새 창이 설 자리(주 창 · 새 팬 · LRU 재사용)를 스스로 고르므로 세우는 것도
+      //   그 길이 그 창에 한다. 밖으로 꺼낸 IDE 로 흘러가면 **그 창이** 이 세션으로 서고, 프로바이더
+      //   설치 창이 대신 뜬 경우에는 세울 창이 없으니 조용히 넘어간다.
+      useGraphStore.getState().openIDEOverlay(agentId, {
+        pane: 'new',
+        ...(liveSession ? { focus: { sessionId: liveSession } } : {}),
+      });
     }
     setOpen(false);
   }, []);

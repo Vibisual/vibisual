@@ -196,6 +196,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
    */
   const reactedResets = useRef<Set<number>>(new Set());
   useEffect(() => {
+    if (engine !== 'claude') return;
     for (const target of [sessionReset, weeklyReset]) {
       if (typeof target !== 'number') continue;
       if (now <= target + 2_000) continue;
@@ -203,7 +204,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
       reactedResets.current.add(target);
       refresh();
     }
-  }, [now, sessionReset, weeklyReset, refresh]);
+  }, [engine, now, sessionReset, weeklyReset, refresh]);
 
   // statusLine 폴백 스위치 상태 — 직접 조회가 막혔을 때만 쓰인다.
   const [collector, setCollector] = useState<UsageCollectorStatus | null>(null);
@@ -271,11 +272,11 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex h-[min(80vh,36rem)] w-full max-w-md flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header — 제목 + 플랜 배지 + 새로고침 + 닫기 */}
-        <div className="flex items-center gap-2 border-b border-gray-700 px-4 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-gray-700 px-4 py-3">
           <svg className="h-4 w-4 flex-shrink-0 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 20v-6" />
             <path d="M6 20V10" />
@@ -287,6 +288,11 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
               {claudeUsage.plan}
             </span>
           )}
+          {engine === 'codex' && codexLoggedIn && codex.usage?.plan && (
+            <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-violet-300">
+              {codex.usage.plan}
+            </span>
+          )}
           <div className="flex-1" />
           <button
             type="button"
@@ -296,7 +302,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             aria-label={t('panel.usage.refresh')}
             className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
           >
-            <svg className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg className={`h-3.5 w-3.5 ${(engine === 'codex' ? codex.busy : refreshing) ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <polyline points="21 3 21 9 15 9" />
             </svg>
@@ -321,9 +327,17 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           {engine === 'codex' && <div className="flex flex-col gap-4 p-4">
             {!codexLoggedIn ? <button type="button" className="text-left text-xs text-blue-400" onClick={() => { const state = useGraphStore.getState(); if (state.codexSetup?.phase === 'ready') state.setCodexLoginGate({ forced: true, dismissed: false }); else state.setCodexSetupGate({ forced: true, dismissed: false }); }}>{t('providers.signIn')}</button> : <>
               {codex.usage?.windows.map(window => <LimitGauge key={window.id} label={`${window.label} · ${window.windowDurationMins ? t('providers.window', { minutes: window.windowDurationMins }) : window.id}`} used={window.usedPercent} resetAt={window.resetsAt} now={now} />)}
-              {codex.usage?.error && <p className="text-xs text-amber-300">{t('providers.noUsage')}</p>}
-              {codex.busy && <p className="text-xs text-gray-400">{t('panel.options.account.checking')}</p>}
-              {codex.usage?.fetchedAt && <p className="text-xs text-gray-500">{t('panel.usage.lastUpdated', { time: new Date(codex.usage.fetchedAt).toLocaleTimeString() })}</p>}
+              <div className="flex flex-col gap-1 text-xs" role="status" aria-live="polite">
+                <p className={`min-h-4 ${codex.usage?.error ? 'text-amber-300' : 'text-gray-400'}`}>
+                  {codex.busy ? t('panel.options.account.checking') : codex.usage?.error
+                    ? t(codex.usage.windows.length ? 'panel.usage.refreshFailed' : 'providers.noUsage') : '\u00a0'}
+                </p>
+                <p className="min-h-4 text-gray-500">
+                  {codex.usage?.fetchedAt && codex.usage.windows.length
+                    ? t('panel.usage.lastUpdated', { time: new Date(codex.usage.fetchedAt).toLocaleTimeString() })
+                    : t('panel.usage.neverUpdated')}
+                </p>
+              </div>
             </>}
           </div>}
           {engine === 'claude' && <>

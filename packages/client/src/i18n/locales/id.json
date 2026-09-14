@@ -600,7 +600,11 @@
         "externalBudgetLabel": "Folder eksternal yang ditampilkan di level teratas",
         "externalBudgetDesc": "Folder yang disematkan tidak dihitung dalam angka ini — folder yang Anda sematkan akan selalu berada di level teratas. Pengaturan ini tidak menghapus apa pun: tempat yang tidak muat akan dilipat ke bawah bubble induk yang menunjukkan berapa banyak yang ada di dalamnya.",
         "externalBudgetLoadError": "Tidak dapat membaca pengaturan saat ini.",
-        "externalBudgetSaveError": "Tidak dapat menyimpan. Tidak ada yang diubah."
+        "externalBudgetSaveError": "Tidak dapat menyimpan. Tidak ada yang diubah.",
+        "webFoldEnabled": "Lipat bubble web menjadi satu per agent",
+        "webFoldEnabledDesc": "Domain yang dibaca satu agent dilipat menjadi satu bubble, dan mengekliknya menampilkan daftar per domain. Domain yang di-pin tetap memiliki bubble sendiri. Tidak ada yang dihapus — matikan opsi ini dan setiap domain kembali mendapat bubble sendiri.",
+        "webFoldIntro": "Saat agent membaca web, setiap domain yang dibacanya mendapat bubble sendiri, sehingga satu agent yang sedang mencari informasi saja bisa memenuhi canvas.",
+        "webFoldTitle": "Bubble web"
       },
       "notifications": {
         "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
@@ -826,7 +830,10 @@
       "tokenUsage": "Penggunaan Token",
       "waited": "menunggu {{time}}",
       "closePopup": "Tutup popup",
-      "result": "Hasil"
+      "result": "Hasil",
+      "results": "Hasil ({{count}})",
+      "todos": "Tugas ({{done}}/{{total}})",
+      "todosCompact": "Tugas {{done}}/{{total}}"
     },
     "contiHistory": {
       "title": "Riwayat Conti",
@@ -1017,7 +1024,25 @@
         "sonnet": "Performa dan biaya seimbang. Cocok untuk sebagian besar tugas.",
         "haiku": "Tercepat dan termurah. Terbaik untuk tugas sederhana yang hanya baca.",
         "fable": "Paling canggih. Untuk penalaran paling berat dan tugas berdurasi panjang. Biaya tertinggi.",
-        "unknown": "{{name}} — model yang baru dirilis. Kemampuan dan biaya diperkirakan dari default keluarganya."
+        "unknownFamily": "{{name}} — model yang baru dirilis. Kemampuan dan biaya diperkirakan dari keluarganya."
+      },
+      "modelSection": {
+        "listChecked": "Daftar diperiksa {{ago}}",
+        "listNotChecked": "Daftar belum diperiksa",
+        "listChecking": "Memeriksa model baru…",
+        "recheckTip": "Periksa model baru sekarang",
+        "source": {
+          "seed": "Daftar bawaan",
+          "api": "API Anthropic",
+          "observed": "Sesi Anda",
+          "codex": "Cache Codex"
+        },
+        "sourcesTip": "Asal daftar ini: daftar bawaan model yang sudah dirilis, API Anthropic (hanya dengan ANTHROPIC_API_KEY milik Anda sendiri, diperiksa ulang setiap {{hours}} jam), dan ID model yang benar-benar dijalankan oleh sesi Anda sendiri. Membuka kartu ini akan memeriksa lagi.",
+        "sourcesTipCodex": "Dibaca dari daftar model yang disimpan Codex di PC ini — Vibisual tidak menyimpan salinannya sendiri. Membuka kartu ini akan membacanya lagi.",
+        "fullSettings": "Semua pengaturan",
+        "fullSettingsTip": "Perluas ke semua isi {{agentSettings}}. Nilai yang Anda ubah di sini tidak hilang.",
+        "applyNextTurn": "Perubahan yang disimpan berlaku mulai giliran berikutnya agen ini. Nama model di bilah status berubah setelah giliran itu berjalan.",
+        "applyNewSession": "Model yang diubah berlaku untuk sesi baru yang dibuka dengan \"+\" — terminal yang sudah berjalan tetap memakai model yang dipakai sejak semula."
       },
       "contextWindow": {
         "oneMillion": "Context window 1 juta"
@@ -1042,6 +1067,42 @@
         "tip": "Diblokir paksa via CLI --disallowedTools. Mengambil prioritas di atas daftar izin (Tools). Gunakan ini jika ingin menonaktifkan satu tool tanpa membangun ulang daftar izin.",
         "addTool": "+ Blokir tool"
       },
+      "toolTemplate": {
+        "label": "Template tool",
+        "option": "{{index}}. {{name}}",
+        "custom": {
+          "name": "Kustom",
+          "desc": "Tool yang Anda pilih sendiri. Kembali ke sini memulihkan daftar Anda sendiri."
+        },
+        "readOnly": {
+          "name": "Hanya baca",
+          "desc": "Hanya membaca dan mencari kode. Tanpa mengubah file, tanpa menjalankan perintah."
+        },
+        "review": {
+          "name": "Tinjau & verifikasi",
+          "desc": "Membaca kode dan menjalankan perintah untuk memeriksanya (git diff, tes). Tanpa Write atau Edit."
+        },
+        "research": {
+          "name": "Riset web",
+          "desc": "Mencari dan membaca web, lalu mencocokkannya dengan kode. Tanpa perubahan, tanpa perintah."
+        },
+        "docs": {
+          "name": "Penulisan dokumen",
+          "desc": "Membaca dan menulis file. Tanpa menjalankan perintah."
+        },
+        "implement": {
+          "name": "Implementasi",
+          "desc": "Membaca, menulis, dan menjalankan perintah, plus daftar tugas dan skill. Tanpa delegasi, web, atau penjadwalan."
+        },
+        "orchestrate": {
+          "name": "Orkestrator",
+          "desc": "Membagi pekerjaan ke agent lain dan mengumpulkan hasilnya. Tidak mengubah file sendiri."
+        },
+        "all": {
+          "name": "Semua tool",
+          "desc": "Daftar alat resmi lengkap ({{total}}) — sama dengan daftar awal setiap agent baru."
+        }
+      },
       "askTools": {
         "label": "Tanya sebelum digunakan",
         "summary_one": "1 alat ini meminta persetujuan Anda setiap kali — apa pun mode izinnya, bahkan Bypass.",
@@ -1063,7 +1124,8 @@
         "contiOffNotice": "Saat disimpan, ruleset conti dihapus (data conti tetap ada). Pulihkan aturan sebelumnya secara manual dari riwayat."
       },
       "rulesEditor": {
-        "help": "Aturan kustom yang disuntikkan ke prompt agent setiap dijalankan (Markdown)"
+        "help": "Aturan kustom yang disuntikkan ke prompt agent setiap dijalankan (Markdown)",
+        "placeholder": "# Aturan\n- Ikuti rencana implementasi dengan tepat\n- Jalankan tes setelah setiap perubahan\n- Segera laporkan jika ada tes yang sudah ada yang gagal"
       },
       "rulesHistory": {
         "title": "Riwayat",
@@ -1091,6 +1153,7 @@
       "tools": {
         "label": "Alat",
         "addTool": "+ Tambah Tool",
+        "removeTool": "Hapus {{tool}}",
         "Read": "Baca isi file dari filesystem.",
         "Write": "Buat file baru atau timpa yang sudah ada.",
         "Edit": "Lakukan penggantian string bertarget di file.",
@@ -1164,7 +1227,7 @@
         "projectContext": "Hanya baca. File dan aturan yang otomatis disuntikkan ke setiap prompt saat agent berjalan. Diperbarui saat dibuka.",
         "agentSettingsNote": "Pengaturan ini hanya berlaku saat menjalankan perintah dari Vibisual (eksekusi sub-agent). Tidak mengubah sesi Claude Code agent itu sendiri.",
         "memory": "Apa yang diingat agen ini antarsesi, dan di mana catatan itu disimpan.",
-        "subagentDepth": "Berapa lapis subagen yang boleh dibuat agen ini di bawahnya. 0 memakai bawaan CLI (3 lapis); 1 mematikan penyarangan."
+        "subagentDepthEffective": "Berapa banyak lapisan subagent yang boleh dimunculkan oleh agent ini di bawahnya sendiri. 0 berarti CLI yang memutuskan ({{depth}} lapisan); 1 mematikan nesting."
       },
       "memory": {
         "label": "Memori",
@@ -1175,7 +1238,8 @@
         "local": "Folder memori sendiri untuk proyek ini, di luar kontrol versi."
       },
       "subagentDepth": {
-        "label": "Kedalaman subagen"
+        "label": "Kedalaman subagen",
+        "layers": "{{count}} lapisan"
       },
       "cliOptions": {
         "label": "Opsi CLI",
@@ -1193,14 +1257,10 @@
       "autoCompact": {
         "label": "Pemadatan otomatis",
         "tip": "Ukuran jendela yang menjadi acuan pemadatan. Pada praktiknya kami melipat pada {{percent}}% dari nilai itu, di akhir giliran tersebut — agar tidak terpotong di tengah tugas; jika satu giliran menembus seluruh sisa margin, CLI yang melipat di tengah tugas.",
-        "unset": "Belum diatur — mengikuti nilai bawaan di jendela Pengaturan.",
-        "unsetLabel": "tidak disetel",
         "auto": "auto — CLI memilih jendelanya.",
         "tokens": "Ukuran jendela sekitar {{tokens}} token.",
         "foldsAt": "Melipat sekitar {{tokens}}, di akhir giliran tersebut.",
         "foldsAtAuto": "Melipat pada {{percent}}% jendela yang dipilih CLI, di akhir giliran tersebut.",
-        "unsetDefaultLabel": "tidak diatur (bawaan: mati)",
-        "globalTip": "Berlaku untuk semua agen yang tidak punya nilai auto-compact sendiri — termasuk yang sedang berjalan. Biarkan kosong untuk memakai nilai bawaan.",
         "offLabel": "mati",
         "off": "mati — tidak pernah dipadatkan. Tidak ada panggilan ringkasan, jadi tidak memakai token.",
         "foldsAtOff": "Tidak pernah dipadatkan. Percakapan panjang makin berat tiap giliran, dan saat jendela model penuh CLI memadatkan sekali di tengah pekerjaan.",
@@ -1216,7 +1276,9 @@
           "everyTime": "Konfirmasi ini muncul setiap kali Anda menyalakannya kembali.",
           "cancel": "Batal (biarkan mati)",
           "enable": "Saya mengerti — nyalakan"
-        }
+        },
+        "unsetFollows": "Biarkan kosong agar mengikuti nilai di {{options}}; jika itu juga kosong, nilai yang tertanam di Vibisual yang berlaku.",
+        "globalTipEffective": "Berlaku untuk setiap agent yang belum punya nilai auto-compact sendiri — termasuk yang sudah berjalan. Jika dibiarkan kosong, {{value}} yang berlaku."
       },
       "settingSources": {
         "label": "Sumber setelan",
@@ -1281,10 +1343,10 @@
       },
       "bashTimeout": {
         "label": "Timeout Bash",
-        "tip": "Batas waktu untuk tool Bash. Jika dibiarkan 0, bawaan CLI berlaku — perintah tanpa timeout eksplisit berhenti pada {{defaultSec}}dtk, dan tidak ada perintah yang boleh berjalan lebih dari {{maxSec}}dtk. Naikkan batas Max saat build atau test run yang panjang terpotong. Dikirim ke agent sebagai BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
-        "defaultLabel": "Default (dtk, 0 = bawaan CLI)",
-        "maxLabel": "Batas maks (dtk, 0 = bawaan CLI)",
-        "hint": "0 memakai bawaan CLI — {{defaultSec}}dtk default, {{maxSec}}dtk maks."
+        "defaultLabelSec": "Timeout (s, 0 = {{sec}}s)",
+        "maxLabelSec": "Batas maks (s, 0 = {{sec}}s)",
+        "tipEffective": "Batas waktu untuk alat Bash. Jika dibiarkan di 0, batas milik CLI sendiri yang berlaku — perintah tanpa timeout eksplisit berhenti di {{defaultSec}}s, dan tidak ada perintah yang boleh berjalan lebih dari {{maxSec}}s. Naikkan batas maks saat build atau tes yang panjang terpotong. Dikirim ke agent sebagai BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
+        "hintEffective": "Diterapkan sekarang: timeout {{defaultSec}}s, maks {{maxSec}}s."
       },
       "modelVersion": {
         "label": "Versi",
@@ -1298,13 +1360,28 @@
         "switchModel": "Ganti model",
         "pickModel": "Pilih model",
         "temperature": "Temperature",
-        "temperatureTip": "Nilai rendah membuat jawaban stabil dan konsisten, nilai tinggi membuatnya lebih bebas. Kosongkan untuk memakai nilai bawaan engine.",
-        "temperatureDefault": "Bawaan engine",
         "toolsTip": "Model lokal selalu menerima seluruh daftar tool di bawah — ini bukan daftar pilihan. Tepat sebelum tool dijalankan, Mode Izin di atas dan popup persetujuan berlaku persis seperti pada bubble Claude.",
         "toolsOk": "Model ini memakai tools — bisa membaca dan mengubah berkas.",
         "toolsNone": "Model ini tidak bisa memakai tools — hanya mengobrol.",
         "toolsUnknown": "Belum dicek — tools akan ikut dikirim pada giliran berikutnya untuk memastikannya.",
-        "toolsRecheck": "Cek lagi"
+        "toolsRecheck": "Cek lagi",
+        "temperatureTipEffective": "Semakin rendah, jawaban makin stabil dan konsisten; semakin tinggi, jawaban makin bebas. Biarkan kosong untuk memakai nilai yang ditampilkan di kolom.",
+        "source": {
+          "loaded": "engine yang berjalan",
+          "model": "file model",
+          "engine": "engine",
+          "trained": "panjang latihan model"
+        },
+        "temperatureSourceTip": {
+          "loaded": "Nilai yang saat ini dipakai oleh engine yang menjalankan model ini.",
+          "model": "Nilai yang direkomendasikan dalam file model. Jika kolom ini kosong, engine akan memakainya.",
+          "engine": "Baik engine yang berjalan maupun file model tidak memberikan nilai ini, sehingga nilai milik engine sendiri yang berlaku."
+        },
+        "contextSourceTip": {
+          "loaded": "Engine sudah berjalan dengan ukuran ini. Nilai yang diketik di sini berlaku saat model dimuat ulang.",
+          "model": "Model ini dilatih dengan panjang yang lebih pendek, sehingga ukuran saat Vibisual memuatnya dipangkas ke panjang itu.",
+          "builtin": "Jika kolom ini kosong, Vibisual memuat model dengan ukuran ini."
+        }
       },
       "cliKind": {
         "label": "CLI",
@@ -1317,23 +1394,78 @@
         "hint": "Agen meminta saat konteks terasa berat; dijalankan di akhir giliran itu."
       },
       "diff": {
-        "badge": "{{count}} berbeda dari default",
-        "summaryTip": "Berbeda dari default agen di Opsi — {{list}}",
-        "tip": "Disetel khusus untuk agen ini. Default: {{value}}",
         "unset": "tidak disetel",
         "on": "aktif",
-        "off": "nonaktif"
+        "off": "nonaktif",
+        "badgeOptions": "{{count}} berbeda dari {{options}}",
+        "summaryTipOptions": "Berbeda dari nilai yang diatur untuk agent baru di {{options}} — {{list}}",
+        "tipOptions": "Hanya diatur untuk agent ini. Di {{options}}: {{value}}"
       },
       "contextNotAccessible": "Tidak dapat diakses (internal Claude Code)",
       "codex": {
+        "edgeDelegationNote": "Delegasi tool Codex memblokir tool yang dapat dieksekusi langsung dan mengirim pekerjaan ke agent yang terhubung. Karena perintah shell dapat melewati batasan baca, cari, dan edit secara terpisah, mode ini menerapkan batasan yang lebih luas. Perencanaan dan jawaban akhir tetap tersedia. Perubahan berlaku mulai pesan berikutnya.",
         "noModel": "Belum ada model yang dipilih",
         "modelTip": "Model Codex yang digunakan bubble ini. Vibisual selalu mengirimkan ini secara eksplisit, sehingga tidak pernah kembali ke model default di file config Codex Anda.",
         "noModelList": "Daftar model belum pernah dibaca — menjalankan Codex sekali akan membuatnya.",
         "reloadModels": "Muat ulang",
         "effort": "Upaya penalaran",
         "effortTip": "Semakin tinggi berarti model berpikir lebih lama dan memakai lebih banyak token. Hanya tingkat yang dilaporkan model ini yang ditampilkan.",
-        "effortDefault": "Default engine",
-        "toolsManaged": "Dikelola oleh Codex CLI"
+        "toolsManaged": "Dikelola oleh Codex CLI",
+        "toolAsk": "Selalu tanya",
+        "toolReset": "Izinkan semua",
+        "toolsHint": "Pilih izinkan, tolak, atau tanya untuk tiap alat. Izin tetap mengikuti sandbox dan persetujuan. Shell dan MCP juga dapat membaca dan mengedit berkas; gunakan mode izin untuk melindunginya.",
+        "toolHosted": "Web, gambar, komputer, dan subagen bawaan hanya mendukung izin/tolak tanpa hook persetujuan. Tanya untuk MCP menonaktifkan Apps yang melewati hook. Berlaku pada pesan berikutnya.",
+        "toolChildren": "Subagen bawaan dan pembungkus kode dinonaktifkan agar batasan berlaku. Delegasi ke agen terhubung mengikuti izin MCP; target memakai izinnya sendiri.",
+        "execution": "Eksekusi Codex",
+        "permissionTip": "Mengatur akses sistem file dan kebijakan persetujuan sekaligus. Saat Codex meminta menjalankan sesuatu di luar akses ini, popup persetujuan Vibisual akan menanyakannya kepada Anda, dan pengaturan tanpa respons 60 detik berlaku. Batas audit memeriksa panggilan berisiko secara terpisah.",
+        "permission": {
+          "default": "Edit di workspace · persetujuan saat diminta",
+          "acceptEdits": "Izinkan edit · persetujuan saat diminta",
+          "auto": "Edit di workspace · tanpa persetujuan",
+          "plan": "Rencana · hanya baca",
+          "dontAsk": "Hanya baca · tanpa persetujuan",
+          "bypassPermissions": "Akses penuh · tanpa persetujuan"
+        },
+        "webSearch": {
+          "label": "Pencarian web",
+          "tip": "Pilih cara tool pencarian mengambil hasil. Terpisah dari akses jaringan untuk perintah.",
+          "disabled": "Nonaktif",
+          "cached": "Dari cache",
+          "live": "Langsung"
+        },
+        "verbosity": {
+          "label": "Panjang respons",
+          "tip": "Menyesuaikan tingkat detail respons pada model yang didukung. Terpisah dari upaya penalaran; dukungan berbeda-beda per model.",
+          "low": "Ringkas",
+          "medium": "Seimbang",
+          "high": "Rinci"
+        },
+        "network": {
+          "label": "Akses jaringan perintah",
+          "tip": "Mengizinkan akses jaringan keluar untuk perintah seperti instalasi paket dalam mode tulis workspace.",
+          "false": "Diblokir",
+          "true": "Diizinkan"
+        },
+        "source": {
+          "profile": "profil {{name}}",
+          "project": "file config proyek",
+          "user": "file config Codex",
+          "system": "file config sistem",
+          "model": "diatur oleh model",
+          "builtin": "diatur oleh Codex",
+          "delegation": "edge delegasi alat"
+        },
+        "sourceTip": {
+          "layer": "Dibaca dari {{path}}. Biarkan kosong agar tetap mengikuti file itu.",
+          "profile": "Dibaca dari profil {{name}} di {{path}}. Biarkan kosong agar tetap mengikuti file itu.",
+          "model": "Tidak satu pun file config Codex yang mengatur ini, sehingga yang dipakai adalah nilai yang dilaporkan model ini.",
+          "builtin": "Tidak satu pun file config Codex yang mengatur ini, sehingga Codex memakai nilainya sendiri. Pencarian web mengikuti mode izin — langsung saat akses penuh, dari cache jika tidak.",
+          "delegation": "Ada edge delegasi alat yang keluar dari bubble ini, sehingga pencarian web dinonaktifkan."
+        },
+        "unsupported": "Tidak digunakan oleh model ini",
+        "unsupportedTip": "Model ini tidak menerima pengaturan panjang respons, sehingga Codex mengabaikannya.",
+        "unresolvedTip": "File config Codex atau daftar model tidak dapat dibaca, sehingga nilai yang diterapkan tidak diketahui. Jika dibiarkan kosong, tidak ada yang dikirim dan Codex yang memutuskan.",
+        "applyNoteEffective": "Pengaturan yang disimpan berlaku mulai pesan berikutnya. Kolom kosong menampilkan nilai yang benar-benar akan digunakan Codex, dan dari mana asalnya."
       },
       "tokenSaver": {
         "label": "Hemat token",
@@ -1345,6 +1477,12 @@
         "compactPct": "Compact pada (%)",
         "noExtraCalls": "Lewati panggilan tambahan",
         "hint": "Biarkan semua kolom di 0 untuk mengikuti pengaturan global."
+      },
+      "effective": {
+        "resolved": "{{value}} ({{source}})",
+        "sourceOptions": "diatur di {{options}}",
+        "sourceBuiltin": "tertanam di Vibisual",
+        "unknown": "Nilai yang diterapkan tidak dapat dibaca"
       }
     },
     "permissionPrompt": {
@@ -1506,6 +1644,8 @@
       "maxTitle": "Maks satelit untuk folder ini",
       "maxHint": "Enter · Esc",
       "maxSave": "Simpan",
+      "maxDecrease": "Kurangi",
+      "maxIncrease": "Tambah",
       "noVisible": "Tidak ada file yang terlihat"
     },
     "webEntry": {
@@ -1551,6 +1691,9 @@
       "restart": "Mulai ulang server",
       "stop": "Hentikan server",
       "start": "Mulai server",
+      "restartLabel": "Mulai ulang",
+      "stopLabel": "Hentikan",
+      "startLabel": "Mulai",
       "noEntry": "Tidak ada entri server yang cocok",
       "noCommand": "Tidak bisa restart — sudah berhenti sehingga perintah start tidak bisa diketahui lagi (server yang dilaporkan agen)",
       "takeover": "Restart dengan alih kendali — Vibisual mengambil alih server yang dijalankan agen",
@@ -1868,12 +2011,12 @@
       "noAudio": "Diekspor tanpa audio.",
       "downgraded": "Mode render diturunkan: {{id}}",
       "previewFailed": "Gagal menampilkan pratinjau.",
-      "errNoDoc": "No document is open.",
-      "errNoStage": "Could not find a place to attach the stage.",
-      "errNoRenderBackend": "No render mode is available on this device.",
-      "errNoOffscreen": "Offscreen windows are not available in this build.",
-      "errNoOffscreenBridge": "The offscreen bridge is not available.",
-      "errRequestFailed": "The request failed ({{status}}).",
+      "errNoDoc": "Tidak ada dokumen yang terbuka.",
+      "errNoStage": "Tidak dapat menemukan tempat untuk memasang panggung.",
+      "errNoRenderBackend": "Tidak ada mode render yang tersedia di perangkat ini.",
+      "errNoOffscreen": "Jendela offscreen tidak tersedia di build ini.",
+      "errNoOffscreenBridge": "Bridge offscreen tidak tersedia.",
+      "errRequestFailed": "Permintaan gagal ({{status}}).",
       "reloaded": "Dokumen berubah di tempat lain, jadi dimuat ulang."
     },
     "cost": {
@@ -2162,13 +2305,18 @@
       "emptyInScope": "Belum ada apa pun di {{scope}}.",
       "widenTo": "Lihat di {{scope}} ({{count}})",
       "untitledSession": "Percakapan tanpa judul",
-      "revisionOf": "rev {{index}}/{{total}}"
+      "revisionOf": "rev {{index}}/{{total}}",
+      "failedBadge": "Gagal: {{count}}",
+      "failedBadgeTip": "Compaction yang gagal ({{scope}}): {{count}}. Setiap baris yang gagal diberi chip merah berisi alasannya."
     },
     "remoteAccess": {
       "title": "Akses jarak jauh",
       "categories": {
         "mobile": "Peramban ponsel"
       }
+    },
+    "webFold": {
+      "pinDomain": "Pin domain ini (cegah hapus) — domain ini keluar dari bubble ini dan kembali mendapat bubble sendiri"
     }
   },
   "ide": {
@@ -2270,6 +2418,7 @@
       "newSession": "Sesi Baru",
       "pastSessions": "Sesi Lama",
       "closeTab": "Tutup tab",
+      "closeTabNamed": "Tutup {{name}}",
       "pastSessionsClose": "Tutup",
       "loading": "Memuat...",
       "noClosedSessions": "Tidak ada sesi tertutup untuk dipulihkan.",
@@ -2354,6 +2503,111 @@
       "historyHintPrev": "Tekan lagi untuk perintah terakhir",
       "historyHintNext": "Tekan lagi untuk perintah terlama",
       "slashBuiltin": "bawaan",
+      "slashBuiltinDesc": {
+        "add-dir": "Menambahkan direktori kerja untuk akses file selama sesi saat ini",
+        "advisor": "Mengaktifkan atau menonaktifkan tool advisor, yang meminta arahan dari model kedua pada momen penting dalam sebuah tugas",
+        "agents": "Sejak v2.1.198, menjalankan /agents hanya menampilkan pengingat untuk meminta Claude membuat atau mengelola subagen, atau untuk mengedit .claude/agents/ atau ~/.claude/ag...",
+        "artifacts": "Menampilkan daftar artefak milik Anda atau yang dibagikan kepada Anda, lalu melampirkan salah satunya ke sesi, membukanya di browser, atau menyalin tautannya",
+        "auto-mode-setup": "Menyusun draf entri autoMode.environment dari proyek dan sesi terbaru Anda, lalu Anda meninjau draf itu dan menyimpannya ke pengaturan pengguna",
+        "autocompact": "Mengatur jendela pemadatan otomatis: seberapa penuh jendela konteks sebelum Claude Code memadatkan secara otomatis",
+        "autofix-pr": "Memulai sesi Claude Code on the web yang memantau PR branch saat ini dan mengirim perbaikan saat CI gagal atau reviewer meninggalkan komentar",
+        "background": "Melepas sesi saat ini agar berjalan sebagai agent latar belakang dan membebaskan terminal ini",
+        "batch": "Mengatur perubahan berskala besar di seluruh basis kode secara paralel",
+        "branch": "Membuat cabang dari percakapan saat ini di titik ini, sehingga Anda bisa mencoba arah lain tanpa kehilangan percakapan yang ada",
+        "btw": "Mengajukan pertanyaan sampingan tentang sesi saat ini tanpa menambahkannya ke percakapan",
+        "bug": "Melaporkan bug atau membagikan percakapan Anda",
+        "cd": "Memindahkan sesi ini ke direktori kerja baru, dengan tetap mempertahankan percakapan dan cache prompt-nya",
+        "chrome": "Mengonfigurasi pengaturan Claude in Chrome",
+        "claude-api": "Memuat materi referensi Claude API dan Managed Agents untuk bahasa pemrograman proyek Anda",
+        "clear": "Memulai percakapan baru dengan konteks kosong",
+        "code-review": "Meninjau diff saat ini, atau nomor PR, branch, atau path yang Anda berikan, untuk mencari bug ketepatan dan peluang perapian",
+        "color": "Mengatur warna bilah prompt untuk sesi saat ini",
+        "compact": "Mengosongkan konteks dengan merangkum percakapan sejauh ini",
+        "config": "Membuka antarmuka Pengaturan untuk menyesuaikan tema, model, gaya output, dan preferensi lainnya",
+        "context": "Menampilkan penggunaan konteks saat ini sebagai kisi berwarna",
+        "copy": "Menyalin respons asisten terakhir ke papan klip",
+        "dataviz": "Panduan desain untuk chart, grafik, dan dashboard",
+        "debug": "Mengaktifkan log debug untuk sesi saat ini dan membantu memecahkan masalah dengan membaca log debug sesi",
+        "deep-research": "Menyebar pencarian web untuk sebuah pertanyaan, mengambil dan mencocokkan sumber, lalu menyusun laporan dengan kutipan",
+        "design-login": "Mengizinkan akses sistem desain untuk /design-sync dengan akun claude.ai Anda",
+        "design-sync": "Mengonversi sistem desain React di repo Anda dan mengunggahnya ke Claude Design, agar desain yang dihasilkannya memakai komponen asli Anda",
+        "desktop": "Melanjutkan sesi saat ini di aplikasi Claude Code Desktop",
+        "diff": "Membuka penampil diff interaktif yang menampilkan perubahan yang belum di-commit dan diff per giliran",
+        "doctor": "Menjalankan pemeriksaan penyiapan yang mendiagnosis masalah dan dapat memperbaikinya",
+        "effort": "Mengatur tingkat upaya: low hingga xhigh, max, ultracode, atau auto; status menampilkannya",
+        "exit": "Keluar dari CLI",
+        "export": "Mengekspor percakapan saat ini sebagai teks biasa",
+        "fast": "Mengaktifkan atau menonaktifkan mode Fast",
+        "feedback": "Mengirim masukan produk tentang Claude Code",
+        "fewer-permission-prompts": "Memindai transkrip Anda untuk panggilan tool Bash dan MCP hanya-baca yang sering muncul, lalu menambahkan allowlist berprioritas ke .claude/settings.json proyek untuk...",
+        "focus": "Mengaktifkan atau menonaktifkan tampilan fokus, yang hanya menampilkan prompt terakhir Anda, ringkasan satu baris panggilan tool beserta statistik diff, dan respons akhir",
+        "fork": "Menyalin percakapan saat ini ke sesi latar belakang baru, sementara Anda tetap bekerja di sini",
+        "goal": "Menetapkan tujuan: Claude terus bekerja lintas giliran sampai kondisinya terpenuhi atau tujuannya dihapus karena alasan lain",
+        "heapdump": "Menulis snapshot heap JavaScript dan rincian memori ke ~/Desktop, atau ke direktori home Anda di Linux tanpa folder Desktop, untuk diagn...",
+        "help": "Menampilkan bantuan dan perintah yang tersedia",
+        "hooks": "Menampilkan konfigurasi hook untuk event tool",
+        "ide": "Mengelola integrasi IDE dan menampilkan statusnya",
+        "import": "Membawa konfigurasi dari agent coding lain di komputer Anda, saat ini OpenAI Codex dan Google Gemini CLI, ke Claude Code, termasuk...",
+        "init": "Menginisialisasi proyek dengan panduan CLAUDE.md",
+        "insights": "Membuat laporan HTML yang menganalisis sesi terbaru Anda di komputer ini: proyek mana yang Anda kerjakan, bagaimana Anda memakai Claude Code, di mana hal-hal...",
+        "install-github-app": "Memasang Claude GitHub App untuk repositori, dengan langkah opsional untuk menyiapkan workflow dan secret GitHub Actions",
+        "install-slack-app": "Memasang aplikasi Slack Claude",
+        "keybindings": "Membuka file pintasan keyboard Anda",
+        "list-agents": "Menampilkan daftar subagen, rekan tim agent, dan sesi Claude Code lain yang dapat dikirimi pesan oleh Claude, beserta nama yang dipakai untuk masing-masing",
+        "login": "Masuk ke akun Anthropic Anda",
+        "logout": "Keluar dari akun Anthropic Anda",
+        "loop": "Menjalankan prompt berulang kali selama sesi tetap terbuka",
+        "mcp": "Mengelola koneksi server MCP dan autentikasi OAuth",
+        "memory": "Mengedit file CLAUDE.md, mengaktifkan atau menonaktifkan memori otomatis, dan menampilkan entri memori otomatis",
+        "mobile": "Menampilkan kode QR untuk mengunduh aplikasi seluler Claude",
+        "model": "Mengganti model AI dan menyimpannya sebagai default untuk sesi baru",
+        "passes": "Membagikan satu minggu gratis Claude Code kepada teman",
+        "permissions": "Mengelola aturan izinkan, tanya, dan tolak untuk izin tool",
+        "plan": "Masuk ke mode plan langsung dari prompt",
+        "plugin": "Mengelola plugin Claude Code",
+        "powerup": "Mengenalkan fitur Claude Code lewat pelajaran interaktif singkat dengan demo animasi",
+        "privacy-settings": "Melihat dan memperbarui pengaturan privasi Anda",
+        "radio": "Membuka radio lo-fi Claude FM di browser Anda",
+        "rate-limit-options": "Menampilkan cara untuk tetap bekerja saat batas penggunaan claude.ai memblokir permintaan: menunggu dan melanjutkan otomatis saat batas direset, menambah penggunaan...",
+        "recap": "Membuat ringkasan satu baris dari sesi saat ini sesuai permintaan",
+        "release-notes": "Menampilkan changelog dalam pemilih versi interaktif",
+        "reload-plugins": "Memuat ulang semua plugin aktif untuk menerapkan perubahan tertunda tanpa memulai ulang",
+        "reload-skills": "Memindai ulang direktori skill dan perintah agar skill yang ditambahkan atau diubah di disk selama sesi tersedia tanpa memulai ulang",
+        "remote-control": "Membuat sesi ini tersedia untuk Remote Control dari claude.ai",
+        "remote-env": "Memilih lingkungan default untuk agent cloud",
+        "rename": "Mengganti nama sesi saat ini dan menampilkan nama itu di bilah prompt",
+        "resume": "Melanjutkan percakapan berdasarkan ID atau nama, atau membuka pemilih sesi",
+        "rewind": "Memundurkan percakapan dan/atau kode ke titik sebelumnya, atau merangkum mulai dari pesan yang dipilih",
+        "run": "Menjalankan dan mengoperasikan aplikasi proyek Anda untuk melihat perubahan benar-benar berfungsi, bukan hanya lolos tes",
+        "run-skill-generator": "Mengajari /run dan /verify cara membangun, menjalankan, dan mengoperasikan aplikasi proyek Anda dari lingkungan bersih dengan menulis skill khusus proyek",
+        "sandbox": "Mengaktifkan atau menonaktifkan mode sandbox",
+        "schedule": "Membuat, memperbarui, menampilkan, atau menjalankan rutinitas, yang dieksekusi di cloud",
+        "scroll-speed": "Menyesuaikan kecepatan gulir roda mouse secara interaktif, dengan penggaris yang bisa Anda gulir selama dialog terbuka untuk melihat pratinjau perubahan",
+        "security-review": "Menganalisis perubahan di branch Anda saat ini untuk mencari kerentanan keamanan",
+        "setup-bedrock": "Mengonfigurasi autentikasi, region, dan pin model Amazon Bedrock melalui wizard interaktif",
+        "setup-vertex": "Mengonfigurasi autentikasi, proyek, region, dan pin model Google Cloud's Agent Platform melalui wizard interaktif",
+        "simplify": "Meninjau kode yang diubah untuk mencari peluang perapian dan menerapkan perbaikannya",
+        "skills": "Menampilkan daftar skill yang tersedia",
+        "status": "Membuka antarmuka Pengaturan di tab Status, yang menampilkan versi, model, akun, dan konektivitas",
+        "statusline": "Mengonfigurasi baris status Claude Code",
+        "stickers": "Memesan stiker Claude Code",
+        "stop": "Menghentikan sesi latar belakang saat ini",
+        "subtask": "Memulai subagen hasil fork: subagen latar belakang yang mewarisi seluruh percakapan dan mengerjakan tugas itu sementara Anda tetap bekerja",
+        "tasks": "Melihat dan mengelola pekerjaan latar belakang di sesi saat ini, termasuk subagen yang sudah selesai",
+        "team-onboarding": "Membuat panduan onboarding tim dari riwayat penggunaan Claude Code Anda",
+        "teleport": "Menarik sesi Claude Code on the web ke terminal ini",
+        "terminal-setup": "Mengonfigurasi keybinding terminal untuk Shift+Enter dan pintasan lainnya",
+        "theme": "Mengganti tema warna",
+        "tui": "Mengatur renderer UI terminal dan membukanya ulang dengan percakapan tetap utuh",
+        "ultrareview": "Menjalankan tinjauan kode mendalam dengan banyak agent di sandbox cloud menggunakan ultrareview",
+        "upgrade": "Membuka halaman upgrade di browser Anda untuk beralih ke paket yang lebih tinggi",
+        "usage": "Menampilkan biaya sesi, batas penggunaan paket, dan statistik aktivitas",
+        "usage-credits": "Mengonfigurasi kredit penggunaan, atau memintanya dari admin Anda, saat Anda mencapai batas",
+        "verify": "Memastikan perubahan kode bekerja sebagaimana mestinya dengan membangun aplikasi proyek Anda, menjalankannya, dan mengamati hasilnya, alih-alih mengandalkan...",
+        "voice": "Mengaktifkan atau menonaktifkan dikte suara, atau mengaktifkannya dalam mode tertentu",
+        "web-setup": "Menghubungkan akun GitHub Anda ke Claude Code on the web menggunakan kredensial gh CLI lokal Anda",
+        "workflows": "Membuka tampilan progres workflow untuk memantau, menjeda, melanjutkan, atau menyimpan workflow yang sedang berjalan dan yang sudah selesai"
+      },
       "slashNeedsTerminal": "perlu terminal",
       "slashDisabledByContext": "Skill dan slash command dimatikan untuk proyek ini, jadi tidak ada yang di bawah ini akan berjalan. Nyalakan lagi di {{contextSources}} pada activity bar. (Compaction yang kami kirim tetap berjalan.)",
       "slashEmpty": "Tidak ada skill yang cocok",
@@ -2594,7 +2848,7 @@
       "docs": "Dokumentasi",
       "mcp": {
         "debugger": "Step debugger (7 bahasa)",
-        "chromeDevtools": "Browser (console · network · performance)",
+        "chromeDevtools": "Browser (konsol · jaringan · performa)",
         "chromeDevtoolsRequires": "Jalankan Chrome dengan --remote-debugging-port=9222 terlebih dahulu.",
         "unreal": "Unreal Engine",
         "unrealRequires": "Aktifkan plugin Remote Control API (port 30010) di editor.",
@@ -2855,6 +3109,8 @@
       "statusTip": "Status jalan dari sesi yang ditampilkan di sini: berjalan, menunggu, selesai, atau gagal.",
       "modelTip": "Model yang benar-benar dipakai sesi ini pada giliran terakhirnya. Sebelum giliran pertama, yang tampil adalah model yang disetel untuk agen ini.",
       "modelUnknown": "tidak diketahui",
+      "effortTip": "Setelah titik adalah {{effort}} — pilihan eksplisit Anda, atau tingkat sebenarnya yang dilaporkan sesi yang dipilih.",
+      "modelSwitchTip": "Klik untuk mengganti model langsung di sini.",
       "thinkingOff": "Penalaran diperluas nonaktif",
       "thinkingOffTip": "Agen ini berjalan dengan penalaran diperluas nonaktif — sesi yang dijalankan dari sini menjawab tanpa tahap berpikir. Sakelarnya adalah kotak centang {{thinking}}: per agen di {{agentSettings}}, atau untuk semua di {{file}} > {{options}} > {{agentDefaults}}.",
       "context": "ctx: {{used}}/{{max}}",
@@ -2868,8 +3124,7 @@
       "sessionsTip": "Berapa tab sesi yang terbuka pada agen ini.",
       "contextOverdueTip": "Konteks sesi ini hampir penuh dan masih terus bertambah, tetapi compaction belum berjalan. Klik untuk membuka Asuransi Konteks.",
       "contextStalledTip": "Context window sesi ini nyaris penuh dan compaction belum berjalan. Klik untuk membuka Asuransi Konteks.",
-      "contextRejectedTip": "Kami mengirim perintah compaction, tetapi Claude Code tidak pernah memulainya — perintah itu ditolak. Penyebab umumnya adalah skill dan slash command dimatikan untuk proyek ini di {{contextSources}}. Klik untuk membuka Asuransi Konteks.",
-      "failedCompactsTip": "Compaction yang gagal di sesi ini: {{count}}. Klik untuk membuka asuransi konteks dan melihat apa yang tersimpan."
+      "contextRejectedTip": "Kami mengirim perintah compaction, tetapi Claude Code tidak pernah memulainya — perintah itu ditolak. Penyebab umumnya adalah skill dan slash command dimatikan untuk proyek ini di {{contextSources}}. Klik untuk membuka Asuransi Konteks."
     },
     "search": {
       "placeholder": "Cari dalam percakapan",
@@ -3165,6 +3420,7 @@
       "maxTurns": "Berhenti di batas maks giliran",
       "agentView": "Proses agent berakhir dengan kegagalan",
       "orphaned": "Terinterupsi saat aplikasi dimulai ulang",
+      "dispatchResult": "Berakhir tanpa menerima hasil tugas yang didelegasikan",
       "unknown": "Gagal karena alasan yang tidak diketahui"
     },
     "density": {
@@ -4251,19 +4507,19 @@
     "taskEdgeKind": {
       "command": {
         "label": "Command",
-        "description": "Instruction — \"please do this\""
+        "description": "Instruksi — “tolong kerjakan ini”"
       },
       "artifact": {
         "label": "Artifact",
-        "description": "Hands over the result itself — the file or diff"
+        "description": "Menyerahkan hasilnya langsung — file atau diff-nya"
       },
       "request": {
         "label": "Request",
-        "description": "Reverse request — \"I am stuck, please help\""
+        "description": "Permintaan balik — “saya buntu, tolong bantu”"
       },
       "critique": {
         "label": "Critique",
-        "description": "Critique / review — audit and red-team role (the watcher)"
+        "description": "Kritik / ulasan — peran audit dan red team (pengawas)"
       }
     },
     "taskEdgePopup": {
@@ -4526,7 +4782,9 @@
       "createShelf": "Rak script",
       "createShelfHint": "Menyimpan perintah dan prompt yang sering dipakai agar tetap satu klik jauhnya",
       "createCodexAgent": "Buat Codex Agent",
-      "createCodexAgentHint": "Menaruh agen yang berjalan lewat OpenAI Codex CLI"
+      "createCodexAgentHint": "Menaruh agen yang berjalan lewat OpenAI Codex CLI",
+      "createCodexCmdAgent": "Buat Codex CMD",
+      "createCodexCmdAgentHint": "Terminal interaktif tempat Anda mengendalikan Codex CLI sendiri"
     },
     "bounds": {
       "label": "Batas Bubble",
@@ -4770,6 +5028,10 @@
       "deleteN": "Hapus {{count}} item terpilih",
       "deleteForeverN": "Hapus {{count}} item terpilih secara permanen…",
       "worktreeSkipped": "Mengecualikan {{count}} bubble worktree — hapus satu per satu."
+    },
+    "webFold": {
+      "domainCount_one": "{{count}} domain",
+      "domainCount_other": "{{count}} domain"
     }
   },
   "common": {
@@ -4837,7 +5099,7 @@
     "cancel": "Batal",
     "confirm": "Konfirmasi",
     "msg": {
-      "requestFailed": "Failed ({{status}})"
+      "requestFailed": "Gagal ({{status}})"
     },
     "minimize": "Perkecil",
     "maximize": "Perbesar",
@@ -5139,32 +5401,38 @@
     "trashItemsMore": "+{{n}} lainnya"
   },
   "providers": {
-    "provider": "Provider",
+    "provider": "Penyedia",
     "claude": "Claude",
     "codex": "Codex",
-    "local": "All Model",
-    "main": "Main provider",
-    "mainHint": "Sets the default agent, settings tab and usage indicator. You can sign in to both providers.",
-    "saveFailed": "Could not save. Please try again.",
-    "project": "Project settings",
-    "save": "Save",
-    "saved": "Saved",
+    "local": "Semua Model",
+    "main": "Penyedia utama",
+    "mainHint": "Penyedia yang mengerjakan sebagian besar pekerjaan. Agen baru memakainya secara default dan indikator penggunaan di atas mengikutinya, di semua proyek.",
+    "saveFailed": "Tidak dapat menyimpan. Silakan coba lagi.",
+    "project": "Pengaturan proyek",
+    "save": "Simpan",
+    "saved": "Tersimpan",
     "model": "Model",
-    "effort": "Reasoning effort",
-    "context": "Context size",
+    "effort": "Upaya penalaran",
+    "context": "Ukuran konteks",
     "temperature": "Temperature",
-    "rules": "Instructions",
-    "default": "Default",
-    "usage": "Usage",
-    "localUsage": "All Model runs locally and has no subscription usage limit.",
-    "signIn": "Sign in to check usage.",
-    "noUsage": "Usage is unavailable for this account.",
-    "refresh": "Refresh",
-    "close": "Close",
-    "window": "{{minutes}} minute window",
-    "projectHint": "These settings apply to agents in the active project.",
-    "noProject": "Open a project to configure its providers.",
-    "webSearch": "Web search",
-    "modelVerbosity": "Response verbosity"
+    "rules": "Instruksi",
+    "usage": "Penggunaan",
+    "localUsage": "Semua Model berjalan secara lokal dan tidak memiliki batas penggunaan langganan.",
+    "signIn": "Masuk untuk melihat penggunaan.",
+    "noUsage": "Data penggunaan tidak tersedia untuk akun ini.",
+    "refresh": "Segarkan",
+    "close": "Tutup",
+    "window": "Jendela {{minutes}} menit",
+    "webSearch": "Pencarian web",
+    "modelVerbosity": "Panjang respons",
+    "modelChosenOnOpen": "Belum ada model — pilih satu saat pengaturan awal",
+    "modelSource": {
+      "codexFirst": "pertama dalam daftar Codex",
+      "localLatest": "unduhan terbaru"
+    },
+    "modelSourceTip": {
+      "codexFirst": "Jika dibiarkan kosong, agent baru memakai model pertama dalam daftar model Codex saat pertama kali dibuka.",
+      "localLatest": "Jika dibiarkan kosong, agent baru memakai model yang paling baru diunduh saat pertama kali dibuka."
+    }
   }
 }

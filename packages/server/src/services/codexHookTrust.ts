@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { buildCliInvocation } from './claudeCliRun.js';
 import { augmentedEnv } from './binLocator.js';
 import { processGroupSpawnOptions, killTree } from './processTree.js';
-import { codexEdgeHookCommand, codexEdgeOverrides, type CodexEdgeConfig } from './codexEdges.js';
+import { codexEdgeHookCommand, codexEdgeOverrides, type CodexEdgeConfig, type CodexExpectedHook } from './codexEdges.js';
 
 interface HookMetadata {
   command?: string;
@@ -69,6 +69,35 @@ export async function prepareCodexEdgeHook(bin: string, cwd: string, config: Cod
   const verified = find(await listHooks(bin, cwd, [...overrides, ...trust], signal));
   if (verified?.trustStatus !== 'trusted' || verified.currentHash !== hook.currentHash) {
     throw new Error(`Codex edge gate trust could not be verified (${verified?.trustStatus}, hash stable=${verified?.currentHash === hook.currentHash}); refusing unrestricted execution`);
+  }
+  return trust;
+}
+
+/**
+ * §5.25 (H) — trust every app-owned hook of one turn (edge gate + permission bridge) in a single
+ * `hooks.state` override, then re-list to confirm each is trusted with an unchanged hash. Only the
+ * hooks in `expected` are trusted; the user's own hooks keep whatever trust they already have.
+ */
+export async function prepareCodexHooks(
+  bin: string,
+  cwd: string,
+  overrides: string[],
+  expected: readonly CodexExpectedHook[],
+  signal: AbortSignal,
+): Promise<string[]> {
+  if (!expected.length) return [];
+  const find = (hooks: HookMetadata[]) => expected.map((want) =>
+    hooks.find((hook) => hook.command === want.command && hook.eventName === want.eventName && hook.enabled));
+  const loaded = find(await listHooks(bin, cwd, overrides, signal));
+  const missing = expected.filter((_, index) => !loaded[index]?.key || !loaded[index]?.currentHash);
+  if (missing.length) throw new Error(`Codex app hooks were not loaded (${missing.map((hook) => hook.eventName).join(', ')})`);
+  const state = loaded.map((hook) => `${JSON.stringify(hook!.key)}={trusted_hash=${JSON.stringify(hook!.currentHash)}}`);
+  const trust = ['-c', `hooks.state={${state.join(',')}}`];
+  const verified = find(await listHooks(bin, cwd, [...overrides, ...trust], signal));
+  const failed = verified.findIndex((hook, index) => hook?.trustStatus !== 'trusted' || hook.currentHash !== loaded[index]!.currentHash);
+  if (failed >= 0) {
+    const hook = verified[failed];
+    throw new Error(`Codex app hook trust could not be verified (${expected[failed]!.eventName}: ${hook?.trustStatus}, hash stable=${hook?.currentHash === loaded[failed]!.currentHash})`);
   }
   return trust;
 }

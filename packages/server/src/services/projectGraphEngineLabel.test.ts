@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CODEX_AGENT_COLOR } from '@vibisual/shared';
+import { CODEX_AGENT_COLOR, CMD_AGENT_COLOR, CODEX_DEFAULT_LABEL_RE } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 
 /**
@@ -68,6 +68,39 @@ describe('§5.25 (B) 엔진별 기본 라벨', () => {
 
     expect(plain.label).toMatch(/^Claude Agent \d+$/);
     expect(cmd.label).toMatch(/^CMD Agent \d+$/);
+  });
+
+  it('§5.25 (B-1) Codex 칸의 CMD 는 같은 CMD 버블이 codex 를 채우도록 태어난다', () => {
+    const { graph, projectName } = makeGraph();
+    const codexCmd = graph.createCustomAgent('', { x: 2, y: 2 }, projectName, {
+      executionMode: 'interactive-terminal',
+      cliKind: 'codex',
+    });
+    const cfg = graph.getSnapshot().agentConfigs?.[codexCmd.id];
+
+    expect(codexCmd.label).toMatch(/^Codex CMD \d+$/);
+    expect(cfg?.cliKind).toBe('codex');
+    // 모양·동작은 Claude CMD 와 똑같다 — 터미널 축과 CMD 색이 그대로다(헤드리스 코덱스가 아니다).
+    expect(cfg?.executionMode).toBe('interactive-terminal');
+    expect(cfg?.color).toBe(CMD_AGENT_COLOR);
+    expect(cfg?.provider).toBeUndefined();
+    // 모델 줄 판정이 이 이름을 코덱스 헤드리스 기본 라벨로 오인해 모델명으로 덮어쓰지 않는다.
+    expect(CODEX_DEFAULT_LABEL_RE.test(codexCmd.label)).toBe(false);
+  });
+
+  it('CMD 가 아니면 cliKind 는 버린다 — 헤드리스 스폰은 그 칸을 읽지 않는다', () => {
+    const { graph, projectName } = makeGraph();
+    const headless = graph.createCustomAgent('', { x: 3, y: 3 }, projectName, { cliKind: 'codex' });
+    const claudeCmd = graph.createCustomAgent('', { x: 4, y: 4 }, projectName, {
+      executionMode: 'interactive-terminal',
+      cliKind: 'claude',
+    });
+
+    expect(headless.label).toMatch(/^Claude Agent \d+$/);
+    expect(graph.getSnapshot().agentConfigs?.[headless.id]?.cliKind).toBeUndefined();
+    // `claude` 는 표의 기본 행이라 남기지 않는다(설정 창 저장 규약과 같다).
+    expect(claudeCmd.label).toMatch(/^CMD Agent \d+$/);
+    expect(graph.getSnapshot().agentConfigs?.[claudeCmd.id]?.cliKind).toBeUndefined();
   });
 
   it('사용자가 준 이름은 어떤 엔진에서도 그대로다', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveStatusBarContext, resolveStatusBarModel, resolveStatusBarUsage,
-  resolveStatusBarThinkingOff,
+  resolveStatusBarThinkingOff, resolveStatusBarEffort, canOpenModelQuickSwitch,
 } from './statusBarContext.js';
 
 /**
@@ -227,5 +227,94 @@ describe('resolveStatusBarThinkingOff', () => {
   it('CMD 갈래가 claude 이거나 아예 없으면(헤드리스) 뜬다', () => {
     expect(resolveStatusBarThinkingOff({ ...on, cliKind: 'claude', agentThinking: false })).toBe(true);
     expect(resolveStatusBarThinkingOff({ ...on, cliKind: undefined, agentThinking: false })).toBe(true);
+  });
+});
+
+/**
+ * §4 (상태바 모델 칸 ①) — 모델 칸 옆의 추론 강도.
+ *
+ * 고정하는 것은 셋이다. ① `'default'`·빈 값은 **값이 아니라 "안 정함"** 이다 — 서버가 `--effort` 를
+ * 안 붙이는 조건과 같아야 화면이 스폰과 다른 말을 하지 않는다. ② 코덱스는 클로드 칸이 아니라
+ * `reasoningEffort` 를 본다(클로드 칸의 기본값을 코덱스 상태바에 적으면 엉뚱한 엔진의 강도가 된다).
+ * ③ 그 턴이 강도를 읽지 않는 갈래(훅·로컬·클로드가 아닌 CMD)에는 **자리 자체가 없다**.
+ */
+describe('resolveStatusBarEffort', () => {
+  const custom = { isCustom: true } as const;
+
+  it('클로드 경로 — 에이전트에 실린 강도를 그대로 적는다', () => {
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: 'xhigh' })).toEqual({ kind: 'level', value: 'xhigh' });
+    // 설치된 CLI 가 새로 내놓은 등급도 표를 거치지 않고 그대로 적는다.
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: 'ultracode' })).toEqual({ kind: 'level', value: 'ultracode' });
+  });
+
+  it("'default'·빈 값·미설정은 실제 강도를 알 수 없으며 값을 지어내지 않는다", () => {
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: 'default' })).toEqual({ kind: 'unknown' });
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: '' })).toEqual({ kind: 'unknown' });
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: '  ' })).toEqual({ kind: 'unknown' });
+    expect(resolveStatusBarEffort({ ...custom })).toEqual({ kind: 'unknown' });
+  });
+
+  it('그 에이전트를 아예 모를 때만 설정 창 전역을 따른다', () => {
+    expect(resolveStatusBarEffort({ ...custom, userDefaultEffort: 'high' })).toEqual({ kind: 'level', value: 'high' });
+    // 서버가 겹쳐 준 값이 있으면(전역을 되돌린 'default' 포함) 그것이 이긴다.
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: 'default', userDefaultEffort: 'high' })).toEqual({ kind: 'unknown' });
+    expect(resolveStatusBarEffort({ ...custom, agentEffort: 'low', userDefaultEffort: 'high' })).toEqual({ kind: 'level', value: 'low' });
+  });
+
+  it('코덱스는 reasoningEffort 를 본다 — 클로드 칸의 강도를 빌려오지 않는다', () => {
+    expect(resolveStatusBarEffort({
+      ...custom, providerKind: 'codex-cli', codexEffort: 'medium', agentEffort: 'xhigh',
+    })).toEqual({ kind: 'level', value: 'medium' });
+    expect(resolveStatusBarEffort({
+      ...custom, providerKind: 'codex-cli', agentEffort: 'xhigh',
+    })).toEqual({ kind: 'unknown' });
+  });
+
+  it('코덱스 미설정은 선택한 세션의 실제 강도로 해소하고 명시한 선택이 우선한다', () => {
+    const codex = { ...custom, providerKind: 'codex-cli', sessionEffort: 'xhigh' };
+    for (const codexEffort of [undefined, '', '  ', 'default']) {
+      expect(resolveStatusBarEffort({ ...codex, codexEffort })).toEqual({ kind: 'level', value: 'xhigh' });
+    }
+    expect(resolveStatusBarEffort({ ...codex, codexEffort: 'low' })).toEqual({ kind: 'level', value: 'low' });
+    expect(resolveStatusBarEffort({ ...codex, sessionEffort: 'high' })).toEqual({ kind: 'level', value: 'high' });
+    expect(resolveStatusBarEffort({ ...codex, sessionEffort: undefined })).toEqual({ kind: 'unknown' });
+  });
+
+  it('모델을 바꾸면 이전 모델의 세션 강도를 새 모델의 선택값처럼 표시하지 않는다', () => {
+    const codex = { ...custom, providerKind: 'codex-cli', providerModelId: 'new-model', sessionModel: 'old-model', sessionEffort: 'xhigh' };
+    expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'unknown' });
+    expect(resolveStatusBarEffort({ ...codex, sessionModel: 'new-model' })).toEqual({ kind: 'level', value: 'xhigh' });
+    expect(resolveStatusBarEffort({ ...codex, codexEffort: 'high' })).toEqual({ kind: 'level', value: 'high' });
+  });
+
+  it('훅 버블·로컬 버블·클로드가 아닌 CMD 갈래에는 강도 자리가 없다', () => {
+    expect(resolveStatusBarEffort({ isCustom: false, agentEffort: 'xhigh' })).toBeNull();
+    expect(resolveStatusBarEffort({ ...custom, providerKind: 'local-llama', agentEffort: 'xhigh' })).toBeNull();
+    expect(resolveStatusBarEffort({ ...custom, cliKind: 'gemini', agentEffort: 'xhigh' })).toBeNull();
+    expect(resolveStatusBarEffort({ ...custom, cliKind: 'shell', agentEffort: 'xhigh' })).toBeNull();
+  });
+
+  it('CMD 갈래가 claude 면 헤드리스와 같이 적는다', () => {
+    expect(resolveStatusBarEffort({ ...custom, cliKind: 'claude', agentEffort: 'max' })).toEqual({ kind: 'level', value: 'max' });
+  });
+});
+
+/**
+ * §4 (상태바 모델 칸 ②) — 모델 칸이 버튼인가. 설정이 닿지 않는 갈래에서 누르면 바꿔도 아무 일도
+ * 일어나지 않는 창이 뜬다 — 그것은 저장되는데 효과가 없는 손잡이다(§5.19 (G)).
+ */
+describe('canOpenModelQuickSwitch', () => {
+  it('우리가 띄운 헤드리스 버블은 누를 수 있다(프로바이더 버블 포함 — cliKind 가 없다)', () => {
+    expect(canOpenModelQuickSwitch({ isCustom: true })).toBe(true);
+    expect(canOpenModelQuickSwitch({ isCustom: true, cliKind: 'claude' })).toBe(true);
+  });
+
+  it('훅 버블은 누를 수 없다', () => {
+    expect(canOpenModelQuickSwitch({ isCustom: false })).toBe(false);
+  });
+
+  it('클로드가 아닌 CMD 갈래는 누를 수 없다', () => {
+    expect(canOpenModelQuickSwitch({ isCustom: true, cliKind: 'codex' })).toBe(false);
+    expect(canOpenModelQuickSwitch({ isCustom: true, cliKind: 'shell' })).toBe(false);
   });
 });

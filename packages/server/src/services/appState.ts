@@ -198,6 +198,8 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     externalTopBudget: typeof raw.externalTopBudget === 'number'
       ? normalizeExternalTopBudget(raw.externalTopBudget)
       : undefined,
+    // §5.23 접어 보기 — 같은 규약: 켜고 끈 적이 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸을 떨군다.
+    webFoldPerAgent: typeof raw.webFoldPerAgent === 'boolean' ? raw.webFoldPerAgent : undefined,
     // §6 — 같은 규약: **바꾼 것만** 저장돼 있고, 없으면 undefined 로 두어 코드의 기본 바인딩을
     //   따라간다(다음 판올림에서 기본값을 고치면 안 건드린 칸은 자동으로 새 값이 된다).
     keymap: raw.keymap ? normalizeKeymapOverrides(raw.keymap) : undefined,
@@ -326,6 +328,7 @@ export function saveAppState(state: AppState): void {
     bgTaskProbeMemo = null; // 같은 이유 — 두 메모가 갈리면 한쪽만 옛 값을 들고 판정한다.
     sessionProbeMemo = null; // 같은 이유 — 세션 판정 설정도 같은 창구를 탄다.
     externalTopBudgetMemo = null; // 같은 이유 — 외부 폴더 예산(§2.1 (B))도 같은 창구를 탄다.
+    webFoldPerAgentMemo = null; // 같은 이유 — 웹 버블 접어 보기(§5.23)도 같은 창구를 탄다.
     keymapMemo = null; // 같은 이유 — 단축키(§6)도 같은 창구를 탄다.
     ideActivityBarMemo = null; // 같은 이유 — 활동바 구성(§5.5 #16-1)도 같은 창구를 탄다.
   } catch (err) {
@@ -470,6 +473,28 @@ export function appStateSetExternalTopBudget(value: unknown): number {
   const current = loadAppState();
   saveAppState({ ...current, externalTopBudget: next });
   externalTopBudgetMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return next;
+}
+
+let webFoldPerAgentMemo: boolean | null = null;
+
+/**
+ * §5.23 접어 보기 — 켜면 에이전트마다 웹 버블 하나로 접는다. 저장된 값이 없으면 꺼짐.
+ *
+ * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 보기여야 한다).
+ */
+export function appStateGetWebFoldPerAgent(): boolean {
+  if (webFoldPerAgentMemo !== null) return webFoldPerAgentMemo;
+  webFoldPerAgentMemo = loadAppState().webFoldPerAgent === true;
+  return webFoldPerAgentMemo;
+}
+
+/** 접어 보기 켜고 끄기 → 저장. 불리언이 아닌 값은 꺼짐으로 읽는다(넘겨짚어 켜지 않는다). */
+export function appStateSetWebFoldPerAgent(value: unknown): boolean {
+  const next = value === true;
+  const current = loadAppState();
+  saveAppState({ ...current, webFoldPerAgent: next });
+  webFoldPerAgentMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
   return next;
 }
 

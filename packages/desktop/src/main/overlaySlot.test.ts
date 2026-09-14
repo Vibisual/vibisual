@@ -17,9 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+  OVERLAY_EXPAND_ATTENTION_MS,
   isOverlaySlotUsable,
   overlayAttentionOnReuse,
+  overlayBubbleOpensIde,
+  overlayExpandAttentionDue,
   overlayFollowsMainFocus,
+  overlayOpenIdeCommand,
   overlayRaiseSteps,
   overlayReuseActivation,
   overlayTopMostFor,
@@ -445,5 +449,190 @@ describe('(E)·(E-2) 소스 집행 — 층을 박는 자리가 규칙을 빠뜨�
     // Windows 의 전면화가 끝나기 전에 밟은 첫 번째를 OS 가 되돌릴 수 있어 한 번 더 밟는데,
     //   그 사이 사용자가 다른 앱으로 갔으면 올릴 이유가 없다.
     expect(focus).toContain('!mainWindow.isFocused()');
+  });
+});
+
+describe('(H-27) overlayBubbleOpensIde — 앱이 부른 접힌 버블은 그 창의 렌더가 IDE 로 편다', () => {
+  const called = { expanded: true, wasExpanded: false, follow: false, handoff: false };
+
+  it('앱이 IDE 로 부른 접힌 버블이면 참이다 — 창만 키우면 가게는 접힌 채라 큰 창 가운데에 버블만 남는다', () => {
+    expect(overlayBubbleOpensIde(called)).toBe(true);
+  });
+
+  it('이미 IDE 로 펼친 창이면 거짓이다 — 펼 것이 없으니 (H-16) 대로 세우고 비추기만 한다', () => {
+    expect(overlayBubbleOpensIde({ ...called, wasExpanded: true })).toBe(false);
+  });
+
+  it('끌어 넣는 판(`follow`)은 거짓이다 — 커서를 따라 크기가 정해져야 해서 main 이 편다', () => {
+    expect(overlayBubbleOpensIde({ ...called, follow: true })).toBe(false);
+  });
+
+  it('짐을 지고 들어가는 판(`handoff`)은 거짓이다 — 렌더가 짐 신호로 IDE 를 연다', () => {
+    expect(overlayBubbleOpensIde({ ...called, handoff: true })).toBe(false);
+  });
+
+  it('IDE 로 열어 달라는 부름이 아니면 거짓이다', () => {
+    expect(overlayBubbleOpensIde({ ...called, expanded: false })).toBe(false);
+  });
+});
+
+describe('(H-27) overlayExpandAttentionDue — 편 뒤에 다시 세우고 비추는 것은 앱이 부른 펼침뿐', () => {
+  const sentAt = 1_000_000;
+
+  it('표식이 없으면 거짓이다 — 사용자가 버블을 직접 편 판이다', () => {
+    expect(overlayExpandAttentionDue(null, sentAt)).toBe(false);
+  });
+
+  it('보낸 그 순간부터 5초 끝까지 참이다', () => {
+    expect(OVERLAY_EXPAND_ATTENTION_MS).toBe(5000);
+    expect(overlayExpandAttentionDue(sentAt, sentAt)).toBe(true);
+    expect(overlayExpandAttentionDue(sentAt, sentAt + OVERLAY_EXPAND_ATTENTION_MS)).toBe(true);
+  });
+
+  it('늦게 온 펼침은 거짓이다 — 부른 뒤 한참 지나 편 창은 그 부름의 대답이 아니다', () => {
+    expect(overlayExpandAttentionDue(sentAt, sentAt + OVERLAY_EXPAND_ATTENTION_MS + 1)).toBe(false);
+  });
+
+  it('시계가 뒤로 가면 거짓이다 — 미래에 찍힌 표식은 믿지 않는다', () => {
+    expect(overlayExpandAttentionDue(sentAt, sentAt - 1)).toBe(false);
+  });
+});
+
+describe('(H-27) ⑦ overlayOpenIdeCommand — 그 창에 [IDE 열기]를 보낼지, 세울 세션을 실을지', () => {
+  const focus = { sessionId: 'sub-1', bookmark: { text: '여기', anchorId: 'a-1' } };
+  const bubble = { bubbleOpensIde: true, wasExpanded: false, follow: false, handoff: false, focus: undefined };
+  const standing = { bubbleOpensIde: false, wasExpanded: true, follow: false, handoff: false, focus };
+
+  it('접힌 버블을 IDE 로 불렀으면 세울 세션이 없어도 보낸다 — ③ 그대로(`focus` 칸 자체가 없다)', () => {
+    const cmd = overlayOpenIdeCommand(bubble);
+    expect(cmd).toEqual({ command: 'open-ide' });
+    expect(cmd && 'focus' in cmd).toBe(false);
+  });
+
+  it('접힌 버블을 세션을 골라 불렀으면 그 세션을 함께 싣는다 — 편 IDE 가 그 세션으로 선다', () => {
+    expect(overlayOpenIdeCommand({ ...bubble, focus })).toEqual({ command: 'open-ide', focus });
+  });
+
+  it('이미 IDE 로 서 있는 창도 세션을 골라 불렀으면 보낸다 — 앞으로 세우기만 하면 고른 세션이 끝내 서지 않는다', () => {
+    expect(overlayOpenIdeCommand(standing)).toEqual({ command: 'open-ide', focus });
+  });
+
+  it('서 있는 창을 세션 없이 불렀으면 보내지 않는다 — 앞으로 세우고 비추는 것으로 끝이다(H-13)', () => {
+    expect(overlayOpenIdeCommand({ ...standing, focus: undefined })).toBeNull();
+    // `null` 도 "없음"이다 — 전선에서 빈 값이 `null` 로 올 수 있다.
+    expect(overlayOpenIdeCommand({ ...standing, focus: null })).toBeNull();
+    expect(overlayOpenIdeCommand({ ...bubble, focus: null })).toEqual({ command: 'open-ide' });
+  });
+
+  it('끌어 넣기·짐을 지고 오는 부름에는 싣지 않는다 — 제 신호가 따로 있고, 짐의 "고른 세션"을 덮는다', () => {
+    expect(overlayOpenIdeCommand({ ...standing, follow: true })).toBeNull();
+    expect(overlayOpenIdeCommand({ ...standing, handoff: true })).toBeNull();
+  });
+
+  it('IDE 로 부르지 않은 접힌 창에는 세션이 있어도 보내지 않는다 — 버블에는 세울 IDE 가 없다', () => {
+    expect(overlayOpenIdeCommand({ ...standing, wasExpanded: false })).toBeNull();
+  });
+});
+
+// ① (예열 창이 태어날 때 창 목록을 알린다)은 예열 창의 계약이라 `popOutWarm.test.ts` 가 "목록에서 빠진다" 옆에서 잠근다.
+describe('(H-27) 소스 집행 — IDE 가 두 벌 서지 않게 하는 자리들', () => {
+  const wm = source('windowManager.ts');
+  const reuse = block(
+    wm,
+    'const existing = overlaysByAgentId.get(opts.agentId);',
+    'return { windowId: existing.id',
+  );
+
+  it('③ 갈림은 판정 함수 한 곳이 쥐고, 앱이 부른 버블은 main 이 펴지 않는다', () => {
+    expect(reuse).toContain('const bubbleOpensIde = overlayBubbleOpensIde({');
+    expect(reuse).toContain('if (opts.expanded && !existing.expanded && !bubbleOpensIde) expandOverlayByWindowId(existing.id);');
+    // 판정은 펼치기 전의 `existing.expanded` 로 한다 — 펼친 뒤에 재면 늘 거짓이다.
+    expect(reuse.indexOf('overlayBubbleOpensIde({')).toBeLessThan(reuse.indexOf('expandOverlayByWindowId(existing.id)'));
+  });
+
+  it('③④ [IDE 열기]를 보내기 **전에** 시각을 적는다 — 렌더가 먼저 펴면 표식이 없어 대답하지 못한다', () => {
+    const stamp = reuse.indexOf('if (bubbleOpensIde) existing.attentionOnExpandAt = Date.now();');
+    const send = reuse.indexOf("existing.window.webContents.send('vibisual:overlay:menu-command', openIde);");
+    expect(stamp).toBeGreaterThan(-1);
+    expect(send).toBeGreaterThan(stamp);
+    // ⑦ 보낼지·무엇을 실을지는 판정 함수 한 곳이다. 시각은 **버블을 부른 판에만** 적는다 —
+    //   서 있는 창에 세션만 세우러 온 부름이 표식을 남기면, 나중에 사용자가 직접 편 창이 빛난다.
+    expect(reuse).toContain('const openIde = overlayOpenIdeCommand({');
+    expect(reuse).toContain('if (openIde && !existing.window.webContents.isDestroyed()) {');
+    expect(reuse.indexOf('overlayOpenIdeCommand({')).toBeLessThan(stamp);
+  });
+
+  it('⑦ 판정에는 펼치기 **전의** 모양과 끌어 넣기·짐 여부를 그대로 넘긴다', () => {
+    const call = block(reuse, 'const openIde = overlayOpenIdeCommand({', '});');
+    expect(call).toContain('bubbleOpensIde,');
+    expect(call).toContain('wasExpanded: existing.expanded,');
+    expect(call).toContain('follow: !!opts.follow,');
+    expect(call).toContain('handoff: !!opts.handoff,');
+    expect(call).toContain('focus: opts.focus,');
+  });
+
+  it('⑦ 아직 다 그리지 않은 펼친 창에는 세션을 적어 두었다가, 다 그렸다고 말할 때 한 번 건넨다', () => {
+    const stash = reuse.indexOf('existing.pendingIdeFocus = openIde.focus;');
+    expect(stash).toBeGreaterThan(reuse.indexOf("existing.window.webContents.send('vibisual:overlay:menu-command', openIde);"));
+    expect(reuse).toContain('if (openIde.focus !== undefined && existing.expanded && !existing.shellReady) {');
+    // 새로 짓는 창은 펼친 채 태어날 때만 적는다 — 버블로 태어난 창은 "다 그렸다"를 말하지 않는다.
+    const entry = block(wm, 'const entry: OverlayEntry = {', 'overlaysByAgentId.set(opts.agentId, entry);');
+    expect(entry).toContain('pendingIdeFocus: opts.expanded ? (opts.focus ?? null) : null,');
+    // 건네는 자리는 인계 판정보다 앞이다 — 선의 주인이 아닌 창이면 판정에서 곧바로 돌아간다.
+    const ready = block(wm, 'export function overlayShellReady(', '\n}');
+    const take = ready.indexOf('entry.pendingIdeFocus = null;');
+    expect(take).toBeGreaterThan(-1);
+    expect(ready).toContain("entry.window.webContents.send('vibisual:overlay:menu-command', { command: 'open-ide', focus });");
+    expect(take).toBeLessThan(ready.indexOf('if (!isGhostHandoffTarget(senderWindowId)) return false;'));
+  });
+
+  it('⑦ IPC 는 세울 세션을 싣기만 한다 — `overlay:open` 이 넘기고, preload 가 [IDE 열기]와 함께 건넨다', () => {
+    const ipc = source('ipc.ts');
+    const open = block(ipc, 'openOverlay({', '});');
+    expect(open).toContain('focus: payload.focus,');
+    const preload = source('../preload/index.ts');
+    expect(preload).toContain('onMenuCommand: (cb: (payload: { command: string; focus?: unknown }) => void): (() => void) => {');
+    expect(preload).toContain('const listener = (_e: unknown, payload: { command: string; focus?: unknown }): void => cb(payload);');
+  });
+
+  it('④ 접힌 버블에는 지금 기척을 보내지 않는다 — 버블은 기척을 그리지 않아 대답이 사라진다', () => {
+    expect(reuse).toContain('if (!bubbleOpensIde && overlayAttentionOnReuse(activation)');
+  });
+
+  it('⑥ 이미 펼친 창은 다시 펴지 않는다 — 판정이 접힌 자리·크기를 덮어쓰는 줄들보다 앞이다', () => {
+    const expand = block(wm, 'export function expandOverlayByWindowId(', '\n}');
+    const guard = expand.indexOf('if (entry.expanded) return true;');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(expand.indexOf('entry.collapsedBounds = {'));
+    expect(guard).toBeLessThan(expand.indexOf('entry.expanded = true;'));
+  });
+
+  it('④⑤ 렌더가 스스로 펼 때 — 실제로 접힘→펼침인 판에만 다시 세우고·비추고·본체에 알린다', () => {
+    const self = block(wm, 'export function expandOverlaySelf(', '\n}');
+    const settled = self.indexOf('if (!ok || wasExpanded) return ok;');
+    expect(settled).toBeGreaterThan(-1);
+    expect(self).toContain('overlayExpandAttentionDue(entry.attentionOnExpandAt, Date.now())');
+    // 표식은 한 번만 읽는다 — 들고 가면 나중에 사용자가 직접 편 창이 빛난다.
+    expect(self).toContain('entry.attentionOnExpandAt = null;');
+    expect(self).toContain("raiseOverlayWindow(entry, 'foreground');");
+    expect(self).toContain("entry.window.webContents.send('vibisual:overlay:attention'");
+    // 이미 펼친 창의 미러(짐 길·끌어 넣기)가 본체의 창을 닫게 하면 안 된다 — 알림은 판정 뒤다.
+    expect(settled).toBeLessThan(self.indexOf("'vibisual:overlay:ide-opened'"));
+    expect(settled).toBeLessThan(self.indexOf("raiseOverlayWindow(entry, 'foreground');"));
+  });
+
+  it('새 창의 표식은 비어서 태어난다', () => {
+    const entry = block(wm, 'const entry: OverlayEntry = {', 'overlaysByAgentId.set(opts.agentId, entry);');
+    expect(entry).toContain('attentionOnExpandAt: null,');
+  });
+
+  it('렌더의 `expand-self` 가 그 함수를 부르고, preload 가 `ide-opened` 를 본체 렌더에 건넨다', () => {
+    const ipc = source('ipc.ts');
+    expect(ipc).toContain("ipcMain.handle('vibisual:overlay:expand-self', (event): boolean => expandOverlaySelf(event.sender.id));");
+    expect(ipc).toContain("ipcMain.removeHandler('vibisual:overlay:expand-self');");
+    const preload = source('../preload/index.ts');
+    expect(preload).toContain('onIdeOpened: (cb: (payload: { agentId: string; projectId: string }) => void): (() => void) => {');
+    expect(preload).toContain("ipcRenderer.on('vibisual:overlay:ide-opened', listener);");
+    expect(preload).toContain("return () => ipcRenderer.removeListener('vibisual:overlay:ide-opened', listener);");
   });
 });

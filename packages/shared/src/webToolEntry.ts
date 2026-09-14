@@ -26,11 +26,14 @@ export function webNodeKey(host: string): string {
   return `${WEB_KEY_MARK}${host}`;
 }
 
-/** 도메인 노드 키에서 호스트를 되꺼낸다. 우리 키가 아니면 `null`. 해체도 여기 한 곳. */
+/**
+ * 도메인 노드 키에서 호스트를 되꺼낸다. 우리 키가 아니면 `null`. 해체도 여기 한 곳.
+ * `/` 가 든 키는 호스트가 아니다 — §5.23 접힌 버블의 `path`(`__web__/<에이전트 id>`)가 그 모양이다.
+ */
 export function webHostFromNodeKey(key: string): string | null {
   if (!key.startsWith(WEB_KEY_MARK)) return null;
   const host = key.slice(WEB_KEY_MARK.length);
-  return host.length > 0 ? host : null;
+  return host.length > 0 && !host.includes('/') ? host : null;
 }
 
 /**

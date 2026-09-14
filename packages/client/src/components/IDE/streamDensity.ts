@@ -15,6 +15,7 @@ import {
 } from '@vibisual/shared';
 import { sameStreamItem, isSystemSubtypeChip, type StreamGroup, type StreamItemFull, type StreamPlan } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
+import { mergeAdjacentThinkTraces, type ThinkTraceView } from './turnSteps.js';
 
 /**
  * 도구 실행 묶음 — 기본은 "명령 실행됨 ×N" 한 줄 + 최근 도구 한 줄, 펼치면 원래 항목들이 그대로 나온다.
@@ -276,6 +277,17 @@ function runFiller(item: StreamDisplayItem): boolean {
   return item.kind === 'text' && item.content.trim() === '';
 }
 
+/** §5.5 #17-39 ⑩ — 합치기가 읽는 자국 모양(자국이 아니면 `null` = 구간이 끊긴다). */
+function readStepTrace(item: StreamDisplayItem): ThinkTraceView | null {
+  if (item.kind !== 'step') return null;
+  return { ms: item.endedAt - item.timestamp, chars: item.chars, owner: item.nestedUnderToolUseId };
+}
+
+/** 합친 시간·분량을 든 새 자국 — id·자리(`timestamp`)는 첫 자국 그대로, `endedAt` 은 시작 + 사고 시간의 합. */
+function writeStepTrace(first: StreamDisplayItem, ms: number, chars: number): StreamDisplayItem {
+  return first.kind === 'step' ? { ...first, endedAt: first.timestamp + ms, chars } : first;
+}
+
 /**
  * 같은 턴의 옛 계획을 접는다(마지막 계획만 펼쳐 보인다).
  * 턴 경계 = 사용자 명령(`command`) 아이템 — 그 뒤로는 새 턴이라 계획도 새로 센다.
@@ -305,7 +317,8 @@ function markSupersededPlans(items: StreamItemFull[]): StreamItemFull[] {
  * - `standard` : SDK 상태 칩 숨김 + 옛 계획 접기 + 연속 동종 도구 묶기.
  * - `compact`  : 위 전부 + **도구 묶음을 배열에서 아예 뺀다**(§5.5 #17-21 ① / #17-24 ①)
  *                **AI 본문은 하나도 걸러내지 않는다**(§5.5 #17-43) — 간결은 "명령창을 숨기는" 축이지
- *                "말을 골라 주는" 축이 아니다.
+ *                "말을 골라 주는" 축이 아니다. 묶음이 빠진 자리에서 이어 붙은 사고 자국은 주인별 한 줄로
+ *                합친다(§5.5 #17-39 ⑩).
  *
  * §5.5 #17-15 — 사고(thinking)는 밀도 축에서 빠졌다. 파싱 단계가 아이템 자체를 만들지 않으므로
  * 여기서 거를 것도 없다(진행 중 표시는 `thinking-live` 1줄이 전담).
@@ -397,7 +410,9 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
     //   남겼는데, 그 상한에 걸려 사이의 발견·경고·결정이 함께 잘려 나갔다(사용자: "본문 중에 나한테
     //   뭔가 알리는 내용은 보여야 한다"). 어휘로 나레이션을 골라내는 대안은 로케일마다 헛돌고 오탐이
     //   나므로 쓰지 않는다 — 간결이 숨기는 것은 **명령창(도구 묶음)뿐**이고 말은 전부 남는다.
-    return compacted;
+    // §5.5 #17-39 ⑩ — 묶음이 빠지면 그 사이에 있던 사고 자국끼리 붙는다. 도구마다 짧게 생각하는 모델이면
+    //   `1초 미만 동안 사고함` 이 도구 개수만큼 쌓여 간결이 사다리가 됐다 — 이어 붙은 자국을 주인별 한 줄로.
+    return mergeAdjacentThinkTraces(compacted, readStepTrace, writeStepTrace);
   }
   return out;
 }

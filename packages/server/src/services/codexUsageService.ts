@@ -24,7 +24,13 @@ export function parseCodexUsage(value: unknown, now = Date.now()): ProviderUsage
       });
     }
   }
-  return { windows, fetchedAt: now, ...(windows.length ? {} : { error: 'unavailable' }) };
+  const planType = [response?.rateLimits?.planType, buckets.codex?.planType,
+    ...Object.values(buckets).map(bucket => bucket?.planType)]
+    .find(plan => typeof plan === 'string' && plan.trim() && plan !== 'unknown');
+  const plan = typeof planType === 'string'
+    ? planType.trim().replace(/[_-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+    : undefined;
+  return { windows, fetchedAt: now, ...(plan ? { plan } : {}), ...(windows.length ? {} : { error: 'unavailable' }) };
 }
 
 let inflight: Promise<ProviderUsage> | null = null;

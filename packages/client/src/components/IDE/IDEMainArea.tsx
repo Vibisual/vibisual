@@ -33,6 +33,10 @@ import { ImageLightboxView } from './ImageAnnotator.js';
 import { decideFollow } from './followDecision.js';
 import { FOLLOW_SKIP_SHORT_KEYS, followSessionKey } from './editorFollow.js';
 import { useVirtuosoFrontShift } from './frontShift.js';
+import {
+  DENSITY_ANCHOR_HOLD_MS, pickDensityAnchorEntries, resolveDensityAnchor, sessionSnapshotKey,
+  type DensityAnchorEntry,
+} from './densityAnchor.js';
 import { VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
 import { readingItemAttrsNoProse } from './reading/readingModel.js';
 import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
@@ -49,7 +53,7 @@ import { SessionMemoLayer } from './SessionMemoLayer.js';
 import { canAddMemoCount, hasHiddenMemoHeaders } from './sessionMemo.js';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
-import { collectThinkRuns, shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
+import { collectThinkRuns, mergeAdjacentThinkTraces, shouldTraceWriting, toolGroupElapsedMs, type ThinkTraceView } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
 import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
@@ -186,6 +190,11 @@ interface TerminalEntry {
   /** §5.5 #17-39 — 사고 자국의 분량(글자). `text` 는 비어 있다 — 사고 **원문은 담지 않는다**. */
   stepChars?: number;
   /**
+   * §5.5 #17-39 ⑩ — 사고 자국의 **주인 키**(세션 id + 중첩 Task 호출 id). 간결에서 이어 붙은 자국을 합칠 때
+   * 주인이 다르면 섞지 않는다. 이름표(`sessionLabel`)는 세션끼리 겹칠 수 있어 키로 쓰지 않는다.
+   */
+  stepOwner?: string;
+  /**
    * §5.25 (O) — `type==='image'` 일 때 그 그림이 나온 세션. 그림을 청하는 주소가
    * `<agentId>/<subAgentId>/<eventId>` 라, 전체 보기에서는 어느 세션의 줄인지 여기 적어야 한다
    * (`sessionLabel` 은 사람이 읽는 이름이라 주소로 못 쓴다).
@@ -314,6 +323,22 @@ function dropCardEchoNodes(nodes: MainTimelineNode[]): MainTimelineNode[] {
   return out ?? nodes;
 }
 
+// ─── §5.5 #17-39 ⑩: 간결에서 이어 붙은 사고 자국 합치기(메인 탭 판본) ───
+//   판정은 Sub 탭(`applyStreamDensity`)과 **같은 함수**(`mergeAdjacentThinkTraces`)가 한다 — 여기는 읽기·쓰기만.
+
+/** 타임라인 노드가 사고 자국이면 합치기가 읽는 모양으로, 아니면 `null`(= 구간이 끊긴다 — 본문·카드·라이브 1줄 전부). */
+function readMainStepTrace(n: MainTimelineNode): ThinkTraceView | null {
+  if (n.t !== 'item' || n.item.kind !== undefined || n.item.type !== 'step') return null;
+  const e = n.item;
+  return { ms: (e.endedAt ?? e.timestamp) - e.timestamp, chars: e.stepChars ?? 0, owner: e.stepOwner };
+}
+
+/** 합친 시간·분량을 든 새 노드 — id·자리는 첫 자국 그대로, `endedAt` 은 시작 + 사고 시간의 합(Sub 탭과 같은 규약). */
+function writeMainStepTrace(n: MainTimelineNode, ms: number, chars: number): MainTimelineNode {
+  if (n.t !== 'item' || n.item.kind !== undefined) return n;
+  return { t: 'item', item: { ...n.item, endedAt: n.item.timestamp + ms, stepChars: chars } };
+}
+
 /**
  * §5.5 읽기 설정 — 메인 탭 노드의 폭 취급.
  * 메인 탭은 Sub 탭과 달리 마크다운 컨테이너(`.ide-md`)를 쓰지 않으므로 안쪽에 폭을 넘길 그리드가 없다.
@@ -344,7 +369,7 @@ function buildEntries(
    * `collectThinkRuns` 한 곳에서 하므로, 같은 대화가 탭에 따라 자국 개수가 달라지지 않는다.
    * 건너뛸 이벤트도 파서와 같은 둘(펄스·숨김 system)을 넘긴다.
    */
-  const pushThinkTraces = (events: SubAgentStreamEvent[], label?: string): void => {
+  const pushThinkTraces = (events: SubAgentStreamEvent[], subId: string, label?: string): void => {
     for (const run of collectThinkRuns(events, (e) => isThinkingPulse(e) || isHiddenSystemEvent(e))) {
       entries.push({
         id: `step-${run.firstId}`,
@@ -353,6 +378,8 @@ function buildEntries(
         timestamp: run.startedAt,
         endedAt: run.endedAt,
         stepChars: run.chars,
+        // §5.5 #17-39 ⑩ — 런을 끊는 주인(중첩 Task)에 세션까지 더한 키. 전체 보기에서 세션이 섞여 와도 안 섞인다.
+        stepOwner: run.nested ? `${subId}/${run.nested}` : subId,
         ...(label ? { sessionLabel: label } : {}),
       });
     }
@@ -435,7 +462,7 @@ function buildEntries(
         });
       }
       // §5.5 #17-39 — 사고는 위에서 본문으로 안 쌓았지만, **얼마나 걸렸는지는 남긴다**.
-      pushThinkTraces(events, label);
+      pushThinkTraces(events, subId, label);
     }
   } else {
     // 특정 세션만
@@ -455,7 +482,7 @@ function buildEntries(
         });
       }
       // §5.5 #17-39 — 사고 자국(세션 하나만 볼 때도 전체 보기와 같은 규칙).
-      pushThinkTraces(events);
+      pushThinkTraces(events, activeSessionId);
     }
   }
 
@@ -2931,13 +2958,17 @@ export const IDEMainArea = memo(function IDEMainArea({
   // v2.99 — 세션(탭)별 virtuoso 상태 스냅샷(측정된 항목 높이 + 스크롤 위치). 스크롤 중 throttled 로 갱신 저장,
   //   복귀 때 restoreStateFrom 으로 복원 → 재측정 출렁임 없이 보던 위치로 즉시 정착(옛 rAF 정착 루프 + 덮개,
   //   세션별 {top,atBottom} 맵, 복원 중 저장 금지 플래그를 모두 대체).
+  //   §5.5 #17-12 — 키는 **세션 × 표시 밀도**다. 스냅샷은 순번별 항목 높이라, 간결에서 떠난 세션을 원문으로
+  //   돌아와 열면 남의 목록 좌표로 복원돼 엉뚱한 곳(대개 바닥 근처)에 떨어졌다(sessionSnapshotKey).
   const sessionSnapshotsRef = useRef<Map<string, StateSnapshot>>(new Map());
+  const densityRef = useRef(density);
+  densityRef.current = density;
   // v2.99 — 세션 복원 스냅샷 결정: 떠날 때 바닥이었으면(또는 첫 진입) undefined → 자식이 새 바닥(LAST)에서
   //   시작, 아니면(위로 올려둔 세션) 저장 스냅샷으로 그 위치 복원.
   const restoreStateFor = useCallback((key: string): StateSnapshot | undefined => {
     if (sessionAtBottomRef.current.get(key) ?? true) return undefined;
-    return sessionSnapshotsRef.current.get(key);
-  }, []);
+    return sessionSnapshotsRef.current.get(sessionSnapshotKey(key, density));
+  }, [density]);
   // 북마크 이동 nonce — 막 전환된 세션이 북마크 점프인지 식별해 스크롤 복원을 양보(중복 스크롤 충돌 방지).
   const handledBookmarkNonceRef = useRef<number>(-1);
 
@@ -3330,8 +3361,12 @@ export const IDEMainArea = memo(function IDEMainArea({
     merged.sort((a, b) => a.ts - b.ts);
     // §5.5 #17-18 ⑦-5 — 카드 바로 뒤에 붙는 "~카드로 보냈습니다" 한 줄은 화면에서 뺀다(카드가 이미 하는 말).
     //   정렬 **뒤**에 걷는다: "바로 앞이 카드"라는 자리 조건은 시간순으로 놓인 뒤에야 성립한다.
-    return dropCardEchoNodes(merged.map((m) => m.node));
-  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands]);
+    const nodes = dropCardEchoNodes(merged.map((m) => m.node));
+    // §5.5 #17-39 ⑩ — 간결에서 이어 붙은 사고 자국을 주인별 한 줄로(Sub 탭과 같은 함수). 카드가 **여기서야**
+    //   타임라인에 합류하므로 합치기도 이 뒤에 돌린다 — `applyMainDensity` 안에서 돌리면 카드를 사이에 둔
+    //   자국까지 한 줄로 합쳐져 같은 대화가 탭에 따라 다르게 접힌다.
+    return density === 'compact' ? mergeAdjacentThinkTraces(nodes, readMainStepTrace, writeMainStepTrace) : nodes;
+  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands, density]);
 
   // v3.13 — 스트림 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 메인 Virtuoso 에도 shift 로 신고.
   //   인덱스 기반 sizeTree 가 절단마다 밀려 측정 모델이 붕괴 → 긴 세션에서 스크롤이 "위로 말려 올라가던" 원인.
@@ -3379,6 +3414,8 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   스냅샷은 "떠날 때"가 아니라 **스크롤이 일어나는 동안 throttled 로 갱신 저장**한다 — getState 는 virtuoso 가
   //   마운트돼 있는 동안에만 유효한데, 언마운트 cleanup 시점엔 자식 virtuoso 가 이미 해제돼 잡을 수 없기 때문.
   //   탭을 바꾸면 그 세션에서 마지막으로 스크롤된 위치가 이미 맵에 들어 있어 복귀 시 그대로 복원된다.
+  const mainTimelineRef = useRef(mainTimeline);
+  mainTimelineRef.current = mainTimeline;
   useEffect(() => {
     const el = scrollEl;
     if (!el) return;
@@ -3386,7 +3423,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     const save = (): void => {
       raf = 0;
       const handle = activeSessionId === null ? mainVirtuosoRef.current : streamRef.current;
-      handle?.getState((snap) => { sessionSnapshotsRef.current.set(sessionKey, snap); });
+      const key = sessionSnapshotKey(sessionKey, densityRef.current);
+      handle?.getState((snap) => { sessionSnapshotsRef.current.set(key, snap); });
     };
     // v3.08 — 추종 해제는 **사용자 직접 제스처**(휠 위로/터치 드래그/PageUp·Home 등)가 있었을 때만. 옛 v3.05 는
     //   scroll 이벤트의 dist 만 보고 followRef 를 껐는데, 그 전제("콘텐츠 성장으로는 scroll 이 안 난다")가 틀렸다 —
@@ -3419,6 +3457,65 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (Math.abs(delta) > 1) el.scrollTop += delta;
       holdRaf = requestAnimationFrame(holdTick);
     };
+    // §5.5 #17-12 — 표시 밀도 전환의 자리 지키기. 위로 올려 읽던 화면에서 간결/표준/원문을 바꾸면 같은 대화가
+    //   다른 높이의 목록으로 다시 접히며 화면이 튀었고, 튄 자리가 바닥 가까이면 추종이 다시 켜져 최신으로
+    //   끌려 내려갔다(사용자에게는 "읽던 과거가 사라짐"). 바꾸기 **직전**(스토어 구독은 리렌더보다 먼저 온다)
+    //   화면에 선 항목들을 적어 두고, 새 목록이 가라앉는 동안 그중 새 목록에도 있는 첫 항목을 같은 높이에
+    //   붙든다. 두 프레임 연속 DOM 에서 못 찾으면(선렌더 버퍼 밖) 순번으로 한 번 옮겨 그리게 한다.
+    //   구간 표식은 펼침 앵커와 같은 `expandHoldUntilRef` — 사용자 제스처(cancelHold)가 곧장 놓게 한다.
+    let anchorRaf = 0;
+    let anchor: { entries: DensityAnchorEntry[]; until: number; misses: number; jumped: boolean } | null = null;
+    const jumpToDensityAnchor = (entries: readonly DensityAnchorEntry[]): void => {
+      if (activeSessionId !== null) {
+        const handle = streamRef.current;
+        if (!handle) return;
+        const found = resolveDensityAnchor(entries, (id) => { const i = handle.indexOfItemId(id); return i >= 0 ? i : null; });
+        if (found) handle.scrollToItemIndex(found.hit, found.entry.offset);
+        return;
+      }
+      const timeline = mainTimelineRef.current;
+      const found = resolveDensityAnchor(entries, (id) => {
+        const i = timeline.findIndex((n) => mainTimelineNodeId(n) === id);
+        return i >= 0 ? i : null;
+      });
+      if (found) mainVirtuosoRef.current?.scrollToIndex({ index: found.hit, align: 'start', offset: -found.entry.offset });
+    };
+    const anchorTick = (): void => {
+      anchorRaf = 0;
+      const a = anchor;
+      if (!a || expandHoldUntilRef.current !== a.until || performance.now() > a.until) { anchor = null; return; }
+      followRef.current = false;
+      const found = resolveDensityAnchor(a.entries, (id) => findItemElement(el, id));
+      if (found) {
+        a.misses = 0;
+        const delta = (found.hit.getBoundingClientRect().top - el.getBoundingClientRect().top) - found.entry.offset;
+        if (Math.abs(delta) > 1) el.scrollTop += delta;
+      } else if (!a.jumped && ++a.misses >= 2) {
+        a.jumped = true;
+        jumpToDensityAnchor(a.entries);
+      }
+      anchorRaf = requestAnimationFrame(anchorTick);
+    };
+    const unsubscribeDensity = useGraphStore.subscribe((state, prev) => {
+      if (state.ideStreamDensity === prev.ideStreamDensity) return;
+      if (followRef.current) return; // 바닥을 따라가던 화면은 새 바닥이 곧 보던 자리다(워치독이 붙인다).
+      const contTop = el.getBoundingClientRect().top;
+      const rects: { id: string; top: number; bottom: number }[] = [];
+      el.querySelectorAll<HTMLElement>('[data-stream-item-id]').forEach((node) => {
+        const id = node.dataset.streamItemId;
+        if (!id) return;
+        const r = node.getBoundingClientRect();
+        rects.push({ id, top: r.top - contTop, bottom: r.bottom - contTop });
+      });
+      const entries = pickDensityAnchorEntries(rects, el.clientHeight);
+      if (entries.length === 0) return;
+      cancelHold();
+      const until = performance.now() + DENSITY_ANCHOR_HOLD_MS;
+      anchor = { entries, until, misses: 0, jumped: false };
+      expandHoldUntilRef.current = until; // 이 구간엔 atBottom 통지·scroll 판정으로 추종이 재무장되지 않는다.
+      sessionAtBottomRef.current.set(sessionKey, false);
+      if (!anchorRaf) anchorRaf = requestAnimationFrame(anchorTick);
+    });
     const onToggleClick = (e: MouseEvent): void => {
       const btn = (e.target as Element | null)?.closest?.(`[${STREAM_TOGGLE_ATTR}]`);
       if (!(btn instanceof HTMLElement)) return;
@@ -3455,13 +3552,17 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (pointerDown && goingUp) markUpIntent();
       const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
       // 판정은 순수 함수(decideFollow)로 위임 — virtuoso/레이아웃 없이 Vitest 로 결정론적 검증(followDecision.test).
-      followRef.current = decideFollow({
-        dist,
-        threshold: FOLLOW_BOTTOM_THRESHOLD,
-        prevFollow: followRef.current,
-        userUpIntent: performance.now() < userUpIntentUntil,
-        goingUp,
-      });
+      //   §5.5 #17-12 — 자리를 붙드는 구간(펼침·밀도 전환)에는 재무장하지 않는다. 붙드는 동안 생긴 scroll 은
+      //   보정 결과일 뿐 사용자가 바닥으로 내린 것이 아니다 — 재무장하면 워치독이 곧장 바닥으로 끌어간다.
+      followRef.current = performance.now() < expandHoldUntilRef.current
+        ? false
+        : decideFollow({
+          dist,
+          threshold: FOLLOW_BOTTOM_THRESHOLD,
+          prevFollow: followRef.current,
+          userUpIntent: performance.now() < userUpIntentUntil,
+          goingUp,
+        });
       sessionAtBottomRef.current.set(sessionKey, followRef.current);
       // 바닥에서 충분히 떨어졌을 때만 "맨 아래로" 버튼 노출(자잘한 이탈엔 안 뜨게 240px 임계).
       setShowJumpBottom(dist > 240);
@@ -3484,7 +3585,10 @@ export const IDEMainArea = memo(function IDEMainArea({
       el.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
+      unsubscribeDensity();
       cancelHold();
+      anchor = null;
+      if (anchorRaf) cancelAnimationFrame(anchorRaf);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [scrollEl, activeSessionId, sessionKey]);
@@ -3536,6 +3640,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     const grew = userCmdCount > prevUserCmdCountRef.current;
     prevUserCmdCountRef.current = userCmdCount;
     if (grew) {
+      // §5.5 #17-12 — 붙들던 자리(펼침·밀도 전환)는 놓는다. 보낸 말을 보여 주는 것이 먼저다.
+      expandHoldUntilRef.current = 0;
       // v3.05 — 자기 메시지 전송은 추종을 무조건 재무장(위로 올려둔 상태였어도 바닥으로 끌어내려 따라간다).
       followRef.current = true;
       sessionAtBottomRef.current.set(sessionKey, true);

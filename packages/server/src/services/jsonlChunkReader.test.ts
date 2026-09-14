@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { findTailLineOffset, scanFileLines, scanTailLines, scanWholeFileLines } from './jsonlChunkReader.js';
+import { findTailLineOffset, scanFileLines, scanLinesBackward, scanTailLines, scanWholeFileLines } from './jsonlChunkReader.js';
 
 let dir: string;
 
@@ -229,5 +229,63 @@ describe('scanTailLines — 꼬리 N줄이 전량 읽기 + slice(-N) 과 같다'
       expect(raw[off - 1], `n=${n}`).toBe('\n');
       expect(raw.slice(off).split('\n').filter((l) => l !== '').length, `n=${n}`).toBe(n);
     }
+  });
+});
+
+/**
+ * §5.5 #17-12 — 과거 구간 조회는 **뒤에서 앞으로** 읽는다. 지켜야 하는 것 하나: 전량 읽기를 뒤집은
+ * 것과 같아야 한다. 어긋나면 거슬러 올라간 대화가 한 줄씩 밀리거나 글자가 깨진다.
+ */
+describe('scanLinesBackward — 전량 읽기를 뒤집은 것과 같다', () => {
+  function backward(filePath: string, chunkBytes: number, stopAfter = Number.POSITIVE_INFINITY): { lines: string[]; stopped: boolean } {
+    const lines: string[] = [];
+    const stopped = scanLinesBackward(filePath, (line) => {
+      lines.push(line);
+      if (lines.length >= stopAfter) return false;
+      return undefined;
+    }, chunkBytes);
+    return { lines, stopped };
+  }
+
+  it('청크 크기를 바꿔도 뒤집은 전량과 같다', () => {
+    const content = Array.from({ length: 200 }, (_, i) => JSON.stringify({ i, pad: 'z'.repeat(i % 37) })).join('\n') + '\n';
+    const fp = write('back-a.jsonl', content);
+    const expected = legacyLines(fp).reverse();
+    for (const chunk of [1, 2, 7, 64, 1 << 20]) {
+      const got = backward(fp, chunk);
+      expect(got.lines, `chunk=${chunk}`).toEqual(expected);
+      expect(got.stopped).toBe(false);
+    }
+  });
+
+  it('한글·이모지가 청크 경계에 걸려도 깨지지 않는다', () => {
+    const lines = Array.from({ length: 50 }, (_, i) => JSON.stringify({ msg: '가나다🚀'.repeat((i % 5) + 1), i }));
+    const fp = write('back-ko.jsonl', lines.join('\n') + '\n');
+    const expected = legacyLines(fp).reverse();
+    for (const chunk of [1, 2, 3, 5, 13]) {
+      const got = backward(fp, chunk).lines;
+      expect(got, `chunk=${chunk}`).toEqual(expected);
+      expect(got.join('').includes('�'), `chunk=${chunk} replacement char`).toBe(false);
+    }
+  });
+
+  it('개행으로 끝나지 않는 파일·빈 줄·청크보다 긴 줄도 온전하다', () => {
+    const long = JSON.stringify({ big: 'w'.repeat(3000) });
+    const fp = write('back-edge.jsonl', `{"a":1}\n\n${long}\n{"b":2}`);
+    for (const chunk of [1, 16, 1 << 20]) {
+      expect(backward(fp, chunk).lines, `chunk=${chunk}`).toEqual(['{"b":2}', long, '{"a":1}']);
+    }
+  });
+
+  it('소비자가 false 를 돌려주면 거기서 멈추고 true 를 돌려준다', () => {
+    const fp = write('back-stop.jsonl', '{"a":1}\n{"b":2}\n{"c":3}\n');
+    const got = backward(fp, 4, 2);
+    expect(got.lines).toEqual(['{"c":3}', '{"b":2}']);
+    expect(got.stopped).toBe(true);
+  });
+
+  it('빈 파일·없는 파일은 조용히 아무것도 안 한다', () => {
+    expect(backward(write('back-empty.jsonl', ''), 8).lines).toEqual([]);
+    expect(backward(path.join(dir, 'nope.jsonl'), 8).lines).toEqual([]);
   });
 });

@@ -56,6 +56,10 @@ export function parseCodexModelsCache(raw: string): CodexModelEntry[] {
     }
     const def = rec['default_reasoning_level'];
     if (typeof def === 'string' && def.trim()) entry.defaultReasoningLevel = def.trim();
+    // §5.25 (G-2) — 답변 길이 칸을 비워 두었을 때 무엇이 도는지 말하려면 이 둘이 필요하다.
+    if (typeof rec['support_verbosity'] === 'boolean') entry.supportsVerbosity = rec['support_verbosity'];
+    const verbosity = rec['default_verbosity'];
+    if (typeof verbosity === 'string' && verbosity.trim()) entry.defaultVerbosity = verbosity.trim();
     out.push(entry);
   }
   return out;

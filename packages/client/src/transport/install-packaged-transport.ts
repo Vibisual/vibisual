@@ -112,6 +112,11 @@ export interface PackagedOverlayApi {
      * 번역이 없으므로 이 판의 로케일로 지어 함께 맡긴다.
      */
     follow?: { grabX: number; grabY: number; label?: string; hint?: string; settled?: boolean };
+    /**
+     * §17-6 (H-27) ⑦ — 그 창에 세울 세션(북마크 점프면 그 위치까지). main 은 뜻을 모르고 그 창의
+     * [IDE 열기]에 실어 건넨다 — 모양을 아는 곳은 `stores/detachedIDEFocus.ts` 의 `IDEFocusTarget` 한 곳이다.
+     */
+    focus?: unknown;
   }): Promise<{ windowId: number; reused: boolean }>;
   /**
    * §17-6 (H-25) — **놓기 전에 미리 짓는다.** 선이 무장되는 순간(나갈 뜻이 분명한 자리)에 부른다.
@@ -207,6 +212,11 @@ export interface PackagedOverlayApi {
    * 구버전 preload 에는 없으므로 **선택 속성**이다.
    */
   onAttention?(cb: (payload: { agentId: string }) => void): () => void;
+  /**
+   * §17-6 (H-27) ⑤ — **밖의 그 창이 IDE 로 펴졌다**(메인 창만 듣는다). 앱 안에 같은 에이전트의
+   * 창이 남아 있으면 짐을 넘기고 닫는다. 구버전 preload 에는 없으므로 **선택 속성**이다.
+   */
+  onIdeOpened?(cb: (payload: { agentId: string; projectId: string }) => void): () => void;
   list(): Promise<OverlayListWire>;
   setVisible(visible: boolean): Promise<boolean>;
   /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)". */
@@ -263,8 +273,8 @@ export interface PackagedOverlayApi {
   menuAction(payload: { action: string; value?: number }): Promise<boolean>;
   /** §17-6 (G) v2.87 — 메뉴 창: 자기 자신 닫기. */
   closeMenu(): Promise<boolean>;
-  /** §17-6 (G) v2.87 — 버블 창: 메뉴 명령(open-ide) 구독. */
-  onMenuCommand(cb: (payload: { command: string }) => void): () => void;
+  /** §17-6 (G) v2.87 — 버블 창: 메뉴 명령(open-ide) 구독. (H-27) ⑦ `focus` 는 앱이 골라 보낸 세울 세션이다. */
+  onMenuCommand(cb: (payload: { command: string; focus?: unknown }) => void): () => void;
 }
 
 // §5.12 v4.44 — 지휘통제실 창 surface. **앱 전체에 1창**이며 메인의 활성 프로젝트를 따라간다.

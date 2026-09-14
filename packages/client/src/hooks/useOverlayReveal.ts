@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useGraphStore } from '../stores/graphStore.js';
-import { coerceIDEPaneHandoff } from '../stores/idePaneHandoff.js';
+import { panesYieldingToDetachedIDE } from '../stores/detachedIDEFocus.js';
+import { captureIDEPaneHandoff, coerceIDEPaneHandoff } from '../stores/idePaneHandoff.js';
 import { putPaneDragResume } from '../stores/idePaneDragResume.js';
 import { scheduleGhostHide } from '../components/IDE/ghostHandoff.js';
 
@@ -82,6 +83,28 @@ export function useOverlayReveal(): void {
       if (!keepPanes) store.closeIDEOverlay();
       store.focusOnNode(agentId);
       store.selectNode(agentId);
+    });
+    return () => { off(); };
+  }, []);
+
+  // §5.5 #17-6 (H-27) ⑤ — **밖의 그 창이 IDE 로 펴졌다**(버블을 밖에서 더블클릭·메뉴 [IDE 열기]·앱이 부른 버블).
+  //   앱 안에 같은 에이전트의 창이 남아 있으면 같은 IDE 가 두 곳에 선 것이다 — 앱 안 창이 물러난다.
+  //   그냥 닫으면 열어 둔 편집 탭·보던 뷰·고른 세션을 잃으므로, **맨 앞 창의 짐**을 종전 짐 길
+  //   (`overlay.open` → `pane-handoff`, (H) 꺼내기와 같은 길)로 밖의 창에 넘긴 뒤 닫는다.
+  //   남길 창이 없으면(앱이 부른 버블은 ⓐ 로 이미 걸러졌다) 아무것도 하지 않는다.
+  useEffect(() => {
+    const overlay = typeof window !== 'undefined' ? window.api?.overlay : undefined;
+    if (!overlay?.onIdeOpened) return;
+    const off = overlay.onIdeOpened(({ agentId, projectId }) => {
+      const store = useGraphStore.getState();
+      const { front, paneKeys } = panesYieldingToDetachedIDE(Object.values(store.ideOverlays), agentId);
+      if (paneKeys.length === 0) return;
+      const handoff = front ? captureIDEPaneHandoff(front) : null;
+      if (handoff && overlay.open) {
+        void overlay.open({ agentId, projectId, expanded: true, handoff })
+          .catch(() => { /* 밖의 IDE 는 이미 서 있다 — 짐만 못 건넜을 뿐 두 벌은 아래에서 막는다 */ });
+      }
+      for (const key of paneKeys) store.closeIDEOverlay(key);
     });
     return () => { off(); };
   }, []);

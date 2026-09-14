@@ -10,11 +10,11 @@ import { HoverTooltip } from '../Layout/HoverTooltip.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
 import { applyLocalOrder, sameMembers, sameOrder } from '../../hooks/tabPushGeom.js';
-// §5.4 #14-2 — 꾹 눌러 집어 드는 손짓 한 벌(활동바·프로젝트 탭과 같은 훅).
+// §5.4 #14-2 — 집어 들어 옮기는 손짓 한 벌(활동바·프로젝트 탭과 같은 훅 — 탭은 꾹 누르지 않고 끌어서 든다, (F-6)).
 import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
 import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
 import { serializeRunningLoops, parseRunningLoops } from './sessionLoopIndicator.js';
-// §5.5 #17-34 / §5.4 #14-2 — 탭을 본문으로 끌면 화면이 나뉜다. 탭은 이제 **꾹 눌러 집어 들고**
+// §5.5 #17-34 / §5.4 #14-2 — 탭을 본문으로 끌면 화면이 나뉜다. 탭은 이제 **누른 채 끌면 집어 들고**
 //   (네이티브 DnD ❌ — 활동바와 같은 손맛), 어느 자리에 떨어지는지는 이 버스가 판정 쪽으로 날라 준다.
 import {
   beginPointerSessionDrag, cancelPointerSessionDrag, endPointerSessionDrag, movePointerSessionDrag,
@@ -190,7 +190,11 @@ export const IDETabBar = memo(function IDETabBar({
   }, [agentId, subAgents]);
 
   /*
-   * ─── 꾹 눌러 자리를 옮긴다 (§5.4 #14-2 · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ───
+   * ─── 끌어서 자리를 옮긴다 (§5.4 #14-2 (F-6) · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ───
+   *
+   * **꾹 누르는 기다림은 없다.** 누른 채 문턱(`POINTER_DRAG.dragStartPx`)을 넘게 끌면 그 자리에서 곧장
+   * 들리고, 문턱 안에서 떼면 평소의 클릭이라 세션 선택·우클릭 메뉴·닫기는 그대로다. 본문 위 분할
+   * 미리보기도 든 그 순간부터 뜬다(터치만 꾹 누르기로 남는다 — 손가락으로 줄을 넘기는 스크롤).
    *
    * 종전에는 HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명 유령이 되고,
    * 손에 붙어 오는 것은 탭이 아니라 브라우저가 찍은 스크린샷이며, 놓을 때는 되돌아가는 연출이 한
@@ -207,6 +211,8 @@ export const IDETabBar = memo(function IDETabBar({
     order: localOrder ?? subAgents.map((s) => s.id),
     // 닫기 버튼·이름 편집 입력 위에서 시작된 누르기는 그 위젯의 것이다(종전 `closest('button, input')` 가드).
     ignoreSelector: 'button, input',
+    // §5.4 #14-2 (F-6) — 꾹 누르지 않는다. 누른 채 문턱을 넘게 끌면 곧장 든다.
+    activation: 'drag',
     onDragStart: (key, p) => {
       if (!agentId) return;
       beginPointerSessionDrag({ sessionId: sessionIdOfDragKey(key), agentId, fromCellId: null });

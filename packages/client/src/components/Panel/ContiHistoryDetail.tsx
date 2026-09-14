@@ -37,7 +37,6 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
   const activeContiWork = useGraphStore((s) => s.activeContiWork);
   const openContiBoard = useGraphStore((s) => s.openContiBoard);
   const openIDEOverlay = useGraphStore((s) => s.openIDEOverlay);
-  const setIDEActiveSession = useGraphStore((s) => s.setIDEActiveSession);
 
   /** §5.3 #28 (L) v1.58 — 이 에이전트의 인플라이트 콘티 작업 (있으면 "Working…" 인디케이터) */
   const work = activeContiWork[agentId];
@@ -54,17 +53,21 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
    * §5.3 #28 (L) v1.58 — "새 콘티 생성" 클릭.
    * 에이전트는 이미 `customMode='conti'` + `CONTI_AGENT_RULES` 가 박혀 있어 어떤 프롬프트든
    * conti JSON 으로만 응답한다. 따라서 chat 입력창 prefill ❌ — 빈 새 세션만 띄우면 된다.
-   * IDETabBar 의 '+' 버튼과 동일 경로: `POST /api/subagents/<agentId>` → setIDEActiveSession.
+   * IDETabBar 의 '+' 버튼과 동일 경로: `POST /api/subagents/<agentId>` → 그 새 세션으로 IDE 를 연다.
+   *
+   * §5.5 #17-6 (H-27) ⑦ 새 세션은 여는 길에 **실어** 보낸다. 종전에는 창을 먼저 열고 응답이 온 뒤
+   * 키 없이 세웠는데, 그 에이전트의 IDE 가 밖에 나가 있는 판에는 앱 안의 **남의 창**이 그 세션으로
+   * 바뀌었다. 그래서 응답을 받은 뒤 **한 번** 연다(두 번 열면 밖의 창이 두 번 앞으로 서며 두 번
+   * 비친다). 응답이 실패해도 창은 종전대로 연다.
    */
   const handleGenerate = useCallback(() => {
     fetch(`/api/subagents/${agentId}`, { method: 'POST' })
       .then((r) => r.json())
       .then((data: { subAgent?: { id: string } }) => {
-        if (data.subAgent) setIDEActiveSession(data.subAgent.id);
+        openIDEOverlay(agentId, data.subAgent ? { focus: { sessionId: data.subAgent.id } } : undefined);
       })
-      .catch(() => {});
-    openIDEOverlay(agentId);
-  }, [agentId, openIDEOverlay, setIDEActiveSession]);
+      .catch(() => { openIDEOverlay(agentId); });
+  }, [agentId, openIDEOverlay]);
 
   // §5.13 (Q) — 대본에서 콘티. 접혀 있다가 사용자가 열 때만 자리를 차지한다.
   const generateFromScript = useGraphStore((s) => s.generateContiFromScript);

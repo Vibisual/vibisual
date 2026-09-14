@@ -75,6 +75,28 @@ describe('§5.25 (J) agentModelLabelOf — 엔진이 자기 모델을 말한다'
   });
 });
 
+describe('§5.25 (B-1) agentModelLabelOf — CMD 버블은 셸에 채울 CLI 가 먼저다', () => {
+  const CMD = 'interactive-terminal';
+
+  it('Codex CMD 는 config.model(opus) 이 아니라 CLI 이름을 말한다', () => {
+    expect(agentModelLabelOf({ model: 'opus', executionMode: CMD, cliKind: 'codex' }, FALLBACKS)).toBe('Codex CLI');
+  });
+
+  it('Claude CMD(cliKind 없음·claude)는 종전대로 config.model 이다', () => {
+    expect(agentModelLabelOf({ model: 'opus', executionMode: CMD }, FALLBACKS)).toBe('opus');
+    expect(agentModelLabelOf({ model: 'opus', executionMode: CMD, cliKind: 'claude' }, FALLBACKS)).toBe('opus');
+  });
+
+  it('순수 셸은 적을 모델이 없다', () => {
+    expect(agentModelLabelOf({ model: 'opus', executionMode: CMD, cliKind: 'shell' }, FALLBACKS)).toBeNull();
+  });
+
+  it('헤드리스로 되돌린 버블에 남은 cliKind 는 클로드 모델을 가리지 않는다', () => {
+    expect(agentModelLabelOf({ model: 'sonnet', executionMode: 'headless', cliKind: 'codex' }, FALLBACKS)).toBe('sonnet');
+    expect(agentModelLabelOf({ model: 'sonnet', cliKind: 'codex' }, FALLBACKS)).toBe('sonnet');
+  });
+});
+
 describe('§5.25 (B) CODEX_DEFAULT_LABEL_RE — 이름 바꾼 뒤에도 옛 버블을 안 버린다', () => {
   it('새 기본 이름(Codex Agent 3)과 옛 기본 이름(Codex 3) 둘 다 받는다', () => {
     expect(CODEX_DEFAULT_LABEL_RE.test('Codex Agent 3')).toBe(true);

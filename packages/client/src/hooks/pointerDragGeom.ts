@@ -1,7 +1,8 @@
-// §5.4 #14-2 / §5.5 #16-1 (E) — "꾹 눌러 집어 든다"의 순수 기하.
+// §5.4 #14-2 / §5.5 #16-1 (E) — "집어 든다"의 순수 기하(꾹 눌러서든, 끌어서든).
 //
 // `tabPushGeom` 이 **밀려나는 쪽**의 기하(어느 탭이 언제 비켜서나)를 갖는다면, 이 파일은
-// **집어 드는 쪽**의 기하를 갖는다: 길게 누르기가 아직 살아 있는가, 커서 아래가 어느 칸인가,
+// **집어 드는 쪽**의 기하를 갖는다: 어느 문으로 집어 드나(꾹 누르기·끌기 거리), 길게 누르기가
+// 아직 살아 있는가, 끈 거리가 문턱을 넘었나, 커서 아래가 어느 칸인가,
 // 가장자리에 닿아 목록이 흘러야 하는가. 전부 좌표만 받아 답하고 DOM 을 만지지 않는다
 // (`floatingWindowGeom`·`tabPushGeom` 선례 — 실제 리스너·style 은 `usePointerDragReorder` 가 건다).
 //
@@ -10,10 +11,18 @@
 
 import type { PushAxis } from './tabPushGeom.js';
 
-/** 꾹 누르기 손맛의 모든 수치 — 값 조정은 여기 한 곳(매직넘버 산개 ❌). */
+/** 집어 드는 손맛의 모든 수치 — 값 조정은 여기 한 곳(매직넘버 산개 ❌). */
 export const POINTER_DRAG = {
-  /** 길게 누르기로 판정하는 시간(ms). 이보다 짧게 떼면 평소대로 그 항목이 열린다. */
+  /** 길게 누르기로 판정하는 시간(ms). 이보다 짧게 떼면 평소대로 그 항목이 열린다(`'longPress'` 문). */
   longPressMs: 350,
+  /**
+   * `'drag'` 문에서 누른 자리로부터 **이 거리를 넘게** 끌면 기다림 없이 집어 든다(§5.4 #14-2 (F-6)).
+   *
+   * 캔버스 버블의 클릭/드래그 문턱(`bubbleSelectGesture` 의 `DRAG_MOVE_THRESHOLD_PX`, §6)과 **같은 값·
+   * 같은 잣대**(`Math.hypot`)다 — 앱 안에서 "얼마나 움직여야 끌기인가"가 줄마다 갈리면 손버릇이 갈린다.
+   * 훅은 컴포넌트를 import 할 수 없어(§3.4 의존 방향) 값을 여기 따로 두고, 둘이 같다는 것은 회귀가 맞댄다.
+   */
+  dragStartPx: 5,
   /**
    * 길게 누르기 전에 **그 줄이 스크롤되는 축으로** 이만큼 움직이면 누른 것이 아니라 목록을 끈 것이다.
    *
@@ -33,6 +42,37 @@ export interface DragSlot {
   key: string;
   start: number;
   size: number;
+}
+
+/** 집어 드는 문 — 꾹 눌러 버티나(`'longPress'`), 누른 채 끄나(`'drag'`). */
+export type PointerDragActivation = 'longPress' | 'drag';
+
+/**
+ * 이 누름은 어느 문으로 집어 드나.
+ *
+ * `'drag'` 를 청해도 **터치는 꾹 누르기**다 — 손가락으로 줄을 미는 것은 그 줄의 스크롤이라, 거리로
+ * 집어 들면 탭 줄을 손가락으로 넘길 길이 사라진다. 마우스·펜은 끌어도 줄이 스크롤되지 않으므로
+ * 청한 그대로다. 갈림은 OS 가 아니라 **입력 종류**라 세 OS 가 같은 답을 낸다(Chromium 이 같은 값을 준다).
+ */
+export function pressActivationFor(requested: PointerDragActivation, pointerType: string): PointerDragActivation {
+  return requested === 'drag' && pointerType !== 'touch' ? 'drag' : 'longPress';
+}
+
+/**
+ * 누른 채 끈 거리가 집어 들 만큼인가 — 문턱을 **넘어야**(같으면 아직) 끌기다.
+ *
+ * 꾹 누르기의 취소 임계(`pressSurvivesMove`)와 달리 **두 축을 함께** 잰다. 탭바에서 아래로 내리는
+ * 손짓은 별창 분리·본문 분할로 곧장 이어져야 하므로 세로로 끈 것도 끌기다.
+ */
+export function dragStartReached(input: {
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+  thresholdPx?: number;
+}): boolean {
+  const threshold = input.thresholdPx ?? POINTER_DRAG.dragStartPx;
+  return Math.hypot(input.x - input.startX, input.y - input.startY) > threshold;
 }
 
 /**

@@ -107,6 +107,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   //   유일한 관리 지점**이다 — 무엇이 깔려 있는지 캔버스에서 바로 보이는 편이 낫다는 판단.
   const createLocalAgent = useGraphStore((st) => st.createLocalAgent);
   const createCodexAgent = useGraphStore((st) => st.createCodexAgent);
+  const createCodexCmdAgent = useGraphStore((st) => st.createCodexCmdAgent);
   // 노출 게이트 — 아래 네 항목(플레이·스펙·랩·선반)은 디버그 모드에서만 낸다(§7.7).
   const debugMode = useGraphStore((st) => st.debugMode);
   /**
@@ -175,6 +176,12 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     createCodexAgent(canvasX, canvasY);
     onClose();
   }, [createCodexAgent, onClose, canvasX, canvasY]);
+
+  // §5.25 (B-1) — 코덱스 칸의 CMD. 클로드 칸의 CMD 와 같은 버블이고 셸이 채울 CLI 만 `codex` 다.
+  const handleCreateCodexCmdAgent = useCallback(() => {
+    createCodexCmdAgent(canvasX, canvasY);
+    onClose();
+  }, [createCodexCmdAgent, onClose, canvasX, canvasY]);
 
   const handleCreateApp = useCallback((appId: string) => {
     onCreateAppBubble(appId, canvasX, canvasY);
@@ -297,11 +304,30 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
                   <span className="text-xs text-gray-500">{t('canvas.contextMenu.createWorktreeHint')}</span>
                 </div>
               </button>
+
+              {/* §5.25 (B-1) — CMD 에이전트 (인터랙티브 임베디드 터미널, teal 톤). 종전엔 최상위의
+                  "맨 셸" 항목이었으나 사용자 지시(2026-09-14)로 엔진 칸 안에 둔다 — 이 칸의 CMD 는
+                  `claude` 를 채우고, 코덱스 칸의 CMD 는 같은 버블에 `codex` 를 채운다. */}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                onClick={handleCreateCmdAgent}
+              >
+                <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2.5" y="4" width="19" height="16" rx="2" />
+                  <path d="M6 9l3 3-3 3" />
+                  <line x1="12" y1="15" x2="16" y2="15" />
+                </svg>
+                <div className="flex flex-col">
+                  <span>{t('canvas.contextMenu.createCmdAgent')}</span>
+                  <span className="text-xs text-gray-500">{t('canvas.contextMenu.createCmdAgentHint')}</span>
+                </div>
+              </button>
             </div>
           )}
         </div>
 
-        {/* §5.25 (B) — **코덱스 칸.** 클로드 칸과 같은 규약. 지금은 안에 한 줄뿐이지만
+        {/* §5.25 (B) — **코덱스 칸.** 클로드 칸과 같은 규약 — 헤드리스 에이전트와 CMD 가 함께 든다.
             엔진 축이 늘 때 이 자리가 그대로 받는다(최상위에 항목을 다시 쌓지 않는다). */}
         <div
           className="relative"
@@ -349,28 +375,29 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
                   </span>
                 </div>
               </button>
+
+              {/* §5.25 (B-1) — 코덱스 CMD. 클로드 칸의 CMD 와 같은 버블·같은 teal 톤이고,
+                  임베디드 터미널이 `claude` 대신 `codex` 를 채운다(`cliKind:'codex'`). */}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                onClick={handleCreateCodexCmdAgent}
+              >
+                <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2.5" y="4" width="19" height="16" rx="2" />
+                  <path d="M6 9l3 3-3 3" />
+                  <line x1="12" y1="15" x2="16" y2="15" />
+                </svg>
+                <div className="flex flex-col">
+                  <span>{t('canvas.contextMenu.createCodexCmdAgent', { defaultValue: 'Codex CMD 만들기' })}</span>
+                  <span className="text-xs text-gray-500">
+                    {t('canvas.contextMenu.createCodexCmdAgentHint', { defaultValue: 'Codex CLI 를 직접 모는 인터랙티브 터미널' })}
+                  </span>
+                </div>
+              </button>
             </div>
           )}
         </div>
-
-        {/* §4 v2.63 — CMD 에이전트 (인터랙티브 임베디드 터미널, teal 톤). 엔진 칸에 넣지 않는다 —
-            이건 어느 엔진의 것도 아닌 **맨 셸**이라 그 안에서 무엇을 몰지는 사용자가 정한다. */}
-        <button
-          type="button"
-          className={MENU_ROW_CLASS}
-          onClick={handleCreateCmdAgent}
-          onMouseEnter={releaseSubmenu}
-        >
-          <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2.5" y="4" width="19" height="16" rx="2" />
-            <path d="M6 9l3 3-3 3" />
-            <line x1="12" y1="15" x2="16" y2="15" />
-          </svg>
-          <div className="flex flex-col">
-            <span>{t('canvas.contextMenu.createCmdAgent')}</span>
-            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createCmdAgentHint')}</span>
-          </div>
-        </button>
 
         {/* §5.19 (B) — All Model (내 PC 에서 도는 로컬 LLM). 누르면 **버블이 바로 생긴다** —
             엔진·모델이 없으면 그 버블을 눌렀을 때 설치 창이 뜬다.

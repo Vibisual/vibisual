@@ -10,8 +10,8 @@
  * 갱신 비용을 O(신규)로 낮춘다(VS Code 터미널처럼 길이 무관). 출력은 buildBaseItems 와 동일함이
  * streamItems.test.ts 로 못박혀 있어, 아래 카드 합류·정렬·identity 재조정·Virtuoso 배선은 불변.
  */
-import { memo, useState, useMemo, useRef, useCallback, useContext, createContext, forwardRef, useImperativeHandle, Children, isValidElement } from 'react';
-import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
+import { memo, useState, useMemo, useRef, useCallback, useEffect, useContext, createContext, forwardRef, useImperativeHandle, Children, isValidElement } from 'react';
+import { Virtuoso, type VirtuosoHandle, type StateSnapshot, type ListRange } from 'react-virtuoso';
 import { useTranslation } from 'react-i18next';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, markRange, highlightSearchMatches } from './bookmarkScroll.js';
 import Markdown from 'react-markdown';
@@ -66,6 +66,7 @@ import {
 } from '@vibisual/shared';
 import { useVirtuosoFrontShift } from './frontShift.js';
 import { lastPassedIndex, owningCommandId, VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
+import { olderHistoryBoundary, reachesHistoryBoundary, requestOlderStreamHistory } from './streamHistory.js';
 import { readingItemAttrs } from './reading/readingModel.js';
 
 // ─── 타입 ───
@@ -139,6 +140,13 @@ export interface StreamRendererHandle {
   viewedCommandId: () => string | null;
   /** v2.99 — 세션 떠날 때 부모가 현재 스크롤/측정 상태 스냅샷을 가져가 저장(다음 복귀 때 restoreState 로 전달). */
   getState: (cb: (snap: StateSnapshot) => void) => void;
+  /**
+   * §5.5 #17-12 — 표시 밀도를 바꾼 뒤 **보던 항목**을 되찾는 두 손잡이. 보던 항목이 새 목록의 선렌더 버퍼 밖이면
+   * DOM 에서 못 찾으므로 부모(IDEMainArea)가 순번을 물어 그 자리로 먼저 옮긴다. 없으면 -1.
+   */
+  indexOfItemId: (id: string) => number;
+  /** 자료 순번 `index` 의 항목 윗변을 스크롤러 윗변에서 `offsetPx` 아래에 둔다. */
+  scrollToItemIndex: (index: number, offsetPx: number) => void;
 }
 
 // ─── 마크다운 커스텀 렌더러 ───
@@ -1109,7 +1117,61 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   //   가 전부 틀린 좌표로 계산돼 긴 세션에서 화면이 "위로 말려 올라갔다"(새 이벤트 유입 = 절단 시점).
   //   §5.5 #17-12 — 밀도를 리셋 키로 함께 넘긴다: 밀도 전환은 선두 id 를 통째로 갈아치우므로 절단으로
   //   오인하면 있지도 않은 제거분만큼 스크롤이 보정돼 화면이 튄다.
-  const firstItemIndex = useVirtuosoFrontShift(items, streamItemId, density);
+  //   §5.5 #17-12 — 과거를 불러와 **앞에 붙인** 것도 신고한다. 기준은 직전 렌더에서 화면 맨 위에 선 항목이다 —
+  //   불러온 과거는 창 밖 턴의 명령 블록들 사이로 끼어들어, 맨 앞 항목만 보면 "그대로"로 읽힌다.
+  const scrollerElRef = useRef<HTMLElement | null>(null);
+  const viewIndexOf = useCallback((prevIds: readonly string[]): number | undefined => {
+    const cont = scrollerElRef.current;
+    if (!cont) return undefined;
+    const els = cont.querySelectorAll<HTMLElement>('[data-stream-item-id]');
+    if (els.length === 0) return undefined;
+    const contTop = cont.getBoundingClientRect().top;
+    const idx = lastPassedIndex(els.length, (i) => els[i]!.getBoundingClientRect().top - contTop, 0);
+    const id = (idx >= 0 ? els[idx]! : els[0]!).dataset.streamItemId;
+    const at = id === undefined ? -1 : prevIds.indexOf(id);
+    return at >= 0 ? at : undefined;
+  }, []);
+  const firstItemIndex = useVirtuosoFrontShift(items, streamItemId, density, viewIndexOf);
+
+  // §5.5 #17-12 — 복원 창 위쪽 과거 불러오기. 그려진 첫 항목(선렌더 버퍼 포함)이 창의 윗끝 항목에 닿으면
+  //   그 앞 한 쪽을 청한다. 콜백은 참조를 고정하고 최신 값은 ref 로 읽는다(virtuoso 가 스크롤마다 부른다).
+  const historyBoundary = useMemo(() => olderHistoryBoundary(items, events), [items, events]);
+  const historyDone = useGraphStore((s) => (subAgentId ? s.streamHistoryDone[subAgentId] === true : true));
+  const historyDeep = useGraphStore((s) => (subAgentId ? s.deepRestoredSessions[subAgentId] === true : false));
+  const renderedStartRef = useRef<number | null>(null);
+  const historyCtxRef = useRef({ agentId, subAgentId, boundary: historyBoundary, base: firstItemIndex });
+  historyCtxRef.current = { agentId, subAgentId, boundary: historyBoundary, base: firstItemIndex };
+  const historyTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const checkOlderHistory = useCallback(function check(): void {
+    if (!mountedRef.current) return;
+    const { agentId: aid, subAgentId: sid, boundary, base: shiftBase } = historyCtxRef.current;
+    const start = renderedStartRef.current;
+    if (!aid || !sid || start === null) return;
+    if (!reachesHistoryBoundary(start - shiftBase, boundary)) return;
+    const wait = requestOlderStreamHistory(aid, sid, () => check());
+    if (wait > 0 && historyTimerRef.current === null) {
+      historyTimerRef.current = window.setTimeout(() => {
+        historyTimerRef.current = null;
+        check();
+      }, wait);
+    }
+  }, []);
+  useEffect(() => {
+    checkOlderHistory();
+  }, [checkOlderHistory, historyBoundary, firstItemIndex, historyDone, historyDeep]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (historyTimerRef.current !== null) window.clearTimeout(historyTimerRef.current);
+      historyTimerRef.current = null;
+    };
+  }, []);
+  const handleRangeChanged = useCallback((range: ListRange) => {
+    renderedStartRef.current = range.startIndex;
+    checkOlderHistory();
+  }, [checkOlderHistory]);
 
   const liveLabels = useMemo<LiveLabels>(
     () => ({ thinking: t('ide.streamRenderer.thinking'), working: t('ide.streamRenderer.working') }),
@@ -1171,7 +1233,6 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다
   //   (옛 외부 scrollParent 컨테이너 대체). scrollerRef 콜백에서 채워 부모에게도 그대로 올린다.
   const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const scrollerElRef = useRef<HTMLElement | null>(null);
   const handleScrollerRef = useCallback((el: HTMLElement | Window | null) => {
     const node = el instanceof HTMLElement ? el : null;
     scrollerElRef.current = node;
@@ -1249,7 +1310,11 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     }
     return ids;
   }, [items]);
-  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId]);
+  const indexOfItemId = useCallback((id: string): number => items.findIndex((it) => it.id === id), [items]);
+  const scrollToItemIndex = useCallback((index: number, offsetPx: number) => {
+    virtuosoRef.current?.scrollToIndex({ index, align: 'start', offset: -offsetPx });
+  }, []);
+  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId, indexOfItemId, scrollToItemIndex }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId, indexOfItemId, scrollToItemIndex]);
 
   if (items.length === 0) {
     return (
@@ -1279,6 +1344,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       components={{ Footer: StreamEndGap }}
       atBottomStateChange={onAtBottomChange}
       atBottomThreshold={40}
+      // §5.5 #17-12 — 그려진 범위가 창의 윗끝에 닿으면 그 앞 과거 한 쪽을 불러온다.
+      rangeChanged={handleRangeChanged}
       // 복원 스냅샷이 있으면 그 위치/측정값으로, 없으면(첫 진입) 마지막 항목(바닥)에서 시작 — 둘은 배타.
       {...(restoreState
         ? { restoreStateFrom: restoreState }

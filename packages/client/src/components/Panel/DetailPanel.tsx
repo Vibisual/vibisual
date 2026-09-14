@@ -21,6 +21,7 @@ import { localProviderOf, localToolVerdictOf } from '../LocalModel/localModelEnt
 import { codexProviderOf } from '../Codex/codexModelEntry.js';
 import { FolderFileTree } from './FolderFileTree.js';
 import { WebEntryList } from './WebEntryList.js';
+import { WebFoldHostList } from './WebFoldHostList.js';
 import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
@@ -396,9 +397,11 @@ export function DetailPanel({
   const isTopLevelHome = rawNode?.bubbleType === 'root' || rawNode?.bubbleType === 'worktree';
 
   // preserve-pin (§2.4 v1.28) — root/back 제외
+  // §7.22 접힌 웹 버블도 제외 — 서버 장부에 없는 id 라 눌러도 404 로 버려진다. 고정은 호스트 칸마다 한다.
   const isPinEligible = !!node
     && node.bubbleType !== 'root'
-    && node.bubbleType !== 'back';
+    && node.bubbleType !== 'back'
+    && !node.webFold;
   const handleTogglePreservePin = useCallback(() => {
     if (!node) return;
     fetch(`/api/bubble/${node.id}/preserve-pin`, { method: 'PATCH' }).catch(() => {});
@@ -780,7 +783,8 @@ export function DetailPanel({
               onClick={isAgent ? startEdit : isFile ? handleOpenFile : (isFolder || isRoot) ? handleOpenFolder : undefined}
               title={isAgent ? t('panel.detailPanel.clickToRename') : isFile ? t('panel.detailPanel.clickToOpenFile') : (isFolder || isRoot) ? t('panel.detailPanel.clickToOpenFolder') : undefined}
             >
-              {isRoot && currentFolder ? currentFolder.label : node.label}
+              {/* §5.23 접어 보기 — 접힌 웹 버블의 라벨 문자열은 최근 호스트 하나라, 캔버스 제목과 같은 "웹"을 쓴다. */}
+              {isRoot && currentFolder ? currentFolder.label : node.webFold ? t('ide.stage.surfaceName.web') : node.label}
             </h2>
           )}
         </div>
@@ -1278,8 +1282,12 @@ export function DetailPanel({
             />
           )}
 
-          {/* §7.22 — 도메인 버블: 웹 이력(체크 = 제거) */}
-          {isDomain && (
+          {/* §7.22 — 도메인 버블: 웹 이력(체크 = 제거). 접힌 웹 버블(§5.23)은 호스트마다 한 칸씩 같은 목록을 편다.
+              key 를 버블 id 로 둬야 다른 접힌 버블로 옮겨 갈 때 "펴 둔 칸"이 새로 선다. */}
+          {isDomain && node.webFold && (
+            <WebFoldHostList key={node.id} fold={node.webFold} domainEntries={domainEntries} />
+          )}
+          {isDomain && !node.webFold && (
             <WebEntryList
               nodeId={node.id}
               host={node.label}

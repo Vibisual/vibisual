@@ -121,6 +121,22 @@ describe('parseCodexModelsCache — 모델 표를 우리가 들지 않는다', (
     ]);
   });
 
+  it('§5.25 (G-2) — 답변 길이 지원 여부와 모델이 쓰는 값을 읽는다(없으면 생략)', () => {
+    const raw = JSON.stringify({
+      models: [
+        { slug: 'talks', support_verbosity: true, default_verbosity: 'low' },
+        { slug: 'silent', support_verbosity: false, default_verbosity: null },
+        { slug: 'old' },
+      ],
+    });
+    const [talks, silent, old] = parseCodexModelsCache(raw);
+    expect(talks?.supportsVerbosity).toBe(true);
+    expect(talks?.defaultVerbosity).toBe('low');
+    expect(silent?.supportsVerbosity).toBe(false);
+    expect(silent && 'defaultVerbosity' in silent).toBe(false);
+    expect(old && 'supportsVerbosity' in old).toBe(false);
+  });
+
   it('추론 단계가 문자열 배열로 와도 받는다', () => {
     const raw = JSON.stringify({ models: [{ slug: 'm', supported_reasoning_levels: ['low', 'high'] }] });
     expect(parseCodexModelsCache(raw)[0]?.reasoningLevels).toEqual(['low', 'high']);

@@ -180,6 +180,65 @@ export function scanTailLines(
 }
 
 /**
+ * **뒤에서 앞으로** 줄을 먹인다 — 파일의 마지막 줄부터 첫 줄까지. `false` 를 돌려주면 거기서 멈춘다.
+ *
+ * **왜**: 과거 구간 조회(`streamBufferStore.loadEventsBefore`)는 "기준 줄 바로 앞의 N줄"만 쓴다.
+ * 기준 줄은 대개 꼬리 가까이에 있으므로 앞에서부터 훑으면 쓰지도 않을 앞부분 수 MB 를 매번 읽는다.
+ * 뒤에서부터 읽으면 비용이 "기준 줄까지의 거리 + N줄"로 준다.
+ *
+ * 바이트를 개행(`0x0A`)에서 먼저 가르고 **줄 단위로** 디코드한다 — 개행은 UTF-8 멀티바이트 시퀀스의
+ * 일부가 될 수 없으므로 청크 경계에서 글자가 깨지지 않는다(`scanFileLines` 와 같은 근거).
+ * 빈 줄은 먹이지 않는다(같은 규약). 반환값: 소비자가 멈췄으면 `true`, 끝까지 읽었으면 `false`.
+ */
+export function scanLinesBackward(
+  filePath: string,
+  onLine: LineConsumer,
+  chunkBytes: number = JSONL_SCAN_CHUNK_BYTES,
+): boolean {
+  let fd: number | null = null;
+  try {
+    const size = fs.statSync(filePath).size;
+    if (size === 0) return false;
+    const step = chunkBytes > 0 ? chunkBytes : JSONL_SCAN_CHUNK_BYTES;
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.allocUnsafe(Math.min(step, size));
+    let end = size; // 아직 안 본 구간의 끝(배타)
+    // 뒤 청크의 첫 개행 앞 바이트 — 이 청크에서 시작한 줄의 뒷부분이다. 이 청크 뒤에 이어 붙인다.
+    let carry: Buffer = Buffer.alloc(0);
+    while (end > 0) {
+      const from = Math.max(0, end - buf.length);
+      const want = end - from;
+      let got = 0;
+      while (got < want) {
+        const n = fs.readSync(fd, buf, got, want - got, from + got);
+        if (n <= 0) break;
+        got += n;
+      }
+      if (got < want) break; // 파일이 읽는 도중 줄었다 — 반쪽 줄을 먹이느니 여기서 멈춘다.
+      const view = carry.length > 0 ? Buffer.concat([buf.subarray(0, got), carry]) : buf.subarray(0, got);
+      let lineEnd = view.length;
+      for (let i = view.length - 1; i >= 0; i--) {
+        if (view[i] !== 0x0a) continue;
+        if (i + 1 < lineEnd && onLine(view.subarray(i + 1, lineEnd).toString('utf8')) === false) return true;
+        lineEnd = i;
+      }
+      // `Buffer.from` 으로 복사해야 다음 읽기가 `buf` 를 덮어써도 오염되지 않는다.
+      carry = lineEnd > 0 ? Buffer.from(view.subarray(0, lineEnd)) : Buffer.alloc(0);
+      end = from;
+    }
+    // 파일 첫 줄(앞에 개행이 없다).
+    if (end === 0 && carry.length > 0 && onLine(carry.toString('utf8')) === false) return true;
+    return false;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* 무시 */ }
+    }
+  }
+}
+
+/**
  * 파일 전체를 청크로 훑으며 완결된 줄을 먹인다 — `fs.readFileSync(p,'utf8').split('\n')` 대체용.
  *
  * 파일이 개행 없이 끝났으면 그 마지막 줄도 먹인다(전량 읽기와 결과를 맞추기 위함 —

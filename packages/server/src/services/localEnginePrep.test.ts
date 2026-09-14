@@ -69,6 +69,14 @@ function gguf(kv: Array<[string, number, number | string]>): Buffer {
       const v = Buffer.alloc(8);
       v.writeBigUInt64LE(BigInt(Number(value)));
       parts.push(v);
+    } else if (type === 6) {
+      const v = Buffer.alloc(4);
+      v.writeFloatLE(Number(value));
+      parts.push(v);
+    } else if (type === 12) {
+      const v = Buffer.alloc(8);
+      v.writeDoubleLE(Number(value));
+      parts.push(v);
     }
   }
   return Buffer.concat(parts);
@@ -80,7 +88,7 @@ describe('parseGgufMeta — 구조와 학습 문맥을 한 번에', () => {
       ['general.architecture', 8, 'qwen3'],
       ['qwen3.context_length', 4, 32768],
     ]);
-    expect(parseGgufMeta(buf)).toEqual({ architecture: 'qwen3', contextLength: 32768 });
+    expect(parseGgufMeta(buf)).toEqual({ architecture: 'qwen3', contextLength: 32768, samplingTemp: null });
   });
 
   it('64비트로 적힌 문맥 길이도 읽는다', () => {
@@ -105,7 +113,27 @@ describe('parseGgufMeta — 구조와 학습 문맥을 한 번에', () => {
     expect(parseGgufMeta(Buffer.from('not a gguf file at all, really'))).toEqual({
       architecture: null,
       contextLength: null,
+      samplingTemp: null,
     });
+  });
+
+  it('§5.25 (G-2) — 모델이 권하는 온도를 float32·float64 로 읽고, 적힌 자릿수로 되돌린다', () => {
+    const f32 = gguf([
+      ['general.architecture', 8, 'qwen3'],
+      ['general.sampling.temp', 6, 0.7],
+      ['qwen3.context_length', 4, 32768],
+    ]);
+    expect(parseGgufMeta(f32)).toEqual({ architecture: 'qwen3', contextLength: 32768, samplingTemp: 0.7 });
+    expect(parseGgufMeta(gguf([['general.sampling.temp', 12, 0.6]])).samplingTemp).toBe(0.6);
+  });
+
+  it('온도가 문맥 길이 뒤에 적혀 있어도 놓치지 않는다', () => {
+    const buf = gguf([
+      ['general.architecture', 8, 'llama'],
+      ['llama.context_length', 4, 8192],
+      ['general.sampling.temp', 6, 1],
+    ]);
+    expect(parseGgufMeta(buf).samplingTemp).toBe(1);
   });
 });
 

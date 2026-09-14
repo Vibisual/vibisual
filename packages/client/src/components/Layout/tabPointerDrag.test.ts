@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * §5.4 #14-2 — **탭도 꾹 눌러 집어 든다.**
+ * §5.4 #14-2 — **탭도 손에 집어 들어 옮긴다.** (F-6) 부터는 꾹 누르지 않고 **끌어서** 든다.
  *
  * 프로젝트 탭(`TabBar`)과 IDE 세션 탭(`IDETabBar`)은 HTML5 네이티브 DnD 를 썼다. 그래서 살짝만
  * 밀어도 탭이 즉시 "뚝 떨어져" 반투명해지고, 손에 붙어 오는 것은 탭이 아니라 브라우저가 찍은
@@ -11,8 +11,11 @@ import { describe, it, expect } from 'vitest';
  * 옮겼다.
  *
  * 여기서 막는 것은 **되돌아감**이다 — 탭 하나에 `draggable` 을 다시 달면 그 탭만 옛 손맛으로
- * 돌아가고(같은 줄에서 탭마다 감각이 갈린다), 같은 제스처를 두 엔진이 함께 받으면 롱프레스를
+ * 돌아가고(같은 줄에서 탭마다 감각이 갈린다), 같은 제스처를 두 엔진이 함께 받으면 끌기 문턱을
  * 재는 중에 네이티브 `dragstart` 가 터져 둘 다 돈다.
+ *
+ * (F-6) 이 막는 되돌아감은 **기다림**이다 — 탭바가 `activation: 'drag'` 를 빠뜨리면 훅 기본값(꾹
+ * 누르기 350ms)으로 조용히 돌아가고, 사용자가 없앤 "눌러서 버티기"가 그대로 되살아난다.
  *
  * 클라 테스트에는 DOM 이 없으므로(jsdom 미설치) 렌더가 아니라 **소스 문자열**을 읽는다 —
  * `ideActivityBar.test.ts` 가 쓰는 그 방식 그대로다.
@@ -36,8 +39,16 @@ const src = (name: string): string => {
   return hit[1];
 };
 
-describe('§5.4 #14-2 탭은 꾹 눌러 집어 든다', () => {
+describe('§5.4 #14-2 탭은 끌어서 집어 든다', () => {
   for (const file of ['TabBar.tsx', 'IDETabBar.tsx']) {
+    it(`${file} — 꾹 누르지 않고 끌어서 든다 (§5.4 #14-2 (F-6) · 사용자 지시)`, () => {
+      const s = src(file);
+      // 이 한 줄이 빠지면 훅 기본값(꾹 누르기)으로 조용히 돌아간다.
+      expect(s).toMatch(/activation:\s*'drag'/);
+      // 줄마다 기다리는 시간을 따로 박으면 꾹 누르기가 다른 모양으로 되살아난다.
+      expect(s).not.toMatch(/longPressMs:\s*\d/);
+    });
+
     it(`${file} — 네이티브 DnD 로 돌아가지 않는다`, () => {
       const s = src(file);
       // 탭에 `draggable` 을 다시 달면 그 탭만 옛 손맛이 된다(같은 줄에서 감각이 갈린다).
@@ -156,9 +167,24 @@ describe('§5.4 #14-2 탭은 꾹 눌러 집어 든다', () => {
     expect(s).toContain('isConnected');
   });
 
+  it('끌기 문은 기다리지 않는다 — 누른 자리에서 끈 거리로 들고, 꾹 누르기와 같은 입구로 들어간다 (F-6)', () => {
+    const s = src('usePointerDragReorder.ts');
+    // 입력 종류로 문을 고른다(터치는 꾹 누르기로 남는다 — 판정 값은 `pointerDragGeom.test.ts` 가 본다).
+    expect(s).toContain('pressActivationFor(activation, e.pointerType)');
+    // 타이머는 꾹 누르기 문에만 걸린다 — 끌기 문에 타이머가 붙으면 도로 기다린다.
+    expect(s).toMatch(/mode === 'longPress'\s*\?\s*window\.setTimeout/);
+    // 두 문이 같은 입구(`beginDrag`)로 들어간다 — 입구가 두 벌이면 한쪽에만 치수·캡처가 빠진다.
+    expect(s).toMatch(/setTimeout\(\(\) => \{[\s\S]{0,200}beginDrag\(/);
+    expect(s).toMatch(/dragStartReached\([\s\S]{0,400}beginDrag\(/);
+    // 끌기 문의 잡은 지점은 **처음 누른 자리**다 — 문턱을 넘은 자리로 재면 고스트가 끈 거리만큼 손에서 뒤처진다.
+    expect(s).toMatch(/beginDrag\(press\.target, press\.pointerId, press\.key, \{ x: press\.x, y: press\.y \}\)/);
+    // 버튼이 이미 떨어졌는데 `pointerup` 을 놓쳤으면 접는다 — 빈손으로 움직였는데 탭이 들려 오지 않게.
+    expect(s).toMatch(/\(e\.buttons & 1\) === 0/);
+  });
+
   it('치수를 내주는 곳은 훅 하나다 — 집어 든 그 순간 원본을 잰다', () => {
     const s = src('usePointerDragReorder.ts');
-    // 롱프레스가 성립하는 그 자리에서 이미 `rect` 를 잡고 있다(잡은 지점 계산용) — 덤으로 쓴다.
+    // 집어 드는 입구(`beginDrag`)에서 이미 `rect` 를 잡고 있다(잡은 지점 계산용) — 덤으로 쓴다.
     expect(s).toMatch(/setDragSize\(\{ width: rect\.width, height: rect\.height \}\)/);
     // 끝나면 비운다 — 안 비우면 다음에 집어 들기 전까지 낡은 치수가 남는다.
     expect(s).toContain('setDragSize(null)');

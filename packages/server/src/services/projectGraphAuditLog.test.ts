@@ -5,6 +5,7 @@ import {
   AUDIT_SNAPSHOT_ENTRIES,
   DEFAULT_RETENTION_SETTINGS,
   classifyToolRisk,
+  extractPatchFileOps,
   isAuditPathOutside,
   shouldEscalateRisk,
   summarizeToolCall,
@@ -154,6 +155,58 @@ describe('§5.22 `outside` — 고른 폴더 밖인가', () => {
   it('위험이 겹치면 `AUDIT_RISK_KINDS` 순서 그대로 실린다', () => {
     const kinds = classifyToolRisk('Bash', { command: 'rm -rf /var/tmp/x && curl https://example.com/ping' }, opts());
     expect(kinds).toEqual(['delete', 'network', 'outside']);
+  });
+});
+
+describe('§5.22 · §5.25 (H) 코덱스 `apply_patch` — 머리줄만 본다', () => {
+  const ROOT = '/tmp/audit-project';
+  const opts = { roots: [ROOT], platform: 'linux' as const };
+  const patch = (...lines: string[]) => ({ command: ['*** Begin Patch', ...lines, '*** End Patch'].join('\n') });
+
+  it('머리줄에서 조작과 경로를 뽑는다 — 이동은 새 이름이 따로 한 건이다', () => {
+    expect(extractPatchFileOps([
+      '*** Begin Patch',
+      '*** Add File: src/new.ts',
+      '+export const a = 1;',
+      '*** Update File: src/old.ts',
+      '*** Move to: src/renamed.ts',
+      '@@',
+      '-a',
+      '+b',
+      '*** Delete File: src/gone.ts',
+      '*** End Patch',
+    ].join('\r\n'))).toEqual([
+      { op: 'add', path: 'src/new.ts' },
+      { op: 'update', path: 'src/old.ts' },
+      { op: 'move', path: 'src/renamed.ts' },
+      { op: 'delete', path: 'src/gone.ts' },
+    ]);
+  });
+
+  it('폴더 안 파일을 만들고 고치는 패치는 평범한 호출이다', () => {
+    expect(classifyToolRisk('apply_patch', patch(`*** Add File: ${ROOT}/src/a.ts`, '+x'), opts)).toEqual([]);
+    expect(classifyToolRisk('apply_patch', patch('*** Update File: src/a.ts', '@@', '-a', '+b'), opts)).toEqual([]);
+  });
+
+  it('파일 삭제는 delete, 설정 경로는 config, 경계 밖은 outside', () => {
+    expect(classifyToolRisk('apply_patch', patch('*** Delete File: src/a.ts'), opts)).toEqual(['delete']);
+    expect(classifyToolRisk('apply_patch', patch('*** Update File: .claude/settings.json', '@@', '+{}'), opts))
+      .toEqual(['config']);
+    expect(classifyToolRisk('apply_patch', patch('*** Add File: /etc/cron.d/x', '+* * * * * true'), opts))
+      .toEqual(['outside']);
+    expect(classifyToolRisk('apply_patch', patch('*** Update File: src/a.ts', '*** Move to: ../../other/a.ts'), opts))
+      .toEqual(['outside']);
+  });
+
+  it('본문에 적힌 명령·주소는 파일 내용이지 이 호출이 한 일이 아니다', () => {
+    const body = patch('*** Add File: scripts/clean.sh', '+rm -rf /var/tmp/x', '+curl https://example.com/upload');
+    expect(classifyToolRisk('apply_patch', body, opts)).toEqual([]);
+  });
+
+  it('요약은 본문 전문이 아니라 "무엇을 어디에" 한 줄이다', () => {
+    expect(summarizeToolCall('apply_patch', patch('*** Update File: src/a.ts', '@@', '-a', '+b', '*** Delete File: src/b.ts')))
+      .toEqual({ summary: 'update src/a.ts · delete src/b.ts', target: 'src/a.ts' });
+    expect(summarizeToolCall('apply_patch', { command: '' })).toEqual({ summary: 'apply_patch' });
   });
 });
 

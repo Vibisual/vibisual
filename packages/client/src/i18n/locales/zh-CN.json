@@ -600,7 +600,11 @@
         "externalBudgetLabel": "顶层显示的外部文件夹数量",
         "externalBudgetDesc": "已固定的文件夹不计入此数量——固定的文件夹始终显示在顶层。此设置不会删除任何内容：容纳不下的位置会折叠到父级气泡中，该气泡会显示其中包含的数量。",
         "externalBudgetLoadError": "无法读取当前设置。",
-        "externalBudgetSaveError": "保存失败，未做任何更改。"
+        "externalBudgetSaveError": "保存失败，未做任何更改。",
+        "webFoldEnabled": "将每个 Agent 的网页气泡折叠为一个",
+        "webFoldEnabledDesc": "一个 Agent 读取过的域名会折叠成一个气泡，点击后按域名逐个列出。已固定的域名保留各自的气泡。不会删除任何内容 — 关闭此选项后，每个域名会重新拥有自己的气泡。",
+        "webFoldIntro": "Agent 读取网页时，每读取一个域名就会生成一个独立的气泡，因此仅一个 Agent 查阅资料就可能铺满整个画布。",
+        "webFoldTitle": "网页气泡"
       },
       "notifications": {
         "cmdBlocked": "CMD 会话等待输入时通知我",
@@ -826,7 +830,10 @@
       "tokenUsage": "Token 用量",
       "waited": "等待 {{time}}",
       "closePopup": "关闭弹窗",
-      "result": "结果"
+      "result": "结果",
+      "results": "结果（{{count}}）",
+      "todos": "待办（{{done}}/{{total}}）",
+      "todosCompact": "待办 {{done}}/{{total}}"
     },
     "contiHistory": {
       "title": "Conti 历史",
@@ -1017,7 +1024,25 @@
         "sonnet": "性能与成本均衡。适合大多数任务。",
         "haiku": "最快最便宜。最适合简单只读任务。",
         "fable": "能力最强。适合最艰难的推理与长周期任务。成本最高。",
-        "unknown": "{{name}} — 新发布的模型。能力和费用根据同系列默认值推断。"
+        "unknownFamily": "{{name}}——新发布的模型。其能力与费用是根据所属系列估算得出。"
+      },
+      "modelSection": {
+        "listChecked": "列表已检查：{{ago}}",
+        "listNotChecked": "列表尚未检查",
+        "listChecking": "正在检查新模型…",
+        "recheckTip": "立即检查新模型",
+        "source": {
+          "seed": "内置列表",
+          "api": "Anthropic API",
+          "observed": "你的会话",
+          "codex": "Codex 缓存"
+        },
+        "sourcesTip": "此列表的来源：已发布模型的内置列表、Anthropic API（仅当你有自己的 ANTHROPIC_API_KEY 时，每 {{hours}} 小时重新检查一次），以及你自己的会话实际运行过的模型 ID。每次打开此卡片都会重新检查。",
+        "sourcesTipCodex": "读取 Codex 保存在这台电脑上的模型列表——Vibisual 不保留自己的副本。每次打开此卡片都会重新读取。",
+        "fullSettings": "全部设置",
+        "fullSettingsTip": "展开为 {{agentSettings}} 的全部项目。在这里更改的值会原样保留。",
+        "applyNextTurn": "保存的更改从该 Agent 的下一轮开始生效。状态栏中的模型名称会在那一轮运行后更新。",
+        "applyNewSession": "更改模型后仅对通过“+”新开的会话生效——已在运行的终端将保留其启动时的设置。"
       },
       "contextWindow": {
         "oneMillion": "1M 上下文窗口"
@@ -1042,6 +1067,42 @@
         "tip": "通过 CLI --disallowedTools 强制屏蔽。优先级高于允许列表（工具）。适用于不重建允许列表而只关闭单个工具的场景。",
         "addTool": "+ 屏蔽工具"
       },
+      "toolTemplate": {
+        "label": "工具模板",
+        "option": "{{index}}. {{name}}",
+        "custom": {
+          "name": "自定义",
+          "desc": "手动挑选的工具列表。切回这里会恢复你之前选的列表。"
+        },
+        "readOnly": {
+          "name": "只读",
+          "desc": "只读取和搜索代码。不改文件，不执行命令。"
+        },
+        "review": {
+          "name": "审查与验证",
+          "desc": "读取代码并运行命令来检查（git diff、测试）。没有 Write、Edit。"
+        },
+        "research": {
+          "name": "网络调研",
+          "desc": "搜索并阅读网页，再与代码对照。不改文件，不执行命令。"
+        },
+        "docs": {
+          "name": "文档撰写",
+          "desc": "只读写文件。不执行命令。"
+        },
+        "implement": {
+          "name": "实现工作",
+          "desc": "读写文件、执行命令，外加任务列表和技能。没有委派、网络和定时任务。"
+        },
+        "orchestrate": {
+          "name": "协调者",
+          "desc": "把工作分派给其他 Agent 并汇总结果。自己不改文件。"
+        },
+        "all": {
+          "name": "全部工具",
+          "desc": "官方完整工具列表（{{total}}）——与新建 Agent 起始时的工具列表相同。"
+        }
+      },
       "askTools": {
         "label": "使用前询问",
         "summary_one": "这 1 个工具每次都会请求你的批准——无论权限模式是什么，即使是 Bypass。",
@@ -1063,7 +1124,8 @@
         "contiOffNotice": "保存时，Conti 规则集将被清除（Conti 数据保留）。如需恢复，请从历史中手动还原原规则。"
       },
       "rulesEditor": {
-        "help": "每次运行时注入 Agent 提示词的自定义规则（Markdown）"
+        "help": "每次运行时注入 Agent 提示词的自定义规则（Markdown）",
+        "placeholder": "# 规则\n- 严格按照实施计划执行\n- 每次修改后运行测试\n- 如有任何现有测试失败，立即报告"
       },
       "rulesHistory": {
         "title": "历史",
@@ -1091,6 +1153,7 @@
       "tools": {
         "label": "工具",
         "addTool": "+ 添加工具",
+        "removeTool": "移除 {{tool}}",
         "Read": "从文件系统读取文件内容。",
         "Write": "创建新文件或覆盖现有文件。",
         "Edit": "对文件进行精准字符串替换。",
@@ -1164,7 +1227,7 @@
         "projectContext": "只读。此 Agent 运行时自动注入到每个提示中的文件与规则。打开时刷新。",
         "agentSettingsNote": "这些设置仅在从 Vibisual 运行命令时生效（子 Agent 执行）。不会更改 Agent 自身的 Claude Code 会话。",
         "memory": "该智能体跨会话记住的内容，以及这些笔记存放的位置。",
-        "subagentDepth": "该智能体最多可以在自己之下创建几层子智能体。0 保持 CLI 默认（3 层）；1 表示关闭嵌套。"
+        "subagentDepthEffective": "该 Agent 在自身之下最多可以生成多少层子 Agent。0 表示交由 CLI 决定（{{depth}} 层）；1 表示关闭嵌套。"
       },
       "memory": {
         "label": "记忆",
@@ -1175,7 +1238,8 @@
         "local": "本项目专属的记忆文件夹，不纳入版本控制。"
       },
       "subagentDepth": {
-        "label": "子智能体层数"
+        "label": "子智能体层数",
+        "layers": "{{count}} 层"
       },
       "cliOptions": {
         "label": "CLI 选项",
@@ -1193,14 +1257,10 @@
       "autoCompact": {
         "label": "自动压缩",
         "tip": "压缩所依据的窗口大小。实际上会在达到该值的 {{percent}}% 之后、于该轮结束处折叠——这样不会在任务中途截断；若单轮直接冲破剩余余量，则由 CLI 在中途折叠。",
-        "unset": "未设置 — 沿用设置窗口中的默认值。",
-        "unsetLabel": "未设置",
         "auto": "auto — 由 CLI 选择窗口。",
         "tokens": "窗口大小约 {{tokens}} 个 token。",
         "foldsAt": "达到约 {{tokens}} 时，在该轮结束处折叠。",
         "foldsAtAuto": "达到 CLI 所定窗口的 {{percent}}% 时，在该轮结束处折叠。",
-        "unsetDefaultLabel": "未设置（默认：关闭）",
-        "globalTip": "适用于所有未单独设置自动压缩的智能体，包括已在运行的。留空则使用内置默认值。",
         "offLabel": "关闭",
         "off": "关闭 — 不做压缩。没有摘要调用，因此不消耗令牌。",
         "foldsAtOff": "不做压缩。对话变长后每轮都会更重，达到模型窗口时 CLI 会在任务中途折叠一次。",
@@ -1216,7 +1276,9 @@
           "everyTime": "每次关闭后重新开启时，都会再次出现此确认。",
           "cancel": "取消（保持关闭）",
           "enable": "我已了解 — 开启"
-        }
+        },
+        "unsetFollows": "留空则跟随{{options}}中的值；如果那里也为空，则使用 Vibisual 内置的值。",
+        "globalTipEffective": "适用于所有没有自行设置自动压缩值的 Agent——包括已经在运行中的 Agent。留空后将应用 {{value}}。"
       },
       "settingSources": {
         "label": "设置来源",
@@ -1281,10 +1343,10 @@
       },
       "bashTimeout": {
         "label": "Bash 超时",
-        "tip": "Bash 工具的时间限制。保持为 0 时使用 CLI 默认值 — 未显式指定超时的命令在 {{defaultSec}} 秒后停止，任何命令都不能运行超过 {{maxSec}} 秒。当长时间构建或测试被中途截断时，可提高 Max limit。以 BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS 传递给 Agent。",
-        "defaultLabel": "默认值（秒，0 = CLI 默认）",
-        "maxLabel": "最大限制（秒，0 = CLI 默认）",
-        "hint": "0 表示使用 CLI 默认值 — 默认 {{defaultSec}} 秒，最大 {{maxSec}} 秒。"
+        "defaultLabelSec": "超时（s，0 = {{sec}}s）",
+        "maxLabelSec": "最大限制（s，0 = {{sec}}s）",
+        "tipEffective": "Bash 工具的时间限制。留在 0 时，会遵循 CLI 自身的限制——未显式设置超时的命令会在 {{defaultSec}}s 后停止，任何命令的运行都不能超过 {{maxSec}}s。当长时间的构建或测试运行被中途截断时，可以调高最大限制。以 BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS 的形式传递给 Agent。",
+        "hintEffective": "当前生效：超时 {{defaultSec}}s，最大 {{maxSec}}s。"
       },
       "modelVersion": {
         "label": "版本",
@@ -1298,13 +1360,28 @@
         "switchModel": "更换模型",
         "pickModel": "选择模型",
         "temperature": "温度",
-        "temperatureTip": "数值越低回答越稳定、越可复现；越高则越自由。留空则使用引擎默认值。",
-        "temperatureDefault": "引擎默认值",
         "toolsTip": "本地模型总会收到下面这整份工具清单——它不是一份可勾选的列表。工具执行前，上面的权限模式和批准弹窗与 Claude 气泡完全一样生效。",
         "toolsOk": "该模型会使用工具——可以读取和修改文件。",
         "toolsNone": "该模型无法使用工具——只能对话。",
         "toolsUnknown": "尚未确认——下一轮会带上工具去试。",
-        "toolsRecheck": "重新确认"
+        "toolsRecheck": "重新确认",
+        "temperatureTipEffective": "数值越低，回答越稳定、可重复；数值越高，回答越自由。留空则使用该字段中显示的值。",
+        "source": {
+          "loaded": "运行中的引擎",
+          "model": "模型文件",
+          "engine": "引擎",
+          "trained": "模型训练长度"
+        },
+        "temperatureSourceTip": {
+          "loaded": "当前运行该模型的引擎正在使用的值。",
+          "model": "模型文件中推荐的值。字段留空时，引擎会使用该值。",
+          "engine": "运行中的引擎与模型文件均未给出该值，因此使用引擎自身的值。"
+        },
+        "contextSourceTip": {
+          "loaded": "引擎目前正以此大小运行。在此填写的值会在模型下次加载时生效。",
+          "model": "该模型的训练长度更短，因此 Vibisual 会将加载时使用的长度缩减至该长度。",
+          "builtin": "字段留空时，Vibisual 会以此大小加载模型。"
+        }
       },
       "cliKind": {
         "label": "CLI",
@@ -1317,23 +1394,78 @@
         "hint": "智能体判断上下文过重时提出请求，在该轮结束后执行。"
       },
       "diff": {
-        "badge": "与默认值不同 {{count}} 项",
-        "summaryTip": "与选项中的智能体默认设置不同 — {{list}}",
-        "tip": "仅此智能体的设置。默认值：{{value}}",
         "unset": "未设置",
         "on": "开",
-        "off": "关"
+        "off": "关",
+        "badgeOptions": "{{count}} 项与{{options}}不同",
+        "summaryTipOptions": "与{{options}}中为新建 Agent 设置的值不同——{{list}}",
+        "tipOptions": "仅为该 Agent 设置。{{options}}中：{{value}}"
       },
       "contextNotAccessible": "无法访问（Claude Code 内部）",
       "codex": {
+        "edgeDelegationNote": "Codex 工具委派会屏蔽可直接执行的工具，并把工作发送给已连接的 Agent。由于 shell 命令可以绕过单独的读取、搜索、编辑限制，此模式会施加更宽泛的限制。计划和最终回复仍然可用。更改从下一条消息开始生效。",
         "noModel": "尚未选择模型",
         "modelTip": "此气泡所使用的 Codex 模型。Vibisual 始终显式发送该设置，因此它不会回退到你的 Codex 配置文件中的默认模型。",
         "noModelList": "模型列表尚未读取——运行一次 Codex 即可生成。",
         "reloadModels": "刷新",
         "effort": "推理强度",
         "effortTip": "数值越高，思考时间越长，消耗的 token 也越多。这里只列出该模型所报告支持的等级。",
-        "effortDefault": "引擎默认",
-        "toolsManaged": "由 Codex CLI 管理"
+        "toolsManaged": "由 Codex CLI 管理",
+        "toolAsk": "每次确认",
+        "toolReset": "重置为全部允许",
+        "toolsHint": "为各工具选择允许、拒绝或每次确认。允许仍遵守沙盒和审批策略。Shell 和 MCP 也能读写文件；保护文件还需设置权限模式。",
+        "toolHosted": "网页、图像、计算机和内置子代理没有审批钩子，仅支持允许或拒绝。MCP 每次确认会禁用绕过钩子的 Apps。下条消息起生效。",
+        "toolChildren": "为执行工具限制，内置子代理和代码包装工具将被禁用。向已连接代理委派受 MCP 权限控制；目标使用自己的权限。",
+        "execution": "Codex 执行",
+        "permissionTip": "同时设置文件系统访问权限和批准策略。当 Codex 请求超出此范围执行时，会通过 Vibisual 审批弹窗询问您，并适用 60 秒无响应设置。审计边界会另行检查有风险的调用。",
+        "permission": {
+          "default": "工作区内编辑 · 按需批准",
+          "acceptEdits": "允许编辑 · 按需批准",
+          "auto": "工作区内编辑 · 无需批准",
+          "plan": "计划 · 只读",
+          "dontAsk": "只读 · 无需批准",
+          "bypassPermissions": "完全访问 · 无需批准"
+        },
+        "webSearch": {
+          "label": "网页搜索",
+          "tip": "选择搜索工具获取结果的方式。与命令的网络访问相互独立。",
+          "disabled": "已禁用",
+          "cached": "缓存搜索",
+          "live": "实时搜索"
+        },
+        "verbosity": {
+          "label": "回复长度",
+          "tip": "在支持的模型上调整回复的详细程度。与推理强度相互独立；支持情况因模型而异。",
+          "low": "简洁",
+          "medium": "适中",
+          "high": "详细"
+        },
+        "network": {
+          "label": "命令的网络访问",
+          "tip": "在工作区写入模式下，允许安装软件包等命令访问外部网络。",
+          "false": "阻止",
+          "true": "允许"
+        },
+        "source": {
+          "profile": "profile {{name}}",
+          "project": "项目配置文件",
+          "user": "Codex 配置文件",
+          "system": "系统配置文件",
+          "model": "由模型设定",
+          "builtin": "由 Codex 设定",
+          "delegation": "工具委托边"
+        },
+        "sourceTip": {
+          "layer": "从 {{path}} 读取。留空可继续跟随该文件。",
+          "profile": "从 {{path}} 中的 profile {{name}} 读取。留空可继续跟随该文件。",
+          "model": "Codex 的配置文件均未设置该项，因此使用该模型自身报告的值。",
+          "builtin": "Codex 的配置文件均未设置该项，因此 Codex 使用自己的值。联网搜索遵循权限模式——完全访问权限下为实时搜索，其他情况下为缓存结果。",
+          "delegation": "此气泡引出了一条工具委托边，因此联网搜索已关闭。"
+        },
+        "unsupported": "此模型不使用该设置",
+        "unsupportedTip": "该模型不接受响应长度设置，因此 Codex 会忽略它。",
+        "unresolvedTip": "无法读取 Codex 的配置文件或模型列表，因此实际生效的值未知。留空时不会发送任何内容，由 Codex 自行决定。",
+        "applyNoteEffective": "保存的设置会在下一条消息中生效。留空的字段会显示 Codex 实际会使用的值及其来源。"
       },
       "tokenSaver": {
         "label": "Token 节省",
@@ -1345,6 +1477,12 @@
         "compactPct": "压缩阈值 (%)",
         "noExtraCalls": "跳过额外调用",
         "hint": "所有字段保持为 0 即可跟随全局设置。"
+      },
+      "effective": {
+        "resolved": "{{value}}（{{source}}）",
+        "sourceOptions": "在{{options}}中设置",
+        "sourceBuiltin": "Vibisual 内置",
+        "unknown": "无法读取实际生效的值"
       }
     },
     "permissionPrompt": {
@@ -1506,6 +1644,8 @@
       "maxTitle": "此文件夹的最大卫星节点数",
       "maxHint": "Enter · Esc",
       "maxSave": "保存",
+      "maxDecrease": "减少",
+      "maxIncrease": "增加",
       "noVisible": "无可见文件"
     },
     "webEntry": {
@@ -1551,6 +1691,9 @@
       "restart": "重启服务器",
       "stop": "停止服务器",
       "start": "启动服务器",
+      "restartLabel": "重启",
+      "stopLabel": "停止",
+      "startLabel": "启动",
       "noEntry": "无匹配的服务器条目",
       "noCommand": "无法重启 — 已停止，无法再获取启动命令（代理上报的服务器）",
       "takeover": "接管后重启 — Vibisual 接手代理启动的服务器",
@@ -1868,12 +2011,12 @@
       "noAudio": "导出时未包含音频。",
       "downgraded": "渲染模式已降级：{{id}}",
       "previewFailed": "无法绘制预览。",
-      "errNoDoc": "No document is open.",
-      "errNoStage": "Could not find a place to attach the stage.",
-      "errNoRenderBackend": "No render mode is available on this device.",
-      "errNoOffscreen": "Offscreen windows are not available in this build.",
-      "errNoOffscreenBridge": "The offscreen bridge is not available.",
-      "errRequestFailed": "The request failed ({{status}}).",
+      "errNoDoc": "没有打开的文档。",
+      "errNoStage": "找不到可以挂载舞台的位置。",
+      "errNoRenderBackend": "此设备上没有可用的渲染模式。",
+      "errNoOffscreen": "此版本不支持离屏窗口。",
+      "errNoOffscreenBridge": "离屏桥接不可用。",
+      "errRequestFailed": "请求失败（{{status}}）。",
       "reloaded": "文档已在别处更改，因此已重新加载。"
     },
     "cost": {
@@ -2162,13 +2305,18 @@
       "emptyInScope": "{{scope}}中还没有内容。",
       "widenTo": "查看{{scope}}（{{count}}）",
       "untitledSession": "未命名对话",
-      "revisionOf": "{{index}}/{{total}} 版"
+      "revisionOf": "{{index}}/{{total}} 版",
+      "failedBadge": "失败 {{count}}",
+      "failedBadgeTip": "失败的压缩（{{scope}}）：{{count}} 次。每条失败记录都带有注明原因的红色标记。"
     },
     "remoteAccess": {
       "title": "远程访问",
       "categories": {
         "mobile": "手机浏览器"
       }
+    },
+    "webFold": {
+      "pinDomain": "固定此域名（防止删除）— 它会移出此气泡，重新成为独立的气泡"
     }
   },
   "ide": {
@@ -2270,6 +2418,7 @@
       "newSession": "新建 Session",
       "pastSessions": "历史 Session",
       "closeTab": "关闭标签",
+      "closeTabNamed": "关闭 {{name}}",
       "pastSessionsClose": "关闭",
       "loading": "加载中...",
       "noClosedSessions": "没有可恢复的已关闭 Session。",
@@ -2354,6 +2503,111 @@
       "historyHintPrev": "再按一次调出最近的命令",
       "historyHintNext": "再按一次调出最早的命令",
       "slashBuiltin": "内置",
+      "slashBuiltinDesc": {
+        "add-dir": "添加工作目录，以便在当前会话中访问文件",
+        "advisor": "启用或禁用 advisor 工具，它会在任务的关键时刻咨询第二个模型以获取指导",
+        "agents": "自 v2.1.198 起，运行 /agents 只会显示提示 — 如需创建或管理子 Agent，请让 Claude 来做，或编辑 .claude/agents/ 或 ~/.claude/ag...",
+        "artifacts": "列出你拥有的或与你共享的工件，然后可将其附加到会话、在浏览器中打开或复制链接",
+        "auto-mode-setup": "根据你的项目和最近的会话起草 autoMode.environment 条目，然后审阅草稿并保存到用户设置",
+        "autocompact": "设置自动压缩的阈值：上下文窗口填充到多满时 Claude Code 自动压缩",
+        "autofix-pr": "启动一个 Claude Code on the web 会话，监视当前分支的 PR，并在 CI 失败或审阅者留下评论时推送修复",
+        "background": "将当前会话分离为后台 Agent 运行，并释放此终端",
+        "batch": "在整个代码库中并行编排大规模更改",
+        "branch": "在此处为当前对话创建分支，这样你可以尝试其他方向，而不会丢失现有对话",
+        "btw": "就当前会话提一个旁支问题，不会加入对话",
+        "bug": "报告错误或分享你的对话",
+        "cd": "将此会话移到新的工作目录，同时保留对话及其提示词缓存",
+        "chrome": "配置 Claude in Chrome 的设置",
+        "claude-api": "为你项目使用的语言加载 Claude API 和 Managed Agents 的参考资料",
+        "clear": "以空上下文开始新对话",
+        "code-review": "审查当前的差异，或你指定的 PR 编号、分支或路径，查找正确性错误和可清理之处",
+        "color": "设置当前会话的提示栏颜色",
+        "compact": "总结目前为止的对话以释放上下文",
+        "config": "打开设置界面，调整主题、模型、输出风格等偏好",
+        "context": "以彩色网格可视化当前的上下文用量",
+        "copy": "将助手的上一条回复复制到剪贴板",
+        "dataviz": "图表、图形和仪表板的设计指南",
+        "debug": "为当前会话启用调试日志，并通过读取会话调试日志来排查问题",
+        "deep-research": "针对一个问题并行展开网页搜索，获取并交叉核对来源，汇总成带引用的报告",
+        "design-login": "使用你的 claude.ai 账户为 /design-sync 授权访问设计系统",
+        "design-sync": "转换你仓库中的 React 设计系统并上传到 Claude Design，使其生成的设计使用你真实的组件",
+        "desktop": "在 Claude Code Desktop 应用中继续当前会话",
+        "diff": "打开交互式差异查看器，显示未提交的更改和每一轮的差异",
+        "doctor": "运行安装检查，诊断问题并可进行修复",
+        "effort": "设置思考深度：low 到 xhigh、max、ultracode 或 auto；status 显示当前值",
+        "exit": "退出 CLI",
+        "export": "将当前对话导出为纯文本",
+        "fast": "开启或关闭 Fast 模式",
+        "feedback": "发送关于 Claude Code 的产品反馈",
+        "fewer-permission-prompts": "扫描你的会话记录，找出常见的只读 Bash 和 MCP 工具调用，然后将按优先级排序的允许列表添加到项目的 .claude/settings.json，以...",
+        "focus": "切换专注视图，只显示你的最后一条提示词、附带编辑差异统计的一行工具调用摘要以及最终回复",
+        "fork": "将当前对话复制到新的后台会话，你可以继续在这里工作",
+        "goal": "设置目标：Claude 会跨多轮持续工作，直到条件满足或目标因其他原因被清除",
+        "heapdump": "将 JavaScript 堆快照和内存明细写入 ~/Desktop（在没有 Desktop 文件夹的 Linux 上写入主目录），用于诊...",
+        "help": "显示帮助和可用命令",
+        "hooks": "查看工具事件的 Hooks 配置",
+        "ide": "管理 IDE 集成并显示状态",
+        "import": "将你电脑上其他编程 Agent（目前为 OpenAI Codex 和 Google Gemini CLI）的配置导入 Claude Code，包括...",
+        "init": "用 CLAUDE.md 指南初始化项目",
+        "insights": "生成一份 HTML 报告，分析你在这台电脑上最近的会话：你在哪些项目中工作、如何使用 Claude Code、在哪些地方...",
+        "install-github-app": "为仓库安装 Claude GitHub App，并可选择设置 GitHub Actions 工作流和密钥",
+        "install-slack-app": "安装 Claude 的 Slack 应用",
+        "keybindings": "打开你的快捷键文件",
+        "list-agents": "列出 Claude 可以发消息的子 Agent、Agent 团队成员及其他 Claude Code 会话，并给出每个对象应使用的名称",
+        "login": "登录你的 Anthropic 账户",
+        "logout": "退出你的 Anthropic 账户",
+        "loop": "在会话保持打开期间重复运行提示词",
+        "mcp": "管理 MCP 服务器连接和 OAuth 认证",
+        "memory": "编辑 CLAUDE.md 文件，开启或关闭自动记忆，并查看自动记忆条目",
+        "mobile": "显示用于下载 Claude 移动应用的二维码",
+        "model": "切换 AI 模型，并保存为新会话的默认模型",
+        "passes": "与朋友分享一周免费的 Claude Code",
+        "permissions": "管理工具权限的允许、询问和拒绝规则",
+        "plan": "直接从提示词进入计划模式",
+        "plugin": "管理 Claude Code 插件",
+        "powerup": "通过带动画演示的简短交互课程了解 Claude Code 的功能",
+        "privacy-settings": "查看并更新你的隐私设置",
+        "radio": "在浏览器中打开 Claude FM lo-fi 电台",
+        "rate-limit-options": "当 claude.ai 用量限制阻止请求时，显示继续工作的方式：等待限制重置后自动继续、增加用量...",
+        "recap": "按需生成当前会话的一行摘要",
+        "release-notes": "在交互式版本选择器中查看更新日志",
+        "reload-plugins": "重新加载所有已启用的插件，无需重启即可应用待定的更改",
+        "reload-skills": "重新扫描技能和命令目录，使会话期间在磁盘上新增或修改的技能无需重启即可使用",
+        "remote-control": "让此会话可以通过 claude.ai 进行 Remote Control",
+        "remote-env": "选择云端 Agent 的默认环境",
+        "rename": "重命名当前会话，并在提示栏上显示名称",
+        "resume": "按 ID 或名称继续之前的对话，或打开会话选择器",
+        "rewind": "将对话和/或代码回退到之前的某个时间点，或从选定的消息开始总结",
+        "run": "启动并操作你项目的应用，确认更改真正可用，而不只是通过测试",
+        "run-skill-generator": "编写项目专属技能，教会 /run 和 /verify 如何从干净的环境构建、启动并操作你项目的应用",
+        "sandbox": "切换沙盒模式",
+        "schedule": "创建、更新、列出或运行在云端执行的例程",
+        "scroll-speed": "交互式调整鼠标滚轮的滚动速度，对话框打开时可滚动标尺预览变化",
+        "security-review": "分析当前分支上的更改是否存在安全漏洞",
+        "setup-bedrock": "通过交互式向导配置 Amazon Bedrock 的认证、区域和模型固定版本",
+        "setup-vertex": "通过交互式向导配置 Google Cloud's Agent Platform 的认证、项目、区域和模型固定版本",
+        "simplify": "审查已更改的代码，找出可清理之处并应用修复",
+        "skills": "列出可用的技能",
+        "status": "在“状态”选项卡上打开设置界面，显示版本、模型、账户和连接情况",
+        "statusline": "配置 Claude Code 的状态行",
+        "stickers": "订购 Claude Code 贴纸",
+        "stop": "停止当前的后台会话",
+        "subtask": "启动一个分叉的子 Agent：它在后台继承完整对话并处理任务，同时你可以继续工作",
+        "tasks": "查看和管理当前会话中的后台工作，包括已完成的子 Agent",
+        "team-onboarding": "根据你的 Claude Code 使用历史生成团队入门指南",
+        "teleport": "将 Claude Code on the web 会话拉取到此终端",
+        "terminal-setup": "为 Shift+Enter 和其他快捷键配置终端按键绑定",
+        "theme": "更改颜色主题",
+        "tui": "设置终端界面渲染器，并在保留对话的情况下重新启动",
+        "ultrareview": "使用 ultrareview 在云端沙盒中运行多 Agent 深度代码审查",
+        "upgrade": "在浏览器中打开升级页面，切换到更高的套餐",
+        "usage": "显示会话费用、套餐用量限制和活动统计",
+        "usage-credits": "达到限制时配置用量额度，或向管理员申请",
+        "verify": "构建并运行你项目的应用并观察结果，以确认代码更改达到预期效果...",
+        "voice": "开启或关闭语音听写，或在特定模式下启用",
+        "web-setup": "使用本地 gh CLI 凭据，将你的 GitHub 账户连接到 Claude Code on the web",
+        "workflows": "打开工作流进度视图，查看、暂停、恢复或保存正在运行和已完成的工作流"
+      },
       "slashNeedsTerminal": "需要终端",
       "slashDisabledByContext": "该项目已关闭技能与斜杠命令，因此下列项目都不会执行。可在活动栏的“{{contextSources}}”中重新开启。（我们发送的压缩仍会运行。）",
       "slashEmpty": "无匹配技能",
@@ -2855,6 +3109,8 @@
       "statusTip": "此处显示的 Session 的运行状态 —— 运行中、等待、完成或出错。",
       "modelTip": "该 Session 在最后一轮实际使用的模型。首轮之前显示的是为该 Agent 配置的模型。",
       "modelUnknown": "未知",
+      "effortTip": "点号后是{{effort}}：显示您明确选择的值，或所选会话中记录的实际强度。",
+      "modelSwitchTip": "点击即可在此处直接更换模型。",
       "thinkingOff": "扩展思考已关",
       "thinkingOffTip": "该 Agent 关闭了扩展思考 — 从这里启动的会话不会在回答前经过思考阶段。开关就是 {{thinking}} 这一个复选框：单个 Agent 在{{agentSettings}}中修改，全局默认值在{{file}} > {{options}} > {{agentDefaults}}中修改。",
       "context": "上下文：{{used}}/{{max}}",
@@ -2868,8 +3124,7 @@
       "sessionsTip": "该 Agent 上打开的 Session 标签页数量。",
       "contextOverdueTip": "该会话的上下文已接近上限且仍在增长，但尚未运行压缩。点击可打开“上下文保险”。",
       "contextStalledTip": "该会话的上下文窗口实际已满，且尚未运行压缩。点击可打开“上下文保险”。",
-      "contextRejectedTip": "我们已发送压缩命令，但 Claude Code 从未开始压缩——它被拒绝了。通常是因为该项目在“{{contextSources}}”中关闭了技能与斜杠命令。点击可打开“上下文保险”。",
-      "failedCompactsTip": "本会话中失败的压缩：{{count}} 次。点击可打开上下文保险，查看保留了哪些内容。"
+      "contextRejectedTip": "我们已发送压缩命令，但 Claude Code 从未开始压缩——它被拒绝了。通常是因为该项目在“{{contextSources}}”中关闭了技能与斜杠命令。点击可打开“上下文保险”。"
     },
     "search": {
       "placeholder": "在对话中查找",
@@ -3165,6 +3420,7 @@
       "maxTurns": "已达到最大轮次限制并停止",
       "agentView": "Agent 运行以失败告终",
       "orphaned": "应用重启时被中断",
+      "dispatchResult": "未收到委派任务的结果即已结束",
       "unknown": "因未知原因失败"
     },
     "density": {
@@ -4251,19 +4507,19 @@
     "taskEdgeKind": {
       "command": {
         "label": "Command",
-        "description": "Instruction — \"please do this\""
+        "description": "指令 — “请做这件事”"
       },
       "artifact": {
         "label": "Artifact",
-        "description": "Hands over the result itself — the file or diff"
+        "description": "直接交付结果本身 — 文件或差异"
       },
       "request": {
         "label": "Request",
-        "description": "Reverse request — \"I am stuck, please help\""
+        "description": "反向请求 — “我卡住了，请帮帮我”"
       },
       "critique": {
         "label": "Critique",
-        "description": "Critique / review — audit and red-team role (the watcher)"
+        "description": "批评 / 审查 — 审计与红队角色（监督者）"
       }
     },
     "taskEdgePopup": {
@@ -4526,7 +4782,9 @@
       "createShelf": "脚本搁板",
       "createShelfHint": "将常用命令和提示词放在一键可达之处",
       "createCodexAgent": "创建 Codex Agent",
-      "createCodexAgentHint": "放置一个运行在 OpenAI Codex CLI 上的代理"
+      "createCodexAgentHint": "放置一个运行在 OpenAI Codex CLI 上的代理",
+      "createCodexCmdAgent": "创建 Codex CMD",
+      "createCodexCmdAgentHint": "由您亲自操作 Codex CLI 的交互式终端"
     },
     "bounds": {
       "label": "气泡边界",
@@ -4770,6 +5028,10 @@
       "deleteN": "删除选中的 {{count}} 项",
       "deleteForeverN": "永久删除选中的 {{count}} 项…",
       "worktreeSkipped": "已排除 {{count}} 个 Worktree 气泡，需逐个删除。"
+    },
+    "webFold": {
+      "domainCount_one": "{{count}} 个域名",
+      "domainCount_other": "{{count}} 个域名"
     }
   },
   "common": {
@@ -4837,7 +5099,7 @@
     "cancel": "取消",
     "confirm": "确定",
     "msg": {
-      "requestFailed": "Failed ({{status}})"
+      "requestFailed": "失败（{{status}}）"
     },
     "minimize": "最小化",
     "maximize": "最大化",
@@ -5139,32 +5401,38 @@
     "trashItemsMore": "另有 {{n}} 个"
   },
   "providers": {
-    "provider": "Provider",
+    "provider": "提供方",
     "claude": "Claude",
     "codex": "Codex",
-    "local": "All Model",
-    "main": "Main provider",
-    "mainHint": "Sets the default agent, settings tab and usage indicator. You can sign in to both providers.",
-    "saveFailed": "Could not save. Please try again.",
-    "project": "Project settings",
-    "save": "Save",
-    "saved": "Saved",
-    "model": "Model",
-    "effort": "Reasoning effort",
-    "context": "Context size",
-    "temperature": "Temperature",
-    "rules": "Instructions",
-    "default": "Default",
-    "usage": "Usage",
-    "localUsage": "All Model runs locally and has no subscription usage limit.",
-    "signIn": "Sign in to check usage.",
-    "noUsage": "Usage is unavailable for this account.",
-    "refresh": "Refresh",
-    "close": "Close",
-    "window": "{{minutes}} minute window",
-    "projectHint": "These settings apply to agents in the active project.",
-    "noProject": "Open a project to configure its providers.",
-    "webSearch": "Web search",
-    "modelVerbosity": "Response verbosity"
+    "local": "所有模型",
+    "main": "主要提供方",
+    "mainHint": "承担主要工作的提供方。新智能体的默认提供方和顶部的用量显示都以此为准，并适用于所有项目。",
+    "saveFailed": "无法保存，请重试。",
+    "project": "项目设置",
+    "save": "保存",
+    "saved": "已保存",
+    "model": "模型",
+    "effort": "推理强度",
+    "context": "上下文大小",
+    "temperature": "温度",
+    "rules": "指令",
+    "usage": "用量",
+    "localUsage": "“所有模型”在本地运行，没有订阅用量限制。",
+    "signIn": "登录后即可查看用量。",
+    "noUsage": "此账户无法查看用量。",
+    "refresh": "刷新",
+    "close": "关闭",
+    "window": "{{minutes}} 分钟窗口",
+    "webSearch": "网页搜索",
+    "modelVerbosity": "回复长度",
+    "modelChosenOnOpen": "尚未选择模型——请在设置中选择。",
+    "modelSource": {
+      "codexFirst": "Codex 列表首位",
+      "localLatest": "最新下载"
+    },
+    "modelSourceTip": {
+      "codexFirst": "留空时，新建的 Agent 首次打开时会使用 Codex 模型列表中的第一个模型。",
+      "localLatest": "留空时，新建的 Agent 首次打开时会使用最近下载的模型。"
+    }
   }
 }

@@ -600,7 +600,11 @@
         "externalBudgetLabel": "External folders shown at the top level",
         "externalBudgetDesc": "Pinned folders do not count against this number — a folder you pinned always stays at the top level. Nothing is deleted by this setting: places that do not fit are folded under a parent bubble that tells you how many are inside.",
         "externalBudgetLoadError": "Could not read the current setting.",
-        "externalBudgetSaveError": "Could not save. Nothing was changed."
+        "externalBudgetSaveError": "Could not save. Nothing was changed.",
+        "webFoldEnabled": "Fold web bubbles into one per agent",
+        "webFoldEnabledDesc": "The domains an agent read fold into a single bubble, and clicking it lists them domain by domain. Pinned domains keep their own bubbles. Nothing is deleted — turn this off and each domain gets its own bubble again.",
+        "webFoldIntro": "When an agent reads the web, every domain it reads gets its own bubble, so a single agent looking things up can cover the canvas.",
+        "webFoldTitle": "Web bubbles"
       },
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
@@ -1020,7 +1024,25 @@
         "sonnet": "Balanced performance and cost. Good for most tasks.",
         "haiku": "Fastest and cheapest. Best for simple read-only tasks.",
         "fable": "Most capable. For the most demanding reasoning and long-horizon work. Highest cost.",
-        "unknown": "{{name}} — newly released model. Capabilities and cost inferred from family defaults."
+        "unknownFamily": "{{name}} — newly released model. Capabilities and cost estimated from its family."
+      },
+      "modelSection": {
+        "listChecked": "List checked {{ago}}",
+        "listNotChecked": "List not checked yet",
+        "listChecking": "Checking for new models…",
+        "recheckTip": "Check for new models now",
+        "source": {
+          "seed": "Bundled list",
+          "api": "Anthropic API",
+          "observed": "Your sessions",
+          "codex": "Codex cache"
+        },
+        "sourcesTip": "Where this list comes from: the bundled list of released models, the Anthropic API (only with your own ANTHROPIC_API_KEY, rechecked every {{hours}} hours), and model IDs your own sessions actually ran. Opening this card checks again.",
+        "sourcesTipCodex": "Read from the model list Codex keeps on this PC — Vibisual doesn't hold a copy of its own. Opening this card reads it again.",
+        "fullSettings": "All settings",
+        "fullSettingsTip": "Expand to everything in {{agentSettings}}. Values you changed here stay as they are.",
+        "applyNextTurn": "Saved changes apply from this agent's next turn. The model name in the status bar changes once that turn has run.",
+        "applyNewSession": "A changed model applies to new sessions opened with \"+\" — terminals already running keep what they started with."
       },
       "contextWindow": {
         "oneMillion": "1M context window"
@@ -1044,6 +1066,42 @@
         "label": "Disallowed Tools",
         "tip": "Force-blocked via CLI --disallowedTools. Takes precedence over the allow list (Tools). Use this when you want a single tool off without rebuilding the allow list.",
         "addTool": "+ Block tool"
+      },
+      "toolTemplate": {
+        "label": "Tool template",
+        "option": "{{index}}. {{name}}",
+        "custom": {
+          "name": "Custom",
+          "desc": "The tools you picked by hand. Coming back here restores your own list."
+        },
+        "readOnly": {
+          "name": "Read-only",
+          "desc": "Reads and searches code only. No file edits, no commands."
+        },
+        "review": {
+          "name": "Review & verify",
+          "desc": "Reads code and runs commands to check it (git diff, tests). No Write or Edit."
+        },
+        "research": {
+          "name": "Web research",
+          "desc": "Searches and reads the web, then checks it against the code. No edits, no commands."
+        },
+        "docs": {
+          "name": "Docs writing",
+          "desc": "Reads and writes files. No commands."
+        },
+        "implement": {
+          "name": "Implementation",
+          "desc": "Reads, writes and runs commands, with the task list and skills. No delegation, web or scheduling."
+        },
+        "orchestrate": {
+          "name": "Orchestrator",
+          "desc": "Hands work to other agents and gathers the results. No file edits of its own."
+        },
+        "all": {
+          "name": "All tools",
+          "desc": "The full official tool list ({{total}}) — the same list a new agent starts with."
+        }
       },
       "askTools": {
         "label": "Ask before use",
@@ -1169,7 +1227,7 @@
         "projectContext": "Read-only. Files and rules automatically injected into every prompt when this agent runs. Refreshed on open.",
         "agentSettingsNote": "These settings apply only when running commands from Vibisual (sub-agent execution). They do not change the agent's own Claude Code session.",
         "memory": "What this agent keeps remembering across sessions, and where those notes live.",
-        "subagentDepth": "How many layers of subagents this agent may spawn below itself. 0 leaves the CLI default (3 layers); 1 turns nesting off."
+        "subagentDepthEffective": "How many layers of subagents this agent may spawn below itself. 0 lets the CLI decide ({{depth}} layers); 1 turns nesting off."
       },
       "memory": {
         "label": "Memory",
@@ -1180,7 +1238,8 @@
         "local": "Own memory folder for this project, kept out of version control."
       },
       "subagentDepth": {
-        "label": "Subagent depth"
+        "label": "Subagent depth",
+        "layers": "{{count}} layers"
       },
       "cliOptions": {
         "label": "CLI options",
@@ -1198,14 +1257,10 @@
       "autoCompact": {
         "label": "Auto-compact",
         "tip": "The window size compaction is measured against. In practice we fold at {{percent}}% of it, at the end of that turn — so nothing is cut mid-task; if a single turn blows through the remaining headroom, the CLI folds mid-task instead.",
-        "unset": "Not set — follows the default in Settings.",
-        "unsetLabel": "unset",
         "auto": "auto — the CLI picks the window.",
         "tokens": "Window size about {{tokens}} tokens.",
         "foldsAt": "Folds at about {{tokens}}, at the end of that turn.",
         "foldsAtAuto": "Folds at {{percent}}% of the window the CLI picks, at the end of that turn.",
-        "unsetDefaultLabel": "unset (default: off)",
-        "globalTip": "Applies to every agent that has no auto-compact value of its own — including ones already running. Leave it unset to use the built-in default.",
         "offLabel": "off",
         "off": "off — never folds. No summarization call, so no tokens spent.",
         "foldsAtOff": "Never folds. Long conversations get heavier every turn, and the CLI folds once mid-task when the model window fills.",
@@ -1221,7 +1276,9 @@
           "everyTime": "You will see this every time you turn it back on.",
           "cancel": "Cancel (leave it off)",
           "enable": "I understand — turn it on"
-        }
+        },
+        "unsetFollows": "Leave it empty to follow the value in {{options}}; if that is empty too, the value built into Vibisual applies.",
+        "globalTipEffective": "Applies to every agent that has no auto-compact value of its own — including ones already running. Left empty, {{value}} applies."
       },
       "settingSources": {
         "label": "Setting sources",
@@ -1286,10 +1343,10 @@
       },
       "bashTimeout": {
         "label": "Bash timeout",
-        "tip": "Time limits for the Bash tool. Left at 0 the CLI defaults apply — commands without an explicit timeout stop at {{defaultSec}}s, and no command may run past {{maxSec}}s. Raise Max limit when long builds or test runs get cut off. Passed to the agent as BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
-        "defaultLabel": "Default (s, 0 = CLI default)",
-        "maxLabel": "Max limit (s, 0 = CLI default)",
-        "hint": "0 keeps the CLI defaults — {{defaultSec}}s default, {{maxSec}}s max."
+        "defaultLabelSec": "Timeout (s, 0 = {{sec}}s)",
+        "maxLabelSec": "Max limit (s, 0 = {{sec}}s)",
+        "tipEffective": "Time limits for the Bash tool. Left at 0, the CLI's own limits apply — commands without an explicit timeout stop at {{defaultSec}}s, and no command may run past {{maxSec}}s. Raise the max limit when long builds or test runs get cut off. Passed to the agent as BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
+        "hintEffective": "Applied now: {{defaultSec}}s timeout, {{maxSec}}s max."
       },
       "modelVersion": {
         "label": "Version",
@@ -1303,13 +1360,28 @@
         "switchModel": "Change model",
         "pickModel": "Pick a model",
         "temperature": "Temperature",
-        "temperatureTip": "Lower keeps answers steady and repeatable, higher makes them freer. Leave it empty to use the engine default.",
-        "temperatureDefault": "Engine default",
         "toolsTip": "A local model always receives the whole tool list below — it is not a pick list. Right before a tool runs, the permission mode above and the approval popup apply exactly as they do for Claude bubbles.",
         "toolsOk": "This model uses tools — it can read and edit files.",
         "toolsNone": "This model cannot use tools — it only talks.",
         "toolsUnknown": "Not checked yet — tools go out with the next turn to find out.",
-        "toolsRecheck": "Check again"
+        "toolsRecheck": "Check again",
+        "temperatureTipEffective": "Lower keeps answers steady and repeatable, higher makes them freer. Leave it empty to use the value shown in the field.",
+        "source": {
+          "loaded": "running engine",
+          "model": "model file",
+          "engine": "engine",
+          "trained": "model's trained length"
+        },
+        "temperatureSourceTip": {
+          "loaded": "The value the engine running this model is using right now.",
+          "model": "The value recommended in the model file. With the field empty, the engine uses it.",
+          "engine": "Neither the running engine nor the model file gives one, so the engine's own value applies."
+        },
+        "contextSourceTip": {
+          "loaded": "The engine is already running at this size. A value typed here applies when the model is loaded again.",
+          "model": "This model was trained on a shorter length, so the size Vibisual loads it with is cut down to that.",
+          "builtin": "With the field empty, Vibisual loads the model at this size."
+        }
       },
       "cliKind": {
         "label": "CLI",
@@ -1322,12 +1394,12 @@
         "hint": "The agent asks when context feels heavy; it runs at the end of that turn."
       },
       "diff": {
-        "badge": "{{count}} differ from defaults",
-        "summaryTip": "Differs from the agent defaults in Options — {{list}}",
-        "tip": "Set only for this agent. Default: {{value}}",
         "unset": "not set",
         "on": "on",
-        "off": "off"
+        "off": "off",
+        "badgeOptions": "{{count}} differ from {{options}}",
+        "summaryTipOptions": "Differs from the values set for new agents in {{options}} — {{list}}",
+        "tipOptions": "Set only for this agent. In {{options}}: {{value}}"
       },
       "contextNotAccessible": "Not accessible (Claude Code internal)",
       "codex": {
@@ -1338,12 +1410,14 @@
         "reloadModels": "Reload",
         "effort": "Reasoning effort",
         "effortTip": "Higher means it thinks longer and spends more tokens. Only the levels this model reports are listed.",
-        "effortDefault": "Engine default",
         "toolsManaged": "Managed by the Codex CLI",
+        "toolAsk": "Ask every time",
+        "toolReset": "Reset to allow all",
+        "toolsHint": "Choose allow, deny, or ask for each tool. Allow preserves sandbox and approval policies. Shell and MCP can also read and edit files; use permission mode to protect files.",
+        "toolHosted": "Web, image, computer and native subagents support allow/deny only; they have no approval hook. Asking for MCP disables Apps that bypass hooks. Changes apply next message.",
+        "toolChildren": "Native subagents and code wrappers are disabled to enforce tool restrictions. Delegation to connected agents follows MCP permission; targets use their own permissions.",
         "execution": "Codex execution",
-        "inherit": "Inherit from Codex configuration",
-        "applyNote": "Saved settings apply to the next message. Engine defaults inherit from Codex configuration.",
-        "permissionTip": "Sets filesystem access and approval policy together. Codex CLI handles approvals; the Vibisual 60-second approval timeout does not apply.",
+        "permissionTip": "Sets filesystem access and approval policy together. When Codex asks to go beyond this access, the Vibisual approval popup asks you, and the 60-second no-response setting applies. The audit boundary checks risky calls separately.",
         "permission": {
           "default": "Workspace edits · approval on request",
           "acceptEdits": "Allow edits · approval on request",
@@ -1371,7 +1445,27 @@
           "tip": "Allow outbound network access for commands such as package installation in workspace-write mode.",
           "false": "Blocked",
           "true": "Allowed"
-        }
+        },
+        "source": {
+          "profile": "profile {{name}}",
+          "project": "project config file",
+          "user": "Codex config file",
+          "system": "system config file",
+          "model": "set by the model",
+          "builtin": "set by Codex",
+          "delegation": "tool delegation edge"
+        },
+        "sourceTip": {
+          "layer": "Read from {{path}}. Leave it empty to keep following that file.",
+          "profile": "Read from profile {{name}} in {{path}}. Leave it empty to keep following that file.",
+          "model": "None of the Codex config files set this, so the value this model reports is used.",
+          "builtin": "None of the Codex config files set this, so Codex uses a value of its own. Web search follows the permission mode — live with full access, cached otherwise.",
+          "delegation": "A tool delegation edge leaves this bubble, so web search is turned off."
+        },
+        "unsupported": "Not used by this model",
+        "unsupportedTip": "This model does not accept a response length setting, so Codex ignores it.",
+        "unresolvedTip": "The Codex config files or the model list could not be read, so the applied value is unknown. Left empty, nothing is sent and Codex decides.",
+        "applyNoteEffective": "Saved settings apply to the next message. An empty field shows the value Codex will actually use and where it comes from."
       },
       "tokenSaver": {
         "label": "Token saving",
@@ -1383,6 +1477,12 @@
         "compactPct": "Compact at (%)",
         "noExtraCalls": "Skip extra calls",
         "hint": "Leave every field at 0 to follow the global setting."
+      },
+      "effective": {
+        "resolved": "{{value}} ({{source}})",
+        "sourceOptions": "set in {{options}}",
+        "sourceBuiltin": "built into Vibisual",
+        "unknown": "Could not read the applied value"
       }
     },
     "permissionPrompt": {
@@ -2205,13 +2305,18 @@
       "emptyInScope": "Nothing here yet in {{scope}}.",
       "widenTo": "Look in {{scope}} ({{count}})",
       "untitledSession": "Untitled conversation",
-      "revisionOf": "rev {{index}}/{{total}}"
+      "revisionOf": "rev {{index}}/{{total}}",
+      "failedBadge": "Failed: {{count}}",
+      "failedBadgeTip": "Failed compactions ({{scope}}): {{count}}. Each failed row carries a red chip with the reason."
     },
     "remoteAccess": {
       "title": "Remote Access",
       "categories": {
         "mobile": "Phone browser"
       }
+    },
+    "webFold": {
+      "pinDomain": "Pin this domain (prevent delete) — it leaves this bubble and gets its own again"
     }
   },
   "ide": {
@@ -3004,6 +3109,8 @@
       "statusTip": "Run state of the session shown here: running, waiting, done, or failed.",
       "modelTip": "The model this session used on its last turn. Before the first turn it shows the model configured for this agent.",
       "modelUnknown": "unknown",
+      "effortTip": "After the dot is {{effort}} — your explicit selection, or the actual level reported by the selected session.",
+      "modelSwitchTip": "Click to change the model right here.",
       "thinkingOff": "Extended thinking off",
       "thinkingOffTip": "This agent runs with extended thinking off, so sessions spawned here answer without a thinking pass. The switch is the {{thinking}} checkbox — per agent in {{agentSettings}}, or for all agents under {{file}} > {{options}} > {{agentDefaults}}.",
       "context": "ctx: {{used}}/{{max}}",
@@ -3017,8 +3124,7 @@
       "sessionsTip": "How many session tabs are open on this agent.",
       "contextOverdueTip": "This session's context is nearly full and still growing, but no compaction has run. Click to open Context Insurance.",
       "contextStalledTip": "This session's context window is effectively full and compaction has not run. Click to open Context Insurance.",
-      "contextRejectedTip": "We sent a compaction command but Claude Code never started one — it was rejected. The usual cause is skills and slash commands being turned off for this project under {{contextSources}}. Click to open Context Insurance.",
-      "failedCompactsTip": "Compactions that failed in this session: {{count}}. Click to open Context insurance and see what was kept."
+      "contextRejectedTip": "We sent a compaction command but Claude Code never started one — it was rejected. The usual cause is skills and slash commands being turned off for this project under {{contextSources}}. Click to open Context Insurance."
     },
     "search": {
       "placeholder": "Find in conversation",
@@ -3314,6 +3420,7 @@
       "maxTurns": "Stopped at the max turns limit",
       "agentView": "The agent run ended in failure",
       "orphaned": "Interrupted when the app restarted",
+      "dispatchResult": "Ended before receiving the delegated task result",
       "unknown": "Failed for an unknown reason"
     },
     "density": {
@@ -4675,7 +4782,9 @@
       "createShelf": "Script shelf",
       "createShelfHint": "Keep the commands and prompts you use often one click away",
       "createCodexAgent": "Create Codex Agent",
-      "createCodexAgentHint": "Drops an agent that runs on the OpenAI Codex CLI"
+      "createCodexAgentHint": "Drops an agent that runs on the OpenAI Codex CLI",
+      "createCodexCmdAgent": "Create Codex CMD",
+      "createCodexCmdAgentHint": "Interactive terminal you drive with the Codex CLI"
     },
     "bounds": {
       "label": "Bubble Bounds",
@@ -4919,6 +5028,10 @@
       "deleteN": "Delete {{count}} selected",
       "deleteForeverN": "Delete {{count}} selected permanently…",
       "worktreeSkipped": "Leaves out {{count}} worktree bubble(s) — delete those one at a time."
+    },
+    "webFold": {
+      "domainCount_one": "{{count}} domain",
+      "domainCount_other": "{{count}} domains"
     }
   },
   "common": {
@@ -5293,7 +5406,7 @@
     "codex": "Codex",
     "local": "All Model",
     "main": "Main provider",
-    "mainHint": "Sets the default agent, settings tab and usage indicator. You can sign in to both providers.",
+    "mainHint": "The provider that does most of the work. New agents use it by default and the usage indicator at the top follows it, in every project.",
     "saveFailed": "Could not save. Please try again.",
     "project": "Project settings",
     "save": "Save",
@@ -5303,7 +5416,6 @@
     "context": "Context size",
     "temperature": "Temperature",
     "rules": "Instructions",
-    "default": "Default",
     "usage": "Usage",
     "localUsage": "All Model runs locally and has no subscription usage limit.",
     "signIn": "Sign in to check usage.",
@@ -5311,9 +5423,16 @@
     "refresh": "Refresh",
     "close": "Close",
     "window": "{{minutes}} minute window",
-    "projectHint": "These settings apply to agents in the active project.",
-    "noProject": "Open a project to configure its providers.",
     "webSearch": "Web search",
-    "modelVerbosity": "Response verbosity"
+    "modelVerbosity": "Response verbosity",
+    "modelChosenOnOpen": "No model yet — pick one in setup",
+    "modelSource": {
+      "codexFirst": "first in the Codex list",
+      "localLatest": "latest download"
+    },
+    "modelSourceTip": {
+      "codexFirst": "Left empty, a new agent takes the first model in the Codex model list when it first opens.",
+      "localLatest": "Left empty, a new agent takes the most recently downloaded model when it first opens."
+    }
   }
 }

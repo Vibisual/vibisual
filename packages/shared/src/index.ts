@@ -117,6 +117,8 @@ export type {
   // §5.23 도메인 버블
   WebEntry,
   WebEntryKind,
+  WebFoldHost,
+  WebFoldInfo,
   ServerEntry,
   AgentEvent,
   TodoItem,
@@ -341,6 +343,14 @@ export type {
   CodexSetupProgress,
   CodexModelEntry,
   CodexModelCatalog,
+  CodexConfigLayerValues,
+  CodexConfigLayerSource,
+  CodexConfigLayer,
+  CodexEffectiveConfig,
+  LocalSamplingSource,
+  LocalSamplingInfo,
+  LocalContextSource,
+  LocalContextInfo,
   CodexHookState,
   CodexMcpServerEntry,
   CodexSkillEntry,
@@ -465,6 +475,7 @@ export {
   FILE_EDIT_MERGE_WINDOW_MS,
   COMPLETED_COMMAND_MAX_PER_SESSION,
   SUB_STREAM_RETENTION_DAYS,
+  SUB_STREAM_ARCHIVE_SUFFIX,
   ATTACHMENT_RETENTION_DAYS,
   TRASH_RETENTION_DAYS,
   RETENTION_LOG_MAX,
@@ -640,6 +651,10 @@ export {
   MODEL_FAMILY_DEFAULTS,
   isKnownFamily,
   MODEL_SEED_ENTRIES,
+  MODEL_REGISTRY_API_TTL_MS,
+  MODEL_REGISTRY_RETRY_MS,
+  MODEL_REGISTRY_MANUAL_REFRESH_FLOOR_MS,
+  MODEL_REGISTRY_OBSERVED_MAX,
   parseFamilyFromFullId,
   parseModelSemver,
   listModelFamilies,
@@ -740,6 +755,7 @@ export {
   normalizeAgentMemoryScope,
   SUBAGENT_DEPTH_MIN,
   SUBAGENT_DEPTH_MAX,
+  SUBAGENT_DEPTH_CLI_DEFAULT,
   normalizeSubagentDepth,
   BASH_TIMEOUT_MS_MIN,
   BASH_TIMEOUT_MS_MAX,
@@ -827,6 +843,8 @@ export {
   closeCmdPane,
   resizeCmdPane,
   CMD_AGENT_COLOR,
+  CMD_AGENT_LEGACY_COLORS,
+  migrateCmdAgentColor,
   CONTI_DEFAULTS,
   CONTI_AGENT_RULES,
   STAMP_CATALOG,
@@ -849,6 +867,8 @@ export {
   STREAM_EVENTS_TRIM_SLACK,
   STREAM_EVENTS_MAX_PER_INACTIVE_SESSION,
   STREAM_INACTIVE_SESSIONS_MAX,
+  STREAM_HISTORY_PAGE_EVENTS,
+  STREAM_HISTORY_PAGE_MAX,
   UPDATE_CHECK_INTERVAL_MS,
   UPDATE_FEED_URL,
   UPDATE_FEED_PROBE_TIMEOUT_MS,
@@ -998,6 +1018,10 @@ export {
   AUDIT_LOOPBACK_HOSTS,
   AUDIT_PATH_INPUT_TOOLS,
   AUDIT_PATH_INPUT_KEYS,
+  AUDIT_PATCH_TOOLS,
+  AUDIT_PATCH_INPUT_KEYS,
+  AUDIT_PATCH_FILE_HEADER_PATTERN,
+  AUDIT_PATCH_MOVE_HEADER_PATTERN,
   AUDIT_ABSOLUTE_PATH_PATTERNS,
   AUDIT_HOME_PREFIX_PATTERN,
   AUDIT_MSYS_PATH_PATTERN,
@@ -1009,6 +1033,7 @@ export {
   DEFAULT_AUDIT_BOUNDARY,
   isAuditLoopbackTarget,
   isAuditPathOutside,
+  extractPatchFileOps,
   classifyToolRisk,
   summarizeToolCall,
   isAuditRiskEnabled,
@@ -1212,6 +1237,7 @@ export {
   CODEX_PERMISSION_MAP,
   CODEX_PERMISSION_FALLBACK,
   resolveCodexPermission,
+  canCodexPromptForPermission,
   CODEX_DEFAULT_LABEL_RE,
   providerForEngine,
   engineForProvider,
@@ -1375,7 +1401,7 @@ export { buildGoalActions } from './goalActions.js';
 export type { CostTone } from './constants.js';
 
 // §5.22 — `outside` 판정에 넘기는 경계(프로젝트 루트·세션 cwd·플랫폼).
-export type { AuditRiskOptions } from './constants.js';
+export type { AuditRiskOptions, AuditPatchFileOp } from './constants.js';
 // §5.13 (R) — 파일 하나를 무엇으로 여는가(클릭 지점 전부가 같은 판정을 쓴다).
 export type { WorkspaceOpenAction, WorkspaceOpenAppClaim, WorkspaceOpenPlan, MediaConvertKind } from './constants.js';
 export type { MediaToolsInfo, MediaConvertJob, MediaConvertStatus } from './types.js';
@@ -1730,6 +1756,17 @@ export {
   normalizeHeatCurve,
 } from './heatmap.js';
 
+// §5.23 접어 보기 — 에이전트마다 웹 버블 하나. 서버 `getSnapshot` 이 접고, 서버 지우기·자리 저장과
+// 클라 화면이 **같은 id 규약**(`webFoldId`/`webFoldAgentId`)을 읽는다 — 두 벌이면 지우기가 헛돈다.
+export type { WebFoldGroup, WebFoldInput, WebFoldResult } from './webFoldView.js';
+export {
+  WEB_FOLD_ID_PREFIX,
+  webFoldId,
+  webFoldAgentId,
+  webFoldNodePath,
+  foldWebBubblesPerAgent,
+} from './webFoldView.js';
+
 // §2.1 — 외부 폴더 버블의 "무엇을 보여 줄까" 판정. 서버가 트리를 세울 때와 클라이언트가 그릴
 // 때가 **같은 답**을 내야 한다(두 벌이 되면 한쪽만 고쳐져 화면과 숫자가 어긋난다).
 export type { ExternalPlacePattern } from './constants.js';
@@ -1778,6 +1815,16 @@ export {
   agentFieldDiffers,
   diffAgentConfigFromDefaults,
 } from './agentConfigDiff.js';
+
+// §4 (도구 목록 템플릿) — 설정 창 "도구" 칸이 한 번에 채우는 목록과, 지금 목록이 어느 템플릿인지의 판정.
+export type { AgentToolTemplate } from './agentToolTemplates.js';
+export {
+  AGENT_TOOL_TEMPLATE_CUSTOM,
+  AGENT_TOOL_TEMPLATES,
+  findAgentToolTemplate,
+  matchAgentToolTemplate,
+  resolveAgentToolTemplate,
+} from './agentToolTemplates.js';
 
 // §5.5 #17-6 (H-4) — 끌고 다니는 창의 "앱 안/밖" 판정. 창을 움직이는 쪽(Electron main)과
 // 규칙이 갈라지지 않게 순수 함수 한 곳에 둔다(화면 API ❌ — 숫자만 본다).
@@ -2032,3 +2079,4 @@ export {
 } from './coworkSessionPaths.js';
 
 export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';
+export * from './codexToolPolicy.js';

@@ -42,8 +42,11 @@ import {
 // §5.5 #17-6 (H) — 앱 안 ↔ 독립 창을 오갈 때 창이 들고 가는 짐(순수 함수·타입만).
 import { handoffPanePatch, type HandoffTarget, type IDEPaneHandoff } from './idePaneHandoff.js';
 import {
+  agentIDEPaneKey,
+  hasAppIDEPane,
   isOverlayWindowHash,
   resolveOpenIDEDestination,
+  type IDEFocusTarget,
   type OverlayWindowInfo,
 } from './detachedIDEFocus.js';
 import {
@@ -1225,14 +1228,68 @@ export function selectDockSlotSignature(
 function computeActiveSessionIds(
   ideOverlays: Record<string, IDEOverlayState>,
   subAgents: Record<string, SubAgent[]>,
+  streams: Record<string, SubAgentStreamEvent[]>,
 ): Set<string> {
   const active = new Set<string>();
+  const openAgents = new Set<string>();
   for (const ov of Object.values(ideOverlays)) {
     if (!ov.agentId) continue;
+    openAgents.add(ov.agentId);
     if (ov.activeSessionId) active.add(ov.activeSessionId);
     for (const sub of subAgents[ov.agentId] ?? []) active.add(sub.id);
   }
+  // §5.5 #17-12 — **다른 프로젝트 탭에 열어 둔 IDE 의 세션도 활성이다.** 스코프드 스냅샷은 `subAgents` 에
+  //   지금 보는 프로젝트의 에이전트만 싣는다. 위 목록만 보면 프로젝트를 옮기는 순간 그 창의 세션이 전부
+  //   비활성으로 떨어져 300 으로 깎였고, 돌아오면 탭에서 고른 세션 하나만 다시 받아 와 나머지(분할 칸·
+  //   메인 탭 합본)는 깎인 채 남았다. 스트림 줄은 제 부모 id 를 들고 있으니 그것으로 소속을 되짚는다.
+  if (openAgents.size > 0) {
+    for (const [sid, arr] of Object.entries(streams)) {
+      if (active.has(sid)) continue;
+      const parent = arr[0]?.parentAgentId ?? arr[arr.length - 1]?.parentAgentId;
+      if (parent && openAgents.has(parent)) active.add(sid);
+    }
+  }
   return active;
+}
+
+/** §5.5 #17-12 — 과거 구간을 거슬러 불러온 세션별 장부(추가로 든 이벤트 수 · 더 없음 표식). */
+interface StreamHistoryLedger {
+  extra: Record<string, number>;
+  done: Record<string, true>;
+  /** 이번 호출에서 실제로 바뀌었나 — 안 바뀌었으면 상태 객체를 그대로 둬 구독자를 깨우지 않는다. */
+  dirty: boolean;
+}
+
+/** 스트림 한 줄마다 도는 경로라 **바뀔 때만** 복사한다(대부분의 줄은 장부를 건드리지 않는다). */
+function openStreamHistoryLedger(extra: Record<string, number>, done: Record<string, true>): StreamHistoryLedger {
+  return { extra, done, dirty: false };
+}
+
+function touchStreamHistory(history: StreamHistoryLedger): void {
+  if (history.dirty) return;
+  history.extra = { ...history.extra };
+  history.done = { ...history.done };
+  history.dirty = true;
+}
+
+/** 이 세션의 활성 상한 — 기본 상한 + 사용자가 거슬러 불러온 만큼. */
+function activeStreamCap(extra: Record<string, number>, sid: string): number {
+  return STREAM_EVENTS_MAX_PER_SESSION + (extra[sid] ?? 0);
+}
+
+/** 창이 교체·절단돼 과거 장부가 더는 맞지 않는 세션 — 장부를 비운다(다시 거슬러 올라갈 수 있게). */
+function forgetStreamHistory(history: StreamHistoryLedger, sid: string): void {
+  if (!(sid in history.extra) && !(sid in history.done)) return;
+  touchStreamHistory(history);
+  delete history.extra[sid];
+  delete history.done[sid];
+}
+
+/** 앞이 잘려 그 앞에 다시 과거가 생겼다 — "더 없음"만 내린다(넓힌 상한은 그대로 둔다). */
+function clearStreamHistoryDone(history: StreamHistoryLedger, sid: string): void {
+  if (!(sid in history.done)) return;
+  touchStreamHistory(history);
+  delete history.done[sid];
 }
 
 /**
@@ -1250,6 +1307,7 @@ function pruneInactiveStreams(
   lastActivity: Record<string, number>,
   active: Set<string>,
   deepRestored: Record<string, true>,
+  history: StreamHistoryLedger,
 ): void {
   const inactive = Object.keys(streams).filter((sid) => !active.has(sid));
   if (inactive.length === 0) return;
@@ -1258,6 +1316,8 @@ function pruneInactiveStreams(
     if (arr.length > STREAM_EVENTS_MAX_PER_INACTIVE_SESSION) {
       streams[sid] = arr.slice(arr.length - STREAM_EVENTS_MAX_PER_INACTIVE_SESSION);
       delete deepRestored[sid];
+      // 거슬러 불러온 과거도 함께 깎였다 — 장부를 남기면 상한만 부풀고 "더 없음" 표식이 재요청을 막는다.
+      forgetStreamHistory(history, sid);
     }
   }
   if (inactive.length > STREAM_INACTIVE_SESSIONS_MAX) {
@@ -1268,6 +1328,7 @@ function pruneInactiveStreams(
       delete streams[sid];
       delete lastActivity[sid];
       delete deepRestored[sid];
+      forgetStreamHistory(history, sid);
     }
   }
 }
@@ -2461,6 +2522,11 @@ interface GraphState {
   /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성. 커스텀 에이전트 기반 + executionMode baked. */
   createCmdAgent: (canvasX: number, canvasY: number) => void;
   /**
+   * §5.25 (B-1) — Codex 칸의 CMD 에이전트. `createCmdAgent` 와 같은 버블·같은 엔드포인트이고
+   * `cliKind:'codex'` 만 더 실어 터미널이 `codex` 를 채운다(새 REST 발명 ❌).
+   */
+  createCodexCmdAgent: (canvasX: number, canvasY: number) => void;
+  /**
    * §5.19 (B) — All Model(로컬 LLM) 에이전트 생성. 커스텀 에이전트 기반 + provider baked.
    * **모델 없이 먼저 놓는다** — 우클릭으로 고른 순간 버블이 생기고, 엔진·모델 준비는 그 버블을
    * 눌렀을 때 판정한다(진입 순서 역전).
@@ -2526,6 +2592,20 @@ interface GraphState {
    * 기본값 `'shallow'`(에이전트 전체 얕은 조회)는 **이미 깊은 복원분이 있는 세션을 줄이지 않는다**.
    */
   loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>, depth?: 'deep' | 'shallow') => void;
+  /**
+   * §5.5 #17-12 — 세션별로 **복원 창 위쪽에서 거슬러 불러와 더 들고 있는 이벤트 수**. 그 세션의 활성 상한에
+   * 더해진다 — 안 더하면 다음 라이브 줄이 들어오는 순간 방금 불러온 과거가 앞쪽 절단으로 도로 잘린다.
+   * 비활성 컷·세션 제거·창 교체(깊은 적재)가 함께 지운다.
+   */
+  streamHistoryExtra: Record<string, number>;
+  /** §5.5 #17-12 — 이 세션은 더 거슬러 올라갈 과거가 없다(서버가 끝을 알렸다). 창이 깎이거나 교체되면 지워진다. */
+  streamHistoryDone: Record<string, true>;
+  /**
+   * §5.5 #17-12 — 복원 창 위쪽에서 받아 온 과거 한 쪽을 그 세션 버퍼 **앞에 붙인다**(이미 든 id 는 거른다).
+   * `hasMore=false` 면 끝 표식을 세운다. 버퍼가 비어 있으면 아무것도 안 한다 — 붙일 기준이 없고, 그 세션은
+   * 깊은 복원이 먼저다.
+   */
+  prependStreamHistory: (sessionId: string, events: SubAgentStreamEvent[], hasMore: boolean) => void;
   /** IDE 오버레이 상태 — 프로젝트별 독립 슬롯 (projectId → state). 활성 탭의 슬롯만 화면에 노출. */
   ideOverlays: Record<string, IDEOverlayState>;
   /**
@@ -2558,6 +2638,13 @@ interface GraphState {
        * 앱 안에는 아무것도 서지 않는다.
        */
       redock?: boolean;
+      /**
+       * §5.5 #17-6 (H-27) ⑦ — **그 창에 세울 세션**(북마크 점프면 그 위치까지). 세션을 골라 여는
+       * 손짓(북마크 점프·지휘통제실 [이동]·콘티 이력·[창과 버블] 색 줄)이 싣는다. 창이 앱 안에 서면
+       * 그 에이전트의 창에 세우고, 밖으로 흘러가면 그 창의 렌더에 건넨다 — 연 **다음에** 키 없이
+       * `setIDEActiveSession` 을 부르면 밖으로 흘러간 판에는 앱 안의 **남의 창**에 그 세션이 선다.
+       */
+      focus?: IDEFocusTarget;
     },
   ) => void;
   /** 창 하나를 닫는다. 키를 안 주면 종전대로 활성 프로젝트의 주 창. */
@@ -2988,6 +3075,12 @@ interface GraphState {
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
   applyModelRegistry: (reg: ModelRegistry | undefined) => void;
+  /**
+   * §4 (상태바 모델 칸 ③) — 모델 창을 열 때 **한 번 더 확인**한다(`POST /api/models/refresh`).
+   * 서버가 실행본이 바뀌었으면 강도 등급을 다시 긁고, 키가 있으면 `/v1/models` 를 다시 받는다
+   * (하한 안이면 건너뜀). 돌려받은 레지스트리를 곧장 반영한다 — 내용이 그대로여도 확인 시각은 옮는다.
+   */
+  refreshModelRegistry: () => Promise<void>;
   /** §5.19 — 스냅샷의 로컬 LLM 상태 반영. */
   applyLocalLlm: (state: LocalLlmState | undefined) => void;
   /** §5.19 — WS 진행 push 를 같은 슬라이스에 얹는다(스냅샷을 기다리지 않고 막대가 움직이게). */
@@ -3320,9 +3413,20 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
           }),
         });
         const data = await r.json() as { command?: { subAgentId?: string } };
-        // 서버가 결정한 세션으로 자동 전환
-        if (data.command?.subAgentId) {
-          get().setIDEActiveSession(data.command.subAgentId);
+        // 서버가 결정한 세션으로 자동 전환 — **그 에이전트의 창**에서만(§5.5 #17-6 (H-27) ⑦).
+        //   키 없이 세우면 맨 앞 창이라, 지휘통제실 카드처럼 창 밖에서 보낸 명령이 앱 안의 남의 창을
+        //   그 세션으로 바꾼다(그 에이전트의 IDE 가 밖에 나가 있거나 아예 안 열린 판). 창이 없어도
+        //   한도 정지 확인은 종전대로 한다(#17-47 ① — 세션을 앞으로 세우는 길이 확인을 겸한다).
+        const sentTo = data.command?.subAgentId;
+        if (sentTo) {
+          const now = get();
+          const own = agentIDEPaneKey(
+            Object.values(now.ideOverlays),
+            now.activeProject ?? now.agentProjects[agentId],
+            agentId,
+          );
+          if (own) now.setIDEActiveSession(sentTo, own);
+          else now.acknowledgeUsageLimit({ subAgentIds: [sentTo] });
         }
       } catch { /* 서버가 snapshot broadcast → loadSnapshot 에서 queuedCommands 갱신 */ }
     })();
@@ -5493,6 +5597,19 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     const project = selectEffectiveProject(get());
     void postCreate('/api/create-custom-agent', { label: '', x: canvasX, y: canvasY, project, executionMode: 'interactive-terminal' }, get);
   },
+  // §5.25 (B-1) — Codex 칸의 CMD. 같은 CMD 버블에 셸이 채울 CLI 만 `codex` 로 실어 보낸다.
+  createCodexCmdAgent: (canvasX, canvasY) => {
+    if (!requireProjectFolder(get)) return;
+    const project = selectEffectiveProject(get());
+    void postCreate('/api/create-custom-agent', {
+      label: '',
+      x: canvasX,
+      y: canvasY,
+      project,
+      executionMode: 'interactive-terminal',
+      cliKind: 'codex',
+    }, get);
+  },
   // §5.3 #10-2 v2.37 — Auto Agent
   createAutoAgent: (canvasX, canvasY) => {
     if (!requireProjectFolder(get)) return;
@@ -5570,8 +5687,11 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   subAgentStreams: {},
   streamLastActivity: {},
   deepRestoredSessions: {},
+  streamHistoryExtra: {},
+  streamHistoryDone: {},
   appendStreamEvent: (event) => set((s) => {
-    const prev = s.subAgentStreams[event.subAgentId];
+    const sid = event.subAgentId;
+    const prev = s.subAgentStreams[sid];
     // §5.3 #12-1 — 턴 세대 도장으로 **제 턴 자리**에 넣는다. 앞 턴이 띄운 백단 작업이 뒤늦게
     //   뱉는 줄이 새 명령 블록 아래로 들어가던 것을 여기서 막는다(평소 흐름은 그냥 꼬리 추가).
     const merged = prev ? insertEventInTurnOrder([...prev], event).buffer : [event];
@@ -5583,16 +5703,25 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     //   pruning 이 볼 때는 이미 `300 > 300` 이 거짓이라 표식을 지울 기회를 잃고, 그 세션은
     //   "이미 깊게 받았다"로 읽혀 재요청이 영영 안 걸린다 — 자리를 뜬 뒤에도 계속 말하는
     //   **바로 그 세션**이 300 창에 갇혀 말풍선과 카드만 남는다(2026-09-08 사용자 보고).
-    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
-    const isActive = active.has(event.subAgentId);
-    const next = isActive && merged.length > STREAM_EVENTS_MAX_PER_SESSION + STREAM_EVENTS_TRIM_SLACK
-      ? merged.slice(merged.length - STREAM_EVENTS_MAX_PER_SESSION)
-      : merged;
-    const streams = { ...s.subAgentStreams, [event.subAgentId]: next };
-    const lastActivity = { ...s.streamLastActivity, [event.subAgentId]: Date.now() };
+    const streams = { ...s.subAgentStreams, [sid]: merged };
+    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents, streams);
+    const history = openStreamHistoryLedger(s.streamHistoryExtra, s.streamHistoryDone);
+    // §5.5 #17-12 — 상한은 사용자가 거슬러 불러온 만큼 넓다(불러온 과거가 다음 줄에 잘리지 않게).
+    const cap = activeStreamCap(history.extra, sid);
+    if (active.has(sid) && merged.length > cap + STREAM_EVENTS_TRIM_SLACK) {
+      streams[sid] = merged.slice(merged.length - cap);
+      // 앞이 잘렸으니 그 앞에 다시 과거가 있다 — "더 없음" 표식은 더는 참이 아니다.
+      clearStreamHistoryDone(history, sid);
+    }
+    const lastActivity = { ...s.streamLastActivity, [sid]: Date.now() };
     const deepRestored = { ...s.deepRestoredSessions };
-    pruneInactiveStreams(streams, lastActivity, active, deepRestored);
-    return { subAgentStreams: streams, streamLastActivity: lastActivity, deepRestoredSessions: deepRestored };
+    pruneInactiveStreams(streams, lastActivity, active, deepRestored, history);
+    return {
+      subAgentStreams: streams,
+      streamLastActivity: lastActivity,
+      deepRestoredSessions: deepRestored,
+      ...(history.dirty ? { streamHistoryExtra: history.extra, streamHistoryDone: history.done } : {}),
+    };
   }),
   appendStreamEvents: (events) => set((s) => {
     if (events.length === 0) return {};
@@ -5622,17 +5751,26 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     // 활성 세션은 slack 여유를 둬 상한 도달 후에도 대부분 순수 append 를 유지(증분 파서 유효).
     // 비활성 컷(300)은 단건 경로와 같은 이유로 아래 `pruneInactiveStreams` 가 소유한다 — 표식을
     // 함께 지우는 자리가 거기 하나여야 재요청 길이 막히지 않는다.
-    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
+    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents, nextStreams);
+    const history = openStreamHistoryLedger(s.streamHistoryExtra, s.streamHistoryDone);
     for (const sid of touched) {
       if (!active.has(sid)) continue;
       const arr = nextStreams[sid]!;
-      if (arr.length > STREAM_EVENTS_MAX_PER_SESSION + STREAM_EVENTS_TRIM_SLACK) {
-        nextStreams[sid] = arr.slice(arr.length - STREAM_EVENTS_MAX_PER_SESSION);
+      // §5.5 #17-12 — 단건 경로와 같은 상한(거슬러 불러온 만큼 넓다).
+      const cap = activeStreamCap(history.extra, sid);
+      if (arr.length > cap + STREAM_EVENTS_TRIM_SLACK) {
+        nextStreams[sid] = arr.slice(arr.length - cap);
+        clearStreamHistoryDone(history, sid);
       }
     }
     const nextDeep = { ...s.deepRestoredSessions };
-    pruneInactiveStreams(nextStreams, nextLast, active, nextDeep);
-    return { subAgentStreams: nextStreams, streamLastActivity: nextLast, deepRestoredSessions: nextDeep };
+    pruneInactiveStreams(nextStreams, nextLast, active, nextDeep, history);
+    return {
+      subAgentStreams: nextStreams,
+      streamLastActivity: nextLast,
+      deepRestoredSessions: nextDeep,
+      ...(history.dirty ? { streamHistoryExtra: history.extra, streamHistoryDone: history.done } : {}),
+    };
   }),
   loadStreamBuffers: (buffers, depth = 'shallow') => set((s) => {
     // 서버 스냅샷 버퍼도 무한 누적일 수 있으니 합류 시 동일 차등 상한 적용.
@@ -5640,7 +5778,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     const streams = { ...s.subAgentStreams };
     const lastActivity = { ...s.streamLastActivity };
     const deepRestored = { ...s.deepRestoredSessions };
-    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
+    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents, { ...s.subAgentStreams, ...buffers });
+    const history = openStreamHistoryLedger(s.streamHistoryExtra, s.streamHistoryDone);
     const now = Date.now();
     for (const sid of Object.keys(buffers)) {
       const arr = buffers[sid]!;
@@ -5661,15 +5800,42 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       // 깎인 채 굳어 "다시 받아 오는 길"이 도로 막힌다 — 그래서 이번 호출 한정으로 활성 취급한다.
       if (depth === 'deep') active.add(sid);
       // 비활성 컷은 여기서 하지 않는다 — append 경로와 같은 이유로 `pruneInactiveStreams` 소유다.
-      streams[sid] = active.has(sid) && arr.length > STREAM_EVENTS_MAX_PER_SESSION
-        ? arr.slice(arr.length - STREAM_EVENTS_MAX_PER_SESSION)
-        : arr;
+      // §5.5 #17-12 — 상한은 append 경로와 같다(거슬러 불러온 만큼 넓다).
+      const cap = activeStreamCap(history.extra, sid);
+      const next = active.has(sid) && arr.length > cap ? arr.slice(arr.length - cap) : arr;
+      streams[sid] = next;
       lastActivity[sid] = now;
+      // §5.5 #17-12 — 창을 **교체**했다. 새 창이 전과 같은 첫 줄에서 시작하면(깊은 창을 기존 버퍼 위에 얹은 경우)
+      //   거슬러 불러온 과거가 그대로 이어지니 장부를 두고, 아니면 그 과거는 새 창에 없으므로 비운다.
+      if (next[0]?.id !== prev?.[0]?.id) forgetStreamHistory(history, sid);
       // 상한 전체를 받아 온 세션만 표식을 세운다 — 그래야 다음에 깎였을 때 다시 받아 온다.
       if (depth === 'deep') deepRestored[sid] = true;
     }
-    pruneInactiveStreams(streams, lastActivity, active, deepRestored);
-    return { subAgentStreams: streams, streamLastActivity: lastActivity, deepRestoredSessions: deepRestored };
+    pruneInactiveStreams(streams, lastActivity, active, deepRestored, history);
+    return {
+      subAgentStreams: streams,
+      streamLastActivity: lastActivity,
+      deepRestoredSessions: deepRestored,
+      ...(history.dirty ? { streamHistoryExtra: history.extra, streamHistoryDone: history.done } : {}),
+    };
+  }),
+  prependStreamHistory: (sessionId, events, hasMore) => set((s) => {
+    const prev = s.subAgentStreams[sessionId];
+    if (!prev || prev.length === 0) return {};
+    const have = new Set(prev.map((e) => e.id));
+    const older = events.filter((e) => !have.has(e.id));
+    // 서버가 "더 있다"면서 새 줄을 하나도 못 주면 같은 기준점으로 같은 쪽을 끝없이 받게 된다 — 끝으로 친다.
+    const exhausted = !hasMore || older.length === 0;
+    const done: Record<string, true> = exhausted && !s.streamHistoryDone[sessionId]
+      ? { ...s.streamHistoryDone, [sessionId]: true }
+      : s.streamHistoryDone;
+    if (older.length === 0) return done === s.streamHistoryDone ? {} : { streamHistoryDone: done };
+    return {
+      subAgentStreams: { ...s.subAgentStreams, [sessionId]: [...older, ...prev] },
+      streamHistoryExtra: { ...s.streamHistoryExtra, [sessionId]: (s.streamHistoryExtra[sessionId] ?? 0) + older.length },
+      streamHistoryDone: done,
+      streamLastActivity: { ...s.streamLastActivity, [sessionId]: Date.now() },
+    };
   }),
   ideOverlays: {},
   idePaneSeq: 0,
@@ -5691,15 +5857,25 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       selfIsOverlayWindow: typeof window !== 'undefined' && isOverlayWindowHash(window.location.hash),
       redock: opts?.redock === true,
       hasOverlayApi: !!overlayApi?.open,
+      // (H-27) ⓐ 슬롯 주인은 아래 `set` 의 `ownerProject` 와 같은 순서다 — 그래야 `already` 와 같은 창을 본다.
+      appHasPane: hasAppIDEPane(
+        Object.values(get().ideOverlays),
+        get().activeProject ?? get().agentProjects[agentId],
+        agentId,
+      ),
+      overlaysVisible: get().overlaysVisible,
     });
     if (ideDestination.kind === 'detached') {
-      // `expanded: true` 로 부르는 까닭 둘 — ① 이미 펼쳐진 창에는 그 값이 아무 일도 하지 않는다
-      //   (`openOverlay` 는 접혀 있을 때만 편다) ② 전역 표시 토글이 꺼져 있었다면 그 스위치를
+      // `expanded: true` 로 부르는 까닭 둘 — ① 이미 펼쳐진 창은 앞으로 세우기만 하고, **접힌 버블**이면
+      //   main 의 재사용 갈래가 그 창의 렌더에게 [IDE 열기]를 보내 IDE 로 펴게 한다(§17-6 (H-27) ③ —
+      //   편 뒤에 한 번 더 앞으로 세우고 비춘다) ② 전역 표시 토글이 꺼져 있었다면 그 스위치를
       //   **켜고** 보여 준다(§17-6 (D)(H-3) — 창만 몰래 보이면 화면과 스위치가 어긋난다).
       void overlayApi?.open({
         agentId: ideDestination.agentId,
         projectId: ideDestination.projectId,
         expanded: true,
+        // (H-27) ⑦ 세울 세션은 **그 창의 렌더**가 세운다 — 앱 안에는 그 에이전트의 창이 없다.
+        ...(opts?.focus ? { focus: opts.focus } : {}),
       }).catch(() => { /* 그 창이 닫히는 중이면 다음 목록 푸시가 정리한다 */ });
       return;
     }
@@ -5868,6 +6044,33 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         },
       };
     });
+    // §5.5 #17-6 (H-27) ⑦ 세울 세션 — 방금 세우거나 앞으로 올린 **그 에이전트의 창**에만 세운다.
+    //   키 없이 부르면 "맨 앞 창"이라, 그 에이전트의 창이 서지 못한 판(소속 프로젝트 미상 등)에는
+    //   남의 창이 그 세션으로 바뀐다. 같은 세션이어도 부른다 — 한도 정지 확인이 이 액션에 매여 있다
+    //   (#17-47 ①). 북마크 자리는 세션이 선 **다음에** 건넨다(스트림이 그 세션을 그린 뒤 찾는다).
+    const focus = opts?.focus;
+    if (focus) {
+      const after = get();
+      const paneKey = agentIDEPaneKey(
+        Object.values(after.ideOverlays),
+        after.activeProject ?? after.agentProjects[agentId],
+        agentId,
+      );
+      if (paneKey) {
+        after.setIDEActiveSession(focus.sessionId, paneKey);
+        const bookmark = focus.bookmark;
+        if (bookmark) {
+          set((s) => ({
+            bookmarkScrollTarget: {
+              sessionId: focus.sessionId,
+              text: bookmark.text,
+              ...(bookmark.anchorId !== undefined ? { anchorId: bookmark.anchorId } : {}),
+              nonce: (s.bookmarkScrollTarget?.nonce ?? 0) + 1,
+            },
+          }));
+        }
+      }
+    }
   },
   closeIDEOverlay: (paneKey) => set((state) => {
     // 닫기는 그 창 하나만. 키를 안 주면 종전대로 활성 프로젝트의 주 창.
@@ -6447,16 +6650,17 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     if (proj && proj !== s.activeProject && (s.projects[proj] || s.stubProjects[proj])) {
       get().setActiveProject(proj);
     }
-    get().openIDEOverlay(bookmark.agentId);
-    get().setIDEActiveSession(bookmark.sessionId);
-    set((s) => ({
-      bookmarkScrollTarget: {
+    // §5.5 #17-6 (H-27) ⑦ 출처 세션과 그 자리는 여는 길에 **실어** 보낸다. 연 다음에 키 없이 세우면
+    //   그 에이전트의 IDE 가 밖에 나가 있는 판에 앱 안의 **남의 창**이 그 세션으로 바뀌고, 밖의 창은
+    //   끝내 그 세션·그 자리로 서지 않는다(창이 앱 안에 서면 여는 길이 그 창에 세운다).
+    get().openIDEOverlay(bookmark.agentId, {
+      focus: {
         sessionId: bookmark.sessionId,
-        text: bookmark.text,
-        anchorId: bookmark.anchorId,
-        nonce: (s.bookmarkScrollTarget?.nonce ?? 0) + 1,
+        bookmark: bookmark.anchorId !== undefined
+          ? { text: bookmark.text, anchorId: bookmark.anchorId }
+          : { text: bookmark.text },
       },
-    }));
+    });
   },
   bookmarkScrollTarget: null,
   clearBookmarkScrollTarget: () => set((s) => (s.bookmarkScrollTarget ? { bookmarkScrollTarget: null } : {})),
@@ -7078,6 +7282,16 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     set((st) => ({ diagnosticLog: structuralShare(st.diagnosticLog, trimmed) }));
   },
   applyModelRegistry: (reg) => set((s) => ({ modelRegistry: structuralShare(s.modelRegistry, reg ?? null) })),
+  refreshModelRegistry: async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/models/refresh`, { method: 'POST' });
+      if (!r.ok) return;
+      const data = await r.json() as { ok?: boolean; registry?: ModelRegistry };
+      if (data?.ok && data.registry && Array.isArray(data.registry.entries)) get().applyModelRegistry(data.registry);
+    } catch {
+      // 확인을 못 해도 목록은 스냅샷이 계속 나른다 — 화면은 마지막으로 받은 목록과 그 확인 시각을 그대로 보인다.
+    }
+  },
   applyLocalLlm: (state) => set((s) => ({ localLlm: structuralShare(s.localLlm, state ?? null) })),
   applyLocalEngineProgress: (p) => {
     const cur = get().localLlm;

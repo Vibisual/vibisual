@@ -22,7 +22,6 @@ import {
   preimageFileName,
   restoreLabelKey,
   skipReasonKey,
-  sessionFailedCompacts,
   sessionWatchLevel,
   matchesInsuranceSession,
   worstWatchLevel,
@@ -34,6 +33,7 @@ import {
   resolveScopeLevel,
   rowInScope,
   scopeRowCount,
+  scopedFailedCompacts,
   scopedNotCarriedRows,
   showsVaultSize,
   markerSubject,
@@ -331,32 +331,6 @@ describe('§5.26 (I) matchesInsuranceSession — 두 id 는 namespace 가 다르
   });
 });
 
-describe('§5.26 (I) sessionFailedCompacts — 세션을 넘기면 배지가 사라진다', () => {
-  const led = ledger({
-    counts: { markers: 9, preimages: 0, vaultBytes: 0, failedCompacts: 1, restorable: 0 },
-    sessionCounts: [sessionCount({ sessionId: 'uuid-1', subAgentId: 'sub-a', agentId: 'agent-1' })],
-  });
-
-  it('실패가 난 세션에서는 그 수가 뜬다', () => {
-    expect(sessionFailedCompacts(led, { agentId: 'agent-1', subAgentId: 'sub-a', sessionId: 'uuid-1' })).toBe(1);
-  });
-
-  it('형제 세션에서는 0 이다 — 종전에는 프로젝트 합계 1 이 여덟 탭 전부에 떴다', () => {
-    expect(sessionFailedCompacts(led, { agentId: 'agent-1', subAgentId: 'sub-b', sessionId: 'uuid-2' })).toBe(0);
-  });
-
-  it('세션별 집계를 못 받았으면 0 이다 — 프로젝트 합계로 굴러떨어지지 않는다', () => {
-    const noRows = ledger({
-      counts: { markers: 9, preimages: 0, vaultBytes: 0, failedCompacts: 4, restorable: 0 },
-    });
-    expect(sessionFailedCompacts(noRows, { agentId: 'agent-1', subAgentId: 'sub-a' })).toBe(0);
-  });
-
-  it('원장이 아예 없어도 터지지 않는다', () => {
-    expect(sessionFailedCompacts(undefined, { agentId: 'agent-1' })).toBe(0);
-  });
-});
-
 describe('§5.26 (F)(I) sessionWatchLevel — 옆 세션이 벽에 닿아도 내 칸은 안 물든다', () => {
   const led = ledger({
     watch: [
@@ -576,6 +550,56 @@ describe('§7.23 showsVaultSize — 쪼갤 수 없는 숫자는 좁힌 칸에 �
   it('좁힌 눈금에서는 안 적는다 — 프로젝트 합계를 세션 칸에 적으면 그냥 틀린 숫자다', () => {
     expect(showsVaultSize('session')).toBe(false);
     expect(showsVaultSize('agent')).toBe(false);
+  });
+});
+
+// §5.26 (I) ⑤ — 실패 건수는 상태바가 아니라 창 안 「압축 기록」 갈피 옆 칩이 말한다(사용자 지시).
+//   그래서 주어도 창의 눈금이다. 이 시험이 지키는 것은 종전 상태바 배지가 겪은 사고 둘 —
+//   옆 세션의 실패가 내 칸에 뜨는 것, 그리고 집계가 없을 때 프로젝트 합으로 굴러떨어지는 것.
+describe('§5.26 (I) ⑤ scopedFailedCompacts — 실패 칩은 창의 눈금을 따른다', () => {
+  const led = ledger({
+    // 세션 줄의 합(1+2+4+8=15)과 일부러 다르게 둔다 — 프로젝트 눈금이 줄을 다시 더하지 않고
+    // 서버가 접은 합을 읽는지를 가른다.
+    counts: { markers: 20, preimages: 0, vaultBytes: 0, failedCompacts: 16, restorable: 0 },
+    sessionCounts: [
+      sessionCount({ sessionId: 'uuid-1', subAgentId: 'sub-a', agentId: 'agent-1', failedCompacts: 1 }),
+      sessionCount({ sessionId: 'uuid-2', subAgentId: 'sub-b', agentId: 'agent-1', failedCompacts: 2 }),
+      sessionCount({ sessionId: 'uuid-3', subAgentId: 'sub-c', agentId: 'agent-2', failedCompacts: 4 }),
+      // 귀속 기록이 없는 줄 — 남의 버블 것일 수 있어 좁힌 눈금에는 들지 않는다.
+      sessionCount({ sessionId: 'uuid-4', failedCompacts: 8 }),
+    ],
+  });
+
+  it('이 세션 — 내 줄만. 형제 탭의 실패가 딸려 오지 않는다', () => {
+    expect(scopedFailedCompacts(led, 'session', mine)).toBe(1);
+    expect(scopedFailedCompacts(led, 'session', { agentId: 'agent-1', subAgentId: 'sub-b', sessionId: 'uuid-2' })).toBe(2);
+  });
+
+  it('이 에이전트 — 형제 탭까지, 남의 버블·귀속 없는 줄은 빼고', () => {
+    expect(scopedFailedCompacts(led, 'agent', mine)).toBe(3);
+  });
+
+  it('이 프로젝트 — 서버가 접은 프로젝트 합을 그대로 읽는다', () => {
+    expect(scopedFailedCompacts(led, 'project', mine)).toBe(16);
+  });
+
+  it('실패가 없는 세션은 0 — 칩이 서지 않는다', () => {
+    expect(scopedFailedCompacts(led, 'session', { agentId: 'agent-1', subAgentId: 'sub-z', sessionId: 'uuid-9' })).toBe(0);
+  });
+
+  it('세션별 집계를 못 받았으면 좁힌 눈금은 0 — 프로젝트 합으로 굴러떨어지지 않는다', () => {
+    const noRows = ledger({
+      counts: { markers: 9, preimages: 0, vaultBytes: 0, failedCompacts: 4, restorable: 0 },
+    });
+    expect(scopedFailedCompacts(noRows, 'session', mine)).toBe(0);
+    expect(scopedFailedCompacts(noRows, 'agent', mine)).toBe(0);
+    expect(scopedFailedCompacts(noRows, 'project', mine)).toBe(4);
+  });
+
+  it('원장이 아예 없어도 터지지 않는다', () => {
+    for (const lv of INSURANCE_SCOPE_LEVELS) {
+      expect(scopedFailedCompacts(undefined, lv, mine)).toBe(0);
+    }
   });
 });
 // ─── §7.23 "이 줄이 무슨 내용인가" ───

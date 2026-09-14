@@ -31,6 +31,7 @@ import {
   AVAILABLE_PERMISSION_MODES,
   canPromptForPermission,
   resolveCodexPermission,
+  canCodexPromptForPermission,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
   AUTOCOMPACT_OFF,
@@ -42,15 +43,37 @@ import {
   BASH_TIMEOUT_MS_MAX,
   BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
   BASH_MAX_TIMEOUT_MS_CLI_DEFAULT,
+  SUBAGENT_DEPTH_CLI_DEFAULT,
   AGENT_MAX_TURNS_UI_FALLBACK,
   resolveAgentDefaults,
   diffAgentConfigFromDefaults,
+  MODEL_REGISTRY_API_TTL_MS,
+  AGENT_TOOL_TEMPLATE_CUSTOM,
+  AGENT_TOOL_TEMPLATES,
+  findAgentToolTemplate,
+  resolveAgentToolTemplate,
   type AgentConfigComparedField,
 } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
 import { applyLocalProviderDraft } from './localProviderPayload.js';
-import { codexReasoningLevelsOf } from '../Codex/codexModelEntry.js';
+import { CodexToolPermissions } from './CodexToolPermissions.js';
+import { normalizeCodexToolPolicy, type CodexToolPolicy } from '@vibisual/shared';
+// §4 (상태바 모델 칸 ②③) — 모델 구역만 연 카드의 자리·목록 확인 시각·반영 시점. 판정은 순수 함수 쪽에 있다.
+import {
+  formatCheckedAgo,
+  modelListCheckedAt,
+  modelListSourcesOf,
+  modelSectionApplyTiming,
+  placeModelSectionCard,
+  type ModelListSource,
+  type PopupAnchorRect,
+} from './modelSectionView.js';
+import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+import { codexReasoningLevelsOf, type CodexInheritedField } from '../Codex/codexModelEntry.js';
+import { codexInheritedOptionFor } from '../Codex/codexInheritedLabel.js';
+import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
+import { localContextPlaceholder, localTemperaturePlaceholder, useLocalSampling } from '../LocalModel/localEffective.js';
 import { AutoCompactConfirm, type AutoCompactConfirmKind } from './AutoCompactConfirm.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
@@ -66,11 +89,11 @@ const API_BASE = '';
 // `label` — 저장값(`value`)과 화면에 보일 이름이 다를 때만 쓴다(§4 CLI 사양 추종: 권한 모드
 //   `'default'` 의 CLI 표시명은 **manual**, `--autocompact` 의 빈 값은 "미설정"). 저장값을 바꾸면
 //   기존 체크포인트를 건드려야 하므로, 바꾸는 것은 이름뿐이다.
-interface SelectOption { value: string; description: string; disabled?: boolean; label?: string }
+interface SelectOption { value: string; description: string; disabled?: boolean; label?: string; detail?: string }
 
 // §4 v2.77 — Model 드롭다운은 더 이상 3종 하드코딩이 아니라 레지스트리 기반 동적 목록(`listModelFamilies`).
 //   여기 적는 것은 **전용 설명문(i18n `panel.agentConfig.model.<패밀리>`)을 가진 패밀리**이고,
-//   그 밖은 `model.unknown` 폴백 문구로 그려진다.
+//   그 밖은 `model.unknownFamily` 폴백 문구로 그려진다.
 // (판올림 번호 발급 대기) — `fable` 추가. 시드에 버젓이 있는 출시 모델인데 이 목록에 없어서
 //   "newly released model. Capabilities and cost inferred from family defaults" 로 설명됐는데,
 //   그때 fable 은 패밀리 디폴트 자체가 없어 폴백값으로 떨어지고 있었으므로 문장까지 사실과 달랐다.
@@ -253,8 +276,11 @@ function usePortalDropdown(placement: 'below' | 'left' = 'below') {
 
 // ─── Custom Select with Inline Descriptions ───
 
-function CustomSelect({ value, onChange, options, disabled }: {
+function CustomSelect({ value, onChange, options, disabled, compact, ariaLabel }: {
   value: string; onChange: (v: string) => void; options: SelectOption[]; disabled?: boolean;
+  /** 라벨 줄 안에 서는 작은 선택기(도구 템플릿). 글자는 12px 하한을 지킨다. */
+  compact?: boolean;
+  ariaLabel?: string;
 }): React.JSX.Element {
   const { btnRef, panelRef, open, pos, toggle, close } = usePortalDropdown();
 
@@ -265,7 +291,8 @@ function CustomSelect({ value, onChange, options, disabled }: {
         type="button"
         onClick={toggle}
         disabled={disabled}
-        className="flex items-center justify-between rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-left text-sm text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+        aria-label={ariaLabel}
+        className={`flex items-center justify-between rounded border border-gray-700 bg-gray-800 text-left outline-none hover:border-gray-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-40 ${compact ? 'px-2 py-0.5 text-xs text-gray-300' : 'px-2.5 py-1.5 text-sm text-gray-200'}`}
       >
         <span>{options.find((o) => o.value === value)?.label ?? value}</span>
         <svg className="ml-2 h-3 w-3 text-gray-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -284,6 +311,7 @@ function CustomSelect({ value, onChange, options, disabled }: {
             >
               <span className={`text-xs font-medium ${opt.value === value ? 'text-blue-400' : 'text-gray-200'}`}>{opt.label ?? opt.value}</span>
               <span className="text-[12px] leading-tight text-gray-500">{opt.description}</span>
+              {opt.detail && <span className="font-mono text-[12px] leading-tight text-gray-600">{opt.detail}</span>}
             </button>
           ))}
         </div>,
@@ -369,6 +397,14 @@ interface AgentConfigPopupProps {
   config: AgentConfig | null;
   currentColor: string;
   onClose: () => void;
+  /**
+   * §4 (상태바 모델 칸 ②) — `'model'` 이면 **모델 구역만** 뜬 작은 카드로 연다. 새 설정창이 아니라
+   * 같은 창의 다른 보기다: 상태·저장·렌더 조각이 한 벌이고, [전체 설정]을 누르면 고치던 값을 든 채
+   * 이 인스턴스가 전체 보기로 넓어진다(닫았다 다시 열면 방금 고른 값이 사라진다). 생략하면 종전 그대로.
+   */
+  section?: 'model';
+  /** `section` 카드를 붙일 칸의 화면 사각형(상태바 모델 칸). 없으면 화면 아래 가운데에 뜬다. */
+  anchorRect?: PopupAnchorRect | null;
 }
 
 /** v1.33 — 해당 agent 를 source 로 가진 outbound(primary) 엣지 목록 + 타겟 메타 계산.
@@ -514,8 +550,14 @@ function AutoEdgeSection({
   );
 }
 
-export function AgentConfigPopup({ agentId, config, currentColor, onClose }: AgentConfigPopupProps): React.JSX.Element {
-  const { t } = useTranslation();
+export function AgentConfigPopup({
+  agentId, config, currentColor, onClose, section, anchorRect,
+}: AgentConfigPopupProps): React.JSX.Element {
+  const { t, i18n } = useTranslation();
+  // §4 (상태바 모델 칸 ②) — 지금 그리는 보기. 여는 자리가 정한 값에서 출발하고, 모델 구역 카드의
+  //   [전체 설정]만 `'full'` 로 넓힌다(거꾸로 좁히는 길은 없다 — 전체 보기에서 고친 다른 칸이 가려진다).
+  const [view, setView] = useState<'full' | 'model'>(section === 'model' ? 'model' : 'full');
+  const narrowViewport = useIsNarrowViewport();
   // §4 (설정 3층) — 저장분이 아직 없는 버블의 기본값도 **설정 창을 따른다**. 종전에는 내장
   //   기본값으로 떨어져, 같은 질문("이 에이전트의 기본은 무엇인가")에 이 창과 서버가 서로 다른
   //   답을 했다 — 그 상태로 저장을 누르면 사용자가 고른 적 없는 내장 값이 그 버블에 못 박혔고,
@@ -547,7 +589,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
   // §4 v2.77 — Model 드롭다운을 레지스트리 기반 동적 목록으로. 기본 alias 3종은 항상 포함,
   //   CLI-scan/`/v1/models` 가 발견한 신규 패밀리(fable/mythos 등)도 자동 추가. known 3종은 전용 설명,
-  //   미지 패밀리는 displayName(있으면) + 공통 'unknown' 설명으로 폴백.
+  //   미지 패밀리는 displayName(있으면) + 공통 'unknownFamily' 설명으로 폴백.
   const MODEL_OPTIONS: SelectOption[] = useMemo(() => {
     const known = new Set<string>(KNOWN_MODEL_FAMILIES);
     return listModelFamilies(modelRegistry).map((fam) => {
@@ -557,8 +599,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       const label = latest?.displayName ?? fam;
       return {
         value: fam,
-        description: t('panel.agentConfig.model.unknown', {
-          defaultValue: '{{name}} — newly released model. Capabilities and cost inferred from family defaults.',
+        description: t('panel.agentConfig.model.unknownFamily', {
           name: label,
         }),
       };
@@ -575,20 +616,32 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // §4 (CLI 사양 추종) — `--autocompact`. 맨 앞 빈 값은 "미설정" = **설정 창의 전역 기본을 따름**
   //   (플래그 없음 ❌ — 그 뜻이었다면 CLI 기본인 창 전체가 되어 사실상 압축이 사라진다).
   //   종전처럼 CLI 판단에 맡기려면 `'auto'` 를 고른다.
-  const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => AVAILABLE_AUTOCOMPACT_VALUES.map((v) => ({
-    value: v,
-    label: v === ''
-      ? t('panel.agentConfig.autoCompact.unsetLabel')
-      : v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel')
-        : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`,
-    description: v === ''
-      ? t('panel.agentConfig.autoCompact.unset')
-      : v === AUTOCOMPACT_OFF
-        ? t('panel.agentConfig.autoCompact.off')
-        : v === 'auto'
-          ? t('panel.agentConfig.autoCompact.auto')
-          : t('panel.agentConfig.autoCompact.tokens', { tokens: `${Number(v) / 1000}k` }),
-  })), [t]);
+  //   §5.25 (G-2) — 빈 값의 라벨은 **지금 적용되는 값**이다: 설정 창에 값이 있으면 그것, 없으면 내장 값.
+  const globalAutoCompact = userDefaults?.agentConfig?.autoCompact;
+  const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => {
+    const valueLabel = (v: string): string => (
+      v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`
+    );
+    const inherited = resolveAutoCompact(undefined, globalAutoCompact);
+    // 설정 창에 목록 안의 값이 있으면 그 값이 이긴다(resolveAutoCompact 가 같은 판정을 한다).
+    const fromOptions = inherited === globalAutoCompact?.trim();
+    return AVAILABLE_AUTOCOMPACT_VALUES.map((v) => ({
+      value: v,
+      label: v === ''
+        ? t('panel.agentConfig.effective.resolved', {
+          value: valueLabel(inherited),
+          source: fromOptions ? t('panel.agentConfig.effective.sourceOptions', { options: t('panel.options.title') }) : t('panel.agentConfig.effective.sourceBuiltin'),
+        })
+        : valueLabel(v),
+      description: v === ''
+        ? t('panel.agentConfig.autoCompact.unsetFollows', { options: t('panel.options.title') })
+        : v === AUTOCOMPACT_OFF
+          ? t('panel.agentConfig.autoCompact.off')
+          : v === 'auto'
+            ? t('panel.agentConfig.autoCompact.auto')
+            : t('panel.agentConfig.autoCompact.tokens', { tokens: `${Number(v) / 1000}k` }),
+    }));
+  }, [t, globalAutoCompact]);
   // §5.3 v4.89 — 자기 기억 범위. 'default' 는 저장하지 않는 값(= 레포 공용 기억)이라 목록 맨 앞에 둔다.
   const MEMORY_OPTIONS: SelectOption[] = useMemo(() => (
     ['default', ...AGENT_MEMORY_SCOPES].map((v) => ({ value: v, description: t(`panel.agentConfig.memory.${v}`) }))
@@ -619,7 +672,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     maxBudgetUsd: t('panel.agentConfig.fieldTips.maxBudgetUsd'),
     isolation: t('panel.agentConfig.fieldTips.isolation'),
     memory: t('panel.agentConfig.fieldTips.memory'),
-    subagentDepth: t('panel.agentConfig.fieldTips.subagentDepth'),
+    subagentDepth: t('panel.agentConfig.fieldTips.subagentDepthEffective', { depth: SUBAGENT_DEPTH_CLI_DEFAULT }),
     effort: t('panel.agentConfig.fieldTips.effort'),
     skills: t('panel.agentConfig.fieldTips.skills'),
     color: t('panel.agentConfig.fieldTips.color'),
@@ -723,10 +776,18 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [localContext, setLocalContext] = useState(
     String(base.provider?.contextSize ?? LOCAL_DEFAULT_CONTEXT_SIZE),
   );
-  // 비워 두면 엔진 기본값 — "0" 과 "안 정함"은 다르다(0 은 항상 같은 말만 하는 설정이다).
+  // 비워 두면 엔진이 정한 값 — "0" 과 "안 정함"은 다르다(0 은 항상 같은 말만 하는 설정이다).
   const [localTemperature, setLocalTemperature] = useState(
     typeof base.provider?.temperature === 'number' ? String(base.provider.temperature) : '',
   );
+  /**
+   * §5.25 (G-2) — 온도·문맥을 비워 두었을 때 **실제로 쓰이는 값**(올라간 엔진 → 모델 파일 → 엔진 `--help`).
+   * 모델이 바뀌면 다시 묻는다. 못 읽었으면 칸은 값을 지어내지 않는다.
+   */
+  const localModelId = isLocal ? (provider?.modelId ?? '') : '';
+  const localSampling = useLocalSampling(localModelId);
+  const localTempHint = localTemperaturePlaceholder(t, localSampling);
+  const localContextHint = localContextPlaceholder(t, localSampling);
   // §5.19 (H) — 도구 강등(`toolSupport='none'`)은 **판정**이지 사용자가 정한 값이 아니다.
   //   잘못 박히면 그 버블은 영영 파일을 못 보므로 되돌릴 손잡이가 화면에 있어야 한다.
   const [retryToolSupport, setRetryToolSupport] = useState(false);
@@ -785,11 +846,55 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
    */
   const codexModels = useGraphStore((st) => st.codexModels);
   const refreshCodexModels = useGraphStore((st) => st.refreshCodexModels);
+  /**
+   * §4 (상태바 모델 칸 ③) — **창을 열 때 모델 목록을 한 번 더 확인한다.** 클로드 경로는 서버 레지스트리
+   * (`POST /api/models/refresh` — 실행본이 바뀌었으면 강도 등급까지 다시 긁는다), 코덱스는 코덱스 캐시를
+   * 다시 읽는다. 로컬은 목록이 디스크에 있고 설치 창이 따로 다루므로 부르지 않는다. 겹친 확인은 서버가
+   * 합치고 API 는 하한을 지키므로, 창을 연달아 열고 닫아도 바깥을 두드리지 않는다.
+   */
+  const refreshModelRegistry = useGraphStore((st) => st.refreshModelRegistry);
+  const [modelListChecking, setModelListChecking] = useState(false);
+  const recheckModelList = useCallback(async (): Promise<void> => {
+    if (isLocal) return;
+    setModelListChecking(true);
+    try {
+      await (isCodex ? refreshCodexModels() : refreshModelRegistry());
+    } finally {
+      setModelListChecking(false);
+    }
+  }, [isLocal, isCodex, refreshCodexModels, refreshModelRegistry]);
+  const checkedOnOpenRef = useRef(false);
+  useEffect(() => {
+    if (checkedOnOpenRef.current) return;
+    checkedOnOpenRef.current = true;
+    void recheckModelList();
+  }, [recheckModelList]);
+  // "목록 확인 N분 전"이 열어 둔 동안 낡지 않게 — 카드에서만 30초마다 다시 잰다(전체 보기는 그 줄이 없다).
+  //   창 크기가 바뀌어도 다시 그린다 — 카드 자리가 뷰포트 안으로 다시 맞춰진다.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (view !== 'model') return;
+    const tick = (): void => setNowTick(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 30_000);
+    window.addEventListener('resize', tick);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('resize', tick);
+    };
+  }, [view]);
   const [codexModelId, setCodexModelId] = useState(provider?.modelId ?? '');
   const [codexEffort, setCodexEffort] = useState(provider?.reasoningEffort ?? '');
   const [codexWebSearch, setCodexWebSearch] = useState(provider?.webSearch ?? '');
+  const [codexTools, setCodexTools] = useState<CodexToolPolicy>(() => normalizeCodexToolPolicy(provider?.codexTools) ?? {});
   const [codexVerbosity, setCodexVerbosity] = useState(provider?.modelVerbosity ?? '');
   const [codexNetwork, setCodexNetwork] = useState(provider?.networkAccess === undefined ? '' : String(provider.networkAccess));
+  /**
+   * §5.25 (G-2) — 비워 둔 칸에 **실제로 적용되는 값**의 근거. 코덱스가 이 버블의 작업 폴더에서 읽을
+   * 설정 파일들을 서버가 읽어 준다. 창을 열 때마다 다시 묻는다(사용자가 그사이 파일을 고쳤을 수 있다).
+   * 못 읽었으면 `'failed'` — 빈 목록으로 두면 파일에 적힌 값을 없는 것으로 읽어 내장 값을 말하게 된다.
+   */
+  const codexConfig = useCodexEffectiveConfig(isCodex, agentId);
   const codexModelOptions: SelectOption[] = useMemo(
     () => (codexModels?.models ?? []).map((m) => ({
       value: m.slug,
@@ -806,6 +911,17 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const codexEffortOptions: SelectOption[] = useMemo(
     () => codexEffortLevels.map((lv) => ({ value: lv, label: lv, description: lv })),
     [codexEffortLevels],
+  );
+  /** 비워 둔 칸의 선택지 한 줄 — 지금 고른 모델·권한 모드(저장 전 값)로 판정한다. */
+  const codexInheritedFor = (field: CodexInheritedField): { label: string; description: string } => (
+    codexInheritedOptionFor(t, field, {
+      config: codexConfig,
+      model: codexModels?.models.find((m) => m.slug === codexModelId),
+      // 목록은 스냅샷으로 온다 — 창이 열릴 때 비어 있으면 서버에도 없는 것이라 "확인 중"이 아니라 "읽지 못함"이다.
+      modelsLoaded: true,
+      sandbox: resolveCodexPermission(permissionMode).sandbox,
+      delegation: strictStripSet.size > 0,
+    })
   );
   // 모델을 바꿔 지금 강도가 그 모델에 없는 값이 되면 비운다(엔진이 거절할 값을 들고 있지 않게).
   useEffect(() => {
@@ -824,6 +940,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     if (!live) return undefined;
     const picked = codexModels?.models.find((m) => m.slug === codexModelId);
     const next: AgentProvider = { ...live, kind: 'codex-cli', modelId: codexModelId };
+    next.codexTools = codexTools;
     if (picked?.displayName) next.modelName = picked.displayName;
     else delete next.modelName;
     // 빈 값은 "안 정함"이라 키 자체를 없앤다 — 빈 문자열을 실으면 `-c` 오버라이드가 빈 값으로 붙는다.
@@ -836,7 +953,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     if (codexNetwork) next.networkAccess = codexNetwork === 'true';
     else delete next.networkAccess;
     return next;
-  }, [agentId, provider, codexModelId, codexEffort, codexModels, codexWebSearch, codexVerbosity, codexNetwork]);
+  }, [agentId, provider, codexModelId, codexEffort, codexModels, codexWebSearch, codexVerbosity, codexNetwork, codexTools]);
 
   const handleSwitchLocalModel = useCallback(() => {
     openLocalModelWindow(agentId);
@@ -1021,6 +1138,49 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     //   (칩이 사라지면 토글도 함께 사라진다). 다시 추가했을 때 사용자가 켠 적 없는 확인이 되살아난다.
     setAskTools((p) => (p.includes(t) ? p.filter((x) => x !== t) : p));
   }, []);
+
+  /**
+   * §4 (도구 목록 템플릿) — "도구" 라벨 오른쪽 선택기. 1번 = 커스텀, 2번부터 = `AGENT_TOOL_TEMPLATES`.
+   * 선택 상태는 저장하지 않는다 — 저장되는 것은 `tools` 뿐이고, 보이는 값은 매번 그 목록에서 계산한다.
+   */
+  const [toolTemplatePick, setToolTemplatePick] = useState<string | undefined>(undefined);
+  const toolTemplate = resolveAgentToolTemplate(tools, toolTemplatePick);
+  // 템플릿을 둘러보다 커스텀으로 돌아오면 손으로 고른 목록이 되살아나야 한다 — 칩을 다시 하나씩
+  // 고르게 두면 템플릿을 한 번 눌러 보는 것이 곧 설정을 잃는 일이 된다. 확인 표식도 함께 되돌린다.
+  const customToolsRef = useRef<{ tools: string[]; askTools: string[] } | null>(null);
+  useEffect(() => {
+    if (toolTemplate === AGENT_TOOL_TEMPLATE_CUSTOM) customToolsRef.current = { tools, askTools };
+  }, [toolTemplate, tools, askTools]);
+  const applyToolTemplate = useCallback((id: string) => {
+    if (id === AGENT_TOOL_TEMPLATE_CUSTOM) {
+      setToolTemplatePick(id);
+      const saved = customToolsRef.current;
+      if (saved) { setTools([...saved.tools]); setAskTools([...saved.askTools]); }
+      return;
+    }
+    const tmpl = findAgentToolTemplate(id);
+    if (!tmpl) return;
+    // 창을 템플릿 목록으로 열었으면 아직 커스텀 기록이 없다 — 덮어쓰기 전 목록을 커스텀 자리로 남긴다.
+    if (!customToolsRef.current) customToolsRef.current = { tools, askTools };
+    setToolTemplatePick(id);
+    setTools([...tmpl.tools]);
+    // removeTool 과 같은 규칙 — 목록에서 빠진 도구의 확인 표식은 화면에 안 보이는 채로 저장되지 않게 걷는다.
+    setAskTools((p) => p.filter((x) => tmpl.tools.includes(x)));
+  }, [tools, askTools]);
+  const toolTemplateOptions = useMemo<SelectOption[]>(() => [
+    {
+      value: AGENT_TOOL_TEMPLATE_CUSTOM,
+      label: t('panel.agentConfig.toolTemplate.option', { index: 1, name: t('panel.agentConfig.toolTemplate.custom.name') }),
+      description: t('panel.agentConfig.toolTemplate.custom.desc'),
+    },
+    ...AGENT_TOOL_TEMPLATES.map((tmpl, i) => ({
+      value: tmpl.id,
+      label: t('panel.agentConfig.toolTemplate.option', { index: i + 2, name: t(`panel.agentConfig.toolTemplate.${tmpl.id}.name`) }),
+      description: t(`panel.agentConfig.toolTemplate.${tmpl.id}.desc`, { total: tmpl.tools.length }),
+      // 전체 목록은 이름을 늘어놓으면 칸이 열 줄이 된다 — 개수는 설명 문장이 말한다.
+      detail: tmpl.tools.length === AVAILABLE_AGENT_TOOLS.length ? undefined : tmpl.tools.join(', '),
+    })),
+  ], [t]);
   const removeSkill = useCallback((s: string) => setSkills((p) => p.filter((x) => x !== s)), []);
 
   const addSkill = useCallback((name: string) => {
@@ -1198,6 +1358,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   };
   // 이 창이 **지금 그리지 않는** 축은 세지 않는다 — 화면의 점이 3개인데 머리의 숫자가 5 면
   //   그 숫자는 설명이 아니라 수수께끼가 된다.
+  // §5.3 #12-1-A · §5.25 (H) — 60초 무응답 정책이 뜻을 갖는 설정(= 이 버블에 승인 카드가 뜰 수 있다).
+  //   코덱스는 요청 시 승인 모드의 승인 요청과 도구별 확인이 카드를 띄운다. 토글과 변경 점 개수가 같은 판정을 본다.
+  const timeoutPolicyVisible = isCodex
+    ? canCodexPromptForPermission(permissionMode) || (permissionMode !== 'dontAsk' && Object.values(codexTools).includes('ask'))
+    : canPromptForPermission(permissionMode, askTools);
   const hiddenDiffFields = useMemo(() => {
     const hidden: string[] = [];
     if (isProviderAgent) {
@@ -1213,9 +1378,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       );
     }
     if (isShellOnly) hidden.push('model', 'modelVersion', 'contextWindow', 'fastMode');
-    if (!canPromptForPermission(permissionMode, askTools)) hidden.push('permissionTimeoutPolicy');
+    if (!timeoutPolicyVisible) hidden.push('permissionTimeoutPolicy');
     return hidden;
-  }, [isProviderAgent, isShellOnly, permissionMode, askTools]);
+  }, [isProviderAgent, isShellOnly, timeoutPolicyVisible]);
   const diffFields = useMemo(
     () => diffAgentConfigFromDefaults(buildPayload(), agentDefaults, { skip: hiddenDiffFields }),
     [buildPayload, agentDefaults, hiddenDiffFields],
@@ -1254,8 +1419,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     betas: t('panel.agentConfig.betas.label'),
     agentDefinitions: t('panel.agentConfig.agentDefinitions.label'),
     pluginDirs: t('panel.agentConfig.pluginDirs.label'),
-    bashDefaultTimeoutMs: t('panel.agentConfig.bashTimeout.defaultLabel'),
-    bashMaxTimeoutMs: t('panel.agentConfig.bashTimeout.maxLabel'),
+    bashDefaultTimeoutMs: t('panel.agentConfig.bashTimeout.defaultLabelSec', { sec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000 }),
+    bashMaxTimeoutMs: t('panel.agentConfig.bashTimeout.maxLabelSec', { sec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000 }),
     bashMaxOutputChars: t('panel.agentConfig.tokenSaver.bashOutput'),
     mcpMaxOutputTokens: t('panel.agentConfig.tokenSaver.mcpOutput'),
     maxOutputTokens: t('panel.agentConfig.tokenSaver.output'),
@@ -1282,6 +1447,19 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       case 'forwardSubagentText':
       case 'thinking': return raw === false ? off : on;
       case 'maxTurns': return String(typeof raw === 'number' && raw > 0 ? raw : AGENT_MAX_TURNS_UI_FALLBACK);
+      // §5.25 (G-2) — 비어 있으면 CLI 가 쓰는 값을 적는다("미설정"은 무엇이 적용되는지 말하지 않는다).
+      case 'bashDefaultTimeoutMs':
+      case 'bashMaxTimeoutMs': {
+        const ms = normalizeBashTimeoutMs(raw)
+          ?? (field === 'bashDefaultTimeoutMs' ? BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT : BASH_MAX_TIMEOUT_MS_CLI_DEFAULT);
+        return t('ide.stepTrace.sec', { sec: ms / 1000 });
+      }
+      case 'subagentDepth':
+        return t('panel.agentConfig.subagentDepth.layers', { count: normalizeSubagentDepth(raw) ?? SUBAGENT_DEPTH_CLI_DEFAULT });
+      case 'autoCompact': {
+        const v = resolveAutoCompact(typeof raw === 'string' ? raw : undefined);
+        return v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`;
+      }
       case 'rules': {
         const body = typeof raw === 'string' ? raw.trim() : '';
         return body ? t('panel.agentConfig.lines', { count: body.split('\n').length }) : unset;
@@ -1297,7 +1475,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   /** 다른 칸에만 붙는 점. 같은 칸에는 아무것도 그리지 않는다 — 그게 심플함의 전부다. */
   const diffDot = (field: AgentConfigComparedField): React.JSX.Element | null => (
     diffSet.has(field)
-      ? <DiffMark text={t('panel.agentConfig.diff.tip', { value: defaultValueText(field) })} />
+      ? <DiffMark text={t('panel.agentConfig.diff.tipOptions', { value: defaultValueText(field), options: t('panel.options.title') })} />
       : null
   );
 
@@ -1315,6 +1493,405 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   }, [agentId, buildPayload, onClose]);
 
   const availableToAdd = AVAILABLE_AGENT_TOOLS.filter((t) => !tools.includes(t));
+
+  // ─── §4 (상태바 모델 칸 ②) — 모델 구역 렌더 조각 ───
+  //   전체 보기와 모델 구역 카드(`section="model"`)가 **이 조각들을 함께 부른다.** 카드용 사본을 두면 칸 규칙·diff 점·
+  //   저장 필드가 한쪽만 고쳐지는 날이 온다(`modelSectionView.test.ts` 가 손잡이가 한 벌인지 소스로 확인한다).
+  const localModelBlock = isLocal ? (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center text-xs font-medium text-gray-400">
+        {t('panel.agentConfig.model.label')}
+        <InfoTip text={t('panel.agentConfig.local.modelTip', {
+          defaultValue: '이 버블이 말할 때 쓰는 로컬 모델입니다. 바꾸면 다음 턴부터 그 모델이 답합니다.',
+        })} />
+      </label>
+      <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
+        <span className={`min-w-0 flex-1 truncate text-xs ${provider?.modelId ? 'text-gray-200' : 'text-gray-500'}`}>
+          {provider?.modelName || provider?.modelId
+            || t('panel.agentConfig.local.noModel', { defaultValue: '아직 모델을 고르지 않았습니다' })}
+        </span>
+        <button
+          type="button"
+          onClick={handleSwitchLocalModel}
+          className="flex-shrink-0 rounded bg-gray-700 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600"
+        >
+          {provider?.modelId
+            ? t('panel.agentConfig.local.switchModel', { defaultValue: '모델 바꾸기' })
+            : t('panel.agentConfig.local.pickModel', { defaultValue: '모델 고르기' })}
+        </button>
+      </div>
+
+      {/* §5.19 (D) — 대화 창 크기 · 온도. 로컬 턴이 **실제로 읽는** 두 값이다. */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center text-xs font-medium text-gray-400">
+            {t('localModel.contextTitle', { defaultValue: '대화 창 크기' })}
+            <InfoTip text={t('localModel.contextHint', {
+              defaultValue: '길수록 더 오래 기억하지만 메모리를 더 쓰고 느려집니다. 모델이 학습된 길이보다 크게 잡으면 그 길이로 낮춰서 씁니다. 바꾼 값은 이 모델을 다음에 올릴 때부터 적용됩니다.',
+            })} />
+          </label>
+          <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+            <input
+              type="number"
+              min={LOCAL_CONTEXT_MIN}
+              max={LOCAL_CONTEXT_MAX}
+              step={1024}
+              value={localContext}
+              onChange={(e) => setLocalContext(e.target.value)}
+              placeholder={localContextHint.text}
+              title={localContextHint.title}
+              className="w-full min-w-0 flex-1 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none placeholder:text-[12px] placeholder:text-gray-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+            <span className="flex items-center px-2 text-[12px] text-gray-500">
+              {t('localModel.contextUnit', { defaultValue: '토큰' })}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center text-xs font-medium text-gray-400">
+            {t('panel.agentConfig.local.temperature', { defaultValue: '온도' })}
+            <InfoTip text={t('panel.agentConfig.local.temperatureTipEffective')} />
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            value={localTemperature}
+            onChange={(e) => setLocalTemperature(e.target.value)}
+            placeholder={localTempHint.text}
+            title={localTempHint.title}
+            className="w-full min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-center text-sm text-gray-200 outline-none placeholder:text-[12px] placeholder:text-gray-600 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const codexModelBlock = isCodex ? (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center text-xs font-medium text-gray-400">
+        {t('panel.agentConfig.model.label')}
+        <InfoTip text={t('panel.agentConfig.codex.modelTip', {
+          defaultValue: '이 버블이 말할 때 쓰는 코덱스 모델입니다. 매번 이 값을 명시해 보내므로, 코덱스 설정 파일의 기본 모델에 끌려가지 않습니다.',
+        })} />
+      </label>
+      {codexModelOptions.length > 0 ? (
+        <CustomSelect value={codexModelId} onChange={setCodexModelId} options={codexModelOptions} />
+      ) : (
+        <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-xs text-gray-500">
+            {t('panel.agentConfig.codex.noModelList', {
+              defaultValue: '모델 목록을 아직 못 읽었습니다 — 코덱스를 한 번 돌리면 만들어집니다.',
+            })}
+          </span>
+          <button
+            type="button"
+            onClick={() => { void refreshCodexModels(); }}
+            className="flex-shrink-0 rounded bg-gray-700 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600"
+          >
+            {t('panel.agentConfig.codex.reloadModels', { defaultValue: '다시 읽기' })}
+          </button>
+        </div>
+      )}
+
+      {/* 강도는 **모델이 신고한 단계만** 뜬다. 신고가 없으면 이 칸 자체가 없다. */}
+      {codexEffortOptions.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center text-xs font-medium text-gray-400">
+            {t('panel.agentConfig.codex.effort', { defaultValue: '추론 강도' })}
+            <InfoTip text={t('panel.agentConfig.codex.effortTip', {
+              defaultValue: '높일수록 더 오래 생각하고 더 많은 토큰을 씁니다. 이 모델이 지원한다고 알려 온 단계만 보입니다.',
+            })} />
+          </label>
+          <CustomSelect
+            value={codexEffort}
+            onChange={setCodexEffort}
+            options={[
+              { value: '', ...codexInheritedFor('reasoningEffort') },
+              ...codexEffortOptions,
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const claudeModelBlock = !isProviderAgent && !isShellOnly ? (
+    <div className="flex flex-col gap-1">
+      <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} />{diffDot('model')}</label>
+      <CustomSelect value={model} onChange={handleModelChange} options={MODEL_OPTIONS} />
+
+      {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
+          native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
+      <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[12px] text-gray-500">
+        <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>{diffDot('modelVersion')}
+        <select
+          value={effectiveVersionValue}
+          onChange={(e) => handleVersionChange(e.target.value)}
+          className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
+        >
+          {VERSION_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.description}</option>
+          ))}
+        </select>
+        {/* alias 모드일 때 → 실제 전달 인자 미리보기 */}
+        {modelVersion === undefined && (
+          <span className="font-mono text-gray-600">→ {effectiveCliArg}</span>
+        )}
+        {isCustomVersion && (
+          <input
+            type="text"
+            value={modelVersion ?? ''}
+            onChange={(e) => setModelVersion(e.target.value)}
+            placeholder={`claude-${model}-X-Y`}
+            className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+          />
+        )}
+      </div>
+
+      {/* §4 v1.53 — Opus 1M 컨텍스트 토글. 기본 ON (undefined === checked). uncheck 시 '200k' opt-out 저장 */}
+      {isOpusModel(model) && (
+        <label className="mt-1 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
+          <input
+            type="checkbox"
+            checked={oneMillionEnabled}
+            onChange={(e) => setContextWindow(e.target.checked ? undefined : '200k')}
+            className="h-3.5 w-3.5 cursor-pointer accent-blue-500"
+          />
+          <span className="text-xs text-gray-300">
+            {t('panel.agentConfig.contextWindow.oneMillion', { defaultValue: '1M context window' })}{diffDot('contextWindow')}
+          </span>
+        </label>
+      )}
+
+      {/* §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 지원하지 않는 모델에서는 CLI 가
+          사유도 없이 조용히 무시하므로, 숨기지 않고 **비활성 + 이유**로 보여 준다. */}
+      <label
+        className={`mt-1 flex items-center gap-2 rounded border px-2.5 py-1.5 ${
+          fastModeSupported
+            ? 'cursor-pointer border-gray-700/60 bg-gray-900/40 hover:border-gray-600'
+            : 'cursor-not-allowed border-gray-800/60 bg-gray-900/20'
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={fastMode && fastModeSupported}
+          disabled={!fastModeSupported}
+          onChange={(e) => setFastMode(e.target.checked)}
+          className="h-3.5 w-3.5 accent-blue-500 disabled:cursor-not-allowed"
+        />
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`h-3.5 w-3.5 ${fastModeSupported ? 'text-sky-400' : 'text-gray-600'}`}
+          aria-hidden="true"
+        >
+          <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+        </svg>
+        <span className={`text-xs ${fastModeSupported ? 'text-gray-300' : 'text-gray-600'}`}>
+          {t('panel.agentConfig.fastMode.label')}{diffDot('fastMode')}
+          <span className="ml-1 text-gray-600">
+            {fastModeSupported ? t('panel.agentConfig.fastMode.hint') : t('panel.agentConfig.fastMode.unsupported')}
+          </span>
+        </span>
+        <InfoTip text={t('panel.agentConfig.fastMode.tip')} />
+      </label>
+    </div>
+  ) : null;
+
+  const effortField = (
+    <div className="flex flex-col gap-1">
+      <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} />{diffDot('effort')}</label>
+      <CustomSelect value={isOpus ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!isOpus} />
+    </div>
+  );
+
+  // 전체 보기의 격자 안에서는 `col-span-2` 로 한 줄을 다 쓰고, 카드(격자 밖)에서는 그 클래스가 아무 일도 하지 않는다.
+  const thinkingToggle = (
+    <label className="col-span-2 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
+      <input
+        type="checkbox"
+        checked={thinking}
+        onChange={(e) => setThinking(e.target.checked)}
+        className="h-3.5 w-3.5 accent-indigo-500"
+      />
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={`h-3.5 w-3.5 ${thinking ? 'text-indigo-400' : 'text-gray-600'}`}
+        aria-hidden="true"
+      >
+        <path d="M9.5 20.5h5" />
+        <path d="M10 17.5v-1.2a5.5 5.5 0 1 1 4 0v1.2" />
+      </svg>
+      <span className="text-xs text-gray-300">
+        {t('panel.agentConfig.thinking.label')}{diffDot('thinking')}
+        <span className="ml-1 text-gray-600">
+          {thinking ? t('panel.agentConfig.thinking.hint') : t('panel.agentConfig.thinking.offHint')}
+        </span>
+      </span>
+      <InfoTip text={t('panel.agentConfig.thinking.tip')} />
+    </label>
+  );
+
+  // ─── §4 (상태바 모델 칸 ②) — 모델 구역만 연 카드 ───
+  //   새 설정창이 아니라 이 창의 다른 보기다: 위 조각·상태·저장(`handleSave` = 전량 페이로드 PUT)이 전체 보기와
+  //   한 벌이다. 칸 위에 붙어 뜨고(폰 폭에서는 아래에서 올라오는 시트), [전체 설정]은 고치던 값을 든 채 같은
+  //   인스턴스를 전체 보기로 넓힌다. 닫기는 백드롭 — 드롭다운 패널이 body 포털이라 바깥 press 방식으로 닫으면
+  //   드롭다운 안을 누른 것이 이 카드를 닫는다.
+  if (view === 'model') {
+    const applyTiming = modelSectionApplyTiming({ isLocal, isCodex, isCmdAgent });
+    const applyNote = applyTiming === 'nextTurn'
+      ? t('panel.agentConfig.modelSection.applyNextTurn')
+      : applyTiming === 'newSession'
+        ? t('panel.agentConfig.modelSection.applyNewSession')
+        : applyTiming === 'codex' ? t('panel.agentConfig.codex.applyNoteEffective') : null;
+    // 목록의 출처·확인 시각 — 코덱스는 코덱스 캐시, 나머지(클로드 경로)는 서버 레지스트리.
+    const checkedAgo = formatCheckedAgo(
+      isCodex ? (codexModels?.checkedAt ?? null) : modelListCheckedAt(modelRegistry),
+      nowTick,
+      i18n.language,
+    );
+    const sourceLabel: Record<ModelListSource, string> = {
+      seed: t('panel.agentConfig.modelSection.source.seed'),
+      api: t('panel.agentConfig.modelSection.source.api'),
+      observed: t('panel.agentConfig.modelSection.source.observed'),
+    };
+    const sourceLabels = isCodex
+      ? [t('panel.agentConfig.modelSection.source.codex')]
+      : modelListSourcesOf(modelRegistry).map((s) => sourceLabel[s]);
+    const sourcesTip = isCodex
+      ? t('panel.agentConfig.modelSection.sourcesTipCodex')
+      : t('panel.agentConfig.modelSection.sourcesTip', { hours: Math.round(MODEL_REGISTRY_API_TTL_MS / 3_600_000) });
+    // 칸에 붙이는 자리. 폰 폭이거나 붙일 칸을 모르면 계산하지 않는다(시트·화면 아래 가운데).
+    const placement = anchorRect && !narrowViewport
+      ? placeModelSectionCard(anchorRect, { w: window.innerWidth, h: window.innerHeight })
+      : null;
+
+    return createPortal(
+      <div
+        className={`fixed inset-0 z-50 ${
+          narrowViewport
+            ? 'flex items-end bg-black/60'
+            : placement ? 'bg-black/20' : 'flex items-end justify-center bg-black/20 pb-12'
+        }`}
+        {...backdrop}
+      >
+        <div
+          role="dialog"
+          aria-label={t('panel.agentConfig.model.label')}
+          className={narrowViewport
+            ? 'flex max-h-[85dvh] w-screen flex-col rounded-t-lg border-t border-gray-700 bg-gray-900 shadow-2xl'
+            : `flex flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl ${placement ? 'absolute' : 'max-h-[70vh] w-[360px] max-w-[94vw]'}`}
+          style={placement
+            ? { left: placement.left, width: placement.width, top: placement.top, bottom: placement.bottom, maxHeight: placement.maxHeight }
+            : undefined}
+        >
+          {/* Header — 이름 한 줄 + 목록을 언제 어디서 확인했는가 */}
+          <div className="flex items-start justify-between gap-2 border-b border-gray-700 px-3 py-2.5">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <h3 className="text-sm font-bold text-gray-100">{t('panel.agentConfig.model.label')}</h3>
+              {/* 로컬은 목록이 디스크에 있다 — 확인 줄 대신 모델 칸의 [바꾸기]가 설치 창으로 보낸다. */}
+              {!isLocal && (
+                <div className="flex min-w-0 items-center gap-1 text-[12px] text-gray-500">
+                  <HoverTip text={sourcesTip} className="flex min-w-0 cursor-help items-center gap-1">
+                    <span className="truncate">
+                      {modelListChecking
+                        ? t('panel.agentConfig.modelSection.listChecking')
+                        : checkedAgo
+                          ? t('panel.agentConfig.modelSection.listChecked', { ago: checkedAgo })
+                          : t('panel.agentConfig.modelSection.listNotChecked')}
+                    </span>
+                    {sourceLabels.length > 0 && (
+                      <span className="truncate text-gray-600">· {sourceLabels.join(' · ')}</span>
+                    )}
+                  </HoverTip>
+                  <button
+                    type="button"
+                    onClick={() => { void recheckModelList(); }}
+                    disabled={modelListChecking}
+                    title={t('panel.agentConfig.modelSection.recheckTip')}
+                    aria-label={t('panel.agentConfig.modelSection.recheckTip')}
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:cursor-default disabled:opacity-60"
+                  >
+                    <svg
+                      className={`h-3.5 w-3.5 ${modelListChecking ? 'animate-spin' : ''}`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                      <path d="M21 3v5h-5" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t('common.close')}
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          </div>
+
+          {/* Body — 전체 보기와 **같은 조각**. 순서도 전체 보기와 같다(모델 → 강도 → 확장 사고). */}
+          <ScrollFade fill className="flex-1">
+            <div className="flex flex-col gap-3 p-3">
+              {localModelBlock}
+              {codexModelBlock}
+              {claudeModelBlock}
+              {!isProviderAgent && effortField}
+              {!isProviderAgent && thinkingToggle}
+              {applyNote && <p className="text-[12px] leading-relaxed text-gray-500">{applyNote}</p>}
+            </div>
+          </ScrollFade>
+
+          {/* Footer — [전체 설정]은 닫지 않고 넓힌다(고치던 값이 그대로 남는다). 저장은 전체 보기와 같은 창구다. */}
+          <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-3 py-2.5">
+            <HoverTip
+              text={t('panel.agentConfig.modelSection.fullSettingsTip', { agentSettings: t('panel.agentConfig.title') })}
+              className="inline-flex"
+            >
+              <button
+                type="button"
+                onClick={() => setView('full')}
+                className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20 7h-9" />
+                  <path d="M14 17H5" />
+                  <circle cx="17" cy="17" r="3" />
+                  <circle cx="7" cy="7" r="3" />
+                </svg>
+                {t('panel.agentConfig.modelSection.fullSettings')}
+              </button>
+            </HoverTip>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200">{t('panel.agentConfig.cancel')}</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">{saving ? t('panel.agentConfig.saving') : t('panel.agentConfig.save')}</button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   // §5.5 #17-1 — **body 포털**. 이 창은 지금까지 `DetailPanel`(`z-30`) 안에서 그려졌는데, 부모가
   //   z-index 를 가지면 자식은 그 층 **안**에 갇힌다 — `fixed inset-0 z-50` 이라고 적혀 있어도
@@ -1337,11 +1914,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {/* §4 — 이 에이전트만 다르게 설정된 칸이 몇 개인가. 아래 점들과 **같은 수**를 센다. */}
             {diffFields.length > 0 && (
               <HoverTip
-                text={t('panel.agentConfig.diff.summaryTip', { list: diffFields.map((f) => DIFF_FIELD_LABELS[f]).join(', ') })}
+                text={t('panel.agentConfig.diff.summaryTipOptions', { list: diffFields.map((f) => DIFF_FIELD_LABELS[f]).join(', '), options: t('panel.options.title') })}
                 className="inline-flex w-fit cursor-help items-center gap-1 rounded bg-indigo-500/10 px-1.5 py-0.5 text-[12px] font-medium text-indigo-300"
               >
                 <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400" aria-hidden="true" />
-                {t('panel.agentConfig.diff.badge', { count: diffFields.length })}
+                {t('panel.agentConfig.diff.badgeOptions', { count: diffFields.length, options: t('panel.options.title') })}
               </HoverTip>
             )}
             {/* §5.19 (G) — 정체를 창이 스스로 말한다. 이 한 줄이 없으면 **왜 칸이 적은지**를
@@ -1381,75 +1958,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
             {/* §5.19 (G) — 로컬 버블의 모델 자리. 이름과 [바꾸기] 뿐이다 — 카탈로그·받기·삭제는
                 이미 설치 창에 있고, 같은 목록을 두 곳에 그리면 둘이 어긋나는 날이 온다. */}
-            {isLocal && (
-              <div className="flex flex-col gap-1.5">
-                <label className="flex items-center text-xs font-medium text-gray-400">
-                  {t('panel.agentConfig.model.label')}
-                  <InfoTip text={t('panel.agentConfig.local.modelTip', {
-                    defaultValue: '이 버블이 말할 때 쓰는 로컬 모델입니다. 바꾸면 다음 턴부터 그 모델이 답합니다.',
-                  })} />
-                </label>
-                <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
-                  <span className={`min-w-0 flex-1 truncate text-xs ${provider?.modelId ? 'text-gray-200' : 'text-gray-500'}`}>
-                    {provider?.modelName || provider?.modelId
-                      || t('panel.agentConfig.local.noModel', { defaultValue: '아직 모델을 고르지 않았습니다' })}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleSwitchLocalModel}
-                    className="flex-shrink-0 rounded bg-gray-700 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600"
-                  >
-                    {provider?.modelId
-                      ? t('panel.agentConfig.local.switchModel', { defaultValue: '모델 바꾸기' })
-                      : t('panel.agentConfig.local.pickModel', { defaultValue: '모델 고르기' })}
-                  </button>
-                </div>
-
-                {/* §5.19 (D) — 대화 창 크기 · 온도. 로컬 턴이 **실제로 읽는** 두 값이다. */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label className="flex items-center text-xs font-medium text-gray-400">
-                      {t('localModel.contextTitle', { defaultValue: '대화 창 크기' })}
-                      <InfoTip text={t('localModel.contextHint', {
-                        defaultValue: '길수록 더 오래 기억하지만 메모리를 더 쓰고 느려집니다. 모델이 학습된 길이보다 크게 잡으면 그 길이로 낮춰서 씁니다. 바꾼 값은 이 모델을 다음에 올릴 때부터 적용됩니다.',
-                      })} />
-                    </label>
-                    <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
-                      <input
-                        type="number"
-                        min={LOCAL_CONTEXT_MIN}
-                        max={LOCAL_CONTEXT_MAX}
-                        step={1024}
-                        value={localContext}
-                        onChange={(e) => setLocalContext(e.target.value)}
-                        className="w-full min-w-0 flex-1 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
-                      <span className="flex items-center px-2 text-[12px] text-gray-500">
-                        {t('localModel.contextUnit', { defaultValue: '토큰' })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="flex items-center text-xs font-medium text-gray-400">
-                      {t('panel.agentConfig.local.temperature', { defaultValue: '온도' })}
-                      <InfoTip text={t('panel.agentConfig.local.temperatureTip', {
-                        defaultValue: '낮으면 또박또박 같은 답을, 높으면 더 자유로운 답을 냅니다. 비워 두면 엔진 기본값을 씁니다.',
-                      })} />
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      value={localTemperature}
-                      onChange={(e) => setLocalTemperature(e.target.value)}
-                      placeholder={t('panel.agentConfig.local.temperatureDefault', { defaultValue: '엔진 기본값' })}
-                      className="w-full min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-center text-sm text-gray-200 outline-none placeholder:text-[12px] placeholder:text-gray-600 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+            {localModelBlock}
 
             {/* §4 (CMD ⑧) — CLI 종류. CMD(임베디드 터미널) 버블에서만. */}
             {isCmdAgent && (
@@ -1485,184 +1994,47 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {/* §5.25 (G) — 코덱스 버블의 모델·추론 강도. 목록은 코덱스가 캐시해 둔 것을 **읽기만**
                 한다(우리가 표를 들면 그쪽이 모델을 바꾼 날 우리만 옛 이름을 고른다). 캐시는 코덱스를
                 한 번 돌려야 생기므로, 없을 때는 고르는 칸 대신 다시 읽는 버튼을 둔다. */}
-            {isCodex && (
-              <div className="flex flex-col gap-1.5">
-                <label className="flex items-center text-xs font-medium text-gray-400">
-                  {t('panel.agentConfig.model.label')}
-                  <InfoTip text={t('panel.agentConfig.codex.modelTip', {
-                    defaultValue: '이 버블이 말할 때 쓰는 코덱스 모델입니다. 매번 이 값을 명시해 보내므로, 코덱스 설정 파일의 기본 모델에 끌려가지 않습니다.',
-                  })} />
-                </label>
-                {codexModelOptions.length > 0 ? (
-                  <CustomSelect value={codexModelId} onChange={setCodexModelId} options={codexModelOptions} />
-                ) : (
-                  <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
-                    <span className="min-w-0 flex-1 truncate text-xs text-gray-500">
-                      {t('panel.agentConfig.codex.noModelList', {
-                        defaultValue: '모델 목록을 아직 못 읽었습니다 — 코덱스를 한 번 돌리면 만들어집니다.',
-                      })}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { void refreshCodexModels(); }}
-                      className="flex-shrink-0 rounded bg-gray-700 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600"
-                    >
-                      {t('panel.agentConfig.codex.reloadModels', { defaultValue: '다시 읽기' })}
-                    </button>
-                  </div>
-                )}
+            {codexModelBlock}
 
-                {/* 강도는 **모델이 신고한 단계만** 뜬다. 신고가 없으면 이 칸 자체가 없다. */}
-                {codexEffortOptions.length > 0 && (
-                  <div className="flex flex-col gap-1">
-                    <label className="flex items-center text-xs font-medium text-gray-400">
-                      {t('panel.agentConfig.codex.effort', { defaultValue: '추론 강도' })}
-                      <InfoTip text={t('panel.agentConfig.codex.effortTip', {
-                        defaultValue: '높일수록 더 오래 생각하고 더 많은 토큰을 씁니다. 이 모델이 지원한다고 알려 온 단계만 보입니다.',
-                      })} />
-                    </label>
-                    <CustomSelect
-                      value={codexEffort}
-                      onChange={setCodexEffort}
-                      options={[
-                        { value: '', label: t('panel.agentConfig.codex.effortDefault', { defaultValue: '엔진 기본값' }), description: '' },
-                        ...codexEffortOptions,
-                      ]}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Model */}
-            {isCodex && (
-              <div className="flex flex-col gap-4 rounded-lg border border-gray-700/60 bg-gray-900/40 p-3">
-                <p className="text-xs font-semibold text-gray-200">{t('panel.agentConfig.codex.execution')}</p>
-                {([
-                  ['webSearch', codexWebSearch, setCodexWebSearch, ['disabled', 'cached', 'live']],
-                  ['verbosity', codexVerbosity, setCodexVerbosity, ['low', 'medium', 'high']],
-                  ...(resolveCodexPermission(permissionMode).sandbox === 'workspace-write'
-                    ? [['network', codexNetwork, setCodexNetwork, ['false', 'true']] as const] : []),
-                ] as const).map(([key, value, onChange, values]) => (
-                  <div key={key} className="flex flex-col gap-1.5">
-                    <label className="flex items-center text-xs font-medium text-gray-400">
-                      {t(`panel.agentConfig.codex.${key}.label`)}
-                      <InfoTip text={t(`panel.agentConfig.codex.${key}.tip`)} />
-                    </label>
-                    <CustomSelect value={value} onChange={onChange} options={[
-                      { value: '', label: t('panel.agentConfig.codex.effortDefault', { defaultValue: '엔진 기본값' }), description: t('panel.agentConfig.codex.inherit') },
-                      ...values.map((v) => ({ value: v, label: t(`panel.agentConfig.codex.${key}.${v}`), description: '' })),
-                    ]} />
-                  </div>
-                ))}
-                <p className="text-[12px] leading-relaxed text-gray-500">{t('panel.agentConfig.codex.applyNote')}</p>
-              </div>
-            )}
-            {!isProviderAgent && !isShellOnly && (
-            <div className="flex flex-col gap-1">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} />{diffDot('model')}</label>
-              <CustomSelect value={model} onChange={handleModelChange} options={MODEL_OPTIONS} />
-
-              {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
-                  native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
-              <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[12px] text-gray-500">
-                <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>{diffDot('modelVersion')}
-                <select
-                  value={effectiveVersionValue}
-                  onChange={(e) => handleVersionChange(e.target.value)}
-                  className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
-                >
-                  {VERSION_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.description}</option>
-                  ))}
-                </select>
-                {/* alias 모드일 때 → 실제 전달 인자 미리보기 */}
-                {modelVersion === undefined && (
-                  <span className="font-mono text-gray-600">→ {effectiveCliArg}</span>
-                )}
-                {isCustomVersion && (
-                  <input
-                    type="text"
-                    value={modelVersion ?? ''}
-                    onChange={(e) => setModelVersion(e.target.value)}
-                    placeholder={`claude-${model}-X-Y`}
-                    className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                )}
-              </div>
-
-              {/* §4 v1.53 — Opus 1M 컨텍스트 토글. 기본 ON (undefined === checked). uncheck 시 '200k' opt-out 저장 */}
-              {isOpusModel(model) && (
-                <label className="mt-1 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={oneMillionEnabled}
-                    onChange={(e) => setContextWindow(e.target.checked ? undefined : '200k')}
-                    className="h-3.5 w-3.5 cursor-pointer accent-blue-500"
-                  />
-                  <span className="text-xs text-gray-300">
-                    {t('panel.agentConfig.contextWindow.oneMillion', { defaultValue: '1M context window' })}{diffDot('contextWindow')}
-                  </span>
-                </label>
-              )}
-
-              {/* §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 지원하지 않는 모델에서는 CLI 가
-                  사유도 없이 조용히 무시하므로, 숨기지 않고 **비활성 + 이유**로 보여 준다. */}
-              <label
-                className={`mt-1 flex items-center gap-2 rounded border px-2.5 py-1.5 ${
-                  fastModeSupported
-                    ? 'cursor-pointer border-gray-700/60 bg-gray-900/40 hover:border-gray-600'
-                    : 'cursor-not-allowed border-gray-800/60 bg-gray-900/20'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={fastMode && fastModeSupported}
-                  disabled={!fastModeSupported}
-                  onChange={(e) => setFastMode(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-blue-500 disabled:cursor-not-allowed"
-                />
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`h-3.5 w-3.5 ${fastModeSupported ? 'text-sky-400' : 'text-gray-600'}`}
-                  aria-hidden="true"
-                >
-                  <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
-                </svg>
-                <span className={`text-xs ${fastModeSupported ? 'text-gray-300' : 'text-gray-600'}`}>
-                  {t('panel.agentConfig.fastMode.label')}{diffDot('fastMode')}
-                  <span className="ml-1 text-gray-600">
-                    {fastModeSupported ? t('panel.agentConfig.fastMode.hint') : t('panel.agentConfig.fastMode.unsupported')}
-                  </span>
-                </span>
-                <InfoTip text={t('panel.agentConfig.fastMode.tip')} />
-              </label>
-            </div>
-            )}
+            {claudeModelBlock}
 
             {/* Permission Mode */}
-            {isCodex && strictStripSet.size > 0 && (
-              <p className="rounded border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-xs leading-relaxed text-amber-200/80">
-                {t('panel.agentConfig.codex.edgeDelegationNote')}
-              </p>
-            )}
             <div className="flex flex-col gap-1">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.permissionMode.label')}<InfoTip text={isCodex ? t('panel.agentConfig.codex.permissionTip') : FIELD_TIPS.permissionMode} />{diffDot('permissionMode')}</label>
               <CustomSelect value={permissionMode} onChange={setPermissionMode} options={isCodex ? PERMISSION_OPTIONS.map((option) => ({ ...option, label: t(`panel.agentConfig.codex.permission.${option.value}`), description: `${resolveCodexPermission(option.value).sandbox} · ${resolveCodexPermission(option.value).approval}` })) : PERMISSION_OPTIONS} />
               {isCodex && <p className="text-[12px] text-gray-500">{t('panel.agentConfig.codex.permissionTip')}</p>}
             </div>
 
+            {/* Model */}
+            {isCodex && (
+              <div className="flex flex-col gap-4 rounded-lg border border-gray-700/60 bg-gray-900/40 p-3">
+                <p className="text-xs font-semibold text-gray-200">{t('panel.agentConfig.codex.execution')}</p>
+                {([
+                  ['webSearch', 'webSearch', codexWebSearch, setCodexWebSearch, ['disabled', 'cached', 'live']],
+                  ['verbosity', 'modelVerbosity', codexVerbosity, setCodexVerbosity, ['low', 'medium', 'high']],
+                  ...(resolveCodexPermission(permissionMode).sandbox === 'workspace-write'
+                    ? [['network', 'networkAccess', codexNetwork, setCodexNetwork, ['false', 'true']] as const] : []),
+                ] as const).map(([key, field, value, onChange, values]) => (
+                  <div key={key} className="flex flex-col gap-1.5">
+                    <label className="flex items-center text-xs font-medium text-gray-400">
+                      {t(`panel.agentConfig.codex.${key}.label`)}
+                      <InfoTip text={t(`panel.agentConfig.codex.${key}.tip`)} />
+                    </label>
+                    <CustomSelect value={value} onChange={onChange} options={[
+                      { value: '', ...codexInheritedFor(field) },
+                      ...values.map((v) => ({ value: v, label: t(`panel.agentConfig.codex.${key}.${v}`), description: '' })),
+                    ]} />
+                  </div>
+                ))}
+                <p className="text-[12px] leading-relaxed text-gray-500">{t('panel.agentConfig.codex.applyNoteEffective')}</p>
+              </div>
+            )}
             {/* §5.3 #12-1 v1.90 — On no response (60s) fallback. 팝업이 원천적으로 안 뜨는 모드
                 (bypassPermissions·plan·auto·dontAsk)에서는 무의미해서 숨긴다 — §4 CLI 사양 추종으로
                 auto·dontAsk 가 늘었으므로 조건을 shared 판정 한 곳으로 모았다.
                 §5.3 #12-1-A — 도구별 확인 목록이 비어 있지 않으면 bypass·auto 에서도 카드가 뜨므로
                 그때는 이 토글을 **다시 보여야 한다**(숨기면 정책을 볼 수도 고칠 수도 없다). */}
-            {!isCodex && canPromptForPermission(permissionMode, askTools) && (
+            {timeoutPolicyVisible && (
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center text-xs font-medium text-gray-400">
                   {t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}{diffDot('permissionTimeoutPolicy')}
@@ -1922,14 +2294,45 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             )}
 
             {/* Tools */}
+            {isCodex && (
+              <div className="flex flex-col gap-2 rounded-lg border border-gray-700/60 p-3">
+                <label className="text-xs font-medium text-gray-400">{t('panel.agentConfig.tools.label')}</label>
+                <CodexToolPermissions value={codexTools} onChange={setCodexTools} />
+                {strictStripSet.size > 0 && (
+                  <div className="flex flex-col gap-2 rounded border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-xs leading-relaxed text-amber-200/80">
+                    <p>{t('panel.agentConfig.codex.edgeDelegationNote')}</p>
+                    <ScrollFade maxHeight={96}>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[...strictStripSet].map((tool) => (
+                          <span key={tool} className="rounded-full bg-amber-400/10 px-2 py-0.5">{tool}</span>
+                        ))}
+                      </div>
+                    </ScrollFade>
+                  </div>
+                )}
+              </div>
+            )}
             {!isProviderAgent && (
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center text-xs font-medium text-gray-400">
-                {t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} />{diffDot('tools')}
-                {/* §5.3 #12-1-A — 확인 목록은 Tools 안에 살고 별도 라벨 줄이 없다. 그 축의 표식은
-                    이 줄에 함께 붙인다 — 점이 없으면 그 칸만 조용히 "기본값과 같은 것처럼" 보인다. */}
-                {diffDot('askTools')}
-              </label>
+              {/* §4 (도구 목록 템플릿) — 선택기는 label 밖에 둔다. label 안의 버튼은 라벨 글자를 눌러도
+                  눌린다(label 이 첫 버튼을 활성화한다) — "도구" 글자를 눌렀는데 드롭다운이 열리게 된다. */}
+              <div className="flex items-center gap-2">
+                <label className="flex items-center text-xs font-medium text-gray-400">
+                  {t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} />{diffDot('tools')}
+                  {/* §5.3 #12-1-A — 확인 목록은 Tools 안에 살고 별도 라벨 줄이 없다. 그 축의 표식은
+                      이 줄에 함께 붙인다 — 점이 없으면 그 칸만 조용히 "기본값과 같은 것처럼" 보인다. */}
+                  {diffDot('askTools')}
+                </label>
+                <div className="ml-auto flex">
+                  <CustomSelect
+                    compact
+                    value={toolTemplate}
+                    onChange={applyToolTemplate}
+                    options={toolTemplateOptions}
+                    ariaLabel={t('panel.agentConfig.toolTemplate.label')}
+                  />
+                </div>
+              </div>
               {/* 기본값이 도구 45종이라 칩이 아홉 줄까지 늘어나, 이 창에서 아래 칸(권한·스킬)이
                   스크롤 저 밑으로 밀렸다. 네 줄쯤에서 멈추고 그 뒤는 안에서 스크롤한다. */}
               <ScrollFade maxHeight={124}><div className="flex flex-wrap gap-1.5">
@@ -2087,10 +2490,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.isolation.label')}<InfoTip text={FIELD_TIPS.isolation} />{diffDot('isolation')}</label>
                 <CustomSelect value={isolation} onChange={setIsolation} options={ISOLATION_OPTIONS} />
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} />{diffDot('effort')}</label>
-                <CustomSelect value={isOpus ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!isOpus} />
-              </div>
+              {effortField}
               {/* §5.3 v4.89 — 자기 기억 범위. 이 에이전트가 세션을 넘어 무엇을 기억할지 정한다. */}
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.memory.label')}<InfoTip text={FIELD_TIPS.memory} />{diffDot('memory')}</label>
@@ -2133,34 +2533,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               </div>
               {/* §4 (Thinking on/off) — 바로 위 Effort(사고 **깊이**) 와 직교하는 축: 사고 자체를 켜고 끈다.
                   그래서 같은 블록 안, 그 칸 아래 전체 폭에 둔다. 기본이 켬이라 끄면 값이 남는다. */}
-              <label className="col-span-2 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
-                <input
-                  type="checkbox"
-                  checked={thinking}
-                  onChange={(e) => setThinking(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-indigo-500"
-                />
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`h-3.5 w-3.5 ${thinking ? 'text-indigo-400' : 'text-gray-600'}`}
-                  aria-hidden="true"
-                >
-                  <path d="M9.5 20.5h5" />
-                  <path d="M10 17.5v-1.2a5.5 5.5 0 1 1 4 0v1.2" />
-                </svg>
-                <span className="text-xs text-gray-300">
-                  {t('panel.agentConfig.thinking.label')}{diffDot('thinking')}
-                  <span className="ml-1 text-gray-600">
-                    {thinking ? t('panel.agentConfig.thinking.hint') : t('panel.agentConfig.thinking.offHint')}
-                  </span>
-                </span>
-                <InfoTip text={t('panel.agentConfig.thinking.tip')} />
-              </label>
+              {thinkingToggle}
             </div>
             )}
 
@@ -2422,11 +2795,14 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               <div className="flex flex-col gap-1.5">
                 <span className="flex items-center text-[12px] font-medium text-gray-500">
                   {t('panel.agentConfig.bashTimeout.label')}
-                  <InfoTip text={t('panel.agentConfig.bashTimeout.tip')} />
+                  <InfoTip text={t('panel.agentConfig.bashTimeout.tipEffective', {
+                    defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                    maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                  })} />
                 </span>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}{diffDot('bashDefaultTimeoutMs')}</label>
+                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabelSec', { sec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000 })}{diffDot('bashDefaultTimeoutMs')}</label>
                     <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                       <input
                         type="number"
@@ -2440,7 +2816,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}{diffDot('bashMaxTimeoutMs')}</label>
+                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabelSec', { sec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000 })}{diffDot('bashMaxTimeoutMs')}</label>
                     <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                       <input
                         type="number"
@@ -2455,9 +2831,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   </div>
                 </div>
                 <span className="text-[12px] text-gray-600">
-                  {t('panel.agentConfig.bashTimeout.hint', {
-                    defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
-                    maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                  {t('panel.agentConfig.bashTimeout.hintEffective', {
+                    defaultSec: bashDefaultTimeoutSec > 0 ? bashDefaultTimeoutSec : BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                    maxSec: bashMaxTimeoutSec > 0 ? bashMaxTimeoutSec : BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
                   })}
                 </span>
               </div>

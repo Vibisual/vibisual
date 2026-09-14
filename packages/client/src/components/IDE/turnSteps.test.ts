@@ -1,16 +1,19 @@
 /**
  * turnSteps.test.ts — §5.5 #17-39 단계 자국의 **숫자 규칙**을 못박는다.
  *
- * 여기서 지키는 것 셋:
+ * 여기서 지키는 것 넷:
  *  1) 시간 단위 자르기(사진의 `1분 13초` 가 그대로 나와야 한다).
  *  2) 자국을 남길 문턱 — 순간 사고에 한 줄을 내주지 않는다.
  *  3) 런 봉인 규칙 — **버퍼 끝에 걸린 런은 자국이 되지 않는다**(자라는 자국 ❌).
+ *  4) 간결 합치기(⑩) — 이어 붙은 자국은 주인별 한 줄, 시간은 폭이 아니라 합.
  */
 import { describe, it, expect } from 'vitest';
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 import {
   describeStepDuration, shouldTraceThinking, shouldTraceWriting, collectThinkRuns, toolGroupElapsedMs,
+  mergeAdjacentThinkTraces,
   THINK_TRACE_MIN_CHARS, THINK_TRACE_MIN_MS, WRITE_TRACE_MIN_CHARS,
+  type ThinkTraceView,
 } from './turnSteps.js';
 
 const evt = (id: string, ts: number, eventType: SubAgentStreamEvent['eventType'], content = ''): SubAgentStreamEvent =>
@@ -93,6 +96,52 @@ describe('collectThinkRuns', () => {
   it('문턱을 못 넘는 런은 봉인돼도 자국이 되지 않는다', () => {
     const events = [evt('b', 0, 'thinking', 'x'), evt('c', 10, 'text', '뒤')];
     expect(collectThinkRuns(events, skipPulse)).toEqual([]);
+  });
+});
+
+describe('mergeAdjacentThinkTraces — §5.5 #17-39 ⑩ 이어 붙은 자국은 주인별 한 줄', () => {
+  interface Row { id: string; kind: 'step' | 'text'; ms?: number; chars?: number; owner?: string }
+  const tr = (id: string, ms: number, chars: number, owner?: string): Row => ({ id, kind: 'step', ms, chars, ...(owner ? { owner } : {}) });
+  const tx = (id: string): Row => ({ id, kind: 'text' });
+  const read = (r: Row): ThinkTraceView | null => (r.kind === 'step' ? { ms: r.ms!, chars: r.chars!, owner: r.owner } : null);
+  const write = (first: Row, ms: number, chars: number): Row => ({ ...first, ms, chars });
+  const merge = (rows: Row[]): Row[] => mergeAdjacentThinkTraces(rows, read, write);
+
+  it('이어 붙은 자국은 한 줄이 된다 — 시간·분량은 더하고 id 는 첫 자국 것', () => {
+    // 사용자 스크린샷의 모양 — 도구 묶음이 빠진 자리에 `1초 미만 동안 사고함 · N자` 가 줄줄이.
+    const out = merge([tx('a'), tr('s1', 100, 88), tr('s2', 0, 142), tr('s3', 300, 151), tx('b')]);
+    expect(out.map((r) => r.id)).toEqual(['a', 's1', 'b']);
+    expect(out[1]).toMatchObject({ ms: 400, chars: 381 });
+  });
+
+  it('사이에 다른 항목이 끼면 거기서 끊긴다 — 합칠 것이 없으면 입력 배열 그대로(참조 보존)', () => {
+    const rows = [tr('s1', 0, 100), tx('a'), tr('s2', 0, 100)];
+    expect(merge(rows)).toBe(rows);
+  });
+
+  it('주인이 다르면 섞지 않는다 — 주인마다 한 줄, 처음 나온 순서·자리', () => {
+    const out = merge([
+      tr('p1', 0, 100), tr('n1', 0, 10, 'task-1'), tr('p2', 0, 200), tr('n2', 0, 20, 'task-1'), tr('p3', 0, 300),
+    ]);
+    // 병렬 Task 가 번갈아 생각해도 줄 수는 주인 수(2)를 넘지 않는다.
+    expect(out.map((r) => [r.id, r.chars])).toEqual([['p1', 600], ['n1', 30]]);
+  });
+
+  it('주인마다 한 장뿐인 구간은 그대로 둔다(합친 새 객체를 만들지 않는다)', () => {
+    const rows = [tr('p1', 0, 100), tr('n1', 0, 100, 'task-1'), tx('a')];
+    expect(merge(rows)).toBe(rows);
+  });
+
+  it('구간이 자라도 줄이 새로 생기지 않는다 — id 는 그대로, 숫자만 오른다', () => {
+    const one = merge([tx('a'), tr('s1', 0, 100)]);
+    const two = merge([tx('a'), tr('s1', 0, 100), tr('s2', 1_500, 100)]);
+    expect(one.map((r) => r.id)).toEqual(['a', 's1']);
+    expect(two.map((r) => r.id)).toEqual(['a', 's1']);
+    expect(two[1]).toMatchObject({ ms: 1_500, chars: 200 });
+  });
+
+  it('망가진 음수 시간은 합을 깎지 않는다', () => {
+    expect(merge([tr('s1', -50, 10), tr('s2', 200, 10)])[0]).toMatchObject({ ms: 200, chars: 20 });
   });
 });
 

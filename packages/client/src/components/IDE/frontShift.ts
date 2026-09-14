@@ -36,6 +36,41 @@ export function countRemovedFromFront(prevIds: readonly string[], nextIds: reado
 }
 
 /**
+ * §5.5 #17-12 — **보고 있는 자리 앞**에 항목이 몇 개 늘었나(+) · 줄었나(−).
+ *
+ * 앞쪽 절단만 세는 `countRemovedFromFront` 로는 복원 창 위쪽 과거를 불러와 **앞에 붙인** 것을 신고할 수 없다.
+ * 게다가 붙는 자리가 맨 앞도 아니다 — 창 밖 턴의 명령 블록(저장된 답 폴백)이 맨 위에 서 있어서 불러온 과거는
+ * 그 블록들 **사이**로 끼어든다. 맨 앞 항목을 기준으로 삼으면 "변화 없음"으로 읽혀 화면이 불러온 분량만큼 튄다.
+ *
+ * 그래서 기준을 **직전 렌더에 그려져 있던 첫 항목**(`viewIndex`, rangeChanged 가 알려 준 자리)으로 잡는다.
+ * 그 항목부터 아래로 내려가며 새 목록에도 남은 첫 항목을 찾고, 그 항목의 자리가 옮겨 간 만큼을 돌려준다.
+ * 그 아래가 전부 사라졌으면 위로 거슬러 찾고, 겹치는 항목이 하나도 없으면(전량 교체) 0.
+ */
+export function shiftAroundView(prevIds: readonly string[], nextIds: readonly string[], viewIndex: number): number {
+  if (prevIds.length === 0 || nextIds.length === 0) return 0;
+  const v = Math.min(Math.max(0, Math.floor(viewIndex)), prevIds.length - 1);
+  // 대부분의 렌더(꼬리에 줄이 붙는 스트리밍)는 보는 자리가 그대로다 — 색인을 만들지 않고 끝낸다.
+  if (nextIds[v] === prevIds[v]) return 0;
+  const nextIndex = new Map<string, number>();
+  nextIds.forEach((id, i) => { if (!nextIndex.has(id)) nextIndex.set(id, i); });
+  for (let k = v; k < prevIds.length; k++) {
+    const at = nextIndex.get(prevIds[k]!);
+    if (at !== undefined) return at - k;
+  }
+  for (let k = v - 1; k >= 0; k--) {
+    const at = nextIndex.get(prevIds[k]!);
+    if (at !== undefined) return at - k;
+  }
+  return 0;
+}
+
+/**
+ * §5.5 #17-12 — 첫 기준값. virtuoso 는 `firstItemIndex` 가 음수면 오류를 내므로, 앞에 **붙는** 쪽(과거 불러오기)을
+ * 줄여서 신고할 여유를 두고 크게 시작한다. 절대값에는 뜻이 없고 렌더 사이의 차이만 쓰인다.
+ */
+export const FRONT_SHIFT_ORIGIN = 1_000_000_000;
+
+/**
  * items 가 바뀔 때마다 앞쪽 제거 수를 누적해 virtuoso 에 넘길 `firstItemIndex` 를 돌려준다.
  * getId 는 렌더 간 안정된 참조여야 한다(모듈 상수 또는 useCallback).
  *
@@ -43,13 +78,25 @@ export function countRemovedFromFront(prevIds: readonly string[], nextIds: reado
  * 밀도가 바뀌면 앞쪽 항목의 id 가 통째로 갈리는데(`e1` ↔ `toolgroup-e1`), 그걸 절단으로 오인하면
  * virtuoso 가 있지도 않은 제거분만큼 스크롤을 보정해 화면이 튄다. 키가 바뀐 렌더에서는 **세지 않고
  * 기준선만 새 목록으로 교체**한다(다음 렌더부터 다시 정상 감지).
+ *
+ * §5.5 #17-12 — `viewIndexOf` 는 **직전 목록에서 화면 맨 위에 선 항목의 순번**을 알려 준다(렌더 단계에서 부르므로
+ * DOM 은 아직 직전 목록이다). 넘기면 앞에 붙은 것까지 신고한다(`shiftAroundView`). 선렌더 버퍼가 끼는
+ * `rangeChanged` 의 시작 순번은 쓰지 않는다 — 불러온 과거가 버퍼와 화면 사이로 끼면 "그대로"로 읽힌다.
+ * 모르면(`undefined`) 그 렌더는 종전대로 앞쪽 절단만 센다. 안정된 참조여야 한다(useCallback).
  */
-export function useVirtuosoFrontShift<T>(items: readonly T[], getId: (item: T) => string, resetKey?: string): number {
-  const stateRef = useRef<FrontShiftState>({ base: 0, prevIds: [], prevKey: resetKey });
+export function useVirtuosoFrontShift<T>(
+  items: readonly T[],
+  getId: (item: T) => string,
+  resetKey?: string,
+  viewIndexOf?: (prevIds: readonly string[]) => number | undefined,
+): number {
+  const stateRef = useRef<FrontShiftState>({ base: FRONT_SHIFT_ORIGIN, prevIds: [], prevKey: resetKey });
   return useMemo(() => {
-    stateRef.current = advanceFrontShift(stateRef.current, items.map(getId), resetKey);
+    const prev = stateRef.current;
+    const view = viewIndexOf && prev.prevKey === resetKey && prev.prevIds.length > 0 ? viewIndexOf(prev.prevIds) : undefined;
+    stateRef.current = advanceFrontShift(prev, items.map(getId), resetKey, view);
     return stateRef.current.base;
-  }, [items, getId, resetKey]);
+  }, [items, getId, resetKey, viewIndexOf]);
 }
 
 /** 훅이 렌더 간 들고 가는 상태(누적 shift + 직전 id 목록 + 직전 리셋 키). 순수 함수로 검증하기 위해 분리. */
@@ -62,9 +109,14 @@ export interface FrontShiftState {
 /**
  * 한 렌더분 상태 전이(순수). `key` 가 직전과 다르면 **세지 않고 기준선만 교체**한다 — 밀도 전환처럼
  * 접는 방식이 통째로 바뀐 렌더를 절단으로 오인하지 않기 위함.
+ *
+ * `viewIndex`(직전 목록에서 그려져 있던 첫 항목의 자료 순번)를 주면 그 자리 앞의 늘고 준 양을 신고한다 —
+ * 앞에 붙으면 기준값이 **줄고**(virtuoso 의 prepend 경로), 앞이 잘리면 늘어난다.
  */
-export function advanceFrontShift(state: FrontShiftState, nextIds: readonly string[], key?: string): FrontShiftState {
-  const reset = state.prevKey !== key;
-  const base = reset ? state.base : state.base + countRemovedFromFront(state.prevIds, nextIds);
+export function advanceFrontShift(state: FrontShiftState, nextIds: readonly string[], key?: string, viewIndex?: number): FrontShiftState {
+  if (state.prevKey !== key) return { base: state.base, prevIds: nextIds, prevKey: key };
+  const base = viewIndex === undefined
+    ? state.base + countRemovedFromFront(state.prevIds, nextIds)
+    : state.base - shiftAroundView(state.prevIds, nextIds, viewIndex);
   return { base, prevIds: nextIds, prevKey: key };
 }

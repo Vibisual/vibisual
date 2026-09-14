@@ -191,3 +191,82 @@ export function overlayFollowsMainFocus(input: {
   if (!input.expanded) return false;
   return input.visible && !input.minimized;
 }
+
+// ─── §5.5 #17-6 (H-27) — 접힌 버블은 그 창의 렌더가 IDE 로 편다 ────────────────
+//
+// 앱이 밖에 있는 에이전트를 부르면(더블클릭·메뉴) 두 벌을 만들지 않고 그 창을 쓴다. 이미 IDE 로
+// 서 있으면 (H-16) 대로 앞으로 세우고 비추면 되지만, 접힌 버블이면 **창만 키워서는 안 된다** —
+// 그 창의 가게는 접힌 채라 큰 투명 창 가운데에 버블만 그려진다. 그래서 창에 메뉴 명령
+// `open-ide` 를 보내 렌더가 IDE 를 열게 하고, 창은 렌더의 미러(`expand-self`)가 편다.
+// 기척은 IDE 로 서 있을 때만 비추므로((H-16)) 편 **뒤에** 보낸다.
+
+/** (H-27) ④ 부른 뒤 이 안에 펴져야 "앱이 부른 펼침"으로 읽는다(ms). 늦게 온 펼침은 사용자가 직접 편 것이다. */
+export const OVERLAY_EXPAND_ATTENTION_MS = 5000;
+
+/**
+ * 재사용 갈래가 이 창을 **렌더에게 펴게 할 것인가**((H-27) ③).
+ *
+ * 접힌 창을 `expanded: true` 로 불렀고, 끌어 넣기(`follow`)도 짐(`handoff`)도 아닐 때만 참이다.
+ * 끌어 넣기는 커서를 따라 크기가 정해져야 하고 짐은 렌더가 짐 신호로 IDE 를 여므로, 그 둘은
+ * 종전대로 main 이 창을 편다. 이미 펼친 창은 펼 것이 없으니 (H-16) 기척만 받는다.
+ */
+export function overlayBubbleOpensIde(input: {
+  /** 이번 부름이 IDE 로 열어 달라는 것인가. */
+  expanded: boolean;
+  /** 그 창이 이미 펼쳐져 있는가. */
+  wasExpanded: boolean;
+  /** 커서를 따라 끌어 넣는 중인가. */
+  follow: boolean;
+  /** 앱 안의 IDE 짐을 지고 들어오는가. */
+  handoff: boolean;
+}): boolean {
+  return input.expanded && !input.wasExpanded && !input.follow && !input.handoff;
+}
+
+/**
+ * 이 펼침에 **앞세우기와 기척을 한 번 더 줄 것인가**((H-27) ④).
+ *
+ * `stampedAt` 은 재사용 갈래가 그 창에 `open-ide` 를 보낸 시각이다. 표식이 없거나, 시계가
+ * 뒤로 갔거나, 창이 늦게 펴졌으면 거짓이다 — 사용자가 나중에 직접 편 창을 비추지 않는다.
+ */
+export function overlayExpandAttentionDue(stampedAt: number | null, now: number): boolean {
+  if (stampedAt === null) return false;
+  const elapsed = now - stampedAt;
+  return elapsed >= 0 && elapsed <= OVERLAY_EXPAND_ATTENTION_MS;
+}
+
+/** (H-27) ⑦ 재사용 갈래가 그 창의 렌더에 보내는 [IDE 열기] 한 통. */
+export interface OverlayOpenIdeCommand {
+  command: 'open-ide';
+  /** 그 창에 세울 세션(북마크면 위치까지). 모양은 main 이 모른다 — 받는 렌더가 가린다. */
+  focus?: unknown;
+}
+
+/**
+ * 재사용 갈래가 그 창에 [IDE 열기]를 **보낼 것인가, 무엇을 실어서**((H-27) ⑦). 보낼 것이 없으면 `null`.
+ *
+ * 보내는 판은 둘이다. ① 접힌 버블을 IDE 로 불렀다(`bubbleOpensIde` — ③ 그대로). ② 이미 IDE 로
+ * 서 있는 창을 **세울 세션을 실어** 불렀다(북마크 점프 · 지휘통제실 [이동] · 콘티 이력 · [창과 버블]
+ * 목록의 색 줄). ② 가 없으면 그 손짓들은 밖의 창을 앞으로 세우기만 하고 고른 세션은 끝내 서지
+ * 않는다 — 앱 안에서 세우던 종전 줄은 창이 밖에 있으면 **남의 창**에 선다.
+ * 끌어 넣기(`follow`)·짐(`handoff`)은 제 신호가 따로 있어 싣지 않는다.
+ */
+export function overlayOpenIdeCommand(input: {
+  /** `overlayBubbleOpensIde` 의 답. */
+  bubbleOpensIde: boolean;
+  /** 그 창이 이미 펼쳐져 있는가. */
+  wasExpanded: boolean;
+  /** 커서를 따라 끌어 넣는 중인가. */
+  follow: boolean;
+  /** 앱 안의 IDE 짐을 지고 들어오는가. */
+  handoff: boolean;
+  /** 부르는 쪽이 실어 보낸 세울 세션(없으면 `undefined`·`null`). */
+  focus: unknown;
+}): OverlayOpenIdeCommand | null {
+  const hasFocus = input.focus !== undefined && input.focus !== null;
+  if (input.bubbleOpensIde) {
+    return hasFocus ? { command: 'open-ide', focus: input.focus } : { command: 'open-ide' };
+  }
+  if (!hasFocus || !input.wasExpanded || input.follow || input.handoff) return null;
+  return { command: 'open-ide', focus: input.focus };
+}

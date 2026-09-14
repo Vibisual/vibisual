@@ -10,7 +10,6 @@ import type {
   ProjectInsuranceLedger,
   CompactWatchLevel,
   CompactWatchState,
-  InsuranceSessionCounts,
   ResurrectableSession,
 } from '@vibisual/shared';
 
@@ -160,24 +159,6 @@ export function sessionWatchLevel(
 ): CompactWatchLevel | null {
   const rows = (led?.watch ?? []).filter((w) => matchesInsuranceSession(w, scope));
   return worstWatchLevel(rows);
-}
-
-/**
- * §5.26 (I) — **이 세션**에서 압축이 실패로 끝난 횟수.
- *
- * 종전에는 `counts.failedCompacts`(프로젝트 전체 합)를 읽어, 세션 여덟 개짜리 버블에서 실패 한 건이
- * 여덟 탭 모두에 `1` 로 떴다(사용자 보고). 세는 것은 서버이고(§3.1 · 전선 목록은 잘려 있다)
- * 여기서는 **내 줄만 골라 더한다**.
- */
-export function sessionFailedCompacts(
-  led: ProjectInsuranceLedger | undefined,
-  scope: InsuranceSessionScope,
-): number {
-  let total = 0;
-  for (const row of (led?.sessionCounts ?? []) as readonly InsuranceSessionCounts[]) {
-    if (matchesInsuranceSession(row, scope)) total += row.failedCompacts;
-  }
-  return total;
 }
 
 /** 바이트를 사람이 읽는 크기로. 저장고 사용량·기록 크기가 같은 규칙을 쓴다. */
@@ -336,6 +317,33 @@ export function scopeRowCount(
   if (tab === 'compacts') return filterByScope(led.markers, level, scope).length;
   if (tab === 'preimages') return filterByScope(led.preimages, level, scope).length;
   return filterByScope(led.resurrectable, level, scope).length;
+}
+
+/**
+ * §5.26 (I) ⑤ — **눈금 안에서 압축이 실패로 끝난 횟수.** 「압축 기록」 갈피 이름 옆 칩이 쓴다.
+ *
+ * 종전에는 이 수가 IDE 상태바 컨텍스트 칸 옆의 빨간 숫자였다. 밖에서는 무엇의 숫자인지 읽히지 않아
+ * 칸을 눌러 들어간 이 창 안으로 옮겼다(사용자 지시) — 그래서 주어도 상태바의 "세션 하나"가 아니라
+ * **이 창의 눈금**이다(네 갈피가 같은 눈금을 따른다).
+ *
+ * 세는 것은 서버다(§3.1). 전선의 `markers` 는 잘려 있어 그걸 세면 서버가 아는 수와 어긋난다.
+ * - `project` — 서버가 접은 프로젝트 합(`counts.failedCompacts`)을 그대로 읽는다. 세션 줄을 다시 더하지 않는다.
+ * - `agent`·`session` — 세션별 집계(`sessionCounts`)에서 그 눈금에 드는 줄만 더한다. 판정은 목록과 같은
+ *   `rowInScope` 라, 칩의 수와 목록의 실패 줄이 서로 다른 세션을 가리키지 않는다. 집계를 못 받았으면
+ *   0 이다 — 프로젝트 합으로 굴러떨어지면 옆 세션의 실패가 내 것으로 읽힌다(§5.26 (I) ④ 가 겪은 사고).
+ */
+export function scopedFailedCompacts(
+  led: ProjectInsuranceLedger | undefined,
+  level: InsuranceScopeLevel,
+  scope: InsuranceSessionScope,
+): number {
+  if (!led) return 0;
+  if (level === 'project') return led.counts.failedCompacts;
+  let total = 0;
+  for (const row of led.sessionCounts ?? []) {
+    if (rowInScope(row, level, scope)) total += row.failedCompacts;
+  }
+  return total;
 }
 
 /**

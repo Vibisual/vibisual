@@ -115,6 +115,46 @@ describe('pruneSubStreams — 규칙 1(살아있는 것 + 아카이브는 나이
     pruneSubStreams([saveDir], new Set(), 30);
     expect(fs.existsSync(path.join(trashRoot, 'sub-streams', 'agent-1', 'sub-orphan.jsonl'))).toBe(true);
   });
+
+  // §3.2.3 — 컴팩션 보관 파일(`<subId>.archive.jsonl`)은 그 세션의 앞부분이다. 한 번 쓰이면 mtime 이 멈춰
+  //   본 파일보다 먼저 늙으므로, 따로 판정하면 살아 있는 대화의 앞부분만 먼저 버려진다.
+  function seedArchive(subId: string, ageDays: number): string {
+    const fp = path.join(saveDir, 'sub-streams', 'agent-1', `${subId}.archive.jsonl`);
+    writeAged(fp, '{"t":0}\n', ageDays);
+    return fp;
+  }
+
+  it('보관 파일은 주인 세션 id 로 보호된다 — 주인이 보호 목록에 있으면 나이와 무관하게 남는다', () => {
+    const live = seedStream('sub-long', 90);
+    const archive = seedArchive('sub-long', 120);
+
+    const r = pruneSubStreams([saveDir], new Set(['sub-long']), 30);
+
+    expect(fs.existsSync(live)).toBe(true);
+    expect(fs.existsSync(archive)).toBe(true);
+    expect(r.removedFiles).toBe(0);
+  });
+
+  it('주인 본 파일이 아직 보존 기간 안이면 늙은 보관 파일도 남긴다', () => {
+    const live = seedStream('sub-recent', 2);
+    const archive = seedArchive('sub-recent', 60);
+
+    pruneSubStreams([saveDir], new Set(), 30);
+
+    expect(fs.existsSync(live)).toBe(true);
+    expect(fs.existsSync(archive)).toBe(true);
+  });
+
+  it('주인 본 파일과 보관 파일이 둘 다 늙었으면 함께 휴지통으로 간다(규칙 3 그대로)', () => {
+    seedStream('sub-stale', 90);
+    seedArchive('sub-stale', 120);
+
+    const r = pruneSubStreams([saveDir], new Set(), 30);
+
+    expect(r.removedFiles).toBe(2);
+    expect(fs.existsSync(path.join(trashRoot, 'sub-streams', 'agent-1', 'sub-stale.jsonl'))).toBe(true);
+    expect(fs.existsSync(path.join(trashRoot, 'sub-streams', 'agent-1', 'sub-stale.archive.jsonl'))).toBe(true);
+  });
 });
 
 describe('pruneAttachments — 규칙 2(참조되는 것은 나이 무관 보존)', () => {

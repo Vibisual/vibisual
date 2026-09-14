@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { ScrollFade } from '../ScrollFade.js';
-import type { AgentConfig, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
+import type { AgentConfig, AgentEngineKind, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
@@ -44,7 +44,8 @@ import {
 import { useGraphStore } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { ProviderTabs } from '../Engine/ProviderTabs.js';
-import { ProviderDefaults, ProjectProviderDefaults } from './ProviderDefaults.js';
+import { ProviderDefaults } from './ProviderDefaults.js';
+import { MainProviderSelect } from './MainProviderSelect.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
 // §6 — 단축키 설정(목록은 `COMMANDS` 표에서 자동 생성).
@@ -52,6 +53,7 @@ import { KeyboardTab } from './KeyboardTab.js';
 import { BgTaskProbeSection } from './BgTaskProbeSection.js';
 import { SessionProbeSection } from './SessionProbeSection.js';
 import { ExternalFolderSection } from './ExternalFolderSection.js';
+import { WebFoldSection } from './WebFoldSection.js';
 import { TokenSaverSection } from './TokenSaverSection.js';
 import { NumberStepper } from './NumberStepper.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
@@ -102,6 +104,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §4 — Apply 응답을 그 자리에서 스토어에 앉힌다. WS 를 기다리면 그 사이에 배치 타이머가
   //   들고 있던 **저장 직전 스냅샷**이 먼저 풀려 폼이 옛 값으로 되돌아간다(= 저장 실패로 보인다).
   const applyUserDefaults = useGraphStore((s) => s.applyUserDefaults);
+  const chooseEngine = useGraphStore((s) => s.chooseEngine);
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
   // §4 v3.24 — Appearance › Language. 폰(max-md)에선 헤더 LanguageSwitcher 가 숨겨져 여기가 유일한 변경 경로.
   //   Apply/Cancel dirty 흐름과 독립 — 선택 즉시 적용(헤더 스위처와 동일 setUiLocale 경로).
@@ -168,6 +171,11 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §4 — 마지막 Apply 가 서버에 닿지 못했는가. 종전에는 실패가 성공과 구분되지 않아
   //   "저장했는데 안 된다"의 원인을 사용자가 알 수 없었다.
   const [saveError, setSaveError] = useState(false);
+  // §5.25 (C) — 프로젝트 설정 탭에서 고른 메인 제공자. 칸 안에 저장 버튼이 없어 **창이 들고 있다가**
+  //   아래 [적용]으로 남긴다(탭을 옮겨도 남는다). `null` = 안 건드림 — 그동안은 저장값이 바깥
+  //   (첫 실행 관문 등)에서 바뀌어도 화면이 그대로 따라간다.
+  const [mainPending, setMainPending] = useState<AgentEngineKind | null>(null);
+  const mainDirty = mainPending !== null && mainPending !== mainEngine;
   // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
   //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
   const [providerDirty, setProviderDirty] = useState(false);
@@ -178,6 +186,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const [tokenSaverDirty, setTokenSaverDirty] = useState(false);
   // §2.1 (B) — 외부 폴더 예산도 같은 문법(머신 단위 설정 · 자기 REST · 미저장만 창에 올림).
   const [externalBudgetDirty, setExternalBudgetDirty] = useState(false);
+  // §5.23 접어 보기 — 에이전트마다 웹 버블 하나로 접기도 같은 문법(머신 단위 설정 · 자기 REST).
+  const [webFoldDirty, setWebFoldDirty] = useState(false);
   // §4 — 저장 없이 나가려 할 때 뜨는 우리 디자인 확인 팝업(종전 `window.confirm` 대체).
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
@@ -267,9 +277,9 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
    * 그랬다 — `window.confirm` 은 Cancel 버튼에만 걸려 있었다).
    */
   const requestClose = useCallback(() => {
-    if (dirty || providerDirty || storageDirty || bgProbeDirty || sessionProbeDirty || externalBudgetDirty || tokenSaverDirty) { setConfirmDiscardOpen(true); return; }
+    if (dirty || mainDirty || providerDirty || storageDirty || bgProbeDirty || sessionProbeDirty || externalBudgetDirty || webFoldDirty || tokenSaverDirty) { setConfirmDiscardOpen(true); return; }
     onClose();
-  }, [dirty, providerDirty, storageDirty, bgProbeDirty, sessionProbeDirty, externalBudgetDirty, tokenSaverDirty, onClose]);
+  }, [dirty, mainDirty, providerDirty, storageDirty, bgProbeDirty, sessionProbeDirty, externalBudgetDirty, webFoldDirty, tokenSaverDirty, onClose]);
 
   const handleKeepEditing = useCallback(() => setConfirmDiscardOpen(false), []);
 
@@ -279,11 +289,13 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     // dirty 를 내리면 재시드 effect 가 폼을 `userDefaults` 기준으로 되돌린다(버린 편집이 남지 않게).
     // Storage 탭은 언마운트되며 서버 값으로 다시 로드하므로 별도 되돌리기가 필요 없다.
     setDirty(false);
+    setMainPending(null);
     onClose();
   }, [onClose]);
 
   // 창이 닫히면 확인 팝업도 함께 접는다(다음에 열 때 뜬 채로 시작하지 않게).
-  useEffect(() => { if (!open) setConfirmDiscardOpen(false); }, [open]);
+  //   고른 메인 제공자도 함께 버린다 — `open` 만 내려 닫는 자리에서는 컴포넌트가 남아 다음에 열 때 옛 선택이 보인다.
+  useEffect(() => { if (!open) { setConfirmDiscardOpen(false); setMainPending(null); } }, [open]);
 
   // ESC 닫기 — 확인 팝업이 떠 있으면 그 팝업만 닫는다(Esc 주인은 여기 한 곳).
   useEffect(() => {
@@ -313,6 +325,13 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §4 — 지금 켜져 있는가. **꺼짐도 `turnCompactTriggerTokens` 는 null 을 주므로**(선이 없다)
   //   아래 표시에서 `'auto'`(창을 아직 모름)와 뒤섞이지 않도록 이 술어로 먼저 가른다.
   const autoCompactOn = isAutoCompactOn(resolveAutoCompact(autoCompact, undefined));
+  /** 선택지 값 → 사람이 읽는 이름. 빈 선택지도 풀린 값을 이 이름으로 적는다. */
+  const autoCompactValueLabel = (v: string): string => (
+    v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`
+  );
+  // §5.25 (G-2) — Bash 칸의 0 은 "환경변수를 안 싣는다"이고, 그때 도는 값은 CLI 의 것이다. 안내 줄은 그 실제 초를 적는다.
+  const bashEffectiveDefaultSec = bashDefaultTimeoutSec > 0 ? bashDefaultTimeoutSec : BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000;
+  const bashEffectiveMaxSec = bashMaxTimeoutSec > 0 ? bashMaxTimeoutSec : BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000;
   // §4 (CLI 사양 추종) — 압축을 **켜는 방향에만** 세우는 확인 관문(2026-09-02 사용자 지시).
   //   끄기는 확인 없이 즉시고, 켜진 값 사이의 이동(400k → 500k)도 통과시킨다 — 매번 막으면
   //   경고가 소음이 되어 읽히지 않는다. 확인을 "봤음"으로 기억하지 않으므로 끄고 다시 켜면 또 뜬다.
@@ -403,9 +422,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     setDisallowedTools((p) => p.includes(tool) ? p.filter((x) => x !== tool) : [...p, tool]);
   }, []);
 
-  // Apply — 서버에 PUT
-  const handleApply = useCallback(async () => {
-    setSaving(true);
+  // Agent Defaults 폼 저장 — 서버에 PUT. 성공 여부만 돌려주고 표시는 [적용] 이 맡는다.
+  const saveAgentDefaults = useCallback(async (): Promise<boolean> => {
     try {
       // §4 (설정 3층) — **미설정은 `null` 로 보낸다.** 종전에는 `undefined` 였는데
       //   `JSON.stringify` 가 그 키를 통째로 버려 서버의 부분 머지가 옛 값을 그대로 남겼다 —
@@ -461,21 +479,38 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
       });
       // §4 — 서버가 거절했으면 **dirty 를 내리지 않는다**. 종전에는 500 이어도 그대로 내려서
       //   실패가 성공과 똑같이 보였다(창을 닫아도 경고가 없었다).
-      if (!res.ok) { setSaveError(true); return; }
+      if (!res.ok) return false;
       const body = await res.json() as { ok?: boolean; userDefaults?: UserDefaults };
-      if (body.ok !== true) { setSaveError(true); return; }
+      if (body.ok !== true) return false;
       // 저장된 값을 그 자리에서 반영 — 늦게 풀리는 옛 스냅샷은 store 의 `updatedAt` 가드가 막는다.
       if (body.userDefaults) applyUserDefaults(body.userDefaults);
-      setSaveError(false);
       setDirty(false);
-    } catch { setSaveError(true); }
-    finally { setSaving(false); }
+      return true;
+    } catch { return false; }
   }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify, claudeDefaults]);
+
+  // Apply — 고쳐 둔 것만 저장한다. §5.25 (C) 메인 제공자도 칸 안이 아니라 여기서 남긴다.
+  //   폼을 먼저, 제공자를 나중에 — 폼은 **지금** 제공자일 때의 값(`claudeDefaults`)을 바탕으로 짓는다.
+  //   어느 쪽이든 실패하면 그 몫의 미저장 표시를 내리지 않아 창 닫기가 미저장 확인을 거친다.
+  const handleApply = useCallback(async () => {
+    setSaving(true);
+    try {
+      if (dirty && !(await saveAgentDefaults())) { setSaveError(true); return; }
+      if (mainDirty && mainPending !== null) {
+        try { await chooseEngine(mainPending); } catch { setSaveError(true); return; }
+        setMainPending(null);
+      }
+      setSaveError(false);
+    } finally { setSaving(false); }
+  }, [dirty, saveAgentDefaults, mainDirty, mainPending, chooseEngine]);
 
   if (!open) return null;
 
   const categories: { key: CategoryKey; label: string; icon: React.JSX.Element }[] = [
-    { key: 'project', label: t('providers.project'), icon: <span>▣</span> },
+    // §5.25 (C) — 프로젝트 설정. 메인 제공자 칸 하나만 둔다.
+    { key: 'project', label: t('providers.project'), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+    ) },
     // §4 v4.82 — Account. 로그인 계정 확인 + 로그아웃이 여기 있다(File > Options > Account).
     { key: 'account', label: t('panel.options.categories.account', { defaultValue: 'Account' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -559,7 +594,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           <div className="flex-1 overflow-y-auto p-5">
             {category === 'agent' && <ProviderTabs value={settingsEngine} onChange={setSettingsEngine} disabled={dirty || providerDirty} />}
             {category === 'agent' && settingsEngine !== 'claude' && <ProviderDefaults key={settingsEngine} engine={settingsEngine} onDirtyChange={setProviderDirty} />}
-            {category === 'project' && <ProjectProviderDefaults onDirtyChange={setProviderDirty} />}
+            {/* §5.25 (C) — 이 프로젝트의 제공자별 기본값 칸은 걷었다(2026-09-14 사용자 지시). 엔진별 기본값은 Agent Defaults 탭에서 고친다. */}
+            {category === 'project' && <MainProviderSelect value={mainPending ?? mainEngine} onChange={(engine) => setMainPending(engine === mainEngine ? null : engine)} disabled={saving} />}
             {category === 'agent' && settingsEngine === 'claude' && (
               <div className="flex flex-col gap-4">
                 <div className="border-b border-gray-700/50 pb-2">
@@ -726,8 +762,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                     </div>
                     {/* §4 (CLI 사양 추종) — 자동 압축의 **전역 기본값**. 에이전트 설정이 미설정인
                         모든 버블이 이 값을 따르므로, 이미 만들어져 돌던 에이전트도 함께 바뀐다.
-                        여기서도 미설정이면 내장 기본(200k)으로 떨어진다 — 그 사실을 라벨이 직접 말한다
-                        (CLI 기본에 맡기면 창 전체라 압축이 사실상 사라지기 때문). */}
+                        여기서도 미설정이면 내장 값(`DEFAULT_AUTOCOMPACT`)으로 떨어진다 — 빈 선택지가 그 값을
+                        `resolveAutoCompact` 로 풀어 직접 말한다(§5.25 G-2 — "기본값" 대신 실제 값). */}
                     <div className="flex flex-1 flex-col gap-1">
                       <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
                       <select
@@ -738,9 +774,11 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                         {AVAILABLE_AUTOCOMPACT_VALUES.map((v) => (
                           <option key={v} value={v}>
                             {v === ''
-                              ? t('panel.agentConfig.autoCompact.unsetDefaultLabel')
-                              : v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel')
-                                : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`}
+                              ? t('panel.agentConfig.effective.resolved', {
+                                value: autoCompactValueLabel(resolveAutoCompact()),
+                                source: t('panel.agentConfig.effective.sourceBuiltin'),
+                              })
+                              : autoCompactValueLabel(v)}
                           </option>
                         ))}
                       </select>
@@ -756,7 +794,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                             : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
                       </span>
                       {/* §9 — 설명문도 가독 하한 12px. 위계는 크기가 아니라 색으로 낮춘다. */}
-                      <span className="text-[12px] leading-snug text-gray-600">{t('panel.agentConfig.autoCompact.globalTip')}</span>
+                      <span className="text-[12px] leading-snug text-gray-600">{t('panel.agentConfig.autoCompact.globalTipEffective', { value: autoCompactValueLabel(resolveAutoCompact()) })}</span>
                       {/* §4 (CLI 사양 추종) — 이 축만 직교로 남는다: 숫자로 못 잡는 자리를 에이전트가 부른다. */}
                       <label className="mt-1 flex items-start gap-2 text-[12px] text-gray-400">
                         <input
@@ -858,39 +896,39 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                       className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
                     />
                   </div>
-                  {/* §4 (CLI 사양 추종) — Bash 타임아웃 기본값(초). 0 = 미설정(CLI 기본 유지). */}
+                  {/* §4 (CLI 사양 추종) — Bash 시간 제한(초). 0 = 미설정(CLI 가 정한 초가 돈다 — 라벨·안내가 그 초를 적는다). */}
                   <div className="flex flex-col gap-1.5">
                     <span className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.bashTimeout.label')}</span>
                     <div className="flex gap-3">
                       <div className="flex flex-1 flex-col gap-1">
-                        <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
+                        <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabelSec', { sec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000 })}</label>
                         <NumberStepper
                           min={0}
                           max={BASH_TIMEOUT_MS_MAX / 1000}
                           step={BASH_TIMEOUT_STEP_SEC}
                           value={bashDefaultTimeoutSec}
                           widthClassName="w-full"
-                          ariaLabel={t('panel.agentConfig.bashTimeout.defaultLabel')}
+                          ariaLabel={t('panel.agentConfig.bashTimeout.defaultLabelSec', { sec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000 })}
                           onChange={(next) => { setDirty(true); setBashDefaultTimeoutSec(next); }}
                         />
                       </div>
                       <div className="flex flex-1 flex-col gap-1">
-                        <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
+                        <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabelSec', { sec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000 })}</label>
                         <NumberStepper
                           min={0}
                           max={BASH_TIMEOUT_MS_MAX / 1000}
                           step={BASH_TIMEOUT_STEP_SEC}
                           value={bashMaxTimeoutSec}
                           widthClassName="w-full"
-                          ariaLabel={t('panel.agentConfig.bashTimeout.maxLabel')}
+                          ariaLabel={t('panel.agentConfig.bashTimeout.maxLabelSec', { sec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000 })}
                           onChange={(next) => { setDirty(true); setBashMaxTimeoutSec(next); }}
                         />
                       </div>
                     </div>
                     <span className="text-[12px] text-gray-600">
-                      {t('panel.agentConfig.bashTimeout.hint', {
-                        defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
-                        maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                      {t('panel.agentConfig.bashTimeout.hintEffective', {
+                        defaultSec: bashEffectiveDefaultSec,
+                        maxSec: bashEffectiveMaxSec,
                       })}
                     </span>
                   </div>
@@ -1058,6 +1096,10 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                 {/* §2.1 (B) — 프로젝트 밖 폴더가 캔버스에 몇 개까지 펼쳐지는가.
                     위 둘과 같은 문법이라 세 손잡이가 나란히 읽힌다. */}
                 <ExternalFolderSection onDirtyChange={setExternalBudgetDirty} />
+
+                {/* §5.23 접어 보기 — 에이전트마다 웹 버블 하나로 접는 보기 옵션(기본 꺼짐).
+                    바로 위와 같은 "캔버스에 무엇이 몇 개 서는가"의 손잡이라 그 옆에 둔다. */}
+                <WebFoldSection onDirtyChange={setWebFoldDirty} />
               </div>
             )}
 
@@ -1115,9 +1157,9 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           <button
             type="button"
             onClick={handleApply}
-            disabled={!dirty || saving}
+            disabled={!(dirty || mainDirty) || saving}
             className={`rounded px-3 py-1.5 text-xs font-medium ${
-              dirty && !saving
+              (dirty || mainDirty) && !saving
                 ? 'bg-blue-600 text-white hover:bg-blue-500'
                 : 'bg-gray-800 text-gray-500'
             }`}

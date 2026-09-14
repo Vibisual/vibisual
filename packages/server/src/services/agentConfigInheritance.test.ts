@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { AgentConfig, ProjectCheckpoint, UserDefaults } from '@vibisual/shared';
-import { AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
+import { AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, CMD_AGENT_COLOR, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 
 /**
  * §4 (설정 3층) — 에이전트 설정이 **에이전트 → 설정 창 → 내장** 순으로 해소되는지 고정한다.
@@ -214,6 +214,83 @@ describe('§4 설정 3층 — 영속화', () => {
     expect(restored.getAgentConfigOverrides(agent.id)?.model).toBeUndefined();
     setGlobalDefaults({ model: 'haiku' });
     expect(restored.getAgentConfig(agent.id)?.model).toBe('haiku');
+  });
+});
+
+/*
+ * §2.2 (에이전트 CMD) — CMD 색은 생성 때 설정에 구워진다. 상수만 바꾸면 이미 만든 CMD 버블은
+ * 옛 teal 로 남아 새 버블과 색이 갈린다 — 복원·병합이 함께 거치는 한 곳에서 옛 색만 옮기는지 고정한다.
+ */
+describe('§2.2 CMD 버블 색 — 옛 색 이관', () => {
+  /** 색을 바꾸기 전에 만든 CMD 버블의 저장분 — 생성 때 구운 색 자리에 `color` 가 들어 있다. */
+  function cmdCheckpoint(color: string): { cmdId: string; cp: ProjectCheckpoint } {
+    const graph = new ProjectGraph();
+    const project = graph.registerProject(process.cwd());
+    const cmd = graph.createCustomAgent('Term', undefined, project.name, { executionMode: 'interactive-terminal' });
+    const cp = graph.toProjectCheckpoint(project.name)!;
+    const overrides = { ...cp.agentConfigOverrides?.[cmd.id], color };
+    return { cmdId: cmd.id, cp: { ...cp, agentConfigOverrides: { ...cp.agentConfigOverrides, [cmd.id]: overrides } } };
+  }
+
+  it('새로 만든 CMD 버블은 지금 색을 굽는다', () => {
+    const graph = new ProjectGraph();
+    const cmd = graph.createCustomAgent('Term', undefined, null, { executionMode: 'interactive-terminal' });
+    expect(graph.getAgentConfigOverrides(cmd.id)?.color).toBe(CMD_AGENT_COLOR);
+  });
+
+  it('옛 teal 로 구워진 CMD 버블은 복원 때 지금 색으로 옮겨진다(대소문자 무관)', () => {
+    for (const old of ['#0d9488', '#0D9488']) {
+      const { cmdId, cp } = cmdCheckpoint(old);
+      const restored = new ProjectGraph();
+      restored.restoreFromCheckpoint(cp);
+
+      expect(restored.getAgentConfig(cmdId)?.color).toBe(CMD_AGENT_COLOR);
+      // 옮긴 값이 저장분에 들어가야 다음 저장부터 옛 색이 사라진다.
+      expect(restored.getAgentConfigOverrides(cmdId)?.color).toBe(CMD_AGENT_COLOR);
+      expect(restored.getAgentConfig(cmdId)?.executionMode).toBe('interactive-terminal');
+    }
+  });
+
+  it('병합으로 들어온 CMD 버블도 같은 규칙으로 옮겨진다', () => {
+    const { cmdId, cp } = cmdCheckpoint('#0d9488');
+    const merged = new ProjectGraph();
+    merged.mergeFromCheckpoint(cp);
+
+    expect(merged.getAgentConfig(cmdId)?.color).toBe(CMD_AGENT_COLOR);
+  });
+
+  it('판올림 전 저장분(완성본만)의 CMD 버블도 옮겨진다', () => {
+    const { cmdId, cp } = cmdCheckpoint('#0d9488');
+    const legacy: ProjectCheckpoint = {
+      ...cp,
+      agentConfigOverrides: undefined,
+      agentConfigs: { [cmdId]: { ...DEFAULT_AGENT_CONFIG, executionMode: 'interactive-terminal', color: '#0d9488' } },
+    };
+    const restored = new ProjectGraph();
+    restored.restoreFromCheckpoint(legacy);
+
+    expect(restored.getAgentConfig(cmdId)?.color).toBe(CMD_AGENT_COLOR);
+  });
+
+  it('사용자가 CMD 버블에 고른 다른 색은 그대로 둔다', () => {
+    const { cmdId, cp } = cmdCheckpoint('#ef4444');
+    const restored = new ProjectGraph();
+    restored.restoreFromCheckpoint(cp);
+
+    expect(restored.getAgentConfig(cmdId)?.color).toBe('#ef4444');
+  });
+
+  it('CMD 가 아닌 에이전트의 teal 은 건드리지 않는다', () => {
+    const graph = new ProjectGraph();
+    const project = graph.registerProject(process.cwd());
+    const agent = graph.createCustomAgent('Teal', undefined, project.name);
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { color: '#0d9488' }));
+    const cp = graph.toProjectCheckpoint(project.name)!;
+
+    const restored = new ProjectGraph();
+    restored.restoreFromCheckpoint(cp);
+
+    expect(restored.getAgentConfig(agent.id)?.color).toBe('#0d9488');
   });
 });
 

@@ -133,6 +133,51 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     slots: { procedures: 'ide.activityBar.autoGoal' },
     forbidden: ['Procedure detection', 'Goal view'],
   },
+  {
+    // §4 (상태바 모델 칸 ①) — 모델 칸 툴팁의 강도 줄. 점 뒤의 값이 **설정창의 어느 칸**인지 이름으로
+    // 짚는다. 칸 이름은 갈래마다 다르다(클로드 `effort.label` · 코덱스 `codex.effort`) — 컴포넌트가
+    // 갈래에 맞는 라벨을 넣고, 여기서는 클로드 쪽 라벨로 보간 자리를 확인한다. 두 영문 이름 다 금지어다.
+    key: 'ide.statusBar.effortTip',
+    slots: { effort: 'panel.agentConfig.effort.label' },
+    forbidden: ['Effort', 'Reasoning effort'],
+  },
+  {
+    // §4 (상태바 모델 칸 ②) — 모델 구역 카드의 [전체 설정] 도움말. 넓어진 뒤의 창이 설정창이라
+    // 그 창 이름을 부른다.
+    key: 'panel.agentConfig.modelSection.fullSettingsTip',
+    slots: { agentSettings: 'panel.agentConfig.title' },
+    forbidden: ['Agent Settings'],
+  },
+  {
+    // §5.25 (G-2) — 에이전트 설정창 자동 압축의 빈 선택지 괄호. 지금 적용되는 값이 **옵션창에서 정한 값**일 때 그 창 이름을 부른다.
+    key: 'panel.agentConfig.effective.sourceOptions',
+    slots: { options: 'panel.options.title' },
+    forbidden: ['Options'],
+  },
+  {
+    // §5.25 (G-2) — 같은 빈 선택지의 설명 줄. 비워 두면 따르는 자리가 옵션창이다.
+    key: 'panel.agentConfig.autoCompact.unsetFollows',
+    slots: { options: 'panel.options.title' },
+    forbidden: ['Options'],
+  },
+  {
+    // §4 — 설정창 머리의 "다른 칸 N" 표. 무엇과 다른지를 옵션창 이름으로 짚는다.
+    key: 'panel.agentConfig.diff.badgeOptions',
+    slots: { options: 'panel.options.title' },
+    forbidden: ['Options'],
+  },
+  {
+    // §4 — 같은 표의 도움말(다른 칸 목록).
+    key: 'panel.agentConfig.diff.summaryTipOptions',
+    slots: { options: 'panel.options.title' },
+    forbidden: ['Options'],
+  },
+  {
+    // §4 — 칸마다 붙는 점의 도움말. 옵션창에 정한 값을 함께 적는다.
+    key: 'panel.agentConfig.diff.tipOptions',
+    slots: { options: 'panel.options.title' },
+    forbidden: ['Options'],
+  },
 ];
 
 describe('화면 라벨을 가리키는 문장 — 이름은 박지 않고 받아 적는다', () => {

@@ -8,15 +8,17 @@
  * 경로 규약 (statePersistence.projectDirForInfo 재사용):
  *   일반     : save/<project>/sub-streams/<agentId>/<subId>.jsonl
  *   worktree : save/<parent>/worktrees/<wt>/sub-streams/<agentId>/<subId>.jsonl
+ *   보관     : 같은 폴더의 <subId>.archive.jsonl — 컴팩션으로 본 파일에서 밀려난 앞부분(지우지 않는다)
  *
  * 이 모듈은 순수 파일시스템 유틸 — ProjectInfo 해석은 호출자(subAgentManager) 담당.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { JSONL_SCAN_CHUNK_BYTES, SUB_STREAM_ARCHIVE_SUFFIX } from '@vibisual/shared';
 import type { ProjectInfo, SubAgentStreamEvent } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { atomicWriteFileSync, projectDirForInfo } from './statePersistence.js';
-import { findTailLineOffset, scanTailLines } from './jsonlChunkReader.js';
+import { findTailLineOffset, scanFileLines, scanLinesBackward, scanTailLines } from './jsonlChunkReader.js';
 import { isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
 import { restoreLinkedImages } from './streamLinkedImages.js';
 
@@ -32,6 +34,11 @@ export function subStreamsDir(info: ProjectInfo, parentAgentId: string): string 
 
 function subFile(dir: string, subAgentId: string): string {
   return path.join(dir, `${sanitize(subAgentId)}.jsonl`);
+}
+
+/** 본 파일 경로 → 그 세션의 보관 파일 경로(`<subId>.archive.jsonl`). */
+function archivePathOf(fp: string): string {
+  return `${fp.slice(0, -'.jsonl'.length)}${SUB_STREAM_ARCHIVE_SUFFIX}`;
 }
 
 function ensureDir(dir: string): void {
@@ -81,17 +88,71 @@ function flushFile(fp: string): void {
 
 // ─── 컴팩션 (v4.67) ───
 // 이 jsonl 은 append-only 라 상한이 없었고, 긴 세션 하나가 2.6MB 까지 자랐다(총 295개 44MB).
-// 그런데 **읽기 경로는 전부 `loadBuffer(dir, id, MAX_STREAM_BUFFER)` 하나**뿐이라
-// (subAgentManager 6곳) 뒤 그만큼만 살아있으면 복원 결과가 완전히 동일하다.
-// 그래서 파일이 커지면 넉넉히 뒤 KEEP 줄만 남기고 원자적으로 다시 쓴다 — 소비자에게는 no-op.
+// 그래서 파일이 커지면 넉넉히 뒤 KEEP 줄만 본 파일에 남기고 원자적으로 다시 쓴다.
 //
-// ⚠ KEEP 은 반드시 MAX_STREAM_BUFFER 보다 커야 한다. 작게 잡으면 그때부터는 복원 데이터가
+// ⚠ KEEP 은 반드시 MAX_STREAM_BUFFER 보다 커야 한다. 작게 잡으면 그때부터는 복원 창이
 //   실제로 깎인다(= 기존 동작 변경).
 // §5.5 v4.92 — 읽기 상한이 500 → 2,000 으로 오르면서 KEEP 도 1,000 → 3,000 으로 함께 올린다.
 //   (KEEP 을 그대로 뒀다면 상한만 올린 쪽이 헛돌아 복원 대화가 1,000 줄에서 잘렸다.)
+//
+// §3.2.3 — **밀려난 앞부분은 지우지 않고 보관 파일로 옮긴다.** 종전엔 "읽기 경로가 마지막 2,000건
+//   하나뿐이라 앞부분은 어차피 안 읽힌다"는 전제로 지웠다. 그 전제 때문에 3MB 를 넘긴 긴 대화는
+//   다시 열었을 때 앞 몇 시간이 말풍선만 남은 채 **디스크에서도 영영 사라졌다**(실측 2026-09-12 —
+//   `sub-mtpny1dz-er2x3b` 머리 약 5시간·`sub-mtrf4f0q-og5w77` 약 48분이 이미 없었다). 이제 IDE 가
+//   복원 창 위쪽을 거슬러 읽으므로(`loadEventsBefore`) 앞부분도 읽기 경로가 닿는 범위다.
+//   순서가 곧 안전장치다 — 보관 파일에 옮겨 적고 디스크에 내려앉은 것(`fsync`)을 확인한 **뒤에만**
+//   본 파일을 줄인다. 그 사이에 꺼지면 같은 줄이 두 곳에 남을 뿐(읽을 때 id 로 거른다) 사라지지 않는다.
 const COMPACT_KEEP_LINES = 3_000;
 /** 이 크기를 넘을 때만 재작성 — 매 flush 마다 전체를 다시 쓰면 배칭의 이점이 사라진다. */
 const COMPACT_TRIGGER_BYTES = 3 * 1024 * 1024;
+
+/**
+ * 본 파일의 `[0, headEnd)` 를 보관 파일 끝에 **바이트 그대로** 옮겨 적는다(다시 파싱하지 않는다).
+ * 디스크에 내려앉은 것을 확인했을 때만 `true` — 호출자는 그때만 본 파일에서 앞부분을 걷어낸다.
+ */
+function appendHeadToArchive(fp: string, headEnd: number): boolean {
+  const ap = archivePathOf(fp);
+  let src: number | null = null;
+  let dst: number | null = null;
+  try {
+    // 보관 파일이 개행 없이 끝나 있으면(직전 옮겨 적기가 도중에 끊긴 경우) 그 줄부터 닫는다 —
+    // 안 닫으면 이번 첫 줄이 반쪽 줄에 들러붙어 둘 다 못 읽는다.
+    let needsNewline = false;
+    try {
+      const archiveSize = fs.statSync(ap).size;
+      if (archiveSize > 0) {
+        const probe = fs.openSync(ap, 'r');
+        try {
+          const last = Buffer.alloc(1);
+          fs.readSync(probe, last, 0, 1, archiveSize - 1);
+          needsNewline = last[0] !== 0x0a;
+        } finally {
+          fs.closeSync(probe);
+        }
+      }
+    } catch { /* 보관 파일이 아직 없다 — 새로 만든다 */ }
+    src = fs.openSync(fp, 'r');
+    dst = fs.openSync(ap, 'a');
+    if (needsNewline) fs.writeSync(dst, '\n');
+    const chunk = Buffer.allocUnsafe(Math.max(1, Math.min(JSONL_SCAN_CHUNK_BYTES, headEnd)));
+    let pos = 0;
+    while (pos < headEnd) {
+      const n = fs.readSync(src, chunk, 0, Math.min(chunk.length, headEnd - pos), pos);
+      if (n <= 0) return false;
+      let written = 0;
+      while (written < n) written += fs.writeSync(dst, chunk, written, n - written);
+      pos += n;
+    }
+    fs.fsyncSync(dst);
+    return true;
+  } catch (err) {
+    logger.warn(`streamBufferStore archive failed (${path.basename(fp)}): ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  } finally {
+    if (src !== null) { try { fs.closeSync(src); } catch { /* 무시 */ } }
+    if (dst !== null) { try { fs.closeSync(dst); } catch { /* 무시 */ } }
+  }
+}
 
 function compactIfNeeded(fp: string): void {
   let size: number;
@@ -104,16 +165,20 @@ function compactIfNeeded(fp: string): void {
   try {
     // §3.2.4 G축 — 남길 것은 뒤 KEEP 줄뿐인데 종전엔 파일을 통째로 읽어(`readFileSync`) 전 줄을
     // 배열로 펼친 뒤 잘랐다. 3MB 짜리를 컴팩션하려고 그 4~5배 피크를 잡던 자리다.
-    // 이제 꼬리 시작점을 먼저 집어 **남길 만큼만** 읽는다 — 결과 파일은 종전과 같다.
+    // 이제 꼬리 시작점을 먼저 집어 **남길 만큼만** 읽는다.
     const start = findTailLineOffset(fp, COMPACT_KEEP_LINES);
     if (start === 0) return; // 줄이 KEEP 이하 — 한 줄이 비정상적으로 큰 경우라 건드리지 않는다.
+    // §3.2.3 — 앞부분을 먼저 보관 파일로. 못 옮겼으면 본 파일을 건드리지 않는다(다음 flush 에서 다시 본다).
+    if (!appendHeadToArchive(fp, start)) return;
     const kept: string[] = [];
-    scanTailLines(fp, COMPACT_KEEP_LINES, (line) => { kept.push(line); });
+    // 옮겨 적은 `[0, start)` 와 남길 `[start, size)` 가 **정확히 맞물리게** 같은 시작점에서 읽는다.
+    const { pendingTail } = scanFileLines(fp, start, size, (line) => { kept.push(line); });
+    if (pendingTail !== '') kept.push(pendingTail);
     if (kept.length === 0) return;
     // §3.2.1-1 원자적 쓰기 — 재작성 도중 종료돼도 기존 파일이 반파되지 않는다.
     atomicWriteFileSync(fp, kept.join('\n') + '\n');
     logger.info(
-      `streamBufferStore: compacted ${path.basename(fp)} — kept last ${kept.length} events ` +
+      `streamBufferStore: compacted ${path.basename(fp)} — kept last ${kept.length} events, head archived ` +
       `(${(size / 1024 / 1024).toFixed(1)}MB → ${(fs.statSync(fp).size / 1024 / 1024).toFixed(1)}MB)`,
     );
   } catch (err) {
@@ -186,6 +251,113 @@ export function loadBuffer(dir: string, subAgentId: string, max: number): SubAge
   // 아직 디스크에 안 쓴 pending 이 있으면 먼저 기록해 최신 이벤트 누락 방지.
   flushFile(fp);
   return readTailEvents(fp, subAgentId, max);
+}
+
+/** `loadEventsBefore` 결과 — 기준점 바로 앞의 한 쪽. */
+export interface OlderEventsPage {
+  /** 오래된 것 → 최신 순. 기준점 자신은 들지 않는다. */
+  events: SubAgentStreamEvent[];
+  /** 이 쪽보다 더 오래된 줄이 아직 남아 있는가(본 파일 앞부분 또는 보관 파일). */
+  hasMore: boolean;
+}
+
+/** 읽기 경로가 덧붙이는 그림 줄의 id 꼬리(`streamLinkedImages` — `${id}:image:${n}`). 파일에는 없다. */
+const LINKED_IMAGE_ID = /:image:\d+$/;
+
+/**
+ * §5.5 #17-12 — 복원 창 **위쪽**을 거슬러 읽는다: 기준 이벤트 바로 앞의 최대 `limit` 건.
+ *
+ * 본 파일을 뒤에서부터 읽고, 모자라면 보관 파일(컴팩션으로 밀려난 앞부분)로 이어 간다.
+ *  - 기준점은 `beforeId`(클라가 들고 있는 가장 오래된 이벤트). 파일 순서로 **그 줄보다 앞**의 줄만 담는다.
+ *  - 그 id 를 어디서도 못 찾으면(디스크에 안 내려간 줄이었다) `beforeTs` 보다 이른 줄로 대신 고른다.
+ *  - 같은 id 는 한 번만 싣는다 — 컴팩션 도중 꺼지면 같은 줄이 두 파일에 남을 수 있다(`compactIfNeeded`).
+ *    기준점보다 뒤에서 이미 본 id 도 거른다(클라가 이미 들고 있는 것이다).
+ */
+export function loadEventsBefore(
+  dir: string,
+  subAgentId: string,
+  cursor: { beforeId?: string; beforeTs?: number },
+  limit: number,
+): OlderEventsPage {
+  const fp = subFile(dir, subAgentId);
+  // 아직 디스크에 안 쓴 줄이 있으면 먼저 내린다 — 기준점이 그 안에 있을 수 있다.
+  flushFile(fp);
+  const max = Math.max(1, Math.floor(limit));
+  const rawId = typeof cursor.beforeId === 'string' ? cursor.beforeId : '';
+  // 그림 줄은 파일에 없다 — 그 그림을 낳은 본문 줄을 기준으로 삼고, 그 본문 줄도 함께 싣는다
+  //   (클라가 그림만 들고 본문은 창 밖으로 밀려났을 수 있다 — 중복은 클라가 id 로 거른다).
+  const beforeId = rawId.replace(LINKED_IMAGE_ID, '');
+  const includeAnchor = beforeId !== rawId;
+  const beforeTs = typeof cursor.beforeTs === 'number' && Number.isFinite(cursor.beforeTs)
+    ? cursor.beforeTs
+    : Number.POSITIVE_INFINITY;
+  const idMode = beforeId !== '';
+
+  let anchorFound = !idMode;
+  let hasMore = false;
+  /** 기준점보다 뒤(파일 순서)에서 본 id — 중복 사본과 클라가 이미 가진 줄을 거른다. */
+  const newer = new Set<string>();
+  const page: SubAgentStreamEvent[] = []; // 최신 → 오래된 순으로 쌓는다
+  const pageIds = new Set<string>();
+  /** 기준 id 를 끝내 못 찾았을 때 쓸 시각 기준 후보(최신 쪽 `max + 1` 건까지만). */
+  const byTs: SubAgentStreamEvent[] = [];
+  const byTsIds = new Set<string>();
+
+  const take = (evt: SubAgentStreamEvent): boolean => {
+    if (newer.has(evt.id) || pageIds.has(evt.id)) return true;
+    if (page.length >= max) { hasMore = true; return false; }
+    page.push(evt);
+    pageIds.add(evt.id);
+    return true;
+  };
+
+  const onLine = (line: string): boolean | void => {
+    let evt: SubAgentStreamEvent;
+    try {
+      evt = JSON.parse(line) as SubAgentStreamEvent;
+    } catch {
+      return; // 손상된 줄은 건너뛴다(readTailEvents 와 같은 규약)
+    }
+    if (!evt || typeof evt.id !== 'string' || typeof evt.subAgentId !== 'string') return;
+    if (!anchorFound) {
+      if (evt.id === beforeId) {
+        anchorFound = true;
+        if (includeAnchor) return take(evt);
+        // 기준점 자신도 "클라가 이미 가진 줄"이다 — 보관 파일에 남은 그 사본이 과거 쪽에 섞이지 않게.
+        newer.add(evt.id);
+        return;
+      }
+      if (byTs.length <= max && evt.timestamp < beforeTs && !byTsIds.has(evt.id) && !newer.has(evt.id)) {
+        byTs.push(evt);
+        byTsIds.add(evt.id);
+      }
+      newer.add(evt.id);
+      return;
+    }
+    if (!idMode && !(evt.timestamp < beforeTs)) {
+      newer.add(evt.id);
+      return;
+    }
+    return take(evt);
+  };
+
+  try {
+    const stopped = scanLinesBackward(fp, onLine);
+    const archive = archivePathOf(fp);
+    if (!stopped && fs.existsSync(archive)) scanLinesBackward(archive, onLine);
+  } catch (err) {
+    logger.warn(`streamBufferStore older-page failed (${subAgentId}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  let picked: SubAgentStreamEvent[];
+  if (idMode && !anchorFound) {
+    hasMore = byTs.length > max;
+    picked = byTs.slice(0, max);
+  } else {
+    picked = page;
+  }
+  picked.reverse();
+  return { events: restoreLinkedImages(picked, process.platform), hasMore };
 }
 
 /**
@@ -265,6 +437,9 @@ export function deleteBuffer(dir: string, subAgentId: string): void {
     // pending 을 버려 삭제 직후 재기록으로 파일이 되살아나지 않게.
     pending.delete(fp);
     if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    // 보관 파일은 그 세션의 앞부분이다 — 세션을 지우는 호출이면 함께 지운다(남기면 주인 없는 고아가 된다).
+    const archive = archivePathOf(fp);
+    if (fs.existsSync(archive)) fs.unlinkSync(archive);
     // 에이전트 폴더가 비었으면 함께 제거
     if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
       fs.rmdirSync(dir);
