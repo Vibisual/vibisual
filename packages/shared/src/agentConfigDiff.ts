@@ -132,6 +132,10 @@ export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource, engine?
   const config = { ...global, ...project };
   if (selected !== 'claude') config.provider = { ...providerForEngine(selected)!, ...global?.provider, ...project?.provider };
   else delete config.provider;
+  if (config.provider && !config.provider.modelId && global?.provider?.modelId) {
+    config.provider.modelId = global.provider.modelId;
+    config.provider.modelName = global.provider.modelName;
+  }
   const preset = backfillAgentTools(config);
   if (preset) {
     for (const [key, value] of Object.entries(preset)) {
@@ -292,6 +296,19 @@ export function sparsifyAgentConfig(
   for (const [key, value] of Object.entries(config)) {
     if (value === undefined) continue;
     if (key === 'toolsBackfillGen') continue;
+    // Provider identity/usage stays local; unchanged Codex preferences keep inheriting.
+    if (key === 'provider' && config.provider?.kind === 'codex-cli') {
+      const provider = { ...config.provider };
+      if (defaults.provider?.modelId && provider.modelId === defaults.provider.modelId) {
+        provider.modelId = '';
+        delete provider.modelName;
+      }
+      for (const field of ['reasoningEffort', 'webSearch', 'networkAccess', 'modelVerbosity', 'codexTools', 'reasoningSummary', 'personality', 'serviceTier', 'autoCompactTokenLimit'] as const) {
+        if (JSON.stringify(provider[field]) === JSON.stringify(defaults.provider?.[field])) delete provider[field];
+      }
+      out[key] = provider;
+      continue;
+    }
     if (AGENT_CONFIG_NON_INHERITED_FIELDS.includes(key)) {
       out[key] = Array.isArray(value) ? [...value] : value;
       continue;

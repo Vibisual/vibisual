@@ -1,10 +1,12 @@
-import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface } from './types.js';
+import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 // §2.1 #3 쓰기 축 — Bash 줄의 `target`(어느 파일을 고쳤나)을 그래프와 **같은 추출기**에서 뽑는다.
 import { extractBashWritePaths } from './bashCommandPaths.js';
 import { normalizeCodexToolPolicy } from './codexToolPolicy.js';
+import { harnessBuilderPowershellBlocks } from './harnessBuilderApi.js';
+import { AGENT_AUTH_POSIX, agentPowershellRequest, type AgentRuleShell } from './agentRuleShell.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -3002,19 +3004,22 @@ export function displayCommands<T extends DisplayCommandLike>(list: readonly T[]
  * **아무도 기다리지 않는 시간에 화면이 다시 도는 것**으로 보였다. 이제 접는 자리는 다음 명령
  * 바로 앞이고, 그 명령은 어차피 사용자가 기다리는 턴이라 압축이 그 대기 안으로 숨는다.
  */
-export function buildAgentSelfCompactRule(agentId: string, subAgentId: string): string {
+export function buildAgentSelfCompactRule(agentId: string, subAgentId: string, shell: AgentRuleShell = 'posix'): string {
+  const request = shell === 'powershell'
+    ? agentPowershellRequest({ serverBase: '', endpoint: '/api/agent-compact', body: JSON.stringify({ agentId, subAgentId, reason: '왜 지금인지 한 줄' }) })
+    : `\`\`\`bash
+curl -s -X POST "\${VIBISUAL_BASE}/api/agent-compact" -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+${JSON.stringify({ agentId, subAgentId, reason: '왜 지금인지 한 줄' })}
+JSON
+\`\`\``;
   return `
 
 # 컨텍스트 압축 요청 (네가 판단해서 부른다)
 대화가 길어져 컨텍스트가 무겁다고 느끼면, **일이 한 단락 끝난 안전한 자리에서** 아래를 1회 호출해라.
 서버가 **다음 명령이 나가기 직전에** \`${AGENT_COMPACT_COMMAND}\` 를 돌려 대화를 요약으로 접는다 — 작업 도중에 잘리지 않는다.
 
-\`\`\`bash
-curl -s -X POST "\${VIBISUAL_BASE}/api/agent-compact" -H "x-vibisual-hook-token: \${VIBISUAL_TOKEN}" \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":"${subAgentId}","reason":"왜 지금인지 한 줄"}
-JSON
-\`\`\`
+${request}
 - **압축은 세부를 잃는다.** 파일·git 에 남지 않은 결정은 부르기 전에 적어 둬라.
 - 한 턴에 한 번이면 충분하다(여러 번 불러도 한 번만 돈다). 호출 사실은 사용자에게 보고하지 마라.
 - 실패해도 무시하고 하던 일을 계속해라 — 표시·편의용이라 결과에 영향이 없다.`;
@@ -5563,6 +5568,23 @@ function serializeRoleCatalog(): string {
  *
  * 동적 값(serverBase=hook loopback 포트, 배치 중심 좌표, 프로젝트명)은 서버 런타임이 주입.
  */
+/**
+ * IntentGate 표의 행 — 하네스 빌더(§5.3 #10-2)와 오케스트라 지휘자(§5.3 #10-4)가 **같은 표**를 쓴다.
+ * 한쪽만 고치면 두 메타 에이전트가 같은 요청을 다르게 분류하므로 행은 여기 한 곳에만 둔다.
+ */
+export const HARNESS_INTENT_GATE_ROWS: ReadonlyArray<{ intent: string; signal: string; shape: string }> = [
+  { intent: 'quick-fix', signal: '파일/함수 지목 + 단순 수정', shape: '단일 coder (또는 explore→coder)' },
+  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder+tester+reviewer' },
+  { intent: 'research', signal: '"조사/비교/알아봐"', shape: 'librarian + explore + researcher → 요약' },
+  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) → tester' },
+  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder → reviewer' },
+];
+
+/** IntentGate 표의 본문 행(마크다운). 머리행·구분행은 부르는 쪽이 붙인다. */
+export function harnessIntentGateRowsMarkdown(): string {
+  return HARNESS_INTENT_GATE_ROWS.map((r) => `| ${r.intent} | ${r.signal} | ${r.shape} |`).join('\n');
+}
+
 export function buildHarnessBuilderRules(args: {
   serverBase: string;
   serverToken: string;
@@ -5570,15 +5592,16 @@ export function buildHarnessBuilderRules(args: {
   centerY: number;
   layoutRadius?: number;
   projectName: string | null;
+  shell?: AgentRuleShell;
 }): string {
   // `serverToken` 은 더 이상 본문에 굽지 않는다 — 빌더 curl 은 `$VIBISUAL_TOKEN`(env)을 읽는다.
   //   인자는 호출부 호환을 위해 남겨 두되 여기서 꺼내지 않는다(프롬프트에 토큰을 다시 넣지 마라).
   const { serverBase, centerX, centerY, projectName } = args;
   const radius = args.layoutRadius ?? AUTO_AGENT_LAYOUT_RADIUS;
-  const projectField = projectName ? `"${projectName}"` : 'null';
+  const projectField = projectName ? JSON.stringify(projectName) : 'null';
   const toolList = AVAILABLE_AGENT_TOOLS.join(', ');
 
-  return `# 역할: Vibisual 하네스 빌더 (Harness Architect)
+  let rules = `# 역할: Vibisual 하네스 빌더 (Harness Architect)
 
 당신은 Vibisual 캔버스 위에서 **멀티-에이전트 하네스를 설계·구축하는 메타 에이전트**입니다.
 사용자가 자연어로 요청한 작업을 보고, 그 작업을 가장 잘 수행할 **커스텀 에이전트 군(버블) + 작업 위임 연결(Task Edge)** 을
@@ -5594,11 +5617,7 @@ export function buildHarnessBuilderRules(args: {
 하네스를 짓기 전에, 사용자 요청을 아래 한 유형으로 분류하고 그에 맞는 형태로 시작한다(고정은 아님, 출발점):
 | 의도 | 신호 | 권장 하네스 형태 |
 |---|---|---|
-| quick-fix | 파일/함수 지목 + 단순 수정 | 단일 coder (또는 explore→coder) |
-| feature | 새 기능·다중 단계 | pm 허브 + (architect)+coder+tester+reviewer |
-| research | "조사/비교/알아봐" | librarian + explore + researcher → 요약 |
-| debug | "안 돼/버그/원인" | oracle(원인 분석) → coder(수정) → tester |
-| refactor | "리팩터링/정리/구조 개선" | explore(현황) → architect(설계) → coder → reviewer |
+${harnessIntentGateRowsMarkdown()}
 분류 결과를 짧게 밝힌 뒤 설계로 넘어간다.
 
 ## 작업 절차 (순서대로)
@@ -5618,25 +5637,27 @@ export function buildHarnessBuilderRules(args: {
 
 ## REST API (서버 베이스: \`${serverBase}\`)
 모든 호출은 Bash(curl)로. JSON 본문은 heredoc 으로 보내 escape 부담을 줄인다. node(v20)가 항상 있으니 응답 파싱은 node 로.
-**인증 필수**: 모든 구축 호출에 헤더 \`-H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}"\` 를 반드시 붙인다(이게 없으면 401). 값은 환경변수에 이미 들어 있으니 아래 예시를 그대로 쓰면 된다 — **토큰 값을 본문에 옮겨 적지 마라**(대화 기록에 남아 다른 세션이 회상으로 주워 간다).
+**인증 필수**: 모든 구축 호출에 헤더 \`-H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}"\` 를 반드시 붙인다(이게 없으면 401). 값은 환경변수에 이미 들어 있으니 아래 예시를 그대로 쓰면 된다 — **토큰 값을 본문에 옮겨 적지 마라**(대화 기록에 남아 다른 세션이 회상으로 주워 간다).
 
 ### 1) 버블 생성
 \`\`\`bash
 RESP=$(curl -s -X POST "${serverBase}/api/create-custom-agent" \\
-  -H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}" \\
+  -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"label":"Coder","x":${Math.round(centerX + radius)},"y":${Math.round(centerY)},"project":${projectField}}
 JSON
 )
 AGENT_ID=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.agent.id)})")
 AGENT_PATH=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.agent.path)})")
+printf 'AGENT_ID=%s AGENT_PATH=%s\\n' "$AGENT_ID" "$AGENT_PATH"
 \`\`\`
 - 응답: \`{ ok:true, agent:{ id, label, path, position, ... } }\`. \`id\`=설정/엣지용, \`path\`=세션(=kickoff용).
 
 ### 2) 설정 주입 (model/effort/rules)
 \`\`\`bash
+AGENT_ID='<1)에서 받은 AGENT_ID>'
 curl -s -X PUT "${serverBase}/api/agent-config/$AGENT_ID" \\
-  -H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}" \\
+  -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"model":"sonnet","effort":"medium","rules":"# Role: Coder\\n받은 명세대로 코드를 작성한다. 완료 후 변경 파일과 요점을 보고."}
 JSON
@@ -5647,19 +5668,20 @@ JSON
 ### 3) 엣지 연결 (작업 위임)
 \`\`\`bash
 RESP=$(curl -s -X POST "${serverBase}/api/task-edges" \\
-  -H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}" \\
+  -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"sourceAgentId":"<PM_ID>","targetAgentId":"<CODER_ID>","command":"이 기능을 구현하라","forwardMode":"manual","kind":"command"}
 JSON
 )
 EDGE_ID=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.data.id)})")
+printf 'EDGE_ID=%s\\n' "$EDGE_ID"
 \`\`\`
 - 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation'), \`critiqueAuthority\`('force-rework'|'comment-only', kind='critique' 한정).
 
 #### 검증(critique) 엣지 예시 — reviewer/tester → coder
 \`\`\`bash
 curl -s -X POST "${serverBase}/api/task-edges" \\
-  -H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}" \\
+  -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"sourceAgentId":"<TESTER_ID>","targetAgentId":"<CODER_ID>","command":"빌드/테스트 실패 시 원인을 고쳐 다시 통과시켜라","forwardMode":"auto","kind":"critique","critiqueAuthority":"force-rework"}
 JSON
@@ -5669,7 +5691,7 @@ JSON
 ### 4) 엔트리 기동 (사용자 원본 요청 forward — escape-free)
 \`\`\`bash
 curl -s -X POST "${serverBase}/api/commands/<ENTRY_AGENT_PATH>" \\
-  -H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}" \\
+  -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
   -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- <<'EOF'
 <사용자 원본 요청 전문을 그대로 — JSON escape 불필요, 여러 줄 OK>
 EOF
@@ -5709,8 +5731,18 @@ ${serializeRoleCatalog()}
 - 한 역할에 너무 많은 책임을 몰지 말 것. 단순 요청에 과한 군단 ❌, 복잡 요청에 단일 에이전트 ❌ — 요청 규모에 비례.
 - 만든 버블·엣지가 실제로 응답에 \`ok:true\` 로 생성됐는지 확인하고 진행. 실패하면 본문을 점검해 교정.
 - 모든 curl 의 서버 베이스는 반드시 \`${serverBase}\` (이 주소만 in-process 서버에 닿는다).`;
-}
 
+  if (args.shell === 'powershell') {
+    const blocks = harnessBuilderPowershellBlocks({ serverBase, centerX, centerY, radius, projectName });
+    let index = 0;
+    rules = rules.replace(/```bash\n[\s\S]*?```/g, () => blocks[index++] ?? '');
+    rules = rules.replace('모든 호출은 Bash(curl)로. JSON 본문은 heredoc 으로 보내 escape 부담을 줄인다. node(v20)가 항상 있으니 응답 파싱은 node 로.',
+      '모든 호출은 PowerShell로 한다. 매 호출은 새 셸이므로 머리 네 줄을 다시 쓰고 이전 id·path를 값으로 넣는다. 작은따옴표 here-string에 본문을 넣고 닫는 표식은 줄 맨 앞에 둔다.');
+    rules = rules.replace(/\*\*인증 필수\*\*:[^\n]+/, '**인증 필수**: 머리의 $H는 환경변수만 읽는다. 토큰 값을 본문에 옮겨 적지 마라.');
+    rules = rules.replace('모든 curl 의 서버 베이스는 반드시', '모든 호출의 서버 베이스는 반드시');
+  }
+  return rules;
+}
 // ─── §4 v2.52 — 에이전트 작업 신고 (did/userActions 색 구분) ───
 
 /** agentId 당 보관하는 작업 신고 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
@@ -5769,7 +5801,7 @@ export const LOOPBACK_INGRESS_VALUE = 'loopback';
 function cardEndpointRefs(serverBase: string, _serverToken: string): { base: string; tokenHdr: string } {
   return {
     base: `\${${AGENT_CARD_ENV_BASE}:-${serverBase}}`,
-    tokenHdr: `-H "x-vibisual-hook-token: \$${AGENT_CARD_ENV_TOKEN}"`,
+    tokenHdr: `-H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}"`,
   };
 }
 
@@ -5779,10 +5811,11 @@ function cardEndpointRefs(serverBase: string, _serverToken: string): { base: str
  * 그 공통 블록이 폴백까지 갖춘 온전한 형태를 이미 한 벌 보여 준다. 그래서 여기서는 폴백을 다시
  * 적지 않는다 — 같은 48자 토큰 상수를 카드마다 되풀이하면 그것만으로 카드당 50 토큰이 샌다.
  */
-function cardEnvRefsShort(): { base: string; tokenHdr: string } {
+function cardEnvRefsShort(shell: AgentRuleShell = 'posix'): { base: string; tokenHdr: string } {
+  if (shell === 'powershell') return { base: '$B', tokenHdr: '$H (공통 머리의 Send가 사용)' };
   return {
     base: `$${AGENT_CARD_ENV_BASE}`,
-    tokenHdr: `-H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}"`,
+    tokenHdr: `-H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}"`,
   };
 }
 
@@ -5903,21 +5936,25 @@ export function buildAgentCardCommonRules(args: {
   subAgentId?: string;
   /** §5.5 #17-28 ⑧(f) — 이유를 적어 둔 문서의 절대경로. 없으면 "애매하면 읽어라" 줄을 걸지 않는다. */
   docPath?: string;
+  shell?: AgentRuleShell;
 }): string {
   const { serverBase, serverToken, agentId, subAgentId, docPath } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
   const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
-  const docLine = docPath ? `\n- 판단이 애매하면(보낼까 말까, 어느 카드인가) \`${docPath}\` 를 Read 하라 — 그 결론들의 근거가 있다.` : '';
-  return `
-
-# 카드 (Vibisual IDE) — 공통
-아래 카드들은 같은 창구를 쓴다. 주소·토큰은 환경변수에 이미 있다.
-\`\`\`bash
+  const request = args.shell === 'powershell'
+    ? agentPowershellRequest({ serverBase, endpoint: '/api/<엔드포인트>', body: JSON.stringify({ agentId, subAgentId: subAgentId ?? null }) })
+    : `\`\`\`bash
 curl -s -X POST "${base}/api/<엔드포인트>" ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField}, ...}
 JSON
-\`\`\`
+\`\`\``;
+  const docLine = docPath ? `\n- 판단이 애매하면(보낼까 말까, 어느 카드인가) \`${docPath}\` 를 Read 하라 — 그 결론들의 근거가 있다.` : '';
+  return `
+
+# 카드 (Vibisual IDE) — 공통
+아래 카드들은 같은 창구를 쓴다. 주소·토큰은 환경변수에 이미 있다. 해당 카드의 필드를 본문 JSON에 추가한다.
+${request}
 - **본문(짧은 결론)을 먼저 쓰고, 그 보고의 맨 마지막 동작으로 1회 호출**한다. 호출 뒤에는 본문을 더 붙이지 마라. **"카드로 보냈습니다" 같은 발송 사실 보고 금지** — 덧붙일 맥락이 없으면 아무 말 없이 끝내라. 작업 도중에 미리 보내지 마라.
 - **한 턴에 카드는 하나** — 작업 신고와 검수 요청은 둘 중 하나만.
 - **카드에 담은 목록을 본문에 다시 나열하지 마라.** 본문은 1~2문장 결론만.
@@ -5934,8 +5971,9 @@ export function buildAgentReportRules(_args: {
   agentId: string;
   subAgentId?: string;
   identityFile?: string;
+  shell?: AgentRuleShell;
 }): string {
-  const { base, tokenHdr } = cardEnvRefsShort();
+  const { base, tokenHdr } = cardEnvRefsShort(_args.shell);
   return `
 
 ## \`POST ${base}/api/agent-report\` — 작업 신고 (색 구분 카드)
@@ -5955,8 +5993,9 @@ export function buildAgentQuestionRules(_args: {
   agentId: string;
   subAgentId?: string;
   identityFile?: string;
+  shell?: AgentRuleShell;
 }): string {
-  const { base } = cardEnvRefsShort();
+  const { base } = cardEnvRefsShort(_args.shell);
   return `
 
 ## \`POST ${base}/api/agent-questions\` — 질문 카드
@@ -5978,8 +6017,9 @@ export function buildAgentReviewRules(_args: {
   agentId: string;
   subAgentId?: string;
   identityFile?: string;
+  shell?: AgentRuleShell;
 }): string {
-  const { base } = cardEnvRefsShort();
+  const { base } = cardEnvRefsShort(_args.shell);
   return `
 
 ## \`POST ${base}/api/agent-review\` — 검수 카드
@@ -8982,6 +9022,71 @@ export function shouldAskForTool(askTools: readonly string[] | undefined, toolNa
   return askTools.includes(toolName);
 }
 
+/**
+ * §5.3 #12-1-B — **이 도구는 금지 목록에 있는가.**
+ *
+ * `--disallowedTools` 는 스폰 때 실리므로 오래 사는 자식은 [항상 거절] 뒤에도 다음 스폰까지 그 도구를
+ * 계속 가진다. 그래서 판정 자리 두 곳(`/api/permission-check` · 로컬 `requestTool`)이 모드 단축보다
+ * 먼저 이 함수를 본다 — `shouldAskForTool` 과 같은 규율(한 곳 · 정확한 이름 일치).
+ */
+export function isToolDisallowed(disallowedTools: readonly string[] | undefined, toolName: string): boolean {
+  if (!disallowedTools || disallowedTools.length === 0) return false;
+  if (!toolName) return false;
+  return disallowedTools.includes(toolName);
+}
+
+/** §5.3 #12-1-B — 카드가 보낼 수 있는 답 넷(요청 본문 검증용). */
+export const PERMISSION_CHOICES: readonly PermissionChoice[] = ['allow_once', 'allow_always', 'reject_once', 'reject_always'];
+
+/** §5.3 #12-1-B — 답 넷을 훅이 알아듣는 두 낱말로 접는다. */
+export function foldPermissionChoice(choice: PermissionChoice): 'allow' | 'deny' {
+  return choice === 'allow_once' || choice === 'allow_always' ? 'allow' : 'deny';
+}
+
+/**
+ * §5.3 #12-1-B · §5.22 — 브로커에서 풀린 결정 한 건이 원장에 **어느 출처로** 적히는가.
+ * 취소는 `reason` 이 아니라 서버만 싣는 `cancelled` 로 가른다 — 창구가 보낸 낱말로 출처를 꾸미지 못하게.
+ */
+export function permissionDecisionSource(decision: { reason?: string; cancelled?: PermissionCancelReason }): 'user' | 'timeout' | 'cancelled' {
+  if (decision.cancelled) return 'cancelled';
+  return decision.reason === 'timeout' ? 'timeout' : 'user';
+}
+
+/**
+ * §5.22 · §5.3 #12-1-B — **거부 수에 드는 줄인가.** 취소(`decisionSource:'cancelled'`)는 실행되지 않아 `deny` 로
+ * 적히지만 사람도 정책도 거부하지 않았다 — 세면 멈춘 에이전트가 "거부가 늘었다"로 읽힌다.
+ * 서버 집계와 타임라인의 거부 탭이 같은 이 함수를 쓴다(두 벌이면 탭 숫자와 목록 길이가 어긋난다).
+ */
+export function isAuditEntryDenied(entry: { decision?: 'allow' | 'deny'; decisionSource?: string }): boolean {
+  return entry.decision === 'deny' && entry.decisionSource !== 'cancelled';
+}
+
+/**
+ * §5.3 #12-1-B — 세션 기억(이 세션에선 허용) 상한. 키 = 에이전트 + 세션 + 도구 이름이라 사람이 누른 만큼만
+ * 늘지만, 앱을 오래 켜 두면 세션이 계속 새로 생긴다 — 넘치면 가장 오래된 기억부터 잊는다(다시 물을 뿐이다).
+ */
+export const PERMISSION_SESSION_GRANTS_MAX = 500;
+
+/**
+ * §5.3 #12-1-B — [항상 허용]/[항상 거절]을 확인 목록·금지 목록에 적은 **다음 모양**을 만든다(순수 함수).
+ * - 항상 허용: 확인 목록에서 뺀다(사용자가 켠 것을 사용자가 끈다). 금지 목록은 건드리지 않는다.
+ * - 항상 거절: 금지 목록에 넣고(중복 ❌) 확인 목록에서 뺀다 — 둘에 함께 있으면 어느 쪽이 이기는지 설명할 수 없다.
+ * 원본 배열은 바꾸지 않는다. 비었거나 없던 목록은 그대로 둔다(없던 칸에 빈 배열을 만들지 않는다).
+ */
+export function applyToolListAlways(
+  lists: { askTools: readonly string[] | undefined; disallowedTools: readonly string[] | undefined },
+  toolName: string,
+  choice: 'allow_always' | 'reject_always',
+): { askTools: string[] | undefined; disallowedTools: string[] | undefined } {
+  const askTools = lists.askTools ? lists.askTools.filter((t) => t !== toolName) : undefined;
+  if (choice === 'allow_always') {
+    return { askTools, disallowedTools: lists.disallowedTools ? [...lists.disallowedTools] : undefined };
+  }
+  const current = lists.disallowedTools ?? [];
+  const disallowedTools = current.includes(toolName) ? [...current] : [...current, toolName];
+  return { askTools, disallowedTools };
+}
+
 /** §5.3 #12-1 — 승인 게이트를 결정하는 칸들. 이 네 개만 유입 출처를 따진다. */
 export interface AgentPermissionAxes {
   permissionMode: string;
@@ -9117,6 +9222,7 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
     toolSupport?: unknown; contextUsed?: unknown; contextLimit?: unknown;
     tokensIn?: unknown; tokensOut?: unknown; reasoningEffort?: unknown;
     webSearch?: unknown; networkAccess?: unknown; modelVerbosity?: unknown; codexTools?: unknown;
+    reasoningSummary?: unknown; personality?: unknown; serviceTier?: unknown; autoCompactTokenLimit?: unknown;
   };
   if (raw.kind !== 'local-llama' && raw.kind !== 'codex-cli') return undefined;
   const provider: AgentProvider = {
@@ -9131,6 +9237,10 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
   }
   const modelName = typeof raw.modelName === 'string' ? raw.modelName.trim() : '';
   if (raw.kind === 'codex-cli') {
+    if (raw.reasoningSummary === 'auto' || raw.reasoningSummary === 'concise' || raw.reasoningSummary === 'detailed' || raw.reasoningSummary === 'none') provider.reasoningSummary = raw.reasoningSummary;
+    if (raw.personality === 'none' || raw.personality === 'friendly' || raw.personality === 'pragmatic') provider.personality = raw.personality;
+    if (typeof raw.serviceTier === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(raw.serviceTier.trim())) provider.serviceTier = raw.serviceTier.trim();
+    if (typeof raw.autoCompactTokenLimit === 'number' && Number.isSafeInteger(raw.autoCompactTokenLimit) && raw.autoCompactTokenLimit > 0) provider.autoCompactTokenLimit = raw.autoCompactTokenLimit;
     const codexTools = normalizeCodexToolPolicy(raw.codexTools);
     if (codexTools) provider.codexTools = codexTools;
     if (raw.webSearch === 'disabled' || raw.webSearch === 'cached' || raw.webSearch === 'live') provider.webSearch = raw.webSearch;
@@ -10920,3 +11030,40 @@ export const CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP = 12;
  * 남은 것은 다음 주기에 이어 간다 — **끝내지 못하는 것보다 나눠서 끝내는 편이 낫다.**
  */
 export const CLAUDE_PLUGIN_REFRESH_MAX_PER_RUN = 8;
+
+// ─── §5.3 #10-4 — 오케스트라(지휘 모드) ───
+//
+// 왜 있는가: 켜 둔 커스텀 에이전트가 사용자 요청을 받으면 **그 턴만** 지휘자가 되어, 토큰 절감 분석
+// 원문(`ORCHESTRA_STRATEGIES`) 중 그 요청에 맞는 방안만 골라 멤버·엣지를 편성하고 고른 이유를 신고한다.
+// 전부 자동 적용이 아니다 — 고르는 것은 지휘자다.
+
+/** 한 런에서 새로 만들 수 있는 멤버 수 기본값 — 분석 1번("머릿수는 비싸다")이 상한의 이유다. */
+export const ORCHESTRA_DEFAULT_MAX_MEMBERS = 6;
+
+/** `maxMembers` 설정 상한. 프로젝트 전체 상한(`CUSTOM_AGENT_MAX_PER_PROJECT`)이 따로 한 번 더 막는다. */
+export const ORCHESTRA_MAX_MEMBERS_LIMIT = 12;
+
+/** 프로젝트당 보관하는 런 수(ring) — 넘치면 가장 오래된 런부터 버린다(§3.2.4 단조 증가 방지). */
+export const ORCHESTRA_RUN_MAX_PER_PROJECT = 100;
+
+/** 스냅샷에 싣는 최근 런 수 — 나머지는 체크포인트에만 있다(전선 무게). */
+export const ORCHESTRA_RUN_SNAPSHOT_MAX = 20;
+
+/** 런에 적어 두는 사용자 원문 길이 상한(글자). 명령 본문 자체는 자르지 않는다 — 기록용 사본만 자른다. */
+export const ORCHESTRA_RUN_REQUEST_MAX = 4000;
+
+/** 계획 신고의 방안별 이유 길이 상한(글자) — 넘으면 400. */
+export const ORCHESTRA_PLAN_REASON_MAX = 300;
+
+/** 계획 신고의 note 길이 상한(글자) — 넘으면 400. */
+export const ORCHESTRA_PLAN_NOTE_MAX = 1000;
+
+/**
+ * 지휘 턴의 도구 — #10-2 빌더(`AUTO_AGENT_BUILDER_CONFIG.tools`)와 같은 이유로 같은 벌이다.
+ * loopback REST 를 Bash(curl) 로 치고, 범위를 잡으려고 읽기만 한다. 설정 `askQuestions` 가 켜져 있으면
+ * `AUTO_AGENT_BUILDER_INTERVIEW_TOOL` 을 더한다.
+ */
+export const ORCHESTRA_CONDUCTOR_TOOLS: readonly string[] = ['Bash', 'Read', 'Grep', 'Glob', 'Agent'];
+
+/** 지휘 턴에서 막는 도구 — 지휘자는 코드를 고치지 않는다(고치는 것은 멤버다). */
+export const ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS: readonly string[] = ['Write', 'Edit', 'NotebookEdit'];

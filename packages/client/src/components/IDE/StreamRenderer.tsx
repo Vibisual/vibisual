@@ -18,7 +18,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand, CommandError, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { isStageBlockLang } from '@vibisual/shared';
+import { isStageBlockLang, isWorkspaceHtmlPath } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
@@ -41,7 +41,11 @@ import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import { parseStreamPathCandidate } from './streamPathLinks.js';
 import { revealExternalPath, useExternalPathKind, useWorkspacePathKind } from './useWorkspacePathKind.js';
-import { openWorkspaceTarget, planWorkspaceOpen } from './openWorkspaceTarget.js';
+import { openExternally, openWorkspaceTarget, planWorkspaceOpen } from './openWorkspaceTarget.js';
+import { openFolderByPath } from './useWorkspaceExplorer.js';
+import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
+import { buildOutsidePathLinkMenuItems, buildPathLinkMenuItems, pathLinkOpenLabel } from './pathLinkContextMenu.js';
+import { requestHtmlPageView } from './htmlViewRequest.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { toolPreview } from './toolPreview.js';
 import {
@@ -52,6 +56,7 @@ import {
 import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 import { describeCommandError, parseStreamErrorContent } from './commandError.js';
+import { turnStopLabelKey } from './turnStopLabel.js';
 import {
   applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText, COMPACT_TEXT_CLAMP_MD,
   turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
@@ -351,6 +356,85 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
     revealExternalPath(linkedOutside.absPath);
   }, [linkedOutside]);
 
+  /**
+   * ⑬ (j) — 우클릭은 **경로 메뉴**다(글자 메뉴 #17-3 ❌). 왼쪽 클릭이 가는 한 곳 말고 그 파일로 갈 수 있는
+   * 나머지 자리 — 든 폴더 · 앱 안 페이지 · 기본 브라우저 · 경로 집어가기 — 를 여기서 고른다.
+   * 링크가 아닌 조각(평범한 인라인 코드)에는 걸지 않는다 — 거기서는 글자 메뉴가 맞다.
+   */
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeMenu = useCallback((): void => setMenu(null), []);
+  const onContextMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>): void => {
+    e.preventDefault();
+    // 조상(스트림 본문)의 글자 메뉴가 같은 우클릭으로 함께 뜨지 않게 여기서 멈춘다.
+    e.stopPropagation();
+    // 키보드(메뉴 키·Shift+F10)로 열면 좌표가 0 이다 — 그때는 링크 바로 아래에 연다.
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu(e.clientX === 0 && e.clientY === 0 ? { x: r.left, y: r.bottom } : { x: e.clientX, y: e.clientY });
+  }, []);
+
+  const menuItems = useMemo((): ContextMenuItem[] => {
+    if (menu === null) return [];
+    const copy = (text: string): void => {
+      void navigator.clipboard?.writeText(text).catch(() => { /* 클립보드 거부는 조용히 무시 */ });
+    };
+
+    if (linkedOutside) {
+      const absPath = linkedOutside.absPath;
+      return buildOutsidePathLinkMenuItems(
+        { kind: linkedOutside.kind === 'directory' ? 'directory' : 'file', isHtml: isWorkspaceHtmlPath(absPath) },
+        { reveal: () => revealExternalPath(absPath), copyPath: () => copy(absPath) },
+        t,
+      );
+    }
+
+    if (!linked || !plan || insideRel === null || rootPath === null) return [];
+    const absPath = linked.absPath;
+    const relPath = insideRel;
+    const root = rootPath;
+    const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
+    return buildPathLinkMenuItems(
+      {
+        kind: linked.kind === 'directory' ? 'directory' : 'file',
+        isHtml: isWorkspaceHtmlPath(relPath),
+        openLabel: pathLinkOpenLabel(plan, app?.name, t),
+      },
+      {
+        open: () => {
+          void openWorkspaceTarget(
+            { relPath, absPath, kind: linked.kind === 'directory' ? 'directory' : 'file', ...(linked.executable ? { executable: true } : {}) },
+            root,
+            t('ide.streamRenderer.pathLink.runFailed'),
+            paneKey,
+          );
+        },
+        openPage: () => {
+          // 왼쪽 클릭이 여는 그 편집창이다(⑮ — 기본이 페이지). 이미 소스로 돌려 둔 탭이면 페이지로 되돌린다.
+          const file = editorFileFromAbsPath(absPath, root);
+          useGraphStore.getState().openIDEEditorFile(file, paneKey);
+          requestHtmlPageView(file.relPath);
+        },
+        openBrowser: () => { void openExternally(absPath); },
+        // 파일을 주면 서버(`openFolder`)가 그 파일이 든 폴더를 연다 — 탐색기와 같은 창구(⑩).
+        reveal: () => openFolderByPath(absPath, relPath),
+        copyPath: () => copy(absPath),
+        copyRelativePath: () => copy(relPath),
+      },
+      t,
+    );
+  }, [menu, linkedOutside, linked, plan, insideRel, rootPath, paneKey, t]);
+
+  // 메뉴는 `document.body` 로 포털되지만 **리액트 이벤트는 리액트 트리를 따라** 조상으로 올라간다 —
+  //   메뉴 안의 우클릭이 스트림 본문의 글자 메뉴를 겹쳐 띄우고, 항목 클릭이 접기 같은 조상 클릭을 건드린다.
+  //   감싼 자리에서 끊는다(DOM 에는 빈 span 하나만 남는다).
+  const pathMenu = menu !== null && menuItems.length > 0 ? (
+    <span
+      onClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+    >
+      <IDEContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
+    </span>
+  ) : null;
+
   if (linkedOutside) {
     // 툴팁은 (f) 의 규약 그대로 "전체 경로 + 벌어질 일". 파일이면 그 파일이 든 폴더가 열린다는 것까지
     // 누르기 전에 말한다 — 문서가 열릴 것으로 기대하고 눌렀다가 탐색기가 뜨면 그건 고장으로 읽힌다.
@@ -360,7 +444,7 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
         : t('ide.streamRenderer.pathLink.revealOutsideFile', { path: linkedOutside.absPath });
     return (
       <code {...rest}>
-        <button type="button" onClick={onReveal} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link">
+        <button type="button" onClick={onReveal} onContextMenu={onContextMenu} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link">
           {/* 루트 밖은 갈래가 하나라 아이콘도 하나 — 폴더에서 나가는 화살표(우리 창이 아니라 탐색기에서 열린다) */}
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v2" />
@@ -370,6 +454,7 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
           </svg>
           {children}
         </button>
+        {pathMenu}
       </code>
     );
   }
@@ -393,7 +478,7 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
     // 칩(배경·모노폰트)은 `<code>` 가 그대로 유지하고, 그 안의 버튼만 링크 색·밑줄을 얻는다 —
     // "코드처럼 보이던 그 조각이 이제 눌린다" 가 한눈에 읽히게(⑬ (f)).
     <code {...rest}>
-      <button type="button" onClick={onOpen} title={title} aria-label={title} className="ide-path-link">
+      <button type="button" onClick={onOpen} onContextMenu={onContextMenu} title={title} aria-label={title} className="ide-path-link">
         {plan.action === 'run' ? (
           // run — 재생 삼각형(누르면 열리는 것이 아니라 **돈다**는 뜻)
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -426,6 +511,7 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
         )}
         {children}
       </button>
+      {pathMenu}
     </code>
   );
 });
@@ -902,6 +988,8 @@ function CommandErrorNotice({ error }: { error: CommandError }): React.JSX.Eleme
 function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string }): React.JSX.Element {
   const { t } = useTranslation();
   const isError = item.status === 'error';
+  // §5.5 #17-12 ③-6 — 평범하게 끝나지 않은 턴의 이유 낱말(실패한 턴·평범한 끝은 null).
+  const stopLabelKey = turnStopLabelKey(item.stopReason, item.status);
   // §5.5 #17-18 ⑤ v4.77 — 이 프롬프트의 상태(실행 중/대기 중 + 방식)를 말풍선이 직접 색으로 말하고,
   //   대기 중이면 [대기|합치기|즉시]·삭제 컨트롤까지 말풍선 안에 붙는다(옛 입력창 위 대기 줄 대체).
   const commandState = useMemo<PromptCommandState>(() => ({
@@ -952,6 +1040,14 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
       {/* §5.5 #17-12 ③ — 그 턴의 오류 줄이 스트림에 없어(창 밖으로 밀렸거나 유실돼) 실패 사유를 실어 줄
           오류 항목이 없을 때의 표면. `error` 를 실어 보내는 쪽(buildCommandItems)이 **턴 단위**로 이미 걸러 두었다. */}
       {item.error && <CommandErrorNotice error={item.error} />}
+      {/* §5.5 #17-12 ③-6 — 실패는 아니지만 왜 멈췄는지(중지·상한·거절·한도)를 실패 사유 자리에 한 줄로.
+          실패한 턴은 위 오류 사유가 이미 말하므로 여기엔 오지 않는다(한 사건은 한 번). */}
+      {stopLabelKey && (
+        <div className="mb-1.5 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-1.5 text-[12px] font-medium text-amber-300">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 12h8" /></svg>
+          <span>{t(stopLabelKey)}</span>
+        </div>
+      )}
       {/* 결과 — §5.5 #17-12 ③-3: 그 턴의 본문이 스트림에 남아 있으면 비어 오고(스트림이 그린다), 복원 창 밖으로
           밀려난 턴은 여기 저장된 마지막 AI 본문이 그 턴의 답이다. */}
       {item.result && (

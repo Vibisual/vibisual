@@ -54,6 +54,17 @@ function glyphOf(view: IDEViewType): React.JSX.Element | null {
           <path d="M8 9.5h8M8 12.5h8M8 15.5h4.5" />
         </>
       );
+    // §5.3 #10-4 오케스트라 — **위의 한 칸이 아래 셋으로 갈라진다**(lucide network 톤). 지휘자 하나가
+    //   멤버들에게 일을 나누는 모양이다. 실행 중 서브에이전트(가지 친 선 둘)와 헷갈리지 않게 칸을 네모로 뒀다.
+    case 'orchestra':
+      return (
+        <>
+          <rect x="9" y="2" width="6" height="6" rx="1" />
+          <rect x="2" y="16" width="6" height="6" rx="1" />
+          <rect x="16" y="16" width="6" height="6" rx="1" />
+          <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 8v8" />
+        </>
+      );
     case 'loop':
       return (
         <>

@@ -1496,7 +1496,17 @@
       "stackCount": "{{current}} / {{total}} 待处理",
       "emptyToolInput": "（空）",
       "askedByToolTitle": "你要求确认的工具",
-      "askedByToolHint": "你在该 Agent 的设置中将 {{tool}} 标记为“使用前询问”——因此即使在 Bypass 模式下也会询问。"
+      "askedByToolHint": "你在该 Agent 的设置中将 {{tool}} 标记为“使用前询问”——因此即使在 Bypass 模式下也会询问。",
+      "allowOnce": "仅本次允许",
+      "allowAlways": "始终允许",
+      "allowSession": "本会话内允许",
+      "rejectOnce": "仅本次拒绝",
+      "rejectAlways": "始终拒绝",
+      "rejectAlwaysDisallowedTitle": "将 {{tool}} 加入此 Agent 的禁用工具——之后不再询问，直接屏蔽。",
+      "rejectAlwaysCodexTitle": "在此 Agent 的 Codex 工具设置中，将 {{group}} 工具组设为拒绝。",
+      "allowSessionTitle": "本会话内不再询问 {{tool}}。重启应用后失效——如需长期允许，请更改权限模式。",
+      "allowAlwaysAskToolsTitle": "从此 Agent 的“使用前询问”列表中移除 {{tool}}。",
+      "allowAlwaysCodexTitle": "在此 Agent 的 Codex 工具设置中，将 {{group}} 工具组设为允许。"
     },
     "claudeVersionGate": {
       "title": "Claude Code 有可用更新",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "已拒绝",
       "sourceTimeout": "超时",
       "sourcePolicy": "按模式",
+      "sourceCancelled": "已取消",
       "reason": "原因",
       "countSummary": "{{total}} 次调用 · {{risky}} 次风险 · {{denied}} 次拒绝",
       "showMore": "显示另外 {{count}} 条",
@@ -2732,6 +2743,7 @@
       "loop": "重复循环",
       "goal": "目标",
       "autoGoal": "流程检测",
+      "orchestra": "乐团",
       "debug": "运行与调试",
       "hooks": "会话 Hooks",
       "plugins": "Claude Code 插件",
@@ -3036,6 +3048,8 @@
       "pinTabs": "固定标签页 — 切换会话后仍保持打开",
       "unpinTabs": "取消固定 — 每个会话使用各自的标签页",
       "closePane": "关闭编辑器面板",
+      "maximizePane": "最大化 — 隐藏标签栏、路径栏和地址栏，只看正文",
+      "restorePane": "还原 — 重新显示标签栏、路径栏和地址栏",
       "closeDirtyConfirm": "此文件有未保存的更改。仍要关闭吗？",
       "conflict": "此文件在您打开后已在磁盘上发生更改。",
       "conflictReload": "重新加载",
@@ -3202,7 +3216,16 @@
         "openApp": "在 {{app}} 中打开 — {{path}}",
         "openExternal": "用默认程序打开 — {{path}}",
         "revealOutsideFolder": "在文件管理器中打开 — {{path}}",
-        "revealOutsideFile": "在文件管理器中显示（打开上级文件夹）— {{path}}"
+        "revealOutsideFile": "在文件管理器中显示（打开上级文件夹）— {{path}}",
+        "menu": {
+          "revealFile": "打开文件所在位置",
+          "openPage": "以网页打开（应用内）",
+          "openBrowser": "用外部浏览器打开",
+          "copyRelativePath": "复制相对路径",
+          "openApp": "在 {{app}} 中打开",
+          "run": "运行程序",
+          "outsideRoot": "项目之外的路径只能在文件管理器中打开"
+        }
       },
       "restartResumed": "应用关闭导致中断，已在保存的会话上继续。",
       "nestedSubagent": "子代理",
@@ -3422,6 +3445,13 @@
       "orphaned": "应用重启时被中断",
       "dispatchResult": "未收到委派任务的结果即已结束",
       "unknown": "因未知原因失败"
+    },
+    "turnStop": {
+      "cancelled": "已由你停止",
+      "maxTokens": "输出上限",
+      "maxTurns": "轮次上限",
+      "refusal": "模型拒绝",
+      "usageLimit": "用量上限"
     },
     "density": {
       "label": "显示密度",
@@ -4391,6 +4421,139 @@
       "dismiss": "这不是一个流程（不再建议）",
       "watching": "已扫描 {{observed}} 个操作——当相同的顺序重复出现 {{runs}} 次后，就会被写成一个流程。",
       "empty": "目前还没有可扫描的内容。等你的 Agent 开始工作后，这里就会逐渐填满。"
+    },
+    "orchestra": {
+      "title": "乐团",
+      "about": "开启后，你下达指令的 Agent 会成为本轮的指挥：它会判断这是哪种请求、是否要拆分工作、创建哪些 Agent 并用边将其连接，以及哪些节省 Token 的策略合适。在任何成员开始之前，它会连同理由一并报告这份计划。",
+      "effectiveOn": "已为该 Agent 开启——你的下一条指令将交由指挥处理。",
+      "effectiveOff": "已为该 Agent 关闭——指令将照常直接发给它。",
+      "noProject": "请先打开一个项目。",
+      "saveFailed": "保存失败（{{reason}}）。",
+      "costWarning": "使用多个 Agent 可能比只用一个花费更多，而不是更少——因为每个成员都要重新读取自己的规则和文件。请求较小时，指挥会被告知直接作答。",
+      "useAgentSetting": "使用该 Agent 的设置",
+      "conductorPicks": "由指挥决定",
+      "activity": {
+        "on": "开启",
+        "conducting": "{{count}} 个指挥中"
+      },
+      "scope": {
+        "project": "本项目",
+        "agent": "该 Agent",
+        "inherited": "继承",
+        "on": "开启",
+        "off": "关闭",
+        "unavailable": "此处不可选——请先打开一个 Agent 标签页。",
+        "hint": "下面一层会覆盖上面一层。每次点击会在开启 → 关闭 → 继承之间循环切换。由指挥创建的成员不会自行指挥。"
+      },
+      "blocked": {
+        "lead": "即使开启，该 Agent 也不会指挥，原因是：",
+        "localEngine": "它运行在本地模型上——指挥需要 Claude 或 Codex。",
+        "notCustom": "只有在画布上创建的 Custom Agent 气泡才能指挥。",
+        "autoBubble": "它是一个 Auto Agent 气泡，本身已经在安排自己的团队。",
+        "terminal": "它运行在内嵌终端中，那里单轮对话的工具和指令无法替换。"
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "指挥",
+        "about": "指挥就是该 Agent 本身，仅在这一轮生效——它已保存的设置不会被更改。其引擎跟随该 Agent（会话途中切换引擎会中断会话），因此这里只能设置各引擎各自的模型和强度。",
+        "thisAgent": "该 Agent"
+      },
+      "field": {
+        "model": "模型",
+        "effort": "强度",
+        "reasoning": "推理",
+        "permission": "本轮指挥的权限",
+        "askQuestions": "允许指挥向我提问",
+        "askQuestionsHint": "会为其工具集加入 AskUserQuestion。默认关闭——开启后，模糊的指令可能会暂停等待你的回答。",
+        "engine": "成员引擎",
+        "maxMembers": "最多可创建的成员数"
+      },
+      "permission": {
+        "bypass": "跳过权限确认",
+        "inherit": "使用该 Agent 的权限模式",
+        "bypassHint": "指挥会自行调用本地 Vibisual API，因此运行时不会弹出确认。但它仍然不能编辑代码——本轮会移除 Write 和 Edit。",
+        "inheritHint": "指挥会按照该 Agent 平时的方式请求权限。安排团队需要多次调用，因此可能会多次停下来等待你的回应。"
+      },
+      "member": {
+        "title": "成员",
+        "about": "成员是指挥在画布上创建的 Agent。它会优先复用此前运行留下的成员。留空的字段则交由指挥自行决定。",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "由指挥按角色选择"
+        },
+        "maxDefault": "默认（{{count}}）"
+      },
+      "strategies": {
+        "title": "节省 Token 的策略",
+        "about": "与此前的 Token 分析逐字对应。指挥并不会全部采用——针对每个请求，它只挑选合适的策略并写明理由，选择结果会出现在下方的运行记录中。未勾选的项会从它的规则中移除。",
+        "count": "已允许 {{allowed}} / {{total}} 项",
+        "referenceOnly": "参考",
+        "referenceOnlyTip": "这一项没有指挥能调整的设置，因此无法选择——它只能在备注中向你推荐。",
+        "allowedTip": "指挥可以选择这一项。点击可将其从规则中移除。",
+        "deniedTip": "已从指挥的规则中移除。点击可重新允许。",
+        "estimate": "原始估算：",
+        "original": "原始分析",
+        "applyTitle": "指挥如何应用它",
+        "knobs": "它可以调整的设置",
+        "memberRule": "为成员添加的指令",
+        "topologyRule": "编排规则"
+      },
+      "strategy": {
+        "subagents": "子 Agent",
+        "output": "输出",
+        "autoCompact": "自动压缩",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md 和 MEMORY.md",
+        "prevOutput": "重新读取上一轮的输出",
+        "shell": "Shell 探索",
+        "systemPrompt": "系统提示词和工具定义",
+        "subagentReports": "子 Agent 报告",
+        "web": "网络查询",
+        "reminders": "每轮提醒",
+        "preamble": "Vibisual 前言",
+        "other": "其他"
+      },
+      "analysis": {
+        "show": "展开分析的其余部分（发现、做法、数值、来源）",
+        "hide": "收起分析的其余部分"
+      },
+      "runs": {
+        "title": "运行记录",
+        "empty": "还没有指挥过的指令。请先在上方开启，然后给该 Agent 下一条指令。",
+        "chosen": "已选中（{{count}}）",
+        "skipped": "已跳过（{{count}}）",
+        "note": "备注：",
+        "entry": "由 {{name}} 发起",
+        "members": "成员（{{count}}）：{{names}}",
+        "created": "——新建 {{count}} 个",
+        "tokens": "Token：输入 {{input}} · 输出 {{output}}",
+        "noPlan": "指挥结束时并未报告计划。"
+      },
+      "phase": {
+        "conducting": "指挥中",
+        "dispatched": "已移交",
+        "answered": "直接作答",
+        "unreported": "未报告计划",
+        "error": "错误"
+      },
+      "intent": {
+        "question": "问题",
+        "quick-fix": "快速修复",
+        "feature": "功能",
+        "research": "调研",
+        "debug": "调试",
+        "refactor": "重构"
+      },
+      "topology": {
+        "none": "无团队",
+        "single": "单个成员",
+        "pipeline": "流水线",
+        "parallel": "并行"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "另有 {{n}} 个"
   },
   "providers": {
+    "settingsScope": "设置范围",
+    "globalScope": "所有项目的默认设置",
+    "projectScope": "当前项目的默认设置",
+    "globalSettingsHint": "适用于所有项目。保留项目和智能体的单独设置，下次运行时生效。",
+    "projectSettingsHint": "仅保存与全局默认设置不同的项目设置。保留智能体的单独设置，下次运行时生效。",
+    "codexAdvanced": "Codex 高级运行设置",
+    "inheritSetting": "继承上级 / Codex 设置",
+    "reasoningSummary": "推理摘要",
+    "personality": "表达风格",
+    "personalityHint": "仅适用于支持表达风格设置的模型。",
+    "serviceTier": "服务等级",
+    "serviceTierHint": "请输入模型支持的等级（例如 fast）。较快的等级可能影响用量和费用。",
+    "autoCompactTokenLimit": "自动压缩对话的阈值（令牌）",
+    "codexTools": "工具权限",
+    "inheritProject": "项目 / 全局默认设置",
+    "individualSettingsHint": "仅适用于此智能体。与默认值相同的设置将继续跟随项目和全局设置的变化。",
+    "codexValues": {
+      "auto": "自动",
+      "concise": "简洁",
+      "detailed": "详细",
+      "none": "无",
+      "friendly": "友好",
+      "pragmatic": "务实"
+    },
     "provider": "提供方",
     "claude": "Claude",
     "codex": "Codex",

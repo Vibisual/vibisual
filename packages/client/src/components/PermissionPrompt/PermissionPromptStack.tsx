@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
-import type { PermissionRequest } from '@vibisual/shared';
+import { foldPermissionChoice, type PermissionChoice, type PermissionRequest } from '@vibisual/shared';
+// §5.3 #12-1-B — 발 줄의 답 넷(순서·글자·"항상" 제목)은 순수 함수 한 곳에서 짓는다.
+import { permissionFooterButtons } from '../../utils/permissionChoices.js';
+import { restorePendingPrompts } from '../../utils/pendingPrompts.js';
+import { CODEX_TOOL_GROUP_NAMES } from '../Panel/CodexToolPermissions.js';
 // §5.22 — 위험 배지는 타임라인과 **같은 색·같은 라벨**을 쓴다(두 화면이 어긋나면 못 믿는다).
 import { riskLabelKey, riskToneClass } from '../../utils/auditLog.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
@@ -76,26 +80,31 @@ function PermissionModal({
     return () => clearInterval(tick);
   }, [request.expiresAt]);
 
-  const submit = async (decision: 'allow' | 'deny', reason?: string): Promise<void> => {
+  const submit = async (choice: PermissionChoice, reason?: string): Promise<void> => {
     if (busy) return;
     setBusy(true);
-    setFlash(decision);
+    setFlash(foldPermissionChoice(choice));
     // 플래시 애니메이션이 보이도록 살짝 대기한 뒤 서버 응답.
     await new Promise((r) => setTimeout(r, FLASH_DURATION_MS));
-    await respond(request.requestId, decision, reason);
-    // respond 는 store 에서 이 모달을 제거하므로 여기서 상태 클린업 불필요.
+    const ok = await respond(request.requestId, choice, reason);
+    // 성공이면 store 가 이 모달을 제거했다. 서버가 "항상"을 못 받았으면 카드가 되돌아오므로 다시 누를 수 있게 푼다.
+    if (!ok) {
+      setBusy(false);
+      setFlash(null);
+    }
   };
 
   useEffect(() => {
     if (!isTop) return;
+    // §5.3 #12-1-B — 단축키는 한 번짜리에만. "항상"은 손이 미끄러져 눌리면 안 된다.
     const onKey = (e: KeyboardEvent): void => {
       if (busy) return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        void submit('deny', 'user-cancel');
+        void submit('reject_once', 'user-cancel');
       } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        void submit('allow');
+        void submit('allow_once');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -104,6 +113,8 @@ function PermissionModal({
   }, [isTop, request.requestId, busy]);
 
   const seconds = Math.ceil(remaining / 1000);
+  const footerButtons = permissionFooterButtons(request);
+  const groupName = request.codexToolGroup ? (CODEX_TOOL_GROUP_NAMES[request.codexToolGroup] ?? request.codexToolGroup) : '';
 
   // 스택 뒤쪽 카드: 꼬리만 보이게 밀어냄. 깊이는 STACK_VISIBLE 에서 멈춘다 — 그 너머로 곱하면
   //   화면 밖으로 나가거나 배율이 음수가 되어 카드가 뒤집힌다.
@@ -261,28 +272,34 @@ function PermissionModal({
           />
         </div>
 
-        {/* Footer — Allow / Deny */}
-        <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
+        {/* Footer — §5.3 #12-1-B 답 넷: [이번만 거절][항상 거절] · [항상 허용][이번만 허용] */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
           <span className="text-[12px] text-gray-600">
             {t('panel.permissionPrompt.shortcutHint', { shortcut: shortcutLabel('Ctrl+Enter'), defaultValue: '{{shortcut}} = Allow · Esc = Deny' })}
           </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => submit('deny', denyReason.trim() || undefined)}
-              disabled={busy}
-              className="rounded bg-red-600/80 px-4 py-1.5 text-xs font-semibold text-white shadow-md transition-all duration-100 ease-out hover:bg-red-500 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:scale-95 active:bg-red-700 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {t('panel.permissionPrompt.deny', { defaultValue: 'Deny' })}
-            </button>
-            <button
-              type="button"
-              onClick={() => submit('allow')}
-              disabled={busy}
-              className="rounded bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md transition-all duration-100 ease-out hover:bg-emerald-500 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:scale-95 active:bg-emerald-700 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {t('panel.permissionPrompt.allow', { defaultValue: 'Allow' })}
-            </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {footerButtons.map((button) => (
+              <button
+                key={button.choice}
+                type="button"
+                onClick={() => submit(button.choice, button.tone === 'deny' ? denyReason.trim() || undefined : undefined)}
+                disabled={busy}
+                title={button.titleKey
+                  ? t(button.titleKey, { defaultValue: button.defaultTitle, tool: request.toolName, group: groupName })
+                  : undefined}
+                className={`rounded px-4 py-1.5 text-xs font-semibold shadow-md transition-all duration-100 ease-out hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:scale-95 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-60 ${
+                  button.always
+                    ? button.tone === 'deny'
+                      ? 'border border-red-500/60 bg-red-500/10 text-red-200 hover:bg-red-500/25 active:bg-red-500/35'
+                      : 'border border-emerald-500/60 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/25 active:bg-emerald-500/35'
+                    : button.tone === 'deny'
+                      ? 'bg-red-600/80 text-white hover:bg-red-500 active:bg-red-700'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-700'
+                }`}
+              >
+                {t(button.labelKey, { defaultValue: button.defaultLabel })}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -320,28 +337,11 @@ export function PermissionPromptStack(): React.JSX.Element | null {
   // 동시에 차단된다. projectName 이 비어 귀속 불명한 요청만 안전망으로 모든 창에 표시.
   const activeProject = useGraphStore((s) => s.activeProject);
 
-  // 부트 시 서버 재연결 — 대기 목록 복구
+  // 부트 시 대기 목록 복구 — 권한 요청과 §5.3 #12-2 v2.26 AskUserQuestion 을 함께.
+  //   재연결 때도 같은 함수가 다시 받는다(`hooks/reconnectResync.ts`).
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/permission-pending')
-      .then((r) => r.json())
-      .then((data: { ok: boolean; pending: PermissionRequest[] }) => {
-        if (cancelled || !data.ok) return;
-        const store = useGraphStore.getState();
-        store.setPendingPermissions(data.pending ?? []);
-      })
-      .catch(() => {});
-    // §5.3 #12-2 v2.26 — AskUserQuestion broker 도 같은 부팅 시점에 복구.
-    // 별도 컴포넌트 분리 비용 회피용으로 같은 자리에서 fetch — UI 렌더는 IDE 안 인라인 카드라
-    // PermissionPromptStack 의 모달 렌더와 충돌하지 않는다.
-    fetch('/api/ask-user-question/pending')
-      .then((r) => r.json())
-      .then((data: { ok: boolean; pending: import('@vibisual/shared').AskUserQuestionRequest[] }) => {
-        if (cancelled || !data.ok) return;
-        const store = useGraphStore.getState();
-        store.setPendingAskQuestions(data.pending ?? []);
-      })
-      .catch(() => {});
+    restorePendingPrompts(() => cancelled);
     return () => { cancelled = true; };
   }, []);
 

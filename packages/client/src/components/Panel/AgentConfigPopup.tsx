@@ -57,6 +57,7 @@ import {
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
 import { applyLocalProviderDraft } from './localProviderPayload.js';
+import { CodexAdvancedSettings, type CodexAdvancedDraft } from '../Codex/CodexAdvancedSettings.js';
 import { CodexToolPermissions } from './CodexToolPermissions.js';
 import { normalizeCodexToolPolicy, type CodexToolPolicy } from '@vibisual/shared';
 // §4 (상태바 모델 칸 ②③) — 모델 구역만 연 카드의 자리·목록 확인 시각·반영 시점. 판정은 순수 함수 쪽에 있다.
@@ -71,7 +72,7 @@ import {
 } from './modelSectionView.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { codexReasoningLevelsOf, type CodexInheritedField } from '../Codex/codexModelEntry.js';
-import { codexInheritedOptionFor } from '../Codex/codexInheritedLabel.js';
+import { codexInheritedOptionFor, codexInheritedValueText } from '../Codex/codexInheritedLabel.js';
 import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
 import { localContextPlaceholder, localTemperaturePlaceholder, useLocalSampling } from '../LocalModel/localEffective.js';
 import { AutoCompactConfirm, type AutoCompactConfirmKind } from './AutoCompactConfirm.js';
@@ -885,6 +886,7 @@ export function AgentConfigPopup({
   }, [view]);
   const [codexModelId, setCodexModelId] = useState(provider?.modelId ?? '');
   const [codexEffort, setCodexEffort] = useState(provider?.reasoningEffort ?? '');
+  const [codexAdvanced, setCodexAdvanced] = useState<CodexAdvancedDraft>(() => ({ reasoningSummary: provider?.reasoningSummary, personality: provider?.personality, serviceTier: provider?.serviceTier, autoCompactTokenLimit: provider?.autoCompactTokenLimit }));
   const [codexWebSearch, setCodexWebSearch] = useState(provider?.webSearch ?? '');
   const [codexTools, setCodexTools] = useState<CodexToolPolicy>(() => normalizeCodexToolPolicy(provider?.codexTools) ?? {});
   const [codexVerbosity, setCodexVerbosity] = useState(provider?.modelVerbosity ?? '');
@@ -905,18 +907,21 @@ export function AgentConfigPopup({
   );
   /** 이 모델이 **신고한** 단계만 고를 수 있다 — 없는 단계를 보이면 그것을 고를 수 있는 것으로 읽는다. */
   const codexEffortLevels = useMemo(
-    () => codexReasoningLevelsOf(codexModelId, codexModels?.models),
-    [codexModelId, codexModels],
+    () => codexReasoningLevelsOf(codexModelId || resolveAgentDefaults(userDefaults, 'codex', projectPath).provider?.modelId, codexModels?.models),
+    [codexModelId, codexModels, userDefaults, projectPath],
   );
   const codexEffortOptions: SelectOption[] = useMemo(
     () => codexEffortLevels.map((lv) => ({ value: lv, label: lv, description: lv })),
     [codexEffortLevels],
   );
   /** 비워 둔 칸의 선택지 한 줄 — 지금 고른 모델·권한 모드(저장 전 값)로 판정한다. */
+  const codexParentProvider = resolveAgentDefaults(userDefaults, 'codex', projectPath).provider;
   const codexInheritedFor = (field: CodexInheritedField): { label: string; description: string } => (
-    codexInheritedOptionFor(t, field, {
+    codexParentProvider?.[field] !== undefined && !(field === 'webSearch' && strictStripSet.size > 0)
+      ? { label: t('panel.agentConfig.effective.resolved', { value: codexInheritedValueText(t, field, String(codexParentProvider[field])), source: t('providers.inheritProject') }), description: t('providers.individualSettingsHint') }
+      : codexInheritedOptionFor(t, field, {
       config: codexConfig,
-      model: codexModels?.models.find((m) => m.slug === codexModelId),
+      model: codexModels?.models.find((m) => m.slug === (codexModelId || codexParentProvider?.modelId)),
       // 목록은 스냅샷으로 온다 — 창이 열릴 때 비어 있으면 서버에도 없는 것이라 "확인 중"이 아니라 "읽지 못함"이다.
       modelsLoaded: true,
       sandbox: resolveCodexPermission(permissionMode).sandbox,
@@ -940,6 +945,7 @@ export function AgentConfigPopup({
     if (!live) return undefined;
     const picked = codexModels?.models.find((m) => m.slug === codexModelId);
     const next: AgentProvider = { ...live, kind: 'codex-cli', modelId: codexModelId };
+    Object.assign(next, codexAdvanced);
     next.codexTools = codexTools;
     if (picked?.displayName) next.modelName = picked.displayName;
     else delete next.modelName;
@@ -953,7 +959,7 @@ export function AgentConfigPopup({
     if (codexNetwork) next.networkAccess = codexNetwork === 'true';
     else delete next.networkAccess;
     return next;
-  }, [agentId, provider, codexModelId, codexEffort, codexModels, codexWebSearch, codexVerbosity, codexNetwork, codexTools]);
+  }, [agentId, provider, codexModelId, codexEffort, codexModels, codexWebSearch, codexVerbosity, codexNetwork, codexTools, codexAdvanced]);
 
   const handleSwitchLocalModel = useCallback(() => {
     openLocalModelWindow(agentId);
@@ -1315,7 +1321,7 @@ export function AgentConfigPopup({
   //   두 화면이 같은 모양이라 표식이 없으면 어느 칸이 이 버블만의 값인지 알 길이 없다.
   //   저장분이 아니라 **지금 폼이 저장하려는 값**으로 재므로 고르는 즉시 붙고 되돌리면 사라진다.
   //   §4 (설정 3층) — 점이 붙은 칸이 곧 **저장될 칸**이다(서버가 같은 판정으로 갈라진 칸만 남긴다).
-  const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults), [userDefaults]);
+  const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults, isCodex ? 'codex' : isLocal ? 'local' : 'claude', projectPath), [userDefaults, isCodex, isLocal, projectPath]);
   // §4 (CLI 사양 추종) — 지금 고른 값이면 **실제로 몇 토큰에서 접히는가**. 고른 숫자는 CLI 에게
   //   창 크기라 그보다 낮은 자리에서 접히므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다.
   //   3층 그대로다: 이 에이전트 값 → 설정 창 전역 기본 → 내장 기본. 'auto' 는 모델 창을 런타임에야
@@ -1577,7 +1583,10 @@ export function AgentConfigPopup({
         })} />
       </label>
       {codexModelOptions.length > 0 ? (
-        <CustomSelect value={codexModelId} onChange={setCodexModelId} options={codexModelOptions} />
+        <CustomSelect value={codexModelId} onChange={setCodexModelId} options={[
+          ...(codexParentProvider?.modelId ? [{ value: '', label: `${codexParentProvider.modelName || codexParentProvider.modelId} (${t('providers.inheritProject')})`, description: t('providers.individualSettingsHint') }] : []),
+          ...codexModelOptions,
+        ]} />
       ) : (
         <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
           <span className="min-w-0 flex-1 truncate text-xs text-gray-500">
@@ -2009,6 +2018,7 @@ export function AgentConfigPopup({
             {isCodex && (
               <div className="flex flex-col gap-4 rounded-lg border border-gray-700/60 bg-gray-900/40 p-3">
                 <p className="text-xs font-semibold text-gray-200">{t('panel.agentConfig.codex.execution')}</p>
+                <p className="text-[12px] text-gray-400">{t('providers.individualSettingsHint')}</p>
                 {([
                   ['webSearch', 'webSearch', codexWebSearch, setCodexWebSearch, ['disabled', 'cached', 'live']],
                   ['verbosity', 'modelVerbosity', codexVerbosity, setCodexVerbosity, ['low', 'medium', 'high']],
@@ -2026,6 +2036,7 @@ export function AgentConfigPopup({
                     ]} />
                   </div>
                 ))}
+                <CodexAdvancedSettings value={codexAdvanced} onChange={patch => setCodexAdvanced(d => ({ ...d, ...patch }))} />
                 <p className="text-[12px] leading-relaxed text-gray-500">{t('panel.agentConfig.codex.applyNoteEffective')}</p>
               </div>
             )}

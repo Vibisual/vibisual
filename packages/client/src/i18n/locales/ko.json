@@ -1496,7 +1496,17 @@
       "stackCount": "{{total}}개 중 {{current}}번째",
       "emptyToolInput": "(없음)",
       "askedByToolTitle": "확인하기로 하신 도구",
-      "askedByToolHint": "이 에이전트 설정에서 {{tool}} 을(를) ‘쓰기 전에 확인’ 으로 지정하셨습니다 — 그래서 Bypass 모드에서도 여쭙습니다."
+      "askedByToolHint": "이 에이전트 설정에서 {{tool}} 을(를) ‘쓰기 전에 확인’ 으로 지정하셨습니다 — 그래서 Bypass 모드에서도 여쭙습니다.",
+      "allowOnce": "이번만 허용",
+      "allowAlways": "항상 허용",
+      "allowSession": "이 세션에선 허용",
+      "rejectOnce": "이번만 거부",
+      "rejectAlways": "항상 거부",
+      "rejectAlwaysDisallowedTitle": "{{tool}} 을(를) 이 에이전트의 차단 도구에 넣습니다 — 앞으로는 묻지 않고 막습니다.",
+      "rejectAlwaysCodexTitle": "이 에이전트의 Codex 도구 설정에서 {{group}} 도구 묶음을 거부로 바꿉니다.",
+      "allowSessionTitle": "이 세션에서는 {{tool}} 을(를) 다시 묻지 않습니다. 앱을 다시 켜면 잊습니다 — 계속 허용하려면 권한 모드를 바꾸세요.",
+      "allowAlwaysAskToolsTitle": "이 에이전트의 “쓰기 전에 확인” 목록에서 {{tool}} 을(를) 뺍니다.",
+      "allowAlwaysCodexTitle": "이 에이전트의 Codex 도구 설정에서 {{group}} 도구 묶음을 허용으로 바꿉니다."
     },
     "claudeVersionGate": {
       "title": "Claude Code 업데이트 가능",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "거부됨",
       "sourceTimeout": "시간 초과",
       "sourcePolicy": "모드에 따라",
+      "sourceCancelled": "취소",
       "reason": "사유",
       "countSummary": "호출 {{total}}건 · 위험 {{risky}}건 · 거부 {{denied}}건",
       "showMore": "{{count}}개 더 보기",
@@ -2732,6 +2743,7 @@
       "loop": "반복 루프",
       "goal": "목표",
       "autoGoal": "절차 감지",
+      "orchestra": "오케스트라",
       "debug": "실행·디버그",
       "hooks": "세션 훅",
       "plugins": "Claude Code 플러그인",
@@ -3036,6 +3048,8 @@
       "pinTabs": "탭 고정 — 다른 세션으로 옮겨도 이 탭들이 그대로 열려 있습니다",
       "unpinTabs": "고정 해제 — 세션마다 탭이 따로 열립니다",
       "closePane": "에디터 패널 닫기",
+      "maximizePane": "최대화 — 탭·경로·주소 줄을 숨기고 본문만 봅니다",
+      "restorePane": "원래대로 — 탭·경로·주소 줄을 다시 보입니다",
       "closeDirtyConfirm": "이 파일에 저장하지 않은 변경 사항이 있습니다. 그래도 닫을까요?",
       "conflict": "이 파일을 연 뒤 디스크에서 내용이 변경되었습니다.",
       "conflictReload": "다시 불러오기",
@@ -3202,7 +3216,16 @@
         "openApp": "{{app}} 에서 열기 — {{path}}",
         "openExternal": "연결 프로그램으로 열기 — {{path}}",
         "revealOutsideFolder": "탐색기에서 열기 — {{path}}",
-        "revealOutsideFile": "탐색기에서 보기 (상위 폴더가 열립니다) — {{path}}"
+        "revealOutsideFile": "탐색기에서 보기 (상위 폴더가 열립니다) — {{path}}",
+        "menu": {
+          "revealFile": "파일 위치 열기",
+          "openPage": "웹(내부) 열기",
+          "openBrowser": "웹(외부) 열기",
+          "copyRelativePath": "상대 경로 복사",
+          "openApp": "{{app}} 에서 열기",
+          "run": "프로그램 실행",
+          "outsideRoot": "프로젝트 밖 경로는 탐색기로만 엽니다"
+        }
       },
       "restartResumed": "앱이 내려가며 끊겼고, 보존된 세션으로 이어서 재개했습니다.",
       "nestedSubagent": "서브에이전트",
@@ -3422,6 +3445,13 @@
       "orphaned": "앱이 재시작되면서 끊겼습니다",
       "dispatchResult": "위임한 작업의 결과를 받지 못한 채 끝났습니다",
       "unknown": "알 수 없는 이유로 실패했습니다"
+    },
+    "turnStop": {
+      "cancelled": "중지됨",
+      "maxTokens": "출력 상한",
+      "maxTurns": "턴 상한",
+      "refusal": "모델 거절",
+      "usageLimit": "사용 한도"
     },
     "density": {
       "label": "표시 밀도",
@@ -4391,6 +4421,139 @@
       "dismiss": "이건 절차가 아닙니다 (다시 제안하지 않습니다)",
       "watching": "행동 {{observed}}건을 훑었습니다 — 같은 순서가 {{runs}}번 되풀이되면 절차로 적습니다.",
       "empty": "아직 훑을 행동이 없습니다. 에이전트가 일하기 시작하면 여기가 찹니다."
+    },
+    "orchestra": {
+      "title": "오케스트라",
+      "about": "켜 두면 명령을 받은 에이전트가 그 턴의 지휘자가 됩니다. 요청이 어떤 종류인지, 일을 나눌지, 어떤 에이전트를 만들어 엣지로 어떻게 이을지, 어떤 절감 방안이 맞는지를 스스로 정하고, 멤버가 움직이기 전에 그 계획과 이유를 먼저 신고합니다.",
+      "effectiveOn": "이 에이전트에 켜져 있습니다 — 다음 명령부터 지휘합니다.",
+      "effectiveOff": "이 에이전트에는 꺼져 있습니다 — 명령은 평소처럼 이 에이전트가 직접 받습니다.",
+      "noProject": "프로젝트를 먼저 열어 주세요.",
+      "saveFailed": "저장하지 못했습니다({{reason}}).",
+      "costWarning": "여러 에이전트를 쓰면 하나보다 오히려 더 쓸 수 있습니다 — 멤버마다 규칙과 파일을 새로 읽기 때문입니다. 그래서 지휘자는 작은 요청이면 편성 없이 직접 답하도록 되어 있습니다.",
+      "useAgentSetting": "이 에이전트 설정 그대로",
+      "conductorPicks": "지휘자가 고름",
+      "activity": {
+        "on": "켜짐",
+        "conducting": "{{count}}건 지휘 중"
+      },
+      "scope": {
+        "project": "프로젝트 전체",
+        "agent": "이 에이전트",
+        "inherited": "물려받음",
+        "on": "켬",
+        "off": "끔",
+        "unavailable": "여기서는 고를 수 없습니다 — 에이전트 탭을 먼저 열어 주세요.",
+        "hint": "아래 층이 위 층을 덮습니다. 누를 때마다 켬 → 끔 → 물려받음 으로 바뀝니다. 지휘자가 만든 멤버는 스스로 지휘하지 않습니다."
+      },
+      "blocked": {
+        "lead": "켜 두어도 이 에이전트는 지휘하지 않습니다:",
+        "localEngine": "로컬 모델로 돌고 있습니다 — 지휘는 Claude 나 Codex 에서만 됩니다.",
+        "notCustom": "캔버스에서 만든 Custom Agent 버블만 지휘할 수 있습니다.",
+        "autoBubble": "Auto Agent 버블입니다 — 이미 스스로 팀을 편성합니다.",
+        "terminal": "임베디드 터미널에서 돌고 있어, 한 턴의 도구와 지시문을 바꿔 끼울 자리가 없습니다."
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "지휘자",
+        "about": "지휘자는 그 한 턴 동안의 이 에이전트 자신이고, 저장된 설정은 바뀌지 않습니다. 엔진은 에이전트를 따르므로(세션 도중 엔진을 바꾸면 세션이 끊깁니다) 여기서는 엔진별 모델과 강도만 정합니다.",
+        "thisAgent": "이 에이전트"
+      },
+      "field": {
+        "model": "모델",
+        "effort": "Effort",
+        "reasoning": "추론 강도",
+        "permission": "지휘 턴 권한",
+        "askQuestions": "지휘자가 나에게 되물을 수 있게",
+        "askQuestionsHint": "도구에 AskUserQuestion 을 더합니다. 기본은 꺼짐이며, 켜면 모호한 명령에서 답을 기다리며 멈출 수 있습니다.",
+        "engine": "멤버 엔진",
+        "maxMembers": "만들 수 있는 멤버 수 상한"
+      },
+      "permission": {
+        "bypass": "권한 확인 건너뛰기",
+        "inherit": "이 에이전트 권한 모드 따르기",
+        "bypassHint": "지휘자가 Vibisual 로컬 API 를 스스로 불러야 해서 확인 없이 돕니다. 그래도 코드는 고칠 수 없습니다 — 그 턴에는 Write 와 Edit 을 뺍니다.",
+        "inheritHint": "이 에이전트가 평소 하던 대로 권한을 묻습니다. 편성에는 여러 번의 호출이 들어가므로 중간에 여러 번 멈춰 기다릴 수 있습니다."
+      },
+      "member": {
+        "title": "멤버",
+        "about": "멤버는 지휘자가 캔버스에 만드는 에이전트입니다. 앞선 런에서 만든 멤버를 먼저 다시 씁니다. 비워 둔 칸은 지휘자가 고릅니다.",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "역할마다 지휘자가 고름"
+        },
+        "maxDefault": "기본값({{count}})"
+      },
+      "strategies": {
+        "title": "토큰 절감 방안",
+        "about": "지난 토큰 분석을 원문 그대로 실었습니다. 지휘자는 이것을 전부 적용하지 않습니다 — 요청마다 맞는 것만 골라 이유를 적고, 그 선택은 아래 런 기록에 보입니다. 체크를 끈 방안은 지휘 규칙에서 빠집니다.",
+        "count": "{{total}}개 중 {{allowed}}개 허용",
+        "referenceOnly": "참고 전용",
+        "referenceOnlyTip": "지휘자가 만질 수 있는 설정이 없는 방안이라 고를 수 없습니다 — 신고의 메모로 사용자에게 권할 수만 있습니다.",
+        "allowedTip": "지휘자가 고를 수 있습니다. 누르면 지휘 규칙에서 뺍니다.",
+        "deniedTip": "지휘 규칙에서 빠져 있습니다. 누르면 다시 허용합니다.",
+        "estimate": "원문의 추정:",
+        "original": "분석 원문",
+        "applyTitle": "지휘자가 적용하는 법",
+        "knobs": "만질 수 있는 설정",
+        "memberRule": "멤버 지시문에 넣는 조항",
+        "topologyRule": "편성 원칙"
+      },
+      "strategy": {
+        "subagents": "서브에이전트",
+        "output": "출력",
+        "autoCompact": "자동 컴팩트",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md+MEMORY.md",
+        "prevOutput": "이전 턴 출력 재독",
+        "shell": "셸 탐색",
+        "systemPrompt": "시스템 프롬프트·도구 정의",
+        "subagentReports": "서브에이전트 보고",
+        "web": "웹 조회",
+        "reminders": "매 턴 reminder",
+        "preamble": "Vibisual 프리앰블",
+        "other": "기타"
+      },
+      "analysis": {
+        "show": "분석 나머지 보기(실측·우수 사례·바로 바꿀 값·출처)",
+        "hide": "분석 나머지 접기"
+      },
+      "runs": {
+        "title": "런 기록",
+        "empty": "아직 지휘한 명령이 없습니다. 위에서 켜고 이 에이전트에게 명령을 내려 보세요.",
+        "chosen": "고른 방안({{count}})",
+        "skipped": "건너뛴 방안({{count}})",
+        "note": "메모:",
+        "entry": "{{name}} 에서 시작",
+        "members": "멤버({{count}}): {{names}}",
+        "created": "— 새로 만든 {{count}}명",
+        "tokens": "토큰: 입력 {{input}} · 출력 {{output}}",
+        "noPlan": "지휘자가 계획을 신고하지 않고 끝났습니다."
+      },
+      "phase": {
+        "conducting": "지휘 중",
+        "dispatched": "넘김",
+        "answered": "직접 답함",
+        "unreported": "신고 없음",
+        "error": "오류"
+      },
+      "intent": {
+        "question": "질문",
+        "quick-fix": "작은 수정",
+        "feature": "기능",
+        "research": "조사",
+        "debug": "디버깅",
+        "refactor": "리팩터링"
+      },
+      "topology": {
+        "none": "편성 없음",
+        "single": "멤버 하나",
+        "pipeline": "파이프라인",
+        "parallel": "병렬"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "외 {{n}}개"
   },
   "providers": {
+    "settingsScope": "설정 적용 범위",
+    "globalScope": "모든 프로젝트의 공통 기본값",
+    "projectScope": "현재 프로젝트 기본값",
+    "globalSettingsHint": "모든 프로젝트의 기본값입니다. 프로젝트 또는 개별 에이전트에서 다르게 정한 값은 유지됩니다. 저장한 설정은 다음 실행부터 적용됩니다.",
+    "projectSettingsHint": "현재 프로젝트의 기본값입니다. 공통 기본값과 다른 항목만 저장하며, 개별 에이전트에서 다르게 정한 값은 유지됩니다. 다음 실행부터 적용됩니다.",
+    "codexAdvanced": "코덱스 고급 실행 설정",
+    "inheritSetting": "상위 설정 / Codex 설정 따르기",
+    "reasoningSummary": "추론 요약",
+    "personality": "말투",
+    "personalityHint": "말투 설정은 이를 지원하는 모델에서 적용됩니다.",
+    "serviceTier": "서비스 등급",
+    "serviceTierHint": "사용 모델이 지원하는 등급만 입력하세요(예: fast). 빠른 등급은 사용량·요금에 영향을 줄 수 있습니다.",
+    "autoCompactTokenLimit": "자동 대화 압축 기준 (토큰)",
+    "codexTools": "도구별 권한",
+    "codexValues": {
+      "auto": "자동",
+      "concise": "간결하게",
+      "detailed": "자세하게",
+      "none": "사용 안 함",
+      "friendly": "친근하게",
+      "pragmatic": "실용적으로"
+    },
+    "inheritProject": "프로젝트 / 공통 기본값",
+    "individualSettingsHint": "이 에이전트에만 적용합니다. 기본값과 같은 항목은 프로젝트·공통 설정을 계속 따릅니다.",
     "provider": "제공자",
     "claude": "클로드",
     "codex": "코덱스",

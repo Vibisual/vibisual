@@ -93,6 +93,10 @@ export type {
   WSMessage,
   PermissionRequest,
   PermissionDecision,
+  PermissionChoice,
+  PermissionAlwaysAllowScope,
+  PermissionAlwaysRejectScope,
+  PermissionCancelReason,
   AskUserQuestionRequest,
   AskUserQuestionDecision,
   AskUserQuestionAnswer,
@@ -243,6 +247,18 @@ export type {
   AutoGoalState,
   AutoGoalSummary,
   AutoGoalSettings,
+  OrchestraScope,
+  OrchestraStrategyId,
+  OrchestraTopology,
+  OrchestraIntent,
+  OrchestraMemberEngine,
+  OrchestraConductorPermission,
+  OrchestraSettings,
+  OrchestraRunPhase,
+  OrchestraPlanChoice,
+  OrchestraPlan,
+  OrchestraRun,
+  OrchestraSummary,
   StreamEventType,
   SubAgentStreamEvent,
   TaskEdgeStatus,
@@ -879,7 +895,18 @@ export {
   AUTO_AGENT_DEFAULT_RULES,
   AUTO_AGENT_BUILDER_CONFIG,
   AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
+  HARNESS_INTENT_GATE_ROWS,
+  harnessIntentGateRowsMarkdown,
   buildHarnessBuilderRules,
+  ORCHESTRA_DEFAULT_MAX_MEMBERS,
+  ORCHESTRA_MAX_MEMBERS_LIMIT,
+  ORCHESTRA_RUN_MAX_PER_PROJECT,
+  ORCHESTRA_RUN_SNAPSHOT_MAX,
+  ORCHESTRA_RUN_REQUEST_MAX,
+  ORCHESTRA_PLAN_REASON_MAX,
+  ORCHESTRA_PLAN_NOTE_MAX,
+  ORCHESTRA_CONDUCTOR_TOOLS,
+  ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS,
   AGENT_REPORT_MAX_PER_AGENT,
   AGENT_INTENT_FIRST_RULES,
   buildAgentCardCommonRules,
@@ -1209,6 +1236,13 @@ export {
   LOCAL_NETWORK_TOOLS,
   resolveLocalToolGate,
   shouldAskForTool,
+  isToolDisallowed,
+  PERMISSION_CHOICES,
+  foldPermissionChoice,
+  PERMISSION_SESSION_GRANTS_MAX,
+  applyToolListAlways,
+  permissionDecisionSource,
+  isAuditEntryDenied,
   // §5.3 #12-1 — 권한 축은 사용자만 올린다(loopback 유입 동결).
   applyIngressPermissionGuard,
   canPromptForPermission,
@@ -1602,6 +1636,16 @@ export {
   detectUsageLimitStop,
 } from './usageLimitStop.js';
 
+// §5.5 #17-12 ③-6 — 턴이 끝난 이유 한 칸. 턴을 닫는 경로가 여럿이라 판정을 여기 한 곳에 둔다.
+export type { TurnStopReason, ModelStopReason, TurnStopSignal, TurnStopFacts } from './turnStopReason.js';
+export {
+  TURN_STOP_REASONS,
+  normalizeModelStopReason,
+  readTurnStopSignal,
+  resolveTurnStopReason,
+  isNotableTurnStop,
+} from './turnStopReason.js';
+
 // 경로 대소문자 정책 SSOT — Linux 는 대소문자를 구분하므로 무조건 소문자로 접으면 안 된다.
 // shared 는 브라우저에서도 로드되므로 플랫폼은 인자로 받는다(pathCase.ts 머리말 참조).
 export type { PlatformName } from './pathCase.js';
@@ -1657,6 +1701,77 @@ export {
   autoGoalSkillDescription,
   isSubsequenceRun,
 } from './autoGoalMining.js';
+// §5.3 #10-4 — 오케스트라(지휘 모드). 분석 원문 카탈로그 · 켬/끔 2층 판정 · 설정/런/계획 검사 · 지휘 규칙.
+export type {
+  OrchestraKnob,
+  OrchestraStrategyApply,
+  OrchestraStrategy,
+  OrchestraBestPractice,
+  OrchestraSource,
+} from './orchestraCatalog.js';
+export {
+  ORCHESTRA_ANALYSIS_TABLE_TITLE,
+  ORCHESTRA_ANALYSIS_TABLE_HEADER,
+  ORCHESTRA_ANALYSIS_TABLE_RULE,
+  ORCHESTRA_STRATEGIES,
+  ORCHESTRA_ANALYSIS_SUM,
+  ORCHESTRA_ANALYSIS_INSIGHTS_TITLE,
+  ORCHESTRA_ANALYSIS_INSIGHTS,
+  ORCHESTRA_BEST_PRACTICES_TITLE,
+  ORCHESTRA_BEST_PRACTICES_HEADER,
+  ORCHESTRA_BEST_PRACTICES_RULE,
+  ORCHESTRA_BEST_PRACTICES,
+  ORCHESTRA_IMMEDIATE_VALUES_TITLE,
+  ORCHESTRA_IMMEDIATE_VALUES,
+  ORCHESTRA_SOURCES_TITLE,
+  ORCHESTRA_SOURCES,
+  ORCHESTRA_STRATEGY_IDS,
+  isOrchestraStrategyId,
+  findOrchestraStrategy,
+  orchestraStrategyRow,
+  orchestraBestPracticeRow,
+  orchestraSourceLine,
+  orchestraAnalysisMarkdown,
+} from './orchestraCatalog.js';
+export type {
+  OrchestraScopeState,
+  OrchestraEnablement,
+  OrchestraSettingsPatchResult,
+  OrchestraPlanContext,
+  OrchestraPlanValidation,
+} from './orchestraScope.js';
+export {
+  ORCHESTRA_SCOPE_ORDER,
+  ORCHESTRA_INTENTS,
+  ORCHESTRA_TOPOLOGIES,
+  ORCHESTRA_MEMBER_ENGINES,
+  ORCHESTRA_CONDUCTOR_PERMISSIONS,
+  ORCHESTRA_RUN_PHASES,
+  resolveOrchestraEnabled,
+  orchestraActiveAnywhere,
+  orchestraScopeStates,
+  withOrchestraScope,
+  capOrchestraMap,
+  resolveOrchestraMaxMembers,
+  resolveOrchestraConductorPermission,
+  resolveOrchestraMemberEngine,
+  orchestraAllowedStrategies,
+  isOrchestraStrategyAllowed,
+  normalizeOrchestraScopeMap,
+  normalizeOrchestraSettings,
+  applyOrchestraSettingsPatch,
+  isOrchestraRunSettled,
+  appendOrchestraRun,
+  orchestraRunsForSnapshot,
+  clipOrchestraRequest,
+  normalizeOrchestraRun,
+  normalizeOrchestraRuns,
+  settleStaleOrchestraRuns,
+  validateOrchestraPlan,
+  orchestraSummaryFingerprint,
+} from './orchestraScope.js';
+export type { OrchestraMemberRef, OrchestraEdgeRef, OrchestraConductorRulesArgs, OrchestraConductorShell } from './orchestraRules.js';
+export { buildOrchestraConductorRules, orchestraConductorShell } from './orchestraRules.js';
 // §5.5 #17-44 ⑧ — 정독 켬/끔 3층 판정(프로젝트·에이전트·세션). 서버·클라·플러그인이 같은 함수를 부른다.
 export {
   SPEC_SCOPE_ORDER,
@@ -2080,3 +2195,5 @@ export {
 
 export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';
 export * from './codexToolPolicy.js';
+
+export * from './agentRuleShell.js';

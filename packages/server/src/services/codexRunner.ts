@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { codexEdgeOverrides, codexTurnHooks, type CodexEdgeConfig, type CodexPermissionHookConfig } from './codexEdges.js';
 import { prepareCodexHooks } from './codexHookTrust.js';
-import { resolveCodexPermission, type AgentProvider } from '@vibisual/shared';
+import { AGENT_CARD_ENV_AUTH, AGENT_CARD_ENV_TOKEN, resolveCodexPermission, type AgentProvider } from '@vibisual/shared';
 import { getCodexBin } from './codexCli.js';
 import { buildCliInvocation } from './claudeCliRun.js';
 import { augmentedEnv } from './binLocator.js';
@@ -24,7 +24,7 @@ import { codexToolOverrides } from './codexToolOverrides.js';
  * 덧붙이므로(공식 동작), 프롬프트는 stdin **한 곳**으로만 보낸다.
  */
 
-type CodexOverrides = Pick<AgentProvider, 'webSearch' | 'networkAccess' | 'modelVerbosity'>;
+type CodexOverrides = Pick<AgentProvider, 'webSearch' | 'networkAccess' | 'modelVerbosity' | 'reasoningSummary' | 'personality' | 'serviceTier' | 'autoCompactTokenLimit'>;
 
 export interface CodexTurnArgs extends CodexOverrides {
   toolHook?: CodexToolHookConfig;
@@ -157,6 +157,10 @@ export function buildCodexExecArgs(args: {
   if (args.reasoningEffort) out.push('-c', `model_reasoning_effort=${args.reasoningEffort}`);
   if (args.webSearch) out.push('-c', `web_search=${args.webSearch}`);
   if (args.modelVerbosity) out.push('-c', `model_verbosity=${args.modelVerbosity}`);
+  if (args.reasoningSummary) out.push('-c', `model_reasoning_summary=${JSON.stringify(args.reasoningSummary)}`);
+  if (args.personality) out.push('-c', `personality=${JSON.stringify(args.personality)}`);
+  if (args.serviceTier) out.push('-c', `service_tier=${JSON.stringify(args.serviceTier)}`);
+  if (Number.isSafeInteger(args.autoCompactTokenLimit) && args.autoCompactTokenLimit! > 0) out.push('-c', `model_auto_compact_token_limit=${args.autoCompactTokenLimit}`);
   if (sandbox === 'workspace-write' && typeof args.networkAccess === 'boolean') {
     out.push('-c', `sandbox_workspace_write.network_access=${args.networkAccess}`);
   }
@@ -256,6 +260,8 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
       env: augmentedEnv({
         ...process.env,
         ...(args.env ?? {}),
+        // Keep only Vibisual auth available under Codex's default TOKEN-name exclusion.
+        ...(args.env?.[AGENT_CARD_ENV_TOKEN] ? { [AGENT_CARD_ENV_AUTH]: args.env[AGENT_CARD_ENV_TOKEN] } : {}),
         ...(args.ownerAgentId ? { VIBISUAL_OWNER_AGENT_ID: args.ownerAgentId } : {}),
         ...(args.ownerTermId ? { VIBISUAL_OWNER_TERM_ID: args.ownerTermId } : {}),
         ...(args.edgeConfig ? { VIBISUAL_CODEX_EDGE_IDS: JSON.stringify(args.edgeConfig.edgeIds) } : {}),

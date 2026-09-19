@@ -31,6 +31,8 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
   if (base.edgeId) return [];
   // §5.3 #9-1 (P) — 조용한 내부 명령은 남의 본문을 삼키지 않는다(위 "끊는 지점" 참고).
   if (base.silent) return [];
+  // §5.3 #10-4 — 지휘 명령·킥오프는 남의 덧말을 삼키지 않는다. 지휘자가 받을 요청 원문이 바뀌면 안 된다.
+  if (base.orchestraRunId) return [];
   const baseIdx = queue.indexOf(base);
   if (baseIdx < 0) return [];
 
@@ -42,6 +44,8 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
     if (c.edgeId) break;
     // 조용한 내부 명령은 남의 턴에 섞이지 않는다 — 자기 턴으로 따로 나간다.
     if (c.silent) break;
+    // 지휘 명령·킥오프도 자기 턴으로 따로 나간다(§5.3 #10-4).
+    if (c.orchestraRunId) break;
     if ((c.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE) !== 'merge') break;
     absorbed.push(c);
   }

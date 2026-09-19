@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { CODEX_TOOL_GROUPS, hasCodexToolRestrictions, type CodexToolPolicy, type CodexToolDecision } from '@vibisual/shared';
 
-const NAMES = {
+/** 묶음의 표시 이름 — 도구 이름 그대로라 번역하지 않는다. 권한 카드의 "항상" 제목도 이 이름을 쓴다(§5.3 #12-1-B). */
+export const CODEX_TOOL_GROUP_NAMES: Record<string, string> = {
   shell: 'exec_command / write_stdin', edit: 'apply_patch', read: 'view_image',
   mcp: 'MCP / Apps', web: 'Web search', image: 'Image generation',
   computer: 'Browser / Computer use', agents: 'spawn_agent',
@@ -19,8 +20,8 @@ export function CodexToolPermissions({ value, onChange }: {
         const disabled = group.id === 'agents' && nativeChildrenBlocked;
         return (
           <label key={group.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-700/60 px-2 py-1.5">
-            <span className="text-xs text-gray-300">{NAMES[group.id]}</span>
-            <select aria-label={NAMES[group.id]} value={disabled ? 'deny' : value[group.id] ?? 'allow'} disabled={disabled}
+            <span className="text-xs text-gray-300">{CODEX_TOOL_GROUP_NAMES[group.id]}</span>
+            <select aria-label={CODEX_TOOL_GROUP_NAMES[group.id]} value={disabled ? 'deny' : value[group.id] ?? 'allow'} disabled={disabled}
               onChange={(event) => onChange({ ...value, [group.id]: event.target.value as CodexToolDecision })}
               className="rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-gray-200 disabled:opacity-50">
               <option value="allow">{t('panel.permissionPrompt.allow')}</option>

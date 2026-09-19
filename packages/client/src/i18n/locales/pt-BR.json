@@ -1496,7 +1496,17 @@
       "stackCount": "{{current}} de {{total}} pendentes",
       "emptyToolInput": "(vazio)",
       "askedByToolTitle": "Ferramenta que você pediu para confirmar",
-      "askedByToolHint": "Você marcou {{tool}} como “perguntar antes de usar” nas configurações deste agent — então ele pergunta mesmo no modo Bypass."
+      "askedByToolHint": "Você marcou {{tool}} como “perguntar antes de usar” nas configurações deste agent — então ele pergunta mesmo no modo Bypass.",
+      "allowOnce": "Permitir uma vez",
+      "allowAlways": "Sempre permitir",
+      "allowSession": "Permitir nesta sessão",
+      "rejectOnce": "Negar uma vez",
+      "rejectAlways": "Sempre negar",
+      "rejectAlwaysDisallowedTitle": "Adiciona {{tool}} às ferramentas bloqueadas deste agente — ela será bloqueada sem perguntar.",
+      "rejectAlwaysCodexTitle": "Define o grupo de ferramentas {{group}} como Negar nas configurações de ferramentas do Codex deste agente.",
+      "allowSessionTitle": "Não vai perguntar de novo sobre {{tool}} nesta sessão. É esquecido quando o app reinicia — mude o modo de permissão para permitir de vez.",
+      "allowAlwaysAskToolsTitle": "Remove {{tool}} da lista “Perguntar antes de usar” deste agente.",
+      "allowAlwaysCodexTitle": "Define o grupo de ferramentas {{group}} como Permitir nas configurações de ferramentas do Codex deste agente."
     },
     "claudeVersionGate": {
       "title": "Atualização do Claude Code disponível",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "Negado",
       "sourceTimeout": "expirado",
       "sourcePolicy": "por modo",
+      "sourceCancelled": "cancelado",
       "reason": "Motivo",
       "countSummary": "{{total}} chamadas · {{risky}} arriscadas · {{denied}} negadas",
       "showMore": "Mostrar mais {{count}}",
@@ -2732,6 +2743,7 @@
       "loop": "Loop de repetição",
       "goal": "Objetivo",
       "autoGoal": "Detecção de procedimentos",
+      "orchestra": "Orquestra",
       "debug": "Executar e depurar",
       "hooks": "Hooks da sessão",
       "plugins": "Plugins do Claude Code",
@@ -3036,6 +3048,8 @@
       "pinTabs": "Fixar abas — permanecem abertas ao trocar de sessão",
       "unpinTabs": "Desafixar abas — cada sessão tem as suas próprias abas",
       "closePane": "Fechar painel do editor",
+      "maximizePane": "Maximizar — ocultar as barras de abas, caminho e endereço",
+      "restorePane": "Restaurar — mostrar de novo as barras de abas, caminho e endereço",
       "closeDirtyConfirm": "Este arquivo tem alterações não salvas. Fechar mesmo assim?",
       "conflict": "Este arquivo foi alterado no disco depois que você o abriu.",
       "conflictReload": "Recarregar",
@@ -3202,7 +3216,16 @@
         "openApp": "Abrir no {{app}} — {{path}}",
         "openExternal": "Abrir com o app padrão — {{path}}",
         "revealOutsideFolder": "Abrir no gerenciador de arquivos — {{path}}",
-        "revealOutsideFile": "Mostrar no gerenciador de arquivos (abre a pasta que o contém) — {{path}}"
+        "revealOutsideFile": "Mostrar no gerenciador de arquivos (abre a pasta que o contém) — {{path}}",
+        "menu": {
+          "revealFile": "Abrir local do arquivo",
+          "openPage": "Abrir como página web (no app)",
+          "openBrowser": "Abrir no navegador externo",
+          "copyRelativePath": "Copiar caminho relativo",
+          "openApp": "Abrir no {{app}}",
+          "run": "Executar programa",
+          "outsideRoot": "Caminhos fora do projeto só abrem no gerenciador de arquivos"
+        }
       },
       "restartResumed": "Interrompido ao fechar o app — retomado na sessão salva.",
       "nestedSubagent": "Subagente",
@@ -3422,6 +3445,13 @@
       "orphaned": "Interrompido quando o aplicativo reiniciou",
       "dispatchResult": "Encerrado sem receber o resultado da tarefa delegada",
       "unknown": "Falhou por um motivo desconhecido"
+    },
+    "turnStop": {
+      "cancelled": "Interrompido por você",
+      "maxTokens": "Limite de saída",
+      "maxTurns": "Limite de turnos",
+      "refusal": "Recusa do modelo",
+      "usageLimit": "Limite de uso"
     },
     "density": {
       "label": "Densidade de exibição",
@@ -4391,6 +4421,139 @@
       "dismiss": "Isto não é um procedimento (pare de sugerir isso)",
       "watching": "Analisadas {{observed}} ações — uma sequência é escrita quando a mesma ordem se repete {{runs}} vezes.",
       "empty": "Nada para analisar ainda. Isso se preenche assim que seus agents começam a trabalhar."
+    },
+    "orchestra": {
+      "title": "Orquestra",
+      "about": "Quando ativado, o agent ao qual você dá um pedido se torna o maestro daquele turno: ele decide que tipo de pedido é, se deve dividir o trabalho, quais agents criar e como conectá-los com edges, e quais estratégias de economia de tokens se aplicam. Ele relata esse plano com seus motivos antes que qualquer membro comece.",
+      "effectiveOn": "Ativado para este agente — seu próximo pedido será conduzido.",
+      "effectiveOff": "Desativado para este agente — os pedidos vão direto para ele, como de costume.",
+      "noProject": "Abra um projeto primeiro.",
+      "saveFailed": "Não foi possível salvar ({{reason}}).",
+      "costWarning": "Usar vários agentes pode custar mais do que um só, não menos — cada membro lê novamente suas próprias regras e arquivos. O maestro é instruído a responder diretamente quando o pedido é pequeno.",
+      "useAgentSetting": "Usar a configuração deste agente",
+      "conductorPicks": "O maestro decide",
+      "activity": {
+        "on": "ativo",
+        "conducting": "{{count}} conduzindo"
+      },
+      "scope": {
+        "project": "Projeto todo",
+        "agent": "Este agent",
+        "inherited": "Herdado",
+        "on": "Ligado",
+        "off": "Desligado",
+        "unavailable": "Não é possível selecionar aqui — abra um agent e uma aba de sessão primeiro.",
+        "hint": "O de baixo sobrepõe o de cima. Cada clique percorre Ligado → Desligado → Herdado. Os membros que o maestro cria nunca conduzem a si mesmos."
+      },
+      "blocked": {
+        "lead": "Mesmo ativado, este agente não vai conduzir porque:",
+        "localEngine": "Ele roda em um modelo local — conduzir requer Claude ou Codex.",
+        "notCustom": "Somente bolhas de Custom Agent criadas no canvas podem conduzir.",
+        "autoBubble": "É uma bolha de Auto Agent, que já organiza sua própria equipe.",
+        "terminal": "Ele roda em um terminal incorporado, onde as ferramentas e instruções de um único turno não podem ser trocadas."
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "Maestro",
+        "about": "O maestro é este próprio agente, apenas para aquele turno — suas configurações salvas não são alteradas. Seu motor acompanha o agente (trocar de motor no meio da sessão quebraria a sessão), então aqui só se definem o modelo e o esforço de cada motor.",
+        "thisAgent": "este agente"
+      },
+      "field": {
+        "model": "Modelo",
+        "effort": "Esforço",
+        "reasoning": "Raciocínio",
+        "permission": "Permissões para o turno conduzido",
+        "askQuestions": "Permitir que o maestro me faça perguntas",
+        "askQuestionsHint": "Adiciona AskUserQuestion às suas ferramentas. Desativado por padrão — quando ativado, um pedido vago pode pausar até você responder.",
+        "engine": "Motor dos membros",
+        "maxMembers": "Máximo de membros que pode criar"
+      },
+      "permission": {
+        "bypass": "Pular avisos de permissão",
+        "inherit": "Usar o modo de permissão deste agente",
+        "bypassHint": "O maestro chama a API local do Vibisual por conta própria, então roda sem avisos. Mesmo assim, ele não pode editar código — Write e Edit são removidos para o seu turno.",
+        "inheritHint": "O maestro pede permissão da mesma forma que este agente normalmente faz. Organizar uma equipe exige várias chamadas, então ele pode parar e esperar por você mais de uma vez."
+      },
+      "member": {
+        "title": "Membros",
+        "about": "Membros são os agentes que o maestro cria no canvas. Ele reutiliza membros de execuções anteriores primeiro. Campos vazios deixam a escolha a cargo do maestro.",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "O maestro escolhe por função"
+        },
+        "maxDefault": "Padrão ({{count}})"
+      },
+      "strategies": {
+        "title": "Estratégias de economia de tokens",
+        "about": "A análise de tokens anterior, palavra por palavra. O maestro não aplica todas elas — para cada pedido, escolhe apenas as que se encaixam e explica por quê, e suas escolhas aparecem no histórico de execuções abaixo. Itens desmarcados são removidos de suas regras.",
+        "count": "{{allowed}} / {{total}} permitidas",
+        "referenceOnly": "referência",
+        "referenceOnlyTip": "Não há nenhuma configuração que o maestro possa alterar para esta, então ele não pode escolhê-la — só pode recomendá-la a você em sua nota.",
+        "allowedTip": "O maestro pode escolher esta. Clique para retirá-la de suas regras.",
+        "deniedTip": "Retirada das regras do maestro. Clique para permiti-la novamente.",
+        "estimate": "Estimativa original:",
+        "original": "Análise original",
+        "applyTitle": "Como o maestro a aplica",
+        "knobs": "Configurações que pode alterar",
+        "memberRule": "Instrução adicionada para os membros",
+        "topologyRule": "Regra de organização"
+      },
+      "strategy": {
+        "subagents": "Subagents",
+        "output": "Saída",
+        "autoCompact": "Compactação automática",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md e MEMORY.md",
+        "prevOutput": "Releitura da saída do turno anterior",
+        "shell": "Exploração via shell",
+        "systemPrompt": "Prompt de sistema e definições de ferramentas",
+        "subagentReports": "Relatórios de subagents",
+        "web": "Buscas na web",
+        "reminders": "Lembretes por turno",
+        "preamble": "Preâmbulo do Vibisual",
+        "other": "Outro"
+      },
+      "analysis": {
+        "show": "Mostrar o restante da análise (descobertas, práticas, valores, fontes)",
+        "hide": "Ocultar o restante da análise"
+      },
+      "runs": {
+        "title": "Execuções",
+        "empty": "Ainda não há pedidos conduzidos. Ative acima e dê um pedido a este agente.",
+        "chosen": "Escolhidas ({{count}})",
+        "skipped": "Deixadas de fora ({{count}})",
+        "note": "Nota:",
+        "entry": "Iniciado com {{name}}",
+        "members": "Membros ({{count}}): {{names}}",
+        "created": "— {{count}} recém-criados",
+        "tokens": "Tokens: {{input}} entrada · {{output}} saída",
+        "noPlan": "O maestro terminou sem relatar um plano."
+      },
+      "phase": {
+        "conducting": "Conduzindo",
+        "dispatched": "Repassado",
+        "answered": "Respondido diretamente",
+        "unreported": "Nenhum plano relatado",
+        "error": "Erro"
+      },
+      "intent": {
+        "question": "Pergunta",
+        "quick-fix": "Correção rápida",
+        "feature": "Funcionalidade",
+        "research": "Pesquisa",
+        "debug": "Depuração",
+        "refactor": "Refatoração"
+      },
+      "topology": {
+        "none": "Sem equipe",
+        "single": "Um membro",
+        "pipeline": "Pipeline",
+        "parallel": "Em paralelo"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "+{{n}} outros"
   },
   "providers": {
+    "settingsScope": "Escopo das configurações",
+    "globalScope": "Padrões para todos os projetos",
+    "projectScope": "Padrões do projeto atual",
+    "globalSettingsHint": "Aplica-se a todos os projetos. As configurações específicas de projetos e agentes são mantidas. As mudanças valem na próxima execução.",
+    "projectSettingsHint": "Apenas diferenças em relação aos padrões globais são salvas. As configurações de cada agente são mantidas. Aplica-se na próxima execução.",
+    "codexAdvanced": "Configurações avançadas de execução do Codex",
+    "inheritSetting": "Herdar configurações superiores / do Codex",
+    "reasoningSummary": "Resumo do raciocínio",
+    "personality": "Estilo de comunicação",
+    "personalityHint": "O estilo se aplica aos modelos compatíveis.",
+    "serviceTier": "Nível de serviço",
+    "serviceTierHint": "Informe um nível compatível com o modelo (por exemplo, fast). Níveis mais rápidos podem afetar o consumo e o preço.",
+    "autoCompactTokenLimit": "Limite para compactação automática (tokens)",
+    "codexTools": "Permissões das ferramentas",
+    "inheritProject": "Padrões do projeto / globais",
+    "individualSettingsHint": "Aplica-se a este agente. Configurações iguais aos padrões continuam seguindo as alterações do projeto e das configurações globais.",
+    "codexValues": {
+      "auto": "Automático",
+      "concise": "Conciso",
+      "detailed": "Detalhado",
+      "none": "Nenhum",
+      "friendly": "Amigável",
+      "pragmatic": "Pragmático"
+    },
     "provider": "Provedor",
     "claude": "Claude",
     "codex": "Codex",

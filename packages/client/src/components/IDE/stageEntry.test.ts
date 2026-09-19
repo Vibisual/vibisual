@@ -96,7 +96,8 @@ describe('㉔ 우측에 서는 판은 하나 — 무대는 그 판의 탭이다'
     const src = source('IDEEditorPane.tsx');
     expect(src).toContain("import { IDEStageView } from './IDEStageView.js'");
     expect(src).toContain('stageTab={stageOpen ? {');
-    expect(src).toContain('<IDEStageView />');
+    // #17-27 ⑰ — 최대화 중에는 오른쪽 위 구석([원래대로] 층) 자리를 비워 달라는 표식 하나만 넘긴다.
+    expect(src).toContain('<IDEStageView cornerReserved={maximized} />');
   });
 
   it('무엇을 비추는가는 값 하나가 쥔다 — "무대이면서 파일" 인 조합이 없다', () => {

@@ -202,4 +202,32 @@ describe('absorbMergeFollowUps', () => {
       expect(queue).toEqual([base, compact, f2]);
     });
   });
+
+  // §5.3 #10-4 — 지휘 명령·킥오프(`orchestraRunId`)는 자기 턴을 갖는다. 지휘자가 받을 요청 원문이
+  //   덧말로 바뀌면 신고한 계획과 사용자가 친 요청이 어긋나고, 킥오프에 남의 덧말이 섞이면 그 멤버는
+  //   런과 무관한 일까지 받는다.
+  describe('오케스트라 명령 (§5.3 #10-4)', () => {
+    it('지휘 명령이 base 면 뒤의 덧말을 삼키지 않는다', () => {
+      const conduct = cmd({ text: '로그인 고쳐 줘', orchestraRunId: 'orc-1' });
+      const follow = cmd({ text: '테스트도' });
+      const queue = [conduct, follow];
+
+      expect(absorbMergeFollowUps(queue, conduct)).toEqual([]);
+      expect(conduct.text).toBe('로그인 고쳐 줘');
+      expect(conduct.mergedCount).toBeUndefined();
+      expect(queue).toEqual([conduct, follow]);
+    });
+
+    it('킥오프가 덧말 사이에 끼면 그 앞까지만 합치고 킥오프는 따로 나간다', () => {
+      const base = cmd({ text: '첫 지시' });
+      const f1 = cmd({ text: '덧말 1' });
+      const kickoff = cmd({ text: '원문\n---\n분담', orchestraRunId: 'orc-1' });
+      const f2 = cmd({ text: '덧말 2' });
+      const queue = [base, f1, kickoff, f2];
+
+      expect(absorbMergeFollowUps(queue, base)).toEqual([f1]);
+      expect(base.text).toBe('첫 지시\n\n덧말 1');
+      expect(queue).toEqual([base, kickoff, f2]);
+    });
+  });
 });

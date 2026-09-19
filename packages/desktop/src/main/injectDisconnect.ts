@@ -11,11 +11,15 @@ export interface OuterResponseLike {
 }
 
 /**
- * §5.3 #10-2 — 결과를 붙들고 기다리는 경로(위임 dispatch·조회). 바깥 연결 끊김을 안쪽 응답에 넘길 곳은 이 경로뿐이다 —
+ * §5.3 #10-2 — 결과를 붙들고 기다리는 경로(위임 dispatch·조회). 바깥 연결 끊김을 안쪽 응답에 넘길 곳은 이 경로들뿐이다 —
  * 다른 경로의 끊김 처리는 바꾸지 않는다.
+ *
+ * §5.3 #12-1-B — 권한 카드를 붙드는 두 창구도 여기다. 빠지면 훅이 CLI 와 함께 죽어도 안쪽 응답은 모르고,
+ * 카드는 dev 서버에서만 취소되고 사용자 앱에서는 종전처럼 60초를 채운 뒤 타임아웃 정책으로 풀린다.
  */
-export function isDispatchHoldPath(path: string): boolean {
-  return path === '/api/task-edges/dispatch' || path.startsWith('/api/task-edges/dispatch/');
+export function isHoldPath(path: string): boolean {
+  if (path === '/api/task-edges/dispatch' || path.startsWith('/api/task-edges/dispatch/')) return true;
+  return path === '/api/permission-check' || path === '/api/codex-tool-check';
 }
 
 /**

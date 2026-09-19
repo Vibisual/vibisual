@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { applyVisibleOrder } from '@vibisual/shared';
-import { useGraphStore, countProjectBookmarks, selectActiveAutoGoalSummary } from '../../stores/graphStore.js';
-import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
+import { applyVisibleOrder, resolveOrchestraEnabled } from '@vibisual/shared';
+import { useGraphStore, countProjectBookmarks, selectActiveAutoGoalSummary, selectPaneOrchestraSummary } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { buildExplorerActivityMenuItems } from './explorerContextMenu.js';
@@ -154,6 +154,26 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   //   있는데(§5.10 "끄면 지우지 않는다"), 그것으로 색을 켜면 훑지도 않는 칸이 계속 재촉하게 된다.
   const autoGoalBrewing = autoGoalOn ? (autoGoalSummary?.candidateCount ?? 0) : 0;
 
+  /*
+   * §5.3 #10-4 · §5.5 #16-1 (H) — **오케스트라** 칸. 점등은 "이 에이전트에 실제로 켜져 있는가"
+   * (`resolveOrchestraEnabled` — 프로젝트 칸만 켜져 있어도 이 에이전트 칸이 명시적 false 면 꺼진 채다).
+   * 숫자는 **이 에이전트가 지금 지휘 중인 런 수**(0이면 비움) — 점등이 이 에이전트 기준이라 숫자도 같은
+   * 기준이어야 한다(옆 에이전트의 지휘가 이 창에 뜨면 무엇이 도는지 읽히지 않는다).
+   * 원시값 하나만 구독한다 — 런 목록은 스냅샷마다 새 배열이다(zustand 파생 선택자 함정).
+   */
+  const paneKey = useIDEPaneKey();
+  const orchestraState = useGraphStore((s) => {
+    const summary = selectPaneOrchestraSummary(s, paneKey);
+    if (!summary) return '0:0';
+    const on = resolveOrchestraEnabled(summary.settings, agentId);
+    const conducting = agentId
+      ? summary.runs.filter((r) => r.agentId === agentId && r.phase === 'conducting').length
+      : 0;
+    return `${on ? '1' : '0'}:${conducting}`;
+  });
+  const orchestraOn = orchestraState.startsWith('1');
+  const orchestraConducting = Number(orchestraState.slice(2)) || 0;
+
   // 클로드 버블을 보다가 로컬 버블로 갈아타면 그 순간 열려 있던 뷰가 사라질 수 있다 —
   // 사이드바가 빈 채로 남지 않게 파일로 떨어뜨린다(§5.19 (G)).
   useEffect(() => {
@@ -294,8 +314,13 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     if (view === 'autoGoal' && autoGoalSkills > 0) {
       return `${nameOf(view)} — ${t('ide.autoGoal.groupSkills', { count: autoGoalSkills })}`;
     }
+    // §5.3 #10-4 — 색만으로는 "켜져 있다"인지 "지휘 중이다"인지 갈리지 않는다. 툴팁이 그 둘을 말한다.
+    if (view === 'orchestra') {
+      if (orchestraConducting > 0) return `${nameOf(view)} — ${t('ide.orchestra.activity.conducting', { count: orchestraConducting })}`;
+      if (orchestraOn) return `${nameOf(view)} — ${t('ide.orchestra.activity.on')}`;
+    }
     return nameOf(view);
-  }, [goalTitle, nameOf, autoGoalSkills, t]);
+  }, [goalTitle, nameOf, autoGoalSkills, orchestraOn, orchestraConducting, t]);
 
   /** 그 칸이 지금 무엇을 말하는가(배지·점등). 항목마다 재료가 달라 여기 한 곳에서 갈린다. */
   const stateOf = useCallback((view: IDEViewType): ActivityState => {
@@ -314,6 +339,14 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
           badge: autoGoalSkills > 0 ? clampCount(autoGoalSkills) : null,
           tone: autoGoalBrewing > 0 ? 'text-amber-400' : null,
           blink: false,
+          dot: null,
+        };
+      case 'orchestra':
+        // 켜져 있으면 색, 지휘 턴이 도는 동안만 숫자와 반짝임 — 켜 둔 것만으로는 재촉할 일이 아니다.
+        return {
+          badge: orchestraConducting > 0 ? clampCount(orchestraConducting) : null,
+          tone: orchestraOn ? 'text-amber-400' : null,
+          blink: orchestraConducting > 0,
           dot: null,
         };
       case 'hooks':
@@ -366,7 +399,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     }
   }, [
     goalInd, hookFiring, runningRuns, loopBadge, loopRunning, verifyRunning, verifyDotTone,
-    reading, runningCount, bookmarkCount, autoGoalSkills, autoGoalBrewing,
+    reading, runningCount, bookmarkCount, autoGoalSkills, autoGoalBrewing, orchestraOn, orchestraConducting,
   ]);
 
   /* ─── 꾹 눌러 자리 옮기기 — 손에 붙어 따라오고, 지나는 칸이 밀린다 ─── */

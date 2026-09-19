@@ -8,7 +8,7 @@
  * Apply/Cancel 패턴 — dirty 추적 후 Apply 시에만 서버 PUT.
  * 서버 응답 + WS `user_defaults_updated` 로 graphStore.userDefaults 갱신 → 다른 창들도 즉시 반영.
  */
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback } from '@vibisual/shared';
@@ -41,10 +41,10 @@ import {
   BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
   BASH_MAX_TIMEOUT_MS_CLI_DEFAULT,
 } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectActivePluginProjectPath } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { ProviderTabs } from '../Engine/ProviderTabs.js';
-import { ProviderDefaults } from './ProviderDefaults.js';
+import { ProviderDefaults, type ProviderDefaultsHandle } from './ProviderDefaults.js';
 import { MainProviderSelect } from './MainProviderSelect.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
@@ -179,6 +179,11 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
   //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
   const [providerDirty, setProviderDirty] = useState(false);
+  const providerForm = useRef<ProviderDefaultsHandle>(null);
+  const currentSettingsPath = useGraphStore(selectActivePluginProjectPath);
+  const [activeSettingsPath, setActiveSettingsPath] = useState(currentSettingsPath);
+  useEffect(() => { if (!providerDirty) setActiveSettingsPath(currentSettingsPath); }, [currentSettingsPath, providerDirty]);
+  const [providerScope, setProviderScope] = useState<'global' | 'project'>('project');
   const [storageDirty, setStorageDirty] = useState(false);
   // §5.5 #17-9 ⑭(g) — Advanced 탭의 판정 설정도 같은 이유로 자기 dirty 를 위로 올린다.
   const [bgProbeDirty, setBgProbeDirty] = useState(false);
@@ -495,6 +500,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const handleApply = useCallback(async () => {
     setSaving(true);
     try {
+      if (providerDirty && (!providerForm.current || !(await providerForm.current.save()))) { setSaveError(true); return; }
       if (dirty && !(await saveAgentDefaults())) { setSaveError(true); return; }
       if (mainDirty && mainPending !== null) {
         try { await chooseEngine(mainPending); } catch { setSaveError(true); return; }
@@ -502,7 +508,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
       }
       setSaveError(false);
     } finally { setSaving(false); }
-  }, [dirty, saveAgentDefaults, mainDirty, mainPending, chooseEngine]);
+  }, [dirty, providerDirty, saveAgentDefaults, mainDirty, mainPending, chooseEngine]);
 
   if (!open) return null;
 
@@ -561,7 +567,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           <h3 className="flex items-center gap-2 text-sm font-bold text-gray-100">
             <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
             {t('panel.options.title', { defaultValue: 'Options' })}
-            {dirty && <span className="text-xs font-normal text-amber-400">• {t('panel.options.unsaved', { defaultValue: 'unsaved' })}</span>}
+            {(dirty || mainDirty || providerDirty) && <span className="text-xs font-normal text-amber-400">• {t('panel.options.unsaved', { defaultValue: 'unsaved' })}</span>}
           </h3>
           <button type="button" onClick={requestClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -593,7 +599,16 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           {/* Right pane */}
           <div className="flex-1 overflow-y-auto p-5">
             {category === 'agent' && <ProviderTabs value={settingsEngine} onChange={setSettingsEngine} disabled={dirty || providerDirty} />}
-            {category === 'agent' && settingsEngine !== 'claude' && <ProviderDefaults key={settingsEngine} engine={settingsEngine} onDirtyChange={setProviderDirty} />}
+            {category === 'agent' && settingsEngine !== 'claude' && <>
+              <label className="flex flex-col gap-1 text-xs text-gray-300">{t('providers.settingsScope')}
+                <select className="rounded border border-gray-700 bg-gray-950 p-2" value={activeSettingsPath ? providerScope : 'global'} disabled={providerDirty || saving} onChange={e => setProviderScope(e.target.value as 'global' | 'project')}>
+                  <option value="global">{t('providers.globalScope')}</option>
+                  {activeSettingsPath && <option value="project">{t('providers.projectScope')}</option>}
+                </select>
+                {activeSettingsPath && providerScope === 'project' && <span className="break-all text-[12px] text-gray-500">{activeSettingsPath}</span>}
+              </label>
+              <ProviderDefaults ref={providerForm} key={`${settingsEngine}:${providerScope}:${activeSettingsPath ?? ''}`} engine={settingsEngine} projectPath={providerScope === 'project' ? activeSettingsPath ?? undefined : undefined} onDirtyChange={setProviderDirty} />
+            </>}
             {/* §5.25 (C) — 이 프로젝트의 제공자별 기본값 칸은 걷었다(2026-09-14 사용자 지시). 엔진별 기본값은 Agent Defaults 탭에서 고친다. */}
             {category === 'project' && <MainProviderSelect value={mainPending ?? mainEngine} onChange={(engine) => setMainPending(engine === mainEngine ? null : engine)} disabled={saving} />}
             {category === 'agent' && settingsEngine === 'claude' && (
@@ -1157,9 +1172,9 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           <button
             type="button"
             onClick={handleApply}
-            disabled={!(dirty || mainDirty) || saving}
+            disabled={!(dirty || mainDirty || providerDirty) || saving}
             className={`rounded px-3 py-1.5 text-xs font-medium ${
-              (dirty || mainDirty) && !saving
+              (dirty || mainDirty || providerDirty) && !saving
                 ? 'bg-blue-600 text-white hover:bg-blue-500'
                 : 'bg-gray-800 text-gray-500'
             }`}

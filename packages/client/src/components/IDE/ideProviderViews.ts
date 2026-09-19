@@ -20,6 +20,15 @@ import type { IDEViewType } from '../../stores/graphStore.js';
 const NEUTRAL_VIEWS: readonly IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop'];
 
 /**
+ * §5.3 #10-4 — **우리 기능이지만 로컬 엔진에서는 돌지 않는** 칸. 화면은 클로드·코덱스가 같은 것을 쓴다.
+ *
+ * 오케스트라는 지휘자가 Bash 로 loopback REST 를 쳐서 멤버를 만들고 엣지를 잇는 절차라, 그 도구가 없는
+ * 로컬 엔진에는 가로채기가 아예 걸리지 않는다(서버 가로채기 조건 — 엔진 claude|codex). 거기 칸을 세우면
+ * 켜 둬도 영영 아무 일도 일어나지 않는 스위치가 된다 — 없는 기능의 입구다.
+ */
+const CONDUCTING_VIEWS: readonly IDEViewType[] = ['orchestra'];
+
+/**
  * All Model(로컬 LLM) 버블에 남는 항목.
  *
  * 로컬 모델에는 MCP·스킬·플러그인·훅·주입원이 **정말로 없다** — 우리 러너가 프롬프트를 조립해
@@ -46,7 +55,7 @@ export const LOCAL_PROVIDER_VIEWS: readonly IDEViewType[] = NEUTRAL_VIEWS;
  * (pass/fail/held)·시연·재시도는 앱을 띄워 본 클로드 검증의 것이라 빌려 오지 않는다.
  */
 export const CODEX_PROVIDER_VIEWS: readonly IDEViewType[] = [
-  ...NEUTRAL_VIEWS, 'mcp', 'hooks', 'plugins', 'skills', 'context', 'verify',
+  ...NEUTRAL_VIEWS, ...CONDUCTING_VIEWS, 'mcp', 'hooks', 'plugins', 'skills', 'context', 'verify',
 ];
 
 /** 이 엔진에 뜻이 있는 항목 목록. `undefined`(=클로드)면 `null` — 종전 그대로 전부 보인다. */

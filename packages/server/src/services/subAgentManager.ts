@@ -6,11 +6,12 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText , buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText , buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
   isTurnResumeSignal, TURN_RESUME_GRACE_MS, shouldSleepResumedTurn,
+  EARLY_RESULT_SAFETY_MS, isMainThreadModelLine, isResultBeforeOwnTurn,
   type TurnSealState, type LiveTaskInfo,
 } from './turnSeal.js';
 import { resolveSessionTasksDir, readTaskOutputState, type TaskEndMarker } from './backgroundTaskOutput.js';
@@ -44,11 +45,13 @@ import {
   type LocalTurnArgs,
   type LocalHookToolEvent,
   type LocalToolVerdict,
+  type LocalTurnDoneInfo,
 } from './localRunner.js';
 import { runCodexTurn, stopCodexTurn } from './codexRunner.js';
 import { codexEdgeInstructions, type CodexEdgeConfig, type CodexPermissionHookConfig, type CodexToolHookConfig } from './codexEdges.js';
 import { formatUndeliveredDispatchJobs } from './taskEdgeDispatchJobs.js';
 import { permissionBroker } from './permissionBroker.js';
+import { permissionSessionGrants } from './permissionSessionGrants.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -61,7 +64,7 @@ import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
 import { resolveTurnResult, isAnswerlessTurnText } from './turnResult.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
-import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
+import { killTree, terminateChildTree, forceCloseAfterExit, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
 import { prepareMcpConfig } from './mcpConfigService.js';
 import { prepareAgentSettings } from './agentMemoryService.js';
 import { decidePersistentReuse, modelAxesKeyOf } from './persistentChildModelAxes.js';
@@ -79,6 +82,13 @@ export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null
  * 후보를 훑으면 찾을 수 있다 — 그 길을 여는 주입선이다.
  */
 export type AllProjectsProvider = () => ProjectInfo[];
+
+/**
+ * §5.3 #12-1-B — 부모 에이전트의 **지금** 설정(세 층을 겹친 완성본). 로컬 턴은 시작할 때 설정 한 벌을
+ * 받아 끝까지 쓰는데, 카드에서 누른 "항상 거절"은 턴 도중에 저장된다 — 그 턴의 다음 도구 호출이
+ * 그걸 보려면 판정 자리가 저장분을 다시 읽어야 한다. `index.ts` 가 `graphManager` 로 주입한다.
+ */
+export type AgentConfigResolver = (parentAgentId: string) => AgentConfig | undefined;
 
 /**
  * §5.19 (H) — 로컬 세션의 **호스트 도구** 한 건. 파일이 아니라 우리 화면·설정을 움직인다
@@ -643,6 +653,29 @@ const SOFT_INTERRUPT_FALLBACK_MS = TURN_RESUME_GRACE_MS + 1500;
 /** `control_request.request_id` 발급기 — CLI 응답을 짝지을 때 쓰는 값이라 유일하기만 하면 된다. */
 let softInterruptSeq = 0;
 
+/** Persistent child 에서 지금 처리 중인 명령 한 건 — 보낸 순간 set, 그 턴이 봉인될 때 delete. */
+interface PersistentInFlight {
+  cmd: QueuedCommand;
+  turnCount: number;
+  resultText: string | undefined;
+  killed: boolean;
+  maxTurns: number;
+  parentCwd: string;
+  /** §5.5 #17-18 — 이 명령을 보낸 뒤 본 대화의 모델 줄(`isMainThreadModelLine`)이 왔는가. */
+  mainActivity: boolean;
+  /** §5.5 #17-18 — 이 명령에 인터럽트를 보냈다. 그 뒤의 `result` 는 모델 줄이 없어도 이 명령의 끝이다. */
+  interrupted?: boolean;
+  /** §5.5 #17-18 — 활동 없이 온 `result` 를 건너뛴 뒤 걸어 둔 안전 마감(`EARLY_RESULT_SAFETY_MS`). */
+  earlyResultTimer?: ReturnType<typeof setTimeout>;
+}
+
+/** 걸어 둔 안전 마감을 거둔다 — 모델 줄이 왔거나, 다른 경로가 그 명령을 마감했을 때. */
+function clearEarlyResultWait(inFlight: PersistentInFlight | undefined): void {
+  if (!inFlight?.earlyResultTimer) return;
+  clearTimeout(inFlight.earlyResultTimer);
+  inFlight.earlyResultTimer = undefined;
+}
+
 /** `isChildStdinWritable` 이 보는 것만 구조로 드러낸다 — `ChildProcess` 가 그대로 들어맞는다. */
 type StdinBearingChild = {
   exitCode?: number | null;
@@ -1191,14 +1224,7 @@ export class SubAgentManager {
   private persistentLineBuf = new Map<string, string>();
   /** Persistent child — 현재 진행 중인 turn 의 cmd/turnCount/resultText/killed/maxTurns/parentCwd.
    *  fresh spawn 또는 reuse 시점에 새 값으로 set, result 라인 도착 시 delete. */
-  private persistentInFlightCmd = new Map<string, {
-    cmd: QueuedCommand;
-    turnCount: number;
-    resultText: string | undefined;
-    killed: boolean;
-    maxTurns: number;
-    parentCwd: string;
-  }>();
+  private persistentInFlightCmd = new Map<string, PersistentInFlight>();
   /**
    * §5.19 (D) — **로컬(All Model) 턴의 in-flight 표식.** `persistentInFlightCmd` 의 로컬 판본이다.
    *
@@ -1215,6 +1241,11 @@ export class SubAgentManager {
    * 아직 "도는 중"을 보고 완료를 건너뛴다. 여기서 `finish()` 맨 앞에 지우면 순서가 정확하다.
    */
   private localInFlightCmd = new Map<string, QueuedCommand>();
+  /**
+   * §5.5 #17-12 ③-6 — 턴 동안 읽은 **끝 신호**(cmdId 별). 모델이 적어 보내는 끝 사유(assistant 줄
+   * `message.stop_reason`)는 턴 중간에 오고 봉인은 그 뒤라, 그 사이를 들고 있는 장부다. 봉인 때 지운다.
+   */
+  private turnStopSignals = new Map<string, TurnStopSignal>();
   /** §5.5 #17-12 ③ — 자식 stderr 의 **마지막 꼬리**(sub 별). 종료 코드만으론 "왜 죽었는지"를
    *  말할 수 없어, 실패로 끝났을 때 사유로 실어 보낸다. 성공 경로에서는 쓰지 않고 spawn 마다 리셋. */
   private childStderrTails = new Map<string, string>();
@@ -1222,6 +1253,8 @@ export class SubAgentManager {
   private projectResolver: AgentProjectResolver | null = null;
   /** 소속 해석이 실패했을 때 훑을 프로젝트 후보(`findStreamDirFor` ③). 없으면 그 그물만 안 쓴다. */
   private allProjectsProvider: AllProjectsProvider | null = null;
+  /** §5.3 #12-1-B — 로컬 도구 판정이 읽는 지금 설정. 없으면 턴 시작 때 받은 설정으로 판정한다(종전 동작). */
+  private agentConfigResolver: AgentConfigResolver | null = null;
   /**
    * subId → 그 세션의 스트림을 **마지막으로 읽어 낸 폴더**(`findStreamDirFor` ②).
    *
@@ -1358,6 +1391,10 @@ export class SubAgentManager {
 
   setProjectResolver(resolver: AgentProjectResolver): void {
     this.projectResolver = resolver;
+  }
+
+  setAgentConfigResolver(resolver: AgentConfigResolver): void {
+    this.agentConfigResolver = resolver;
   }
 
   /** 소속을 잃은 세션의 스트림 폴더를 되찾을 때 훑을 후보 목록(§5.5 — 아래 `findStreamDirFor`). */
@@ -1744,16 +1781,17 @@ export class SubAgentManager {
       return;
     }
     if (!isTurnResumeSignal(event.eventType)) return;
-
-    const deferred = this.deferredSeals.get(event.subAgentId);
-    if (deferred) {
-      clearTimeout(deferred.timer);
-      this.deferredSeals.delete(event.subAgentId);
-      noteTurnResumed(this.getTurnSealState(event.subAgentId));
-      deferred.onResume?.();
-      logger.info(`SubAgent ${event.subAgentId} turn resumed (${event.eventType}) — provisional seal cancelled`);
+    // 곁가지(비동기 서브에이전트 안쪽) 줄은 **본 대화가 이어졌다는 신호가 아니다.** 본 턴이 끝난 뒤에도
+    //   곁가지는 수 분씩 흐르는데, 그 줄마다 잠정 봉인을 풀면 끝난 명령이 `executing` 으로 붙들린다
+    //   (다음 입력이 그 뒤에 줄 서고, [중지] 전까지 풀리지 않았다 — §5.5 #17-18). 곁가지가 살아 있다는
+    //   사실은 작업 칩 장부(`liveTasks`)가 따로 들고 있다.
+    if (event.nestedUnderToolUseId) {
+      const nestedOwner = this.index.get(event.subAgentId);
+      if (nestedOwner) nestedOwner.lastActivityAt = Date.now();
       return;
     }
+
+    if (this.resumeHeldSeal(event.subAgentId, event.eventType)) return;
 
     // 봉인이 이미 끝난 뒤에 다시 흐르기 시작한 경우 — 화면을 진실로 되돌린다.
     const sub = this.index.get(event.subAgentId);
@@ -1792,6 +1830,23 @@ export class SubAgentManager {
     }, TURN_RESUME_GRACE_MS);
     if (typeof timer.unref === 'function') timer.unref();
     this.deferredSeals.set(sub.id, { timer, seal, ...(onResume ? { onResume } : {}) });
+  }
+
+  /**
+   * 붙들어 둔 잠정 봉인을 **턴이 이어졌다**는 이유로 거둔다. 붙든 게 없으면 false.
+   *
+   * 부르는 곳은 둘이다 — 파싱된 작업 이벤트(`noteTurnSealSignal`)와, 그보다 이른 persistent stdout 의
+   * 본 대화 모델 줄(`_handlePersistentStdoutLine`). 둘이 같은 뜻이라 같은 정리를 태운다.
+   */
+  private resumeHeldSeal(subAgentId: string, cause: string): boolean {
+    const deferred = this.deferredSeals.get(subAgentId);
+    if (!deferred) return false;
+    clearTimeout(deferred.timer);
+    this.deferredSeals.delete(subAgentId);
+    noteTurnResumed(this.getTurnSealState(subAgentId));
+    deferred.onResume?.();
+    logger.info(`SubAgent ${subAgentId} turn resumed (${cause}) — provisional seal cancelled`);
+    return true;
   }
 
   /** 붙들어 둔 잠정 봉인을 버린다(다른 마감 경로가 먼저 도착했거나, 턴이 이어졌을 때). */
@@ -1999,6 +2054,8 @@ export class SubAgentManager {
       if (resultText) cmd.result = resultText;
       // §5.5 #17-12 ③ — 실패로 봉합되는 명령에는 사유를 함께 남긴다(옛 코드는 상태만 바꿔 "오류"만 남았다).
       if (isError) this.failCommand(sub, cmd, { code: 'agentView', ...(detail ? { detail } : {}) });
+      // §5.5 #17-12 ③-6 — 앱이 내려가 있던 사이 [중지]는 우리 표식이 아니라 잡 상태(`stopped`)로만 남는다.
+      this.stampTurnStopReason(sub, cmd, { userStopped: stateStr === 'stopped' });
     };
 
     for (const sub of known) {
@@ -2031,6 +2088,10 @@ export class SubAgentManager {
               // 과거 라인은 이미 클라가 가지고 있으므로 새로 부착 후 추가분만 받는다.
               skipExisting: true,
               onEvents: (events) => { for (const e of events) this.emitStreamEvent(e); },
+              // §5.5 #17-12 ③-6 — 재부착 뒤에 온 끝 사유도 봉인이 읽게 한다(끝을 말하는 줄에서만 명령을 찾는다).
+              onLine: (obj) => {
+                if (readTurnStopSignal(obj)) this.noteTurnStopLine(findExecutingCmd?.(sub.id)?.id, obj);
+              },
               onTerminal: (state) => {
                 const ts = String(state.state || '');
                 sub.status = ts === 'failed' ? 'error' : 'idle';
@@ -3644,6 +3705,47 @@ export class SubAgentManager {
   }
 
   /**
+   * §5.5 #17-12 ③-6 — 스트림 한 줄이 턴의 끝에 대해 말하면 그 명령의 장부에 적는다.
+   * `tool_use` 처럼 "이어진다"는 줄은 적지 않는다 — 턴 안의 **마지막 끝 사유**만 남는다.
+   */
+  private noteTurnStopLine(cmdId: string | undefined, obj: unknown): void {
+    if (!cmdId) return;
+    const signal = readTurnStopSignal(obj);
+    if (!signal) return;
+    const prev = this.turnStopSignals.get(cmdId);
+    const next: TurnStopSignal = {};
+    const modelStop = signal.modelStop ?? prev?.modelStop;
+    if (modelStop) next.modelStop = modelStop;
+    if (signal.maxTurns || prev?.maxTurns) next.maxTurns = true;
+    this.turnStopSignals.set(cmdId, next);
+    // 봉인 없이 사라지는 턴(크래시·스폰 실패)의 몫이 쌓이지 않게 상한을 건다.
+    capMapSize(this.turnStopSignals, SESSION_KEYED_MAP_MAX);
+  }
+
+  /**
+   * §5.5 #17-12 ③-6 — 턴을 닫는 자리에서 끝 이유를 한 칸에 적는다. **`status` 가 정해진 뒤에** 부른다
+   * (실패인지가 사실 하나다). 판정은 shared `resolveTurnStopReason` 한 곳이고, 이 자리는 사실을 모을 뿐이다.
+   */
+  private stampTurnStopReason(
+    sub: SubAgent,
+    cmd: QueuedCommand,
+    facts: { userStopped: boolean; maxTurns?: boolean; modelStop?: ModelStopReason },
+  ): void {
+    const signal = this.turnStopSignals.get(cmd.id);
+    this.turnStopSignals.delete(cmd.id);
+    const reason = resolveTurnStopReason({
+      userStopped: facts.userStopped,
+      // `execute` 가 턴을 시작할 때 비우므로, 닫을 때 서 있으면 이 턴에 걸린 것이다.
+      usageLimited: sub.usageLimit !== undefined,
+      maxTurns: facts.maxTurns === true || signal?.maxTurns === true,
+      modelStop: facts.modelStop ?? signal?.modelStop,
+      failed: cmd.status === 'error',
+    });
+    if (reason) cmd.stopReason = reason;
+    else delete cmd.stopReason;
+  }
+
+  /**
    * §2.4 (한도 정지) — 턴 **결과 본문**으로 한 번 더 본다.
    *
    * 스트림을 놓치는 경로가 실제로 있다(legacy `--print` 는 완성 assistant 블록을 억제하고,
@@ -4027,6 +4129,9 @@ export class SubAgentManager {
     if (!sub) return false;
 
     this.cmdPaneStates.delete(subAgentId);
+    // §5.3 #12-1-B — 탭이 사라지면 그 세션의 대기 카드는 답할 곳이 없고, "이 세션에선 허용" 기억도 주인이 없다.
+    permissionBroker.cancelForSubAgent(subAgentId, 'agent-stopped');
+    permissionSessionGrants.forgetSubAgent(subAgentId);
 
     const child = this.runningChildren.get(subAgentId);
     if (child) {
@@ -4127,7 +4232,11 @@ export class SubAgentManager {
       logger.warn(`SubAgent ${subAgentId} soft interrupt write failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
+    // §5.5 #17-18 — 끊긴 턴은 모델 줄 없이 `result` 로 끝날 수 있다. 그 `result` 는 이 명령의 끝이다.
+    inFlight.interrupted = true;
     logger.info(`SubAgent ${subAgentId} soft interrupt sent (cmd=${interruptedCmdId}) — child kept alive`);
+    // §5.3 #12-1-B — 끊긴 턴이 띄워 둔 권한 카드는 답할 곳이 없다. 60초를 채워 기본 허용으로 풀리지 않게 닫는다.
+    permissionBroker.cancelForSubAgent(subAgentId, 'agent-stopped');
 
     // 안전판 — 창을 넘기도록 같은 명령이 그대로 in-flight 면 CLI 가 인터럽트를 안 받은 것으로 보고
     //   종전 경로(하드 킬)로 넘어간다. 이 폴백은 감시를 못 살리지만 **멈추지 않는 것보다는 낫다**.
@@ -4183,6 +4292,10 @@ export class SubAgentManager {
     if (this.currentTurnId.get(sub.id) === cmd.id) this.currentTurnId.delete(sub.id);
     cmd.status = 'queued';
     delete cmd.startedAt;
+    // `execute` 가 올려 둔 active 도 되돌린다 — 이 명령은 아직 나가지 않았다. 남기면 옛 자식의 close 를
+    //   기다리는 동안(Windows 는 손자가 파이프를 쥐고 있어 늦게 온다) 아무것도 돌지 않는 탭이 "처리 중"으로
+    //   선다. 백그라운드 작업 때문에 올라가 있는 active 는 그 장부의 몫이라 건드리지 않는다.
+    if (sub.status === 'active' && !this.bgPromotedSubs.has(sub.id)) sub.status = 'idle';
     sub.lastActivityAt = Date.now();
     logger.warn(
       `SubAgent ${sub.id} child is shutting down (stdin closed) — requeued cmd=${cmd.id};`
@@ -4191,8 +4304,10 @@ export class SubAgentManager {
   }
 
   /**
-   * 실행 중인 서브에이전트를 사용자가 중지. 자식 프로세스 SIGTERM, sub/cmd 는 registry 에 그대로 둔다.
-   * close 핸들러가 stoppedByUser 플래그를 보고 status/result 를 맞춘다.
+   * 실행 중인 서브에이전트를 사용자가 중지. 자식 프로세스 트리 종료, sub/cmd 는 registry 에 그대로 둔다.
+   * persistent 자식의 턴은 여기서 바로 `[Stopped by user]` 로 마감한다(`settleStoppedPersistentTurn`) —
+   * 그 마감의 `onComplete` 가 다음 차례를 집으므로, 큐·루프를 비울 호출자는 **이 호출 전에** 비워야 한다.
+   * legacy(`--print`) 는 close 핸들러가 stoppedByUser 플래그를 보고 status/result 를 맞춘다.
    * 실행 중이 아니면 false (큐잉된 명령은 이 API 로 취소하지 않음 — CommandQueue 의 삭제 UI 로 처리).
    */
   stop(subAgentId: string): boolean {
@@ -4211,6 +4326,9 @@ export class SubAgentManager {
     //   이제 이 장부는 화면(실행 목록·도트·버블 완료 판정)까지 몰기 때문에, 안 비우면 중지 뒤에도
     //   "아직 N개 도는 중"이 뜨고 버블이 완료로 못 간다.
     this.clearLiveBackgroundTasks(subAgentId);
+    // §5.3 #12-1-B — 그 세션이 띄워 둔 권한 카드는 취소로 닫는다. 안 닫으면 60초 뒤 기본 허용으로 풀려
+    //   일어나지도 않을 호출이 원장에 "시간 초과 · 허용"으로 남는다. 세션 기억은 지우지 않는다(세션은 이어진다).
+    permissionBroker.cancelForSubAgent(subAgentId, 'agent-stopped');
 
     // §5.19 — 로컬 LLM 세션에는 자식이 없다. 생성만 끊고 러너가 onDone 으로 마감하게 둔다
     //   (모델은 내리지 않는다 — 다음 턴에 그대로 다시 쓴다).
@@ -4243,10 +4361,44 @@ export class SubAgentManager {
     if (!child) return false;
     this.stoppedByUser.add(subAgentId);
     this.intentionalKill.add(subAgentId);
-    // SIGTERM(직접 자식) → grace 후 트리 강제 종료로 손자(node worker/MCP) 고아 방지.
+    // 자식 트리 종료 — Windows 는 부모가 살아 있을 때 트리째(`taskkill /T`), POSIX 는 SIGTERM 뒤 그룹 회수.
     terminateChildTree(child);
+    this.settleStoppedPersistentTurn(sub);
     logger.info(`SubAgent stop requested by user: ${subAgentId}`);
     return true;
+  }
+
+  /**
+   * §5.5 #17-18 — [중지]한 persistent 턴을 **자식의 `close` 를 기다리지 않고 지금** 마감한다.
+   *
+   * 종전엔 마감이 `close` 에만 걸려 있었는데, Windows 에서 `close` 는 **파이프를 물려받은 손자가 모두
+   * 죽어야** 온다. 직접 자식만 끊기면 손자는 고아가 되어 파이프를 쥔 채 남고, 그동안 화면은 중지가
+   * 안 된 채 도는 중으로 남았다. 사용자가 그 사이 새로 친 입력은 그 명령 뒤에 줄을 서, 늦게 온 `close`
+   * 가 둘을 한꺼번에 풀었다.
+   *
+   * 끊긴 자식은 이제 이 명령에 답할 수 없으므로 기다릴 이유가 없다. 붙든 봉인이 있으면 그 봉인이 곧
+   * 마감이고(답은 이미 왔다), 없으면 in-flight 를 `[Stopped by user]` 로 닫는다. 뒤늦은 `close` 는
+   * in-flight 가 비어 있어 세션만 쉬게 한다. 새 명령은 창구가 닫힌 자식을 보고 큐로 돌아가
+   * (`_requeueForDyingChild`) 그 `close` 뒤에 `--resume` 으로 뜬다.
+   *
+   * persistent 자식이 아니면(legacy `--print`) 아무것도 안 한다 — 그 마감은 `close` 가 쌓은 stdout 을 읽어야 한다.
+   */
+  private settleStoppedPersistentTurn(sub: SubAgent): void {
+    if (!this.persistentLineBuf.has(sub.id)) return;
+    const inFlight = this.persistentInFlightCmd.get(sub.id);
+    clearEarlyResultWait(inFlight);
+    if (this.deferredSeals.has(sub.id)) {
+      this.flushDeferredSeal(sub.id, 'user stop');
+      // 봉인이 다음 턴을 위해 세운 준비 표식은 끊긴 자식에겐 거짓이다.
+      this.persistentChildReady.delete(sub.id);
+    } else if (inFlight) {
+      this.persistentInFlightCmd.delete(sub.id);
+      this.persistentChildReady.delete(sub.id);
+      this._finalizeLegacyCommand(sub, inFlight.cmd, inFlight.parentCwd, undefined, inFlight.turnCount, inFlight.killed, inFlight.maxTurns, null, '', /*deleteRunningChild=*/false);
+    }
+    // 마감할 턴이 없었어도(자식이 놀고 있었다) 중지 표식은 여기서 소진한다 — `close` 의 쉬게 하기 분기는
+    //   이 표식을 읽지 않아, 남기면 **다음 명령**이 끝날 때 `[Stopped by user]` 로 잘못 닫힌다.
+    this.stoppedByUser.delete(sub.id);
   }
 
   /**
@@ -4264,9 +4416,12 @@ export class SubAgentManager {
     // 백그라운드 서브에이전트 대차대조 즉시 해제 — 끊긴 자식은 끝 신고를 못 하므로, 안 비우면
     // pending 가드가 중지된 에이전트를 계속 활성으로 붙잡는다(= 중지했는데 계속 도는 것처럼 보임).
     this.clearPendingSubagentTasks(parentAgentId);
+    // §5.3 #12-1-B — 이 버블의 대기 카드 전부(세션 id 없이 도착한 카드 포함)를 취소로 닫는다.
+    permissionBroker.cancelForAgent(parentAgentId, 'agent-stopped');
 
     const stopped: string[] = [];
-    for (const sub of this.registry.get(parentAgentId) ?? []) {
+    // 복사본을 돈다 — 아래 즉시 마감이 `onComplete` 로 다음 명령을 흘려보내는 사이 목록이 바뀌어도 안전하게.
+    for (const sub of [...(this.registry.get(parentAgentId) ?? [])]) {
       // 스트림 칩 장부도 세션마다 비운다 — `stop()` 과 같은 이유(끊긴 자식은 끝 통지를 안 보낸다).
       this.clearLiveBackgroundTasks(sub.id);
       // §5.19 — 로컬 LLM 세션(자식 없음)도 함께 끊는다.
@@ -4295,6 +4450,8 @@ export class SubAgentManager {
       this.stoppedByUser.add(sub.id);
       this.intentionalKill.add(sub.id);
       terminateChildTree(child);
+      // §5.5 #17-18 — `stop()` 과 같은 이유로 `close` 를 기다리지 않고 지금 마감한다.
+      this.settleStoppedPersistentTurn(sub);
       stopped.push(sub.id);
     }
     logger.info(`SubAgent stop-all requested by user: parent=${parentAgentId} stopped=${stopped.length}`);
@@ -4706,6 +4863,7 @@ export class SubAgentManager {
           else this.failCommand(sub, cmd, { code: 'agentView', ...(state.detail ? { detail: state.detail } : {}) });
         }
         if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
+        this.stampTurnStopReason(sub, cmd, { userStopped, maxTurns: killed });
 
         logger.info(`SubAgent ${sub.id} agent-view finished (state=${stateStr}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
 
@@ -4732,6 +4890,7 @@ export class SubAgentManager {
           // §2.4 (한도 정지) — agent-view 는 JSONL 을 그대로 읽으므로 `quotaLimits` 봉투까지 온다
           //   (리셋 시각을 숫자로 얻는 유일한 경로다).
           this.noteUsageLimitLine(sub, obj);
+          this.noteTurnStopLine(cmd.id, obj);
           // assistant 메시지 = 1턴. maxTurns 초과 시 supervisor 에 stop 발사.
           if (obj['type'] === 'assistant' && !killed) {
             turnCount++;
@@ -4817,6 +4976,7 @@ export class SubAgentManager {
     //   에 다음 차례를 맡긴다(그때는 자식이 없어 `--resume` fresh spawn 으로 그대로 이어진다).
     if (existingChild && !isChildStdinWritable(existingChild)) {
       this._requeueForDyingChild(sub, cmd);
+      this.onSubStatusChange?.(sub.parentAgentId);
       return;
     }
     // §4 (상태바 모델 칸 ④) — **설정창에서 모델 축을 바꿨으면 놀던 자식을 갈아 끼운다.** 재사용은 인자를
@@ -4838,6 +4998,7 @@ export class SubAgentManager {
         this.intentionalKill.add(sub.id);
         this._requeueForDyingChild(sub, cmd);
         terminateChildTree(existingChild);
+        this.onSubStatusChange?.(sub.parentAgentId);
         return;
       }
       if (decision === 'reuse-held') {
@@ -4847,7 +5008,7 @@ export class SubAgentManager {
     if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
       this.persistentChildReady.set(sub.id, false);
       this.persistentInFlightCmd.set(sub.id, {
-        cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd,
+        cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd, mainActivity: false,
       });
       try {
         const inputLine = JSON.stringify({
@@ -4945,6 +5106,10 @@ export class SubAgentManager {
         },
       });
       this.runningChildren.set(sub.id, child);
+      // §5.5 #17-18 — 새 자식이 섰다 = 앞 자식은 이미 내려갔다(창구가 닫힌 자식이 있으면 여기까지 오지 않는다).
+      //   그 자식에게 붙였던 중지·종료 표식이 남아 있으면 **이 명령**의 끝을 잘못 판정하므로 여기서 걷는다.
+      this.stoppedByUser.delete(sub.id);
+      this.intentionalKill.delete(sub.id);
       this.wakeSub(sub); // §2.4 (잠듦) — 자식이 다시 섰으니 표식 해제
       // §5.5 #17-18 — **stdin 오류는 예외가 아니라 이벤트로 온다.** `write-after-end` · `EPIPE` 는
       //   `write()` 를 감싼 try/catch 를 지나쳐 이 stream 의 `error` 로 올라오고, 듣는 사람이 없으면
@@ -4960,6 +5125,9 @@ export class SubAgentManager {
       this.childStderrTails.delete(sub.id);
       registerSpawnedPid(child.pid);
       child.once('exit', () => unregisterSpawnedPid(child.pid));
+      // §5.5 #17-18 — 아래 마감은 전부 `close` 에 걸려 있다. 트리 종료가 놓친 손자가 파이프를 쥐고 있으면
+      //   그 `close` 가 몇 분씩 안 와 끝난 턴이 "도는 중"으로 남고, 새 명령은 그 뒤에 줄을 섰다.
+      forceCloseAfterExit(child);
 
       if (usePersistent) {
         // §4 (상태바 모델 칸 ④) — 이 자식이 **어떤 모델 축으로 떴는지**. 재사용 직전 대조의 한쪽이다.
@@ -4968,7 +5136,7 @@ export class SubAgentManager {
         this.persistentChildReady.set(sub.id, false);
         this.persistentLineBuf.set(sub.id, '');
         this.persistentInFlightCmd.set(sub.id, {
-          cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd,
+          cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd, mainActivity: false,
         });
       }
 
@@ -5051,6 +5219,8 @@ export class SubAgentManager {
             // §2.4 (한도 정지) — 한도 통지는 실패가 아니라 **정상 종료로 오는 합성 한 줄**이라
             //   종료 코드만 보는 마감 경로가 놓친다. 세 스트림 경로에서 같은 판정을 태운다.
             this.noteUsageLimitLine(sub!, obj);
+            // §5.5 #17-12 ③-6 — 모델이 적어 보낸 끝 사유를 봉인 때까지 들고 있는다.
+            this.noteTurnStopLine(cmd.id, obj);
             // 스트림 이벤트 파싱 + 클라이언트 중계 (한 라인이 여러 블록 가능)
             // §4 v2.88 — legacy --print 스폰은 `--include-partial-messages` 가 붙어 토큰 델타가 온다 → partialMessages:true.
             const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true, hookEvents: this.streamHookEventsOn.get(sub!.id) === true });
@@ -5123,6 +5293,9 @@ export class SubAgentManager {
           //   장부에서 지워 그 세션을 유령으로 만든다. 옛 세대는 아무것도 건드리지 않고 물러난다
           //   (`intentionalKill` 표식도 남겨 둔다 — 그건 지금 자식의 종료를 판정할 재료다).
           if (this.runningChildren.get(sub!.id) !== child) {
+            // 지금 자식이 **없으면** 그 종료 표식은 판정할 주인이 없다 — 남기면 다음에 뜨는 자식의
+            //   크래시가 "의도된 종료"로 읽혀 sessionId 보존·오류 표시를 건너뛴다.
+            if (!this.runningChildren.has(sub!.id)) this.intentionalKill.delete(sub!.id);
             logger.info(`SubAgent ${sub!.id} stale persistent child closed (code=${code}) — current child left untouched`);
             return;
           }
@@ -5218,6 +5391,17 @@ export class SubAgentManager {
 
     const inFlight = this.persistentInFlightCmd.get(sub.id);
 
+    // §5.5 #17-18 — 본 대화의 모델 줄은 "이 세션이 지금 말하고 있다"의 **가장 이른** 증거다. 파싱된
+    //   이벤트를 기다리면 토큰 줄(`stream_event`)·빈 thinking 은 끝내 신호가 되지 못해, 첫 글자가 나오기
+    //   전 수 초 동안 붙든 봉인이 먼저 만료됐다. 곁가지 줄은 본 대화가 아니므로 세지 않는다.
+    if (isMainThreadModelLine(obj)) {
+      if (inFlight) {
+        inFlight.mainActivity = true;
+        clearEarlyResultWait(inFlight);
+      }
+      this.resumeHeldSeal(sub.id, `raw ${String(obj['type'])}`);
+    }
+
     // assistant 턴 카운트 + maxTurns 가드.
     if (obj['type'] === 'assistant' && inFlight && !inFlight.killed) {
       inFlight.turnCount++;
@@ -5231,6 +5415,8 @@ export class SubAgentManager {
 
     // §2.4 (한도 정지) — legacy 경로와 같은 판정(위 주석 참조).
     this.noteUsageLimitLine(sub, obj);
+    // §5.5 #17-12 ③-6 — 끝 사유는 result 줄이 봉인을 부르기 **전에** 적어야 그 봉인이 읽는다.
+    this.noteTurnStopLine(inFlight?.cmd.id, obj);
 
     // 스트림 이벤트 — 클라 중계.
     const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId, { hookEvents: this.streamHookEventsOn.get(sub.id) === true });
@@ -5251,19 +5437,53 @@ export class SubAgentManager {
       //   CLI 가 이 자리에서 세션을 다시 돌린다(`turnSeal.ts` 의 실측 타임라인). 그래서 아래 마감은
       //   통째로 `sealTurn` 에 맡기고, 잠정이면 붙들어 둔다. 붙들린 동안 `persistentInFlightCmd` 도
       //   그대로 살려 둔다 — 미리 지우면 이어진 턴의 다음 `result` 를 못 알아봐서 진짜 종료를 놓친다.
+      const sealInFlightTurn = (text: string | undefined, error: string | undefined): void => {
+        clearEarlyResultWait(inFlight);
+        this.sealTurn(sub, /*canResume=*/true, () => {
+          // ORDER MATTERS — 함정 주석 참조.
+          // 1) line 버퍼 리셋 (이 줄 이후의 다음 턴 chunk 가 들어와도 깨끗히 시작).
+          this.persistentLineBuf.set(sub.id, '');
+          // 2) ready=true 를 finalize **전** 에 set. finalize 가 onComplete → processNextCommand → execute 를 동기 호출
+          //    하므로, ready=true 가 그 호출 전에 set 안 되면 reuse 분기가 영영 안 탄다.
+          this.persistentChildReady.set(sub.id, true);
+          // 3) in-flight 폐기 — 다음 턴이 fresh value 로 set.
+          this.persistentInFlightCmd.delete(sub.id);
+          // 4) finalize — child.kill / stdin.end 호출 ❌ (자식 살려둠).
+          this._finalizeLegacyCommand(sub, inFlight.cmd, inFlight.parentCwd, text, inFlight.turnCount, inFlight.killed, inFlight.maxTurns, 0, '', /*deleteRunningChild=*/false, error);
+        });
+      };
+
+      // §5.5 #17-18 — **이 명령이 한 마디도 하기 전에 온 `result` 는 이 명령의 끝이 아니다.** `--resume`
+      //   으로 뜬 자식이 밀린 백그라운드 통지를 먼저 한 차례 처리하고 낸 끝이다(`isResultBeforeOwnTurn`).
+      //   여기서 봉인하면 명령이 답도 토큰도 없이 완료음과 함께 끝나고, 곧이어 진짜 답이 세션을 다시
+      //   깨운다. 통지 셈은 그 처리가 받아 갔으므로 비우고, 명령은 in-flight 로 둔 채 진짜 끝을 기다린다.
+      if (isResultBeforeOwnTurn({
+        mainActivity: inFlight.mainActivity,
+        cliError: cliError !== undefined,
+        killed: inFlight.killed,
+        interrupted: inFlight.interrupted === true,
+        slashCommand: isSlashCommandText(inFlight.cmd.text),
+      })) {
+        this.cancelDeferredSeal(sub.id);
+        noteTurnSealed(this.getTurnSealState(sub.id));
+        clearEarlyResultWait(inFlight);
+        logger.info(
+          `SubAgent ${sub.id} result arrived before cmd=${inFlight.cmd.id} said anything — not its end;`
+          + ` waiting for its own turn (safety ${EARLY_RESULT_SAFETY_MS}ms)`,
+        );
+        const timer = setTimeout(() => {
+          inFlight.earlyResultTimer = undefined;
+          if (this.persistentInFlightCmd.get(sub.id) !== inFlight || inFlight.mainActivity) return;
+          logger.warn(`SubAgent ${sub.id} cmd=${inFlight.cmd.id} stayed silent ${EARLY_RESULT_SAFETY_MS}ms after an early result — sealing it`);
+          sealInFlightTurn(resultText, undefined);
+        }, EARLY_RESULT_SAFETY_MS);
+        if (typeof timer.unref === 'function') timer.unref();
+        inFlight.earlyResultTimer = timer;
+        return;
+      }
+
       logger.info(`SubAgent ${sub.id} persistent result detected (turns=${inFlight.turnCount}) — child stays alive`);
-      this.sealTurn(sub, /*canResume=*/true, () => {
-        // ORDER MATTERS — 함정 주석 참조.
-        // 1) line 버퍼 리셋 (이 줄 이후의 다음 턴 chunk 가 들어와도 깨끗히 시작).
-        this.persistentLineBuf.set(sub.id, '');
-        // 2) ready=true 를 finalize **전** 에 set. finalize 가 onComplete → processNextCommand → execute 를 동기 호출
-        //    하므로, ready=true 가 그 호출 전에 set 안 되면 reuse 분기가 영영 안 탄다.
-        this.persistentChildReady.set(sub.id, true);
-        // 3) in-flight 폐기 — 다음 턴이 fresh value 로 set.
-        this.persistentInFlightCmd.delete(sub.id);
-        // 4) finalize — child.kill / stdin.end 호출 ❌ (자식 살려둠).
-        this._finalizeLegacyCommand(sub, inFlight.cmd, inFlight.parentCwd, resultText, inFlight.turnCount, inFlight.killed, inFlight.maxTurns, 0, '', /*deleteRunningChild=*/false, cliError);
-      });
+      sealInFlightTurn(resultText, cliError);
     } else if (obj['type'] === 'result') {
       // **되살아난 턴의 종료.** 백그라운드 통지로 봉인 뒤 다시 돌기 시작한 턴은 그 턴을 시킨 명령이
       //   이미 마감돼 `inFlight` 가 없다. 그래서 위 블록이 통째로 건너뛰어지고, 재진입이 올려 둔
@@ -5395,6 +5615,8 @@ ${finalText}` : ''}` : finalText;
         }
         if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
       }
+      // §5.5 #17-12 ③-6 — `turn.completed` 는 끝 사유를 싣지 않는다. 중지·한도 외에는 평범한 끝이다.
+      this.stampTurnStopReason(sub, cmd, { userStopped });
       this.onSubStatusChange?.(sub.parentAgentId);
       this.onComplete?.();
     };
@@ -5433,6 +5655,10 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       webSearch: provider.webSearch,
       networkAccess: provider.networkAccess,
       modelVerbosity: provider.modelVerbosity,
+      reasoningSummary: provider.reasoningSummary,
+      personality: provider.personality,
+      serviceTier: provider.serviceTier,
+      autoCompactTokenLimit: provider.autoCompactTokenLimit,
       ...(config.permissionMode ? { permissionMode: config.permissionMode } : {}),
       // 이어가기 — 클로드의 `--resume` 과 같은 자리(`SubAgent.sessionId`)를 쓴다.
       ...(sub.sessionId ? { resumeThreadId: sub.sessionId } : {}),
@@ -5532,7 +5758,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     };
 
     /** 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다. */
-    const finish = (error: string | undefined, finalText: string): void => {
+    const finish = (error: string | undefined, finalText: string, done?: LocalTurnDoneInfo): void => {
       // **맨 먼저** 내린다 — 아래 상태 통지가 부르는 `recomputeCustomAgentStatus` 는 이 표식을
       //   "아직 도는 중"으로 읽으므로, 남겨 둔 채 통지하면 진짜 완료가 그 자리에서 묻힌다.
       //   (러너의 `isLocalTurnRunning` 을 주인으로 못 쓰는 이유도 같다 — 그쪽 정리는 `finally` 라
@@ -5556,6 +5782,12 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         }
         if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
       }
+      // §5.5 #17-12 ③-6 — 러너가 넘긴 엔진의 끝 낱말(`stop`·`length`·`content_filter`)과 왕복 상한.
+      this.stampTurnStopReason(sub, cmd, {
+        userStopped,
+        maxTurns: done?.maxRounds === true,
+        modelStop: normalizeModelStopReason(done?.finishReason),
+      });
       this.onSubStatusChange?.(sub.parentAgentId);
       this.onComplete?.();
     };
@@ -5599,6 +5831,18 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       toolName: string,
       toolInput: Record<string, unknown>,
     ): Promise<LocalToolVerdict> => {
+      /*
+       * §5.3 #12-1-B — 카드에서 누른 "항상"은 **턴 도중에** 저장된다. 목록 두 칸(`disallowedTools` ·
+       * `askTools`)은 지금 저장분에서 읽어야 같은 턴의 다음 호출이 그 답을 본다. 모드는 턴 설정 그대로 —
+       * 계획 승인(ExitPlanMode)이 이 턴 객체의 모드를 고쳐 편집을 연다.
+       */
+      const live = this.agentConfigResolver?.(sub.parentAgentId);
+      const disallowedTools = live ? live.disallowedTools : config.disallowedTools;
+      const askTools = live ? live.askTools : config.askTools;
+      // 못 쓰는 목록은 모드 단축보다 먼저 본다 — 훅 경로(`/api/permission-check`)와 같은 순수 함수다.
+      if (isToolDisallowed(disallowedTools, toolName)) {
+        return { allowed: false, reason: `${toolName} is on this agent's disallowed-tools list, so it was blocked without asking the user` };
+      }
       const gate = resolveLocalToolGate(config.permissionMode, toolName);
       /*
        * §5.3 #12-1-A — 사용자가 이 버블의 설정창에서 지목한 도구는 모드가 통과시켰어도 묻는다.
@@ -5608,11 +5852,16 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
        * `deny` 는 되돌리지 않는다 — 그쪽은 이미 사람 없이 안전한 답을 낸 자리다(`plan` 의 실행
        * 차단, `dontAsk` 의 즉시 거부). 되무를 값이 있는 것은 **통과시킨 것**뿐이다.
        */
-      const askedByTool = gate === 'allow' && shouldAskForTool(config.askTools, toolName);
+      const askedByTool = gate === 'allow' && shouldAskForTool(askTools, toolName);
       if (gate === 'allow' && !askedByTool) return { allowed: true };
       if (gate === 'deny') {
         const mode = config.permissionMode || 'default';
         return { allowed: false, reason: `permission mode "${mode}" does not allow ${toolName}` };
+      }
+      // §5.3 #12-1-B — 모드가 묻는 호출에서 [이 세션에선 허용]을 눌렀으면 같은 도구는 다시 묻지 않는다.
+      //   확인 목록이 붙잡은 호출에는 기억을 읽지 않는다(사용자가 "매번 물어봐"라고 지목한 도구다).
+      if (!askedByTool && permissionSessionGrants.has(sub.parentAgentId, sub.id, toolName)) {
+        return { allowed: true };
       }
       const project = this.projectResolver?.(sub.parentAgentId);
       const decision = await permissionBroker.request(
@@ -5625,10 +5874,16 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
           toolName,
           toolInput,
           ...(askedByTool ? { askedByTool: true } : {}),
+          // "항상"이 적힐 칸은 서버가 정해 카드에 싣는다 — 확인 목록이 붙잡았으면 그 목록, 모드가 물었으면 세션 기억.
+          alwaysAllow: askedByTool ? 'ask-tools' : 'session',
+          alwaysReject: 'disallowed-tools',
         },
         config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow',
       );
       if (decision.decision === 'allow') return { allowed: true };
+      if (decision.cancelled) {
+        return { allowed: false, reason: 'the permission request was cancelled before anyone answered (the session was stopped), so the tool was not run' };
+      }
       return { allowed: false, reason: decision.reason || 'the user denied this tool call' };
     };
 
@@ -5665,7 +5920,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         if (!isRenderableLocalEvent(eventType)) return;
         emit(eventType, content);
       },
-      onDone: (error) => finish(error, finalText),
+      onDone: (error, done) => finish(error, finalText, done),
     };
     if (provider.toolSupport) args.toolSupport = provider.toolSupport;
     if (systemPrompt) args.systemPrompt = systemPrompt;
@@ -5852,6 +6107,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       }
     }
     if (!userStopped) this.failIfDispatchResultMissing(sub, cmd);
+    this.stampTurnStopReason(sub, cmd, { userStopped, maxTurns: killed });
 
     logger.info(`SubAgent ${sub.id} finished (code=${code === null ? 'persistent' : code}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
     if (deleteRunningChild) this.runningChildren.delete(sub.id);

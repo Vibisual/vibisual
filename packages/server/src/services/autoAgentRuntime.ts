@@ -22,6 +22,7 @@ import {
   AUTO_AGENT_BUILDER_CONFIG,
   AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
   buildHarnessBuilderRules,
+  agentRuleShell,
   DEFAULT_AGENT_CONFIG,
 } from '@vibisual/shared';
 import type { ProjectGraphManager } from './projectGraphManager.js';
@@ -107,7 +108,9 @@ export class AutoAgentRuntime {
     const projectName = inst.getPrimaryProjectName() ?? null;
     const serverBase = this.deps.getServerBase();
     const serverToken = this.deps.getServerToken();
+    const provider = this.deps.graphManager.getAgentConfig(autoBubble.id)?.provider;
     const rules = buildHarnessBuilderRules({
+      shell: agentRuleShell(provider?.kind === 'codex-cli' ? 'codex' : 'claude', process.platform),
       serverBase,
       serverToken,
       centerX: center.x,
@@ -122,6 +125,7 @@ export class AutoAgentRuntime {
     const builderConfig: AgentConfig = {
       ...DEFAULT_AGENT_CONFIG,
       ...AUTO_AGENT_BUILDER_CONFIG,
+      ...(provider ? { provider } : {}),
       tools,
       rules,
     };

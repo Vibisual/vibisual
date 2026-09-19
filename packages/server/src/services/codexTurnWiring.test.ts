@@ -21,7 +21,7 @@ function codexConfig(): AgentConfig {
     tools: [],
     permissionMode: 'auto',
     skills: [],
-    provider: { kind: 'codex-cli', modelId: 'gpt-5.3-codex' },
+    provider: { kind: 'codex-cli', modelId: 'gpt-5.3-codex', reasoningSummary: 'concise', personality: 'friendly', serviceTier: 'fast', autoCompactTokenLimit: 90000, networkAccess: false },
   } as AgentConfig;
 }
 
@@ -68,6 +68,7 @@ describe('Codex Agent Studio 실행 연결', () => {
     );
 
     expect(lastTurnArgs).not.toBeNull();
+    expect(lastTurnArgs).toMatchObject({ reasoningSummary: 'concise', personality: 'friendly', serviceTier: 'fast', autoCompactTokenLimit: 90000, networkAccess: false });
     expect(lastTurnArgs!.images).toEqual(cmd.attachments);
     expect(lastTurnArgs!.edgeConfig?.edgeIds).toEqual(['edge-target']);
     expect(lastTurnArgs!.edgeConfig?.restrictedTools).toEqual(['Read']);

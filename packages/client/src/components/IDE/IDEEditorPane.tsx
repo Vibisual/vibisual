@@ -24,6 +24,7 @@ import { sameWorkspaceFile } from './debugPaths.js';
 import { IDEImagePreview } from './IDEImagePreview.js';
 import { IDEHtmlPreview } from './IDEHtmlPreview.js';
 import { openExternally } from './openWorkspaceTarget.js';
+import { subscribeHtmlPageView } from './htmlViewRequest.js';
 import { useWorkspaceImage } from './useWorkspaceImage.js';
 import { bakeMimeFor, canOverwriteWorkspaceImage } from './workspaceImageSave.js';
 import { imageMetaLabel } from './editorImageMeta.js';
@@ -67,6 +68,12 @@ const RESIZE_HIT_PAD = {
 /** §5.5 #17-27 ⑪ — 강조가 머무는 시간(ms). `index.css` 의 `edit-follow-flash` 길이와 맞춘다. */
 const FOLLOW_FLASH_MS = 1800;
 
+/**
+ * §5.5 #17-27 ⑰ — 최대화한 직후 [원래대로] 가 드러나 있는 시간(ms). 평소에는 구석에 숨어 있으므로
+ * 켠 그 순간 한 번 보여 줘야 "어디로 돌아오는지"를 안다. 그 뒤로는 마우스를 올려야 떠오른다.
+ */
+const RESTORE_HINT_MS = 1500;
+
 export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | null {
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
@@ -101,6 +108,35 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
   const toggleTabsPinned = useCallback((): void => {
     setEditorTabsPinned(!tabsPinned);
   }, [setEditorTabsPinned, tabsPinned]);
+
+  // ─── §5.5 #17-27 ⑰ — 최대화: 탭·경로·주소 줄을 걷고 본문만 ──────────────
+  /**
+   * 폭은 건드리지 않는다 — 걷는 것은 판 안의 머리 줄들뿐이다. 영속화 ❌(⑦ 그대로 그 창의 화면 상태).
+   * `restoreHint` 는 켠 직후 [원래대로] 를 잠깐 드러내 두는 표식이다(`RESTORE_HINT_MS`).
+   */
+  const [maximized, setMaximized] = useState(false);
+  const [restoreHint, setRestoreHint] = useState(false);
+  const handleMaximize = useCallback((): void => {
+    setMaximized(true);
+    setRestoreHint(true);
+  }, []);
+  const handleRestore = useCallback((): void => {
+    setMaximized(false);
+    setRestoreHint(false);
+  }, []);
+  useEffect(() => {
+    if (!restoreHint) return;
+    const timer = window.setTimeout(() => setRestoreHint(false), RESTORE_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [restoreHint]);
+  /**
+   * 판이 내려가면(비출 파일도 무대도 없음) 최대화도 푼다 — 다음에 열 때 탭 줄 없이 뜨면 사용자는
+   * 탭이 사라진 줄 안다. 아래 조기 반환(판이 서는 조건)을 **뒤집은 것과 같은 식**이다.
+   */
+  const paneShown = stageActive || (files.length > 0 && !!activePath);
+  useEffect(() => {
+    if (!paneShown) handleRestore();
+  }, [paneShown, handleRestore]);
   const clearBreakpointsInFile = useGraphStore((s) => s.clearBreakpointsInFile);
 
   const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath);
@@ -137,6 +173,15 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
       return next;
     });
   }, [activePath]);
+  // ⑬ (j) — 본문 경로 링크의 [웹(내부) 열기]. 소스로 돌려 둔 탭이어도 **페이지**를 보여 달라는 요청이다.
+  useEffect(() => subscribeHtmlPageView((relPath) => {
+    setHtmlSourceTabs((prev) => {
+      if (!prev.has(relPath)) return prev;
+      const next = new Set(prev);
+      next.delete(relPath);
+      return next;
+    });
+  }), []);
 
   /** 닫힌 탭의 보기 모드는 들고 있지 않는다 — 열려 있는 탭만 남긴다. */
   useEffect(() => {
@@ -599,6 +644,7 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
 
   // ㉔ — 이 판이 서는 조건. 종전 편집창의 그 조기 반환에 **무대 축 하나가 더해진 것**뿐이다:
   //   비출 파일이 있거나, 무대가 열려 있거나. 둘 다 아니면 한 픽셀도 차지하지 않는다.
+  //   (⑰ 최대화를 푸는 효과의 `paneShown` 이 이 조건의 거울이다 — 고치면 둘을 함께 고친다.)
   if (!stageActive && (files.length === 0 || !activePath)) return null;
 
   // 덮개로 뜰 때도 **활동바까지 먹지는 않는다** — 활동바가 아직 자리에 서 있는 폭(창만 좁힌
@@ -649,6 +695,9 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
         </div>
       )}
 
+      {/* ⑰ 최대화 중에는 탭 줄이 걷힌다. 조건부로 빼도 뒤따르는 본문(편집기·iframe)은 같은 자리의
+          같은 노드라 다시 그려지지 않는다 — 보던 페이지·커서·되돌리기 기록이 그대로다. */}
+      {!maximized && (
       <IDEEditorTabs
         files={files}
         labels={labels}
@@ -667,13 +716,15 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
           onSelect: () => setActive(null),
           onClose: () => setStageOpen(false),
         } : undefined}
+        onMaximize={handleMaximize}
       />
+      )}
 
       {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠. 켜져 있는 동안만 서고, 방금 무엇을 했는지(자동으로 다시 읽었다는
           사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록.
           ㉔ — 무대 탭에는 서지 않는다: 문구가 "그 파일을 다시 읽었다"라 비추는 것이 파일일 때만 참이고,
           무대는 그 자체가 도는 단계를 따라가므로 따로 알릴 것이 없다(⑯ 이 두 축을 한 스위치로 묶었다). */}
-      {!stageActive && followOn && (
+      {!maximized && !stageActive && followOn && (
         <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[12px] ${
           bannerSkip
             ? 'border-amber-500/40 bg-amber-500/10 text-amber-200/90'
@@ -726,8 +777,9 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
 
       {/* 손잡이 줄 — 전체 경로(누르면 그 폴더가 열린다) + 저장·다시 읽기·밖에서 열기.
           ㉔ — 무대 탭에는 이 줄이 서지 않는다(무대에는 경로도 저장도 없다). 그 자리에는 무대가
-          자기 손잡이 줄을 같은 높이·같은 톤으로 세운다(`IDEStageView` — 탭을 옮겨도 줄이 안 튄다). */}
-      {!stageActive && (
+          자기 손잡이 줄을 같은 높이·같은 톤으로 세운다(`IDEStageView` — 탭을 옮겨도 줄이 안 튄다).
+          ⑰ 최대화 중에는 걷힌다(경로 = 사용자가 가리고 싶어 한 "주소"). */}
+      {!maximized && !stageActive && (
       <div className="flex items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <button
           type="button"
@@ -922,7 +974,7 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
       {/* 본문 */}
       {stageActive ? (
         /* ㉔ — 무대 탭의 몸통. 파일 본문과 **같은 자리**를 쓴다(형제로 서면 판이 둘로 갈린다). */
-        <IDEStageView />
+        <IDEStageView cornerReserved={maximized} />
       ) : !doc || doc.status === 'loading' ? (
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.loading')}</p>
       ) : doc.status === 'error' ? (
@@ -960,6 +1012,7 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
           relPath={activePath}
           mtimeMs={doc.mtimeMs ?? 0}
           onOpenExternal={handleOpenInBrowser}
+          barHidden={maximized}
         />
       ) : (
         <CodeEditor
@@ -984,6 +1037,35 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
       {/* §5.5 #17-27 ⑨ — 탭 우클릭 메뉴(본문·줄 번호 메뉴는 `CodeEditor` 가 자기 자리에서 띄운다). */}
       {tabMenu && (
         <IDEContextMenu x={tabMenu.x} y={tabMenu.y} items={tabMenu.items} onClose={() => setTabMenu(null)} />
+      )}
+
+      {/* ⑰ [원래대로] — 판 오른쪽 위 구석에 숨어 있다가 마우스가 들어오면 떠오른다.
+          구석을 잡는 것은 본문 위에 겹친 **이 층**이다: 페이지는 iframe(별도 문서)이라 판이 그 위의
+          마우스 움직임을 받지 못한다. 그래서 층은 버튼 하나 들어갈 만큼만 작게 둔다(본문을 덜 가린다).
+          켠 직후에는 `restoreHint` 로 잠깐 드러나 있다가 같은 전환으로 가라앉는다. */}
+      {maximized && (
+        <div className="group/restore absolute right-0 top-0 z-30 flex h-9 w-14 items-start justify-end p-1">
+          <button
+            type="button"
+            onClick={handleRestore}
+            title={t('ide.editor.restorePane')}
+            aria-label={t('ide.editor.restorePane')}
+            className={`flex items-center justify-center rounded-md border border-gray-700 bg-gray-900/90 p-1 text-gray-300 shadow-lg shadow-black/40 backdrop-blur-sm transition-all duration-200 ease-out hover:bg-gray-800 hover:text-white focus-visible:translate-y-0 focus-visible:opacity-100 group-hover/restore:translate-y-0 group-hover/restore:opacity-100 ${
+              restoreHint ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0'
+            }`}
+          >
+            {/* 네 모서리가 안으로 접힌 그림(lucide `minimize`) — [최대화] 그림의 짝. */}
+            <svg
+              className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+            >
+              <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+              <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+              <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+              <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   );

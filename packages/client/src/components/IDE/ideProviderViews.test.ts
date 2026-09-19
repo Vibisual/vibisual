@@ -24,17 +24,22 @@ const CODEX = 'codex-cli';
 const CLAUDE_ONLY: IDEViewType[] = ['subagents', 'specReading'];
 /** 로컬에는 없지만 **코덱스에는 대응물이 있는** 여섯. 이 배열이 이 회차의 요점이다. */
 const CODEX_HAS_TOO: IDEViewType[] = ['mcp', 'context', 'skills', 'hooks', 'plugins', 'verify'];
+/**
+ * §5.3 #10-4 — 우리 기능인데 **지휘 절차가 Bash 로 loopback REST 를 치는 것**이라 로컬 엔진에서는
+ * 가로채기가 걸리지 않는 것. 화면은 클로드·코덱스가 같은 것을 쓴다(코덱스 화면으로 갈아 끼울 것이 없다).
+ */
+const CONDUCTING: IDEViewType[] = ['orchestra'];
 
 describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
   it('클로드 버블은 종전 그대로 전부 보인다', () => {
-    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...LOCAL_PROVIDER_VIEWS]) {
+    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING, ...LOCAL_PROVIDER_VIEWS]) {
       expect(isViewAllowedForProvider(v, CLAUDE)).toBe(true);
     }
     expect(viewsForProviderKind(CLAUDE)).toBeNull();
   });
 
   it('로컬 버블에서는 클로드 CLI 에 매인 항목이 전부 빠진다(§5.19 (G) 그대로)', () => {
-    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO]) {
+    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING]) {
       expect(isViewAllowedForProvider(v, LOCAL)).toBe(false);
     }
     // §5.10 (P) — `autoGoal`(절차 감지)이 `goal` 에서 갈라져 나와 여기도 한 칸 늘었다.
@@ -43,6 +48,14 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
 
   it('코덱스 버블에는 다섯이 **되살아난다** — 코덱스에 실제로 있는 기능이다', () => {
     for (const v of CODEX_HAS_TOO) expect(isViewAllowedForProvider(v, CODEX)).toBe(true);
+  });
+
+  it('오케스트라 칸은 클로드·코덱스에 서고 로컬에는 서지 않는다 (§5.3 #10-4)', () => {
+    // 로컬에 세우면 켜 둬도 가로채기가 영영 걸리지 않는 스위치가 된다.
+    expect(isViewAllowedForProvider('orchestra', CODEX)).toBe(true);
+    expect(isViewAllowedForProvider('orchestra', LOCAL)).toBe(false);
+    expect(fallbackViewForProvider('orchestra', LOCAL)).toBe('files');
+    expect(fallbackViewForProvider('orchestra', CODEX)).toBe('orchestra');
   });
 
   it('코덱스에도 대응물이 없는 것은 여전히 빠진다', () => {
@@ -66,7 +79,7 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
 
   it('코덱스 목록은 로컬 목록을 **품는다**(중립 항목이 한쪽에서만 빠지지 않게)', () => {
     for (const v of LOCAL_PROVIDER_VIEWS) expect(CODEX_PROVIDER_VIEWS).toContain(v);
-    expect(CODEX_PROVIDER_VIEWS.length).toBe(LOCAL_PROVIDER_VIEWS.length + CODEX_HAS_TOO.length);
+    expect(CODEX_PROVIDER_VIEWS.length).toBe(LOCAL_PROVIDER_VIEWS.length + CODEX_HAS_TOO.length + CONDUCTING.length);
   });
 
   it('없는 뷰가 열려 있으면 파일로 떨어뜨린다(빈 사이드바 ❌)', () => {
@@ -135,8 +148,11 @@ const sidebarSource = import.meta.glob('./IDESidebar.tsx', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
 
-/** 엔진과 무관한 칸 — 우리 기능이거나 폴더라 코덱스도 같은 화면을 쓴다(갈아 끼울 것이 없다). */
-const ENGINE_NEUTRAL: IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop'];
+/**
+ * 엔진과 무관한 칸 — 우리 기능이거나 폴더라 코덱스도 같은 화면을 쓴다(갈아 끼울 것이 없다).
+ * `orchestra` 는 로컬에는 서지 않지만(위 `CONDUCTING`) 코덱스에서는 클로드와 **같은 화면**이라 여기 든다.
+ */
+const ENGINE_NEUTRAL: IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop', ...CONDUCTING];
 
 describe('§5.25 (M) 코덱스 칸은 코덱스 화면을 그린다', () => {
   /** `CODEX_VIEW_MAP` 리터럴 안의 키 이름들. */

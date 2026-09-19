@@ -138,8 +138,11 @@ export function useAutoGoalScope(
   };
 }
 
-/** 켜짐·꺼짐·상속 세 모양의 글리프 — 이모지 ❌, lucide 톤 stroke SVG(정독과 같은 그림). */
-function ScopeGlyph({ own, effective }: { own: boolean | null; effective: boolean }): React.JSX.Element {
+/**
+ * 켜짐·꺼짐·상속 세 모양의 글리프 — 이모지 ❌, lucide 톤 stroke SVG(정독과 같은 그림).
+ * 오케스트라 스위치(§5.3 #10-4)도 같은 그림을 쓴다 — 같은 3값 순환이 두 그림이면 서로 다른 스위치로 읽힌다.
+ */
+export function ScopeGlyph({ own, effective }: { own: boolean | null; effective: boolean }): React.JSX.Element {
   const tone = own === null ? 'text-gray-600' : effective ? 'text-emerald-400' : 'text-gray-500';
   const common = {
     className: `h-3.5 w-3.5 flex-shrink-0 ${tone}`,

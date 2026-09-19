@@ -1206,8 +1206,19 @@ export interface LocalTurnArgs {
    * 또 보내면 주인이 둘이 되어 상태가 서로를 덮어쓴다.
    */
   onHookEvent?: (event: LocalHookToolEvent) => void;
-  /** 턴이 끝나면 한 번. `error` 가 있으면 실패. */
-  onDone: (error?: string) => void;
+  /** 턴이 끝나면 한 번. `error` 가 있으면 실패. `done` 은 성공으로 끝난 턴에만 싣는다. */
+  onDone: (error?: string, done?: LocalTurnDoneInfo) => void;
+}
+
+/**
+ * §5.5 #17-12 ③-6 — 로컬 턴이 **왜** 끝났는지의 날것. 호출자가 `TurnStopReason` 으로 접는다.
+ * 엔진의 낱말은 OpenAI 호환(`stop`·`length`·`content_filter`)이라 여기서 옮기지 않는다.
+ */
+export interface LocalTurnDoneInfo {
+  /** 마지막 왕복의 `finish_reason`. */
+  finishReason?: string;
+  /** 도구 왕복 상한(`LOCAL_TOOL_MAX_ROUNDS`)에 닿아 멈췄다. */
+  maxRounds?: boolean;
 }
 
 /**
@@ -1337,6 +1348,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
       //   시도하고, 그래도 넘치면 그때부터는 덜어 낸다.
       let compacted = false;
       let finishReason: string | null = null;
+      let hitMaxRounds = false;
 
       for (let round = 0; round < LOCAL_TOOL_MAX_ROUNDS; round += 1) {
         // 답 예산은 **왕복마다 다시 잡는다** — 도구 결과가 쌓여 프롬프트가 커진 만큼 답의 몫이
@@ -1556,6 +1568,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
 
         if (ac.signal.aborted) break;
         if (round === LOCAL_TOOL_MAX_ROUNDS - 1) {
+          hitMaxRounds = true;
           onEvent('system', `[local] stopped after ${String(LOCAL_TOOL_MAX_ROUNDS)} tool rounds — ask again to continue`);
         }
       }
@@ -1577,7 +1590,10 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         persist();
       }
       onEvent('result', assistant);
-      onDone();
+      onDone(undefined, {
+        ...(finishReason ? { finishReason } : {}),
+        ...(hitMaxRounds ? { maxRounds: true } : {}),
+      });
     } catch (err) {
       const aborted = ac.signal.aborted;
       stream.flush(); // 붙잡아 둔 마지막 조각까지 화면에 보낸 뒤에 끝맺는다

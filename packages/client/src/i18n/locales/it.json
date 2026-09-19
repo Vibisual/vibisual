@@ -1496,7 +1496,17 @@
       "stackCount": "{{current}} di {{total}} in attesa",
       "emptyToolInput": "(vuoto)",
       "askedByToolTitle": "Tool per cui hai chiesto conferma",
-      "askedByToolHint": "Hai contrassegnato {{tool}} come “chiedi prima dell'uso” nelle impostazioni di questo agente, quindi chiede conferma anche in modalità Bypass."
+      "askedByToolHint": "Hai contrassegnato {{tool}} come “chiedi prima dell'uso” nelle impostazioni di questo agente, quindi chiede conferma anche in modalità Bypass.",
+      "allowOnce": "Consenti una volta",
+      "allowAlways": "Consenti sempre",
+      "allowSession": "Consenti per questa sessione",
+      "rejectOnce": "Nega una volta",
+      "rejectAlways": "Nega sempre",
+      "rejectAlwaysDisallowedTitle": "Aggiunge {{tool}} agli strumenti bloccati di questo agent: verrà bloccato senza chiedere.",
+      "rejectAlwaysCodexTitle": "Imposta il gruppo di strumenti {{group}} su Nega nelle impostazioni strumenti Codex di questo agent.",
+      "allowSessionTitle": "Non chiederà più per {{tool}} in questa sessione. Viene dimenticato al riavvio dell’app: cambia la modalità di autorizzazione per consentirlo in modo permanente.",
+      "allowAlwaysAskToolsTitle": "Rimuove {{tool}} dall’elenco «Chiedi prima dell’uso» di questo agent.",
+      "allowAlwaysCodexTitle": "Imposta il gruppo di strumenti {{group}} su Consenti nelle impostazioni strumenti Codex di questo agent."
     },
     "claudeVersionGate": {
       "title": "Aggiornamento Claude Code disponibile",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "Negata",
       "sourceTimeout": "per timeout",
       "sourcePolicy": "per modalità",
+      "sourceCancelled": "annullata",
       "reason": "Motivo",
       "countSummary": "{{total}} chiamate · {{risky}} rischiose · {{denied}} negate",
       "showMore": "Mostra altre {{count}}",
@@ -2732,6 +2743,7 @@
       "loop": "Ciclo di ripetizione",
       "goal": "Obiettivo",
       "autoGoal": "Rilevamento procedure",
+      "orchestra": "Orchestra",
       "debug": "Esegui e debug",
       "hooks": "Hook di sessione",
       "plugins": "Plugin di Claude Code",
@@ -3036,6 +3048,8 @@
       "pinTabs": "Blocca le schede — restano aperte quando cambi sessione",
       "unpinTabs": "Sblocca le schede — ogni sessione ha le proprie schede",
       "closePane": "Chiudi pannello editor",
+      "maximizePane": "Ingrandisci — nascondi le barre di schede, percorso e indirizzo",
+      "restorePane": "Ripristina — mostra di nuovo le barre di schede, percorso e indirizzo",
       "closeDirtyConfirm": "Questo file ha modifiche non salvate. Chiuderlo comunque?",
       "conflict": "Questo file è cambiato su disco dopo che lo hai aperto.",
       "conflictReload": "Ricarica",
@@ -3202,7 +3216,16 @@
         "openApp": "Apri in {{app}} — {{path}}",
         "openExternal": "Apri con l’app predefinita — {{path}}",
         "revealOutsideFolder": "Apri nel gestore file — {{path}}",
-        "revealOutsideFile": "Mostra nel gestore file (apre la cartella che lo contiene) — {{path}}"
+        "revealOutsideFile": "Mostra nel gestore file (apre la cartella che lo contiene) — {{path}}",
+        "menu": {
+          "revealFile": "Apri percorso file",
+          "openPage": "Apri come pagina web (nell'app)",
+          "openBrowser": "Apri nel browser esterno",
+          "copyRelativePath": "Copia percorso relativo",
+          "openApp": "Apri in {{app}}",
+          "run": "Esegui programma",
+          "outsideRoot": "I percorsi fuori dal progetto si aprono solo nel gestore file"
+        }
       },
       "restartResumed": "Interrotto alla chiusura dell’app — ripreso sulla sessione salvata.",
       "nestedSubagent": "Subagente",
@@ -3422,6 +3445,13 @@
       "orphaned": "Interrotto al riavvio dell'app",
       "dispatchResult": "Terminato senza ricevere il risultato dell'attività delegata",
       "unknown": "Fallito per un motivo sconosciuto"
+    },
+    "turnStop": {
+      "cancelled": "Interrotto da te",
+      "maxTokens": "Limite di output",
+      "maxTurns": "Limite di turni",
+      "refusal": "Rifiuto del modello",
+      "usageLimit": "Limite di utilizzo"
     },
     "density": {
       "label": "Densità di visualizzazione",
@@ -4391,6 +4421,139 @@
       "dismiss": "Non è una procedura (smetti di suggerirla)",
       "watching": "Scansionate {{observed}} azioni — una sequenza viene scritta quando lo stesso ordine si ripresenta {{runs}} volte.",
       "empty": "Ancora niente da scansionare. Si riempie non appena i tuoi agenti iniziano a lavorare."
+    },
+    "orchestra": {
+      "title": "Orchestra",
+      "about": "Quando è attiva, l'agent a cui dai un ordine diventa il direttore d'orchestra per quel turno: decide che tipo di richiesta sia, se dividere il lavoro, quali agent creare e come collegarli con degli edge, e quali strategie di risparmio token si adattano. Riporta questo piano con le sue motivazioni prima che qualsiasi membro inizi.",
+      "effectiveOn": "Attiva per questo agent — il tuo prossimo ordine sarà diretto.",
+      "effectiveOff": "Disattivata per questo agent — gli ordini arrivano direttamente a lui, come al solito.",
+      "noProject": "Apri prima un progetto.",
+      "saveFailed": "Salvataggio non riuscito ({{reason}}).",
+      "costWarning": "Usare più agent può costare più di uno solo, non meno — ogni membro rilegge da capo le proprie regole e i propri file. Al direttore d'orchestra viene detto di rispondere direttamente quando una richiesta è piccola.",
+      "useAgentSetting": "Usa l'impostazione di questo agent",
+      "conductorPicks": "Il direttore d'orchestra decide",
+      "activity": {
+        "on": "on",
+        "conducting": "{{count}} in direzione"
+      },
+      "scope": {
+        "project": "Intero progetto",
+        "agent": "Questo agente",
+        "inherited": "Ereditato",
+        "on": "On",
+        "off": "Off",
+        "unavailable": "Non selezionabile qui — apri prima una scheda agente.",
+        "hint": "Quello più in basso subentra a quello sopra. Ogni clic avanza: On → Off → Ereditato. I membri creati dal direttore d'orchestra non dirigono mai se stessi."
+      },
+      "blocked": {
+        "lead": "Anche se attivo, questo agent non dirigerà perché:",
+        "localEngine": "Funziona su un modello locale — dirigere richiede Claude o Codex.",
+        "notCustom": "Solo le bolle Custom Agent create sul canvas possono dirigere.",
+        "autoBubble": "È una bolla Auto Agent, che organizza già il proprio gruppo.",
+        "terminal": "Funziona in un terminale integrato, dove i tool e le istruzioni di un singolo turno non possono essere scambiati."
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "Direttore d'orchestra",
+        "about": "Il direttore d'orchestra è questo stesso agent, solo per quel turno — le sue impostazioni salvate non cambiano. Il suo motore segue l'agent (cambiare motore a metà sessione interromperebbe la sessione), quindi qui si impostano solo il modello e lo sforzo per ciascun motore.",
+        "thisAgent": "questo agent"
+      },
+      "field": {
+        "model": "Modello",
+        "effort": "Sforzo",
+        "reasoning": "Ragionamento",
+        "permission": "Autorizzazioni per il turno diretto",
+        "askQuestions": "Lascia che il direttore d'orchestra mi faccia domande",
+        "askQuestionsHint": "Aggiunge AskUserQuestion ai suoi tool. Disattivato per impostazione predefinita — quando attivo, un ordine vago può fermarsi finché non rispondi.",
+        "engine": "Motore dei membri",
+        "maxMembers": "Numero massimo di membri creabili"
+      },
+      "permission": {
+        "bypass": "Salta le richieste di autorizzazione",
+        "inherit": "Usa la modalità di autorizzazione di questo agent",
+        "bypassHint": "Il direttore d'orchestra chiama da solo l'API locale di Vibisual, quindi funziona senza richieste di autorizzazione. Non può comunque modificare il codice — Write ed Edit vengono rimossi per il suo turno.",
+        "inheritHint": "Il direttore d'orchestra chiede l'autorizzazione come farebbe normalmente questo agent. Organizzare un gruppo richiede diverse chiamate, quindi potrebbe fermarsi e aspettare la tua risposta più di una volta."
+      },
+      "member": {
+        "title": "Membri",
+        "about": "I membri sono gli agent che il direttore d'orchestra crea sul canvas. Riusa prima i membri delle esecuzioni precedenti. I campi vuoti lasciano la scelta al direttore d'orchestra.",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "Il direttore d'orchestra sceglie per ruolo"
+        },
+        "maxDefault": "{{count}} (integrato)"
+      },
+      "strategies": {
+        "title": "Strategie di risparmio token",
+        "about": "L'analisi token precedente, parola per parola. Il direttore d'orchestra non le applica tutte — per ogni richiesta sceglie solo quelle adatte e ne scrive il motivo, e le sue scelte compaiono nella cronologia esecuzioni qui sotto. Le voci deselezionate vengono rimosse dalle sue regole.",
+        "count": "{{allowed}} / {{total}} consentite",
+        "referenceOnly": "riferimento",
+        "referenceOnlyTip": "Per questa non c'è alcuna impostazione che il direttore d'orchestra possa cambiare, quindi non può sceglierla — può solo consigliartela nella sua nota.",
+        "allowedTip": "Il direttore d'orchestra può scegliere questa. Clicca per toglierla dalle sue regole.",
+        "deniedTip": "Tolta dalle regole del direttore d'orchestra. Clicca per consentirla di nuovo.",
+        "estimate": "Stima originale:",
+        "original": "Analisi originale",
+        "applyTitle": "Come il direttore d'orchestra la applica",
+        "knobs": "Impostazioni che può cambiare",
+        "memberRule": "Istruzione aggiunta per i membri",
+        "topologyRule": "Regola di disposizione"
+      },
+      "strategy": {
+        "subagents": "Subagent",
+        "output": "Output",
+        "autoCompact": "Compattazione automatica",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md e MEMORY.md",
+        "prevOutput": "Rilettura dell'output del turno precedente",
+        "shell": "Esplorazione shell",
+        "systemPrompt": "Prompt di sistema e definizioni dei tool",
+        "subagentReports": "Report dei subagent",
+        "web": "Ricerche web",
+        "reminders": "Promemoria per turno",
+        "preamble": "Preambolo di Vibisual",
+        "other": "Altro"
+      },
+      "analysis": {
+        "show": "Mostra il resto dell'analisi (risultati, pratiche, valori, fonti)",
+        "hide": "Nascondi il resto dell'analisi"
+      },
+      "runs": {
+        "title": "Esecuzioni",
+        "empty": "Ancora nessun ordine diretto. Attivalo qui sopra e dai un ordine a questo agent.",
+        "chosen": "Scelte ({{count}})",
+        "skipped": "Escluse ({{count}})",
+        "note": "Nota:",
+        "entry": "Avviato con {{name}}",
+        "members": "Membri ({{count}}): {{names}}",
+        "created": "— {{count}} appena creati",
+        "tokens": "Token: {{input}} in · {{output}} out",
+        "noPlan": "Il direttore d'orchestra ha finito senza segnalare un piano."
+      },
+      "phase": {
+        "conducting": "In direzione",
+        "dispatched": "Delegato",
+        "answered": "Risposta diretta",
+        "unreported": "Nessun piano segnalato",
+        "error": "Errore"
+      },
+      "intent": {
+        "question": "Domanda",
+        "quick-fix": "Correzione rapida",
+        "feature": "Funzionalità",
+        "research": "Ricerca",
+        "debug": "Debug",
+        "refactor": "Refactoring"
+      },
+      "topology": {
+        "none": "Nessun gruppo",
+        "single": "Un membro",
+        "pipeline": "Pipeline",
+        "parallel": "In parallelo"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "+{{n}} altri"
   },
   "providers": {
+    "settingsScope": "Ambito delle impostazioni",
+    "globalScope": "Valori predefiniti per tutti i progetti",
+    "projectScope": "Valori predefiniti del progetto attuale",
+    "globalSettingsHint": "Si applica a tutti i progetti. Le impostazioni specifiche di progetti e agenti sono mantenute. Le modifiche valgono dalla prossima esecuzione.",
+    "projectSettingsHint": "Vengono salvate solo le differenze rispetto ai valori globali. Le impostazioni dei singoli agenti sono mantenute. Si applica dalla prossima esecuzione.",
+    "codexAdvanced": "Impostazioni avanzate di esecuzione di Codex",
+    "inheritSetting": "Eredita impostazioni superiori / di Codex",
+    "reasoningSummary": "Riepilogo del ragionamento",
+    "personality": "Stile di comunicazione",
+    "personalityHint": "Lo stile si applica ai modelli compatibili.",
+    "serviceTier": "Livello di servizio",
+    "serviceTierHint": "Inserisci un livello supportato dal modello (ad esempio fast). I livelli più rapidi possono influire su consumo e prezzo.",
+    "autoCompactTokenLimit": "Soglia di compressione automatica (token)",
+    "codexTools": "Autorizzazioni degli strumenti",
+    "inheritProject": "Valori del progetto / globali",
+    "individualSettingsHint": "Si applica a questo agente. Le impostazioni uguali ai valori predefiniti continuano a seguire le modifiche del progetto e globali.",
+    "codexValues": {
+      "auto": "Automatico",
+      "concise": "Conciso",
+      "detailed": "Dettagliato",
+      "none": "Nessuno",
+      "friendly": "Amichevole",
+      "pragmatic": "Pragmatico"
+    },
     "provider": "Provider",
     "claude": "Claude",
     "codex": "Codex",

@@ -26,6 +26,7 @@ import {
   classifyToolRisk,
   costDayKey,
   emptyAuditCounts,
+  isAuditEntryDenied,
   isDefaultAuditBoundary,
   normalizeAuditBoundary,
   summarizeToolCall,
@@ -121,6 +122,14 @@ function clipReason(reason: string | undefined): string | undefined {
 }
 
 /**
+ * §5.22 · §5.3 #12-1-B — **거부 수에 드는 줄인가.** 판정은 shared `isAuditEntryDenied` 한 곳이다 —
+ * 타임라인의 거부 탭이 같은 함수로 거르므로, 여기서 따로 적으면 탭 숫자와 목록 길이가 어긋난다.
+ */
+export function countsAsDenied(e: Pick<AuditEntry, 'decision' | 'decisionSource'>): boolean {
+  return isAuditEntryDenied(e);
+}
+
+/**
  * 원장을 훑어 집계를 만든다 — 파생을 따로 누적하지 않는다(한 벌만 진실이면 어긋날 수 없다).
  *
  * 보관 상한이 사용자 손에 있어 원장이 길어질 수 있으므로, 이 접기는 **브로드캐스트마다가 아니라
@@ -136,7 +145,7 @@ function foldCounts(state: LedgerState, now: number): AuditCounts {
       counts.risky += 1;
       if (costDayKey(e.at) === today) counts.todayRisky += 1;
     }
-    if (e.decision === 'deny') counts.denied += 1;
+    if (countsAsDenied(e)) counts.denied += 1;
     if (e.escalated) counts.escalated += 1;
   }
   counts.total += state.retired.entries;
@@ -160,7 +169,7 @@ function trim(state: LedgerState, max: number): void {
     if (dropped.toolUseId) state.byToolUse.delete(dropped.toolUseId);
     state.retired.entries += 1;
     if (dropped.riskKinds.length > 0) state.retired.risky += 1;
-    if (dropped.decision === 'deny') state.retired.denied += 1;
+    if (countsAsDenied(dropped)) state.retired.denied += 1;
   }
 }
 

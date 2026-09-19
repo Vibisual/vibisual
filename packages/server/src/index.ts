@@ -1,3 +1,4 @@
+import { agentRuleShell } from '@vibisual/shared';
 import { readCodexUsage } from './services/codexUsageService.js';
 import express from 'express';
 import cors from 'cors';
@@ -87,6 +88,10 @@ import {
 import type { VerificationRun, VerificationDemo, VerificationDemoStep } from '@vibisual/shared';
 import { absorbMergeFollowUps } from './services/followUpMerge.js';
 import { permissionBroker } from './services/permissionBroker.js';
+// §5.3 #12-1-B — 카드의 답 넷("항상"이 적히는 칸)과 세션 기억.
+import { permissionSessionGrants } from './services/permissionSessionGrants.js';
+import { isToolDisallowed, PERMISSION_CHOICES, foldPermissionChoice, applyToolListAlways, permissionDecisionSource, codexToolGroup } from '@vibisual/shared';
+import type { PermissionChoice, PermissionRequest } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계. 위험 판정은 shared 순수 함수 한 곳(서버·클라 같은 답).
 import { shouldEscalateRisk, normalizeAuditBoundary } from '@vibisual/shared';
 // §5.22 — 위험 판정은 호스트 값(플랫폼·홈)을 물린 이 창구 하나로. 승인 카드와 타임라인이 같은 답을 본다.
@@ -123,6 +128,36 @@ import {
   readAutoGoalSkillBody,
   buildAutoGoalPromptBlock,
 } from './services/autoGoalService.js';
+// §5.3 #10-4 오케스트라(지휘 모드) — 켬/끔 2층 · 세부 설정 · 지휘 규칙은 shared, 판정은 orchestraRuntime.
+import {
+  ORCHESTRA_SCOPE_ORDER,
+  applyOrchestraSettingsPatch,
+  buildOrchestraConductorRules,
+  clipOrchestraRequest,
+  normalizeOrchestraSettings,
+  resolveOrchestraEnabled,
+  validateOrchestraPlan,
+  withOrchestraScope,
+  type BubbleData,
+  type OrchestraEdgeRef,
+  type OrchestraMemberRef,
+  type OrchestraRun,
+  type OrchestraScope,
+} from '@vibisual/shared';
+import {
+  addOrchestraMember,
+  addOrchestraRunTokens,
+  applyOrchestraPlan,
+  buildConductorTurnConfig,
+  checkOrchestraKickoff,
+  checkOrchestraMemberCreate,
+  collectOrchestraMemberIds,
+  orchestraEngineOf,
+  orchestraRunIdForCommand,
+  settleConductorTurn,
+  shouldInterceptOrchestra,
+  type OrchestraCheck,
+} from './services/orchestraRuntime.js';
 import type { SpecReadingScope, SpecReadingSettings } from '@vibisual/shared';
 import { specReadingService } from './services/specReadingService.js';
 
@@ -312,7 +347,7 @@ import { describeToolTarget, extractTaskResultText } from './services/subagentAc
 import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree, unregisterSpawnedPid } from './services/processTree.js';
 import { validatePathWithinRoot } from './services/pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
-import { CASE_INSENSITIVE_FS, pathKey, samePath } from './services/pathKey.js';
+import { CASE_INSENSITIVE_FS, HOST_PLATFORM, pathKey, samePath } from './services/pathKey.js';
 import { openFile, openFileAtSearch, openFolder, openWithDefaultApp } from './services/editorLauncher.js';
 import { isMicSettingsOpenable, openMicSettings, micSettingsHintKey } from './services/micSettingsOpener.js';
 // §5.13 (R-8) — 못 읽는 영상·소리를 우리 안에서 열기 위한 변환 레일.
@@ -1859,7 +1894,10 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   app.get('/api/codex-config', (req, res) => {
     try {
-      const cwd = codexInventoryCwd(req.query['agentId']) ?? os.homedir();
+      const projectPath = req.query['projectPath'];
+      const selected = typeof projectPath === 'string' ? Object.values(graphManager.getProjects()).find(project => project.path === projectPath)?.path : undefined;
+      if (projectPath !== undefined && !selected) { res.status(400).json({ error: 'Unknown project' }); return; }
+      const cwd = req.query['scope'] === 'global' ? os.homedir() : selected ?? codexInventoryCwd(req.query['agentId']) ?? os.homedir();
       res.json(readCodexEffectiveConfigFor(cwd));
     } catch {
       res.status(500).json({ error: 'Internal server error' });
@@ -2571,7 +2609,7 @@ export async function runServer(): Promise<RunServerHandle> {
     parts.push({
       id: CONTEXT_SOURCE_IDS.compactSelf,
       text: (agentConfig?.agentCanCompact === true && subAgentId)
-        ? buildAgentSelfCompactRule(agent.id, subAgentId)
+        ? buildAgentSelfCompactRule(agent.id, subAgentId, agentRuleShell(agentConfig?.provider?.kind === 'codex-cli' ? 'codex' : 'claude', HOST_PLATFORM))
         : '',
     });
     // §5.26 (E) 3단계 — 압축 뒤 **딱 한 턴만** 실리는 복원 브리핑. 평소에는 빈 줄(0자)이다.
@@ -2622,6 +2660,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // 아래는 커스텀/스폰 에이전트에만 실리는 것들(§4 v2.52 하이브리드 경계) — 훅 에이전트는 빈 줄로 선다.
     const ruleArgs = {
+      shell: agentRuleShell(agentConfig?.provider?.kind === 'codex-cli' ? 'codex' : 'claude', HOST_PLATFORM),
       serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
       serverToken: hookListenerToken ?? '',
       agentId: agent.id,
@@ -2812,6 +2851,116 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
+  /*
+   * §5.3 #10-4 — 오케스트라 **지휘 턴의 덮어쓴 설정**. 키는 그 턴의 subAgentId(권한 훅이 보내는 값).
+   *   권한 창구 두 곳(`/api/permission-check`·`/api/codex-tool-check`)은 원래 저장된 설정을 읽는데, 지휘 턴은
+   *   도구·권한·모델을 **그 턴에만** 바꾼다. 이 표가 없으면 창구가 저장된 권한으로 다시 판정해 지휘자의
+   *   curl 이 승인 카드에 걸려 멈추거나, Codex 지휘자의 편집 막기가 풀린다. 턴이 끝나면(`setOnComplete`)
+   *   또는 명령을 지우면(DELETE) 그 명령의 항목을 내린다.
+   */
+  const orchestraTurnConfigs = new Map<string, { agentId: string; commandId: string; config: AgentConfig }>();
+
+  /** 권한 창구가 볼 설정 — 그 세션이 지휘 턴 중이면 덮어쓴 설정, 아니면 저장된 설정. */
+  function agentConfigForTurn(agentId: string, subAgentId: unknown): AgentConfig | undefined {
+    const overlay = typeof subAgentId === 'string' ? orchestraTurnConfigs.get(subAgentId) : undefined;
+    if (overlay && overlay.agentId === agentId) return overlay.config;
+    return graphManager.getAgentConfig(agentId);
+  }
+
+  /** 오케스트라 판정 실패를 REST 로 그대로 돌려준다(상한 판정이면 그 값도 함께). */
+  function respondOrchestraCheck(res: express.Response, check: Extract<OrchestraCheck, { ok: false }>): void {
+    res.status(check.status).json({
+      ok: false,
+      error: check.error,
+      ...(check.limit !== undefined ? { limit: check.limit, current: check.current } : {}),
+    });
+  }
+
+  /**
+   * §5.3 #10-4 — 이 명령이 **지휘 턴**이면 그 턴의 설정·규칙을 만든다. 아니면 null(= 이 기능이 없던 때와 똑같다).
+   * 런이 `conducting` 이고 그 런의 지휘 명령일 때만이다 — 킥오프(멤버 쪽)·엣지 명령은 지휘 턴이 아니다.
+   * 규칙에는 이 지휘자가 이전 런들에서 쓴 멤버 중 **아직 캔버스에 있는 것**과 그들 사이의 엣지를 싣는다.
+   */
+  function prepareConductorTurn(
+    agent: BubbleData,
+    cmd: QueuedCommand,
+    base: AgentConfig,
+    stripped: ReadonlySet<string>,
+  ): { config: AgentConfig; rules: string } | null {
+    if (!cmd.orchestraRunId) return null;
+    const run = graphManager.findOrchestraRun(cmd.orchestraRunId);
+    if (!run || run.commandId !== cmd.id || run.agentId !== agent.id || run.phase !== 'conducting') return null;
+    // 엔진은 **지금 설정**을 따른다(가로챈 뒤 사용자가 엔진을 바꿨을 수 있다). 로컬로 바뀌었으면 지휘하지 않는다.
+    const engine = orchestraEngineOf(base);
+    if (!engine) return null;
+    const settings = graphManager.getOrchestraSettings(run.projectPath);
+    const agents = graphManager.getSnapshot().agents;
+    const existingMembers: OrchestraMemberRef[] = [];
+    for (const id of collectOrchestraMemberIds(graphManager.getOrchestraRuns(run.projectPath), agent.id)) {
+      const node = agents.find((a) => a.id === id);
+      if (!node?.customCreated) continue; // 지워진 멤버는 싣지 않는다 — 없는 path 로 킥오프하게 된다.
+      const cfg = graphManager.getAgentConfig(id);
+      const memberEngine = orchestraEngineOf(cfg);
+      const model = memberEngine === 'codex' ? cfg?.provider?.modelId : memberEngine === 'claude' ? cfg?.model : undefined;
+      existingMembers.push({
+        id,
+        label: node.label,
+        path: node.path,
+        engine: memberEngine ?? 'local',
+        ...(model ? { model } : {}),
+      });
+    }
+    const memberSet = new Set(existingMembers.map((m) => m.id));
+    const existingEdges: OrchestraEdgeRef[] = Object.values(graphManager.getTaskEdgesSnapshot())
+      .filter((e) => memberSet.has(e.sourceAgentId) && memberSet.has(e.targetAgentId))
+      .map((e) => ({
+        id: e.id,
+        sourceAgentId: e.sourceAgentId,
+        targetAgentId: e.targetAgentId,
+        ...(e.kind ? { kind: e.kind } : {}),
+        command: e.command,
+      }));
+    const rules = buildOrchestraConductorRules({
+      serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
+      projectName: graphManager.getAgentProjectName(agent.id),
+      runId: run.runId,
+      centerX: agent.position?.x ?? 0,
+      centerY: agent.position?.y ?? 0,
+      settings,
+      existingMembers,
+      existingEdges,
+      conductorEngine: engine,
+      // 절차의 셸 문법 — Windows 의 Codex 지휘자는 PowerShell 로 명령을 돌린다(`orchestraConductorShell`).
+      platform: HOST_PLATFORM,
+    });
+    return { config: buildConductorTurnConfig(base, settings, engine, stripped), rules };
+  }
+
+  /**
+   * §5.3 #10-4 — 끝난 명령의 오케스트라 정산. 지휘·킥오프·멤버 엣지 명령의 토큰을 그 런에 적고, 지휘 턴이면
+   * 단계를 닫는다(신고 없이 끝났으면 `unreported`). 그 턴의 덮어쓴 설정도 여기서 내린다.
+   */
+  function settleOrchestraCommands(done: readonly QueuedCommand[], ownerAgentId: string | null): void {
+    const orchestraRoot = ownerAgentId ? graphManager.getOrchestraRootForAgent(ownerAgentId) : null;
+    const runs = orchestraRoot ? graphManager.getOrchestraRuns(orchestraRoot) : [];
+    const now = Date.now();
+    let changed = false;
+    for (const cmd of done) {
+      if (cmd.subAgentId && orchestraTurnConfigs.get(cmd.subAgentId)?.commandId === cmd.id) {
+        orchestraTurnConfigs.delete(cmd.subAgentId);
+      }
+      if (runs.length === 0) continue;
+      const runId = orchestraRunIdForCommand(runs, cmd, ownerAgentId);
+      if (!runId) continue;
+      graphManager.updateOrchestraRun(runId, (r) => {
+        const next = settleConductorTurn(addOrchestraRunTokens(r, cmd.inputTokens ?? 0, cmd.outputTokens ?? 0), cmd, now);
+        if (next !== r) changed = true;
+        return next;
+      });
+    }
+    if (changed) scheduleCheckpoint();
+  }
+
   function processNextCommand(sessionId: string): void {
     const queue = commandQueues.get(sessionId);
     if (!queue) return;
@@ -2944,6 +3093,17 @@ export async function runServer(): Promise<RunServerHandle> {
       //   (블록은 목록만 싣도록 이미 조립됐으므로, 여기서 빠뜨리면 규칙이 어디에도 없다 — 둘은 한 벌이다).
       const specRulesBlock = pluginsOn && take(`${CONTEXT_PLUGIN_ID_PREFIX}${SPEC_DRIVEN_ID}`) ? assembled.specSystemRules : '';
       const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock;
+      // §5.3 #10-4 — 오케스트라 지휘 턴이면 **이 턴만** 설정을 덮어쓰고 편성 규칙을 시스템 프롬프트 뒤에 붙인다.
+      //   저장된 설정은 그대로다(다음 턴은 평소대로). 권한 창구가 같은 설정으로 판정하도록 턴 동안 표에 올린다.
+      const conductor = prepareConductorTurn(agent, next, effectiveConfig ?? DEFAULT_AGENT_CONFIG, stripSet);
+      const turnConfig = conductor?.config ?? effectiveConfig;
+      const turnAppendSystemPrompt = !conductor
+        ? appendSystemPrompt
+        : appendSystemPrompt.trim() ? `${appendSystemPrompt}\n\n${conductor.rules}` : conductor.rules;
+      if (conductor && next.subAgentId) {
+        orchestraTurnConfigs.set(next.subAgentId, { agentId: agent.id, commandId: next.id, config: conductor.config });
+        logger.info(`[orchestra] conductor turn ${next.id} (run ${next.orchestraRunId ?? '-'}, sub=${next.subAgentId})`);
+      }
       // §5.5 #17-28 ⑧(a) — 공통 규약은 **카드가 하나라도 켜져 있을 때만** 앞세운다. 전부 꺼 두면
       //   공통 규약도 함께 빠져 "끈 기능의 설명만 남는" 상태가 생기지 않는다.
       // §5.5 #17-28 ⑧(d) — 번호 목록·서버 iframe 규약은 걷었다. 목록 정렬은 클라의 마크다운 렌더가,
@@ -2994,22 +3154,23 @@ export async function runServer(): Promise<RunServerHandle> {
         [AGENT_CARD_ENV_BASE]: `http://127.0.0.1:${hookListenerPort ?? port}`,
         [AGENT_CARD_ENV_TOKEN]: hookListenerToken ?? '',
       };
-      subAgentManager.execute(next, cwd, dispatchContext, effectiveConfig, livePreamble, {
-        ...(agentConfig?.provider?.kind === 'codex-cli' && hasCodexToolRestrictions(agentConfig.provider.codexTools) ? {
+      subAgentManager.execute(next, cwd, dispatchContext, turnConfig, livePreamble, {
+        // §5.3 #10-4 — 지휘 턴은 `codexTools.edit = 'deny'` 를 얹은 **그 턴의 설정**으로 훅을 싣는다(평소엔 같은 값이다).
+        ...(turnConfig?.provider?.kind === 'codex-cli' && hasCodexToolRestrictions(turnConfig.provider.codexTools) ? {
           codexToolHook: {
             helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
             nodeBin: resolveBinary('node') ?? '',
-            policy: agentConfig.provider.codexTools!,
+            policy: turnConfig.provider.codexTools!,
           },
         } : {}),
         // §5.25 (H) — 권한 모드·감사 경계를 코덱스 턴에서 집행하는 훅. 승인 카드·원장은 클로드와 같은 창구다.
         //   커스텀 버블에만 싣는다 — 권한 창구는 훅으로 붙은 버블(view-only)의 호출을 막지 않는다.
-        ...(agentConfig?.provider?.kind === 'codex-cli' && agent.customCreated ? {
+        ...(turnConfig?.provider?.kind === 'codex-cli' && agent.customCreated ? {
           codexPermissionHook: {
             helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
             nodeBin: resolveBinary('node') ?? '',
             required: codexPermissionHooksRequired(
-              agentConfig.permissionMode,
+              turnConfig.permissionMode,
               graphManager.getAuditBoundary(graphManager.getAgentProjectName(agent.id) ?? ''),
             ),
           },
@@ -3029,7 +3190,7 @@ export async function runServer(): Promise<RunServerHandle> {
         customParent: !!agent.customCreated,
         ...(spawnArgs.length > 0 ? { extraArgs: spawnArgs } : {}),
         extraEnv: { ...cardEnv, ...spawnSwitches.env },
-        ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
+        ...(turnAppendSystemPrompt.trim() ? { appendSystemPrompt: turnAppendSystemPrompt } : {}),
       });
       // §5.26 (E) — **실어 보낸 뒤에** 못 박는다. 조립 단계에서 찍으면 주입원 표를 여는 것만으로
       //   그 세션의 브리핑이 사라진다(같은 함수로 재기 때문에). 여기까지 왔다는 것은 자식에게
@@ -4174,6 +4335,28 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
 
+    // §5.3 #10-4 — 킥오프 표식(`?orchestraRunId=`)은 **loopback 에서 온 것만** 읽는다. 지휘자는 앱이 띄운
+    //   자식이라 loopback 으로만 닿는다 — 바깥에서 붙인 표식은 없던 것으로 보고 아래 가로채기 판정으로 흘린다.
+    //   검사는 sub 를 고르기(= 새 sub 를 만들 수 있다) **전에** 한다 — 거절할 명령이 흔적을 남기지 않게.
+    const fromLoopback = req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE;
+    const kickoffRunId = fromLoopback && typeof req.query['orchestraRunId'] === 'string'
+      ? req.query['orchestraRunId'].trim()
+      : '';
+    if (kickoffRunId) {
+      const kickoffRun = graphManager.findOrchestraRun(kickoffRunId);
+      const kickoffRoot = agentId ? graphManager.getOrchestraRootForAgent(agentId) : null;
+      const check = checkOrchestraKickoff(kickoffRun, {
+        fromLoopback,
+        targetAgentId: agentId,
+        targetCustomCreated: !!agentBubble?.customCreated,
+        sameProject: !!kickoffRun && !!kickoffRoot && samePath(kickoffRoot, kickoffRun.projectPath),
+      });
+      if (!check.ok) {
+        respondOrchestraCheck(res, check);
+        return;
+      }
+    }
+
     // subagent 결정: 지정된 ID 사용 → (커스텀: 정규 sub 1개 고정 재사용) → idle 재사용 → 새로 생성
     let resolvedSubId = subAgentId ?? null;
     if (!resolvedSubId && agentId) {
@@ -4266,6 +4449,47 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.5 #17-18 v4.68 — 항상 명시 저장. 화면의 [대기|합치기|즉시] 칩이 이 값을 그대로 그린다.
       dispatchMode,
     };
+    // §5.3 #10-4 — 오케스트라. 킥오프면 그 런에 묶고(토큰 귀속 · 덧말 합치기 경계), 아니면 가로채기 조건을
+    //   **전부** 볼 때만 지휘 런을 연다. 하나라도 어긋나면 이 기능이 없던 때와 똑같이 흐른다.
+    if (kickoffRunId) {
+      cmd.orchestraRunId = kickoffRunId;
+    } else if (agentId) {
+      const orchestraRoot = graphManager.getOrchestraRootForAgent(agentId);
+      const orchestraCfg = graphManager.getAgentConfig(agentId);
+      const orchestraEngine = orchestraEngineOf(orchestraCfg);
+      const intercept = !!orchestraRoot && shouldInterceptOrchestra({
+        fromLoopback,
+        customCreated: !!agentBubble?.customCreated,
+        isAutoBubble: !!graphManager.getAutoAgentSummary(sessionId),
+        executionMode: orchestraCfg?.executionMode,
+        engine: orchestraEngine,
+        text: cmd.text,
+        silent: cmd.silent === true,
+        enabled: resolveOrchestraEnabled(graphManager.getOrchestraSettings(orchestraRoot), agentId),
+        edgeCommand: !!cmd.edgeId,
+      });
+      if (intercept && orchestraRoot && orchestraEngine) {
+        const now = Date.now();
+        const run: OrchestraRun = {
+          runId: `orc-${now}-${Math.random().toString(36).slice(2, 8)}`,
+          projectPath: orchestraRoot,
+          agentId,
+          commandId: cmd.id,
+          userRequest: clipOrchestraRequest(cmd.text),
+          engine: orchestraEngine,
+          phase: 'conducting',
+          startedAt: now,
+          memberAgentIds: [],
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+        if (graphManager.addOrchestraRun(run)) {
+          cmd.orchestraRunId = run.runId;
+          scheduleCheckpoint();
+          logger.info(`[orchestra] run ${run.runId} opened on ${agentId} (${orchestraEngine})`);
+        }
+      }
+    }
     queue.push(cmd);
     // §5.5 #17-18 v4.68 — '즉시'면 도는 턴을 먼저 끊는다. 끊긴 뒤 close 핸들러 → setOnComplete 가
     //   이 명령을 `--resume` 으로 dispatch 하므로, 여기서 또 밀면 죽어가는 자식과 겹칠 수 있다.
@@ -4317,6 +4541,17 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!queue) { res.json({ ok: true }); return; }
     const idx = queue.findIndex((c) => c.id === commandId);
     const [removed] = idx >= 0 ? queue.splice(idx, 1) : [];
+    // §5.3 #10-4 — 지운 명령이 지휘 명령이면 그 런을 닫는다(신고 없이 끝났다 = `unreported`, 이미 신고했으면
+    //   끝난 시각만). 도는 중에 지웠으면 그 턴의 덮어쓴 설정도 함께 내린다 — 완료 정산이 이 명령을 못 본다.
+    if (removed?.orchestraRunId) {
+      const removedId = removed.id;
+      const settledAt = Date.now();
+      graphManager.updateOrchestraRun(removed.orchestraRunId, (r) => settleConductorTurn(r, { id: removedId, status: 'completed' }, settledAt));
+      if (removed.subAgentId && orchestraTurnConfigs.get(removed.subAgentId)?.commandId === removedId) {
+        orchestraTurnConfigs.delete(removed.subAgentId);
+      }
+      scheduleCheckpoint();
+    }
     // §5.3 #10-2 — 안 나간 위임 명령을 지우면 그 작업은 취소로 끝난다(장부·동기 대기·엣지가 함께 내려간다).
     if (removed?.status === 'queued') {
       settleDispatchCommand(removed, { outcome: { status: 'cancelled', errorMessage: 'removed from queue before start' }, updateEdge: true, neverStarted: true });
@@ -5038,8 +5273,10 @@ export async function runServer(): Promise<RunServerHandle> {
    *  §4 v2.63 — `executionMode:'interactive-terminal'` 이면 CMD(인터랙티브 터미널) 에이전트로 baked. */
   app.post('/api/create-custom-agent', (req, res) => {
     try {
-      const { label, x, y, project, executionMode, provider: providerRaw, cliKind: cliKindRaw } = req.body as {
+      const { label, x, y, project, executionMode, provider: providerRaw, cliKind: cliKindRaw, orchestraRunId: orchestraRunIdRaw } = req.body as {
         label?: string; x?: number; y?: number; project?: string;
+        // §5.3 #10-4 — 오케스트라 지휘자가 만드는 멤버면 그 런 id. 화면은 보내지 않는다.
+        orchestraRunId?: unknown;
         executionMode?: 'headless' | 'interactive-terminal';
         // §5.19 (B) — All Model 버블. **모델 없이도 온다** — 우클릭으로 고른 순간 버블이 먼저 생기고
         //   모델은 그 버블을 눌렀을 때 매인다(진입 순서 역전). 그래서 modelId 가 비었다고 버리면 안 된다.
@@ -5078,8 +5315,38 @@ export async function runServer(): Promise<RunServerHandle> {
         });
         return;
       }
+      // §5.3 #10-4 — 지휘자가 만드는 멤버. 런이 아직 지휘 중이고, 같은 프로젝트이고, 멤버 엔진 설정에 맞고,
+      //   이 런이 새로 만든 수가 상한 안일 때만 만든다(재사용은 자리를 깎지 않는다). **만들기 전에** 잰다.
+      const orchestraRunId = typeof orchestraRunIdRaw === 'string' ? orchestraRunIdRaw.trim() : '';
+      const orchestraRun = orchestraRunId ? graphManager.findOrchestraRun(orchestraRunId) : undefined;
+      if (orchestraRunId) {
+        const targetRoot = graphManager.getCustomAgentTargetRoot(project ?? null);
+        const check = checkOrchestraMemberCreate(
+          orchestraRun,
+          orchestraRun ? graphManager.getOrchestraSettings(orchestraRun.projectPath) : undefined,
+          {
+            sameProject: !!orchestraRun && !!targetRoot && samePath(targetRoot, orchestraRun.projectPath),
+            providerKind: provider?.kind,
+          },
+        );
+        if (!check.ok) {
+          respondOrchestraCheck(res, check);
+          return;
+        }
+      }
       const agent = graphManager.createCustomAgent(label ?? '', position, project ?? null, options);
       if (!agent) return respondNoProjectFolder(res, 'create-custom-agent');
+      if (orchestraRun) {
+        const memberId = agent.id;
+        graphManager.updateOrchestraRun(orchestraRun.runId, (r) => addOrchestraMember(r, memberId, true));
+        // 재귀 방지 — 멤버는 에이전트 칸에 **명시적 끔**을 적는다. 프로젝트 스위치를 켜 둬도 멤버는 지휘하지 않는다.
+        const currentOrchestra = graphManager.getOrchestraSettings(orchestraRun.projectPath) ?? {};
+        graphManager.setOrchestraSettings(
+          orchestraRun.projectPath,
+          normalizeOrchestraSettings(withOrchestraScope(currentOrchestra, 'agent', memberId, false)),
+        );
+        logger.info(`[orchestra] member ${memberId} created for run ${orchestraRun.runId}`);
+      }
       broadcastSnapshot();
       saveCheckpoint();
       res.json({ ok: true, agent });
@@ -6575,7 +6842,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /** POST /api/subagents/:agentId/:subId/stop — 실행 중인 서브에이전트 중지 (탭/세션은 유지).
-   *  실행 중이 아니면 409. 성공 시 close 핸들러가 cmd.result 를 `[Stopped by user]` 로 채운다. */
+   *  실행 중이 아니면 409. 성공 시 cmd.result 가 `[Stopped by user]` 로 채워진다(persistent 는 그 자리에서,
+   *  legacy 는 close 핸들러가). */
   app.post('/api/subagents/:agentId/:subId/stop', (req, res) => {
     const { subId } = req.params;
     const ok = subAgentManager.stop(subId);
@@ -6592,16 +6860,19 @@ export async function runServer(): Promise<RunServerHandle> {
    * v3.51 의 `stop-all` 은 [중지] 를 에이전트 단위로 올려, 지금 보고 있지도 않은 **다른 세션 탭까지**
    * 함께 끊었다("이 세션만 멈추라는 건데 왜 다른 세션까지 죽냐"). 이 라우트는 stop-all 의 3단을
    * **열려 있는 그 세션 하나에만** 적용한다:
-   *   1) `subAgentManager.stop(subId)` — 그 탭의 자식 프로세스 트리 / agent-view worker 만 종료
+   *   1) 이 세션의 반복 루프를 끄고, 이 세션의 `queued` 명령만 폐기 — 중지 직후 **이 세션의** 다음
+   *      명령이 자동 dispatch 되지 않게. 다른 세션의 큐는 그대로 둔다(그 탭은 계속 돌아야 한다).
+   *   2) `subAgentManager.stop(subId)` — 그 탭의 자식 프로세스 트리 / agent-view worker 만 종료
    *      + 그 세션이 띄운 백그라운드 서브에이전트 대차대조만 해제(§5.5 #17-10 ②).
-   *   2) 이 세션의 `queued` 명령만 폐기 — 중지 직후 **이 세션의** 다음 명령이 자동 dispatch 되지 않게.
-   *      다른 세션의 큐는 그대로 둔다(그 탭은 계속 돌아야 한다).
    *   3) 살아있는 자식 없이 `executing` 에 굳어 있던 **이 세션의** 명령만 `[Stopped by user]` 봉합.
+   * 1) 이 2) 보다 **먼저**인 이유(§5.5 #17-18): `stop()` 은 그 턴을 그 자리에서 마감하고, 그 마감이
+   *   부르는 `onComplete` 가 곧바로 다음 차례를 집는다. 큐·루프가 남아 있으면 그 한 번에 이 세션의 다음
+   *   명령이 나가거나(죽어 가는 자식 때문에 큐로 되돌아왔다가 나중에 저절로 실행된다) 루프가 다음 회차를
+   *   밀어 넣는다 — "멈췄는데 조금 뒤 뭔가 저절로 돈다"가 된다.
    * 실행 중인 게 없어도 200 (멱등) — 사용자가 두 번 눌러도 에러 카드가 뜨지 않게.
    */
   app.post('/api/subagents/:agentId/:subId/stop-session', (req, res) => {
     const { agentId, subId } = req.params;
-    const stopped = subAgentManager.stop(subId);
     // §5.5 #17-11 v3.79 — 이 세션의 반복 루프도 함께 끈다. 안 끄면 중지 직후 루프가 다음 회차를
     //   다시 밀어 넣어 §5.5 #17-10 이 고친 "눌러도 안 멈춘다"가 그대로 재발한다.
     const loopStopped = stopSessionLoop(subId, 'stopped');
@@ -6609,6 +6880,25 @@ export async function runServer(): Promise<RunServerHandle> {
     let cancelledQueued = 0;
     let sealedExecuting = 0;
     const sessionId = graphManager.findSessionByAgentId(agentId);
+    const queueBeforeStop = sessionId ? commandQueues.get(sessionId) : undefined;
+    if (queueBeforeStop && sessionId) {
+      const remaining: QueuedCommand[] = [];
+      for (const c of queueBeforeStop) {
+        // 다른 세션 소유 명령은 손대지 않는다 — 이 라우트의 존재 이유.
+        if (c.subAgentId === subId && c.status === 'queued') {
+          cancelledQueued++;
+          // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
+          settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+          continue;
+        }
+        remaining.push(c);
+      }
+      commandQueues.set(sessionId, remaining);
+    }
+
+    const stopped = subAgentManager.stop(subId);
+
+    // `stop()` 의 마감이 큐를 아카이브로 옮겼을 수 있다 — 지금 큐를 다시 읽는다.
     const queue = sessionId ? commandQueues.get(sessionId) : undefined;
     if (queue && sessionId) {
       const remaining: QueuedCommand[] = [];
@@ -6616,17 +6906,11 @@ export async function runServer(): Promise<RunServerHandle> {
       // `[Stopped by user]` 로 남아야 사용자가 "왜 사라졌지"를 겪지 않는다.
       const sealed: QueuedCommand[] = [];
       for (const c of queue) {
-        // 다른 세션 소유 명령은 손대지 않는다 — 이 라우트의 존재 이유.
         if (c.subAgentId !== subId) { remaining.push(c); continue; }
-        if (c.status === 'queued') {
-          cancelledQueued++;
-          // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
-          settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
-          continue;
-        }
         if (c.status === 'executing' && !subAgentManager.isSubRunning(subId)) {
           c.status = 'completed';
           c.result = '[Stopped by user]';
+          c.stopReason = 'cancelled'; // §5.5 #17-12 ③-6 — 사용자 [중지]가 봉합한 턴
           sealedExecuting++;
           sealed.push(c);
           // §5.3 #10-2 — 이 봉합은 완료 콜백을 거치지 않는다. 장부·대기·엣지를 여기서 함께 내린다.
@@ -6660,10 +6944,10 @@ export async function runServer(): Promise<RunServerHandle> {
    *
    * 세션 1개만 끊던 위 `/stop` 으로는 (a) 다른 탭의 실행, (b) 감독관이 백단에 띄운 Task 서브에이전트,
    * (c) 큐에 남아 곧바로 dispatch 될 `queued` 명령이 계속 살아 "Stop 을 눌러도 안 멈추는" 것처럼 보였다.
-   * 이 라우트는 셋을 한 번에 끊는다:
-   *   1) `subAgentManager.stopAll` — 모든 탭의 자식 프로세스 트리 / agent-view worker 종료
+   * 이 라우트는 셋을 한 번에 끊는다(순서도 이대로 — 큐가 프로세스보다 먼저다, §5.5 #17-18):
+   *   1) 이 에이전트 세션 큐의 `queued` 전량 폐기(루프도 함께 끔) — 중지 직후 다음 명령이 자동으로 튀어나오지 않게.
+   *   2) `subAgentManager.stopAll` — 모든 탭의 자식 프로세스 트리 / agent-view worker 종료
    *      + 백그라운드 서브에이전트 대차대조(§5.3 #12-1 v3.43) 해제.
-   *   2) 이 에이전트 세션 큐의 `queued` 전량 폐기 — 중지 직후 다음 명령이 자동으로 튀어나오지 않게.
    *   3) 살아있는 자식 없이 `executing` 에 걸려 있던 명령은 `[Stopped by user]` 로 봉합 + sub idle 복귀
    *      (자식이 있는 건은 건드리지 않는다 — close 핸들러가 정상 경로로 마무리).
    * 실행 중인 게 없어도 200 (멱등) — 사용자가 두 번 눌러도 에러 카드가 뜨지 않게.
@@ -6685,13 +6969,33 @@ export async function runServer(): Promise<RunServerHandle> {
     sealedExecuting: number;
     loopsStopped: number;
   } {
-    const stopped = subAgentManager.stopAll(agentId);
     // §5.5 #17-11 v3.79 — 이 에이전트의 모든 세션 루프도 함께 끈다(전체 중지의 의미 그대로).
+    // §5.5 #17-18 — 루프와 큐를 **프로세스보다 먼저** 비운다. `stopAll` 은 탭마다 그 턴을 그 자리에서
+    //   마감하고, 그 마감의 `onComplete` 가 곧바로 다음 차례를 집는다 — 큐가 남아 있으면 아직 멈추지 않은
+    //   다른 탭으로 명령이 나가거나, 이미 멈춘 탭의 명령이 큐로 되돌아왔다가 나중에 저절로 실행된다.
     const loopsStopped = stopSessionLoopsForAgent(agentId);
 
     let cancelledQueued = 0;
     let sealedExecuting = 0;
     const sessionId = graphManager.findSessionByAgentId(agentId);
+    const queueBeforeStop = sessionId ? commandQueues.get(sessionId) : undefined;
+    if (queueBeforeStop && sessionId) {
+      const remaining: QueuedCommand[] = [];
+      for (const c of queueBeforeStop) {
+        if (c.status === 'queued') {
+          cancelledQueued++;
+          // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
+          settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+          continue;
+        }
+        remaining.push(c);
+      }
+      commandQueues.set(sessionId, remaining);
+    }
+
+    const stopped = subAgentManager.stopAll(agentId);
+
+    // `stopAll` 의 마감이 큐를 아카이브로 옮겼을 수 있다 — 지금 큐를 다시 읽는다.
     const queue = sessionId ? commandQueues.get(sessionId) : undefined;
     if (queue && sessionId) {
       const remaining: QueuedCommand[] = [];
@@ -6699,16 +7003,11 @@ export async function runServer(): Promise<RunServerHandle> {
       // `[Stopped by user]` 로 남아야 사용자가 "왜 사라졌지"를 겪지 않는다.
       const sealed: QueuedCommand[] = [];
       for (const c of queue) {
-        if (c.status === 'queued') {
-          cancelledQueued++;
-          // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
-          settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
-          continue;
-        }
         if (c.status === 'executing' && !(c.subAgentId && subAgentManager.isSubRunning(c.subAgentId))) {
           // 자식은 이미 없는데 executing 으로 굳어 있던 건 — 여기서 봉합해야 UI 가 Run 으로 돌아온다.
           c.status = 'completed';
           c.result = '[Stopped by user]';
+          c.stopReason = 'cancelled'; // §5.5 #17-12 ③-6 — 사용자 [중지]가 봉합한 턴
           sealedExecuting++;
           sealed.push(c);
           // §5.3 #10-2 — 이 봉합은 완료 콜백을 거치지 않는다. 장부·대기·엣지를 여기서 함께 내린다.
@@ -7875,6 +8174,18 @@ export async function runServer(): Promise<RunServerHandle> {
    * PreToolUse 훅이 동기 호출. 해당 세션/subagent 가 Vibisual 관할 + ask 모드면 broker 에 큐잉 후
    * 사용자 결정을 기다렸다가 `{decision:'allow'|'deny'}` 반환. 그 외는 즉시 allow.
    */
+  /**
+   * §5.3 #12-1-B — 카드를 기다리는 요청 연결이 **답을 받기 전에** 닫히면 울리는 신호.
+   * `req` 의 `close` 는 본문을 다 읽은 순간에도 오므로 `res` 의 `close` 에서 `writableEnded` 로 가른다.
+   */
+  function callerGoneSignal(res: express.Response): AbortSignal {
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort();
+    });
+    return controller.signal;
+  }
+
   // Codex named-tool gate. Kept separate from sandbox/audit approval: allowing a
   // tool here never grants sandbox access or skips the other permission hooks.
   app.post('/api/codex-tool-check', async (req, res) => {
@@ -7882,7 +8193,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const body = req.body ?? {};
       const agentId = typeof body.parentAgentId === 'string' ? body.parentAgentId : '';
       const node = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
-      const config = graphManager.getAgentConfig(agentId);
+      // §5.3 #10-4 — 지휘 턴이면 그 턴의 덮어쓴 설정(`codexTools.edit = 'deny'`)으로 판정한다.
+      const config = agentConfigForTurn(agentId, body.subAgentId);
       if (!node?.customCreated || config?.provider?.kind !== 'codex-cli' || typeof body.toolName !== 'string') {
         res.json({ decision: 'deny', reason: 'not-managed' }); return;
       }
@@ -7908,6 +8220,9 @@ export async function runServer(): Promise<RunServerHandle> {
         note('deny', 'policy', 'dont-ask');
         res.json({ decision: 'deny', reason: 'dont-ask' }); return;
       }
+      // §5.3 #12-1-B — 이 호출을 묻는 칸이 곧 "항상"이 적히는 칸이다(`provider.codexTools[묶음]`).
+      const toolGroup = codexToolGroup(body.toolName);
+      const signal = callerGoneSignal(res);
       graphManager.setPermissionWaiting(agentId, true);
       broadcastSnapshot();
       try {
@@ -7917,10 +8232,11 @@ export async function runServer(): Promise<RunServerHandle> {
           toolInput,
           subAgentId: typeof body.subAgentId === 'string' ? body.subAgentId : undefined,
           askedByTool: true,
+          ...(toolGroup ? { alwaysAllow: 'codex-tools', alwaysReject: 'codex-tools', codexToolGroup: toolGroup } : {}),
           ...(auditEntryId ? { auditEntryId } : {}),
-        }, config.permissionTimeoutPolicy === 'allow' ? 'allow' : 'deny');
-        note(result.decision, result.reason === 'timeout' ? 'timeout' : 'user', result.reason ?? 'user');
-        res.json({ decision: result.decision, reason: result.reason ?? 'user' });
+        }, config.permissionTimeoutPolicy === 'allow' ? 'allow' : 'deny', { signal });
+        note(result.decision, permissionDecisionSource(result), result.reason ?? 'user');
+        if (!res.writableEnded) res.json({ decision: result.decision, reason: result.reason ?? 'user' });
       } finally {
         graphManager.setPermissionWaiting(agentId, false);
         broadcastSnapshot();
@@ -7988,7 +8304,9 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      const config = graphManager.getAgentConfig(agentId);
+      // §5.3 #10-4 — 지휘 턴이면 그 턴의 덮어쓴 설정(도구·권한)으로 판정한다. 저장된 설정으로 재면
+      //   지휘자의 curl 이 저장된 권한 모드의 승인 카드에 걸려 턴이 멈춘다.
+      const config = agentConfigForTurn(agentId, body.subAgentId);
       if (!config) {
         // 설정 없음 — 막을 근거 없음, 통과
         passUnmanaged('no-config');
@@ -8055,6 +8373,7 @@ export async function runServer(): Promise<RunServerHandle> {
           res.json({ ok: true, decision: 'deny', reason: plan.reason, mode: config.permissionMode || 'default' });
           return;
         }
+        const codexSignal = callerGoneSignal(res);
         graphManager.setPermissionWaiting(agentId, true);
         if (codexEvent === 'PreToolUse' && codexEntryId) graphManager.markAuditEscalated(codexProject, codexEntryId);
         broadcastSnapshot();
@@ -8072,14 +8391,14 @@ export async function runServer(): Promise<RunServerHandle> {
             // PreToolUse 에서 묻는 것은 늘 경계가 붙잡은 호출이다. 승인 요청은 모드가 원래 묻는 자리다.
             ...(codexEvent === 'PreToolUse' ? { escalated: true } : {}),
             ...(codexEntryId ? { auditEntryId: codexEntryId } : {}),
-          }, config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow');
+          }, config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow', { signal: codexSignal });
         } finally {
           graphManager.setPermissionWaiting(agentId, false);
           broadcastSnapshot();
         }
-        noteCodexDecision(codexDecision.decision, codexDecision.reason === 'timeout' ? 'timeout' : 'user', codexDecision.reason);
+        noteCodexDecision(codexDecision.decision, permissionDecisionSource(codexDecision), codexDecision.reason);
         if (codexEvent === 'PreToolUse' && codexDecision.decision === 'allow') codexApprovalMemory.grant(approvalKey);
-        res.json({ ok: true, decision: codexDecision.decision, reason: codexDecision.reason });
+        if (!res.writableEnded) res.json({ ok: true, decision: codexDecision.decision, reason: codexDecision.reason });
         return;
       }
 
@@ -8165,6 +8484,17 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
+      /*
+       * §5.3 #12-1-B — **금지 목록은 모드 단축보다 먼저.** `--disallowedTools` 는 스폰 때 실리므로
+       * 카드에서 [항상 거절]을 누른 뒤에도 오래 사는 자식은 그 도구를 계속 가진다. 여기서 한 번 더
+       * 봐야 누른 순간부터 먹는다. `reason` 은 훅이 문구를 고르는 약속된 마커다(사람이 누른 척 ❌).
+       */
+      if (isToolDisallowed(config.disallowedTools, toolName)) {
+        noteAuditDecision('deny', 'policy', 'disallowed');
+        res.json({ ok: true, decision: 'deny', reason: 'disallowed' });
+        return;
+      }
+
       // §5.22 — `!escalate` 가 붙은 단축은 **위험 3종이 아닐 때만** 탄다. 경계를 끄면
       //   `escalate` 가 늘 false 라 아래는 종전 그대로 동작한다.
       if (!escalate && !askedByTool && mode === 'bypassPermissions') {
@@ -8212,9 +8542,26 @@ export async function runServer(): Promise<RunServerHandle> {
       const agentLabel = agentNode.label ?? agentId;
       const agentColor = config.color ?? BUBBLE_COLORS.agent;
       const projectName = graphManager.getAgentProjectName(agentId) ?? '';
+      const permissionSubAgentId = typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined;
+
+      /*
+       * §5.3 #12-1-B — **이 세션에선 허용** 기억. 위험·확인 목록 판정 뒤, 브로커 직전이다 — 경계가
+       * 붙잡은 호출과 사용자가 지목한 도구는 기억이 있어도 여전히 사람에게 간다.
+       */
+      if (!escalate && !askedByTool && permissionSessionGrants.has(agentId, permissionSubAgentId, toolName)) {
+        noteAuditDecision('allow', 'policy', 'session-grant');
+        res.json({ ok: true, decision: 'allow', reason: 'session-grant' });
+        return;
+      }
+      // §5.3 #12-1-B — "항상"이 적히는 칸은 카드가 뜬 이유가 정한다(카드는 받은 대로 버튼을 그린다).
+      const alwaysAllow: PermissionRequest['alwaysAllow'] = escalate ? undefined
+        : askedByTool ? 'ask-tools'
+        : permissionSubAgentId ? 'session'
+        : undefined;
 
       // §5.3 #12-1 v1.90 — 60초 무응답 fallback 정책 (기본 allow).
       const timeoutPolicy = config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow';
+      const signal = callerGoneSignal(res);
       // §5.3 #12-1 v1.91 — 팝업 대기 동안 에이전트를 "블록된 활성"으로 고정(completed 강등 방지).
       graphManager.setPermissionWaiting(agentId, true);
       // §5.22 — 모드가 통과시켰을 호출을 경계가 되돌려 물었다는 표식(타임라인에서 구분된다).
@@ -8226,7 +8573,7 @@ export async function runServer(): Promise<RunServerHandle> {
           agentId,
           // §5.3 #12-1 v1.96 — sub 인스턴스 ID 를 stamp 해서 broker resolve 후
           // 사용자의 Allow/Deny 결정을 그 sub 의 stream 라인으로 합성할 수 있게 한다.
-          subAgentId: typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined,
+          subAgentId: permissionSubAgentId,
           agentLabel,
           agentColor,
           projectName,
@@ -8237,19 +8584,21 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(escalate ? { escalated: true } : {}),
           // §5.3 #12-1-A — 카드가 "왜 지금 묻는지"를 말할 수 있게. 모드가 원래 묻는 호출에는 안 붙는다.
           ...(askedByTool ? { askedByTool: true } : {}),
+          ...(alwaysAllow ? { alwaysAllow } : {}),
+          alwaysReject: 'disallowed-tools',
           ...(auditEntryId ? { auditEntryId } : {}),
-        }, timeoutPolicy);
+        }, timeoutPolicy, { signal });
       } finally {
         graphManager.setPermissionWaiting(agentId, false);
         broadcastSnapshot();
       }
-      // §5.22 — 사람(또는 60초 무응답 정책)의 답을 원장의 그 줄에 적는다.
+      // §5.22 — 사람(또는 60초 무응답 정책 · 취소)의 답을 원장의 그 줄에 적는다.
       noteAuditDecision(
         decision.decision,
-        decision.reason === 'timeout' ? 'timeout' : 'user',
+        permissionDecisionSource(decision),
         decision.reason,
       );
-      res.json({ ok: true, decision: decision.decision, reason: decision.reason });
+      if (!res.writableEnded) res.json({ ok: true, decision: decision.decision, reason: decision.reason });
     } catch (err) {
       logger.error('POST /api/permission-check failed', err);
       // safe-deny on error
@@ -8258,19 +8607,94 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * §5.3 #12-1-B — [항상 허용]/[항상 거절]을 **카드가 뜬 이유가 정한 칸**에 적는다.
+   *
+   * 칸은 대기 중인 요청에서 읽는다(`alwaysAllow`·`alwaysReject` — 서버가 카드를 띄울 때 찍었다). 결정
+   * 본문의 도구 이름·칸 이름은 받지 않는다 — 창구가 이름을 바꿔 보내 다른 도구를 풀 수 없게.
+   * 설정은 지금 값 한 벌을 통째로 새로 지어 저장한다(#12-1-A ⚠ — 부분 객체로 갈아치우면 칸이 사라진다).
+   */
+  function applyPermissionAlways(
+    request: PermissionRequest,
+    choice: 'allow_always' | 'reject_always',
+  ): { ok: true } | { ok: false; error: string } {
+    const scope = choice === 'allow_always' ? request.alwaysAllow : request.alwaysReject;
+    if (!scope) return { ok: false, error: 'always-not-offered' };
+    if (scope === 'session') {
+      if (!request.subAgentId) return { ok: false, error: 'always-not-offered' };
+      permissionSessionGrants.grant(request.agentId, request.subAgentId, request.toolName);
+      return { ok: true };
+    }
+    const config = graphManager.getAgentConfig(request.agentId);
+    if (!config) return { ok: false, error: 'agent-config-missing' };
+    let next: AgentConfig;
+    if (scope === 'codex-tools') {
+      const group = codexToolGroup(request.toolName);
+      if (!group || config.provider?.kind !== 'codex-cli') return { ok: false, error: 'always-not-offered' };
+      next = {
+        ...config,
+        provider: {
+          ...config.provider,
+          codexTools: { ...config.provider.codexTools, [group]: choice === 'allow_always' ? 'allow' : 'deny' },
+        },
+      };
+    } else {
+      const lists = applyToolListAlways(
+        { askTools: config.askTools, disallowedTools: config.disallowedTools },
+        request.toolName,
+        choice,
+      );
+      next = { ...config, askTools: lists.askTools, disallowedTools: lists.disallowedTools };
+      // 확인 목록에서 빼기만 하면 Manual 의 가변 도구는 곧바로 모드 카드가 다시 뜬다 — 세션 기억을 함께 남긴다.
+      if (scope === 'ask-tools' && request.subAgentId) {
+        permissionSessionGrants.grant(request.agentId, request.subAgentId, request.toolName);
+      }
+    }
+    graphManager.setAgentConfig(request.agentId, next);
+    broadcastSnapshot();
+    saveCheckpoint();
+    logger.info(`[permission] ${choice} → ${scope} (${request.agentId} · ${request.toolName})`);
+    return { ok: true };
+  }
+
+  /**
    * §5.3 #12-1 v1.43 — POST /api/permission-decide
-   * 클라 모달에서 Allow/Deny 버튼 클릭 시 호출. broker 의 pending 요청 해제.
+   * 클라 모달에서 버튼 클릭 시 호출. broker 의 pending 요청 해제.
+   * §5.3 #12-1-B — 본문은 답 넷(`choice`)이고 `decision` 은 서버가 접는다. `decision` 만 보내는 옛 클라는 한 번짜리다.
    */
   app.post('/api/permission-decide', (req, res) => {
     try {
       const body = (req.body ?? {}) as Partial<PermissionDecision>;
-      if (typeof body.requestId !== 'string' || (body.decision !== 'allow' && body.decision !== 'deny')) {
+      const choice: PermissionChoice | undefined = body.choice !== undefined
+        ? (PERMISSION_CHOICES.includes(body.choice) ? body.choice : undefined)
+        : body.decision === 'allow' ? 'allow_once'
+        : body.decision === 'deny' ? 'reject_once'
+        : undefined;
+      if (typeof body.requestId !== 'string' || !choice) {
         res.status(400).json({ ok: false, error: 'invalid payload' });
         return;
       }
+      const pending = permissionBroker.get(body.requestId);
+      if (!pending) {
+        res.status(404).json({ ok: false, error: 'request not found (possibly timed out)' });
+        return;
+      }
+      if (choice === 'allow_always' || choice === 'reject_always') {
+        // 쓰는 칸이 #12-1 의 동결 칸이라 loopback 유입은 "항상"을 못 누른다(권한 축은 사용자만 올린다).
+        if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+          res.status(400).json({ ok: false, error: 'always-not-allowed-from-loopback' });
+          return;
+        }
+        // 제공되지 않은 "항상"을 한 번짜리로 낮춰 받지 않는다 — "항상 눌렀는데 또 묻는다"가 된다.
+        const applied = applyPermissionAlways(pending, choice);
+        if (!applied.ok) {
+          res.status(400).json({ ok: false, error: applied.error });
+          return;
+        }
+      }
       const resolved = permissionBroker.resolve({
         requestId: body.requestId,
-        decision: body.decision,
+        decision: foldPermissionChoice(choice),
+        choice,
         reason: typeof body.reason === 'string' ? body.reason : undefined,
       });
       if (!resolved) {
@@ -11633,6 +12057,149 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+
+  // ─── §5.3 #10-4 오케스트라(지휘 모드) — 켬/끔 2층 · 세부 설정 · 계획 신고 ───
+
+  /**
+   * POST /api/orchestra/scope — 켬/끔 한 칸. body `{ projectPath, scope: 'project'|'agent', id?, enabled: true|false|null }`.
+   * `null` 은 그 칸을 지운다(= 상속으로 되돌린다). **사용자만 바꾼다** — 에이전트가 loopback 으로 스스로
+   * 켜고 끌 수 있으면 스위치가 아무 뜻이 없어진다(403).
+   */
+  app.post('/api/orchestra/scope', (req, res) => {
+    try {
+      if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+        res.status(403).json({ ok: false, error: 'orchestra-settings-user-only' });
+        return;
+      }
+      const body = (req.body ?? {}) as { projectPath?: unknown; scope?: unknown; id?: unknown; enabled?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const scope = (ORCHESTRA_SCOPE_ORDER as readonly unknown[]).includes(body.scope) ? (body.scope as OrchestraScope) : null;
+      if (!projectPath || !scope) {
+        res.status(400).json({ ok: false, error: 'projectPath and scope required' });
+        return;
+      }
+      const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : null;
+      if (scope === 'agent' && !id) {
+        res.status(400).json({ ok: false, error: 'id required for agent scope' });
+        return;
+      }
+      const enabled = body.enabled === null ? null : body.enabled === true ? true : body.enabled === false ? false : undefined;
+      if (enabled === undefined) {
+        res.status(400).json({ ok: false, error: 'enabled must be true, false or null' });
+        return;
+      }
+      const orchestraRoot = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!orchestraRoot) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      // 에이전트 칸은 **그 프로젝트의 에이전트**에만 적는다 — 아무 id 나 받으면 맵이 쓰레기로 찬다.
+      if (scope === 'agent' && id && !samePath(graphManager.getOrchestraRootForAgent(id) ?? '', orchestraRoot)) {
+        res.status(404).json({ ok: false, error: 'agent not in project' });
+        return;
+      }
+      const current = graphManager.getOrchestraSettings(orchestraRoot) ?? {};
+      const saved = graphManager.setOrchestraSettings(
+        orchestraRoot,
+        normalizeOrchestraSettings(withOrchestraScope(current, scope, id, enabled)),
+      );
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('POST /api/orchestra/scope failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/orchestra/settings — 세부 설정 칸 몇 개를 갈아 끼운다. body `{ projectPath, patch }`.
+   * 켬/끔 칸은 여기서 받지 않는다(`/scope` 한 길 — 두 창구가 같은 칸을 쓰면 한쪽이 다른 쪽을 덮는다).
+   * 모양이 어긋난 칸은 조용히 버리지 않고 그 칸 이름으로 400. **사용자만 바꾼다**(403).
+   */
+  app.put('/api/orchestra/settings', (req, res) => {
+    try {
+      if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+        res.status(403).json({ ok: false, error: 'orchestra-settings-user-only' });
+        return;
+      }
+      const body = (req.body ?? {}) as { projectPath?: unknown; patch?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      if (!projectPath) {
+        res.status(400).json({ ok: false, error: 'projectPath required' });
+        return;
+      }
+      const orchestraRoot = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!orchestraRoot) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      const patched = applyOrchestraSettingsPatch(graphManager.getOrchestraSettings(orchestraRoot) ?? {}, body.patch, Date.now());
+      if (!patched.ok) {
+        res.status(400).json({ ok: false, error: 'invalid-field', field: patched.field });
+        return;
+      }
+      const saved = graphManager.setOrchestraSettings(orchestraRoot, patched.settings);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('PUT /api/orchestra/settings failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/orchestra/runs/:runId/plan — 지휘자의 **계획 신고**(의도·편성·고른 방안과 이유·건너뛴 방안과 이유).
+   * 지휘 중인 런에만 한 번 받는다(이미 신고했거나 끝났으면 409). 틀린 id 는 조용히 고치지 않고 그 목록을 돌려줘
+   * 지휘자가 스스로 고치게 한다(400 `{error, ids}`). 받아들이면 단계가 `dispatched`(편성 없음이면 `answered`).
+   */
+  app.post('/api/orchestra/runs/:runId/plan', (req, res) => {
+    try {
+      const runId = typeof req.params['runId'] === 'string' ? req.params['runId'] : '';
+      const run = runId ? graphManager.findOrchestraRun(runId) : undefined;
+      if (!run) {
+        res.status(404).json({ ok: false, error: 'orchestra-run-not-found' });
+        return;
+      }
+      if (run.phase !== 'conducting') {
+        res.status(409).json({ ok: false, error: 'orchestra-run-settled', phase: run.phase });
+        return;
+      }
+      const projectAgentIds = new Set(
+        graphManager.getSnapshot().agents
+          .filter((a) => a.customCreated && a.id !== run.agentId
+            && samePath(graphManager.getOrchestraRootForAgent(a.id) ?? '', run.projectPath))
+          .map((a) => a.id),
+      );
+      const result = validateOrchestraPlan(req.body, {
+        settings: graphManager.getOrchestraSettings(run.projectPath) ?? {},
+        projectAgentIds,
+      });
+      if (!result.ok) {
+        res.status(400).json({ ok: false, error: result.error, ...(result.ids ? { ids: result.ids } : {}) });
+        return;
+      }
+      const { plan, reusedAgentIds } = result;
+      const plannedAt = Date.now();
+      const saved = graphManager.updateOrchestraRun(run.runId, (r) => applyOrchestraPlan(r, plan, reusedAgentIds, plannedAt));
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      logger.info(`[orchestra] run ${run.runId} plan: ${plan.intent}/${plan.topology}`);
+      res.json({ ok: true, run: saved });
+    } catch (err) {
+      logger.error('POST /api/orchestra/runs/:runId/plan failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
 
   /**
    * GET /api/debug/free-port?base= — 실제로 비어 있는 디버그 포트.
@@ -16584,6 +17151,8 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!name) return null;
     return graphManager.getProjectByName(name) ?? null;
   });
+  // §5.3 #12-1-B — 로컬 도구 판정이 턴 도중에 저장된 "항상" 답(못 쓰는 목록·확인 목록)을 읽는 자리.
+  subAgentManager.setAgentConfigResolver((parentAgentId) => graphManager.getAgentConfig(parentAgentId));
   // 위 해석이 `null` 을 줄 때의 **되찾기 후보**(§5.5 `findStreamDirFor` ③). 소속은 `sessionCwds`·
   // `agents` 맵을 훑어 찾는데, 프로젝트 탭을 닫았다 오가면 그 에이전트가 두 맵에서 빠져 폴더를
   // 짚지 못한다 — 그러면 디스크에 온전한 대화가 있는데도 빈 배열이 나가 화면이 굳는다.
@@ -16637,23 +17206,32 @@ export async function runServer(): Promise<RunServerHandle> {
   permissionBroker.onResolved = (request, decision) => {
     if (!request.subAgentId) return;
     const toolLabel = request.toolName || 'tool';
+    // §5.3 #12-1-B — "항상"은 어느 칸에 적혔는지까지 남긴다(나중에 "왜 더는 안 묻지?"를 되짚는 자리).
+    const alwaysNote = decision.choice === 'allow_always' ? ` (always: ${request.alwaysAllow ?? 'once'})`
+      : decision.choice === 'reject_always' ? ` (always: ${request.alwaysReject ?? 'once'})`
+      : '';
     let line: string;
-    if (decision.decision === 'allow') {
+    if (decision.cancelled) {
+      // §5.3 #12-1-B — 아무도 누르지 않았다는 사실을 그대로 적는다(사람이 Deny 를 누른 척 ❌).
+      line = decision.cancelled === 'agent-stopped'
+        ? `[permission] CANCELLED — agent stopped before you answered (${toolLabel})`
+        : `[permission] CANCELLED — the waiting call went away before you answered (${toolLabel})`;
+    } else if (decision.decision === 'allow') {
       if (decision.reason === 'timeout') {
         line = `[permission] ALLOW (auto, timed out — no response in 60s) on ${toolLabel}`;
       } else if (decision.reason) {
         line = `[permission] ALLOW (auto: ${decision.reason}) on ${toolLabel}`;
       } else {
-        line = `[permission] ALLOW — you pressed Allow on ${toolLabel}`;
+        line = `[permission] ALLOW — you pressed Allow on ${toolLabel}${alwaysNote}`;
       }
     } else {
       // deny
       if (decision.reason === 'timeout') {
         line = `[permission] DENY (auto, timed out — no response in 60s) on ${toolLabel}`;
       } else if (decision.reason) {
-        line = `[permission] DENY — you pressed Deny on ${toolLabel} (note: ${decision.reason})`;
+        line = `[permission] DENY — you pressed Deny on ${toolLabel}${alwaysNote} (note: ${decision.reason})`;
       } else {
-        line = `[permission] DENY — you pressed Deny on ${toolLabel}`;
+        line = `[permission] DENY — you pressed Deny on ${toolLabel}${alwaysNote}`;
       }
     }
     subAgentManager.emitSystemMessage(request.agentId, request.subAgentId, line);
@@ -17130,6 +17708,9 @@ export async function runServer(): Promise<RunServerHandle> {
       for (const cmd of done) maybeCompactAfterTurn(cmd, sessionId);
       // §5.3 #9-1 (N) — 이 턴이 슬롯 하나를 비웠다. 상한에 걸려 기다리던 **다른 세션**을 깨운다.
       //   자기 세션은 아래 기존 경로가 이미 두드리므로 여기서 하는 일은 "남의 큐" 뿐이다.
+      // §5.3 #10-4 — 오케스트라 정산(토큰 귀속 · 지휘 턴 단계 닫기 · 덮어쓴 설정 내리기). 아카이브로 옮기기
+      //   **전에** 해야 한다 — 옮긴 뒤에는 이 목록이 큐에 없다.
+      settleOrchestraCommands(done, ownerAgentId);
       pumpTokenSaverQueues();
 
       archiveCompletedCommands(sessionId, done);

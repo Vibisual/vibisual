@@ -1496,7 +1496,17 @@
       "stackCount": "{{total}}件中{{current}}件目",
       "emptyToolInput": "（空）",
       "askedByToolTitle": "確認を求めたツール",
-      "askedByToolHint": "このagentの設定で{{tool}}を「使用前に確認」に指定したため、バイパスモードでも確認を求めます。"
+      "askedByToolHint": "このagentの設定で{{tool}}を「使用前に確認」に指定したため、バイパスモードでも確認を求めます。",
+      "allowOnce": "今回のみ許可",
+      "allowAlways": "常に許可",
+      "allowSession": "このセッションでは許可",
+      "rejectOnce": "今回のみ拒否",
+      "rejectAlways": "常に拒否",
+      "rejectAlwaysDisallowedTitle": "{{tool}}をこのエージェントの無効化ツールに追加します。以後は確認せずにブロックされます。",
+      "rejectAlwaysCodexTitle": "このエージェントのCodexツール設定で、{{group}}ツールグループを拒否にします。",
+      "allowSessionTitle": "このセッションでは{{tool}}について再び確認しません。アプリを再起動すると元に戻ります。ずっと許可するには権限モードを変更してください。",
+      "allowAlwaysAskToolsTitle": "このエージェントの「使用前に確認」リストから{{tool}}を外します。",
+      "allowAlwaysCodexTitle": "このエージェントのCodexツール設定で、{{group}}ツールグループを許可にします。"
     },
     "claudeVersionGate": {
       "title": "Claude Code アップデートあり",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "拒否",
       "sourceTimeout": "タイムアウト",
       "sourcePolicy": "モードによる",
+      "sourceCancelled": "キャンセル",
       "reason": "理由",
       "countSummary": "呼び出し{{total}}件・危険{{risky}}件・拒否{{denied}}件",
       "showMore": "さらに{{count}}件を表示",
@@ -2732,6 +2743,7 @@
       "loop": "リピートループ",
       "goal": "目標",
       "autoGoal": "手順検出",
+      "orchestra": "オーケストラ",
       "debug": "実行とデバッグ",
       "hooks": "セッションフック",
       "plugins": "Claude Code プラグイン",
@@ -3036,6 +3048,8 @@
       "pinTabs": "タブを固定 — セッションを切り替えても開いたままにします",
       "unpinTabs": "固定を解除 — セッションごとに別のタブになります",
       "closePane": "エディターペインを閉じる",
+      "maximizePane": "最大化 — タブ・パス・アドレスバーを隠して本文だけを表示",
+      "restorePane": "元に戻す — タブ・パス・アドレスバーを再表示",
       "closeDirtyConfirm": "このファイルには未保存の変更があります。それでも閉じますか?",
       "conflict": "このファイルは開いた後にディスク上で変更されました。",
       "conflictReload": "再読み込み",
@@ -3202,7 +3216,16 @@
         "openApp": "{{app}} で開く — {{path}}",
         "openExternal": "既定のアプリで開く — {{path}}",
         "revealOutsideFolder": "エクスプローラーで開く — {{path}}",
-        "revealOutsideFile": "エクスプローラーで表示 (親フォルダーが開きます) — {{path}}"
+        "revealOutsideFile": "エクスプローラーで表示 (親フォルダーが開きます) — {{path}}",
+        "menu": {
+          "revealFile": "ファイルの場所を開く",
+          "openPage": "Web（内部）で開く",
+          "openBrowser": "Web（外部）で開く",
+          "copyRelativePath": "相対パスをコピー",
+          "openApp": "{{app}} で開く",
+          "run": "プログラムを実行",
+          "outsideRoot": "プロジェクト外のパスはエクスプローラーでのみ開きます"
+        }
       },
       "restartResumed": "アプリ終了で中断され、保存済みセッションで再開しました。",
       "nestedSubagent": "サブエージェント",
@@ -3422,6 +3445,13 @@
       "orphaned": "アプリの再起動により中断されました",
       "dispatchResult": "委任したタスクの結果を受け取らずに終了しました",
       "unknown": "不明な理由で失敗しました"
+    },
+    "turnStop": {
+      "cancelled": "ユーザーが停止",
+      "maxTokens": "出力上限",
+      "maxTurns": "ターン上限",
+      "refusal": "モデルが拒否",
+      "usageLimit": "使用量上限"
     },
     "density": {
       "label": "表示密度",
@@ -4391,6 +4421,139 @@
       "dismiss": "これは手順ではありません（今後は提案しません）",
       "watching": "{{observed}}件のアクションをスキャンしました。同じ順序が{{runs}}回繰り返されると、手順として書き出されます。",
       "empty": "まだスキャン対象がありません。agentが作業を始めると、ここに情報が溜まっていきます。"
+    },
+    "orchestra": {
+      "title": "オーケストラ",
+      "about": "オンにすると、指示を出した相手のエージェントがそのターンの指揮者になります。指揮者は依頼の種類を判断し、作業を分割するかどうか、どのエージェントを作成してエッジでどうつなぐか、どのトークン節約戦略が合うかを決めます。メンバーが動き出す前に、その計画を理由とともに報告します。",
+      "effectiveOn": "このエージェントはオンになっています。次の指示は指揮されます。",
+      "effectiveOff": "このエージェントはオフになっています。指示はいつも通り直接渡されます。",
+      "noProject": "先にプロジェクトを開いてください。",
+      "saveFailed": "保存できませんでした（{{reason}}）。",
+      "costWarning": "複数のエージェントを使うと、1体で対応するより安くなるとは限らず、かえって高くつくこともあります。各メンバーがそれぞれ自分のルールとファイルを読み直すからです。依頼が小さいときは、指揮者に直接答えるよう指示しています。",
+      "useAgentSetting": "このエージェントの設定を使用",
+      "conductorPicks": "指揮者が決定",
+      "activity": {
+        "on": "オン",
+        "conducting": "{{count}}件指揮中"
+      },
+      "scope": {
+        "project": "プロジェクト全体",
+        "agent": "このagent",
+        "inherited": "継承",
+        "on": "オン",
+        "off": "オフ",
+        "unavailable": "ここでは選択できません。先にagentとセッションタブを開いてください。",
+        "hint": "下の項目が上の項目より優先されます。クリックするたびに、オン→オフ→継承の順に切り替わります。指揮者が作成したメンバーが自ら指揮することはありません。"
+      },
+      "blocked": {
+        "lead": "オンになっていても、このエージェントは次の理由により指揮しません：",
+        "localEngine": "ローカルモデルで動作しています。指揮にはClaudeまたはCodexが必要です。",
+        "notCustom": "指揮できるのは、キャンバス上で作成したカスタムAgentのバブルだけです。",
+        "autoBubble": "オートAgentのバブルであり、すでに自分のチームを編成しています。",
+        "terminal": "組み込みのターミナルで動作しているため、1ターン分のツールや指示を差し替えることができません。"
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "指揮者",
+        "about": "指揮者は、そのターンに限りこのエージェント自身が務めます。保存されている設定が変わることはありません。エンジンはエージェントに従うため（セッションの途中でエンジンを切り替えるとセッションが壊れてしまいます）、ここで設定するのはエンジンごとのモデルとエフォートのみです。",
+        "thisAgent": "このエージェント"
+      },
+      "field": {
+        "model": "モデル",
+        "effort": "エフォート",
+        "reasoning": "推論",
+        "permission": "指揮ターンの権限",
+        "askQuestions": "指揮者からの質問を許可",
+        "askQuestionsHint": "AskUserQuestionをツールに追加します。既定ではオフです。オンにすると、あいまいな指示のとき、あなたが答えるまで処理が一時停止することがあります。",
+        "engine": "メンバーのエンジン",
+        "maxMembers": "作成できるメンバーの上限"
+      },
+      "permission": {
+        "bypass": "権限確認をスキップ",
+        "inherit": "このエージェントの権限モードを使用",
+        "bypassHint": "指揮者はVibisualのローカルAPIを自分で呼び出すため、確認なしで動作します。ただしコードは編集できません。そのターンではWriteとEditが取り除かれます。",
+        "inheritHint": "指揮者は、このエージェントがふだん行うのと同じ方法で権限を確認します。チームの編成には何度かの呼び出しが必要なため、複数回あなたの応答を待って止まることがあります。"
+      },
+      "member": {
+        "title": "メンバー",
+        "about": "メンバーとは、指揮者がキャンバス上に作成するエージェントのことです。まず以前の実行のメンバーを再利用します。空欄の項目は指揮者の判断に任せます。",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "役割ごとに指揮者が選択"
+        },
+        "maxDefault": "既定（{{count}}）"
+      },
+      "strategies": {
+        "title": "トークン節約戦略",
+        "about": "先に行ったトークン分析をそのまま反映しています。指揮者はすべてを適用するわけではなく、依頼ごとに合うものだけを選び、理由を書き残します。その判断は下の実行履歴に表示されます。チェックを外した項目は、指揮者のルールから取り除かれます。",
+        "count": "{{total}}件のうち{{allowed}}件を許可",
+        "referenceOnly": "参考",
+        "referenceOnlyTip": "これは指揮者が変更できる設定がないため、選択することはできません。メモの中であなたに勧めることができるだけです。",
+        "allowedTip": "指揮者はこれを選ぶことができます。クリックするとルールから外れます。",
+        "deniedTip": "指揮者のルールから外されています。クリックすると再び許可されます。",
+        "estimate": "元の見積もり：",
+        "original": "元の分析",
+        "applyTitle": "指揮者による適用方法",
+        "knobs": "変更できる設定",
+        "memberRule": "メンバーに追加される指示",
+        "topologyRule": "編成ルール"
+      },
+      "strategy": {
+        "subagents": "サブagent",
+        "output": "出力",
+        "autoCompact": "自動コンパクト化",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.mdとMEMORY.md",
+        "prevOutput": "前のターンの出力の再読み込み",
+        "shell": "シェル調査",
+        "systemPrompt": "システムプロンプトとツール定義",
+        "subagentReports": "サブagentの報告",
+        "web": "Web検索",
+        "reminders": "ターンごとのリマインダー",
+        "preamble": "Vibisualの前置き",
+        "other": "その他"
+      },
+      "analysis": {
+        "show": "残りの分析を表示（所見・プラクティス・値・出典）",
+        "hide": "残りの分析を非表示"
+      },
+      "runs": {
+        "title": "実行履歴",
+        "empty": "まだ指揮された指示はありません。上でオンにして、このエージェントに指示を出してください。",
+        "chosen": "選択済み（{{count}}）",
+        "skipped": "除外（{{count}}）",
+        "note": "メモ：",
+        "entry": "{{name}}で開始",
+        "members": "メンバー（{{count}}）：{{names}}",
+        "created": "新規作成{{count}}件",
+        "tokens": "トークン：入力{{input}}・出力{{output}}",
+        "noPlan": "指揮者は計画を報告せずに終了しました。"
+      },
+      "phase": {
+        "conducting": "指揮中",
+        "dispatched": "引き渡し済み",
+        "answered": "直接回答",
+        "unreported": "計画未報告",
+        "error": "エラー"
+      },
+      "intent": {
+        "question": "質問",
+        "quick-fix": "簡易修正",
+        "feature": "機能追加",
+        "research": "調査",
+        "debug": "デバッグ",
+        "refactor": "リファクタリング"
+      },
+      "topology": {
+        "none": "チームなし",
+        "single": "メンバー1人",
+        "pipeline": "パイプライン",
+        "parallel": "並列"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "ほか {{n}}件"
   },
   "providers": {
+    "settingsScope": "設定の適用範囲",
+    "globalScope": "すべてのプロジェクトの既定値",
+    "projectScope": "現在のプロジェクトの既定値",
+    "globalSettingsHint": "すべてのプロジェクトに適用します。プロジェクト・エージェントの個別設定は維持され、次の実行から反映されます。",
+    "projectSettingsHint": "共通設定との差分だけを保存します。エージェントの個別設定は維持され、次の実行から反映されます。",
+    "codexAdvanced": "Codex の詳細実行設定",
+    "inheritSetting": "上位設定 / Codex 設定を継承",
+    "reasoningSummary": "推論の要約",
+    "personality": "話し方",
+    "personalityHint": "対応モデルでのみ適用されます。",
+    "serviceTier": "サービス階層",
+    "serviceTierHint": "モデルが対応する階層を入力してください（例: fast）。高速な階層は使用量や料金に影響する場合があります。",
+    "autoCompactTokenLimit": "会話の自動圧縮基準（トークン）",
+    "codexTools": "ツール別の権限",
+    "inheritProject": "プロジェクト / 共通の既定値",
+    "individualSettingsHint": "このエージェントに適用します。既定値と同じ項目はプロジェクト・共通設定の変更を引き継ぎます。",
+    "codexValues": {
+      "auto": "自動",
+      "concise": "簡潔",
+      "detailed": "詳細",
+      "none": "なし",
+      "friendly": "親しみやすく",
+      "pragmatic": "実用的"
+    },
     "provider": "プロバイダー",
     "claude": "Claude",
     "codex": "Codex",

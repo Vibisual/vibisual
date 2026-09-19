@@ -9,9 +9,12 @@ import { isReadOnlyHookAgent, providerForEngine } from '@vibisual/shared';
 // §5.24 — 히트 척도 곡선의 기본값과 분포 표본. 판정은 shared 한 곳이 소유한다(서버와 같은 함수).
 import { DEFAULT_HEAT_CURVE, DEFAULT_TIDY_SORT, heatQuantileSamples } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
-import { isNoProjectFolderError } from '@vibisual/shared';
+import { isNoProjectFolderError, foldPermissionChoice } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import type { SessionRunState } from '@vibisual/shared';
+// §5.3 #10-4 — 오케스트라 요약. 무변화 프레임은 지문으로 거른다(apply* 는 structuralShare 를 타지 않는다).
+import type { OrchestraSummary } from '@vibisual/shared';
+import { orchestraSummaryFingerprint } from '@vibisual/shared';
 import i18n, { changeUiLocale } from '../i18n/index.js';
 import { SESSION_FOCUS_GLOW_MS, type SessionFocusGlow } from '../utils/sessionStatus.js';
 import { calcFileSizeRange, calcHeatCountRange } from '../utils/sizeCalc.js';
@@ -26,6 +29,7 @@ import {
 } from '../components/IDE/reading/readingModel.js';
 import { recordCommandHistory, dropSessionCommandHistory } from '../components/IDE/commandHistory.js';
 import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
+import { hasRecentEventId, mergeDeepWindow, spliceMissingInServerOrder } from '../components/IDE/streamGapFill.js';
 import {
   IDE_DOCK,
   IDE_MAX_PANES,
@@ -601,7 +605,8 @@ export interface IframeTab {
 // §5.10 (P) — 'autoGoal'(화면 이름 「절차 감지」)은 한때 'goal' 뷰 아래 블록이었다가 제 칸으로
 //   갈라져 나왔다(사용자 지시 2026-09-12). **식별자는 `autoGoal` 그대로**다 — REST(`/api/auto-goal/*`)·
 //   저장고(`.vibisual/skills`)·집행 축이 이 이름으로 물려 있어, 표시 이름만 바꾼다(§5.10 (P)).
-export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'autoGoal' | 'loop' | 'verify' | 'specReading' | 'debug' | 'bookmarks' | 'subagents';
+// §5.3 #10-4 — 'orchestra'(오케스트라) 칸은 절차 감지 뒤에 선다(§5.5 #16-1 (H)).
+export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'autoGoal' | 'orchestra' | 'loop' | 'verify' | 'specReading' | 'debug' | 'bookmarks' | 'subagents';
 
 /** §5.5 #17-28 v4.96 · #17-31 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 mcp). */
 export function migrateIDEViewType(v: unknown): IDEViewType {
@@ -618,7 +623,7 @@ export function migrateIDEViewType(v: unknown): IDEViewType {
   //   기능(되풀이 → 스킬)이 이제 거기 있으므로, 'mcp' 로 떨구면 사용자는 그것이 어디 갔는지 못 찾는다.
   //   (한때 'goal' 로 보냈는데, 그 블록이 제 칸으로 갈라져 나갔으므로 도착지도 함께 옮긴다.)
   if (v === 'brain') return 'autoGoal';
-  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'autoGoal', 'loop', 'verify', 'specReading', 'debug', 'bookmarks', 'subagents'];
+  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'autoGoal', 'orchestra', 'loop', 'verify', 'specReading', 'debug', 'bookmarks', 'subagents'];
   return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'mcp';
 }
 
@@ -990,6 +995,28 @@ export function selectPaneProjectPath(
   const name = selectPaneProjectName(state, paneKey);
   if (!name) return null;
   return state.projects[name]?.path ?? state.stubProjects[name]?.project.path ?? null;
+}
+
+/**
+ * §5.3 #10-4 — 이 IDE 창이 다루는 프로젝트의 오케스트라 요약(설정 + 최근 런). 없으면 `null`.
+ *
+ * 스냅샷 키가 표시명이라 조회는 이름으로 하고(`selectPaneProjectName`), REST 에 싣는 `projectPath` 는
+ * 같은 창의 `selectPaneProjectPath` 를 쓴다. 활성 탭(`activeProject`)이 아니라 **창의 프로젝트**를 보는
+ * 이유 — 다른 프로젝트 에이전트의 창을 띄워 두면 그 에이전트의 스위치가 보여야 한다.
+ */
+export function selectPaneOrchestraSummary(
+  state: {
+    ideOverlays: Record<string, IDEOverlayState>;
+    activeProject: string | null;
+    agentProjects: Record<string, string>;
+    projects: Record<string, ProjectInfo>;
+    stubProjects: Record<string, ProjectMetaSnapshot>;
+    orchestra: Record<string, OrchestraSummary>;
+  },
+  paneKey: string | null | undefined,
+): OrchestraSummary | null {
+  const name = selectPaneProjectName(state, paneKey);
+  return (name ? state.orchestra[name] : undefined) ?? null;
 }
 
 /** 지금 보고 있는 프로젝트에 열려 있는 IDE 창들 — 앞에 온 순서(z 오름차순, 마지막이 맨 앞). */
@@ -2382,6 +2409,13 @@ interface GraphState {
    */
   autoGoal: Record<string, AutoGoalSummary>;
   /**
+   * §5.3 #10-4 — projectName → 오케스트라 요약(설정 + 최근 런, 서버 권위 · 클라 영속 ❌).
+   * 아무것도 정하지 않은 프로젝트에는 키가 없다(= 꺼짐). 조회는 `selectPaneOrchestraSummary`.
+   */
+  orchestra: Record<string, OrchestraSummary>;
+  /** §5.3 #10-4 — graph_snapshot 의 오케스트라 요약 반영. 프로젝트마다 지문이 같으면 그 참조를 그대로 둔다. */
+  applyOrchestra: (map: Record<string, OrchestraSummary> | undefined) => void;
+  /**
    * §5.10 v3.49 — 휴지통 내부 진입 상태 — currentFolderId/navStack 과 독립. null=일반 캔버스.
    * §5.10 — 기억 피드 오버레이가 폐기돼 이 축에 남은 값은 휴지통 하나뿐이다.
    */
@@ -2584,6 +2618,12 @@ interface GraphState {
    * 된다 — 말풍선·카드만 남고 사이가 빈 화면의 정체가 그것이었다.
    */
   deepRestoredSessions: Record<string, true>;
+  /**
+   * 재연결 직후 — 깊은 복원 표식을 **전부** 내린다. 끊겨 있던 동안의 줄은 WS 로 다시 오지 않아 버퍼
+   * 가운데가 비는데, 표식이 서 있으면 창이 "이미 받았다"로 읽어 다시 받지 않는다. 표식이 내려가면 창이
+   * 보고 있는 세션을 다시 받아 그 자리를 메운다(`hooks/reconnectResync.ts`).
+   */
+  markStreamsStale: () => void;
   appendStreamEvent: (event: SubAgentStreamEvent) => void;
   /** §9 — sub_agent_stream 16ms 배치 수신. 도착 순서대로 합쳐 set 1회 (구독자 재평가 1회). */
   appendStreamEvents: (events: SubAgentStreamEvent[]) => void;
@@ -3100,8 +3140,11 @@ interface GraphState {
   removePendingPermission: (requestId: string) => void;
   /** 서버 재연결 시 기존 대기 요청 복구용 */
   setPendingPermissions: (list: import('@vibisual/shared').PermissionRequest[]) => void;
-  /** 사용자 Allow/Deny 결정 — 서버 POST /api/permission-decide */
-  respondPermission: (requestId: string, decision: 'allow' | 'deny', reason?: string) => Promise<void>;
+  /**
+   * 사용자 결정 — 서버 POST /api/permission-decide. §5.3 #12-1-B 답 넷(`choice`)을 보낸다.
+   * 서버가 받았으면(또는 이미 풀린 카드면) `true`. "항상"을 서버가 거절해 카드가 되돌아왔으면 `false`.
+   */
+  respondPermission: (requestId: string, choice: import('@vibisual/shared').PermissionChoice, reason?: string) => Promise<boolean>;
 
   // §5.3 #12-2 v2.26 — AskUserQuestion 카드 큐 (IDE 인라인)
   /** 대기 중인 AskUserQuestion 요청 (requestId → AskUserQuestionRequest). IDE 안 인라인 카드. */
@@ -4486,6 +4529,25 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   activeContiWork: {},
   pluginFacts: {},
   autoGoal: {},
+  orchestra: {},
+  applyOrchestra: (map) => set((s) => {
+    // 서버는 매 브로드캐스트마다 새 객체를 싣지만 설정·런은 스위치를 누르거나 지휘 턴이 움직일 때만
+    //   바뀐다. 프로젝트마다 지문을 대조해 같은 것은 이전 참조를 그대로 두고, 전부 같으면 set 하지 않는다.
+    const incoming = map ?? {};
+    const prev = s.orchestra;
+    const next: Record<string, OrchestraSummary> = {};
+    let changed = Object.keys(prev).length !== Object.keys(incoming).length;
+    for (const [name, summary] of Object.entries(incoming)) {
+      const old = prev[name];
+      if (old && orchestraSummaryFingerprint(old) === orchestraSummaryFingerprint(summary)) {
+        next[name] = old;
+      } else {
+        next[name] = summary;
+        changed = true;
+      }
+    }
+    return changed ? { orchestra: next } : s;
+  }),
   interiorView: null,
   guideCategory: null,
   optionsCategory: null,
@@ -5689,9 +5751,12 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   deepRestoredSessions: {},
   streamHistoryExtra: {},
   streamHistoryDone: {},
+  markStreamsStale: () => set((s) => (Object.keys(s.deepRestoredSessions).length === 0 ? s : { deepRestoredSessions: {} })),
   appendStreamEvent: (event) => set((s) => {
     const sid = event.subAgentId;
     const prev = s.subAgentStreams[sid];
+    // 서버 창을 다시 받는 사이 WS 로도 온 줄 — 이미 들어 있으면 두 번 그리지 않는다.
+    if (prev && hasRecentEventId(prev, event.id)) return s;
     // §5.3 #12-1 — 턴 세대 도장으로 **제 턴 자리**에 넣는다. 앞 턴이 띄운 백단 작업이 뒤늦게
     //   뱉는 줄이 새 명령 블록 아래로 들어가던 것을 여기서 막는다(평소 흐름은 그냥 꼬리 추가).
     const merged = prev ? insertEventInTurnOrder([...prev], event).buffer : [event];
@@ -5743,7 +5808,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         nextStreams[sid] = buf;
         touched.add(sid);
       }
-      // 단건 경로와 같은 규칙 — 도장이 가리키는 제 턴 자리에 꽂는다.
+      // 단건 경로와 같은 규칙 — 서버 창에 이미 실려 온 줄은 거르고(재연결 뒤 겹침), 도장이 가리키는 제 턴 자리에 꽂는다.
+      if (hasRecentEventId(buf!, event.id)) continue;
       insertEventInTurnOrder(buf!, event);
       nextLast[sid] = now;
     }
@@ -5782,19 +5848,24 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     const history = openStreamHistoryLedger(s.streamHistoryExtra, s.streamHistoryDone);
     const now = Date.now();
     for (const sid of Object.keys(buffers)) {
-      const arr = buffers[sid]!;
+      let arr = buffers[sid]!;
       // 얕은 조회(에이전트 전체, 세션당 `MAX_STREAM_BUFFER_BULK`)는 **이미 들고 있는 것을 줄이지
       // 않는다**. 두 조회는 IDE 를 열 때 나란히 날아가는데, 응답 순서는 정해져 있지 않아 얕은
       // 쪽이 나중에 도착하면 방금 받은 깊은 복원분을 통째로 덮어 화면이 다시 500 창으로 되돌아간다
-      // (그 세션은 다시 요청될 일이 없으므로 그대로 굳는다). 겹치지 않는 꼬리만 이어 붙인다.
+      // (그 세션은 다시 요청될 일이 없으므로 그대로 굳는다). 버퍼에 없는 줄만 끼운다.
+      //
+      // 끼우는 자리는 **서버 순서의 제자리**다 — 재연결 뒤에는 빠진 줄이 끊겨 있던 사이(버퍼 가운데)의
+      // 것이라, 종전처럼 끝에 붙이면 다시 붙은 뒤의 줄보다 아래에 그려진다.
       const prev = streams[sid];
       if (depth === 'shallow' && prev && prev.length >= arr.length) {
-        const seen = new Set(prev.map((e) => e.id));
-        const extra = arr.filter((e) => !seen.has(e.id));
-        if (extra.length > 0) streams[sid] = [...prev, ...extra];
+        const filled = spliceMissingInServerOrder(prev, arr);
+        if (filled) streams[sid] = filled;
         lastActivity[sid] = now;
         continue;
       }
+      // 얕은 창으로 **교체**할 때도 요청이 오가는 사이 WS 로 들어온 줄(서버 창 끝 이후)은 남긴다 —
+      //   말하는 중에 받으면 그 몇 줄이 빠져 글이 중간에서 끊긴다. 깊은 적재는 부르는 쪽이 이미 합쳐 온다.
+      if (depth === 'shallow' && prev && prev.length > 0) arr = mergeDeepWindow(arr, prev);
       // 깊은 복원분은 **사용자가 지금 열어 놓은 그 세션**이라 활성 상한으로 받는다. 스냅샷이
       // 아직 안 닿아 `active` 에 안 잡힌 찰나에 비활성 상한(300)으로 깎이면, 표식만 서고 창은
       // 깎인 채 굳어 "다시 받아 오는 길"이 도로 막힌다 — 그래서 이번 호출 한정으로 활성 취급한다.
@@ -7371,18 +7442,27 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   setPendingPermissions: (list) => set(() => ({
     pendingPermissions: Object.fromEntries(list.map((r) => [r.requestId, r])),
   })),
-  respondPermission: async (requestId, decision, reason) => {
+  respondPermission: async (requestId, choice, reason) => {
+    const request = get().pendingPermissions[requestId];
     // 낙관적 제거 — 서버 응답 오면 broadcast 도 removePendingPermission 호출하지만 noop.
     get().removePendingPermission(requestId);
     try {
-      await fetch(`${API_BASE}/api/permission-decide`, {
+      const res = await fetch(`${API_BASE}/api/permission-decide`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId, decision, reason }),
+        // `decision` 도 함께 싣는다 — 답 넷을 모르는 서버는 그 낱말로 한 번짜리를 받는다.
+        body: JSON.stringify({ requestId, decision: foldPermissionChoice(choice), choice, reason }),
       });
+      // §5.3 #12-1-B — 400 은 서버가 "항상"을 못 받았다는 뜻이고 카드는 서버에 그대로 대기 중이다.
+      //   되돌려 놓지 않으면 사용자는 답했다고 믿는데 60초 뒤 타임아웃 정책으로 풀린다. 404 는 이미 풀린 카드다.
+      if (res.status === 400 && request) {
+        get().addPendingPermission(request);
+        return false;
+      }
     } catch {
       // 서버 끊김 — 이미 제거했으니 다음 스냅샷/재연결 시 pending 재수신
     }
+    return true;
   },
 
   // §5.3 #12-2 v2.26 — AskUserQuestion 카드 큐

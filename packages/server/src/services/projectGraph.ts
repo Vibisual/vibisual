@@ -148,6 +148,8 @@ import os from 'node:os';
 // §4 (설정 3층) — 에이전트 설정은 **갈라진 칸만** 저장하고 읽을 때 겹친다. 접힘 규칙은
 //   화면의 "기본값과 다름" 점과 **같은 함수**를 써야 어긋나지 않는다(shared 한 곳).
 import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools, migrateCmdAgentColor } from '@vibisual/shared';
+import { normalizeOrchestraSettings, normalizeOrchestraRuns, settleStaleOrchestraRuns, orchestraRunsForSnapshot, appendOrchestraRun } from '@vibisual/shared';
+import type { OrchestraSettings, OrchestraRun, OrchestraSummary } from '@vibisual/shared';
 // §5.5 #17-36 — 스티키 메모 상한/정화(디스크·REST 에서 온 값을 그대로 믿지 않는다).
 import { SESSION_MEMO, sanitizeSessionMemos } from '@vibisual/shared';
 // §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
@@ -1564,6 +1566,29 @@ export class ProjectGraph {
    * 매번 다시 세는 파생이고, 스킬은 디스크의 `SKILL.md` 가 원본이다.
    */
   private autoGoalSettings = new Map<string, AutoGoalSettings>();
+  /**
+   * §5.3 #10-4 — 오케스트라(지휘 모드) 설정(프로젝트 경로 키 → 2단 켬/끔 + 지휘·멤버 엔진 세부).
+   *
+   * 자동 목표와 같은 키 규칙(표시명 ❌ 경로 ⭕)이다 — 켬/끔은 사용자가 정한 값이라 탭 이름이
+   * 바뀌었다고 잃으면 안 된다. 안 정한 프로젝트는 칸이 없다(= 꺼짐).
+   */
+  private orchestraSettings = new Map<string, OrchestraSettings>();
+  /**
+   * §5.3 #10-4 — 오케스트라 런 기록(프로젝트 경로 키 → 최근 `ORCHESTRA_RUN_MAX_PER_PROJECT`건 ring).
+   * 지휘 에이전트가 무엇을 골랐고 왜 골랐는지, 누구를 편성했는지가 여기 남는다.
+   */
+  private orchestraRuns = new Map<string, OrchestraRun[]>();
+  /**
+   * §9 — `getOrchestraSummary` 의 참조 유지 메모. 설정·런 목록은 바뀔 때마다 **새 객체로 갈아
+   * 끼워지므로**(`setOrchestraSettings`·`addOrchestraRun`·`updateOrchestraRun`·복원) 두 참조가 같으면
+   * 요약도 같다. 이게 있어야 `orchestra` 슬라이스가 증분(`DELTA_SLICE_KEYS`)을 탄다 — 매번 새로
+   * 지으면 정지 상태에서도 최근 런(요청 원문 포함)이 매 브로드캐스트마다 통째로 간다.
+   */
+  private orchestraSummaryMemo: {
+    settings: OrchestraSettings | undefined;
+    runs: OrchestraRun[] | undefined;
+    value: OrchestraSummary;
+  } | null = null;
   /** §5.9 화면/프로그램 캡처 버블 (id → CaptureBubble). 사용자 생성 독립 캔버스 요소. */
   private captureBubbles = new Map<string, CaptureBubble>();
   /** §5.13 v4.45 — 내부 앱 버블(범용). 앱이 늘어도 이 Map 하나로 끝난다. */
@@ -2956,6 +2981,30 @@ export class ProjectGraph {
     });
   }
 
+  /**
+   * §5.3 #10-4 — 이 그래프 프로젝트 뿌리의 **오케스트라 요약**(스냅샷 탑재분).
+   *
+   * 자동 목표와 같은 모양이다 — `projectName` 1차 키라 Manager 병합이 단순 spread 로 끝난다.
+   * 설정도 런도 없는 프로젝트는 `undefined`(기본 꺼짐이 전선에서도 같은 뜻). 런은 최근
+   * `ORCHESTRA_RUN_SNAPSHOT_MAX`건만 싣는다 — 전량은 체크포인트에 있다.
+   */
+  getOrchestraSummary(): Record<string, OrchestraSummary> | undefined {
+    if (!this.root) return undefined;
+    const name = this.getPrimaryProjectName();
+    if (!name) return undefined;
+    const key = specSettingsKey(this.root);
+    const settings = this.orchestraSettings.get(key);
+    const runs = this.orchestraRuns.get(key);
+    if (!settings && (!runs || runs.length === 0)) return undefined;
+    const memo = this.orchestraSummaryMemo;
+    if (memo && memo.settings === settings && memo.runs === runs) return { [name]: memo.value };
+    const value: OrchestraSummary = {
+      settings: settings ? { ...settings } : normalizeOrchestraSettings(undefined),
+      runs: runs ? orchestraRunsForSnapshot(runs) : [],
+    };
+    this.orchestraSummaryMemo = { settings, runs, value };
+    return { [name]: value };
+  }
   /**
    * §5.10 — 이 그래프 프로젝트 뿌리의 **자동 목표 요약**(스냅샷 탑재분).
    *
@@ -5972,6 +6021,8 @@ export class ProjectGraph {
       contextOverrides: this.getContextOverrides(),
       // §5.10 — 자동 목표 요약(꺼진 프로젝트에는 실리지 않는다).
       autoGoal: this.getAutoGoalSummary(),
+      // §5.3 #10-4 — 오케스트라 요약(설정도 런도 없는 프로젝트에는 실리지 않는다).
+      orchestra: this.getOrchestraSummary(),
     };
 
     // (2b) 계산 결과를 캐시에 저장 — 슬롯 상한을 넘으면 가장 오래 전에 넣은 것부터 버린다
@@ -6190,6 +6241,12 @@ export class ProjectGraph {
       // §5.11 정독 게이트 — 이 프로젝트의 설정 한 벌(경로 키로 찾는다 — 표시명은 바뀔 수 있다).
       specReadingSettings: this.specReadingSettings.get(specSettingsKey(project.path)),
       autoGoalSettings: this.autoGoalSettings.get(specSettingsKey(project.path)),
+      // §5.3 #10-4 오케스트라 — **디스크 포맷.** 여기 빠뜨리면 껐다 켜면 켬/끔·지휘 기록이 사라진다.
+      orchestraSettings: this.orchestraSettings.get(specSettingsKey(project.path)),
+      orchestraRuns: (() => {
+        const list = this.orchestraRuns.get(specSettingsKey(project.path));
+        return list && list.length > 0 ? [...list] : undefined;
+      })(),
       captureBubbles: this.captureBubbles.size > 0 ? [...this.captureBubbles.values()] : undefined,
       appBubbles: this.appBubbles.size > 0 ? [...this.appBubbles.values()] : undefined,
       playBubbles: this.playBubbles.size > 0 ? [...this.playBubbles.values()] : undefined,
@@ -6634,6 +6691,12 @@ export class ProjectGraph {
       // §5.11 정독 게이트 — **디스크 포맷.** 여기 빠뜨리면 껐다 켜면 게이트 강도·면제가 사라진다.
       specReadingSettings: this.specReadingSettings.get(specSettingsKey(project.path)),
       autoGoalSettings: this.autoGoalSettings.get(specSettingsKey(project.path)),
+      // §5.3 #10-4 오케스트라 — **디스크 포맷.** 여기 빠뜨리면 껐다 켜면 켬/끔·지휘 기록이 사라진다.
+      orchestraSettings: this.orchestraSettings.get(specSettingsKey(project.path)),
+      orchestraRuns: (() => {
+        const list = this.orchestraRuns.get(specSettingsKey(project.path));
+        return list && list.length > 0 ? [...list] : undefined;
+      })(),
       // §5.9 — 캡처 버블 필터: 이 프로젝트 소속만
       captureBubbles: (() => {
         const bubbles = [...this.captureBubbles.values()].filter((b) => b.projectName === project.name);
@@ -7298,6 +7361,22 @@ export class ProjectGraph {
       }
     }
 
+    // §5.3 #10-4 오케스트라 — 같은 규약으로 병합한다(이미 든 프로젝트 값이 이긴다). 런은 계약 밖 칸을
+    //   버리고, 지난 실행에서 `conducting` 으로 남은 것은 그 턴이 프로세스와 함께 죽었으니 닫는다.
+    if (cp.orchestraSettings) {
+      const key = specSettingsKey(cp.project.path);
+      if (!this.orchestraSettings.has(key)) {
+        this.orchestraSettings.set(key, normalizeOrchestraSettings(cp.orchestraSettings));
+      }
+    }
+    if (cp.orchestraRuns) {
+      const key = specSettingsKey(cp.project.path);
+      if (!this.orchestraRuns.has(key)) {
+        const runs = settleStaleOrchestraRuns(normalizeOrchestraRuns(cp.orchestraRuns), Date.now());
+        if (runs.length > 0) this.orchestraRuns.set(key, runs);
+      }
+    }
+
     // §5.9 — 캡처 버블 병합 (중복 ID 는 기존 유지)
     if (cp.captureBubbles) {
       for (const bubble of cp.captureBubbles) {
@@ -7597,6 +7676,18 @@ export class ProjectGraph {
     this.autoGoalSettings = new Map();
     if (cp.autoGoalSettings) {
       this.autoGoalSettings.set(specSettingsKey(cp.project.path), { ...cp.autoGoalSettings });
+    }
+
+    // §5.3 #10-4 오케스트라 — 설정·런 복원. 없으면 빈 상태(= 꺼짐) — 구버전 하위 호환.
+    //   `conducting` 으로 남은 런은 그 턴이 이미 죽었으므로 `unreported` 로 닫는다(활동바 숫자가 영영 안 줄지 않게).
+    this.orchestraSettings = new Map();
+    if (cp.orchestraSettings) {
+      this.orchestraSettings.set(specSettingsKey(cp.project.path), normalizeOrchestraSettings(cp.orchestraSettings));
+    }
+    this.orchestraRuns = new Map();
+    if (cp.orchestraRuns) {
+      const runs = settleStaleOrchestraRuns(normalizeOrchestraRuns(cp.orchestraRuns), Date.now());
+      if (runs.length > 0) this.orchestraRuns.set(specSettingsKey(cp.project.path), runs);
     }
 
     // §5.9 — 캡처 버블 복원
@@ -14012,6 +14103,66 @@ export class ProjectGraph {
     this.autoGoalSettings.set(specSettingsKey(projectPath), stored);
     this.bumpMutationVersion();
     return { ...stored };
+  }
+
+  /**
+   * §5.3 #10-4 — 이 프로젝트에 저장된 오케스트라 설정. 아직 아무것도 안 정했으면 undefined(= 꺼짐).
+   * 자동 목표와 같은 이유로 기본값을 여기서 채우지 않는다.
+   */
+  getOrchestraSettings(projectPath: string): OrchestraSettings | undefined {
+    const found = this.orchestraSettings.get(specSettingsKey(projectPath));
+    return found ? { ...found } : undefined;
+  }
+
+  /** 오케스트라 설정 **전량 교체**(한 칸만 갈아 끼우는 일은 REST 가 `applyOrchestraSettingsPatch`·`withOrchestraScope` 로 맡는다). */
+  setOrchestraSettings(projectPath: string, settings: OrchestraSettings): OrchestraSettings {
+    const stored: OrchestraSettings = { ...settings, updatedAt: Date.now() };
+    this.orchestraSettings.set(specSettingsKey(projectPath), stored);
+    this.bumpMutationVersion();
+    return { ...stored };
+  }
+
+  /** §5.3 #10-4 — 이 프로젝트의 오케스트라 런 전량(오래된 것부터). 사본이다. */
+  getOrchestraRuns(projectPath: string): OrchestraRun[] {
+    const list = this.orchestraRuns.get(specSettingsKey(projectPath));
+    return list ? [...list] : [];
+  }
+
+  /** 런 하나를 더한다 — 키는 런이 적어 둔 `projectPath`, ring 상한은 `appendOrchestraRun` 이 지킨다. */
+  addOrchestraRun(run: OrchestraRun): void {
+    const key = specSettingsKey(run.projectPath);
+    this.orchestraRuns.set(key, appendOrchestraRun(this.orchestraRuns.get(key) ?? [], run));
+    this.bumpMutationVersion();
+  }
+
+  /** runId 로 찾는다 — 이 인스턴스의 모든 프로젝트 키를 훑는다. 사본이다. */
+  findOrchestraRun(runId: string): OrchestraRun | undefined {
+    for (const list of this.orchestraRuns.values()) {
+      const found = list.find((r) => r.runId === runId);
+      if (found) return { ...found, memberAgentIds: [...found.memberAgentIds] };
+    }
+    return undefined;
+  }
+
+  /**
+   * runId 의 런을 갈아 끼운다(불변 교체). 못 찾으면 undefined.
+   * `mutate` 가 같은 객체를 돌려주면 아무것도 안 바꾼 것으로 보고 저장 표식을 올리지 않는다.
+   */
+  updateOrchestraRun(runId: string, mutate: (run: OrchestraRun) => OrchestraRun): OrchestraRun | undefined {
+    for (const [key, list] of this.orchestraRuns) {
+      const idx = list.findIndex((r) => r.runId === runId);
+      if (idx < 0) continue;
+      const current = list[idx];
+      if (!current) continue;
+      const next = mutate(current);
+      if (next === current) return { ...current };
+      const copy = [...list];
+      copy[idx] = next;
+      this.orchestraRuns.set(key, copy);
+      this.bumpMutationVersion();
+      return { ...next };
+    }
+    return undefined;
   }
 
   /**

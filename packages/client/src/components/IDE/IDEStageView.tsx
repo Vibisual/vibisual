@@ -90,7 +90,17 @@ function StageRail({
   );
 }
 
-export const IDEStageView = memo(function IDEStageView(): React.JSX.Element | null {
+interface IDEStageViewProps {
+  /**
+   * §5.5 #17-27 ⑰ — 편집창이 최대화돼 있다. 판 오른쪽 위 구석에 [원래대로] 가 숨어 있는 층이
+   * 겹치므로, 손잡이 줄 오른쪽 끝의 칩(목표 변천·서브에이전트 수)이 그 층 밑에 깔리지 않게 비워 둔다.
+   */
+  cornerReserved?: boolean;
+}
+
+export const IDEStageView = memo(function IDEStageView({
+  cornerReserved = false,
+}: IDEStageViewProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const agentId = useIDEPaneValue((o) => o.agentId);
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
@@ -164,7 +174,7 @@ export const IDEStageView = memo(function IDEStageView(): React.JSX.Element | nu
           이름("무대")은 이제 탭이 말하므로 여기 적지 않고, [닫기] 도 탭의 × 하나로 접혔다(㉔).
           ⑯ — [추종] 은 여기 서지 않는다. 대화 툴바의 그 버튼 하나가 두 축을 함께 쥐므로,
           무대를 열고 닫아도 사용자가 찾는 자리는 늘 같은 곳이다(사용자 지시). */}
-      <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-gray-800 bg-gray-900/60 px-2 py-1">
+      <div className={`flex flex-shrink-0 items-center gap-1.5 border-b border-gray-800 bg-gray-900/60 py-1 pl-2 ${cornerReserved ? 'pr-14' : 'pr-2'}`}>
         <span className="min-w-0 flex-1 truncate text-[12px] text-gray-500" title={goal?.text ?? undefined}>
           {goal?.text ?? t('ide.stage.waiting')}
         </span>

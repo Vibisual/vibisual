@@ -25,6 +25,8 @@ import {
   claimCompletionChime,
 } from '../utils/notification.js';
 import { detectCustomAgentCompletions } from '../utils/completionChime.js';
+import { installResumeWatch, shouldResyncOnResume, type SocketState } from './resumeResync.js';
+import { resyncAfterReconnect } from './reconnectResync.js';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -139,6 +141,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   // §9 v3.40 — 스트림 반영도 동일 적응(기본 50ms, 상한 250ms). 배수는 3 — 스트림 텍스트는
   // 지연에 더 민감해 스냅샷(×4)보다 완만하게 늘린다.
   const streamDelayRef = useRef(WS_STREAM_BATCH_INTERVAL);
+  // 이 창에서 소켓이 한 번이라도 열렸나 — 부팅 첫 연결과 재연결을 가른다(재연결만 놓친 것을 다시 받는다).
+  const hasOpenedRef = useRef(false);
+  // 화면 복귀로 새로고침을 마지막으로 건 시각 — 복귀 신호가 한꺼번에 여럿 와도 한 번만 붙게(`resumeResync.ts`).
+  const lastResumeResyncAtRef = useRef(0);
 
   /**
    * §9 v3.89 — 증분으로 온 키맵 슬라이스를 복원하기 위한 **최신 전체 맵**(수신 시점 기준).
@@ -316,6 +322,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyAutoAgentRuns(snap.autoAgentRuns);
+    // §5.3 #10-4 — 오케스트라 설정·런. 비어 오면(아무것도 정하지 않음) 빈 맵이 곧 "꺼짐"이다.
+    store.applyOrchestra(snap.orchestra);
     store.applyRunningSubagentTasks(snap.runningSubagentTasks);
     store.applyFinishedSubagentTasks(snap.finishedSubagentTasks);
     store.applyAgentReports(snap.agentReports);
@@ -425,6 +433,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       registerTerminalWsSender((frame) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
       });
+      // 다시 붙은 것이면 끊겨 있던 동안 놓친 스트림 줄·대기 카드를 다시 받는다 — 새 연결은 스냅샷만
+      //   주므로 그대로 두면 글이 중간에서 끊기고 권한 카드가 없어 멈춘 것처럼 보인다(`reconnectResync.ts`).
+      if (hasOpenedRef.current) resyncAfterReconnect();
+      hasOpenedRef.current = true;
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -772,6 +784,27 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   }, [connect]);
 
   const getLastSnapshotAt = useCallback(() => lastSnapshotAtRef.current, []);
+
+  // §4 v3.16 모바일 웹 — 화면이 돌아오면 연결을 점검해 제자리 새로고침을 건다. 폰은 화면이 꺼진 사이
+  //   소켓이 말없이 죽어 OPEN 으로 남거나, 재시도를 다 써 버려 다시는 안 붙는다. 판정은 `resumeResync.ts`.
+  useEffect(() => installResumeWatch((trigger, hiddenForMs) => {
+    const ws = wsRef.current;
+    const socketState: SocketState =
+      ws?.readyState === WebSocket.OPEN ? 'open'
+        : ws?.readyState === WebSocket.CONNECTING ? 'connecting'
+          : 'closed';
+    const now = Date.now();
+    if (!shouldResyncOnResume({
+      trigger,
+      // 통합 앱은 IPC 전송(`install-packaged-transport.ts`)이라 좀비가 되지 않는다.
+      packaged: typeof window !== 'undefined' && window.api !== undefined,
+      hiddenForMs,
+      socketState,
+      sinceLastResyncMs: now - lastResumeResyncAtRef.current,
+    })) return;
+    lastResumeResyncAtRef.current = now;
+    reconnect();
+  }), [reconnect]);
 
   // ─── §9 스코프드 스냅샷 구독 ───────────────────────────────────────────────
   //

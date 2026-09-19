@@ -12,6 +12,18 @@ import { buildCodexExecArgs, extractFileWrites } from './codexRunner.js';
 import { normalizeAgentProvider } from '@vibisual/shared';
 
 describe('Codex execution settings', () => {
+  it('normalizes advanced settings and passes them on both new and resumed turns', () => {
+    const provider = normalizeAgentProvider({ kind: 'codex-cli', modelId: 'test', reasoningSummary: 'detailed', personality: 'pragmatic', serviceTier: 'fast', autoCompactTokenLimit: 123456 })!;
+    for (const resumeThreadId of [undefined, 'existing-thread']) {
+      const args = buildCodexExecArgs({ ...provider, model: provider.modelId, cwd: '/work', resumeThreadId });
+      expect(args).toContain('model_reasoning_summary="detailed"');
+      expect(args).toContain('personality="pragmatic"');
+      expect(args).toContain('service_tier="fast"');
+      expect(args).toContain('model_auto_compact_token_limit=123456');
+    }
+    const invalid = normalizeAgentProvider({ kind: 'codex-cli', modelId: 'test', reasoningSummary: 'bad', personality: 'bad', serviceTier: 'fast\ninvalid', autoCompactTokenLimit: -1 });
+    expect(invalid).toEqual({ kind: 'codex-cli', modelId: 'test' });
+  });
   it('preserves overrides through normalization and sends them on new and resumed turns', () => {
     const provider = normalizeAgentProvider({ kind: 'codex-cli', modelId: 'test-model', webSearch: 'live', modelVerbosity: 'low', networkAccess: false })!;
     expect(provider.networkAccess).toBe(false);

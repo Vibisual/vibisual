@@ -92,7 +92,13 @@ function isCompanionName(fileOrPath: string): boolean {
   const name = (fileOrPath.split('/').pop() ?? fileOrPath).toLowerCase();
   // `mmproj-…` 시각 투영기 · `mtp-…` 보조 헤드 · `imatrix…` 양자화 교정표.
   //   셋 다 `.gguf` 를 쓰지만 셋 다 혼자서는 한 마디도 못 한다.
-  if (/^mmproj[-_.]/.test(name) || /^mtp[-_.]/.test(name) || /imatrix/.test(name)) return true;
+  // `MTP-…` 형태로 이름 가운데 들어간 보조 헤드도 함께 거른다(실측: `...-MTP-Q4_K_M.gguf`).
+  if (
+    /^mmproj[-_.]/.test(name)
+    || /^mtp[-_.]/.test(name)
+    || /(^|[._-])mtp[._-]/.test(name)
+    || /imatrix/.test(name)
+  ) return true;
   // 저장소가 폴더로 갈라 두기도 한다(`MTP/mtp-….gguf`).
   return /(^|\/)mtp\//i.test(fileOrPath);
 }

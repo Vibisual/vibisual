@@ -1496,7 +1496,17 @@
       "stackCount": "{{current}} von {{total}} ausstehend",
       "emptyToolInput": "(leer)",
       "askedByToolTitle": "Tool, bei dem du eine Bestätigung angefordert hast",
-      "askedByToolHint": "Du hast {{tool}} in den Einstellungen dieses Agenten als „vor Verwendung nachfragen“ markiert — daher fragt es sogar im Bypass-Modus nach."
+      "askedByToolHint": "Du hast {{tool}} in den Einstellungen dieses Agenten als „vor Verwendung nachfragen“ markiert — daher fragt es sogar im Bypass-Modus nach.",
+      "allowOnce": "Einmal zulassen",
+      "allowAlways": "Immer zulassen",
+      "allowSession": "Für diese Sitzung zulassen",
+      "rejectOnce": "Einmal ablehnen",
+      "rejectAlways": "Immer ablehnen",
+      "rejectAlwaysDisallowedTitle": "Fügt {{tool}} den gesperrten Tools dieses Agents hinzu — es wird dann ohne Nachfrage blockiert.",
+      "rejectAlwaysCodexTitle": "Setzt die Tool-Gruppe {{group}} in den Codex-Tool-Einstellungen dieses Agents auf Ablehnen.",
+      "allowSessionTitle": "Fragt in dieser Sitzung nicht mehr nach {{tool}}. Wird beim Neustart der App vergessen — ändere den Berechtigungsmodus, um es dauerhaft zuzulassen.",
+      "allowAlwaysAskToolsTitle": "Entfernt {{tool}} aus der Liste „Vor Verwendung nachfragen“ dieses Agents.",
+      "allowAlwaysCodexTitle": "Setzt die Tool-Gruppe {{group}} in den Codex-Tool-Einstellungen dieses Agents auf Zulassen."
     },
     "claudeVersionGate": {
       "title": "Claude Code-Update verfügbar",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "Abgelehnt",
       "sourceTimeout": "abgelaufen",
       "sourcePolicy": "laut Modus",
+      "sourceCancelled": "abgebrochen",
       "reason": "Grund",
       "countSummary": "{{total}} Aufrufe · {{risky}} riskant · {{denied}} abgelehnt",
       "showMore": "{{count}} weitere anzeigen",
@@ -2732,6 +2743,7 @@
       "loop": "Wiederholungsschleife",
       "goal": "Ziel",
       "autoGoal": "Verfahrenserkennung",
+      "orchestra": "Orchester",
       "debug": "Ausführen und Debuggen",
       "hooks": "Sitzungs-Hooks",
       "plugins": "Claude Code-Plugins",
@@ -3036,6 +3048,8 @@
       "pinTabs": "Tabs anheften – bleiben beim Sitzungswechsel geöffnet",
       "unpinTabs": "Anheften aufheben – jede Sitzung hat eigene Tabs",
       "closePane": "Editor-Bereich schließen",
+      "maximizePane": "Maximieren – Tab-, Pfad- und Adressleiste ausblenden",
+      "restorePane": "Wiederherstellen – Tab-, Pfad- und Adressleiste wieder einblenden",
       "closeDirtyConfirm": "Diese Datei hat ungespeicherte Änderungen. Trotzdem schließen?",
       "conflict": "Diese Datei wurde auf der Festplatte geändert, nachdem Sie sie geöffnet haben.",
       "conflictReload": "Neu laden",
@@ -3202,7 +3216,16 @@
         "openApp": "In {{app}} öffnen — {{path}}",
         "openExternal": "Mit Standardprogramm öffnen — {{path}}",
         "revealOutsideFolder": "Im Dateimanager öffnen — {{path}}",
-        "revealOutsideFile": "Im Dateimanager anzeigen (öffnet den übergeordneten Ordner) — {{path}}"
+        "revealOutsideFile": "Im Dateimanager anzeigen (öffnet den übergeordneten Ordner) — {{path}}",
+        "menu": {
+          "revealFile": "Dateispeicherort öffnen",
+          "openPage": "Als Webseite öffnen (in der App)",
+          "openBrowser": "Im externen Browser öffnen",
+          "copyRelativePath": "Relativen Pfad kopieren",
+          "openApp": "In {{app}} öffnen",
+          "run": "Programm ausführen",
+          "outsideRoot": "Pfade außerhalb des Projekts öffnen sich nur im Dateimanager"
+        }
       },
       "restartResumed": "Beim Beenden der App unterbrochen — in der gespeicherten Sitzung fortgesetzt.",
       "nestedSubagent": "Unteragent",
@@ -3422,6 +3445,13 @@
       "orphaned": "Unterbrochen beim Neustart der App",
       "dispatchResult": "Beendet, ohne das Ergebnis der delegierten Aufgabe zu erhalten",
       "unknown": "Aus unbekanntem Grund fehlgeschlagen"
+    },
+    "turnStop": {
+      "cancelled": "Von dir gestoppt",
+      "maxTokens": "Ausgabelimit",
+      "maxTurns": "Durchlauflimit",
+      "refusal": "Vom Modell abgelehnt",
+      "usageLimit": "Nutzungslimit"
     },
     "density": {
       "label": "Anzeigedichte",
@@ -4391,6 +4421,139 @@
       "dismiss": "Das ist kein Verfahren (es wird nicht mehr vorgeschlagen)",
       "watching": "{{observed}} Aktionen gescannt – ein Lauf wird aufgeschrieben, sobald dieselbe Reihenfolge {{runs}}-mal wiederkehrt.",
       "empty": "Noch nichts zu scannen. Das füllt sich, sobald deine Agenten anfangen zu arbeiten."
+    },
+    "orchestra": {
+      "title": "Orchester",
+      "about": "Ist dies aktiviert, wird der Agent, dem du einen Auftrag gibst, für diesen Turn zum Dirigenten: Er entscheidet, um welche Art von Anfrage es sich handelt, ob die Arbeit aufgeteilt wird, welche Agenten er erstellt und wie er sie mit Kanten verknüpft, sowie welche Token-sparenden Strategien passen. Bevor ein Mitglied startet, legt er diesen Plan mit seinen Gründen offen.",
+      "effectiveOn": "Für diesen Agenten aktiviert – dein nächster Auftrag wird dirigiert.",
+      "effectiveOff": "Für diesen Agenten deaktiviert – Aufträge gehen wie gewohnt direkt an ihn.",
+      "noProject": "Öffne zuerst ein Projekt.",
+      "saveFailed": "Konnte nicht gespeichert werden ({{reason}}).",
+      "costWarning": "Mehrere Agenten zu verwenden kann mehr kosten als nur einer, nicht weniger – jedes Mitglied liest seine eigenen Regeln und Dateien erneut. Der Dirigent wird angewiesen, bei einer kleinen Anfrage direkt zu antworten.",
+      "useAgentSetting": "Einstellung dieses Agenten verwenden",
+      "conductorPicks": "Dirigent entscheidet",
+      "activity": {
+        "on": "ein",
+        "conducting": "{{count}} dirigierend"
+      },
+      "scope": {
+        "project": "Ganzes Projekt",
+        "agent": "Dieser Agent",
+        "inherited": "Erben",
+        "on": "Ein",
+        "off": "Aus",
+        "unavailable": "Hier nicht auswählbar – öffne zuerst einen Agent-Tab.",
+        "hint": "Der untere überschreibt den darüber. Jeder Klick durchläuft Ein → Aus → Erben. Vom Dirigenten erstellte Mitglieder dirigieren selbst nie."
+      },
+      "blocked": {
+        "lead": "Auch wenn aktiviert, dirigiert dieser Agent nicht, weil:",
+        "localEngine": "Er läuft auf einem lokalen Modell – zum Dirigieren sind Claude oder Codex nötig.",
+        "notCustom": "Nur auf der Arbeitsfläche erstellte Custom-Agent-Blasen können dirigieren.",
+        "autoBubble": "Es ist eine Auto-Agent-Blase, die bereits ihr eigenes Team zusammenstellt.",
+        "terminal": "Er läuft in einem eingebetteten Terminal, in dem sich die Tools und Anweisungen eines einzelnen Turns nicht austauschen lassen."
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "Dirigent",
+        "about": "Der Dirigent ist dieser Agent selbst, für genau diesen einen Turn – seine gespeicherten Einstellungen werden nicht verändert. Seine Engine folgt dem Agenten (ein Wechsel der Engine mitten in der Sitzung würde die Sitzung beschädigen), daher werden hier nur Modell und Effort für jede Engine festgelegt.",
+        "thisAgent": "Dieser Agent"
+      },
+      "field": {
+        "model": "Modell",
+        "effort": "Effort",
+        "reasoning": "Denkaufwand",
+        "permission": "Berechtigungen für den dirigierenden Turn",
+        "askQuestions": "Dirigent darf mir Fragen stellen",
+        "askQuestionsHint": "Fügt AskUserQuestion zu seinen Tools hinzu. Standardmäßig aus – ist es aktiviert, kann eine vage Anfrage pausieren, bis du antwortest.",
+        "engine": "Mitglieder-Engine",
+        "maxMembers": "Maximal erstellbare Mitglieder"
+      },
+      "permission": {
+        "bypass": "Berechtigungsabfragen überspringen",
+        "inherit": "Berechtigungsmodus dieses Agenten verwenden",
+        "bypassHint": "Der Dirigent ruft die lokale Vibisual-API selbst auf, daher läuft er ohne Abfragen. Code bearbeiten kann er trotzdem nicht – Write und Edit werden für seinen Turn entfernt.",
+        "inheritHint": "Der Dirigent fragt nach Berechtigung genauso, wie dieser Agent es normalerweise tut. Ein Team zusammenzustellen braucht mehrere Aufrufe, daher kann er mehr als einmal anhalten und auf dich warten."
+      },
+      "member": {
+        "title": "Mitglieder",
+        "about": "Mitglieder sind die Agenten, die der Dirigent auf der Arbeitsfläche erstellt. Er verwendet zuerst Mitglieder aus früheren Läufen wieder. Leere Felder überlassen die Wahl dem Dirigenten.",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "Dirigent wählt pro Rolle"
+        },
+        "maxDefault": "Standard ({{count}})"
+      },
+      "strategies": {
+        "title": "Token-sparende Strategien",
+        "about": "Die frühere Token-Analyse, Wort für Wort. Der Dirigent wendet nicht alle davon an – für jede Anfrage wählt er nur die passenden aus und schreibt, warum, und seine Entscheidungen erscheinen unten im Laufverlauf. Nicht angehakte Einträge werden aus seinen Regeln entfernt.",
+        "count": "{{allowed}} / {{total}} erlaubt",
+        "referenceOnly": "Referenz",
+        "referenceOnlyTip": "Dafür gibt es keine Einstellung, die der Dirigent ändern kann, daher kann er sie nicht auswählen – er kann sie dir nur in seiner Notiz empfehlen.",
+        "allowedTip": "Der Dirigent darf dies auswählen. Klicke, um sie aus seinen Regeln zu entfernen.",
+        "deniedTip": "Aus den Regeln des Dirigenten entfernt. Klicke, um sie wieder zu erlauben.",
+        "estimate": "Ursprüngliche Schätzung:",
+        "original": "Ursprüngliche Analyse",
+        "applyTitle": "Wie der Dirigent sie anwendet",
+        "knobs": "Einstellungen, die er ändern kann",
+        "memberRule": "Für Mitglieder hinzugefügte Anweisung",
+        "topologyRule": "Anordnungsregel"
+      },
+      "strategy": {
+        "subagents": "Unteragenten",
+        "output": "Ausgabe",
+        "autoCompact": "Automatische Kompaktierung",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md und MEMORY.md",
+        "prevOutput": "Erneutes Lesen der Ausgabe des vorherigen Turns",
+        "shell": "Shell-Erkundung",
+        "systemPrompt": "Systemprompt und Tool-Definitionen",
+        "subagentReports": "Unteragentenberichte",
+        "web": "Web-Suchen",
+        "reminders": "Turn-Hinweise",
+        "preamble": "Vibisual-Präambel",
+        "other": "Sonstiges"
+      },
+      "analysis": {
+        "show": "Rest der Analyse anzeigen (Befunde, Praktiken, Werte, Quellen)",
+        "hide": "Rest der Analyse ausblenden"
+      },
+      "runs": {
+        "title": "Läufe",
+        "empty": "Noch keine dirigierten Aufträge. Schalte es oben ein und gib diesem Agenten einen Auftrag.",
+        "chosen": "Ausgewählt ({{count}})",
+        "skipped": "Ausgelassen ({{count}})",
+        "note": "Notiz:",
+        "entry": "Gestartet mit {{name}}",
+        "members": "Mitglieder ({{count}}): {{names}}",
+        "created": "– {{count}} neu erstellt",
+        "tokens": "Tokens: {{input}} Eingabe · {{output}} Ausgabe",
+        "noPlan": "Der Dirigent hat abgeschlossen, ohne einen Plan zu melden."
+      },
+      "phase": {
+        "conducting": "Wird dirigiert…",
+        "dispatched": "Übergeben",
+        "answered": "Direkt geantwortet",
+        "unreported": "Kein Plan gemeldet",
+        "error": "Fehler"
+      },
+      "intent": {
+        "question": "Frage",
+        "quick-fix": "Schnelle Korrektur",
+        "feature": "Feature",
+        "research": "Recherche",
+        "debug": "Debugging",
+        "refactor": "Refactoring"
+      },
+      "topology": {
+        "none": "Kein Team",
+        "single": "Ein Mitglied",
+        "pipeline": "Pipeline",
+        "parallel": "Parallel"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "+{{n}} weitere"
   },
   "providers": {
+    "settingsScope": "Geltungsbereich",
+    "globalScope": "Standardwerte für alle Projekte",
+    "projectScope": "Standardwerte für dieses Projekt",
+    "globalSettingsHint": "Gilt für alle Projekte. Abweichende Projekt- und Agenteneinstellungen bleiben erhalten. Änderungen gelten ab dem nächsten Lauf.",
+    "projectSettingsHint": "Nur Unterschiede zu den globalen Werten werden gespeichert. Eigene Agenteneinstellungen bleiben erhalten. Änderungen gelten ab dem nächsten Lauf.",
+    "codexAdvanced": "Erweiterte Codex-Ausführungseinstellungen",
+    "inheritSetting": "Übergeordnete / Codex-Einstellungen übernehmen",
+    "reasoningSummary": "Zusammenfassung der Überlegungen",
+    "personality": "Kommunikationsstil",
+    "personalityHint": "Der Stil gilt nur für unterstützte Modelle.",
+    "serviceTier": "Servicestufe",
+    "serviceTierHint": "Eine vom Modell unterstützte Stufe eingeben (z. B. fast). Schnellere Stufen können Verbrauch und Kosten beeinflussen.",
+    "autoCompactTokenLimit": "Schwelle für automatische Komprimierung (Token)",
+    "codexTools": "Werkzeugberechtigungen",
+    "inheritProject": "Projektweite / globale Standardwerte",
+    "individualSettingsHint": "Gilt für diesen Agenten. Einstellungen mit Standardwerten folgen weiterhin den projektweiten und globalen Änderungen.",
+    "codexValues": {
+      "auto": "Automatisch",
+      "concise": "Knapp",
+      "detailed": "Ausführlich",
+      "none": "Keine",
+      "friendly": "Freundlich",
+      "pragmatic": "Pragmatisch"
+    },
     "provider": "Anbieter",
     "claude": "Claude",
     "codex": "Codex",

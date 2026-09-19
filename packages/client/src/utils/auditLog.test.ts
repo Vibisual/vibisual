@@ -66,6 +66,14 @@ describe('필터 — 고르기만 하고 판정하지 않는다', () => {
     expect(matchesAuditFilter(plain, 'denied')).toBe(false);
     expect(matchesAuditFilter(allowed, 'denied')).toBe(false);
   });
+
+  it('취소된 카드는 거부 탭에 오지 않고 회색이다 — 아무도 거부하지 않았다(§5.3 #12-1-B)', () => {
+    const cancelled = entry({ id: 'cancelled', decision: 'deny', decisionSource: 'cancelled' });
+    expect(matchesAuditFilter(cancelled, 'denied')).toBe(false);
+    expect(matchesAuditFilter(cancelled, 'all')).toBe(true);
+    expect(decisionToneClass('deny', 'cancelled')).not.toBe(decisionToneClass('deny', 'user'));
+    expect(decisionToneClass('deny', 'cancelled')).not.toBe(decisionToneClass('allow', 'user'));
+  });
 });
 
 describe('색과 라벨 — 세 화면이 같은 값을 본다', () => {

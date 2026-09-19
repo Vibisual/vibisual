@@ -35,6 +35,11 @@ interface IDEHtmlPreviewProps {
   mtimeMs: number;
   /** OS 기본 브라우저로 넘긴다(§5.13 (R-6) 재사용 — 새 레일 ❌). */
   onOpenExternal: () => void;
+  /**
+   * §5.5 #17-27 ⑰ — 편집창을 최대화하면 브라우저 줄(주소 칸)을 걷는다. 걷히는 것은 줄뿐이고
+   * iframe 은 그 자리 그대로다 — 보던 페이지·기록이 다시 실리지 않는다.
+   */
+  barHidden?: boolean;
 }
 
 /** 조작 줄 버튼 — 손잡이 줄(#17-27 ⑩)과 같은 톤이라 두 줄이 한 벌로 읽힌다. */
@@ -68,6 +73,7 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
   relPath,
   mtimeMs,
   onOpenExternal,
+  barHidden = false,
 }: IDEHtmlPreviewProps): React.JSX.Element {
   const { t } = useTranslation();
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -143,7 +149,9 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-gray-950">
-      {/* 브라우저 줄 — 창이 좁아져도 주소 칸만 양보한다(`min-w-0`), 손잡이는 줄지 않는다. */}
+      {/* 브라우저 줄 — 창이 좁아져도 주소 칸만 양보한다(`min-w-0`), 손잡이는 줄지 않는다.
+          ⑰ 최대화 중에는 서지 않는다(자리째 빠진다 — 아래 iframe 은 같은 자리의 같은 노드다). */}
+      {!barHidden && (
       <div className="flex items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <BarButton onClick={() => step(-1)} disabled={!canGoBack(history)} title={t('ide.editor.html.back')}>
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -185,6 +193,7 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
           </svg>
         </BarButton>
       </div>
+      )}
 
       {/*
         페이지. `sandbox` 로 **최상위 이동을 막는다**(⑮ (f)) — 워크스페이스 안의 HTML 이 우리 앱을

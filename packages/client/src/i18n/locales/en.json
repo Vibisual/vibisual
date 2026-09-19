@@ -1496,7 +1496,17 @@
       "stackCount": "{{current}} of {{total}} pending",
       "emptyToolInput": "(empty)",
       "askedByToolTitle": "Tool you asked to confirm",
-      "askedByToolHint": "You marked {{tool}} as “ask before use” in this agent’s settings — so it asks even in Bypass mode."
+      "askedByToolHint": "You marked {{tool}} as “ask before use” in this agent’s settings — so it asks even in Bypass mode.",
+      "allowOnce": "Allow once",
+      "allowAlways": "Always allow",
+      "allowSession": "Allow for this session",
+      "rejectOnce": "Deny once",
+      "rejectAlways": "Always deny",
+      "rejectAlwaysDisallowedTitle": "Adds {{tool}} to this agent’s disallowed tools — it will be blocked without asking.",
+      "rejectAlwaysCodexTitle": "Sets the {{group}} tool group to Deny in this agent’s Codex tool settings.",
+      "allowSessionTitle": "Won’t ask about {{tool}} again in this session. Forgotten when the app restarts — change the permission mode to allow it for good.",
+      "allowAlwaysAskToolsTitle": "Removes {{tool}} from this agent’s “ask before use” list.",
+      "allowAlwaysCodexTitle": "Sets the {{group}} tool group to Allow in this agent’s Codex tool settings."
     },
     "claudeVersionGate": {
       "title": "Claude Code update available",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "Denied",
       "sourceTimeout": "timed out",
       "sourcePolicy": "by mode",
+      "sourceCancelled": "cancelled",
       "reason": "Reason",
       "countSummary": "{{total}} calls · {{risky}} risky · {{denied}} denied",
       "showMore": "Show {{count}} more",
@@ -2732,6 +2743,7 @@
       "loop": "Repeat loop",
       "goal": "Goal",
       "autoGoal": "Procedure detection",
+      "orchestra": "Orchestra",
       "debug": "Run and debug",
       "hooks": "Session hooks",
       "plugins": "Claude Code plugins",
@@ -3036,6 +3048,8 @@
       "pinTabs": "Pin tabs — keep them open when you switch sessions",
       "unpinTabs": "Unpin tabs — each session keeps its own tabs",
       "closePane": "Close editor pane",
+      "maximizePane": "Maximize — hide the tab, path and address bars",
+      "restorePane": "Restore — show the tab, path and address bars again",
       "closeDirtyConfirm": "This file has unsaved changes. Close it anyway?",
       "conflict": "This file changed on disk after you opened it.",
       "conflictReload": "Reload",
@@ -3202,7 +3216,16 @@
         "openApp": "Open in {{app}} — {{path}}",
         "openExternal": "Open with the default app — {{path}}",
         "revealOutsideFolder": "Show in file manager — {{path}}",
-        "revealOutsideFile": "Show in file manager (opens the containing folder) — {{path}}"
+        "revealOutsideFile": "Show in file manager (opens the containing folder) — {{path}}",
+        "menu": {
+          "revealFile": "Open file location",
+          "openPage": "Open as web page (in app)",
+          "openBrowser": "Open in external browser",
+          "copyRelativePath": "Copy relative path",
+          "openApp": "Open in {{app}}",
+          "run": "Run program",
+          "outsideRoot": "Paths outside the project open only in the file manager"
+        }
       },
       "restartResumed": "Interrupted when the app went down — resumed on the saved session.",
       "nestedSubagent": "Subagent",
@@ -3422,6 +3445,13 @@
       "orphaned": "Interrupted when the app restarted",
       "dispatchResult": "Ended before receiving the delegated task result",
       "unknown": "Failed for an unknown reason"
+    },
+    "turnStop": {
+      "cancelled": "Stopped by you",
+      "maxTokens": "Output limit",
+      "maxTurns": "Turn limit",
+      "refusal": "Model refused",
+      "usageLimit": "Usage limit"
     },
     "density": {
       "label": "Display density",
@@ -4391,6 +4421,139 @@
       "dismiss": "This is not a procedure (stop suggesting it)",
       "watching": "Scanned {{observed}} actions — a run is written down once the same order comes back {{runs}} times.",
       "empty": "Nothing to scan yet. This fills up once your agents start working."
+    },
+    "orchestra": {
+      "title": "Orchestra",
+      "about": "When this is on, the agent you give an order to becomes the conductor for that turn: it decides what kind of request it is, whether to split the work, which agents to create and how to link them with edges, and which token-saving strategies fit. It reports that plan with its reasons before any member starts.",
+      "effectiveOn": "On for this agent — your next order will be conducted.",
+      "effectiveOff": "Off for this agent — orders go straight to it as usual.",
+      "noProject": "Open a project first.",
+      "saveFailed": "Could not save ({{reason}}).",
+      "costWarning": "Using several agents can cost more than one, not less — each member reads its own rules and files again. The conductor is told to answer directly when a request is small.",
+      "useAgentSetting": "Use this agent's setting",
+      "conductorPicks": "Conductor decides",
+      "activity": {
+        "on": "on",
+        "conducting": "{{count}} conducting"
+      },
+      "scope": {
+        "project": "Whole project",
+        "agent": "This agent",
+        "inherited": "Inherits",
+        "on": "On",
+        "off": "Off",
+        "unavailable": "Not available here — open an agent tab first.",
+        "hint": "The lower row overrides the upper one. Each press cycles on → off → inherit. Members the conductor creates never conduct themselves."
+      },
+      "blocked": {
+        "lead": "Even when on, this agent will not conduct because:",
+        "localEngine": "It runs on a local model — conducting needs Claude or Codex.",
+        "notCustom": "Only Custom Agent bubbles made on the canvas can conduct.",
+        "autoBubble": "It is an Auto Agent bubble, which already arranges its own team.",
+        "terminal": "It runs in an embedded terminal, where the tools and instructions of a single turn cannot be swapped."
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "Conductor",
+        "about": "The conductor is this agent itself, for that one turn — its saved settings are not changed. Its engine follows the agent (switching engines mid-session would break the session), so only the model and effort for each engine are set here.",
+        "thisAgent": "this agent"
+      },
+      "field": {
+        "model": "Model",
+        "effort": "Effort",
+        "reasoning": "Reasoning",
+        "permission": "Permissions for the conducting turn",
+        "askQuestions": "Let the conductor ask me questions",
+        "askQuestionsHint": "Adds AskUserQuestion to its tools. Off by default — when on, a vague order may pause until you answer.",
+        "engine": "Member engine",
+        "maxMembers": "Most members it may create"
+      },
+      "permission": {
+        "bypass": "Skip permission prompts",
+        "inherit": "Use this agent's permission mode",
+        "bypassHint": "The conductor calls the local Vibisual API by itself, so it runs without prompts. It still cannot edit code — Write and Edit are removed for its turn.",
+        "inheritHint": "The conductor asks for permission the way this agent normally does. Arranging a team takes several calls, so it may stop and wait for you more than once."
+      },
+      "member": {
+        "title": "Members",
+        "about": "Members are the agents the conductor creates on the canvas. It reuses members from earlier runs first. Empty fields leave the choice to the conductor.",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "Conductor chooses per role"
+        },
+        "maxDefault": "Default ({{count}})"
+      },
+      "strategies": {
+        "title": "Token-saving strategies",
+        "about": "The earlier token analysis, word for word. The conductor does not apply all of them — for each request it picks only those that fit and writes why, and its choices appear in the run history below. Unchecked items are removed from its rules.",
+        "count": "{{allowed}} / {{total}} allowed",
+        "referenceOnly": "reference",
+        "referenceOnlyTip": "There is no setting the conductor can change for this one, so it cannot pick it — it can only recommend it to you in its note.",
+        "allowedTip": "The conductor may pick this. Click to take it out of its rules.",
+        "deniedTip": "Taken out of the conductor's rules. Click to allow it again.",
+        "estimate": "Original estimate:",
+        "original": "Original analysis",
+        "applyTitle": "How the conductor applies it",
+        "knobs": "Settings it can change",
+        "memberRule": "Instruction added for members",
+        "topologyRule": "Arrangement rule"
+      },
+      "strategy": {
+        "subagents": "Subagents",
+        "output": "Output",
+        "autoCompact": "Auto-compact",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md and MEMORY.md",
+        "prevOutput": "Re-reading the previous turn's output",
+        "shell": "Shell exploration",
+        "systemPrompt": "System prompt and tool definitions",
+        "subagentReports": "Subagent reports",
+        "web": "Web lookups",
+        "reminders": "Per-turn reminders",
+        "preamble": "Vibisual preamble",
+        "other": "Other"
+      },
+      "analysis": {
+        "show": "Show the rest of the analysis (findings, practices, values, sources)",
+        "hide": "Hide the rest of the analysis"
+      },
+      "runs": {
+        "title": "Runs",
+        "empty": "No conducted orders yet. Turn it on above and give this agent an order.",
+        "chosen": "Picked ({{count}})",
+        "skipped": "Left out ({{count}})",
+        "note": "Note:",
+        "entry": "Started with {{name}}",
+        "members": "Members ({{count}}): {{names}}",
+        "created": "— {{count}} newly created",
+        "tokens": "Tokens: {{input}} in · {{output}} out",
+        "noPlan": "The conductor finished without reporting a plan."
+      },
+      "phase": {
+        "conducting": "Conducting",
+        "dispatched": "Handed off",
+        "answered": "Answered directly",
+        "unreported": "No plan reported",
+        "error": "Error"
+      },
+      "intent": {
+        "question": "Question",
+        "quick-fix": "Quick fix",
+        "feature": "Feature",
+        "research": "Research",
+        "debug": "Debugging",
+        "refactor": "Refactoring"
+      },
+      "topology": {
+        "none": "No team",
+        "single": "One member",
+        "pipeline": "Pipeline",
+        "parallel": "In parallel"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "+{{n}} more"
   },
   "providers": {
+    "settingsScope": "Settings scope",
+    "globalScope": "Defaults for all projects",
+    "projectScope": "Current project defaults",
+    "globalSettingsHint": "Defaults for all projects. Project and individual overrides are preserved. Saved changes apply on the next run.",
+    "projectSettingsHint": "Defaults for this project. Only differences from global defaults are saved. Individual overrides are preserved. Changes apply on the next run.",
+    "codexAdvanced": "Codex advanced execution settings",
+    "inheritSetting": "Inherit parent / Codex configuration",
+    "reasoningSummary": "Reasoning summary",
+    "personality": "Communication style",
+    "personalityHint": "Communication style applies to models that support it.",
+    "serviceTier": "Service tier",
+    "serviceTierHint": "Enter a tier supported by the selected model (for example, fast). Faster tiers may affect usage and pricing.",
+    "autoCompactTokenLimit": "Auto-compaction threshold (tokens)",
+    "codexTools": "Tool permissions",
+    "codexValues": {
+      "auto": "Automatic",
+      "concise": "Concise",
+      "detailed": "Detailed",
+      "none": "None",
+      "friendly": "Friendly",
+      "pragmatic": "Pragmatic"
+    },
+    "inheritProject": "Project / global defaults",
+    "individualSettingsHint": "Applies to this agent. Settings matching the defaults continue following project and global changes.",
     "provider": "Provider",
     "claude": "Claude",
     "codex": "Codex",

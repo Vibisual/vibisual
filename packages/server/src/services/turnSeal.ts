@@ -233,6 +233,59 @@ export function isTurnResumeSignal(eventType: string): boolean {
     || eventType === 'tool_use' || eventType === 'tool_result';
 }
 
+/**
+ * §5.5 #17-18 — 활동 없이 온 `result` 를 **이 명령의 끝으로 읽지 않고** 기다려 주는 최대 시간.
+ *
+ * 그 `result` 가 정말 이 명령의 것(예: 훅이 프롬프트를 막아 모델이 한 마디도 안 한 턴)이면 이 시간이
+ * 지나 봉인된다 — 무한 스피너는 없다. 첫 토큰까지 수십 초 걸리는 큰 문맥도 넉넉히 덮도록 분 단위로 잡는다.
+ */
+export const EARLY_RESULT_SAFETY_MS = 90 * 1000;
+
+/**
+ * 이 stdout 한 줄이 **본 대화의 모델 줄**인가 — `assistant` 완성 줄이나 토큰 단위 `stream_event` 이고,
+ * 곁가지(서브에이전트 안쪽, `parent_tool_use_id` 가 문자열)가 아니다.
+ *
+ * 파싱된 이벤트(`isTurnResumeSignal`)보다 **이르다** — `stream_event` 는 persistent 경로가 그리지 않아
+ * 이벤트가 안 되고, 빈 thinking 블록도 이벤트가 안 된다. 그래서 첫 글자가 나오기까지 수 초 동안
+ * "세션이 말하기 시작했다"는 사실이 판정에 안 잡혔다.
+ */
+export function isMainThreadModelLine(obj: Record<string, unknown>): boolean {
+  const type = obj['type'];
+  if (type !== 'assistant' && type !== 'stream_event') return false;
+  return typeof obj['parent_tool_use_id'] !== 'string';
+}
+
+/** `isResultBeforeOwnTurn` 이 보는 사실들 — 그 명령을 보낸 뒤 매니저가 모은 것이다. */
+export interface InFlightResultFacts {
+  /** 이 명령을 보낸 뒤 본 대화의 모델 줄(`isMainThreadModelLine`)이 하나라도 왔는가. */
+  mainActivity: boolean;
+  /** CLI 가 이 `result` 를 실패(`is_error`)로 신고했는가. */
+  cliError: boolean;
+  /** 우리가 최대 턴 수로 자식을 끊었는가. */
+  killed: boolean;
+  /** 우리가 이 명령에 인터럽트(`control_request`)를 보냈는가. */
+  interrupted: boolean;
+  /** 슬래시 명령인가 — 로컬 명령(`/compact`·`/cost` …)은 모델 줄 없이 `result` 만 낸다. */
+  slashCommand: boolean;
+}
+
+/**
+ * §5.5 #17-18 — 이 `result` 가 **이 명령의 답이 시작되기도 전에 온 남의 끝**인가.
+ *
+ * `--resume` 으로 막 뜬 자식은 밀려 있던 백그라운드 통지(`<task-notification>`)를 **우리 프롬프트보다
+ * 먼저** 한 차례 처리하고 그 끝에 `result` 를 한 줄 낸다. 이 줄을 명령의 끝으로 읽으면 명령이 답도
+ * 토큰도 없이 완료되고(완료음), 몇 초 뒤 진짜 답이 흐르며 세션이 다시 깨어난다 — 사용자에게는
+ * "입력하자마자 끝났다고 울리고, 한참 뒤에 그 입력이 실행된다"로 보였다(실측 2026-09-18, P_MPS_GPT).
+ *
+ * 판정은 하나다 — **이 명령을 보낸 뒤 본 대화가 한 마디도 안 했다.** 모델 줄 없이 `result` 가 오는
+ * 정상 경우(실패 신고 · 우리가 끊은 턴 · 슬래시 로컬 명령)는 종전 그대로 봉인한다.
+ */
+export function isResultBeforeOwnTurn(facts: InFlightResultFacts): boolean {
+  if (facts.mainActivity) return false;
+  if (facts.cliError || facts.killed || facts.interrupted || facts.slashCommand) return false;
+  return true;
+}
+
 /** `shouldSleepResumedTurn` 이 보는 사실들 — 전부 호출 시점에 매니저가 아는 값이다. */
 export interface ResumedTurnSleepInputs {
   /** 지금 세션 상태. `error` 는 보존해야 하므로 `active` 일 때만 재운다. */

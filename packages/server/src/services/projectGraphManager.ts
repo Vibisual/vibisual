@@ -15,6 +15,8 @@ import type {
   GraphSnapshot,
   SpecReadingSettings,
   AutoGoalSettings,
+  OrchestraSettings,
+  OrchestraRun,
   SpecReadingState,
   ProjectAgentCounts,
   HookEventPayload,
@@ -523,6 +525,14 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §5.3 #10-4 — 오케스트라 요약도 projectName 1차 키 → 단순 spread 안전. 빠지면 프로젝트를 2개 이상
+    //   열었을 때 한쪽의 켬/끔·지휘 기록이 화면에서 사라진다(자동 목표가 적어 둔 그 결함).
+    orchestra: (() => {
+      const av = a.orchestra;
+      const bv = b.orchestra;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
     // §5.5 #17-28 — 주입원 오버라이드는 층이 셋이라 **한 겹 안쪽까지** 합쳐야 한다.
     //   겉만 spread 하면 나중 스냅샷의 `projects`/`agents`/`sessions` 가 앞 것을 통째로 덮어
     //   프로젝트를 2개 이상 열었을 때 한쪽의 껐던 설정이 사라진다(위 두 카드가 겪은 결함).
@@ -639,6 +649,8 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     // §5.10 — 자동 목표 요약도 projectName 1차 키라 함께 relabel 해야
     //   클라(activeProject 키 조회)가 같은 이름으로 찾을 수 있다.
     autoGoal: renameKey(snap.autoGoal),
+    // §5.3 #10-4 — 오케스트라 요약도 projectName 1차 키라 함께 relabel.
+    orchestra: renameKey(snap.orchestra),
   };
 }
 
@@ -1651,6 +1663,19 @@ export class ProjectGraphManager {
       : this.primaryInstance();
     if (!inst) return null;
     return inst.createCustomAgent(label, position, projectName, options);
+  }
+
+  /**
+   * §5.3 #10-4 — `createCustomAgent` 가 **이 이름으로** 만들 때 에이전트가 들어갈 프로젝트 뿌리.
+   * 라우팅은 바로 위와 한 벌이다(이름이 없거나 못 찾으면 주 인스턴스). 인스턴스가 없으면 null.
+   * 오케스트라 멤버 생성이 "런과 같은 프로젝트인가"를 **만들기 전에** 재는 데 쓴다 — 만든 뒤에 재면
+   * 거절할 때 이미 버블이 생겨 있다.
+   */
+  getCustomAgentTargetRoot(projectName?: string | null): string | null {
+    const inst = projectName
+      ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
+      : this.primaryInstance();
+    return inst?.getRoot() ?? null;
   }
 
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 위임. createCustomAgent 와 동일한 인스턴스 라우팅
@@ -3955,6 +3980,59 @@ export class ProjectGraphManager {
     const inst = this.getInstanceByPath(projectPath);
     if (!inst) return null;
     return inst.setAutoGoalSettings(projectPath, settings);
+  }
+
+  // ─── §5.3 #10-4 오케스트라(지휘 모드) — 프로젝트별 설정·런 (키는 **경로**다) ───
+
+  /** 그 프로젝트에 저장된 오케스트라 설정. 아직 아무것도 안 정했으면 undefined(= 꺼짐). */
+  getOrchestraSettings(projectPath: string): OrchestraSettings | undefined {
+    return this.getInstanceByPath(projectPath)?.getOrchestraSettings(projectPath);
+  }
+
+  /** 오케스트라 설정 전량 교체. 프로젝트 인스턴스가 없으면 null(저장할 자리가 없다 → REST 404). */
+  setOrchestraSettings(projectPath: string, settings: OrchestraSettings): OrchestraSettings | null {
+    const inst = this.getInstanceByPath(projectPath);
+    if (!inst) return null;
+    return inst.setOrchestraSettings(projectPath, settings);
+  }
+
+  /**
+   * 그 에이전트가 속한 프로젝트 뿌리 — 오케스트라 설정·런의 키. 못 찾으면 null.
+   * 클라가 보내는 표시명이 아니라 **그 에이전트를 가진 인스턴스**로 정한다(이름 충돌·활성 프로젝트 오염 무관).
+   */
+  getOrchestraRootForAgent(agentId: string): string | null {
+    return this.findInstanceByAgentId(agentId)?.getRoot() ?? null;
+  }
+
+  /** 그 프로젝트의 런 전량(오래된 것부터). 인스턴스가 없으면 빈 배열. */
+  getOrchestraRuns(projectPath: string): OrchestraRun[] {
+    return this.getInstanceByPath(projectPath)?.getOrchestraRuns(projectPath) ?? [];
+  }
+
+  /** 런 하나를 더한다. 런의 `projectPath` 인스턴스가 없으면 false. */
+  addOrchestraRun(run: OrchestraRun): boolean {
+    const inst = this.getInstanceByPath(run.projectPath);
+    if (!inst) return false;
+    inst.addOrchestraRun(run);
+    return true;
+  }
+
+  /** runId 로 찾는다 — 어느 인스턴스가 가졌든. */
+  findOrchestraRun(runId: string): OrchestraRun | undefined {
+    for (const inst of this.instances.values()) {
+      const found = inst.findOrchestraRun(runId);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  /** runId 의 런을 갈아 끼운다 — 어느 인스턴스가 가졌든. 못 찾으면 undefined. */
+  updateOrchestraRun(runId: string, mutate: (run: OrchestraRun) => OrchestraRun): OrchestraRun | undefined {
+    for (const inst of this.instances.values()) {
+      const done = inst.updateOrchestraRun(runId, mutate);
+      if (done) return done;
+    }
+    return undefined;
   }
 
   /**

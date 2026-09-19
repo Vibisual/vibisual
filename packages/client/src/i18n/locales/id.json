@@ -1496,7 +1496,17 @@
       "stackCount": "{{current}} dari {{total}} tertunda",
       "emptyToolInput": "(kosong)",
       "askedByToolTitle": "Alat yang Anda minta untuk dikonfirmasi",
-      "askedByToolHint": "Anda menandai {{tool}} sebagai “tanya sebelum digunakan” di pengaturan agent ini — jadi ia tetap bertanya bahkan dalam mode Bypass."
+      "askedByToolHint": "Anda menandai {{tool}} sebagai “tanya sebelum digunakan” di pengaturan agent ini — jadi ia tetap bertanya bahkan dalam mode Bypass.",
+      "allowOnce": "Izinkan sekali",
+      "allowAlways": "Selalu izinkan",
+      "allowSession": "Izinkan untuk sesi ini",
+      "rejectOnce": "Tolak sekali",
+      "rejectAlways": "Selalu tolak",
+      "rejectAlwaysDisallowedTitle": "Menambahkan {{tool}} ke tools yang diblokir untuk agent ini — alat itu akan diblokir tanpa bertanya.",
+      "rejectAlwaysCodexTitle": "Mengatur grup alat {{group}} menjadi Tolak di pengaturan alat Codex agent ini.",
+      "allowSessionTitle": "Tidak akan bertanya lagi soal {{tool}} di sesi ini. Dilupakan saat aplikasi dimulai ulang — ubah mode izin untuk mengizinkannya seterusnya.",
+      "allowAlwaysAskToolsTitle": "Menghapus {{tool}} dari daftar “Tanya sebelum digunakan” agent ini.",
+      "allowAlwaysCodexTitle": "Mengatur grup alat {{group}} menjadi Izinkan di pengaturan alat Codex agent ini."
     },
     "claudeVersionGate": {
       "title": "Pembaruan Claude Code tersedia",
@@ -2086,6 +2096,7 @@
       "decisionDeny": "Ditolak",
       "sourceTimeout": "waktu habis",
       "sourcePolicy": "oleh mode",
+      "sourceCancelled": "dibatalkan",
       "reason": "Alasan",
       "countSummary": "{{total}} panggilan · {{risky}} berisiko · {{denied}} ditolak",
       "showMore": "Tampilkan {{count}} lagi",
@@ -2732,6 +2743,7 @@
       "loop": "Ulangi loop",
       "goal": "Sasaran",
       "autoGoal": "Deteksi prosedur",
+      "orchestra": "Orkestra",
       "debug": "Jalankan dan debug",
       "hooks": "Hook sesi",
       "plugins": "Plugin Claude Code",
@@ -3036,6 +3048,8 @@
       "pinTabs": "Sematkan tab — tetap terbuka saat berpindah sesi",
       "unpinTabs": "Lepas sematan — tiap sesi punya tabnya sendiri",
       "closePane": "Tutup panel editor",
+      "maximizePane": "Maksimalkan — sembunyikan bilah tab, jalur, dan alamat",
+      "restorePane": "Pulihkan — tampilkan lagi bilah tab, jalur, dan alamat",
       "closeDirtyConfirm": "File ini memiliki perubahan yang belum disimpan. Tetap tutup?",
       "conflict": "File ini berubah di disk setelah Anda membukanya.",
       "conflictReload": "Muat ulang",
@@ -3202,7 +3216,16 @@
         "openApp": "Buka di {{app}} — {{path}}",
         "openExternal": "Buka dengan aplikasi bawaan — {{path}}",
         "revealOutsideFolder": "Buka di pengelola berkas — {{path}}",
-        "revealOutsideFile": "Tampilkan di pengelola berkas (membuka folder induk) — {{path}}"
+        "revealOutsideFile": "Tampilkan di pengelola berkas (membuka folder induk) — {{path}}",
+        "menu": {
+          "revealFile": "Buka lokasi berkas",
+          "openPage": "Buka sebagai halaman web (di aplikasi)",
+          "openBrowser": "Buka di peramban eksternal",
+          "copyRelativePath": "Salin path relatif",
+          "openApp": "Buka di {{app}}",
+          "run": "Jalankan program",
+          "outsideRoot": "Path di luar proyek hanya dibuka di pengelola berkas"
+        }
       },
       "restartResumed": "Terputus saat aplikasi ditutup — dilanjutkan pada sesi tersimpan.",
       "nestedSubagent": "Subagen",
@@ -3422,6 +3445,13 @@
       "orphaned": "Terinterupsi saat aplikasi dimulai ulang",
       "dispatchResult": "Berakhir tanpa menerima hasil tugas yang didelegasikan",
       "unknown": "Gagal karena alasan yang tidak diketahui"
+    },
+    "turnStop": {
+      "cancelled": "Dihentikan oleh Anda",
+      "maxTokens": "Batas output",
+      "maxTurns": "Batas giliran",
+      "refusal": "Ditolak model",
+      "usageLimit": "Batas penggunaan"
     },
     "density": {
       "label": "Kepadatan tampilan",
@@ -4391,6 +4421,139 @@
       "dismiss": "Ini bukan prosedur (berhenti menyarankannya)",
       "watching": "Dipindai {{observed}} tindakan — rangkaian dituliskan begitu urutan yang sama muncul kembali {{runs}} kali.",
       "empty": "Belum ada yang bisa dipindai. Ini akan mulai terisi begitu agent Anda mulai bekerja."
+    },
+    "orchestra": {
+      "title": "Orkestra",
+      "about": "Saat diaktifkan, agent yang menerima perintah Anda menjadi dirigen untuk giliran itu: ia menentukan jenis permintaan itu, apakah pekerjaan perlu dibagi, agent apa saja yang perlu dibuat dan bagaimana menghubungkannya dengan edge, serta strategi hemat token mana yang cocok. Ia melaporkan rencana itu beserta alasannya sebelum anggota mana pun mulai.",
+      "effectiveOn": "Aktif untuk agent ini — perintah Anda berikutnya akan dipimpin.",
+      "effectiveOff": "Nonaktif untuk agent ini — perintah langsung masuk seperti biasa.",
+      "noProject": "Buka proyek dulu.",
+      "saveFailed": "Tidak dapat menyimpan ({{reason}}).",
+      "costWarning": "Memakai beberapa agent bisa lebih mahal daripada satu, bukan lebih murah — setiap anggota membaca ulang rule dan file miliknya sendiri. Dirigen diinstruksikan untuk menjawab langsung saat permintaan kecil.",
+      "useAgentSetting": "Gunakan setelan agent ini",
+      "conductorPicks": "Dirigen yang menentukan",
+      "activity": {
+        "on": "aktif",
+        "conducting": "{{count}} memimpin"
+      },
+      "scope": {
+        "project": "Seluruh proyek",
+        "agent": "Agent ini",
+        "inherited": "Ikuti",
+        "on": "Aktif",
+        "off": "Nonaktif",
+        "unavailable": "Tidak bisa dipilih di sini — buka tab agent dulu.",
+        "hint": "Yang lebih bawah mengalahkan yang di atasnya. Setiap klik berganti Aktif → Nonaktif → Ikuti. Anggota yang dibuat dirigen tidak pernah memimpin dirinya sendiri."
+      },
+      "blocked": {
+        "lead": "Meski aktif, agent ini tidak akan memimpin karena:",
+        "localEngine": "Ia berjalan pada model lokal — memimpin membutuhkan Claude atau Codex.",
+        "notCustom": "Hanya bubble Custom Agent yang dibuat di canvas yang bisa memimpin.",
+        "autoBubble": "Ia adalah bubble Auto Agent, yang sudah menyusun timnya sendiri.",
+        "terminal": "Ia berjalan di terminal tertanam, tempat alat dan instruksi dari satu giliran tidak bisa ditukar."
+      },
+      "engine": {
+        "claude": "Claude",
+        "codex": "Codex"
+      },
+      "conductor": {
+        "title": "Dirigen",
+        "about": "Dirigen adalah agent ini sendiri, untuk giliran itu saja — setelan tersimpannya tidak berubah. Engine dirigen mengikuti agent (mengganti engine di tengah sesi akan merusak sesi itu), sehingga hanya model dan upaya untuk setiap engine yang diatur di sini.",
+        "thisAgent": "agent ini"
+      },
+      "field": {
+        "model": "Model",
+        "effort": "Upaya",
+        "reasoning": "Penalaran",
+        "permission": "Izin untuk giliran memimpin",
+        "askQuestions": "Izinkan dirigen bertanya kepada saya",
+        "askQuestionsHint": "Menambahkan AskUserQuestion ke daftar alatnya. Nonaktif secara default — saat aktif, perintah yang kurang jelas bisa berhenti sejenak sampai Anda menjawab.",
+        "engine": "Engine anggota",
+        "maxMembers": "Anggota maksimum yang boleh dibuat"
+      },
+      "permission": {
+        "bypass": "Lewati permintaan izin",
+        "inherit": "Gunakan mode izin agent ini",
+        "bypassHint": "Dirigen memanggil API Vibisual lokal secara mandiri, sehingga berjalan tanpa permintaan izin. Ia tetap tidak bisa mengedit kode — Write dan Edit dihapus untuk giliran ini.",
+        "inheritHint": "Dirigen meminta izin seperti biasanya dilakukan agent ini. Menyusun tim membutuhkan beberapa panggilan, jadi ia mungkin berhenti dan menunggu Anda lebih dari sekali."
+      },
+      "member": {
+        "title": "Anggota",
+        "about": "Anggota adalah agent yang dibuat dirigen di canvas. Ia memakai ulang anggota dari proses sebelumnya lebih dulu. Kolom kosong menyerahkan pilihan ke dirigen.",
+        "engine": {
+          "claude": "Claude",
+          "codex": "Codex",
+          "auto": "Dirigen memilih per peran"
+        },
+        "maxDefault": "Default ({{count}})"
+      },
+      "strategies": {
+        "title": "Strategi hemat token",
+        "about": "Analisis token sebelumnya, kata demi kata. Dirigen tidak menerapkan semuanya — untuk setiap permintaan, ia hanya memilih yang cocok dan menuliskan alasannya, dan pilihannya muncul di riwayat proses di bawah. Item yang tidak dicentang dihapus dari rule-nya.",
+        "count": "{{allowed}} / {{total}} diizinkan",
+        "referenceOnly": "referensi",
+        "referenceOnlyTip": "Tidak ada setelan yang bisa diubah dirigen untuk yang satu ini, jadi ia tidak bisa memilihnya — ia hanya bisa merekomendasikannya kepada Anda di catatannya.",
+        "allowedTip": "Dirigen boleh memilih ini. Klik untuk mengeluarkannya dari rule-nya.",
+        "deniedTip": "Dikeluarkan dari rule dirigen. Klik untuk mengizinkannya lagi.",
+        "estimate": "Estimasi awal:",
+        "original": "Analisis awal",
+        "applyTitle": "Bagaimana dirigen menerapkannya",
+        "knobs": "Setelan yang bisa diubahnya",
+        "memberRule": "Instruksi yang ditambahkan untuk anggota",
+        "topologyRule": "Rule susunan"
+      },
+      "strategy": {
+        "subagents": "Subagent",
+        "output": "Output",
+        "autoCompact": "Auto-compact",
+        "read": "Read",
+        "memoryFiles": "CLAUDE.md dan MEMORY.md",
+        "prevOutput": "Membaca ulang output giliran sebelumnya",
+        "shell": "Eksplorasi shell",
+        "systemPrompt": "System prompt dan definisi alat",
+        "subagentReports": "Laporan subagent",
+        "web": "Pencarian web",
+        "reminders": "Pengingat per giliran",
+        "preamble": "Preamble Vibisual",
+        "other": "Lainnya"
+      },
+      "analysis": {
+        "show": "Tampilkan sisa analisis (temuan, praktik, nilai, sumber)",
+        "hide": "Sembunyikan sisa analisis"
+      },
+      "runs": {
+        "title": "Proses",
+        "empty": "Belum ada perintah yang dipimpin. Aktifkan di atas dan beri agent ini perintah.",
+        "chosen": "Dipilih ({{count}})",
+        "skipped": "Dilewati ({{count}})",
+        "note": "Catatan:",
+        "entry": "Dimulai dengan {{name}}",
+        "members": "Anggota ({{count}}): {{names}}",
+        "created": "— {{count}} baru dibuat",
+        "tokens": "Token: {{input}} masuk · {{output}} keluar",
+        "noPlan": "Dirigen selesai tanpa melaporkan rencana."
+      },
+      "phase": {
+        "conducting": "Memimpin",
+        "dispatched": "Dialihkan",
+        "answered": "Dijawab langsung",
+        "unreported": "Rencana tidak dilaporkan",
+        "error": "Error"
+      },
+      "intent": {
+        "question": "Pertanyaan",
+        "quick-fix": "Perbaikan cepat",
+        "feature": "Fitur",
+        "research": "Riset",
+        "debug": "Debugging",
+        "refactor": "Refactoring"
+      },
+      "topology": {
+        "none": "Tanpa tim",
+        "single": "Satu anggota",
+        "pipeline": "Pipeline",
+        "parallel": "Paralel"
+      }
     }
   },
   "bubbleMap": {
@@ -5401,6 +5564,30 @@
     "trashItemsMore": "+{{n}} lainnya"
   },
   "providers": {
+    "settingsScope": "Cakupan pengaturan",
+    "globalScope": "Default untuk semua proyek",
+    "projectScope": "Default proyek saat ini",
+    "globalSettingsHint": "Berlaku untuk semua proyek. Pengaturan khusus proyek dan agen tetap dipertahankan. Perubahan berlaku pada proses berikutnya.",
+    "projectSettingsHint": "Hanya perbedaan dari default global yang disimpan. Pengaturan khusus agen dipertahankan. Berlaku pada proses berikutnya.",
+    "codexAdvanced": "Pengaturan eksekusi lanjutan Codex",
+    "inheritSetting": "Warisi pengaturan induk / Codex",
+    "reasoningSummary": "Ringkasan penalaran",
+    "personality": "Gaya komunikasi",
+    "personalityHint": "Gaya berlaku pada model yang mendukungnya.",
+    "serviceTier": "Tingkat layanan",
+    "serviceTierHint": "Masukkan tingkat yang didukung model (misalnya fast). Tingkat lebih cepat dapat memengaruhi penggunaan dan biaya.",
+    "autoCompactTokenLimit": "Ambang pemadatan otomatis (token)",
+    "codexTools": "Izin alat",
+    "inheritProject": "Default proyek / global",
+    "individualSettingsHint": "Berlaku untuk agen ini. Pengaturan yang sama dengan default tetap mengikuti perubahan proyek dan pengaturan global.",
+    "codexValues": {
+      "auto": "Otomatis",
+      "concise": "Ringkas",
+      "detailed": "Terperinci",
+      "none": "Tidak ada",
+      "friendly": "Ramah",
+      "pragmatic": "Pragmatis"
+    },
     "provider": "Penyedia",
     "claude": "Claude",
     "codex": "Codex",

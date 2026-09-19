@@ -11,7 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { inject, type DispatchFunc } from 'light-my-request';
 import { describe, expect, it } from 'vitest';
-import { followOuterDisconnect, isDispatchHoldPath, type InjectDispatch } from './injectDisconnect';
+import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
 
 /** 바깥 응답 흉내 — helper 가 만지는 `close` 와 `writableFinished` 만. */
 function outerResponse(): EventEmitter & { writableFinished: boolean } {
@@ -24,15 +24,22 @@ function innerResponse(): EventEmitter & { writableEnded: boolean; destroyed: bo
   return inner;
 }
 
-describe('isDispatchHoldPath', () => {
+describe('isHoldPath', () => {
   it('matches only the dispatch routes that can hold a result', () => {
-    expect(isDispatchHoldPath('/api/task-edges/dispatch')).toBe(true);
-    expect(isDispatchHoldPath('/api/task-edges/dispatch/cmd-1')).toBe(true);
-    expect(isDispatchHoldPath('/api/task-edges/dispatch/cmd-1/cancel')).toBe(true);
-    expect(isDispatchHoldPath('/api/task-edges/dispatcher')).toBe(false);
-    expect(isDispatchHoldPath('/api/task-edges')).toBe(false);
-    expect(isDispatchHoldPath('/api/commands')).toBe(false);
-    expect(isDispatchHoldPath('/hook')).toBe(false);
+    expect(isHoldPath('/api/task-edges/dispatch')).toBe(true);
+    expect(isHoldPath('/api/task-edges/dispatch/cmd-1')).toBe(true);
+    expect(isHoldPath('/api/task-edges/dispatch/cmd-1/cancel')).toBe(true);
+    expect(isHoldPath('/api/task-edges/dispatcher')).toBe(false);
+    expect(isHoldPath('/api/task-edges')).toBe(false);
+    expect(isHoldPath('/api/commands')).toBe(false);
+    expect(isHoldPath('/hook')).toBe(false);
+  });
+
+  it('holds the two permission-card routes too, so a hook that dies with its CLI cancels the card instead of waiting out 60s (§5.3 #12-1-B)', () => {
+    expect(isHoldPath('/api/permission-check')).toBe(true);
+    expect(isHoldPath('/api/codex-tool-check')).toBe(true);
+    expect(isHoldPath('/api/permission-decide')).toBe(false);
+    expect(isHoldPath('/api/permission-pending')).toBe(false);
   });
 });
 
@@ -101,9 +108,9 @@ describe('followOuterDisconnect', () => {
     expect(outer.listenerCount('close')).toBe(0);
   });
 
-  it('is wired into the loopback listener for dispatch paths only, and the listener does not write to a caller that already left', () => {
+  it('is wired into the loopback listener for hold paths only, and the listener does not write to a caller that already left', () => {
     const main = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
-    expect(main).toContain('const dispatchFn = (isDispatchHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;');
+    expect(main).toContain('const dispatchFn = (isHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;');
     expect(main).toContain('void inject(dispatchFn, {');
     expect(main).toContain('if (res.writableEnded || res.destroyed) return;');
   });

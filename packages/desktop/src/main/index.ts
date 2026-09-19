@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen, dialog, Notification, sess
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { followOuterDisconnect, isDispatchHoldPath, type InjectDispatch } from './injectDisconnect';
+import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
 import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
@@ -305,6 +305,12 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     const isSessionGoalProgressPath =
       path.startsWith('/api/session-goal/') && path.endsWith('/progress');
 
+    // §5.3 #10-4 — 오케스트라 지휘자의 **계획 신고**. 지휘자는 앱이 띄운 외부 `claude`/`codex` 프로세스라
+    //   이 loopback 이 유일한 통로다. `/plan` 으로 끝나는 경로만 연다 — 켬/끔·세부 설정은 사용자의 스위치라
+    //   열지 않는다(서버도 loopback 유입이면 403). 토큰 인증 필수(아래 분기).
+    const isOrchestraPlanPath =
+      path.startsWith('/api/orchestra/runs/') && path.endsWith('/plan');
+
     // All other whitelisted paths require the per-launch token (item #7).
     if (
       path !== '/health' &&
@@ -348,6 +354,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/subagent-statusline' &&
       !isAppPath &&
       !isSessionGoalProgressPath &&
+      !isOrchestraPlanPath &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
@@ -379,10 +386,10 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       //   안전하고, 반대로 지우지 못하게 하는 것이 이 한 줄의 전부다.
       const ingressHeaders = { ...(req.headers as Record<string, string | string[]>) };
       ingressHeaders[LOOPBACK_INGRESS_HEADER] = LOOPBACK_INGRESS_VALUE;
-      // §5.3 #10-2 — 결과를 붙드는 dispatch·조회는 바깥 호출자가 끊기면 안쪽 응답도 끊는다. 안 그러면 끊긴 호출자에게
+      // §5.3 #10-2 · #12-1-B — 결과를 붙드는 dispatch·조회와 권한 카드 창구는 바깥 호출자가 끊기면 안쪽 응답도 끊는다. 안 그러면 끊긴 호출자에게
       //   결과를 건넸다고 적혀, 그 결과를 기다리던 턴이 받지 못한 채 완료로 끝날 수 있다.
       const target = expressApp as unknown as InjectDispatch;
-      const dispatchFn = (isDispatchHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;
+      const dispatchFn = (isHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;
       void inject(dispatchFn, {
         method: (req.method ?? 'GET') as 'GET',
         url: req.url ?? path,

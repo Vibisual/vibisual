@@ -25,6 +25,7 @@ import type {
   TodoItem,
   CommandDispatchMode,
   CommandError,
+  TurnStopReason,
 } from '@vibisual/shared';
 import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
@@ -327,6 +328,11 @@ export interface StreamCommand {
    * 스트림이 있으면 실패한 그 자리에 `error` 항목이 이미 서 있어 두 번 읽게 된다.
    */
   error?: CommandError;
+  /**
+   * §5.5 #17-12 ③-6 — 턴이 끝난 이유. `error` 와 달리 스트림에 같은 말을 하는 항목이 없어 늘 싣는다 —
+   * 무엇을 그릴지(평범한 끝·실패한 턴은 조용히)는 `turnStopLabelKey` 가 정한다.
+   */
+  stopReason?: TurnStopReason;
 }
 
 /**
@@ -514,6 +520,7 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
         commandId: cmd.id,
         dispatchMode: cmd.dispatchMode,
         error: coverage.failed.has(cmd.id) ? undefined : cmd.error,
+        stopReason: cmd.stopReason,
       });
     }
   }

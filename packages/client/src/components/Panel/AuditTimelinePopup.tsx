@@ -110,10 +110,11 @@ function TimelineRow({ entry }: { entry: AuditEntry }): React.JSX.Element {
             </span>
           )}
           {entry.decision && (
-            <span className={`rounded border px-1.5 py-0.5 text-[12px] font-semibold ${decisionToneClass(entry.decision)}`}>
+            <span className={`rounded border px-1.5 py-0.5 text-[12px] font-semibold ${decisionToneClass(entry.decision, entry.decisionSource)}`}>
               {t(entry.decision === 'allow' ? 'panel.audit.decisionAllow' : 'panel.audit.decisionDeny')}
               {entry.decisionSource === 'timeout' ? ` · ${t('panel.audit.sourceTimeout')}` : ''}
               {entry.decisionSource === 'policy' ? ` · ${t('panel.audit.sourcePolicy')}` : ''}
+              {entry.decisionSource === 'cancelled' ? ` · ${t('panel.audit.sourceCancelled', { defaultValue: 'cancelled' })}` : ''}
             </span>
           )}
         </div>

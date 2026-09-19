@@ -45,6 +45,11 @@ interface IDEEditorTabsProps {
   onTogglePinned: () => void;
   /** §5.5 #17-17 ㉔ — 무대 탭(닫혀 있으면 없다). */
   stageTab?: StageTabProps;
+  /**
+   * §5.5 #17-27 ⑰ — [최대화]. 누르면 이 줄(과 경로·주소 줄)이 걷히므로 이 줄에는 "켜기"만 있다 —
+   * 되돌리는 손잡이는 판 오른쪽 위 구석에 따로 선다(`IDEEditorPane`).
+   */
+  onMaximize: () => void;
 }
 
 export const IDEEditorTabs = memo(function IDEEditorTabs({
@@ -58,6 +63,7 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
   pinned,
   onTogglePinned,
   stageTab,
+  onMaximize,
 }: IDEEditorTabsProps): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -164,6 +170,25 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
           <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
           {/* 꺼져 있을 때만 빗금 — 아이콘 하나로 "지금 안 걸려 있다"까지 말한다(lucide `pin-off`). */}
           {!pinned && <path d="m2 2 20 20" />}
+        </svg>
+      </button>
+      {/* §5.5 #17-27 ⑰ — [최대화]. 네 모서리가 바깥으로 벌어진 그림(lucide `maximize`) — 그림 배율
+          손잡이(⑭ 의 대각 화살표)와 갈라 보이게, 창을 키우는 흔한 그림을 쓴다. */}
+      <button
+        type="button"
+        onClick={onMaximize}
+        title={t('ide.editor.maximizePane')}
+        aria-label={t('ide.editor.maximizePane')}
+        className="flex flex-shrink-0 items-center border-l border-gray-800 px-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+      >
+        <svg
+          className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+        >
+          <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+          <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+          <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+          <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
         </svg>
       </button>
       <button

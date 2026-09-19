@@ -217,6 +217,12 @@ async function checkPermission(payload) {
         //   "사용자가 Deny 를 눌렀다"고 말하면 거짓이 된다 — 정책 때문임을 그대로 알린다.
         : data.reason === 'dont-ask'
         ? 'PERMISSION POLICY: DENY. This agent runs in permission mode "dontAsk" (do not prompt; deny anything not pre-approved), so the tool was blocked WITHOUT asking the user. No one pressed anything. Tell the user which tool was blocked and that the agent\'s permission mode must be changed (or the command pre-approved) to run it. Do not retry the same tool.'
+        // §5.3 #12-1-B — 카드가 답을 받기 전에 닫혔다(에이전트 중지 등). 아무도 누르지 않았다.
+        : data.reason === 'cancelled'
+        ? 'PERMISSION REQUEST CANCELLED. The Vibisual approval popup was closed before anyone answered (the agent was stopped), so this tool was NOT executed. No one pressed Allow or Deny. Do not retry the tool; stop and wait for the user\'s next instruction.'
+        // §5.3 #12-1-B — 이 에이전트의 금지 목록(disallowedTools)에 있는 도구. 팝업은 뜨지 않았다.
+        : data.reason === 'disallowed'
+        ? 'PERMISSION POLICY: DENY. This tool is on this agent\'s disallowed-tools list in Vibisual, so it was blocked WITHOUT asking the user. Do not retry this tool; use a different approach, or tell the user it must be removed from the disallowed list in the agent settings.'
         : `USER PERMISSION DECISION: DENY. The user pressed "Deny" in the Vibisual approval popup. This tool was blocked and NOT executed.${data.reason ? ` User note: ${data.reason}.` : ''} In your reply, state this explicitly to the user — e.g. 'You selected: Deny — the command was not run.' Do not retry the tool unless the user explicitly asks.`;
       return {
         hookSpecificOutput: {

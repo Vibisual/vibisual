@@ -12,6 +12,7 @@
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 import { STREAM_HISTORY_PAGE_EVENTS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { mergeDeepWindow } from './streamGapFill.js';
 
 /** 못 찾음·오류 뒤 같은 세션을 다시 묻기까지 기다리는 시간. 스크롤 한 번마다 서버를 두드리지 않게 한다. */
 export const STREAM_HISTORY_RETRY_MS = 8_000;
@@ -35,24 +36,8 @@ export function reachesHistoryBoundary(renderedStart: number, boundary: number):
   return boundary >= 0 && renderedStart <= boundary;
 }
 
-/**
- * 깊은 창을 **지금 든 버퍼 위에** 얹는다. 서버 창이 버퍼의 앞부분과 이어지면(서버 창의 첫 줄이 버퍼에 있으면)
- * 그 앞은 남긴다 — 라이브로 쌓여 서버 창보다 길어진 버퍼를 깊은 복원이 도로 줄이지 않게. 요청이 오가는 사이
- * 도착한 라이브 줄(서버 창의 마지막 시각 이후, 서버 창에 없는 id)은 뒤에 붙인다.
- */
-export function mergeDeepWindow(
-  server: readonly SubAgentStreamEvent[],
-  prev: readonly SubAgentStreamEvent[],
-): SubAgentStreamEvent[] {
-  if (server.length === 0) return [...prev];
-  const serverIds = new Set(server.map((e) => e.id));
-  const firstId = server[0]!.id;
-  const lastTs = server[server.length - 1]!.timestamp;
-  const cut = prev.findIndex((e) => e.id === firstId);
-  const head = cut > 0 ? prev.slice(0, cut).filter((e) => !serverIds.has(e.id)) : [];
-  const tail = prev.filter((e) => e.timestamp >= lastTs && !serverIds.has(e.id));
-  return [...head, ...server, ...tail];
-}
+// 병합은 스토어도 쓰므로 스토어를 안 무는 파일에 산다(이 파일은 스토어를 import 해 순환이 된다).
+export { mergeDeepWindow };
 
 /** 과거 한 쪽을 청하는 주소. 기준은 버퍼의 첫 줄(id 가 정본, 디스크에서 못 찾을 때를 대비해 시각도 함께). */
 export function olderHistoryUrl(agentId: string, sessionId: string, first: SubAgentStreamEvent, limit: number): string {
@@ -103,6 +88,19 @@ async function fetchDeepWindow(agentId: string, sessionId: string): Promise<bool
   if (st.deepRestoredSessions[sessionId]) return true; // 그 사이 창의 깊은 복원이 끝냈다.
   st.loadStreamBuffers({ [sessionId]: mergeDeepWindow(server, st.subAgentStreams[sessionId] ?? []) }, 'deep');
   return true;
+}
+
+/**
+ * 재연결 뒤(`streamResync.ts`) — 분할의 초점 밖 칸이 그리는 세션의 깊은 창을 다시 받아 끊겨 있던 사이를
+ * 메운다. 창의 활성 세션은 창이 표식을 보고 스스로 받으므로 여기로 오지 않는다. 그 세션에 이미 나간
+ * 요청이 있으면 겹쳐 묻지 않는다.
+ */
+export function resyncDeepWindow(agentId: string, sessionId: string): void {
+  if (inFlight.has(sessionId)) return;
+  inFlight.add(sessionId);
+  void fetchDeepWindow(agentId, sessionId)
+    .catch(() => false)
+    .finally(() => { inFlight.delete(sessionId); });
 }
 
 /**

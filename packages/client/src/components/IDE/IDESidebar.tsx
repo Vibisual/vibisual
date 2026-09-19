@@ -26,6 +26,8 @@ import { StepMark } from './StageGlyph.js';
 import { ScrollFade } from '../ScrollFade.js';
 // §5.10 (P) — 절차 감지(되풀이한 일을 스킬로 굳힌다). 목표에서 갈라져 나온 **제 뷰**다.
 import { IDEAutoGoalView } from './IDEAutoGoalView.js';
+// §5.3 #10-4 — 오케스트라(지휘 모드). 스위치·세부 설정·방안 표·런 기록이 제 뷰에 산다.
+import { IDEOrchestraView } from './IDEOrchestraView.js';
 import { SkillStateTag } from '../SkillStateTag.js';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
 import { autosizeInput } from './inputAutosize.js';
@@ -758,6 +760,9 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   // §5.10 (P) — 절차 감지. 목표 바로 옆이며 화면은 제 파일에 산다(`IDEAutoGoalView`).
   //   목표가 "지금 향하는 그 일"이라면 이 칸은 "늘 하던 그 일"이다 — 칸을 가른 것이 이 항목이다.
   autoGoal: IDEAutoGoalView,
+  // §5.3 #10-4 · §5.5 #16-1 (H) — 오케스트라. 절차 감지 바로 뒤. 코덱스도 같은 화면이라 아래 코덱스 표에는 없다
+  //   (지휘자 칸이 엔진별 두 벌이라 한 화면이 두 엔진을 다 말한다).
+  orchestra: IDEOrchestraView,
   // §5.5 #17-11 ⑨ v4.51 — 루프도 목표와 같은 곁눈 자리로. 뷰 본체는 자기 파일에 산다.
   loop: IDELoopView,
   // §5.5 #17-35 — 검증(Verify): `/verify` 를 우리 레시피·판정·이력에 물린 자리. 루프 바로 뒤.

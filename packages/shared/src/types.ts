@@ -2,6 +2,7 @@ import type { MediaConvertKind } from './constants.js';
 import type { KeymapOverrides } from './keymap.js';
 import type { MobileAddressEntry } from './mobileAddress.js';
 import type { UsageLimitStop } from './usageLimitStop.js';
+import type { TurnStopReason } from './turnStopReason.js';
 /** UI 표시 언어 — 서버 ProjectCheckpoint에 저장, 클라이언트는 서버 SSOT를 따름 */
 export type UiLocale =
   | 'ko'
@@ -1211,8 +1212,12 @@ export interface ProjectCostMap {
  */
 export type AuditRiskKind = 'delete' | 'network' | 'config' | 'outside';
 
-/** §5.22 — 그 줄의 결정이 어디서 왔는가. `policy` = 모드가 사람 없이 답한 것. */
-export type AuditDecisionSource = 'user' | 'timeout' | 'policy';
+/**
+ * §5.22 — 그 줄의 결정이 어디서 왔는가. `policy` = 모드·목록·세션 기억이 사람 없이 답한 것.
+ * `cancelled` = 답할 곳이 사라져 카드가 닫혔다(§5.3 #12-1-B) — 결정은 `deny` 로 적지만
+ * **거부 수에는 세지 않는다**(아무도 거부하지 않았다).
+ */
+export type AuditDecisionSource = 'user' | 'timeout' | 'policy' | 'cancelled';
 
 /**
  * §5.22 — 감사 원장 한 줄. "무슨 도구로 어디를 만졌나"와 "사람이 뭐라 답했나"가 같은 줄에 앉는다.
@@ -2717,6 +2722,12 @@ export interface QueuedCommand {
    * 하단 상태바·스트림·메인 타임라인이 이걸 읽어 "오류" 한 단어 대신 무슨 오류인지 말한다.
    */
   error?: CommandError;
+  /**
+   * §5.5 #17-12 ③-6 — 턴이 끝난 이유(`resolveTurnStopReason`). `status`·`error` 와 직교한다 —
+   * 사용자 중지는 `completed` + `cancelled`, 턴 상한은 `error(maxTurns)` + `max_turns` 로 함께 앉는다.
+   * 없으면 이 필드 이전의 옛 명령이거나, 실패로 끝났는데 오류 코드 말고는 이유를 모르는 턴이다.
+   */
+  stopReason?: TurnStopReason;
   /** 이 명령 실행에 사용된 입력 토큰 (이전 누적 대비 증분) */
   inputTokens?: number;
   /** 이 명령 실행에 사용된 출력 토큰 (이전 누적 대비 증분) */
@@ -2764,6 +2775,12 @@ export interface QueuedCommand {
    * 이 기능의 전부다 — running 에서 빼면 압축이 도는 내내 세션이 멈춘 것처럼 보인다.
    */
   silent?: boolean;
+  /**
+   * §5.3 #10-4 — 이 명령이 오케스트라 런에 속한다(`OrchestraRun.runId`).
+   * 사용자 입력이 가로채인 **지휘 명령**과, 지휘자가 `?orchestraRunId=` 로 넣은 **킥오프**에 찍힌다.
+   * 이 표식이 있는 명령은 덧말 합치기의 경계다(흡수하지도 흡수되지도 않는다).
+   */
+  orchestraRunId?: string;
 }
 
 /**
@@ -3699,7 +3716,38 @@ export interface PermissionRequest {
    * 모드가 원래 묻는 호출(`default` 의 가변 도구 등)에는 붙지 않는다 — 그건 종전 그대로다.
    */
   askedByTool?: boolean;
+  /**
+   * §5.3 #12-1-B — [항상 허용]이 어디에 적히는지(서버가 정한다). 없으면 그 버튼이 없다.
+   * - `ask-tools`   확인 목록(`askTools`)에서 그 도구를 뺀다
+   * - `session`     이 세션 동안 같은 도구는 다시 묻지 않는다(런타임 기억, 영속 ❌)
+   * - `codex-tools` 코덱스 도구 정책의 그 묶음(`codexToolGroup`)을 `allow` 로
+   */
+  alwaysAllow?: PermissionAlwaysAllowScope;
+  /**
+   * §5.3 #12-1-B — [항상 거절]이 어디에 적히는지. 없으면 그 버튼이 없다.
+   * - `disallowed-tools` `disallowedTools` 에 넣는다(확인 목록에서도 뺀다)
+   * - `codex-tools`      코덱스 도구 정책의 그 묶음을 `deny` 로
+   */
+  alwaysReject?: PermissionAlwaysRejectScope;
+  /** §5.3 #12-1-B — `codex-tools` 범위일 때 그 도구가 속한 묶음 id(`CODEX_TOOL_GROUPS`). */
+  codexToolGroup?: string;
 }
+
+/** §5.3 #12-1-B — 카드의 답 넷. `decision` 은 서버가 접는다(`allow_*`→allow, `reject_*`→deny). */
+export type PermissionChoice = 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
+
+/** §5.3 #12-1-B — [항상 허용]이 적히는 자리. */
+export type PermissionAlwaysAllowScope = 'ask-tools' | 'session' | 'codex-tools';
+
+/** §5.3 #12-1-B — [항상 거절]이 적히는 자리. */
+export type PermissionAlwaysRejectScope = 'disallowed-tools' | 'codex-tools';
+
+/**
+ * §5.3 #12-1-B — 답할 곳이 사라져 카드가 닫힌 이유.
+ * - `agent-stopped` 사용자 [중지]·[즉시] 덧말의 끊기로 그 세션이 멈췄다
+ * - `caller-gone`   카드를 기다리던 요청 연결이 답을 받기 전에 닫혔다
+ */
+export type PermissionCancelReason = 'agent-stopped' | 'caller-gone';
 
 /** §5.3 #12-1 v1.43 — 권한 승인 결정 (클라→서버 REST 바디 + 서버→클라 broadcast payload) */
 export interface PermissionDecision {
@@ -3707,6 +3755,13 @@ export interface PermissionDecision {
   decision: 'allow' | 'deny';
   /** 거부 시 이유 (선택) — UI 에서 입력받아 훅으로 전달, Claude 에게 표시됨 */
   reason?: string;
+  /**
+   * §5.3 #12-1-B — 카드가 고른 답. 없으면 `decision` 을 한 번짜리로 읽는다(옛 클라·모바일).
+   * 서버는 이 값으로 `decision` 을 다시 접는다 — 둘이 어긋나면 `choice` 가 이긴다.
+   */
+  choice?: PermissionChoice;
+  /** §5.3 #12-1-B — 아무도 답하지 않고 닫혔다(그때 `decision` 은 `deny`). 서버만 싣는다. */
+  cancelled?: PermissionCancelReason;
 }
 
 /** §5.3 #12-2 v2.26 — AskUserQuestion 옵션 한 개 */
@@ -5255,6 +5310,12 @@ export interface GraphSnapshot {
   autoGoal?: Record<string, AutoGoalSummary>;
 
   /**
+   * §5.3 #10-4 — 오케스트라(projectName → 설정 + 최근 런). 설정도 런도 없는 프로젝트는 실리지 않는다
+   * (없음 = 기본값 · 꺼짐). 런은 최근 `ORCHESTRA_RUN_SNAPSHOT_MAX` 건만 싣는다 — 나머지는 체크포인트에만 있다.
+   */
+  orchestra?: Record<string, OrchestraSummary>;
+
+  /**
    * §5.11 v4.65 — **집행 플러그인의 실측**(projectPath → pluginId → 실측 한 벌).
    *
    * 집행(`agentPrompt`)은 서버에서 프로젝트 파일을 실제로 훑어 판단하는데, 카드는 클라에 있어 파일을
@@ -5676,6 +5737,155 @@ export interface AutoGoalSettings {
   updatedAt?: number;
 }
 
+// ─── §5.3 #10-4 — 오케스트라(지휘 모드) ────────────────────────────────────────
+
+/**
+ * 오케스트라 켬/끔의 층. **둘뿐이다**(프로젝트 → 에이전트) — 절차 감지의 세션 층은 없다.
+ * 지휘는 에이전트가 하는 일이라, 같은 에이전트의 세션마다 지휘 여부가 갈리면 사용자가 어느 탭에서
+ * 친 명령이 편성될지 예측할 수 없다.
+ */
+export type OrchestraScope = 'project' | 'agent';
+
+/**
+ * 절감 방안 id — 2026-09-16 토큰 감사 답변의 표 13행과 **순서까지** 같다(`no` 가 그 행 번호).
+ * 원문은 `ORCHESTRA_STRATEGIES` 에 있고, 지휘자가 계획 신고에 담는 것은 이 id 다.
+ */
+export type OrchestraStrategyId =
+  | 'subagents'
+  | 'output'
+  | 'autoCompact'
+  | 'read'
+  | 'memoryFiles'
+  | 'prevOutput'
+  | 'shell'
+  | 'systemPrompt'
+  | 'subagentReports'
+  | 'web'
+  | 'reminders'
+  | 'preamble'
+  | 'other';
+
+/**
+ * 지휘자가 고른 편성.
+ * - `none` — 편성하지 않고 지휘자가 직접 답한다(작은 질문에 머릿수를 늘리는 것 자체가 낭비다).
+ * - `single` — 멤버 하나에게 넘긴다.
+ * - `pipeline` — 멤버를 차례로 잇는다(엣지로 앞 결과가 다음 입력).
+ * - `parallel` — 독립된 일을 나눠 동시에 돌리고 한 멤버가 모은다.
+ */
+export type OrchestraTopology = 'none' | 'single' | 'pipeline' | 'parallel';
+
+/** IntentGate 분류(§5.3 #10-2 표) + 편성 없이 답할 질문. */
+export type OrchestraIntent = 'question' | 'quick-fix' | 'feature' | 'research' | 'debug' | 'refactor';
+
+/** 멤버를 어느 엔진으로 만드나. `auto` = 지휘자가 역할마다 고르고 그 이유를 적는다. */
+export type OrchestraMemberEngine = 'claude' | 'codex' | 'auto';
+
+/**
+ * 지휘 턴의 권한.
+ * - `bypass` — 지휘자는 loopback REST 를 Bash(curl) 로 스스로 쳐야 해서 #10-2 빌더와 같은 이유로 기본값이다.
+ * - `inherit` — 그 에이전트에 사용자가 정해 둔 권한 그대로(승인 카드가 뜬다).
+ */
+export type OrchestraConductorPermission = 'bypass' | 'inherit';
+
+/**
+ * 오케스트라 설정 — 영속은 `ProjectCheckpoint.orchestraSettings` 한 칸(§3.2 단일 창구).
+ *
+ * **전부 읽히는 스위치다.** 재작업 예산 칸이 없는 것은 일부러다 — 엣지마다
+ * `TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT` 상한이 이미 있어, 여기 하나 더 두면 읽히지 않는 스위치가 된다.
+ * 모델·강도 칸의 빈 문자열/없음은 "정하지 않음"이다(지휘자 칸 = 그 에이전트 설정 그대로, 멤버 칸 = 지휘자가 고른다).
+ */
+export interface OrchestraSettings {
+  /** **프로젝트 층** 스위치. 없으면 "안 정함" = 꺼짐. */
+  enabledProject?: boolean;
+  /** **에이전트 층** 덮어쓰기 — `agentId` → 켬/끔. 지휘자가 만든 멤버는 여기 `false` 로 적힌다(재귀 방지). */
+  enabledAgents?: Record<string, boolean>;
+  /** 지휘자(Claude 엔진일 때) 모델. */
+  conductorClaudeModel?: string;
+  /** 지휘자(Claude 엔진일 때) effort. */
+  conductorClaudeEffort?: string;
+  /** 지휘자(Codex 엔진일 때) 모델 slug. */
+  conductorCodexModel?: string;
+  /** 지휘자(Codex 엔진일 때) 추론 강도. */
+  conductorCodexReasoning?: string;
+  /** 지휘 턴 권한. 없으면 `bypass`. */
+  conductorPermission?: OrchestraConductorPermission;
+  /** 켜면 지휘 턴에 `AskUserQuestion` 을 더한다. 없으면 꺼짐. */
+  askQuestions?: boolean;
+  /** 멤버 엔진. 없으면 `claude`. */
+  memberEngine?: OrchestraMemberEngine;
+  memberClaudeModel?: string;
+  memberClaudeEffort?: string;
+  memberCodexModel?: string;
+  memberCodexReasoning?: string;
+  /** 한 런에서 새로 만들 수 있는 멤버 수. 없으면 `ORCHESTRA_DEFAULT_MAX_MEMBERS`. */
+  maxMembers?: number;
+  /** 지휘자에게 주지 않는 방안 — 규칙에서 빠지고, 계획 신고에 담기면 400. */
+  disabledStrategies?: OrchestraStrategyId[];
+  updatedAt?: number;
+}
+
+/**
+ * 런의 단계.
+ * - `conducting` — 지휘 턴이 돌고 있다.
+ * - `dispatched` — 계획을 신고했고 멤버에게 넘겼다.
+ * - `answered` — 편성 없이(`none`) 지휘자가 직접 답했다.
+ * - `unreported` — 지휘 턴이 계획 신고 없이 끝났다(조용히 성공으로 그리지 않는다).
+ * - `error` — 지휘 턴이 실패로 끝났다.
+ */
+export type OrchestraRunPhase = 'conducting' | 'dispatched' | 'answered' | 'unreported' | 'error';
+
+/** 지휘자가 고르거나 건너뛴 방안 하나와 그 이유. */
+export interface OrchestraPlanChoice {
+  id: OrchestraStrategyId;
+  reason: string;
+}
+
+/** 지휘자가 `POST /api/orchestra/runs/:runId/plan` 으로 신고한 계획. */
+export interface OrchestraPlan {
+  intent: OrchestraIntent;
+  topology: OrchestraTopology;
+  chosen: OrchestraPlanChoice[];
+  skipped?: OrchestraPlanChoice[];
+  /** 킥오프를 받은 멤버. */
+  entryAgentId?: string;
+  /** 사용자에게 남기는 말(엔진을 auto 로 고른 이유·참고 전용 방안 권고 등). */
+  note?: string;
+}
+
+/** 요청 1건 = 런 1개. 같은 에이전트에 새 요청을 넣어도 이전 런은 덮이지 않는다. */
+export interface OrchestraRun {
+  runId: string;
+  projectPath: string;
+  /** 지휘한 에이전트(버블 id). */
+  agentId: string;
+  /** 지휘 명령 id(`QueuedCommand.id`). */
+  commandId: string;
+  /** 사용자 원문(≤ `ORCHESTRA_RUN_REQUEST_MAX`). */
+  userRequest: string;
+  engine: 'claude' | 'codex';
+  phase: OrchestraRunPhase;
+  startedAt: number;
+  planAt?: number;
+  endedAt?: number;
+  plan?: OrchestraPlan;
+  /** 이 런이 만든 멤버 + 계획에서 재사용한다고 밝힌 멤버. */
+  memberAgentIds: string[];
+  /**
+   * 이 런이 **새로 만든** 멤버 수 — `maxMembers` 상한은 이 값으로 잰다. `memberAgentIds` 에는 다시 쓴
+   * 기존 멤버도 들어가므로 그 길이로 재면 재사용이 새 멤버 자리를 깎는다. 없으면 0.
+   */
+  createdMemberCount?: number;
+  /** 지휘·킥오프·멤버의 엣지/오케스트라 명령 입력 토큰 합. */
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** 스냅샷 한 프로젝트분 — 설정 + 최근 런(`ORCHESTRA_RUN_SNAPSHOT_MAX`). */
+export interface OrchestraSummary {
+  settings: OrchestraSettings;
+  runs: OrchestraRun[];
+}
+
 // ─── §9 v3.89 — graph_snapshot 무거운 키맵 슬라이스 증분 전송 ────────────────────
 
 /**
@@ -5716,6 +5926,7 @@ export interface GraphSnapshotDeltas {
   agentEvents?: KeyedSliceDelta<AgentEvent[]>;
   nodeProjects?: KeyedSliceDelta<string>;
   specReading?: KeyedSliceDelta<SpecReadingState>;
+  orchestra?: KeyedSliceDelta<OrchestraSummary>;
 }
 
 /**
@@ -6346,6 +6557,13 @@ export interface ProjectCheckpoint {
    * optional — 구버전 체크포인트 하위 호환(없으면 꺼짐).
    */
   autoGoalSettings?: AutoGoalSettings;
+
+  /**
+   * §5.3 #10-4 오케스트라 — 사용자가 정한 설정(2층 켬/끔·지휘자·멤버·꺼둔 방안) + 런 기록.
+   * 런은 평평한 배열이고 `ORCHESTRA_RUN_MAX_PER_PROJECT` 로 ring. optional — 구버전 체크포인트 하위 호환(없으면 꺼짐·기록 없음).
+   */
+  orchestraSettings?: OrchestraSettings;
+  orchestraRuns?: OrchestraRun[];
 
   /**
    * §5.5 #17-35 ⑨ — 시연(재현 절차) 영속화 (subAgentId → VerificationDemo[]).
@@ -8965,6 +9183,10 @@ export interface AgentProvider {
   webSearch?: 'disabled' | 'cached' | 'live';
   networkAccess?: boolean;
   modelVerbosity?: 'low' | 'medium' | 'high';
+  reasoningSummary?: 'auto' | 'concise' | 'detailed' | 'none';
+  personality?: 'none' | 'friendly' | 'pragmatic';
+  serviceTier?: string;
+  autoCompactTokenLimit?: number;
   /** App-enforced Codex tool permissions. Empty object resets to no extra restrictions. */
   codexTools?: import('./codexToolPolicy.js').CodexToolPolicy;
 }

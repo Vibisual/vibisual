@@ -10,6 +10,7 @@ import type { TodoItem } from '@vibisual/shared';
 import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, type TurnCoverage } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
+import { turnStopLabelKey } from './turnStopLabel.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
@@ -2581,6 +2582,9 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     && !commands.some((c) => c.status === 'executing');
   const isExecuting = target.status === 'executing' || resumedTurn;
   const isError = target.status === 'error' && !resumedTurn;
+  // §5.5 #17-12 ③-6 — 실패가 아닌데 평범하게 끝나지 않은 턴(중지·상한·거절·한도)은 초록 "끝남" 대신
+  //   호박색 이유 낱말. 되살아난 턴은 끝난 턴이 아니므로 읽지 않는다.
+  const stopLabelKey = isExecuting ? null : turnStopLabelKey(target.stopReason, target.status);
   // §5.5 #17-12 — 실행 중에는 "내가 친 프롬프트" 대신 **에이전트가 지금 하는 단계**를 보여준다(계획이 있을 때).
   //   계획이 없으면 종전대로 프롬프트 앞부분 — 어떤 경우에도 빈 줄이 되지 않게.
   const plan = isExecuting ? planProgress : null;
@@ -2655,15 +2659,17 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
 
 ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
     >
-      <span className={`flex flex-shrink-0 items-center ${isError ? 'text-red-400' : 'text-emerald-400'}`}>
+      <span className={`flex flex-shrink-0 items-center ${isError ? 'text-red-400' : stopLabelKey ? 'text-amber-400' : 'text-emerald-400'}`}>
         {isError ? (
           <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+        ) : stopLabelKey ? (
+          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 12h8" /></svg>
         ) : (
           <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         )}
       </span>
-      <span className={`flex-shrink-0 text-[12px] ${isError ? 'text-red-400' : 'text-emerald-400'}`}>
-        {isError ? t('ide.mainArea.statusError') : t('ide.mainArea.statusCompleted')}
+      <span className={`flex-shrink-0 text-[12px] ${isError ? 'text-red-400' : stopLabelKey ? 'text-amber-400' : 'text-emerald-400'}`}>
+        {isError ? t('ide.mainArea.statusError') : stopLabelKey ? t(stopLabelKey) : t('ide.mainArea.statusCompleted')}
       </span>
       <span className={`${STATUS_SUMMARY_CLASS} ${
         isError ? 'text-red-200/90 group-hover:text-red-100' : 'text-gray-300 group-hover:text-gray-100'

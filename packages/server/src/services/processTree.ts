@@ -57,10 +57,12 @@ const PID_REGISTRY_FILE = path.join(APP_HOME_DIR, 'spawned-pids.json');
 /**
  * PID 로 지정한 프로세스와 **그 하위 트리 전체**를 강제 종료한다.
  * Windows: `taskkill /T /F`. POSIX: 프로세스 그룹(-pid) 시도 후 실패하면 단일 pid.
+ *
+ * @param platform 멀티플랫폼 규칙 — 분기를 개발기 한 대에서 셋 다 시험하기 위한 주입점.
  */
-export function killTree(pid: number | undefined | null): void {
+export function killTree(pid: number | undefined | null, platform: NodeJS.Platform = process.platform): void {
   if (pid == null || pid <= 0) return;
-  if (IS_WIN) {
+  if (platform === 'win32') {
     try {
       const tk = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
       tk.on('error', () => { /* taskkill 부재/이미 종료 — 무시 */ });
@@ -75,21 +77,103 @@ export function killTree(pid: number | undefined | null): void {
   }
 }
 
+/** 그룹 리더가 이미 죽은 뒤 **그룹에만** 신호를 보낸다 — 단일 pid 폴백 없음(재활용된 번호를 건드리지 않게). */
+function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch {
+    return false; // 그룹 없음(detached 로 안 떴거나 이미 전부 끝남)
+  }
+}
+
+export interface TerminateChildTreeOptions {
+  /** 정중한 종료를 기다리는 시간(POSIX) · taskkill 이 실패했을 때 직접 자식을 끊기까지의 시간(Windows). */
+  graceMs?: number;
+  /** 멀티플랫폼 규칙 — 분기를 개발기 한 대에서 셋 다 시험하기 위한 주입점. */
+  platform?: NodeJS.Platform;
+  /** 트리 강제 종료 — 테스트가 가짜 pid 로 남의 프로세스를 죽이지 않게 갈아 끼운다. */
+  killTree?: (pid: number) => void;
+  /** POSIX 그룹 신호 — 위와 같은 이유의 주입점. 그룹이 있었으면 true. */
+  signalGroup?: (pid: number, signal: NodeJS.Signals) => boolean;
+}
+
 /**
- * 자식 프로세스를 **정중히(SIGTERM) 종료 시도 후, grace 시간 내 안 죽으면 트리 강제 종료**.
- * claude 가 JSONL 을 flush 할 시간을 준 뒤, 직접 자식만 죽고 남은 손자 트리를 회수한다.
+ * 자식 프로세스와 **그 손자 트리**를 내린다. `stdin` 을 먼저 닫는다 — 재사용 경로는 그걸 보고 "내려가는
+ * 중인 자식"을 알아본다(`isChildStdinWritable`).
+ *
+ * - **Windows**: 부모가 살아 있는 **지금** `taskkill /T /F` 로 트리째 끊는다. Windows 에는 신호가 없어
+ *   `child.kill('SIGTERM')` 도 직접 자식만 즉사시킨다 — 그 순간 손자(MCP 서버·배경 셸)는 부모를 잃어
+ *   `/T` 가 더는 찾지 못하고, 우리 stdout 파이프를 쥔 채 살아남아 `close` 를 한참 붙잡았다(종전엔
+ *   트리 종료 타이머가 `exit` 에 지워져 **한 번도 돌지 않았다**). 정중한 종료의 이점은 Windows 에선
+ *   애초에 없었다. taskkill 자체가 실패하면 `graceMs` 뒤 직접 자식만이라도 끊는다.
+ * - **POSIX**: 그룹 전체에 SIGTERM(claude 가 JSONL 을 flush 할 시간), `graceMs` 뒤 남은 것을 SIGKILL.
+ *   리더가 먼저 끝났어도 그룹에 남은 손자는 거둔다 — 종전엔 리더의 `exit` 가 타이머를 지워 그 손자가
+ *   파이프를 쥔 채 남았다. 그룹이 없으면(detached 아님) 리더에게만 SIGTERM 하는 종전 동작.
  */
-export function terminateChildTree(child: ChildProcess, graceMs = 1500): void {
+export function terminateChildTree(child: ChildProcess, options: TerminateChildTreeOptions = {}): void {
+  const graceMs = options.graceMs ?? 1500;
+  const platform = options.platform ?? process.platform;
+  const kill = options.killTree ?? ((p: number) => killTree(p, platform));
+  const signalGroup = options.signalGroup ?? signalProcessGroup;
   const pid = child.pid;
+  const alive = (): boolean => child.exitCode === null && child.signalCode === null;
   try { child.stdin?.end(); } catch { /* ignore */ }
-  try { child.kill('SIGTERM'); } catch { /* already dead */ }
+
+  if (platform === 'win32') {
+    if (pid == null) {
+      try { child.kill(); } catch { /* already dead */ }
+      return;
+    }
+    kill(pid);
+    const timer = setTimeout(() => {
+      if (alive()) { try { child.kill(); } catch { /* already dead */ } }
+    }, graceMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.once('exit', () => clearTimeout(timer));
+    return;
+  }
+
+  const grouped = pid != null && signalGroup(pid, 'SIGTERM');
+  if (!grouped) {
+    try { child.kill('SIGTERM'); } catch { /* already dead */ }
+  }
   if (pid == null) return;
   const timer = setTimeout(() => {
-    // 아직 살아있으면(SIGTERM 이 직접 자식만 건드려 트리가 남았거나 무시됨) 트리 강제 종료.
-    if (child.exitCode === null && child.signalCode === null) killTree(pid);
+    if (alive()) kill(pid);
+    // 리더는 끝났지만 그룹에 남은 손자 — 그룹에만 보낸다(리더 번호는 이미 재활용됐을 수 있다).
+    else if (grouped) signalGroup(pid, 'SIGKILL');
   }, graceMs);
   if (typeof timer.unref === 'function') timer.unref();
-  child.once('exit', () => clearTimeout(timer));
+}
+
+/** `exit` 뒤 `close` 를 기다리는 기본 여유 — 코덱스 경로(`codexRunner`)와 같은 값. */
+export const EXIT_CLOSE_GRACE_MS = 2000;
+
+/**
+ * 본체가 `exit` 했는데 `graceMs` 안에 `close` 가 안 오면 **우리 쪽 파이프 끝을 닫아 `close` 를 오게 한다.**
+ *
+ * Node 의 `close` 는 stdio 가 전부 닫혀야 온다. 트리 종료가 손자를 놓치면(Windows 에서 사슬이 끊긴 고아,
+ * 부모와 다른 그룹으로 빠져나간 POSIX 자손) 그 손자가 쥔 파이프 때문에 `close` 가 몇 분씩 안 온다 — 그동안
+ * 그 세션은 끝난 턴을 "도는 중"으로 붙들고, 새 명령은 그 뒤에 줄을 선다. 본체가 끝났으면 더 올 출력은
+ * 여유 안에 다 흘러들었다고 보고, 남은 쓰기 끝은 그 손자의 사정으로 돌린다.
+ *
+ * `close` 핸들러에 마감을 거는 모든 자식에 붙인다(코덱스는 자기 수명 관리에 같은 규칙이 있다).
+ */
+export function forceCloseAfterExit(child: ChildProcess, graceMs = EXIT_CLOSE_GRACE_MS): void {
+  let closed = false;
+  child.once('close', () => { closed = true; });
+  child.once('exit', () => {
+    if (closed) return;
+    const timer = setTimeout(() => {
+      if (closed) return;
+      try { child.stdout?.destroy(); } catch { /* ignore */ }
+      try { child.stderr?.destroy(); } catch { /* ignore */ }
+      try { child.stdin?.destroy(); } catch { /* ignore */ }
+    }, graceMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.once('close', () => clearTimeout(timer));
+  });
 }
 
 // ─── 크래시 대비 PID 레지스트리 (부팅 시 고아 회수) ───

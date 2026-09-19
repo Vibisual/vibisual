@@ -1,4 +1,5 @@
 import type { AuditEntry, AuditRiskKind, ProjectAuditLog } from '@vibisual/shared';
+import { isAuditEntryDenied } from '@vibisual/shared';
 
 // SCENARIO.md §5.22 — 권한·감사 경계 공용 헬퍼.
 //
@@ -33,8 +34,12 @@ export function riskToneClass(kind: AuditRiskKind): string {
   }
 }
 
-/** 결정 배지 색. 결정이 없는 줄(묻지 않고 지나간 호출)은 아예 배지를 그리지 않는다. */
-export function decisionToneClass(decision: 'allow' | 'deny'): string {
+/**
+ * 결정 배지 색. 결정이 없는 줄(묻지 않고 지나간 호출)은 아예 배지를 그리지 않는다.
+ * §5.3 #12-1-B — 취소는 회색이다. 실행되지 않았을 뿐 아무도 거부하지 않았다(빨강이면 거부로 읽힌다).
+ */
+export function decisionToneClass(decision: 'allow' | 'deny', source?: AuditEntry['decisionSource']): string {
+  if (source === 'cancelled') return 'border-gray-500/50 bg-gray-500/15 text-gray-300';
   return decision === 'allow'
     ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
     : 'border-red-500/50 bg-red-500/15 text-red-300';
@@ -45,10 +50,13 @@ export function riskLabelKey(kind: AuditRiskKind): string {
   return `panel.audit.risk.${kind}`;
 }
 
-/** 필터 탭 판정 — 서버가 준 줄을 거르기만 하고 다시 세지 않는다. */
+/**
+ * 필터 탭 판정 — 서버가 준 줄을 거르기만 하고 다시 세지 않는다.
+ * 거부 탭은 서버 집계(`counts.denied`)와 같은 shared 판정을 쓴다 — 취소는 거부 탭에 오지 않는다.
+ */
 export function matchesAuditFilter(entry: AuditEntry, filter: 'all' | 'risky' | 'denied'): boolean {
   if (filter === 'risky') return entry.riskKinds.length > 0;
-  if (filter === 'denied') return entry.decision === 'deny';
+  if (filter === 'denied') return isAuditEntryDenied(entry);
   return true;
 }
 
