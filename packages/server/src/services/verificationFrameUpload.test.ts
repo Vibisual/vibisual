@@ -52,7 +52,9 @@ async function harness(initialCount = 0): Promise<{
   cleanups.push(async (): Promise<void> => {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
-    fs.rmSync(root, { recursive: true, force: true });
+    // A reset connection can leave its write handle open for a tick; without retries that turns
+    // teardown into a second failure that hides the one the test actually found.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   });
   await once(server, 'listening');
   const address = server.address();
@@ -75,6 +77,9 @@ async function harness(initialCount = 0): Promise<{
         res.once('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(Buffer.concat(chunks).toString()) }));
       });
     });
+    // An upload abandoned by a failing assertion is reset when afterEach closes the listener; without
+    // this the ECONNRESET surfaces as an unhandled rejection and fails the whole run, not just that test.
+    response.catch(() => undefined);
     request.write(`--${boundary}\r\nContent-Disposition: form-data; name="atMs"\r\n\r\n${atMs}\r\n`
       + `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="frame.png"\r\n`
       + `Content-Type: image/png\r\n\r\n${content}`);
@@ -126,7 +131,12 @@ describe('verification demo frame uploads', () => {
     const fixture = await harness();
     const upload = await fixture.beginUpload(100, 'in-flight-frame');
     fixture.graph.deleteVerificationDemo(fixture.demo.id);
-    if (removeDir) fs.rmSync(fixture.dir, { recursive: true, force: true });
+    // Windows refuses to remove a directory holding an open handle, so this deletion lands on POSIX
+    // and is refused on Windows. Both are real states a deleted demo can be in; neither may orphan the directory.
+    if (removeDir) {
+      try { fs.rmSync(fixture.dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); }
+      catch { /* the in-flight stream still holds it — the assertions below cover that path too */ }
+    }
     const response = await upload.finish();
     // Removing a directory before the stream opens can also surface as a multer write error.
     expect(removeDir ? [400, 404] : [404]).toContain(response.status);

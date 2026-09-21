@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isComposingKeyEvent } from '../../utils/inputComposition.js';
+import { IME_ENTER_OWNER, isComposingKeyEvent } from '../../utils/inputComposition.js';
+import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { sessionStopUrl } from '../../hooks/useSessionStop.js';
 import { contextLevel, elapsedParts, waitingLevel, type CommandCenterItem } from './commandCenterModel.js';
@@ -81,6 +82,8 @@ export function CommandCenterCard({
     setDraft('');
     setCommandOpen(false);
   }, [draft, item.agentId, item.subAgentId]);
+
+  const onEnterKey = useEnterSubmit(handleSend);
 
   const handleDismiss = useCallback((): void => {
     setMenuOpen(false);
@@ -318,13 +321,12 @@ export function CommandCenterCard({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation();
+              // §6 — Enter 전송 / Shift+Enter 줄바꿈. 조합 중 Enter 도 줄이 아니라 전송이다(확정 뒤).
+              if (onEnterKey(e)) return;
               if (isComposingKeyEvent(e.nativeEvent)) return;
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
               if (e.key === 'Escape') { e.preventDefault(); setCommandOpen(false); }
             }}
+            {...IME_ENTER_OWNER}
             placeholder={t('commandCenter.commandPlaceholder')}
             className="min-w-0 flex-1 resize-none rounded border border-white/10 bg-black/40 px-2 py-1.5 text-[12px] text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
           />

@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isComposingKeyEvent } from '../../utils/inputComposition.js';
+import { IME_ENTER_OWNER, isComposingKeyEvent } from '../../utils/inputComposition.js';
+import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { contextLevel, elapsedParts, type CommandCenterItem } from './commandCenterModel.js';
 
@@ -63,6 +64,8 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
       setSent(true);
       window.setTimeout(() => setSent(false), 1600);
     }, [draft, item]);
+
+    const onEnterKey = useEnterSubmit(handleSend);
 
     const { detail } = item;
     const ctx = contextLevel(item.contextUsed, item.contextMax);
@@ -229,13 +232,12 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation(); // 보드의 j/k 이동 단축키가 타이핑을 가로채지 않게.
+              // §6 — Enter 전송 / Shift+Enter 줄바꿈. 조합 중 Enter 도 줄이 아니라 전송이다(확정 뒤).
+              if (onEnterKey(e)) return;
               if (isComposingKeyEvent(e.nativeEvent)) return;
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
               if (e.key === 'Escape') { e.preventDefault(); composerRef.current?.blur(); }
             }}
+            {...IME_ENTER_OWNER}
             placeholder={t('commandCenter.commandPlaceholder')}
             className="w-full resize-none rounded-md border border-white/10 bg-black/40 px-2.5 py-2 text-[12px] leading-snug text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
           />

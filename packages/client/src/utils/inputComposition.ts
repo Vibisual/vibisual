@@ -1,6 +1,24 @@
 /** Browser candidate keys must not submit, clear, rename or indent app text fields. */
 const IME_COMMAND_KEYS = new Set(['Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 const IME_PROCESS_KEY_CODE = 229;
+const ENTER_OWNER_ATTR = 'data-ime-enter';
+
+/**
+ * Spread onto a multi-line field that owns Enter itself: a send gesture (Enter, or Ctrl/Cmd+Enter)
+ * commands, and the other Enter starts a new line. Holding Enter back from such a field while
+ * composing does not protect anything — the browser still runs its default action, so the only
+ * outcome left is a stray line break and a lost send.
+ *
+ * ⚠ This opt-out hands the key to **every** listener, not just the field: nothing calls
+ * `stopImmediatePropagation` for it any more. The field must therefore have the last word on its own
+ * Enter — cancel the default for every outcome it owns (`enterCancelsDefault`), including the keys the
+ * IME ate, so no stray line break can survive whichever listener runs next.
+ */
+export const IME_ENTER_OWNER = { [ENTER_OWNER_ATTR]: 'submit' } as const;
+
+function ownsEnterKey(target: HTMLElement): boolean {
+  return target.getAttribute?.(ENTER_OWNER_ATTR) === IME_ENTER_OWNER[ENTER_OWNER_ATTR];
+}
 
 interface Guard {
   view: Window;
@@ -31,7 +49,27 @@ export function isInputComposing(target: EventTarget | null | undefined): boolea
 }
 
 export function isComposingKeyEvent(event: CompositionKey): boolean {
-  return event.isComposing === true || event.keyCode === IME_PROCESS_KEY_CODE || isInputComposing(event.target);
+  return isImeConsumedKey(event) || isInputComposing(event.target);
+}
+
+/**
+ * Did the IME eat this key? Composing keydowns and the Windows `VK_PROCESSKEY` (229) belong to the
+ * input method — that press picked a candidate or confirmed a conversion, so it is not a command.
+ *
+ * Distinct from `isComposingKeyEvent`, which also reports the one-frame settling window this module
+ * opens after `compositionend`. A Korean commit arrives as a *real* Enter inside that window: the
+ * syllable is already in the field, so treating it as "still composing" is what turns the first Enter
+ * of every sentence into a line break. Japanese/Chinese conversion is the opposite case — there the
+ * IME keeps the key, and a field that sends on it fires before the writer has chosen their words.
+ */
+export function isImeConsumedKey(event: CompositionKey): boolean {
+  return event.isComposing === true || event.keyCode === IME_PROCESS_KEY_CODE;
+}
+
+/** Composing *right now* — the settling frame after a commit does not count (the value is final). */
+export function isComposingNow(target: EventTarget | null | undefined): boolean {
+  const state = target ? fields.get(target) : undefined;
+  return !!state?.guard.active && state.composing;
 }
 
 function isEditableTarget(target: EventTarget | null): target is HTMLElement {
@@ -117,6 +155,8 @@ export function installInputCompositionGuard(view: Window): () => void {
     // xterm's CompositionHelper needs keydown to finalize/send composition before shell commands.
     // Its own input implementation owns these keys; app shortcuts use isComposingKeyEvent instead.
     if (event.target.classList?.contains('xterm-helper-textarea')) return;
+    // Send-on-Enter fields keep Enter through the commit; withholding it only leaves a line break.
+    if (event.key === 'Enter' && ownsEnterKey(event.target)) return;
     if (isComposingKeyEvent(event)) event.stopImmediatePropagation();
     // Never preventDefault: native candidate acceptance/navigation/cancellation remains intact.
   };

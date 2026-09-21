@@ -5,6 +5,8 @@ import { COMMENT_BOX_DEFAULTS, COMMENT_BOX_LOD } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 
 export interface CommentBoxNodeData {
   /** Comment Box id (store 조회용, Node.id 와 동일 값이지만 명시적으로 data 에도 둠) */
@@ -106,19 +108,20 @@ export const CommentBoxNode = memo(function CommentBoxNode({
     [gesture],
   );
 
+  // §6 — Enter 저장 / Shift+Enter 줄바꿈. 조합 중 Enter 도 줄이 아니라 저장이다(확정 뒤).
+  const onEnterKey = useEnterSubmit(commit);
+
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        commit();
-      } else if (e.key === 'Escape') {
+      if (onEnterKey(e)) return;
+      if (e.key === 'Escape') {
         e.preventDefault();
         cancel();
       }
       // 나머지는 일반 입력으로 흘려보냄 (Delete 포함 — BubbleMap 의 keydown 리스너는
       // target.tagName==='TEXTAREA' 일 때 스킵하므로 여기서 stopPropagation 불필요.)
     },
-    [commit, cancel],
+    [onEnterKey, cancel],
   );
 
   const setCommentBoxDragLock = useGraphStore((s) => s.setCommentBoxDragLock);
@@ -235,6 +238,7 @@ export const CommentBoxNode = memo(function CommentBoxNode({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
             onKeyDown={handleKeyDown}
+            {...IME_ENTER_OWNER}
             className="nodrag"
             style={{
               flex: 1,

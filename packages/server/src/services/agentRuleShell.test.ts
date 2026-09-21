@@ -6,6 +6,11 @@ import { existsSync } from 'node:fs';
 import { agentRuleShell, agentPowershellRequest, buildAgentCardCommonRules, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentSelfCompactRule, buildHarnessBuilderRules, buildOrchestraConductorRules } from '@vibisual/shared';
 
 const exec = promisify(execFile);
+const GIT_BASH = 'C:/Program Files/Git/bin/bash.exe';
+// A hang guard, not a budget. 15s killed a cold powershell.exe on a contended CI runner, and execFile
+// reports that kill exactly like a non-zero exit — an empty message that explains nothing.
+const SHELL_TIMEOUT_MS = 60_000;
+const SHELL_TEST_TIMEOUT_MS = 180_000;
 const baseArgs = { serverBase: 'http://127.0.0.1:1', serverToken: 'DO-NOT-EMBED', agentId: 'agent-test', subAgentId: 'sub-test' };
 const blocks = (rules: string): string[] => [...rules.matchAll(/```powershell\n([\s\S]*?)```/g)].map((m) => m[1]!);
 const builder = (shell: 'powershell' | 'posix'): string => buildHarnessBuilderRules({ ...baseArgs, shell, centerX: 10, centerY: 20, projectName: '한글 "프로젝트"\n둘째 줄' });
@@ -43,6 +48,18 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
   let url: string;
   const received: { method?: string; path?: string; body: string; contentType?: string; sourceAgent?: string | string[]; sourceSub?: string | string[] }[] = [];
   let orchestraPolls = 0;
+
+  /** Say whether the shell was killed or exited, and show its output — otherwise a timeout looks like a silent crash. */
+  const spawn = async (file: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> => {
+    try {
+      return (await exec(file, args, { windowsHide: true, timeout: SHELL_TIMEOUT_MS, encoding: 'utf8', env })).stdout;
+    } catch (err) {
+      const failure = err as { killed?: boolean; signal?: string; code?: number | string; stdout?: string; stderr?: string };
+      const why = failure.killed ? `killed after ${SHELL_TIMEOUT_MS}ms (signal ${failure.signal})` : `exit ${failure.code}`;
+      throw new Error(`${file} ${why}\nstderr: ${failure.stderr?.trim() || '(empty)'}\nstdout: ${failure.stdout?.trim() || '(empty)'}`);
+    }
+  };
+
   beforeAll(async () => {
     server = createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -72,16 +89,15 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('missing port');
     url = `http://127.0.0.1:${address.port}`;
-  });
+    // Charge the one-time interpreter start-up here instead of to the first assertion.
+    await spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'exit'], process.env);
+    if (existsSync(GIT_BASH)) await spawn(GIT_BASH, ['--noprofile', '--norc', '-c', 'true'], process.env);
+  }, SHELL_TEST_TIMEOUT_MS);
   afterAll(async () => { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); });
 
-  const run = async (code: string, token = 'test-auth', alias = ''): Promise<string> => {
-    const result = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(code, 'utf16le').toString('base64')], {
-      windowsHide: true, timeout: 15_000, encoding: 'utf8',
-      env: { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: token, VIBISUAL_HOOK_AUTH: alias, VIBISUAL_SUBAGENT_ID: '' },
-    });
-    return result.stdout;
-  };
+  const run = (code: string, token = 'test-auth', alias = ''): Promise<string> =>
+    spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(code, 'utf16le').toString('base64')],
+      { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: token, VIBISUAL_HOOK_AUTH: alias, VIBISUAL_SUBAGENT_ID: '' });
 
   it('sends card and compact IDs, Korean JSON, and survives TOKEN-name exclusion', async () => {
     const card = blocks(buildAgentCardCommonRules({ ...baseArgs, shell: 'powershell' }))[0]!;
@@ -92,7 +108,7 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     expect(received.at(-1)?.path).toBe('/api/agent-compact');
     expect(JSON.parse(received.at(-1)!.body).reason).toBe('왜 지금인지 한 줄');
     expect(received.at(-1)?.contentType).toContain('charset=utf-8');
-  });
+  }, SHELL_TEST_TIMEOUT_MS);
 
   it('executes all five builder calls in independent shells', async () => {
     const commands = blocks(builder('powershell'));
@@ -109,26 +125,24 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     await run(commands[4]!.replace('<1)에서 받은 AGENT_PATH>', 'created-path').replace('<사용자 원본 요청 전문을 그대로 — JSON escape 불필요, 여러 줄 OK>', '한글 요청\n$그대로 "따옴표"'));
     expect(received.at(-1)?.path).toBe('/api/commands/created-path');
     expect(received.at(-1)?.body).toBe('한글 요청\n$그대로 "따옴표"');
-  });
+  }, SHELL_TEST_TIMEOUT_MS);
 
   it('keeps missing-auth 401 and HTTP error bodies visible', async () => {
     const code = blocks(agentPowershellRequest({ serverBase: url, endpoint: '/api/reject', body: '{}' }))[0]!;
     await expect(run(code, '', '')).rejects.toThrow(/HTTP 401/);
     await expect(run(code)).rejects.toThrow(/HTTP 409[\s\S]*ids/);
-  });
+  }, SHELL_TEST_TIMEOUT_MS);
 
   it.each(['powershell', 'bash'] as const)('orchestra %s registers before dispatch and recovers the same job after pending', async (shell) => {
-    const gitBash = 'C:/Program Files/Git/bin/bash.exe';
-    if (shell === 'bash' && !existsSync(gitBash)) return;
+    if (shell === 'bash' && !existsSync(GIT_BASH)) return;
     const rules = buildOrchestraConductorRules({
       serverBase: url, runId: 'orchestra-shell', projectName: '한글 프로젝트', conductorAgentId: 'conductor-shell', conductorSubAgentId: 'conductor-session',
       centerX: 0, centerY: 0, settings: {}, existingMembers: [], existingEdges: [], conductorEngine: shell === 'powershell' ? 'codex' : 'claude', platform: 'win32',
     });
     const commands = [...rules.matchAll(new RegExp('```' + shell + '\\n([\\s\\S]*?)```', 'g'))].map((m) => m[1]!);
-    const execute = shell === 'powershell' ? (code: string) => run(code, '', 'test-auth') : async (code: string): Promise<string> => (await exec(gitBash, ['--noprofile', '--norc', '-c', code], {
-      windowsHide: true, encoding: 'utf8', timeout: 15_000,
-      env: { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: 'test-auth', VIBISUAL_SUBAGENT_ID: '' },
-    })).stdout;
+    const execute = shell === 'powershell' ? (code: string) => run(code, '', 'test-auth') : (code: string): Promise<string> =>
+      spawn(GIT_BASH, ['--noprofile', '--norc', '-c', code],
+        { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: 'test-auth', VIBISUAL_SUBAGENT_ID: '' });
     const start = received.length;
     expect(await execute(commands[3]!.replace('<ENTRY_ID>', 'entry-agent'))).toContain('DISPATCH_EDGE_ID=entry-edge');
     const dispatched = JSON.parse(await execute(commands[4]!.replace('<DISPATCH_EDGE_ID>', 'entry-edge').replace('<사용자 원문 요청 전문 — escape 불필요, 여러 줄 OK>', '한글 요청\n$그대로 "따옴표"')));
@@ -146,15 +160,14 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     expect(requests[2]?.path).toBe('/api/task-edges/dispatch/entry-command?agentId=conductor-shell&waitMs=60000');
     expect(requests[3]?.path).toBe(requests[2]?.path);
     for (const request of requests) expect(request).toMatchObject({ sourceAgent: 'conductor-shell', sourceSub: 'conductor-session' });
-  });
+  }, SHELL_TEST_TIMEOUT_MS);
 
-  it.skipIf(!existsSync('C:/Program Files/Git/bin/bash.exe'))('Bash builder preserves Korean JSON and returns IDs between independent invocations', async () => {
+  it.skipIf(!existsSync(GIT_BASH))('Bash builder preserves Korean JSON and returns IDs between independent invocations', async () => {
     const rules = buildHarnessBuilderRules({ ...baseArgs, serverBase: url, centerX: 0, centerY: 0, projectName: '한글 "프로젝트"\n둘째 줄' });
     const commands = [...rules.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]!);
-    const bash = async (command: string): Promise<string> => (await exec('C:/Program Files/Git/bin/bash.exe', ['--noprofile', '--norc', '-c', command], {
-      windowsHide: true, encoding: 'utf8', timeout: 15_000,
-      env: { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: 'test-auth' },
-    })).stdout;
+    const bash = (command: string): Promise<string> =>
+      spawn(GIT_BASH, ['--noprofile', '--norc', '-c', command],
+        { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: 'test-auth' });
     expect(await bash(commands[0]!)).toContain('AGENT_ID=created-id AGENT_PATH=created-path');
     expect(JSON.parse(received.at(-1)!.body).project).toBe('한글 "프로젝트"\n둘째 줄');
     await bash(commands[1]!.replace('<1)에서 받은 AGENT_ID>', 'created-id'));
@@ -164,5 +177,5 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     expect(JSON.parse(received.at(-1)!.body).kind).toBe('critique');
     await bash(commands[4]!.replace('<ENTRY_AGENT_PATH>', 'created-path'));
     expect(received.at(-1)?.path).toBe('/api/commands/created-path');
-  });
+  }, SHELL_TEST_TIMEOUT_MS);
 });

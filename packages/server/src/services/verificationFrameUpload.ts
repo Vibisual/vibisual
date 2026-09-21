@@ -15,11 +15,20 @@ interface VerificationFrameUploadOptions {
   onSaved: () => void;
 }
 
+// multer calls back on the write stream's 'finish', which fires before the fd is closed. Windows
+// opens files without FILE_SHARE_DELETE, so unlinking one that still has a handle fails with
+// EPERM/EBUSY until that close lands a tick later — without retries every rejected frame on Windows
+// leaves its file and directory behind. POSIX unlinks open files outright, so the retry never runs there.
+const FILE_RETRY = { maxRetries: 5, retryDelay: 20 };
+// The directory budget is deliberately smaller: ENOTEMPTY here usually means another upload owns the
+// directory, and giving up fast matters more than waiting out Windows' brief delete-pending window.
+const DIR_RETRY = { maxRetries: 3, retryDelay: 20 };
+
 /** Rejecting an upload must also release its file, including after the demo was deleted. */
 function discardFrame(file: Express.Multer.File, removeEmptyDirectory: boolean): void {
   try {
-    fs.rmSync(file.path, { force: true });
-    if (removeEmptyDirectory) fs.rmdirSync(path.dirname(file.path));
+    fs.rmSync(file.path, { force: true, ...FILE_RETRY });
+    if (removeEmptyDirectory) fs.rmdirSync(path.dirname(file.path), DIR_RETRY);
   } catch (err) {
     // Another upload/delete may already have removed the directory, or still be writing inside it.
     const code = (err as NodeJS.ErrnoException).code;

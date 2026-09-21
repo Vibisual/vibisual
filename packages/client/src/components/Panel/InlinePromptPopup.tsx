@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 
 interface Props {
   contiId: string;
@@ -40,16 +42,15 @@ export function InlinePromptPopup({
     }
   }, [text, patching, patchElement, contiId, frameId, elementId, onClose]);
 
+  // §6 — Enter 재가동 / Shift+Enter 줄바꿈. 조합 중 Enter 도 줄이 아니라 재가동이다(확정 뒤).
+  const onEnterKey = useEnterSubmit(() => void handleSubmit());
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        void handleSubmit();
-      } else if (e.key === 'Escape') {
-        onClose();
-      }
+      if (onEnterKey(e)) return;
+      if (e.key === 'Escape') onClose();
     },
-    [handleSubmit, onClose],
+    [onEnterKey, onClose],
   );
 
   // 화면 우측 잘림 방지
@@ -85,6 +86,7 @@ export function InlinePromptPopup({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
+        {...IME_ENTER_OWNER}
         rows={3}
         placeholder={t('panel.contiPrompt.placeholder', { defaultValue: '예: 동그라미로 변경, 색을 빨강으로, 라벨 수정...' })}
         disabled={patching}

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.26] - 2026-09-21
+## [0.1.27] - 2026-09-21
 
 ### Added
 - **Orchestra: the agent you give an order to becomes the conductor for that turn.** Turn it on in the activity bar for a whole project or for one agent, and that agent first decides what kind of request it is and whether the work should be split at all — then picks, from the recorded token-saving strategies, only the ones that fit, creates the members it needs on the canvas, hands the work out, collects the results and reports back. The Runs list keeps every conducted order with what it picked, what it left out and why, its members, phase and token counts. Members the conductor creates never conduct themselves, the conductor's own saved settings are not changed, and it can be told to answer you directly when a team would not help. It starts off, and the panel says plainly that several agents can cost more than one, not less.
@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Typing in another language.** Changing a field in the middle of composing, shortcuts firing while composing, and the caret landing inside characters made of several parts.
 - **A window that fails to draw no longer takes the rest with it.** Every window now isolates its own errors behind a screen you can retry from, with saved work and settings kept, and diagnostics that cannot be delivered no longer fail loudly.
 - **The phone browser no longer stalls mid-sentence** after the screen is switched off and back on. Coming back — hidden for more than thirty seconds, disconnected, or frozen and released — reconnects in place, fills the stream lines missed in between in the server's own order, and brings back permission and question cards. The draft and scroll position are kept.
+- **Verification frames that were turned away left their files behind on Windows.** A frame arriving after its recording was deleted, or after the frame list is already full, is rejected — but on Windows the file and its folder stayed on disk, because the file was still being closed at the moment the clean-up ran. The clean-up now waits for that close.
 - **Local models**: which bubble an all-models request belongs to, the integrity of downloads that arrive in parts, installing a backend separately, offloading automatically, recovering on the CPU, context size and loading several at once, and failure reasons that say what actually happened.
 
 ## [0.1.25] - 2026-09-13
@@ -606,8 +607,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.26...HEAD
-[0.1.26]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.1.26
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.27...HEAD
+[0.1.27]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.1.27
 [0.1.25]: https://github.com/Vibisual/vibisual/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/Vibisual/vibisual/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/Vibisual/vibisual/compare/v0.1.22...v0.1.23

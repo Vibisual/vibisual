@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  afterInputComposition, cancelPendingInputEdits, installInputCompositionGuard,
+  afterInputComposition, cancelPendingInputEdits, IME_ENTER_OWNER, installInputCompositionGuard,
   isComposingKeyEvent, isInputComposing,
 } from './inputComposition.js';
 
@@ -27,6 +27,23 @@ describe('IME owns candidate keys without cancelling native editing', () => {
     emit(h.view, 'keydown', input, { key: 'Enter', isComposing: false, keyCode: 229 });
     expect(h.command).not.toHaveBeenCalled();
     emit(h.view, 'keydown', input, { key: 'Enter', isComposing: false, keyCode: 13 });
+    expect(h.command).toHaveBeenCalledTimes(1);
+    h.dispose();
+  });
+
+  it('a send-on-Enter field keeps Enter through the commit — withholding it only leaves a line break', () => {
+    const h = harness();
+    const input = Object.assign(field(), {
+      getAttribute: (name: string) => (name === 'data-ime-enter' ? IME_ENTER_OWNER['data-ime-enter'] : null),
+    });
+    emit(h.view, 'compositionstart', input);
+    const enter = emit(h.view, 'keydown', input, { key: 'Enter', isComposing: true, keyCode: 13 });
+    expect(h.command).toHaveBeenCalledTimes(1);
+    expect(enter.defaultPrevented).toBe(false); // the field cancels the break itself; the guard never does
+    // Everything else about that field is unchanged: candidate keys still belong to the IME.
+    for (const key of ['Escape', 'Tab', 'ArrowUp', 'ArrowDown']) {
+      emit(h.view, 'keydown', input, { key, isComposing: true });
+    }
     expect(h.command).toHaveBeenCalledTimes(1);
     h.dispose();
   });
