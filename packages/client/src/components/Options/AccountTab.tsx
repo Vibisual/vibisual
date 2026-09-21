@@ -5,6 +5,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { EngineIcon } from '../Engine/engineIcons.js';
 import { ProviderTabs } from '../Engine/ProviderTabs.js';
 import { CodexHooksToggle } from './EnginesSection.js';
+import { accountPortalLinks, type AccountPortalLink } from './accountPortals.js';
 
 const API_BASE = '';
 
@@ -87,6 +88,7 @@ export function AccountTab(): React.JSX.Element {
         })}
         logoutConfirm={t('panel.options.account.logoutConfirm', { defaultValue: 'Sign out of Claude Code?' })}
         onLogin={() => { if (claudeSetup?.phase === 'missing' || claudeSetup?.phase === 'failed') setSetupGate({ forced: true, dismissed: false }); else setLoginGate({ forced: true, dismissed: false }); }}
+        portals={accountPortalLinks('claude', claudeAuth)}
         state={claude}
       />}
 
@@ -114,6 +116,7 @@ export function AccountTab(): React.JSX.Element {
           else setCodexSetupGate({ forced: true, dismissed: false });
         }}
         loginLabel={codexReady ? undefined : t('panel.options.engines.install', { defaultValue: 'Install' })}
+        portals={accountPortalLinks('codex', codexAuth)}
         state={codex}
       />}
       {accountEngine === 'local' && <p className="text-xs text-gray-400">{t('providers.localUsage')}</p>}
@@ -126,6 +129,15 @@ export function AccountTab(): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+/** 밖 브라우저로 넘긴다 — 앱 안에서 남의 로그인 세션이 걸린 페이지를 열지 않는다(§5.23 경계). */
+function openPortal(url: string): void {
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    /* 창이 막히면 조용히 넘어간다 — 실패 안내는 main 이 ExternalOpenNotice 로 띄운다. */
+  }
 }
 
 /** 카드 한 벌이 쓰는 동작 묶음. 두 엔진이 **같은 코드**로 돌게 여기서 한 번만 짓는다. */
@@ -193,7 +205,7 @@ function useAccountActions<S extends ClaudeAuthStatus | CodexAuthStatus>(
  * 아이콘 → 이름 → 상태 → 세부 → 버튼의 순서를 두 엔진이 공유한다. 로그인돼 있으면 초록,
  * 판정 불가는 노랑(§5.25 (E) "모름은 로그아웃이 아니다"), 로그아웃은 회색이다.
  */
-function AccountCard({ engine, title, loggedIn, unknown, primary, badge, rows, unknownDesc, logoutConfirm, onLogin, loginLabel, state }: {
+function AccountCard({ engine, title, loggedIn, unknown, primary, badge, rows, unknownDesc, logoutConfirm, onLogin, loginLabel, portals, state }: {
   engine: AgentEngineKind;
   title: string;
   loggedIn: boolean;
@@ -206,6 +218,8 @@ function AccountCard({ engine, title, loggedIn, unknown, primary, badge, rows, u
   onLogin: () => void;
   /** 로그인 버튼 글자를 갈아 끼울 때만(예: 코덱스 미설치 → "설치"). */
   loginLabel?: string | undefined;
+  /** 제공사 사이트로 나가는 링크들(§5.25 (E) · `accountPortals.ts` 가 로그인 방식을 보고 고른다). */
+  portals: AccountPortalLink[];
   state: AccountActions;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -311,6 +325,44 @@ function AccountCard({ engine, title, loggedIn, unknown, primary, badge, rows, u
             : t('panel.options.account.recheck', { defaultValue: 'Check again' })}
         </button>
       </div>
+
+      {/* 제공사 사이트 — 결제·요금제·API 키는 여기서 못 고친다(CLI 도 못 고친다). 앱이 할 수 있는
+          일은 **그 자리로 가는 한 걸음**을 놓는 것까지다. 여는 길은 앱에 하나뿐인 window.open →
+          main setWindowOpenHandler → shell.openExternal 그대로다(§3.7 · 새 여는 길 ❌). */}
+      {portals.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-t border-gray-800 pt-3">
+          <span className="text-[12px] text-gray-500">
+            {t('panel.options.account.portalTitle', { defaultValue: 'Manage on the provider\'s site' })}
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {portals.map((portal) => (
+              <button
+                key={portal.id}
+                type="button"
+                onClick={() => openPortal(portal.url)}
+                title={portal.site}
+                className="inline-flex items-center gap-1.5 rounded border border-gray-700 bg-gray-800 px-2.5 py-1 text-[12px] text-gray-200 hover:bg-gray-700"
+              >
+                {t(portal.labelKey)}
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5 text-gray-500"
+                  aria-hidden="true"
+                >
+                  <path d="M15 3h6v6" />
+                  <path d="M10 14 21 3" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+                </svg>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

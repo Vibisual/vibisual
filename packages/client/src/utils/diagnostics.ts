@@ -39,41 +39,50 @@ let reporting = false;
 /** useWebSocket 이 연결 시 sender 를 주입(끊기면 null). 주입 즉시 큐를 flush. */
 export function setDiagnosticsSender(next: Sender | null): void {
   sender = next;
-  if (!next) return;
-  while (queue.length > 0) {
-    const payload = queue.shift();
-    if (payload) next({ type: 'client_error', payload });
-  }
+  flushQueue();
 }
 
 function stringifyArg(a: unknown): string {
-  if (typeof a === 'string') return a;
-  if (a instanceof Error) return a.message;
   try {
-    return JSON.stringify(a);
+    if (typeof a === 'string') return a;
+    if (a instanceof Error) return a.message;
+    return JSON.stringify(a) ?? String(a);
   } catch {
-    return String(a);
+    try { return String(a); } catch { return '[Unprintable diagnostic value]'; }
+  }
+}
+
+/** A failed IPC sender must never become another renderer error or lose the queued report. */
+function flushQueue(): void {
+  if (!sender || reporting) return;
+  reporting = true;
+  try {
+    while (sender !== null && queue.length > 0) {
+      const payload = queue[0];
+      if (!payload) break;
+      try {
+        sender({ type: 'client_error', payload });
+        queue.shift();
+      } catch {
+        // Reconnection installs a fresh sender and retries the unsent head in order.
+        sender = null;
+        break;
+      }
+    }
+  } finally {
+    reporting = false;
   }
 }
 
 function report(level: 'error' | 'warn', message: string, stack?: string): void {
   if (reporting) return; // 재진입 차단 (sender 경로가 다시 console.error 를 부르는 경우)
-  reporting = true;
-  try {
-    const trimmed = message.slice(0, 4000).trim();
-    if (!trimmed) return;
-    if (isIgnoredRendererMessage(trimmed)) return;
-    const payload: ClientErrorPayload = { level, message: trimmed };
-    if (stack) payload.stack = stack.slice(0, 8000);
-    if (sender) {
-      sender({ type: 'client_error', payload });
-    } else {
-      queue.push(payload);
-      if (queue.length > QUEUE_MAX) queue.shift();
-    }
-  } finally {
-    reporting = false;
-  }
+  const trimmed = message.slice(0, 4000).trim();
+  if (!trimmed || isIgnoredRendererMessage(trimmed)) return;
+  const payload: ClientErrorPayload = { level, message: trimmed };
+  if (stack) payload.stack = stack.slice(0, 8000);
+  queue.push(payload);
+  if (queue.length > QUEUE_MAX) queue.shift();
+  flushQueue();
 }
 
 let installed = false;
@@ -84,21 +93,28 @@ export function installRendererDiagnostics(): void {
   installed = true;
 
   window.addEventListener('error', (e: ErrorEvent) => {
-    const err = e.error as Error | undefined;
-    report('error', err?.message ?? e.message ?? 'Unknown error', err?.stack);
+    try {
+      const err: unknown = e.error;
+      report('error', err instanceof Error ? stringifyArg(err) : e.message || stringifyArg(err),
+        err instanceof Error && typeof err.stack === 'string' ? err.stack : undefined);
+    } catch { /* An unusual thrown value must not make the error listener throw again. */ }
   });
   window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
-    const reason: unknown = e.reason;
-    if (reason instanceof Error) report('error', `Unhandled rejection: ${reason.message}`, reason.stack);
-    else report('error', `Unhandled rejection: ${stringifyArg(reason)}`);
+    try {
+      const reason: unknown = e.reason;
+      report('error', `Unhandled rejection: ${stringifyArg(reason)}`,
+        reason instanceof Error && typeof reason.stack === 'string' ? reason.stack : undefined);
+    } catch { /* Reporting is best effort, including hostile rejection objects. */ }
   });
 
   for (const level of ['error', 'warn'] as const) {
     const original = console[level].bind(console);
     console[level] = (...args: unknown[]): void => {
       original(...args);
-      const stack = (args.find((a) => a instanceof Error) as Error | undefined)?.stack;
-      report(level, args.map(stringifyArg).join(' '), stack);
+      try {
+        const stack = (args.find((a) => a instanceof Error) as Error | undefined)?.stack;
+        report(level, args.map(stringifyArg).join(' '), stack);
+      } catch { /* Diagnostic formatting must not break the caller's work. */ }
     };
   }
 }

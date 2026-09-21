@@ -368,3 +368,61 @@ describe('종료 전 경고 판정 — 지금 끊기면 잃는 일', () => {
     expect(subAgentManager.getRunningWorkSummary().sessions).toBe(0);
   });
 });
+
+/**
+ * §5.5 #17-9 ⑮ — **도는 세션이 초록 "완료"로 굳던 자리.**
+ *
+ * 실측(2026-09-20): 스트림이 지금도 들어오는 탭인데 `status:'idle'` + 명령은 `completed` 였고,
+ * 그 세션에 남은 살아 있는 작업이 전부 `subagentType` 을 가진 Task/Agent 자식이었다. 생존 술어가
+ * **표시용** 목록(`listDisplayableLiveTasks` — 겹쳐 세지 않으려고 그 항목을 뺀다)을 참/거짓으로
+ * 읽은 탓이다. 아래 네 건이 그 계약을 고정한다 — **생존은 거르지 않고, 표시는 그대로 거른다.**
+ */
+describe('생존 판정은 표시 목록을 빌려 쓰지 않는다 (#17-9 ⑮)', () => {
+  it('Task/Agent 자식만 도는 탭도 활동 중으로 선다', () => {
+    const agentId = 'agent-subagent-only';
+    const sub = newSub(agentId);
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', {
+      id: 'child-lead', description: '개발 레인', subagentType: 'code-lead',
+    });
+
+    expect(subAgentManager.getSub(sub.id)!.status).toBe('active');
+    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+  });
+
+  it('그래도 화면 숫자는 겹쳐 세지 않는다 — 표시는 종전 그대로', () => {
+    const agentId = 'agent-subagent-count';
+    const sub = newSub(agentId);
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', {
+      id: 'child-worker', description: '작업자', subagentType: 'code-worker',
+    });
+
+    // 훅 대차대조 소관이라 스트림 쪽에서는 안 센다(그 숫자가 이 항목의 고침 대상이 아니다).
+    expect(subAgentManager.getRunningSubagentTasks()?.[agentId]).toBeUndefined();
+  });
+
+  it('끝 칩이 오면 내려온다 — 영영 활동 중으로 굳지 않는다', () => {
+    const agentId = 'agent-subagent-drain';
+    const sub = newSub(agentId);
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', {
+      id: 'child-lead', subagentType: 'code-lead',
+    });
+    expect(subAgentManager.getSub(sub.id)!.status).toBe('active');
+
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_notification', {
+      id: 'child-lead', status: 'completed',
+    });
+    expect(subAgentManager.getSub(sub.id)!.status).toBe('idle');
+    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+  });
+
+  it('실패로 끝난 턴을 활동 중으로 세탁하지 않는다', () => {
+    const agentId = 'agent-subagent-error';
+    const sub = newSub(agentId);
+    subAgentManager.getSub(sub.id)!.status = 'error';
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', {
+      id: 'child-lead', subagentType: 'code-lead',
+    });
+
+    expect(subAgentManager.getSub(sub.id)!.status).toBe('error');
+  });
+});

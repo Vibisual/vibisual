@@ -22,9 +22,15 @@ export type LocalEntryDecision =
 export function pickDefaultModel(models: readonly LocalModelEntry[]): LocalModelEntry | null {
   let best: LocalModelEntry | null = null;
   for (const m of models) {
+    if (!isLocalModelReady(m)) continue;
     if (!best || m.downloadedAt > best.downloadedAt) best = m;
   }
   return best;
+}
+
+/** Incomplete shards and companion GGUFs cannot be loaded as a standalone model. */
+export function isLocalModelReady(model: LocalModelEntry): boolean {
+  return model.companion !== true && (model.missingParts?.length ?? 0) === 0;
 }
 
 /**
@@ -38,14 +44,14 @@ export function resolveLocalEntry(
   local: LocalLlmState | null | undefined,
 ): LocalEntryDecision {
   const provider = config?.provider;
-  if (!provider) return { kind: 'ide' };
+  if (provider?.kind !== 'local-llama') return { kind: 'ide' };
   if (!local?.engine?.installed) return { kind: 'setup' };
 
   const models = local.models ?? [];
   if (models.length === 0) return { kind: 'setup' };
 
   // 이 버블이 문 모델이 아직 디스크에 있으면 그대로 간다(사용자가 지웠으면 아래로 떨어진다).
-  if (provider.modelId && models.some((m) => m.id === provider.modelId)) return { kind: 'ide' };
+  if (provider.modelId && models.some((m) => m.id === provider.modelId && isLocalModelReady(m))) return { kind: 'ide' };
 
   const fallback = pickDefaultModel(models);
   return fallback ? { kind: 'bind', model: fallback } : { kind: 'setup' };

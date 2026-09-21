@@ -39,7 +39,7 @@ import { broadcast } from '../broadcastBus.js';
 import { logger } from '../logger.js';
 
 const IS_WIN = process.platform === 'win32';
-const SERVER_BIN_NAME = IS_WIN ? 'llama-server.exe' : 'llama-server';
+const ENGINE_BACKEND_ORDER: readonly LocalEngineBackend[] = ['cuda', 'vulkan', 'cpu'];
 /** 설치 메타 — 어떤 빌드의 어떤 백엔드를 깔았는지. 이 파일이 없으면 "모르는 설치"로 본다. */
 const META_NAME = '.vibisual-engine.json';
 
@@ -64,6 +64,8 @@ interface EngineMeta {
   build: string;
   backends: LocalEngineBackend[];
   installedAt: number;
+  /** macOS 등 같은 자산을 공유하는 백엔드는 검증된 폴더 한 벌을 가리킨다. */
+  backendDirs?: Partial<Record<LocalEngineBackend, LocalEngineBackend>>;
 }
 
 /** 엔진이 놓이는 폴더. 모델과 형제로 둔다(`~/.vibisual/engine`). */
@@ -72,9 +74,13 @@ export function engineDir(): string {
 }
 
 /** 폴더 안에서 `llama-server` 를 찾는다. 자산에 따라 한 겹 아래에 들어 있을 수 있다. */
-function findServerBin(dir: string): string | null {
-  const direct = path.join(dir, SERVER_BIN_NAME);
-  if (fs.existsSync(direct)) return direct;
+function findServerBin(dir: string, platform: NodeJS.Platform = process.platform): string | null {
+  const binName = platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+  const isFile = (file: string): boolean => {
+    try { return fs.statSync(file).isFile(); } catch { return false; }
+  };
+  const direct = path.join(dir, binName);
+  if (isFile(direct)) return direct;
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -83,8 +89,8 @@ function findServerBin(dir: string): string | null {
   }
   for (const e of entries) {
     if (!e.isDirectory()) continue;
-    const nested = path.join(dir, e.name, SERVER_BIN_NAME);
-    if (fs.existsSync(nested)) return nested;
+    const nested = path.join(dir, e.name, binName);
+    if (isFile(nested)) return nested;
   }
   return null;
 }
@@ -299,11 +305,59 @@ function readMeta(dir: string): EngineMeta | null {
     if (typeof j.build !== 'string') return null;
     return {
       build: j.build,
-      backends: Array.isArray(j.backends) ? (j.backends as LocalEngineBackend[]) : [],
+      backends: Array.isArray(j.backends) ? j.backends.filter((b) => ENGINE_BACKEND_ORDER.includes(b)) : [],
       installedAt: typeof j.installedAt === 'number' ? j.installedAt : 0,
+      backendDirs: j.backendDirs,
     };
   } catch {
     return null;
+  }
+}
+
+export interface EngineCandidate {
+  backend: LocalEngineBackend;
+  serverBin: string;
+}
+
+/** GPU 로더가 실패해도 CPU 실행본은 별도로 남는다. 구형 평면 설치도 계속 읽는다. */
+export function getEngineCandidates(
+  dir: string = engineDir(),
+  platform: NodeJS.Platform = process.platform,
+): EngineCandidate[] {
+  const meta = readMeta(dir);
+  const candidates: EngineCandidate[] = [];
+  for (const backend of ENGINE_BACKEND_ORDER) {
+    const alias = meta?.backendDirs?.[backend];
+    const folder = alias && ENGINE_BACKEND_ORDER.includes(alias) ? alias : backend;
+    const serverBin = findServerBin(path.join(dir, folder), platform);
+    if (serverBin) candidates.push({ backend, serverBin });
+  }
+  if (candidates.length > 0) return candidates;
+  const legacy = findServerBin(dir, platform);
+  if (!legacy) return [];
+  return [{ backend: meta?.backends.find((b) => b !== 'cpu') ?? meta?.backends[0] ?? 'vulkan', serverBin: legacy }];
+}
+
+/** 같은 볼륨에서 검증 완료본만 교체한다. 교체 실패는 기존 설치로 되돌린다. */
+export async function publishEngineInstall(staged: string, dir: string): Promise<void> {
+  const backup = `${dir}.previous-${randomUUID()}`;
+  let hadPrevious = false;
+  try {
+    await fsp.rename(dir, backup);
+    hadPrevious = true;
+  } catch (err) {
+    if (!(err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT')) throw err;
+  }
+  try {
+    await fsp.rename(staged, dir);
+  } catch (err) {
+    if (hadPrevious) await fsp.rename(backup, dir);
+    throw err;
+  }
+  if (hadPrevious) {
+    await fsp.rm(backup, { recursive: true, force: true }).catch((err: unknown) => {
+      logger.warn('[localEngine] previous engine files still in use', err);
+    });
   }
 }
 
@@ -332,12 +386,13 @@ function pushProgress(): void {
  */
 export function getEngineState(): LocalEngineState {
   const dir = engineDir();
-  const serverBin = findServerBin(dir);
+  const candidates = getEngineCandidates(dir);
+  const serverBin = candidates[0]?.serverBin ?? null;
   const meta = readMeta(dir);
   const state: LocalEngineState = {
     installed: serverBin !== null,
     build: meta?.build ?? null,
-    backends: meta?.backends ?? [],
+    backends: [...new Set(candidates.map((candidate) => candidate.backend))],
     serverBin,
     dir,
   };
@@ -458,10 +513,11 @@ export function pickRelease(
   releases: readonly ReleaseEntry[],
   osTok: string = platformToken(),
   arch: string = archToken(),
+  backends: readonly LocalEngineBackend[] = LOCAL_ENGINE_DEFAULT_BACKENDS,
 ): ReleaseEntry | null {
   for (const rel of releases) {
     const assets = rel.assets ?? [];
-    if (assets.some((a) => assetBackendToken(a.name, osTok, arch) !== null)) return rel;
+    if (backends.some((backend) => pickAsset(assets, backend, osTok, arch))) return rel;
   }
   return null;
 }
@@ -524,7 +580,7 @@ export function extractAttempts(
         cmd: 'powershell',
         args: [
           '-NoProfile', '-NonInteractive', '-Command',
-          `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${destDir}' -Force`,
+          `Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`,
         ],
       });
     }
@@ -584,6 +640,20 @@ function extractArchive(zipPath: string, destDir: string): Promise<void> {
   });
 }
 
+/** 파일 존재만으로 설치를 완료하지 않는다. 검증은 아직 공개하지 않은 폴더에서 한다. */
+async function verifyEngineDirectory(dir: string): Promise<void> {
+  const bin = findServerBin(dir);
+  if (!bin) throw new Error('llama-server not found after extract');
+  if (!IS_WIN) await fsp.chmod(bin, 0o755);
+  const truncated = truncatedImages(path.dirname(bin));
+  let failure = truncated.length > 0 ? `incomplete files: ${truncated.slice(0, 5).join(', ')}` : await smokeTest(bin);
+  if (failure && truncated.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, SMOKE_RETRY_DELAY_MS));
+    failure = await smokeTest(bin);
+  }
+  if (failure) throw new Error(`engine verification failed (${failure})`);
+}
+
 /**
  * §5.19 (B) — 엔진 설치. 동시 호출은 같은 in-flight installId 를 공유한다.
  * 기본 백엔드는 Vulkan + CPU 두 벌이고, 호출자가 `cuda` 를 더 얹을 수 있다.
@@ -591,7 +661,11 @@ function extractArchive(zipPath: string, destDir: string): Promise<void> {
 export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEngineProgress {
   if (inflight) return { ...inflight };
 
-  const want: LocalEngineBackend[] = [...(backends && backends.length > 0 ? backends : LOCAL_ENGINE_DEFAULT_BACKENDS)];
+  // CPU 는 GPU 드라이버가 없는 PC 의 회복 경로라 선택 백엔드와 항상 함께 확보한다.
+  const want: LocalEngineBackend[] = [...new Set([
+    ...(backends && backends.length > 0 ? backends : LOCAL_ENGINE_DEFAULT_BACKENDS),
+    'cpu' as const,
+  ])];
   const session: InstallSession = {
     installId: randomUUID(),
     status: 'starting',
@@ -608,9 +682,11 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
   void (async (): Promise<void> => {
     const dir = engineDir();
     let tmpDir = '';
+    let stagedDir = '';
     try {
-      await fsp.mkdir(dir, { recursive: true });
+      await fsp.mkdir(path.dirname(dir), { recursive: true });
       tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'vibisual-engine-'));
+      stagedDir = await fsp.mkdtemp(path.join(path.dirname(dir), 'engine-install-'));
 
       const relRes = await fetch(RELEASES_LIST_API, {
         headers: { accept: 'application/vnd.github+json', 'user-agent': 'vibisual' },
@@ -618,7 +694,7 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
       if (!relRes.ok) throw new Error(`release lookup ${relRes.status}`);
       const parsed: unknown = await relRes.json();
       const releases: ReleaseEntry[] = Array.isArray(parsed) ? (parsed as ReleaseEntry[]) : [parsed as ReleaseEntry];
-      const rel = pickRelease(releases);
+      const rel = pickRelease(releases, platformToken(), archToken(), want);
       if (!rel) {
         throw new Error(
           `no llama.cpp release with assets for ${platformToken()}/${archToken()}`
@@ -629,13 +705,15 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
       const assets = rel.assets ?? [];
 
       const got: LocalEngineBackend[] = [];
+      const backendDirs: Partial<Record<LocalEngineBackend, LocalEngineBackend>> = {};
+      const failures: string[] = [];
       /**
        * 이번 설치에서 **이미 받아 푼** 자산 이름. macOS 는 자산 이름에 백엔드가 없어
        * `vulkan`·`cpu` 두 번의 루프가 **같은 파일**로 폴백한다 — 가드가 없으면 11MB 를 두 번 받고
        * 같은 폴더에 두 번 풀어, 두 번째 tar 가 첫 번째가 쓰던 파일을 덮어쓰며 잘린 이미지를 만든다
        * (2026-08-20 사고와 같은 계열). 두 번째부터는 건너뛰되 그 백엔드도 "확보됨"으로 센다.
        */
-      const fetched = new Set<string>();
+      const fetched = new Map<string, LocalEngineBackend>();
       let stepIdx = 0;
       for (const backend of want) {
         stepIdx += 1;
@@ -645,94 +723,85 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
           logger.warn(`[localEngine] no asset for backend=${backend} platform=${platformToken()}/${archToken()}`);
           continue;
         }
-        if (fetched.has(asset.name)) {
+        const sharedBackend = fetched.get(asset.name);
+        if (sharedBackend) {
           logger.info(`[localEngine] backend=${backend} shares asset ${asset.name} — skipping duplicate download`);
           got.push(backend);
+          backendDirs[backend] = sharedBackend;
           continue;
         }
-        fetched.add(asset.name);
-        session.status = 'downloading';
-        session.asset = asset.name;
-        session.step = stepIdx;
-        session.receivedBytes = 0;
-        session.totalBytes = asset.size ?? 0;
-        pushProgress();
+        // 실패한 GPU 자산이 CPU 의 준비까지 막으면 회복 경로가 사라진다.
+        try {
+          session.status = 'downloading';
+          session.asset = asset.name;
+          session.step = stepIdx;
+          session.receivedBytes = 0;
+          session.totalBytes = asset.size ?? 0;
+          pushProgress();
 
-        const zipPath = path.join(tmpDir, asset.name);
-        let lastPush = 0;
-        await downloadTo(asset.browser_download_url, zipPath, (received, total) => {
-          session.receivedBytes = received;
-          if (total > 0) session.totalBytes = total;
-          // 매 청크마다 브로드캐스트하면 전선이 진행률로 도배된다 — 200ms 간격으로 충분하다.
-          const now = Date.now();
-          if (now - lastPush >= 200) {
-            lastPush = now;
-            pushProgress();
-          }
-        });
+          const zipPath = path.join(tmpDir, asset.name);
+          let lastPush = 0;
+          await downloadTo(asset.browser_download_url, zipPath, (received, total) => {
+            session.receivedBytes = received;
+            if (total > 0) session.totalBytes = total;
+            // 매 청크마다 브로드캐스트하면 전선이 진행률로 도배된다 — 200ms 간격으로 충분하다.
+            const now = Date.now();
+            if (now - lastPush >= 200) {
+              lastPush = now;
+              pushProgress();
+            }
+          });
 
-        // **푸는 것은 코드를 실행할 자리에 파일을 놓는 일이다** — 풀기 전에 발행처 지문과 대조한다.
-        //   길이 대조(`downloadTo`)는 "다 받았나"만 본다. 중간에 바뀐 바이트는 길이가 같으므로 통과한다.
-        //   `digest` 는 우리가 이미 TLS 로 받은 릴리스 JSON 에 실려 오므로 요청이 늘지 않는다.
-        const expected = parseAssetSha256(asset.digest);
-        if (expected) {
-          const actual = await sha256File(zipPath);
-          if (actual !== expected) {
-            // 남겨 두면 다음 설치가 이 파일을 주워 쓸 수 있다 — 그 자리에서 지운다.
-            await fsp.rm(zipPath, { force: true }).catch(() => undefined);
-            throw new Error(
-              `engine asset checksum mismatch (${asset.name}): expected ${expected.slice(0, 16)}…,`
-              + ` got ${actual.slice(0, 16)}… — install again`,
-            );
+          // **푸는 것은 코드를 실행할 자리에 파일을 놓는 일이다** — 풀기 전에 발행처 지문과 대조한다.
+          //   길이 대조(`downloadTo`)는 "다 받았나"만 본다. 중간에 바뀐 바이트는 길이가 같으므로 통과한다.
+          //   `digest` 는 우리가 이미 TLS 로 받은 릴리스 JSON 에 실려 오므로 요청이 늘지 않는다.
+          const expected = parseAssetSha256(asset.digest);
+          if (expected) {
+            const actual = await sha256File(zipPath);
+            if (actual !== expected) {
+              // 남겨 두면 다음 설치가 이 파일을 주워 쓸 수 있다 — 그 자리에서 지운다.
+              await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+              throw new Error(
+                `engine asset checksum mismatch (${asset.name}): expected ${expected.slice(0, 16)}…,`
+                + ` got ${actual.slice(0, 16)}… — install again`,
+              );
+            }
+          } else {
+            // 지문이 없다고 설치를 막지는 않는다(구형 API·미러에는 없다). 다만 검증이 없었음을 남긴다.
+            logger.warn(`[localEngine] no sha256 digest for ${asset.name} — integrity unverified`);
           }
-        } else {
-          // 지문이 없다고 설치를 막지는 않는다(구형 API·미러에는 없다). 다만 검증이 없었음을 남긴다.
-          logger.warn(`[localEngine] no sha256 digest for ${asset.name} — integrity unverified`);
+
+          session.status = 'extracting';
+          pushProgress();
+          const backendDir = path.join(stagedDir, backend);
+          await fsp.mkdir(backendDir, { recursive: true });
+          await extractArchive(zipPath, backendDir);
+          session.status = 'verifying';
+          pushProgress();
+          await verifyEngineDirectory(backendDir);
+          fetched.set(asset.name, backend);
+          backendDirs[backend] = backend;
+          got.push(backend);
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          failures.push(`${backend}: ${reason}`);
+          logger.warn(`[localEngine] backend=${backend} unavailable; trying remaining backends`, err);
+          await fsp.rm(path.join(stagedDir, backend), { recursive: true, force: true });
         }
-
-        session.status = 'extracting';
-        pushProgress();
-        await extractArchive(zipPath, dir);
-        got.push(backend);
       }
 
       session.status = 'verifying';
       pushProgress();
-      const bin = findServerBin(dir);
-      if (!bin) throw new Error(`llama-server not found after extract (dir=${dir})`);
-
-      // **파일이 있다는 것과 쓸 수 있다는 것은 다르다**(2026-08-20 실측 사고).
-      //   `llama-server.exe` 는 9KB 짜리 껍데기라, 옆의 10MB `llama-server-impl.dll` 이
-      //   반쯤 풀려 있어도 존재 검사만으로는 설치가 "완료"로 끝난다. 그 대가는 첫 사용
-      //   순간의 `0xC000007B` — 모델을 다 받아 둔 사용자에게 정체 모를 16진수만 남는다.
-      if (!IS_WIN) {
-        // zip 이 실행 권한을 안 싣고 오는 경우가 있다. 우리가 붙일 수 있는 것을 우리가 붙인다 —
-        //   이걸 안 하면 아래 검증이 멀쩡한 설치를 "못 뜬다"고 오판해 통째로 지운다.
-        await fsp.chmod(bin, 0o755).catch(() => undefined);
-      }
-      const truncated = truncatedImages(path.dirname(bin));
-      let failure = truncated.length > 0 ? `incomplete files: ${truncated.slice(0, 5).join(', ')}` : await smokeTest(bin);
-      if (failure && truncated.length === 0) {
-        // 파일 자체는 온전한데 안 떴다면 그 순간의 사정일 수 있다(백신·잠금). 성급히 지우면
-        //   멀쩡한 설치를 수십 MB 째 다시 받게 만든다 — 한 번은 더 물어보고 판단한다.
-        await new Promise((resolve) => setTimeout(resolve, SMOKE_RETRY_DELAY_MS));
-        failure = await smokeTest(bin);
-      }
-      if (failure) {
-        // 반쪽 설치를 남겨 두면 상태는 "설치됨"인데 쓰면 죽는다(화면은 "엔진 준비됨"이라 오류를
-        //   보여줄 자리조차 없다) — 흔적을 지워 다음 설치가 깨끗한 자리에서 시작하게 한다.
-        //   모델은 다른 폴더라 그대로 남는다.
-        await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
-        throw new Error(`engine verification failed (${failure}) — install again`);
-      }
-
-      const meta: EngineMeta = { build, backends: got, installedAt: Date.now() };
-      await fsp.writeFile(path.join(dir, META_NAME), JSON.stringify(meta, null, 2), 'utf8');
+      if (got.length === 0) throw new Error(`no usable engine backend — ${failures.join('; ') || 'no matching assets'}`);
+      const meta: EngineMeta = { build, backends: got, installedAt: Date.now(), backendDirs };
+      await fsp.writeFile(path.join(stagedDir, META_NAME), JSON.stringify(meta, null, 2), 'utf8');
+      await publishEngineInstall(stagedDir, dir);
+      stagedDir = '';
 
       session.status = 'done';
       delete session.error;
       pushProgress();
-      logger.info(`[localEngine] installed build=${build} backends=${got.join(',')} bin=${bin}`);
+      logger.info(`[localEngine] installed build=${build} backends=${got.join(',')}`);
     } catch (err) {
       session.status = 'error';
       session.error = err instanceof Error ? err.message : String(err);
@@ -743,6 +812,7 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
       inflight = null;
       pushProgress();
       if (tmpDir) await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+      if (stagedDir) await fsp.rm(stagedDir, { recursive: true, force: true }).catch(() => undefined);
     }
   })();
 
@@ -754,6 +824,7 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
  * 않는다는 규약이라, 모델 삭제는 호출자가 따로 물어보고 모델 서비스로 지운다.
  */
 export async function uninstallEngine(): Promise<void> {
+  if (inflight) throw new Error('engine installation is in progress');
   const dir = engineDir();
   await fsp.rm(dir, { recursive: true, force: true });
   lastProgress = null;

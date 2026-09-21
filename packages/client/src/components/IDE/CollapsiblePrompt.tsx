@@ -286,9 +286,27 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   const removeCommand = useGraphStore((s) => s.removeCommand);
   const tone = PROMPT_TONES[toneFor(command)];
   const mode = command?.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE;
-  // 대기 중 + 큐 좌표(agentId·commandId)를 아는 말풍선만 방식을 바꾸거나 지울 수 있다.
-  const controlAgentId = command?.status === 'queued' ? command.agentId : undefined;
-  const controlCommandId = command?.status === 'queued' ? command.commandId : undefined;
+  /*
+   * §2.4 (표시 승격이 취소 손잡이를 먹는다) — `command.status` 는 **표시용 사본**(`displayCommands`)의
+   * 칸이다. 조용한 압축이 도는 동안 그 세션의 첫 대기 명령은 `executing` 으로 **그려지고**, 종전에는
+   * 그 한 칸 때문에 아래 컨트롤이 통째로 사라졌다 — 즉 사용자가 아직 나가지도 않은 자기 명령을
+   * **취소할 길이 없어졌다**(이 버그의 "빠져나갈 방법이 없다"의 한 갈래).
+   *
+   * 그래서 색·배지는 승격본을 그대로 따르되(그 승격은 "네 명령이 진행 중"을 보여주려고 넣은 것이다),
+   * **손잡이는 원본 큐의 진짜 상태**를 따르게 한다. 아직 `queued` 면 [대기|합치기|즉시]와 삭제(×)가
+   * 그대로 산다. 큐에서 사라진 명령(이미 나갔거나 끝난 것)은 `undefined` 라 종전대로 컨트롤이 없다.
+   */
+  const queueAgentId = command?.agentId;
+  const queueCommandId = command?.commandId;
+  const rawQueueStatus = useGraphStore((s) => (
+    queueAgentId !== undefined && queueCommandId !== undefined
+      ? s.queuedCommands[queueAgentId]?.find((c) => c.id === queueCommandId)?.status
+      : undefined
+  ));
+  // 큐에서 못 찾으면(완료·아카이브) 종전대로 넘겨받은 칸을 믿는다.
+  const effectiveStatus = rawQueueStatus ?? command?.status;
+  const controlAgentId = effectiveStatus === 'queued' ? queueAgentId : undefined;
+  const controlCommandId = effectiveStatus === 'queued' ? queueCommandId : undefined;
   const controllable = controlAgentId !== undefined && controlCommandId !== undefined;
 
   // 펼친 말풍선은 **IDE 어디를 눌러도 접힌다** — 다시 접으려고 좁은 머리줄을 정확히 찾아 누를 필요가
@@ -347,12 +365,17 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
       )}
       {/* 실행 중 / 대기 중 — 색만으로 못 읽는 사람을 위해 글자로도 한 번 말한다. */}
       {command?.status === 'executing' && (
-        <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
+        <span
+          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}
+          /* §2.4 — 승격된 칸(원본은 아직 `queued`)이면 "무엇을 기다리는지"를 툴팁으로 말한다.
+             배지 낱말까지 되돌리지는 않는다 — 그 승격은 "네 명령이 진행 중"을 보이려고 넣은 것이다. */
+          title={controllable ? t('ide.mainArea.queuedBehindSilent') : undefined}
+        >
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
           {t('ide.mainArea.executing')}
         </span>
       )}
-      {command?.status === 'queued' && (
+      {effectiveStatus === 'queued' && command?.status === 'queued' && (
         <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
           <DispatchModeIcon mode={mode} />
           {t(`ide.mainArea.dispatchMode.${mode}`)}

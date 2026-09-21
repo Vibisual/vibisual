@@ -29,6 +29,16 @@ const NEUTRAL_VIEWS: readonly IDEViewType[] = ['files', 'debug', 'bookmarks', 'g
 const CONDUCTING_VIEWS: readonly IDEViewType[] = ['orchestra'];
 
 /**
+ * §5.3 #10-5 — **턴 사본에서 설정을 덜어내는** 칸. 여기도 클로드·코덱스에만 선다.
+ *
+ * 덜어낼지 말지의 판단이 "그 엔진의 CLI·모델이 이 항목을 받는가"에 매여 있어(`configTrimContextOf`
+ * 의 엔진 인자, 설치된 CLI 의 `--help`·모델 원장) 서버 가로채기 자체가 엔진 claude|codex 에서만
+ * 걸린다. 로컬 러너는 우리가 프롬프트를 직접 조립하므로 덜어낼 CLI 항목이 아예 없다 —
+ * 거기 칸을 세우면 켜 둬도 영영 빈 목록만 그리는 스위치가 된다.
+ */
+const TURN_CONFIG_VIEWS: readonly IDEViewType[] = ['configTrim'];
+
+/**
  * All Model(로컬 LLM) 버블에 남는 항목.
  *
  * 로컬 모델에는 MCP·스킬·플러그인·훅·주입원이 **정말로 없다** — 우리 러너가 프롬프트를 조립해
@@ -49,13 +59,12 @@ export const LOCAL_PROVIDER_VIEWS: readonly IDEViewType[] = NEUTRAL_VIEWS;
  * 그 이름으로 열지 않으므로 원장이 영원히 비고, 그러면 이 칸은 "하나도 안 읽었다"를 늘 띄우는 거짓 화면이
  * 된다. 없는 것을 그리지 않는 쪽이 여기서는 여전히 옳다.
  *
- * **`verify` 는 자리만 같고 내용이 다르다(§5.25 (N)).** `/verify` 는 Claude Code 번들 스킬이라
- * 코덱스에는 없지만, 그 칸이 답하는 물음("이 변경 괜찮은가")에는 코덱스의 `codex review` 가
- * 대응한다. 그래서 칸은 남기되 **화면을 통째로 갈아 끼운다**(`IDECodexReviewView`) — 판정
- * (pass/fail/held)·시연·재시도는 앱을 띄워 본 클로드 검증의 것이라 빌려 오지 않는다.
+ * `verify` uses the common app-owned execution tools for Claude and Codex.
+ * Codex's git code review remains a separate tab inside the common verification view.
  */
 export const CODEX_PROVIDER_VIEWS: readonly IDEViewType[] = [
-  ...NEUTRAL_VIEWS, ...CONDUCTING_VIEWS, 'mcp', 'hooks', 'plugins', 'skills', 'context', 'verify',
+  ...NEUTRAL_VIEWS, ...CONDUCTING_VIEWS, ...TURN_CONFIG_VIEWS,
+  'mcp', 'hooks', 'plugins', 'skills', 'context', 'verify',
 ];
 
 /** 이 엔진에 뜻이 있는 항목 목록. `undefined`(=클로드)면 `null` — 종전 그대로 전부 보인다. */

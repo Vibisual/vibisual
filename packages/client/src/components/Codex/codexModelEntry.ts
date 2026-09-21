@@ -20,7 +20,7 @@ import type {
 
 /** §5.25 (B) — 코덱스 버블을 눌렀을 때 갈리는 갈래. */
 export type CodexEntryDecision =
-  /** CLI 도 있고 로그인도 됐고 모델도 물었다 — 곧장 IDE. */
+  /** CLI와 인증이 준비됐다 — 명시 모델 또는 CLI 기본값으로 IDE에 진입한다. */
   | { kind: 'ide' }
   /** 쓸 수 있는 모델은 있는데 이 버블이 아직 아무것도 안 물었다 — 매고 나서 IDE. */
   | { kind: 'bind'; model: CodexModelEntry }
@@ -65,11 +65,12 @@ export function resolveCodexEntry(
   const models = input.models ?? [];
   // 이 버블이 문 모델이 목록에 남아 있으면 그대로 간다.
   if (provider.modelId && models.some((m) => m.slug === provider.modelId)) return { kind: 'ide' };
-  // 목록을 아직 못 읽었으면(코덱스를 한 번도 안 돌린 기계) 매어 줄 것이 없다 — 문 모델을 그대로 쓴다.
-  if (models.length === 0) return provider.modelId ? { kind: 'ide' } : { kind: 'setup' };
+  // 새 설치에는 모델 캐시가 없을 수 있다. 설치 화면으로 돌리면 첫 실행이 캐시를 만들 기회도
+  // 없어지므로, 빈 모델은 runner가 -m을 생략해 CLI 기본값으로 실행한다.
+  if (models.length === 0) return { kind: 'ide' };
 
   const fallback = pickDefaultCodexModel(models);
-  return fallback ? { kind: 'bind', model: fallback } : { kind: 'setup' };
+  return fallback ? { kind: 'bind', model: fallback } : { kind: 'ide' };
 }
 
 /**

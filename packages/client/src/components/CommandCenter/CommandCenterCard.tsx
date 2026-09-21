@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { sessionStopUrl } from '../../hooks/useSessionStop.js';
 import { contextLevel, elapsedParts, waitingLevel, type CommandCenterItem } from './commandCenterModel.js';
@@ -317,7 +318,8 @@ export function CommandCenterCard({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (isComposingKeyEvent(e.nativeEvent)) return;
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
               }

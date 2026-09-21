@@ -465,7 +465,16 @@
         "login": "Masuk",
         "recheck": "Periksa lagi",
         "checking": "Memeriksa…",
-        "actionFailed": "Tidak berhasil. Coba lagi."
+        "actionFailed": "Tidak berhasil. Coba lagi.",
+        "portalTitle": "Kelola di situs penyedia",
+        "portal": {
+          "account": "Akun",
+          "billing": "Paket & tagihan",
+          "usage": "Penggunaan",
+          "apiKeys": "Kunci API",
+          "console": "Konsol pengembang",
+          "codexWeb": "Codex di web"
+        }
       },
       "storage": {
         "intro": "Berapa lama Vibisual menyimpan riwayat aktivitas di disk. Setel nilai apa pun ke 0 untuk menyimpannya selamanya. Tidak ada yang dihapus secara diam-diam: berkas yang masih dirujuk oleh sebuah percakapan tetap disimpan berapa pun usianya, sesi yang aktif dan yang masih bisa dibuka kembali tidak pernah disentuh, dan pembersihan memindahkan berkas ke tempat sampah sehingga Anda dapat memulihkannya.",
@@ -2166,7 +2175,7 @@
     },
     "projectFolder": {
       "title": "Pilih folder proyek",
-      "intro": "Claude Code sudah terinstal dan sudah masuk. Langkah terakhir adalah memilih folder tempat agent Anda bekerja — biasanya root dari sebuah proyek atau repositori.",
+      "intro": "Pilih folder tempat agen Anda akan bekerja, biasanya folder utama proyek atau repositori.",
       "blocked": "Tidak ada yang dibuat — belum ada folder proyek yang terbuka. Agent bekerja di dalam folder yang Anda pilih, jadi pilih satu dulu.",
       "detail": "Semua yang disimpan Vibisual untuk sebuah proyek berada di dalam folder itu, dan agent hanya boleh membaca serta mengubah berkas di bawahnya. Anda bisa membuka folder lain nanti lewat File → Buka Folder.",
       "cancelled": "Belum ada folder yang dipilih. Pilih satu untuk melanjutkan.",
@@ -2205,7 +2214,7 @@
       "commandLabel": "Perintah instalasi",
       "copy": "Salin",
       "copied": "Disalin",
-      "manualOnly": "npm tidak ditemukan, sehingga Vibisual tidak bisa memasangnya untuk Anda. Pasang Node.js, jalankan perintah di atas di terminal, lalu pilih \"Periksa lagi\".",
+      "manualOnly": "Instalasi otomatis tidak tersedia pada sistem ini. Ikuti panduan instalasi resmi, lalu pilih “Periksa lagi”.",
       "failed": "Instalasi tidak selesai. Jalankan perintah di atas di terminal, lalu pilih \"Periksa lagi\".",
       "installing": "Memasang…",
       "installDone": "Terpasang",
@@ -2244,7 +2253,14 @@
       "recheck": "Periksa lagi",
       "later": "Nanti",
       "stop": "Hentikan",
-      "start": "Masuk"
+      "start": "Masuk",
+      "deviceCodePrompt": "Masukkan kode ini di halaman masuk pada browser Anda.",
+      "copyDeviceCode": "Salin kode",
+      "deviceCodeWaiting": "Menunggu kode perangkat…",
+      "deviceCodeHelp": "Login dengan kode perangkat harus diaktifkan dalam pengaturan keamanan ChatGPT atau izin ruang kerja. Jika tidak tersedia, coba masuk melalui browser.",
+      "ended": "Proses masuk berakhir sebelum selesai. Coba lagi atau pilih metode lain.",
+      "retry": "Coba lagi",
+      "checking": "Memeriksa status masuk…"
     },
     "insurance": {
       "title": "Asuransi konteks",
@@ -2331,6 +2347,46 @@
     }
   },
   "ide": {
+    "skillSharing": {
+      "title": "Keterampilan dari {{provider}}",
+      "hint": "Bagikan keterampilan pengguna dengan {{provider}} dan tambahkan ke draf saat ini.",
+      "loading": "Memuat keterampilan yang dapat dibagikan…",
+      "empty": "Tidak ada keterampilan pengguna dari {{provider}} yang tersedia.",
+      "noMatch": "Tidak ada keterampilan bersama yang cocok dengan “{{query}}”.",
+      "refresh": "Muat ulang keterampilan yang dapat dibagikan",
+      "retry": "Coba lagi",
+      "shareAndUse": "Bagikan dan gunakan",
+      "use": "Gunakan",
+      "sharing": "Membagikan…",
+      "sharedHint": "Ditambahkan ke draf saat ini. Kirim jika sudah siap.",
+      "loadFailed": "Tidak dapat memuat keterampilan yang dapat dibagikan. {{reason}}",
+      "shareFailed": "Tidak dapat membagikan keterampilan ini. {{reason}}",
+      "project": "Proyek",
+      "global": "Global",
+      "available": "Tersedia",
+      "shared": "Dibagikan",
+      "conflict": "Konflik nama",
+      "unsupported": "Khusus penyedia",
+      "conflictHint": "Keterampilan lain dengan nama ini sudah ada.",
+      "unsupportedHint": "Keterampilan ini menggunakan fitur yang tidak didukung oleh {{provider}}.",
+      "invalidResponse": "Server mengembalikan respons yang tidak valid.",
+      "issues": {
+        "skill-too-large": "Jumlah atau ukuran file keterampilan ini melebihi batas yang didukung.",
+        "invalid-name": "Nama keterampilan tidak valid.",
+        "invalid-skill": "Definisi keterampilan tidak valid.",
+        "unsafe-path": "Keterampilan ini berisi jalur atau tautan yang tidak aman.",
+        "unreadable-source": "Keterampilan sumber tidak dapat dibaca.",
+        "name-conflict": "Keterampilan lain dengan nama ini sudah ada.",
+        "provider-hooks": "Keterampilan ini memerlukan hook khusus penyedia.",
+        "provider-context": "Keterampilan ini memerlukan konteks eksekusi khusus penyedia.",
+        "dynamic-shell": "Keterampilan ini memerlukan ekspansi shell khusus penyedia.",
+        "tool-dependency": "Pastikan alat yang diperlukan keterampilan ini tersedia.",
+        "provider-path": "Periksa jalur khusus penyedia sebelum menggunakan keterampilan ini.",
+        "provider-model": "Periksa pengaturan model yang diperlukan keterampilan ini.",
+        "invocation-policy": "Periksa aturan pemanggilan sebelum menggunakan keterampilan ini.",
+        "disabled-skill": "Keterampilan ini dinonaktifkan di Codex. Aktifkan di Codex sebelum menggunakannya."
+      }
+    },
     "diff": {
       "addComment": "Beri komentar pada baris ini",
       "removeComment": "Hapus komentar",
@@ -2674,7 +2730,18 @@
       "voiceDenoiseHint": "Meredam suara yang kembali dari speaker ke mikrofon serta derau tetap seperti kipas dan ketikan. Matikan jika antarmuka audio Anda sudah menanganinya.",
       "voiceEchoUnavailable": "Mikrofon ini tidak mendukung peredam gema, jadi suara speaker bisa ikut terekam. Memakai headphone pasti mengatasinya.",
       "voiceRespaceLabel": "Pulihkan spasi kata bahasa Korea",
-      "voiceRespaceHint": "Mesin pengenal mengeluarkan bahasa Korea tanpa spasi; fitur ini memisahkannya pada partikel dan akhiran. Berbasis aturan sehingga tidak sempurna — hasilnya dapat Anda perbaiki di kotak masukan."
+      "voiceRespaceHint": "Mesin pengenal mengeluarkan bahasa Korea tanpa spasi; fitur ini memisahkannya pada partikel dan akhiran. Berbasis aturan sehingga tidak sempurna — hasilnya dapat Anda perbaiki di kotak masukan.",
+      "stallHint": "Sesi ini tercatat sedang berjalan, tetapi sudah beberapa saat tidak ada yang masuk. Tunggu lagi, atau hentikan.",
+      "stallNotice": "Tidak ada respons selama {{value}}. Masih ditampilkan sebagai berjalan.",
+      "stallKeepWaiting": "Tunggu lagi",
+      "stallKeepWaitingTitle": "Sembunyikan pemberitahuan ini dan terus menunggu. Pemberitahuan muncul lagi jika tetap tidak ada respons.",
+      "stopNothing": "Tidak ada yang berjalan untuk dihentikan. Label “berjalan” sudah usang.",
+      "stopNothingHint": "Server tidak menemukan proses anak, perintah antrean, maupun tugas latar belakang untuk cakupan ini.",
+      "stopForce": "Paksa tutup",
+      "stopForceTitle": "Hentikan semua pada agent ini, termasuk sesi lain dan perintah yang mengantre.",
+      "stopFailed": "Permintaan penghentian gagal ({{status}}).",
+      "stopRetry": "Coba lagi",
+      "queuedBehindSilent": "Ditampilkan sebagai berjalan karena compaction latar belakang sedang diselesaikan lebih dulu. Perintah ini belum dikirim, jadi Anda masih bisa mengubah atau menghapusnya."
     },
     "voiceInstall": {
       "title": "Siapkan input suara",
@@ -2744,6 +2811,7 @@
       "goal": "Sasaran",
       "autoGoal": "Deteksi prosedur",
       "orchestra": "Orkestra",
+      "configTrim": "Pemangkasan Config",
       "debug": "Jalankan dan debug",
       "hooks": "Hook sesi",
       "plugins": "Plugin Claude Code",
@@ -3138,7 +3206,8 @@
       "sessionsTip": "Berapa tab sesi yang terbuka pada agen ini.",
       "contextOverdueTip": "Konteks sesi ini hampir penuh dan masih terus bertambah, tetapi compaction belum berjalan. Klik untuk membuka Asuransi Konteks.",
       "contextStalledTip": "Context window sesi ini nyaris penuh dan compaction belum berjalan. Klik untuk membuka Asuransi Konteks.",
-      "contextRejectedTip": "Kami mengirim perintah compaction, tetapi Claude Code tidak pernah memulainya — perintah itu ditolak. Penyebab umumnya adalah skill dan slash command dimatikan untuk proyek ini di {{contextSources}}. Klik untuk membuka Asuransi Konteks."
+      "contextRejectedTip": "Kami mengirim perintah compaction, tetapi Claude Code tidak pernah memulainya — perintah itu ditolak. Penyebab umumnya adalah skill dan slash command dimatikan untuk proyek ini di {{contextSources}}. Klik untuk membuka Asuransi Konteks.",
+      "elapsedTip": "Waktu sejak sesi ini terakhir bergerak."
     },
     "search": {
       "placeholder": "Cari dalam percakapan",
@@ -3451,7 +3520,9 @@
       "maxTokens": "Batas output",
       "maxTurns": "Batas giliran",
       "refusal": "Ditolak model",
-      "usageLimit": "Batas penggunaan"
+      "usageLimit": "Batas penggunaan",
+      "disconnected": "Terputus",
+      "interrupted": "Disela"
     },
     "density": {
       "label": "Kepadatan tampilan",
@@ -3615,12 +3686,24 @@
         "systemPrompt": "System prompt Claude Code",
         "compactSelf": "Pemadatan mandiri Agent",
         "compactRecovery": "Catatan pemulihan pasca-compaction",
-        "autoGoalSkills": "Prosedur terdeteksi"
+        "autoGoalSkills": "Prosedur terdeteksi",
+        "codexInstructions": "Instruksi proyek Codex",
+        "codexGlobalInstructions": "Instruksi global Codex",
+        "codexCollaborationInstructions": "Instruksi kolaborasi Codex",
+        "codexSkills": "Skill Codex",
+        "codexDeveloperInstructions": "Instruksi developer Codex",
+        "codexMcp": "Server MCP Codex yang dikonfigurasi",
+        "codexPlugins": "Plugin Codex yang dikonfigurasi",
+        "codexHooks": "Hook Codex",
+        "codexSystemPrompt": "System prompt Codex",
+        "codexRuntimeMcp": "Server MCP Codex lain yang terdeteksi",
+        "codexRuntimePlugins": "Plugin Codex lain yang terdeteksi"
       },
       "hint": {
         "tools": "Pilih daftar tool di Pengaturan Agent",
         "mcp": "Sambungkan server MCP di Pengaturan Agent",
-        "hooks": "Hooks dipasang di settings.json"
+        "hooks": "Hooks dipasang di settings.json",
+        "codexExternalSession": "Kontrol konteks Codex bawaan berlaku untuk chat yang dijalankan oleh Vibisual. Untuk terminal yang sudah berjalan atau sesi eksternal, ubah pengaturan Codex-nya, lalu mulai ulang sesi tersebut."
       },
       "warn": {
         "slashCommands": "Menonaktifkan ini menonaktifkan semua skill dan perintah garis miring untuk sesi ini.",
@@ -3801,6 +3884,61 @@
             "what": "Prosedur yang dituliskan dari pekerjaan yang terus diulang oleh proyek ini.",
             "more": "Hanya nama, satu baris deskripsi, dan path berkas yang dikirim. Isinya tetap berada di .vibisual/skills, dan agent membukanya saat pekerjaannya cocok.",
             "off": "Agent harus mencari tahu lagi setiap prosedur itu dari nol."
+          },
+          "codexInstructions": {
+            "what": "Instruksi proyek yang ditemukan Codex di AGENTS.md beserta file override atau fallback-nya.",
+            "more": "Dibaca dari rantai instruksi proyek untuk working directory agent ini. Instruksi global Codex punya barisnya sendiri.",
+            "off": "Menghentikan pemuatan otomatis file instruksi proyek pada giliran berikutnya. Instruksi global dan teks yang sudah ada di percakapan ini tetap ada."
+          },
+          "codexGlobalInstructions": {
+            "what": "Instruksi pribadi yang dimuat Codex dari home directory-nya untuk setiap proyek.",
+            "more": "Berasal dari AGENTS.md atau AGENTS.override.md di CODEX_HOME, biasanya ~/.codex. Ini terpisah dari instruksi proyek.",
+            "off": "Baris ini tidak bisa dinonaktifkan di sini. Edit file instruksi global untuk mengubah giliran mendatang; teks percakapan yang sudah ada tetap ada."
+          },
+          "codexCollaborationInstructions": {
+            "what": "Panduan bawaan Codex untuk mode kolaborasinya.",
+            "more": "Ditambahkan oleh runtime Codex sesuai mode kolaborasi yang aktif.",
+            "off": "Menghentikan penambahan instruksi mode kolaborasi pada giliran berikutnya. Instruksi yang sudah ada di percakapan ini tetap ada."
+          },
+          "codexSkills": {
+            "what": "Nama dan deskripsi skill yang disediakan Codex untuk agent.",
+            "more": "Ditemukan dari folder skill Codex dan paket skill yang diaktifkan. Instruksi lengkap sebuah skill dibaca saat skill itu dipakai.",
+            "off": "Menonaktifkan penemuan skill pada giliran berikutnya. Teks skill yang sudah dibaca di percakapan ini tetap ada."
+          },
+          "codexDeveloperInstructions": {
+            "what": "Instruksi tambahan yang dikonfigurasi untuk Codex di level developer.",
+            "more": "Berasal dari pengaturan developer_instructions efektif milik Codex untuk working directory ini. Blok prompt milik Vibisual sendiri punya barisnya masing-masing.",
+            "off": "Melewatkan instruksi developer yang dikonfigurasi pada giliran berikutnya. Instruksi sebelumnya yang sudah ada di percakapan tetap ada."
+          },
+          "codexMcp": {
+            "what": "Server MCP yang didaftarkan secara eksplisit dalam konfigurasi Codex yang efektif.",
+            "more": "Setiap server yang dikonfigurasi dapat menyediakan definisi alat. Sakelar ini hanya mencakup entri konfigurasi ini; server lain yang terdeteksi punya barisnya sendiri.",
+            "off": "Menonaktifkan server yang dikonfigurasi pada giliran berikutnya tanpa mengedit file konfigurasinya. Mengaktifkannya kembali akan memulihkan kondisi konfigurasinya semula, tapi tidak akan mengaktifkan server yang sebelumnya dinonaktifkan satu per satu."
+          },
+          "codexPlugins": {
+            "what": "Plugin yang didaftarkan secara eksplisit dalam konfigurasi Codex yang efektif.",
+            "more": "Berasal dari entri plugin dalam pengaturan Codex yang efektif. Plugin lain yang terdeteksi punya barisnya sendiri.",
+            "off": "Menonaktifkan plugin yang dikonfigurasi pada giliran berikutnya tanpa mencopot pemasangannya atau mengedit file konfigurasi. Mengaktifkannya kembali akan memulihkan kondisi konfigurasinya semula, dan plugin yang sebelumnya dinonaktifkan satu per satu tetap nonaktif."
+          },
+          "codexHooks": {
+            "what": "Hook yang didaftarkan pada Codex, termasuk hook integrasi yang dipakai Vibisual.",
+            "more": "Berasal dari konfigurasi hook milik Codex. Hook dapat menambahkan konteks saat event-nya berjalan.",
+            "off": "Kelola konfigurasi hook secara terpisah. Baris ini tidak menonaktifkan hook."
+          },
+          "codexSystemPrompt": {
+            "what": "Instruksi inti dan definisi alat bawaan yang disediakan oleh runtime Codex.",
+            "more": "Dikelola di dalam Codex. Teks lengkap dan biaya token pastinya tidak ditampilkan oleh inventaris ini.",
+            "off": "Sumber ini tidak bisa dinonaktifkan di sini."
+          },
+          "codexRuntimeMcp": {
+            "what": "Server MCP yang terdeteksi di luar entri konfigurasi eksplisit yang diatur di atas.",
+            "more": "Dilaporkan oleh inventaris runtime Codex. Entri ini tidak tercakup oleh sakelar server yang dikonfigurasi.",
+            "off": "Baris ini tidak bisa menonaktifkan server-server tersebut. Kelola melalui integrasi Codex atau pengaturan yang menambahkannya."
+          },
+          "codexRuntimePlugins": {
+            "what": "Plugin Codex yang terdeteksi di luar entri konfigurasi eksplisit yang diatur di atas.",
+            "more": "Dilaporkan oleh inventaris plugin Codex. Entri ini tidak tercakup oleh sakelar plugin yang dikonfigurasi.",
+            "off": "Baris ini tidak bisa menonaktifkan plugin-plugin tersebut. Kelola melalui integrasi Codex atau pengaturan yang menambahkannya."
           }
         },
         "cat": {
@@ -3854,7 +3992,10 @@
       "scopeTabNoSession": "Buka tab sesi dulu — belum ada tempat untuk melekatkan ini.",
       "ownHere": "Diatur di sini, di lapisan {{scope}} — sudah tidak lagi mengikuti lapisan di atasnya.",
       "lowerOverrideHint": "Diatur terpisah lebih ke bawah ({{scopes}}), jadi mengubahnya di sini tidak akan berpengaruh ke sana.",
-      "finalDiffHint": "Yang sebenarnya masuk ke prompt saat ini: ~{{tokens}}."
+      "finalDiffHint": "Yang sebenarnya masuk ke prompt saat ini: ~{{tokens}}.",
+      "futureOnly": "Perubahan ini mengatur injeksi konteks di masa depan. Perubahan tidak menghapus instruksi atau file yang sudah dibaca dalam percakapan ini.",
+      "loadError": "Tidak bisa menyegarkan sumber konteks. Coba ukur ulang.",
+      "saveError": "Tidak bisa memastikan perubahan ini tersimpan. Ukur ulang untuk memeriksa pengaturan saat ini."
     },
     "goal": {
       "title": "Tujuan",
@@ -4107,7 +4248,7 @@
     },
     "verify": {
       "title": "Verifikasi",
-      "about": "Menjalankan /verify di tab ini: membangun dan menjalankan aplikasi Anda, lalu melaporkan apa yang benar-benar terlihat.",
+      "about": "Hubungkan aplikasi, pilih demonstrasi atau jelaskan pemeriksaan; agen akan mengoperasikan aplikasi dan memverifikasi buktinya.",
       "pickSession": "Buka tab sesi untuk menjalankan verifikasi.",
       "focusLabel": "Yang perlu diperiksa (opsional)",
       "focusPlaceholder": "mis. tombol login benar-benar membuka dialognya",
@@ -4133,9 +4274,22 @@
         "alreadyRunning": "Sudah ada verifikasi yang berjalan di tab ini.",
         "sessionBusy": "Tab ini masih punya perintah yang belum selesai.",
         "sessionNotFound": "Sesi itu tidak ditemukan.",
+        "demoNotFound": "Demonstrasi yang dipilih tidak ditemukan dalam sesi ini. Silakan pilih kembali.",
+        "demoFramesMissing": "Beberapa bingkai demonstrasi hilang. Silakan simpan demonstrasi kembali.",
         "readOnly": "Bubble Hook hanya-baca.",
         "network": "Tidak dapat menghubungi server.",
-        "failed": "Tidak dapat memulai verifikasi."
+        "failed": "Tidak dapat memulai verifikasi.",
+        "invalidVerificationTarget": "Pilih alamat browser atau target tangkapan yang valid.",
+        "verificationToolsUnavailable": "Alat verifikasi tidak tersedia. Buka aplikasi desktop versi terbaru.",
+        "timeout": "Pemeriksaan koneksi kehabisan waktu. Periksa target dan coba lagi.",
+        "verificationStopped": "Verifikasi dihentikan.",
+        "verificationTimeLimit": "Verifikasi mencapai batas waktu.",
+        "verificationEvidenceLimit": "Batas operasi atau bukti telah tercapai.",
+        "verificationEvidenceMissing": "Bukti layar yang disimpan tidak ditemukan.",
+        "successfulVerificationRequired": "Diperlukan verifikasi berhasil dengan tindakan yang direkam.",
+        "procedureStepLimit": "Eksekusi ini memiliki terlalu banyak operasi untuk satu prosedur.",
+        "procedureFrameLimit": "Eksekusi ini memiliki terlalu banyak gambar referensi untuk satu prosedur.",
+        "procedureNeedsActionMapping": "Langkah demonstrasi ini masih perlu dipetakan ke tindakan nyata."
       },
       "demo": {
         "sectionTitle": "Demonstrasi",
@@ -4175,7 +4329,55 @@
           "failed": "Tidak dapat menyimpan demonstrasi.",
           "projectNotFound": "Proyek itu tidak ditemukan.",
           "framesFull": "Demonstrasi ini sudah mencapai jumlah gambar maksimum."
-        }
+        },
+        "browserEvidenceOnly": "Bukti layar disimpan otomatis. Perekaman video tidak tersedia untuk browser khusus verifikasi.",
+        "recordRunNeedsMatchingTarget": "Video memerlukan jendela desktop atau layar yang sama dengan target eksekusi."
+      },
+      "tabs": {
+        "execution": "Verifikasi eksekusi",
+        "review": "Tinjauan kode"
+      },
+      "connection": {
+        "title": "Target eksekusi",
+        "browser": "Browser",
+        "desktop": "Aplikasi desktop",
+        "url": "Alamat browser",
+        "pickSource": "Pilih jendela atau layar",
+        "browserHint": "Verifikator membuka alamat ini di browser tersendiri dan mengoperasikan halaman.",
+        "desktopHint": "Verifikator mengoperasikan jendela atau layar yang dipilih. Pilih kembali setelah aplikasi dimulai ulang.",
+        "probing": "Memeriksa koneksi…",
+        "ready": "Siap dioperasikan",
+        "unavailable": "Koneksi tidak tersedia",
+        "needsTarget": "Pilih target yang valid",
+        "probe": "Periksa lagi",
+        "capabilities": "Tindakan: {{actions}}. Pemeriksaan: {{checks}}."
+      },
+      "execution": {
+        "expected": "Hasil yang diharapkan: {{expected}}",
+        "coverage": "Langkah selesai: {{done}} / {{total}}",
+        "events": "Operasi yang direkam ({{count}})",
+        "evidence": "Lihat bukti",
+        "frame": "Gambar bukti {{index}}",
+        "saveProcedure": "Simpan tindakan yang berhasil sebagai prosedur",
+        "saving": "Menyimpan…",
+        "saved": "Prosedur disimpan"
+      },
+      "operation": {
+        "click": "Klik",
+        "fill": "Masukkan teks",
+        "press": "Tekan tombol",
+        "scroll": "Gulir",
+        "wait": "Tunggu",
+        "navigate": "Navigasi",
+        "visible": "Elemen terlihat",
+        "text": "Teks cocok",
+        "value": "Nilai cocok",
+        "url": "URL cocok",
+        "screenshot": "Perbandingan gambar",
+        "observe": "Amati layar",
+        "act": "Operasikan",
+        "check": "Periksa",
+        "doubleClick": "Klik dua kali"
       }
     },
     "codex": {
@@ -4196,7 +4398,7 @@
         "groupUser": "Milik Anda {{count}}",
         "groupSystem": "Bawaan {{count}}",
         "groupPlugin": "Dari plugin {{count}}",
-        "hint": "Klik sebuah skill untuk memasukkannya ke kotak input. Folder ini milik Codex, jadi di sini hanya bisa dibaca."
+        "hint": "Klik keterampilan untuk menambahkannya ke draf saat ini. Keterampilan pengguna dari Claude yang kompatibel dapat dibagikan di bawah ini."
       },
       "plugins": {
         "title": "Plugin",
@@ -4401,7 +4603,7 @@
     },
     "autoGoal": {
       "title": "Deteksi prosedur",
-      "about": "Mendeteksi pekerjaan yang terus Anda lakukan dengan urutan yang sama, lalu menuliskan rangkaian itu sebagai skill.",
+      "about": "Menemukan pekerjaan berulang untuk ditinjau oleh Agent Anda. Hanya prosedur yang telah ditinjau dan masih berlaku yang memandu pekerjaan berikutnya.",
       "scope": {
         "project": "Seluruh proyek",
         "agent": "Agent ini",
@@ -4414,13 +4616,58 @@
         "effectiveOn": "Sedang mengamati pekerjaan yang berulang.",
         "effectiveOff": "Nonaktif — tidak ada yang dipindai dan tidak ada yang sampai ke prompt."
       },
-      "groupSkills": "Tertulis {{count}}",
-      "groupBrewing": "Hampir jadi {{count}}",
+      "groupSkills": "Prosedur {{count}}",
+      "groupBrewing": "Pola teramati {{count}}",
       "skillMeta": "{{steps}} langkah · diulang {{runs}}×",
-      "removeSkill": "Hapus prosedur ini (tidak akan dituliskan lagi)",
+      "removeSkill": "Hapus prosedur ini dan berhenti menyarankan pola ini",
       "dismiss": "Ini bukan prosedur (berhenti menyarankannya)",
-      "watching": "Dipindai {{observed}} tindakan — rangkaian dituliskan begitu urutan yang sama muncul kembali {{runs}} kali.",
-      "empty": "Belum ada yang bisa dipindai. Ini akan mulai terisi begitu agent Anda mulai bekerja."
+      "watching": "{{observed}} tindakan dipindai — pola menjadi calon tinjauan setelah {{runs}} pengulangan terkonfirmasi.",
+      "empty": "Belum ada yang bisa dipindai. Ini akan mulai terisi begitu agent Anda mulai bekerja.",
+      "noProject": "Buka proyek untuk melihat prosedurnya.",
+      "loading": "Memuat prosedur…",
+      "loadFailed": "Tidak dapat memuat ulang prosedur. Informasi terakhir mungkin sudah usang.",
+      "saveFailed": "Perubahan tidak dapat dikonfirmasi. Muat ulang daftar sebelum mencoba tindakan lagi.",
+      "bodyFailed": "Tidak dapat memuat prosedur ini.",
+      "refresh": "Muat ulang prosedur",
+      "details": "Tampilkan detail prosedur",
+      "hideDetails": "Sembunyikan detail prosedur",
+      "pause": "Hentikan penggunaan",
+      "requestReview": "Minta tinjauan Agent",
+      "reviewHint": "Agent yang sedang bekerja meninjau prosedur terkait. Meminta tinjauan tidak langsung mengaktifkan prosedur.",
+      "reason": "Alasan",
+      "applicability": "Kondisi penggunaan",
+      "reviewed": "Ditinjau {{date}}",
+      "revision": "Revisi {{revision}}",
+      "supersededBy": "Digantikan oleh {{name}}",
+      "reasons": {
+        "notReviewed": "Prosedur ini dan berkas pendukungnya belum ditinjau.",
+        "statusChanged": "Status prosedur diubah dalam berkasnya. Tinjauan diperlukan sebelum digunakan.",
+        "invalidReview": "Bukti tinjauan yang tersimpan tidak valid. Tinjau kembali prosedur ini.",
+        "dependenciesUnchecked": "Berkas pendukung belum diperiksa.",
+        "missingReview": "Bukti tinjauan terkini tidak tersedia.",
+        "applicabilityChanged": "Kondisi penggunaan prosedur ini berubah setelah ditinjau.",
+        "instructionsChanged": "Instruksi prosedur berubah setelah ditinjau.",
+        "dependencyChanged": "Berkas pendukung yang telah ditinjau berubah atau tidak lagi tersedia.",
+        "userPaused": "Anda menghentikan penggunaan prosedur ini.",
+        "userRequestedReview": "Anda meminta tinjauan ulang prosedur ini."
+      },
+      "status": {
+        "candidate": "Menunggu tinjauan",
+        "active": "Digunakan",
+        "needs-review": "Perlu ditinjau",
+        "retired": "Dihentikan",
+        "superseded": "Digantikan"
+      },
+      "metrics": {
+        "active": "Digunakan {{count}}",
+        "review": "Perlu ditinjau {{count}}",
+        "retired": "Dihentikan {{count}}",
+        "reuse": "Digunakan ulang {{count}}",
+        "skip": "Dilewati {{count}}",
+        "failure": "Gagal {{count}}",
+        "revision": "Direvisi {{count}}",
+        "hint": "Hasil yang tercatat, bukan perkiraan penghematan biaya atau token."
+      }
     },
     "orchestra": {
       "title": "Orkestra",
@@ -4483,7 +4730,8 @@
         "engine": {
           "claude": "Claude",
           "codex": "Codex",
-          "auto": "Dirigen memilih per peran"
+          "auto": "Dirigen memilih per peran",
+          "inherit": "Sama dengan konduktor ({{engine}})"
         },
         "maxDefault": "Default ({{count}})"
       },
@@ -4535,7 +4783,8 @@
       },
       "phase": {
         "conducting": "Memimpin",
-        "dispatched": "Dialihkan",
+        "dispatched": "Menunggu hasil",
+        "completed": "Selesai",
         "answered": "Dijawab langsung",
         "unreported": "Rencana tidak dilaporkan",
         "error": "Error"
@@ -4553,6 +4802,109 @@
         "single": "Satu anggota",
         "pipeline": "Pipeline",
         "parallel": "Paralel"
+      },
+      "readiness": {
+        "setup": "{{engine}} harus diinstal sebelum dapat dijalankan.",
+        "login": "Masuk ke {{engine}} sebelum menggunakannya.",
+        "refresh": "Periksa apakah {{engine}} sudah siap.",
+        "prepare": "Siapkan {{engine}}",
+        "recheck": "Periksa lagi",
+        "auto": "Pemilihan otomatis hanya menggunakan mesin yang sudah diinstal dan masuk ke akun.",
+        "retry": "Permintaan Anda disimpan. Selesaikan persiapan {{engine}}, lalu kirim kembali."
+      }
+    },
+    "configTrim": {
+      "title": "Pemangkasan Config",
+      "about": "Setiap giliran berjalan dari salinan pengaturan agent ini. Saat pemangkasan aktif, field yang akan diabaikan oleh model atau CLI yang dipilih akan dipangkas dari salinan itu sebelum giliran dimulai.",
+      "storedSafe": "Pengaturan yang sudah Anda simpan tidak pernah disentuh. Hanya salinan satu giliran yang berubah, sehingga menonaktifkan ini akan memulihkan perilaku sebelumnya persis seperti semula.",
+      "effectiveOn": "Pemangkasan berlaku untuk giliran berikutnya di sesi ini.",
+      "effectiveOff": "Pemangkasan nonaktif — setiap field dikirim persis seperti saat disimpan.",
+      "caution": "Pemangkasan adalah penilaian, bukan pengukuran. Apa pun yang tidak bisa kami putuskan dari CLI yang terpasang dan daftar model akan dibiarkan apa adanya dan dicantumkan di bawah Dipertahankan.",
+      "saveFailed": "Tidak bisa menyimpan: {{reason}}",
+      "activity": {
+        "on": "pemangkasan aktif",
+        "trimmed": "{{count}} dipangkas pada giliran lalu"
+      },
+      "scope": {
+        "project": "Seluruh proyek",
+        "agent": "Agent ini",
+        "session": "Hanya sesi ini",
+        "inherited": "Mewarisi",
+        "on": "Aktif",
+        "off": "Nonaktif",
+        "unavailable": "Tidak tersedia di sini — buka tab agent dan sesi dulu.",
+        "hint": "Baris bawah mengalahkan baris atas. Setiap klik berputar dari aktif → nonaktif → mewarisi."
+      },
+      "blocked": {
+        "lead": "Bahkan saat aktif, tidak ada yang akan dipangkas untuk agent ini karena:",
+        "localEngine": "Agent ini berjalan pada model lokal, tempat kami menyusun prompt sendiri, sehingga tidak ada field CLI yang bisa dibuang.",
+        "terminal": "Agent ini berjalan di terminal tertanam, tempat pengaturan satu giliran tidak bisa ditukar."
+      },
+      "source": {
+        "thisSession": "Dari sesi ini, {{time}}.",
+        "otherSession": "Dari sesi lain milik agent ini, {{time}} — sesi ini belum menjalankan giliran apa pun.",
+        "waiting": "Belum ada giliran yang berjalan. Kedua daftar ini akan terisi begitu sesi ini menjalankan satu giliran.",
+        "turnOnFirst": "Aktifkan pemangkasan di atas untuk melihat apa yang akan dibuang pada satu giliran."
+      },
+      "trimmedPane": {
+        "title": "Dipangkas",
+        "lead": "Dipangkas dari salinan yang dipakai giliran ini. Nilai aslinya ditampilkan supaya Anda bisa mengembalikannya sendiri.",
+        "empty": "Tidak ada yang dipangkas — setiap field dibutuhkan atau memang sengaja dipertahankan."
+      },
+      "excludedPane": {
+        "title": "Dipertahankan",
+        "lead": "Sengaja dibiarkan ada di salinan. Berikut field yang tidak akan disentuh pemangkasan, dan alasannya.",
+        "empty": "Tidak ada yang dipertahankan dari pemangkasan pada giliran ini."
+      },
+      "before": "sebelumnya {{value}}",
+      "reason": {
+        "not-accepted": "tidak diterima",
+        "same-as-default": "sama seperti default",
+        "not-implemented": "belum diimplementasikan",
+        "no-effect-here": "tidak berpengaruh di sini"
+      },
+      "keep": {
+        "required": "wajib",
+        "user-set": "diatur manual",
+        "unsafe": "mengubah giliran",
+        "unknown": "tidak jelas",
+        "rule-off": "aturan nonaktif"
+      },
+      "rules": {
+        "title": "Aturan",
+        "lead": "Setiap aturan menentukan satu field. Nonaktifkan sebuah aturan, dan field-nya akan pindah ke Dipertahankan, bukan dipangkas."
+      },
+      "rule": {
+        "preset-meta": "Id preset hanya mencatat asal pengaturan ini; id tersebut tidak pernah dikirim ke CLI.",
+        "custom-mode-placeholder": "Mode custom Peninjauan dan Debug hanyalah placeholder tanpa perilaku apa pun di baliknya.",
+        "model-version-gone": "Id model yang tepat ini tidak ada dalam daftar yang saat ini bisa dipakai akun ini.",
+        "effort-gone": "CLI yang terpasang tidak lagi mencantumkan level upaya ini.",
+        "effort-default": "Upaya dibiarkan pada default, yaitu yang terjadi saat tidak ada apa pun yang dikirim.",
+        "max-turns-default": "Giliran maksimum masih memakai nilai default bawaan.",
+        "max-budget-unlimited": "Anggaran 0 berarti tanpa batas, sama seperti tidak mengaturnya sama sekali.",
+        "fallback-model-empty": "Model fallback berupa string kosong, sehingga tidak ada cadangan yang bisa dipakai.",
+        "thinking-on-default": "Penalaran diperluas sudah aktif secara default; mengirimkannya lagi hanya menambah argumen.",
+        "forward-subagent-text-on-default": "Meneruskan teks subagent sudah aktif secara default.",
+        "fast-mode-off-default": "Mode cepat sudah nonaktif secara default.",
+        "permission-timeout-default": "Allow adalah kebijakan timeout izin default.",
+        "betas-empty": "Daftar flag beta kosong.",
+        "agent-definitions-empty": "Daftar definisi subagent kosong.",
+        "context-window-non-opus": "Akhiran context window hanya dibaca untuk model Opus.",
+        "fast-mode-unsupported": "Model yang dipilih tidak menawarkan mode cepat, sehingga CLI membuangnya tanpa sepatah kata pun.",
+        "betas-subscription": "Flag beta hanya untuk akun API key; login lewat langganan mengabaikannya.",
+        "cli-kind-headless": "Varian CLI hanya menentukan terminal mana yang dibuka, dan giliran ini headless.",
+        "mcp-output-without-mcp": "Tidak ada server MCP yang terhubung, sehingga batas output MCP tidak ada yang perlu dibatasi.",
+        "agent-definitions-without-task": "Alat Task tidak ada dalam daftar alat, sehingga subagent ini tidak bisa dipanggil.",
+        "permission-timeout-moot": "Mode izin ini tidak pernah menampilkan prompt, sehingga timeout prompt tidak pernah berlaku."
+      },
+      "protected": {
+        "title": "Tidak Pernah Dipangkas",
+        "lead": "Aturan tidak pernah menjangkau field ini, apa pun posisi aturannya."
+      },
+      "runs": {
+        "title": "Giliran Terbaru",
+        "empty": "Belum ada giliran yang dipangkas di proyek ini.",
+        "counts": "{{trimmed}} / {{excluded}}"
       }
     }
   },
@@ -5198,6 +5550,11 @@
     }
   },
   "common": {
+    "appError": {
+      "title": "Jendela ini tidak dapat ditampilkan.",
+      "description": "Coba tampilkan kembali. Pekerjaan yang telah disimpan dan pengaturan Anda akan tetap tersimpan.",
+      "retry": "Coba lagi"
+    },
     "uncommittedChanges": "Perubahan belum di-commit",
     "iframe": {
       "urlInput": "Masukkan URL...",
@@ -5578,8 +5935,6 @@
     "serviceTierHint": "Masukkan tingkat yang didukung model (misalnya fast). Tingkat lebih cepat dapat memengaruhi penggunaan dan biaya.",
     "autoCompactTokenLimit": "Ambang pemadatan otomatis (token)",
     "codexTools": "Izin alat",
-    "inheritProject": "Default proyek / global",
-    "individualSettingsHint": "Berlaku untuk agen ini. Pengaturan yang sama dengan default tetap mengikuti perubahan proyek dan pengaturan global.",
     "codexValues": {
       "auto": "Otomatis",
       "concise": "Ringkas",
@@ -5588,6 +5943,8 @@
       "friendly": "Ramah",
       "pragmatic": "Pragmatis"
     },
+    "inheritProject": "Default proyek / global",
+    "individualSettingsHint": "Berlaku untuk agen ini. Pengaturan yang sama dengan default tetap mengikuti perubahan proyek dan pengaturan global.",
     "provider": "Penyedia",
     "claude": "Claude",
     "codex": "Codex",

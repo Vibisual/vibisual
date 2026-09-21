@@ -33,6 +33,7 @@ import en from '../../i18n/locales/en.json';
 import ko from '../../i18n/locales/ko.json';
 
 const tsx = import.meta.glob('./*.tsx', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const locales = import.meta.glob('../../i18n/locales/*.json', { import: 'default', eager: true }) as Record<string, unknown>;
 const viewSrc = (): string => tsx['./IDEOrchestraView.tsx'] ?? '';
 const sidebarSrc = (): string => tsx['./IDESidebar.tsx'] ?? '';
 const iconSrc = (): string => tsx['./ideActivityIcons.tsx'] ?? '';
@@ -62,6 +63,7 @@ function keysUsedByView(): string[] {
     ...ORCHESTRA_TOPOLOGIES.map((x) => `ide.orchestra.topology.${x}`),
     ...ORCHESTRA_CONDUCTOR_PERMISSIONS.flatMap((p) => [`ide.orchestra.permission.${p}`, `ide.orchestra.permission.${p}Hint`]),
     ...ORCHESTRA_MEMBER_ENGINES.map((e) => `ide.orchestra.member.engine.${e}`),
+    ...['setup', 'login', 'refresh'].map((action) => `ide.orchestra.readiness.${action}`),
   ];
   return [...new Set([...literal, ...built])].filter((k) => k !== '');
 }
@@ -142,6 +144,20 @@ describe('§5.3 #10-4 오케스트라 — 뷰가 지키는 것', () => {
     for (const key of keys) {
       expect(typeof readIn(en, key), `en 에 ${key} 가 없다`).toBe('string');
       expect(typeof readIn(ko, key), `ko 에 ${key} 가 없다`).toBe('string');
+    }
+  });
+
+  it('위임 후에도 회수가 끝날 때까지 진행 표시를 유지하고 최종 완료를 따로 표시한다', () => {
+    for (const src of [viewSrc(), tsx['./IDEActivityBar.tsx'] ?? '']) {
+      expect(src).toContain('!isOrchestraRunSettled(r.phase) && r.endedAt === undefined');
+    }
+    expect(viewSrc()).toMatch(/completed:\s*'bg-emerald/);
+    expect(readIn(en, 'ide.orchestra.phase.completed')).toBe('Completed');
+    expect(readIn(ko, 'ide.orchestra.phase.completed')).toBe('마무리 완료');
+    for (const [locale, root] of Object.entries(locales)) {
+      for (const phase of ORCHESTRA_RUN_PHASES) {
+        expect(typeof readIn(root, `ide.orchestra.phase.${phase}`), `${locale}: ${phase}`).toBe('string');
+      }
     }
   });
 

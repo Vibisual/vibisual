@@ -7,9 +7,11 @@ import {
   archToken,
   assetBackendToken,
   extractAttempts,
+  getEngineCandidates,
   isTarGzName,
   pickAsset,
   pickRelease,
+  publishEngineInstall,
   platformToken,
   truncatedImages,
   type ReleaseAsset,
@@ -95,6 +97,17 @@ describe('pickRelease — nightly-tag.txt 뿐인 릴리스를 건너뛴다 (P0)'
 
   it('빈 목록은 null', () => {
     expect(pickRelease([], 'win', 'x64')).toBeNull();
+  });
+
+  it('OpenVINO 자산만 먼저 올라온 릴리스는 건너뛰고 지원 백엔드가 있는 것을 쓴다', () => {
+    const partial = { tag_name: 'partial', assets: [asset('llama-partial-bin-win-openvino-x64.zip')] };
+    expect(pickRelease([partial, B10631], 'win', 'x64')).toBe(B10631);
+  });
+
+  it('CUDA만 게시된 최신 릴리스가 기본 Vulkan/CPU 설치를 막지 않는다', () => {
+    const partial = { tag_name: 'partial', assets: [asset('llama-partial-bin-win-cuda-x64.zip')] };
+    expect(pickRelease([partial, B10631], 'win', 'x64')).toBe(B10631);
+    expect(pickRelease([partial, B10631], 'win', 'x64', ['cuda', 'cpu'])).toBe(partial);
   });
 });
 
@@ -232,6 +245,77 @@ describe('extractAttempts — .tar.gz 도 풀 수 있어야 한다', () => {
     const a = extractAttempts('C:/tmp/x.tar.gz', 'C:/dest', 'win32', 'C:/Windows/System32/tar.exe');
     expect(a.map((x) => x.cmd)).toEqual(['C:/Windows/System32/tar.exe', 'tar']);
     expect(a[0]?.args?.[0]).toBe('-xzf');
+  });
+
+  it('Windows 사용자 경로의 작은따옴표를 PowerShell 구문으로 해석하지 않는다', () => {
+    const attempts = extractAttempts("C:/O'Neil/x.zip", "C:/O'Neil/engine", 'win32');
+    expect(attempts[1]?.args.at(-1)).toBe(
+      "Expand-Archive -LiteralPath 'C:/O''Neil/x.zip' -DestinationPath 'C:/O''Neil/engine' -Force",
+    );
+  });
+});
+
+describe('backend 설치 분리와 구형 설치 호환', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibisual-engine-layout-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it.each(['win32', 'darwin', 'linux'] as const)('%s: GPU와 CPU가 각자의 실행본을 가리킨다', (platform) => {
+    const name = platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+    for (const backend of ['vulkan', 'cpu']) {
+      fs.mkdirSync(path.join(dir, backend));
+      fs.writeFileSync(path.join(dir, backend, name), backend);
+    }
+    expect(getEngineCandidates(dir, platform)).toEqual([
+      { backend: 'vulkan', serverBin: path.join(dir, 'vulkan', name) },
+      { backend: 'cpu', serverBin: path.join(dir, 'cpu', name) },
+    ]);
+  });
+
+  it('종전 평면 설치도 다시 받지 않고 읽는다', () => {
+    fs.writeFileSync(path.join(dir, 'llama-server.exe'), 'old');
+    fs.writeFileSync(path.join(dir, '.vibisual-engine.json'), JSON.stringify({ build: 'old', backends: ['vulkan', 'cpu'] }));
+    expect(getEngineCandidates(dir, 'win32')).toEqual([
+      { backend: 'vulkan', serverBin: path.join(dir, 'llama-server.exe') },
+    ]);
+  });
+
+  it('macOS 공유 자산은 한 폴더를 GPU/CPU 경로에서 함께 읽는다', () => {
+    fs.mkdirSync(path.join(dir, 'vulkan', 'build'), { recursive: true });
+    const bin = path.join(dir, 'vulkan', 'build', 'llama-server');
+    fs.writeFileSync(bin, 'metal');
+    fs.writeFileSync(path.join(dir, '.vibisual-engine.json'), JSON.stringify({
+      build: 'test', backends: ['vulkan', 'cpu'], backendDirs: { vulkan: 'vulkan', cpu: 'vulkan' },
+    }));
+    expect(getEngineCandidates(dir, 'darwin')).toEqual([
+      { backend: 'vulkan', serverBin: bin }, { backend: 'cpu', serverBin: bin },
+    ]);
+  });
+
+  it('실행본 이름을 가진 폴더는 설치된 엔진이 아니다', () => {
+    fs.mkdirSync(path.join(dir, 'llama-server.exe'));
+    expect(getEngineCandidates(dir, 'win32')).toEqual([]);
+  });
+
+  it('새 설치를 공개하지 못하면 기존 파일이 원래 자리에 그대로 남는다', async () => {
+    const installed = path.join(dir, 'engine');
+    fs.mkdirSync(installed);
+    fs.writeFileSync(path.join(installed, 'existing.txt'), 'working install');
+    await expect(publishEngineInstall(path.join(dir, 'missing-stage'), installed)).rejects.toThrow();
+    expect(fs.readFileSync(path.join(installed, 'existing.txt'), 'utf8')).toBe('working install');
+    expect(fs.readdirSync(dir)).toEqual(['engine']);
+  });
+
+  it('검증된 새 설치를 공개하면 이전 파일과 새 파일이 섞이지 않는다', async () => {
+    const installed = path.join(dir, 'engine');
+    const staged = path.join(dir, 'staged');
+    fs.mkdirSync(installed);
+    fs.mkdirSync(staged);
+    fs.writeFileSync(path.join(installed, 'old.dll'), 'old build');
+    fs.writeFileSync(path.join(staged, 'new.dll'), 'new build');
+    await publishEngineInstall(staged, installed);
+    expect(fs.readdirSync(installed)).toEqual(['new.dll']);
+    expect(fs.readdirSync(dir)).toEqual(['engine']);
   });
 });
 

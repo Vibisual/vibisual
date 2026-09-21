@@ -5,8 +5,10 @@ import { CLAUDE_SETUP_READY_HOLD_MS } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
+import { EngineIcon } from '../Engine/engineIcons.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { isCodexSetupGateOpen, shouldSummonCodexLogin } from './codexGateFlow.js';
+import { hasProjectFolder } from '../Auth/projectFolderGateFlow.js';
 
 /**
  * §5.25 (D) — 코덱스 CLI 설치 게이트 + 상단 배너.
@@ -45,6 +47,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
   const [justCompleted, setJustCompleted] = useState(false);
   const outputRef = useRef<HTMLPreElement | null>(null);
   const wasOpenRef = useRef(false);
+  const wasForcedRef = useRef(false);
   /** 인계는 한 번만 — 자동 만료와 [계속] 이 겹쳐도 로그인 창을 두 번 부르지 않게. */
   const handedOffRef = useRef(false);
 
@@ -57,7 +60,14 @@ export function CodexSetupGate(): React.JSX.Element | null {
     handedOffRef.current = true;
     // 갓 깐 실행본의 로그인 상태는 아직 `cli-missing` 으로 캐시돼 있다 — 먼저 다시 묻는다.
     void refreshAuth().then((next) => {
-      if (shouldSummonCodexLogin(next)) setLoginGate({ forced: true, dismissed: false });
+      if (shouldSummonCodexLogin(next)) {
+        setLoginGate({ forced: true, dismissed: false });
+      } else {
+        const now = useGraphStore.getState();
+        if (!hasProjectFolder({ projects: now.projects, stubProjects: now.stubProjects })) {
+          now.setProjectGate({ forced: true, dismissed: false, reason: 'onboarding' });
+        }
+      }
     });
     // 모델 목록도 이 자리에서 한 번 읽는다(설치 전에는 캐시 파일이 없었다).
     void refreshModels();
@@ -77,13 +87,17 @@ export function CodexSetupGate(): React.JSX.Element | null {
   // 게이트를 **보고 있던 사람에게만** 짧은 완료 표시를 남긴다.
   useEffect(() => {
     const ready = setup?.phase === 'ready';
+    const newlyForced = forced && !wasForcedRef.current;
+    wasForcedRef.current = forced;
     if (!ready && shouldOpen) wasOpenRef.current = true;
-    if (ready && wasOpenRef.current) {
+    // 이미 설치된 CLI를 고른 첫 사용자도 완료 타이머를 시작한다. missing→ready 전이만
+    // 기다리면 "계속하는 중" 화면이 수동 클릭 전까지 영원히 남는다.
+    if (ready && (wasOpenRef.current || newlyForced)) {
       wasOpenRef.current = false;
       handedOffRef.current = false;
       setJustCompleted(true);
     }
-  }, [setup?.phase, shouldOpen]);
+  }, [setup?.phase, shouldOpen, forced]);
 
   // 완료 표시 만료 — deps 는 `justCompleted` 하나뿐이다(위 ⚠ 참조).
   useEffect(() => {
@@ -130,10 +144,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
           style={{ boxShadow: '0 0 0 1px rgba(16,185,129,0.2), 0 25px 50px -12px rgba(0,0,0,0.85), 0 0 40px -8px rgba(16,185,129,0.35)' }}
         >
           <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">
-            <svg viewBox="0 0 24 24" className="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 18l6-6-6-6" />
-              <path d="M8 6l-6 6 6 6" />
-            </svg>
+            <EngineIcon kind="codex" className="h-5 w-5 text-emerald-400" />
             <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-gray-100">
               {t('panel.codexSetup.title', { defaultValue: 'Install Codex CLI' })}
             </h3>
@@ -189,7 +200,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
                 {!setup.canAutoInstall && (
                   <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3.5 py-2.5 text-[12px] text-amber-200">
                     {t('panel.codexSetup.manualOnly', {
-                      defaultValue: 'npm was not found, so Vibisual cannot install it for you. Install Node.js, run the command above in a terminal, then choose "Check again".',
+                      defaultValue: 'Automatic installation is unavailable on this system. Follow the official installation guide, then choose "Check again".',
                     })}
                   </div>
                 )}

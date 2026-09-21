@@ -3,6 +3,7 @@ import type { ContextMenuItem } from './IDEContextMenu.js';
 import {
   buildOutsidePathLinkMenuItems,
   buildPathLinkMenuItems,
+  buildWebLinkMenuItems,
   pathLinkOpenLabel,
   type PathLinkMenuHandlers,
 } from './pathLinkContextMenu.js';
@@ -123,5 +124,36 @@ describe('pathLinkOpenLabel — 왼쪽 클릭이 여는 곳의 이름', () => {
       .toBe('ide.streamRenderer.pathLink.menu.openApp:{"app":"Sample App"}');
     expect(pathLinkOpenLabel({ action: 'app', appId: 'sample-app' }, undefined, t))
       .toBe('ide.streamRenderer.pathLink.menu.openApp:{"app":"sample-app"}');
+  });
+});
+
+/**
+ * ⑬ (k) ④ — **웹 주소** 링크의 우클릭.
+ *
+ * 지키는 것 둘 — 줄은 여는 것과 집어가는 것 둘뿐이고, 라벨은 **이미 선 자리의 키**를 그대로 쓴다
+ * (같은 말에 키를 하나 더 만들면 로케일 12벌이 서로 갈린다).
+ */
+describe('buildWebLinkMenuItems — 웹 링크 메뉴', () => {
+  it('두 줄이고, 각 항목이 제 손잡이를 부른다', () => {
+    const openBrowser = vi.fn();
+    const copyLink = vi.fn();
+    const items = buildWebLinkMenuItems({ openBrowser, copyLink }, t);
+
+    expect(ids(items)).toEqual(['openBrowser', 'copyLink']);
+    items[0]?.onClick?.();
+    items[1]?.onClick?.();
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    expect(copyLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('새 키를 만들지 않는다 — 웹 버블·로그인 창의 키를 그대로 쓴다', () => {
+    const items = buildWebLinkMenuItems({ openBrowser: vi.fn(), copyLink: vi.fn() }, t);
+    expect(items[0]?.label).toBe('panel.webEntry.openExternal');
+    expect(items[1]?.label).toBe('panel.login.copyUrl');
+  });
+
+  it('흐려지는 줄이 없다 — 주소 위에서는 둘 다 언제나 할 수 있다', () => {
+    const items = buildWebLinkMenuItems({ openBrowser: vi.fn(), copyLink: vi.fn() }, t);
+    expect(items.every((i) => !i.disabled)).toBe(true);
   });
 });

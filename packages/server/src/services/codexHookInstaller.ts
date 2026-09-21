@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CODEX_HOOKS_FILENAME, CODEX_HOOK_EVENTS } from '@vibisual/shared';
 import type { CodexHookState } from '@vibisual/shared';
-import { resolveBinary } from './binLocator.js';
+import { buildAppNodeCommand, getAppNodeRuntime, quoteAppNodeArgument, type AppNodeRuntime } from './appNodeRuntime.js';
 import { codexHome } from './codexCli.js';
 import { logger } from '../logger.js';
 
@@ -57,16 +57,12 @@ export function codexHooksPath(): string {
  * 코덱스의 command 엔트리는 **한 문자열**이라(클로드처럼 `args` 배열이 아니다) 경로에 공백이
  * 있으면 반드시 감싸야 한다 — `C:\Program Files\...` 에서 명령이 두 동강 나는 사고를 막는다.
  */
-export function buildCodexHookCommand(nodeBin: string, handlerPath: string, port: number, token: string): string {
-  const quote = (v: string): string => (/[\s&|<>^]/.test(v) ? `"${v}"` : v);
-  return [
-    quote(nodeBin),
-    quote(handlerPath),
-    '--server',
-    `http://127.0.0.1:${port}`,
-    '--token',
-    token,
-  ].join(' ');
+export function buildCodexHookCommand(
+  nodeBin: string, handlerPath: string, port: number, token: string,
+  platform: NodeJS.Platform = process.platform, nodeEnv?: AppNodeRuntime['nodeEnv'],
+): string {
+  return buildAppNodeCommand({ nodeBin, ...(nodeEnv ? { nodeEnv } : {}) }, handlerPath,
+    ['--server', `http://127.0.0.1:${port}`, '--token', token], platform);
 }
 
 /** 이 명령이 우리 것인가 — handler 경로와 토큰 플래그가 **둘 다** 보일 때만. */
@@ -74,7 +70,8 @@ export function isOurCodexHookCommand(command: string, handlerPath: string): boo
   if (!command) return false;
   const normalized = command.replace(/\\/g, '/');
   const handler = handlerPath.replace(/\\/g, '/');
-  return normalized.includes(handler) && normalized.includes('--token');
+  const quoted = ['win32', 'linux'].some(platform => command.includes(quoteAppNodeArgument(handlerPath, platform as NodeJS.Platform)));
+  return (normalized.includes(handler) || quoted) && normalized.includes('--token');
 }
 
 /** 우리가 설치할 훅 묶음. 이벤트 목록은 상수 한 곳(`CODEX_HOOK_EVENTS`)이 소유한다. */
@@ -83,8 +80,10 @@ export function buildCodexHookBlocks(
   handlerPath: string,
   port: number,
   token: string,
+  platform: NodeJS.Platform = process.platform,
+  nodeEnv?: AppNodeRuntime['nodeEnv'],
 ): Record<string, CodexHookMatcherBlock[]> {
-  const command = buildCodexHookCommand(nodeBin, handlerPath, port, token);
+  const command = buildCodexHookCommand(nodeBin, handlerPath, port, token, platform, nodeEnv);
   const out: Record<string, CodexHookMatcherBlock[]> = {};
   for (const event of CODEX_HOOK_EVENTS) {
     out[event] = [{ hooks: [{ type: 'command', command, timeout: FORWARD_TIMEOUT_SEC }] }];
@@ -226,9 +225,9 @@ export function installCodexHooks(handlerPath: string, port: number, token: stri
 
   backupHooksFile(file);
 
-  const nodeBin = resolveBinary('node') ?? 'node';
+  const runtime = getAppNodeRuntime();
   const existing = stripOurBlocks(parsed.hooks ?? {}, handlerPath);
-  const ours = buildCodexHookBlocks(nodeBin, handlerPath, port, token);
+  const ours = buildCodexHookBlocks(runtime.nodeBin, handlerPath, port, token, process.platform, runtime.nodeEnv);
   const merged: Record<string, CodexHookMatcherBlock[]> = { ...existing };
   for (const [event, blocks] of Object.entries(ours)) {
     merged[event] = [...(existing[event] ?? []), ...blocks];

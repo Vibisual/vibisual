@@ -21,6 +21,8 @@ class DiagnosticService {
   private entries: DiagnosticEntry[] = [];
   private onChange: (() => void) | null = null;
   private changeScheduled = false;
+  private notifying = false;
+  private notificationFailed = false;
 
   /** 전송 계층이 "로그 변경 시 broadcast" 를 등록. */
   setOnChange(cb: () => void): void {
@@ -55,11 +57,24 @@ class DiagnosticService {
   }
 
   private scheduleChange(): void {
-    if (this.changeScheduled || !this.onChange) return;
+    if (this.changeScheduled || this.notifying || !this.onChange) return;
     this.changeScheduled = true;
     queueMicrotask(() => {
       this.changeScheduled = false;
-      this.onChange?.();
+      this.notifying = true;
+      try {
+        this.onChange?.();
+        this.notificationFailed = false;
+      } catch {
+        // Never log through logger here: it would schedule the same failing broadcast again.
+        // Keep one local diagnostic until delivery succeeds; the next ordinary record retries.
+        if (!this.notificationFailed) {
+          this.notificationFailed = true;
+          this.record({ source: 'server', level: 'error', message: 'Diagnostic update delivery failed' });
+        }
+      } finally {
+        this.notifying = false;
+      }
     });
   }
 }

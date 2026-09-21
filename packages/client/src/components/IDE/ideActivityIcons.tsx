@@ -65,6 +65,16 @@ function glyphOf(view: IDEViewType): React.JSX.Element | null {
           <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 8v8" />
         </>
       );
+    // §5.3 #10-5 설정 덜어내기 — **점점 짧아지는 설정 줄 + 빼기 배지.** 줄이 줄어드는 모양이
+    //   "덜어냈다"를 말하고, 배지가 그것이 제거였음을 말한다(절차 감지의 네 귀퉁이와 안 겹친다).
+    case 'configTrim':
+      return (
+        <>
+          <path d="M3 5h18M3 11h10M3 17h6" />
+          <circle cx="17.5" cy="17.5" r="4" />
+          <path d="M15.5 17.5h4" />
+        </>
+      );
     case 'loop':
       return (
         <>

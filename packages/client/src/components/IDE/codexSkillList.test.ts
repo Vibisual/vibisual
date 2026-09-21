@@ -24,8 +24,8 @@ function skill(name: string, over: Partial<CodexSkillEntry> = {}): CodexSkillEnt
 }
 
 describe('codexSkillInsertText', () => {
-  it('클로드 칸과 같은 모양 — `/이름 ` 뒤에 공백 하나(사용자가 이어 쓴다)', () => {
-    expect(codexSkillInsertText('imagegen')).toBe('/imagegen ');
+  it('코덱스의 명시 스킬 호출 — `$이름 ` 뒤에 공백 하나(사용자가 이어 쓴다)', () => {
+    expect(codexSkillInsertText('imagegen')).toBe('$imagegen ');
   });
 });
 

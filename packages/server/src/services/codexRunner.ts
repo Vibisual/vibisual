@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { observeChildStreamErrors } from './childStreamErrors.js';
 import { existsSync } from 'node:fs';
 import { codexEdgeOverrides, codexTurnHooks, type CodexEdgeConfig, type CodexPermissionHookConfig } from './codexEdges.js';
 import { prepareCodexHooks } from './codexHookTrust.js';
@@ -8,9 +9,12 @@ import { buildCliInvocation } from './claudeCliRun.js';
 import { augmentedEnv } from './binLocator.js';
 import { processGroupSpawnOptions, killTree } from './processTree.js';
 import { mapCodexLine, codexFileChangePaths, type CodexMappedEvent, type CodexUsage } from './codexStreamMap.js';
+import { createCodexPendingCallLedger } from './codexPendingCalls.js';
+import { CODEX_TURN_IDLE_CHECK_MS, CODEX_TURN_IDLE_NOTICE_MS, CODEX_TURN_IDLE_SETTLE_MS, CODEX_MCP_CALL_DEADLINE_MS } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import type { CodexToolHookConfig } from './codexEdges.js';
 import { codexToolOverrides } from './codexToolOverrides.js';
+import { codexVerificationOverrides, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
 
 /**
  * §5.25 (F) — 코덱스 턴 하나를 돌린다.
@@ -27,6 +31,9 @@ import { codexToolOverrides } from './codexToolOverrides.js';
 type CodexOverrides = Pick<AgentProvider, 'webSearch' | 'networkAccess' | 'modelVerbosity' | 'reasoningSummary' | 'personality' | 'serviceTier' | 'autoCompactTokenLimit'>;
 
 export interface CodexTurnArgs extends CodexOverrides {
+  verificationConfig?: VerificationToolsConfig;
+  /** Native Codex context overrides, computed from the same sources shown in the context panel. */
+  contextArgs?: string[];
   toolHook?: CodexToolHookConfig;
   edgeConfig?: CodexEdgeConfig;
   /**
@@ -39,7 +46,7 @@ export interface CodexTurnArgs extends CodexOverrides {
   cwd: string;
   /** 사용자 프롬프트(우리가 붙이는 컨텍스트까지 합친 최종 본문). */
   prompt: string;
-  /** 모델 slug. **항상 명시한다**(§5.25 (G) — 사용자 개인 설정 기본값에 끌려가지 않게). */
+  /** 모델 slug. 비어 있으면 CLI 설정의 모델을 사용한다(첫 로그인에는 모델 캐시가 없을 수 있다). */
   model: string;
   /** 추론 강도. 모델이 신고한 단계만 올라온다. 없으면 안 싣는다. */
   reasoningEffort?: string;
@@ -68,6 +75,13 @@ export interface CodexTurnArgs extends CodexOverrides {
   onFileWrites: (paths: string[]) => void;
   /** 턴 종료. `error` 가 있으면 실패다. */
   onDone: (error: string | undefined, finalText: string) => void;
+  /**
+   * **자식은 살아 있는데 출력이 끊겼다.** 두 단계로 온다:
+   *  - `stalled: false` — 1단계(`CODEX_TURN_IDLE_NOTICE_MS`). 알림일 뿐 아무것도 닫지 않는다.
+   *  - `stalled: true` — 2단계(`CODEX_TURN_IDLE_SETTLE_MS`). 이 호출 **직후** 우리가 트리를 종료하고
+   *    마감 경로를 태운다. 받는 쪽은 이걸 **2차 마감 입구**로 써도 된다 — `onDone` 은 멱등해야 한다.
+   */
+  onIdle?: (info: { idleMs: number; stalled: boolean }) => void;
 }
 
 /**
@@ -83,6 +97,14 @@ export interface CodexTurnLifecycleOptions {
   exitCloseGraceMs?: number;
   /** [중지] 뒤 `exit` 도 `close` 도 안 올 때 강제로 마감하기까지의 시간. */
   stopSettleTimeoutMs?: number;
+  /** 정지 워치독 점검 주기. 이 타이머만이 **자식이 살아 있는 동안** 도는 유일한 타이머다. */
+  idleCheckMs?: number;
+  /** 1단계 — 출력이 이만큼 끊기면 위로 알린다(마감하지 않는다). */
+  idleNoticeMs?: number;
+  /** 2단계 — 이만큼 끊기면 트리를 종료하고 마감한다. */
+  idleSettleMs?: number;
+  /** 짝 없는 MCP 도구 호출을 합성 결과로 닫기까지의 시한. */
+  mcpCallDeadlineMs?: number;
   killTree?: (pid: number | undefined) => void;
 }
 
@@ -126,6 +148,8 @@ export function stopCodexTurn(subAgentId: string): boolean {
  * 방식으로 죽고, 그 사고는 실행해 보지 않으면 안 보인다.
  */
 export function buildCodexExecArgs(args: {
+  verificationConfig?: VerificationToolsConfig;
+  contextArgs?: readonly string[];
   toolHook?: CodexToolHookConfig;
   edgeConfig?: CodexEdgeConfig;
   permissionHook?: CodexPermissionHookConfig;
@@ -145,7 +169,8 @@ export function buildCodexExecArgs(args: {
   out.push('--json');
   // 프로젝트가 git 저장소가 아닐 수 있다 — 그때 코덱스는 기본적으로 실행을 거절한다.
   out.push('--skip-git-repo-check');
-  out.push('-m', args.model);
+  // 선택한 모델만 덮어쓴다. 캐시가 아직 없는 첫 실행도 CLI 기본값으로 시작할 수 있어야 한다.
+  if (args.model) out.push('-m', args.model);
   // `exec` 에는 `--ask-for-approval` 플래그가 없다(루트 명령 전용) — 같은 값을 설정 오버라이드로
   //   싣는다. 사용자의 설정 파일은 건드리지 않는다(§5.25 (G)).
   out.push('-c', `approval_policy=${approval}`);
@@ -164,7 +189,9 @@ export function buildCodexExecArgs(args: {
   if (sandbox === 'workspace-write' && typeof args.networkAccess === 'boolean') {
     out.push('-c', `sandbox_workspace_write.network_access=${args.networkAccess}`);
   }
+  out.push(...(args.contextArgs ?? []));
   if (args.edgeConfig) out.push(...codexEdgeOverrides(args.edgeConfig, { hooks: false }));
+  if (args.verificationConfig) out.push(...codexVerificationOverrides(args.verificationConfig));
   out.push(...codexToolOverrides(args.toolHook?.policy));
   out.push(...codexTurnHooks(args.edgeConfig, args.permissionHook, args.platform ?? process.platform, args.toolHook).overrides);
   for (const imagePath of args.images ?? []) {
@@ -181,6 +208,10 @@ export function runCodexTurn(args: CodexTurnArgs): void {
 }
 
 function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
+  if (args.verificationConfig && !verificationToolsAvailable(args.verificationConfig)) {
+    args.onDone('Verification tools unavailable: Node.js or verification-tools.mjs missing', '');
+    return;
+  }
   if (args.toolHook && (!args.toolHook.nodeBin || !existsSync(args.toolHook.helperPath))) {
     args.onDone('Codex tool permissions unavailable: Node.js or codex-edges.mjs missing', '');
     return;
@@ -192,10 +223,6 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
   const binPath = getCodexBin();
   if (!binPath) {
     args.onDone('codex CLI not found', '');
-    return;
-  }
-  if (!args.model) {
-    args.onDone('no model selected', '');
     return;
   }
 
@@ -234,6 +261,8 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
   }
 
   const execArgs = buildCodexExecArgs({
+    verificationConfig: args.verificationConfig,
+    contextArgs: args.contextArgs,
     toolHook: args.toolHook,
     edgeConfig: args.edgeConfig,
     ...(args.permissionHook ? { permissionHook: args.permissionHook } : {}),
@@ -267,7 +296,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
         ...(args.edgeConfig ? { VIBISUAL_CODEX_EDGE_IDS: JSON.stringify(args.edgeConfig.edgeIds) } : {}),
         // §5.25 (H) — 권한 다리가 승인 카드를 이 세션의 스트림 줄로 되돌리는 키.
         // §5.3 #10-2 — 엣지 다리는 같은 키로 dispatch 결과를 이 턴에 묶는다(결과를 받기 전엔 완료로 끝나지 않게).
-        ...(args.permissionHook || args.toolHook || args.edgeConfig ? { VIBISUAL_SUBAGENT_ID: args.subAgentId } : {}),
+        ...(args.permissionHook || args.toolHook || args.edgeConfig || args.verificationConfig ? { VIBISUAL_SUBAGENT_ID: args.subAgentId } : {}),
       }),
       // 오래 사는 자식이라 POSIX 에서 그룹 리더로 띄운다 — 안 그러면 [중지]가 손자를 남긴다.
       ...processGroupSpawnOptions(),
@@ -300,12 +329,17 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
  */
 export function attachCodexTurn(
   child: ChildProcess,
-  args: Pick<CodexTurnArgs, 'subAgentId' | 'onEvent' | 'onThread' | 'onUsage' | 'onFileWrites' | 'onDone'>,
+  args: Pick<CodexTurnArgs, 'subAgentId' | 'onEvent' | 'onThread' | 'onUsage' | 'onFileWrites' | 'onDone' | 'onIdle'>,
   options: CodexTurnLifecycleOptions = {},
 ): void {
   const exitCloseGraceMs = options.exitCloseGraceMs ?? DEFAULT_EXIT_CLOSE_GRACE_MS;
   const stopSettleTimeoutMs = options.stopSettleTimeoutMs ?? DEFAULT_STOP_SETTLE_TIMEOUT_MS;
+  const idleCheckMs = options.idleCheckMs ?? CODEX_TURN_IDLE_CHECK_MS;
+  const idleNoticeMs = options.idleNoticeMs ?? CODEX_TURN_IDLE_NOTICE_MS;
+  const idleSettleMs = options.idleSettleMs ?? CODEX_TURN_IDLE_SETTLE_MS;
   const kill = options.killTree ?? killTree;
+  /** 짝 없는 MCP 호출의 미결 원장 — 이 턴과 생애가 같다(§5.25 (F)). */
+  const pendingCalls = createCodexPendingCallLedger(options.mcpCallDeadlineMs ?? CODEX_MCP_CALL_DEADLINE_MS);
 
   let stdoutBuffer = '';
   let stderrTail = '';
@@ -316,16 +350,38 @@ export function attachCodexTurn(
   let settled = false;
   let exitCode: number | null = null;
   let settleTimer: NodeJS.Timeout | undefined;
+  /** 마지막으로 이 자식이 무언가를 뱉은 시각 — 정지 워치독의 유일한 사실. */
+  let lastActivityAt = Date.now();
+  /** 1단계 알림을 이미 보냈는가(한 정지 구간에 한 번만 보낸다). */
+  let idleNoticed = false;
+  let idleTimer: NodeJS.Timeout | undefined;
 
   const clearSettleTimer = (): void => {
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = undefined;
   };
 
+  const clearIdleTimer = (): void => {
+    if (idleTimer) clearInterval(idleTimer);
+    idleTimer = undefined;
+  };
+
+  const noteActivity = (): void => {
+    lastActivityAt = Date.now();
+    idleNoticed = false;
+  };
+
+  const emitAll = (events: CodexMappedEvent[]): void => {
+    for (const ev of events) args.onEvent(ev);
+  };
+
   const finish = (error: string | undefined, text: string): void => {
     if (settled) return;
     settled = true;
     clearSettleTimer();
+    clearIdleTimer();
+    // 아직 짝을 못 찾은 도구 카드를 **전부** 닫는다 — 안 닫으면 턴이 끝난 대화에 도는 중 카드가 남는다.
+    emitAll(pendingCalls.flush('turn closed'));
     // 같은 세션의 **다음 턴**이 이미 자리를 잡았을 수 있다(즉시 덧말 → 중지 → 새 턴). 늦게 온 옛 자식의
     //   `close` 가 새 턴 표식을 지우면 그 턴은 [중지]로 못 멈춘다 — 내 것일 때만 지운다.
     if (running.get(args.subAgentId) === turn) running.delete(args.subAgentId);
@@ -404,6 +460,52 @@ export function attachCodexTurn(
   };
   running.set(args.subAgentId, turn);
 
+  /**
+   * **정지 워치독** — 자식이 살아 있는 동안 도는 유일한 타이머.
+   *
+   * 종전에는 마감 타이머가 `exit`(:child.on) 과 [중지] 두 곳에서만 걸렸다. 그래서 자식이
+   * 살아 있는데 출력만 끊기면 **타이머가 하나도 돌지 않아** 턴이 영원히 열려 있었다
+   * (2026-09-20 MCP `CONNECT_TIMEOUT` 사고). 두 단계로 나누는 이유는, 조용한 것이 곧
+   * 멈춘 것은 아니기 때문이다 — 1단계는 알리기만 하고 2단계만 걷는다.
+   */
+  const watchdogTick = (): void => {
+    if (settled) return;
+    const now = Date.now();
+    // 미결 도구 카드부터 닫는다. 턴이 계속 돌더라도 화면의 거짓 "도는 중"은 여기서 끝난다.
+    emitAll(pendingCalls.overdue(now));
+    // 본체가 끝났거나 사용자가 멈춘 턴은 마감 주인이 따로 있다 — 두 주인이 다투지 않게 비킨다.
+    if (turn.exited || turn.stopped) return;
+    const idleMs = now - lastActivityAt;
+    if (idleMs >= idleSettleMs) {
+      clearIdleTimer();
+      turnError ??= `codex turn stalled: no output for ${Math.round(idleMs / 1000)}s`;
+      // 받는 쪽의 **2차 마감 입구**를 먼저 연다 — 아래 마감이 `close` 를 못 받고 묻히더라도
+      //   명령이 `executing` 에 굳지 않게(그쪽 마감은 멱등이라 두 번 닫히지 않는다).
+      args.onIdle?.({ idleMs, stalled: true });
+      logger.warn(`[codex] turn stalled sub=${args.subAgentId} idle=${Math.round(idleMs / 1000)}s - killing tree`);
+      kill(child.pid);
+      armSettleTimer(0);
+      return;
+    }
+    if (!idleNoticed && idleMs >= idleNoticeMs) {
+      idleNoticed = true;
+      args.onIdle?.({ idleMs, stalled: false });
+    }
+  };
+  idleTimer = setInterval(watchdogTick, idleCheckMs);
+  idleTimer.unref?.();
+
+  observeChildStreamErrors(child, (stream, error) => {
+    if (settled) return;
+    // A stopped turn can still have queued writes. Preserve its exit/close deadline,
+    // fallback tree kill and pipe cleanup instead of settling early on that error.
+    if (turn.stopped) return;
+    if (stream === 'stdin' && sawTurnEnd) return;
+    turnError ??= `codex ${stream} failed: ${error.message}`;
+    if (!turn.exited) kill(child.pid);
+    finish(turnError, finalText);
+  });
+
   const handleLine = (line: string): void => {
     const mapped = mapCodexLine(line);
     if (!mapped) {
@@ -415,7 +517,11 @@ export function attachCodexTurn(
     if (mapped.finalText) finalText = mapped.finalText;
     if (mapped.turnEnded) sawTurnEnd = true;
     if (mapped.error && !turnError) turnError = mapped.error;
-    for (const ev of mapped.events) args.onEvent(ev);
+    for (const ev of mapped.events) {
+      // 원장이 먼저 본다 — `tool_use` 는 등록, `tool_result` 는 해제. 화면으로 나가는 것은 그대로다.
+      pendingCalls.note(ev);
+      args.onEvent(ev);
+    }
 
     // 파일 버블 — 고친 파일이 있으면 경로를 흘린다. 매핑 결과가 아니라 원문에서 다시 뽑는 이유는
     //   화면 이벤트(도구 카드)와 캔버스(파일 버블)가 서로 다른 것을 필요로 하기 때문이다.
@@ -425,6 +531,7 @@ export function attachCodexTurn(
 
   child.stdout?.on('data', (chunk) => {
     if (settled) return;
+    noteActivity();
     stdoutBuffer += String(chunk);
     let idx = stdoutBuffer.indexOf('\n');
     while (idx >= 0) {
@@ -436,6 +543,8 @@ export function attachCodexTurn(
   });
 
   child.stderr?.on('data', (chunk) => {
+    // 진행 로그도 활동이다 — 이걸 안 세면 stdout 이 조용한 긴 도구가 정지로 읽힌다.
+    noteActivity();
     const text = String(chunk);
     stderrTail = (stderrTail + text).slice(-2000);
   });

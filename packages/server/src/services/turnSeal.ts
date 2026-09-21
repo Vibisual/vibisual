@@ -171,11 +171,30 @@ export function turnIdOfLiveTask(state: TurnSealState, taskId: string): string |
 }
 
 /**
+ * **이 세션에 아직 도는 백그라운드 작업이 있는가** — 생존 판정 전용(§5.5 #17-9 ⑮).
+ *
+ * `listDisplayableLiveTasks` 와 **일부러 다른 답을 낸다.** 저쪽은 훅 대차대조가 이미 세는
+ * Task/Agent 자식(`subagentType`)을 빼는 *표시용* 목록이고, 겹침 제거는 **숫자를 세는 자리**의
+ * 규칙이다. "있나 없나"를 묻는 자리에서는 겹침이 아무 문제도 아니고, 오히려 그 전제가 깨진다 —
+ * 백그라운드 자식 **안에서** 다시 스폰된 자식은 훅의 `session_id` 가 탭으로 풀리지 않아(#17-9 ③(c))
+ * 훅 장부에 소유 탭 없이 오르거나 아예 오르지 않는다. 그 상태로 저 목록을 참/거짓으로 읽으면
+ * **증인이 한 명도 없어** 도는 세션이 "완료"로 굳는다(실측: `status:'idle'` + `probe.verdict:'working'`).
+ *
+ * `mayTurnResume` 이 처음부터 `liveTasks.size` 를 거르지 않고 보던 것과 같은 자리다.
+ */
+export function hasLiveTasks(state: TurnSealState): boolean {
+  return state.liveTasks.size > 0;
+}
+
+/**
  * **화면에 내보낼 백그라운드 작업** — 훅 대차대조가 이미 세는 Task/Agent 서브에이전트(`subagentType`
  * 있음)는 뺀다. 남는 것은 `Bash run_in_background` · `Monitor` 처럼 **훅으로는 보이지 않는** 작업이라,
  * 이 목록이 비어 있지 않으면 세션은 "끝난 게 아니라 백단을 기다리는 중"이다.
  *
  * 살림성(`skip_transcript`) 작업은 애초에 스트림 이벤트로 만들어지지 않아 여기 들어오지 않는다.
+ *
+ * **생존 판정(살아 있나?)에는 쓰지 마라 — `hasLiveTasks` 다.** 여기 비어 있다고 그 세션이 논다는 뜻이
+ * 아니다(#17-9 ⑮ — 그렇게 읽어서 도는 세션이 "완료"로 굳었다). 이 목록은 **셀 때**만 쓴다.
  */
 export function listDisplayableLiveTasks(
   state: TurnSealState,
@@ -259,6 +278,14 @@ export function isMainThreadModelLine(obj: Record<string, unknown>): boolean {
 export interface InFlightResultFacts {
   /** 이 명령을 보낸 뒤 본 대화의 모델 줄(`isMainThreadModelLine`)이 하나라도 왔는가. */
   mainActivity: boolean;
+  /**
+   * §5.5 #17-18 ⑩-1 — 이 `result` 가 도착한 순간의 **턴 세대 도장이 남의 것**인가.
+   *
+   * `mainActivity` 는 래치라 "누가 말했는가"를 구분하지 못한다 — 남의 턴이 한 마디라도 하면
+   * 켜지고, 그 뒤에 오는 남의 `result` 가 이 명령을 봉인해 버린다(사용자에게는 "묻지도 않은
+   * 것에 대한 답을 받고 내 명령이 끝났다"로 보인다). 도장이 다르면 그 사실 하나로 남의 끝이다.
+   */
+  foreignTurn?: boolean;
   /** CLI 가 이 `result` 를 실패(`is_error`)로 신고했는가. */
   cliError: boolean;
   /** 우리가 최대 턴 수로 자식을 끊었는가. */
@@ -277,13 +304,20 @@ export interface InFlightResultFacts {
  * 토큰도 없이 완료되고(완료음), 몇 초 뒤 진짜 답이 흐르며 세션이 다시 깨어난다 — 사용자에게는
  * "입력하자마자 끝났다고 울리고, 한참 뒤에 그 입력이 실행된다"로 보였다(실측 2026-09-18, P_MPS_GPT).
  *
- * 판정은 하나다 — **이 명령을 보낸 뒤 본 대화가 한 마디도 안 했다.** 모델 줄 없이 `result` 가 오는
- * 정상 경우(실패 신고 · 우리가 끊은 턴 · 슬래시 로컬 명령)는 종전 그대로 봉인한다.
+ * 판정은 둘이다 — ① **이 명령을 보낸 뒤 본 대화가 한 마디도 안 했다**(위 타임라인),
+ * ② **이 `result` 에 찍힌 턴 세대 도장이 남의 것이다**(`foreignTurn`). ②가 필요한 이유는 ①이
+ * 래치이기 때문이다 — 남의 턴이 먼저 말을 꺼내면 ①은 꺼져 버려서, 그 뒤에 오는 남의 끝이
+ * 이 명령을 그대로 봉인했다. 모델 줄 없이 `result` 가 오는 정상 경우(실패 신고 · 우리가 끊은
+ * 턴 · 슬래시 로컬 명령)는 종전 그대로 봉인한다.
  */
 export function isResultBeforeOwnTurn(facts: InFlightResultFacts): boolean {
-  if (facts.mainActivity) return false;
+  // 예외가 먼저다 — 우리가 끊었거나 CLI 가 실패를 신고했거나 슬래시 로컬 명령이면, 도장이
+  //   무엇이든 이 `result` 는 이 명령의 끝이다(그 사실들은 우리가 이 명령에 대해 아는 것이다).
   if (facts.cliError || facts.killed || facts.interrupted || facts.slashCommand) return false;
-  return true;
+  // §5.5 #17-18 ⑩-1 — **남의 턴 도장이 찍힌 끝은 이 명령의 끝이 아니다.** 이 명령이 이미 말을
+  //   했더라도(`mainActivity`) 마찬가지다 — 말한 것과 끝난 것은 다른 사실이다.
+  if (facts.foreignTurn === true) return true;
+  return !facts.mainActivity;
 }
 
 /** `shouldSleepResumedTurn` 이 보는 사실들 — 전부 호출 시점에 매니저가 아는 값이다. */

@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -7,6 +8,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
+import { isVerificationToolIngress } from './verificationToolIngress';
 import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
@@ -23,9 +25,14 @@ import { initAutoUpdater, stopAutoUpdater, isUpdateInstallPending, runPendingUpd
 import { openExternalWithNotice } from './externalOpen';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
+import { installWindowCrashRecovery } from './windowCrashRecovery';
+import { createMainDiagnostics } from './mainDiagnostics';
+import { LoopbackBodyBudget, readLoopbackBody } from './loopbackBody';
 // §3.2.1 — 종료 직전 렌더러가 아직 안 저장한 손글씨(세션 입력·IDE 폼 초안·명령 히스토리)를 받아 낸다.
 import { flushRendererDrafts } from './rendererFlush';
 import { mainStrings, fmt } from './strings';
+import { setVerificationAutomationAdapter } from '@vibisual/server';
+import { verificationAutomationAdapter, closeAllVerificationTargets } from './verificationAutomation';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -101,19 +108,16 @@ try {
 } catch { /* ready 전 극초기 실패 — server 의 cwd 상대 폴백을 그대로 쓴다 */ }
 
 // §4 v1.98 — main 프로세스 에러를 진단 로그(diagnosticService)에 적재 → DebugPanel 에 표시.
-// record-and-continue: 비치명 uncaught 에러를 크래시 다이얼로그 대신 앱 안 패널로.
-// (v3.x) 메모리 뷰어(diagnosticService)는 유지하되, 팅기면 사라지므로 crash.log 에도 영속.
-process.on('uncaughtException', (err) => {
-  console.error('[main] uncaughtException:', err);
-  recordDiagnostic('main', 'error', `uncaughtException: ${err.message}`, err.stack);
-  appendCrashLine('main', 'error', `uncaughtException: ${err.message}`, err.stack);
+// Unknown exceptions remain diagnostic events, not proof that execution recovered safely.
+// Expected transport failures are contained at their own stream/request/window boundaries.
+const mainDiagnostics = createMainDiagnostics({
+  persist: (message, stack) => appendCrashLine('main', 'error', message, stack),
+  publish: (message, stack) => recordDiagnostic('main', 'error', message, stack),
+  console: (message) => console.error(`[main] ${message}`),
 });
-process.on('unhandledRejection', (reason) => {
-  const err = reason instanceof Error ? reason : new Error(String(reason));
-  console.error('[main] unhandledRejection:', err);
-  recordDiagnostic('main', 'error', `unhandledRejection: ${err.message}`, err.stack);
-  appendCrashLine('main', 'error', `unhandledRejection: ${err.message}`, err.stack);
-});
+mainDiagnostics.guardStreams(process.stdout, process.stderr);
+process.on('uncaughtException', (error) => mainDiagnostics.report('uncaughtException', error));
+process.on('unhandledRejection', (error) => mainDiagnostics.report('unhandledRejection', error));
 
 function createWindow(): void {
   // §3.7 v2.10 — 통합 앱 단일 타이틀바. Electron 네이티브 타이틀바를 숨기고(titleBarStyle: 'hidden')
@@ -205,24 +209,7 @@ function createWindow(): void {
     }
   }, 3000);
 
-  // renderer 치명 오류만 main stdout 으로 — preload 실패 / 페이지 로드 실패 / renderer 크래시.
-  mainWindow.webContents.on('preload-error', (_e, preloadPath, error) => {
-    console.error(`[main] preload-error ${preloadPath}:`, error);
-    appendCrashLine('renderer', 'error', `preload-error ${preloadPath}: ${String(error)}`);
-  });
-  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    console.error(`[main] renderer did-fail-load code=${code} "${desc}" url=${url}`);
-    appendCrashLine('renderer', 'error', `did-fail-load code=${code} "${desc}" url=${url}`);
-  });
-  mainWindow.webContents.on('render-process-gone', (_e, details) => {
-    console.error(`[main] renderer process gone: ${details.reason}`);
-    // reason: 'crashed' | 'oom' | 'killed' | 'launch-failed' | ... — 팅김 원인 직접 단서.
-    appendCrashLine(
-      'renderer',
-      'fatal',
-      `render-process-gone reason=${details.reason} exitCode=${details.exitCode}`,
-    );
-  });
+  // Renderer diagnostics and recovery are installed for every BrowserWindow below.
 
   // §3.7 — 여는 길은 종전 그대로 하나(`shell.openExternal`). 달라진 것은 **실패를 말한다**는 것뿐이다.
   // 리눅스에서는 그 프라미스가 실패해도 resolve 하므로 `openExternalWithNotice` 가 따로 잰다(폴백 ❌).
@@ -273,6 +260,7 @@ function createWindow(): void {
  * 절대 거치지 않고, Express 는 오직 light-my-request 요청만 받는다.
  */
 async function startHookListener(expressApp: Express, preferredPort: number): Promise<number> {
+  const bodyBudget = new LoopbackBodyBudget();
   const server = createServer((req, res) => {
     const path = (req.url ?? '').split('?')[0] ?? '';
 
@@ -311,12 +299,18 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     const isOrchestraPlanPath =
       path.startsWith('/api/orchestra/runs/') && path.endsWith('/plan');
 
+    // Procedure feedback is session-scoped server-side. Settings/deletion remain UI-only.
+    const isAutoGoalAgentPath = req.method === 'POST' && [
+      '/api/auto-goal/context', '/api/auto-goal/review', '/api/auto-goal/assess', '/api/auto-goal/outcome',
+    ].includes(path);
+
     // All other whitelisted paths require the per-launch token (item #7).
     if (
       path !== '/health' &&
       path !== '/api/hook-event' &&
       path !== '/api/permission-check' &&
       path !== '/api/codex-tool-check' &&
+      !isVerificationToolIngress(req.method, path) &&
       path !== '/api/ask-user-question' &&
       path !== '/api/task-edges/dispatch' &&
       // §5.3 #10-2 (위임 결과 복구) — 끊긴 뒤 결과를 다시 받는 조회(`GET …/:cmdId`)와 취소(`POST …/:cmdId/cancel`).
@@ -355,6 +349,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       !isAppPath &&
       !isSessionGoalProgressPath &&
       !isOrchestraPlanPath &&
+      !isAutoGoalAgentPath &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
@@ -375,40 +370,49 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     // §3.7 v2.9 — `/api/permission-check` 추가. §5.3 #12-1 권한 승인 팝업의 동기 게이트로,
     // 외부 claude 프로세스가 PreToolUse 훅(node handler.mjs)을 통해 도달한다. 이전 3경로
     // 화이트리스트가 permission-check 를 404 로 막아 `permissionBroker` 모달이 안 떴음.
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('error', () => { try { res.statusCode = 400; res.end(); } catch { /* socket gone */ } });
-    req.on('end', () => {
-      // §5.3 #12-1 — **이 요청이 어디서 왔는지 표시한다.** 여기 닿은 것은 전부 우리가 스폰한
-      //   외부 프로세스(빌더 포함)의 curl 이고, 그 토큰은 그 프로세스의 env·프롬프트에 실려
-      //   나간 값이라 **토큰 보유가 곧 사용자 의사가 아니다.** 서버는 이 표식을 보고 권한 축을
-      //   동결한다. 클라가 같은 이름의 헤더를 보냈어도 **덮어쓴다** — 위조는 제약을 더할 뿐이라
-      //   안전하고, 반대로 지우지 못하게 하는 것이 이 한 줄의 전부다.
-      const ingressHeaders = { ...(req.headers as Record<string, string | string[]>) };
-      ingressHeaders[LOOPBACK_INGRESS_HEADER] = LOOPBACK_INGRESS_VALUE;
-      // §5.3 #10-2 · #12-1-B — 결과를 붙드는 dispatch·조회와 권한 카드 창구는 바깥 호출자가 끊기면 안쪽 응답도 끊는다. 안 그러면 끊긴 호출자에게
-      //   결과를 건넸다고 적혀, 그 결과를 기다리던 턴이 받지 못한 채 완료로 끝날 수 있다.
-      const target = expressApp as unknown as InjectDispatch;
-      const dispatchFn = (isHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;
-      void inject(dispatchFn, {
-        method: (req.method ?? 'GET') as 'GET',
-        url: req.url ?? path,
-        headers: ingressHeaders,
-        payload: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
-      }).then((injected) => {
-        res.statusCode = injected.statusCode;
-        const ct = injected.headers['content-type'];
-        if (typeof ct === 'string') res.setHeader('content-type', ct);
-        res.end(injected.payload);
-      }).catch((err: unknown) => {
-        // 바깥이 먼저 끊겨 안쪽을 끊은 경우 — 받을 쪽이 없다.
-        if (res.writableEnded || res.destroyed) return;
-        res.statusCode = 500;
-        res.end(`hook dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
-      });
+    void readLoopbackBody(req, res, bodyBudget).then(async (body): Promise<void> => {
+      if (!body) return;
+      try {
+        if (res.destroyed || res.writableEnded) return;
+        // §5.3 #12-1 — **이 요청이 어디서 왔는지 표시한다.** 여기 닿은 것은 전부 우리가 스폰한
+        //   외부 프로세스(빌더 포함)의 curl 이고, 그 토큰은 그 프로세스의 env·프롬프트에 실려
+        //   나간 값이라 **토큰 보유가 곧 사용자 의사가 아니다.** 서버는 이 표식을 보고 권한 축을
+        //   동결한다. 클라가 같은 이름의 헤더를 보냈어도 **덮어쓴다** — 위조는 제약을 더할 뿐이라
+        //   안전하고, 반대로 지우지 못하게 하는 것이 이 한 줄의 전부다.
+        const ingressHeaders = { ...(req.headers as Record<string, string | string[]>) };
+        ingressHeaders[LOOPBACK_INGRESS_HEADER] = LOOPBACK_INGRESS_VALUE;
+        // §5.3 #10-2 · #12-1-B — 결과를 붙드는 dispatch·조회와 권한 카드 창구는 바깥 호출자가 끊기면 안쪽 응답도 끊는다. 안 그러면 끊긴 호출자에게
+        //   결과를 건넸다고 적혀, 그 결과를 기다리던 턴이 받지 못한 채 완료로 끝날 수 있다.
+        const target = expressApp as unknown as InjectDispatch;
+        const dispatchFn = (isHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;
+        await inject(dispatchFn, {
+          method: (req.method ?? 'GET') as 'GET',
+          url: req.url ?? path,
+          headers: ingressHeaders,
+          payload: body.payload,
+        }).then((injected) => {
+          if (res.destroyed || res.writableEnded) return;
+          res.statusCode = injected.statusCode;
+          const ct = injected.headers['content-type'];
+          if (typeof ct === 'string') res.setHeader('content-type', ct);
+          res.end(injected.payload);
+        }).catch((err: unknown) => {
+          // 바깥이 먼저 끊겨 안쪽을 끊은 경우 — 받을 쪽이 없다.
+          if (res.writableEnded || res.destroyed) return;
+          res.statusCode = 500;
+          res.end(`hook dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      } finally { body.release(); }
+    }).catch((error: unknown) => {
+      mainDiagnostics.report('hook', error);
+      try {
+        if (!res.destroyed && !res.writableEnded) { res.statusCode = 500; res.end('Hook dispatch failed'); }
+      } catch { /* The response stream also owns asynchronous write errors. */ }
     });
   });
   hookListener = server;
+  // The temporary listen/fallback handler below is removed after startup; runtime errors still need an owner.
+  server.on('error', (error) => { if (server.listening) mainDiagnostics.report('hook-listener', error); });
   // 저장된 선호 포트를 먼저 시도하고, 점유됐으면(EADDRINUSE 등) 동적 포트(:0)로 폴백한다.
   // 단일 인스턴스 락이 우리 자신끼리의 경쟁은 막으므로, 폴백은 외부 프로세스가 그 포트를
   // 가로챈 드문 경우에만 발생한다. 폴백 시에도 bootBackend 가 실제 포트를 다시 저장한다.
@@ -561,6 +565,8 @@ async function bootBackend(): Promise<void> {
   // §4 (CMD 터미널 업그레이드 ⑥) — loopback REST(`/api/cmd/*`)가 임베디드 PTY 를 만질 수 있게
   //   terminalManager 를 server 코어에 주입한다(§3.4 — server 는 desktop 을 import 하지 않는다).
   setCmdTerminalController(terminalController);
+  // User-started verification uses the existing server queue and this app-owned tool adapter.
+  setVerificationAutomationAdapter(verificationAutomationAdapter);
   // §5.5 #17-19 ⑦ — 탐색기에서 지운 파일은 **OS 휴지통**으로 간다(영구 삭제 ❌ — 되돌릴 수 있어야 한다).
   //   Windows 재활용·macOS ~/.Trash·Linux freedesktop 규약을 이미 옳게 다루는 물건이 `shell.trashItem`
   //   하나뿐이라 세 OS 분기를 우리가 다시 쓰지 않는다. 주입이 없는 실행 형태에서는 서버가 영구 삭제로
@@ -692,6 +698,24 @@ if (!gotSingleInstanceLock) {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
+    installWindowCrashRecovery(window, {
+      appPageUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).href,
+      isQuitting: () => quitting,
+      log: (level, message) => appendCrashLine('renderer', level, message),
+      askReload: async (owner): Promise<boolean> => {
+        const s = mainStrings(safeUiLocale());
+        const result = await dialog.showMessageBox(owner, {
+          type: 'error',
+          title: s.crashTitle,
+          message: s.crashMessage,
+          buttons: [s.crashReload, s.quitBtnCancel],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        });
+        return result.response === 0;
+      },
+    });
   });
 
   try {
@@ -825,6 +849,7 @@ app.on('before-quit', (event) => {
   // 창 정리는 그 답을 받은 뒤에 한다(순서가 뒤집히면 그 창의 초안을 잃는다).
   // 어차피 마지막은 `app.exit(0)` 이라 몇 ms 늦게 닫히는 것 자체는 아무 차이가 없다.
   const windowsClosed = draftFlush.then(() => {
+    closeAllVerificationTargets();
     // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
     closeAllDetachedWindows();
     // §5.5 #17-6 — 오버레이 위젯 창 일괄 정리.

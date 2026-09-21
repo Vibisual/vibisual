@@ -1,8 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { applyVisibleOrder, resolveOrchestraEnabled } from '@vibisual/shared';
-import { useGraphStore, countProjectBookmarks, selectActiveAutoGoalSummary, selectPaneOrchestraSummary } from '../../stores/graphStore.js';
+import { applyVisibleOrder, isOrchestraRunSettled, resolveOrchestraEnabled, resolveConfigTrimEnabled } from '@vibisual/shared';
+import {
+  useGraphStore, countProjectBookmarks, selectActiveAutoGoalSummary,
+  selectPaneOrchestraSummary, selectPaneConfigTrimSummary,
+} from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
@@ -152,7 +155,9 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const autoGoalSkills = autoGoalSummary?.skillCount ?? 0;
   // 꺼져 있으면 후보는 세지 않는다 — 끄기는 삭제가 아니라 정지라 디스크에 남은 옛 후보가 그대로
   //   있는데(§5.10 "끄면 지우지 않는다"), 그것으로 색을 켜면 훑지도 않는 칸이 계속 재촉하게 된다.
-  const autoGoalBrewing = autoGoalOn ? (autoGoalSummary?.candidateCount ?? 0) : 0;
+  const autoGoalBrewing = autoGoalOn
+    ? (autoGoalSummary?.candidateCount ?? 0) + (autoGoalSummary?.reviewCount ?? autoGoalSkills)
+    : 0;
 
   /*
    * §5.3 #10-4 · §5.5 #16-1 (H) — **오케스트라** 칸. 점등은 "이 에이전트에 실제로 켜져 있는가"
@@ -167,12 +172,34 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     if (!summary) return '0:0';
     const on = resolveOrchestraEnabled(summary.settings, agentId);
     const conducting = agentId
-      ? summary.runs.filter((r) => r.agentId === agentId && r.phase === 'conducting').length
+      ? summary.runs.filter((r) => r.agentId === agentId && !isOrchestraRunSettled(r.phase) && r.endedAt === undefined).length
       : 0;
     return `${on ? '1' : '0'}:${conducting}`;
   });
   const orchestraOn = orchestraState.startsWith('1');
   const orchestraConducting = Number(orchestraState.slice(2)) || 0;
+
+  /*
+   * §5.3 #10-5 — **설정 덜어내기** 칸. 점등은 이 에이전트에 실제로 켜져 있는가
+   * (`resolveConfigTrimEnabled` — 세션 ?? 에이전트 ?? 프로젝트). 숫자는 **이 에이전트의 가장 최근
+   * 턴에서 실제로 덜어낸 항목 수**다 — 배제 목록은 늘 길어서 숫자로 삼으면 아무 뜻이 없다.
+   * 오케스트라와 같은 규칙으로 **원시값 하나만** 구독한다(런 목록은 스냅샷마다 새 배열이다).
+   */
+  const configTrimState = useGraphStore((s) => {
+    const summary = selectPaneConfigTrimSummary(s, paneKey);
+    if (!summary) return '0:0';
+    const on = resolveConfigTrimEnabled(summary.settings, { agentId: agentId ?? undefined, subAgentId: activeSessionId ?? undefined });
+    let last = 0;
+    if (agentId) {
+      for (let i = summary.runs.length - 1; i >= 0; i -= 1) {
+        const run = summary.runs[i];
+        if (run && run.agentId === agentId) { last = run.trimmed.length; break; }
+      }
+    }
+    return `${on ? '1' : '0'}:${last}`;
+  });
+  const configTrimOn = configTrimState.startsWith('1');
+  const configTrimLast = Number(configTrimState.slice(2)) || 0;
 
   // 클로드 버블을 보다가 로컬 버블로 갈아타면 그 순간 열려 있던 뷰가 사라질 수 있다 —
   // 사이드바가 빈 채로 남지 않게 파일로 떨어뜨린다(§5.19 (G)).
@@ -312,15 +339,20 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     // §5.10 (P) — 아래 숫자만으로는 그것이 무엇의 수인지 알 수 없다. 목록 머리글이 쓰는 그 문장을
     //   그대로 빌려 쓴다(새 키 ❌ — 같은 뜻에 문장이 둘이면 12 로케일에서 갈린다).
     if (view === 'autoGoal' && autoGoalSkills > 0) {
-      return `${nameOf(view)} — ${t('ide.autoGoal.groupSkills', { count: autoGoalSkills })}`;
+      return `${nameOf(view)} — ${t('ide.autoGoal.groupSkills', { count: autoGoalSkills })} · ${t('ide.autoGoal.metrics.active', { count: autoGoalSummary?.activeCount ?? 0 })} · ${t('ide.autoGoal.metrics.review', { count: autoGoalSummary?.reviewCount ?? autoGoalSkills })}`;
     }
     // §5.3 #10-4 — 색만으로는 "켜져 있다"인지 "지휘 중이다"인지 갈리지 않는다. 툴팁이 그 둘을 말한다.
     if (view === 'orchestra') {
       if (orchestraConducting > 0) return `${nameOf(view)} — ${t('ide.orchestra.activity.conducting', { count: orchestraConducting })}`;
       if (orchestraOn) return `${nameOf(view)} — ${t('ide.orchestra.activity.on')}`;
     }
+    // §5.3 #10-5 — 숫자만 보면 그것이 덜어낸 수인지 배제한 수인지 갈리지 않는다. 툴팁이 그것을 말한다.
+    if (view === 'configTrim') {
+      if (configTrimLast > 0) return `${nameOf(view)} — ${t('ide.configTrim.activity.trimmed', { count: configTrimLast })}`;
+      if (configTrimOn) return `${nameOf(view)} — ${t('ide.configTrim.activity.on')}`;
+    }
     return nameOf(view);
-  }, [goalTitle, nameOf, autoGoalSkills, orchestraOn, orchestraConducting, t]);
+  }, [goalTitle, nameOf, autoGoalSkills, orchestraOn, orchestraConducting, configTrimOn, configTrimLast, t]);
 
   /** 그 칸이 지금 무엇을 말하는가(배지·점등). 항목마다 재료가 달라 여기 한 곳에서 갈린다. */
   const stateOf = useCallback((view: IDEViewType): ActivityState => {
@@ -347,6 +379,15 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
           badge: orchestraConducting > 0 ? clampCount(orchestraConducting) : null,
           tone: orchestraOn ? 'text-amber-400' : null,
           blink: orchestraConducting > 0,
+          dot: null,
+        };
+      case 'configTrim':
+        // 켜져 있으면 색, 최근 턴에서 실제로 덜어낸 것이 있을 때만 숫자. 반짝임은 없다 —
+        //   덜어내기는 끝난 사실의 기록이지 재촉할 일이 아니다(북마크와 같은 규약).
+        return {
+          badge: configTrimLast > 0 ? clampCount(configTrimLast) : null,
+          tone: configTrimOn ? 'text-rose-400' : null,
+          blink: false,
           dot: null,
         };
       case 'hooks':
@@ -400,6 +441,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   }, [
     goalInd, hookFiring, runningRuns, loopBadge, loopRunning, verifyRunning, verifyDotTone,
     reading, runningCount, bookmarkCount, autoGoalSkills, autoGoalBrewing, orchestraOn, orchestraConducting,
+    configTrimOn, configTrimLast,
   ]);
 
   /* ─── 꾹 눌러 자리 옮기기 — 손에 붙어 따라오고, 지나는 칸이 밀린다 ─── */

@@ -7,195 +7,195 @@
  */
 export const strings = {
   "en": {
-    "desc": "Missing knowledge makes a model say it does not know; stale knowledge makes it confidently wrong. Holding a run as a candidate until it has repeated enough lets you judge before it is written.",
+    "desc": "Counts procedures awaiting review, active procedures, and stopped procedures. Repetition alone does not establish validity.",
     "heading": "Memory Invalidation",
     "level": {
-      "none": "Not on yet",
-      "clean": "Nothing waiting",
-      "pending": "Waiting on the threshold"
+      "none": "Not enabled",
+      "clean": "No reviews pending",
+      "pending": "Review needed"
     },
     "check": {
-      "needsCheck": "Awaiting the threshold",
-      "review": "Turned down",
-      "cards": "In store"
+      "needsCheck": "Review needed",
+      "review": "Stopped or replaced",
+      "cards": "Reviewed and active"
     },
-    "note": "A run that has not come back often enough is not knowledge yet. The threshold is what keeps a one-off from becoming a standing instruction.",
-    "notePending": "Some runs are close to becoming procedures. Look at what they contain and turn down anything that should not be written."
+    "note": "Procedures needing review do not guide execution. Stored files are not proof of validity.",
+    "notePending": "A working agent must check these procedures against current evidence before activation."
   },
   "ko": {
-    "desc": "없는 지식은 모델이 모른다고 말하게 하지만, 낡은 지식은 확신에 찬 오답을 만듭니다. 충분히 되풀이될 때까지 후보로 붙잡아 두면 적히기 전에 사람이 판정할 수 있습니다.",
+    "desc": "?? ????? ???? ?? ??? ??? ???. ?? ????? ????? ???? ????.",
     "heading": "기억 무효화",
     "level": {
-      "none": "아직 켜지 않음",
-      "clean": "대기 중인 것 없음",
-      "pending": "문턱 대기 중"
+      "none": "?? ?? ??",
+      "clean": "?? ?? ??",
+      "pending": "?? ??"
     },
     "check": {
-      "needsCheck": "문턱 대기",
-      "review": "물린 것",
-      "cards": "저장고에"
+      "needsCheck": "?? ??",
+      "review": "?? ??????",
+      "cards": "?? ????? ?"
     },
-    "note": "충분히 되돌아오지 않은 일은 아직 지식이 아닙니다. 문턱이 한 번뿐인 일을 상시 지시로 굳히지 않게 막아 줍니다.",
-    "notePending": "절차가 되기 직전인 일이 있습니다. 내용을 보시고 적히면 안 되는 것은 물려 주십시오."
+    "note": "??? ??? ??? ?? ???? ?????. ??? ??? ???? ???? ????? ????.",
+    "notePending": "?? ?? ????? ?? ??? ??? ???? ? ???? ???? ? ????."
   },
   "ja": {
+    "desc": "???????????????????????????????????????????????",
+    "heading": "記憶の無効化",
     "level": {
-      "none": "まだ記憶なし",
-      "clean": "指摘なし",
-      "pending": "要確認"
+      "none": "???",
+      "clean": "????????",
+      "pending": "?????"
     },
     "check": {
-      "needsCheck": "要確認",
-      "review": "判断待ち",
-      "cards": "保存カード数"
+      "needsCheck": "?????",
+      "review": "?????????",
+      "cards": "??????????"
     },
-    "heading": "記憶の無効化",
-    "desc": "ない記憶はモデルに「知らない」と言わせますが、古い記憶は自信のある誤答を作ります。すぐ消さず印を付けておけば、次の人が判定できます。",
-    "note": "コードでは、紐づくファイルの変更が最も正確な陳腐化の合図です — パス一致なので誤検出がほとんどありません。",
-    "notePending": "紐づくファイルが変わったため「要確認」になったカードがあります。いまのコードと突き合わせて、有効か無効かを確定してください。"
+    "note": "????????????????????????????????????????????????",
+    "notePending": "???????????? Agent ??????????????????????????"
   },
   "zh-CN": {
+    "desc": "?????????????????????????????????",
+    "heading": "记忆失效",
     "level": {
-      "none": "尚无记忆",
-      "clean": "无标记",
-      "pending": "需要确认"
+      "none": "???",
+      "clean": "??????",
+      "pending": "????"
     },
     "check": {
-      "needsCheck": "标记为过时",
-      "review": "等待判断",
-      "cards": "已存卡片"
+      "needsCheck": "????",
+      "review": "??????",
+      "cards": "???????"
     },
-    "heading": "记忆失效",
-    "desc": "没有的记忆会让模型说「不知道」，而过时的记忆会造出自信的错误答案。不立即删除而是打上标记，下一个人才能判定。",
-    "note": "在代码领域，关联文件的变更是最准确的过时信号 — 基于路径匹配，几乎没有误报。",
-    "notePending": "有卡片因关联文件发生变更而被标为「需确认」。请与当前代码比对，确定其有效或作废。"
+    "note": "?????????????????????????????",
+    "notePending": "????????????? Agent ?????????????"
   },
   "es": {
+    "desc": "Cuenta por separado los procedimientos pendientes de revisi?n, activos y detenidos. La repetici?n por s? sola no demuestra su validez.",
+    "heading": "Invalidación de memoria",
     "level": {
-      "none": "Sin memoria aún",
-      "clean": "Nada marcado",
-      "pending": "Requiere revisión"
+      "none": "No activado",
+      "clean": "Sin revisiones pendientes",
+      "pending": "Requiere revisi?n"
     },
     "check": {
-      "needsCheck": "Marcadas como obsoletas",
-      "review": "Esperando juicio",
-      "cards": "Tarjetas guardadas"
+      "needsCheck": "Requiere revisi?n",
+      "review": "Detenidos o sustituidos",
+      "cards": "Revisados y en uso"
     },
-    "heading": "Invalidación de memoria",
-    "desc": "La memoria ausente hace que el modelo diga que no sabe; la memoria caducada produce errores dichos con seguridad. Marcar en lugar de borrar deja juzgar a la siguiente persona.",
-    "note": "En código, un cambio en el archivo vinculado es la señal de caducidad más precisa — al coincidir por ruta, apenas deja falsos positivos.",
-    "notePending": "Algunas tarjetas se marcaron porque cambiaron sus archivos vinculados. Compáralas con el código actual y confírmalas o retíralas."
+    "note": "Los procedimientos que requieren revisi?n no gu?an la ejecuci?n. Guardar un fichero no demuestra que su contenido sea v?lido.",
+    "notePending": "Un Agent que est? trabajando debe contrastar estos procedimientos con las pruebas actuales antes de activarlos."
   },
   "es-419": {
+    "desc": "Cuenta por separado los procedimientos pendientes de revisi?n, activos y detenidos. La repetici?n por s? sola no demuestra su validez.",
+    "heading": "Invalidación de memoria",
     "level": {
-      "none": "Sin memoria aún",
-      "clean": "Nada marcado",
-      "pending": "Requiere revisión"
+      "none": "No activado",
+      "clean": "Sin revisiones pendientes",
+      "pending": "Requiere revisi?n"
     },
     "check": {
-      "needsCheck": "Marcadas como obsoletas",
-      "review": "Esperando juicio",
-      "cards": "Tarjetas guardadas"
+      "needsCheck": "Requiere revisi?n",
+      "review": "Detenidos o reemplazados",
+      "cards": "Revisados y en uso"
     },
-    "heading": "Invalidación de memoria",
-    "desc": "La memoria ausente hace que el modelo diga que no sabe; la memoria caducada produce errores dichos con seguridad. Marcar en lugar de borrar deja juzgar a la siguiente persona.",
-    "note": "En código, un cambio en el archivo vinculado es la señal de caducidad más precisa — al coincidir por ruta, apenas deja falsos positivos.",
-    "notePending": "Algunas tarjetas se marcaron porque cambiaron sus archivos vinculados. Compáralas con el código actual y confírmalas o retíralas."
+    "note": "Los procedimientos que requieren revisi?n no gu?an la ejecuci?n. Guardar un archivo no demuestra que su contenido sea v?lido.",
+    "notePending": "Un Agent que est? trabajando debe contrastar estos procedimientos con las pruebas actuales antes de activarlos."
   },
   "fr": {
+    "desc": "Compte s?par?ment les proc?dures ? examiner, actives et arr?t?es. La r?p?tition seule ne prouve pas leur validit?.",
+    "heading": "Invalidation de mémoire",
     "level": {
-      "none": "Pas encore de mémoire",
-      "clean": "Rien de signalé",
-      "pending": "À vérifier"
+      "none": "Non activ?",
+      "clean": "Aucun examen en attente",
+      "pending": "Examen n?cessaire"
     },
     "check": {
-      "needsCheck": "Marquées obsolètes",
-      "review": "En attente de décision",
-      "cards": "Cartes stockées"
+      "needsCheck": "Examen n?cessaire",
+      "review": "Arr?t?es ou remplac?es",
+      "cards": "Examin?es et actives"
     },
-    "heading": "Invalidation de mémoire",
-    "desc": "Une mémoire absente fait dire au modèle qu’il ne sait pas ; une mémoire périmée produit des erreurs affirmées avec assurance. Marquer plutôt que supprimer laisse juger la personne suivante.",
-    "note": "Dans le code, une modification du fichier lié est le signal d’obsolescence le plus précis — la correspondance de chemin ne laisse presque aucun faux positif.",
-    "notePending": "Certaines cartes ont été signalées parce que leurs fichiers liés ont changé. Comparez-les au code actuel puis confirmez-les ou retirez-les."
+    "note": "Les proc?dures ? examiner ne guident pas l?ex?cution. La pr?sence d?un fichier ne prouve pas sa validit?.",
+    "notePending": "Un Agent au travail doit confronter ces proc?dures aux ?l?ments actuels avant leur activation."
   },
   "de": {
+    "desc": "Z?hlt pr?fungsbed?rftige, aktive und gestoppte Abl?ufe getrennt. Wiederholung allein belegt keine G?ltigkeit.",
+    "heading": "Gedächtnis-Invalidierung",
     "level": {
-      "none": "Noch kein Gedächtnis",
-      "clean": "Nichts markiert",
-      "pending": "Prüfung nötig"
+      "none": "Nicht aktiviert",
+      "clean": "Keine Pr?fung ausstehend",
+      "pending": "Pr?fung n?tig"
     },
     "check": {
-      "needsCheck": "Als veraltet markiert",
-      "review": "Wartet auf Beurteilung",
-      "cards": "Gespeicherte Karten"
+      "needsCheck": "Pr?fung n?tig",
+      "review": "Gestoppt oder ersetzt",
+      "cards": "Gepr?ft und aktiv"
     },
-    "heading": "Gedächtnis-Invalidierung",
-    "desc": "Fehlendes Gedächtnis lässt ein Modell „weiß ich nicht“ sagen; veraltetes Gedächtnis erzeugt selbstsichere Falschaussagen. Markieren statt löschen lässt den Nächsten urteilen.",
-    "note": "Im Code ist eine Änderung der verknüpften Datei das genaueste Veraltungssignal — durch Pfadabgleich gibt es praktisch keine Fehlalarme.",
-    "notePending": "Einige Karten wurden markiert, weil sich ihre verknüpften Dateien geändert haben. Gleichen Sie sie mit dem aktuellen Code ab und bestätigen oder verwerfen Sie sie."
+    "note": "Pr?fungsbed?rftige Abl?ufe leiten keine Ausf?hrung an. Eine gespeicherte Datei belegt keine G?ltigkeit.",
+    "notePending": "Ein arbeitender Agent muss diese Abl?ufe vor der Aktivierung anhand aktueller Belege pr?fen."
   },
   "hi": {
+    "desc": "??????? ?? ????????? ???, ?????? ?? ??? ??????????? ?? ???-??? ????? ?????? ??? ???? ?????? ?? ????? ????? ???? ?????",
+    "heading": "स्मृति अमान्यकरण",
     "level": {
-      "none": "अभी कोई स्मृति नहीं",
-      "clean": "कुछ चिह्नित नहीं",
-      "pending": "जाँच चाहिए"
+      "none": "?????? ????",
+      "clean": "??? ??????? ????? ????",
+      "pending": "??????? ??????"
     },
     "check": {
-      "needsCheck": "पुराना चिह्नित",
-      "review": "निर्णय प्रतीक्षित",
-      "cards": "संग्रहित कार्ड"
+      "needsCheck": "??????? ??????",
+      "review": "??? ?? ???? ??",
+      "cards": "???????? ?? ??????"
     },
-    "heading": "स्मृति अमान्यकरण",
-    "desc": "गुम स्मृति से मॉडल कहता है कि पता नहीं; बासी स्मृति आत्मविश्वास से भरी ग़लती पैदा करती है। मिटाने के बजाय चिह्नित करना अगले मनुष्य को निर्णय का मौका देता है।",
-    "note": "कोड में, जुड़ी फ़ाइल का बदलना बासीपन का सबसे सटीक संकेत है — यह पथ मिलाता है, इसलिए झूठे संकेत लगभग नहीं आते।",
-    "notePending": "कुछ कार्ड इसलिए चिह्नित हैं कि उनकी जुड़ी फ़ाइलें बदल गईं। मौजूदा कोड से मिलाइए और या तो पुष्टि कीजिए या सेवानिवृत्त कीजिए।"
+    "note": "??????? ?? ????? ???? ??????????? ??? ?? ?????????? ???? ?????? ????? ?? ????? ???? ????? ?? ?????? ???? ???",
+    "notePending": "?????? ???? ?? ???? ??? ?? ??? Agent ?? ?? ??????????? ?? ?????? ???????? ?? ???? ???? ?????"
   },
   "id": {
+    "desc": "Menghitung prosedur yang menunggu tinjauan, aktif, dan dihentikan secara terpisah. Pengulangan saja tidak membuktikan keabsahan.",
+    "heading": "Invalidasi memori",
     "level": {
-      "none": "Belum ada memori",
-      "clean": "Tidak ada tanda",
-      "pending": "Perlu diperiksa"
+      "none": "Belum aktif",
+      "clean": "Tidak ada tinjauan tertunda",
+      "pending": "Perlu ditinjau"
     },
     "check": {
-      "needsCheck": "Ditandai usang",
-      "review": "Menunggu penilaian",
-      "cards": "Kartu tersimpan"
+      "needsCheck": "Perlu ditinjau",
+      "review": "Dihentikan atau digantikan",
+      "cards": "Ditinjau dan aktif"
     },
-    "heading": "Invalidasi memori",
-    "desc": "Memori yang hilang membuat model berkata tidak tahu; memori usang menghasilkan kesalahan yang diucapkan dengan yakin. Menandai alih-alih menghapus membiarkan orang berikutnya menilai.",
-    "note": "Dalam kode, perubahan pada berkas tertaut adalah sinyal keusangan paling akurat — karena mencocokkan jalur, nyaris tanpa positif palsu.",
-    "notePending": "Beberapa kartu ditandai karena berkas tertautnya berubah. Bandingkan dengan kode saat ini lalu konfirmasi atau pensiunkan."
+    "note": "Prosedur yang perlu ditinjau tidak memandu eksekusi. Keberadaan berkas tidak membuktikan keabsahan.",
+    "notePending": "Agent yang sedang bekerja harus memeriksa prosedur ini berdasarkan bukti terkini sebelum mengaktifkannya."
   },
   "it": {
+    "desc": "Conta separatamente le procedure da verificare, attive e interrotte. La sola ripetizione non ne dimostra la validit?.",
+    "heading": "Invalidazione della memoria",
     "level": {
-      "none": "Nessuna memoria",
-      "clean": "Nulla segnalato",
-      "pending": "Da verificare"
+      "none": "Non attivato",
+      "clean": "Nessuna verifica in attesa",
+      "pending": "Verifica necessaria"
     },
     "check": {
-      "needsCheck": "Segnate come obsolete",
-      "review": "In attesa di giudizio",
-      "cards": "Schede memorizzate"
+      "needsCheck": "Verifica necessaria",
+      "review": "Interrotte o sostituite",
+      "cards": "Verificate e attive"
     },
-    "heading": "Invalidazione della memoria",
-    "desc": "Una memoria assente fa dire al modello che non sa; una memoria scaduta produce errori detti con sicurezza. Marcare invece di cancellare lascia giudicare alla prossima persona.",
-    "note": "Nel codice, una modifica al file collegato è il segnale di obsolescenza più preciso — combaciando sul percorso, non lascia quasi falsi positivi.",
-    "notePending": "Alcune schede sono state segnalate perché i file collegati sono cambiati. Confrontale con il codice attuale e confermale o ritirale."
+    "note": "Le procedure da verificare non guidano l?esecuzione. La presenza di un file non ne dimostra la validit?.",
+    "notePending": "Prima dell?attivazione, un Agent al lavoro deve confrontare queste procedure con le prove attuali."
   },
   "pt-BR": {
+    "desc": "Conta separadamente os procedimentos pendentes de revis?o, ativos e interrompidos. A repeti??o por si s? n?o comprova a validade.",
+    "heading": "Invalidação de memória",
     "level": {
-      "none": "Sem memória ainda",
-      "clean": "Nada sinalizado",
-      "pending": "Precisa verificação"
+      "none": "N?o ativado",
+      "clean": "Nenhuma revis?o pendente",
+      "pending": "Precisa de revis?o"
     },
     "check": {
-      "needsCheck": "Marcadas como obsoletas",
-      "review": "Aguardando julgamento",
-      "cards": "Cartões armazenados"
+      "needsCheck": "Precisa de revis?o",
+      "review": "Interrompidos ou substitu?dos",
+      "cards": "Revisados e ativos"
     },
-    "heading": "Invalidação de memória",
-    "desc": "Memória ausente faz o modelo dizer que não sabe; memória vencida produz erros ditos com convicção. Marcar em vez de apagar deixa a próxima pessoa julgar.",
-    "note": "Em código, uma alteração no arquivo vinculado é o sinal de obsolescência mais preciso — por casar caminhos, quase não deixa falsos positivos.",
-    "notePending": "Alguns cartões foram marcados porque os arquivos vinculados mudaram. Compare-os com o código atual e confirme ou aposente cada um."
+    "note": "Procedimentos que precisam de revis?o n?o orientam a execu??o. A exist?ncia de um arquivo n?o comprova sua validade.",
+    "notePending": "Um Agent em atividade deve conferir estes procedimentos com as evid?ncias atuais antes de ativ?-los."
   }
 } as const;

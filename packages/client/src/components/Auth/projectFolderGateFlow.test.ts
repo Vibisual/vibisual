@@ -83,3 +83,34 @@ describe('shouldSummonProjectFolder — 로그인 창의 인계', () => {
     expect(shouldSummonProjectFolder({ hasFolder: true })).toBe(false);
   });
 });
+
+describe('선택한 제공자로 폴더 단계를 복원한다', () => {
+  const codexReady = {
+    ...base,
+    setup: setup('missing'),
+    auth: loggedOut,
+    engineChoice: { kind: 'codex' as const, chosenAt: 1 },
+    codexSetup: setup('ready'),
+    codexAuth: authed,
+  };
+
+  it('Codex만 로그인한 뒤 재실행해도 폴더 안내를 이어 간다', () => {
+    expect(isProjectFolderGateOpen(codexReady)).toBe(true);
+    expect(isProjectFolderBannerOpen({ ...codexReady, dismissed: true })).toBe(true);
+  });
+
+  it('Claude가 준비돼 있어도 선택한 Codex의 설치·인증 완료를 기다린다', () => {
+    const state = { ...codexReady, setup: setup('ready'), auth: authed };
+    expect(isProjectFolderGateOpen({ ...state, codexSetup: setup('missing') })).toBe(false);
+    expect(isProjectFolderGateOpen({ ...state, codexAuth: loggedOut })).toBe(false);
+    expect(isProjectFolderGateOpen({ ...state, codexAuth: { ...loggedOut, error: 'timeout' } })).toBe(false);
+    expect(isProjectFolderGateOpen({ ...state, codexSetup: null, codexAuth: null })).toBe(false);
+  });
+
+  it('로컬 모델 사용자는 CLI 설치나 계정 없이 폴더부터 고른다', () => {
+    const state = { ...base, setup: null, auth: null, engineChoice: { kind: 'local' as const, chosenAt: 1 } };
+    expect(isProjectFolderGateOpen(state)).toBe(true);
+    expect(isProjectFolderBannerOpen({ ...state, dismissed: true })).toBe(true);
+    expect(isProjectFolderGateOpen({ ...state, hasFolder: true })).toBe(false);
+  });
+});

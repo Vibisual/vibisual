@@ -1,11 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { VERIFICATION_DEMO_FRAMES_MAX } from '@vibisual/shared';
-import type { VerificationDemoStep } from '@vibisual/shared';
+import type { VerificationDemoStep, VerificationTarget } from '@vibisual/shared';
 
 import { useGraphStore } from '../stores/graphStore.js';
 import type { PlaytestClip } from '../stores/capturePlaytest.js';
 import { demoFrameTimes, type ClipRange } from '../components/BubbleMap/playtestClip.js';
 import { extractClipFrames } from './clipFrames.js';
+import { uploadVerifyDemoFrames } from './verifyDemoUpload.js';
 
 // §5.5 #17-35 ⑨ — 시연을 **검증 절차로 저장**한다.
 //
@@ -30,6 +31,7 @@ export interface VerifyDemoSaveInput {
   label: string;
   steps: VerificationDemoStep[];
   expected?: string;
+  target?: VerificationTarget;
 }
 
 export interface VerifyDemoSave {
@@ -46,6 +48,7 @@ export function useVerifyDemoSave(): VerifyDemoSave {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<VerifyDemoSaveProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const retryRef = useRef<{ key: string; id: string; completed: Set<number> } | null>(null);
 
   const createDemo = useGraphStore((s) => s.createVerificationDemo);
   const uploadFrame = useGraphStore((s) => s.uploadVerificationDemoFrame);
@@ -75,31 +78,43 @@ export function useVerifyDemoSave(): VerifyDemoSave {
         return null;
       }
 
-      const created = await createDemo({
+      const metadata = {
         agentId: input.agentId,
         subAgentId: input.subAgentId,
         label: input.label,
         sourceName: input.clip.sourceName,
         steps: input.steps,
+        ...(input.target ? { target: input.target } : {}),
         ...(input.expected ? { expected: input.expected } : {}),
         durationMs: Math.max(0, input.range.endMs - input.range.startMs),
-      });
-      if (typeof created === 'string') {
-        setError(created);
-        return null;
+      };
+      // 업로드 재시도로 새 시연을 계속 만들면 상한에 밀려 기존 절차까지 사라진다.
+      // 같은 편집 내용은 이미 만든 레코드와 성공한 프레임을 이어 쓴다.
+      const key = JSON.stringify([input.clip.id, metadata, input.range, frames.map((frame) => frame.timeMs)]);
+      let retry = retryRef.current;
+      if (!retry || retry.key !== key) {
+        const created = await createDemo(metadata);
+        if (typeof created === 'string') {
+          setError(created);
+          return null;
+        }
+        retry = { key, id: created.id, completed: new Set<number>() };
+        retryRef.current = retry;
       }
 
       // 순서대로 올린다 — 서버가 붙는 순번으로 파일 이름을 짓기 때문에 병렬로 쏘면 순서가 섞인다.
       // 시각은 `times[i]` 가 아니라 **그 장이 실제로 찍힌 시각**을 쓴다(못 뽑은 장이 있으면 어긋난다).
-      let attached = 0;
-      for (let i = 0; i < frames.length; i++) {
-        const frame = frames[i]!;
-        const ok = await uploadFrame(created.id, frame.file, Math.max(0, frame.timeMs - input.range.startMs));
-        if (ok) attached += 1;
-        setProgress({ done: i + 1, total: frames.length });
+      const attached = await uploadVerifyDemoFrames(
+        frames,
+        retry.completed,
+        (frame) => uploadFrame(retry.id, frame.file, Math.max(0, frame.timeMs - input.range.startMs)),
+        (done) => setProgress({ done, total: frames.length }),
+      );
+      if (attached === null) {
+        setError('uploadFailed');
+        return null;
       }
-      // 그림이 하나도 안 붙어도 절차(단계·기대 결과)는 이미 저장됐다 — 지우지 않는다.
-      if (frames.length > 0 && attached === 0) setError('uploadFailed');
+      retryRef.current = null;
       return attached;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'saveFailed');

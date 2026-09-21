@@ -63,15 +63,20 @@ export function localToolInputForGraph(
 export function toLocalHookPayload(sessionId: string, event: LocalHookToolEvent): HookEventPayload {
   return {
     session_id: sessionId,
-    hook_event_name: event.phase === 'pre' ? 'PreToolUse' : 'PostToolUse',
+    hook_event_name: event.phase === 'pre' ? 'PreToolUse' : event.toolIsError === true ? 'PostToolUseFailure' : 'PostToolUse',
     tool_name: event.toolName,
     tool_input: localToolInputForGraph(event.toolName, event.toolInput, event.cwd),
     tool_use_id: event.toolUseId,
     cwd: event.cwd,
     // 결과 모양은 클로드 도구 응답과 같은 `content` 배열로 맞춘다 — `extractBashOutput` 이
     //   그 모양을 먼저 보므로, 여기서 다른 모양을 쓰면 Bash 출력이 이력에 안 붙는다.
-    ...(event.toolResponse !== undefined
-      ? { tool_response: { content: [{ type: 'text', text: event.toolResponse }] } }
+    ...(event.toolResponse !== undefined || event.toolIsError !== undefined
+      ? {
+          tool_response: {
+            ...(event.toolResponse !== undefined ? { content: [{ type: 'text', text: event.toolResponse }] } : {}),
+            ...(event.toolIsError !== undefined ? { is_error: event.toolIsError } : {}),
+          },
+        }
       : {}),
     ...(typeof event.durationMs === 'number' ? { duration_ms: event.durationMs } : {}),
   };

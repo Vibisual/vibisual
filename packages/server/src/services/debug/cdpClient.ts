@@ -11,7 +11,7 @@
  */
 import http from 'node:http';
 
-import { DEBUG_REQUEST_TIMEOUT_MS } from '@vibisual/shared';
+import { DEBUG_ADAPTER_READY_TIMEOUT_MS, DEBUG_REQUEST_TIMEOUT_MS } from '@vibisual/shared';
 import { WebSocket } from 'ws';
 
 import { logger } from '../../logger.js';
@@ -35,36 +35,61 @@ interface InspectorTarget {
 }
 
 /** 인스펙터 HTTP 창구에서 붙을 WebSocket 주소를 얻는다. 못 얻으면 null. */
-export function fetchInspectorWebSocketUrl(port: number, timeoutMs = 3_000): Promise<string | null> {
+export function fetchInspectorWebSocketUrl(port: number, timeoutMs = 3_000, signal?: AbortSignal): Promise<string | null> {
   return new Promise((resolve) => {
+    let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const finish = (url: string | null): void => {
+      if (settled) return;
+      settled = true;
+      if (deadline) clearTimeout(deadline);
+      resolve(url);
+    };
     const req = http.get(
-      { host: '127.0.0.1', port, path: '/json/list', timeout: timeoutMs },
+      { host: '127.0.0.1', port, path: '/json/list', timeout: timeoutMs, signal },
       (res) => {
+        // After headers arrive, reset/abort errors belong to IncomingMessage, not just req.
+        res.on('error', () => finish(null));
+        res.on('aborted', () => finish(null));
+        res.on('close', () => finish(null));
         if (res.statusCode !== 200) {
-          res.resume();
-          resolve(null);
+          finish(null);
+          // No target can be discovered from this response. Do not drain an unbounded
+          // trickling error page after finish() has cleared the wall-clock deadline.
+          req.destroy();
           return;
         }
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (c: string) => {
-          body += c;
-          // 인스펙터 목록이 이만큼 클 리 없다 — 이상한 응답으로 메모리를 먹지 않게 끊는다.
-          if (body.length > 256 * 1024) req.destroy();
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        res.on('data', (chunk: Buffer) => {
+          if (settled) return;
+          bytes += chunk.length;
+          if (bytes > 256 * 1024) {
+            finish(null);
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
         });
         res.on('end', () => {
+          if (settled) return;
           try {
-            const parsed = JSON.parse(body) as InspectorTarget[];
-            const target = parsed.find((t) => typeof t.webSocketDebuggerUrl === 'string');
-            resolve(target?.webSocketDebuggerUrl ?? null);
+            const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            const target = Array.isArray(parsed)
+              ? parsed.find((t): t is InspectorTarget => t !== null && typeof t === 'object'
+                && typeof t.webSocketDebuggerUrl === 'string') : undefined;
+            finish(target?.webSocketDebuggerUrl ?? null);
           } catch {
-            resolve(null);
+            finish(null);
           }
         });
       },
     );
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.on('error', () => resolve(null));
+    const abort = (): void => { finish(null); req.destroy(); };
+    req.on('timeout', abort);
+    req.on('error', () => finish(null));
+    // A trickling body must not keep discovery pending forever by resetting the idle timeout.
+    deadline = setTimeout(abort, timeoutMs);
   });
 }
 
@@ -73,6 +98,8 @@ export class CdpClient {
   private readonly pending = new Map<number, PendingCall>();
   private socket: WebSocket | null = null;
   private disposed = false;
+  private discoveryAbort: AbortController | null = null;
+  private rejectConnect: ((error: Error) => void) | null = null;
 
   constructor(
     private readonly onEvent: (event: CdpEvent) => void,
@@ -81,26 +108,54 @@ export class CdpClient {
 
   /** 인스펙터 포트에 붙는다. 실패 사유는 그대로 던져 화면이 적게 한다. */
   async connect(port: number): Promise<void> {
-    const url = await fetchInspectorWebSocketUrl(port);
+    if (this.disposed) throw new Error('inspector disconnected');
+    if (this.discoveryAbort || this.socket) throw new Error('inspector connection already started');
+    this.discoveryAbort = new AbortController();
+    let url: string | null;
+    try {
+      url = await fetchInspectorWebSocketUrl(port, 3_000, this.discoveryAbort.signal);
+    } finally {
+      this.discoveryAbort = null;
+    }
+    if (this.disposed) throw new Error('inspector disconnected');
     if (!url) throw new Error('inspector-not-listening');
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(url, { maxPayload: 64 * 1024 * 1024 });
-      const failEarly = (err: Error): void => {
-        socket.removeAllListeners();
-        try { socket.close(); } catch { /* 이미 닫힘 */ }
-        reject(err);
-      };
+      const socket = new WebSocket(url, {
+        maxPayload: 64 * 1024 * 1024,
+        handshakeTimeout: DEBUG_ADAPTER_READY_TIMEOUT_MS,
+      });
+      this.socket = socket; // dispose must also own a socket whose handshake is still pending.
+      this.rejectConnect = reject;
+      let opened = false;
       socket.once('open', () => {
-        this.socket = socket;
-        socket.on('message', (data) => this.handleMessage(String(data)));
-        socket.on('close', () => this.handleClosed('inspector-closed'));
-        socket.on('error', (err) => {
-          logger.warn(`[cdp] socket error: ${err instanceof Error ? err.message : String(err)}`);
-          this.handleClosed('inspector-error');
-        });
+        if (this.disposed) return;
+        opened = true;
+        this.rejectConnect = null;
         resolve();
       });
-      socket.once('error', (err) => failEarly(err instanceof Error ? err : new Error(String(err))));
+      socket.on('message', (data) => {
+        if (this.disposed) return;
+        try { this.handleMessage(String(data)); } catch (err) {
+          logger.warn('[cdp] message handler failed', err);
+          this.handleClosed('inspector-message-error');
+        }
+      });
+      socket.on('close', () => {
+        if (opened) this.handleClosed('inspector-closed');
+        else this.dispose('inspector-closed-before-open');
+      });
+      // Keep this listener through disposal: ws can emit a deferred error while aborting a handshake.
+      socket.on('error', (err: Error) => {
+        if (this.disposed) return;
+        if (!opened) {
+          this.rejectConnect?.(err);
+          this.rejectConnect = null;
+          this.dispose('inspector-error');
+          return;
+        }
+        logger.warn(`[cdp] socket error: ${err.message}`);
+        this.handleClosed('inspector-error');
+      });
     });
   }
 
@@ -117,12 +172,17 @@ export class CdpClient {
         reject(new Error(`inspector timeout: ${method}`));
       }, DEBUG_REQUEST_TIMEOUT_MS);
       this.pending.set(id, { resolve, reject, timer });
-      try {
-        socket.send(JSON.stringify({ id, method, ...(params ? { params } : {}) }));
-      } catch (err) {
+      const failed = (err: Error): void => {
+        if (!this.pending.delete(id)) return;
         clearTimeout(timer);
-        this.pending.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
+        reject(err);
+      };
+      try {
+        socket.send(JSON.stringify({ id, method, ...(params ? { params } : {}) }), (err) => {
+          if (err) failed(err);
+        });
+      } catch (err) {
+        failed(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }
@@ -130,6 +190,10 @@ export class CdpClient {
   dispose(reason: string): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.discoveryAbort?.abort();
+    this.discoveryAbort = null;
+    this.rejectConnect?.(new Error(reason));
+    this.rejectConnect = null;
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
       p.reject(new Error(reason));
@@ -138,7 +202,7 @@ export class CdpClient {
     const socket = this.socket;
     this.socket = null;
     if (socket) {
-      socket.removeAllListeners();
+      socket.removeAllListeners('message');
       try { socket.close(); } catch { /* 이미 닫힘 */ }
     }
   }
@@ -146,7 +210,7 @@ export class CdpClient {
   private handleClosed(reason: string): void {
     if (this.disposed) return;
     this.dispose(reason);
-    this.onClosed(reason);
+    try { this.onClosed(reason); } catch (err) { logger.warn('[cdp] close handler failed', err); }
   }
 
   private handleMessage(raw: string): void {
@@ -156,6 +220,7 @@ export class CdpClient {
     } catch {
       return;
     }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
     const msg = parsed as {
       id?: number;
       result?: Record<string, unknown>;

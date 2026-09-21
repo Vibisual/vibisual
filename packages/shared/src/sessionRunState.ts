@@ -84,11 +84,83 @@ export function isSessionRunning(inputs: SessionRunInputs): boolean {
 }
 
 /**
+ * **줄만 서 있는가** — 돌고 있지는 않은데 낼 일이 남은 상태.
+ *
+ * `isSessionRunning` 이 `hasQueuedCommand` 를 일부러 빼면서 생긴 구멍을 이 술어가 메운다. 종전에는
+ * 호출부가 제각기 `status === 'executing' || status === 'queued'` 를 손으로 적었고, 그 손글씨가 곧
+ * **두 번째 술어 벌**이 되어 화면마다 다른 답을 냈다. 나눠야 할 곳은 나누되 **이름 붙인 술어를 골라
+ * 쓰게** 한다 — 호출부에서 명령 상태 문자열을 다시 비교하지 마라.
+ */
+export function isSessionWaiting(inputs: SessionRunInputs): boolean {
+  return !isSessionRunning(inputs) && inputs.hasQueuedCommand;
+}
+
+/**
  * 이 에이전트/세션에 **아직 낼 일이 남았는가** — 도는 중이거나, 큐에 대기 중이거나.
  * 커맨드센터 레인 ④(§5.12 (B))가 "작업 중"으로 묶는 범위가 이것이다.
  */
 export function hasSessionWork(inputs: SessionRunInputs): boolean {
   return isSessionRunning(inputs) || inputs.hasQueuedCommand;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * **무응답 축** — "돌고 있다"와 "얼마나 조용한가"는 서로 다른 사실이다.
+ *
+ * 화면이 `running` 하나만 그리면 사용자는 **끝난 것인지, 끊긴 것인지, 이어서 하는 것인지** 구별할
+ * 수단이 전혀 없다(사용자 보고 — "실행 중"만 떠 있고 얼마나 멈춰 있는지도, 어떻게 빠져나가는지도
+ * 알려주지 않는다). 그래서 실행 축 위에 **마지막 움직임으로부터 흐른 시간**을 한 겹 얹는다.
+ *
+ * 여기서도 상태를 만들지 않는다(§3.1) — 마지막 활동 시각은 서버가 준 사실이고, 이 모듈은 그것과
+ * `now` 의 차를 접기만 한다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 이만큼 조용하면 **무응답**으로 본다. 백그라운드 Task 카드
+ * (`IDERunningSubagentsCards`)가 쓰던 3분과 **같은 값**이다 — 같은 뜻의 문턱이 두 벌이면 카드와
+ * 스트림이 서로 다른 때에 경고해 사용자가 어느 쪽을 믿어야 할지 알 수 없게 된다.
+ */
+export const SESSION_NO_RESPONSE_MS = 3 * 60 * 1000;
+
+/** 실행 축 위에 얹는 생존 표시 — `running` 을 **움직이는 중**과 **끊긴 듯함**으로 쪼갠다. */
+export type SessionLiveness =
+  /** 돌고 있고 최근에 움직였다. */
+  | 'running'
+  /** 돌고 있다는데 문턱을 넘도록 아무 소식이 없다 = 사용자에게 탈출구를 줘야 한다. */
+  | 'stalled'
+  /** 돌지는 않고 줄만 서 있다. */
+  | 'waiting'
+  /** 낼 일이 없다. */
+  | 'idle';
+
+/**
+ * 마지막 움직임 이후 흐른 ms. 근거가 없으면(`lastActivityAt` 이 없거나 미래면) `null` —
+ * **모르는 것을 0 으로 적지 않는다**(0 이면 "방금 움직였다"는 거짓말이 된다).
+ */
+export function sessionSilenceMs(lastActivityAt: number | null | undefined, now: number): number | null {
+  if (lastActivityAt === null || lastActivityAt === undefined) return null;
+  if (!Number.isFinite(lastActivityAt) || lastActivityAt <= 0) return null;
+  const delta = now - lastActivityAt;
+  return delta < 0 ? null : delta;
+}
+
+/**
+ * 실행 축 + 침묵 시간 → 화면이 그릴 생존 값 하나.
+ *
+ * `stalled` 는 **도는 중일 때만** 나온다 — 줄 서 있는 세션이 조용한 것은 당연한 일이라 경고할 것이
+ * 없다. 침묵 시각을 모르면(`null`) 절대 `stalled` 로 올리지 않는다(근거 없는 경고 ❌).
+ */
+export function resolveSessionLiveness(
+  inputs: SessionRunInputs,
+  lastActivityAt: number | null | undefined,
+  now: number,
+  thresholdMs: number = SESSION_NO_RESPONSE_MS,
+): SessionLiveness {
+  if (isSessionRunning(inputs)) {
+    const silence = sessionSilenceMs(lastActivityAt, now);
+    return silence !== null && silence >= thresholdMs ? 'stalled' : 'running';
+  }
+  if (inputs.hasQueuedCommand) return 'waiting';
+  return 'idle';
 }
 
 /**

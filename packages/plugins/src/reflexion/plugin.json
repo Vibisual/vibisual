@@ -11,7 +11,7 @@
   ],
   "clientOnly": false,
   "needs": [
-    "agentReports"
+    "autoGoal"
   ],
   "hostApi": 1
 }

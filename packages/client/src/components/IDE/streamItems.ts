@@ -238,6 +238,12 @@ export interface StreamThinkingLive {
   /** `thinking` = 사고 중, `working` = 도구·본문 등 그 외 작업 중. 라벨·색만 가른다(항목은 그대로). */
   mode: 'thinking' | 'working';
   timestamp: number;
+  /**
+   * §2.4 (무응답) — **마지막으로 무언가 온 시각.** 이 줄이 "얼마나 됐는지"를 말하려면 시작점이
+   * 있어야 한다. `timestamp` 와 값이 같아 보여도 뜻이 다르다 — 그쪽은 정렬용(항상 맨 끝이라 쓰이지
+   * 않는다)이고 이쪽은 **경과를 재는 시계**다. 근거가 없으면 `null`(0 으로 적지 않는다).
+   */
+  lastActivityAt: number | null;
 }
 
 /**
@@ -527,7 +533,18 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
   return items;
 }
 
-function computeAgentBusy(commands: readonly QueuedCommand[] | undefined): boolean {
+/**
+ * 이 스트림이 **작동 중인가** — 라이브 1줄과 도구 블록의 `isActive` 가 이 값 하나를 본다.
+ *
+ * ⚠ `override` 가 주어지면 **그것이 답이다.** 명령 목록만으로 내리는 판정은 두 군데서 거짓말을 한다:
+ *  · 화면에 건네는 목록은 `displayCommands` 를 거친 **표시용 사본**이라 조용한 압축이 감춰져 있고,
+ *    뒤에 선 대기 명령이 `executing` 으로 그려져 있다(생존 판정에 써서는 안 되는 값이다).
+ *  · 봉인이 만료돼 되살아난 세션은 `SubAgent.status` 만 `active` 이고 명령은 아카이브로 옮겨져 있다.
+ * 그래서 호출부(IDE 본문)가 공유 술어(`hasSessionWork`)로 **원본 큐 + 세션 필터** 위에서 낸 답을
+ * 내려보내고, 이 함수는 그것이 없을 때만 종전 방식으로 추정한다.
+ */
+function computeAgentBusy(commands: readonly QueuedCommand[] | undefined, override?: boolean): boolean {
+  if (override !== undefined) return override;
   return !!commands && commands.some((c) => c.status === 'executing' || c.status === 'queued');
 }
 
@@ -582,7 +599,12 @@ function computeThinkingLive(events: SubAgentStreamEvent[], agentBusy: boolean):
   const lastRaw = events[events.length - 1];
   const mode = lastRaw && isThinkingActivity(lastRaw) ? 'thinking' : 'working';
   // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
-  return { kind: 'thinking-live', id: 'thinking-live', mode, timestamp: lastRaw?.timestamp ?? 0 };
+  // §2.4 (무응답) — 경과를 재는 시계는 **마지막 이벤트 시각**이다. 한 건도 없으면 `null`(모름).
+  return {
+    kind: 'thinking-live', id: 'thinking-live', mode,
+    timestamp: lastRaw?.timestamp ?? 0,
+    lastActivityAt: lastRaw?.timestamp ?? null,
+  };
 }
 
 // ─── 1단계: 전체 재구축(참조 구현) ───
@@ -591,10 +613,15 @@ function computeThinkingLive(events: SubAgentStreamEvent[], agentBusy: boolean):
  * events + commands 만으로 base 아이템을 빌드(카드 제외). O(전체 길이).
  * IncrementalStreamParser 의 정답지이자, 증분이 불가능한 변화의 폴백 경로.
  */
-export function buildBaseItems(events: SubAgentStreamEvent[], commands?: readonly QueuedCommand[]): BaseItemsResult {
+export function buildBaseItems(
+  events: SubAgentStreamEvent[],
+  commands?: readonly QueuedCommand[],
+  /** §2.4 — 호출부가 공유 술어로 낸 생존 판정. 주면 이것이 답이다(`computeAgentBusy` 주석 참조). */
+  agentBusyOverride?: boolean,
+): BaseItemsResult {
   // §5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 **그 턴의 말이 버퍼에 남아 있는지**로 턴마다 갈린다.
   const items: StreamItemFull[] = buildCommandItems(commands, turnCoverageOf(events, dispatchedTurnAnchorsAsc(commands)));
-  const agentBusy = computeAgentBusy(commands);
+  const agentBusy = computeAgentBusy(commands, agentBusyOverride);
 
   // 1차 패스: tool_use ↔ tool_result FIFO 페어링 (서버가 tool_use_id를 노출하지 않으므로 발생 순서 기반)
   const resultByToolIdx = new Map<number, number>();
@@ -1192,8 +1219,13 @@ export class IncrementalStreamParser {
   }
 
   /** 매 틱 호출 — 이벤트 파생 base 를 반환(BaseItemsResult 형태). */
-  sync(events: SubAgentStreamEvent[], commands?: readonly QueuedCommand[]): BaseItemsResult {
-    const agentBusy = computeAgentBusy(commands);
+  sync(
+    events: SubAgentStreamEvent[],
+    commands?: readonly QueuedCommand[],
+    /** §2.4 — 호출부가 공유 술어로 낸 생존 판정(`buildBaseItems` 와 같은 뜻·같은 자리). */
+    agentBusyOverride?: boolean,
+  ): BaseItemsResult {
+    const agentBusy = computeAgentBusy(commands, agentBusyOverride);
     const cmdKey = cmdTsKey(commands, agentBusy);
 
     if (!this.canAppend(events, cmdKey)) {

@@ -5,11 +5,12 @@ import cors from 'cors';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { resolveBinary } from './services/binLocator.js';
+import { getAppNodeRuntime } from './services/appNodeRuntime.js';
+import { computeDelegationStrip, applyDelegationStrip, resolveEdgeCommandMode, resolveEffectiveDelegationPolicy, hasUsableTools, type DelegationStripDecision } from './services/taskEdgeDelegation.js';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_STEP_SKILLS_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, CONTEXT_SCOPE_LEVELS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_DEFAULTS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_STEP_SKILLS_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, CONTEXT_SCOPE_LEVELS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
 } from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind, ChatCommandTarget, ChatCommandSession } from '@vibisual/shared';
 import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
@@ -59,7 +60,6 @@ import { TOKEN_SAVER_LIMITS, DEFAULT_TOKEN_SAVER_SETTINGS, normalizeTokenSaverSe
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
 // §5.5 #17-35 — 검증(Verify): 프롬프트 조립·판정 해석은 화면 없이 시험되는 순수 모듈에 있다.
 import {
-  buildVerifyPrompt,
   buildVerifyReworkPrompt,
   parseVerificationVerdict,
   recordedSkillRecipe,
@@ -67,6 +67,14 @@ import {
   NO_RECIPE,
 } from './services/verificationPrompt.js';
 import type { VerifyRecipeInfo } from './services/verificationPrompt.js';
+import { createVerificationFrameUpload } from './services/verificationFrameUpload.js';
+import { verificationScopeError } from './services/verificationScope.js';
+import { VerificationAutomationService, buildVerificationAutomationPrompt, verificationToolHandler } from './services/verificationAutomation.js';
+import { getVerificationAutomationAdapter } from './services/verificationAutomationAdapter.js';
+export { setVerificationAutomationAdapter } from './services/verificationAutomationAdapter.js';
+export type { VerificationAutomationAdapter, VerificationObservation } from './services/verificationAutomationAdapter.js';
+import { parseVerificationTarget, parseVerificationAction, parseVerificationCheck, type VerificationTarget } from '@vibisual/shared';
+import { resolveVerificationDemoFrames } from './services/verificationFrames.js';
 import { calculateTokenCost, resolveAliasToLatest } from '@vibisual/shared';
 // §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
 import type { CommandDispatchMode } from '@vibisual/shared';
@@ -125,9 +133,13 @@ import {
 import {
   deleteAutoGoalSkill,
   getAutoGoalState,
+  listAutoGoalSkills,
   readAutoGoalSkillBody,
   buildAutoGoalPromptBlock,
 } from './services/autoGoalService.js';
+import { buildAutoGoalAgentProtocol } from './services/autoGoalAgentProtocol.js';
+import { mountAutoGoalLifecycleRoutes } from './services/autoGoalLifecycleRoutes.js';
+import { buildAutoGoalHookContext } from './services/autoGoalHookContext.js';
 // §5.3 #10-4 오케스트라(지휘 모드) — 켬/끔 2층 · 세부 설정 · 지휘 규칙은 shared, 판정은 orchestraRuntime.
 import {
   ORCHESTRA_SCOPE_ORDER,
@@ -135,6 +147,9 @@ import {
   buildOrchestraConductorRules,
   clipOrchestraRequest,
   normalizeOrchestraSettings,
+  orchestraEnginePreparation,
+  orchestraPreparationForRequest,
+  orchestraReadyEngines,
   resolveOrchestraEnabled,
   validateOrchestraPlan,
   withOrchestraScope,
@@ -143,6 +158,15 @@ import {
   type OrchestraMemberRef,
   type OrchestraRun,
   type OrchestraScope,
+  CONFIG_TRIM_SCOPE_ORDER,
+  applyConfigTrimSettingsPatch,
+  computeConfigTrim,
+  configTrimContextOf,
+  normalizeConfigTrimSettings,
+  resolveConfigTrimEnabled,
+  withConfigTrimScope,
+  type ConfigTrimRun,
+  type ConfigTrimScope,
 } from '@vibisual/shared';
 import {
   addOrchestraMember,
@@ -151,13 +175,17 @@ import {
   buildConductorTurnConfig,
   checkOrchestraKickoff,
   checkOrchestraMemberCreate,
+  checkOrchestraPlanGraph,
   collectOrchestraMemberIds,
   orchestraEngineOf,
+  orchestraMemberProviderAllowed,
   orchestraRunIdForCommand,
   settleConductorTurn,
   shouldInterceptOrchestra,
   type OrchestraCheck,
 } from './services/orchestraRuntime.js';
+import { ensureOrchestraEntryEdge, ensureOrchestraMemberReturns, orchestraRunForDispatch } from './services/orchestraDispatch.js';
+import { OrchestraResultCollector } from './services/orchestraResultCollector.js';
 import type { SpecReadingScope, SpecReadingSettings } from '@vibisual/shared';
 import { specReadingService } from './services/specReadingService.js';
 
@@ -287,6 +315,9 @@ import { codexAuthService } from './services/codexAuthService.js';
 import { codexSetupService } from './services/codexSetupService.js';
 import { codexModelService } from './services/codexModelService.js';
 import { codexInventoryService } from './services/codexInventoryService.js';
+import { SkillSharingService } from './services/skillSharingService.js';
+import { mountSkillSharingRoutes } from './services/skillSharingRoutes.js';
+import { buildCodexContextArgs, readCodexDeveloperInstructions } from './services/codexContextSources.js';
 import { readCodexEffectiveConfigFor } from './services/codexConfigService.js';
 import { codexReviewService } from './services/codexReviewService.js';
 import { isCodexImageFile } from './services/codexStreamMap.js';
@@ -311,6 +342,7 @@ import {
 } from './services/voiceRecognizerService.js';
 import { getLocalHardware, invalidateLocalHardware } from './services/localHardwareService.js';
 import { toLocalHookPayload } from './services/localHookPayload.js';
+import { prepareLocalModelSelection } from './services/localModelConfig.js';
 import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, listRepoFiles, searchCatalog, setModelDownloadedHook } from './services/localModelService.js';
 import { listLoadedModels, verifyModelOutput } from './services/localRunner.js';
 import { getLocalSampling } from './services/localSamplingService.js';
@@ -360,6 +392,7 @@ import { logger } from './logger.js';
 import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/diskWriteQueue.js';
 import { CheckpointCoalescer, setActiveCheckpointCoalescer } from './services/checkpointCoalescer.js';
 import { diagnosticService } from './services/diagnosticService.js';
+import { createSnapshotBroadcastScheduler } from './services/snapshotBroadcastScheduler.js';
 
 // §3.7 — desktop in-process 진입점이 server 코어를 라이브러리로 쓰기 위한 re-export.
 // `@vibisual/server` 단일 import 지점에서 코어 API를 모두 가져갈 수 있게 한다.
@@ -1259,7 +1292,21 @@ export async function runServer(): Promise<RunServerHandle> {
             recovery = buildRecoveryBlock(marker.outcome.notCarried);
           }
         }
-        const additionalContext = enforcement + recovery;
+        const procedures = buildAutoGoalHookContext(body, {
+          agentBySession: (sessionId) => graphManager.getAgentBySession(sessionId),
+          isManagedSession: (sessionId) => Boolean(subAgentManager.findSubBySessionId(sessionId)),
+          rootForAgent: (agentId) => {
+            const root = graphManager.getProjectPathForAgent(agentId);
+            return root ? graphManager.resolveAutoGoalRoot(root) : null;
+          },
+          settings: (root) => graphManager.getAutoGoalSettings(root),
+          contextEnabled: (agentId, sessionId) => isContextSourceOn(overrides, {
+            projectKey: graphManager.getAgentProjectName(agentId), agentId, subAgentId: sessionId,
+          }, CONTEXT_SOURCE_IDS.autoGoalSkills),
+          ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
+          log: (error) => logger.warn('[auto-goal] external hook context failed', error as Error),
+        });
+        const additionalContext = [enforcement, recovery, procedures].filter(Boolean).join('\n\n');
         if (additionalContext) {
           res.json({
             continue: true,
@@ -2367,9 +2414,15 @@ export async function runServer(): Promise<RunServerHandle> {
    *  명시적으로 저장된 `AgentConfig.tools === []` 는 "모든 도구 제거" → skip 대상.
    *  cfg 자체가 undefined(한 번도 저장 안 됨)이면 CLI 기본 툴셋 상속이라 skip 아님. */
   function isEdgeTargetViable(edgeTargetAgentId: string): boolean {
-    const cfg = graphManager.getAgentConfig(edgeTargetAgentId);
-    if (cfg && cfg.tools.length === 0) return false;
-    return true;
+    return hasUsableTools(graphManager.getAgentConfig(edgeTargetAgentId));
+  }
+
+  /** §5.3 #12 — **대칭 viability.** 타겟만 보던 판정에 소스를 더한다. 소스 `tools` 가 명시적
+   *  빈 배열이면 dispatch curl 조차 못 돌리므로 그 엣지는 박탈에도 안내에도 실리면 안 된다
+   *  (타겟이 빈 배열이면 무효로 보던 것과 같은 이유 — 한쪽만 보면 비대칭이다). */
+  function isTaskEdgeViable(edge: TaskEdge): boolean {
+    if (!isEdgeTargetViable(edge.targetAgentId)) return false;
+    return hasUsableTools(graphManager.getAgentConfig(edge.sourceAgentId));
   }
 
   /** v1.33 — outbound Task Edge 자동 rules 섹션. subagent 스폰 직전에 호출되어 런타임 조회로
@@ -2378,8 +2431,18 @@ export async function runServer(): Promise<RunServerHandle> {
    *  v1.38 — 타겟 도구가 빈 배열인 엣지는 viability 필터로 제외(프롬프트 정책 소실 == 삭제와 동등). */
   function buildOutboundEdgesRulesSection(agentId: string): string {
     const allOutbound = graphManager.getOutboundTaskEdges(agentId);
-    const outbound = allOutbound.filter((e) => isEdgeTargetViable(e.targetAgentId));
-    if (outbound.length === 0) return '';
+    const outbound = allOutbound.filter((e) => isTaskEdgeViable(e));
+    // §5.3 #12 — 나가는 엣지가 있는데 전부 무효면 **빈 문자열로 삼키지 않는다.** 안내가 통째로
+    //   사라지면 모델은 위임 경로가 있다는 사실조차 모른 채 혼자 하겠다고 턴을 끝낸다.
+    if (outbound.length === 0) {
+      if (allOutbound.length === 0) return '';
+      return [
+        '', '', '# 연결된 위임 엣지 (자동)', '',
+        `연결된 엣지 ${allOutbound.length}개가 전부 **사용 불가** 상태입니다 — 양끝 중 한쪽의 도구 목록이 비어 있습니다. 이 턴에는 위임할 수 없으니 직접 처리하고, 사용자에게 두 에이전트의 Tools 설정을 확인해 달라고 알리세요.`,
+      ].join('\n');
+    }
+    // §5.3 #12 — 배지는 실제 집행 결과를 따라간다(박탈이 안전선에 걸려 취소됐을 수 있다).
+    const stripDecision = computeDelegationStripDecision(agentId);
     const allAgents = graphManager.getSnapshot().agents;
     // §3.7 v2.8 — dispatch curl 은 소스 커스텀 에이전트(외부 `claude` 프로세스)가 실행한다.
     // 외부 프로세스는 renderer↔server IPC 를 못 쓰므로 in-process 서버에 닿으려면 hook
@@ -2431,15 +2494,21 @@ export async function runServer(): Promise<RunServerHandle> {
       const modelStr = cfg?.provider?.kind === 'codex-cli' ? cfg.provider.modelId : cfg?.model ?? 'unknown';
       const toolsStr = cfg?.tools && cfg.tools.length > 0 ? cfg.tools.join(', ') : 'default';
       const returnFmt = edge.returnFormat ?? 'summary';
-      const policy = edge.delegationPolicy ?? 'strict';
+      // §5.3 #12 — **표시 = 집행.** 배지를 저장된 `delegationPolicy` 에서 뽑던 것을 strip 이 읽는
+      //   것과 같은 해석 함수로 옮긴다. policy=auto + commandMode=tool-delegation 엣지가
+      //   "판단 위임"으로 표시되면서 실제로는 도구가 걷히던 어긋남이 여기서 없어진다.
+      const policy = resolveEffectiveDelegationPolicy(edge);
       const policyBadge = policy === 'strict' ? '**[Policy=STRICT — 의무 위임]**' : '**[Policy=AUTO — 판단 위임]**';
       // v1.44 — commandMode (kind='command' 한정) 안내. mode-delegation 의 경우 LLM 이 도구는 가지고 있어도
-      //         "이 작업은 반드시 위임" 임을 인지하도록 명시. tool-delegation 은 strip 으로 자연 강제되지만
-      //         프롬프트에도 표시해 일관성 유지.
-      const kind = edge.kind ?? 'command';
-      const cmdMode = kind === 'command' ? (edge.commandMode ?? (policy === 'strict' ? 'tool-delegation' : 'shared')) : null;
+      //         "이 작업은 반드시 위임" 임을 인지하도록 명시.
+      const cmdMode = resolveEdgeCommandMode(edge);
+      // 박탈이 안전선에 걸려 취소됐으면 "박탈됨"이라고 말하지 않는다 — 있지도 않은 제약을 믿고
+      //   모델이 제 도구를 안 쓰게 된다(그 상태가 곧 "계획만 말하고 끝나는 턴"이다).
+      const stripApplied = stripDecision.applied && stripDecision.strippingEdgeIds.includes(edge.id);
       const cmdModeBadge = cmdMode === 'tool-delegation'
-        ? '**[Mode=TOOL-DELEGATION — 부모에서 도구 박탈됨, dispatch 만 가능]**'
+        ? (stripApplied
+          ? '**[Mode=TOOL-DELEGATION — 부모에서 도구 박탈됨, dispatch 만 가능]**'
+          : '**[Mode=TOOL-DELEGATION — 위임 의무는 유지, 단 이번 턴 도구 박탈은 미적용(박탈하면 부모에게 남는 도구가 없어짐)]**')
         : cmdMode === 'mode-delegation'
           ? '**[Mode=MODE-DELEGATION — 도구는 공유되지만 이 작업은 반드시 위임할 것]**'
           : cmdMode === 'shared'
@@ -2464,36 +2533,27 @@ export async function runServer(): Promise<RunServerHandle> {
     return lines.join('\n');
   }
 
-  /** v1.37 — STRICT outbound 엣지 기반 tools strip set 계산.
-   *  - outbound 중 박탈 모드인 엣지의 각 타겟 agentConfig.tools 를 합집합
+  /** v1.37 — 박탈 모드 outbound 엣지 기반 tools strip 결정.
+   *  - 박탈 모드 엣지의 각 타겟 agentConfig.tools 합집합이 후보
    *  - 엣지 삭제/모드 전환 시 다음 호출에서 자동 축소/소멸 (매 턴 재계산)
    *  - 박탈 모드가 아닌 엣지는 도구 변경 없음 (프롬프트 권고만)
-   *  - 툴 구성은 사용자 책임 (Bash 포함 특수 보호 없음).
-   *  v1.38 — 타겟 tools 가 빈 배열인 엣지는 viability 필터로 skip.
-   *  v1.44 — `commandMode` 도입. 박탈 조건을 `delegationPolicy === 'strict'` 단일 축에서
-   *          `commandMode === 'tool-delegation'` 으로 이동. 후방호환:
-   *          - kind !== 'command' (artifact/request/critique): 박탈 ❌
-   *          - commandMode === 'tool-delegation': 박탈 ✅
-   *          - commandMode === 'shared' | 'mode-delegation': 박탈 ❌
-   *          - commandMode === undefined (기존 엣지): delegationPolicy === 'strict' 일 때만 박탈
-   *            (= v1.37~v1.43 거동 그대로 보존). 신규 엣지는 기본 'shared' 라 박탈 안 됨. */
-  function computeStrictStripSet(agentId: string): Set<string> {
-    const outbound = graphManager.getOutboundTaskEdges(agentId);
-    const stripping = outbound.filter((e) => {
-      if (!isEdgeTargetViable(e.targetAgentId)) return false;
-      if ((e.kind ?? 'command') !== 'command') return false;
-      if (e.commandMode !== undefined) return e.commandMode === 'tool-delegation';
-      // Legacy fallback: undefined commandMode + strict policy = pre-v1.44 strip behavior.
-      return (e.delegationPolicy ?? 'strict') === 'strict';
+   *  v1.38 — 양끝 도구가 빈 엣지는 대칭 viability 로 skip (`isTaskEdgeViable`).
+   *  v1.44 — 박탈 게이트를 `delegationPolicy` 에서 `commandMode` 로 이동. 그 해석은
+   *          `resolveEdgeCommandMode` **한 곳**에만 있다 — 프롬프트 배지도 같은 함수를 쓴다.
+   *  §5.3 #12 — **안전선 둘은 `computeDelegationStrip` 안에 있다**: ① 위임 수단(Bash) 불가침
+   *          ② 박탈이 소스 도구를 전멸시키면 그 박탈을 통째로 취소. 이 둘이 없으면 타겟이
+   *          기본값(전체 48종)일 때 소스가 `--tools ""` 로, 즉 도구 0개로 스폰돼 직접 작업도
+   *          위임도 못 한다(Codex 소스는 `restrictedTools` 를 타고 shell·web 까지 꺼진다). */
+  function computeDelegationStripDecision(agentId: string): DelegationStripDecision {
+    const sourceCfg = graphManager.getAgentConfig(agentId);
+    const sourceViable = hasUsableTools(sourceCfg);
+    return computeDelegationStrip({
+      edges: graphManager.getOutboundTaskEdges(agentId),
+      // 설정 미저장이면 스폰도 DEFAULT_AGENT_CONFIG 로 간다 — 전멸 판정도 같은 목록을 봐야 한다.
+      sourceTools: sourceCfg?.tools ?? DEFAULT_AGENT_CONFIG.tools,
+      targetToolsOf: (id) => graphManager.getAgentConfig(id)?.tools,
+      isEdgeViable: (e) => sourceViable && isEdgeTargetViable(e.targetAgentId),
     });
-    if (stripping.length === 0) return new Set();
-    const strip = new Set<string>();
-    for (const edge of stripping) {
-      const cfg = graphManager.getAgentConfig(edge.targetAgentId);
-      const tools = cfg?.tools ?? [];
-      for (const t of tools) strip.add(t);
-    }
-    return strip;
   }
 
   /*
@@ -2606,10 +2666,10 @@ export async function runServer(): Promise<RunServerHandle> {
     // §4 (CLI 사양 추종) — 에이전트 자율 압축 창구. 켠 에이전트에게만 실리므로 끄면 바이트 0.
     //   `subAgentId` 가 없는 경로(첫 스폰 전 등)에서는 신고할 대상이 없으니 안내도 넣지 않는다
     //   — 부를 수 없는 창구를 알려 주는 것은 없는 손잡이를 그리는 것과 같다.
-    parts.push({
+    if (agentConfig?.provider?.kind !== 'codex-cli') parts.push({
       id: CONTEXT_SOURCE_IDS.compactSelf,
       text: (agentConfig?.agentCanCompact === true && subAgentId)
-        ? buildAgentSelfCompactRule(agent.id, subAgentId, agentRuleShell(agentConfig?.provider?.kind === 'codex-cli' ? 'codex' : 'claude', HOST_PLATFORM))
+        ? buildAgentSelfCompactRule(agent.id, subAgentId, agentRuleShell('claude', HOST_PLATFORM))
         : '',
     });
     // §5.26 (E) 3단계 — 압축 뒤 **딱 한 턴만** 실리는 복원 브리핑. 평소에는 빈 줄(0자)이다.
@@ -2733,12 +2793,21 @@ export async function runServer(): Promise<RunServerHandle> {
     const autoGoalRoot = projectRoot;
     if (autoGoalRoot) {
       try {
+        const procedureSessionId = subAgentId ?? graphManager.findSessionByAgentId(agent.id);
         const block = buildAutoGoalPromptBlock(
           autoGoalRoot,
           graphManager.getAutoGoalSettings(autoGoalRoot),
-          { agentId: agent.id, subAgentId: subAgentId ?? null },
+          { agentId: agent.id, subAgentId: procedureSessionId },
+          input.commandText,
         );
-        if (block) parts.push({ id: CONTEXT_SOURCE_IDS.autoGoalSkills, text: block, defaultEnabled: true });
+        if (block) parts.push({
+          id: CONTEXT_SOURCE_IDS.autoGoalSkills,
+          text: procedureSessionId ? `${block}\n\n${buildAutoGoalAgentProtocol({
+            root: autoGoalRoot, agentId: agent.id, subAgentId: procedureSessionId,
+            ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
+          })}` : block,
+          defaultEnabled: true,
+        });
       } catch (e) {
         // 절차 목록을 못 실었다고 명령이 멈추면 안 된다 — 다음 턴이 다시 시도한다.
         logger.warn('[auto-goal] prompt block failed', e as Error);
@@ -2861,17 +2930,38 @@ export async function runServer(): Promise<RunServerHandle> {
   const orchestraTurnConfigs = new Map<string, { agentId: string; commandId: string; config: AgentConfig }>();
 
   /** 권한 창구가 볼 설정 — 그 세션이 지휘 턴 중이면 덮어쓴 설정, 아니면 저장된 설정. */
+  /*
+   * §5.3 #10-5 — 설정 덜어내기가 **이 턴에만** 깎은 사본. 키는 그 턴의 subAgentId.
+   *   지휘 사본(위) 위에 얹히므로 권한 창구는 실제로 스폰된 설정과 같은 것을 본다.
+   *   턴이 끝나거나 명령을 지우면 오케스트라 사본과 **같은 자리**에서 함께 내린다.
+   */
+  const configTrimTurnConfigs = new Map<string, { agentId: string; commandId: string; config: AgentConfig }>();
+
   function agentConfigForTurn(agentId: string, subAgentId: unknown): AgentConfig | undefined {
+    const trimmed = typeof subAgentId === 'string' ? configTrimTurnConfigs.get(subAgentId) : undefined;
+    if (trimmed && trimmed.agentId === agentId) return trimmed.config;
     const overlay = typeof subAgentId === 'string' ? orchestraTurnConfigs.get(subAgentId) : undefined;
     if (overlay && overlay.agentId === agentId) return overlay.config;
     return graphManager.getAgentConfig(agentId);
   }
 
-  /** 오케스트라 판정 실패를 REST 로 그대로 돌려준다(상한 판정이면 그 값도 함께). */
+  /** 설치·로그인 probe 캐시를 UI와 같은 준비 판정에 넘긴다. */
+  function currentOrchestraReadiness() {
+    return {
+      claudeSetup: graphManager.getClaudeSetup(),
+      claudeAuth: graphManager.getClaudeAuth(),
+      codexSetup: graphManager.getCodexSetup(),
+      codexAuth: graphManager.getCodexAuth(),
+    };
+  }
+
+  /** 오케스트라 판정 실패와 필요한 준비 단계를 REST로 돌려준다. */
   function respondOrchestraCheck(res: express.Response, check: Extract<OrchestraCheck, { ok: false }>): void {
     res.status(check.status).json({
       ok: false,
       error: check.error,
+      ...(check.ids ? { ids: check.ids } : {}),
+      ...(check.preparation ? { preparation: check.preparation } : {}),
       ...(check.limit !== undefined ? { limit: check.limit, current: check.current } : {}),
     });
   }
@@ -2894,6 +2984,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const engine = orchestraEngineOf(base);
     if (!engine) return null;
     const settings = graphManager.getOrchestraSettings(run.projectPath);
+    const readyEngines = orchestraReadyEngines(currentOrchestraReadiness());
     const agents = graphManager.getSnapshot().agents;
     const existingMembers: OrchestraMemberRef[] = [];
     for (const id of collectOrchestraMemberIds(graphManager.getOrchestraRuns(run.projectPath), agent.id)) {
@@ -2901,6 +2992,8 @@ export async function runServer(): Promise<RunServerHandle> {
       if (!node?.customCreated) continue; // 지워진 멤버는 싣지 않는다 — 없는 path 로 킥오프하게 된다.
       const cfg = graphManager.getAgentConfig(id);
       const memberEngine = orchestraEngineOf(cfg);
+      if (!memberEngine || !readyEngines.includes(memberEngine)
+        || !orchestraMemberProviderAllowed(settings, cfg?.provider?.kind, engine)) continue;
       const model = memberEngine === 'codex' ? cfg?.provider?.modelId : memberEngine === 'claude' ? cfg?.model : undefined;
       existingMembers.push({
         id,
@@ -2910,7 +3003,7 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(model ? { model } : {}),
       });
     }
-    const memberSet = new Set(existingMembers.map((m) => m.id));
+    const memberSet = new Set([agent.id, ...existingMembers.map((m) => m.id)]);
     const existingEdges: OrchestraEdgeRef[] = Object.values(graphManager.getTaskEdgesSnapshot())
       .filter((e) => memberSet.has(e.sourceAgentId) && memberSet.has(e.targetAgentId))
       .map((e) => ({
@@ -2924,16 +3017,64 @@ export async function runServer(): Promise<RunServerHandle> {
       serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
       projectName: graphManager.getAgentProjectName(agent.id),
       runId: run.runId,
+      conductorAgentId: agent.id,
+      conductorSubAgentId: cmd.subAgentId ?? '',
       centerX: agent.position?.x ?? 0,
       centerY: agent.position?.y ?? 0,
       settings,
       existingMembers,
       existingEdges,
       conductorEngine: engine,
+      readyEngines,
       // 절차의 셸 문법 — Windows 의 Codex 지휘자는 PowerShell 로 명령을 돌린다(`orchestraConductorShell`).
       platform: HOST_PLATFORM,
     });
     return { config: buildConductorTurnConfig(base, settings, engine, stripped), rules };
+  }
+
+  /**
+   * §5.3 #10-5 — 이 명령의 자리에 **설정 덜어내기**가 켜져 있으면 이 턴 사본을 깎고 기록을 남긴다.
+   * 꺼져 있으면(기본) 아무것도 하지 않고 `null` — 이 기능이 없던 때와 조립 결과가 같다.
+   *
+   * 기록은 **덜어낸 게 없어도** 남긴다(배제 목록만 보여 주는 턴이 있다).
+   * 사본은 실제로 덜어낸 게 있을 때만 돌려준다 — 없으면 원본을 그대로 쓰는 편이 싸고 같다.
+   * 저장된 `AgentConfig` 는 이 함수 어디에서도 쓰이지 않는다(`computeConfigTrim` 이 얕은 사본을 판다).
+   */
+  function prepareConfigTrimTurn(
+    agent: BubbleData,
+    cmd: QueuedCommand,
+    base: AgentConfig,
+  ): { config: AgentConfig; run: ConfigTrimRun } | null {
+    const root = graphManager.getConfigTrimRootForAgent(agent.id);
+    if (!root) return null;
+    const settings = graphManager.getConfigTrimSettings(root);
+    const ids = { agentId: agent.id, subAgentId: cmd.subAgentId ?? undefined };
+    if (!resolveConfigTrimEnabled(settings, ids)) return null;
+    // 로컬 엔진은 CLI 인자 축이 없다 — 규칙 표의 전제(플래그 조립)가 성립하지 않으니 손대지 않는다.
+    const engine = orchestraEngineOf(base);
+    if (!engine) return null;
+    const registry = modelRegistryService.getRegistry();
+    const result = computeConfigTrim(base, configTrimContextOf({
+      engine,
+      config: base,
+      // **확인된 목록일 때만** 넘긴다 — 공개 문서 시드로 모델 핀을 지우면 안 된다(모르면 두는 쪽).
+      knownModelIds: registry.sourceMix === 'api-merged' ? registry.entries.map((e) => e.id) : undefined,
+      // 설치된 CLI 도움말에서 읽어낸 등급만. 못 읽었으면 undefined → 그 규칙은 배제 목록으로 간다.
+      knownEfforts: registry.effortLevels,
+      disabledRules: settings?.disabledRules,
+    }));
+    const run: ConfigTrimRun = {
+      runId: `ct_${cmd.id}`,
+      agentId: agent.id,
+      subAgentId: cmd.subAgentId ?? '',
+      commandId: cmd.id,
+      engine,
+      startedAt: Date.now(),
+      trimmed: result.trimmed,
+      excluded: result.excluded,
+    };
+    if (graphManager.addConfigTrimRun(root, run)) scheduleCheckpoint();
+    return result.trimmed.length > 0 ? { config: result.config, run } : null;
   }
 
   /**
@@ -2949,14 +3090,21 @@ export async function runServer(): Promise<RunServerHandle> {
       if (cmd.subAgentId && orchestraTurnConfigs.get(cmd.subAgentId)?.commandId === cmd.id) {
         orchestraTurnConfigs.delete(cmd.subAgentId);
       }
+      // §5.3 #10-5 — 덜어낸 사본도 같은 자리에서 내린다(남겨 두면 다음 턴의 권한 판정이 옛 사본을 본다).
+      if (cmd.subAgentId && configTrimTurnConfigs.get(cmd.subAgentId)?.commandId === cmd.id) {
+        configTrimTurnConfigs.delete(cmd.subAgentId);
+      }
       if (runs.length === 0) continue;
       const runId = orchestraRunIdForCommand(runs, cmd, ownerAgentId);
       if (!runId) continue;
       graphManager.updateOrchestraRun(runId, (r) => {
-        const next = settleConductorTurn(addOrchestraRunTokens(r, cmd.inputTokens ?? 0, cmd.outputTokens ?? 0), cmd, now);
+        const next = settleConductorTurn(addOrchestraRunTokens(r, cmd.inputTokens ?? 0, cmd.outputTokens ?? 0), cmd, now,
+          cmd.subAgentId ? dispatchJobs.listForRequester(cmd.subAgentId) : []);
         if (next !== r) changed = true;
         return next;
       });
+      const settled = graphManager.findOrchestraRun(runId);
+      if (settled?.commandId === cmd.id && settled.phase === 'error') cancelOrchestraWork(runId, 'conductor ended before successful collection');
     }
     if (changed) scheduleCheckpoint();
   }
@@ -2984,12 +3132,13 @@ export async function runServer(): Promise<RunServerHandle> {
     const contextOverrides = graphManager.getContextOverrides();
     const contextProjectKey = graphManager.getAgentProjectName(agent.id);
 
-    // v1.37 — STRICT outbound 엣지가 있으면 타겟이 가진 도구를 소스 allowedTools 에서 박탈.
-    // 매 턴 재계산이라 엣지 삭제·AUTO 전환 시 다음 턴에 자동 복귀 — 별도 cleanup 불필요.
-    // Bash 포함 모든 툴이 strip 대상 — 구성은 사용자 책임.
-    const stripSet = computeStrictStripSet(agent.id);
-    const effectiveConfig = (agentConfig && stripSet.size > 0)
-      ? { ...agentConfig, tools: agentConfig.tools.filter((t) => !stripSet.has(t)) }
+    // v1.37 — 박탈 모드 outbound 엣지가 있으면 타겟이 가진 도구를 소스 allowedTools 에서 박탈.
+    // 매 턴 재계산이라 엣지 삭제·모드 전환 시 다음 턴에 자동 복귀 — 별도 cleanup 불필요.
+    // §5.3 #12 — 위임 수단(Bash)은 절대 걷지 않고, 박탈이 소스를 도구 0개로 만들면 통째로 취소한다.
+    const stripDecision = computeDelegationStripDecision(agent.id);
+    const stripSet = stripDecision.strip;
+    const effectiveConfig = (agentConfig && stripDecision.applied)
+      ? { ...agentConfig, tools: applyDelegationStrip(agentConfig.tools, stripDecision) }
       : agentConfig;
 
     // 이미 executing 중인 subAgentId들 — 이 슬롯은 점유 중
@@ -3096,13 +3245,21 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.3 #10-4 — 오케스트라 지휘 턴이면 **이 턴만** 설정을 덮어쓰고 편성 규칙을 시스템 프롬프트 뒤에 붙인다.
       //   저장된 설정은 그대로다(다음 턴은 평소대로). 권한 창구가 같은 설정으로 판정하도록 턴 동안 표에 올린다.
       const conductor = prepareConductorTurn(agent, next, effectiveConfig ?? DEFAULT_AGENT_CONFIG, stripSet);
-      const turnConfig = conductor?.config ?? effectiveConfig;
+      const baseTurnConfig = conductor?.config ?? effectiveConfig;
+      // §5.3 #10-5 — 설정 덜어내기. **켜 둔 자리의 턴에만** 돈다. 저장된 설정은 손대지 않고 이 턴 사본만 깎는다.
+      //   꺼져 있으면 null 이라 아래 대입이 그대로 이전 값이 된다 — 안 쓰는 사용자는 바이트 단위로 같다.
+      const configTrim = baseTurnConfig ? prepareConfigTrimTurn(agent, next, baseTurnConfig) : null;
+      const turnConfig = configTrim ? configTrim.config : baseTurnConfig;
       const turnAppendSystemPrompt = !conductor
         ? appendSystemPrompt
         : appendSystemPrompt.trim() ? `${appendSystemPrompt}\n\n${conductor.rules}` : conductor.rules;
       if (conductor && next.subAgentId) {
         orchestraTurnConfigs.set(next.subAgentId, { agentId: agent.id, commandId: next.id, config: conductor.config });
         logger.info(`[orchestra] conductor turn ${next.id} (run ${next.orchestraRunId ?? '-'}, sub=${next.subAgentId})`);
+      }
+      if (configTrim && next.subAgentId) {
+        configTrimTurnConfigs.set(next.subAgentId, { agentId: agent.id, commandId: next.id, config: configTrim.config });
+        logger.info('[configTrim] turn ' + next.id + ' trimmed ' + configTrim.run.trimmed.length + ' field(s) (sub=' + next.subAgentId + ')');
       }
       // §5.5 #17-28 ⑧(a) — 공통 규약은 **카드가 하나라도 켜져 있을 때만** 앞세운다. 전부 꺼 두면
       //   공통 규약도 함께 빠져 "끈 기능의 설명만 남는" 상태가 생기지 않는다.
@@ -3124,7 +3281,8 @@ export async function runServer(): Promise<RunServerHandle> {
       //   실패 사유에 적힌 cmdId 로 다음 턴이 다시 dispatch 하지 않고 이어 받는다. 코덱스는 codexEdgeConfig 로 간다.
       const undeliveredForTurn = next.subAgentId ? pendingDispatchResultsFor(next.subAgentId) : [];
       const undeliveredBlock = agentConfig?.provider?.kind === 'codex-cli' ? '' : undeliveredDispatchResultInstructions(undeliveredForTurn);
-      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock;
+      const additionalContext = take(CONTEXT_SOURCE_IDS.compactSelf) + take(CONTEXT_SOURCE_IDS.autoGoalSkills);
+      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
 
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -3134,10 +3292,13 @@ export async function runServer(): Promise<RunServerHandle> {
       //   (첫 스폰 경로는 preamble 을 쓰지 않으니 중복되지 않는다 — `execute` 가 sessionId 유무로 갈라 쓴다.)
       // §5.5 #17-17 ②-2 v4.72 — "의도 먼저 + 계획을 세워라"도 같은 함정 위에 있었다(첫 스폰에만 실리면
       //   두 번째 턴부터는 계획을 세우라는 말을 아무도 안 한다). 짧은 블록이라 매 턴 실어도 비용이 미미하다.
-      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
-      const spawnSwitches = buildSpawnContextSwitches(contextOverrides, ctxScope);
+      const codexTurn = turnConfig?.provider?.kind === 'codex-cli';
+      const spawnSwitches = codexTurn
+        ? { args: [], env: {} }
+        : buildSpawnContextSwitches(contextOverrides, ctxScope);
       // §5.5 #17-28 ⑩ (c) — 우리가 내부적으로 쏘는 `/compact`·`/clear` 가 실리는 턴에는
       //   **슬래시 차단 플래그 하나만** 뺀다. 그 플래그는 사용자 스킬만이 아니라 CLI 내장 명령의
       //   등록까지 막아, 이 표의 어느 줄도 "자동 압축"이라 적혀 있지 않은데 자동 압축이 꺼졌다
@@ -3154,12 +3315,24 @@ export async function runServer(): Promise<RunServerHandle> {
         [AGENT_CARD_ENV_BASE]: `http://127.0.0.1:${hookListenerPort ?? port}`,
         [AGENT_CARD_ENV_TOKEN]: hookListenerToken ?? '',
       };
-      subAgentManager.execute(next, cwd, dispatchContext, turnConfig, livePreamble, {
+      // Codex receives the freshly assembled full context every turn. Its full
+      // context already includes the live blocks; appending them again doubles them.
+      subAgentManager.execute(next, cwd, dispatchContext, turnConfig, codexTurn ? undefined : livePreamble, {
+        ...(graphManager.getVerificationRuns(next.subAgentId ?? '').some((run) => run.target && run.pendingCommandId === next.id) ? {
+          verificationConfig: {
+            helperPath: path.join(path.dirname(hookHandlerPath ?? codexHookContext?.handlerPath ?? ''), 'verification-tools.mjs'),
+            ...getAppNodeRuntime(),
+          },
+        } : {}),
+        ...(codexTurn ? {
+          codexContextArgs: buildCodexContextArgs(contextOverrides, ctxScope, cwd),
+          codexEdgeInstructionsEnabled: isContextSourceOn(contextOverrides, ctxScope, CONTEXT_SOURCE_IDS.edges),
+        } : {}),
         // §5.3 #10-4 — 지휘 턴은 `codexTools.edit = 'deny'` 를 얹은 **그 턴의 설정**으로 훅을 싣는다(평소엔 같은 값이다).
         ...(turnConfig?.provider?.kind === 'codex-cli' && hasCodexToolRestrictions(turnConfig.provider.codexTools) ? {
           codexToolHook: {
             helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
-            nodeBin: resolveBinary('node') ?? '',
+            ...getAppNodeRuntime(),
             policy: turnConfig.provider.codexTools!,
           },
         } : {}),
@@ -3168,7 +3341,7 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(turnConfig?.provider?.kind === 'codex-cli' && agent.customCreated ? {
           codexPermissionHook: {
             helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
-            nodeBin: resolveBinary('node') ?? '',
+            ...getAppNodeRuntime(),
             required: codexPermissionHooksRequired(
               turnConfig.permissionMode,
               graphManager.getAuditBoundary(graphManager.getAgentProjectName(agent.id) ?? ''),
@@ -3177,11 +3350,11 @@ export async function runServer(): Promise<RunServerHandle> {
         } : {}),
         // §5.3 #10-2 위임 조회 — 나가는 엣지가 없어도 조회를 넘겨받은 턴이면 다리를 싣는다(`status` 만, dispatch 는 숨는다).
         //   받지 못한 결과가 남은 턴도 같다 — 그 결과를 이어 받을 `status` 가 있어야 한다.
-        ...(agentConfig?.provider?.kind === 'codex-cli' && (graphManager.getOutboundTaskEdges(agent.id).some((e) => isEdgeTargetViable(e.targetAgentId)) || statusGrantsForTurn.length > 0 || undeliveredForTurn.length > 0) ? {
+        ...(agentConfig?.provider?.kind === 'codex-cli' && (graphManager.getOutboundTaskEdges(agent.id).some((e) => isTaskEdgeViable(e)) || statusGrantsForTurn.length > 0 || undeliveredForTurn.length > 0) ? {
           codexEdgeConfig: {
             helperPath: codexHookContext ? path.join(path.dirname(codexHookContext.handlerPath), 'codex-edges.mjs') : '',
-            nodeBin: resolveBinary('node') ?? '',
-            edgeIds: graphManager.getOutboundTaskEdges(agent.id).filter((e) => isEdgeTargetViable(e.targetAgentId)).map((e) => e.id),
+            ...getAppNodeRuntime(),
+            edgeIds: graphManager.getOutboundTaskEdges(agent.id).filter((e) => isTaskEdgeViable(e)).map((e) => e.id),
             restrictedTools: [...stripSet],
             ...(statusGrantsForTurn.length ? { statusCmdIds: statusGrantsForTurn } : {}),
             ...(undeliveredForTurn.length ? { pendingResults: undeliveredForTurn.map(({ cmdId, status }) => ({ cmdId, status })) } : {}),
@@ -3189,7 +3362,7 @@ export async function runServer(): Promise<RunServerHandle> {
         } : {}),
         customParent: !!agent.customCreated,
         ...(spawnArgs.length > 0 ? { extraArgs: spawnArgs } : {}),
-        extraEnv: { ...cardEnv, ...spawnSwitches.env },
+        extraEnv: { ...cardEnv, ...spawnSwitches.env, VIBISUAL_OWNER_AGENT_ID: agent.id, VIBISUAL_SUBAGENT_ID: next.subAgentId ?? '' },
         ...(turnAppendSystemPrompt.trim() ? { appendSystemPrompt: turnAppendSystemPrompt } : {}),
       });
       // §5.26 (E) — **실어 보낸 뒤에** 못 박는다. 조립 단계에서 찍으면 주입원 표를 여는 것만으로
@@ -3663,9 +3836,8 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   // ─── §5.5 #17-35 — 검증(Verify) ───
   //
-  // `/verify` 는 Claude Code 번들 스킬이라 **실행 로직이 우리에게 없다.** 우리가 하는 일은 셋뿐이다:
-  // ① 실행법(레시피)을 먼저 쥐여 주고, ② 결과를 구조화 판정으로 받아, ③ 이력으로 남긴다.
-  // 실행 자체는 **기존 명령 큐** 그대로다(새 스폰 레일 ❌ — #17-11 ② 와 같은 골격).
+  // 기존 세션 큐가 양 엔진을 실행하고, 새 검수는 앱 소유 도구의 실제 조작·검사·PNG 기록으로 판정한다.
+  // 대상 없는 구형 이력은 아래 완료 경로에서 기존 판정 파서로 읽는다.
 
   /**
    * 이 에이전트에 실어 보낼 실행법을 고른다: 우리 레시피 → 기록된 스킬 → 없음.
@@ -3734,22 +3906,10 @@ export async function runServer(): Promise<RunServerHandle> {
    *
    * 원본은 시연 레코드와 수명이 같다(`removeDemoFrames` 가 유일한 회수 지점). 두 번째 검증에도
    * 같은 파일이 그 자리에 있으므로 사본이 지키려던 것이 저절로 지켜진다.
-   * 실제로 없는 파일은 빼고 돌려준다 — 프롬프트에 열 수 없는 경로를 적으면 모델이 거기서 멈춘다.
+   * 실제로 없는 파일이 하나라도 있으면 시작을 거절한다 — 원래 시연을 줄인 채 판정하면 안 된다.
    */
-  function demoFrameRefsForCommand(demo: VerificationDemo): { path: string; atMs: number }[] {
-    if (demo.frames.length === 0) return [];
-    const srcDir = demoFramesDir(demo.agentId, demo.id);
-    if (!srcDir) return [];
-    const out: { path: string; atMs: number }[] = [];
-    for (const frame of demo.frames.slice(0, VERIFICATION_DEMO_FRAMES_MAX)) {
-      const abs = path.join(srcDir, path.basename(frame.rel));
-      if (!fs.existsSync(abs)) {
-        logger.warn(`[verify] demo frame missing, skipped: ${abs}`);
-        continue;
-      }
-      out.push({ path: abs, atMs: frame.atMs });
-    }
-    return out;
+  function demoFrameRefsForCommand(demo: VerificationDemo): ReturnType<typeof resolveVerificationDemoFrames> {
+    return resolveVerificationDemoFrames(demo, demoFramesDir(demo.agentId, demo.id), fs.existsSync);
   }
 
   /** 시연 하나의 프레임 폴더를 통째로 지운다(레코드가 사라지면 그림도 함께 사라진다). */
@@ -3770,77 +3930,82 @@ export async function runServer(): Promise<RunServerHandle> {
    * 겹쳐 쏘지 않는다 — 그 탭에 안 끝난 명령(사용자가 직접 보낸 것 포함)이 있으면 거절한다.
    * 검증은 앱을 띄우는 일이라 같은 탭에서 둘이 동시에 돌면 서로의 포트를 밟는다.
    */
-  function startVerificationRun(
-    agentId: string,
-    subAgentId: string,
-    focus?: string,
-    demoId?: string,
-  ): { ok: true; run: VerificationRun } | { ok: false; error: string } {
-    if (!subAgentManager.getSub(subAgentId)) return { ok: false, error: 'session-not-found' };
-    if (graphManager.getActiveVerificationRun(subAgentId)) return { ok: false, error: 'already-running' };
+  const verificationAutomation = new VerificationAutomationService({
+    findRun: (id) => graphManager.findVerificationRun(id),
+    updateRun: (id, patch) => graphManager.updateVerificationRun(id, patch),
+    projectRoot: (agentId) => graphManager.getProjectPathForAgent(agentId),
+    isCommandActive: (run) => {
+      const sessionId = graphManager.findSessionByAgentId(run.agentId);
+      return !!sessionId && !!commandQueues.get(sessionId)?.some((cmd) => cmd.id === run.pendingCommandId && cmd.subAgentId === run.subAgentId && cmd.status === 'executing');
+    },
+    changed: () => { broadcastSnapshot(); saveCheckpoint(); },
+  });
 
+  async function startVerificationRun(
+    agentId: string, subAgentId: string, focus?: string, demoId?: string,
+    selectedTarget?: VerificationTarget, expected?: string,
+  ): Promise<{ ok: true; run: VerificationRun } | { ok: false; error: string }> {
+    const demo = demoId ? graphManager.findVerificationDemo(demoId) : undefined;
+    const scopeError = verificationScopeError({ agentId, subAgentId, sub: subAgentManager.getSub(subAgentId), demoId, demo });
+    if (scopeError) return { ok: false, error: scopeError };
+    if (graphManager.getActiveVerificationRun(subAgentId)) return { ok: false, error: 'already-running' };
     const sessionId = graphManager.findSessionByAgentId(agentId);
     if (!sessionId) return { ok: false, error: 'session-not-found' };
-
+    if (!graphManager.getProjectPathForAgent(agentId)) return { ok: false, error: 'project-not-found' };
     let queue = commandQueues.get(sessionId);
     if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
-    if (queue.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'))) {
-      return { ok: false, error: 'session-busy' };
-    }
-
-    const projectName = graphManager.getAgentProjectName(agentId) ?? '';
-    const recipe = resolveVerifyRecipe(agentId, projectName);
-    const trimmedFocus = focus?.trim().slice(0, VERIFICATION_FOCUS_MAX);
-
-    // §5.5 #17-35 ⑨-4 — 고른 시연이 있으면 절차를 프롬프트에, 그림을 **기존 첨부 레일**에 싣는다.
-    //   원본을 그대로 넘기지 않고 **사본**을 이 명령의 첨부 폴더로 복사한다 — 완료 시 unlink 되는
-    //   것은 사본이고, 시연은 다음 검증에도 그대로 남는다(⑨-3 이 폴더를 가른 이유).
-    const demo = demoId ? graphManager.findVerificationDemo(demoId) : undefined;
-    const demoAttachments = demo ? demoFrameRefsForCommand(demo) : [];
-
-    // 경로는 **프롬프트 본문 안에** 실린다 — `/verify` 는 슬래시 명령이라 `composeTurnPrompt` 가
-    // 꼬리 첨부를 붙이지 않기 때문이다(`DemoFrameRef` 주석). `attachments` 는 사용자 쪽 명령 카드
-    // 썸네일 용도로만 함께 둔다(같은 원본 파일을 가리키는 목록일 뿐, 복사도 중복 전송도 아니다).
-    const text = buildVerifyPrompt({
-      recipe,
-      ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-      ...(demo ? { demo, demoFrames: demoAttachments } : {}),
-    });
-
-    const cmd: QueuedCommand = {
-      id: `cmd-${Date.now()}-verify`,
-      text,
-      timestamp: Date.now(),
-      subAgentId,
-      status: 'queued',
-      ...(demoAttachments.length > 0 ? { attachments: demoAttachments.map((f) => f.path) } : {}),
-    };
-    queue.push(cmd);
-    graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
-
+    const busy = (): boolean => queue!.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'));
+    if (busy()) return { ok: false, error: 'session-busy' };
+    const target = selectedTarget ?? parseVerificationTarget(demo?.target);
+    if (!target) return { ok: false, error: 'verification-target-required' };
+    const adapter = getVerificationAutomationAdapter();
+    if (!adapter) return { ok: false, error: 'verification-tools-unavailable' };
+    const helper = hookHandlerPath ?? codexHookContext?.handlerPath;
+    if (!helper || !fs.existsSync(path.join(path.dirname(helper), 'verification-tools.mjs')) || !getAppNodeRuntime().nodeBin) return { ok: false, error: 'verification-bridge-unavailable' };
+    const demoFrames = demo ? demoFrameRefsForCommand(demo) : { ok: true as const, frames: [] };
+    if (!demoFrames.ok) return { ok: false, error: demoFrames.error };
+    const timestamp = Date.now();
+    const runId = 'ver-' + timestamp + '-' + randomUUID().slice(0, 8);
+    const cmdId = 'cmd-' + timestamp + '-verify-' + randomUUID().slice(0, 8);
     const run: VerificationRun = {
-      id: `ver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      agentId,
-      subAgentId,
-      projectName,
-      ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-      recipeSource: recipe.source,
-      ...(recipe.label ? { recipeLabel: recipe.label } : {}),
-      ...(demo ? { demoId: demo.id, demoLabel: demo.label } : {}),
-      // 위에서 "안 끝난 명령 없음"을 이미 확인했으므로 이 건은 곧바로 나간다(`queued` 는 옛 저장분 복원용).
-      status: 'running',
-      verdict: 'unknown',
-      attempts: [],
-      pendingCommandId: cmd.id,
-      startedAt: cmd.timestamp,
+      id: runId, agentId, subAgentId, projectName: graphManager.getAgentProjectName(agentId) ?? '',
+      target, focus: focus?.trim().slice(0, VERIFICATION_FOCUS_MAX),
+      expected: (expected?.trim() || demo?.expected)?.slice(0, VERIFICATION_DEMO_EXPECTED_MAX),
+      recipeSource: target.kind === 'browser' ? 'play-recipe' : 'none',
+      recipeLabel: target.kind === 'browser' ? target.url : target.sourceName,
+      ...(demo ? { demoId: demo.id, demoLabel: demo.label, procedure: structuredClone(demo.steps), requiredSteps: demo.steps.length } : {}),
+      status: 'running', verdict: 'unknown', attempts: [], toolEvents: [], evidence: [],
+      pendingCommandId: cmdId, startedAt: timestamp,
     };
+    // Reserve the session before awaiting the OS; simultaneous starts cannot open two targets.
+    const previous = graphManager.getVerificationRuns(subAgentId);
     graphManager.addVerificationRun(run);
-    logger.info(
-      `[verify] start agent=${agentId} sub=${subAgentId} recipe=${recipe.source}` +
-      (demo ? ` demo=${demo.id} steps=${demo.steps.length} frames=${demoAttachments.length}` : ''),
-    );
-    processNextCommand(sessionId);
-    return { ok: true, run };
+    for (const evicted of previous) if (!graphManager.findVerificationRun(evicted.id)) verificationAutomation.remove(evicted);
+    try {
+      const available = await adapter.probe(target);
+      if (!available.available) throw new Error(available.reason || 'verification-target-unavailable');
+      if (busy()) throw new Error('session-busy');
+      if (graphManager.findVerificationRun(runId)?.status !== 'running') throw new Error('verification-stopped');
+      await verificationAutomation.open(run, demoFrames.frames.map((f) => f.path));
+      if (busy()) throw new Error('session-busy');
+      if (graphManager.findVerificationRun(runId)?.status !== 'running') throw new Error('verification-stopped');
+      const command: QueuedCommand = {
+        id: cmdId, text: buildVerificationAutomationPrompt(run, demo, demoFrames.frames.map((f) => f.path)),
+        timestamp, subAgentId, status: 'queued',
+        ...(demoFrames.frames.length ? { attachments: demoFrames.frames.map((f) => f.path) } : {}),
+      };
+      queue.push(command);
+      processNextCommand(sessionId);
+      return { ok: true, run: graphManager.findVerificationRun(runId) ?? run };
+    } catch (error) {
+      verificationAutomation.close(runId);
+      const reason = error instanceof Error ? error.message : String(error);
+      const finishedAt = Date.now();
+      const current = graphManager.findVerificationRun(runId);
+      if (current?.status === 'running') graphManager.updateVerificationRun(runId, { status: 'error', verdict: 'unknown', reason, finishedAt, durationMs: finishedAt - timestamp, pendingCommandId: undefined });
+      broadcastSnapshot(); saveCheckpoint();
+      return { ok: false, error: reason };
+    }
   }
 
   /**
@@ -3853,6 +4018,16 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!cmd.subAgentId) return;
     const run = graphManager.getVerificationRuns(cmd.subAgentId).find((r) => r.pendingCommandId === cmd.id);
     if (!run) return;
+    if (run.target) {
+      if (typeof cmd.result === 'string' && cmd.result.startsWith('[Stopped by user]')) {
+        verificationAutomation.close(run.id);
+        const finishedAt = Date.now();
+        graphManager.updateVerificationRun(run.id, { status: 'stopped', verdict: 'unknown', pendingCommandId: undefined, finishedAt, durationMs: finishedAt - run.startedAt });
+      } else {
+        verificationAutomation.finish(run.id, 'held', cmd.status === 'error' ? String(cmd.result ?? 'Agent execution failed.') : 'The agent ended without finalizing its evidence-based verdict.');
+      }
+      return;
+    }
 
     const finishedAt = Date.now();
     const base = {
@@ -4016,15 +4191,20 @@ export async function runServer(): Promise<RunServerHandle> {
   // 창 안의 모든 변경이 최신 상태로 반영(스케줄 시점 캡처 ❌ → 누락 0).
   // 인라인 직송 broadcast({type:'graph_snapshot'...}) 13곳은 즉시 송신이지만, trailing 이
   // 그 뒤에 떠도 최신 상태를 다시 읽어 보내므로 stale 덮어쓰기 없음.
-  let snapshotBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
   // §9 v3.40 — 부하 적응형 배치 창. getSnapshot()+IPC 직렬화는 Electron 메인 스레드에서 돌므로,
   // 전수조사급 다중 세션에서 flush 비용이 16ms 를 넘기면 다음 창을 비용 비례로 늘려(상한 250ms)
   // 스냅샷 파이프라인이 입력 스레드를 독점하지 못하게 한다. 경부하에선 항상 16ms 로 복귀.
-  let snapshotBroadcastDelay = WS_BATCH_INTERVAL;
   // [perf-snapshot] 계측 — VIBISUAL_PERF=1 일 때만. 서버는 Electron 메인 프로세스에서 돌므로
   // getSnapshot()+직렬화 비용이 그대로 창 입력 스레드를 잡는다. 전수조사 다중 세션에서 이 값이
   // 프레임 예산(16ms)을 잡아먹는지 확인하기 위한 임시 계측(델타/utilityProcess 착수 전 범인 확정용).
   const PERF_SNAPSHOT = process.env.VIBISUAL_PERF === '1';
+  const snapshotBroadcast = createSnapshotBroadcastScheduler({
+    minDelayMs: WS_BATCH_INTERVAL,
+    maxDelayMs: WS_BATCH_INTERVAL_MAX,
+    backoffFactor: WS_BATCH_BACKOFF_FACTOR,
+    flush: flushSnapshot,
+    onError: (error: unknown): void => { logger.error('[snapshot] broadcast failed', error); },
+  });
 
   /**
    * §4 (첫 실행 온보딩) ③ — "고른 프로젝트 폴더가 없다" 로 생성 요청을 돌려보낸다.
@@ -4040,34 +4220,26 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   function broadcastSnapshot(): void {
-    if (snapshotBroadcastTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 스냅샷을 읽는다
-    snapshotBroadcastTimer = setTimeout(() => {
-      snapshotBroadcastTimer = null;
-      const tFlush0 = performance.now();
-      if (PERF_SNAPSHOT) {
-        const t0 = performance.now();
-        const snap = graphManager.getBroadcastSnapshot();
-        const t1 = performance.now();
-        const bytes = JSON.stringify(snap).length; // 직렬화 비용 계측용(broadcast 가 다시 직렬화하지만 PERF 시에만)
-        const t2 = performance.now();
-        const agents = Array.isArray(snap.agents) ? snap.agents.length : Object.keys(snap.agents ?? {}).length;
-        const subs = Object.keys(snap.subAgents ?? {}).length;
-        logger.warn(
-          `[perf-snapshot] getSnapshot=${(t1 - t0).toFixed(1)}ms stringify=${(t2 - t1).toFixed(1)}ms ` +
-          `bytes=${bytes} agents=${agents} subAgents=${subs} nextDelay=${snapshotBroadcastDelay.toFixed(0)}ms`,
-        );
-        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: snap });
-      } else {
-        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
-      }
-      // 직전 flush 실측 비용(getSnapshot + sink 직렬화/팬아웃 — webContents.send 는 동기 직렬화)으로
-      // 다음 창을 적응. 스케줄 시점이 아니라 flush 시점에 갱신하므로 폭주가 끝나면 즉시 16ms 복귀.
-      const cost = performance.now() - tFlush0;
-      snapshotBroadcastDelay = Math.min(
-        Math.max(WS_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
-        WS_BATCH_INTERVAL_MAX,
+    snapshotBroadcast.request();
+  }
+
+  function flushSnapshot(snapshotBroadcastDelay: number): void {
+    if (PERF_SNAPSHOT) {
+      const t0 = performance.now();
+      const snap = graphManager.getBroadcastSnapshot();
+      const t1 = performance.now();
+      const bytes = JSON.stringify(snap).length; // 직렬화 비용 계측용(broadcast 가 다시 직렬화하지만 PERF 시에만)
+      const t2 = performance.now();
+      const agents = Array.isArray(snap.agents) ? snap.agents.length : Object.keys(snap.agents ?? {}).length;
+      const subs = Object.keys(snap.subAgents ?? {}).length;
+      logger.warn(
+        `[perf-snapshot] getSnapshot=${(t1 - t0).toFixed(1)}ms stringify=${(t2 - t1).toFixed(1)}ms ` +
+        `bytes=${bytes} agents=${agents} subAgents=${subs} nextDelay=${snapshotBroadcastDelay.toFixed(0)}ms`,
       );
-    }, snapshotBroadcastDelay);
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: snap });
+    } else {
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
+    }
   }
 
   // §5.3 #10-2 v2.37 — Auto Agent 런타임. 사용자 메시지 → 서브 군 자동 생성·dispatch.
@@ -4342,6 +4514,28 @@ export async function runServer(): Promise<RunServerHandle> {
     const kickoffRunId = fromLoopback && typeof req.query['orchestraRunId'] === 'string'
       ? req.query['orchestraRunId'].trim()
       : '';
+    // 준비되지 않은 다른 엔진은 명령/첨부를 옮기기 전에 거절한다. 클라는 원 입력을 복원하고 준비 창을 연다.
+    const orchestraRoot = agentId ? graphManager.getOrchestraRootForAgent(agentId) : null;
+    const orchestraCfg = agentId ? graphManager.getAgentConfig(agentId) : undefined;
+    const orchestraEngine = orchestraEngineOf(orchestraCfg);
+    const intercept = !kickoffRunId && !!agentId && !!orchestraRoot && shouldInterceptOrchestra({
+      fromLoopback,
+      customCreated: !!agentBubble?.customCreated,
+      isAutoBubble: !!graphManager.getAutoAgentSummary(sessionId),
+      executionMode: orchestraCfg?.executionMode,
+      engine: orchestraEngine,
+      text,
+      silent: false,
+      enabled: resolveOrchestraEnabled(graphManager.getOrchestraSettings(orchestraRoot), agentId),
+      edgeCommand: false,
+    });
+    if (intercept && orchestraRoot && orchestraEngine) {
+      const preparation = orchestraPreparationForRequest(graphManager.getOrchestraSettings(orchestraRoot), orchestraEngine, currentOrchestraReadiness());
+      if (preparation) {
+        respondOrchestraCheck(res, { ok: false, status: 409, error: 'orchestra-engine-not-ready', preparation });
+        return;
+      }
+    }
     if (kickoffRunId) {
       const kickoffRun = graphManager.findOrchestraRun(kickoffRunId);
       const kickoffRoot = agentId ? graphManager.getOrchestraRootForAgent(agentId) : null;
@@ -4454,20 +4648,6 @@ export async function runServer(): Promise<RunServerHandle> {
     if (kickoffRunId) {
       cmd.orchestraRunId = kickoffRunId;
     } else if (agentId) {
-      const orchestraRoot = graphManager.getOrchestraRootForAgent(agentId);
-      const orchestraCfg = graphManager.getAgentConfig(agentId);
-      const orchestraEngine = orchestraEngineOf(orchestraCfg);
-      const intercept = !!orchestraRoot && shouldInterceptOrchestra({
-        fromLoopback,
-        customCreated: !!agentBubble?.customCreated,
-        isAutoBubble: !!graphManager.getAutoAgentSummary(sessionId),
-        executionMode: orchestraCfg?.executionMode,
-        engine: orchestraEngine,
-        text: cmd.text,
-        silent: cmd.silent === true,
-        enabled: resolveOrchestraEnabled(graphManager.getOrchestraSettings(orchestraRoot), agentId),
-        edgeCommand: !!cmd.edgeId,
-      });
       if (intercept && orchestraRoot && orchestraEngine) {
         const now = Date.now();
         const run: OrchestraRun = {
@@ -4546,9 +4726,20 @@ export async function runServer(): Promise<RunServerHandle> {
     if (removed?.orchestraRunId) {
       const removedId = removed.id;
       const settledAt = Date.now();
-      graphManager.updateOrchestraRun(removed.orchestraRunId, (r) => settleConductorTurn(r, { id: removedId, status: 'completed' }, settledAt));
+      graphManager.updateOrchestraRun(removed.orchestraRunId, (r) => settleConductorTurn(r, { id: removedId, status: 'error' }, settledAt));
+      if (graphManager.findOrchestraRun(removed.orchestraRunId)?.commandId === removedId) {
+        cancelOrchestraWork(removed.orchestraRunId, 'conductor command removed');
+      } else if (orchestraResults.isEntry(removed.orchestraRunId, removedId)) {
+        cancelOrchestraWork(removed.orchestraRunId, 'entry command removed');
+      } else {
+        settleDispatchCommand(removed, { outcome: { status: 'cancelled', errorMessage: 'orchestra command removed' }, updateEdge: true });
+      }
+      if (removed.status === 'executing' && removed.subAgentId) subAgentManager.stop(removed.subAgentId);
       if (removed.subAgentId && orchestraTurnConfigs.get(removed.subAgentId)?.commandId === removedId) {
         orchestraTurnConfigs.delete(removed.subAgentId);
+      }
+      if (removed.subAgentId && configTrimTurnConfigs.get(removed.subAgentId)?.commandId === removedId) {
+        configTrimTurnConfigs.delete(removed.subAgentId);
       }
       scheduleCheckpoint();
     }
@@ -5113,6 +5304,7 @@ export async function runServer(): Promise<RunServerHandle> {
       projectPath,
       cwd,
       parts: assembled.parts,
+      managed: Boolean(agent.customCreated),
       ...(agentConfig ? { agentConfig } : {}),
       ...(graphManager.getContextOverrides() ? { overrides: graphManager.getContextOverrides() } : {}),
       ...(memoryDir ? { memoryDir } : {}),
@@ -5179,6 +5371,14 @@ export async function runServer(): Promise<RunServerHandle> {
 
       // ③ 파일로 이뤄진 줄이면 첫 파일을 바로 펼쳐 준다 — 누르자마자 "아 이런 거구나"가 되도록
       //    한 번 더 물어보게 만들지 않는다(나머지 파일은 목록에서 고른다).
+      // Only the configured instruction text is previewable; config.toml can hold credentials.
+      if (sourceId === CONTEXT_SOURCE_IDS.codexDeveloperInstructions) {
+        const text = readCodexDeveloperInstructions(measured.inventory.cwd);
+        return res.json({
+          ...base, text: text.slice(0, CONTEXT_PREVIEW_MAX_CHARS), chars: text.length,
+          tokens: estimateTokens(text), truncated: text.length > CONTEXT_PREVIEW_MAX_CHARS,
+        });
+      }
       const first = files[0];
       if (first?.path) {
         const read = readContextSourceFile(first.path, collectInventoryFilePaths(measured.inventory), CONTEXT_PREVIEW_MAX_CHARS);
@@ -5228,6 +5428,12 @@ export async function runServer(): Promise<RunServerHandle> {
       const level = parseContextScopeLevel(body.scope);
       const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
       if (level === 'session' && !subAgentId) return res.status(400).json({ error: 'subAgentId required for session scope' });
+      const measured = measureContextForAgent(agentId, subAgentId || undefined);
+      if (!measured) return res.status(404).json({ error: 'agent not found' });
+      const source = measured.inventory.items.find((item) => item.id === sourceId);
+      if (!source || (source.control !== 'session' && source.control !== 'spawn')) {
+        return res.status(400).json({ error: 'source is not controllable for this agent' });
+      }
       // 프로젝트 층은 키가 있어야 걸린다. 못 구하면 **조용히 무시되지 않게** 여기서 되돌려 준다 —
       //   저장은 안 됐는데 200 을 받으면 화면은 껐다고 믿고 프롬프트에는 계속 실린다.
       const projectKey = graphManager.getAgentProjectName(agentId) ?? '';
@@ -5327,6 +5533,7 @@ export async function runServer(): Promise<RunServerHandle> {
           {
             sameProject: !!orchestraRun && !!targetRoot && samePath(targetRoot, orchestraRun.projectPath),
             providerKind: provider?.kind,
+            readiness: currentOrchestraReadiness(),
           },
         );
         if (!check.ok) {
@@ -6846,6 +7053,7 @@ export async function runServer(): Promise<RunServerHandle> {
    *  legacy 는 close 핸들러가). */
   app.post('/api/subagents/:agentId/:subId/stop', (req, res) => {
     const { subId } = req.params;
+    cancelOrchestraForSession(req.params.agentId, subId);
     const ok = subAgentManager.stop(subId);
     if (!ok) {
       res.status(409).json({ ok: false, error: 'not running' });
@@ -6873,6 +7081,7 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   app.post('/api/subagents/:agentId/:subId/stop-session', (req, res) => {
     const { agentId, subId } = req.params;
+    cancelOrchestraForSession(agentId, subId);
     // §5.5 #17-11 v3.79 — 이 세션의 반복 루프도 함께 끈다. 안 끄면 중지 직후 루프가 다음 회차를
     //   다시 밀어 넣어 §5.5 #17-10 이 고친 "눌러도 안 멈춘다"가 그대로 재발한다.
     const loopStopped = stopSessionLoop(subId, 'stopped');
@@ -6933,6 +7142,7 @@ export async function runServer(): Promise<RunServerHandle> {
     logger.info(
       `[stop-session] agent=${agentId} sub=${subId} stopped=${stopped} cancelledQueued=${cancelledQueued} sealedExecuting=${sealedExecuting} loopStopped=${loopStopped}`,
     );
+    flushOrchestraResults();
     graphManager.recomputeCustomAgentStatus(agentId);
     broadcastSnapshot();
     saveCheckpoint();
@@ -6969,6 +7179,7 @@ export async function runServer(): Promise<RunServerHandle> {
     sealedExecuting: number;
     loopsStopped: number;
   } {
+    cancelOrchestraForSession(agentId);
     // §5.5 #17-11 v3.79 — 이 에이전트의 모든 세션 루프도 함께 끈다(전체 중지의 의미 그대로).
     // §5.5 #17-18 — 루프와 큐를 **프로세스보다 먼저** 비운다. `stopAll` 은 탭마다 그 턴을 그 자리에서
     //   마감하고, 그 마감의 `onComplete` 가 곧바로 다음 차례를 집는다 — 큐가 남아 있으면 아직 멈추지 않은
@@ -7027,6 +7238,7 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
 
+    flushOrchestraResults();
     graphManager.recomputeCustomAgentStatus(agentId);
     return { stopped: stopped.length, cancelledQueued, sealedExecuting, loopsStopped };
   }
@@ -7504,6 +7716,13 @@ export async function runServer(): Promise<RunServerHandle> {
    * 미지정 시 전 프로젝트 병합(하위 호환 fallback).
    * plugin 스킬은 `~/.claude/plugins` 전역이라 project 와 무관하게 항상 동일.
    */
+  mountSkillSharingRoutes(app, {
+    service: new SkillSharingService(),
+    rootForAgent: (agentId) => graphManager.getProjectPathForAgent(agentId),
+    configForAgent: (agentId) => graphManager.getAgentConfig(agentId),
+    changed: () => codexInventoryService.invalidate(),
+  });
+
   app.get('/api/available-skills', async (req, res) => {
     try {
       const skills: SkillInfo[] = [];
@@ -8051,7 +8270,7 @@ export async function runServer(): Promise<RunServerHandle> {
         // §5.19 (B) — provider(All Model 의 정체)는 executionMode 와 같은 규약이다: **body 에 없으면
         //   이전 값을 유지**한다. 이 축을 모르는 창(에이전트 설정 팝업)이 저장하는 순간 provider 가
         //   지워지면 All Model 버블이 조용히 클로드 버블로 되돌아간다. 모델을 새로 매는 것도 이 통로다.
-        provider: fromLoopback ? prev?.provider : normalizeAgentProvider(body.provider) ?? prev?.provider,
+        provider: fromLoopback ? prev?.provider : prepareLocalModelSelection(prev?.provider, normalizeAgentProvider(body.provider) ?? prev?.provider),
         // §4 (CMD 터미널 업그레이드 ⑧) — CMD 버블이 띄울 CLI. `executionMode`·`provider` 와 **같은
         //   규약**이다: body 에 유효값이 오면 그걸, 없으면 이전 값을 유지한다. 이 축을 모르는 창이
         //   저장하는 순간 고른 CLI 가 조용히 claude 로 되돌아가는 것을 막는다.
@@ -8162,7 +8381,7 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       broadcastSnapshot();
       saveCheckpoint();
-      res.json({ ok: true });
+      res.json({ ok: true, config: graphManager.getAgentConfig(agentId) });
     } catch (err) {
       logger.error('PUT /api/agent-config failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -9030,24 +9249,31 @@ export async function runServer(): Promise<RunServerHandle> {
   // §5.19 (E) — 내려받기가 끝나면 그 모델에게 실제로 몇 마디 시켜 본다.
   //   러너와 모델 서비스가 서로 물지 않도록 배선은 여기 한 곳에서 한다.
   setModelDownloadedHook((modelId) => {
-    void verifyModelOutput(modelId).then(() => broadcastSnapshot());
+    void verifyModelOutput(modelId).then(() => broadcastSnapshot()).catch((err: unknown) => {
+      logger.warn('Local model output check failed', err);
+    });
   });
 
   /** GET /api/local-llm — 엔진 상태 + 받아 둔 모델 + 진행 중 내려받기. */
   app.get('/api/local-llm', (_req, res) => {
     void (async (): Promise<void> => {
-      // 사양은 엔진에게 물어 온다(§5.19 (E)) — 캐시가 살아 있으면 프로세스를 띄우지 않는다.
-      const hardware = await getLocalHardware();
-      res.json({
-        ok: true,
-        state: {
-          engine: getEngineState(),
-          models: listModels(),
-          downloads: listDownloads(),
-          loaded: listLoadedModels(),
-          hardware,
-        },
-      });
+      try {
+        // 사양은 엔진에게 물어 온다 — 캐시가 살아 있으면 프로세스를 띄우지 않는다.
+        const hardware = await getLocalHardware();
+        res.json({
+          ok: true,
+          state: {
+            engine: getEngineState(),
+            models: listModels(),
+            downloads: listDownloads(),
+            loaded: listLoadedModels(),
+            hardware,
+          },
+        });
+      } catch (err) {
+        logger.error('GET /api/local-llm failed', err);
+        res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
     })();
   });
 
@@ -9179,24 +9405,34 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   app.get('/api/local-llm/catalog', (req, res) => {
     void (async (): Promise<void> => {
-      const q = typeof req.query['q'] === 'string' ? req.query['q'] : '';
-      const raw = req.query['sort'];
-      const sort = LOCAL_MODEL_CATALOG_SORTS.find((s) => s === raw) ?? 'downloads';
-      const repos = await searchCatalog(q, sort);
-      res.json({ ok: true, repos });
+      try {
+        const q = typeof req.query['q'] === 'string' ? req.query['q'] : '';
+        const raw = req.query['sort'];
+        const sort = LOCAL_MODEL_CATALOG_SORTS.find((s) => s === raw) ?? 'downloads';
+        const repos = await searchCatalog(q, sort);
+        res.json({ ok: true, repos });
+      } catch (err) {
+        logger.warn('GET /api/local-llm/catalog failed', err);
+        res.status(502).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
     })();
   });
 
   /** GET /api/local-llm/catalog/files?repo= — 그 저장소의 GGUF(=양자화 선택지) 목록. */
   app.get('/api/local-llm/catalog/files', (req, res) => {
     void (async (): Promise<void> => {
-      const repo = typeof req.query['repo'] === 'string' ? req.query['repo'] : '';
-      if (!repo) {
-        res.status(400).json({ ok: false, error: 'repo required' });
-        return;
+      try {
+        const repo = typeof req.query['repo'] === 'string' ? req.query['repo'] : '';
+        if (!repo) {
+          res.status(400).json({ ok: false, error: 'repo required' });
+          return;
+        }
+        const files = await listRepoFiles(repo);
+        res.json({ ok: true, files });
+      } catch (err) {
+        logger.warn('GET /api/local-llm/catalog/files failed', err);
+        res.status(502).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
       }
-      const files = await listRepoFiles(repo);
-      res.json({ ok: true, files });
     })();
   });
 
@@ -11888,6 +12124,23 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   // ─── §5.10 자동 목표 — 되풀이한 일을 스킬로 굳힌다 (기본 off · 3층) ───
+  mountAutoGoalLifecycleRoutes(app, {
+    resolveRoot: (requested) => graphManager.resolveAutoGoalRoot(requested),
+    rootForAgent: (agentId) => {
+      const root = graphManager.getProjectPathForAgent(agentId);
+      return root ? graphManager.resolveAutoGoalRoot(root) : null;
+    },
+    ownsSession: (agentId, sessionId) => {
+      const sub = subAgentManager.getSub(sessionId);
+      if (sub) return sub.parentAgentId === agentId;
+      // Internal scope overrides are keyed by sub.id; aliases must not bypass a disabled session.
+      if (subAgentManager.findSubBySessionId(sessionId)) return false;
+      return graphManager.findAgentIdBySession(sessionId) === agentId;
+    },
+    settings: (root) => graphManager.getAutoGoalSettings(root),
+    material: (root) => graphManager.getAutoGoalMaterial(root),
+    changed: () => { broadcastSnapshot(); },
+  });
   //
   // 창구가 넷인 이유는 정독(#17-44 ⑧(e))과 같다: **켬/끔은 전용 창구가 한 칸만 갈아 끼운다.**
   // 전량 교체로 켜면 화면이 모르는 값(물린 후보 목록)이 함께 실려 나가 기본값으로 강등되고,
@@ -12043,13 +12296,15 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ ok: false, error: 'project not loaded' });
         return;
       }
+      const storedCandidateId = listAutoGoalSkills(root).find((skill) => skill.id === id)?.candidateId ?? candidateId;
       const removed = deleteAutoGoalSkill(root, id);
-      if (candidateId) {
+      if (storedCandidateId) {
         const current = graphManager.getAutoGoalSettings(root) ?? {};
-        const next = normalizeAutoGoalSettings(withAutoGoalDismissed(current, candidateId, true));
+        const next = normalizeAutoGoalSettings(withAutoGoalDismissed(current, storedCandidateId, true));
         graphManager.setAutoGoalSettings(root, next);
         scheduleCheckpoint();
       }
+      broadcastSnapshot();
       res.json({ ok: true, removed });
     } catch (err) {
       logger.error('DELETE /api/auto-goal/skills/:id failed', err);
@@ -12157,6 +12412,121 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  // ─── §5.3 #10-5 설정 덜어내기 — 켬/끔 3층 · 규칙 끄기 ───
+
+  /**
+   * POST /api/config-trim/scope — 켬/끔 한 칸.
+   * body `{ projectPath, scope: 'project'|'agent'|'session', id?, enabled: true|false|null }`.
+   * `null` 은 그 칸을 지운다(= 윗단 물려받기로 되돌린다). **사용자만 바꾼다** — 에이전트가 loopback 으로
+   * 스스로 켜고 끌 수 있으면 스위치가 아무 뜻이 없어진다(403).
+   */
+  app.post('/api/config-trim/scope', (req, res) => {
+    try {
+      if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+        res.status(403).json({ ok: false, error: 'config-trim-settings-user-only' });
+        return;
+      }
+      const body = (req.body ?? {}) as { projectPath?: unknown; scope?: unknown; id?: unknown; agentId?: unknown; enabled?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const scope = (CONFIG_TRIM_SCOPE_ORDER as readonly unknown[]).includes(body.scope)
+        ? (body.scope as ConfigTrimScope) : null;
+      if (!projectPath || !scope) {
+        res.status(400).json({ ok: false, error: 'projectPath and scope required' });
+        return;
+      }
+      // 에이전트·세션 단은 그 id 가 있어야 칸을 만든다 — 없으면 어느 칸을 켰는지 아무도 모르는 값이 남는다.
+      const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : null;
+      if (scope !== 'project' && !id) {
+        res.status(400).json({ ok: false, error: 'id required for agent/session scope' });
+        return;
+      }
+      const enabled = body.enabled === null ? null : body.enabled === true ? true : body.enabled === false ? false : undefined;
+      if (enabled === undefined) {
+        res.status(400).json({ ok: false, error: 'enabled must be true, false or null' });
+        return;
+      }
+      const trimRoot = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!trimRoot) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      // 에이전트 칸은 **그 프로젝트의 에이전트**에만 적는다 — 아무 id 나 받으면 맵이 쓰레기로 찬다.
+      if (scope === 'agent' && id && !samePath(graphManager.getConfigTrimRootForAgent(id) ?? '', trimRoot)) {
+        res.status(404).json({ ok: false, error: 'agent not in project' });
+        return;
+      }
+      // 세션 칸도 같은 규칙 — 다만 세션 id 만으로는 주인을 되짚을 창구가 없어 agentId 를 함께 받는다.
+      //   (화면은 언제나 그 창의 에이전트를 알고 있다. 이걸 안 막으면 남의 프로젝트 세션 칸이 여기 쌓인다.)
+      if (scope === 'session') {
+        const ownerId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+        if (!ownerId) {
+          res.status(400).json({ ok: false, error: 'agentId required for session scope' });
+          return;
+        }
+        if (!samePath(graphManager.getConfigTrimRootForAgent(ownerId) ?? '', trimRoot)) {
+          res.status(404).json({ ok: false, error: 'session not in project' });
+          return;
+        }
+      }
+      const current = graphManager.getConfigTrimSettings(trimRoot) ?? {};
+      const saved = graphManager.setConfigTrimSettings(
+        trimRoot,
+        normalizeConfigTrimSettings(withConfigTrimScope(current, scope, id ?? undefined, enabled)),
+      );
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('POST /api/config-trim/scope failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/config-trim/settings — 규칙 끄기 목록을 갈아 끼운다. body `{ projectPath, patch: { disabledRules } }`.
+   * 켬/끔 칸은 여기서 받지 않는다(`/scope` 한 길 — 두 창구가 같은 칸을 쓰면 한쪽이 다른 쪽을 덮는다).
+   * 모르는 규칙 id 는 조용히 버리지 않고 그 칸 이름으로 400. **사용자만 바꾼다**(403).
+   */
+  app.put('/api/config-trim/settings', (req, res) => {
+    try {
+      if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+        res.status(403).json({ ok: false, error: 'config-trim-settings-user-only' });
+        return;
+      }
+      const body = (req.body ?? {}) as { projectPath?: unknown; patch?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      if (!projectPath) {
+        res.status(400).json({ ok: false, error: 'projectPath required' });
+        return;
+      }
+      const trimRoot = graphManager.resolveAutoGoalRoot(projectPath);
+      if (!trimRoot) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      const patched = applyConfigTrimSettingsPatch(graphManager.getConfigTrimSettings(trimRoot) ?? {}, body.patch, Date.now());
+      if (!patched.ok) {
+        res.status(400).json({ ok: false, error: 'invalid-field', field: patched.field });
+        return;
+      }
+      const saved = graphManager.setConfigTrimSettings(trimRoot, patched.settings);
+      if (!saved) {
+        res.status(404).json({ ok: false, error: 'project not loaded' });
+        return;
+      }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('PUT /api/config-trim/settings failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
   /**
    * POST /api/orchestra/runs/:runId/plan — 지휘자의 **계획 신고**(의도·편성·고른 방안과 이유·건너뛴 방안과 이유).
    * 지휘 중인 런에만 한 번 받는다(이미 신고했거나 끝났으면 409). 틀린 id 는 조용히 고치지 않고 그 목록을 돌려줘
@@ -12170,7 +12540,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ ok: false, error: 'orchestra-run-not-found' });
         return;
       }
-      if (run.phase !== 'conducting') {
+      if (run.endedAt !== undefined || (run.phase !== 'conducting' && run.phase !== 'dispatched' && run.phase !== 'answered')) {
         res.status(409).json({ ok: false, error: 'orchestra-run-settled', phase: run.phase });
         return;
       }
@@ -12189,12 +12559,50 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const { plan, reusedAgentIds } = result;
+      // 재사용 멤버도 새 멤버와 같은 엔진·준비 계약을 지킨다(생성 검사만 두면 오래된 버블로 우회된다).
+      if (plan.topology !== 'none') {
+        const settings = graphManager.getOrchestraSettings(run.projectPath);
+        const readiness = currentOrchestraReadiness();
+        for (const id of new Set([...run.memberAgentIds, ...reusedAgentIds, ...(plan.entryAgentId ? [plan.entryAgentId] : [])])) {
+          const cfg = graphManager.getAgentConfig(id);
+          if (!orchestraMemberProviderAllowed(settings, cfg?.provider?.kind, run.engine)) {
+            respondOrchestraCheck(res, { ok: false, status: 400, error: 'orchestra-member-engine', ids: [id] });
+            return;
+          }
+          const preparation = orchestraEnginePreparation(cfg?.provider?.kind === 'codex-cli' ? 'codex' : 'claude', readiness);
+          if (preparation) {
+            respondOrchestraCheck(res, { ok: false, status: 409, error: 'orchestra-engine-not-ready', ids: [id], preparation });
+            return;
+          }
+        }
+      }
+      if (run.phase !== 'conducting') {
+        // A lost HTTP response must not strand a valid plan before its entry dispatch.
+        if (JSON.stringify(run.plan) !== JSON.stringify(plan)) {
+          res.status(409).json({ ok: false, error: 'orchestra-plan-already-reported', phase: run.phase });
+          return;
+        }
+        const existingEntry = plan.topology !== 'none' && plan.entryAgentId
+          ? ensureOrchestraEntryEdge(graphManager, run, plan.entryAgentId) : undefined;
+        scheduleCheckpoint();
+        broadcastSnapshot();
+        res.json({ ok: true, run, reused: true, ...(existingEntry ? { dispatchEdgeId: existingEntry.id } : {}) });
+        return;
+      }
+      const graphCheck = checkOrchestraPlanGraph(run, plan, reusedAgentIds, Object.values(graphManager.getTaskEdgesSnapshot()));
+      if (!graphCheck.ok) {
+        respondOrchestraCheck(res, graphCheck);
+        return;
+      }
+      const dispatchEdge = plan.topology !== 'none' && plan.entryAgentId
+        ? ensureOrchestraEntryEdge(graphManager, run, plan.entryAgentId) : undefined;
       const plannedAt = Date.now();
       const saved = graphManager.updateOrchestraRun(run.runId, (r) => applyOrchestraPlan(r, plan, reusedAgentIds, plannedAt));
+      if (saved && plan.topology !== 'none') ensureOrchestraMemberReturns(graphManager, saved.memberAgentIds);
       scheduleCheckpoint();
       broadcastSnapshot();
       logger.info(`[orchestra] run ${run.runId} plan: ${plan.intent}/${plan.topology}`);
-      res.json({ ok: true, run: saved });
+      res.json({ ok: true, run: saved, ...(dispatchEdge ? { dispatchEdgeId: dispatchEdge.id } : {}) });
     } catch (err) {
       logger.error('POST /api/orchestra/runs/:runId/plan failed', err);
       res.status(500).json({ ok: false, error: 'Internal server error' });
@@ -13475,12 +13883,20 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(400).json({ ok: false, error: 'sourceAgentId, targetAgentId, command required' });
       return;
     }
+    // §5.3 #12 — `commandMode` **기본값을 생성 시점에 박는다.** 안 박으면 `undefined` 로 남고,
+    //   그 값은 "v1.44 이전에 저장된 엣지"용 legacy fallback 을 타서 `delegationPolicy` 기본값
+    //   `'strict'` → `'tool-delegation'` 으로 읽힌다. 즉 REST 로 만든 신규 엣지가 전부 박탈
+    //   대상이 됐다(빌더·auto-agent·오케스트라가 만든 엣지가 여기 걸렸다).
+    //   **후방호환 의도와의 충돌**: fallback 자체는 그대로 둔다 — 디스크에 이미 `undefined` 로
+    //   저장된 옛 엣지의 거동(v1.37~v1.43)을 바꾸면 그쪽이 사용자 설정을 뒤엎는다. 새로 만드는
+    //   것에만 SSOT 기본값(`'shared'`)을 박아 두 요구를 함께 만족시킨다.
+    const resolvedCommandMode = commandMode ?? TASK_EDGE_DEFAULTS.commandMode;
     let edge;
     try {
       edge = graphManager.createTaskEdge(
         sourceAgentId, targetAgentId, command,
         forwardMode ?? 'manual', templateId ?? null,
-        { kind, messageFormat, messageSchema, returnFormat, timeoutMs, retryCount, cacheEnabled, priority, delegationPolicy, critiqueTiming, critiqueAuthority, maxReworkCount, commandMode },
+        { kind, messageFormat, messageSchema, returnFormat, timeoutMs, retryCount, cacheEnabled, priority, delegationPolicy, critiqueTiming, critiqueAuthority, maxReworkCount, commandMode: resolvedCommandMode },
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Task Edge creation failed';
@@ -14446,6 +14862,40 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   // ─── §5.5 #17-35 — 검증(Verify) REST ───
 
+  app.post('/api/verification-target/probe', async (req, res) => {
+    const target = parseVerificationTarget((req.body as Record<string, unknown> | undefined)?.target);
+    if (!target) { res.status(400).json({ available: false, reason: 'invalid-verification-target', actions: [], checks: [] }); return; }
+    const adapter = getVerificationAutomationAdapter();
+    if (!adapter) { res.json({ available: false, reason: 'verification-tools-unavailable', actions: [], checks: [] }); return; }
+    try { res.json(await adapter.probe(target)); }
+    catch (error) { res.json({ available: false, reason: error instanceof Error ? error.message : String(error), actions: [], checks: [] }); }
+  });
+
+  app.post('/api/verification-tools/:operation', verificationToolHandler(verificationAutomation,
+    () => hookListenerToken, (agentId, subAgentId) => subAgentManager.getSub(subAgentId)?.parentAgentId === agentId));
+
+  app.get('/api/verification-runs/:id/evidence/:evidenceId.png', (req, res) => {
+    const run = graphManager.findVerificationRun(req.params.id);
+    const file = run ? verificationAutomation.evidencePath(run, req.params.evidenceId) : undefined;
+    if (!file || !fs.existsSync(file)) { res.status(404).json({ error: 'verification-evidence-missing' }); return; }
+    res.type('image/png').sendFile(file);
+  });
+
+  app.post('/api/verification-runs/:id/save-procedure', (req, res) => {
+    const run = graphManager.findVerificationRun(req.params.id);
+    if (!run) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    const scopeError = verificationScopeError({ agentId: run.agentId, subAgentId: run.subAgentId, sub: subAgentManager.getSub(run.subAgentId) });
+    if (scopeError) { res.status(409).json({ ok: false, error: scopeError }); return; }
+    try {
+      const demo = verificationAutomation.saveProcedure(run, typeof req.body?.label === 'string' ? req.body.label : undefined);
+      const evicted = graphManager.addVerificationDemo(demo);
+      if (evicted === null) { removeDemoFrames(demo); throw new Error('project-not-found'); }
+      for (const removed of evicted) removeDemoFrames(removed);
+      broadcastSnapshot(); saveCheckpoint();
+      res.json({ ok: true, demo });
+    } catch (error) { res.status(409).json({ ok: false, error: error instanceof Error ? error.message : String(error) }); }
+  });
+
   /**
    * GET /api/verification-recipe/:agentId — 지금 보내면 **무엇이 실릴지** 미리 알려 준다.
    *
@@ -14460,8 +14910,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /** POST /api/verification-runs — 검증 시작(그 탭 큐에 `/verify` 한 건). */
-  app.post('/api/verification-runs', (req, res) => {
-    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; focus?: unknown; demoId?: unknown };
+  app.post('/api/verification-runs', async (req, res) => {
+    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; focus?: unknown; demoId?: unknown; target?: unknown; expected?: unknown };
     const agentId = typeof body.agentId === 'string' ? body.agentId : '';
     const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
     if (!agentId || !subAgentId) {
@@ -14475,7 +14925,9 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     const focus = typeof body.focus === 'string' ? body.focus : undefined;
     const demoId = typeof body.demoId === 'string' && body.demoId ? body.demoId : undefined;
-    const result = startVerificationRun(agentId, subAgentId, focus, demoId);
+    const target = parseVerificationTarget(body.target);
+    if (body.target !== undefined && !target) { res.status(400).json({ ok: false, error: 'invalid-verification-target' }); return; }
+    const result = await startVerificationRun(agentId, subAgentId, focus, demoId, target, typeof body.expected === 'string' ? body.expected : undefined);
     if (!result.ok) {
       res.status(409).json({ ok: false, error: result.error });
       return;
@@ -14490,6 +14942,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const run = graphManager.findVerificationRun(req.params.id);
     if (!run) { res.status(404).json({ ok: false, error: 'not found' }); return; }
     const finishedAt = Date.now();
+    verificationAutomation.close(run.id);
     const next = graphManager.updateVerificationRun(run.id, {
       status: 'stopped',
       verdict: 'unknown',
@@ -14514,6 +14967,10 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
       return;
     }
+    const scopeError = verificationScopeError({
+      agentId: run.agentId, subAgentId: run.subAgentId, sub: subAgentManager.getSub(run.subAgentId),
+    });
+    if (scopeError) { res.status(409).json({ ok: false, error: scopeError }); return; }
     const sessionId = graphManager.findSessionByAgentId(run.agentId);
     if (!sessionId) { res.status(409).json({ ok: false, error: 'session-not-found' }); return; }
 
@@ -14526,11 +14983,12 @@ export async function runServer(): Promise<RunServerHandle> {
         verdict: run.verdict,
         ...(run.focus ? { focus: run.focus } : {}),
         ...(run.reason ? { reason: run.reason } : {}),
-        attempts: run.attempts,
+        attempts: run.attempts, target: run.target, expected: run.expected, toolEvents: run.toolEvents,
       }),
       timestamp: Date.now(),
       subAgentId: run.subAgentId,
       status: 'queued',
+      attachments: (run.evidence ?? []).slice(-VERIFICATION_DEMO_FRAMES_MAX).map((item) => verificationAutomation.evidencePath(run, item.id)).filter((file): file is string => !!file && fs.existsSync(file)),
     };
     queue.push(cmd);
     processNextCommand(sessionId);
@@ -14540,6 +14998,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /** DELETE /api/verification-runs/:id — 목록에서 한 줄 지운다(사람이 지운다, 서버가 스스로 ❌). */
   app.delete('/api/verification-runs/:id', (req, res) => {
+    const removedRun = graphManager.findVerificationRun(req.params.id);
+    if (removedRun) verificationAutomation.remove(removedRun);
     if (!graphManager.deleteVerificationRun(req.params.id)) {
       res.status(404).json({ ok: false, error: 'not found' });
       return;
@@ -14565,7 +15025,9 @@ export async function runServer(): Promise<RunServerHandle> {
       const text = typeof o.text === 'string' ? o.text.trim().slice(0, VERIFICATION_DEMO_STEP_TEXT_MAX) : '';
       if (!text) continue;
       const atMs = typeof o.atMs === 'number' && Number.isFinite(o.atMs) && o.atMs > 0 ? Math.round(o.atMs) : 0;
-      out.push({ atMs, text });
+      const action = parseVerificationAction(o.action);
+      const check = parseVerificationCheck(o.check);
+      out.push({ atMs, text, ...(action ? { action } : {}), ...(check ? { check } : {}) });
       if (out.length >= VERIFICATION_DEMO_STEPS_MAX) break;
     }
     return out;
@@ -14585,6 +15047,12 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
       return;
     }
+    const scopeError = verificationScopeError({ agentId, subAgentId, sub: subAgentManager.getSub(subAgentId) });
+    if (scopeError) { res.status(409).json({ ok: false, error: scopeError }); return; }
+    if (!graphManager.getProjectPathForAgent(agentId)) {
+      res.status(409).json({ ok: false, error: 'project-not-found' });
+      return;
+    }
     const sourceName = typeof body.sourceName === 'string' ? body.sourceName.slice(0, VERIFICATION_DEMO_LABEL_MAX) : '';
     const label = (typeof body.label === 'string' && body.label.trim()
       ? body.label.trim()
@@ -14601,6 +15069,7 @@ export async function runServer(): Promise<RunServerHandle> {
       projectName: graphManager.getAgentProjectName(agentId) ?? '',
       label,
       sourceName,
+      target: parseVerificationTarget(body.target),
       steps: sanitizeDemoSteps(body.steps),
       ...(expected ? { expected } : {}),
       frames: [],
@@ -14621,66 +15090,16 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, demo });
   });
 
-  /** 프레임 업로드 — 한 번에 한 장(붙여넣기 첨부와 같은 규약). 저장은 시연 전용 폴더. */
-  const demoFrameUpload = multer({
-    storage: multer.diskStorage({
-      destination: (req, _file, cb) => {
-        const rawId = req.params['demoId'];
-        const demoId = typeof rawId === 'string' ? rawId : '';
-        if (!demoId || demoId.includes('..') || demoId.includes('/') || demoId.includes('\\\\')) {
-          return cb(new Error('invalid demoId'), '');
-        }
-        const demo = graphManager.findVerificationDemo(demoId);
-        if (!demo) return cb(new Error('demo not found'), '');
-        const dir = demoFramesDir(demo.agentId, demo.id);
-        if (!dir) return cb(new Error('project not found'), '');
-        try {
-          fs.mkdirSync(dir, { recursive: true });
-        } catch (err) {
-          return cb(err instanceof Error ? err : new Error('mkdir failed'), '');
-        }
-        cb(null, dir);
-      },
-      filename: (req, _file, cb) => {
-        // 순번 = 지금까지 붙은 장수. 시간 순서가 곧 파일 이름 순서라 나중에 정렬이 필요 없다.
-        const demoId = typeof req.params['demoId'] === 'string' ? req.params['demoId'] : '';
-        const demo = graphManager.findVerificationDemo(demoId);
-        cb(null, `${demo ? demo.frames.length : 0}.png`);
-      },
-    }),
-    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
-    fileFilter: (_req, file, cb) => {
-      if (!file.mimetype.startsWith('image/')) { cb(new Error('only image/* mime types allowed')); return; }
-      cb(null, true);
-    },
-  });
-
-  /** POST /api/verification-demos/:demoId/frames — 프레임 한 장 추가(순서대로). */
-  app.post('/api/verification-demos/:demoId/frames', (req, res) => {
-    const demo = graphManager.findVerificationDemo(req.params.demoId);
-    if (!demo) { res.status(404).json({ ok: false, error: 'not found' }); return; }
-    if (demo.frames.length >= VERIFICATION_DEMO_FRAMES_MAX) {
-      res.status(409).json({ ok: false, error: 'frames-full' });
-      return;
-    }
-    demoFrameUpload.single('image')(req, res, (err?: unknown) => {
-      if (err) { res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); return; }
-      if (!req.file) { res.status(400).json({ ok: false, error: 'no file uploaded (field name must be "image")' }); return; }
-      const fields = (req.body ?? {}) as Record<string, unknown>;
-      const atMs = typeof fields.atMs === 'string' && Number.isFinite(Number(fields.atMs))
-        ? Math.max(0, Math.round(Number(fields.atMs)))
-        : 0;
-      // 파일이 저장되는 동안 다른 요청이 목록을 바꿨을 수 있다 — 붙일 때는 지금 값을 다시 읽는다.
-      const fresh = graphManager.findVerificationDemo(demo.id);
-      if (!fresh) { res.status(404).json({ ok: false, error: 'not found' }); return; }
-      const next = graphManager.updateVerificationDemo(demo.id, {
-        frames: [...fresh.frames, { rel: `${demo.id}/${path.basename(req.file.path)}`, atMs }],
-      });
+  /** POST /api/verification-demos/:demoId/frames — 프레임 한 장 추가. 동시 업로드도 원본을 보존한다. */
+  app.post('/api/verification-demos/:demoId/frames', createVerificationFrameUpload({
+    findDemo: (demoId) => graphManager.findVerificationDemo(demoId),
+    updateDemo: (demoId, patch) => graphManager.updateVerificationDemo(demoId, patch),
+    framesDir: demoFramesDir,
+    onSaved: () => {
       broadcastSnapshot();
       saveCheckpoint();
-      res.json({ ok: true, demo: next });
-    });
-  });
+    },
+  }));
 
   /** PATCH /api/verification-demos/:demoId — 이름·단계·기대 결과 고치기(그림은 그대로). */
   app.patch('/api/verification-demos/:demoId', (req, res) => {
@@ -14688,6 +15107,11 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!demo) { res.status(404).json({ ok: false, error: 'not found' }); return; }
     const body = (req.body ?? {}) as Record<string, unknown>;
     const patch: Partial<VerificationDemo> = {};
+    if (body.target !== undefined) {
+      const target = parseVerificationTarget(body.target);
+      if (!target) { res.status(400).json({ ok: false, error: 'invalid-verification-target' }); return; }
+      patch.target = target;
+    }
     if (typeof body.label === 'string' && body.label.trim()) {
       patch.label = body.label.trim().slice(0, VERIFICATION_DEMO_LABEL_MAX);
     }
@@ -16032,6 +16456,10 @@ export async function runServer(): Promise<RunServerHandle> {
   //   (v1.32 의 `pendingDispatches` — cmdId 하나에 소켓 하나 — 를 대체한다.) 메모리 장부라 앱 재시작을 넘지 않는다.
   const dispatchJobs = createDispatchJobRegistry();
   const dispatchWaiters = createDispatchWaiterHub<DispatchJob>();
+  const orchestraResults = new OrchestraResultCollector();
+  let orchestraCompletionDepth = 0;
+  let completingCommands = false;
+  let completeCommandsAgain = false;
   const DISPATCH_LOOKUP_HTTP_STATUS = { 'requester-required': 400, forbidden: 403, 'not-found': 404 } as const;
 
   /**
@@ -16130,6 +16558,86 @@ export async function runServer(): Promise<RunServerHandle> {
     return lookup.ok ? lookup.job : undefined;
   };
 
+  /** Called only after completion has queued every critique/rework successor. */
+  function flushOrchestraResults(): void {
+    if (orchestraCompletionDepth > 0) return;
+    for (const runId of orchestraResults.activeRunIds()) {
+      const run = graphManager.findOrchestraRun(runId);
+      const pending = [...commandQueues.values()].some((queue) => queue.some((cmd) =>
+        cmd.orchestraRunId === runId && cmd.id !== run?.commandId
+        && (cmd.status === 'queued' || cmd.status === 'executing')));
+      const outcome = orchestraResults.finish(runId, pending);
+      if (!outcome) continue;
+      const job = dispatchJobs.finish(outcome.commandId, outcome);
+      if (!job) continue;
+      graphManager.setTaskEdgeStatus(job.edgeId, outcome.status, outcome.result, outcome.status === 'error' ? outcome.result : undefined);
+      const artifact = graphManager.getBundleArtifact(job.edgeId);
+      if (artifact) graphManager.setTaskEdgeStatus(artifact.id, outcome.status, outcome.result);
+      dispatchWaiters.settle(job.cmdId, job);
+    }
+  }
+
+  /** Stop only this run's delegated work, including an entry already awaiting review. */
+  function cancelOrchestraWork(runId: string, reason: string): void {
+    const entryId = orchestraResults.cancel(runId);
+    if (!entryId) return;
+    const run = graphManager.findOrchestraRun(runId);
+    graphManager.updateOrchestraRun(runId, (r) => ({ ...r, phase: 'error', endedAt: r.endedAt ?? Date.now() }));
+    const executing: QueuedCommand[] = [];
+    orchestraCompletionDepth++;
+    try {
+      for (const [sessionId, queue] of commandQueues) {
+        const removed = queue.filter((cmd) => cmd.orchestraRunId === runId && cmd.id !== run?.commandId && cmd.status === 'queued');
+        commandQueues.set(sessionId, queue.filter((cmd) => !removed.includes(cmd)));
+        for (const cmd of removed) {
+          cmd.status = 'error';
+          cmd.stopReason = 'cancelled';
+          cmd.result = `[Stopped by user] ${reason}`;
+          settleDispatchCommand(cmd, { outcome: { status: 'cancelled', errorMessage: reason }, updateEdge: true });
+        }
+        if (removed.length) archiveCompletedCommands(sessionId, removed);
+        executing.push(...queue.filter((cmd) => cmd.orchestraRunId === runId && cmd.id !== run?.commandId && cmd.status === 'executing'));
+      }
+      for (const cmd of executing) {
+        if (cmd.subAgentId && subAgentManager.stop(cmd.subAgentId)) continue;
+        cmd.status = 'error';
+        cmd.stopReason = 'cancelled';
+        cmd.result = `[Stopped by user] ${reason}`;
+        settleDispatchCommand(cmd, { outcome: { status: 'cancelled', errorMessage: reason }, updateEdge: true });
+        for (const [sessionId, queue] of commandQueues) {
+          if (!queue.includes(cmd)) continue;
+          commandQueues.set(sessionId, queue.filter((item) => item !== cmd));
+          archiveCompletedCommands(sessionId, [cmd]);
+          break;
+        }
+      }
+      const job = dispatchJobs.finish(entryId, { status: 'cancelled', errorMessage: reason });
+      if (job) {
+        graphManager.setTaskEdgeStatus(job.edgeId, 'error', undefined, reason);
+        const artifact = graphManager.getBundleArtifact(job.edgeId);
+        if (artifact) graphManager.setTaskEdgeStatus(artifact.id, 'error', undefined, reason);
+        dispatchWaiters.settle(entryId, job);
+      }
+    } finally {
+      orchestraCompletionDepth--;
+      flushOrchestraResults();
+    }
+  }
+
+  function cancelOrchestraForSession(agentId: string, subAgentId?: string): void {
+    for (const queue of commandQueues.values()) {
+      for (const cmd of [...queue]) {
+        if (!cmd.orchestraRunId || (subAgentId && cmd.subAgentId !== subAgentId)) continue;
+        const run = graphManager.findOrchestraRun(cmd.orchestraRunId);
+        if (run?.agentId !== agentId || run.commandId !== cmd.id) continue;
+        graphManager.updateOrchestraRun(run.runId, (r) => ({ ...r, phase: 'error', endedAt: r.endedAt ?? Date.now() }));
+        if (cmd.subAgentId) orchestraTurnConfigs.delete(cmd.subAgentId);
+        if (cmd.subAgentId) configTrimTurnConfigs.delete(cmd.subAgentId);
+        cancelOrchestraWork(run.runId, 'conductor stopped by user');
+      }
+    }
+  }
+
   /**
    * 큐를 떠난 위임 명령 하나의 끝을 장부에 적고 기다리던 대기에 건넨다. 명령이 큐를 떠나는 **모든 자리**
    * (완료 콜백 · 중지 · 좀비 봉합 · 큐에서 지우기 · 취소)가 여기를 지난다 — 한 곳이라도 빠지면 그 작업은
@@ -16157,8 +16665,24 @@ export async function runServer(): Promise<RunServerHandle> {
     const usageLimit = cmd.subAgentId ? subAgentManager.getSub(cmd.subAgentId)?.usageLimit : undefined;
     const outcome = options.outcome ?? dispatchOutcomeFromCommand(cmd, usageLimit);
     if (!outcome) return;
+    if (cmd.orchestraRunId) {
+      const edge = graphManager.getTaskEdge(cmd.edgeId);
+      orchestraResults.record(cmd.orchestraRunId, { id: cmd.id, ...outcome },
+        edge?.kind === 'critique' && (edge.bundleRole ?? 'primary') === 'primary'
+          ? { critiqueEdgeId: edge.id, critiqueVerdict: parseCritiqueVerdict(outcome.result ?? '').verdict }
+          : edge?.bundleRole === 'auto-rework' ? { reworkAgentId: edge.targetAgentId } : undefined);
+      if (orchestraResults.isEntry(cmd.orchestraRunId, cmd.id)) {
+        // The ordinary entry turn has ended, but automatic verification may still be running.
+        graphManager.setTaskEdgeStatus(cmd.edgeId, 'executing');
+        const artifact = graphManager.getBundleArtifact(cmd.edgeId);
+        if (artifact) graphManager.setTaskEdgeStatus(artifact.id, 'executing');
+        flushOrchestraResults();
+        return;
+      }
+    }
     const job = dispatchJobs.finish(cmd.id, outcome);
     if (job) dispatchWaiters.settle(cmd.id, job);
+    flushOrchestraResults();
   };
 
   /**
@@ -16254,6 +16778,16 @@ export async function runServer(): Promise<RunServerHandle> {
     const requesterSub = resolveDispatchRequesterSub(req.headers['x-vibisual-source-subagent'], edge.sourceAgentId);
     if (!requesterSub.ok) { res.status(requesterSub.httpStatus).json({ ok: false, error: requesterSub.error }); return; }
     const requesterSubAgentId = requesterSub.subAgentId;
+    const dispatchOrchestraRunId = orchestraRunForDispatch(commandQueues.values(), requesterSubAgentId);
+    const dispatchOrchestraRun = dispatchOrchestraRunId ? graphManager.findOrchestraRun(dispatchOrchestraRunId) : undefined;
+    if (dispatchOrchestraRun) {
+      const participants = new Set([dispatchOrchestraRun.agentId, ...dispatchOrchestraRun.memberAgentIds]);
+      if (dispatchOrchestraRun.phase !== 'dispatched' || dispatchOrchestraRun.endedAt !== undefined
+        || !participants.has(edge.sourceAgentId) || !participants.has(edge.targetAgentId)) {
+        res.status(409).json({ ok: false, error: 'orchestra-dispatch-outside-plan' });
+        return;
+      }
+    }
     if ((edge.bundleRole ?? 'primary') !== 'primary') {
       res.status(400).json({ ok: false, error: 'dispatch only allowed on primary/command edge, not auto-artifact' });
       return;
@@ -16374,6 +16908,7 @@ export async function runServer(): Promise<RunServerHandle> {
       subAgentId: newSub.id,
       status: 'queued',
       edgeId,
+      ...(dispatchOrchestraRunId ? { orchestraRunId: dispatchOrchestraRunId } : {}),
     };
     // §5.3 #10-2 — 큐에 넣기 **전에** 장부에 적는다. 넣은 직후 동기로 끝나도(스폰 실패 등) 끝을 적을 자리가 이미 있어야 한다.
     dispatchJobs.register({
@@ -16388,6 +16923,9 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(artifactTargetLive ? { expectsResult: true } : {}),
       ...(requesterSubAgentId !== undefined ? { requesterSubAgentId } : {}),
     });
+    if (dispatchOrchestraRun?.agentId === edge.sourceAgentId && dispatchOrchestraRun.plan?.entryAgentId === targetAgent.id) {
+      orchestraResults.start(dispatchOrchestraRun.runId, cmd.id);
+    }
     const queue = commandQueues.get(sessionId) ?? [];
     queue.push(cmd);
     commandQueues.set(sessionId, queue);
@@ -16476,6 +17014,16 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!found.ok) { res.status(found.httpStatus).json({ ok: false, error: found.error }); return; }
     if (isTerminalDispatchJobStatus(found.job.status)) {
       res.status(409).json({ ok: false, error: 'already-finished', job: toDispatchJobView(found.job) });
+      return;
+    }
+    const orchestraRunId = orchestraResults.activeRunIds().find((id) => orchestraResults.isEntry(id, found.job.cmdId));
+    if (orchestraRunId) {
+      dispatchJobs.markCancelRequested(found.job.cmdId);
+      cancelOrchestraWork(orchestraRunId, 'orchestra dispatch cancelled by requester');
+      broadcastSnapshot();
+      saveCheckpoint();
+      const job = currentDispatchJob(found.job.cmdId);
+      res.json({ ok: true, cancelled: true, ...(job ? { job: toDispatchJobView(job) } : {}) });
       return;
     }
     const queued = findQueuedDispatchCommand(found.job.cmdId);
@@ -17363,8 +17911,11 @@ export async function runServer(): Promise<RunServerHandle> {
     edge: TaskEdge,
     contextResult: string | null,
     isFreshCycle: boolean,
+    orchestraRunId?: string,
   ): void {
-    if (edge.status === 'executing') {
+    if (orchestraRunId && graphManager.findOrchestraRun(orchestraRunId)?.phase !== 'dispatched') return;
+    if (orchestraRunId) orchestraResults.expectCritique(orchestraRunId, edge.id);
+    if (edge.status === 'executing' && !orchestraRunId) {
       logger.debug?.(`[critique] skip dispatch — edge ${edge.id} already executing`);
       return;
     }
@@ -17378,8 +17929,8 @@ export async function runServer(): Promise<RunServerHandle> {
     const watcherSessionId = watcher.path;
     const targetLabel = target?.label ?? edge.targetAgentId;
 
-    if (isFreshCycle) graphManager.bumpCritiqueReworkCount(edge.id, 'reset');
-    const currentRework = edge.reworkCount ?? 0;
+    if (isFreshCycle && !orchestraRunId) graphManager.bumpCritiqueReworkCount(edge.id, 'reset');
+    const currentRework = orchestraRunId ? orchestraResults.reworkCount(orchestraRunId, edge.id) : edge.reworkCount ?? 0;
     const maxRework = Math.min(edge.maxReworkCount ?? 3, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT);
     const cyclePhase = currentRework === 0
       ? '(initial review)'
@@ -17403,6 +17954,7 @@ export async function runServer(): Promise<RunServerHandle> {
       subAgentId: newSub.id,
       status: 'queued',
       edgeId: edge.id,
+      ...(orchestraRunId ? { orchestraRunId } : {}),
     };
     const queue = commandQueues.get(watcherSessionId) ?? [];
     queue.push(cmd);
@@ -17467,7 +18019,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /** Watcher 의 critique 응답이 완료되었을 때 호출. verdict 파싱 + (필요 시) auto-rework 발사 또는 에스컬레이션. */
-  function handleCritiqueCompletion(edge: TaskEdge, watcherResult: string | undefined): void {
+  function handleCritiqueCompletion(edge: TaskEdge, watcherResult: string | undefined, orchestraRunId?: string): void {
     if (edge.kind !== 'critique' || (edge.bundleRole ?? 'primary') !== 'primary') return;
     const { verdict, reason, attempts } = parseCritiqueVerdict(watcherResult ?? '');
     const authority = edge.critiqueAuthority ?? 'force-rework';
@@ -17476,7 +18028,7 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.3 #10-3 v4.98 — 이 판정이 어느 검증 런에 속하는지 찾아 **증거를 서버에 적재**한다.
     //   대상(작업자) 세션 기준으로 찾는다 — 검수자가 아니라 검수받는 쪽이 런의 주인이다.
     const targetAgent = graphManager.getSnapshot().agents.find((a) => a.id === edge.targetAgentId);
-    const runRef = findActiveRunForAgentSession(targetAgent?.path);
+    const runRef = orchestraRunId ? null : findActiveRunForAgentSession(targetAgent?.path);
     if (runRef) {
       for (const attempt of attempts) graphManager.appendVerificationAttempt(runRef.runId, attempt);
       graphManager.setAutoAgentRunVerdict(runRef.runId, verdict, reason);
@@ -17513,11 +18065,13 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     const maxRework = Math.min(edge.maxReworkCount ?? 3, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT);
-    const nextCount = (edge.reworkCount ?? 0) + 1;
+    const nextCount = (orchestraRunId ? orchestraResults.reworkCount(orchestraRunId, edge.id) : edge.reworkCount ?? 0) + 1;
 
     // §5.3 #10-3 v4.98 — 예산은 **런 단위**로 센다. 종전에는 엣지마다 따로 세어
     //   reviewer·tester 가 각각 3번씩 = 실제 6번이 됐다.
-    if (runRef) {
+    if (orchestraRunId) {
+      if (!orchestraResults.consumeRework(orchestraRunId, edge.id, maxRework)) return;
+    } else if (runRef) {
       const consumed = graphManager.consumeAutoAgentRework(runRef.runId);
       if (consumed && !consumed.withinBudget) {
         escalateAutoAgentRun(runRef.autoAgentId, runRef.runId, 'budget-exhausted', reason);
@@ -17533,7 +18087,7 @@ export async function runServer(): Promise<RunServerHandle> {
       saveCheckpoint();
       return;
     }
-    graphManager.bumpCritiqueReworkCount(edge.id, 'increment');
+    if (!orchestraRunId) graphManager.bumpCritiqueReworkCount(edge.id, 'increment');
 
     // auto-rework 자매 엣지로 작업자에게 재작업 지시 dispatch
     const allAgents = graphManager.getSnapshot().agents;
@@ -17557,6 +18111,7 @@ export async function runServer(): Promise<RunServerHandle> {
       subAgentId: newSub.id,
       status: 'queued',
       edgeId: reworkEdge.id,
+      ...(orchestraRunId ? { orchestraRunId } : {}),
     };
     const workerSessionId = worker.path;
     const queue = commandQueues.get(workerSessionId) ?? [];
@@ -17572,6 +18127,13 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // subAgentManager 완료 콜백 → 완료 명령 archive 이동 + snapshot broadcast + 다음 명령 처리
   subAgentManager.setOnComplete(() => {
+    // stop() and failed spawns may finish synchronously while this callback is archiving.
+    if (completingCommands) { completeCommandsAgain = true; return; }
+    completingCommands = true;
+    orchestraCompletionDepth++;
+    try {
+    do {
+    completeCommandsAgain = false;
     // 완료/에러 명령을 큐에서 archive로 이동
     for (const [sessionId, queue] of commandQueues) {
       const done = queue.filter((c) => c.status === 'completed' || c.status === 'error');
@@ -17580,7 +18142,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // v1.32 — Task Edge dispatch 매칭: edgeId 실린 명령이면 엣지 상태 갱신 + 대기 중 dispatch promise resolve
       // v1.55 — critique 엣지(watcher 응답) / auto-rework 엣지(작업자 rework) 분류해 별도 처리 hook 마련.
       // v1.56b — 사용자 강제 중단(`[Stopped by user]`)은 critique 트리거 대상에서 제외 — 중단된 결과를 watcher 가 review 할 가치 없음.
-      const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined }[] = [];
+      const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined; orchestraRunId?: string }[] = [];
       let sawNonCritiqueResponse = false;
       let sawReworkCompletion = false;
       const isUserStopped = (cmd: QueuedCommand): boolean =>
@@ -17606,7 +18168,7 @@ export async function runServer(): Promise<RunServerHandle> {
           // watcher 의 critique 응답 — verdict 처리 대상. 작업자 watcher 발사 후보 ❌.
           // 사용자가 watcher 를 중단한 경우 verdict 파싱도 skip (rework 발사 안 함, 사이클 종료).
           if (edgeStatus === 'completed' && !userStopped) {
-            completedCritiqueEdges.push({ edge: cmdEdge, result: cmd.result });
+            completedCritiqueEdges.push({ edge: cmdEdge, result: cmd.result, orchestraRunId: cmd.orchestraRunId });
           }
         } else if (cmdEdge?.bundleRole === 'auto-rework') {
           // 작업자가 auto-rework 명령 완료 — 다음 사이클 watcher 재발사 대상. count 리셋 ❌(연속).
@@ -17755,9 +18317,9 @@ export async function runServer(): Promise<RunServerHandle> {
       // v1.55 — critique 런타임:
       //   (1) watcher critique 응답 완료들 처리(reject 판정 시 자매 auto-rework 발사 / 강등)
       //   (2) 작업자 본 완료(=critique 응답 외)가 있으면 incoming critique watcher 발사
-      for (const { edge, result } of completedCritiqueEdges) {
+      for (const { edge, result, orchestraRunId } of completedCritiqueEdges) {
         try {
-          handleCritiqueCompletion(edge, result);
+          handleCritiqueCompletion(edge, result, orchestraRunId);
         } catch (err) {
           logger.error(`[critique] handleCritiqueCompletion failed edge=${edge.id}`, err);
         }
@@ -17778,13 +18340,34 @@ export async function runServer(): Promise<RunServerHandle> {
           })();
           for (const edge of incoming) {
             try {
-              dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion);
+              // Preserve each run when concurrent sessions finish on the same worker.
+              const orchestraCommands = done.filter((cmd) => cmd.orchestraRunId
+                && graphManager.findOrchestraRun(cmd.orchestraRunId)?.agentId !== workerAgentId
+                && !isUserStopped(cmd)
+                && graphManager.getTaskEdge(cmd.edgeId ?? '')?.kind !== 'critique');
+              if (orchestraCommands.length > 0) {
+                for (const cmd of orchestraCommands) {
+                  const run = graphManager.findOrchestraRun(cmd.orchestraRunId!);
+                  if (run?.memberAgentIds.includes(edge.sourceAgentId)) {
+                    dispatchCritiqueWatcher(edge, cmd.result ?? null,
+                      graphManager.getTaskEdge(cmd.edgeId ?? '')?.bundleRole !== 'auto-rework', cmd.orchestraRunId);
+                  }
+                }
+              } else if (!done.some((cmd) => cmd.orchestraRunId)) {
+                dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion);
+              }
             } catch (err) {
               logger.error(`[critique] dispatchCritiqueWatcher failed edge=${edge.id}`, err);
             }
           }
         }
       }
+    }
+    } while (completeCommandsAgain);
+    } finally {
+      completingCommands = false;
+      orchestraCompletionDepth--;
+      flushOrchestraResults();
     }
     broadcastSnapshot();
     saveCheckpoint();
@@ -18127,7 +18710,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // §4 v1.98 — 진단 에러 로그 변경 시 스냅샷 broadcast (영속화 ❌ — saveCheckpoint 안 함)
     diagnosticService.setOnChange(() => {
-      broadcastSnapshot();
+      snapshotBroadcast.requestDiagnostic();
     });
 
   }

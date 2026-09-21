@@ -36,7 +36,7 @@ const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const;
 /** 프로젝트 설정을 읽게 해 주는 신뢰 등급 값. */
 const TRUSTED_LEVEL = 'trusted';
 
-type TomlValue = string | boolean | TomlValue[] | { [key: string]: TomlValue } | null;
+export type TomlValue = string | number | boolean | TomlValue[] | { [key: string]: TomlValue } | null;
 
 /** 한 파일에서 훑어 낸 것. */
 export interface CodexConfigScan {
@@ -76,7 +76,7 @@ function forEachLeaf(keys: string[], value: TomlValue, visit: (keys: string[], v
 }
 
 /** 작은 TOML 훑개 — 표 머리·키·값만 읽고 모르는 모양은 그 줄을 건너뛴다. */
-class TomlScanner {
+export class TomlScanner {
   private pos = 0;
   constructor(private readonly src: string) {}
 
@@ -227,7 +227,8 @@ class TomlScanner {
     this.pos += word[0].length;
     if (word[0] === 'true') return true;
     if (word[0] === 'false') return false;
-    return null; // 숫자·날짜 — 우리 키에는 없다.
+    if (/^\d[\d_]*$/.test(word[0])) return Number(word[0].replace(/_/g, ''));
+    return null; // 날짜·그 밖의 값 — 읽는 설정 키에는 없다.
   }
 
   /** 문서를 끝까지 훑으며 (표 경로 + 키 경로, 값) 을 넘긴다. 배열 표(`[[x]]`) 안의 키는 넘기지 않는다. */

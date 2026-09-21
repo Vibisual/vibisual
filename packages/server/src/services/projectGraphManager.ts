@@ -16,6 +16,8 @@ import type {
   SpecReadingSettings,
   AutoGoalSettings,
   OrchestraSettings,
+  ConfigTrimSettings,
+  ConfigTrimRun,
   OrchestraRun,
   SpecReadingState,
   ProjectAgentCounts,
@@ -533,6 +535,13 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §5.3 #10-5 — 설정 덜어내기 요약도 projectName 1차 키 → 단순 spread 안전.
+    configTrim: (() => {
+      const av = a.configTrim;
+      const bv = b.configTrim;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
     // §5.5 #17-28 — 주입원 오버라이드는 층이 셋이라 **한 겹 안쪽까지** 합쳐야 한다.
     //   겉만 spread 하면 나중 스냅샷의 `projects`/`agents`/`sessions` 가 앞 것을 통째로 덮어
     //   프로젝트를 2개 이상 열었을 때 한쪽의 껐던 설정이 사라진다(위 두 카드가 겪은 결함).
@@ -651,6 +660,8 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     autoGoal: renameKey(snap.autoGoal),
     // §5.3 #10-4 — 오케스트라 요약도 projectName 1차 키라 함께 relabel.
     orchestra: renameKey(snap.orchestra),
+    // §5.3 #10-5 — 설정 덜어내기 요약도 projectName 1차 키라 함께 relabel.
+    configTrim: renameKey(snap.configTrim),
   };
 }
 
@@ -4033,6 +4044,41 @@ export class ProjectGraphManager {
       if (done) return done;
     }
     return undefined;
+  }
+
+  // ─── §5.3 #10-5 설정 덜어내기 — 프로젝트별 설정·기록 (키는 **경로**다) ───
+
+  /** 그 프로젝트에 저장된 설정 덜어내기 설정. 아직 아무것도 안 정했으면 undefined(= 꺼짐). */
+  getConfigTrimSettings(projectPath: string): ConfigTrimSettings | undefined {
+    return this.getInstanceByPath(projectPath)?.getConfigTrimSettings(projectPath);
+  }
+
+  /** 설정 덜어내기 설정 전량 교체. 프로젝트 인스턴스가 없으면 null(저장할 자리가 없다 → REST 404). */
+  setConfigTrimSettings(projectPath: string, settings: ConfigTrimSettings): ConfigTrimSettings | null {
+    const inst = this.getInstanceByPath(projectPath);
+    if (!inst) return null;
+    return inst.setConfigTrimSettings(projectPath, settings);
+  }
+
+  /**
+   * 그 에이전트가 속한 프로젝트 뿌리 — 설정 덜어내기 설정·기록의 키. 못 찾으면 null.
+   * 표시명이 아니라 **그 에이전트를 가진 인스턴스**로 정한다(이름 충돌·활성 프로젝트 오염 무관).
+   */
+  getConfigTrimRootForAgent(agentId: string): string | null {
+    return this.findInstanceByAgentId(agentId)?.getRoot() ?? null;
+  }
+
+  /** 그 프로젝트의 덜어내기 기록 전량(오래된 것부터). 인스턴스가 없으면 빈 배열. */
+  getConfigTrimRuns(projectPath: string): ConfigTrimRun[] {
+    return this.getInstanceByPath(projectPath)?.getConfigTrimRuns(projectPath) ?? [];
+  }
+
+  /** 기록 하나를 더한다. 그 경로의 인스턴스가 없으면 false. */
+  addConfigTrimRun(projectPath: string, run: ConfigTrimRun): boolean {
+    const inst = this.getInstanceByPath(projectPath);
+    if (!inst) return false;
+    inst.addConfigTrimRun(projectPath, run);
+    return true;
   }
 
   /**

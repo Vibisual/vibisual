@@ -1905,6 +1905,57 @@ export const INTERRUPT_RECONCILE_INTERVAL_MS = 5_000;
  */
 export const ZOMBIE_EXECUTING_GRACE_MS = 60_000;
 
+/**
+ * **"프로세스가 살아 있다"와 "실제로 일하고 있다"를 가르는 시한 (ms).**
+ *
+ * `ZOMBIE_EXECUTING_GRACE_MS` 는 "살아 있는 일감이 **하나도 없을 때**" 걷는 유예다. 그런데 자식이
+ * 살아만 있고 출력이 끊긴 턴은 `localInFlightCmd`·`persistentInFlightCmd` 만으로 계속 "일감 있음"으로
+ * 읽혀 **후보로 올라오지도 못했다** — 사용자에게는 영원히 "실행 중"인 탭으로 남는다.
+ *
+ * 그래서 마지막 스트림 이벤트 시각(`SubAgent.lastActivityAt` — `emitStreamEvent` 가 모든 경로에서
+ * 갱신한다)을 축으로 하나 더 둔다. 이 시간이 지나도록 **한 줄도** 흐르지 않으면 그 자식은 살아 있어도
+ * 일하는 중이 아니라고 본다.
+ *
+ * 값이 큰 이유 — 늦게 걷는 쪽이 항상 안전하다(도는 세션을 죽이면 그 사용자의 작업이 날아간다).
+ * 그보다 먼저 도는 장치가 둘 있다: ① 코덱스 턴 워치독(`CODEX_TURN_IDLE_SETTLE_MS`, 20분),
+ * ② 세션 생존 판정 프로브(§2.4 · 10분 주기). 이 축은 그 둘이 전부 실패했을 때의 **마지막 그물**이라
+ * 둘보다 길어야 한다.
+ */
+export const TURN_STREAM_STALL_MS = 30 * 60_000;
+
+/**
+ * 코덱스 턴 워치독 점검 주기 (ms). 자식이 살아 있는 한 `close`·`exit` 가 오지 않는 턴은 타이머가
+ * 하나도 돌지 않아(마감 타이머는 종료·중지에만 걸린다) **영영 아무도 보지 않는다.** 이 주기로 본다.
+ */
+export const CODEX_TURN_IDLE_CHECK_MS = 15_000;
+
+/**
+ * 코덱스 턴 1단계 — 출력이 이만큼 끊기면 **위로 알린다**(마감하지 않는다).
+ *
+ * `AGENT_IDLE_THRESHOLD_MS` 와 같은 5분이다. 긴 도구 하나가 조용한 것과 구분되지 않으므로
+ * 이 단계는 기록만 남긴다 — 걷는 판단은 2단계가 한다.
+ */
+export const CODEX_TURN_IDLE_NOTICE_MS = 5 * 60_000;
+
+/**
+ * 코덱스 턴 2단계 — 이만큼 끊기면 **마감 경로를 태운다**(트리 종료 + `onDone`).
+ *
+ * 실측 사고(2026-09-20): MCP 서버가 `CONNECT_TIMEOUT` 으로 죽은 뒤 `item.started` 만 남기고
+ * 코덱스가 조용해졌다. 자식은 살아 있어 `close` 도 `exit` 도 오지 않았고, 턴을 닫을 타이머가
+ * 하나도 없어 명령이 `executing` 에 영구히 굳었다.
+ */
+export const CODEX_TURN_IDLE_SETTLE_MS = 20 * 60_000;
+
+/**
+ * 짝을 못 찾은 코덱스 MCP 도구 호출의 시한 (ms). 지나면 **합성 실패 `tool_result`** 를 흘려
+ * 화면의 도구 카드를 닫는다(§5.25 (F)).
+ *
+ * MCP 는 자체 전송 시한이 있어 10분을 정상적으로 도는 호출이 없다 — Bash(`tool_timeout_sec=3600`)와
+ * 달리 여기서만 시한을 걸 수 있는 이유다. 시한이 없으면 `item.started` 만 오고 만 호출이
+ * "도는 중" 카드로 영원히 남아, 사용자는 멈춘 턴과 도는 턴을 구분할 길이 없다.
+ */
+export const CODEX_MCP_CALL_DEADLINE_MS = 10 * 60_000;
+
 /** 파일 존재 확인 주기 (ms) — 삭제된 파일 버블 자동 제거 */
 export const FILE_EXISTENCE_CHECK_INTERVAL = 30_000;
 
@@ -4502,6 +4553,19 @@ export const CONTEXT_SOURCE_IDS = {
   toolSchemas: 'cc.tool-schemas',
   mcp: 'cc.mcp',
   hooks: 'cc.hooks',
+
+  // Codex native sources use their own keys: Claude switches never control Codex.
+  codexInstructions: 'codex.instructions',
+  codexGlobalInstructions: 'codex.global-instructions',
+  codexCollaborationInstructions: 'codex.collaboration-instructions',
+  codexSkills: 'codex.skills',
+  codexDeveloperInstructions: 'codex.developer-instructions',
+  codexMcp: 'codex.mcp',
+  codexRuntimeMcp: 'codex.runtime-mcp',
+  codexPlugins: 'codex.plugins',
+  codexRuntimePlugins: 'codex.runtime-plugins',
+  codexHooks: 'codex.hooks',
+  codexSystemPrompt: 'codex.system-prompt',
 } as const;
 
 /** 개별 플러그인 줄의 id 접두어 — `plugin:ssot-drift` 처럼 선다. */
@@ -9277,13 +9341,13 @@ export const ALL_MODEL_DEFAULT_LABEL_RE = /^All Model \d+$/;
 // 여기 있는 값 중 어느 것도 클로드 경로가 읽지 않는다.
 
 /**
- * §5.25 (D) — 설치 명령. **세 OS 가 같다**(npm 전역 설치) — 클로드처럼 플랫폼별 인스톨러
- * 스크립트가 갈리지 않으므로 문자열 하나면 된다. 화면의 "직접 설치" 안내와 서버가 실제로
- * spawn 하는 문자열이 **같아야** 하므로 조립은 여기 한 곳뿐이다.
+ * §5.25 (D) — 공식 standalone 설치 명령(Node/npm 선행 설치 불필요).
+ * 화면의 "직접 설치" 안내와 서버가 실제로 spawn 하는 문자열이 같아야 한다.
  *
  * 실행본을 우리가 동봉하지 않는 이유는 §5.25 (D) — 남의 배포물을 재배포하지 않는다.
  */
-export const CODEX_SETUP_INSTALL_COMMAND = 'npm install -g @openai/codex';
+export const CODEX_SETUP_INSTALL_COMMAND_WIN = 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"';
+export const CODEX_SETUP_INSTALL_COMMAND_POSIX = 'curl -fsSL https://chatgpt.com/codex/install.sh | sh';
 
 /** 자동 설치가 막혔을 때의 탈출구 — 공식 설치 문서. */
 export const CODEX_SETUP_DOCS_URL = 'https://developers.openai.com/codex/cli';
@@ -9291,7 +9355,7 @@ export const CODEX_SETUP_DOCS_URL = 'https://developers.openai.com/codex/cli';
 /** `codex --version` 판정 타임아웃. 짧게 — 이 값이 길면 부팅이 그만큼 늦어진다. */
 export const CODEX_SETUP_PROBE_TIMEOUT_MS = 8_000;
 
-/** npm 전역 설치는 네트워크 왕복이라 넉넉히. */
+/** 공식 설치본 다운로드는 네트워크 왕복이라 넉넉히. */
 export const CODEX_SETUP_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** 설치 직후 `--version` 재확인 간격/횟수 — 파일 flush·shim 배치가 한 박자 늦을 수 있다. */
@@ -9314,8 +9378,8 @@ export const CODEX_AUTH_POLL_INTERVAL_MS = 10 * 60 * 1000;
 export const CODEX_AUTH_LOGIN_POLL_INTERVAL_MS = 3_000;
 
 /**
- * 코덱스 로그인 PTY 의 termId. 클로드 로그인(`term:auth:login`)과 **다른 고정 id** 여야
- * 두 로그인 창이 같은 터미널을 뺏어 쓰지 않는다.
+ * 코덱스 로그인 PTY 의 termId 접두사. 각 시도에 고유 suffix를 붙여
+ * 클로드 로그인이나 이전 로그인 시도의 늦은 응답이 현재 터미널을 건드리지 않는다.
  */
 export const CODEX_AUTH_LOGIN_TERM_ID = 'term:codex:login';
 
@@ -10950,12 +11014,19 @@ export const AUTO_GOAL_TITLE_MAX = 56;
 /** 단계 한 줄의 길이 상한 — 원문을 지우지 않되 화면과 frontmatter 가 감당할 만큼만. */
 export const AUTO_GOAL_STEP_MAX = 200;
 
+/** Store execution text losslessly; reject oversized observations instead of truncating. */
+export const AUTO_GOAL_COMMAND_MAX = 16_384;
+export const AUTO_GOAL_EVIDENCE_FILE_MAX = 16;
+export const AUTO_GOAL_EVIDENCE_FILE_BYTES = 2 * 1024 * 1024;
+export const AUTO_GOAL_ASSESSMENT_TTL_MS = 30 * 60 * 1000;
+export const AUTO_GOAL_ASSESSMENT_MAX = 256;
+export const AUTO_GOAL_COMPLETION_MAX = 16;
+export const AUTO_GOAL_REVIEW_QUEUE_MAX = 3;
+export const AUTO_GOAL_REFRESH_MS = 15_000;
+
 /**
- * 물린 후보 id 보관 상한.
- *
- * "다시 제안하지 마라"는 사용자의 결정이라 지우면 안 되지만, 이 목록도 단조 증가한다
- * (§3.2.4). 넘치면 가장 먼저 물린 것부터 버린다 — 오래전에 물린 절차는 이미 관찰에서도
- * 사라졌을 가능성이 높다.
+ * @deprecated 호환용 옛 상수. 제외 기록은 사용자 결정이므로 개수 제한으로 버리지 않는다.
+ * §5.10 (Q): 오래된 제외 기록이 사라지면 동일 절차가 다시 제안되므로 저장·정규화에 사용 금지.
  */
 export const AUTO_GOAL_DISMISSED_MAX = 200;
 
@@ -11067,3 +11138,32 @@ export const ORCHESTRA_CONDUCTOR_TOOLS: readonly string[] = ['Bash', 'Read', 'Gr
 
 /** 지휘 턴에서 막는 도구 — 지휘자는 코드를 고치지 않는다(고치는 것은 멤버다). */
 export const ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS: readonly string[] = ['Write', 'Edit', 'NotebookEdit'];
+
+// ─── §5.3 #10-5 — 설정 덜어내기(Config Trim) ──────────────────────────────────
+// 왜 있는가: 켜 둔 자리의 턴만, `AgentConfig` 에서 이 모델/CLI 가 받지 않거나 기본값과 같거나
+// 본체가 없는 칸을 **사본에서만** 떼고 돈다. 저장된 설정은 그대로다. 기본은 꺼짐이다.
+
+/** 프로젝트당 보관하는 덜어내기 기록 수(ring) — 넘치면 가장 오래된 것부터 버린다. */
+export const CONFIG_TRIM_RUN_MAX_PER_PROJECT = 100;
+
+/** 스냅샷에 싣는 최근 기록 수 — 나머지는 체크포인트에만 있다(전선 무게). */
+export const CONFIG_TRIM_RUN_SNAPSHOT_MAX = 20;
+
+/** Bounds for user-started, app-owned verification tool sessions. */
+export const VERIFICATION_AUTOMATION = {
+  maxEvents: 80,
+  maxEvidence: 80,
+  maxDurationMs: 10 * 60 * 1000,
+  actionTimeoutMs: 30_000,
+  maxWaitMs: 5_000,
+  maxText: 2_000,
+  maxSelector: 500,
+  maxUrl: 2_000,
+  maxElements: 80,
+  maxImageBytes: 16 * 1024 * 1024,
+  maxScroll: 4_000,
+  imageWidth: 1280,
+  imageHeight: 720,
+  screenshotMaxDifference: 0.12,
+  evidenceDirectory: 'verify-runs',
+} as const;

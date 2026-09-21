@@ -4,6 +4,7 @@ import {
   VERIFICATION_DEMO_LABEL_MAX,
 } from '@vibisual/shared';
 import type { VerificationDemo, VerificationDemoStep } from '@vibisual/shared';
+import type { ClipRange } from '../BubbleMap/playtestClip.js';
 
 // §5.5 #17-35 ⑨ — 시연(재현 절차)의 순수 계산 한 벌.
 //
@@ -36,7 +37,7 @@ export function insertDemoStep(
   if (!text) return [...steps];
   if (steps.length >= max) return [...steps];
   const atMs = Number.isFinite(step.atMs) && step.atMs > 0 ? Math.round(step.atMs) : 0;
-  const next = [...steps, { atMs, text }];
+  const next = [...steps, { ...step, atMs, text }];
   // 같은 시각이면 나중에 적은 것이 뒤로(안정 정렬) — 한 지점에서 두 줄을 적는 흔한 경우.
   next.sort((a, b) => a.atMs - b.atMs);
   return next;
@@ -46,6 +47,13 @@ export function insertDemoStep(
 export function removeDemoStep(steps: readonly VerificationDemoStep[], index: number): VerificationDemoStep[] {
   if (index < 0 || index >= steps.length) return [...steps];
   return steps.filter((_, i) => i !== index);
+}
+
+/** 편집 중에는 클립 절대 시각을 보관한다. 구간을 바꿔도 단계가 가리키는 실제 장면은 움직이지 않는다. */
+export function demoStepsInRange(steps: readonly VerificationDemoStep[], range: ClipRange): VerificationDemoStep[] {
+  return steps
+    .filter((step) => step.atMs >= range.startMs && step.atMs <= range.endMs)
+    .map((step) => ({ ...step, atMs: step.atMs - range.startMs }));
 }
 
 /**

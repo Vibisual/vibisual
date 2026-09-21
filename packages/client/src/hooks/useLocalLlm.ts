@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import type { LocalModelCatalogEntry, LocalModelCatalogRepo, LocalModelCatalogSort } from '@vibisual/shared';
+import type { LocalModelCatalogEntry, LocalModelCatalogRepo, LocalModelCatalogSort, LocalModelDownloadProgress } from '@vibisual/shared';
+import { localLlmResponseError } from '../components/LocalModel/localLlmApi.js';
 
 /**
  * §5.19 — All Model 창이 쓰는 조작들.
@@ -11,13 +12,13 @@ import type { LocalModelCatalogEntry, LocalModelCatalogRepo, LocalModelCatalogSo
  * 실패했을 때 무엇을 되돌리고 무엇을 보여 줄지가 한 곳에 있어야 갈라지지 않는다.
  */
 export function useLocalLlm(): {
-  installEngine: () => Promise<void>;
-  uninstallEngine: () => Promise<void>;
-  searchRepos: (q: string, sort?: LocalModelCatalogSort) => Promise<LocalModelCatalogRepo[]>;
-  listRepoFiles: (repo: string) => Promise<LocalModelCatalogEntry[]>;
-  downloadModel: (repo: string, file: string, partFiles?: readonly string[]) => Promise<void>;
-  cancelDownload: (downloadId: string) => Promise<void>;
-  deleteModel: (modelId: string) => Promise<void>;
+  installEngine: () => Promise<boolean>;
+  uninstallEngine: () => Promise<boolean>;
+  searchRepos: (q: string, sort?: LocalModelCatalogSort, signal?: AbortSignal) => Promise<LocalModelCatalogRepo[]>;
+  listRepoFiles: (repo: string, signal?: AbortSignal) => Promise<LocalModelCatalogEntry[]>;
+  downloadModel: (repo: string, file: string, partFiles?: readonly string[]) => Promise<LocalModelDownloadProgress | null>;
+  cancelDownload: (downloadId: string) => Promise<boolean>;
+  deleteModel: (modelId: string) => Promise<boolean>;
   busy: boolean;
   error: string;
 } {
@@ -25,14 +26,17 @@ export function useLocalLlm(): {
   const [error, setError] = useState('');
 
   /** 조작 하나를 감싸 실패 사유를 화면에 남긴다. 던지지 않는다 — 창은 계속 떠 있어야 한다. */
-  const run = useCallback(async (fn: () => Promise<Response>): Promise<void> => {
+  const run = useCallback(async (fn: () => Promise<Response>, onSuccess?: (response: Response) => Promise<void>): Promise<boolean> => {
     setBusy(true);
     setError('');
     try {
       const res = await fn();
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) throw new Error(await localLlmResponseError(res));
+      await onSuccess?.(res);
+      return true;
     } catch (err) {
-      setError(String(err));
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -50,42 +54,50 @@ export function useLocalLlm(): {
 
   // 정렬 축은 **서버를 거쳐 카탈로그로** 넘긴다 — 받아 온 스무 건을 여기서 다시 줄 세우면
   //   그 스무 건 안에서의 순위가 되어 화면이 말하는 순위와 실제가 갈린다(§5.19 (E)).
-  const searchRepos = useCallback(async (q: string, sort: LocalModelCatalogSort = 'downloads'): Promise<LocalModelCatalogRepo[]> => {
+  const searchRepos = useCallback(async (q: string, sort: LocalModelCatalogSort = 'downloads', signal?: AbortSignal): Promise<LocalModelCatalogRepo[]> => {
     setError('');
     try {
-      const res = await fetch(`/api/local-llm/catalog?q=${encodeURIComponent(q)}&sort=${sort}`);
-      if (!res.ok) throw new Error(`${res.status}`);
+      const res = await fetch(`/api/local-llm/catalog?q=${encodeURIComponent(q)}&sort=${sort}`, { signal });
+      if (!res.ok) throw new Error(await localLlmResponseError(res));
       const j = (await res.json()) as { repos?: LocalModelCatalogRepo[] };
       return j.repos ?? [];
     } catch (err) {
-      setError(String(err));
+      if (!signal?.aborted) setError(err instanceof Error ? err.message : String(err));
       return [];
     }
   }, []);
 
-  const listRepoFiles = useCallback(async (repo: string): Promise<LocalModelCatalogEntry[]> => {
+  const listRepoFiles = useCallback(async (repo: string, signal?: AbortSignal): Promise<LocalModelCatalogEntry[]> => {
     setError('');
     try {
-      const res = await fetch(`/api/local-llm/catalog/files?repo=${encodeURIComponent(repo)}`);
-      if (!res.ok) throw new Error(`${res.status}`);
+      const res = await fetch(`/api/local-llm/catalog/files?repo=${encodeURIComponent(repo)}`, { signal });
+      if (!res.ok) throw new Error(await localLlmResponseError(res));
       const j = (await res.json()) as { files?: LocalModelCatalogEntry[] };
       return j.files ?? [];
     } catch (err) {
-      setError(String(err));
+      if (!signal?.aborted) setError(err instanceof Error ? err.message : String(err));
       return [];
     }
   }, []);
 
   const downloadModel = useCallback(
     // 쪼개진 모델은 조각 목록을 함께 보낸다 — 한 조각만 받으면 그 모델은 쓸 수 없다.
-    (repo: string, file: string, partFiles?: readonly string[]) =>
-      run(() =>
+    async (repo: string, file: string, partFiles?: readonly string[]): Promise<LocalModelDownloadProgress | null> => {
+      let accepted: LocalModelDownloadProgress | null = null;
+      await run(() =>
         fetch('/api/local-llm/models/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repo, file, ...(partFiles && partFiles.length > 0 ? { partFiles } : {}) }),
         }),
-      ),
+        async (response) => {
+          const body = await response.json() as { progress?: LocalModelDownloadProgress };
+          if (!body.progress?.downloadId || !body.progress.modelId) throw new Error('Invalid download response: missing progress ID');
+          accepted = body.progress;
+        },
+      );
+      return accepted;
+    },
     [run],
   );
 

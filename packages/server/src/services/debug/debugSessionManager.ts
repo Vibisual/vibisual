@@ -12,6 +12,7 @@
  * `ProjectCheckpoint.debugBreakpoints` 로 들고 있다가 세션이 열릴 때 여기로 밀어 넣는다.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { observeChildStreamErrors } from '../childStreamErrors.js';
 import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -162,21 +163,26 @@ class DebugSessionManager {
       // ① 연결
       if (spec.backend === 'cdp') await this.connectCdp(runtime, opts);
       else await this.connectDap(runtime, spec, opts);
+      if (this.sessions.get(sessionId) !== runtime) throw new Error('session-closed');
       // ② 중단점 — 반드시 ③ 앞에서. 뒤로 가면 시작 코드의 중단점을 놓친다.
       if (opts.breakpoints && opts.breakpoints.length > 0) {
         await this.setBreakpoints(sessionId, opts.breakpoints);
       }
       // ③ 멈춰 서 있던 프로세스를 풀어 준다.
       await this.finalizeStart(runtime);
+      if (this.sessions.get(sessionId) !== runtime) throw new Error('session-closed');
       runtime.state.status = 'running';
       this.push(runtime, 'state');
       return runtime.state;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      runtime.state.status = 'error';
-      runtime.state.error = message;
-      this.push(runtime, 'state');
-      this.teardown(sessionId);
+      // A transport callback may have already ended and removed this runtime.
+      if (this.sessions.get(sessionId) === runtime) {
+        const message = err instanceof Error ? err.message : String(err);
+        runtime.state.status = 'error';
+        runtime.state.error = message;
+        this.push(runtime, 'state');
+        this.teardown(sessionId);
+      }
       throw err;
     }
   }
@@ -189,9 +195,11 @@ class DebugSessionManager {
       if (s.dap) await s.dap.request('disconnect', { terminateDebuggee: false }).catch(() => undefined);
       if (s.cdp) await s.cdp.send('Debugger.disable').catch(() => undefined);
     } finally {
-      s.state.status = 'ended';
-      this.push(s, 'terminated');
-      this.teardown(sessionId);
+      if (this.sessions.get(sessionId) === s) {
+        s.state.status = 'ended';
+        this.push(s, 'terminated');
+        this.teardown(sessionId);
+      }
     }
   }
 
@@ -504,6 +512,7 @@ class DebugSessionManager {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       s.child = child;
+      observeChildStreamErrors(child, (stream, error) => this.onBackendClosed(s, `adapter ${stream}: ${error.message}`));
       const client = new DapClient(
         (payload) => { child.stdin?.write(payload); },
         (event) => this.onDapEvent(s, event),
@@ -524,12 +533,17 @@ class DebugSessionManager {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       s.child = child;
+      observeChildStreamErrors(child, (stream, error) => this.onBackendClosed(s, `adapter ${stream}: ${error.message}`));
       child.stderr?.setEncoding('utf8');
       child.stderr?.on('data', (chunk: string) => this.pushOutput(s, chunk, 'stderr'));
       child.on('error', (err) => this.onBackendClosed(s, err.message));
       child.on('exit', () => this.onBackendClosed(s, 'adapter-exited'));
 
       const socket = await waitForAdapterSocket(adapterPort);
+      if (this.sessions.get(s.state.sessionId) !== s || socket.destroyed) {
+        socket.destroy();
+        throw new Error('adapter-exited');
+      }
       s.socket = socket;
       const client = new DapClient(
         (payload) => { socket.write(payload); },
@@ -538,6 +552,7 @@ class DebugSessionManager {
       s.dap = client;
       socket.setEncoding('utf8');
       socket.on('data', (chunk: string) => client.feed(chunk));
+      socket.on('error', (error) => this.onBackendClosed(s, `adapter socket: ${error.message}`));
       socket.on('close', () => this.onBackendClosed(s, 'adapter-socket-closed'));
     }
 
@@ -643,7 +658,7 @@ class DebugSessionManager {
   // ─── 공통 ───────────────────────────────────────────────────────────────
 
   private onBackendClosed(s: SessionRuntime, reason: string): void {
-    if (s.state.status === 'ended') return;
+    if (this.sessions.get(s.state.sessionId) !== s || s.state.status === 'ended') return;
     s.state.status = 'ended';
     s.state.error = reason;
     this.push(s, 'terminated');
@@ -724,9 +739,17 @@ function waitForAdapterSocket(port: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const tryOnce = (): void => {
       const socket = net.connect({ host: '127.0.0.1', port });
-      socket.once('connect', () => resolve(socket));
-      socket.once('error', () => {
+      let attemptSettled = false;
+      socket.once('connect', () => {
+        if (attemptSettled) return;
+        attemptSettled = true;
+        resolve(socket);
+      });
+      // Retain the listener through teardown, but never retry an already successful connection.
+      socket.on('error', () => {
         socket.destroy();
+        if (attemptSettled) return;
+        attemptSettled = true;
         if (Date.now() >= deadline) reject(new Error('adapter-not-listening'));
         else setTimeout(tryOnce, 150);
       });

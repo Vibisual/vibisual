@@ -9,8 +9,9 @@ import type { Socket, AddressInfo } from 'node:net';
 import { app, BrowserWindow } from 'electron';
 // 지문 계산만 따로 있는 이유는 시험 — 이 파일은 electron 을 물고 있어 단위 테스트에서 못 부른다.
 import { certFingerprintOf } from './certFingerprint';
+import { createMobileSocketSender, createMobileWebSocketServer, retainTransportErrors } from './mobileSocketSafety';
 import { inject, type DispatchFunc } from 'light-my-request';
-import { WebSocketServer, WebSocket } from 'ws';
+import { type WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
 import { generate as generateSelfSigned } from 'selfsigned';
 import { handleClientMessage, handleClientDisconnect, buildConnectionMessages, type ClientConnection } from '@vibisual/server';
@@ -119,6 +120,7 @@ let httpServer: HttpServer | null = null;
 let httpsServer: HttpsServer | null = null;
 let wss: WebSocketServer | null = null;
 const wsClients = new Set<WebSocket>();
+const wsSenders = new WeakMap<WebSocket, (data: string) => boolean>();
 
 let persisted: PersistedMobileAccess = defaultPersisted();
 let pairingCode: string | null = null;
@@ -815,21 +817,14 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
  *     메모리를 상한(ws 가 기본 off 였던 이유가 메모리 — 그 리스크를 제거).
  *   - concurrencyLimit — 동시 deflate 작업 상한.
  */
-function createWss(): WebSocketServer {
-  return new WebSocketServer({
-    noServer: true,
-    perMessageDeflate: {
-      threshold: 1024,
-      serverNoContextTakeover: true,
-      clientNoContextTakeover: true,
-      concurrencyLimit: 10,
-      zlibDeflateOptions: { level: 6 },
-    },
-  });
+function createWss(compression = true): WebSocketServer {
+  return createMobileWebSocketServer(compression,
+    (error) => console.warn('[mobile-access] WebSocket server error:', error.message));
 }
 
 function bindUpgrade(server: HttpServer | HttpsServer): void {
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    retainTransportErrors(socket, () => socket.destroy());
     const pathname = (req.url ?? '').split('?')[0] ?? '';
     // §4 v3.33 — Host·인증에 더해 Origin 검사 추가(교차 출처 소켓 탈취 차단).
     if (pathname !== WS_PATH || !isAllowedHost(req.headers.host) || !isSameOriginWs(req) || !isAuthedRequest(req)) {
@@ -839,13 +834,13 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
     // §4 v3.33 — 이 접속이 LAN(사설/로컬)인지. 임베디드 셸(term_*)은 LAN 접속에서만 허용한다.
     const terminalAllowed = isLanClient(clientIp(req));
     wss?.handleUpgrade(req, socket, head, (ws) => {
+      const send = createMobileSocketSender(ws,
+        (error) => console.warn('[mobile-access] WebSocket connection closed:', error.message));
+      wsSenders.set(ws, send);
       wsClients.add(ws);
       const conn: ClientConnection = {
-        send: (data: string): void => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(data);
-        },
+        send: (data: string): void => { send(data); },
       };
-      for (const m of buildConnectionMessages()) conn.send(JSON.stringify(m));
       ws.on('message', (raw) => {
         try {
           const msg = JSON.parse(String(raw)) as { type?: string; payload?: unknown };
@@ -857,7 +852,8 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
       });
       // §9 — 모바일 소켓이 끊기면 그 클라이언트의 프로젝트 구독 선언도 지운다(ipc 창과 동일 규약).
       ws.on('close', () => { wsClients.delete(ws); handleClientDisconnect(conn); pushState(); });
-      ws.on('error', () => { /* close 가 정리 */ });
+      // Error and close handlers are installed before the first write can fail.
+      for (const m of buildConnectionMessages()) conn.send(JSON.stringify(m));
       pushState();
     });
   });
@@ -880,7 +876,7 @@ function wsSinkId(ws: WebSocket): string {
 }
 
 function sendTermFrame(ws: WebSocket, type: string, payload: unknown): void {
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, payload, timestamp: Date.now() }));
+  wsSenders.get(ws)?.(JSON.stringify({ type, payload, timestamp: Date.now() }));
 }
 
 /** 이 ws 를 출력 대상으로 하는 TermSink — PTY 바이트를 term_data/term_exit 프레임으로 흘린다. */
@@ -935,7 +931,7 @@ function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: stri
 export function mobileBroadcast(msg: WSMessage, preSerialized?: string): void {
   if (wsClients.size === 0) return;
   const data = preSerialized ?? JSON.stringify(msg);
-  for (const ws of wsClients) if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  for (const ws of wsClients) wsSenders.get(ws)?.(data);
 }
 
 // ─── LAN 리스너 라이프사이클 ─────────────────────────────────────────────────
@@ -963,6 +959,7 @@ async function listenWithFallback(
   preferredPort: number,
   host: string,
 ): Promise<void> {
+  retainTransportErrors(server, (error) => console.warn('[mobile-access] listener error:', error.message));
   await new Promise<void>((resolvePromise, rejectPromise) => {
     let triedFallback = false;
     const onError = (err: NodeJS.ErrnoException): void => {
@@ -1014,7 +1011,7 @@ async function startHttpsListener(): Promise<void> {
   const tls = await loadOrCreateTls();
   tlsFingerprint = certFingerprintOf(tls.cert);
   const server = createHttpsServer({ key: tls.key, cert: tls.cert }, handleRequest);
-  if (!wss) wss = new WebSocketServer({ noServer: true });
+  if (!wss) wss = createWss(false);
   bindUpgrade(server);
   await listenWithFallback(server, persisted.httpsPort, '0.0.0.0');
   httpsServer = server;

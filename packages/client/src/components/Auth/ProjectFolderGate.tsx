@@ -40,6 +40,9 @@ export function ProjectFolderGate(): React.JSX.Element | null {
   const stubProjects = useGraphStore((s) => s.stubProjects);
   const setup = useGraphStore((s) => s.claudeSetup);
   const auth = useGraphStore((s) => s.claudeAuth);
+  const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice);
+  const codexSetup = useGraphStore((s) => s.codexSetup);
+  const codexAuth = useGraphStore((s) => s.codexAuth);
   const forced = useGraphStore((s) => s.projectGateForced);
   const dismissed = useGraphStore((s) => s.projectGateDismissed);
   const reason = useGraphStore((s) => s.projectGateReason);
@@ -52,7 +55,7 @@ export function ProjectFolderGate(): React.JSX.Element | null {
   const [cancelled, setCancelled] = useState(false);
 
   const hasFolder = hasProjectFolder({ projects, stubProjects });
-  const shouldOpen = isProjectFolderGateOpen({ setup, auth, hasFolder, forced, dismissed });
+  const shouldOpen = isProjectFolderGateOpen({ setup, auth, engineChoice, codexSetup, codexAuth, hasFolder, forced, dismissed });
   // §4 (첫 실행 온보딩) — 백드롭이 헤더를 덮는 동안 헤더 언어 전환기를 창 위로 띄우게 알린다.
   useOnboardingGate('projectFolder', shouldOpen);
 
@@ -103,7 +106,7 @@ export function ProjectFolderGate(): React.JSX.Element | null {
             ) : (
               <p className="text-[13px] leading-relaxed text-gray-400">
                 {t('panel.projectFolder.intro', {
-                  defaultValue: 'Claude Code is installed and signed in. The last step is choosing the folder your agents will work in — usually the root of a project or repository.',
+                defaultValue: 'Choose the folder your agents will work in — usually the root of a project or repository.',
                 })}
               </p>
             )}
@@ -160,12 +163,15 @@ export function ProjectFolderBanner(): React.JSX.Element | null {
   const stubProjects = useGraphStore((s) => s.stubProjects);
   const setup = useGraphStore((s) => s.claudeSetup);
   const auth = useGraphStore((s) => s.claudeAuth);
+  const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice);
+  const codexSetup = useGraphStore((s) => s.codexSetup);
+  const codexAuth = useGraphStore((s) => s.codexAuth);
   const forced = useGraphStore((s) => s.projectGateForced);
   const dismissed = useGraphStore((s) => s.projectGateDismissed);
   const setProjectGate = useGraphStore((s) => s.setProjectGate);
 
   const hasFolder = hasProjectFolder({ projects, stubProjects });
-  if (!isProjectFolderBannerOpen({ setup, auth, hasFolder, forced, dismissed })) return null;
+  if (!isProjectFolderBannerOpen({ setup, auth, engineChoice, codexSetup, codexAuth, hasFolder, forced, dismissed })) return null;
 
   return (
     <button

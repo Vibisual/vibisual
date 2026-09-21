@@ -9,9 +9,8 @@ import { logger } from '../logger.js';
 /**
  * §5.25 (D)(E) — `codex` 실행본을 찾고, 하위명령을 **한 번 실행해 출력을 받아오는** 공통 창구.
  *
- * 클로드 쪽 `claudeBin.ts` + `claudeCliRun.ts` 가 하는 일의 코덱스 판이다. 다만 클로드처럼
- * 출처가 여러 갈래(VS Code 확장 번들·네이티브 인스톨러·npm)가 아니라 **npm 전역 설치 한 갈래**라
- * 판정이 훨씬 짧다 — 없는 갈래를 미리 만들지 않는다.
+ * 클로드 쪽 `claudeBin.ts` + `claudeCliRun.ts` 가 하는 일의 코덱스 판이다.
+ * 사용자 PATH 의 실행본(npm 포함)을 우선하고 공식 standalone 설치 위치도 탐색한다.
  *
  * **PATH 만 믿지 않는다**(멀티플랫폼 3축): Finder 로 띄운 mac 앱은 Homebrew·npm 전역 경로가 없는
  * 최소 PATH 를 받는다. 그래서 탐색은 `resolveBinary()` 에 맡기고, 자식에게는 보강된 PATH 를 준다.
@@ -68,10 +67,29 @@ export function parseCodexVersion(raw: string): string | undefined {
   return m?.[1];
 }
 
+/**
+ * 공식 install.ps1/install.sh 의 기본 위치 + CODEX_INSTALL_DIR 재정의.
+ * Windows 는 ~/.local/bin 이 아니라 LocalAppData/Programs/OpenAI/Codex/bin 이다.
+ * 플랫폼·환경·홈을 주입해 PATH 갱신 전의 설치 직후를 세 OS 모두 검증한다.
+ */
+export function codexStandaloneCandidatesIn(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  home: string,
+): string[] {
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const name = platform === 'win32' ? 'codex.exe' : 'codex';
+  const defaultDir = platform === 'win32'
+    ? p.join(env['LOCALAPPDATA'] || p.join(home, 'AppData', 'Local'), 'Programs', 'OpenAI', 'Codex', 'bin')
+    : p.join(home, '.local', 'bin');
+  const override = env['CODEX_INSTALL_DIR']?.trim();
+  return [...(override ? [p.join(override, name)] : []), p.join(defaultDir, name)];
+}
+
 /** 실행본 경로. 못 찾으면 null. 결과는 캐시하며 설치 후 `invalidateCodexBinCache()` 로 지운다. */
 export function getCodexBin(): string | null {
   if (cachedBin !== undefined) return cachedBin;
-  cachedBin = resolveBinary('codex');
+  cachedBin = resolveBinary('codex', codexStandaloneCandidatesIn(process.platform, process.env, os.homedir()));
   if (cachedBin) logger.info(`[codex] bin resolved: ${cachedBin}`);
   return cachedBin;
 }

@@ -8,16 +8,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import { LOCAL_ANSWER_BUDGET_MIN, LOCAL_ANSWER_BUDGET_RESERVE, localAnswerBudget } from '@vibisual/shared';
-import { buildEngineArgs, ENGINE_EXTRA_FLAGS } from './localRunner.js';
+import { buildEngineArgs, ENGINE_EXTRA_FLAGS, normalizeLocalContext, isLocalMemoryError } from './localRunner.js';
 import { parseGgufMeta } from './localArchService.js';
 
 describe('buildEngineArgs — 인자를 만드는 곳은 한 곳뿐', () => {
+  it('GPU 자동 배치와 단일 슬롯으로 실제 문맥 예산을 유지한다', () => {
+    const args = buildEngineArgs('/models/model.gguf', 51500, 8192, 'auto', []);
+    expect(args[args.indexOf('-ngl') + 1]).toBe('auto');
+    expect(args[args.indexOf('--parallel') + 1]).toBe('1');
+  });
   it('모델·포트·창·오프로드가 빠짐없이 들어간다', () => {
     const args = buildEngineArgs('C:/m.gguf', 51500, 8192, 999, []);
     expect(args).toEqual([
       '-m', 'C:/m.gguf',
       '--host', '127.0.0.1',
       '--port', '51500',
+      '--parallel', '1',
       '-c', '8192',
       '-ngl', '999',
     ]);
@@ -37,6 +43,22 @@ describe('buildEngineArgs — 인자를 만드는 곳은 한 곳뿐', () => {
     //   생각만 하다 끝나는 모델이 **빈 답**을 낸다(§5.19 (D) 실측).
     expect(ENGINE_EXTRA_FLAGS[0]?.id).toBe('cache-reuse');
     expect(ENGINE_EXTRA_FLAGS.at(-1)?.id).toBe('thinking-cap');
+  });
+});
+
+describe('PC 자원에 맞는 로딩 준비', () => {
+  it('문맥은 유한 정수 범위로 제한한다', () => {
+    expect(normalizeLocalContext(Number.NaN)).toBe(16384);
+    expect(normalizeLocalContext(Infinity)).toBe(16384);
+    expect(normalizeLocalContext(1)).toBe(2048);
+    expect(normalizeLocalContext(8192.8)).toBe(8192);
+    expect(normalizeLocalContext(999999)).toBe(262144);
+  });
+  it('메모리 부족만 문맥 축소 재시도 대상으로 삼는다', () => {
+    expect(isLocalMemoryError(new Error('failed to allocate buffer'))).toBe(true);
+    expect(isLocalMemoryError(new Error('VK_ERROR_OUT_OF_DEVICE_MEMORY'))).toBe(true);
+    expect(isLocalMemoryError(new Error('unknown model architecture'))).toBe(false);
+    expect(isLocalMemoryError(new Error('ENOENT'))).toBe(false);
   });
 });
 

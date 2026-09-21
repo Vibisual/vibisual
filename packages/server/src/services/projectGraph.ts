@@ -1,3 +1,4 @@
+import { parseVerificationTarget, parseVerificationAction, parseVerificationCheck, VERIFICATION_AUTOMATION } from '@vibisual/shared';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -150,6 +151,9 @@ import os from 'node:os';
 import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools, migrateCmdAgentColor } from '@vibisual/shared';
 import { normalizeOrchestraSettings, normalizeOrchestraRuns, settleStaleOrchestraRuns, orchestraRunsForSnapshot, appendOrchestraRun } from '@vibisual/shared';
 import type { OrchestraSettings, OrchestraRun, OrchestraSummary } from '@vibisual/shared';
+// §5.3 #10-5 설정 덜어내기 — 범위·기록 계약은 shared 한 곳(서버·클라가 같은 함수를 부른다).
+import { normalizeConfigTrimSettings, normalizeConfigTrimRuns, configTrimRunsForSnapshot, appendConfigTrimRun } from '@vibisual/shared';
+import type { ConfigTrimSettings, ConfigTrimRun, ConfigTrimSummary } from '@vibisual/shared';
 // §5.5 #17-36 — 스티키 메모 상한/정화(디스크·REST 에서 온 값을 그대로 믿지 않는다).
 import { SESSION_MEMO, sanitizeSessionMemos } from '@vibisual/shared';
 // §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
@@ -201,6 +205,7 @@ import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
 // §5.10 — 폐기된 브레인 요약이 앉아 있던 스냅샷 자리를 잇는다(통폐합).
 import { getAutoGoalSummary as computeAutoGoalSummary } from './autoGoalService.js';
+import { bashProcedureOutcome } from './bashProcedureOutcome.js';
 
 // ─── 유틸 (순수 함수) ───
 
@@ -988,6 +993,11 @@ export function normalizeVerificationRun(run: VerificationRun): VerificationRun 
   return {
     ...run,
     attempts,
+    target: parseVerificationTarget(run.target),
+    evidence: Array.isArray(run.evidence) ? run.evidence.filter((e) => e && typeof e.id === 'string' && typeof e.rel === 'string' && typeof e.sha256 === 'string').slice(0, VERIFICATION_AUTOMATION.maxEvidence) : undefined,
+    toolEvents: Array.isArray(run.toolEvents) ? run.toolEvents.filter((e) => e && typeof e.id === 'string' && ['observe', 'act', 'check'].includes(e.operation) && typeof e.ok === 'boolean').slice(0, VERIFICATION_AUTOMATION.maxEvents) : undefined,
+    procedure: Array.isArray(run.procedure) ? normalizeVerificationSteps(run.procedure) : undefined,
+    requiredSteps: typeof run.requiredSteps === 'number' && Number.isInteger(run.requiredSteps) ? Math.max(0, Math.min(VERIFICATION_DEMO_STEPS_MAX, run.requiredSteps)) : undefined,
     verdict,
     reason: typeof run.reason === 'string' ? run.reason.slice(0, VERIFICATION_REASON_MAX) : undefined,
   };
@@ -1001,16 +1011,22 @@ export function normalizeVerificationRun(run: VerificationRun): VerificationRun 
  * 서버가 확인한다) — 로드 경로에서 디스크를 뒤지면 복원이 느려지고, 잠시 안 보이는 드라이브가
  * 사용자의 시연을 지워 버리게 된다.
  */
-export function normalizeVerificationDemo(demo: VerificationDemo): VerificationDemo {
-  const steps: VerificationDemoStep[] = Array.isArray(demo.steps)
-    ? demo.steps
+function normalizeVerificationSteps(raw: VerificationDemoStep[]): VerificationDemoStep[] {
+  return Array.isArray(raw)
+    ? raw
         .filter((st) => st && typeof st === 'object' && typeof st.text === 'string')
         .map((st) => ({
           atMs: typeof st.atMs === 'number' && st.atMs >= 0 ? st.atMs : 0,
           text: st.text.slice(0, VERIFICATION_DEMO_STEP_TEXT_MAX),
+          ...(parseVerificationAction(st.action) ? { action: parseVerificationAction(st.action) } : {}),
+          ...(parseVerificationCheck(st.check) ? { check: parseVerificationCheck(st.check) } : {}),
         }))
         .slice(0, VERIFICATION_DEMO_STEPS_MAX)
     : [];
+}
+
+export function normalizeVerificationDemo(demo: VerificationDemo): VerificationDemo {
+  const steps = normalizeVerificationSteps(demo.steps);
   const frames: VerificationDemoFrame[] = Array.isArray(demo.frames)
     ? demo.frames
         .filter((f) => f && typeof f === 'object' && typeof f.rel === 'string' && f.rel.length > 0)
@@ -1019,6 +1035,7 @@ export function normalizeVerificationDemo(demo: VerificationDemo): VerificationD
     : [];
   return {
     ...demo,
+    target: parseVerificationTarget(demo.target),
     label: typeof demo.label === 'string' ? demo.label.slice(0, VERIFICATION_DEMO_LABEL_MAX) : '',
     sourceName: typeof demo.sourceName === 'string' ? demo.sourceName : '',
     steps,
@@ -1322,7 +1339,7 @@ export class ProjectGraph {
 
   /** 에이전트(session)별 Bash 히스토리 (session_id → 최신순 엔트리) */
   private bashHistory = new Map<string, BashEntry[]>();
-  /** tool_use_id → BashEntry 빠른 조회용 (PostToolUse에서 output 매칭) */
+  /** [session_id, tool_use_id] → BashEntry (도구 id가 다른 세션에서 재사용되어도 결과를 섞지 않는다). */
   private bashEntryIndex = new Map<string, BashEntry>();
   /** 에이전트(session)별 서버 목록 (session_id → 서버) */
   private runningServers = new Map<string, ServerEntry[]>();
@@ -1588,6 +1605,25 @@ export class ProjectGraph {
     settings: OrchestraSettings | undefined;
     runs: OrchestraRun[] | undefined;
     value: OrchestraSummary;
+  } | null = null;
+  /**
+   * §5.3 #10-5 — 설정 덜어내기 범위·규칙 설정(프로젝트 경로 키 → 설정 한 벌).
+   * 오케스트라와 같은 키 규칙(표시명 ❌ 경로 ⭕)이다. 안 정한 프로젝트는 칸이 없다(= 꺼짐).
+   */
+  private configTrimSettings = new Map<string, ConfigTrimSettings>();
+  /**
+   * §5.3 #10-5 — 덜어내기 기록(프로젝트 경로 키 → 최근 `CONFIG_TRIM_RUN_MAX_PER_PROJECT`건 ring).
+   * 어느 턴에 무엇을 덜어냈고 무엇을 왜 남겼는지가 여기 남는다.
+   */
+  private configTrimRuns = new Map<string, ConfigTrimRun[]>();
+  /**
+   * §9 — `getConfigTrimSummary` 의 참조 유지 메모. 설정·기록 목록은 바뀔 때마다 **새 객체로 갈아
+   * 끼워지므로** 두 참조가 같으면 요약도 같다. 이게 있어야 `configTrim` 슬라이스가 증분을 탄다.
+   */
+  private configTrimSummaryMemo: {
+    settings: ConfigTrimSettings | undefined;
+    runs: ConfigTrimRun[] | undefined;
+    value: ConfigTrimSummary;
   } | null = null;
   /** §5.9 화면/프로그램 캡처 버블 (id → CaptureBubble). 사용자 생성 독립 캔버스 요소. */
   private captureBubbles = new Map<string, CaptureBubble>();
@@ -2411,7 +2447,7 @@ export class ProjectGraph {
       this.agents.delete(sessionId);
       this.sessionCwds.delete(sessionId);
       this.pendingTitles.delete(sessionId);
-      this.bashHistory.delete(sessionId);
+      this.dropBashHistory(sessionId);
       this.runningServers.delete(sessionId);
       this.commandQueuesRef.delete(sessionId);
       this.completedCommandArchiveRef.delete(sessionId);
@@ -3003,6 +3039,30 @@ export class ProjectGraph {
       runs: runs ? orchestraRunsForSnapshot(runs) : [],
     };
     this.orchestraSummaryMemo = { settings, runs, value };
+    return { [name]: value };
+  }
+  /**
+   * §5.3 #10-5 — 이 그래프 프로젝트 뿌리의 **설정 덜어내기 요약**(스냅샷 탑재분).
+   *
+   * 오케스트라와 같은 모양이다 — `projectName` 1차 키라 Manager 병합이 단순 spread 로 끝난다.
+   * 설정도 기록도 없는 프로젝트는 `undefined`(기본 꺼짐이 전선에서도 같은 뜻). 기록은 최근
+   * `CONFIG_TRIM_RUN_SNAPSHOT_MAX`건만 싣는다 — 전량은 체크포인트에 있다.
+   */
+  getConfigTrimSummary(): Record<string, ConfigTrimSummary> | undefined {
+    if (!this.root) return undefined;
+    const name = this.getPrimaryProjectName();
+    if (!name) return undefined;
+    const key = specSettingsKey(this.root);
+    const settings = this.configTrimSettings.get(key);
+    const runs = this.configTrimRuns.get(key);
+    if (!settings && (!runs || runs.length === 0)) return undefined;
+    const memo = this.configTrimSummaryMemo;
+    if (memo && memo.settings === settings && memo.runs === runs) return { [name]: memo.value };
+    const value: ConfigTrimSummary = {
+      settings: settings ? { ...settings } : normalizeConfigTrimSettings(undefined),
+      runs: runs ? configTrimRunsForSnapshot(runs) : [],
+    };
+    this.configTrimSummaryMemo = { settings, runs, value };
     return { [name]: value };
   }
   /**
@@ -6023,6 +6083,8 @@ export class ProjectGraph {
       autoGoal: this.getAutoGoalSummary(),
       // §5.3 #10-4 — 오케스트라 요약(설정도 런도 없는 프로젝트에는 실리지 않는다).
       orchestra: this.getOrchestraSummary(),
+      // §5.3 #10-5 — 설정 덜어내기 요약(설정도 기록도 없는 프로젝트에는 실리지 않는다).
+      configTrim: this.getConfigTrimSummary(),
     };
 
     // (2b) 계산 결과를 캐시에 저장 — 슬롯 상한을 넘으면 가장 오래 전에 넣은 것부터 버린다
@@ -6245,6 +6307,12 @@ export class ProjectGraph {
       orchestraSettings: this.orchestraSettings.get(specSettingsKey(project.path)),
       orchestraRuns: (() => {
         const list = this.orchestraRuns.get(specSettingsKey(project.path));
+        return list && list.length > 0 ? [...list] : undefined;
+      })(),
+      // §5.3 #10-5 설정 덜어내기 — **디스크 포맷.** 여기 빠뜨리면 껐다 켜면 켬/끔·덜어낸 기록이 사라진다.
+      configTrimSettings: this.configTrimSettings.get(specSettingsKey(project.path)),
+      configTrimRuns: (() => {
+        const list = this.configTrimRuns.get(specSettingsKey(project.path));
         return list && list.length > 0 ? [...list] : undefined;
       })(),
       captureBubbles: this.captureBubbles.size > 0 ? [...this.captureBubbles.values()] : undefined,
@@ -6697,6 +6765,12 @@ export class ProjectGraph {
         const list = this.orchestraRuns.get(specSettingsKey(project.path));
         return list && list.length > 0 ? [...list] : undefined;
       })(),
+      // §5.3 #10-5 설정 덜어내기 — **디스크 포맷.** 여기 빠뜨리면 껐다 켜면 켬/끔·덜어낸 기록이 사라진다.
+      configTrimSettings: this.configTrimSettings.get(specSettingsKey(project.path)),
+      configTrimRuns: (() => {
+        const list = this.configTrimRuns.get(specSettingsKey(project.path));
+        return list && list.length > 0 ? [...list] : undefined;
+      })(),
       // §5.9 — 캡처 버블 필터: 이 프로젝트 소속만
       captureBubbles: (() => {
         const bubbles = [...this.captureBubbles.values()].filter((b) => b.projectName === project.name);
@@ -6935,7 +7009,10 @@ export class ProjectGraph {
     for (const [k, v] of Object.entries(cp.activity.bashHistory)) {
       if (!this.bashHistory.has(k)) {
         this.bashHistory.set(k, v);
-        for (const entry of v) this.bashEntryIndex.set(entry.id, entry);
+        for (const entry of v) {
+          const key = this.bashEntryKey(k, entry.id);
+          if (!this.bashEntryIndex.has(key)) this.bashEntryIndex.set(key, entry);
+        }
       }
     }
     for (const [k, v] of Object.entries(cp.activity.runningServers)) {
@@ -7141,7 +7218,14 @@ export class ProjectGraph {
         if (this.verificationRuns.has(subId)) continue;
         this.verificationRuns.set(
           subId,
-          list.filter((r) => r && typeof r === 'object').map(normalizeVerificationRun).slice(0, VERIFICATION_RUNS_MAX_PER_SESSION),
+          list.filter((r) => r && typeof r === 'object').map((r) => {
+            const run = normalizeVerificationRun(r);
+            // A newly loaded project's tool runtime and command no longer exist. Keep live
+            // in-memory tabs above, but release stale disk reservations just as restore does.
+            return run.status === 'queued' || run.status === 'running'
+              ? { ...run, status: 'stopped' as const, verdict: 'unknown' as const, pendingCommandId: undefined }
+              : run;
+          }).slice(0, VERIFICATION_RUNS_MAX_PER_SESSION),
         );
       }
     }
@@ -7377,6 +7461,21 @@ export class ProjectGraph {
       }
     }
 
+    // §5.3 #10-5 설정 덜어내기 — 같은 규약으로 병합한다(이미 든 프로젝트 값이 이긴다).
+    if (cp.configTrimSettings) {
+      const key = specSettingsKey(cp.project.path);
+      if (!this.configTrimSettings.has(key)) {
+        this.configTrimSettings.set(key, normalizeConfigTrimSettings(cp.configTrimSettings));
+      }
+    }
+    if (cp.configTrimRuns) {
+      const key = specSettingsKey(cp.project.path);
+      if (!this.configTrimRuns.has(key)) {
+        const runs = normalizeConfigTrimRuns(cp.configTrimRuns);
+        if (runs.length > 0) this.configTrimRuns.set(key, runs);
+      }
+    }
+
     // §5.9 — 캡처 버블 병합 (중복 ID 는 기존 유지)
     if (cp.captureBubbles) {
       for (const bubble of cp.captureBubbles) {
@@ -7585,8 +7684,11 @@ export class ProjectGraph {
 
     // bashEntryIndex 재구축
     this.bashEntryIndex.clear();
-    for (const entries of this.bashHistory.values()) {
-      for (const entry of entries) this.bashEntryIndex.set(entry.id, entry);
+    for (const [sessionId, entries] of this.bashHistory) {
+      for (const entry of entries) {
+        const key = this.bashEntryKey(sessionId, entry.id);
+        if (!this.bashEntryIndex.has(key)) this.bashEntryIndex.set(key, entry);
+      }
     }
 
     // v1.6: dormant 에이전트 복원
@@ -7688,6 +7790,17 @@ export class ProjectGraph {
     if (cp.orchestraRuns) {
       const runs = settleStaleOrchestraRuns(normalizeOrchestraRuns(cp.orchestraRuns), Date.now());
       if (runs.length > 0) this.orchestraRuns.set(specSettingsKey(cp.project.path), runs);
+    }
+
+    // §5.3 #10-5 설정 덜어내기 — 설정·기록 복원. 없으면 빈 상태(= 꺼짐) — 구버전 하위 호환.
+    this.configTrimSettings = new Map();
+    if (cp.configTrimSettings) {
+      this.configTrimSettings.set(specSettingsKey(cp.project.path), normalizeConfigTrimSettings(cp.configTrimSettings));
+    }
+    this.configTrimRuns = new Map();
+    if (cp.configTrimRuns) {
+      const runs = normalizeConfigTrimRuns(cp.configTrimRuns);
+      if (runs.length > 0) this.configTrimRuns.set(specSettingsKey(cp.project.path), runs);
     }
 
     // §5.9 — 캡처 버블 복원
@@ -9677,7 +9790,7 @@ export class ProjectGraph {
     this.sessionCwds.delete(sessionId);
     this.sessionPids.delete(sessionId);
     this.pendingTitles.delete(sessionId);
-    this.bashHistory.delete(sessionId);
+    this.dropBashHistory(sessionId);
     this.runningServers.delete(sessionId);
     this.commandQueuesRef.delete(sessionId);
     this.completedCommandArchiveRef.delete(sessionId);
@@ -10946,6 +11059,17 @@ export class ProjectGraph {
     return result;
   }
 
+  private bashEntryKey(sessionId: string, toolUseId: string): string {
+    return JSON.stringify([sessionId, toolUseId]);
+  }
+
+  private dropBashHistory(sessionId: string): void {
+    for (const entry of this.bashHistory.get(sessionId) ?? []) {
+      this.bashEntryIndex.delete(this.bashEntryKey(sessionId, entry.id));
+    }
+    this.bashHistory.delete(sessionId);
+  }
+
   /** Bash 명령을 히스토리에 기록 / output 매칭 */
   private recordBashEntry(payload: HookEventPayload): void {
     if (!payload.tool_input) return;
@@ -10958,9 +11082,10 @@ export class ProjectGraph {
       const output = extractBashOutput(payload.tool_response);
       // PostToolUse → 기존 엔트리에 output 매칭
       if (toolUseId) {
-        const existing = this.bashEntryIndex.get(toolUseId);
+        const existing = this.bashEntryIndex.get(this.bashEntryKey(payload.session_id, toolUseId));
         if (existing) {
           existing.output = output;
+          existing.status = bashProcedureOutcome(payload);
         }
       }
       // run_in_background 응답에서 shell_id + output 경로 파싱 → 파일 감시 시작
@@ -10983,17 +11108,21 @@ export class ProjectGraph {
       id: toolUseId ?? `bash-${Date.now()}-${hashString(command)}`,
       command,
       timestamp: Date.now(),
+      status: 'running',
     };
 
     let list = this.bashHistory.get(sid);
     if (!list) { list = []; this.bashHistory.set(sid, list); }
     list.unshift(entry);
     if (toolUseId) {
-      this.bashEntryIndex.set(toolUseId, entry);
+      this.bashEntryIndex.set(this.bashEntryKey(sid, toolUseId), entry);
     }
     if (list.length > MAX_BASH_HISTORY) {
       const removed = list.pop();
-      if (removed) this.bashEntryIndex.delete(removed.id);
+      if (removed) {
+        const key = this.bashEntryKey(sid, removed.id);
+        if (this.bashEntryIndex.get(key) === removed) this.bashEntryIndex.delete(key);
+      }
     }
 
     // run_in_background → 서버 판정.
@@ -14163,6 +14292,36 @@ export class ProjectGraph {
       return { ...next };
     }
     return undefined;
+  }
+
+  /**
+   * §5.3 #10-5 — 이 프로젝트에 저장된 설정 덜어내기 설정. 아직 아무것도 안 정했으면 undefined(= 꺼짐).
+   * 오케스트라와 같은 이유로 기본값을 여기서 채우지 않는다.
+   */
+  getConfigTrimSettings(projectPath: string): ConfigTrimSettings | undefined {
+    const found = this.configTrimSettings.get(specSettingsKey(projectPath));
+    return found ? { ...found } : undefined;
+  }
+
+  /** 설정 덜어내기 설정 **전량 교체**(한 칸만 갈아 끼우는 일은 REST 가 patch·scope 함수로 맡는다). */
+  setConfigTrimSettings(projectPath: string, settings: ConfigTrimSettings): ConfigTrimSettings {
+    const stored: ConfigTrimSettings = { ...settings, updatedAt: Date.now() };
+    this.configTrimSettings.set(specSettingsKey(projectPath), stored);
+    this.bumpMutationVersion();
+    return { ...stored };
+  }
+
+  /** §5.3 #10-5 — 이 프로젝트의 덜어내기 기록 전량(오래된 것부터). 사본이다. */
+  getConfigTrimRuns(projectPath: string): ConfigTrimRun[] {
+    const list = this.configTrimRuns.get(specSettingsKey(projectPath));
+    return list ? [...list] : [];
+  }
+
+  /** 기록 하나를 더한다 — ring 상한은 `appendConfigTrimRun` 이 지킨다. 같은 runId 는 뒤의 것이 이긴다. */
+  addConfigTrimRun(projectPath: string, run: ConfigTrimRun): void {
+    const key = specSettingsKey(projectPath);
+    this.configTrimRuns.set(key, appendConfigTrimRun(this.configTrimRuns.get(key) ?? [], run));
+    this.bumpMutationVersion();
   }
 
   /**

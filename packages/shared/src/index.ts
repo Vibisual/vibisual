@@ -1,4 +1,6 @@
 export type {
+  SkillSharingEntry,
+  SkillSharingResult,
   UiLocale,
   HookEventPayload,
   NodeStatus,
@@ -143,6 +145,13 @@ export type {
   VerificationDemo,
   VerificationDemoStep,
   VerificationDemoFrame,
+  VerificationTarget,
+  VerificationAction,
+  VerificationCheck,
+  VerificationElement,
+  VerificationEvidence,
+  VerificationToolEvent,
+  VerificationTargetAvailability,
   SessionGoal,
   SessionGoalStatus,
   SessionGoalStep,
@@ -242,6 +251,8 @@ export type {
   SpecReadingScope,
   AutoGoalScope,
   AutoGoalSource,
+  AutoGoalSkillStatus,
+  AutoGoalMetrics,
   AutoGoalCandidate,
   AutoGoalSkillSummary,
   AutoGoalState,
@@ -259,6 +270,15 @@ export type {
   OrchestraPlan,
   OrchestraRun,
   OrchestraSummary,
+  ConfigTrimScope,
+  ConfigTrimRuleId,
+  ConfigTrimReason,
+  ConfigTrimKeepReason,
+  ConfigTrimRemoval,
+  ConfigTrimExclusion,
+  ConfigTrimSettings,
+  ConfigTrimRun,
+  ConfigTrimSummary,
   StreamEventType,
   SubAgentStreamEvent,
   TaskEdgeStatus,
@@ -621,6 +641,11 @@ export {
   PROJECT_LOAD_HINT_SLOW_MS,
   INTERRUPT_RECONCILE_INTERVAL_MS,
   ZOMBIE_EXECUTING_GRACE_MS,
+  TURN_STREAM_STALL_MS,
+  CODEX_TURN_IDLE_CHECK_MS,
+  CODEX_TURN_IDLE_NOTICE_MS,
+  CODEX_TURN_IDLE_SETTLE_MS,
+  CODEX_MCP_CALL_DEADLINE_MS,
   FILE_EXISTENCE_CHECK_INTERVAL,
   FILE_EXISTENCE_MISS_THRESHOLD,
   AGENT_CLUSTER_BASE_RADIUS,
@@ -902,6 +927,8 @@ export {
   ORCHESTRA_MAX_MEMBERS_LIMIT,
   ORCHESTRA_RUN_MAX_PER_PROJECT,
   ORCHESTRA_RUN_SNAPSHOT_MAX,
+  CONFIG_TRIM_RUN_MAX_PER_PROJECT,
+  CONFIG_TRIM_RUN_SNAPSHOT_MAX,
   ORCHESTRA_RUN_REQUEST_MAX,
   ORCHESTRA_PLAN_REASON_MAX,
   ORCHESTRA_PLAN_NOTE_MAX,
@@ -1249,7 +1276,8 @@ export {
   normalizeAgentProvider,
   ALL_MODEL_DEFAULT_LABEL_RE,
   // §5.25 Codex
-  CODEX_SETUP_INSTALL_COMMAND,
+  CODEX_SETUP_INSTALL_COMMAND_WIN,
+  CODEX_SETUP_INSTALL_COMMAND_POSIX,
   CODEX_SETUP_DOCS_URL,
   CODEX_SETUP_PROBE_TIMEOUT_MS,
   CODEX_SETUP_INSTALL_TIMEOUT_MS,
@@ -1394,6 +1422,14 @@ export {
   AUTO_GOAL_CANDIDATE_MAX,
   AUTO_GOAL_TITLE_MAX,
   AUTO_GOAL_STEP_MAX,
+  AUTO_GOAL_COMMAND_MAX,
+  AUTO_GOAL_EVIDENCE_FILE_MAX,
+  AUTO_GOAL_EVIDENCE_FILE_BYTES,
+  AUTO_GOAL_ASSESSMENT_TTL_MS,
+  AUTO_GOAL_ASSESSMENT_MAX,
+  AUTO_GOAL_COMPLETION_MAX,
+  AUTO_GOAL_REVIEW_QUEUE_MAX,
+  AUTO_GOAL_REFRESH_MS,
   AUTO_GOAL_DISMISSED_MAX,
   AUTO_GOAL_SCAN_TAIL,
   AUTO_GOAL_SKILL_BUDGET,
@@ -1615,12 +1651,21 @@ export {
   findDebugAdapter,
   matchProblemLine,
 } from './constants.js';
-export type { SessionRunState, SessionRunInputs, AgentBadgeShareInputs } from './sessionRunState.js';
+export type {
+  SessionRunState,
+  SessionRunInputs,
+  AgentBadgeShareInputs,
+  SessionLiveness,
+} from './sessionRunState.js';
 export {
   EMPTY_SESSION_RUN_INPUTS,
+  SESSION_NO_RESPONSE_MS,
   isSessionRunning,
+  isSessionWaiting,
   hasSessionWork,
   resolveSessionRunState,
+  sessionSilenceMs,
+  resolveSessionLiveness,
   agentBadgeShare,
 } from './sessionRunState.js';
 
@@ -1772,6 +1817,41 @@ export {
 } from './orchestraScope.js';
 export type { OrchestraMemberRef, OrchestraEdgeRef, OrchestraConductorRulesArgs, OrchestraConductorShell } from './orchestraRules.js';
 export { buildOrchestraConductorRules, orchestraConductorShell } from './orchestraRules.js';
+export type { OrchestraCliEngine, OrchestraPreparationAction, OrchestraPreparation, OrchestraReadiness } from './orchestraReadiness.js';
+// §5.3 #10-5 — 설정 덜어내기: 범위 3단(프로젝트·에이전트·세션) 판정 + 저장 계약. 서버·클라가 같은 함수를 부른다.
+export type {
+  ConfigTrimScopeIds,
+  ConfigTrimScopeState,
+  ConfigTrimSettingsPatchResult,
+} from './configTrimScope.js';
+export {
+  CONFIG_TRIM_SCOPE_ORDER,
+  resolveConfigTrimEnabled,
+  configTrimActiveAnywhere,
+  configTrimScopeStates,
+  capConfigTrimMap,
+  withConfigTrimScope,
+  isConfigTrimRuleId,
+  normalizeConfigTrimSettings,
+  applyConfigTrimSettingsPatch,
+  appendConfigTrimRun,
+  configTrimRunsForSnapshot,
+  normalizeConfigTrimRun,
+  normalizeConfigTrimRuns,
+  configTrimSummaryFingerprint,
+} from './configTrimScope.js';
+// §5.3 #10-5 — 덜어내기 규칙 **표**. 모델·CLI 가 바뀌면 이 표만 고친다.
+export type { ConfigTrimContext, ConfigTrimRule, ConfigTrimResult } from './configTrimRules.js';
+export {
+  CONFIG_TRIM_VALUE_MAX,
+  CONFIG_TRIM_PROTECTED,
+  CONFIG_TRIM_RULES,
+  CONFIG_TRIM_RULE_BY_ID,
+  describeConfigValue,
+  computeConfigTrim,
+  configTrimContextOf,
+} from './configTrimRules.js';
+export { orchestraEnginePreparation, orchestraReadyEngines, orchestraPreparationForRequest } from './orchestraReadiness.js';
 // §5.5 #17-44 ⑧ — 정독 켬/끔 3층 판정(프로젝트·에이전트·세션). 서버·클라·플러그인이 같은 함수를 부른다.
 export {
   SPEC_SCOPE_ORDER,
@@ -2197,3 +2277,5 @@ export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';
 export * from './codexToolPolicy.js';
 
 export * from './agentRuleShell.js';
+export { VERIFICATION_AUTOMATION } from './constants.js';
+export * from './verificationAutomation.js';

@@ -11,10 +11,11 @@
  * **판정은 여기서 하지 않는다.** 층을 접는 것은 shared 순수 함수(`autoGoalScopeStates`)이고,
  * 서버 집행·프롬프트 블록·화면이 전부 같은 함수를 부른다.
  */
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { autoGoalScopeStates } from '@vibisual/shared';
-import type { AutoGoalScope, AutoGoalScopeState, AutoGoalSettings, AutoGoalState } from '@vibisual/shared';
+import { AUTO_GOAL_REFRESH_MS, autoGoalScopeStates } from '@vibisual/shared';
+import type { AutoGoalScope, AutoGoalScopeState, AutoGoalState } from '@vibisual/shared';
+import { AutoGoalClient } from './autoGoalClient.js';
 
 /** 한 층에 값을 적거나(`true`/`false`) 지운다(`null` = 위 층에서 물려받기). */
 export type AutoGoalScopeWrite = (scope: AutoGoalScope, enabled: boolean | null) => void;
@@ -28,11 +29,15 @@ export interface AutoGoalControl {
   saving: boolean;
   /** 설정을 아직 못 받았다(서버 응답 전). 그동안 스위치는 눌리지 않는다. */
   loading: boolean;
+  error: 'load' | 'save' | null;
+  refresh: () => void;
   set: AutoGoalScopeWrite;
   /** 후보 하나를 물린다 — 다시 제안하지 않는다(관찰은 계속된다). */
   dismiss: (candidateId: string) => void;
   /** 굳은 절차 한 장을 지운다. 함께 물려 두지 않으면 다음 분석이 곧바로 다시 짓는다. */
   removeSkill: (skillId: string, candidateId?: string) => void;
+  retireSkill: (skillId: string, revision?: string) => void;
+  requestReview: (skillId: string, revision?: string) => void;
 }
 
 /**
@@ -49,64 +54,24 @@ export function useAutoGoalScope(
   agentId: string | null | undefined,
   subAgentId: string | null | undefined,
 ): AutoGoalControl {
-  const [settings, setSettings] = useState<AutoGoalSettings | null>(null);
-  const [state, setState] = useState<AutoGoalState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  // 뜬 채로 응답이 늦게 오면 언마운트 뒤 setState 가 돈다 — 그 경고를 막는 것이 아니라
-  //   **닫힌 창의 상태를 되살리지 않으려는** 것이다.
-  const alive = useRef(true);
+  const client = useMemo(() => new AutoGoalClient(rootPath, agentId, subAgentId), [rootPath, agentId, subAgentId]);
+  const snapshot = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
   useEffect(() => {
-    alive.current = true;
-    return () => { alive.current = false; };
-  }, []);
+    client.start();
+    const refreshVisible = (): void => { if (document.visibilityState === 'visible') void client.refresh(false); };
+    const interval = window.setInterval(refreshVisible, AUTO_GOAL_REFRESH_MS);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisible);
+      client.stop();
+    };
+  }, [client]);
 
-  const load = useCallback(() => {
-    if (!rootPath) { setLoading(false); return; }
-    const q = new URLSearchParams({ projectPath: rootPath });
-    if (agentId) q.set('agentId', agentId);
-    if (subAgentId) q.set('subAgentId', subAgentId);
-    void fetch(`/api/auto-goal/state?${q.toString()}`)
-      .then((r) => r.json())
-      .then((body: { ok?: boolean; state?: AutoGoalState; settings?: AutoGoalSettings | null }) => {
-        if (!alive.current) return;
-        if (body.ok) {
-          setSettings(body.settings ?? null);
-          setState(body.state ?? null);
-        }
-        setLoading(false);
-      })
-      // 못 받아도 화면은 선다 — 스위치가 "안 정함"으로 보일 뿐이고, 누르면 서버가 지금 값을 읽어 고친다.
-      .catch(() => { if (alive.current) setLoading(false); });
-  }, [rootPath, agentId, subAgentId]);
-
-  useEffect(() => {
-    setLoading(true);
-    load();
-  }, [load]);
-
-  /** 쓰기 한 벌 — 저장하고, 저장된 값으로 갈아 끼우고, 현황을 다시 받아 온다. */
+  const refresh = useCallback(() => { void client.refresh(); }, [client]);
   const post = useCallback((url: string, body: unknown, method = 'POST') => {
-    if (!rootPath || saving) return;
-    setSaving(true);
-    void fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    })
-      .then((r) => r.json())
-      .then((res: { ok?: boolean; settings?: AutoGoalSettings }) => {
-        // 서버가 돌려준 **저장된 값**으로 갈아 낀다 — 낙관적 갱신을 하면 서버가 접은 결과(칸 상한 등)와
-        //   화면이 갈린다.
-        if (alive.current && res.ok && res.settings) setSettings(res.settings);
-      })
-      .catch(() => { /* 실패하면 화면은 그대로 — 다음 누름이 다시 시도한다 */ })
-      .finally(() => {
-        if (!alive.current) return;
-        setSaving(false);
-        load();
-      });
-  }, [rootPath, saving, load]);
+    void client.mutate(url, body, method);
+  }, [client]);
 
   const set = useCallback<AutoGoalScopeWrite>((scope, enabled) => {
     const id = scope === 'agent' ? agentId : scope === 'session' ? subAgentId : null;
@@ -125,16 +90,27 @@ export function useAutoGoalScope(
     post(`/api/auto-goal/skills/${encodeURIComponent(skillId)}?${q.toString()}`, undefined, 'DELETE');
   }, [post, rootPath]);
 
-  const states = autoGoalScopeStates(settings, { agentId, subAgentId });
+  const retireSkill = useCallback((skillId: string, revision?: string) => {
+    post(`/api/auto-goal/skills/${encodeURIComponent(skillId)}/retire`, { projectPath: rootPath, revision });
+  }, [post, rootPath]);
+  const requestReview = useCallback((skillId: string, revision?: string) => {
+    post(`/api/auto-goal/skills/${encodeURIComponent(skillId)}/request-review`, { projectPath: rootPath, revision });
+  }, [post, rootPath]);
+
+  const states = autoGoalScopeStates(snapshot.settings, { agentId, subAgentId });
   return {
     states,
     effective: states[states.length - 1]?.effective ?? false,
-    state,
-    saving,
-    loading,
+    state: snapshot.state,
+    saving: snapshot.saving,
+    loading: snapshot.loading || !rootPath || snapshot.state === null,
+    error: snapshot.error,
+    refresh,
     set,
     dismiss,
     removeSkill,
+    retireSkill,
+    requestReview,
   };
 }
 

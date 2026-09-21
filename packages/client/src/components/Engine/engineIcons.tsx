@@ -1,4 +1,5 @@
 import type { AgentEngineKind } from '@vibisual/shared';
+import { BRAND_ICON_PATHS } from '../BubbleMap/brandIconPaths.js';
 
 /**
  * §5.25 (C) — 세 엔진의 **글리프 정본**.
@@ -7,7 +8,7 @@ import type { AgentEngineKind } from '@vibisual/shared';
  * 같은 그림을 쓴다. 화면마다 따로 그리면 한쪽만 바뀌는 날이 오고, 그러면 같은 엔진이 자리마다
  * 다른 얼굴을 갖는다 — §5.25 (B) 가 "세 형제가 나란히 선다"고 말한 것이 그 순간 깨진다.
  *
- * 이모지가 아니라 lucide 톤의 stroke SVG 다(CLAUDE.md UI 규약). 색은 `currentColor` 로 받아
+ * 코덱스는 캔버스와 같은 매듭 로고, 나머지는 lucide 톤의 stroke SVG 다. 색은 `currentColor` 로 받아
  * 부모의 `text-*` 가 결정한다 — 그래서 같은 글리프가 관문에서는 크게, 목록에서는 작게, 꺼진
  * 자리에서는 흐리게 나온다.
  */
@@ -27,9 +28,8 @@ export function EngineIcon({ kind, className }: {
   };
   if (kind === 'codex') {
     return (
-      <svg {...common}>
-        <path d="M16 18l6-6-6-6" />
-        <path d="M8 6l-6 6 6 6" />
+      <svg viewBox="0 0 24 24" className={cls} fill="currentColor" fillRule="evenodd" stroke="none" aria-hidden="true">
+        <path d={BRAND_ICON_PATHS.codex} />
       </svg>
     );
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -11,10 +11,14 @@ import {
   type LocalModelCatalogEntry,
   type LocalModelCatalogRepo,
   type LocalModelCatalogSort,
+  type LocalModelDownloadProgress,
 } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { formatBytes, useLocalLlm } from '../../hooks/useLocalLlm.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { ScrollFade } from '../ScrollFade.js';
+import { isLocalModelReady } from './localModelEntry.js';
 
 /**
  * §5.19 (B) — All Model 설치 창.
@@ -26,9 +30,16 @@ import { formatBytes, useLocalLlm } from '../../hooks/useLocalLlm.js';
  * 목록·상태는 전부 서버가 디스크를 읽어 내려준 것이다. 여기서 가공하지 않는다.
  */
 export function LocalModelWindow(): React.JSX.Element | null {
+  const target = useGraphStore((s) => s.localModelWindow);
+  // Closing or changing the target discards pending selections and requests from the old window.
+  return target ? <LocalModelSetup key={target.agentId} /> : null;
+}
+
+function LocalModelSetup(): React.JSX.Element | null {
   const { t } = useTranslation();
   const target = useGraphStore((s) => s.localModelWindow);
   const close = useGraphStore((s) => s.closeLocalModelWindow);
+  const backdrop = useBackdropDismiss(close);
   const local = useGraphStore((s) => s.localLlm);
   const bindLocalModel = useGraphStore((s) => s.bindLocalModel);
   const setLocalContextSize = useGraphStore((s) => s.setLocalContextSize);
@@ -44,16 +55,26 @@ export function LocalModelWindow(): React.JSX.Element | null {
   const [openRepo, setOpenRepo] = useState('');
   const [files, setFiles] = useState<LocalModelCatalogEntry[]>([]);
   const [searching, setSearching] = useState(false);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const searchRequest = useRef<AbortController | null>(null);
+  const fileRequest = useRef<AbortController | null>(null);
+  const bindingRequest = useRef(false);
+  const [binding, setBinding] = useState(false);
+  const [bindingError, setBindingError] = useState(target?.error ?? '');
+  useEffect(() => () => {
+    searchRequest.current?.abort();
+    fileRequest.current?.abort();
+  }, []);
   // §5.19 (E) — 목록을 줄 세우는 축. 바꾸면 **다시 물어본다**(우리가 받아 둔 것을 다시
   //   정렬하는 것이 아니다 — 그러면 "하트순 1위"가 이 스무 건 안에서만 1위가 된다).
   const [sort, setSort] = useState<LocalModelCatalogSort>('downloads');
   // §5.19 (E) — 이 PC 로는 무리인 양자화를 아예 빼고 볼지. 판정은 `classifyModelFit` 한 곳.
-  const [runnableOnly, setRunnableOnly] = useState(false);
+  const [runnableOnly, setRunnableOnly] = useState(true);
   // §5.19 (E) — 펼친 저장소에서 인기 셋 말고 나머지까지 볼지(저장소를 바꾸면 다시 접힌다).
   const [showAllFiles, setShowAllFiles] = useState(false);
   // 이 창에서 사용자가 "받기"를 누른 모델. 받기가 끝나면 **묻지 않고** 그 모델로 시작한다 —
   // 준비의 끝이 곧 대화의 시작이라는 것이 이 창의 약속이다(§5.19 (B)).
-  const [pendingModelId, setPendingModelId] = useState('');
+  const [pendingDownload, setPendingDownload] = useState<LocalModelDownloadProgress | null>(null);
   // 대화 창 크기 — 입력 중인 값은 화면 것이고, 적용을 눌러야 설정으로 간다.
   const boundModelId = provider?.modelId ?? '';
   const savedContext = provider?.contextSize ?? LOCAL_DEFAULT_CONTEXT_SIZE;
@@ -63,17 +84,35 @@ export function LocalModelWindow(): React.JSX.Element | null {
   const contextDirty = contextDraft.trim() !== String(savedContext);
 
   const runSearch = useCallback(async (q: string, by: LocalModelCatalogSort): Promise<void> => {
+    searchRequest.current?.abort();
+    fileRequest.current?.abort();
+    const request = new AbortController();
+    searchRequest.current = request;
     setSearching(true);
+    setLoadingFiles(false);
     setOpenRepo('');
     setFiles([]);
+    setRepos([]);
     setShowAllFiles(false);
-    setRepos(await searchRepos(q, by));
+    const found = await searchRepos(q, by, request.signal);
+    if (request.signal.aborted) return;
+    setRepos(found);
     setSearching(false);
   }, [searchRepos]);
 
   const engineInstalled = local?.engine.installed ?? false;
   const models = local?.models ?? [];
   const hardware = local?.hardware ?? null;
+  const pick = useCallback(async (modelId: string, modelName: string): Promise<void> => {
+    if (!target || bindingRequest.current) return;
+    bindingRequest.current = true;
+    setBinding(true);
+    setBindingError('');
+    const result = await bindLocalModel(target.agentId, modelId, modelName);
+    if (!result.ok) setBindingError(result.error);
+    bindingRequest.current = false;
+    setBinding(false);
+  }, [target, bindLocalModel]);
 
   /**
    * 이 크기가 이 PC 에서 어떻게 돌지 한 조각으로 말한다. 판정은 shared 한 곳에서 하고
@@ -142,12 +181,14 @@ export function LocalModelWindow(): React.JSX.Element | null {
 
   // 받기가 끝나는 순간이 이 창의 끝이다 — 그 모델을 버블에 매고, IDE 가 열린다(bindLocalModel).
   useEffect(() => {
-    if (!target || !pendingModelId) return;
-    const done = models.find((m) => m.id === pendingModelId);
-    if (!done) return;
-    setPendingModelId('');
-    bindLocalModel(target.agentId, done.id, done.name);
-  }, [target, pendingModelId, models, bindLocalModel]);
+    if (!target || !pendingDownload) return;
+    const done = models.find((m) => m.id === pendingDownload.modelId);
+    if (!done || !isLocalModelReady(done)) return;
+    const download = local?.downloads.find((d) => d.downloadId === pendingDownload.downloadId) ?? pendingDownload;
+    if (download.status !== 'done') return;
+    setPendingDownload(null);
+    void pick(done.id, done.name);
+  }, [target, pendingDownload, models, local?.downloads, pick]);
 
   useEffect(() => {
     if (!target) return;
@@ -171,6 +212,9 @@ export function LocalModelWindow(): React.JSX.Element | null {
     total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
 
   const openFiles = async (repo: string): Promise<void> => {
+    fileRequest.current?.abort();
+    setFiles([]);
+    setLoadingFiles(false);
     // 저장소를 바꾸면 펼쳐 두었던 나머지는 다시 접는다 — 새 저장소의 첫 화면도 셋이어야 한다.
     setShowAllFiles(false);
     if (openRepo === repo) {
@@ -178,19 +222,21 @@ export function LocalModelWindow(): React.JSX.Element | null {
       setFiles([]);
       return;
     }
+    const request = new AbortController();
+    fileRequest.current = request;
     setOpenRepo(repo);
-    setFiles(await listRepoFiles(repo));
-  };
-
-  /** 고른 모델을 이 버블에 매고 IDE 로 넘어간다(창은 bindLocalModel 이 닫는다). */
-  const pick = (modelId: string, modelName: string): void => {
-    bindLocalModel(target.agentId, modelId, modelName);
+    setLoadingFiles(true);
+    const found = await listRepoFiles(repo, request.signal);
+    if (request.signal.aborted) return;
+    setFiles(found);
+    setLoadingFiles(false);
   };
 
   /** 받기 시작 — 끝나는 것을 지켜보다가 위 effect 가 이어받는다. */
-  const startDownload = (entry: LocalModelCatalogEntry): void => {
-    setPendingModelId(entry.id);
-    void downloadModel(entry.repo, entry.file, entry.partFiles);
+  const startDownload = async (entry: LocalModelCatalogEntry): Promise<void> => {
+    setBindingError('');
+    setPendingDownload(null);
+    setPendingDownload(await downloadModel(entry.repo, entry.file, entry.partFiles));
   };
 
   /**
@@ -239,11 +285,10 @@ export function LocalModelWindow(): React.JSX.Element | null {
   return createPortal(
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
-      onMouseDown={close}
+      {...backdrop}
     >
       <div
         className="flex max-h-[82vh] w-[680px] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60"
-        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* 헤더 — 어떤 버블을 준비하는 중인지 이름으로 말한다. */}
         <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">
@@ -282,7 +327,8 @@ export function LocalModelWindow(): React.JSX.Element | null {
           <span className="text-gray-600">{t('localModel.stepIde', { defaultValue: 'IDE' })}</span>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <ScrollFade fill>
+        <div className="px-4 py-3">
           {!engineInstalled ? (
             /* ── 엔진이 아직 없다 — 받아서 설치가 먼저다 ── */
             <div className="flex flex-col gap-3">
@@ -418,7 +464,7 @@ export function LocalModelWindow(): React.JSX.Element | null {
                   // 조각이 빠졌거나 부속 파일이면 고를 수 없다 — 고르면 엔진이 죽는 것
                   //   말고는 사용자가 알 길이 없다.
                   const missing = m.missingParts?.length ?? 0;
-                  const blocked = missing > 0 || m.companion === true;
+                  const blocked = !isLocalModelReady(m) || binding || busy;
                   return (
                   <div key={m.id} className="flex items-center gap-2 rounded border border-gray-800 bg-gray-950/40 px-3 py-2">
                     <div className="flex min-w-0 flex-1 flex-col">
@@ -464,14 +510,14 @@ export function LocalModelWindow(): React.JSX.Element | null {
                     <button
                       type="button"
                       disabled={blocked}
-                      onClick={() => pick(m.id, m.name)}
+                      onClick={() => { setPendingDownload(null); void pick(m.id, m.name); }}
                       className="shrink-0 rounded bg-violet-600/90 px-2.5 py-1 text-xs text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {t('localModel.useModelStart', { defaultValue: '이 모델로 시작' })}
                     </button>
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || binding}
                       onClick={() => void deleteModel(m.id)}
                       className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-40"
                     >
@@ -496,7 +542,7 @@ export function LocalModelWindow(): React.JSX.Element | null {
                         <button
                           type="button"
                           onClick={() => {
-                            if (d.modelId === pendingModelId) setPendingModelId('');
+                            if (d.downloadId === pendingDownload?.downloadId) setPendingDownload(null);
                             void cancelDownload(d.downloadId);
                           }}
                           className="shrink-0 rounded px-1.5 py-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
@@ -507,7 +553,7 @@ export function LocalModelWindow(): React.JSX.Element | null {
                       <div className="h-1 w-full overflow-hidden rounded bg-gray-800">
                         <div className="h-full bg-violet-500 transition-all" style={{ width: `${pct(d.receivedBytes, d.totalBytes)}%` }} />
                       </div>
-                      {d.modelId === pendingModelId && !d.error && (
+                      {d.downloadId === pendingDownload?.downloadId && !d.error && (
                         <span className="text-xs text-violet-300">
                           {t('localModel.opensIdeHint', { defaultValue: '받기가 끝나면 이 버블의 IDE 가 바로 열립니다.' })}
                         </span>
@@ -619,7 +665,12 @@ export function LocalModelWindow(): React.JSX.Element | null {
                     </button>
                     {openRepo === r.repo && (
                       <div className="border-t border-gray-800 px-2 py-1">
-                        {files.length === 0 && (
+                        {loadingFiles && (
+                          <span className="block px-1.5 py-1.5 text-xs text-gray-500" role="status">
+                            {t('localModel.searching')}
+                          </span>
+                        )}
+                        {!loadingFiles && !error && files.length === 0 && (
                           <span className="block px-1.5 py-1.5 text-xs text-gray-600">
                             {t('localModel.noFiles', { defaultValue: '이 저장소에서 받을 수 있는 GGUF 를 찾지 못했습니다.' })}
                           </span>
@@ -660,8 +711,8 @@ export function LocalModelWindow(): React.JSX.Element | null {
                             )}
                             <button
                               type="button"
-                              disabled={busy || f.archVerdict === 'broken'}
-                              onClick={() => startDownload(f)}
+                              disabled={busy || binding || f.archVerdict === 'broken' || downloads.some((d) => d.modelId === f.id && (d.status === 'starting' || d.status === 'downloading'))}
+                              onClick={() => void startDownload(f)}
                               className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               {t('localModel.download', { defaultValue: '받기' })}
@@ -703,8 +754,9 @@ export function LocalModelWindow(): React.JSX.Element | null {
             </div>
           )}
 
-          {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+          {(bindingError || error) && <p role="alert" className="mt-3 text-xs text-red-400">{bindingError || error}</p>}
         </div>
+        </ScrollFade>
 
         <div className="border-t border-gray-800 px-4 py-2">
           <p className="text-xs leading-relaxed text-gray-600">

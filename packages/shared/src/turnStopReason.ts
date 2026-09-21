@@ -14,7 +14,7 @@
  * 종전 그대로이고, 이 칸은 "왜 멈췄나"만 말한다.
  */
 
-/** 턴이 끝난 이유 — 여섯 가지. 모르면 값을 비운다(짐작해 `end_turn` 을 적지 않는다). */
+/** 턴이 끝난 이유 — 일곱 가지. 모르면 값을 비운다(짐작해 `end_turn` 을 적지 않는다). */
 export type TurnStopReason =
   /** 모델이 할 말을 다 하고 끝냈다. */
   | 'end_turn'
@@ -27,10 +27,18 @@ export type TurnStopReason =
   /** 사용자가 멈췄다. */
   | 'cancelled'
   /** 요금제 사용 한도에 닿아 멈췄다(§2.4 한도 정지). */
-  | 'usage_limit';
+  | 'usage_limit'
+  /**
+   * **응답이 끊겨 우리가 마감했다** — 끝 신호가 끝내 오지 않았다(§2.4 세션 생존 판정 autoClose).
+   *
+   * 종전에는 이 마감이 평범한 `completed` 와 한 글자도 다르지 않아, 사용자는 그 턴이 제대로
+   * 끝난 것인지 끊긴 것인지 알 길이 없었다. 실패(`status: error`)로 적지 않는 이유는 그 턴이
+   * 실제로 일을 마쳤을 수도 있기 때문이다 — 우리가 아는 것은 "끝 신호를 못 받았다" 하나뿐이다.
+   */
+  | 'disconnected';
 
 export const TURN_STOP_REASONS: readonly TurnStopReason[] = [
-  'end_turn', 'max_tokens', 'max_turns', 'refusal', 'cancelled', 'usage_limit',
+  'end_turn', 'max_tokens', 'max_turns', 'refusal', 'cancelled', 'usage_limit', 'disconnected',
 ];
 
 /** 모델이 적어 보내는 끝 사유 중 **턴의 끝**을 뜻하는 것 — 접은 뒤의 세 낱말. */
@@ -110,17 +118,26 @@ export interface TurnStopFacts {
   modelStop?: ModelStopReason;
   /** 턴이 실패로 닫힌다(`status === 'error'`). */
   failed?: boolean;
+  /**
+   * 끝 신호를 못 받은 채 **우리가** 턴을 닫는다(세션 생존 판정 autoClose · 스트림 정지 워치독).
+   * 사용자 중지·한도 정지보다는 약하다 — 그 둘은 왜 멈췄는지를 우리가 **알고** 적는 사유다.
+   */
+  disconnected?: boolean;
 }
 
 /**
  * 사실들로 턴의 끝 이유를 정한다. **앞선 것이 이긴다**:
- * 사용자 중지 > 한도 정지 > 턴 상한 > 모델 거절 > 출력 상한 > 평범한 끝.
+ * 사용자 중지 > 한도 정지 > 응답 끊김 > 턴 상한 > 모델 거절 > 출력 상한 > 평범한 끝.
+ *
+ * 응답 끊김이 턴 상한보다 앞선 이유 — 끝 신호를 못 받고 닫은 턴에는 상한 신호가 애초에 올 수 없다.
+ * 그 자리에 남아 있는 상한 표식은 **앞 턴의 것**이라, 뒤에 두면 끊긴 턴이 남의 사유를 입는다.
  *
  * 실패로 닫히는데 위 어느 것도 아니면 `undefined` — 그 턴의 이유는 오류 코드가 말한다.
  */
 export function resolveTurnStopReason(facts: TurnStopFacts): TurnStopReason | undefined {
   if (facts.userStopped) return 'cancelled';
   if (facts.usageLimited) return 'usage_limit';
+  if (facts.disconnected) return 'disconnected';
   if (facts.maxTurns) return 'max_turns';
   if (facts.modelStop === 'refusal') return 'refusal';
   if (facts.modelStop === 'max_tokens') return 'max_tokens';

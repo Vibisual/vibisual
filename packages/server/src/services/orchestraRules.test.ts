@@ -15,7 +15,7 @@ import type { OrchestraConductorRulesArgs, OrchestraStrategyId } from '@vibisual
  * §5.3 #10-4 — 지휘 규칙(지휘 턴 한 번에 붙는 글).
  *
  * 못 박는 계약:
- *  ① 절차의 세 줄(멤버 만들기·킥오프·계획 신고)에 이 런의 id 가 실린다 — 빠지면 멤버가 런에 묶이지 않고
+ *  ① 멤버 만들기·계획 신고·킥오프 요청 키에 이 런의 id 가 실린다 — 빠지면 멤버가 런에 묶이지 않고
  *     멤버 자신이 다시 지휘한다(재귀).
  *  ② 토큰 값은 본문에 없다 — 환경변수 참조뿐이다(대화 기록에 남는다).
  *  ③ 지난 분석 원문이 그대로 실린다. 사용자가 꺼 둔 방안은 고를 수 있는 표와 원문 표 **양쪽에서** 빠진다.
@@ -29,6 +29,8 @@ function args(partial: Partial<OrchestraConductorRulesArgs> = {}): OrchestraCond
     serverBase: 'http://127.0.0.1:5555',
     projectName: 'demo',
     runId: 'orc-test-1',
+    conductorAgentId: 'conductor-1',
+    conductorSubAgentId: 'conductor-sub-1',
     centerX: 400.4,
     centerY: 299.6,
     settings: {},
@@ -56,9 +58,9 @@ function nth<T>(xs: readonly T[], i: number): T {
 describe('buildOrchestraConductorRules — 런 id', () => {
   const rules = buildOrchestraConductorRules(args());
 
-  it('멤버 만들기 본문·킥오프 주소·계획 신고 주소에 런 id 가 실린다', () => {
+  it('멤버 만들기 본문·킥오프 요청 키·계획 신고 주소에 런 id 가 실린다', () => {
     expect(rules).toContain('"orchestraRunId":"orc-test-1"');
-    expect(rules).toContain('/api/commands/<ENTRY_AGENT_PATH>?orchestraRunId=orc-test-1"');
+    expect(rules).toContain('/api/task-edges/dispatch?edgeId=<DISPATCH_EDGE_ID>&agentId=conductor-1&wait=false&requestKey=orc-test-1%3Aentry"');
     expect(rules).toContain('/api/orchestra/runs/orc-test-1/plan"');
     expect(rules.split('\n')[0]).toBe('# 오케스트라 지휘 — 이번 요청 한 건 (런 `orc-test-1`)');
   });
@@ -176,7 +178,7 @@ describe('buildOrchestraConductorRules — 엔진', () => {
 
   it('멤버 엔진 auto — 두 절 다, 고른 이유를 note 에', () => {
     const rules = buildOrchestraConductorRules(args({ settings: { memberEngine: 'auto', memberClaudeModel: 'sonnet', memberClaudeEffort: 'medium' } }));
-    expect(rules).toContain('멤버 엔진은 **역할마다 당신이 고른다**(사용자 설정 `auto`).');
+    expect(rules).toContain('멤버 엔진은 **아래 준비된 엔진 안에서 역할마다 당신이 고른다**(사용자 설정 `auto`).');
     expect(rules).toContain('- **Claude 멤버**');
     expect(rules).toContain('- **Codex 멤버**');
     expect(rules).toContain('모델은 `sonnet` 로 둔다(사용자 설정).');
@@ -229,20 +231,57 @@ describe('orchestraConductorShell — 세 OS × 두 엔진', () => {
   });
 });
 
+describe('buildOrchestraConductorRules — 위임과 결과 회수 계약', () => {
+  it.each([['claude', 'linux', 'bash'], ['codex', 'win32', 'powershell']] as const)('%s: 계획 등록 → 감독 엣지로 위임 → 같은 작업 결과 회수', (conductorEngine, platform, shell) => {
+    const rules = buildOrchestraConductorRules(args({ conductorEngine, platform }));
+    const blocks = codeBlocks(rules, shell);
+    expect(nth(blocks, 3)).toContain('/api/orchestra/runs/orc-test-1/plan');
+    expect(nth(blocks, 3)).toContain('DISPATCH_EDGE_ID=');
+    expect(nth(blocks, 4)).toContain('/api/task-edges/dispatch?edgeId=<DISPATCH_EDGE_ID>&agentId=conductor-1&wait=false&requestKey=orc-test-1%3Aentry');
+    expect(nth(blocks, 5)).toContain('/api/task-edges/dispatch/<CMD_ID>?agentId=conductor-1&waitMs=60000');
+    expect(blocks.join('\n')).not.toContain('/api/commands');
+    expect(nth(blocks, 2)).toContain('"returnFormat":"both"');
+    expect(rules).toContain('**지휘자 → 엔트리 연결은 필수**');
+    expect(rules).toContain('모든 하위 위임 결과·검증·재작업을 회수한 뒤 통합 보고한다');
+    expect(nth(blocks, 4)).toContain('모든 작업·검증·재작업의 끝난 결과를 회수한 뒤 통합 보고하세요');
+    expect(rules).toContain('`job.status`·`job.result`');
+    expect(rules).toContain('`queued`·`executing`·`pending:true`·`timedOut:true` 는 진행 중');
+    expect(rules).toContain('다른 키로 같은 일을 재위임하지 않는다');
+    expect(rules).toContain('**끝난 결과를 회수하기 전에는 턴을 완료하지 않는다.**');
+    expect(rules).not.toContain('결과를 기다리지 않는다');
+    expect(rules).not.toContain('지휘자 자신을 엣지의 source·target 으로 쓰지 않는다');
+    expect(rules).toContain('기존 연결은 사용자 산출물이다. 이번에 쓰지 않는다고 삭제하지 않는다');
+  });
+
+  it('none 은 entry 를 생략하고 계획만 신고한다', () => {
+    const rules = buildOrchestraConductorRules(args());
+    expect(rules).toContain('`none` 이면 `entryAgentId` 는 빼고 `reusedAgentIds` 는 빈 배열');
+    expect(rules).toContain('이때 연결도 킥오프도 결과 대기도 필요 없다');
+  });
+
+  it('지휘자의 기존 엣지를 알아보고 재사용한다', () => {
+    const rules = buildOrchestraConductorRules(args({
+      existingMembers: [{ id: 'entry', label: 'Hub', path: 'entry-path', engine: 'claude' }],
+      existingEdges: [{ id: 'dispatch-existing', sourceAgentId: 'conductor-1', targetAgentId: 'entry', kind: 'command', command: 'delegate' }],
+    }));
+    expect(rules).toContain('| `dispatch-existing` | 지휘자(당신) → Hub | command | delegate |');
+  });
+});
+
 describe('buildOrchestraConductorRules — PowerShell 판(Windows 의 Codex 지휘자)', () => {
   const ps = buildOrchestraConductorRules(args({ conductorEngine: 'codex', platform: 'win32' }));
   const blocks = codeBlocks(ps, 'powershell');
 
-  it('다섯 조각 모두 PowerShell 이고 bash 문법은 한 줄도 없다', () => {
+  it('여섯 조각 모두 PowerShell 이고 bash 문법은 한 줄도 없다', () => {
     expect(ps).toContain('## 2. 절차 (PowerShell 로 Invoke-RestMethod)');
-    expect(blocks).toHaveLength(5);
+    expect(blocks).toHaveLength(6);
     expect(codeBlocks(ps, 'bash')).toHaveLength(0);
     for (const s of ["<<'JSON'", "<<'EOF'", '${VIBISUAL_BASE:-', 'curl -s', '--data-binary']) expect(ps).not.toContain(s);
   });
 
   it('런 id·프로젝트가 bash 판과 같은 자리에 실린다', () => {
     expect(ps).toContain('"orchestraRunId":"orc-test-1"');
-    expect(ps).toContain('/api/commands/<ENTRY_AGENT_PATH>?orchestraRunId=orc-test-1"');
+    expect(ps).toContain('/api/task-edges/dispatch?edgeId=<DISPATCH_EDGE_ID>&agentId=conductor-1&wait=false&requestKey=orc-test-1%3Aentry"');
     expect(ps).toContain('/api/orchestra/runs/orc-test-1/plan"');
     expect(ps).toContain('"project":"demo"');
     expect(ps).toContain("$AgentId = '<① 에서 받은 AGENT_ID>'");
@@ -260,7 +299,7 @@ describe('buildOrchestraConductorRules — PowerShell 판(Windows 의 Codex 지�
 
   it('호출은 전부 Send 로, 같은 베이스로 — 직접 Invoke-RestMethod 는 Send 안에만 있다', () => {
     const calls = blocks.flatMap((b) => b.match(/Send (?:Get|Post|Put) "[^"]+"/g) ?? []);
-    expect(calls).toHaveLength(6); // ① · ② 읽기+저장 · ③ · ④ · ⑤
+    expect(calls).toHaveLength(7); // ① · ② 읽기+저장 · ③ · ④ · ⑤ · ⑥
     for (const c of calls) expect(c).toMatch(/^Send \w+ "\$B\/api\//);
     for (const b of blocks) {
       for (const line of b.split('\n').filter((l) => l.includes('Invoke-RestMethod'))) {
@@ -277,13 +316,14 @@ describe('buildOrchestraConductorRules — PowerShell 판(Windows 의 Codex 지�
     expect(send).toContain('[Text.Encoding]::UTF8.GetBytes($Text)');
   });
 
-  it('here-string 은 조각마다 한 쌍이고 닫는 `\'@` 는 줄 맨 앞이다', () => {
-    for (const b of blocks) {
+  it('본문 있는 조각의 here-string 은 한 쌍이고 닫는 `\'@` 는 줄 맨 앞이다', () => {
+    for (const b of blocks.slice(0, 5)) {
       const lines = b.split('\n');
       expect(lines.filter((l) => /@'$/.test(l))).toHaveLength(1);
       expect(lines.filter((l) => l.startsWith("'@"))).toHaveLength(1);
       expect(lines.some((l) => /^\s+'@/.test(l))).toBe(false);
     }
+    expect(nth(blocks, 5)).not.toContain("@'");
   });
 
   it('설정 합치기는 순서 사전 + 깊이를 준 ConvertTo-Json(기본 깊이 2 는 중첩을 뭉갠다)', () => {
@@ -293,9 +333,19 @@ describe('buildOrchestraConductorRules — PowerShell 판(Windows 의 Codex 지�
     expect(config).toContain("'@ | ConvertFrom-Json");
   });
 
-  it('토큰 값은 본문에 없다 — 머리의 환경변수 참조 다섯 번뿐', () => {
-    expect(ps.split('\n').filter((line) => line.startsWith('$H ='))).toEqual(Array(5).fill(agentPowershellHead('')[2]));
+  it('토큰 값은 본문에 없다 — 머리의 환경변수 참조 여섯 번뿐', () => {
+    expect(ps.split('\n').filter((line) => line.startsWith('$H ='))).toEqual(Array(6).fill(agentPowershellHead('')[2]));
     expect(ps).not.toMatch(/x-vibisual-hook-token: /);
+  });
+
+  it('모든 조각에 지휘자의 소유자와 실행 세션 헤더가 남는다', () => {
+    for (const block of blocks) {
+      expect(block).toContain("$H['x-vibisual-source-agent'] = 'conductor-1'");
+      expect(block).toContain('$env:VIBISUAL_SUBAGENT_ID');
+      expect(block).toContain("else { 'conductor-sub-1' }");
+    }
+    expect(nth(blocks, 4)).toContain('| ConvertTo-Json -Depth 32');
+    expect(nth(blocks, 5)).toContain('| ConvertTo-Json -Depth 32');
   });
 
   it('금지 줄도 그 셸의 말로 — 절차 밖의 글은 bash 판과 같다', () => {
@@ -324,9 +374,11 @@ describe('buildOrchestraConductorRules — Bash 판(Claude 지휘자 세 OS · m
   ] as const)('%s 지휘자 on %s', (engine, platform) => {
     const rules = buildOrchestraConductorRules(args({ conductorEngine: engine, platform }));
     expect(rules).toContain('## 2. 절차 (Bash 로 curl)');
-    expect(codeBlocks(rules, 'bash')).toHaveLength(5);
+    expect(codeBlocks(rules, 'bash')).toHaveLength(6);
     expect(codeBlocks(rules, 'powershell')).toHaveLength(0);
     expect(rules).not.toContain('Invoke-RestMethod');
+    expect(rules).toContain('-H "x-vibisual-source-agent: conductor-1"');
+    expect(rules).toContain('-H "x-vibisual-source-subagent: ${VIBISUAL_SUBAGENT_ID:-conductor-sub-1}"');
     expect(rules).toContain('- 모든 curl 의 베이스는 위 서버 베이스 하나다(이 주소만 앱 안 서버에 닿는다).');
   });
 

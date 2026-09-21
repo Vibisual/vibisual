@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { VOICE_INPUT } from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { shortcutLabel } from '../../utils/platform.js';
@@ -116,6 +117,7 @@ export function MicSettingsPopup({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => {
+      if (isComposingKeyEvent(e)) return;
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
     };
     document.addEventListener('keydown', onKey, true);

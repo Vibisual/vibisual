@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { VerificationTarget } from '@vibisual/shared';
 
 // §5.5 #17-35 ⑨⑩ — 시연 녹화의 **런타임 상태**(비영속, 렌더러 메모리).
 //
@@ -16,6 +17,7 @@ import { create } from 'zustand';
 export interface VerifyDemoSource {
   sourceId: string;
   sourceName: string;
+  sourceKind?: 'window' | 'screen';
 }
 
 /**
@@ -42,10 +44,13 @@ export interface VerifyDemoWindowState {
 }
 
 interface VerifyDemoState {
+  /** Editable connection per session. Durable copies live on demos and runs on the server. */
+  target: Record<string, VerificationTarget | undefined>;
+  setTarget: (subAgentId: string, target: VerificationTarget | null) => void;
   /** subAgentId → 고른 캡처 소스. 고른 적이 없으면 undefined(⑩ 스위치를 켤 수 없다). */
   source: Record<string, VerifyDemoSource | undefined>;
   /** 소스 피커가 열려 있는 탭(그리고 무엇을 위해 여는가). null 이면 닫힘. */
-  pickerFor: { agentId: string; subAgentId: string; purpose: 'demo' | 'run' } | null;
+  pickerFor: { agentId: string; subAgentId: string; purpose: 'demo' | 'run' | 'connect' } | null;
   /** 지금 녹화 중인 대상. null 이면 아무것도 안 찍는 중(호스트가 이 값만 보고 움직인다). */
   recordingFor: VerifyRecordingTarget | null;
   /** 호스트가 붙인 라이브 스트림 — 사이드바 미리보기가 이걸 `<video>` 에 건다. */
@@ -62,7 +67,7 @@ interface VerifyDemoState {
   runClip: Record<string, string | undefined>;
 
   setSource: (subAgentId: string, source: VerifyDemoSource | null) => void;
-  openPicker: (agentId: string, subAgentId: string, purpose: 'demo' | 'run') => void;
+  openPicker: (agentId: string, subAgentId: string, purpose: 'demo' | 'run' | 'connect') => void;
   closePicker: () => void;
   startRecording: (target: VerifyRecordingTarget) => void;
   stopRecording: () => void;
@@ -75,6 +80,13 @@ interface VerifyDemoState {
 }
 
 export const useVerifyDemoStore = create<VerifyDemoState>((set, get) => ({
+  target: {},
+  setTarget: (subAgentId, target): void => {
+    const next = { ...get().target };
+    if (target) next[subAgentId] = target;
+    else delete next[subAgentId];
+    set({ target: next });
+  },
   source: {},
   pickerFor: null,
   recordingFor: null,
@@ -104,7 +116,8 @@ export const useVerifyDemoStore = create<VerifyDemoState>((set, get) => ({
 
   startRecording: (target): void => set({ recordingFor: target, streamError: null }),
   stopRecording: (): void => set({ recordingFor: null }),
-  setStream: (stream, error): void => set({ stream, streamError: error }),
+  // 실패 후 스트림 정리가 null 을 보내도 원인을 지우지 않는다. 다음 녹화 시작이 오류를 지운다.
+  setStream: (stream, error): void => set({ stream, streamError: error ?? get().streamError }),
 
   openWindow: (state): void => set({ window: state }),
   closeWindow: (): void => set({ window: null }),

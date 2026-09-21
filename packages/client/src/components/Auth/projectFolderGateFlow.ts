@@ -1,5 +1,5 @@
 import { resolveOnboardingStep } from '@vibisual/shared';
-import type { ClaudeAuthStatus, ClaudeSetupState } from '@vibisual/shared';
+import type { ClaudeAuthStatus, ClaudeSetupState, CodexAuthStatus, CodexSetupState, EngineChoice, OnboardingStep } from '@vibisual/shared';
 
 /**
  * §4 (첫 실행 온보딩) ③ — **프로젝트 폴더 게이트의 판정만** 모아 둔 곳.
@@ -29,26 +29,40 @@ export function hasProjectFolder(state: ProjectPresenceInput): boolean {
   return Object.keys(state.projects).length > 0 || Object.keys(state.stubProjects).length > 0;
 }
 
-/** 지금 폴더 게이트가 화면에 있어야 하는가. */
-export function isProjectFolderGateOpen(input: {
+interface ProjectFolderGateInput {
   setup: ClaudeSetupState | null;
   auth: ClaudeAuthStatus | null;
+  engineChoice?: EngineChoice;
+  codexSetup?: CodexSetupState | null;
+  codexAuth?: CodexAuthStatus | null;
   hasFolder: boolean;
   /** 사용자가 직접 열었다(배너 클릭 · 생성 시도가 막혔다) — 닫아 뒀어도 다시 연다. */
   forced: boolean;
   /** [나중에] 로 닫았다 — 자동으로는 다시 뜨지 않는다(배너는 남는다). */
   dismissed: boolean;
-}): boolean {
-  const { setup, auth, hasFolder, forced, dismissed } = input;
+}
+
+/** 복귀한 사용자도 고른 엔진의 마지막 단계로 이어진다. Claude 설치는 Codex의 선행 조건이 아니다. */
+function projectOnboardingStep(input: ProjectFolderGateInput): OnboardingStep {
+  const engine = input.engineChoice?.kind ?? 'claude';
+  if (engine === 'local') return input.hasFolder ? 'ready' : 'project-folder';
+  const setup = engine === 'codex' ? input.codexSetup : input.setup;
+  const auth = engine === 'codex' ? input.codexAuth : input.auth;
+  return resolveOnboardingStep({
+    setupPhase: setup?.phase ?? null,
+    auth: auth ? { loggedIn: auth.loggedIn, error: auth.error } : null,
+    hasProjectFolder: input.hasFolder,
+  });
+}
+
+/** 지금 폴더 게이트가 화면에 있어야 하는가. */
+export function isProjectFolderGateOpen(input: ProjectFolderGateInput): boolean {
+  const { hasFolder, forced, dismissed } = input;
   // 폴더가 생긴 순간은 어떤 경로로 열렸든 닫힌다 — 목적을 이룬 모달이 남아 있으면 안 된다.
   if (hasFolder) return false;
   if (forced) return true;
   if (dismissed) return false;
-  return resolveOnboardingStep({
-    setupPhase: setup?.phase ?? null,
-    auth: auth ? { loggedIn: auth.loggedIn, error: auth.error } : null,
-    hasProjectFolder: hasFolder,
-  }) === 'project-folder';
+  return projectOnboardingStep(input) === 'project-folder';
 }
 
 /**
@@ -57,20 +71,10 @@ export function isProjectFolderGateOpen(input: {
  * 모달을 [나중에] 로 닫아도 "아직 폴더를 안 골랐다"는 사실은 계속 보여야 한다. 앱을 둘러보는
  * 것은 막지 않되, 에이전트를 만들려는 순간 왜 막히는지 그 자리에서 읽히게 하기 위함이다.
  */
-export function isProjectFolderBannerOpen(input: {
-  setup: ClaudeSetupState | null;
-  auth: ClaudeAuthStatus | null;
-  hasFolder: boolean;
-  forced: boolean;
-  dismissed: boolean;
-}): boolean {
-  const { setup, auth, hasFolder, forced, dismissed } = input;
+export function isProjectFolderBannerOpen(input: ProjectFolderGateInput): boolean {
+  const { hasFolder, forced, dismissed } = input;
   if (hasFolder || forced || !dismissed) return false;
-  return resolveOnboardingStep({
-    setupPhase: setup?.phase ?? null,
-    auth: auth ? { loggedIn: auth.loggedIn, error: auth.error } : null,
-    hasProjectFolder: hasFolder,
-  }) === 'project-folder';
+  return projectOnboardingStep(input) === 'project-folder';
 }
 
 /**

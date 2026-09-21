@@ -25,6 +25,17 @@ export interface AutoGoalReading {
   activeHere: boolean;
   /** 굳어 파일로 선 절차 수. */
   skills: number;
+  /** 검토를 통과했고 현재도 유효한 절차 수. 파일 수와 구별한다. */
+  active: number;
+  /** 후보 또는 재검토 상태인 절차 수. 구형 요약은 보수적으로 이쪽에 둔다. */
+  review: number;
+  /** 사용 중지되거나 대체된 절차 수. 물린 후보 수가 아니다. */
+  retired: number;
+  /** 서버가 실제로 기록한 개정·재사용·생략·실패 횟수. 관찰 횟수에서 추정하지 않는다. */
+  revisions: number;
+  reused: number;
+  skipped: number;
+  failed: number;
   /** 아직 문턱을 못 넘은 되풀이 후보 수. */
   brewing: number;
   /** 저장고에 든 것 전부(굳은 것 + 아직인 것). */
@@ -48,10 +59,10 @@ export interface AutoGoalReading {
   /** 최초 1 회를 뺀 **순 재발** 횟수 — "한 번 하고 만 일"과 "계속 다시 하는 일"을 가른다. */
   repeats: number;
   /**
-   * 이 자리 프롬프트에 이름이 실리는 절차 수.
+   * 이 에이전트에서 실행 색인 후보가 될 수 있는 활성 절차 수(구형 소비자의 호환 필드).
    *
-   * 꺼진 자리는 0 이다 — 서버가 꺼진 자리에 **한 글자도 싣지 않기** 때문이고(`buildAutoGoalPromptBlock`),
-   * 카드가 그것과 다른 수를 말하면 둘 중 하나는 거짓이 된다.
+   * 세션별 관련성·주입 예산은 이 요약에 없다. 실제 전달 수나 재사용 수로 해석하지 않는다.
+   * 꺼졌거나 검토 상태를 알 수 없는 구형 요약이면 0 이다.
    */
   carried: number;
   /** 가장 최근에 굳은 절차 이름. 없으면 `null`. */
@@ -61,7 +72,7 @@ export interface AutoGoalReading {
 const EMPTY: AutoGoalReading = {
   present: false, activeHere: false, skills: 0, brewing: 0, stored: 0, dismissed: 0, anchored: 0,
   fromCommand: 0, fromStep: 0, observed: 0, minRuns: 0, topRuns: 0, totalRuns: 0, repeats: 0,
-  carried: 0, recent: null,
+  carried: 0, recent: null, active: 0, review: 0, retired: 0, revisions: 0, reused: 0, skipped: 0, failed: 0,
 };
 
 export function readAutoGoal(ctx: PluginBubbleContext): AutoGoalReading {
@@ -76,11 +87,23 @@ export function readAutoGoal(ctx: PluginBubbleContext): AutoGoalReading {
    */
   const activeHere = s.agentEnabled?.[ctx.bubbleId] ?? s.enabled;
   const stored = s.skillCount + s.candidateCount;
+  // A saved file (including an old "verified" label) is not proof of current review.
+  const hasLifecycle = typeof s.activeCount === 'number' && typeof s.reviewCount === 'number' && typeof s.retiredCount === 'number';
+  const active = hasLifecycle ? s.activeCount! : 0;
+  const review = hasLifecycle ? s.reviewCount! : stored;
+  const retired = hasLifecycle ? s.retiredCount! : 0;
 
   return {
     present: true,
     activeHere,
     skills: s.skillCount,
+    active,
+    review,
+    retired,
+    revisions: s.revisionCount ?? 0,
+    reused: s.reuseCount ?? 0,
+    skipped: s.skipCount ?? 0,
+    failed: s.failureCount ?? 0,
     brewing: s.candidateCount,
     stored,
     dismissed: s.dismissedCount,
@@ -92,7 +115,7 @@ export function readAutoGoal(ctx: PluginBubbleContext): AutoGoalReading {
     topRuns: s.topRuns,
     totalRuns: s.totalRuns,
     repeats: Math.max(0, s.totalRuns - stored),
-    carried: activeHere ? s.skillCount : 0,
+    carried: activeHere ? active : 0,
     recent: s.recentSkillName ?? null,
   };
 }

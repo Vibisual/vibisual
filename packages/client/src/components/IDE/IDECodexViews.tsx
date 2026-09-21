@@ -1,5 +1,5 @@
 /**
- * IDECodexViews.tsx — §5.25 (M): 코덱스 버블의 좌측 사이드바 다섯 칸.
+ * IDECodexViews.tsx — §5.25 (M): 코덱스 버블의 좌측 사이드바의 MCP·훅·플러그인·스킬 목록.
  *
  * 이 파일이 생긴 이유는 §5.19 (G) 를 코덱스에 그대로 적용한 것이 틀렸기 때문이다. 그 규칙은
  * "클로드 CLI 에 매인 항목은 프로바이더 버블 IDE 에 뜨지 않는다"였고 근거는 **없는 기능의
@@ -7,12 +7,12 @@
  * 전부 있다** — 그대로 감추면 사용자가 자기 코덱스에 깔아 둔 MCP·스킬·플러그인을 우리 창에서
  * 못 본다. 없는 것을 그리지 않는 규율과 **있는 것을 감추지 않는 규율은 같은 원칙의 양면**이다.
  *
- * 다섯 칸이 함께 지키는 것:
+ * 이 파일의 목록이 함께 지키는 것(컨텍스트 제어는 IDEContextView):
  *   ① **클로드 목록을 빌려 쓰지 않는다** — 전부 코덱스 쪽 실물(`codex mcp` · `codex plugin` ·
  *      `~/.codex/skills` · `~/.codex/hooks.json` · `AGENTS.md`)에서 읽은 값이다. 빌려 쓰면
  *      이 대화에 실리지도 않는 것이 뜬다.
- *   ② **읽기 전용이다** — 설치·제거·켜고 끄기는 코덱스가 할 일이라 손잡이를 만들지 않는다.
- *      우리 훅만 예외이고 그 스위치는 이미 옵션창 엔진 칸에 있다(같은 버튼을 두 곳에 두지 않는다).
+ *   ② 설치·제거·켜고 끄기는 코덱스가 소유한다. 사용자 스킬 공유만 명시 요청으로 확장한다.
+ *      우리 훅 스위치는 이미 옵션창 엔진 칸에 있다(같은 버튼을 두 곳에 두지 않는다).
  *   ③ **아직 못 읽은 것과 비어 있는 것을 구분한다** — `null` 이면 "읽어 보자", 빈 배열이면
  *      "이 기계엔 없다". 둘을 같은 화면으로 그리면 사용자는 고장과 정상을 구별할 수 없다.
  */
@@ -25,6 +25,7 @@ import { useAvailableSkills, persistSkillFavorites } from '../../hooks/useAvaila
 import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { autosizeInput } from './inputAutosize.js';
+import { IDESkillSharingSection } from './IDESkillSharingSection.js';
 import {
   codexFavoriteNames, codexSkillInsertText, codexSkillSourceOf, groupCodexSkills, toggleCodexFavorite,
 } from './codexSkillList.js';
@@ -34,7 +35,7 @@ const DOT_ON = 'bg-emerald-400';
 const DOT_OFF = 'bg-gray-600';
 
 /**
- * 다섯 칸이 같은 인벤토리 한 벌을 본다. 아직 안 읽었으면 **여기서 한 번 읽어 온다** —
+ * 네 칸이 같은 인벤토리 한 벌을 본다. 아직 안 읽었으면 **여기서 한 번 읽어 온다** —
  * 사용자가 칸을 여는 순간이 곧 "지금 무엇이 붙어 있나"를 묻는 순간이라, 그때가 읽을 때다.
  */
 function useCodexInventory(): { inventory: CodexInventory | null; agentId: string | null } {
@@ -48,9 +49,9 @@ function useCodexInventory(): { inventory: CodexInventory | null; agentId: strin
   return { inventory, agentId: agentId ?? null };
 }
 
-/** 다섯 칸이 공유하는 껍데기 — 제목 · [다시 읽기] · 스크롤 · 빈/미독 안내. */
+/** 네 칸이 공유하는 껍데기 — 제목 · [다시 읽기] · 스크롤 · 빈/미독 안내. */
 function CodexPane({
-  titleKey, count, inventory, agentId, emptyKey, children,
+  titleKey, count, inventory, agentId, emptyKey, children, afterList,
 }: {
   titleKey: string;
   count: number | null;
@@ -58,6 +59,7 @@ function CodexPane({
   agentId: string | null;
   emptyKey: string;
   children: React.ReactNode;
+  afterList?: React.ReactNode;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const refresh = useGraphStore((s) => s.refreshCodexInventory);
@@ -88,6 +90,7 @@ function CodexPane({
         ) : (
           children
         )}
+        {afterList}
       </ScrollFade>
     </div>
   );
@@ -155,9 +158,9 @@ export const IDECodexMcpView = memo(function IDECodexMcpView(): React.JSX.Elemen
  *   ② **쓸 수가 없었다** — 클로드 칸에는 클릭 삽입·즐겨찾기·검색이 있는데 여기엔 하나도 없어,
  *      스킬 이름을 눈으로 읽고 입력창에 손으로 옮겨 적어야 했다.
  *
- * 그래서 **클로드 칸과 같은 조작**을 준다(클릭하면 `/이름 ` 이 입력창에 들어가고, 별을 켜면 위로
+ * 그래서 **클로드 칸과 같은 조작**을 준다(클릭하면 `$이름 ` 이 입력창에 들어가고, 별을 켜면 위로
  * 오고, 검색이 걸린다). 다만 **없는 권한의 손잡이는 만들지 않는다** — 삭제·복사·순서 끌기·사용
- * 횟수는 코덱스 몫이거나 우리가 모르는 값이라 그대로 뺐다(사유는 `codexSkillList.ts` 머리말).
+ * 횟수는 코덱스 몫이거나 우리가 모르는 값이라 그대로 뺐다. 사용자 스킬 공유는 별도 공통 섹션이다.
  */
 export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.Element {
   const { t } = useTranslation();
@@ -177,9 +180,11 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   const executionMode = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.executionMode : undefined));
+  const refreshInventory = useGraphStore((s) => s.refreshCodexInventory);
+  const refreshSharedSkills = useCallback(() => refreshInventory(agentId ?? undefined), [agentId, refreshInventory]);
 
   /**
-   * 클릭 = 입력창에 `/이름 ` 넣기. **클로드 칸(`IDESidebar.insertSkill`)과 같은 규약**이다 —
+   * 클릭 = 입력창에 `$이름 ` 넣기. **클로드 칸(`IDESidebar.insertSkill`)과 같은 입력 규약**이다 —
    * CMD(터미널) 에이전트면 draft store 가 아니라 PTY stdin 으로 직접 타이핑하고, 줄바꿈은 보내지
    * 않는다(보낼지는 사용자가 Enter 로 정한다).
    */
@@ -228,7 +233,7 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
       >
         <div className="flex min-w-0 items-center gap-1.5">
           <span className={`min-w-0 truncate font-mono text-[12px] font-semibold ${accent}`}>
-            /{s.name}
+            ${s.name}
           </span>
           {source === 'plugin' && s.pluginName && (
             <span className="flex-shrink-0 rounded bg-purple-500/15 px-1 py-0.5 text-[12px] uppercase tracking-wide text-purple-400/80">
@@ -273,6 +278,11 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
     <CodexPane
       titleKey="ide.codex.skills.title" count={inventory ? groups.total : null}
       inventory={inventory} agentId={agentId} emptyKey="ide.codex.skills.empty"
+      afterList={<IDESkillSharingSection
+        key={`${agentId ?? ''}:${activeSessionId ?? ''}`}
+        agentId={agentId} activeSessionId={activeSessionId} provider="codex" query={query}
+        onUse={insertSkill} onShared={refreshSharedSkills}
+      />}
     >
       <CodexReadError reason={inventory?.errors?.skills} />
       {/* 검색 — 15개가 넘어가면 눈으로 훑는 것이 목록을 읽는 가장 느린 방법이 된다. */}
@@ -372,46 +382,6 @@ export const IDECodexHooksView = memo(function IDECodexHooksView(): React.JSX.El
           engines: t('panel.options.engines.title', { defaultValue: 'Engines' }),
         })}
       </p>
-    </CodexPane>
-  );
-});
-
-/**
- * 컨텍스트 — 코덱스의 `AGENTS.md`(클로드의 `CLAUDE.md` 자리). 홈과 이 프로젝트 두 곳.
- *
- * 클로드 쪽 주입원 목록처럼 **끄고 켜지 않는다** — 코덱스가 무엇을 싣는지는 그쪽 CLI 가 정하고,
- * 우리가 그 결정을 대신 뒤집을 문이 없다. 여기서 할 수 있는 정직한 말은 "무엇이 실려 있나"다.
- */
-export const IDECodexContextView = memo(function IDECodexContextView(): React.JSX.Element {
-  const { t } = useTranslation();
-  const { inventory, agentId } = useCodexInventory();
-  const docs = inventory?.agentsDocs ?? [];
-  return (
-    <CodexPane
-      titleKey="ide.codex.context.title" count={inventory ? docs.length : null}
-      inventory={inventory} agentId={agentId} emptyKey="ide.codex.context.empty"
-    >
-      <ul>
-        {docs.map((d) => (
-          <li key={d.path} className="border-b border-gray-800/60 px-2 py-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${d.exists ? DOT_ON : DOT_OFF}`} />
-              <span className="truncate text-[12px] font-medium text-gray-200">
-                {t(d.scope === 'home' ? 'ide.codex.context.scopeHome' : 'ide.codex.context.scopeProject')}
-              </span>
-              {d.exists && d.lines !== undefined && (
-                <span className="ml-auto flex-shrink-0 text-[12px] text-gray-600">
-                  {t('ide.codex.context.lines', { count: d.lines })}
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 truncate text-[12px] text-gray-500" title={d.path}>{d.path}</p>
-            {/* 없다는 것도 정보다 — 자리를 지우면 "이 프로젝트엔 규칙이 없다"를 말할 수 없다. */}
-            {!d.exists && <p className="mt-0.5 text-[12px] text-gray-600">{t('ide.codex.context.missing')}</p>}
-          </li>
-        ))}
-      </ul>
-      <p className="px-2 py-2 text-[12px] text-gray-600">{t('ide.codex.context.readOnly')}</p>
     </CodexPane>
   );
 });

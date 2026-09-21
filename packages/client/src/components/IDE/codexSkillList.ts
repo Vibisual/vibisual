@@ -9,8 +9,8 @@ import type { CodexSkillEntry, CodexSkillSource } from '@vibisual/shared';
  * 뺀다 — 그래야 시험이 붙고, 다음에 엔진이 하나 더 늘 때 이 규칙들을 다시 짜지 않는다.
  *
  * **클로드 것을 그대로 베끼지 않는다.** 코덱스에 없는 조작은 만들지 않는다:
- *   - **삭제·복사 ✗** — 스킬 폴더의 주인은 코덱스이고 우리는 그 폴더를 고치지 않기로 했다
- *     (§5.25 (M) ② 읽기 전용 · 안전선). 없는 권한의 손잡이를 그리는 것도 거짓말이다.
+ *   - **삭제 ✗** — 기존 스킬은 그대로 보존한다. 사용자 스킬 공유는 명시 요청으로 별도 섹션에서
+ *     추가했고, 기존 항목 덮어쓰기·플러그인/시스템 변경은 허용하지 않는다.
  *   - **사용 횟수 ✗** — 코덱스가 어느 스킬을 실제로 썼는지는 그쪽 CLI 가 쥐고 우리에게 주지
  *     않는다. 우리 카운터를 붙이면 화면의 숫자가 사실이 아닌 것이 된다(§5.25 (L) "모르는 것을
  *     지어내지 않은 자리" 와 같은 규율).
@@ -20,9 +20,9 @@ import type { CodexSkillEntry, CodexSkillSource } from '@vibisual/shared';
  *     **즐겨찾기**가 위로 올린다.
  */
 
-/** 코덱스 스킬을 입력창에 넣을 때의 문자열. 코덱스도 슬래시 명령으로 스킬을 부른다. */
+/** Codex explicit skill invocation uses `$name`; `/skills` opens the picker. */
 export function codexSkillInsertText(name: string): string {
-  return `/${name} `;
+  return `$${name} `;
 }
 
 /**

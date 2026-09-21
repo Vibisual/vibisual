@@ -14,6 +14,7 @@ import type {
 import { codexHome, runCodexCli } from './codexCli.js';
 import { isOurCodexHookCommand } from './codexHookInstaller.js';
 import { logger } from '../logger.js';
+import { sharingPaths, skillRoots } from './skillSharingPaths.js';
 
 /**
  * §5.25 (M) — 코덱스가 실제로 들고 있는 것들을 **읽기만** 한다.
@@ -315,6 +316,7 @@ export function parseCodexPromptInputSkills(
   raw: string,
   home: string,
   platform: PlatformName = process.platform,
+  userSkillRoots: readonly string[] = [],
 ): CodexSkillEntry[] {
   let parsed: unknown;
   try {
@@ -383,7 +385,9 @@ export function parseCodexPromptInputSkills(
       const pluginName = rest[1];
       return pluginName ? { source: 'plugin', pluginName } : { source: 'plugin' };
     }
-    // 홈도 캐시도 아닌 자리 — 코덱스가 새 루트를 본 것이다. 사용자 것이라 넘겨짚지 않는다.
+    // Project/user .agents/skills are user-authored too. Cache/system classification wins above.
+    if (userSkillRoots.some((root) => isPathWithin(abs, root, platform))) return { source: 'user' };
+    // 홈도 알려진 사용자 경로도 캐시도 아닌 자리 — 출처를 넘겨짚지 않는다.
     return { source: 'plugin' };
   };
 
@@ -515,6 +519,13 @@ class CodexInventoryService {
   /** 아직 한 번도 안 읽었는지(`null` 프로젝트로 읽은 것과 구별). */
   private everRead = false;
 
+  /** A user imported a skill; subsequent reads must discover the new files. */
+  invalidate(): void {
+    this.cached = null;
+    this.cachedCwd = null;
+    this.everRead = false;
+  }
+
   /**
    * 이 폴더 기준으로 이미 읽어 둔 것. **다른 폴더로 읽은 캐시는 돌려주지 않는다** — 그때는
    * 호출자가 `refresh` 해야 한다(옛 폴더의 규칙 문서를 지금 폴더 것이라 말하지 않게).
@@ -538,6 +549,7 @@ class CodexInventoryService {
    */
   async refresh(projectCwd: string | null, handlerPath: string | null): Promise<CodexInventory> {
     const home = codexHome();
+    const userRoots = skillRoots(sharingPaths({ codexHome: home }), 'codex', projectCwd).map((root) => root.dir);
     const errors: NonNullable<CodexInventory['errors']> = {};
 
     // 세 CLI 호출은 서로를 기다릴 이유가 없다 — 각각 조회 한 번이고 실패도 따로 난다.
@@ -578,13 +590,13 @@ class CodexInventoryService {
     let skills: CodexSkillEntry[] = [];
     let skillsFromReport = false;
     if (!promptInput.failure && promptInput.code === 0) {
-      skills = parseCodexPromptInputSkills(promptInput.out, home);
+      skills = parseCodexPromptInputSkills(promptInput.out, home, process.platform, userRoots);
       skillsFromReport = skills.length > 0;
     }
     if (!skillsFromReport) {
       const homeSkillsDir = path.join(home, CODEX_SKILLS_DIRNAME);
       skills = [
-        ...readCodexSkillsIn(homeSkillsDir, 'user'),
+        ...userRoots.flatMap((root) => readCodexSkillsIn(root, 'user')),
         ...readCodexSkillsIn(path.join(homeSkillsDir, CODEX_SYSTEM_SKILLS_DIRNAME), 'system'),
         ...readCodexPluginSkillsIn(path.join(home, ...CODEX_PLUGIN_CACHE_SEGMENTS)),
       ].sort((a, b) => a.name.localeCompare(b.name));

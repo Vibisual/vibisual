@@ -147,3 +147,28 @@ export function buildOutsidePathLinkMenuItems(
 
   return items;
 }
+
+/** 웹 주소 링크가 할 수 있는 일 — 열기와 집어가기 둘뿐이다. */
+export interface WebLinkMenuHandlers {
+  /** 바깥 브라우저(`window.open` → 데스크톱 본체가 `shell.openExternal` 로 가로챈다). 왼쪽 클릭과 같다. */
+  openBrowser: () => void;
+  /** 주소 복사. */
+  copyLink: () => void;
+}
+
+/**
+ * (c) ⑬ (k) ④ — **웹 주소** 링크의 우클릭.
+ *
+ * 종전에는 `http(s)` 링크 위 우클릭이 본문 글자 메뉴(#17-3 복사·인용·검색…)를 받았는데, 주소 위에서
+ * 그 항목들은 할 일이 없다 — "링크를 눌렀는데 글자 메뉴가 뜬다" 는 경로 조각에서 (j) 가 고친 것과 똑같은
+ * 어긋남이다. 줄은 둘이면 족하다: 왼쪽 클릭이 가는 곳과, 그 주소를 집어가는 것.
+ *
+ * **새 키 ❌** — 같은 문구가 이미 선 자리(웹 버블 [브라우저에서 열기] · 로그인 창 [링크 복사])의 키를
+ * 그대로 쓴다. 같은 말에 키를 하나 더 만들면 로케일 12벌이 서로 갈린다.
+ */
+export function buildWebLinkMenuItems(h: WebLinkMenuHandlers, t: MenuText): ContextMenuItem[] {
+  return [
+    { id: 'openBrowser', label: t('panel.webEntry.openExternal'), onClick: h.openBrowser },
+    { id: 'copyLink', label: t('panel.login.copyUrl'), separatorBefore: true, onClick: h.copyLink },
+  ];
+}

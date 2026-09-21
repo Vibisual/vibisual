@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
-  CODEX_SETUP_INSTALL_COMMAND,
+  CODEX_SETUP_INSTALL_COMMAND_WIN,
+  CODEX_SETUP_INSTALL_COMMAND_POSIX,
   CODEX_SETUP_DOCS_URL,
   CODEX_SETUP_PROBE_TIMEOUT_MS,
   CODEX_SETUP_INSTALL_TIMEOUT_MS,
@@ -11,7 +12,7 @@ import {
 } from '@vibisual/shared';
 import type { CodexSetupState, CodexSetupProgress, WSMessage } from '@vibisual/shared';
 import { getCodexBin, invalidateCodexBinCache, runCodexCli, parseCodexVersion } from './codexCli.js';
-import { resolveBinary } from './binLocator.js';
+import { augmentedEnv } from './binLocator.js';
 import { processGroupSpawnOptions, killTree } from './processTree.js';
 import { broadcast } from '../broadcastBus.js';
 import { logger } from '../logger.js';
@@ -23,18 +24,20 @@ import { logger } from '../logger.js';
  * 조립하고(화면 안내 = 실제 spawn), exit 0 을 성공으로 단정하지 않고 `--version` 이 실제로
  * 도는지로 판정하며, 설치가 끝나는 순간은 REST 응답이 아니라 리스너로 화면에 전한다.
  *
- * **다른 점 하나**: 설치 명령이 세 OS 공통(npm 전역 설치)이라 플랫폼별 분기가 없다.
- * 그래서 `canAutoInstall` 은 "이 OS 를 지원하나"가 아니라 **"npm 이 있나"** 를 뜻한다.
+ * Node/npm 이 없는 새 PC 도 공식 standalone 인스톨러로 설치한다. 앱에 CLI 를 동봉하지 않는다.
+ * 공식 명령: https://learn.chatgpt.com/docs/codex/cli
  */
 
 /**
- * 자동 설치를 시도할 수 있는가 = 이 기계에 npm 이 있는가.
- *
- * **판정기를 인자로 받는다** — 함수 안에서 직접 PATH 를 뒤지면 그 분기는 테스트에서 검증되지
- * 않는다(멀티플랫폼 규칙: 플랫폼 의존은 주입으로).
+ * 플랫폼을 주입해 세 OS 를 시험한다. npm 존재 여부는 standalone 설치의 조건이 아니다.
  */
-export function isCodexAutoInstallSupported(hasNpm: (name: string) => boolean): boolean {
-  return hasNpm('npm');
+export function isCodexAutoInstallSupported(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' || platform === 'darwin' || platform === 'linux';
+}
+
+/** 화면의 수동 설치 안내와 서버가 실행하는 명령은 같은 문자열을 쓴다. */
+export function buildCodexSetupInstallCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? CODEX_SETUP_INSTALL_COMMAND_WIN : CODEX_SETUP_INSTALL_COMMAND_POSIX;
 }
 
 interface SetupSession {
@@ -50,16 +53,13 @@ interface SetupSession {
 
 type StateListener = (state: CodexSetupState) => void;
 
-class CodexSetupService {
+export class CodexSetupService {
   private cached: CodexSetupState | null = null;
   private inflightRefresh: Promise<CodexSetupState> | null = null;
   private install: SetupSession | null = null;
   private listeners = new Set<StateListener>();
-  /** npm 존재 판정기 — 테스트가 갈아 끼운다. */
-  private npmProbe: (name: string) => boolean = (name) => {
-    // 늦은 import 를 피하려고 여기서 직접 부른다(binLocator 는 자체 캐시를 갖는다).
-    return resolveNpm(name);
-  };
+
+  constructor(private readonly platform: NodeJS.Platform = process.platform) {}
 
   get(): CodexSetupState | null {
     return this.cached;
@@ -67,11 +67,6 @@ class CodexSetupService {
 
   getProgress(): CodexSetupProgress | null {
     return this.install ? toProgress(this.install) : null;
-  }
-
-  /** 테스트용 — npm 판정기 교체. */
-  setNpmProbe(fn: (name: string) => boolean): void {
-    this.npmProbe = fn;
   }
 
   onChange(listener: StateListener): () => void {
@@ -92,8 +87,8 @@ class CodexSetupService {
 
   private baseState(): Omit<CodexSetupState, 'phase'> {
     return {
-      canAutoInstall: isCodexAutoInstallSupported(this.npmProbe),
-      installCommand: CODEX_SETUP_INSTALL_COMMAND,
+      canAutoInstall: isCodexAutoInstallSupported(this.platform),
+      installCommand: buildCodexSetupInstallCommand(this.platform),
       docsUrl: CODEX_SETUP_DOCS_URL,
       checkedAt: Date.now(),
     };
@@ -102,6 +97,9 @@ class CodexSetupService {
   /** 현재 실행본을 판정해 상태를 갱신한다. 실패해도 throw 하지 않는다. */
   async refresh(): Promise<CodexSetupState> {
     if (this.inflightRefresh) return this.inflightRefresh;
+    // 수동 설치 후 [다시 확인]도 앱 재시작 없이 새 실행본을 찾아야 한다.
+    // 자동 설치 종료에서만 지우면 처음 캐시한 null 이 영구히 남는다.
+    invalidateCodexBinCache();
     this.inflightRefresh = this.probe().finally(() => {
       this.inflightRefresh = null;
     });
@@ -148,30 +146,33 @@ class CodexSetupService {
     };
     this.install = session;
 
-    if (!isCodexAutoInstallSupported(this.npmProbe)) {
+    const command = buildCodexSetupInstallCommand(this.platform);
+    if (!isCodexAutoInstallSupported(this.platform)) {
       session.status = 'error';
-      session.error = `npm was not found. Install Node.js first, then run: ${CODEX_SETUP_INSTALL_COMMAND}`;
+      session.error = `Automatic install is not supported on ${this.platform}. See ${CODEX_SETUP_DOCS_URL}`;
       this.pushProgress(session);
       void this.refresh();
       return toProgress(session);
     }
 
-    logger.info(`[codexSetup] installing: ${CODEX_SETUP_INSTALL_COMMAND}`);
+    logger.info(`[codexSetup] installing: ${command}`);
     session.status = 'running';
     this.pushProgress(session);
     this.emitInstallingState();
 
     let child: ReturnType<typeof spawn>;
     try {
-      // `npm` 은 Windows 에서 `npm.cmd` shim 이라 셸 경유가 필수다(Node 가 배치 파일을 직접
-      //   exec 하지 못한다 — `buildCliInvocation` 이 아는 그 규칙).
-      child = spawn(CODEX_SETUP_INSTALL_COMMAND, {
+      // 공식 인스톨러의 파이프/PowerShell 명령을 그대로 실행한다.
+      child = spawn(command, {
         shell: true,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // 탐색과 실행은 같은 PATH 를 쓴다(Finder 의 최소 PATH 포함).
+        // 설치 후 CLI 시작/기존 설치 제거 질문은 앱의 로그인 레일과 섞지 않는다.
+        env: augmentedEnv({ ...process.env, CODEX_NON_INTERACTIVE: '1' }),
         // POSIX 한정 detached — `shell:true` 라 child.pid 는 셸이고 진짜 설치는 그 아래 손자다.
         //   그룹 리더로 띄우지 않으면 타임아웃이 셸만 죽이고 설치는 계속 돈다.
-        ...processGroupSpawnOptions(),
+        ...processGroupSpawnOptions(this.platform),
       });
     } catch (err) {
       this.finishInstall(session, {
@@ -192,7 +193,7 @@ class CodexSetupService {
     child.stderr?.on('data', appendOutput);
 
     const timer = setTimeout(() => {
-      killTree(child.pid);
+      killTree(child.pid, this.platform);
       this.finishInstall(session, {
         status: 'error',
         error: `install timed out after ${CODEX_SETUP_INSTALL_TIMEOUT_MS}ms`,
@@ -216,9 +217,11 @@ class CodexSetupService {
 
   private async verifyAfterInstall(session: SetupSession): Promise<void> {
     for (let attempt = 0; attempt < CODEX_SETUP_VERIFY_RETRY_MAX; attempt++) {
+      if (this.install !== session || session.status !== 'running') return;
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, CODEX_SETUP_VERIFY_RETRY_INTERVAL_MS));
       }
+      if (this.install !== session || session.status !== 'running') return;
       // 방금 깔린 실행본은 캐시된 판정과 다르다 — 매 시도마다 다시 푼다. 이게 있어야
       //   **재시작 없이** 바로 로그인 단계로 넘어갈 수 있다.
       invalidateCodexBinCache();
@@ -279,13 +282,8 @@ class CodexSetupService {
 /** `codex --version` 을 실제로 돌려 버전을 얻는다. 못 얻으면 undefined. */
 async function probeCodexVersion(): Promise<string | undefined> {
   const res = await runCodexCli(['--version'], CODEX_SETUP_PROBE_TIMEOUT_MS);
-  if (res.failure) return undefined;
+  if (res.failure || res.code !== 0) return undefined;
   return parseCodexVersion(res.out);
-}
-
-/** npm 이 PATH(보강 포함)에 있는가. binLocator 를 통해 본다 — Finder 로 띄운 mac 앱 대응. */
-function resolveNpm(name: string): boolean {
-  return resolveBinary(name) !== null;
 }
 
 function toProgress(s: SetupSession): CodexSetupProgress {

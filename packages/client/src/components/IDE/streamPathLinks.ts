@@ -48,6 +48,13 @@ export type StreamPathCandidate =
 const MAX_PATH_LEN = 260;
 
 /**
+ * ⑬ (k) — **명시된** 경로(마크다운 링크의 목적지)에 쓰는 상한. 1차 체를 지나지 않는 자리라
+ * 모양으로 걸러 낼 것이 없으므로 길이만 본다. `MAX_PATH_LEN` 보다 넉넉한 이유는 win32 긴 경로
+ * (`\\?\` 없이도 32767 까지 열리는 트리)와 퍼센트 복호 전 길이를 함께 받기 위함이다.
+ */
+const MAX_LINK_PATH_LEN = 1024;
+
+/**
  * 이 문자가 하나라도 있으면 경로 후보에서 뺀다.
  *
  * 앞쪽 절반은 파일명에 쓸 수 없는 문자(`"` `<` `>` `|` `*` `?`)이고, 뒤쪽 절반은 **쓸 수는 있지만
@@ -94,6 +101,26 @@ export function parseStreamPathCandidate(raw: string, rootPath: string | null): 
   // CLI 플래그(`--effort`) · npm 스코프(`@vibisual/shared`) · 앵커(`#17-27`) — 셋 다 경로가 아니다.
   if (text.startsWith('-') || text.startsWith('@') || text.startsWith('#')) return null;
   if (text.includes('://')) return null;
+
+  return toStreamPathCandidate(text, rootPath);
+}
+
+/**
+ * ⑬ (k) ② — **이미 "경로다"가 확정된 글자**를 후보로 되돌린다(1차 체 없이).
+ *
+ * 위 `parseStreamPathCandidate` 와 다른 점은 `NON_PATH_CHARS` 계열의 체를 지나지 않는다는 것 하나다.
+ * 그 체는 *평범한 본문 글자*에 가짜 손잡이가 생기는 것을 막는 장치인데(⑬ (b)), 마크다운 **링크의
+ * 목적지**처럼 에이전트가 "여기를 누르라"고 명시한 자리에는 막을 것이 없다 — 오히려 그대로 쓰면
+ * 공백·괄호가 든 실제 파일 이름(`Docs/Temp/보고서 (최종).html`)을 잃는다.
+ *
+ * 최종 판정은 여기서도 하지 않는다 — 디스크에 있는지를 물어 온 답이 손잡이 여부를 정한다.
+ */
+export function toStreamPathCandidate(raw: string, rootPath: string | null): StreamPathCandidate | null {
+  if (!rootPath) return null;
+
+  const text = raw.trim();
+  // 명시된 경로라도 상한은 둔다 — 긴 쪽 여유는 주되(win32 긴 경로), 본문 문장이 통째로 들어오는 것은 막는다.
+  if (!text || text.length > MAX_LINK_PATH_LEN) return null;
 
   // (g) 줄 번호를 먼저 떼어 낸다. 앞 토막이 한 글자면 그것은 줄 번호가 아니라 드라이브(`C:`)다.
   let body = text;

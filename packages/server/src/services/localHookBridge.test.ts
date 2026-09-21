@@ -168,6 +168,18 @@ describe('로컬 도구가 감사 원장에 남는다', () => {
 });
 
 describe('Bash 출력이 이력에 붙는다 — tool_response 모양이 어긋나면 조용히 빈칸이 된다', () => {
+  it.each([false, true, undefined])('실행기의 오류 상태를 본문과 별도로 전달한다: %s', (toolIsError) => {
+    const graph = makeGraph();
+    const base = { toolName: 'Bash', toolInput: { command: 'echo "error exit 1"' }, toolUseId: 'outcome', cwd: tmpRoot };
+    graph.processHookEvent(toPayload(SESSION, { phase: 'pre', ...base }));
+    const payload = toPayload(SESSION, { phase: 'post', ...base, toolResponse: 'error exit 1', toolIsError });
+    expect(payload.tool_response?.['is_error']).toBe(toolIsError);
+    expect(payload.hook_event_name).toBe(toolIsError === true ? 'PostToolUseFailure' : 'PostToolUse');
+    graph.processHookEvent(payload);
+    const entry = Object.values(graph.getAutoGoalMaterial().bashHistory).flat().find((e) => e.id === 'outcome');
+    expect(entry?.status).toBe(toolIsError === false ? 'success' : toolIsError === true ? 'error' : 'running');
+  });
+
   it('사전 이벤트가 엔트리를 만들고 사후 이벤트가 출력을 채운다', () => {
     const graph = makeGraph();
     runTool(graph, 'Bash', { command: 'echo hello' }, 'hello world', 'call-bash-1');

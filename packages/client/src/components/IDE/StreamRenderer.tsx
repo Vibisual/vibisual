@@ -18,7 +18,8 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand, CommandError, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { isStageBlockLang, isWorkspaceHtmlPath } from '@vibisual/shared';
+import { isStageBlockLang } from '@vibisual/shared';
+import type { WorkspaceOpenPlan } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
@@ -32,20 +33,16 @@ import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
 import { DiffView, type DiffReviewCtx } from './DiffView.js';
-import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 import { followSessionKey } from './editorFollow.js';
 import { PlanBlock } from './PlanBlock.js';
 import { parseEditToolInput, editSizeLines } from './diffTool.js';
 import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
-import { useIDEPaneActions, useIDEPaneKey } from './idePane.js';
+import { useIDEPaneActions } from './idePane.js';
 import { parseStreamPathCandidate } from './streamPathLinks.js';
-import { revealExternalPath, useExternalPathKind, useWorkspacePathKind } from './useWorkspacePathKind.js';
-import { openExternally, openWorkspaceTarget, planWorkspaceOpen } from './openWorkspaceTarget.js';
-import { openFolderByPath } from './useWorkspaceExplorer.js';
-import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
-import { buildOutsidePathLinkMenuItems, buildPathLinkMenuItems, pathLinkOpenLabel } from './pathLinkContextMenu.js';
-import { requestHtmlPageView } from './htmlViewRequest.js';
+import { parseLinkHrefCandidate, isWebLinkHref, streamUrlTransform } from './streamLinkHref.js';
+import { usePathLinkRails, useWebLinkRails } from './usePathLinkRails.js';
+import type { MenuText } from './editorContextMenu.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { toolPreview } from './toolPreview.js';
 import {
@@ -84,6 +81,12 @@ interface StreamRendererProps {
   agentId?: string;
   /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 세션(탭) ID. */
   subAgentId?: string;
+  /**
+   * §2.4 — 이 세션이 **지금 작동 중인가**(도는 중 ∪ 줄 서 있음). 부모가 공유 술어(`hasSessionWork`)로
+   * **원본 큐 + 세션 필터** 위에서 낸 답이다. `commands` 는 화면용 사본(`displayCommands`)이라
+   * 생존 판정에 쓰면 안 되므로, 그 판정은 이 값 하나로만 들어온다(없으면 종전 추정으로 폴백).
+   */
+  sessionBusy?: boolean;
   /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
   /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
@@ -247,28 +250,165 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
  *  props 로는 못 내려간다(`InCodeBlock` 과 같은 규약). */
 const StreamOwnerAgentId = createContext<string | undefined>(undefined);
 
-/** 본문 링크 — 밑줄 + sky 색으로 "클릭 가능한 주소"임을 표식. 클릭 시 앱 안 iframe(느림) 대신
- *  외부 브라우저로 연다(window.open → Electron main 이 shell.openExternal 로 가로챔).
- *  드래그 선택은 그대로 가능(텍스트 선택을 막지 않음).
- *
- *  §7.11 — 그 주소가 **내 기계의 서버**(`http://localhost:8080` 등)면 브라우저와 **함께** 캔버스
- *  프리뷰 버블도 세운다. 누른 행위 자체가 "이건 내가 보려는 서버다"라는 가장 확실한 신고라,
- *  감지 폴백이 놓친 서버를 프롬프트 토큰 한 자 없이 회수한다. 진짜 살아있는지는 서버가 판정한다. */
-const MarkdownLink = memo(function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.JSX.Element {
-  const ownerAgentId = useContext(StreamOwnerAgentId);
-  if (!href) return <span>{children}</span>;
+/**
+ * ⑬ (f) — 손잡이 앞 글리프. **누르면 어디서 열리는지**를 그림 하나로 말한다(우리 창이냐 바깥이냐,
+ * 열리느냐 도느냐). 인라인 코드와 링크가 같은 그림을 써야 "같은 파일인데 모양이 다르다" 가 안 생긴다.
+ * `plan === null` 은 루트 밖(⑬ (d)) — 갈래가 하나라 그림도 하나다.
+ */
+const PathLinkGlyph = memo(function PathLinkGlyph({ plan }: { plan: WorkspaceOpenPlan | null }): React.JSX.Element {
+  const app = plan?.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
+
+  if (plan === null) {
+    // 루트 밖은 갈래가 하나라 아이콘도 하나 — 폴더에서 나가는 화살표(우리 창이 아니라 탐색기에서 열린다)
+    return (
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v2" />
+        <path d="M5 19a2 2 0 0 1-2-2V7" />
+        <path d="M14 19h7v-7" />
+        <path d="M21 12l-7 7" />
+      </svg>
+    );
+  }
+  if (plan.action === 'run') {
+    // run — 재생 삼각형(누르면 열리는 것이 아니라 **돈다**는 뜻)
+    return (
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M6 4l14 8-14 8z" />
+      </svg>
+    );
+  }
+  if (plan.action === 'app' && app) {
+    // 내부 앱 — **그 앱의 아이콘**을 그대로 쓴다(코어가 앱마다 그림을 들지 않는다, §5.13 (P)).
+    //   앱 아이콘은 목록용 치수(h-4)라 인라인 글자 옆에서는 크다 — 이 자리에서만 줄인다.
+    return (
+      <span className="mr-[3px] inline-flex align-[-0.15em] opacity-80 [&>svg]:h-3 [&>svg]:w-3" aria-hidden="true">
+        <app.icon />
+      </span>
+    );
+  }
+  if (plan.action === 'external') {
+    // external — 상자 밖으로 나가는 화살표(우리 창이 아니라 바깥에서 열린다)
+    return (
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M15 3h6v6" />
+        <path d="M10 14 21 3" />
+        <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+      </svg>
+    );
+  }
+  if (plan.action === 'folder') {
+    // folder
+    return (
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      </svg>
+    );
+  }
+  // file — 모서리 접힌 문서(편집창·그림·PDF 는 전부 우리 창에서 열린다)
   return (
-    <a
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        reportPreviewUrlIfLoopback(href, ownerAgentId);
-        try { window.open(href, '_blank', 'noopener,noreferrer'); } catch { /* blocked */ }
-      }}
-      className="cursor-pointer break-all text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300"
-    >
-      {children}
-    </a>
+    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </svg>
+  );
+});
+
+/** ⑬ (f) — 툴팁은 "전체 경로 + 벌어질 일". 여는 곳이 갈리면 말도 갈려야 누르기 전에 안다. */
+function pathLinkTitle(plan: WorkspaceOpenPlan, absPath: string, t: MenuText): string {
+  const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
+  switch (plan.action) {
+    case 'run':
+      return t('ide.streamRenderer.pathLink.runProgram', { path: absPath });
+    case 'app':
+      return t('ide.streamRenderer.pathLink.openApp', { app: app?.name ?? plan.appId, path: absPath });
+    case 'external':
+      return t('ide.streamRenderer.pathLink.openExternal', { path: absPath });
+    case 'folder':
+      return t('ide.streamRenderer.pathLink.openFolder', { path: absPath });
+    default:
+      return t('ide.streamRenderer.pathLink.openFile', { path: absPath });
+  }
+}
+
+/** ⑬ (f) — 루트 **밖** 툴팁. 파일이면 그 파일이 **든 폴더**가 열린다는 것까지 누르기 전에 말한다 —
+ *  문서가 열릴 것으로 기대하고 눌렀다가 탐색기가 뜨면 그건 고장으로 읽힌다. */
+function outsidePathLinkTitle(kind: string, absPath: string, t: MenuText): string {
+  return kind === 'directory'
+    ? t('ide.streamRenderer.pathLink.revealOutsideFolder', { path: absPath })
+    : t('ide.streamRenderer.pathLink.revealOutsideFile', { path: absPath });
+}
+
+/**
+ * 본문 링크 — 밑줄 + sky 색으로 "클릭 가능한 주소"임을 표식. 드래그 선택은 그대로 가능하다.
+ *
+ * §5.5 #17-27 ⑬ (k) — **링크의 목적지도 경로 손잡이다.** 에이전트가 결과물의 위치를 적는 두 번째 방식이
+ * `[검수표](Docs/Temp/점검/체크.html)` 처럼 이름을 붙인 링크인데, 종전처럼 그 조각까지 `window.open`
+ * 한 갈래로 보내면 로컬 파일은 **반드시 막힌다** — 창의 오리진이 `file://`(§3.7 v2.2)이라 주소가
+ * `file:///C:/…` 로 풀리고 그 스킴은 `ALLOWED_EXTERNAL_SCHEMES` 밖이라, 안내 띠만 뜬 채 파일은 끝내
+ * 열리지 않았다. 이제 목적지가 디스크에 있는 경로로 읽히면 인라인 코드(`MarkdownCode`)와 **같은 훅**을
+ * 타 같은 곳으로 열리고 같은 우클릭 메뉴를 얻는다. 루트 밖은 (d)·(j)② 규정 그대로 탐색기 하나다.
+ *
+ * 경로가 아닌 주소(웹·메일)는 여는 동작이 종전 그대로다 — 바깥 브라우저로 열고, §7.11 로 그 주소가
+ * **내 기계의 서버**면 캔버스 프리뷰 버블도 함께 세운다. 달라지는 것은 우클릭뿐이다((k) ④).
+ */
+const MarkdownLink = memo(function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.JSX.Element {
+  const { t } = useTranslation();
+  const ownerAgentId = useContext(StreamOwnerAgentId);
+  const rootPath = useIDEProjectRoot();
+
+  // 훅은 `href` 가 있든 없든 **언제나 같은 순서로** 부른다(리액트 규칙). 웹 주소는 경로로 읽지 않으므로
+  //   후보가 null 이 되어 아무것도 묻지 않는다 — 주소 하나에 판정 요청이 두 번 가지 않는다.
+  const candidate = useMemo(
+    () => (!href || isWebLinkHref(href) ? null : parseLinkHrefCandidate(href, rootPath)),
+    [href, rootPath],
+  );
+  const path = usePathLinkRails(candidate, rootPath);
+  const web = useWebLinkRails(href ?? '', ownerAgentId);
+
+  if (!href) return <span>{children}</span>;
+
+  // 손잡이가 된 링크는 `<a href>` 가 아니라 버튼이다(`MarkdownCode` 와 같은 규약). 주소를 남겨 두면
+  //   가운데 클릭이 `file://` 이동으로 새어 종전의 그 안내 띠를 다시 띄운다 — 주소 집어가기는 (j) 의
+  //   [경로 복사]가 대신한다.
+  if (path.linkedOutside) {
+    const outsideTitle = outsidePathLinkTitle(path.linkedOutside.kind, path.linkedOutside.absPath, t);
+    return (
+      <>
+        <button type="button" onClick={path.onReveal} onContextMenu={path.onContextMenu} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link break-all">
+          <PathLinkGlyph plan={null} />
+          {children}
+        </button>
+        {path.menu}
+      </>
+    );
+  }
+
+  if (path.linked && path.plan) {
+    const title = pathLinkTitle(path.plan, path.linked.absPath, t);
+    return (
+      <>
+        <button type="button" onClick={path.onOpen} onContextMenu={path.onContextMenu} title={title} aria-label={title} className="ide-path-link break-all">
+          <PathLinkGlyph plan={path.plan} />
+          {children}
+        </button>
+        {path.menu}
+      </>
+    );
+  }
+
+  // 경로가 아니거나 디스크에 없는 주소 — 여는 동작은 종전 그대로, 우클릭만 링크 메뉴다((k) ④).
+  return (
+    <>
+      <a
+        href={href}
+        onClick={(e) => { e.preventDefault(); web.open(); }}
+        onContextMenu={web.onContextMenu}
+        className="cursor-pointer break-all text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300"
+      >
+        {children}
+      </a>
+      {web.menu}
+    </>
   );
 });
 
@@ -293,165 +433,22 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
   const { t } = useTranslation();
   const inBlock = useContext(InCodeBlock);
   const rootPath = useIDEProjectRoot();
-  // §5.5 #17-1 — 본문에서 누른 경로는 **이 창의** 편집창·실행으로 가야 한다(옆 창 ❌).
-  const paneKey = useIDEPaneKey();
 
   const raw = inlineCodeText(children);
   const candidate = useMemo(
     () => (inBlock || raw === null ? null : parseStreamPathCandidate(raw, rootPath)),
     [inBlock, raw, rootPath],
   );
-  // ⑬ (d) — 루트 안/밖은 **묻는 창구도 열리는 곳도** 다르다. 후보의 `scope` 가 그 갈림이고,
-  //   훅은 둘 다 무조건 부르되(리액트 규칙) 해당 없는 쪽에 null 을 넘겨 아무것도 묻지 않게 한다.
-  const insideRel = candidate?.scope === 'inside' ? candidate.relPath : null;
-  const outsideAbs = candidate?.scope === 'outside' ? candidate.absPath : null;
-  const resolved = useWorkspacePathKind(rootPath, insideRel);
-  const external = useExternalPathKind(outsideAbs);
-
-  const linked = resolved !== null && resolved.kind !== 'missing' ? resolved : null;
-  const linkedOutside = external !== null && external.kind !== 'missing' ? external : null;
-
-  /**
-   * ⑬ (i) — 어디로 갈지는 **한 곳**(§5.13 (R-1))이 정한다. 화면은 그 답을 받아 아이콘·툴팁만 고르므로,
-   * 앱이 늘어 새 확장자를 받아도 이 컴포넌트는 그대로다.
-   */
-  const plan = useMemo(
-    () =>
-      linked && insideRel !== null
-        ? planWorkspaceOpen({
-            relPath: insideRel,
-            kind: linked.kind === 'directory' ? 'directory' : 'file',
-            ...(linked.executable ? { executable: true } : {}),
-          })
-        : null,
-    [linked, insideRel],
-  );
-
-  const onOpen = useCallback((e: React.MouseEvent): void => {
-    if (!linked || insideRel === null || rootPath === null) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void openWorkspaceTarget(
-      {
-        relPath: insideRel,
-        absPath: linked.absPath,
-        kind: linked.kind === 'directory' ? 'directory' : 'file',
-        ...(linked.executable ? { executable: true } : {}),
-      },
-      rootPath,
-      t('ide.streamRenderer.pathLink.runFailed'),
-      paneKey,
-    );
-  }, [linked, insideRel, rootPath, t, paneKey]);
-
-  /**
-   * ⑬ (d) — 루트 **밖** 경로를 누르면 벌어지는 일은 하나뿐이다: 시스템 탐색기가 그 자리를 보여 준다.
-   * 편집창·실행·연결 프로그램으로는 가지 않으므로 `planWorkspaceOpen` 을 거치지 않는다 — 갈래가 없는
-   * 곳에서 갈림을 묻지 않는 것이 (d) 개정의 조건이었다.
-   */
-  const onReveal = useCallback((e: React.MouseEvent): void => {
-    if (!linkedOutside) return;
-    e.preventDefault();
-    e.stopPropagation();
-    revealExternalPath(linkedOutside.absPath);
-  }, [linkedOutside]);
-
-  /**
-   * ⑬ (j) — 우클릭은 **경로 메뉴**다(글자 메뉴 #17-3 ❌). 왼쪽 클릭이 가는 한 곳 말고 그 파일로 갈 수 있는
-   * 나머지 자리 — 든 폴더 · 앱 안 페이지 · 기본 브라우저 · 경로 집어가기 — 를 여기서 고른다.
-   * 링크가 아닌 조각(평범한 인라인 코드)에는 걸지 않는다 — 거기서는 글자 메뉴가 맞다.
-   */
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const closeMenu = useCallback((): void => setMenu(null), []);
-  const onContextMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>): void => {
-    e.preventDefault();
-    // 조상(스트림 본문)의 글자 메뉴가 같은 우클릭으로 함께 뜨지 않게 여기서 멈춘다.
-    e.stopPropagation();
-    // 키보드(메뉴 키·Shift+F10)로 열면 좌표가 0 이다 — 그때는 링크 바로 아래에 연다.
-    const r = e.currentTarget.getBoundingClientRect();
-    setMenu(e.clientX === 0 && e.clientY === 0 ? { x: r.left, y: r.bottom } : { x: e.clientX, y: e.clientY });
-  }, []);
-
-  const menuItems = useMemo((): ContextMenuItem[] => {
-    if (menu === null) return [];
-    const copy = (text: string): void => {
-      void navigator.clipboard?.writeText(text).catch(() => { /* 클립보드 거부는 조용히 무시 */ });
-    };
-
-    if (linkedOutside) {
-      const absPath = linkedOutside.absPath;
-      return buildOutsidePathLinkMenuItems(
-        { kind: linkedOutside.kind === 'directory' ? 'directory' : 'file', isHtml: isWorkspaceHtmlPath(absPath) },
-        { reveal: () => revealExternalPath(absPath), copyPath: () => copy(absPath) },
-        t,
-      );
-    }
-
-    if (!linked || !plan || insideRel === null || rootPath === null) return [];
-    const absPath = linked.absPath;
-    const relPath = insideRel;
-    const root = rootPath;
-    const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
-    return buildPathLinkMenuItems(
-      {
-        kind: linked.kind === 'directory' ? 'directory' : 'file',
-        isHtml: isWorkspaceHtmlPath(relPath),
-        openLabel: pathLinkOpenLabel(plan, app?.name, t),
-      },
-      {
-        open: () => {
-          void openWorkspaceTarget(
-            { relPath, absPath, kind: linked.kind === 'directory' ? 'directory' : 'file', ...(linked.executable ? { executable: true } : {}) },
-            root,
-            t('ide.streamRenderer.pathLink.runFailed'),
-            paneKey,
-          );
-        },
-        openPage: () => {
-          // 왼쪽 클릭이 여는 그 편집창이다(⑮ — 기본이 페이지). 이미 소스로 돌려 둔 탭이면 페이지로 되돌린다.
-          const file = editorFileFromAbsPath(absPath, root);
-          useGraphStore.getState().openIDEEditorFile(file, paneKey);
-          requestHtmlPageView(file.relPath);
-        },
-        openBrowser: () => { void openExternally(absPath); },
-        // 파일을 주면 서버(`openFolder`)가 그 파일이 든 폴더를 연다 — 탐색기와 같은 창구(⑩).
-        reveal: () => openFolderByPath(absPath, relPath),
-        copyPath: () => copy(absPath),
-        copyRelativePath: () => copy(relPath),
-      },
-      t,
-    );
-  }, [menu, linkedOutside, linked, plan, insideRel, rootPath, paneKey, t]);
-
-  // 메뉴는 `document.body` 로 포털되지만 **리액트 이벤트는 리액트 트리를 따라** 조상으로 올라간다 —
-  //   메뉴 안의 우클릭이 스트림 본문의 글자 메뉴를 겹쳐 띄우고, 항목 클릭이 접기 같은 조상 클릭을 건드린다.
-  //   감싼 자리에서 끊는다(DOM 에는 빈 span 하나만 남는다).
-  const pathMenu = menu !== null && menuItems.length > 0 ? (
-    <span
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-    >
-      <IDEContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
-    </span>
-  ) : null;
+  // ⑬ (k) ③ — 판정·열기·우클릭 메뉴는 링크(`MarkdownLink`)와 **같은 훅 하나**를 쓴다. 두 자리가
+  //   어긋나면 같은 파일이 적힌 모양(백틱이냐 링크냐)에 따라 다르게 열리는 화면이 된다.
+  const { linked, linkedOutside, plan, onOpen, onReveal, onContextMenu, menu: pathMenu } = usePathLinkRails(candidate, rootPath);
 
   if (linkedOutside) {
-    // 툴팁은 (f) 의 규약 그대로 "전체 경로 + 벌어질 일". 파일이면 그 파일이 든 폴더가 열린다는 것까지
-    // 누르기 전에 말한다 — 문서가 열릴 것으로 기대하고 눌렀다가 탐색기가 뜨면 그건 고장으로 읽힌다.
-    const outsideTitle =
-      linkedOutside.kind === 'directory'
-        ? t('ide.streamRenderer.pathLink.revealOutsideFolder', { path: linkedOutside.absPath })
-        : t('ide.streamRenderer.pathLink.revealOutsideFile', { path: linkedOutside.absPath });
+    const outsideTitle = outsidePathLinkTitle(linkedOutside.kind, linkedOutside.absPath, t);
     return (
       <code {...rest}>
         <button type="button" onClick={onReveal} onContextMenu={onContextMenu} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link">
-          {/* 루트 밖은 갈래가 하나라 아이콘도 하나 — 폴더에서 나가는 화살표(우리 창이 아니라 탐색기에서 열린다) */}
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v2" />
-            <path d="M5 19a2 2 0 0 1-2-2V7" />
-            <path d="M14 19h7v-7" />
-            <path d="M21 12l-7 7" />
-          </svg>
+          <PathLinkGlyph plan={null} />
           {children}
         </button>
         {pathMenu}
@@ -461,54 +458,14 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
 
   if (!linked || !plan) return <code {...rest}>{children}</code>;
 
-  // 툴팁은 (f) 의 규약 그대로 "전체 경로 + 벌어질 일" — 여는 곳이 갈리면 말도 갈려야 누르기 전에 안다.
-  const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
-  const title =
-    plan.action === 'run'
-      ? t('ide.streamRenderer.pathLink.runProgram', { path: linked.absPath })
-      : plan.action === 'app'
-        ? t('ide.streamRenderer.pathLink.openApp', { app: app?.name ?? plan.appId, path: linked.absPath })
-        : plan.action === 'external'
-          ? t('ide.streamRenderer.pathLink.openExternal', { path: linked.absPath })
-          : plan.action === 'folder'
-            ? t('ide.streamRenderer.pathLink.openFolder', { path: linked.absPath })
-            : t('ide.streamRenderer.pathLink.openFile', { path: linked.absPath });
+  const title = pathLinkTitle(plan, linked.absPath, t);
 
   return (
     // 칩(배경·모노폰트)은 `<code>` 가 그대로 유지하고, 그 안의 버튼만 링크 색·밑줄을 얻는다 —
     // "코드처럼 보이던 그 조각이 이제 눌린다" 가 한눈에 읽히게(⑬ (f)).
     <code {...rest}>
       <button type="button" onClick={onOpen} onContextMenu={onContextMenu} title={title} aria-label={title} className="ide-path-link">
-        {plan.action === 'run' ? (
-          // run — 재생 삼각형(누르면 열리는 것이 아니라 **돈다**는 뜻)
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M6 4l14 8-14 8z" />
-          </svg>
-        ) : plan.action === 'app' && app ? (
-          // 내부 앱 — **그 앱의 아이콘**을 그대로 쓴다(코어가 앱마다 그림을 들지 않는다, §5.13 (P)).
-          //   앱 아이콘은 목록용 치수(h-4)라 인라인 글자 옆에서는 크다 — 이 자리에서만 줄인다.
-          <span className="inline-flex [&>svg]:h-3 [&>svg]:w-3" aria-hidden="true">
-            <app.icon />
-          </span>
-        ) : plan.action === 'external' ? (
-          // external — 상자 밖으로 나가는 화살표(우리 창이 아니라 바깥에서 열린다)
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M15 3h6v6" />
-            <path d="M10 14 21 3" />
-            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-          </svg>
-        ) : plan.action === 'folder' ? (
-          // folder
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          </svg>
-        ) : (
-          // file — 모서리 접힌 문서(편집창·그림·PDF 는 전부 우리 창에서 열린다)
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-            <path d="M14 3v5h5" />
-          </svg>
-        )}
+        <PathLinkGlyph plan={plan} />
         {children}
       </button>
       {pathMenu}
@@ -576,7 +533,7 @@ const remarkPlugins = [remarkGfm];
 function TextMarkdown({ body }: { body: string }): React.JSX.Element {
   return (
     <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
-      <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{body}</Markdown>
+      <Markdown remarkPlugins={remarkPlugins} urlTransform={streamUrlTransform} components={mdComponents}>{body}</Markdown>
     </div>
   );
 }
@@ -952,7 +909,7 @@ function ResultBlock({ item, feedbackCtx }: { item: StreamResult; feedbackCtx?: 
   return (
     <div className="mx-2 my-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 max-md:mx-1 max-md:px-2.5">
       <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-strong:text-gray-100">
-        <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.content}</Markdown>
+        <Markdown remarkPlugins={remarkPlugins} urlTransform={streamUrlTransform} components={mdComponents}>{item.content}</Markdown>
       </div>
       {/* §4 v3.21 — 턴 완료 메시지에 좋아요/싫어요 (규칙 되먹임 학습 재료). summary = 본문 앞부분 발췌. */}
       {feedbackCtx && (
@@ -1055,7 +1012,7 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
           isError ? 'border-red-500/20 bg-red-500/5' : 'border-emerald-500/20 bg-emerald-500/5'
         }`}>
           <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed">
-            <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.result}</Markdown>
+            <Markdown remarkPlugins={remarkPlugins} urlTransform={streamUrlTransform} components={mdComponents}>{item.result}</Markdown>
           </div>
         </div>
       )}
@@ -1132,7 +1089,8 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     case 'image':    inner = <ImageBlock item={item} ctx={feedbackCtx} />; break;
     case 'command':  inner = <CommandBlock item={item} agentId={feedbackCtx?.agentId} />; break;
     // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
-    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} />; break;
+    // §2.4 (무응답) — 마지막 이벤트 시각을 함께 넘겨 "얼마나 됐는지"를 그 줄이 직접 말하게 한다.
+    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} />; break;
     // §5.5 #17-39 — 끝난 사고 런이 그 자리에 남긴 자국(원문 ❌ 시간·분량만).
     case 'step':     inner = <StepTraceBlock item={item} />; break;
     // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더 `작업 중` 배지).
@@ -1173,14 +1131,14 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
   );
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
   //   2단계(카드 합류)는 카드 변경 때만 재계산. 파서 인스턴스는 이 컴포넌트 수명 동안 유지(ref).
   const parserRef = useRef<IncrementalStreamParser | null>(null);
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
-  const base = useMemo(() => parserRef.current!.sync(events, commands), [events, commands]);
+  const base = useMemo(() => parserRef.current!.sync(events, commands, sessionBusy), [events, commands, sessionBusy]);
   const merged = useMemo(
     () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
     [base, commands, reports, questions, reviews, lists, askRequests],

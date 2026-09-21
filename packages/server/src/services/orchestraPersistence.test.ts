@@ -78,6 +78,26 @@ function roundTrip(cp: ProjectCheckpoint): ProjectCheckpoint {
 }
 
 describe('오케스트라 영속 왕복', () => {
+  it('결과 회수 대기는 재시작하면 미완료로 닫고, 회수 완료와 옛 위임 기록은 보존한다', () => {
+    const { graph, project, conductor } = seeded();
+    graph.addOrchestraRun(run({
+      runId: 'orc-waiting', projectPath: project.path, agentId: conductor.id,
+      phase: 'dispatched', planAt: 5000, startedAt: 5000,
+    }));
+    graph.addOrchestraRun(run({
+      runId: 'orc-completed', projectPath: project.path, agentId: conductor.id,
+      phase: 'completed', planAt: 6000, startedAt: 6000, endedAt: 7000,
+    }));
+    const cp = roundTrip(graph.toProjectCheckpoint(project.name));
+    for (const restore of ['restoreFromCheckpoint', 'mergeFromCheckpoint'] as const) {
+      const restored = new ProjectGraph();
+      restored[restore](cp);
+      expect(restored.findOrchestraRun('orc-waiting')).toMatchObject({ phase: 'unreported', endedAt: expect.any(Number) });
+      expect(restored.findOrchestraRun('orc-completed')).toEqual(graph.findOrchestraRun('orc-completed'));
+      expect(restored.findOrchestraRun('orc-done')).toEqual(graph.findOrchestraRun('orc-done'));
+    }
+  });
+
   it('toProjectCheckpoint → restoreFromCheckpoint — 설정·계획·만든 수·토큰이 그대로, 돌던 런은 unreported', () => {
     const { graph, project } = seeded();
     const cp = roundTrip(graph.toProjectCheckpoint(project.name));

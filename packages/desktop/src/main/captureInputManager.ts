@@ -55,15 +55,15 @@ interface ResolvedRect { physical: ScreenRect; dip: ScreenRect }
  * 밖)으로 갔다. 물리 원점은 그 디스플레이의 배율이 아니라 **왼쪽 모니터들의 물리 폭 합**으로 정해지기
  * 때문이다. 이제 Electron 이 그 변환을 정확히 아는 `screen.dipToScreenPoint()` 로 양 끝점을 바꿔 만든다.
  */
-async function resolveScreenRect(sourceId: string): Promise<ResolvedRect> {
+async function resolveScreenRect(sourceId: string): Promise<ResolvedRect | null> {
   let displayId: string | undefined;
   try {
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
     displayId = sources.find((s) => s.id === sourceId)?.display_id;
-  } catch { /* 폴백: 주 디스플레이 */ }
-  const display =
-    (displayId ? screen.getAllDisplays().find((d) => String(d.id) === displayId) : undefined) ??
-    screen.getPrimaryDisplay();
+  } catch { return null; }
+  // A disconnected display must never redirect input to the primary display.
+  const display = displayId ? screen.getAllDisplays().find((d) => String(d.id) === displayId) : undefined;
+  if (!display) return null;
   const b = display.bounds;
   const topLeft = screen.dipToScreenPoint({ x: b.x, y: b.y });
   const bottomRight = screen.dipToScreenPoint({ x: b.x + b.width, y: b.y + b.height });
@@ -74,13 +74,16 @@ async function resolveScreenRect(sourceId: string): Promise<ResolvedRect> {
 }
 
 /** window 소스 → 물리 픽셀 창 사각형(제목 매칭) + 포커스. 못 찾으면 null. */
-async function resolveWindowRect(nut: NutModule, sourceName: string): Promise<ResolvedRect | null> {
+async function resolveWindowRect(nut: NutModule, sourceName: string, focus = true, cancelled?: () => boolean): Promise<ResolvedRect | null> {
   try {
     const windows = await nut.getWindows();
-    for (const win of windows) {
-      const title = await win.getTitle();
-      if (title !== sourceName) continue;
-      try { await win.focus(); } catch { /* 포커스 실패해도 좌표 매핑은 진행 */ }
+    const matches: typeof windows = [];
+    for (const win of windows) if (await win.getTitle().catch(() => '') === sourceName) matches.push(win);
+    // Title matching is the native provider's public API. Ambiguity is a failure, never first-match wins.
+    if (matches.length !== 1) return null;
+    for (const win of matches) {
+      if (cancelled?.()) return null;
+      if (focus && !(await win.focus())) return null;
       const region = await win.getRegion();
       const physical = { x: region.left, y: region.top, width: region.width, height: region.height };
       // 창 사각형은 물리 픽셀이라 렌더러용 DIP 는 역변환해서 함께 준다.
@@ -94,10 +97,11 @@ async function resolveWindowRect(nut: NutModule, sourceName: string): Promise<Re
   return null;
 }
 
-async function rectFor(nut: NutModule, ev: CaptureInputEvent): Promise<ResolvedRect | null> {
-  return ev.sourceKind === 'screen'
-    ? resolveScreenRect(ev.sourceId)
-    : resolveWindowRect(nut, ev.sourceName);
+async function rectFor(nut: NutModule, ev: CaptureInputEvent, focus = true, cancelled?: () => boolean): Promise<ResolvedRect | null> {
+  if (ev.sourceKind === 'screen') return resolveScreenRect(ev.sourceId);
+  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 1, height: 1 } });
+  if (!sources.some((source) => source.id === ev.sourceId && source.name === ev.sourceName)) return null;
+  return resolveWindowRect(nut, ev.sourceName, focus, cancelled);
 }
 
 /**
@@ -106,11 +110,12 @@ async function rectFor(nut: NutModule, ev: CaptureInputEvent): Promise<ResolvedR
  */
 export async function resolveCaptureTargetRect(
   spec: { sourceId: string; sourceKind: CaptureInputEvent['sourceKind']; sourceName: string },
+  options?: { focus?: boolean },
 ): Promise<CaptureTargetRect> {
   const empty = { x: 0, y: 0, width: 0, height: 0 };
   const nut = await loadNut();
   if (!nut) return { ok: false, dip: empty, physical: empty };
-  const rect = await rectFor(nut, { type: 'mouse', action: 'move', u: 0, v: 0, ...spec } as CaptureInputEvent);
+  const rect = await rectFor(nut, { type: 'mouse', action: 'move', u: 0, v: 0, ...spec } as CaptureInputEvent, options?.focus ?? true);
   if (!rect) return { ok: false, dip: empty, physical: empty };
   return { ok: true, dip: rect.dip, physical: rect.physical };
 }
@@ -194,14 +199,15 @@ function armStuckButtonGuard(nut: NutModule, button: number): void {
   stuckGuard = { timer, button };
 }
 
-async function injectMouse(nut: NutModule, ev: CaptureMouseInput): Promise<CaptureInjectResult> {
-  const resolved = await rectFor(nut, ev);
+async function injectMouse(nut: NutModule, ev: CaptureMouseInput, cancelled?: () => boolean): Promise<CaptureInjectResult> {
+  const resolved = await rectFor(nut, ev, true, cancelled);
+  if (cancelled?.()) return { ok: false, reason: 'error' };
   // 대상을 못 찾으면 조용히 사라지지 않고 이유를 돌려준다(렌더러가 칩으로 알린다).
   if (!resolved) return { ok: false, reason: 'target-not-found' };
   const rect = resolved.physical;
   const toPhysical = (u: number, v: number): { x: number; y: number } => ({
-    x: Math.round(rect.x + Math.min(Math.max(u, 0), 1) * rect.width),
-    y: Math.round(rect.y + Math.min(Math.max(v, 0), 1) * rect.height),
+    x: Math.round(rect.x + Math.min(Math.max(u, 0), 1) * Math.max(0, rect.width - 1)),
+    y: Math.round(rect.y + Math.min(Math.max(v, 0), 1) * Math.max(0, rect.height - 1)),
   });
   const { x, y } = toPhysical(ev.u, ev.v);
 
@@ -226,6 +232,7 @@ async function injectMouse(nut: NutModule, ev: CaptureMouseInput): Promise<Captu
   const now = Date.now();
   if (chainOrigin && now - chainOrigin.at > CHAIN_ORIGIN_TTL_MS) chainOrigin = null;
   const current = await nut.mouse.getPosition().catch(() => null);
+  if (cancelled?.()) return { ok: false, reason: 'error' };
   if (!restore) {
     // 사슬 시작(첫 down/move) — 이때의 커서가 사용자의 진짜 손 위치다.
     if (!chainOrigin && current) chainOrigin = { point: { x: current.x, y: current.y }, at: now };
@@ -238,6 +245,7 @@ async function injectMouse(nut: NutModule, ev: CaptureMouseInput): Promise<Captu
   // 커서 경로로 끝난 경우의 결과 — "커서 안 움직이기"를 켰는데 되돌아온 것이면 그 사유를 함께 알린다.
   const viaCursor = (): CaptureInjectResult => (fallback ? { ok: true, method: 'cursor', fallback } : { ok: true, method: 'cursor' });
   try {
+    if (cancelled?.()) return { ok: false, reason: 'error' };
     switch (ev.action) {
       case 'move':
         return viaCursor();
@@ -251,10 +259,12 @@ async function injectMouse(nut: NutModule, ev: CaptureMouseInput): Promise<Captu
         return viaCursor();
       case 'click':
         await delay(PRESS_SETTLE_MS);
+        if (cancelled?.()) return { ok: false, reason: 'error' };
         await nut.mouse.click(btn);
         return viaCursor();
       case 'dblclick':
         await delay(PRESS_SETTLE_MS);
+        if (cancelled?.()) return { ok: false, reason: 'error' };
         await nut.mouse.doubleClick(btn);
         return viaCursor();
       case 'drag': {
@@ -264,10 +274,12 @@ async function injectMouse(nut: NutModule, ev: CaptureMouseInput): Promise<Captu
         // 사람이 끈 것과 구별되지 않는 평범한 드래그다. 커서는 finally 에서 사용자 자리로 반납된다.
         const end = toPhysical(ev.u2 ?? ev.u, ev.v2 ?? ev.v);
         await delay(PRESS_SETTLE_MS);
+        if (cancelled?.()) return { ok: false, reason: 'error' };
         await nut.mouse.pressButton(btn);
         armStuckButtonGuard(nut, btn);
         try {
           for (let i = 1; i <= DRAG_STEPS; i++) {
+            if (cancelled?.()) return { ok: false, reason: 'error' };
             const t = i / DRAG_STEPS;
             await nut.mouse.setPosition(new nut.Point(
               Math.round(x + (end.x - x) * t),
@@ -347,45 +359,64 @@ function specialKey(nut: NutModule, name: string): number | null {
   return null;
 }
 
-async function injectKey(nut: NutModule, ev: CaptureKeyInput): Promise<void> {
+async function injectKey(nut: NutModule, ev: CaptureKeyInput, cancelled?: () => boolean): Promise<CaptureInjectResult> {
   // window 소스면 대상 창을 먼저 포커스(키가 그 창으로 가도록). screen 은 현재 포커스 창으로.
-  if (ev.sourceKind === 'window') await resolveWindowRect(nut, ev.sourceName);
+  const target = await rectFor(nut, ev, true, cancelled);
+  if (cancelled?.()) return { ok: false, reason: 'error' };
+  if (!target) return { ok: false, reason: 'target-not-found' };
+  if (ev.sourceKind === 'screen') {
+    const focused = await nut.getActiveWindow();
+    const region = await focused.getRegion();
+    const x = region.left + region.width / 2, y = region.top + region.height / 2;
+    const screenRect = target.physical;
+    if (x < screenRect.x || y < screenRect.y || x >= screenRect.x + screenRect.width || y >= screenRect.y + screenRect.height) return { ok: false, reason: 'target-not-found' };
+  }
 
   const mods: number[] = [];
   if (ev.ctrl) mods.push(nut.Key.LeftControl);
   if (ev.shift) mods.push(nut.Key.LeftShift);
   if (ev.alt) mods.push(nut.Key.LeftAlt);
   if (ev.meta) mods.push(nut.Key.LeftSuper);
+  if (cancelled?.()) return { ok: false, reason: 'error' };
 
   if (ev.action === 'type' && ev.text && mods.length === 0) {
     await nut.keyboard.type(ev.text);
-    return;
+    return { ok: true };
   }
   // press(특수키) 또는 모디파이어 콤보.
   const keyName = ev.action === 'press' ? ev.key : ev.text;
-  if (!keyName) return;
+  if (!keyName) return { ok: false, reason: 'error' };
   const k = specialKey(nut, keyName);
   if (k == null) {
     // 매핑 없는 문자 + 모디파이어 없음이면 그냥 타이핑.
-    if (mods.length === 0 && ev.text) await nut.keyboard.type(ev.text);
-    return;
+    if (mods.length === 0 && ev.text) { await nut.keyboard.type(ev.text); return { ok: true }; }
+    return { ok: false, reason: 'error' };
   }
   await nut.keyboard.type(...(mods as number[]), k);
+  return { ok: true };
 }
 
 /**
  * 렌더러에서 온 캡처 입력 이벤트를 OS 로 주입하고 **성패를 돌려준다**(v3.61).
  * 종전엔 실패를 통째로 삼켜서, 사용자에겐 "클릭이 안 먹는다"로만 보였다.
  */
-export async function injectCaptureInput(ev: CaptureInputEvent): Promise<CaptureInjectResult> {
+async function injectCaptureInputNow(ev: CaptureInputEvent, cancelled?: () => boolean): Promise<CaptureInjectResult> {
   const nut = await loadNut();
+  if (cancelled?.()) return { ok: false, reason: 'error' };
   if (!nut) return { ok: false, reason: 'nut-unavailable' };
   try {
-    if (ev.type === 'mouse') return await injectMouse(nut, ev);
-    await injectKey(nut, ev);
-    return { ok: true };
+    if (ev.type === 'mouse') return await injectMouse(nut, ev, cancelled);
+    return await injectKey(nut, ev, cancelled);
   } catch (err) {
     recordDiagnostic('main', 'warn', `capture input inject failed — ${err instanceof Error ? err.message : String(err)}`);
     return { ok: false, reason: 'error' };
   }
+}
+
+// There is one OS pointer/keyboard. Manual capture windows and agent verification share this queue.
+let inputQueue: Promise<unknown> = Promise.resolve();
+export function injectCaptureInput(ev: CaptureInputEvent, options?: { cancelled?: () => boolean }): Promise<CaptureInjectResult> {
+  const pending = inputQueue.then(() => injectCaptureInputNow(ev, options?.cancelled));
+  inputQueue = pending.catch(() => undefined);
+  return pending;
 }

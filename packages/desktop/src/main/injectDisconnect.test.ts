@@ -111,7 +111,7 @@ describe('followOuterDisconnect', () => {
   it('is wired into the loopback listener for hold paths only, and the listener does not write to a caller that already left', () => {
     const main = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
     expect(main).toContain('const dispatchFn = (isHoldPath(path) ? followOuterDisconnect(res, target) : target) as unknown as DispatchFunc;');
-    expect(main).toContain('void inject(dispatchFn, {');
+    expect(main).toContain('await inject(dispatchFn, {');
     expect(main).toContain('if (res.writableEnded || res.destroyed) return;');
   });
 });

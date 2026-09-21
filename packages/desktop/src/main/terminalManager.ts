@@ -2,6 +2,7 @@ import { existsSync, statSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import * as pty from 'node-pty';
+import { observePtyTransportErrors } from './ptyTransportErrors';
 import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, buildAgentTokenSaverEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, type CmdTerminalController } from '@vibisual/server';
 import { isPathWithin } from '@vibisual/shared';
 import type { AgentConfig } from '@vibisual/shared';
@@ -110,9 +111,9 @@ function schedulePrefill(termId: string, text: string, deadline?: number): void 
   const limit = deadline ?? Date.now() + CMD_PREFILL_MAX_DEFER_MS;
   const timer = setTimeout(() => {
     const cur = sessions.get(termId);
-    if (!cur) return;
+    if (cur !== s) return;
     cur.pendingPrefill = undefined;
-    try { cur.pty.write(text); } catch { /* PTY already gone */ }
+    writeToTerminal(termId, text);
   }, cmdPrefillDelay(Date.now(), limit));
   s.pendingPrefill = { text, deadline: limit, timer };
 }
@@ -375,7 +376,10 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     };
     sessions.set(spec.termId, session);
 
+    observePtyTransportErrors(child, (side, error) => failTerminalTransport(spec.termId, session, side, error));
+
     child.onData((data) => {
+      if (sessions.get(spec.termId) !== session) return;
       // §4 (CMD ③) — 리사이즈 직후 ConPTY 가 되뱉는 화면 전체 리페인트는 **화면에는 그대로 보내되
       //   링버퍼에는 쌓지 않는다**. 리페인트는 "지금 화면"이라 sink 에는 반드시 가야 하지만, 버퍼에
       //   쌓으면 재부착 replay 가 리사이즈 횟수만큼 같은 배너·프롬프트를 되풀이한다.
@@ -392,8 +396,10 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     });
     child.onExit(({ exitCode }) => {
       cancelPrefill(session);
-      if (session.sink.isAlive()) session.sink.sendExit(spec.termId, exitCode);
+      // An older PTY can exit after a replacement has claimed the same tab id.
+      if (sessions.get(spec.termId) !== session) return;
       sessions.delete(spec.termId);
+      if (session.sink.isAlive()) session.sink.sendExit(spec.termId, exitCode);
     });
 
     // §5.5 #17-20 ④ v4.74 — 실행 런처 갈래. CLI 를 부르지 않고 사용자의 명령을 그대로 넣는다.
@@ -428,8 +434,26 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
 
 /** renderer 의 xterm 키 입력을 PTY stdin 으로 전달. */
 export function writeTerminal(termId: string, data: string): void {
+  writeToTerminal(termId, data);
+}
+
+function writeToTerminal(termId: string, data: string): boolean {
   const s = sessions.get(termId);
-  if (s) s.pty.write(data);
+  if (!s) return false;
+  try { s.pty.write(data); return true; } catch (error) {
+    failTerminalTransport(termId, s, 'input', error);
+    return false;
+  }
+}
+
+function failTerminalTransport(termId: string, session: TermSession, side: string, error: unknown): void {
+  if (sessions.get(termId) !== session) return;
+  cancelPrefill(session);
+  sessions.delete(termId);
+  recordDiagnostic('main', 'error', `terminal ${side} failed: ${error instanceof Error ? error.message : String(error)}`);
+  try { if (session.sink.isAlive()) session.sink.sendExit(termId, 1); } catch { /* viewer already closed */ }
+  try { session.pty.kill(); } catch { /* already exited */ }
+  killTree(session.pty.pid);
 }
 
 /** xterm 리사이즈를 PTY 에 반영. */
@@ -535,11 +559,7 @@ export function killAllTerminals(): void {
 export const terminalController: CmdTerminalController = {
   list: () => [...sessions.keys()],
   exists: (termId) => sessions.has(termId),
-  write: (termId, data) => {
-    const s = sessions.get(termId);
-    if (!s) return false;
-    try { s.pty.write(data); return true; } catch { return false; }
-  },
+  write: writeToTerminal,
   readBuffer: (termId) => sessions.get(termId)?.buffer ?? null,
   killUnder: (rootPath) => killTerminalsUnder(rootPath),
   listUnder: (rootPath) => listTerminalsUnder(rootPath),

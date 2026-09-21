@@ -7,171 +7,183 @@
  */
 export const strings = {
   "en": {
-    "desc": "Self-critique works when it rests on an executable signal such as a failing test. Reflection without evidence is plausible noise.",
+    "desc": "Tracks active procedures, pending reviews, and recorded revisions. A work report alone is not a review.",
     "heading": "Reflexion",
     "level": {
-      "none": "No reports",
-      "noLessons": "No lessons recorded",
-      "accruing": "Lessons accruing"
+      "none": "No active procedures",
+      "pending": "Review needed",
+      "reviewed": "Reviewed and active"
     },
     "check": {
-      "reports": "Work reports",
-      "learned": "Lessons recorded"
+      "active": "Reviewed and active",
+      "review": "Review needed",
+      "revisions": "Recorded revisions"
     },
-    "note": "This pattern works best in coding, where tests act as an objective judge. Where no such judge exists, its value drops sharply."
+    "note": "The working agent submits evidence through procedure review. File counts and repetition counts do not prove that review passed."
   },
   "ko": {
-    "desc": "자기 비평은 테스트 실패 같은 실행 가능한 신호에 근거할 때 작동합니다. 근거 없는 반성은 그럴듯한 소음입니다.",
+    "desc": "?? ????? ?????? ?? ?? ?? ???. ?? ????? ??? ???? ????.",
     "heading": "리플렉션",
     "level": {
-      "none": "신고 없음",
-      "noLessons": "교훈 기록 없음",
-      "accruing": "교훈 적립 중"
+      "none": "?? ?? ?? ??",
+      "pending": "?? ??",
+      "reviewed": "?? ????? ?"
     },
     "check": {
-      "reports": "작업 신고",
-      "learned": "기록된 교훈"
+      "active": "?? ????? ?",
+      "review": "?? ??",
+      "revisions": "??? ??"
     },
-    "note": "이 패턴은 테스트라는 객관적 판정자가 있는 코딩에서 가장 잘 먹히고, 판정 근거가 없는 도메인에서는 효과가 급감합니다."
+    "note": "?? ?? ????? ?? ?? ??? ??? ?????. ?? ?? ?? ??? ?? ??? ?? ????."
   },
   "ja": {
-    "check": {
-      "reports": "作業報告",
-      "learned": "記録された教訓"
-    },
+    "desc": "???????????????????????????????????????????????",
     "heading": "自己批評（Reflexion）",
     "level": {
-      "none": "報告なし",
-      "noLessons": "教訓の記録なし",
-      "accruing": "教訓が積もる"
+      "none": "????????",
+      "pending": "?????",
+      "reviewed": "??????????"
     },
-    "desc": "自己批評は、テスト失敗のような実行可能な合図に基づくときに機能します。根拠のない反省はもっともらしい雑音です。",
-    "note": "このパターンはテストという客観的な判定者があるコーディングで最もよく効き、そうした判定者がない領域では効果が急落します。"
+    "check": {
+      "active": "??????????",
+      "review": "?????",
+      "revisions": "???????"
+    },
+    "note": "???? Agent ??????????????????????????????????????????????????"
   },
   "zh-CN": {
-    "check": {
-      "reports": "工作汇报",
-      "learned": "已记录的教训"
-    },
+    "desc": "??????????????????????????????????",
     "heading": "自我反思",
     "level": {
-      "none": "无汇报",
-      "noLessons": "未记录教训",
-      "accruing": "教训在积累"
+      "none": "???????",
+      "pending": "????",
+      "reviewed": "???????"
     },
-    "desc": "自我批评只有建立在可执行信号（例如测试失败）之上才有效。没有依据的反省是似是而非的噪声。",
-    "note": "这一模式在有测试作为客观裁判的编码领域最有效；在没有这类裁判的领域，其价值会急剧下降。"
+    "check": {
+      "active": "???????",
+      "review": "????",
+      "revisions": "??????"
+    },
+    "note": "????? Agent ?????????????????????????????"
   },
   "es": {
-    "check": {
-      "reports": "Informes de trabajo",
-      "learned": "Lecciones registradas"
-    },
+    "desc": "Muestra procedimientos activos, revisiones pendientes y modificaciones registradas. Un informe de trabajo por s? solo no es una revisi?n.",
     "heading": "Autocrítica (Reflexion)",
     "level": {
-      "none": "Sin informes",
-      "noLessons": "Sin lecciones registradas",
-      "accruing": "Lecciones acumulándose"
+      "none": "Sin procedimientos en uso",
+      "pending": "Requiere revisi?n",
+      "reviewed": "Revisados y en uso"
     },
-    "desc": "La autocrítica funciona cuando se apoya en una señal ejecutable, como una prueba que falla. La reflexión sin evidencia es ruido plausible.",
-    "note": "Este patrón rinde sobre todo al programar, donde las pruebas actúan de juez objetivo. Donde no existe tal juez, su valor cae en picado."
+    "check": {
+      "active": "Revisados y en uso",
+      "review": "Requiere revisi?n",
+      "revisions": "Revisiones registradas"
+    },
+    "note": "El Agent que trabaja aporta pruebas mediante la revisi?n de procedimientos. La cantidad de ficheros o repeticiones no demuestra que la revisi?n se haya superado."
   },
   "es-419": {
-    "check": {
-      "reports": "Informes de trabajo",
-      "learned": "Lecciones registradas"
-    },
+    "desc": "Muestra procedimientos activos, revisiones pendientes y modificaciones registradas. Un informe de trabajo por s? solo no es una revisi?n.",
     "heading": "Autocrítica (Reflexion)",
     "level": {
-      "none": "Sin informes",
-      "noLessons": "Sin lecciones registradas",
-      "accruing": "Lecciones acumulándose"
+      "none": "Sin procedimientos en uso",
+      "pending": "Requiere revisi?n",
+      "reviewed": "Revisados y en uso"
     },
-    "desc": "La autocrítica funciona cuando se apoya en una señal ejecutable, como una prueba que falla. La reflexión sin evidencia es ruido plausible.",
-    "note": "Este patrón rinde sobre todo al programar, donde las pruebas actúan de juez objetivo. Donde no existe tal juez, su valor cae en picado."
+    "check": {
+      "active": "Revisados y en uso",
+      "review": "Requiere revisi?n",
+      "revisions": "Revisiones registradas"
+    },
+    "note": "El Agent que trabaja aporta pruebas mediante la revisi?n de procedimientos. La cantidad de archivos o repeticiones no demuestra que la revisi?n se haya aprobado."
   },
   "fr": {
-    "check": {
-      "reports": "Rapports de travail",
-      "learned": "Leçons consignées"
-    },
+    "desc": "Affiche les proc?dures actives, les examens en attente et les r?visions enregistr?es. Un rapport de travail seul ne constitue pas un examen.",
     "heading": "Autocritique (Reflexion)",
     "level": {
-      "none": "Aucun rapport",
-      "noLessons": "Aucune leçon consignée",
-      "accruing": "Leçons en accumulation"
+      "none": "Aucune proc?dure active",
+      "pending": "Examen n?cessaire",
+      "reviewed": "Examin?es et actives"
     },
-    "desc": "L’autocritique fonctionne quand elle repose sur un signal exécutable, comme un test qui échoue. Une réflexion sans preuve n’est qu’un bruit plausible.",
-    "note": "Ce motif fonctionne surtout en programmation, où les tests jouent le juge objectif. Là où un tel juge manque, sa valeur chute fortement."
+    "check": {
+      "active": "Examin?es et actives",
+      "review": "Examen n?cessaire",
+      "revisions": "R?visions enregistr?es"
+    },
+    "note": "L?Agent au travail fournit des preuves lors de l?examen des proc?dures. Le nombre de fichiers ou de r?p?titions ne prouve pas la r?ussite de cet examen."
   },
   "de": {
-    "check": {
-      "reports": "Arbeitsberichte",
-      "learned": "Erfasste Lehren"
-    },
+    "desc": "Zeigt aktive Abl?ufe, ausstehende Pr?fungen und erfasste ?berarbeitungen. Ein Arbeitsbericht allein ist keine Pr?fung.",
     "heading": "Selbstkritik (Reflexion)",
     "level": {
-      "none": "Keine Berichte",
-      "noLessons": "Keine Lehren erfasst",
-      "accruing": "Lehren sammeln sich"
+      "none": "Keine aktiven Abl?ufe",
+      "pending": "Pr?fung n?tig",
+      "reviewed": "Gepr?ft und aktiv"
     },
-    "desc": "Selbstkritik wirkt, wenn sie auf einem ausführbaren Signal wie einem fehlgeschlagenen Test ruht. Reflexion ohne Beleg ist plausibles Rauschen.",
-    "note": "Dieses Muster wirkt am besten beim Programmieren, wo Tests als objektiver Richter dienen. Fehlt ein solcher Richter, fällt sein Wert stark ab."
+    "check": {
+      "active": "Gepr?ft und aktiv",
+      "review": "Pr?fung n?tig",
+      "revisions": "Erfasste ?berarbeitungen"
+    },
+    "note": "Der arbeitende Agent reicht Belege ?ber die Ablaufpr?fung ein. Datei- und Wiederholungszahlen belegen keine bestandene Pr?fung."
   },
   "hi": {
-    "check": {
-      "reports": "कार्य रिपोर्ट",
-      "learned": "दर्ज सबक"
-    },
+    "desc": "?????? ???????????, ????? ????????? ?? ???? ?????? ?????? ??? ???? ????? ??????? ?? ??????? ???? ???? ?????",
     "heading": "आत्म-समीक्षा",
     "level": {
-      "none": "कोई रिपोर्ट नहीं",
-      "noLessons": "कोई सबक दर्ज नहीं",
-      "accruing": "सबक जमा हो रहे"
+      "none": "??? ?????? ????????? ????",
+      "pending": "??????? ??????",
+      "reviewed": "???????? ?? ??????"
     },
-    "desc": "आत्म-समीक्षा तब काम करती है जब वह चलने वाले संकेत पर टिकी हो, जैसे विफल टेस्ट। बिना प्रमाण की समीक्षा बस प्रशंसनीय लगने वाला शोर है।",
-    "note": "यह पैटर्न प्रोग्रामिंग में सबसे अच्छा चलता है, जहाँ टेस्ट वस्तुनिष्ठ न्यायाधीश का काम करते हैं। जिन क्षेत्रों में ऐसा न्यायाधीश नहीं, वहाँ इसका मूल्य गिर जाता है।"
+    "check": {
+      "active": "???????? ?? ??????",
+      "review": "??????? ??????",
+      "revisions": "???? ??????"
+    },
+    "note": "??? ?? ??? Agent ????????? ?? ??????? ?? ????? ?????? ???? ??? ??????? ?? ?????? ?? ?????? ??????? ??? ???? ?? ?????? ???? ???"
   },
   "id": {
-    "check": {
-      "reports": "Laporan kerja",
-      "learned": "Pelajaran tercatat"
-    },
+    "desc": "Menampilkan prosedur aktif, tinjauan tertunda, dan revisi tercatat. Laporan kerja saja bukan tinjauan.",
     "heading": "Refleksi diri",
     "level": {
-      "none": "Tanpa laporan",
-      "noLessons": "Tidak ada pelajaran tercatat",
-      "accruing": "Pelajaran menumpuk"
+      "none": "Tidak ada prosedur aktif",
+      "pending": "Perlu ditinjau",
+      "reviewed": "Ditinjau dan aktif"
     },
-    "desc": "Kritik diri bekerja bila bertumpu pada sinyal yang bisa dijalankan, seperti tes yang gagal. Refleksi tanpa bukti hanyalah derau yang terdengar masuk akal.",
-    "note": "Pola ini paling berhasil dalam pemrograman, di mana tes berperan sebagai hakim objektif. Di ranah tanpa hakim semacam itu, nilainya anjlok."
+    "check": {
+      "active": "Ditinjau dan aktif",
+      "review": "Perlu ditinjau",
+      "revisions": "Revisi tercatat"
+    },
+    "note": "Agent yang bekerja mengirim bukti melalui tinjauan prosedur. Jumlah berkas atau pengulangan tidak membuktikan bahwa tinjauan telah lolos."
   },
   "it": {
-    "check": {
-      "reports": "Rapporti di lavoro",
-      "learned": "Lezioni registrate"
-    },
+    "desc": "Mostra procedure attive, verifiche in attesa e revisioni registrate. Un rapporto di lavoro da solo non ? una verifica.",
     "heading": "Autocritica (Reflexion)",
     "level": {
-      "none": "Nessun rapporto",
-      "noLessons": "Nessuna lezione registrata",
-      "accruing": "Lezioni in accumulo"
+      "none": "Nessuna procedura attiva",
+      "pending": "Verifica necessaria",
+      "reviewed": "Verificate e attive"
     },
-    "desc": "L’autocritica funziona quando poggia su un segnale eseguibile, come un test che fallisce. Una riflessione senza prove è rumore plausibile.",
-    "note": "Questo schema rende soprattutto nella programmazione, dove i test fanno da giudice oggettivo. Dove un giudice simile manca, il suo valore crolla."
+    "check": {
+      "active": "Verificate e attive",
+      "review": "Verifica necessaria",
+      "revisions": "Revisioni registrate"
+    },
+    "note": "L?Agent al lavoro presenta le prove tramite la verifica delle procedure. Il numero di file o ripetizioni non dimostra che la verifica sia stata superata."
   },
   "pt-BR": {
-    "check": {
-      "reports": "Relatórios de trabalho",
-      "learned": "Lições registradas"
-    },
+    "desc": "Mostra procedimentos ativos, revis?es pendentes e altera??es registradas. Um relat?rio de trabalho por si s? n?o ? uma revis?o.",
     "heading": "Autocrítica (Reflexion)",
     "level": {
-      "none": "Sem relatórios",
-      "noLessons": "Sem lições registradas",
-      "accruing": "Lições acumulando"
+      "none": "Nenhum procedimento ativo",
+      "pending": "Precisa de revis?o",
+      "reviewed": "Revisados e ativos"
     },
-    "desc": "A autocrítica funciona quando se apoia num sinal executável, como um teste que falha. Reflexão sem evidência é ruído plausível.",
-    "note": "Este padrão rende melhor ao programar, onde os testes fazem o papel de juiz objetivo. Onde não existe tal juiz, seu valor cai bruscamente."
+    "check": {
+      "active": "Revisados e ativos",
+      "review": "Precisa de revis?o",
+      "revisions": "Revis?es registradas"
+    },
+    "note": "O Agent em atividade envia evid?ncias pela revis?o de procedimentos. A quantidade de arquivos ou repeti??es n?o comprova que a revis?o foi aprovada."
   }
 } as const;

@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { contextLevel, elapsedParts, type CommandCenterItem } from './commandCenterModel.js';
 
@@ -228,7 +229,8 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation(); // 보드의 j/k 이동 단축키가 타이핑을 가로채지 않게.
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (isComposingKeyEvent(e.nativeEvent)) return;
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
               }

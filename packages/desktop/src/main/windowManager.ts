@@ -4,6 +4,7 @@ import { isCursorDeepInside, isCursorOutsideRect, stepRedockDwell } from '@vibis
 import { hidePopOutGhost, isPopOutGhostVisible, nudgePopOutGhost, showPopOutGhost } from './ghostFrame';
 import { openExternalWithNotice } from './externalOpen';
 import { keepDragRegionsFresh } from './dragRegions';
+import { broadcastWindowMessage } from './windowDelivery';
 import {
   isOverlaySlotUsable,
   overlayAttentionOnReuse,
@@ -131,9 +132,7 @@ function notifyChange(): void {
 
 export function broadcastList(): void {
   const list = listDetached();
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send('vibisual:detached:list', list);
-  }
+  broadcastWindowMessage(BrowserWindow.getAllWindows(), 'vibisual:detached:list', list);
 }
 
 export interface DetachedTabInfo {
@@ -775,9 +774,7 @@ export function getOverlaysVisible(): boolean {
 export function broadcastOverlayList(): void {
   const list = listOverlays();
   const visible = overlaysUserVisible;
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send('vibisual:overlay:list', { overlays: list, userVisible: visible });
-  }
+  broadcastWindowMessage(BrowserWindow.getAllWindows(), 'vibisual:overlay:list', { overlays: list, userVisible: visible });
 }
 
 // 한 오버레이가 지금 보여야 하는지 — 오버레이의 본질은 "어떤 프로그램이 선택(포커스)돼 있든 항상

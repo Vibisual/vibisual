@@ -8,6 +8,7 @@ import {
   type CommandScope,
 } from '@vibisual/shared';
 import { useKeymapStore } from '../stores/keymap.js';
+import { isComposingKeyEvent } from '../utils/inputComposition.js';
 
 /**
  * useCommand.ts — **단축키를 실제로 듣는 곳 한 군데.**
@@ -115,7 +116,7 @@ function handleKeyDown(e: KeyboardEvent): void {
 
   // ② 한글·일본어 조합 중에는 판정하지 않는다 — `ㅅ` 을 치는 도중 `s` 로 잡히면
   //    아무 데서나 저장이 튄다(IME 가 확정하기 전의 키는 우리 것이 아니다).
-  if (e.isComposing || e.keyCode === 229) return;
+  if (isComposingKeyEvent(e)) return;
 
   const scopes = resolveEventScopes(e.target);
   const editable = isEditableTarget(e.target);

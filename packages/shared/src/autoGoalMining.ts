@@ -17,6 +17,7 @@
  */
 import {
   AUTO_GOAL_CANDIDATE_MAX,
+  AUTO_GOAL_COMMAND_MAX,
   AUTO_GOAL_MIN_RUNS,
   AUTO_GOAL_SCAN_TAIL,
   AUTO_GOAL_SEQUENCE_MAX,
@@ -42,7 +43,7 @@ export interface AutoGoalMiningInput {
   max?: number;
 }
 
-/** 훑은 결과 — 후보와 "무엇을 몇 개나 봤나". */
+/** 훑은 결과 — 후보와 "성공·완료 근거를 몇 개나 봤나". */
 export interface AutoGoalMiningResult {
   candidates: AutoGoalCandidate[];
   /** 훑은 행동 수(명령 + 사용자 단계). 0 이면 "아직 볼 것이 없다"이지 고장이 아니다. */
@@ -58,14 +59,14 @@ interface SeqTally {
   files: Set<string>;
 }
 
-/**
- * 명령을 **같은 것으로 볼지** 정하는 정규화.
- *
- * 연속 공백만 접고 그 밖은 건드리지 않는다 — `git status` 와 `git status -s` 를 같은 것으로
- * 뭉치면 굳어진 스킬에 적힌 줄과 실제로 돌던 명령이 달라지고, 그 스킬은 돌리면 틀린다
- * (⑫(a) `goalActions` 가 같은 자리에 세운 규칙).
- */
-function normalize(raw: string): string {
+interface ObservedLine {
+  text: string;
+  at: number;
+  files: readonly string[];
+}
+
+/** 표시용 제목에만 쓴다. 실행 원문의 공백·개행은 명령의 의미이므로 접지 않는다. */
+function normalizeTitle(raw: string): string {
   return raw.replace(/\s+/gu, ' ').trim();
 }
 
@@ -105,8 +106,13 @@ export function autoGoalTitle(steps: readonly string[]): string {
 
 /** 한 줄에서 앞 두 낱말 — `pnpm build --filter x` → `pnpm build`. */
 function headWords(line: string): string {
-  const parts = normalize(line).split(' ').filter(Boolean);
-  return parts.slice(0, 2).join(' ') || normalize(line);
+  const parts = normalizeTitle(line).split(' ').filter(Boolean);
+  return parts.slice(0, 2).join(' ') || normalizeTitle(line);
+}
+
+/** 상한을 넘으면 원문을 잘라 실행 가능한 것처럼 만들지 않고 관찰 경계를 끊는다. */
+function fitsObservation(text: string, max: number): boolean {
+  return text.trim() !== '' && text.length <= max;
 }
 
 /**
@@ -131,21 +137,24 @@ function pathsIn(command: string): string[] {
  * 3회이지 5회가 아니다(겹쳐 세면 두 번 한 일이 여섯 번 한 일로 보인다).
  */
 function tallyRuns(
-  runsOfLines: readonly (readonly { text: string; at: number; files: readonly string[] }[])[],
+  runsOfLines: readonly (readonly ObservedLine[])[],
   source: AutoGoalSource,
   tally: Map<string, SeqTally>,
 ): void {
   for (const run of runsOfLines) {
     if (run.length < AUTO_GOAL_SEQUENCE_MIN) continue;
+    const lastEnds = new Map<string, number>();
     for (let len = AUTO_GOAL_SEQUENCE_MIN; len <= AUTO_GOAL_SEQUENCE_MAX; len += 1) {
       if (run.length < len) break;
-      // 겹치지 않게 훑는다 — 한 자리에서 잡히면 그 묶음 길이만큼 건너뛴다.
-      for (let i = 0; i + len <= run.length; ) {
+      // 모든 시작점을 보되 같은 후보가 앞에서 차지한 구간과 겹치면 그 관찰만 건너뛴다.
+      for (let i = 0; i + len <= run.length; i += 1) {
         const slice = run.slice(i, i + len);
         const steps = slice.map((x) => x.text);
         const id = autoGoalSequenceId(source, steps);
+        if (i < (lastEnds.get(id) ?? 0)) continue;
+        lastEnds.set(id, i + len);
         const found = tally.get(id);
-        const last = slice[slice.length - 1]?.at ?? 0;
+        const last = Math.max(...slice.map((x) => x.at));
         if (found) {
           found.runs += 1;
           if (last > found.lastSeenAt) found.lastSeenAt = last;
@@ -155,32 +164,36 @@ function tallyRuns(
           for (const x of slice) for (const f of x.files) files.add(f);
           tally.set(id, { steps, runs: 1, lastSeenAt: last, source, files });
         }
-        i += len;
       }
     }
   }
 }
 
 /**
- * 이력을 **시간 창으로 갈라** 이어진 일의 줄기들을 만든다.
+ * 이력을 **실패·미완료 경계와 시간 창으로 갈라** 이어진 일의 줄기들을 만든다.
  *
  * 없으면 어제 친 `git status` 와 오늘 친 `pnpm build` 가 한 절차가 된다 — 시간이 그 둘을 갈라
  * 주는 유일한 증거다. 같은 줄이 연달아 오면 한 번으로 접는다(재시도가 순서를 오염시킨다).
  */
 function splitRuns(
-  entries: readonly { text: string; at: number; files: readonly string[] }[],
-  windowMs: number,
-): { text: string; at: number; files: readonly string[] }[][] {
-  const runs: { text: string; at: number; files: readonly string[] }[][] = [];
-  let cur: { text: string; at: number; files: readonly string[] }[] = [];
+  entries: readonly (ObservedLine | null)[],
+  windowMs?: number,
+): ObservedLine[][] {
+  const runs: ObservedLine[][] = [];
+  let cur: ObservedLine[] = [];
   let prevAt = 0;
   for (const e of entries) {
-    if (cur.length > 0 && e.at - prevAt > windowMs) {
-      runs.push(cur);
+    if (e === null || (windowMs !== undefined && cur.length > 0 && e.at - prevAt > windowMs)) {
+      if (cur.length > 0) runs.push(cur);
       cur = [];
     }
-    // 연달아 같은 줄은 접는다 — `pnpm build` 를 세 번 재시도한 것은 세 단계가 아니다.
-    if (cur[cur.length - 1]?.text !== e.text) cur.push(e);
+    if (e === null) continue;
+    // 명령의 연속 재시도만 접는다. 사용자 단계는 시간·중복으로 순서를 바꾸지 않는다.
+    if (windowMs !== undefined && cur[cur.length - 1]?.text === e.text) {
+      cur[cur.length - 1] = e;
+    } else {
+      cur.push(e);
+    }
     prevAt = e.at;
   }
   if (cur.length > 0) runs.push(cur);
@@ -202,32 +215,28 @@ export function mineAutoGoalCandidates(input: AutoGoalMiningInput): AutoGoalMini
 
   // ⓐ 에이전트가 친 셸 명령 — "늘 이 순서로 한다"가 가장 또렷하게 남는 자리.
   for (const entries of Object.values(input.bashHistory ?? {})) {
-    // 꼬리만 본다 — 되풀이는 최근 습관이라 전량을 다시 세도 답이 같고, 느려지기만 한다(§9).
-    const tail = entries.length > AUTO_GOAL_SCAN_TAIL ? entries.slice(entries.length - AUTO_GOAL_SCAN_TAIL) : entries;
-    const lines = tail
-      .map((e) => {
-        const text = clamp(normalize(e.command ?? ''), AUTO_GOAL_STEP_MAX);
-        return { text, at: typeof e.timestamp === 'number' ? e.timestamp : 0, files: pathsIn(e.command ?? '') };
-      })
-      .filter((x) => x.text !== '')
-      .sort((a, b) => a.at - b.at);
-    observed += lines.length;
+    // 런타임 이력은 최신순이다. 시각으로 먼저 정렬해야 꼬리가 실제 최신 관찰을 뜻한다.
+    const tail = [...entries].sort((a, b) => a.timestamp - b.timestamp).slice(-AUTO_GOAL_SCAN_TAIL);
+    const lines = tail.map((e): ObservedLine | null => {
+      const text = e.command ?? '';
+      // 실패·진행 중·옛 상태 미상은 경계다. 걸러 붙이면 A 실패 B 가 A B 절차로 바뀐다.
+      if (e.status !== 'success' || !fitsObservation(text, AUTO_GOAL_COMMAND_MAX)) return null;
+      return { text, at: e.timestamp, files: pathsIn(text) };
+    });
+    observed += lines.filter((line) => line !== null).length;
     tallyRuns(splitRuns(lines, AUTO_GOAL_WINDOW_MS), 'command', tally);
   }
 
   // ⓑ 사용자가 무대에 꽂은 단계 — 사용자가 손으로 되풀이해 온 절차가 그대로 남아 있는 자리.
   for (const goal of Object.values(input.sessionGoals ?? {})) {
-    const lines = (goal.steps ?? [])
-      .filter((s) => s.authoredBy === 'user')
-      .map((s) => ({
-        text: clamp(normalize(s.text ?? ''), AUTO_GOAL_STEP_MAX),
-        at: typeof s.updatedAt === 'number' ? s.updatedAt : 0,
-        files: [] as string[],
-      }))
-      .filter((x) => x.text !== '');
-    observed += lines.length;
+    const lines = (goal.steps ?? []).map((s): ObservedLine | null => {
+      const text = s.text ?? '';
+      if (s.authoredBy !== 'user' || s.status !== 'done' || !fitsObservation(text, AUTO_GOAL_STEP_MAX)) return null;
+      return { text, at: s.updatedAt, files: [] };
+    });
+    observed += lines.filter((line) => line !== null).length;
     // 한 목표 안의 단계는 이미 한 줄기다 — 시간으로 다시 가르지 않는다(꽂은 시각은 순서가 아니다).
-    if (lines.length >= AUTO_GOAL_SEQUENCE_MIN) tallyRuns([lines], 'step', tally);
+    tallyRuns(splitRuns(lines), 'step', tally);
   }
 
   const rows = [...tally.entries()]
@@ -289,7 +298,9 @@ export function autoGoalSkillBody(candidate: AutoGoalCandidate, at: number): str
   const lines: string[] = [];
   lines.push(`# ${candidate.title}`);
   lines.push('');
-  lines.push(`이 절차는 이 프로젝트에서 **${candidate.runs}번 되풀이**된 것을 보고 자동으로 적었습니다.`);
+  lines.push(`이 절차는 이 프로젝트에서 **${candidate.runs}번 되풀이**된 성공·완료 근거를 보고 자동으로 적었습니다.`);
+  lines.push('처음에는 검토 대기 후보로 저장됩니다. 반복 관찰만으로 실행이 승인되지는 않습니다.');
+  lines.push('사용 전에 현재 검토 상태와 적용 조건·파일 근거를 확인하세요. 지금 사용자의 지시가 우선합니다.');
   lines.push('');
   lines.push('## 단계');
   lines.push('');
@@ -313,7 +324,7 @@ export function autoGoalSkillBody(candidate: AutoGoalCandidate, at: number): str
     `관찰 ${candidate.runs}회 · 마지막 ${new Date(candidate.lastSeenAt || at).toISOString().slice(0, 10)} · 절차 감지가 적음`,
   );
   lines.push('');
-  lines.push('사실과 다르면 이 파일을 직접 고치세요 — 다음 분석이 덮어쓰지 않습니다.');
+  lines.push('사실과 다르면 이 파일을 직접 고치세요 — 다음 관찰이 수정한 본문을 덮어쓰지 않으며, 바뀐 본문은 재검토합니다.');
   return lines.join('\n');
 }
 

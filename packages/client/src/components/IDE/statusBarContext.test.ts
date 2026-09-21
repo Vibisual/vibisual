@@ -280,6 +280,56 @@ describe('resolveStatusBarEffort', () => {
     expect(resolveStatusBarEffort({ ...codex, sessionEffort: undefined })).toEqual({ kind: 'unknown' });
   });
 
+  it('새 코덱스 세션은 프로젝트·전역 강도를 상속하고 개별 설정이 있으면 그 값을 쓴다', () => {
+    const codex = { ...custom, providerKind: 'codex-cli', inheritedCodexEffort: 'high' };
+    expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'level', value: 'high' });
+    expect(resolveStatusBarEffort({ ...codex, codexEffort: 'low' })).toEqual({ kind: 'level', value: 'low' });
+    expect(resolveStatusBarEffort({ ...codex, sessionEffort: 'medium' })).toEqual({ kind: 'level', value: 'high' });
+    for (const codexEffort of ['', '  ', 'default']) {
+      expect(resolveStatusBarEffort({ ...codex, codexEffort })).toEqual({ kind: 'level', value: 'high' });
+    }
+  });
+
+  const codexModel = {
+    slug: 'model-a', displayName: 'Model A', reasoningLevels: ['low', 'medium', 'high'], defaultReasoningLevel: 'medium',
+  };
+  const codexConfig = {
+    cwd: '/project', checkedAt: 1,
+    layers: [{ source: 'user' as const, path: '/home/config.toml', values: { reasoningEffort: 'high' } }],
+  };
+
+  it('설정 파일의 강도를 모델 기본·이전 턴보다 먼저 읽고 Vibisual 설정이 이를 덮는다', () => {
+    const codex = { ...custom, providerKind: 'codex-cli', codexModel, codexConfig, sessionEffort: 'low' };
+    expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'level', value: 'high' });
+    expect(resolveStatusBarEffort({ ...codex, inheritedCodexEffort: 'medium' })).toEqual({ kind: 'level', value: 'medium' });
+    expect(resolveStatusBarEffort({ ...codex, codexEffort: 'ultra', inheritedCodexEffort: 'medium' })).toEqual({ kind: 'level', value: 'ultra' });
+  });
+
+  it('파일을 확인했고 강도가 없을 때 첫 턴 전에도 그 모델의 기본 강도를 표시한다', () => {
+    const codex = { ...custom, providerKind: 'codex-cli', codexModel, codexConfig: { ...codexConfig, layers: [] } };
+    expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'level', value: 'medium' });
+    expect(resolveStatusBarEffort({ ...codex, sessionEffort: 'high' })).toEqual({ kind: 'level', value: 'high' });
+    expect(resolveStatusBarEffort({ ...codex, codexModel: undefined })).toEqual({ kind: 'unknown' });
+  });
+
+  it('설정 파일을 못 읽으면 카탈로그 값으로 추측하지 않고 확인된 설정·세션 값만 쓴다', () => {
+    for (const unavailable of [null, undefined, 'failed' as const]) {
+      const codex = { ...custom, providerKind: 'codex-cli', codexModel, codexConfig: unavailable };
+      expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'unknown' });
+      expect(resolveStatusBarEffort({ ...codex, inheritedCodexEffort: 'high' })).toEqual({ kind: 'level', value: 'high' });
+      expect(resolveStatusBarEffort({ ...codex, sessionEffort: 'low' })).toEqual({ kind: 'level', value: 'low' });
+    }
+  });
+
+  it('모델 변경 후에는 이전 세션 대신 새 모델의 설정·기본값을 쓴다', () => {
+    const codex = {
+      ...custom, providerKind: 'codex-cli', providerModelId: codexModel.slug, codexModel,
+      sessionModel: 'old-model', sessionEffort: 'low', codexConfig,
+    };
+    expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'level', value: 'high' });
+    expect(resolveStatusBarEffort({ ...codex, codexConfig: { ...codexConfig, layers: [] } })).toEqual({ kind: 'level', value: 'medium' });
+  });
+
   it('모델을 바꾸면 이전 모델의 세션 강도를 새 모델의 선택값처럼 표시하지 않는다', () => {
     const codex = { ...custom, providerKind: 'codex-cli', providerModelId: 'new-model', sessionModel: 'old-model', sessionEffort: 'xhigh' };
     expect(resolveStatusBarEffort(codex)).toEqual({ kind: 'unknown' });

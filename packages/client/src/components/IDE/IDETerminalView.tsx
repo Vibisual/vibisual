@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useTranslation } from 'react-i18next';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -620,7 +621,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
 
   useEffect(() => {
     if (!menu) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
+    const onKey = (e: KeyboardEvent) => { if (!isComposingKeyEvent(e) && e.key === 'Escape') setMenu(null); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [menu]);

@@ -351,6 +351,8 @@ export interface DispatchJobRegistry {
   markDelivered(cmdId: string): DispatchJob | undefined;
   /** 요청자가 아직 받지 못한 결과들(`isDispatchResultUndelivered`) — 만든 순서대로. */
   listUndelivered(filter?: UndeliveredDispatchJobFilter): DispatchJob[];
+  /** All results belonging to a requesting session, including already collected results. */
+  listForRequester(subAgentId: string): DispatchJob[];
   /**
    * 같은 요청자(소스·엣지·세션)가 **같은 지시**로 이미 띄웠고 아직 결과를 받지 못한 작업. 요청 키가 달라도
    * 이것이 있으면 새로 띄우지 않고 그 작업을 이어 받는다 — 조회를 놓친 뒤의 다시 dispatch 가 중복 실행이 되지 않게.
@@ -516,6 +518,10 @@ export function createDispatchJobRegistry(options: DispatchJobRegistryOptions = 
           && (filter.requesterSubAgentId === undefined || job.requesterSubAgentId === filter.requesterSubAgentId))
         .sort((a, b) => a.createdAt - b.createdAt)
         .map(copy);
+    },
+    listForRequester(subAgentId) {
+      prune();
+      return [...jobs.values()].filter((job) => job.requesterSubAgentId === subAgentId).map(copy);
     },
     findUndeliveredDuplicate(input) {
       prune();

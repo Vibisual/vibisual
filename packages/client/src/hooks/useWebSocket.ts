@@ -324,6 +324,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyAutoAgentRuns(snap.autoAgentRuns);
     // §5.3 #10-4 — 오케스트라 설정·런. 비어 오면(아무것도 정하지 않음) 빈 맵이 곧 "꺼짐"이다.
     store.applyOrchestra(snap.orchestra);
+    // §5.3 #10-5 — 설정 덜어내기 범위·런. 비어 오면(아무도 켜지 않음) 빈 맵이 곧 "꺼짐"이다.
+    store.applyConfigTrim(snap.configTrim);
     store.applyRunningSubagentTasks(snap.runningSubagentTasks);
     store.applyFinishedSubagentTasks(snap.finishedSubagentTasks);
     store.applyAgentReports(snap.agentReports);

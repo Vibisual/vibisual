@@ -5,7 +5,7 @@ import {
   ORCHESTRA_CONDUCTOR_TOOLS,
   ORCHESTRA_DEFAULT_MAX_MEMBERS,
 } from '@vibisual/shared';
-import type { AgentConfig, OrchestraRun } from '@vibisual/shared';
+import type { AgentConfig, OrchestraPlan, OrchestraRun, TaskEdge, TurnStopReason } from '@vibisual/shared';
 import {
   addOrchestraMember,
   addOrchestraRunTokens,
@@ -13,6 +13,7 @@ import {
   buildConductorTurnConfig,
   checkOrchestraKickoff,
   checkOrchestraMemberCreate,
+  checkOrchestraPlanGraph,
   collectOrchestraMemberIds,
   orchestraEngineOf,
   orchestraMemberProviderAllowed,
@@ -21,6 +22,7 @@ import {
   shouldInterceptOrchestra,
   type OrchestraInterceptInput,
   type OrchestraKickoffInput,
+  type OrchestraDispatchEvidence,
 } from './orchestraRuntime.js';
 
 /**
@@ -63,6 +65,30 @@ function intercept(partial: Partial<OrchestraInterceptInput> = {}): OrchestraInt
     edgeCommand: false,
     ...partial,
   };
+}
+
+function plan(partial: Partial<OrchestraPlan> = {}): OrchestraPlan {
+  return { intent: 'feature', topology: 'pipeline', chosen: [], entryAgentId: 'architect', ...partial };
+}
+
+function dispatch(partial: Partial<OrchestraDispatchEvidence> = {}): OrchestraDispatchEvidence {
+  return {
+    sourceAgentId: 'conductor',
+    targetAgentId: 'architect',
+    requesterSubAgentId: 'conductor-session',
+    createdAt: 2000,
+    status: 'completed',
+    deliveredAt: 4000,
+    ...partial,
+  };
+}
+
+function edge(
+  sourceAgentId: string,
+  targetAgentId: string,
+  partial: Partial<Pick<TaskEdge, 'kind' | 'bundleRole'>> = {},
+): Pick<TaskEdge, 'sourceAgentId' | 'targetAgentId' | 'kind' | 'bundleRole'> {
+  return { sourceAgentId, targetAgentId, kind: 'command', bundleRole: 'primary', ...partial };
 }
 
 describe('orchestraEngineOf', () => {
@@ -233,6 +259,8 @@ describe('addOrchestraRunTokens', () => {
 });
 
 describe('settleConductorTurn', () => {
+  const completed = { id: 'cmd-1', status: 'completed' as const, subAgentId: 'conductor-session' };
+
   it('이 런의 지휘 명령이 아니면 같은 객체', () => {
     const r = run();
     expect(settleConductorTurn(r, { id: 'cmd-other', status: 'completed' }, 5000)).toBe(r);
@@ -244,17 +272,148 @@ describe('settleConductorTurn', () => {
     expect(next.endedAt).toBe(5000);
   });
 
-  it('실패한 지휘 턴은 error', () => {
-    expect(settleConductorTurn(run(), { id: 'cmd-1', status: 'error' }, 5000).phase).toBe('error');
+  it.each(['queued', 'executing'] as const)('지휘 턴이 아직 %s 면 정산하지 않는다', (status) => {
+    const r = run({ phase: 'dispatched', plan: plan() });
+    expect(settleConductorTurn(r, { ...completed, status }, 5000, [dispatch()])).toBe(r);
   });
 
-  it('이미 신고한 런은 단계를 두고 끝난 시각만 채운다(한 번만)', () => {
-    const dispatched = settleConductorTurn(run({ phase: 'dispatched', planAt: 3000 }), { id: 'cmd-1', status: 'completed' }, 5000);
-    expect(dispatched.phase).toBe('dispatched');
-    expect(dispatched.endedAt).toBe(5000);
-    expect(settleConductorTurn(dispatched, { id: 'cmd-1', status: 'completed' }, 9000)).toBe(dispatched);
-    const answered = settleConductorTurn(run({ phase: 'answered' }), { id: 'cmd-1', status: 'error' }, 5000);
-    expect(answered.phase).toBe('answered');
+  it.each(['conducting', 'dispatched', 'answered'] as const)('계획 단계가 %s 여도 지휘 턴 실패는 error', (phase) => {
+    const next = settleConductorTurn(run({ phase, plan: plan() }), { ...completed, status: 'error' }, 5000, [dispatch()]);
+    expect(next.phase).toBe('error');
+    expect(next.endedAt).toBe(5000);
+  });
+
+  it('편성 없는 직접 답은 위임 증거 없이 answered로 닫는다', () => {
+    expect(settleConductorTurn(run({ phase: 'answered', plan: plan({ topology: 'none', entryAgentId: undefined }) }), completed, 5000))
+      .toMatchObject({ phase: 'answered', endedAt: 5000 });
+  });
+
+  it('같은 지휘 세션의 이번 엔트리 결과를 모두 성공적으로 받았을 때만 completed', () => {
+    const r = run({ phase: 'dispatched', plan: plan(), planAt: 1500 });
+    const next = settleConductorTurn(r, completed, 5000, [dispatch(), dispatch({ targetAgentId: 'verifier' })]);
+    expect(next.phase).toBe('completed');
+    expect(next.endedAt).toBe(5000);
+    expect(r.phase).toBe('dispatched');
+    expect(r.endedAt).toBeUndefined();
+  });
+
+  it('장부가 없거나 엔트리 위임이 없으면 신고만으로 성공하지 않는다', () => {
+    const r = run({ phase: 'dispatched', plan: plan() });
+    expect(settleConductorTurn(r, completed, 5000).phase).toBe('error');
+    expect(settleConductorTurn(r, completed, 5000, []).phase).toBe('error');
+    expect(settleConductorTurn(r, completed, 5000, [dispatch({ targetAgentId: 'verifier' })]).phase).toBe('error');
+    expect(settleConductorTurn(run({ phase: 'dispatched' }), completed, 5000, [dispatch()]).phase).toBe('error');
+  });
+
+  it.each<[string, Partial<OrchestraDispatchEvidence>]>([
+    ['대기 중', { status: 'queued', deliveredAt: undefined }],
+    ['실행 중', { status: 'executing', deliveredAt: undefined }],
+    ['결과를 받지 못함', { deliveredAt: undefined }],
+    ['실패 결과를 받음', { status: 'error' }],
+    ['취소 결과를 받음', { status: 'cancelled' }],
+    ['취소 요청 중', { cancelRequestedAt: 3000 }],
+    ['사용 한도에 멈춤', { usageLimit: { kind: 'usage', at: 3000 } }],
+  ])('%s인 위임이 하나라도 있으면 엔트리 성공만으로 완료하지 않는다', (_label, partial) => {
+    const r = run({ phase: 'dispatched', plan: plan() });
+    expect(settleConductorTurn(r, completed, 5000, [dispatch(partial)]).phase).toBe('error');
+    expect(settleConductorTurn(r, completed, 5000, [dispatch(), dispatch({ ...partial, targetAgentId: 'verifier' })]).phase).toBe('error');
+  });
+
+  it.each<[string, Partial<OrchestraDispatchEvidence>]>([
+    ['다른 감독', { sourceAgentId: 'other-conductor' }],
+    ['다른 세션', { requesterSubAgentId: 'other-session' }],
+    ['요청 세션 미상', { requesterSubAgentId: undefined }],
+    ['이전 런', { createdAt: 999 }],
+  ])('%s의 작업은 이번 런의 성공 근거도 실패 근거도 아니다', (_label, partial) => {
+    const r = run({ phase: 'dispatched', plan: plan() });
+    expect(settleConductorTurn(r, completed, 5000, [dispatch(partial)]).phase).toBe('error');
+    expect(settleConductorTurn(r, completed, 5000, [dispatch(), dispatch({ ...partial, status: 'error' })]).phase).toBe('completed');
+  });
+
+  it('지휘 명령의 세션 id를 모르면 주인 미상 장부와 맞춰 성공하지 않는다', () => {
+    const r = run({ phase: 'dispatched', plan: plan() });
+    expect(settleConductorTurn(r, { ...completed, subAgentId: null }, 5000, [dispatch()]).phase).toBe('error');
+    expect(settleConductorTurn(r, { id: 'cmd-1', status: 'completed' }, 5000, [dispatch({ requesterSubAgentId: undefined })]).phase).toBe('error');
+  });
+
+  it.each<Exclude<TurnStopReason, 'end_turn'>>(['cancelled', 'usage_limit', 'max_tokens', 'max_turns', 'refusal'])
+  ('감독이 %s로 끊기면 명령 상태가 completed여도 런은 error', (stopReason) => {
+    expect(settleConductorTurn(run({ phase: 'dispatched', plan: plan() }), { ...completed, stopReason }, 5000, [dispatch()]).phase).toBe('error');
+  });
+
+  it('옛 중지 결과 표식도 성공으로 처리하지 않는다', () => {
+    expect(settleConductorTurn(run({ phase: 'answered' }), { ...completed, result: '[Stopped by user] interrupted' }, 5000).phase).toBe('error');
+  });
+
+  it('같은 완료 콜백 재시도와 뒤늦은 결과는 첫 정산을 뒤집지 않는다', () => {
+    const r = run({ phase: 'dispatched', plan: plan() });
+    const succeeded = settleConductorTurn(r, { ...completed, stopReason: 'end_turn' }, 5000, [dispatch({ createdAt: 1000 })]);
+    expect(succeeded.phase).toBe('completed');
+    expect(settleConductorTurn(succeeded, completed, 9000)).toBe(succeeded);
+    expect(settleConductorTurn(succeeded, { ...completed, status: 'error' }, 9000)).toBe(succeeded);
+    const failed = settleConductorTurn(r, completed, 5000);
+    expect(settleConductorTurn(failed, completed, 9000, [dispatch()])).toBe(failed);
+  });
+});
+
+describe('checkOrchestraPlanGraph', () => {
+  it('편성 없는 직접 답은 그래프가 필요 없다', () => {
+    expect(checkOrchestraPlanGraph(run(), plan({ topology: 'none', entryAgentId: undefined }), [], [])).toEqual({ ok: true });
+  });
+
+  it('편성에는 감독 자신이 아닌 엔트리가 있어야 한다', () => {
+    expect(checkOrchestraPlanGraph(run(), plan({ entryAgentId: undefined }), [], []))
+      .toEqual({ ok: false, status: 400, error: 'orchestra-entry-required' });
+    expect(checkOrchestraPlanGraph(run(), plan({ entryAgentId: 'conductor' }), [], []))
+      .toEqual({ ok: false, status: 400, error: 'orchestra-entry-conductor' });
+  });
+
+  it('엔트리만 재사용하는 single은 별도 reusedAgentIds 없이 통과한다', () => {
+    expect(checkOrchestraPlanGraph(run(), plan({ topology: 'single' }), [], [])).toEqual({ ok: true });
+  });
+
+  it('pipeline 지시 방향과 작업자 완료의 critique 콜백으로 모든 멤버에 닿는다', () => {
+    const r = run({ memberAgentIds: ['architect', 'coder', 'verifier'] });
+    expect(checkOrchestraPlanGraph(r, plan(), [], [edge('architect', 'coder'), edge('verifier', 'coder', { kind: 'critique' })]))
+      .toEqual({ ok: true });
+  });
+
+  it('parallel 허브의 여러 위임과 오래된 bundleRole 없는 command도 연결로 센다', () => {
+    expect(checkOrchestraPlanGraph(run(), plan({ topology: 'parallel' }), ['worker-a', 'worker-b'], [
+      edge('architect', 'worker-a', { kind: undefined, bundleRole: undefined }), edge('architect', 'worker-b'),
+    ])).toEqual({ ok: true });
+  });
+
+  it('만들기만 한 멤버와 재사용 신고한 멤버의 고립을 모두 거절한다', () => {
+    expect(checkOrchestraPlanGraph(run({ memberAgentIds: ['coder', 'orphan-new'] }), plan(), ['orphan-old', 'orphan-new'], [edge('architect', 'coder')]))
+      .toEqual({ ok: false, status: 400, error: 'orchestra-plan-disconnected', ids: ['orphan-new', 'orphan-old'] });
+  });
+
+  it('지시 방향이 뒤집히면 선이 그려져 있어도 실행 경로로 보지 않는다', () => {
+    expect(checkOrchestraPlanGraph(run({ memberAgentIds: ['coder'] }), plan(), [], [edge('coder', 'architect')]))
+      .toMatchObject({ ok: false, error: 'orchestra-plan-disconnected', ids: ['coder'] });
+  });
+
+  it.each<Partial<Pick<TaskEdge, 'kind' | 'bundleRole'>>>([
+    { kind: 'artifact' }, { kind: 'request' }, { bundleRole: 'auto-artifact' }, { bundleRole: 'auto-rework' },
+  ])('반환·요청·자동 자매 엣지만 있는 멤버를 실행 연결로 인정하지 않는다 (%j)', (partial) => {
+    expect(checkOrchestraPlanGraph(run({ memberAgentIds: ['coder'] }), plan(), [], [edge('architect', 'coder', partial)]))
+      .toMatchObject({ ok: false, ids: ['coder'] });
+  });
+
+  it.each(['conductor', 'unregistered'])('참가하지 않는 %s를 우회하는 연결은 무효다', (via) => {
+    expect(checkOrchestraPlanGraph(run({ memberAgentIds: ['coder'] }), plan(), [], [edge('architect', via), edge(via, 'coder')]))
+      .toMatchObject({ ok: false, ids: ['coder'] });
+  });
+
+  it('순환 연결은 한 번씩만 방문하고 입력을 바꾸지 않는다', () => {
+    const r = run({ memberAgentIds: ['coder', 'verifier'] });
+    const reused = ['coder'];
+    const edges = [edge('architect', 'coder'), edge('coder', 'verifier'), edge('verifier', 'architect')];
+    expect(checkOrchestraPlanGraph(r, plan(), reused, edges)).toEqual({ ok: true });
+    expect(r.memberAgentIds).toEqual(['coder', 'verifier']);
+    expect(reused).toEqual(['coder']);
+    expect(edges).toHaveLength(3);
   });
 });
 
@@ -353,6 +512,13 @@ describe('checkOrchestraMemberCreate', () => {
 });
 
 describe('applyOrchestraPlan', () => {
+  it('reusedAgentIds를 생략한 엔트리도 런 멤버로 등록하고 중복으로 추가하지 않는다', () => {
+    const r = run({ memberAgentIds: ['coder'], createdMemberCount: 1 });
+    expect(applyOrchestraPlan(r, plan(), [], 7000)).toMatchObject({ memberAgentIds: ['coder', 'architect'], createdMemberCount: 1 });
+    expect(applyOrchestraPlan(r, plan(), ['architect', 'conductor'], 7000).memberAgentIds).toEqual(['coder', 'architect']);
+    expect(r.memberAgentIds).toEqual(['coder']);
+  });
+
   it('편성이 있으면 dispatched, 편성 없음이면 answered — 다시 쓴 멤버를 목록에 더한다(지휘자 자신은 빼고)', () => {
     const r = run({ memberAgentIds: ['new1'] });
     const plan = { intent: 'feature' as const, topology: 'pipeline' as const, chosen: [{ id: 'subagents' as const, reason: 'r' }] };

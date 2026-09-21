@@ -69,6 +69,7 @@ interface IDEContextSourceDialogProps {
   /** 표의 토글과 **같은 손잡이** — 설명을 읽은 자리에서 바로 끄고 켤 수 있게. */
   onToggle: (item: ContextSourceItem, next: boolean) => void;
   busy: boolean;
+  errorKey?: string | null;
   onClose: () => void;
 }
 
@@ -79,6 +80,7 @@ export function IDEContextSourceDialog({
   scope,
   onToggle,
   busy,
+  errorKey,
   onClose,
 }: IDEContextSourceDialogProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -221,6 +223,8 @@ export function IDEContextSourceDialog({
                 </span>
               </div>
               <p className="mt-2 text-[12px] leading-relaxed text-gray-400">{t(controlExplainKey(item.control))}</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-gray-500">{t('ide.context.futureOnly')}</p>
+              {errorKey && <p role="alert" className="mt-1 text-[12px] text-amber-300">{t(errorKey)}</p>}
               {item.hintKey && <p className="mt-1 text-[12px] leading-relaxed text-sky-300/80">{t(item.hintKey)}</p>}
               {item.warnKey && <p className="mt-1 text-[12px] leading-relaxed text-amber-400/80">{t(item.warnKey)}</p>}
               {/* 이 층이 자기 값을 들었나, 아니면 위층을 따라가는 중인가 — 둘을 구분해 말한다. */}

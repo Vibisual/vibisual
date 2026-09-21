@@ -7,15 +7,15 @@ import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, installPluginSkill, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
+import { IDESkillSharingSection } from './IDESkillSharingSection.js';
 import { IDELoopView } from './IDELoopView.js';
 import { IDEVerifyView } from './IDEVerifyView.js';
 import { IDEReadingView } from './IDEReadingView.js';
 import { IDEExplorerView } from './IDEExplorerView.js';
 import { IDEMcpView } from './IDEMcpView.js';
 import {
-  IDECodexMcpView, IDECodexHooksView, IDECodexPluginsView, IDECodexSkillsView, IDECodexContextView,
+  IDECodexMcpView, IDECodexHooksView, IDECodexPluginsView, IDECodexSkillsView,
 } from './IDECodexViews.js';
-import { IDECodexReviewView } from './IDECodexReviewView.js';
 import { IDEHooksView } from './IDEHooksView.js';
 import { IDEPluginsView } from './IDEPluginsView.js';
 import { IDEDebugView } from './IDEDebugView.js';
@@ -28,6 +28,7 @@ import { ScrollFade } from '../ScrollFade.js';
 import { IDEAutoGoalView } from './IDEAutoGoalView.js';
 // §5.3 #10-4 — 오케스트라(지휘 모드). 스위치·세부 설정·방안 표·런 기록이 제 뷰에 산다.
 import { IDEOrchestraView } from './IDEOrchestraView.js';
+import { IDEConfigTrimView } from './IDEConfigTrimView.js';
 import { SkillStateTag } from '../SkillStateTag.js';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
 import { autosizeInput } from './inputAutosize.js';
@@ -165,7 +166,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     });
   }, []);
 
-  const insertSkill = useCallback((skill: SkillInfo) => {
+  const insertSkill = useCallback((skill: Pick<SkillInfo, 'name'>) => {
     const insert = `/${skill.name} `;
     // CMD(interactive-terminal): 임베디드 PTY 에 직접 타이핑. 줄바꿈은 보내지 않아(사용자가 Enter)
     // claude prefill 처럼 `/skill ` 만 입력행에 채워둔다. termId 는 IDETerminalView 와 동일 규약.
@@ -192,6 +193,8 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
       autosizeInput(ta);
     });
   }, [agentId, activeSessionId, setAgentSessionInputText, executionMode]);
+
+  const insertSharedSkill = useCallback((name: string) => insertSkill({ name }), [insertSkill]);
 
   // ── 드래그 재정렬 (같은 타입 내에서만) ──
   const handleDragStart = useCallback((e: React.DragEvent, type: SkillSource, names: string[], name: string) => {
@@ -435,6 +438,11 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
         </button>
       </div>
       <ScrollFade fill className="flex-1">
+        <IDESkillSharingSection
+          key={`${agentId}:${activeSessionId ?? ''}`}
+          agentId={agentId} activeSessionId={activeSessionId} provider="claude"
+          onUse={insertSharedSkill} onShared={refreshAvailableSkills}
+        />
         {!loaded ? (
           <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.skillsLoading')}</div>
         ) : skills.length === 0 ? (
@@ -763,6 +771,9 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   // §5.3 #10-4 · §5.5 #16-1 (H) — 오케스트라. 절차 감지 바로 뒤. 코덱스도 같은 화면이라 아래 코덱스 표에는 없다
   //   (지휘자 칸이 엔진별 두 벌이라 한 화면이 두 엔진을 다 말한다).
   orchestra: IDEOrchestraView,
+  // §5.3 #10-5 — 설정 덜어내기. 오케스트라 바로 뒤. 코덱스도 **같은 화면**이라 아래 코덱스 표에 없다
+  //   (덜어낼지의 판단만 엔진별로 갈리고, 그 갈림은 서버 규칙 표가 이미 들고 있다).
+  configTrim: IDEConfigTrimView,
   // §5.5 #17-11 ⑨ v4.51 — 루프도 목표와 같은 곁눈 자리로. 뷰 본체는 자기 파일에 산다.
   loop: IDELoopView,
   // §5.5 #17-35 — 검증(Verify): `/verify` 를 우리 레시피·판정·이력에 물린 자리. 루프 바로 뒤.
@@ -795,9 +806,10 @@ export const CODEX_VIEW_MAP: Partial<Record<IDEViewType, React.FC<{ agentId: str
   hooks: IDECodexHooksView,
   plugins: IDECodexPluginsView,
   skills: IDECodexSkillsView,
-  context: IDECodexContextView,
-  // 자리는 검증과 같고 하는 일이 다르다 — git 변경분 리뷰다(§5.25 (N)).
-  verify: IDECodexReviewView,
+  // The inventory endpoint resolves the engine; both engines share the same scope controls.
+  context: IDEContextView,
+  // Both engines run the app-owned verification tools; Codex code review remains a separate tab.
+  verify: IDEVerifyView,
 };
 
 export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps): React.JSX.Element {

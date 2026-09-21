@@ -33,9 +33,10 @@ interface LoginTerminalProps {
    * 자동 실행은 하지 않는다 — 그 상황에선 사용자가 Enter 로 직접 시작하는 편이 안전하다.
    */
   command?: string;
+  env?: Record<string, string>;
 }
 
-export function LoginTerminal({ termId, command }: LoginTerminalProps): React.JSX.Element {
+export function LoginTerminal({ termId, command, env }: LoginTerminalProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const transport = useMemo(() => getTerminalTransport(), []);
 
@@ -69,7 +70,7 @@ export function LoginTerminal({ termId, command }: LoginTerminalProps): React.JS
       if (id === termId) term.write(data);
     });
     const offExit = transport.onExit(({ termId: id }) => {
-      if (id === termId) term.write('\r\n[claude auth login] exited\r\n');
+      if (id === termId) term.write('\r\n');
     });
     const keySub = term.onData((data) => { void transport.write(termId, data).catch(() => {}); });
 
@@ -81,6 +82,7 @@ export function LoginTerminal({ termId, command }: LoginTerminalProps): React.JS
       cols: term.cols,
       rows: term.rows,
       ...(command ? { command, autoRun: false } : {}),
+      ...(env ? { env } : {}),
     }).catch(() => {});
 
     const ro = new ResizeObserver(() => {
@@ -98,7 +100,7 @@ export function LoginTerminal({ termId, command }: LoginTerminalProps): React.JS
       keySub.dispose();
       term.dispose();
     };
-  }, [transport, termId, command]);
+  }, [transport, termId, command, env]);
 
   return (
     <div

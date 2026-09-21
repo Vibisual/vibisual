@@ -24,6 +24,8 @@ import type {
   VerificationAttemptRecord,
   VerificationDemo,
   VerificationRecipeSource,
+  VerificationTarget,
+  VerificationToolEvent,
   VerifyVerdict,
 } from '@vibisual/shared';
 
@@ -242,6 +244,7 @@ export function buildVerifyPrompt(input: VerifyPromptInput): string {
   parts.push(
     '',
     '테스트 통과·타입체크 통과로 대신하지 마라 — **앱을 실제로 띄워 그 변경이 동작하는 것을 본 결과**를 답해야 한다.',
+    '앱 실행·조작 확인은 kind="run" 또는 "custom"으로 기록하라. 실제 정수 종료 코드가 없으면 통과 근거로 세지 않으며, 실패한 시도가 있으면 통과로 답하지 마라.',
     '',
     VERIFICATION_VERDICT_SCHEMA_GUIDE,
   );
@@ -286,10 +289,9 @@ function parseAttempts(raw: unknown): VerificationAttemptRecord[] {
     if (!command) continue;
     const kind = typeof o.kind === 'string' && o.kind.trim() ? oneLine(o.kind, 40) : 'custom';
     const rec: VerificationAttemptRecord = { kind, command };
-    if (typeof o.exitCode === 'number' && Number.isFinite(o.exitCode)) rec.exitCode = Math.trunc(o.exitCode);
+    if (typeof o.exitCode === 'number' && Number.isSafeInteger(o.exitCode)) rec.exitCode = o.exitCode;
     if (typeof o.detail === 'string' && o.detail.trim()) rec.detail = oneLine(o.detail, VERIFICATION_ATTEMPT_TEXT_MAX);
     out.push(rec);
-    if (out.length >= VERIFICATION_ATTEMPTS_MAX) break;
   }
   return out;
 }
@@ -305,7 +307,8 @@ export interface ParsedVerifyVerdict {
  * §5.5 #17-35 ⑤ — 에이전트 응답에서 판정을 읽는다. **fail-closed.**
  *
  *  - 구조화 블록의 `reject` → `fail`.
- *  - 구조화 블록의 `approve` 는 **실제로 돌린 시도가 하나라도 있어야** `pass`, 없으면 `held`.
+ *  - 구조화 블록의 `approve` 는 성공한 실행·조작 시도와 실제 정수 종료 코드가 있어야 `pass`.
+ *    실패한 시도가 있으면 `fail`, 실행 근거가 없으면 `held`.
  *    ("봤더니 괜찮다" 는 증거가 아니다 — §5.3 #10-3 이 세운 규율 그대로.)
  *  - 블록이 없으면 키워드 폴백으로 **reject 만** 인정하고, 나머지는 전부 `held`.
  *
@@ -326,14 +329,30 @@ export function parseVerificationVerdict(text: string): ParsedVerifyVerdict {
     const reason = typeof obj.reason === 'string' && obj.reason.trim()
       ? oneLine(obj.reason, VERIFICATION_REASON_MAX)
       : undefined;
-    const attempts = parseAttempts(obj.attempts);
+    // 보관 상한을 먼저 적용하면 그 뒤의 실패가 사라져 통과로 바뀐다. 판정은 전체를 본다.
+    const reportedAttempts = parseAttempts(obj.attempts);
+    const attempts = reportedAttempts.slice(0, VERIFICATION_ATTEMPTS_MAX);
 
     if (v === 'reject') {
       return reason ? { verdict: 'fail', reason, attempts } : { verdict: 'fail', attempts };
     }
-    // approve 는 증거가 있어야 통과다.
-    if (attempts.length === 0) {
-      return { verdict: 'held', reason: reason ?? '증거(실제로 돌린 시도) 없이 통과라고만 답했습니다', attempts };
+    const failed = reportedAttempts.find((attempt) => attempt.exitCode !== undefined && attempt.exitCode !== 0);
+    if (failed) {
+      return {
+        verdict: 'fail',
+        reason: oneLine(`실행 실패(exit ${failed.exitCode}): ${failed.command}`, VERIFICATION_REASON_MAX),
+        attempts,
+      };
+    }
+    // 빌드만 성공했거나 명령 이름만 적은 응답은 화면 검증의 성공이 아니다.
+    const runtimePassed = reportedAttempts.some((attempt) =>
+      attempt.exitCode === 0 && ['run', 'custom'].includes(attempt.kind.toLowerCase()));
+    if (!runtimePassed) {
+      return {
+        verdict: 'held',
+        reason: '앱 실행·조작을 확인한 성공 기록(run/custom, 실제 정수 종료 코드 0)이 없습니다',
+        attempts,
+      };
     }
     return reason ? { verdict: 'pass', reason, attempts } : { verdict: 'pass', attempts };
   }
@@ -356,6 +375,9 @@ export function buildVerifyReworkPrompt(run: {
   focus?: string;
   reason?: string;
   attempts: VerificationAttemptRecord[];
+  target?: VerificationTarget;
+  expected?: string;
+  toolEvents?: VerificationToolEvent[];
 }): string {
   const head = run.verdict === 'fail'
     ? '방금 검증이 **실패**했습니다. 아래 근거를 보고 원인을 고쳐 주세요.'
@@ -364,6 +386,12 @@ export function buildVerifyReworkPrompt(run: {
   const parts: string[] = [head];
   if (run.focus?.trim()) parts.push('', `확인하려던 것: ${run.focus.trim()}`);
   if (run.reason) parts.push('', `판정 사유: ${run.reason}`);
+  if (run.target) parts.push('', `검수 대상: ${JSON.stringify(run.target)}`);
+  if (run.expected) parts.push('', `기대 결과: ${run.expected}`);
+  if (run.toolEvents?.length) {
+    parts.push('', '서버가 기록한 실제 조작과 검사 결과:');
+    for (const event of run.toolEvents) parts.push(`- ${event.ok ? '성공' : '실패'} ${event.operation} ${JSON.stringify(event.action ?? event.check ?? {})}: ${event.detail}`);
+  }
 
   if (run.attempts.length > 0) {
     parts.push('', '실제로 돌린 것:');
@@ -371,7 +399,7 @@ export function buildVerifyReworkPrompt(run: {
       const code = a.exitCode === undefined ? '종료 코드 없음' : `exit ${a.exitCode}`;
       parts.push(`- [${a.kind}] ${a.command} → ${code}${a.detail ? ` (${a.detail})` : ''}`);
     }
-  } else {
+  } else if (!run.toolEvents?.length) {
     parts.push('', '실제로 돌린 기록이 남지 않았습니다 — 이번에는 반드시 앱을 띄워서 확인해 주세요.');
   }
 

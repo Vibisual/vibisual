@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ContextOverrides } from '@vibisual/shared';
+import type { AgentConfig, ContextOverrides } from '@vibisual/shared';
 import {
   isInternalSlashCommand,
   withoutSlashCommandFlag,
@@ -127,6 +127,60 @@ describe('inventory — 기본값', () => {
     const inv = build();
     expect(inv.enabledTokens).toBeGreaterThan(0);
     expect(inv.totalTokens).toBeGreaterThanOrEqual(inv.enabledTokens);
+  });
+});
+
+describe('Codex inventory and control scopes', () => {
+  const buildCodex = (overrides?: ContextOverrides) => buildContextInventory({
+    agentId: 'agent-1', subAgentId: 'sub-1', projectKey: 'proj',
+    projectPath: projectPath(), cwd: projectPath(), parts: parts(),
+    home, codexHome: path.join(home, '.codex'),
+    agentConfig: { provider: { kind: 'codex-cli', modelId: 'fixture' } } as AgentConfig,
+    ...(overrides ? { overrides } : {}),
+  });
+
+  it('lists Codex native sources together with Vibisual injection and never substitutes Claude files', () => {
+    const inventory = buildCodex();
+    expect(inventory.items.some((item) => item.id.startsWith('cc.'))).toBe(false);
+    expect(inventory.items.find((item) => item.id === CONTEXT_SOURCE_IDS.agentRules)?.control).toBe('session');
+    expect(inventory.items.find((item) => item.id === CONTEXT_SOURCE_IDS.codexSkills)?.control).toBe('spawn');
+    expect(inventory.items.find((item) => item.id === CONTEXT_SOURCE_IDS.codexInstructions)?.control).toBe('spawn');
+    expect([...collectInventoryFilePaths(inventory)].some((file) => file.endsWith('claude.md'))).toBe(false);
+  });
+
+  it('uses project, agent and session overrides for native sources as well as injected parts', () => {
+    const id = CONTEXT_SOURCE_IDS.codexSkills;
+    const inventory = buildCodex({
+      projects: { proj: { [id]: false } },
+      agents: { 'agent-1': { [id]: true } },
+      sessions: { 'sub-1': { [id]: false } }, updatedAt: 1,
+    });
+    const item = inventory.items.find((source) => source.id === id)!;
+    expect(item.scopeStates).toEqual({ project: false, agent: true, session: false });
+    expect(item.enabled).toBe(false);
+    expect(item.overrideScope).toBe('session');
+  });
+
+  it('does not pretend that an override can disable externally controlled sources', () => {
+    const id = CONTEXT_SOURCE_IDS.codexRuntimeMcp;
+    const base = buildCodex().items.find((item) => item.id === id)!;
+    const item = buildCodex({ projects: { proj: { [id]: !base.defaultEnabled } }, agents: {}, sessions: {}, updatedAt: 1 })
+      .items.find((source) => source.id === id)!;
+    expect(item.enabled).toBe(base.defaultEnabled);
+    expect(item.overrideScope).toBeUndefined();
+  });
+
+  it('locks native process controls for terminal and externally launched sessions', () => {
+    for (const unmanaged of [true, false]) {
+      const inventory = buildContextInventory({
+        agentId: 'agent-1', projectKey: 'proj', projectPath: projectPath(), cwd: projectPath(), parts: [],
+        home, codexHome: path.join(home, '.codex'), managed: !unmanaged,
+        agentConfig: { provider: { kind: 'codex-cli' }, ...(unmanaged ? {} : { executionMode: 'interactive-terminal' }) } as AgentConfig,
+      });
+      const source = inventory.items.find((item) => item.id === CONTEXT_SOURCE_IDS.codexSkills)!;
+      expect(source.control).toBe('external');
+      expect(source.hintKey).toBe('ide.context.hint.codexExternalSession');
+    }
   });
 });
 

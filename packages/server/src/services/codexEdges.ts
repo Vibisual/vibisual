@@ -1,6 +1,7 @@
-export interface CodexEdgeConfig {
+import { buildAppNodeCommand, codexAppNodeEnvOverrides, type AppNodeRuntime } from './appNodeRuntime.js';
+
+export interface CodexEdgeConfig extends AppNodeRuntime {
   helperPath: string;
-  nodeBin: string;
   edgeIds: string[];
   restrictedTools: string[];
   /**
@@ -20,16 +21,14 @@ export interface CodexEdgeConfig {
  * §5.25 (H) — per-turn permission bridge: `codex-edges.mjs permission <event>` sends Codex tool
  * calls to the Vibisual approval broker and audit ledger.
  */
-export interface CodexPermissionHookConfig {
+export interface CodexPermissionHookConfig extends AppNodeRuntime {
   helperPath: string;
-  nodeBin: string;
   /** Refuse the turn when the hooks cannot be attached (approval mode or audit boundary depends on them). */
   required: boolean;
 }
 
-export interface CodexToolHookConfig {
+export interface CodexToolHookConfig extends AppNodeRuntime {
   helperPath: string;
-  nodeBin: string;
   policy: import('@vibisual/shared').CodexToolPolicy;
 }
 
@@ -45,13 +44,12 @@ export interface CodexExpectedHook {
 export const CODEX_PERMISSION_HOOK_TIMEOUT_SEC = 180;
 const CODEX_EDGE_GATE_TIMEOUT_SEC = 10;
 
-function codexHelperHookCommand(nodeBin: string, helperPath: string, args: readonly string[], platform: NodeJS.Platform): string {
-  // Codex runs Windows hooks through PowerShell; quoted executables need &.
-  return `${platform === 'win32' ? '& ' : ''}"${nodeBin}" "${helperPath}" ${args.join(' ')}`;
+function codexHelperHookCommand(runtime: AppNodeRuntime, helperPath: string, args: readonly string[], platform: NodeJS.Platform): string {
+  return buildAppNodeCommand(runtime, helperPath, args, platform);
 }
 
 export function codexEdgeHookCommand(config: CodexEdgeConfig, platform: NodeJS.Platform = process.platform): string {
-  return codexHelperHookCommand(config.nodeBin, config.helperPath, ['gate'], platform);
+  return codexHelperHookCommand(config, config.helperPath, ['gate'], platform);
 }
 
 export function codexPermissionHookCommand(
@@ -59,7 +57,7 @@ export function codexPermissionHookCommand(
   event: CodexAppHookEvent,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  return codexHelperHookCommand(hook.nodeBin, hook.helperPath, ['permission', event], platform);
+  return codexHelperHookCommand(hook, hook.helperPath, ['permission', event], platform);
 }
 
 /**
@@ -80,7 +78,7 @@ export function codexTurnHooks(
   const preToolUse: { command: string; timeout: number }[] = [];
   const permissionRequest: { command: string; timeout: number }[] = [];
   const restricted = !!edge?.restrictedTools.length;
-  if (tools) preToolUse.push({ command: codexHelperHookCommand(tools.nodeBin, tools.helperPath, restricted ? ['tool-permission', 'delegation'] : ['tool-permission'], platform), timeout: CODEX_PERMISSION_HOOK_TIMEOUT_SEC });
+  if (tools) preToolUse.push({ command: codexHelperHookCommand(tools, tools.helperPath, restricted ? ['tool-permission', 'delegation'] : ['tool-permission'], platform), timeout: CODEX_PERMISSION_HOOK_TIMEOUT_SEC });
   if (edge && restricted) preToolUse.push({ command: codexEdgeHookCommand(edge, platform), timeout: CODEX_EDGE_GATE_TIMEOUT_SEC });
   if (permission) {
     if (!restricted) {
@@ -116,6 +114,7 @@ export function codexEdgeOverrides(config: CodexEdgeConfig, options: { hooks?: b
     '-c', 'mcp_servers.vibisual_edges.tools.status.approval_mode="approve"',
     '-c', 'mcp_servers.vibisual_edges.tool_timeout_sec=3600',
     '-c', `mcp_servers.vibisual_edges.env_vars=${quote(['VIBISUAL_BASE', 'VIBISUAL_TOKEN', 'VIBISUAL_OWNER_AGENT_ID', 'VIBISUAL_CODEX_EDGE_IDS', 'VIBISUAL_SUBAGENT_ID'])}`,
+    ...codexAppNodeEnvOverrides('vibisual_edges', config),
   ];
   if (config.restrictedTools.length) {
     if (options.hooks !== false) out.push(...codexTurnHooks(config, undefined).overrides);

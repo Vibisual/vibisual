@@ -19,10 +19,13 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
+import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   LOCAL_CHARS_PER_TOKEN,
   LOCAL_DEFAULT_CONTEXT_SIZE,
+  LOCAL_CONTEXT_MIN,
+  LOCAL_CONTEXT_MAX,
   localAnswerBudget,
   localHistoryBudget,
   localThinkingBudget,
@@ -41,7 +44,8 @@ import {
   type StreamEventType,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getEngineState, truncatedImages } from './localEngineService.js';
+import { getEngineState, getEngineCandidates, truncatedImages } from './localEngineService.js';
+import { processGroupSpawnOptions, terminateChildTree } from './processTree.js';
 import { readLocalArchitecture, readLocalGgufMeta, recordArchVerdict } from './localArchService.js';
 import { findModel, recordOutputCheck } from './localModelService.js';
 import { clipToolResult, runLocalTool, summarizeToolInput } from './localTools.js';
@@ -760,7 +764,6 @@ export async function compactLocalSession(
   let inst: LoadedModel | null = null;
   try {
     inst = await ensureLoaded(modelId, contextSize);
-    inst.busy += 1;
     const want = instructions?.trim();
     // 사용자가 "무엇을 남겨라"를 덧붙이면 그 말이 기본 지침보다 뒤에 와서 마지막 말이 된다.
     const source: ChatMessage[] = want
@@ -773,7 +776,7 @@ export async function compactLocalSession(
   } catch (err) {
     return `[local] could not compact — ${err instanceof Error ? err.message : String(err)}. Nothing was lost.`;
   } finally {
-    if (inst) inst.busy = Math.max(0, inst.busy - 1);
+    if (inst) releaseModel(inst);
   }
 }
 
@@ -820,7 +823,10 @@ interface LoadedModel {
    * 우리가 먼저 깎아 두고 그 값을 예산·게이지의 진실로 쓴다.
    */
   contextSize: number;
-  child: ChildProcess;
+  requestedContext: number;
+  child: ChildProcess | null;
+  preparing: boolean;
+  abort: AbortController;
   lastUsedAt: number;
   /** 준비될 때까지 기다릴 약속. 여러 버블이 동시에 물어도 한 번만 띄운다. */
   ready: Promise<void>;
@@ -829,6 +835,36 @@ interface LoadedModel {
 }
 
 const loaded = new Map<string, LoadedModel>();
+let loadLock: Promise<void> = Promise.resolve();
+let poolLifetime = new AbortController();
+const available = new Set<() => void>();
+
+function notifyAvailable(): void {
+  for (const wake of available) wake();
+  available.clear();
+}
+
+function releaseModel(inst: LoadedModel): void {
+  inst.busy = Math.max(0, inst.busy - 1);
+  inst.lastUsedAt = Date.now();
+  notifyAvailable();
+}
+
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => reject(new Error('local model preparation canceled'));
+    if (signal.aborted) { abort(); return; }
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
+function waitAvailable(signal?: AbortSignal): Promise<void> {
+  let wake: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => { wake = resolve; available.add(wake); });
+  return abortable(promise, signal).finally(() => available.delete(wake));
+}
 
 /** 지금 메모리에 올라가 있는 모델 id 들(§5.19 (F) 표시용). */
 export function listLoadedModels(): string[] {
@@ -882,8 +918,9 @@ function describeExit(code: number | null): string {
   return `engine exited before ready (code=${String(code)} ${hex})`;
 }
 
-async function waitHealthy(port: number, child: ChildProcess, deadline: number, stderrTail: () => string): Promise<void> {
+async function waitHealthy(port: number, child: ChildProcess, deadline: number, stderrTail: () => string, signal: AbortSignal): Promise<void> {
   for (;;) {
+    signal.throwIfAborted();
     if (child.exitCode !== null || child.signalCode !== null) {
       // 엔진이 남긴 마지막 말을 함께 싣는다 — 지금까지 이건 debug 로그로만 흘러
       //   사용자에게는 닿지 않았다(모델 로드 실패 사유가 대부분 여기 적힌다).
@@ -896,13 +933,16 @@ async function waitHealthy(port: number, child: ChildProcess, deadline: number, 
     //   우리가 실제로 쓸 OpenAI 호환 표면(`/v1/models`)이 200 이면 그때가 진짜 준비된 때다.
     for (const probe of ['/health', '/v1/models']) {
       try {
-        const res = await fetch(`http://127.0.0.1:${port}${probe}`);
-        if (res.ok) return;
+        const res = await fetch(`http://127.0.0.1:${port}${probe}`, {
+          signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now())))]),
+        });
+        await res.body?.cancel();
+        if (res.ok && child.exitCode === null && child.signalCode === null) return;
       } catch {
         /* 아직 안 떴다 */
       }
     }
-    await new Promise((r) => setTimeout(r, 400));
+    await abortable(new Promise<void>((r) => setTimeout(r, 400)), signal);
   }
 }
 
@@ -910,16 +950,20 @@ function unload(modelId: string): void {
   const m = loaded.get(modelId);
   if (!m) return;
   loaded.delete(modelId);
+  m.abort.abort();
   try {
-    m.child.kill();
+    if (m.child) terminateChildTree(m.child);
   } catch {
     /* 이미 죽었으면 그만 */
   }
   logger.info(`[localRunner] unloaded ${modelId}`);
+  notifyAvailable();
 }
 
 /** 전부 내린다(앱 종료 시). */
 export function unloadAllLocalModels(): void {
+  poolLifetime.abort();
+  poolLifetime = new AbortController();
   for (const id of [...loaded.keys()]) unload(id);
 }
 
@@ -927,7 +971,7 @@ export function unloadAllLocalModels(): void {
 const idleTimer = setInterval(() => {
   const now = Date.now();
   for (const [id, m] of loaded) {
-    if (m.busy === 0 && now - m.lastUsedAt > LOCAL_MODEL_IDLE_UNLOAD_MS) unload(id);
+    if (!m.preparing && m.busy === 0 && now - m.lastUsedAt > LOCAL_MODEL_IDLE_UNLOAD_MS) unload(id);
   }
 }, 30_000);
 if (typeof idleTimer.unref === 'function') idleTimer.unref();
@@ -967,13 +1011,14 @@ export function buildEngineArgs(
   modelPath: string,
   port: number,
   contextSize: number,
-  gpuLayers: number,
+  gpuLayers: number | 'auto',
   extras: readonly EngineExtraFlag[],
 ): string[] {
   const args = [
     '-m', modelPath,
     '--host', '127.0.0.1',
     '--port', String(port),
+    '--parallel', '1',
     '-c', String(contextSize),
     '-ngl', String(gpuLayers),
   ];
@@ -988,8 +1033,8 @@ export function buildEngineArgs(
  * 새 플래그를 더할 때 옛 설치를 죽이는 사고(§4 CLI 플래그 소실과 같은 계열)를 여기서 막는다.
  */
 async function bootWithFlagFallback(
-  boot: (gpuLayers: number, extras: readonly EngineExtraFlag[]) => Promise<ChildProcess>,
-  gpuLayers: number,
+  boot: (gpuLayers: number | 'auto', extras: readonly EngineExtraFlag[]) => Promise<ChildProcess>,
+  gpuLayers: number | 'auto',
   modelName: string,
 ): Promise<ChildProcess> {
   let extras: readonly EngineExtraFlag[] = ENGINE_EXTRA_FLAGS;
@@ -997,6 +1042,11 @@ async function bootWithFlagFallback(
     try {
       return await boot(gpuLayers, extras);
     } catch (err) {
+      // Older builds accept numeric -ngl only. Keep optional flags for that retry.
+      if (gpuLayers === 'auto' && /invalid|stoi|stoul|integer|number/i.test(String(err))) {
+        gpuLayers = 999;
+        continue;
+      }
       if (!isUnknownArgError(err) || extras.length === 0) throw err;
       const dropped = extras[0];
       extras = extras.slice(1);
@@ -1011,28 +1061,56 @@ async function bootWithFlagFallback(
  * 모델을 올려 둔 인스턴스를 얻는다. 이미 올라가 있으면 그대로 쓰고, 상한을 넘으면
  * 가장 오래 안 쓴 것을 내려 자리를 만든다.
  *
- * `-ngl` 사다리: 먼저 전부 GPU 로 올려 보고, 그 프로세스가 못 뜨면 CPU 로 떨어져 다시
- * 띄운다. 사용자 장비를 재지 않고도 "되면 빠르게, 안 되면 느리게라도" 가 성립하는 자리다.
+ * 엔진의 자동 GPU 배치를 먼저 쓰고 CPU 실행본까지 차례로 시도한다.
+ * 동시에 준비하거나 사용 중인 모델은 빼앗지 않고 반납을 기다린다.
  */
-async function ensureLoaded(modelId: string, requestedContext: number): Promise<LoadedModel> {
-  const cur = loaded.get(modelId);
-  if (cur) {
-    await cur.ready;
-    cur.lastUsedAt = Date.now();
-    return cur;
+async function ensureLoaded(modelId: string, context: number, signal?: AbortSignal): Promise<LoadedModel> {
+  signal = signal ? AbortSignal.any([signal, poolLifetime.signal]) : poolLifetime.signal;
+  // Hold the lock through preparation and reserve busy before releasing it. Otherwise a
+  // second request can evict the just-loaded model before its first caller starts using it.
+  const before = loadLock;
+  let unlock: () => void = () => undefined;
+  loadLock = new Promise<void>((resolve) => { unlock = resolve; });
+  try {
+    await abortable(before, signal);
+    signal?.throwIfAborted();
+    const inst = await loadModel(modelId, normalizeLocalContext(context), signal);
+    inst.busy += 1;
+    return inst;
+  } finally {
+    // A canceled waiter must not release the next waiter ahead of the current owner.
+    void before.then(unlock);
   }
+}
 
-  const engine = getEngineState();
-  if (!engine.installed || !engine.serverBin) throw new Error('local engine is not installed');
-  // 띄우기 전에 실물을 본다 — 잘린 이미지를 그냥 spawn 하면 Windows 가 돌려주는 것은
-  //   `0xC000007B` 한 줄뿐이라 어느 파일이 반쪽인지 아무도 모른다. 이 검사가 이름을 준다.
-  //   (이 fix 이전에 설치한 사용자는 설치 검증을 거치지 않았으므로 여기가 유일한 그물이다.)
-  const damaged = truncatedImages(path.dirname(engine.serverBin));
-  if (damaged.length > 0) {
-    throw new Error(
-      `engine install is incomplete: ${damaged.slice(0, 5).join(', ')} — remove and reinstall the engine`,
-    );
+export function normalizeLocalContext(context: number): number {
+  return Number.isFinite(context) && context > 0
+    ? Math.min(LOCAL_CONTEXT_MAX, Math.max(LOCAL_CONTEXT_MIN, Math.floor(context)))
+    : LOCAL_DEFAULT_CONTEXT_SIZE;
+}
+
+export function isLocalMemoryError(error: unknown): boolean {
+  return /out of (?:device |host |gpu |system )?memory|insufficient memory|not enough memory|failed to allocate|cannot allocate|allocation failed|bad_alloc|VK_ERROR_OUT_OF_DEVICE_MEMORY|cudaMalloc/i.test(String(error));
+}
+
+async function loadModel(modelId: string, requestedContext: number, signal?: AbortSignal): Promise<LoadedModel> {
+  for (;;) {
+    signal?.throwIfAborted();
+    const cur = loaded.get(modelId);
+    if (cur && cur.requestedContext === requestedContext) {
+      await cur.ready;
+      cur.lastUsedAt = Date.now();
+      return cur;
+    }
+    if (cur && cur.busy > 0) { await waitAvailable(signal); continue; }
+    if (cur) unload(cur.modelId);
+    if (loaded.size < LOCAL_MODEL_MAX_LOADED) break;
+    const victim = [...loaded.values()].filter((m) => m.busy === 0).sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
+    if (victim) { unload(victim.modelId); continue; }
+    await waitAvailable(signal);
   }
+  const candidates = getEngineCandidates();
+  if (candidates.length === 0) throw new Error('local engine is not installed');
   const model = findModel(modelId);
   if (!model) throw new Error(`model not found: ${modelId}`);
   // 쪼개진 모델은 조각이 다 있어야 열린다. 여기서 막지 않으면 엔진이 `code=1` 로 죽는 것
@@ -1050,23 +1128,22 @@ async function ensureLoaded(modelId: string, requestedContext: number): Promise<
     );
   }
 
-  while (loaded.size >= LOCAL_MODEL_MAX_LOADED) {
-    const victim = [...loaded.values()].filter((m) => m.busy === 0).sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
-    if (!victim) throw new Error('all loaded models are busy');
-    unload(victim.modelId);
-  }
-
   // 학습 문맥보다 크게 잡아 봐야 엔진이 깎는다 — 우리가 먼저 깎아 두면 화면 숫자가 사실이 된다.
   const trained = readLocalGgufMeta(model.path).contextLength;
-  const contextSize = trained && trained > 0 ? Math.min(requestedContext, trained) : requestedContext;
+  let contextSize = trained && trained > 0 ? Math.min(requestedContext, trained) : requestedContext;
   if (contextSize !== requestedContext) {
     logger.info(`[localRunner] ${model.name} trained context is ${String(trained ?? 0)} — using it instead of ${String(requestedContext)}`);
   }
 
+  const lifetime = new AbortController();
+  signal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
   const port = await freePort(LOCAL_ENGINE_PORT_BASE);
-  const serverBin = engine.serverBin;
+  let serverBin = candidates[0]!.serverBin;
 
-  const boot = async (gpuLayers: number, extras: readonly EngineExtraFlag[]): Promise<ChildProcess> => {
+  const boot = async (gpuLayers: number | 'auto', extras: readonly EngineExtraFlag[]): Promise<ChildProcess> => {
+    signal?.throwIfAborted();
+    const damaged = truncatedImages(path.dirname(serverBin));
+    if (damaged.length > 0) throw new Error(`engine install is incomplete: ${damaged.slice(0, 5).join(', ')} — reinstall the engine`);
     // 생각 상한(빈 답 방지)·캐시 재사용(앞을 자른 뒤 재평가 방지)은 **얹기만 하는** 것이라
     //   모르는 빌드에서는 위 사다리가 하나씩 빼 준다.
     const args = buildEngineArgs(model.path, port, contextSize, gpuLayers, extras);
@@ -1077,15 +1154,36 @@ async function ensureLoaded(modelId: string, requestedContext: number): Promise<
       cwd: path.dirname(serverBin),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...processGroupSpawnOptions(),
     });
+    placeholder.child = child;
+    const failed = new AbortController();
+    // ENOENT / EACCES emit error without a useful exitCode. Always attach a listener.
+    child.on('error', (error) => failed.abort(error));
+    child.stdout?.resume();
     let tail = '';
     child.stderr?.on('data', (d: Buffer) => {
       const s = d.toString();
       if (s.trim()) logger.debug(`[llama-server] ${s.trim().slice(0, 400)}`);
-      tail = (tail + s).slice(-600); // 꼬리만 붙잡는다 — 무한히 모으지 않는다
+      tail = (tail + s).slice(-4000);
     });
-    await waitHealthy(port, child, Date.now() + LOCAL_ENGINE_BOOT_TIMEOUT_MS, () => tail.trim().slice(-300));
-    return child;
+    try {
+      const bootSignal = signal ? AbortSignal.any([signal, failed.signal]) : failed.signal;
+      await waitHealthy(port, child, Date.now() + LOCAL_ENGINE_BOOT_TIMEOUT_MS, () => tail.trim(), bootSignal);
+      return child;
+    } catch (err) {
+      const stopped = new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null || !child.pid) { resolve(); return; }
+        child.once('exit', () => resolve());
+      });
+      terminateChildTree(child);
+      // Do not start a fallback while the failed instance still owns its GPU memory/port.
+      await Promise.race([stopped, new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        timer.unref();
+      })]);
+      throw err;
+    }
   };
 
   let resolveReady: () => void = () => undefined;
@@ -1105,7 +1203,10 @@ async function ensureLoaded(modelId: string, requestedContext: number): Promise<
     modelPath: model.path,
     port,
     contextSize,
-    child: null as unknown as ChildProcess,
+    requestedContext,
+    child: null,
+    preparing: true,
+    abort: lifetime,
     lastUsedAt: Date.now(),
     ready,
     busy: 0,
@@ -1113,21 +1214,61 @@ async function ensureLoaded(modelId: string, requestedContext: number): Promise<
   loaded.set(modelId, placeholder);
 
   try {
-    let child: ChildProcess;
-    try {
-      child = await bootWithFlagFallback(boot, 999, model.name);
-    } catch (err) {
-      logger.warn(`[localRunner] GPU boot failed for ${model.name}, falling back to CPU`, err);
-      child = await bootWithFlagFallback(boot, 0, model.name);
+    let child: ChildProcess | undefined;
+    let lastError: unknown;
+    // Modern llama.cpp adjusts GPU offload to the device. Older builds fall back to
+    // numeric -ngl in bootWithFlagFallback; CPU uses its own installed executable.
+    for (const candidate of candidates) {
+      serverBin = candidate.serverBin;
+      const attempts: Array<number | 'auto'> = candidate.backend === 'cpu' ? [0] : ['auto', 0];
+      for (const layers of attempts) {
+        for (;;) {
+          try {
+            child = await bootWithFlagFallback(boot, layers, model.name);
+            break;
+          } catch (err) {
+            signal?.throwIfAborted();
+            lastError = err;
+            if (isLocalMemoryError(err) && contextSize > LOCAL_CONTEXT_MIN) {
+              contextSize = Math.max(LOCAL_CONTEXT_MIN, Math.floor(contextSize / 2));
+              logger.warn(`[localRunner] memory pressure — retrying ${model.name} with context ${String(contextSize)}`);
+              continue;
+            }
+            logger.warn(`[localRunner] ${candidate.backend} ngl=${String(layers)} failed for ${model.name}`, err);
+            break;
+          }
+        }
+        if (child) break;
+      }
+      if (child) break;
     }
+    if (!child) throw lastError ?? new Error('local engine could not load the model');
     placeholder.child = child;
+    placeholder.contextSize = contextSize;
     child.on('close', () => {
       if (loaded.get(modelId) === placeholder) loaded.delete(modelId);
+      notifyAvailable();
     });
+    // The engine may cap the per-slot context further. Use what it actually loaded.
+    try {
+      const props = await fetch(`http://127.0.0.1:${port}/props`, { signal: AbortSignal.timeout(2000) });
+      if (props.ok) {
+        const data = await props.json() as { default_generation_settings?: { n_ctx?: number } };
+        const actual = data.default_generation_settings?.n_ctx;
+        if (typeof actual === 'number' && Number.isFinite(actual) && actual > 0) {
+          placeholder.contextSize = Math.min(contextSize, Math.floor(actual));
+        }
+      } else await props.body?.cancel();
+    } catch { /* Older builds need not expose /props. */ }
+    signal?.throwIfAborted();
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(describeExit(child.exitCode));
+    placeholder.preparing = false;
     resolveReady();
     return placeholder;
   } catch (err) {
-    loaded.delete(modelId);
+    if (placeholder.child) terminateChildTree(placeholder.child);
+    if (loaded.get(modelId) === placeholder) loaded.delete(modelId);
+    notifyAvailable();
     const e = err instanceof Error ? err : new Error(String(err));
     rejectReady(e);
     throw e;
@@ -1248,6 +1389,8 @@ export interface LocalHookToolEvent {
   toolInput: Record<string, unknown>;
   /** 사후에만. 실행 결과 본문(거절 사유도 결과다). */
   toolResponse?: string;
+  /** 실제 실행기의 구조화 결과. 미확인은 생략하며, 본문으로 성공을 추측하지 않는다. */
+  toolIsError?: boolean;
   /** 호출과 결과를 짝짓는 키. 화면의 도구 카드가 쓰는 것과 같은 값. */
   toolUseId: string;
   cwd: string;
@@ -1303,10 +1446,9 @@ export function runLocalTurn(args: LocalTurnArgs): void {
     };
 
     try {
-      inst = await ensureLoaded(modelId, contextSize);
+      inst = await ensureLoaded(modelId, contextSize, ac.signal);
       // 예산·게이지·절단이 전부 이 값을 먹는다 — 요청값이 아니라 **실제로 뜬 창**이 진실이다.
       contextSize = inst.contextSize;
-      inst.busy += 1;
       inst.lastUsedAt = Date.now();
 
       const history = loadHistory(subAgentId);
@@ -1515,9 +1657,13 @@ export function runLocalTurn(args: LocalTurnArgs): void {
           // 훅 사전 이벤트 — 권한 판정 전에 낸다. 거절된 호출도 **시도된 일**이라 원장에 남아야
           //   하고, Bash 이력 엔트리도 여기서 만들어져야 사후 결과가 그 자리에 붙는다.
           const hookStartedAt = Date.now();
-          args.onHookEvent?.({ phase: 'pre', toolName, toolInput, toolUseId: call.id, cwd: root });
+          // 엔진의 call.id 는 세션·왕복마다 재사용될 수 있다. 모델 메시지는 그대로 두고 훅만 분리한다.
+          const hookToolUseId = `local-tool:${randomUUID()}`;
+          args.onHookEvent?.({ phase: 'pre', toolName, toolInput, toolUseId: hookToolUseId, cwd: root });
 
           let resultBody: string;
+          // 실행 전 거절·잘못된 인자도 성공한 절차로 채굴되면 안 된다.
+          let toolIsError = true;
           if (parsedArgs.error) {
             // 인자를 못 읽었으면 **그 사실**을 결과로 준다 — 빈 인자로 실행하면 모델은 도구가
             //   이상하다고 여기고 같은 깨진 JSON 을 다시 보낸다.
@@ -1541,7 +1687,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
                   : `${toolName} is not available in this session`;
                 args.onHookEvent?.({
                   phase: 'post', toolName, toolInput, toolResponse: resultBody,
-                  toolUseId: call.id, cwd: root, durationMs: Date.now() - hookStartedAt,
+                  toolUseId: hookToolUseId, cwd: root, durationMs: Date.now() - hookStartedAt,
                 });
                 args.onToolEvent?.('tool_result', resultBody, toolName, call.id);
                 const hostMsg: ChatMessage = { role: 'tool', content: resultBody, tool_call_id: call.id };
@@ -1550,6 +1696,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
                 continue;
               }
               const outcome = await runLocalTool(toolName, toolInput, root, ac.signal);
+              toolIsError = outcome.isError;
               // 고정 상한(24,000자)은 16K 문맥의 절반을 한 번에 삼킨다 — 이 창이 감당할 몫으로
               //   한 번 더 접는다. 자른 사실은 `clipToolResult` 가 본문에 남긴다.
               resultBody = clipToolResult(outcome.content, localToolResultBudget(contextSize));
@@ -1557,8 +1704,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
           }
 
           args.onHookEvent?.({
-            phase: 'post', toolName, toolInput, toolResponse: resultBody,
-            toolUseId: call.id, cwd: root, durationMs: Date.now() - hookStartedAt,
+            phase: 'post', toolName, toolInput, toolResponse: resultBody, toolIsError,
+            toolUseId: hookToolUseId, cwd: root, durationMs: Date.now() - hookStartedAt,
           });
           args.onToolEvent?.('tool_result', resultBody, toolName, call.id);
           const toolMsg: ChatMessage = { role: 'tool', content: resultBody, tool_call_id: call.id };
@@ -1612,8 +1759,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         onDone(msg);
       }
     } finally {
-      running.delete(subAgentId);
-      if (inst) inst.busy = Math.max(0, inst.busy - 1);
+      if (running.get(subAgentId) === ac) running.delete(subAgentId);
+      if (inst) releaseModel(inst);
     }
   })();
 }
@@ -1664,8 +1811,8 @@ export async function verifyModelOutput(modelId: string): Promise<'ok' | 'broken
   if (!model || model.companion === true || (model.missingParts?.length ?? 0) > 0) return 'skipped';
   let inst: LoadedModel | null = null;
   try {
-    inst = await ensureLoaded(modelId, LOCAL_DEFAULT_CONTEXT_SIZE);
-    inst.busy += 1;
+    const timeout = AbortSignal.timeout(60_000);
+    inst = await ensureLoaded(modelId, LOCAL_DEFAULT_CONTEXT_SIZE, timeout);
     const res = await fetch(`http://127.0.0.1:${inst.port}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1674,37 +1821,29 @@ export async function verifyModelOutput(modelId: string): Promise<'ok' | 'broken
         stream: false,
         max_tokens: OUTPUT_CHECK_TOKENS,
       }),
+      signal: timeout,
     });
-    if (!res.ok) return 'skipped';
+    if (!res.ok) { await res.body?.cancel(); return 'skipped'; }
     const body = (await res.json()) as {
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
     };
     const message = body.choices?.[0]?.message;
     // 생각만 하고 끝난 모델도 있으므로 둘을 합쳐서 본다.
     const sample = `${message?.content ?? ''}${message?.reasoning_content ?? ''}`;
+    if (sample.trim().length < 4) return 'skipped';
     const verdict = looksDegenerate(sample) ? 'broken' : 'ok';
     recordOutputCheck(modelId, model.sizeBytes, verdict);
-    // 판정을 **구조 단위로도** 남긴다 — 같은 구조의 다른 양자화는 받아 보나 마나 같다.
-    //   덕분에 다음부터는 받기 목록에서 미리 거를 수 있다.
-    rememberArch(model.path, verdict);
+    // One broken quantization says nothing about the rest of this model family.
+    if (verdict === 'ok') rememberArch(model.path, verdict);
     logger.info(`[localRunner] output check ${model.name} -> ${verdict}`);
     return verdict;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    // **못 여는 것도 못 쓰는 것이다.** 엔진이 이 파일을 모델로 읽지 못하면(예: 음성인식용
-    //   GGUF) 사용자에게는 결국 안 되는 모델이므로 그대로 알려 준다. 다만 우리 쪽 사정
-    //   (엔진 미설치·자리 없음)은 모델 탓이 아니니 아무 말도 하지 않는다.
-    const ourProblem = /engine is not installed|no free port|all loaded models are busy/i.test(message);
-    if (!ourProblem) {
-      recordOutputCheck(modelId, model.sizeBytes, 'broken');
-      rememberArch(model.path, 'broken');
-      logger.info(`[localRunner] output check ${model.name} -> broken (${message.slice(0, 120)})`);
-      return 'broken';
-    }
+    // Without generated output there is no evidence of broken output. Driver errors,
+    // memory pressure and timeouts must not blacklist an entire architecture.
     logger.warn(`[localRunner] output check skipped for ${modelId}`, err);
     return 'skipped';
   } finally {
-    if (inst) inst.busy = Math.max(0, inst.busy - 1);
+    if (inst) releaseModel(inst);
   }
 }
 

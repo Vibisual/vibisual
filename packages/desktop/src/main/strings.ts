@@ -30,9 +30,16 @@ export interface MainStrings {
   /** `{label}` */
   cmdBlockedTitle: string;
   cmdBlockedBody: string;
+
+  crashTitle: string;
+  crashMessage: string;
+  crashReload: string;
 }
 
 const en: MainStrings = {
+  crashTitle: "This window stopped unexpectedly",
+  crashMessage: "Reload this window to continue. Running agents will keep working. Recent unsaved input may be lost.",
+  crashReload: "Reload window",
   quitTitle: 'Work is still running',
   quitMessage: 'Closing now will also stop the agents that are running.',
   quitBtnCancel: 'Cancel',
@@ -46,6 +53,9 @@ const en: MainStrings = {
 };
 
 const ko: MainStrings = {
+  crashTitle: "화면이 예기치 않게 중단되었습니다",
+  crashMessage: "이 창을 다시 불러와 계속할 수 있습니다. 실행 중인 에이전트는 계속 작동합니다. 최근 저장되지 않은 입력은 사라질 수 있습니다.",
+  crashReload: "창 다시 불러오기",
   quitTitle: '작업이 실행 중입니다',
   quitMessage: '지금 닫으면 실행 중인 에이전트가 함께 종료됩니다.',
   quitBtnCancel: '취소',
@@ -59,6 +69,9 @@ const ko: MainStrings = {
 };
 
 const ja: MainStrings = {
+  crashTitle: "このウィンドウが予期せず停止しました",
+  crashMessage: "ウィンドウを再読み込みして続行できます。実行中のエージェントは動作を続けます。直近の未保存の入力は失われる場合があります。",
+  crashReload: "ウィンドウを再読み込み",
   quitTitle: '作業が実行中です',
   quitMessage: '今閉じると、実行中のエージェントも一緒に終了します。',
   quitBtnCancel: 'キャンセル',
@@ -72,6 +85,9 @@ const ja: MainStrings = {
 };
 
 const zhCN: MainStrings = {
+  crashTitle: "此窗口意外停止",
+  crashMessage: "重新加载此窗口以继续。正在运行的智能体将继续工作。最近未保存的输入可能会丢失。",
+  crashReload: "重新加载窗口",
   quitTitle: '任务仍在运行',
   quitMessage: '现在关闭会同时停止正在运行的智能体。',
   quitBtnCancel: '取消',
@@ -85,6 +101,9 @@ const zhCN: MainStrings = {
 };
 
 const es: MainStrings = {
+  crashTitle: "Esta ventana se ha detenido inesperadamente",
+  crashMessage: "Vuelve a cargar esta ventana para continuar. Los agentes en ejecución seguirán trabajando. Las entradas recientes sin guardar podrían perderse.",
+  crashReload: "Volver a cargar la ventana",
   quitTitle: 'Hay trabajo en ejecución',
   quitMessage: 'Si cierras ahora, también se detendrán los agentes en ejecución.',
   quitBtnCancel: 'Cancelar',
@@ -98,6 +117,9 @@ const es: MainStrings = {
 };
 
 const es419: MainStrings = {
+  crashTitle: "Esta ventana se detuvo inesperadamente",
+  crashMessage: "Vuelve a cargar esta ventana para continuar. Los agentes en ejecución seguirán trabajando. Las entradas recientes sin guardar podrían perderse.",
+  crashReload: "Volver a cargar la ventana",
   quitTitle: 'Hay trabajo en ejecución',
   quitMessage: 'Si cierras ahora, también se detendrán los agentes en ejecución.',
   quitBtnCancel: 'Cancelar',
@@ -111,6 +133,9 @@ const es419: MainStrings = {
 };
 
 const fr: MainStrings = {
+  crashTitle: "Cette fenêtre s’est arrêtée de façon inattendue",
+  crashMessage: "Rechargez cette fenêtre pour continuer. Les agents en cours continueront à travailler. Les saisies récentes non enregistrées risquent d’être perdues.",
+  crashReload: "Recharger la fenêtre",
   quitTitle: 'Des tâches sont en cours',
   quitMessage: 'Fermer maintenant arrêtera aussi les agents en cours d’exécution.',
   quitBtnCancel: 'Annuler',
@@ -124,6 +149,9 @@ const fr: MainStrings = {
 };
 
 const de: MainStrings = {
+  crashTitle: "Dieses Fenster wurde unerwartet beendet",
+  crashMessage: "Laden Sie dieses Fenster neu, um fortzufahren. Laufende Agenten arbeiten weiter. Kürzlich eingegebene, nicht gespeicherte Inhalte können verloren gehen.",
+  crashReload: "Fenster neu laden",
   quitTitle: 'Es laufen noch Aufgaben',
   quitMessage: 'Wenn Sie jetzt schließen, werden auch die laufenden Agenten beendet.',
   quitBtnCancel: 'Abbrechen',
@@ -137,6 +165,9 @@ const de: MainStrings = {
 };
 
 const hi: MainStrings = {
+  crashTitle: "यह विंडो अचानक बंद हो गई",
+  crashMessage: "जारी रखने के लिए इस विंडो को फिर से लोड करें। चल रहे एजेंट काम करते रहेंगे। हाल में लिखा गया बिना सहेजा इनपुट खो सकता है।",
+  crashReload: "विंडो फिर से लोड करें",
   quitTitle: 'काम अभी चल रहा है',
   quitMessage: 'अभी बंद करने पर चल रहे एजेंट भी रुक जाएंगे।',
   quitBtnCancel: 'रद्द करें',
@@ -150,6 +181,9 @@ const hi: MainStrings = {
 };
 
 const id: MainStrings = {
+  crashTitle: "Jendela ini berhenti secara tidak terduga",
+  crashMessage: "Muat ulang jendela ini untuk melanjutkan. Agen yang sedang berjalan akan terus bekerja. Masukan terbaru yang belum disimpan mungkin hilang.",
+  crashReload: "Muat ulang jendela",
   quitTitle: 'Masih ada pekerjaan berjalan',
   quitMessage: 'Menutup sekarang juga akan menghentikan agen yang sedang berjalan.',
   quitBtnCancel: 'Batal',
@@ -163,6 +197,9 @@ const id: MainStrings = {
 };
 
 const it: MainStrings = {
+  crashTitle: "Questa finestra si è interrotta in modo imprevisto",
+  crashMessage: "Ricarica questa finestra per continuare. Gli agenti in esecuzione continueranno a lavorare. I dati inseriti di recente e non salvati potrebbero andare persi.",
+  crashReload: "Ricarica finestra",
   quitTitle: 'Ci sono attività in corso',
   quitMessage: 'Chiudere ora fermerà anche gli agenti in esecuzione.',
   quitBtnCancel: 'Annulla',
@@ -176,6 +213,9 @@ const it: MainStrings = {
 };
 
 const ptBR: MainStrings = {
+  crashTitle: "Esta janela parou inesperadamente",
+  crashMessage: "Recarregue esta janela para continuar. Os agentes em execução continuarão trabalhando. As entradas recentes não salvas podem ser perdidas.",
+  crashReload: "Recarregar janela",
   quitTitle: 'Ainda há trabalho em execução',
   quitMessage: 'Fechar agora também encerrará os agentes em execução.',
   quitBtnCancel: 'Cancelar',

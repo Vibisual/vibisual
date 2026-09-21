@@ -465,7 +465,16 @@
         "login": "Entrar",
         "recheck": "Verificar de novo",
         "checking": "Verificando…",
-        "actionFailed": "Não funcionou. Tente de novo."
+        "actionFailed": "Não funcionou. Tente de novo.",
+        "portalTitle": "Gerenciar no site do provedor",
+        "portal": {
+          "account": "Conta",
+          "billing": "Plano e cobrança",
+          "usage": "Uso",
+          "apiKeys": "Chaves de API",
+          "console": "Console do desenvolvedor",
+          "codexWeb": "Codex na web"
+        }
       },
       "storage": {
         "intro": "Por quanto tempo o Vibisual mantém o histórico de atividade no disco. Defina qualquer valor como 0 para manter para sempre. Nada é excluído silenciosamente: arquivos que uma conversa ainda referencia são mantidos independentemente da idade, sessões ativas e reabríveis nunca são tocadas, e a limpeza move os arquivos para a lixeira para que você possa restaurá-los.",
@@ -2166,7 +2175,7 @@
     },
     "projectFolder": {
       "title": "Escolha uma pasta de projeto",
-      "intro": "O Claude Code está instalado e com login feito. O último passo é escolher a pasta em que seus agentes vão trabalhar — normalmente a raiz de um projeto ou repositório.",
+      "intro": "Escolha a pasta onde seus agentes trabalharão, geralmente a raiz de um projeto ou repositório.",
       "blocked": "Nada foi criado — ainda não há nenhuma pasta de projeto aberta. Os Agents trabalham dentro da pasta que você escolher, então escolha uma primeiro.",
       "detail": "Tudo o que o Vibisual salva de um projeto fica dentro dessa pasta, e os agentes só podem ler e editar arquivos abaixo dela. Você pode abrir mais pastas depois em Arquivo → Abrir pasta.",
       "cancelled": "Nenhuma pasta foi escolhida ainda. Escolha uma para continuar.",
@@ -2205,7 +2214,7 @@
       "commandLabel": "Comando de instalação",
       "copy": "Copiar",
       "copied": "Copiado",
-      "manualOnly": "O npm não foi encontrado, então o Vibisual não pode instalá-lo para você. Instale o Node.js, execute o comando acima em um terminal e depois escolha “Verificar novamente”.",
+      "manualOnly": "A instalação automática não está disponível neste sistema. Siga o guia oficial de instalação e selecione “Verificar novamente”.",
       "failed": "A instalação não foi concluída. Execute o comando acima em um terminal e depois escolha “Verificar novamente”.",
       "installing": "Instalando…",
       "installDone": "Instalado",
@@ -2244,7 +2253,14 @@
       "recheck": "Verificar novamente",
       "later": "Depois",
       "stop": "Parar",
-      "start": "Entrar"
+      "start": "Entrar",
+      "deviceCodePrompt": "Digite este código na página de login do navegador.",
+      "copyDeviceCode": "Copiar código",
+      "deviceCodeWaiting": "Aguardando o código do dispositivo…",
+      "deviceCodeHelp": "O login com código de dispositivo deve estar ativado nas configurações de segurança do ChatGPT ou nas permissões do espaço de trabalho. Se não estiver disponível, tente o login pelo navegador.",
+      "ended": "O login terminou antes de ser concluído. Tente novamente ou escolha outro método.",
+      "retry": "Tentar novamente",
+      "checking": "Verificando o login…"
     },
     "insurance": {
       "title": "Seguro de Contexto",
@@ -2331,6 +2347,46 @@
     }
   },
   "ide": {
+    "skillSharing": {
+      "title": "Habilidades de {{provider}}",
+      "hint": "Compartilhe uma habilidade do usuário com {{provider}} e adicione-a ao rascunho atual.",
+      "loading": "Carregando habilidades que podem ser compartilhadas…",
+      "empty": "Nenhuma habilidade do usuário de {{provider}} está disponível.",
+      "noMatch": "Nenhuma habilidade compartilhada corresponde a “{{query}}”.",
+      "refresh": "Atualizar habilidades que podem ser compartilhadas",
+      "retry": "Tentar novamente",
+      "shareAndUse": "Compartilhar e usar",
+      "use": "Usar",
+      "sharing": "Compartilhando…",
+      "sharedHint": "Adicionada ao rascunho atual. Envie quando estiver pronto.",
+      "loadFailed": "Não foi possível carregar as habilidades que podem ser compartilhadas. {{reason}}",
+      "shareFailed": "Não foi possível compartilhar esta habilidade. {{reason}}",
+      "project": "Projeto",
+      "global": "Global",
+      "available": "Disponível",
+      "shared": "Compartilhada",
+      "conflict": "Conflito de nome",
+      "unsupported": "Específica do provedor",
+      "conflictHint": "Já existe outra habilidade com este nome.",
+      "unsupportedHint": "Esta habilidade usa recursos não compatíveis com {{provider}}.",
+      "invalidResponse": "O servidor retornou uma resposta inválida.",
+      "issues": {
+        "skill-too-large": "A habilidade excede o limite permitido de quantidade ou tamanho de arquivos.",
+        "invalid-name": "O nome da habilidade é inválido.",
+        "invalid-skill": "A definição da habilidade é inválida.",
+        "unsafe-path": "A habilidade contém um caminho ou link inseguro.",
+        "unreadable-source": "Não foi possível ler a habilidade de origem.",
+        "name-conflict": "Já existe outra habilidade com este nome.",
+        "provider-hooks": "Esta habilidade requer hooks específicos do provedor.",
+        "provider-context": "Esta habilidade requer um contexto de execução específico do provedor.",
+        "dynamic-shell": "Esta habilidade requer expansão de shell específica do provedor.",
+        "tool-dependency": "Verifique se as ferramentas necessárias para esta habilidade estão disponíveis.",
+        "provider-path": "Verifique os caminhos específicos do provedor antes de usar esta habilidade.",
+        "provider-model": "Verifique as configurações de modelo necessárias para esta habilidade.",
+        "invocation-policy": "Verifique as regras de invocação antes de usar esta habilidade.",
+        "disabled-skill": "Esta habilidade está desativada no Codex. Ative-a no Codex antes de usá-la."
+      }
+    },
     "diff": {
       "addComment": "Comentar nesta linha",
       "removeComment": "Remover comentário",
@@ -2674,7 +2730,18 @@
       "voiceDenoiseHint": "Cancela o som que volta das caixas para o microfone e reduz ruídos constantes, como ventoinhas e digitação. Desative se a sua interface de áudio já cuida disso.",
       "voiceEchoUnavailable": "Este microfone não tem cancelamento de eco, então o som das caixas pode vazar. Com fones de ouvido o problema some de vez.",
       "voiceRespaceLabel": "Restaurar os espaços do coreano",
-      "voiceRespaceHint": "O reconhecedor devolve o coreano sem espaços; isto separa por partículas e terminações. É baseado em regras, então não é perfeito — você pode corrigir o resultado na caixa de entrada."
+      "voiceRespaceHint": "O reconhecedor devolve o coreano sem espaços; isto separa por partículas e terminações. É baseado em regras, então não é perfeito — você pode corrigir o resultado na caixa de entrada.",
+      "stallHint": "A sessão aparece como em execução, mas já faz um tempo que nada chega. Continue aguardando ou pare a sessão.",
+      "stallNotice": "Sem resposta há {{value}}. Ainda aparece como em execução.",
+      "stallKeepWaiting": "Continuar aguardando",
+      "stallKeepWaitingTitle": "Oculta este aviso e continua aguardando. Ele volta se ainda assim não houver resposta.",
+      "stopNothing": "Não havia nada em execução para parar. O rótulo “em execução” estava desatualizado.",
+      "stopNothingHint": "O servidor não encontrou nenhum processo filho, comando na fila ou tarefa em segundo plano para este escopo.",
+      "stopForce": "Forçar encerramento",
+      "stopForceTitle": "Para tudo neste agente, incluindo as outras sessões e os comandos na fila.",
+      "stopFailed": "A solicitação de parada falhou ({{status}}).",
+      "stopRetry": "Tentar de novo",
+      "queuedBehindSilent": "Aparece como em execução porque uma compactação em segundo plano está terminando primeiro. Este comando ainda não foi enviado, então você ainda pode alterá-lo ou removê-lo."
     },
     "voiceInstall": {
       "title": "Configurar a entrada de voz",
@@ -2744,6 +2811,7 @@
       "goal": "Objetivo",
       "autoGoal": "Detecção de procedimentos",
       "orchestra": "Orquestra",
+      "configTrim": "Poda de Configuração",
       "debug": "Executar e depurar",
       "hooks": "Hooks da sessão",
       "plugins": "Plugins do Claude Code",
@@ -3138,7 +3206,8 @@
       "sessionsTip": "Quantas abas de sessão estão abertas neste agente.",
       "contextOverdueTip": "O contexto desta sessão está quase cheio e continua crescendo, mas nenhuma compactação foi executada. Clique para abrir o Seguro de Contexto.",
       "contextStalledTip": "A janela de contexto desta sessão está efetivamente cheia e a compactação não foi executada. Clique para abrir o Seguro de Contexto.",
-      "contextRejectedTip": "Enviamos um comando de compactação, mas o Claude Code não chegou a iniciá-la — ela foi recusada. Normalmente é porque as skills e os comandos de barra estão desativados neste projeto em {{contextSources}}. Clique para abrir o Seguro de Contexto."
+      "contextRejectedTip": "Enviamos um comando de compactação, mas o Claude Code não chegou a iniciá-la — ela foi recusada. Normalmente é porque as skills e os comandos de barra estão desativados neste projeto em {{contextSources}}. Clique para abrir o Seguro de Contexto.",
+      "elapsedTip": "Tempo desde a última movimentação desta sessão."
     },
     "search": {
       "placeholder": "Localizar na conversa",
@@ -3451,7 +3520,9 @@
       "maxTokens": "Limite de saída",
       "maxTurns": "Limite de turnos",
       "refusal": "Recusa do modelo",
-      "usageLimit": "Limite de uso"
+      "usageLimit": "Limite de uso",
+      "disconnected": "Conexão cortada",
+      "interrupted": "Interrompido"
     },
     "density": {
       "label": "Densidade de exibição",
@@ -3615,12 +3686,24 @@
         "systemPrompt": "Prompt de sistema do Claude Code",
         "compactSelf": "Autocompactação do Agent",
         "compactRecovery": "Nota de recuperação pós-compactação",
-        "autoGoalSkills": "Procedimentos detectados"
+        "autoGoalSkills": "Procedimentos detectados",
+        "codexInstructions": "Instruções do projeto do Codex",
+        "codexGlobalInstructions": "Instruções globais do Codex",
+        "codexCollaborationInstructions": "Instruções de colaboração do Codex",
+        "codexSkills": "Habilidades do Codex",
+        "codexDeveloperInstructions": "Instruções de desenvolvedor do Codex",
+        "codexMcp": "Servidores MCP configurados do Codex",
+        "codexPlugins": "Plugins configurados do Codex",
+        "codexHooks": "Hooks do Codex",
+        "codexSystemPrompt": "Prompt de sistema do Codex",
+        "codexRuntimeMcp": "Outros servidores MCP do Codex detectados",
+        "codexRuntimePlugins": "Outros plugins do Codex detectados"
       },
       "hint": {
         "tools": "Escolha a lista de ferramentas nas Configurações do Agent",
         "mcp": "Anexe servidores MCP nas Configurações do Agent",
-        "hooks": "Hooks são instalados no settings.json"
+        "hooks": "Hooks são instalados no settings.json",
+        "codexExternalSession": "Os controles nativos de contexto do Codex se aplicam a chats iniciados pelo Vibisual. Para um terminal existente ou uma sessão externa, altere as configurações do Codex e reinicie essa sessão."
       },
       "warn": {
         "slashCommands": "Desativar isto desliga todas as habilidades e comandos slash da sessão.",
@@ -3801,6 +3884,61 @@
             "what": "Os procedimentos escritos a partir do trabalho que este projeto continua repetindo.",
             "more": "Só o nome, uma linha de descrição e o caminho do arquivo são enviados. O corpo fica em .vibisual/skills, e o agent o abre quando o trabalho combina.",
             "off": "O agent resolve cada um desses procedimentos do zero de novo."
+          },
+          "codexInstructions": {
+            "what": "Instruções do projeto que o Codex descobre no AGENTS.md e em seus arquivos de substituição ou reserva.",
+            "more": "Lidas a partir da cadeia de instruções do projeto para o diretório de trabalho deste agent. As instruções globais do Codex têm sua própria linha.",
+            "off": "Interrompe o carregamento automático dos arquivos de instrução do projeto na próxima execução. As instruções globais e o texto já presentes nesta conversa permanecem."
+          },
+          "codexGlobalInstructions": {
+            "what": "Instruções pessoais que o Codex carrega do seu diretório home para todo projeto.",
+            "more": "Vêm do AGENTS.md ou AGENTS.override.md em CODEX_HOME, geralmente ~/.codex. São separadas das instruções do projeto.",
+            "off": "Esta linha não pode ser desativada aqui. Edite o arquivo de instruções globais para alterar execuções futuras; o texto já presente na conversa permanece."
+          },
+          "codexCollaborationInstructions": {
+            "what": "As orientações internas do Codex para seu modo de colaboração.",
+            "more": "Adicionadas pelo runtime do Codex de acordo com o modo de colaboração ativo.",
+            "off": "Interrompe a adição de instruções do modo de colaboração na próxima execução. As instruções já presentes nesta conversa permanecem."
+          },
+          "codexSkills": {
+            "what": "Os nomes e descrições das habilidades que o Codex disponibiliza ao agent.",
+            "more": "Descobertas nas pastas de habilidades do Codex e nos pacotes de habilidades ativados. As instruções completas de uma habilidade são lidas quando ela é usada.",
+            "off": "Desativa a descoberta de habilidades na próxima execução. O texto de habilidades já lido nesta conversa permanece."
+          },
+          "codexDeveloperInstructions": {
+            "what": "Instruções adicionais configuradas para o Codex no nível de desenvolvedor.",
+            "more": "Vem da configuração efetiva developer_instructions do Codex para este diretório de trabalho. Os próprios blocos de prompt do Vibisual têm linhas separadas.",
+            "off": "Omite as instruções de desenvolvedor configuradas na próxima execução. As instruções anteriores já presentes na conversa permanecem."
+          },
+          "codexMcp": {
+            "what": "Servidores MCP registrados explicitamente na configuração efetiva do Codex.",
+            "more": "Cada servidor configurado pode fornecer definições de ferramentas. Esta opção cobre apenas essas entradas de configuração; outros servidores detectados têm uma linha separada.",
+            "off": "Desativa os servidores configurados na próxima execução sem editar seus arquivos de configuração. Ativar novamente restaura o estado configurado deles e não ativa servidores desativados individualmente."
+          },
+          "codexPlugins": {
+            "what": "Plugins registrados explicitamente na configuração efetiva do Codex.",
+            "more": "Vem das entradas de plugin nas configurações efetivas do Codex. Outros plugins detectados têm uma linha separada.",
+            "off": "Desativa os plugins configurados na próxima execução sem desinstalá-los ou editar arquivos de configuração. Ativar novamente restaura o estado configurado deles e mantém desativados os plugins desativados individualmente."
+          },
+          "codexHooks": {
+            "what": "Hooks registrados no Codex, incluindo hooks de integração usados pelo Vibisual.",
+            "more": "Vem da configuração de hooks do Codex. Hooks podem adicionar contexto quando seus eventos são executados.",
+            "off": "Gerencie a configuração de hooks separadamente. Esta linha não desativa os hooks."
+          },
+          "codexSystemPrompt": {
+            "what": "As instruções principais e as definições de ferramentas internas fornecidas pelo runtime do Codex.",
+            "more": "Gerenciado dentro do Codex. O texto completo e o custo exato em tokens não são expostos por este inventário.",
+            "off": "Esta fonte não pode ser desativada aqui."
+          },
+          "codexRuntimeMcp": {
+            "what": "Servidores MCP detectados fora das entradas de configuração explícitas controladas acima.",
+            "more": "Reportados pelo inventário de runtime do Codex. Essas entradas não são cobertas pela opção de servidores configurados.",
+            "off": "Esta linha não pode desativar esses servidores. Gerencie-os pela integração do Codex ou pelas configurações que os adicionaram."
+          },
+          "codexRuntimePlugins": {
+            "what": "Plugins do Codex detectados fora das entradas de configuração explícitas controladas acima.",
+            "more": "Reportados pelo inventário de plugins do Codex. Essas entradas não são cobertas pela opção de plugins configurados.",
+            "off": "Esta linha não pode desativar esses plugins. Gerencie-os pela integração do Codex ou pelas configurações que os adicionaram."
           }
         },
         "cat": {
@@ -3854,7 +3992,10 @@
       "scopeTabNoSession": "Abra uma aba de sessão primeiro — ainda não há onde vincular isto.",
       "ownHere": "Definido aqui, na camada {{scope}} — não segue mais a camada acima.",
       "lowerOverrideHint": "Definido separadamente mais abaixo ({{scopes}}), então alterar aqui não afeta o que está lá.",
-      "finalDiffHint": "O que realmente vai para o prompt agora: ~{{tokens}}."
+      "finalDiffHint": "O que realmente vai para o prompt agora: ~{{tokens}}.",
+      "futureOnly": "As alterações controlam a injeção futura de contexto. Elas não apagam instruções ou arquivos já lidos nesta conversa.",
+      "loadError": "Não foi possível atualizar as fontes de contexto. Tente medir novamente.",
+      "saveError": "Não foi possível confirmar se a alteração foi salva. Meça novamente para verificar a configuração atual."
     },
     "goal": {
       "title": "Meta",
@@ -4107,7 +4248,7 @@
     },
     "verify": {
       "title": "Verificar",
-      "about": "Executa /verify nesta aba: compila e inicia seu app e relata o que realmente viu.",
+      "about": "Conecte um aplicativo, escolha uma demonstração ou descreva a verificação; o agente operará o aplicativo e verificará as evidências.",
       "pickSession": "Abra uma aba de sessão para executar uma verificação.",
       "focusLabel": "O que conferir (opcional)",
       "focusPlaceholder": "ex.: se o botão de login abre mesmo a caixa de diálogo",
@@ -4133,9 +4274,22 @@
         "alreadyRunning": "Já há uma verificação em execução nesta aba.",
         "sessionBusy": "Esta aba ainda tem um comando não finalizado.",
         "sessionNotFound": "Sessão não encontrada.",
+        "demoNotFound": "A demonstração selecionada não foi encontrada nesta sessão. Selecione-a novamente.",
+        "demoFramesMissing": "Alguns quadros da demonstração estão ausentes. Salve a demonstração novamente.",
         "readOnly": "Bolhas de Hook são somente leitura.",
         "network": "Não foi possível falar com o servidor.",
-        "failed": "Não foi possível iniciar a verificação."
+        "failed": "Não foi possível iniciar a verificação.",
+        "invalidVerificationTarget": "Escolha um endereço de navegador ou destino de captura válido.",
+        "verificationToolsUnavailable": "As ferramentas de verificação estão indisponíveis. Abra o aplicativo de desktop atual.",
+        "timeout": "A conexão excedeu o tempo limite. Confira o destino e tente novamente.",
+        "verificationStopped": "A verificação foi interrompida.",
+        "verificationTimeLimit": "A verificação atingiu o limite de tempo.",
+        "verificationEvidenceLimit": "O limite de operações ou evidências foi atingido.",
+        "verificationEvidenceMissing": "A evidência de tela salva está ausente.",
+        "successfulVerificationRequired": "É necessária uma verificação bem-sucedida com ações registradas.",
+        "procedureStepLimit": "Esta execução tem operações demais para um único procedimento.",
+        "procedureFrameLimit": "Esta execução tem imagens de referência demais para um único procedimento.",
+        "procedureNeedsActionMapping": "Estas etapas de demonstração ainda precisam ser associadas a ações reais."
       },
       "demo": {
         "sectionTitle": "Demonstração",
@@ -4175,7 +4329,55 @@
           "failed": "Não foi possível salvar a demonstração.",
           "projectNotFound": "Esse projeto não foi encontrado.",
           "framesFull": "Esta demonstração já tem o número máximo de imagens."
-        }
+        },
+        "browserEvidenceOnly": "As evidências de tela são salvas automaticamente. A gravação de vídeo não está disponível no navegador privado de verificação.",
+        "recordRunNeedsMatchingTarget": "Para gravar vídeo, selecione a mesma janela ou tela usada como destino da execução."
+      },
+      "tabs": {
+        "execution": "Verificar execução",
+        "review": "Revisão de código"
+      },
+      "connection": {
+        "title": "Destino da execução",
+        "browser": "Navegador",
+        "desktop": "Aplicativo de desktop",
+        "url": "Endereço do navegador",
+        "pickSource": "Escolher janela ou tela",
+        "browserHint": "O verificador abre este endereço em seu próprio navegador e opera a página.",
+        "desktopHint": "O verificador opera a janela ou tela selecionada. Selecione-a novamente após reiniciar o aplicativo.",
+        "probing": "Verificando conexão…",
+        "ready": "Pronto para operar",
+        "unavailable": "Conexão indisponível",
+        "needsTarget": "Escolha um destino válido",
+        "probe": "Verificar novamente",
+        "capabilities": "Ações: {{actions}}. Verificações: {{checks}}."
+      },
+      "execution": {
+        "expected": "Resultado esperado: {{expected}}",
+        "coverage": "Etapas concluídas: {{done}} / {{total}}",
+        "events": "Operações registradas ({{count}})",
+        "evidence": "Ver evidência",
+        "frame": "Imagem de evidência {{index}}",
+        "saveProcedure": "Salvar ações bem-sucedidas como procedimento",
+        "saving": "Salvando…",
+        "saved": "Procedimento salvo"
+      },
+      "operation": {
+        "click": "Clicar",
+        "fill": "Inserir texto",
+        "press": "Pressionar tecla",
+        "scroll": "Rolar",
+        "wait": "Aguardar",
+        "navigate": "Navegar",
+        "visible": "Elemento visível",
+        "text": "Texto correspondente",
+        "value": "Valor correspondente",
+        "url": "URL correspondente",
+        "screenshot": "Comparação de imagens",
+        "observe": "Observar tela",
+        "act": "Operar",
+        "check": "Verificar",
+        "doubleClick": "Clique duplo"
       }
     },
     "codex": {
@@ -4196,7 +4398,7 @@
         "groupUser": "Suas {{count}}",
         "groupSystem": "Nativas {{count}}",
         "groupPlugin": "De plug-ins {{count}}",
-        "hint": "Clique em uma habilidade para colocá-la no campo de texto. Essas pastas pertencem ao Codex, então aqui são somente leitura."
+        "hint": "Clique em uma habilidade para adicioná-la ao rascunho atual. As habilidades compatíveis do usuário no Claude podem ser compartilhadas abaixo."
       },
       "plugins": {
         "title": "Plugins",
@@ -4401,7 +4603,7 @@
     },
     "autoGoal": {
       "title": "Detecção de procedimentos",
-      "about": "Identifica o trabalho que você repete sempre na mesma ordem, e registra essa sequência como um procedimento.",
+      "about": "Encontra trabalhos repetidos para seu Agent revisar. Somente procedimentos revisados e ainda válidos orientam os próximos trabalhos.",
       "scope": {
         "project": "Projeto todo",
         "agent": "Este agent",
@@ -4414,13 +4616,58 @@
         "effectiveOn": "Observando o trabalho que se repete.",
         "effectiveOff": "Desligado — nada é analisado e nada chega ao prompt."
       },
-      "groupSkills": "Escritos {{count}}",
-      "groupBrewing": "Quase lá {{count}}",
+      "groupSkills": "Procedimentos {{count}}",
+      "groupBrewing": "Padrões observados {{count}}",
       "skillMeta": "{{steps}} passos · repetido {{runs}}×",
-      "removeSkill": "Excluir este procedimento (ele não será escrito de novo)",
+      "removeSkill": "Excluir este procedimento e parar de sugerir este padrão",
       "dismiss": "Isto não é um procedimento (pare de sugerir isso)",
-      "watching": "Analisadas {{observed}} ações — uma sequência é escrita quando a mesma ordem se repete {{runs}} vezes.",
-      "empty": "Nada para analisar ainda. Isso se preenche assim que seus agents começam a trabalhar."
+      "watching": "{{observed}} ações analisadas — após {{runs}} repetições confirmadas, o padrão se torna candidato à revisão.",
+      "empty": "Nada para analisar ainda. Isso se preenche assim que seus agents começam a trabalhar.",
+      "noProject": "Abra um projeto para ver seus procedimentos.",
+      "loading": "Carregando procedimentos…",
+      "loadFailed": "Não foi possível atualizar os procedimentos. As últimas informações carregadas podem estar desatualizadas.",
+      "saveFailed": "Não foi possível confirmar a alteração. Atualize a lista antes de tentar a ação novamente.",
+      "bodyFailed": "Não foi possível carregar este procedimento.",
+      "refresh": "Atualizar procedimentos",
+      "details": "Mostrar detalhes do procedimento",
+      "hideDetails": "Ocultar detalhes do procedimento",
+      "pause": "Parar de usar",
+      "requestReview": "Solicitar revisão do Agent",
+      "reviewHint": "Um Agent em atividade revisa os procedimentos relevantes. Solicitar uma revisão não ativa o procedimento.",
+      "reason": "Motivo",
+      "applicability": "Condições de uso",
+      "reviewed": "Revisado em {{date}}",
+      "revision": "Revisão {{revision}}",
+      "supersededBy": "Substituído por {{name}}",
+      "reasons": {
+        "notReviewed": "Este procedimento e seus arquivos de apoio ainda não foram revisados.",
+        "statusChanged": "O status do procedimento foi alterado no arquivo. É necessária uma revisão antes do uso.",
+        "invalidReview": "As evidências de revisão salvas são inválidas. Revise este procedimento novamente.",
+        "dependenciesUnchecked": "Os arquivos de apoio ainda não foram verificados.",
+        "missingReview": "As evidências atuais de revisão estão ausentes.",
+        "applicabilityChanged": "As condições de uso deste procedimento mudaram após a revisão.",
+        "instructionsChanged": "As instruções do procedimento mudaram após a revisão.",
+        "dependencyChanged": "Um arquivo de apoio revisado mudou ou não está mais disponível.",
+        "userPaused": "Você parou de usar este procedimento.",
+        "userRequestedReview": "Você solicitou uma nova revisão deste procedimento."
+      },
+      "status": {
+        "candidate": "Aguardando revisão",
+        "active": "Em uso",
+        "needs-review": "Precisa de revisão",
+        "retired": "Interrompido",
+        "superseded": "Substituído"
+      },
+      "metrics": {
+        "active": "Em uso {{count}}",
+        "review": "Para revisar {{count}}",
+        "retired": "Interrompidos {{count}}",
+        "reuse": "Reutilizações {{count}}",
+        "skip": "Omissões {{count}}",
+        "failure": "Falhas {{count}}",
+        "revision": "Revisões {{count}}",
+        "hint": "Resultados registrados, não estimativas de dinheiro ou tokens economizados."
+      }
     },
     "orchestra": {
       "title": "Orquestra",
@@ -4483,7 +4730,8 @@
         "engine": {
           "claude": "Claude",
           "codex": "Codex",
-          "auto": "O maestro escolhe por função"
+          "auto": "O maestro escolhe por função",
+          "inherit": "Igual ao regente ({{engine}})"
         },
         "maxDefault": "Padrão ({{count}})"
       },
@@ -4535,7 +4783,8 @@
       },
       "phase": {
         "conducting": "Conduzindo",
-        "dispatched": "Repassado",
+        "dispatched": "Aguardando resultados",
+        "completed": "Concluído",
         "answered": "Respondido diretamente",
         "unreported": "Nenhum plano relatado",
         "error": "Erro"
@@ -4553,6 +4802,109 @@
         "single": "Um membro",
         "pipeline": "Pipeline",
         "parallel": "Em paralelo"
+      },
+      "readiness": {
+        "setup": "{{engine}} precisa ser instalado antes de ser executado.",
+        "login": "Entre no {{engine}} antes de usá-lo.",
+        "refresh": "Verifique se {{engine}} está pronto.",
+        "prepare": "Preparar {{engine}}",
+        "recheck": "Verificar novamente",
+        "auto": "A seleção automática usa apenas mecanismos instalados e com login concluído.",
+        "retry": "Sua solicitação foi preservada. Termine de preparar {{engine}} e envie-a novamente."
+      }
+    },
+    "configTrim": {
+      "title": "Poda de Configuração",
+      "about": "Cada turno é executado a partir de uma cópia das configurações deste agent. Com a poda ativada, os campos que o modelo ou a CLI escolhidos ignorariam são removidos dessa cópia antes de a execução começar.",
+      "storedSafe": "Suas configurações salvas nunca são alteradas. Apenas a cópia de um único turno muda, então desativar isso restaura exatamente o comportamento anterior.",
+      "effectiveOn": "A poda se aplica ao próximo turno desta sessão.",
+      "effectiveOff": "A poda está desativada — todo campo é enviado exatamente como foi salvo.",
+      "caution": "A poda é um julgamento, não uma medição. Tudo o que não conseguimos decidir a partir da CLI instalada e da lista de modelos é deixado como está e listado em Mantidos de fora.",
+      "saveFailed": "Não foi possível salvar: {{reason}}",
+      "activity": {
+        "on": "poda ativada",
+        "trimmed": "{{count}} removidos no último turno"
+      },
+      "scope": {
+        "project": "Projeto todo",
+        "agent": "Este agent",
+        "session": "Somente esta sessão",
+        "inherited": "Herda",
+        "on": "Ativado",
+        "off": "Desativado",
+        "unavailable": "Não disponível aqui — abra uma aba de agent e uma sessão primeiro.",
+        "hint": "A linha inferior substitui a superior. Cada clique alterna entre ativado → desativado → herdar."
+      },
+      "blocked": {
+        "lead": "Mesmo quando ativada, nada será removido para este agent porque:",
+        "localEngine": "Ele é executado em um modelo local, onde construímos o prompt nós mesmos e não há campo de CLI para remover.",
+        "terminal": "Ele é executado em um terminal incorporado, onde as configurações de um único turno não podem ser trocadas."
+      },
+      "source": {
+        "thisSession": "Desta sessão, {{time}}.",
+        "otherSession": "De outra sessão deste agent, {{time}} — esta sessão ainda não executou um turno.",
+        "waiting": "Nenhum turno foi executado ainda. As duas listas são preenchidas assim que esta sessão executar um.",
+        "turnOnFirst": "Ative a poda acima para ver o que um turno removeria."
+      },
+      "trimmedPane": {
+        "title": "Removidos",
+        "lead": "Removidos da cópia com a qual este turno foi executado. O valor original é exibido para que você possa restaurá-lo manualmente.",
+        "empty": "Nada foi removido — todo campo era necessário ou foi mantido deliberadamente."
+      },
+      "excludedPane": {
+        "title": "Mantidos de fora",
+        "lead": "Deixados deliberadamente na cópia. Estes são os campos que a poda não vai tocar, e por quê.",
+        "empty": "Nada foi mantido de fora da poda neste turno."
+      },
+      "before": "era {{value}}",
+      "reason": {
+        "not-accepted": "não aceito",
+        "same-as-default": "igual ao padrão",
+        "not-implemented": "não implementado",
+        "no-effect-here": "sem efeito aqui"
+      },
+      "keep": {
+        "required": "obrigatório",
+        "user-set": "você definiu",
+        "unsafe": "altera a execução",
+        "unknown": "não é possível saber",
+        "rule-off": "regra desativada"
+      },
+      "rules": {
+        "title": "Regras",
+        "lead": "Cada regra decide um campo. Desative uma regra e o campo dela vai para Mantidos de fora em vez de ser removido."
+      },
+      "rule": {
+        "preset-meta": "O id do preset apenas registra de onde vieram as configurações; ele nunca é enviado à CLI.",
+        "custom-mode-placeholder": "Os modos personalizados de revisão e depuração são espaços reservados, sem comportamento próprio.",
+        "model-version-gone": "Este id exato de modelo não está na lista que a conta pode usar atualmente.",
+        "effort-gone": "A CLI instalada não lista mais este nível de esforço.",
+        "effort-default": "O esforço é deixado no padrão, que é o que acontece quando nada é enviado.",
+        "max-turns-default": "Máximo de turnos ainda mantém o valor padrão embutido.",
+        "max-budget-unlimited": "Um orçamento de 0 significa ilimitado, o mesmo que não definir nenhum.",
+        "fallback-model-empty": "O modelo de fallback é uma string vazia, então não há nada para recorrer.",
+        "thinking-on-default": "O pensamento estendido já está ativado por padrão; enviá-lo novamente só adiciona um argumento.",
+        "forward-subagent-text-on-default": "O encaminhamento de texto de subagent já está ativado por padrão.",
+        "fast-mode-off-default": "O modo rápido já está desativado por padrão.",
+        "permission-timeout-default": "Permitir é a política padrão de tempo limite de permissão.",
+        "betas-empty": "A lista de flags beta está vazia.",
+        "agent-definitions-empty": "A lista de definições de subagent está vazia.",
+        "context-window-non-opus": "O sufixo de janela de contexto só é lido para modelos Opus.",
+        "fast-mode-unsupported": "O modelo escolhido não oferece modo rápido, então a CLI o descarta sem aviso.",
+        "betas-subscription": "Flags beta são para contas com chave de API; um login por assinatura as ignora.",
+        "cli-kind-headless": "O tipo de CLI só decide qual terminal abrir, e este turno é headless.",
+        "mcp-output-without-mcp": "Nenhum servidor MCP está conectado, então um limite de saída do MCP não tem nada para limitar.",
+        "agent-definitions-without-task": "A ferramenta Task não está na lista de ferramentas, então esses subagents não podem ser chamados.",
+        "permission-timeout-moot": "Este modo de permissão nunca exibe um prompt, então um tempo limite de prompt nunca se aplica."
+      },
+      "protected": {
+        "title": "Nunca removidos",
+        "lead": "As regras nunca alcançam esses campos, seja qual for a posição em que estejam."
+      },
+      "runs": {
+        "title": "Turnos recentes",
+        "empty": "Nenhum turno deste projeto teve campos removidos ainda.",
+        "counts": "{{trimmed}} / {{excluded}}"
       }
     }
   },
@@ -5198,6 +5550,11 @@
     }
   },
   "common": {
+    "appError": {
+      "title": "Não foi possível exibir esta janela.",
+      "description": "Tente exibi-la novamente. Seu trabalho salvo e suas configurações serão mantidos.",
+      "retry": "Tentar novamente"
+    },
     "uncommittedChanges": "Alterações não confirmadas",
     "iframe": {
       "urlInput": "Digite uma URL...",
@@ -5578,8 +5935,6 @@
     "serviceTierHint": "Informe um nível compatível com o modelo (por exemplo, fast). Níveis mais rápidos podem afetar o consumo e o preço.",
     "autoCompactTokenLimit": "Limite para compactação automática (tokens)",
     "codexTools": "Permissões das ferramentas",
-    "inheritProject": "Padrões do projeto / globais",
-    "individualSettingsHint": "Aplica-se a este agente. Configurações iguais aos padrões continuam seguindo as alterações do projeto e das configurações globais.",
     "codexValues": {
       "auto": "Automático",
       "concise": "Conciso",
@@ -5588,6 +5943,8 @@
       "friendly": "Amigável",
       "pragmatic": "Pragmático"
     },
+    "inheritProject": "Padrões do projeto / globais",
+    "individualSettingsHint": "Aplica-se a este agente. Configurações iguais aos padrões continuam seguindo as alterações do projeto e das configurações globais.",
     "provider": "Provedor",
     "claude": "Claude",
     "codex": "Codex",

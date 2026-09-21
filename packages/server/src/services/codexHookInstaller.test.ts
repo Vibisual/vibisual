@@ -51,16 +51,24 @@ function readHooks(): Record<string, unknown> {
 }
 
 describe('buildCodexHookCommand — 한 문자열이라 따옴표가 필수다', () => {
-  it('공백 없는 경로는 그대로 둔다', () => {
-    expect(buildCodexHookCommand('/usr/bin/node', HANDLER, PORT, TOKEN)).toBe(
-      `/usr/bin/node ${HANDLER} --server http://127.0.0.1:${PORT} --token ${TOKEN}`,
+  it('POSIX 경로를 인자로 감싸서 명령을 만든다', () => {
+    expect(buildCodexHookCommand('/usr/bin/node', HANDLER, PORT, TOKEN, 'linux')).toBe(
+      `"/usr/bin/node" "${HANDLER}" --server http://127.0.0.1:${PORT} --token ${TOKEN}`,
     );
   });
 
   it('공백이 든 경로는 감싼다 — Program Files 에서 명령이 두 동강 나지 않게', () => {
-    const cmd = buildCodexHookCommand('C:\\Program Files\\nodejs\\node.exe', 'C:\\My Apps\\handler.mjs', PORT, TOKEN);
+    const cmd = buildCodexHookCommand('C:\\Program Files\\nodejs\\node.exe', 'C:\\My Apps\\handler.mjs', PORT, TOKEN, 'win32');
+    expect(cmd.startsWith('& ')).toBe(true);
     expect(cmd).toContain('"C:\\Program Files\\nodejs\\node.exe"');
     expect(cmd).toContain('"C:\\My Apps\\handler.mjs"');
+  });
+
+  it.each(['win32', 'darwin', 'linux'] as const)('%s keeps app-owned hook detection after escaping a shell-sensitive install path', (platform) => {
+    const handler = platform === 'win32' ? 'C:\\My $Apps`\\handler.mjs' : '/opt/My $Apps`/handler.mjs';
+    const command = buildCodexHookCommand('app executable', handler, PORT, TOKEN, platform, { ELECTRON_RUN_AS_NODE: '1' });
+    expect(command).toContain('ELECTRON_RUN_AS_NODE');
+    expect(isOurCodexHookCommand(command, handler)).toBe(true);
   });
 });
 

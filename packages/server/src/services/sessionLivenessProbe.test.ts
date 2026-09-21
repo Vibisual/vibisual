@@ -5,10 +5,15 @@
  * **프롬프트 구조**(질문을 쪼개지 않으면 값싼 모델이 정당한 대기를 끝난 것으로 오판한다 — §5.5
  * #17-9 ⑭ 의 실증)와 **답 파싱**(못 읽으면 아무 일도 일어나지 않아야 한다), 그리고 **증거 수집**이다.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// 코덱스 홈은 **사용자 홈**이다 — 시험이 그 자리를 훑지 않도록 없는 경로로 고정한다. 코덱스 규칙을
+//   보는 시험은 뿌리를 직접 주입하므로 이 값은 "기본값이 새지 않는다"는 보장에만 쓰인다.
+const { CODEX_HOME_STUB } = vi.hoisted(() => ({ CODEX_HOME_STUB: '/__vibisual_no_codex_home__' }));
+vi.mock('./codexCli.js', () => ({ codexHome: () => CODEX_HOME_STUB }));
 import {
   buildSessionProbePrompt,
   parseSessionProbeVerdict,
@@ -203,5 +208,67 @@ describe('대화록 찾기 — cwd 를 몰라도 sessionId 하나로', () => {
     expect(resolveSessionTranscript(sid, root)?.bytes).toBe(1);
     fs.appendFileSync(f, 'bcde', 'utf8');
     expect(resolveSessionTranscript(sid, root)?.bytes).toBe(5);
+  });
+});
+
+describe('대화록 찾기 — 엔진마다 자리가 다르다 (A-4)', () => {
+  let projects: string;
+  let codex: string;
+  const mk = (base: string, rel: string, body: string): string => {
+    const f = path.join(base, rel);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, body, 'utf8');
+    return f;
+  };
+  beforeEach(() => {
+    projects = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-projroot-')));
+    codex = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-cdxroot-')));
+  });
+  afterEach(() => {
+    for (const d of [projects, codex]) {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  it('코덱스 rollout 을 날짜 세 칸 아래에서 찾는다 — 코덱스 세션도 프로브 후보가 된다', () => {
+    const sid = 'sess-cdx-found';
+    const f = mk(codex, path.join('2026', '09', '21', `rollout-2026-09-21T04-00-00-${sid}.jsonl`), 'y'.repeat(77));
+
+    const facts = resolveSessionTranscript(sid, projects, Date.now(), { codexSessionsRoot: codex });
+    expect(facts?.file).toBe(f);
+    expect(facts?.bytes).toBe(77);
+  });
+
+  it('힌트를 주면 코덱스를 먼저 본다 — 같은 id 가 양쪽에 있어도 엔진 자리가 이긴다', () => {
+    const sid = 'sess-both';
+    const claudeFile = mk(projects, path.join('c--proj', `${sid}.jsonl`), 'a');
+    const codexFile = mk(codex, path.join('2026', '09', '21', `rollout-x-${sid}.jsonl`), 'bb');
+
+    expect(
+      resolveSessionTranscript(sid, projects, Date.now(), { preferEngine: 'codex', codexSessionsRoot: codex })?.file,
+    ).toBe(codexFile);
+    // 힌트가 없으면 예전 순서 그대로 — 클로드가 먼저다(기존 동작 불변).
+    expect(resolveSessionTranscript(sid, projects, Date.now(), { codexSessionsRoot: codex })?.file).toBe(claudeFile);
+  });
+
+  it('힌트는 순서일 뿐 배제가 아니다 — 코덱스에 없으면 클로드에서 찾는다', () => {
+    const sid = 'sess-claude-only';
+    const f = mk(projects, path.join('c--proj', `${sid}.jsonl`), 'zzz');
+
+    expect(
+      resolveSessionTranscript(sid, projects, Date.now(), { preferEngine: 'codex', codexSessionsRoot: codex })?.file,
+    ).toBe(f);
+  });
+
+  it('하루 폴더보다 깊은 자리는 훑지 않는다 — 탐색 비용에 상한이 있다', () => {
+    const sid = 'sess-too-deep';
+    mk(codex, path.join('2026', '09', '21', 'extra', `rollout-x-${sid}.jsonl`), 'q');
+
+    expect(resolveSessionTranscript(sid, projects, Date.now(), { codexSessionsRoot: codex })).toBeNull();
+  });
+
+  it('뿌리를 안 주면 사용자 홈을 훑지 않는다 — 기본 코덱스 뿌리는 codexHome() 이 정한다', () => {
+    // codexHome() 은 이 시험에서 없는 경로로 막아 뒀다. 못 찾아도 예외 없이 null 이어야 한다.
+    expect(resolveSessionTranscript('sess-nowhere', projects)).toBeNull();
   });
 });

@@ -46,7 +46,11 @@ export function flushAllPersisted(): number {
       fn();
     } catch (err) {
       // 한 저장소의 실패가 다른 저장소의 손글씨를 같이 잃게 하지 않는다.
-      console.error('[persistFlush] a flusher failed', err);
+      try {
+        console.error('[persistFlush] a flusher failed', err);
+      } catch {
+        // 진단 전송까지 실패해도 뒤에 등록된 초안은 계속 저장해야 한다.
+      }
     }
     ran += 1;
   }

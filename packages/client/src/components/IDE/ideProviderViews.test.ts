@@ -29,17 +29,22 @@ const CODEX_HAS_TOO: IDEViewType[] = ['mcp', 'context', 'skills', 'hooks', 'plug
  * 가로채기가 걸리지 않는 것. 화면은 클로드·코덱스가 같은 것을 쓴다(코덱스 화면으로 갈아 끼울 것이 없다).
  */
 const CONDUCTING: IDEViewType[] = ['orchestra'];
+/**
+ * §5.3 #10-5 — 우리 기능인데 **덜어낼지의 판단이 그 엔진 CLI·모델 원장에 매여 있어** 로컬에는
+ * 가로채기가 걸리지 않는 것. 화면은 클로드·코덱스가 같은 것을 쓴다.
+ */
+const TURN_CONFIG: IDEViewType[] = ['configTrim'];
 
 describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
   it('클로드 버블은 종전 그대로 전부 보인다', () => {
-    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING, ...LOCAL_PROVIDER_VIEWS]) {
+    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING, ...TURN_CONFIG, ...LOCAL_PROVIDER_VIEWS]) {
       expect(isViewAllowedForProvider(v, CLAUDE)).toBe(true);
     }
     expect(viewsForProviderKind(CLAUDE)).toBeNull();
   });
 
   it('로컬 버블에서는 클로드 CLI 에 매인 항목이 전부 빠진다(§5.19 (G) 그대로)', () => {
-    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING]) {
+    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING, ...TURN_CONFIG]) {
       expect(isViewAllowedForProvider(v, LOCAL)).toBe(false);
     }
     // §5.10 (P) — `autoGoal`(절차 감지)이 `goal` 에서 갈라져 나와 여기도 한 칸 늘었다.
@@ -58,6 +63,15 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
     expect(fallbackViewForProvider('orchestra', CODEX)).toBe('orchestra');
   });
 
+  it('설정 덜어내기 칸도 클로드·코덱스에만 선다 (§5.3 #10-5)', () => {
+    // 로컬 러너에는 덜어낼 CLI 항목이 없어, 켜 둬도 늘 빈 목록만 그리는 스위치가 된다.
+    expect(isViewAllowedForProvider('configTrim', CLAUDE)).toBe(true);
+    expect(isViewAllowedForProvider('configTrim', CODEX)).toBe(true);
+    expect(isViewAllowedForProvider('configTrim', LOCAL)).toBe(false);
+    expect(fallbackViewForProvider('configTrim', LOCAL)).toBe('files');
+    expect(fallbackViewForProvider('configTrim', CODEX)).toBe('configTrim');
+  });
+
   it('코덱스에도 대응물이 없는 것은 여전히 빠진다', () => {
     // `codex agents` 는 자기 데몬에 붙는 대화형 TUI 라 우리 헤드리스 집계에 대응물이 없다.
     expect(isViewAllowedForProvider('subagents', CODEX)).toBe(false);
@@ -65,7 +79,7 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
     expect(isViewAllowedForProvider('verify', LOCAL)).toBe(false);
   });
 
-  it('검증 칸은 코덱스에 **남는다** — 화면만 `codex review` 로 갈아 끼운다(§5.25 (N))', () => {
+  it('검증 칸은 코덱스에도 남아 공통 실행 검증을 연다', () => {
     expect(isViewAllowedForProvider('verify', CODEX)).toBe(true);
     expect(fallbackViewForProvider('verify', CODEX)).toBe('verify');
   });
@@ -79,7 +93,8 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
 
   it('코덱스 목록은 로컬 목록을 **품는다**(중립 항목이 한쪽에서만 빠지지 않게)', () => {
     for (const v of LOCAL_PROVIDER_VIEWS) expect(CODEX_PROVIDER_VIEWS).toContain(v);
-    expect(CODEX_PROVIDER_VIEWS.length).toBe(LOCAL_PROVIDER_VIEWS.length + CODEX_HAS_TOO.length + CONDUCTING.length);
+    expect(CODEX_PROVIDER_VIEWS.length)
+      .toBe(LOCAL_PROVIDER_VIEWS.length + CODEX_HAS_TOO.length + CONDUCTING.length + TURN_CONFIG.length);
   });
 
   it('없는 뷰가 열려 있으면 파일로 떨어뜨린다(빈 사이드바 ❌)', () => {
@@ -151,10 +166,23 @@ const sidebarSource = import.meta.glob('./IDESidebar.tsx', {
 /**
  * 엔진과 무관한 칸 — 우리 기능이거나 폴더라 코덱스도 같은 화면을 쓴다(갈아 끼울 것이 없다).
  * `orchestra` 는 로컬에는 서지 않지만(위 `CONDUCTING`) 코덱스에서는 클로드와 **같은 화면**이라 여기 든다.
+ * `configTrim`(위 `TURN_CONFIG`)도 같다 — 덜어내는 대상이 `AgentConfig` 한 벌이라 엔진별로 그릴 것이 갈리지 않는다.
  */
-const ENGINE_NEUTRAL: IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop', ...CONDUCTING];
+const ENGINE_NEUTRAL: IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop', 'context', 'verify', ...CONDUCTING, ...TURN_CONFIG];
 
 describe('§5.25 (M) 코덱스 칸은 코덱스 화면을 그린다', () => {
+  it('코덱스 검증도 공통 실행 검증 뷰에 연결된다', () => {
+    const src = Object.values(sidebarSource)[0] ?? '';
+    const codexMap = src.slice(src.indexOf('export const CODEX_VIEW_MAP'), src.indexOf('export const IDESidebar'));
+    expect(codexMap).toMatch(/verify:\s*IDEVerifyView/);
+  });
+  it('코덱스 컨텍스트는 파일 조회 전용 화면 대신 공통 주입원 제어 화면을 연다', () => {
+    const src = Object.values(sidebarSource)[0] ?? '';
+    const codexMap = src.slice(src.indexOf('export const CODEX_VIEW_MAP'), src.indexOf('export const IDESidebar'));
+    expect(codexMap).toMatch(/context:\s*IDEContextView/);
+    expect(src).not.toContain('IDECodexContextView');
+  });
+
   /** `CODEX_VIEW_MAP` 리터럴 안의 키 이름들. */
   function codexMappedViews(): string[] {
     const src = Object.values(sidebarSource)[0] ?? '';

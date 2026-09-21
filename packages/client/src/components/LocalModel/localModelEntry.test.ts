@@ -66,6 +66,20 @@ describe('§5.19 (B) All Model 진입 판정', () => {
     expect(pickDefaultModel([])).toBeNull();
     expect(pickDefaultModel([model('a', 3), model('b', 7), model('c', 5)])?.id).toBe('b');
   });
+
+  it('부속 파일과 빠진 조각은 자동 선택과 IDE 진입에서도 제외한다', () => {
+    const ready = model('ready', 1);
+    const companion = { ...model('mmproj', 5), companion: true };
+    const partial = { ...model('partial', 9), missingParts: ['part-2.gguf'] };
+    expect(pickDefaultModel([ready, companion, partial])).toEqual(ready);
+    expect(resolveLocalEntry(localConfig('partial'), localState(true, [partial, companion]))).toEqual({ kind: 'setup' });
+    expect(resolveLocalEntry(localConfig('mmproj'), localState(true, [companion, ready]))).toEqual({ kind: 'bind', model: ready });
+  });
+
+  it('다른 제공자에는 로컬 준비 판정을 적용하지 않는다', () => {
+    const codex = { ...localConfig(''), provider: { kind: 'codex-cli', modelId: '' } } as AgentConfig;
+    expect(resolveLocalEntry(codex, null)).toEqual({ kind: 'ide' });
+  });
 });
 
 /**

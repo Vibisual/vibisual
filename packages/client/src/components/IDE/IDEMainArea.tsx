@@ -4,7 +4,14 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
 import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
-import { useSessionRunning } from '../../hooks/useSessionRunning.js';
+import { SESSION_NO_RESPONSE_MS, sessionSilenceMs } from '@vibisual/shared';
+import {
+  useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
+} from '../../hooks/useSessionRunning.js';
+import { useNowTick } from '../../hooks/useNowTick.js';
+import { formatElapsed } from './elapsed.js';
+import { afterInputComposition, cancelPendingInputEdits, isComposingKeyEvent, isInputComposing } from '../../utils/inputComposition.js';
+import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { clampStreamText, COMPACT_TEXT_CLAMP, turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
 import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, type TurnCoverage } from './streamItems.js';
@@ -238,6 +245,8 @@ interface TerminalThinkingLive {
   /** `thinking` = 사고 중, `working` = 그 외 작업 중. 라벨·색만 가른다(항목은 그대로). */
   mode: 'thinking' | 'working';
   timestamp: number;
+  /** §2.4 (무응답) — 경과를 재는 시계(마지막 이벤트 시각). 모르면 `null`(Sub 탭과 동형). */
+  lastActivityAt: number | null;
 }
 
 /** §5.5 #17-12 — 메인 탭에서도 TodoWrite 는 계획 블록으로(Sub 탭 StreamPlan 과 같은 모양 → PlanBlock 재사용). */
@@ -1075,7 +1084,11 @@ type PastedAttachment = AgentSessionInputAttachment;
 function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   // §5.5 #17-12 ③ v4.64 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구이자, 이제 화면에서도 유일한 [중지].
-  const { stopping, stop: handleStop } = useSessionStop(agentId, activeSessionId);
+  // §2.4 — 이제 **응답을 읽는다.** 종전에는 보내고 1.5초 뒤 버튼만 되돌려, 서버가 "멈출 것이 없다"고
+  //   답해도 화면에는 아무 일도 일어나지 않았다(사용자 체감 1순위: 눌러도 안 멈추고 말도 없다).
+  const {
+    stopping, stop: handleStop, outcome: stopOutcome, clearOutcome: clearStopOutcome, forceStop,
+  } = useSessionStop(agentId, activeSessionId);
   const addCommand = useGraphStore((s) => s.addCommand);
   const agents = useGraphStore((s) => s.agents);
   const registerAttachmentPreview = useGraphStore((s) => s.registerAttachmentPreview);
@@ -1091,6 +1104,10 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const takeAgentSessionInputs = useGraphStore((s) => s.takeAgentSessionInputs);
   const text = sessionDraft?.text ?? '';
   const attachments = useMemo<PastedAttachment[]>(() => sessionDraft?.attachments ?? [], [sessionDraft]);
+  const recoveredAttachmentPaths = useMemo(() => attachments.filter((a) => !a.previewUrl && a.serverPath).map((a) => a.serverPath), [attachments]);
+  const recoveredAttachmentThumbs = useAttachmentThumbs(recoveredAttachmentPaths);
+  const attachmentPreviewUrl = (a: PastedAttachment): string => a.previewUrl
+    || recoveredAttachmentThumbs.find((thumb) => thumb.basename === a.serverPath.split(/[/\\]/).pop())?.url || '';
   const setText = useCallback(
     (next: string) => setAgentSessionInputText(agentId, activeSessionId, next),
     [agentId, activeSessionId, setAgentSessionInputText],
@@ -1118,10 +1135,40 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   //   **스코프를 좁힐 세션이 없는 메인 탭 전용**으로 남는다 — 어느 세션 탭이든 executing 이거나
   //   백그라운드 Task 가 하나라도 살아있으면 `stop-all` 을 낼 수 있다.
   const agentBusyElsewhere = useSessionRunning(agentId, null) && activeSessionId === null;
+  /*
+   * §2.4 (무응답 탈출구) — 사용자 보고의 핵심: "실행 중"만 떠 있을 뿐 **얼마나 그러고 있는지도,
+   * 어떻게 빠져나가는지도** 어디에도 없다. 그래서 입력창 바로 위에 두 줄을 연다 —
+   *  ① 문턱(3분)을 넘도록 조용하면 경과와 함께 [기다리기] / [중지] 를 띄우고,
+   *  ② [중지]를 눌렀는데 서버가 멈출 것을 못 찾았으면 그 사실과 **강제 마감** 손잡이를 띄운다.
+   *
+   * 시계는 **도는 중일 때만** 돈다(조용한 세션에 매초 리렌더를 달지 않는다).
+   */
+  const { lastActivityAt: inputLastActivityAt } = useSessionLivenessFacts(agentId, activeSessionId);
+  const inputNow = useNowTick(sessionRunning);
+  const inputSilenceMs = sessionRunning ? sessionSilenceMs(inputLastActivityAt, inputNow) : null;
+  // "더 기다리겠다"를 누르면 그 시점의 침묵 길이를 적어 두고, 거기서 다시 한 문턱을 센다.
+  const [stallSnoozeMs, setStallSnoozeMs] = useState(0);
+  // 세션이 다시 움직였거나 멈췄으면 미룸은 자동으로 풀린다 — 다음 침묵은 처음부터 센다.
+  useEffect(() => { setStallSnoozeMs(0); }, [inputLastActivityAt, sessionRunning]);
+  const inputStalled = inputSilenceMs !== null && inputSilenceMs >= SESSION_NO_RESPONSE_MS + stallSnoozeMs;
+  const inputStallElapsed = inputSilenceMs !== null && inputLastActivityAt !== null
+    ? formatElapsed(inputLastActivityAt, inputNow)
+    : null;
   const sid = useMemo(() => agents.find((a) => a.id === agentId)?.path ?? null, [agents, agentId]);
   const sidRef = useRef<string | null>(sid);
   const agentIdRef = useRef<string>(agentId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputOwnerRef = useRef(draftKey);
+  inputOwnerRef.current = draftKey;
+  const isCurrentInput = useCallback((el: HTMLTextAreaElement, owner: string): boolean =>
+    el.isConnected && textareaRef.current === el && inputOwnerRef.current === owner, []);
+  useEffect(() => {
+    const el = textareaRef.current;
+    return () => { if (el) cancelPendingInputEdits(el); };
+  }, [draftKey]);
+  const restoreCaret = useCallback((el: HTMLTextAreaElement, value: string, caret: number, focus = true): void => {
+    restoreInputSelection(el, value, caret, caret, () => isCurrentInput(el, draftKey), focus);
+  }, [draftKey, isCurrentInput]);
   // §5.5 #17-23 — 명령 히스토리 상태(자세한 규약은 아래 히스토리 블록 주석 참조).
   //   `historyNavRef` = 탐색 커서(null = 탐색 중 아님), `historyHint` = 진입 힌트(두 번 눌러야 이동).
   //   ref 를 함께 두는 이유: keydown 은 리렌더를 기다릴 수 없어 **직전 힌트 상태를 즉시** 봐야 한다.
@@ -1163,24 +1210,21 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
    */
   const handleVoiceCommit = useCallback((chunk: string) => {
     const el = textareaRef.current;
-    const current = el?.value ?? '';
-    const selStart = el?.selectionStart ?? current.length;
-    const selEnd = el?.selectionEnd ?? current.length;
+    if (!el) return;
     // §5.5 #17-38 ⑱ — **끼우기 전에** 토막 안의 띄어쓰기를 복원한다. 엔진은 공백을 내지 않아
     //   한국어가 통째로 붙어 온다(엔진 `--help` 실측: spacing 옵션 없음). 순서가 중요하다 —
     //   `mergeVoiceText` 는 **토막과 기존 글 사이**의 경계만 다루므로, 여기서 먼저 다듬어야
     //   사람이 손으로 쓴 앞뒤 글은 건드리지 않고 새로 들어온 말만 끊긴다.
     const polished = polishVoiceChunk(chunk, voiceRespaceRef.current);
-    const merged = mergeVoiceText(current, selStart, selEnd, polished);
-    setText(merged.text);
-    // 스토어를 거쳐 값이 다시 그려진 **다음** 프레임에 커서를 세운다 — 지금 세우면 되감긴다.
-    requestAnimationFrame(() => {
-      const el2 = textareaRef.current;
-      if (!el2) return;
-      el2.setSelectionRange(merged.caret, merged.caret);
-      autosizeInput(el2); // 여러 줄이 한꺼번에 들어와도 입력창이 바로 늘어나게
+    afterInputComposition(el, () => {
+      if (!isCurrentInput(el, draftKey)) return;
+      const current = el.value;
+      const range = boundedTextSelection(current, el.selectionStart, el.selectionEnd);
+      const merged = mergeVoiceText(current, range.start, range.end, polished);
+      setText(merged.text);
+      restoreCaret(el, merged.text, merged.caret, false);
     });
-  }, [setText]);
+  }, [setText, draftKey, isCurrentInput, restoreCaret]);
   // §5.5 #17-38 ⑬ — 인식기가 준비돼 있는지는 **서버가 디스크를 보고** 답한다. 준비가 안 됐으면
   //   마이크를 열지 않고 설치 창을 띄운다(열었다 곧 닫으면 OS 표시가 깜빡여 고장으로 읽힌다).
   const voiceAsr = useVoiceAsr();
@@ -1256,6 +1300,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   useEffect(() => {
     if (!voiceCellFocused) return;
     const onKey = (e: KeyboardEvent): void => {
+      if (isComposingKeyEvent(e)) return;
       const v = voiceRef.current;
       const listening = v.status === 'starting' || v.status === 'listening';
       const toggle = isVoiceToggleKey(e);
@@ -1306,19 +1351,18 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // v1.48 — 시드 수신은 "현재 활성 세션" 의 draft 로 들어간다.
   useEffect(() => {
     if (draftForAgent === undefined) return;
-    const consumed = consumeAgentInputDraft(agentId);
-    if (typeof consumed === 'string' && consumed.length > 0) {
-      setAgentSessionInputText(agentId, activeSessionId, consumed);
-      // 다음 프레임에 textarea height auto-grow + focus
-      requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        if (!el) return;
-        el.focus();
-        autosizeInput(el);
-        el.setSelectionRange(el.value.length, el.value.length);
+    if (typeof draftForAgent === 'string' && draftForAgent.length > 0) {
+      const el = textareaRef.current;
+      if (!el) return;
+      afterInputComposition(el, () => {
+        if (!isCurrentInput(el, draftKey)) return;
+        const consumed = consumeAgentInputDraft(agentId);
+        if (typeof consumed !== 'string' || consumed.length === 0) return;
+        setAgentSessionInputText(agentId, activeSessionId, consumed);
+        restoreCaret(el, consumed, consumed.length);
       });
     }
-  }, [draftForAgent, agentId, activeSessionId, consumeAgentInputDraft, setAgentSessionInputText]);
+  }, [draftForAgent, agentId, activeSessionId, consumeAgentInputDraft, setAgentSessionInputText, draftKey, isCurrentInput, restoreCaret]);
 
   // unmount 시 이 agent 의 모든 세션 draft(text+첨부)를 일괄 정리 — 단 "진짜 IDE 닫기" 일 때만.
   // §5.3 #28 v2.x — IDE 오버레이는 ideOverlays[projectId] 로 프로젝트 단위 보관이라(selectIDEOverlay)
@@ -1399,15 +1443,11 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     //         paste 동기 + 다음 프레임(re-render 후) 양쪽에서 명시적으로 focus 복구.
     const el = e.currentTarget;
     const sessionAtPaste = activeSessionId;
+    const valueAtPaste = el.value;
     for (const f of files) void uploadFile(f, sessionAtPaste);
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-      } else {
-        el.focus();
-      }
-    });
-  }, [uploadFile, activeSessionId]);
+    restoreInputSelection(el, valueAtPaste, el.selectionStart, el.selectionEnd,
+      () => isCurrentInput(el, draftKey), true);
+  }, [uploadFile, activeSessionId, draftKey, isCurrentInput]);
 
   const removeAttachment = useCallback((tempId: string) => {
     setAttachments((prev) => {
@@ -1431,6 +1471,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const canSubmit = text.trim().length > 0 && !hasPendingUploads;
 
   const handleSubmit = useCallback(() => {
+    if (isInputComposing(textareaRef.current)) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     if (hasPendingUploads) return;
@@ -1444,7 +1485,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       return parts[parts.length - 1] ?? '';
     };
     for (const a of submitted) {
-      registerAttachmentPreview(basenameOf(a.serverPath), a.previewUrl);
+      if (a.previewUrl) registerAttachmentPreview(basenameOf(a.serverPath), a.previewUrl);
     }
     addCommand(agentId, trimmed, activeSessionId, paths);
     // v1.48 — 에러/업로드중 첨부 없으면 draft 전체 제거(키 정리), 있으면 text 만 비우고 attachments 남김.
@@ -1522,15 +1563,12 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   }, [slashIndex]);
 
   const confirmSlash = useCallback((item: SlashItem) => {
-    setAgentSessionInputText(agentId, activeSessionId, `/${item.name} `);
-    requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-      autosizeInput(el);
-    });
-  }, [agentId, activeSessionId, setAgentSessionInputText]);
+    const el = textareaRef.current;
+    if (!el || isInputComposing(el)) return;
+    const next = `/${item.name} `;
+    setAgentSessionInputText(agentId, activeSessionId, next);
+    restoreCaret(el, next, next.length);
+  }, [agentId, activeSessionId, setAgentSessionInputText, restoreCaret]);
 
   // §5.5 #17-23 — 입력 명령 히스토리: **이 세션에서** 보낸 사용자 프롬프트를 ↑/↓ 로 재호출(셸/CMD 관례).
   //   커서가 첫 줄일 때 ↑(더 오래된 것), 마지막 줄일 때 ↓(더 최근/원래 draft)에만 반응해 멀티라인 편집을
@@ -1567,17 +1605,15 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     seedCommandHistory(agentId, activeSessionId, seen);
   }, [agentId, activeSessionId, completedForAgent]);
   const applyHistoryText = useCallback((value: string) => {
+    const el = textareaRef.current;
+    if (!el || isInputComposing(el)) return;
     setText(value);
-    requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(value.length, value.length);
-      autosizeInput(el);
-    });
-  }, [setText]);
+    restoreCaret(el, value, value.length);
+  }, [setText, restoreCaret]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Candidate confirmation/navigation must precede every app command, including slash completion.
+    if (isComposingKeyEvent(e.nativeEvent)) return;
     if (slashOpen && slashState) {
       const matched = slashState.matched;
       if (e.key === 'ArrowDown') {
@@ -1609,11 +1645,10 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       }
     }
     // 명령 히스토리 (↑/↓) — 슬래시 드롭다운 비활성 + IME 조합 아님 + 커서 collapsed 일 때만.
-    const composing = (e.nativeEvent as { isComposing?: boolean }).isComposing === true;
     const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown';
     // 방향키가 아닌 키를 누르면 힌트를 내린다(= 다음엔 다시 두 번 눌러야 들어간다).
     if (!isArrow && historyHintRef.current !== null) setHint(null);
-    if (!slashOpen && !composing && isArrow) {
+    if (!slashOpen && isArrow) {
       const el = textareaRef.current;
       if (el && el.selectionStart === el.selectionEnd) {
         // ⚠ **커서 이동이 언제나 우선이다** — 키를 가로채지 않고(preventDefault ❌) 브라우저가
@@ -1627,7 +1662,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         arrowProbeRef.current = setTimeout(() => {
           arrowProbeRef.current = null;
           const el2 = textareaRef.current;
-          if (!el2 || el2.value !== beforeValue) return; // 그 사이 값이 바뀌었으면 판단 보류
+          if (!el2 || !isCurrentInput(el2, draftKey) || el2 !== el || isInputComposing(el2) || el2.value !== beforeValue) return;
           // 판정 규칙은 순수 함수 한 곳(decideArrowKey)에 있다 — 화면은 결과만 집행한다.
           const outcome = decideArrowKey({
             caretMoved: (el2.selectionStart ?? 0) !== beforeCaret,
@@ -1665,13 +1700,13 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           el.selectionStart === el.selectionEnd && (el.selectionStart ?? 0) >= el.value.length;
         requestAnimationFrame(() => {
           const e2 = textareaRef.current;
-          if (!e2) return;
+          if (!e2 || e2 !== el || !isCurrentInput(e2, draftKey) || isInputComposing(e2)) return;
           autosizeInput(e2); // JS 폴백 환경에서 즉시 재측정(field-sizing 지원 시 no-op)
           if (atEnd) e2.scrollTop = e2.scrollHeight; // 새 줄/caret 을 뷰에 유지
         });
       }
     }
-  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, agentId, activeSessionId, applyHistoryText, setHint]);
+  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, agentId, activeSessionId, applyHistoryText, setHint, draftKey, isCurrentInput]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -1690,7 +1725,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   //   Electron packaged 빌드엔 브라우저 기본 메뉴가 없어 우클릭 시 아무 것도 안 떴다 →
   //   일반 IDE 입력창처럼 우클릭 메뉴를 직접 그린다. 출력 영역 메뉴(handleContextMenu)와 별개.
   const [inputCtx, setInputCtx] = useState<
-    { x: number; y: number; start: number; end: number; hasSel: boolean } | null
+    { x: number; y: number; start: number; end: number; hasSel: boolean; field: HTMLTextAreaElement; value: string; owner: string } | null
   >(null);
   const closeInputCtx = useCallback(() => setInputCtx(null), []);
 
@@ -1699,25 +1734,21 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     const el = e.currentTarget;
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? 0;
-    setInputCtx({ x: e.clientX, y: e.clientY, start, end, hasSel: end > start });
-  }, []);
+    setInputCtx({ x: e.clientX, y: e.clientY, start, end, hasSel: end > start, field: el, value: el.value, owner: draftKey });
+  }, [draftKey]);
 
   // 지정 범위를 insert 로 교체하고 caret/높이 복원 (Cut=빈 문자열, Paste=클립보드 텍스트).
-  const replaceInputRange = useCallback((start: number, end: number, insert: string) => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const value = el.value;
-    const next = value.slice(0, start) + insert + value.slice(end);
-    setText(next);
-    const caret = start + insert.length;
-    requestAnimationFrame(() => {
-      const e2 = textareaRef.current;
-      if (!e2) return;
-      e2.focus();
-      e2.setSelectionRange(caret, caret);
-      autosizeInput(e2);
+  const replaceInputRange = useCallback((ctx: NonNullable<typeof inputCtx>, insert: string) => {
+    const el = ctx.field;
+    afterInputComposition(el, () => {
+      // Clipboard reads may finish after typing, switching tabs or closing this input.
+      if (!isCurrentInput(el, ctx.owner) || el.value !== ctx.value || el.ownerDocument.activeElement !== el
+        || el.selectionStart !== ctx.start || el.selectionEnd !== ctx.end) return;
+      const next = replaceTextRange(el.value, ctx.start, ctx.end, insert);
+      setText(next.text);
+      restoreCaret(el, next.text, next.caret);
     });
-  }, [setText]);
+  }, [setText, isCurrentInput, restoreCaret]);
 
   const inputCtxItems = useMemo<ContextMenuItem[]>(() => {
     const ctx = inputCtx;
@@ -1725,7 +1756,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     const selectionRequired = t('ide.mainArea.ctxSelectionRequired');
     const selText = (): string => {
       if (!ctx) return '';
-      return (textareaRef.current?.value ?? '').slice(ctx.start, ctx.end);
+      return ctx.value.slice(ctx.start, ctx.end);
     };
     return [
       {
@@ -1738,7 +1769,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           if (s && typeof navigator !== 'undefined' && navigator.clipboard) {
             navigator.clipboard.writeText(s).catch(() => {});
           }
-          replaceInputRange(ctx.start, ctx.end, '');
+          replaceInputRange(ctx, '');
         },
       },
       {
@@ -1765,15 +1796,15 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           if (!ctx || typeof navigator === 'undefined' || !navigator.clipboard?.readText) return;
           navigator.clipboard
             .readText()
-            .then((clip) => { if (clip) replaceInputRange(ctx.start, ctx.end, clip); })
+            .then((clip) => { if (clip) replaceInputRange(ctx, clip); })
             .catch(() => {});
         },
       },
       {
         label: t('ide.mainArea.inputCtxSelectAll'),
         onClick: () => {
-          const el = textareaRef.current;
-          if (!el) return;
+          const el = ctx?.field;
+          if (!el || !isCurrentInput(el, ctx.owner) || isInputComposing(el)) return;
           el.focus();
           el.select();
         },
@@ -1979,13 +2010,14 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               title={a.error ?? (a.uploading ? t('panel.commandQueue.uploading') : t('panel.commandQueue.attached'))}
             >
               <img
-                src={a.previewUrl}
+                src={attachmentPreviewUrl(a) || undefined}
                 alt=""
                 // §5.5 #17-25 v4.80 — 아직 안 보낸 첨부는 "어느 자리인지"를 함께 넘긴다
                 //   → 라이트박스에서 주석을 저장하면 새로 붙지 않고 **이 자리를 교체**한다.
                 onClick={() => {
                   if (a.uploading || a.error) return;
-                  openImageLightbox(a.previewUrl, { agentId, sessionId: activeSessionId, tempId: a.tempId });
+                  const previewUrl = attachmentPreviewUrl(a);
+                  if (previewUrl) openImageLightbox(previewUrl, { agentId, sessionId: activeSessionId, tempId: a.tempId });
                 }}
                 className={`h-full w-full object-cover ${a.uploading || a.error ? 'opacity-40' : 'cursor-zoom-in'}`}
               />
@@ -2014,6 +2046,100 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           ))}
         </div>
       )}
+      {sessionDraft?.sendError && (
+        <div role="status" className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-amber-300">
+          <span className="min-w-0 flex-1 basis-40">{t('ide.orchestra.readiness.retry', { engine: sessionDraft.sendError.engine === 'codex' ? 'Codex' : 'Claude' })}</span>
+          <button type="button" className="rounded border border-amber-500/30 px-2 py-1 hover:bg-amber-500/10"
+            onClick={() => { if (sessionDraft.sendError) void useGraphStore.getState().prepareOrchestraEngine({ engine: sessionDraft.sendError.engine, action: 'refresh' }); }}>
+            {t('ide.orchestra.readiness.recheck')}
+          </button>
+        </div>
+      )}
+      {/*
+        §2.4 (무응답) — 문턱을 넘도록 조용하면 **경과와 탈출구**를 연다. 이 줄이 없으면 사용자는
+        끝난 것인지·끊긴 것인지·이어서 하는 것인지 구별할 수단이 하나도 없다(사용자 보고).
+        [기다리기]는 화면을 닫기만 한다(중지를 강요하지 않는다) — 서버 상태는 건드리지 않는다.
+      */}
+      {inputStalled && inputStallElapsed && stopOutcome.kind === 'none' && (
+        <div role="status" className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-amber-300">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          <span className="min-w-0 flex-1 basis-40" title={t('ide.mainArea.stallHint')}>
+            {t('ide.mainArea.stallNotice', { value: inputStallElapsed })}
+          </span>
+          <button
+            type="button"
+            onClick={() => setStallSnoozeMs(inputSilenceMs ?? 0)}
+            title={t('ide.mainArea.stallKeepWaitingTitle')}
+            className="rounded border border-amber-500/30 px-2 py-1 hover:bg-amber-500/10"
+          >
+            {t('ide.mainArea.stallKeepWaiting')}
+          </button>
+          <button
+            type="button"
+            onClick={handleStop}
+            disabled={stopping}
+            title={t('ide.mainArea.stopSessionTitle')}
+            className="rounded border border-red-500/40 px-2 py-1 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stop')}
+          </button>
+        </div>
+      )}
+      {/*
+        §2.4 — [중지]를 눌렀는데 서버에 멈출 것이 없었거나(`nothing`) 요청이 실패했을 때(`failed`).
+        종전에는 둘 다 **아무 말 없이** 버튼만 되돌아와, 사용자는 같은 버튼을 계속 누르는 수밖에
+        없었다. `nothing` 은 곧 **화면의 "실행 중"이 거짓**이라는 뜻이므로 에이전트 전체를 끊는
+        강제 마감을 함께 연다(새 API ❌ — 이미 있는 `stop-all` 이다).
+      */}
+      {(stopOutcome.kind === 'nothing' || stopOutcome.kind === 'failed') && (
+        <div role="status" className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-amber-300">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+          </svg>
+          <span className="min-w-0 flex-1 basis-40" title={stopOutcome.kind === 'nothing' ? t('ide.mainArea.stopNothingHint') : undefined}>
+            {stopOutcome.kind === 'nothing'
+              ? t('ide.mainArea.stopNothing')
+              : t('ide.mainArea.stopFailed', { status: stopOutcome.status ?? 0 })}
+          </span>
+          {stopOutcome.kind === 'nothing' ? (
+            <button
+              type="button"
+              onClick={forceStop}
+              disabled={stopping}
+              title={t('ide.mainArea.stopForceTitle')}
+              className="rounded border border-red-500/40 px-2 py-1 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stopForce')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleStop}
+              disabled={stopping}
+              className="rounded border border-amber-500/30 px-2 py-1 hover:bg-amber-500/10 disabled:opacity-50"
+            >
+              {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stopRetry')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={clearStopOutcome}
+            title={t('ide.mainArea.voiceErrDismiss')}
+            aria-label={t('ide.mainArea.voiceErrDismiss')}
+            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-amber-300/70 transition-colors hover:bg-amber-500/10 hover:text-amber-200"
+          >
+            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <span className="text-[13px] font-bold text-blue-400">{'>'}</span>
         {/* v3.31 — flex 축소(min-w-0)를 wrapper 로 옮기고 textarea 는 w-full(definite width)로 고정.
@@ -2022,6 +2148,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             높이만 계산 → 내용이 줄바꿈되며 세로로 자동 확장. */}
         <div className="min-w-0 flex-1">
           <textarea
+            key={draftKey}
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -2171,6 +2298,14 @@ interface StreamStatusBarProps {
    * 거짓말을 한다(탭 점은 파랗게 도는데 여기만 끝났다고 말하던 그 불일치).
    */
   sessionRunning: boolean;
+  /**
+   * §2.4 — 이 세션에 **정말로** `executing` 인 명령이 있는가(원본 큐 기준, 세션 필터 적용).
+   *
+   * 위 `commands` 로는 이 질문에 답할 수 없다 — 그 배열은 조용한 압축을 감추고 첫 대기 명령을
+   * 실행 중으로 승격시킨 **표시용 사본**이다. 종전에 이 줄이 그 사본을 세면서, 아무 명령도 돌지
+   * 않는 세션이 "되살아난 턴"으로도 잡히지 않고 영영 파란 스피너로 남았다.
+   */
+  hasExecutingCommand: boolean;
 }
 
 const STATUS_SUMMARY_MAX = 80;
@@ -2457,7 +2592,7 @@ function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX
   );
 }
 
-function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning }: StreamStatusBarProps): React.JSX.Element | null {
+function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   // 우선순위(기본): 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
@@ -2579,8 +2714,13 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   //   그 줄은 "지금"이 아니라 "그때"를 가리키는 자리라, 지나간 명령에 스피너가 돌면 그게 또 거짓이 된다.
   const resumedTurn = sessionRunning
     && target === defaultTarget
-    && !commands.some((c) => c.status === 'executing');
-  const isExecuting = target.status === 'executing' || resumedTurn;
+    && !hasRealExecuting;
+  // §2.4 (생존 판정 단일화) — `target.status === 'executing'` 하나로 스피너를 돌리면 두 가지로 거짓이 된다:
+  //   ① 이 `commands` 는 **표시용 사본**이라 조용한 압축이 도는 동안 뒤에 선 대기 명령이 `executing`
+  //      으로 승격돼 있다(버블 표시 전용 승격 — `constants.ts` 의 경고 그대로).
+  //   ② 서버가 미처 마감하지 못한 좀비 명령이 남으면 그 칸은 영영 `executing` 이다(사용자 보고).
+  //   그래서 **세션이 실제로 도는가**(공유 술어 한 벌)를 함께 본다 — 둘 다 참일 때만 실행 중 줄이다.
+  const isExecuting = (target.status === 'executing' && sessionRunning) || resumedTurn;
   const isError = target.status === 'error' && !resumedTurn;
   // §5.5 #17-12 ③-6 — 실패가 아닌데 평범하게 끝나지 않은 턴(중지·상한·거절·한도)은 초록 "끝남" 대신
   //   호박색 이유 낱말. 되살아난 턴은 끝난 턴이 아니므로 읽지 않는다.
@@ -2597,7 +2737,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     : (isError && target.result ? target.result.replace(/\s*\n+\s*/g, ' ') : null);
   // §5.3 #12-1 — 자기 턴은 끝났는데 **백단 자식이 아직 도는** 상태. 이 줄이 그때 내가 친 프롬프트를
   //   되뇌면 "왜 멈춰 있지?"로 읽힌다 — 무엇을 기다리는지(몇 개가 도는지)를 말해야 한다.
-  const waitingOnBackground = isExecuting && bgTaskCount > 0 && !commands.some((c) => c.status === 'executing');
+  const waitingOnBackground = isExecuting && bgTaskCount > 0 && !hasRealExecuting;
   const rawSummary = waitingOnBackground
     ? t('ide.activityBar.runningSubagents', { count: bgTaskCount })
     : plan ? plan.current : (errorLine ?? target.text);
@@ -2758,6 +2898,14 @@ export const IDEMainArea = memo(function IDEMainArea({
   // 하단 상태바가 "완료"라고 말할지 "실행 중"이라고 말할지의 근거. 입력창의 [중지] 토글과 **같은 훅**을
   //   써서 두 자리가 어긋나지 않게 한다(종전에는 각자 명령 상태만 따로 봐서 갈라졌다).
   const streamSessionRunning = useSessionRunning(agentId, activeSessionId);
+  // §2.4 (생존 판정 단일화) — **원본 큐 + 세션 필터 + 공유 술어**로 낸 "작동 중"(도는 중 ∪ 줄 서 있음).
+  //   라이브 1줄(생각 중/작업 중)과 스트림 렌더러가 이 값 하나를 본다. 화면용 사본(`displayCommands`)을
+  //   생존 판정에 쓰면 아무것도 돌지 않는 세션이 영영 "실행 중"으로 굳는다(constants.ts 의 경고 그대로).
+  const sessionHasWork = useSessionWork(agentId, activeSessionId);
+  // §2.4 — "진짜 도는 명령이 있는가"(원본 큐). 하단 상태바가 되살아난 턴을 가려낼 때 쓴다.
+  const sessionExecuting = useSessionExecuting(agentId, activeSessionId);
+  // §2.4 (무응답) — "얼마나 조용한가"를 재는 시작점. 서버가 준 세션 활동 시각이라 여기서 만들지 않는다.
+  const { lastActivityAt: sessionLastActivityAt } = useSessionLivenessFacts(agentId, activeSessionId);
   // §5.5 #17-12 ③ v4.64 — 하단 상태바의 [중지]를 없애면서 여기서 쓰던 useSessionStop 도 함께 제거.
   //   중지 창구는 입력창(TerminalInput)의 [중지] 하나뿐이다(#17-10 범위 규칙 그대로).
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
@@ -2915,6 +3063,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   useEffect(() => {
     if (!cellFocused) return; // §5.5 #17-34 — 분할 중에는 초점 칸 하나만 이 키를 받는다.
     const onKeyZoom = (e: KeyboardEvent): void => {
+      if (isComposingKeyEvent(e)) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key;
       const cur = useGraphStore.getState().ideTextZoom;
@@ -3210,7 +3359,11 @@ export const IDEMainArea = memo(function IDEMainArea({
     const _PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
     const _t0 = _PERF ? performance.now() : 0;
     const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError);
-    const agentBusy = commands.some((c) => c.status === 'executing' || c.status === 'queued');
+    // §2.4 (생존 판정 단일화) — 종전에는 여기서 `commands.some(executing||queued)` 를 손으로 적었다.
+    //   그 목록은 ① `displayCommands` 를 거친 **표시용 사본**이고 ② **세션 필터가 전혀 없어서**,
+    //   다른 세션에 남은 좀비 명령 하나가 지금 보는 탭을 영영 "작업 중"으로 칠했다(이 버그의 직접 원인).
+    //   이제 공유 술어(`hasSessionWork`)가 원본 큐 + 세션 필터 위에서 낸 답 하나만 본다.
+    const agentBusy = sessionHasWork;
     const grouped = applyMainDensity(groupEntries(flat), density);
     if (_PERF && activeSessionId === null) {
       const _t1 = performance.now();
@@ -3234,10 +3387,16 @@ export const IDEMainArea = memo(function IDEMainArea({
         if (tail && (!latest || tail.timestamp > latest.timestamp)) latest = tail;
       }
       const mode = latest && isThinkingActivity(latest) ? 'thinking' : 'working';
-      grouped.push({ kind: 'thinking-live', id: 'thinking-live', mode, timestamp: latest?.timestamp ?? Date.now() });
+      // §2.4 (무응답) — 경과 시계는 **마지막 이벤트 시각**이다. 한 건도 없으면 `null`(모름) — 여기서
+      //   `Date.now()` 를 넣으면 매 프레임 "방금 움직였다"가 되어 영영 무응답이 될 수 없다.
+      grouped.push({
+        kind: 'thinking-live', id: 'thinking-live', mode,
+        timestamp: latest?.timestamp ?? Date.now(),
+        lastActivityAt: latest?.timestamp ?? sessionLastActivityAt,
+      });
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError]);
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, sessionHasWork, sessionLastActivityAt]);
 
   // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 sub 질문을 시간순.
@@ -3331,7 +3490,9 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
     // §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중인가(뒤에 나간 명령이 없고 지금 실행 중).
     const lastAnchor = cmdTsAsc[cmdTsAsc.length - 1];
-    const turnRunning = commands.some((c) => c.status === 'executing');
+    // §2.4 — 종전에는 **표시용 사본**(`displayCommands`)에서 `executing` 을 세어, 승격된 대기 명령
+    //   하나가 지나간 카드들까지 "지금 도는 중"으로 만들었다. 원본 큐로 낸 답 하나만 본다.
+    const turnRunning = sessionExecuting;
     const isLive = (createdAt: number): boolean =>
       turnRunning && !(lastAnchor !== undefined && lastAnchor > createdAt);
     // §5.5 #17-12 — 같은 턴의 검수는 그 턴 신고 카드로 흡수해 한 장으로 보여준다.
@@ -3372,7 +3533,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     //   타임라인에 합류하므로 합치기도 이 뒤에 돌린다 — `applyMainDensity` 안에서 돌리면 카드를 사이에 둔
     //   자국까지 한 줄로 합쳐져 같은 대화가 탭에 따라 다르게 접힌다.
     return density === 'compact' ? mergeAdjacentThinkTraces(nodes, readMainStepTrace, writeMainStepTrace) : nodes;
-  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands, density]);
+  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands, density, sessionExecuting]);
 
   // v3.13 — 스트림 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 메인 Virtuoso 에도 shift 로 신고.
   //   인덱스 기반 sizeTree 가 절단마다 밀려 측정 모델이 붕괴 → 긴 세션에서 스크롤이 "위로 말려 올라가던" 원인.
@@ -3844,6 +4005,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (showInteractiveTerminal) return;
     if (!cellFocused) return; // §5.5 #17-34 — 검색창도 초점 칸에서만 열린다(칸마다 동시에 뜨지 않게).
     const onKey = (e: KeyboardEvent): void => {
+      if (isComposingKeyEvent(e)) return;
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         setSearchOpen(true);
@@ -4054,6 +4216,11 @@ export const IDEMainArea = memo(function IDEMainArea({
               ref={streamRef}
               events={activeStreamEvents}
               commands={commands.filter((c) => c.subAgentId === activeSessionId)}
+              // §2.4 (생존 판정 단일화) — 위 `commands` 는 **표시용 사본**(조용한 압축을 감추고 첫 대기건을
+              //   실행 중으로 승격시킨 것)이다. 스트림 바닥의 "작업 중..." 을 그 사본으로 판정하면 ① 승격 탓에
+              //   안 도는 세션이 돈다고 나오고 ② 조용한 압축만 도는 동안엔 반대로 꺼져 버린다.
+              //   진짜 답은 원본 큐를 보는 공유 술어 하나뿐이라 그것을 내려보낸다.
+              sessionBusy={sessionHasWork}
               // §4 v3.21 — result 블록 좋아요/싫어요 피드백 컨텍스트(소유 에이전트 + 이 세션 탭).
               agentId={agentId}
               subAgentId={activeSessionId ?? undefined}
@@ -4120,7 +4287,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                           : n.item.kind === 'group'
                             ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
-                              ? <ThinkingLiveLine label={n.item.mode === 'working' ? t('ide.streamRenderer.working') : t('ide.streamRenderer.thinking')} mode={n.item.mode} />
+                              ? <ThinkingLiveLine label={n.item.mode === 'working' ? t('ide.streamRenderer.working') : t('ide.streamRenderer.thinking')} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} />
                               : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId || mainOpeningTextIds.has(itemId)} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
                     </div>
                   );
@@ -4180,6 +4347,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         //   메인 탭은 단일 스트림이 아니므로 계획 줄 없이 프롬프트 미리보기를 유지한다.
         events={activeSessionId !== null ? activeStreamEvents : EMPTY_STREAM_EVENTS}
         sessionRunning={streamSessionRunning}
+        hasExecutingCommand={sessionExecuting}
       />
 
       {/* Command input — 커스텀 에이전트만 입력 가능(§5.5 #17-29) */}

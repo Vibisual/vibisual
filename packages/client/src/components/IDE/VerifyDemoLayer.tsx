@@ -19,20 +19,24 @@ export const VerifyDemoLayer = memo(function VerifyDemoLayer(): React.JSX.Elemen
   const pickerFor = useVerifyDemoStore((s) => s.pickerFor);
   const closePicker = useVerifyDemoStore((s) => s.closePicker);
   const setSource = useVerifyDemoStore((s) => s.setSource);
+  const setTarget = useVerifyDemoStore((s) => s.setTarget);
   const startRecording = useVerifyDemoStore((s) => s.startRecording);
   const demoWindow = useVerifyDemoStore((s) => s.window);
   const closeWindow = useVerifyDemoStore((s) => s.closeWindow);
 
   const handlePick = useCallback((src: CaptureSourceInfo) => {
     if (!pickerFor) return;
-    setSource(pickerFor.subAgentId, { sourceId: src.id, sourceName: src.name });
+    setSource(pickerFor.subAgentId, { sourceId: src.id, sourceName: src.name, sourceKind: src.kind });
+    if (pickerFor.purpose === 'connect') {
+      setTarget(pickerFor.subAgentId, { kind: 'desktop', sourceId: src.id, sourceName: src.name, sourceKind: src.kind });
+    }
     closePicker();
     // 시연을 찍으려고 연 피커면 고른 즉시 녹화로 이어진다 — 고르고 다시 [녹화]를 누르게 하면
     // 그 사이에 화면이 이미 바뀐다(사용자가 보여 주려던 그 순간을 놓친다).
     if (pickerFor.purpose === 'demo') {
       startRecording({ agentId: pickerFor.agentId, subAgentId: pickerFor.subAgentId, purpose: 'demo' });
     }
-  }, [closePicker, pickerFor, setSource, startRecording]);
+  }, [closePicker, pickerFor, setSource, setTarget, startRecording]);
 
   return (
     <>

@@ -31,6 +31,24 @@ export interface CodexMappedEvent {
   toolUseId?: string;
   /** §5.25 (O) — 이 줄이 그림 한 장이면 그 파일의 절대경로. `text` 에만 실린다. */
   imagePath?: string;
+  /**
+   * 이 `tool_use` 는 **짝이 되는 `tool_result` 가 반드시 온다**고 약속된 호출인가.
+   *
+   * 미결 원장(`codexPendingCalls.ts`)이 시한을 걸 수 있는 유일한 근거다. 아무 도구에나 걸면
+   * 안 된다 — `web_search` 는 완료 줄 자체가 없어 시한을 걸면 전부 거짓 실패가 되고,
+   * `command_execution` 은 한 시간을 정상적으로 돌 수 있다(`tool_timeout_sec=3600`).
+   * 그래서 지금은 MCP 호출에만 선다.
+   */
+  awaitsResult?: true;
+  /** 실행 관찰용 원문·구조화 결과. 화면의 요약 문자열로 명령이나 성공을 복원하지 않는다. */
+  bashHook?: {
+    phase: 'pre' | 'post';
+    /** 완료 줄에 없으면 시작 줄의 같은 id 에서 호출자가 찾는다. argv 합성은 금지. */
+    command?: string;
+    toolResponse?: string;
+    /** false 는 완료 상태와 종료 코드 0 이 함께 확인된 경우에만. */
+    toolIsError?: boolean;
+  };
 }
 
 export interface CodexUsage {
@@ -240,14 +258,23 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
 
     case 'command_execution': {
       const summary = commandSummary(item);
+      const command = typeof item['command'] === 'string' ? { command: item['command'] } : {};
       if (!completed) {
         // 시작 줄이 도구 카드를 세운다(started 만 — updated 는 같은 카드의 갱신이라 흘리지 않는다).
         if (envelope !== 'item.started') return EMPTY;
         return {
-          events: [{ eventType: 'tool_use', content: summary, toolName: 'Bash', ...(id ? { toolUseId: id } : {}) }],
+          events: [{
+            eventType: 'tool_use', content: summary, toolName: 'Bash', ...(id ? { toolUseId: id } : {}),
+            bashHook: { phase: 'pre', ...command },
+          }],
         };
       }
       const exitCode = item['exit_code'];
+      const knownExitCode = typeof exitCode === 'number' && Number.isInteger(exitCode);
+      const status = item['status'];
+      const toolIsError = status === 'failed' || (knownExitCode && exitCode !== 0)
+        ? true
+        : status === 'completed' && knownExitCode && exitCode === 0 ? false : undefined;
       const output = str(item['aggregated_output']) || str(item['output']);
       const head = typeof exitCode === 'number' ? `exit ${exitCode}` : 'done';
       return {
@@ -257,6 +284,10 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
             content: output ? `${head}\n${output}` : head,
             toolName: 'Bash',
             ...(id ? { toolUseId: id } : {}),
+            bashHook: {
+              phase: 'post', ...command, toolResponse: output,
+              ...(toolIsError !== undefined ? { toolIsError } : {}),
+            },
           },
         ],
       };
@@ -290,7 +321,9 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
       if (envelope === 'item.started') {
         const args = item['arguments'];
         const content = args === undefined ? toolName : safeJson(args);
-        return { events: [{ eventType: 'tool_use', content, toolName, ...(id ? { toolUseId: id } : {}) }] };
+        // MCP 는 자체 전송 시한이 있어 완료 줄이 **반드시** 온다 — 안 오면 서버가 죽은 것이다.
+        //   그 사실을 여기 한 곳에서만 말하고, 시한 판정은 원장이 한다(이 매퍼는 순수하게 둔다).
+        return { events: [{ eventType: 'tool_use', content, toolName, awaitsResult: true, ...(id ? { toolUseId: id } : {}) }] };
       }
       if (!completed) return EMPTY;
       const res = item['result'];

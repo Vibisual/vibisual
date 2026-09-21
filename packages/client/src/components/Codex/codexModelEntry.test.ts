@@ -105,8 +105,14 @@ describe('resolveCodexEntry — 모델 물리기', () => {
     });
   });
 
-  it('목록도 없고 문 모델도 없으면 준비 창으로 보낸다', () => {
-    expect(resolveCodexEntry(codexCfg(''), { setup: READY, auth: IN, models: [] })).toEqual({ kind: 'setup' });
+  it('처음 설치해 캐시가 없어도 CLI 기본 모델로 첫 대화를 시작한다', () => {
+    expect(resolveCodexEntry(codexCfg(''), { setup: READY, auth: IN, models: [] })).toEqual({ kind: 'ide' });
+    expect(resolveCodexEntry(codexCfg(''), { setup: READY, auth: IN, models: undefined })).toEqual({ kind: 'ide' });
+  });
+
+  it('빈 캐시 허용이 실제 미설치나 로그아웃을 건너뛰지는 않는다', () => {
+    expect(resolveCodexEntry(codexCfg(''), { setup: MISSING, auth: IN, models: [] })).toEqual({ kind: 'setup' });
+    expect(resolveCodexEntry(codexCfg(''), { setup: READY, auth: OUT, models: [] })).toEqual({ kind: 'login' });
   });
 });
 

@@ -1,13 +1,17 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { VerificationRun, VerificationDemo, VerificationRecipeSource } from '@vibisual/shared';
-import { isReadOnlyHookAgent, VERIFICATION_FOCUS_MAX } from '@vibisual/shared';
+import { isReadOnlyHookAgent, VERIFICATION_FOCUS_MAX, VERIFICATION_DEMO_EXPECTED_MAX } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useCapturePlaytestStore } from '../../stores/capturePlaytest.js';
 import { useVerifyDemoStore, verifyRecorderKey } from '../../stores/verifyDemo.js';
 import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { demoHasContent, demoSummaryParts, formatDemoTime } from './verifyDemo.js';
+import { IDECodexReviewView } from './IDECodexReviewView.js';
+import { VerifyTargetConnection } from './VerifyTargetConnection.js';
+import { VerifyRunEvidence } from './VerifyRunEvidence.js';
+import { canRecordVerificationRun, validVerificationTarget, verificationOperationKey } from './verificationConnection.js';
 
 // §5.5 #17-35 ⑦⑨-5 — 검증(Verify) 사이드바 뷰.
 //
@@ -67,6 +71,23 @@ interface Props {
 
 export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const sessionId = useIDEPaneValue((o) => o.activeSessionId);
+  const isCodex = useGraphStore((s) => s.agentConfigs[agentId]?.provider?.kind === 'codex-cli');
+  const [tab, setTab] = useState<'execution' | 'review'>('execution');
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {isCodex && <div role="tablist" aria-label={t('ide.verify.title')} className="flex flex-shrink-0 gap-1 border-b border-gray-700 p-1.5">
+        {(['execution', 'review'] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
+          className={`min-w-0 flex-1 rounded px-1 py-1 text-[12px] ${tab === value ? 'bg-sky-500/20 text-sky-300' : 'text-gray-400 hover:bg-gray-800'}`}>{t(`ide.verify.tabs.${value}`)}</button>)}
+      </div>}
+      {/* The execution form remounts per session so focus/expected from another target cannot leak. */}
+      {isCodex && tab === 'review' ? <IDECodexReviewView agentId={agentId} /> : <IDEVerifyExecution key={`${agentId}:${sessionId ?? ''}`} agentId={agentId} />}
+    </div>
+  );
+});
+
+const IDEVerifyExecution = memo(function IDEVerifyExecution({ agentId }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
 
   // 세션 탭 하나의 이력만 본다. 선택자에서 새 배열을 만들지 않는다 — 만들면 매 렌더가
@@ -95,6 +116,14 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
   const pickedDemoId = useVerifyDemoStore((s) => (activeSessionId ? s.pickedDemo[activeSessionId] : undefined));
   const setPickedDemo = useVerifyDemoStore((s) => s.setPickedDemo);
   const runClip = useVerifyDemoStore((s) => s.runClip);
+  const target = useVerifyDemoStore((s) => activeSessionId ? s.target[activeSessionId] : undefined);
+  const canRecordRun = canRecordVerificationRun(target, source);
+  const setTarget = useVerifyDemoStore((s) => s.setTarget);
+  const [availableTargetKey, setAvailableTargetKey] = useState<string | null>(null);
+  const targetKey = JSON.stringify(target ?? null);
+  const available = availableTargetKey === targetKey;
+  const setAvailable = useCallback((value: boolean) => setAvailableTargetKey(value ? targetKey : null), [targetKey]);
+  const [expected, setExpected] = useState('');
 
   const recorderKey = activeSessionId ? verifyRecorderKey(activeSessionId) : '';
   const isRecording = useCapturePlaytestStore((s) => (recorderKey ? s.recording[recorderKey] !== undefined : false));
@@ -106,6 +135,28 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
   const [recipe, setRecipe] = useState<{ source: VerificationRecipeSource; label?: string } | null>(null);
 
   const active = useMemo(() => runs.find((r) => r.status === 'running' || r.status === 'queued'), [runs]);
+
+  // Restore durable target information only when the session has no connection draft.
+  useEffect(() => {
+    if (!activeSessionId || target) return;
+    const previous = runs.find((run) => run.target)?.target;
+    if (previous) setTarget(activeSessionId, previous);
+  }, [activeSessionId, runs, setTarget]);
+
+  const selectDemo = useCallback((demo: VerificationDemo) => {
+    if (!activeSessionId) return;
+    const picked = pickedDemoId === demo.id;
+    setPickedDemo(activeSessionId, picked ? null : demo.id);
+    if (!picked) {
+      if (demo.target) setTarget(activeSessionId, demo.target);
+      setExpected(demo.expected ?? '');
+    }
+  }, [activeSessionId, pickedDemoId, setPickedDemo, setTarget]);
+
+  useEffect(() => {
+    const demo = demos.find((entry) => entry.id === pickedDemoId);
+    if (demo) setExpected(demo.expected ?? '');
+  }, [pickedDemoId]);
 
   // 이 탭이 녹화 중인지(다른 탭이 찍고 있으면 여기서는 손잡이를 잠근다 — 한 번에 하나).
   const recordingHere = !!recordingFor && recordingFor.subAgentId === activeSessionId;
@@ -160,12 +211,14 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
   }, [demos, pickedDemoId]);
 
   const handleStart = useCallback(() => {
-    if (!activeSessionId || busy) return;
+    if (!activeSessionId || busy || !available || !validVerificationTarget(target)) return;
     setBusy(true);
     setError(null);
     void startVerification({
       agentId,
       subAgentId: activeSessionId,
+      target,
+      ...(expected.trim() ? { expected: expected.trim() } : {}),
       ...(focus.trim() ? { focus: focus.trim() } : {}),
       ...(pickedDemoId ? { demoId: pickedDemoId } : {}),
     }).then((res) => {
@@ -174,11 +227,13 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
       if (!res.ok) { setError(res.error); return; }
       setFocus('');
       // ⑩ — 켜져 있으면 이 검증이 도는 동안을 찍는다. 그 줄에 [화면 보기] 가 붙는다.
-      if (recordRun && source && !recordingFor) {
+      // Source selection may change while the start request is in flight. Read it again before capture.
+      const latest = useVerifyDemoStore.getState();
+      if (latest.recordRun[activeSessionId] === true && canRecordVerificationRun(target, latest.source[activeSessionId]) && !latest.recordingFor) {
         startRecordingTarget({ agentId, subAgentId: activeSessionId, purpose: 'run', runId: res.runId });
       }
     });
-  }, [activeSessionId, agentId, busy, focus, pickedDemoId, recordRun, recordingFor, source, startRecordingTarget, startVerification]);
+  }, [activeSessionId, agentId, available, busy, expected, focus, pickedDemoId, startRecordingTarget, startVerification, target]);
 
   const handleRecordDemo = useCallback(() => {
     if (!activeSessionId) return;
@@ -198,7 +253,7 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
   }
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* 루프 뷰 헤더와 같은 규약 — 좁은 서랍·긴 로케일에서 배지가 패널 테두리 밖으로 밀려 잘리던
           자리다(자세한 근거는 IDELoopView 의 같은 줄 주석). 제목이 먼저 줄고, 못 서면 배지가
           아랫줄로 내려가며, `pb-1.5` 가 스크롤 상단 그라데이션과 배지 사이를 띄운다. */}
@@ -220,12 +275,13 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
       <ScrollFade fill className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-2">
           <p className="break-words px-0.5 text-[12px] leading-relaxed text-gray-500">{t('ide.verify.about')}</p>
+          <VerifyTargetConnection agentId={agentId} subAgentId={activeSessionId} target={target} disabled={isReadOnlyAgent || busy || !!active} onAvailability={setAvailable} />
 
           {/* ── ⑨ 시연 — 사람이 한 번 해 보이면 그것이 절차가 된다 ── */}
           <div className="flex flex-col gap-1.5 rounded border border-gray-700 bg-gray-800/40 p-1.5">
             <div className="flex items-center justify-between gap-1">
               <span className="text-[12px] font-medium text-gray-400">{t('ide.verify.demo.sectionTitle')}</span>
-              {source && !isRecording && (
+              {source && !recordingFor && (
                 <button
                   type="button"
                   onClick={() => openPicker(agentId, activeSessionId, 'demo')}
@@ -244,18 +300,18 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
                 <div className="overflow-hidden rounded bg-black">
                   <video ref={previewRef} className="h-20 w-full object-contain" muted playsInline />
                 </div>
-                {streamError && (
-                  <p className="break-words text-[12px] leading-relaxed text-rose-400">
-                    {t('ide.verify.demo.error.noStream')}
-                  </p>
-                )}
               </div>
+            )}
+            {streamError && (
+              <p className="break-words text-[12px] leading-relaxed text-rose-400">
+                {t(`ide.verify.demo.error.${streamError}`, { defaultValue: streamError })}
+              </p>
             )}
 
             <button
               type="button"
               onClick={handleRecordDemo}
-              disabled={isReadOnlyAgent || recordingElsewhere}
+              disabled={isReadOnlyAgent || recordingElsewhere || (recordingHere && recordingFor?.purpose === 'run')}
               className={`flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500 ${
                 demoRecording ? 'bg-rose-600 text-white hover:bg-rose-500' : 'bg-white/[0.08] text-gray-200 hover:bg-white/[0.14] hover:text-white'
               }`}
@@ -288,7 +344,7 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
                     >
                       <button
                         type="button"
-                        onClick={() => setPickedDemo(activeSessionId, picked ? null : demo.id)}
+                        onClick={() => selectDemo(demo)}
                         className="mt-0.5 flex-shrink-0"
                         aria-label={demo.label}
                         aria-pressed={picked}
@@ -297,7 +353,7 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPickedDemo(activeSessionId, picked ? null : demo.id)}
+                        onClick={() => selectDemo(demo)}
                         className="min-w-0 flex-1 text-left"
                       >
                         <p className="truncate text-[12px] text-gray-200">{demo.label}</p>
@@ -318,6 +374,20 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
                 })}
               </div>
             )}
+            {pickedDemoId && (() => {
+              const demo = demos.find((entry) => entry.id === pickedDemoId);
+              return demo && demo.steps.length > 0 ? (
+                <details className="text-[12px] text-gray-400">
+                  <summary className="cursor-pointer">{t('ide.verify.demo.stepsLabel')}</summary>
+                  <ol className="mt-1 flex max-h-48 flex-col gap-1 overflow-auto">
+                    {demo.steps.map((step, index) => <li key={`${step.atMs}-${index}`} className="break-words rounded bg-gray-900/60 p-1">
+                      <span>{index + 1}. {step.text}</span>
+                      {(step.action || step.check) && <p className="text-sky-400">{[step.action?.kind, step.check?.kind].filter((kind): kind is NonNullable<typeof kind> => !!kind).map((kind) => t(verificationOperationKey(kind))).join(' · ')}</p>}
+                    </li>)}
+                  </ol>
+                </details>
+              ) : null;
+            })()}
           </div>
 
           {/* 무엇을 확인할지 — 비워도 된다(그러면 `/verify` 가 평소대로 판단한다). */}
@@ -330,6 +400,12 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
               placeholder={t('ide.verify.focusPlaceholder')}
               className="w-full resize-none rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-sky-500 focus:outline-none"
             />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="px-0.5 text-[12px] font-medium text-gray-400">{t('ide.verify.demo.expectedLabel')}</span>
+            <input value={expected} onChange={(e) => setExpected(e.target.value.slice(0, VERIFICATION_DEMO_EXPECTED_MAX))} placeholder={t('ide.verify.demo.expectedPlaceholder')}
+              disabled={isReadOnlyAgent || busy || !!active} className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-200 focus:border-sky-500 focus:outline-none" />
           </label>
 
           {/* 무엇이 실릴지 — 보내기 전에 사용자가 먼저 읽는다. */}
@@ -355,23 +431,24 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
           )}
 
           {/* ⑩ — 이번 검증이 도는 동안의 화면을 증거로 남긴다(판정에는 영향 없음). */}
-          <label className={`flex items-center gap-1.5 px-0.5 text-[12px] ${source ? 'text-gray-400' : 'text-gray-600'}`}>
+          <label className={`flex items-center gap-1.5 px-0.5 text-[12px] ${canRecordRun ? 'text-gray-400' : 'text-gray-500'}`}>
             <input
               type="checkbox"
-              checked={recordRun}
-              disabled={!source || isReadOnlyAgent}
+              checked={canRecordRun && recordRun}
+              disabled={!canRecordRun || isReadOnlyAgent}
               onChange={(e) => setRecordRun(activeSessionId, e.target.checked)}
               className="h-3 w-3 accent-sky-500"
             />
             <span className="min-w-0 flex-1 break-words leading-relaxed">
-              {source ? t('ide.verify.demo.recordRun') : t('ide.verify.demo.recordRunNeedsSource')}
+              {target?.kind === 'browser' ? t('ide.verify.demo.browserEvidenceOnly')
+                : canRecordRun ? t('ide.verify.demo.recordRun') : t('ide.verify.demo.recordRunNeedsMatchingTarget')}
             </span>
           </label>
 
           <button
             type="button"
             onClick={handleStart}
-            disabled={isReadOnlyAgent || busy || !!active}
+            disabled={isReadOnlyAgent || busy || !!active || !available || !validVerificationTarget(target)}
             className="flex items-center justify-center gap-1.5 rounded bg-sky-600 px-2 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -423,6 +500,7 @@ export const IDEVerifyView = memo(function IDEVerifyView({ agentId }: Props): Re
                   {run.reason && (
                     <p className="mt-1 break-words text-[12px] leading-relaxed text-gray-300">{run.reason}</p>
                   )}
+                  <VerifyRunEvidence run={run} readOnly={isReadOnlyAgent} />
 
                   {/* 실제로 돌린 것 — 이게 통과의 유일한 근거다. */}
                   {run.attempts.length > 0 && (

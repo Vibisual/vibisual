@@ -30,7 +30,8 @@ function repeated(commands: readonly string[], times: number): BashEntry[] {
   const out: BashEntry[] = [];
   for (let r = 0; r < times; r += 1) {
     commands.forEach((command, i) => {
-      out.push({ id: `b${r}-${i}`, command, timestamp: T0 + r * 60_000 + i * 1000 });
+      // Independent executions, separated by more than the command-run window.
+      out.push({ id: `b${r}-${i}`, command, status: 'success', timestamp: T0 + r * 20 * 60_000 + i * 1000 });
     });
   }
   return out;
@@ -108,7 +109,7 @@ describe('자동 목표 — 되풀이를 스킬로 굳힌다', () => {
     expect(state.observed).toBe(4);
   });
 
-  it('관찰이 늘면 개정하고, 안 늘면 다시 쓰지 않는다', () => {
+  it('관찰이 늘면 횟수만 갱신하고 본문은 보존하며, 안 늘면 다시 쓰지 않는다', () => {
     const first = getAutoGoalState(root, ON, {}, {
       bashHistory: { a1: repeated(['pnpm build', 'pnpm test'], 3) },
     });
@@ -128,7 +129,8 @@ describe('자동 목표 — 되풀이를 스킬로 굳힌다', () => {
       bashHistory: { a1: repeated(['pnpm build', 'pnpm test'], 5) },
     });
     expect(more.skills[0]?.runs).toBe(5);
-    expect(fs.readFileSync(file, 'utf8')).toContain('5번 되풀이');
+    expect(fs.readFileSync(file, 'utf8')).toContain('runs: 5');
+    expect(readAutoGoalSkillBody(root, id)).toContain('3번 되풀이');
   });
 
   it('사람이 손본 파일은 다음 분석이 덮지 않는다', () => {
@@ -137,8 +139,8 @@ describe('자동 목표 — 되풀이를 스킬로 굳힌다', () => {
     });
     const id = first.skills[0]?.id ?? '';
     const file = path.join(root, '.vibisual', 'skills', id, 'SKILL.md');
-    // `source: auto-goal` 줄을 걷으면 "사람이 적은 것"이다.
-    const edited = fs.readFileSync(file, 'utf8').replace(/^source: .*$/m, 'source: human');
+    // No hidden frontmatter change is required to protect a person's edit.
+    const edited = fs.readFileSync(file, 'utf8');
     fs.writeFileSync(file, `${edited}\n\n내가 손으로 적은 줄`);
 
     dropAutoGoalCache(root);

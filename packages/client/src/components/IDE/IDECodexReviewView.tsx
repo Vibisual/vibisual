@@ -1,5 +1,5 @@
 /**
- * IDECodexReviewView.tsx — §5.25 (N): 검증 칸의 **코덱스 대응물**(`codex review`).
+ * IDECodexReviewView.tsx — §5.25 (N): 공통 검증 뷰 안의 코드 리뷰 갈피(`codex review`).
  *
  * 클로드의 검증(§5.5 #17-35)과 자리는 같고 **묻는 것이 다르다** — 그쪽은 "앱을 띄워 돌려 보니
  * 되던가"(pass/fail/held 판정 · 시연 · 재시도)이고, 이쪽은 "**git 변경분에 문제가 있나**"이다.

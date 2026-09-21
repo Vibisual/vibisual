@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { useGraphStore, selectIDEPaneRenderOrderKeys } from '../../stores/graphStore.js';
 import { AgentIDEOverlay } from './AgentIDEOverlay.js';
 import { IDEPaneProvider } from './idePane.js';
+import { VerifyDemoLayer } from './VerifyDemoLayer.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — 지금 보고 있는 프로젝트의 IDE 창을 **전부** 그린다.
 //
@@ -23,6 +24,9 @@ export const IDEPaneHost = memo(function IDEPaneHost(): React.JSX.Element | null
   if (keys.length === 0) return null;
   return (
     <>
+      {/* 녹화 상태는 렌더러당 하나다. 창마다 호스트를 세우면 같은 시연을 여러 번 녹화한다.
+          활동바·IDE 창을 바꿔도 같은 녹화기와 시연 창이 이어진다. */}
+      <VerifyDemoLayer />
       {keys.map((paneKey, index) => (
         <IDEPaneProvider key={paneKey} paneKey={paneKey} index={index}>
           <AgentIDEOverlay />

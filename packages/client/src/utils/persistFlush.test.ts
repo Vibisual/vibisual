@@ -83,6 +83,29 @@ describe('flushAllPersisted', () => {
     expect(a).not.toHaveBeenCalled();
   });
 
+  it('저장과 진단이 함께 실패해도 뒤의 초안을 실제로 저장하고 호출 수를 반환한다', (): void => {
+    const store = memStorage();
+    const draft = '한글 日本語 中文 हिन्दी مرحبا e\u0301 👩🏽‍💻 <>&';
+    const failed = new Error('QuotaExceededError');
+    const errorLog = vi.spyOn(console, 'error').mockImplementation((): never => {
+      throw new Error('Diagnostic sink unavailable');
+    });
+    const before = persistFlushCount();
+    const first = vi.fn((): never => { throw failed; });
+    const second = vi.fn((): void => { store.setItem('pending-draft', draft); });
+    track(first);
+    track(second);
+    try {
+      expect(flushAllPersisted()).toBe(before + 2);
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledWith('[persistFlush] a flusher failed', failed);
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(store.getItem('pending-draft')).toBe(draft);
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
   it('여러 번 불려도 안전하다(규약 3 — before-quit 와 pagehide 가 겹칠 수 있다)', () => {
     const a = vi.fn();
     track(a);

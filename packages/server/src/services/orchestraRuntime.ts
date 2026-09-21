@@ -16,6 +16,7 @@ import {
   resolveOrchestraConductorPermission,
   resolveOrchestraMaxMembers,
   resolveOrchestraMemberEngine,
+  orchestraEnginePreparation,
 } from '@vibisual/shared';
 import type {
   AgentConfig,
@@ -23,8 +24,13 @@ import type {
   ExecutionMode,
   OrchestraRun,
   OrchestraSettings,
+  OrchestraPreparation,
+  OrchestraReadiness,
   QueuedCommand,
+  TaskEdge,
 } from '@vibisual/shared';
+import { DISPATCH_USER_STOPPED_PREFIX, isDispatchJobSucceeded } from './taskEdgeDispatchJobs.js';
+import type { DispatchJob } from './taskEdgeDispatchJobs.js';
 
 /** 지휘할 수 있는 엔진 — 로컬 모델은 빠진다(편성 절차가 Bash 로 loopback REST 를 치는 것을 전제로 한다). */
 export type OrchestraEngine = 'claude' | 'codex';
@@ -155,21 +161,42 @@ export function addOrchestraRunTokens(run: OrchestraRun, input: number, output: 
   return { ...run, inputTokens: run.inputTokens + i, outputTokens: run.outputTokens + o };
 }
 
+/** 같은 지휘 세션이 실제로 위임하고 끝난 결과를 받았는지 판정할 장부 증거. */
+export type OrchestraDispatchEvidence = Pick<DispatchJob,
+  'sourceAgentId' | 'targetAgentId' | 'requesterSubAgentId' | 'createdAt'
+  | 'status' | 'usageLimit' | 'deliveredAt' | 'cancelRequestedAt'>;
+
 /**
- * 지휘 턴이 끝났을 때 런 단계를 닫는다. 이 런의 지휘 명령이 아니면 같은 객체.
- * - 아직 `conducting` → 계획 신고 없이 끝났다. 실패면 `error`, 아니면 `unreported`(조용히 성공으로 그리지 않는다).
- * - 이미 신고했으면(`dispatched`·`answered`) 단계는 두고 `endedAt` 만 채운다.
+ * 지휘 턴의 끝을 정산한다. 계획 신고(`dispatched`)는 완료가 아니다 — 같은 세션이 이번 런에서
+ * 엔트리에 위임한 증거가 있고, 그 세션의 모든 위임 결과를 성공적으로 받은 뒤에만 `completed`다.
+ * 계획 신고 뒤의 실패·중지도 `error`로 닫는다. 첫 정산은 뒤늦게 온 콜백으로 뒤집지 않는다.
  */
 export function settleConductorTurn(
   run: OrchestraRun,
-  cmd: Pick<QueuedCommand, 'id' | 'status'>,
+  cmd: Pick<QueuedCommand, 'id' | 'status'> & Partial<Pick<QueuedCommand, 'subAgentId' | 'stopReason' | 'result'>>,
   now: number,
+  dispatchJobs: readonly OrchestraDispatchEvidence[] = [],
 ): OrchestraRun {
-  if (cmd.id !== run.commandId) return run;
-  if (run.phase === 'conducting') {
-    return { ...run, phase: cmd.status === 'error' ? 'error' : 'unreported', endedAt: run.endedAt ?? now };
+  if (cmd.id !== run.commandId || run.endedAt !== undefined) return run;
+  if (cmd.status !== 'completed' && cmd.status !== 'error') return run;
+  let phase = run.phase;
+  if (cmd.status === 'error'
+    || (cmd.stopReason !== undefined && cmd.stopReason !== 'end_turn')
+    || cmd.result?.startsWith(DISPATCH_USER_STOPPED_PREFIX)) {
+    phase = 'error';
+  } else if (phase === 'conducting') {
+    phase = 'unreported';
+  } else if (phase === 'dispatched') {
+    // 주인을 모르는 증거·다른 세션·이전 런의 결과로 이번 런을 성공시켜서는 안 된다.
+    const relevant = cmd.subAgentId ? dispatchJobs.filter((job) =>
+      job.sourceAgentId === run.agentId && job.requesterSubAgentId === cmd.subAgentId
+      && job.createdAt >= run.startedAt) : [];
+    const entryDispatched = !!run.plan?.entryAgentId
+      && relevant.some((job) => job.targetAgentId === run.plan?.entryAgentId);
+    phase = entryDispatched && relevant.every((job) => isDispatchJobSucceeded(job)
+      && job.deliveredAt !== undefined && job.cancelRequestedAt === undefined) ? 'completed' : 'error';
   }
-  return run.endedAt === undefined ? { ...run, endedAt: now } : run;
+  return { ...run, phase, endedAt: now };
 }
 
 /**
@@ -203,7 +230,49 @@ export function addOrchestraMember(run: OrchestraRun, agentId: string, created: 
 /** REST 가 그대로 돌려줄 판정. */
 export type OrchestraCheck =
   | { ok: true }
-  | { ok: false; status: number; error: string; limit?: number; current?: number };
+  | { ok: false; status: number; error: string; limit?: number; current?: number; ids?: string[]; preparation?: OrchestraPreparation };
+
+/**
+ * 신고한 멤버에게 실제 작업이 닿는가. 에이전트 존재·프로젝트 소유 검사는 라우트가 먼저 한다.
+ * command는 소스→대상, critique는 작업자 완료가 감시자를 부르므로 대상→소스로 따라간다.
+ * 반환·재작업 자매 엣지나 참가하지 않은 에이전트를 경유해 고립된 편성을 정상으로 보지 않는다.
+ */
+export function checkOrchestraPlanGraph(
+  run: OrchestraRun,
+  plan: NonNullable<OrchestraRun['plan']>,
+  reusedAgentIds: readonly string[],
+  edges: readonly Pick<TaskEdge, 'sourceAgentId' | 'targetAgentId' | 'kind' | 'bundleRole'>[],
+): OrchestraCheck {
+  if (plan.topology === 'none') return { ok: true };
+  const entry = plan.entryAgentId;
+  if (!entry) return { ok: false, status: 400, error: 'orchestra-entry-required' };
+  if (entry === run.agentId) return { ok: false, status: 400, error: 'orchestra-entry-conductor' };
+  const members = new Set([...run.memberAgentIds, ...reusedAgentIds, entry]);
+  members.delete(run.agentId);
+  const routes = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (edge.bundleRole !== undefined && edge.bundleRole !== 'primary') continue;
+    const kind = edge.kind ?? 'command';
+    if (kind !== 'command' && kind !== 'critique') continue;
+    const [source, target] = kind === 'critique'
+      ? [edge.targetAgentId, edge.sourceAgentId] : [edge.sourceAgentId, edge.targetAgentId];
+    if (!members.has(source) || !members.has(target)) continue;
+    const targets = routes.get(source) ?? [];
+    targets.push(target);
+    routes.set(source, targets);
+  }
+  const reached = new Set([entry]);
+  const pending = [entry];
+  for (let index = 0; index < pending.length; index++) {
+    for (const target of routes.get(pending[index]!) ?? []) {
+      if (reached.has(target)) continue;
+      reached.add(target);
+      pending.push(target);
+    }
+  }
+  const ids = [...members].filter((id) => !reached.has(id));
+  return ids.length ? { ok: false, status: 400, error: 'orchestra-plan-disconnected', ids } : { ok: true };
+}
 
 /** 킥오프(`POST /api/commands/:sessionId?orchestraRunId=`) 검사에 필요한 사정. */
 export interface OrchestraKickoffInput {
@@ -235,9 +304,10 @@ export function checkOrchestraKickoff(run: OrchestraRun | undefined, i: Orchestr
 export function orchestraMemberProviderAllowed(
   settings: OrchestraSettings | null | undefined,
   providerKind: AgentProviderKind | undefined,
+  conductorEngine: OrchestraEngine = 'claude',
 ): boolean {
   if (providerKind === 'local-llama') return false;
-  const engine = resolveOrchestraMemberEngine(settings);
+  const engine = resolveOrchestraMemberEngine(settings, conductorEngine);
   if (engine === 'claude') return providerKind === undefined;
   if (engine === 'codex') return providerKind === 'codex-cli';
   return providerKind === undefined || providerKind === 'codex-cli';
@@ -248,6 +318,7 @@ export interface OrchestraMemberCreateInput {
   /** 요청의 프로젝트가 런의 프로젝트와 같은가(`samePath`). 요청이 프로젝트를 안 밝혔으면 true. */
   sameProject: boolean;
   providerKind: AgentProviderKind | undefined;
+  readiness?: OrchestraReadiness;
 }
 
 /** 멤버 생성 검사 — 상한은 이 런이 **새로 만든** 수로 잰다(재사용은 자리를 깎지 않는다). */
@@ -259,8 +330,12 @@ export function checkOrchestraMemberCreate(
   if (!run) return { ok: false, status: 404, error: 'orchestra-run-not-found' };
   if (run.phase !== 'conducting') return { ok: false, status: 409, error: 'orchestra-run-settled' };
   if (!i.sameProject) return { ok: false, status: 400, error: 'orchestra-project-mismatch' };
-  if (!orchestraMemberProviderAllowed(settings, i.providerKind)) {
+  if (!orchestraMemberProviderAllowed(settings, i.providerKind, run.engine)) {
     return { ok: false, status: 400, error: 'orchestra-member-engine' };
+  }
+  if (i.readiness) {
+    const preparation = orchestraEnginePreparation(i.providerKind === 'codex-cli' ? 'codex' : 'claude', i.readiness);
+    if (preparation) return { ok: false, status: 409, error: 'orchestra-engine-not-ready', preparation };
   }
   const limit = resolveOrchestraMaxMembers(settings);
   const current = run.createdMemberCount ?? 0;
@@ -276,7 +351,8 @@ export function applyOrchestraPlan(
   now: number,
 ): OrchestraRun {
   const members = [...run.memberAgentIds];
-  for (const id of reusedAgentIds) if (id !== run.agentId && !members.includes(id)) members.push(id);
+  const participating = plan.entryAgentId ? [...reusedAgentIds, plan.entryAgentId] : reusedAgentIds;
+  for (const id of participating) if (id !== run.agentId && !members.includes(id)) members.push(id);
   return {
     ...run,
     plan,

@@ -12,6 +12,7 @@
  * 이 한 번으로 별창·오버레이·지휘통제실·내부 앱 창까지 전부 덮인다.
  */
 import { BrowserWindow, ipcMain, session } from 'electron';
+import { isVerificationWindow } from './verificationWindows';
 import {
   FLUSH_DRAFTS_REQUEST_CHANNEL,
   FLUSH_DRAFTS_DONE_CHANNEL,
@@ -30,7 +31,7 @@ function liveTargets(): FlushAckTarget[] {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
     const wc = win.webContents;
-    if (wc.isDestroyed() || wc.isCrashed()) continue;
+    if (wc.isDestroyed() || wc.isCrashed() || isVerificationWindow(wc.id)) continue;
     out.push({
       id: wc.id,
       send: (requestId: number) => wc.send(FLUSH_DRAFTS_REQUEST_CHANNEL, { requestId }),

@@ -49,6 +49,7 @@ import {
   type SessionLivenessVerdict,
 } from '@vibisual/shared';
 import { runClaudeCli } from './claudeCliRun.js';
+import { codexHome } from './codexCli.js';
 import { logger } from '../logger.js';
 
 /**
@@ -267,6 +268,65 @@ export interface TranscriptFacts {
  * 프로젝트 재등록으로 바뀔 수 있어서, cwd 로 슬러그를 계산하면 이주한 세션의 대화록을 놓친다.
  * 못 찾은 결과도 짧게 캐시한다 — 아직 첫 줄을 안 쓴 세션에 매 회차 디렉터리 스캔을 물리지 않게.
  */
+/** 대화록을 **어느 엔진 규칙으로** 찾을지. 엔진마다 파일이 놓이는 자리가 다르다. */
+export type ProbeTranscriptEngine = 'claude' | 'codex';
+
+/**
+ * 뿌리 경로는 전부 주입 가능해야 한다 — 시험이 사용자 홈을 건드리면 안 된다(멀티플랫폼 4축).
+ *
+ * `preferEngine` 은 **순서 힌트일 뿐 배제가 아니다**. 설정이 도중에 바뀐 세션(코덱스로 돌다가
+ * 클로드로 바뀐 경우 등)에서도 이전 대화록을 놓치지 않게, 먼저 본 규칙이 비면 나머지도 본다.
+ */
+export interface ResolveTranscriptOptions {
+  preferEngine?: ProbeTranscriptEngine;
+  codexSessionsRoot?: string;
+}
+
+/** 클로드 규칙: `<projectsRoot>/<슬러그>/<sessionId>.jsonl`. 슬러그를 몰라도 되게 전부 훑는다. */
+function findClaudeTranscript(sessionId: string, projectsRoot: string): TranscriptFacts | null {
+  let slugs: string[];
+  try { slugs = fs.readdirSync(projectsRoot); } catch { return null; }
+  for (const slug of slugs) {
+    const file = path.join(projectsRoot, slug, `${sessionId}.jsonl`);
+    try {
+      const st = fs.statSync(file);
+      if (st.isFile()) return { file, bytes: st.size, mtimeMs: st.mtimeMs };
+    } catch { /* 다음 후보 */ }
+  }
+  return null;
+}
+
+/**
+ * 코덱스 규칙: `<sessionsRoot>/<년>/<월>/<일>/rollout-...-<threadId>.jsonl`.
+ *
+ * 파일명이 threadId 로 **끝나는** 형태라 이름을 조립할 수 없다. `codexContext.ts` 가 쓰는
+ * 것과 **같은 깊이 3 걷기**를 그대로 쓴다(날짜 세 칸이 전부다 — 더 깊이 들어가지 않는다).
+ */
+function findCodexTranscript(threadId: string, sessionsRoot: string): TranscriptFacts | null {
+  if (!/^[a-zA-Z0-9-]+$/.test(threadId)) return null;
+  const suffix = `-${threadId}.jsonl`;
+  const walk = (dir: string, depth: number): TranscriptFacts | null => {
+    const entries = (() => {
+      try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+    })();
+    for (const entry of entries) {
+      const candidate = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name.endsWith(suffix)) {
+        try {
+          const st = fs.statSync(candidate);
+          return { file: candidate, bytes: st.size, mtimeMs: st.mtimeMs };
+        } catch { continue; }
+      }
+      if (entry.isDirectory() && depth < 3) {
+        const found = walk(candidate, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return walk(sessionsRoot, 0);
+}
+
 const transcriptCache = new Map<string, { facts: TranscriptFacts | null; at: number }>();
 const TRANSCRIPT_MISS_RETRY_MS = 30_000;
 
@@ -274,34 +334,42 @@ export function resolveSessionTranscript(
   sessionId: string,
   projectsRoot: string = path.join(os.homedir(), '.claude', 'projects'),
   now: number = Date.now(),
+  opts?: ResolveTranscriptOptions,
 ): TranscriptFacts | null {
   if (!sessionId) return null;
-  const hit = transcriptCache.get(sessionId);
+  // 뿌리가 다르면 다른 답이다 — 시험이 임시 폴더를 바꿔가며 불러도 앞 답이 새면 안 된다.
+  const key = `${opts?.preferEngine ?? 'auto'}|${projectsRoot}|${opts?.codexSessionsRoot ?? ''}|${sessionId}`;
+  const hit = transcriptCache.get(key);
   // 찾은 적이 있으면 경로는 그대로 두고 **크기·시각만 다시 잰다**(파일은 계속 자란다).
   if (hit?.facts) {
     try {
       const st = fs.statSync(hit.facts.file);
       const facts = { file: hit.facts.file, bytes: st.size, mtimeMs: st.mtimeMs };
-      transcriptCache.set(sessionId, { facts, at: now });
+      transcriptCache.set(key, { facts, at: now });
       return facts;
     } catch {
-      transcriptCache.delete(sessionId); // 지워졌다 — 아래에서 다시 찾는다
+      transcriptCache.delete(key); // 지워졌다 — 아래에서 다시 찾는다
     }
   } else if (hit && now - hit.at < TRANSCRIPT_MISS_RETRY_MS) {
     return null;
   }
 
-  let slugs: string[];
-  try { slugs = fs.readdirSync(projectsRoot); } catch { slugs = []; }
+  // §5.25 (F) — **엔진별 해석**. 코덱스 세션의 대화록은 `~/.claude/projects` 에 영영 없다.
+  //   여기가 비어 있던 동안 코덱스 세션은 생존 프로브 후보가 아예 될 수 없었다(6번째 축 부재).
+  const codexRoot = (): string => {
+    try { return opts?.codexSessionsRoot ?? path.join(codexHome(), 'sessions'); } catch { return ''; }
+  };
+  const lookups: Array<() => TranscriptFacts | null> = [
+    () => findClaudeTranscript(sessionId, projectsRoot),
+    () => { const root = codexRoot(); return root ? findCodexTranscript(sessionId, root) : null; },
+  ];
+  if (opts?.preferEngine === 'codex') lookups.reverse();
   let found: TranscriptFacts | null = null;
-  for (const slug of slugs) {
-    const file = path.join(projectsRoot, slug, `${sessionId}.jsonl`);
-    try {
-      const st = fs.statSync(file);
-      if (st.isFile()) { found = { file, bytes: st.size, mtimeMs: st.mtimeMs }; break; }
-    } catch { /* 다음 후보 */ }
+  for (const lookup of lookups) {
+    found = lookup();
+    if (found) break;
   }
-  transcriptCache.set(sessionId, { facts: found, at: now });
+  transcriptCache.set(key, { facts: found, at: now });
   // 세션 수만큼 커지는 맵이라 상한을 건다(§3.2.4 F′축).
   if (transcriptCache.size > 512) {
     for (const k of [...transcriptCache.keys()].slice(0, transcriptCache.size - 512)) transcriptCache.delete(k);

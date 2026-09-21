@@ -4,11 +4,13 @@ import { VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX } from '@v
 import {
   defaultDemoLabel,
   demoHasContent,
+  demoStepsInRange,
   demoSummaryParts,
   formatDemoTime,
   insertDemoStep,
   removeDemoStep,
 } from './verifyDemo.js';
+import { demoFrameTimes } from '../BubbleMap/playtestClip.js';
 
 // §5.5 #17-35 ⑨ — 시연 순수 계산.
 //
@@ -29,6 +31,12 @@ describe('formatDemoTime', () => {
 });
 
 describe('insertDemoStep', () => {
+  it('실행 동작과 판정 조건을 정렬·구간 저장 중에도 보존한다', () => {
+    const action = { kind: 'click' as const, selector: '#save' };
+    const check = { kind: 'text' as const, expected: 'Saved' };
+    const steps = insertDemoStep([], { atMs: 3000, text: 'Save', action, check });
+    expect(demoStepsInRange(steps, { startMs: 1000, endMs: 4000 })).toEqual([{ atMs: 2000, text: 'Save', action, check }]);
+  });
   it('입력 순서가 아니라 **시각 순서**로 꽂는다', () => {
     let steps = insertDemoStep([], { atMs: 5_000, text: '저장을 누른다' });
     steps = insertDemoStep(steps, { atMs: 1_000, text: '로그인한다' });
@@ -122,5 +130,22 @@ describe('demoHasContent', () => {
 describe('demoSummaryParts', () => {
   it('단계·그림 수를 그대로 센다', () => {
     expect(demoSummaryParts({ steps: [{ atMs: 0, text: 'a' }], frames: [] })).toEqual({ steps: 1, frames: 0 });
+  });
+});
+
+describe('시연 구간 변경', () => {
+  it('단계를 추가한 뒤 앞부분을 잘라도 같은 실제 프레임에 대응한다', () => {
+    const original = [{ atMs: 15_000, text: '저장 버튼을 누른다' }];
+    const range = { startMs: 10_000, endMs: 30_000 };
+    const steps = demoStepsInRange(original, range);
+    expect(steps).toEqual([{ atMs: 5_000, text: '저장 버튼을 누른다' }]);
+    expect(demoFrameTimes(range, 1, steps.map((step) => step.atMs))).toEqual([15_000]);
+    expect(original[0]!.atMs).toBe(15_000);
+  });
+
+  it('구간 밖 단계는 보내지 않고 구간을 다시 넓히면 원래 자리로 돌아온다', () => {
+    const original = [1_000, 10_000, 20_000, 29_000].map((atMs) => ({ atMs, text: String(atMs) }));
+    expect(demoStepsInRange(original, { startMs: 10_000, endMs: 20_000 }).map((step) => step.atMs)).toEqual([0, 10_000]);
+    expect(demoStepsInRange(original, { startMs: 0, endMs: 30_000 })).toEqual(original);
   });
 });

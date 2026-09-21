@@ -1,6 +1,8 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 // §6 — 저장 키를 여기서 정하지 않는다(사용자가 바꾸면 그대로 따라간다).
 import { useCommand } from '../../hooks/useCommand.js';
+import { isComposingKeyEvent, isInputComposing } from '../../utils/inputComposition.js';
+import { boundedTextSelection } from '../../utils/textInputSelection.js';
 import { highlightCode, type CodeLine } from './codeHighlight.js';
 import { TOKEN_CLASS } from './codeLanguages.js';
 import { applyDedent, applyIndent } from './editorModel.js';
@@ -143,7 +145,7 @@ export const CodeEditor = memo(function CodeEditor({
   const gutterRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 프로그램이 바꾼 본문의 커서 위치 — 값이 반영된 **뒤에** 넣어야 커서가 끝으로 튀지 않는다. */
-  const pendingSelection = useRef<{ start: number; end: number } | null>(null);
+  const pendingSelection = useRef<{ start: number; end: number; value: string } | null>(null);
   const [caretLine, setCaretLine] = useState(1);
 
   const lines = useMemo(() => highlightCode(text, language), [text, language]);
@@ -152,8 +154,10 @@ export const CodeEditor = memo(function CodeEditor({
     const el = textareaRef.current;
     const sel = pendingSelection.current;
     if (!el || !sel) return;
-    el.setSelectionRange(sel.start, sel.end);
     pendingSelection.current = null;
+    if (el.value !== sel.value || isInputComposing(el)) return;
+    const range = boundedTextSelection(el.value, sel.start, sel.end);
+    el.setSelectionRange(range.start, range.end);
   }, [text]);
 
   /** 줄 번호는 본문과 같은 스크롤을 따라야 한다 — 세로만 옮긴다(가로는 본문만 움직인다). */
@@ -190,13 +194,16 @@ export const CodeEditor = memo(function CodeEditor({
   // ─── §5.5 #17-27 ⑨ v4.97 우클릭 ────────────────────────────────────────────
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   /** 우클릭한 순간의 선택 범위 — 메뉴 버튼을 누르면 초점이 옮겨가므로 되돌려 놓고 조작한다. */
-  const menuSelection = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+  const menuSelection = useRef<{ start: number; end: number; value: string; field: HTMLTextAreaElement | null }>({ start: 0, end: 0, value: '', field: null });
 
   const focusWithSelection = useCallback((): HTMLTextAreaElement | null => {
     const el = textareaRef.current;
-    if (!el) return null;
+    const sel = menuSelection.current;
+    if (!el || !el.isConnected || sel.field !== el || el.value !== sel.value || isInputComposing(el)) return null;
     el.focus();
-    el.setSelectionRange(menuSelection.current.start, menuSelection.current.end);
+    if (!el.isConnected || textareaRef.current !== el || el.value !== sel.value || isInputComposing(el)) return null;
+    const range = boundedTextSelection(el.value, sel.start, sel.end);
+    el.setSelectionRange(range.start, range.end);
     return el;
   }, []);
 
@@ -209,10 +216,11 @@ export const CodeEditor = memo(function CodeEditor({
     const el = focusWithSelection();
     if (!el || readOnly) return;
     if (document.execCommand('insertText', false, insert)) return;
-    const { start, end } = menuSelection.current;
+    const { start, end } = boundedTextSelection(el.value, menuSelection.current.start, menuSelection.current.end);
     const caret = start + insert.length;
-    pendingSelection.current = { start: caret, end: caret };
-    onChange(`${el.value.slice(0, start)}${insert}${el.value.slice(end)}`);
+    const value = `${el.value.slice(0, start)}${insert}${el.value.slice(end)}`;
+    pendingSelection.current = { start: caret, end: caret, value };
+    onChange(value);
   }, [focusWithSelection, onChange, readOnly]);
 
   const menuActions = useMemo(() => ({
@@ -223,8 +231,8 @@ export const CodeEditor = memo(function CodeEditor({
       if (sel) void navigator.clipboard?.writeText(sel).catch(() => { /* 클립보드 거부는 조용히 */ });
     },
     cut: (): void => {
-      const el = textareaRef.current;
-      if (!el) return;
+      const el = focusWithSelection();
+      if (!el || readOnly) return;
       const sel = el.value.slice(menuSelection.current.start, menuSelection.current.end);
       if (!sel) return;
       void navigator.clipboard?.writeText(sel).catch(() => { /* 클립보드 거부는 조용히 */ });
@@ -232,26 +240,35 @@ export const CodeEditor = memo(function CodeEditor({
     },
     paste: (): void => {
       if (!navigator.clipboard?.readText) return;
+      const el = focusWithSelection();
+      if (!el || readOnly) return;
+      const sel = menuSelection.current;
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
       void navigator.clipboard.readText()
-        .then((clip) => { if (clip) replaceSelection(clip); })
+        .then((clip) => {
+          if (!clip || textareaRef.current !== el || !el.isConnected || menuSelection.current !== sel
+            || el.value !== sel.value || el.ownerDocument.activeElement !== el || isInputComposing(el)
+            || el.selectionStart !== start || el.selectionEnd !== end) return;
+          replaceSelection(clip);
+        })
         .catch(() => { /* 클립보드 거부는 조용히 */ });
     },
     selectAll: (): void => {
-      const el = textareaRef.current;
+      const el = focusWithSelection();
       if (!el) return;
-      el.focus();
       el.select();
     },
-    undo: (): void => { focusWithSelection(); document.execCommand('undo'); },
-    redo: (): void => { focusWithSelection(); document.execCommand('redo'); },
-  }), [focusWithSelection, replaceSelection]);
+    undo: (): void => { if (!readOnly && focusWithSelection()) document.execCommand('undo'); },
+    redo: (): void => { if (!readOnly && focusWithSelection()) document.execCommand('redo'); },
+  }), [focusWithSelection, replaceSelection, readOnly]);
 
   const handleBodyContextMenu = useCallback((e: React.MouseEvent<HTMLTextAreaElement>): void => {
     if (!buildBodyMenu) return;
     e.preventDefault();
     e.stopPropagation();
     const el = e.currentTarget;
-    menuSelection.current = { start: el.selectionStart, end: el.selectionEnd };
+    menuSelection.current = { start: el.selectionStart, end: el.selectionEnd, value: el.value, field: el };
     const before = el.value.slice(0, el.selectionStart);
     const line = before.split('\n').length;
     setMenu({
@@ -277,6 +294,7 @@ export const CodeEditor = memo(function CodeEditor({
   }, [buildGutterMenu]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (isComposingKeyEvent(e.nativeEvent)) return;
     const el = e.currentTarget;
 
     if (e.key === 'Tab' && !readOnly) {
@@ -284,7 +302,7 @@ export const CodeEditor = memo(function CodeEditor({
       const out = e.shiftKey
         ? applyDedent(el.value, el.selectionStart, el.selectionEnd)
         : applyIndent(el.value, el.selectionStart, el.selectionEnd);
-      pendingSelection.current = { start: out.selectionStart, end: out.selectionEnd };
+      pendingSelection.current = { start: out.selectionStart, end: out.selectionEnd, value: out.text };
       onChange(out.text);
     }
   }, [onChange, readOnly]);

@@ -135,6 +135,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         // 양쪽 원천에서 자랐고, 물린 것도 앵커도 있고, 순 재발이 저장고보다 많다(점진 공개 `repeating`).
         autoGoal: goal({
           skillCount: 20, candidateCount: 3, dismissedCount: 1, anchoredCount: 12,
+          activeCount: 15, reviewCount: 3, retiredCount: 2, revisionCount: 4, reuseCount: 6, skipCount: 2, failureCount: 1,
           fromCommand: 15, fromStep: 8, observed: 400, topRuns: 6, totalRuns: 120,
           recentSkillName: '릴리스 굽기',
         }),
@@ -298,6 +299,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         // 전부 굳었고 기다리는 것도 물린 것도 없다. 원천이 단계 쪽뿐이라 "밀어넣기만" 등급도 여기서 밟힌다.
         autoGoal: goal({
           skillCount: 12, fromStep: 12, observed: 50, topRuns: 1, totalRuns: 12,
+          activeCount: 12, reviewCount: 0, retiredCount: 0, revisionCount: 0, reuseCount: 3, skipCount: 0, failureCount: 0,
           recentSkillName: '테스트 돌리기',
         }),
         taskEdges: [edge({ id: 'te9', status: 'completed', forwardMode: 'manual', kind: 'command' })],
@@ -425,6 +427,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
          */
         autoGoal: goal({
           skillCount: 2_400, candidateCount: 100, dismissedCount: 30, anchoredCount: 900,
+          activeCount: 2_000, reviewCount: 380, retiredCount: 20, revisionCount: 40, reuseCount: 600, skipCount: 200, failureCount: 10,
           fromCommand: 2_000, fromStep: 500, observed: 9_000, topRuns: 9, totalRuns: 3_000,
           recentSkillName: '배포 점검',
         }),

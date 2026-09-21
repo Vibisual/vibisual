@@ -2,20 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  CODEX_AUTH_LOGIN_TERM_ID,
-  CODEX_AUTH_LOGIN_POLL_INTERVAL_MS,
   CODEX_AUTH_TERMINAL_REVEAL_MS,
-  DEFAULT_AGENT_CONFIG,
 } from '@vibisual/shared';
 import type { CodexAuthLoginMode } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
 import { LoginTerminal } from '../Auth/LoginTerminal.js';
-import { scanLoginOutput, type LoginScan } from '../Auth/loginOutput.js';
 import { hasProjectFolder, shouldSummonProjectFolder } from '../Auth/projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
+import { EngineIcon } from '../Engine/engineIcons.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { isCodexLoginGateOpen } from './codexGateFlow.js';
+import { useCodexLoginSession } from './useCodexLoginSession.js';
 
 const Z = 100_600;
 
@@ -54,19 +52,23 @@ export function CodexLoginWindow(): React.JSX.Element | null {
   const codexBinPath = useGraphStore((s) => s.codexSetup?.binPath);
 
   const [mode, setMode] = useState<CodexAuthLoginMode>('browser');
-  const [running, setRunning] = useState(false);
-  const [scan, setScan] = useState<LoginScan>({});
   const [code, setCode] = useState('');
   const [showTerminal, setShowTerminal] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [succeeded, setSucceeded] = useState(false);
-  const [loginCommand, setLoginCommand] = useState<string | undefined>(undefined);
-  /** PTY 출력 누적 — URL·코드 요구는 여러 청크에 걸쳐 온다. */
-  const bufferRef = useRef('');
+  const [copied, setCopied] = useState<'url' | 'device' | null>(null);
 
   const transport = useMemo(() => getTerminalTransport(), []);
-  const shouldOpen = isCodexLoginGateOpen({ auth, forced, dismissed, engineChoice });
+  const session = useCodexLoginSession(transport, refreshAuth, refreshModels);
+  const { running, checking, succeeded, scan, startError, terminal, start, stop, recheck, setSucceeded } = session;
+  const gateOpen = isCodexLoginGateOpen({ auth, forced, dismissed, engineChoice });
+  const shouldOpen = gateOpen || succeeded;
+  const copyOwner = useRef<string | null>(null);
+  copyOwner.current = running ? terminal?.termId ?? null : null;
+  useEffect(() => () => { copyOwner.current = null; }, []);
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(null), 1_500);
+    return () => clearTimeout(id);
+  }, [copied]);
   useOnboardingGate('login', shouldOpen);
 
   const projects = useGraphStore((s) => s.projects);
@@ -75,34 +77,19 @@ export function CodexLoginWindow(): React.JSX.Element | null {
 
   /** 로그인 PTY 종료 + 진행 상태 초기화. */
   const stopLogin = useCallback(() => {
-    setRunning(false);
-    setScan({});
+    copyOwner.current = null;
+    stop();
     setCode('');
     setShowTerminal(false);
-    bufferRef.current = '';
-    void transport?.kill(CODEX_AUTH_LOGIN_TERM_ID).catch(() => {});
-  }, [transport]);
+    setCopied(null);
+  }, [stop]);
 
   // 창이 닫히면 진행 중이던 PTY 도 정리한다(뒤에 유령 프로세스가 남지 않게).
   useEffect(() => {
-    if (!shouldOpen && running) stopLogin();
-  }, [shouldOpen, running, stopLogin]);
-
-  // 진행 중 상태 폴링 — 브라우저에서 승인이 끝나는 순간을 잡는다.
-  useEffect(() => {
-    if (!running || succeeded) return;
-    const id = setInterval(() => {
-      void refreshAuth().then((next) => {
-        if (next?.loggedIn) {
-          setSucceeded(true);
-          stopLogin();
-          // 로그인해야 읽히는 모델도 있다 — 성공한 자리에서 목록을 한 번 다시 읽는다.
-          void refreshModels();
-        }
-      });
-    }, CODEX_AUTH_LOGIN_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [running, succeeded, refreshAuth, stopLogin, refreshModels]);
+    // A status refresh may close the automatic gate before its promise resolves.
+    // Let the active attempt finish its confirmed-success handoff in that case.
+    if (!gateOpen && !auth?.loggedIn && running) stopLogin();
+  }, [gateOpen, auth?.loggedIn, running, stopLogin]);
 
   /** 이 창이 닫히며 **다음 칸(프로젝트 폴더)으로 넘긴다.** 클로드 로그인 창과 같은 인계다. */
   const handOffToProjectFolder = useCallback(() => {
@@ -125,78 +112,41 @@ export function CodexLoginWindow(): React.JSX.Element | null {
 
   // URL 을 제때 못 찾으면 터미널을 펼친다 — 우리가 모르는 프롬프트가 떠도 직접 응답할 수 있게.
   useEffect(() => {
-    if (!running || showTerminal) return;
+    if (!running || checking || showTerminal) return;
     const id = setTimeout(() => {
-      setScan((prev) => {
-        if (!prev.url) setShowTerminal(true);
-        return prev;
-      });
+      if (!scan.url || (mode === 'device' && !scan.deviceCode)) setShowTerminal(true);
     }, CODEX_AUTH_TERMINAL_REVEAL_MS);
     return () => clearTimeout(id);
-  }, [running, showTerminal]);
-
-  // PTY 출력 구독 — 이 로그인 터미널의 바이트만 훑는다.
-  useEffect(() => {
-    if (!transport || !running) return;
-    const off = transport.onData(({ termId, data }) => {
-      if (termId !== CODEX_AUTH_LOGIN_TERM_ID) return;
-      bufferRef.current = (bufferRef.current + data).slice(-16_000);
-      setScan(scanLoginOutput(bufferRef.current));
-    });
-    return off;
-  }, [transport, running]);
+  }, [running, checking, showTerminal, scan.url, scan.deviceCode, mode]);
 
   const handleStart = useCallback(async () => {
-    if (!transport) {
-      setStartError('no-transport');
-      return;
-    }
-    setStartError(null);
-    setScan({});
     setCode('');
-    bufferRef.current = '';
+    setShowTerminal(false);
+    setCopied(null);
     const bin = codexBinPath && codexBinPath.length > 0 ? codexBinPath : 'codex';
-    const args = [/\s/.test(bin) ? `"${bin}"` : bin, 'login'];
-    // 기기 코드 방식은 브라우저를 못 띄우는 환경(원격 세션 등)을 위한 갈래다.
-    if (mode === 'device') args.push('--device-auth');
-    const command = args.join(' ');
-    setLoginCommand(command);
-    const res = await transport.create({
-      termId: CODEX_AUTH_LOGIN_TERM_ID,
-      // 로그인은 프로젝트와 무관 — cwd 는 셸이 홈으로 떨어지게 빈 값을 준다.
-      cwd: '',
-      config: DEFAULT_AGENT_CONFIG,
-      cols: 100,
-      rows: 24,
-      command,
-      autoRun: true,
-    }).catch(() => ({ ok: false, error: 'create-failed' }));
-    if (!res.ok) {
-      setStartError(res.error ?? 'create-failed');
-      return;
-    }
-    setRunning(true);
-  }, [transport, mode, codexBinPath]);
+    await start(bin, mode);
+  }, [start, mode, codexBinPath]);
 
   const handleSendCode = useCallback(() => {
     const value = code.trim();
-    if (!value || !transport) return;
-    void transport.write(CODEX_AUTH_LOGIN_TERM_ID, `${value}\r`).catch(() => {});
+    if (!value || !transport || !terminal || !running || mode === 'device') return;
+    void transport.write(terminal.termId, `${value}\r`).catch(() => {});
     setCode('');
-  }, [code, transport]);
+  }, [code, transport, terminal, running, mode]);
 
   const handleOpenUrl = useCallback(() => {
     if (!scan.url) return;
     window.open(scan.url, '_blank', 'noopener,noreferrer');
   }, [scan.url]);
 
-  const handleCopyUrl = useCallback(() => {
-    if (!scan.url) return;
-    void navigator.clipboard.writeText(scan.url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1_500);
+  const handleCopy = useCallback((kind: 'url' | 'device') => {
+    const value = kind === 'url' ? scan.url : scan.deviceCode;
+    const owner = copyOwner.current;
+    if (!value || !owner) return;
+    void navigator.clipboard?.writeText(value).then(() => {
+      if (copyOwner.current === owner) setCopied(kind);
     }).catch(() => {});
-  }, [scan.url]);
+  }, [scan.url, scan.deviceCode]);
 
   if (!shouldOpen) return null;
 
@@ -209,10 +159,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
           style={{ boxShadow: '0 0 0 1px rgba(16,185,129,0.2), 0 25px 50px -12px rgba(0,0,0,0.85), 0 0 40px -8px rgba(16,185,129,0.4)' }}
         >
           <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">
-            <svg viewBox="0 0 24 24" className="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 18l6-6-6-6" />
-              <path d="M8 6l-6 6 6 6" />
-            </svg>
+            <EngineIcon kind="codex" className="h-5 w-5 text-emerald-400" />
             <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-gray-100">
               {t('panel.codexLogin.title', { defaultValue: 'Sign in to Codex' })}
             </h3>
@@ -282,10 +229,10 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                           </button>
                           <button
                             type="button"
-                            onClick={handleCopyUrl}
+                            onClick={() => handleCopy('url')}
                             className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
                           >
-                            {copied
+                            {copied === 'url'
                               ? t('panel.codexLogin.copied', { defaultValue: 'Copied' })
                               : t('panel.codexLogin.copyUrl', { defaultValue: 'Copy link' })}
                           </button>
@@ -295,11 +242,42 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                     ) : (
                       <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/60 px-3.5 py-3 text-[13px] text-gray-400">
                         <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                        {t('panel.codexLogin.starting', { defaultValue: 'Starting sign-in…' })}
+                        {checking
+                          ? t('panel.codexLogin.checking', { defaultValue: 'Checking sign-in…' })
+                          : t('panel.codexLogin.starting', { defaultValue: 'Starting sign-in…' })}
                       </div>
                     )}
 
-                    {scan.wantsCode && (
+                    {mode === 'device' && !checking && (
+                      <div className="flex flex-col gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-3">
+                        <p className="text-[13px] text-emerald-200">
+                          {t('panel.codexLogin.deviceCodePrompt', { defaultValue: 'Enter this code on the sign-in page in your browser.' })}
+                        </p>
+                        {scan.deviceCode ? (
+                          <div className="flex flex-wrap items-center gap-3">
+                            <code className="select-all font-mono text-lg font-semibold tracking-wider text-gray-100">{scan.deviceCode}</code>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy('device')}
+                              className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 hover:text-white"
+                            >
+                              {copied === 'device'
+                                ? t('panel.codexLogin.copied', { defaultValue: 'Copied' })
+                                : t('panel.codexLogin.copyDeviceCode', { defaultValue: 'Copy code' })}
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[12px] text-gray-400">
+                            {t('panel.codexLogin.deviceCodeWaiting', { defaultValue: 'Waiting for the device code…' })}
+                          </p>
+                        )}
+                        <p className="text-[12px] text-gray-400">
+                          {t('panel.codexLogin.deviceCodeHelp', { defaultValue: 'Device code login must be enabled in your ChatGPT security settings or workspace permissions. If unavailable, try browser sign-in.' })}
+                        </p>
+                      </div>
+                    )}
+
+                    {mode !== 'device' && scan.wantsCode && (
                       <div className="flex flex-col gap-1.5 rounded-lg border border-gray-700 bg-gray-950/60 px-3.5 py-3">
                         <span className="text-[12px] text-gray-300">
                           {t('panel.codexLogin.codePrompt', { defaultValue: 'Paste the code shown in your browser.' })}
@@ -324,11 +302,12 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                       </div>
                     )}
 
-                    {scan.failed && (
-                      <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
-                        {t('panel.codexLogin.failed', { defaultValue: 'Sign-in did not complete. Check the terminal below and try again.' })}
-                      </div>
-                    )}
+                  </div>
+                )}
+
+                {scan.failed && (
+                  <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
+                    {t('panel.codexLogin.ended', { defaultValue: 'Sign-in ended before it completed. Try again, or choose another sign-in method.' })}
                   </div>
                 )}
 
@@ -346,7 +325,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                 )}
 
                 {/* 터미널 폴백 — 우리가 못 알아본 프롬프트가 떠도 여기서 직접 응답한다. */}
-                {running && (
+                {running && !checking && (
                   <div className="flex flex-col gap-1.5">
                     <button
                       type="button"
@@ -358,7 +337,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                       </svg>
                       {t('panel.codexLogin.showTerminal', { defaultValue: 'Terminal' })}
                     </button>
-                    {showTerminal && <LoginTerminal termId={CODEX_AUTH_LOGIN_TERM_ID} command={loginCommand} />}
+                    {showTerminal && terminal && <LoginTerminal termId={terminal.termId} command={terminal.command} env={terminal.env} />}
                   </div>
                 )}
               </>
@@ -369,7 +348,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
             <div className="flex items-center justify-between gap-2 border-t border-gray-800 px-4 py-3">
               <button
                 type="button"
-                onClick={() => { void refreshAuth(); }}
+                onClick={() => { void recheck(); }}
                 className="text-[12px] text-gray-500 transition-colors hover:text-gray-300"
               >
                 {t('panel.codexLogin.recheck', { defaultValue: 'Check again' })}
@@ -399,7 +378,9 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                     onClick={() => { void handleStart(); }}
                     className="rounded-md bg-emerald-600 px-4 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-emerald-500"
                   >
-                    {t('panel.codexLogin.start', { defaultValue: 'Sign in' })}
+                    {scan.failed || startError
+                      ? t('panel.codexLogin.retry', { defaultValue: 'Try again' })
+                      : t('panel.codexLogin.start', { defaultValue: 'Sign in' })}
                   </button>
                 )}
               </div>

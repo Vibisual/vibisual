@@ -13,11 +13,10 @@
  *    위층에서 눌러도 스위치가 안 움직여 고장으로 보인다(그것이 종전의 "동작을 안 한다"였다).
  *  · 못 끄는 줄은 잠긴 채로 이유를 말한다 — 끌 수 있는 척하지 않는다.
  */
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ContextInventory, ContextScopeLevel, ContextSourceItem } from '@vibisual/shared';
 import { CONTEXT_SCOPE_LEVELS } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { InfoTooltip } from '../Layout/InfoTooltip.js';
@@ -32,6 +31,7 @@ import {
 } from './contextInventoryView.js';
 import { useContextAbout } from './useContextAbout.js';
 import { IDEContextSourceDialog } from './IDEContextSourceDialog.js';
+import { readContextInventory, resetContextOverrides, writeContextOverride } from './contextInventoryApi.js';
 import {
   CONTEXT_SCOPE_TAB_KEY,
   lowerOverrideLevels,
@@ -209,90 +209,102 @@ const SourceRow = memo(function SourceRow({
 });
 
 export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Element {
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId) ?? null;
+  const [scope, setScope] = useState<ContextScopeLevel>('project');
+  useEffect(() => {
+    if (!activeSessionId && scope === 'session') setScope('agent');
+  }, [activeSessionId, scope]);
+  // A previous tab's pending responses must not replace this tab's inventory or errors.
+  return <ContextInventoryPane key={JSON.stringify([agentId, activeSessionId])} agentId={agentId} activeSessionId={activeSessionId} scope={scope} setScope={setScope} />;
+}
+
+function ContextInventoryPane({ agentId, activeSessionId, scope, setScope }: {
+  agentId: string;
+  activeSessionId: string | null;
+  scope: ContextScopeLevel;
+  setScope: (scope: ContextScopeLevel) => void;
+}): React.JSX.Element {
   const { t } = useTranslation();
-  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const [inventory, setInventory] = useState<ContextInventory | null>(null);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<ContextSortKey>('category');
   const [desc, setDesc] = useState(true);
-  const [scope, setScope] = useState<ContextScopeLevel>('project');
   const [busy, setBusy] = useState(false);
-  /** §5.5 #17-28 ⑦ — 상세창은 **id 로** 연다. 목록을 다시 재면 항목 객체는 새것이 되므로 붙들면 낡는다. */
+  const [errorKey, setErrorKey] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const alive = useRef(false);
+  const requestId = useRef(0);
+  const mutating = useRef(false);
 
-  /** 열 때마다·세션이 바뀔 때마다 다시 잰다 — 이 창을 여는 순간이 곧 "지금" 을 묻는 순간이다. */
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; requestId.current += 1; };
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!agentId) return;
+    const request = ++requestId.current;
     setLoading(true);
     try {
-      const url = `/api/context-inventory/${encodeURIComponent(agentId)}${activeSessionId ? `?sub=${encodeURIComponent(activeSessionId)}` : ''}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(String(res.status));
-      setInventory((await res.json()) as ContextInventory);
+      const next = await readContextInventory(agentId, activeSessionId);
+      if (alive.current && request === requestId.current) {
+        setInventory(next);
+        setErrorKey((previous) => previous === 'ide.context.loadError' ? null : previous);
+      }
     } catch {
-      setInventory(null);
+      if (alive.current && request === requestId.current) setErrorKey((previous) => previous ?? 'ide.context.loadError');
     } finally {
-      setLoading(false);
+      if (alive.current && request === requestId.current) setLoading(false);
     }
   }, [agentId, activeSessionId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // 세션 탭이 없으면 걸 곳이 없으므로 한 칸 위(에이전트 층)로 되돌린다(빈 세션 키로 저장되는 일 방지).
-  //   프로젝트까지 올리지 않는 것은, 사용자가 좁게 걸려던 뜻을 필요 이상으로 넓히지 않기 위함이다.
-  useEffect(() => {
-    if (!activeSessionId && scope === 'session') setScope('agent');
-  }, [activeSessionId, scope]);
-
   const handleToggle = useCallback(async (item: ContextSourceItem, next: boolean) => {
-    if (!agentId) return;
-    // 세션 층을 고른 채 탭이 없으면 걸 자리가 없다 — 조용히 프로젝트에 걸지 않고 아무것도 안 한다.
+    if (!agentId || mutating.current || loading) return;
     if (scope === 'session' && !activeSessionId) return;
+    mutating.current = true;
+    requestId.current += 1;
     setBusy(true);
-    // 낙관 반영 — 누른 즉시 **고른 층의** 값과 그 아래로 물려받는 층들이 함께 움직인다
-    //   (서버 응답 뒤 실측으로 덮어쓴다). 아래층이 자기 값을 들고 있으면 그 층은 그대로 둔다.
+    setErrorKey(null);
+    const previous = inventory;
+    // Update the selected layer and only the lower layers that inherit from it.
     setInventory((prev) => prev && ({
       ...prev,
       items: prev.items.map((i) => (i.id === item.id ? optimisticScopeChange(i, scope, next) : i)),
     }));
     try {
-      await fetch(`/api/context-overrides/${encodeURIComponent(agentId)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceId: item.id,
-          // **물려받을 값**과 같아지면 이 층의 명시값을 지운다(= 다시 위층을 따라간다).
-          //   기본값과 비교하던 종전 규칙은 "프로젝트에서 끈 줄을 세션에서 다시 켜기"를 통째로
-          //   삼켰다 — 켜자마자 명시값이 지워져 프로젝트의 끔으로 굴러떨어졌다.
-          enabled: nextOverrideValue(item, scope, next),
-          scope,
-          ...(activeSessionId ? { subAgentId: activeSessionId } : {}),
-        }),
-      });
+      await writeContextOverride(agentId, activeSessionId, scope, item.id, nextOverrideValue(item, scope, next));
     } catch {
-      /* 실패해도 아래 refresh 가 실측으로 되돌린다 */
+      if (alive.current) {
+        setInventory(previous);
+        setErrorKey('ide.context.saveError');
+      }
     } finally {
-      setBusy(false);
-      void refresh();
+      if (alive.current) await refresh();
+      if (alive.current) setBusy(false);
+      mutating.current = false;
     }
-  }, [agentId, scope, activeSessionId, refresh]);
+  }, [agentId, scope, activeSessionId, refresh, inventory, loading]);
 
-  /** 고른 층만 비운다 — 위층은 그대로고, 그 층은 다시 위를 따라간다. */
   const handleReset = useCallback(async () => {
-    if (!agentId) return;
+    if (!agentId || mutating.current || loading) return;
     if (scope === 'session' && !activeSessionId) return;
+    mutating.current = true;
+    requestId.current += 1;
     setBusy(true);
+    setErrorKey(null);
     try {
-      const q = `?scope=${scope}${activeSessionId ? `&sub=${encodeURIComponent(activeSessionId)}` : ''}`;
-      await fetch(`/api/context-overrides/${encodeURIComponent(agentId)}${q}`, { method: 'DELETE' });
+      await resetContextOverrides(agentId, activeSessionId, scope);
     } catch {
-      /* 무시 — refresh 가 진실을 다시 가져온다 */
+      if (alive.current) setErrorKey('ide.context.saveError');
     } finally {
-      setBusy(false);
-      void refresh();
+      if (alive.current) await refresh();
+      if (alive.current) setBusy(false);
+      mutating.current = false;
     }
-  }, [agentId, scope, activeSessionId, refresh]);
+  }, [agentId, scope, activeSessionId, refresh, loading]);
 
   const handleOpenDetail = useCallback((item: ContextSourceItem) => setDetailId(item.id), []);
 
@@ -320,7 +332,8 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
         <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.context.title')}</span>
         <button
           type="button"
-          onClick={() => { void refresh(); }}
+          disabled={busy || loading}
+          onClick={() => { setErrorKey(null); void refresh(); }}
           title={t('ide.context.refresh')}
           aria-label={t('ide.context.refresh')}
           className="ml-auto flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
@@ -330,6 +343,9 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
           </svg>
         </button>
       </div>
+
+      <p className="px-0.5 text-[12px] leading-snug text-gray-500">{t('ide.context.futureOnly')}</p>
+      {errorKey && <p role="alert" className="px-0.5 text-[12px] leading-snug text-amber-300">{t(errorKey)}</p>}
 
       {/* 합계 — "이 층에서 보면 얼마짜리인가" 한 줄. 최종값과 다르면 그것도 함께 말한다. */}
       <div className="flex items-baseline gap-1 rounded bg-gray-800/60 px-2 py-1">
@@ -354,7 +370,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
             <button
               key={s}
               type="button"
-              disabled={!selectable}
+              disabled={!selectable || busy || loading}
               onClick={() => setScope(s)}
               title={selectable ? t(`ide.context.scopeTabHint.${s}`) : t('ide.context.scopeTabNoSession')}
               className={`min-w-0 flex-1 truncate rounded px-1 py-1 text-[12px] font-semibold transition-colors ${
@@ -377,6 +393,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
         <button
           type="button"
           onClick={() => { void handleReset(); }}
+          disabled={busy || loading || !inventory}
           title={t('ide.context.reset', { scope: t(`ide.context.scope.${scope}`) })}
           aria-label={t('ide.context.reset', { scope: t(`ide.context.scope.${scope}`) })}
           className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
@@ -428,13 +445,13 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
                 {t(CONTEXT_CATEGORY_LABEL_KEY[g.category] ?? g.category)}
               </div>
               <ul className="flex flex-col">
-                {g.items.map((i) => <SourceRow key={i.id} item={i} scope={scope} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy} />)}
+                {g.items.map((i) => <SourceRow key={i.id} item={i} scope={scope} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy || loading} />)}
               </ul>
             </div>
           ))
           : (
             <ul className="flex flex-col">
-              {visible.map((i) => <SourceRow key={i.id} item={i} scope={scope} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy} />)}
+              {visible.map((i) => <SourceRow key={i.id} item={i} scope={scope} onToggle={handleToggle} onOpenDetail={handleOpenDetail} busy={busy || loading} />)}
             </ul>
           )}
         {visible.length === 0 && (
@@ -446,12 +463,14 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
 
       {detailItem && (
         <IDEContextSourceDialog
+          key={detailItem.id}
+          errorKey={errorKey}
           agentId={agentId}
           subAgentId={activeSessionId ?? undefined}
           item={detailItem}
           scope={scope}
           onToggle={handleToggle}
-          busy={busy}
+          busy={busy || loading}
           onClose={() => setDetailId(null)}
         />
       )}

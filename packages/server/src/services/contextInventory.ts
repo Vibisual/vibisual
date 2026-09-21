@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathKey } from './pathKey.js';
+import { readCodexContextSources } from './codexContextSources.js';
 import type {
   AgentConfig,
   ContextInventory,
@@ -283,6 +284,10 @@ export interface InventoryInput {
   memoryDir?: string;
   /** 테스트 주입용 홈 디렉터리. */
   home?: string;
+  /** Test-only Codex configuration home; production follows CODEX_HOME. */
+  codexHome?: string;
+  /** Native turn overrides only apply to CLI processes launched by Vibisual. */
+  managed?: boolean;
 }
 
 /** 우리 조립 블록의 i18n 키 — 화면 제목이자 "이게 무엇인지"의 유일한 표기. */
@@ -292,6 +297,8 @@ const PART_LABEL_KEYS: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.edges]: 'ide.context.src.edges',
   [CONTEXT_SOURCE_IDS.feedback]: 'ide.context.src.feedback',
   [CONTEXT_SOURCE_IDS.intentFirst]: 'ide.context.src.intentFirst',
+  [CONTEXT_SOURCE_IDS.compactSelf]: 'ide.context.src.compactSelf',
+  [CONTEXT_SOURCE_IDS.compactRecovery]: 'ide.context.src.compactRecovery',
   [CONTEXT_SOURCE_IDS.cardCommon]: 'ide.context.src.cardCommon',
   [CONTEXT_SOURCE_IDS.cardReport]: 'ide.context.src.cardReport',
   [CONTEXT_SOURCE_IDS.cardQuestion]: 'ide.context.src.cardQuestion',
@@ -350,7 +357,7 @@ export function buildContextInventory(input: InventoryInput): ContextInventory {
   const push = (item: Omit<ContextSourceItem, 'enabled' | 'overrideScope' | 'scopeStates' | 'scopeOverrides'>): void => {
     const resolved = resolveContextEnabled(input.overrides, scopeKeys, item.id, item.defaultEnabled);
     // 못 끄는 줄(`none`)은 오버라이드를 아예 태우지 않는다 — 끌 수 있는 척하지 않는다(③).
-    if (item.control === 'none') {
+    if (item.control === 'none' || item.control === 'external') {
       items.push({ ...item, enabled: item.defaultEnabled });
       return;
     }
@@ -386,6 +393,17 @@ export function buildContextInventory(input: InventoryInput): ContextInventory {
     });
   }
 
+  // Native sources must describe the engine that will receive this prompt.
+  if (input.agentConfig?.provider?.kind === 'codex-cli') {
+    const nativeTurnControl = input.managed !== false && input.agentConfig.executionMode !== 'interactive-terminal';
+    for (const source of readCodexContextSources(input.cwd, {
+      ...(input.codexHome ? { home: input.codexHome } : {}),
+      ...(input.home ? { userHome: input.home } : {}),
+    })) push(source.control === 'spawn' && !nativeTurnControl
+      ? { ...source, control: 'external', hintKey: 'ide.context.hint.codexExternalSession' }
+      : source);
+    return inventoryFromItems(input, items);
+  }
   // ② 지시 파일 (CLAUDE.md 계열).
   const instr = scanInstructionFiles(input.projectPath, input.cwd, home);
   const instrSum = sumChildren(instr);
@@ -563,6 +581,10 @@ export function buildContextInventory(input: InventoryInput): ContextInventory {
     defaultEnabled: true,
   });
 
+  return inventoryFromItems(input, items);
+}
+
+function inventoryFromItems(input: InventoryInput, items: ContextSourceItem[]): ContextInventory {
   let totalTokens = 0;
   let enabledTokens = 0;
   for (const it of items) {

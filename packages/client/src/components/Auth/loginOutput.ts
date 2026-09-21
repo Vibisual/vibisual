@@ -14,6 +14,8 @@ export interface LoginScan {
   url?: string;
   /** "코드를 붙여넣어라" 프롬프트가 떴는가. */
   wantsCode?: boolean;
+  /** CLI 에 표시되어 브라우저에 입력할 기기 코드. stdin 으로 보내는 코드와 다르다. */
+  deviceCode?: string;
   /** 성공 문구가 보였는가 (보조 신호 — 확정은 status 재조회). */
   succeeded?: boolean;
   /** 실패/취소 문구가 보였는가. */
@@ -85,7 +87,8 @@ export function stripAnsi(raw: string): string {
 
 /** 줄바꿈으로 잘린 URL 잇기 — 쿼리스트링 도중에 끊긴 줄만 이어 붙인다. */
 function joinWrapped(text: string): string {
-  return text.replace(/\r/g, '\n').replace(/([?&=/][^\s]*)\n(?=[^\s])/g, '$1');
+  // 경로 뒤의 평범한 안내문까지 URL 에 붙이면 /deviceError 같은 주소가 된다.
+  return text.replace(/\r\n?/g, '\n').replace(/(https?:\/\/[^\s]*\?[^\s]*)\n(?=[^\s]*[=&][^\s]*(?:\n|$))/g, '$1');
 }
 
 const URL_RE = /https?:\/\/[^\s"'<>)\]}]+/g;
@@ -93,15 +96,16 @@ const URL_RE = /https?:\/\/[^\s"'<>)\]}]+/g;
 // §5.25 (E) — 코덱스도 같은 스캐너를 쓴다. 스캐너를 두 벌로 만들면 한쪽만 고쳐지는 날이 온다.
 const URL_PREFERRED = /(oauth|authorize|login|device|claude\.ai|console\.anthropic\.com|openai\.com|chatgpt\.com)/i;
 const CODE_RE = /(paste[^\n]*code|enter[^\n]*code|authorization code|code\s*(?:here)?\s*[:>])/i;
-const SUCCESS_RE = /(login successful|logged in|signed in|authentication successful|you are now logged)/i;
-const FAILED_RE = /(login failed|authentication failed|sign[- ]?in failed|invalid code|cancell?ed|timed out)/i;
+const SUCCESS_RE = /(login successful|successfully logged in|(?<!not )logged in|signed in|authentication successful|you are now logged)/i;
+const FAILED_RE = /(login failed|authentication failed|sign[- ]?in failed|error logging in|invalid code|cancell?ed|timed out|(?:code|token|request|authorization)[^\n]*\bexpired\b|expired_token|access_denied|^\s*error:)/im;
+const DEVICE_PROMPT_RE = /(?:one[- ]time|device) code[^\n]*\n(?:[ \t]*\n)*[ \t]*([A-Z0-9]{4}-[A-Z0-9]{4})\b|(?:one[- ]time|device) code[ \t]*:[ \t]*([A-Z0-9]{4}-[A-Z0-9]{4})\b/gi;
 
 /** 끝의 구두점은 URL 이 아니라 문장 부호일 때가 많다. */
 function trimTrailing(url: string): string {
   return url.replace(/[.,;:'"]+$/, '');
 }
 
-export function scanLoginOutput(raw: string): LoginScan {
+export function scanLoginOutput(raw: string, options: { deviceAuth?: boolean } = {}): LoginScan {
   const text = joinWrapped(stripAnsi(raw));
   const scan: LoginScan = {};
 
@@ -111,12 +115,19 @@ export function scanLoginOutput(raw: string): LoginScan {
     const preferred = [...urls].reverse().find((u) => URL_PREFERRED.test(u));
     scan.url = preferred ?? urls[urls.length - 1];
   }
-  if (CODE_RE.test(text)) scan.wantsCode = true;
+  const deviceAuth = options.deviceAuth || /https?:\/\/[^\s]*\/codex\/device\b/i.test(text);
+  if (deviceAuth) {
+    const codes = [...text.matchAll(DEVICE_PROMPT_RE)];
+    const latest = codes[codes.length - 1];
+    if (latest) scan.deviceCode = latest[1] ?? latest[2];
+  } else if (CODE_RE.test(text)) scan.wantsCode = true;
   if (SUCCESS_RE.test(text)) scan.succeeded = true;
   if (FAILED_RE.test(text)) scan.failed = true;
   // 성공 문구가 실패 흔적보다 뒤에 나왔으면(재시도 성공) 실패 표시는 지운다.
   if (scan.succeeded && scan.failed) {
-    if (text.search(SUCCESS_RE) > text.search(FAILED_RE)) delete scan.failed;
+    const lastSuccess = [...text.matchAll(new RegExp(SUCCESS_RE, 'gi'))].at(-1)?.index ?? -1;
+    const lastFailure = [...text.matchAll(new RegExp(FAILED_RE, 'gim'))].at(-1)?.index ?? -1;
+    if (lastSuccess > lastFailure) delete scan.failed;
   }
   return scan;
 }

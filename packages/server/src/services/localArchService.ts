@@ -93,7 +93,9 @@ export function recordArchVerdict(build: string, arch: string, verdict: 'ok' | '
 export function getArchVerdict(build: string, arch: string | null): ArchVerdict {
   if (!arch) return 'unknown';
   const measured = readVerdicts()[build]?.[arch];
-  if (measured) return measured;
+  // Legacy automatic checks promoted one file's failure to a whole model family.
+  // A successful run proves support; those negative entries have no such evidence.
+  if (measured === 'ok') return measured;
   if (arch in MEASURED_BROKEN) return 'broken';
   return 'unknown';
 }

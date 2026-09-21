@@ -1,35 +1,28 @@
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SESSION_NO_RESPONSE_MS } from '@vibisual/shared';
 import type {
   BackgroundTaskProbeResult, BackgroundTaskVerdict, FinishedSubagentTask, RunningSubagentTask,
 } from '@vibisual/shared';
 import { taskKindKey } from './runningSubagents.js';
+// §2.4 (무응답) — 경과 표기는 `elapsed.ts` 가 단독 소유한다(스트림 인디케이터와 공유).
+export { formatElapsed, formatClock } from './elapsed.js';
+import { formatClock, formatElapsed } from './elapsed.js';
 
 /**
  * 이만큼 자식의 도구 이벤트가 끊기면 "무응답"으로 적는다. 죽었다고 단정하지 않는다 —
  * 폴링·긴 단일 호출은 정상적으로 조용할 수 있으므로, 판단 재료만 주고 결정은 사용자가 한다.
+ *
+ * 값은 `@vibisual/shared` 의 `SESSION_NO_RESPONSE_MS` 하나다 — 세션 스트림의 무응답 표시와
+ * 같은 문턱을 써야 카드와 스트림이 **같은 때에** 같은 말을 한다(두 벌이면 어느 쪽이 맞는지 알 수 없다).
  */
-const NO_RESPONSE_HINT_MS = 3 * 60 * 1000;
+const NO_RESPONSE_HINT_MS = SESSION_NO_RESPONSE_MS;
 
 // §5.5 #17-9 ⑦ — "실행 중 서브에이전트" 뷰의 카드 두 장.
 //
 // 도는 카드(`RunningTaskRow`)는 ⑦(a) 의 자식 활동 — 지금 무슨 도구를 무엇에 대고 쓰는지 + 누적 호출 수 —
 // 를 얹고, 끝난 카드(`FinishedTaskRow`)는 ⑦(b) 의 결과(부모가 받아 든 자식의 최종 보고)를 접힌 채 담는다.
 // 뷰 본체와 갈라 둔 것은 파일 200줄 규칙 때문이며, 두 카드가 같은 시간 표기를 쓰기 때문이기도 하다.
-
-/** 경과 시간 — 초/분/시간 단위로 짧게. 1초마다 갱신되는 now 를 받아 순수 계산으로 유지. */
-export function formatElapsed(startedAt: number, now: number): string {
-  const sec = Math.max(0, Math.floor((now - startedAt) / 1000));
-  if (sec < 60) return `${sec}s`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ${sec % 60}s`;
-  return `${Math.floor(min / 60)}h ${min % 60}m`;
-}
-
-/** 시작 시각 `HH:MM` — 얼마나 오래 붙잡고 있는지를 경과와 함께 읽게. */
-export function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-}
 
 const CHIP = 'min-w-0 truncate rounded px-1 py-px text-[12px] font-semibold';
 const KIND_CHIP = 'flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-px text-[12px] font-semibold';

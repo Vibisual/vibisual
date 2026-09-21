@@ -284,9 +284,10 @@ describe('applyOrchestraSettingsPatch', () => {
 });
 
 describe('런 목록', () => {
-  it('conducting 만 아직 돌고 있다', () => {
+  it('편성 중과 결과 회수 대기는 아직 돌고 있다', () => {
     expect(isOrchestraRunSettled('conducting')).toBe(false);
-    for (const p of ['dispatched', 'answered', 'unreported', 'error'] as const) expect(isOrchestraRunSettled(p)).toBe(true);
+    expect(isOrchestraRunSettled('dispatched')).toBe(false);
+    for (const p of ['completed', 'answered', 'unreported', 'error'] as const) expect(isOrchestraRunSettled(p)).toBe(true);
   });
 
   it('appendOrchestraRun 은 상한을 넘으면 가장 오래된 것부터 버린다', () => {
@@ -314,13 +315,28 @@ describe('런 목록', () => {
     expect(clipOrchestraRequest('x'.repeat(ORCHESTRA_RUN_REQUEST_MAX + 10))).toHaveLength(ORCHESTRA_RUN_REQUEST_MAX);
   });
 
-  it('다시 켰을 때 conducting 으로 남은 런은 unreported 로 닫는다(끝난 시각이 있으면 둔다)', () => {
-    const settled = settleStaleOrchestraRuns([run(), run({ runId: 'b', endedAt: 5 }), run({ runId: 'c', phase: 'dispatched' })], 9000);
-    expect(settled.map((r) => [r.phase, r.endedAt])).toEqual([['unreported', 9000], ['unreported', 5], ['dispatched', undefined]]);
+  it('다시 켰을 때 편성·결과 회수 중인 런을 닫고, 옛 위임 기록과 완료는 보존한다', () => {
+    const legacy = run({ runId: 'legacy', phase: 'dispatched', endedAt: 6 });
+    const completed = run({ runId: 'done', phase: 'completed', endedAt: 7 });
+    const settled = settleStaleOrchestraRuns([
+      run(), run({ runId: 'b', endedAt: 5 }), run({ runId: 'c', phase: 'dispatched' }), legacy, completed,
+    ], 9000);
+    expect(settled.map((r) => [r.phase, r.endedAt])).toEqual([
+      ['unreported', 9000], ['unreported', 5], ['unreported', 9000], ['dispatched', 6], ['completed', 7],
+    ]);
+    expect(settled[3]).toBe(legacy);
+    expect(settled[4]).toBe(completed);
   });
 });
 
 describe('normalizeOrchestraRun(s)', () => {
+  it('회수 대기와 최종 완료 단계를 영속 왕복에서 구분한다', () => {
+    const dispatched = run({ phase: 'dispatched', planAt: 2000 });
+    const completed = run({ phase: 'completed', planAt: 2000, endedAt: 5000 });
+    expect(normalizeOrchestraRun(JSON.parse(JSON.stringify(dispatched)))).toEqual(dispatched);
+    expect(normalizeOrchestraRun(JSON.parse(JSON.stringify(completed)))).toEqual(completed);
+  });
+
   it('필수 칸이 어긋나면 버린다', () => {
     expect(normalizeOrchestraRun(null)).toBeNull();
     expect(normalizeOrchestraRun({ ...run(), runId: '' })).toBeNull();

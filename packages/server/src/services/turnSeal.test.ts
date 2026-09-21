@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   isTurnResumeSignal, MAX_TRACKED_TASKS,
-  listDisplayableLiveTasks, turnIdOfLiveTask, shouldSleepResumedTurn,
+  listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, shouldSleepResumedTurn,
+  isResultBeforeOwnTurn,
 } from './turnSeal.js';
 
 const START = 'task_started';
@@ -236,5 +237,79 @@ describe('shouldSleepResumedTurn — 되살아난 턴이 끝나면 세션을 재
 
     // 그 되살아난 턴에는 주인(in-flight 명령)이 없다 — 그래도 세션은 재워져야 한다.
     expect(shouldSleepResumedTurn(AWAKE)).toBe(true);
+  });
+});
+
+describe('hasLiveTasks — 생존 판정은 거르지 않는다 (§5.5 #17-9 ⑮)', () => {
+  it('Task/Agent 자식만 도는 세션은 표시 목록이 0 이어도 살아 있다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'child1', description: '개발 레인', subagentType: 'code-lead' });
+    noteTaskChip(s, START, { id: 'child2', description: '작업자', subagentType: 'code-worker' });
+    // 표시 목록은 훅 대차대조가 이미 세므로 비어 있는 것이 맞다 — 그러나 세션은 도는 중이다.
+    expect(listDisplayableLiveTasks(s)).toHaveLength(0);
+    expect(hasLiveTasks(s)).toBe(true);
+  });
+
+  it('아무 작업도 없으면 거짓', () => {
+    expect(hasLiveTasks(createTurnSealState())).toBe(false);
+  });
+
+  it('끝 통지가 오면 `subagentType` 항목도 장부에서 빠진다 — 영영 켜져 있지 않는다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'child1', subagentType: 'code-lead' });
+    expect(hasLiveTasks(s)).toBe(true);
+    noteTaskChip(s, END, { id: 'child1', status: 'completed' });
+    expect(hasLiveTasks(s)).toBe(false);
+  });
+
+  it('실패·중지로 끝나도 마찬가지 — 셋 다 끝이다', () => {
+    for (const status of ['failed', 'stopped'] as const) {
+      const s = createTurnSealState();
+      noteTaskChip(s, START, { id: 'child1', subagentType: 'explorer' });
+      noteTaskChip(s, END, { id: 'child1', status });
+      expect(hasLiveTasks(s)).toBe(false);
+    }
+  });
+
+  it('셸 작업 쪽은 두 답이 같다 — 거르는 항목이 없으니까', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'bg1', description: 'Monitor' });
+    expect(listDisplayableLiveTasks(s)).toHaveLength(1);
+    expect(hasLiveTasks(s)).toBe(true);
+  });
+
+  it('봉인 지연(`mayTurnResume`)과 같은 답을 낸다 — 두 판정이 갈리면 한쪽이 거짓말이다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'child1', subagentType: 'code-worker' });
+    expect(hasLiveTasks(s)).toBe(mayTurnResume(s));
+  });
+});
+
+describe('isResultBeforeOwnTurn — 남의 턴 result 로는 내 명령을 봉인하지 못한다 (B-1)', () => {
+  const base = { mainActivity: false, cliError: false, killed: false, interrupted: false, slashCommand: false };
+
+  it('도장이 다르면 이미 말을 한 뒤라도 내 result 가 아니다 — 가장 중요한 한 줄', () => {
+    // 종전에는 mainActivity 하나만 봤다. 앞 턴의 모델 줄이 빗장을 올려 둔 채라
+    //   뒤늦게 도착한 **남의 result** 가 지금 도는 명령을 즉시 완료로 굳혔다.
+    expect(isResultBeforeOwnTurn({ ...base, mainActivity: true, foreignTurn: true })).toBe(true);
+  });
+
+  it('내 도장이고 내 말을 했으면 내 result 다 — 예전처럼 바로 봉인한다', () => {
+    expect(isResultBeforeOwnTurn({ ...base, mainActivity: true, foreignTurn: false })).toBe(false);
+  });
+
+  it('도장을 모르면 옛 판정 그대로 — 도장이 없는 경로의 동작은 변하지 않는다', () => {
+    expect(isResultBeforeOwnTurn({ ...base, mainActivity: true })).toBe(false);
+    expect(isResultBeforeOwnTurn({ ...base, mainActivity: false })).toBe(true);
+  });
+
+  it('내 도장인데 아직 말이 없으면 여전히 이른 result 다 (훅 차단 등)', () => {
+    expect(isResultBeforeOwnTurn({ ...base, mainActivity: false, foreignTurn: false })).toBe(true);
+  });
+
+  it('중단·오류·슬래시는 도장이 달라도 내 것으로 본다 — 봉인이 늦으면 멈춘 것처럼 보인다', () => {
+    for (const k of ['cliError', 'killed', 'interrupted', 'slashCommand'] as const) {
+      expect(isResultBeforeOwnTurn({ ...base, foreignTurn: true, [k]: true })).toBe(false);
+    }
   });
 });

@@ -15,6 +15,7 @@
  *   roster.json 또는 state.json 에서 읽어와야 한다.
  */
 import { spawn } from 'node:child_process';
+import { observeChildStreamErrors } from './childStreamErrors.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -205,6 +206,15 @@ export async function spawnBackground(
       try { child.kill(); } catch { /* ignore */ }
       reject(new Error(`claude --bg timed out after ${BG_SPAWN_TIMEOUT_MS}ms (stdout="${stdout.slice(0, 200)}")`));
     }, BG_SPAWN_TIMEOUT_MS);
+
+    observeChildStreamErrors(child, (stream, error) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      // Only the short-lived launcher belongs to this failure; never kill its background worker tree.
+      try { child.kill(); } catch { /* launcher already exited */ }
+      reject(new Error(`claude --bg ${stream} failed: ${error.message}`));
+    });
 
     child.on('error', (err) => {
       if (resolved) return;

@@ -1,16 +1,19 @@
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, SubAgent } from '@vibisual/shared';
 import {
   resolveAutoCompact, isAutoCompactOn, resolveAliasToLatest, getModelContextLimit,
-  agentModelLabelOf, BUBBLE_COLORS, resolveCmdCliKind,
+  agentModelLabelOf, BUBBLE_COLORS, resolveCmdCliKind, resolveAgentDefaults,
+  SESSION_NO_RESPONSE_MS, sessionSilenceMs,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
   NODE_STATUS_RUN_STATE, sessionDotClass, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
-  sessionProbeNote,
+  sessionProbeNote, serializeBusySubIds, parseBusySubIds,
 } from '../../utils/sessionStatus.js';
+import { useNowTick } from '../../hooks/useNowTick.js';
+import { formatElapsed } from './elapsed.js';
 import { followSessionKey } from './editorFollow.js';
 import { buildDiffCommentPrompt } from './diffCommentPrompt.js';
 import {
@@ -23,6 +26,7 @@ import { ContextInsurancePopup } from '../Panel/ContextInsurancePopup.js';
 // §4 (상태바 모델 칸 ②) — 모델 칸을 누르면 뜨는 카드는 새 창이 아니라 **설정창의 모델 구역**이다.
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import type { PopupAnchorRect } from '../Panel/modelSectionView.js';
+import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
 
 interface IDEStatusBarProps {
   agent: BubbleData;
@@ -90,11 +94,33 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   //   날 문자열로 보였다). 게다가 색 규약이 나머지 화면과 **정반대**였다 — 다른 넷은 완료·미확인을
   //   초록으로 강조하고 completed 를 회색으로 죽이는데, 이 바만 그 둘을 뒤집어 칠했다.
   //   이제 두 축을 같은 표시 어휘로 접어(`sessionRunStateOf` / `NODE_STATUS_RUN_STATE`) 색·낱말을 공유한다.
+  // §2.4 (생존 판정 단일화) — 이 바는 `sessionRunStateOf` 를 **인자 둘만** 주고 불러,
+  //   판정이 `sub.status === 'active'` 하나에 걸려 있었다. 탭바(`IDETabBar`)·분할 칸
+  //   (`IDESplitCell`)은 셋째 인자(백그라운드 작업)까지 주므로, 훅이 자식의 소유 세션을 못 푼
+  //   경우 **같은 세션을 두고 탭 도트는 켜지고 이 바만 꺼졌다.** 같은 재료를 주어 답을 맞춘다.
+  const busySubIdsSerialized = useGraphStore((s) => serializeBusySubIds(s.runningSubagentTasks[agent.id]));
+  const busySubIds = useMemo(() => parseBusySubIds(busySubIdsSerialized), [busySubIdsSerialized]);
+  const hasBackgroundWork = activeSession ? busySubIds.has(activeSession.id) : busySubIds.size > 0;
   const runState = activeSession
-    ? sessionRunStateOf(activeSession, acknowledged)
+    ? sessionRunStateOf(activeSession, acknowledged, hasBackgroundWork)
     : NODE_STATUS_RUN_STATE[agent.status];
   // §2.4 — 서버가 붙여 준 세션 생존 판정(있을 때만). 낱말로 접는 것은 `sessionProbeNote` 한 곳이다.
   const probeNote = sessionProbeNote(activeSession);
+  /*
+   * §2.4 (무응답) — "실행 중"만 떠 있고 **얼마나 그러고 있는지**는 어디에도 없었다(사용자 보고).
+   * 그래서 이 칸에 마지막 움직임 이후 경과를 적고, 문턱(3분)을 넘으면 낱말을 "무응답"으로 뒤집는다.
+   *
+   * 경과 시계는 **돌고 있을 때만** 돈다 — 조용한 세션에 1초 타이머를 달아 두면 열어 둔 창 수만큼
+   * 매초 리렌더가 쌓인다. 그리고 `probe` 와 달리 **엔진을 가리지 않는다** — 코덱스·로컬 세션은
+   * 서버 탐침을 못 받는 일이 흔해, 그쪽에서는 이 줄이 유일한 안내다.
+   */
+  const statusRunning = runState === 'running';
+  const now = useNowTick(statusRunning && activeSession !== null);
+  const silenceMs = statusRunning ? sessionSilenceMs(activeSession?.lastActivityAt, now) : null;
+  const statusStalled = silenceMs !== null && silenceMs >= SESSION_NO_RESPONSE_MS;
+  const statusElapsed = silenceMs !== null && activeSession
+    ? formatElapsed(activeSession.lastActivityAt, now)
+    : null;
   // §5.5 — 모델·컨텍스트·토큰은 **보고 있는 세션 하나**를 주어로 삼는다. 종전에는 칸마다
   //   `activeSession?.X ?? agent.X` 로 폴백을 걸어, 고른 세션이 그 값을 아직 안 가졌으면 조용히
   //   버블 값(= 커스텀이면 "가장 최근에 움직인 sub" + **모든 sub 토큰 합**)으로 굴러떨어졌다.
@@ -209,6 +235,14 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   const ownEffort = useGraphStore((s) => s.agentConfigs[agent.id]?.effort);
   const globalEffort = useGraphStore((s) => s.userDefaults?.agentConfig?.effort);
   const codexEffort = useGraphStore((s) => s.agentConfigs[agent.id]?.provider?.reasoningEffort);
+  // 설정 창과 같은 상속 경로를 쓴다. 선택된 프로젝트가 아니라 이 에이전트의 프로젝트가 기준이다.
+  const inheritedCodexEffort = useGraphStore((s) => {
+    const projectName = s.agentProjects[agent.id];
+    const projectPath = projectName ? s.projects[projectName]?.path : undefined;
+    return resolveAgentDefaults(s.userDefaults, 'codex', projectPath).provider?.reasoningEffort;
+  });
+  const codexConfig = useCodexEffectiveConfig(isCustom && providerKind === 'codex-cli', agent.id);
+  const codexModel = useGraphStore((s) => s.codexModels?.models.find((entry) => entry.slug === providerModelId));
   const effort = resolveStatusBarEffort({
     isCustom,
     providerKind,
@@ -216,6 +250,9 @@ export const IDEStatusBar = memo(function IDEStatusBar({
     agentEffort: ownEffort,
     userDefaultEffort: globalEffort,
     codexEffort,
+    inheritedCodexEffort,
+    codexConfig,
+    codexModel,
     sessionEffort: activeSession?.reasoningEffort,
     sessionModel: activeSession?.modelName,
     providerModelId,
@@ -297,6 +334,15 @@ export const IDEStatusBar = memo(function IDEStatusBar({
         <span className={runState === 'error' ? 'text-red-400' : 'text-gray-400'}>
           {t(SESSION_STATUS_LABEL_KEY[runState])}
         </span>
+        {/* §2.4 (무응답) — 경과 시간. 문턱을 넘으면 회색 숫자가 호박색 "무응답 N분"으로 뒤집힌다. */}
+        {statusElapsed && (
+          <span
+            className={`tabular-nums ${statusStalled ? 'text-amber-400' : 'text-gray-500'}`}
+            title={statusStalled ? t('ide.mainArea.stallHint') : t('ide.statusBar.elapsedTip')}
+          >
+            · {statusStalled ? t('ide.runningSubagents.noResponse', { value: statusElapsed }) : statusElapsed}
+          </span>
+        )}
         {/*
           §2.4 — "실행중…" 옆의 한 마디. 스피너만으로는 정보가 0 이라 사용자가 "아직도?"를
           판단할 근거가 없었다(이 축이 생긴 이유). 판정은 서버가 하고 여기서는 적기만 한다.
@@ -314,7 +360,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
       {/* Model — 모르면 "모름"을 적는다. 이름 자리라 `0` 으로 대신할 수 없다.
           §4 (상태바 모델 칸 ①②) — 추론 강도를 **같은 칸**에 붙인다(`opus-5 · high`): "무엇으로, 얼마나
           깊게"가 한 조각으로 읽힌다. 새 칸을 만들지 않으니 항목 순서는 그대로다. 강도는 명시 설정을
-          우선하고, 미설정 코덱스는 선택한 세션에서 확인된 강도를 적는다. 강도가 잘리는 일은 없게 모델
+          우선하고, 미설정 코덱스는 상속한 설정·세션 실측·모델 기본값으로 해소한다. 강도가 잘리는 일은 없게 모델
           이름 쪽만 줄인다. 누를 수 있는 버블이면 설정창의 모델 구역이 칸 위에 뜬다 — 컨텍스트 칸과 같은
           누르는 칸 모양이고, 못 누르는 버블(훅·클로드가 아닌 CMD)은 종전처럼 글자로만 남는다. */}
       {canSwitchModel ? (

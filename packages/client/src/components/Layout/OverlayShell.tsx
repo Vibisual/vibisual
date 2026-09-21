@@ -18,6 +18,7 @@ import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useOverlaySync } from '../../hooks/useOverlaySync.js';
 import { BubbleNode } from '../BubbleMap/BubbleNode.js';
 import { AgentIDEOverlay } from '../IDE/AgentIDEOverlay.js';
+import { VerifyDemoLayer } from '../IDE/VerifyDemoLayer.js';
 import { PermissionPromptStack } from '../PermissionPrompt/PermissionPromptStack.js';
 
 // §17-6 v2.83 — 단일 버블 가운데 정렬 옵션(init + 창 리사이즈 재정렬에 동일 적용).
@@ -462,6 +463,8 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
           이 셸에게 말을 걸어야 한다. 창을 접는 것(`collapseSelf`)은 IDE 가 직접 부를 수 있지만,
           **닫기의 뜻이 그때부터 달라진다**는 사실은 이 셸이 쥐고 있기 때문이다(위 효과). */}
       <AgentIDEOverlay disableDock fullWindow onCollapseToBubble={collapseToBubble} />
+      {/* 이 렌더러는 IDEPaneHost 를 쓰지 않는 단일 별창이다. 검증 녹화 층도 한 벌만 둔다. */}
+      <VerifyDemoLayer />
       <PermissionPromptStack />
 
       {/* §5.5 #17-6 (H-16) — 앱 안에서 불렸을 때의 기척. 클릭통과(`pointer-events-none`)라

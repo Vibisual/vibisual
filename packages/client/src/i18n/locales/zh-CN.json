@@ -465,7 +465,16 @@
         "login": "登录",
         "recheck": "重新检查",
         "checking": "检查中…",
-        "actionFailed": "操作未成功。请重试。"
+        "actionFailed": "操作未成功。请重试。",
+        "portalTitle": "在提供方网站上管理",
+        "portal": {
+          "account": "账户",
+          "billing": "套餐与账单",
+          "usage": "用量",
+          "apiKeys": "API 密钥",
+          "console": "开发者控制台",
+          "codexWeb": "网页版 Codex"
+        }
       },
       "storage": {
         "intro": "设置活动记录在磁盘上保留多久。任何一项设为 0 即永久保留。不会悄悄删除任何东西——会话仍在引用的文件无论多旧都会保留，正在运行和可重新打开的会话不会被触碰，清理是移入回收站而非删除，因此可以还原。",
@@ -2166,7 +2175,7 @@
     },
     "projectFolder": {
       "title": "选择项目文件夹",
-      "intro": "Claude Code 已安装并登录。最后一步是选择 Agent 的工作文件夹 — 通常是项目或代码仓库的根目录。",
+      "intro": "请选择智能体工作的文件夹，通常是项目或仓库的根目录。",
       "blocked": "尚未创建任何内容 — 当前没有打开的项目文件夹。Agent 在你选择的文件夹中工作，请先选择一个。",
       "detail": "Vibisual 为项目保存的所有内容都在该文件夹内，Agent 也只能读取和修改该文件夹下的文件。之后可通过 文件 → 打开文件夹 添加更多文件夹。",
       "cancelled": "尚未选择文件夹。请选择一个以继续。",
@@ -2205,7 +2214,7 @@
       "commandLabel": "安装命令",
       "copy": "复制",
       "copied": "已复制",
-      "manualOnly": "未找到 npm，因此 Vibisual 无法为你自动安装。请先安装 Node.js，在终端中运行上面的命令，然后点击“再次检查”。",
+      "manualOnly": "此系统不支持自动安装。请按照官方安装指南操作，然后选择“重新检查”。",
       "failed": "安装未完成。请在终端中运行上面的命令，然后点击“再次检查”。",
       "installing": "安装中…",
       "installDone": "已安装",
@@ -2244,7 +2253,14 @@
       "recheck": "再次检查",
       "later": "稍后",
       "stop": "停止",
-      "start": "登录"
+      "start": "登录",
+      "deviceCodePrompt": "请在浏览器的登录页面输入此代码。",
+      "copyDeviceCode": "复制代码",
+      "deviceCodeWaiting": "正在等待设备代码…",
+      "deviceCodeHelp": "请在 ChatGPT 安全设置或工作区权限中启用设备代码登录。如果不可用，请尝试浏览器登录。",
+      "ended": "登录尚未完成便已结束。请重试或选择其他登录方式。",
+      "retry": "重试",
+      "checking": "正在检查登录状态…"
     },
     "insurance": {
       "title": "上下文保险",
@@ -2331,6 +2347,46 @@
     }
   },
   "ide": {
+    "skillSharing": {
+      "title": "来自 {{provider}} 的技能",
+      "hint": "将用户技能共享给 {{provider}}，并添加到当前草稿中。",
+      "loading": "正在加载可共享的技能…",
+      "empty": "没有可共享的 {{provider}} 用户技能。",
+      "noMatch": "没有与“{{query}}”匹配的共享技能。",
+      "refresh": "刷新可共享的技能",
+      "retry": "重试",
+      "shareAndUse": "共享并使用",
+      "use": "使用",
+      "sharing": "正在共享…",
+      "sharedHint": "已添加到当前草稿中。准备好后即可发送。",
+      "loadFailed": "无法加载可共享的技能。{{reason}}",
+      "shareFailed": "无法共享此技能。{{reason}}",
+      "project": "项目",
+      "global": "全局",
+      "available": "可用",
+      "shared": "已共享",
+      "conflict": "名称冲突",
+      "unsupported": "提供方专用",
+      "conflictHint": "已存在同名的其他技能。",
+      "unsupportedHint": "此技能使用了 {{provider}} 不支持的功能。",
+      "invalidResponse": "服务器返回了无效响应。",
+      "issues": {
+        "skill-too-large": "????????????????????",
+        "invalid-name": "技能名称无效。",
+        "invalid-skill": "技能定义无效。",
+        "unsafe-path": "此技能包含不安全的路径或链接。",
+        "unreadable-source": "无法读取源技能。",
+        "name-conflict": "已存在同名的其他技能。",
+        "provider-hooks": "此技能需要提供方专用的钩子。",
+        "provider-context": "此技能需要提供方专用的执行上下文。",
+        "dynamic-shell": "此技能需要提供方专用的命令行展开功能。",
+        "tool-dependency": "请确认此技能所需的工具可用。",
+        "provider-path": "使用此技能前，请检查提供方专用的路径。",
+        "provider-model": "请检查此技能所需的模型设置。",
+        "invocation-policy": "使用此技能前，请检查调用规则。",
+        "disabled-skill": "此技能已在 Codex 中禁用。请先在 Codex 中启用，再使用此技能。"
+      }
+    },
     "diff": {
       "addComment": "在此行添加评论",
       "removeComment": "删除评论",
@@ -2674,7 +2730,18 @@
       "voiceDenoiseHint": "消除从扬声器传回麦克风的声音，并抑制风扇、键盘等持续噪音。如果您的音频接口已做处理，请关闭此项。",
       "voiceEchoUnavailable": "此麦克风不支持回声消除，扬声器的声音可能会混入。使用耳机可以彻底避免。",
       "voiceRespaceLabel": "自动还原韩语分词空格",
-      "voiceRespaceHint": "识别引擎输出的韩语没有空格，此功能按助词和词尾进行切分。基于规则，并不完美，结果可在输入框中修改。"
+      "voiceRespaceHint": "识别引擎输出的韩语没有空格，此功能按助词和词尾进行切分。基于规则，并不完美，结果可在输入框中修改。",
+      "stallHint": "该会话显示为正在运行，但已有一段时间没有任何消息。可以继续等待，也可以停止它。",
+      "stallNotice": "已有 {{value}} 没有响应。界面上仍显示为正在运行。",
+      "stallKeepWaiting": "继续等待",
+      "stallKeepWaitingTitle": "隐藏此提示并继续等待。如果仍然没有响应，提示会再次出现。",
+      "stopNothing": "没有正在运行的任务可停止。“正在运行”只是过时的显示。",
+      "stopNothingHint": "服务器在此范围内没有找到任何子进程、排队命令或后台任务。",
+      "stopForce": "强制关闭",
+      "stopForceTitle": "停止此 Agent 上的所有内容，包括其他会话和排队命令。",
+      "stopFailed": "停止请求失败（{{status}}）。",
+      "stopRetry": "重试",
+      "queuedBehindSilent": "显示为正在运行，是因为后台压缩正在先行完成。该命令尚未发出，你仍可以修改或删除它。"
     },
     "voiceInstall": {
       "title": "设置语音输入",
@@ -2744,6 +2811,7 @@
       "goal": "目标",
       "autoGoal": "流程检测",
       "orchestra": "乐团",
+      "configTrim": "配置裁剪",
       "debug": "运行与调试",
       "hooks": "会话 Hooks",
       "plugins": "Claude Code 插件",
@@ -3138,7 +3206,8 @@
       "sessionsTip": "该 Agent 上打开的 Session 标签页数量。",
       "contextOverdueTip": "该会话的上下文已接近上限且仍在增长，但尚未运行压缩。点击可打开“上下文保险”。",
       "contextStalledTip": "该会话的上下文窗口实际已满，且尚未运行压缩。点击可打开“上下文保险”。",
-      "contextRejectedTip": "我们已发送压缩命令，但 Claude Code 从未开始压缩——它被拒绝了。通常是因为该项目在“{{contextSources}}”中关闭了技能与斜杠命令。点击可打开“上下文保险”。"
+      "contextRejectedTip": "我们已发送压缩命令，但 Claude Code 从未开始压缩——它被拒绝了。通常是因为该项目在“{{contextSources}}”中关闭了技能与斜杠命令。点击可打开“上下文保险”。",
+      "elapsedTip": "该会话上次活动至今的时长。"
     },
     "search": {
       "placeholder": "在对话中查找",
@@ -3451,7 +3520,9 @@
       "maxTokens": "输出上限",
       "maxTurns": "轮次上限",
       "refusal": "模型拒绝",
-      "usageLimit": "用量上限"
+      "usageLimit": "用量上限",
+      "disconnected": "连接断开",
+      "interrupted": "已中断"
     },
     "density": {
       "label": "显示密度",
@@ -3615,12 +3686,24 @@
         "systemPrompt": "Claude Code 系统提示词",
         "compactSelf": "Agent 自主压缩",
         "compactRecovery": "压缩后恢复简报",
-        "autoGoalSkills": "已检测到的流程"
+        "autoGoalSkills": "已检测到的流程",
+        "codexInstructions": "Codex 项目指令",
+        "codexGlobalInstructions": "Codex 全局指令",
+        "codexCollaborationInstructions": "Codex 协作指令",
+        "codexSkills": "Codex 技能",
+        "codexDeveloperInstructions": "Codex 开发者指令",
+        "codexMcp": "已配置的 Codex MCP 服务器",
+        "codexPlugins": "已配置的 Codex 插件",
+        "codexHooks": "Codex 钩子",
+        "codexSystemPrompt": "Codex 系统提示词",
+        "codexRuntimeMcp": "其他检测到的 Codex MCP 服务器",
+        "codexRuntimePlugins": "其他检测到的 Codex 插件"
       },
       "hint": {
         "tools": "在 Agent 设置中选择工具列表",
         "mcp": "在 Agent 设置中挂载 MCP 服务器",
-        "hooks": "Hooks 安装在 settings.json 中"
+        "hooks": "Hooks 安装在 settings.json 中",
+        "codexExternalSession": "原生 Codex 上下文控制仅适用于由 Vibisual 启动的对话。如果是已有的终端或外部会话，请修改其 Codex 设置并重启该会话。"
       },
       "warn": {
         "slashCommands": "关闭后将禁用此 Session 的所有技能和斜杠命令。",
@@ -3801,6 +3884,61 @@
             "what": "这些流程是根据本项目中反复出现的工作写下来的。",
             "more": "只会发送名称、一行描述和文件路径。正文留在 .vibisual/skills 中，只有当工作内容匹配时，Agent 才会打开它。",
             "off": "Agent 会针对每个流程重新从头摸索一遍。"
+          },
+          "codexInstructions": {
+            "what": "Codex 在 AGENTS.md 及其覆盖文件或回退文件中发现的项目指令。",
+            "more": "从该 Agent 工作目录的项目指令链中读取。全局 Codex 指令单独占一行。",
+            "off": "在下一次运行时停止自动加载项目指令文件。全局指令和本次对话中已有的文本将保留。"
+          },
+          "codexGlobalInstructions": {
+            "what": "Codex 为每个项目从其主目录加载的个人指令。",
+            "more": "来自 CODEX_HOME（通常为 ~/.codex）中的 AGENTS.md 或 AGENTS.override.md。这与项目指令是分开的。",
+            "off": "此行无法在此处关闭。请编辑全局指令文件以更改后续运行；现有对话文本将保留。"
+          },
+          "codexCollaborationInstructions": {
+            "what": "Codex 针对其协作模式的内置指导。",
+            "more": "由 Codex 运行时根据当前激活的协作模式添加。",
+            "off": "在下一次运行时停止添加协作模式指令。本次对话中已有的指令将保留。"
+          },
+          "codexSkills": {
+            "what": "Codex 提供给 Agent 的技能名称与描述。",
+            "more": "从 Codex 技能文件夹和已启用的技能包中发现。技能的完整说明会在使用时读取。",
+            "off": "在下一次运行时禁用技能发现。本次对话中已读取的技能文本将保留。"
+          },
+          "codexDeveloperInstructions": {
+            "what": "在开发者级别为 Codex 配置的附加指令。",
+            "more": "来自该工作目录当前生效的 Codex developer_instructions 设置。Vibisual 自身的提示词区块单独占一行。",
+            "off": "在下一次运行时省略已配置的开发者指令。对话中此前已有的指令将保留。"
+          },
+          "codexMcp": {
+            "what": "在当前生效的 Codex 配置中显式注册的 MCP 服务器。",
+            "more": "每个已配置的服务器都可以提供工具定义。此开关仅涵盖这些配置项；其他检测到的服务器单独占一行。",
+            "off": "在下一次运行时禁用已配置的服务器，而不修改其配置文件。重新打开此开关会恢复其配置状态，但不会启用被单独禁用的服务器。"
+          },
+          "codexPlugins": {
+            "what": "在当前生效的 Codex 配置中显式注册的插件。",
+            "more": "来自当前生效的 Codex 设置中的插件项。其他检测到的插件单独占一行。",
+            "off": "在下一次运行时禁用已配置的插件，而不会卸载它们或修改配置文件。重新打开此开关会恢复其配置状态，并保持被单独禁用的插件继续禁用。"
+          },
+          "codexHooks": {
+            "what": "向 Codex 注册的钩子，包括 Vibisual 使用的集成钩子。",
+            "more": "来自 Codex 的钩子配置。钩子可以在其事件触发时添加上下文。",
+            "off": "请单独管理钩子配置。此行不会关闭钩子。"
+          },
+          "codexSystemPrompt": {
+            "what": "由 Codex 运行时提供的核心指令与内置工具定义。",
+            "more": "由 Codex 内部管理。此清单不会显示其完整文本和精确的 token 消耗。",
+            "off": "此来源无法在此处关闭。"
+          },
+          "codexRuntimeMcp": {
+            "what": "在上方显式配置项之外检测到的 MCP 服务器。",
+            "more": "由 Codex 的运行时清单报告。这些项不受「已配置服务器」开关的控制。",
+            "off": "此行无法关闭这些服务器。请通过添加它们的 Codex 集成或设置进行管理。"
+          },
+          "codexRuntimePlugins": {
+            "what": "在上方显式配置项之外检测到的 Codex 插件。",
+            "more": "由 Codex 的插件清单报告。这些项不受「已配置插件」开关的控制。",
+            "off": "此行无法关闭这些插件。请通过添加它们的 Codex 集成或设置进行管理。"
           }
         },
         "cat": {
@@ -3854,7 +3992,10 @@
       "scopeTabNoSession": "请先打开一个会话标签页——目前还没有可以关联的对象。",
       "ownHere": "在 {{scope}} 层设置——不再跟随上一层。",
       "lowerOverrideHint": "在更下层（{{scopes}}）另有设置，因此在这里修改不会同步到那里。",
-      "finalDiffHint": "目前实际进入提示词的内容：~{{tokens}}。"
+      "finalDiffHint": "目前实际进入提示词的内容：~{{tokens}}。",
+      "futureOnly": "更改仅控制未来的上下文注入，不会清除本次对话中已读取的指令或文件。",
+      "loadError": "无法刷新上下文来源，请尝试重新测量。",
+      "saveError": "无法确认更改已保存，请重新测量以检查当前设置。"
     },
     "goal": {
       "title": "目标",
@@ -4107,7 +4248,7 @@
     },
     "verify": {
       "title": "验证",
-      "about": "在此标签页运行 /verify — 构建并启动应用，然后报告实际看到的结果。",
+      "about": "连接应用，选择演示或描述检查内容，代理便会亲自操作并核验证据。",
       "pickSession": "验证以会话标签页为单位。请先打开一个会话标签页。",
       "focusLabel": "要确认什么（可选）",
       "focusPlaceholder": "例如：点击登录按钮是否真的打开对话框",
@@ -4133,9 +4274,22 @@
         "alreadyRunning": "此标签页已有验证在运行。",
         "sessionBusy": "此标签页仍有未完成的命令。",
         "sessionNotFound": "找不到该会话。",
+        "demoNotFound": "在此会话中找不到所选演示。请重新选择。",
+        "demoFramesMissing": "部分演示画面文件缺失。请重新保存演示。",
         "readOnly": "Hook 气泡为只读。",
         "network": "无法连接到服务器。",
-        "failed": "无法启动验证。"
+        "failed": "无法启动验证。",
+        "invalidVerificationTarget": "请选择有效的浏览器地址或捕获目标。",
+        "verificationToolsUnavailable": "验证工具不可用。请打开最新的桌面应用。",
+        "timeout": "连接检查超时。请检查目标后重试。",
+        "verificationStopped": "验证已停止。",
+        "verificationTimeLimit": "验证已达到时间限制。",
+        "verificationEvidenceLimit": "已达到操作或证据数量限制。",
+        "verificationEvidenceMissing": "保存的画面证据缺失。",
+        "successfulVerificationRequired": "需要一次记录了实际操作的成功验证。",
+        "procedureStepLimit": "操作太多，无法保存为一个验证流程。",
+        "procedureFrameLimit": "参考图片太多，无法保存为一个验证流程。",
+        "procedureNeedsActionMapping": "这些演示步骤还需要映射到实际操作。"
       },
       "demo": {
         "sectionTitle": "演示",
@@ -4175,7 +4329,55 @@
           "failed": "无法保存演示。",
           "projectNotFound": "找不到该项目。",
           "framesFull": "该演示的画面数量已达上限。"
-        }
+        },
+        "browserEvidenceOnly": "画面证据会自动保存。验证器专用浏览器不支持视频录制。",
+        "recordRunNeedsMatchingTarget": "录制视频需要选择与执行目标相同的桌面窗口或屏幕。"
+      },
+      "tabs": {
+        "execution": "运行验证",
+        "review": "代码审查"
+      },
+      "connection": {
+        "title": "执行目标",
+        "browser": "浏览器",
+        "desktop": "桌面应用",
+        "url": "浏览器地址",
+        "pickSource": "选择窗口或屏幕",
+        "browserHint": "验证器将在专用浏览器中打开此地址并操作页面。",
+        "desktopHint": "验证器将操作所选窗口或屏幕。重启应用后，请重新选择目标。",
+        "probing": "正在检查连接…",
+        "ready": "可以操作",
+        "unavailable": "无法连接",
+        "needsTarget": "请选择有效目标",
+        "probe": "重新检查",
+        "capabilities": "操作：{{actions}}。检查：{{checks}}。"
+      },
+      "execution": {
+        "expected": "预期结果：{{expected}}",
+        "coverage": "已完成步骤：{{done}} / {{total}}",
+        "events": "实际操作记录（{{count}}）",
+        "evidence": "查看证据",
+        "frame": "证据画面 {{index}}",
+        "saveProcedure": "将成功的操作保存为验证步骤",
+        "saving": "正在保存…",
+        "saved": "步骤已保存"
+      },
+      "operation": {
+        "click": "点击",
+        "fill": "输入文字",
+        "press": "按键",
+        "scroll": "滚动",
+        "wait": "等待",
+        "navigate": "跳转",
+        "visible": "元素可见",
+        "text": "文字匹配",
+        "value": "值匹配",
+        "url": "地址匹配",
+        "screenshot": "画面比较",
+        "observe": "观察画面",
+        "act": "操作",
+        "check": "检查",
+        "doubleClick": "双击"
       }
     },
     "codex": {
@@ -4196,7 +4398,7 @@
         "groupUser": "自己添加 {{count}}",
         "groupSystem": "Codex 内置 {{count}}",
         "groupPlugin": "来自插件 {{count}}",
-        "hint": "点击技能即可填入输入框。这些文件夹归 Codex 所有，此处为只读。"
+        "hint": "点击技能可将其添加到当前草稿中。下方可共享兼容的 Claude 用户技能。"
       },
       "plugins": {
         "title": "插件",
@@ -4401,7 +4603,7 @@
     },
     "autoGoal": {
       "title": "流程检测",
-      "about": "找出你反复以相同顺序进行的操作，并将这次运行写成一个流程。",
+      "about": "发现重复工作并交由 Agent 审核。只有经过审核且仍然有效的流程才会指导后续工作。",
       "scope": {
         "project": "本项目",
         "agent": "该 Agent",
@@ -4414,13 +4616,58 @@
         "effectiveOn": "正在关注反复出现的工作。",
         "effectiveOff": "关闭——不扫描任何内容，也不会有内容进入提示词。"
       },
-      "groupSkills": "已写下 {{count}}",
-      "groupBrewing": "即将写下 {{count}}",
+      "groupSkills": "流程 {{count}} 个",
+      "groupBrewing": "已观察到的模式 {{count}} 个",
       "skillMeta": "{{steps}} 步 · 重复 {{runs}}×",
-      "removeSkill": "删除该流程（不会再次被写下）",
+      "removeSkill": "删除此流程并停止推荐相同模式",
       "dismiss": "这不是一个流程（不再建议）",
-      "watching": "已扫描 {{observed}} 个操作——当相同的顺序重复出现 {{runs}} 次后，就会被写成一个流程。",
-      "empty": "目前还没有可扫描的内容。等你的 Agent 开始工作后，这里就会逐渐填满。"
+      "watching": "已检查 {{observed}} 次操作 — 确认以相同顺序成功重复 {{runs}} 次后，该模式将进入待审核列表。",
+      "empty": "目前还没有可扫描的内容。等你的 Agent 开始工作后，这里就会逐渐填满。",
+      "noProject": "打开项目以查看其流程。",
+      "loading": "正在加载流程…",
+      "loadFailed": "无法刷新流程。上次加载的信息可能已过时。",
+      "saveFailed": "无法确认更改。请刷新列表后重试。",
+      "bodyFailed": "无法加载此流程。",
+      "refresh": "刷新流程",
+      "details": "查看流程详情",
+      "hideDetails": "收起流程详情",
+      "pause": "停止使用",
+      "requestReview": "请求 Agent 审核",
+      "reviewHint": "正在工作的 Agent 会审核相关流程。请求审核并不会直接启用流程。",
+      "reason": "原因",
+      "applicability": "适用条件",
+      "reviewed": "已于 {{date}} 审核",
+      "revision": "修订 {{revision}}",
+      "supersededBy": "已由 {{name}} 替代",
+      "reasons": {
+        "notReviewed": "此流程及其依据文件尚未经过审核。",
+        "statusChanged": "流程文件中的状态已被修改，使用前需要审核。",
+        "invalidReview": "已保存的审核证据无效，请重新审核此流程。",
+        "dependenciesUnchecked": "尚未检查依据文件。",
+        "missingReview": "缺少当前有效的审核证据。",
+        "applicabilityChanged": "此流程的适用条件在审核后发生了变化。",
+        "instructionsChanged": "流程内容在审核后发生了变化。",
+        "dependencyChanged": "已审核的依据文件发生了变化或已无法访问。",
+        "userPaused": "你已停止使用此流程。",
+        "userRequestedReview": "你已请求重新审核此流程。"
+      },
+      "status": {
+        "candidate": "待审核",
+        "active": "使用中",
+        "needs-review": "需要审核",
+        "retired": "已停止",
+        "superseded": "已替代"
+      },
+      "metrics": {
+        "active": "使用中 {{count}} 个",
+        "review": "待审核 {{count}} 个",
+        "retired": "已停止 {{count}} 个",
+        "reuse": "复用 {{count}} 次",
+        "skip": "跳过 {{count}} 次",
+        "failure": "失败 {{count}} 次",
+        "revision": "修订 {{count}} 次",
+        "hint": "这些是已记录的实际结果，并非节省费用或令牌数的估算。"
+      }
     },
     "orchestra": {
       "title": "乐团",
@@ -4483,7 +4730,8 @@
         "engine": {
           "claude": "Claude",
           "codex": "Codex",
-          "auto": "由指挥按角色选择"
+          "auto": "由指挥按角色选择",
+          "inherit": "与指挥者使用相同引擎（{{engine}}）"
         },
         "maxDefault": "默认（{{count}}）"
       },
@@ -4535,7 +4783,8 @@
       },
       "phase": {
         "conducting": "指挥中",
-        "dispatched": "已移交",
+        "dispatched": "等待结果",
+        "completed": "已完成",
         "answered": "直接作答",
         "unreported": "未报告计划",
         "error": "错误"
@@ -4553,6 +4802,109 @@
         "single": "单个成员",
         "pipeline": "流水线",
         "parallel": "并行"
+      },
+      "readiness": {
+        "setup": "运行 {{engine}} 前需要先安装。",
+        "login": "使用 {{engine}} 前请先登录。",
+        "refresh": "请检查 {{engine}} 是否已准备就绪。",
+        "prepare": "准备 {{engine}}",
+        "recheck": "重新检查",
+        "auto": "自动选择仅使用已安装且已登录的引擎。",
+        "retry": "请求已保留。完成 {{engine}} 的准备后，请重新发送。"
+      }
+    },
+    "configTrim": {
+      "title": "配置裁剪",
+      "about": "每一轮都会从该 Agent 设置的一份副本运行。开启裁剪后，所选模型或 CLI 会忽略的字段会在运行开始前从该副本中移除。",
+      "storedSafe": "你保存的设置永远不会被改动，只有单轮副本会发生变化，因此关闭此功能会完全恢复之前的行为。",
+      "effectiveOn": "裁剪将应用于本次会话的下一轮。",
+      "effectiveOff": "裁剪已关闭——所有字段都会按保存时的原样发送。",
+      "caution": "裁剪是一种判断，而非精确测量。凡是无法根据已安装的 CLI 和模型列表判定的字段，都会保持不变，并列在「保留项」中。",
+      "saveFailed": "无法保存：{{reason}}",
+      "activity": {
+        "on": "裁剪开启",
+        "trimmed": "上一轮裁剪了 {{count}} 项"
+      },
+      "scope": {
+        "project": "整个项目",
+        "agent": "该 Agent",
+        "session": "仅此会话",
+        "inherited": "继承",
+        "on": "开启",
+        "off": "关闭",
+        "unavailable": "此处不可用——请先打开一个 Agent 标签页和一个会话。",
+        "hint": "下面一行会覆盖上面一行。每次点击都会在开启 → 关闭 → 继承之间循环切换。"
+      },
+      "blocked": {
+        "lead": "即使开启，也不会对此 Agent 进行任何裁剪，原因如下：",
+        "localEngine": "它运行在本地模型上，提示词由我们自行构建，没有可丢弃的 CLI 字段。",
+        "terminal": "它运行在内嵌终端中，单轮的设置无法被替换。"
+      },
+      "source": {
+        "thisSession": "来自本次会话，{{time}}。",
+        "otherSession": "来自该 Agent 的另一次会话，{{time}}——本次会话尚未运行过任何一轮。",
+        "waiting": "尚未运行过任何一轮。一旦本次会话运行一轮，这两个列表就会自动填充。",
+        "turnOnFirst": "请先在上方开启裁剪，以查看某一轮会丢弃哪些字段。"
+      },
+      "trimmedPane": {
+        "title": "已裁剪",
+        "lead": "已从本轮运行所用的副本中移除。此处显示原始值，方便你自行恢复。",
+        "empty": "没有任何字段被裁剪——所有字段要么是必需的，要么被特意保留。"
+      },
+      "excludedPane": {
+        "title": "保留项",
+        "lead": "被特意保留在副本中。以下是裁剪不会触及的字段，以及原因。",
+        "empty": "本轮没有字段被排除在裁剪之外。"
+      },
+      "before": "原为 {{value}}",
+      "reason": {
+        "not-accepted": "不被接受",
+        "same-as-default": "与默认值相同",
+        "not-implemented": "未实现",
+        "no-effect-here": "在此处无效"
+      },
+      "keep": {
+        "required": "必需",
+        "user-set": "你设置过",
+        "unsafe": "会改变运行结果",
+        "unknown": "无法判断",
+        "rule-off": "规则已关闭"
+      },
+      "rules": {
+        "title": "规则",
+        "lead": "每条规则决定一个字段。关闭某条规则后，其对应字段会移入「保留项」，而不会被裁剪。"
+      },
+      "rule": {
+        "preset-meta": "预设 ID 仅用于记录设置的来源，永远不会发送给 CLI。",
+        "custom-mode-placeholder": "审阅与调试这两种自定义模式只是占位符，背后没有对应的实际行为。",
+        "model-version-gone": "该确切的模型 ID 不在当前账号可用的列表中。",
+        "effort-gone": "已安装的 CLI 不再列出该思考深度等级。",
+        "effort-default": "思考深度保持默认值，这与不发送该字段时的效果相同。",
+        "max-turns-default": "最大轮次仍为内置默认值。",
+        "max-budget-unlimited": "预算为 0 表示无限制，与不设置预算的效果相同。",
+        "fallback-model-empty": "回退模型为空字符串，因此没有可回退的对象。",
+        "thinking-on-default": "扩展思考默认已开启；重复发送只会多添加一个参数。",
+        "forward-subagent-text-on-default": "转发子 Agent 文本功能默认已开启。",
+        "fast-mode-off-default": "快速模式默认已关闭。",
+        "permission-timeout-default": "「允许」是默认的权限超时策略。",
+        "betas-empty": "Beta 标志列表为空。",
+        "agent-definitions-empty": "子 Agent 定义列表为空。",
+        "context-window-non-opus": "上下文窗口后缀仅在 Opus 模型下读取。",
+        "fast-mode-unsupported": "所选模型不支持快速模式，因此 CLI 会悄悄将其丢弃。",
+        "betas-subscription": "Beta 标志仅适用于 API 密钥账号；订阅登录会忽略它们。",
+        "cli-kind-headless": "CLI 类型只决定打开哪种终端，而本轮是以无头模式运行的。",
+        "mcp-output-without-mcp": "未附加任何 MCP 服务器，因此 MCP 输出限制没有可限制的对象。",
+        "agent-definitions-without-task": "Task 工具不在工具列表中，因此无法调用这些子 Agent。",
+        "permission-timeout-moot": "此权限模式从不显示提示，因此提示超时永远不会生效。"
+      },
+      "protected": {
+        "title": "永不裁剪",
+        "lead": "无论规则如何切换，都不会影响这些字段。"
+      },
+      "runs": {
+        "title": "最近的轮次",
+        "empty": "此项目中尚未有任何一轮被裁剪过。",
+        "counts": "{{trimmed}} / {{excluded}}"
       }
     }
   },
@@ -5198,6 +5550,11 @@
     }
   },
   "common": {
+    "appError": {
+      "title": "无法显示此窗口。",
+      "description": "请尝试重新显示。已保存的工作和设置将会保留。",
+      "retry": "重试"
+    },
     "uncommittedChanges": "未提交的变更",
     "iframe": {
       "urlInput": "输入 URL...",
@@ -5578,8 +5935,6 @@
     "serviceTierHint": "请输入模型支持的等级（例如 fast）。较快的等级可能影响用量和费用。",
     "autoCompactTokenLimit": "自动压缩对话的阈值（令牌）",
     "codexTools": "工具权限",
-    "inheritProject": "项目 / 全局默认设置",
-    "individualSettingsHint": "仅适用于此智能体。与默认值相同的设置将继续跟随项目和全局设置的变化。",
     "codexValues": {
       "auto": "自动",
       "concise": "简洁",
@@ -5588,6 +5943,8 @@
       "friendly": "友好",
       "pragmatic": "务实"
     },
+    "inheritProject": "项目 / 全局默认设置",
+    "individualSettingsHint": "仅适用于此智能体。与默认值相同的设置将继续跟随项目和全局设置的变化。",
     "provider": "提供方",
     "claude": "Claude",
     "codex": "Codex",

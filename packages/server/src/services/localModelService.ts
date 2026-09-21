@@ -134,6 +134,51 @@ function ggufTensorCount(file: string): number | null {
 /** 이보다 텐서가 적으면 언어모델 본체일 수 없다(실측 MTP 헤드 = 18개). */
 const MIN_MODEL_TENSORS = 24;
 
+/** 카탈로그·파일 크기 조회가 멎어도 모델 선택 창이 무한히 기다리지 않는다. */
+const MODEL_METADATA_TIMEOUT_MS = 20_000;
+
+function validRepo(repo: string): boolean {
+  return typeof repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(repo)
+    && !repo.split('/').some((part) => part === '.' || part === '..');
+}
+
+function validModelFile(file: string): boolean {
+  return typeof file === 'string' && /\.gguf$/i.test(file)
+    && !/[\\\x00-\x1f<>:"|?*]/.test(file)
+    && file.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..')
+    && !isCompanionName(file);
+}
+
+/** 직접 요청도 카탈로그와 같은 한 벌을 받는다. 조각 목록의 순서·누락에 기대지 않는다. */
+function downloadTargets(file: string, partFiles?: readonly string[]): string[] {
+  if (!validModelFile(file) || partFiles?.some((part) => !validModelFile(part))) {
+    throw new Error('Invalid GGUF model file');
+  }
+  const name = file.split('/').pop() ?? file;
+  const split = parseSplitPart(name);
+  if (!split) {
+    if (partFiles?.some((part) => part !== file)) throw new Error('Model files must belong to one GGUF model');
+    return [file];
+  }
+  const folder = file.slice(0, file.length - name.length);
+  const targets = Array.from({ length: split.total }, (_, i) => `${folder}${splitPartName(split.base, i + 1, split.total)}`);
+  const expected = new Set(targets);
+  if (partFiles?.some((part) => !expected.has(part))) throw new Error('Model files must belong to one GGUF model');
+  return targets;
+}
+
+function byteLength(value: string | null): number {
+  if (!value || !/^\d+$/.test(value)) return 0;
+  const size = Number(value);
+  return Number.isSafeInteger(size) && size > 0 ? size : 0;
+}
+
+/** 텍스트 오류 페이지·LFS 포인터를 성공한 모델로 놓지 않는다. 조각은 텐서 수가 적을 수 있다. */
+function hasGgufHeader(file: string): boolean {
+  const tensors = ggufTensorCount(file);
+  return tensors !== null && Number.isSafeInteger(tensors) && tensors > 0;
+}
+
 // ─── 받은 모델이 실제로 말을 하는지 (§5.19 (E)) ───
 
 /**
@@ -320,7 +365,7 @@ function downloadUrl(repo: string, file: string): string {
 
 /**
  * §5.19 (E) — 저장소 검색. 검색어가 비면 그 정렬 축의 인기 목록을 준다.
- * 실패하면 빈 배열 — 화면은 "찾지 못했습니다"로 떨어지고 앱은 계속 돈다.
+ * 조회 실패는 호출자에게 알린다 — 네트워크 장애를 검색 결과 없음으로 숨기면 재시도할 수 없다.
  *
  * **정렬은 카탈로그에 맡긴다.** 받아 온 스무 건을 우리가 다시 줄 세우면 "하트순 1위"가
  * 그 스무 건 안에서만 1위가 되어, 화면이 말하는 순위와 실제 순위가 갈린다.
@@ -339,7 +384,10 @@ export async function searchCatalog(
   const q = query.trim();
   if (q) url.searchParams.set('search', q);
   try {
-    const res = await fetch(url, { headers: { accept: 'application/json', 'user-agent': 'vibisual' } });
+    const res = await fetch(url, {
+      headers: { accept: 'application/json', 'user-agent': 'vibisual' },
+      signal: AbortSignal.timeout(MODEL_METADATA_TIMEOUT_MS),
+    });
     if (!res.ok) throw new Error(`hf search ${res.status}`);
     const list = (await res.json()) as HfModelSummary[];
     return list
@@ -363,7 +411,7 @@ export async function searchCatalog(
       .filter((r) => r.repo.length > 0);
   } catch (err) {
     logger.warn('[localModel] catalog search failed', err);
-    return [];
+    throw err;
   }
 }
 
@@ -373,8 +421,10 @@ export async function searchCatalog(
  */
 export async function listRepoFiles(repo: string): Promise<LocalModelCatalogEntry[]> {
   try {
+    if (!validRepo(repo)) throw new Error('Invalid model repository');
     const res = await fetch(`${HF_MODEL_API}/${repo}?blobs=true`, {
       headers: { accept: 'application/json', 'user-agent': 'vibisual' },
+      signal: AbortSignal.timeout(MODEL_METADATA_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`hf repo ${res.status}`);
     const j = (await res.json()) as { siblings?: HfSibling[] };
@@ -382,10 +432,10 @@ export async function listRepoFiles(repo: string): Promise<LocalModelCatalogEntr
       .map((s) => s.rfilename ?? '')
       // 부속 파일은 애초에 내놓지 않는다 — 고를 수 있으면 반드시 누군가 고르고, 그 대가는
       //   "27B 라는데 1.37GB" 를 받은 뒤의 엔진 크래시다.
-      .filter((n) => /\.gguf$/i.test(n) && !isCompanionName(n));
+      .filter(validModelFile);
     const sizes = new Map<string, number>();
     for (const s of j.siblings ?? []) {
-      if (s.rfilename && typeof s.size === 'number') sizes.set(s.rfilename, s.size);
+      if (s.rfilename && Number.isSafeInteger(s.size) && (s.size ?? 0) > 0) sizes.set(s.rfilename, s.size ?? 0);
     }
     // 쪼개진 모델은 조각이 아니라 **한 벌**로 내놓는다 — 조각을 따로 고를 수 있게 두면
     //   사용자는 한 조각만 받고 못 쓰게 된다(그리고 그 사실을 엔진이 죽고서야 알게 된다).
@@ -418,12 +468,16 @@ export async function listRepoFiles(repo: string): Promise<LocalModelCatalogEntr
       const parts = [...group.parts].sort();
       const first = parts[0];
       if (!first) continue;
+      // 저장소 업로드가 진행 중일 수 있다. 빠진 조각이 있는 모델은 아직 받을 수 없다.
+      const expected = downloadTargets(first);
+      if (expected.length !== parts.length || expected.some((part, i) => part !== parts[i])) continue;
       const entry: LocalModelCatalogEntry = {
         id: fileToId(`${group.base}.gguf`),
         repo,
         file: first,
         url: downloadUrl(repo, first),
-        sizeBytes: parts.reduce((sum, p) => sum + (sizes.get(p) ?? 0), 0),
+        // 조각 하나라도 크기를 모르면 전체도 미상이다. 일부 합으로 PC 적합성을 말하지 않는다.
+        sizeBytes: parts.every((part) => sizes.has(part)) ? parts.reduce((sum, p) => sum + (sizes.get(p) ?? 0), 0) : 0,
         partFiles: parts,
       };
       const quant = parseQuant(`${group.base}.gguf`);
@@ -462,7 +516,7 @@ export async function listRepoFiles(repo: string): Promise<LocalModelCatalogEntr
     return listed;
   } catch (err) {
     logger.warn(`[localModel] repo listing failed: ${repo}`, err);
-    return [];
+    throw err;
   }
 }
 
@@ -503,8 +557,9 @@ export function listDownloads(): LocalModelDownloadProgress[] {
  * 받게 만들 수 없다. 받다 만 것은 `.part` 로 두고 다음에 `Range` 로 이어 받는다.
  */
 export function downloadModel(repo: string, file: string, partFiles?: readonly string[]): LocalModelDownloadProgress {
+  if (!validRepo(repo)) throw new Error('Invalid model repository');
   // 쪼개진 모델은 조각 전부가 한 벌이다 — 하나만 받아 두면 그 모델은 쓸 수 없다.
-  const targets = partFiles && partFiles.length > 0 ? [...partFiles] : [file];
+  const targets = downloadTargets(file, partFiles);
   const firstName = (targets[0] ?? file).split('/').pop() ?? file;
   const split = parseSplitPart(firstName);
   const groupName = split ? split.base : firstName.replace(/\.gguf$/i, '');
@@ -533,31 +588,33 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
 
   void (async (): Promise<void> => {
     try {
+      session.abort.signal.throwIfAborted();
       await fsp.mkdir(dir, { recursive: true });
 
-      // 조각이 여럿이면 전체 크기를 먼저 물어 둔다 — 진행률이 조각마다 0 으로 되감기면
-      //   사용자는 몇 십 GB 를 받는 동안 얼마나 남았는지 알 수 없다.
-      if (targets.length > 1) {
-        let sum = 0;
-        for (const target of targets) {
-          try {
-            const head = await fetch(downloadUrl(repo, target), {
-              method: 'HEAD',
-              redirect: 'follow',
-              headers: { 'user-agent': 'vibisual' },
-              signal: session.abort.signal,
-            });
-            sum += Number(head.headers.get('content-length') ?? 0);
-          } catch {
-            sum = 0; // 하나라도 모르면 합계를 말하지 않는다 — 거짓 진행률보다 미상이 낫다
-            break;
-          }
+      // 전체 크기로 진행률을 잡고 이미 있는 파일도 대조한다 — 존재만으로 완료를 판정하면
+      //   잘린 파일이 영원히 다시 받아지지 않는다. 실패한 HEAD 는 GET 으로 다시 확인한다.
+      const sizes = new Map<string, number>();
+      for (const target of targets) {
+        session.abort.signal.throwIfAborted();
+        try {
+          const head = await fetch(downloadUrl(repo, target), {
+            method: 'HEAD',
+            redirect: 'follow',
+            headers: { 'user-agent': 'vibisual', 'accept-encoding': 'identity' },
+            signal: AbortSignal.any([session.abort.signal, AbortSignal.timeout(MODEL_METADATA_TIMEOUT_MS)]),
+          });
+          const size = head.ok ? byteLength(head.headers.get('content-length')) : 0;
+          if (size > 0) sizes.set(target, size);
+        } catch {
+          session.abort.signal.throwIfAborted();
+          // HEAD 를 지원하지 않는 서버도 있다. 실제 GET 의 길이·범위를 아래서 대조한다.
         }
-        session.totalBytes = sum;
       }
+      session.totalBytes = sizes.size === targets.length ? [...sizes.values()].reduce((sum, size) => sum + size, 0) : 0;
 
       let doneBytes = 0;
       for (const [index, target] of targets.entries()) {
+        session.abort.signal.throwIfAborted();
         const name = target.split('/').pop() ?? target;
         const dest = path.join(dir, name);
         const partPath = `${dest}.part`;
@@ -569,7 +626,8 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
         // 이미 제자리에 있는 조각은 건너뛴다 — 이어받기의 연장이다.
         try {
           const settled = await fsp.stat(dest);
-          if (settled.size > 0) {
+          if (settled.isFile() && settled.size === sizes.get(target) && hasGgufHeader(dest)) {
+            session.abort.signal.throwIfAborted();
             doneBytes += settled.size;
             session.receivedBytes = doneBytes;
             pushDownload(session);
@@ -586,22 +644,57 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
         } catch {
           already = 0;
         }
+        // 예전 200 오류 페이지도 .part 로 남을 수 있다. 그 뒤에 진짜 모델의 뒷부분을
+        // 붙이면 재시도할 때마다 같은 잘못된 머리를 보존하므로 처음부터 다시 받는다.
+        if (already >= 24 && !hasGgufHeader(partPath)) already = 0;
 
-        const headers: Record<string, string> = { 'user-agent': 'vibisual' };
+        session.abort.signal.throwIfAborted();
+        const headers: Record<string, string> = { 'user-agent': 'vibisual', 'accept-encoding': 'identity' };
         if (already > 0) headers['range'] = `bytes=${already}-`;
 
-        const res = await fetch(downloadUrl(repo, target), {
+        let res = await fetch(downloadUrl(repo, target), {
           headers,
           redirect: 'follow',
           signal: session.abort.signal,
         });
-        if (!res.ok || !res.body) throw new Error(`download ${res.status} (${name})`);
+        // 마지막 바이트까지 받은 뒤 rename 전에 꺼졌다면 Range 는 416 이다. 원격 길이와
+        // 정확히 같을 때만 완료시키고, 너무 긴 옛 조각은 처음부터 다시 받는다(RFC 9110 §14.4).
+        if (res.status === 416 && already > 0) {
+          const total = byteLength(/^bytes \*\/(\d+)$/.exec(res.headers.get('content-range') ?? '')?.[1] ?? null);
+          await res.body?.cancel();
+          session.abort.signal.throwIfAborted();
+          if (total === already && hasGgufHeader(partPath)) {
+            await fsp.rename(partPath, dest);
+            doneBytes += already;
+            session.receivedBytes = doneBytes;
+            continue;
+          }
+          delete headers['range'];
+          already = 0;
+          res = await fetch(downloadUrl(repo, target), { headers, redirect: 'follow', signal: session.abort.signal });
+        }
+        if (!res.ok || !res.body) {
+          await res.body?.cancel();
+          throw new Error(`download ${res.status} (${name})`);
+        }
 
         // 206 이면 이어 받는 중이고, 200 이면 서버가 범위를 무시한 것이라 처음부터 다시 쓴다.
         const resumed = res.status === 206 && already > 0;
         const startAt = resumed ? already : 0;
-        const len = Number(res.headers.get('content-length') ?? 0);
-        const fileTotal = len > 0 ? startAt + len : 0;
+        const len = byteLength(res.headers.get('content-length'));
+        let fileTotal = len || sizes.get(target) || 0;
+        if (res.status === 206) {
+          const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers.get('content-range') ?? '');
+          const start = Number(range?.[1]);
+          const end = Number(range?.[2]);
+          const total = Number(range?.[3]);
+          if (!range || !Number.isSafeInteger(total) || start !== already || end < start || total <= end
+            || (len > 0 && len !== end - start + 1)) {
+            await res.body.cancel();
+            throw new Error(`Invalid download range (${name}) — retry the download`);
+          }
+          fileTotal = total;
+        }
         if (targets.length === 1) session.totalBytes = fileTotal;
         session.receivedBytes = doneBytes + startAt;
         session.status = 'downloading';
@@ -617,7 +710,9 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
             pushDownload(session);
           }
         });
-        await pipeline(body, fs.createWriteStream(partPath, resumed ? { flags: 'a' } : { flags: 'w' }));
+        await pipeline(body, fs.createWriteStream(partPath, resumed ? { flags: 'a' } : { flags: 'w' }), {
+          signal: session.abort.signal,
+        });
 
         // 스트림이 끝났다는 것은 "다 받았다"가 아니다 — 중간에 끊긴 응답도 정상 종료로 보인다.
         //   여기서 대조하지 않으면 반쪽 GGUF 가 그대로 제자리에 놓여, 목록에는 멀쩡히 뜨고
@@ -630,13 +725,16 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
           );
         }
 
+        if (!hasGgufHeader(partPath)) throw new Error(`Downloaded file is not a valid GGUF model (${name})`);
+        session.abort.signal.throwIfAborted();
         await fsp.rename(partPath, dest);
         doneBytes += gotBytes;
       }
 
+      session.abort.signal.throwIfAborted();
       session.name = groupName;
       session.receivedBytes = doneBytes;
-      if (session.totalBytes === 0) session.totalBytes = doneBytes;
+      session.totalBytes = doneBytes;
       session.status = 'done';
       pushDownload(session);
       logger.info(
@@ -644,7 +742,8 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
       );
       // 받았다고 끝이 아니다 — 실제로 말을 하는지 여기서 확인해야 사용자가 프롬프트를 치고
       //   빈 답을 받은 뒤에야 알게 되는 일이 없다(§5.19 (E) "받기 하나가 곧 동작").
-      downloadedHook?.(modelId);
+      // 모델 검사가 실패했다고 성공한 다운로드를 오류로 되돌리지는 않는다.
+      try { downloadedHook?.(modelId); } catch (err) { logger.warn('[localModel] downloaded hook failed', err); }
     } catch (err) {
       if (session.abort.signal.aborted) {
         session.status = 'canceled';

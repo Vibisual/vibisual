@@ -23,24 +23,12 @@
  */
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AutoGoalCandidate, AutoGoalSkillSummary } from '@vibisual/shared';
+import type { AutoGoalCandidate } from '@vibisual/shared';
 import { AutoGoalScopeRows, AutoGoalScopeSummary, useAutoGoalScope } from './autoGoalScope.js';
+import { AutoGoalSkillRow } from './AutoGoalSkillRow.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
-
-/** 굳은 절차를 뜻하는 글리프 — 겹쳐 쌓인 판(반복해서 굳은 것). */
-function SkillGlyph({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      className={className ?? 'h-3.5 w-3.5'} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
-    >
-      <path d="M12 3 3 7.5 12 12l9-4.5L12 3Z" />
-      <path d="m3 12 9 4.5L21 12M3 16.5 12 21l9-4.5" />
-    </svg>
-  );
-}
 
 /** 아직 굳지 않은 것을 뜻하는 글리프 — 도는 원(차오르는 중). */
 function BrewGlyph({ className }: { className?: string }): React.JSX.Element {
@@ -68,64 +56,26 @@ function RemoveGlyph(): React.JSX.Element {
 }
 
 /**
- * 굳어진 절차 한 줄.
- *
- * 이름 · 단계 수 · 관찰 횟수를 한 줄에 세우고, 지우기는 호버에서만 뜬다 — 좁은 칸에서 늘 보이는
- * 파괴 버튼은 목록을 읽는 것보다 먼저 눈에 들어온다.
- */
-const SkillRow = memo(function SkillRow({
-  skill, onRemove,
-}: {
-  skill: AutoGoalSkillSummary;
-  onRemove: () => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <li className="group flex min-w-0 items-start gap-1.5 rounded px-1 py-0.5 hover:bg-gray-800/60">
-      <SkillGlyph className="mt-[2px] h-3.5 w-3.5 flex-shrink-0 text-emerald-400/80" />
-      <span className="min-w-0 flex-1">
-        <span className="block break-words text-[12px] leading-snug text-gray-200">{skill.name}</span>
-        <span className="block text-[12px] leading-snug text-gray-500">
-          {t('ide.autoGoal.skillMeta', { steps: skill.steps, runs: skill.runs })}
-        </span>
-      </span>
-      <button
-        type="button"
-        onClick={onRemove}
-        title={t('ide.autoGoal.removeSkill')}
-        aria-label={t('ide.autoGoal.removeSkill')}
-        className="mt-[2px] flex-shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100 focus-visible:opacity-100"
-      >
-        <RemoveGlyph />
-      </button>
-    </li>
-  );
-});
-
-/**
  * 아직 문턱을 못 넘은 후보 한 줄 — **분모가 있는 진행**.
  *
- * "2/3" 처럼 셀 수 있게 적는 이유는 #17-44 ① 이 신뢰에 대해 세운 그대로다: 분모 없는 진행률은
- * 신뢰를 못 만든다. 사용자는 이 줄을 보고 "한 번만 더 하면 굳는구나"를 안다.
+ * "2/3" 은 관찰 문턱이다. 문턱을 넘어도 에이전트 검토를 통과해야 사용되는 절차가 된다.
  */
 const CandidateRow = memo(function CandidateRow({
-  candidate, minRuns, onDismiss,
+  candidate, minRuns, onDismiss, disabled,
 }: {
   candidate: AutoGoalCandidate;
   minRuns: number;
   onDismiss: () => void;
+  disabled: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const ratio = Math.max(0, Math.min(1, minRuns > 0 ? candidate.runs / minRuns : 0));
   return (
     <li className="group flex min-w-0 items-start gap-1.5 rounded px-1 py-0.5 hover:bg-gray-800/60">
       <BrewGlyph className="mt-[2px] h-3.5 w-3.5 flex-shrink-0 text-amber-400/80" />
       <span className="min-w-0 flex-1">
         <span className="block break-words text-[12px] leading-snug text-gray-300">{candidate.title}</span>
         <span className="mt-0.5 flex items-center gap-1.5">
-          <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-700/70">
-            <span className="block h-full rounded-full bg-amber-400/80" style={{ width: `${ratio * 100}%` }} />
-          </span>
+          <progress value={candidate.runs} max={Math.max(1, minRuns)} aria-label={candidate.title} className="h-1 min-w-0 flex-1 accent-amber-400" />
           <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-500">
             {candidate.runs}/{minRuns}
           </span>
@@ -134,6 +84,7 @@ const CandidateRow = memo(function CandidateRow({
       <button
         type="button"
         onClick={onDismiss}
+        disabled={disabled}
         title={t('ide.autoGoal.dismiss')}
         aria-label={t('ide.autoGoal.dismiss')}
         className="mt-[2px] flex-shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100 focus-visible:opacity-100"
@@ -169,6 +120,8 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
   //   읽히지 않는다(스킬 줄이 그 절차의 결론이다).
   const brewing = (state?.candidates ?? []).filter((c) => !c.skillId);
   const minRuns = state?.minRuns ?? 0;
+  const metrics = state?.metrics;
+  const disabled = control.saving || control.loading;
 
   return (
     <div className="flex min-h-0 flex-col">
@@ -186,15 +139,32 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
           aria-hidden
           className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${control.effective ? 'bg-emerald-400' : 'bg-gray-600'}`}
         />
-        {skills.length > 0 && (
-          <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-500">{skills.length}</span>
-        )}
+        <button type="button" disabled={control.saving} onClick={control.refresh} title={t('ide.autoGoal.refresh')} aria-label={t('ide.autoGoal.refresh')}
+          className="rounded p-0.5 text-gray-500 hover:text-gray-200 disabled:opacity-40">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6 7a7 7 0 0 1 11.5-2L20 8M4 16l2.5 3A7 7 0 0 0 18 17" /></svg>
+        </button>
       </div>
 
       <ScrollFade fill className="min-h-0 flex-1">
         <div className="flex min-w-0 flex-col gap-1.5 overflow-x-hidden break-words p-2">
           {/* 이 기능이 무엇을 하는지 한 줄 — 이름만으로는 무엇을 감지한다는 것인지 읽히지 않는다. */}
           <p className="px-1 text-[12px] leading-relaxed text-gray-500">{t('ide.autoGoal.about')}</p>
+          {!rootPath && <p className="px-1 text-[12px] text-gray-400">{t('ide.autoGoal.noProject')}</p>}
+          {control.error && <p role="alert" className="px-1 text-[12px] text-rose-300">{t(control.error === 'save' ? 'ide.autoGoal.saveFailed' : 'ide.autoGoal.loadFailed')}</p>}
+          {rootPath && control.loading && !control.error && <p role="status" className="px-1 text-[12px] text-gray-500">{t('ide.autoGoal.loading')}</p>}
+
+          {metrics && <div className="rounded border border-gray-800 p-2 text-[12px]">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums">
+              <span className="text-emerald-400">{t('ide.autoGoal.metrics.active', { count: metrics.activeCount })}</span>
+              <span className="text-amber-300">{t('ide.autoGoal.metrics.review', { count: metrics.reviewCount })}</span>
+              <span className="text-gray-400">{t('ide.autoGoal.metrics.retired', { count: metrics.retiredCount })}</span>
+              <span className="text-sky-400">{t('ide.autoGoal.metrics.reuse', { count: metrics.reuseCount })}</span>
+              <span className="text-sky-400">{t('ide.autoGoal.metrics.skip', { count: metrics.skipCount })}</span>
+              <span className="text-gray-400">{t('ide.autoGoal.metrics.failure', { count: metrics.failureCount })}</span>
+              <span className="text-gray-400">{t('ide.autoGoal.metrics.revision', { count: metrics.revisionCount })}</span>
+            </div>
+            <p className="mt-1 text-gray-500">{t('ide.autoGoal.metrics.hint')}</p>
+          </div>}
 
           {/* 지금 도는가 — 스위치를 눌러도 결론이 안 바뀌는 경우(위 층이 이미 껐다)를 먼저 못 박는다. */}
           <AutoGoalScopeSummary on={control.effective} />
@@ -204,17 +174,22 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
             <AutoGoalScopeRows control={control} agentId={agentId} subAgentId={activeSessionId} />
           </div>
           <p className="px-1 text-[12px] leading-relaxed text-gray-600">{t('ide.autoGoal.scope.hint')}</p>
+          <p className="px-1 text-[12px] leading-relaxed text-gray-500">{t('ide.autoGoal.reviewHint')}</p>
 
           {/* 굳은 절차 — 꺼져 있어도 보인다(끄기는 정지이지 삭제가 아니다). */}
           {skills.length > 0 && (
             <div className="flex flex-col gap-0.5">
               <GroupLabel text={t('ide.autoGoal.groupSkills', { count: skills.length })} />
-              <ul className="flex flex-col">
+              <ul className="flex flex-col gap-1.5">
                 {skills.map((s) => (
-                  <SkillRow
-                    key={s.id}
+                  <AutoGoalSkillRow
+                    key={`${rootPath}:${s.id}`}
                     skill={s}
+                    rootPath={rootPath}
+                    disabled={disabled}
                     onRemove={() => control.removeSkill(s.id, s.candidateId)}
+                    onRetire={() => control.retireSkill(s.id, s.revision)}
+                    onRequestReview={() => control.requestReview(s.id, s.revision)}
                   />
                 ))}
               </ul>
@@ -231,6 +206,7 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
                     key={c.id}
                     candidate={c}
                     minRuns={minRuns}
+                    disabled={disabled}
                     onDismiss={() => control.dismiss(c.id)}
                   />
                 ))}
@@ -245,7 +221,7 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
             이유). 켜져 있는데 아직 아무것도 없으면 **몇 개를 봤는지**를 말해 주는 것이 유일하게
             정직한 답이다 — 그 숫자가 늘고 있으면 기다리면 된다는 뜻이다.
           */}
-          {control.effective && skills.length === 0 && brewing.length === 0 && (
+          {!control.loading && !control.error && control.effective && skills.length === 0 && brewing.length === 0 && (
             <p className="px-1 text-[12px] leading-relaxed text-gray-600">
               {state && state.observed > 0
                 ? t('ide.autoGoal.watching', { observed: state.observed, runs: minRuns })

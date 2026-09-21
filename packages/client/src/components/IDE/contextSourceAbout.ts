@@ -53,6 +53,17 @@ export const CONTEXT_ABOUT_KEY_BY_ID: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.toolSchemas]: 'toolSchemas',
   [CONTEXT_SOURCE_IDS.mcp]: 'mcp',
   [CONTEXT_SOURCE_IDS.hooks]: 'hooks',
+  'codex.instructions': 'codexInstructions',
+  'codex.global-instructions': 'codexGlobalInstructions',
+  'codex.collaboration-instructions': 'codexCollaborationInstructions',
+  'codex.skills': 'codexSkills',
+  'codex.developer-instructions': 'codexDeveloperInstructions',
+  'codex.mcp': 'codexMcp',
+  'codex.plugins': 'codexPlugins',
+  'codex.runtime-mcp': 'codexRuntimeMcp',
+  'codex.runtime-plugins': 'codexRuntimePlugins',
+  'codex.hooks': 'codexHooks',
+  'codex.system-prompt': 'codexSystemPrompt',
 };
 
 /** 개별 플러그인 줄(`plugin:<id>`)이 함께 쓰는 설명 조각 — 이름만 갈아 끼운다. */

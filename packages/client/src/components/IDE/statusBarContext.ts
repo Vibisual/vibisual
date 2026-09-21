@@ -28,7 +28,8 @@
  *  - **컨텍스트 창 크기(`max`)**: 실측이 없으면 **그 모델의 창 크기**(레지스트리)를 쓴다. 창 크기는
  *    세션이 아니라 모델의 성질이므로, 첫 턴 전에도 `0/1.0M` 이 참이다.
  */
-import { isThinkingEnabled, resolveCmdCliKind } from '@vibisual/shared';
+import { isThinkingEnabled, resolveCmdCliKind, type CodexEffectiveConfig, type CodexModelEntry } from '@vibisual/shared';
+import { resolveCodexInherited } from '../Codex/codexModelEntry.js';
 
 export interface StatusBarScopeSource {
   /** 마지막 턴이 실제로 쓴 모델(세션) 또는 버블에 채워진 모델. */
@@ -180,8 +181,9 @@ export type StatusBarEffort =
 /**
  * §4 (상태바 모델 칸 ①) — 모델 칸에 **추론 강도를 함께 적는가, 적는다면 무엇을.** 그리지 않으면 `null`.
  *
- * 명시한 강도가 있으면 다음 턴에 실릴 설정값을 쓴다. 코덱스의 미설정 값은 선택된 세션의
- * `turn_context.effort` 로 해소한다 — config.toml 을 상속하므로 모델 카탈로그의 초기 강도와 다를 수 있다.
+ * 명시한 강도가 있으면 다음 턴에 실릴 설정값을 쓴다. 코덱스는 설정 창과 같이 프로젝트·전역 설정과
+ * config.toml 을 상속한다. 그 값도 없으면 같은 모델의 세션 실측, 모델이 신고한 기본 강도 순으로 본다.
+ * 파일을 아직 못 읽었거나 읽기에 실패했으면 모델 기본값으로 파일 설정을 덮어 추측하지 않는다.
  *
  * 클로드 경로는 서버가 3층을 겹쳐 준 `AgentConfig.effort` 를 본다. `'default'`·빈 값이면 `unknown` —
  * 서버 `buildConfigArgs` 가 `--effort` 를 **안 붙이는 바로 그 조건**이라 화면과 스폰이 갈라지지 않는다.
@@ -206,6 +208,12 @@ export function resolveStatusBarEffort(input: {
   userDefaultEffort?: string;
   /** 코덱스 버블의 `provider.reasoningEffort`. */
   codexEffort?: string;
+  /** 개별 값이 없을 때 상속할 Vibisual 프로젝트 → 전역 기본값. */
+  inheritedCodexEffort?: string;
+  /** 설정 창과 같은 작업 폴더에서 읽은 Codex 설정 파일. */
+  codexConfig?: CodexEffectiveConfig | 'failed' | null;
+  /** 다음 턴에 선택된 모델의 카탈로그 항목. */
+  codexModel?: CodexModelEntry;
   /** 선택한 세션에서 확인된 강도. 다른 세션이나 버블의 값을 빌려오지 않는다. */
   sessionEffort?: string;
   sessionModel?: string;
@@ -214,11 +222,21 @@ export function resolveStatusBarEffort(input: {
 }): StatusBarEffort | null {
   if (!input.isCustom) return null;
   if (input.providerKind === 'codex-cli') {
-    const configured = input.codexEffort?.trim();
-    if (configured && configured !== 'default') return { kind: 'level', value: configured };
+    for (const effort of [input.codexEffort, input.inheritedCodexEffort]) {
+      const configured = effort?.trim();
+      if (configured && configured !== 'default') return { kind: 'level', value: configured };
+    }
+    const inherited = resolveCodexInherited('reasoningEffort', {
+      config: input.codexConfig === 'failed' ? null : input.codexConfig,
+      model: input.codexModel,
+      modelsLoaded: true,
+      sandbox: '', // Sandbox does not affect reasoning effort.
+    });
+    if (inherited.kind === 'layer') return { kind: 'level', value: inherited.value };
     const sameModel = !input.providerModelId || !input.sessionModel || input.providerModelId === input.sessionModel;
     const observed = sameModel ? input.sessionEffort?.trim() : undefined;
-    return observed && observed !== 'default' ? { kind: 'level', value: observed } : { kind: 'unknown' };
+    if (observed && observed !== 'default') return { kind: 'level', value: observed };
+    return inherited.kind === 'model' ? { kind: 'level', value: inherited.value } : { kind: 'unknown' };
   }
   if (input.providerKind) return null;
   if (!resolveCmdCliKind(input.cliKind).managed) return null;

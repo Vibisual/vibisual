@@ -11,27 +11,62 @@
  * 끝나면 그 자리에서 `1분 13초 동안 사고함` 으로 가라앉는다(새 모양을 발명하지 않는다).
  */
 
+import { useTranslation } from 'react-i18next';
+import { SESSION_NO_RESPONSE_MS, sessionSilenceMs } from '@vibisual/shared';
+import { useNowTick } from '../../hooks/useNowTick.js';
+import { formatElapsed } from './elapsed.js';
+
 /** "." → ".." → "..." 반복. 폭 고정으로 라벨이 흔들리지 않는다. */
 export function ThinkingDots(): React.JSX.Element {
   return <span className="thinking-ellipsis inline-block w-[1.1em] text-left" aria-hidden="true" />;
 }
 
 /**
- * 라이브 1줄 — 왼쪽 정렬. 펄스 점 + 라벨 + 말줄임 애니메이션.
+ * 라이브 1줄 — 왼쪽 정렬. 펄스 점 + 라벨 + 말줄임 애니메이션 + **얼마나 됐는지**.
  *
  * §5.5 #17-24 ② ③ — 에이전트가 작동하는 **내내** 떠 있고, 사고 중이냐(`thinking`) 그 외 작업 중이냐
  * (`working`)에 따라 라벨과 색만 갈린다. "작업 중"은 이 항목의 생멸이 아니라 **줄 안의 움직임**이 알린다.
+ *
+ * §2.4 (무응답) — 여기에 **시간**이 없던 것이 이 버그의 핵심이었다. 말줄임만 돌아가는 줄은 3초가
+ * 지났는지 30분이 지났는지 말해 주지 않아, 사용자가 "끝난 건지 끊긴 건지 이어서 하는 건지" 판단할
+ * 근거가 화면 어디에도 없었다. 이제 마지막 움직임 이후 흐른 시간을 그 자리에 적고, 문턱
+ * (`SESSION_NO_RESPONSE_MS`)을 넘으면 **호박색 "무응답"** 으로 뒤집는다 — 죽었다고 단정하지 않되
+ * 사용자가 손을 쓸 때가 됐다는 것만 알린다(결정은 사용자가 한다).
  */
-export function ThinkingLiveLine({ label, mode = 'thinking' }: { label: string; mode?: 'thinking' | 'working' }): React.JSX.Element {
-  const dot = mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
-  const text = mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
+export function ThinkingLiveLine({
+  label,
+  mode = 'thinking',
+  lastActivityAt = null,
+}: {
+  label: string;
+  mode?: 'thinking' | 'working';
+  /** 마지막으로 움직인 시각(ms). 모르면 `null` — 그때는 시간을 적지 않는다(0 으로 적지 않는다). */
+  lastActivityAt?: number | null;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  // 근거가 있을 때만 시계를 돌린다 — 조용한 화면에서 초마다 리렌더하지 않기 위해.
+  const now = useNowTick(lastActivityAt !== null);
+  const silence = sessionSilenceMs(lastActivityAt, now);
+  const stalled = silence !== null && silence >= SESSION_NO_RESPONSE_MS;
+  const elapsed = silence !== null && lastActivityAt !== null ? formatElapsed(lastActivityAt, now) : null;
+  const dot = stalled ? 'bg-amber-400' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
+  const text = stalled ? 'text-amber-300/85' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
   return (
     <div className="flex items-center gap-2 px-4 py-1.5">
-      <span className={`h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full ${dot}`} aria-hidden="true" />
+      {/* 무응답이면 점이 뛰지 않는다 — 뛰는 점은 "지금 뭔가 오고 있다"는 뜻이라 거짓말이 된다. */}
+      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${stalled ? '' : 'animate-pulse'} ${dot}`} aria-hidden="true" />
       <span className={`inline-flex items-baseline text-[12px] italic ${text}`}>
         {label}
-        <ThinkingDots />
+        {!stalled && <ThinkingDots />}
       </span>
+      {elapsed !== null && (
+        <span
+          className={`flex-shrink-0 text-[12px] tabular-nums ${stalled ? 'font-semibold text-amber-300/90' : 'text-gray-500'}`}
+          title={stalled ? t('ide.mainArea.stallHint') : undefined}
+        >
+          {stalled ? t('ide.runningSubagents.noResponse', { value: elapsed }) : elapsed}
+        </span>
+      )}
     </div>
   );
 }

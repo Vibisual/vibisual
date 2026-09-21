@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron';
+import { ghostDocumentUrl, ghostHint } from './ghostText';
 
 // SCENARIO.md §5.5 #17-6 (H-6) — **밖으로 빼는 동안 그려 주는 가상 창(윤곽선)**.
 //
@@ -162,11 +163,29 @@ function clearTimers(g: GhostState): void {
   if (g.lifeTimer) { clearTimeout(g.lifeTimer); g.lifeTimer = null; }
 }
 
+/** Dispose only this generation: a late rejected load must never close its replacement. */
+function discardGhost(g: GhostState): void {
+  if (ghost === g) ghost = null;
+  clearTimers(g);
+  if (!g.window.isDestroyed()) {
+    try { g.window.destroy(); } catch { /* Native teardown already in progress. */ }
+  }
+}
+
+function ghostFailed(g: GhostState, error: unknown): void {
+  // Closing an obsolete ghost normally rejects its pending load (ERR_ABORTED).
+  const alreadyClosed = g.window.isDestroyed();
+  discardGhost(g);
+  if (alreadyClosed) return;
+  try { console.warn('[ghostFrame] ghost initialization failed:', error); }
+  catch { /* Diagnostic failure must not escape a visual-only timer callback. */ }
+}
+
 /** 지금 커서 자리에 맞춰 윤곽선을 옮긴다 — 잡은 지점 + 버팀 여분. */
 function positionGhost(g: GhostState): void {
-  if (g.window.isDestroyed()) { hidePopOutGhost(); return; }
-  const p = screen.getCursorScreenPoint();
+  if (g.window.isDestroyed()) { discardGhost(g); return; }
   try {
+    const p = screen.getCursorScreenPoint();
     g.window.setBounds({
       x: Math.round(p.x - g.grabX + g.pushX),
       y: Math.round(p.y - g.grabY + g.pushY),
@@ -198,7 +217,7 @@ export function showPopOutGhost(opts: {
   const grabX = Math.round(opts.grabX);
   const grabY = Math.round(opts.grabY);
   const armed = !!opts.armed;
-  const hint = typeof opts.hint === 'string' ? opts.hint.slice(0, 160) : '';
+  const hint = ghostHint(opts.hint);
 
   if (ghost && !ghost.window.isDestroyed()) {
     ghost.width = width;
@@ -268,8 +287,6 @@ export function showPopOutGhost(opts: {
   } catch {
     // 일부 플랫폼에서 없는 조합 — 선이 보이는 것이 더 중요하므로 계속 간다.
   }
-  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(ghostHtml(opts.label ?? '', hint))}`);
-
   const state: GhostState = {
     window: win,
     timer: null,
@@ -295,18 +312,26 @@ export function showPopOutGhost(opts: {
   });
 
   win.on('closed', () => {
-    if (ghost === state) {
-      clearTimers(state);
-      ghost = null;
-    }
+    clearTimers(state);
+    if (ghost === state) ghost = null;
   });
 
-  // 첫 자리는 **지금** 잡는다 — 한 틱을 기다리면 태어난 자리에 한 프레임 머물렀다 손 아래로 튄다.
-  positionGhost(state);
-  win.showInactive();
-  state.timer = setInterval(() => positionGhost(state), GHOST_POLL_MS);
-  state.lifeTimer = setTimeout(() => hidePopOutGhost(), GHOST_MAX_LIFE_MS);
-  return true;
+  try {
+    // Register ownership/cleanup before loading: native load/show can fail or close synchronously.
+    void win.loadURL(ghostDocumentUrl(ghostHtml(opts.label ?? '', hint)))
+      .catch((error: unknown) => ghostFailed(state, error));
+    if (ghost !== state || win.isDestroyed()) return false;
+    // 첫 자리는 지금 잡는다 — 한 틱을 기다리면 태어난 자리에 한 프레임 머물렀다 손 아래로 튄다.
+    positionGhost(state);
+    win.showInactive();
+    if (ghost !== state || win.isDestroyed()) return false;
+    state.timer = setInterval(() => positionGhost(state), GHOST_POLL_MS);
+    state.lifeTimer = setTimeout(() => discardGhost(state), GHOST_MAX_LIFE_MS);
+    return true;
+  } catch (error) {
+    ghostFailed(state, error);
+    return false;
+  }
 }
 
 /**
@@ -332,11 +357,7 @@ export function nudgePopOutGhost(offset: { dx: number; dy: number }): boolean {
 export function hidePopOutGhost(): boolean {
   const g = ghost;
   if (!g) return false;
-  ghost = null;
-  clearTimers(g);
-  if (!g.window.isDestroyed()) {
-    try { g.window.destroy(); } catch { /* noop */ }
-  }
+  discardGhost(g);
   return true;
 }
 

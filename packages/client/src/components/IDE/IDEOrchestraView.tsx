@@ -37,10 +37,12 @@ import {
   ORCHESTRA_SOURCES_TITLE,
   ORCHESTRA_STRATEGIES,
   findOrchestraStrategy,
+  isOrchestraRunSettled,
   isOrchestraStrategyAllowed,
   listEffortLevels,
   listModelFamilies,
   orchestraScopeStates,
+  orchestraEnginePreparation,
   resolveOrchestraConductorPermission,
   resolveOrchestraMemberEngine,
 } from '@vibisual/shared';
@@ -535,6 +537,7 @@ const AnalysisPanel = memo(function AnalysisPanel(): React.JSX.Element {
 const PHASE_TONE: Record<OrchestraRunPhase, string> = {
   conducting: 'bg-amber-500/15 text-amber-300 animate-pulse',
   dispatched: 'bg-sky-500/15 text-sky-300',
+  completed: 'bg-emerald-500/15 text-emerald-300',
   answered: 'bg-emerald-500/15 text-emerald-300',
   unreported: 'bg-gray-700/60 text-gray-300',
   error: 'bg-rose-500/15 text-rose-300',
@@ -679,6 +682,11 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
 
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
   const codexModels = useGraphStore((s) => s.codexModels?.models);
+  const claudeSetup = useGraphStore((s) => s.claudeSetup);
+  const claudeAuth = useGraphStore((s) => s.claudeAuth);
+  const codexSetup = useGraphStore((s) => s.codexSetup);
+  const codexAuth = useGraphStore((s) => s.codexAuth);
+  const prepareEngine = useGraphStore((s) => s.prepareOrchestraEngine);
   const claudeModelOpts = useMemo<Opt[]>(
     () => listModelFamilies(modelRegistry).map((m) => ({ value: m, label: m })),
     [modelRegistry],
@@ -695,7 +703,7 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
 
   const states = orchestraScopeStates(settings, agentId);
   const effective = states[states.length - 1]?.effective ?? false;
-  const conductingHere = (runs ?? []).filter((r) => r.agentId === agentId && r.phase === 'conducting').length;
+  const conductingHere = (runs ?? []).filter((r) => r.agentId === agentId && !isOrchestraRunSettled(r.phase) && r.endedAt === undefined).length;
   const locked = control.saving || !rootPath;
 
   // 켜 둬도 이 에이전트에서는 지휘하지 않는 사정 — 서버 가로채기 조건(§5.3 #10-4)을 그대로 비춘다.
@@ -708,7 +716,14 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
 
   const cycle = (own: boolean | null): boolean | null => (own === null ? true : own ? false : null);
 
-  const memberEngine = resolveOrchestraMemberEngine(settings);
+  const memberEngine = resolveOrchestraMemberEngine(settings, engine ?? 'claude');
+  const preparationEngines = new Set<'claude' | 'codex'>(engine ? [engine] : []);
+  if (memberEngine === 'auto') { preparationEngines.add('claude'); preparationEngines.add('codex'); }
+  else preparationEngines.add(memberEngine);
+  const preparations = [...preparationEngines].flatMap((kind) => {
+    const preparation = orchestraEnginePreparation(kind, { claudeSetup, claudeAuth, codexSetup, codexAuth });
+    return preparation ? [preparation] : [];
+  });
   const permission = resolveOrchestraConductorPermission(settings);
 
   const toggleStrategy = useCallback((id: OrchestraStrategyId) => {
@@ -900,11 +915,27 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
             <SettingSelect
               field="memberEngine"
               label={t('ide.orchestra.field.engine')}
-              value={memberEngine}
+              value={settings.memberEngine ?? ''}
               options={ORCHESTRA_MEMBER_ENGINES.map((e) => ({ value: e, label: t(`ide.orchestra.member.engine.${e}`) }))}
+              emptyLabel={t('ide.orchestra.member.engine.inherit', { engine: engine === 'codex' ? 'Codex' : 'Claude' })}
               disabled={locked}
-              onChange={(v) => control.patch({ memberEngine: v === 'codex' || v === 'auto' ? v : 'claude' })}
+              onChange={(v) => control.patch({ memberEngine: v === 'claude' || v === 'codex' || v === 'auto' ? v : null })}
             />
+            {memberEngine === 'auto' && <p className="px-0.5 text-[12px] leading-relaxed text-gray-500">{t('ide.orchestra.readiness.auto')}</p>}
+            {preparations.map((preparation) => {
+              const engineName = preparation.engine === 'codex' ? 'Codex' : 'Claude';
+              return (
+                <div key={preparation.engine} className="flex flex-wrap items-center gap-1.5 rounded border border-amber-500/25 bg-amber-500/5 p-2">
+                  <p className="min-w-0 flex-1 basis-36 text-[12px] leading-relaxed text-amber-300">
+                    {t(`ide.orchestra.readiness.${preparation.action}`, { engine: engineName })}
+                  </p>
+                  <button type="button" disabled={locked} onClick={() => { void prepareEngine(preparation); }}
+                    className="rounded border border-amber-500/30 px-2 py-1 text-[12px] text-amber-200 hover:bg-amber-500/10 disabled:opacity-40">
+                    {preparation.action === 'refresh' ? t('ide.orchestra.readiness.recheck') : t('ide.orchestra.readiness.prepare', { engine: engineName })}
+                  </button>
+                </div>
+              );
+            })}
             {(memberEngine === 'claude' || memberEngine === 'auto') && (
               <>
                 <EngineLabel name={t('ide.orchestra.engine.claude')} mine={false} />

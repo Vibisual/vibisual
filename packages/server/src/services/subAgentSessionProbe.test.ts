@@ -284,3 +284,29 @@ describe('예산 — 확인이 비용을 삼키면 안 된다', () => {
     expect(probeCalls.length).toBeLessThanOrEqual(SESSION_PROBE_MAX_PER_HOUR);
   });
 });
+
+describe('중단 사유 — 프로브가 닫은 명령은 "끝났다"와 구별된다 (B-4)', () => {
+  it('자동종료로 닫힌 명령에는 `stopReason: disconnected` 가 찍힌다', async () => {
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: '마무리 요약을 쓰고 멈췄다' };
+    const held = cmd({ id: 'c1', status: 'executing', startedAt: Date.now() - 50 * 60_000 });
+
+    m.maybeProbeRunningSessions(queuesWith(held));
+    await settle();
+
+    // 상태는 `completed` 다(멈춘 것이 아니라 끝 신호만 못 받았다). 그러나 진짜 완료와 같아 보이면
+    //   사용자는 "이게 다 된 건가"를 영영 알 수 없다 — 사유 한 칸이 그 차이를 나른다.
+    expect(held.status).toBe('completed');
+    expect(held.stopReason).toBe('disconnected');
+  });
+
+  it('세션을 안 내린 판정은 사유를 찍지 않는다 — 도는 명령에 가짜 사유가 남으면 안 된다', async () => {
+    probeAnswer = { at: Date.now(), verdict: 'working', reason: '빌드 결과를 기다리는 중' };
+    const live = cmd({ id: 'c1', status: 'executing', startedAt: Date.now() - 50 * 60_000 });
+
+    m.maybeProbeRunningSessions(queuesWith(live));
+    await settle();
+
+    expect(live.status).toBe('executing');
+    expect(live.stopReason).toBeUndefined();
+  });
+});

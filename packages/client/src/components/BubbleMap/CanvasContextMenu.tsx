@@ -364,10 +364,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
                 onClick={handleCreateCodexAgent}
               >
-                <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M16 18l6-6-6-6" />
-                  <path d="M8 6l-6 6 6 6" />
-                </svg>
+                <EngineIcon kind="codex" className="h-4 w-4 shrink-0 text-emerald-400" />
                 <div className="flex flex-col">
                   <span>{t('canvas.contextMenu.createCodexAgent', { defaultValue: 'Codex Agent 만들기' })}</span>
                   <span className="text-xs text-gray-500">

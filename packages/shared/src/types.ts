@@ -2122,6 +2122,8 @@ export interface BashEntry {
   command: string;
   output?: string;
   timestamp: number;
+  /** Unknown legacy outcomes are not evidence of a successful procedure. */
+  status?: 'running' | 'success' | 'error';
 }
 
 /** 파일 수정 기록 항목 (Edit 도구 호출 1회 = 1 엔트리) */
@@ -3155,6 +3157,66 @@ export type VerifyVerdict = 'pass' | 'fail' | 'held' | 'unknown';
  */
 export type VerificationRecipeSource = 'play-recipe' | 'recorded-skill' | 'none';
 
+/** A connection explicitly selected by the user; desktop handles are rechecked on every run. */
+export type VerificationTarget =
+  | { kind: 'browser'; url: string; playBubbleId?: string }
+  | { kind: 'desktop'; sourceId: string; sourceName: string; sourceKind: 'window' | 'screen' };
+
+/** Coordinates are fractions of the captured viewport, never host desktop coordinates. */
+export type VerificationAction =
+  | { kind: 'click' | 'double-click'; selector?: string; x?: number; y?: number }
+  | { kind: 'fill'; selector?: string; text: string }
+  | { kind: 'press'; key: string }
+  | { kind: 'scroll'; deltaX: number; deltaY: number }
+  | { kind: 'wait'; ms: number }
+  | { kind: 'navigate'; url: string };
+
+export type VerificationCheck =
+  | { kind: 'visible'; selector: string }
+  | { kind: 'text' | 'value'; selector?: string; expected: string }
+  | { kind: 'url'; expected: string }
+  | { kind: 'screenshot'; referenceFrame: number; region?: { x: number; y: number; width: number; height: number } };
+
+export interface VerificationElement {
+  selector: string;
+  role: string;
+  name: string;
+  value?: string;
+  rect: { x: number; y: number; width: number; height: number };
+}
+
+export interface VerificationEvidence {
+  id: string;
+  /** Path relative to the project's .vibisual/verify-runs directory. */
+  rel: string;
+  capturedAt: number;
+  sha256: string;
+  width: number;
+  height: number;
+  url?: string;
+  title?: string;
+}
+
+export interface VerificationToolEvent {
+  id: string;
+  operation: 'observe' | 'act' | 'check';
+  at: number;
+  durationMs: number;
+  stepIndex?: number;
+  action?: VerificationAction;
+  check?: VerificationCheck;
+  ok: boolean;
+  detail: string;
+  evidenceId?: string;
+}
+
+export interface VerificationTargetAvailability {
+  available: boolean;
+  reason?: string;
+  actions: string[];
+  checks: string[];
+}
+
 /** §5.5 #17-35 ⑤ — 에이전트가 "실제로 돌린 것" 한 줄. exitCode 가 곧 증거다. */
 export interface VerificationAttemptRecord {
   /** build | typecheck | test | run | custom — 자유 문자열(모르는 값도 그대로 보관). */
@@ -3175,6 +3237,13 @@ export interface VerificationAttemptRecord {
  * 넣는 것이 전부이고(새 스폰 레일 ❌), 이 레코드는 그 한 건의 시작·판정·증거를 붙잡는다.
  */
 export interface VerificationRun {
+  /** New runs use the app-owned tools; legacy records have no target. */
+  target?: VerificationTarget;
+  evidence?: VerificationEvidence[];
+  toolEvents?: VerificationToolEvent[];
+  requiredSteps?: number;
+  procedure?: VerificationDemoStep[];
+  expected?: string;
   /** 이 검증 한 건의 ID(`ver-<ts>-<rand>`). */
   id: string;
   /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
@@ -3221,6 +3290,8 @@ export interface VerificationRun {
  * 프레임 그림과 단계 문장이 같은 순간을 가리키게 한다.
  */
 export interface VerificationDemoStep {
+  action?: VerificationAction;
+  check?: VerificationCheck;
   /** 클립 시작으로부터의 경과(ms). */
   atMs: number;
   /** 그 순간 사람이 무엇을 했는지 한 줄(상한 `VERIFICATION_DEMO_STEP_TEXT_MAX`). */
@@ -3251,6 +3322,7 @@ export interface VerificationDemoFrame {
  * 소유 단위는 실행 이력(`VerificationRun`)과 같은 **세션 탭(subAgentId)** 이다.
  */
 export interface VerificationDemo {
+  target?: VerificationTarget;
   /** 이 시연의 ID(`demo-<ts>-<rand>`). 프레임 폴더 이름이기도 하다. */
   id: string;
   /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
@@ -5316,6 +5388,12 @@ export interface GraphSnapshot {
   orchestra?: Record<string, OrchestraSummary>;
 
   /**
+   * §5.3 #10-5 — 설정 덜어내기(projectName → 설정 + 최근 런). 설정도 런도 없는 프로젝트는 실리지 않는다
+   * (없음 = 기본값 · 꺼짐). 런은 최근 `CONFIG_TRIM_RUN_SNAPSHOT_MAX` 건만 싣는다 — 나머지는 체크포인트에만 있다.
+   */
+  configTrim?: Record<string, ConfigTrimSummary>;
+
+  /**
    * §5.11 v4.65 — **집행 플러그인의 실측**(projectPath → pluginId → 실측 한 벌).
    *
    * 집행(`agentPrompt`)은 서버에서 프로젝트 파일을 실제로 훑어 판단하는데, 카드는 클라에 있어 파일을
@@ -5595,6 +5673,19 @@ export type AutoGoalScope = ContextScopeLevel;
  */
 export type AutoGoalSource = 'command' | 'step';
 
+export type AutoGoalSkillStatus = 'candidate' | 'active' | 'needs-review' | 'retired' | 'superseded';
+
+/** Server counts, based on actual reviewed procedures and acknowledged outcomes. */
+export interface AutoGoalMetrics {
+  activeCount: number;
+  reviewCount: number;
+  retiredCount: number;
+  reuseCount: number;
+  skipCount: number;
+  failureCount: number;
+  revisionCount: number;
+}
+
 /**
  * **절차 후보 한 건** — 아직 스킬이 되기 전의 것.
  *
@@ -5625,6 +5716,19 @@ export interface AutoGoalSkillSummary {
   id: string;
   name: string;
   description: string;
+  status?: AutoGoalSkillStatus;
+  /** Actual project-relative location, including legacy storage. */
+  path?: string;
+  /** Current file revision required by review and assessment requests. */
+  revision?: string;
+  reason?: string;
+  applicability?: string;
+  reviewedAt?: number;
+  supersededBy?: string;
+  reuseCount?: number;
+  skipCount?: number;
+  failureCount?: number;
+  revisionCount?: number;
   /** 절차 단계 수. */
   steps: number;
   /** 굳을 때 관찰됐던 되풀이 횟수. */
@@ -5663,6 +5767,7 @@ export interface AutoGoalState {
   observed: number;
   /** 마지막으로 분석이 돈 시각. 0 이면 아직 안 돌았다. */
   analyzedAt: number;
+  metrics?: AutoGoalMetrics;
 }
 
 /**
@@ -5679,7 +5784,7 @@ export interface AutoGoalState {
  * **없음의 뜻**: 이 프로젝트에서 자동 목표를 켠 층이 하나도 없다는 것이다. 0 과 구분해야 카드가
  * "아직 아무것도 없다"와 "이 축을 안 쓴다"를 다르게 말할 수 있다.
  */
-export interface AutoGoalSummary {
+export interface AutoGoalSummary extends Partial<AutoGoalMetrics> {
   /**
    * **프로젝트 층**의 결론. 이 값이 `false` 여도 요약이 올 수 있다 — 아래 층(에이전트·세션)이 위를
    * 덮기 때문이다. "이 자리에서 도는가"는 `agentEnabled` 까지 보고 판단해야 한다.
@@ -5811,7 +5916,7 @@ export interface OrchestraSettings {
   conductorPermission?: OrchestraConductorPermission;
   /** 켜면 지휘 턴에 `AskUserQuestion` 을 더한다. 없으면 꺼짐. */
   askQuestions?: boolean;
-  /** 멤버 엔진. 없으면 `claude`. */
+  /** 멤버 엔진. 없으면 지휘자 엔진을 따른다. */
   memberEngine?: OrchestraMemberEngine;
   memberClaudeModel?: string;
   memberClaudeEffort?: string;
@@ -5827,12 +5932,13 @@ export interface OrchestraSettings {
 /**
  * 런의 단계.
  * - `conducting` — 지휘 턴이 돌고 있다.
- * - `dispatched` — 계획을 신고했고 멤버에게 넘겼다.
+ * - `dispatched` — 멤버에게 넘겼고 지휘자의 결과 회수·마무리를 기다린다.
+ * - `completed` — 멤버 결과를 회수하고 지휘자가 최종 답변을 마쳤다.
  * - `answered` — 편성 없이(`none`) 지휘자가 직접 답했다.
  * - `unreported` — 지휘 턴이 계획 신고 없이 끝났다(조용히 성공으로 그리지 않는다).
  * - `error` — 지휘 턴이 실패로 끝났다.
  */
-export type OrchestraRunPhase = 'conducting' | 'dispatched' | 'answered' | 'unreported' | 'error';
+export type OrchestraRunPhase = 'conducting' | 'dispatched' | 'completed' | 'answered' | 'unreported' | 'error';
 
 /** 지휘자가 고르거나 건너뛴 방안 하나와 그 이유. */
 export interface OrchestraPlanChoice {
@@ -5886,6 +5992,128 @@ export interface OrchestraSummary {
   runs: OrchestraRun[];
 }
 
+// ─── §5.3 #10-5 — 설정 덜어내기(Config Trim) ──────────────────────────────────
+
+/** 범위 3단 — 바깥(넓음) -> 안(좁음). 좁은 단이 이긴다. */
+export type ConfigTrimScope = 'project' | 'agent' | 'session';
+
+/**
+ * 규칙 표 한 줄의 이름(`configTrimRules.ts` 의 `CONFIG_TRIM_RULES`).
+ * 표에 줄을 늘리면 여기와 `ide.configTrim.rule.<id>` 번역 키도 같이 늘린다.
+ */
+export type ConfigTrimRuleId =
+  | 'preset-meta'
+  | 'custom-mode-placeholder'
+  | 'model-version-gone'
+  | 'effort-gone'
+  | 'effort-default'
+  | 'max-turns-default'
+  | 'max-budget-unlimited'
+  | 'fallback-model-empty'
+  | 'thinking-on-default'
+  | 'forward-subagent-text-on-default'
+  | 'fast-mode-off-default'
+  | 'permission-timeout-default'
+  | 'betas-empty'
+  | 'agent-definitions-empty'
+  | 'context-window-non-opus'
+  | 'fast-mode-unsupported'
+  | 'betas-subscription'
+  | 'cli-kind-headless'
+  | 'mcp-output-without-mcp'
+  | 'agent-definitions-without-task'
+  | 'permission-timeout-moot';
+
+/** 덜어낸 까닭 갈래 — 화면이 덜어낸 목록을 이 값으로 묶는다. */
+export type ConfigTrimReason =
+  /** 지금 고른 모델/CLI 가 받지 않는다(죽은 플래그·사라진 모델 id). */
+  | 'not-accepted'
+  /** 값이 기본값과 같다 — 붙여 봐야 결과가 같다. */
+  | 'same-as-default'
+  /** 저장만 되고 본체가 없다(타입 주석에 그렇게 적혀 있다). */
+  | 'not-implemented'
+  /** 그 칸이 걸리는 길이 이 턴에 없다. */
+  | 'no-effect-here';
+
+/** 덜어내지 않고 남긴 까닭 — 배제 목록이 이 값으로 사유를 적는다. */
+export type ConfigTrimKeepReason =
+  /** 타입이 요구하는 네 칸 — 없으면 설정이 아니다. */
+  | 'required'
+  /** 사용자가 손으로 정한 값 — 우리가 무를 자리가 아니다. */
+  | 'user-set'
+  /** 건드리면 이 턴이 실제로 다르게 돈다(권한·도구·격리·엔진). */
+  | 'unsafe'
+  /** 판정 재료가 이 턴에 없다 — 모르면 둔다. */
+  | 'unknown'
+  /** 사용자가 그 규칙을 꺼 뒀다. */
+  | 'rule-off';
+
+/** 이 턴 사본에서 실제로 덜어낸 칸 하나. */
+export interface ConfigTrimRemoval {
+  /** `AgentConfig` 의 칸 이름. */
+  field: string;
+  /** 어느 규칙이 덜어냈나. */
+  ruleId: ConfigTrimRuleId;
+  /** 덜어낸 까닭 갈래. */
+  reason: ConfigTrimReason;
+  /** 덜어내기 **전** 값의 사람이 읽는 사본(`CONFIG_TRIM_VALUE_MAX` 로 자른다). */
+  before: string;
+}
+
+/** 덜어내지 않고 남긴 칸 하나. */
+export interface ConfigTrimExclusion {
+  /** `AgentConfig` 의 칸 이름. */
+  field: string;
+  /** 남긴 까닭. */
+  keep: ConfigTrimKeepReason;
+  /** `keep` 이 `'unknown'`·`'rule-off'` 일 때 그 판단을 낸 규칙. */
+  ruleId?: ConfigTrimRuleId;
+}
+
+/**
+ * 설정 덜어내기 범위·규칙 설정. 프로젝트별로 하나.
+ *
+ * ⚠ 켬/끔 세 칸은 `withConfigTrimScope` 한 길로만 바뀐다 —
+ * `applyConfigTrimSettingsPatch` 는 이 칸들을 받지 않는다(두 창구가 같은 칸을 덮지 않게).
+ */
+export interface ConfigTrimSettings {
+  /** 프로젝트 전체 단. 없음 = 안 정함(= 끔). */
+  enabledProject?: boolean;
+  /** 에이전트 단 — 커스텀 에이전트 id -> 켬/끔. */
+  enabledAgents?: Record<string, boolean>;
+  /** 이 세션만 단 — 서브에이전트(세션) id -> 켬/끔. */
+  enabledSessions?: Record<string, boolean>;
+  /** 사용자가 꺼 둔 규칙 id. 꺼 두면 그 칸은 덜어내지 않고 배제 목록에 `'rule-off'` 로 선다. */
+  disabledRules?: ConfigTrimRuleId[];
+  /** 마지막으로 바뀐 시각(ms) — 두 창이 같은 설정을 볼 때 최신이 이긴다. */
+  updatedAt?: number;
+}
+
+/** 한 턴에 무엇을 덜어냈고 무엇을 남겼나 — 화면이 두 목록을 이 기록에서 읽는다. */
+export interface ConfigTrimRun {
+  /** 기록 id — 명령 id 에서 낸다(같은 턴이 두 번 적히지 않게). */
+  runId: string;
+  /** 동작주 커스텀 에이전트 id. */
+  agentId: string;
+  /** 동작주 세션(서브에이전트) id. */
+  subAgentId: string;
+  /** 그 턴의 명령 id. */
+  commandId: string;
+  /** 그 턴이 돈 엔진. */
+  engine: 'claude' | 'codex';
+  startedAt: number;
+  /** 사본에서 실제로 덜어낸 칸들. 비어 있으면 사본을 쓰지 않았다는 뜻이다. */
+  trimmed: ConfigTrimRemoval[];
+  /** 덜어내지 않고 남긴 칸들과 사유. */
+  excluded: ConfigTrimExclusion[];
+}
+
+/** 스냅샷 한 프로젝트분 — 설정 + 최근 런(`CONFIG_TRIM_RUN_SNAPSHOT_MAX`). */
+export interface ConfigTrimSummary {
+  settings: ConfigTrimSettings;
+  runs: ConfigTrimRun[];
+}
+
 // ─── §9 v3.89 — graph_snapshot 무거운 키맵 슬라이스 증분 전송 ────────────────────
 
 /**
@@ -5927,6 +6155,7 @@ export interface GraphSnapshotDeltas {
   nodeProjects?: KeyedSliceDelta<string>;
   specReading?: KeyedSliceDelta<SpecReadingState>;
   orchestra?: KeyedSliceDelta<OrchestraSummary>;
+  configTrim?: KeyedSliceDelta<ConfigTrimSummary>;
 }
 
 /**
@@ -6564,6 +6793,13 @@ export interface ProjectCheckpoint {
    */
   orchestraSettings?: OrchestraSettings;
   orchestraRuns?: OrchestraRun[];
+
+  /**
+   * §5.3 #10-5 설정 덜어내기 — 사용자가 정한 범위 3단 켬/끔 + 꺼 둔 규칙 + 덜어낸 기록.
+   * 런은 평평한 배열이고 `CONFIG_TRIM_RUN_MAX_PER_PROJECT` 로 ring. optional — 없으면 꺼짐·기록 없음.
+   */
+  configTrimSettings?: ConfigTrimSettings;
+  configTrimRuns?: ConfigTrimRun[];
 
   /**
    * §5.5 #17-35 ⑨ — 시연(재현 절차) 영속화 (subAgentId → VerificationDemo[]).
@@ -9947,4 +10183,24 @@ export interface ChatCard {
   actions?: ChatAction[];
   /** 어느 에이전트의 일인지(있으면 머리글에 함께 적는다). */
   agentLabel?: string;
+}
+
+/** User-owned SKILL.md folders offered by the other local engine. */
+export interface SkillSharingEntry {
+  id: string;
+  name: string;
+  description: string;
+  sourceProvider: 'claude' | 'codex';
+  scope: 'project' | 'global';
+  sourcePath: string;
+  status: 'available' | 'shared' | 'conflict' | 'unsupported';
+  /** Stable issue codes, translated by the client. */
+  issues: string[];
+}
+
+export interface SkillSharingResult {
+  status: 'shared' | 'exists' | 'conflict' | 'unsupported';
+  name: string;
+  path: string;
+  issues?: string[];
 }

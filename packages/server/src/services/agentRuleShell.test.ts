@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
-import { agentRuleShell, agentPowershellRequest, buildAgentCardCommonRules, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentSelfCompactRule, buildHarnessBuilderRules } from '@vibisual/shared';
+import { agentRuleShell, agentPowershellRequest, buildAgentCardCommonRules, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentSelfCompactRule, buildHarnessBuilderRules, buildOrchestraConductorRules } from '@vibisual/shared';
 
 const exec = promisify(execFile);
 const baseArgs = { serverBase: 'http://127.0.0.1:1', serverToken: 'DO-NOT-EMBED', agentId: 'agent-test', subAgentId: 'sub-test' };
@@ -41,7 +41,8 @@ describe('agent rule shell selection', () => {
 describe.skipIf(process.platform !== 'win32')('generated rules execute on Windows PowerShell', () => {
   let server: Server;
   let url: string;
-  const received: { method?: string; path?: string; body: string; contentType?: string }[] = [];
+  const received: { method?: string; path?: string; body: string; contentType?: string; sourceAgent?: string | string[]; sourceSub?: string | string[] }[] = [];
+  let orchestraPolls = 0;
   beforeAll(async () => {
     server = createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -52,7 +53,18 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
           res.writeHead(401).end(JSON.stringify({ error: '인증 누락' })); return;
         }
         if (req.url === '/api/reject') { res.writeHead(409).end(JSON.stringify({ error: '충돌', ids: ['a'] })); return; }
-        received.push({ method: req.method, path: req.url, body: Buffer.concat(chunks).toString('utf8'), contentType: req.headers['content-type'] });
+        received.push({ method: req.method, path: req.url, body: Buffer.concat(chunks).toString('utf8'), contentType: req.headers['content-type'], sourceAgent: req.headers['x-vibisual-source-agent'], sourceSub: req.headers['x-vibisual-source-subagent'] });
+        if (req.url === '/api/orchestra/runs/orchestra-shell/plan') {
+          orchestraPolls = 0;
+          res.end(JSON.stringify({ ok: true, dispatchEdgeId: 'entry-edge', run: { runId: 'orchestra-shell' } })); return;
+        }
+        if (req.url?.startsWith('/api/task-edges/dispatch?')) {
+          res.end(JSON.stringify({ ok: false, pending: true, dispatched: true, status: 'queued', cmdId: 'entry-command' })); return;
+        }
+        if (req.url?.startsWith('/api/task-edges/dispatch/entry-command?')) {
+          const pending = orchestraPolls++ === 0;
+          res.end(JSON.stringify({ ok: true, ...(pending ? { pending: true, timedOut: true } : {}), job: { cmdId: 'entry-command', status: pending ? 'executing' : 'completed', ...(pending ? {} : { result: '한글 구현·검증 완료' }) } })); return;
+        }
         res.end(JSON.stringify({ ok: true, agent: { id: 'created-id', path: 'created-path' }, data: { id: 'edge-id' } }));
       });
     });
@@ -66,7 +78,7 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
   const run = async (code: string, token = 'test-auth', alias = ''): Promise<string> => {
     const result = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(code, 'utf16le').toString('base64')], {
       windowsHide: true, timeout: 15_000, encoding: 'utf8',
-      env: { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: token, VIBISUAL_HOOK_AUTH: alias },
+      env: { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: token, VIBISUAL_HOOK_AUTH: alias, VIBISUAL_SUBAGENT_ID: '' },
     });
     return result.stdout;
   };
@@ -103,6 +115,37 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     const code = blocks(agentPowershellRequest({ serverBase: url, endpoint: '/api/reject', body: '{}' }))[0]!;
     await expect(run(code, '', '')).rejects.toThrow(/HTTP 401/);
     await expect(run(code)).rejects.toThrow(/HTTP 409[\s\S]*ids/);
+  });
+
+  it.each(['powershell', 'bash'] as const)('orchestra %s registers before dispatch and recovers the same job after pending', async (shell) => {
+    const gitBash = 'C:/Program Files/Git/bin/bash.exe';
+    if (shell === 'bash' && !existsSync(gitBash)) return;
+    const rules = buildOrchestraConductorRules({
+      serverBase: url, runId: 'orchestra-shell', projectName: '한글 프로젝트', conductorAgentId: 'conductor-shell', conductorSubAgentId: 'conductor-session',
+      centerX: 0, centerY: 0, settings: {}, existingMembers: [], existingEdges: [], conductorEngine: shell === 'powershell' ? 'codex' : 'claude', platform: 'win32',
+    });
+    const commands = [...rules.matchAll(new RegExp('```' + shell + '\\n([\\s\\S]*?)```', 'g'))].map((m) => m[1]!);
+    const execute = shell === 'powershell' ? (code: string) => run(code, '', 'test-auth') : async (code: string): Promise<string> => (await exec(gitBash, ['--noprofile', '--norc', '-c', code], {
+      windowsHide: true, encoding: 'utf8', timeout: 15_000,
+      env: { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: 'test-auth', VIBISUAL_SUBAGENT_ID: '' },
+    })).stdout;
+    const start = received.length;
+    expect(await execute(commands[3]!.replace('<ENTRY_ID>', 'entry-agent'))).toContain('DISPATCH_EDGE_ID=entry-edge');
+    const dispatched = JSON.parse(await execute(commands[4]!.replace('<DISPATCH_EDGE_ID>', 'entry-edge').replace('<사용자 원문 요청 전문 — escape 불필요, 여러 줄 OK>', '한글 요청\n$그대로 "따옴표"')));
+    expect(dispatched).toMatchObject({ cmdId: 'entry-command', pending: true, status: 'queued' });
+    const collect = commands[5]!.replace('<CMD_ID>', dispatched.cmdId);
+    expect(JSON.parse(await execute(collect))).toMatchObject({ pending: true, timedOut: true, job: { status: 'executing' } });
+    expect(JSON.parse(await execute(collect))).toMatchObject({ job: { status: 'completed', result: '한글 구현·검증 완료' } });
+    const requests = received.slice(start);
+    expect(requests.map((r) => r.method)).toEqual(['POST', 'POST', 'GET', 'GET']);
+    expect(requests[0]?.path).toBe('/api/orchestra/runs/orchestra-shell/plan');
+    const dispatchUrl = new URL(requests[1]!.path!, url);
+    expect(Object.fromEntries(dispatchUrl.searchParams)).toEqual({ edgeId: 'entry-edge', agentId: 'conductor-shell', wait: 'false', requestKey: 'orchestra-shell:entry' });
+    expect(requests[1]?.body).toContain('한글 요청\n$그대로 "따옴표"');
+    expect(requests[1]?.body).toContain('모든 작업·검증·재작업의 끝난 결과를 회수한 뒤');
+    expect(requests[2]?.path).toBe('/api/task-edges/dispatch/entry-command?agentId=conductor-shell&waitMs=60000');
+    expect(requests[3]?.path).toBe(requests[2]?.path);
+    for (const request of requests) expect(request).toMatchObject({ sourceAgent: 'conductor-shell', sourceSub: 'conductor-session' });
   });
 
   it.skipIf(!existsSync('C:/Program Files/Git/bin/bash.exe'))('Bash builder preserves Korean JSON and returns IDs between independent invocations', async () => {

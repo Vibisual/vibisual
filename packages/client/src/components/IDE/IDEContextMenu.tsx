@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import type { CommandId } from '@vibisual/shared';
 // §6 — 메뉴의 단축키 표시는 레지스트리에서 나온다(손으로 적으면 재매핑에 뒤처진다).
@@ -98,7 +99,7 @@ export function IDEContextMenu({ x, y, items, zIndex, density = 'default', onClo
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onCloseRef.current(); };
+    const onKey = (e: KeyboardEvent): void => { if (!isComposingKeyEvent(e) && e.key === 'Escape') onCloseRef.current(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);

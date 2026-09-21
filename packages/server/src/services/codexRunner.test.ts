@@ -4,7 +4,8 @@
  * 인자 조립이 틀리면 **모든 코덱스 턴이 같은 방식으로** 죽는데, 그 사고는 실제로 돌려보기 전에는
  * 보이지 않는다. 실제로 우리는 이미 두 번 그 자리에 빠졌다:
  *   ① `exec -a never` → `exec` 에는 `--ask-for-approval` 이 없다(루트 명령 전용).
- *   ② `-m` 을 안 주면 사용자 `config.toml` 의 기본 모델에 끌려가 400 이 난다.
+ *   ② 명시적으로 고른 모델은 `-m` 으로 전달해야 개인 설정으로 덮이지 않는다.
+ *      고르지 않은 경우는 CLI 기본값을 사용한다(모델 캐시 없는 첫 로그인도 실행 가능).
  * 두 사고를 시험으로 못박는다.
  */
 import { describe, it, expect } from 'vitest';
@@ -12,6 +13,16 @@ import { buildCodexExecArgs, extractFileWrites } from './codexRunner.js';
 import { normalizeAgentProvider } from '@vibisual/shared';
 
 describe('Codex execution settings', () => {
+  it('passes native context controls on new and resumed turns', () => {
+    for (const resumeThreadId of [undefined, 'existing-thread']) {
+      const args = buildCodexExecArgs({ cwd: '/work', model: 'test', resumeThreadId,
+        contextArgs: ['-c', 'project_doc_max_bytes=0', '-c', 'skills.include_instructions=false'],
+      });
+      expect(args).toContain('project_doc_max_bytes=0');
+      expect(args).toContain('skills.include_instructions=false');
+      expect(args).not.toContain('--disable-slash-commands');
+    }
+  });
   it('normalizes advanced settings and passes them on both new and resumed turns', () => {
     const provider = normalizeAgentProvider({ kind: 'codex-cli', modelId: 'test', reasoningSummary: 'detailed', personality: 'pragmatic', serviceTier: 'fast', autoCompactTokenLimit: 123456 })!;
     for (const resumeThreadId of [undefined, 'existing-thread']) {
@@ -78,10 +89,10 @@ describe('buildCodexExecArgs — 언제나 들어가는 것', () => {
     expect(buildCodexExecArgs(base)).toContain('--skip-git-repo-check');
   });
 
-  it('작업 폴더와 모델을 **항상 명시**한다', () => {
+  it('작업 폴더와 명시적으로 선택한 모델을 전달한다', () => {
     const args = buildCodexExecArgs(base);
     expect(valueAfter(args, '-C')).toBe('/work/proj');
-    // 모델을 생략하면 사용자 config.toml 의 기본 모델로 떨어져 400 이 난다(2026-09-07 실측).
+    // 선택한 모델은 사용자 config.toml 기본값으로 덮이지 않는다.
     expect(valueAfter(args, '-m')).toBe('gpt-5.1-codex');
   });
 
@@ -142,6 +153,15 @@ describe('buildCodexExecArgs — 권한 모드가 두 축으로 옮겨진다(§5
 });
 
 describe('buildCodexExecArgs — 선택 인자', () => {
+  it('모델 캐시가 없는 첫 실행과 재개는 빈 -m 없이 CLI 모델 기본값을 사용한다', () => {
+    for (const resumeThreadId of [undefined, 'existing-thread']) {
+      const args = buildCodexExecArgs({ cwd: '/work', model: '', resumeThreadId });
+      expect(args).not.toContain('-m');
+      expect(args).not.toContain('');
+      expect(args).toContain('--json');
+      if (resumeThreadId) expect(valueAfter(args, 'resume')).toBe(resumeThreadId);
+    }
+  });
   it('이어가기에서도 exec 전용 cwd/sandbox 옵션은 resume 앞에 온다', () => {
     const args = buildCodexExecArgs({ ...base, resumeThreadId: 'thr_123' });
     const resumeAt = args.indexOf('resume');

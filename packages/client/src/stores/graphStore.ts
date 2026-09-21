@@ -1,11 +1,12 @@
 import { create } from 'zustand';
+import type { VerificationTarget, VerificationDemoStep } from '@vibisual/shared';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, WebEntry, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, ClosedTabEntry, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, ProjectInsuranceLedger, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
   ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, AutoGoalSummary, PluginFactMap, VerificationRun, VerificationDemo, SpecReadingState, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal,
   VisualKindCard, GoalActionCard, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress, CodexAuthStatus, CodexSetupState, CodexSetupProgress, CodexModelCatalog, CodexInventory, CodexReviewRun, CodexReviewMode, CodexHookState, EngineChoice, AgentEngineKind } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo, ToolAxis, HeatCurve, TidySort } from '@vibisual/shared';
-import { isReadOnlyHookAgent, providerForEngine } from '@vibisual/shared';
+import { isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
 // §5.24 — 히트 척도 곡선의 기본값과 분포 표본. 판정은 shared 한 곳이 소유한다(서버와 같은 함수).
 import { DEFAULT_HEAT_CURVE, DEFAULT_TIDY_SORT, heatQuantileSamples } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
@@ -13,8 +14,11 @@ import { isNoProjectFolderError, foldPermissionChoice } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import type { SessionRunState } from '@vibisual/shared';
 // §5.3 #10-4 — 오케스트라 요약. 무변화 프레임은 지문으로 거른다(apply* 는 structuralShare 를 타지 않는다).
-import type { OrchestraSummary } from '@vibisual/shared';
-import { orchestraSummaryFingerprint } from '@vibisual/shared';
+import type { OrchestraSummary, OrchestraPreparation } from '@vibisual/shared';
+import { orchestraSummaryFingerprint, orchestraEnginePreparation } from '@vibisual/shared';
+// §5.3 #10-5 — 설정 덜어내기 요약. 오케스트라와 같은 이유로 지문 대조가 한 쌍이다.
+import type { ConfigTrimSummary } from '@vibisual/shared';
+import { configTrimSummaryFingerprint } from '@vibisual/shared';
 import i18n, { changeUiLocale } from '../i18n/index.js';
 import { SESSION_FOCUS_GLOW_MS, type SessionFocusGlow } from '../utils/sessionStatus.js';
 import { calcFileSizeRange, calcHeatCountRange } from '../utils/sizeCalc.js';
@@ -73,6 +77,7 @@ import { normalizeTabSortAnchor, type TabSortAnchor } from '../components/IDE/ta
 import { addCut, addCuts, addWire, removeWire, removeWiresOf, pruneWires, type GoalPinSide, type GoalWire } from '../components/IDE/goalDropTarget.js';
 import { clearCapturePlaytest } from './capturePlaytest.js';
 import { resolveLocalEntry } from '../components/LocalModel/localModelEntry.js';
+import { localLlmResponseError, type LocalModelBindingResult } from '../components/LocalModel/localLlmApi.js';
 import { resolveCodexEntry } from '../components/Codex/codexModelEntry.js';
 
 /**
@@ -91,6 +96,8 @@ export interface AgentSessionInputAttachment {
 export interface AgentSessionInputDraft {
   text: string;
   attachments: AgentSessionInputAttachment[];
+  /** 서버가 실행 전에 거절한 요청의 재전송 안내. 입력을 고치면 걷고, 영속화하지 않는다. */
+  sendError?: OrchestraPreparation;
 }
 
 /**
@@ -606,7 +613,7 @@ export interface IframeTab {
 //   갈라져 나왔다(사용자 지시 2026-09-12). **식별자는 `autoGoal` 그대로**다 — REST(`/api/auto-goal/*`)·
 //   저장고(`.vibisual/skills`)·집행 축이 이 이름으로 물려 있어, 표시 이름만 바꾼다(§5.10 (P)).
 // §5.3 #10-4 — 'orchestra'(오케스트라) 칸은 절차 감지 뒤에 선다(§5.5 #16-1 (H)).
-export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'autoGoal' | 'orchestra' | 'loop' | 'verify' | 'specReading' | 'debug' | 'bookmarks' | 'subagents';
+export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'autoGoal' | 'orchestra' | 'configTrim' | 'loop' | 'verify' | 'specReading' | 'debug' | 'bookmarks' | 'subagents';
 
 /** §5.5 #17-28 v4.96 · #17-31 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 mcp). */
 export function migrateIDEViewType(v: unknown): IDEViewType {
@@ -623,7 +630,7 @@ export function migrateIDEViewType(v: unknown): IDEViewType {
   //   기능(되풀이 → 스킬)이 이제 거기 있으므로, 'mcp' 로 떨구면 사용자는 그것이 어디 갔는지 못 찾는다.
   //   (한때 'goal' 로 보냈는데, 그 블록이 제 칸으로 갈라져 나갔으므로 도착지도 함께 옮긴다.)
   if (v === 'brain') return 'autoGoal';
-  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'autoGoal', 'orchestra', 'loop', 'verify', 'specReading', 'debug', 'bookmarks', 'subagents'];
+  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'autoGoal', 'orchestra', 'configTrim', 'loop', 'verify', 'specReading', 'debug', 'bookmarks', 'subagents'];
   return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'mcp';
 }
 
@@ -1017,6 +1024,27 @@ export function selectPaneOrchestraSummary(
 ): OrchestraSummary | null {
   const name = selectPaneProjectName(state, paneKey);
   return (name ? state.orchestra[name] : undefined) ?? null;
+}
+
+/**
+ * §5.3 #10-5 — 이 IDE 창이 다루는 프로젝트의 설정 덜어내기 요약(범위 설정 + 최근 런). 없으면 `null`.
+ *
+ * 조회 규칙은 `selectPaneOrchestraSummary` 와 같다 — 스냅샷 키가 표시명이라 이름으로 찾고,
+ * REST 에 싣는 `projectPath` 는 같은 창의 `selectPaneProjectPath` 를 쓴다.
+ */
+export function selectPaneConfigTrimSummary(
+  state: {
+    ideOverlays: Record<string, IDEOverlayState>;
+    activeProject: string | null;
+    agentProjects: Record<string, string>;
+    projects: Record<string, ProjectInfo>;
+    stubProjects: Record<string, ProjectMetaSnapshot>;
+    configTrim: Record<string, ConfigTrimSummary>;
+  },
+  paneKey: string | null | undefined,
+): ConfigTrimSummary | null {
+  const name = selectPaneProjectName(state, paneKey);
+  return (name ? state.configTrim[name] : undefined) ?? null;
 }
 
 /** 지금 보고 있는 프로젝트에 열려 있는 IDE 창들 — 앞에 온 순서(z 오름차순, 마지막이 맨 앞). */
@@ -1660,6 +1688,8 @@ interface GraphState {
   /** §5.24 — 위와 한 쌍인 **쓰기 축** 분포 표본. */
   writeCountQuantiles: number[];
   addCommand: (agentId: string, text: string, subAgentId?: string | null, attachments?: string[]) => void;
+  /** 선택한 엔진의 기존 설치·로그인 창을 연다. 설치/로그인을 자동 실행하지 않는다. */
+  prepareOrchestraEngine: (preparation: OrchestraPreparation) => Promise<void>;
   removeCommand: (agentId: string, commandId: string) => void;
   /** §5.3 #9-1 (P) — 옮길 명령과 놓을 자리를 **id** 로 가리킨다(화면과 큐의 자리가 다르다). */
   reorderCommands: (agentId: string, fromId: string, toId: string) => void;
@@ -2416,6 +2446,13 @@ interface GraphState {
   /** §5.3 #10-4 — graph_snapshot 의 오케스트라 요약 반영. 프로젝트마다 지문이 같으면 그 참조를 그대로 둔다. */
   applyOrchestra: (map: Record<string, OrchestraSummary> | undefined) => void;
   /**
+   * §5.3 #10-5 — projectName → 설정 덜어내기 요약(범위 설정 + 최근 런, 서버 권위 · 클라 영속 ❌).
+   * 아무것도 켜지 않은 프로젝트에는 키가 없다(= 꺼짐). 조회는 `selectPaneConfigTrimSummary`.
+   */
+  configTrim: Record<string, ConfigTrimSummary>;
+  /** §5.3 #10-5 — graph_snapshot 의 덜어내기 요약 반영. 지문이 같으면 이전 참조를 그대로 둔다. */
+  applyConfigTrim: (map: Record<string, ConfigTrimSummary> | undefined) => void;
+  /**
    * §5.10 v3.49 — 휴지통 내부 진입 상태 — currentFolderId/navStack 과 독립. null=일반 캔버스.
    * §5.10 — 기억 피드 오버레이가 폐기돼 이 축에 남은 값은 휴지통 하나뿐이다.
    */
@@ -2456,7 +2493,7 @@ interface GraphState {
    * §5.19 (B) — All Model 설치 창. **그 버블에 매인다**(좌표 ❌ — 버블은 이미 캔버스에 있다).
    * 엔진 받기 → 모델 받기 → 고르기를 차례로 흘려보내고, 끝나면 그 버블의 IDE 를 연다.
    */
-  localModelWindow: { agentId: string } | null;
+  localModelWindow: { agentId: string; error?: string } | null;
   openLocalModelWindow: (agentId: string) => void;
   closeLocalModelWindow: () => void;
   requestTrashPurge: (ids: string[]) => void;
@@ -2577,7 +2614,7 @@ interface GraphState {
    * §5.19 (B) — 이 버블이 물 모델을 정한다(설치 창에서 고르거나, 받아 둔 게 있으면 자동으로).
    * 성공하면 그 버블의 IDE 가 열린다 — 준비의 끝이 곧 대화의 시작이다.
    */
-  bindLocalModel: (agentId: string, modelId: string, modelName: string) => void;
+  bindLocalModel: (agentId: string, modelId: string, modelName: string) => Promise<LocalModelBindingResult>;
   /**
    * §5.19 (D) — 이 버블이 쓸 **대화 창 크기**(토큰). 종전에는 타입과 서버에만 있고 사람이
    * 바꿀 자리가 없어 사실상 기본값 고정이었다 — 대화가 길어져 창이 넘칠 때 사용자가 쓸 수 있는
@@ -2998,7 +3035,7 @@ interface GraphState {
    * §5.5 #17-35 — 검증 시작. 성공하면 그 검증의 id 를 함께 돌려준다 — ⑩ 화면 녹화가 **어느 줄에**
    * 붙을지를 그 id 로 정하기 때문이다(실패는 사유 문자열).
    */
-  startVerification: (input: { agentId: string; subAgentId: string; focus?: string; demoId?: string }) => Promise<{ ok: true; runId: string } | { ok: false; error: string }>;
+  startVerification: (input: { agentId: string; subAgentId: string; target: VerificationTarget; expected?: string; focus?: string; demoId?: string }) => Promise<{ ok: true; runId: string } | { ok: false; error: string }>;
   /** §5.5 #17-35 ⑨ — 스냅샷의 시연 목록을 그대로 받는다(전량 교체 — 삭제도 곧 사라짐으로 반영). */
   applyVerificationDemos: (demos: Record<string, VerificationDemo[]> | undefined) => void;
   /** §5.11 정독 게이트 — 스냅샷의 세션별 정독 상태를 그대로 받는다(검증 이력과 같은 규약). */
@@ -3012,7 +3049,8 @@ interface GraphState {
     subAgentId: string;
     label: string;
     sourceName: string;
-    steps: { atMs: number; text: string }[];
+    steps: VerificationDemoStep[];
+    target?: VerificationTarget;
     expected?: string;
     durationMs: number;
   }) => Promise<VerificationDemo | string>;
@@ -3428,6 +3466,21 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   writeCountRange: { max: 0 },
   readCountQuantiles: [],
   writeCountQuantiles: [],
+  prepareOrchestraEngine: async (preparation) => {
+    let next: OrchestraPreparation | null = preparation;
+    if (preparation.action === 'refresh') {
+      // 실행본 탐색을 갱신한 뒤 로그인 판정한다. 병렬이면 설치 전 cli-missing 캐시로 로그인 판정이 먼저 끝날 수 있다.
+      if (preparation.engine === 'codex') { await get().refreshCodexSetup(); await get().refreshCodexAuth(); }
+      else { await get().refreshClaudeSetup(); await get().refreshClaudeAuth(); }
+      next = orchestraEnginePreparation(preparation.engine, get());
+    }
+    if (!next || next.action === 'refresh') return; // 판정 불가는 로그아웃이 아니다. 입력의 다시 확인 안내를 유지한다.
+    const state = get();
+    const open = next.engine === 'codex'
+      ? next.action === 'setup' ? state.setCodexSetupGate : state.setCodexLoginGate
+      : next.action === 'setup' ? state.setSetupGate : state.setLoginGate;
+    open({ forced: true, dismissed: false });
+  },
   addCommand: (agentId, text, subAgentId, attachments) => {
     const sid = findSessionId(get().agents, agentId);
     if (!sid) return;
@@ -3435,6 +3488,12 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     //   손잡이를 지우는 걸 놓쳐도 명령은 나가지 않는다(서버도 같은 술어로 403 — 이중 방어).
     //   판정 원천은 `sid` 를 찾은 것과 같은 `agents` 배열이라 둘이 어긋나지 않는다.
     if (isReadOnlyHookAgent(get().agents.find((a) => a.id === agentId))) return;
+    const draftKey = agentSessionInputKey(agentId, subAgentId ?? null);
+    const submittedAttachments = (attachments ?? []).map((serverPath): AgentSessionInputAttachment =>
+      get().agentSessionInputs[draftKey]?.attachments.find((a) => a.serverPath === serverPath)
+      // 명령 팝업처럼 draft 밖에서 보낸 첨부도 보관한다. 썸네일은 기존 파일 조회 경로로 다시 읽는다.
+      ?? { tempId: `retry:${serverPath}`, previewUrl: '', serverPath, uploading: false });
+    const submittedSubExisted = !!subAgentId && (get().subAgents[agentId] ?? []).some((sub) => sub.id === subAgentId);
     // §5.5 #17-23 — 사용자가 **보낸** 프롬프트를 그 세션의 명령 히스토리(↑/↓)에 적재.
     //   여기가 클라의 유일한 전송 창구(입력창·지휘통제실 카드·상세 패널 큐가 모두 지난다)라
     //   기록도 여기 한 곳에서 한다. 서버 큐는 완료된 명령을 빼 가므로 큐를 되읽는 방식으로는
@@ -3444,7 +3503,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     recordCommandHistory(agentId, subAgentId ?? null, text);
     // §5.7 #23-1 v1.59 — 첫 명령 발사 직전에 Claude Code 버전 체크. outdated 면 모달 결정까지 보류.
     void (async () => {
-      await get().ensureClaudeVersionChecked();
+      if (!get().agentConfigs[agentId]?.provider) await get().ensureClaudeVersionChecked();
       try {
         const r = await fetch(`${API_BASE}/api/commands/${sid}`, {
           method: 'POST',
@@ -3455,7 +3514,38 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
           }),
         });
-        const data = await r.json() as { command?: { subAgentId?: string } };
+        const data = await r.json() as { command?: { subAgentId?: string }; error?: string; preparation?: OrchestraPreparation };
+        if (!r.ok && data.error === 'orchestra-engine-not-ready' && data.preparation
+          && (data.preparation.engine === 'claude' || data.preparation.engine === 'codex')
+          && ['setup', 'login', 'refresh'].includes(data.preparation.action)) {
+          const preparation = data.preparation;
+          let retained = false;
+          set((state) => {
+            if (!state.agents.some((a) => a.id === agentId)
+              || (submittedSubExisted && !(state.subAgents[agentId] ?? []).some((sub) => sub.id === subAgentId))) return state;
+            retained = true;
+            const current = state.agentSessionInputs[draftKey];
+            const currentText = current?.text ?? '';
+            const restoredText = currentText === text || !currentText ? text : `${text}\n\n${currentText}`;
+            const restoredAttachments = [...(current?.attachments ?? [])];
+            for (const a of submittedAttachments) if (!restoredAttachments.some((v) => v.serverPath === a.serverPath)) restoredAttachments.push(a);
+            // 제출 때 큐로 넘긴 blob을 draft가 다시 소유한다. 그대로 두면 다음 snapshot이 없는 큐의 blob을 revoke한다.
+            const attachmentPreviews = { ...state.attachmentPreviews };
+            for (const a of submittedAttachments) {
+              const basename = a.serverPath.split(/[/\\]/).pop() ?? '';
+              if (a.previewUrl && attachmentPreviews[basename] === a.previewUrl) delete attachmentPreviews[basename];
+            }
+            const agentSessionInputs = { ...state.agentSessionInputs, [draftKey]: {
+              text: restoredText,
+              attachments: restoredAttachments,
+              sendError: preparation,
+            } };
+            scheduleSaveSessionInputDrafts(agentSessionInputs);
+            return { agentSessionInputs, attachmentPreviews };
+          });
+          if (retained) await get().prepareOrchestraEngine(preparation);
+          return;
+        }
         // 서버가 결정한 세션으로 자동 전환 — **그 에이전트의 창**에서만(§5.5 #17-6 (H-27) ⑦).
         //   키 없이 세우면 맨 앞 창이라, 지휘통제실 카드처럼 창 밖에서 보낸 명령이 앱 안의 남의 창을
         //   그 세션으로 바꾼다(그 에이전트의 IDE 가 밖에 나가 있거나 아예 안 열린 판). 창이 없어도
@@ -4548,6 +4638,24 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     }
     return changed ? { orchestra: next } : s;
   }),
+  configTrim: {},
+  applyConfigTrim: (map) => set((s) => {
+    // 오케스트라와 같은 규칙 — 무변화 프레임은 지문으로 걸러 set 을 건너뛴다.
+    const incoming = map ?? {};
+    const prev = s.configTrim;
+    const next: Record<string, ConfigTrimSummary> = {};
+    let changed = Object.keys(prev).length !== Object.keys(incoming).length;
+    for (const [name, summary] of Object.entries(incoming)) {
+      const old = prev[name];
+      if (old && configTrimSummaryFingerprint(old) === configTrimSummaryFingerprint(summary)) {
+        next[name] = old;
+      } else {
+        next[name] = summary;
+        changed = true;
+      }
+    }
+    return changed ? { configTrim: next } : s;
+  }),
   interiorView: null,
   guideCategory: null,
   optionsCategory: null,
@@ -5598,28 +5706,41 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       })
       .catch(() => undefined);
   },
-  bindLocalModel: (agentId, modelId, modelName) => {
+  bindLocalModel: async (agentId, modelId, modelName) => {
     const prev = get().agentConfigs[agentId];
-    if (!prev) return;
+    if (!prev) return { ok: false, error: i18n.t('panel.options.tokenSaver.saveError') };
+    const windowAtStart = get().localModelWindow;
     const provider = { ...(prev.provider ?? {}), kind: 'local-llama' as const, modelId, modelName };
-    fetch(`${API_BASE}/api/agent-config/${encodeURIComponent(agentId)}`, {
+    return fetch(`${API_BASE}/api/agent-config/${encodeURIComponent(agentId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...prev, provider }),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error(String(res.status));
+      .then(async (res): Promise<LocalModelBindingResult> => {
+        if (!res.ok) throw new Error(await localLlmResponseError(res));
+        const response = await res.json() as { config?: AgentConfig };
+        if (response.config && (response.config.provider?.kind !== 'local-llama' || response.config.provider.modelId !== modelId)) {
+          throw new Error(i18n.t('panel.options.tokenSaver.saveError'));
+        }
         // 낙관 반영 — 서버 스냅샷을 기다리면 아래 openIDEOverlay 의 진입 판정이 아직 옛 설정을
         // 보고 다시 'bind' 로 떨어져 같은 자리를 맴돈다(서버가 곧 같은 값을 덮어쓴다).
         set((s) => ({
-          agentConfigs: { ...s.agentConfigs, [agentId]: { ...(s.agentConfigs[agentId] ?? prev), provider } },
+          agentConfigs: { ...s.agentConfigs, [agentId]: response.config ?? { ...(s.agentConfigs[agentId] ?? prev), provider } },
         }));
-        set({ localModelWindow: null });
-        get().openIDEOverlay(agentId);
+        // A late response must not close a different bubble's setup window or reopen a dismissed one.
+        if (get().localModelWindow === windowAtStart) {
+          set({ localModelWindow: null });
+          get().openIDEOverlay(agentId);
+        }
+        return { ok: true };
       })
       // 매지 못했으면 **아무 일도 안 일어난 것처럼 두지 않는다** — 버블을 눌렀는데 조용한 화면이
       // 남으면 사용자는 기능이 죽은 줄 안다. 설치 창을 열어 지금 상태를 그대로 보여 준다.
-      .catch(() => set({ localModelWindow: { agentId } }));
+      .catch((error: unknown): LocalModelBindingResult => {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (get().localModelWindow === windowAtStart && !windowAtStart) set({ localModelWindow: { agentId, error: reason } });
+        return { ok: false, error: reason };
+      });
   },
   // §5.25 (B) — 코덱스. All Model 과 같은 엔드포인트에 provider 만 다르게 싣는다.
   createCodexAgent: (canvasX, canvasY) => {
@@ -7192,14 +7313,29 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         body: JSON.stringify({
           agentId: input.agentId,
           subAgentId: input.subAgentId,
+          target: input.target,
+          ...(input.expected ? { expected: input.expected } : {}),
           ...(input.focus ? { focus: input.focus } : {}),
           ...(input.demoId ? { demoId: input.demoId } : {}),
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; run?: { id?: string } };
+      const data = (await res.json()) as { ok?: boolean; error?: string; run?: VerificationRun };
       // 조용한 무동작 ❌ — 왜 안 됐는지를 호출자가 화면에 적을 수 있게 사유를 돌려준다.
       if (!data.ok || !data.run?.id) return { ok: false, error: data.error ?? 'failed' };
-      return { ok: true, runId: data.run.id };
+      const run = data.run;
+      // HTTP/IPC 응답이 snapshot 보다 먼저 올 수 있다. 서버가 만든 실물을 먼저 보충해야
+      // 녹화 호스트가 "실행이 사라졌다"고 오인해 즉시 멈추지 않는다. 이미 받은 최신 상태는 유지한다.
+      set((s) => {
+        const runs = s.verificationRuns[run.subAgentId] ?? [];
+        if (runs.some((existing) => existing.id === run.id)) return s;
+        return {
+          verificationRuns: {
+            ...s.verificationRuns,
+            [run.subAgentId]: [run, ...runs].slice(0, VERIFICATION_RUNS_MAX_PER_SESSION),
+          },
+        };
+      });
+      return { ok: true, runId: run.id };
     } catch {
       return { ok: false, error: 'network' };
     }

@@ -25,6 +25,7 @@ import {
   AUTO_GOAL_CANDIDATE_MAX,
   AUTO_GOAL_MIN_RUNS,
   AUTO_GOAL_SKILL_BUDGET,
+  AUTO_GOAL_REVIEW_QUEUE_MAX,
   autoGoalSkillBody,
   autoGoalSkillDescription,
   autoGoalActiveAnywhere,
@@ -36,28 +37,19 @@ import {
   type AutoGoalSource,
   type AutoGoalState,
   type AutoGoalSummary,
+  type AutoGoalMetrics,
   type BashEntry,
   type SessionGoal,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { atomicWriteFileSync } from './statePersistence.js';
+import {
+  AUTO_GOAL_SKILL_DIRS, autoGoalSkillRelativePath, safeAutoGoalPath,
+  parseAutoGoalDocument, readAutoGoalDocument, readAutoGoalDocumentAt,
+  summarizeAutoGoalDocument, patchAutoGoalDocument, dropAutoGoalAssessments,
+} from './autoGoalLifecycle.js';
 
-/**
- * 스킬이 사는 자리 — **`.vibisual/skills/`**.
- *
- * 종전 자리는 `.vibisual/brain/skills/` 였다. 이름에서 브레인을 걷어낸 이상 새 스킬은 여기로
- * 쓰지만, **옛 자리를 지우지 않고 읽기로 흡수한다**(아래 `LEGACY_SKILL_DIR`) — 통폐합은
- * 합치는 일이지 버리는 일이 아니고, 이미 쌓인 것이 경로를 잃으면 사용자에겐 그냥 소실이다.
- */
-const SKILL_DIR = path.join('.vibisual', 'skills');
-/** 브레인 시절의 스킬 자리. **읽기 전용** — 여기에 새로 쓰지 않는다. */
-const LEGACY_SKILL_DIR = path.join('.vibisual', 'brain', 'skills');
-const SKILL_FILENAME = 'SKILL.md';
-
-/**
- * 이 스킬을 누가 적었는가. `auto-goal` 만 우리가 덮어쓸 수 있다 —
- * **사람이 손본 파일은 다음 분석이 건드리지 않는다**(고쳐 뒀는데 되돌아오면 아무도 안 고친다).
- */
+/** Authorship is provenance, never permission to overwrite edited instructions. */
 const AUTO_SOURCE = 'auto-goal';
 
 /**
@@ -114,6 +106,7 @@ export function serializeAutoGoalSkill(skill: AutoGoalSkillSummary, body: string
   lines.push(`description: ${escapeScalar(skill.description)}`);
   lines.push(`id: ${skill.id}`);
   lines.push(`source: ${AUTO_SOURCE}`);
+  lines.push('status: candidate');
   if (skill.candidateId) lines.push(`candidateId: ${skill.candidateId}`);
   if (skill.origin) lines.push(`origin: ${skill.origin}`);
   /*
@@ -134,78 +127,31 @@ export function serializeAutoGoalSkill(skill: AutoGoalSkillSummary, body: string
 
 /** 파일 하나를 요약으로 접는다. 두 필수 필드가 없으면 스킬이 아니다(조용히 건너뛴다). */
 export function parseAutoGoalSkill(text: string, fallbackId: string): AutoGoalSkillSummary | null {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
-  if (!m) return null;
-  const fm = new Map<string, string>();
-  for (const line of (m[1] ?? '').split(/\r?\n/)) {
-    const i = line.indexOf(': ');
-    if (i <= 0) continue;
-    fm.set(line.slice(0, i).trim(), line.slice(i + 2).trim());
-  }
-  const name = fm.get('name');
-  const description = fm.get('description');
-  if (!name || !description) return null;
-  const num = (k: string, d: number): number => {
-    const v = Number(fm.get(k));
-    return Number.isFinite(v) ? v : d;
-  };
-  const now = Date.now();
-  const candidateId = fm.get('candidateId');
-  const files = (fm.get('files') ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
-  const originRaw = fm.get('origin');
-  const origin: AutoGoalSource | undefined = originRaw === 'command' || originRaw === 'step' ? originRaw : undefined;
-  return {
-    id: fm.get('id') ?? fallbackId,
-    name,
-    description,
-    steps: num('steps', 0),
-    runs: num('runs', 0),
-    createdAt: num('createdAt', now),
-    updatedAt: num('updatedAt', now),
-    ...(candidateId ? { candidateId } : {}),
-    ...(files.length > 0 ? { files } : {}),
-    ...(origin ? { origin } : {}),
-  };
-}
-
-/** 이 파일을 우리가 적었나 — 사람이 손으로 넣은 스킬은 덮지 않는다. */
-function isAutoAuthored(text: string): boolean {
-  const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? '';
-  return new RegExp(`^source:\\s*${AUTO_SOURCE}\\s*$`, 'm').test(head);
-}
-
-function skillDirs(root: string): { dir: string; writable: boolean }[] {
-  return [
-    { dir: path.join(root, SKILL_DIR), writable: true },
-    { dir: path.join(root, LEGACY_SKILL_DIR), writable: false },
-  ];
+  const doc = parseAutoGoalDocument(text, fallbackId);
+  return doc ? summarizeAutoGoalDocument(null, doc) : null;
 }
 
 /**
  * 디스크의 스킬 전부 — 새 자리와 옛 브레인 자리를 **함께** 읽는다(통폐합).
  *
- * 같은 id 가 양쪽에 있으면 새 자리가 이긴다. 옛 자리는 읽기 전용이라 다음 개정은 새 자리에 쓰이고,
- * 그렇게 자연스럽게 옮겨 앉는다 — 한 번에 옮기는 마이그레이션을 돌리지 않는 이유는 그 작업이
- * 실패하면 사용자 디스크에서 스킬이 사라지기 때문이다.
+ * 같은 id 가 양쪽에 있으면 새 자리가 이긴다. 검토·상태·근거는 실제 원본 위치에 기록한다.
+ * 각 파일의 현재 근거를 확인하므로 옛 verified 표식은 활성 판정을 대신하지 않는다.
  */
 export function listAutoGoalSkills(root: string): AutoGoalSkillSummary[] {
   const byId = new Map<string, AutoGoalSkillSummary>();
   // 옛 자리를 먼저 읽고 새 자리로 덮는다 — 뒤에 읽은 쪽이 이긴다.
-  for (const { dir } of [...skillDirs(root)].reverse()) {
+  for (const relative of [...AUTO_GOAL_SKILL_DIRS].reverse()) {
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = fs.readdirSync(safeAutoGoalPath(root, relative), { withFileTypes: true });
     } catch {
       continue; // 아직 한 장도 없다 — 정상이다.
     }
     for (const e of entries) {
       if (!e.isDirectory() || e.name.startsWith('.')) continue;
-      const file = path.join(dir, e.name, SKILL_FILENAME);
       try {
-        const parsed = parseAutoGoalSkill(fs.readFileSync(file, 'utf8'), e.name);
+        const doc = readAutoGoalDocumentAt(root, autoGoalSkillRelativePath(e.name, relative), e.name);
+        const parsed = doc ? summarizeAutoGoalDocument(root, doc) : null;
         if (parsed) byId.set(parsed.id, parsed);
       } catch {
         // 읽을 수 없는 한 장이 목록 전체를 죽이지 않는다.
@@ -223,7 +169,7 @@ function skillForCandidate(skills: readonly AutoGoalSkillSummary[], candidateId:
 /**
  * 후보 하나를 **스킬로 굳힌다.**
  *
- * 이미 있으면 관찰 횟수만 올려 다시 쓴다(개정) — 단 **사람이 손본 파일은 건드리지 않는다.**
+ * 이미 있으면 관찰 횟수만 올린다 — 본문과 검토 상태는 자동으로 개정하지 않는다.
  * 쓰기는 전부 `atomicWriteFileSync`(§3.2.1 ①)를 지난다.
  */
 export function writeAutoGoalSkill(
@@ -232,19 +178,19 @@ export function writeAutoGoalSkill(
   existing?: AutoGoalSkillSummary,
 ): AutoGoalSkillSummary | null {
   const id = existing?.id ?? toAutoGoalSkillId(candidate);
-  const dir = path.join(root, SKILL_DIR, id);
-  const file = path.join(dir, SKILL_FILENAME);
   const now = Date.now();
 
   try {
-    if (fs.existsSync(file)) {
-      const prev = fs.readFileSync(file, 'utf8');
-      // 사람이 고쳐 둔 스킬을 다음 분석이 되돌리면 아무도 고치지 않게 된다.
-      if (!isAutoAuthored(prev)) return existing ?? parseAutoGoalSkill(prev, id);
-      const parsedPrev = parseAutoGoalSkill(prev, id);
-      // 관찰이 늘지 않았으면 다시 쓰지 않는다 — 같은 내용으로 mtime 만 흔들면 동기화가 소음이 된다.
-      if (parsedPrev && parsedPrev.runs >= candidate.runs) return parsedPrev;
+    const previous = readAutoGoalDocument(root, id);
+    if (previous) {
+      const parsedPrev = summarizeAutoGoalDocument(root, previous);
+      // Observation never regenerates instructions, reviewed evidence, or a retired procedure.
+      if (parsedPrev.status === 'retired' || parsedPrev.status === 'superseded' || parsedPrev.runs >= candidate.runs) return parsedPrev;
+      const current = readAutoGoalDocument(root, id) ?? previous;
+      return summarizeAutoGoalDocument(root, patchAutoGoalDocument(root, current, { runs: String(candidate.runs) }));
     }
+    // An unreadable/partially edited existing original is not permission to regenerate it.
+    if (AUTO_GOAL_SKILL_DIRS.some((location) => fs.existsSync(safeAutoGoalPath(root, autoGoalSkillRelativePath(id, location), true)))) return null;
     const summary: AutoGoalSkillSummary = {
       id,
       name: candidate.title,
@@ -257,9 +203,14 @@ export function writeAutoGoalSkill(
       origin: candidate.source,
       ...(candidate.files && candidate.files.length > 0 ? { files: candidate.files } : {}),
     };
+    const relative = autoGoalSkillRelativePath(id);
+    const file = safeAutoGoalPath(root, relative, true);
+    const dir = path.dirname(file);
     fs.mkdirSync(dir, { recursive: true });
+    safeAutoGoalPath(root, relative, true);
     atomicWriteFileSync(file, serializeAutoGoalSkill(summary, autoGoalSkillBody(candidate, now)));
-    return summary;
+    const saved = readAutoGoalDocument(root, id);
+    return saved ? summarizeAutoGoalDocument(root, saved) : null;
   } catch (err) {
     // 스킬 한 장을 못 썼다고 에이전트 작업이 멈추면 안 된다 — 다음 분석이 다시 시도한다.
     logger.warn('[auto-goal] skill write failed', { id, err: String(err) });
@@ -269,32 +220,28 @@ export function writeAutoGoalSkill(
 
 /** 스킬 한 장을 지운다(사용자가 화면에서 누를 때만 — 자동 삭제 ❌). */
 export function deleteAutoGoalSkill(root: string, id: string): boolean {
-  for (const { dir } of skillDirs(root)) {
-    const target = path.join(dir, id);
-    try {
-      if (!fs.existsSync(path.join(target, SKILL_FILENAME))) continue;
-      fs.rmSync(target, { recursive: true, force: true });
-      return true;
-    } catch (err) {
-      logger.warn('[auto-goal] skill delete failed', { id, err: String(err) });
-    }
-  }
-  return false;
+  // Resolve every target before deleting anything; deleting the modern copy must not revive a legacy copy.
+  const targets = AUTO_GOAL_SKILL_DIRS.map((dir) => safeAutoGoalPath(root, autoGoalSkillRelativePath(id, dir), true))
+    .filter((file) => fs.existsSync(file)).map((file) => path.dirname(file));
+  for (const target of targets) fs.rmSync(target, { recursive: true, force: true });
+  return targets.length > 0;
 }
 
 /** 스킬 본문 원문 — 화면이 "무엇이 적혔나"를 펼쳐 보일 때. */
 export function readAutoGoalSkillBody(root: string, id: string): string | null {
-  for (const { dir } of skillDirs(root)) {
-    const file = path.join(dir, id, SKILL_FILENAME);
-    try {
-      if (!fs.existsSync(file)) continue;
-      const text = fs.readFileSync(file, 'utf8');
-      return /^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(text)?.[1] ?? text;
-    } catch {
-      // 못 읽으면 다음 자리를 본다.
-    }
-  }
-  return null;
+  return readAutoGoalDocument(root, id)?.body ?? null;
+}
+
+export function autoGoalMetrics(skills: readonly AutoGoalSkillSummary[]): AutoGoalMetrics {
+  return {
+    activeCount: skills.filter((s) => s.status === 'active').length,
+    reviewCount: skills.filter((s) => s.status === 'candidate' || s.status === 'needs-review').length,
+    retiredCount: skills.filter((s) => s.status === 'retired' || s.status === 'superseded').length,
+    reuseCount: skills.reduce((n, s) => n + (s.reuseCount ?? 0), 0),
+    skipCount: skills.reduce((n, s) => n + (s.skipCount ?? 0), 0),
+    failureCount: skills.reduce((n, s) => n + (s.failureCount ?? 0), 0),
+    revisionCount: skills.reduce((n, s) => n + (s.revisionCount ?? 0), 0),
+  };
 }
 
 /**
@@ -314,7 +261,7 @@ export function getAutoGoalState(
   const skills = listAutoGoalSkills(root);
 
   if (!enabled) {
-    return { enabled: false, candidates: [], skills, minRuns: AUTO_GOAL_MIN_RUNS, observed: 0, analyzedAt: 0 };
+    return { enabled: false, candidates: [], skills, metrics: autoGoalMetrics(skills), minRuns: AUTO_GOAL_MIN_RUNS, observed: 0, analyzedAt: 0 };
   }
 
   const now = Date.now();
@@ -342,15 +289,15 @@ export function getAutoGoalState(
   }
 
   /*
-   * 문턱을 넘은 후보를 **그 자리에서 굳힌다.**
+   * 문턱을 넘은 관찰은 검토할 후보 파일이 된다. 활성화는 근거를 갖춘 검토 API만 한다.
    *
-   * 사용자 지시가 "계속 자동으로 만들어 주는 것"이라 승인 버튼을 두지 않는다. 대신 총량에 상한을
-   * 걸어(`AUTO_GOAL_SKILL_BUDGET`) 디스크와 주입 양쪽이 무한히 늘지 않게 한다 — 넘으면 더 짓지
+   * 총량에 상한을 걸어(`AUTO_GOAL_SKILL_BUDGET`) 디스크와 주입 양쪽이 무한히 늘지 않게 한다 — 넘으면 더 짓지
    * 않을 뿐 이미 있는 것을 지우지는 않는다(자동 삭제 ❌).
    */
   const known = [...skills];
   const linked: AutoGoalCandidate[] = [];
   for (const c of candidates) {
+    if (c.runs < AUTO_GOAL_MIN_RUNS) { linked.push(c); continue; }
     const existing = skillForCandidate(known, c.id);
     if (!existing && known.length >= AUTO_GOAL_SKILL_BUDGET) {
       linked.push(c);
@@ -371,6 +318,7 @@ export function getAutoGoalState(
     enabled: true,
     candidates: linked,
     skills: known.sort((a, b) => b.updatedAt - a.updatedAt),
+    metrics: autoGoalMetrics(known),
     minRuns: AUTO_GOAL_MIN_RUNS,
     observed,
     analyzedAt,
@@ -390,26 +338,58 @@ export function buildAutoGoalPromptBlock(
   root: string,
   settings: AutoGoalSettings | undefined,
   ids: { agentId?: string | null; subAgentId?: string | null },
+  task?: string,
 ): string | undefined {
   if (!resolveAutoGoalEnabled(settings, ids)) return undefined;
-  const skills = listAutoGoalSkills(root);
-  if (skills.length === 0) return undefined;
+  const all = listAutoGoalSkills(root).filter((s) => task === undefined || autoGoalSkillRelevant(s, task));
+  const active = all.filter((s) => s.status === 'active').slice(0, 8);
+  const review = all.filter((s) => s.status === 'candidate' || s.status === 'needs-review').slice(0, AUTO_GOAL_REVIEW_QUEUE_MAX);
+  if (active.length === 0 && review.length === 0) return undefined;
   const lines: string[] = [];
   lines.push('# 이 프로젝트에서 되풀이해 온 절차 (절차 감지)');
   lines.push('');
-  lines.push('아래는 **이 프로젝트에서 실제로 여러 번 되풀이된 일**을 관찰해 적어 둔 절차다.');
-  lines.push('지금 하려는 일이 그중 하나면 그 파일을 열어 그대로 따르라 — 매번 다시 알아낼 필요가 없다.');
+  lines.push('현재 사용자 지시가 우선이다. 관련 절차만 읽고 적용 조건을 확인하라. 반복 관찰은 검토 통과나 완료 증거가 아니다.');
+  lines.push('실행 전 사전 판정을 받고, 서버가 같은 작업·판본·입력과 완료 출력을 확인해 skip을 반환한 경우에만 완료 결과를 재사용할 수 있다.');
   lines.push('');
-  for (const s of skills) {
-    lines.push(`- **${s.name}** — ${s.description}`);
-    lines.push(`  \`${path.posix.join('.vibisual', 'skills', s.id, SKILL_FILENAME)}\``);
+  for (const [label, skills] of [['검토 통과 — 적용 조건 확인 후 사용', active], ['검토 대기 — 실행 지침이 아님', review]] as const) {
+    if (skills.length === 0) continue;
+    lines.push(`## ${label}`);
+    for (const s of skills) {
+      lines.push(`- **${s.name}** — ${escapeScalar(s.description).slice(0, 240)}`);
+      lines.push(`  id=${s.id} revision=${s.revision} · \`${s.path}\``);
+      if (s.applicability) lines.push(`  적용 조건: ${escapeScalar(s.applicability).slice(0, 400)}`);
+      if (s.status !== 'active' && s.reason) lines.push(`  검토 사유: ${escapeScalar(s.reason).slice(0, 240)}`);
+    }
   }
   return lines.join('\n');
+}
+
+/** Conservative lexical routing keeps unrelated old project work out of the agent's task. */
+export function autoGoalSkillRelevant(skill: AutoGoalSkillSummary, task: string): boolean {
+  const ignored = new Set(['this', 'that', 'with', 'from', 'what', 'when', 'please', 'project', 'agent', 'procedure',
+    '확인', '작업', '절차', '검토', '기능', '사용', '진행', '자동', '현재', '추가', '수정', '방법', '있는', '하기', '위해']);
+  const words = (text: string): string[] => (text.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [])
+    .filter((word) => word.length >= 2 && !ignored.has(word));
+  const taskWords = new Set(words(task));
+  const terms = words(`${skill.name} ${skill.description} ${skill.applicability ?? ''}`);
+  if (terms.some((word) => taskWords.has(word) && (/[가-힣]/u.test(word) || word.length >= 3))) return true;
+  const koreanPairs = (items: Iterable<string>): Set<string> => {
+    const pairs = new Set<string>();
+    for (const word of items) if (/^[가-힣]+$/u.test(word) && word.length >= 3) {
+      for (let i = 0; i + 1 < word.length; i += 1) if (!ignored.has(word.slice(i, i + 2))) pairs.add(word.slice(i, i + 2));
+    }
+    return pairs;
+  };
+  const a = koreanPairs(taskWords);
+  let matches = 0;
+  for (const pair of koreanPairs(terms)) if (a.has(pair) && ++matches >= 2) return true;
+  return false;
 }
 
 /** 프로젝트를 닫을 때 분석 캐시를 버린다(§3.5 프로젝트 격리 — 남의 이력이 섞이면 안 된다). */
 export function dropAutoGoalCache(root: string): void {
   caches.delete(root);
+  try { dropAutoGoalAssessments(root); } catch { /* A closed project may already be unavailable. */ }
 }
 
 /**
@@ -437,7 +417,7 @@ export function getAutoGoalSummary(
    * 후보·스킬은 프로젝트 단위의 사실이고, 층이 가르는 것은 "그 사실을 이 자리에 싣느냐"뿐이다.
    */
   const projectEnabled = resolveAutoGoalEnabled(settings);
-  const state = getAutoGoalState(root, settings, {}, input);
+  const state = getAutoGoalState(root, { ...settings, enabledProject: true }, {}, input);
   const skills = state.skills;
 
   // 굳은 것은 후보 목록에도 남아 있다(진행 막대가 100% 로 서야 하므로) — 두 번 세지 않는다.
@@ -482,6 +462,7 @@ export function getAutoGoalSummary(
     enabled: projectEnabled,
     ...(Object.keys(agentEnabled).length > 0 ? { agentEnabled } : {}),
     skillCount: skills.length,
+    ...autoGoalMetrics(skills),
     candidateCount: brewing.length,
     dismissedCount: settings?.dismissed?.length ?? 0,
     anchoredCount,

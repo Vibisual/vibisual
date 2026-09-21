@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { AgentConfig, QueuedCommand } from '@vibisual/shared';
-import { ZOMBIE_EXECUTING_GRACE_MS } from '@vibisual/shared';
+import { ZOMBIE_EXECUTING_GRACE_MS, TURN_STREAM_STALL_MS } from '@vibisual/shared';
 import type { LocalTurnArgs } from './localRunner.js';
 
 /**
@@ -211,5 +211,92 @@ describe('좀비 executing — 상태 강등과 같은 답을 쓴다', () => {
 
     expect(subAgentManager.reconcileDeadActiveSubs()).toContain(sub.id);
     expect(seal(queues(cmd))).toHaveLength(1);
+  });
+});
+
+/**
+ * §2.4 / §5.3 #10-2 ⑤ — **"프로세스가 살아 있다"와 "실제로 일하고 있다"는 같은 말이 아니다.**
+ *
+ * 2026-09-20 사용자 보고의 핵심 자리다. 자식(또는 자식 없는 실행 경로의 in-flight 표식)이
+ * 서 있기만 하면 `hasLivingWork` 이 참이라, 출력이 완전히 멎은 턴은 좀비 봉합의 **후보로도**
+ * 올라오지 못했다. 그 탭은 `busy` 로 잠긴 채 영원히 "실행 중"으로 남았고, 사용자는 끝난 것인지
+ * 죽은 것인지 도는 것인지 구분할 방법이 없었다.
+ *
+ * 축은 `SubAgent.lastActivityAt` 하나 — `emitStreamEvent` 가 모든 경로에서 갱신하는 값이다.
+ */
+describe('좀비 executing — 살아 있지만 멎은 턴', () => {
+  it('in-flight 는 서 있어도 스트림이 한계를 넘겨 멎었으면 걷는다 (2026-09-21 회귀)', () => {
+    const sub = newSub('agent-z12', 'sub-z12');
+    const cmd = makeCmd(sub.id);
+    subAgentManager.execute(cmd, PARENT_CWD, '', localConfig());
+    // 턴은 아직 안 끝났다 — 러너를 붙잡아 뒀으므로 in-flight 표식이 그대로 서 있다.
+    expect(lastTurnArgs).not.toBeNull();
+    cmd.startedAt = Date.now() - ZOMBIE_EXECUTING_GRACE_MS * 2;
+    // 마지막으로 무언가를 뱉은 지 한계를 넘겼다.
+    subAgentManager.getSub(sub.id)!.lastActivityAt = Date.now() - TURN_STREAM_STALL_MS - 1_000;
+
+    const sealed = seal(queues(cmd));
+
+    expect(sealed).toHaveLength(1);
+    expect(cmd.status).toBe('error');
+    expect(cmd.error?.code).toBe('orphaned');
+    // 자식이 아예 없었던 것과 다른 사건이라 사유가 갈린다(사용자는 CLI·MCP 쪽을 봐야 한다).
+    expect(cmd.error?.detail).toContain('stalled');
+    expect(subAgentManager.getSub(sub.id)!.status).toBe('idle');
+  });
+
+  it('한계 직전까지 조용한 것은 걷지 않는다 — 긴 빌드를 기다리는 턴을 죽이지 않는다', () => {
+    const sub = newSub('agent-z13', 'sub-z13');
+    const cmd = makeCmd(sub.id);
+    subAgentManager.execute(cmd, PARENT_CWD, '', localConfig());
+    cmd.startedAt = Date.now() - ZOMBIE_EXECUTING_GRACE_MS * 2;
+    subAgentManager.getSub(sub.id)!.lastActivityAt = Date.now() - (TURN_STREAM_STALL_MS - 60_000);
+
+    expect(seal(queues(cmd))).toHaveLength(0);
+    expect(cmd.status).toBe('executing');
+  });
+
+  it('상태 강등도 같은 답을 쓴다 — 멎은 턴은 두 장치가 함께 걷는다', () => {
+    const sub = newSub('agent-z14', 'sub-z14');
+    const cmd = makeCmd(sub.id);
+    subAgentManager.execute(cmd, PARENT_CWD, '', localConfig());
+    cmd.startedAt = Date.now() - ZOMBIE_EXECUTING_GRACE_MS * 2;
+    subAgentManager.getSub(sub.id)!.lastActivityAt = Date.now() - TURN_STREAM_STALL_MS - 1_000;
+
+    expect(subAgentManager.reconcileDeadActiveSubs()).toContain(sub.id);
+  });
+});
+
+/**
+ * §5.3 #10-2 — **굶은 큐가 다시 흐르는가.** dispatch 는 `status === 'executing'` 인 탭을 통째로
+ * `busy` 로 잠근다(`index.ts` 의 큐 배분). 그래서 좀비 하나가 그 탭의 **뒤에 선 모든 명령**을
+ * 함께 굶긴다 — 봉합의 값어치는 이 한 줄에서 나온다. 잠금 규칙 자체는 여기서 고치지 않고,
+ * 봉합이 그 규칙을 푸는지만 못 박는다.
+ */
+describe('좀비 executing — 굶은 큐가 다시 흐른다', () => {
+  /** dispatch 의 잠금 계산과 **같은 술어**. 갈리면 이 시험이 지키는 것이 없어진다. */
+  const busyOf = (q: Map<string, QueuedCommand[]>): Set<string> => {
+    const busy = new Set<string>();
+    for (const cmds of q.values()) {
+      for (const c of cmds) if (c.status === 'executing' && c.subAgentId) busy.add(c.subAgentId);
+    }
+    return busy;
+  };
+
+  it('좀비가 걷히면 같은 탭에 줄 서 있던 명령의 잠금이 풀린다', () => {
+    const sub = newSub('agent-z15', 'sub-z15');
+    subAgentManager.getSub(sub.id)!.status = 'active';
+    const zombie = makeCmd(sub.id);
+    const waiting = makeCmd(sub.id, { status: 'queued', startedAt: undefined });
+    const q = queues(zombie, waiting);
+
+    // 봉합 전 — 뒤에 선 명령은 자기 차례가 왔는데도 나갈 수 없다.
+    expect(busyOf(q).has(sub.id)).toBe(true);
+
+    expect(seal(q)).toHaveLength(1);
+
+    // 봉합 후 — 잠금이 풀렸고, 기다리던 명령은 그대로 살아 있다(함께 걷히지 않는다).
+    expect(busyOf(q).has(sub.id)).toBe(false);
+    expect(waiting.status).toBe('queued');
   });
 });

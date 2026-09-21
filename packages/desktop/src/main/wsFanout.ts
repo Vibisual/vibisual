@@ -9,6 +9,7 @@
  * `BrowserWindow.getAllWindows()` 한 벌로 같은 길을 탄다.
  */
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
+import { isVerificationWindow } from './verificationWindows';
 import {
   WS_BUFFER_CHANNEL,
   WS_BUFFER_READY_CHANNEL,
@@ -103,7 +104,7 @@ export function broadcastToWindows(msg: unknown): string | null {
     if (win.isDestroyed()) continue;
     const wc = win.webContents;
     // 창은 살아 있는데 webContents 만 먼저 죽는 찰나가 있다 — 거기서 send 는 던진다.
-    if (!wc || wc.isDestroyed()) continue;
+    if (!wc || wc.isDestroyed() || isVerificationWindow(wc.id)) continue;
     targets.push(targetFor(wc));
   }
   return fanoutWire(msg, targets).json;

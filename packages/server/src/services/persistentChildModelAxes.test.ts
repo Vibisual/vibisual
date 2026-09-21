@@ -101,6 +101,7 @@ type Innards = {
   persistentChildReady: Map<string, boolean>;
   persistentInFlightCmd: Map<string, { cmd: { id: string } }>;
   persistentSpawnModelKey: Map<string, string>;
+  persistentSpawnVerificationKey: Map<string, string>;
   intentionalKill: Set<string>;
   bgPromotedSubs: Set<string>;
   dispatchingSubs: Set<string>;
@@ -218,5 +219,43 @@ describe('재사용 경로 — 모델을 바꿨으면 놀던 자식을 갈아 �
 
     expect(child.stdin.writes).toHaveLength(1);
     expect(cmd.status).toBe('executing');
+  });
+});
+
+describe('verification connection on existing Claude sessions', () => {
+  const verificationArgs = [...OPUS_ARGS, '--mcp-config', '/app/mcp/verification.json', '--allowedTools', 'mcp__vibisual_verify'];
+
+  it('reconnects an old idle child before submitting the verification command', () => {
+    const { priv, child } = setup(OPUS_ARGS);
+    const cmd = dispatchedCmd('cmd-verify');
+    priv._executeViaLegacy(cmd, sub(), 'C:\\tmp', 'verify', verificationArgs, 0);
+    expect(child.stdin.writes).toHaveLength(0);
+    expect(cmd.status).toBe('queued');
+    expect(priv.intentionalKill.has(SUB)).toBe(true);
+    expect(child.stdin.writableEnded).toBe(true);
+  });
+
+  it('reuses a connected child across different verification run prompts', () => {
+    const { priv, child } = setup(OPUS_ARGS);
+    priv.persistentSpawnVerificationKey.set(SUB, '/app/mcp/verification.json');
+    const cmd = dispatchedCmd('cmd-new-run');
+    priv._executeViaLegacy(cmd, sub(), 'C:\\tmp', 'runId: run-second', verificationArgs, 0);
+    expect(child.stdin.writes).toHaveLength(1);
+    expect(child.stdin.writes[0]).toContain('run-second');
+    expect(cmd.status).toBe('executing');
+    expect(child.killed).toHaveLength(0);
+  });
+
+  it('preserves background work and reports unavailable tools instead of silently sending a text-only check', () => {
+    const { priv, child } = setup(OPUS_ARGS);
+    priv.bgPromotedSubs.add(SUB);
+    const cmd = dispatchedCmd('cmd-verify-bg');
+    priv._executeViaLegacy(cmd, sub(), 'C:\\tmp', 'verify', verificationArgs, 0);
+    expect(child.stdin.writes).toHaveLength(0);
+    expect(child.killed).toHaveLength(0);
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(cmd.status).toBe('error');
+    expect(cmd.result).toContain('live background work');
+    expect(priv.dispatchingSubs.has(SUB)).toBe(false);
   });
 });

@@ -23,6 +23,8 @@ import {
   autoGoalTitle,
   isSubsequenceRun,
   mineAutoGoalCandidates,
+  AUTO_GOAL_COMMAND_MAX,
+  AUTO_GOAL_SCAN_TAIL,
   AUTO_GOAL_WINDOW_MS,
 } from '@vibisual/shared';
 import type { BashEntry, SessionGoal } from '@vibisual/shared';
@@ -35,6 +37,7 @@ function run(commands: readonly string[], startAt: number): BashEntry[] {
     id: `b${startAt}-${i}`,
     command,
     timestamp: startAt + i * 1000,
+    status: 'success',
   }));
 }
 
@@ -158,12 +161,110 @@ describe('자동 목표 — 되풀이 마이닝', () => {
     expect(out.candidates[0]?.runs).toBe(3);
   });
 
+  it.each(['error', 'running', undefined] as const)('성공이 확인되지 않은 명령은 세지 않는다: %s', (status) => {
+    const entries = run(['pnpm build', 'pnpm test', 'pnpm build', 'pnpm test', 'pnpm build', 'pnpm test'], T0)
+      .map((entry) => ({ ...entry, status }));
+    const out = mineAutoGoalCandidates({ bashHistory: { a1: entries } });
+    expect(out.candidates).toEqual([]);
+    expect(out.observed).toBe(0);
+  });
+
+  it.each(['error', 'running', undefined] as const)('성공 사이의 미확인 명령을 지워 가짜 이웃을 만들지 않는다: %s', (status) => {
+    const bashHistory: Record<string, BashEntry[]> = {};
+    for (let i = 0; i < 3; i += 1) {
+      bashHistory[`s${i}`] = run(['pnpm build', 'blocked command', 'pnpm test'], T0)
+        .map((entry, index) => index === 1 ? { ...entry, status } : entry);
+    }
+    const out = mineAutoGoalCandidates({ bashHistory });
+    expect(out.candidates).toEqual([]);
+    expect(out.observed).toBe(6);
+  });
+
+  it('실패 경계 뒤의 완전한 성공 절차는 따로 센다', () => {
+    const entries = run(['old command', 'failed command', 'pnpm build', 'pnpm test', 'pnpm build', 'pnpm test', 'pnpm build', 'pnpm test'], T0);
+    entries[1] = { ...entries[1]!, status: 'error' };
+    const out = mineAutoGoalCandidates({ bashHistory: { a1: entries } });
+    expect(out.candidates[0]?.steps).toEqual(['pnpm build', 'pnpm test']);
+    expect(out.candidates[0]?.runs).toBe(3);
+  });
+
+  it('인용된 공백·개행·들여쓰기와 앞뒤 공백까지 실행 원문으로 보존한다', () => {
+    const command = '  cat <<\'EOF\'\n  a  b\n\tline two\nEOF\n';
+    const sequence = [command, 'printf "a  b\\n"'];
+    const out = mineAutoGoalCandidates({ bashHistory: { a1: run([...sequence, ...sequence, ...sequence], T0) } });
+    expect(out.candidates[0]?.steps).toEqual(sequence);
+    const body = autoGoalSkillBody(out.candidates[0]!, T0);
+    expect(body).toContain(command);
+    expect(body).toContain(sequence[1]);
+  });
+
+  it('인용된 공백이 다른 명령을 한 반복으로 합치지 않는다', () => {
+    const out = mineAutoGoalCandidates({
+      bashHistory: {
+        a1: run(['echo "a  b"', 'echo done', 'echo "a b"', 'echo done', 'echo "a   b"', 'echo done'], T0),
+      },
+    });
+    expect(out.candidates).toEqual([]);
+  });
+
+  it('앞 200자가 같은 긴 명령은 끝까지 비교하고 보존한다', () => {
+    const prefix = `echo ${'x'.repeat(240)}`;
+    const commands = [`${prefix} one`, `${prefix} two`, `${prefix} three`];
+    const distinct = mineAutoGoalCandidates({
+      bashHistory: { a1: run(commands.flatMap((command) => [command, 'echo done']), T0) },
+    });
+    expect(distinct.candidates).toEqual([]);
+
+    const sequence = [commands[0]!, 'echo done'];
+    const repeated = mineAutoGoalCandidates({ bashHistory: { a1: run([...sequence, ...sequence, ...sequence], T0) } });
+    expect(repeated.candidates[0]?.steps).toEqual(sequence);
+    expect(autoGoalSkillBody(repeated.candidates[0]!, T0)).toContain(commands[0]);
+  });
+
+  it('안전 상한을 넘는 명령은 잘라 담지 않고 순서 경계로 남긴다', () => {
+    const command = 'x'.repeat(AUTO_GOAL_COMMAND_MAX + 1);
+    const bashHistory: Record<string, BashEntry[]> = {};
+    for (let i = 0; i < 3; i += 1) bashHistory[`s${i}`] = run(['before', command, 'after'], T0);
+    const out = mineAutoGoalCandidates({ bashHistory });
+    expect(out.candidates).toEqual([]);
+    expect(out.observed).toBe(6);
+  });
+
+  it('최신순·오래된순 이력 모두 정렬 후 최신 꼬리를 훑는다', () => {
+    const old = run(Array.from({ length: AUTO_GOAL_SCAN_TAIL }, (_, i) => `old ${i}`), T0);
+    const recent = run(['build', 'test', 'build', 'test', 'build', 'test'], T0 + AUTO_GOAL_WINDOW_MS * 2);
+    const entries = [...old, ...recent];
+    const ascending = mineAutoGoalCandidates({ bashHistory: { a1: entries } });
+    const descending = mineAutoGoalCandidates({ bashHistory: { a1: [...entries].reverse() } });
+    expect(descending).toEqual(ascending);
+    expect(descending.observed).toBe(AUTO_GOAL_SCAN_TAIL);
+    expect(descending.candidates[0]?.steps).toEqual(['build', 'test']);
+    expect(entries[0]?.command).toBe('old 0');
+  });
+
   it('겹쳐 세지 않는다 — a b a b a b 에서 a b 는 3회다', () => {
     const out = mineAutoGoalCandidates({
       bashHistory: { a1: run(['a x', 'b y', 'a x', 'b y', 'a x', 'b y'], T0) },
     });
     const ab = out.candidates.find((c) => c.steps.join('|') === 'a x|b y');
     expect(ab?.runs).toBe(3);
+  });
+
+  it('절차 앞에 다른 명령이 있어도 모든 시작 위치에서 반복을 찾는다', () => {
+    const out = mineAutoGoalCandidates({
+      bashHistory: { a1: run(['prefix', 'a x', 'b y', 'a x', 'b y', 'a x', 'b y'], T0) },
+    });
+    expect(out.candidates[0]?.steps).toEqual(['a x', 'b y']);
+    expect(out.candidates[0]?.runs).toBe(3);
+  });
+
+  it('모든 시작 위치를 보아도 같은 후보의 겹친 실행은 문턱에 보태지 않는다', () => {
+    const out = mineAutoGoalCandidates({
+      bashHistory: { a1: run(['a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a'], T0) },
+    });
+    // a b a 는 네 시작점에 보이지만 겹치지 않는 관찰은 두 번뿐이다.
+    expect(out.candidates.some((c) => c.steps.join('|') === 'a|b|a')).toBe(false);
+    expect(out.candidates.every((c) => c.runs <= Math.floor(9 / c.steps.length))).toBe(true);
   });
 
   it('긴 절차가 서면 그 부분 묶음은 목록에 또 서지 않는다', () => {
@@ -198,7 +299,7 @@ describe('자동 목표 — 되풀이 마이닝', () => {
         steps: steps.map((s, i) => ({
           id: `st${i}`,
           text: s.text,
-          status: 'pending',
+          status: 'done',
           authoredBy: s.authoredBy,
           updatedAt: T0 + i,
         })),
@@ -227,6 +328,41 @@ describe('자동 목표 — 되풀이 마이닝', () => {
     expect(mineAutoGoalCandidates({ sessionGoals: bySession }).candidates).toEqual([]);
   });
 
+  it.each(['pending', 'in_progress'] as const)('미완료 사용자 단계는 성공 절차가 아니다: %s', (status) => {
+    const sessionGoals: Record<string, SessionGoal> = {};
+    for (let i = 0; i < 3; i += 1) {
+      // 이 검증은 단계 채굴 입력만 필요하며 나머지 목표 필드는 읽지 않는다.
+      sessionGoals[`s${i}`] = {
+        steps: ['build', 'test'].map((text, index) => ({ id: `st${index}`, text, status, authoredBy: 'user', updatedAt: T0 })),
+      } as SessionGoal;
+    }
+    const out = mineAutoGoalCandidates({ sessionGoals });
+    expect(out.candidates).toEqual([]);
+    expect(out.observed).toBe(0);
+  });
+
+  it('완료 사용자 단계 사이의 미완료·세션 작성 단계는 순서를 끊는다', () => {
+    for (const middle of [
+      { status: 'pending', authoredBy: 'user' },
+      { status: 'in_progress', authoredBy: 'user' },
+      { status: 'done', authoredBy: 'session' },
+    ] as const) {
+      const sessionGoals: Record<string, SessionGoal> = {};
+      for (let i = 0; i < 3; i += 1) {
+        // 이 검증은 단계 채굴 입력만 필요하며 나머지 목표 필드는 읽지 않는다.
+        sessionGoals[`s${i}`] = {
+          steps: ['build', 'middle', 'test'].map((text, index) => ({
+            id: `st${index}`, text, updatedAt: T0,
+            ...(index === 1 ? middle : { status: 'done', authoredBy: 'user' }),
+          })),
+        } as SessionGoal;
+      }
+      const out = mineAutoGoalCandidates({ sessionGoals });
+      expect(out.candidates).toEqual([]);
+      expect(out.observed).toBe(6);
+    }
+  });
+
   it('같은 입력이면 id 가 같다 — 저장하지 않는 파생이라 이것이 유일한 안정 키다', () => {
     const a = autoGoalSequenceId('command', ['x', 'y']);
     expect(a).toBe(autoGoalSequenceId('command', ['x', 'y']));
@@ -252,6 +388,9 @@ describe('자동 목표 — 되풀이 마이닝', () => {
     expect(body).toContain('pnpm build');
     expect(body).toContain('pnpm test');
     expect(body).toContain('4번 되풀이');
+    expect(body).toContain('검토 대기 후보');
+    expect(body).toContain('반복 관찰만으로 실행이 승인되지는 않습니다');
+    expect(body).toContain('수정한 본문을 덮어쓰지 않으며');
     expect(autoGoalSkillDescription({
       id: 'command:x', title: 'git add → git push', steps: ['git add -A', 'git push'], runs: 5, lastSeenAt: T0, source: 'command',
     })).toContain('5번 되풀이');

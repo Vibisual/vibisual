@@ -30,12 +30,14 @@ function mcpDir(): string {
  * 알 수 없는 id 는 조용히 건너뛴다 — 옛 설정에 남은 id 가 스폰 자체를 깨뜨리면 안 된다.
  * 쓸 것이 하나도 없거나 파일을 못 쓰면 null(=MCP 인자 없이 평소대로 스폰).
  */
-export function prepareMcpConfig(serverIds: readonly string[] | undefined): { configPath: string; allowedTools: string[] } | null {
-  if (!serverIds || serverIds.length === 0) return null;
+export interface StdioMcpServer { command: string; args: string[]; env?: Record<string, string> }
+
+export function prepareMcpConfig(serverIds: readonly string[] | undefined, runtimeServers: Readonly<Record<string, StdioMcpServer>> = {}): { configPath: string; allowedTools: string[] } | null {
+  if (!serverIds?.length && !Object.keys(runtimeServers).length) return null;
 
   // 순서가 달라도 같은 조합이면 같은 파일이 되도록 정렬 + 중복 제거.
-  const ids = [...new Set(serverIds)].sort();
-  const servers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  const ids = [...new Set(serverIds ?? [])].sort();
+  const servers: Record<string, StdioMcpServer> = {};
   const allowedTools: string[] = [];
 
   for (const id of ids) {
@@ -51,6 +53,11 @@ export function prepareMcpConfig(serverIds: readonly string[] | undefined): { co
     allowedTools.push(`mcp__${preset.id}`);
   }
 
+  for (const id of Object.keys(runtimeServers).sort()) {
+    const server = runtimeServers[id]!;
+    servers[id] = { command: server.command, args: [...server.args], ...(server.env ? { env: { ...server.env } } : {}) };
+    if (!allowedTools.includes(`mcp__${id}`)) allowedTools.push(`mcp__${id}`);
+  }
   if (Object.keys(servers).length === 0) return null;
 
   const body = JSON.stringify({ mcpServers: servers }, null, 2);

@@ -14,7 +14,7 @@
  *
  * 이 파일은 `node:fs`·플랫폼·시간을 모른다 — 서버·클라가 같은 함수를 그대로 부른다.
  */
-import { AUTO_GOAL_DISMISSED_MAX, SPEC_SCOPE_ENTRY_MAX } from './constants.js';
+import { SPEC_SCOPE_ENTRY_MAX } from './constants.js';
 import { pathKey } from './pathCase.js';
 import type { PlatformName } from './pathCase.js';
 import type { AutoGoalScope, AutoGoalSettings } from './types.js';
@@ -200,14 +200,13 @@ export function withAutoGoalDismissed(
   if (id === '') return { ...settings };
   const list = (settings.dismissed ?? []).filter((x) => x !== id);
   if (dismissed) list.push(id);
-  // 가장 먼저 물린 것부터 버린다 — 오래전에 물린 절차는 관찰에서도 이미 사라졌을 가능성이 높다.
-  const capped = list.length > AUTO_GOAL_DISMISSED_MAX ? list.slice(list.length - AUTO_GOAL_DISMISSED_MAX) : list;
-  if (capped.length === 0) {
+  // These are user decisions, not a cache. Evicting one resurrects an obsolete procedure.
+  if (list.length === 0) {
     const next = { ...settings };
     delete next.dismissed;
     return next;
   }
-  return { ...settings, dismissed: capped };
+  return { ...settings, dismissed: list };
 }
 
 /**
@@ -249,9 +248,7 @@ export function normalizeAutoGoalSettings(input: unknown): AutoGoalSettings {
       list.push(id);
     }
     if (list.length > 0) {
-      out.dismissed = list.length > AUTO_GOAL_DISMISSED_MAX
-        ? list.slice(list.length - AUTO_GOAL_DISMISSED_MAX)
-        : list;
+      out.dismissed = list;
     }
   }
   if (typeof r.updatedAt === 'number' && Number.isFinite(r.updatedAt)) out.updatedAt = r.updatedAt;

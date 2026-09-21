@@ -40,6 +40,39 @@ const LOCALES: { name: string; bundle: unknown }[] = [
   { name: 'ko', bundle: ko },
 ];
 
+const CODEX_SOURCE_SLUGS = {
+  'codex.instructions': 'codexInstructions',
+  'codex.global-instructions': 'codexGlobalInstructions',
+  'codex.collaboration-instructions': 'codexCollaborationInstructions',
+  'codex.skills': 'codexSkills',
+  'codex.developer-instructions': 'codexDeveloperInstructions',
+  'codex.mcp': 'codexMcp',
+  'codex.plugins': 'codexPlugins',
+  'codex.runtime-mcp': 'codexRuntimeMcp',
+  'codex.runtime-plugins': 'codexRuntimePlugins',
+  'codex.hooks': 'codexHooks',
+  'codex.system-prompt': 'codexSystemPrompt',
+};
+
+describe('Codex context source descriptions', () => {
+  it.each(Object.entries(CODEX_SOURCE_SLUGS))('%s has its own label and explanation in both supported context languages', (id, slug) => {
+    expect(aboutSlugFor(id)).toBe(slug);
+    for (const { name, bundle } of LOCALES) {
+      expect(hasText(bundle, `ide.context.src.${slug}`), `${name}: ${id}`).toBe(true);
+      for (const field of CONTEXT_ABOUT_FIELDS) {
+        expect(hasText(bundle, `ide.context.about.src.${slug}.${field}`), `${name}: ${id}.${field}`).toBe(true);
+      }
+    }
+  });
+
+  it('distinguishes future injection from existing conversation history', () => {
+    expect(en.ide.context.futureOnly).toContain('do not erase');
+    expect(ko.ide.context.futureOnly).toContain('지우지 않습니다');
+    expect(en.ide.context.about.src.codexInstructions.off).toContain('Global instructions');
+    expect(en.ide.context.about.src.codexGlobalInstructions.off).toContain('cannot be switched off here');
+  });
+});
+
 describe('aboutSlugFor', () => {
   it('알려진 주입원은 모두 제 설명 조각을 가진다', () => {
     const missing = CONTEXT_SOURCE_ID_LIST.filter((id) => aboutSlugFor(id) === null);

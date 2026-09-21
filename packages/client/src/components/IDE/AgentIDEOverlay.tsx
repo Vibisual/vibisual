@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { createPortal } from 'react-dom';
 import { BUBBLE_COLORS } from '@vibisual/shared';
@@ -86,7 +87,6 @@ import { IDEEditorPane } from './IDEEditorPane.js';
 import { useWorkspaceEntryDrop } from './useWorkspaceEntryDrop.js';
 import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
-import { VerifyDemoLayer } from './VerifyDemoLayer.js';
 import { IDERunOutputPanel } from './IDERunOutputPanel.js';
 import { mergeDeepWindow } from './streamHistory.js';
 import { useRunSessions } from '../../stores/runSessions.js';
@@ -559,6 +559,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   useEffect(() => {
     if (!agentId) return;
     function onKeyDownCapture(e: KeyboardEvent): void {
+      if (isComposingKeyEvent(e)) return;
       if (e.key !== 'F2') return;
       if (!titleBarHoveredRef.current) return;
       e.preventDefault();
@@ -876,6 +877,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   useEffect(() => {
     if (!agentId || !isFrontPane) return;
     function handleKey(e: KeyboardEvent): void {
+      if (isComposingKeyEvent(e)) return;
       if (e.key === 'Escape') closeOverlay();
     }
     window.addEventListener('keydown', handleKey);
@@ -3124,10 +3126,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             onClose={() => setConfigOpen(false)}
           />
         )}
-
-        {/* §5.5 #17-35 ⑨⑩ — 시연 녹화 상시 마운트 층(스트림·녹화기·소스 피커·시연 창).
-            검증 뷰가 아니라 여기 사는 이유는 하나다 — 사이드바가 접혀도 녹화가 끊기면 안 된다. */}
-        <VerifyDemoLayer />
 
         {/* Status bar — §4 v3.25: 서랍 폭에서는 기본 숨김, 타이틀바 토글 버튼으로만 표시. */}
         {(!statusDrawerMode || mobileStatusOpen) && (

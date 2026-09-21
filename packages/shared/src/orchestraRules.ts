@@ -24,7 +24,7 @@ import type { PlatformName } from './pathCase.js';
 import { agentRuleShell, agentPowershellHead, AGENT_AUTH_POSIX, type AgentRuleShell } from './agentRuleShell.js';
 import type { OrchestraSettings } from './types.js';
 
-/** 지휘자가 절차(①~⑤)를 돌리는 셸의 문법. */
+/** 지휘자가 절차(①~⑥)를 돌리는 셸의 문법. */
 export type OrchestraConductorShell = AgentRuleShell;
 
 /**
@@ -48,7 +48,7 @@ export interface OrchestraMemberRef {
   model?: string;
 }
 
-/** 규칙에 싣는 기존 엣지 — 위 멤버끼리 이미 이어져 있는 것(다시 만들지 않게). */
+/** 규칙에 싣는 기존 엣지 — 지휘자·멤버 사이에 이미 이어져 있는 것(다시 만들지 않게). */
 export interface OrchestraEdgeRef {
   id: string;
   sourceAgentId: string;
@@ -62,6 +62,9 @@ export interface OrchestraConductorRulesArgs {
   serverBase: string;
   projectName: string | null;
   runId: string;
+  /** 이번 요청을 끝까지 책임지는 지휘자와 실행 세션. */
+  conductorAgentId: string;
+  conductorSubAgentId: string;
   /** 배치 중심 = 지휘자 버블 위치. */
   centerX: number;
   centerY: number;
@@ -70,12 +73,16 @@ export interface OrchestraConductorRulesArgs {
   existingEdges: readonly OrchestraEdgeRef[];
   /** 지휘자 엔진 — 그 에이전트를 따른다(§5.3 #10-4 "지휘자 엔진은 그 에이전트를 따른다"). */
   conductorEngine: 'claude' | 'codex';
+  /** Auto 선택은 설치·로그인이 확인된 엔진 안에서만 한다. */
+  readyEngines?: readonly ('claude' | 'codex')[];
   /** 서버가 도는 플랫폼 — 엔진과 함께 절차의 셸 문법을 정한다(`orchestraConductorShell`). */
   platform: PlatformName;
 }
 
 /** 엣지 명령 요약 길이 — 규칙이 엣지 목록 때문에 부풀지 않게. */
 const EDGE_COMMAND_PREVIEW_MAX = 80;
+/** 한 번의 조회 대기 — 응답이 진행 중이면 같은 cmdId 로 이어 받는다. */
+const RESULT_WAIT_MS = 60_000;
 
 /**
  * 방안이 가리키는 손잡이의 뜻(Claude 멤버 기준). 규칙에는 **허용된 방안이 실제로 쓰는 칸만** 싣는다.
@@ -122,8 +129,8 @@ function strategyTableRow(s: OrchestraStrategy): string {
 }
 
 /** 멤버 엔진 절 — 설정에 따라 한 가지(또는 auto 면 둘 다)만 싣는다. */
-function memberEngineSection(settings: OrchestraSettings | null | undefined): string[] {
-  const engine = resolveOrchestraMemberEngine(settings);
+function memberEngineSection(settings: OrchestraSettings | null | undefined, conductorEngine: 'claude' | 'codex', readyEngines?: readonly ('claude' | 'codex')[]): string[] {
+  const engine = resolveOrchestraMemberEngine(settings, conductorEngine);
   const claudeModel = setValue(settings?.memberClaudeModel);
   const claudeEffort = setValue(settings?.memberClaudeEffort);
   const codexModel = setValue(settings?.memberCodexModel);
@@ -154,9 +161,9 @@ function memberEngineSection(settings: OrchestraSettings | null | undefined): st
   if (engine === 'claude') return ['멤버는 **Claude** 로 만든다(사용자 설정).', ...claude];
   if (engine === 'codex') return ['멤버는 **Codex** 로 만든다(사용자 설정).', ...codex];
   return [
-    '멤버 엔진은 **역할마다 당신이 고른다**(사용자 설정 `auto`). 고른 이유를 ⑤ 계획 신고의 `note` 에 한 줄로 적는다.',
-    ...claude,
-    ...codex,
+    '멤버 엔진은 **아래 준비된 엔진 안에서 역할마다 당신이 고른다**(사용자 설정 `auto`). 고른 이유를 ④ 계획 신고의 `note` 에 한 줄로 적는다. 목록에 없는 엔진은 설치·로그인이 준비되지 않았으므로 만들거나 재사용하지 않는다.',
+    ...(readyEngines === undefined || readyEngines.includes('claude') ? claude : []),
+    ...(readyEngines === undefined || readyEngines.includes('codex') ? codex : []),
   ];
 }
 
@@ -165,10 +172,15 @@ const CONFIG_PATCH_SAMPLE =
   '{"model":"sonnet","effort":"medium","maxTurns":30,"subagentDepth":1,"rules":"# 역할: Researcher\\n답할 질문: <한 줄>\\n보고: 결론 먼저, 경로+줄번호, 1,000~2,000 토큰"}';
 /** ③ 엣지 본문 예시. */
 const EDGE_BODY_SAMPLE =
-  '{"sourceAgentId":"<SOURCE_ID>","targetAgentId":"<TARGET_ID>","command":"<이 엣지로 넘길 일의 용도>","forwardMode":"manual","kind":"command","returnFormat":"summary"}';
-/** ④ 킥오프 본문 자리. */
-const KICKOFF_TEXT_SAMPLE = ['<사용자 원문 요청 전문 — escape 불필요, 여러 줄 OK>', '---', '<(필요하면) 당신의 분담 지시>'];
-/** ⑤ 계획 신고 예시. */
+  '{"sourceAgentId":"<SOURCE_ID>","targetAgentId":"<TARGET_ID>","command":"<이 엣지로 넘길 일의 용도>","forwardMode":"manual","kind":"command","returnFormat":"both"}';
+/** ⑤ 킥오프 본문 자리 — 엔트리도 하위 결과를 기다려야 지휘자에게 전체 결과가 돌아온다. */
+const KICKOFF_TEXT_SAMPLE = [
+  '<사용자 원문 요청 전문 — escape 불필요, 여러 줄 OK>',
+  '---',
+  '<(필요하면) 당신의 분담 지시>',
+  '당신은 이번 편성의 엔트리입니다. 하위 위임의 cmdId를 보관하고 모든 작업·검증·재작업의 끝난 결과를 회수한 뒤 통합 보고하세요. 접수·queued·executing·pending·대기 시간 초과는 완료가 아닙니다. 같은 일을 다시 위임하지 말고 같은 cmdId로 조회를 이어가세요. 변경 내용, 검증 근거, 남은 실패·차단을 분리해 보고하세요.',
+];
+/** ④ 계획 신고 예시. */
 const PLAN_BODY_SAMPLE =
   '{"intent":"research","topology":"single","chosen":[{"id":"subagents","reason":"<한 줄>"}],"skipped":[{"id":"autoCompact","reason":"<한 줄>"}],"reusedAgentIds":[],"entryAgentId":"<ENTRY_ID>","note":"<사용자에게 남길 말>"}';
 
@@ -176,11 +188,13 @@ const PLAN_BODY_SAMPLE =
 interface ProcedureValues {
   serverBase: string;
   runId: string;
+  conductorAgentId: string;
+  conductorSubAgentId: string;
   /** ① 멤버 만들기 본문(한 줄 JSON). */
   createBody: string;
 }
 
-/** 셸마다 다른 부분 — ①~⑤ 의 코드 조각과 그 셸로 적은 안내·금지 줄. 조각 뒤의 설명 줄은 셸과 무관해 한 벌이다. */
+/** 셸마다 다른 부분 — ①~⑥ 의 코드 조각과 그 셸로 적은 안내·금지 줄. 조각 뒤의 설명 줄은 셸과 무관해 한 벌이다. */
 interface ProcedureText {
   lang: 'bash' | 'powershell';
   heading: string;
@@ -190,6 +204,7 @@ interface ProcedureText {
   edge: string[];
   kickoff: string[];
   plan: string[];
+  collect: string[];
   noWrite: string;
   oneBase: string;
 }
@@ -197,7 +212,11 @@ interface ProcedureText {
 /** Bash + curl — Claude 지휘자(세 OS, Windows 는 Git Bash)와 mac·linux 의 Codex 지휘자. */
 function posixProcedure(v: ProcedureValues): ProcedureText {
   const base = `\${${AGENT_CARD_ENV_BASE}:-${v.serverBase}}`;
-  const auth = `-H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}"`;
+  const auth = `-H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}"`
+    + ` -H "x-vibisual-source-agent: ${v.conductorAgentId}"`
+    + ` -H "x-vibisual-source-subagent: \${VIBISUAL_SUBAGENT_ID:-${v.conductorSubAgentId}}"`;
+  const requester = encodeURIComponent(v.conductorAgentId);
+  const requestKey = encodeURIComponent(`${v.runId}:entry`);
   const postJson = (route: string, body: string): string[] => [
     `RESP=$(curl -s -X POST "${base}${route}" \\`,
     `  ${auth} \\`,
@@ -231,18 +250,19 @@ function posixProcedure(v: ProcedureValues): ProcedureText {
     ],
     edge: [...postJson('/api/task-edges', EDGE_BODY_SAMPLE), show(`o.data?'EDGE_ID='+o.data.id:s`)],
     kickoff: [
-      `curl -s -X POST "${base}/api/commands/<ENTRY_AGENT_PATH>?orchestraRunId=${v.runId}" \\`,
+      `curl -s -X POST "${base}/api/task-edges/dispatch?edgeId=<DISPATCH_EDGE_ID>&agentId=${requester}&wait=false&requestKey=${requestKey}" \\`,
       `  ${auth} \\`,
       "  -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- <<'EOF'",
       ...KICKOFF_TEXT_SAMPLE,
       'EOF',
     ],
     plan: [
-      `curl -s -X POST "${base}/api/orchestra/runs/${v.runId}/plan" \\`,
-      `  ${auth} \\`,
-      "  -H 'Content-Type: application/json' --data-binary @- <<'JSON'",
-      PLAN_BODY_SAMPLE,
-      'JSON',
+      ...postJson(`/api/orchestra/runs/${v.runId}/plan`, PLAN_BODY_SAMPLE),
+      show(`o.ok?'DISPATCH_EDGE_ID='+(o.dispatchEdgeId||'none'):s`),
+    ],
+    collect: [
+      `curl -s "${base}/api/task-edges/dispatch/<CMD_ID>?agentId=${requester}&waitMs=${RESULT_WAIT_MS}" \\`,
+      `  ${auth}`,
     ],
     noWrite: '- 파일 쓰기·수정 ❌(Write·Edit·NotebookEdit, Bash 로 쓰는 것 포함).',
     oneBase: '- 모든 curl 의 베이스는 위 서버 베이스 하나다(이 주소만 앱 안 서버에 닿는다).',
@@ -261,7 +281,13 @@ function posixProcedure(v: ProcedureValues): ProcedureText {
  *  · 조각마다 머리 네 줄을 다시 적는다 — Codex 는 명령마다 새 셸이다.
  */
 function powershellProcedure(v: ProcedureValues): ProcedureText {
-  const head = agentPowershellHead(v.serverBase);
+  const head = [
+    ...agentPowershellHead(v.serverBase),
+    `$H['x-vibisual-source-agent'] = '${v.conductorAgentId.replace(/'/g, "''")}'`,
+    `$H['x-vibisual-source-subagent'] = if ($env:VIBISUAL_SUBAGENT_ID) { "$env:VIBISUAL_SUBAGENT_ID" } else { '${v.conductorSubAgentId.replace(/'/g, "''")}' }`,
+  ];
+  const requester = encodeURIComponent(v.conductorAgentId);
+  const requestKey = encodeURIComponent(`${v.runId}:entry`);
   const send = (method: 'Post' | 'Put', uri: string, contentType: string, bodyVar: string) =>
     `Send ${method} "${uri}" '${contentType}' ${bodyVar}`;
   const json = 'application/json';
@@ -310,14 +336,19 @@ function powershellProcedure(v: ProcedureValues): ProcedureText {
       "$Text = @'",
       ...KICKOFF_TEXT_SAMPLE,
       "'@",
-      send('Post', `$B/api/commands/<ENTRY_AGENT_PATH>?orchestraRunId=${v.runId}`, 'text/plain', '$Text'),
+      `${send('Post', `$B/api/task-edges/dispatch?edgeId=<DISPATCH_EDGE_ID>&agentId=${requester}&wait=false&requestKey=${requestKey}`, 'text/plain', '$Text')} | ConvertTo-Json -Depth 32`,
     ],
     plan: [
       ...head,
       "$Body = @'",
       PLAN_BODY_SAMPLE,
       "'@",
-      send('Post', `$B/api/orchestra/runs/${v.runId}/plan`, json, '$Body'),
+      `$R = ${send('Post', `$B/api/orchestra/runs/${v.runId}/plan`, json, '$Body')}`,
+      'if ($R.ok) { "DISPATCH_EDGE_ID=$($R.dispatchEdgeId)" } else { $R | ConvertTo-Json -Depth 32 }',
+    ],
+    collect: [
+      ...head,
+      `Send Get "$B/api/task-edges/dispatch/<CMD_ID>?agentId=${requester}&waitMs=${RESULT_WAIT_MS}" | ConvertTo-Json -Depth 32`,
     ],
     noWrite: '- 파일 쓰기·수정 ❌(셸로 쓰는 것 포함 — `Set-Content`·`Out-File`·`>` 도 쓰기다).',
     oneBase: '- 모든 호출의 베이스는 위 `$B` 하나다(이 주소만 앱 안 서버에 닿는다).',
@@ -329,7 +360,7 @@ function powershellProcedure(v: ProcedureValues): ProcedureText {
  * 같은 입력이면 같은 글이다(시간·난수를 읽지 않는다).
  */
 export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs): string {
-  const { serverBase, projectName, runId, centerX, centerY, settings, existingMembers, existingEdges, conductorEngine, platform } = args;
+  const { serverBase, projectName, runId, conductorAgentId, conductorSubAgentId, centerX, centerY, settings, existingMembers, existingEdges, conductorEngine, platform } = args;
   const projectField = projectName ? JSON.stringify(projectName) : 'null';
   const radius = AUTO_AGENT_LAYOUT_RADIUS;
   const cx = Math.round(centerX);
@@ -343,6 +374,8 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
   const values: ProcedureValues = {
     serverBase,
     runId,
+    conductorAgentId,
+    conductorSubAgentId,
     createBody: `{"label":"Researcher","x":${Math.round(cx + radius)},"y":${cy},"project":${projectField},"orchestraRunId":"${runId}"}`,
   };
   const proc = orchestraConductorShell(conductorEngine, platform) === 'powershell'
@@ -351,24 +384,26 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
   const code = (lines: string[]) => ['```' + proc.lang, ...lines, '```'];
 
   const labelOf = new Map(existingMembers.map((m) => [m.id, m.label]));
+  labelOf.set(conductorAgentId, '지휘자(당신)');
 
   const out: string[] = [
     `# 오케스트라 지휘 — 이번 요청 한 건 (런 \`${runId}\`)`,
     '',
-    '이 턴에 한해 당신은 **지휘자**다. 사용자가 방금 보낸 요청을 **어떻게 처리할지 스스로 고르는 것**이 이번 턴의 일이다.',
+    '이 턴에 한해 당신은 **지휘자**다. 사용자가 방금 보낸 요청의 편성을 고르고, 위임 결과와 검증을 회수해 **최종 답변까지 책임지는 것**이 이번 턴의 일이다.',
+    `- 지휘자 agentId = \`${conductorAgentId}\`, 실행 subAgentId = \`${conductorSubAgentId}\`. 연결과 결과 조회의 소유자는 당신이다.`,
     '- **직접 파일을 고치지 않는다.** 코드를 바꾸는 일은 멤버가 한다.'
       + (conductorEngine === 'codex' ? ' (Codex 엔진에서는 쓰기가 도구로 막혀 있지 않다 — 이 줄이 유일한 선이다.)' : ''),
     '- 아래 절감 방안을 **전부 적용하지 않는다.** 이 요청에 맞는 것만 고르고, 고른 이유와 건너뛴 이유를 계획 신고에 적는다. 하나도 고르지 않는 것도 올바른 답일 수 있다.',
     '- 편성하지 않는 것(`none`)도 올바른 선택이다. 작은 질문에 머릿수를 늘리는 것 자체가 아래 분석 1번이 말하는 낭비다 — 멤버마다 고정 비용이 붙는다.',
-    '- 계획 신고(⑤)는 **어떤 편성이든 꼭 한 번** 한다. 신고 없이 끝난 턴은 사용자 화면에 "신고 없음"으로 남는다.',
+    '- 계획 신고(④)는 **어떤 편성이든 킥오프 전에 꼭 한 번** 한다. 신고 없이 끝난 턴은 사용자 화면에 "신고 없음"으로 남는다.',
     '',
     '## 1. 먼저 고른다 (순서대로)',
     '1. **의도(intent)** — 아래 표에서 하나. 범위를 잡는 데 필요하면 Read·Grep·Glob 을 짧게 쓴다(깊은 조사는 멤버의 일이다).',
     '2. **편성(topology)** — 하나.',
-    '   - `none` — 멤버 없이 당신이 직접 답한다. ⑤ 계획 신고만 하고 답한다.',
+    '   - `none` — 멤버 없이 당신이 직접 답한다. ④ 계획 신고만 하고 답한다.',
     '   - `single` — 멤버 하나에게 넘긴다.',
-    '   - `pipeline` — 앞 결과가 다음 입력인 차례 작업. 멤버를 엣지로 잇고 첫 멤버에게 킥오프한다.',
-    '   - `parallel` — 서로 **독립된** 일을 나눠 동시에 돌리고 허브 멤버 하나가 모은다. 허브에서 각 워커로 엣지를 깔고 허브에게 킥오프한다. 독립이 아니면 고르지 않는다.',
+    '   - `pipeline` — 앞 결과가 다음 입력인 차례 작업. 멤버를 엣지로 잇고 첫 멤버에게 킥오프한다. 첫 멤버는 뒤 단계의 결과·검증까지 회수해 당신에게 통합 보고한다.',
+    '   - `parallel` — 서로 **독립된** 일을 나눠 동시에 돌리고 허브 멤버 하나가 모은다. 허브에서 각 워커로 엣지를 깔고 허브에게 킥오프한다. 허브는 모든 워커의 결과·검증까지 회수해 당신에게 통합 보고한다. 독립이 아니면 고르지 않는다.',
     `3. **방안(chosen·skipped)** — 아래 "고를 수 있는 방안"에서 이 요청에 맞는 것만, 각각 한 줄 이유(≤${ORCHESTRA_PLAN_REASON_MAX}자)와 함께. 관련이 있어 보였지만 고르지 않은 것은 \`skipped\` 에 이유와 함께 적는다(전부 적을 필요는 없다).`,
     `4. **멤버** — 아래 "기존 멤버"를 먼저 다시 쓴다. 새로 만드는 것은 이 런에서 최대 **${maxMembers}개**다.`,
     '',
@@ -384,7 +419,7 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '',
     '### ① 멤버 만들기 — 새 멤버가 필요할 때만',
     ...code(proc.create),
-    '- 출력 한 줄 `AGENT_ID=… AGENT_PATH=…` — `id` 는 설정·엣지용, `path` 는 킥오프용. 실패면 응답의 `error` 가 보인다.',
+    '- 출력 한 줄 `AGENT_ID=… AGENT_PATH=…` — `id` 는 설정·엣지·계획 신고용이다. 실패면 응답의 `error` 가 보인다.',
     `- \`"orchestraRunId":"${runId}"\` 를 **반드시** 넣는다. 그래야 이 런의 멤버로 기록되고, 그 멤버는 스스로 지휘하지 않는다.`,
     '- 429 `orchestra-member-limit` 이면 더 만들지 말고 기존 멤버를 다시 쓰거나 편성을 줄인다. 429 `custom-agent-limit` 은 프로젝트 전체 상한이다.',
     '',
@@ -392,34 +427,47 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     ...code(proc.config),
     '- 일부 칸만 보내면 보내지 않은 칸이 지워진다. 위처럼 **읽고 → 합치고 → 통째로** 보낸다.',
     '- 권한 축(`permissionMode`·`tools`·`disallowedTools`·`askTools`)은 PATCH 에 넣지 않는다 — 사용자만 바꾸는 칸이라 이 통로의 저장에서는 무시된다. 그 강도가 일에 안 맞으면 `note` 로 사용자에게 말한다.',
-    '- PATCH 에는 **고른 방안이 가리키는 칸만** 넣는다. 고르지 않은 방안의 칸을 만지지 않는다.',
+    '- 절감 설정은 **고른 방안이 가리키는 칸만** 바꾼다. 역할·아래 결과 회수 계약을 적는 `rules` 는 방안 선택과 무관하게 필요하다.',
+    '- 엔트리(첫 멤버·허브)의 `rules` 에는 반드시 **모든 하위 위임 결과·검증·재작업을 회수한 뒤 통합 보고한다**고 넣는다. 접수 직후 끝내거나 일을 넘겼다는 말만 보고하지 않는다.',
     '',
     '### ③ 엣지 — `pipeline`·`parallel` 일 때',
     ...code(proc.edge),
     '- 엣지는 source 멤버의 **위임 도구**가 된다 — source 멤버가 스스로 판단해 target 에게 일을 넘기고 결과를 받는다. 킥오프를 받은 멤버부터 차례로 흐른다.',
     '- 필수: `sourceAgentId`·`targetAgentId`·`command`·`forwardMode`(명령 엣지는 `"manual"`, 검증 엣지는 `"auto"`). 선택: `kind`(`command`|`artifact`|`request`|`critique`)·`returnFormat`(`summary`|`full`|`both`)·`critiqueAuthority`(`force-rework`|`comment-only`, `critique` 한정).',
     '- **코드를 바꾸는 편성**이면 검증 엣지를 최소 하나 깐다 — reviewer/tester → coder, `"kind":"critique","critiqueAuthority":"force-rework","forwardMode":"auto"`. 서버가 재작업 짝 엣지를 만들고, 재작업 횟수는 엣지마다 상한이 있다.',
-    '- **지휘자 자신을 엣지의 source·target 으로 쓰지 않는다.** 엣지는 멤버끼리만 잇는다 — 지휘자에게 엣지가 붙으면 오케스트라를 끈 뒤의 평범한 턴에도 위임 안내가 따라붙는다.',
-    '- 아래 "이미 있는 엣지"에 있는 것은 다시 만들지 않는다.',
+    '- 위임 결과를 기다리는 명령 엣지는 **`returnFormat:"both"`** 로 만든다. 서버가 반환 엣지를 함께 만들고, 받지 못한 결과를 실행 세션에 묶는다.',
+    '- **지휘자 → 엔트리 연결은 필수**다. ④ 계획 신고가 이 명령 엣지와 반환 엣지를 만들거나 재사용하므로 여기서 중복으로 만들지 않는다. 멤버끼리의 연결도 아래 "이미 있는 엣지"를 먼저 재사용한다.',
+    '- 기존 연결은 사용자 산출물이다. 이번에 쓰지 않는다고 삭제하지 않는다. 예전 런의 엣지가 남아 있어도 현재 계획의 엔트리와 필요한 작업만 명시적으로 실행한다.',
     '',
-    '### ④ 킥오프 — 엔트리 멤버(pipeline 의 첫 멤버·parallel 의 허브)에게 넘기기',
-    ...code(proc.kickoff),
-    `- \`?orchestraRunId=${runId}\` 를 **반드시** 붙인다 — 이 런의 토큰으로 묶이고, 덧말 합치기에 섞이지 않는다.`,
-    '- `<ENTRY_AGENT_PATH>` = ① 이 출력한 `AGENT_PATH`(다시 쓰는 멤버면 아래 목록의 path).',
-    '',
-    '### ⑤ 계획 신고 — 어떤 편성이든 꼭 한 번',
+    '### ④ 계획 신고 — 어떤 편성이든 킥오프 전에 꼭 한 번',
     ...code(proc.plan),
     '- `intent`·`topology` 필수. `chosen`·`skipped` 는 `[{"id":"<방안 id>","reason":"<한 줄>"}]`.',
-    `- \`reusedAgentIds\` = 이번에 다시 쓴 기존 멤버 id(새로 만든 멤버는 서버가 이미 안다). \`entryAgentId\` = 킥오프를 받은 멤버 id. \`note\`(≤${ORCHESTRA_PLAN_NOTE_MAX}자) = 사용자에게 남길 말 — 엔진을 고른 이유, 참고 전용 방안 권고, 권한이 일에 안 맞는다는 알림 등.`,
-    '- 400 이면 응답의 `error`·`ids` 를 보고 고쳐 다시 보낸다(예: `strategy-not-allowed` = 그 id 는 지금 고를 수 없다). 409 는 이미 신고했다는 뜻이니 다시 보내지 않는다.',
-    '- 순서: 편성이 있으면 ①~④ 를 마친 뒤에, `none` 이면 답하기 전에 신고한다.',
+    `- \`reusedAgentIds\` = 이번에 다시 쓴 기존 멤버 id(새로 만든 멤버는 서버가 이미 안다). \`entryAgentId\` = 이제 킥오프할 멤버 id. \`note\`(≤${ORCHESTRA_PLAN_NOTE_MAX}자) = 사용자에게 남길 말 — 엔진을 고른 이유, 참고 전용 방안 권고, 권한이 일에 안 맞는다는 알림 등.`,
+    '- `none` 이면 `entryAgentId` 는 빼고 `reusedAgentIds` 는 빈 배열로 보낸다. 이때 연결도 킥오프도 결과 대기도 필요 없다.',
+    '- 편성이 있으면 응답의 `dispatchEdgeId` 를 보관한다. 서버가 지휘자 → 엔트리의 primary command 엣지(`returnFormat:"both"`)와 반환 엣지를 보장한다.',
+    '- 계획 등록은 이번에 참여하는 멤버 사이의 기존 command 엣지도 `returnFormat:"both"` 로 보정한다. 기존 멤버·연결을 재사용해도 결과 회수 경로가 빠지지 않는다.',
+    '- 400 이면 응답의 `error`·`ids` 를 보고 고쳐 다시 보낸다(예: `strategy-not-allowed` = 그 id 는 지금 고를 수 없다). 409 이면 오류 이유를 확인한다. 등록된 계획은 바꾸지 말고 기존 응답의 `dispatchEdgeId` 로 이어 간다.',
+    '- 순서: 편성이 있으면 ①~③ → **④ 계획 등록 성공** → ⑤ 킥오프 → ⑥ 결과 회수 → 최종 답변이다.',
+    '',
+    '### ⑤ 킥오프 — 계획의 엔트리에게 결과를 요청하기',
+    ...code(proc.kickoff),
+    '- `<DISPATCH_EDGE_ID>` 는 ④ 응답의 `dispatchEdgeId` 다. `/api/commands` 로 직접 보내면 감독의 결과 회수 장부를 우회하므로 쓰지 않는다.',
+    `- 요청 키는 \`${runId}:entry\` 로 고정한다. 응답의 \`cmdId\` 를 즉시 보관하고 ⑥ 에서 이어 받는다. 통신이 끊겨 cmdId 를 못 받았을 때만 **같은 키·같은 본문**으로 접수를 복구한다. 다른 키로 같은 일을 재위임하지 않는다.`,
+    '- `x-vibisual-source-agent`·`x-vibisual-source-subagent` 를 지우지 않는다. 두 헤더가 지휘자의 현재 턴과 위임 결과를 잇는다.',
+    '',
+    '### ⑥ 결과 회수 — 같은 cmdId 로 끝날 때까지 조회',
+    ...code(proc.collect),
+    '- `<CMD_ID>` 는 ⑤ 에서 받은 `cmdId` 다. 조회 응답의 `job.status`·`job.result` 를 읽는다(접수 응답은 최상위 `status`·`result`).',
+    '- `queued`·`executing`·`pending:true`·`timedOut:true` 는 진행 중이다. `ok:false` 만 보고 실패나 완료로 결론내리지 말고 같은 cmdId 로 ⑥ 을 반복한다. 기다리는 동안에도 사용자에게 진행 상황을 간단히 알린다.',
+    '- `completed` 이고 `usageLimit`·`errorMessage` 가 없으면 결과를 읽고 요청 충족과 검증 근거를 확인한다. `error`·`cancelled`·한도 중단은 성공이 아니며, 회수한 오류와 아직 못 한 일을 분명히 보고한다.',
+    '- 조회 실패·도구 대기 제한은 위임 종료가 아니다. 같은 cmdId 로 복구하고, 401/403/404 등으로 더 진행할 수 없으면 cmdId 와 차단 원인을 남긴다. 실패를 감추거나 같은 작업을 새로 실행하지 않는다.',
     '',
     '## 3. 마무리',
-    '- 편성했으면: 고른 의도·편성·방안·멤버를 2~5줄로 사용자에게 알리고 턴을 끝낸다. 실제 작업은 멤버가 이어 간다(결과를 기다리지 않는다).',
+    '- 편성했으면: **끝난 결과를 회수하기 전에는 턴을 완료하지 않는다.** 편성·접수 보고는 중간 안내일 뿐이다. 최종 답변에는 실제 변경/결과, 수행한 검증, 남은 실패·차단을 정리한다.',
     '- `none` 이면: 신고한 뒤 요청에 직접 답한다.',
     '',
     '## 멤버 엔진',
-    ...memberEngineSection(settings),
+    ...memberEngineSection(settings, conductorEngine, args.readyEngines),
     '',
     `## 고를 수 있는 방안 (${allowed.length}개)`,
   ];
@@ -487,7 +535,7 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '## 금지',
     proc.noWrite,
     '- 이 턴에서 오케스트라 설정(`/api/orchestra/scope`·`/api/orchestra/settings`)을 바꾸지 않는다 — 사용자의 스위치다.',
-    '- `orchestraRunId` 없이 멤버를 만들거나 킥오프하지 않는다.',
+    '- `orchestraRunId` 없이 멤버를 만들거나 계획 등록 없이 킥오프하지 않는다.',
     proc.oneBase,
     '',
     '## 지난 분석 원문 (2026-09-16 토큰 감사 — 고치지 않은 원문)',

@@ -53,6 +53,9 @@ export const IDE_ACTIVITY_ITEMS: readonly IDEActivityItem[] = [
   // §5.3 #10-4 · §5.5 #16-1 (H) — 오케스트라(지휘 모드). 절차 감지 **바로 뒤**다 — 같은 결("무엇을 하고
   //   있나 — 누가 일을 나누나")이고, 새 칸이라 저장된 순서에도 앞 이웃(`autoGoal`) 뒤에 끼워진다.
   { view: 'orchestra', labelKey: 'ide.activityBar.orchestra', accent: 'border-amber-400' },
+  // §5.3 #10-5 — 설정 덜어내기. 오케스트라 **바로 뒤**다 — 둘 다 "이 턴을 어떤 모양으로 돌릴까"를
+  //   정하는 칸이고, 새 칸이라 저장된 순서에도 앞 이웃(`orchestra`) 뒤에 끼워진다.
+  { view: 'configTrim', labelKey: 'ide.activityBar.configTrim', accent: 'border-rose-400' },
   // §5.5 #17-11 — 세션 반복 실행(루프).
   { view: 'loop', labelKey: 'ide.activityBar.loop', accent: 'border-amber-400' },
   // §5.5 #17-20 — 디버그·실행 런처.

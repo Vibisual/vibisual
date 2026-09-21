@@ -17,7 +17,7 @@ import { useCapturePlaytestStore } from '../../stores/capturePlaytest.js';
 import { useVerifyDemoStore, verifyRecorderKey } from '../../stores/verifyDemo.js';
 import { registerCaptureWindow, type CaptureWindowHandle } from '../BubbleMap/captureWindowManager.js';
 import { clampRange, formatClipDuration, formatClipTime, type ClipRange } from '../BubbleMap/playtestClip.js';
-import { defaultDemoLabel, formatDemoTime, insertDemoStep, removeDemoStep } from './verifyDemo.js';
+import { defaultDemoLabel, demoStepsInRange, formatDemoTime, insertDemoStep, removeDemoStep } from './verifyDemo.js';
 
 // §5.5 #17-35 ⑨-5 — 시연 창.
 //
@@ -53,6 +53,7 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
   const setClipDuration = useCapturePlaytestStore((s) => s.setClipDuration);
   const removeClip = useCapturePlaytestStore((s) => s.removeClip);
   const closeWindow = useVerifyDemoStore((s) => s.closeWindow);
+  const target = useVerifyDemoStore((s) => s.target[subAgentId]);
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -82,6 +83,7 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
   const [label, setLabel] = useState('');
   const [expected, setExpected] = useState('');
   const [steps, setSteps] = useState<VerificationDemoStep[]>([]);
+  const rangedSteps = useMemo(() => demoStepsInRange(steps, range), [steps, range]);
   const [stepDraft, setStepDraft] = useState('');
 
   const saver = useVerifyDemoSave();
@@ -207,9 +209,9 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
   const addStep = useCallback(() => {
     const text = stepDraft.trim();
     if (!text) return;
-    setSteps((prev) => insertDemoStep(prev, { atMs: Math.max(0, playheadMs - range.startMs), text }));
+    setSteps((prev) => insertDemoStep(prev, { atMs: playheadMs, text }));
     setStepDraft('');
-  }, [playheadMs, range.startMs, stepDraft]);
+  }, [playheadMs, stepDraft]);
 
   const stepsFull = steps.length >= VERIFICATION_DEMO_STEPS_MAX;
 
@@ -223,7 +225,8 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
       range,
       frameCount,
       label: label.trim() || defaultDemoLabel(clip.sourceName, clip.at, i18n.language),
-      steps,
+      steps: rangedSteps,
+      ...(target ? { target } : {}),
       ...(expected.trim() ? { expected: expected.trim() } : {}),
     }).then((attached) => {
       if (attached === null) return;
@@ -231,7 +234,7 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
       removeClip(recorderKey, clip.id);
       closeWindow();
     });
-  }, [agentId, clip, closeWindow, expected, frameCount, i18n.language, label, range, recorderKey, removeClip, saver, steps, subAgentId]);
+  }, [agentId, clip, closeWindow, expected, frameCount, i18n.language, label, range, rangedSteps, recorderKey, removeClip, saver, subAgentId, target]);
 
   const handleDiscard = useCallback(() => {
     if (clip) removeClip(recorderKey, clip.id);
@@ -358,16 +361,16 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
             <>
               {/* 단계 — 이 창의 핵심. 지금 보고 있는 지점에 박힌다. */}
               <div className="flex flex-col gap-1">
-                <span className="text-[12px] font-medium text-gray-400">{t('ide.verify.demo.stepsLabel')}</span>
+                <span className="text-[12px] font-medium text-gray-400">{t('ide.verify.demo.stepsLabel')} ({rangedSteps.length}/{steps.length})</span>
                 {steps.length === 0 ? (
                   <p className="text-[12px] leading-relaxed text-gray-600">{t('ide.verify.demo.stepsEmpty')}</p>
                 ) : (
                   <ul className="flex flex-col gap-0.5">
                     {steps.map((st, i) => (
-                      <li key={`${st.atMs}-${i}`} className="flex items-start gap-1.5 text-[12px] leading-relaxed">
+                      <li key={`${st.atMs}-${i}`} className={`flex items-start gap-1.5 text-[12px] leading-relaxed ${st.atMs < range.startMs || st.atMs > range.endMs ? 'opacity-40 line-through' : ''}`}>
                         <button
                           type="button"
-                          onClick={() => seekTo(range.startMs + st.atMs)}
+                          onClick={() => seekTo(st.atMs)}
                           className="flex-shrink-0 tabular-nums text-sky-400 transition-colors hover:text-sky-300"
                         >
                           {formatDemoTime(st.atMs)}
@@ -400,7 +403,7 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
                     disabled={stepsFull || !stepDraft.trim()}
                     className="flex-shrink-0 rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.14] hover:text-white disabled:cursor-not-allowed disabled:text-gray-600"
                   >
-                    {t('ide.verify.demo.addStep', { at: formatDemoTime(Math.max(0, playheadMs - range.startMs)) })}
+                    {t('ide.verify.demo.addStep', { at: formatDemoTime(playheadMs) })}
                   </button>
                 </div>
                 {stepsFull && <p className="text-[12px] text-amber-400">{t('ide.verify.demo.stepsFull', { max: VERIFICATION_DEMO_STEPS_MAX })}</p>}

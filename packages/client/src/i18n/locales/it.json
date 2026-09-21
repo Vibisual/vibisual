@@ -465,7 +465,16 @@
         "login": "Accedi",
         "recheck": "Controlla di nuovo",
         "checking": "Verifica…",
-        "actionFailed": "Non ha funzionato. Riprova."
+        "actionFailed": "Non ha funzionato. Riprova.",
+        "portalTitle": "Gestisci sul sito del fornitore",
+        "portal": {
+          "account": "Account",
+          "billing": "Piano e fatturazione",
+          "usage": "Utilizzo",
+          "apiKeys": "Chiavi API",
+          "console": "Console per sviluppatori",
+          "codexWeb": "Codex sul web"
+        }
       },
       "storage": {
         "intro": "Per quanto tempo Vibisual conserva la cronologia delle attività sul disco. Imposta qualsiasi valore a 0 per conservarlo per sempre. Nulla viene eliminato in silenzio: i file a cui una conversazione fa ancora riferimento vengono conservati indipendentemente dall'età, le sessioni attive e riapribili non vengono mai toccate e la pulizia sposta i file nel cestino, così puoi ripristinarli.",
@@ -2166,7 +2175,7 @@
     },
     "projectFolder": {
       "title": "Scegli una cartella di progetto",
-      "intro": "Claude Code è installato e l’accesso è stato eseguito. L’ultimo passo è scegliere la cartella in cui lavoreranno i tuoi agenti — di solito la radice di un progetto o di un repository.",
+      "intro": "Scegli la cartella in cui lavoreranno i tuoi agenti, di solito la cartella principale di un progetto o repository.",
       "blocked": "Non è stato creato nulla — non c’è ancora nessuna cartella di progetto aperta. Gli Agents lavorano dentro la cartella che scegli, quindi scegline una prima.",
       "detail": "Tutto ciò che Vibisual salva per un progetto vive dentro quella cartella, e gli agenti possono leggere e modificare solo i file al suo interno. Potrai aprire altre cartelle più tardi da File → Apri cartella.",
       "cancelled": "Non è ancora stata scelta nessuna cartella. Scegline una per continuare.",
@@ -2205,7 +2214,7 @@
       "commandLabel": "Comando di installazione",
       "copy": "Copia",
       "copied": "Copiato",
-      "manualOnly": "npm non è stato trovato, quindi Vibisual non può installarlo per te. Installa Node.js, esegui il comando sopra in un terminale, poi scegli «Controlla di nuovo».",
+      "manualOnly": "L’installazione automatica non è disponibile su questo sistema. Segui la guida ufficiale, poi scegli «Verifica di nuovo».",
       "failed": "L'installazione non è stata completata. Esegui il comando sopra in un terminale, poi scegli «Controlla di nuovo».",
       "installing": "Installazione…",
       "installDone": "Installato",
@@ -2244,7 +2253,14 @@
       "recheck": "Controlla di nuovo",
       "later": "Più tardi",
       "stop": "Interrompi",
-      "start": "Accedi"
+      "start": "Accedi",
+      "deviceCodePrompt": "Inserisci questo codice nella pagina di accesso del browser.",
+      "copyDeviceCode": "Copia codice",
+      "deviceCodeWaiting": "In attesa del codice dispositivo…",
+      "deviceCodeHelp": "L’accesso con codice dispositivo deve essere abilitato nelle impostazioni di sicurezza di ChatGPT o nelle autorizzazioni dell’area di lavoro. Se non è disponibile, prova l’accesso tramite browser.",
+      "ended": "L’accesso è terminato prima del completamento. Riprova o scegli un altro metodo.",
+      "retry": "Riprova",
+      "checking": "Verifica dell’accesso…"
     },
     "insurance": {
       "title": "Assicurazione del contesto",
@@ -2331,6 +2347,46 @@
     }
   },
   "ide": {
+    "skillSharing": {
+      "title": "Competenze di {{provider}}",
+      "hint": "Condividi una competenza utente con {{provider}} e aggiungila alla bozza corrente.",
+      "loading": "Caricamento delle competenze condivisibili…",
+      "empty": "Nessuna competenza utente di {{provider}} disponibile.",
+      "noMatch": "Nessuna competenza condivisa corrisponde a «{{query}}».",
+      "refresh": "Aggiorna le competenze condivisibili",
+      "retry": "Riprova",
+      "shareAndUse": "Condividi e usa",
+      "use": "Usa",
+      "sharing": "Condivisione in corso…",
+      "sharedHint": "Aggiunta alla bozza corrente. Inviala quando vuoi.",
+      "loadFailed": "Impossibile caricare le competenze condivisibili. {{reason}}",
+      "shareFailed": "Impossibile condividere questa competenza. {{reason}}",
+      "project": "Progetto",
+      "global": "Globale",
+      "available": "Disponibile",
+      "shared": "Condivisa",
+      "conflict": "Conflitto di nomi",
+      "unsupported": "Specifica del fornitore",
+      "conflictHint": "Esiste già un’altra competenza con questo nome.",
+      "unsupportedHint": "Questa competenza usa funzionalità non supportate da {{provider}}.",
+      "invalidResponse": "Il server ha restituito una risposta non valida.",
+      "issues": {
+        "skill-too-large": "La competenza supera il numero di file o le dimensioni consentiti.",
+        "invalid-name": "Il nome della competenza non è valido.",
+        "invalid-skill": "La definizione della competenza non è valida.",
+        "unsafe-path": "La competenza contiene un percorso o un collegamento non sicuro.",
+        "unreadable-source": "Impossibile leggere la competenza originale.",
+        "name-conflict": "Esiste già un’altra competenza con questo nome.",
+        "provider-hooks": "Questa competenza richiede hook specifici del fornitore.",
+        "provider-context": "Questa competenza richiede un contesto di esecuzione specifico del fornitore.",
+        "dynamic-shell": "Questa competenza richiede un’espansione della shell specifica del fornitore.",
+        "tool-dependency": "Verifica che gli strumenti necessari per questa competenza siano disponibili.",
+        "provider-path": "Verifica i percorsi specifici del fornitore prima di usare questa competenza.",
+        "provider-model": "Verifica le impostazioni del modello richieste da questa competenza.",
+        "invocation-policy": "Verifica le regole di invocazione prima di usare questa competenza.",
+        "disabled-skill": "Questa competenza è disattivata in Codex. Attivala in Codex prima di usarla."
+      }
+    },
     "diff": {
       "addComment": "Commenta questa riga",
       "removeComment": "Rimuovi commento",
@@ -2674,7 +2730,18 @@
       "voiceDenoiseHint": "Annulla il suono che rientra nel microfono dagli altoparlanti e riduce i rumori costanti come ventole e tastiera. Disattivalo se la tua interfaccia audio lo fa già.",
       "voiceEchoUnavailable": "Questo microfono non supporta la cancellazione dell’eco, quindi l’audio degli altoparlanti potrebbe filtrare. Con le cuffie il problema sparisce del tutto.",
       "voiceRespaceLabel": "Ripristina la spaziatura del coreano",
-      "voiceRespaceHint": "Il riconoscitore restituisce il coreano senza spazi; questa opzione lo divide in base a particelle e desinenze. È basata su regole, quindi non è perfetta: puoi correggere il risultato nel campo di testo."
+      "voiceRespaceHint": "Il riconoscitore restituisce il coreano senza spazi; questa opzione lo divide in base a particelle e desinenze. È basata su regole, quindi non è perfetta: puoi correggere il risultato nel campo di testo.",
+      "stallHint": "La sessione risulta in esecuzione, ma da un po' non arriva più nulla. Continua ad attendere oppure interrompila.",
+      "stallNotice": "Nessuna risposta da {{value}}. Risulta ancora in esecuzione.",
+      "stallKeepWaiting": "Continua ad attendere",
+      "stallKeepWaitingTitle": "Nasconde questo avviso e continua ad attendere. Ricompare se continua a non arrivare risposta.",
+      "stopNothing": "Non c'era nulla in esecuzione da interrompere. L'etichetta “in esecuzione” era rimasta indietro.",
+      "stopNothingHint": "Il server non ha trovato alcun processo figlio, comando in coda o attività in background per questo ambito.",
+      "stopForce": "Forza chiusura",
+      "stopForceTitle": "Interrompe tutto su questo agent, incluse le altre sessioni e i comandi in coda.",
+      "stopFailed": "Richiesta di interruzione non riuscita ({{status}}).",
+      "stopRetry": "Riprova",
+      "queuedBehindSilent": "Risulta in esecuzione perché prima sta terminando una compattazione in background. Questo comando non è ancora stato inviato, quindi puoi ancora modificarlo o rimuoverlo."
     },
     "voiceInstall": {
       "title": "Configura l’inserimento vocale",
@@ -2744,6 +2811,7 @@
       "goal": "Obiettivo",
       "autoGoal": "Rilevamento procedure",
       "orchestra": "Orchestra",
+      "configTrim": "Taglio configurazione",
       "debug": "Esegui e debug",
       "hooks": "Hook di sessione",
       "plugins": "Plugin di Claude Code",
@@ -3138,7 +3206,8 @@
       "sessionsTip": "Quante schede di sessione sono aperte su questo agente.",
       "contextOverdueTip": "Il contesto di questa sessione è quasi pieno e continua a crescere, ma non è stata eseguita alcuna compattazione. Clicca per aprire Assicurazione del contesto.",
       "contextStalledTip": "La finestra di contesto di questa sessione è praticamente piena e la compattazione non è stata eseguita. Clicca per aprire Assicurazione del contesto.",
-      "contextRejectedTip": "Abbiamo inviato un comando di compattazione, ma Claude Code non l'ha mai avviata: è stata rifiutata. Di solito dipende dal fatto che le skill e i comandi slash sono disattivati per questo progetto in {{contextSources}}. Clicca per aprire Assicurazione del contesto."
+      "contextRejectedTip": "Abbiamo inviato un comando di compattazione, ma Claude Code non l'ha mai avviata: è stata rifiutata. Di solito dipende dal fatto che le skill e i comandi slash sono disattivati per questo progetto in {{contextSources}}. Clicca per aprire Assicurazione del contesto.",
+      "elapsedTip": "Tempo trascorso dall'ultimo movimento di questa sessione."
     },
     "search": {
       "placeholder": "Trova nella conversazione",
@@ -3451,7 +3520,9 @@
       "maxTokens": "Limite di output",
       "maxTurns": "Limite di turni",
       "refusal": "Rifiuto del modello",
-      "usageLimit": "Limite di utilizzo"
+      "usageLimit": "Limite di utilizzo",
+      "disconnected": "Disconnesso",
+      "interrupted": "Interrotto"
     },
     "density": {
       "label": "Densità di visualizzazione",
@@ -3615,12 +3686,24 @@
         "systemPrompt": "System prompt di Claude Code",
         "compactSelf": "Autocompattazione dell’Agent",
         "compactRecovery": "Nota di recupero post-compattazione",
-        "autoGoalSkills": "Procedure rilevate"
+        "autoGoalSkills": "Procedure rilevate",
+        "codexInstructions": "Istruzioni di progetto di Codex",
+        "codexGlobalInstructions": "Istruzioni globali di Codex",
+        "codexCollaborationInstructions": "Istruzioni di collaborazione di Codex",
+        "codexSkills": "Skill di Codex",
+        "codexDeveloperInstructions": "Istruzioni per sviluppatori di Codex",
+        "codexMcp": "Server MCP di Codex configurati",
+        "codexPlugins": "Plugin di Codex configurati",
+        "codexHooks": "Hook di Codex",
+        "codexSystemPrompt": "Prompt di sistema di Codex",
+        "codexRuntimeMcp": "Altri server MCP di Codex rilevati",
+        "codexRuntimePlugins": "Altri plugin di Codex rilevati"
       },
       "hint": {
         "tools": "Scegli l'elenco strumenti in Impostazioni Agent",
         "mcp": "Collega server MCP in Impostazioni Agent",
-        "hooks": "Gli hook sono installati in settings.json"
+        "hooks": "Gli hook sono installati in settings.json",
+        "codexExternalSession": "I controlli nativi del contesto di Codex si applicano alle chat avviate da Vibisual. Per un terminale esistente o una sessione esterna, modifica le impostazioni di Codex di quella sessione e riavviala."
       },
       "warn": {
         "slashCommands": "Disattivandolo si disabilitano tutte le skill e i comandi slash per la sessione.",
@@ -3801,6 +3884,61 @@
             "what": "Le procedure scritte a partire dal lavoro che questo progetto continua a ripetere.",
             "more": "Vengono inviati solo il nome, una riga di descrizione e il percorso del file. Il corpo resta in .vibisual/skills e l'agente lo apre quando il lavoro corrisponde.",
             "off": "L'agente deve rifare da zero ciascuna di quelle procedure."
+          },
+          "codexInstructions": {
+            "what": "Istruzioni di progetto che Codex rileva in AGENTS.md e nei relativi file di override o fallback.",
+            "more": "Lette dalla catena di istruzioni di progetto per la directory di lavoro di questo agente. Le istruzioni globali di Codex hanno una riga propria.",
+            "off": "Interrompe il caricamento automatico dei file di istruzioni di progetto alla prossima esecuzione. Le istruzioni globali e il testo già presenti in questa conversazione restano."
+          },
+          "codexGlobalInstructions": {
+            "what": "Istruzioni personali che Codex carica dalla propria home directory per ogni progetto.",
+            "more": "Proviene da AGENTS.md o AGENTS.override.md in CODEX_HOME, di solito ~/.codex. Sono separate dalle istruzioni di progetto.",
+            "off": "Questa riga non può essere disattivata qui. Modifica il file delle istruzioni globali per cambiare le esecuzioni future; il testo della conversazione già presente resta."
+          },
+          "codexCollaborationInstructions": {
+            "what": "Le indicazioni integrate di Codex per la sua modalità di collaborazione.",
+            "more": "Aggiunte dal runtime di Codex in base alla modalità di collaborazione attiva.",
+            "off": "Interrompe l'aggiunta delle istruzioni della modalità di collaborazione alla prossima esecuzione. Le istruzioni già presenti in questa conversazione restano."
+          },
+          "codexSkills": {
+            "what": "I nomi e le descrizioni delle skill che Codex rende disponibili all'agente.",
+            "more": "Rilevate nelle cartelle skill di Codex e nei pacchetti skill abilitati. Le istruzioni complete di una skill vengono lette quando viene utilizzata.",
+            "off": "Disattiva il rilevamento delle skill alla prossima esecuzione. Il testo delle skill già letto in questa conversazione resta."
+          },
+          "codexDeveloperInstructions": {
+            "what": "Istruzioni aggiuntive configurate per Codex a livello di sviluppatore.",
+            "more": "Proviene dall'impostazione effettiva developer_instructions di Codex per questa directory di lavoro. I blocchi di prompt propri di Vibisual hanno righe separate.",
+            "off": "Omette le istruzioni per sviluppatori configurate alla prossima esecuzione. Le istruzioni precedenti già presenti nella conversazione restano."
+          },
+          "codexMcp": {
+            "what": "Server MCP registrati esplicitamente nella configurazione effettiva di Codex.",
+            "more": "Ogni server configurato può fornire definizioni di tool. Questo interruttore copre solo queste voci di configurazione; gli altri server rilevati hanno una riga separata.",
+            "off": "Disattiva i server configurati alla prossima esecuzione senza modificarne i file di configurazione. Riattivarlo ripristina il loro stato configurato e non abilita i server disattivati singolarmente."
+          },
+          "codexPlugins": {
+            "what": "Plugin registrati esplicitamente nella configurazione effettiva di Codex.",
+            "more": "Proviene dalle voci plugin nelle impostazioni effettive di Codex. Gli altri plugin rilevati hanno una riga separata.",
+            "off": "Disattiva i plugin configurati alla prossima esecuzione senza disinstallarli né modificare i file di configurazione. Riattivarlo ripristina il loro stato configurato e mantiene disattivati i plugin disattivati singolarmente."
+          },
+          "codexHooks": {
+            "what": "Hook registrati con Codex, inclusi gli hook di integrazione usati da Vibisual.",
+            "more": "Proviene dalla configurazione degli hook di Codex. Gli hook possono aggiungere contesto quando i loro eventi vengono eseguiti.",
+            "off": "Gestisci la configurazione degli hook separatamente. Questa riga non disattiva gli hook."
+          },
+          "codexSystemPrompt": {
+            "what": "Le istruzioni principali e le definizioni di tool integrate fornite dal runtime di Codex.",
+            "more": "Gestite all'interno di Codex. Il testo completo e il costo esatto in Token non sono mostrati da questo inventario.",
+            "off": "Questa fonte non può essere disattivata qui."
+          },
+          "codexRuntimeMcp": {
+            "what": "Server MCP rilevati al di fuori delle voci di configurazione esplicite controllate sopra.",
+            "more": "Segnalati dall'inventario runtime di Codex. Queste voci non sono coperte dall'interruttore dei server configurati.",
+            "off": "Questa riga non può disattivare questi server. Gestiscili tramite l'integrazione o le impostazioni di Codex che li hanno aggiunti."
+          },
+          "codexRuntimePlugins": {
+            "what": "Plugin di Codex rilevati al di fuori delle voci di configurazione esplicite controllate sopra.",
+            "more": "Segnalati dall'inventario dei plugin di Codex. Queste voci non sono coperte dall'interruttore dei plugin configurati.",
+            "off": "Questa riga non può disattivare questi plugin. Gestiscili tramite l'integrazione o le impostazioni di Codex che li hanno aggiunti."
           }
         },
         "cat": {
@@ -3854,7 +3992,10 @@
       "scopeTabNoSession": "Apri prima una scheda sessione — non c'è ancora nulla a cui collegarlo.",
       "ownHere": "Impostato qui, al livello {{scope}} — non eredita più dal livello superiore.",
       "lowerOverrideHint": "Impostato separatamente più in basso ({{scopes}}), quindi modificarlo qui non lo sposterà lì.",
-      "finalDiffHint": "Cosa va davvero nel prompt adesso: ~{{tokens}}."
+      "finalDiffHint": "Cosa va davvero nel prompt adesso: ~{{tokens}}.",
+      "futureOnly": "Le modifiche controllano l'iniezione futura del contesto. Non cancellano le istruzioni o i file già letti in questa conversazione.",
+      "loadError": "Impossibile aggiornare le fonti di contesto. Prova a misurare di nuovo.",
+      "saveError": "Impossibile confermare che la modifica sia stata salvata. Misura di nuovo per controllare l'impostazione attuale."
     },
     "goal": {
       "title": "Obiettivo",
@@ -4107,7 +4248,7 @@
     },
     "verify": {
       "title": "Verifica",
-      "about": "Esegue /verify in questa scheda: compila e avvia la tua app, poi riporta ciò che ha davvero visto.",
+      "about": "Collega un’app, scegli una dimostrazione o descrivi il controllo; l’agente interagirà con l’app e verificherà le prove.",
       "pickSession": "Apri una scheda di sessione per eseguire una verifica.",
       "focusLabel": "Cosa controllare (facoltativo)",
       "focusPlaceholder": "es. che il pulsante di accesso apra davvero la finestra",
@@ -4133,9 +4274,22 @@
         "alreadyRunning": "In questa scheda è già in corso una verifica.",
         "sessionBusy": "Questa scheda ha ancora un comando non terminato.",
         "sessionNotFound": "Sessione non trovata.",
+        "demoNotFound": "La dimostrazione selezionata non è stata trovata in questa sessione. Selezionala di nuovo.",
+        "demoFramesMissing": "Mancano alcuni fotogrammi della dimostrazione. Salva nuovamente la dimostrazione.",
         "readOnly": "Le bolle Hook sono in sola lettura.",
         "network": "Impossibile raggiungere il server.",
-        "failed": "Impossibile avviare la verifica."
+        "failed": "Impossibile avviare la verifica.",
+        "invalidVerificationTarget": "Scegli un indirizzo del browser o una destinazione di acquisizione valida.",
+        "verificationToolsUnavailable": "Gli strumenti di verifica non sono disponibili. Apri l’app desktop aggiornata.",
+        "timeout": "La connessione è scaduta. Controlla la destinazione e riprova.",
+        "verificationStopped": "La verifica è stata interrotta.",
+        "verificationTimeLimit": "La verifica ha raggiunto il limite di tempo.",
+        "verificationEvidenceLimit": "È stato raggiunto il limite di operazioni o prove.",
+        "verificationEvidenceMissing": "Le prove visive salvate non sono disponibili.",
+        "successfulVerificationRequired": "È necessaria una verifica riuscita con azioni registrate.",
+        "procedureStepLimit": "Questa esecuzione ha troppe operazioni per una sola procedura.",
+        "procedureFrameLimit": "Questa esecuzione ha troppe immagini di riferimento per una sola procedura.",
+        "procedureNeedsActionMapping": "Questi passaggi dimostrativi devono ancora essere associati ad azioni reali."
       },
       "demo": {
         "sectionTitle": "Dimostrazione",
@@ -4175,7 +4329,55 @@
           "failed": "Impossibile salvare la dimostrazione.",
           "projectNotFound": "Progetto non trovato.",
           "framesFull": "Questa dimostrazione ha già il numero massimo di immagini."
-        }
+        },
+        "browserEvidenceOnly": "Le prove visive vengono salvate automaticamente. La registrazione video non è disponibile per il browser privato di verifica.",
+        "recordRunNeedsMatchingTarget": "Per registrare video, seleziona la stessa finestra o lo stesso schermo della destinazione di esecuzione."
+      },
+      "tabs": {
+        "execution": "Verifica esecuzione",
+        "review": "Revisione codice"
+      },
+      "connection": {
+        "title": "Destinazione di esecuzione",
+        "browser": "Browser",
+        "desktop": "App desktop",
+        "url": "Indirizzo del browser",
+        "pickSource": "Scegli finestra o schermo",
+        "browserHint": "La verifica apre questo indirizzo nel proprio browser e interagisce con la pagina.",
+        "desktopHint": "La verifica interagisce con la finestra o lo schermo selezionato. Selezionalo di nuovo dopo il riavvio dell’app.",
+        "probing": "Verifica connessione…",
+        "ready": "Pronto a interagire",
+        "unavailable": "Connessione non disponibile",
+        "needsTarget": "Scegli una destinazione valida",
+        "probe": "Verifica di nuovo",
+        "capabilities": "Azioni: {{actions}}. Controlli: {{checks}}."
+      },
+      "execution": {
+        "expected": "Risultato atteso: {{expected}}",
+        "coverage": "Passaggi completati: {{done}} / {{total}}",
+        "events": "Operazioni registrate ({{count}})",
+        "evidence": "Visualizza prova",
+        "frame": "Immagine di prova {{index}}",
+        "saveProcedure": "Salva le azioni riuscite come procedura",
+        "saving": "Salvataggio…",
+        "saved": "Procedura salvata"
+      },
+      "operation": {
+        "click": "Clic",
+        "fill": "Inserisci testo",
+        "press": "Premi tasto",
+        "scroll": "Scorri",
+        "wait": "Attendi",
+        "navigate": "Naviga",
+        "visible": "Elemento visibile",
+        "text": "Testo corrispondente",
+        "value": "Valore corrispondente",
+        "url": "URL corrispondente",
+        "screenshot": "Confronto immagini",
+        "observe": "Osserva schermo",
+        "act": "Interagisci",
+        "check": "Verifica",
+        "doubleClick": "Doppio clic"
       }
     },
     "codex": {
@@ -4196,7 +4398,7 @@
         "groupUser": "Tue {{count}}",
         "groupSystem": "Integrate {{count}}",
         "groupPlugin": "Dai plug-in {{count}}",
-        "hint": "Clicca una competenza per inserirla nel campo di testo. Queste cartelle appartengono a Codex, qui sono in sola lettura."
+        "hint": "Fai clic su una competenza per aggiungerla alla bozza corrente. Qui sotto puoi condividere le competenze utente compatibili di Claude."
       },
       "plugins": {
         "title": "Plugin",
@@ -4401,7 +4603,7 @@
     },
     "autoGoal": {
       "title": "Rilevamento procedure",
-      "about": "Individua il lavoro che continui a fare nello stesso ordine, e scrive quella sequenza come skill.",
+      "about": "Individua il lavoro ripetuto da far esaminare al tuo Agent. Solo le procedure esaminate e ancora valide guidano il lavoro successivo.",
       "scope": {
         "project": "Intero progetto",
         "agent": "Questo agente",
@@ -4414,13 +4616,58 @@
         "effectiveOn": "Osserva il lavoro che si ripete.",
         "effectiveOff": "Off — niente viene scansionato e niente arriva al prompt."
       },
-      "groupSkills": "Scritte {{count}}",
-      "groupBrewing": "Quasi pronte {{count}}",
+      "groupSkills": "Procedure {{count}}",
+      "groupBrewing": "Schemi osservati {{count}}",
       "skillMeta": "{{steps}} passaggi · ripetuta {{runs}}×",
-      "removeSkill": "Elimina questa procedura (non verrà scritta di nuovo)",
+      "removeSkill": "Elimina questa procedura e non suggerire più questo schema",
       "dismiss": "Non è una procedura (smetti di suggerirla)",
-      "watching": "Scansionate {{observed}} azioni — una sequenza viene scritta quando lo stesso ordine si ripresenta {{runs}} volte.",
-      "empty": "Ancora niente da scansionare. Si riempie non appena i tuoi agenti iniziano a lavorare."
+      "watching": "{{observed}} azioni analizzate — dopo {{runs}} ripetizioni confermate, lo schema diventa un candidato alla verifica.",
+      "empty": "Ancora niente da scansionare. Si riempie non appena i tuoi agenti iniziano a lavorare.",
+      "noProject": "Apri un progetto per visualizzarne le procedure.",
+      "loading": "Caricamento delle procedure…",
+      "loadFailed": "Impossibile aggiornare le procedure. Le ultime informazioni caricate potrebbero essere obsolete.",
+      "saveFailed": "Impossibile confermare la modifica. Aggiorna l’elenco prima di riprovare.",
+      "bodyFailed": "Impossibile caricare questa procedura.",
+      "refresh": "Aggiorna procedure",
+      "details": "Mostra dettagli della procedura",
+      "hideDetails": "Nascondi dettagli della procedura",
+      "pause": "Interrompi l’uso",
+      "requestReview": "Richiedi verifica all’Agent",
+      "reviewHint": "Un Agent al lavoro verifica le procedure pertinenti. Richiedere una verifica non attiva la procedura.",
+      "reason": "Motivo",
+      "applicability": "Condizioni d’uso",
+      "reviewed": "Verificata il {{date}}",
+      "revision": "Revisione {{revision}}",
+      "supersededBy": "Sostituita da {{name}}",
+      "reasons": {
+        "notReviewed": "Questa procedura e i file a supporto non sono ancora stati verificati.",
+        "statusChanged": "Lo stato della procedura è stato modificato nel file. È necessaria una verifica prima dell’uso.",
+        "invalidReview": "Le prove di verifica salvate non sono valide. Verifica nuovamente questa procedura.",
+        "dependenciesUnchecked": "I file a supporto non sono ancora stati controllati.",
+        "missingReview": "Mancano prove di verifica attuali.",
+        "applicabilityChanged": "Le condizioni d’uso di questa procedura sono cambiate dopo la verifica.",
+        "instructionsChanged": "Le istruzioni della procedura sono cambiate dopo la verifica.",
+        "dependencyChanged": "Un file a supporto già verificato è cambiato o non è più disponibile.",
+        "userPaused": "Hai interrotto l’uso di questa procedura.",
+        "userRequestedReview": "Hai richiesto una nuova verifica di questa procedura."
+      },
+      "status": {
+        "candidate": "In attesa di verifica",
+        "active": "In uso",
+        "needs-review": "Da verificare",
+        "retired": "Interrotta",
+        "superseded": "Sostituita"
+      },
+      "metrics": {
+        "active": "In uso {{count}}",
+        "review": "Da verificare {{count}}",
+        "retired": "Interrotte {{count}}",
+        "reuse": "Riutilizzi {{count}}",
+        "skip": "Omissioni {{count}}",
+        "failure": "Errori {{count}}",
+        "revision": "Revisioni {{count}}",
+        "hint": "Risultati registrati, non stime del denaro o dei token risparmiati."
+      }
     },
     "orchestra": {
       "title": "Orchestra",
@@ -4483,7 +4730,8 @@
         "engine": {
           "claude": "Claude",
           "codex": "Codex",
-          "auto": "Il direttore d'orchestra sceglie per ruolo"
+          "auto": "Il direttore d'orchestra sceglie per ruolo",
+          "inherit": "Come il direttore ({{engine}})"
         },
         "maxDefault": "{{count}} (integrato)"
       },
@@ -4535,7 +4783,8 @@
       },
       "phase": {
         "conducting": "In direzione",
-        "dispatched": "Delegato",
+        "dispatched": "In attesa dei risultati",
+        "completed": "Completato",
         "answered": "Risposta diretta",
         "unreported": "Nessun piano segnalato",
         "error": "Errore"
@@ -4553,6 +4802,109 @@
         "single": "Un membro",
         "pipeline": "Pipeline",
         "parallel": "In parallelo"
+      },
+      "readiness": {
+        "setup": "{{engine}} deve essere installato prima di poter essere eseguito.",
+        "login": "Accedi a {{engine}} prima di usarlo.",
+        "refresh": "Verifica se {{engine}} è pronto.",
+        "prepare": "Prepara {{engine}}",
+        "recheck": "Verifica di nuovo",
+        "auto": "La selezione automatica usa solo motori installati con accesso effettuato.",
+        "retry": "La richiesta è stata conservata. Completa la preparazione di {{engine}}, poi inviala di nuovo."
+      }
+    },
+    "configTrim": {
+      "title": "Taglio configurazione",
+      "about": "Ogni turno viene eseguito a partire da una copia delle impostazioni di questo agente. Con il taglio attivo, i campi che il modello o la CLI scelti ignorerebbero vengono rimossi da quella copia prima che l'esecuzione inizi.",
+      "storedSafe": "Le tue impostazioni salvate non vengono mai toccate. Cambia solo la copia di un turno, quindi disattivarlo ripristina esattamente il comportamento precedente.",
+      "effectiveOn": "Il taglio si applica al prossimo turno di questa sessione.",
+      "effectiveOff": "Il taglio è disattivato — ogni campo viene inviato esattamente come è stato salvato.",
+      "caution": "Il taglio è un giudizio, non una misurazione. Tutto ciò che non possiamo decidere in base alla CLI installata e all'elenco dei modelli viene lasciato invariato ed elencato in Esclusi.",
+      "saveFailed": "Impossibile salvare: {{reason}}",
+      "activity": {
+        "on": "taglio attivo",
+        "trimmed": "{{count}} tagliati nell'ultimo turno"
+      },
+      "scope": {
+        "project": "Intero progetto",
+        "agent": "Questo agente",
+        "session": "Solo questa sessione",
+        "inherited": "Ereditato",
+        "on": "On",
+        "off": "Off",
+        "unavailable": "Non disponibile qui — apri prima una scheda agente e una sessione.",
+        "hint": "La riga inferiore subentra a quella superiore. Ogni pressione avanza: on → off → eredita."
+      },
+      "blocked": {
+        "lead": "Anche quando è attivo, per questo agente non verrà tagliato nulla perché:",
+        "localEngine": "Viene eseguito su un modello locale, dove costruiamo noi stessi il prompt e non c'è alcun campo CLI da eliminare.",
+        "terminal": "Viene eseguito in un terminale integrato, dove le impostazioni di un singolo turno non possono essere sostituite."
+      },
+      "source": {
+        "thisSession": "Da questa sessione, {{time}}.",
+        "otherSession": "Da un'altra sessione di questo agente, {{time}} — questa sessione non ha ancora eseguito un turno.",
+        "waiting": "Nessun turno è stato ancora eseguito. Le due liste si riempiono non appena questa sessione ne esegue uno.",
+        "turnOnFirst": "Attiva il taglio qui sopra per vedere cosa eliminerebbe un turno."
+      },
+      "trimmedPane": {
+        "title": "Tagliati",
+        "lead": "Rimossi dalla copia con cui è stato eseguito questo turno. Il valore originale viene mostrato così puoi rimetterlo tu stesso.",
+        "empty": "Non è stato tagliato nulla — ogni campo era necessario oppure mantenuto deliberatamente."
+      },
+      "excludedPane": {
+        "title": "Esclusi",
+        "lead": "Lasciati deliberatamente nella copia. Questi sono i campi che il taglio non toccherà, e il motivo.",
+        "empty": "In questo turno non è stato escluso nulla dal taglio."
+      },
+      "before": "era {{value}}",
+      "reason": {
+        "not-accepted": "non accettato",
+        "same-as-default": "uguale al valore integrato",
+        "not-implemented": "non implementato",
+        "no-effect-here": "nessun effetto qui"
+      },
+      "keep": {
+        "required": "richiesto",
+        "user-set": "l'hai impostato tu",
+        "unsafe": "cambia l'esecuzione",
+        "unknown": "impossibile saperlo",
+        "rule-off": "regola disattivata"
+      },
+      "rules": {
+        "title": "Regole",
+        "lead": "Ogni regola decide un campo. Disattiva una regola e il suo campo passa a Esclusi invece di essere tagliato."
+      },
+      "rule": {
+        "preset-meta": "L'id del preset registra solo da dove provengono le impostazioni; non viene mai inviato alla CLI.",
+        "custom-mode-placeholder": "Le modalità personalizzate Revisione e debug sono segnaposto senza alcun comportamento reale.",
+        "model-version-gone": "Questo id modello esatto non è nell'elenco che l'account può usare al momento.",
+        "effort-gone": "La CLI installata non elenca più questo livello di sforzo.",
+        "effort-default": "Lo sforzo resta al livello che si applica quando non viene inviato nulla.",
+        "max-turns-default": "Turni massimi ha ancora il valore integrato.",
+        "max-budget-unlimited": "Un budget di 0 significa illimitato, lo stesso che non impostarne uno.",
+        "fallback-model-empty": "Il modello di fallback è una stringa vuota, quindi non c'è nulla a cui ricorrere.",
+        "thinking-on-default": "Il pensiero esteso è già attivo quando non viene specificato nulla; inviarlo di nuovo aggiunge solo un argomento.",
+        "forward-subagent-text-on-default": "L'inoltro del testo dei subagent è già attivo quando non viene specificato nulla.",
+        "fast-mode-off-default": "La modalità rapida è già disattivata quando non viene specificato nulla.",
+        "permission-timeout-default": "Allow è la policy per il timeout dei permessi applicata quando non viene specificato nulla.",
+        "betas-empty": "L'elenco dei flag beta è vuoto.",
+        "agent-definitions-empty": "L'elenco delle definizioni dei subagent è vuoto.",
+        "context-window-non-opus": "Il suffisso della finestra di contesto viene letto solo per i modelli Opus.",
+        "fast-mode-unsupported": "Il modello scelto non offre la modalità rapida, quindi la CLI la elimina senza dire nulla.",
+        "betas-subscription": "I flag beta sono per gli account con chiave API; un accesso in abbonamento li ignora.",
+        "cli-kind-headless": "La variante di CLI decide solo quale terminale aprire, e questo turno è headless.",
+        "mcp-output-without-mcp": "Nessun server MCP è collegato, quindi un limite di output MCP non ha nulla da limitare.",
+        "agent-definitions-without-task": "Lo strumento Task non è nell'elenco dei tool, quindi questi subagent non possono essere richiamati.",
+        "permission-timeout-moot": "Questa modalità di autorizzazione non mostra mai un prompt, quindi un timeout del prompt non si applica mai."
+      },
+      "protected": {
+        "title": "Mai tagliati",
+        "lead": "Le regole non raggiungono mai questi campi, in qualunque modo siano impostate."
+      },
+      "runs": {
+        "title": "Turni recenti",
+        "empty": "In questo progetto non è stato ancora tagliato nessun turno.",
+        "counts": "{{trimmed}} / {{excluded}}"
       }
     }
   },
@@ -5198,6 +5550,11 @@
     }
   },
   "common": {
+    "appError": {
+      "title": "Impossibile visualizzare questa finestra.",
+      "description": "Prova a visualizzarla di nuovo. Il lavoro salvato e le impostazioni verranno conservati.",
+      "retry": "Riprova"
+    },
     "uncommittedChanges": "Modifiche non committate",
     "iframe": {
       "urlInput": "Inserisci URL...",
@@ -5578,8 +5935,6 @@
     "serviceTierHint": "Inserisci un livello supportato dal modello (ad esempio fast). I livelli più rapidi possono influire su consumo e prezzo.",
     "autoCompactTokenLimit": "Soglia di compressione automatica (token)",
     "codexTools": "Autorizzazioni degli strumenti",
-    "inheritProject": "Valori del progetto / globali",
-    "individualSettingsHint": "Si applica a questo agente. Le impostazioni uguali ai valori predefiniti continuano a seguire le modifiche del progetto e globali.",
     "codexValues": {
       "auto": "Automatico",
       "concise": "Conciso",
@@ -5588,6 +5943,8 @@
       "friendly": "Amichevole",
       "pragmatic": "Pragmatico"
     },
+    "inheritProject": "Valori del progetto / globali",
+    "individualSettingsHint": "Si applica a questo agente. Le impostazioni uguali ai valori predefiniti continuano a seguire le modifiche del progetto e globali.",
     "provider": "Provider",
     "claude": "Claude",
     "codex": "Codex",

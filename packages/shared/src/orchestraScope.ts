@@ -56,7 +56,7 @@ export const ORCHESTRA_MEMBER_ENGINES: readonly OrchestraMemberEngine[] = ['clau
 export const ORCHESTRA_CONDUCTOR_PERMISSIONS: readonly OrchestraConductorPermission[] = ['bypass', 'inherit'];
 
 /** 런 단계 전부. */
-export const ORCHESTRA_RUN_PHASES: readonly OrchestraRunPhase[] = ['conducting', 'dispatched', 'answered', 'unreported', 'error'];
+export const ORCHESTRA_RUN_PHASES: readonly OrchestraRunPhase[] = ['conducting', 'dispatched', 'completed', 'answered', 'unreported', 'error'];
 
 /** 설정에서 문자열로 받는 칸 — 모델·강도. 빈 문자열은 "정하지 않음"이라 칸을 지운다. */
 const ORCHESTRA_STRING_FIELDS = [
@@ -198,10 +198,13 @@ export function resolveOrchestraConductorPermission(settings: OrchestraSettings 
   return settings?.conductorPermission === 'inherit' ? 'inherit' : 'bypass';
 }
 
-/** 멤버 엔진 — 없으면 `claude`. */
-export function resolveOrchestraMemberEngine(settings: OrchestraSettings | null | undefined): OrchestraMemberEngine {
+/** 미지정 멤버는 지휘자 엔진을 따른다. 명시 선택은 설치 상태와 관계없이 보존한다. */
+export function resolveOrchestraMemberEngine(
+  settings: OrchestraSettings | null | undefined,
+  conductorEngine: 'claude' | 'codex' = 'claude',
+): OrchestraMemberEngine {
   const v = settings?.memberEngine;
-  return v === 'codex' || v === 'auto' ? v : 'claude';
+  return v === 'claude' || v === 'codex' || v === 'auto' ? v : conductorEngine;
 }
 
 /** 지휘자에게 **고를 수 있게** 주는 방안 — 원문 순서, 참고 전용(11·12·13)과 사용자가 꺼 둔 것은 빠진다. */
@@ -335,9 +338,9 @@ export function applyOrchestraSettingsPatch(
   return { ok: true, settings: next };
 }
 
-/** 지휘 턴이 끝난 단계인가 — `conducting` 만 아직 돌고 있다. */
+/** 요청이 끝난 단계인가 — 편성 중과 위임 뒤 결과 회수 대기는 모두 아직 진행 중이다. */
 export function isOrchestraRunSettled(phase: OrchestraRunPhase): boolean {
-  return phase !== 'conducting';
+  return phase !== 'conducting' && phase !== 'dispatched';
 }
 
 /** 런 목록 끝에 하나를 더한다 — `ORCHESTRA_RUN_MAX_PER_PROJECT` 를 넘으면 가장 오래된 런부터 버린다. */
@@ -444,11 +447,16 @@ export function normalizeOrchestraRuns(input: unknown): OrchestraRun[] {
 }
 
 /**
- * 앱을 다시 켰을 때 `conducting` 으로 남은 런 — 그 턴은 프로세스와 함께 죽었다.
+ * 앱을 다시 켰을 때 편성·결과 회수 중인 런 — 그 턴은 프로세스와 함께 죽었다.
  * 조용히 "돌고 있음"으로 남겨 두면 활동바 숫자가 영영 줄지 않으므로 `unreported` 로 닫는다.
+ * 옛 버전이 종료 시각을 찍은 `dispatched` 기록은 당시의 위임 기록으로 보존한다.
  */
 export function settleStaleOrchestraRuns(runs: readonly OrchestraRun[], now: number): OrchestraRun[] {
-  return runs.map((r) => (r.phase === 'conducting' ? { ...r, phase: 'unreported', endedAt: r.endedAt ?? now } : r));
+  return runs.map((r) => (
+    r.phase === 'conducting' || (r.phase === 'dispatched' && r.endedAt === undefined)
+      ? { ...r, phase: 'unreported', endedAt: r.endedAt ?? now }
+      : r
+  ));
 }
 
 /** 계획 신고 검사에 필요한 바깥 사정. */

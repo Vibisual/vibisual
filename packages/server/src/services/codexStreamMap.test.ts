@@ -137,7 +137,8 @@ describe('mapCodexLine — command_execution', () => {
       '{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"in_progress"}}',
     );
     expect(r?.events).toEqual([
-      { eventType: 'tool_use', content: 'bash -lc ls', toolName: 'Bash', toolUseId: 'item_1' },
+      { eventType: 'tool_use', content: 'bash -lc ls', toolName: 'Bash', toolUseId: 'item_1',
+        bashHook: { phase: 'pre', command: 'bash -lc ls' } },
     ]);
   });
 
@@ -150,10 +151,11 @@ describe('mapCodexLine — command_execution', () => {
 
   it('completed 는 종료 코드와 출력을 붙여 같은 id 로 닫는다', () => {
     const r = mapCodexLine(
-      '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","exit_code":0,"aggregated_output":"a.txt\\nb.txt"}}',
+      '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"completed","exit_code":0,"aggregated_output":"a.txt\\nb.txt"}}',
     );
     expect(r?.events).toEqual([
-      { eventType: 'tool_result', content: 'exit 0\na.txt\nb.txt', toolName: 'Bash', toolUseId: 'item_1' },
+      { eventType: 'tool_result', content: 'exit 0\na.txt\nb.txt', toolName: 'Bash', toolUseId: 'item_1',
+        bashHook: { phase: 'post', command: 'bash -lc ls', toolResponse: 'a.txt\nb.txt', toolIsError: false } },
     ]);
   });
 
@@ -167,6 +169,34 @@ describe('mapCodexLine — command_execution', () => {
       '{"type":"item.started","item":{"id":"item_9","type":"command_execution","argv":["git","status","--porcelain"]}}',
     );
     expect(r?.events[0]?.content).toBe('git status --porcelain');
+    expect(r?.events[0]?.bashHook?.command).toBeUndefined();
+  });
+  it('keeps quoted and multiline command text intact for observation', () => {
+    const command = '  printf "a  b"\n# comment\nprintf "next"  ';
+    const r = mapCodexLine(JSON.stringify({ type: 'item.started', item: {
+      id: 'raw', type: 'command_execution', command,
+    } }));
+    expect(r?.events[0]?.bashHook).toEqual({ phase: 'pre', command });
+  });
+  it.each<[Record<string, unknown>, boolean | undefined]>([
+    [{ status: 'completed', exit_code: 0 }, false],
+    [{ status: 'completed', exit_code: 4 }, true],
+    [{ status: 'failed', exit_code: 0 }, true],
+    [{ status: 'failed' }, true],
+    [{ exit_code: 0 }, undefined],
+    [{ status: 'completed' }, undefined],
+    [{ status: 'completed', exit_code: null }, undefined],
+    [{ status: 'completed', exit_code: '0' }, undefined],
+    [{ status: 'completed', exit_code: 0.5 }, undefined],
+    [{ status: 'in_progress', exit_code: 0 }, undefined],
+  ])('passes only confirmed execution outcomes %j', (outcome, isError) => {
+    const r = mapCodexLine(JSON.stringify({ type: 'item.completed', item: {
+      id: 'outcome', type: 'command_execution', aggregated_output: 'error exit 7 is ordinary output', ...outcome,
+    } }));
+    expect(r?.events[0]?.bashHook?.toolIsError).toBe(isError);
+    expect(r?.events[0]?.bashHook?.toolResponse).toBe('error exit 7 is ordinary output');
+    // Missing command is left for the caller's started-id cache, never fabricated.
+    expect(r?.events[0]?.bashHook?.command).toBeUndefined();
   });
 });
 

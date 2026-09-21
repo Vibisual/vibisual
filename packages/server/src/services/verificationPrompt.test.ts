@@ -122,7 +122,7 @@ describe('parseVerificationVerdict — fail-closed', () => {
 
   it('시도 목록은 상한에서 잘리고 모양이 아닌 항목은 버린다', () => {
     const many = Array.from({ length: VERIFICATION_ATTEMPTS_MAX + 5 }, (_, i) => ({
-      kind: 'test', command: `cmd ${i}`, exitCode: 0,
+      kind: 'run', command: `cmd ${i}`, exitCode: 0,
     }));
     const raw = JSON.stringify({ verdict: 'approve', attempts: [...many, { kind: 'test' }, null, 3] });
     const r = parseVerificationVerdict(raw);
@@ -136,6 +136,49 @@ describe('parseVerificationVerdict — fail-closed', () => {
     );
     expect(r.verdict).toBe('fail');
     expect(r.reason).toBe('포트가 안 열림');
+  });
+
+  it.each([undefined, null, '0', 0.5, -0.5])('종료 코드 %s를 성공 코드로 만들어 통과시키지 않는다', (exitCode) => {
+    const r = parseVerificationVerdict(JSON.stringify({
+      verdict: 'approve', reason: '문제 없음', attempts: [{ kind: 'run', command: 'app-check', exitCode }],
+    }));
+    expect(r.verdict).toBe('held');
+    expect(r.attempts[0]?.exitCode).toBeUndefined();
+    expect(r.reason).not.toBe('문제 없음');
+  });
+
+  it('성공 주장보다 실제 실패 종료 코드가 우선한다', () => {
+    const r = parseVerificationVerdict(JSON.stringify({
+      verdict: 'approve', reason: '잘 됩니다',
+      attempts: [{ kind: 'run', command: 'app-check', exitCode: 1 }],
+    }));
+    expect(r.verdict).toBe('fail');
+    expect(r.reason).toContain('exit 1');
+  });
+
+  it('보관 상한 뒤의 실패도 숨겨진 통과로 바뀌지 않는다', () => {
+    const r = parseVerificationVerdict(JSON.stringify({
+      verdict: 'approve',
+      attempts: [
+        ...Array.from({ length: VERIFICATION_ATTEMPTS_MAX }, (_, i) => ({ kind: 'run', command: `check-${i}`, exitCode: 0 })),
+        { kind: 'run', command: 'save-button-check', exitCode: 2 },
+      ],
+    }));
+    expect(r.verdict).toBe('fail');
+    expect(r.reason).toContain('save-button-check');
+    expect(r.attempts).toHaveLength(VERIFICATION_ATTEMPTS_MAX);
+  });
+
+  it.each(['build', 'typecheck', 'test', 'lint'])('%s만 통과한 것은 사용자 동작 검증의 통과가 아니다', (kind) => {
+    expect(parseVerificationVerdict(JSON.stringify({
+      verdict: 'approve', attempts: [{ kind, command: `pnpm ${kind}`, exitCode: 0 }],
+    })).verdict).toBe('held');
+  });
+
+  it('사용자 동작을 확인한 custom 명령은 성공 근거가 된다', () => {
+    expect(parseVerificationVerdict(JSON.stringify({
+      verdict: 'approve', attempts: [{ kind: 'custom', command: 'node browser-save-check.mjs', exitCode: 0 }],
+    })).verdict).toBe('pass');
   });
 });
 

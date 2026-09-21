@@ -125,9 +125,9 @@ describe('구조 판정 장부', () => {
     expect(getArchVerdict('b10509', 'gemma3')).toBe('ok');
   });
 
-  it('판정은 빌드마다 따로 산다 — 남의 이야기를 끌어오지 않는다', () => {
+  it('옛 파일 실패로 남은 구조 차단은 무시하고 성공은 해당 빌드에만 적용한다', () => {
     recordArchVerdict('b99999', 'qwen35', 'broken');
-    expect(getArchVerdict('b99999', 'qwen35')).toBe('broken');
+    expect(getArchVerdict('b99999', 'qwen35')).toBe('unknown');
     // 같은 구조라도 다른 빌드의 판정은 그대로 모른다(= 막지 않는다).
     expect(getArchVerdict('b10509', 'qwen35')).toBe('unknown');
     // 그리고 새 실측이 옛 판정을 덮는다 — 새 빌드가 지원하기 시작하면 스스로 뒤집힌다.

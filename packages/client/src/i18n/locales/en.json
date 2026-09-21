@@ -465,7 +465,16 @@
         "login": "Sign in",
         "recheck": "Check again",
         "checking": "Checking…",
-        "actionFailed": "That did not work. Try again."
+        "actionFailed": "That did not work. Try again.",
+        "portalTitle": "Manage on the provider's site",
+        "portal": {
+          "account": "Account",
+          "billing": "Plan & billing",
+          "usage": "Usage",
+          "apiKeys": "API keys",
+          "console": "Developer console",
+          "codexWeb": "Codex on the web"
+        }
       },
       "storage": {
         "intro": "How long Vibisual keeps activity history on disk. Set any value to 0 to keep it forever. Nothing is deleted silently: files still referenced by a conversation are kept regardless of age, live and reopenable sessions are never touched, and cleanup moves files to the trash so you can restore them.",
@@ -2166,7 +2175,7 @@
     },
     "projectFolder": {
       "title": "Choose a project folder",
-      "intro": "Claude Code is installed and signed in. The last step is choosing the folder your agents will work in — usually the root of a project or repository.",
+      "intro": "Choose the folder your agents will work in — usually the root of a project or repository.",
       "blocked": "Nothing was created — no project folder is open yet. Agents work inside a folder you choose, so pick one first.",
       "detail": "Everything Vibisual saves for a project lives inside that folder, and agents may only read and edit files under it. You can open more folders later from File → Open Folder.",
       "cancelled": "No folder was chosen yet. Choose one to continue.",
@@ -2205,7 +2214,7 @@
       "commandLabel": "Install command",
       "copy": "Copy",
       "copied": "Copied",
-      "manualOnly": "npm was not found, so Vibisual cannot install it for you. Install Node.js, run the command above in a terminal, then choose \"Check again\".",
+      "manualOnly": "Automatic installation is unavailable on this system. Follow the official installation guide, then choose \"Check again\".",
       "failed": "The install did not complete. Run the command above in a terminal, then choose \"Check again\".",
       "installing": "Installing…",
       "installDone": "Installed",
@@ -2244,7 +2253,14 @@
       "recheck": "Check again",
       "later": "Later",
       "stop": "Stop",
-      "start": "Sign in"
+      "start": "Sign in",
+      "deviceCodePrompt": "Enter this code on the sign-in page in your browser.",
+      "copyDeviceCode": "Copy code",
+      "deviceCodeWaiting": "Waiting for the device code…",
+      "deviceCodeHelp": "Device code login must be enabled in your ChatGPT security settings or workspace permissions. If unavailable, try browser sign-in.",
+      "ended": "Sign-in ended before it completed. Try again, or choose another sign-in method.",
+      "retry": "Try again",
+      "checking": "Checking sign-in…"
     },
     "insurance": {
       "title": "Context insurance",
@@ -2331,6 +2347,46 @@
     }
   },
   "ide": {
+    "skillSharing": {
+      "title": "Skills from {{provider}}",
+      "hint": "Share a user skill with {{provider}} and add it to the current draft.",
+      "loading": "Loading shareable skills…",
+      "empty": "No user skills from {{provider}} are available.",
+      "noMatch": "No shared skills match “{{query}}”.",
+      "refresh": "Refresh shareable skills",
+      "retry": "Retry",
+      "shareAndUse": "Share and use",
+      "use": "Use",
+      "sharing": "Sharing…",
+      "sharedHint": "Added to the current draft. Send it when you are ready.",
+      "loadFailed": "Could not load shareable skills. {{reason}}",
+      "shareFailed": "Could not share this skill. {{reason}}",
+      "project": "Project",
+      "global": "Global",
+      "available": "Available",
+      "shared": "Shared",
+      "conflict": "Name conflict",
+      "unsupported": "Provider-specific",
+      "conflictHint": "A different skill with this name already exists.",
+      "unsupportedHint": "This skill uses features that are not supported by {{provider}}.",
+      "invalidResponse": "The server returned an invalid response.",
+      "issues": {
+        "skill-too-large": "The skill exceeds the supported file count or size.",
+        "invalid-name": "The skill name is invalid.",
+        "invalid-skill": "The skill definition is invalid.",
+        "unsafe-path": "The skill contains an unsafe path or link.",
+        "unreadable-source": "The source skill could not be read.",
+        "name-conflict": "A different skill with this name already exists.",
+        "provider-hooks": "This skill requires provider-specific hooks.",
+        "provider-context": "This skill requires provider-specific execution context.",
+        "dynamic-shell": "This skill requires provider-specific shell expansion.",
+        "tool-dependency": "Check that the tools required by this skill are available.",
+        "provider-path": "Check provider-specific paths before using this skill.",
+        "provider-model": "Check the model settings required by this skill.",
+        "invocation-policy": "Check the invocation rules before using this skill.",
+        "disabled-skill": "This skill is disabled in Codex. Enable it in Codex before using it."
+      }
+    },
     "diff": {
       "addComment": "Comment on this line",
       "removeComment": "Remove comment",
@@ -2674,7 +2730,18 @@
       "voiceDenoiseHint": "Cancels sound coming back from your speakers and suppresses steady noise like fans and typing. Turn this off if your audio interface already handles it.",
       "voiceEchoUnavailable": "This microphone does not support echo cancellation, so speaker audio may leak in. Headphones will stop it for certain.",
       "voiceRespaceLabel": "Restore Korean word spacing",
-      "voiceRespaceHint": "The recognizer emits Korean without spaces; this splits it at particles and endings. It is rule-based, so it is not perfect — you can fix the result in the input box."
+      "voiceRespaceHint": "The recognizer emits Korean without spaces; this splits it at particles and endings. It is rule-based, so it is not perfect — you can fix the result in the input box.",
+      "stallHint": "The session says it is running but nothing has arrived for a while. Keep waiting, or stop it.",
+      "stallNotice": "No response for {{value}}. Still shown as running.",
+      "stallKeepWaiting": "Keep waiting",
+      "stallKeepWaitingTitle": "Hide this notice and keep waiting. It comes back if there is still no response.",
+      "stopNothing": "Nothing was running to stop. The \"running\" label was stale.",
+      "stopNothingHint": "The server found no child process, queued command or background task for this scope.",
+      "stopForce": "Force close",
+      "stopForceTitle": "Stop everything on this agent, including other sessions and queued commands.",
+      "stopFailed": "Stop request failed ({{status}}).",
+      "stopRetry": "Try again",
+      "queuedBehindSilent": "Shown as running because a background compaction is finishing first. This command has not been sent yet, so you can still change or remove it."
     },
     "voiceInstall": {
       "title": "Set up voice input",
@@ -2744,6 +2811,7 @@
       "goal": "Goal",
       "autoGoal": "Procedure detection",
       "orchestra": "Orchestra",
+      "configTrim": "Config Trim",
       "debug": "Run and debug",
       "hooks": "Session hooks",
       "plugins": "Claude Code plugins",
@@ -3138,7 +3206,8 @@
       "sessionsTip": "How many session tabs are open on this agent.",
       "contextOverdueTip": "This session's context is nearly full and still growing, but no compaction has run. Click to open Context Insurance.",
       "contextStalledTip": "This session's context window is effectively full and compaction has not run. Click to open Context Insurance.",
-      "contextRejectedTip": "We sent a compaction command but Claude Code never started one — it was rejected. The usual cause is skills and slash commands being turned off for this project under {{contextSources}}. Click to open Context Insurance."
+      "contextRejectedTip": "We sent a compaction command but Claude Code never started one — it was rejected. The usual cause is skills and slash commands being turned off for this project under {{contextSources}}. Click to open Context Insurance.",
+      "elapsedTip": "Time since this session last moved."
     },
     "search": {
       "placeholder": "Find in conversation",
@@ -3451,7 +3520,9 @@
       "maxTokens": "Output limit",
       "maxTurns": "Turn limit",
       "refusal": "Model refused",
-      "usageLimit": "Usage limit"
+      "usageLimit": "Usage limit",
+      "disconnected": "Cut off",
+      "interrupted": "Interrupted"
     },
     "density": {
       "label": "Display density",
@@ -3585,7 +3656,7 @@
         "instructions": "Instruction files",
         "skills": "Skills & commands",
         "tools": "Tools",
-        "system": "Claude Code"
+        "system": "Engine runtime"
       },
       "src": {
         "skillsPrefix": "Skill prefix",
@@ -3615,12 +3686,24 @@
         "systemPrompt": "Claude Code system prompt",
         "compactSelf": "Agent self-compaction",
         "compactRecovery": "Post-compaction recovery brief",
-        "autoGoalSkills": "Detected procedures"
+        "autoGoalSkills": "Detected procedures",
+        "codexInstructions": "Codex project instructions",
+        "codexGlobalInstructions": "Codex global instructions",
+        "codexCollaborationInstructions": "Codex collaboration instructions",
+        "codexSkills": "Codex skills",
+        "codexDeveloperInstructions": "Codex developer instructions",
+        "codexMcp": "Configured Codex MCP servers",
+        "codexPlugins": "Configured Codex plugins",
+        "codexHooks": "Codex hooks",
+        "codexSystemPrompt": "Codex system prompt",
+        "codexRuntimeMcp": "Other detected Codex MCP servers",
+        "codexRuntimePlugins": "Other detected Codex plugins"
       },
       "hint": {
         "tools": "Pick the tool list in Agent Settings",
         "mcp": "Attach MCP servers in Agent Settings",
-        "hooks": "Hooks are installed in settings.json"
+        "hooks": "Hooks are installed in settings.json",
+        "codexExternalSession": "Native Codex context controls apply to chats launched by Vibisual. For an existing terminal or external session, change its Codex settings and restart that session."
       },
       "warn": {
         "slashCommands": "Turning this off disables every skill and slash command for the session.",
@@ -3639,7 +3722,7 @@
         "loading": "Reading…",
         "error": "Could not read this source.",
         "emptyBody": "This one adds nothing on this turn — it is on, but there is currently no content for it.",
-        "unreadable": "This one lives inside Claude Code itself, so there is no file to open. The number next to it is an estimate, not a measurement.",
+        "unreadable": "The engine does not expose this source as readable text. Any displayed token count is an estimate.",
         "truncated": "Showing the first {{count}} characters.",
         "openInEditor": "Open in the built-in editor",
         "openOutside": "Open outside the app",
@@ -3652,7 +3735,7 @@
       "about": {
         "control": {
           "session": "Vibisual leaves it out while building the prompt, so turning it off takes effect from your very next message.",
-          "spawn": "Turned off with a command-line switch on the next run. Every turn starts a new process, so this also takes effect from your next message.",
+          "spawn": "Applied when the engine next runs. It does not erase context already present in the conversation.",
           "external": "Another settings screen owns this one — the switch here is locked on purpose.",
           "none": "There is no way to turn this off. It is measured here so the total is honest."
         },
@@ -3801,6 +3884,61 @@
             "what": "The procedures written down from work this project keeps repeating.",
             "more": "Only the name, one line of description and the file path are sent. The body stays in .vibisual/skills and the agent opens it when the work matches.",
             "off": "The agent works each of those procedures out from scratch again."
+          },
+          "codexInstructions": {
+            "what": "Project instructions Codex discovers in AGENTS.md and its override or fallback files.",
+            "more": "Read from the project instruction chain for this agent’s working directory. Global Codex instructions have their own row.",
+            "off": "Stops automatic loading of project instruction files on the next run. Global instructions and text already in this conversation remain."
+          },
+          "codexGlobalInstructions": {
+            "what": "Personal instructions Codex loads from its home directory for every project.",
+            "more": "Comes from AGENTS.md or AGENTS.override.md in CODEX_HOME, usually ~/.codex. These are separate from project instructions.",
+            "off": "This row cannot be switched off here. Edit the global instruction file to change future runs; existing conversation text remains."
+          },
+          "codexCollaborationInstructions": {
+            "what": "Codex’s built-in guidance for its collaboration mode.",
+            "more": "Added by the Codex runtime according to the active collaboration mode.",
+            "off": "Stops adding collaboration-mode instructions on the next run. Instructions already in this conversation remain."
+          },
+          "codexSkills": {
+            "what": "The skill names and descriptions Codex makes available to the agent.",
+            "more": "Discovered from Codex skill folders and enabled skill packages. A skill’s full instructions are read when it is used.",
+            "off": "Disables skill discovery on the next run. Skill text already read in this conversation remains."
+          },
+          "codexDeveloperInstructions": {
+            "what": "Additional instructions configured for Codex at the developer level.",
+            "more": "Comes from the effective Codex developer_instructions setting for this working directory. Vibisual’s own prompt blocks have separate rows.",
+            "off": "Omits configured developer instructions on the next run. Earlier instructions already in the conversation remain."
+          },
+          "codexMcp": {
+            "what": "MCP servers explicitly registered in the effective Codex configuration.",
+            "more": "Each configured server can supply tool definitions. This switch covers these configuration entries only; other detected servers have a separate row.",
+            "off": "Disables configured servers on the next run without editing their configuration files. Turning this back on restores their configured state and does not enable individually disabled servers."
+          },
+          "codexPlugins": {
+            "what": "Plugins explicitly registered in the effective Codex configuration.",
+            "more": "Comes from the plugin entries in the effective Codex settings. Other detected plugins have a separate row.",
+            "off": "Disables configured plugins on the next run without uninstalling them or editing configuration files. Turning this back on restores their configured state and keeps individually disabled plugins disabled."
+          },
+          "codexHooks": {
+            "what": "Hooks registered with Codex, including integration hooks used by Vibisual.",
+            "more": "Comes from Codex’s hook configuration. Hooks can add context when their events run.",
+            "off": "Manage hook configuration separately. This row does not switch hooks off."
+          },
+          "codexSystemPrompt": {
+            "what": "The core instructions and built-in tool definitions supplied by the Codex runtime.",
+            "more": "Managed inside Codex. Its complete text and exact token cost are not exposed by this inventory.",
+            "off": "This source cannot be switched off here."
+          },
+          "codexRuntimeMcp": {
+            "what": "MCP servers detected outside the explicit configuration entries controlled above.",
+            "more": "Reported by Codex’s runtime inventory. These entries are not covered by the configured-server switch.",
+            "off": "This row cannot switch these servers off. Manage them through the Codex integration or settings that added them."
+          },
+          "codexRuntimePlugins": {
+            "what": "Codex plugins detected outside the explicit configuration entries controlled above.",
+            "more": "Reported by Codex’s plugin inventory. These entries are not covered by the configured-plugin switch.",
+            "off": "This row cannot switch these plugins off. Manage them through the Codex integration or settings that added them."
           }
         },
         "cat": {
@@ -3820,7 +3958,7 @@
             "off": "The agent works from this conversation alone."
           },
           "instructions": {
-            "what": "An instruction file Claude Code loads on its own before you type anything.",
+            "what": "Instruction files the engine loads automatically.",
             "more": "Read from disk every time a session starts. Click a file to read it here.",
             "off": "The session starts without those instructions."
           },
@@ -3835,8 +3973,8 @@
             "off": "Change it in Agent Settings — it cannot be turned off here."
           },
           "system": {
-            "what": "Something Claude Code adds on its own, outside this project.",
-            "more": "It lives inside Claude Code, so the number is an estimate.",
+            "what": "Context the engine adds itself, outside this project.",
+            "more": "Managed inside the engine; its full text or exact size may not be available.",
             "off": "This is not ours to turn off; it is measured so the total is honest."
           }
         }
@@ -3854,7 +3992,10 @@
       "scopeTabNoSession": "Open a session tab first — there is nothing to attach this to yet.",
       "ownHere": "Set here, at the {{scope}} layer — it no longer follows the layer above.",
       "lowerOverrideHint": "Set separately further down ({{scopes}}), so changing it here will not move it there.",
-      "finalDiffHint": "What actually goes into the prompt right now: ~{{tokens}}."
+      "finalDiffHint": "What actually goes into the prompt right now: ~{{tokens}}.",
+      "futureOnly": "Changes control future context injection. They do not erase instructions or files already read in this conversation.",
+      "loadError": "Could not refresh context sources. Try re-measuring.",
+      "saveError": "Could not confirm the change was saved. Re-measure to check the current setting."
     },
     "goal": {
       "title": "Goal",
@@ -4107,7 +4248,7 @@
     },
     "verify": {
       "title": "Verify",
-      "about": "Runs /verify in this tab: builds and launches your app, then reports what it actually saw.",
+      "about": "Connect an app, choose a demonstration or describe the check, then let the agent operate it and verify the evidence.",
       "pickSession": "Open a session tab to run a verification.",
       "focusLabel": "What to check (optional)",
       "focusPlaceholder": "e.g. the login button actually opens the dialog",
@@ -4133,9 +4274,22 @@
         "alreadyRunning": "A verification is already running in this tab.",
         "sessionBusy": "This tab still has an unfinished command.",
         "sessionNotFound": "That session could not be found.",
+        "demoNotFound": "The selected demonstration was not found in this session. Please select it again.",
+        "demoFramesMissing": "Some demonstration frames are missing. Please save the demonstration again.",
         "readOnly": "Hook bubbles are read-only.",
         "network": "Could not reach the server.",
-        "failed": "Could not start the verification."
+        "failed": "Could not start the verification.",
+        "invalidVerificationTarget": "Choose a valid browser address or capture target.",
+        "verificationToolsUnavailable": "Verification tools are unavailable. Open the current desktop app.",
+        "timeout": "The connection check timed out. Check the target and try again.",
+        "verificationStopped": "Verification was stopped.",
+        "verificationTimeLimit": "Verification reached its time limit.",
+        "verificationEvidenceLimit": "The operation or evidence limit was reached.",
+        "verificationEvidenceMissing": "Saved screen evidence is missing.",
+        "successfulVerificationRequired": "A successful verification with recorded actions is required.",
+        "procedureStepLimit": "This run has too many operations to save as one procedure.",
+        "procedureFrameLimit": "This run has too many reference images to save as one procedure.",
+        "procedureNeedsActionMapping": "These demonstration steps still need to be mapped to actual actions."
       },
       "demo": {
         "sectionTitle": "Demonstration",
@@ -4175,7 +4329,55 @@
           "failed": "Could not save the demo.",
           "projectNotFound": "That project could not be found.",
           "framesFull": "This demo already has the maximum number of frames."
-        }
+        },
+        "browserEvidenceOnly": "Screen evidence is saved automatically. Video recording is unavailable for the verifier’s private browser.",
+        "recordRunNeedsMatchingTarget": "Video requires the same desktop window or screen as the execution target."
+      },
+      "tabs": {
+        "execution": "Run verification",
+        "review": "Code review"
+      },
+      "connection": {
+        "title": "Execution target",
+        "browser": "Browser",
+        "desktop": "Desktop app",
+        "url": "Browser URL",
+        "pickSource": "Choose a window or screen",
+        "browserHint": "The verifier opens this address in its own browser and operates the page.",
+        "desktopHint": "The verifier operates the selected window or screen. Reselect it after restarting the app.",
+        "probing": "Checking connection…",
+        "ready": "Ready to operate",
+        "unavailable": "Connection unavailable",
+        "needsTarget": "Choose a valid target",
+        "probe": "Check again",
+        "capabilities": "Actions: {{actions}}. Checks: {{checks}}."
+      },
+      "execution": {
+        "expected": "Expected: {{expected}}",
+        "coverage": "Steps completed: {{done}} / {{total}}",
+        "events": "Recorded operations ({{count}})",
+        "evidence": "View evidence",
+        "frame": "Evidence frame {{index}}",
+        "saveProcedure": "Save successful actions as a procedure",
+        "saving": "Saving…",
+        "saved": "Procedure saved"
+      },
+      "operation": {
+        "click": "Click",
+        "fill": "Enter text",
+        "press": "Press key",
+        "scroll": "Scroll",
+        "wait": "Wait",
+        "navigate": "Navigate",
+        "visible": "Element visible",
+        "text": "Text matches",
+        "value": "Value matches",
+        "url": "URL matches",
+        "screenshot": "Screenshot comparison",
+        "observe": "Observe screen",
+        "act": "Operate",
+        "check": "Check",
+        "doubleClick": "Double-click"
       }
     },
     "codex": {
@@ -4196,7 +4398,7 @@
         "groupUser": "Yours {{count}}",
         "groupSystem": "Built-in {{count}}",
         "groupPlugin": "From plugins {{count}}",
-        "hint": "Click a skill to put it in the prompt box. Codex owns these folders, so they are read-only here."
+        "hint": "Click a skill to add it to the current draft. Compatible user skills from Claude can be shared below."
       },
       "plugins": {
         "title": "Plugins",
@@ -4401,7 +4603,7 @@
     },
     "autoGoal": {
       "title": "Procedure detection",
-      "about": "Spots the work you keep doing in the same order, and writes that run down as a skill.",
+      "about": "Finds repeated work for your agent to review. Only reviewed, current procedures guide later work.",
       "scope": {
         "project": "Whole project",
         "agent": "This agent",
@@ -4414,13 +4616,58 @@
         "effectiveOn": "Watching for work that repeats.",
         "effectiveOff": "Off — nothing is scanned and nothing reaches the prompt."
       },
-      "groupSkills": "Written down {{count}}",
-      "groupBrewing": "Almost there {{count}}",
+      "groupSkills": "Procedures {{count}}",
+      "groupBrewing": "Observed patterns {{count}}",
       "skillMeta": "{{steps}} steps · repeated {{runs}}×",
-      "removeSkill": "Delete this procedure (it will not be written again)",
+      "removeSkill": "Delete this procedure and stop suggesting this pattern",
       "dismiss": "This is not a procedure (stop suggesting it)",
-      "watching": "Scanned {{observed}} actions — a run is written down once the same order comes back {{runs}} times.",
-      "empty": "Nothing to scan yet. This fills up once your agents start working."
+      "watching": "Scanned {{observed}} actions — a pattern becomes a review candidate after {{runs}} confirmed repetitions.",
+      "empty": "Nothing to scan yet. This fills up once your agents start working.",
+      "noProject": "Open a project to view its procedures.",
+      "loading": "Loading procedures…",
+      "loadFailed": "Could not refresh procedures. The last loaded information may be out of date.",
+      "saveFailed": "The change could not be confirmed. Refresh the list before trying the action again.",
+      "bodyFailed": "Could not load this procedure.",
+      "refresh": "Refresh procedures",
+      "details": "Show procedure details",
+      "hideDetails": "Hide procedure details",
+      "pause": "Stop using",
+      "requestReview": "Request agent review",
+      "reviewHint": "A working agent reviews relevant procedures. Requesting review does not activate a procedure.",
+      "reason": "Reason",
+      "applicability": "When to use",
+      "reviewed": "Reviewed {{date}}",
+      "revision": "Revision {{revision}}",
+      "supersededBy": "Replaced by {{name}}",
+      "reasons": {
+        "notReviewed": "This procedure and its supporting files have not been reviewed yet.",
+        "statusChanged": "The procedure status was edited in its file. Review is required before use.",
+        "invalidReview": "The saved review evidence is invalid. Review this procedure again.",
+        "dependenciesUnchecked": "The supporting files have not been checked yet.",
+        "missingReview": "Current review evidence is missing.",
+        "applicabilityChanged": "The conditions for using this procedure changed after review.",
+        "instructionsChanged": "The procedure instructions changed after review.",
+        "dependencyChanged": "A reviewed supporting file changed or is no longer available.",
+        "userPaused": "You stopped using this procedure.",
+        "userRequestedReview": "You requested another review of this procedure."
+      },
+      "status": {
+        "candidate": "Awaiting review",
+        "active": "In use",
+        "needs-review": "Review needed",
+        "retired": "Stopped",
+        "superseded": "Replaced"
+      },
+      "metrics": {
+        "active": "In use {{count}}",
+        "review": "To review {{count}}",
+        "retired": "Stopped {{count}}",
+        "reuse": "Reused {{count}}",
+        "skip": "Skipped {{count}}",
+        "failure": "Failed {{count}}",
+        "revision": "Revised {{count}}",
+        "hint": "Recorded outcomes, not estimated money or tokens saved."
+      }
     },
     "orchestra": {
       "title": "Orchestra",
@@ -4483,7 +4730,8 @@
         "engine": {
           "claude": "Claude",
           "codex": "Codex",
-          "auto": "Conductor chooses per role"
+          "auto": "Conductor chooses per role",
+          "inherit": "Same as conductor ({{engine}})"
         },
         "maxDefault": "Default ({{count}})"
       },
@@ -4535,7 +4783,8 @@
       },
       "phase": {
         "conducting": "Conducting",
-        "dispatched": "Handed off",
+        "dispatched": "Awaiting results",
+        "completed": "Completed",
         "answered": "Answered directly",
         "unreported": "No plan reported",
         "error": "Error"
@@ -4553,6 +4802,109 @@
         "single": "One member",
         "pipeline": "Pipeline",
         "parallel": "In parallel"
+      },
+      "readiness": {
+        "setup": "{{engine}} needs installation before it can run.",
+        "login": "Sign in to {{engine}} before using it.",
+        "refresh": "Check whether {{engine}} is ready.",
+        "prepare": "Prepare {{engine}}",
+        "recheck": "Check again",
+        "auto": "Auto uses only engines that are installed and signed in.",
+        "retry": "Your request was kept. Finish preparing {{engine}}, then send it again."
+      }
+    },
+    "configTrim": {
+      "title": "Config Trim",
+      "about": "Every turn runs from a copy of this agent settings. With trimming on, fields the chosen model or CLI would ignore are removed from that copy before the run starts.",
+      "storedSafe": "Your saved settings are never touched. Only the one-turn copy changes, so turning this off restores exactly the previous behaviour.",
+      "effectiveOn": "Trimming applies to the next turn of this session.",
+      "effectiveOff": "Trimming is off — every field is sent exactly as it was saved.",
+      "caution": "Trimming is a judgement, not a measurement. Anything we cannot decide from the installed CLI and the model list is left alone and listed under Kept out.",
+      "saveFailed": "Could not save: {{reason}}",
+      "activity": {
+        "on": "trimming on",
+        "trimmed": "{{count}} trimmed last turn"
+      },
+      "scope": {
+        "project": "Whole project",
+        "agent": "This agent",
+        "session": "This session only",
+        "inherited": "Inherits",
+        "on": "On",
+        "off": "Off",
+        "unavailable": "Not available here — open an agent tab, and a session, first.",
+        "hint": "The lower row overrides the upper one. Each press cycles on → off → inherit."
+      },
+      "blocked": {
+        "lead": "Even when on, nothing will be trimmed for this agent because:",
+        "localEngine": "It runs on a local model, where we build the prompt ourselves and there is no CLI field to drop.",
+        "terminal": "It runs in an embedded terminal, where the settings of a single turn cannot be swapped."
+      },
+      "source": {
+        "thisSession": "From this session, {{time}}.",
+        "otherSession": "From another session of this agent, {{time}} — this session has not run a turn yet.",
+        "waiting": "No turn has run yet. The two lists fill in as soon as this session runs one.",
+        "turnOnFirst": "Turn trimming on above to see what a turn would drop."
+      },
+      "trimmedPane": {
+        "title": "Trimmed away",
+        "lead": "Removed from the copy this turn ran with. The original value is shown so you can put it back yourself.",
+        "empty": "Nothing was trimmed — every field was either needed or deliberately kept."
+      },
+      "excludedPane": {
+        "title": "Kept out",
+        "lead": "Deliberately left in the copy. These are the fields trimming will not touch, and why.",
+        "empty": "Nothing was kept out of trimming on this turn."
+      },
+      "before": "was {{value}}",
+      "reason": {
+        "not-accepted": "not accepted",
+        "same-as-default": "same as default",
+        "not-implemented": "not implemented",
+        "no-effect-here": "no effect here"
+      },
+      "keep": {
+        "required": "required",
+        "user-set": "you set it",
+        "unsafe": "changes the run",
+        "unknown": "cannot tell",
+        "rule-off": "rule off"
+      },
+      "rules": {
+        "title": "Rules",
+        "lead": "Each rule decides one field. Turn a rule off and its field moves to Kept out instead of being trimmed."
+      },
+      "rule": {
+        "preset-meta": "The preset id only records where the settings came from; it is never sent to the CLI.",
+        "custom-mode-placeholder": "Review and debug custom modes are placeholders with no behaviour behind them.",
+        "model-version-gone": "This exact model id is not in the list the account can currently use.",
+        "effort-gone": "The installed CLI does not list this effort level any more.",
+        "effort-default": "Effort is left at default, which is what happens when nothing is sent.",
+        "max-turns-default": "Max turns still holds the built-in default value.",
+        "max-budget-unlimited": "A budget of 0 means unlimited, the same as not setting one.",
+        "fallback-model-empty": "The fallback model is an empty string, so there is nothing to fall back to.",
+        "thinking-on-default": "Thinking is already on by default; sending it again only adds an argument.",
+        "forward-subagent-text-on-default": "Forwarding subagent text is already on by default.",
+        "fast-mode-off-default": "Fast mode is already off by default.",
+        "permission-timeout-default": "Allow is the default permission timeout policy.",
+        "betas-empty": "The beta flag list is empty.",
+        "agent-definitions-empty": "The subagent definition list is empty.",
+        "context-window-non-opus": "The context window suffix is only read for Opus models.",
+        "fast-mode-unsupported": "The chosen model does not offer fast mode, so the CLI drops it without a word.",
+        "betas-subscription": "Beta flags are for API key accounts; a subscription login ignores them.",
+        "cli-kind-headless": "The CLI flavour only decides which terminal to open, and this turn is headless.",
+        "mcp-output-without-mcp": "No MCP server is attached, so an MCP output limit has nothing to limit.",
+        "agent-definitions-without-task": "The Task tool is not in the tool list, so these subagents cannot be called.",
+        "permission-timeout-moot": "This permission mode never shows a prompt, so a prompt timeout never applies."
+      },
+      "protected": {
+        "title": "Never trimmed",
+        "lead": "Rules never reach these fields, whichever way they are switched."
+      },
+      "runs": {
+        "title": "Recent turns",
+        "empty": "No turn has been trimmed in this project yet.",
+        "counts": "{{trimmed}} / {{excluded}}"
       }
     }
   },
@@ -5198,6 +5550,11 @@
     }
   },
   "common": {
+    "appError": {
+      "title": "This window could not be displayed.",
+      "description": "Try displaying it again. Your saved work and settings will be kept.",
+      "retry": "Try again"
+    },
     "uncommittedChanges": "Uncommitted changes",
     "iframe": {
       "urlInput": "Enter URL...",

@@ -19,18 +19,21 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { LocalDeviceInfo, LocalHardwareInfo } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getEngineState } from './localEngineService.js';
+import { getEngineCandidates, getEngineState } from './localEngineService.js';
 
 /** 장치 목록은 자주 바뀌지 않는다 — 매 조회마다 프로세스를 띄우지 않는다. */
 const CACHE_TTL_MS = 60_000;
 /** 장치 나열이 이보다 오래 걸리면 그 답은 필요 없다(화면이 기다리게 두지 않는다). */
 const PROBE_TIMEOUT_MS = 15_000;
+const PROBE_OUTPUT_MAX = 256 * 1024;
 const MIB = 1024 * 1024;
 
 let cached: LocalHardwareInfo | null = null;
 let cachedAt = 0;
 /** 동시에 여러 화면이 물어도 프로세스는 한 번만 띄운다. */
 let inflight: Promise<LocalHardwareInfo> | null = null;
+let engineKey = '';
+let probeGeneration = 0;
 
 /**
  * CPU 점유율의 최소 측정 창(코어 하나 기준 경과 ms). 스냅샷은 자주 돌아서 창이 너무 짧으면
@@ -57,7 +60,7 @@ export function parseDeviceLine(line: string): LocalDeviceInfo | null {
   if (!m) return null;
   const total = Number(m[3]);
   const free = Number(m[4]);
-  if (!Number.isFinite(total) || !Number.isFinite(free)) return null;
+  if (!Number.isSafeInteger(total * MIB) || !Number.isSafeInteger(free * MIB) || free > total) return null;
   return { name: `${m[1] ?? ''}: ${m[2] ?? ''}`, totalBytes: total * MIB, freeBytes: free * MIB };
 }
 
@@ -136,25 +139,29 @@ function sampleCpuNow(): { model: string; cores: number; percent: number } {
   return { model: read.model, cores: read.cores, percent: lastCpuPercent };
 }
 
-function runListDevices(bin: string): Promise<string> {
-  return new Promise((resolve) => {
+function runListDevices(bin: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = (text: string): void => {
+    const finish = (error?: Error): void => {
       if (settled) return;
       settled = true;
-      resolve(text);
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve([stdout, stderr]);
     };
+    // 짧은 장치 조회는 자손을 만들지 않는다. 모델 서버의 프로세스 그룹과 구분한다.
     const child = spawn(bin, ['--list-devices'], {
       cwd: path.dirname(bin),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let buf = '';
+    let stdout = '';
+    let stderr = '';
     child.stdout?.on('data', (d: Buffer) => {
-      buf += d.toString();
+      stdout = (stdout + d.toString()).slice(-PROBE_OUTPUT_MAX);
     });
     child.stderr?.on('data', (d: Buffer) => {
-      buf += d.toString();
+      stderr = (stderr + d.toString()).slice(-PROBE_OUTPUT_MAX);
     });
     const timer = setTimeout(() => {
       try {
@@ -162,17 +169,37 @@ function runListDevices(bin: string): Promise<string> {
       } catch {
         /* 이미 죽었으면 그만 */
       }
-      finish(buf);
+      finish(new Error('device probe timed out'));
     }, PROBE_TIMEOUT_MS);
-    child.on('error', () => {
-      clearTimeout(timer);
-      finish('');
+    child.on('error', (err: Error) => {
+      finish(err);
     });
-    child.on('close', () => {
-      clearTimeout(timer);
-      finish(buf);
+    child.on('close', (code) => {
+      finish(code === 0 ? undefined : new Error(`device probe exited ${String(code)}`));
     });
   });
+}
+
+/** 런타임과 같은 후보를 살핀다. CUDA 로더 실패가 정상 Vulkan 장치를 가리지 않게 한다. */
+async function probeDevices(primaryBin: string): Promise<LocalDeviceInfo[]> {
+  const bins = [...new Set([primaryBin, ...getEngineCandidates().map((candidate) => candidate.serverBin)])];
+  let answered = false;
+  for (const bin of bins) {
+    try {
+      const output = await runListDevices(bin);
+      const devices = parseDevices(output.join('\n'));
+      if (devices.length > 0) return devices;
+      // 목록 제목 뒤에 읽지 못한 장치가 남으면 CPU 전용이라고 단정하지 않는다.
+      if (!output.some((stream) => /Available devices:\s*(?:\(none\))?\s*$/.test(stream))) {
+        throw new Error('device probe returned no device list');
+      }
+      answered = true;
+    } catch (err) {
+      logger.warn('[localHardware] backend device probe failed', err);
+    }
+  }
+  if (!answered) throw new Error('no engine backend answered the device probe');
+  return [];
 }
 
 /**
@@ -202,6 +229,11 @@ function withMemory(devices: LocalDeviceInfo[], measuredAt: number): LocalHardwa
  */
 export async function getLocalHardware(): Promise<LocalHardwareInfo> {
   const engine = getEngineState();
+  const key = engine.installed && engine.serverBin ? `${engine.build ?? ''}:${engine.serverBin}` : '';
+  if (key !== engineKey) {
+    invalidateLocalHardware();
+    engineKey = key;
+  }
   if (!engine.installed || !engine.serverBin) return withMemory([], 0);
 
   const now = Date.now();
@@ -209,10 +241,12 @@ export async function getLocalHardware(): Promise<LocalHardwareInfo> {
   if (inflight) return inflight;
 
   const bin = engine.serverBin;
+  const generation = probeGeneration;
   inflight = (async (): Promise<LocalHardwareInfo> => {
     try {
-      const devices = parseDevices(await runListDevices(bin));
+      const devices = await probeDevices(bin);
       const info = withMemory(devices, Date.now());
+      if (generation !== probeGeneration) return withMemory([], 0);
       cached = info;
       cachedAt = Date.now();
       logger.info(
@@ -221,9 +255,15 @@ export async function getLocalHardware(): Promise<LocalHardwareInfo> {
       return info;
     } catch (err) {
       logger.warn('[localHardware] device probe failed', err);
-      return withMemory([], 0);
+      const unknown = withMemory([], 0);
+      if (generation === probeGeneration) {
+        // 스냅샷마다 실패한 프로세스를 다시 띄우지 않는다. 모름 상태도 조회 간격은 지킨다.
+        cached = unknown;
+        cachedAt = Date.now();
+      }
+      return unknown;
     } finally {
-      inflight = null;
+      if (generation === probeGeneration) inflight = null;
     }
   })();
   return inflight;
@@ -236,6 +276,11 @@ export async function getLocalHardware(): Promise<LocalHardwareInfo> {
  */
 export function peekLocalHardware(): LocalHardwareInfo {
   const engine = getEngineState();
+  const key = engine.installed && engine.serverBin ? `${engine.build ?? ''}:${engine.serverBin}` : '';
+  if (key !== engineKey) {
+    invalidateLocalHardware();
+    engineKey = key;
+  }
   if (!engine.installed || !engine.serverBin) return withMemory([], 0);
   if (!cached || Date.now() - cachedAt >= CACHE_TTL_MS) {
     void getLocalHardware().catch(() => undefined); // 다음 스냅샷부터 채워진다
@@ -245,6 +290,8 @@ export function peekLocalHardware(): LocalHardwareInfo {
 
 /** 엔진을 새로 깔았거나 지웠으면 다시 재야 한다. */
 export function invalidateLocalHardware(): void {
+  probeGeneration += 1;
+  inflight = null;
   cached = null;
   cachedAt = 0;
 }
