@@ -10,7 +10,7 @@ import {
 } from '../../hooks/useSessionRunning.js';
 import { useNowTick } from '../../hooks/useNowTick.js';
 import { formatElapsed } from './elapsed.js';
-import { afterInputComposition, cancelPendingInputEdits, IME_ENTER_OWNER, isComposingKeyEvent, isInputComposing } from '../../utils/inputComposition.js';
+import { afterInputComposition, cancelPendingInputEdits, IME_ENTER_OWNER, isComposingKeyEvent, isComposingNow, isImeConsumedKey, isInputComposing } from '../../utils/inputComposition.js';
 import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.js';
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { clampStreamText, COMPACT_TEXT_CLAMP, turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
@@ -1471,14 +1471,21 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const hasPendingUploads = attachments.some((a) => a.uploading);
   const canSubmit = text.trim().length > 0 && !hasPendingUploads;
 
-  const handleSubmit = useCallback(() => {
-    if (isInputComposing(textareaRef.current)) return;
-    // §6(조합 입력 보호) — 값의 정본은 **보내는 그 순간의 스토어 draft** 다. 조합 확정을 기다렸다가
-    //   한 프레임 늦게 도는 전송(`submitAfterComposition`)도 방금 확정된 마지막 글자를 함께 보내고,
-    //   같은 Enter 가 두 번 들어와도 두 번째는 이미 비워진 draft 를 보고 스스로 멈춘다.
-    //   렌더 시점 클로저(`text`)를 읽으면 그 두 경우 모두 옛 값을 보내게 된다.
+  /**
+   * @param live 입력칸의 **현재 값**(Enter 집행이 넘겨준다). 없으면 DOM → 스토어 순으로 찾는다.
+   */
+  const handleSubmit = useCallback((live?: string) => {
+    const el = textareaRef.current;
+    // §6(조합 입력 보호) — 조합 **중**이면 보내지 않는다(보내면 고르던 후보가 빈 칸에 되살아난다).
+    //   단 확정 직후의 정착 프레임은 조합이 아니다 — 글자는 이미 칸에 들어와 있고, 그걸 조합으로
+    //   세던 것이 "한글 첫 Enter 가 늘 줄바꿈"의 정체다.
+    if (isComposingNow(el)) return;
+    // 값의 정본은 **입력칸 자신**이다. 확정 직후 프레임에는 React 가 아직 마지막 글자를 받지 못했을
+    //   수 있고, 통제 입력칸이라 DOM 값은 언제나 사용자가 본 그대로다. 렌더 시점 클로저(`text`)를
+    //   읽으면 마지막 음절이 빠진 글이 나간다.
     const draft = useGraphStore.getState().agentSessionInputs[draftKey];
-    const trimmed = (draft?.text ?? '').trim();
+    const current = live ?? (el && isCurrentInput(el, draftKey) ? el.value : draft?.text ?? '');
+    const trimmed = current.trim();
     if (!trimmed) return;
     const pending = draft?.attachments ?? [];
     if (pending.some((a) => a.uploading)) return;
@@ -1503,33 +1510,16 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       setText('');
       setAttachments(() => remaining);
     }
-    if (textareaRef.current && !INPUT_FIELD_SIZING) {
-      textareaRef.current.style.height = 'auto';
+    if (el) {
+      // 보낸 글은 칸에서도 그 자리에 지운다 — React 가 다시 그리기 전에 같은 Enter 가 한 번 더
+      //   들어와도 DOM 값이 비어 있어 둘째는 스스로 멈춘다(중복 전송 차단).
+      if (isCurrentInput(el, draftKey)) el.value = '';
+      if (!INPUT_FIELD_SIZING) el.style.height = 'auto';
     }
     // 전송하면 히스토리 탐색 상태·힌트 초기화(적재는 addCommand 가 한다 — #17-23).
     historyNavRef.current = null;
     setHint(null);
-  }, [draftKey, agentId, activeSessionId, addCommand, registerAttachmentPreview, clearAgentSessionInput, setText, setAttachments, setHint]);
-
-  /**
-   * §6(조합 입력 보호) — **조합 확정 뒤 전송.** 한글을 치면 마지막 글자는 거의 늘 조합 중이라,
-   * 그 자리에서 보내면 그 글자가 빠지고 입력칸을 비우면 확정된 글자가 빈 칸에 되살아난다.
-   * 그래서 Enter 는 줄바꿈만 먼저 막아 두고(호출부 `preventDefault`), 입력기가 글자를 넣어 준
-   * 다음 프레임에 보낸다. 보내는 일 자체는 종전과 같은 창구 하나(`handleSubmit`)다.
-   *
-   * ⚠ 기다리는 사이 세션 탭을 옮겼으면 남의 세션으로 나간다 — 같은 입력칸일 때만 보낸다.
-   * ⚠ `handleSubmit` 은 매 렌더 새로 만들어지므로 ref 로 **그 시점의 것**을 부른다(옛 draft ❌).
-   */
-  const submitRef = useRef(handleSubmit);
-  submitRef.current = handleSubmit;
-  const submitAfterComposition = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    afterInputComposition(el, () => {
-      if (!isCurrentInput(el, draftKey)) return;
-      submitRef.current();
-    });
-  }, [draftKey, isCurrentInput]);
+  }, [draftKey, isCurrentInput, agentId, activeSessionId, addCommand, registerAttachmentPreview, clearAgentSessionInput, setText, setAttachments, setHint]);
 
   // §5.5 #17-10 v3.53 — [중지] = **열려 있는 세션 하나 + 그 세션이 띄운 서브에이전트** 중지.
   //   v3.51 은 이걸 에이전트 전체(stop-all)로 올려 다른 세션 탭까지 함께 끊었다 — 중지의 기본 단위는
@@ -1639,27 +1629,31 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   }, [setText, restoreCaret]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // §6(조합 입력 보호) — **Enter 는 이 칸의 것이다.** 줄을 만드는 손짓은 Shift+Enter 하나뿐이라,
-    //   조합 중 Enter 도 입력기에 넘기지 않는다. 넘기면 브라우저 기본 동작만 남아 한글·일본어·중국어
-    //   사용자에게는 **첫 Enter 가 늘 줄바꿈**이 된다(마지막 글자는 거의 언제나 조합 중이므로).
-    //   대신 기본 줄바꿈만 막아 두고 확정된 다음 프레임에 보낸다. 판정은 순수 함수 한 곳
-    //   (decideEnterKey)에 있고 여기서는 결과만 집행한다.
-    const composing = isComposingKeyEvent(e.nativeEvent);
+    // §6(조합 입력 보호) — **Enter 는 이 칸의 것이다.** 줄을 만드는 손짓은 Shift+Enter 하나뿐.
+    //   가르는 기준은 "조합 중이냐"가 아니라 **"입력기가 이 키를 먹었느냐"**다: 먹힌 키(일본어·중국어
+    //   변환 확정)는 줄만 막고 흘려보내고, 한글 확정처럼 입력기를 빠져나온 진짜 Enter 는 그 자리에서
+    //   보낸다. 둘을 뭉뚱그려 입력기에 넘기면 브라우저 기본 동작만 남아 **첫 Enter 가 늘 줄바꿈**이
+    //   된다. 판정은 순수 함수 한 곳(decideEnterKey)에 있고 여기서는 결과만 집행한다.
+    const imeConsumed = isImeConsumedKey(e.nativeEvent);
+    const composing = imeConsumed || isInputComposing(e.currentTarget);
     const slashMatched = slashOpen && slashState ? slashState.matched : [];
     const enter = decideEnterKey({
-      key: e.key, shiftKey: e.shiftKey, composing, slashMatchCount: slashMatched.length,
+      key: e.key,
+      shiftKey: e.shiftKey,
+      chordKey: e.ctrlKey || e.metaKey,
+      imeConsumed,
+      slashMatchCount: slashMatched.length,
     });
     if (enterCancelsDefault(enter)) {
       e.preventDefault();
+      if (enter.kind === 'imeCommit') return;
       if (enter.kind === 'slash') {
         const picked = slashMatched[Math.min(slashIndex, slashMatched.length - 1)];
         if (picked) confirmSlash(picked);
-      } else if (enter.kind === 'submitAfterCommit') {
-        submitAfterComposition();
       } else {
         // 실행 중에도 Enter 는 "덧말"(추가 대화) 로 동작 — 중지하지 않고 후속 메시지를 큐에 넣는다.
         // 중지는 마우스로 좌측 중지 버튼을 눌러야만 — Enter 로 실행을 끊지 않는다(사용자 보고 흐름).
-        handleSubmit();
+        handleSubmit((e.currentTarget as HTMLTextAreaElement).value);
       }
       return;
     }
@@ -1751,7 +1745,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         });
       }
     }
-  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, submitAfterComposition, agentId, activeSessionId, applyHistoryText, setHint, draftKey, isCurrentInput]);
+  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, agentId, activeSessionId, applyHistoryText, setHint, draftKey, isCurrentInput]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -2274,7 +2268,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             </button>
             <button
               type="button"
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={!canSubmit}
               className="flex h-7 flex-shrink-0 items-center gap-1 rounded bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-30"
               title={hasPendingUploads ? t('panel.commandQueue.waitingForUpload') : t('ide.mainArea.followUpTitle')}
@@ -2310,7 +2304,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             )}
             <button
               type="button"
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={!canSubmit}
               className="flex h-7 flex-shrink-0 items-center rounded bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-30"
               title={hasPendingUploads ? t('panel.commandQueue.waitingForUpload') : undefined}

@@ -33,17 +33,19 @@ export function InlinePromptPopup({
     ref.current?.focus();
   }, []);
 
-  const handleSubmit = useCallback(async () => {
-    if (!text.trim() || patching) return;
-    const ok = await patchElement(contiId, frameId, elementId, text.trim());
+  // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `text` 는 마지막 글자가 비어 있을 수 있다.
+  const handleSubmit = useCallback(async (live?: string) => {
+    const body = (live ?? text).trim();
+    if (!body || patching) return;
+    const ok = await patchElement(contiId, frameId, elementId, body);
     if (ok) {
       setText('');
       onClose();
     }
   }, [text, patching, patchElement, contiId, frameId, elementId, onClose]);
 
-  // §6 — Enter 재가동 / Shift+Enter 줄바꿈. 조합 중 Enter 도 줄이 아니라 재가동이다(확정 뒤).
-  const onEnterKey = useEnterSubmit(() => void handleSubmit());
+  // §6 — Enter 재가동 / Shift+Enter 줄바꿈. 한글 확정의 첫 Enter 도 줄이 아니라 재가동이다.
+  const onEnterKey = useEnterSubmit((live) => void handleSubmit(live));
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

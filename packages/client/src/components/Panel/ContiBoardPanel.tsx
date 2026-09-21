@@ -10,6 +10,8 @@ import { StampSvg } from './ContiStamps.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
 import { shortcutLabel } from '../../utils/platform.js';
+import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 
 /** §5.3 #28 v1.59 — 표준 16:9 스토리보드 viewBox. CONTI_DEFAULTS 와 동기화. */
 const VB_W = 320;
@@ -273,10 +275,11 @@ function FrameCard({
     setDraft(current);
     setEditing(field);
   };
-  const commitEdit = (): void => {
+  // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `draft` 는 마지막 글자가 비어 있을 수 있다.
+  const commitEdit = (live?: string): void => {
     if (!editing) return;
     const field = editing;
-    const next = draft;
+    const next = live ?? draft;
     const current = field === 'title' ? frame.title : frame.action;
     if (next !== current) onPatchText({ [field]: next });
     setEditing(null);
@@ -322,11 +325,12 @@ function FrameCard({
           onChange={(e) => setDraft(e.target.value)}
           onClick={stopClick}
           onMouseDown={stopClick}
-          onBlur={commitEdit}
+          onBlur={() => commitEdit()}
+          {...IME_ENTER_OWNER}
           onKeyDown={(e) => {
             stopClick(e);
-            if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-            else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+            if (runEnterKey(e, commitEdit)) return;
+            if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
           }}
           className="rounded border border-[#A78BFA] bg-[#0F1117] px-2 py-1 text-base font-semibold leading-tight text-gray-100 outline-none focus:ring-1 focus:ring-[#A78BFA]"
         />
@@ -367,11 +371,12 @@ function FrameCard({
           onChange={(e) => setDraft(e.target.value)}
           onClick={stopClick}
           onMouseDown={stopClick}
-          onBlur={commitEdit}
+          onBlur={() => commitEdit()}
+          {...IME_ENTER_OWNER}
           onKeyDown={(e) => {
             stopClick(e);
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitEdit(); }
-            else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+            if (runEnterKey(e, commitEdit, 'chord')) return;
+            if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
           }}
           rows={3}
           className="resize-y rounded border border-[#A78BFA] bg-[#0F1117] px-2 py-1 text-xs leading-snug text-gray-300 outline-none focus:ring-1 focus:ring-[#A78BFA]"

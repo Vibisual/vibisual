@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { shortcutLabel } from '../../utils/platform.js';
+import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 import { PREVIEW_DEVICE_PRESETS } from '@vibisual/shared';
 
 import { buildPickPrompt, describePickedElement } from './pickPrompt.js';
@@ -153,9 +155,10 @@ export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React
   const [copied, setCopied] = useState(false);
   const picked = picker.picked;
 
-  const handleSend = useCallback(() => {
+  // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `text` 는 마지막 글자가 비어 있을 수 있다.
+  const handleSend = useCallback((live?: string) => {
     if (!picked) return;
-    const prompt = buildPickPrompt(picked, text, t('common.preview.pickPromptHeader'), {
+    const prompt = buildPickPrompt(picked, live ?? text, t('common.preview.pickPromptHeader'), {
       page: t('common.preview.pickLabelPage'),
       element: t('common.preview.pickLabelElement'),
       selector: t('common.preview.pickLabelSelector'),
@@ -250,16 +253,15 @@ export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSend(); }
-              }}
+              {...IME_ENTER_OWNER}
+              onKeyDown={(e) => { runEnterKey(e, handleSend, 'chord'); }}
               rows={2}
               placeholder={t('common.preview.pickPlaceholder', { shortcut: shortcutLabel('Ctrl+Enter') })}
               className="scrollbar-thin min-w-0 flex-1 resize-none rounded border border-white/[0.08] bg-gray-950/70 px-2 py-1 text-[12px] text-gray-200 outline-none focus:border-blue-500/60"
             />
             <button
               type="button"
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={picker.hostAgentId === undefined || text.trim() === ''}
               className="flex-shrink-0 rounded bg-blue-600/85 px-2 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
               title={picker.hostAgentId === undefined ? t('common.preview.pickNoHost') : undefined}

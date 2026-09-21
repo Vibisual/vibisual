@@ -72,9 +72,10 @@ export const CommentBoxNode = memo(function CommentBoxNode({
     }
   }, [editing]);
 
-  const commit = useCallback(() => {
+  // live = 입력칸의 현재 값. 조합 확정 직후 프레임에는 `draft` 가 마지막 글자를 아직 못 받았다.
+  const commit = useCallback((live?: string) => {
     setEditing(false);
-    const trimmed = draft.trim();
+    const trimmed = (live ?? draft).trim();
     if (trimmed === d.text) return;
     void updateCommentBox(d.commentBoxId, { text: trimmed });
   }, [draft, d.text, d.commentBoxId, updateCommentBox]);
@@ -236,7 +237,7 @@ export const CommentBoxNode = memo(function CommentBoxNode({
             ref={textareaRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
+            onBlur={() => commit()}
             onKeyDown={handleKeyDown}
             {...IME_ENTER_OWNER}
             className="nodrag"

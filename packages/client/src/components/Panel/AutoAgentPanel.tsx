@@ -10,6 +10,8 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, AutoAgentSummary, AutoAgentClarifyingQuestion, SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
 // §5.3 #9-1 (P) — 조용한 선행 압축은 감추고, 그 진행 표시는 뒤에 선 명령이 물려받는다.
@@ -39,8 +41,9 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
   //   종전에는 빌더 완료 = `completed` 라 이 구간에 입력이 열려 있었고, 그 UX 를 그대로 유지한다.
   const isBusy = phase !== 'idle' && phase !== 'completed' && phase !== 'error' && phase !== 'running';
 
-  const handleSend = useCallback(() => {
-    const text = draft.trim();
+  // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `draft` 는 마지막 글자가 비어 있을 수 있다.
+  const handleSend = useCallback((live?: string) => {
+    const text = (live ?? draft).trim();
     if (!text || isBusy) return;
     sendMessage(sessionId, text);
     setDraft('');
@@ -51,10 +54,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
   }, [toggleQuestions, sessionId, askQuestionsEnabled]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSend();
-    }
+    runEnterKey(e, handleSend, 'chord');
   }, [handleSend]);
 
   const phaseLabel = useMemo(() => {
@@ -178,6 +178,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          {...IME_ENTER_OWNER}
           onKeyDown={handleKeyDown}
           placeholder={t('panel.autoAgent.placeholder')}
           disabled={isBusy}
@@ -188,7 +189,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
           <span className="text-[12px] text-gray-600">{t('panel.autoAgent.shortcutHint')}</span>
           <button
             type="button"
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={!draft.trim() || isBusy}
             className="rounded bg-blue-900 px-3 py-1 text-xs font-medium text-white hover:bg-blue-800 disabled:opacity-40"
           >

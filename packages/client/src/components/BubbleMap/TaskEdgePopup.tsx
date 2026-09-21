@@ -1,5 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 import type {
   TaskEdgeForwardMode,
   TaskEdgeTemplate,
@@ -415,10 +417,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   }, [editingEdgeId, deleteTaskEdge, onClose]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-    }
+    if (runEnterKey(e, () => handleSubmit(), 'chord')) return;
     if (e.key === 'Escape') onClose();
   }, [handleSubmit, onClose]);
 
@@ -483,6 +482,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           rows={3}
           value={command}
           onChange={(e) => setCommand(e.target.value)}
+          {...IME_ENTER_OWNER}
           onKeyDown={handleKeyDown}
           placeholder={t('bubbleMap.taskEdgePopup.messagePlaceholder')}
         />

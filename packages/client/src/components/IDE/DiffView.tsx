@@ -10,6 +10,8 @@
  * 상태바의 [리뷰 N건 보내기] 로 **한 명령에 모여** 나간다 — 조립은 `diffCommentPrompt.ts`.
  */
 import { memo, useMemo, useCallback, useState, Fragment } from 'react';
+import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 import { useTranslation } from 'react-i18next';
 import { shortcutLabel } from '../../utils/platform.js';
 import { DIFF_COMMENT_MAX } from '@vibisual/shared';
@@ -173,8 +175,9 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
 
   const closeDraft = useCallback(() => { setDraftAt(null); setDraftText(''); }, []);
 
-  const submitDraft = useCallback((row: DiffRow) => {
-    const body = draftText.trim();
+  // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `draftText` 는 마지막 글자가 비어 있을 수 있다.
+  const submitDraft = useCallback((row: DiffRow, live?: string) => {
+    const body = (live ?? draftText).trim();
     if (!review || body === '') { closeDraft(); return; }
     const anchor = rowAnchor(row);
     addDiffComment(review.sessionKey, {
@@ -255,10 +258,11 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                           autoFocus
                           value={draftText}
                           onChange={(e) => setDraftText(e.target.value)}
+                          {...IME_ENTER_OWNER}
                           onKeyDown={(e) => {
                             if (e.key === 'Escape') { e.stopPropagation(); closeDraft(); }
                             // Ctrl/Cmd+Enter 로 확정 — 그냥 Enter 는 줄바꿈(여러 줄 코멘트를 막지 않는다).
-                            else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitDraft(row); }
+                            else runEnterKey(e, (live) => submitDraft(row, live), 'chord');
                           }}
                           rows={2}
                           placeholder={t('ide.diff.commentPlaceholder', { shortcut: shortcutLabel('Ctrl+Enter') })}

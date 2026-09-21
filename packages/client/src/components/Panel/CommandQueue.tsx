@@ -7,6 +7,8 @@ import type { QueuedCommand, SubAgent } from '@vibisual/shared';
 import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE, displayCommands } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 
 const EMPTY_COMMANDS: QueuedCommand[] = [];
 const API_BASE = '';
@@ -218,12 +220,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
   }, [text, selectedSubId, attachments, hasPendingUploads, onSubmit, onClose]);
 
   const handleTextareaKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        handleSubmit();
-      }
-    },
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => { runEnterKey(e, handleSubmit, 'chord'); },
     [handleSubmit],
   );
 
@@ -372,6 +369,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                 onChange={(e) => setText(e.target.value)}
                 onInput={handleInput}
                 onPaste={handlePaste}
+                {...IME_ENTER_OWNER}
                 onKeyDown={handleTextareaKeyDown}
                 rows={3}
                 placeholder={t('panel.commandQueue.placeholder', { paste: shortcutLabel('Ctrl+V') })}

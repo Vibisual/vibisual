@@ -56,8 +56,9 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
       });
     }, [item, projectId]);
 
-    const handleSend = useCallback((): void => {
-      const text = draft.trim();
+    const handleSend = useCallback((live?: string): void => {
+      // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `draft` 는 마지막 글자가 비어 있을 수 있다.
+      const text = (live ?? draft).trim();
       if (!text) return;
       useGraphStore.getState().addCommand(item.agentId, text, item.subAgentId);
       setDraft('');
@@ -247,7 +248,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             </span>
             <button
               type="button"
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!draft.trim()}
               className="rounded-md bg-sky-600/80 px-3 py-1 text-[12px] font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-gray-600"
             >

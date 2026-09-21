@@ -12,6 +12,8 @@ import { riskLabelKey, riskToneClass } from '../../utils/auditLog.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
 import { shortcutLabel } from '../../utils/platform.js';
+import { isImeConsumedKey } from '../../utils/inputComposition.js';
+import { decideEnterKey } from '../../utils/inputEnterKey.js';
 
 /** §5.3 #12-1 v1.43 — 스택 모달 간 z-index 시작값. */
 const BASE_Z = 100_000;
@@ -102,9 +104,22 @@ function PermissionModal({
       if (e.key === 'Escape') {
         e.preventDefault();
         void submit('reject_once', 'user-cancel');
-      } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        void submit('allow_once');
+      } else {
+        // Ctrl/Cmd+Enter = 이번만 허용. 판정은 보내는 칸들과 **같은 한 곳**에서 — 입력기가 먹은
+        //   키(조합 중·변환 확정)를 허용으로 세면, 거절 사유를 한글로 적다 확정하는 순간 허용이 나간다.
+        //   창 전체 단축키라 칸 임자 표시(`IME_ENTER_OWNER`)는 붙지 않는다 — 임자가 될 칸이 없다.
+        const enter = decideEnterKey({
+          key: e.key,
+          shiftKey: e.shiftKey,
+          chordKey: e.ctrlKey || e.metaKey,
+          imeConsumed: isImeConsumedKey(e),
+          slashMatchCount: 0,
+          gesture: 'chord',
+        });
+        if (enter.kind === 'submit') {
+          e.preventDefault();
+          void submit('allow_once');
+        }
       }
     };
     window.addEventListener('keydown', onKey);

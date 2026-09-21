@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   afterInputComposition, cancelPendingInputEdits, IME_ENTER_OWNER, installInputCompositionGuard,
-  isComposingKeyEvent, isInputComposing,
+  isComposingKeyEvent, isComposingNow, isImeConsumedKey, isInputComposing,
 } from './inputComposition.js';
 
 import { emit, field, harness } from './inputComposition.testHelpers.js';
@@ -44,6 +44,51 @@ describe('IME owns candidate keys without cancelling native editing', () => {
     for (const key of ['Escape', 'Tab', 'ArrowUp', 'ArrowDown']) {
       emit(h.view, 'keydown', input, { key, isComposing: true });
     }
+    expect(h.command).toHaveBeenCalledTimes(1);
+    h.dispose();
+  });
+
+  /**
+   * 신고된 증상의 **정확한 차례**다. 지금까지의 시험은 compositionend 와 확정 Enter 사이에서 늘
+   * `h.view.frame()` 을 한 번 돌렸다 — 실제 입력 버스트에는 그 프레임이 없다. 그 한 칸 때문에
+   * "확정 직후 Enter" 가 한 번도 시험된 적이 없었고, 한글 사용자에겐 그게 매번이었다.
+   */
+  it('the commit Enter in the same frame as compositionend is a send, not a line break', () => {
+    const h = harness();
+    const owner = Object.assign(field(), {
+      getAttribute: (name: string) => (name === 'data-ime-enter' ? IME_ENTER_OWNER['data-ime-enter'] : null),
+    });
+    emit(h.view, 'compositionstart', owner);
+    // 한글 확정 한 번에 keydown 은 둘이다: 입력기가 먹은 229, 그리고 입력기를 빠져나온 진짜 Enter.
+    const eaten = emit(h.view, 'keydown', owner, { key: 'Enter', isComposing: true, keyCode: 229 });
+    emit(h.view, 'compositionend', owner);
+    // ⚠ 여기서 프레임을 넘기지 않는다.
+    const commit = emit(h.view, 'keydown', owner, { key: 'Enter', isComposing: false, keyCode: 13 });
+
+    // 가드는 둘 다 칸에 넘긴다 — 붙들면 기본 줄바꿈만 남는다. 기본 동작도 가드가 막지 않는다.
+    expect(h.command).toHaveBeenCalledTimes(2);
+    expect(eaten.defaultPrevented).toBe(false);
+    expect(commit.defaultPrevented).toBe(false);
+
+    // 둘을 가르는 것은 칸의 몫이고, 가를 근거가 바로 이 두 술어다.
+    expect(isImeConsumedKey(eaten)).toBe(true);
+    expect(isImeConsumedKey(commit)).toBe(false);
+    // 확정 Enter 는 정착 프레임 안이라 "조합"으로 보이지만, 조합 **중**은 아니다 —
+    //   글자는 이미 칸에 들어와 있다. 이 둘을 같은 것으로 세던 것이 버그였다.
+    expect(isComposingKeyEvent(commit)).toBe(true);
+    expect(isComposingNow(owner)).toBe(false);
+    h.dispose();
+  });
+
+  it('a plain field still hands the settling Enter to the IME — nothing there sends on Enter', () => {
+    const h = harness(); const input = field();
+    emit(h.view, 'compositionstart', input);
+    emit(h.view, 'compositionend', input);
+    const settling = emit(h.view, 'keydown', input, { key: 'Enter', isComposing: false, keyCode: 13 });
+    expect(h.command).not.toHaveBeenCalled();
+    expect(settling.defaultPrevented).toBe(false);
+    h.view.frame();
+    emit(h.view, 'keydown', input, { key: 'Enter', isComposing: false, keyCode: 13 });
     expect(h.command).toHaveBeenCalledTimes(1);
     h.dispose();
   });
