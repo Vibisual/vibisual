@@ -146,6 +146,35 @@ describe('verification demo frame uploads', () => {
     expect(fixture.saved).not.toHaveBeenCalled();
   });
 
+  // Windows answers EPERM to the `lstat` that `rm` starts with whenever an entry is pending deletion,
+  // and `rm` throws that straight through — its retry options never sleep (measured 0.2ms). Nothing on
+  // POSIX produces that state, so it is staged here: the refusal has to leave the cleanup still running,
+  // because the entry disappears on close and only a later pass can see the directory empty.
+  it('takes the directory down even after the frame removal is refused once', async () => {
+    const fixture = await harness();
+    const upload = await fixture.beginUpload(100, 'in-flight-frame');
+    fixture.graph.deleteVerificationDemo(fixture.demo.id);
+    const realRm = fs.promises.rm.bind(fs.promises);
+    let attempts = 0;
+    const spy = vi.spyOn(fs.promises, 'rm').mockImplementation(async (target, options) => {
+      if (!String(target).endsWith('.png')) return realRm(target as string, options);
+      attempts += 1;
+      if (attempts > 1) return realRm(target as string, options);
+      const refusal = new Error(`EPERM: operation not permitted, lstat '${String(target)}'`) as NodeJS.ErrnoException;
+      refusal.code = 'EPERM';
+      throw refusal;
+    });
+    try {
+      const response = await upload.finish();
+      expect(response.status).toBe(404);
+      expect(attempts, '거절당하고 그대로 물러섰다').toBeGreaterThan(1);
+      expect(fs.existsSync(fixture.dir), '프레임이 안 지워지자 폴더까지 남았다').toBe(false);
+      expect(fixture.saved).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   // No POSIX run can catch a regression here: unlinking an open file just works, so both forms pass.
   // Only Windows tells them apart, and there the sync form cannot work at all — its retries sleep by
   // blocking the event loop, so the stream close they are waiting for never gets to run.
@@ -157,23 +186,47 @@ describe('verification demo frame uploads', () => {
     expect(source).not.toMatch(/\bfs\.(rmSync|rmdirSync|unlinkSync)\b/);
   });
 
-  // `rmdir` takes `maxRetries`/`retryDelay` and **ignores both unless `recursive` is set** — measured
-  // against a directory that could never be emptied, `{ maxRetries: 3, retryDelay: 200 }` came back
-  // ENOTEMPTY in 0.1ms, i.e. it never slept once. Handing it those options reads like a retry budget
-  // while buying exactly one attempt, and one attempt is what the Windows runner cannot afford: the
-  // file removed a moment earlier is still listed until its handle closes. POSIX never shows it.
-  it('does not hand rmdir a retry budget it ignores — the waiting is written out', () => {
+  // Both calls advertise `maxRetries`/`retryDelay` and neither honours them for what this path raises.
+  // Measured: `rm(file, { force: true, maxRetries: 5, retryDelay: 20 })` against a path whose parent
+  // denies access came back EPERM in 0.2ms, and `rmdir(dir, { maxRetries: 3, retryDelay: 200 })` against
+  // a directory that could never be emptied came back ENOTEMPTY in 0.1ms. Neither ever slept once, so
+  // passing those options reads like a retry budget while buying exactly one attempt — and one attempt
+  // is what the Windows runner cannot afford. POSIX never shows it, so only this can hold the line.
+  it.each(['await fs.promises.rm(', 'await fs.promises.rmdir('])(
+    'does not hand %s a retry budget it ignores — the waiting is written out',
+    (call) => {
+      const source = fs.readFileSync(new URL('./verificationFrameUpload.ts', import.meta.url), 'utf8')
+        .replace(/\r\n/g, '\n');
+      // Anchored on `await` so the comment above, which quotes the ignored options to explain them,
+      // is not mistaken for the call itself.
+      const at = source.indexOf(call);
+      expect(at, `${call} 호출을 못 찾았다`).toBeGreaterThan(-1);
+      const args = source.slice(at, source.indexOf(';', at));
+      expect(args, `${call} 에 무시되는 재시도 예산을 넘긴다`).not.toContain('maxRetries');
+      expect(args, `${call} 에 무시되는 재시도 예산을 넘긴다`).not.toContain('retryDelay');
+      // And the waiting has to exist somewhere — an awaited sleep between attempts, not a blocking one.
+      expect(source, '시도 사이에 기다리지 않는다').toMatch(/setTimeout\(resolve/);
+    },
+  );
+
+  // The frame and its directory are two separate removals, and the first one failing is exactly when the
+  // second matters most: Windows can leave the frame pending deletion, where its entry only disappears
+  // once the handle closes and nothing but a later directory attempt can see it. Letting the frame's
+  // error escape skipped the directory step outright, which is how CI run #49 orphaned the folder.
+  it('does not let a frame that will not go stop its directory from going', () => {
     const source = fs.readFileSync(new URL('./verificationFrameUpload.ts', import.meta.url), 'utf8')
       .replace(/\r\n/g, '\n');
-    // Anchored on `await` so the comment above the helper — which quotes the ignored options in order
-    // to explain them — is not mistaken for the call itself.
+    const rmAt = source.indexOf('await fs.promises.rm(');
     const rmdirAt = source.indexOf('await fs.promises.rmdir(');
-    expect(rmdirAt, 'rmdir 호출을 못 찾았다').toBeGreaterThan(-1);
-    // Only that one call's arguments — a `maxRetries` elsewhere (rm, rmSync in a fixture) is fine.
-    const call = source.slice(rmdirAt, source.indexOf(';', rmdirAt));
-    expect(call, 'rmdir 에 무시되는 재시도 예산을 넘긴다').not.toContain('maxRetries');
-    expect(call, 'rmdir 에 무시되는 재시도 예산을 넘긴다').not.toContain('retryDelay');
-    // And the waiting has to exist somewhere — an awaited sleep between attempts, not a blocking one.
-    expect(source, '시도 사이에 기다리지 않는다').toMatch(/setTimeout\(resolve/);
+    expect(rmAt, '프레임 제거를 못 찾았다').toBeGreaterThan(-1);
+    expect(rmdirAt, '디렉터리 제거를 못 찾았다').toBeGreaterThan(-1);
+    // Neither may sit inside a `try` that the other's failure would unwind — each is wrapped in the
+    // predicate that turns a still-held path into `false` instead of a throw.
+    for (const [label, at] of [['프레임', rmAt], ['디렉터리', rmdirAt]] as const) {
+      const line = source.slice(source.lastIndexOf('\n', at) + 1, source.indexOf('\n', at));
+      expect(line, `${label} 제거가 gone() 밖에 있다`).toContain('gone(');
+    }
+    // And the loop has to come back for a second look — one pass cannot outlast a pending deletion.
+    expect(source, '한 번만 시도하고 만다').toMatch(/for \(const delay of DISCARD_DELAYS\)/);
   });
 });

@@ -284,6 +284,18 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   if (isAutoCompactOn(resolvedAutoCompact)) {
     args.push('--autocompact', resolvedAutoCompact);
   }
+
+  // §4 (CLI 사양 추종) — **시스템 프롬프트를 박제하지 않는다.** 설치본 기본은 `on` 이고, 그 뜻은
+  //   `--help` 원문대로 "대화의 첫 요청에서 (`--append-system-prompt` 를 포함해) 프롬프트를 렌더해
+  //   기록해 두고, 이후 **모든 요청과 resume 은 나중 실행이 다른 글을 넘겨도 그 기록을 그대로 보낸다**,
+  //   압축될 때까지" 이다. 우리는 매 턴 `--resume` 으로 이어 붙이면서 그때그때 달라진 집행 문구를
+  //   `--append-system-prompt` 로 싣기 때문에(이 파일의 스폰부), 기본값을 그대로 두면 **첫 턴 문구가
+  //   굳고 이후 턴의 집행이 조용히 사라진다** — 플래그 오류도 로그도 없이 글만 안 바뀌는 자리라
+  //   증상으로는 영영 못 찾는다. `off` 는 매 요청 새로 렌더한다.
+  //   ⚠ 값이 아니라 **선택지**다 — `on|off` 밖의 값을 주면 `argument … is invalid` 로 즉시 종료한다
+  //   (실측 2.1.278: `off` 는 `--print` probe 통과, `--version` 조합도 통과해 인터랙티브 경로에서도
+  //   안전하다. 그래서 헤드리스 전용 printFlags 가 아니라 두 경로가 공유하는 여기에 붙인다).
+  args.push('--system-prompt-snapshot', 'off');
   if (config.excludeDynamicSystemPromptSections) {
     args.push('--exclude-dynamic-system-prompt-sections');
   }

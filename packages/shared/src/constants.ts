@@ -2535,7 +2535,7 @@ export function listModelFamilies(registry?: ModelRegistry | null): string[] {
 }
 
 /**
- * §4 (CLI 사양 추종) — 공식 도구 표(`code.claude.com/docs/en/tools-reference`, 2.1.251) 그대로 45종.
+ * §4 (CLI 사양 추종) — 공식 도구 표(`code.claude.com/docs/en/tools-reference`, 2.1.278) 그대로 46종.
  *
  * `AVAILABLE_AGENT_TOOLS` 가 이 표를 **전부 담고 있는지** 회귀로 고정하기 위한 대조본이다.
  * 목록에 넣는 것을 잊으면 그 도구는 우리 에이전트에게 존재하지 않게 되는데, 화면·타입·저장은
@@ -2547,9 +2547,9 @@ export const CLI_BUILTIN_TOOLS: readonly string[] = [
   'Glob', 'Grep', 'ListAgents', 'ListMcpResourcesTool', 'LSP', 'Monitor', 'NotebookEdit',
   'PowerShell', 'PushNotification', 'Read', 'ReadMcpResourceTool', 'RemoteTrigger',
   'ReportFindings', 'ScheduleWakeup', 'SendFeedback', 'SendMessage', 'SendUserFile',
-  'ShareOnboardingGuide', 'Skill', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput',
-  'TaskStop', 'TaskUpdate', 'TodoWrite', 'ToolSearch', 'WaitForMcpServers', 'WebFetch',
-  'WebSearch', 'Workflow', 'Write',
+  'ShareOnboardingGuide', 'Skill', 'SubagentHandback', 'TaskCreate', 'TaskGet',
+  'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'TodoWrite', 'ToolSearch',
+  'WaitForMcpServers', 'WebFetch', 'WebSearch', 'Workflow', 'Write',
 ];
 
 /**
@@ -2557,7 +2557,7 @@ export const CLI_BUILTIN_TOOLS: readonly string[] = [
  *
  * `BashOutput`·`KillShell` 은 백그라운드 Bash 의 결과 회수·종료였고 지금은 `Bash`(백그라운드 실행)
  * + `Monitor` + `TaskOutput`/`TaskStop` 으로 갈렸다. `MultiEdit` 은 `Edit` 에 흡수됐다.
- * 셋 다 2.1.251 공식 표에도 설정 스키마에도 없다.
+ * 셋 다 2.1.278 공식 표에도 설정 스키마에도 없다.
  *
  * **그래도 지우지 않는다** — CLI 는 모르는 도구 이름을 인자 파싱 단계에서 거부하지 않으므로
  * (실측: `--tools NotAToolXyz` 가 플래그 오류를 내지 않는다) 남겨서 잃는 것이 없고, 반대로 이
@@ -2593,7 +2593,10 @@ export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
   // ── 위임·오케스트레이션 ──
   //   `Workflow` 는 서브에이전트를 스크립트로 대량 지휘하는 축이라 캔버스 모델과 정면으로 맞는다.
   //   `ListAgents` 는 세션 간 발견(§5.12 Command Center 와 같은 갈래).
-  'Agent', 'Workflow', 'ListAgents', 'SendMessage', 'TaskOutput', 'TaskStop',
+  //   `SubagentHandback` 은 자식이 끝낸 일의 **최종 보고를 그 결과를 받는 대화로 되돌려 주는** 도구다
+  //   (공식 표 2.1.278 에서 늘어난 한 종). `Agent`·`Workflow` 로 위임해 놓고 이것만 빼면 자식은 일을
+  //   마치고도 부모 대화에 건넬 길이 없다 — 위임을 캔버스의 축으로 파는 우리에게는 특히 그렇다.
+  'Agent', 'Workflow', 'ListAgents', 'SendMessage', 'SubagentHandback', 'TaskOutput', 'TaskStop',
   // ── 작업(Task) 장부 ──
   //   `TaskCreated`/`TaskCompleted` 훅이 발화하는 바로 그 도구들이다(§3.6). 이게 없으면 훅을
   //   등록해도 영영 한 건도 오지 않는다 — 목표 창(§5.5 #17-17)과 한 쌍으로 다룬다.
@@ -2625,7 +2628,7 @@ export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
  * 없어서" 빠진 항목. 체크포인트 복원 시 1회 백필해 판올림 전에 만든 에이전트도 계획을 세울 수
  * 있게 한다. 복원 경로에서만 채우므로 사용자가 이후 직접 해제한 선택은 되살아나지 않는다.
  *
- * §4 (CLI 사양 추종) — 공식 표 45종을 통째로 받은 뒤로는 **`AVAILABLE_AGENT_TOOLS` 전체**가
+ * §4 (CLI 사양 추종) — 공식 표를 통째로 받은 뒤로는 **`AVAILABLE_AGENT_TOOLS` 전체**가
  * 백필 대상이다. 항목을 손으로 다시 나열하면 새 도구를 넣을 때마다 여기를 잊게 되고, 그러면
  * 판올림 전에 만든 에이전트만 영영 그 도구를 못 갖는다(화면·타입·저장은 멀쩡해 아무 데도 안 걸린다).
  */
@@ -2644,8 +2647,9 @@ export const BACKFILL_AGENT_TOOLS: readonly string[] = [...AVAILABLE_AGENT_TOOLS
  *
  * - 세대 1 — v4.59 `TodoWrite` 외 (세대 표식이 없던 시절. 표식 없는 설정 = 세대 0 취급)
  * - 세대 2 — 공식 도구 표 45종 전체 수용
+ * - 세대 3 — 2.1.278 표에서 늘어난 `SubagentHandback` 수용
  */
-export const AGENT_TOOLS_BACKFILL_GEN = 2;
+export const AGENT_TOOLS_BACKFILL_GEN = 3;
 
 /**
  * §4 (설정 3층) — 도구 목록에 **세대 도장이 찍히기 전 한 번만** 새 내장 도구를 채운다.

@@ -17,49 +17,57 @@ interface VerificationFrameUploadOptions {
 
 // multer calls back on the write stream's 'finish', and at that moment the stream's own close has not
 // even been requested — it lands a tick later (measured 0.59ms). Windows opens the file without
-// FILE_SHARE_DELETE, so removing it while that handle lives fails with EPERM/EBUSY. The retries must be
-// the asynchronous kind: `rmSync` retries sleep by *blocking* the event loop, so the close they wait for
-// can never run (measured still open after 200ms of blocking, which outlasts the whole retry budget).
-// POSIX unlinks open files outright, which is why this only ever surfaced on the Windows CI runner.
-const FILE_RETRY = { maxRetries: 5, retryDelay: 20 };
-// The directory budget stays short on purpose: an ENOTEMPTY that is not Windows' delete-pending window
-// means another upload owns the directory, and giving up fast is better than waiting out its work.
-const DIR_RETRY_DELAYS = [0, 20, 50, 100, 200];
+// FILE_SHARE_DELETE, so while that handle lives the frame cannot be removed; if a deletion was already
+// issued against it the entry stays listed as pending and even `lstat` is refused. POSIX unlinks open
+// files outright, which is why none of this is visible anywhere but the Windows runner.
+//
+// The waiting has to be written out here, because neither call will do it. Both `rm` and `rmdir` accept
+// `maxRetries`/`retryDelay` and neither honours them for the errors this path actually raises — measured
+// on this machine, `rm(file, { force: true, maxRetries: 5, retryDelay: 20 })` came back EPERM in 0.2ms
+// (0.4ms with `recursive` added) and `rmdir(dir, { maxRetries: 3, retryDelay: 200 })` came back ENOTEMPTY
+// in 0.1ms. Neither ever slept, so the budget they advertise is one attempt. And the wait must be the
+// awaited kind: a blocking retry holds the event loop, so the stream close it is waiting for can never
+// run — that is why `rmSync` cannot work here at all.
+const DISCARD_DELAYS = [0, 10, 25, 50, 100, 200, 400, 800];
 
-// The waiting has to be written out here, because `rmdir` will not do it. `fs.promises.rmdir(dir,
-// { maxRetries, retryDelay })` **ignores both unless `recursive` is set** — measured against a directory
-// that can never be emptied it came back ENOTEMPTY in 0.1ms even with `retryDelay: 200`, so it never
-// slept once and the whole budget was one attempt. `recursive` is not a way out: an ENOTEMPTY here
-// usually means another upload owns the directory, and forcing it would delete that upload's frames.
-// One attempt is exactly what Windows cannot afford — the file removed a line above stays listed until
-// its handle closes, and that close only runs once the event loop is free, which is why the wait is
-// awaited rather than blocking.
-async function removeFrameDirectory(dir: string): Promise<void> {
-  for (const delay of DIR_RETRY_DELAYS) {
-    if (delay > 0) await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
-    try {
-      await fs.promises.rmdir(dir);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') return;
-      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw err;
-    }
+/** True once the path is gone — removed just now, or already absent. False while something still holds it. */
+async function gone(remove: () => Promise<void>): Promise<boolean> {
+  try {
+    await remove();
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return true;
+    // EPERM/EBUSY/EACCES: a handle still lives, or the entry is pending deletion and refuses to be read.
+    // ENOTEMPTY: the frame has not disappeared yet — or the directory was never ours to take.
+    if (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES' || code === 'ENOTEMPTY') return false;
+    throw err;
   }
-  // Still occupied after the budget: it belongs to someone else, and whoever owns it takes it down.
 }
 
 /** Rejecting an upload must also release its file, including after the demo was deleted. */
 async function discardFrame(file: Express.Multer.File, removeEmptyDirectory: boolean): Promise<void> {
+  const dir = path.dirname(file.path);
   try {
-    await fs.promises.rm(file.path, { force: true, ...FILE_RETRY });
-    if (removeEmptyDirectory) await removeFrameDirectory(path.dirname(file.path));
-  } catch (err) {
-    // Another upload/delete may already have removed the directory, or still be writing inside it.
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST') {
-      logger.warn(`[verify] rejected frame cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+    let fileGone = false;
+    for (const delay of DISCARD_DELAYS) {
+      if (delay > 0) await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
+      // The two steps are attempted independently on purpose. A frame that will not go must not stop the
+      // directory from going: when Windows leaves the frame pending deletion its entry disappears on
+      // close, and only the directory step ever notices. Letting the frame's error escape skipped that
+      // step entirely, which is how a rejected upload kept orphaning its folder on the runner.
+      if (!fileGone) fileGone = await gone(async () => { await fs.promises.rm(file.path, { force: true }); });
+      if (!removeEmptyDirectory) {
+        if (fileGone) return;
+        continue;
+      }
+      // `rmdir`, never `rm({ recursive: true })`: an ENOTEMPTY here can mean another upload owns this
+      // directory, and forcing it would delete that upload's frames.
+      if (await gone(async () => { await fs.promises.rmdir(dir); })) return;
     }
+    logger.warn(`[verify] rejected frame still on disk after retries: ${file.path}`);
+  } catch (err) {
+    logger.warn(`[verify] rejected frame cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

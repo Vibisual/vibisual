@@ -130,6 +130,24 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
     }
   });
 
+  // §4 (CLI 사양 추종) — 시스템 프롬프트 박제 끄기. 설치본 기본이 `on` 이라 **안 붙이면 켜진 것**이고,
+  //   그러면 첫 턴의 `--append-system-prompt` 가 굳어 이후 턴의 집행 문구가 조용히 무시된다.
+  //   증상이 "글이 안 바뀐다" 뿐이라 이 검사가 없으면 되돌아가도 아무도 모른다.
+  it('시스템 프롬프트 박제를 끈다 — 매 턴 바뀌는 `--append-system-prompt` 가 첫 턴에 굳지 않게', () => {
+    const args = buildInteractiveClaudeArgs(cfg());
+    expect(valueOf(args, '--system-prompt-snapshot')).toBe('off');
+  });
+
+  it('설정과 무관하게 항상 꺼진다 — 사용자 축이 아니라 우리 배선을 지키는 고정값이다', () => {
+    const on = buildInteractiveClaudeArgs(cfg({ permissionMode: 'bypassPermissions', safeMode: true, autoCompact: 'auto' }));
+    expect(valueOf(on, '--system-prompt-snapshot')).toBe('off');
+  });
+
+  it("CLI 선택지 밖 값은 절대 나가지 않는다 — 'off'/'on' 뿐이고 그 밖이면 스폰이 즉사한다", () => {
+    const args = buildInteractiveClaudeArgs(cfg());
+    expect(['on', 'off']).toContain(valueOf(args, '--system-prompt-snapshot'));
+  });
+
   // §4 (CLI 사양 추종) — 내장 기본은 **꺼짐**이다(2026-09-02 사용자 지시). 압축은 접을 때마다
   //   대화 전체를 다시 먹이는 요약 호출 1회가 나가는 **유료 축**이라, 사용자가 고른 적 없는 채로
   //   켜져 있으면 안 된다. 종전에는 여기서 400k 가 항상 실렸다.
@@ -143,7 +161,16 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
   it("'off' 는 CLI 값이 아니라 무플래그다 — 그대로 실으면 스폰이 즉사한다", () => {
     const args = buildInteractiveClaudeArgs(cfg({ autoCompact: 'off' }), { userAutoCompact: '400000' });
     expect(args).not.toContain('--autocompact');
-    expect(args).not.toContain('off');
+    // ⚠ 종전에는 `args` 안에 `'off'` 라는 **글자**가 없는지를 봤다. `--system-prompt-snapshot off` 가
+    //   생긴 뒤로 그 글자는 **합법적으로** 존재하므로, 검사를 "글자가 없다"에서 **"압축 플래그의 값으로
+    //   새 나가지 않는다"** 로 좁힌다 — 원래 막으려던 자리는 그쪽이고, 글자 금지로 두면 앞으로
+    //   `off` 를 값으로 쓰는 플래그가 하나 더 생길 때마다 이 검사가 헛되이 깨진다.
+    expect(valueOf(args, '--autocompact')).toBeUndefined();
+    // 그리고 `off` 가 어디에 실리든 **그것은 스냅샷 플래그의 값이어야 한다** — 압축 값이 엉뚱한
+    //   자리로 새는 것까지 함께 막는다(값만 보면 둘을 구분할 수 없어 앞 인자를 함께 본다).
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === 'off') expect(args[i - 1]).toBe('--system-prompt-snapshot');
+    }
   });
 
   it('설정하면 그대로 실린다', () => {
@@ -278,7 +305,7 @@ describe('스폰 인자 — Fast 모드', () => {
  * 빠져 있던 `PowerShell` 이 있었다. 그 구멍이 다시 생기지 않게 공식 표를 대조본으로 못 박는다.
  */
 describe('도구 목록 — 공식 표 추종', () => {
-  it('공식 표 45종이 전부 선택 가능 목록에 있다', () => {
+  it('공식 표 46종이 전부 선택 가능 목록에 있다', () => {
     const missing = CLI_BUILTIN_TOOLS.filter((t) => !AVAILABLE_AGENT_TOOLS.includes(t));
     expect(missing).toEqual([]);
   });
@@ -316,7 +343,7 @@ describe('도구 백필 — 세대 도장', () => {
 
   it('새 도구를 넣으면서 세대를 안 올리면 이미 백필받은 설정은 그 도구를 영영 못 갖는다', () => {
     // 목록이 커졌는데 세대가 1 에 머물러 있으면 이 검사가 먼저 걸린다.
-    expect(AGENT_TOOLS_BACKFILL_GEN).toBeGreaterThanOrEqual(2);
+    expect(AGENT_TOOLS_BACKFILL_GEN).toBeGreaterThanOrEqual(3);
   });
 
   it('백필 대상은 선택 가능 목록 전체다 — 손으로 나열하다 빠뜨리는 자리를 없앤다', () => {
@@ -334,7 +361,7 @@ describe('스폰 인자 — 미지의 플래그 차단', () => {  /**
     '--tools', '--disallowedTools', '--allowedTools', '--mcp-config', '--settings',
     '--worktree', '--autocompact', '--exclude-dynamic-system-prompt-sections',
     '--setting-sources', '--safe-mode', '--betas', '--append-system-prompt',
-    '--agents', '--plugin-dir',
+    '--agents', '--plugin-dir', '--system-prompt-snapshot',
   ]);
 
   it('모든 설정을 켜도 목록 밖 플래그는 나오지 않는다', () => {

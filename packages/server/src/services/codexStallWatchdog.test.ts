@@ -157,7 +157,14 @@ describe('정지 워치독 — 자식이 살아 있어도 턴은 영원히 열�
     expect(done).toHaveLength(1);
   });
 
+  // 가짜 시계로 잰다. 실시간으로 재면 이 시험은 **러너의 속도를 재는 시험**이 된다 — 10ms 간격으로
+  // 여덟 줄을 흘리면서 40ms 침묵을 정지로 보는 구성이라 여유가 네 배뿐이고, 느린 windows 러너에서는
+  // `setTimeout(…, 10)` 한 번이 그 여유를 통째로 먹는다(CI #49 가 여기서 빨갰다). 제품의 실제 비율은
+  // 5분 알림 · 20분 마감이라 그런 상황 자체가 없다. 재는 대상은 "줄이 흐르는 동안 정지로 보지 않는가"
+  // 하나뿐이므로, 시간은 우리가 준다.
   it('줄이 흐르는 동안에는 조용해지지 않는다 — 긴 턴을 죽이지 않는다', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
     const id = sub('busy');
     const child = new FakeChild(204);
     const killTree = vi.fn();
@@ -165,14 +172,19 @@ describe('정지 워치독 — 자식이 살아 있어도 턴은 영원히 열�
       killTree, idleCheckMs: 5, idleNoticeMs: 10_000, idleSettleMs: 40,
     });
 
-    for (let i = 0; i < 8; i++) {
-      child.stdout.write(`{"type":"item.completed","item":{"id":"i${i}","type":"reasoning","text":"생각"}}\n`);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    try {
+      for (let i = 0; i < 8; i++) {
+        child.stdout.write(`{"type":"item.completed","item":{"id":"i${i}","type":"reasoning","text":"생각"}}\n`);
+        // 워치독 주기(5ms)보다 긴 간격이라 틱은 줄 사이마다 두 번씩 돈다 — 그런데도 걷지 않아야 한다.
+        await vi.advanceTimersByTimeAsync(10);
+      }
 
-    expect(killTree).not.toHaveBeenCalled();
-    expect(done).toHaveLength(0);
-    expect(isCodexTurnRunning(id)).toBe(true);
+      expect(killTree, '줄이 흐르는데도 트리를 걷었다').not.toHaveBeenCalled();
+      expect(done).toHaveLength(0);
+      expect(isCodexTurnRunning(id)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
