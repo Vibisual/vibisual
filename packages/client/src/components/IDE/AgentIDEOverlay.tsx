@@ -304,11 +304,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     useGraphStore.getState().setIDEActiveSession(sessionId, paneKey);
   }, [paneKey]);
   // §5.5 #17-20 ④ v4.74 — 실행 출력 패널(런타임 스토어 — PTY 수명과 같은 축).
-  const runOutputRunId = useRunSessions((s) => s.outputRunId);
+  const runOutputRunId = useRunSessions((s) =>
+    s.outputRunId && s.sessions[s.outputRunId]?.agentId === agentId ? s.outputRunId : null,
+  );
   const openRunOutput = useRunSessions((s) => s.openOutput);
 
   // §5.5 #17-9 ③ v4.95 — 실행 중 서브에이전트도 사이드바 뷰('subagents')가 되어 덮개가 사라졌다.
-  //   이제 IDE 에 남은 덮개는 #17-20 ④ 실행 출력 하나뿐이다.
+  //   실행 출력도 웹 미리보기와 같은 오른쪽 판에 선다.
   const setPaneDock = useGraphStore((s) => s.setIDEPaneDock);
   const setPaneDockSize = useGraphStore((s) => s.setIDEDockSize);
   const focusPane = useGraphStore((s) => s.focusIDEPane);
@@ -453,7 +455,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    * 접히지 않았다(판정이 안 보던 폭이라 자리를 낼 이유를 몰랐다). 판이 하나가 되면서 그 구멍도 닫힌다.
    */
   const stageOpen = useIDEPaneValue((o) => o.stageOpen);
-  const paneOpen = editorOpenCount > 0 || stageOpen;
+  const paneOpen = editorOpenCount > 0 || stageOpen || runOutputRunId !== null;
   const storedEditorWidth = useGraphStore((s) => s.ideEditorWidth);
   const bodyLayout = useMemo(() => resolveIDEBodyLayout({
     width: bodyWidth,
@@ -874,6 +876,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   }, [agentId, mode, storeDockSide, paneKey, setPaneDock, goFloating, fullWindow, disableDock, layoutEpoch]);
 
   // Escape to close — **맨 앞 창 하나만** 먹는다(창이 여럿일 때 한 번에 다 닫히면 안 된다).
+  //   §5.5 #17-6 (H-20)/(H-21) — **Esc 는 ✕ 와 같은 길이다.** 판 안에 무엇이 떠 있든(실행 출력·
+  //   무대·편집창) 한 겹씩 벗겨 내지 않는다. 한때 실행 출력을 먼저 먹게 했더니 (H-9) 가 없앤
+  //   그 증상이 그대로 돌아왔다 — 출력은 살아 있는 실행의 것이라 창을 닫아도 남고, 다시 열면
+  //   첫 Esc 가 또 창을 닫지 않는다(닫으려면 두 번, 그러면 그건 닫기가 아니다).
+  //   출력을 내리는 손잡이는 그 패널 머리의 ✕ 하나다.
   useEffect(() => {
     if (!agentId || !isFrontPane) return;
     function handleKey(e: KeyboardEvent): void {
@@ -3049,9 +3056,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           isFrontPane={isFrontPane}
         />
 
-        {/* Body: Activity bar + Sidebar + Main area.
-            §5.5 #17-20 ④ — 활동바 우측 영역 전체를 덮는 별도 "세션창"은 이제 실행 출력 하나뿐이다
-            (북마크·세션 요약은 v4.93, 실행 중 서브에이전트는 #17-9 ③ v4.95 부터 사이드바 뷰). */}
+        {/* Body: Activity bar + Sidebar + Main area + 오른쪽 미리보기·실행 출력. */}
         <div ref={bodyRef} className="relative flex min-h-0 flex-1">
           {/* §4 v3.24 — 좌측 내비(활동바+사이드바)가 서랍이면 타이틀바 토글로만 연다. 열리면 본문 위
               오버레이로 뜨고, backdrop 탭으로 닫는다. 서랍이 되는 조건이 폰 폭에서 **창 폭**으로
@@ -3084,7 +3089,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 §5.5 #17-17 ㉔ — **우측에 서는 판은 이것 하나다.** 무대(단계 지도)는 종전처럼 옆에
                 따로 서지 않고 이 판의 **첫 탭**으로 든다 — 그래서 여기 형제도 하나뿐이고, `order-last`
                 로 자리를 되돌리던 장치도 필요 없어졌다(무대가 밀릴 다른 판이 애초에 없다). */}
-            <IDEEditorPane />
+            <IDEEditorPane runOutput={runOutputRunId
+              ? <IDERunOutputPanel onClose={() => openRunOutput(null)} />
+              : undefined} />
           </div>
           {/* §5.5 #17-19 ⑧ — "지금 손을 떼면 무슨 일이 일어나는가". 폭은 **비율**이라 캔버스를
               확대해도 띠가 어긋나지 않는다. 판정과 같은 값에서 나오므로 둘이 다른 말을 할 수 없다. */}
@@ -3104,14 +3111,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                     : t(entryDrop.zone === 'editor' ? 'ide.explorer.drop.editor' : 'ide.explorer.drop.input')}
                 </span>
               </div>
-            </div>
-          )}
-          {/* §5.5 #17-20 ④ v4.74 — 실행 출력. 디버그 뷰에서 [출력]을 누르면 열린다(같은 덮개 자리).
-              활동바가 서랍이면 화면 전체, 자리에 서 있으면 그 오른쪽부터 — 덮개가 활동바를 가리면
-              사이드바를 되부를 손잡이가 사라진다(편집창 덮개와 같은 규칙). */}
-          {runOutputRunId && (
-            <div className={`absolute inset-y-0 right-0 z-20 ${bodyLayout.navDrawer ? 'left-0' : 'left-12'}`}>
-              <IDERunOutputPanel onClose={() => openRunOutput(null)} />
             </div>
           )}
         </div>

@@ -75,6 +75,8 @@ export interface CodexTurnArgs extends CodexOverrides {
   onFileWrites: (paths: string[]) => void;
   /** 턴 종료. `error` 가 있으면 실패다. */
   onDone: (error: string | undefined, finalText: string) => void;
+  /** Actual stdout/stderr activity, including chunks without a mapped UI event. */
+  onActivity?: (at: number) => void;
   /**
    * **자식은 살아 있는데 출력이 끊겼다.** 두 단계로 온다:
    *  - `stalled: false` — 1단계(`CODEX_TURN_IDLE_NOTICE_MS`). 알림일 뿐 아무것도 닫지 않는다.
@@ -329,7 +331,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
  */
 export function attachCodexTurn(
   child: ChildProcess,
-  args: Pick<CodexTurnArgs, 'subAgentId' | 'onEvent' | 'onThread' | 'onUsage' | 'onFileWrites' | 'onDone' | 'onIdle'>,
+  args: Pick<CodexTurnArgs, 'subAgentId' | 'onEvent' | 'onThread' | 'onUsage' | 'onFileWrites' | 'onDone' | 'onIdle' | 'onActivity'>,
   options: CodexTurnLifecycleOptions = {},
 ): void {
   const exitCloseGraceMs = options.exitCloseGraceMs ?? DEFAULT_EXIT_CLOSE_GRACE_MS;
@@ -355,6 +357,7 @@ export function attachCodexTurn(
   /** 1단계 알림을 이미 보냈는가(한 정지 구간에 한 번만 보낸다). */
   let idleNoticed = false;
   let idleTimer: NodeJS.Timeout | undefined;
+  let lastReportedActivityAt: number | undefined;
 
   const clearSettleTimer = (): void => {
     if (settleTimer) clearTimeout(settleTimer);
@@ -367,8 +370,15 @@ export function attachCodexTurn(
   };
 
   const noteActivity = (): void => {
+    if (settled) return;
     lastActivityAt = Date.now();
     idleNoticed = false;
+    // Reuse the watchdog interval to bound UI traffic. Timers alone never
+    // report activity; quiet reasoning/tools must remain distinguishable.
+    if (lastReportedActivityAt === undefined || lastActivityAt - lastReportedActivityAt >= idleCheckMs) {
+      lastReportedActivityAt = lastActivityAt;
+      args.onActivity?.(lastActivityAt);
+    }
   };
 
   const emitAll = (events: CodexMappedEvent[]): void => {
@@ -530,7 +540,7 @@ export function attachCodexTurn(
   };
 
   child.stdout?.on('data', (chunk) => {
-    if (settled) return;
+    if (settled || chunk.length === 0) return;
     noteActivity();
     stdoutBuffer += String(chunk);
     let idx = stdoutBuffer.indexOf('\n');
@@ -543,6 +553,7 @@ export function attachCodexTurn(
   });
 
   child.stderr?.on('data', (chunk) => {
+    if (settled || chunk.length === 0) return;
     // 진행 로그도 활동이다 — 이걸 안 세면 stdout 이 조용한 긴 도구가 정지로 읽힌다.
     noteActivity();
     const text = String(chunk);

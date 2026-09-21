@@ -46,6 +46,7 @@ function attach(subAgentId: string, child: FakeChild, options: CodexTurnLifecycl
   const done: Done[] = [];
   const idle: Idle[] = [];
   const events: CodexMappedEvent[] = [];
+  const activity: number[] = [];
   attachCodexTurn(child.asChild(), {
     subAgentId,
     onEvent: (ev) => { events.push(ev); },
@@ -53,9 +54,10 @@ function attach(subAgentId: string, child: FakeChild, options: CodexTurnLifecycl
     onUsage: () => { /* test */ },
     onFileWrites: () => { /* test */ },
     onIdle: (info) => { idle.push(info); },
+    onActivity: (at) => { activity.push(at); },
     onDone: (error, finalText) => { done.push({ error, finalText }); },
   }, options);
-  return { done, idle, events };
+  return { done, idle, events, activity };
 }
 
 async function waitFor(check: () => boolean, timeoutMs: number): Promise<void> {
@@ -73,6 +75,40 @@ afterEach(() => {
 });
 
 describe('정지 워치독 — 자식이 살아 있어도 턴은 영원히 열려 있지 않다', () => {
+  it('reports actual partial stdout and stderr activity without fabricating a heartbeat while quiet', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const child = new FakeChild(200);
+    const { activity, events } = attach(sub('activity'), child, {
+      killTree: vi.fn(), idleCheckMs: 15_000, idleNoticeMs: 300_000, idleSettleMs: 1_200_000,
+    });
+    try {
+      child.stdout.write('{"type":');
+      child.stderr.write('progress');
+      expect(activity).toEqual([1_000]);
+      expect(events).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(activity).toEqual([1_000]); // being alive is not evidence of progress
+      child.stderr.write('more progress');
+      expect(activity).toEqual([1_000, 16_000]);
+      expect(events).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      child.stdout.write('"future.event"}\n'); // no mapped UI event
+      expect(activity).toEqual([1_000, 16_000, 31_000]);
+      expect(events).toHaveLength(0);
+      child.close(0);
+      await vi.advanceTimersByTimeAsync(15_000);
+      child.stderr.write('late progress');
+      child.stdout.write('late output');
+      expect(activity).toEqual([1_000, 16_000, 31_000]);
+    } finally {
+      child.close(0);
+      vi.useRealTimers();
+    }
+  });
+
   it('1단계는 알리기만 한다 — 조용한 것이 곧 멈춘 것은 아니다', async () => {
     const id = sub('notice');
     const child = new FakeChild(201);

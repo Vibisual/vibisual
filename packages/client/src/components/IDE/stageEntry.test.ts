@@ -71,9 +71,14 @@ describe('㉔ 우측에 서는 판은 하나 — 무대는 그 판의 탭이다'
 
   it('IDE 창이 우측 판을 하나만 그린다 — 무대가 두 번째 판으로 서지 않는다', () => {
     const src = source('AgentIDEOverlay.tsx');
-    expect(src).toContain('<IDEEditorPane />');
+    // 판은 **하나**다. 무엇을 비추는지는 소품으로 받을 수 있어도(#17-20 ④ 실행 출력) 판이 둘이 되면 안 된다.
+    // 낱말 끝으로 끊는다 — 공백·`/`·`>` 만 받으면 이 파일에 흔한 여러 줄 소품 표기(`<Name` 다음 줄바꿈)로
+    // 선 두 번째 판을 세지 못해, 판이 둘이 된 뒤에도 이 줄은 조용히 통과한다.
+    expect(src.match(/<IDEEditorPane\b/g) ?? [], '우측 판이 하나가 아니다').toHaveLength(1);
     expect(src).not.toContain('<IDEStagePane />');
     expect(src).not.toContain('<IDEStageView />');
+    // 실행 출력도 같은 판으로 든다 — 종전의 `absolute inset-y-0 right-0 z-20` 덮개는 두 번째 판이었다.
+    expect(src, '실행 출력이 다시 제 덮개로 선다').not.toContain('absolute inset-y-0 right-0 z-20');
   });
 
   it('무대는 껍데기를 갖지 않는다 — 자리·폭·덮개 판정은 전부 판이 쥔다', () => {
@@ -118,8 +123,10 @@ describe('㉔ 우측에 서는 판은 하나 — 무대는 그 판의 탭이다'
   });
 
   it('판이 서는 조건에 무대 축이 들어 있다 — 파일이 하나도 없어도 무대만으로 뜬다', () => {
-    expect(source('IDEEditorPane.tsx'))
-      .toContain('if (!stageActive && (files.length === 0 || !activePath)) return null;');
+    const src = source('IDEEditorPane.tsx');
+    expect(src).toContain('const paneShown = stageActive || (files.length > 0 && !!activePath);');
+    // #17-20 ④ — 실행 출력만으로도 판이 선다(파일도 무대도 없이 [출력]만 누른 자리).
+    expect(src).toContain('if (!paneShown && !runOutput) return null;');
   });
 
   it('[판 닫기] 는 무대까지 내린다 — 무대만 남은 판에서 헛버튼이 되지 않게', () => {
@@ -128,7 +135,7 @@ describe('㉔ 우측에 서는 판은 하나 — 무대는 그 판의 탭이다'
 
   it('반응형 판정이 무대 폭까지 본다 — 종전에는 무대만큼 눌려도 아무것도 안 접혔다', () => {
     const src = source('AgentIDEOverlay.tsx');
-    expect(src).toContain('const paneOpen = editorOpenCount > 0 || stageOpen;');
+    expect(src).toContain('const paneOpen = editorOpenCount > 0 || stageOpen || runOutputRunId !== null;');
     expect(src).toContain('editorOpen: paneOpen,');
   });
 

@@ -46,6 +46,34 @@ beforeEach(() => {
 });
 
 describe('Codex Agent Studio 실행 연결', () => {
+  it('relays raw activity through live status events and ignores activity from a finished turn', () => {
+    const sub = subAgentManager.create('agent-codex-activity', 'sub-codex-activity');
+    created.push(sub.id);
+    const stream = vi.fn();
+    subAgentManager.setOnStreamEvent(stream);
+    try {
+      subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+      const firstTurn = lastTurnArgs!;
+      expect(firstTurn.onActivity).toBeTypeOf('function');
+      stream.mockClear();
+      const at = Date.now();
+      firstTurn.onActivity!(at);
+      expect(stream).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        subAgentId: sub.id, timestamp: at, eventType: 'system', content: '[status]',
+      }));
+      firstTurn.onDone(undefined, 'done');
+      subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+      stream.mockClear();
+      firstTurn.onActivity!(at + 1);
+      expect(stream).not.toHaveBeenCalled();
+      lastTurnArgs!.onActivity!(at + 2);
+      expect(stream).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ timestamp: at + 2 }));
+      lastTurnArgs!.onDone(undefined, 'done');
+    } finally {
+      subAgentManager.setOnStreamEvent(() => { /* restore test callback */ });
+    }
+  });
+
   it('모델을 아직 고르지 않은 Codex 멤버도 첫 턴을 실행하고 같은 스레드로 재개한다', () => {
     const sub = subAgentManager.create('agent-codex-default', 'sub-codex-default');
     created.push(sub.id);

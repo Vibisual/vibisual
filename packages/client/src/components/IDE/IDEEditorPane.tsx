@@ -74,7 +74,10 @@ const FOLLOW_FLASH_MS = 1800;
  */
 const RESTORE_HINT_MS = 1500;
 
-export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | null {
+export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
+  /** 실행 출력도 웹 미리보기와 같은 폭·손잡이·반응형 배치를 쓴다. */
+  runOutput?: React.JSX.Element;
+}): React.JSX.Element | null {
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
   const files = useIDEPaneValue((o) => o.editorFiles);
@@ -642,10 +645,8 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
   }, []);
 
-  // ㉔ — 이 판이 서는 조건. 종전 편집창의 그 조기 반환에 **무대 축 하나가 더해진 것**뿐이다:
-  //   비출 파일이 있거나, 무대가 열려 있거나. 둘 다 아니면 한 픽셀도 차지하지 않는다.
-  //   (⑰ 최대화를 푸는 효과의 `paneShown` 이 이 조건의 거울이다 — 고치면 둘을 함께 고친다.)
-  if (!stageActive && (files.length === 0 || !activePath)) return null;
+  // 파일·무대가 없어도 실행 출력이 열리면 오른쪽 자리를 만든다.
+  if (!paneShown && !runOutput) return null;
 
   // 덮개로 뜰 때도 **활동바까지 먹지는 않는다** — 활동바가 아직 자리에 서 있는 폭(창만 좁힌
   //   데스크톱)에서 `inset-0` 으로 덮으면 사이드바를 되부를 유일한 손잡이가 가려진다. 활동바가
@@ -695,6 +696,9 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
         </div>
       )}
 
+      {runOutput}
+      {/* 출력에서 돌아올 때 초안·웹 페이지가 유지되도록 기존 내용은 마운트한 채 숨긴다. */}
+      <div className={runOutput ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
       {/* ⑰ 최대화 중에는 탭 줄이 걷힌다. 조건부로 빼도 뒤따르는 본문(편집기·iframe)은 같은 자리의
           같은 노드라 다시 그려지지 않는다 — 보던 페이지·커서·되돌리기 기록이 그대로다. */}
       {!maximized && (
@@ -1039,11 +1043,15 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
         <IDEContextMenu x={tabMenu.x} y={tabMenu.y} items={tabMenu.items} onClose={() => setTabMenu(null)} />
       )}
 
+      </div>
       {/* ⑰ [원래대로] — 판 오른쪽 위 구석에 숨어 있다가 마우스가 들어오면 떠오른다.
           구석을 잡는 것은 본문 위에 겹친 **이 층**이다: 페이지는 iframe(별도 문서)이라 판이 그 위의
           마우스 움직임을 받지 못한다. 그래서 층은 버튼 하나 들어갈 만큼만 작게 둔다(본문을 덜 가린다).
-          켠 직후에는 `restoreHint` 로 잠깐 드러나 있다가 같은 전환으로 가라앉는다. */}
-      {maximized && (
+          켠 직후에는 `restoreHint` 로 잠깐 드러나 있다가 같은 전환으로 가라앉는다.
+          **이 층은 본문을 감추는 겹 밖에 선다** — 안에 두면 실행 출력이 뜬 사이 판이 통째로
+          `hidden` 이 되면서 최대화를 푸는 손잡이까지 함께 사라진다(출력을 닫기 전에는 돌아갈
+          길이 없다). 출력이 떠 있는 동안에는 최대화가 보이는 것이 없으므로 층도 함께 쉰다. */}
+      {maximized && !runOutput && (
         <div className="group/restore absolute right-0 top-0 z-30 flex h-9 w-14 items-start justify-end p-1">
           <button
             type="button"

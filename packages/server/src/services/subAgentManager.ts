@@ -5805,6 +5805,15 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       ...(sub.sessionId ? { resumeThreadId: sub.sessionId } : {}),
       // §5.25 (I) — 훅이 켜져 있어도 이 대화가 **버블 하나**로 남게 하는 소유자 태그.
       ownerAgentId: sub.parentAgentId,
+      onActivity: (at) => {
+        if (closed || this.localInFlightCmd.get(sub.id) !== cmd) return;
+        // Use the existing live-only status path: no chat line, disk record,
+        // or full graph broadcast for stdout fragments and stderr progress.
+        this.emitStreamEvent({
+          id: makeEventId(), subAgentId: sub.id, parentAgentId: sub.parentAgentId,
+          timestamp: at, eventType: 'system', content: '[status]',
+        });
+      },
       onThread: (threadId) => {
         if (sub.sessionId !== threadId) {
           sub.sessionId = threadId;

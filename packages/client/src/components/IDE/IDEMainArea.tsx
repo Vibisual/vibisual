@@ -2086,7 +2086,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         </div>
       )}
       {sessionDraft?.sendError && (
-        <div role="status" className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-amber-300">
+        <div role="status" className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-gray-400">
           <span className="min-w-0 flex-1 basis-40">{t('ide.orchestra.readiness.retry', { engine: sessionDraft.sendError.engine === 'codex' ? 'Codex' : 'Claude' })}</span>
           <button type="button" className="rounded border border-amber-500/30 px-2 py-1 hover:bg-amber-500/10"
             onClick={() => { if (sessionDraft.sendError) void useGraphStore.getState().prepareOrchestraEngine({ engine: sessionDraft.sendError.engine, action: 'refresh' }); }}>
@@ -2112,7 +2112,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             type="button"
             onClick={() => setStallSnoozeMs(inputSilenceMs ?? 0)}
             title={t('ide.mainArea.stallKeepWaitingTitle')}
-            className="rounded border border-amber-500/30 px-2 py-1 hover:bg-amber-500/10"
+            className="rounded border border-gray-500/30 px-2 py-1 hover:bg-gray-500/10"
           >
             {t('ide.mainArea.stallKeepWaiting')}
           </button>

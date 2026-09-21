@@ -59,6 +59,40 @@ describe('⑰ 편집창 최대화 — 탭·경로·주소 줄을 걷고 본문�
     expect(src).toContain("t('ide.editor.restorePane')");
   });
 
+  it('그 층은 본문을 감추는 겹 **밖**에 선다 — 실행 출력이 떠도 최대화를 풀 길이 남는다', () => {
+    const src = source('IDEEditorPane.tsx');
+    // #17-20 ④ 실행 출력이 판 안으로 들어오면서, 기존 본문은 초안·페이지를 잃지 않으려고 마운트한
+    // 채 `hidden` 으로 덮인다. 그 겹 **안**에 [원래대로] 층을 두면 최대화 중에 출력을 연 순간
+    // 손잡이가 함께 사라져, 출력을 닫기 전에는 최대화를 풀 수 없다(구석에 마우스를 올려도 없다).
+    const hideAt = src.indexOf("className={runOutput ? 'hidden'");
+    const restoreAt = src.indexOf('{maximized && !runOutput && (');
+    expect(hideAt, '감추는 겹을 못 찾았다').toBeGreaterThan(-1);
+    expect(restoreAt, '[원래대로] 층을 못 찾았다').toBeGreaterThan(-1);
+    // 겹이 닫히는 자리는 태그를 세어 찾는다 — 들여쓰기·주석 문구에 기대면 줄 하나만 옮겨도 헛통과한다.
+    // 세기는 **여는 `<`부터** 시작해야 한다. `hideAt` 은 그 태그의 `className=` 을 가리키므로 거기서
+    // 출발하면 겹 자신의 `<div` 가 안 세어져 깊이가 0 에서 시작하고, 첫 자식 한 쌍에서 곧장 0 으로
+    // 떨어져 엉뚱한 줄을 "닫는 자리"로 집는다 — 그러면 이 시험은 무엇을 옮겨도 통과한다.
+    const hideTagAt = src.lastIndexOf('<div', hideAt);
+    expect(hideTagAt, '감추는 겹의 여는 태그를 못 찾았다').toBeGreaterThan(-1);
+    const tag = /<\/?div\b[^>]*>/g;
+    tag.lastIndex = hideTagAt;
+    let depth = 0;
+    let closeAt = -1;
+    for (let m = tag.exec(src); m; m = tag.exec(src)) {
+      if (m[0].startsWith('</')) {
+        depth -= 1;
+        if (depth === 0) { closeAt = m.index; break; }
+      } else if (!m[0].endsWith('/>')) depth += 1;
+    }
+    expect(closeAt, '감추는 겹의 닫는 자리를 못 찾았다').toBeGreaterThan(-1);
+    // 세기가 제 짝을 집었는지 먼저 확인한다 — 속성 안의 `>` 하나에 태그 정규식이 미끄러지면 닫는
+    // 자리가 앞당겨지고, 그 순간 아래 비교는 다시 아무것도 재지 않게 된다. 무대는 겹의 끝자락에 있다.
+    expect(src.slice(hideTagAt, closeAt), '감추는 겹의 닫는 자리를 잘못 집었다').toContain(
+      '<IDEStageView cornerReserved={maximized} />',
+    );
+    expect(restoreAt, '[원래대로] 층이 감추는 겹 안에 있다').toBeGreaterThan(closeAt);
+  });
+
   it('판이 내려가면 최대화도 풀린다(영속 ❌ — 다음에 열 때 탭 줄 없이 뜨지 않게)', () => {
     const src = source('IDEEditorPane.tsx');
     expect(src).toContain('if (!paneShown) handleRestore();');

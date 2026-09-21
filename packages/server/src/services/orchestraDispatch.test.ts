@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { QueuedCommand } from '@vibisual/shared';
-import { ensureOrchestraEntryEdge, ensureOrchestraMemberReturns, orchestraRunForDispatch } from './orchestraDispatch.js';
+import { ensureOrchestraEntryEdge, ensureOrchestraMemberReturns, orchestraCritiqueFirings, orchestraRunForDispatch } from './orchestraDispatch.js';
+import { resolveEdgeCommandMode } from './taskEdgeDelegation.js';
 import { createDispatchJobRegistry } from './taskEdgeDispatchJobs.js';
 vi.mock('./userDefaultsService.js', () => ({ userDefaultsService: { get: () => ({ updatedAt: 1 }), subscribe: () => () => {} } }));
 vi.mock('./appState.js', async (importOriginal) => ({
@@ -72,5 +73,61 @@ describe('orchestra dispatch round trip', () => {
     expect(evidence[0]?.deliveredAt).toBeTypeOf('number');
     evidence[0]!.status = 'error';
     expect(jobs.listForRequester('sub1')[0]?.status).toBe('completed');
+  });
+
+  it('stamps the shared command mode so conducting turns keep their own tools', () => {
+    const graph = new ProjectGraphManager();
+    const project = graph.registerProject(fixtureProject());
+    const conductor = graph.createCustomAgent('conductor', undefined, project.name);
+    const worker = graph.createCustomAgent('worker', undefined, project.name);
+    if (!conductor || !worker) throw new Error('fixture agents were not created');
+    const edge = ensureOrchestraEntryEdge(graph, { agentId: conductor.id }, worker.id);
+    // 빈 칸이면 후방호환 폴백이 도구 박탈로 읽는다 — 저장된 값 자체를 확인한다.
+    expect(edge.commandMode).toBe('shared');
+    expect(resolveEdgeCommandMode(edge)).toBe('shared');
+    const restored = new ProjectGraph();
+    restored.restoreFromCheckpoint(graph.toProjectCheckpoint(project.name));
+    expect(restored.getTaskEdge(edge.id)?.commandMode).toBe('shared');
+  });
+});
+
+describe('orchestra critique firing', () => {
+  const cmd = (over: Partial<QueuedCommand>): QueuedCommand =>
+    ({ id: 'c', subAgentId: 'sub', timestamp: 1, text: 'work', status: 'completed', ...over } as QueuedCommand);
+  const lookup = (runs: Record<string, string>, edges: Record<string, { kind?: string; bundleRole?: string }> = {}, stopped: string[] = []) => ({
+    findRun: (runId: string) => (runs[runId] ? { agentId: runs[runId]! } : undefined),
+    findEdge: (edgeId: string | undefined) => (edgeId ? edges[edgeId] : undefined) as never,
+    isUserStopped: (c: QueuedCommand) => stopped.includes(c.id),
+  });
+
+  it('fires for a critic the conductor never declared, once per run', () => {
+    const done = [cmd({ id: 'a', orchestraRunId: 'run1', result: 'first', edgeId: 'e1' }),
+      cmd({ id: 'b', orchestraRunId: 'run1', result: 'second', edgeId: 'e2' }),
+      cmd({ id: 'c2', orchestraRunId: 'run2', result: 'other', edgeId: 'e3' })];
+    const { firings, plainFallback } = orchestraCritiqueFirings(done, 'worker',
+      lookup({ run1: 'conductor', run2: 'conductor2' }));
+    expect(firings).toEqual([{ runId: 'run1', result: 'first', freshCycle: true },
+      { runId: 'run2', result: 'other', freshCycle: true }]);
+    expect(plainFallback).toBe(false);
+  });
+
+  it('skips the conductor own turn, user-stopped commands and critique responses', () => {
+    const runs = { run1: 'worker' };
+    expect(orchestraCritiqueFirings([cmd({ id: 'a', orchestraRunId: 'run1' })], 'worker', lookup(runs)))
+      .toEqual({ firings: [], plainFallback: false });
+    expect(orchestraCritiqueFirings([cmd({ id: 'a', orchestraRunId: 'run2' })], 'worker',
+      lookup({ run2: 'conductor' }, {}, ['a']))).toEqual({ firings: [], plainFallback: false });
+    expect(orchestraCritiqueFirings([cmd({ id: 'a', orchestraRunId: 'run2', edgeId: 'e' })], 'worker',
+      lookup({ run2: 'conductor' }, { e: { kind: 'critique' } }))).toEqual({ firings: [], plainFallback: false });
+  });
+
+  it('marks a rework answer as the same cycle and falls back when no live run owns the work', () => {
+    const { firings } = orchestraCritiqueFirings([cmd({ id: 'a', orchestraRunId: 'run1', edgeId: 'e', result: 'again' })],
+      'worker', lookup({ run1: 'conductor' }, { e: { bundleRole: 'auto-rework' } }));
+    expect(firings[0]?.freshCycle).toBe(false);
+    expect(orchestraCritiqueFirings([cmd({ id: 'a', orchestraRunId: 'gone' })], 'worker', lookup({})))
+      .toEqual({ firings: [], plainFallback: true });
+    expect(orchestraCritiqueFirings([cmd({ id: 'a' })], 'worker', lookup({})))
+      .toEqual({ firings: [], plainFallback: true });
   });
 });

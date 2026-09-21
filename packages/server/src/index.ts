@@ -156,6 +156,7 @@ import {
   type BubbleData,
   type OrchestraEdgeRef,
   type OrchestraMemberRef,
+  type OrchestraCliEngine,
   type OrchestraRun,
   type OrchestraScope,
   CONFIG_TRIM_SCOPE_ORDER,
@@ -184,7 +185,7 @@ import {
   shouldInterceptOrchestra,
   type OrchestraCheck,
 } from './services/orchestraRuntime.js';
-import { ensureOrchestraEntryEdge, ensureOrchestraMemberReturns, orchestraRunForDispatch } from './services/orchestraDispatch.js';
+import { ensureOrchestraEntryEdge, ensureOrchestraMemberReturns, orchestraCritiqueFirings, orchestraRunForDispatch } from './services/orchestraDispatch.js';
 import { OrchestraResultCollector } from './services/orchestraResultCollector.js';
 import type { SpecReadingScope, SpecReadingSettings } from '@vibisual/shared';
 import { specReadingService } from './services/specReadingService.js';
@@ -2953,6 +2954,23 @@ export async function runServer(): Promise<RunServerHandle> {
       codexSetup: graphManager.getCodexSetup(),
       codexAuth: graphManager.getCodexAuth(),
     };
+  }
+
+  /**
+   * 준비 판정이 "모름"으로 나왔을 때 그 엔진만 **그 자리에서 한 번** 다시 묻는다.
+   *
+   * 탐침 한 번이 실패하면(CLI 를 잠깐 못 찾음·타임아웃) 캐시가 통째로 모름이 되고, 다음
+   * 폴링(10분)이나 사용자가 새로고침을 누르기 전까지 편성·계획 신고가 막혔다. 지휘자에게는
+   * 그 사이 이어 갈 길이 없어 런이 보고 없이 닫힌다 — 그래서 막기 전에 한 번은 다시 묻는다.
+   */
+  async function reprobeOrchestraEngine(engine: OrchestraCliEngine): Promise<void> {
+    const before = currentOrchestraReadiness();
+    const setup = engine === 'codex' ? before.codexSetup : before.claudeSetup;
+    // 설치 판정이 비어 있을 때만 CLI 재스캔까지 간다(평소엔 로그인 재조회 한 번이면 충분).
+    if (!setup || setup.phase === 'unknown') {
+      await (engine === 'codex' ? codexSetupService : claudeSetupService).refresh().catch(() => {});
+    }
+    await (engine === 'codex' ? refreshCodexAuth() : refreshClaudeAuth()).catch(() => {});
   }
 
   /** 오케스트라 판정 실패와 필요한 준비 단계를 REST로 돌려준다. */
@@ -12532,7 +12550,7 @@ export async function runServer(): Promise<RunServerHandle> {
    * 지휘 중인 런에만 한 번 받는다(이미 신고했거나 끝났으면 409). 틀린 id 는 조용히 고치지 않고 그 목록을 돌려줘
    * 지휘자가 스스로 고치게 한다(400 `{error, ids}`). 받아들이면 단계가 `dispatched`(편성 없음이면 `answered`).
    */
-  app.post('/api/orchestra/runs/:runId/plan', (req, res) => {
+  app.post('/api/orchestra/runs/:runId/plan', async (req, res) => {
     try {
       const runId = typeof req.params['runId'] === 'string' ? req.params['runId'] : '';
       const run = runId ? graphManager.findOrchestraRun(runId) : undefined;
@@ -12559,49 +12577,74 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const { plan, reusedAgentIds } = result;
+      /** 이미 등록된 계획이면 같은 계획인지만 보고 배차 엣지 id 를 다시 돌려준다. */
+      const respondReusedPlan = (current: OrchestraRun): void => {
+        // A lost HTTP response must not strand a valid plan before its entry dispatch.
+        if (JSON.stringify(current.plan) !== JSON.stringify(plan)) {
+          res.status(409).json({ ok: false, error: 'orchestra-plan-already-reported', phase: current.phase });
+          return;
+        }
+        const existingEntry = plan.topology !== 'none' && plan.entryAgentId
+          ? ensureOrchestraEntryEdge(graphManager, current, plan.entryAgentId) : undefined;
+        scheduleCheckpoint();
+        broadcastSnapshot();
+        res.json({ ok: true, run: current, reused: true, ...(existingEntry ? { dispatchEdgeId: existingEntry.id } : {}) });
+      };
+      // 재수령은 준비 검사보다 **앞**이다 — 이미 등록한 계획의 배차 엣지를 다시 받는 길까지
+      // 엔진 판정으로 막으면, 잠깐의 "모름"에 지휘자가 이어 갈 길을 잃고 런이 보고 없이 닫힌다.
+      if (run.phase !== 'conducting') {
+        respondReusedPlan(run);
+        return;
+      }
       // 재사용 멤버도 새 멤버와 같은 엔진·준비 계약을 지킨다(생성 검사만 두면 오래된 버블로 우회된다).
       if (plan.topology !== 'none') {
         const settings = graphManager.getOrchestraSettings(run.projectPath);
-        const readiness = currentOrchestraReadiness();
+        let readiness = currentOrchestraReadiness();
+        const reprobed = new Set<OrchestraCliEngine>();
         for (const id of new Set([...run.memberAgentIds, ...reusedAgentIds, ...(plan.entryAgentId ? [plan.entryAgentId] : [])])) {
           const cfg = graphManager.getAgentConfig(id);
           if (!orchestraMemberProviderAllowed(settings, cfg?.provider?.kind, run.engine)) {
             respondOrchestraCheck(res, { ok: false, status: 400, error: 'orchestra-member-engine', ids: [id] });
             return;
           }
-          const preparation = orchestraEnginePreparation(cfg?.provider?.kind === 'codex-cli' ? 'codex' : 'claude', readiness);
+          const memberEngine: OrchestraCliEngine = cfg?.provider?.kind === 'codex-cli' ? 'codex' : 'claude';
+          let preparation = orchestraEnginePreparation(memberEngine, readiness);
+          // 판정이 "모름"이면 막기 전에 엔진당 한 번만 다시 묻는다(부팅 직후 빈 캐시도 여기서 풀린다).
+          if (preparation?.action === 'refresh' && !reprobed.has(memberEngine)) {
+            reprobed.add(memberEngine);
+            await reprobeOrchestraEngine(memberEngine);
+            readiness = currentOrchestraReadiness();
+            preparation = orchestraEnginePreparation(memberEngine, readiness);
+          }
           if (preparation) {
             respondOrchestraCheck(res, { ok: false, status: 409, error: 'orchestra-engine-not-ready', ids: [id], preparation });
             return;
           }
         }
       }
-      if (run.phase !== 'conducting') {
-        // A lost HTTP response must not strand a valid plan before its entry dispatch.
-        if (JSON.stringify(run.plan) !== JSON.stringify(plan)) {
-          res.status(409).json({ ok: false, error: 'orchestra-plan-already-reported', phase: run.phase });
-          return;
-        }
-        const existingEntry = plan.topology !== 'none' && plan.entryAgentId
-          ? ensureOrchestraEntryEdge(graphManager, run, plan.entryAgentId) : undefined;
-        scheduleCheckpoint();
-        broadcastSnapshot();
-        res.json({ ok: true, run, reused: true, ...(existingEntry ? { dispatchEdgeId: existingEntry.id } : {}) });
+      // 재탐침을 기다리는 사이 런이 움직였을 수 있다 — 지나간 런에 계획을 덧쓰지 않는다.
+      const fresh = graphManager.findOrchestraRun(run.runId);
+      if (!fresh || fresh.endedAt !== undefined) {
+        res.status(409).json({ ok: false, error: 'orchestra-run-settled', phase: fresh?.phase ?? run.phase });
         return;
       }
-      const graphCheck = checkOrchestraPlanGraph(run, plan, reusedAgentIds, Object.values(graphManager.getTaskEdgesSnapshot()));
+      if (fresh.phase !== 'conducting') {
+        respondReusedPlan(fresh);
+        return;
+      }
+      const graphCheck = checkOrchestraPlanGraph(fresh, plan, reusedAgentIds, Object.values(graphManager.getTaskEdgesSnapshot()));
       if (!graphCheck.ok) {
         respondOrchestraCheck(res, graphCheck);
         return;
       }
       const dispatchEdge = plan.topology !== 'none' && plan.entryAgentId
-        ? ensureOrchestraEntryEdge(graphManager, run, plan.entryAgentId) : undefined;
+        ? ensureOrchestraEntryEdge(graphManager, fresh, plan.entryAgentId) : undefined;
       const plannedAt = Date.now();
-      const saved = graphManager.updateOrchestraRun(run.runId, (r) => applyOrchestraPlan(r, plan, reusedAgentIds, plannedAt));
+      const saved = graphManager.updateOrchestraRun(fresh.runId, (r) => applyOrchestraPlan(r, plan, reusedAgentIds, plannedAt));
       if (saved && plan.topology !== 'none') ensureOrchestraMemberReturns(graphManager, saved.memberAgentIds);
       scheduleCheckpoint();
       broadcastSnapshot();
-      logger.info(`[orchestra] run ${run.runId} plan: ${plan.intent}/${plan.topology}`);
+      logger.info(`[orchestra] run ${fresh.runId} plan: ${plan.intent}/${plan.topology}`);
       res.json({ ok: true, run: saved, ...(dispatchEdge ? { dispatchEdgeId: dispatchEdge.id } : {}) });
     } catch (err) {
       logger.error('POST /api/orchestra/runs/:runId/plan failed', err);
@@ -18338,22 +18381,18 @@ export async function runServer(): Promise<RunServerHandle> {
             }
             return null;
           })();
+          // Preserve each run when concurrent sessions finish on the same worker.
+          const { firings, plainFallback } = orchestraCritiqueFirings(done, workerAgentId, {
+            findRun: (runId) => graphManager.findOrchestraRun(runId),
+            findEdge: (edgeId) => graphManager.getTaskEdge(edgeId ?? '') ?? undefined,
+            isUserStopped,
+          });
           for (const edge of incoming) {
             try {
-              // Preserve each run when concurrent sessions finish on the same worker.
-              const orchestraCommands = done.filter((cmd) => cmd.orchestraRunId
-                && graphManager.findOrchestraRun(cmd.orchestraRunId)?.agentId !== workerAgentId
-                && !isUserStopped(cmd)
-                && graphManager.getTaskEdge(cmd.edgeId ?? '')?.kind !== 'critique');
-              if (orchestraCommands.length > 0) {
-                for (const cmd of orchestraCommands) {
-                  const run = graphManager.findOrchestraRun(cmd.orchestraRunId!);
-                  if (run?.memberAgentIds.includes(edge.sourceAgentId)) {
-                    dispatchCritiqueWatcher(edge, cmd.result ?? null,
-                      graphManager.getTaskEdge(cmd.edgeId ?? '')?.bundleRole !== 'auto-rework', cmd.orchestraRunId);
-                  }
-                }
-              } else if (!done.some((cmd) => cmd.orchestraRunId)) {
+              for (const firing of firings) {
+                dispatchCritiqueWatcher(edge, firing.result, firing.freshCycle, firing.runId);
+              }
+              if (plainFallback) {
                 dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion);
               }
             } catch (err) {

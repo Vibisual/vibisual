@@ -13,6 +13,7 @@ import {
   sessionProbeNote, serializeBusySubIds, parseBusySubIds,
 } from '../../utils/sessionStatus.js';
 import { useNowTick } from '../../hooks/useNowTick.js';
+import { useSessionLivenessFacts } from '../../hooks/useSessionRunning.js';
 import { formatElapsed } from './elapsed.js';
 import { followSessionKey } from './editorFollow.js';
 import { buildDiffCommentPrompt } from './diffCommentPrompt.js';
@@ -108,18 +109,19 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   const probeNote = sessionProbeNote(activeSession);
   /*
    * §2.4 (무응답) — "실행 중"만 떠 있고 **얼마나 그러고 있는지**는 어디에도 없었다(사용자 보고).
-   * 그래서 이 칸에 마지막 움직임 이후 경과를 적고, 문턱(3분)을 넘으면 낱말을 "무응답"으로 뒤집는다.
+   * 마지막 활동 이후 경과를 적는다. 출력 공백만으로 무응답/고장이라고 단정하지 않는다.
    *
    * 경과 시계는 **돌고 있을 때만** 돈다 — 조용한 세션에 1초 타이머를 달아 두면 열어 둔 창 수만큼
    * 매초 리렌더가 쌓인다. 그리고 `probe` 와 달리 **엔진을 가리지 않는다** — 코덱스·로컬 세션은
    * 서버 탐침을 못 받는 일이 흔해, 그쪽에서는 이 줄이 유일한 안내다.
    */
   const statusRunning = runState === 'running';
+  const { lastActivityAt } = useSessionLivenessFacts(agent.id, activeSession?.id ?? null);
   const now = useNowTick(statusRunning && activeSession !== null);
-  const silenceMs = statusRunning ? sessionSilenceMs(activeSession?.lastActivityAt, now) : null;
+  const silenceMs = statusRunning && activeSession ? sessionSilenceMs(lastActivityAt, now) : null;
   const statusStalled = silenceMs !== null && silenceMs >= SESSION_NO_RESPONSE_MS;
-  const statusElapsed = silenceMs !== null && activeSession
-    ? formatElapsed(activeSession.lastActivityAt, now)
+  const statusElapsed = silenceMs !== null && lastActivityAt !== null
+    ? formatElapsed(lastActivityAt, now)
     : null;
   // §5.5 — 모델·컨텍스트·토큰은 **보고 있는 세션 하나**를 주어로 삼는다. 종전에는 칸마다
   //   `activeSession?.X ?? agent.X` 로 폴백을 걸어, 고른 세션이 그 값을 아직 안 가졌으면 조용히
@@ -334,10 +336,10 @@ export const IDEStatusBar = memo(function IDEStatusBar({
         <span className={runState === 'error' ? 'text-red-400' : 'text-gray-400'}>
           {t(SESSION_STATUS_LABEL_KEY[runState])}
         </span>
-        {/* §2.4 (무응답) — 경과 시간. 문턱을 넘으면 회색 숫자가 호박색 "무응답 N분"으로 뒤집힌다. */}
+        {/* Quiet time is informational; errors and the server probe have their own indicators. */}
         {statusElapsed && (
           <span
-            className={`tabular-nums ${statusStalled ? 'text-amber-400' : 'text-gray-500'}`}
+            className="tabular-nums text-gray-500"
             title={statusStalled ? t('ide.mainArea.stallHint') : t('ide.statusBar.elapsedTip')}
           >
             · {statusStalled ? t('ide.runningSubagents.noResponse', { value: statusElapsed }) : statusElapsed}

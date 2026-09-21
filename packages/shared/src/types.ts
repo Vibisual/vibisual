@@ -263,6 +263,12 @@ export interface ClaudeAuthStatus {
    * 값이 있으면 `loggedIn:false` 는 "로그아웃"이 아니라 "모름"이므로 로그인 팝업을 자동으로 띄우지 않는다.
    */
   error?: ClaudeAuthProbeError;
+  /**
+   * 판정을 못 한 직전 탐침이 **덮어쓰기 전에 들고 있던** 마지막 정상 판정(있을 때만).
+   * "모름"이 마지막 정상 판정을 지우면 다음 폴링(10분)까지 준비 판정이 통째로 막히므로,
+   * 준비 여부만 보는 쪽(오케스트라 등)은 `error` 가 있어도 이 값을 이어 쓴다.
+   */
+  staleLoggedIn?: boolean;
   checkedAt: number;
 }
 
@@ -9448,6 +9454,8 @@ export interface CodexAuthStatus {
   /** CLI 가 계정/이메일을 함께 말해 주면 표시용으로만 싣는다. */
   account?: string;
   error?: CodexAuthProbeError;
+  /** 판정 실패가 덮어쓰기 전의 마지막 정상 판정(클로드와 같은 규칙). */
+  staleLoggedIn?: boolean;
   checkedAt: number;
 }
 

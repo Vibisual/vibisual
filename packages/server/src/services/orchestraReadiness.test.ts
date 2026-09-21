@@ -71,3 +71,31 @@ describe('Codex만 준비한 사용자의 자동 편성', () => {
     })).toEqual({ ok: true });
   });
 });
+
+describe('탐침 실패가 편성을 막지 않는다', () => {
+  const ready = { codexSetup: { phase: 'ready' as const }, claudeSetup: { phase: 'ready' as const } };
+
+  it('직전 정상 판정을 이어 쓴다 — 모름 한 번이 10분을 막던 것', () => {
+    expect(orchestraEnginePreparation('codex', {
+      ...ready, codexAuth: { loggedIn: false, error: 'timeout', staleLoggedIn: true },
+    })).toBeNull();
+    expect(orchestraEnginePreparation('claude', {
+      ...ready, claudeAuth: { loggedIn: false, error: 'cli-missing', staleLoggedIn: true },
+    })).toBeNull();
+  });
+
+  it('직전 판정이 로그아웃이면 로그인 안내를, 이어 쓸 판정이 없으면 재조회를 요구한다', () => {
+    expect(orchestraEnginePreparation('codex', {
+      ...ready, codexAuth: { loggedIn: false, error: 'parse', staleLoggedIn: false },
+    })).toEqual({ engine: 'codex', action: 'login' });
+    expect(orchestraEnginePreparation('codex', { ...ready, codexAuth: { loggedIn: false, error: 'parse' } }))
+      .toEqual({ engine: 'codex', action: 'refresh' });
+    expect(orchestraEnginePreparation('codex', { ...ready })).toEqual({ engine: 'codex', action: 'refresh' });
+  });
+
+  it('설치가 안 됐으면 이어 쓸 판정이 있어도 설치 안내가 먼저다', () => {
+    expect(orchestraEnginePreparation('claude', {
+      claudeSetup: { phase: 'missing' }, claudeAuth: { loggedIn: false, error: 'cli-missing', staleLoggedIn: true },
+    })).toEqual({ engine: 'claude', action: 'setup' });
+  });
+});

@@ -52,8 +52,16 @@ export function parseCodexLoginStatus(raw: string, code: number | null, now: num
   return null;
 }
 
-function unknownStatus(error: CodexAuthProbeError): CodexAuthStatus {
-  return { loggedIn: false, error, checkedAt: Date.now() };
+/**
+ * 판정 실패("모름")가 **마지막 정상 판정을 지우지 않게** 한다.
+ *
+ * 종전에는 탐침 한 번이 실패하면 캐시가 통째로 모름으로 덮여, 다음 폴링(10분)이나 사용자가
+ * 새로고침을 누를 때까지 준비 여부를 보는 쪽이 전부 막혔다. 직전 판정을 `staleLoggedIn` 으로
+ * 이어 실어 두면 표시는 여전히 "모름"이되 준비 검사는 이어 갈 수 있다.
+ */
+function unknownStatus(error: CodexAuthProbeError, prev: CodexAuthStatus | null): CodexAuthStatus {
+  const carried = prev?.error !== undefined ? prev.staleLoggedIn : prev?.loggedIn;
+  return { loggedIn: false, error, ...(carried !== undefined && { staleLoggedIn: carried }), checkedAt: Date.now() };
 }
 
 class CodexAuthService {
@@ -76,17 +84,17 @@ class CodexAuthService {
   private async probe(): Promise<CodexAuthStatus> {
     const res = await runCodexCli(['login', 'status'], CODEX_AUTH_PROBE_TIMEOUT_MS);
     if (res.failure === 'spawn') {
-      this.cached = unknownStatus('cli-missing');
+      this.cached = unknownStatus('cli-missing', this.cached);
       return this.cached;
     }
     if (res.failure === 'timeout') {
-      this.cached = unknownStatus('timeout');
+      this.cached = unknownStatus('timeout', this.cached);
       return this.cached;
     }
     const parsed = parseCodexLoginStatus(res.out, res.code, Date.now());
     if (!parsed) {
       logger.warn(`[codexAuth] status parse failed (exit=${String(res.code)}): ${res.out.slice(0, 200)}`);
-      this.cached = unknownStatus('parse');
+      this.cached = unknownStatus('parse', this.cached);
       return this.cached;
     }
     this.cached = parsed;

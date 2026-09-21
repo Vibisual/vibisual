@@ -10,7 +10,7 @@ export { formatElapsed, formatClock } from './elapsed.js';
 import { formatClock, formatElapsed } from './elapsed.js';
 
 /**
- * 이만큼 자식의 도구 이벤트가 끊기면 "무응답"으로 적는다. 죽었다고 단정하지 않는다 —
+ * 이만큼 자식의 도구 이벤트가 끊기면 마지막 업데이트 이후 시간을 적는다.
  * 폴링·긴 단일 호출은 정상적으로 조용할 수 있으므로, 판단 재료만 주고 결정은 사용자가 한다.
  *
  * 값은 `@vibisual/shared` 의 `SESSION_NO_RESPONSE_MS` 하나다 — 세션 스트림의 무응답 표시와
@@ -270,8 +270,8 @@ export const RunningTaskRow = memo(function RunningTaskRow({
 
       {quietFor && (
         <p
-          className={`mt-0.5 text-[12px] font-semibold ${quietIsOutput ? 'text-gray-500' : 'text-amber-300/90'}`}
-          {...(quietIsOutput ? { title: t('ide.runningSubagents.quietForTip') } : {})}
+          className="mt-0.5 text-[12px] text-gray-500"
+          title={t(quietIsOutput ? 'ide.runningSubagents.quietForTip' : 'ide.mainArea.stallHint')}
         >
           {quietIsOutput
             ? t('ide.runningSubagents.quietFor', { value: quietFor })

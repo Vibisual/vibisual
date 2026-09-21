@@ -158,6 +158,16 @@ describe('③ (H-21) 되돌리기(↩) 손잡이는 없다 — 닫기(✕)가 �
     const text = readSource('/src/components/IDE/AgentIDEOverlay.tsx');
     expect(text).toContain("if (e.key === 'Escape') closeOverlay();");
   });
+
+  it('Esc 가 판 안의 것을 한 겹씩 벗기지 않는다 — 겹이 늘 때마다 닫기가 한 번씩 더 필요해진다', () => {
+    const text = readSource('/src/components/IDE/AgentIDEOverlay.tsx');
+    // 실행 출력(#17-20 ④)을 먼저 먹게 한 판이 있었다. 출력은 살아 있는 실행의 것이라 창을 닫아도
+    // 남고(`useRunSessions` 는 PTY 수명 축이다), 다시 열면 첫 Esc 가 또 창을 닫지 않는다 —
+    // (H-9) 가 없앤 "두 번 눌러야 닫힌다"가 그대로 돌아온다. 손잡이는 그 패널 머리의 ✕ 하나다.
+    const effect = text.slice(text.indexOf('// Escape to close'), text.indexOf('// 누수 방지'));
+    expect(effect, 'Esc 블록을 못 찾았다').toContain("e.key === 'Escape'");
+    expect(effect, 'Esc 가 실행 출력을 먼저 먹는다').not.toContain('openRunOutput(');
+  });
 });
 
 describe('④ 닫기로 돌아온 길은 앱 안 창을 건드리지 않는다', () => {

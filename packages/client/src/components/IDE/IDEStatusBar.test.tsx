@@ -56,6 +56,14 @@ function makeState() {
     modelRegistry: undefined,
     acknowledgedSubAgents: {}, sessionFocusGlow: {}, contextInsurance: [], diffComments: {},
     // 상태바는 §2.4 생존 판정 재료를 탭바·분할 칸과 **같은 인자**로 집는다(백그라운드 작업 포함).
+    //   `useSessionLivenessFacts` 가 `subAgents`·`subAgentStreams`·`queuedCommands` 를 모두 읽으므로
+    //   셋을 다 세워 둔다 — 하나라도 비면 훅이 store 를 뒤지다 터져서, 정작 재려던 effort 는
+    //   한 번도 판정되지 않은 채 다섯 건이 같은 TypeError 로 떨어진다(픽스처가 낡은 것이지 코드가
+    //   깨진 것이 아니라서 증상만 보면 오진하기 쉽다). 보고 있는 세션도 목록에 실어 둔다 —
+    //   `pickSources` 는 그 sub 를 못 찾으면 "판단 근거 없음" 으로 물러난다(§2.4).
+    subAgents: { [agent.id]: [session] } as Record<string, SubAgent[]>,
+    subAgentStreams: {} as Record<string, unknown[]>,
+    queuedCommands: {} as Record<string, unknown[]>,
     runningSubagentTasks: {} as Record<string, unknown>,
     insurancePopupOpen: false,
     setInsurancePopupOpen: vi.fn(), addCommand: vi.fn(), clearDiffComments: vi.fn(),

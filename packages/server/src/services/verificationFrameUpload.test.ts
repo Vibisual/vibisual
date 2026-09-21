@@ -52,9 +52,10 @@ async function harness(initialCount = 0): Promise<{
   cleanups.push(async (): Promise<void> => {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
-    // A reset connection can leave its write handle open for a tick; without retries that turns
-    // teardown into a second failure that hides the one the test actually found.
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    // A reset connection can leave its write handle open for a tick, and Windows will not delete a file
+    // that still has one. It has to be the awaited form: rmSync retries block the event loop, so the
+    // close they are waiting for cannot land, and teardown becomes a second failure that hides the first.
+    await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   });
   await once(server, 'listening');
   const address = server.address();
@@ -143,5 +144,16 @@ describe('verification demo frame uploads', () => {
     expect(fixture.graph.findVerificationDemo(fixture.demo.id)).toBeUndefined();
     expect(fs.existsSync(fixture.dir)).toBe(false);
     expect(fixture.saved).not.toHaveBeenCalled();
+  });
+
+  // No POSIX run can catch a regression here: unlinking an open file just works, so both forms pass.
+  // Only Windows tells them apart, and there the sync form cannot work at all — its retries sleep by
+  // blocking the event loop, so the stream close they are waiting for never gets to run.
+  it('discards rejected frames with the awaited form, not the blocking one', () => {
+    const source = fs.readFileSync(new URL('./verificationFrameUpload.ts', import.meta.url), 'utf8')
+      .replace(/\r\n/g, '\n');
+    expect(source).toContain('await fs.promises.rm(');
+    expect(source).toContain('await fs.promises.rmdir(');
+    expect(source).not.toMatch(/\bfs\.(rmSync|rmdirSync|unlinkSync)\b/);
   });
 });

@@ -30,8 +30,8 @@ export function ThinkingDots(): React.JSX.Element {
  * §2.4 (무응답) — 여기에 **시간**이 없던 것이 이 버그의 핵심이었다. 말줄임만 돌아가는 줄은 3초가
  * 지났는지 30분이 지났는지 말해 주지 않아, 사용자가 "끝난 건지 끊긴 건지 이어서 하는 건지" 판단할
  * 근거가 화면 어디에도 없었다. 이제 마지막 움직임 이후 흐른 시간을 그 자리에 적고, 문턱
- * (`SESSION_NO_RESPONSE_MS`)을 넘으면 **호박색 "무응답"** 으로 뒤집는다 — 죽었다고 단정하지 않되
- * 사용자가 손을 쓸 때가 됐다는 것만 알린다(결정은 사용자가 한다).
+ * (`SESSION_NO_RESPONSE_MS`)을 넘으면 마지막 업데이트 이후 시간임을 명시한다.
+ * 조용한 추론/도구 호출을 고장으로 단정하거나 경고색으로 칠하지 않는다.
  */
 export function ThinkingLiveLine({
   label,
@@ -49,11 +49,11 @@ export function ThinkingLiveLine({
   const silence = sessionSilenceMs(lastActivityAt, now);
   const stalled = silence !== null && silence >= SESSION_NO_RESPONSE_MS;
   const elapsed = silence !== null && lastActivityAt !== null ? formatElapsed(lastActivityAt, now) : null;
-  const dot = stalled ? 'bg-amber-400' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
-  const text = stalled ? 'text-amber-300/85' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
+  const dot = stalled ? 'bg-gray-500' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
+  const text = stalled ? 'text-gray-400' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
   return (
     <div className="flex items-center gap-2 px-4 py-1.5">
-      {/* 무응답이면 점이 뛰지 않는다 — 뛰는 점은 "지금 뭔가 오고 있다"는 뜻이라 거짓말이 된다. */}
+      {/* No pulse during an output gap; neither progress nor failure is inferred. */}
       <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${stalled ? '' : 'animate-pulse'} ${dot}`} aria-hidden="true" />
       <span className={`inline-flex items-baseline text-[12px] italic ${text}`}>
         {label}
@@ -61,7 +61,7 @@ export function ThinkingLiveLine({
       </span>
       {elapsed !== null && (
         <span
-          className={`flex-shrink-0 text-[12px] tabular-nums ${stalled ? 'font-semibold text-amber-300/90' : 'text-gray-500'}`}
+          className="flex-shrink-0 text-[12px] tabular-nums text-gray-500"
           title={stalled ? t('ide.mainArea.stallHint') : undefined}
         >
           {stalled ? t('ide.runningSubagents.noResponse', { value: elapsed }) : elapsed}

@@ -19,6 +19,7 @@ import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { buildSessionRunInputs } from '../utils/sessionStatus.js';
 import type { SessionRunInputSources } from '../utils/sessionStatus.js';
+import { sessionLastActivityAt } from '../utils/sessionActivity.js';
 
 /** store 전체 모양 — `GraphState` 는 스토어 밖으로 내보내지 않으므로 여기서 되짚는다. */
 type GraphSnapshot = ReturnType<typeof useGraphStore.getState>;
@@ -113,23 +114,11 @@ export function useSessionLivenessFacts(agentId: string, activeSessionId: string
     const picked = pickSources(s, agentId, activeSessionId);
     if (!picked) return '';
     const inputs = buildSessionRunInputs(picked.sources);
-    // 마지막 활동 = 세션이 마지막으로 움직인 시각(서버 사실). 메인 탭은 이 에이전트 세션들 중 가장 최근.
-    let last = 0;
-    if (picked.sub) {
-      last = picked.sub.lastActivityAt ?? 0;
-    } else {
-      for (const sub of s.subAgents[agentId] ?? []) {
-        if (sub.lastActivityAt > last) last = sub.lastActivityAt;
-      }
-    }
-    // 방금 나간 명령이 세션 시각보다 새로우면 그쪽이 진실이다(스냅샷 지연 흡수).
-    const subId = picked.sub?.id ?? null;
-    for (const c of s.queuedCommands[agentId] ?? []) {
-      if (c.status !== 'executing') continue;
-      if (subId !== null && c.subAgentId !== subId) continue;
-      const started = c.startedAt ?? c.timestamp;
-      if (typeof started === 'number' && started > last) last = started;
-    }
+    // Stream delivery does not require a new graph snapshot. Include its actual
+    // event timestamps so a busy session cannot age behind an unchanged snapshot.
+    const last = sessionLastActivityAt(
+      s.subAgents[agentId] ?? [], s.subAgentStreams, s.queuedCommands[agentId] ?? [], activeSessionId,
+    ) ?? 0;
     return `${inputs.subStatus ?? ''}|${isSessionRunning(inputs) ? 1 : 0}|${isSessionWaiting(inputs) ? 1 : 0}|${last}`;
   });
   return useMemo(() => {

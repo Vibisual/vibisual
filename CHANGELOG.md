@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.28] - 2026-09-21
+## [0.1.29] - 2026-09-21
 
 ### Added
 - **Orchestra: the agent you give an order to becomes the conductor for that turn.** Turn it on in the activity bar for a whole project or for one agent, and that agent first decides what kind of request it is and whether the work should be split at all — then picks, from the recorded token-saving strategies, only the ones that fit, creates the members it needs on the canvas, hands the work out, collects the results and reports back. The Runs list keeps every conducted order with what it picked, what it left out and why, its members, phase and token counts. Members the conductor creates never conduct themselves, the conductor's own saved settings are not changed, and it can be told to answer you directly when a team would not help. It starts off, and the panel says plainly that several agents can cost more than one, not less.
@@ -608,8 +608,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.28...HEAD
-[0.1.28]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.1.28
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.29...HEAD
+[0.1.29]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.1.29
 [0.1.25]: https://github.com/Vibisual/vibisual/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/Vibisual/vibisual/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/Vibisual/vibisual/compare/v0.1.22...v0.1.23

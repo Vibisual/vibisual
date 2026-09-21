@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { RUN_OUTPUT_BUFFER_LINES } from '@vibisual/shared';
@@ -10,7 +10,7 @@ import { ProblemOutputLine } from './ProblemOutputLine.js';
 import { getRunTail, stopRun, useRunSessions } from '../../stores/runSessions.js';
 
 /**
- * §5.5 #17-20 ④ v4.74 — 실행 출력 패널(세션 영역을 덮는다 — 북마크·세션 요약 패널과 같은 자리).
+ * §5.5 #17-20 ④ — 실행 출력 패널(웹 미리보기와 같은 오른쪽 판 안에 선다).
  *
  * 왜 xterm 이 아니라 텍스트인가: 살아 있는 PTY 는 재부착으로 scrollback 을 replay 받을 수 있지만
  * **이미 끝난 실행**은 PTY 가 사라져 다시 붙을 대상이 없다. 그때 `create` 를 부르면 명령이 한 번
@@ -40,8 +40,9 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
         absPath: `${rootPath}/${relPath}`,
         name: relPath.split('/').pop() ?? relPath,
       }, paneKey);
+      onClose();
     },
-    [rootPath, openEditorFile, paneKey],
+    [rootPath, openEditorFile, paneKey, onClose],
   );
 
   const lines = useMemo(
@@ -74,24 +75,16 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
     );
   }, [lines]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   if (!runId || !session) return null;
 
   const running = session.status !== 'exited';
   const failed = !running && (session.exitCode ?? 0) !== 0;
 
   return (
-    <div className="flex h-full flex-col bg-gray-950">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-gray-950">
       {/* 머리 — 무엇이 돌고 있는지 + 조작 */}
-      <div className="flex items-center gap-2 border-b border-gray-700 px-3 py-2">
-        <span className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-700 px-3 py-2">
+        <span className="min-w-0 flex-1 basis-40">
           <span className="block truncate text-xs font-semibold text-gray-200">{session.name}</span>
           <span className="block truncate font-mono text-[12px] text-gray-500" title={session.command}>
             {session.command}
