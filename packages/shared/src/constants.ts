@@ -2174,6 +2174,28 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-sonnet-4-5': makePricing(3, 15),
   'claude-sonnet-4-0': makePricing(3, 15),
   'claude-haiku-4-5': makePricing(1, 5),
+  // OpenAI Standard / short-context API rates per 1M tokens; checked 2026-09-21.
+  // https://developers.openai.com/api/docs/pricing
+  // This is a token-cost equivalent, not a ChatGPT subscription/credit charge.
+  // Older Codex models: https://developers.openai.com/api/docs/models/<model-id>
+  // Models without separate cache-write billing use 0; uncached input covers it.
+  'gpt-6-astra': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+  'gpt-5.6-sol': { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
+  'gpt-5.6-terra': { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+  'gpt-5.6-luna': { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
+  'gpt-5.5': { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
+  'gpt-5.4': { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 },
+  'gpt-5.4-mini': { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0 },
+  'gpt-5.4-nano': { input: 0.2, output: 1.25, cacheRead: 0.02, cacheWrite: 0 },
+  'gpt-5.3-codex': { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+  'gpt-5.2-codex': { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+  'gpt-5.2': { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+  'gpt-5.1-codex-max': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+  'gpt-5.1-codex-mini': { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0 },
+  'gpt-5.1-codex': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+  'gpt-5.1': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+  'gpt-5-codex': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+  'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
 };
 
 /**
@@ -2262,7 +2284,9 @@ export function getModelPricing(modelId: string | undefined | null, registry?: M
  * 여기까지 접고도 못 찾으면 그때가 **정말 모르는 모델**이고, 그 자리가 "추정" 표식이 뜨는 자리다.
  */
 export function normalizeModelId(id: string): string {
-  return id.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+  const base = id.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+  // OpenAI snapshots use YYYY-MM-DD (for example, gpt-5.1-2025-11-13).
+  return base.startsWith('gpt-') ? base.replace(/-\d{4}-\d{2}-\d{2}$/, '') : base;
 }
 
 /**

@@ -2039,6 +2039,7 @@
       "reloaded": "Il documento è stato modificato altrove, quindi è stato ricaricato."
     },
     "cost": {
+      "codexEstimateNote": "I costi di Codex sono stimati con le tariffe standard dei token API. Non rappresentano addebiti dell’abbonamento ChatGPT né consumo di crediti; sono esclusi i supplementi per la modalità Fast e i contesti lunghi.",
       "title": "Mappa costi e token",
       "close": "Chiudi mappa costi",
       "pillLabel": "Costo di oggi",

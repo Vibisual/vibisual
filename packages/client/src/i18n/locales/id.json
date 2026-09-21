@@ -2039,6 +2039,7 @@
       "reloaded": "Dokumen berubah di tempat lain, jadi dimuat ulang."
     },
     "cost": {
+      "codexEstimateNote": "Biaya Codex diperkirakan dari tarif token API standar. Ini bukan tagihan langganan ChatGPT atau penggunaan kredit; biaya tambahan mode Fast dan konteks panjang tidak termasuk.",
       "title": "Peta biaya & token",
       "close": "Tutup peta biaya",
       "pillLabel": "Biaya hari ini",

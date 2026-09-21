@@ -34,6 +34,7 @@ import {
 /** 스윕 한 번에 넘기는 세션 한 줄 — 호출부가 그래프에서 뽑아 채운다. */
 export interface CostSweepSession {
   sessionId: string;
+  provider?: 'claude' | 'codex';
   /** 이 세션을 소유한 에이전트 버블 id. */
   agentId?: string;
   /** 그 에이전트의 세션 탭(sub.id). */
@@ -49,7 +50,7 @@ export interface CostSweepSession {
 }
 
 /** 턴을 읽어 오는 통로 — 테스트가 JSONL 없이 주입할 수 있게 함수로 받는다. */
-export type TurnReader = (cwd: string, sessionId: string) => TurnTokenUsage[] | null;
+export type TurnReader = (cwd: string, sessionId: string, provider?: CostSweepSession['provider']) => TurnTokenUsage[] | null;
 
 /** 세션 원장 한 줄의 내부 표현(스냅샷에서 `days` 를 떼기 전 원본). */
 type LedgerEntry = CostSessionEntry & { days: Record<string, CostTotals> };
@@ -147,17 +148,24 @@ export class CostMapService {
 
       let turns: TurnTokenUsage[] | null = null;
       try {
-        turns = readTurns(s.cwd, s.sessionId);
+        turns = readTurns(s.cwd, s.sessionId, s.provider);
       } catch {
         turns = null;
       }
 
       // 읽히지 않은 세션 — 원장에 없으면 "측정 없음" 한 줄로 올려 둔다(0 원이 아니라 미측정이다).
       if (!turns || turns.length === 0) {
-        if (prev) continue;
+        if (prev) {
+          if (s.provider && prev.provider !== s.provider) {
+            ledger.set(s.sessionId, { ...prev, provider: s.provider });
+            changed = true;
+          }
+          continue;
+        }
         ledger.set(s.sessionId, {
           ...emptyCostTotals(),
           sessionId: s.sessionId,
+          ...(s.provider ? { provider: s.provider } : {}),
           ...(s.agentId ? { agentId: s.agentId } : {}),
           ...(s.subAgentId ? { subAgentId: s.subAgentId } : {}),
           projectName: s.projectName,
@@ -176,6 +184,7 @@ export class CostMapService {
       // 늘어난 게 없고 소속 정보도 그대로면 건드리지 않는다.
       const sameShape = prev
         && prev.turns === turns.length
+        && prev.provider === s.provider
         && prev.agentId === s.agentId
         && prev.label === s.label;
       if (sameShape) continue;
@@ -206,6 +215,7 @@ export class CostMapService {
       ledger.set(s.sessionId, {
         ...totals,
         sessionId: s.sessionId,
+        ...(s.provider ? { provider: s.provider } : {}),
         ...(s.agentId ? { agentId: s.agentId } : {}),
         ...(s.subAgentId ? { subAgentId: s.subAgentId } : {}),
         projectName: s.projectName,
@@ -289,6 +299,7 @@ export class CostMapService {
       out.push({
         ...slot.totals,
         agentId,
+        ...(latest.provider ? { provider: latest.provider } : {}),
         ...(latest.label ? { label: latest.label } : {}),
         ...(latest.model ? { model: latest.model } : {}),
         sessions: slot.entries.length,
@@ -352,6 +363,11 @@ export class CostMapService {
   /** 그 세션이 이미 원장에 있는가 — 조용한 세션을 스윕에서 건너뛸지 판정하는 데 쓴다. */
   hasSession(projectName: string, sessionId: string): boolean {
     return this.ledgers.get(projectName)?.has(sessionId) ?? false;
+  }
+
+  /** Old unmeasured Codex placeholders must be retried after enabling its reader. */
+  hasMeasuredSession(projectName: string, sessionId: string): boolean {
+    return this.ledgers.get(projectName)?.get(sessionId)?.measured === true;
   }
 
   /** 체크포인트용 — 세션 날짜 분해 포함. 그 프로젝트에 아무것도 없으면 undefined. */

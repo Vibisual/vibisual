@@ -25,11 +25,11 @@ import type {
   TodoItem,
   CommandDispatchMode,
   CommandError,
-  TurnStopReason,
 } from '@vibisual/shared';
 import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
+import { turnStopLabelKey } from './turnStopLabel.js';
 
 // ─── 계획(TodoWrite) 인식 (§5.5 #17-12) ───
 
@@ -334,11 +334,6 @@ export interface StreamCommand {
    * 스트림이 있으면 실패한 그 자리에 `error` 항목이 이미 서 있어 두 번 읽게 된다.
    */
   error?: CommandError;
-  /**
-   * §5.5 #17-12 ③-6 — 턴이 끝난 이유. `error` 와 달리 스트림에 같은 말을 하는 항목이 없어 늘 싣는다 —
-   * 무엇을 그릴지(평범한 끝·실패한 턴은 조용히)는 `turnStopLabelKey` 가 정한다.
-   */
-  stopReason?: TurnStopReason;
 }
 
 /**
@@ -361,10 +356,28 @@ export interface StreamImage {
   nestedUnderToolUseId?: string;
 }
 
+/**
+ * §5.5 #17-12 ③-6 (g) — 이 턴이 **왜 멈췄는지** 말하는 한 줄.
+ *
+ * 종전에는 이 낱말을 `StreamCommand`(말풍선) 안에 실었다. 그런데 말풍선이 서는 자리는 #17-18 ⑥ 대로
+ * **명령이 나간 시각**이라, 멈춤 표시가 그 턴의 출력 **전부보다 위** — 내가 친 글 바로 아래, 아직 아무
+ * 일도 일어나지 않은 자리에 떴다(사용자 보고). 멈춤은 그 턴에서 마지막에 일어난 일이므로 말풍선의
+ * 일부가 아니라 **자기 항목**으로 서서 그 턴의 꼬리에 놓인다 — 읽는 순서 = 일어난 순서.
+ *
+ * 낱말은 화면이 정하지 않는다(`turnStopLabelKey` — 하단 상태바와 같은 함수 · 같은 낱말).
+ */
+export interface StreamTurnStop {
+  kind: 'turnstop';
+  id: string;
+  /** i18n 키. 여기까지 왔다는 것 자체가 "말할 것이 있다"는 판정을 통과했다는 뜻이다. */
+  labelKey: string;
+  timestamp: number;
+}
+
 export type StreamItem =
   | StreamText | StreamGroup | StreamSystem | StreamResult | StreamError | StreamPlan | StreamStep
   | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk
-  | StreamImage;
+  | StreamImage | StreamTurnStop;
 
 export type StreamItemFull = StreamItem | StreamCommand;
 
@@ -419,6 +432,21 @@ function dispatchedAnchorsAsc(commands: readonly QueuedCommand[] | undefined): n
     out.push(commandAnchorTs(c));
   }
   return out.sort((a, b) => a - b);
+}
+
+/**
+ * §5.5 #17-12 ③-6 (g) — 그 턴에서 **마지막에 일어난 일**이 설 자리.
+ *
+ * `anchor` 는 그 명령이 나간 시각(= 그 턴이 시작된 경계)이다. 그 턴의 출력은 모두 이 경계와 다음
+ * 경계 사이에 있으므로, **다음 경계 바로 앞**(`-0.5`)이 곧 "그 턴의 마지막 줄 아래 · 다음 말풍선 위"다.
+ * 뒤에 나간 명령이 없으면(= 마지막 턴) 어떤 실제 시각보다 큰 값으로 꼬리에 서되, 정렬 밖으로 빼는
+ * 대기 말풍선·라이브 1줄(`PENDING_COMMAND_TS`)보다는 **한 칸 위**에 남는다(아직 안 나간 글이 더 아래다).
+ *
+ * §5.3 #12-2 의 대기 중 물음 카드가 쓰는 것과 같은 규약이라 새 정렬 축을 만들지 않는다.
+ */
+export function turnTailSortTs(anchor: number, dispatchedAsc: readonly number[]): number {
+  for (const ts of dispatchedAsc) { if (ts > anchor) return ts - 0.5; }
+  return PENDING_COMMAND_TS - 1;
 }
 
 // ─── 턴 단위 결과 폴백 (§5.5 #17-12 ③-3) ───
@@ -502,9 +530,11 @@ export function turnCoverageOf(events: readonly SubAgentStreamEvent[], anchors: 
  * 디스크에 답이 있는데 화면에는 말풍선만 줄지어 남았다(2026-09-09 사용자 보고). 실패 사유(`error`)도
  * 같은 규약 — 그 턴의 오류 줄이 남아 있을 때만 비운다.
  */
-function buildCommandItems(commands: readonly QueuedCommand[] | undefined, coverage: TurnCoverage): StreamCommand[] {
-  const items: StreamCommand[] = [];
+function buildCommandItems(commands: readonly QueuedCommand[] | undefined, coverage: TurnCoverage): StreamItemFull[] {
+  const items: StreamItemFull[] = [];
   if (commands && commands.length > 0) {
+    // §5.5 #17-12 ③-6 (g) — 멈춤 한 줄을 그 턴의 꼬리에 놓으려면 **다음 턴 경계**가 필요하다.
+    const cmdTsAsc = dispatchedAnchorsAsc(commands);
     for (const cmd of commands) {
       // §5.3 #9-1 (P) — 우리가 사용자 명령 앞에 끼운 조용한 압축은 **말풍선이 되지 않는다.**
       //   사용자가 친 적이 없는 글이라, 뜨면 자기 대화에 `/compact` 가 섞여 보인다. 그 명령이
@@ -526,8 +556,19 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
         commandId: cmd.id,
         dispatchMode: cmd.dispatchMode,
         error: coverage.failed.has(cmd.id) ? undefined : cmd.error,
-        stopReason: cmd.stopReason,
       });
+      // §5.5 #17-12 ③-6 (g) — 멈춘 이유는 말풍선 안(= 나간 시각, 출력 전부보다 위)이 아니라
+      //   **그 턴의 꼬리**에 자기 항목으로 선다. 만드는 곳이 여기 하나뿐이라 전체 재구축·증분 파서가
+      //   같은 항목을 같은 자리에 낸다(등가성 시험이 그 대칭을 못박는다).
+      const stopLabelKey = turnStopLabelKey(cmd.stopReason, cmd.status);
+      if (stopLabelKey) {
+        items.push({
+          kind: 'turnstop',
+          id: `turnstop-${cmd.id}`,
+          labelKey: stopLabelKey,
+          timestamp: turnTailSortTs(commandAnchorTs(cmd), cmdTsAsc),
+        });
+      }
     }
   }
   return items;
@@ -1012,6 +1053,9 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
     case 'review':   return (a as StreamReview).review === b.review && !!(a as StreamReview).live === !!b.live;
     case 'list':     return (a as StreamList).list === b.list && !!(a as StreamList).live === !!b.live;
     case 'ask':      return (a as StreamAsk).request === b.request;
+    // §5.5 #17-12 ③-6 (g) — 낱말이 바뀌면 다시 그린다. 자리는 정렬이 정하므로 timestamp 는 여기 안 넣는다
+    //   (재사용된 옛 객체가 자리를 붙잡지 못한다 — 정렬은 매번 새 객체로 다시 계산된 배열에서 일어난다).
+    case 'turnstop': return (a as StreamTurnStop).labelKey === b.labelKey;
   }
 }
 

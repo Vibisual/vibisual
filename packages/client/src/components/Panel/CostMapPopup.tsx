@@ -98,6 +98,7 @@ function TotalsCard({
 /** 표 한 줄 — 이름·모델·토큰·비용. 에이전트 표와 세션 표가 같은 골격을 쓴다. */
 function CostRow({
   name,
+  provider,
   model,
   tokens,
   costUsd,
@@ -107,6 +108,7 @@ function CostRow({
   onClick,
 }: {
   name: string;
+  provider?: 'claude' | 'codex';
   model?: string;
   tokens: number;
   costUsd: number;
@@ -121,8 +123,11 @@ function CostRow({
   const tone = costTextToneClass(toneOf(costUsd, measured));
   const body = (
     <>
-      <span className="min-w-0 flex-1 truncate text-xs text-gray-200">{name}</span>
-      <span className="w-24 flex-shrink-0 truncate text-right text-[12px] text-gray-500">{model ?? '—'}</span>
+      <span className="min-w-0 flex-1 text-xs text-gray-200">
+        <span className="block truncate" title={name}>{name}</span>
+        {provider && <span className="block text-[12px] text-gray-500">{provider === 'codex' ? 'Codex' : 'Claude'}</span>}
+      </span>
+      <span title={model} className="w-24 flex-shrink-0 truncate text-right text-[12px] text-gray-500">{model ?? '—'}</span>
       <span className="w-16 flex-shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-400">
         {measured ? formatTokenCount(tokens) : '—'}
       </span>
@@ -282,6 +287,7 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
                     <CostRow
                       key={a.agentId}
                       name={a.label ?? a.agentId}
+                      provider={a.provider}
                       model={a.model}
                       tokens={costTokenTotal(a.periods[period])}
                       costUsd={a.periods[period].costUsd}
@@ -305,6 +311,7 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
                     <CostRow
                       key={s.sessionId}
                       name={s.label ?? s.sessionId}
+                      provider={s.provider}
                       model={s.model}
                       tokens={costTokenTotal(s)}
                       costUsd={s.costUsd}
@@ -321,6 +328,9 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
 
                 <div className="flex flex-col gap-1 text-[12px] leading-relaxed text-gray-500">
                   <span>{t('panel.cost.estimateNote')}</span>
+                  {map.sessions.some((s) => s.provider === 'codex') && (
+                    <span>{t('panel.cost.codexEstimateNote')}</span>
+                  )}
                   {/* 표식이 실제로 떠 있을 때만 — 늘 붙어 있는 문장은 아무도 읽지 않는다. */}
                   {map.unseededModels && map.unseededModels.length > 0 && (
                     <span className="text-amber-400/80">

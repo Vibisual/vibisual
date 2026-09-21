@@ -48,12 +48,11 @@ import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
   type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError, type StreamImage,
-  type StreamCommand, type StreamItemFull, type StreamStep,
+  type StreamCommand, type StreamItemFull, type StreamStep, type StreamTurnStop,
 } from './streamItems.js';
 import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 import { describeCommandError, parseStreamErrorContent } from './commandError.js';
-import { turnStopLabelKey } from './turnStopLabel.js';
 import {
   applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText, COMPACT_TEXT_CLAMP_MD,
   turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
@@ -898,6 +897,23 @@ function ErrorLine({ item }: { item: StreamError }): React.JSX.Element {
   );
 }
 
+/**
+ * §5.5 #17-12 ③-6 (g) — 그 턴이 왜 멈췄는지(중지·상한·거절·한도·끊김) 한 줄.
+ *
+ * 종전에는 같은 줄이 `CommandBlock` **안**에 있었다. 말풍선 자리는 명령이 나간 시각이라 그 한 줄이
+ * 그 턴의 출력 전부보다 위 — 내가 친 글 바로 아래에 떴다. 이제 자기 항목으로 그 턴의 꼬리에 선다.
+ * 모양은 한 글자도 바꾸지 않았고, 독립 항목이 되었으니 여백만 `ErrorLine`·`ResultBlock` 과 맞춘다.
+ */
+function TurnStopNotice({ item }: { item: StreamTurnStop }): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <div className="mx-2 my-1 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-1.5 text-[12px] font-medium text-amber-300 max-md:mx-1 max-md:px-2.5">
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 12h8" /></svg>
+      <span>{t(item.labelKey)}</span>
+    </div>
+  );
+}
+
 /** §4 v3.21 — result 블록 피드백 컨텍스트 (스트림 소유 에이전트/세션). 없으면 버튼 미노출. */
 export interface StreamFeedbackCtx {
   agentId: string;
@@ -945,8 +961,6 @@ function CommandErrorNotice({ error }: { error: CommandError }): React.JSX.Eleme
 function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string }): React.JSX.Element {
   const { t } = useTranslation();
   const isError = item.status === 'error';
-  // §5.5 #17-12 ③-6 — 평범하게 끝나지 않은 턴의 이유 낱말(실패한 턴·평범한 끝은 null).
-  const stopLabelKey = turnStopLabelKey(item.stopReason, item.status);
   // §5.5 #17-18 ⑤ v4.77 — 이 프롬프트의 상태(실행 중/대기 중 + 방식)를 말풍선이 직접 색으로 말하고,
   //   대기 중이면 [대기|합치기|즉시]·삭제 컨트롤까지 말풍선 안에 붙는다(옛 입력창 위 대기 줄 대체).
   const commandState = useMemo<PromptCommandState>(() => ({
@@ -997,14 +1011,8 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
       {/* §5.5 #17-12 ③ — 그 턴의 오류 줄이 스트림에 없어(창 밖으로 밀렸거나 유실돼) 실패 사유를 실어 줄
           오류 항목이 없을 때의 표면. `error` 를 실어 보내는 쪽(buildCommandItems)이 **턴 단위**로 이미 걸러 두었다. */}
       {item.error && <CommandErrorNotice error={item.error} />}
-      {/* §5.5 #17-12 ③-6 — 실패는 아니지만 왜 멈췄는지(중지·상한·거절·한도)를 실패 사유 자리에 한 줄로.
-          실패한 턴은 위 오류 사유가 이미 말하므로 여기엔 오지 않는다(한 사건은 한 번). */}
-      {stopLabelKey && (
-        <div className="mb-1.5 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-1.5 text-[12px] font-medium text-amber-300">
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 12h8" /></svg>
-          <span>{t(stopLabelKey)}</span>
-        </div>
-      )}
+      {/* §5.5 #17-12 ③-6 (g) — 왜 멈췄는지는 여기(내가 친 글 바로 아래)가 아니라 그 턴의 꼬리에서
+          `TurnStopNotice` 가 말한다. 일어난 순서대로 읽히려면 마지막에 일어난 일이 마지막에 서야 한다. */}
       {/* 결과 — §5.5 #17-12 ③-3: 그 턴의 본문이 스트림에 남아 있으면 비어 오고(스트림이 그린다), 복원 창 밖으로
           밀려난 턴은 여기 저장된 마지막 AI 본문이 그 턴의 답이다. */}
       {item.result && (
@@ -1099,6 +1107,8 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     case 'review':   inner = <AgentReviewCard review={item.review} live={item.live} />; break;
     case 'list':     inner = <AgentListCard list={item.list} live={item.live} />; break;
     case 'ask':      inner = <AskQuestionCard request={item.request} />; break;
+    // §5.5 #17-12 ③-6 (g) — 그 턴이 멈춘 이유. 어느 밀도에서도 접지 않는다(왜 끝났는지가 그 턴의 결말이다).
+    case 'turnstop': inner = <TurnStopNotice item={item} />; break;
   }
   // §4 (스트림 3종 ①) — 중첩 서브에이전트가 낳은 줄이면 감싼다. 표식이 없는 항목은 종전과 완전히 같다.
   const nestedUnder =

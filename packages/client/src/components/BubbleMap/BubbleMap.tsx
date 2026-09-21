@@ -61,6 +61,9 @@ import { shouldDismissOnOpen } from './agentDismiss.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
 import { CanvasControls } from './CanvasControls.js';
+import { canvasViewKey } from './canvasViewMemory.js';
+import { useCanvasViewport } from './useCanvasViewport.js';
+import { resolveCanvasLoadingState } from './canvasLoading.js';
 import { IDEPaneHost } from '../IDE/IDEPaneHost.js';
 import { ContiBoardPanel } from '../Panel/ContiBoardPanel.js';
 import { SpecBoardPanel } from '../Panel/SpecBoardPanel.js';
@@ -160,6 +163,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const pendingFocus = useGraphStore((s) => s.pendingFocus);
   const focusNodeId = useGraphStore((s) => s.focusNodeId);
   const debugMode = useGraphStore((s) => s.debugMode);
+  const canvasProjectId = useGraphStore((s) => s.activeProject === null ? null
+    : s.projects[s.activeProject]?.path ?? s.stubProjects[s.activeProject]?.project.path ?? s.activeProject);
+  const canvasDataReady = useGraphStore((s) => s.activeProject !== null
+    && !s.stubProjects[s.activeProject]
+    && resolveCanvasLoadingState({
+      activeProject: s.activeProject, activeIsStub: false,
+      snapshotReceived: s.snapshotReceived, snapshotScope: s.snapshotScope,
+      currentFolderId: s.currentFolderId, snapshotFolderScope: s.snapshotFolderScope,
+      connectionStatus: s.connectionStatus,
+    }) === 'ready');
 
   // 서버가 TTL 필터링 완료 → 클라이언트는 프로젝트 필터만.
   // worktree 버블 내부로 드릴다운 중이면 해당 worktree 프로젝트 에이전트로 필터 전환.
@@ -281,15 +294,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // 장면 전환
   const [transition, setTransition] = useState<'none' | 'zoom-in' | 'zoom-out'>('none');
-  /** 직전 뷰 키 — 메인=`__main__`, 폴더=folderId, §5.10 내부 뷰=`__interior_*__`. */
-  const prevViewKeyRef = useRef<string>('__main__');
-  const prevProjectRef = useRef(activeProject);
-
-  /** 뷰 상태 캐시: 뷰 키 → { viewport, positions } */
-  const viewCacheRef = useRef(new Map<string, {
-    viewport: { x: number; y: number; zoom: number };
-    positions: Map<string, XYPosition>;
-  }>());
+  const viewKey = canvasViewKey(canvasProjectId, currentFolderId, interiorView?.kind ?? null);
+  const syncedViewKeyRef = useRef<string | null>(null);
+  const prevProjectRef = useRef<string | null>(null);
+  const { memory: viewMemory, restore: restoreViewport, cancelRestore, rememberViewport } = useCanvasViewport({
+    viewKey, ready: canvasDataReady, mobileZoom, flow: rfRef, nodes: flowNodesRef, container: rfContainerRef,
+  });
 
   const isEmpty = agents.length === 0 && filteredFolders.length === 0;
 
@@ -1493,76 +1503,35 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // 노드/엣지 동기화 + 뷰 전환 캐시 (하나의 이펙트로 순서 보장)
   useEffect(() => {
-    // 데이터 없음 → 캔버스 비우기
-    if (viewData.bubbles.length === 0) {
+    // Save before clearing even when the destination is empty or still waiting for its snapshot.
+    if (viewMemory.key !== viewKey) {
+      const projectChanged = prevProjectRef.current !== canvasProjectId;
+      const saved = viewMemory.enter(viewKey, rfRef.current?.getViewport(), flowNodesRef.current);
+      if (projectChanged) viewMemory.clearPositions();
+      prevProjectRef.current = canvasProjectId;
+      syncedViewKeyRef.current = null;
+      cancelRestore();
+      pauseAndReset();
+      // Across projects, the newest server positions remain authoritative. Within a project,
+      // folder/trash navigation keeps the existing local layout memory.
+      positionsRef.current = new Map(!projectChanged ? saved?.positions : undefined);
+      if (!projectChanged) {
+        setTransition(currentFolderId !== null || interiorView !== null ? 'zoom-in' : 'zoom-out');
+        setTimeout(() => setTransition('none'), 250);
+      }
+    }
+
+    // Resident __trash__ exists before the target project arrives. It is not readiness evidence.
+    if (!canvasDataReady || viewKey === null) {
       setFlowNodes([]);
       setEdges([]);
       return;
     }
 
-    // ── 프로젝트 전환 감지 (메인 sync 내부 → 위치 결정 전 초기화 보장, 새로고침과 동일 동작) ──
-    const prevProject = prevProjectRef.current;
-    const projectChanged = prevProject !== null && prevProject !== activeProject;
-    if (prevProject !== activeProject) prevProjectRef.current = activeProject;
-
-    if (projectChanged) {
-      pauseAndReset();
-      viewCacheRef.current.clear();
-      positionsRef.current.clear();
-    }
-
-    // §5.10 — 휴지통 내부 뷰는 currentFolderId 축과 독립이라 폴더 id 만으론 진입/이탈을 못 잡는다.
-    //   뷰 키에 interiorView 를 합쳐 내부 뷰 왕복도 "뷰 전환"(캐시 저장·복원 + fitView)으로 처리한다.
-    const prev = prevViewKeyRef.current;
-    const next = interiorView !== null ? `__interior_${interiorView.kind}__` : (currentFolderId ?? '__main__');
-    const viewChanged = prev !== next || projectChanged;
-    prevViewKeyRef.current = next;
-
-    const cache = viewCacheRef.current;
-
-    if (viewChanged) {
-      // 0) 물리 엔진 일시 정지 + 바디 리셋 (프로젝트 전환 시 이미 호출됨)
-      if (!projectChanged) pauseAndReset();
-
-      // 1) 이전 뷰 상태 저장 (프로젝트 전환 시 캐시 초기화 완료 → 스킵)
-      if (!projectChanged && rfRef.current) {
-        const livePositions = new Map<string, XYPosition>();
-        for (const node of flowNodes) {
-          livePositions.set(node.id, node.position);
-        }
-        cache.set(prev, {
-          viewport: rfRef.current.getViewport(),
-          positions: livePositions,
-        });
-      }
-
-      // 2) 다음 뷰 캐시 복원
-      const saved = cache.get(next);
-      if (saved) {
-        positionsRef.current = new Map(saved.positions);
-      } else {
-        positionsRef.current.clear();
-      }
-
-      // 3) 전체 버블 중심으로 화면 정렬 (캐시 있어도 1프레임 뒤 fitView)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (!rfRef.current) return;
-          if (saved) {
-            rfRef.current.setViewport(saved.viewport, { duration: 0 });
-          } else {
-            rfRef.current.fitView({ duration: 0, padding: 0.25, maxZoom: mobileZoom ? 1.2 : 2 });
-          }
-        });
-      });
-
-      // 4) 장면 전환 애니메이션 (프로젝트 전환은 새로고침처럼 즉시 전환)
-      if (!projectChanged) {
-        // 메인 밖(폴더/내부 뷰)으로 들어가면 zoom-in, 메인으로 돌아오면 zoom-out.
-        const direction = next !== '__main__' ? 'zoom-in' : 'zoom-out';
-        setTransition(direction);
-        setTimeout(() => setTransition('none'), 250);
-      }
+    const viewChanged = syncedViewKeyRef.current !== viewKey;
+    syncedViewKeyRef.current = viewKey;
+    if (viewChanged || !viewMemory.settled) {
+      restoreViewport(viewKey, viewMemory.read(viewKey), viewData.bubbles.map((bubble) => bubble.id));
     }
 
     // 5) 위치 결정 — 새 노드만 초기 위치 배정 (기존 노드는 현재 위치 유지)
@@ -1752,7 +1721,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     // 늦게 따라온다. 각도 오프셋의 라이브 변화는 바로 아래 별도 effect(엣지 targetAngularOffset 패치)가
     // 담당하므로 여기서 재실행할 필요가 없다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewData, currentFolderId, interiorView, satellitePositions, setFlowNodes, setEdges, activeProject, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview, allPlayBubbles]);
+  }, [viewData, currentFolderId, interiorView, satellitePositions, setFlowNodes, setEdges, activeProject, canvasProjectId, canvasDataReady, viewKey, viewMemory, restoreViewport, cancelRestore, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview, allPlayBubbles]);
 
   // 위치 이동(드래그/물리 엔진)으로 angular offset 이 바뀌었을 때, 메인 sync 가 재실행되지 않아도
   // 기존 Task Edge 의 data.targetAngularOffset 만 패치 — 화살촉 분산이 실시간으로 따라간다.
@@ -2806,10 +2775,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [commentDimsSig, recomputeAllBoxesInActiveProject]);
 
   useEffect(() => {
-    if (!pendingFocus || !rfRef.current) return;
-    rfRef.current.fitView({ duration: 500, padding: 0.3, maxZoom: mobileZoom ? 1.2 : 2 });
+    if (!pendingFocus || !canvasDataReady || !viewKey) return;
+    restoreViewport(viewKey, undefined, viewData.bubbles.map((bubble) => bubble.id), { duration: 500, padding: 0.3 });
     useGraphStore.getState().clearFocus();
-  }, [pendingFocus]);
+  }, [pendingFocus, canvasDataReady, viewKey, restoreViewport, viewData]);
 
   // 특정 버블로 공간 점프 — 렌더된 flowNodes에 존재할 때만 centering.
   // 뷰 전환(goToMain 등)이 선행되는 경우를 위해 flowNodes 변화도 watch.
@@ -2826,24 +2795,29 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   useEffect(() => () => {
     cancelAnimationFrame(focusRafRef.current.outer);
     cancelAnimationFrame(focusRafRef.current.inner);
-  }, []);
+  }, [viewKey]);
   useEffect(() => {
-    if (!focusNodeId || !rfRef.current) return;
+    if (!focusNodeId || !rfRef.current || !canvasDataReady || !viewKey) return;
     const target = flowNodes.find((n) => n.id === focusNodeId);
     if (!target) return;
     const w = target.measured?.width ?? (target.width ?? 0);
     const h = target.measured?.height ?? (target.height ?? 0);
     const cx = target.position.x + w / 2;
     const cy = target.position.y + h / 2;
+    cancelRestore();
+    viewMemory.settle(viewKey);
     useGraphStore.getState().clearFocusNode();
     cancelAnimationFrame(focusRafRef.current.outer);
     cancelAnimationFrame(focusRafRef.current.inner);
     focusRafRef.current.outer = requestAnimationFrame(() => {
       focusRafRef.current.inner = requestAnimationFrame(() => {
+        const state = useGraphStore.getState();
+        if (state.activeProject !== activeProject || state.currentFolderId !== currentFolderId
+          || state.interiorView?.kind !== interiorView?.kind) return;
         rfRef.current?.setCenter(cx, cy, { duration: 500, zoom: 1 });
       });
     });
-  }, [focusNodeId, flowNodes]);
+  }, [focusNodeId, flowNodes, canvasDataReady, viewKey, cancelRestore, viewMemory, activeProject, currentFolderId, interiorView]);
 
   // §5.4 #34 — 고른 것 지우기(단일 + Shift 다중 공용). **어떤 키인지는 여기서 정하지 않는다** —
   //   §5.24 #32 레지스트리(`canvas.deleteSelection`)가 정하고, 그 한 벌이 스코프·입력칸 회피·IME
@@ -3064,6 +3038,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onPaneClick={handleCtxClose}
         onSelectionContextMenu={handleSelectionContextMenu}
         onInit={(i) => { rfRef.current = i; }}
+        onMoveStart={rememberViewport}
+        onMoveEnd={rememberViewport}
         defaultEdgeOptions={{ style: { stroke: EDGE_STYLE.inactiveColor, strokeWidth: EDGE_STYLE.inactiveWidth }, type: 'curved', focusable: false, interactionWidth: 0 }}
         minZoom={zoomCtrlHeld || mobileZoom ? 0.1 : 0.5}
         maxZoom={zoomCtrlHeld ? 4 : 2}
@@ -3073,7 +3049,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         multiSelectionKeyCode={MULTI_SELECT_KEYS}
         onNodeMouseEnter={handleNodeMouseEnter}
         onNodeMouseLeave={handleNodeMouseLeave}
-        fitView proOptions={{ hideAttribution: true }}
+        proOptions={{ hideAttribution: true }}
         // §4 v3.71 — 뷰포트 밖 노드·엣지는 아예 렌더하지 않는다(React Flow 표준 컬링).
         onlyRenderVisibleElements={CANVAS_LOD.CULL_OFFSCREEN}
         // 덮여 있으면 페인트만 끈다. display:none·언마운트 ❌ — 레이아웃이 살아 있어야

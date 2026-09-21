@@ -91,6 +91,10 @@ function genCommands(rnd: () => number, events: SubAgentStreamEvent[]): QueuedCo
       startedAt: rnd() < 0.5 ? ts + Math.floor(rnd() * 30) : undefined,
       result: rnd() < 0.5 ? `res${i}` : undefined,
       error: rnd() < 0.3 ? { code: 'exit' as const, exitCode: 1, detail: `err${i}` } : undefined,
+      // §5.5 #17-12 ③-6 (g) — 멈춘 사유. `end_turn`·없음은 조용히 지나가고 나머지는 꼬리에 한 줄을 만든다.
+      stopReason: rnd() < 0.45
+        ? (['cancelled', 'usage_limit', 'max_turns', 'end_turn'][Math.floor(rnd() * 4)] as QueuedCommand['stopReason'])
+        : undefined,
     } as QueuedCommand);
   }
   return cmds;
@@ -111,6 +115,8 @@ function normItem(it: StreamItemFull): unknown {
     // §5.5 #17-39 — 자국은 시간·분량이 전부다. 한 필드라도 빼면 두 파서가 어긋나도 통과한다.
     //   주인(`nestedUnderToolUseId`)도 넣는다 — 간결 합치기(⑩)가 그 값으로 줄을 가르므로 두 파서가 같아야 한다.
     case 'step': return { k: 'step', id: it.id, ph: it.phase, ts: it.timestamp, end: it.endedAt, ch: it.chars, nest: it.nestedUnderToolUseId };
+    // §5.5 #17-12 ③-6 (g) — 멈춤 한 줄은 낱말과 자리가 전부다. 둘 다 비교한다.
+    case 'turnstop': return { k: 'turnstop', id: it.id, l: it.labelKey, ts: it.timestamp };
     default: return { k: it.kind, id: it.id, ts: it.timestamp };
   }
 }
@@ -684,5 +690,89 @@ describe('§5.25 (O) 그림은 말풍선에 합쳐지지 않는다', () => {
       { ...base, id: 'q', timestamp: 11, eventType: 'text', content: '뒤', imagePath: '' },
     ];
     expect(buildBaseItems(odd, []).items.map((i) => i.kind)).toEqual(['text']);
+  });
+});
+
+
+// ─── §5.5 #17-12 ③-6 (g) — 멈춘 이유는 그 턴의 꼬리에 선다 ───
+//   2026-09-21 사용자 보고: "이 중지됨 표시가 중지되고 나서 그 아래에 나와야지 왜 내가 쓴 창 아래에
+//   나오는거야". 종전에는 이 낱말이 `CommandBlock` 안에 있었고, 말풍선 자리는 ⑥ 대로 **나간 시각**이라
+//   그 턴의 출력 전부보다 위 — 아직 아무 일도 일어나지 않은 자리에 "중지됨"이 떴다.
+describe('턴 멈춤 한 줄의 자리', () => {
+  const txt = (id: string, ts: number, content: string): SubAgentStreamEvent =>
+    ({ id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts, eventType: 'text', content });
+  const sys = (id: string, ts: number, content: string): SubAgentStreamEvent =>
+    ({ id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts, eventType: 'system', content });
+  const mkCmd = (over: Partial<QueuedCommand>): QueuedCommand =>
+    ({ id: 'c', text: 'go', status: 'completed', timestamp: 0, subAgentId: 'S', ...over } as QueuedCommand);
+  const idsOf = (items: StreamItemFull[]): string[] =>
+    items.filter((i) => i.kind !== 'thinking-live').map((i) => i.id);
+
+  it('그 턴의 마지막 줄 아래에 선다 — 내가 친 글 바로 아래가 아니다', () => {
+    const events = [txt('a', 100, '작업 시작'), sys('s', 120, '중간'), txt('b', 300, '마지막까지 하던 말')];
+    const commands = [mkCmd({ id: 'run', status: 'completed', timestamp: 40, startedAt: 50, stopReason: 'cancelled' })];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    expect(idsOf(items)).toEqual(['cmd-run', 'a', 's', 'b', 'turnstop-run']);
+  });
+
+  it('다음 턴이 있으면 그 말풍선 위 — 앞 턴의 꼬리에 머문다', () => {
+    const events = [txt('a', 100, '앞 턴 출력'), txt('b', 300, '다음 턴 출력')];
+    const commands = [
+      mkCmd({ id: 'prev', status: 'completed', timestamp: 40, startedAt: 50, stopReason: 'usage_limit' }),
+      mkCmd({ id: 'next', status: 'completed', timestamp: 190, startedAt: 200, stopReason: 'max_turns' }),
+    ];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    expect(idsOf(items)).toEqual(['cmd-prev', 'a', 'turnstop-prev', 'cmd-next', 'b', 'turnstop-next']);
+  });
+
+  it('복원 창 밖 턴(③-3 저장된 답)에서도 말풍선 전체 아래에 선다', () => {
+    // 스트림에 그 턴의 말이 없으면 답은 말풍선 안(`result`)에 실린다 — 그래도 멈춤 줄은 그 아래다.
+    const commands = [mkCmd({ id: 'old', status: 'completed', timestamp: 40, startedAt: 50, result: '저장된 답', stopReason: 'cancelled' })];
+    const items = mergeCardsIntoItems(buildBaseItems([], commands), commands);
+    expect(idsOf(items)).toEqual(['cmd-old', 'turnstop-old']);
+    expect((items[0] as StreamCommand).result).toBe('저장된 답');
+  });
+
+  it('아직 안 나간 덧말보다는 위에 선다 — 앞 턴이 멈춘 뒤에 넣은 글이 더 아래다', () => {
+    const events = [txt('a', 100, '출력')];
+    const commands = [
+      mkCmd({ id: 'run', status: 'completed', timestamp: 40, startedAt: 50, stopReason: 'cancelled' }),
+      mkCmd({ id: 'q', status: 'queued', timestamp: 400 }),
+    ];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    expect(idsOf(items)).toEqual(['cmd-run', 'a', 'turnstop-run', 'cmd-q']);
+  });
+
+  it('평범하게 끝난 턴·도는 턴·실패한 턴은 아무 줄도 만들지 않는다(한 사건은 한 번)', () => {
+    const events = [txt('a', 100, 'x')];
+    const cases: Partial<QueuedCommand>[] = [
+      { status: 'completed', stopReason: 'end_turn' },   // 평범한 끝
+      { status: 'completed' },                            // 사유 없는 옛 명령
+      { status: 'executing', stopReason: 'cancelled' },   // 아직 도는 턴
+      { status: 'error', stopReason: 'cancelled' },       // 실패한 턴 — 오류 줄이 이미 말한다
+    ];
+    for (const over of cases) {
+      const commands = [mkCmd({ id: 'run', timestamp: 40, startedAt: 50, ...over })];
+      const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+      expect(items.some((i) => i.kind === 'turnstop')).toBe(false);
+    }
+  });
+
+  it('조용한 압축(silent)은 말풍선도 멈춤 줄도 만들지 않는다', () => {
+    const commands = [mkCmd({ id: 'hidden', status: 'completed', timestamp: 40, startedAt: 50, stopReason: 'cancelled', silent: true })];
+    const items = mergeCardsIntoItems(buildBaseItems([], commands), commands);
+    expect(items.filter((i) => i.kind !== 'thinking-live')).toHaveLength(0);
+  });
+
+  it('증분 파서도 같은 항목을 같은 자리에 낸다(만드는 곳이 한 곳)', () => {
+    const events = [txt('a', 100, '앞'), sys('s', 150, '중간'), txt('b', 300, '뒤')];
+    const commands = [mkCmd({ id: 'run', status: 'completed', timestamp: 40, startedAt: 50, stopReason: 'refusal' })];
+    const parser = new IncrementalStreamParser();
+    for (let n = 1; n <= events.length; n++) {
+      const inc = mergeCardsIntoItems(parser.sync(events.slice(0, n), commands), commands);
+      const full = mergeCardsIntoItems(buildBaseItems(events.slice(0, n), commands), commands);
+      expect(idsOf(inc)).toEqual(idsOf(full));
+    }
+    expect(idsOf(mergeCardsIntoItems(buildBaseItems(events, commands), commands)).at(-1)).toBe('turnstop-run');
   });
 });

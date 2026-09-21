@@ -1126,8 +1126,10 @@ export interface CostDayBucket extends CostTotals {
  * 파생을 따로 누적하지 않는다(두 군데서 더하면 어긋났을 때 진실을 판정할 수 없다).
  */
 export interface CostSessionEntry extends CostTotals {
-  /** Claude Code 세션 ID(JSONL 파일명). */
+  /** Claude Code 세션 ID 또는 Codex thread ID. */
   sessionId: string;
+  /** 기록을 수집한 엔진. 이전 체크포인트에서는 생략될 수 있다. */
+  provider?: 'claude' | 'codex';
   /** 이 세션을 소유한 에이전트 버블 id. 모르면 비운다. */
   agentId?: string;
   /** 그 에이전트의 세션 탭(sub.id). */
@@ -1163,6 +1165,8 @@ export interface CostSessionEntry extends CostTotals {
 /** §5.21 — 에이전트 버블 한 장의 합(배지가 읽는 값). 세션 원장에서 접는다. */
 export interface CostAgentTotal extends CostTotals {
   agentId: string;
+  /** 가장 최근 세션을 수집한 엔진. */
+  provider?: 'claude' | 'codex';
   /** 버블 이름. */
   label?: string;
   /** 가장 최근 세션이 쓴 모델. */

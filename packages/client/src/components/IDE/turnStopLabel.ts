@@ -5,7 +5,8 @@ import type { TurnStopReason } from '@vibisual/shared';
  * §5.5 #17-12 ③-6 — 턴이 끝난 이유를 화면 낱말로 바꾸는 순수 모듈.
  *
  * `commandError.ts` 와 같은 규약으로 `t()` 를 부르지 않고 **키만** 돌려준다. 하단 상태바
- * (`StreamStatusBar`)와 명령 말풍선(`CommandBlock`)이 이 함수 하나를 읽어야 두 자리가 같은 낱말을 쓴다.
+ * (`StreamStatusBar`)와 스트림의 멈춤 한 줄(③-6 (g) `turnstop` 항목 — `buildCommandItems` 가 만든다)이
+ * 이 함수 하나를 읽어야 두 자리가 같은 낱말을 쓴다.
  */
 
 /**

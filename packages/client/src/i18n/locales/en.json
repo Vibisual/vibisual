@@ -2039,6 +2039,7 @@
       "reloaded": "The document changed elsewhere, so it was reloaded."
     },
     "cost": {
+      "codexEstimateNote": "Codex costs use standard API token prices. They are estimates, not ChatGPT subscription charges or credit usage; Fast mode and long-context surcharges are not included.",
       "title": "Cost & token map",
       "close": "Close cost map",
       "pillLabel": "Today's cost",

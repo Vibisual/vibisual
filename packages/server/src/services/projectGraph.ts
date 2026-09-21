@@ -197,7 +197,7 @@ import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewSho
 import { pipelineManager } from './pipelineManager.js';
 import type { LocalSession } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted, readSessionTokenData } from './sessionDiscovery.js';
-import { readCodexContext } from './codexContext.js';
+import { readCodexContext, readCodexTokenUsage } from './codexContext.js';
 import { logger } from '../logger.js';
 import { appStateGetRetention } from './appState.js';
 import { isLiveWorktreeDir, isWorktreeUnderConstruction } from './worktreeLiveness.js';
@@ -15591,10 +15591,16 @@ export class ProjectGraph {
       const projectName = this.getAgentProjectName(sub.parentAgentId);
       const cwd = this.getAgentCwdByAgentId(sub.parentAgentId);
       if (!projectName || !cwd) continue;
+      const config = this.getAgentConfig(sub.parentAgentId);
+      const provider = config?.provider?.kind === 'codex-cli' || config?.cliKind === 'codex' ? 'codex' : 'claude';
       const quiet = now - (sub.lastActivityAt || 0) > COST_MAP_ACTIVE_WINDOW_MS;
-      if (quiet && this.costMapService.hasSession(projectName, sub.sessionId)) continue;
+      const alreadyRead = provider === 'codex'
+        ? this.costMapService.hasMeasuredSession(projectName, sub.sessionId)
+        : this.costMapService.hasSession(projectName, sub.sessionId);
+      if (quiet && alreadyRead) continue;
       sessions.push({
         sessionId: sub.sessionId,
+        provider,
         agentId: sub.parentAgentId,
         subAgentId: sub.id,
         label: sub.label,
@@ -15606,7 +15612,9 @@ export class ProjectGraph {
 
     const changed = this.costMapService.sweep(
       sessions,
-      (cwd, sessionId) => readSessionTokenData(cwd, sessionId)?.turns ?? null,
+      (cwd, sessionId, provider) => provider === 'codex'
+        ? readCodexTokenUsage(sessionId)
+        : readSessionTokenData(cwd, sessionId)?.turns ?? null,
       registry,
       now,
     );

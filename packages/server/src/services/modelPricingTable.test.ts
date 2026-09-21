@@ -31,6 +31,7 @@ import {
   resolveModelContextLimit,
   resolveModelPricing,
   addCostTotals,
+  calculateTokenCost,
   emptyCostTotals,
 } from '@vibisual/shared';
 import { mapApiModelEntry, mergeSeedAndApiEntries } from './modelRegistryService.js';
@@ -86,8 +87,9 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
     expect(getModelContextLimit(id)).toBe(ctx);
   });
 
-  it('캐시 단가는 전부 입력가에서 파생된 값이다 (손으로 옮겨 적은 값 금지)', () => {
+  it('Claude 캐시 단가는 전부 입력가에서 파생된 값이다 (손으로 옮겨 적은 값 금지)', () => {
     for (const [id, p] of Object.entries(MODEL_PRICING)) {
+      if (!id.startsWith('claude-')) continue;
       expect(p.cacheWrite, `${id} 캐시쓰기 = 입력가 × 1.25`).toBe(round(p.input * 1.25));
       // 표준은 0.1×, Fable/Mythos 5.1 세대만 0.025×.
       expect([round(p.input * 0.1), round(p.input * 0.025)], `${id} 캐시읽기 배수`).toContain(p.cacheRead);
@@ -97,6 +99,83 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
   it('출력가는 언제나 입력가보다 비싸다 (in/out 자리 바뀜 방지)', () => {
     for (const [id, p] of Object.entries(MODEL_PRICING)) {
       expect(p.output, `${id}`).toBeGreaterThan(p.input);
+    }
+  });
+});
+
+describe('Codex 모델 — Standard API 환산 단가', () => {
+  // Official pricing / individual model pages, checked 2026-09-21.
+  // [model ID, input, output, cached input, separate cache writes] per 1M tokens.
+  const TABLE: ReadonlyArray<readonly [string, number, number, number, number]> = [
+    ['gpt-6-astra', 10, 50, 1, 12.5],
+    ['gpt-5.6-sol', 4, 20, 0.4, 5],
+    ['gpt-5.6-terra', 2, 12, 0.2, 2.5],
+    ['gpt-5.6-luna', 0.2, 1.2, 0.02, 0.25],
+    ['gpt-5.5', 5, 30, 0.5, 0],
+    ['gpt-5.4', 2.5, 15, 0.25, 0],
+    ['gpt-5.4-mini', 0.75, 4.5, 0.075, 0],
+    ['gpt-5.4-nano', 0.2, 1.25, 0.02, 0],
+    ['gpt-5.3-codex', 1.75, 14, 0.175, 0],
+    ['gpt-5.2-codex', 1.75, 14, 0.175, 0],
+    ['gpt-5.2', 1.75, 14, 0.175, 0],
+    ['gpt-5.1-codex-max', 1.25, 10, 0.125, 0],
+    ['gpt-5.1-codex-mini', 0.25, 2, 0.025, 0],
+    ['gpt-5.1-codex', 1.25, 10, 0.125, 0],
+    ['gpt-5.1', 1.25, 10, 0.125, 0],
+    ['gpt-5-codex', 1.25, 10, 0.125, 0],
+    ['gpt-5', 1.25, 10, 0.125, 0],
+  ];
+
+  it.each(TABLE)('%s uses its published model rate rather than the Claude fallback', (id, input, output, cacheRead, cacheWrite) => {
+    expect(resolveModelPricing(id)).toEqual({
+      pricing: { input, output, cacheRead, cacheWrite },
+      source: 'seed',
+    });
+    expect(isPricingEstimated(id)).toBe(false);
+  });
+
+  it('prices cached input separately from already-normalized uncached input', () => {
+    const cost = calculateTokenCost(100_000, 20_000, 900_000, 0, 'gpt-5.4');
+    expect(cost.input).toBe(0.25);
+    expect(cost.output).toBe(0.3);
+    expect(cost.cacheRead).toBe(0.225);
+    expect(cost.cacheWrite).toBe(0);
+    expect(cost.total).toBeCloseTo(0.775);
+  });
+
+  it('includes separate cache-write tokens when the model has a published rate', () => {
+    const cost = calculateTokenCost(100_000, 20_000, 900_000, 40_000, 'gpt-5.6-terra');
+    expect(cost.cacheWrite).toBe(0.1);
+    expect(cost.total).toBeCloseTo(0.72);
+  });
+
+  it('resolves dated OpenAI snapshots without changing model variants or Claude IDs', () => {
+    expect(normalizeModelId('gpt-5.1-2025-11-13')).toBe('gpt-5.1');
+    expect(getModelPricing('gpt-5.1-2025-11-13')).toBe(MODEL_PRICING['gpt-5.1']);
+    expect(isPricingEstimated('gpt-5.1-2025-11-13')).toBe(false);
+    expect(normalizeModelId('gpt-5.1-codex-mini')).toBe('gpt-5.1-codex-mini');
+    expect(normalizeModelId('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5');
+    expect(normalizeModelId('claude-opus-4-5')).toBe('claude-opus-4-5');
+  });
+
+  it('keeps unpriced Codex variants on the visibly estimated fallback', () => {
+    for (const id of ['gpt-5.3-codex-spark', 'gpt-9-codex', 'gpt-9-2026-09-21']) {
+      expect(resolveModelPricing(id)).toEqual({ pricing: DEFAULT_PRICING, source: 'default' });
+      expect(isPricingEstimated(id)).toBe(true);
+    }
+  });
+
+  it('retains registry overrides for known, dated, and unknown Codex model IDs', () => {
+    const pricing = { input: 3, output: 18, cacheRead: 0.3, cacheWrite: 0 };
+    const registry: ModelRegistry = {
+      entries: ['gpt-5.1', 'gpt-9-codex'].map((id) => ({ id, family: 'gpt', pricing, source: 'api' })),
+      updatedAt: 0,
+      sourceMix: 'api-merged',
+    };
+    for (const id of ['gpt-5.1', 'gpt-5.1-2025-11-13', 'gpt-9-codex']) {
+      expect(resolveModelPricing(id, registry)).toEqual({ pricing, source: 'registry' });
+      expect(calculateTokenCost(1_000_000, 0, 0, 0, id, registry).total).toBe(3);
+      expect(isPricingEstimated(id, registry)).toBe(false);
     }
   });
 });

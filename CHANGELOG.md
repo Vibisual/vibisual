@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.31] - 2026-09-21
+## [0.2.0] - 2026-09-21
 
 ### Added
 - **Orchestra: the agent you give an order to becomes the conductor for that turn.** Turn it on in the activity bar for a whole project or for one agent, and that agent first decides what kind of request it is and whether the work should be split at all — then picks, from the recorded token-saving strategies, only the ones that fit, creates the members it needs on the canvas, hands the work out, collects the results and reports back. The Runs list keeps every conducted order with what it picked, what it left out and why, its members, phase and token counts. Members the conductor creates never conduct themselves, the conductor's own saved settings are not changed, and it can be told to answer you directly when a team would not help. It starts off, and the panel says plainly that several agents can cost more than one, not less.
@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Downloads shown on the site and in the README** are GitHub's own total, under the plain label "Downloads".
 
 ### Fixed
+- **Returning to a project restores its canvas position and zoom.** Switching tabs no longer lets a delayed camera movement from another project move the current view.
+- **Codex sessions now appear in the cost map with measured token usage and an estimated API cost.** Cached input is counted once, repeated usage reports do not add a second charge, and rows identify whether they came from Claude or Codex. Subscription billing is separate from these estimates.
+- **A stopped turn's reason appears after its output.** It no longer sits directly under the command before the work it describes.
 - **A turn that had stopped could sit there saying "running" for good.** Whether a session was alive was being decided in several places from a list meant only for display, so a tab with nothing left but delegated children had no witness and hardened into a green "Completed". It is one judgement now: pressing Stop reads the answer and tells you plainly when there was nothing to stop, and after three minutes without a response the view shows how long it has been and offers Keep waiting or Force close.
 - **A result belonging to someone else's turn could freeze the command you were running**, and a command interrupted by Stop could end with a completion sound and then come back late. Turns are stamped, outstanding tool calls are tracked, and the queue is emptied before the connection is cut.
 - **Taking tools away from an agent could leave it with none.** The restriction also removed the tool the agent delegates with, so the source was started with nothing at all. The means of delegating is now untouchable and a restriction that would empty the list is cancelled instead of applied.
@@ -608,8 +611,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.31...HEAD
-[0.1.31]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.1.31
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.2.0
 [0.1.25]: https://github.com/Vibisual/vibisual/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/Vibisual/vibisual/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/Vibisual/vibisual/compare/v0.1.22...v0.1.23

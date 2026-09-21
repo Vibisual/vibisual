@@ -2039,6 +2039,7 @@
       "reloaded": "Das Dokument wurde an anderer Stelle geändert und daher neu geladen."
     },
     "cost": {
+      "codexEstimateNote": "Codex-Kosten werden anhand der Standard-API-Tokenpreise geschätzt. Sie entsprechen weder ChatGPT-Abogebühren noch dem Credit-Verbrauch; Aufschläge für den Fast-Modus und lange Kontexte sind nicht enthalten.",
       "title": "Kosten- & Token-Übersicht",
       "close": "Kostenübersicht schließen",
       "pillLabel": "Kosten heute",

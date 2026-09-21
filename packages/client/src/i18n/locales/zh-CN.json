@@ -2039,6 +2039,7 @@
       "reloaded": "文档已在别处更改，因此已重新加载。"
     },
     "cost": {
+      "codexEstimateNote": "Codex 费用按标准 API 令牌单价估算，不代表 ChatGPT 订阅账单或额度用量，也不包含 Fast 模式和长上下文附加费。",
       "title": "费用与 Token 地图",
       "close": "关闭费用地图",
       "pillLabel": "今日费用",
