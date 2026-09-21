@@ -22,15 +22,38 @@ interface VerificationFrameUploadOptions {
 // can never run (measured still open after 200ms of blocking, which outlasts the whole retry budget).
 // POSIX unlinks open files outright, which is why this only ever surfaced on the Windows CI runner.
 const FILE_RETRY = { maxRetries: 5, retryDelay: 20 };
-// The directory budget is deliberately smaller: ENOTEMPTY here usually means another upload owns the
-// directory, and giving up fast matters more than waiting out Windows' brief delete-pending window.
-const DIR_RETRY = { maxRetries: 3, retryDelay: 20 };
+// The directory budget stays short on purpose: an ENOTEMPTY that is not Windows' delete-pending window
+// means another upload owns the directory, and giving up fast is better than waiting out its work.
+const DIR_RETRY_DELAYS = [0, 20, 50, 100, 200];
+
+// The waiting has to be written out here, because `rmdir` will not do it. `fs.promises.rmdir(dir,
+// { maxRetries, retryDelay })` **ignores both unless `recursive` is set** — measured against a directory
+// that can never be emptied it came back ENOTEMPTY in 0.1ms even with `retryDelay: 200`, so it never
+// slept once and the whole budget was one attempt. `recursive` is not a way out: an ENOTEMPTY here
+// usually means another upload owns the directory, and forcing it would delete that upload's frames.
+// One attempt is exactly what Windows cannot afford — the file removed a line above stays listed until
+// its handle closes, and that close only runs once the event loop is free, which is why the wait is
+// awaited rather than blocking.
+async function removeFrameDirectory(dir: string): Promise<void> {
+  for (const delay of DIR_RETRY_DELAYS) {
+    if (delay > 0) await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
+    try {
+      await fs.promises.rmdir(dir);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw err;
+    }
+  }
+  // Still occupied after the budget: it belongs to someone else, and whoever owns it takes it down.
+}
 
 /** Rejecting an upload must also release its file, including after the demo was deleted. */
 async function discardFrame(file: Express.Multer.File, removeEmptyDirectory: boolean): Promise<void> {
   try {
     await fs.promises.rm(file.path, { force: true, ...FILE_RETRY });
-    if (removeEmptyDirectory) await fs.promises.rmdir(path.dirname(file.path), DIR_RETRY);
+    if (removeEmptyDirectory) await removeFrameDirectory(path.dirname(file.path));
   } catch (err) {
     // Another upload/delete may already have removed the directory, or still be writing inside it.
     const code = (err as NodeJS.ErrnoException).code;
@@ -89,7 +112,15 @@ export function createVerificationFrameUpload(options: VerificationFrameUploadOp
       return;
     }
     upload(req, res, (err?: unknown): void => {
-      if (err) { res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); return; }
+      if (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        // A multipart write that fails partway has still created the file (a size limit trips only after
+        // bytes are on disk). Answering without releasing it leaves the frame — and its directory —
+        // behind for an upload that was never accepted.
+        if (req.file) { rejectAndDiscard(res, req.file, !findDemo(demo.id), 400, error); return; }
+        res.status(400).json({ ok: false, error });
+        return;
+      }
       if (!req.file) { res.status(400).json({ ok: false, error: 'no file uploaded (field name must be "image")' }); return; }
       const fields = (req.body ?? {}) as Record<string, unknown>;
       const atMs = typeof fields.atMs === 'string' && Number.isFinite(Number(fields.atMs))
