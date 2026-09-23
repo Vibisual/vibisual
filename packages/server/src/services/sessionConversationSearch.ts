@@ -41,6 +41,9 @@ async function searchStreamFiles(
   for (const file of source.files) {
     if (found.size === terms.length) break;
     const input = fs.createReadStream(file, { encoding: 'utf8', signal });
+    // destroy() only asks for the close. Resolve after the handle is gone: Windows refuses to
+    // delete, compact or replace a file that is still open, and a caller may do so right after.
+    const closed = new Promise<void>((resolve) => { input.once('close', () => resolve()); });
     const lines = createInterface({ input, crlfDelay: Infinity });
     try {
       for await (const line of lines) {
@@ -71,6 +74,7 @@ async function searchStreamFiles(
     } finally {
       lines.close();
       input.destroy();
+      await closed;
     }
   }
   const matched = terms.filter((term) => found.has(term));

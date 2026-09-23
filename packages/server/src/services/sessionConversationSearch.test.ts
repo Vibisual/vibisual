@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectInfo, QueuedCommand, SubAgentStreamEvent } from '@vibisual/shared';
 import { SUB_STREAM_ARCHIVE_SUFFIX } from '@vibisual/shared';
 import { appendEvent, flushAll, subStreamsDir } from './streamBufferStore.js';
@@ -114,6 +114,29 @@ describe('saved session conversation search', () => {
   it('reports unreadable history as a failure, not a successful search with no matches', async () => {
     fs.mkdirSync(path.join(dir, 'sub-a.jsonl'));
     await expect(search(['word'])).rejects.toThrow();
+  });
+
+  it('closes every history file before the search resolves — Windows refuses to delete or replace an open file', async () => {
+    write([event('archive-1', 'old answer')], true);
+    write([event('live-1', 'new answer'), event('live-2', 'later')]);
+    const opened: fs.ReadStream[] = [];
+    const createReadStream = fs.createReadStream;
+    const spy = vi.spyOn(fs, 'createReadStream').mockImplementation(((...args: Parameters<typeof fs.createReadStream>) => {
+      const stream = createReadStream(...args);
+      opened.push(stream);
+      return stream;
+    }) as typeof fs.createReadStream);
+    try {
+      // Stops early inside the live file, with a line still unread.
+      expect(await search(['old answer', 'new answer'])).toEqual({ 'sub-a': ['old answer', 'new answer'] });
+      expect(opened.filter((stream) => !stream.closed)).toHaveLength(0);
+      // Reads both files to the end.
+      expect(await search(['missing'])).toEqual({});
+      expect(opened.filter((stream) => !stream.closed)).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(opened).toHaveLength(4);
   });
 
   it('stops cancelled searches instead of returning partial success', async () => {
