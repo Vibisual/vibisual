@@ -45,18 +45,28 @@ interface AutoGoalSkillRowProps {
   rootPath: string | null;
   disabled: boolean;
   onRemove: () => void;
+  onApprove: () => void;
   onRetire: () => void;
   onRequestReview: () => void;
 }
 
 export const AutoGoalSkillRow = memo(function AutoGoalSkillRow({
-  skill, rootPath, disabled, onRemove, onRetire, onRequestReview,
+  skill, rootPath, disabled, onRemove, onApprove, onRetire, onRequestReview,
 }: AutoGoalSkillRowProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   // Older servers never imply that an unreviewed file is active.
   const status = skill.status ?? 'candidate';
   const stopped = status === 'retired' || status === 'superseded';
+  /*
+   * §5.10 (R)ⓔ — 검토 대기 행에 **앞으로 가는 자리**를 둔다. 전까지는 일시정지와 삭제뿐이라
+   * 에이전트가 올려 주지 않으면 사람이 손댈 곳이 없었다. 기본은 어디까지나 자율 운영이고 이것은 부가 경로다.
+   *
+   * 근거 파일이 없는 절차는 서버가 (Q) 의 근거 규약으로 거절하므로, 눌러 보고 실패하게 두지 않고
+   * 여기서 잠가 이유를 말풍선으로 보여 준다.
+   */
+  const waiting = status === 'candidate' || status === 'needs-review';
+  const hasEvidence = (skill.files?.length ?? 0) > 0;
   return (
     <li className="min-w-0 rounded border border-gray-800 p-2 text-[12px]" data-procedure-status={status}>
       <button type="button" onClick={() => setExpanded((open) => !open)} aria-expanded={expanded}
@@ -73,6 +83,12 @@ export const AutoGoalSkillRow = memo(function AutoGoalSkillRow({
       </div>
       {skill.reason && <p className="mt-1 break-words text-gray-400">{t('ide.autoGoal.reason')}: {formatAutoGoalReason(skill.reason, t)}</p>}
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+        {waiting && <button type="button" disabled={disabled || !hasEvidence} onClick={onApprove}
+          title={t(hasEvidence ? 'ide.autoGoal.approveHint' : 'ide.autoGoal.approveNoEvidence')}
+          className="flex items-center gap-1 rounded py-0.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-40">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m5 13 4 4L19 7" /></svg>
+          {t('ide.autoGoal.approve')}
+        </button>}
         {!stopped && <button type="button" disabled={disabled} onClick={onRetire} className="rounded py-0.5 text-gray-400 hover:text-amber-300 disabled:opacity-40">{t('ide.autoGoal.pause')}</button>}
         {(status === 'active' || status === 'retired') && <button type="button" disabled={disabled} onClick={onRequestReview} title={t('ide.autoGoal.reviewHint')} className="rounded py-0.5 text-sky-400 hover:text-sky-300 disabled:opacity-40">{t('ide.autoGoal.requestReview')}</button>}
         <button type="button" disabled={disabled} onClick={onRemove} title={t('ide.autoGoal.removeSkill')} aria-label={t('ide.autoGoal.removeSkill')}

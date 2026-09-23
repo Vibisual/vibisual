@@ -5,16 +5,12 @@ import type { BubbleData, SubAgent } from '@vibisual/shared';
 import {
   resolveAutoCompact, isAutoCompactOn, resolveAliasToLatest, getModelContextLimit,
   agentModelLabelOf, BUBBLE_COLORS, resolveCmdCliKind, resolveAgentDefaults,
-  SESSION_NO_RESPONSE_MS, sessionSilenceMs,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
   NODE_STATUS_RUN_STATE, sessionDotClass, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
-  sessionProbeNote, serializeBusySubIds, parseBusySubIds,
+  sessionProbeNote, serializeBusySubIds, parseBusySubIds, serializePendingSubIds,
 } from '../../utils/sessionStatus.js';
-import { useNowTick } from '../../hooks/useNowTick.js';
-import { useSessionLivenessFacts } from '../../hooks/useSessionRunning.js';
-import { formatElapsed } from './elapsed.js';
 import { followSessionKey } from './editorFollow.js';
 import { buildDiffCommentPrompt } from './diffCommentPrompt.js';
 import {
@@ -102,27 +98,28 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   const busySubIdsSerialized = useGraphStore((s) => serializeBusySubIds(s.runningSubagentTasks[agent.id]));
   const busySubIds = useMemo(() => parseBusySubIds(busySubIdsSerialized), [busySubIdsSerialized]);
   const hasBackgroundWork = activeSession ? busySubIds.has(activeSession.id) : busySubIds.size > 0;
+  // §5.5 #17-18 (대기) — **줄 서 있는 명령까지 봐야 이 칸이 거짓말을 안 한다.** 앞 턴의
+  //   `executing` 이 좀비로 남아 자물쇠를 쥐면 뒤에 선 덧말은 `queued` 로 멈추는데, 그 세션의
+  //   `sub.status` 는 `idle` 이라 이 바가 "완료"라고 적었다. 사용자는 그 완료를 믿고 또 덧말을
+  //   보냈다 — 그 사고를 막는 재료가 이 한 줄이다(도트 켜짐과 같은 접기 수법이라 리렌더 ❌).
+  const pendingSubIdsSerialized = useGraphStore((s) => serializePendingSubIds(s.queuedCommands[agent.id]));
+  const pendingSubIds = useMemo(() => parseBusySubIds(pendingSubIdsSerialized), [pendingSubIdsSerialized]);
+  const hasQueuedCommand = activeSession ? pendingSubIds.has(activeSession.id) : pendingSubIds.size > 0;
   const runState = activeSession
-    ? sessionRunStateOf(activeSession, acknowledged, hasBackgroundWork)
+    ? sessionRunStateOf(activeSession, acknowledged, hasBackgroundWork, hasQueuedCommand)
     : NODE_STATUS_RUN_STATE[agent.status];
   // §2.4 — 서버가 붙여 준 세션 생존 판정(있을 때만). 낱말로 접는 것은 `sessionProbeNote` 한 곳이다.
   const probeNote = sessionProbeNote(activeSession);
   /*
-   * §2.4 (무응답) — "실행 중"만 떠 있고 **얼마나 그러고 있는지**는 어디에도 없었다(사용자 보고).
-   * 마지막 활동 이후 경과를 적는다. 출력 공백만으로 무응답/고장이라고 단정하지 않는다.
+   * §2.4 (경과 시계를 뺀 자리) — 이 바는 "실행 중" 옆에 **마지막 활동 이후 경과**(`· 0s`)를
+   * 매초 적었다. 사용자 지시로 **상태바에서만** 걷는다 — 되살리지 마라.
    *
-   * 경과 시계는 **돌고 있을 때만** 돈다 — 조용한 세션에 1초 타이머를 달아 두면 열어 둔 창 수만큼
-   * 매초 리렌더가 쌓인다. 그리고 `probe` 와 달리 **엔진을 가리지 않는다** — 코덱스·로컬 세션은
-   * 서버 탐침을 못 받는 일이 흔해, 그쪽에서는 이 줄이 유일한 안내다.
+   * 같은 사실을 말하는 자리는 그대로다: 스트림의 "작업 중…" 줄(`ThinkingIndicator`)이 경과를
+   * 적고, `SESSION_NO_RESPONSE_MS`(=3분)를 넘으면 입력창(`IDEMainArea`)이 무응답 안내와
+   * [더 기다리기 / 중지]를 연다. 그래서 이 축(⑥-6)은 살아 있고, 줄어든 것은 **표시 자리 하나**다.
+   * 이 바에 1초 타이머(`useNowTick`)가 없어진 것도 그 결과다 — 다시 달면 열어 둔 창 수만큼
+   * 매초 리렌더가 돌아온다.
    */
-  const statusRunning = runState === 'running';
-  const { lastActivityAt } = useSessionLivenessFacts(agent.id, activeSession?.id ?? null);
-  const now = useNowTick(statusRunning && activeSession !== null);
-  const silenceMs = statusRunning && activeSession ? sessionSilenceMs(lastActivityAt, now) : null;
-  const statusStalled = silenceMs !== null && silenceMs >= SESSION_NO_RESPONSE_MS;
-  const statusElapsed = silenceMs !== null && lastActivityAt !== null
-    ? formatElapsed(lastActivityAt, now)
-    : null;
   // §5.5 — 모델·컨텍스트·토큰은 **보고 있는 세션 하나**를 주어로 삼는다. 종전에는 칸마다
   //   `activeSession?.X ?? agent.X` 로 폴백을 걸어, 고른 세션이 그 값을 아직 안 가졌으면 조용히
   //   버블 값(= 커스텀이면 "가장 최근에 움직인 sub" + **모든 sub 토큰 합**)으로 굴러떨어졌다.
@@ -336,15 +333,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
         <span className={runState === 'error' ? 'text-red-400' : 'text-gray-400'}>
           {t(SESSION_STATUS_LABEL_KEY[runState])}
         </span>
-        {/* Quiet time is informational; errors and the server probe have their own indicators. */}
-        {statusElapsed && (
-          <span
-            className="tabular-nums text-gray-500"
-            title={statusStalled ? t('ide.mainArea.stallHint') : t('ide.statusBar.elapsedTip')}
-          >
-            · {statusStalled ? t('ide.runningSubagents.noResponse', { value: statusElapsed }) : statusElapsed}
-          </span>
-        )}
+        {/* 경과 시계(`· 0s`)는 이 줄에서 뺐다 — 위 §2.4(경과 시계를 뺀 자리) 참조. */}
         {/*
           §2.4 — "실행중…" 옆의 한 마디. 스피너만으로는 정보가 0 이라 사용자가 "아직도?"를
           판단할 근거가 없었다(이 축이 생긴 이유). 판정은 서버가 하고 여기서는 적기만 한다.

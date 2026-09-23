@@ -82,9 +82,6 @@
       "soloFocus": "N’afficher que cette fenêtre (replier les autres)",
       "limited": "arrêté",
       "limitedUntil": "réinitialisation à {{at}}",
-      "limitedBanner": "{{count}} session(s) arrêtée(s) par la limite d'utilisation — listées en premier ci-dessous",
-      "limitedAck": "Compris",
-      "limitedAckHint": "Retire le repère orange — les sessions et les conversations sont conservées",
       "settings": "Paramètres de l’agent",
       "expand": "Déplier",
       "collapse": "Replier",
@@ -1725,7 +1722,8 @@
         "running": "en cours",
         "done": "terminé",
         "error": "erreur",
-        "limited": "limite atteinte"
+        "limited": "limite atteinte",
+        "waiting": "en attente"
       },
       "probe": {
         "checking": "vérification…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Conversation sans titre",
       "revisionOf": "rév. {{index}}/{{total}}",
       "failedBadge": "Échecs : {{count}}",
-      "failedBadgeTip": "Compactages ayant échoué ({{scope}}) : {{count}}. Chaque ligne en échec porte une pastille rouge indiquant la raison."
+      "failedBadgeTip": "Compactages ayant échoué ({{scope}}) : {{count}}. Chaque ligne en échec porte une pastille indiquant la raison."
     },
     "remoteAccess": {
       "title": "Accès à distance",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Rétablir les espaces du coréen",
       "voiceRespaceHint": "La reconnaissance renvoie le coréen sans espaces ; cette option le découpe aux particules et aux terminaisons. Basée sur des règles, elle n’est pas parfaite — vous pouvez corriger le résultat dans le champ de saisie.",
       "stallHint": "Un raisonnement ou un appel d’outil prolongé peut suspendre les mises à jour. Cela ne signifie pas à lui seul que la session s’est arrêtée.",
-      "stallNotice": "En attente de la prochaine mise à jour. Dernière activité il y a {{value}}.",
-      "stallKeepWaiting": "Continuer d'attendre",
-      "stallKeepWaitingTitle": "Masquer cet avis et continuer à attendre la prochaine mise à jour.",
+      "backgroundShells": "{{count}} shell en arrière-plan toujours actif. La réponse est déjà là — vous pouvez continuer à écrire.",
+      "backgroundShellsTip": "Une commande Bash ou Monitor en arrière-plan, laissée par un tour précédent. Elle exécute une commande, pas un modèle, elle ne retient donc pas cette session. Les commandes qui ne se terminent jamais d'elles-mêmes (tail -f, while true, un sort avec un pipe) restent ici jusqu'à ce que vous les supprimiez.",
+      "backgroundShellsOpen": "Voir",
       "stopNothing": "Il n'y avait rien en cours à arrêter. L'étiquette «en cours» était périmée.",
       "stopNothingHint": "Le serveur n'a trouvé aucun processus enfant, aucune commande en file d'attente ni aucune tâche en arrière-plan pour cette portée.",
       "stopForce": "Forcer l'arrêt",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Sous-agent",
       "commandReceived": "Commande reçue",
       "promptSuggestion": "Prochain prompt suggéré",
-      "imageMissing": "(image indisponible)"
+      "imageMissing": "(image indisponible)",
+      "waiting": "attente"
     },
     "report": {
       "title": "Rapport de travail",
@@ -3502,18 +3501,19 @@
       "superseded": "Plan mis à jour"
     },
     "cmdError": {
-      "spawn": "Claude CLI n'a pas pu démarrer",
+      "spawn": "{{engine}} n'a pas pu démarrer",
       "stdin": "Impossible de transmettre l'invite à la session en cours",
-      "exit": "Claude CLI s'est arrêté avec le code {{code}}",
-      "exitUnknown": "Claude CLI s'est arrêté de manière inattendue",
+      "exit": "{{engine}} s'est arrêté avec le code {{code}}",
+      "exitUnknown": "{{engine}} s'est arrêté de manière inattendue",
       "crash": "Le processus de la session s'est interrompu de manière inattendue (code {{code}})",
       "crashUnknown": "Le processus de la session s'est interrompu de manière inattendue",
       "local": "L'exécution du modèle local a échoué",
-      "cli": "Claude CLI a signalé un échec",
+      "cli": "{{engine}} a signalé un échec",
       "maxTurns": "Arrêté à la limite de tours maximum",
       "agentView": "L'exécution de l'agent s'est terminée par un échec",
       "orphaned": "Interrompu lors du redémarrage de l'application",
       "dispatchResult": "Terminé sans avoir reçu le résultat de la tâche déléguée",
+      "usageLimit": "Arrêté à la limite d’utilisation",
       "unknown": "Échec pour une raison inconnue"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Actualiser les procédures",
       "details": "Afficher les détails de la procédure",
       "hideDetails": "Masquer les détails de la procédure",
+      "approve": "Approuver",
+      "approveHint": "Approuvez maintenant, en utilisant les fichiers que cette procédure liste déjà comme preuves. Les agents le font normalement d’eux-mêmes.",
+      "approveNoEvidence": "Cette procédure ne liste aucun fichier justificatif, elle ne peut donc pas être approuvée ici.",
       "pause": "Cesser d’utiliser",
       "requestReview": "Demander un examen par l’Agent",
       "reviewHint": "Un Agent au travail examine les procédures pertinentes. Demander un examen n’active pas une procédure.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "Les conditions d’utilisation de cette procédure ont changé depuis l’examen.",
         "instructionsChanged": "Les instructions de la procédure ont changé depuis l’examen.",
         "dependencyChanged": "Un fichier justificatif examiné a changé ou n’est plus accessible.",
+        "userApproved": "Vous avez approuvé cette procédure.",
         "userPaused": "Vous avez cessé d’utiliser cette procédure.",
         "userRequestedReview": "Vous avez demandé un nouvel examen de cette procédure."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Permettre au chef d'orchestre de me poser des questions",
         "askQuestionsHint": "Ajoute AskUserQuestion à ses outils. Désactivé par défaut — une fois activé, un ordre vague peut mettre l'exécution en pause jusqu'à votre réponse.",
         "engine": "Moteur des membres",
-        "maxMembers": "Nombre maximal de membres qu'il peut créer"
+        "maxMembers": "Nombre maximal de membres qu'il peut créer",
+        "memberIsolation": "Donner à chaque membre son propre worktree",
+        "memberIsolationHint": "Chaque membre naît dans son propre git worktree : ceux qui s'exécutent en parallèle ne peuvent donc pas entrer en conflit sur les mêmes fichiers. Il vous revient ensuite de fusionner les branches. Membres Claude uniquement — Codex n'a pas de flag équivalent.",
+        "memberToolTemplate": "Outils avec lesquels les membres naissent"
       },
       "permission": {
         "bypass": "Ignorer les demandes de permission",
@@ -4734,7 +4741,11 @@
           "auto": "Le chef d'orchestre choisit selon le rôle",
           "inherit": "Comme le chef d’orchestre ({{engine}})"
         },
-        "maxDefault": "Par défaut ({{count}})"
+        "maxDefault": "Par défaut ({{count}})",
+        "isolationClaudeOnly": "Les membres Codex n'en bénéficient pas — ils s'exécutent directement dans le dossier du projet.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Défaut de l'Agent (tous les outils)",
+        "toolsHint": "Le chef d'orchestre ne peut pas élargir cette liste. Des outils restreints cantonnent un membre à sa propre tâche — un relecteur qui ne peut pas écrire ne pourra pas discrètement « corriger » ce que vous lui avez demandé de vérifier."
       },
       "strategies": {
         "title": "Stratégies d'économie de tokens",
@@ -5757,6 +5768,7 @@
     "waitingFor": "attend depuis {{time}}",
     "queued": "{{count}} en file",
     "running": "{{count}} en cours",
+    "backgroundShells": "{{count}} shell en arrière-plan",
     "jumpHint": "Ouvrir cette session dans la fenêtre principale",
     "commandHint": "Envoyer un message sans quitter cette fenêtre",
     "moreHint": "Plus d'actions",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Message à cette session… (Entrée pour envoyer)",
     "send": "Envoyer",
     "searchPlaceholder": "Rechercher des sessions —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Recherche dans l’historique des conversations…",
+    "historySearchFailed": "Une partie de l’historique des conversations n’a pas pu être recherchée.",
+    "retryHistorySearch": "Relancer la recherche dans l’historique",
     "clearSearch": "Effacer",
     "resultCount": "{{count}} résultats",
     "sessionCount": "{{count}} sessions",

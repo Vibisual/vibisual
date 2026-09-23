@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_GOAL_ASSESSMENT_TTL_MS, AUTO_GOAL_EVIDENCE_FILE_BYTES, type AutoGoalCandidate } from '@vibisual/shared';
+import { AUTO_GOAL_ASSESSMENT_TTL_MS, AUTO_GOAL_EVIDENCE_FILE_BYTES, AUTO_GOAL_STALE_REVIEW_MS, type AutoGoalCandidate } from '@vibisual/shared';
 import {
-  assessAutoGoalSkill, recordAutoGoalOutcome, reviewAutoGoalSkill, requestAutoGoalReview,
+  assessAutoGoalSkill, recordAutoGoalOutcome, reviewAutoGoalSkill, requestAutoGoalReview, approveAutoGoalSkill,
   autoGoalRevision, AutoGoalLifecycleError, dropAutoGoalAssessments,
 } from './autoGoalLifecycle.js';
 import {
   writeAutoGoalSkill, listAutoGoalSkills, deleteAutoGoalSkill, readAutoGoalSkillBody,
-  buildAutoGoalPromptBlock, getAutoGoalSummary, autoGoalSkillRelevant,
+  buildAutoGoalPromptBlock, getAutoGoalSummary, autoGoalSkillRelevant, autoGoalRelevanceScore,
 } from './autoGoalService.js';
 
 let root: string;
@@ -235,10 +235,28 @@ describe('confirmed completion reuse', () => {
     expect(failed.skill.failureCount).toBe(1);
   });
 
-  it('clears old completion records on re-review', () => {
+  /*
+   * §5.10 (R)ⓓ — 강등이 완료 기록까지 지우던 때는 강등 방아쇠(근거 파일이 바뀜)와 재사용 성립
+   * 조건(입력 파일이 그대로)이 같은 축이라 서로를 배제해, 파일이 늘 바뀌는 저장소에서는 생략 창이
+   * 사실상 열리지 않았다. 근거·입력·산출물은 서로 다른 축이고, 여기서 그 셋이 갈려 있음을 고정한다.
+   */
+  it('keeps completion records through demotion so re-approval reopens the reuse window', () => {
     const skill = create(); approve(skill.id); complete(skill.id);
     expect(assess(skill.id).decision).toBe('skip');
+    write('procedure.ts', 'export const version = 2;');
+    expect(current(skill.id).status).toBe('needs-review');
+    expect(assess(skill.id).decision).toBe('review');
     approve(skill.id);
+    expect(assess(skill.id).decision).toBe('skip');
+  });
+
+  it('drops completion records when re-review changes the procedure itself', () => {
+    const skill = create(); approve(skill.id); complete(skill.id);
+    expect(assess(skill.id).decision).toBe('skip');
+    reviewAutoGoalSkill(root, { skillId: skill.id, revision: current(skill.id).revision!, decision: 'revise',
+      reason: 'Rewrote the steps after reading the current implementation.',
+      applicability: 'Compile graph renderer outputs after input data changes.',
+      files: ['procedure.ts'], body: '# Different instructions\n\nRun the renderer twice.' }, actor);
     expect(assess(skill.id).decision).toBe('run');
   });
 
@@ -313,5 +331,70 @@ describe('storage and cost boundaries', () => {
     expect(summary?.reviewCount).toBeGreaterThan(0);
     const skill = listAutoGoalSkills(root)[0]!;
     expect(skill.revision).toBe(autoGoalRevision(fs.readFileSync(path.join(root, skill.path!), 'utf8')));
+  });
+});
+
+
+/*
+ * §5.10 (R) 자율 운영 — 사용자 지시 2026-09-23 "에이전트가 스스로 하게 내 선택은 부가적인 옵션".
+ *
+ * (Q) 도입 뒤 절차가 한 벌도 승격되지 않은 원인 셋을 각각 고정한다: 실릴 자리가 관련도와 무관하게
+ * 잘리던 것(ⓑ), 걷을 때가 지난 절차를 아무도 짚어 주지 않던 것(ⓒ), 검토 대기 행에 앞으로 가는
+ * 자리가 없던 것(ⓔ).
+ */
+describe('autonomous procedure operation', () => {
+  const user = { agentId: 'user', subAgentId: 'user' };
+
+  it('ranks the closest procedures into the turn instead of cutting from the top', () => {
+    // 가장 먼저 만들어 목록 맨 뒤에 놓이는 절차가 지금 작업과 가장 가깝다.
+    const task = 'compile the graph renderer bundle';
+    const near = create('Compile graph renderer bundle');
+    const fillers = ['graph a', 'graph ab', 'graph abc', 'graph abcd', 'graph abcde', 'graph abcdef'].map((title) => create(title));
+    expect(fillers).toHaveLength(6);
+    expect(buildAutoGoalPromptBlock(root, ON, {}, task)).toContain(near.name);
+    expect(autoGoalRelevanceScore(near, task)).toBeGreaterThan(autoGoalRelevanceScore(fillers[0]!, task));
+  });
+
+  /*
+   * 멀티플랫폼 ① — 근거 파일 이름은 두 구분자를 **직접** 걷어내고 낱말로 견준다. `path.basename` 에
+   * 맡기면 POSIX 가 `src\graph\renderer.ts` 를 통째로 파일 이름으로 읽어 win 과 답이 갈린다.
+   * 경로를 접지 않으므로 Linux 의 `Feature-X ≠ feature-x` 도 무너지지 않는다. 실기가 없으니
+   * 세 운영체제의 판정을 여기서 값으로 고정한다.
+   */
+  it('reads a backslash evidence path the same as a forward-slash one on every platform', () => {
+    const base = create('Unrelated bundle work');
+    const task = 'update the renderer module';
+    const slash = { ...base, files: ['src/graph/renderer.ts'] };
+    const backslash = { ...base, files: ['src\\graph\\renderer.ts'] };
+    expect(autoGoalRelevanceScore(backslash, task)).toBe(autoGoalRelevanceScore(slash, task));
+    expect(autoGoalRelevanceScore(slash, task)).toBeGreaterThan(autoGoalRelevanceScore({ ...base, files: [] }, task));
+  });
+
+  it('marks a procedure whose evidence files are all gone as a retire candidate', () => {
+    const skill = create(); approve(skill.id);
+    fs.rmSync(path.join(root, 'procedure.ts'));
+    expect(buildAutoGoalPromptBlock(root, ON, {}, 'Compile graph renderer')).toContain('걷을 후보');
+  });
+
+  it('marks an approved procedure nobody has used as a retire candidate', () => {
+    const skill = create(); approve(skill.id);
+    vi.useFakeTimers(); vi.setSystemTime(Date.now() + AUTO_GOAL_STALE_REVIEW_MS + 1);
+    expect(buildAutoGoalPromptBlock(root, ON, {}, 'Compile graph renderer')).toContain('걷을 후보');
+    vi.useRealTimers();
+  });
+
+  it('lets the user approve using the files the procedure already records', () => {
+    const skill = create();
+    const approved = approveAutoGoalSkill(root, { skillId: skill.id, revision: current(skill.id).revision! }, user);
+    expect(approved.status).toBe('active');
+    expect(approved.reason).toBe('user-approved');
+    expect(assess(skill.id).decision).toBe('run');
+  });
+
+  it('refuses user approval when the procedure records no evidence files', () => {
+    write('.vibisual/skills/bare/SKILL.md', '---\nname: Bare\ndescription: graph renderer without evidence\nid: bare\n---\nInstructions');
+    expect(() => approveAutoGoalSkill(root, { skillId: 'bare', revision: current('bare').revision! }, user))
+      .toThrow(/dependency files/);
+    expect(current('bare').status).not.toBe('active');
   });
 });

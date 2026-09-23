@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * useSessionStop — §5.5 #17-10 중지 동작(세션 스코프)의 단일 창구.
@@ -71,7 +71,7 @@ export interface SessionStopHandle {
   stop: () => void;
   /** 마지막 요청 결과. `nothing`·`failed` 만 화면에 말한다. */
   outcome: SessionStopOutcome;
-  /** 사용자가 안내를 닫았다. */
+  /** 안내를 닫거나 새 명령을 보냈다. 이전 중지 응답은 더 이상 현재 작업의 안내가 아니다. */
   clearOutcome: () => void;
   /** `nothing` 일 때만 여는 두 번째 손잡이 — 에이전트 전체를 끊어 남은 명령까지 마감한다. */
   forceStop: () => void;
@@ -96,31 +96,39 @@ export function classifyStopResponse(
 }
 
 export function useSessionStop(agentId: string, activeSessionId: string | null): SessionStopHandle {
-  const [stopping, setStopping] = useState(false);
-  const [outcome, setOutcome] = useState<SessionStopOutcome>({ kind: 'none' });
+  // A→B→A is a new view lifetime too: the old A request must not revive its hint after returning.
+  const scope = useMemo(() => ({ agentId, activeSessionId }), [agentId, activeSessionId]);
+  const activeScope = useRef(scope);
+  activeScope.current = scope;
+  const [state, setState] = useState<{ scope: typeof scope; stopping: boolean; outcome: SessionStopOutcome }>({
+    scope, stopping: false, outcome: { kind: 'none' },
+  });
   // 연타 방지는 state 가 아니라 ref 로 본다 — state 는 이 콜백이 다시 만들어질 때까지 갱신되지 않아
   //   같은 프레임에 두 번 눌린 중지를 못 막는다.
-  const inFlight = useRef(false);
+  const inFlight = useRef<{ scope: typeof scope } | null>(null);
+  useEffect(() => () => { inFlight.current = null; }, []);
 
   const send = useCallback(async (url: string): Promise<void> => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    setStopping(true);
+    if (inFlight.current?.scope === scope) return;
+    const request = { scope };
+    inFlight.current = request;
+    setState({ scope, stopping: true, outcome: { kind: 'none' } });
+    let outcome: SessionStopOutcome;
     try {
       const res = await fetch(url, { method: 'POST' });
       let body: SessionStopResponse | null = null;
       if (res.ok) {
         try { body = (await res.json()) as SessionStopResponse; } catch { body = null; }
       }
-      setOutcome(classifyStopResponse(res.ok, res.status, body));
+      outcome = classifyStopResponse(res.ok, res.status, body);
     } catch {
-      setOutcome({ kind: 'failed', status: null });
-    } finally {
-      // 성공이든 실패든 여기서 푼다 — 종전의 1.5초 타이머는 응답과 무관해 실패를 삼켰다.
-      inFlight.current = false;
-      setStopping(false);
+      outcome = { kind: 'failed', status: null };
     }
-  }, []);
+    // A delayed response belongs to the view that sent it, not the session now occupying the input.
+    if (activeScope.current !== scope || inFlight.current !== request) return;
+    inFlight.current = null;
+    setState({ scope, stopping: false, outcome });
+  }, [scope]);
 
   const stop = useCallback(() => {
     void send(sessionStopUrl(agentId, activeSessionId));
@@ -130,7 +138,16 @@ export function useSessionStop(agentId: string, activeSessionId: string | null):
     void send(sessionForceStopUrl(agentId));
   }, [agentId, send]);
 
-  const clearOutcome = useCallback(() => { setOutcome({ kind: 'none' }); }, []);
+  const clearOutcome = useCallback(() => {
+    inFlight.current = null;
+    setState({ scope, stopping: false, outcome: { kind: 'none' } });
+  }, [scope]);
 
-  return { stopping, stop, outcome, clearOutcome, forceStop };
+  return {
+    stopping: state.scope === scope && state.stopping,
+    stop,
+    outcome: state.scope === scope ? state.outcome : { kind: 'none' },
+    clearOutcome,
+    forceStop,
+  };
 }

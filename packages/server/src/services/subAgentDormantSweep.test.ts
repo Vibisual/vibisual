@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { subAgentManager } from './subAgentManager.js';
+import { SUBAGENT_DORMANT_IDLE_MS } from '@vibisual/shared';
 
 /**
  * §2.4 (잠듦) — **유휴 세션의 claude 자식 프로세스 회수** 회귀 테스트.
@@ -10,7 +11,7 @@ import { subAgentManager } from './subAgentManager.js';
  * 그래서 재우는 쪽 한 건보다 **재우지 않는 쪽**을 더 많이 고정한다.
  */
 
-const THRESHOLD = 15 * 60 * 1000;
+const THRESHOLD = SUBAGENT_DORMANT_IDLE_MS;
 
 /** 매니저 내부 장부 — 자식 프로세스를 실제로 띄우지 않고 그 자리에 가짜를 앉히기 위한 통로. */
 interface Innards {
@@ -100,6 +101,17 @@ describe('sweepDormantIdleSubs — 재운다', () => {
 });
 
 describe('sweepDormantIdleSubs — 재우지 않는다', () => {
+  it('보존한 세션 ID가 없으면 대화를 재개할 수 없어 자식을 유지한다', () => {
+    const id = parkedSub('agent-no-resume-id', THRESHOLD + 1000);
+    subAgentManager.getSub(id)!.sessionId = '';
+    expect(subAgentManager.sweepDormantIdleSubs(THRESHOLD)).not.toContain(id);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('잘못된 유휴 임계값 %s는 회수하지 않는다', (threshold) => {
+    const id = parkedSub('agent-invalid-idle', THRESHOLD + 1000);
+    expect(subAgentManager.sweepDormantIdleSubs(threshold)).not.toContain(id);
+  });
+
   it('임계에 못 미친 세션은 건드리지 않는다', () => {
     const id = parkedSub('agent-fresh', THRESHOLD - 60 * 1000);
 

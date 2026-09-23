@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHAT_LOG_DEFAULT_LINES, CHAT_LOG_MAX_LINES } from '@vibisual/shared';
-import { clampLogLines, helpLines, parseChatCommand } from './commands';
+import { clampLogLines, commandForm, helpLines, parseChatCommand } from './commands';
 import { chatStrings } from './strings';
 
 // §4 메신저 브리지 — 폰에서 온 한 줄을 무엇으로 볼 것인가.
@@ -151,6 +151,94 @@ describe('3단계 선택 명령 (/projects · /sessions)', () => {
       const joined = helpLines(true, chatStrings(locale)).join('\n');
       expect(joined).toContain('/projects');
       expect(joined).toContain('/sessions');
+    }
+  });
+});
+
+describe('`!vibisual <명령>` — 디스코드에서 `/` 를 칠 수 없어 낸 같은 입구 (§4 ⑨-(f))', () => {
+  it('접두어 형태와 슬래시 형태의 해석이 완전히 같다', () => {
+    // 채널마다 해석이 갈리면 그때부터 두 벌이 된다 — 표기만 다르고 규칙은 하나여야 한다.
+    for (const tail of ['projects', 'agents', 'sessions', 'status', 'stop', 'unpair', 'help', 'log 12']) {
+      expect(parseChatCommand(`!vibisual ${tail}`)).toEqual(parseChatCommand(`/${tail}`));
+    }
+  });
+
+  it('접두어만 보내면 안내다 — 폰에서 무엇을 칠 수 있는지 모를 때의 첫 한 줄', () => {
+    expect(parseChatCommand('!vibisual')).toEqual({ type: 'help' });
+    expect(parseChatCommand('  !vibisual   ')).toEqual({ type: 'help' });
+  });
+
+  it('공백 없이 이어지는 단어는 명령이 아니다 — 평문을 삼키면 안 된다', () => {
+    expect(parseChatCommand('!vibisualize 해 줘')).toEqual({ type: 'prompt', text: '!vibisualize 해 줘' });
+    expect(parseChatCommand('!vibisual-qa')).toEqual({ type: 'prompt', text: '!vibisual-qa' });
+  });
+
+  it('접두어 뒤의 `/` 는 슬래시 규칙 그대로 — CLI 명령으로 가는 탈출구', () => {
+    // 디스코드 입력창이 `/` 를 가로채므로 `/compact` 를 보낼 길이 이것뿐이다.
+    expect(parseChatCommand('!vibisual /compact')).toEqual({ type: 'prompt', text: '/compact' });
+    expect(parseChatCommand('!vibisual /status')).toEqual({ type: 'status' });
+  });
+
+  it('우리 것이 아닌 이름을 접두어와 함께 보내면 안내로 받는다', () => {
+    // 프롬프트로 흘리면 `!vibisual` 이라는 글자까지 에이전트에게 간다 — 그 자리는 안내가 맞다.
+    expect(parseChatCommand('!vibisual 모르는것')).toEqual({ type: 'help' });
+    expect(parseChatCommand('!vibisual project')).toEqual({ type: 'help' });
+  });
+
+  it('`/pair <token>` 과 `!vibisual pair <token>` 이 같은 페어링이다', () => {
+    expect(parseChatCommand('/pair tok')).toEqual({ type: 'pair', token: 'tok' });
+    expect(parseChatCommand('!vibisual pair tok')).toEqual({ type: 'pair', token: 'tok' });
+  });
+
+  it('로그 줄 수의 하드 캡은 접두어 형태에도 그대로 걸린다', () => {
+    expect(parseChatCommand('!vibisual log 999999')).toEqual({ type: 'log', lines: CHAT_LOG_MAX_LINES });
+    expect(parseChatCommand('!vibisual log')).toEqual({ type: 'log', lines: CHAT_LOG_DEFAULT_LINES });
+  });
+});
+
+describe('commandForm — 안내문은 그 채널에서 실제로 칠 수 있는 모양이어야 한다', () => {
+  it('디스코드 안내는 `!vibisual …` 로 적힌다', () => {
+    const lines = helpLines(true, s, 'discord');
+    const joined = lines.join('\n');
+    expect(joined).toContain('!vibisual projects');
+    expect(joined).toContain('!vibisual agents');
+    expect(joined).toContain('!vibisual sessions');
+    expect(lines.filter((l) => l.startsWith('!vibisual '))).toHaveLength(7);
+    expect(lines.some((l) => l.startsWith('/'))).toBe(false);
+  });
+
+  it('텔레그램 안내는 슬래시 그대로다 — 거기서는 그것이 네이티브다', () => {
+    const lines = helpLines(true, s, 'telegram');
+    expect(lines.join('\n')).toContain('/projects');
+    expect(lines.some((l) => l.startsWith('!vibisual'))).toBe(false);
+  });
+
+  it('채널을 주지 않으면 텔레그램 모양 — 기존 호출부가 그대로 산다', () => {
+    expect(helpLines(true, s)).toEqual(helpLines(true, s, 'telegram'));
+  });
+
+  it('슬래시로 시작하지 않는 줄은 건드리지 않는다', () => {
+    expect(commandForm(s.helpPlain, 'discord')).toBe(s.helpPlain);
+    expect(commandForm(s.helpPlain, 'telegram')).toBe(s.helpPlain);
+  });
+
+  it('바꾸는 것은 앞머리뿐 — 뒤의 설명은 그대로 둔다', () => {
+    expect(commandForm('/projects — 설명', 'discord')).toBe('!vibisual projects — 설명');
+    expect(commandForm('/projects — 설명', 'telegram')).toBe('/projects — 설명');
+  });
+
+  it('페어링 전 안내는 채널과 무관하게 같다 — 연결하는 법에는 명령이 없다', () => {
+    expect(helpLines(false, s, 'discord')).toEqual(helpLines(false, s, 'telegram'));
+  });
+
+  it('디스코드 안내에 적힌 그 글자를 그대로 치면 실제로 동작한다', () => {
+    // 안내문 ↔ 파서가 어긋나면 "안 되는 것"을 알려 주는 안내가 된다. 모든 로케일에서 본다.
+    for (const locale of ['en', 'ko', 'ja', 'zh-CN', 'es', 'es-419', 'fr', 'de', 'it', 'pt-BR', 'hi', 'id']) {
+      for (const line of helpLines(true, chatStrings(locale), 'discord')) {
+        if (!line.startsWith('!vibisual ')) continue;
+        const typed = line.split('—')[0]?.trim() ?? '';
+        expect(parseChatCommand(typed)).not.toMatchObject({ type: 'prompt' });
+      }
     }
   });
 });

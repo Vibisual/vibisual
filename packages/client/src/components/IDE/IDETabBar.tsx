@@ -12,7 +12,7 @@ import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
 import { applyLocalOrder, sameMembers, sameOrder } from '../../hooks/tabPushGeom.js';
 // §5.4 #14-2 — 집어 들어 옮기는 손짓 한 벌(활동바·프로젝트 탭과 같은 훅 — 탭은 꾹 누르지 않고 끌어서 든다, (F-6)).
 import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
-import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds, serializePendingSubIds } from '../../utils/sessionStatus.js';
 import { serializeRunningLoops, parseRunningLoops } from './sessionLoopIndicator.js';
 // §5.5 #17-34 / §5.4 #14-2 — 탭을 본문으로 끌면 화면이 나뉜다. 탭은 이제 **누른 채 끌면 집어 들고**
 //   (네이티브 DnD ❌ — 활동바와 같은 손맛), 어느 자리에 떨어지는지는 이 버스가 판정 쪽으로 날라 준다.
@@ -108,6 +108,10 @@ export const IDETabBar = memo(function IDETabBar({
   //   루프와 같은 수법으로 문자열 하나만 구독해 켜짐이 바뀔 때만 다시 그린다.
   const busySubKey = useGraphStore((s) => serializeBusySubIds(agentId ? s.runningSubagentTasks[agentId] : undefined));
   const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
+  // §5.5 #17-18 (대기) — 줄만 서 있는 탭도 **끝난 것이 아니다.** 같은 접기 수법이라 줄 선
+  //   세션이 실제로 바뀔 때만 다시 그린다.
+  const pendingSubKey = useGraphStore((s) => serializePendingSubIds(agentId ? s.queuedCommands[agentId] : undefined));
+  const pendingSubIds = useMemo(() => parseBusySubIds(pendingSubKey), [pendingSubKey]);
   // §5.5 #17-34 — 지금 분할 칸에 떠 있는 세션들. Set 을 그대로 뽑으면 매 스냅샷마다 새 객체라
   //   선택자가 늘 달라진다 — 도트·루프와 같은 수법으로 문자열 하나만 구독한다.
   const splitSlotKey = useIDESlotKey();
@@ -672,7 +676,7 @@ export const IDETabBar = memo(function IDETabBar({
         const isAcked = !!acknowledgedSubAgents[sub.id];
         // (판올림 번호 발급 대기) 방금 눌러 들어간 색이 10초간 남아 뛴다 — 도착과 동시에 색이
         //   꺼져 무엇을 눌렀는지 알 수 없던 것(§5.5 #17-1). 실제로 무슨 일이 생기면 그쪽이 이긴다.
-        const dot = sessionDotClass(sessionRunStateOf(sub, isAcked, busySubIds.has(sub.id)), sessionFocusGlow[sub.id], Date.now());
+        const dot = sessionDotClass(sessionRunStateOf(sub, isAcked, busySubIds.has(sub.id), pendingSubIds.has(sub.id)), sessionFocusGlow[sub.id], Date.now());
         // §4 (CMD ①) — 막힌 세션은 **새 모양을 발명하지 않고** 기존 도트에 앰버 링만 덧입힌다
         //   (§2.4 '잠듦'이 상태 유니온을 늘리지 않고 표기 한 줄만 덧붙인 것과 같은 규율).
         const blockedRing = sub.blocked ? ' ring-2 ring-amber-400/80' : '';

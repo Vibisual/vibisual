@@ -2,9 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 // §6 — 툴팁에 넣을 키는 레지스트리에서 읽는다(하드코딩하면 재매핑에 뒤처진다).
 import { useBindingLabel } from '../Shortcuts/useBindingLabel.js';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, workspaceImageFileKey } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions } from './idePane.js';
-import { CodeEditor, type FollowRange } from './CodeEditor.js';
+import { CodeEditor, type EditorViewState, type FollowRange } from './CodeEditor.js';
 import { languageFromPath } from './codeLanguages.js';
 import { FOLLOW_SKIP_KEYS, findEditedLineRange, followSessionKey } from './editorFollow.js';
 import { isDirty, splitPathTail, tabLabels } from './editorModel.js';
@@ -143,6 +143,17 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const clearBreakpointsInFile = useGraphStore((s) => s.clearBreakpointsInFile);
 
   const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath);
+  const editorViews = useMemo(() => new Map<string, { current: EditorViewState | null }>(), [rootPath]);
+  const editorViewStateRef = useMemo(() => {
+    if (!activePath) return undefined;
+    let saved = editorViews.get(activePath);
+    if (!saved) { saved = { current: null }; editorViews.set(activePath, saved); }
+    return saved;
+  }, [activePath, editorViews]);
+  useEffect(() => {
+    const openPaths = new Set(files.map((file) => file.relPath));
+    for (const file of editorViews.keys()) if (!openPaths.has(file)) editorViews.delete(file);
+  }, [editorViews, files]);
 
   const active = useMemo(() => files.find((f) => f.relPath === activePath) ?? null, [files, activePath]);
   const doc = activePath ? docs[activePath] : undefined;
@@ -151,7 +162,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
 
   // ─── §5.5 #17-27 ⑭ — 이미지는 글자가 아니라 그림으로 연다 ──────────────
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
-  const imageSavedAt = useGraphStore((s) => (activePath ? s.workspaceImageSavedAt[activePath] : undefined));
+  const imageFileKey = rootPath && activePath ? workspaceImageFileKey(rootPath, activePath) : null;
+  const imageSavedAt = useGraphStore((s) => (imageFileKey ? s.workspaceImageSavedAt[imageFileKey] : undefined));
   /** 서버가 이미 판정해 보낸 값 — 클라이언트가 확장자를 다시 따지지 않는다. */
   const isImage = doc?.status === 'ready' && doc.image;
   /** §5.13 (R) — PDF 는 텍스트도 그림도 아니라 세 번째 그리기다(내장 Chromium 뷰어). */
@@ -221,12 +233,12 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
    * §5.5 #17-25 ④-1 — 라이트박스가 이 파일을 덮어썼다. 새 `mtimeMs` 를 받아야 미리보기가
    * 방금 그린 표시를 보여 준다(같은 시각을 두 번 처리하지 않도록 마지막 값을 기억한다).
    */
-  const imageReloadedAtRef = useRef(0);
+  const imageReloadedAtRef = useRef<Record<string, number>>({});
   useEffect(() => {
-    if (!activePath || !imageSavedAt || imageReloadedAtRef.current === imageSavedAt) return;
-    imageReloadedAtRef.current = imageSavedAt;
+    if (!activePath || !imageFileKey || !imageSavedAt || imageReloadedAtRef.current[imageFileKey] === imageSavedAt) return;
+    imageReloadedAtRef.current[imageFileKey] = imageSavedAt;
     reload(activePath);
-  }, [activePath, imageSavedAt, reload]);
+  }, [activePath, imageFileKey, imageSavedAt, reload]);
 
   /** 그림을 누르거나 [편집]을 누르면 — #17-25 의 주석 팝업을 그대로 연다(새 편집기 ❌). */
   const handleOpenImageEditor = useCallback((): void => {
@@ -234,11 +246,12 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     openImageLightbox(imageBlob.url, undefined, {
       root: rootPath,
       path: activePath,
-      mtimeMs: doc?.mtimeMs ?? 0,
+      mtimeMs: imageBlob.mtimeMs ?? doc?.mtimeMs ?? 0,
+      revision: imageBlob.revision,
       bakeable: canOverwriteWorkspaceImage(activePath),
       mime: bakeMimeFor(activePath),
     });
-  }, [imageBlob.url, rootPath, activePath, doc?.mtimeMs, openImageLightbox]);
+  }, [imageBlob.url, imageBlob.mtimeMs, imageBlob.revision, rootPath, activePath, doc?.mtimeMs, openImageLightbox]);
 
   // ─── §5.5 #17-20 ⑩ v4.94 — 줄 번호 칸이 곧 중단점 gutter ─────────────────
   const projectName = useIDEPaneProjectName();
@@ -1021,6 +1034,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       ) : (
         <CodeEditor
           key={activePath}
+          viewStateRef={editorViewStateRef}
           text={doc.draft}
           language={language}
           readOnly={readOnly}

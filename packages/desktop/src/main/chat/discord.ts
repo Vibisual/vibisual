@@ -5,7 +5,7 @@ import {
   CHAT_RECONNECT_MAX_MS, CHAT_RECONNECT_MIN_MS,
 } from '@vibisual/shared';
 import type { ChatCard } from '@vibisual/shared';
-import { chunk, renderCard } from './cards';
+import { chunk, escapeDiscordMarkdown, renderCard } from './cards';
 import type { ChatChannel, ChatChannelContext, ChatPairLink, ChatVerifyResult } from './types';
 
 // §4 메신저 원격제어 브리지 — 디스코드 드라이버 (판올림 번호 발급 대기)
@@ -23,6 +23,85 @@ import type { ChatChannel, ChatChannelContext, ChatPairLink, ChatVerifyResult } 
 
 /** 봇 초대 시 요구하는 권한 — 보기 + 보내기 + 기록 읽기. 그 이상 요구하지 않는다. */
 const INVITE_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 16); // 68608
+
+/**
+ * 메시지 플래그 `SUPPRESS_EMBEDS` — 텔레그램 `disable_web_page_preview: true` 와 **같은 자리**다.
+ * 억제하지 않으면 카드에 실린 URL(`WebFetch` 의 주소 등)을 디스코드 서버가 **긁어서** 미리보기를
+ * 만든다 — §4 ⑩ "제3자로 나가는 것을 좁힌다" 는 정책이 링크 한 줄로 새는 자리다.
+ */
+const SUPPRESS_EMBEDS = 1 << 2; // 4
+
+/** 디스코드 한 메시지의 길이 상한 안으로 접는다. */
+function fitDiscord(text: string): string {
+  if (text.length <= CHAT_DISCORD_MESSAGE_MAX) return text;
+  let cut = text.slice(0, CHAT_DISCORD_MESSAGE_MAX - 1);
+  // 잘린 끝에 `\` 가 홀수로 남으면 뒤에 붙일 `…` 를 그것이 먹는다 — 짝을 맞춰 떼어 낸다.
+  let tail = 0;
+  while (tail < cut.length && cut[cut.length - 1 - tail] === '\\') tail += 1;
+  if (tail % 2 === 1) cut = cut.slice(0, -1);
+  return cut + '…';
+}
+
+/**
+ * `POST /channels/{id}/messages` 로 보낼 JSON 한 벌.
+ *
+ * **순수 함수로 떼어 둔 이유**는 여기 붙은 보호막 셋이 전부 **조용히** 사라지기 때문이다 —
+ * 빠뜨려도 전송은 200 으로 성공하고, 틀렸다는 것은 폰 화면에서만 드러난다.
+ *
+ *   ① `allowed_mentions: { parse: [] }` — 카드 본문은 모델이 쓴 글과 파일 경로가 섞인 것이라
+ *      `@everyone`·역할·사용자 멘션이 들어올 수 있다. 우리가 요구하는 권한에는 `MENTION_EVERYONE`
+ *      이 없어 `@everyone` 은 발동하지 않지만 **역할·사용자 멘션은 권한 없이도 알림을 쏜다.**
+ *      길드 채널로 묶인 옛 대화(`direct` 아님 배지가 붙는 것들)에서는 그 방의 사람이 우리 카드로
+ *      호출된다 — 표시하려던 것이 **남에게 알림을 보내는 일**이 되어서는 안 된다.
+ *   ② `flags: SUPPRESS_EMBEDS` — 위 상수의 이유.
+ *   ③ 마크다운 이스케이프 — 디스코드에는 평문 스위치가 없다(`cards.escapeDiscordMarkdown`).
+ */
+export function buildDiscordMessage(card: ChatCard): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    content: fitDiscord(escapeDiscordMarkdown(renderCard(card, CHAT_DISCORD_MESSAGE_MAX))),
+    allowed_mentions: { parse: [] },
+    flags: SUPPRESS_EMBEDS,
+  };
+  if (card.actions && card.actions.length > 0) {
+    // action row 는 최대 5줄 × 5개 — 넘치는 버튼은 조용히 잘라 낸다(카드가 거부되는 것보다 낫다).
+    body['components'] = chunk(card.actions, 5).slice(0, 5).map((row) => ({
+      type: 1,
+      components: row.map((a) => ({
+        type: 2,
+        style: a.style === 'primary' ? 1 : a.style === 'danger' ? 4 : 2,
+        label: a.label,
+        custom_id: a.actionId,
+      })),
+    }));
+  }
+  return body;
+}
+
+/**
+ * 버튼 회신(`type 4`)에 실을 `data`. 본문이 비면 `null` — 그때는 `type 6` 으로 간다.
+ * 메시지와 **같은 보호막**을 쓴다(이 회신도 채널에 그대로 보이는 한 줄이다).
+ */
+export function buildDiscordAckData(text: string): Record<string, unknown> | null {
+  const said = fitDiscord(escapeDiscordMarkdown(text.trim()));
+  if (!said) return null;
+  return { content: said, allowed_mentions: { parse: [] }, flags: SUPPRESS_EMBEDS };
+}
+
+/**
+ * 상호작용 회신 주소 `<interaction id>:<interaction token>` 을 가른다.
+ *
+ * **첫 콜론만** 기준이다. interaction token 은 디스코드가 발급하는 불투명 문자열이라
+ * 우리가 글자 집합을 정하지 못한다 — `split(':')` 로 갈라 두 번째 조각만 쓰면 콜론이 든
+ * 토큰에서 **주소가 조용히 잘려** 회신이 404 로 사라지고, 누른 사람 화면에는 "이 상호작용에
+ * 실패했습니다" 가 뜬다(결정 자체는 이미 적용된 뒤라 원인을 찾을 단서가 없다).
+ */
+export function splitAckToken(ackToken: string): { id: string; token: string } | null {
+  const at = ackToken.indexOf(':');
+  if (at <= 0) return null;
+  const id = ackToken.slice(0, at);
+  const token = ackToken.slice(at + 1);
+  return token ? { id, token } : null;
+}
 
 interface DiscordUser { id: string; username?: string; global_name?: string | null; bot?: boolean }
 interface GatewayPayload { op: number; d?: unknown; s?: number | null; t?: string | null }
@@ -48,6 +127,15 @@ export class DiscordChannel implements ChatChannel {
   private missedAcks = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = CHAT_RECONNECT_MIN_MS;
+  /**
+   * 우리가 **의도해서** 끊었는가(op 7 재연결 요청 · op 9 세션 무효 · 좀비 소켓).
+   *
+   * 디스코드는 배포할 때마다 op 7 로 "다시 붙어라" 를 보낸다 — 드문 일이 아니다. 그것까지
+   * `error: network` 로 올리면 그때마다 사이드바 점이 빨강으로 깜빡이고 "연결할 수 없습니다"
+   * 가 뜬다. **정상적인 재연결이 실패로 보이면 사용자는 고칠 것이 없는데 고치려 든다** —
+   * 토큰을 다시 넣고 봇을 다시 초대한다. 그래서 의도한 끊김은 `connecting` 으로 올린다.
+   */
+  private expectedClose = false;
 
   /** 토큰은 **인자로 받는다** — `verify()` 가 돌고 있는 세션의 토큰을 갈아끼우지 않게(telegram 과 동일). */
   private async rest<T>(token: string, path: string, init?: RequestInit): Promise<{ status: number; body: T | null }> {
@@ -125,6 +213,8 @@ export class DiscordChannel implements ChatChannel {
     const ws = new WebSocket(`${gatewayUrl}/?v=10&encoding=json`);
     this.ws = ws;
     this.missedAcks = 0;
+    this.expectedClose = false;
+    this.seq = null;
 
     ws.on('message', (raw: Buffer | string) => {
       if (generation !== this.generation) return;
@@ -139,11 +229,23 @@ export class DiscordChannel implements ChatChannel {
     ws.on('close', (code: number) => {
       if (generation !== this.generation) return;
       this.clearHeartbeat();
-      // 4004 = 토큰 거부(재시도 무의미) / 4014 = 포털에서 특권 intent 가 꺼져 있음.
+      this.ws = null;
+      // RESUME 을 쓰지 않으므로 **다음 연결의 첫 하트비트는 `null` 부터**다. 옛 seq 를 그대로
+      // 들고 가면 새 세션에 남의 번호를 말하는 셈이 된다.
+      this.seq = null;
+      // 사람이 고치기 전에는 재시도가 무의미한 셋 — 백오프를 돌리지 않고 사유를 그대로 올린다.
+      // 4004 = 토큰 거부 / 4013 = intent 값 자체가 거부됨 / 4014 = 포털에서 특권 intent 가 꺼져 있음.
       if (code === 4004) { ctx.onStatus({ status: 'error', error: 'token' }); return; }
-      if (code === 4014) { ctx.onStatus({ status: 'error', error: 'intent' }); return; }
-      ctx.log(`discord gateway closed (${String(code)})`);
-      ctx.onStatus({ status: 'error', error: 'network' });
+      if (code === 4013 || code === 4014) { ctx.onStatus({ status: 'error', error: 'intent' }); return; }
+      const expected = this.expectedClose;
+      this.expectedClose = false;
+      if (expected) {
+        // 우리가 의도해서 끊은 것 — 다시 붙는 중이지 **실패가 아니다**.
+        ctx.onStatus({ status: 'connecting', error: null });
+      } else {
+        ctx.log(`discord gateway closed (${String(code)})`);
+        ctx.onStatus({ status: 'error', error: 'network' });
+      }
       this.scheduleRetry(token, ctx);
     });
 
@@ -163,6 +265,7 @@ export class DiscordChannel implements ChatChannel {
         if (ws.readyState !== WebSocket.OPEN) return;
         // 지난 하트비트의 ACK 이 아직 안 왔다 = 반쯤 죽은 소켓. 끊어야 `close` 가 재연결을 부른다.
         if (this.missedAcks > CHAT_DISCORD_HEARTBEAT_MISS_MAX) {
+          this.expectedClose = true;
           ctx.log('discord heartbeat unacknowledged — reconnecting');
           try { ws.close(CHAT_DISCORD_ZOMBIE_CLOSE_CODE); } catch { /* 이미 닫힘 */ }
           return;
@@ -184,6 +287,7 @@ export class DiscordChannel implements ChatChannel {
     if (payload.op === 7 || payload.op === 9) {
       // 재연결/세션 무효 — 끊고 백오프 재시도(RESUME 은 쓰지 않는다. 놓친 이벤트는
       // 표시용 카드라 다음 것부터 받아도 되고, 명령은 사용자가 다시 보내면 된다).
+      this.expectedClose = true;
       ctx.log(`discord gateway asked to reconnect (op ${String(payload.op)})`);
       try { ws.close(); } catch { /* 이미 닫힘 */ }
       return;
@@ -244,6 +348,7 @@ export class DiscordChannel implements ChatChannel {
   async stop(): Promise<void> {
     this.generation += 1;
     this.clearHeartbeat();
+    this.expectedClose = false;
     if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
     if (this.ws) {
       try { this.ws.close(); } catch { /* 이미 닫힘 */ }
@@ -257,20 +362,7 @@ export class DiscordChannel implements ChatChannel {
   async sendCard(chatId: string, card: ChatCard): Promise<void> {
     const token = this.token;
     if (!token) return;
-    const content = renderCard(card, CHAT_DISCORD_MESSAGE_MAX);
-    const body: Record<string, unknown> = { content };
-    if (card.actions && card.actions.length > 0) {
-      // action row 는 최대 5줄 × 5개 — 넘치는 버튼은 조용히 잘라 낸다(카드가 거부되는 것보다 낫다).
-      body['components'] = chunk(card.actions, 5).slice(0, 5).map((row) => ({
-        type: 1,
-        components: row.map((a) => ({
-          type: 2,
-          style: a.style === 'primary' ? 1 : a.style === 'danger' ? 4 : 2,
-          label: a.label,
-          custom_id: a.actionId,
-        })),
-      }));
-    }
+    const body = buildDiscordMessage(card);
     try {
       const { status } = await this.rest(token, `/channels/${chatId}/messages`, {
         method: 'POST',
@@ -289,11 +381,13 @@ export class DiscordChannel implements ChatChannel {
    * 할 말이 없을 때는 **type 6**(DEFERRED_UPDATE_MESSAGE)로 조용히 스피너만 푼다.
    */
   async ackAction(ackToken: string, text: string): Promise<void> {
-    const [id, token] = ackToken.split(':');
-    if (!id || !token) return;
-    const payload = text.trim()
-      ? { type: 4, data: { content: text } } // CHANNEL_MESSAGE_WITH_SOURCE — 결과 한 줄을 붙인다.
-      : { type: 6 };                         // DEFERRED_UPDATE_MESSAGE — 아무것도 안 띄우고 확인만.
+    const pair = splitAckToken(ackToken);
+    if (!pair) return;
+    const { id, token } = pair;
+    const data = buildDiscordAckData(text);
+    const payload = data
+      ? { type: 4, data } // CHANNEL_MESSAGE_WITH_SOURCE — 결과 한 줄을 붙인다.
+      : { type: 6 };      // DEFERRED_UPDATE_MESSAGE — 아무것도 안 띄우고 확인만.
     try {
       await fetch(`${CHAT_DISCORD_API_BASE}/interactions/${id}/${token}/callback`, {
         method: 'POST',

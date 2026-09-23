@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-23
+
+### Added
+- **Command Center searches whole conversations.** Every word you type — all of them must match — is now also looked for in each session's full command and answer history, its question and review cards, the output already received, and the transcripts saved on disk, archived sessions included. The board says when it is still searching, and when part of the history could not be read it says so and offers a retry. Accented and Korean text matches however it was typed.
+- **A session with a command waiting in its queue says "queued".** It gets its own violet dot in the session list, the status bar and the windows menu, the conversation shows "waiting", tab sorting puts it just above finished tabs, and the bubble on the canvas reads as waiting instead of done.
+- **Approve a procedure yourself.** Procedures awaiting review, or needing review again, have an Approve button that uses the files the procedure already lists as evidence. A procedure that lists none cannot be approved there, and the button says why.
+- **Orchestra members can get their own working tree and a fixed set of tools.** "Give each member its own working tree" starts every member the conductor creates in a separate git worktree, so members working side by side do not collide on the same files — merging the branches afterwards is up to you, and Codex members still run in the project folder. "Tools members are born with" picks a tool template that the conductor cannot widen.
+- **Remote control from Discord accepts `!vibisual <command>`.** Discord keeps `/` for itself, so `/projects` and the other commands could not be typed there even though the help said to; every command now also works after `!vibisual`, and `!vibisual /<command>` passes a slash command through to the agent. On Discord and Telegram, the help, pairing and "choose a target" messages have a Pick target button that walks you through project, agent and session without typing.
+- **Zoom the image preview with the wheel.** Hold Ctrl and scroll to zoom from 1% to 3200%, starting from the fitted size. Plain scrolling is unchanged, and the fit buttons or opening another image reset the zoom.
+- **A session you open pulses briefly before its colour settles** — green for finished, orange for stopped by the usage limit — so you can see which one you just acknowledged. It is off when your system asks for reduced motion.
+- **The installers come with an end-user license agreement ([EULA](https://github.com/Vibisual/vibisual/blob/v0.2.1/EULA.md)).** The source code stays under Apache-2.0, unchanged. The builds published on the Releases page stay free for any use, personal or commercial, on any number of machines, with no account or key; what the EULA asks is that you do not redistribute, repackage or rebrand our build — build your own from source instead. It ships inside the installer and applies to builds from this release on, not to earlier ones.
+
+### Changed
+- **A background shell no longer keeps a session "running".** A Bash or Monitor command left going in the background by an earlier turn — a `tail -f`, a dev server — used to hold the session, its bubble and the project badge on "running", and after three minutes raised a stall warning. The answer is already in by then, so the session now counts as finished; a grey line under the conversation says how many shells are still going, with a View button, and Command Center cards show the same count.
+- **Error messages name the engine that failed** — Claude CLI, Codex CLI or the local engine — instead of always saying "Claude CLI". Failures recorded before this update just say "CLI".
+- **A turn cut off by the usage limit says "Stopped at the usage limit"** instead of reporting a generic failure.
+- **Idle sessions go dormant after 5 minutes instead of 15.** The process is released sooner and your next message resumes the same conversation; the first reply after a pause can take a moment longer.
+- **Completion sounds play once, from the main window.** Detached IDE windows no longer announce as well, the end of a loop chimes once, and a loop you stopped or deleted stays silent.
+- **Context insurance judges a compaction from the conversation file itself.** It used to mark a compaction as failed after three minutes without a signal, and most of those verdicts were wrong. It now waits up to thirty minutes for evidence in the transcript, records a compaction whose summary it cannot read as "unreadable" rather than "failed", re-checks earlier failures when evidence arrives late, and shows its warnings in amber rather than red.
+- **Signing in to Claude works like signing in to Codex.** When the sign-in program ends, the window checks the result, clears the old link and code, and then either moves on to choosing a project folder or tells you that the sign-in ended before it completed. Each attempt runs on its own, so an earlier attempt cannot disturb a retry, and closing the window stops it.
+- **Agents look after procedures.** An agent shown procedures now leaves at most one verdict per turn — approve, revise, retire or replace — based only on what it read in that turn. More procedures are listed, the most relevant first; those whose evidence is gone, that have gone unused for a month, or that duplicate one in use are suggested for retirement; and reuse counts are no longer reset when a procedure is reviewed again.
+- **The conductor reuses agents you made yourself.** Any hand-made agent in the project is now a candidate member, so it no longer creates a twin beside a reviewer you already have. Members get role colours, and a spending cap per member is offered together with its cost: a capped member cannot resume its session.
+
+### Fixed
+- **A follow-up could sit in the queue for good**, showing "working" while nothing ran. A queued command whose session has nothing running is now started.
+- **A long Bash command that Claude Code moves to the background on its own** is now recognised as a background shell like any other.
+- **After a long disconnect the conversation could show its beginning and its latest part with the middle missing.** The gap is now filled page by page until it closes, even when thousands of events share one timestamp; failed pages are retried, and answers from an earlier reconnect are ignored.
+- **Output that arrives just after you press Stop** — late images and thinking — now appears above the stop marker, and thinking from different turns no longer runs together.
+- **Questions and permission requests you had already answered could come back** after a late update or a reconnect. They now stay answered, an answer sent during a reconnect is delivered once, and one the app really rejected comes back so you can try again.
+- **Stopping one session could interfere with another.** A Stop still pending in one session held up the next, and a late reply could clear another session's state or show the force-close hint in the wrong place.
+- **Sending in one session and switching to another pulled you back** when the first one answered. It no longer does.
+- **Saving a file that had changed on disk could overwrite the change.** Changes were judged by time and size, so an edit that kept the size could slip through, and a save that failed halfway could leave a broken file. The editor now compares the contents and checks once more just before saving, writes to a temporary file and swaps it in so that a failed save leaves the original intact, keeps the file's permissions on Save anyway, and saves through a link into the file it points to. Images get the same protection.
+- **A folder link inside a project could reach files in another project** — to read, browse, save or even force-save them — and the local engine could create folders through it. Anything that resolves outside the project is now refused; links that stay inside keep working.
+- **Coming back to a file in the editor restores the cursor, the selection and the scroll position**, including after looking at an image or another file in between.
+- **Signing out could report success while you were still signed in**, with Claude and with Codex. Sign-out now waits for a check already under way, checks again, and tells you when it did not work.
+- **Discord messages came out mangled.** Replies were read as Discord formatting, so `__init__.py` became underlined text, Windows paths lost their backslashes and the model's own asterisks turned into bold. Text now appears as written, links still work, and messages stay within Discord's size limit; mentions no longer ping anyone and links no longer unfold previews. A planned reconnect shows as connecting instead of a network error, a missing gateway intent is reported as such, and button replies no longer vanish when their token contains a colon.
+- **Output could be lost when the app quit** or when writing it to disk failed once. Pending output is saved before quitting, a failed write is retried without gaps or duplicates, a stuck write cannot hold up shutdown, and freeing idle memory keeps lines that are not on disk yet.
+- **Saving the app's state is sturdier.** A failed save is retried on the next autosave without waiting for another change, undoing after a partly failed save restores the original, deleted bubbles no longer come back from a backup, old per-agent settings no longer survive a restore, and recovery keeps the conversation history.
+- **Closing a Codex or local-model tab mid-turn left the turn running.** It is now stopped and recorded as stopped by you. Closing any tab also drops its queued commands, ends its loops and cancels its orchestra runs.
+- **Requests aimed at the wrong session are refused** — stopping, closing, restoring or reordering a session that belongs to another bubble or project — and reordering with a duplicated entry no longer makes other tabs disappear.
+- **A review card could be decided twice.** Only the first decision counts, a closed review stays closed after a restart, and requested rework goes back to the review's own session.
+- **A bubble with several tabs could turn "done" — and chime — after a Stop in one tab while the others were still running.** Its state now comes from all of its tabs.
+- **A finished Codex turn could leave the Codex CLI running.** It is now closed within five seconds; the turn still counts as successful and can be resumed.
+- **Getting Codex's hooks ready could hang.** It now has a time limit and can be cancelled.
+- **Stop on a local model** now also cancels a compaction in progress without losing anything, nothing more is shown afterwards, and an approval given after Stop no longer runs the tool.
+- **Leftovers from a session's previous process could fail the new one** or change its session ID. They are now ignored.
+- **Model agents started inside background tasks were listed as "Shell (no tokens)".** They are listed as agents now.
+- **The conductor's instructions listed a result format that does not exist** ("full"). They now list only the formats a connection actually accepts.
+
+### Removed
+- **The usage-limit banner at the top of the IDE windows menu.** Sessions stopped by the usage limit keep their orange dot, are still listed first with their reset time, and are acknowledged one by one with a click.
+- **The "Waiting for the next update" band** that appeared after three minutes of silence. The conversation line still switches to "no response" after three minutes, and the Stop button beside the input is where it was.
+- **The elapsed-time clock next to "Running" in the status bar.**
+
 ## [0.2.0] - 2026-09-21
 
 ### Added
@@ -611,7 +665,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Vibisual/vibisual/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.2.0
 [0.1.25]: https://github.com/Vibisual/vibisual/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/Vibisual/vibisual/compare/v0.1.23...v0.1.24

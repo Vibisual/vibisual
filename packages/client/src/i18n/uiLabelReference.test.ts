@@ -178,6 +178,15 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     slots: { options: 'panel.options.title' },
     forbidden: ['Options'],
   },
+  {
+    // §5.3 #10-4 — 오케스트라의 "멤버가 태어날 때 받는 도구" 선택지. 이름은 에이전트 설정창의
+    // 도구 템플릿 이름을 그대로 받아 적는다(같은 것을 두 이름으로 부르면 사용자가 못 잇는다).
+    // 슬롯 대상은 템플릿마다 달라지므로 대표로 `review` 하나를 건다 — 이름 묶음이 한 자리에
+    // 있어서, 그 하나가 로케일에 있으면 나머지도 같이 있다.
+    key: 'ide.orchestra.member.toolsOption',
+    slots: { name: 'panel.agentConfig.toolTemplate.review.name' },
+    forbidden: ['Read-only', 'Review & verify', 'Web research', 'Docs writing', 'Implementation', 'Orchestrator'],
+  },
 ];
 
 describe('화면 라벨을 가리키는 문장 — 이름은 박지 않고 받아 적는다', () => {

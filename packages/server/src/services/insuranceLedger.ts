@@ -125,9 +125,9 @@ export class InsuranceLedgerService {
     /*
      * ⚠ 기록을 못 보면 마커를 세우지 않는다.
      *
-     * 마커의 값은 **바이트 오프셋**에 있다 — (D) 대조는 "이 오프셋 뒤에 붙은 것이 요약"이라는
-     * 전제 위에 서 있다. 기록이 없다고 `0` 을 적어 두면, 그 파일이 나중에 나타나는 순간 대조가
-     * 트랜스크립트 **전체**를 요약으로 착각해 "다 실렸다"는 거짓 결과를 만든다.
+     * 마커의 값은 **바이트 오프셋**에 있다 — (D) 스캔이 이 자리에서 출발해 경계와 요약 레코드를
+     * 찾는다. 기록이 없다고 `0` 을 적어 두면, 그 파일이 나중에 나타나는 순간 스캔이 압축 **이전**
+     * 대화까지 훑어 옛 경계와 남의 요약을 이 마커의 것으로 적는다.
      * 압축이 있었다는 사실 자체는 §4 의 `compactCounts` 가 따로 세므로 여기서 잃는 것이 없다.
      */
     if (bytes === null) return null;
@@ -197,11 +197,31 @@ export class InsuranceLedgerService {
   }
 
   /**
-   * 결과를 **덮어쓴다.** (G) 되살리기 측정 전용이다.
+   * §5.26 (D) — **실패로 적혔지만 증거가 늦게 올 수 있는** 마커들. 스윕이 한 번 더 되짚는다.
    *
-   * `attachOutcome` 은 이미 붙은 결과를 지키지만(대조는 한 번뿐이다), 되살리기 측정은 그보다
-   * **나중에 일어난 더 강한 사실**이다 — "이 세션은 지금 그 문맥을 갖고 있지 않다"를 방금 쟀다.
-   * 그래서 이 한 자리에서만 덮어쓸 수 있게 열어 둔다.
+   * 요약은 마커보다 한참 뒤에 내려앉는다(이 프로젝트 실측: +2분 · +9분 · +28분). 판정 시한이
+   * 3분이던 동안 적힌 실패는 그래서 대부분 오탐이었고, 그 줄을 그대로 두면 화면의 건수가
+   * 영영 거짓말을 한다. `transcript-gone` 은 뺀다 — 사라진 파일에 요약이 붙는 일은 없다.
+   */
+  recheckableOutcomes(): CompactMarker[] {
+    const out: CompactMarker[] = [];
+    for (const state of this.ledgers.values()) {
+      for (const m of state.markers) {
+        const o = m.outcome;
+        if (!o) continue;
+        if (o.failed === 'no-summary' || o.summaryUnreadable === true) out.push(m);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 결과를 **덮어쓴다.** 나중에 알게 된 **더 강한 사실**만 이 문을 쓴다.
+   *
+   * `attachOutcome` 은 이미 붙은 결과를 지킨다 — 대조는 한 번뿐이다. 두 자리만 예외다.
+   *   · (G) 되살리기 측정 — "이 세션은 지금 그 문맥을 갖고 있지 않다"를 방금 쟀다.
+   *   · (D) 되짚기 — 실패로 적은 뒤에 요약 레코드가 파일에 붙었다(`recheckableOutcomes`).
+   * 둘 다 **뒤에 일어난 관측**이라 앞의 추정을 이긴다.
    */
   replaceOutcome(projectName: string, markerId: string, outcome: CompactOutcome): boolean {
     const marker = this.ledgers.get(projectName)?.markerById.get(markerId);

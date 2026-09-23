@@ -235,8 +235,15 @@ export interface StreamError {
 export interface StreamThinkingLive {
   kind: 'thinking-live';
   id: string;
-  /** `thinking` = 사고 중, `working` = 도구·본문 등 그 외 작업 중. 라벨·색만 가른다(항목은 그대로). */
-  mode: 'thinking' | 'working';
+  /**
+   * `thinking` = 사고 중, `working` = 도구·본문 등 그 외 작업 중, `waiting` = **줄만 서 있고
+   * 아무것도 안 돈다**(§5.5 #17-18 ⑪). 라벨·색만 가른다(항목은 그대로 — 생멸 ❌).
+   *
+   * `waiting` 이 없던 것이 사용자 보고의 절반이었다 — 앞 턴이 자물쇠를 쥔 채 사라지면 뒤에 선
+   * 덧말은 `queued` 로 멈추는데, 이 줄은 그것도 "작업 중"이라 적고 경과만 키웠다("작업 중 ·
+   * 마지막 업데이트 24m 26s 전"). 도는 것과 줄 선 것이 **같은 낱말**을 쓰면 화면이 거짓말을 한다.
+   */
+  mode: 'thinking' | 'working' | 'waiting';
   timestamp: number;
   /**
    * §2.4 (무응답) — **마지막으로 무언가 온 시각.** 이 줄이 "얼마나 됐는지"를 말하려면 시작점이
@@ -386,6 +393,8 @@ export interface BaseItemsResult {
   items: StreamItemFull[];
   agentBusy: boolean;
   thinkingLive: StreamThinkingLive | null;
+  /** 턴 도장으로 보정한 표시 순서. 실제 시각·소요 시간은 각 항목의 timestamp/endedAt에 남긴다. */
+  sortTimestamps?: ReadonlyMap<string, number>;
 }
 
 // ─── 공통 헬퍼(전체·증분이 공유) ───
@@ -465,6 +474,28 @@ export function dispatchedTurnAnchorsAsc(commands: readonly QueuedCommand[] | un
     out.push({ ts: commandAnchorTs(c), id: c.id });
   }
   return out.sort((a, b) => a.ts - b.ts);
+}
+
+interface TurnSortBounds { start: number; tail: number }
+
+/** 늦은 출력도 다음 명령과 중지 표시를 넘지 않도록, 이미 나간 턴의 표시 구간을 만든다. */
+function turnSortBounds(anchors: readonly TurnAnchor[]): Map<string, TurnSortBounds> {
+  const times = anchors.map((anchor) => anchor.ts);
+  return new Map(anchors.map((anchor) => [anchor.id, {
+    start: anchor.ts, tail: turnTailSortTs(anchor.ts, times),
+  }]));
+}
+
+/** 버퍼의 삽입 순서는 마지막 시간순 정렬에서 사라진다. 도장이 있는 줄은 별도 정렬키로 제 턴에 남긴다. */
+function recordEventSortTimestamp(
+  keys: Map<string, number>, evt: SubAgentStreamEvent, bounds: ReadonlyMap<string, TurnSortBounds>,
+): void {
+  const turn = evt.turnId ? bounds.get(evt.turnId) : undefined;
+  if (!turn) return;
+  const timestamp = Math.max(turn.start, Math.min(evt.timestamp, turn.tail));
+  if (timestamp === evt.timestamp) return;
+  keys.set(evt.id, timestamp);
+  if (evt.eventType === 'thinking') keys.set(`step-${evt.id}`, timestamp);
 }
 
 /**
@@ -590,6 +621,20 @@ function computeAgentBusy(commands: readonly QueuedCommand[] | undefined, overri
 }
 
 /**
+ * **줄만 서 있는가** — 낼 일은 있는데 도는 것이 없다(§5.5 #17-18 ⑪ · 공유 술어 `isSessionWaiting`).
+ *
+ * `computeAgentBusy` 와 같은 규약이다: `override` 가 오면 그것이 답이고(호출부가 원본 큐 + 세션
+ * 필터 위에서 냈다), 없을 때만 목록으로 추정한다. 추정 경로는 표시용 사본을 보므로 뒤에 선 대기
+ * 건이 `executing` 으로 승격돼 있을 수 있다 — 그 경우 `waiting` 이 안 켜지는 쪽으로 틀리는데,
+ * 이는 **안전한 방향**이다(없는 대기를 지어내지 않는다).
+ */
+function computeAgentWaiting(commands: readonly QueuedCommand[] | undefined, override?: boolean): boolean {
+  if (override !== undefined) return override;
+  if (!commands) return false;
+  return !commands.some((c) => c.status === 'executing') && commands.some((c) => c.status === 'queued');
+}
+
+/**
  * §5.5 #17-39 — 봉인된 사고 런 → 자국 항목. 문턱(`shouldTraceThinking`)을 못 넘으면 `null` —
  * 순간 사고마다 한 줄을 내주면 그 줄이 곧 소음이 된다.
  *
@@ -610,10 +655,12 @@ function thinkRunToStep(run: ThinkRun): StreamStep | null {
 }
 
 /** 사고 이벤트 하나를 열린 런에 보탠다(없으면 연다). **원문은 담지 않고 길이만 센다.** */
-function extendThinkRun(open: ThinkRun | null, evt: SubAgentStreamEvent): ThinkRun {
+type TurnThinkRun = ThinkRun & { turnId: string | null };
+
+function extendThinkRun(open: TurnThinkRun | null, evt: SubAgentStreamEvent, turnId: string | null): TurnThinkRun {
   if (!open) {
     return {
-      firstId: evt.id, startedAt: evt.timestamp, endedAt: evt.timestamp, chars: evt.content.length,
+      firstId: evt.id, startedAt: evt.timestamp, endedAt: evt.timestamp, chars: evt.content.length, turnId,
       ...(evt.nestedUnderToolUseId ? { nested: evt.nestedUnderToolUseId } : {}),
     };
   }
@@ -623,8 +670,8 @@ function extendThinkRun(open: ThinkRun | null, evt: SubAgentStreamEvent): ThinkR
 }
 
 /** §4 (스트림 3종 ①) — 이 사고가 열린 런과 **주인이 다른가**(부모 ↔ 중첩 Task). 다르면 런을 끊는다. */
-function thinkOwnerChanged(open: ThinkRun | null, evt: SubAgentStreamEvent): boolean {
-  return !!open && open.nested !== evt.nestedUnderToolUseId;
+function thinkOwnerChanged(open: TurnThinkRun | null, evt: SubAgentStreamEvent, turnId: string | null): boolean {
+  return !!open && (open.nested !== evt.nestedUnderToolUseId || open.turnId !== turnId);
 }
 
 /**
@@ -635,10 +682,17 @@ function thinkOwnerChanged(open: ThinkRun | null, evt: SubAgentStreamEvent): boo
  * 하나이고, 마지막 이벤트 종류는 **라벨(mode)** 만 고른다 — 항목 id 가 고정이라 라벨만 바뀌고 항목은
  * 생멸하지 않는다(가상 리스트 remount ❌).
  */
-function computeThinkingLive(events: SubAgentStreamEvent[], agentBusy: boolean): StreamThinkingLive | null {
+function computeThinkingLive(
+  events: SubAgentStreamEvent[],
+  agentBusy: boolean,
+  agentWaiting = false,
+): StreamThinkingLive | null {
   if (!agentBusy) return null;
   const lastRaw = events[events.length - 1];
-  const mode = lastRaw && isThinkingActivity(lastRaw) ? 'thinking' : 'working';
+  // §5.5 #17-18 ⑪ — **줄 선 것이 먼저다.** 도는 것이 없으면 마지막 이벤트가 무엇이었든 그것은
+  //   앞 턴의 잔상이지 지금 하는 일이 아니다. 여기서 `working` 으로 접으면 아무 일도 안 일어나는
+  //   화면이 파랗게 뛰며 경과만 키운다(사용자가 본 그 줄이다).
+  const mode = agentWaiting ? 'waiting' : lastRaw && isThinkingActivity(lastRaw) ? 'thinking' : 'working';
   // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
   // §2.4 (무응답) — 경과를 재는 시계는 **마지막 이벤트 시각**이다. 한 건도 없으면 `null`(모름).
   return {
@@ -659,10 +713,16 @@ export function buildBaseItems(
   commands?: readonly QueuedCommand[],
   /** §2.4 — 호출부가 공유 술어로 낸 생존 판정. 주면 이것이 답이다(`computeAgentBusy` 주석 참조). */
   agentBusyOverride?: boolean,
+  /** §5.5 #17-18 ⑪ — 같은 규약의 "줄만 서 있는가"(`isSessionWaiting`). */
+  agentWaitingOverride?: boolean,
 ): BaseItemsResult {
   // §5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 **그 턴의 말이 버퍼에 남아 있는지**로 턴마다 갈린다.
-  const items: StreamItemFull[] = buildCommandItems(commands, turnCoverageOf(events, dispatchedTurnAnchorsAsc(commands)));
+  const turnAnchors = dispatchedTurnAnchorsAsc(commands);
+  const sortBounds = turnSortBounds(turnAnchors);
+  const sortTimestamps = new Map<string, number>();
+  const items: StreamItemFull[] = buildCommandItems(commands, turnCoverageOf(events, turnAnchors));
   const agentBusy = computeAgentBusy(commands, agentBusyOverride);
+  const agentWaiting = computeAgentWaiting(commands, agentWaitingOverride);
 
   // 1차 패스: tool_use ↔ tool_result FIFO 페어링 (서버가 tool_use_id를 노출하지 않으므로 발생 순서 기반)
   const resultByToolIdx = new Map<number, number>();
@@ -695,9 +755,9 @@ export function buildBaseItems(
     return false;
   }
 
-  let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number; nested?: string } | null = null;
+  let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number; nested?: string; turnId: string | null } | null = null;
   // §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다.
-  let thinkBuf: ThinkRun | null = null;
+  let thinkBuf: TurnThinkRun | null = null;
 
   function flushText(): void {
     if (!textBuf) return;
@@ -723,6 +783,8 @@ export function buildBaseItems(
   let i = 0;
   while (i < events.length) {
     const evt = events[i]!;
+    recordEventSortTimestamp(sortTimestamps, evt, sortBounds);
+    const turnId = turnOfEvent(evt, turnAnchors);
 
     if (isThinkingPulse(evt)) { i++; continue; }
     if (isHiddenSystem(evt)) { i++; continue; }
@@ -733,8 +795,8 @@ export function buildBaseItems(
     if (evt.eventType === 'thinking') {
       flushText();
       // 주인이 바뀌면 런을 끊는다 — 부모와 자식의 사고를 한 덩어리로 재면 아무도 안 쓴 시간이 적힌다.
-      if (thinkOwnerChanged(thinkBuf, evt)) flushThink();
-      thinkBuf = extendThinkRun(thinkBuf, evt);
+      if (thinkOwnerChanged(thinkBuf, evt, turnId)) flushThink();
+      thinkBuf = extendThinkRun(thinkBuf, evt, turnId);
       i++;
       continue;
     }
@@ -760,11 +822,12 @@ export function buildBaseItems(
 
     if (evt.eventType === 'text') {
       if (textBuf && crossesCommand(textBuf.lastTs, evt.timestamp)) flushText();
+      if (textBuf && textBuf.turnId !== turnId) flushText();
       // §4 (스트림 3종 ①) — **주인이 바뀌면 말풍선을 끊는다.** 중첩 서브에이전트의 말과 부모의 말이
       //   한 덩어리로 붙으면 누가 한 말인지 사라진다(전달을 켜는 순간 대화록이 섞이는 자리).
       if (textBuf && textBuf.nested !== evt.nestedUnderToolUseId) flushText();
       if (!textBuf) {
-        textBuf = { ids: [evt.id], chunks: [evt.content], ts: evt.timestamp, lastTs: evt.timestamp, nested: evt.nestedUnderToolUseId };
+        textBuf = { ids: [evt.id], chunks: [evt.content], ts: evt.timestamp, lastTs: evt.timestamp, nested: evt.nestedUnderToolUseId, turnId };
       } else { textBuf.ids.push(evt.id); textBuf.chunks.push(evt.content); textBuf.lastTs = evt.timestamp; }
       i++;
       continue;
@@ -817,8 +880,8 @@ export function buildBaseItems(
 
   flushText();
 
-  const thinkingLive = computeThinkingLive(events, agentBusy);
-  return { items, agentBusy, thinkingLive };
+  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting);
+  return { items, agentBusy, thinkingLive, sortTimestamps };
 }
 
 // ─── 2단계: 카드 합류 + 정렬 (증분과 무관 — base 위에서만 동작) ───
@@ -969,7 +1032,12 @@ export function mergeCardsIntoItems(
   for (const ls of lists ?? []) items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: ls.createdAt, live: isLive(ls.createdAt) });
   for (const req of askRequests ?? []) items.push({ kind: 'ask', id: `ask-${req.requestId}`, request: req, timestamp: pendingAskSortTs(req.createdAt) });
 
-  items.sort((a, b) => a.timestamp - b.timestamp);
+  // 경계로 옮겨 온 출력은 command 뒤·turnstop 앞에 둔다. 같은 구간의 늦은 줄끼리는 실제 시각순이다.
+  const boundaryRank = (item: StreamItemFull): number => item.kind === 'command' ? -1 : item.kind === 'turnstop' ? 1 : 0;
+  items.sort((a, b) =>
+    (base.sortTimestamps?.get(a.id) ?? a.timestamp) - (base.sortTimestamps?.get(b.id) ?? b.timestamp)
+    || boundaryRank(a) - boundaryRank(b)
+    || a.timestamp - b.timestamp);
 
   // §5.5 #17-18 ⑦-5 — 카드 바로 뒤에 붙는 "~카드로 보냈습니다" 한 줄은 화면에서 뺀다(카드가 이미 하는 말).
   //   정렬 **뒤**에 걷는 이유: "바로 앞이 카드"라는 자리 조건은 시간순으로 놓인 뒤에야 성립한다.
@@ -1087,6 +1155,7 @@ interface OpenBuf {
   chunks: string[];
   /** §4 (스트림 3종 ①) — 이 런의 주인(중첩 Task 호출 id). 값이 바뀌면 런을 끊는다. */
   nested?: string;
+  turnId: string | null;
 }
 
 /**
@@ -1109,12 +1178,14 @@ export class IncrementalStreamParser {
   private sortedCmdTs: number[] = [];
   /** §5.5 #17-12 ③-3 — 턴 귀속용 경계(시각·id). `sortedCmdTs` 와 같은 명령에서, 리셋 때만 갱신. */
   private turnAnchors: TurnAnchor[] = [];
+  private sortBounds = new Map<string, TurnSortBounds>();
+  private sortTimestamps = new Map<string, number>();
   /** §5.5 #17-12 ③-3 — 소비한 이벤트로 쌓인 턴 커버리지(O(신규) 로 자란다). */
   private coverage: TurnCoverage = emptyTurnCoverage();
 
   private openText: OpenBuf | null = null;
   /** §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다. */
-  private openThink: ThinkRun | null = null;
+  private openThink: TurnThinkRun | null = null;
   /** 짝 없는 tool_use 아이템의 items 인덱스(FIFO). */
   private pending: number[] = [];
 
@@ -1134,6 +1205,7 @@ export class IncrementalStreamParser {
     this.openThink = null;
     this.pending = [];
     this.coverage = emptyTurnCoverage();
+    this.sortTimestamps = new Map();
   }
 
   private crossesCommand(prevTs: number, nextTs: number): boolean {
@@ -1169,7 +1241,9 @@ export class IncrementalStreamParser {
   private processOne(evt: SubAgentStreamEvent): void {
     // §5.5 #17-12 ③-3 — 숨김 판정보다 먼저, 모든 줄을 커버리지에 보탠다(전체 재구축 `turnCoverageOf` 와 같은 범위).
     coverTurn(this.coverage, evt, this.turnAnchors);
+    recordEventSortTimestamp(this.sortTimestamps, evt, this.sortBounds);
     if (isThinkingPulse(evt) || isHiddenSystem(evt)) return;
+    const turnId = turnOfEvent(evt, this.turnAnchors);
 
     const type = evt.eventType;
     const isNonTool = type !== 'tool_use' && type !== 'tool_result';
@@ -1181,8 +1255,8 @@ export class IncrementalStreamParser {
     if (type === 'thinking') {
       this.sealText();
       // 주인이 바뀌면 런을 끊는다(buildBaseItems 와 같은 규약 — 등가성 테스트가 이 대칭을 못박는다).
-      if (thinkOwnerChanged(this.openThink, evt)) this.sealThink();
-      this.openThink = extendThinkRun(this.openThink, evt);
+      if (thinkOwnerChanged(this.openThink, evt, turnId)) this.sealThink();
+      this.openThink = extendThinkRun(this.openThink, evt, turnId);
       return;
     }
 
@@ -1204,6 +1278,7 @@ export class IncrementalStreamParser {
 
     if (type === 'text') {
       if (this.openText && this.crossesCommand(this.openText.lastTs, evt.timestamp)) this.sealText();
+      if (this.openText && this.openText.turnId !== turnId) this.sealText();
       // §4 (스트림 3종 ①) — 주인이 바뀌면 말풍선을 끊는다(buildBaseItems 와 같은 규약 —
       //   등가성 테스트가 이 대칭을 못박으므로 한쪽만 고치면 즉시 걸린다).
       if (this.openText && this.openText.nested !== evt.nestedUnderToolUseId) this.sealText();
@@ -1211,7 +1286,7 @@ export class IncrementalStreamParser {
       if (!this.openText) {
         const idx = this.items.length;
         this.items.push({ kind: 'text', id: evt.id, content: evt.content, timestamp: evt.timestamp, endedAt: evt.timestamp, ...nest });
-        this.openText = { idx, firstId: evt.id, firstTs: evt.timestamp, lastTs: evt.timestamp, chunks: [evt.content], nested: evt.nestedUnderToolUseId };
+        this.openText = { idx, firstId: evt.id, firstTs: evt.timestamp, lastTs: evt.timestamp, chunks: [evt.content], nested: evt.nestedUnderToolUseId, turnId };
       } else {
         const b = this.openText;
         b.chunks.push(evt.content);
@@ -1268,8 +1343,11 @@ export class IncrementalStreamParser {
     commands?: readonly QueuedCommand[],
     /** §2.4 — 호출부가 공유 술어로 낸 생존 판정(`buildBaseItems` 와 같은 뜻·같은 자리). */
     agentBusyOverride?: boolean,
+    /** §5.5 #17-18 ⑪ — "줄만 서 있는가"(`buildBaseItems` 와 같은 뜻·같은 자리). */
+    agentWaitingOverride?: boolean,
   ): BaseItemsResult {
     const agentBusy = computeAgentBusy(commands, agentBusyOverride);
+    const agentWaiting = computeAgentWaiting(commands, agentWaitingOverride);
     const cmdKey = cmdTsKey(commands, agentBusy);
 
     if (!this.canAppend(events, cmdKey)) {
@@ -1279,6 +1357,7 @@ export class IncrementalStreamParser {
       this.agentBusy = agentBusy;
       this.sortedCmdTs = dispatchedAnchorsAsc(commands);
       this.turnAnchors = dispatchedTurnAnchorsAsc(commands);
+      this.sortBounds = turnSortBounds(this.turnAnchors);
     }
     // (canAppend 이면 cmdKey/agentBusy/sortedCmdTs 는 이미 이전과 동일 — 그대로 둔다)
 
@@ -1289,7 +1368,7 @@ export class IncrementalStreamParser {
     // §5.5 #17-12 ③-3 — 커버리지는 소비하며 쌓였으므로 여기서 다시 훑지 않는다(O(명령 수)).
     const commandItems = buildCommandItems(commands, this.coverage);
     const items: StreamItemFull[] = commandItems.length > 0 ? [...commandItems, ...this.items] : this.items.slice();
-    const thinkingLive = computeThinkingLive(events, agentBusy);
-    return { items, agentBusy, thinkingLive };
+    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting);
+    return { items, agentBusy, thinkingLive, sortTimestamps: this.sortTimestamps };
   }
 }

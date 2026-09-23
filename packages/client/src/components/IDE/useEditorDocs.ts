@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceEol, WorkspaceFileContent, WorkspaceFileSaveResult } from '@vibisual/shared';
 import { isDirty } from './editorModel.js';
 
@@ -18,6 +18,7 @@ export interface EditorDoc {
   draft: string;
   /** 읽을 때 본 수정 시각 — 저장할 때 되돌려 보내 그 사이 변경을 판정 */
   mtimeMs: number;
+  revision?: string;
   eol: WorkspaceEol;
   size: number;
   truncated: boolean;
@@ -90,7 +91,7 @@ async function fetchFile(root: string, relPath: string): Promise<WorkspaceFileCo
 }
 
 async function putFile(
-  body: { root: string; path: string; text: string; eol: WorkspaceEol; baseMtimeMs: number; clearReadOnly?: boolean },
+  body: { root: string; path: string; text: string; eol: WorkspaceEol; baseMtimeMs: number; baseRevision?: string; clearReadOnly?: boolean },
 ): Promise<{ ok: true; result: WorkspaceFileSaveResult } | { ok: false; status: number }> {
   try {
     const res = await fetch('/api/workspace-file', {
@@ -117,31 +118,42 @@ function saveErrorKey(status: number): string {
 
 /** 루트가 바뀌면(프로젝트 전환) 열어 둔 문서를 통째로 버린다 — 같은 상대 경로가 다른 파일이 된다. */
 export function useEditorDocs(rootPath: string | null): EditorDocsApi {
-  const [docs, setDocs] = useState<Record<string, EditorDoc>>({});
-  /** 늦게 도착한 응답이 새 루트/재읽기 결과를 덮지 않게 하는 세대 번호. */
-  const generationRef = useRef(0);
-
+  // 프로젝트를 떠났다 돌아와도 이전 요청을 되살리지 않는다. 파일마다 재읽기/닫기 소유권도 둔다.
+  const scope = useMemo(() => ({ requests: new Map<string, symbol>(), saves: new Set<symbol>() }), [rootPath]);
+  const activeScope = useRef<typeof scope | null>(scope);
+  activeScope.current = scope;
+  const [state, setState] = useState({ scope, docs: {} as Record<string, EditorDoc> });
+  const docs = state.scope === scope ? state.docs : {};
+  const setDocs = useCallback((update: (prev: Record<string, EditorDoc>) => Record<string, EditorDoc>): void => {
+    setState((prev) => {
+      if (activeScope.current !== scope) return prev;
+      const current = prev.scope === scope ? prev.docs : {};
+      const next = update(current);
+      return next === current && prev.scope === scope ? prev : { scope, docs: next };
+    });
+  }, [scope]);
   useEffect(() => {
-    generationRef.current += 1;
-    setDocs({});
-  }, [rootPath]);
+    activeScope.current = scope;
+    return () => { if (activeScope.current === scope) activeScope.current = null; };
+  }, [scope]);
 
-  const patch = useCallback((relPath: string, next: Partial<EditorDoc>): void => {
+  const patch = useCallback((relPath: string, next: Partial<EditorDoc>, request?: symbol): void => {
     setDocs((prev) => {
       const cur = prev[relPath];
-      if (!cur) return prev;
+      if (!cur || (request && scope.requests.get(relPath) !== request)) return prev;
       return { ...prev, [relPath]: { ...cur, ...next } };
     });
-  }, []);
+  }, [setDocs, scope]);
 
   const load = useCallback((relPath: string): void => {
-    if (!rootPath) return;
-    const generation = generationRef.current;
+    if (!rootPath || activeScope.current !== scope) return;
+    const request = Symbol(relPath);
+    scope.requests.set(relPath, request);
     setDocs((prev) => ({ ...prev, [relPath]: { ...EMPTY_DOC, ...prev[relPath], status: 'loading' } }));
     void fetchFile(rootPath, relPath).then((file) => {
-      if (generationRef.current !== generation) return;
+      if (activeScope.current !== scope || scope.requests.get(relPath) !== request) return;
       setDocs((prev) => {
-        if (!prev[relPath]) return prev;
+        if (!prev[relPath] || scope.requests.get(relPath) !== request) return prev;
         if (!file) return { ...prev, [relPath]: { ...EMPTY_DOC, ...prev[relPath], status: 'error' } };
         return {
           ...prev,
@@ -151,6 +163,7 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
             diskText: file.text,
             draft: file.text,
             mtimeMs: file.mtimeMs,
+            revision: file.revision,
             eol: file.eol,
             size: file.size,
             truncated: file.truncated,
@@ -161,7 +174,7 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
         };
       });
     });
-  }, [rootPath]);
+  }, [rootPath, scope, setDocs]);
 
   const ensureLoaded = useCallback((relPath: string): void => {
     setDocs((prev) => {
@@ -169,25 +182,18 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
       // 자리를 먼저 잡아 두 번 요청하지 않게 한다(같은 탭을 연달아 눌러도 요청은 하나).
       return { ...prev, [relPath]: { ...EMPTY_DOC, status: 'loading' } };
     });
-  }, []);
+  }, [setDocs]);
 
   // 자리만 잡힌(아직 본문 없는) 문서를 실제로 읽어 온다 — 요청 발사는 렌더 밖에서.
-  const requestedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [relPath, doc] of Object.entries(docs)) {
-      if (doc.status === 'loading' && doc.mtimeMs === 0 && !requestedRef.current.has(relPath)) {
-        requestedRef.current.add(relPath);
+      if (doc.status === 'loading' && !scope.requests.has(relPath)) {
         load(relPath);
       }
     }
-  }, [docs, load]);
-
-  useEffect(() => {
-    requestedRef.current = new Set();
-  }, [rootPath]);
+  }, [docs, load, scope]);
 
   const reload = useCallback((relPath: string): void => {
-    requestedRef.current.delete(relPath);
     load(relPath);
   }, [load]);
 
@@ -196,16 +202,18 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
   }, [patch]);
 
   const save = useCallback((relPath: string, opts?: { force?: boolean; clearReadOnly?: boolean }): void => {
-    if (!rootPath) return;
+    if (!rootPath || activeScope.current !== scope) return;
     const force = opts?.force === true;
     const clearReadOnly = opts?.clearReadOnly === true;
     const doc = docs[relPath];
+    const request = scope.requests.get(relPath);
+    if (!request || scope.saves.has(request)) return;
     if (!doc || doc.status !== 'ready' || doc.saving) return;
     if (doc.truncated || doc.binary) return;
     // ⑫ 잠금 해제는 고친 것이 없어도 보낸다 — 푸는 것 자체가 사용자가 누른 일이다.
     if (!force && !clearReadOnly && !isDirty(doc.diskText, doc.draft)) return;
 
-    const generation = generationRef.current;
+    scope.saves.add(request);
     patch(relPath, { saving: true, saveError: null });
     void putFile({
       root: rootPath,
@@ -213,9 +221,11 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
       text: doc.draft,
       eol: doc.eol,
       baseMtimeMs: force ? 0 : doc.mtimeMs,
+      ...(!force && doc.revision ? { baseRevision: doc.revision } : {}),
       ...(clearReadOnly ? { clearReadOnly: true } : {}),
     }).then((out) => {
-      if (generationRef.current !== generation) return;
+      scope.saves.delete(request);
+      if (activeScope.current !== scope || scope.requests.get(relPath) !== request) return;
       if (out.ok) {
         patch(relPath, {
           saving: false,
@@ -223,10 +233,11 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
           saveError: null,
           diskText: doc.draft,
           mtimeMs: out.result.mtimeMs,
+          revision: out.result.revision,
           size: out.result.size,
           readOnly: out.result.readOnly,
           savedAt: Date.now(),
-        });
+        }, request);
         return;
       }
       patch(relPath, {
@@ -235,19 +246,19 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
         saveError: out.status === 409 ? null : saveErrorKey(out.status),
         // 읽을 때 못 잰 잠금(ACL 등)은 여기서 드러난다 — 그 사실을 문서에 남겨 띠가 서게 한다.
         ...(out.status === 423 ? { readOnly: true } : {}),
-      });
+      }, request);
     });
-  }, [rootPath, docs, patch]);
+  }, [rootPath, docs, patch, scope]);
 
   const drop = useCallback((relPath: string): void => {
-    requestedRef.current.delete(relPath);
+    scope.requests.delete(relPath);
     setDocs((prev) => {
       if (!prev[relPath]) return prev;
       const next = { ...prev };
       delete next[relPath];
       return next;
     });
-  }, []);
+  }, [scope, setDocs]);
 
   return { docs, ensureLoaded, reload, setDraft, save, drop };
 }

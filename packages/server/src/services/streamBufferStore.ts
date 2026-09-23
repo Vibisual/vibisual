@@ -54,7 +54,7 @@ function ensureDir(dir: string): void {
 const FLUSH_INTERVAL_MS = 250;
 const FLUSH_MAX_LINES = 100;
 /** filePath → 아직 디스크에 안 쓴 직렬화 줄들(도착 순서). */
-const pending = new Map<string, string[]>();
+const pending = new Map<string, { lines: string[]; rollbackOffset?: number }>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleFlush(): void {
@@ -66,12 +66,13 @@ function scheduleFlush(): void {
 
 /** 단일 파일의 pending 을 디스크에 기록하고 큐에서 제거. */
 function flushFile(fp: string): void {
-  const arr = pending.get(fp);
-  pending.delete(fp);
-  if (!arr || arr.length === 0) return;
+  const batch = pending.get(fp);
+  const arr = batch?.lines;
+  if (!batch || !arr || arr.length === 0) return;
   // v3.71: 죽은 워크트리(`.git` 없음)에는 기록하지 않는다 — ensureDir 이 폴더를 새로 만들어
   // 사용자가 지운 워크트리 디렉토리를 되살리는 경로였다(writeCheckpoint 가드와 같은 판정).
   if (isUnderDeadWorktree(fp)) {
+    pending.delete(fp);
     if (shouldReportDeadWorktree(`stream:${path.dirname(fp)}`)) {
       logger.warn(`streamBufferStore: dropping ${arr.length} event(s) — target is a dead worktree: ${fp}`);
     }
@@ -79,7 +80,17 @@ function flushFile(fp: string): void {
   }
   try {
     ensureDir(path.dirname(fp));
+    // appendFileSync can write a prefix before throwing. This file has one writer;
+    // roll that attempt back before replaying the retained batch, including when
+    // truncation itself failed on the previous retry.
+    if (batch.rollbackOffset !== undefined && fs.existsSync(fp)) {
+      fs.truncateSync(fp, batch.rollbackOffset);
+    }
+    batch.rollbackOffset = fs.existsSync(fp) ? fs.statSync(fp).size : 0;
     fs.appendFileSync(fp, arr.join('\n') + '\n', 'utf8');
+    // A temporary write failure must leave the batch available for the next
+    // append, read, or shutdown flush. Explicit deletion still clears pending.
+    pending.delete(fp);
     compactIfNeeded(fp);
   } catch (err) {
     logger.warn(`streamBufferStore flush failed (${path.basename(fp)}): ${err instanceof Error ? err.message : String(err)}`);
@@ -201,8 +212,9 @@ process.once('exit', () => { try { flushAll(); } catch { /* best effort */ } });
 
 export function appendEvent(dir: string, event: SubAgentStreamEvent): void {
   const fp = subFile(dir, event.subAgentId);
-  let arr = pending.get(fp);
-  if (!arr) { arr = []; pending.set(fp, arr); }
+  let batch = pending.get(fp);
+  if (!batch) { batch = { lines: [] }; pending.set(fp, batch); }
+  const arr = batch.lines;
   arr.push(JSON.stringify(event));
   if (arr.length >= FLUSH_MAX_LINES) flushFile(fp);
   else scheduleFlush();
@@ -251,6 +263,24 @@ export function loadBuffer(dir: string, subAgentId: string, max: number): SubAge
   // 아직 디스크에 안 쓴 pending 이 있으면 먼저 기록해 최신 이벤트 누락 방지.
   flushFile(fp);
   return readTailEvents(fp, subAgentId, max);
+}
+
+/** Whole-history search reads both files without restoring them into the live stream buffer. */
+export function prepareStreamSearch(dir: string, subAgentId: string): { files: string[]; stamp: string } {
+  const fp = subFile(dir, subAgentId);
+  flushFile(fp);
+  const files: string[] = [];
+  const stamps = [archivePathOf(fp), fp].map((file) => {
+    try {
+      const stat = fs.statSync(file);
+      files.push(file);
+      return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+  });
+  return { files, stamp: JSON.stringify(stamps) };
 }
 
 /** `loadEventsBefore` 결과 — 기준점 바로 앞의 한 쪽. */

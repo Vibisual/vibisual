@@ -34,6 +34,8 @@ import { logger } from '../logger.js';
 const MAX_QUEUED_JOBS = 64;
 /** 큐가 들고 있을 수 있는 최대 바이트(문자열 길이 합) — 넘으면 동기 폴백. */
 const MAX_QUEUED_BYTES = 64 * 1024 * 1024;
+/** 워커가 commit 중 비정상 종료해도 메인 스레드를 영구 대기시키지 않는다. */
+const COMMIT_LOCK_WAIT_MS = 1000;
 
 interface WriteJob {
   id: number;
@@ -53,7 +55,7 @@ const WORKER_SOURCE = `
 const { parentPort, workerData } = require('node:worker_threads');
 const fs = require('node:fs');
 const path = require('node:path');
-const stop = new Int32Array(workerData.stop);
+const control = new Int32Array(workerData.control);
 
 parentPort.on('message', (job) => {
   // 임시 파일 이름에 job id 를 넣는다 — 종료 시 메인이 같은 파일을 동기로 쓰더라도
@@ -67,35 +69,47 @@ parentPort.on('message', (job) => {
     } finally {
       fs.closeSync(fd);
     }
-    // 종료 flush 가 시작됐으면 rename(=커밋) 하지 않는다. 메인이 같은 내용을 동기로 마무리한다.
-    if (Atomics.load(stop, 0) === 1) {
+    // 세대 검사는 commit 잠금 안에서 한다. 메인의 flush가 끝난 뒤에도 옛 작업은
+    // 다시 커밋할 수 없다(일시적인 stop 깃발을 되돌리면 그 틈에 옛 내용이 덮였다).
+    while (Atomics.compareExchange(control, 1, 0, 1) !== 0) Atomics.wait(control, 1, 1);
+    let aborted = false;
+    try {
+      aborted = Atomics.load(control, 0) !== job.generation;
+      if (!aborted) fs.renameSync(tmp, job.filePath);
+    } finally {
+      Atomics.store(control, 1, 0);
+      Atomics.notify(control, 1);
+    }
+    if (aborted) {
       try { fs.unlinkSync(tmp); } catch (e) { /* noop */ }
-      parentPort.postMessage({ id: job.id, ok: false, aborted: true });
+      parentPort.postMessage({ id: job.id, generation: job.generation, ok: false, aborted: true });
       return;
     }
-    fs.renameSync(tmp, job.filePath);
     try {
       const dfd = fs.openSync(path.dirname(job.filePath), 'r');
       try { fs.fsyncSync(dfd); } catch (e) { /* Windows 등은 디렉토리 fsync 미지원 */ }
       finally { fs.closeSync(dfd); }
     } catch (e) { /* rename 자체는 이미 완료 */ }
-    parentPort.postMessage({ id: job.id, ok: true });
+    parentPort.postMessage({ id: job.id, generation: job.generation, ok: true });
   } catch (err) {
     try { fs.unlinkSync(tmp); } catch (e) { /* noop */ }
-    parentPort.postMessage({ id: job.id, ok: false, error: String((err && err.message) || err) });
+    parentPort.postMessage({ id: job.id, generation: job.generation, ok: false, error: String((err && err.message) || err) });
   }
 });
 `;
 
 let worker: Worker | null = null;
 let enabled = false;
-let stopFlag: Int32Array | null = null;
+/** [0] flush 세대, [1] rename/동기 flush 상호 배제 잠금. */
+let commitControl: Int32Array | null = null;
 let nextJobId = 1;
 
 /** 아직 디스크 도달이 확인되지 않은 작업들(도착 순서 유지 — Map 은 삽입 순서를 보존한다). */
 const pending = new Map<number, WriteJob>();
 let pendingBytes = 0;
 let inFlightId: number | null = null;
+/** 실패 파일은 다음 autosave/명시 flush까지 쉰다 — pump의 무한 재시도 방지. */
+const failedPaths = new Set<string>();
 
 const stats = { queued: 0, written: 0, failed: 0, syncFallback: 0, flushedSync: 0 };
 
@@ -126,19 +140,39 @@ export function writeFileAtomicSyncRaw(filePath: string, data: string, tmpSuffix
 
 /** 다음 작업 하나를 워커에 보낸다(in-flight 는 항상 1건 — 같은 파일의 순서 보장). */
 function pump(): void {
-  if (!worker || inFlightId !== null) return;
-  const next = pending.values().next();
-  if (next.done) return;
-  inFlightId = next.value.id;
-  worker.postMessage(next.value);
+  if (!enabled || !worker || inFlightId !== null) return;
+  const next = [...pending.values()].find((job) => !failedPaths.has(job.filePath));
+  if (!next) return;
+  inFlightId = next.id;
+  worker.postMessage({ ...next, generation: commitControl ? Atomics.load(commitControl, 0) : 0 });
 }
 
-function handleResult(msg: { id: number; ok: boolean; error?: string; aborted?: boolean }): void {
+function forgetJob(job: WriteJob): void {
+  if (pending.delete(job.id)) pendingBytes -= job.data.length;
+}
+
+/** 최신 판본이 기록되었으면 그보다 오래된 실패도 재생하지 않는다. */
+function acknowledgeWrite(filePath: string, throughId: number): void {
+  for (const job of pending.values()) {
+    if (job.filePath === filePath && job.id <= throughId) forgetJob(job);
+  }
+  failedPaths.delete(filePath);
+}
+
+/** queueAtomicWrite의 false 반환 뒤 호출자가 동기 저장에 성공했을 때만 호출한다. */
+export function acknowledgeSynchronousDiskWrite(filePath: string): void {
+  acknowledgeWrite(filePath, nextJobId - 1);
+}
+
+interface WriteResult { id: number; generation: number; ok: boolean; error?: string; aborted?: boolean }
+
+function handleResult(msg: WriteResult): void {
+  // flush가 맡아 처리한 옛 워커의 결과는 현재 pending/실패 상태를 바꿀 수 없다.
+  if (!commitControl || msg.generation !== Atomics.load(commitControl, 0)) return;
   const job = pending.get(msg.id);
   if (job) {
     if (msg.ok) {
-      pending.delete(msg.id);
-      pendingBytes -= job.data.length;
+      acknowledgeWrite(job.filePath, job.id);
       stats.written += 1;
     } else if (msg.aborted) {
       // 종료 flush 가 가져간다 — pending 에 그대로 둔다.
@@ -149,12 +183,16 @@ function handleResult(msg: { id: number; ok: boolean; error?: string; aborted?: 
       logger.warn(`diskWriteQueue: worker write failed for ${path.basename(job.filePath)} (${msg.error ?? 'unknown'}) — retrying synchronously`);
       try {
         writeFileAtomicSyncRaw(job.filePath, job.data, '.retry.tmp');
+        acknowledgeWrite(job.filePath, job.id);
         stats.written += 1;
       } catch (err) {
         logger.error(`diskWriteQueue: synchronous retry also failed for ${job.filePath}`, err);
+        if ([...pending.values()].some((next) => next.filePath === job.filePath && next.id > job.id)) {
+          forgetJob(job); // 뒤에 접수된 전체 스냅샷이 이 판본을 대체한다.
+        } else {
+          failedPaths.add(job.filePath);
+        }
       }
-      pending.delete(msg.id);
-      pendingBytes -= job.data.length;
     }
   }
   if (inFlightId === msg.id) inFlightId = null;
@@ -167,35 +205,40 @@ function handleResult(msg: { id: number; ok: boolean; error?: string; aborted?: 
  * 이미 켜져 있으면 no-op.
  */
 export function enableAsyncDiskWrites(): void {
-  if (enabled) return;
+  if (worker) return;
   try {
-    const stop = new SharedArrayBuffer(4);
-    stopFlag = new Int32Array(stop);
-    const w = new Worker(WORKER_SOURCE, { eval: true, workerData: { stop } });
+    const control = new SharedArrayBuffer(8);
+    commitControl = new Int32Array(control);
+    const w = new Worker(WORKER_SOURCE, { eval: true, workerData: { control } });
     w.unref(); // 워커 하나 때문에 프로세스 종료가 미뤄지지 않게(종료 flush 는 우리가 동기로 한다)
-    w.on('message', (msg: { id: number; ok: boolean; error?: string; aborted?: boolean }) => handleResult(msg));
+    w.on('message', (msg: WriteResult) => { if (worker === w) handleResult(msg); });
     w.on('error', (err) => {
-      logger.warn(`diskWriteQueue: worker error (${err.message}) — falling back to synchronous writes`);
+      if (worker !== w) return;
+      logger.warn(`diskWriteQueue: worker error (${err.message}) — waiting for exit before synchronous recovery`);
       enabled = false;
-      worker = null;
-      inFlightId = null;
-      flushPendingDiskWritesSync();
+      // error만으로는 commit이 끝났다고 판단하지 않는다. exit에서만 옛 잠금을 분리한다.
+      void w.terminate().catch((error: unknown) => {
+        logger.error('diskWriteQueue: failed to terminate broken worker', error);
+      });
     });
     w.on('exit', (code) => {
-      if (!enabled) return;
+      if (worker !== w) return;
       logger.warn(`diskWriteQueue: worker exited (code=${code}) — falling back to synchronous writes`);
       enabled = false;
       worker = null;
       inFlightId = null;
+      commitControl = null; // exit 확인 뒤에는 옛 워커가 rename할 수 없으므로 잠금 없이 회수 가능.
       flushPendingDiskWritesSync();
     });
     worker = w;
     enabled = true;
+    failedPaths.clear();
+    pump();
     logger.info('diskWriteQueue: async disk writes enabled (worker thread)');
   } catch (err) {
     enabled = false;
     worker = null;
-    stopFlag = null;
+    commitControl = null;
     logger.warn(`diskWriteQueue: failed to start worker (${err instanceof Error ? err.message : String(err)}) — synchronous writes stay in effect`);
   }
 }
@@ -209,20 +252,34 @@ export function isAsyncDiskWriteEnabled(): boolean {
  *
  * @returns `true` 면 큐가 받았다(호출자는 더 할 일이 없다). `false` 면 **호출자가 동기로 써야 한다** —
  *          워커 미가동·큐 포화·디렉토리 부재(가드가 메인에 있으므로 만들지 않는다) 등.
+ *          동기 성공 뒤 acknowledgeSynchronousDiskWrite로 이전 미저장 판본을 정리한다.
  */
 export function queueAtomicWrite(filePath: string, data: string): boolean {
-  if (!isAsyncDiskWriteEnabled()) return false;
+  if (!isAsyncDiskWriteEnabled()) {
+    if (pending.size > 0) flushPendingDiskWritesSync();
+    return false;
+  }
   // 디렉토리 생성은 §3.2/§3.71 가드(죽은 워크트리 되살리기 방지)가 걸린 메인의 몫이다.
   // 여기서 만들지 않으므로, 아직 없으면 동기 경로로 돌려보낸다.
-  if (!fs.existsSync(path.dirname(filePath))) return false;
+  if (!fs.existsSync(path.dirname(filePath))) {
+    if (pending.size > 0) flushPendingDiskWritesSync();
+    return false;
+  }
   if (pending.size >= MAX_QUEUED_JOBS || pendingBytes + data.length > MAX_QUEUED_BYTES) {
     stats.syncFallback += 1;
+    // 최신 동기 저장보다 이전 워커 커밋이 늦게 앉지 못하게 먼저 세대를 닫는다.
+    flushPendingDiskWritesSync();
     return false;
+  }
+  // 이것은 append가 아닌 전체 파일 스냅샷이다. 아직 실행되지 않은 옛 판본은 최신으로 합친다.
+  for (const previous of pending.values()) {
+    if (previous.filePath === filePath && previous.id !== inFlightId) forgetJob(previous);
   }
   const job: WriteJob = { id: nextJobId++, filePath, data };
   pending.set(job.id, job);
   pendingBytes += data.length;
   stats.queued += 1;
+  failedPaths.delete(filePath);
   pump();
   return true;
 }
@@ -230,34 +287,58 @@ export function queueAtomicWrite(filePath: string, data: string): boolean {
 /**
  * 아직 기록되지 않은 작업을 **동기로** 마무리한다(§3.2.1 내구성 — `process 'exit'` 는 동기만 허용).
  *
- * 먼저 정지 깃발을 세워 워커가 진행 중인 건을 **커밋(rename)하지 않게** 한 뒤, 남은 것을 도착
+ * 먼저 세대를 올리고 commit 잠금을 잡아 진행 중인 옛 건을 **커밋(rename)하지 않게** 한 뒤, 남은 것을 도착
  * 순서대로 직접 쓴다. 같은 파일에 여러 건이 남아 있어도 순서가 보존되므로 마지막 내용이 남는다.
  *
  * @returns 동기로 마무리한 건수
  */
 export function flushPendingDiskWritesSync(): number {
-  if (stopFlag) Atomics.store(stopFlag, 0, 1);
-  if (pending.size === 0) {
-    if (stopFlag) Atomics.store(stopFlag, 0, 0);
-    return 0;
+  if (pending.size === 0) return 0;
+  const control = commitControl;
+  if (control) {
+    Atomics.add(control, 0, 1);
+    while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
+      if (Atomics.wait(control, 1, 1, COMMIT_LOCK_WAIT_MS) === 'timed-out') {
+        for (const job of pending.values()) failedPaths.add(job.filePath);
+        // 안전한 commit 순서를 확보하지 못했으므로 false→동기 fallback도 진행하면 안 된다.
+        // 호출자가 저장 실패로 다루고, pending은 다음 autosave/확정 exit 회수를 위해 보존한다.
+        throw new Error('diskWriteQueue: timed out waiting for worker commit; pending writes retained');
+      }
+    }
   }
   let done = 0;
-  for (const job of [...pending.values()]) {
-    try {
-      writeFileAtomicSyncRaw(job.filePath, job.data, '.flush.tmp');
-      done += 1;
-    } catch (err) {
-      logger.error(`diskWriteQueue: flush write failed for ${job.filePath}`, err);
+  try {
+    for (const job of [...pending.values()]) {
+      try {
+        writeFileAtomicSyncRaw(job.filePath, job.data, '.flush.tmp');
+        acknowledgeWrite(job.filePath, job.id);
+        done += 1;
+      } catch (err) {
+        failedPaths.add(job.filePath);
+        logger.error(`diskWriteQueue: flush write failed for ${job.filePath}`, err);
+      }
     }
-    pending.delete(job.id);
-    pendingBytes -= job.data.length;
+  } finally {
+    if (control) {
+      Atomics.store(control, 1, 0);
+      Atomics.notify(control, 1);
+    }
   }
   inFlightId = null;
   stats.flushedSync += done;
-  // 정지 깃발을 되돌린다 — 읽기 직전 flush 처럼 앱이 계속 도는 상황에서도 다음 작업이 정상 커밋된다.
-  if (stopFlag) Atomics.store(stopFlag, 0, 0);
   pump();
   return done;
+}
+
+/** 내용이 같은 autosave에서도 이전에 실패한 미저장분에 재시도 기회를 준다. */
+export function retryFailedDiskWrites(): void {
+  if (failedPaths.size === 0) return;
+  if (!isAsyncDiskWriteEnabled()) {
+    flushPendingDiskWritesSync();
+    return;
+  }
+  failedPaths.clear();
+  pump();
 }
 
 /** 종료 경로(graceful): 워커를 정리한다. 남은 작업은 동기로 마무리한 뒤 내린다. */
@@ -266,6 +347,7 @@ export function shutdownDiskWriteQueue(): void {
   const w = worker;
   enabled = false;
   worker = null;
+  inFlightId = null;
   if (w) void w.terminate();
 }
 

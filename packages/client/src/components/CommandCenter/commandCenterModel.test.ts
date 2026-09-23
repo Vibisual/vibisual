@@ -83,6 +83,7 @@ function item(over: Partial<CommandCenterItem> = {}): CommandCenterItem {
     contextMax: undefined,
     queuedCount: 0,
     runningTaskCount: 0,
+    backgroundShellCount: 0,
     unacknowledged: false,
     readOnly: false,
     questionPrompts: [],

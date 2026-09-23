@@ -182,6 +182,42 @@ export function turnIdOfLiveTask(state: TurnSealState, taskId: string): string |
  *
  * `mayTurnResume` 이 처음부터 `liveTasks.size` 를 거르지 않고 보던 것과 같은 자리다.
  */
+/**
+ * **모델 자식이 도는가**(§5.5 #17-9 ⑰) — `subagentType` 이 붙은 항목만 센다.
+ *
+ * `hasLiveTasks` 와 **묻는 질문이 다르다.** 저쪽은 "이 세션의 자식 프로세스를 회수해도 되나"
+ * (= 아무거나 살아 있으면 안 된다)이고, 이쪽은 "사용자에게 실행 중이라고 말해야 하나"
+ * (= 모델이 돌아 답이 아직 안 나온 경우만)이다.
+ *
+ * 셸(`Bash run_in_background` · `Monitor` · 120초 타임아웃 승격분)은 `subagentType` 이 없어서
+ * 여기 안 걸린다 — 셸은 명령이 돌 뿐 모델이 돌지 않으므로 그 턴의 답은 이미 나와 있다.
+ * 종전에는 상태를 올리는 자리가 `hasLiveTasks` 를 써서, 끝 표식이 영영 안 오는 셸 하나
+ * (`grep … | sort` 처럼 stdin 이 닫힐 때까지 한 글자도 안 찍는 명령)가 그 탭을 영구히
+ * "실행 중"으로 붙들었다.
+ *
+ * 훅 대차대조(`pendingSubagentTasks`)와 **겹쳐 세지 않는다** — 있나 없나를 묻는 자리라 겹침이
+ * 답을 바꾸지 않고, 훅이 소유 세션을 못 푼 자식(백그라운드 자식 **안에서** 다시 스폰된 경우)은
+ * 이 스트림 신호가 유일한 증인이다.
+ */
+export function hasLiveAgentTasks(state: TurnSealState): boolean {
+  for (const info of state.liveTasks.values()) { if (info.subagentType) return true; }
+  return false;
+}
+
+/** 지금 남아 있는 **셸** 수 — 표시·로그용(실행 축에 넣지 마라). */
+export function countLiveShells(state: TurnSealState): number {
+  let n = 0;
+  for (const info of state.liveTasks.values()) { if (!info.subagentType) n += 1; }
+  return n;
+}
+
+/**
+ * ⑰ — 위 술어는 **회수(reclaim) 판정 전용**이다. 셸까지 안 거르고 센다.
+ *
+ * 이걸 **표시에 빌려 쓰지 마라.** 여기서 참이라는 것은 "이 세션의 자식을 죽이면 백단의 무언가가
+ * 함께 죽는다"는 뜻이지 "사용자에게 실행 중이라고 말하라"는 뜻이 아니다. 화면이 쓸 것은
+ * `hasLiveAgentTasks` 다. ⑮가 "표시용 목록을 생존 판정에 빌려 쓰지 마라"였다면 이쪽은 그 거울이다.
+ */
 export function hasLiveTasks(state: TurnSealState): boolean {
   return state.liveTasks.size > 0;
 }

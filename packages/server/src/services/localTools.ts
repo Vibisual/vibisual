@@ -35,6 +35,7 @@ import {
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { augmentedEnv } from './binLocator.js';
+import { resolvePathWithLinks } from './pathValidator.js';
 
 /** 훑지 않는 폴더 — 여기까지 걸으면 목록·검색이 사실상 안 끝난다. */
 const SKIP_DIRS = new Set([
@@ -80,32 +81,15 @@ export function resolveInRoot(
   //    이 파일 8건이 그렇게 죽었다. win 은 tmp 가 링크가 아니라 초록이었다 — 개발기 한 대로는
   //    영영 안 보이는 종류다). 링크를 푸는 목적은 **링크로 밖을 가리키는 경로를 막는 것**이지
   //    링크 위에 놓인 프로젝트를 통째로 막는 것이 아니다.
-  const rootAbs = realpathOrSelf(path.resolve(root));
+  const rootAbs = resolvePathWithLinks(root);
+  if (!rootAbs) return null;
   const abs = path.resolve(rootAbs, candidate);
-  // 실물이 있으면 링크까지 풀어서 다시 본다 — 링크로 밖을 가리키는 경로를 막는다.
-  let probe = abs;
-  try {
-    probe = fs.realpathSync(abs);
-  } catch {
-    // 아직 없는 파일(새로 쓰는 경우)은 부모까지만 풀어 본다.
-    try {
-      probe = path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs));
-    } catch {
-      probe = abs; // 부모도 없으면 아래 판정으로 간다(mkdir 은 호출자가 한다)
-    }
-  }
+  if (!isPathWithin(abs, rootAbs, platform) && !isPathWithin(abs, path.resolve(root), platform)) return null;
+  // Missing directories can sit below an outside link; resolve the entire existing ancestor chain.
+  const probe = resolvePathWithLinks(abs);
   // 대소문자를 접을지는 `isPathWithin`(= `pathKey` 정본) 한 곳이 정한다. 여기 있던
   // `win32 ? toLowerCase : 그대로` 는 mac 을 빠뜨린 그 패턴의 **네 번째 자리**였다.
-  return isPathWithin(probe, rootAbs, platform) ? probe : null;
-}
-
-/** 실물이 있으면 링크를 푼 경로, 없으면 준 경로 그대로(아직 만들지 않은 루트도 다룬다). */
-function realpathOrSelf(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
+  return probe && isPathWithin(probe, rootAbs, platform) ? probe : null;
 }
 
 /** 화면·모델 양쪽에 쓸 상대 경로(루트 기준). 밖이면 절대경로 그대로. */

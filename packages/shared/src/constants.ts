@@ -1629,10 +1629,10 @@ export const AGENT_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 
 /**
  * §2.4 (잠듦) — 이 시간을 넘겨 아무 명령도 처리하지 않은 세션의 claude 자식 프로세스를 회수한다.
- * Anthropic 자사 Claude Desktop 의 WarmLifecycle(idleTimeoutMs: 900_000)과 같은 값.
+ * 짧은 후속 입력에는 자식을 재사용하되 5분간 쉬면 회수하는 앱 자체 정책이다.
  * 대화는 디스크 JSONL 에 남아 있어 다음 명령이 --resume 으로 그대로 이어 간다.
  */
-export const SUBAGENT_DORMANT_IDLE_MS = 15 * 60 * 1000;
+export const SUBAGENT_DORMANT_IDLE_MS = 5 * 60 * 1000;
 /** 자동 idle 전환 판정 주기 (ms) */
 export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
 
@@ -4130,10 +4130,39 @@ export function normalizeCommandDispatchMode(value: unknown): CommandDispatchMod
  */
 export const COMMAND_ERROR_CODES = [
   'spawn', 'stdin', 'exit', 'crash', 'cli', 'maxTurns', 'agentView', 'orphaned', 'local', 'dispatchResult',
+  'usageLimit',
 ] as const satisfies readonly CommandErrorCode[];
 
 /** 종료 코드 유무로 문장이 갈리는 코드 — 코드가 없으면 `<code>Unknown` 문장을 쓴다. */
 export const COMMAND_ERROR_CODES_WITH_EXIT = ['exit', 'crash'] as const satisfies readonly CommandErrorCode[];
+
+/**
+ * §5.5 #17-12 ③-7 — 실패 문장이 부를 **엔진의 이름**. 제품 고유명사라 번역하지 않는다(12 로케일 공통).
+ *
+ * 이 표가 없던 동안 문장은 `Claude CLI` 를 글자 그대로 박고 있었고, 같은 사유 코드를 쓰는 코덱스 턴이
+ * 실패하면 **남의 이름**으로 불렸다. 엔진이 늘면 여기 한 줄만 더한다.
+ */
+export const AGENT_ENGINE_CLI_LABEL: Record<AgentEngineKind, string> = {
+  claude: 'Claude CLI',
+  codex: 'Codex CLI',
+  // 로컬 엔진은 CLI 를 띄우지 않는다(자기 사유 코드 `local` 을 쓴다). CLI 문장에 닿는 길은 없지만,
+  //   엔진이 늘 때 이 표가 비어 조용히 빈 이름이 뜨는 일이 없도록 채워 둔다.
+  local: 'Local engine',
+};
+
+/** 엔진을 모르는 사유(옛 명령·세션이 사라진 봉합분)가 쓰는 이름 — **클로드로 단정하지 않는다**. */
+export const UNKNOWN_ENGINE_CLI_LABEL = 'CLI';
+
+/**
+ * §2.4 — **한도 정지로 고쳐 적어도 되는 실패 사유.**
+ *
+ * 「엔진이 실패를 신고했다」 부류만 넣는다. 턴 상한(`maxTurns`)·위임 결과 누락(`dispatchResult`)·
+ * 스폰 실패(`spawn`)·파이프 단절(`stdin`)·프로세스 사망(`crash`)은 **원인이 이미 분명해** 그쪽
+ * 이름이 더 정확하다. 로컬 엔진(`local`)에는 요금제 한도라는 것이 없다.
+ */
+export const USAGE_LIMIT_PROMOTABLE_ERROR_CODES: ReadonlySet<CommandErrorCode> = new Set<CommandErrorCode>([
+  'cli', 'exit', 'agentView',
+]);
 
 // ─── 훅 버블 읽기 전용 경계 (§5.5 #17 / #17-29) ───
 
@@ -9967,8 +9996,34 @@ export const INSURANCE_WORKING_SET_MAX = 40;
  */
 export const INSURANCE_PREIMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
-/** §5.26 (D) — `PreCompact` 뒤 이만큼 지나도 `PostCompact` 도 성장도 없으면 압축 실패로 본다. */
+/**
+ * §5.26 (D) — **압축이 일어난 것은 확인했는데** 요약 본문만 못 읽을 때, 결론을 미루는 시간.
+ *
+ * 경계 레코드(`compact_boundary`)나 `PostCompact` 훅처럼 **압축이 끝났다는 증거가 이미 있는**
+ * 갈래에만 쓴다. 그 뒤에는 요약이 몇 초 안에 내려앉으므로 짧아도 된다.
+ * 증거가 아직 하나도 없을 때 기다리는 시간은 `INSURANCE_COMPACT_VERDICT_MS` 쪽이다.
+ */
 export const INSURANCE_COMPACT_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * §5.26 (D) — 증거가 하나도 없을 때 **교착으로 적기까지** 기다리는 시간.
+ *
+ * ⚠ 이 값을 3분으로 두었던 동안 실패로 적힌 10건 중 **7건이 오탐**이었다(2026-09-23 실측).
+ * 요약이 실제로 도착한 시각은 마커 기준 +2분 · +9분 · +28분이었다 — 세션이 사람의 다음 말을
+ * 기다리는 동안 트랜스크립트는 한 바이트도 안 자라는데, 그 정지를 교착으로 읽었던 것이다.
+ * 압축이 진짜로 막힌 세션은 사용자가 손을 쓸 때까지 그대로 막혀 있으므로 **늦게 알려도 늦지 않다.**
+ */
+export const INSURANCE_COMPACT_VERDICT_MS = 30 * 60 * 1000;
+
+/**
+ * §5.26 (D) — 한 번의 스윕이 요약을 찾으려고 읽는 **총** 바이트 상한(§3.2.4 G축).
+ *
+ * 마커마다 커서를 물고 새로 붙은 구간만 읽지만, 판정을 미루는 시간이 길어진 만큼 대기 중인
+ * 마커가 같이 늘어난다. 마커별 상한(`INSURANCE_SUMMARY_SCAN_MAX_BYTES`)만으로는 **마커 수 × 상한**
+ * 이 되어 10초마다 수십 MB 를 읽게 되므로, 스윕 전체에도 천장을 둔다. 예산이 떨어진 마커는
+ * 다음 스윕이 커서 그대로 이어 읽는다 — 판정이 늦어질 뿐 건너뛰지 않는다.
+ */
+export const INSURANCE_SCAN_BUDGET_BYTES = 4 * 1024 * 1024;
 
 /** §5.26 (D) — 요약 구간을 읽을 때 한 번에 훑는 최대 바이트(§3.2.4 G축 — 읽기 피크 상한). */
 export const INSURANCE_SUMMARY_SCAN_MAX_BYTES = 512 * 1024;
@@ -10672,8 +10727,18 @@ export const CHAT_DISCORD_ZOMBIE_CLOSE_CODE = 4009;
 /** 디스코드 한 메시지 최대 길이(공식 2000) — 여유를 두고 자른다. */
 export const CHAT_DISCORD_MESSAGE_MAX = 1900;
 
+/**
+ * 슬래시 없이 명령을 치는 접두어 — `!vibisual <명령> [인자]` 는 `/<명령> [인자]` 와 **같다**.
+ *
+ * 디스코드 클라이언트는 입력창의 `/` 를 슬래시 명령 피커로 가로챈다. 우리는 application
+ * command 를 등록하지 않으므로(등록해도 봇 DM 에서의 동작이 클라이언트마다 다르다) 거기서는
+ * `/projects` 를 **칠 방법 자체가 없었다** — 선택 흐름은 채널 공통인데 디스코드에서만 그
+ * 흐름에 못 들어가던 이유다. 페어링이 이미 쓰던 접두어를 일반 규칙으로 올려 그 길을 연다.
+ */
+export const CHAT_TEXT_COMMAND_PREFIX = '!vibisual';
+
 /** 디스코드 페어링 명령 접두어. DM 딥링크가 없어 평문 한 줄로 같은 결과를 만든다. */
-export const CHAT_DISCORD_PAIR_COMMAND = '!vibisual pair';
+export const CHAT_DISCORD_PAIR_COMMAND = `${CHAT_TEXT_COMMAND_PREFIX} pair`;
 
 /** 연결 실패 후 재시도 간격(ms) — 최소/최대. 지수 백오프로 이 사이를 오간다. */
 export const CHAT_RECONNECT_MIN_MS = 2_000;
@@ -11049,7 +11114,23 @@ export const AUTO_GOAL_EVIDENCE_FILE_BYTES = 2 * 1024 * 1024;
 export const AUTO_GOAL_ASSESSMENT_TTL_MS = 30 * 60 * 1000;
 export const AUTO_GOAL_ASSESSMENT_MAX = 256;
 export const AUTO_GOAL_COMPLETION_MAX = 16;
-export const AUTO_GOAL_REVIEW_QUEUE_MAX = 3;
+/**
+ * 한 턴에 실을 검토 대기 절차 수 (§5.10 (R)ⓑ).
+ *
+ * 3 이던 것을 6 으로 올렸다. 3 일 때는 관련도와 무관하게 목록 앞에서 잘렸고, 그래서 지금 만지는 파일의
+ * 절차가 실리지 않는 턴이 대부분이었다 — 규약이 검토를 지시해도 실릴 자리가 없으면 아무 일도 일어나지 않는다.
+ * 넓힌 대신 `autoGoalRelevanceScore` 로 **관련도 순위**를 매겨 고르므로, 무관한 절차가 더 실리지는 않는다.
+ */
+export const AUTO_GOAL_REVIEW_QUEUE_MAX = 6;
+/** 한 턴에 실을 검토 통과 절차 수 — 검토 대기와 합쳐 한 턴의 주입 총량이 된다. */
+export const AUTO_GOAL_ACTIVE_QUEUE_MAX = 8;
+/**
+ * 승인 뒤 이만큼 지나도록 **한 번도 쓰이지 않은** 절차는 걷을 후보로 표시한다 (§5.10 (R)ⓒ).
+ *
+ * 지우지 않는다 — 규약문에 "걷을 후보" 로 적어 에이전트가 그 자리에서 판단하게 할 뿐이다.
+ * 30일은 한 판올림 주기보다 길어, 계절을 타는 절차(릴리스·점검)가 한 번은 돌아올 수 있는 길이다.
+ */
+export const AUTO_GOAL_STALE_REVIEW_MS = 30 * 24 * 60 * 60 * 1000;
 export const AUTO_GOAL_REFRESH_MS = 15_000;
 
 /**

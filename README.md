@@ -243,7 +243,9 @@ report a vulnerability privately.
 ## Pricing
 
 The desktop app — the canvas, the IDE, the agents, the plugins — installs and
-runs with no account, no license key, and no usage cap, under Apache-2.0.
+runs with no account, no license key, and no usage cap. The source is
+Apache-2.0; the builds we publish come under the [EULA](EULA.md), which is also
+free for any use, personal or commercial — see [License](#license).
 
 Paid add-ons may come later — extra capacity, work that runs somewhere other than
 your own machine, features built for teams.
@@ -262,7 +264,11 @@ so opening this page does not report you to anyone.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo are trademarks of 길근오 (the project owner); see [TRADEMARK.md](TRADEMARK.md) for the policy.
+**The source code is Apache License 2.0** — see [LICENSE](LICENSE). Read it, change it, build your own from it, redistribute it. That right is permanent and is not affected by anything below.
+
+**The builds we publish are covered by the [EULA](EULA.md)** — the installers and binaries on the Releases page. They are free for any use, personal or commercial, on as many machines as you like, with no account, license key, or usage cap. What the EULA asks is that you not redistribute, repackage, or rebrand *our* build. If you want to ship something, build it from source and give it your own name.
+
+"Vibisual" and the Vibisual logo are trademarks of 길근오 (the project owner); see [TRADEMARK.md](TRADEMARK.md) for the policy.
 
 ## Contributing
 

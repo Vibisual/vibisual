@@ -376,14 +376,14 @@ export function ImageLightboxView({
     try {
       const blob = await exportAnnotatedImage(img, items, target.mime);
       if (!blob) throw new Error(t('ide.imageAnnotate.renderFailed'));
-      const out = await putWorkspaceImage(target.root, target.path, blob, force ? 0 : target.mtimeMs);
+      const out = await putWorkspaceImage(target.root, target.path, blob, force ? 0 : target.mtimeMs, target.revision);
       if (!out.ok) {
         setFileConflict(out.status === 409);
         setError(t(out.status === 409 ? 'ide.imageAnnotate.fileConflict' : 'ide.imageAnnotate.fileSaveFailed'));
         return;
       }
       // 편집창이 이 신호를 보고 다시 읽어, 방금 그린 표시가 미리보기에 그대로 올라온다.
-      markWorkspaceImageSaved(target.path);
+      markWorkspaceImageSaved(target.root, target.path);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('ide.imageAnnotate.fileSaveFailed'));

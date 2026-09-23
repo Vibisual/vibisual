@@ -159,3 +159,59 @@ describe('한도 정지 확인 — 클라는 손짓만 흘린다', () => {
     expect(() => useGraphStore.getState().acknowledgeUsageLimit({ subAgentIds: ['sub-limited'] })).not.toThrow();
   });
 });
+
+/**
+ * §5.5 #17-47 (G) — **창 목록은 경고하는 자리가 아니라 고르는 자리다.**
+ *
+ * (E) 는 목록 머리에 "한도로 멈춘 세션 N개" 띠를, (F) 는 그 안에 [확인] 버튼을 두었다. 그런데
+ * 같은 화면이 이미 세 번 같은 말을 한다 — 배지의 주황 도트("손대야 다시 간다")·맨 위로 올라온
+ * 줄("여기 있다")·줄 오른쪽 리셋 칩("언제 풀린다"). 그 위에 글자 띠를 한 겹 더 얹으니 메뉴를
+ * 여는 손짓이 고르기 대신 읽기가 됐다(사용자 지시 2026-09-23 — "그냥 주황색에 세션 들어갈 수
+ * 있게 선택만 하면 되는데 경고를 왜 보네 여기서").
+ *
+ * 이 시험이 못 박는 것은 **걷어 낸 뒤에도 잃지 않은 것**이다: 색(주황)·자리(맨 위)·칩은 그대로고,
+ * 확인은 줄을 누르는 그 손짓이 버블 단위로 계속한다. 띠만 다시 자라지 못하게 막는다.
+ * (창을 띄우지 않는다 — 클라 테스트에는 DOM 이 없다. 소스와 번들을 그대로 읽는다.)
+ */
+const menuSources = import.meta.glob('../components/Layout/IDEWindowsMenu.tsx', {
+  eager: true, query: '?raw', import: 'default',
+}) as Record<string, string>;
+const localeBundles = import.meta.glob('../i18n/locales/*.json', {
+  eager: true, import: 'default',
+}) as Record<string, { header?: { ideWindows?: Record<string, unknown> } }>;
+
+describe('§5.5 #17-47 (G) 한도 띠는 걷혔다 — 남은 것은 색과 자리뿐', () => {
+  const menu = Object.values(menuSources)[0] ?? '';
+
+  it('훑을 판이 비지 않았다 — 비면 아래가 전부 헛통과한다', () => {
+    expect(menu.length).toBeGreaterThan(2000);
+    expect(Object.keys(localeBundles)).toHaveLength(12);
+  });
+
+  it('목록 머리에 경고 띠도 [확인] 버튼도 그리지 않는다', () => {
+    expect(menu).not.toContain('limitedBanner');
+    expect(menu).not.toContain('limitedAck');
+    expect(menu).not.toContain('badgeLimited');
+  });
+
+  it('주황은 그대로 남는다 — 배지 도트·줄 도트·리셋 칩이 같은 말을 한다', () => {
+    expect(menu).toContain("limited: 'bg-orange-400 animate-pulse'");
+    expect(menu).toContain("run.state === 'limited'");
+    expect(menu).toContain('header.ideWindows.limitedUntil');
+  });
+
+  it('멈춘 줄은 여전히 맨 위다 — 띠가 가리키던 자리를 목록 자체가 말한다', () => {
+    expect(menu).toContain("const byLimited = (b.run.state === 'limited' ? 1 : 0) - (a.run.state === 'limited' ? 1 : 0);");
+  });
+
+  it('확인은 줄을 누르는 그 손짓이 한다 — 버블 단위로 함께 걷힌다', () => {
+    expect(menu).toContain('acknowledgeUsageLimit({ agentIds: [agentId] })');
+  });
+
+  it('12 로케일 어디에도 걷어 낸 문자열이 남지 않았다 — 한 곳만 걷으면 키가 갈린다', () => {
+    for (const [path, bundle] of Object.entries(localeBundles)) {
+      const keys = Object.keys(bundle.header?.ideWindows ?? {}).filter((k) => k.startsWith('limited'));
+      expect({ path, keys }).toEqual({ path, keys: ['limited', 'limitedUntil'] });
+    }
+  });
+});

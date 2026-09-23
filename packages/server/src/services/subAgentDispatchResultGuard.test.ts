@@ -68,7 +68,13 @@ describe('§5.3 #10-2 — 결과를 받지 못한 턴의 끝', () => {
 
     expect(asked).toEqual([subId]);
     expect(held.status).toBe('error');
-    expect(held.error).toEqual({ code: 'dispatchResult', detail: 'cmd-slow-edge1 (executing), cmd-failed-edge2 (error)' });
+    // `engine` 은 §5.5 #17-12 ③-7 로 모든 사유에 함께 실린다 — 화면 문장이 제 엔진 이름을 부르기 위함이다.
+    //   이 시험에는 설정 해석기가 없어 기본 엔진(`claude`)으로 떨어진다.
+    expect(held.error).toEqual({
+      code: 'dispatchResult',
+      detail: 'cmd-slow-edge1 (executing), cmd-failed-edge2 (error)',
+      engine: 'claude',
+    });
     expect(m.getSub(subId)!.status).toBe('error');
   });
 

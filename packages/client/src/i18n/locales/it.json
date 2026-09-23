@@ -82,9 +82,6 @@
       "soloFocus": "Mostra solo questa finestra (riduci le altre)",
       "limited": "ferma",
       "limitedUntil": "si azzera alle {{at}}",
-      "limitedBanner": "{{count}} sessione/i ferma/e per il limite di utilizzo — elencate per prime qui sotto",
-      "limitedAck": "Ho capito",
-      "limitedAckHint": "Rimuove l'indicatore arancione: sessioni e conversazioni restano",
       "settings": "Impostazioni Agent",
       "expand": "Espandi",
       "collapse": "Comprimi",
@@ -1725,7 +1722,8 @@
         "running": "in esecuzione",
         "done": "completato",
         "error": "errore",
-        "limited": "limite raggiunto"
+        "limited": "limite raggiunto",
+        "waiting": "in coda"
       },
       "probe": {
         "checking": "verifica in corso…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Conversazione senza titolo",
       "revisionOf": "rev {{index}}/{{total}}",
       "failedBadge": "Non riuscite: {{count}}",
-      "failedBadgeTip": "Compattazioni non riuscite ({{scope}}): {{count}}. Ogni riga non riuscita ha un chip rosso con il motivo."
+      "failedBadgeTip": "Compattazioni non riuscite ({{scope}}): {{count}}. Ogni riga non riuscita ha un chip con il motivo."
     },
     "remoteAccess": {
       "title": "Accesso remoto",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Ripristina la spaziatura del coreano",
       "voiceRespaceHint": "Il riconoscitore restituisce il coreano senza spazi; questa opzione lo divide in base a particelle e desinenze. È basata su regole, quindi non è perfetta: puoi correggere il risultato nel campo di testo.",
       "stallHint": "Un ragionamento o una chiamata a uno strumento prolungati possono sospendere gli aggiornamenti. Questo, da solo, non significa che la sessione si sia fermata.",
-      "stallNotice": "In attesa del prossimo aggiornamento. Ultima attività {{value}} fa.",
-      "stallKeepWaiting": "Continua ad attendere",
-      "stallKeepWaitingTitle": "Nascondi questo avviso e continua ad attendere il prossimo aggiornamento.",
+      "backgroundShells": "{{count}} shell in background ancora in esecuzione. La risposta è già arrivata — puoi continuare a scrivere.",
+      "backgroundShellsTip": "Un comando Bash o Monitor in background, rimasto da un turno precedente. Esegue un comando, non un modello, quindi non tiene occupata questa sessione. I comandi che non terminano mai da soli (tail -f, while true, un sort in pipe) restano qui finché non li rimuovi.",
+      "backgroundShellsOpen": "Visualizza",
       "stopNothing": "Non c'era nulla in esecuzione da interrompere. L'etichetta “in esecuzione” era rimasta indietro.",
       "stopNothingHint": "Il server non ha trovato alcun processo figlio, comando in coda o attività in background per questo ambito.",
       "stopForce": "Forza chiusura",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Subagente",
       "commandReceived": "Comando ricevuto",
       "promptSuggestion": "Prossimo prompt suggerito",
-      "imageMissing": "(immagine non disponibile)"
+      "imageMissing": "(immagine non disponibile)",
+      "waiting": "in attesa"
     },
     "report": {
       "title": "Report di lavoro",
@@ -3502,18 +3501,19 @@
       "superseded": "Piano aggiornato"
     },
     "cmdError": {
-      "spawn": "Impossibile avviare la CLI di Claude",
+      "spawn": "Impossibile avviare {{engine}}",
       "stdin": "Impossibile inviare il prompt alla sessione in esecuzione",
-      "exit": "La CLI di Claude è uscita con codice {{code}}",
-      "exitUnknown": "La CLI di Claude è uscita inaspettatamente",
+      "exit": "{{engine}} è uscito con codice {{code}}",
+      "exitUnknown": "{{engine}} è uscito inaspettatamente",
       "crash": "Il processo della sessione è terminato inaspettatamente (codice {{code}})",
       "crashUnknown": "Il processo della sessione è terminato inaspettatamente",
       "local": "L'esecuzione del modello locale non è riuscita",
-      "cli": "La CLI di Claude ha segnalato un errore",
+      "cli": "{{engine}} ha segnalato un errore",
       "maxTurns": "Interrotto al limite massimo di turni",
       "agentView": "L'esecuzione dell'agent è terminata con un errore",
       "orphaned": "Interrotto al riavvio dell'app",
       "dispatchResult": "Terminato senza ricevere il risultato dell'attività delegata",
+      "usageLimit": "Interrotto al limite di utilizzo",
       "unknown": "Fallito per un motivo sconosciuto"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Aggiorna procedure",
       "details": "Mostra dettagli della procedura",
       "hideDetails": "Nascondi dettagli della procedura",
+      "approve": "Approva",
+      "approveHint": "Approvare ora, usando i file che questa procedura elenca già come prova. Di norma gli Agent lo fanno da soli.",
+      "approveNoEvidence": "Questa procedura non elenca file di supporto, quindi non può essere approvata qui.",
       "pause": "Interrompi l’uso",
       "requestReview": "Richiedi verifica all’Agent",
       "reviewHint": "Un Agent al lavoro verifica le procedure pertinenti. Richiedere una verifica non attiva la procedura.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "Le condizioni d’uso di questa procedura sono cambiate dopo la verifica.",
         "instructionsChanged": "Le istruzioni della procedura sono cambiate dopo la verifica.",
         "dependencyChanged": "Un file a supporto già verificato è cambiato o non è più disponibile.",
+        "userApproved": "Hai approvato questa procedura.",
         "userPaused": "Hai interrotto l’uso di questa procedura.",
         "userRequestedReview": "Hai richiesto una nuova verifica di questa procedura."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Lascia che il direttore d'orchestra mi faccia domande",
         "askQuestionsHint": "Aggiunge AskUserQuestion ai suoi tool. Disattivato per impostazione predefinita — quando attivo, un ordine vago può fermarsi finché non rispondi.",
         "engine": "Motore dei membri",
-        "maxMembers": "Numero massimo di membri creabili"
+        "maxMembers": "Numero massimo di membri creabili",
+        "memberIsolation": "Dai a ogni membro il proprio working tree",
+        "memberIsolationHint": "Ogni membro nasce nel proprio git worktree, quindi i membri che lavorano fianco a fianco non possono entrare in conflitto sugli stessi file. Sta a te unire i branch in seguito. Solo per i membri Claude — Codex non ha un flag equivalente.",
+        "memberToolTemplate": "Tool con cui i membri nascono"
       },
       "permission": {
         "bypass": "Salta le richieste di autorizzazione",
@@ -4734,7 +4741,11 @@
           "auto": "Il direttore d'orchestra sceglie per ruolo",
           "inherit": "Come il direttore ({{engine}})"
         },
-        "maxDefault": "{{count}} (integrato)"
+        "maxDefault": "{{count}} (integrato)",
+        "isolationClaudeOnly": "Ai membri Codex questo non si applica — vengono eseguiti direttamente nella cartella del progetto.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Agent base (tutti i tool)",
+        "toolsHint": "Il direttore d'orchestra non può ampliare questo elenco. Tool ristretti tengono un membro concentrato sul proprio compito — un reviewer che non può scrivere non «sistema» di nascosto quello che gli hai chiesto di controllare."
       },
       "strategies": {
         "title": "Strategie di risparmio token",
@@ -5757,6 +5768,7 @@
     "waitingFor": "in attesa da {{time}}",
     "queued": "{{count}} in coda",
     "running": "{{count}} in esecuzione",
+    "backgroundShells": "{{count}} shell in background",
     "jumpHint": "Apri questa sessione nella finestra principale",
     "commandHint": "Invia un messaggio senza lasciare questa finestra",
     "moreHint": "Altre azioni",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Messaggio a questa sessione… (Invio per inviare)",
     "send": "Invia",
     "searchPlaceholder": "Cerca sessioni —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Ricerca nella cronologia delle conversazioni…",
+    "historySearchFailed": "Non è stato possibile cercare in parte della cronologia delle conversazioni.",
+    "retryHistorySearch": "Riprova la ricerca nella cronologia",
     "clearSearch": "Pulisci",
     "resultCount": "{{count}} corrispondenze",
     "sessionCount": "{{count}} sessioni",

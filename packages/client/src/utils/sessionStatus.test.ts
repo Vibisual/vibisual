@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   EMPTY_SESSION_RUN_INPUTS,
   isSessionRunning,
+  hasBackgroundShells,
   hasSessionWork,
   resolveSessionRunState,
+  resolveSessionLiveness,
+  SESSION_NO_RESPONSE_MS,
   type SessionRunInputs,
   type QueuedCommand,
   type RunningSubagentTask,
@@ -18,6 +21,7 @@ import {
   buildSessionRunInputs,
   sessionRunStateOf,
   serializeBusySubIds,
+  serializeShellSubIds,
   sessionProbeNote,
   parseBusySubIds,
   isAgentDormant,
@@ -67,8 +71,23 @@ describe('isSessionRunning — 세 근거를 OR', () => {
     expect(isSessionRunning(inputs({ hasExecutingCommand: true }))).toBe(true);
   });
 
-  it('백그라운드 Task 가 남아 있으면 돈다', () => {
-    expect(isSessionRunning(inputs({ runningTaskCount: 1 }))).toBe(true);
+  it('백그라운드 Task(모델 자식)가 남아 있으면 돈다', () => {
+    expect(isSessionRunning(inputs({ runningAgentTaskCount: 1 }))).toBe(true);
+  });
+
+  // §5.5 #17-9 ⑰ — 이 제품이 "쓰냐 마냐"에 놓였던 바로 그 결함.
+  //   `grep … | sort` 하나가 세션을 영원히 "실행 중"으로 붙들어 입력창이 [중지]로 굳었다.
+  it('백단 셸만 남으면 **돌지 않는다** — 셸은 모델이 아니라 명령이 돌 뿐이다', () => {
+    expect(isSessionRunning(inputs({ backgroundShellCount: 3 }))).toBe(false);
+  });
+
+  it('셸이 있어도 모델 자식이 함께 있으면 돈다 — 셸이 실행 축을 지우지는 않는다', () => {
+    expect(isSessionRunning(inputs({ backgroundShellCount: 3, runningAgentTaskCount: 1 }))).toBe(true);
+  });
+
+  it('셸은 직교 축으로 따로 읽힌다 — 표시할 근거까지 사라지는 것은 아니다', () => {
+    expect(hasBackgroundShells(inputs({ backgroundShellCount: 1 }))).toBe(true);
+    expect(hasBackgroundShells(inputs({ runningAgentTaskCount: 9 }))).toBe(false);
   });
 
   it('큐 대기만으로는 돌지 않는다 — 스피너가 헛돌면 안 된다', () => {
@@ -94,7 +113,7 @@ describe('resolveSessionRunState — 화면이 그릴 한 값', () => {
   });
 
   it('실패는 자식이 남아 있어도 running 으로 세탁되지 않는다', () => {
-    expect(resolveSessionRunState(inputs({ subStatus: 'error', runningTaskCount: 2 })))
+    expect(resolveSessionRunState(inputs({ subStatus: 'error', runningAgentTaskCount: 2 })))
       .toBe('error');
   });
 
@@ -126,6 +145,31 @@ describe('resolveSessionRunState — 화면이 그릴 한 값', () => {
   it('무시하고 다시 돌리면 파랑이 이긴다 — 도는 것이 한도 표식보다 앞선다', () => {
     expect(resolveSessionRunState(inputs({ subStatus: 'active', usageLimited: true })))
       .toBe('running');
+  });
+
+  // §5.5 #17-9 ⑰ — 셸이 실행 축에서 빠졌으면 접힌 값도 끝까지 내려가야 한다.
+  //   여기서 안 내려가면 탭 도트가 그대로 파랗고, 고친 것이 아무것도 없는 것과 같다.
+  it('셸만 남은 세션은 끝난 것으로 그린다 — done/doneUnseen 까지 내려간다', () => {
+    expect(resolveSessionRunState(inputs({ subStatus: 'idle', backgroundShellCount: 2, acknowledged: false })))
+      .toBe('doneUnseen');
+    expect(resolveSessionRunState(inputs({ subStatus: 'idle', backgroundShellCount: 2, acknowledged: true })))
+      .toBe('done');
+  });
+});
+
+describe('resolveSessionLiveness — 셸은 무응답 경고를 세우지 않는다(§5.5 #17-9 ⑰)', () => {
+  const long = SESSION_NO_RESPONSE_MS * 10;
+
+  it('셸만 남은 세션은 아무리 조용해도 stalled 가 아니다 — 조용한 것이 당연한 축이다', () => {
+    // `sort` 는 stdin 이 닫힐 때까지 한 글자도 안 찍는다. 종전에는 이 침묵이 그대로
+    //   "3분째 응답 없음" 경고가 되어, 멀쩡한 명령을 사용자가 끊게 만들었다.
+    expect(resolveSessionLiveness(inputs({ subStatus: 'idle', backgroundShellCount: 1 }), 1, long))
+      .toBe('idle');
+  });
+
+  it('모델 자식이 조용하면 여전히 stalled — 경고를 없앤 것이 아니라 대상을 바로잡은 것이다', () => {
+    expect(resolveSessionLiveness(inputs({ runningAgentTaskCount: 1 }), 1, long))
+      .toBe('stalled');
   });
 });
 
@@ -208,7 +252,38 @@ describe('buildSessionRunInputs — 세션 소유 필터', () => {
     });
     expect(built.hasExecutingCommand).toBe(false); // 옆 탭 명령은 내 것이 아니다
     expect(built.hasQueuedCommand).toBe(true);
-    expect(built.runningTaskCount).toBe(0);
+    expect(built.runningAgentTaskCount).toBe(0);
+    expect(built.backgroundShellCount).toBe(0);
+  });
+
+  // §5.5 #17-9 ⑰ — 한 목록에서 두 축이 갈려 나온다. 서버가 실어 보낸 `origin`·`subagentType` 이
+  //   유일한 근거다(클라는 명령 원문을 못 본다).
+  it('같은 세션의 목록을 모델 자식과 셸로 갈라 센다', () => {
+    const built = buildSessionRunInputs({
+      sub: sub({ id: 'sub-1', status: 'idle' }),
+      commands: [],
+      runningTasks: [
+        task({ id: 'x1', subAgentId: 'sub-1', origin: 'stream' }),                          // 셸
+        task({ id: 'x2', subAgentId: 'sub-1', origin: 'stream', subagentType: 'Explore' }), // 중첩 모델 자식
+        task({ id: 'x3', subAgentId: 'sub-1', origin: 'hook' }),                            // 훅 대차대조
+        task({ id: 'x4', subAgentId: 'sub-1' }),                                            // 미지정 = hook 호환
+      ],
+      acknowledged: false,
+    });
+    expect(built.backgroundShellCount).toBe(1);
+    expect(built.runningAgentTaskCount).toBe(3);
+    expect(isSessionRunning(built)).toBe(true);
+  });
+
+  it('셸만 남은 세션은 입력창을 돌려준다 — 여기가 [중지]가 풀리는 자리다', () => {
+    const built = buildSessionRunInputs({
+      sub: sub({ id: 'sub-1', status: 'idle' }),
+      commands: [],
+      runningTasks: [task({ subAgentId: 'sub-1', origin: 'stream' })],
+      acknowledged: false,
+    });
+    expect(isSessionRunning(built)).toBe(false);
+    expect(hasBackgroundShells(built)).toBe(true);
   });
 
   it('메인 탭(sub=null)은 에이전트 전체를 본다', () => {
@@ -219,7 +294,7 @@ describe('buildSessionRunInputs — 세션 소유 필터', () => {
       acknowledged: false,
     });
     expect(built.hasExecutingCommand).toBe(true);
-    expect(built.runningTaskCount).toBe(1);
+    expect(built.runningAgentTaskCount).toBe(1);
     expect(built.subStatus).toBeNull();
   });
 
@@ -272,6 +347,33 @@ describe('serializeBusySubIds — 켜짐이 바뀔 때만 값이 달라진다', 
   it('왕복해도 같은 집합', () => {
     const set = parseBusySubIds(serializeBusySubIds([task('a'), task('b')]));
     expect([...set].sort()).toEqual(['a', 'b']);
+  });
+
+  // §5.5 #17-9 ⑰ — 도트는 실행 축이다. 셸이 켜면 끝난 대화의 탭이 영영 파랗게 남는다.
+  it('셸은 도트를 켜지 않는다 — 대신 셸 집합에 선다', () => {
+    const shell: RunningSubagentTask = {
+      id: 's1', parentAgentId: 'agent-1', subAgentId: 'a', startedAt: 0, origin: 'stream',
+    };
+    expect(serializeBusySubIds([shell])).toBe('');
+    expect(serializeShellSubIds([shell])).toBe('a');
+  });
+
+  it('스트림에서 왔어도 subagentType 이 있으면 모델 자식이다 — 중첩 자식의 유일한 증인', () => {
+    const nested: RunningSubagentTask = {
+      id: 's2', parentAgentId: 'agent-1', subAgentId: 'a', startedAt: 0,
+      origin: 'stream', subagentType: 'Explore',
+    };
+    expect(serializeBusySubIds([nested])).toBe('a');
+    expect(serializeShellSubIds([nested])).toBe('');
+  });
+
+  it('두 집합은 서로 배타 — 같은 항목이 양쪽에 서면 어느 쪽도 못 믿는다', () => {
+    const mixed: RunningSubagentTask[] = [
+      { id: 'm1', parentAgentId: 'agent-1', subAgentId: 'a', startedAt: 0, origin: 'stream' },
+      { id: 'm2', parentAgentId: 'agent-1', subAgentId: 'b', startedAt: 0, origin: 'hook' },
+    ];
+    expect(serializeBusySubIds(mixed)).toBe('b');
+    expect(serializeShellSubIds(mixed)).toBe('a');
   });
 });
 

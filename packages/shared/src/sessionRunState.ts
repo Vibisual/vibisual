@@ -17,9 +17,9 @@
  * 한다(§3.1 서버 = SSOT, 클라 = View — 여기서 상태를 만들거나 전이시키지 않는다).
  */
 
-import type { SubAgentStatus } from './types.js';
+import type { RunningSubagentTask, SubAgentStatus } from './types.js';
 
-/** 화면이 그리는 세션 상태 — 색·라벨은 이 5값에만 대응한다. */
+/** 화면이 그리는 세션 상태 — 색·라벨은 이 6값에만 대응한다. */
 export type SessionRunState =
   /** 지금 돌고 있다. */
   | 'running'
@@ -32,6 +32,14 @@ export type SessionRunState =
    * 세션은 `doneUnseen`(초록 "끝남")으로 내려앉아 **멈춘 사실이 화면 어디에도 남지 않는다.**
    */
   | 'limited'
+  /**
+   * **낼 일이 남았는데 아직 나가지 않았다** — 큐에 줄 선 명령이 있고 도는 것은 없다.
+   *
+   * 이 값이 없으면 그 세션은 `doneUnseen`(초록 "끝남")으로 내려앉는다. 사용자는 그 "끝남"을
+   * 믿고 덧말을 보내고, 덧말은 큐에 얹히기만 한 채 화면은 계속 "끝남"이라고 말한다 — 보낸
+   * 사람 눈에는 **말이 통째로 사라진 것**이 된다. 큐가 비어야 비로소 끝난 것이다.
+   */
+  | 'waiting'
   /** 끝났고 사용자가 아직 확인하지 않았다(= 눈에 띄어야 한다). */
   | 'doneUnseen'
   /** 끝났고 확인까지 됐다(= 조용해야 한다). */
@@ -43,8 +51,32 @@ export interface SessionRunInputs {
   subStatus: SubAgentStatus | null;
   /** 이 세션 소유의 `QueuedCommand` 중 `executing` 이 있는가. */
   hasExecutingCommand: boolean;
-  /** 이 세션이 띄운 백그라운드 Task 서브에이전트 수(`runningSubagentTasks`). */
-  runningTaskCount: number;
+  /**
+   * 이 세션이 띄운 **Task/Agent 서브에이전트** 수(`runningSubagentTasks` 중 `origin: 'hook'`).
+   *
+   * 자식이 **모델을 돌려 토큰을 태우고 있다** = 그 턴의 답이 아직 완성되지 않았다. 그래서 이것
+   * 하나만으로도 세션은 "도는 중"이고, 끊는 손잡이는 `TaskStop` 이다(§5.5 #17-9 ⑫).
+   */
+  runningAgentTaskCount: number;
+  /**
+   * 이 세션이 백단에 띄워 둔 **셸** 수(`runningSubagentTasks` 중 `origin: 'stream'` —
+   * `Bash run_in_background` · `Monitor` · 120초 타임아웃으로 승격된 전경 Bash).
+   *
+   * **실행 축에서 일부러 뺐다.** 셸은 명령이 돌 뿐 모델이 돌지 않는다 — 에이전트는 이미 답을
+   * 내놨고 사용자는 다음 말을 할 수 있어야 한다. 그런데 종전에는 이 수가 서브에이전트와 한
+   * 칸(`runningTaskCount`)에 얹혀 `isSessionRunning` 을 참으로 붙들었고, 그래서 **셸 하나가
+   * 대화 전체를 인질로 잡았다**: 입력창이 [중지]+[덧말]로 바뀌고, 3분 무응답 경고가 서고,
+   * 탭 점이 영영 파랬다. `sort` 처럼 stdin 이 닫힐 때까지 한 글자도 안 찍는 명령이면 끝
+   * 표식(⑬)도 영영 안 와서 그 인질 상태가 스스로 풀리지도 않는다.
+   *
+   * 이 수는 **표시 전용**이다 — 활동바 배지와 안내 한 줄이 쓴다(`hasBackgroundShells`).
+   * 끊는 손잡이도 다르다(`KillShell`). **회수(reclaim) 축은 이 분리를 따르지 않는다** —
+   * 서버의 `hasLivingWork` · `hasLiveBackgroundWork` 는 셸까지 **안 거른 채** 봐야 한다
+   * (§2.4 휴면 회수가 그 셸을 죽인다. `--resume` 은 백그라운드 Bash 를 되살리지 않는다).
+   * ⑮가 "표시용 목록을 생존 판정에 빌려 쓰지 마라"였다면, 이쪽은 그 거울이다 —
+   * **회수용 술어를 표시에 빌려 쓰지 마라.**
+   */
+  backgroundShellCount: number;
   /** 이 세션 소유의 `queued` 명령이 있는가 — "돌고 있다"가 아니라 "낼 일이 남았다". */
   hasQueuedCommand: boolean;
   /** 사용자가 이 세션의 완료를 확인했는가(`acknowledgedSubAgents`). */
@@ -60,7 +92,8 @@ export interface SessionRunInputs {
 export const EMPTY_SESSION_RUN_INPUTS: SessionRunInputs = {
   subStatus: null,
   hasExecutingCommand: false,
-  runningTaskCount: 0,
+  runningAgentTaskCount: 0,
+  backgroundShellCount: 0,
   hasQueuedCommand: false,
   acknowledged: false,
   usageLimited: false,
@@ -70,17 +103,52 @@ export const EMPTY_SESSION_RUN_INPUTS: SessionRunInputs = {
  * **지금 돌고 있는가** — [중지]를 띄울지, 스피너를 돌릴지의 유일한 근거.
  *
  * 세 근거를 OR 로 묶는 이유는 셋 중 **어느 하나만 살아 있어도 사용자에게는 "도는 중"** 이기 때문이다:
- *  - `subStatus === 'active'` : 서버가 이 세션을 실행 중으로 본다(봉인 후 깨어난 경우 이것만 참이다).
- *  - `hasExecutingCommand`    : 이 세션의 명령이 dispatch 돼 있다.
- *  - `runningTaskCount > 0`   : 이 세션이 띄운 백그라운드 Task 가 아직 안 끝났다.
+ *  - `subStatus === 'active'`     : 서버가 이 세션을 실행 중으로 본다(봉인 후 깨어난 경우 이것만 참이다).
+ *  - `hasExecutingCommand`        : 이 세션의 명령이 dispatch 돼 있다.
+ *  - `runningAgentTaskCount > 0`  : 이 세션이 띄운 **Task/Agent 자식**이 아직 모델을 돌리고 있다.
  *
- * `hasQueuedCommand` 는 **일부러 뺀다** — 큐에 줄 서 있는 것은 "낼 일이 남았다"이지 "돌고 있다"가
+ * **`backgroundShellCount` 는 일부러 뺀다.** 백단 셸은 명령이 돌 뿐 모델이 돌지 않아, 그 턴의 답은
+ * 이미 나와 있다. 그것까지 running 으로 치면 `grep | sort` 하나가 대화를 인질로 잡는다 — 입력창이
+ * [중지]로 바뀌고 3분 무응답 경고가 서며, 끝 표식이 안 오는 명령이면 그 상태가 영영 안 풀린다.
+ * 셸은 `hasBackgroundShells` 로 **따로 보여 주고 따로 끊는다**(§5.5 #17-9 ⑫의 갈라 적기를 생존
+ * 축까지 끌고 온 것 — ⑮의 폐기가 아니라 확장이다).
+ *
+ * `hasQueuedCommand` 도 **일부러 뺀다** — 큐에 줄 서 있는 것은 "낼 일이 남았다"이지 "돌고 있다"가
  * 아니다. 그것까지 running 으로 치면 아무것도 안 도는 세션에 스피너가 돈다.
  */
 export function isSessionRunning(inputs: SessionRunInputs): boolean {
   return inputs.subStatus === 'active'
     || inputs.hasExecutingCommand
-    || inputs.runningTaskCount > 0;
+    || inputs.runningAgentTaskCount > 0;
+}
+
+/**
+ * **백단에 셸이 남아 있는가** — 실행 축과 **직교하는** 표시 전용 축.
+ *
+ * 참이어도 세션은 끝난 것이다(입력창은 평소대로, 스피너 없음, 무응답 경고 없음). 화면은 이 값으로
+ * 활동바 배지를 켜고 "백단에서 N개가 돌고 있습니다" 한 줄을 세워, 사용자가 **원할 때** 그 목록을
+ * 열어 끊게(`KillShell`) 한다. 끝내는 주체가 세션이 아니라 사용자라는 것이 요점이다.
+ */
+export function hasBackgroundShells(inputs: SessionRunInputs): boolean {
+  return inputs.backgroundShellCount > 0;
+}
+
+/**
+ * 도는 항목 하나가 **셸인가**(≠ Task/Agent 서브에이전트) — 실행 축과 표시 축을 가르는 단 하나의 규칙.
+ *
+ * 서버가 이미 답을 실어 보낸다: 훅 대차대조에서 온 것은 `origin: 'hook'`(미지정도 같다, 구버전
+ * 호환), CLI 스트림의 `task_started` 칩에서 온 것은 `origin: 'stream'` 이다. 후자가 곧 셸이다 —
+ * `Bash run_in_background` · `Monitor` · 120초 타임아웃으로 승격된 전경 Bash.
+ *
+ * `subagentType` 이 붙어 있으면 스트림에서 왔더라도 **에이전트로 본다.** 그 값이 있다는 것은 Task
+ * 도구로 띄운 모델 자식이라는 뜻이고, 그런 항목은 훅 대차대조가 이미 세고 있다(§5.5 #17-9 ⑮).
+ *
+ * 규칙을 화면마다 손으로 적으면 또 갈라진다 — 셸 판정이 필요한 곳은 전부 이 함수를 부른다.
+ */
+export function isBackgroundShellTask(
+  task: Pick<RunningSubagentTask, 'origin' | 'subagentType'>,
+): boolean {
+  return task.origin === 'stream' && !task.subagentType;
 }
 
 /**
@@ -173,11 +241,16 @@ export function resolveSessionLiveness(
  * **`limited` 는 `running` 다음, `doneUnseen` 앞이다.** 사용자가 한도를 무시하고 그 세션을 다시
  * 돌렸으면 그것은 도는 중이고(파랑이 이긴다), 아직 안 돌렸으면 그 세션은 **끝난 것이 아니라 끊긴
  * 것**이라 초록 "끝남"으로 내려가면 안 된다 — 그 강등이 바로 이 축이 생긴 이유다.
+ *
+ * **`waiting` 은 `limited` 다음, `doneUnseen` 앞이다.** 한도로 끊긴 세션은 큐가 남아 있어도
+ * 사유가 "한도"라 그쪽이 더 구체적이고, 반대로 **큐가 남은 세션이 "끝남"으로 내려가는 것**은
+ * 그 자체가 결함이다 — 사용자가 그 "끝남"을 믿고 보낸 덧말이 조용히 줄만 서기 때문이다.
  */
 export function resolveSessionRunState(inputs: SessionRunInputs): SessionRunState {
   if (inputs.subStatus === 'error') return 'error';
   if (isSessionRunning(inputs)) return 'running';
   if (inputs.usageLimited) return 'limited';
+  if (isSessionWaiting(inputs)) return 'waiting';
   if (inputs.subStatus === 'idle' && !inputs.acknowledged) return 'doneUnseen';
   return 'done';
 }

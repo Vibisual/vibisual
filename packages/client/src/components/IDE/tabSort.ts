@@ -40,11 +40,13 @@ export function normalizeTabSortAnchor(value: unknown): TabSortAnchor {
  * 실행 상태 우선순위 — 작을수록 기준 쪽(앞)에 선다.
  *
  * 사용자가 부른 순서는 "실행중 → 완료 → 비활성화" 셋이다. 우리 상태 축은 다섯이라
- * (`running`/`limited`/`error`/`doneUnseen`/`done`) 다음과 같이 대응시킨다.
+ * (`running`/`limited`/`error`/`waiting`/`doneUnseen`/`done`) 다음과 같이 대응시킨다.
  *  · `running`    = 실행중
  *  · `limited`    = 요금제 한도로 끊김 — 끝난 것이 아니라 **멈춘** 탭이다(§2.4 한도 정지).
  *  · `error`      = 사용자를 불러야 하는 끝남 — 실행중 바로 다음에 둔다(사용자가 부른 셋에는
  *                   없지만, 조용한 완료들 사이에 묻히면 그게 제일 놓치기 쉬운 탭이 된다).
+ *  · `waiting`    = 줄 서 있다 — 끝난 것이 아니다(§5.5 #17-18 대기). 사용자를 부르지는 않으므로
+ *                   위 셋보다는 아래지만, **완료 더미 위**에 있어야 한다(보낸 말이 아직 안 나갔다).
  *  · `doneUnseen` = 완료(아직 안 본 결과 — 초록 도트)
  *  · `done`       = 비활성화(확인까지 끝나 배경으로 물러난 회색 도트)
  */
@@ -54,8 +56,11 @@ const RUN_STATE_RANK: Record<SessionRunState, number> = {
   //   그 세션이 멈춰 있다는 사실 자체를 못 본다(실패보다 앞에 두는 이유는 사유가 더 구체적이어서다).
   limited: 1,
   error: 2,
-  doneUnseen: 3,
-  done: 4,
+  // §5.5 #17-18 (대기) — 사용자 손이 필요한 셋 아래, 끝난 둘 위. 완료 더미로 섞이면
+  //   "아직 안 나간 말"이 조용한 탭들 사이에 묻힌다.
+  waiting: 3,
+  doneUnseen: 4,
+  done: 5,
 };
 
 /** 탭 하나를 줄 세우는 데 필요한 사실 전부 — DOM·store 를 모르는 값만 받는다. */

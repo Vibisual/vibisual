@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SubAgentStreamEvent } from '@vibisual/shared';
-import { hasRecentEventId, RECENT_EVENT_ID_SCAN, spliceMissingInServerOrder } from './streamGapFill.js';
+import { hasRecentEventId, mergeDeepWindow, RECENT_EVENT_ID_SCAN, spliceMissingInServerOrder } from './streamGapFill.js';
 
 /**
  * 재연결 뒤 서버 창을 버퍼에 **제자리로** 끼우는 규칙을 못 박는다.
@@ -28,6 +28,28 @@ function range(from: number, to: number): SubAgentStreamEvent[] {
 }
 
 const ids = (events: readonly SubAgentStreamEvent[] | null): string[] => (events ?? []).map((e) => e.id);
+
+describe('mergeDeepWindow — 다시 받은 창이 읽던 과거를 지우거나 복제하지 않는다', () => {
+  it('서버 창의 첫 줄을 놓쳐도 뒤에서 겹치는 줄 앞의 과거를 남긴다', () => {
+    const prev = [...range(0, 4), ...range(10, 12)];
+    const server = range(6, 12);
+    expect(ids(mergeDeepWindow(server, prev))).toEqual(ids([...range(0, 4), ...server]));
+  });
+
+  it('오래 끊겨 서버 창과 겹침이 없어도 이전 대화와 새 라이브 꼬리를 남긴다', () => {
+    const prev = [...range(0, 4), ...range(20, 22)];
+    const server = range(10, 19);
+    expect(ids(mergeDeepWindow(server, prev))).toEqual(ids([...range(0, 4), ...server, ...range(20, 22)]));
+  });
+
+  it('같은 밀리초에 기록된 과거 줄을 라이브 꼬리로 한 번 더 붙이지 않는다', () => {
+    const prev = range(0, 4).map((e) => ({ ...e, timestamp: 100 }));
+    const server = prev.slice(2, 4);
+    const merged = mergeDeepWindow(server, prev);
+    expect(ids(merged)).toEqual(ids(prev));
+    expect(ids(mergeDeepWindow(server, merged))).toEqual(ids(prev));
+  });
+});
 
 describe('spliceMissingInServerOrder — 끊겨 있던 사이를 제자리에', () => {
   it('가운데 빈 줄을 끊기기 전 줄 바로 뒤에 끼운다', () => {

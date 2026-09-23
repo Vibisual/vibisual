@@ -110,12 +110,14 @@ class ClaudeAuthService {
    */
   async logout(): Promise<{ ok: boolean; status: ClaudeAuthStatus; error?: string }> {
     const res = await runClaudeCli(['auth', 'logout'], CLAUDE_AUTH_LOGOUT_TIMEOUT_MS);
+    // 로그아웃 전에 시작한 탐침은 종전 자격증명을 봤을 수 있다. 그 응답을 최종 확인에 재사용하지 않는다.
+    await this.inflight;
     const status = await this.refresh();
     if (res.failure || (res.code !== null && res.code !== 0)) {
       const detail = res.failure ?? `exit ${String(res.code)}`;
       logger.warn(`[claudeAuth] logout failed (${detail}): ${res.out.slice(0, 200)}`);
       // CLI 가 실패해도 상태가 로그아웃이면 성공으로 본다(이미 로그아웃돼 있던 경우 등).
-      return status.loggedIn
+      return status.loggedIn || status.error !== undefined
         ? { ok: false, status, error: res.out.trim().slice(0, 300) || detail }
         : { ok: true, status };
     }

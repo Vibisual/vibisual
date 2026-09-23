@@ -13,6 +13,7 @@ import type { SubAgentStreamEvent } from '@vibisual/shared';
 import { STREAM_HISTORY_PAGE_EVENTS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { mergeDeepWindow } from './streamGapFill.js';
+import { olderHistoryUrl, restoreStreamWindow } from './streamRestore.js';
 
 /** 못 찾음·오류 뒤 같은 세션을 다시 묻기까지 기다리는 시간. 스크롤 한 번마다 서버를 두드리지 않게 한다. */
 export const STREAM_HISTORY_RETRY_MS = 8_000;
@@ -37,13 +38,7 @@ export function reachesHistoryBoundary(renderedStart: number, boundary: number):
 }
 
 // 병합은 스토어도 쓰므로 스토어를 안 무는 파일에 산다(이 파일은 스토어를 import 해 순환이 된다).
-export { mergeDeepWindow };
-
-/** 과거 한 쪽을 청하는 주소. 기준은 버퍼의 첫 줄(id 가 정본, 디스크에서 못 찾을 때를 대비해 시각도 함께). */
-export function olderHistoryUrl(agentId: string, sessionId: string, first: SubAgentStreamEvent, limit: number): string {
-  const q = new URLSearchParams({ beforeId: first.id, beforeTs: String(first.timestamp), limit: String(limit) });
-  return `/api/subagent-streams/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}/older?${q.toString()}`;
-}
+export { mergeDeepWindow, olderHistoryUrl };
 
 interface OlderPageResponse {
   events?: SubAgentStreamEvent[];
@@ -52,7 +47,7 @@ interface OlderPageResponse {
   unresolved?: boolean;
 }
 
-const inFlight = new Set<string>();
+const inFlight = new Map<string, number>();
 const retryAt = new Map<string, number>();
 
 /** 시험 전용 — 모듈 상태(진행 중·쉬는 중)를 비운다. */
@@ -79,15 +74,16 @@ async function fetchOlderPage(agentId: string, sessionId: string, first: SubAgen
  * 먼저 서버의 깊은 창부터 받는다. 얕은 창(500) 앞을 곧장 거슬러 오르면 그 사이 1,500건을 한 쪽씩 다시 받게 된다.
  */
 async function fetchDeepWindow(agentId: string, sessionId: string): Promise<boolean> {
+  const epoch = useGraphStore.getState().streamRestoreEpoch;
   const res = await fetch(`/api/subagent-streams/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}`);
   if (!res.ok) return false;
   const data = (await res.json()) as { events?: SubAgentStreamEvent[] };
   const server = data.events;
   if (!server || server.length === 0) return false;
   const st = useGraphStore.getState();
+  if (st.streamRestoreEpoch !== epoch) return false;
   if (st.deepRestoredSessions[sessionId]) return true; // 그 사이 창의 깊은 복원이 끝냈다.
-  st.loadStreamBuffers({ [sessionId]: mergeDeepWindow(server, st.subAgentStreams[sessionId] ?? []) }, 'deep');
-  return true;
+  return restoreStreamWindow(agentId, sessionId, server, { epoch });
 }
 
 /**
@@ -96,11 +92,12 @@ async function fetchDeepWindow(agentId: string, sessionId: string): Promise<bool
  * 요청이 있으면 겹쳐 묻지 않는다.
  */
 export function resyncDeepWindow(agentId: string, sessionId: string): void {
-  if (inFlight.has(sessionId)) return;
-  inFlight.add(sessionId);
+  const epoch = useGraphStore.getState().streamRestoreEpoch;
+  if (inFlight.get(sessionId) === epoch) return;
+  inFlight.set(sessionId, epoch);
   void fetchDeepWindow(agentId, sessionId)
     .catch(() => false)
-    .finally(() => { inFlight.delete(sessionId); });
+    .finally(() => { if (inFlight.get(sessionId) === epoch) inFlight.delete(sessionId); });
 }
 
 /**
@@ -109,9 +106,10 @@ export function resyncDeepWindow(agentId: string, sessionId: string): void {
  * 붙인 결과로 윗끝이 여전히 화면 가까이면 부르는 쪽이 한 번 더 확인한다.
  */
 export function requestOlderStreamHistory(agentId: string, sessionId: string, onSettled?: () => void): number {
+  const epoch = useGraphStore.getState().streamRestoreEpoch;
   const wait = (retryAt.get(sessionId) ?? 0) - Date.now();
   if (wait > 0) return wait;
-  if (inFlight.has(sessionId)) return 0;
+  if (inFlight.get(sessionId) === epoch) return 0;
   const st = useGraphStore.getState();
   if (st.streamHistoryDone[sessionId]) return 0;
   const buf = st.subAgentStreams[sessionId];
@@ -119,16 +117,19 @@ export function requestOlderStreamHistory(agentId: string, sessionId: string, on
   const deep = st.deepRestoredSessions[sessionId] === true;
   // 창의 활성 세션은 창(AgentIDEOverlay)이 깊은 복원을 끝까지 두드린다 — 겹쳐 받지 않고 그 표식을 기다린다.
   if (!deep && Object.values(st.ideOverlays).some((ov) => ov.agentId === agentId && ov.activeSessionId === sessionId)) return 0;
-  inFlight.add(sessionId);
+  inFlight.set(sessionId, epoch);
   const job = deep ? fetchOlderPage(agentId, sessionId, buf[0]!) : fetchDeepWindow(agentId, sessionId);
   void job
     .then((ok) => {
+      if (useGraphStore.getState().streamRestoreEpoch !== epoch) return;
       if (ok) retryAt.delete(sessionId);
       else retryAt.set(sessionId, Date.now() + STREAM_HISTORY_RETRY_MS);
     })
-    .catch(() => { retryAt.set(sessionId, Date.now() + STREAM_HISTORY_RETRY_MS); })
+    .catch(() => {
+      if (useGraphStore.getState().streamRestoreEpoch === epoch) retryAt.set(sessionId, Date.now() + STREAM_HISTORY_RETRY_MS);
+    })
     .finally(() => {
-      inFlight.delete(sessionId);
+      if (inFlight.get(sessionId) === epoch) inFlight.delete(sessionId);
       onSettled?.();
     });
   return 0;

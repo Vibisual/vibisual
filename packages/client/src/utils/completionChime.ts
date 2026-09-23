@@ -11,6 +11,12 @@
  * 회차가 끝나자마자 다음 회차가 붙어, 에이전트가 멀쩡히 일하는 중에 완료음이 계속 울렸다
  * (사용자 보고). 그래서 **진행 중 루프를 가진 에이전트는 침묵**시키고, 그 에이전트의 **루프 묶음이
  * 끝나는 순간 한 번만** 울린다.
+ *
+ * §5.5 #17-11 ⑦ 개정. 위 v3.84 는 "루프 묶음 종료"를 **두 번째 발화 지점**으로 만들었고, 그 둘이
+ * 한 스냅샷에 같이 실릴 때만 우연히 한 번으로 접혔다. 서버가 루프를 끈 뒤 버블 완료 판정이
+ * 다음 스냅샷(최대 10초 뒤 전체 재계산)에 실리면 **같은 종료로 소리가 두 번** 났다. 통상적인 앱처럼
+ * 종료 사건은 하나여야 하므로, 발화 지점을 **버블의 `completed` 전이 하나**로 되돌리고 루프는
+ * 그 전이를 **삼킬지·문구를 바꿀지 정하는 수식어**로 강등한다. 새 WS 메시지·새 서버 상태 ❌.
  */
 import type { BubbleData, NodeStatus, SessionLoop } from '@vibisual/shared';
 
@@ -19,6 +25,12 @@ const lastStatusById = new Map<string, NodeStatus>();
 
 /** 에이전트 id → 직전 스냅샷에서 **진행 중 루프를 갖고 있었는가**. true→false 가 "루프 묶음 종료". */
 const lastLoopRunningById = new Map<string, boolean>();
+
+/**
+ * 에이전트 id → 방금 끝난 루프 묶음이 남긴 예고. 다음 `completed` 전이 **한 번**을 이렇게 처리하라는 뜻.
+ * `announce` = 루프 문구로 울린다, `silence` = 정지·삭제의 뒷모습이라 삼킨다.
+ */
+const pendingLoopEndById = new Map<string, 'announce' | 'silence'>();
 
 /** 첫 스냅샷은 기준선으로만 삼는다 — 부팅 시점에 이미 completed 인 버블로 소리가 나면 안 된다. */
 let seeded = false;
@@ -83,19 +95,41 @@ export function detectCustomAgentCompletions(
     if (!seeded) continue;
     if (!agent.customCreated) continue;
 
-    // 루프 묶음 종료 — 마지막 진행 중 루프가 꺼진 순간 한 번. 이 패스의 버블 completed 전이는
-    // 같은 사건의 다른 얼굴이므로 여기서 소비하고 흘린다(중복 발화 ❌).
+    // 루프 묶음 종료 — **소리의 근거가 아니라 다음 완료 전이의 사유**다.
     if (prevLoopRunning && !loopRunning) {
-      if (loopFinishedAgents.has(agent.id)) done.push({ agent, reason: 'loop' });
-      continue;
+      const reason = loopFinishedAgents.has(agent.id) ? 'announce' : 'silence';
+      // 버블이 이 프레임에 이미 completed 로 앉아 있으면(전이가 앞서 지나갔다) 뒤에 소비할 전이가
+      // 없다 — 종료는 지금 이 프레임이다.
+      if (agent.status === 'completed' && prevStatus === 'completed') {
+        pendingLoopEndById.delete(agent.id);
+        if (reason === 'announce') done.push({ agent, reason: 'loop' });
+        continue;
+      }
+      pendingLoopEndById.set(agent.id, reason);
     }
 
     // 루프가 도는 동안에는 회차 경계마다 오는 완료 전이를 울리지 않는다.
     if (loopRunning) continue;
 
-    if (agent.status === 'completed' && prevStatus !== undefined && prevStatus !== 'completed') {
-      done.push({ agent, reason: 'agent' });
+    // 실패로 주저앉은 버블은 완료가 아니다(§2.4) — 예고만 털고 조용히 넘어간다. 남겨 두면 한참 뒤
+    // 사용자가 새로 내린 명령의 완료가 엉뚱하게 "루프 종료" 문구로 울린다.
+    if (agent.status === 'error') {
+      pendingLoopEndById.delete(agent.id);
+      continue;
     }
+
+    const finishedNow =
+      agent.status === 'completed' && prevStatus !== undefined && prevStatus !== 'completed';
+    if (!finishedNow) continue;
+
+    const pending = pendingLoopEndById.get(agent.id);
+    if (pending !== undefined) {
+      pendingLoopEndById.delete(agent.id);
+      if (pending === 'announce') done.push({ agent, reason: 'loop' });
+      continue; // silence = 정지·삭제의 뒷모습. 이 완료 전이는 그 사건의 다른 얼굴이라 삼킨다.
+    }
+
+    done.push({ agent, reason: 'agent' });
   }
 
   // 사라진 버블은 기억에서 지운다 — 같은 id 가 나중에 되살아나도 낡은 상태로 오판하지 않게.
@@ -104,6 +138,9 @@ export function detectCustomAgentCompletions(
   }
   for (const id of lastLoopRunningById.keys()) {
     if (!seen.has(id)) lastLoopRunningById.delete(id);
+  }
+  for (const id of pendingLoopEndById.keys()) {
+    if (!seen.has(id)) pendingLoopEndById.delete(id);
   }
 
   seeded = true;
@@ -114,5 +151,6 @@ export function detectCustomAgentCompletions(
 export function __resetCompletionChimeStateForTest(): void {
   lastStatusById.clear();
   lastLoopRunningById.clear();
+  pendingLoopEndById.clear();
   seeded = false;
 }

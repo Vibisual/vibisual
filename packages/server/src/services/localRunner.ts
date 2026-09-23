@@ -761,21 +761,27 @@ export async function compactLocalSession(
 ): Promise<string> {
   const history = loadHistory(subAgentId);
   if (history.length < 2) return '[local] nothing to compact yet — this conversation is still short';
+  const ac = new AbortController();
+  running.set(subAgentId, ac);
   let inst: LoadedModel | null = null;
   try {
-    inst = await ensureLoaded(modelId, contextSize);
+    inst = await ensureLoaded(modelId, contextSize, ac.signal);
+    ac.signal.throwIfAborted();
     const want = instructions?.trim();
     // 사용자가 "무엇을 남겨라"를 덧붙이면 그 말이 기본 지침보다 뒤에 와서 마지막 말이 된다.
     const source: ChatMessage[] = want
       ? [...history, { role: 'user', content: `When summarizing, pay special attention to: ${want}` }]
       : history;
-    const summary = await summarizeMessages(inst.port, source, inst.contextSize);
+    const summary = await summarizeMessages(inst.port, source, inst.contextSize, ac.signal);
+    ac.signal.throwIfAborted();
     if (!summary) return '[local] could not compact — the model did not produce a summary. Nothing was lost.';
     saveHistory(subAgentId, [foldedMessage(summary, history.length)]);
     return `[local] compacted ${String(history.length)} messages into one summary (${String(summary.length)} chars). The conversation continues from here.`;
   } catch (err) {
+    if (ac.signal.aborted) return '[local] compaction cancelled. Nothing was lost.';
     return `[local] could not compact — ${err instanceof Error ? err.message : String(err)}. Nothing was lost.`;
   } finally {
+    if (running.get(subAgentId) === ac) running.delete(subAgentId);
     if (inst) releaseModel(inst);
   }
 }
@@ -1447,6 +1453,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
 
     try {
       inst = await ensureLoaded(modelId, contextSize, ac.signal);
+      ac.signal.throwIfAborted();
       // 예산·게이지·절단이 전부 이 값을 먹는다 — 요청값이 아니라 **실제로 뜬 창**이 진실이다.
       contextSize = inst.contextSize;
       inst.lastUsedAt = Date.now();
@@ -1493,6 +1500,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
       let hitMaxRounds = false;
 
       for (let round = 0; round < LOCAL_TOOL_MAX_ROUNDS; round += 1) {
+        ac.signal.throwIfAborted();
         // 답 예산은 **왕복마다 다시 잡는다** — 도구 결과가 쌓여 프롬프트가 커진 만큼 답의 몫이
         //   줄어야 창 끝에 닿아 답이 잘리지 않는다(§5.19 (D) `localAnswerBudget`).
         const answerBudget = localAnswerBudget(contextSize, lastPromptTokens ?? undefined);
@@ -1607,6 +1615,9 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         let buf = '';
         for (;;) {
           const { done, value } = await reader.read();
+          // Abort can race with an already buffered chunk (including the final one).
+          // Do not publish old output after the user has stopped this turn.
+          ac.signal.throwIfAborted();
           if (done) break;
           buf += decoder.decode(value, { stream: true });
           let nl = buf.indexOf('\n');
@@ -1677,7 +1688,11 @@ export function runLocalTurn(args: LocalTurnArgs): void {
           } else {
             const verdict = await (args.onToolRequest?.(toolName, toolInput)
               ?? Promise.resolve<LocalToolVerdict>({ allowed: false, reason: 'no permission broker' }));
-            if (!verdict.allowed) {
+            // An approval may resolve just before stop but resume after it. Host tools
+            // and file tools must not start; still close the attempted call's result.
+            if (ac.signal.aborted) {
+              resultBody = 'tool cancelled by user before execution';
+            } else if (!verdict.allowed) {
               resultBody = `permission denied: ${verdict.reason ?? 'the user did not allow this tool call'}`;
             } else {
               if (LOCAL_HOST_TOOLS.includes(toolName)) {
@@ -1720,6 +1735,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         }
       }
 
+      ac.signal.throwIfAborted();
       if (!assistant) {
         // 답이 비었는데 조용히 "완료"로 끝내면 사용자는 **아무 일도 안 일어난 것**으로 본다.
         //   왜 비었는지를 말해 주는 것이 최소한이다.
@@ -1746,6 +1762,18 @@ export function runLocalTurn(args: LocalTurnArgs): void {
       stream.flush(); // 붙잡아 둔 마지막 조각까지 화면에 보낸 뒤에 끝맺는다
       if (aborted) {
         // 중지는 실패가 아니다 — 여기까지 나온 말과 **도구 왕복**을 이력에 남겨 다음 턴이 이어지게 한다.
+        // The remaining calls in the last round were never executed. Pair them with
+        // cancellation results so resume cannot inherit an incomplete tool round.
+        let lastCalls = turnMessages.length - 1;
+        while (lastCalls >= 0 && !turnMessages[lastCalls]?.tool_calls?.length) lastCalls -= 1;
+        if (lastCalls >= 0) {
+          const answered = new Set(turnMessages.slice(lastCalls + 1).map((message) => message.tool_call_id));
+          for (const call of turnMessages[lastCalls]!.tool_calls ?? []) {
+            if (!answered.has(call.id)) turnMessages.push({
+              role: 'tool', tool_call_id: call.id, content: 'tool cancelled by user before completion',
+            });
+          }
+        }
         if (assistant) turnMessages.push({ role: 'assistant', content: assistant });
         if (turnMessages.length > 1) persist();
         onDone();

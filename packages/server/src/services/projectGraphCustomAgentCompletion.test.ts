@@ -204,3 +204,135 @@ describe('커스텀 에이전트 완료 판정 — 낼 일이 남았으면 완�
     expect(graph.sweepIdleAgents(60_000)).not.toContain(sessionId);
   });
 });
+
+/**
+ * §5.5 #17-11 — 훅 `Stop` 이 집계를 건너뛰고 버블을 완료로 찍던 회귀.
+ *
+ * 헤드리스 서브는 `VIBISUAL_OWNER_AGENT_ID` 를 달고 뜨고, 그 태그가 훅 라우트에서 `session_id` 를
+ * **부모 버블의 세션키로 rewrite** 한다. 그래서 세션 탭 하나가 턴을 마칠 때마다
+ * `agentTracker.markStop → setAgentStatus(버블, 'completed')` 가 불렸고, 형제 탭이 멀쩡히 도는
+ * 중에도 버블이 completed 로 찍혀 완료음·완료 알림이 울렸다(사용자 보고).
+ * 같은 경로로 v3.92 완료 조건(큐·루프·백그라운드 Task·실패 형제)도 전부 우회됐다.
+ *
+ * 그래서 커스텀 버블의 `setAgentStatus` 는 직접 찍지 않고 `recomputeCustomAgentStatus` 에 넘긴다.
+ * CMD(인터랙티브 터미널)와 일반 Hook 에이전트는 예외 — 훅이 그 버블의 유일한 상태 주인이다.
+ */
+describe('커스텀 에이전트 완료 판정 — 훅 Stop 은 탭 하나의 종료일 뿐이다', () => {
+  /** 세션 탭 두 개가 동시에 도는 버블. 둘 다 active 인 상태로 돌려준다. */
+  function twoTabAgent(label: string): {
+    graph: ProjectGraph;
+    agentId: string;
+    sessionId: string;
+    subs: [string, string];
+    queues: Map<string, QueuedCommand[]>;
+  } {
+    const graph = new ProjectGraph();
+    const queues = new Map<string, QueuedCommand[]>();
+    graph.setCommandQueuesRef(queues);
+
+    const agent = graph.createCustomAgent(label);
+    const first = subAgentManager.create(agent.id);
+    const second = subAgentManager.create(agent.id);
+    first.status = 'active';
+    second.status = 'active';
+
+    expect(graph.recomputeCustomAgentStatus(agent.id)).toBe(true);
+    expect(statusOf(graph, agent.id)).toBe('active');
+
+    return { graph, agentId: agent.id, sessionId: agent.path, subs: [first.id, second.id], queues };
+  }
+
+  it('탭 하나가 턴을 마쳐도 형제 탭이 도는 동안에는 완료로 찍지 않는다', () => {
+    const { graph, agentId, sessionId, subs } = twoTabAgent('TwoTabs');
+    subAgentManager.getSub(subs[0])!.status = 'idle';
+
+    // 훅 Stop — 소유자 태그로 session_id 가 버블 세션키로 rewrite 된 그 호출.
+    graph.setAgentStatus(sessionId, 'completed');
+
+    expect(statusOf(graph, agentId)).toBe('active');
+  });
+
+  it('마지막 탭까지 끝나면 그때 완료로 간다', () => {
+    const { graph, agentId, sessionId, subs } = twoTabAgent('LastTab');
+    subAgentManager.getSub(subs[0])!.status = 'idle';
+    graph.setAgentStatus(sessionId, 'completed');
+    expect(statusOf(graph, agentId)).toBe('active');
+
+    subAgentManager.getSub(subs[1])!.status = 'idle';
+    graph.setAgentStatus(sessionId, 'completed');
+    expect(statusOf(graph, agentId)).toBe('completed');
+  });
+
+  it('큐에 대기 중인 명령이 남아 있으면 훅 Stop 으로도 완료되지 않는다', () => {
+    const { graph, agentId, sessionId, subId, queues } = activeAgent('HookQueued');
+    queues.set(sessionId, [makeCmd(subId, 'queued')]);
+
+    graph.setAgentStatus(sessionId, 'completed');
+
+    expect(statusOf(graph, agentId)).toBe('active');
+  });
+
+  it('진행 중 세션 루프가 있으면 훅 Stop 으로도 완료되지 않는다', () => {
+    const { graph, agentId, sessionId, subId } = activeAgent('HookLooping');
+    graph.setSessionLoop(makeLoop(agentId, subId, { status: 'waiting' }));
+
+    graph.setAgentStatus(sessionId, 'completed');
+
+    expect(statusOf(graph, agentId)).toBe('active');
+  });
+
+  it('실패한 탭이 있으면 훅 Stop 이 완료로 세탁하지 못한다', () => {
+    const { graph, agentId, sessionId, subId } = activeAgent('HookFailed');
+    subAgentManager.getSub(subId)!.status = 'error';
+
+    graph.setAgentStatus(sessionId, 'completed');
+
+    expect(statusOf(graph, agentId)).toBe('error');
+  });
+
+  it('완료의 부수효과(페이드·엣지 정리)까지 마지막 탭까지 유예된다', () => {
+    const { graph, agentId, sessionId, subs } = twoTabAgent('DeferSideEffects');
+    const fadeOf = () => graph.getSnapshot().agents.find((a) => a.id === agentId)?.fadeStartedAt;
+
+    subAgentManager.getSub(subs[0])!.status = 'idle';
+    graph.setAgentStatus(sessionId, 'completed');
+    // 상태만 막고 부수효과가 먼저 돌면 버블이 도는 중에 선이 끊기고 색이 바랜다.
+    expect(fadeOf()).toBeUndefined();
+
+    subAgentManager.getSub(subs[1])!.status = 'idle';
+    graph.setAgentStatus(sessionId, 'completed');
+    expect(fadeOf()).toEqual(expect.any(Number));
+  });
+
+  it('CMD(인터랙티브 터미널) 버블은 종전대로 훅이 직접 완료로 찍는다', () => {
+    const graph = new ProjectGraph();
+    const cmd = graph.createCustomAgent('Term', undefined, null, {
+      executionMode: 'interactive-terminal',
+    });
+    expect(graph.getAgentConfigOverrides(cmd.id)?.executionMode).toBe('interactive-terminal');
+
+    // 집계는 CMD 를 일부러 비켜서 있다 — 여기서 가로채면 그 버블은 영영 끝나지 않는다.
+    graph.setAgentStatus(cmd.path, 'completed');
+
+    expect(statusOf(graph, cmd.id)).toBe('completed');
+  });
+
+  it('커스텀이 아닌 Hook 에이전트는 종전대로 훅이 직접 완료로 찍는다', () => {
+    const graph = new ProjectGraph();
+    const sessionId = 'hook-session-completion';
+    graph.processHookEvent({
+      session_id: sessionId,
+      hook_event_name: 'PreToolUse',
+      cwd: process.cwd(),
+      tool_name: 'Read',
+      tool_input: { file_path: 'README.md' },
+      tool_use_id: 'hook-completion-1',
+    });
+    const agent = graph.getSnapshot().agents.find((a) => a.path === sessionId);
+    expect(agent?.status).toBe('active');
+
+    graph.setAgentStatus(sessionId, 'completed');
+
+    expect(statusOf(graph, agent!.id)).toBe('completed');
+  });
+});

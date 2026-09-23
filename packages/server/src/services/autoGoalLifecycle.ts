@@ -259,7 +259,16 @@ export function summarizeAutoGoalDocument(root: string | null, doc: AutoGoalDocu
   if (root && state.status === 'active') {
     const reason = staleReason(root, doc, state, useEvidenceCache);
     if (reason) {
-      state = { ...state, status: 'needs-review', reason, completions: [] };
+      /*
+       * §5.10 (R)ⓓ — 내려앉히되 **완료 기록은 버리지 않는다.**
+       *
+       * 버리던 때는 강등 방아쇠(근거 파일이 바뀜)와 재사용 성립 조건(입력 파일이 그대로)이 같은 축이라
+       * 서로를 배제해, 파일이 늘 바뀌는 저장소에서는 생략 창이 사실상 열리지 않았다. 기록을 남겨도
+       * 새는 곳이 없다 — `assess` 는 `status === 'active'` 일 때만 여기까지 오고, 그때도 완료의
+       * `procedureRevision`·입력 해시·산출물 존재를 다시 맞춰 본다. 본문이나 근거가 실제로 달라졌으면
+       * 재승인이 새 지문을 찍어 옛 기록이 저절로 맞지 않게 된다.
+       */
+      state = { ...state, status: 'needs-review', reason };
       if (persistStale) {
         try { doc = saveLifecycle(root, doc, state); } catch { /* Failure to persist can never activate a stale procedure. */ }
       }
@@ -300,7 +309,9 @@ export function reviewAutoGoalSkill(root: string, input: AutoGoalReviewInput, ac
   const reason = nonempty(input.reason, 'Review reason');
   if (!['approve', 'revise', 'retire', 'supersede'].includes(input.decision)) fail('invalid-decision', 'Unknown review decision.');
   const previous = lifecycle(doc);
-  let state: Lifecycle = { ...previous, reason, completions: [] };
+  // (R)ⓓ — 재승인도 완료 기록을 지우지 않는다. 본문·근거가 달라졌으면 새 `review.fingerprint` 가
+  // 옛 기록을 맞지 않게 만들고, 그대로면 그 기록은 지금도 유효하다. 지워야 할 이유가 없다.
+  let state: Lifecycle = { ...previous, reason };
   let body = doc.body;
   const updates: Record<string, string> = {};
   if (input.decision === 'retire' || input.decision === 'supersede') {
@@ -329,6 +340,25 @@ export function reviewAutoGoalSkill(root: string, input: AutoGoalReviewInput, ac
   archiveRevision(root, doc);
   const saved = saveLifecycle(root, doc, state, body, updates);
   return summarizeAutoGoalDocument(root, saved);
+}
+/**
+ * §5.10 (R)ⓔ — **사람이 직접 올리는 부가 경로.** 없어도 돌아가야 하고, 있으면 즉시 올릴 수 있다.
+ *
+ * 근거를 사람에게 받아 적게 하지 않는다 — 절차가 이미 들고 있는 `files` 를 그대로 근거로 찍고,
+ * 앞선 적용 조건(없으면 설명)을 적용 조건으로 삼는다. 그래서 버튼 한 번으로 끝나고, 남는 모양은
+ * 에이전트 승인과 똑같다(`reviewedBy` 가 `user` 인 것만 다르다).
+ *
+ * 근거로 삼을 파일이 하나도 없으면 올리지 않는다 — 그건 (Q) 의 근거 규약이고, 여기만 빠져나가면
+ * 지문 없는 활성 절차가 생겨 `staleReason` 이 영영 판단할 수 없게 된다.
+ */
+export function approveAutoGoalSkill(root: string, input: { skillId: string; revision: string }, actor: AutoGoalActor): AutoGoalSkillSummary {
+  const doc = requiredDocument(root, input.skillId);
+  assertRevision(doc, input.revision);
+  const files = (doc.fields.get('files') ?? '').split(',').map((part) => part.trim()).filter(Boolean);
+  if (files.length === 0) fail('invalid-files', 'This procedure records no dependency files to approve against.');
+  const applicability = (lifecycle(doc).applicability ?? doc.fields.get('description') ?? '').trim();
+  if (!applicability) fail('invalid-applicability', 'This procedure has no description to use as its applicability.');
+  return reviewAutoGoalSkill(root, { ...input, decision: 'approve', reason: 'user-approved', applicability, files }, actor);
 }
 export function requestAutoGoalReview(root: string, input: { skillId: string; revision: string; reason: string }, actor: AutoGoalActor): AutoGoalSkillSummary {
   actorKey(actor);

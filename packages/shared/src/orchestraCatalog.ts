@@ -32,6 +32,7 @@ export type OrchestraKnob =
   | 'mcpServers'
   | 'skills'
   | 'excludeDynamicSystemPromptSections'
+  | 'maxBudgetUsd'
   | 'edgeReturnFormat';
 
 /** 원문 옆에 붙는 "이렇게 적용" 칸. 원문이 아니다 — 지휘자가 고른 뒤 할 수 있는 일이다. */
@@ -85,7 +86,9 @@ export const ORCHESTRA_STRATEGIES: readonly OrchestraStrategy[] = [
     risk: "탐색 품질 저하, 얕은 조사",
     applyAt: "Vibisual 설정창 Model·Effort·Max Turns / Agent 지시문",
     apply: {
-      knobs: ["model", "effort", "maxTurns", "subagentDepth", "rules"],
+      // `maxBudgetUsd` 는 원문 ②(호출 수 상한)와 같은 자리의 **금액 쪽 상한**이다 — 턴 수가 아니라
+      //   달러로 끊는다. 되돌리기 힘든 폭주(무한 재시도·끝없는 재작업)는 턴 상한만으로는 안 막힌다.
+      knobs: ["model", "effort", "maxTurns", "subagentDepth", "maxBudgetUsd", "rules"],
       memberRule: "조사·탐색 멤버는 sonnet 이나 haiku 로 만들고 maxTurns 상한을 둔다. 지시문 첫 줄에 이 멤버가 답할 질문을 한 줄로 좁혀 적는다. 멤버가 다시 서브에이전트를 부르지 않게 subagentDepth 를 1 로 둔다.",
       topology: "독립된 일일 때만 멤버를 늘린다. 겹치는 관점은 한 멤버로 합친다 — 머릿수마다 고정 비용이 붙는다.",
       selectable: true,

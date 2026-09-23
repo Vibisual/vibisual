@@ -19,6 +19,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  AGENT_TOOL_TEMPLATES,
   ORCHESTRA_ANALYSIS_INSIGHTS,
   ORCHESTRA_ANALYSIS_INSIGHTS_TITLE,
   ORCHESTRA_ANALYSIS_SUM,
@@ -700,6 +701,21 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
     () => (codexModels ?? []).map((m) => ({ value: m.slug, label: m.displayName || m.slug })),
     [codexModels],
   );
+  /*
+   * 멤버가 태어날 때 받는 도구 목록 — 이름은 에이전트 설정 창의 템플릿 이름을 그대로 쓴다(§4).
+   *   `all` 은 뺀다: 그것이 곧 기본값이라 고르면 "좁혔다고 믿는데 그대로"인 칸이 된다.
+   *   기본으로 돌아가는 길은 빈 칸 하나면 충분하다.
+   */
+  const memberToolOpts = useMemo<Opt[]>(
+    () => AGENT_TOOL_TEMPLATES.filter((tmpl) => tmpl.id !== 'all').map((tmpl) => ({
+      value: tmpl.id,
+      label: t('ide.orchestra.member.toolsOption', {
+        name: t(`panel.agentConfig.toolTemplate.${tmpl.id}.name`),
+        count: tmpl.tools.length,
+      }),
+    })),
+    [t],
+  );
 
   const states = orchestraScopeStates(settings, agentId);
   const effective = states[states.length - 1]?.effective ?? false;
@@ -992,6 +1008,33 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
               disabled={locked}
               onChange={(v) => control.patch({ maxMembers: v === '' ? null : Number(v) })}
             />
+            {/*
+              멤버가 **태어날 때** 받는 두 칸. 지휘자 손잡이가 아니라 사용자 스위치다 —
+                작업 폴더와 도구는 권한 축이라, 지휘자가 ② 설정 PATCH 로 넣을 수 없게 얼려 있다(§5.3 #12-1).
+                그래서 값의 출처를 여기로 두고 서버가 멤버 생성 시 대신 심는다.
+            */}
+            <div className="h-px bg-gray-800" />
+            <ToggleRow
+              field="memberIsolation"
+              label={t('ide.orchestra.field.memberIsolation')}
+              hint={t('ide.orchestra.field.memberIsolationHint')}
+              on={settings.memberIsolation === 'worktree'}
+              disabled={locked}
+              onToggle={() => control.patch({ memberIsolation: settings.memberIsolation === 'worktree' ? null : 'worktree' })}
+            />
+            {settings.memberIsolation === 'worktree' && memberEngine !== 'claude' && (
+              <p className="px-0.5 text-[12px] leading-relaxed text-gray-600">{t('ide.orchestra.member.isolationClaudeOnly')}</p>
+            )}
+            <SettingSelect
+              field="memberToolTemplate"
+              label={t('ide.orchestra.field.memberToolTemplate')}
+              value={settings.memberToolTemplate ?? ''}
+              options={memberToolOpts}
+              emptyLabel={t('ide.orchestra.member.toolsDefault')}
+              disabled={locked}
+              onChange={(v) => control.patch({ memberToolTemplate: v || null })}
+            />
+            <p className="px-0.5 text-[12px] leading-relaxed text-gray-600">{t('ide.orchestra.member.toolsHint')}</p>
           </Section>
 
           {/* 방안 표 — 원문 13행. 지휘자는 켜 둔 것 중에서 **그 요청에 맞는 것만** 고른다(전부 자동 적용 ❌). */}

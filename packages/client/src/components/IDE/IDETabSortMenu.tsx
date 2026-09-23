@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
-import { sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { sessionRunStateOf, serializeBusySubIds, parseBusySubIds, serializePendingSubIds } from '../../utils/sessionStatus.js';
 import {
   sortTabOrder, latestCardAt, TAB_SORT_KEYS, TAB_SORT_ANCHORS,
   type TabSortFacts, type TabSortKey, type TabSortAnchor,
@@ -95,13 +95,16 @@ export function IDETabSortMenu({ subs, agentId, onSort }: IDETabSortMenuProps): 
     // 누르는 순간의 사실만 읽는다 — 구독하지 않는 이유는 파일 머리 주석 참고.
     const store = useGraphStore.getState();
     const busy = parseBusySubIds(serializeBusySubIds(store.runningSubagentTasks[agentId]));
+    // §5.5 #17-18 (대기) — 도트가 보는 재료 전부를 정렬도 본다. 하나라도 빠지면
+    //   "보라로 켜져 있는데 왜 완료들 사이에 있나"가 된다.
+    const pending = parseBusySubIds(serializePendingSubIds(store.queuedCommands[agentId]));
     const questions = store.agentQuestions[agentId];
     const reviews = store.agentReviews[agentId];
     const reports = store.agentReports[agentId];
     const facts: TabSortFacts[] = subs.map((sub) => ({
       id: sub.id,
       // 도트를 그리는 그 함수 그대로 — 표시와 정렬이 다른 규칙을 쓰면 "초록인데 왜 뒤에 있나"가 된다.
-      runState: sessionRunStateOf(sub, !!store.acknowledgedSubAgents[sub.id], busy.has(sub.id)),
+      runState: sessionRunStateOf(sub, !!store.acknowledgedSubAgents[sub.id], busy.has(sub.id), pending.has(sub.id)),
       // 최신순의 원천 — 서버가 관리하는 그 세션의 마지막 활동 시각(클라에서 다시 재지 않는다).
       lastActivityAt: sub.lastActivityAt,
       lastQuestionAt: latestCardAt(questions, sub.id),

@@ -9,7 +9,7 @@ import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
 import { isVerificationToolIngress } from './verificationToolIngress';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { keepDragRegionsFresh } from './dragRegions';
@@ -945,6 +945,13 @@ app.on('before-quit', (event) => {
     if (finished) return;
     finished = true;
     if (quitWatchdog) { clearTimeout(quitWatchdog); quitWatchdog = null; }
+    // Child shutdown may emit final stream events after the initial checkpoint
+    // flush. Electron app.exit does not guarantee Node's exit listeners run.
+    try {
+      flushPendingStreamWrites();
+    } catch (err) {
+      console.warn('[main] flushPendingStreamWrites failed:', err);
+    }
     if (runPendingUpdateInstall()) {
       setTimeout(() => app.exit(0), UPDATE_INSTALL_SPAWN_GRACE_MS);
       return;

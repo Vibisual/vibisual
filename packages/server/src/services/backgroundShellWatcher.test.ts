@@ -139,3 +139,97 @@ describe('scanActiveBackgroundShells — 증분 == 전량 재스캔', () => {
     expect(scanActiveBackgroundShells(path.join(dir, 'nope.jsonl'))).toEqual([]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §5.5 #17-9 ⑰ — 120초 타임아웃으로 **승격된** 셸
+//
+// 전경 Bash 가 120초를 넘기면 하니스가 말없이 백그라운드로 옮긴다. 그 tool_use 에는
+// `run_in_background` 깃발이 **없다**(실측: `undefined`). 종전 스캔은 그 깃발을 요구해서
+// 승격분을 통째로 놓쳤고, 그래서 그 셸은
+//   · 명령 원문을 못 찾아 조용한 항목 조사(⑭)의 후보조차 못 되고
+//   · `sort` 처럼 stdin 이 닫힐 때까지 한 글자도 안 찍는 명령이면 끝 표식(⑬)도 영영 안 와
+// 세션 하나를 몇 시간씩 "실행 중"으로 붙들었다. 판정 근거를 **깃발에서 하니스의 답으로** 옮긴다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** assistant → tool_use(Bash) — **깃발 없는 전경 호출**. */
+function fgBashLine(toolUseId: string, command: string): string {
+  return JSON.stringify({
+    timestamp: '2026-09-23T00:00:00.000Z',
+    message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Bash', input: { command } }] },
+  });
+}
+
+/** user → tool_result — 승격 안내문(ID 가 **괄호 안**이고, 경로 뒤에 마침표가 붙는다). */
+function promotedResultLine(toolUseId: string, shellId: string, outputPath?: string): string {
+  const p = outputPath ?? `${dir}/${shellId}.output`;
+  const text = `Command did not complete within its 120s timeout and was moved to the background `
+    + `(ID: ${shellId}). Output is being written to: ${p}. You will be notified when it completes.`;
+  return JSON.stringify({
+    timestamp: '2026-09-23T00:00:01.000Z',
+    message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: text }] },
+  });
+}
+
+/** user → tool_result — 그냥 끝난 전경 명령의 평범한 답. */
+function plainResultLine(toolUseId: string, text: string): string {
+  return JSON.stringify({
+    timestamp: '2026-09-23T00:00:01.000Z',
+    message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: text }] },
+  });
+}
+
+describe('타임아웃 승격 셸 — 깃발 ❌, 하니스의 답 ⭕ (§5.5 #17-9 ⑰)', () => {
+  it('run_in_background 없이 승격된 셸도 잡는다 — 이걸 놓쳐 세션이 영원히 "실행 중"이었다', () => {
+    append([fgBashLine('tu1', 'grep -rhoiE pattern . | sort -u'), promotedResultLine('tu1', 'bspe49nqf')]);
+    const shells = scanActiveBackgroundShells(fp);
+    expect(shells.map((s) => s.shellId)).toEqual(['bspe49nqf']);
+    expect(shells[0]).toMatchObject({
+      command: 'grep -rhoiE pattern . | sort -u',
+      toolUseId: 'tu1',
+      outputPath: `${dir}/bspe49nqf.output`,
+    });
+  });
+
+  it('괄호 안 ID 에 닫는 괄호가 딸려 오지 않는다 — 그 id 로는 어떤 조회도 맞지 않는다', () => {
+    append([fgBashLine('tu1', 'sleep 999'), promotedResultLine('tu1', 'bspe49nqf')]);
+    const id = scanActiveBackgroundShells(fp)[0]?.shellId;
+    expect(id).toBe('bspe49nqf');
+    expect(id).not.toContain(')');
+  });
+
+  it('출력 파일명에서 id 를 얻는다 — 안내 문구가 또 바뀌어도 이쪽은 안 흔들린다', () => {
+    // 윈도에서 실제로 오는 모양: 역슬래시 경로 + 문장 끝 마침표.
+    const winPath = 'D:\\work\\.claude\\tasks\\bshx12ab.output';
+    append([fgBashLine('tu1', 'sort big.txt'), promotedResultLine('tu1', 'bshx12ab', winPath)]);
+    expect(scanActiveBackgroundShells(fp)[0]).toMatchObject({
+      shellId: 'bshx12ab',
+      outputPath: winPath,
+    });
+  });
+
+  it('평범하게 끝난 전경 Bash 는 셸이 되지 않는다 — 모든 Bash 를 담되 답으로 가른다', () => {
+    append([
+      fgBashLine('tu1', 'echo hi'), plainResultLine('tu1', 'hi'),
+      fgBashLine('tu2', 'ls'), plainResultLine('tu2', 'a\nb\nc'),
+    ]);
+    expect(scanActiveBackgroundShells(fp)).toEqual([]);
+  });
+
+  it('승격분도 KillShell 로 지워진다 — 사용자가 끊을 수 있어야 한다', () => {
+    append([fgBashLine('tu1', 'sleep 999'), promotedResultLine('tu1', 'bspe49nqf')]);
+    scanActiveBackgroundShells(fp); // 캐시 워밍(증분 경로 재현)
+    append([killLine('bspe49nqf')]);
+    const after = scanActiveBackgroundShells(fp);
+    expect(after).toEqual([]);
+    expect(after).toEqual(fullRescan());
+  });
+
+  it('깃발로 띄운 것과 승격된 것이 한 목록에 섞여도 증분 == 전량 재스캔', () => {
+    append([bashLine('tu1', 'npm run dev'), resultLine('tu1', 'sh1')]);
+    scanActiveBackgroundShells(fp);
+    append([fgBashLine('tu2', 'grep -r x .'), promotedResultLine('tu2', 'sh2')]);
+    const incremental = scanActiveBackgroundShells(fp);
+    expect(incremental.map((s) => s.shellId)).toEqual(['sh1', 'sh2']);
+    expect(incremental).toEqual(fullRescan());
+  });
+});

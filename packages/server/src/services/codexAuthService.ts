@@ -109,11 +109,13 @@ class CodexAuthService {
    */
   async logout(): Promise<{ ok: boolean; status: CodexAuthStatus; error?: string }> {
     const res = await runCodexCli(['logout'], CODEX_AUTH_LOGOUT_TIMEOUT_MS);
+    // 로그아웃 전에 시작한 탐침은 종전 자격증명을 봤을 수 있다. 그 응답을 최종 확인에 재사용하지 않는다.
+    await this.inflight;
     const status = await this.refresh();
     if (res.failure || (res.code !== null && res.code !== 0)) {
       const detail = res.failure ?? `exit ${String(res.code)}`;
       logger.warn(`[codexAuth] logout failed (${detail}): ${res.out.slice(0, 200)}`);
-      return status.loggedIn
+      return status.loggedIn || status.error !== undefined
         ? { ok: false, status, error: res.out.trim().slice(0, 300) || detail }
         : { ok: true, status };
     }

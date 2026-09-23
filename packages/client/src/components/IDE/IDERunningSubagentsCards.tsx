@@ -94,9 +94,10 @@ function ShellKindGlyph(): React.JSX.Element {
  * 토큰을 태우는 중"** 으로 읽혔다(사용자 보고). 비용도 끊는 방법도 다르므로 갈라 적는다.
  * 판정 근거는 서버가 이미 싣고 있던 `origin` 하나뿐이다 — 새 수집 경로 ❌.
  */
-function KindChip({ origin }: { origin?: 'hook' | 'stream' }): React.JSX.Element {
+function KindChip({ origin, subagentType }: { origin?: 'hook' | 'stream'; subagentType?: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const isShell = taskKindKey(origin) === 'kindShell';
+  // §5.5 #17-9 ⑰ — `origin` 하나로는 모자란다. 스트림으로 와도 `subagentType` 이 붙었으면 모델 자식이다.
+  const isShell = taskKindKey({ origin, subagentType }) === 'kindShell';
   return (
     <span
       className={`${KIND_CHIP} ${isShell ? 'bg-slate-500/20 text-slate-300' : 'bg-indigo-500/20 text-indigo-300'}`}
@@ -199,14 +200,15 @@ function ProbeVerdictBlock({ probe }: { probe: BackgroundTaskProbeResult }): Rea
 
 /** 메타 칩 줄 — 종류·타입·소속 탭·시각. 두 카드가 같은 리듬을 갖게 한 곳에 둔다. */
 function MetaRow({
-  origin, type, sessionLabel, clock, clockTitle,
+  origin, subagentType, type, sessionLabel, clock, clockTitle,
 }: {
   origin: 'hook' | 'stream' | undefined;
+  subagentType: string | undefined;
   type: string | undefined; sessionLabel: string | null; clock: string; clockTitle: string;
 }): React.JSX.Element {
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1">
-      <KindChip origin={origin} />
+      <KindChip origin={origin} subagentType={subagentType} />
       {type && <span className={`${CHIP} bg-sky-500/15 text-sky-300`}>{type}</span>}
       {sessionLabel && <span className={`${CHIP} bg-gray-700/60 font-medium text-gray-300`}>{sessionLabel}</span>}
       <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600" title={clockTitle}>{clock}</span>
@@ -292,6 +294,7 @@ export const RunningTaskRow = memo(function RunningTaskRow({
 
       <MetaRow
         origin={task.origin}
+        subagentType={task.subagentType}
         type={task.subagentType ?? task.agentType}
         sessionLabel={sessionLabel}
         clock={formatClock(task.startedAt)}
@@ -365,6 +368,7 @@ export const FinishedTaskRow = memo(function FinishedTaskRow({
 
       <MetaRow
         origin={task.origin}
+        subagentType={task.subagentType}
         type={task.subagentType ?? task.agentType}
         sessionLabel={sessionLabel}
         clock={formatClock(task.endedAt)}

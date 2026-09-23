@@ -5,7 +5,7 @@ import {
   type AutoGoalSettings,
 } from '@vibisual/shared';
 import {
-  AutoGoalLifecycleError, assessAutoGoalSkill, recordAutoGoalOutcome,
+  AutoGoalLifecycleError, approveAutoGoalSkill, assessAutoGoalSkill, recordAutoGoalOutcome,
   requestAutoGoalReview, reviewAutoGoalSkill, suspendAutoGoalSkill,
   type AutoGoalActor, type AutoGoalReviewInput,
 } from './autoGoalLifecycle.js';
@@ -116,7 +116,12 @@ export function mountAutoGoalLifecycleRoutes(app: Express, deps: AutoGoalRouteDe
     }, actor);
   });
 
-  for (const action of ['retire', 'request-review'] as const) {
+  /*
+   * 사용자 전용 고리 — §5.10 (R)ⓔ 의 [승인] 이 여기 붙는다. 자율 운영이 기본이고 이 셋은 부가 경로다.
+   * 훅으로 들어온 요청은 여기 닿지 못한다(아래 loopback 표식 차단) — 에이전트는 근거를 갖춘
+   * /api/auto-goal/review 로만 상태를 바꾼다.
+   */
+  for (const action of ['approve', 'retire', 'request-review'] as const) {
     endpoint(`/api/auto-goal/skills/:id/${action}`, (req) => {
       if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) throw new AutoGoalLifecycleError(403, 'procedure-user-action-only');
       const body = objectBody(req);
@@ -124,9 +129,11 @@ export function mountAutoGoalLifecycleRoutes(app: Express, deps: AutoGoalRouteDe
       if (!root) throw new AutoGoalLifecycleError(404, 'project-not-loaded');
       const skillId = req.params['id'];
       if (typeof skillId !== 'string') throw new AutoGoalLifecycleError(400, 'invalid-skillId');
-      const input = { skillId, revision: requiredText(body, 'revision'), reason: action === 'retire' ? 'user-paused' : 'user-requested-review' };
+      const input = { skillId, revision: requiredText(body, 'revision') };
       const actor = { agentId: 'user', subAgentId: 'user' };
-      return { skill: action === 'retire' ? suspendAutoGoalSkill(root, input, actor) : requestAutoGoalReview(root, input, actor) };
+      if (action === 'approve') return { skill: approveAutoGoalSkill(root, input, actor) };
+      if (action === 'retire') return { skill: suspendAutoGoalSkill(root, { ...input, reason: 'user-paused' }, actor) };
+      return { skill: requestAutoGoalReview(root, { ...input, reason: 'user-requested-review' }, actor) };
     });
   }
 }

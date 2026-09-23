@@ -213,6 +213,12 @@ export function CommandCenterCard({
                 {t('commandCenter.running', { count: item.runningTaskCount })}
               </span>
             )}
+            {/* 백단 셸 — **끝난 세션에도 붙는다**(실행 축이 아니다). 그래서 회색이고 파랑이 아니다. */}
+            {item.backgroundShellCount > 0 && (
+              <span className="tabular-nums text-white/40" title={t('ide.runningSubagents.kindShellTip')}>
+                {t('commandCenter.backgroundShells', { count: item.backgroundShellCount })}
+              </span>
+            )}
             {ctx && (
               <span className="flex items-center gap-1">
                 <span className="h-1 w-10 overflow-hidden rounded-full bg-white/10">

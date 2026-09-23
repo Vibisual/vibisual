@@ -188,6 +188,7 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
                     rootPath={rootPath}
                     disabled={disabled}
                     onRemove={() => control.removeSkill(s.id, s.candidateId)}
+                    onApprove={() => control.approveSkill(s.id, s.revision)}
                     onRetire={() => control.retireSkill(s.id, s.revision)}
                     onRequestReview={() => control.requestReview(s.id, s.revision)}
                   />

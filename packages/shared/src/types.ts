@@ -1353,7 +1353,13 @@ export interface CompactNotCarried {
 /** §5.26 (D) — 압축이 끝난 뒤 되돌려 적는 결과. 대조가 불가능하면 **적지 않는다**. */
 export interface CompactOutcome {
   at: number;
-  /** 마커 오프셋 뒤에 새로 붙은 구간의 바이트 수. */
+  /**
+   * **요약 레코드 한 줄**의 바이트 수.
+   *
+   * ⚠ 2026-09-23 이전에는 "마커 오프셋 뒤에 자란 총량"이었다. 그 구간에는 `attachment`(실측
+   *   86KB)·`last-prompt`·`atis-latch` 가 섞여 있어 숫자가 요약의 크기를 전혀 말하지 못했고,
+   *   그 숫자로 요약의 유무까지 갈라 오탐을 만들었다. 지금은 고른 그 줄의 크기만 적는다.
+   */
   summaryBytes: number;
   notCarried: CompactNotCarried;
   /** 요약이 실제로 실은 항목 수(전부 실렸으면 `notCarried` 가 빈다). */
@@ -2692,16 +2698,31 @@ export type CommandDispatchMode = 'wait' | 'merge' | 'immediate';
  *  - `agentView` : agent-view 잡이 `failed` 로 끝남
  *  - `orphaned`  : 서버 재기동으로 실행 컨텍스트가 끊김
  *  - `dispatchResult` : 결과를 받아야 하는 위임(§5.3 #10-2)의 끝난 결과를 받지 못한 채 턴이 끝남(사유는 cmdId·상태)
+ *  - `usageLimit` : 요금제 한도에 닿아 멈춤(§2.4). 실패로 마감되는 경로에서만 쓴다 — 클로드처럼
+ *                   exit 0 으로 끝나는 엔진은 종전대로 `completed` + `stopReason: 'usage_limit'` 이다.
  */
 export type CommandErrorCode =
   | 'spawn' | 'stdin' | 'exit' | 'crash' | 'cli' | 'maxTurns' | 'agentView' | 'orphaned'
   // §5.19 — 로컬 LLM 턴 실패(엔진 미설치·모델 없음·생성 중 오류). CLI 가 없는 경로라 'cli' 와 구분한다.
   | 'local'
-  | 'dispatchResult';
+  | 'dispatchResult'
+  // §2.4 — 한도 정지. 코덱스는 한도를 `{"type":"error"}` 로 신고해(§5.25 (F)) 실패 경로로 들어오는데,
+  //   그것을 `cli` 로 적으면 화면이 "CLI 가 실패를 알렸습니다" 라고 말한다. 멈춘 이유는 실패가 아니라 한도다.
+  | 'usageLimit';
 
 /** §5.5 #17-12 ③ — 오류로 끝난 명령의 사유(표시 전용, 실행·판정 로직 미관여). */
 export interface CommandError {
   code: CommandErrorCode;
+  /**
+   * §5.25 (J) 와 같은 규율 — **이 실패를 낸 것이 어느 엔진인가.**
+   *
+   * 사유 코드는 엔진 중립인데(`cli`·`spawn`·`exit` 은 클로드도 코덱스도 낸다) 문장만 `Claude CLI` 를
+   * 못박고 있어서, GPT 버블이 한도로 멈춘 자리에 **"Claude CLI 가 실패를 알렸습니다"** 가 떴다
+   * (2026-09-22 사용자 보고 — GPT 버블 아래에 `opus` 가 뜬 그 사고와 같은 부류). 문장을 만드는 쪽이
+   * 엔진을 알아야 제 이름을 부른다. **모르면 비워 둔다** — 그때 화면은 엔진 이름 없이 `CLI` 라고만 말한다
+   * (옛 명령·세션이 사라진 봉합분을 클로드로 단정하지 않기 위함).
+   */
+  engine?: AgentEngineKind;
   /** 프로세스 종료 코드(있을 때만). */
   exitCode?: number;
   /** 원문 꼬리 — stderr 마지막 줄·예외 메시지·CLI 오류 본문. **번역하지 않고** 그대로 보여준다. */
@@ -5896,6 +5917,15 @@ export type OrchestraIntent = 'question' | 'quick-fix' | 'feature' | 'research' 
 export type OrchestraMemberEngine = 'claude' | 'codex' | 'auto';
 
 /**
+ * 멤버가 **태어날 때** 받는 작업 폴더 격리. `worktree` 면 그 멤버는 별도 git worktree 에서 돈다
+ * (`buildConfigArgs` 의 `--worktree`). `parallel` 편성에서 워커들이 같은 워킹트리를 동시에 고치는
+ * 것을 막는 유일한 축이다 — 그래서 지휘자의 손잡이가 아니라 **사용자 스위치**다.
+ *
+ * Claude 멤버에만 먹는다 — Codex CLI 에는 대응 플래그가 없다(규칙·화면이 그렇게 말한다).
+ */
+export type OrchestraMemberIsolation = 'none' | 'worktree';
+
+/**
  * 지휘 턴의 권한.
  * - `bypass` — 지휘자는 loopback REST 를 Bash(curl) 로 스스로 쳐야 해서 #10-2 빌더와 같은 이유로 기본값이다.
  * - `inherit` — 그 에이전트에 사용자가 정해 둔 권한 그대로(승인 카드가 뜬다).
@@ -5934,6 +5964,18 @@ export interface OrchestraSettings {
   memberCodexReasoning?: string;
   /** 한 런에서 새로 만들 수 있는 멤버 수. 없으면 `ORCHESTRA_DEFAULT_MAX_MEMBERS`. */
   maxMembers?: number;
+  /**
+   * 멤버가 태어날 때 받는 작업 폴더 격리. 없으면 `none`(지휘자와 같은 워킹트리 — 이 기능이 없던 때와 같다).
+   */
+  memberIsolation?: OrchestraMemberIsolation;
+  /**
+   * 멤버가 태어날 때 받는 **도구 목록 템플릿** id(`AGENT_TOOL_TEMPLATES`). 없으면 설정 창 기본값 그대로.
+   *
+   * **지휘자는 이 칸을 못 바꾼다.** 권한 축(`tools`)은 loopback 유입에서 얼려 있고(§5.3 #12-1),
+   * 멤버는 태어날 때 빈 오버라이드를 받아 그 얼림의 "첫 구성은 통과" 길도 열리지 않는다. 그래서
+   * 최소 권한은 사용자가 여기서 한 번 고르고 **서버가 생성 시점에 박는** 것이 유일한 길이다.
+   */
+  memberToolTemplate?: string;
   /** 지휘자에게 주지 않는 방안 — 규칙에서 빠지고, 계획 신고에 담기면 400. */
   disabledStrategies?: OrchestraStrategyId[];
   updatedAt?: number;
@@ -6370,6 +6412,8 @@ export interface WorkspaceFileContent {
   size: number;
   /** 마지막 수정 시각 (ms) — 저장할 때 되돌려 보내 그 사이 변경을 판정 */
   mtimeMs: number;
+  /** 읽은 원본 바이트의 지문 — 같은 수정 시각의 외부 변경도 저장 시 대조한다. */
+  revision?: string;
   /** WORKSPACE_FILE_MAX_BYTES 를 넘어 앞부분만 담았으면 true (읽기 전용) */
   truncated: boolean;
   /** 텍스트로 읽을 수 없는 파일(NUL 바이트 포함)이면 true (읽기 전용) */
@@ -6402,6 +6446,8 @@ export interface WorkspaceFileSaveRequest {
   eol: WorkspaceEol;
   /** 읽을 때 받은 `mtimeMs`. 디스크가 그 사이 바뀌었으면 서버가 409 로 막는다 */
   baseMtimeMs: number;
+  /** 읽을 때 받은 원본 바이트 지문. baseMtimeMs=0 강제 저장은 대조를 생략한다. */
+  baseRevision?: string;
   /**
    * §5.5 #17-27 ⑫ — 읽기 전용 잠금을 **풀고** 저장한다(사용자가 그 버튼을 눌렀을 때만 true).
    *
@@ -6417,6 +6463,7 @@ export interface WorkspaceFileSaveResult {
   path: string;
   size: number;
   mtimeMs: number;
+  revision?: string;
   /** §5.5 #17-27 ⑫ — 저장 뒤에도 여전히 잠겨 있는가(잠금을 풀었으면 false 로 돌아온다). */
   readOnly: boolean;
 }
@@ -6433,6 +6480,7 @@ export interface WorkspaceImageSaveRequest {
   path: string;
   /** 읽을 때 받은 `mtimeMs`. 디스크가 그 사이 바뀌었으면 서버가 409 로 막는다. `0` 이면 대조 생략. */
   baseMtimeMs: number;
+  baseRevision?: string;
 }
 
 /**

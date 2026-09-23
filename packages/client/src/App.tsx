@@ -50,7 +50,8 @@ function GuideWindowHost(): React.JSX.Element | null {
 }
 
 export function App(): React.JSX.Element {
-  const { status } = useWebSocket(WS_URL);
+  // §5.5 #17-11 ⑦ — 완료음·완료 알림은 **메인 창 하나만** 낸다(부속 셸은 기본값대로 침묵).
+  const { status } = useWebSocket(WS_URL, { announceCompletions: true });
   // SCENARIO.md §5.4 #14-1 (v2.29) — desktop main 의 detached BrowserWindow 목록을 store 와 sync.
   useDetachedSync();
   // SCENARIO.md §5.5 #17-6 (v2.73) — 오버레이 위젯 창 목록 + 전역 토글 상태를 store 와 sync.

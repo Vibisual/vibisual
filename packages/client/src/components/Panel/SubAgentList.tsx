@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { SESSION_STATUS_LABEL_KEY, sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { SESSION_STATUS_LABEL_KEY, sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds, serializePendingSubIds } from '../../utils/sessionStatus.js';
 
 interface SubAgentListProps {
   subAgents: SubAgent[];
@@ -33,6 +33,10 @@ export const SubAgentList = memo(function SubAgentList({
   const parentAgentId = subAgents[0]?.parentAgentId;
   const busySubKey = useGraphStore((s) => serializeBusySubIds(parentAgentId ? s.runningSubagentTasks[parentAgentId] : undefined));
   const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
+  // §5.5 #17-18 (대기) — 이 목록도 IDE 탭바와 같은 색을 낸다. 줄 선 명령 재료가 빠지면
+  //   패널만 "완료"라고 적어 탭 도트와 어긋난다.
+  const pendingSubKey = useGraphStore((s) => serializePendingSubIds(parentAgentId ? s.queuedCommands[parentAgentId] : undefined));
+  const pendingSubIds = useMemo(() => parseBusySubIds(pendingSubKey), [pendingSubKey]);
   if (subAgents.length === 0) return null;
 
   return (
@@ -42,7 +46,7 @@ export const SubAgentList = memo(function SubAgentList({
       </span>
       <ScrollFade maxHeight={256}><ul className="flex flex-col gap-1.5">
         {subAgents.map((sub) => {
-          const runState = sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id));
+          const runState = sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id), pendingSubIds.has(sub.id));
           return (
             <li
               key={sub.id}

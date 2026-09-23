@@ -21,6 +21,15 @@ function newSub(agentId: string, preferredId?: string): { id: string } {
   return sub;
 }
 
+/** 스트림 칩 장부에 지금 실린 **셸** id — 백그라운드 목록(`getRunningSubagentTasks`)이 보여 주는 그대로.
+ *  §5.5 #17-9 ⑰ 부터 `hasLiveBackgroundTasks` 는 표시 축이라 셸을 세지 않는다. 그래서 셸 장부가
+ *  걷혔는지·남았는지는 여기서 본다(맨 아래 ⑰ 묶음이 그 갈림을 고정한다). */
+function liveShellIds(agentId: string): string[] {
+  return (subAgentManager.getRunningSubagentTasks()?.[agentId] ?? [])
+    .filter((t) => t.origin === 'stream')
+    .map((t) => t.id);
+}
+
 beforeEach(() => {
   while (created.length > 0) {
     const id = created.pop();
@@ -140,10 +149,10 @@ describe('중지·덧말로 턴이 갈릴 때 옛 백단 작업이 새 턴에 �
     const sub = newSub(agentId);
     // 스트림 칩으로만 보이는 백그라운드 작업(훅이 못 보는 종류).
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: '백그라운드 빌드' });
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg1']);
 
     subAgentManager.stop(sub.id);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+    expect(liveShellIds(agentId)).toEqual([]);
   });
 });
 
@@ -162,10 +171,10 @@ describe('멈춘 백단 자식 처리 — 항목별 만료와 개별 내리기',
     const agentId = 'agent-dismiss-stream';
     const sub = newSub(agentId);
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: '빌드' });
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg1']);
 
     expect(subAgentManager.dismissRunningTask(agentId, 'bg1')).toBe(true);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+    expect(liveShellIds(agentId)).toEqual([]);
   });
 
   it('이미 사라진 항목을 내려도 조용히 false — 두 번 눌러도 안전', () => {
@@ -191,10 +200,10 @@ describe('고아 백그라운드 작업 — 프로세스가 사라진 세션의 
     const agentId = 'agent-orphan-stream';
     const sub = newSub(agentId);
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: 'packaging output' });
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg1']);
 
     expect(subAgentManager.sweepOrphanedBackgroundTasks(later())).toContain(agentId);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+    expect(liveShellIds(agentId)).toEqual([]);
   });
 
   it('유예 안에서는 걷지 않는다 — 막 띄운 작업을 죽었다고 하지 않는다', () => {
@@ -203,7 +212,7 @@ describe('고아 백그라운드 작업 — 프로세스가 사라진 세션의 
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: '방금 띄운 것' });
 
     expect(subAgentManager.sweepOrphanedBackgroundTasks()).not.toContain(agentId);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg1']);
   });
 
   it('PTY(CMD) 세션은 걷지 않는다 — 우리가 띄운 자식이 아니라 프로세스 유무로 판단할 수 없다', () => {
@@ -213,7 +222,7 @@ describe('고아 백그라운드 작업 — 프로세스가 사라진 세션의 
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: '터미널이 띄운 것' });
 
     expect(subAgentManager.sweepOrphanedBackgroundTasks(later())).not.toContain(agentId);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg1']);
   });
 
   it('걷힌 작업은 "방금 끝난 것" 꼬리로 남는다 — 소리 없이 사라지지 않는다', () => {
@@ -229,7 +238,9 @@ describe('고아 백그라운드 작업 — 프로세스가 사라진 세션의 
   it('유령이 걷히면 그 탭 도트도 함께 내려간다 — 장부만 비고 파란 점이 남지 않는다', () => {
     const agentId = 'agent-orphan-dot';
     const sub = newSub(agentId);
-    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: 'X' });
+    // 탭 점을 올리는 것은 **모델 자식**뿐이다 — 셸만으로는 애초에 오르지 않는다(§5.5 #17-9 ⑰).
+    //   그래서 "걷히면 함께 내려가는가"는 오를 수 있는 항목으로 잰다.
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg1', description: 'X', subagentType: 'code-worker' });
     expect(subAgentManager.getSub(sub.id)!.status).toBe('active');
 
     subAgentManager.sweepOrphanedBackgroundTasks(later());
@@ -267,18 +278,18 @@ describe('고아 백그라운드 작업 — 프로세스가 사라진 세션의 
     const aDayLater = Date.now() + 24 * 60 * 60 * 1000;
     expect(subAgentManager.sweepOrphanedBackgroundTasks(aDayLater)).not.toContain(agentId);
     expect(subAgentManager.hasPendingSubagentTasks(agentId)).toBe(true);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg-long']);
   });
 
   it('세션 프로세스가 끝나면 그 즉시 내려간다 — 유예도 주기 대조도 기다리지 않는다', () => {
     const agentId = 'agent-process-end';
     const sub = newSub(agentId);
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg-exit', description: '패키징' });
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bg-exit']);
 
     // 자식 프로세스 종료 핸들러가 부르는 것과 같은 호출 — 시각을 밀지 않아도 즉시 내려간다.
     expect(subAgentManager.retireLiveBackgroundTasks(sub.id)).toBe(true);
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+    expect(liveShellIds(agentId)).toEqual([]);
 
     // 소리 없이 사라지지 않는다 — "방금 끝난 것" 꼬리에 남는다.
     const finished = subAgentManager.getFinishedSubagentTasks()?.[agentId] ?? [];
@@ -317,11 +328,11 @@ describe('고아 백그라운드 작업 — 프로세스가 사라진 세션의 
     const agentId = 'agent-real-signal';
     const sub = newSub(agentId);
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bkw14fevc', description: 'Run packaging in background' });
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(true);
+    expect(liveShellIds(agentId)).toEqual(['bkw14fevc']);
 
     // CLI 가 실제로 보내는 것: status=completed (+ exit code 요약).
     subAgentManager.noteStreamTaskChip(sub.id, 'task_notification', { id: 'bkw14fevc', status: 'completed' });
-    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+    expect(liveShellIds(agentId)).toEqual([]);
   });
 
   it('탭이 사라진 뒤 남은 장부는 통째로 회수된다', () => {
@@ -424,5 +435,21 @@ describe('생존 판정은 표시 목록을 빌려 쓰지 않는다 (#17-9 ⑮)'
     });
 
     expect(subAgentManager.getSub(sub.id)!.status).toBe('error');
+  });
+});
+
+/**
+ * §5.5 #17-9 ⑰ — ⑮ 의 거울. **셸만 남은 탭은 "실행 중"으로 서지 않는다** — 목록에는 남는다.
+ * 위 테스트들이 셸 장부를 `hasLiveBackgroundTasks` 대신 목록으로 보는 이유가 이것이다.
+ */
+describe('셸은 탭을 붙들지 않는다 — 목록에만 남는다 (#17-9 ⑰)', () => {
+  it('셸만 남은 탭은 활동 중으로 서지 않고, 백그라운드 목록에는 그대로 보인다', () => {
+    const agentId = 'agent-shell-only';
+    const sub = newSub(agentId);
+    subAgentManager.noteStreamTaskChip(sub.id, 'task_started', { id: 'bg-dev', description: 'npm run dev' });
+
+    expect(subAgentManager.getSub(sub.id)!.status).not.toBe('active');
+    expect(subAgentManager.hasLiveBackgroundTasks(agentId)).toBe(false);
+    expect(liveShellIds(agentId)).toEqual(['bg-dev']);
   });
 });

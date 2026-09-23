@@ -757,7 +757,7 @@ function handlePair(kind: ChatChannelKind, chatId: string, label: string, token:
   savePersisted();
   pushState();
   console.log(`[chat-bridge] paired ${kind} chat (${label})`);
-  replyTo({ kind, chatId }, textCard(s.titlePaired, helpLines(true, s)));
+  replyTo({ kind, chatId }, pickEntryCard(s.titlePaired, helpLines(true, s, kind), s));
 }
 
 // ─── 들어온 것 처리 ──────────────────────────────────────────────────────────
@@ -788,7 +788,7 @@ function onInbound(kind: ChatChannelKind, msg: ChatInbound): void {
     // 그 밖의 어떤 입력에도 반응하지 않는다(존재·상태를 흘리지 않는다).
     if (cmd.type === 'help') {
       const s = S();
-      noticeUnpaired(kind, msg.chatId, textCard('Vibisual', helpLines(false, s)));
+      noticeUnpaired(kind, msg.chatId, textCard('Vibisual', helpLines(false, s, kind)));
     }
     return;
   }
@@ -837,7 +837,7 @@ async function handleCommand(peer: ChatPeer, cmd: ReturnType<typeof parseChatCom
   const s = S();
   switch (cmd.type) {
     case 'help':
-      replyTo(peer, textCard(s.titleHelp, helpLines(true, s)));
+      replyTo(peer, pickEntryCard(s.titleHelp, helpLines(true, s, peer.kind), s));
       return;
 
     case 'unpair': {
@@ -932,7 +932,7 @@ async function handleCommand(peer: ChatPeer, cmd: ReturnType<typeof parseChatCom
 }
 
 function needTargetCard(s: ChatStrings): ChatCard {
-  return textCard(s.titleNeedTarget, [s.needTarget]);
+  return pickEntryCard(s.titleNeedTarget, [s.needTarget], s);
 }
 
 /**
@@ -985,8 +985,28 @@ function statusCard(peer: ChatPeer, s: ChatStrings): ChatCard {
   return textCard(s.titleStatus, lines, label);
 }
 
-/** 선택 버튼의 접두사 — 이 셋만 대상 지정으로 가로챈다(그 밖은 결정 레지스트리의 것). */
-const PICK_PREFIXES = ['pj', 'a', 'sn'] as const;
+/** 선택 버튼의 접두사 — 이 넷만 대상 지정으로 가로챈다(그 밖은 결정 레지스트리의 것). */
+const PICK_PREFIXES = ['pj', 'a', 'sn', 'go'] as const;
+
+/**
+ * **선택 흐름으로 들어가는 버튼**(§4 ⑨-(f) ②) — 타이핑이 필요 없는 유일한 손잡이다.
+ *
+ * 종전에는 세 진입점이 전부 슬래시 명령뿐이었다. 그런데 디스코드 클라이언트는 입력창의 `/`
+ * 를 슬래시 명령 피커로 가로채므로 **거기서는 흐름에 들어갈 방법이 없었다** — 선택 흐름
+ * 자체는 채널 공통인데 디스코드에서만 닿지 못하던 이유다. 카드에 버튼 하나를 붙이면 폰에서는
+ * 아무것도 치지 않고 탭만으로 프로젝트→에이전트→세션에 도달한다(텔레그램도 함께 얻는다).
+ */
+const GO_PICK_ACTION = 'go:projects';
+
+/** 안내성 카드 + "대상 고르기" 버튼 한 개. 글자만 있는 카드는 폰에서 막다른 길이다. */
+function pickEntryCard(title: string, lines: string[], s: ChatStrings): ChatCard {
+  return {
+    kind: 'text',
+    title,
+    lines,
+    actions: [{ actionId: GO_PICK_ACTION, label: s.btnPickTarget, style: 'primary' }],
+  };
+}
 
 /** 이 `actionId` 가 3단계 선택 버튼인가(결정 버튼과 섞이지 않게 하는 유일한 판정). */
 function isPickAction(actionId: string): boolean {
@@ -1002,6 +1022,15 @@ function isPickAction(actionId: string): boolean {
 function handleSelect(peer: ChatPeer, actionId: string): string | null {
   if (!isPickAction(actionId)) return null;
   const s = S();
+
+  // ⓪ 흐름으로 들어가기 — 어디까지 골랐는지는 `nextPickCard` 가 보고 정한다.
+  if (actionId.startsWith('go:')) {
+    const asked = actionId.slice('go:'.length);
+    const from = asked === 'agents' || asked === 'sessions' ? asked : 'projects';
+    replyTo(peer, nextPickCard(peer, s, from));
+    return '';
+  }
+
   const list = commandableAgents();
 
   // ① 프로젝트

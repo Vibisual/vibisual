@@ -29,7 +29,18 @@ const LAYER_PAD_TOP_PX = 8;
 /** 줄 번호 칸 폭(자릿수와 무관하게 고정) — 스크롤 중 본문이 좌우로 흔들리지 않게. */
 const GUTTER_CLASS = 'w-12 flex-shrink-0 select-none border-r border-gray-800/70 bg-gray-950 text-right';
 
+export interface EditorViewState {
+  start: number;
+  end: number;
+  direction: 'forward' | 'backward' | 'none';
+  top: number;
+  left: number;
+  followToken?: number;
+}
+
 interface CodeEditorProps {
+  /** Owned by the open file tab, so switching to an image does not lose its working position. */
+  viewStateRef?: { current: EditorViewState | null };
   /** 화면에 그릴 본문(초안) */
   text: string;
   /** 강조에 쓸 언어 id (`languageFromPath` 결과) */
@@ -140,6 +151,7 @@ export const CodeEditor = memo(function CodeEditor({
   followRange = null,
   followToken = 0,
   recentRange = null,
+  viewStateRef,
 }: CodeEditorProps): React.JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
@@ -147,6 +159,30 @@ export const CodeEditor = memo(function CodeEditor({
   /** 프로그램이 바꾼 본문의 커서 위치 — 값이 반영된 **뒤에** 넣어야 커서가 끝으로 튀지 않는다. */
   const pendingSelection = useRef<{ start: number; end: number; value: string } | null>(null);
   const [caretLine, setCaretLine] = useState(1);
+  const lastFollowToken = useRef(viewStateRef?.current?.followToken);
+
+  useLayoutEffect(() => {
+    const field = textareaRef.current;
+    const scroll = scrollRef.current;
+    const gutter = gutterRef.current;
+    if (!viewStateRef || !field || !scroll) return;
+    const saved = viewStateRef.current;
+    if (saved) {
+      const selection = boundedTextSelection(field.value, saved.start, saved.end);
+      field.setSelectionRange(selection.start, selection.end, saved.direction);
+      setCaretLine(field.value.slice(0, selection.start).split('\n').length);
+      scroll.scrollTop = saved.top;
+      scroll.scrollLeft = saved.left;
+      if (gutter) gutter.scrollTop = scroll.scrollTop;
+    }
+    // Capture the actual nodes before React clears refs during unmount.
+    return () => {
+      viewStateRef.current = {
+        start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection,
+        top: scroll.scrollTop, left: scroll.scrollLeft, followToken: lastFollowToken.current,
+      };
+    };
+  }, [viewStateRef]);
 
   const lines = useMemo(() => highlightCode(text, language), [text, language]);
 
@@ -178,6 +214,8 @@ export const CodeEditor = memo(function CodeEditor({
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller || !followRange || followRange.start < 1) return;
+    if (lastFollowToken.current === followToken) return;
+    lastFollowToken.current = followToken;
     const top = LAYER_PAD_TOP_PX + (followRange.start - 1) * LINE_HEIGHT_PX;
     const target = Math.max(0, top - Math.max(48, Math.round(scroller.clientHeight / 3)));
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;

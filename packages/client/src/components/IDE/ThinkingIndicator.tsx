@@ -27,6 +27,10 @@ export function ThinkingDots(): React.JSX.Element {
  * §5.5 #17-24 ② ③ — 에이전트가 작동하는 **내내** 떠 있고, 사고 중이냐(`thinking`) 그 외 작업 중이냐
  * (`working`)에 따라 라벨과 색만 갈린다. "작업 중"은 이 항목의 생멸이 아니라 **줄 안의 움직임**이 알린다.
  *
+ * §5.5 #17-18 ⑪ — 세 번째 모습이 `waiting`(대기 중)이다. 줄만 서 있고 도는 것이 없을 때의 이 줄은
+ * **뛰지 않고, 말줄임도 돌지 않고, 무응답 문구도 붙지 않는다** — 셋 다 "지금 뭔가 하는 중"이라는
+ * 신호인데 사실이 아니기 때문이다. 항목 자체는 그대로 떠 있다(#17-24 ② 상시 표시).
+ *
  * §2.4 (무응답) — 여기에 **시간**이 없던 것이 이 버그의 핵심이었다. 말줄임만 돌아가는 줄은 3초가
  * 지났는지 30분이 지났는지 말해 주지 않아, 사용자가 "끝난 건지 끊긴 건지 이어서 하는 건지" 판단할
  * 근거가 화면 어디에도 없었다. 이제 마지막 움직임 이후 흐른 시간을 그 자리에 적고, 문턱
@@ -39,7 +43,7 @@ export function ThinkingLiveLine({
   lastActivityAt = null,
 }: {
   label: string;
-  mode?: 'thinking' | 'working';
+  mode?: 'thinking' | 'working' | 'waiting';
   /** 마지막으로 움직인 시각(ms). 모르면 `null` — 그때는 시간을 적지 않는다(0 으로 적지 않는다). */
   lastActivityAt?: number | null;
 }): React.JSX.Element {
@@ -47,17 +51,28 @@ export function ThinkingLiveLine({
   // 근거가 있을 때만 시계를 돌린다 — 조용한 화면에서 초마다 리렌더하지 않기 위해.
   const now = useNowTick(lastActivityAt !== null);
   const silence = sessionSilenceMs(lastActivityAt, now);
-  const stalled = silence !== null && silence >= SESSION_NO_RESPONSE_MS;
+  /*
+   * §5.5 #17-18 ⑪ — **줄 서 있는 줄은 무응답이 아니다.** 무응답 축(§2.4)은 "도는 턴이 말이
+   * 없다"를 재는 것인데, 대기는 애초에 말할 턴이 시작되지 않은 상태다. 여기에 "마지막 업데이트
+   * N 전"을 붙이면 오지도 않을 응답을 기다리는 것처럼 읽힌다 — 사용자가 본 그 문구다.
+   * 대기 줄이 적어야 할 시간은 **줄 선 지 얼마나 됐는가** 하나뿐이다.
+   */
+  const waiting = mode === 'waiting';
+  const stalled = !waiting && silence !== null && silence >= SESSION_NO_RESPONSE_MS;
   const elapsed = silence !== null && lastActivityAt !== null ? formatElapsed(lastActivityAt, now) : null;
-  const dot = stalled ? 'bg-gray-500' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
-  const text = stalled ? 'text-gray-400' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
+  // 대기는 **slate** — 바로 위에 쌓인 [대기] 말풍선(#17-18 ⑤)과 같은 색이라, 줄을 따로 읽지 않아도
+  //   "이 줄은 저 말풍선들과 한 덩어리로 기다리는 중"이 보인다. 파랑(작업)·보라(사고)를 쓰면
+  //   아무 일도 안 일어나는 화면이 도는 것처럼 보인다(그 오해가 이 색이 생긴 사고다).
+  const dot = waiting ? 'bg-slate-400/70' : stalled ? 'bg-gray-500' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
+  const text = waiting ? 'text-slate-300/85' : stalled ? 'text-gray-400' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
   return (
     <div className="flex items-center gap-2 px-4 py-1.5">
       {/* No pulse during an output gap; neither progress nor failure is inferred. */}
-      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${stalled ? '' : 'animate-pulse'} ${dot}`} aria-hidden="true" />
+      {/* 대기도 뛰지 않는다 — 뛰는 점은 "지금 무언가 일어나는 중"이라는 말이고, 대기는 그 반대다. */}
+      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${stalled || waiting ? '' : 'animate-pulse'} ${dot}`} aria-hidden="true" />
       <span className={`inline-flex items-baseline text-[12px] italic ${text}`}>
         {label}
-        {!stalled && <ThinkingDots />}
+        {!stalled && !waiting && <ThinkingDots />}
       </span>
       {elapsed !== null && (
         <span

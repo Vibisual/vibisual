@@ -14,11 +14,13 @@ import {
   clipOrchestraRequest,
   isOrchestraRunSettled,
   isOrchestraStrategyAllowed,
+  findAgentToolTemplate,
   normalizeOrchestraRun,
   normalizeOrchestraRuns,
   normalizeOrchestraSettings,
   orchestraActiveAnywhere,
   orchestraAllowedStrategies,
+  orchestraMemberBirthConfig,
   orchestraRunsForSnapshot,
   orchestraScopeStates,
   orchestraSummaryFingerprint,
@@ -26,6 +28,8 @@ import {
   resolveOrchestraEnabled,
   resolveOrchestraMaxMembers,
   resolveOrchestraMemberEngine,
+  resolveOrchestraMemberIsolation,
+  resolveOrchestraMemberToolTemplate,
   settleStaleOrchestraRuns,
   validateOrchestraPlan,
   withOrchestraScope,
@@ -175,6 +179,54 @@ describe('resolve* 기본값', () => {
     expect(resolveOrchestraMemberEngine({ memberEngine: 'auto' })).toBe('auto');
     expect(resolveOrchestraMemberEngine({ memberEngine: 'codex' })).toBe('codex');
   });
+
+  it('멤버 작업 폴더 — 없으면 none', () => {
+    expect(resolveOrchestraMemberIsolation(undefined)).toBe('none');
+    expect(resolveOrchestraMemberIsolation({ memberIsolation: 'none' })).toBe('none');
+    expect(resolveOrchestraMemberIsolation({ memberIsolation: 'worktree' })).toBe('worktree');
+  });
+
+  /* `all` 은 기본값과 같은 목록이라 못 박지 않는다 — 박으면 설정 창의 도구 수정이 멤버에게 닿지 않는다(§4 3층). */
+  it("멤버 도구 템플릿 — 없는 id·빈 문자열·'all' 은 안 박는다", () => {
+    expect(resolveOrchestraMemberToolTemplate(undefined)).toBeUndefined();
+    expect(resolveOrchestraMemberToolTemplate({ memberToolTemplate: '' })).toBeUndefined();
+    expect(resolveOrchestraMemberToolTemplate({ memberToolTemplate: 'all' })).toBeUndefined();
+    expect(resolveOrchestraMemberToolTemplate({ memberToolTemplate: 'nope' })).toBeUndefined();
+    expect(resolveOrchestraMemberToolTemplate({ memberToolTemplate: 'review' })).toBe('review');
+  });
+});
+
+/**
+ * 멤버가 **태어날 때** 서버가 박는 칸. 지휘자가 ② PATCH 로 넣을 수 없는 두 축이라(권한 축은
+ * loopback 유입에서 얼려 있다 — §5.3 #12-1) 사용자 스위치의 집행으로 서버가 대신 심는다.
+ */
+describe('orchestraMemberBirthConfig', () => {
+  it('두 스위치가 다 꺼져 있으면 아무것도 박지 않는다', () => {
+    expect(orchestraMemberBirthConfig(undefined)).toBeNull();
+    expect(orchestraMemberBirthConfig({})).toBeNull();
+    expect(orchestraMemberBirthConfig({ memberIsolation: 'none' })).toBeNull();
+    expect(orchestraMemberBirthConfig({ memberToolTemplate: 'all' })).toBeNull();
+  });
+
+  it('격리만 켜면 isolation 한 칸', () => {
+    expect(orchestraMemberBirthConfig({ memberIsolation: 'worktree' })).toEqual({ isolation: 'worktree' });
+  });
+
+  it('도구만 고르면 tools 한 칸 — 템플릿 목록을 그대로 베낀다', () => {
+    const born = orchestraMemberBirthConfig({ memberToolTemplate: 'review' });
+    expect(born).toEqual({ tools: findAgentToolTemplate('review')!.tools });
+    expect(born!.isolation).toBeUndefined();
+    // 베낀 배열이라 되돌려 고쳐도 템플릿 원본이 상하지 않는다.
+    born!.tools!.push('Write');
+    expect(findAgentToolTemplate('review')!.tools).not.toContain('Write');
+  });
+
+  it('둘 다 켜면 두 칸', () => {
+    expect(orchestraMemberBirthConfig({ memberIsolation: 'worktree', memberToolTemplate: 'readOnly' })).toEqual({
+      isolation: 'worktree',
+      tools: findAgentToolTemplate('readOnly')!.tools,
+    });
+  });
 });
 
 describe('방안 허용', () => {
@@ -225,6 +277,8 @@ describe('normalizeOrchestraSettings', () => {
       askQuestions: true,
       memberEngine: 'gemini',
       maxMembers: 50,
+      memberIsolation: 'branch',
+      memberToolTemplate: 'nope',
       disabledStrategies: ['output', 'nope', 'output', 'web'],
       updatedAt: 42,
     });
@@ -234,6 +288,18 @@ describe('normalizeOrchestraSettings', () => {
       maxMembers: ORCHESTRA_MAX_MEMBERS_LIMIT,
       disabledStrategies: ['output', 'web'],
       updatedAt: 42,
+    });
+  });
+
+  /* 사라진 템플릿의 id 가 남으면 "좁혔다고 믿는 빈 칸"이 된다 — 목록에 있는 것만 살린다. */
+  it('멤버 태생 두 칸은 아는 값만 살린다', () => {
+    expect(normalizeOrchestraSettings({ memberIsolation: 'worktree', memberToolTemplate: 'review' })).toEqual({
+      memberIsolation: 'worktree',
+      memberToolTemplate: 'review',
+    });
+    expect(normalizeOrchestraSettings({ memberIsolation: 'none', memberToolTemplate: 'all' })).toEqual({
+      memberIsolation: 'none',
+      memberToolTemplate: 'all',
     });
   });
 });
@@ -253,6 +319,20 @@ describe('applyOrchestraSettingsPatch', () => {
   it('null 과 빈 문자열은 그 칸을 지운다', () => {
     const r = applyOrchestraSettingsPatch(current, { memberEngine: null, conductorClaudeModel: '', maxMembers: null }, 1);
     expect(r).toEqual({ ok: true, settings: { enabledProject: true, updatedAt: 1 } });
+  });
+
+  it('멤버 태생 두 칸도 같은 창구로 켜고 끈다', () => {
+    const on = applyOrchestraSettingsPatch(current, { memberIsolation: 'worktree', memberToolTemplate: 'review' }, 5);
+    expect(on).toEqual({
+      ok: true,
+      settings: { ...current, memberIsolation: 'worktree', memberToolTemplate: 'review', updatedAt: 5 },
+    });
+    const off = applyOrchestraSettingsPatch(
+      { memberIsolation: 'worktree', memberToolTemplate: 'review' },
+      { memberIsolation: null, memberToolTemplate: '' },
+      5,
+    );
+    expect(off).toEqual({ ok: true, settings: { updatedAt: 5 } });
   });
 
   it('disabledStrategies 는 겹침을 접고, 빈 배열이면 칸을 지운다', () => {
@@ -276,6 +356,9 @@ describe('applyOrchestraSettingsPatch', () => {
     ['멤버 상한 0', { maxMembers: 0 }, 'maxMembers'],
     ['멤버 상한 초과', { maxMembers: ORCHESTRA_MAX_MEMBERS_LIMIT + 1 }, 'maxMembers'],
     ['멤버 상한 소수', { maxMembers: 2.5 }, 'maxMembers'],
+    ['멤버 격리 값', { memberIsolation: 'branch' }, 'memberIsolation'],
+    ['모르는 도구 템플릿', { memberToolTemplate: 'nope' }, 'memberToolTemplate'],
+    ['도구 템플릿이 문자열이 아님', { memberToolTemplate: 3 }, 'memberToolTemplate'],
     ['모르는 방안', { disabledStrategies: ['output', 'nope'] }, 'disabledStrategies'],
     ['방안이 배열이 아님', { disabledStrategies: 'output' }, 'disabledStrategies'],
   ])('%s → 실패(%s)', (_label, patch, field) => {

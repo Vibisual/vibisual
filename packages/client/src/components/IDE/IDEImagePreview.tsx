@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorkspaceImageStatus } from './useWorkspaceImage.js';
 
@@ -28,6 +28,64 @@ export const IDEImagePreview = memo(function IDEImagePreview({
   onOpen,
 }: IDEImagePreviewProps): React.JSX.Element {
   const { t } = useTranslation();
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [zoomSize, setZoomSize] = useState<{ width: number; height: number } | null>(null);
+  const zoomAnchor = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  const fitted = fit && zoomSize === null;
+
+  // A new image or a fit/actual-size command starts from that view's default size.
+  useLayoutEffect(() => {
+    zoomAnchor.current = null;
+    setZoomSize(null);
+    const viewport = viewportRef.current;
+    if (viewport) {
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
+    }
+  }, [url, fit]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey || event.deltaY === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const image = imageRef.current;
+      if (!image || !image.naturalWidth || !image.naturalHeight) return;
+      const rect = image.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      zoomAnchor.current = {
+        x: (event.clientX - rect.left) / rect.width,
+        y: (event.clientY - rect.top) / rect.height,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+      const factor = Math.exp(-Math.max(-600, Math.min(600, event.deltaY * unit)) * 0.002);
+      setZoomSize((current) => {
+        const scale = (current?.width ?? rect.width) / image.naturalWidth;
+        // Avoid jumping up to 1% when a very large image starts below that limit.
+        const next = Math.max(Math.min(0.01, scale), Math.min(32, scale * factor));
+        return { width: image.naturalWidth * next, height: image.naturalHeight * next };
+      });
+    };
+    // React's delegated wheel listener is passive: a native listener also prevents browser zoom.
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', onWheel);
+  }, [url, status, fit]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const image = imageRef.current;
+    const anchor = zoomAnchor.current;
+    if (!viewport || !image || !anchor || !zoomSize) return;
+    const rect = image.getBoundingClientRect();
+    viewport.scrollLeft += rect.left + anchor.x * rect.width - anchor.clientX;
+    viewport.scrollTop += rect.top + anchor.y * rect.height - anchor.clientY;
+    zoomAnchor.current = null;
+  }, [zoomSize]);
 
   if (status === 'error') {
     return (
@@ -47,8 +105,9 @@ export const IDEImagePreview = memo(function IDEImagePreview({
 
   return (
     <div
+      ref={viewportRef}
       className={`bg-alpha-checker flex min-h-0 flex-1 overflow-auto p-3 ${
-        fit ? 'items-center justify-center' : ''
+        fitted ? 'items-center justify-center' : ''
       }`}
     >
       <button
@@ -56,14 +115,16 @@ export const IDEImagePreview = memo(function IDEImagePreview({
         onClick={onOpen}
         title={t('ide.editor.imageEditHint')}
         aria-label={t('ide.editor.imageEdit')}
-        className={`m-auto block cursor-zoom-in ${fit ? 'max-h-full max-w-full' : 'flex-shrink-0'}`}
+        className={`m-auto block cursor-zoom-in ${fitted ? 'max-h-full max-w-full' : 'flex-shrink-0'}`}
       >
         <img
+          ref={imageRef}
           src={url}
           alt=""
+          style={zoomSize ?? undefined}
           onLoad={(e) => onNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
           className={
-            fit
+            fitted
               ? 'max-h-full max-w-full object-contain shadow-lg'
               : 'max-w-none shadow-lg'
           }

@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   CLAUDE_AUTH_LOGIN_TERM_ID,
   CLAUDE_AUTH_LOGIN_POLL_INTERVAL_MS,
   CLAUDE_AUTH_TERMINAL_REVEAL_MS,
-  DEFAULT_AGENT_CONFIG,
 } from '@vibisual/shared';
 import type { ClaudeAuthLoginMode } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
 import { LoginTerminal } from './LoginTerminal.js';
-import { scanLoginOutput, type LoginScan } from './loginOutput.js';
+import { useLoginSession } from './useLoginSession.js';
 import { hasProjectFolder, shouldSummonProjectFolder } from './projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
@@ -55,21 +54,14 @@ export function LoginWindow(): React.JSX.Element | null {
 
   const [mode, setMode] = useState<ClaudeAuthLoginMode>('claudeai');
   const [email, setEmail] = useState('');
-  const [running, setRunning] = useState(false);
-  const [scan, setScan] = useState<LoginScan>({});
   const [code, setCode] = useState('');
   const [showTerminal, setShowTerminal] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [succeeded, setSucceeded] = useState(false);
-  /** 실행한 로그인 명령 — 터미널 폴백이 (PTY 가 이미 죽었을 때) 같은 명령으로 다시 뜨게 넘긴다. */
-  const [loginCommand, setLoginCommand] = useState<string | undefined>(undefined);
-  /** PTY 출력 누적 — URL/코드 요구는 여러 청크에 걸쳐 올 수 있어 합쳐서 훑는다. */
-  const bufferRef = useRef('');
-
   const transport = useMemo(() => getTerminalTransport(), []);
+  const { running, checking, succeeded, scan, startError, terminal, start, stop, recheck, setSucceeded } =
+    useLoginSession(transport, refreshAuth, CLAUDE_AUTH_LOGIN_TERM_ID, CLAUDE_AUTH_LOGIN_POLL_INTERVAL_MS);
   // §5.25 (C) — 코덱스·로컬을 고른 사람에게는 저절로 뜨지 않는다(직접 열면 `forced` 로 온다).
-  const shouldOpen = forced || (claudeGatesMayAutoOpen(engineChoice) && auth !== null && !auth.loggedIn && !auth.error && !dismissed);
+  const shouldOpen = succeeded || forced || (claudeGatesMayAutoOpen(engineChoice) && auth !== null && !auth.loggedIn && !auth.error && !dismissed);
   // §4 (첫 실행 온보딩) — 백드롭이 헤더를 덮는 동안 헤더 언어 전환기를 창 위로 띄우게 알린다.
   useOnboardingGate('login', shouldOpen);
   // §4 (첫 실행 온보딩) — 성공 표시에 "다음은 폴더" 를 덧붙일지. 이미 폴더가 있으면 안내할 다음 칸이 없다.
@@ -77,37 +69,17 @@ export function LoginWindow(): React.JSX.Element | null {
   const stubProjects = useGraphStore((s) => s.stubProjects);
   const needsProjectFolder = !hasProjectFolder({ projects, stubProjects });
 
-  /** 상태 재조회 — 로그인 성공의 진짜 판정. 창구는 스토어 하나(설치 게이트도 같은 것을 쓴다). */
-  const refreshStatus = refreshAuth;
-
   /** 로그인 PTY 종료 + 로컬 진행 상태 초기화. */
   const stopLogin = useCallback(() => {
-    setRunning(false);
-    setScan({});
+    stop();
     setCode('');
     setShowTerminal(false);
-    bufferRef.current = '';
-    void transport?.kill(CLAUDE_AUTH_LOGIN_TERM_ID).catch(() => {});
-  }, [transport]);
+  }, [stop]);
 
   // 창이 닫히면 진행 중이던 로그인 PTY 도 함께 정리한다(뒤에 유령 프로세스가 남지 않게).
   useEffect(() => {
     if (!shouldOpen && running) stopLogin();
   }, [shouldOpen, running, stopLogin]);
-
-  // 로그인 진행 중 상태 폴링 — 브라우저에서 승인이 끝나는 순간을 잡는다.
-  useEffect(() => {
-    if (!running || succeeded) return;
-    const id = setInterval(() => {
-      void refreshStatus().then((next) => {
-        if (next?.loggedIn) {
-          setSucceeded(true);
-          stopLogin();
-        }
-      });
-    }, CLAUDE_AUTH_LOGIN_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [running, succeeded, refreshStatus, stopLogin]);
 
   /**
    * §4 (첫 실행 온보딩) — 이 창이 닫히며 **다음 칸(프로젝트 폴더)으로 넘긴다.**
@@ -139,64 +111,30 @@ export function LoginWindow(): React.JSX.Element | null {
 
   // URL 을 제때 못 찾으면 터미널을 펼친다 — 우리가 모르는 프롬프트가 떠도 사용자가 직접 응답 가능.
   useEffect(() => {
-    if (!running || showTerminal) return;
+    if (!running || checking || showTerminal) return;
     const id = setTimeout(() => {
-      setScan((prev) => {
-        if (!prev.url) setShowTerminal(true);
-        return prev;
-      });
+      if (!scan.url) setShowTerminal(true);
     }, CLAUDE_AUTH_TERMINAL_REVEAL_MS);
     return () => clearTimeout(id);
-  }, [running, showTerminal]);
-
-  // PTY 출력 구독 — 로그인 터미널의 바이트만 골라 훑는다.
-  useEffect(() => {
-    if (!transport || !running) return;
-    const off = transport.onData(({ termId, data }) => {
-      if (termId !== CLAUDE_AUTH_LOGIN_TERM_ID) return;
-      bufferRef.current = (bufferRef.current + data).slice(-16_000);
-      setScan(scanLoginOutput(bufferRef.current));
-    });
-    return off;
-  }, [transport, running]);
+  }, [running, checking, showTerminal, scan.url]);
 
   const handleStart = useCallback(async () => {
-    if (!transport) {
-      setStartError('no-transport');
-      return;
-    }
-    setStartError(null);
-    setScan({});
     setCode('');
-    bufferRef.current = '';
+    setShowTerminal(false);
     const bin = claudeBinPath && claudeBinPath.length > 0 ? claudeBinPath : 'claude';
     const args = [/\s/.test(bin) ? `"${bin}"` : bin, 'auth', 'login', mode === 'console' ? '--console' : '--claudeai'];
     if (email.trim()) args.push('--email', email.trim());
     const command = args.join(' ');
-    setLoginCommand(command);
-    const res = await transport.create({
-      termId: CLAUDE_AUTH_LOGIN_TERM_ID,
-      // 로그인은 프로젝트와 무관 — cwd 는 셸이 알아서 홈으로 떨어지게 빈 값을 준다.
-      cwd: '',
-      config: DEFAULT_AGENT_CONFIG,
-      cols: 100,
-      rows: 24,
-      command,
-      autoRun: true,
-    }).catch(() => ({ ok: false, error: 'create-failed' }));
-    if (!res.ok) {
-      setStartError(res.error ?? 'create-failed');
-      return;
-    }
-    setRunning(true);
-  }, [transport, mode, email, claudeBinPath]);
+    // 로그인 CLI가 끝나면 셸도 닫혀 기존 PTY onExit로 실패/완료를 확인할 수 있다.
+    await start({ command: `${command} && exit || exit` });
+  }, [start, mode, email, claudeBinPath]);
 
   const handleSendCode = useCallback(() => {
     const value = code.trim();
-    if (!value || !transport) return;
-    void transport.write(CLAUDE_AUTH_LOGIN_TERM_ID, `${value}\r`).catch(() => {});
+    if (!value || !transport || !terminal) return;
+    void transport.write(terminal.termId, `${value}\r`).catch(() => {});
     setCode('');
-  }, [code, transport]);
+  }, [code, transport, terminal]);
 
   const handleOpenUrl = useCallback(() => {
     if (!scan.url) return;
@@ -333,7 +271,9 @@ export function LoginWindow(): React.JSX.Element | null {
                     ) : (
                       <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/60 px-3.5 py-3 text-[13px] text-gray-400">
                         <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
-                        {t('panel.login.starting', { defaultValue: 'Starting sign-in…' })}
+                        {checking
+                          ? t('panel.codexLogin.checking', { defaultValue: 'Checking sign-in…' })
+                          : t('panel.login.starting', { defaultValue: 'Starting sign-in…' })}
                       </div>
                     )}
 
@@ -362,11 +302,12 @@ export function LoginWindow(): React.JSX.Element | null {
                       </div>
                     )}
 
-                    {scan.failed && (
-                      <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
-                        {t('panel.login.failed', { defaultValue: 'Sign-in did not complete. Check the terminal below and try again.' })}
-                      </div>
-                    )}
+                  </div>
+                )}
+
+                {scan.failed && !running && (
+                  <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
+                    {t('panel.codexLogin.ended', { defaultValue: 'Sign-in did not complete. Try again.' })}
                   </div>
                 )}
 
@@ -387,7 +328,7 @@ export function LoginWindow(): React.JSX.Element | null {
                 )}
 
                 {/* 터미널 폴백 — 우리가 못 알아본 프롬프트가 떠도 여기서 직접 응답한다. */}
-                {running && (
+                {running && !checking && (
                   <div className="flex flex-col gap-1.5">
                     <button
                       type="button"
@@ -399,7 +340,7 @@ export function LoginWindow(): React.JSX.Element | null {
                       </svg>
                       {t('panel.login.showTerminal', { defaultValue: 'Terminal' })}
                     </button>
-                    {showTerminal && <LoginTerminal termId={CLAUDE_AUTH_LOGIN_TERM_ID} command={loginCommand} />}
+                    {showTerminal && terminal && <LoginTerminal termId={terminal.termId} command={terminal.command} env={terminal.env} />}
                   </div>
                 )}
               </>
@@ -411,7 +352,7 @@ export function LoginWindow(): React.JSX.Element | null {
             <div className="flex items-center justify-between gap-2 border-t border-gray-800 px-4 py-3">
               <button
                 type="button"
-                onClick={() => { void refreshStatus(); }}
+                onClick={() => { void recheck(); }}
                 className="text-[12px] text-gray-500 transition-colors hover:text-gray-300"
               >
                 {t('panel.login.recheck', { defaultValue: 'Check again' })}

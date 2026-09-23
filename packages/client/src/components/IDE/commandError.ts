@@ -1,5 +1,10 @@
-import { COMMAND_ERROR_CODES, COMMAND_ERROR_CODES_WITH_EXIT } from '@vibisual/shared';
-import type { CommandError, CommandErrorCode } from '@vibisual/shared';
+import {
+  AGENT_ENGINE_CLI_LABEL,
+  COMMAND_ERROR_CODES,
+  COMMAND_ERROR_CODES_WITH_EXIT,
+  UNKNOWN_ENGINE_CLI_LABEL,
+} from '@vibisual/shared';
+import type { AgentEngineKind, CommandError, CommandErrorCode } from '@vibisual/shared';
 
 /**
  * §5.5 #17-12 ③ — "오류" 한 단어를 사람이 읽을 수 있는 사유로 바꾸는 순수 모듈.
@@ -8,6 +13,19 @@ import type { CommandError, CommandErrorCode } from '@vibisual/shared';
  * `t()` 를 부르지 않고 **키와 파라미터만** 돌려준다 — 그래야 i18n 없이 단위 테스트가 되고,
  * 부르는 화면(하단 상태바 · 스트림 · 메인 타임라인)이 저마다 자기 방식으로 문장을 붙일 수 있다.
  */
+
+/** 엔진 이름을 채울 수 있는 엔진 종류 — 표에 없는 값(옛 데이터·미래 엔진)은 중립 이름으로 떨어진다. */
+const ENGINE_KINDS: ReadonlySet<string> = new Set(Object.keys(AGENT_ENGINE_CLI_LABEL));
+
+/**
+ * §5.5 #17-12 ③-7 — 문장이 부를 **엔진의 이름**. 모르면 `CLI` 라고만 말한다.
+ *
+ * 엔진 이름은 제품 고유명사라 로케일마다 달라지지 않는다 — 그래서 번역 파일이 아니라 shared 의
+ * 표에서 온다(문장은 `{{engine}}` 한 칸만 비워 두고 12 로케일이 그 칸을 공유한다).
+ */
+export function engineLabelOf(engine: AgentEngineKind | undefined): string {
+  return engine && ENGINE_KINDS.has(engine) ? AGENT_ENGINE_CLI_LABEL[engine] : UNKNOWN_ENGINE_CLI_LABEL;
+}
 
 /** 사유 한 건의 표시 재료. `detail` 은 stderr 꼬리·CLI 본문이라 **번역하지 않는다**. */
 export interface CommandErrorText {
@@ -33,16 +51,23 @@ const CODE_AWARE: ReadonlySet<string> = new Set<string>(COMMAND_ERROR_CODES_WITH
  */
 const UNTYPED_ERROR_CODE = 'unknown' as CommandErrorCode;
 
-/** 사유 → 화면 재료. 모르는 코드(옛 데이터·미래 코드)도 버리지 않고 `unknown` 문장 + 원문으로 남긴다. */
+/**
+ * 사유 → 화면 재료. 모르는 코드(옛 데이터·미래 코드)도 버리지 않고 `unknown` 문장 + 원문으로 남긴다.
+ *
+ * **엔진 이름은 언제나 함께 간다.** 문장에 이름이 없는 사유(`maxTurns`·`local` 등)도 `{{engine}}` 을
+ * 쓰지 않을 뿐이라 파라미터가 남아도 해가 없고, 반대로 이름을 쓰는 문장(`cli`·`spawn`·`exit`)에
+ * 파라미터가 빠지면 화면에 `{{engine}}` 이 그대로 뜬다 — 빠지는 쪽의 대가가 크므로 늘 싣는다.
+ */
 export function describeCommandError(error: CommandError): CommandErrorText {
   const code = KNOWN_CODES.has(error.code) ? error.code : 'unknown';
   const detail = error.detail && error.detail.trim() !== '' ? error.detail.trim() : null;
+  const engine = engineLabelOf(error.engine);
   if (CODE_AWARE.has(code)) {
     return error.exitCode !== undefined
-      ? { labelKey: `ide.cmdError.${code}`, labelParams: { code: error.exitCode }, detail }
-      : { labelKey: `ide.cmdError.${code}Unknown`, detail };
+      ? { labelKey: `ide.cmdError.${code}`, labelParams: { code: error.exitCode, engine }, detail }
+      : { labelKey: `ide.cmdError.${code}Unknown`, labelParams: { engine }, detail };
   }
-  return { labelKey: `ide.cmdError.${code}`, detail };
+  return { labelKey: `ide.cmdError.${code}`, labelParams: { engine }, detail };
 }
 
 /**
@@ -51,7 +76,9 @@ export function describeCommandError(error: CommandError): CommandErrorText {
  * (사유를 통째로 잃느니 원문이라도 보여주는 편이 낫다).
  */
 export function parseStreamErrorContent(content: string): CommandError {
-  const m = /^\[([A-Za-z]+)(?::(-?\d+))?\]\s*([\s\S]*)$/.exec(content.trim());
+  // `@engine` 은 **선택 꼬리**다(§5.5 #17-12 ③-7). 그것이 없는 옛 줄은 종전과 똑같이 읽히고,
+  //   엔진이 비면 화면이 엔진 이름 없이 `CLI` 라고만 말한다 — 모르는 것을 클로드로 단정하지 않는다.
+  const m = /^\[([A-Za-z]+)(?::(-?\d+))?(?:@([A-Za-z]+))?\]\s*([\s\S]*)$/.exec(content.trim());
   if (!m) {
     // 봉투가 없는 줄 = 누가 낸 실패인지 모른다. 예전엔 `exit` 로 떨어뜨려 "Claude CLI 가 예기치 않게
     //   종료됐습니다" 라고 단정했는데, 로컬 모델처럼 CLI 가 아예 없는 경로의 실패까지 Claude 탓으로
@@ -64,11 +91,14 @@ export function parseStreamErrorContent(content: string): CommandError {
   //   여기서 `exit` 로 바꿔치면 미래에 코드가 하나 늘 때마다 같은 오인이 되살아난다.
   const code = (KNOWN_CODES.has(rawCode) ? rawCode : UNTYPED_ERROR_CODE) as CommandErrorCode;
   const exitCode = m[2] !== undefined ? Number(m[2]) : undefined;
-  const detail = (m[3] ?? '').trim();
+  const rawEngine = m[3];
+  const engine = rawEngine && ENGINE_KINDS.has(rawEngine) ? (rawEngine as AgentEngineKind) : undefined;
+  const detail = (m[4] ?? '').trim();
   return {
     code,
     ...(exitCode !== undefined && Number.isFinite(exitCode) ? { exitCode } : {}),
     ...(detail ? { detail } : {}),
+    ...(engine ? { engine } : {}),
   };
 }
 

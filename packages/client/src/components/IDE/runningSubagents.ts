@@ -1,3 +1,4 @@
+import { isBackgroundShellTask } from '@vibisual/shared';
 import type { FinishedSubagentTask, RunningSubagentTask } from '@vibisual/shared';
 
 /**
@@ -30,9 +31,17 @@ const EMPTY: RunningSubagentTask[] = [];
  * 으로 읽혔다(사용자 보고). 판정 근거는 서버가 이미 싣고 있던 `origin` 하나뿐이다 — 새 수집 경로 ❌.
  *
  * 미지정은 `'hook'` 취급(§5.5 #17-9 `RunningSubagentTask.origin` 규약) — 옛 항목과 호환된다.
+ *
+ * §5.5 #17-9 ⑰ — 판정은 **실행 축과 같은 술어**(`isBackgroundShellTask`)로 한다. 종전에는 이 함수가
+ * `origin === 'stream'` 만 봐서, 백그라운드 자식 **안에서** 다시 스폰된 모델 자식(스트림으로 오지만
+ * `subagentType` 이 붙는다)을 "셸"로 적었다 — 그 칩은 "토큰을 안 씁니다"라고 말하는데 실제로는 태우는
+ * 중이었다. 무엇보다 같은 낱말의 판정이 두 벌이면, 세션을 붙드는 쪽과 화면이 적는 쪽이 서로 다른
+ * 항목을 가리키게 된다. 그것이 이 라운드 전체가 고치고 있는 결함이다.
  */
-export function taskKindKey(origin: 'hook' | 'stream' | undefined): 'kindAgent' | 'kindShell' {
-  return origin === 'stream' ? 'kindShell' : 'kindAgent';
+export function taskKindKey(
+  task: Pick<RunningSubagentTask, 'origin' | 'subagentType'>,
+): 'kindAgent' | 'kindShell' {
+  return isBackgroundShellTask(task) ? 'kindShell' : 'kindAgent';
 }
 
 /** 지금 보고 있는 탭 기준 목록. 전부가 대상이면 원본 배열을 그대로 돌려준다(불필요한 리렌더 방지). */

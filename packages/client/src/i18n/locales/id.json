@@ -82,9 +82,6 @@
       "soloFocus": "Tampilkan jendela ini saja (ciutkan lainnya)",
       "limited": "berhenti",
       "limitedUntil": "reset {{at}}",
-      "limitedBanner": "{{count}} sesi berhenti karena batas penggunaan — ditampilkan paling atas di bawah",
-      "limitedAck": "Mengerti",
-      "limitedAckHint": "Menghapus tanda oranye — sesi dan percakapan tetap ada",
       "settings": "Pengaturan Agent",
       "expand": "Bentangkan",
       "collapse": "Ciutkan",
@@ -1725,7 +1722,8 @@
         "running": "berjalan",
         "done": "selesai",
         "error": "galat",
-        "limited": "batas tercapai"
+        "limited": "batas tercapai",
+        "waiting": "mengantre"
       },
       "probe": {
         "checking": "memeriksa…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Percakapan tanpa judul",
       "revisionOf": "rev {{index}}/{{total}}",
       "failedBadge": "Gagal: {{count}}",
-      "failedBadgeTip": "Compaction yang gagal ({{scope}}): {{count}}. Setiap baris yang gagal diberi chip merah berisi alasannya."
+      "failedBadgeTip": "Compaction yang gagal ({{scope}}): {{count}}. Setiap baris yang gagal diberi chip berisi alasannya."
     },
     "remoteAccess": {
       "title": "Akses jarak jauh",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Pulihkan spasi kata bahasa Korea",
       "voiceRespaceHint": "Mesin pengenal mengeluarkan bahasa Korea tanpa spasi; fitur ini memisahkannya pada partikel dan akhiran. Berbasis aturan sehingga tidak sempurna — hasilnya dapat Anda perbaiki di kotak masukan.",
       "stallHint": "Penalaran atau pemanggilan alat yang lama dapat menjeda pembaruan. Hal ini saja tidak berarti sesi telah berhenti.",
-      "stallNotice": "Menunggu pembaruan berikutnya. Aktivitas terakhir {{value}} yang lalu.",
-      "stallKeepWaiting": "Tunggu lagi",
-      "stallKeepWaitingTitle": "Sembunyikan pemberitahuan ini dan terus tunggu pembaruan berikutnya.",
+      "backgroundShells": "{{count}} shell latar belakang masih berjalan. Jawabannya sudah masuk — Anda tetap bisa mengetik.",
+      "backgroundShellsTip": "Perintah Bash atau Monitor yang berjalan di latar belakang dan tersisa dari giliran sebelumnya. Ini menjalankan perintah, bukan model, sehingga tidak menahan sesi ini. Perintah yang tidak pernah keluar dengan sendirinya (tail -f, while true, sort yang di-pipe) akan tetap ada di sini sampai Anda menghapusnya.",
+      "backgroundShellsOpen": "Lihat",
       "stopNothing": "Tidak ada yang berjalan untuk dihentikan. Label “berjalan” sudah usang.",
       "stopNothingHint": "Server tidak menemukan proses anak, perintah antrean, maupun tugas latar belakang untuk cakupan ini.",
       "stopForce": "Paksa tutup",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Subagen",
       "commandReceived": "Perintah diterima",
       "promptSuggestion": "Saran prompt berikutnya",
-      "imageMissing": "(gambar tidak tersedia)"
+      "imageMissing": "(gambar tidak tersedia)",
+      "waiting": "menunggu"
     },
     "report": {
       "title": "Laporan kerja",
@@ -3502,18 +3501,19 @@
       "superseded": "Rencana diperbarui"
     },
     "cmdError": {
-      "spawn": "Claude CLI tidak dapat dimulai",
+      "spawn": "{{engine}} tidak dapat dimulai",
       "stdin": "Tidak dapat mengirim prompt ke sesi yang berjalan",
-      "exit": "Claude CLI keluar dengan kode {{code}}",
-      "exitUnknown": "Claude CLI keluar secara tak terduga",
+      "exit": "{{engine}} keluar dengan kode {{code}}",
+      "exitUnknown": "{{engine}} keluar secara tak terduga",
       "crash": "Proses sesi berhenti tak terduga (kode {{code}})",
       "crashUnknown": "Proses sesi berhenti tak terduga",
       "local": "Menjalankan model lokal gagal",
-      "cli": "Claude CLI melaporkan kegagalan",
+      "cli": "{{engine}} melaporkan kegagalan",
       "maxTurns": "Berhenti di batas maks giliran",
       "agentView": "Proses agent berakhir dengan kegagalan",
       "orphaned": "Terinterupsi saat aplikasi dimulai ulang",
       "dispatchResult": "Berakhir tanpa menerima hasil tugas yang didelegasikan",
+      "usageLimit": "Berhenti di batas penggunaan",
       "unknown": "Gagal karena alasan yang tidak diketahui"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Muat ulang prosedur",
       "details": "Tampilkan detail prosedur",
       "hideDetails": "Sembunyikan detail prosedur",
+      "approve": "Setujui",
+      "approveHint": "Setujui sekarang, menggunakan file yang sudah tercantum di prosedur ini sebagai bukti. Agent biasanya melakukan ini sendiri.",
+      "approveNoEvidence": "Prosedur ini tidak mencantumkan file bukti, sehingga tidak dapat disetujui di sini.",
       "pause": "Hentikan penggunaan",
       "requestReview": "Minta tinjauan Agent",
       "reviewHint": "Agent yang sedang bekerja meninjau prosedur terkait. Meminta tinjauan tidak langsung mengaktifkan prosedur.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "Kondisi penggunaan prosedur ini berubah setelah ditinjau.",
         "instructionsChanged": "Instruksi prosedur berubah setelah ditinjau.",
         "dependencyChanged": "Berkas pendukung yang telah ditinjau berubah atau tidak lagi tersedia.",
+        "userApproved": "Anda menyetujui prosedur ini.",
         "userPaused": "Anda menghentikan penggunaan prosedur ini.",
         "userRequestedReview": "Anda meminta tinjauan ulang prosedur ini."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Izinkan dirigen bertanya kepada saya",
         "askQuestionsHint": "Menambahkan AskUserQuestion ke daftar alatnya. Nonaktif secara default — saat aktif, perintah yang kurang jelas bisa berhenti sejenak sampai Anda menjawab.",
         "engine": "Engine anggota",
-        "maxMembers": "Anggota maksimum yang boleh dibuat"
+        "maxMembers": "Anggota maksimum yang boleh dibuat",
+        "memberIsolation": "Beri setiap anggota working tree sendiri",
+        "memberIsolationHint": "Setiap anggota lahir di git worktree miliknya sendiri, sehingga pekerja yang berjalan berdampingan tidak bisa saling bertabrakan pada file yang sama. Meng-merge branch-branch itu nanti tetap tugas Anda sendiri. Hanya anggota Claude — Codex tidak punya flag yang setara.",
+        "memberToolTemplate": "Alat bawaan anggota"
       },
       "permission": {
         "bypass": "Lewati permintaan izin",
@@ -4734,7 +4741,11 @@
           "auto": "Dirigen memilih per peran",
           "inherit": "Sama dengan konduktor ({{engine}})"
         },
-        "maxDefault": "Default ({{count}})"
+        "maxDefault": "Default ({{count}})",
+        "isolationClaudeOnly": "Anggota Codex tidak mendapatkan ini — mereka berjalan langsung di folder proyek.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Agent default (semua alat)",
+        "toolsHint": "Dirigen tidak bisa memperluas daftar ini. Alat yang terbatas menjaga anggota tetap pada tugasnya sendiri — reviewer yang tidak bisa menulis tidak akan diam-diam “memperbaiki” apa yang Anda minta untuk diperiksa."
       },
       "strategies": {
         "title": "Strategi hemat token",
@@ -5757,6 +5768,7 @@
     "waitingFor": "menunggu {{time}}",
     "queued": "{{count}} antre",
     "running": "{{count}} berjalan",
+    "backgroundShells": "{{count}} shell latar belakang",
     "jumpHint": "Buka sesi ini di jendela utama",
     "commandHint": "Kirim pesan tanpa meninggalkan jendela ini",
     "moreHint": "Tindakan lain",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Pesan untuk sesi ini… (Enter untuk kirim)",
     "send": "Kirim",
     "searchPlaceholder": "Cari sesi —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Mencari di riwayat percakapan…",
+    "historySearchFailed": "Sebagian riwayat percakapan tidak dapat ditelusuri.",
+    "retryHistorySearch": "Cari lagi di riwayat",
     "clearSearch": "Bersihkan",
     "resultCount": "{{count}} cocok",
     "sessionCount": "{{count}} sesi",

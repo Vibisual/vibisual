@@ -9,6 +9,11 @@
  *  (C) 상태바만 sessionRunStateOf 를 인자 둘로 불러 다른 답을 냈고,
  *  (D) [중지]가 응답을 버려 "멈출 것이 없다"는 답이 화면에 닿지 않았고,
  *  (G) 실행 축에 시간이 없어 "얼마나 조용한가"를 말할 수 없었다.
+ *  (I) **줄 서 있는 명령이 판정에서 통째로 빠져 있었다** — 앞 턴의 `executing` 이 좀비로 남아
+ *      자물쇠를 쥐면 뒤에 선 덧말은 `queued` 로 멈추는데, 그 세션의 `sub.status` 는 `idle` 이라
+ *      화면은 **"완료"**라고 적었다. 사용자는 그 완료를 믿고 또 덧말을 보냈고, 그 덧말도 줄만
+ *      섰다 — 그러는 내내 스트림 바닥은 "작업 중 · 마지막 업데이트 24m 26s 전"을 키웠다
+ *      (사용자 보고 그대로). 완료와 작업 중 **둘 다 거짓말**이었고, 참말은 "대기"였다.
  *
  * jsdom 이 없어 렌더 테스트는 못 한다 — 판정은 순수 함수로, 배선은
  * import.meta.glob(?raw) 소스 스캔으로 고정한다(promptBubbleCollapse.test.ts 와 같은 방식).
@@ -22,11 +27,20 @@ import {
   isSessionRunning,
   isSessionWaiting,
   resolveSessionLiveness,
+  resolveSessionRunState,
   sessionSilenceMs,
   type QueuedCommand,
+  type SessionRunState,
   type SubAgent,
 } from '@vibisual/shared';
-import { buildSessionRunInputs, sessionRunStateOf } from './sessionStatus.js';
+import {
+  SESSION_STATUS_DOT,
+  SESSION_STATUS_LABEL_KEY,
+  buildSessionRunInputs,
+  serializePendingSubIds,
+  sessionRunStateOf,
+} from './sessionStatus.js';
+import { buildBaseItems } from '../components/IDE/streamItems.js';
 import {
   classifyStopResponse, stoppedCount, sessionStopUrl, sessionForceStopUrl,
 } from '../hooks/useSessionStop.js';
@@ -59,6 +73,34 @@ function sub(patch: Partial<SubAgent> = {}): SubAgent {
 }
 
 const SOURCES = import.meta.glob('../**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true });
+
+/**
+ * `fn(...)` 호출의 **최상위 인자 수**.
+ *
+ * 정규식 한 줄로 세면 안 된다 — `\([^)]*\)` 는 `busySubIds.has(sub.id)` 같은 중첩 괄호에서
+ * 첫 `)` 에 끊겨 인자를 **적게** 센다. 그래서 인자가 하나 빠져도 그 검사는 통과한다.
+ * 괄호 깊이를 세어 잘라야 이 목록이 실제로 무언가를 막는다.
+ */
+function callArgCounts(src: string, fn: string): number[] {
+  const out: number[] = [];
+  const needle = fn + '(';
+  for (let at = src.indexOf(needle); at >= 0; at = src.indexOf(needle, at + 1)) {
+    let depth = 0;
+    let commas = 0;
+    for (let i = at + needle.length - 1; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      else if (ch === ')' || ch === ']' || ch === '}') {
+        depth--;
+        if (depth === 0) {
+          out.push(commas + 1);
+          break;
+        }
+      } else if (ch === ',' && depth === 1) commas++;
+    }
+  }
+  return out;
+}
 
 /** 소스 스캔용 — glob 이 조용히 비면 검사가 통째로 무력해지므로 길이까지 본다. */
 function readSource(path: string): string {
@@ -124,9 +166,12 @@ describe('(A) 배선 — 생존 판정 자리에 손글씨 술어가 없다', ()
   it('스트림 렌더러는 부모가 준 생존 값을 파서까지 내려보낸다', () => {
     const renderer = readSource('../components/IDE/StreamRenderer.tsx');
     expect(renderer).toMatch(/sessionBusy\??:/);
-    expect(renderer).toMatch(/sync\(events, commands, sessionBusy\)/);
+    // (I) 대기 축도 **같은 경로로** 내려간다 — 한쪽만 내려보내면 Sub 탭만 대기를 못 그린다.
+    expect(renderer).toMatch(/sessionWaiting\??:/);
+    expect(renderer).toMatch(/sync\(events, commands, sessionBusy, sessionWaiting\)/);
     const items = readSource('../components/IDE/streamItems.ts');
     expect(items).toMatch(/agentBusyOverride/);
+    expect(items).toMatch(/agentWaitingOverride/);
   });
 });
 
@@ -190,22 +235,137 @@ describe('(C) 상태바·탭바·분할 칸은 같은 입력에 같은 답을 �
     expect(sessionRunStateOf(s, false)).toBe(sessionRunStateOf(s, false, false));
   });
 
-  it('세 자리가 모두 셋째 인자를 넘긴다', () => {
+  it('도트를 그리는 자리는 모두 인자 **넷**을 넘긴다', () => {
+    // (I) 셋째(백그라운드)까지만 넘기던 것이 이 목록의 종전 규약이었다. 넷째(줄 선 명령)가
+    //   빠진 자리는 그 세션을 "완료"로 적는다 — 그 한 칸이 사용자를 속인 바로 그 표시다.
     for (const path of [
       '../components/IDE/IDEStatusBar.tsx',
       '../components/IDE/IDETabBar.tsx',
       '../components/IDE/IDESplitCell.tsx',
+      '../components/IDE/IDETabSortMenu.tsx',
+      '../components/Panel/SubAgentList.tsx',
     ]) {
       const src = readSource(path);
-      const calls = src.match(/sessionRunStateOf\([^)]*\)/g) ?? [];
-      expect(calls.length, path + ' 에 sessionRunStateOf 호출이 없다').toBeGreaterThan(0);
-      for (const call of calls) {
-        expect(call.split(',').length, path + ': 인자가 모자란 호출 — ' + call).toBeGreaterThanOrEqual(3);
+      const counts = callArgCounts(src, 'sessionRunStateOf');
+      expect(counts.length, path + ' 에 sessionRunStateOf 호출이 없다').toBeGreaterThan(0);
+      for (const n of counts) {
+        expect(n, path + ': 인자가 모자란 sessionRunStateOf 호출이 있다').toBeGreaterThanOrEqual(4);
       }
       // 재료는 같은 방식으로 집는다(참조 안정 문자열 → 집합).
       expect(src).toMatch(/serializeBusySubIds/);
       expect(src).toMatch(/parseBusySubIds/);
+      expect(src).toMatch(/serializePendingSubIds/);
     }
+  });
+});
+
+describe('(I) 줄 서 있는 세션은 "완료"가 아니다 — 대기다', () => {
+  const idle = sub({ status: 'idle' });
+
+  it('큐에 남은 명령 하나가 doneUnseen 을 waiting 으로 되돌린다', () => {
+    // 사고 재현: 앞 턴이 자물쇠를 쥔 채 사라져 sub.status 는 idle, 덧말은 queued.
+    expect(sessionRunStateOf(idle, false, false, false)).toBe('doneUnseen');
+    expect(sessionRunStateOf(idle, false, false, true)).toBe('waiting');
+    // 사용자가 그 세션을 이미 확인했어도 마찬가지다 — 확인은 "봤다"이지 "끝났다"가 아니다.
+    expect(sessionRunStateOf(idle, true, false, true)).toBe('waiting');
+  });
+
+  it('넷째 인자를 생략한 호출은 종전 답 그대로 — 기존 호출부를 깨지 않는다', () => {
+    expect(sessionRunStateOf(idle, false, false)).toBe(sessionRunStateOf(idle, false, false, false));
+  });
+
+  it('우선순위: error > running > limited > waiting > doneUnseen', () => {
+    const q = { ...EMPTY_SESSION_RUN_INPUTS, hasQueuedCommand: true };
+    expect(resolveSessionRunState(q)).toBe('waiting');
+    // 도는 중이면 파랑이 이긴다(줄 선 것은 그 뒤에 나갈 일이라 말할 것이 없다).
+    expect(resolveSessionRunState({ ...q, hasExecutingCommand: true })).toBe('running');
+    // 한도로 끊긴 세션은 사유가 더 구체적이다.
+    expect(resolveSessionRunState({ ...q, usageLimited: true })).toBe('limited');
+    // 실패는 언제나 가장 먼저.
+    expect(resolveSessionRunState({ ...q, subStatus: 'error' })).toBe('error');
+  });
+
+  it('생존 축(resolveSessionLiveness)과 표시 축이 같은 말을 한다', () => {
+    const q = { ...EMPTY_SESSION_RUN_INPUTS, hasQueuedCommand: true };
+    expect(resolveSessionLiveness(q, 1_000, 1_000 + SESSION_NO_RESPONSE_MS * 9)).toBe('waiting');
+    // 종전엔 생존 축만 'waiting' 을 알고 표시 축은 그 값을 갖지도 않았다 — 그 비대칭이 사고였다.
+    expect(resolveSessionRunState(q)).toBe('waiting');
+  });
+
+  it('표시 표 셋 모두 새 값을 안다(빠지면 색·낱말이 undefined 로 샌다)', () => {
+    const ALL: SessionRunState[] = ['running', 'error', 'limited', 'waiting', 'doneUnseen', 'done'];
+    for (const st of ALL) {
+      expect(SESSION_STATUS_DOT[st], st + ' 도트 색이 없다').toBeTruthy();
+      expect(SESSION_STATUS_LABEL_KEY[st], st + ' 라벨 키가 없다').toBeTruthy();
+    }
+    // 대기는 **끝난 둘과 다른 색**이어야 한다 — 같으면 이 축을 만든 의미가 없다.
+    expect(SESSION_STATUS_DOT.waiting).not.toBe(SESSION_STATUS_DOT.done);
+    expect(SESSION_STATUS_DOT.waiting).not.toBe(SESSION_STATUS_DOT.doneUnseen);
+    // "대기"와 "완료"가 같은 낱말이면 화면은 여전히 거짓말을 한다.
+    expect(SESSION_STATUS_LABEL_KEY.waiting).not.toBe(SESSION_STATUS_LABEL_KEY.done);
+  });
+});
+
+describe('(I) serializePendingSubIds — 줄 선 세션만, 값이 바뀔 때만', () => {
+  it('queued 만 센다 — executing 은 빼고(좀비가 도는 중으로 세탁되지 않게)', () => {
+    const list = [
+      cmd({ id: 'a', status: 'executing', subAgentId: 'sub-Z' }),
+      cmd({ id: 'b', status: 'queued', subAgentId: 'sub-A' }),
+    ];
+    expect(serializePendingSubIds(list)).toBe('sub-A');
+  });
+
+  it('정렬·중복 제거 — 같은 집합이면 같은 문자열(불필요한 리렌더 ❌)', () => {
+    const one = [cmd({ id: '1', subAgentId: 'b' }), cmd({ id: '2', subAgentId: 'a' })];
+    const two = [cmd({ id: '3', subAgentId: 'a' }), cmd({ id: '4', subAgentId: 'b' }), cmd({ id: '5', subAgentId: 'a' })];
+    expect(serializePendingSubIds(one)).toBe(serializePendingSubIds(two));
+  });
+
+  it('빈 입력·주인 없는 명령은 아무도 켜지 않는다', () => {
+    expect(serializePendingSubIds(undefined)).toBe('');
+    expect(serializePendingSubIds([])).toBe('');
+    expect(serializePendingSubIds([cmd({ subAgentId: '' })])).toBe('');
+  });
+});
+
+describe('(I) 라이브 1줄 — 대기는 "작업 중"이 아니다', () => {
+  const events: never[] = [];
+
+  it('줄만 서 있으면 mode 가 waiting 이다', () => {
+    const live = buildBaseItems(events, undefined, /*busy=*/true, /*waiting=*/true).thinkingLive;
+    expect(live?.mode).toBe('waiting');
+  });
+
+  it('도는 중이면 종전대로 working — 대기가 실행을 덮지 않는다', () => {
+    const live = buildBaseItems(events, undefined, /*busy=*/true, /*waiting=*/false).thinkingLive;
+    expect(live?.mode).toBe('working');
+  });
+
+  it('낼 일이 없으면 줄 자체가 없다(#17-24 ② 는 작동 중에만 상시 표시)', () => {
+    expect(buildBaseItems(events, undefined, /*busy=*/false, /*waiting=*/true).thinkingLive).toBeNull();
+  });
+
+  it('override 가 없으면 큐만 보고 추정한다 — executing 이 있으면 대기가 아니다', () => {
+    const queuedOnly = [cmd({ id: 'q', status: 'queued' })];
+    const withExec = [cmd({ id: 'q', status: 'queued' }), cmd({ id: 'e', status: 'executing' })];
+    expect(buildBaseItems(events, queuedOnly).thinkingLive?.mode).toBe('waiting');
+    expect(buildBaseItems(events, withExec).thinkingLive?.mode).toBe('working');
+  });
+
+  it('배선 — 대기 줄은 뛰지도, 무응답 문구를 붙이지도 않는다', () => {
+    const src = readSource('../components/IDE/ThinkingIndicator.tsx');
+    // 셋 다 "지금 뭔가 하는 중"이라는 신호다. 대기에 붙으면 그 줄이 다시 거짓말을 한다.
+    expect(src).toMatch(/const waiting = mode === 'waiting'/);
+    expect(src).toMatch(/!waiting && silence !== null/);
+    expect(src).toContain("stalled || waiting ? '' : 'animate-pulse'");
+    expect(src).toContain('!stalled && !waiting && <ThinkingDots />');
+  });
+
+  it('배선 — 메인 탭도 같은 축을 본다(탭을 옮기면 말이 바뀌는 일 ❌)', () => {
+    const src = readSource('../components/IDE/IDEMainArea.tsx');
+    expect(src).toMatch(/waiting: sessionWaiting/);
+    expect(src).toMatch(/sessionWaiting=\{sessionWaiting\}/);
+    expect(src).toMatch(/MAIN_LIVE_LABEL_KEY/);
   });
 });
 
@@ -233,9 +393,10 @@ describe('(D) 중지는 응답을 버리지 않는다', () => {
 });
 
 describe('(D) 배선 — stopping 이 응답으로 풀리고, 결과가 화면에 드러난다', () => {
-  it('useSessionStop 은 finally 에서 풀고 타이머로 풀지 않는다', () => {
+  it('useSessionStop 은 자기 요청의 응답으로 풀고 타이머로 풀지 않는다', () => {
     const src = readSource('../hooks/useSessionStop.ts');
-    expect(src).toMatch(/finally\s*\{[\s\S]*?setStopping\(false\)/);
+    expect(src).toContain('activeScope.current !== scope || inFlight.current !== request');
+    expect(src).toContain('setState({ scope, stopping: false, outcome });');
     expect(src).not.toMatch(/setTimeout\([^)]*setStopping/);
     expect(src).toMatch(/res\.ok/);
   });
@@ -280,7 +441,7 @@ describe('(G) 무응답 문턱 — 실행 인디케이터가 시간을 본다', 
   });
 });
 
-describe('(G) 배선 — 무응답 문턱은 한 값, 화면 셋이 모두 시간을 말한다', () => {
+describe('(G) 배선 — 무응답 문턱은 한 값, 시간을 말하는 자리는 카드·스트림 줄이다(상태바·입력창 위 ❌)', () => {
   it('카드가 자기 숫자를 들고 있지 않다', () => {
     const src = readSource('../components/IDE/IDERunningSubagentsCards.tsx');
     expect(src).toMatch(/NO_RESPONSE_HINT_MS\s*=\s*SESSION_NO_RESPONSE_MS/);
@@ -294,18 +455,26 @@ describe('(G) 배선 — 무응답 문턱은 한 값, 화면 셋이 모두 시�
     expect(src).toMatch(/ide\.runningSubagents\.noResponse/);
   });
 
-  it('상태바가 경과 시간을 적고, 넘으면 무응답으로 바꾼다', () => {
+  // 사용자 지시(2026-09-23) — 상태바 "실행 중" 옆의 경과 시계(`· 0s`)는 걷었다. 축(⑥-6)은 그대로고
+  //   줄어든 것은 표시 자리 하나다(위 스트림 줄이 같은 사실을 계속 말한다).
+  //   판정은 **코드 모양**으로만 한다 — 왜 뺐는지 적은 주석이 낱말을 품고 있어 낱말 부재로 재면 헛실패한다.
+  it('상태바는 경과 시계를 그리지 않는다', () => {
     const src = readSource('../components/IDE/IDEStatusBar.tsx');
-    expect(src).toMatch(/statusStalled/);
-    expect(src).toMatch(/ide\.runningSubagents\.noResponse/);
-    expect(src).toMatch(/ide\.statusBar\.elapsedTip/);
+    expect(src).not.toMatch(/statusElapsed/);
+    expect(src).not.toMatch(/ide\.statusBar\.elapsedTip/);
+    expect(src).not.toMatch(/from '\.\.\/\.\.\/hooks\/useNowTick\.js'/);
   });
 
-  it('입력창이 빠져나갈 길을 연다 — 더 기다리기 / 중지', () => {
+  // 사용자 지시(2026-09-23) — 입력창 위 무응답 띠(경과 안내 · [더 기다리기] · [중지])도 걷었다.
+  //   그 [중지]는 바로 아래 입력줄의 [중지](같은 handleStop)와 같은 기능 두 벌이었다.
+  //   빠져나갈 길은 입력줄 [중지]가 그대로 맡는다 — 그것까지 사라지면 안 된다.
+  it('입력창 위에는 무응답 띠를 두지 않는다 — [중지]는 입력줄 하나다', () => {
     const src = readSource('../components/IDE/IDEMainArea.tsx');
-    expect(src).toMatch(/ide\.mainArea\.stallNotice/);
-    expect(src).toMatch(/ide\.mainArea\.stallKeepWaiting/);
-    expect(src).toMatch(/setStallSnoozeMs/);
+    expect(src).not.toMatch(/ide\.mainArea\.stallNotice/);
+    expect(src).not.toMatch(/ide\.mainArea\.stallKeepWaiting/);
+    expect(src).not.toMatch(/setStallSnoozeMs/);
+    expect(src).not.toMatch(/from '\.\.\/\.\.\/hooks\/useNowTick\.js'/);
+    expect(src).toMatch(/aria-label=\{t\('ide\.mainArea\.stop'\)\}/);
   });
 });
 
@@ -351,9 +520,6 @@ function lookupText(bundle: unknown, key: string): string {
 describe('새 문자열은 en·ko 양쪽에 있다', () => {
   const KEYS = [
     'ide.mainArea.stallHint',
-    'ide.mainArea.stallNotice',
-    'ide.mainArea.stallKeepWaiting',
-    'ide.mainArea.stallKeepWaitingTitle',
     'ide.mainArea.stopNothing',
     'ide.mainArea.stopNothingHint',
     'ide.mainArea.stopForce',
@@ -364,6 +530,9 @@ describe('새 문자열은 en·ko 양쪽에 있다', () => {
     'ide.statusBar.elapsedTip',
     'ide.turnStop.disconnected',
     'ide.turnStop.interrupted',
+    // (I) 대기 — 도트 라벨과 라이브 1줄. 둘 다 "완료"·"작업 중"과 **다른 낱말**이어야 한다.
+    'panel.subAgent.status.waiting',
+    'ide.streamRenderer.waiting',
   ];
 
   for (const [name, bundle] of [['en', en], ['ko', ko]] as const) {
@@ -375,8 +544,8 @@ describe('새 문자열은 en·ko 양쪽에 있다', () => {
   }
 
   it('자리표시자가 양쪽에서 같다', () => {
-    expect(lookupText(en, 'ide.mainArea.stallNotice')).toContain('{{value}}');
-    expect(lookupText(ko, 'ide.mainArea.stallNotice')).toContain('{{value}}');
+    expect(lookupText(en, 'ide.runningSubagents.noResponse')).toContain('{{value}}');
+    expect(lookupText(ko, 'ide.runningSubagents.noResponse')).toContain('{{value}}');
     expect(lookupText(en, 'ide.mainArea.stopFailed')).toContain('{{status}}');
     expect(lookupText(ko, 'ide.mainArea.stopFailed')).toContain('{{status}}');
   });

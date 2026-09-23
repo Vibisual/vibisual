@@ -69,14 +69,23 @@ interface LedgerResponse {
   ledger: ProjectInsuranceLedger | null;
 }
 
-function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'danger' | 'mute'; children: React.ReactNode }): React.JSX.Element {
-  const cls = tone === 'danger'
-    ? 'border-red-500/40 bg-red-500/10 text-red-300'
-    : tone === 'warn'
-      ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-      : tone === 'ok'
-        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-        : 'border-gray-600/60 bg-gray-700/40 text-gray-400';
+/**
+ * §5.26 (I) ⑤ — 이 창의 칩 색은 **셋뿐이고 빨강은 없다**(2026-09-23, 사용자 지시).
+ *
+ * 압축이 실패한 것은 **그 세션에서 일어난 일**이지 앱의 오류가 아니다. 빨강으로 적으면
+ * 사용자가 앱이 깨진 줄 알고 여기서 고칠 것을 찾는다(사용자 보고: "무슨 에러 같잖아").
+ * 무엇이 일어났는지는 **칩의 글자**가 말하고, 색은 "봐야 하나"만 말한다.
+ *   · `warn`(amber) — 봐 둘 것(실패 · 판독 불가 · 문맥 미탑재)
+ *   · `ok`          — 확인된 것(사본 있음)
+ *   · `mute`        — 아직 모르는 것(비교 중 · 못 뜬 줄)
+ * 빨강은 **앱이 깨졌을 때**를 위해 비워 둔다 — 그래서 여기엔 그 단계가 아예 없다.
+ */
+function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'mute'; children: React.ReactNode }): React.JSX.Element {
+  const cls = tone === 'warn'
+    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+    : tone === 'ok'
+      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+      : 'border-gray-600/60 bg-gray-700/40 text-gray-400';
   return <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[12px] font-semibold ${cls}`}>{children}</span>;
 }
 
@@ -280,12 +289,14 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
               {t(INSURANCE_TAB_LABEL_KEY[id])}
               {/*
                 §5.26 (I) ⑤ — 실패 건수는 목록 머리가 아니라 **갈피 이름**에 단다. 다른 갈피를 보고 있어도
-                보여야 "들어가면 확인할 수 있다"가 된다. 숫자만 두면 줄 수로 읽히므로 낱말을 함께 적고,
-                선택된 갈피의 파란 바탕 위에서도 읽히게 불투명한 빨강을 쓴다. 0 이면 서지 않는다.
+                보여야 "들어가면 확인할 수 있다"가 된다. 숫자만 두면 줄 수로 읽히므로 낱말을 함께 적는다.
+                색은 줄의 칩과 같은 **경고색**이다 — 불투명한 빨강은 앱이 고장 난 것처럼 읽혔다(2026-09-23).
+                선택된 갈피의 파란 바탕 위에서 읽히게 하려던 것이 그 빨강의 이유였으므로, 테두리와 바탕을
+                함께 줘서 같은 목적을 채운다. 0 이면 서지 않는다.
               */}
               {id === 'compacts' && failedCompacts > 0 && (
                 <span
-                  className="ml-1.5 rounded bg-red-600 px-1 text-[12px] font-semibold tabular-nums text-white"
+                  className="ml-1.5 rounded border border-amber-500/50 bg-amber-500/15 px-1 text-[12px] font-semibold tabular-nums text-amber-300"
                   title={t('panel.insurance.failedBadgeTip', {
                     scope: t(INSURANCE_SCOPE_LABEL_KEY[scopeLevel]),
                     count: failedCompacts,
@@ -528,13 +539,14 @@ function CompactRow({ m }: { m: CompactMarker }): React.JSX.Element {
       <Chip tone={copy === 'mirrored' ? 'ok' : 'mute'}>
         {t(copy === 'mirrored' ? 'panel.insurance.copyMirrored' : 'panel.insurance.copyIndexOnly')}
       </Chip>
+      {/* 실패 사유는 **글자로** 적는다("요약 없음" · "트랜스크립트 없음"). 색으로 가르지 않는다. */}
       {state === 'failed' && (
-        <Chip tone="danger">{t(`panel.insurance.failed.${m.outcome?.failed ?? 'no-summary'}`)}</Chip>
+        <Chip tone="warn">{t(`panel.insurance.failed.${m.outcome?.failed ?? 'no-summary'}`)}</Chip>
       )}
-      {/* 못 읽음은 **경고 색**이다 — 실패(빨강)도 정상(무색)도 아니라는 것이 이 칸의 전부다. */}
+      {/* 못 읽음도 같은 색이다 — 실패와의 차이는 **무엇을 모르는가**이고, 그건 글자가 말한다. */}
       {state === 'unreadable' && <Chip tone="warn">{t('panel.insurance.unreadable')}</Chip>}
       {/* 되살렸는데 문맥이 안 실렸다(#43696). 압축과 무관한 사건이라 칸을 따로 세운다. */}
-      {m.resumeShortfall && <Chip tone="danger">{t('panel.insurance.resumeShortfall')}</Chip>}
+      {m.resumeShortfall && <Chip tone="warn">{t('panel.insurance.resumeShortfall')}</Chip>}
       {state === 'pending' && <Chip tone="mute">{t('panel.insurance.pending')}</Chip>}
     </div>
   );

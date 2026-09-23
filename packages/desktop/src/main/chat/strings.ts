@@ -122,6 +122,8 @@ export interface ChatStrings {
   noAgentsInProject: string;
   noSessions: string;
   btnAutoSession: string;
+  /** 안내 카드에서 3단계 선택 흐름으로 들어가는 버튼 — 디스코드에는 이것 말고 입구가 없다. */
+  btnPickTarget: string;
   targetSetAuto: string;
   /** `{label}` */
   targetSetSession: string;
@@ -236,6 +238,7 @@ const en: ChatStrings = {
   noAgentsInProject: 'No agent in {project} can take commands.',
   noSessions: 'No session yet — start a new one.',
   btnAutoSession: '+ New session',
+  btnPickTarget: 'Pick target',
   targetSetAuto: 'Your next message starts a new session.',
   targetSetSession: 'Session {label} selected.',
   sessionActive: '[running]',
@@ -331,6 +334,7 @@ const ko: ChatStrings = {
   noAgentsInProject: '{project} 에는 명령을 받을 에이전트가 없습니다.',
   noSessions: '아직 세션이 없습니다 — 새로 시작하세요.',
   btnAutoSession: '+ 새 세션',
+  btnPickTarget: '상대 고르기',
   targetSetAuto: '다음 메시지부터 새 세션으로 시작합니다.',
   targetSetSession: '{label} 세션을 골랐습니다.',
   sessionActive: '[도는 중]',
@@ -426,6 +430,7 @@ const ja: ChatStrings = {
   noAgentsInProject: '{project} には命令を受けられるエージェントがありません。',
   noSessions: 'まだセッションがありません — 新しく始めてください。',
   btnAutoSession: '+ 新しいセッション',
+  btnPickTarget: '相手を選ぶ',
   targetSetAuto: '次のメッセージから新しいセッションで始めます。',
   targetSetSession: 'セッション {label} を選びました。',
   sessionActive: '[実行中]',
@@ -521,6 +526,7 @@ const zhCN: ChatStrings = {
   noAgentsInProject: '{project} 中没有可接收命令的智能体。',
   noSessions: '还没有会话 — 新建一个吧。',
   btnAutoSession: '+ 新建会话',
+  btnPickTarget: '选择对象',
   targetSetAuto: '下一条消息将开始新的会话。',
   targetSetSession: '已选择会话 {label}。',
   sessionActive: '[运行中]',
@@ -616,6 +622,7 @@ const es: ChatStrings = {
   noAgentsInProject: 'En {project} no hay ningún agente que acepte órdenes.',
   noSessions: 'Aún no hay sesiones: empieza una nueva.',
   btnAutoSession: '+ Sesión nueva',
+  btnPickTarget: 'Elegir destino',
   targetSetAuto: 'El próximo mensaje empezará una sesión nueva.',
   targetSetSession: 'Sesión {label} elegida.',
   sessionActive: '[en marcha]',
@@ -730,6 +737,7 @@ const fr: ChatStrings = {
   noAgentsInProject: 'Aucun agent de {project} ne peut recevoir de commandes.',
   noSessions: "Aucune session pour l'instant — démarrez-en une.",
   btnAutoSession: '+ Nouvelle session',
+  btnPickTarget: 'Choisir la cible',
   targetSetAuto: 'Le prochain message démarrera une nouvelle session.',
   targetSetSession: 'Session {label} choisie.',
   sessionActive: '[en cours]',
@@ -825,6 +833,7 @@ const de: ChatStrings = {
   noAgentsInProject: 'In {project} kann kein Agent Befehle annehmen.',
   noSessions: 'Noch keine Sitzung — starte eine neue.',
   btnAutoSession: '+ Neue Sitzung',
+  btnPickTarget: 'Ziel wählen',
   targetSetAuto: 'Die nächste Nachricht startet eine neue Sitzung.',
   targetSetSession: 'Sitzung {label} gewählt.',
   sessionActive: '[läuft]',
@@ -920,6 +929,7 @@ const it: ChatStrings = {
   noAgentsInProject: 'In {project} nessun agente può ricevere comandi.',
   noSessions: 'Ancora nessuna sessione: avviane una.',
   btnAutoSession: '+ Nuova sessione',
+  btnPickTarget: 'Scegli destinazione',
   targetSetAuto: 'Il prossimo messaggio avvierà una nuova sessione.',
   targetSetSession: 'Sessione {label} scelta.',
   sessionActive: '[in corso]',
@@ -1015,6 +1025,7 @@ const ptBR: ChatStrings = {
   noAgentsInProject: 'Nenhum agente em {project} aceita comandos.',
   noSessions: 'Ainda não há sessões — comece uma.',
   btnAutoSession: '+ Nova sessão',
+  btnPickTarget: 'Escolher destino',
   targetSetAuto: 'A próxima mensagem começa uma sessão nova.',
   targetSetSession: 'Sessão {label} escolhida.',
   sessionActive: '[rodando]',
@@ -1110,6 +1121,7 @@ const hi: ChatStrings = {
   noAgentsInProject: '{project} में कोई एजेंट आदेश नहीं ले सकता।',
   noSessions: 'अभी कोई सेशन नहीं — नया शुरू करें।',
   btnAutoSession: '+ नया सेशन',
+  btnPickTarget: 'लक्ष्य चुनें',
   targetSetAuto: 'अगले संदेश से नया सेशन शुरू होगा।',
   targetSetSession: 'सेशन {label} चुना गया।',
   sessionActive: '[चल रहा है]',
@@ -1205,6 +1217,7 @@ const id: ChatStrings = {
   noAgentsInProject: 'Tidak ada agen di {project} yang bisa menerima perintah.',
   noSessions: 'Belum ada sesi — mulai yang baru.',
   btnAutoSession: '+ Sesi baru',
+  btnPickTarget: 'Pilih target',
   targetSetAuto: 'Pesan berikutnya akan memulai sesi baru.',
   targetSetSession: 'Sesi {label} dipilih.',
   sessionActive: '[berjalan]',

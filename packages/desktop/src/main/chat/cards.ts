@@ -231,3 +231,40 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
   for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
   return rows;
 }
+
+// ─── 디스코드 전용 — 평문을 평문으로 지키기 ──────────────────────────────────
+
+/**
+ * 디스코드가 **이스케이프로 인정하는** 인라인 마크다운 문자. 그 밖의 문자 앞에 `\` 를 붙이면
+ * 백슬래시가 화면에 그대로 남으므로(고치려다 더 읽기 나빠진다) 여기 있는 것만 접는다.
+ */
+const DISCORD_INLINE = /[\\`*_~|]/g;
+
+/**
+ * 디스코드로 나갈 본문에서 마크다운을 무력화한다.
+ *
+ * **왜 디스코드만인가** — 텔레그램은 `parse_mode` 를 주지 않으면 평문이지만, 디스코드에는
+ * "평문으로 보내기" 스위치가 없다. `content` 는 **언제나** 마크다운으로 그려진다. 그래서 위
+ * `renderCard` 가 노린 평문이 디스코드에서만 무너진다 — `__init__.py` 는 밑줄 친 `init` 이
+ * 되고, `report_2026_08.md` 는 가운데가 기울고, 모델이 쓴 `**` 와 백틱은 서식이 된다.
+ * **경로가 화면에서 손상되면 사용자는 그것을 복사할 수 없다** — 폰에서 할 수 있는 일이 준다.
+ *
+ * 줄머리 `#`·`>`·`-` 는 제목·인용·목록이 되므로 그 자리에서만 접고, URL 은 통째로 비켜 간다
+ * (URL 안에 `\` 가 들어가면 자동 링크가 그 자리에서 끊겨 누를 수 없게 된다).
+ */
+export function escapeDiscordMarkdown(text: string): string {
+  return text.split('\n').map(escapeDiscordLine).join('\n');
+}
+
+function escapeDiscordLine(line: string): string {
+  const url = /https?:\/\/\S+/g; // 줄마다 새로 만든다 — `lastIndex` 를 옆 줄과 공유하지 않게.
+  let out = '';
+  let last = 0;
+  for (let m = url.exec(line); m; m = url.exec(line)) {
+    out += line.slice(last, m.index).replace(DISCORD_INLINE, '\\$&') + m[0];
+    last = m.index + m[0].length;
+  }
+  out += line.slice(last).replace(DISCORD_INLINE, '\\$&');
+  // 줄머리는 인라인을 접은 **뒤에** 본다 — 먼저 보면 방금 붙인 `\` 를 다시 접어 `\\#` 가 된다.
+  return out.replace(/^([ \t]*)([#>-])/, '$1\\$2');
+}

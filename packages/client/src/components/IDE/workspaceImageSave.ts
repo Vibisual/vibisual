@@ -34,10 +34,12 @@ export async function putWorkspaceImage(
   relPath: string,
   blob: Blob,
   baseMtimeMs: number,
+  baseRevision?: string,
 ): Promise<WorkspaceImageSaveOutcome> {
   const url =
     `${API_BASE}/api/workspace-image?root=${encodeURIComponent(root)}` +
-    `&path=${encodeURIComponent(relPath)}&baseMtimeMs=${encodeURIComponent(String(baseMtimeMs))}`;
+    `&path=${encodeURIComponent(relPath)}&baseMtimeMs=${encodeURIComponent(String(baseMtimeMs))}` +
+    (baseMtimeMs !== 0 && baseRevision ? `&baseRevision=${encodeURIComponent(baseRevision)}` : '');
   try {
     const res = await fetch(url, {
       method: 'PUT',

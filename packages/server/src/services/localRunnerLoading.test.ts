@@ -4,7 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocalTurnArgs } from './localRunner.js';
+import type { LocalToolVerdict, LocalTurnArgs } from './localRunner.js';
 
 const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   output: vi.fn(),
   architecture: vi.fn(),
   terminate: vi.fn(),
+  tool: vi.fn(),
 }));
 
 vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
@@ -41,14 +42,14 @@ vi.mock('./localArchService.js', () => ({
 vi.mock('./localModelService.js', () => ({ findModel: mocks.findModel, recordOutputCheck: mocks.output }));
 vi.mock('./localTools.js', () => ({
   clipToolResult: (value: string) => value,
-  runLocalTool: vi.fn(),
+  runLocalTool: mocks.tool,
   summarizeToolInput: () => '',
 }));
 vi.mock('./processTree.js', () => ({ processGroupSpawnOptions: () => ({}), terminateChildTree: mocks.terminate }));
 
 import {
   isLocalTurnRunning, listLoadedModels, loadedModelContext,
-  runLocalTurn, stopLocalTurn, unloadAllLocalModels, verifyModelOutput,
+  compactLocalSession, runLocalTurn, stopLocalTurn, unloadAllLocalModels, verifyModelOutput,
 } from './localRunner.js';
 
 interface FakeChild extends EventEmitter {
@@ -103,7 +104,7 @@ function defaultResponse(input: string | URL | Request, init?: RequestInit): Res
   return new Response(null, { status: 200 });
 }
 
-function startTurn(subAgentId: string, modelId: string, contextSize = 4096): {
+function startTurn(subAgentId: string, modelId: string, contextSize = 4096, options: Partial<LocalTurnArgs> = {}): {
   done: ReturnType<typeof vi.fn>;
   finished: Promise<void>;
 } {
@@ -111,7 +112,7 @@ function startTurn(subAgentId: string, modelId: string, contextSize = 4096): {
   let resolve: () => void = () => undefined;
   const finished = new Promise<void>((done) => { resolve = done; });
   const done = vi.fn<LocalTurnArgs['onDone']>(() => resolve());
-  runLocalTurn({ subAgentId, modelId, contextSize, prompt: 'What is 2 plus 3?', onEvent: vi.fn(), onDone: done });
+  runLocalTurn({ subAgentId, modelId, contextSize, prompt: 'What is 2 plus 3?', onEvent: vi.fn(), ...options, onDone: done });
   return { done, finished };
 }
 
@@ -127,11 +128,189 @@ beforeEach(() => {
   }));
   mocks.output.mockReset();
   mocks.architecture.mockReset();
+  mocks.tool.mockReset().mockResolvedValue({ content: 'written', isError: false });
   mocks.terminate.mockReset().mockImplementation((child: FakeChild) => {
     if (child.exitCode === null) exitChild(child, 0);
   });
   fetchMock.mockReset().mockImplementation(async (input, init) => defaultResponse(input, init));
   vi.stubGlobal('fetch', fetchMock);
+});
+
+describe('local turn cancellation boundaries — real runner with mocked transport', () => {
+  it('압축이 모델 준비를 기다리다 중지되어도 다른 검증의 공유 로딩은 유지된다', async () => {
+    const sid = 'compact-loading-stop';
+    const historyFile = path.join(home, '.vibisual', 'local-sessions', `${sid}.json`);
+    fs.mkdirSync(path.dirname(historyFile), { recursive: true });
+    fs.writeFileSync(historyFile, JSON.stringify([{ role: 'user', content: 'Request.' }, { role: 'assistant', content: 'Answer.' }]));
+    let release!: (response: Response) => void;
+    const healthy = new Promise<Response>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async (input, init) => String(input).endsWith('/health') ? healthy : defaultResponse(input, init));
+    const verification = verifyModelOutput('shared-compact-model');
+    turns.push(sid);
+    const compacting = compactLocalSession(sid, 'shared-compact-model', 4096);
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+    expect(stopLocalTurn(sid)).toBe(true);
+    expect(await compacting).toMatch(/cancel/i);
+    release(new Response(null));
+    expect(await verification).toBe('ok');
+    expect(mocks.terminate).not.toHaveBeenCalled();
+    expect(listLoadedModels()).toEqual(['shared-compact-model']);
+  });
+
+  it('대화 압축 중지는 실제 요약 요청을 취소하고 원본 이력을 유지한다', async () => {
+    const sid = 'compact-stop';
+    const history = [{ role: 'user', content: 'Keep this request.' }, { role: 'assistant', content: 'Keep this answer.' }];
+    const historyFile = path.join(home, '.vibisual', 'local-sessions', `${sid}.json`);
+    fs.mkdirSync(path.dirname(historyFile), { recursive: true });
+    fs.writeFileSync(historyFile, JSON.stringify(history));
+    let requestSignal: AbortSignal | null | undefined;
+    let release!: () => void;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (!String(input).endsWith('/v1/chat/completions')) return defaultResponse(input, init);
+      requestSignal = init?.signal;
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(successfulChat());
+        requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true });
+      });
+    });
+    turns.push(sid);
+    const compacting = compactLocalSession(sid, 'model', 4096);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const stopped = stopLocalTurn(sid);
+    if (!stopped) release(); // Let the failing pre-fix case finish without leaving a hanging fixture.
+    const result = await compacting;
+    expect(stopped).toBe(true);
+    expect(requestSignal?.aborted).toBe(true);
+    expect(result).toMatch(/cancel/i);
+    expect(JSON.parse(fs.readFileSync(historyFile, 'utf8'))).toEqual(history);
+    expect(isLocalTurnRunning(sid)).toBe(false);
+  });
+
+  it('취소된 압축의 늦은 요약과 finally는 바로 이어진 새 턴을 덮지 않는다', async () => {
+    const sid = 'compact-follow-up';
+    const history = [{ role: 'user', content: 'First request.' }, { role: 'assistant', content: 'First answer.' }];
+    const historyFile = path.join(home, '.vibisual', 'local-sessions', `${sid}.json`);
+    fs.mkdirSync(path.dirname(historyFile), { recursive: true });
+    fs.writeFileSync(historyFile, JSON.stringify(history));
+    let release!: () => void;
+    let nextController!: ReadableStreamDefaultController<Uint8Array>;
+    const nextBody = new ReadableStream<Uint8Array>({ start(value) { nextController = value; } });
+    fetchMock.mockImplementation(async (input, init) => {
+      if (!String(input).endsWith('/v1/chat/completions')) return defaultResponse(input, init);
+      const request = JSON.parse(String(init?.body)) as { stream: boolean };
+      if (request.stream) return new Response(nextBody);
+      return new Promise<Response>((resolve) => { release = () => resolve(successfulChat()); });
+    });
+    turns.push(sid);
+    const compacting = compactLocalSession(sid, 'model', 4096);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const stopped = stopLocalTurn(sid);
+    const next = startTurn(sid, 'model');
+    release();
+    await compacting;
+    const nextStillRunning = isLocalTurnRunning(sid);
+    const persisted = JSON.parse(fs.readFileSync(historyFile, 'utf8')) as unknown;
+    stopLocalTurn(sid);
+    nextController.close();
+    await next.finished;
+    expect(stopped).toBe(true);
+    expect(nextStillRunning).toBe(true);
+    expect(persisted).toEqual(history);
+  });
+
+  it.each(['TodoWrite', 'Write'])('중지와 %s 승인 응답이 겹쳐도 도구를 실행하지 않는다', async (toolName) => {
+    const sid = `permission-race-${toolName}`;
+    const onHostTool = vi.fn().mockResolvedValue('updated');
+    let resolvePermission!: (verdict: LocalToolVerdict) => void;
+    const onToolRequest = vi.fn(() => new Promise<LocalToolVerdict>((resolve) => { resolvePermission = resolve; }));
+    let first = true;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/v1/chat/completions') && first) {
+        first = false;
+        return new Response(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{
+          index: 0, id: 'call-stopped', function: { name: toolName, arguments: '{}' },
+        }, {
+          index: 1, id: 'call-not-started', function: { name: toolName, arguments: '{}' },
+        }] }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`);
+      }
+      return defaultResponse(input, init);
+    });
+    const turn = startTurn(sid, 'model', 4096, { projectRoot: home, onToolRequest, onHostTool });
+    await vi.waitFor(() => expect(onToolRequest).toHaveBeenCalledOnce());
+    // Approval resolves first, but stop arrives before its await continuation resumes.
+    resolvePermission({ allowed: true });
+    expect(stopLocalTurn(sid)).toBe(true);
+    await turn.finished;
+    expect(onHostTool).not.toHaveBeenCalled();
+    expect(mocks.tool).not.toHaveBeenCalled();
+    expect(onToolRequest).toHaveBeenCalledOnce();
+    expect(turn.done).toHaveBeenCalledExactlyOnceWith();
+    // The following turn must not inherit an assistant tool call without a result.
+    const history = JSON.parse(fs.readFileSync(path.join(home, '.vibisual', 'local-sessions', `${sid}.json`), 'utf8')) as Array<{
+      role: string; tool_call_id?: string; content: string;
+    }>;
+    expect(history.filter((message) => message.role === 'tool')).toEqual([
+      expect.objectContaining({ tool_call_id: 'call-stopped', content: expect.stringMatching(/cancel/i) }),
+      expect.objectContaining({ tool_call_id: 'call-not-started', content: expect.stringMatching(/cancel/i) }),
+    ]);
+  });
+
+  it('중지 직후 도착한 SSE 청크는 출력하지 않는다', async () => {
+    const sid = 'stopped-stream';
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
+    let first = true;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/v1/chat/completions') && first) {
+        first = false;
+        return new Response(body);
+      }
+      return defaultResponse(input, init);
+    });
+    const onEvent = vi.fn();
+    const turn = startTurn(sid, 'model', 4096, { onEvent });
+    await vi.waitFor(() => expect(first).toBe(false));
+    expect(stopLocalTurn(sid)).toBe(true);
+    controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"late old answer"},"finish_reason":"stop"}]}\n\n'));
+    controller.close();
+    await turn.finished;
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(turn.done).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it('완료 콜백에서 바로 이어가는 턴은 같은 이력을 읽고 이전 finally 이후에도 중지할 수 있다', async () => {
+    const sid = 'immediate-follow-up';
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
+    const requests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/v1/chat/completions')) {
+        requests.push(JSON.parse(String(init?.body)) as typeof requests[number]);
+        if (requests.length === 2) return new Response(body);
+      }
+      return defaultResponse(input, init);
+    });
+    let next: ReturnType<typeof startTurn> | undefined;
+    const done = vi.fn(() => {
+      next = startTurn(sid, 'model', 4096, { prompt: 'Continue the same conversation.' });
+    });
+    turns.push(sid);
+    runLocalTurn({ subAgentId: sid, modelId: 'model', prompt: 'First question.', onEvent: vi.fn(), onDone: done });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    const stillRunning = isLocalTurnRunning(sid);
+    const stopped = stopLocalTurn(sid);
+    controller.close();
+    await next!.finished;
+    expect(done).toHaveBeenCalledExactlyOnceWith(undefined, { finishReason: 'stop' });
+    expect(requests[1]?.messages).toEqual([
+      { role: 'user', content: 'First question.' },
+      { role: 'assistant', content: 'The answer is five.' },
+      { role: 'user', content: 'Continue the same conversation.' },
+    ]);
+    expect(stillRunning).toBe(true);
+    expect(stopped).toBe(true);
+    expect(next!.done).toHaveBeenCalledExactlyOnceWith();
+  });
 });
 
 afterEach(async () => {

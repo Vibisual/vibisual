@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { FinishedSubagentTask, RunningSubagentTask } from '@vibisual/shared';
+import { isBackgroundShellTask } from '@vibisual/shared';
 import { selectSessionTasks, selectSessionFinished, countSessionTasks, countOtherTasks, taskKindKey } from './runningSubagents.js';
 
 /**
@@ -147,21 +148,40 @@ describe('끝난 것은 배지 숫자를 흔들지 않는다', () => {
  */
 describe('종류 판정 — 서브에이전트인가 셸인가', () => {
   it("스트림 칩(`Bash run_in_background`·`Monitor`)은 셸이다", () => {
-    expect(taskKindKey('stream')).toBe('kindShell');
+    expect(taskKindKey({ origin: 'stream' })).toBe('kindShell');
   });
 
   it('훅 대차대조(Task/Agent)는 서브에이전트다', () => {
-    expect(taskKindKey('hook')).toBe('kindAgent');
+    expect(taskKindKey({ origin: 'hook' })).toBe('kindAgent');
   });
 
   it('미지정은 서브에이전트로 읽는다 — 옛 항목 호환(§5.5 #17-9 origin 규약)', () => {
-    expect(taskKindKey(undefined)).toBe('kindAgent');
+    expect(taskKindKey({})).toBe('kindAgent');
   });
 
   it('끝난 항목도 같은 표식을 들고 온다 — 위칸·아래칸의 잣대가 갈리면 안 된다', () => {
     const doneShell: FinishedSubagentTask = { ...doneA, origin: 'stream' };
-    expect(taskKindKey(doneShell.origin)).toBe('kindShell');
-    expect(taskKindKey(doneA.origin)).toBe('kindAgent');
+    expect(taskKindKey(doneShell)).toBe('kindShell');
+    expect(taskKindKey(doneA)).toBe('kindAgent');
+  });
+
+  // §5.5 #17-9 ⑰ — 칩과 실행 축이 **같은 술어**를 쓴다. 갈리면 한쪽이 반드시 거짓말한다.
+  it('스트림으로 와도 subagentType 이 붙었으면 서브에이전트다 — 중첩 자식을 셸로 적으면 안 된다', () => {
+    // 이 항목은 실제로 모델이 돌아 토큰을 태운다. "토큰을 안 씁니다"라는 칩 설명이 거짓이 된다.
+    expect(taskKindKey({ origin: 'stream', subagentType: 'explorer' })).toBe('kindAgent');
+  });
+
+  it('실행 축 술어(isBackgroundShellTask)와 답이 항상 같다', () => {
+    const cases: Pick<RunningSubagentTask, 'origin' | 'subagentType'>[] = [
+      {},
+      { origin: 'hook' },
+      { origin: 'stream' },
+      { origin: 'stream', subagentType: 'explorer' },
+      { origin: 'hook', subagentType: 'code-lead' },
+    ];
+    for (const c of cases) {
+      expect(taskKindKey(c) === 'kindShell').toBe(isBackgroundShellTask(c));
+    }
   });
 });
 

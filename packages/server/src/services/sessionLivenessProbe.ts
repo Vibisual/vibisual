@@ -4,7 +4,7 @@
  * ## 왜 필요한가
  *
  * `isSessionRunning`(shared `sessionRunState.ts`)의 근거는 셋인데 **전부 우리가 켜고 우리가 꺼야
- * 하는 깃발**이다 — `subStatus==='active'` · `hasExecutingCommand` · `runningTaskCount>0`.
+ * 하는 깃발**이다 — `subStatus==='active'` · `hasExecutingCommand` · `runningAgentTaskCount>0`.
  * 끄는 쪽이 한 번이라도 실패하면(훅 유실·크래시·고아 Task) 그 세션은 영영 "실행중…"으로 남고,
  * 사용자는 "아직도?"를 판단할 근거가 없다.
  *
@@ -74,7 +74,14 @@ export interface SessionProbeEvidence {
   tail: string;
   /** 마지막으로 부른 도구 이름. 무엇을 기다리는지의 가장 강한 단서. */
   lastTool?: string;
-  /** 이 세션이 아직 안 끝낸 백그라운드 작업 수. 0 이 아니면 기다릴 이유가 있다. */
+  /**
+   * 이 세션이 아직 안 끝낸 백그라운드 작업 수. 0 이 아니면 기다릴 이유가 있다.
+   *
+   * **여기서는 셸까지 센다**(§5.5 #17-9 ⑰ 의 분리를 따르지 않는다). 이 칸은 화면이 아니라
+   * **판정 모델에게 주는 증거**라, 백단에 도는 명령이 있다는 사실 자체가 "이 세션을 끝났다고
+   * 말하면 안 되는" 근거가 된다. 화면 축(`SessionRunInputs.runningAgentTaskCount`)과 이름이
+   * 닮았다고 같은 뜻으로 읽지 마라 — 묻는 질문이 다르다(표시 ≠ 회수·판정).
+   */
   runningTaskCount: number;
   /** 큐에 남은 명령 수 — "돌고 있다"가 아니라 "낼 일이 남았다". */
   queuedCommandCount: number;

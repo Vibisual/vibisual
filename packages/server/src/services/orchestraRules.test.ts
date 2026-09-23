@@ -189,7 +189,7 @@ describe('buildOrchestraConductorRules — 엔진', () => {
 describe('buildOrchestraConductorRules — 기존 멤버·엣지·상한', () => {
   it('멤버가 없으면 새로 만들라는 한 줄, 엣지 표는 싣지 않는다', () => {
     const rules = buildOrchestraConductorRules(args());
-    expect(rules).toContain('## 기존 멤버 (이전 런이 만든 것 — 다시 쓰기 우선)\n없음 — 필요하면 ① 로 새로 만든다.');
+    expect(rules).toContain('## 다시 쓸 수 있는 멤버 (① 로 새로 만들기 전에 먼저 본다)\n없음 — 필요하면 ① 로 새로 만든다.');
     expect(rules).not.toContain('### 이미 있는 엣지');
   });
 
@@ -206,10 +206,43 @@ describe('buildOrchestraConductorRules — 기존 멤버·엣지·상한', () =>
         ],
       }),
     );
-    expect(rules).toContain('| Research\\|er | `a1` | `a1` | claude | sonnet |');
-    expect(rules).toContain('| Coder | `b2` | `b2` | codex | — |');
+    expect(rules).toContain('| Research\\|er | `a1` | `a1` | claude | sonnet | 프로젝트 |');
+    expect(rules).toContain('| Coder | `b2` | `b2` | codex | — | 프로젝트 |');
     expect(rules).toContain('| `e1` | Research\\|er → Coder | critique | grep x \\| head then fix |');
     expect(rules).toContain(`| \`e2\` | Coder → gone | command | ${'y'.repeat(80)}… |`);
+  });
+
+  /*
+   * 재사용 후보가 **프로젝트 전체**로 넓어진 자리(격차 5). 서버가 ④ 계획 신고에서 받아 주는 집합이
+   * 프로젝트 소속 전부인데 표에는 내 이전 런의 것만 실려서, 지휘자가 쓸 수 있는 버블을 못 보고
+   * 똑같은 것을 또 만들었다. 표는 둘을 **갈라서** 보여야 한다 — 감추지도, 뒤섞지도 않는다.
+   */
+  it('재사용 후보는 내 이전 런과 프로젝트를 갈라 적고, 내 것이 먼저다', () => {
+    const rules = buildOrchestraConductorRules(
+      args({
+        existingMembers: [
+          { id: 'a1', label: 'Mine', path: 'a1', engine: 'claude', own: true },
+          { id: 'b2', label: 'Theirs', path: 'b2', engine: 'claude' },
+        ],
+      }),
+    );
+    expect(rules).toContain('| Mine | `a1` | `a1` | claude | — | 내 이전 런 |');
+    expect(rules).toContain('| Theirs | `b2` | `b2` | claude | — | 프로젝트 |');
+    expect(rules.indexOf('| Mine |')).toBeLessThan(rules.indexOf('| Theirs |'));
+    expect(rules).toContain('둘 다 ④ 의 `reusedAgentIds` 에 넣을 수 있다.');
+  });
+
+  /* 표가 그래프 크기를 따라 자라지 않게 자른다 — 넘친 것은 수만 알리고 전체는 REST 로 보게 한다. */
+  it('엣지 표는 30줄에서 자르고 남은 수를 알린다', () => {
+    const many = Array.from({ length: 34 }, (_, i) => ({
+      id: `e${i}`, sourceAgentId: 'a1', targetAgentId: 'a1', command: 'x',
+    }));
+    const rules = buildOrchestraConductorRules(
+      args({ existingMembers: [{ id: 'a1', label: 'M', path: 'a1', engine: 'claude' }], existingEdges: many }),
+    );
+    expect(rules).toContain('| `e29` |');
+    expect(rules).not.toContain('| `e30` |');
+    expect(rules).toContain('그 밖에 4개가 더 있다');
   });
 
   it('멤버 상한은 설정값(없으면 기본)', () => {
@@ -390,6 +423,88 @@ describe('buildOrchestraConductorRules — Bash 판(Claude 지휘자 세 OS · m
     expect(create).toContain("o.agent?'AGENT_ID='+o.agent.id+' AGENT_PATH='+o.agent.path:s");
     expect(nth(config.split('\n'), 0)).toBe("AGENT_ID='<① 에서 받은 AGENT_ID>'");
     expect(edge).toContain("o.data?'EDGE_ID='+o.data.id:s");
+  });
+});
+
+/**
+ * 멤버가 **태어날 때** 받는 두 축(사용자 스위치)이 규칙에 실리는가.
+ *
+ * 싣지 않으면 지휘자는 워커 셋이 한 워킹트리를 동시에 고친다는 것도, 자기가 만든 멤버에게 `Write`
+ * 가 없다는 것도 모른 채 편성한다 — 둘 다 조용히 실패하고 원인이 규칙 밖이라 스스로 못 고친다.
+ */
+describe('buildOrchestraConductorRules — 멤버 태생 상태', () => {
+  it('기본값 — 같은 워킹트리라고 말하고 parallel 을 파일 겹침으로 제한한다', () => {
+    const rules = buildOrchestraConductorRules(args());
+    expect(rules).toContain('새 멤버는 아래 상태로 **태어난다**');
+    expect(rules).toContain('- **작업 폴더: 지휘자와 같은 워킹트리.**');
+    expect(rules).toContain('`parallel` 은 **파일이 겹치지 않을 때만** 고른다');
+    expect(rules).toContain('- **도구: 설정 창 기본값 그대로**');
+    expect(rules).not.toContain('별도 git worktree');
+  });
+
+  it('작업 폴더를 워크트리로 켜면 제약이 풀리고, 합치는 일은 사용자 몫으로 남는다', () => {
+    const rules = buildOrchestraConductorRules(args({ settings: { memberIsolation: 'worktree' } }));
+    expect(rules).toContain('- **작업 폴더: 별도 git worktree.**');
+    expect(rules).toContain('`parallel` 로 코드를 나눠 고쳐도 안전하다');
+    expect(rules).toContain('합치는 일은 사용자 몫으로 남긴다(당신이 합치지 않는다)');
+    // `--worktree` 는 Claude CLI 의 플래그다 — Codex 멤버에는 안 걸린다는 것을 같이 말한다.
+    expect(rules).toContain('Codex 멤버에는 이 격리가 걸리지 않는다.');
+    expect(rules).not.toContain('지휘자와 같은 워킹트리');
+  });
+
+  it('도구 템플릿을 고르면 목록을 펼쳐 싣고, 없는 도구는 없다고 못 박는다', () => {
+    const rules = buildOrchestraConductorRules(args({ settings: { memberToolTemplate: 'review' } }));
+    expect(rules).toContain('- **도구: `review` 템플릿** (6개) — `Read`, `Glob`, `Grep`, `Bash`, `PowerShell`, `LSP`.');
+    expect(rules).toContain('이 목록에 없는 도구는 그 멤버에게 **존재하지 않는다.**');
+    expect(rules).not.toContain('- **도구: 설정 창 기본값 그대로**');
+  });
+
+  /* `all` 은 기본값과 같은 목록이라 못 박지 않는다 — 규칙도 "기본값 그대로"로 남아야 한다. */
+  it("'all' 은 템플릿 절을 만들지 않는다", () => {
+    const rules = buildOrchestraConductorRules(args({ settings: { memberToolTemplate: 'all' } }));
+    expect(rules).toContain('- **도구: 설정 창 기본값 그대로**');
+    expect(rules).not.toContain('템플릿** (');
+  });
+});
+
+/** ③ 엣지에 실리는 프리셋 표·상한 칸·구조화 인계, 그리고 ① 의 역할 색. */
+describe('buildOrchestraConductorRules — 엣지 프리셋·상한·역할 색', () => {
+  const rules = buildOrchestraConductorRules(args());
+
+  it('역할 짝 프리셋 표를 값까지 펼쳐 싣고, generic 은 뺀다', () => {
+    expect(rules).toContain('#### 역할 짝 프리셋 — 값을 그대로 옮겨 적는다');
+    for (const id of ['explore-to-architect', 'architect-to-implementer', 'implementer-to-verifier', 'verifier-to-implementer']) {
+      expect(rules).toContain(`| \`${id}\` |`);
+    }
+    // `generic` 의 `defaultCommandMode` 는 대상 멤버의 도구를 위임 한 벌로 갈아 끼운다 — 권하지 않는다.
+    expect(rules).not.toContain('| `generic` |');
+    expect(rules).toContain('`"generic"` 은 쓰지 않는다');
+    expect(rules).toContain('- `templateId` 는 **기록만** 된다 — 서버가 나머지 칸을 대신 채우지 않는다.');
+  });
+
+  /* `TaskEdgeReturnFormat` 에 없는 값을 적어도 `createTaskEdge` 는 막지 않는다 — 조용히 저장되고 회수만 빠진다. */
+  it('returnFormat 은 실재하는 세 값만 가르친다', () => {
+    expect(rules).toContain('`"summary"`(기본)·`"artifact"`·`"both"`');
+    expect(rules).not.toContain('"full"');
+  });
+
+  it('상한 칸 셋과 구조화 인계를 싣는다', () => {
+    for (const field of ['timeoutMs', 'priority', 'maxReworkCount', 'messageFormat', 'messageSchema']) {
+      expect(rules).toContain(`\`${field}\``);
+    }
+    expect(rules).toContain('"messageFormat":"schema"');
+  });
+
+  it('비용 상한 손잡이는 세션 재사용을 잃는다고 경고한다', () => {
+    expect(rules).toContain('`maxBudgetUsd`');
+    expect(rules).toContain('**세션 재사용을 잃는다**');
+  });
+
+  it('역할 색을 권하되 초록 계열은 비워 둔다', () => {
+    expect(rules).toContain('- `color` 로 역할을 구별해 칠한다');
+    expect(rules).toContain('탐색 `#6366f1`');
+    expect(rules).toContain('초록 계열은 쓰지 않는다(Codex·CMD 버블의 자리다).');
+    expect(nth(codeBlocks(rules, 'bash'), 0)).toContain('"color":"#6366f1"');
   });
 });
 

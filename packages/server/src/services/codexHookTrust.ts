@@ -14,32 +14,57 @@ interface HookMetadata {
   trustStatus: string;
 }
 
+const HOOK_INSPECTION_TIMEOUT_MS = 15_000;
+const HOOK_SHUTDOWN_TIMEOUT_MS = 3000;
+
 /** Read the CLI's own hook hash. Never hash an approximation or trust other hooks. */
 function listHooks(bin: string, cwd: string, overrides: string[], signal: AbortSignal): Promise<HookMetadata[]> {
   return new Promise((resolve, reject) => {
+    // 첫 검사와 재검증 사이에 중지했으면 다음 검사 자식 자체를 띄우지 않는다.
+    if (signal.aborted) { reject(new Error('Codex hook preparation cancelled')); return; }
     const invocation = buildCliInvocation(bin, ['app-server', ...overrides], process.platform);
     const child = spawn(invocation.file, invocation.args, { shell: invocation.shell, windowsHide: true,
       cwd, env: augmentedEnv(process.env), stdio: 'pipe', ...processGroupSpawnOptions() });
     let finished = false;
+    let settled = false;
+    let shutdownTimer: ReturnType<typeof setTimeout> | undefined;
+    const reader = createInterface({ input: child.stdout });
     const finish = (error?: Error, hooks: HookMetadata[] = [], closed = false) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
-      const settle = () => { if (error) reject(error); else resolve(hooks); };
-      if (closed) { settle(); return; }
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(shutdownTimer);
+        reader.close();
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+        if (error) reject(error); else resolve(hooks);
+      };
+      // 응답/취소 판정은 이미 끝났다. 손자가 파이프를 쥐어 close가 안 와도 exit면 충분하다.
+      if (closed || child.exitCode !== null || child.signalCode !== null) { settle(); return; }
       child.once('close', settle);
-      child.stdin.end();
+      child.once('exit', settle);
+      // 종료 신호 자체가 오지 않아도 준비 표식이 영원히 남지 않게 같은 결과로 한 번만 마감한다.
+      shutdownTimer = setTimeout(() => { killTree(child.pid); settle(); }, HOOK_SHUTDOWN_TIMEOUT_MS);
+      shutdownTimer.unref?.();
+      try { child.stdin.end(); } catch { /* 종료 시한이 남은 정리를 맡는다. */ }
       killTree(child.pid);
     };
     const abort = () => finish(new Error('Codex hook preparation cancelled'));
-    const timer = setTimeout(() => finish(new Error('Codex hook inspection timed out')), 15000);
+    const timer = setTimeout(() => finish(new Error('Codex hook inspection timed out')), HOOK_INSPECTION_TIMEOUT_MS);
     const send = (id: number, method: string, params: unknown) => child.stdin.write(JSON.stringify({ id, method, params }) + '\n');
     child.on('error', (error) => finish(error));
     child.on('close', () => finish(new Error('Codex hook inspection exited before verification'), [], true));
     child.stdin.on('error', (error) => finish(error));
+    child.stdout.on('error', (error) => finish(error));
+    child.stderr.on('error', (error) => finish(error));
     child.stderr.on('data', () => { /* Do not expose user config or authentication diagnostics. */ });
-    createInterface({ input: child.stdout }).on('line', (line) => {
+    reader.on('line', (line) => {
+      if (finished) return;
       try {
         const message = JSON.parse(line);
         if (message.id === 1) {

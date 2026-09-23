@@ -95,11 +95,13 @@ export interface CodexTurnArgs extends CodexOverrides {
  * 그동안 턴은 "실행 중"으로 남고 [중지]는 이미 죽은 pid 만 다시 죽인다 — 실제로 14분을 붙잡혔다.
  */
 export interface CodexTurnLifecycleOptions {
+  /** 완료·실패 이벤트 뒤 CLI 가 스스로 종료할 때까지의 유예. 진행 중인 턴에는 적용하지 않는다. */
+  completionExitGraceMs?: number;
   /** 본체 `exit` 뒤 `close` 를 기다리는 최대 시간. 남은 출력이 흘러들 여유다. */
   exitCloseGraceMs?: number;
   /** [중지] 뒤 `exit` 도 `close` 도 안 올 때 강제로 마감하기까지의 시간. */
   stopSettleTimeoutMs?: number;
-  /** 정지 워치독 점검 주기. 이 타이머만이 **자식이 살아 있는 동안** 도는 유일한 타이머다. */
+  /** 정지 워치독 점검 주기. 완료·종료 신호가 없는 진행 중 턴을 감시한다. */
   idleCheckMs?: number;
   /** 1단계 — 출력이 이만큼 끊기면 위로 알린다(마감하지 않는다). */
   idleNoticeMs?: number;
@@ -112,6 +114,7 @@ export interface CodexTurnLifecycleOptions {
 
 const DEFAULT_EXIT_CLOSE_GRACE_MS = 2000;
 const DEFAULT_STOP_SETTLE_TIMEOUT_MS = 3000;
+const DEFAULT_COMPLETION_EXIT_GRACE_MS = 5000;
 
 interface RunningTurn {
   child: ChildProcess;
@@ -322,10 +325,11 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
 /**
  * 띄운 자식에 턴 수명을 건다 — 출력 해석, [중지], 마감. **`onDone` 은 정확히 한 번** 부른다.
  *
- * 마감 경로는 셋이고 먼저 온 것이 이긴다:
+ * 마감 경로는 넷이고 먼저 온 것이 이긴다:
  *   ① `close` — 평소 경로. 출력이 전부 흘러든 뒤라 판정이 가장 정확하다.
  *   ② `exit` 뒤 `exitCloseGraceMs` — 본체는 끝났는데 물려받은 파이프 때문에 `close` 가 안 오는 경우.
  *   ③ [중지] 뒤 `exit` 즉시, 또는 그것도 없으면 `stopSettleTimeoutMs` — 사용자가 멈추라 했다.
+ *   ④ 턴 완료 뒤 `completionExitGraceMs` — 끝난 CLI 가 남으면 트리 회수 후 같은 시한으로 마감한다.
  *
  * 테스트가 가짜 자식으로 이 수명을 고정하도록 내보낸다(스폰·실행본 탐색과 분리).
  */
@@ -334,6 +338,7 @@ export function attachCodexTurn(
   args: Pick<CodexTurnArgs, 'subAgentId' | 'onEvent' | 'onThread' | 'onUsage' | 'onFileWrites' | 'onDone' | 'onIdle' | 'onActivity'>,
   options: CodexTurnLifecycleOptions = {},
 ): void {
+  const completionExitGraceMs = options.completionExitGraceMs ?? DEFAULT_COMPLETION_EXIT_GRACE_MS;
   const exitCloseGraceMs = options.exitCloseGraceMs ?? DEFAULT_EXIT_CLOSE_GRACE_MS;
   const stopSettleTimeoutMs = options.stopSettleTimeoutMs ?? DEFAULT_STOP_SETTLE_TIMEOUT_MS;
   const idleCheckMs = options.idleCheckMs ?? CODEX_TURN_IDLE_CHECK_MS;
@@ -349,9 +354,12 @@ export function attachCodexTurn(
   let turnError: string | undefined;
   /** 턴이 끝났다고 신고된 뒤에도 프로세스 종료까지 몇 밀리초가 남는다 — 사유는 첫 것을 지킨다. */
   let sawTurnEnd = false;
+  /** 완료가 확정된 CLI 만 회수한다. 강제 종료 코드가 성공한 턴을 실패로 바꾸지 않게 구분한다. */
+  let reapingCompletedTurn = false;
   let settled = false;
   let exitCode: number | null = null;
   let settleTimer: NodeJS.Timeout | undefined;
+  let completionTimer: NodeJS.Timeout | undefined;
   /** 마지막으로 이 자식이 무언가를 뱉은 시각 — 정지 워치독의 유일한 사실. */
   let lastActivityAt = Date.now();
   /** 1단계 알림을 이미 보냈는가(한 정지 구간에 한 번만 보낸다). */
@@ -367,6 +375,11 @@ export function attachCodexTurn(
   const clearIdleTimer = (): void => {
     if (idleTimer) clearInterval(idleTimer);
     idleTimer = undefined;
+  };
+
+  const clearCompletionTimer = (): void => {
+    if (completionTimer) clearTimeout(completionTimer);
+    completionTimer = undefined;
   };
 
   const noteActivity = (): void => {
@@ -390,6 +403,16 @@ export function attachCodexTurn(
     settled = true;
     clearSettleTimer();
     clearIdleTimer();
+    clearCompletionTimer();
+    // `exit` 는 stdio 종료가 아니다(Node child_process 문서). 손자가 파이프를 쥐고 있어도
+    // 마감한 턴의 읽기 핸들·버퍼는 여기서 반납한다. 늦은 EPIPE 를 받는 error 가드는 유지한다.
+    child.stdout?.off('data', handleStdout);
+    child.stderr?.off('data', handleStderr);
+    child.stdin?.destroy();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    stdoutBuffer = '';
+    stderrTail = '';
     // 아직 짝을 못 찾은 도구 카드를 **전부** 닫는다 — 안 닫으면 턴이 끝난 대화에 도는 중 카드가 남는다.
     emitAll(pendingCalls.flush('turn closed'));
     // 같은 세션의 **다음 턴**이 이미 자리를 잡았을 수 있다(즉시 덧말 → 중지 → 새 턴). 늦게 온 옛 자식의
@@ -412,7 +435,7 @@ export function attachCodexTurn(
       finish(turnError, finalText);
       return;
     }
-    if (code !== null && code !== 0) {
+    if (!reapingCompletedTurn && code !== null && code !== 0) {
       const tail = stderrTail.trim().slice(-300);
       finish(tail || `codex exited with code ${code}`, finalText);
       return;
@@ -435,13 +458,8 @@ export function attachCodexTurn(
     setImmediate(() => {
       if (settled) return;
       // 시한 안에 `exit` 조차 없었다 — 첫 트리 종료가 빗나갔다. 아직 우리 자식이라 pid 가 유효하니 한 번 더 보낸다.
-      if (turn.stopped && !turn.exited) kill(child.pid);
+      if ((turn.stopped || reapingCompletedTurn) && !turn.exited) kill(child.pid);
       conclude(exitCode);
-      if (turn.stopped) {
-        // 사용자가 멈춘 턴이다 — 빠져나간 손자의 출력은 더 받지 않는다.
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-      }
     });
   };
 
@@ -449,6 +467,23 @@ export function attachCodexTurn(
     clearSettleTimer();
     settleTimer = setTimeout(settleWithoutClose, ms);
     settleTimer.unref?.();
+  };
+
+  const armCompletionTimer = (): void => {
+    if (turn.exited || turn.stopped) return;
+    clearIdleTimer();
+    completionTimer = setTimeout(() => {
+      completionTimer = undefined;
+      // 파이프 읽기가 밀렸다면 마지막 출력과 exit 를 먼저 받는다(위 마감 타이머와 같은 규칙).
+      setImmediate(() => {
+        if (settled || turn.exited || turn.stopped) return;
+        reapingCompletedTurn = true;
+        logger.debug(`[codex] reclaiming completed turn sub=${args.subAgentId}`);
+        armSettleTimer(stopSettleTimeoutMs);
+        kill(child.pid);
+      });
+    }, completionExitGraceMs);
+    completionTimer.unref?.();
   };
 
   const turn: RunningTurn = {
@@ -459,6 +494,7 @@ export function attachCodexTurn(
       if (settled) return;
       const first = !turn.stopped;
       turn.stopped = true;
+      clearCompletionTimer();
       if (turn.exited) {
         // 본체는 이미 끝났다 — 죽은 pid 에 트리 종료를 다시 보내지 않는다(그 번호를 OS 가 재사용했을 수 있다).
         armSettleTimer(0);
@@ -471,7 +507,7 @@ export function attachCodexTurn(
   running.set(args.subAgentId, turn);
 
   /**
-   * **정지 워치독** — 자식이 살아 있는 동안 도는 유일한 타이머.
+   * **정지 워치독** — 완료·종료 신호가 아직 없는 진행 중 턴을 감시한다.
    *
    * 종전에는 마감 타이머가 `exit`(:child.on) 과 [중지] 두 곳에서만 걸렸다. 그래서 자식이
    * 살아 있는데 출력만 끊기면 **타이머가 하나도 돌지 않아** 턴이 영원히 열려 있었다
@@ -509,7 +545,7 @@ export function attachCodexTurn(
     if (settled) return;
     // A stopped turn can still have queued writes. Preserve its exit/close deadline,
     // fallback tree kill and pipe cleanup instead of settling early on that error.
-    if (turn.stopped) return;
+    if (turn.stopped || reapingCompletedTurn) return;
     if (stream === 'stdin' && sawTurnEnd) return;
     turnError ??= `codex ${stream} failed: ${error.message}`;
     if (!turn.exited) kill(child.pid);
@@ -525,7 +561,10 @@ export function attachCodexTurn(
     if (mapped.threadId) args.onThread(mapped.threadId);
     if (mapped.usage) args.onUsage(mapped.usage);
     if (mapped.finalText) finalText = mapped.finalText;
-    if (mapped.turnEnded) sawTurnEnd = true;
+    if (mapped.turnEnded && !sawTurnEnd) {
+      sawTurnEnd = true;
+      armCompletionTimer();
+    }
     if (mapped.error && !turnError) turnError = mapped.error;
     for (const ev of mapped.events) {
       // 원장이 먼저 본다 — `tool_use` 는 등록, `tool_result` 는 해제. 화면으로 나가는 것은 그대로다.
@@ -539,7 +578,7 @@ export function attachCodexTurn(
     if (paths.length > 0) args.onFileWrites(paths);
   };
 
-  child.stdout?.on('data', (chunk) => {
+  const handleStdout = (chunk: Buffer): void => {
     if (settled || chunk.length === 0) return;
     noteActivity();
     stdoutBuffer += String(chunk);
@@ -550,15 +589,17 @@ export function attachCodexTurn(
       handleLine(line);
       idx = stdoutBuffer.indexOf('\n');
     }
-  });
+  };
+  child.stdout?.on('data', handleStdout);
 
-  child.stderr?.on('data', (chunk) => {
+  const handleStderr = (chunk: Buffer): void => {
     if (settled || chunk.length === 0) return;
     // 진행 로그도 활동이다 — 이걸 안 세면 stdout 이 조용한 긴 도구가 정지로 읽힌다.
     noteActivity();
     const text = String(chunk);
     stderrTail = (stderrTail + text).slice(-2000);
-  });
+  };
+  child.stderr?.on('data', handleStderr);
 
   child.on('error', (err) => {
     // 스폰 실패 뒤 `close` 가 뒤따를 수 있다 — `finish` 가 한 번만 알린다.
@@ -569,7 +610,8 @@ export function attachCodexTurn(
     turn.exited = true;
     exitCode = code;
     if (settled) return;
-    armSettleTimer(turn.stopped ? 0 : exitCloseGraceMs);
+    clearCompletionTimer();
+    armSettleTimer(turn.stopped || reapingCompletedTurn ? 0 : exitCloseGraceMs);
   });
 
   child.on('close', (code) => {

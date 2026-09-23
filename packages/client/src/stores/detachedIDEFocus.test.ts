@@ -404,7 +404,8 @@ describe('(H-27) ⑦ 세션을 골라 여는 손짓 — 세울 세션을 여는 
   it('보낸 명령의 세션 전환은 그 에이전트의 창에서만 — 창이 없으면 한도 정지 확인만 한다(#17-47 ①)', () => {
     const add = block(store, 'addCommand: (agentId, text, subAgentId, attachments) => {', 'removeCommand: (agentId, commandId) => {');
     expect(add).toContain('const own = agentIDEPaneKey(');
-    expect(add).toContain('if (own) now.setIDEActiveSession(sentTo, own);');
+    expect(add).toContain('own === submittedPane');
+    expect(add).toContain('now.setIDEActiveSession(sentTo, own);');
     expect(add).toContain('else now.acknowledgeUsageLimit({ subAgentIds: [sentTo] });');
   });
 

@@ -82,9 +82,6 @@
       "soloFocus": "只显示此窗口（其余折叠）",
       "limited": "已停止",
       "limitedUntil": "{{at}} 重置",
-      "limitedBanner": "{{count}} 个会话因用量上限停止 — 已排在下方列表最前",
-      "limitedAck": "知道了",
-      "limitedAckHint": "点击后橙色标记消失 — 会话和对话内容保持不变",
       "settings": "Agent 设置",
       "expand": "展开",
       "collapse": "折叠",
@@ -1725,7 +1722,8 @@
         "running": "运行中",
         "done": "已完成",
         "error": "错误",
-        "limited": "已达上限"
+        "limited": "已达上限",
+        "waiting": "排队中"
       },
       "probe": {
         "checking": "检查中…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "未命名对话",
       "revisionOf": "{{index}}/{{total}} 版",
       "failedBadge": "失败 {{count}}",
-      "failedBadgeTip": "失败的压缩（{{scope}}）：{{count}} 次。每条失败记录都带有注明原因的红色标记。"
+      "failedBadgeTip": "失败的压缩（{{scope}}）：{{count}} 次。每条失败记录都带有注明原因的标记。"
     },
     "remoteAccess": {
       "title": "远程访问",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "自动还原韩语分词空格",
       "voiceRespaceHint": "识别引擎输出的韩语没有空格，此功能按助词和词尾进行切分。基于规则，并不完美，结果可在输入框中修改。",
       "stallHint": "长时间推理或工具调用可能暂时没有更新。仅凭这一点不能判断会话已停止。",
-      "stallNotice": "正在等待下一次更新。上次活动是在 {{value}} 前。",
-      "stallKeepWaiting": "继续等待",
-      "stallKeepWaitingTitle": "隐藏此提示并继续等待下一次更新。",
+      "backgroundShells": "{{count}} 个后台 Shell 仍在运行。回复已送达——你可以继续输入。",
+      "backgroundShellsTip": "上一轮次遗留下来的后台 Bash 或 Monitor 命令。它运行的是一条命令,而不是模型,因此不会占用这个会话。不会自行退出的命令(如 tail -f、while true、经管道的 sort)会一直留在这里,直到你移除它们。",
+      "backgroundShellsOpen": "查看",
       "stopNothing": "没有正在运行的任务可停止。“正在运行”只是过时的显示。",
       "stopNothingHint": "服务器在此范围内没有找到任何子进程、排队命令或后台任务。",
       "stopForce": "强制关闭",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "子代理",
       "commandReceived": "命令已接收",
       "promptSuggestion": "下一条提示建议",
-      "imageMissing": "（图片不可用）"
+      "imageMissing": "（图片不可用）",
+      "waiting": "等待中"
     },
     "report": {
       "title": "工作报告",
@@ -3502,18 +3501,19 @@
       "superseded": "计划已更新"
     },
     "cmdError": {
-      "spawn": "Claude CLI 无法启动",
+      "spawn": "{{engine}} 无法启动",
       "stdin": "无法将提示词发送到正在运行的 Session",
-      "exit": "Claude CLI 已退出，代码 {{code}}",
-      "exitUnknown": "Claude CLI 意外退出",
+      "exit": "{{engine}} 已退出，代码 {{code}}",
+      "exitUnknown": "{{engine}} 意外退出",
       "crash": "Session 进程意外终止（代码 {{code}}）",
       "crashUnknown": "Session 进程意外终止",
       "local": "本地模型运行失败",
-      "cli": "Claude CLI 报告了一个失败",
+      "cli": "{{engine}} 报告了一个失败",
       "maxTurns": "已达到最大轮次限制并停止",
       "agentView": "Agent 运行以失败告终",
       "orphaned": "应用重启时被中断",
       "dispatchResult": "未收到委派任务的结果即已结束",
+      "usageLimit": "已达到用量上限并停止",
       "unknown": "因未知原因失败"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "刷新流程",
       "details": "查看流程详情",
       "hideDetails": "收起流程详情",
+      "approve": "批准",
+      "approveHint": "立即批准，使用此流程已列出的证据文件。Agent 通常会自行完成此操作。",
+      "approveNoEvidence": "此流程未列出任何证据文件，因此无法在此处批准。",
       "pause": "停止使用",
       "requestReview": "请求 Agent 审核",
       "reviewHint": "正在工作的 Agent 会审核相关流程。请求审核并不会直接启用流程。",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "此流程的适用条件在审核后发生了变化。",
         "instructionsChanged": "流程内容在审核后发生了变化。",
         "dependencyChanged": "已审核的依据文件发生了变化或已无法访问。",
+        "userApproved": "你已批准此流程。",
         "userPaused": "你已停止使用此流程。",
         "userRequestedReview": "你已请求重新审核此流程。"
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "允许指挥向我提问",
         "askQuestionsHint": "会为其工具集加入 AskUserQuestion。默认关闭——开启后，模糊的指令可能会暂停等待你的回答。",
         "engine": "成员引擎",
-        "maxMembers": "最多可创建的成员数"
+        "maxMembers": "最多可创建的成员数",
+        "memberIsolation": "为每个成员分配独立的 Worktree",
+        "memberIsolationHint": "每个成员都诞生在专属的 git Worktree 中，因此并行工作的成员不会在同一批文件上发生冲突。之后需要你自己合并这些分支。仅限 Claude 成员——Codex 没有对应的参数。",
+        "memberToolTemplate": "成员诞生时自带的工具"
       },
       "permission": {
         "bypass": "跳过权限确认",
@@ -4734,7 +4741,11 @@
           "auto": "由指挥按角色选择",
           "inherit": "与指挥者使用相同引擎（{{engine}}）"
         },
-        "maxDefault": "默认（{{count}}）"
+        "maxDefault": "默认（{{count}}）",
+        "isolationClaudeOnly": "Codex 成员没有这项功能——它们直接在项目文件夹中运行。",
+        "toolsOption": "{{name}}（{{count}}）",
+        "toolsDefault": "Agent 默认（所有工具）",
+        "toolsHint": "指挥无法扩大这份工具列表。范围较窄的工具能让成员专注于本职工作——一个没有写权限的评审者不会偷偷“修复”你只是让它检查的内容。"
       },
       "strategies": {
         "title": "节省 Token 的策略",
@@ -5757,6 +5768,7 @@
     "waitingFor": "已等待 {{time}}",
     "queued": "排队 {{count}}",
     "running": "运行 {{count}}",
+    "backgroundShells": "{{count}} 个后台 Shell",
     "jumpHint": "在主窗口中打开该会话",
     "commandHint": "不离开此窗口直接发送消息",
     "moreHint": "更多操作",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "给该会话发消息…（Enter 发送）",
     "send": "发送",
     "searchPlaceholder": "搜索会话 —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "正在搜索对话历史记录…",
+    "historySearchFailed": "部分对话历史记录无法搜索。",
+    "retryHistorySearch": "重试历史记录搜索",
     "clearSearch": "清除",
     "resultCount": "匹配 {{count}} 项",
     "sessionCount": "{{count}} 个会话",

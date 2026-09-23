@@ -86,6 +86,11 @@ interface StreamRendererProps {
    * 생존 판정에 쓰면 안 되므로, 그 판정은 이 값 하나로만 들어온다(없으면 종전 추정으로 폴백).
    */
   sessionBusy?: boolean;
+  /**
+   * §5.5 #17-18 ⑪ — **줄만 서 있는가**(`isSessionWaiting`). `sessionBusy` 와 직교하지 않고
+   * 그 안의 한 갈래다: 작동 중(`sessionBusy`) 가운데 **도는 것이 없는** 경우.
+   */
+  sessionWaiting?: boolean;
   /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
   /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
@@ -1031,7 +1036,7 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 // ─── 메인 렌더러 ───
 
 /** §5.5 #17-24 ② — 라이브 1줄의 두 라벨(모드로 고른다). */
-interface LiveLabels { thinking: string; working: string }
+interface LiveLabels { thinking: string; working: string; waiting: string }
 
 /**
  * §4 (스트림 3종 ①) — **중첩 서브에이전트(Task)가 한 말**을 감싸는 껍데기.
@@ -1141,14 +1146,17 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
   );
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
   //   2단계(카드 합류)는 카드 변경 때만 재계산. 파서 인스턴스는 이 컴포넌트 수명 동안 유지(ref).
   const parserRef = useRef<IncrementalStreamParser | null>(null);
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
-  const base = useMemo(() => parserRef.current!.sync(events, commands, sessionBusy), [events, commands, sessionBusy]);
+  const base = useMemo(
+    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting),
+    [events, commands, sessionBusy, sessionWaiting],
+  );
   const merged = useMemo(
     () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
     [base, commands, reports, questions, reviews, lists, askRequests],
@@ -1238,7 +1246,13 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   }, [checkOlderHistory]);
 
   const liveLabels = useMemo<LiveLabels>(
-    () => ({ thinking: t('ide.streamRenderer.thinking'), working: t('ide.streamRenderer.working') }),
+    () => ({
+      thinking: t('ide.streamRenderer.thinking'),
+      working: t('ide.streamRenderer.working'),
+      // §5.5 #17-18 ⑪ — "작업 중"과 **다른 낱말**이어야 한다. 같은 말이면 사용자는 돌고 있는
+      //   줄과 줄만 선 줄을 구별할 방법이 없다(그 혼동이 이 값이 생긴 사고다).
+      waiting: t('ide.streamRenderer.waiting'),
+    }),
     [t],
   );
   // §4 (스트림 3종 ①) — 중첩 서브에이전트 껍데기의 라벨. `renderStreamItem` 은 컴포넌트가 아니라

@@ -82,9 +82,6 @@
       "soloFocus": "このウィンドウだけ表示（他は折りたたむ）",
       "limited": "停止",
       "limitedUntil": "{{at}} にリセット",
-      "limitedBanner": "利用上限で停止したセッション{{count}}件 — 下の一覧の先頭にあります",
-      "limitedAck": "確認",
-      "limitedAckHint": "確認するとオレンジの表示が消えます — セッションと会話はそのまま残ります",
       "settings": "Agent設定",
       "expand": "展開",
       "collapse": "折りたたむ",
@@ -1725,7 +1722,8 @@
         "running": "実行中",
         "done": "完了",
         "error": "エラー",
-        "limited": "上限で停止"
+        "limited": "上限で停止",
+        "waiting": "順番待ち"
       },
       "probe": {
         "checking": "確認中…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "無題の会話",
       "revisionOf": "第{{index}}/{{total}}版",
       "failedBadge": "失敗 {{count}}",
-      "failedBadgeTip": "失敗したコンパクト化（{{scope}}）: {{count}}件。失敗した行には、理由を示す赤いチップが付いています。"
+      "failedBadgeTip": "失敗したコンパクト化（{{scope}}）: {{count}}件。失敗した行には、理由を示すチップが付いています。"
     },
     "remoteAccess": {
       "title": "リモートアクセス",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "韓国語の分かち書きを自動補正",
       "voiceRespaceHint": "認識エンジンは韓国語を空白なしで出力するため、助詞や語尾で区切ります。ルールベースなので完璧ではありません。結果は入力欄で修正できます。",
       "stallHint": "長い推論やツールの実行中は更新が途切れることがあります。それだけでセッションが停止したとは限りません。",
-      "stallNotice": "次の更新を待っています。最後のアクティビティは {{value}} 前です。",
-      "stallKeepWaiting": "待ち続ける",
-      "stallKeepWaitingTitle": "この案内を非表示にして、次の更新を待ち続けます。",
+      "backgroundShells": "バックグラウンドシェルが{{count}}個、まだ実行中です。回答はすでに届いているので、そのまま入力を続けられます。",
+      "backgroundShellsTip": "前のターンから残っている、バックグラウンドのBashまたはMonitorコマンドです。実行しているのはモデルではなくコマンドなので、このセッションを占有しません。自然に終了しないコマンド（tail -f、while true、パイプでつないだsortなど）は、削除するまでここに残り続けます。",
+      "backgroundShellsOpen": "表示",
       "stopNothing": "停止できる処理は動いていませんでした。「実行中」の表示が残っていただけです。",
       "stopNothingHint": "この範囲で動いている子プロセス・待機中のコマンド・バックグラウンド作業を、サーバーは一つも見つけられませんでした。",
       "stopForce": "強制終了",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "サブエージェント",
       "commandReceived": "コマンド受付",
       "promptSuggestion": "次のプロンプト候補",
-      "imageMissing": "（画像利用不可）"
+      "imageMissing": "（画像利用不可）",
+      "waiting": "待機中"
     },
     "report": {
       "title": "作業レポート",
@@ -3502,18 +3501,19 @@
       "superseded": "計画を更新"
     },
     "cmdError": {
-      "spawn": "Claude CLIを起動できませんでした",
+      "spawn": "{{engine}}を起動できませんでした",
       "stdin": "実行中のセッションにプロンプトを送信できませんでした",
-      "exit": "Claude CLIがコード{{code}}で終了しました",
-      "exitUnknown": "Claude CLIが予期せず終了しました",
+      "exit": "{{engine}}がコード{{code}}で終了しました",
+      "exitUnknown": "{{engine}}が予期せず終了しました",
       "crash": "セッションプロセスが予期せず終了しました (コード {{code}})",
       "crashUnknown": "セッションプロセスが予期せず終了しました",
       "local": "ローカルモデルの実行に失敗しました",
-      "cli": "Claude CLIがエラーを報告しました",
+      "cli": "{{engine}}がエラーを報告しました",
       "maxTurns": "最大ターン数の上限で停止しました",
       "agentView": "エージェントの実行が失敗で終了しました",
       "orphaned": "アプリの再起動により中断されました",
       "dispatchResult": "委任したタスクの結果を受け取らずに終了しました",
+      "usageLimit": "使用量上限に達して停止しました",
       "unknown": "不明な理由で失敗しました"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "手順を更新",
       "details": "手順の詳細を表示",
       "hideDetails": "手順の詳細を非表示",
+      "approve": "承認",
+      "approveHint": "この手順がすでに根拠として挙げているファイルを使って、今すぐ承認します。agentは通常、自分で承認します。",
+      "approveNoEvidence": "この手順には根拠となるファイルがないため、ここでは承認できません。",
       "pause": "使用を停止",
       "requestReview": "Agent のレビューを依頼",
       "reviewHint": "作業中の Agent が関連する手順をレビューします。依頼しただけでは手順は有効になりません。",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "レビュー後に、この手順の適用条件が変更されました。",
         "instructionsChanged": "レビュー後に手順の内容が変更されました。",
         "dependencyChanged": "レビュー済みの根拠ファイルが変更されたか、利用できなくなりました。",
+        "userApproved": "この手順を承認しました。",
         "userPaused": "この手順の使用を停止しました。",
         "userRequestedReview": "この手順の再レビューを依頼しました。"
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "指揮者からの質問を許可",
         "askQuestionsHint": "AskUserQuestionをツールに追加します。既定ではオフです。オンにすると、あいまいな指示のとき、あなたが答えるまで処理が一時停止することがあります。",
         "engine": "メンバーのエンジン",
-        "maxMembers": "作成できるメンバーの上限"
+        "maxMembers": "作成できるメンバーの上限",
+        "memberIsolation": "メンバーごとに専用のworktreeを用意",
+        "memberIsolationHint": "メンバーはそれぞれ専用のgit worktreeに生まれるため、同時に動くメンバー同士が同じファイルで衝突することはありません。その後のブランチのマージはご自身で行ってください。対象はClaudeのメンバーのみです。Codexには対応するフラグがありません。",
+        "memberToolTemplate": "メンバーが生まれ持つツール"
       },
       "permission": {
         "bypass": "権限確認をスキップ",
@@ -4734,7 +4741,11 @@
           "auto": "役割ごとに指揮者が選択",
           "inherit": "指揮者と同じエンジン（{{engine}}）"
         },
-        "maxDefault": "既定（{{count}}）"
+        "maxDefault": "既定（{{count}}）",
+        "isolationClaudeOnly": "Codexのメンバーにはこの機能が適用されません。プロジェクトフォルダで直接動作します。",
+        "toolsOption": "{{name}}（{{count}}）",
+        "toolsDefault": "Agentの既定（すべてのツール）",
+        "toolsHint": "指揮者はこのリストを広げることができません。ツールを絞ることで、メンバーは自分の仕事に集中します。書き込みができないレビュアーは、確認を頼まれた内容を黙って「直す」ようなことはしません。"
       },
       "strategies": {
         "title": "トークン節約戦略",
@@ -5757,6 +5768,7 @@
     "waitingFor": "{{time}} 待機",
     "queued": "待機 {{count}}件",
     "running": "実行 {{count}}件",
+    "backgroundShells": "{{count}}個のバックグラウンドシェル",
     "jumpHint": "メインウィンドウでこのセッションを開く",
     "commandHint": "このウィンドウを離れずにメッセージを送る",
     "moreHint": "その他の操作",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "このセッションにメッセージ…（Enter で送信）",
     "send": "送信",
     "searchPlaceholder": "セッション検索 —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "会話履歴を検索中…",
+    "historySearchFailed": "一部の会話履歴を検索できませんでした。",
+    "retryHistorySearch": "会話履歴の検索を再試行",
     "clearSearch": "クリア",
     "resultCount": "{{count}}件一致",
     "sessionCount": "セッション {{count}}件",

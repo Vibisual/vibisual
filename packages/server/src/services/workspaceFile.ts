@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   WORKSPACE_FILE_MAX_BYTES,
   WORKSPACE_IMAGE_MAX_BYTES,
@@ -19,7 +20,7 @@ import { resolveWorkspacePath } from './workspaceExplorer.js';
  *
  * 여기서 쓰는 파일은 **사용자의 소스 파일**이라 §3.2.1 체크포인트 창구(원자적 쓰기·백업)를 타지 않는다 —
  * 그 인프라는 우리가 소유한 상태 파일을 위한 것이고, 남의 파일에 `.bak` 을 흩뿌릴 자리가 아니다.
- * 대신 덮어쓰기 사고는 `mtimeMs` 대조(= 읽은 뒤 디스크가 바뀌었으면 거절)로 막는다.
+ * 대신 `mtimeMs` + 원본 바이트 지문으로 외부 변경을 대조하고, 같은 폴더의 임시 파일을 완성한 뒤 교체한다.
  *
  * 상태 없는 순수 조회/쓰기라 클래스가 아니라 함수 둘로 둔다.
  */
@@ -43,6 +44,53 @@ const READ_ONLY_ERROR_CODES = new Set(['EACCES', 'EPERM', 'EROFS']);
 
 /** 쓰기 비트(소유자 write) — 잠금 판정과 해제가 같은 한 비트를 본다. */
 const OWNER_WRITE = 0o200;
+
+function fileRevision(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/** 원본을 먼저 잘라 쓰지 않는다. 같은 디렉터리에서 완성한 파일만 교체하고, 실패하면 원본을 보존한다. */
+function replaceWorkspaceBytes(
+  abs: string,
+  bytes: Buffer,
+  stat: fs.Stats,
+  baseMtimeMs: number,
+  baseRevision: string | undefined,
+  clearReadOnly: boolean,
+): { ok: true; stat: fs.Stats; revision: string } | { ok: false; error: 'conflict'; mtimeMs: number } {
+  // 링크 자체를 파일로 바꾸지 않고, 공통 경로 가드가 검증한 대상 파일을 저장한다.
+  const target = fs.realpathSync(abs);
+  const originalRevision = fileRevision(fs.readFileSync(target));
+  if (baseMtimeMs > 0 && baseRevision !== undefined && originalRevision !== baseRevision) {
+    return { ok: false, error: 'conflict', mtimeMs: stat.mtimeMs };
+  }
+  if (clearReadOnly) clearReadOnlyBit(target, stat.mode);
+
+  // POSIX rename은 대상 쓰기 권한 없이도 가능하므로, 기존 읽기 전용 보호를 먼저 확인한다.
+  const writable = fs.openSync(target, 'r+');
+  let mode: number;
+  try { mode = fs.fstatSync(writable).mode; } finally { fs.closeSync(writable); }
+
+  const temporary = path.join(path.dirname(target), `.vibisual-${randomUUID()}.tmp`);
+  try {
+    const fd = fs.openSync(temporary, 'wx', mode);
+    try {
+      fs.writeFileSync(fd, bytes);
+      fs.fchmodSync(fd, mode); // umask로 실행 비트·기존 쓰기 권한이 달라지지 않게 한다.
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+
+    // 준비 중 에이전트가 파일을 바꿨으면, 강제 저장 요청도 그 새 변경까지 덮지는 않는다.
+    const latest = fs.statSync(target);
+    if (latest.mtimeMs !== stat.mtimeMs || fileRevision(fs.readFileSync(target)) !== originalRevision) {
+      return { ok: false, error: 'conflict', mtimeMs: latest.mtimeMs };
+    }
+    fs.renameSync(temporary, target);
+    return { ok: true, stat: fs.statSync(target), revision: fileRevision(bytes) };
+  } finally {
+    try { fs.unlinkSync(temporary); } catch { /* 교체 성공이면 임시 이름은 이미 없다. */ }
+  }
+}
 
 function isPermissionError(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
@@ -143,6 +191,7 @@ export function readWorkspaceFile(
     text: binary ? '' : normalizeText(raw),
     size: stat.size,
     mtimeMs: stat.mtimeMs,
+    revision: fileRevision(buf),
     truncated,
     binary,
     // ⑭ 그림으로 열 자리인가 — 판정을 여기서 끝내 클라이언트가 두 값을 다시 조합하지 않게 한다.
@@ -168,6 +217,7 @@ export function writeWorkspaceFile(
   baseMtimeMs: number,
   limit: number = WORKSPACE_FILE_MAX_BYTES,
   clearReadOnly = false,
+  baseRevision?: string,
 ): WorkspaceFileSaveOutcome {
   const resolved = resolveWorkspacePath(root, relPath);
   if (!resolved || resolved.rel === '') return { ok: false, error: 'outside' };
@@ -188,12 +238,10 @@ export function writeWorkspaceFile(
   const body = eol === 'crlf' ? text.replace(/\n/g, '\r\n') : text;
   if (Buffer.byteLength(body, 'utf8') > limit) return { ok: false, error: 'too-large' };
 
-  // ⑫ 잠긴 파일 — 사용자가 풀라고 했을 때만 쓰기 비트를 켠다(되돌려 걸지 않는다).
-  if (clearReadOnly) clearReadOnlyBit(resolved.abs, stat.mode);
-
   try {
-    fs.writeFileSync(resolved.abs, body, 'utf8');
-    const after = fs.statSync(resolved.abs);
+    const saved = replaceWorkspaceBytes(resolved.abs, Buffer.from(body, 'utf8'), stat, baseMtimeMs, baseRevision, clearReadOnly);
+    if (!saved.ok) return saved;
+    const after = saved.stat;
     return {
       ok: true,
       result: {
@@ -201,6 +249,7 @@ export function writeWorkspaceFile(
         path: resolved.rel,
         size: after.size,
         mtimeMs: after.mtimeMs,
+        revision: saved.revision,
         readOnly: isReadOnlyFile(resolved.abs),
       },
     };
@@ -225,7 +274,7 @@ export function readWorkspaceImage(
   root: string,
   relPath: string,
   limit: number = WORKSPACE_IMAGE_MAX_BYTES,
-): { bytes: Buffer; mime: string; size: number; mtimeMs: number } | null {
+): { bytes: Buffer; mime: string; size: number; mtimeMs: number; revision: string } | null {
   const resolved = resolveWorkspacePath(root, relPath);
   if (!resolved || resolved.rel === '') return null;
   if (!isWorkspaceImagePath(resolved.rel)) return null;
@@ -246,7 +295,8 @@ export function readWorkspaceImage(
     return null;
   }
 
-  return { bytes, mime: workspaceImageMime(resolved.rel), size: stat.size, mtimeMs: stat.mtimeMs };
+  if (bytes.length > limit) return null;
+  return { bytes, mime: workspaceImageMime(resolved.rel), size: bytes.length, mtimeMs: stat.mtimeMs, revision: fileRevision(bytes) };
 }
 
 /**
@@ -266,6 +316,7 @@ export function writeWorkspaceImage(
   bytes: Buffer,
   baseMtimeMs: number,
   limit: number = WORKSPACE_IMAGE_MAX_BYTES,
+  baseRevision?: string,
 ): WorkspaceFileSaveOutcome {
   const resolved = resolveWorkspacePath(root, relPath);
   if (!resolved || resolved.rel === '') return { ok: false, error: 'outside' };
@@ -286,8 +337,9 @@ export function writeWorkspaceImage(
   }
 
   try {
-    fs.writeFileSync(resolved.abs, bytes);
-    const after = fs.statSync(resolved.abs);
+    const saved = replaceWorkspaceBytes(resolved.abs, bytes, stat, baseMtimeMs, baseRevision, false);
+    if (!saved.ok) return saved;
+    const after = saved.stat;
     return {
       ok: true,
       result: {
@@ -295,6 +347,7 @@ export function writeWorkspaceImage(
         path: resolved.rel,
         size: after.size,
         mtimeMs: after.mtimeMs,
+        revision: saved.revision,
         readOnly: isReadOnlyFile(resolved.abs),
       },
     };

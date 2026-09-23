@@ -9,7 +9,7 @@
  * 부르고, 반려 명령 문장만 순수 모듈 `reviewRejectPrompt.ts` 로 조립해 함께 보낸다(서버가 언어를
  * 정하지 않기 위해 번역문은 클라이언트가 만든다).
  */
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ReviewRequest, ReviewDecision, ReviewFileChange } from '@vibisual/shared';
 import { REVIEW_REASON_MAX } from '@vibisual/shared';
@@ -123,12 +123,17 @@ function formatTime(ts: number): string {
 }
 
 export const ReviewLaneSection = memo(function ReviewLaneSection({ review }: ReviewLaneSectionProps): React.JSX.Element {
+  return <ReviewLaneBody key={review.id} review={review} />;
+});
+
+function ReviewLaneBody({ review }: ReviewLaneSectionProps): React.JSX.Element {
   const { t } = useTranslation();
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const diffLines = useMemo(() => (review.diff === '' ? [] : review.diff.split(/\r?\n/)), [review.diff]);
@@ -144,7 +149,8 @@ export const ReviewLaneSection = memo(function ReviewLaneSection({ review }: Rev
   const canDecide = review.status === 'pending' || review.status === 'held';
 
   const send = useCallback(async (kind: 'approve' | 'reject' | 'hold', rejectReason?: string): Promise<void> => {
-    if (busy) return;
+    if (inFlight.current || !canDecide) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -177,9 +183,10 @@ export const ReviewLaneSection = memo(function ReviewLaneSection({ review }: Rev
     } catch (err) {
       setError(err instanceof Error ? err.message : 'request failed');
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
-  }, [busy, review.id, review.branch, review.baseBranch, review.files, t]);
+  }, [canDecide, review.id, review.branch, review.baseBranch, review.files, t]);
 
   return (
     <div className="mt-2 rounded border border-violet-500/25 bg-violet-500/5 px-2.5 py-2">
@@ -364,4 +371,4 @@ export const ReviewLaneSection = memo(function ReviewLaneSection({ review }: Rev
       )}
     </div>
   );
-});
+}

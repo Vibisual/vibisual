@@ -4,11 +4,11 @@ import { linkedImageEvents } from './streamLinkedImages.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
+import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText , buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
 import {
-  createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
+  createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
   listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
   isTurnResumeSignal, TURN_RESUME_GRACE_MS, shouldSleepResumedTurn,
   EARLY_RESULT_SAFETY_MS, isMainThreadModelLine, isResultBeforeOwnTurn,
@@ -1144,6 +1144,8 @@ export class SubAgentManager {
   private onPersistNeeded: (() => void) | null = null;
   /** subagentId → 최근 스트림 이벤트 버퍼 (late-join용) */
   private streamBuffers = new Map<string, SubAgentStreamEvent[]>();
+  /** 조회·출력·회수 검증 시계. WeakMap이라 버퍼가 없어지면 시계도 함께 회수된다. */
+  private streamBufferAccessAt = new WeakMap<SubAgentStreamEvent[], number>();
   /**
    * subagentId → 마지막으로 디스크에서 읽었을 때의 파일 지문(`streamBufferStore` 규약).
    *
@@ -1218,6 +1220,11 @@ export class SubAgentManager {
    *  도는 세션 탭). pending 이 비면 여기 있는 것만 idle 로 되돌린다 — 진짜 명령을 처리 중이라
    *  active 인 sub 를 잘못 강등하지 않기 위한 소유권 표식. */
   private bgPromotedSubs = new Set<string>();
+  /** §5.5 #17-9 ⑰ — 셸만 남아 상태를 **안 올린** 사실을 한 번 남긴 sub 들(로그 중복 방지 전용).
+   *  조용한 건너뜀 ❌ — CLI 가 `subagent_type` 을 언젠가 빼면 이 로그가 유일한 단서가 된다. */
+  private shellOnlyLogged = new Set<string>();
+  /** §5.5 #17-9 ⑰ — 명령 원문을 못 찾아 조사에서 뺀 항목(로그 중복 방지 전용). */
+  private probeCommandMissLogged = new Set<string>();
   /** tool_use_id 미상 페이로드용 합성 키 시퀀스. */
   private pendingSubagentAnonSeq = 0;
   /** Persistent child — 자식이 turn 사이 idle(다음 stdin write 대기) 인가. true 면 reuse 가능.
@@ -1550,6 +1557,12 @@ export class SubAgentManager {
    * 통째로 사라지므로, **여기서는 쉽게 포기하지 않는다.**
    */
   getStreamBuffer(subAgentId: string, parentAgentIdHint?: string): SubAgentStreamEvent[] {
+    const events = this.readStreamBuffer(subAgentId, parentAgentIdHint);
+    this.streamBufferAccessAt.set(events, Date.now());
+    return events;
+  }
+
+  private readStreamBuffer(subAgentId: string, parentAgentIdHint?: string): SubAgentStreamEvent[] {
     const buf = this.streamBuffers.get(subAgentId);
     const partial = this.partialStreamBuffers.has(subAgentId);
     if (buf && buf.length > 0 && !partial) return buf;
@@ -1626,6 +1639,7 @@ export class SubAgentManager {
       }
       // §5.5 v4.92 — 메모리 캐시는 상한 전체를 들고 있어도 **여기서는 꼬리만** 실어 보낸다.
       //   보고 있는 세션의 깊은 복원분은 단건 경로(`getStreamBuffer`)가 따로 준다.
+      if (buf) this.streamBufferAccessAt.set(buf, Date.now());
       if (buf && buf.length > 0) {
         result[sub.id] = buf.length > MAX_STREAM_BUFFER_BULK ? buf.slice(buf.length - MAX_STREAM_BUFFER_BULK) : buf;
       }
@@ -1658,16 +1672,20 @@ export class SubAgentManager {
    *  2) `error` 스트림 이벤트 — 실패한 그 시점(턴 끝)에 대화 안에 한 줄로 남는다.
    *
    * 사람이 읽을 문장은 만들지 않는다 — 로케일이 있는 쪽(클라)이 코드로 만들고, 여기서는
-   * `[code:exitCode] detail` 형식으로 코드·원문만 실어 보낸다(system 줄의 `[subtype]` 규약과 동형).
+   * `[code:exitCode@engine] detail` 형식으로 코드·엔진·원문만 실어 보낸다(system 줄의 `[subtype]` 규약과 동형).
+   * `@engine` 은 **선택 꼬리**라 그것이 없는 옛 줄도 종전대로 읽힌다.
    */
   private failCommand(sub: SubAgent, cmd: QueuedCommand, error: CommandError): void {
     const detail = error.detail ? error.detail.trim().slice(-COMMAND_ERROR_DETAIL_LIMIT) : undefined;
+    const code = this.usageLimitCodeFor(sub, error.code, detail);
+    const engine = error.engine ?? this.engineOf(sub);
     cmd.error = {
-      code: error.code,
+      code,
       ...(error.exitCode !== undefined ? { exitCode: error.exitCode } : {}),
       ...(detail ? { detail } : {}),
+      engine,
     };
-    const head = error.exitCode !== undefined ? `[${error.code}:${error.exitCode}]` : `[${error.code}]`;
+    const head = `[${code}${error.exitCode !== undefined ? `:${error.exitCode}` : ''}@${engine}]`;
     this.emitStreamEvent({
       id: makeEventId(),
       subAgentId: sub.id,
@@ -1676,14 +1694,52 @@ export class SubAgentManager {
       eventType: 'error',
       content: detail ? `${head} ${detail}` : head,
     });
-    logger.warn(`SubAgent ${sub.id} command failed [${error.code}]${error.exitCode !== undefined ? ` exit=${error.exitCode}` : ''}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+    logger.warn(`SubAgent ${sub.id} command failed [${code}@${engine}]${error.exitCode !== undefined ? ` exit=${error.exitCode}` : ''}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+  }
+
+  /**
+   * §5.5 #17-12 ③-7 — **이 실패를 낸 것은 어느 엔진인가.**
+   *
+   * 사유 코드는 엔진 중립이다(`cli`·`spawn`·`exit` 은 클로드도 코덱스도 낸다). 그런데 화면 문장은
+   * `Claude CLI` 를 글자로 박고 있어서, 코덱스 턴이 실패하면 **남의 이름으로 불렸다**
+   * (2026-09-22 사용자 보고 — GPT 버블이 한도로 멈춘 자리에 「Claude CLI 가 실패를 알렸습니다」).
+   * 판정 근거는 §5.25 (C) 의 `engineForProvider` 하나뿐이다 — 화면의 모델 이름(`agentModelLabelOf`)이
+   * 보는 것과 같은 값이라 두 자리가 갈리지 않는다. 설정을 못 읽는 자리(훅 버블)는 `claude` 인데,
+   * 그 버블이 실제로 비추는 것이 Claude Code 세션이라 맞는 답이다.
+   */
+  private engineOf(sub: SubAgent): AgentEngineKind {
+    return engineForProvider(this.agentConfigResolver?.(sub.parentAgentId)?.provider);
+  }
+
+  /**
+   * §2.4 (한도 정지) — 실패로 들어왔지만 **원인이 한도**면 사유를 그 이름으로 바꿔 적는다.
+   *
+   * 클로드는 한도에 닿아도 exit 0 으로 끝나 `completed` + `stopReason: 'usage_limit'` 이 된다
+   * (§5.5 #17-12 ③-6). 그런데 코덱스는 같은 사건을 `{"type":"error"}` 로 신고해(§5.25 (F))
+   * 실패 경로로 들어오고, 거기서 `cli` 로 적히면 화면은 「CLI 가 실패를 알렸습니다」라고 말한다 —
+   * 같은 사건이 엔진마다 다른 말로 불린다. 멈춘 이유는 실패가 아니라 한도다.
+   *
+   * **상태는 한 글자도 바꾸지 않는다**(③-1 의 「표시 계층 한정」). 바뀌는 것은 사유 낱말뿐이다.
+   *
+   * 근거는 둘이고 둘 다 이번 턴의 것이다 — ① 세션 깃발(`execute` 가 턴을 시작할 때 걷으므로 닫을 때
+   * 서 있으면 이 턴에 걸린 것 · ③-6 의 `usage_limit` 판정과 같은 근거), ② 원문 자체가 한도 통지
+   * (`detectUsageLimitInText` — 짧은 한 줄만 인정해 통지를 인용한 긴 글을 세지 않는다).
+   *
+   * **원인이 이미 분명한 사유는 건드리지 않는다** — 턴 상한·위임 결과 누락·스폰 실패는 그쪽 이름이
+   * 더 정확하다. 바꾸는 것은 「엔진이 실패를 신고했다」 부류뿐이다.
+   */
+  private usageLimitCodeFor(sub: SubAgent, code: CommandError['code'], detail: string | undefined): CommandError['code'] {
+    if (!USAGE_LIMIT_PROMOTABLE_ERROR_CODES.has(code)) return code;
+    if (sub.usageLimit !== undefined) return 'usageLimit';
+    return detail && detectUsageLimitInText(detail, Date.now()) ? 'usageLimit' : code;
   }
 
   /** A missing bridge is a failed setup, never a model-only verification success. */
   private rejectVerificationSetup(sub: SubAgent, cmd: QueuedCommand, detail: string): void {
     cmd.status = 'error';
     cmd.result = detail;
-    sub.status = this.hasLiveBackgroundWork(sub) ? 'active' : 'error';
+    // 표시 축이다 — 백단 셸이 남았다고 실패한 설정을 "도는 중"으로 세탁하지 않는다(⑰).
+    sub.status = this.hasLiveAgentBackgroundWork(sub) ? 'active' : 'error';
     sub.lastActivityAt = Date.now();
     this.clearDispatching(sub.id);
     this.failCommand(sub, cmd, { code: 'spawn', detail });
@@ -1717,10 +1773,13 @@ export class SubAgentManager {
     const sub = subAgentId ? this.index.get(subAgentId) : undefined;
     if (sub) { this.failCommand(sub, cmd, error); return; }
     const detail = error.detail ? error.detail.trim().slice(-COMMAND_ERROR_DETAIL_LIMIT) : undefined;
+    // 세션이 사라진 자리라 엔진을 물을 데가 없다 — **클로드로 단정하지 않고 비워 둔다**
+    //   (§5.5 #17-12 ③-7 · 화면은 엔진 이름 없이 `CLI` 라고만 말한다).
     cmd.error = {
       code: error.code,
       ...(error.exitCode !== undefined ? { exitCode: error.exitCode } : {}),
       ...(detail ? { detail } : {}),
+      ...(error.engine ? { engine: error.engine } : {}),
     };
   }
 
@@ -1985,6 +2044,7 @@ export class SubAgentManager {
     //   메모리에만 있던 줄을 먼저 적는다 — 그래야 파일에서도 줄 순서가 뒤집히지 않는다.
     if (dir && this.partialStreamBuffers.has(event.subAgentId)) buf = this.healPartialStreamBuffer(event.subAgentId, dir);
     buf.push(event);
+    this.streamBufferAccessAt.set(buf, Date.now());
     if (buf.length > MAX_STREAM_BUFFER) buf.splice(0, buf.length - MAX_STREAM_BUFFER);
     // 거짓-완료 방지 — 스트림 이벤트가 흐르는 동안 sub 를 "살아있음" 으로 갱신.
     // lastActivityAt 은 execute() 시작·child.close 두 곳에서만 찍혀, 명령이 길어지면
@@ -2375,16 +2435,27 @@ export class SubAgentManager {
         if (e.subId) pendingSubIds.add(e.subId);
       }
     }
-    // 스트림으로만 보이는 백그라운드 작업(`Bash run_in_background` · `Monitor` · Task/Agent 자식)을
-    //   가진 탭도 같은 자격이다 — 그 탭은 자기 턴이 끝났어도 그 작업이 끝나면 다시 깨어난다.
-    // **여기서 `listDisplayableLiveTasks` 를 쓰지 마라**(§5.5 #17-9 ⑮). 그 목록은 훅 대차대조가
-    //   이미 세는 `subagentType` 항목을 빼는 *표시용*이고, 그 전제(= 훅이 대신 센다)는 백그라운드
-    //   자식 **안에서** 다시 스폰된 자식에서 깨진다 — 그때 이 탭은 증인을 하나도 못 얻어, 도는
-    //   채로 초록 "완료" + 도트 꺼짐으로 굳었다. 세는 자리가 아니라 있나 없나를 묻는 자리이므로
-    //   겹쳐 세일 일 자체가 없다.
+    // 스트림으로만 보이는 **모델 자식**을 가진 탭도 같은 자격이다 — 그 탭은 자기 턴이 끝났어도
+    //   그 자식이 끝나면 다시 깨어난다. 훅이 소유 세션을 못 푼 경우(백그라운드 자식 **안에서**
+    //   다시 스폰된 자식)에는 이 스트림 신호가 유일한 증인이라, `listDisplayableLiveTasks` 처럼
+    //   `subagentType` 을 빼는 *표시용* 목록을 여기 쓰면 그 탭이 도는 채로 초록 "완료"로 굳는다
+    //   (§5.5 #17-9 ⑮).
+    // **그러나 셸은 여기 들어오지 않는다**(⑰ — `hasLiveTasks` ❌ → `hasLiveAgentTasks` ⭕).
+    //   셸은 명령이 돌 뿐 모델이 돌지 않아 그 턴의 답은 이미 나와 있다. 종전처럼 셸까지 올리면
+    //   끝 표식이 영영 안 오는 명령(`grep … | sort`) 하나가 그 탭을 영구히 "실행 중"으로 붙들어
+    //   입력창이 [중지]로 굳고 3분 무응답 경고가 선다 — 사용자 보고의 바로 그 증상이다.
+    //   셸은 활동바 배지와 백그라운드 목록으로 **따로** 보여 주고 `KillShell` 로 따로 끊는다.
     for (const [subId, state] of this.turnSealStates) {
       if (this.index.get(subId)?.parentAgentId !== parentAgentId) continue;
-      if (hasLiveTasks(state)) pendingSubIds.add(subId);
+      if (hasLiveAgentTasks(state)) { pendingSubIds.add(subId); continue; }
+      // 조용한 건너뜀 ❌ — 셸만 남아 상태를 안 올린 사실은 한 번은 남긴다(§2.4 로그 규약).
+      //   CLI 가 언젠가 `subagent_type` 을 빼면 여기서 드러난다.
+      const shells = countLiveShells(state);
+      if (shells > 0 && !this.shellOnlyLogged.has(subId)) {
+        this.shellOnlyLogged.add(subId);
+        capSetSize(this.shellOnlyLogged, SESSION_KEYED_MAP_MAX);
+        logger.info('[bg-shell] sub=' + subId + ' 남은 항목이 셸 ' + shells + '개뿐 — 세션 상태는 올리지 않는다(§5.5 #17-9 ⑰). 활동바·백그라운드 목록에만 보인다.');
+      }
     }
     let changed = false;
     for (const sub of this.registry.get(parentAgentId) ?? []) {
@@ -2788,7 +2859,10 @@ export class SubAgentManager {
    *
    * 고르는 조건: 표시 목록에 선 스트림 작업이고 · 종료 표식이 없고(있으면 ⓪ 소관) ·
    * 조용한 시간이 임계(백오프 배수 포함)를 넘었고 · 그 명령을 트랜스크립트에서 읽어 낼 수 있다.
-   * 마지막 조건이 없으면 판정할 근거 자체가 없으므로 조용히 건너뛴다.
+   *
+   * 마지막 조건이 안 맞으면 판정 근거 자체가 없어 건너뛰되, **사유를 로그로 남긴다**(⑰ —
+   * `pickSessionForProbe` 와 같은 규약). 조용히 빠지면 "왜 이 항목만 영영 조사가 안 붙나"를
+   * 못 쫓는다 — 실제로 타임아웃 승격 셸이 이 자리에서 소리 없이 빠져 몇 시간을 남아 있었다.
    */
   private pickQuietTaskForProbe(
     now: number,
@@ -2827,7 +2901,19 @@ export class SubAgentManager {
           }
         }
         const shell = shells.find((s) => s.shellId === id);
-        if (!shell) continue; // 명령을 모르면 판정할 근거가 없다 — 조용히 건너뛴다.
+        if (!shell) {
+          // 명령을 모르면 판정할 근거가 없다 — 건너뛰되 **한 번은 남긴다**(조용한 건너뜀 ❌).
+          const missKey = probeKey(subId, id);
+          if (!this.probeCommandMissLogged.has(missKey)) {
+            this.probeCommandMissLogged.add(missKey);
+            capSetSize(this.probeCommandMissLogged, SESSION_KEYED_MAP_MAX);
+            logger.warn(
+              '[bg-probe] 명령 원문을 못 찾아 조사 제외 sub=' + subId + ' key=' + id
+              + ' quiet=' + quietMin + '분 (트랜스크립트에 짝이 없다 — 승격 셸이면 스캔 관문을 의심하라)',
+            );
+          }
+          continue;
+        }
 
         best = {
           subId,
@@ -3384,14 +3470,21 @@ export class SubAgentManager {
   }
 
   /**
-   * 이 에이전트가 **스트림으로 보이는 백그라운드 작업**을 기다리는 중인가. 생존 판정이라
-   * 거르지 않는다(§5.5 #17-9 ⑮ — `hasLiveTasks` 주석).
-   * 버블 완료 판정이 훅 대차대조와 함께 이 신호도 봐야 "끝난 걸로 착각"이 사라진다.
+   * 이 에이전트가 **스트림으로 보이는 모델 자식**을 기다리는 중인가.
+   *
+   * 버블 완료 판정이 훅 대차대조와 함께 이 신호도 봐야 "끝난 걸로 착각"이 사라진다. 훅이 소유
+   * 세션을 못 푼 자식(백그라운드 자식 **안에서** 다시 스폰된 경우)은 이 스트림 신호가 유일한
+   * 증인이다(§5.5 #17-9 ⑮).
+   *
+   * **셸은 세지 않는다**(⑰). 버블은 표시 축이고, 백단 셸 하나가 감독관 버블을 영원히 도는
+   * 것으로 붙들면 캔버스가 끝내 가라앉지 않는다. 셸은 활동바 배지가 따로 말한다.
+   * 회수 축(`hasLiveBackgroundWork` · `hasLivingWork`)은 이 분리를 따르지 않는다 — 그쪽은
+   * 셸까지 안 거른 채 봐야 `--resume` 이 못 살리는 백그라운드 명령이 조용히 죽지 않는다.
    */
   hasLiveBackgroundTasks(parentAgentId: string): boolean {
     for (const [subId, state] of this.turnSealStates) {
       if (this.index.get(subId)?.parentAgentId !== parentAgentId) continue;
-      if (hasLiveTasks(state)) return true;
+      if (hasLiveAgentTasks(state)) return true;
     }
     return false;
   }
@@ -3685,10 +3778,12 @@ export class SubAgentManager {
    * @returns 재운 sub.id 목록(호출자 broadcast 판단용).
    */
   sweepDormantIdleSubs(thresholdMs: number, hasPendingWork?: (subId: string) => boolean): string[] {
+    if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) return [];
     const now = Date.now();
     const slept: string[] = [];
     for (const sub of this.index.values()) {
       if (sub.dormant) continue;
+      if (!sub.sessionId) continue; // 같은 대화로 재개할 근거가 없는 자식은 보존한다.
       const child = this.runningChildren.get(sub.id);
       if (!child) continue; // 회수할 프로세스가 애초에 없다
       // 이 자식이 **다음 턴을 기다리며 놀고 있는** persistent child 인가. ready=false 는 스폰 중이거나
@@ -3737,7 +3832,24 @@ export class SubAgentManager {
    * 판정은 자식 **안의** 사정만 본다. 명령 처리 중·dispatch 중 같은 "지금 이 턴" 사정은 부르는 쪽 몫이다
    * (갈아 끼우기는 바로 그 턴을 들고 부르므로, 그 표식까지 여기서 보면 영영 못 갈아 끼운다).
    */
-  private hasLiveBackgroundWork(sub: SubAgent): boolean {
+  /**
+   * §5.5 #17-9 ⑰ — **상태를 올려도 되는가**(≠ 자식을 회수해도 되는가).
+   *
+   * `hasLiveBackgroundWork` 의 거울이다. 저쪽은 회수 축이라 셸까지 세고(셸을 죽이면 안 되니까),
+   * 이쪽은 표시 축이라 **모델 자식만** 센다(셸은 사용자를 기다리게 만들 이유가 없으니까).
+   * 둘을 섞어 쓰면 둘 중 하나가 반드시 거짓말한다 — 회수 축을 표시에 빌려 쓰면 끝난 대화가
+   * 영영 도는 것으로 보이고, 표시 축을 회수에 빌려 쓰면 도는 셸이 소리 없이 죽는다.
+   */
+  private hasLiveAgentBackgroundWork(sub: Pick<SubAgent, 'id' | 'parentAgentId'>): boolean {
+    if (this.deferredSeals.has(sub.id)) return true;
+    const seal = this.turnSealStates.get(sub.id);
+    if (seal && hasLiveAgentTasks(seal)) return true;
+    const pending = this.pendingSubagentTasks.get(sub.parentAgentId);
+    if (pending && [...pending.values()].some((e) => e.subId === undefined || e.subId === sub.id)) return true;
+    return false;
+  }
+
+  private hasLiveBackgroundWork(sub: Pick<SubAgent, 'id' | 'parentAgentId'>): boolean {
     if (this.bgPromotedSubs.has(sub.id)) return true;
     // 붙들어 둔 잠정 봉인 = 앞 턴의 배경 작업을 기다리는 중이다.
     if (this.deferredSeals.has(sub.id)) return true;
@@ -3930,14 +4042,46 @@ export class SubAgentManager {
       if (now - sub.lastActivityAt > thresholdMs) {
         sub.status = 'idle';
         changed.push(sub.id);
-        // 성능: idle 로 강등된 sub 의 스트림 버퍼 메모리 회수. 디스크(streamBufferStore)에
-        // 영속돼 있으므로 재오픈 시 getStreamBuffer(For Agent)/emitStreamEvent 가 복구한다.
-        this.streamBuffers.delete(sub.id);
-        // 지문도 함께 버린다 — 남기면 재오픈 때 "파일 그대로"로 판정해 회수한 과거를 못 읽어 온다.
-        this.streamDiskStamps.delete(sub.id);
       }
     }
+    // 완료 처리에서 이미 idle이 된 Claude/Codex도 포함한다. 상태 전이와 캐시 수명은 별개다.
+    this.sweepIdleStreamBuffers(thresholdMs);
     return changed;
+  }
+
+  /** 디스크에서 되살릴 수 있는 유휴 캐시만 회수한다. 대화·실패 상태는 바꾸지 않는다. */
+  sweepIdleStreamBuffers(thresholdMs: number): string[] {
+    if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) return [];
+    const now = Date.now();
+    const released: string[] = [];
+    for (const [subId, buffer] of this.streamBuffers) {
+      const sub = this.index.get(subId);
+      if (sub?.status === 'active') continue;
+      // 아카이브/아직 복원되지 않은 세션도 힌트 조회로 캐시될 수 있다.
+      const parentAgentId = sub?.parentAgentId ?? buffer[0]?.parentAgentId;
+      if (this.cmdDrivenSubs.has(subId) || this.dispatchingSubs.has(subId)
+        || this.runningAgentViewWatchers.has(subId) || this.isSubProcessingCommand(subId)
+        || (!sub && this.runningChildren.has(subId))
+        || (parentAgentId && this.hasLiveBackgroundWork({ id: subId, parentAgentId }))) continue;
+      const lastUse = Math.max(sub?.lastActivityAt ?? 0, this.streamBufferAccessAt.get(buffer) ?? 0);
+      if (now - lastUse <= thresholdMs) continue;
+      // 저장 장애에서는 매 30초 스윕마다 재파싱하지 않고 한 유휴 구간 뒤에 다시 확인한다.
+      this.streamBufferAccessAt.set(buffer, now);
+      // 폴더 미확정·쓰기 실패로 메모리가 유일본일 수 있다. pending flush 뒤 복원분을
+      // 확인하고, 빠진 줄이 하나라도 있으면 유지한다(파일 존재만으로는 충분하지 않다).
+      if (buffer.length > 0) {
+        const dir = parentAgentId ? this.findStreamDirFor(subId, parentAgentId) : null;
+        if (!dir) continue;
+        const restored = streamBufferStore.loadBuffer(dir, subId, MAX_STREAM_BUFFER);
+        const persistedIds = new Set(restored.map((event) => event.id));
+        if (buffer.some((event) => !persistedIds.has(event.id))) continue;
+      }
+      this.streamBuffers.delete(subId);
+      this.streamDiskStamps.delete(subId);
+      this.partialStreamBuffers.delete(subId);
+      released.push(subId);
+    }
+    return released;
   }
 
   /**
@@ -4216,6 +4360,7 @@ export class SubAgentManager {
   remove(subAgentId: string): boolean {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
+    const providerCommand = this.localInFlightCmd.get(subAgentId);
 
     this.cmdPaneStates.delete(subAgentId);
     // §5.3 #12-1-B — 탭이 사라지면 그 세션의 대기 카드는 답할 곳이 없고, "이 세션에선 허용" 기억도 주인이 없다.
@@ -4244,6 +4389,12 @@ export class SubAgentManager {
     this.persistentInFlightCmd.delete(subAgentId);
     // 로컬 턴 표식도 같은 이유로 함께 — 남기면 사라진 탭이 부모 버블을 영영 "실행중"으로 붙든다.
     this.localInFlightCmd.delete(subAgentId);
+    if (providerCommand) {
+      providerCommand.status = 'completed';
+      providerCommand.result = `[Stopped by user]${providerCommand.result ? `\n\n${providerCommand.result}` : ''}`;
+      sub.lastResult = providerCommand.result;
+      this.stampTurnStopReason(sub, providerCommand, { userStopped: true });
+    }
 
     // §5.7 #23-2 v1.60 — agent-view 정리: supervisor 의 worker + worktree 도 함께 제거.
     const av = this.runningAgentViewWatchers.get(subAgentId);
@@ -4278,6 +4429,16 @@ export class SubAgentManager {
     let arch = this.archive.get(sub.parentAgentId);
     if (!arch) { arch = []; this.archive.set(sub.parentAgentId, arch); }
     arch.push(archived);
+
+    // These providers own their runners outside runningChildren. Invalidate ownership
+    // before aborting: a synchronous or late callback must not revive an archived turn.
+    stopLocalTurn(subAgentId);
+    stopCodexTurn(subAgentId);
+    this.stoppedByUser.delete(subAgentId);
+    if (providerCommand) {
+      this.onSubStatusChange?.(sub.parentAgentId);
+      this.onComplete?.();
+    }
 
     logger.info(`SubAgent archived: ${subAgentId} (parent: ${sub.parentAgentId})`);
     return true;
@@ -4555,16 +4716,17 @@ export class SubAgentManager {
   }
 
   /** archive → 레지스트리 복구. 스트림 버퍼는 disk에서 다시 로드.
-   *  미존재 시 null, 이미 registry에 있으면(중복 호출) 기존 인스턴스 그대로 반환. */
-  restoreFromArchive(subAgentId: string): SubAgent | null {
+   *  미존재/요청 부모 불일치 시 null, 이미 registry에 있으면(중복 호출) 기존 인스턴스 그대로 반환. */
+  restoreFromArchive(subAgentId: string, expectedParentId?: string): SubAgent | null {
     // 이미 live면 그 인스턴스 반환
     const live = this.index.get(subAgentId);
-    if (live) return live;
+    if (live) return expectedParentId && live.parentAgentId !== expectedParentId ? null : live;
 
     // archive에서 찾기
     let found: SubAgent | null = null;
     let parentId = '';
     for (const [pid, list] of this.archive) {
+      if (expectedParentId && pid !== expectedParentId) continue;
       const idx = list.findIndex((s) => s.id === subAgentId);
       if (idx >= 0) {
         found = list[idx]!;
@@ -4611,6 +4773,7 @@ export class SubAgentManager {
   reorder(parentAgentId: string, orderedIds: string[]): boolean {
     const list = this.registry.get(parentAgentId);
     if (!list || list.length !== orderedIds.length) return false;
+    if (new Set(orderedIds).size !== orderedIds.length) return false;
     const currentIds = new Set(list.map((s) => s.id));
     if (!orderedIds.every((id) => currentIds.has(id))) return false;
 
@@ -5227,6 +5390,9 @@ export class SubAgentManager {
         },
       });
       this.runningChildren.set(sub.id, child);
+      // 콜백은 sub id 가 아니라 이 스폰의 소유권을 확인한다. 이전 자식의 늦은 출력·오류·close 가
+      //   재개한 자식의 세션·턴·백그라운드 작업 장부를 바꾸면 안 된다.
+      const isCurrentChild = (): boolean => this.runningChildren.get(sub.id) === child;
       // §5.5 #17-18 — 새 자식이 섰다 = 앞 자식은 이미 내려갔다(창구가 닫힌 자식이 있으면 여기까지 오지 않는다).
       //   그 자식에게 붙였던 중지·종료 표식이 남아 있으면 **이 명령**의 끝을 잘못 판정하므로 여기서 걷는다.
       this.stoppedByUser.delete(sub.id);
@@ -5289,6 +5455,7 @@ export class SubAgentManager {
       let lineBuf = '';
 
       child.stdout?.on('data', (chunk: Buffer) => {
+        if (!isCurrentChild()) return;
         // v1.33 — 명시적 UTF-8 디코딩. 기본 toString() 은 보통 utf8 이지만 플랫폼/Node 버전에
         // 따라 OEM fallback 될 수 있어 안전하게 고정.
         const text = chunk.toString('utf8');
@@ -5301,6 +5468,8 @@ export class SubAgentManager {
           buf = lines.pop() ?? '';
           this.persistentLineBuf.set(sub!.id, buf);
           for (const line of lines) {
+            // 앞 줄의 턴 마감 콜백에서 재스폰했을 수도 있다.
+            if (!isCurrentChild()) return;
             this._handlePersistentStdoutLine(line, sub!, child);
           }
           return;
@@ -5312,6 +5481,7 @@ export class SubAgentManager {
         const lines = lineBuf.split('\n');
         lineBuf = lines.pop() ?? ''; // 마지막 불완전 라인은 다음 chunk에서 이어서 파싱
         for (const line of lines) {
+          if (!isCurrentChild()) return;
           if (!line.trim()) continue;
           try {
             const obj = JSON.parse(line) as Record<string, unknown>;
@@ -5353,6 +5523,7 @@ export class SubAgentManager {
       });
 
       child.stderr?.on('data', (chunk: Buffer) => {
+        if (!isCurrentChild()) return;
         const text = chunk.toString('utf8');
         logger.debug(`SubAgent ${sub!.id} stderr: ${text.slice(0, 200)}`);
         // §5.5 #17-12 ③ — 꼬리만 보관. 실패로 끝났을 때 "왜"를 말할 유일한 재료다(성공하면 안 쓴다).
@@ -5361,6 +5532,7 @@ export class SubAgentManager {
       });
 
       child.on('error', (err) => {
+        if (!isCurrentChild()) return;
         logger.warn(`SubAgent ${sub!.id} spawn error: ${err.message}`);
         // §4 (실행본 자가 복구) — ENOENT = 우리가 든 `claude` 가 그 사이 사라졌다(확장 자동 갱신이 옛
         //   폴더를 통째로 지운다). 캐시를 버린 뒤 **재해석 결과가 방금 실패한 경로와 다를 때만** 되태운다
@@ -5386,6 +5558,13 @@ export class SubAgentManager {
       });
 
       child.on('close', (code) => {
+        // 공유 장부를 건드리기 **전** 에 판정한다. 배경 작업 정리나 ENOENT 되태우기도 새 자식의
+        //   몫을 지울 수 있다. legacy 탭을 닫아 자식 자체가 없는 경우의 기존 명령 마감은 유지한다.
+        if (!isCurrentChild() && (usePersistent || this.runningChildren.has(sub!.id))) {
+          if (!this.runningChildren.has(sub!.id)) this.intentionalKill.delete(sub!.id);
+          logger.info(`SubAgent ${sub!.id} stale child closed (code=${code}) — current child left untouched`);
+          return;
+        }
         // §4 (실행본 자가 복구) — 실행본이 사라져 되태우기로 한 경우: 아래 정리·마감을 **전부 건너뛰고**
         //   명령을 큐로 돌려놓는다. `onComplete` 가 부르는 다음 dispatch 가 재해석된 경로로 다시 띄운다.
         //   (여기서 걸러 두면 이어지는 persistent/legacy 마감 분기가 이 명령을 실패로 못박지 않는다.)
@@ -5411,17 +5590,6 @@ export class SubAgentManager {
 
         // ── PERSISTENT 경로: intentional vs crash 분기 ──
         if (usePersistent) {
-          // §5.5 #17-18 — **내가 아직 그 sub 의 자식인가.** 창구가 닫힌 자식을 건너뛰고 새 자식을 띄운
-          //   뒤라면 이 close 는 **옛 세대**의 것이다 — 그때 아래 정리를 그대로 돌리면 살아 있는 새 자식을
-          //   장부에서 지워 그 세션을 유령으로 만든다. 옛 세대는 아무것도 건드리지 않고 물러난다
-          //   (`intentionalKill` 표식도 남겨 둔다 — 그건 지금 자식의 종료를 판정할 재료다).
-          if (this.runningChildren.get(sub!.id) !== child) {
-            // 지금 자식이 **없으면** 그 종료 표식은 판정할 주인이 없다 — 남기면 다음에 뜨는 자식의
-            //   크래시가 "의도된 종료"로 읽혀 sessionId 보존·오류 표시를 건너뛴다.
-            if (!this.runningChildren.has(sub!.id)) this.intentionalKill.delete(sub!.id);
-            logger.info(`SubAgent ${sub!.id} stale persistent child closed (code=${code}) — current child left untouched`);
-            return;
-          }
           const wasIntentional = this.intentionalKill.delete(sub!.id);
           this.runningChildren.delete(sub!.id);
           this.persistentChildReady.delete(sub!.id);
@@ -5695,6 +5863,7 @@ export class SubAgentManager {
     // §5.19 (D) 와 같은 이유로 **스폰 표식을 걷는 그 자리에서** 생존 근거를 세운다 — 한 순간도
     //   "아무 근거 없는 active" 가 되지 않게(그 틈이 5초 생존 대조에 걸려 도는 세션을 강등한다).
     this.localInFlightCmd.set(sub.id, cmd);
+    const isCurrentTurn = (): boolean => this.index.get(sub.id) === sub && this.localInFlightCmd.get(sub.id) === cmd;
 
     // §5.25 (O) — `imagePath` 는 **있을 때만** 싣는다. 빈 값으로 붙이면 그림 없는 줄까지
     //   "그림이 있었는데 못 열었다"로 읽힌다(영속 파일에도 그 거짓이 그대로 남는다).
@@ -5741,7 +5910,7 @@ export class SubAgentManager {
      */
     let closed = false;
     const finish = (error: string | undefined, finalText: string): void => {
-      if (closed) {
+      if (closed || !isCurrentTurn()) {
         logger.info(`SubAgent ${sub.id} codex turn already settled - ignoring late close for cmd=${cmd.id}`);
         return;
       }
@@ -5818,7 +5987,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       // §5.25 (I) — 훅이 켜져 있어도 이 대화가 **버블 하나**로 남게 하는 소유자 태그.
       ownerAgentId: sub.parentAgentId,
       onActivity: (at) => {
-        if (closed || this.localInFlightCmd.get(sub.id) !== cmd) return;
+        if (closed || !isCurrentTurn()) return;
         // Use the existing live-only status path: no chat line, disk record,
         // or full graph broadcast for stdout fragments and stderr progress.
         this.emitStreamEvent({
@@ -5827,12 +5996,14 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         });
       },
       onThread: (threadId) => {
+        if (!isCurrentTurn()) return;
         if (sub.sessionId !== threadId) {
           sub.sessionId = threadId;
           logger.info(`SubAgent ${sub.id} codex thread assigned: ${threadId}`);
         }
       },
       onUsage: (usage) => {
+        if (!isCurrentTurn()) return;
         // §5.19 (D) 와 **같은 자리·같은 방식** — `getAgentConfig` 가 돌려주는 살아 있는 객체에
         //   적으면 스냅샷·체크포인트를 그대로 탄다(새 영속 필드 발명 없음).
         // Cached input and reasoning output are subsets of input/output totals.
@@ -5844,6 +6015,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         this.onSubStatusChange?.(sub.parentAgentId);
       },
       onEvent: (ev) => {
+        if (!isCurrentTurn()) return;
         for (const hook of bashBridge(ev)) {
           this.localHookEmitter?.({ agentId: sub.parentAgentId, subAgentId: sub.id }, hook);
         }
@@ -5854,6 +6026,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         emit(ev.eventType, ev.content, ev.imagePath);
       },
       onFileWrites: (paths) => {
+        if (!isCurrentTurn()) return;
         // §5.25 (F) — 파일·폴더 버블은 **기존 훅 문**으로 흘린다. 새 그래프 경로를 만들지 않는다
         //   (이 매니저는 그래프를 모른다 — `localHookEmitter` 가 그 주입선이다).
         for (const filePath of paths) {
@@ -5870,6 +6043,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         }
       },
       onIdle: (info) => {
+        if (!isCurrentTurn()) return;
         if (!info.stalled) {
           // 1단계 — 알림만. 여기서 걷지 않는다(긴 도구 하나가 조용한 것과 구분되지 않는다).
           logger.warn(`SubAgent ${sub.id} codex turn quiet for ${Math.round(info.idleMs / 1000)}s (cmd=${cmd.id})`);
@@ -5899,8 +6073,10 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     //   세운다(한 순간도 "아무 근거 없는 active" 가 되지 않게 — 그 틈이 5초 생존 대조에 걸려
     //   돌고 있는 세션을 idle 로 강등하고 부모 버블을 거짓 완료로 만들던 자리다).
     this.localInFlightCmd.set(sub.id, cmd);
+    const isCurrentTurn = (): boolean => this.index.get(sub.id) === sub && this.localInFlightCmd.get(sub.id) === cmd;
 
     const emit = (eventType: StreamEventType, content: string): void => {
+      if (!isCurrentTurn()) return;
       this.emitStreamEvent({
         id: makeEventId(),
         subAgentId: sub.id,
@@ -5921,6 +6097,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       toolName: string,
       toolUseId: string,
     ): void => {
+      if (!isCurrentTurn()) return;
       this.emitStreamEvent({
         id: makeEventId(),
         subAgentId: sub.id,
@@ -5935,6 +6112,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
 
     /** 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다. */
     const finish = (error: string | undefined, finalText: string, done?: LocalTurnDoneInfo): void => {
+      if (!isCurrentTurn()) return;
       // **맨 먼저** 내린다 — 아래 상태 통지가 부르는 `recomputeCustomAgentStatus` 는 이 표식을
       //   "아직 도는 중"으로 읽으므로, 남겨 둔 채 통지하면 진짜 완료가 그 자리에서 묻힌다.
       //   (러너의 `isLocalTurnRunning` 을 주인으로 못 쓰는 이유도 같다 — 그쪽 정리는 `finally` 라
@@ -6007,6 +6185,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       toolName: string,
       toolInput: Record<string, unknown>,
     ): Promise<LocalToolVerdict> => {
+      if (!isCurrentTurn()) return { allowed: false, reason: 'this turn is no longer active' };
       /*
        * §5.3 #12-1-B — 카드에서 누른 "항상"은 **턴 도중에** 저장된다. 목록 두 칸(`disallowedTools` ·
        * `askTools`)은 지금 저장분에서 읽어야 같은 턴의 다음 호출이 그 답을 본다. 모드는 턴 설정 그대로 —
@@ -6072,6 +6251,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       onToolRequest: requestTool,
       onToolEvent: emitTool,
       onToolSupport: (support) => {
+        if (!isCurrentTurn()) return;
         // 판정을 설정에 남긴다 — `getAgentConfig` 가 돌려주는 것이 **살아 있는 객체**라
         //   여기 쓰면 스냅샷·체크포인트를 그대로 탄다(새 영속 필드 발명 ❌). 스냅샷 캐시가
         //   한 박자 늦을 수 있으나 바로 아래 상태 통지가 방송을 끌어온다.
@@ -6079,6 +6259,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         this.onSubStatusChange?.(sub.parentAgentId);
       },
       onUsage: (promptTokens, completionTokens, contextLimit) => {
+        if (!isCurrentTurn()) return;
         // §5.19 (D) — 창이 얼마나 찼는지. 도구 판정과 **같은 자리·같은 방식**이다
         //   (`getAgentConfig` 가 돌려주는 살아 있는 객체에 적으면 스냅샷·체크포인트를 그대로 탄다).
         //   턴마다 값이 바뀌므로 방송은 아래 상태 통지에 얹어 보낸다 — 새 WS 메시지 ❌.
@@ -6102,9 +6283,11 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     if (systemPrompt) args.systemPrompt = systemPrompt;
     // §5.19 (H) — 목표창·질문 카드·계획 종료는 러너가 아니라 여기서 넘어간 처리기가 맡는다.
     args.onHookEvent = (event) => {
+      if (!isCurrentTurn()) return;
       this.localHookEmitter?.({ agentId: sub.parentAgentId, subAgentId: sub.id }, event);
     };
     args.onHostTool = async (toolName, input) => {
+      if (!isCurrentTurn()) return 'this turn is no longer active';
       const handler = this.localHostToolHandler;
       if (!handler) return `${toolName} is not available in this session`;
       try {

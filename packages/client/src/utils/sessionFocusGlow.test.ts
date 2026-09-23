@@ -12,15 +12,17 @@
  *  · **실제로 무슨 일이 생기면 그쪽이 이긴다** — "10초 안에 액션을 취하면 그 액션 색"이 조건문
  *    하나 없이 성립하는지.
  */
-import { describe, expect, it, vi, afterEach, beforeAll } from 'vitest';
-import type { SessionRunState } from '@vibisual/shared';
+import { describe, expect, it, vi, afterEach, beforeAll, beforeEach } from 'vitest';
+import type { SessionRunState, SubAgent } from '@vibisual/shared';
 
 import {
+  SESSION_ACK_GLOW_MS,
   SESSION_FOCUS_GLOW_MS,
   SESSION_STATUS_DOT,
   SESSION_STATUS_DOT_BG,
   resolveSessionDot,
   sessionDotClass,
+  sessionGlowLifespan,
   type SessionFocusGlow,
 } from './sessionStatus.js';
 
@@ -139,5 +141,157 @@ describe('markSessionFocusGlow — 자국을 찍고 10초 뒤 스스로 걷는�
 
     vi.advanceTimersByTime(SESSION_FOCUS_GLOW_MS);
     expect(useGraphStore.getState().sessionFocusGlow['sub-b']).toBeUndefined();
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * (판올림 번호 발급 대기) **확인한 자리의 5초 여운.**
+ *
+ * 위 여운은 "내가 **무슨 색**을 눌러 들어왔나"를 알려 주는 것이라 [창과 버블] 목록의 줄에만
+ * 찍혔고, 세션 탭은 **일부러** 빠져 있었다("이미 그 탭을 보고 있는 손이라 알려 줄 것이 없다").
+ * 그런데 화면에서는 그 자리가 가장 허전했다 — 완료 알림을 보고 들어와 탭을 누르면 초록이
+ * **한 프레임 만에** 회색이 되어, 방금 무엇을 확인한 것인지 되짚을 수가 없었다(사용자 지시 —
+ * "컴플릿(확인해줘) 이 상태에서 확인하면 회색으로 변하는데 이때 확인 했음을 5초동안 깜빡이게").
+ *
+ * 그래서 같은 인프라에 **수명**을 열었다. 이 시험이 못 박는 것 셋:
+ *  · 확인 여운은 5초를 살고, 누른 색의 10초를 **덮지도 잘라먹지도** 않는다.
+ *  · 남길 색이 있는 자리에만 찍힌다(이미 확인됨·도는 중·실패에는 찍을 것이 없다).
+ *  · 확인(ack)을 찍는 **두 창구 모두** 이 자국을 지나간다 — 한쪽만 배선하면 "어디서 누르면
+ *    깜빡이고 어디서 누르면 안 깜빡이는" 화면이 된다(§2.4 주황불 배선과 같은 규율).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('markSessionAckGlow — 확인해서 회색이 되는 그 자리에 5초를 남긴다', () => {
+  let useGraphStore: typeof import('../stores/graphStore.js').useGraphStore;
+  beforeAll(async () => {
+    ({ useGraphStore } = await import('../stores/graphStore.js'));
+  }, 60_000);
+
+  const AGENT = 'agent-ack';
+  const ORIGINAL_FETCH = globalThis.fetch;
+
+  // 초록(완료·미확인)은 status==='idle' 이다 — 'completed' 는 판정에서 곧바로 회색으로 간다
+  //   (`resolveSessionRunState` — `idle && !acknowledged` 하나만 doneUnseen 이다).
+  function sub(id: string, status: 'idle' | 'active' | 'completed' | 'error'): SubAgent {
+    return {
+      id, sessionId: id, label: id, parentAgentId: AGENT, status,
+      createdAt: 0, lastActivityAt: 0,
+    };
+  }
+
+  function seed(subs: SubAgent[], acked: Record<string, true> = {}): void {
+    useGraphStore.setState({
+      subAgents: { [AGENT]: subs },
+      acknowledgedSubAgents: acked,
+      sessionFocusGlow: {},
+      runningSubagentTasks: {},
+    });
+  }
+
+  beforeEach(() => {
+    // 확인은 주황불 걷기(서버 왕복)를 함께 부른다 — 시험에서 진짜 fetch 가 나가지 않게 막는다.
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, cleared: [] }) } as unknown as Response)) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL_FETCH;
+    vi.useRealTimers();
+  });
+
+  // 원증상: 완료 알림을 보고 들어와 탭을 누르면 초록이 한 프레임 만에 회색이 됐다.
+  it('끝났는데 안 본 세션을 확인하면 그 초록이 자국으로 남는다', () => {
+    seed([sub('sub-done', 'idle')]);
+    useGraphStore.getState().markSessionAckGlow('sub-done');
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done'])
+      .toMatchObject({ state: 'doneUnseen', ms: SESSION_ACK_GLOW_MS });
+  });
+
+  it('그 자국은 5초만 산다 — 누른 색의 10초를 빌려 쓰지 않는다', () => {
+    vi.useFakeTimers();
+    seed([sub('sub-done', 'idle')]);
+    useGraphStore.getState().markSessionAckGlow('sub-done');
+
+    vi.advanceTimersByTime(SESSION_ACK_GLOW_MS - 1);
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done']).toBeDefined();
+
+    vi.advanceTimersByTime(1);
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done']).toBeUndefined();
+  });
+
+  // [창과 버블] 목록의 줄은 제 색으로 10초를 찍은 **직후** 이 확인을 부른다(#17-1).
+  it('이미 자국이 있으면 건드리지 않는다 — 10초가 5초로 잘리지 않게', () => {
+    vi.useFakeTimers();
+    seed([sub('sub-done', 'idle')]);
+    useGraphStore.getState().markSessionFocusGlow('sub-done', 'doneUnseen');
+    useGraphStore.getState().markSessionAckGlow('sub-done');
+
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done']?.ms).toBeUndefined();
+    vi.advanceTimersByTime(SESSION_ACK_GLOW_MS + 100);
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done']).toBeDefined();
+    vi.advanceTimersByTime(SESSION_FOCUS_GLOW_MS);
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done']).toBeUndefined();
+  });
+
+  it('이미 확인된 세션에는 찍지 않는다 — 본문 클릭·타이핑이 같은 세션에 수없이 들어온다', () => {
+    seed([sub('sub-done', 'idle')], { 'sub-done': true });
+    useGraphStore.getState().markSessionAckGlow('sub-done');
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done']).toBeUndefined();
+  });
+
+  it('도는 세션·실패한 세션에는 찍지 않는다 — 확인해도 그 색은 걷히지 않는다', () => {
+    seed([sub('sub-run', 'active'), sub('sub-err', 'error')]);
+    useGraphStore.getState().markSessionAckGlow('sub-run');
+    useGraphStore.getState().markSessionAckGlow('sub-err');
+    expect(useGraphStore.getState().sessionFocusGlow['sub-run']).toBeUndefined();
+    expect(useGraphStore.getState().sessionFocusGlow['sub-err']).toBeUndefined();
+  });
+
+  it('없는 세션을 확인해도 조용히 지나간다', () => {
+    seed([sub('sub-done', 'idle')]);
+    useGraphStore.getState().markSessionAckGlow('sub-ghost');
+    expect(useGraphStore.getState().sessionFocusGlow['sub-ghost']).toBeUndefined();
+  });
+
+  // 배선 — 확인을 찍는 창구는 둘이고, 둘 다 이 자국을 지나가야 한다.
+  it('본문 클릭·타이핑(markSubAcknowledged)도 자국을 남긴다', () => {
+    seed([sub('sub-done', 'idle')]);
+    useGraphStore.getState().markSubAcknowledged('sub-done');
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done'])
+      .toMatchObject({ state: 'doneUnseen', ms: SESSION_ACK_GLOW_MS });
+    // 확인 자체는 종전 그대로 찍힌다(여운은 표시 층일 뿐 표식을 붙잡지 않는다).
+    expect(useGraphStore.getState().acknowledgedSubAgents['sub-done']).toBe(true);
+  });
+
+  it('세션을 앞으로 세우는 길(setIDEActiveSession)도 자국을 남긴다', () => {
+    seed([sub('sub-done', 'idle')]);
+    useGraphStore.getState().setIDEActiveSession('sub-done', null);
+    expect(useGraphStore.getState().sessionFocusGlow['sub-done'])
+      .toMatchObject({ state: 'doneUnseen', ms: SESSION_ACK_GLOW_MS });
+  });
+});
+
+describe('확인 여운의 몸짓 — 5초짜리는 5번 뛴다', () => {
+  it('수명은 자국이 정한다 — 담긴 값이 없으면 기본 10초', () => {
+    expect(sessionGlowLifespan({ state: 'doneUnseen', at: NOW })).toBe(SESSION_FOCUS_GLOW_MS);
+    expect(sessionGlowLifespan({ state: 'doneUnseen', at: NOW, ms: SESSION_ACK_GLOW_MS }))
+      .toBe(SESSION_ACK_GLOW_MS);
+  });
+
+  // 한 요소에 animation 은 한 벌뿐이다 — 길이가 다르면 유틸리티도 달라야 한다.
+  it('확인 여운은 짧은 몸짓을, 누른 색은 종전 몸짓을 입는다', () => {
+    const ack: SessionFocusGlow = { state: 'doneUnseen', at: NOW, ms: SESSION_ACK_GLOW_MS };
+    expect(sessionDotClass('done', ack, NOW))
+      .toBe(`${SESSION_STATUS_DOT_BG.doneUnseen} animate-session-glow-brief`);
+    expect(sessionDotClass('done', glow('doneUnseen'), NOW))
+      .toBe(`${SESSION_STATUS_DOT_BG.doneUnseen} animate-session-glow`);
+  });
+
+  it('5초가 지나면 그림도 제 색으로 — 타이머를 놓친 프레임이 옛 색을 그리지 않게', () => {
+    const ack: SessionFocusGlow = { state: 'doneUnseen', at: NOW - SESSION_ACK_GLOW_MS, ms: SESSION_ACK_GLOW_MS };
+    expect(resolveSessionDot('done', ack, NOW)).toEqual({ state: 'done', glowing: false });
+  });
+
+  it('5초 안에 명령이 나가면 그 색이 이긴다 — 여운은 조용한 자리만 덮는다', () => {
+    const ack: SessionFocusGlow = { state: 'doneUnseen', at: NOW, ms: SESSION_ACK_GLOW_MS };
+    expect(resolveSessionDot('running', ack, NOW)).toEqual({ state: 'running', glowing: false });
   });
 });

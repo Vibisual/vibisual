@@ -21,6 +21,7 @@ import {
 } from '../../stores/graphStore.js';
 import { listCells } from './splitLayout.js';
 import { resyncDeepWindow } from './streamHistory.js';
+import { restoreStreamWindow } from './streamRestore.js';
 
 export interface StreamResyncTargets {
   /** 메인 탭을 그리는 에이전트 — 에이전트 벌크(`GET /api/subagent-streams/:agentId`)를 다시 받는다. */
@@ -63,6 +64,7 @@ export function streamResyncTargets(input: {
 export function resyncOpenStreams(): void {
   const st = useGraphStore.getState();
   st.markStreamsStale();
+  const epoch = useGraphStore.getState().streamRestoreEpoch;
   const targets = streamResyncTargets({
     overlays: Object.values(st.ideOverlays),
     renderedPaneKeys: new Set(selectRenderedIDEPanes(st).map((o) => o.paneKey)),
@@ -72,8 +74,9 @@ export function resyncOpenStreams(): void {
   for (const agentId of targets.bulkAgentIds) {
     fetch(`/api/subagent-streams/${encodeURIComponent(agentId)}`)
       .then((r) => r.json())
-      .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
-        if (data.streams) useGraphStore.getState().loadStreamBuffers(data.streams, 'shallow');
+      .then(async (data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
+        await Promise.all(Object.entries(data.streams ?? {}).map(([sid, events]) =>
+          restoreStreamWindow(agentId, sid, events, { epoch, depth: 'shallow' })));
       })
       .catch(() => {});
   }

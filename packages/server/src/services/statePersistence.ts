@@ -27,6 +27,8 @@ import {
   writeFileAtomicSyncRaw,
   queueAtomicWrite,
   flushPendingDiskWritesSync,
+  acknowledgeSynchronousDiskWrite,
+  retryFailedDiskWrites,
 } from './diskWriteQueue.js';
 import { isDeadWorktreeProject, isLiveWorktreeDir, isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
@@ -82,6 +84,7 @@ export function atomicWriteFileSync(filePath: string, data: string): void {
 function atomicWriteCheckpointFile(filePath: string, data: string): void {
   if (queueAtomicWrite(filePath, data)) return;
   atomicWriteFileSync(filePath, data);
+  acknowledgeSynchronousDiskWrite(filePath);
 }
 
 /**
@@ -459,12 +462,13 @@ function passesCheckpointShrinkGuard(
  *   ⚠ §3.2.2 activity 분리 이후로는 **전체가 아니라 core** 의 직렬화 결과다.
  * @param opts.skipCore 이력만 바뀌었을 때 `checkpoint.json` 재작성을 건너뛴다(백업 회전까지 아낀다).
  * @param opts.activityJson 호출자가 이미 만들어 둔 `activity.json` 직렬화 결과.
+ * @returns 모든 저장이 완료되었거나 워커 큐에 접수되었는지. 실패·거부는 재시도할 수 있게 false.
  */
 export function writeCheckpoint(
   checkpoint: ProjectCheckpoint,
   preSerialized?: string,
   opts?: { skipCore?: boolean; activityJson?: string },
-): void {
+): boolean {
   // Ghost 체크포인트 생성 방지 가드.
   // project.path 가 비었거나 name 이 placeholder("unknown") 면 저장 거부.
   // 과거 연쇄 데이터 손실(ghost 메타가 Vibisual 인스턴스 키 선점 → 빈 상태로 덮어쓰기)의 진원지였음.
@@ -475,13 +479,13 @@ export function writeCheckpoint(
       `writeCheckpoint: refusing to save invalid project ` +
       `{ name: ${JSON.stringify(proj?.name)}, path: ${JSON.stringify(proj?.path)} } — ghost prevention`,
     );
-    return;
+    return false;
   }
   // v1.52: 프로젝트 폴더가 디스크에서 사라졌으면 저장하지 않는다 (orphan ghost 방지).
   // 예: 사용자가 폴더를 삭제했는데 인메모리 인스턴스가 남아있는 케이스.
   if (!fs.existsSync(proj.path)) {
     logger.warn(`writeCheckpoint: project path missing on disk: ${proj.path} — skipping write`);
-    return;
+    return false;
   }
   // v3.71: 워크트리 인스턴스는 "폴더가 있는가" 가 아니라 "아직 살아있는 git 워크트리인가" 로 판정한다.
   // 저장 경로가 디렉토리를 mkdir 로 만들기 때문에, 이 가드가 없으면 죽은 워크트리 폴더를 사용자가
@@ -494,7 +498,7 @@ export function writeCheckpoint(
         `(no .git at ${proj.path}) — skipping write so the folder is not recreated`,
       );
     }
-    return;
+    return false;
   }
   try {
     const dir = projectDirForInfo(checkpoint.project);
@@ -510,7 +514,7 @@ export function writeCheckpoint(
         `writeCheckpoint: REFUSING checkpoint.json overwrite for "${checkpoint.project.name}" — ${cpVerdict.reason}; ` +
         `preserving existing checkpoint + backups (identity.json untouched)`,
       );
-      return;
+      return false;
     }
 
     writeMeta(dir, checkpoint.project);
@@ -538,7 +542,7 @@ export function writeCheckpoint(
         ...countNodes(checkpoint.graph?.nodes as Record<string, unknown> | undefined),
       });
     }
-    writeActivityFile(dir, activity, opts?.activityJson);
+    const activityOk = writeActivityFile(dir, activity, opts?.activityJson);
 
     if (identityOk) {
       const idPath = path.join(dir, IDENTITY_FILENAME);
@@ -554,8 +558,10 @@ export function writeCheckpoint(
       `${Object.keys(checkpoint.graph.nodes).length} nodes, ` +
       `${Object.keys(identity.customAgents).length} custom identity${identityOk ? '' : ' [guarded]'})`,
     );
+    return activityOk;
   } catch (err) {
     logger.error('Checkpoint write failed', err);
+    return false;
   }
 }
 
@@ -639,18 +645,20 @@ const lastWrittenActivityJson = new Map<string, string>();
  * `activity.json` 저장. **통째-0 가드(§3.2.1-3)는 걸지 않는다** — 이력은 보존 정책(§3.2.3)에 따라
  * 정상적으로 0 이 될 수 있어 가드가 오탐한다. 원자적 쓰기 + 백업 회전은 동급 적용.
  */
-function writeActivityFile(dir: string, data: ActivityFileData, preSerialized?: string | null): void {
+function writeActivityFile(dir: string, data: ActivityFileData, preSerialized?: string | null): boolean {
   try {
     const json = preSerialized ?? JSON.stringify(data);
     const stamp = contentFingerprint(json);
-    if (lastWrittenActivityJson.get(dir) === stamp) return;
+    if (lastWrittenActivityJson.get(dir) === stamp) return true;
     const target = path.join(dir, ACTIVITY_FILENAME);
     rotateBackups(target);
     atomicWriteCheckpointFile(target, json);
     lastWrittenActivityJson.set(dir, stamp);
+    return true;
   } catch (err) {
     // 이력 저장 실패는 비치명 — 그래프·정체성은 이미 제 파일에 있다.
     logger.warn(`Activity write failed (${dir}): ${err instanceof Error ? err.message : String(err)}`);
+    return false;
   }
 }
 
@@ -1046,11 +1054,18 @@ export function loadCheckpointByMeta(meta: ProjectMetaSnapshot): ProjectCheckpoi
   // checkpoint 가 완전히 죽었지만 identity 는 살아있으면 — identity 로 최소 골격을 세워 부활.
   if (!cp && identity) {
     logger.warn(`loadCheckpoint: checkpoint dead but identity.json alive — reconstructing skeleton for "${identity.project.name}"`);
-    cp = buildCheckpointSkeletonFromIdentity(identity);
+    cp = attachActivityFromDisk(buildCheckpointSkeletonFromIdentity(identity), saveDir);
   }
   if (!cp) return null;
 
   if (identity) mergeIdentityIntoCheckpoint(cp, identity);
+  // 백업 checkpoint에는 삭제 전 버블이 이미 들어 있을 수 있다. identity의 보충만 막으면
+  // 그 버블은 살아남으므로, 양쪽 묘비를 합친 뒤 기존 버블·소속도 함께 제거한다.
+  // identity 자체가 없거나 손상된 경우에도 checkpoint의 삭제 기록은 유효하다.
+  for (const sid of cp.deletedCustomAgentIds ?? []) {
+    delete cp.graph.agents[sid];
+    delete cp.graph.refs.sessionCwds?.[sid];
+  }
   return cp;
 }
 
@@ -1170,6 +1185,8 @@ export class SaveScheduler {
   private lastWrittenActivity = new Map<string, string>();
 
   private writeIfChanged(cp: ProjectCheckpoint): void {
+    // 큐 접수 뒤의 비동기 실패는 저장 지문과 별개다. 내용 불변이어도 미저장분은 재시도한다.
+    retryFailedDiskWrites();
     const key = cp.project?.path ?? cp.project?.name ?? '';
     // §3.2.2 — 골격과 이력을 나눠 **각자** 변경 감지한다. 둘은 바뀌는 시점이 달라서,
     // 한쪽만 바뀐 저장에서 다른 쪽의 백업 회전 + 원자적 쓰기를 통째로 아낀다.
@@ -1185,10 +1202,18 @@ export class SaveScheduler {
     const activityChanged = !key || this.lastWrittenActivity.get(key) !== activityFp;
     if (!coreChanged && !activityChanged) return; // 양쪽 다 불변 — 디스크 쓰기 스킵
     // v4.67 — 방금 만든 직렬화 결과를 그대로 넘겨 writeCheckpoint 안의 2차 직렬화를 없앤다.
-    writeCheckpoint(cp, coreJson, { skipCore: !coreChanged, activityJson });
+    const accepted = writeCheckpoint(cp, coreJson, { skipCore: !coreChanged, activityJson });
+    // 실패/가드 거부를 저장 완료로 기억하면 같은 내용의 다음 autosave가 영원히 생략된다.
     if (key) {
-      if (coreChanged) this.lastWritten.set(key, coreFp);
-      this.lastWrittenActivity.set(key, activityFp);
+      if (accepted) {
+        if (coreChanged) this.lastWritten.set(key, coreFp);
+        this.lastWrittenActivity.set(key, activityFp);
+      } else {
+        // core만 저장된 뒤 activity가 실패했을 수도 있다. 이전 성공 지문도 지워야
+        // 사용자가 변경을 되돌릴 때 "이전과 같음"으로 잘못 생략하지 않는다.
+        this.lastWritten.delete(key);
+        this.lastWrittenActivity.delete(key);
+      }
     }
   }
 }

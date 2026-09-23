@@ -191,6 +191,128 @@ function collectText(node: unknown, out: string[], depth: number): void {
 }
 
 /**
+ * §5.26 (D) — 압축 구간을 **조각 하나치**만 훑은 결과. 누적은 부르는 쪽(스윕)이 한다.
+ *
+ * 조각으로 나눠 읽는 이유는 (D) 가 판정을 30분까지 미루기 때문이다. 매 스윕마다 마커
+ * 오프셋부터 다시 읽으면 그것이 곧 §9 가 잡았던 전량 재파싱이다 — 커서를 물고 이어 읽는다.
+ */
+export interface CompactScanCarry {
+  /** 마커 오프셋 이후 지나친 `compact_boundary` 의 **수**. */
+  boundaries: number;
+  /**
+   * **직전 레코드가 경계였다.** 표식(`isCompactSummary`) 없는 판본에서 요약이 앉는 자리는
+   * 경계 바로 다음 한 줄뿐이라, 그 한 줄을 지났는지를 조각 너머로 기억해야 한다.
+   */
+  justAfterBoundary: boolean;
+}
+
+/** 아무것도 안 본 상태. 마커 오프셋에서 출발할 때 쓴다. */
+export function emptyScanCarry(): CompactScanCarry {
+  return { boundaries: 0, justAfterBoundary: false };
+}
+
+export interface CompactScanChunk {
+  /** `compact_boundary` 를 봤다 = **압축이 실제로 일어났다**는 파일 증거. */
+  boundarySeen: boolean;
+  /**
+   * 이 조각에 든 경계 레코드의 **개수**.
+   *
+   * 되짚기가 언제 손을 떼야 하는지를 이 수가 정한다. 마커 뒤 첫 경계는 그 마커의 것이고 요약은
+   * 그 바로 뒤에 앉는다 — 그런데 요약을 못 본 채 **두 번째** 경계를 만났다면 커서가 이미 다음
+   * 압축 구간으로 넘어간 것이라, 더 읽어 봐야 **남의 요약**을 이 마커의 것으로 적게 된다.
+   */
+  boundaries: number;
+  /** 요약 레코드의 본문. 못 봤으면 `undefined`. */
+  summaryText?: string;
+  /** 요약 레코드 한 줄의 바이트 — 화면의 `summaryBytes` 는 이 값이다(자란 총량이 아니다). */
+  summaryBytes: number;
+  /** **온전히 읽은 마지막 줄**까지의 바이트. 다음 스캔은 여기서 이어 읽는다. */
+  consumedBytes: number;
+  /** 이 조각의 **마지막 온전한 줄**이 경계였나. 다음 조각의 carry 로 넘긴다. */
+  justAfterBoundary: boolean;
+}
+
+/**
+ * JSONL 조각에서 압축의 **증거 두 가지**만 골라낸다.
+ *
+ * ⚠ 여기서 `extractSummaryText` 를 쓰지 않는 것이 이 함수의 전부다. 그쪽은 구간의 **모든**
+ * 문자열을 모으는데, 압축 구간에는 `attachment`(실측 한 건 86KB)·`last-prompt`·`atis-latch` 가
+ * 섞여 있다. 그래서 두 방향으로 다 틀렸다 — 압축이 시작도 안 했는데 잡음 512바이트를 요약으로
+ * 읽어 "비었다 → 실패"로 적었고(실측 2건, 마커에서 판정까지 1초), 반대로 첨부 본문에 파일명이
+ * 있다는 이유로 요약이 싣지 않은 것을 "실렸다"고 적었다. **바이트 수는 요약의 유무가 아니다.**
+ *
+ * 요약을 고르는 규칙은 둘이고 위에서부터 본다.
+ *  1. `isCompactSummary: true` — CLI 가 직접 붙인 표식. 이것이 있으면 더 볼 것이 없다.
+ *  2. 경계 **바로 다음 한 줄**의 `user` 레코드 — 표식이 없는 판본을 위한 자리(§3.6-1 과 같은
+ *     규율: 한 모양을 고집하면 판올림 한 번에 조용히 빈 문자열이 된다). 한 줄이라도 지나면
+ *     후보가 아니다 — 요약이 안 온 구간에서 평범한 사용자 턴을 요약으로 읽던 구멍을 막는다.
+ *
+ * 그리고 **둘째 경계를 지나면 아무것도 고르지 않는다.** 커서가 다음 압축 구간에 들어선 것이라,
+ * 거기서 고른 요약은 이 마커의 것이 아니라 **다음 마커의 것**이다.
+ */
+export function scanCompactChunk(
+  chunk: string,
+  carry: CompactScanCarry = emptyScanCarry(),
+): CompactScanChunk {
+  const nl = chunk.lastIndexOf('\n');
+  const complete = nl >= 0 ? chunk.slice(0, nl + 1) : '';
+  let boundaries = carry.boundaries;
+  let justAfter = carry.justAfterBoundary;
+  const out: CompactScanChunk = {
+    boundarySeen: boundaries > 0,
+    boundaries: 0,
+    summaryBytes: 0,
+    consumedBytes: Buffer.byteLength(complete, 'utf8'),
+    justAfterBoundary: justAfter,
+  };
+  if (!complete) return out;
+
+  for (const line of complete.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed[0] !== '{') continue;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue; // 깨진 줄 — 다음 스윕이 온전한 줄로 다시 본다
+    }
+    if (obj.subtype === 'compact_boundary' || obj.compactMetadata !== undefined) {
+      boundaries += 1;
+      justAfter = true;
+      out.boundaries += 1;
+      out.boundarySeen = true;
+      continue; // 경계 자신의 본문("Conversation compacted")은 요약이 아니다
+    }
+    // 이 줄이 "경계 바로 다음"인지는 **여기서만** 유효하다 — 읽었으면 그 자리는 소모된다.
+    const afterBoundary = justAfter;
+    justAfter = false;
+    // 둘째 경계를 지났다 = 커서가 **다음 압축 구간**에 들어섰다. 여기 요약은 남의 것이다.
+    if (boundaries >= 2) continue;
+    // 표식이 붙은 줄은 경계를 못 봤어도 요약이다 — 그것 자체가 압축이 일어났다는 증거다.
+    const tagged = obj.isCompactSummary === true;
+    if (tagged) out.boundarySeen = true;
+    if (out.summaryText !== undefined) continue;
+    /*
+     * 표식이 없으면 **경계 바로 다음 한 줄**의 `user` 만 후보다.
+     *
+     * 예전에는 "경계 뒤 첫 `user` 줄"이었다. 요약이 실제로 안 온 구간에서는 그 규칙이
+     * **평범한 사용자 턴**을 집어 정상 결과로 적는다 — 진짜 실패가 화면에서 사라진다.
+     * 못 읽고 "판독 불가"로 적는 쪽이 낫다: 그건 모른다고 말하는 것이지 거짓이 아니다.
+     */
+    if (!tagged && (!afterBoundary || obj.type !== 'user')) continue;
+
+    const text: string[] = [];
+    collectText(obj, text, 0);
+    const joined = text.join('\n').trim();
+    if (!joined) continue; // 본문 없는 `user` 줄(도구 결과만 든 줄)은 요약이 아니다
+    out.summaryText = joined;
+    out.summaryBytes = Buffer.byteLength(line, 'utf8');
+  }
+  out.justAfterBoundary = justAfter;
+  return out;
+}
+
+/**
  * §5.26 (E) — 복원 브리핑 블록. **한 턴에만** 실린다.
  *
  * 짧게 유지하는 것이 규율이다 — 복원하려고 실은 글이 다음 압축을 앞당기면 앞뒤가 맞지 않는다.

@@ -183,3 +183,52 @@ describe('§5.3 #10-4 오케스트라 — 뷰가 지키는 것', () => {
     expect(code).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
+
+/**
+ * 멤버가 **태어날 때** 받는 두 칸. 권한 축이라 지휘자가 ② PATCH 로 넣을 수 없어(§5.3 #12-1)
+ * 값의 출처가 여기다 — 이 두 칸이 화면에서 사라지면 서버에 그 값을 줄 사람이 없어진다.
+ */
+describe('§5.3 #10-4 오케스트라 — 멤버 태생 두 칸', () => {
+  it('두 칸 다 /settings 창구(control.patch)로만 저장한다', () => {
+    const src = viewSrc();
+    expect(src).toMatch(/control\.patch\(\{\s*memberIsolation:/);
+    expect(src).toMatch(/control\.patch\(\{\s*memberToolTemplate:/);
+    // 켬/끔은 'worktree' ↔ null — 'none' 을 저장해 두면 기본값과 같은 값이 영속에 남는다.
+    expect(src).toContain("memberIsolation: settings.memberIsolation === 'worktree' ? null : 'worktree'");
+    // 빈 칸은 지우는 뜻이다(칸을 비우면 에이전트 기본값으로 돌아간다).
+    expect(src).toContain('memberToolTemplate: v || null');
+  });
+
+  it("도구 선택지는 템플릿 표에서 오고 'all' 은 뺀다 — 그것이 곧 기본값이라 고르면 아무것도 안 좁힌다", () => {
+    const src = viewSrc();
+    expect(src).toContain('AGENT_TOOL_TEMPLATES');
+    expect(src).toMatch(/AGENT_TOOL_TEMPLATES\.filter\(\(tmpl\) => tmpl\.id !== 'all'\)/);
+    // 이름은 에이전트 설정창의 이름을 받아 적는다(같은 것을 두 이름으로 부르지 않는다).
+    expect(src).toContain('panel.agentConfig.toolTemplate.${tmpl.id}.name');
+    // 되돌아가는 길은 빈 칸 하나.
+    expect(src).toContain("t('ide.orchestra.member.toolsDefault')");
+  });
+
+  it('워크트리를 켠 채 Codex 멤버면 안 걸린다고 말한다 — `--worktree` 는 Claude CLI 플래그다', () => {
+    const src = viewSrc();
+    expect(src).toMatch(/settings\.memberIsolation === 'worktree' && memberEngine !== 'claude'/);
+    expect(src).toContain("t('ide.orchestra.member.isolationClaudeOnly')");
+  });
+
+  it('두 칸의 문구가 12 로케일에 전부 있다', () => {
+    const keys = [
+      'ide.orchestra.field.memberIsolation',
+      'ide.orchestra.field.memberIsolationHint',
+      'ide.orchestra.field.memberToolTemplate',
+      'ide.orchestra.member.isolationClaudeOnly',
+      'ide.orchestra.member.toolsOption',
+      'ide.orchestra.member.toolsDefault',
+      'ide.orchestra.member.toolsHint',
+    ];
+    for (const [locale, root] of Object.entries(locales)) {
+      for (const key of keys) {
+        expect(typeof readIn(root, key), `${locale} 에 ${key} 가 없다`).toBe('string');
+      }
+    }
+  });
+});

@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { sessionDotClass, sessionRunStateOf, serializeBusySubIds, parseBusySubIds, serializePendingSubIds } from '../../utils/sessionStatus.js';
 import { IDEMainArea } from './IDEMainArea.js';
 import { IDESplitCellContext, type IDESplitCellValue } from './splitCellContext.js';
 import {
@@ -76,6 +76,9 @@ export const IDESplitCellView = memo(function IDESplitCellView({
   // 도트 색은 탭바와 **같은 표**를 쓴다(사본 ❌ — 같은 세션이 자리마다 다른 색이면 안 된다).
   const busySubKey = useGraphStore((s) => serializeBusySubIds(s.runningSubagentTasks[agentId]));
   const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
+  // §5.5 #17-18 (대기) — 줄 선 명령도 탭바와 **같은 재료**로 받는다(칸마다 다른 색 ❌).
+  const pendingSubKey = useGraphStore((s) => serializePendingSubIds(s.queuedCommands[agentId]));
+  const pendingSubIds = useMemo(() => parseBusySubIds(pendingSubKey), [pendingSubKey]);
 
   const sub = cell.sessionId === null ? null : subAgents.find((s) => s.id === cell.sessionId) ?? null;
   const label = cell.sessionId === null
@@ -83,7 +86,7 @@ export const IDESplitCellView = memo(function IDESplitCellView({
     : subAgentLabels[cell.sessionId] ?? sub?.label ?? cell.sessionId;
   // 여운(눌러 들어간 색)도 탭바와 **같은 함수**로 합친다 — 같은 세션이 자리마다 다른 색이면 안 된다.
   const dot = sub
-    ? sessionDotClass(sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id)), sessionFocusGlow[sub.id], Date.now())
+    ? sessionDotClass(sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id), pendingSubIds.has(sub.id)), sessionFocusGlow[sub.id], Date.now())
     : 'bg-gray-400';
 
   // 칸 안 아무 데나 누르면 그 칸이 초점을 갖고, 탭바·사이드바·상태바가 그 세션을 따라본다.

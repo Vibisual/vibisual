@@ -92,6 +92,23 @@ export function useSessionExecuting(agentId: string, activeSessionId: string | n
   });
 }
 
+/**
+ * §5.5 #17-9 ⑰ — **이 탭 뒤에서 도는 백단 셸이 몇 개인가**(실행 축과 직교하는 표시 축).
+ *
+ * `useSessionRunning` 과 **반드시 짝으로 읽어야 한다.** 셸은 실행 축에서 빠졌으므로 이 훅이 없으면
+ * 그 셸들은 화면에서 통째로 사라진다 — 그러면 이번엔 "내가 띄운 `npm run dev` 가 아직 도는지"를
+ * 알 길이 없어진다. 축을 가르는 일은 한쪽을 지우는 일이 아니라 **각자 제자리에 놓는 일**이다.
+ *
+ * 원시값(number)을 구독하므로 파생 선택자 함정에 걸리지 않는다.
+ */
+export function useBackgroundShellCount(agentId: string, activeSessionId: string | null): number {
+  return useGraphStore((s) => {
+    const picked = pickSources(s, agentId, activeSessionId);
+    if (!picked) return 0;
+    return buildSessionRunInputs(picked.sources).backgroundShellCount;
+  });
+}
+
 /** 생존 표시에 필요한 사실 묶음 — 시간 판정(`resolveSessionLiveness`)은 화면이 `now` 와 함께 한다. */
 export interface SessionLivenessFacts {
   /** 지금 돌고 있는가(`isSessionRunning`). */

@@ -26,6 +26,8 @@ import {
   AUTO_GOAL_MIN_RUNS,
   AUTO_GOAL_SKILL_BUDGET,
   AUTO_GOAL_REVIEW_QUEUE_MAX,
+  AUTO_GOAL_ACTIVE_QUEUE_MAX,
+  AUTO_GOAL_STALE_REVIEW_MS,
   autoGoalSkillBody,
   autoGoalSkillDescription,
   autoGoalActiveAnywhere,
@@ -341,15 +343,30 @@ export function buildAutoGoalPromptBlock(
   task?: string,
 ): string | undefined {
   if (!resolveAutoGoalEnabled(settings, ids)) return undefined;
-  const all = listAutoGoalSkills(root).filter((s) => task === undefined || autoGoalSkillRelevant(s, task));
-  const active = all.filter((s) => s.status === 'active').slice(0, 8);
-  const review = all.filter((s) => s.status === 'candidate' || s.status === 'needs-review').slice(0, AUTO_GOAL_REVIEW_QUEUE_MAX);
+  const now = Date.now();
+  const scored = listAutoGoalSkills(root)
+    .map((skill) => ({ skill, score: task === undefined ? 1 : autoGoalRelevanceScore(skill, task) }))
+    .filter((entry) => entry.score > 0);
+  /*
+   * §5.10 (R)ⓑ — **관련도 순위**로 고른다.
+   *
+   * 앞에서 세 개를 자르던 때는 지금 만지는 파일의 절차가 실리지 않는 턴이 대부분이었고,
+   * 그래서 규약이 검토를 지시해도 실릴 자리가 없어 아무 일도 일어나지 않았다. 폭을 넓히는 대신
+   * 순위를 매기므로 무관한 절차가 더 실리지는 않는다 — 점수 0 은 위에서 이미 걸러졌다.
+   * 동점이면 `listAutoGoalSkills` 의 순서(최근 수정 순)가 그대로 남는다(정렬이 안정적이다).
+   */
+  const rank = (a: { score: number }, b: { score: number }): number => b.score - a.score;
+  const pick = (want: (s: AutoGoalSkillSummary) => boolean, max: number): AutoGoalSkillSummary[] =>
+    scored.filter((e) => want(e.skill)).sort(rank).slice(0, max).map((e) => e.skill);
+  const active = pick((s) => s.status === 'active', AUTO_GOAL_ACTIVE_QUEUE_MAX);
+  const review = pick((s) => s.status === 'candidate' || s.status === 'needs-review', AUTO_GOAL_REVIEW_QUEUE_MAX);
   if (active.length === 0 && review.length === 0) return undefined;
   const lines: string[] = [];
   lines.push('# 이 프로젝트에서 되풀이해 온 절차 (절차 감지)');
   lines.push('');
   lines.push('현재 사용자 지시가 우선이다. 관련 절차만 읽고 적용 조건을 확인하라. 반복 관찰은 검토 통과나 완료 증거가 아니다.');
   lines.push('실행 전 사전 판정을 받고, 서버가 같은 작업·판본·입력과 완료 출력을 확인해 skip을 반환한 경우에만 완료 결과를 재사용할 수 있다.');
+  lines.push('이 턴에 이미 읽은 근거로 판정할 수 있는 절차가 있으면 판정 1건을 남긴다 — 사용자 요청을 기다리지 않는다.');
   lines.push('');
   for (const [label, skills] of [['검토 통과 — 적용 조건 확인 후 사용', active], ['검토 대기 — 실행 지침이 아님', review]] as const) {
     if (skills.length === 0) continue;
@@ -359,20 +376,73 @@ export function buildAutoGoalPromptBlock(
       lines.push(`  id=${s.id} revision=${s.revision} · \`${s.path}\``);
       if (s.applicability) lines.push(`  적용 조건: ${escapeScalar(s.applicability).slice(0, 400)}`);
       if (s.status !== 'active' && s.reason) lines.push(`  검토 사유: ${escapeScalar(s.reason).slice(0, 240)}`);
+      const hint = autoGoalRetireHint(root, s, now, active);
+      if (hint) lines.push(`  걷을 후보: ${hint}`);
     }
   }
   return lines.join('\n');
 }
 
+/**
+ * §5.10 (R)ⓒ — 이 절차를 지금 걷어야 하는지에 대한 **한 줄 사유**. 없으면 `undefined`.
+ *
+ * 서버가 걷지 않는다 — 판단은 근거를 쥔 에이전트가 하고, 여기서는 그 자리에 표시만 한다.
+ * 상태를 바꾸는 것은 언제나 `/api/auto-goal/review` 한 창구다(§5.10 (Q)).
+ */
+function autoGoalRetireHint(
+  root: string,
+  skill: AutoGoalSkillSummary,
+  now: number,
+  actives: AutoGoalSkillSummary[],
+): string | undefined {
+  const evidence = skill.files ?? [];
+  if (evidence.length > 0 && evidence.every((relative) => !autoGoalEvidenceExists(root, relative))) {
+    return '근거 파일이 프로젝트에 하나도 남아 있지 않다 — 가리키던 코드가 사라졌으면 retire 하라.';
+  }
+  if (skill.status === 'active' && skill.reviewedAt && now - skill.reviewedAt > AUTO_GOAL_STALE_REVIEW_MS
+      && skill.reuseCount === 0 && skill.skipCount === 0) {
+    return '승인 뒤 한 번도 쓰이지 않았다 — 지금도 필요한지 보고 아니면 retire 하라.';
+  }
+  if (skill.status !== 'active') {
+    const twin = actives.find((a) => a.id !== skill.id && autoGoalRelevanceScore(a, `${skill.name} ${skill.description}`) >= 9);
+    if (twin) return `같은 일을 하는 검토 통과 절차가 있다(id=${twin.id}) — 중복이면 supersede 하라.`;
+  }
+  return undefined;
+}
+
+/** 근거 파일이 아직 프로젝트 안에 있는지. 경로는 항상 `safeAutoGoalPath` 를 거친다(§5.10 (E) 경계). */
+function autoGoalEvidenceExists(root: string, relative: string): boolean {
+  try { return fs.statSync(safeAutoGoalPath(root, relative, true)).isFile(); } catch { return false; }
+}
+
 /** Conservative lexical routing keeps unrelated old project work out of the agent's task. */
 export function autoGoalSkillRelevant(skill: AutoGoalSkillSummary, task: string): boolean {
+  return autoGoalRelevanceScore(skill, task) > 0;
+}
+
+/**
+ * 이 절차가 지금 작업과 얼마나 가까운가 — 0 이면 무관(싣지 않는다).
+ *
+ * `autoGoalSkillRelevant` 가 쓰던 판정을 그대로 두되 **점수**로 돌려준다. 통과/탈락만 알면
+ * 주입 자리가 모자랄 때 무엇을 버릴지 고를 수 없고, 그때 버려지는 것이 하필 지금 만지는 파일의
+ * 절차였다(§5.10 (R)ⓑ). 가중치는 겹친 낱말 3, 한글 두 글자 짝 1, 근거 파일 이름이 걸리면 5 —
+ * 파일 이름이 문장에 나오는 것이 가장 강한 신호라서 가장 높다.
+ */
+export function autoGoalRelevanceScore(skill: AutoGoalSkillSummary, task: string): number {
   const ignored = new Set(['this', 'that', 'with', 'from', 'what', 'when', 'please', 'project', 'agent', 'procedure',
     '확인', '작업', '절차', '검토', '기능', '사용', '진행', '자동', '현재', '추가', '수정', '방법', '있는', '하기', '위해']);
   const words = (text: string): string[] => (text.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [])
     .filter((word) => word.length >= 2 && !ignored.has(word));
   const taskWords = new Set(words(task));
   const terms = words(`${skill.name} ${skill.description} ${skill.applicability ?? ''}`);
-  if (terms.some((word) => taskWords.has(word) && (/[가-힣]/u.test(word) || word.length >= 3))) return true;
+  let score = 0;
+  const counted = new Set<string>();
+  for (const word of terms) {
+    if (counted.has(word) || !taskWords.has(word)) continue;
+    if (!/[가-힣]/u.test(word) && word.length < 3) continue;
+    counted.add(word);
+    score += 3;
+  }
   const koreanPairs = (items: Iterable<string>): Set<string> => {
     const pairs = new Set<string>();
     for (const word of items) if (/^[가-힣]+$/u.test(word) && word.length >= 3) {
@@ -382,8 +452,18 @@ export function autoGoalSkillRelevant(skill: AutoGoalSkillSummary, task: string)
   };
   const a = koreanPairs(taskWords);
   let matches = 0;
-  for (const pair of koreanPairs(terms)) if (a.has(pair) && ++matches >= 2) return true;
-  return false;
+  for (const pair of koreanPairs(terms)) if (a.has(pair)) matches += 1;
+  if (matches >= 2) score += matches;
+  /*
+   * 근거 파일은 **낱말로** 견준다 — 경로 문자열을 접어 비교하면 Linux 에서 `Feature-X ≠ feature-x`
+   * 를 놓친다(멀티플랫폼 ①). 확장자를 뗀 파일 이름을 위 토크나이저에 그대로 태우면 경로 동일성
+   * 판정이 아니라 자연어 낱말 비교가 되어 세 운영체제에서 같은 답이 나온다.
+   */
+  for (const file of skill.files ?? []) {
+    const base = (file.replace(/\\/g, '/').split('/').pop() ?? '').replace(/\.[^.]+$/, '');
+    if (words(base).some((token) => taskWords.has(token))) score += 5;
+  }
+  return score;
 }
 
 /** 프로젝트를 닫을 때 분석 캐시를 버린다(§3.5 프로젝트 격리 — 남의 이력이 섞이면 안 된다). */

@@ -82,9 +82,6 @@
       "soloFocus": "Nur dieses Fenster – andere einklappen",
       "limited": "gestoppt",
       "limitedUntil": "Reset {{at}}",
-      "limitedBanner": "{{count}} Session(s) durch das Nutzungslimit gestoppt — unten zuerst aufgeführt",
-      "limitedAck": "Verstanden",
-      "limitedAckHint": "Entfernt die orange Markierung – Sitzungen und Verläufe bleiben erhalten",
       "settings": "Agent-Einstellungen",
       "expand": "Ausklappen",
       "collapse": "Einklappen",
@@ -1725,7 +1722,8 @@
         "running": "läuft",
         "done": "fertig",
         "error": "Fehler",
-        "limited": "Limit erreicht"
+        "limited": "Limit erreicht",
+        "waiting": "Warten"
       },
       "probe": {
         "checking": "wird geprüft…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Unbenannte Unterhaltung",
       "revisionOf": "rev {{index}}/{{total}}",
       "failedBadge": "Fehlgeschlagen: {{count}}",
-      "failedBadgeTip": "Fehlgeschlagene Kompaktierungen ({{scope}}): {{count}}. Jede fehlgeschlagene Zeile trägt einen roten Chip mit dem Grund."
+      "failedBadgeTip": "Fehlgeschlagene Kompaktierungen ({{scope}}): {{count}}. Jede fehlgeschlagene Zeile trägt einen Chip mit dem Grund."
     },
     "remoteAccess": {
       "title": "Fernzugriff",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Koreanische Wortabstände wiederherstellen",
       "voiceRespaceHint": "Die Spracherkennung gibt Koreanisch ohne Leerzeichen aus; dies trennt an Partikeln und Endungen. Regelbasiert und daher nicht perfekt — Sie können das Ergebnis im Eingabefeld korrigieren.",
       "stallHint": "Längere Denkprozesse oder Werkzeugaufrufe können Aktualisierungen pausieren. Das allein bedeutet nicht, dass die Sitzung gestoppt wurde.",
-      "stallNotice": "Warten auf die nächste Aktualisierung. Letzte Aktivität vor {{value}}.",
-      "stallKeepWaiting": "Weiter warten",
-      "stallKeepWaitingTitle": "Diesen Hinweis ausblenden und weiter auf die nächste Aktualisierung warten.",
+      "backgroundShells": "{{count}} Hintergrund-Shell läuft noch. Die Antwort ist schon da – du kannst weiterschreiben.",
+      "backgroundShellsTip": "Ein Bash- oder Monitor-Hintergrundbefehl, der von einem früheren Turn übrig geblieben ist. Er führt einen Befehl aus, kein Modell – daher blockiert er diese Sitzung nicht. Befehle, die sich nicht von selbst beenden (tail -f, while true, ein per Pipe verbundenes sort), bleiben hier, bis du sie entfernst.",
+      "backgroundShellsOpen": "Anzeigen",
       "stopNothing": "Es lief nichts, was sich hätte stoppen lassen. Die Anzeige „läuft“ war veraltet.",
       "stopNothingHint": "Der Server hat für diesen Bereich keinen Kindprozess, kein wartendes Kommando und keine Hintergrundaufgabe gefunden.",
       "stopForce": "Hart beenden",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Unteragent",
       "commandReceived": "Befehl angenommen",
       "promptSuggestion": "Vorschlag für den nächsten Prompt",
-      "imageMissing": "(Bild nicht verfügbar)"
+      "imageMissing": "(Bild nicht verfügbar)",
+      "waiting": "wartet"
     },
     "report": {
       "title": "Arbeitsbericht",
@@ -3502,18 +3501,19 @@
       "superseded": "Plan aktualisiert"
     },
     "cmdError": {
-      "spawn": "Claude CLI konnte nicht gestartet werden",
+      "spawn": "{{engine}} konnte nicht gestartet werden",
       "stdin": "Prompt konnte nicht an die laufende Session übermittelt werden",
-      "exit": "Claude CLI mit Code {{code}} beendet",
-      "exitUnknown": "Claude CLI unerwartet beendet",
+      "exit": "{{engine}} mit Code {{code}} beendet",
+      "exitUnknown": "{{engine}} unerwartet beendet",
       "crash": "Der Session-Prozess ist unerwartet abgestürzt (Code {{code}})",
       "crashUnknown": "Der Session-Prozess ist unerwartet abgestürzt",
       "local": "Die Ausführung des lokalen Modells ist fehlgeschlagen",
-      "cli": "Claude CLI meldete einen Fehler",
+      "cli": "{{engine}} meldete einen Fehler",
       "maxTurns": "Beim Max.-Durchläufe-Limit gestoppt",
       "agentView": "Der Agent-Lauf endete mit einem Fehler",
       "orphaned": "Unterbrochen beim Neustart der App",
       "dispatchResult": "Beendet, ohne das Ergebnis der delegierten Aufgabe zu erhalten",
+      "usageLimit": "Beim Nutzungslimit gestoppt",
       "unknown": "Aus unbekanntem Grund fehlgeschlagen"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Abläufe aktualisieren",
       "details": "Ablaufdetails anzeigen",
       "hideDetails": "Ablaufdetails ausblenden",
+      "approve": "Genehmigen",
+      "approveHint": "Genehmigen Sie jetzt anhand der Dateien, die dieser Ablauf bereits als Nachweise aufführt. Agents erledigen das normalerweise selbst.",
+      "approveNoEvidence": "Dieser Ablauf führt keine Nachweisdateien auf, daher kann er hier nicht genehmigt werden.",
       "pause": "Nutzung stoppen",
       "requestReview": "Prüfung durch Agent anfordern",
       "reviewHint": "Ein arbeitender Agent prüft passende Abläufe. Eine Prüfanforderung aktiviert den Ablauf noch nicht.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "Die Einsatzbedingungen dieses Ablaufs wurden nach der Prüfung geändert.",
         "instructionsChanged": "Die Ablaufanweisungen wurden nach der Prüfung geändert.",
         "dependencyChanged": "Eine geprüfte Belegdatei wurde geändert oder ist nicht mehr verfügbar.",
+        "userApproved": "Sie haben diesen Ablauf genehmigt.",
         "userPaused": "Sie haben die Nutzung dieses Ablaufs gestoppt.",
         "userRequestedReview": "Sie haben eine erneute Prüfung dieses Ablaufs angefordert."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Dirigent darf mir Fragen stellen",
         "askQuestionsHint": "Fügt AskUserQuestion zu seinen Tools hinzu. Standardmäßig aus – ist es aktiviert, kann eine vage Anfrage pausieren, bis du antwortest.",
         "engine": "Mitglieder-Engine",
-        "maxMembers": "Maximal erstellbare Mitglieder"
+        "maxMembers": "Maximal erstellbare Mitglieder",
+        "memberIsolation": "Jedem Mitglied einen eigenen Worktree geben",
+        "memberIsolationHint": "Jedes Mitglied wird in einem eigenen git-Worktree geboren, sodass nebeneinander laufende Worker nicht bei denselben Dateien kollidieren können. Die Branches musst du danach selbst zusammenführen. Nur für Claude-Mitglieder – Codex hat kein passendes Flag.",
+        "memberToolTemplate": "Tools, mit denen Mitglieder geboren werden"
       },
       "permission": {
         "bypass": "Berechtigungsabfragen überspringen",
@@ -4734,7 +4741,11 @@
           "auto": "Dirigent wählt pro Rolle",
           "inherit": "Wie der Dirigent ({{engine}})"
         },
-        "maxDefault": "Standard ({{count}})"
+        "maxDefault": "Standard ({{count}})",
+        "isolationClaudeOnly": "Codex-Mitglieder bekommen das nicht – sie laufen direkt im Projektordner.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Agent-Standard (jedes Tool)",
+        "toolsHint": "Der Dirigent kann diese Liste nicht erweitern. Eingeschränkte Tools halten ein Mitglied bei seiner eigenen Aufgabe – ein Reviewer, der nicht schreiben kann, wird nicht heimlich „beheben“, was du ihn zu prüfen gebeten hast."
       },
       "strategies": {
         "title": "Token-sparende Strategien",
@@ -5757,6 +5768,7 @@
     "waitingFor": "wartet {{time}}",
     "queued": "{{count}} in Warteschlange",
     "running": "{{count}} laufend",
+    "backgroundShells": "{{count}} Hintergrund-Shell",
     "jumpHint": "Diese Sitzung im Hauptfenster öffnen",
     "commandHint": "Nachricht senden, ohne dieses Fenster zu verlassen",
     "moreHint": "Weitere Aktionen",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Nachricht an diese Sitzung… (Enter zum Senden)",
     "send": "Senden",
     "searchPlaceholder": "Sitzungen suchen —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Gesprächsverlauf wird durchsucht…",
+    "historySearchFailed": "Ein Teil des Gesprächsverlaufs konnte nicht durchsucht werden.",
+    "retryHistorySearch": "Verlauf erneut durchsuchen",
     "clearSearch": "Leeren",
     "resultCount": "{{count}} Treffer",
     "sessionCount": "{{count}} Sitzungen",

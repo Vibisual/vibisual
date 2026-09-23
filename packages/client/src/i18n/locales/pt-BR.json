@@ -82,9 +82,6 @@
       "soloFocus": "Mostrar só esta janela (recolher as outras)",
       "limited": "parada",
       "limitedUntil": "redefine às {{at}}",
-      "limitedBanner": "{{count}} sessão(ões) parada(s) pelo limite de uso — listadas primeiro abaixo",
-      "limitedAck": "Entendi",
-      "limitedAckHint": "Remove a marca laranja — as sessões e as conversas permanecem",
       "settings": "Configurações do Agent",
       "expand": "Expandir",
       "collapse": "Recolher",
@@ -1725,7 +1722,8 @@
         "running": "em execução",
         "done": "concluído",
         "error": "erro",
-        "limited": "limite atingido"
+        "limited": "limite atingido",
+        "waiting": "na fila"
       },
       "probe": {
         "checking": "verificando…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Conversa sem título",
       "revisionOf": "rev {{index}}/{{total}}",
       "failedBadge": "Com falha: {{count}}",
-      "failedBadgeTip": "Compactações com falha ({{scope}}): {{count}}. Cada linha com falha traz um chip vermelho com o motivo."
+      "failedBadgeTip": "Compactações com falha ({{scope}}): {{count}}. Cada linha com falha traz um chip com o motivo."
     },
     "remoteAccess": {
       "title": "Acesso remoto",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Restaurar os espaços do coreano",
       "voiceRespaceHint": "O reconhecedor devolve o coreano sem espaços; isto separa por partículas e terminações. É baseado em regras, então não é perfeito — você pode corrigir o resultado na caixa de entrada.",
       "stallHint": "Raciocínios ou chamadas de ferramentas demorados podem pausar as atualizações. Isso, por si só, não significa que a sessão parou.",
-      "stallNotice": "Aguardando a próxima atualização. Última atividade há {{value}}.",
-      "stallKeepWaiting": "Continuar aguardando",
-      "stallKeepWaitingTitle": "Ocultar este aviso e continuar aguardando a próxima atualização.",
+      "backgroundShells": "{{count}} shell em segundo plano ainda em execução. A resposta já chegou — você pode continuar digitando.",
+      "backgroundShellsTip": "Um comando Bash ou Monitor em segundo plano que sobrou de um turno anterior. Ele executa um comando, não um modelo, então não ocupa esta sessão. Comandos que nunca terminam sozinhos (tail -f, while true, um sort encadeado) ficam aqui até você removê-los.",
+      "backgroundShellsOpen": "Ver",
       "stopNothing": "Não havia nada em execução para parar. O rótulo “em execução” estava desatualizado.",
       "stopNothingHint": "O servidor não encontrou nenhum processo filho, comando na fila ou tarefa em segundo plano para este escopo.",
       "stopForce": "Forçar encerramento",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Subagente",
       "commandReceived": "Comando recebido",
       "promptSuggestion": "Próximo prompt sugerido",
-      "imageMissing": "(imagem indisponível)"
+      "imageMissing": "(imagem indisponível)",
+      "waiting": "aguardando"
     },
     "report": {
       "title": "Relatório de trabalho",
@@ -3502,18 +3501,19 @@
       "superseded": "Plano atualizado"
     },
     "cmdError": {
-      "spawn": "O Claude CLI não conseguiu iniciar",
+      "spawn": "{{engine}} não conseguiu iniciar",
       "stdin": "Não foi possível entregar o prompt à sessão em execução",
-      "exit": "O Claude CLI foi encerrado com o código {{code}}",
-      "exitUnknown": "O Claude CLI foi encerrado inesperadamente",
+      "exit": "{{engine}} foi encerrado com o código {{code}}",
+      "exitUnknown": "{{engine}} foi encerrado inesperadamente",
       "crash": "O processo da sessão encerrou inesperadamente (código {{code}})",
       "crashUnknown": "O processo da sessão encerrou inesperadamente",
       "local": "A execução do modelo local falhou",
-      "cli": "O Claude CLI reportou uma falha",
+      "cli": "{{engine}} reportou uma falha",
       "maxTurns": "Interrompido no limite máximo de turnos",
       "agentView": "A execução do agente terminou em falha",
       "orphaned": "Interrompido quando o aplicativo reiniciou",
       "dispatchResult": "Encerrado sem receber o resultado da tarefa delegada",
+      "usageLimit": "Interrompido no limite de uso",
       "unknown": "Falhou por um motivo desconhecido"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Atualizar procedimentos",
       "details": "Mostrar detalhes do procedimento",
       "hideDetails": "Ocultar detalhes do procedimento",
+      "approve": "Aprovar",
+      "approveHint": "Aprove agora, usando os arquivos que este procedimento já lista como evidência. Os agents normalmente fazem isso por conta própria.",
+      "approveNoEvidence": "Este procedimento não lista arquivos de evidência, então não pode ser aprovado aqui.",
       "pause": "Parar de usar",
       "requestReview": "Solicitar revisão do Agent",
       "reviewHint": "Um Agent em atividade revisa os procedimentos relevantes. Solicitar uma revisão não ativa o procedimento.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "As condições de uso deste procedimento mudaram após a revisão.",
         "instructionsChanged": "As instruções do procedimento mudaram após a revisão.",
         "dependencyChanged": "Um arquivo de apoio revisado mudou ou não está mais disponível.",
+        "userApproved": "Você aprovou este procedimento.",
         "userPaused": "Você parou de usar este procedimento.",
         "userRequestedReview": "Você solicitou uma nova revisão deste procedimento."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Permitir que o maestro me faça perguntas",
         "askQuestionsHint": "Adiciona AskUserQuestion às suas ferramentas. Desativado por padrão — quando ativado, um pedido vago pode pausar até você responder.",
         "engine": "Motor dos membros",
-        "maxMembers": "Máximo de membros que pode criar"
+        "maxMembers": "Máximo de membros que pode criar",
+        "memberIsolation": "Dar a cada membro seu próprio worktree",
+        "memberIsolationHint": "Cada membro nasce em seu próprio git worktree, para que os workers em execução lado a lado não colidam nos mesmos arquivos. Fazer o merge das branches depois fica por sua conta. Somente membros Claude — o Codex não tem uma flag correspondente.",
+        "memberToolTemplate": "Ferramentas com que os membros nascem"
       },
       "permission": {
         "bypass": "Pular avisos de permissão",
@@ -4734,7 +4741,11 @@
           "auto": "O maestro escolhe por função",
           "inherit": "Igual ao regente ({{engine}})"
         },
-        "maxDefault": "Padrão ({{count}})"
+        "maxDefault": "Padrão ({{count}})",
+        "isolationClaudeOnly": "Membros Codex não têm isso — eles rodam direto na pasta do projeto.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Padrão do agent (todas as ferramentas)",
+        "toolsHint": "O maestro não pode ampliar essa lista. Ferramentas restritas mantêm um membro focado na própria tarefa — um revisor que não pode escrever não vai \"consertar\" silenciosamente o que você pediu para ele verificar."
       },
       "strategies": {
         "title": "Estratégias de economia de tokens",
@@ -5757,6 +5768,7 @@
     "waitingFor": "esperando há {{time}}",
     "queued": "{{count}} na fila",
     "running": "{{count}} em execução",
+    "backgroundShells": "{{count}} shell em segundo plano",
     "jumpHint": "Abrir esta sessão na janela principal",
     "commandHint": "Enviar uma mensagem sem sair desta janela",
     "moreHint": "Mais ações",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Mensagem para esta sessão… (Enter para enviar)",
     "send": "Enviar",
     "searchPlaceholder": "Buscar sessões —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Pesquisando no histórico de conversas…",
+    "historySearchFailed": "Não foi possível pesquisar em parte do histórico de conversas.",
+    "retryHistorySearch": "Tentar pesquisar no histórico novamente",
     "clearSearch": "Limpar",
     "resultCount": "{{count}} correspondências",
     "sessionCount": "{{count}} sessões",

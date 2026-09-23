@@ -82,11 +82,6 @@ interface IDEWindowsMenuProps {
   badgeRunning: number;
   /** 이 프로젝트의 세션 수 — 배지의 분모. */
   badgeSessions: number;
-  /**
-   * §2.4 (한도 정지) — 한도로 끊긴 채 다시 돌지 않은 세션 수. 0 보다 크면 메뉴 맨 위에 그 사실을
-   * 한 줄로 세운다(색만으로는 "몇 개가" 를 말할 수 없다).
-   */
-  badgeLimited: number;
   /** 배지 툴팁 — 집계 문장 + "누르면 목록이 열린다" 안내. */
   badgeTitle: string;
   /** §5.12 (A) — 지휘통제실은 desktop IPC 전용이라 채널이 없는 창에서는 항목을 그리지 않는다. */
@@ -175,7 +170,6 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   badgeState,
   badgeRunning,
   badgeSessions,
-  badgeLimited,
   badgeTitle,
   canOpenCommandCenter,
   onOpenCommandCenter,
@@ -358,20 +352,6 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     setOpen(false);
   }, []);
 
-  /**
-   * §2.4 (한도 정지) — 띠의 [확인]. **목록에 선 멈춘 줄을 한 번에** 확인한다.
-   *
-   * 한도에 닿으면 여럿이 한꺼번에 멎으므로(그래서 배지가 주황이 된다) 하나씩 열어 눌러야만
-   * 걷힌다면 확인 자체가 일이 된다. 메뉴는 **닫지 않는다** — 걷힌 뒤의 목록을 그 자리에서 보게 한다.
-   *
-   * 걷는 것은 표식뿐이라 세션·대화·결과는 그대로 남는다(지우는 것이 아니라 확인한 것이다).
-   */
-  const ackAllLimited = useCallback(() => {
-    const agentIds = rows.filter((r) => r.run.state === 'limited').map((r) => r.agent.id);
-    if (agentIds.length === 0) return;
-    useGraphStore.getState().acknowledgeUsageLimit({ agentIds });
-  }, [rows]);
-
   const stateLabel = useCallback((pane: IDEOverlayState): string => {
     if (pane.collapsed) return t('header.ideWindows.state.collapsed');
     if (pane.dockSide) return t(sideLabelKey(pane.dockSide));
@@ -421,32 +401,6 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
           </div>
           {/* §2.4 (한도 정지) — 색은 "무슨 일이 있다"까지만 말한다. 몇 개가 멈췄는지는 글자로 적어야
               사용자가 다시 돌릴 것을 셀 수 있다. 아래 목록은 그 줄들을 맨 위로 올려 둔 상태다. */}
-          {badgeLimited > 0 && (
-            <div className="mb-1 flex items-center gap-1.5 rounded border border-orange-400/30 bg-orange-400/10 px-2 py-1.5 text-[12px] text-orange-200">
-              <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <line x1="10" y1="9" x2="10" y2="15" />
-                <line x1="14" y1="9" x2="14" y2="15" />
-              </svg>
-              <span className="min-w-0 flex-1">
-                {t('header.ideWindows.limitedBanner', { count: badgeLimited })}
-              </span>
-              {/* §2.4 (한도 정지) — 주황불을 **끄는 자리**. 색은 "손대야 다시 간다"를 말하는데,
-                  그 말을 읽고 나면 불은 제 할 일을 다 한 것이라 여기서 걷힌다(사용자 지시 —
-                  "클릭해서 확인하면 다시 평상태로"). 다시 돌릴지는 별개의 손짓이다. */}
-              <button
-                type="button"
-                onClick={ackAllLimited}
-                title={t('header.ideWindows.limitedAckHint')}
-                className="flex flex-shrink-0 items-center gap-1 rounded border border-orange-400/40 px-1.5 py-0.5 text-[12px] font-medium text-orange-100 transition-colors hover:bg-orange-400/20"
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6L9 17l-5-5" />
-                </svg>
-                {t('header.ideWindows.limitedAck')}
-              </button>
-            </div>
-          )}
           {/* (판올림 번호 발급 대기) 레이아웃 — 창이 둘 이상일 때만 뜻이 있다(하나면 정리할 것이 없다). */}
           {visibleCount + collapsedCount > 1 && (
             <div className="mb-1 flex items-center gap-0.5 border-b border-white/[0.06] px-1 pb-1.5">

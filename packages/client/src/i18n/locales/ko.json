@@ -82,9 +82,6 @@
       "soloFocus": "이 창만 보기 · 나머지는 내려놓기",
       "limited": "멈춤",
       "limitedUntil": "{{at}} 리셋",
-      "limitedBanner": "한도로 멈춘 세션 {{count}}개 — 목록 맨 위에 있습니다",
-      "limitedAck": "확인",
-      "limitedAckHint": "확인하면 주황 표시가 걷힙니다 — 세션과 대화는 그대로 남습니다",
       "settings": "Agent 설정",
       "expand": "펴기",
       "collapse": "접기",
@@ -1725,7 +1722,8 @@
         "running": "실행 중",
         "done": "완료",
         "error": "오류",
-        "limited": "한도 정지"
+        "limited": "한도 정지",
+        "waiting": "대기열"
       },
       "probe": {
         "checking": "확인 중…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "제목을 알 수 없는 대화",
       "revisionOf": "{{index}}/{{total}}판",
       "failedBadge": "실패 {{count}}",
-      "failedBadgeTip": "{{scope}}에서 실패로 끝난 압축: {{count}}건. 실패한 줄마다 사유를 적은 빨간 칩이 붙어 있습니다."
+      "failedBadgeTip": "{{scope}}에서 실패로 끝난 압축: {{count}}건. 실패한 줄마다 사유를 적은 칩이 붙어 있습니다."
     },
     "remoteAccess": {
       "title": "원격 접속",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "한국어 띄어쓰기 자동 복원",
       "voiceRespaceHint": "인식기가 붙여서 내보내는 한국어를 조사·어미 단위로 끊어 줍니다. 규칙 기반이라 완벽하지는 않고, 결과는 입력창에서 고치실 수 있습니다.",
       "stallHint": "긴 추론이나 도구 실행 중에는 새 소식이 잠시 없을 수 있습니다. 이것만으로 작업이 멈췄다는 뜻은 아닙니다.",
-      "stallNotice": "다음 업데이트를 기다리고 있습니다. 마지막 활동은 {{value}} 전입니다.",
-      "stallKeepWaiting": "더 기다리기",
-      "stallKeepWaitingTitle": "이 안내를 숨기고 다음 업데이트를 계속 기다립니다.",
+      "backgroundShells": "백그라운드 쉘 {{count}}개가 아직 실행 중입니다. 답변은 이미 도착했으니 계속 입력하셔도 됩니다.",
+      "backgroundShellsTip": "이전 턴에서 남은 백그라운드 Bash 또는 Monitor 명령입니다. 모델이 아니라 명령만 실행하므로 이 세션을 점유하지 않습니다. 스스로 종료되지 않는 명령(tail -f, while true, 파이프로 연결된 sort)은 제거할 때까지 여기 남아 있습니다.",
+      "backgroundShellsOpen": "보기",
       "stopNothing": "멈출 작업이 없었습니다. \"실행 중\" 표시가 남아 있던 것입니다.",
       "stopNothingHint": "이 범위에서 도는 자식 프로세스·대기 명령·백그라운드 작업을 서버가 하나도 찾지 못했습니다.",
       "stopForce": "강제 마감",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "서브에이전트",
       "commandReceived": "명령 접수됨",
       "promptSuggestion": "다음 프롬프트 제안",
-      "imageMissing": "(이미지 사용 불가)"
+      "imageMissing": "(이미지 사용 불가)",
+      "waiting": "대기 중"
     },
     "report": {
       "title": "작업 신고",
@@ -3502,18 +3501,19 @@
       "superseded": "계획 갱신됨"
     },
     "cmdError": {
-      "spawn": "Claude CLI 를 실행하지 못했습니다",
+      "spawn": "{{engine}} 를 실행하지 못했습니다",
       "stdin": "실행 중인 세션에 프롬프트를 전달하지 못했습니다",
-      "exit": "Claude CLI 가 종료 코드 {{code}} 로 끝났습니다",
-      "exitUnknown": "Claude CLI 가 예기치 않게 종료됐습니다",
+      "exit": "{{engine}} 가 종료 코드 {{code}} 로 끝났습니다",
+      "exitUnknown": "{{engine}} 가 예기치 않게 종료됐습니다",
       "crash": "세션 프로세스가 예기치 않게 죽었습니다 (코드 {{code}})",
       "crashUnknown": "세션 프로세스가 예기치 않게 죽었습니다",
       "local": "로컬 모델 실행이 실패했습니다",
-      "cli": "Claude CLI 가 실패를 알렸습니다",
+      "cli": "{{engine}} 가 실패를 알렸습니다",
       "maxTurns": "최대 턴 제한에 닿아 중단됐습니다",
       "agentView": "에이전트 실행이 실패로 끝났습니다",
       "orphaned": "앱이 재시작되면서 끊겼습니다",
       "dispatchResult": "위임한 작업의 결과를 받지 못한 채 끝났습니다",
+      "usageLimit": "사용 한도에 닿아 멈췄습니다",
       "unknown": "알 수 없는 이유로 실패했습니다"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "절차 새로고침",
       "details": "절차 자세히 보기",
       "hideDetails": "절차 상세 접기",
+      "approve": "승인",
+      "approveHint": "이 절차가 이미 적어 둔 근거 파일로 지금 바로 승인합니다. 평소에는 Agent가 알아서 합니다.",
+      "approveNoEvidence": "근거 파일이 적혀 있지 않아 여기서는 승인할 수 없습니다.",
       "pause": "사용 중지",
       "requestReview": "에이전트 검토 요청",
       "reviewHint": "작업 중인 에이전트가 관련 절차를 검토합니다. 검토를 요청하는 것만으로 절차가 활성화되지는 않습니다.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "검토 후 이 절차의 적용 조건이 바뀌었습니다.",
         "instructionsChanged": "검토 후 절차 내용이 바뀌었습니다.",
         "dependencyChanged": "검토한 근거 파일이 바뀌었거나 더 이상 접근할 수 없습니다.",
+        "userApproved": "사용자가 이 절차를 승인했습니다.",
         "userPaused": "사용자가 이 절차의 사용을 중지했습니다.",
         "userRequestedReview": "사용자가 이 절차의 재검토를 요청했습니다."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "지휘자가 나에게 되물을 수 있게",
         "askQuestionsHint": "도구에 AskUserQuestion 을 더합니다. 기본은 꺼짐이며, 켜면 모호한 명령에서 답을 기다리며 멈출 수 있습니다.",
         "engine": "멤버 엔진",
-        "maxMembers": "만들 수 있는 멤버 수 상한"
+        "maxMembers": "만들 수 있는 멤버 수 상한",
+        "memberIsolation": "멤버마다 자기 작업 폴더를 줍니다",
+        "memberIsolationHint": "멤버가 저마다 별도 git worktree 에서 태어나, 나란히 도는 워커들이 같은 파일에서 부딪히지 않습니다. 끝난 뒤 가지를 합치는 일은 사용자 몫입니다. Claude 멤버에만 걸립니다 — Codex 에는 대응 플래그가 없습니다.",
+        "memberToolTemplate": "멤버가 태어날 때 받는 도구"
       },
       "permission": {
         "bypass": "권한 확인 건너뛰기",
@@ -4734,7 +4741,11 @@
           "auto": "역할마다 지휘자가 고름",
           "inherit": "지휘자와 같은 엔진 ({{engine}})"
         },
-        "maxDefault": "기본값({{count}})"
+        "maxDefault": "기본값({{count}})",
+        "isolationClaudeOnly": "Codex 멤버는 이 칸을 받지 않습니다 — 프로젝트 폴더에서 그대로 돕니다.",
+        "toolsOption": "{{name}} ({{count}}개)",
+        "toolsDefault": "Agent 기본값(전체 도구)",
+        "toolsHint": "지휘자는 이 목록을 넓힐 수 없습니다. 좁은 도구는 멤버를 제 일에 묶어 둡니다 — 쓰지 못하는 검토자는 검토하라고 준 것을 조용히 \"고쳐\" 두지 않습니다."
       },
       "strategies": {
         "title": "토큰 절감 방안",
@@ -5757,6 +5768,7 @@
     "waitingFor": "{{time}} 대기",
     "queued": "대기 {{count}}건",
     "running": "실행 {{count}}건",
+    "backgroundShells": "백그라운드 쉘 {{count}}개",
     "jumpHint": "메인 창에서 이 세션 열기",
     "commandHint": "이 창을 떠나지 않고 메시지 보내기",
     "moreHint": "더 보기",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "이 세션에 메시지… (Enter 로 전송)",
     "send": "전송",
     "searchPlaceholder": "세션 검색 —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "대화 기록 검색 중…",
+    "historySearchFailed": "일부 대화 기록을 검색하지 못했습니다.",
+    "retryHistorySearch": "대화 기록 검색 다시 시도",
     "clearSearch": "지우기",
     "resultCount": "{{count}}건 일치",
     "sessionCount": "세션 {{count}}개",

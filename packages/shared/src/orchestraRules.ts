@@ -16,10 +16,18 @@ import {
   AUTO_AGENT_LAYOUT_RADIUS,
   ORCHESTRA_PLAN_NOTE_MAX,
   ORCHESTRA_PLAN_REASON_MAX,
+  TASK_EDGE_TEMPLATES,
   harnessIntentGateRowsMarkdown,
 } from './constants.js';
 import { ORCHESTRA_STRATEGIES, orchestraAnalysisMarkdown, type OrchestraKnob, type OrchestraStrategy } from './orchestraCatalog.js';
-import { orchestraAllowedStrategies, resolveOrchestraMaxMembers, resolveOrchestraMemberEngine } from './orchestraScope.js';
+import { findAgentToolTemplate } from './agentToolTemplates.js';
+import {
+  orchestraAllowedStrategies,
+  resolveOrchestraMaxMembers,
+  resolveOrchestraMemberEngine,
+  resolveOrchestraMemberIsolation,
+  resolveOrchestraMemberToolTemplate,
+} from './orchestraScope.js';
 import type { PlatformName } from './pathCase.js';
 import { agentRuleShell, agentPowershellHead, AGENT_AUTH_POSIX, type AgentRuleShell } from './agentRuleShell.js';
 import type { OrchestraSettings } from './types.js';
@@ -38,7 +46,10 @@ export function orchestraConductorShell(engine: 'claude' | 'codex', platform: Pl
   return agentRuleShell(engine, platform);
 }
 
-/** 규칙에 싣는 기존 멤버 — **이전 런이 만든 멤버** 중 아직 프로젝트에 있는 것. 지휘자 자신은 부르는 쪽이 뺀다. */
+/**
+ * 규칙에 싣는 **재사용 후보** — 이 프로젝트에 있는 손수 만든 버블 중 엔진·준비 관문을 통과한 것.
+ * 지휘자 자신은 부르는 쪽이 뺀다.
+ */
 export interface OrchestraMemberRef {
   id: string;
   label: string;
@@ -46,6 +57,15 @@ export interface OrchestraMemberRef {
   path: string;
   engine: 'claude' | 'codex' | 'local';
   model?: string;
+  /**
+   * 이 지휘자가 **이전 런에서 직접 만든** 멤버인가. 거짓이면 같은 프로젝트의 다른 후보다
+   * (사용자가 손으로 만든 버블·다른 지휘자의 멤버).
+   *
+   * 둘 다 다시 쓸 수 있다 — ④ 계획 신고의 재사용 검사(`reused-agent-not-in-project`)는 **프로젝트
+   * 소속**만 본다. 그래서 표에 내 이전 런의 것만 실으면 *서버가 받아 줄 후보*를 지휘자에게 감추는
+   * 셈이 되고, 지휘자는 이미 있는 검수자 곁에 똑같은 것을 또 만든다. 순서만 내 것이 앞이다.
+   */
+  own?: boolean;
 }
 
 /** 규칙에 싣는 기존 엣지 — 지휘자·멤버 사이에 이미 이어져 있는 것(다시 만들지 않게). */
@@ -81,6 +101,12 @@ export interface OrchestraConductorRulesArgs {
 
 /** 엣지 명령 요약 길이 — 규칙이 엣지 목록 때문에 부풀지 않게. */
 const EDGE_COMMAND_PREVIEW_MAX = 80;
+
+/**
+ * "이미 있는 엣지" 표의 줄 수 상한. 재사용 후보가 프로젝트 전체로 넓어지면서 이 표도 같이 넓어졌다 —
+ * 상한이 없으면 오래 쓴 프로젝트에서 규칙 길이가 그래프 크기를 따라 자란다. 넘친 것은 수만 알린다.
+ */
+const EDGE_TABLE_MAX = 30;
 /** 한 번의 조회 대기 — 응답이 진행 중이면 같은 cmdId 로 이어 받는다. */
 const RESULT_WAIT_MS = 60_000;
 
@@ -103,7 +129,13 @@ const KNOB_GUIDE: Record<OrchestraKnob, string> = {
   mcpServers: '`mcpServers` — 붙일 MCP 서버 프리셋 id 목록. 이 일에 필요 없는 것을 뺀다(더하지 않는다).',
   skills: '`skills` — 스킬 이름 목록. 이 일에 필요 없는 것을 뺀다(더하지 않는다).',
   excludeDynamicSystemPromptSections: '`excludeDynamicSystemPromptSections` — `true` 면 기기마다 다른 절을 첫 메시지로 옮겨 캐시 적중을 올린다.',
-  edgeReturnFormat: '엣지 `returnFormat` — `"summary"`(기본)·`"full"`·`"both"`. 설정 칸이 아니라 ③ 엣지를 만들 때 정한다.',
+  // 딸려 오는 대가를 같이 적는다 — 이 칸을 넣으면 그 멤버는 세션 재사용을 잃는다(`--max-budget-usd`
+  //   가 `--print` 전용이라 매 턴 새 스폰이다). 모르고 모든 멤버에 박으면 편성 전체가 느려지고,
+  //   문맥이 턴을 넘어 이어지지 않아 오히려 토큰이 는다.
+  maxBudgetUsd: '`maxBudgetUsd` — 그 멤버 한 세션의 API 비용 상한(달러, 양수). `0`/미설정 = 무제한. 넣으면 그 멤버는 매 턴 새로 스폰돼 **세션 재사용을 잃는다** — 되돌리기 힘든 폭주를 막을 멤버에만 둔다.',
+  // 값 셋은 `TaskEdgeReturnFormat` 그대로다 — `createTaskEdge` 는 이 칸을 검사하지 않아, 없는 값을
+  //   적어 주면 조용히 저장되고 회수 경로만 빠진다.
+  edgeReturnFormat: '엣지 `returnFormat` — `"summary"`(기본)·`"artifact"`·`"both"`. 설정 칸이 아니라 ③ 엣지를 만들 때 정한다.',
 };
 
 /** 표 칸 안의 `|` 는 칸 경계로 읽힌다 — 원문 조항에 파이프 명령이 들어 있다. */
@@ -126,6 +158,76 @@ function setValue(v: string | undefined): string | null {
 function strategyTableRow(s: OrchestraStrategy): string {
   const knobs = s.apply.knobs.map((k) => `\`${k}\``).join(' ');
   return `| \`${s.id}\` | ${s.no} | ${cell(knobs)} | ${cell(s.apply.memberRule)} | ${cell(s.apply.topology)} |`;
+}
+
+/**
+ * ① 멤버 색 — `create-custom-agent` 의 `color` 칸(`AgentConfig.color`, 자유 hex).
+ *
+ * **왜 규칙에 싣는가.** 편성이 커지면 사용자가 보는 것은 캔버스의 버블 무더기다. 색이 다 같으면
+ * 어느 것이 검수자이고 어느 것이 구현자인지 이름표를 하나씩 읽어야 알 수 있다 — 지휘자는 역할을
+ * 알고 만드는 유일한 자리이므로, 그 자리에서 칠해 두는 것이 가장 싸다.
+ *
+ * 값은 우리가 고른 것이다(고정 팔레트 상수가 없다). 서로 구별되는 색상환 간격으로 골랐고,
+ * 시스템이 이미 쓰는 색은 피했다 — 초록 계열은 Codex(`CODEX_AGENT_COLOR`)·CMD(`CMD_AGENT_COLOR`),
+ * 회청색은 로컬 엔진(`LOCAL_AGENT_COLOR`)의 자리다.
+ */
+function roleColorSection(): string[] {
+  return [
+    '- `color` 로 역할을 구별해 칠한다(자유 hex). 편성이 커지면 사용자가 캔버스에서 역할을 색으로 읽는다 — 다 같은 색이면 이름표를 하나씩 눌러 봐야 안다.',
+    '- 권하는 값: 탐색 `#6366f1` · 설계 `#a855f7` · 구현 `#f59e0b` · 검증 `#ef4444` · 문서 `#0ea5e9` · 허브(엔트리) `#eab308`.',
+    '- 같은 역할이 여럿이면 **같은 색**으로 둔다 — 색은 낱개가 아니라 역할을 가리킨다. 초록 계열은 쓰지 않는다(Codex·CMD 버블의 자리다).',
+  ];
+}
+
+/**
+ * ③ 엣지의 **역할 짝 프리셋** — 화면의 "Template" 선택기가 쓰는 표(`TASK_EDGE_TEMPLATES`) 그대로다.
+ *
+ * **왜 값까지 펼쳐 적는가.** 서버는 `templateId` 를 **기록만** 한다 — 프리셋의 기본값을 대신 채워
+ * 주지 않는다(채우는 쪽은 화면의 폼이다). 그래서 지휘자가 `templateId` 만 보내면 그 엣지는 이름표만
+ * 붙은 기본 엣지가 되고, 프리셋이 약속한 `forwardMode`·`returnFormat` 은 아무 데도 없다.
+ *
+ * `generic`(Custom)은 뺀다 — 역할 짝이 없어 고를 자리가 없을뿐더러, 그 프리셋의 `defaultCommandMode`
+ * 는 `tool-delegation` 이라 대상 멤버의 도구를 위임 한 벌로 갈아 끼운다. 일하는 멤버의 손을 뺏는다.
+ */
+function edgePresetSection(): string[] {
+  const rows = TASK_EDGE_TEMPLATES.filter((tmpl) => tmpl.sourceRole !== null && tmpl.targetRole !== null);
+  return [
+    '',
+    '#### 역할 짝 프리셋 — 값을 그대로 옮겨 적는다',
+    '| templateId | 쓰는 자리 | kind | forwardMode | messageFormat | returnFormat | priority |',
+    '|---|---|---|---|---|---|---|',
+    ...rows.map((tmpl) => `| \`${tmpl.id}\` | ${cell(tmpl.label)} | ${tmpl.defaultKind ?? 'command'} | ${tmpl.defaultForwardMode} | ${tmpl.defaultMessageFormat ?? 'free'} | ${tmpl.defaultReturnFormat ?? 'summary'} | ${tmpl.defaultPriority ?? 'normal'} |`),
+    '- `templateId` 는 **기록만** 된다 — 서버가 나머지 칸을 대신 채우지 않는다. 고른 줄의 값을 같은 본문에 **함께** 적는다.',
+    '- 위임 결과를 지휘자가 직접 기다리는 엣지는 `returnFormat` 을 `"both"` 로 올린다. 표의 `artifact` 는 받는 쪽이 산출물만 가져가는 자리다.',
+    '- 목록에 없는 짝이면 `templateId` 를 빼고 칸을 직접 정한다. `"generic"` 은 쓰지 않는다 — 대상 멤버의 도구를 위임 한 벌로 갈아 끼운다.',
+  ];
+}
+
+/**
+ * 멤버가 **태어날 때 이미 받아 둔 것** — 사용자 스위치라 지휘자가 바꿀 수 없다. 편성 판단에 쓰라고 싣는다.
+ *
+ * 싣지 않으면 지휘자는 워커 셋이 한 워킹트리를 동시에 고친다는 것도, 자기가 만든 멤버에게 `Write` 가
+ * 없다는 것도 모른 채 편성한다 — 둘 다 조용히 실패하고 원인이 규칙 밖에 있어 스스로 못 고친다.
+ */
+function memberBirthSection(settings: OrchestraSettings | null | undefined): string[] {
+  const isolation = resolveOrchestraMemberIsolation(settings);
+  const templateId = resolveOrchestraMemberToolTemplate(settings);
+  const template = templateId ? findAgentToolTemplate(templateId) : undefined;
+  const out: string[] = [
+    '새 멤버는 아래 상태로 **태어난다**(사용자 스위치다 — ② PATCH 로 바꾸려 해도 무시된다).',
+  ];
+  out.push(isolation === 'worktree'
+    ? '- **작업 폴더: 별도 git worktree.** 멤버마다 자기 워크트리에서 돌아 서로의 파일을 덮지 않는다. `parallel` 로 코드를 나눠 고쳐도 안전하다. 대신 **멤버의 변경은 지휘자의 워킹트리에 바로 보이지 않는다** — 결과 보고에 바뀐 파일과 브랜치를 적게 하고, 합치는 일은 사용자 몫으로 남긴다(당신이 합치지 않는다). Codex 멤버에는 이 격리가 걸리지 않는다.'
+    : '- **작업 폴더: 지휘자와 같은 워킹트리.** 멤버들이 같은 파일을 동시에 고치면 서로 덮어쓴다. 그래서 `parallel` 은 **파일이 겹치지 않을 때만** 고른다 — 겹치면 `pipeline` 으로 차례를 준다. (사용자가 오케스트라 설정에서 "멤버 작업 폴더"를 워크트리로 바꾸면 이 제약이 풀린다 — 필요하면 `note` 로 권한다.)');
+  if (template) {
+    out.push(
+      `- **도구: \`${templateId}\` 템플릿** (${template.tools.length}개) — \`${template.tools.join('`, `')}\`.`,
+      '  - 이 목록에 없는 도구는 그 멤버에게 **존재하지 않는다.** 목록에 `Write`·`Edit` 가 없으면 파일을 고치는 일을 그 멤버에게 넘기지 말고, `Bash`·`PowerShell` 이 없으면 명령을 돌리는 일을 넘기지 않는다. 역할과 도구가 안 맞으면 `note` 로 사용자에게 말한다.',
+    );
+  } else {
+    out.push('- **도구: 설정 창 기본값 그대로**(공식 표 전체). 멤버가 그 일에 필요 없는 도구까지 들고 돈다 — 도구가 많을수록 선택 품질이 떨어지고 시스템 프롬프트가 무거워진다는 것이 아래 분석 8번이다. 좁히고 싶으면 `note` 로 오케스트라 설정의 "멤버 도구 목록"을 권한다(사용자만 바꿀 수 있다).');
+  }
+  return out;
 }
 
 /** 멤버 엔진 절 — 설정에 따라 한 가지(또는 auto 면 둘 다)만 싣는다. */
@@ -170,9 +272,13 @@ function memberEngineSection(settings: OrchestraSettings | null | undefined, con
 /** ② 설정 PATCH 예시 — 셸이 달라도 같은 JSON 이다. */
 const CONFIG_PATCH_SAMPLE =
   '{"model":"sonnet","effort":"medium","maxTurns":30,"subagentDepth":1,"rules":"# 역할: Researcher\\n답할 질문: <한 줄>\\n보고: 결론 먼저, 경로+줄번호, 1,000~2,000 토큰"}';
-/** ③ 엣지 본문 예시. */
+/**
+ * ③ 엣지 본문 예시 — 프리셋(`templateId`)과 그 값을 **함께** 적는 모양을 그대로 보인다.
+ * 서버는 `templateId` 를 기록만 하고 나머지를 대신 채우지 않으므로, 예시가 id 만 들고 있으면
+ * 지휘자가 이름표만 붙은 기본 엣지를 만든다.
+ */
 const EDGE_BODY_SAMPLE =
-  '{"sourceAgentId":"<SOURCE_ID>","targetAgentId":"<TARGET_ID>","command":"<이 엣지로 넘길 일의 용도>","forwardMode":"manual","kind":"command","returnFormat":"both"}';
+  '{"sourceAgentId":"<SOURCE_ID>","targetAgentId":"<TARGET_ID>","command":"<이 엣지로 넘길 일의 용도>","templateId":"implementer-to-verifier","forwardMode":"auto","kind":"command","messageFormat":"schema","messageSchema":"{\\"changedFiles\\":[\\"<경로>\\"],\\"testsRun\\":\\"<명령>\\",\\"failures\\":[{\\"file\\":\\"<경로>\\",\\"why\\":\\"<한 줄>\\"}]}","returnFormat":"both"}';
 /** ⑤ 킥오프 본문 자리 — 엔트리도 하위 결과를 기다려야 지휘자에게 전체 결과가 돌아온다. */
 const KICKOFF_TEXT_SAMPLE = [
   '<사용자 원문 요청 전문 — escape 불필요, 여러 줄 OK>',
@@ -376,7 +482,8 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     runId,
     conductorAgentId,
     conductorSubAgentId,
-    createBody: `{"label":"Researcher","x":${Math.round(cx + radius)},"y":${cy},"project":${projectField},"orchestraRunId":"${runId}"}`,
+    // `color` 는 예시에 넣어 둔다 — 아래 "역할 색" 줄만으로는 **본문 어디에 넣는 칸인지**가 안 보인다.
+    createBody: `{"label":"Researcher","x":${Math.round(cx + radius)},"y":${cy},"project":${projectField},"color":"#6366f1","orchestraRunId":"${runId}"}`,
   };
   const proc = orchestraConductorShell(conductorEngine, platform) === 'powershell'
     ? powershellProcedure(values)
@@ -422,6 +529,7 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '- 출력 한 줄 `AGENT_ID=… AGENT_PATH=…` — `id` 는 설정·엣지·계획 신고용이다. 실패면 응답의 `error` 가 보인다.',
     `- \`"orchestraRunId":"${runId}"\` 를 **반드시** 넣는다. 그래야 이 런의 멤버로 기록되고, 그 멤버는 스스로 지휘하지 않는다.`,
     '- 429 `orchestra-member-limit` 이면 더 만들지 말고 기존 멤버를 다시 쓰거나 편성을 줄인다. 429 `custom-agent-limit` 은 프로젝트 전체 상한이다.',
+    ...roleColorSection(),
     '',
     '### ② 멤버 설정 — 지금 값을 읽어 합친 뒤 통째로 저장',
     ...code(proc.config),
@@ -433,9 +541,18 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '### ③ 엣지 — `pipeline`·`parallel` 일 때',
     ...code(proc.edge),
     '- 엣지는 source 멤버의 **위임 도구**가 된다 — source 멤버가 스스로 판단해 target 에게 일을 넘기고 결과를 받는다. 킥오프를 받은 멤버부터 차례로 흐른다.',
-    '- 필수: `sourceAgentId`·`targetAgentId`·`command`·`forwardMode`(명령 엣지는 `"manual"`, 검증 엣지는 `"auto"`). 선택: `kind`(`command`|`artifact`|`request`|`critique`)·`returnFormat`(`summary`|`full`|`both`)·`critiqueAuthority`(`force-rework`|`comment-only`, `critique` 한정).',
+    '- 필수: `sourceAgentId`·`targetAgentId`·`command`·`forwardMode`(명령 엣지는 `"manual"`, 검증 엣지는 `"auto"`).',
+    '- 선택: `kind`(`command`|`artifact`|`request`|`critique`)·`returnFormat`(`summary`|`artifact`|`both`)·`messageFormat`(`free`|`schema`)·`messageSchema`·`templateId`·`critiqueAuthority`(`force-rework`|`comment-only`, `critique` 한정).',
+    '- `returnFormat` 은 저 셋뿐이다. 다른 낱말을 적으면 **막히지 않고 그대로 저장돼** 결과 회수 경로만 조용히 빠진다.',
+    '- 상한 칸: `timeoutMs`(그 엣지 한 번의 실행 시간 상한, 미설정 = 무제한)·`priority`(`low`|`normal`|`high`, 동시에 여럿이 돌 때의 차례)·`maxReworkCount`(`critique` + `force-rework` 한정, 같은 일을 몇 번까지 되돌려 보낼지).',
+    '- **끝을 모르는 자리에 `timeoutMs` 를 둔다** — 바깥을 훑거나 오래 도는 명령을 맡기는 엣지다. 상한이 없으면 그 한 칸이 끝나지 않아 ⑥ 회수가 영영 돌아오지 않는다.',
+    '- `maxReworkCount` 는 서버 상한 안에서만 줄일 수 있다. 검수자와 작업자가 서로에게 되돌려 보내며 맴도는 것을 끊는 칸이다.',
     '- **코드를 바꾸는 편성**이면 검증 엣지를 최소 하나 깐다 — reviewer/tester → coder, `"kind":"critique","critiqueAuthority":"force-rework","forwardMode":"auto"`. 서버가 재작업 짝 엣지를 만들고, 재작업 횟수는 엣지마다 상한이 있다.',
     '- 위임 결과를 기다리는 명령 엣지는 **`returnFormat:"both"`** 로 만든다. 서버가 반환 엣지를 함께 만들고, 받지 못한 결과를 실행 세션에 묶는다.',
+    '- **넘기는 말의 양식(`messageFormat`).** `"schema"` 로 두고 `messageSchema` 에 받고 싶은 **칸 이름과 뜻**을 적으면 source 멤버가 그 양식으로 넘긴다. 줄글로 넘기면 받는 쪽이 무엇을 읽어야 할지 매번 새로 정한다 — 검증·재작업처럼 **같은 칸을 되풀이해 읽는** 엣지일수록 양식을 정해 둔다.',
+    '- `messageSchema` 는 자유 텍스트다(JSON 본보기도, 항목 목록도 된다). 예: `{"changedFiles":["<경로>"],"testsRun":"<명령>","failures":[{"file":"<경로>","why":"<한 줄>"}],"notDone":"<남은 일>"}`. 빈 값이거나 `messageFormat:"free"` 면 양식을 강제하지 않는다.',
+    '- 양식은 **엣지에 저장된다** — 그 엣지가 살아 있는 동안 계속 먹고, 엣지를 지우면 같이 사라진다. 받는 쪽 `rules` 에 같은 말을 또 적지 않는다.',
+    ...edgePresetSection(),
     '- **지휘자 → 엔트리 연결은 필수**다. ④ 계획 신고가 이 명령 엣지와 반환 엣지를 만들거나 재사용하므로 여기서 중복으로 만들지 않는다. 멤버끼리의 연결도 아래 "이미 있는 엣지"를 먼저 재사용한다.',
     '- 기존 연결은 사용자 산출물이다. 이번에 쓰지 않는다고 삭제하지 않는다. 예전 런의 엣지가 남아 있어도 현재 계획의 엔트리와 필요한 작업만 명시적으로 실행한다.',
     '',
@@ -465,6 +582,9 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '## 3. 마무리',
     '- 편성했으면: **끝난 결과를 회수하기 전에는 턴을 완료하지 않는다.** 편성·접수 보고는 중간 안내일 뿐이다. 최종 답변에는 실제 변경/결과, 수행한 검증, 남은 실패·차단을 정리한다.',
     '- `none` 이면: 신고한 뒤 요청에 직접 답한다.',
+    '',
+    '## 멤버가 태어날 때 받는 것 (사용자 스위치 — 바꿀 수 없다)',
+    ...memberBirthSection(settings),
     '',
     '## 멤버 엔진',
     ...memberEngineSection(settings, conductorEngine, args.readyEngines),
@@ -502,29 +622,37 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     );
   }
 
-  out.push('', '## 기존 멤버 (이전 런이 만든 것 — 다시 쓰기 우선)');
+  out.push('', '## 다시 쓸 수 있는 멤버 (① 로 새로 만들기 전에 먼저 본다)');
   if (existingMembers.length === 0) {
     out.push('없음 — 필요하면 ① 로 새로 만든다.');
   } else {
     out.push(
-      '| label | id | path | engine | model |',
-      '|---|---|---|---|---|',
-      ...existingMembers.map((m) => `| ${cell(m.label)} | \`${m.id}\` | \`${m.path}\` | ${m.engine} | ${cell(m.model ?? '')} |`),
+      '| label | id | path | engine | model | 출처 |',
+      '|---|---|---|---|---|---|',
+      ...existingMembers.map((m) => `| ${cell(m.label)} | \`${m.id}\` | \`${m.path}\` | ${m.engine} | ${cell(m.model ?? '')} | ${m.own ? '내 이전 런' : '프로젝트'} |`),
+      '- **내 이전 런**이 1순위, **프로젝트**(사용자가 손으로 만들었거나 다른 지휘자가 만든 버블)가 2순위다. 둘 다 ④ 의 `reusedAgentIds` 에 넣을 수 있다.',
+      '- 다시 쓰는 멤버도 ② 로 이번 일에 맞게 `rules` 를 고쳐 준다. 앞 런의 역할 문구가 남아 있으면 엉뚱한 일을 한다.',
+      '- **프로젝트** 쪽은 사용자 산출물이다 — 이번 일에 맞지 않으면 고치려 들지 말고 그냥 두고 ① 로 새로 만든다.',
     );
   }
 
   if (existingEdges.length > 0) {
+    // 후보가 프로젝트 전체로 넓어지면 이 표도 같이 넓어진다 — 규칙 길이가 그래프 크기를 따라가지 않게 자른다.
+    const shown = existingEdges.slice(0, EDGE_TABLE_MAX);
     out.push(
       '',
       '### 이미 있는 엣지',
       '| id | source → target | kind | 용도 |',
       '|---|---|---|---|',
-      ...existingEdges.map((e) => {
+      ...shown.map((e) => {
         const src = labelOf.get(e.sourceAgentId) ?? e.sourceAgentId;
         const dst = labelOf.get(e.targetAgentId) ?? e.targetAgentId;
         return `| \`${e.id}\` | ${cell(src)} → ${cell(dst)} | ${e.kind ?? 'command'} | ${cell(oneLine(e.command, EDGE_COMMAND_PREVIEW_MAX))} |`;
       }),
     );
+    if (existingEdges.length > shown.length) {
+      out.push(`- 그 밖에 ${existingEdges.length - shown.length}개가 더 있다 — 필요하면 \`GET /api/task-edges\` 로 전부 본다.`);
+    }
   }
 
   out.push(

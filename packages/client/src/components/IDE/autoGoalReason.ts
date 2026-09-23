@@ -8,6 +8,7 @@ const REASON_KEYS = new Map<string, string>([
   ['Procedure applicability changed after review.', 'applicabilityChanged'],
   ['Procedure instructions changed after review.', 'instructionsChanged'],
   ['A reviewed dependency changed or is unavailable.', 'dependencyChanged'],
+  ['user-approved', 'userApproved'],
   ['user-paused', 'userPaused'],
   ['user-requested-review', 'userRequestedReview'],
 ]);

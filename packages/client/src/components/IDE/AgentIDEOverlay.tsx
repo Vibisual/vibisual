@@ -88,7 +88,7 @@ import { useWorkspaceEntryDrop } from './useWorkspaceEntryDrop.js';
 import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
 import { IDERunOutputPanel } from './IDERunOutputPanel.js';
-import { mergeDeepWindow } from './streamHistory.js';
+import { restoreStreamWindow } from './streamRestore.js';
 import { useRunSessions } from '../../stores/runSessions.js';
 import { useReadingSettings } from './reading/useReadingSettings.js';
 // §6 — 창 배치 키는 레지스트리가 정한다(여기 조합을 적지 않는다).
@@ -2243,14 +2243,16 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // 앱 재시작 없이 이 재요청으로 되살린다(loadStreamBuffers 가 세션 스트림을 디스크 버퍼로 재적재).
   const fetchAllStreams = useCallback(() => {
     if (!agentId) return;
+    const epoch = useGraphStore.getState().streamRestoreEpoch;
     setRefreshing(true);
     fetch(`/api/subagent-streams/${agentId}`)
       .then((r) => r.json())
-      .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
+      .then(async (data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
         // 'shallow' — 세션당 얕은 꼬리(`MAX_STREAM_BUFFER_BULK`)라, 이미 깊은 복원분을 들고 있는
         // 세션은 스토어가 줄이지 않고 겹치지 않는 꼬리만 이어 붙인다(늦게 도착한 얕은 응답이
         // 깊은 창을 덮어 되돌리던 것을 막는다).
-        if (data.streams) useGraphStore.getState().loadStreamBuffers(data.streams, 'shallow');
+        await Promise.all(Object.entries(data.streams ?? {}).map(([sid, events]) =>
+          restoreStreamWindow(agentId, sid, events, { epoch, depth: 'shallow' })));
       })
       .catch(() => {})
       .finally(() => setRefreshing(false));
@@ -2309,6 +2311,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   그리고 아래 `run` 은 **성공할 때까지 포기하지 않는다**(2026-09-08) — 몇 번 묻고 그만두면
   //   의존성이 그대로라 다시 도는 길이 없어, 그 세 번이 하필 빈 응답일 때 화면이 그대로 굳었다.
   const deepRestored = useGraphStore((s) => (activeSessionId ? s.deepRestoredSessions[activeSessionId] === true : true));
+  const streamRestoreEpoch = useGraphStore((s) => s.streamRestoreEpoch);
   useEffect(() => {
     if (!agentId || !activeSessionId || deepRestored) return;
     let cancelled = false;
@@ -2329,20 +2332,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     const run = (attempt: number): void => {
       fetch(`/api/subagent-streams/${agentId}/${activeSessionId}`)
         .then((r) => r.json())
-        .then((data: { events?: SubAgentStreamEvent[] }) => {
+        .then(async (data: { events?: SubAgentStreamEvent[] }) => {
           if (cancelled) return;
           const server = data.events;
           if (!server || server.length === 0) {
             retryTimer = setTimeout(() => run(attempt + 1), delayFor(attempt));
             return;
           }
-          // ⚠ 이 적재는 그 세션의 버퍼를 **교체**한다. 요청이 오가는 사이 WS 로 도착한 라이브
-          //   이벤트가 응답에는 없으므로, 그대로 덮으면 방금 흘러온 몇 줄이 화면에서 사라진다
-          //   (에이전트가 말하는 중에 탭을 옮기면 바로 보이는 증상). 서버 응답의 마지막 시각
-          //   이후분만 id 로 걸러 뒤에 이어 붙여 순서를 지킨다.
-          //   §5.5 #17-12 — 버퍼가 서버 창보다 앞에서 시작해 이어지면 그 앞도 남긴다(깊은 복원이 창을 줄이지 않게).
-          const prev = useGraphStore.getState().subAgentStreams[activeSessionId] ?? [];
-          useGraphStore.getState().loadStreamBuffers({ [activeSessionId]: mergeDeepWindow(server, prev) }, 'deep');
+          // The last server window may start after the disconnected gap. Join it through /older before
+          // committing; merge the latest live buffer only after every page arrives.
+          const restored = await restoreStreamWindow(agentId, activeSessionId, server, {
+            epoch: streamRestoreEpoch, cancelled: () => cancelled,
+          });
+          if (!restored && !cancelled) retryTimer = setTimeout(() => run(attempt + 1), delayFor(attempt));
         })
         .catch(() => {
           if (cancelled) return;
@@ -2354,7 +2356,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       cancelled = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [agentId, activeSessionId, deepRestored]);
+  }, [agentId, activeSessionId, deepRestored, streamRestoreEpoch]);
 
   // + 탭 클릭 — 브라우저 새 탭 처럼 클릭 즉시 새 탭 생성 + 포커스 (서버 응답 대기 X).
   //   1) 클라이언트가 sub id 미리 생성

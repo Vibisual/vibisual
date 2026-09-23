@@ -120,7 +120,20 @@ function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
   );
 }
 
-export function useWebSocket(url: string): UseWebSocketReturn {
+/**
+ * §5.5 #17-11 ⑦ 개정 — `announceCompletions` 는 **이 창이 완료음·완료 알림을 내는 창인가**.
+ *
+ * 다섯 셸(App·지휘통제실·별창·오버레이·비디오 스튜디오)이 저마다 이 훅을 마운트하므로, 게이트가
+ * 없으면 창을 두 개 띄운 사용자는 **같은 종료를 창 수만큼** 듣는다. `claimCompletionChime` 의
+ * localStorage 클레임은 그 대부분을 접지만 창마다 렌더러 프로세스가 달라 읽기→쓰기 사이가 갈리면
+ * 둘 다 통과한다 — 확률에 기대지 않고 **소리를 내는 창을 하나로 정한다**(통상적인 앱처럼 부속
+ * 창은 알림을 내지 않는다). 기본값이 `false` 라 새 셸이 늘어도 조용한 쪽이 기본이다.
+ */
+export function useWebSocket(
+  url: string,
+  options?: { announceCompletions?: boolean },
+): UseWebSocketReturn {
+  const announceCompletions = options?.announceCompletions ?? false;
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -375,26 +388,29 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     // 서브가 남아 있는 동안에는 넘어오지 않는다).
     // §5.5 #17-11 ⑦ v3.84 — 세션 루프가 도는 동안에는 회차마다 오는 완료 전이를 침묵시키고
     // 루프 묶음이 끝날 때 한 번만 울리므로, 판정에 스냅샷의 `sessionLoops` 를 함께 넘긴다.
-    for (const finished of detectCustomAgentCompletions(snap.agents, snap.sessionLoops)) {
-      if (!claimCompletionChime()) break;
-      playCompletionChime();
-      const body = i18n.t(
-        finished.reason === 'loop'
-          ? 'common.notifications.loopCompleted'
-          : 'common.notifications.agentCompleted',
-      );
-      showBrowserNotification(
-        'Vibisual',
-        finished.agent.label ? `${finished.agent.label} — ${body}` : body,
-        () => useGraphStore.getState().requestFocus(),
-      );
+    // 부속 창은 판정 자체를 돌리지 않는다 — 소리를 내는 창은 하나뿐이다(위 `announceCompletions`).
+    if (announceCompletions) {
+      for (const finished of detectCustomAgentCompletions(snap.agents, snap.sessionLoops)) {
+        if (!claimCompletionChime()) break;
+        playCompletionChime();
+        const body = i18n.t(
+          finished.reason === 'loop'
+            ? 'common.notifications.loopCompleted'
+            : 'common.notifications.agentCompleted',
+        );
+        showBrowserNotification(
+          'Vibisual',
+          finished.agent.label ? `${finished.agent.label} — ${body}` : body,
+          () => useGraphStore.getState().requestFocus(),
+        );
+      }
     }
     const cost = performance.now() - t0;
     snapshotDelayRef.current = Math.min(
       Math.max(WS_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
       WS_BATCH_INTERVAL_MAX,
     );
-  }, [applyGraphSnapshot]);
+  }, [applyGraphSnapshot, announceCompletions]);
 
   const flushStreamEvents = useCallback(() => {
     streamTimerRef.current = null;

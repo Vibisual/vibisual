@@ -11,7 +11,7 @@
  * 이 파일은 그 결과를 **어떤 색·어떤 낱말로 그릴지**만 갖는다.
  */
 
-import { EMPTY_SESSION_RUN_INPUTS, resolveSessionRunState } from '@vibisual/shared';
+import { EMPTY_SESSION_RUN_INPUTS, isBackgroundShellTask, resolveSessionRunState } from '@vibisual/shared';
 import type {
   NodeStatus,
   QueuedCommand,
@@ -35,16 +35,23 @@ export const SESSION_STATUS_DOT_BG: Record<SessionRunState, string> = {
   // §2.4 (한도 정지) — 끝난 것도 실패한 것도 아니고 **끊긴 것**. 실패의 빨강과 완료의 초록 사이,
   //   "손대야 다시 간다"를 말하는 주황이다. 빨강처럼 사고를 알리지 않고 초록처럼 안심시키지도 않는다.
   limited: 'bg-orange-400',
+  // §5.5 #17-18 (대기) — **낼 일이 남았다.** 다섯 색 어디에도 섞이면 안 된다: 파랑이면 "돌고
+  //   있다"는 거짓말이고, 초록이면 사용자가 그 "끝남"을 믿고 덧말을 또 보낸다(이 축이 생긴 사고).
+  //   주황(한도)과도 갈라야 한다 — 저쪽은 손대야 가고 이쪽은 앞이 비면 저절로 간다.
+  waiting: 'bg-violet-400',
   // 끝났는데 아직 안 봤다 = 사용자를 부르는 색.
   doneUnseen: 'bg-emerald-400',
   // 확인까지 끝났다 = 배경으로 물러난다.
   done: 'bg-gray-500',
 };
 
-/** 그 색이 **스스로 뛰는가** — 지금 무슨 일이 일어나는 중인 두 상태만 참이다. */
+/** 그 색이 **스스로 뛰는가** — 아직 끝나지 않은(= 화면이 사용자를 붙드는) 상태만 참이다. */
 const SESSION_STATUS_DOT_PULSE: Record<SessionRunState, boolean> = {
   running: true,
   limited: true,
+  // 줄 서 있는 것도 **끝난 것이 아니다.** 멈춘 색으로 그리면 옆의 회색 완료들과 섞여,
+  //   "보낸 말이 아직 안 나갔다"는 사실이 화면에서 통째로 사라진다.
+  waiting: true,
   error: false,
   doneUnseen: false,
   done: false,
@@ -76,13 +83,45 @@ export const SESSION_STATUS_DOT: Record<SessionRunState, string> = Object.fromEn
 /** 여운이 남는 시간. 사용자가 정한 값("10초간 그 불이 깜빡") — 깜빡임 횟수도 이 길이를 따른다. */
 export const SESSION_FOCUS_GLOW_MS = 10_000;
 
+/**
+ * **확인한 그 자리에 남는 여운** — 세션 탭에서 완료를 확인해 초록이 회색으로 내려앉을 때.
+ *
+ * 위 값과 길이가 다른 이유는 손짓이 다르기 때문이다. [창과 버블] 목록의 줄은 "내가 **무슨 색**을
+ * 눌러 들어왔나"를 알려 줘야 해서 10초가 필요했지만, 세션 탭을 확인하는 손은 이미 그 탭을 보고
+ * 있으므로 **"방금 이게 확인됐다"만 짧게** 말하면 된다(사용자 지시 — "확인 했음을 5초동안
+ * 깜빡이게"). 종전에는 이 자리에 여운이 아예 없어 초록이 **한 프레임 만에** 회색이 됐다.
+ */
+export const SESSION_ACK_GLOW_MS = 5_000;
+
 /** 눌러 들어간 자국 한 벌 — 어느 색이었나(`state`), 언제 눌렀나(`at`). */
 export interface SessionFocusGlow {
   /** 누른 그 순간의 색. 이 색으로 여운이 남는다. */
   state: SessionRunState;
-  /** 누른 시각(ms). `SESSION_FOCUS_GLOW_MS` 가 지나면 여운은 끝난다. */
+  /** 누른 시각(ms). 아래 수명이 지나면 여운은 끝난다. */
   at: number;
+  /**
+   * 이 자국만의 수명(ms). 없으면 `SESSION_FOCUS_GLOW_MS`(= 누른 색의 여운, 10초).
+   * 확인 여운은 `SESSION_ACK_GLOW_MS` 를 담아 더 짧게 산다 — **몸짓의 깜빡임 횟수도 이 값이
+   * 정한다**(1초에 한 번이라 수명 ÷ 1초 = 횟수). 수명이 자국에 붙어 있어야 두 여운이 같은
+   * 스토어·같은 함수를 쓰면서 서로의 길이를 잘라먹지 않는다.
+   */
+  ms?: number;
 }
+
+/** 이 자국이 몇 ms 사는가 — 담긴 값이 없으면 기본 여운 길이. */
+export function sessionGlowLifespan(glow: SessionFocusGlow): number {
+  return glow.ms ?? SESSION_FOCUS_GLOW_MS;
+}
+
+/**
+ * 수명 → 몸짓 클래스(`index.css`). 깜빡임은 1초에 한 번이라 **반복 횟수가 곧 수명**인데 CSS 는
+ * 그 횟수를 변수로 받지 못하므로, 길이마다 유틸리티가 하나씩 있다. 새 길이를 쓰려면 여기 한 줄과
+ * `index.css` 의 `@utility` 한 벌을 함께 늘린다.
+ */
+const SESSION_GLOW_ANIM: Record<number, string> = {
+  [SESSION_FOCUS_GLOW_MS]: 'animate-session-glow',
+  [SESSION_ACK_GLOW_MS]: 'animate-session-glow-brief',
+};
 
 /**
  * 지금 그 도트를 **무슨 색으로, 뛰게 할 것인가** — 여운과 실제 상태를 한 곳에서 합친다.
@@ -100,7 +139,7 @@ export function resolveSessionDot(
   now: number,
 ): { state: SessionRunState; glowing: boolean } {
   // 만료는 스토어 타이머가 걷지만 여기서도 본다 — 타이머를 놓친 프레임이 옛 색을 그리면 안 된다.
-  const live = glow !== undefined && now - glow.at < SESSION_FOCUS_GLOW_MS;
+  const live = glow !== undefined && now - glow.at < sessionGlowLifespan(glow);
   if (!live) return { state: actual, glowing: false };
   const state = actual === 'done' ? glow.state : actual;
   return { state, glowing: state === glow.state };
@@ -116,8 +155,11 @@ export function sessionDotClass(
   now: number,
 ): string {
   const { state, glowing } = resolveSessionDot(actual, glow, now);
+  if (!glowing || glow === undefined) return SESSION_STATUS_DOT[state];
   // 여운은 제 몸짓을 입으므로 색표의 `animate-pulse` 를 떼고 색만 가져간다.
-  return glowing ? `${SESSION_STATUS_DOT_BG[state]} animate-session-glow` : SESSION_STATUS_DOT[state];
+  //   몸짓의 길이는 **그 자국이 정한다** — 누른 색은 10초, 확인 여운은 5초.
+  const anim = SESSION_GLOW_ANIM[sessionGlowLifespan(glow)] ?? 'animate-session-glow';
+  return `${SESSION_STATUS_DOT_BG[state]} ${anim}`;
 }
 
 /** 상태 → i18n 키(`panel.subAgent.status.*` 재사용 — 새 문자열 ❌). */
@@ -126,6 +168,9 @@ export const SESSION_STATUS_LABEL_KEY: Record<SessionRunState, string> = {
   error: 'panel.subAgent.status.error',
   // §2.4 (한도 정지) — 이 낱말은 기존 어휘로 대체할 수 없다. "오류"도 "끝남"도 사실이 아니다.
   limited: 'panel.subAgent.status.limited',
+  // §5.5 #17-18 (대기) — "대기"는 기존 어휘로 못 덮는다. `idle`("대기")과 낱말이 겹쳐 보이지만
+  //   그쪽은 **할 일이 없어 쉬는 것**이고 이쪽은 **할 일이 있는데 못 나간 것**이라 정반대다.
+  waiting: 'panel.subAgent.status.waiting',
   // 미확인이든 확인이든 사실은 "끝남" 하나다 — 그 차이는 색이 말한다.
   doneUnseen: 'panel.subAgent.status.done',
   done: 'panel.subAgent.status.done',
@@ -165,9 +210,13 @@ export const NODE_STATUS_AS_SUB_STATUS: Record<NodeStatus, SubAgentStatus | null
 /**
  * 세션 탭 하나의 표시 상태 — **도트를 그리는 모든 화면이 이 함수를 쓴다.**
  *
- * 도트는 `SubAgent.status` + 확인 여부만으로 답이 나온다(명령·백그라운드 Task 는 서버가 이미
- * `sub.status` 에 반영해 둔다). 그래서 여기서는 store 를 더 뒤지지 않는다 — 탭바처럼 자주 다시
- * 그려지는 자리가 명령 큐까지 구독하면 리렌더만 늘고 답은 같다.
+ * 종전 주석은 "명령 큐는 서버가 이미 `sub.status` 에 반영해 두므로 여기서 더 뒤질 것이 없다"고
+ * 적어 두었다. **그것이 틀렸다.** 앞 턴의 `executing` 이 좀비로 남아 자물쇠를 쥐고 있으면 뒤에
+ * 선 명령은 `queued` 로 멈춰 서는데, 그 세션의 `sub.status` 는 `idle` 이다 — 그래서 화면은
+ * **"완료"라고 말한다.** 사용자는 그 완료를 믿고 덧말을 보내고, 덧말은 또 줄만 선다(사용자 보고:
+ * "완료 표시를 믿고 추가 작업을 시켰는데 대기로 빠지고 «작업 중»만 뜬 채 일을 안 한다").
+ * 그래서 큐는 **판정에 들어와야 한다.** 리렌더 비용은 `serializePendingSubIds` 로 접어
+ * 막는다 — 켜짐/꺼짐이 실제로 바뀔 때만 값이 달라지는 문자열 하나를 구독한다.
  */
 export function sessionRunStateOf(
   sub: SubAgent,
@@ -180,17 +229,53 @@ export function sessionRunStateOf(
    * status 는 idle 로 남는다.** 그러면 자식이 도는 내내 탭 도트가 꺼져 있다(사용자 보고:
    * "서브 에이전트가 동작중인데 왜 세션은 동작 불이 꺼져버리냐"). 화면은 귀속이 풀리든 말든
    * 실행 목록에 그 세션의 작업이 있으면 켜져 있어야 한다.
+   *
+   * **여기 들어오는 것은 `serializeBusySubIds` 가 걸러 낸 에이전트 자식뿐이다** — 백단 셸은
+   * 도트를 켜지 않는다(`isBackgroundShellTask`). 셸은 모델을 돌리지 않으므로 그 탭의 답은 이미
+   * 나와 있고, 도트를 켜면 끝난 대화가 영영 파랗게 남는다.
    */
   hasBackgroundWork = false,
+  /**
+   * 이 세션 앞에 **아직 나가지 않은 명령**이 있는가(`queued`). `serializePendingSubIds` 가
+   * 걸러 낸 집합에서 온다.
+   *
+   * 빠지면 그 세션은 `doneUnseen`(초록 "끝남")으로 내려앉는다 — 이 인자가 생긴 사고가 바로
+   * 그것이다. 기본값이 `false` 인 것은 **넘기지 않은 호출부의 답을 종전 그대로** 두기 위함이고
+   * (Open-Closed), 도트를 그리는 자리는 전부 넘긴다.
+   */
+  hasQueuedCommand = false,
 ): SessionRunState {
   return resolveSessionRunState({
     ...EMPTY_SESSION_RUN_INPUTS,
     subStatus: sub.status,
-    runningTaskCount: hasBackgroundWork ? 1 : 0,
+    runningAgentTaskCount: hasBackgroundWork ? 1 : 0,
+    // **`hasExecutingCommand` 로 올리지 않는다.** 좀비 `executing`(자식이 사라졌는데 상태만
+    //   남은 것)이 바로 이 사고의 시작이라, 그것을 "도는 중"으로 세탁하면 파란불이 영영 켜진
+    //   채로 남는다. 나갈 차례를 못 받고 있다는 사실은 `queued` 쪽이 이미 말한다.
+    hasQueuedCommand,
     acknowledged,
     // §2.4 (한도 정지) — 서버가 세워 둔 사실을 접기만 한다(여기서 만료·판정 ❌).
     usageLimited: sub.usageLimit !== undefined,
   });
+}
+
+/**
+ * **아직 나가지 않은 명령을 가진 세션 id 들**을 문자열 하나로 접는다 — `serializeBusySubIds` 와
+ * 같은 수법이고, 재료만 `runningSubagentTasks` 대신 명령 큐다.
+ *
+ * 도트를 그리는 자리가 `queuedCommands` 배열을 그대로 구독하면 스냅샷마다 새 참조라 매번
+ * 리렌더한다. 여기서 정렬된 문자열로 접으면 **줄 선 세션이 실제로 바뀔 때만** 값이 달라진다.
+ *
+ * `executing` 은 **일부러 뺀다** — 그쪽은 `sub.status` 가 이미 말하고, 좀비로 남은 `executing`
+ * 까지 주워 오면 끝난 세션이 영영 도는 중으로 보인다(그 오판이 이 축이 생긴 사고의 절반이다).
+ */
+export function serializePendingSubIds(commands: QueuedCommand[] | undefined): string {
+  if (!commands || commands.length === 0) return '';
+  const ids = new Set<string>();
+  for (const c of commands) {
+    if (c.status === 'queued' && c.subAgentId) ids.add(c.subAgentId);
+  }
+  return [...ids].sort().join(',');
 }
 
 /**
@@ -203,7 +288,22 @@ export function sessionRunStateOf(
 export function serializeBusySubIds(tasks: RunningSubagentTask[] | undefined): string {
   if (!tasks || tasks.length === 0) return '';
   const ids = new Set<string>();
-  for (const t of tasks) { if (t.subAgentId) ids.add(t.subAgentId); }
+  // **셸은 빼고 센다** — 도트는 실행 축이고, 셸은 그 축에 없다(`isBackgroundShellTask`).
+  //   종전에는 `grep | sort` 하나가 탭 도트를 영영 파랗게 붙들었다.
+  for (const t of tasks) { if (t.subAgentId && !isBackgroundShellTask(t)) ids.add(t.subAgentId); }
+  return [...ids].sort().join(',');
+}
+
+/**
+ * 같은 접기지만 **셸 쪽** — 표시 축이 쓴다(활동바 점등·"백단에서 N개" 한 줄).
+ *
+ * 실행 축과 **직교**한다: 여기 이름이 올라도 그 세션은 끝난 것으로 그린다. 값이 바뀔 때만
+ * 리렌더하도록 `serializeBusySubIds` 와 같은 수법으로 정렬된 문자열을 만든다.
+ */
+export function serializeShellSubIds(tasks: RunningSubagentTask[] | undefined): string {
+  if (!tasks || tasks.length === 0) return '';
+  const ids = new Set<string>();
+  for (const t of tasks) { if (t.subAgentId && isBackgroundShellTask(t)) ids.add(t.subAgentId); }
   return [...ids].sort().join(',');
 }
 
@@ -234,13 +334,14 @@ export function buildSessionRunInputs(src: SessionRunInputSources): SessionRunIn
   const subId = src.sub?.id ?? null;
   const owned = (cmd: QueuedCommand): boolean => subId === null || cmd.subAgentId === subId;
   const cmds = src.commands ?? [];
+  const ownedTasks = (src.runningTasks ?? []).filter((t) => subId === null || t.subAgentId === subId);
   return {
     subStatus: src.sub?.status ?? null,
     hasExecutingCommand: cmds.some((c) => c.status === 'executing' && owned(c)),
     hasQueuedCommand: cmds.some((c) => c.status === 'queued' && owned(c)),
-    runningTaskCount: (src.runningTasks ?? []).filter(
-      (t) => subId === null || t.subAgentId === subId,
-    ).length,
+    // 두 축을 **여기서 한 번** 가른다 — 호출부가 다시 origin 을 비교하지 않도록.
+    runningAgentTaskCount: ownedTasks.filter((t) => !isBackgroundShellTask(t)).length,
+    backgroundShellCount: ownedTasks.filter((t) => isBackgroundShellTask(t)).length,
     acknowledged: src.acknowledged,
     // §2.4 (한도 정지) — 세션이 특정되지 않는 자리(메인 탭)는 한도를 말할 대상이 없다.
     usageLimited: src.sub?.usageLimit !== undefined,

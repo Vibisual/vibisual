@@ -235,9 +235,14 @@ export function resolveAgentRunSummary(
       ? 'limited'
       : bubbleState === 'error' || sessionStates.includes('error')
         ? 'error'
-        : agent.status === 'completed' || sessionStates.includes('doneUnseen')
-          ? 'doneUnseen'
-          : 'done';
+        // §5.5 #17-18 (대기) — **완료보다 먼저 본다.** 줄 선 명령이 하나라도 있으면 그 버블은
+        //   끝난 것이 아니다. 여기서 빠뜨리면 헤더 배지만 초록 "끝남"으로 앞서 나가, 정작 탭
+        //   도트는 보라로 켜져 있는데 위쪽 한 줄이 사용자를 안심시킨다.
+        : sessionStates.includes('waiting')
+          ? 'waiting'
+          : agent.status === 'completed' || sessionStates.includes('doneUnseen')
+            ? 'doneUnseen'
+            : 'done';
 
   // §2.4 (한도 정지) — 표시 재료는 **끊긴 것으로 판정된 세션**에서만 꺼낸다(다시 돌린 세션에
   //   남아 있는 옛 표식을 주워 오면 도는 줄에 "멈춤"이 붙는다).

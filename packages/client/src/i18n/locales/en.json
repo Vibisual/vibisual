@@ -82,9 +82,6 @@
       "soloFocus": "Show only this window (collapse the rest)",
       "limited": "stopped",
       "limitedUntil": "resets {{at}}",
-      "limitedBanner": "{{count}} session(s) stopped by the usage limit — listed first below",
-      "limitedAck": "Got it",
-      "limitedAckHint": "Clears the orange marker — sessions and transcripts stay",
       "settings": "Agent settings",
       "expand": "Expand",
       "collapse": "Collapse",
@@ -1725,7 +1722,8 @@
         "running": "running",
         "done": "done",
         "error": "error",
-        "limited": "rate-limited"
+        "limited": "rate-limited",
+        "waiting": "queued"
       },
       "probe": {
         "checking": "checking…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Untitled conversation",
       "revisionOf": "rev {{index}}/{{total}}",
       "failedBadge": "Failed: {{count}}",
-      "failedBadgeTip": "Failed compactions ({{scope}}): {{count}}. Each failed row carries a red chip with the reason."
+      "failedBadgeTip": "Failed compactions ({{scope}}): {{count}}. Each failed row carries a chip with the reason."
     },
     "remoteAccess": {
       "title": "Remote Access",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Restore Korean word spacing",
       "voiceRespaceHint": "The recognizer emits Korean without spaces; this splits it at particles and endings. It is rule-based, so it is not perfect — you can fix the result in the input box.",
       "stallHint": "Long reasoning or tool calls can pause updates. This alone does not mean the session has stopped.",
-      "stallNotice": "Waiting for the next update. Last activity was {{value}} ago.",
-      "stallKeepWaiting": "Keep waiting",
-      "stallKeepWaitingTitle": "Hide this notice and continue waiting for the next update.",
+      "backgroundShells": "{{count}} background shell still running. The answer is already in — you can keep typing.",
+      "backgroundShellsTip": "A background Bash or Monitor command left over from an earlier turn. It runs a command, not a model, so it does not hold this session. Commands that never exit on their own (tail -f, while true, a piped sort) stay here until you remove them.",
+      "backgroundShellsOpen": "View",
       "stopNothing": "Nothing was running to stop. The \"running\" label was stale.",
       "stopNothingHint": "The server found no child process, queued command or background task for this scope.",
       "stopForce": "Force close",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Subagent",
       "commandReceived": "Command received",
       "promptSuggestion": "Suggested next prompt",
-      "imageMissing": "(image unavailable)"
+      "imageMissing": "(image unavailable)",
+      "waiting": "waiting"
     },
     "report": {
       "title": "Work report",
@@ -3502,18 +3501,19 @@
       "superseded": "Plan updated"
     },
     "cmdError": {
-      "spawn": "Claude CLI could not start",
+      "spawn": "{{engine}} could not start",
       "stdin": "Could not deliver the prompt to the running session",
-      "exit": "Claude CLI exited with code {{code}}",
-      "exitUnknown": "Claude CLI exited unexpectedly",
+      "exit": "{{engine}} exited with code {{code}}",
+      "exitUnknown": "{{engine}} exited unexpectedly",
       "crash": "The session process died unexpectedly (code {{code}})",
       "crashUnknown": "The session process died unexpectedly",
       "local": "The local model run failed",
-      "cli": "Claude CLI reported a failure",
+      "cli": "{{engine}} reported a failure",
       "maxTurns": "Stopped at the max turns limit",
       "agentView": "The agent run ended in failure",
       "orphaned": "Interrupted when the app restarted",
       "dispatchResult": "Ended before receiving the delegated task result",
+      "usageLimit": "Stopped at the usage limit",
       "unknown": "Failed for an unknown reason"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Refresh procedures",
       "details": "Show procedure details",
       "hideDetails": "Hide procedure details",
+      "approve": "Approve",
+      "approveHint": "Approve now, using the files this procedure already lists as evidence. Agents normally do this on their own.",
+      "approveNoEvidence": "This procedure lists no supporting files, so it cannot be approved here.",
       "pause": "Stop using",
       "requestReview": "Request agent review",
       "reviewHint": "A working agent reviews relevant procedures. Requesting review does not activate a procedure.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "The conditions for using this procedure changed after review.",
         "instructionsChanged": "The procedure instructions changed after review.",
         "dependencyChanged": "A reviewed supporting file changed or is no longer available.",
+        "userApproved": "You approved this procedure.",
         "userPaused": "You stopped using this procedure.",
         "userRequestedReview": "You requested another review of this procedure."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Let the conductor ask me questions",
         "askQuestionsHint": "Adds AskUserQuestion to its tools. Off by default — when on, a vague order may pause until you answer.",
         "engine": "Member engine",
-        "maxMembers": "Most members it may create"
+        "maxMembers": "Most members it may create",
+        "memberIsolation": "Give each member its own working tree",
+        "memberIsolationHint": "Every member is born in its own git worktree, so workers running side by side cannot collide on the same files. Merging the branches afterwards is yours to do. Claude members only — Codex has no matching flag.",
+        "memberToolTemplate": "Tools members are born with"
       },
       "permission": {
         "bypass": "Skip permission prompts",
@@ -4734,7 +4741,11 @@
           "auto": "Conductor chooses per role",
           "inherit": "Same as conductor ({{engine}})"
         },
-        "maxDefault": "Default ({{count}})"
+        "maxDefault": "Default ({{count}})",
+        "isolationClaudeOnly": "Codex members do not get this — they run straight in the project folder.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Agent default (every tool)",
+        "toolsHint": "The conductor cannot widen this list. Narrow tools keep a member on its own job — a reviewer that cannot write will not quietly \"fix\" what you asked it to check."
       },
       "strategies": {
         "title": "Token-saving strategies",
@@ -5757,6 +5768,7 @@
     "waitingFor": "waiting {{time}}",
     "queued": "{{count}} queued",
     "running": "{{count}} running",
+    "backgroundShells": "{{count}} background shell",
     "jumpHint": "Open this session in the main window",
     "commandHint": "Send a message without leaving this window",
     "moreHint": "More actions",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Message this session… (Enter to send)",
     "send": "Send",
     "searchPlaceholder": "Search sessions —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Searching conversation history…",
+    "historySearchFailed": "Some conversation history could not be searched.",
+    "retryHistorySearch": "Retry history search",
     "clearSearch": "Clear",
     "resultCount": "{{count}} matches",
     "sessionCount": "{{count}} sessions",

@@ -23,12 +23,14 @@ import {
   ORCHESTRA_RUN_SNAPSHOT_MAX,
   SPEC_SCOPE_ENTRY_MAX,
 } from './constants.js';
+import { findAgentToolTemplate } from './agentToolTemplates.js';
 import { ORCHESTRA_STRATEGIES, findOrchestraStrategy, isOrchestraStrategyId } from './orchestraCatalog.js';
 import type { OrchestraStrategy } from './orchestraCatalog.js';
 import type {
   OrchestraConductorPermission,
   OrchestraIntent,
   OrchestraMemberEngine,
+  OrchestraMemberIsolation,
   OrchestraPlan,
   OrchestraPlanChoice,
   OrchestraRun,
@@ -51,6 +53,9 @@ export const ORCHESTRA_TOPOLOGIES: readonly OrchestraTopology[] = ['none', 'sing
 
 /** 멤버 엔진 셋 — `auto` 는 지휘자가 역할마다 고른다. */
 export const ORCHESTRA_MEMBER_ENGINES: readonly OrchestraMemberEngine[] = ['claude', 'codex', 'auto'];
+
+/** 멤버 작업 폴더 격리 둘 — 기본은 `none`(이 기능이 없던 때와 같다). */
+export const ORCHESTRA_MEMBER_ISOLATIONS: readonly OrchestraMemberIsolation[] = ['none', 'worktree'];
 
 /** 지휘 턴 권한 둘. */
 export const ORCHESTRA_CONDUCTOR_PERMISSIONS: readonly OrchestraConductorPermission[] = ['bypass', 'inherit'];
@@ -207,6 +212,51 @@ export function resolveOrchestraMemberEngine(
   return v === 'claude' || v === 'codex' || v === 'auto' ? v : conductorEngine;
 }
 
+/**
+ * 멤버가 태어날 때 받는 작업 폴더 격리 — 없으면 `none`(지휘자와 같은 워킹트리).
+ *
+ * `parallel` 편성에서 워커들이 한 워킹트리를 동시에 고치는 것을 막는 유일한 축이다. 지휘자의
+ * 손잡이가 아니라 사용자 스위치인 이유: 새 워크트리는 디스크·빌드 캐시를 쓰고, 그 비용을 질지는
+ * 이 PC 의 주인이 정한다.
+ */
+export function resolveOrchestraMemberIsolation(settings: OrchestraSettings | null | undefined): OrchestraMemberIsolation {
+  return settings?.memberIsolation === 'worktree' ? 'worktree' : 'none';
+}
+
+/**
+ * 멤버가 태어날 때 받는 도구 목록 템플릿 — 없거나 목록에 없는 id 면 `undefined`(설정 창 기본값 그대로).
+ *
+ * `'all'`(= 공식 표 전체)은 기본값과 같은 목록이라 **못 박지 않는다.** 못 박으면 그 뒤에 설정 창의
+ * 도구 목록을 고쳐도 이 멤버에게 닿지 않는다(§4 설정 3층).
+ */
+export function resolveOrchestraMemberToolTemplate(settings: OrchestraSettings | null | undefined): string | undefined {
+  const id = settings?.memberToolTemplate;
+  if (typeof id !== 'string' || id === '' || id === 'all') return undefined;
+  return findAgentToolTemplate(id) ? id : undefined;
+}
+
+/**
+ * 멤버 하나가 **태어날 때** 서버가 박아 주는 설정 칸 — 없으면 `null`(아무것도 박지 않는다).
+ *
+ * 이 두 칸은 지휘자가 ② PATCH 로 넣을 수 없다. `tools` 는 권한 축이라 loopback 유입에서 얼려 있고
+ * (§5.3 #12-1), `isolation` 은 편성 전체에 걸리는 비용이라 사용자가 정한다. 그래서 **사용자 설정의
+ * 집행**으로 서버가 생성 시점에 한 번 심는다 — 유입 얼림을 푸는 것이 아니라 그 바깥의 다른 길이다.
+ *
+ * 순수 함수다 — 서버가 부르고, 시험이 세 조합(끔·격리만·도구만)을 그대로 읽는다.
+ */
+export function orchestraMemberBirthConfig(
+  settings: OrchestraSettings | null | undefined,
+): { isolation?: OrchestraMemberIsolation; tools?: string[] } | null {
+  const out: { isolation?: OrchestraMemberIsolation; tools?: string[] } = {};
+  if (resolveOrchestraMemberIsolation(settings) === 'worktree') out.isolation = 'worktree';
+  const templateId = resolveOrchestraMemberToolTemplate(settings);
+  if (templateId) {
+    const template = findAgentToolTemplate(templateId);
+    if (template) out.tools = [...template.tools];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** 지휘자에게 **고를 수 있게** 주는 방안 — 원문 순서, 참고 전용(11·12·13)과 사용자가 꺼 둔 것은 빠진다. */
 export function orchestraAllowedStrategies(settings: OrchestraSettings | null | undefined): OrchestraStrategy[] {
   const off = new Set(settings?.disabledStrategies ?? []);
@@ -260,6 +310,11 @@ export function normalizeOrchestraSettings(input: unknown): OrchestraSettings {
   if (r.memberEngine === 'claude' || r.memberEngine === 'codex' || r.memberEngine === 'auto') out.memberEngine = r.memberEngine;
   if (typeof r.maxMembers === 'number' && Number.isFinite(r.maxMembers)) {
     out.maxMembers = Math.min(ORCHESTRA_MAX_MEMBERS_LIMIT, Math.max(1, Math.round(r.maxMembers)));
+  }
+  if (r.memberIsolation === 'none' || r.memberIsolation === 'worktree') out.memberIsolation = r.memberIsolation;
+  // 템플릿 id 는 목록에 있는 것만 — 사라진 템플릿의 id 가 남아 "좁혔다고 믿는 빈 칸"이 되지 않게.
+  if (typeof r.memberToolTemplate === 'string' && findAgentToolTemplate(r.memberToolTemplate)) {
+    out.memberToolTemplate = r.memberToolTemplate;
   }
   const off = normalizeStrategyList(r.disabledStrategies);
   if (off) out.disabledStrategies = off;
@@ -321,6 +376,16 @@ export function applyOrchestraSettingsPatch(
           return { ok: false, field: key };
         }
         next.maxMembers = v;
+        break;
+      case 'memberIsolation':
+        if (clear(v)) { delete next.memberIsolation; break; }
+        if (v !== 'none' && v !== 'worktree') return { ok: false, field: key };
+        next.memberIsolation = v;
+        break;
+      case 'memberToolTemplate':
+        if (clear(v)) { delete next.memberToolTemplate; break; }
+        if (typeof v !== 'string' || !findAgentToolTemplate(v)) return { ok: false, field: key };
+        next.memberToolTemplate = v;
         break;
       case 'disabledStrategies': {
         if (clear(v)) { delete next.disabledStrategies; break; }

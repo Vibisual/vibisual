@@ -9,9 +9,9 @@
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 
 /**
- * 깊은 창을 **지금 든 버퍼 위에** 얹는다. 서버 창이 버퍼의 앞부분과 이어지면(서버 창의 첫 줄이 버퍼에 있으면)
- * 그 앞은 남긴다 — 라이브로 쌓여 서버 창보다 길어진 버퍼를 깊은 복원이 도로 줄이지 않게. 요청이 오가는 사이
- * 도착한 라이브 줄(서버 창의 마지막 시각 이후, 서버 창에 없는 id)은 뒤에 붙인다.
+ * 깊은 창을 **지금 든 버퍼 위에** 얹는다. 처음 겹치는 줄 앞의 과거는 남긴다 — 서버 창의 첫 줄을
+ * 끊김 중 놓쳤어도 읽던 과거를 버리면 안 된다. 겹침이 전혀 없으면 서버 창보다 이른 줄을 남긴다.
+ * 요청이 오가는 사이 도착한 라이브 줄(서버 창의 마지막 시각 이후, 서버 창에 없는 id)은 뒤에 붙인다.
  */
 export function mergeDeepWindow(
   server: readonly SubAgentStreamEvent[],
@@ -19,11 +19,13 @@ export function mergeDeepWindow(
 ): SubAgentStreamEvent[] {
   if (server.length === 0) return [...prev];
   const serverIds = new Set(server.map((e) => e.id));
-  const firstId = server[0]!.id;
+  const firstTs = server[0]!.timestamp;
   const lastTs = server[server.length - 1]!.timestamp;
-  const cut = prev.findIndex((e) => e.id === firstId);
-  const head = cut > 0 ? prev.slice(0, cut).filter((e) => !serverIds.has(e.id)) : [];
-  const tail = prev.filter((e) => e.timestamp >= lastTs && !serverIds.has(e.id));
+  const cut = prev.findIndex((e) => serverIds.has(e.id));
+  const head = cut >= 0 ? prev.slice(0, cut) : prev.filter((e) => e.timestamp < firstTs);
+  // 같은 밀리초에 여러 줄이 기록되면 머리도 lastTs 이상일 수 있다. 이미 남긴 줄은 꼬리에 또 넣지 않는다.
+  const headIds = new Set(head.map((e) => e.id));
+  const tail = prev.filter((e) => e.timestamp >= lastTs && !serverIds.has(e.id) && !headIds.has(e.id));
   return [...head, ...server, ...tail];
 }
 

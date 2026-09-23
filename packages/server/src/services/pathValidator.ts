@@ -1,5 +1,28 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { isWithinRoot } from './pathKey.js';
+
+/** Resolve links through the closest existing ancestor, including paths not yet created. */
+export function resolvePathWithLinks(filePath: string): string | null {
+  const abs = path.resolve(filePath);
+  let probe = abs;
+  for (;;) {
+    try {
+      return path.resolve(fs.realpathSync(probe), path.relative(probe, abs));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+      // A dangling link is not an ordinary missing segment. Never fall back to its lexical path.
+      try {
+        if (fs.lstatSync(probe).isSymbolicLink()) return null;
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+      }
+      const parent = path.dirname(probe);
+      if (parent === probe) return null;
+      probe = parent;
+    }
+  }
+}
 
 /**
  * Validate that a resolved absolute path is within an allowed root directory.

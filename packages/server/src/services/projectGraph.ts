@@ -105,7 +105,7 @@ import type {
   ContextScopeLevel,
   SessionMemo,
 } from '@vibisual/shared';
-import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX, MAX_AGENTS, SATELLITE_TYPES, FOLDER_BUBBLE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_PAST_TEXT_MAX, mergeGoalSteps, sanitizeGlyphPath, sanitizeScenePaths, normalizeKindSurface, sanitizeKindBlurb, applySceneTemplate, VISUAL_KIND_SEEDS, VISUAL_KIND_STARTERS, VISUAL_KIND_MAX, VISUAL_KIND_DORMANT_REF, VISUAL_KIND_TRASH_DAYS, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX, DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, WEB_TOOLS, WEB_KEY_MARK, webNodeKey, extractWebEntry, toolAxis, buildGoalActions, isInteractiveEntrypoint } from '@vibisual/shared';
+import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX, MAX_AGENTS, SATELLITE_TYPES, FOLDER_BUBBLE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_PAST_TEXT_MAX, mergeGoalSteps, sanitizeGlyphPath, sanitizeScenePaths, normalizeKindSurface, sanitizeKindBlurb, applySceneTemplate, VISUAL_KIND_SEEDS, VISUAL_KIND_STARTERS, VISUAL_KIND_MAX, VISUAL_KIND_DORMANT_REF, VISUAL_KIND_TRASH_DAYS, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, isBackgroundShellTask, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX, DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, WEB_TOOLS, WEB_KEY_MARK, webNodeKey, extractWebEntry, toolAxis, buildGoalActions, isInteractiveEntrypoint } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry, CmdCliKind } from '@vibisual/shared';
 import { CODEX_AGENT_COLOR } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
@@ -123,7 +123,9 @@ import {
   resolveAutoCompact,
   autoCompactThresholdTokens,
   INSURANCE_COMPACT_TIMEOUT_MS,
+  INSURANCE_COMPACT_VERDICT_MS,
   INSURANCE_LIST_PAGE_SIZE,
+  INSURANCE_SCAN_BUDGET_BYTES,
   INSURANCE_RESUME_RISK_BYTES,
   INSURANCE_RESUME_SHORTFALL_RATIO,
   INSURANCE_SUMMARY_SCAN_MAX_BYTES,
@@ -188,7 +190,7 @@ import type { AuditRecordInput } from './auditLog.js';
 import { InsuranceVault, fileMtime, fileSize, readSessionTitle, readTail } from './insuranceVault.js';
 import { InsuranceLedgerService, capWorkingSet } from './insuranceLedger.js';
 import type { CompactRecordInput, PreimageRecordInput } from './insuranceLedger.js';
-import { diffAgainstSummary, emptyNotCarried, emptyWorkingSet, extractSummaryText, hasNotCarried } from './compactDiff.js';
+import { diffAgainstSummary, emptyNotCarried, emptyWorkingSet, hasNotCarried, scanCompactChunk } from './compactDiff.js';
 import { judgeAll as judgeCompactWatchAll } from './compactWatch.js';
 import type { CompactWatchInput } from './compactWatch.js';
 import { projectDirForInfo } from './statePersistence.js';
@@ -1147,6 +1149,32 @@ export interface ProcessResult {
   edge?: ActivityEdge;
 }
 
+/**
+ * §5.26 (D) — 마커 하나를 **어디까지 읽었나.**
+ *
+ * 판정을 30분까지 미루게 된 만큼 같은 마커를 여러 스윕이 다시 본다. 매번 마커 오프셋부터
+ * 되읽으면 그것이 곧 §9 가 잡았던 10초 스윕 전량 재파싱이라, 어디까지 봤는지를 물고 간다.
+ * **영속화 ❌** — 파일에서 언제든 다시 만들 수 있는 파생이다.
+ */
+interface CompactScanState {
+  /** 다음에 읽기 시작할 바이트. 마커의 `transcriptBytes` 에서 출발한다. */
+  cursor: number;
+  /** `compact_boundary` 를 봤다 = 압축이 실제로 일어났다는 파일 증거. */
+  boundarySeen: boolean;
+  /** 지금까지 지나친 경계의 **개수**. 둘째를 만나면 커서가 다음 압축으로 넘어간 것이다. */
+  boundaryCount: number;
+  /** 직전 줄이 경계였나. 표식 없는 판본의 요약은 그 다음 한 줄에만 앉는다. */
+  justAfterBoundary: boolean;
+  /** 그 증거를 **우리가 본** 시각. 요약을 더 기다릴 유예는 여기서부터 센다. */
+  boundaryAt?: number;
+  /** 요약 레코드 본문. 이것이 있어야 (D) 대조가 성립한다. */
+  summaryText?: string;
+  /** 요약 **레코드 한 줄**의 크기. 자란 구간 전체가 아니다(첨부가 섞여 있다). */
+  summaryBytes: number;
+  /** 이번 스윕에서 파일 끝까지 봤나. 결론은 **다 보고 나서만** 낸다. */
+  atEof: boolean;
+}
+
 export class ProjectGraph {
   private root: string | null = null;
   /** 등록된 프로젝트 목록 (normalized path → ProjectInfo). cwd 기반 자동 증가 */
@@ -1689,6 +1717,18 @@ export class ProjectGraph {
     () => appStateGetRetention(),
     (m, e) => logger.debug(`${m} ${String(e)}`),
   ));
+  /** §5.26 (D) — 마커별 스캔 커서. 새로 붙은 바이트만 훑는다. 영속화 ❌(파생). */
+  private readonly compactScans = new Map<string, CompactScanState>();
+  /**
+   * §5.26 (D) — 되짚기를 **끝낸** 마커. 여기 든 마커는 스윕이 더 보지 않는다.
+   *
+   * 들어오는 자리는 셋뿐이다: 요약을 찾았거나, **둘째 경계**를 지났거나(그 뒤의 요약은 다음
+   * 마커의 것이다), 트랜스크립트가 사라졌거나. **"끝까지 읽었다"는 여기 없다** — 증거가 늦게
+   * 오는 것이 이 절이 고치고 있는 결함 자체라, 파일 끝에 닿았다고 손을 떼면 같은 실수를 한다.
+   * 안 자라는 파일을 계속 지켜보는 값은 스윕당 `fileSize` 한 번이다(커서가 이미 끝이라 읽지
+   * 않는다). 예산이 모자라 못 본 마커도 넣지 않아 다음 스윕이 커서 그대로 이어 본다.
+   */
+  private readonly compactRechecked = new Set<string>();
   /**
    * §5.26 (B) — 세션별 팀원 이름. 압축은 팀 구성을 통째로 지우는데 그래프에는 그 목록이
    * 남는 자리가 없어, 훅이 지나갈 때마다 여기에 합집합으로 모아 둔다(§3.6-1 넓게 받기).
@@ -7721,14 +7761,13 @@ export class ProjectGraph {
       pipelineManager.restore(cp.pipelines, this.agents);
     }
 
-    // agentConfigs 복원
-    if (cp.agentConfigOverrides || cp.agentConfigs) {
-      this.agentConfigOverrides = this.readAgentConfigOverrides(cp);
-      // §4 v2.63 — 색 기반 레거시 토글 마이그레이션은 제거. executionMode 가 이제 PUT 에서 보존되는
-      //   에이전트 정체성이라, CMD 에이전트 색을 teal 에서 바꾸면 색 휴리스틱이 executionMode 를 잘못
-      //   지우는 footgun 이 된다. 누수 원인은 createCustomAgent(상속 차단) + userDefaultsService(잔재 정리)
-      //   에서 이미 막혔고 기존 데이터는 정리·영속화 완료. executionMode 를 그대로 신뢰한다.
-    }
+    // agentConfigs 복원 — 값이 없는 저장분도 전체 복원의 일부다. 같은 인스턴스를 다시 복원할 때
+    // 이전 오버라이드를 남기면, 기본값을 상속해야 하는 에이전트가 옛 권한·실행 설정으로 돌아간다.
+    this.agentConfigOverrides = this.readAgentConfigOverrides(cp);
+    // §4 v2.63 — 색 기반 레거시 토글 마이그레이션은 제거. executionMode 가 이제 PUT 에서 보존되는
+    //   에이전트 정체성이라, CMD 에이전트 색을 teal 에서 바꾸면 색 휴리스틱이 executionMode 를 잘못
+    //   지우는 footgun 이 된다. 누수 원인은 createCustomAgent(상속 차단) + userDefaultsService(잔재 정리)
+    //   에서 이미 막혔고 기존 데이터는 정리·영속화 완료. executionMode 를 그대로 신뢰한다.
 
     // observedTools 복원
     if (cp.observedTools) {
@@ -8908,18 +8947,16 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (D) 2단계 — 압축 전후 대조. 주기 스윕에서 부른다(모델 호출 ❌).
-   *
-   * 마커가 적어 둔 바이트 오프셋 **뒤에** 붙은 구간이 곧 요약이다. 그 안에 압축 직전
-   * `workingSet` 의 각 항목이 나타나는지만 본다 — 그 이상은 우리가 알 수 없고,
-   * 그래서 결과의 이름이 `notCarried` 다("잃어버린 것"이 아니다).
-   */
-  /**
    * §5.26 (D) — `PostCompact` 도착. **압축이 끝났다는 CLI 자신의 신고**를 마커에 새긴다.
    *
    * 여기서 대조를 바로 돌리지 않는 이유: 완료 훅이 온 시점에 요약이 아직 파일에 안 내려갔을 수
-   * 있다(우리가 읽으면 빈 꼬리를 요약으로 읽는다). 표식만 남기고 대조는 5초 스윕에 맡긴다 —
-   * 그 스윕이 이제 이 표식을 보고 "못 읽음"과 "교착"을 가른다.
+   * 있다(우리가 읽으면 빈 꼬리를 요약으로 읽는다). 표식만 남기고 대조는 스윕에 맡긴다.
+   *
+   * **판정의 주인은 아니다(2026-09-23).** 이 훅은 이 프로젝트 실측에서 마커 100건 중 14건에만
+   * 왔다 — 그 하나로 실패와 판독 불가를 가르면 **같은 사건이 훅 운에 따라 색이 갈린다**(실측:
+   * 두 무리의 판정 지연도 `summaryBytes` 도 완전히 같았고 다른 것은 훅이 왔는지뿐이었다).
+   * 그래서 스윕은 파일 증거(`compact_boundary` · `isCompactSummary`)를 먼저 보고, 이 표식은
+   * 그 증거를 못 봤을 때의 **보조 증거**로만 쓴다.
    */
   notePostCompact(sessionId: string, now: number = Date.now()): boolean {
     const changed = this.insuranceService.notePostCompact(sessionId, now);
@@ -8989,14 +9026,32 @@ export class ProjectGraph {
     return armed;
   }
 
+  /**
+   * §5.26 (D) 2단계 — 압축이 끝났는지, 요약이 무엇을 안 실었는지를 **파일 증거로만** 가른다.
+   *
+   * 판정 사다리는 셋이고 위에서부터 본다.
+   *   ① 요약 레코드를 봤다              → 대조해서 정상 결과를 적는다.
+   *   ② 경계 레코드(또는 완료 훅)만 봤다 → 유예 뒤 `summaryUnreadable`. **우리 한계이지 사고가 아니다.**
+   *   ③ 둘 다 못 봤다                  → `INSURANCE_COMPACT_VERDICT_MS` 까지 **결론을 미룬다**(화면은 "진행 중").
+   *
+   * ⚠ 예전에는 "오프셋 뒤가 512바이트 넘게 자랐다"를 요약 도착으로 읽었다. 그 구간에는
+   *   `attachment`(실측 86KB) · `last-prompt` · `atis-latch` 가 섞여 있어 **압축이 시작도 안 한**
+   *   마커가 **1초 만에** 실패로 굳었다. 자란 바이트는 요약의 유무를 말해 주지 않는다.
+   * ⚠ 기다리는 시간도 짧았다. 이 프로젝트 실측에서 요약이 실제로 도착한 시각은 마커 기준
+   *   **+2분 · +9분 · +28분**이었는데 3분에 잘라, 실패 10건 중 7건이 오탐이었다. 세션이 사람의
+   *   다음 말을 기다리는 동안 트랜스크립트는 한 바이트도 안 자란다 — 그 정지는 교착이 아니다.
+   */
   sweepCompactOutcomes(now: number = Date.now()): boolean {
     let changed = false;
+    // 한 스윕이 읽는 총량에 천장을 둔다. 마커별 상한만으로는 **마커 수 × 상한**이 되어
+    // 10초마다 수십 MB 를 읽는다 — 예산이 떨어진 마커는 다음 스윕이 커서 그대로 이어 본다.
+    let budget = INSURANCE_SCAN_BUDGET_BYTES;
     for (const marker of this.insuranceService.pendingOutcomes()) {
       try {
         const size = fileSize(marker.transcriptPath);
         if (size === null) {
-          // 파일이 사라졌다 — 요약을 볼 길이 없다. 시간이 지났으면 실패로 못 박는다.
-          if (now - marker.at >= INSURANCE_COMPACT_TIMEOUT_MS) {
+          // 파일이 사라졌다 — 요약을 볼 길이 없다. 시한이 지났으면 못 박는다.
+          if (now - marker.at >= INSURANCE_COMPACT_VERDICT_MS) {
             changed = this.insuranceService.attachOutcome(marker.projectName, marker.id, {
               at: now,
               summaryBytes: 0,
@@ -9005,60 +9060,194 @@ export class ProjectGraph {
               carriedCount: 0,
               failed: 'transcript-gone',
             }) || changed;
+            this.compactScans.delete(marker.id);
           }
           continue;
         }
-        const grown = size - marker.transcriptBytes;
-        if (grown <= 0) {
-          // 압축을 보냈다는 훅은 왔는데 트랜스크립트가 자라지 않았다.
-          //
-          // ⚠ 여기서 갈리는 것이 이 기능이 이름 붙이려던 바로 그 사건이다. **완료 훅이 왔는지**를
-          //   먼저 본다: 왔으면 압축은 끝난 것이고 우리가 못 본 것뿐이라(경로가 다른 파일을 가리켰거나
-          //   요약이 우리가 안 보는 자리에 붙었다) 실패가 아니다. 안 왔을 때만 교착으로 못 박는다.
-          if (now - marker.at >= INSURANCE_COMPACT_TIMEOUT_MS) {
-            // 두 갈래는 `notCarried` 도 달라야 한다.
-            //   · 완료 훅이 왔다  → **빈 목록**. 우리가 못 읽었을 뿐이라 무엇이 빠졌는지 모른다.
-            //     여기에 작업셋 전체를 적으면 (E) 브리핑이 "이걸 다 잃었다"고 거짓을 실어 보낸다.
-            //   · 완료 훅이 없다 → **작업셋 전체**. 요약이 아예 안 붙었으니 전부 그대로 위태롭다.
-            const unreadable = marker.postCompactAt !== undefined;
+        const scanned = this.advanceCompactScan(marker, size, budget, now);
+        budget -= scanned.read;
+        const state = scanned.state;
+
+        // ① 요약 레코드를 봤다 — 유일한 정상 결론.
+        if (state.summaryText !== undefined) {
+          const { notCarried, carriedCount } = diffAgainstSummary(marker.workingSet, state.summaryText);
+          changed = this.insuranceService.attachOutcome(marker.projectName, marker.id, {
+            at: now,
+            summaryBytes: state.summaryBytes,
+            notCarried,
+            carriedCount,
+          }) || changed;
+          this.compactScans.delete(marker.id);
+          continue;
+        }
+        // 끝까지 못 봤으면 결론을 내지 않는다(예산이 떨어졌거나 꼬리가 반 줄이다).
+        if (!state.atEof) continue;
+
+        // ② 압축이 일어난 증거는 있는데 요약만 못 읽겠다.
+        //
+        //   `notCarried` 는 **반드시 빈다** — "잃은 것이 없다"가 아니라 "무엇을 잃었는지 모른다"이고,
+        //   여기에 작업셋을 적으면 (E) 브리핑이 "이걸 다 잃었다"는 거짓을 실어 보낸다.
+        const evidenceAt = state.boundaryAt ?? marker.postCompactAt;
+        if (evidenceAt !== undefined) {
+          if (now - evidenceAt >= INSURANCE_COMPACT_TIMEOUT_MS) {
             changed = this.insuranceService.attachOutcome(marker.projectName, marker.id, {
               at: now,
               summaryBytes: 0,
-              notCarried: unreadable ? emptyNotCarried() : diffAgainstSummary(marker.workingSet, '').notCarried,
+              notCarried: emptyNotCarried(),
               carriedCount: 0,
-              ...(unreadable ? { summaryUnreadable: true as const } : { failed: 'no-summary' as const }),
+              summaryUnreadable: true,
             }) || changed;
+            // 커서는 남긴다 — 이 줄은 곧 되짚기 대상이고, 지우면 자란 구간을 한 번 더 읽는다.
           }
           continue;
         }
-        // 아직 쓰는 중일 수 있으니 자란 폭이 의미 있을 때까지 기다린다(짧은 한 줄은 요약이 아니다).
-        if (grown < 512 && now - marker.at < INSURANCE_COMPACT_TIMEOUT_MS) continue;
-
-        const chunk = readTail(marker.transcriptPath, marker.transcriptBytes, INSURANCE_SUMMARY_SCAN_MAX_BYTES);
-        if (chunk === null) continue;
-        const summaryText = extractSummaryText(chunk);
-        const { notCarried, carriedCount } = diffAgainstSummary(marker.workingSet, summaryText);
-        const blank = summaryText.trim().length === 0;
-        changed = this.insuranceService.attachOutcome(marker.projectName, marker.id, {
-          at: now,
-          summaryBytes: grown,
-          // 본문이 비었다 = 우리 파서가 요약을 못 읽었다. 완료 훅이 왔으면 그것은 **우리 한계**이지
-          // 세션의 사고가 아니다 — 그 둘을 한 칸에 적으면 사용자가 멀쩡한 세션을 되살리려 든다.
-          // 못 읽은 쪽은 `notCarried` 도 비운다(위 블록과 같은 이유).
-          notCarried: blank && marker.postCompactAt !== undefined ? emptyNotCarried() : notCarried,
-          carriedCount,
-          ...(blank
-            ? (marker.postCompactAt !== undefined
-              ? { summaryUnreadable: true as const }
-              : { failed: 'no-summary' as const })
-            : {}),
-        }) || changed;
+        // ③ 증거가 하나도 없다 — 시한까지 미룬다. 압축이 진짜로 막힌 세션은 사용자가 손 쓸
+        //    때까지 그대로 막혀 있으므로 **늦게 알려도 늦지 않다.**
+        if (now - marker.at >= INSURANCE_COMPACT_VERDICT_MS) {
+          changed = this.insuranceService.attachOutcome(marker.projectName, marker.id, {
+            at: now,
+            summaryBytes: 0,
+            notCarried: diffAgainstSummary(marker.workingSet, '').notCarried,
+            carriedCount: 0,
+            failed: 'no-summary',
+          }) || changed;
+          // 커서는 남긴다 — 이 줄은 곧 되짚기 대상이고, 지우면 자란 구간을 한 번 더 읽는다.
+        }
       } catch (err) {
         logger.debug('[insurance] outcome sweep skipped', err);
       }
     }
+    if (this.sweepCompactRechecks(now, budget)) changed = true;
     if (changed) this.bumpMutationVersion();
     return changed;
+  }
+
+  /**
+   * §5.26 (D) — 마커 하나의 스캔을 **새로 붙은 바이트만큼만** 앞으로 민다.
+   *
+   * 커서는 한 번에 **온전한 줄까지만** 나아간다. 꼬리에 걸린 반 줄은 온전해진 뒤 다음 스윕이 본다.
+   *
+   * @param budget 이 스윕이 남긴 읽기 몫. 실제로 읽은 바이트를 돌려줘 호출자가 깎는다.
+   */
+  private advanceCompactScan(
+    marker: CompactMarker,
+    size: number,
+    budget: number,
+    now: number,
+  ): { state: CompactScanState; read: number } {
+    let state = this.compactScans.get(marker.id);
+    if (!state || state.cursor < marker.transcriptBytes) {
+      // 커서가 마커보다 앞에 있으면 파일이 갈아치워진 것이다 — 마커 오프셋에서 다시 시작한다.
+      state = {
+        cursor: marker.transcriptBytes,
+        boundarySeen: false,
+        boundaryCount: 0,
+        justAfterBoundary: false,
+        summaryBytes: 0,
+        atEof: false,
+      };
+      this.compactScans.set(marker.id, state);
+      capMapSize(this.compactScans, SESSION_KEYED_MAP_MAX);
+    }
+    let read = 0;
+    while (state.summaryText === undefined && state.cursor < size && read < budget) {
+      const want = Math.min(INSURANCE_SUMMARY_SCAN_MAX_BYTES, size - state.cursor, budget - read);
+      if (want <= 0) break;
+      const chunk = readTail(marker.transcriptPath, state.cursor, want);
+      if (!chunk) break; // 못 읽었다(사라졌거나 잠겼다) — 다음 스윕이 같은 자리에서 다시 본다
+      read += Buffer.byteLength(chunk, 'utf8');
+      const scan = scanCompactChunk(chunk, {
+        boundaries: state.boundaryCount,
+        justAfterBoundary: state.justAfterBoundary,
+      });
+      state.boundaryCount += scan.boundaries;
+      state.justAfterBoundary = scan.justAfterBoundary;
+      if (scan.boundarySeen && !state.boundarySeen) {
+        state.boundarySeen = true;
+        state.boundaryAt = now; // 붙은 시각이 아니라 **우리가 본 시각** — 유예는 여기서부터
+      }
+      if (scan.summaryText !== undefined) {
+        state.summaryText = scan.summaryText;
+        state.summaryBytes = scan.summaryBytes;
+      }
+      if (scan.consumedBytes > 0) {
+        state.cursor += scan.consumedBytes;
+      } else if (want >= INSURANCE_SUMMARY_SCAN_MAX_BYTES) {
+        // 한 줄이 창보다 길다(거대 첨부). 건너뛰지 않으면 커서가 영영 안 움직인다.
+        state.cursor += want;
+      } else {
+        break; // 꼬리에 반 줄만 남았다
+      }
+    }
+    state.atEof = state.cursor >= size;
+    return { state, read };
+  }
+
+  /**
+   * §5.26 (D) — **이미 실패로 적은 줄**을 늦게 온 증거로 되돌린다.
+   *
+   * 3분 시한이 요약보다 짧았던 동안 적힌 실패는 대부분 오탐이다. 그 줄을 그대로 두면 갈피에
+   * 붙는 건수가 영영 거짓말을 한다 — 요약이 뒤늦게 붙었으면 **`failed` 를 지운 채** 갈아 적고,
+   * 경계만 뒤늦게 보였으면 교착이 아니라 판독 불가로 낮춘다.
+   *
+   * **끝까지 봤다고 손을 떼지 않는다.** 늦게 오는 것이 이 버그의 본체였다 — 파일이 안 자라는
+   * 동안 되짚기는 `fileSize` 한 번뿐이라(커서가 이미 끝) 계속 지켜봐도 공짜다. 손을 떼는 자리는
+   * 둘이다: 요약을 찾았거나, **두 번째 경계**를 만났거나(커서가 다음 압축으로 넘어가 더 읽으면
+   * 남의 요약을 이 마커의 것으로 적게 된다). 그때만 `compactRechecked` 에 넣어 닫는다.
+   */
+  private sweepCompactRechecks(now: number, budget: number): boolean {
+    if (budget <= 0) return false;
+    let changed = false;
+    let left = budget;
+    for (const marker of this.insuranceService.recheckableOutcomes()) {
+      if (left <= 0) break;
+      if (this.compactRechecked.has(marker.id)) continue;
+      try {
+        const size = fileSize(marker.transcriptPath);
+        if (size === null) {
+          this.closeCompactRecheck(marker.id); // 파일이 없으면 되짚을 것도 없다
+          continue;
+        }
+        const scanned = this.advanceCompactScan(marker, size, left, now);
+        left -= scanned.read;
+        const state = scanned.state;
+        if (state.summaryText !== undefined) {
+          const { notCarried, carriedCount } = diffAgainstSummary(marker.workingSet, state.summaryText);
+          // `failed` 를 **빼고** 적는다 — 남긴 채 성공으로 적으면 화면이 두 말을 한다.
+          if (this.insuranceService.replaceOutcome(marker.projectName, marker.id, {
+            at: now,
+            summaryBytes: state.summaryBytes,
+            notCarried,
+            carriedCount,
+          })) changed = true;
+          this.closeCompactRecheck(marker.id);
+          continue;
+        }
+        // 경계는 뒤늦게 보였다 — 교착이 아니라 우리가 요약을 못 읽은 것이다. 문구도 색도 달라진다.
+        // 한 번만 적힌다: 바꾸고 나면 `failed` 가 사라져 다음 스윕에는 이 가지로 안 온다.
+        if (state.boundarySeen && marker.outcome?.failed === 'no-summary') {
+          if (this.insuranceService.replaceOutcome(marker.projectName, marker.id, {
+            at: now,
+            summaryBytes: 0,
+            notCarried: emptyNotCarried(),
+            carriedCount: 0,
+            summaryUnreadable: true,
+          })) changed = true;
+        }
+        // 둘째 경계를 지났으면 이 마커의 요약은 영영 안 온다 — 여기서 손을 뗀다.
+        if (state.boundaryCount >= 2) this.closeCompactRecheck(marker.id);
+      } catch (err) {
+        logger.debug('[insurance] outcome recheck skipped', err);
+      }
+    }
+    return changed;
+  }
+
+  /** §5.26 (D) — 이 마커는 더 되짚지 않는다. 커서도 함께 버린다(다시 읽을 일이 없다). */
+  private closeCompactRecheck(markerId: string): void {
+    this.compactRechecked.add(markerId);
+    capSetSize(this.compactRechecked, SESSION_KEYED_MAP_MAX);
+    this.compactScans.delete(markerId);
   }
 
   /**
@@ -9488,6 +9677,31 @@ export class ProjectGraph {
     this.bumpMutationVersion();
     const agent = this.agents.get(sessionId);
     if (!agent) return;
+
+    /*
+     * §5.5 #17-11 — 커스텀 버블의 완료 판정 주인은 하나다(`recomputeCustomAgentStatus`).
+     *
+     * 훅 `Stop` 은 그 이벤트를 낸 **세션 탭 하나**의 턴 종료일 뿐인데, 소유자 태그
+     * (`_vibisualOwnerAgentId` — 헤드리스 스폰이 `VIBISUAL_OWNER_AGENT_ID` 로 심는다)를 타고
+     * `session_id` 가 부모 버블로 rewrite 되면서 `agentTracker.markStop → 여기` 까지 닿았다.
+     * 그래서 탭이 둘 이상이면 **형제 탭이 도는 동안 버블이 completed 로 찍혔고**, 클라의
+     * `detectCustomAgentCompletions` 가 그 전이를 보고 완료음·완료 알림을 울렸다
+     * (사용자 보고: "에이전트가 활동 중인데 완료 알림이 왔다").
+     *
+     * 같은 구멍으로 v3.92 완료 조건이 통째로 우회됐다 — 큐에 남은 명령 · 진행 중 세션 루프 ·
+     * 백그라운드 Task · 권한 승인 대기 · 실패한 형제 탭은 전부 저 집계 함수 안에만 있다.
+     * 그래서 여기서 직접 찍지 않고 **집계에 넘긴다**(엣지 정리·completed 전이도 그 안에서 한다).
+     *
+     * CMD(인터랙티브 터미널)는 예외 — 서브가 0개라 집계가 일부러 비켜서 있고(그쪽 조기 return),
+     * 리다이렉트된 자기 훅 스트림이 그 버블의 유일한 상태 주인이다. 여기서 가로채면 영영 안 끝난다.
+     */
+    if (
+      agent.customCreated
+      && this.agentConfigOverrides.get(agent.id)?.executionMode !== 'interactive-terminal'
+    ) {
+      this.recomputeCustomAgentStatus(agent.id);
+      return;
+    }
 
     agent.status = status;
     agent.fadeStartedAt = Date.now();
@@ -10939,7 +11153,10 @@ export class ProjectGraph {
       const sessionRunning = subs.map((sub) => isSessionRunning({
         subStatus: sub.status,
         hasExecutingCommand: cmds.some((c) => c.status === 'executing' && c.subAgentId === sub.id),
-        runningTaskCount: tasks.filter((t) => t.subAgentId === sub.id).length,
+        // 배지의 분자도 **에이전트 자식만** 센다 — 백단 셸은 실행 축이 아니다.
+        //   (셸까지 세면 `grep | sort` 하나가 프로젝트 배지를 영영 파랗게 붙든다.)
+        runningAgentTaskCount: tasks.filter((t) => t.subAgentId === sub.id && !isBackgroundShellTask(t)).length,
+        backgroundShellCount: tasks.filter((t) => t.subAgentId === sub.id && isBackgroundShellTask(t)).length,
         hasQueuedCommand: false,
         acknowledged: false,
         // "돌고 있는가"에는 한도 표식이 관여하지 않는다 — 분자(running)와 주황(limited)은 직교 축이다.
@@ -14848,7 +15065,7 @@ export class ProjectGraph {
     input: Omit<ReviewDecision, 'id' | 'decidedAt'> & { decidedAt?: number },
   ): ReviewRequest | null {
     const req = this.reviewRequests.get(id);
-    if (!req) return null;
+    if (!req || (req.status !== 'pending' && req.status !== 'held')) return null;
     this.reviewIdCounter += 1;
     const now = input.decidedAt ?? Date.now();
     const decision: ReviewDecision = {

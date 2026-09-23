@@ -3,6 +3,7 @@ import path from 'node:path';
 import { WORKSPACE_DIR_ENTRY_MAX } from '@vibisual/shared';
 import type { WorkspaceEntry, WorkspaceDirListing, WorkspacePathInfo, ExternalPathInfo } from '@vibisual/shared';
 import { isWithinRoot } from './pathKey.js';
+import { resolvePathWithLinks } from './pathValidator.js';
 
 /**
  * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 디스크 조회.
@@ -37,6 +38,12 @@ export function resolveWorkspacePath(root: string, relPath: string): { abs: stri
   // path traversal 방지 — 접을지 말지는 플랫폼이 정한다(win/mac 은 무시, linux 는 구분).
   //   예전에는 win32 만 접어 **mac 에서 케이스만 다른 정상 경로가 조용히 null** 이 됐다.
   if (!isWithinRoot(abs, rootAbs)) return null;
+
+  // A project-local link may point into another project. Resolve both sides so linked
+  // project roots (including macOS /tmp) remain valid, and inspect missing parents too.
+  const realRoot = resolvePathWithLinks(rootAbs);
+  const realAbs = resolvePathWithLinks(abs);
+  if (!realRoot || !realAbs || !isWithinRoot(realAbs, realRoot)) return null;
 
   return { abs, rel };
 }

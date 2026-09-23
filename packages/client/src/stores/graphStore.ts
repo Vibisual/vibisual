@@ -20,9 +20,10 @@ import { orchestraSummaryFingerprint, orchestraEnginePreparation } from '@vibisu
 import type { ConfigTrimSummary } from '@vibisual/shared';
 import { configTrimSummaryFingerprint } from '@vibisual/shared';
 import i18n, { changeUiLocale } from '../i18n/index.js';
-import { SESSION_FOCUS_GLOW_MS, type SessionFocusGlow } from '../utils/sessionStatus.js';
+import { SESSION_ACK_GLOW_MS, SESSION_FOCUS_GLOW_MS, sessionRunStateOf, type SessionFocusGlow } from '../utils/sessionStatus.js';
 import { calcFileSizeRange, calcHeatCountRange } from '../utils/sizeCalc.js';
 import { clientPathKey } from '../utils/platform.js';
+import { permissionPromptSync, askQuestionPromptSync } from '../utils/pendingPromptSync.js';
 import { registerPersistFlush } from '../utils/persistFlush.js';
 import { structuralShare } from './structuralShare.js';
 import { batchedNotify } from './batchedNotify.js';
@@ -123,6 +124,7 @@ export interface ImageLightboxWorkspaceFile {
   path: string;
   /** 읽을 때 본 수정 시각 — 저장할 때 되돌려 보내 그 사이 변경을 판정 */
   mtimeMs: number;
+  revision?: string;
   /** 원본 형식 그대로 구워 덮어쓸 수 있는가(png·jpeg·webp 만) */
   bakeable: boolean;
   /** 구울 MIME — `canvas.toBlob` 의 두 번째 인자 */
@@ -132,6 +134,11 @@ export interface ImageLightboxState {
   url: string;
   attachment?: ImageLightboxAttachment;
   workspace?: ImageLightboxWorkspaceFile;
+}
+
+/** 같은 상대 경로도 다른 프로젝트의 이미지 갱신 신호를 공유하지 않는다. */
+export function workspaceImageFileKey(root: string, relPath: string): string {
+  return JSON.stringify([clientPathKey(root), clientPathKey(relPath)]);
 }
 
 export function agentSessionInputKey(agentId: string, sessionId: string | null): string {
@@ -158,6 +165,8 @@ export interface TaskEdgeOptions {
 }
 
 const API_BASE = '';
+/** Only the latest send from a pane may select the session assigned by its response. */
+const pendingCommandFocus = new Map<string, symbol>();
 
 const ACTIVE_PROJECT_KEY = 'vibisual:activeProject';
 const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
@@ -1596,7 +1605,19 @@ interface GraphState {
    *
    * 회색(`done`)은 찍지 않는다 — 남겨도 화면이 종전과 한 픽셀도 다르지 않다.
    */
-  markSessionFocusGlow: (sessionId: string, state: SessionRunState) => void;
+  markSessionFocusGlow: (sessionId: string, state: SessionRunState, ms?: number) => void;
+  /**
+   * (판올림 번호 발급 대기) **확인한 그 자리에 여운을 남긴다** — 세션 탭에서 완료를 확인해
+   * 초록이 회색으로 내려앉는 순간, 그 색이 5초간 뛰고 나서 회색이 된다.
+   *
+   * 위 `markSessionFocusGlow` 와 손짓이 다르다. 그쪽은 "내가 **무슨 색**을 눌러 들어왔나"를
+   * 알려 주지만, 이쪽은 이미 그 탭을 보고 있는 손이라 **"방금 이게 확인됐다"**만 말하면 된다
+   * (사용자 지시 — "확인 했음을 5초동안 깜빡이게"). 종전에는 이 자리에 여운이 아예 없어
+   * 초록이 **한 프레임 만에** 회색이 됐고, 무엇을 확인한 것인지 화면에서 되짚을 수 없었다.
+   *
+   * **확인(ack)을 찍기 전에** 불러야 한다 — 걷고 나서 물으면 답은 언제나 회색이다.
+   */
+  markSessionAckGlow: (sessionId: string) => void;
   /** 탭 닫기 — 서버 응답 전에 즉시 제거(낙관적). full-snapshot race 에도 유지된다. */
   optimisticRemoveSubAgent: (agentId: string, subAgentId: string) => void;
   /** 히스토리 세션 다시 열기 — 서버 응답 전에 즉시 탭 추가(낙관적). full-snapshot race 에도 유지된다. */
@@ -1962,13 +1983,13 @@ interface GraphState {
    *  **어느 첨부를 열었는지** 알아야 그 자리를 교체할 수 있다(모르면 새 첨부로만 붙는다). */
   imageLightbox: ImageLightboxState | null;
   openImageLightbox: (url: string, attachment?: ImageLightboxAttachment, workspace?: ImageLightboxWorkspaceFile) => void;
-  closeImageLightbox: () => void;
+  closeImageLightbox: (expected?: ImageLightboxState) => void;
   /**
    * §5.5 #17-25 ④-1 — 라이트박스가 워크스페이스 이미지를 덮어쓴 시각(상대 경로별).
    * 편집창은 이 값이 바뀌면 그 파일을 다시 읽어 방금 그린 표시를 화면에 올린다.
    */
   workspaceImageSavedAt: Record<string, number>;
-  markWorkspaceImageSaved: (relPath: string) => void;
+  markWorkspaceImageSaved: (root: string, relPath: string) => void;
   /** 콘티 생성 in-flight (agentId Set) — UX 스피너용. 완료 시 자동 제거. */
   contiGenerating: Record<string, true>;
   /** 사용자가 "새 콘티 생성" 버튼 누름 — 서버 POST /api/conti/generate. */
@@ -2655,6 +2676,9 @@ interface GraphState {
    * 된다 — 말풍선·카드만 남고 사이가 빈 화면의 정체가 그것이었다.
    */
   deepRestoredSessions: Record<string, true>;
+  /** Reconnect generation and the last received event before it; live append cannot move this seam. */
+  streamRestoreEpoch: number;
+  streamReconnectAnchors: Record<string, SubAgentStreamEvent>;
   /**
    * 재연결 직후 — 깊은 복원 표식을 **전부** 내린다. 끊겨 있던 동안의 줄은 WS 로 다시 오지 않아 버퍼
    * 가운데가 비는데, 표식이 서 있으면 창이 "이미 받았다"로 읽어 다시 받지 않는다. 표식이 내려가면 창이
@@ -2668,7 +2692,7 @@ interface GraphState {
    * 서버 버퍼 적재. `depth='deep'` 은 보고 있는 세션의 상한 전체 복원분이라 표식을 세우고,
    * 기본값 `'shallow'`(에이전트 전체 얕은 조회)는 **이미 깊은 복원분이 있는 세션을 줄이지 않는다**.
    */
-  loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>, depth?: 'deep' | 'shallow') => void;
+  loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>, depth?: 'deep' | 'shallow', restore?: { epoch: number; preserveHistory: boolean }) => void;
   /**
    * §5.5 #17-12 — 세션별로 **복원 창 위쪽에서 거슬러 불러와 더 들고 있는 이벤트 수**. 그 세션의 활성 상한에
    * 더해진다 — 안 더하면 다음 라이브 줄이 들어오는 순간 방금 불러온 과거가 앞쪽 절단으로 도로 잘린다.
@@ -3374,7 +3398,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   acknowledgedSubAgents: loadJSON<Record<string, true>>(ACK_SUBAGENTS_KEY, {}),
   // (판올림 번호 발급 대기) 여운은 휘발이다 — `loadJSON` 으로 되살리지 않는다.
   sessionFocusGlow: {},
-  markSessionFocusGlow: (sessionId, state) => {
+  markSessionFocusGlow: (sessionId, state, ms = SESSION_FOCUS_GLOW_MS) => {
     if (state === 'done') return;
     // 같은 세션을 다시 누르면 **시계를 새로 건다**(옛 예약이 살아 있으면 10초가 덜 차서 꺼진다).
     const prev = sessionGlowTimers.get(sessionId);
@@ -3387,12 +3411,44 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         delete next[sessionId];
         return { sessionFocusGlow: next };
       });
-    }, SESSION_FOCUS_GLOW_MS));
+    }, ms));
     set((s) => ({
-      sessionFocusGlow: { ...s.sessionFocusGlow, [sessionId]: { state, at: Date.now() } },
+      // 기본 길이는 자국에 적지 않는다 — 적어 봐야 `sessionGlowLifespan` 이 같은 답을 내고,
+      //   "수명이 따로 붙은 자국 = 확인 여운"이라는 읽기가 그대로 유지된다.
+      sessionFocusGlow: {
+        ...s.sessionFocusGlow,
+        [sessionId]: { state, at: Date.now(), ...(ms === SESSION_FOCUS_GLOW_MS ? {} : { ms }) },
+      },
     }));
   },
+  markSessionAckGlow: (sessionId) => {
+    const s = get();
+    // **이미 자국이 있으면 건드리지 않는다.** [창과 버블] 목록의 줄은 제 색으로 10초를 찍어 둔 뒤
+    //   곧바로 이 확인을 부르므로(#17-1), 여기서 덮으면 그 10초가 5초로 잘린다.
+    // **이미 확인된 세션**도 남길 것이 없다 — 본문 클릭·타이핑은 같은 세션에 수없이 들어오는데
+    //   (`handleInput` 은 타이핑 핫패스다) 그 전부가 이 조회 두 번에서 곧바로 돌아간다.
+    if (s.sessionFocusGlow[sessionId] || s.acknowledgedSubAgents[sessionId]) return;
+    for (const [agentId, subs] of Object.entries(s.subAgents)) {
+      const sub = subs.find((x) => x.id === sessionId);
+      if (!sub) continue;
+      const busy = (s.runningSubagentTasks[agentId] ?? []).some((t) => t.subAgentId === sessionId);
+      // §5.5 #17-18 (대기) — 도트를 그리는 그 재료 그대로. 줄 선 세션은 아래 조건에 걸리지
+      //   않으므로(여운은 **걷히는 색**에만 있다) 결과적으로 자국을 남기지 않는다 — 맞는 동작이다.
+      const pending = (s.queuedCommands[agentId] ?? []).some((c) => c.status === 'queued' && c.subAgentId === sessionId);
+      // **확인하기 직전의 색**이라야 한다(`acknowledged: false`) — 이 손짓으로 걷힐 표식이
+      //   바로 그 색이기 때문이다. 조용하지 않은 세션(도는 중·실패)은 확인해도 색이 바뀌지
+      //   않으므로 남길 것이 없다 — 여운은 **걷히는 색**에만 있다.
+      const before = sessionRunStateOf(sub, false, busy, pending);
+      if (before === 'doneUnseen' || before === 'limited') {
+        get().markSessionFocusGlow(sessionId, before, SESSION_ACK_GLOW_MS);
+      }
+      return;
+    }
+  },
   markSubAcknowledged: (subId) => {
+    // (판올림 번호 발급 대기) **걷기 전에 자국부터** — 아래 확인이 돌면 그 색은 사라진다.
+    get().markSessionAckGlow(subId);
+
     // §2.4 (한도 정지) — "이 세션을 봤다"는 손짓 하나에 주황불 확인도 함께 태운다. 여기 붙이면
     //   본문 클릭·타이핑 등 이 액션을 부르는 **모든 경로**가 따로 배선 없이 합류한다.
     //   `set` 앞에 둔다 — 아래는 이미 확인된 세션이면 그대로 돌아가는데, 그 사이에 한도로
@@ -3488,6 +3544,12 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     //   손잡이를 지우는 걸 놓쳐도 명령은 나가지 않는다(서버도 같은 술어로 403 — 이중 방어).
     //   판정 원천은 `sid` 를 찾은 것과 같은 `agents` 배열이라 둘이 어긋나지 않는다.
     if (isReadOnlyHookAgent(get().agents.find((a) => a.id === agentId))) return;
+    const submittedState = get();
+    const submittedPane = agentIDEPaneKey(Object.values(submittedState.ideOverlays),
+      submittedState.activeProject ?? submittedState.agentProjects[agentId], agentId);
+    const submittedSelection = submittedPane ? submittedState.ideOverlays[submittedPane]?.activeSessionId : undefined;
+    const focusRequest = Symbol();
+    if (submittedPane) pendingCommandFocus.set(submittedPane, focusRequest);
     const draftKey = agentSessionInputKey(agentId, subAgentId ?? null);
     const submittedAttachments = (attachments ?? []).map((serverPath): AgentSessionInputAttachment =>
       get().agentSessionInputs[draftKey]?.attachments.find((a) => a.serverPath === serverPath)
@@ -3503,8 +3565,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     recordCommandHistory(agentId, subAgentId ?? null, text);
     // §5.7 #23-1 v1.59 — 첫 명령 발사 직전에 Claude Code 버전 체크. outdated 면 모달 결정까지 보류.
     void (async () => {
-      if (!get().agentConfigs[agentId]?.provider) await get().ensureClaudeVersionChecked();
       try {
+        if (!get().agentConfigs[agentId]?.provider) await get().ensureClaudeVersionChecked();
         const r = await fetch(`${API_BASE}/api/commands/${sid}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3558,10 +3620,15 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             now.activeProject ?? now.agentProjects[agentId],
             agentId,
           );
-          if (own) now.setIDEActiveSession(sentTo, own);
+          // A delayed success must not undo a tab change, target a newly opened pane, or beat a later send.
+          if (own && own === submittedPane && pendingCommandFocus.get(own) === focusRequest
+            && now.ideOverlays[own]?.activeSessionId === submittedSelection) now.setIDEActiveSession(sentTo, own);
           else now.acknowledgeUsageLimit({ subAgentIds: [sentTo] });
         }
       } catch { /* 서버가 snapshot broadcast → loadSnapshot 에서 queuedCommands 갱신 */ }
+      finally {
+        if (submittedPane && pendingCommandFocus.get(submittedPane) === focusRequest) pendingCommandFocus.delete(submittedPane);
+      }
     })();
   },
   removeCommand: (agentId, commandId) => {
@@ -4779,9 +4846,14 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         ...(workspace ? { workspace } : {}),
       },
     }),
-  closeImageLightbox: () => set({ imageLightbox: null }),
-  markWorkspaceImageSaved: (relPath) =>
-    set((s) => ({ workspaceImageSavedAt: { ...s.workspaceImageSavedAt, [relPath]: Date.now() } })),
+  closeImageLightbox: (expected) => set((s) =>
+    expected && s.imageLightbox !== expected ? s : { imageLightbox: null }),
+  markWorkspaceImageSaved: (root, relPath) =>
+    set((s) => {
+      const key = workspaceImageFileKey(root, relPath);
+      return { workspaceImageSavedAt: { ...s.workspaceImageSavedAt,
+        [key]: Math.max(Date.now(), (s.workspaceImageSavedAt[key] ?? 0) + 1) } };
+    }),
   generateConti: async (agentId) => {
     set((s) => ({ contiGenerating: { ...s.contiGenerating, [agentId]: true } }));
     try {
@@ -5870,9 +5942,18 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   subAgentStreams: {},
   streamLastActivity: {},
   deepRestoredSessions: {},
+  streamRestoreEpoch: 0,
+  streamReconnectAnchors: {},
   streamHistoryExtra: {},
   streamHistoryDone: {},
-  markStreamsStale: () => set((s) => (Object.keys(s.deepRestoredSessions).length === 0 ? s : { deepRestoredSessions: {} })),
+  markStreamsStale: () => set((s) => {
+    const anchors: Record<string, SubAgentStreamEvent> = {};
+    for (const [sid, events] of Object.entries(s.subAgentStreams)) {
+      const last = events[events.length - 1];
+      if (last) anchors[sid] = s.streamReconnectAnchors[sid] ?? last;
+    }
+    return { deepRestoredSessions: {}, streamRestoreEpoch: s.streamRestoreEpoch + 1, streamReconnectAnchors: anchors };
+  }),
   appendStreamEvent: (event) => set((s) => {
     const sid = event.subAgentId;
     const prev = s.subAgentStreams[sid];
@@ -5959,12 +6040,14 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       ...(history.dirty ? { streamHistoryExtra: history.extra, streamHistoryDone: history.done } : {}),
     };
   }),
-  loadStreamBuffers: (buffers, depth = 'shallow') => set((s) => {
+  loadStreamBuffers: (buffers, depth = 'shallow', restore) => set((s) => {
+    if (restore && restore.epoch !== s.streamRestoreEpoch) return s;
     // 서버 스냅샷 버퍼도 무한 누적일 수 있으니 합류 시 동일 차등 상한 적용.
     // 이제 막 불러온 세션은 lastActivity=now 라 pruning 의 "가장 오래된" 후보가 되지 않는다.
     const streams = { ...s.subAgentStreams };
     const lastActivity = { ...s.streamLastActivity };
     const deepRestored = { ...s.deepRestoredSessions };
+    const reconnectAnchors = { ...s.streamReconnectAnchors };
     const active = computeActiveSessionIds(s.ideOverlays, s.subAgents, { ...s.subAgentStreams, ...buffers });
     const history = openStreamHistoryLedger(s.streamHistoryExtra, s.streamHistoryDone);
     const now = Date.now();
@@ -5978,7 +6061,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       // 끼우는 자리는 **서버 순서의 제자리**다 — 재연결 뒤에는 빠진 줄이 끊겨 있던 사이(버퍼 가운데)의
       // 것이라, 종전처럼 끝에 붙이면 다시 붙은 뒤의 줄보다 아래에 그려진다.
       const prev = streams[sid];
-      if (depth === 'shallow' && prev && prev.length >= arr.length) {
+      if (!restore && depth === 'shallow' && prev && prev.length >= arr.length) {
         const filled = spliceMissingInServerOrder(prev, arr);
         if (filled) streams[sid] = filled;
         lastActivity[sid] = now;
@@ -5986,20 +6069,25 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       }
       // 얕은 창으로 **교체**할 때도 요청이 오가는 사이 WS 로 들어온 줄(서버 창 끝 이후)은 남긴다 —
       //   말하는 중에 받으면 그 몇 줄이 빠져 글이 중간에서 끊긴다. 깊은 적재는 부르는 쪽이 이미 합쳐 온다.
-      if (depth === 'shallow' && prev && prev.length > 0) arr = mergeDeepWindow(arr, prev);
+      if (!restore && depth === 'shallow' && prev && prev.length > 0) arr = mergeDeepWindow(arr, prev);
       // 깊은 복원분은 **사용자가 지금 열어 놓은 그 세션**이라 활성 상한으로 받는다. 스냅샷이
       // 아직 안 닿아 `active` 에 안 잡힌 찰나에 비활성 상한(300)으로 깎이면, 표식만 서고 창은
       // 깎인 채 굳어 "다시 받아 오는 길"이 도로 막힌다 — 그래서 이번 호출 한정으로 활성 취급한다.
-      if (depth === 'deep') active.add(sid);
+      if (depth === 'deep' || restore?.preserveHistory) active.add(sid);
       // 비활성 컷은 여기서 하지 않는다 — append 경로와 같은 이유로 `pruneInactiveStreams` 소유다.
       // §5.5 #17-12 — 상한은 append 경로와 같다(거슬러 불러온 만큼 넓다).
-      const cap = activeStreamCap(history.extra, sid);
+      const cap = Math.max(activeStreamCap(history.extra, sid), restore?.preserveHistory ? arr.length : 0);
       const next = active.has(sid) && arr.length > cap ? arr.slice(arr.length - cap) : arr;
       streams[sid] = next;
       lastActivity[sid] = now;
       // §5.5 #17-12 — 창을 **교체**했다. 새 창이 전과 같은 첫 줄에서 시작하면(깊은 창을 기존 버퍼 위에 얹은 경우)
       //   거슬러 불러온 과거가 그대로 이어지니 장부를 두고, 아니면 그 과거는 새 창에 없으므로 비운다.
       if (next[0]?.id !== prev?.[0]?.id) forgetStreamHistory(history, sid);
+      if (restore?.preserveHistory && next.length > activeStreamCap(history.extra, sid)) {
+        touchStreamHistory(history);
+        history.extra[sid] = next.length - STREAM_EVENTS_MAX_PER_SESSION;
+      }
+      if (restore) delete reconnectAnchors[sid];
       // 상한 전체를 받아 온 세션만 표식을 세운다 — 그래야 다음에 깎였을 때 다시 받아 온다.
       if (depth === 'deep') deepRestored[sid] = true;
     }
@@ -6008,6 +6096,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       subAgentStreams: streams,
       streamLastActivity: lastActivity,
       deepRestoredSessions: deepRestored,
+      streamReconnectAnchors: reconnectAnchors,
       ...(history.dirty ? { streamHistoryExtra: history.extra, streamHistoryDone: history.done } : {}),
     };
   }),
@@ -6666,6 +6755,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     // §2.4 (한도 정지) — 세션을 **앞으로 세우는 모든 길**이 이 액션 하나로 모인다(탭 클릭·북마크·
     //   지휘통제실 되짚기·두뇌 피드·콘티 이력). 그래서 주황불 확인도 여기 한 곳에 붙인다 —
     //   "다른 루트로 눌러도 그 세션은 확인된다"가 배선 하나로 지켜진다.
+    // (판올림 번호 발급 대기) **걷기 전에 자국부터.** 이 액션은 세션을 세우면서 완료 확인·주황불을
+    //   함께 찍으므로, 여기서 남기지 않으면 탭 도트는 초록에서 회색으로 한 프레임 만에 건너뛴다.
+    if (sessionId) get().markSessionAckGlow(sessionId);
     if (sessionId) get().acknowledgeUsageLimit({ subAgentIds: [sessionId] });
     set((s) => {
       const key = resolvePaneKey(s, paneKey);
@@ -7566,10 +7658,13 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
 
   // §5.3 #12-1 v1.43 — 권한 승인 스택
   pendingPermissions: {},
-  addPendingPermission: (req) => set((s) => ({
-    pendingPermissions: { ...s.pendingPermissions, [req.requestId]: req },
-  })),
+  addPendingPermission: (req) => {
+    permissionPromptSync.changed(req.requestId);
+    if (permissionPromptSync.deciding(req.requestId)) return;
+    set((s) => ({ pendingPermissions: { ...s.pendingPermissions, [req.requestId]: req } }));
+  },
   removePendingPermission: (requestId) => set((s) => {
+    permissionPromptSync.resolved(requestId);
     if (!(requestId in s.pendingPermissions)) return s;
     const next = { ...s.pendingPermissions };
     delete next[requestId];
@@ -7580,8 +7675,10 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   })),
   respondPermission: async (requestId, choice, reason) => {
     const request = get().pendingPermissions[requestId];
+    if (!request || permissionPromptSync.deciding(requestId)) return true;
     // 낙관적 제거 — 서버 응답 오면 broadcast 도 removePendingPermission 호출하지만 noop.
     get().removePendingPermission(requestId);
+    const decision = permissionPromptSync.decide(requestId);
     try {
       const res = await fetch(`${API_BASE}/api/permission-decide`, {
         method: 'POST',
@@ -7591,22 +7688,25 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       });
       // §5.3 #12-1-B — 400 은 서버가 "항상"을 못 받았다는 뜻이고 카드는 서버에 그대로 대기 중이다.
       //   되돌려 놓지 않으면 사용자는 답했다고 믿는데 60초 뒤 타임아웃 정책으로 풀린다. 404 는 이미 풀린 카드다.
-      if (res.status === 400 && request) {
-        get().addPendingPermission(request);
+      if (res.status === 400) {
+        if (permissionPromptSync.settled(requestId, decision)) get().addPendingPermission(request);
         return false;
       }
     } catch {
       // 서버 끊김 — 이미 제거했으니 다음 스냅샷/재연결 시 pending 재수신
-    }
+    } finally { permissionPromptSync.settled(requestId, decision); }
     return true;
   },
 
   // §5.3 #12-2 v2.26 — AskUserQuestion 카드 큐
   pendingAskQuestions: {},
-  addPendingAskQuestion: (req) => set((s) => ({
-    pendingAskQuestions: { ...s.pendingAskQuestions, [req.requestId]: req },
-  })),
+  addPendingAskQuestion: (req) => {
+    askQuestionPromptSync.changed(req.requestId);
+    if (askQuestionPromptSync.deciding(req.requestId)) return;
+    set((s) => ({ pendingAskQuestions: { ...s.pendingAskQuestions, [req.requestId]: req } }));
+  },
   removePendingAskQuestion: (requestId) => set((s) => {
+    askQuestionPromptSync.resolved(requestId);
     if (!(requestId in s.pendingAskQuestions)) return s;
     const next = { ...s.pendingAskQuestions };
     delete next[requestId];
@@ -7616,7 +7716,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     pendingAskQuestions: Object.fromEntries(list.map((r) => [r.requestId, r])),
   })),
   respondAskQuestion: async (requestId, answers) => {
+    if (!get().pendingAskQuestions[requestId] || askQuestionPromptSync.deciding(requestId)) return;
     get().removePendingAskQuestion(requestId);
+    const decision = askQuestionPromptSync.decide(requestId);
     try {
       await fetch(`${API_BASE}/api/ask-user-question/decide`, {
         method: 'POST',
@@ -7625,7 +7727,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       });
     } catch {
       // 서버 끊김 — 다음 재연결 시 /api/ask-user-question/pending 복구
-    }
+    } finally { askQuestionPromptSync.settled(requestId, decision); }
   },
 
   // §5.7 #23-1 v1.59 — Claude Code 버전 체크 게이트

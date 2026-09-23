@@ -8,15 +8,17 @@ import type {
   QueuedCommand,
   RunningSubagentTask,
   SubAgent,
+  SubAgentStreamEvent,
 } from '@vibisual/shared';
-import { isReadOnlyHookAgent, hasSessionWork, displayCommands } from '@vibisual/shared';
+import { isReadOnlyHookAgent, hasSessionWork, isBackgroundShellTask, displayCommands } from '@vibisual/shared';
 import type { SessionRunInputs } from '@vibisual/shared';
 import { NODE_STATUS_AS_SUB_STATUS } from '../../utils/sessionStatus.js';
+import { commandCenterHistoryText } from './commandCenterHistoryText.js';
 
 // SCENARIO.md §5.12 (v4.43) — 지휘통제실의 레인 파생 + 검색. **순수 함수만** 둔다.
 //
-// 원칙: 새 서버 상태를 만들지 않는다. 여기 있는 모든 값은 이미 graph_snapshot 으로 창에 와 있는
-// 것의 파생이다(§5.12 (B)). 그래서 이 모듈은 store 를 import 하지 않고 필요한 조각만 인자로 받는다
+// 원칙: 새 서버 상태를 만들지 않는다. 레인은 스냅샷, 검색은 스냅샷·수신 스트림·저장 기록 일치의
+// 파생이다. 그래서 이 모듈은 store 를 import 하지 않고 필요한 조각만 인자로 받는다
 // — 컴포넌트 없이 단위 테스트할 수 있게 하기 위함(floatingWindowGeom 선례).
 
 /** 급한 순 5레인. 배열 순서가 곧 우선순위다(앞이 이긴다). */
@@ -86,7 +88,13 @@ export interface CommandCenterItem {
   contextUsed: number | undefined;
   contextMax: number | undefined;
   queuedCount: number;
+  /** 이 세션이 띄운 **에이전트 자식** 수(모델이 돈다). 레인 판정에 쓰인다. */
   runningTaskCount: number;
+  /**
+   * 이 세션이 백단에 남겨 둔 **셸** 수 — 표시 전용이다(레인 판정에 넣지 않는다).
+   * 셸만 남은 세션은 **끝난 것**이라 done 레인에 있어야 하고, 이 수는 그 카드에 한 줄로만 붙는다.
+   */
+  backgroundShellCount: number;
   /** completed 인데 사용자가 아직 확인하지 않음 — done 레인에서 강조. */
   unacknowledged: boolean;
   /**
@@ -120,6 +128,10 @@ export interface CommandCenterInput {
   agentReports: Record<string, AgentReport[]>;
   pendingPermissions: Record<string, PermissionRequest>;
   acknowledgedSubAgents: Record<string, true>;
+  /** 이미 수신한 본문은 저장 기록 조회를 기다리지 않고 검색한다. */
+  subAgentStreams?: Record<string, SubAgentStreamEvent[]>;
+  /** 목록만 보는 동안은 전체 대화 문자열을 만들지 않는다. */
+  includeHistoryText?: boolean;
 }
 
 const DEFAULT_AGENT_COLOR = '#60a5fa';
@@ -177,6 +189,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
   );
   if (projectAgents.length === 0) return [];
   const agentIds = new Set(projectAgents.map((a) => a.id));
+  const historyText = input.includeHistoryText === false ? undefined : commandCenterHistoryText(input, agentIds);
 
   // ── 세션별 근거 수집 (한 번씩만 훑는다) ────────────────────────────────
   const questionByKey = new Map<string, AgentQuestions>();
@@ -187,7 +200,10 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
   /** 그중 **지금 나가 있는**(executing) 것만. 레인 판정이 IDE 와 같은 함수를 쓰기 위해 따로 센다. */
   const executingByKey = new Map<string, number>();
   const queuedTextsByKey = new Map<string, string[]>();
+  /** 에이전트 자식(모델이 도는 것)만. 레인 판정이 이 수를 본다. */
   const runningByKey = new Map<string, number>();
+  /** 백단 셸. **레인 판정에 들어가지 않는다** — 카드에 한 줄로만 붙는다. */
+  const shellByKey = new Map<string, number>();
   const promptFloorByKey = new Map<string, number>();
 
   // 프롬프트 바닥을 **먼저** 깐다 — 카드 수집이 이 값으로 지나간 카드를 걸러 내기 때문이다.
@@ -250,7 +266,9 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
     }
     for (const task of runningSubagentTasks[agentId] ?? []) {
       const k = cardKey(agentId, task.subAgentId);
-      runningByKey.set(k, (runningByKey.get(k) ?? 0) + 1);
+      // 셸은 "작업 중" 레인으로 끌어올리지 않는다 — 끝난 대화가 영영 대기열에 남는다.
+      const m = isBackgroundShellTask(task) ? shellByKey : runningByKey;
+      m.set(k, (m.get(k) ?? 0) + 1);
     }
   }
 
@@ -322,6 +340,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
       const report = reportByKey.get(key) ?? null;
       const queuedCount = queuedByKey.get(key) ?? 0;
       const runningTaskCount = runningByKey.get(key) ?? 0;
+      const backgroundShellCount = shellByKey.get(key) ?? 0;
       // §5.12 (B) ④ 의 판정 근거 4종(버블/세션 status · 백그라운드 Task · 큐 잔량)을 IDE 와
       //   **같은 함수**(`hasSessionWork`)에 넘긴다. 식을 두 벌로 두면 또 갈라진다.
       const runInputs: SessionRunInputs = {
@@ -329,7 +348,8 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         subStatus: NODE_STATUS_AS_SUB_STATUS[s.status],
         hasExecutingCommand: (executingByKey.get(key) ?? 0) > 0,
         hasQueuedCommand: queuedCount > 0,
-        runningTaskCount,
+        runningAgentTaskCount: runningTaskCount,
+        backgroundShellCount,
         acknowledged: s.acked,
         usageLimited: s.usageLimited,
       };
@@ -386,6 +406,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         report ? [...report.userActions, ...report.did].join(' ') : '',
         permission ? permission.toolName : '',
         ...queuedTexts,
+        historyText?.get(key) ?? '',
       ];
 
       out.push({
@@ -407,6 +428,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         contextMax: s.contextMax,
         queuedCount,
         runningTaskCount,
+        backgroundShellCount,
         unacknowledged,
         readOnly: isReadOnlyHookAgent(agent),
         questionPrompts,
@@ -419,7 +441,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
           lastCommand: s.lastCommand,
           lastResult: s.lastResult,
         },
-        searchText: searchParts.join('   ').toLowerCase(),
+        searchText: searchParts.join('   ').normalize('NFC').toLowerCase(),
       });
     }
   }
@@ -476,7 +498,7 @@ export function toggleLaneToken(raw: string, lane: CommandCenterLane | null): st
   for (const rawToken of raw.split(/\s+/)) {
     const token = rawToken.trim();
     if (!token) continue;
-    const lower = token.toLowerCase();
+    const lower = token.normalize('NFC').toLowerCase();
     const isLaneToken = !!LANE_TOKENS[lower] || lower === 'is:idle' || lower === 'is:completed';
     if (isLaneToken) {
       if (lane && lower === LANE_QUERY_TOKEN[lane]) had = true;
@@ -507,7 +529,7 @@ export function parseCommandCenterQuery(raw: string): CommandCenterQuery {
   for (const rawToken of raw.split(/\s+/)) {
     const token = rawToken.trim();
     if (!token) continue;
-    const lower = token.toLowerCase();
+    const lower = token.normalize('NFC').toLowerCase();
     const lane = LANE_TOKENS[lower];
     if (lane) {
       query.lanes.add(lane);
@@ -545,18 +567,22 @@ export function isEmptyQuery(query: CommandCenterQuery): boolean {
   );
 }
 
-export function matchesQuery(item: CommandCenterItem, query: CommandCenterQuery): boolean {
+export function matchesQuery(
+  item: CommandCenterItem,
+  query: CommandCenterQuery,
+  historyTerms: readonly string[] = [],
+): boolean {
   if (query.lanes.size > 0 && !query.lanes.has(item.lane)) return false;
   if (query.idleOnly && item.unacknowledged) return false;
   if (query.unackOnly && !item.unacknowledged) return false;
   for (const frag of query.agentFragments) {
-    if (!item.agentLabel.toLowerCase().includes(frag)) return false;
+    if (!item.agentLabel.normalize('NFC').toLowerCase().includes(frag)) return false;
   }
   for (const frag of query.toolFragments) {
-    if (!(item.lastTool ?? '').toLowerCase().includes(frag)) return false;
+    if (!(item.lastTool ?? '').normalize('NFC').toLowerCase().includes(frag)) return false;
   }
   for (const term of query.terms) {
-    if (!item.searchText.includes(term)) return false;
+    if (!item.searchText.includes(term) && !historyTerms.includes(term)) return false;
   }
   return true;
 }
@@ -564,9 +590,10 @@ export function matchesQuery(item: CommandCenterItem, query: CommandCenterQuery)
 export function filterCommandCenterItems(
   items: CommandCenterItem[],
   query: CommandCenterQuery,
+  historyMatches: Readonly<Record<string, readonly string[]>> = {},
 ): CommandCenterItem[] {
   if (isEmptyQuery(query)) return items;
-  return items.filter((item) => matchesQuery(item, query));
+  return items.filter((item) => matchesQuery(item, query, historyMatches[item.key]));
 }
 
 // ─── 정리 (§5.12 (E)) ───────────────────────────────────────────────────────

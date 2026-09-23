@@ -6,6 +6,9 @@
  *
  * §5.5 #17-11 ⑦ v3.84 — 여기에 "세션 루프가 도는 동안은 침묵, 루프 묶음이 끝날 때 한 번" 을 더한다.
  * ("동작 중인데 완료음이 계속 울린다" 재발 방지 — 루프 회차 경계마다 completed 가 성립하던 문제.)
+ *
+ * §5.5 #17-11 ⑦ 개정 — 그 "루프 묶음 종료"가 두 번째 발화 지점이 되어 같은 종료로 소리가 두 번
+ * 나던 것을 고친 뒤의 회귀 묶음이 파일 끝에 붙는다(발화 지점은 버블 completed 전이 하나).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { BubbleData, NodeStatus, SessionLoop, SessionLoopStatus } from '@vibisual/shared';
@@ -202,6 +205,58 @@ describe('detectCustomAgentCompletions', () => {
     detectCustomAgentCompletions([agent('a', 'completed', true)], finished); // 루프 종료 1회
     detectCustomAgentCompletions([agent('a', 'idle', true)], finished);
     const done = runOneCycle('a', finished);
+    expect(done.map((d) => d.reason)).toEqual(['agent']);
+  });
+  /**
+   * §5.5 #17-11 ⑦ 개정 — 발화 지점 단일화 회귀.
+   *
+   * 실제 서버 순서는 "루프가 꺼진 스냅샷에서 버블은 아직 `active`" 다. 완료 판정은 큐 정리 뒤,
+   * 늦으면 10초 전체 재계산에 실려 **다음 스냅샷**에 온다. 예전에는 두 프레임이 각각 소리를 내
+   * 같은 종료로 두 번 울렸다(1.5초 중복 방지 창을 한참 넘어선다).
+   */
+  it('루프 종료와 버블 완료가 다른 스냅샷에 실려도 한 번만 울린다', () => {
+    runOneCycle('a', loops(loop('sub-1', 'a', 'running')));
+    const finished = loops(loop('sub-1', 'a', 'done'));
+    // 프레임 1 — 루프는 꺼졌지만 버블은 아직 돌고 있다고 표시된다. 아직 종료가 아니다.
+    expect(detectCustomAgentCompletions([agent('a', 'active', true)], finished)).toHaveLength(0);
+    // 프레임 2 — 뒤늦게 완료 판정이 실린다. 여기가 유일한 발화 지점.
+    const done = detectCustomAgentCompletions([agent('a', 'completed', true)], finished);
+    expect(done.map((d) => d.reason)).toEqual(['loop']);
+    // 프레임 3 — 같은 상태가 이어져도 더 울리지 않는다.
+    expect(detectCustomAgentCompletions([agent('a', 'completed', true)], finished)).toHaveLength(0);
+  });
+
+  it('정지로 끝난 루프는 버블 완료가 늦게 실려도 끝까지 침묵한다', () => {
+    runOneCycle('a', loops(loop('sub-1', 'a', 'running')));
+    const stopped = loops(loop('sub-1', 'a', 'stopped'));
+    expect(detectCustomAgentCompletions([agent('a', 'active', true)], stopped)).toHaveLength(0);
+    expect(detectCustomAgentCompletions([agent('a', 'completed', true)], stopped)).toHaveLength(0);
+  });
+
+  it('예산 소진으로 끝난 루프도 늦게 실린 완료에서 한 번 울린다', () => {
+    runOneCycle('a', loops(loop('sub-1', 'a', 'running')));
+    const spent = loops(loop('sub-1', 'a', 'budget'));
+    detectCustomAgentCompletions([agent('a', 'active', true)], spent);
+    const done = detectCustomAgentCompletions([agent('a', 'completed', true)], spent);
+    expect(done.map((d) => d.reason)).toEqual(['loop']);
+  });
+
+  it('루프 종료 예고는 한 번만 쓰이고 다음 완료는 일반 완료로 울린다', () => {
+    runOneCycle('a', loops(loop('sub-1', 'a', 'running')));
+    const finished = loops(loop('sub-1', 'a', 'done'));
+    detectCustomAgentCompletions([agent('a', 'active', true)], finished);
+    detectCustomAgentCompletions([agent('a', 'completed', true)], finished);
+    const done = runOneCycle('a', finished);
+    expect(done.map((d) => d.reason)).toEqual(['agent']);
+  });
+
+  it('루프가 끝난 뒤 버블이 실패로 주저앉으면 침묵하고, 예고를 뒤 명령이 물려받지 않는다', () => {
+    runOneCycle('a', loops(loop('sub-1', 'a', 'running')));
+    const failed = loops(loop('sub-1', 'a', 'error'));
+    expect(detectCustomAgentCompletions([agent('a', 'active', true)], failed)).toHaveLength(0);
+    // 실패는 완료가 아니다(§2.4) — 소리도, 예고도 남기지 않는다.
+    expect(detectCustomAgentCompletions([agent('a', 'error', true)], failed)).toHaveLength(0);
+    const done = runOneCycle('a', failed);
     expect(done.map((d) => d.reason)).toEqual(['agent']);
   });
 });

@@ -103,6 +103,8 @@ describe('requestOlderStreamHistory', () => {
       subAgentStreams: {},
       streamLastActivity: {},
       deepRestoredSessions: {},
+      streamRestoreEpoch: 0,
+      streamReconnectAnchors: {},
       streamHistoryExtra: {},
       streamHistoryDone: {},
       ideOverlays: {},
@@ -196,6 +198,27 @@ describe('requestOlderStreamHistory', () => {
     expect(st.deepRestoredSessions[SID]).toBe(true);
     expect(st.subAgentStreams[SID]).toHaveLength(2003);
     expect(st.subAgentStreams[SID]?.[0]?.id).toBe(`${SID}-0`);
+  });
+
+  it('재접속 응답이 늦어도 읽던 과거·확장 장부와 응답 중 받은 라이브 줄을 함께 남긴다', async () => {
+    useGraphStore.setState({
+      subAgentStreams: { [SID]: [...range(0, 5), ...range(10, 3)] },
+      streamHistoryExtra: { [SID]: 5 },
+      ideOverlays: { w: { agentId: AGENT, activeSessionId: 'sub-other' } as unknown as IDEOverlayState },
+    });
+    let respond!: (r: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => { respond = r; }));
+
+    const { settled } = request();
+    useGraphStore.getState().appendStreamEvent(evt(14));
+    fetchMock.mockResolvedValueOnce(json({ events: range(0, 6), hasMore: false }));
+    respond(json({ events: range(6, 8) }));
+    await settled;
+
+    const st = useGraphStore.getState();
+    expect(st.subAgentStreams[SID]?.map((e) => e.id)).toEqual(range(0, 15).map((e) => e.id));
+    expect(st.streamHistoryExtra[SID]).toBe(5);
+    expect(st.deepRestoredSessions[SID]).toBe(true);
   });
 
   it('창의 활성 세션은 창이 깊은 복원을 끝낼 때까지 겹쳐 받지 않는다', () => {

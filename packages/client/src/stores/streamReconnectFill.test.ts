@@ -49,6 +49,8 @@ describe('재연결 뒤 스트림 합치기 (§4 v3.16)', () => {
       subAgentStreams: {},
       streamLastActivity: {},
       deepRestoredSessions: {},
+      streamRestoreEpoch: 0,
+      streamReconnectAnchors: {},
       streamHistoryExtra: {},
       streamHistoryDone: {},
       ideOverlays: {},
@@ -69,10 +71,10 @@ describe('재연결 뒤 스트림 합치기 (§4 v3.16)', () => {
     expect(bufferIds()).toEqual(rangeIds(0, 99));
   });
 
-  it('지울 표식이 없으면 상태를 바꾸지 않는다', () => {
-    const before = useGraphStore.getState();
+  it('지울 표식이 없어도 진행 중인 옛 복원 응답을 구별할 세대를 올린다', () => {
+    const before = useGraphStore.getState().streamRestoreEpoch;
     useGraphStore.getState().markStreamsStale();
-    expect(useGraphStore.getState()).toBe(before);
+    expect(useGraphStore.getState().streamRestoreEpoch).toBe(before + 1);
   });
 
   it('얕은 적재가 끊겨 있던 사이를 버퍼 가운데 제자리에 메운다', () => {
@@ -96,6 +98,16 @@ describe('재연결 뒤 스트림 합치기 (§4 v3.16)', () => {
     useGraphStore.getState().loadStreamBuffers({ [SUB]: range(0, 39) }, 'shallow');
 
     expect(bufferIds()).toEqual(rangeIds(0, 41));
+  });
+
+  it('새 얕은 창이 더 길어도 첫 줄을 놓쳤다는 이유로 읽던 과거를 버리지 않는다', () => {
+    openIDE();
+    useGraphStore.getState().loadStreamBuffers({ [SUB]: range(0, 4) }, 'deep');
+    useGraphStore.getState().appendStreamEvents(range(40, 41));
+
+    useGraphStore.getState().loadStreamBuffers({ [SUB]: range(20, 41) }, 'shallow');
+
+    expect(bufferIds()).toEqual([...rangeIds(0, 4), ...rangeIds(20, 41)]);
   });
 
   it('서버 창에 이미 실려 온 줄이 WS 로 또 오면 두 번 그리지 않는다 — 단건', () => {

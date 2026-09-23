@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   isTurnResumeSignal, MAX_TRACKED_TASKS,
-  listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, shouldSleepResumedTurn,
+  listDisplayableLiveTasks, hasLiveTasks, hasLiveAgentTasks, countLiveShells,
+  turnIdOfLiveTask, shouldSleepResumedTurn,
   isResultBeforeOwnTurn,
 } from './turnSeal.js';
 
@@ -282,6 +283,67 @@ describe('hasLiveTasks — 생존 판정은 거르지 않는다 (§5.5 #17-9 ⑮
     const s = createTurnSealState();
     noteTaskChip(s, START, { id: 'child1', subagentType: 'code-worker' });
     expect(hasLiveTasks(s)).toBe(mayTurnResume(s));
+  });
+});
+
+describe('hasLiveAgentTasks — 표시 축은 모델 자식만 본다 (§5.5 #17-9 ⑰)', () => {
+  it('셸만 남으면 거짓 — `hasLiveTasks` 와 답이 **갈려야** 맞다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'bspe49nqf', description: 'grep … | sort' });
+    // 회수 축은 참이어야 한다(이 셸을 죽이면 도는 명령이 함께 죽는다).
+    expect(hasLiveTasks(s)).toBe(true);
+    // 표시 축은 거짓이어야 한다(모델은 돌지 않는다 — 그 턴의 답은 이미 나와 있다).
+    expect(hasLiveAgentTasks(s)).toBe(false);
+    expect(countLiveShells(s)).toBe(1);
+  });
+
+  it('모델 자식이 있으면 참 — 셸을 뺀 것이지 자식을 뺀 것이 아니다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'child1', subagentType: 'code-worker' });
+    expect(hasLiveAgentTasks(s)).toBe(true);
+    expect(countLiveShells(s)).toBe(0);
+  });
+
+  it('섞여 있으면 각자 자기 몫만 센다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'sh1', description: 'npm run dev' });
+    noteTaskChip(s, START, { id: 'sh2', description: 'Monitor' });
+    noteTaskChip(s, START, { id: 'child1', subagentType: 'explorer' });
+    expect(hasLiveAgentTasks(s)).toBe(true);
+    expect(countLiveShells(s)).toBe(2);
+  });
+
+  it('모델 자식이 끝나면 셸이 남아 있어도 표시 축은 꺼진다 — 여기가 [중지]가 풀리는 자리다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'sh1', description: 'grep … | sort' });
+    noteTaskChip(s, START, { id: 'child1', subagentType: 'explorer' });
+    expect(hasLiveAgentTasks(s)).toBe(true);
+    noteTaskChip(s, END, { id: 'child1', status: 'completed' });
+    expect(hasLiveAgentTasks(s)).toBe(false);
+    expect(hasLiveTasks(s)).toBe(true); // 회수 축은 그대로 — 셸을 조용히 죽이면 안 된다
+    expect(countLiveShells(s)).toBe(1);
+  });
+
+  it('셸이 끝 통지를 받으면 개수도 줄어든다 — 배지가 영영 안 꺼지면 안 된다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'sh1', description: 'npm run dev' });
+    expect(countLiveShells(s)).toBe(1);
+    noteTaskChip(s, END, { id: 'sh1', status: 'completed' });
+    expect(countLiveShells(s)).toBe(0);
+    expect(hasLiveTasks(s)).toBe(false);
+  });
+
+  it('아무 것도 없으면 둘 다 0/거짓', () => {
+    const s = createTurnSealState();
+    expect(hasLiveAgentTasks(s)).toBe(false);
+    expect(countLiveShells(s)).toBe(0);
+  });
+
+  it('표시 목록과 셸 수는 같은 항목을 센다 — ⑮ 목록의 나머지가 곧 셸이다', () => {
+    const s = createTurnSealState();
+    noteTaskChip(s, START, { id: 'sh1', description: 'npm run dev' });
+    noteTaskChip(s, START, { id: 'child1', subagentType: 'explorer' });
+    expect(countLiveShells(s)).toBe(listDisplayableLiveTasks(s).length);
   });
 });
 

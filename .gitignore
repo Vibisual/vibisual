@@ -88,7 +88,6 @@ $RECYCLE.BIN/
 
 # Claude Code per-project state (avoid leaking internal session/skills/agents)
 .claude/
-.mddbai/
 
 # Codex per-project state and local agent instructions
 .codex/
@@ -116,7 +115,7 @@ __tests__/
 # TypeScript
 *.tsbuildinfo
 
-# === Private dev assets (Claude / mddbai / SSOT) — NEVER PUBLISH ===
+# === Private dev assets (Claude / SSOT) — NEVER PUBLISH ===
 # 위치 고정 개인 자산 (로더·참조 때문에 이동 불가 — 개별 차단)
 /CLAUDE.md
 /docs/SCENARIO.md

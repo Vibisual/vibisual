@@ -36,6 +36,8 @@ export interface AutoGoalControl {
   dismiss: (candidateId: string) => void;
   /** 굳은 절차 한 장을 지운다. 함께 물려 두지 않으면 다음 분석이 곧바로 다시 짓는다. */
   removeSkill: (skillId: string, candidateId?: string) => void;
+  /** §5.10 (R)ⓔ — 사람이 직접 올리는 부가 경로. 근거는 절차가 들고 있는 파일을 서버가 그대로 찍는다. */
+  approveSkill: (skillId: string, revision?: string) => void;
   retireSkill: (skillId: string, revision?: string) => void;
   requestReview: (skillId: string, revision?: string) => void;
 }
@@ -90,6 +92,9 @@ export function useAutoGoalScope(
     post(`/api/auto-goal/skills/${encodeURIComponent(skillId)}?${q.toString()}`, undefined, 'DELETE');
   }, [post, rootPath]);
 
+  const approveSkill = useCallback((skillId: string, revision?: string) => {
+    post(`/api/auto-goal/skills/${encodeURIComponent(skillId)}/approve`, { projectPath: rootPath, revision });
+  }, [post, rootPath]);
   const retireSkill = useCallback((skillId: string, revision?: string) => {
     post(`/api/auto-goal/skills/${encodeURIComponent(skillId)}/retire`, { projectPath: rootPath, revision });
   }, [post, rootPath]);
@@ -109,6 +114,7 @@ export function useAutoGoalScope(
     set,
     dismiss,
     removeSkill,
+    approveSkill,
     retireSkill,
     requestReview,
   };

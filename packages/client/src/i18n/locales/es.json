@@ -82,9 +82,6 @@
       "soloFocus": "Mostrar solo esta ventana (contraer las demás)",
       "limited": "detenido",
       "limitedUntil": "se restablece a las {{at}}",
-      "limitedBanner": "{{count}} sesión(es) detenida(s) por el límite de uso — aparecen primero abajo",
-      "limitedAck": "Entendido",
-      "limitedAckHint": "Quita la marca naranja: las sesiones y las conversaciones se mantienen",
       "settings": "Ajustes del Agent",
       "expand": "Expandir",
       "collapse": "Contraer",
@@ -1725,7 +1722,8 @@
         "running": "ejecutando",
         "done": "terminado",
         "error": "error",
-        "limited": "límite alcanzado"
+        "limited": "límite alcanzado",
+        "waiting": "en cola"
       },
       "probe": {
         "checking": "comprobando…",
@@ -2335,7 +2333,7 @@
       "untitledSession": "Conversación sin título",
       "revisionOf": "rev {{index}}/{{total}}",
       "failedBadge": "Fallidas: {{count}}",
-      "failedBadgeTip": "Compactaciones fallidas ({{scope}}): {{count}}. Cada fila fallida lleva una etiqueta roja con el motivo."
+      "failedBadgeTip": "Compactaciones fallidas ({{scope}}): {{count}}. Cada fila fallida lleva una etiqueta con el motivo."
     },
     "remoteAccess": {
       "title": "Acceso remoto",
@@ -2733,9 +2731,9 @@
       "voiceRespaceLabel": "Restaurar los espacios del coreano",
       "voiceRespaceHint": "El reconocedor devuelve el coreano sin espacios; esto lo separa por partículas y terminaciones. Se basa en reglas, así que no es perfecto: puedes corregir el resultado en el campo de texto.",
       "stallHint": "Un razonamiento o una llamada a una herramienta prolongados pueden pausar las actualizaciones. Eso por sí solo no significa que la sesión se haya detenido.",
-      "stallNotice": "Esperando la siguiente actualización. Última actividad hace {{value}}.",
-      "stallKeepWaiting": "Seguir esperando",
-      "stallKeepWaitingTitle": "Ocultar este aviso y seguir esperando la siguiente actualización.",
+      "backgroundShells": "{{count}} shell en segundo plano sigue en ejecución. La respuesta ya ha llegado — puedes seguir escribiendo.",
+      "backgroundShellsTip": "Un comando Bash o Monitor en segundo plano que quedó de un turno anterior. Ejecuta un comando, no un modelo, así que no mantiene ocupada esta sesión. Los comandos que nunca terminan por sí solos (tail -f, while true, un sort con pipe) se quedan aquí hasta que los quites.",
+      "backgroundShellsOpen": "Ver",
       "stopNothing": "No había nada en ejecución que detener. La etiqueta «en ejecución» estaba obsoleta.",
       "stopNothingHint": "El servidor no encontró ningún proceso hijo, comando en cola ni tarea en segundo plano para este ámbito.",
       "stopForce": "Forzar cierre",
@@ -3301,7 +3299,8 @@
       "nestedSubagent": "Subagente",
       "commandReceived": "Comando recibido",
       "promptSuggestion": "Siguiente prompt sugerido",
-      "imageMissing": "(imagen no disponible)"
+      "imageMissing": "(imagen no disponible)",
+      "waiting": "esperando"
     },
     "report": {
       "title": "Informe de trabajo",
@@ -3502,18 +3501,19 @@
       "superseded": "Plan actualizado"
     },
     "cmdError": {
-      "spawn": "No se pudo iniciar la CLI de Claude",
+      "spawn": "No se pudo iniciar {{engine}}",
       "stdin": "No se pudo entregar el prompt a la sesión en ejecución",
-      "exit": "La CLI de Claude terminó con el código {{code}}",
-      "exitUnknown": "La CLI de Claude terminó de forma inesperada",
+      "exit": "{{engine}} terminó con el código {{code}}",
+      "exitUnknown": "{{engine}} terminó de forma inesperada",
       "crash": "El proceso de la sesión murió de forma inesperada (código {{code}})",
       "crashUnknown": "El proceso de la sesión murió de forma inesperada",
       "local": "La ejecución del modelo local ha fallado",
-      "cli": "La CLI de Claude informó de un fallo",
+      "cli": "{{engine}} informó de un fallo",
       "maxTurns": "Detenido al alcanzar el límite de turnos máximos",
       "agentView": "La ejecución del agente terminó con un fallo",
       "orphaned": "Interrumpido al reiniciarse Vibisual",
       "dispatchResult": "Terminó sin recibir el resultado de la tarea delegada",
+      "usageLimit": "Detenido al alcanzar el límite de uso",
       "unknown": "Fallo por un motivo desconocido"
     },
     "turnStop": {
@@ -4632,6 +4632,9 @@
       "refresh": "Actualizar procedimientos",
       "details": "Mostrar detalles del procedimiento",
       "hideDetails": "Ocultar detalles del procedimiento",
+      "approve": "Aprobar",
+      "approveHint": "Apruébalo ahora, con los ficheros que este procedimiento ya indica como prueba. Los agents suelen hacerlo por su cuenta.",
+      "approveNoEvidence": "Este procedimiento no indica ningún fichero justificativo, así que no se puede aprobar aquí.",
       "pause": "Dejar de usar",
       "requestReview": "Solicitar revisión del Agent",
       "reviewHint": "Un Agent que esté trabajando revisa los procedimientos pertinentes. Solicitar una revisión no activa el procedimiento.",
@@ -4649,6 +4652,7 @@
         "applicabilityChanged": "Las condiciones de uso de este procedimiento han cambiado desde la revisión.",
         "instructionsChanged": "Las instrucciones del procedimiento han cambiado desde la revisión.",
         "dependencyChanged": "Un fichero de apoyo revisado ha cambiado o ya no está disponible.",
+        "userApproved": "Has aprobado este procedimiento.",
         "userPaused": "Has dejado de usar este procedimiento.",
         "userRequestedReview": "Has solicitado otra revisión de este procedimiento."
       },
@@ -4717,7 +4721,10 @@
         "askQuestions": "Dejar que el director me haga preguntas",
         "askQuestionsHint": "Añade AskUserQuestion a sus herramientas. Desactivado de forma predeterminada — cuando está activado, una orden vaga puede detenerse hasta que respondas.",
         "engine": "Motor de los miembros",
-        "maxMembers": "Máximo de miembros que puede crear"
+        "maxMembers": "Máximo de miembros que puede crear",
+        "memberIsolation": "Dar a cada miembro su propio worktree",
+        "memberIsolationHint": "Cada miembro nace en su propio git worktree, así que los miembros que trabajan en paralelo no pueden colisionar en los mismos ficheros. Fusionar las ramas después corre de tu cuenta. Solo miembros de Claude — Codex no tiene un flag equivalente.",
+        "memberToolTemplate": "Herramientas con las que nacen los miembros"
       },
       "permission": {
         "bypass": "Omitir las confirmaciones de permisos",
@@ -4734,7 +4741,11 @@
           "auto": "El director elige según el rol",
           "inherit": "Igual que el director ({{engine}})"
         },
-        "maxDefault": "Predeterminado ({{count}})"
+        "maxDefault": "Predeterminado ({{count}})",
+        "isolationClaudeOnly": "Los miembros de Codex no tienen esto — se ejecutan directamente en la carpeta del proyecto.",
+        "toolsOption": "{{name}} ({{count}})",
+        "toolsDefault": "Predeterminado del Agent (todas las herramientas)",
+        "toolsHint": "El director no puede ampliar esta lista. Las herramientas acotadas mantienen a un miembro dentro de su propia tarea — un revisor que no puede escribir no va a «arreglar» en silencio lo que le pediste que revisara."
       },
       "strategies": {
         "title": "Estrategias de ahorro de tokens",
@@ -5757,6 +5768,7 @@
     "waitingFor": "esperando {{time}}",
     "queued": "{{count}} en cola",
     "running": "{{count}} en marcha",
+    "backgroundShells": "{{count}} shell en segundo plano",
     "jumpHint": "Abrir esta sesión en la ventana principal",
     "commandHint": "Enviar un mensaje sin salir de esta ventana",
     "moreHint": "Más acciones",
@@ -5769,6 +5781,9 @@
     "commandPlaceholder": "Mensaje para esta sesión… (Enter para enviar)",
     "send": "Enviar",
     "searchPlaceholder": "Buscar sesiones —  is:working  needs:review  agent:…  tool:…",
+    "historySearching": "Buscando en el historial de conversaciones…",
+    "historySearchFailed": "No se pudo buscar en parte del historial de conversaciones.",
+    "retryHistorySearch": "Reintentar la búsqueda en el historial",
     "clearSearch": "Limpiar",
     "resultCount": "{{count}} coincidencias",
     "sessionCount": "{{count}} sesiones",

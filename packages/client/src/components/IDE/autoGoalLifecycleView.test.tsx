@@ -26,12 +26,12 @@ vi.mock('../ScrollFade.js', () => ({ ScrollFade: ({ children }: { children: Reac
 
 const skill: AutoGoalSkillSummary = { id: 'one', name: 'Build output', description: 'Create current output', steps: 2, runs: 100, createdAt: 1, updatedAt: 1, revision: 'body-hash' };
 function renderRow(status?: AutoGoalSkillSummary['status']): string {
-  return renderToStaticMarkup(createElement(AutoGoalSkillRow, { skill: { ...skill, ...(status ? { status } : {}) }, rootPath: '/project', disabled: false, onRemove: vi.fn(), onRetire: vi.fn(), onRequestReview: vi.fn() }));
+  return renderToStaticMarkup(createElement(AutoGoalSkillRow, { skill: { ...skill, ...(status ? { status } : {}) }, rootPath: '/project', disabled: false, onRemove: vi.fn(), onApprove: vi.fn(), onRetire: vi.fn(), onRequestReview: vi.fn() }));
 }
 beforeEach(() => {
   fixture.control = {
     states: [], effective: true, loading: false, saving: false, error: null,
-    set: vi.fn(), dismiss: vi.fn(), removeSkill: vi.fn(), retireSkill: vi.fn(), requestReview: vi.fn(), refresh: vi.fn(),
+    set: vi.fn(), dismiss: vi.fn(), removeSkill: vi.fn(), approveSkill: vi.fn(), retireSkill: vi.fn(), requestReview: vi.fn(), refresh: vi.fn(),
     state: { enabled: true, candidates: [], skills: [{ ...skill, status: 'candidate' }], observed: 100, minRuns: 3, analyzedAt: 1,
       metrics: { activeCount: 0, reviewCount: 1, retiredCount: 0, reuseCount: 2, skipCount: 1, failureCount: 0, revisionCount: 3 } },
   };

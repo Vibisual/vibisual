@@ -4,6 +4,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { sessionStopUrl } from '../../hooks/useSessionStop.js';
 import { CommandCenterCard } from './CommandCenterCard.js';
 import { CommandCenterDetail, type CommandCenterDetailHandle } from './CommandCenterDetail.js';
+import { useCommandCenterHistorySearch } from './useCommandCenterHistorySearch.js';
 import {
   AUTO_TIDY_MINUTES,
   COMMAND_CENTER_LANES,
@@ -88,6 +89,8 @@ export interface CommandCenterBoardProps {
 export function CommandCenterBoard({ projectId, settings, onUpdate: update }: CommandCenterBoardProps): React.JSX.Element {
   const { t } = useTranslation();
   const [rawQuery, setRawQuery] = useState('');
+  const query = useMemo(() => parseCommandCenterQuery(rawQuery), [rawQuery]);
+  const includeHistoryText = query.terms.length > 0;
   const [now, setNow] = useState(() => Date.now());
   const [tidyOpen, setTidyOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -105,6 +108,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
   const queuedCommands = useGraphStore((s) => s.queuedCommands);
   // §5.12 (B) v4.55 — 카드가 아직 스트림 맨 끝인지(살아 있는지) 재는 데만 쓴다(대기 개수 ❌).
   const completedCommands = useGraphStore((s) => s.completedCommands);
+  const subAgentStreams = useGraphStore((s) => includeHistoryText ? s.subAgentStreams : undefined);
   const runningSubagentTasks = useGraphStore((s) => s.runningSubagentTasks);
   const agentQuestions = useGraphStore((s) => s.agentQuestions);
   const agentReviews = useGraphStore((s) => s.agentReviews);
@@ -136,6 +140,8 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
           subAgents,
           queuedCommands,
           completedCommands,
+          subAgentStreams,
+          includeHistoryText,
           runningSubagentTasks,
           agentQuestions,
           agentReviews,
@@ -148,20 +154,20 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
       ),
     // `now` 는 값으로 쓰지 않지만 의존에 둔다 — 스냅샷이 더 안 와도 15초 틱이 붙잡아 둔 카드를 풀어 준다.
     [
-      projectId, agents, agentProjects, agentConfigs, subAgents, queuedCommands, completedCommands,
+      projectId, agents, agentProjects, agentConfigs, subAgents, queuedCommands, completedCommands, subAgentStreams, includeHistoryText,
       runningSubagentTasks, agentQuestions, agentReviews, agentReports,
       pendingPermissions, acknowledgedSubAgents, now,
     ],
   );
 
-  const query = useMemo(() => parseCommandCenterQuery(rawQuery), [rawQuery]);
   const searching = !isEmptyQuery(query);
   const activeLane = useMemo(() => activeLaneOf(query), [query]);
   const counts = useMemo(() => laneCounts(allItems), [allItems]);
+  const historySearch = useCommandCenterHistorySearch(projectId, allItems.map((item) => item.agentId), query.terms);
 
   const visible = useMemo(
-    () => sortCommandCenterItems(filterCommandCenterItems(allItems, query), settings.sort),
-    [allItems, query, settings.sort],
+    () => sortCommandCenterItems(filterCommandCenterItems(allItems, query, historySearch.matches), settings.sort),
+    [allItems, query, historySearch.matches, settings.sort],
   );
 
   // 자동 정리 — **표시 접기 전용**(§5.12 (G)). 검색 중에는 숨기지 않는다(찾으러 온 것이므로).
@@ -457,6 +463,15 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
         ))}
 
         <span className="ml-auto flex items-center gap-3 text-[12px] text-gray-500">
+          {historySearch.pending && <span role="status">{t('commandCenter.historySearching')}</span>}
+          {historySearch.failed && (
+            <span role="status" className="text-amber-300">
+              {t('commandCenter.historySearchFailed')}{' '}
+              <button type="button" onClick={historySearch.retry} className="underline underline-offset-2">
+                {t('commandCenter.retryHistorySearch')}
+              </button>
+            </span>
+          )}
           {searching && (
             <span className="tabular-nums">{t('commandCenter.resultCount', { count: visible.length })}</span>
           )}
@@ -476,6 +491,11 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
         <div className="min-w-0 flex-1" onClick={handleBoardBackdropClick}>
           {allItems.length === 0 ? (
             <EmptyState title={t('commandCenter.emptyTitle')} body={t('commandCenter.emptyBody')} />
+          ) : emptyBoard && (historySearch.pending || historySearch.failed) ? (
+            <EmptyState
+              title={t(historySearch.pending ? 'commandCenter.historySearching' : 'commandCenter.historySearchFailed')}
+              body=""
+            />
           ) : emptyBoard ? (
             <EmptyState title={t('commandCenter.noMatchTitle')} body={t('commandCenter.noMatchBody')} />
           ) : effectiveView === 'board' ? (

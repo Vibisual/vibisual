@@ -245,7 +245,6 @@ export function Header({
             badgeState={badgeVisible ? dotState : null}
             badgeRunning={counts.running}
             badgeSessions={counts.sessions}
-            badgeLimited={counts.limited}
             badgeTitle={t('header.agentStatus.tooltipMenu', { status: phaseTooltip })}
             canOpenCommandCenter={canOpenCommandCenter}
             onOpenCommandCenter={openCommandCenter}
