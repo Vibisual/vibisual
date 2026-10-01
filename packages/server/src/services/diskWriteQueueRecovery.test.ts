@@ -72,7 +72,8 @@ describe('disk write failures keep accepted snapshots available for retry', () =
     await waitFor(() => getDiskWriteQueueStats().failed > failures);
 
     expect(queueAtomicWrite(other, '{"other":true}')).toBe(true);
-    await waitFor(() => fs.existsSync(other));
+    // 워커는 파일을 옮겨 놓은 뒤에 결과를 보낸다 — 파일만 보고 세면 본 스레드가 그 작업을 지우기 전이라 2가 나온다.
+    await waitFor(() => fs.existsSync(other) && getDiskWriteQueueStats().pending === 1);
     expect(getDiskWriteQueueStats().failed).toBe(failures + 1);
     expect(getDiskWriteQueueStats().pending).toBe(1);
 
