@@ -34,9 +34,17 @@ export interface MainStrings {
   crashTitle: string;
   crashMessage: string;
   crashReload: string;
+  backendBootTitle: string;
+  backendBootMessage: string;
+  backendBootRetry: string;
+  backendBootQuit: string;
 }
 
 const en: MainStrings = {
+  backendBootTitle: 'Vibisual could not start',
+  backendBootMessage: 'Restart the app to try again. If the problem continues, check the diagnostic log.',
+  backendBootRetry: 'Restart',
+  backendBootQuit: 'Quit',
   crashTitle: "This window stopped unexpectedly",
   crashMessage: "Reload this window to continue. Running agents will keep working. Recent unsaved input may be lost.",
   crashReload: "Reload window",
@@ -53,6 +61,10 @@ const en: MainStrings = {
 };
 
 const ko: MainStrings = {
+  backendBootTitle: 'Vibisual을 시작할 수 없습니다',
+  backendBootMessage: '앱을 다시 시작해 주세요. 문제가 계속되면 진단 로그를 확인해 주세요.',
+  backendBootRetry: '다시 시작',
+  backendBootQuit: '종료',
   crashTitle: "화면이 예기치 않게 중단되었습니다",
   crashMessage: "이 창을 다시 불러와 계속할 수 있습니다. 실행 중인 에이전트는 계속 작동합니다. 최근 저장되지 않은 입력은 사라질 수 있습니다.",
   crashReload: "창 다시 불러오기",
@@ -69,6 +81,10 @@ const ko: MainStrings = {
 };
 
 const ja: MainStrings = {
+  backendBootTitle: 'Vibisualを起動できませんでした',
+  backendBootMessage: 'アプリを再起動してください。問題が続く場合は、診断ログを確認してください。',
+  backendBootRetry: '再起動',
+  backendBootQuit: '終了',
   crashTitle: "このウィンドウが予期せず停止しました",
   crashMessage: "ウィンドウを再読み込みして続行できます。実行中のエージェントは動作を続けます。直近の未保存の入力は失われる場合があります。",
   crashReload: "ウィンドウを再読み込み",
@@ -85,6 +101,10 @@ const ja: MainStrings = {
 };
 
 const zhCN: MainStrings = {
+  backendBootTitle: 'Vibisual 无法启动',
+  backendBootMessage: '请重启应用后重试。如果问题仍然存在，请检查诊断日志。',
+  backendBootRetry: '重启',
+  backendBootQuit: '退出',
   crashTitle: "此窗口意外停止",
   crashMessage: "重新加载此窗口以继续。正在运行的智能体将继续工作。最近未保存的输入可能会丢失。",
   crashReload: "重新加载窗口",
@@ -101,6 +121,10 @@ const zhCN: MainStrings = {
 };
 
 const es: MainStrings = {
+  backendBootTitle: 'No se ha podido iniciar Vibisual',
+  backendBootMessage: 'Reinicia la aplicación para volver a intentarlo. Si el problema persiste, consulta el registro de diagnóstico.',
+  backendBootRetry: 'Reiniciar',
+  backendBootQuit: 'Salir',
   crashTitle: "Esta ventana se ha detenido inesperadamente",
   crashMessage: "Vuelve a cargar esta ventana para continuar. Los agentes en ejecución seguirán trabajando. Las entradas recientes sin guardar podrían perderse.",
   crashReload: "Volver a cargar la ventana",
@@ -117,6 +141,10 @@ const es: MainStrings = {
 };
 
 const es419: MainStrings = {
+  backendBootTitle: 'No se pudo iniciar Vibisual',
+  backendBootMessage: 'Reinicia la aplicación para volver a intentarlo. Si el problema continúa, consulta el registro de diagnóstico.',
+  backendBootRetry: 'Reiniciar',
+  backendBootQuit: 'Salir',
   crashTitle: "Esta ventana se detuvo inesperadamente",
   crashMessage: "Vuelve a cargar esta ventana para continuar. Los agentes en ejecución seguirán trabajando. Las entradas recientes sin guardar podrían perderse.",
   crashReload: "Volver a cargar la ventana",
@@ -133,6 +161,10 @@ const es419: MainStrings = {
 };
 
 const fr: MainStrings = {
+  backendBootTitle: 'Vibisual n’a pas pu démarrer',
+  backendBootMessage: 'Redémarrez l’application pour réessayer. Si le problème persiste, consultez le journal de diagnostic.',
+  backendBootRetry: 'Redémarrer',
+  backendBootQuit: 'Quitter',
   crashTitle: "Cette fenêtre s’est arrêtée de façon inattendue",
   crashMessage: "Rechargez cette fenêtre pour continuer. Les agents en cours continueront à travailler. Les saisies récentes non enregistrées risquent d’être perdues.",
   crashReload: "Recharger la fenêtre",
@@ -149,6 +181,10 @@ const fr: MainStrings = {
 };
 
 const de: MainStrings = {
+  backendBootTitle: 'Vibisual konnte nicht gestartet werden',
+  backendBootMessage: 'Starten Sie die App erneut. Wenn das Problem weiterhin besteht, prüfen Sie das Diagnoseprotokoll.',
+  backendBootRetry: 'Neu starten',
+  backendBootQuit: 'Beenden',
   crashTitle: "Dieses Fenster wurde unerwartet beendet",
   crashMessage: "Laden Sie dieses Fenster neu, um fortzufahren. Laufende Agenten arbeiten weiter. Kürzlich eingegebene, nicht gespeicherte Inhalte können verloren gehen.",
   crashReload: "Fenster neu laden",
@@ -165,6 +201,10 @@ const de: MainStrings = {
 };
 
 const hi: MainStrings = {
+  backendBootTitle: 'Vibisual शुरू नहीं हो सका',
+  backendBootMessage: 'दोबारा कोशिश करने के लिए ऐप फिर से शुरू करें। समस्या बनी रहे तो निदान लॉग देखें।',
+  backendBootRetry: 'फिर से शुरू करें',
+  backendBootQuit: 'बंद करें',
   crashTitle: "यह विंडो अचानक बंद हो गई",
   crashMessage: "जारी रखने के लिए इस विंडो को फिर से लोड करें। चल रहे एजेंट काम करते रहेंगे। हाल में लिखा गया बिना सहेजा इनपुट खो सकता है।",
   crashReload: "विंडो फिर से लोड करें",
@@ -181,6 +221,10 @@ const hi: MainStrings = {
 };
 
 const id: MainStrings = {
+  backendBootTitle: 'Vibisual tidak dapat dimulai',
+  backendBootMessage: 'Mulai ulang aplikasi untuk mencoba lagi. Jika masalah berlanjut, periksa log diagnostik.',
+  backendBootRetry: 'Mulai ulang',
+  backendBootQuit: 'Keluar',
   crashTitle: "Jendela ini berhenti secara tidak terduga",
   crashMessage: "Muat ulang jendela ini untuk melanjutkan. Agen yang sedang berjalan akan terus bekerja. Masukan terbaru yang belum disimpan mungkin hilang.",
   crashReload: "Muat ulang jendela",
@@ -197,6 +241,10 @@ const id: MainStrings = {
 };
 
 const it: MainStrings = {
+  backendBootTitle: 'Impossibile avviare Vibisual',
+  backendBootMessage: 'Riavvia l’app per riprovare. Se il problema persiste, controlla il registro diagnostico.',
+  backendBootRetry: 'Riavvia',
+  backendBootQuit: 'Esci',
   crashTitle: "Questa finestra si è interrotta in modo imprevisto",
   crashMessage: "Ricarica questa finestra per continuare. Gli agenti in esecuzione continueranno a lavorare. I dati inseriti di recente e non salvati potrebbero andare persi.",
   crashReload: "Ricarica finestra",
@@ -213,6 +261,10 @@ const it: MainStrings = {
 };
 
 const ptBR: MainStrings = {
+  backendBootTitle: 'Não foi possível iniciar o Vibisual',
+  backendBootMessage: 'Reinicie o aplicativo para tentar novamente. Se o problema continuar, verifique o log de diagnóstico.',
+  backendBootRetry: 'Reiniciar',
+  backendBootQuit: 'Sair',
   crashTitle: "Esta janela parou inesperadamente",
   crashMessage: "Recarregue esta janela para continuar. Os agentes em execução continuarão trabalhando. As entradas recentes não salvas podem ser perdidas.",
   crashReload: "Recarregar janela",

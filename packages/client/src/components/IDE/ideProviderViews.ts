@@ -1,3 +1,4 @@
+import type { AgentEngineKind } from '@vibisual/shared';
 import type { IDEViewType } from '../../stores/graphStore.js';
 
 /**
@@ -86,6 +87,18 @@ export function isViewAllowedForProvider(view: IDEViewType, providerKind: string
  */
 export function fallbackViewForProvider(view: IDEViewType, providerKind: string | undefined): IDEViewType {
   return isViewAllowedForProvider(view, providerKind) ? view : 'files';
+}
+
+/**
+ * §5.25 (M) · (M-1) — 그 칸을 **코덱스 것으로 갈아 끼울까**(`IDESidebar` 의 `CODEX_VIEW_MAP`).
+ *
+ * 스킬 칸만은 **실제로 도는 엔진**(`agentEngineOf`)을 따른다 — 서버 스킬 공유 API 가 그 판정으로 받는
+ * 엔진을 정하기 때문이다. 칸이 공급자만 보면 Codex CMD(공급자 칸 없음 · 터미널은 codex)에서 클로드 칸을
+ * 그려, 첫 탭이 그 에이전트의 엔진과 다르고 둘째 탭은 청한 엔진과 응답의 엔진이 갈려 늘 거절됐다.
+ * 나머지 칸은 종전대로 공급자를 따른다(위 목록과 같은 `kind`).
+ */
+export function usesCodexPane(view: IDEViewType, providerKind: string | undefined, engine: AgentEngineKind): boolean {
+  return view === 'skills' ? engine === 'codex' : providerKind === 'codex-cli';
 }
 
 /**

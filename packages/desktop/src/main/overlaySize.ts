@@ -81,6 +81,16 @@ export function movedBounds(
 }
 
 /**
+ * §5.5 #17-27 ①-1 — 넓힌 가로 자리를 **창이 실제로 앉는 값**으로. 창은 x 를 배율 격자에 맞춰 앉는다(`movedBounds`).
+ * 계산한 x 를 그대로 기억하면 되돌릴 때 읽은 자리가 격자 몫만큼(125·175% 는 격자 4 라 최대 2px) 어긋나
+ * "사용자가 옮겼다"로 읽히고(`shrinkSpanBack` 의 여유는 1px), 오른쪽 끝에서 왼쪽으로 물러섰던 창이 제자리로
+ * 못 돌아가 그 자리에서 폭만 줄었다. 폭은 장부(`entry.size`)와 대조하므로 그대로 둔다.
+ */
+export function landedSpan(span: { x: number; w: number }, step: number): { x: number; w: number } {
+  return { x: snapDip(span.x, step), w: span.w };
+}
+
+/**
  * 창이 알려 온 크기(`resize`)를 장부에 받아들일 것인가.
  *
  * @returns 받아들일 크기, 또는 `null`(장부를 그대로 둔다).

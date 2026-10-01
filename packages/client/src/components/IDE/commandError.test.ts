@@ -29,6 +29,12 @@ import { describeCommandError, engineLabelOf, parseStreamErrorContent, joinComma
  * ③ 문장이 **제 엔진의 이름**을 부른다(③-7 — 코덱스 턴이 "Claude CLI" 로 불리던 사고).
  */
 describe('describeCommandError', () => {
+  it('explains how to recover when a queued local command contains images', () => {
+    expect(describeCommandError({ code: 'local', detail: 'local-images-unsupported' })).toEqual({
+      labelKey: 'ide.mainArea.localImagesUnsupported', detail: null,
+    });
+  });
+
   it('종료 코드가 있으면 코드 문장, 없으면 코드 없는 문장을 고른다', () => {
     expect(describeCommandError({ code: 'exit', exitCode: 1 })).toEqual({
       labelKey: 'ide.cmdError.exit', labelParams: { code: 1, engine: 'CLI' }, detail: null,

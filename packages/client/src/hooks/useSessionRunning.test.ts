@@ -19,11 +19,15 @@ function Activity(): ReturnType<typeof createElement> {
   const facts = useSessionLivenessFacts('agent', session.id);
   return createElement('span', null, `${facts.running}:${facts.lastActivityAt}`);
 }
+function TurnClock(): ReturnType<typeof createElement> {
+  const facts = useSessionLivenessFacts('agent', session.id);
+  return createElement('span', null, `${facts.turnStartedAt}`);
+}
 
 beforeEach(() => {
   useGraphStore.setState({
     subAgents: { agent: [session] }, subAgentStreams: {}, queuedCommands: {},
-    runningSubagentTasks: {}, acknowledgedSubAgents: {},
+    runningSubagentTasks: {}, acknowledgedSubAgents: {}, completedCommands: {},
   });
 });
 afterEach(() => {
@@ -63,5 +67,41 @@ describe('live activity subscription', () => {
       });
     });
     expect(view!.root.findByType('span').children).toEqual(['true:1000']);
+  });
+});
+
+// §5.5 #17-10 ⑥-6 (turn clock) — the live line counts from here, not from the last line.
+describe('turn clock facts', () => {
+  it('reports when the running command went out and keeps it while lines keep arriving', () => {
+    useGraphStore.setState({ queuedCommands: { agent: [{
+      id: 'c1', subAgentId: session.id, timestamp: 90_000, startedAt: 100_000, status: 'executing', text: 'work',
+    }] } });
+    act(() => { view = create(createElement(TurnClock)); });
+    expect(view!.root.findByType('span').children).toEqual(['100000']);
+    act(() => {
+      useGraphStore.setState({ subAgentStreams: { [session.id]: [{
+        id: 'line', subAgentId: session.id, parentAgentId: 'agent', timestamp: 265_000,
+        eventType: 'text', content: '.',
+      }] } });
+    });
+    expect(view!.root.findByType('span').children).toEqual(['100000']);
+  });
+
+  it('falls back to running children, prefers a dispatched command, and says null without a basis', () => {
+    act(() => { view = create(createElement(TurnClock)); });
+    expect(view!.root.findByType('span').children).toEqual(['null']);
+    act(() => {
+      useGraphStore.setState({ runningSubagentTasks: { agent: [{
+        id: 't1', parentAgentId: 'agent', subAgentId: session.id, startedAt: 50_000,
+        origin: 'hook', subagentType: 'general-purpose',
+      }] } });
+    });
+    expect(view!.root.findByType('span').children).toEqual(['50000']);
+    act(() => {
+      useGraphStore.setState({ completedCommands: { agent: [{
+        id: 'c0', subAgentId: session.id, timestamp: 70_000, startedAt: 80_000, status: 'completed', text: 'done',
+      }] } });
+    });
+    expect(view!.root.findByType('span').children).toEqual(['80000']);
   });
 });

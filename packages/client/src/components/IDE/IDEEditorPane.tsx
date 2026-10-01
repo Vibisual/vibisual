@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 // §6 — 툴팁에 넣을 키는 레지스트리에서 읽는다(하드코딩하면 재매핑에 뒤처진다).
 import { useBindingLabel } from '../Shortcuts/useBindingLabel.js';
 import { useGraphStore, selectIDEOverlay, workspaceImageFileKey } from '../../stores/graphStore.js';
+import { useImageLightboxOrigin } from './imageLightboxOrigin.js';
 import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions } from './idePane.js';
 import { CodeEditor, type EditorViewState, type FollowRange } from './CodeEditor.js';
 import { languageFromPath } from './codeLanguages.js';
@@ -162,6 +163,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
 
   // ─── §5.5 #17-27 ⑭ — 이미지는 글자가 아니라 그림으로 연다 ──────────────
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
   const imageFileKey = rootPath && activePath ? workspaceImageFileKey(rootPath, activePath) : null;
   const imageSavedAt = useGraphStore((s) => (imageFileKey ? s.workspaceImageSavedAt[imageFileKey] : undefined));
   /** 서버가 이미 판정해 보낸 값 — 클라이언트가 확장자를 다시 따지지 않는다. */
@@ -243,7 +245,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   /** 그림을 누르거나 [편집]을 누르면 — #17-25 의 주석 팝업을 그대로 연다(새 편집기 ❌). */
   const handleOpenImageEditor = useCallback((): void => {
     if (!imageBlob.url || !rootPath || !activePath) return;
-    openImageLightbox(imageBlob.url, undefined, {
+    openImageLightbox(imageBlob.url, lightboxOrigin(), undefined, {
       root: rootPath,
       path: activePath,
       mtimeMs: imageBlob.mtimeMs ?? doc?.mtimeMs ?? 0,
@@ -251,7 +253,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       bakeable: canOverwriteWorkspaceImage(activePath),
       mime: bakeMimeFor(activePath),
     });
-  }, [imageBlob.url, imageBlob.mtimeMs, imageBlob.revision, rootPath, activePath, doc?.mtimeMs, openImageLightbox]);
+  }, [imageBlob.url, imageBlob.mtimeMs, imageBlob.revision, rootPath, activePath, doc?.mtimeMs, openImageLightbox, lightboxOrigin]);
 
   // ─── §5.5 #17-20 ⑩ v4.94 — 줄 번호 칸이 곧 중단점 gutter ─────────────────
   const projectName = useIDEPaneProjectName();

@@ -22,6 +22,7 @@
       "availableTooltip": "A versão {{version}} está disponível e sendo baixada em segundo plano",
       "downloading": "Atualizando {{percent}}%",
       "restart": "Reiniciar para atualizar",
+      "restartShort": "Atualizar",
       "restartTooltip": "A versão {{version}} está pronta — reinicie para aplicar",
       "confirmTitle": "Reiniciar para atualizar?",
       "confirmBody": "A atualização fechará e reinstalará o aplicativo. Qualquer trabalho de agente em andamento ou alterações não salvas podem ser perdidos.",
@@ -1930,7 +1931,8 @@
       "later": "Depois",
       "stop": "Parar",
       "start": "Entrar",
-      "successNext": "A seguir: escolha a pasta de projeto em que seus agentes vão trabalhar."
+      "successNext": "A seguir: escolha a pasta de projeto em que seus agentes vão trabalhar.",
+      "invalidEmail": "Insira um endereço de e-mail válido ou deixe o campo em branco."
     },
     "setup": {
       "title": "Instalar o Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "Apenas download"
       },
       "note": "Isso só define o padrão para novos agents. Os três continuam disponíveis lado a lado, e você pode configurar os outros depois em Opções.",
-      "later": "Decidir depois"
+      "later": "Decidir depois",
+      "saving": "Salvando sua escolha…",
+      "saveError": "Não foi possível salvar sua escolha. Selecione um mecanismo novamente."
     },
     "codexSetup": {
       "title": "Instalar Codex CLI",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "Esta habilidade está desativada no Codex. Ative-a no Codex antes de usá-la."
       }
     },
+    "skillTabs": {
+      "label": "Mecanismos de habilidades",
+      "own": "Habilidades do {{provider}} deste agente"
+    },
     "diff": {
       "addComment": "Comentar nesta linha",
       "removeComment": "Remover comentário",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "Visualizar",
+        "crop": "Cortar",
+        "alpha": "Transparência",
         "rect": "Retângulo",
         "ellipse": "Elipse",
         "arrow": "Seta",
@@ -2408,6 +2418,42 @@
         "mask": "Ocultar",
         "text": "Texto",
         "number": "Selo numerado"
+      },
+      "crop": {
+        "aspectFree": "Livre",
+        "aspectOriginal": "Original",
+        "aspectTitle": "Bloquear a proporção em {{ratio}}",
+        "round": "Círculo",
+        "roundHint": "Torna transparente tudo o que estiver fora da elipse",
+        "width": "Largura",
+        "height": "Altura",
+        "fieldHint": "Medido em pixels da imagem",
+        "trim": "Aparar automaticamente",
+        "trimHint": "Ajusta a caixa ao conteúdo, deixando de fora a borda ao redor na cor do canto",
+        "trimNone": "Não há borda para aparar."
+      },
+      "alpha": {
+        "modeKey": "Remover cor",
+        "modeFill": "Preencher transparência",
+        "pickedColor": "Cor a remover: {{color}}",
+        "pickEmpty": "Clique na imagem para escolher uma cor",
+        "tolerance": "Tolerância",
+        "contiguous": "Apenas contíguo",
+        "contiguousHint": "Remove apenas a área conectada ao ponto clicado. Desative para remover a cor da imagem inteira.",
+        "auto": "Fundo automático",
+        "autoHint": "Usa a cor mais comum dos cantos como o fundo a remover",
+        "autoNone": "Os cantos já estão transparentes — não há cor de fundo para remover.",
+        "pickTransparent": "Esse ponto já está transparente — escolha uma cor visível.",
+        "noMatch": "Nenhum pixel corresponde a essa cor — tente uma tolerância maior.",
+        "noTransparency": "Esta imagem não tem áreas transparentes para preencher.",
+        "fillWhite": "Branco",
+        "fillBlack": "Preto",
+        "fillCustom": "Escolher cor"
+      },
+      "edit": {
+        "applyHint": "Aplicar ({{shortcut}})",
+        "cancelHint": "Sair da ferramenta sem aplicar ({{shortcut}})",
+        "failed": "Não foi possível editar esta imagem."
       },
       "color": "Cor",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "Não foi possível salvar nesse arquivo.",
       "fileConflict": "Esse arquivo mudou no disco depois que você o abriu.",
       "fileConflictOverwrite": "Salvar mesmo assim",
+      "fileJpegAlpha": "O JPEG não mantém a transparência — use {{fill}} primeiro ou {{download}}.",
       "textPlaceholder": "Digite e pressione Enter",
       "hintPick": "Escolha uma ferramenta para marcar esta imagem e salve-a como anexo.",
       "hintDraw": "Arraste sobre a imagem para marcá-la. {{shortcut}} desfaz a última marcação.",
+      "hintCrop": "Arraste a caixa para escolher a área a manter. {{shortcut}} aplica o corte.",
+      "hintAlphaKey": "Clique na cor a remover. {{shortcut}} aplica.",
+      "hintAlphaFill": "As áreas transparentes serão preenchidas com a cor escolhida. {{shortcut}} aplica.",
       "discardTitle": "Descartar suas marcações e fechar?",
       "discardCancel": "Continuar editando",
       "discardConfirm": "Descartar e fechar",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Destacar em janela separada",
       "toBubble": "Transformar em bolha da sobreposição",
       "toBubbleHint": "Reduz esta janela a uma bolha da sobreposição de desktop · clique duas vezes na bolha para abri-la novamente",
+      "pinOnTop": "Manter no topo",
+      "pinOnTopHint": "Mantém esta janela acima de outros aplicativos, mesmo quando você muda para eles",
+      "pinnedOnTopHint": "Fixada no topo — clique para que outros aplicativos possam cobri-la de novo",
       "redockDwellHint": "Solte para mesclá-la no app",
       "codexLabel": "Codex",
       "codexContextUsed": "Esta conversa já usou {{used}} tokens de contexto — o motor não informa um limite"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Restaurar os espaços do coreano",
       "voiceRespaceHint": "O reconhecedor devolve o coreano sem espaços; isto separa por partículas e terminações. É baseado em regras, então não é perfeito — você pode corrigir o resultado na caixa de entrada.",
       "stallHint": "Raciocínios ou chamadas de ferramentas demorados podem pausar as atualizações. Isso, por si só, não significa que a sessão parou.",
-      "backgroundShells": "{{count}} shell em segundo plano ainda em execução. A resposta já chegou — você pode continuar digitando.",
-      "backgroundShellsTip": "Um comando Bash ou Monitor em segundo plano que sobrou de um turno anterior. Ele executa um comando, não um modelo, então não ocupa esta sessão. Comandos que nunca terminam sozinhos (tail -f, while true, um sort encadeado) ficam aqui até você removê-los.",
-      "backgroundShellsOpen": "Ver",
       "stopNothing": "Não havia nada em execução para parar. O rótulo “em execução” estava desatualizado.",
       "stopNothingHint": "O servidor não encontrou nenhum processo filho, comando na fila ou tarefa em segundo plano para este escopo.",
       "stopForce": "Forçar encerramento",
       "stopForceTitle": "Para tudo neste agente, incluindo as outras sessões e os comandos na fila.",
       "stopFailed": "A solicitação de parada falhou ({{status}}).",
       "stopRetry": "Tentar de novo",
-      "queuedBehindSilent": "Aparece como em execução porque uma compactação em segundo plano está terminando primeiro. Este comando ainda não foi enviado, então você ainda pode alterá-lo ou removê-lo."
+      "sendRejected": "A solicitação foi rejeitada. Seu texto e seus anexos foram restaurados. Confira a conversa antes de enviar novamente.",
+      "sendUnconfirmed": "Não foi possível confirmar o envio. Seu texto e seus anexos foram restaurados. Confira a conversa antes de enviar novamente.",
+      "localImagesUnsupported": "O All Model ainda não aceita imagens como entrada. Remova as imagens ou escolha outro provedor para enviar esta mensagem."
     },
     "voiceInstall": {
       "title": "Configurar a entrada de voz",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} sessão",
       "sessionMany": "{{count}} sessões",
       "sessionsTip": "Quantas abas de sessão estão abertas neste agente.",
-      "contextOverdueTip": "O contexto desta sessão está quase cheio e continua crescendo, mas nenhuma compactação foi executada. Clique para abrir o Seguro de Contexto.",
-      "contextStalledTip": "A janela de contexto desta sessão está efetivamente cheia e a compactação não foi executada. Clique para abrir o Seguro de Contexto.",
-      "contextRejectedTip": "Enviamos um comando de compactação, mas o Claude Code não chegou a iniciá-la — ela foi recusada. Normalmente é porque as skills e os comandos de barra estão desativados neste projeto em {{contextSources}}. Clique para abrir o Seguro de Contexto.",
       "elapsedTip": "Tempo desde a última movimentação desta sessão."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Suas {{count}}",
         "groupSystem": "Nativas {{count}}",
         "groupPlugin": "De plug-ins {{count}}",
-        "hint": "Clique em uma habilidade para adicioná-la ao rascunho atual. As habilidades compatíveis do usuário no Claude podem ser compartilhadas abaixo."
+        "hint": "Clique em uma habilidade para adicioná-la ao rascunho atual. As habilidades compatíveis do usuário no Claude podem ser compartilhadas na aba Claude."
       },
       "plugins": {
         "title": "Plugins",

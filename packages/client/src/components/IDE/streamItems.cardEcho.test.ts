@@ -4,11 +4,15 @@
  * 카드를 발행한 **직후**에 붙는 "~카드로 보냈습니다" 한 줄만 화면에서 빠지고, 같은 자리에 온
  * **실제 결론 문장은 살아남는지**를 못박는다. 이 판정이 넓어지면 사용자가 읽어야 할 마지막 본문이
  * 조용히 사라지므로(그쪽이 훨씬 나쁘다), 경계 사례를 양쪽에서 모두 고정한다.
+ *
+ * ⑦-6 — 지시문이 카드 뒤를 비우지 말고 "카드를 확인해 주세요." 한 문장으로 닫게 바뀐 뒤로, 그 문장
+ * (목표 창 블록이 섞여 와도)까지 빠져 화면이 "본문 → 카드"로 끝나는지를 함께 고정한다.
  */
 import { describe, it, expect } from 'vitest';
 import type { AgentReview } from '@vibisual/shared';
 import {
   isCardEchoText,
+  isInvisibleStreamText,
   dropCardEchoTexts,
   mergeCardsIntoItems,
   type StreamItemFull,
@@ -120,5 +124,87 @@ describe('mergeCardsIntoItems — 카드 합류 뒤에 걷힌다', () => {
     );
     expect(out.map((i) => i.kind)).toEqual(['text', 'tool', 'review']);
     expect((out[0] as { content: string }).content).toBe('원인은 포트가 바뀐 것이었습니다');
+  });
+});
+
+/**
+ * §5.5 #17-18 ⑦-6 — 카드 뒤를 비워 두면 CLI 의 "no visible output" 재촉이 보고를 카드 아래에 통째로
+ * 다시 쓰게 했다(카드가 한참 위로 밀리고 같은 내용을 또 읽는다). 지시문은 정해진 한 문장으로 닫게 하고,
+ * 화면은 그 한 문장까지 걷는다 — 같은 자리의 실제 정보는 여전히 남아야 한다.
+ */
+describe('⑦-6 — 카드 뒤를 닫는 한 문장', () => {
+  const GOAL_BLOCK = '```vibisual\n- [x] 원인 고치기 @change\n- [x] 테스트 @test\n```';
+  const base = (items: StreamItemFull[]): BaseItemsResult => ({ items, agentBusy: false, thinkingLive: null });
+
+  it('정해 준 문장과 그 흔한 변형은 걷을 대상이다', () => {
+    for (const s of [
+      '카드를 확인해 주세요.',
+      '카드를 확인해주세요',
+      '위 카드를 확인해 주세요.',
+      '위의 검수 카드를 확인해 주세요.',
+      '질문 카드를 확인해 주세요!',
+      '카드 확인 부탁드립니다.',
+      'Please check the card.',
+      'Please review the card above.',
+    ]) {
+      expect(isCardEchoText(s), s).toBe(true);
+    }
+  });
+
+  it('카드 종류가 아닌 낱말이 붙거나 정보가 더 붙으면 남긴다', () => {
+    for (const s of [
+      '결제 카드를 확인해 주세요.',
+      '카드를 확인해 주세요. 테스트 1건은 아직 실패합니다.',
+      '카드를 확인해 주세요 — 설정 파일도 함께 바뀌었습니다',
+      '빌드 로그를 확인해 주세요.',
+      '카드를 확인해 주세요\n그리고 앱을 다시 켜 주세요',
+    ]) {
+      expect(isCardEchoText(s), s).toBe(false);
+    }
+  });
+
+  it('목표 창 블록이 같은 답에 섞여 와도 보이는 글로 판정한다', () => {
+    expect(isCardEchoText(`${GOAL_BLOCK}\n\n카드를 확인해 주세요.`)).toBe(true);
+    expect(isCardEchoText(`${GOAL_BLOCK.replace(/\n/g, '\r\n')}\r\n\r\n카드를 확인해 주세요.`)).toBe(true);
+    // 블록 밖에 두 문단이 보이면 한 줄짜리 꼬리가 아니다.
+    expect(isCardEchoText(`원인은 캐시였습니다.\n\n${GOAL_BLOCK}\n\n카드를 확인해 주세요.`)).toBe(false);
+    // 블록뿐인 본문은 대상이 아니다(원래 화면에 안 그려진다).
+    expect(isCardEchoText(GOAL_BLOCK)).toBe(false);
+    // 무대 블록이 아닌 코드블록은 걷지 않는다.
+    expect(isCardEchoText('```bash\npnpm test\n```\n\n카드를 확인해 주세요.')).toBe(false);
+  });
+
+  it('isInvisibleStreamText — 비었거나 무대 블록뿐인 본문만 참', () => {
+    expect(isInvisibleStreamText('')).toBe(true);
+    expect(isInvisibleStreamText('  \n ')).toBe(true);
+    expect(isInvisibleStreamText(GOAL_BLOCK)).toBe(true);
+    // 스트리밍 중 아직 안 닫힌 블록도 렌더가 숨긴다.
+    expect(isInvisibleStreamText('```vibisual\n- [~] 도는 중')).toBe(true);
+    expect(isInvisibleStreamText(`${GOAL_BLOCK}\n\n카드를 확인해 주세요.`)).toBe(false);
+    expect(isInvisibleStreamText('```bash\npnpm test\n```')).toBe(false);
+  });
+
+  it('카드 → 닫는 문장: 화면은 카드로 끝난다(블록이 섞인 답도, 블록만 따로 온 답이 사이에 껴도)', () => {
+    expect(dropCardEchoTexts([reviewItem('r1'), text('t1', '카드를 확인해 주세요.')]).map((i) => i.kind)).toEqual(['review']);
+    const mixed = dropCardEchoTexts([reviewItem('r1'), tool('x1', 101), text('t1', `${GOAL_BLOCK}\n\n카드를 확인해 주세요.`, 102)]);
+    expect(mixed.map((i) => i.kind)).toEqual(['review', 'tool']);
+    const split = dropCardEchoTexts([reviewItem('r1'), text('g1', GOAL_BLOCK, 101), text('t1', '카드를 확인해 주세요.', 102)]);
+    expect(split.map((i) => i.id)).toEqual(['review-r1', 'g1']);
+  });
+
+  it('카드 뒤의 실제 정보·카드 없는 자리의 같은 문장은 남는다', () => {
+    const info = [text('t0', '원인은 캐시였습니다', 80), reviewItem('r1'), text('t1', '카드를 확인해 주세요. 재시작이 필요합니다.', 102)];
+    expect(dropCardEchoTexts(info)).toBe(info);
+    const noCard = [text('t0', '앞선 본문'), text('t1', '카드를 확인해 주세요.')];
+    expect(dropCardEchoTexts(noCard)).toBe(noCard);
+  });
+
+  it('mergeCardsIntoItems — 결론 → curl 도구 줄 → 카드 → (블록 + 닫는 문장)에서 마지막 답만 빠진다', () => {
+    const out = mergeCardsIntoItems(
+      base([text('t0', '원인은 캐시였습니다', 80), tool('x1', 90), text('t1', `${GOAL_BLOCK}\n\n카드를 확인해 주세요.`, 110)]),
+      undefined, undefined, undefined, [review('rv1', 100)], undefined, undefined,
+    );
+    expect(out.map((i) => i.kind)).toEqual(['text', 'tool', 'review']);
+    expect((out[0] as { content: string }).content).toBe('원인은 캐시였습니다');
   });
 });

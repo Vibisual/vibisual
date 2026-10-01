@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentModelLabelOf, CODEX_DEFAULT_LABEL_RE } from '@vibisual/shared';
+import { agentEngineOf, agentModelLabelOf, CODEX_DEFAULT_LABEL_RE } from '@vibisual/shared';
 
 /**
  * §5.25 (J) — **"이 버블은 어느 모델로 도는가"의 회귀.**
@@ -94,6 +94,35 @@ describe('§5.25 (B-1) agentModelLabelOf — CMD 버블은 셸에 채울 CLI 가
   it('헤드리스로 되돌린 버블에 남은 cliKind 는 클로드 모델을 가리지 않는다', () => {
     expect(agentModelLabelOf({ model: 'sonnet', executionMode: 'headless', cliKind: 'codex' }, FALLBACKS)).toBe('sonnet');
     expect(agentModelLabelOf({ model: 'sonnet', cliKind: 'codex' }, FALLBACKS)).toBe('sonnet');
+  });
+});
+
+/*
+ * §5.25 (B-1) · (M-1) — 스킬 칸·스킬 공유·비용 지도가 함께 쓰는 "실제로 도는 엔진" 판정.
+ * 종전에는 서버는 실행 방식을 안 보고 cliKind 를 읽고 화면은 공급자만 봐서, Codex CMD 의 스킬 칸 둘째 탭이 늘
+ * 거절되고 헤드리스로 되돌린 클로드 버블의 비용은 코덱스 원장에서 찾았다.
+ */
+describe('§5.25 (M-1) agentEngineOf — 터미널이 띄우는 CLI 가 먼저, cliKind 는 CMD 에서만', () => {
+  it('Codex CMD 는 공급자 칸이 비어 있어도 코덱스다', () => {
+    expect(agentEngineOf({ executionMode: 'interactive-terminal', cliKind: 'codex' })).toBe('codex');
+  });
+
+  it('헤드리스로 되돌린 버블에 남은 cliKind 는 읽지 않는다', () => {
+    expect(agentEngineOf({ executionMode: 'headless', cliKind: 'codex' })).toBe('claude');
+    expect(agentEngineOf({ cliKind: 'codex' })).toBe('claude');
+  });
+
+  it('CMD 가 아니면 공급자가 엔진이다', () => {
+    expect(agentEngineOf({ provider: { kind: 'codex-cli', modelId: '' } })).toBe('codex');
+    expect(agentEngineOf({ provider: { kind: 'local-llama', modelId: '' } })).toBe('local');
+    expect(agentEngineOf({})).toBe('claude');
+    expect(agentEngineOf(undefined)).toBe('claude');
+  });
+
+  it('코덱스가 아닌 CLI 의 CMD 는 종전대로 공급자를 따른다', () => {
+    expect(agentEngineOf({ executionMode: 'interactive-terminal', cliKind: 'gemini' })).toBe('claude');
+    expect(agentEngineOf({ executionMode: 'interactive-terminal' })).toBe('claude');
+    expect(agentEngineOf({ executionMode: 'interactive-terminal', provider: { kind: 'codex-cli', modelId: '' } })).toBe('codex');
   });
 });
 

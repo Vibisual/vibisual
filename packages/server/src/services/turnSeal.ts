@@ -393,3 +393,51 @@ export function shouldSleepResumedTurn(inputs: ResumedTurnSleepInputs): boolean 
   if (inputs.cmdDriven) return false;
   return true;
 }
+
+/**
+ * §5.5 #17-9 ⑱ — 끝 통지를 받은 쉬는 세션을 **"곧 다시 돈다"로 붙들어 두는** 최대 시간.
+ *
+ * CLI 는 통지를 3ms 만에 꺼내 새 턴을 열지만, 그 턴의 첫 모델 줄은 첫 토큰이 나와야 stdout 에 온다
+ * (실측 24초). #17-18 의 안전 마감과 같은 질문(큰 문맥의 첫 토큰까지 얼마나 기다리나)이라 같은 값을 쓴다.
+ * 이 시간 안에 모델 줄이 안 오면 붙듦을 풀고 종전처럼 내린다 — 영원한 스피너는 없다.
+ */
+export const NOTICE_RESUME_WINDOW_MS = EARLY_RESULT_SAFETY_MS;
+
+/** `shouldHoldForNoticeResume` 이 보는 사실들 — 끝 칩이 도착한 순간 매니저가 아는 값이다. */
+export interface NoticeResumeHoldInputs {
+  /** 백단 자식 덕에 떠 있던 탭인가(`bgPromotedSubs`) — 아니면 이 칩으로 내려갈 것도 없다. */
+  bgPromoted: boolean;
+  /** 지금 세션 상태. `error` 는 보존해야 하므로 `active` 일 때만 붙든다. */
+  subStatus: SubAgentStatus;
+  /** 이 세션이 **한 턴을 처리하는 중**인가(`isSubProcessingCommand`) — 그러면 그 명령의 봉인이 끝을 정한다. */
+  processingCommand: boolean;
+  /** persistent 자식이 **살아서 쉬는 중**인가(`persistentChildReady === true`) — 통지로 새 턴을 열 주체. */
+  childIdleAlive: boolean;
+  /** 스폰이 진행 중인가(`dispatchingSubs`). */
+  dispatching: boolean;
+  /** 훅이 상태를 몰고 가는 PTY(CMD) 세션인가(`cmdDrivenSubs`). */
+  cmdDriven: boolean;
+}
+
+/**
+ * **끝 통지가 이 탭을 내리게 두지 말고 붙들어야 하는가**(§5.5 #17-9 ⑱).
+ *
+ * 쉬는 persistent 세션에 백그라운드 자식의 끝 칩이 오면, 장부가 비어 탭이 그 자리에서 idle 로
+ * 내려가고 버블이 `completed` 로 넘어가 완료음이 울렸다 — 그런데 CLI 는 바로 그 통지로 **이미 새 턴을
+ * 열었다.** 끝 통지는 "끝"이 아니라 "곧 다시 돈다"다. 붙든 탭은 되살아난 턴의 첫 모델 줄이 풀고,
+ * 그 턴의 `result` 에서 `shouldSleepResumedTurn` 이 재운다 — 완료음은 진짜 끝에서 한 번 난다.
+ *
+ * 제외 목록은 `shouldSleepResumedTurn` 과 같은 사실을 쓴다(같은 세션을 두 판정이 다르게 읽지 않게).
+ */
+export function shouldHoldForNoticeResume(inputs: NoticeResumeHoldInputs): boolean {
+  if (!inputs.bgPromoted) return false;
+  // `error` 는 보존 — 실패한 턴을 "곧 돈다"로 세탁하지 않는다. 이미 내려간 탭은 붙들 것이 없다.
+  if (inputs.subStatus !== 'active') return false;
+  // 명령이 도는 중이면 그 명령의 봉인(`sealTurn`)이 끝을 정하고, 강등도 `isSubProcessingCommand` 가 막는다.
+  if (inputs.processingCommand) return false;
+  // 통지를 받아 턴을 열 자식이 없다(legacy `--print` · 죽은 자식) — "곧 다시 돈다"가 성립하지 않는다.
+  if (!inputs.childIdleAlive) return false;
+  if (inputs.dispatching) return false;
+  if (inputs.cmdDriven) return false;
+  return true;
+}

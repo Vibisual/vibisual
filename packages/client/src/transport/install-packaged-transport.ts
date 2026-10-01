@@ -147,6 +147,21 @@ export interface PackagedOverlayApi {
   /** §17-6 (H-5) — main 이 밀어 주는 최대화 상태. 아이콘은 **이 값만** 따른다(짐작 ❌). */
   onMaximizeState?(cb: (payload: { maximized: boolean }) => void): () => void;
   /**
+   * §17-6 (H-28) — 독립 창 [항상 위에 고정]을 켜고 끈다(원하는 값을 보내는 멱등 set). 돌아오는 값은
+   * main 이 기억한 값이라 버튼은 이것으로 칠한다. 구버전 preload 에는 없어 선택 속성이다 — 없으면
+   * 버튼을 그리지 않는다.
+   */
+  setPinnedSelf?(pinned: boolean): Promise<boolean>;
+  /** §17-6 (H-28) — 자기 창이 지금 고정돼 있는가. 창이 IDE 로 설 때 한 번 묻는다(push 는 없다). */
+  getPinnedSelf?(): Promise<boolean>;
+  /**
+   * §5.5 #17-27 ①-1 — 편집창 판이 열리며 독립 창을 오른쪽으로 `dx` 만큼 넓힌다(작업영역 안에서).
+   * 얼마나는 렌더가 정하고, main 은 앉히고 넓히기 전 자리를 기억한다. 구버전 preload 에는 없다.
+   */
+  growEditorRoomSelf?(dx: number): Promise<boolean>;
+  /** §5.5 #17-27 ①-1 — 판이 닫히면 넓힌 만큼 되돌린다(그 사이 사용자가 폭을 바꿨으면 그대로 둔다). */
+  restoreEditorRoomSelf?(): Promise<boolean>;
+  /**
    * §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료.
    * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
    * 그 자리에서 앱 안 IDE 로 돌아간다.
@@ -567,6 +582,7 @@ function installFetchPatch(api: PackagedApi): void {
 // Other URLs (external ws) fall through to the native WebSocket.
 
 const NATIVE_WS = window.WebSocket;
+const IPC_CONNECT_TIMEOUT_MS = 10_000;
 
 interface WSEventListenerEntry {
   type: string;
@@ -597,34 +613,91 @@ class IpcWebSocket extends EventTarget implements WebSocket {
 
   private unsub: (() => void) | null = null;
   private listenerEntries: WSEventListenerEntry[] = [];
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingMessages: unknown[] = [];
+  private opening = false;
 
   constructor(url: string, private readonly api: PackagedApi) {
     super();
     this.url = url;
-    // Subscribe to IPC stream first so we don't miss the initial snapshot.
-    this.unsub = api.onMessage((payload) => this._deliver(payload));
-    // Resolve to OPEN on the next microtask (mirrors browser timing for async connect).
+    // IPC may push connection_ack/snapshot before invoke resolves. Keep those messages until
+    // the handshake succeeds; a missing/failed main handler must never look connected.
     queueMicrotask(() => {
       if (this.readyState !== this.CONNECTING) return;
-      this.readyState = this.OPEN;
-      const ev = new Event('open');
-      this.onopen?.call(this as unknown as WebSocket, ev);
-      this.dispatchEvent(ev);
-      // §3.7 — in-process 서버엔 ws 'connection' 이벤트가 없으므로 연결을 명시적으로 알린다.
-      // main 이 connection_ack + 현재 graph_snapshot 을 이 renderer 로 푸시한다. OPEN 직후라
-      // 그 응답 메시지가 _deliver 의 readyState 가드를 통과한다.
-      void this.api.connect();
+      this.connectTimer = setTimeout(() => this._failConnect(), IPC_CONNECT_TIMEOUT_MS);
+      let connection: Promise<void>;
+      try {
+        this.unsub = api.onMessage((payload) => this._deliver(payload));
+        connection = this.api.connect();
+      } catch {
+        this._failConnect();
+        return;
+      }
+      void connection.then(() => {
+        if (this.readyState !== this.CONNECTING) return;
+        if (this.connectTimer !== null) clearTimeout(this.connectTimer);
+        this.connectTimer = null;
+        this.readyState = this.OPEN;
+        this.opening = true;
+        try {
+          const ev = new Event('open');
+          this.onopen?.call(this as unknown as WebSocket, ev);
+          this.dispatchEvent(ev);
+          while (this.pendingMessages.length > 0 && this.readyState === this.OPEN) {
+            this._emitMessage(this.pendingMessages.shift());
+          }
+        } finally {
+          this.opening = false;
+          this.pendingMessages = [];
+        }
+      }, () => this._failConnect());
     });
   }
 
   private _deliver(payload: unknown): void {
+    if (this.readyState === this.CONNECTING || this.opening && this.readyState === this.OPEN) {
+      this.pendingMessages.push(payload);
+      return;
+    }
     if (this.readyState !== this.OPEN) return;
+    this._emitMessage(payload);
+  }
+
+  private _emitMessage(payload: unknown): void {
     // §9 v3.40 — IPC 로 받은 객체는 재직렬화 없이 그대로 싣는다. 종전엔 여기서
     // JSON.stringify 하고 useWebSocket 이 곧바로 JSON.parse 해, 대형 graph_snapshot 이
     // renderer 메인 스레드에서 왕복 직렬화되며 전수조사급 부하에서 프레임드랍의 주범이었다.
     // 유일 소비자인 useWebSocket 이 문자열(진짜 ws)·객체(IPC) 양쪽을 수용한다.
     const ev = new MessageEvent('message', { data: payload });
     this.onmessage?.call(this as unknown as WebSocket, ev);
+    this.dispatchEvent(ev);
+  }
+
+  private _release(): void {
+    if (this.connectTimer !== null) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
+    this.pendingMessages = [];
+    this.unsub?.(); this.unsub = null;
+  }
+
+  private _failConnect(): void {
+    if (this.readyState !== this.CONNECTING) return;
+    this.readyState = this.CLOSED;
+    this._release();
+    // useWebSocket owns reconnect/backoff through onclose. Mark CLOSED first so its
+    // onerror -> close() cannot emit a second, clean close and hide the handshake failure.
+    try {
+      const ev = new Event('error');
+      this.onerror?.call(this as unknown as WebSocket, ev);
+      this.dispatchEvent(ev);
+    } finally {
+      this._emitClose(1006, 'IPC connection failed', false);
+    }
+  }
+
+  private _emitClose(code: number, reason: string, wasClean: boolean): void {
+    const ev = new CloseEvent('close', { wasClean, code, reason });
+    this.onclose?.call(this as unknown as WebSocket, ev);
     this.dispatchEvent(ev);
   }
 
@@ -646,11 +719,9 @@ class IpcWebSocket extends EventTarget implements WebSocket {
   close(code?: number, reason?: string): void {
     if (this.readyState === this.CLOSED) return;
     this.readyState = this.CLOSING;
-    this.unsub?.(); this.unsub = null;
+    this._release();
     this.readyState = this.CLOSED;
-    const ev = new CloseEvent('close', { wasClean: true, code: code ?? 1000, reason: reason ?? '' });
-    this.onclose?.call(this as unknown as WebSocket, ev);
-    this.dispatchEvent(ev);
+    this._emitClose(code ?? 1000, reason ?? '', true);
   }
 
   override addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: AddEventListenerOptions | boolean): void {

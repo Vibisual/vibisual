@@ -120,6 +120,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const [pulse, setPulse] = useState<{ event: EdgePulseEvent; key: number } | null>(null);
   const prevStatusRef = useRef<TaskEdgeStatus>(status);
   const pulseCounterRef = useRef(0);
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasBundle = Boolean(bundleId);
   const isAutoArtifact = bundleRole === 'auto-artifact';
   // v1.54 — 자동 생성된 자매 엣지(auto-artifact / auto-rework)는 알파 살짝 빼서 자동 생성 티 표시.
@@ -127,9 +128,18 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
 
   // 수동 트리거 — debug 테스트 버튼용. status 와 무관하게 즉시 펄스 재생.
   const triggerPulse = useCallback((event: EdgePulseEvent) => {
+    // 연속 완료/재실행 때 이전 펄스의 만료가 새 신호를 지우지 않게 수명을 넘겨준다.
+    if (pulseTimerRef.current !== null) clearTimeout(pulseTimerRef.current);
     pulseCounterRef.current += 1;
     setPulse({ event, key: pulseCounterRef.current });
-    setTimeout(() => setPulse(null), PULSE_TOTAL_MS + 100);
+    pulseTimerRef.current = setTimeout(() => {
+      pulseTimerRef.current = null;
+      setPulse(null);
+    }, PULSE_TOTAL_MS + 100);
+  }, []);
+
+  useEffect(() => () => {
+    if (pulseTimerRef.current !== null) clearTimeout(pulseTimerRef.current);
   }, []);
 
   // v1.33 / v1.54 — 이 엣지가 자기 role 기준으로 담당하는 이벤트 목록 (디버그 테스트 버튼용).

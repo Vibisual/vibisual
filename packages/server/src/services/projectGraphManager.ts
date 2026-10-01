@@ -158,7 +158,14 @@ const PROJECT_ROOT_MARKERS = [
   '.git',
 ];
 
-function resolveProjectRoot(cwd: string): string {
+/**
+ * 루트를 **무엇으로** 찾았는가 — `none` 은 "위로 끝까지 올라가도 표식이 없어 cwd 를 그대로 돌려줬다"는 뜻이다.
+ * 훅 라우팅(`resolveHookProjectRoot`)이 이 구분으로 "열린 프로젝트의 평범한 하위 폴더"를 가려낸다 —
+ * 그 경우 cwd 그대로를 루트로 삼으면 사용자 폴더 안에 유령 프로젝트가 선다(§3.5).
+ */
+export type ProjectRootVia = 'worktree' | 'marker' | 'none';
+
+export function resolveProjectRootInfo(cwd: string): { root: string; via: ProjectRootVia } {
   // worktree cwd 감지 → 부모 인스턴스로 라우팅 (SSOT §5.7 #26, todo0417 A-1)
   // worktree 디렉토리도 자체 .git/package.json 을 가지므로 마커 검색이 worktree 자기 자신을 프로젝트 루트로 잘못 인식,
   // 그 결과 같은 worktree 세션이 부모 인스턴스와 worktree 인스턴스 양쪽에서 seed 되어 스냅샷 merge 시 중복 렌더됨.
@@ -166,7 +173,7 @@ function resolveProjectRoot(cwd: string): string {
   const wtMatch = normalized.match(/^(.+?)\/\.claude\/worktrees\/[^/]+\/?/);
   if (wtMatch) {
     // 원본 케이스 보존 (cwd는 원본, normalized는 slash 변환본)
-    return cwd.slice(0, wtMatch[1]!.length);
+    return { root: cwd.slice(0, wtMatch[1]!.length), via: 'worktree' };
   }
 
   // git-linked 워크트리(임의 위치) → 부모 메인 워크트리로 라우팅.
@@ -176,21 +183,61 @@ function resolveProjectRoot(cwd: string): string {
   // 남아 checkpoint 덮어쓰기 가드 경고를 반복 유발한다(SSOT §5.7 #26 — 워크트리는 부모 캔버스에
   // 흡수, 별도 탭/프로젝트 금지). resolveGitWorktreeParent 는 cwd 단위 캐시라 첫 1회만 git 호출.
   const gitWt = resolveGitWorktreeParent(normalize(cwd));
-  if (gitWt) return gitWt.parentPath;
+  if (gitWt) return { root: gitWt.parentPath, via: 'worktree' };
 
   let dir = path.resolve(cwd);
   const { root } = path.parse(dir);
   while (dir && dir !== root) {
     for (const marker of PROJECT_ROOT_MARKERS) {
       try {
-        if (fs.existsSync(path.join(dir, marker))) return dir;
+        if (fs.existsSync(path.join(dir, marker))) return { root: dir, via: 'marker' };
       } catch { /* ignore */ }
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return cwd;
+  return { root: cwd, via: 'none' };
+}
+
+function resolveProjectRoot(cwd: string): string {
+  return resolveProjectRootInfo(cwd).root;
+}
+
+/**
+ * §3.5 — 훅이 들고 온 cwd 를 **어느 프로젝트 루트에** 붙일지 정한다(순수 함수 — 판정만, 등록은 하지 않는다).
+ *
+ * 표식 탐색(`resolveProjectRootInfo`)만으로 정하면 **표식이 없는 프로젝트**(예: `.git` 없는 폴더를 연 경우)의
+ * 하위 폴더가 그 자신을 루트로 삼는다. 그러면 세션이 `cd research/x` 한 번 했을 뿐인데 그 폴더에 새 인스턴스·
+ * 새 탭·`.vibisual/save` 가 생기고(실측: 사용자 폴더 안의 유령 프로젝트), 그 세션의 이벤트가 전부 거기로 간다.
+ *
+ * 그래서 **이미 열려 있는 프로젝트(`knownRoots`)** 를 먼저 본다.
+ *  ① 표식 루트가 곧 열린 프로젝트면 그대로.
+ *  ② cwd 를 품은 열린 프로젝트가 없으면 종전 그대로(표식 루트).
+ *  ③ 표식이 없었으면(`none`) cwd 를 품은 **가장 깊은** 열린 프로젝트 — 평범한 하위 폴더는 그 프로젝트의 일부다.
+ *  ④ 표식 루트가 열린 프로젝트보다 **위**에 있으면(모노레포의 하위 패키지를 프로젝트로 연 경우) 열린 쪽.
+ *  ⑤ 그 밖(열린 프로젝트 **안**의 독립 저장소·워크트리)은 종전 그대로 표식 루트 — 자기 탭을 갖던 동작을 바꾸지 않는다.
+ *
+ * 경로 비교는 `isWithinRoot`/`pathKey` 규칙 하나로 한다(대소문자는 그 OS 가 실제로 무시할 때만 접는다 — 세 OS 공통).
+ */
+export function pickHookProjectRoot(
+  found: { root: string; via: ProjectRootVia },
+  cwd: string,
+  knownRoots: readonly string[],
+  within: (child: string, root: string) => boolean = isWithinRoot,
+  keyOf: (p: string) => string = normalize,
+): string {
+  const foundKey = keyOf(found.root);
+  if (knownRoots.some((r) => keyOf(r) === foundKey)) return found.root;
+  let opened: string | null = null;
+  for (const r of knownRoots) {
+    if (!within(cwd, r)) continue;
+    if (opened === null || keyOf(r).length > keyOf(opened).length) opened = r;
+  }
+  if (opened === null) return found.root;
+  if (found.via === 'none') return opened;
+  if (found.via === 'marker' && within(opened, found.root)) return opened;
+  return found.root;
 }
 
 /** 빈 스냅샷 — 인스턴스가 없을 때 반환 */
@@ -783,6 +830,39 @@ export class ProjectGraphManager {
     return cwd ? (this.instances.get(cwd) ?? null) : null;
   }
 
+  /**
+   * §3.5 — 이 세션 키의 버블을 **실제로 가진** 인스턴스. 둘 이상이면 커스텀 버블을 가진 쪽(= 주인)이 이긴다.
+   * 라우팅 표(`sessionRouting`)는 휘발성 캐시라 비거나 틀릴 수 있다 — 버블이 있는 곳이 사실이다.
+   */
+  private findSessionHolder(sessionId: string): { key: string; inst: ProjectGraph } | null {
+    let first: { key: string; inst: ProjectGraph } | null = null;
+    for (const [key, inst] of this.instances) {
+      const agent = inst.getAgentBySession(sessionId);
+      if (!agent) continue;
+      if (agent.customCreated) return { key, inst };
+      if (!first) first = { key, inst };
+    }
+    return first;
+  }
+
+  /**
+   * 이 세션 키를 `self` 말고 **다른 인스턴스도** 쥐고 있는가 — 인스턴스가 공유 맵(명령 큐·완료 이력)을
+   * 지워도 되는지 묻는 술어다(`ProjectGraph.setSessionHeldElsewhere`). 그 맵들은 세션 키 하나로 전 프로젝트가
+   * 같이 쓰므로, 한 인스턴스가 자기 사본을 치운다고 주인의 큐까지 지우면 안 된다.
+   */
+  private isSessionHeldByOtherInstance(sessionId: string, self: ProjectGraph): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst !== self && inst.getAgentBySession(sessionId)) return true;
+    }
+    return false;
+  }
+
+  /** 열린 최상위 프로젝트의 루트인가(hydrate 된 인스턴스 또는 stub). */
+  private isOpenProjectRoot(rootCwd: string): boolean {
+    const key = normalize(rootCwd);
+    return this.listOpenProjectRoots().some((r) => normalize(r) === key);
+  }
+
   /** project name → 인스턴스 조회. primary 일치 우선, worktree 이름처럼 primary 가 아닌 경우 인스턴스의 projects Map 포함 여부로 매치 (todo0417 B-2). */
   private getInstanceByName(name: string): ProjectGraph | null {
     for (const inst of this.instances.values()) {
@@ -900,6 +980,9 @@ export class ProjectGraphManager {
     inst.setPoppedCommandsRef(this.poppedCommandsRef);
     inst.setCommandQueuesRef(this.commandQueuesRef);
     inst.setCompletedCommandArchiveRef(this.completedCommandArchiveRef);
+    // §3.5 — 위 세 맵은 전 인스턴스가 **같은 객체**를 쓴다. 한 인스턴스가 제 버블을 치울 때 같은 세션 키를
+    //   다른 인스턴스가 아직 쥐고 있으면 그 줄은 남겨야 한다(주인의 큐·이력을 남이 지우는 사고 — 실측 2026-09-30).
+    inst.setSessionHeldElsewhere((sessionId) => this.isSessionHeldByOtherInstance(sessionId, inst));
     // §7.11 (프로젝트 격리) — iframe 위성 생성·생사 경로가 "이 포트의 서버가 남의 프로젝트
     //   것인가"를 물으려면 **사용자가 열어 둔 프로젝트 전부**를 알아야 한다. 값이 아니라
     //   함수로 넘긴다: 이 인스턴스는 아직 `instances` 에 들어가기 전이라, 값으로 주면 늘
@@ -1319,7 +1402,52 @@ export class ProjectGraphManager {
   /** cwd로 새 ProjectGraph 인스턴스 등록 (이미 있으면 기존 반환) */
   registerProject(cwd: string): ProjectInfo {
     // 서브디렉터리 → 프로젝트 루트로 승격 (모노레포 서브패키지가 별도 탭으로 뜨지 않게)
-    const rootCwd = resolveProjectRoot(cwd);
+    return this.registerProjectAtRoot(resolveProjectRoot(cwd), cwd);
+  }
+
+  /**
+   * §3.5 — **훅이 알려 준 cwd** 로 등록한다(SessionStart·도구 이벤트의 자동 등록 문).
+   *
+   * 사용자가 폴더를 직접 여는 `registerProject` 와 다른 점은 하나다 — 이미 열린 프로젝트의 평범한 하위
+   * 폴더면 그 프로젝트로 붙인다(`pickHookProjectRoot`). 사용자가 고른 폴더는 그 자체가 프로젝트여야 하므로
+   * 이 규칙을 `registerProject` 에 넣지 않는다(열린 부모 안의 하위 폴더를 따로 여는 길이 막힌다).
+   */
+  registerProjectForHookCwd(cwd: string): ProjectInfo {
+    return this.registerProjectAtRoot(this.resolveHookProjectRoot(cwd), cwd);
+  }
+
+  /** 훅 cwd → 붙일 프로젝트 루트. 판정은 `pickHookProjectRoot` 가 하고 여기서는 열린 루트 목록만 모은다. */
+  private resolveHookProjectRoot(cwd: string): string {
+    return pickHookProjectRoot(resolveProjectRootInfo(cwd), cwd, this.listOpenProjectRoots());
+  }
+
+  /**
+   * 지금 열려 있는 최상위 프로젝트 루트 — hydrate 된 인스턴스 + 아직 안 깬 stub.
+   * 워크트리는 뺀다(부모 캔버스 안의 버블이지 탭이 아니다 — §5.7 #26). 경로는 원래 모양을 돌려준다.
+   */
+  private listOpenProjectRoots(): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (p: string): void => {
+      const k = normalize(p);
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(p);
+    };
+    for (const [key, inst] of this.instances) {
+      const pp = inst.getPrimaryProject();
+      if (pp?.parentProjectPath) continue;
+      push(pp && normalize(pp.path) === key ? pp.path : key);
+    }
+    for (const meta of this.stubs.values()) {
+      if (meta.project.parentProjectPath !== undefined) continue;
+      push(meta.project.path);
+    }
+    return out;
+  }
+
+  /** 이미 정해진 루트로 등록한다 — 루트를 다시 해석하지 않는다(호출자가 정한 루트를 표식 탐색이 뒤집지 않게). */
+  private registerProjectAtRoot(rootCwd: string, cwd: string): ProjectInfo {
     const key = normalize(rootCwd);
     let inst = this.instances.get(key);
     if (!inst) {
@@ -1379,16 +1507,43 @@ export class ProjectGraphManager {
 
   processHookEvent(payload: HookEventPayload): ProcessResult | null {
     let inst = this.getInstanceForSession(payload.session_id);
-    const routedBy = inst ? 'session-routing' : 'cwd-lookup';
+    let routedBy = inst ? 'session-routing' : 'cwd-lookup';
+
+    /*
+     * §3.5 — **이 세션의 버블을 이미 가진 프로젝트가 주인이다.** cwd 는 그 다음이다.
+     *
+     * 라우팅 표는 휘발성이다 — 탭 유휴 해제(`unloadProject`)가 그 인스턴스를 가리키던 줄을 지우고, 커스텀
+     * 버블 세션(`custom-…`, 라우트가 소유자 태그로 바꿔 쓴 키)은 애초에 첫 도구 이벤트 전까지 줄이 없다.
+     * 그 빈자리에서 cwd 만 보고 정하면 세션이 `cd` 해 둔 하위 폴더가 새 프로젝트가 된다. 실측(2026-09-30):
+     * 커스텀 세션 하나가 하위 폴더(`research/…`)에서 재개되자 그 폴더에 유령 인스턴스가 서고, 거기 찍힌
+     * 훅 버블을 생존 판정이 2초마다 지웠다 — 지울 때마다 **전 프로젝트 공유** 명령 큐·완료 이력이 함께
+     * 지워져 입력이 몇 초 안에 사라지고 이력 32건을 잃었다(명령 접수도 유령의 훅 버블을 보고 403 으로 거절).
+     * 버블을 가진 곳이 이미 있으면 그리로 보내고 표를 그쪽으로 고친다(이미 잘못 고정된 줄도 여기서 풀린다).
+     */
+    if (!inst || !inst.getAgentBySession(payload.session_id)) {
+      const holder = this.findSessionHolder(payload.session_id);
+      if (holder && holder.inst !== inst) {
+        inst = holder.inst;
+        routedBy = 'session-owner';
+        this.sessionRouting.set(payload.session_id, holder.key);
+      }
+    }
 
     if (!inst && payload.cwd) {
-      // 서브디렉터리 cwd → 프로젝트 루트 키로 승격
-      const key = normalize(resolveProjectRoot(payload.cwd));
+      // 서브디렉터리 cwd → 프로젝트 루트 키로 승격 — 열린 프로젝트의 평범한 하위 폴더는 그 프로젝트다(§3.5)
+      const rootCwd = this.resolveHookProjectRoot(payload.cwd);
+      const key = normalize(rootCwd);
       inst = this.instances.get(key) ?? null;
       if (!inst) {
+        // 우리가 띄운 세션(소유자 태그)은 **새 프로젝트를 만들지 않는다** — 그 세션의 주인 버블은 이미 어느
+        //   프로젝트에 있다. 아직 안 깬 열린 프로젝트(stub)면 깨우고, 모르는 폴더면 이벤트를 흘려보낸다.
+        if (payload._vibisualOwnerAgentId && !this.isOpenProjectRoot(rootCwd)) {
+          dbg('manager.processHookEvent.ownerTaggedNoProject', { sessionId: payload.session_id, cwd: payload.cwd, owner: payload._vibisualOwnerAgentId });
+          return null;
+        }
         // 새 프로젝트 자동 등록 (루트 기준)
         try {
-          this.registerProject(payload.cwd);
+          this.registerProjectAtRoot(rootCwd, payload.cwd);
         } catch (e) {
           if (e instanceof ReadOnlyProjectError) {
             // §3.2.1-4 (v3.03) — read-only 격리 프로젝트. 빈 인스턴스로 디스크를 덮어쓰지 않도록 이벤트 드롭.
@@ -1429,20 +1584,23 @@ export class ProjectGraphManager {
 
   getAgentBySession(sessionId: string): BubbleData | null {
     const inst = this.getInstanceForSession(sessionId);
-    if (inst) return inst.getAgentBySession(sessionId);
-    // fallback: 커스텀 에이전트는 sessionRouting에 등록되지 않음 → 전 인스턴스 검색
-    for (const i of this.instances.values()) {
-      const agent = i.getAgentBySession(sessionId);
-      if (agent) return agent;
-    }
-    return null;
+    const routed = inst?.getAgentBySession(sessionId) ?? null;
+    if (routed) return routed;
+    // fallback: 표에 줄이 없거나(커스텀 버블은 첫 도구 이벤트 전까지 없다) 표가 가리키는 곳에 버블이 없으면
+    //   **가진 곳**을 찾는다. 표만 믿고 null 을 돌려주면 명령 접수는 "세션 없음"(404)으로, 실행(`processNextCommand`)은
+    //   말없이 멈춘다 — 입력이 먹지 않는 탭의 한 갈래였다(§3.5).
+    return this.findSessionHolder(sessionId)?.inst.getAgentBySession(sessionId) ?? null;
   }
 
   getAgentCwd(sessionId: string): string | null {
     const inst = this.getInstanceForSession(sessionId);
-    if (inst) return inst.getAgentCwd(sessionId);
-    // fallback: 모든 인스턴스에서 검색
+    const routed = inst?.getAgentCwd(sessionId) ?? null;
+    if (routed) return routed;
+    const held = this.findSessionHolder(sessionId)?.inst.getAgentCwd(sessionId) ?? null;
+    if (held) return held;
+    // fallback: 모든 인스턴스에서 검색(서브에이전트 세션 → 부모 cwd 해석 포함)
     for (const i of this.instances.values()) {
+      if (i === inst) continue;
       const cwd = i.getAgentCwd(sessionId);
       if (cwd) return cwd;
     }
@@ -1451,12 +1609,9 @@ export class ProjectGraphManager {
 
   findAgentIdBySession(sessionId: string): string | null {
     const inst = this.getInstanceForSession(sessionId);
-    if (inst) return inst.findAgentIdBySession(sessionId);
-    for (const i of this.instances.values()) {
-      const id = i.findAgentIdBySession(sessionId);
-      if (id !== null) return id;
-    }
-    return null;
+    const routed = inst?.findAgentIdBySession(sessionId) ?? null;
+    if (routed !== null) return routed;
+    return this.findSessionHolder(sessionId)?.inst.findAgentIdBySession(sessionId) ?? null;
   }
 
   setAgentStatus(sessionId: string, status: 'completed'): void {

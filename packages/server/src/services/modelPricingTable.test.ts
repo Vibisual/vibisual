@@ -68,6 +68,7 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
   const TABLE: ReadonlyArray<readonly [string, number, number, number, number, number]> = [
     ['claude-fable-5-1', 10, 50, 0.25, 12.5, 1_000_000], // 캐시 읽기만 0.025× (이 세대 전용)
     ['claude-fable-5', 10, 50, 1, 12.5, 1_000_000],
+    ['claude-opus-5-5', 4, 20, 0.2, 5, 1_000_000], // 캐시 읽기만 0.05× (Opus 5.5 전용)
     ['claude-opus-5', 5, 25, 0.5, 6.25, 1_000_000],
     ['claude-opus-4-8', 5, 25, 0.5, 6.25, 1_000_000],
     ['claude-opus-4-5', 5, 25, 0.5, 6.25, 200_000],
@@ -91,8 +92,8 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
     for (const [id, p] of Object.entries(MODEL_PRICING)) {
       if (!id.startsWith('claude-')) continue;
       expect(p.cacheWrite, `${id} 캐시쓰기 = 입력가 × 1.25`).toBe(round(p.input * 1.25));
-      // 표준은 0.1×, Fable/Mythos 5.1 세대만 0.025×.
-      expect([round(p.input * 0.1), round(p.input * 0.025)], `${id} 캐시읽기 배수`).toContain(p.cacheRead);
+      // 표준은 0.1×, Fable/Mythos 5.1 세대는 0.025×, Opus 5.5 는 0.05×(가격표 각주).
+      expect([round(p.input * 0.1), round(p.input * 0.05), round(p.input * 0.025)], `${id} 캐시읽기 배수`).toContain(p.cacheRead);
     }
   });
 
@@ -224,7 +225,7 @@ describe('alias 는 그 패밀리의 진짜 최신을 가리킨다', () => {
   });
 
   it('나머지 패밀리 최신도 고정', () => {
-    expect(newestSeedOf('opus')).toBe('claude-opus-5');
+    expect(newestSeedOf('opus')).toBe('claude-opus-5-5');
     expect(newestSeedOf('sonnet')).toBe('claude-sonnet-5');
     expect(newestSeedOf('haiku')).toBe('claude-haiku-4-5');
   });

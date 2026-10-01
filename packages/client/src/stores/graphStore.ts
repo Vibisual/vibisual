@@ -5,7 +5,7 @@ import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, WebEntry, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, ClosedTabEntry, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, ProjectInsuranceLedger, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
   ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, AutoGoalSummary, PluginFactMap, VerificationRun, VerificationDemo, SpecReadingState, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal,
   VisualKindCard, GoalActionCard, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress, CodexAuthStatus, CodexSetupState, CodexSetupProgress, CodexModelCatalog, CodexInventory, CodexReviewRun, CodexReviewMode, CodexHookState, EngineChoice, AgentEngineKind } from '@vibisual/shared';
-import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo, ToolAxis, HeatCurve, TidySort } from '@vibisual/shared';
+import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo, ToolAxis, HeatCurve, TidySort, SkillSharingEntry, SpanGrowth } from '@vibisual/shared';
 import { isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
 // §5.24 — 히트 척도 곡선의 기본값과 분포 표본. 판정은 shared 한 곳이 소유한다(서버와 같은 함수).
 import { DEFAULT_HEAT_CURVE, DEFAULT_TIDY_SORT, heatQuantileSamples } from '@vibisual/shared';
@@ -71,6 +71,7 @@ import {
 } from '../components/IDE/splitLayout.js';
 import type { SplitDropSide } from '../components/IDE/splitDrop.js';
 import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
+import { dockGrowthOnClose } from '../components/IDE/ideResponsive.js';
 import type { DiffComment } from '../components/IDE/diffCommentPrompt.js';
 import { normalizeTabSortAnchor, type TabSortAnchor } from '../components/IDE/tabSort.js';
 // §5.5 #17-17 ㉖(c) — 무대에서 사용자가 그은 선. 판정은 순수 모듈 한 곳이 소유한다(뷰와 저장고가
@@ -99,6 +100,8 @@ export interface AgentSessionInputDraft {
   attachments: AgentSessionInputAttachment[];
   /** 서버가 실행 전에 거절한 요청의 재전송 안내. 입력을 고치면 걷고, 영속화하지 않는다. */
   sendError?: OrchestraPreparation;
+  /** 전송 확인 실패는 자동 재전송하지 않는다. 사용자가 확인하고 다시 보낸다. */
+  sendFailure?: 'unconfirmed' | 'rejected' | 'local-images-unsupported';
 }
 
 /**
@@ -130,8 +133,18 @@ export interface ImageLightboxWorkspaceFile {
   /** 구울 MIME — `canvas.toBlob` 의 두 번째 인자 */
   mime: string;
 }
+/**
+ * §5.5 #17-25 — 라이트박스를 **연 자리**(창 슬롯 + 분할 칸). 라이트박스를 그리는 호스트는 대화 본문마다 하나씩 있어
+ * 창이 여럿이거나 한 창을 칸으로 나누면 여럿이 된다 — 호스트는 이 자리와 맞을 때만 그린다(`lightboxHostMatches`).
+ * 칸 밖(편집창·사이드바)에서 열었으면 `cell` 은 null 이고, 그 창의 초점 칸이 그린다.
+ */
+export interface ImageLightboxOrigin {
+  slot: string;
+  cell: string | null;
+}
 export interface ImageLightboxState {
   url: string;
+  origin: ImageLightboxOrigin;
   attachment?: ImageLightboxAttachment;
   workspace?: ImageLightboxWorkspaceFile;
 }
@@ -167,6 +180,8 @@ export interface TaskEdgeOptions {
 const API_BASE = '';
 /** Only the latest send from a pane may select the session assigned by its response. */
 const pendingCommandFocus = new Map<string, symbol>();
+// 응답 전에 도착한 snapshot이 실패 시 되돌릴 첨부 blob을 회수하지 못하게 한다.
+const pendingCommandAttachments = new Map<symbol, readonly string[]>();
 
 const ACTIVE_PROJECT_KEY = 'vibisual:activeProject';
 const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
@@ -740,6 +755,60 @@ export type IDEWindowLayoutKind =
  * (이관·마이그레이션 ❌) 두 번째부터 `<projectId>::ide-N` 이 선다. 한 프로젝트의 창을 모으는
  * 기준은 키 문자열 파싱이 아니라 아래 `projectId` 필드다.
  */
+/**
+ * §5.5 #17-27 ①-1 — 판이 열리며 창을 넓힌 **한 번**의 기억(닫힐 때 되돌린다). 창의 모양마다 되돌릴 것이 다르다 —
+ * 떠 있는 창은 가로 자리, 좌/우 도크는 두께, 독립 창은 main 이 쥔 기록(여기는 "넓혔다"는 사실만).
+ */
+export type IDEEditorRoomGrowth =
+  | { kind: 'float'; growth: SpanGrowth }
+  /** `seq` = 이 두께를 넓힌 차례(판을 따진 차례) — 같은 변의 옆 창이 이 넓힘에 기대 판을 열었는지 가른다. */
+  | { kind: 'dock'; side: IDEDockSide; before: number; after: number; seq: number }
+  | { kind: 'os' };
+
+export interface IDEEditorRoomMemo {
+  /** 지금 열려 있는 판을 두고 넓힐지 이미 따졌나 — **열리는 순간 한 번**만 따진다. 판이 닫히면 기억째 지운다. */
+  checked: boolean;
+  /** 넓힐지 따진 차례(늦을수록 크다). 없으면 0 — 짐을 지고 온 창처럼 남의 넓힘에 기대지 않고 선 창이다. */
+  seq?: number;
+  growth: IDEEditorRoomGrowth | null;
+}
+
+/**
+ * §5.5 #17-27 ①-1 — `self` 가 판을(또는 창째) 닫을 때 그 창이 쥔 **변 두께 기록**을 돌려준다(`dockGrowthOnClose`).
+ * 두께는 같은 변의 창이 나눠 쓰므로 되돌리면 그 변의 창 **모두**가, 넘기면 그 넓힘에 기댄 창 하나의 기억이 바뀐다.
+ * `overlays` 에 `self` 가 없어도 된다(창째 닫는 길은 슬롯을 먼저 지운다). 바뀔 것이 없으면 `null`.
+ */
+export function settleDockGrowth(
+  overlays: Record<string, IDEOverlayState>,
+  self: IDEOverlayState,
+  rec: Extract<IDEEditorRoomGrowth, { kind: 'dock' }>,
+): Record<string, IDEOverlayState> | null {
+  if (self.dockSide !== rec.side) return null;
+  const mates = Object.values(overlays)
+    .filter((o) => o.paneKey !== self.paneKey && o.projectId === self.projectId && o.dockSide === rec.side);
+  const heirs = mates
+    .filter((o) => !o.collapsed && o.editorRoom?.checked === true)
+    .map((o) => {
+      const g = o.editorRoom?.growth;
+      // 다른 모양으로 넓힌 기록(떠 있을 때 넓히고 붙인 창)은 이 변에서 되돌릴 일이 없어 빈 것으로 본다.
+      return { key: o.paneKey, seq: o.editorRoom?.seq ?? 0, growth: g?.kind === 'dock' && g.side === rec.side ? g : null };
+    });
+  const act = dockGrowthOnClose(rec, self.dockSize, heirs);
+  if (act.kind === 'keep') return null;
+  const next = { ...overlays };
+  if (act.kind === 'revert') {
+    for (const o of [self, ...mates]) {
+      const cur = next[o.paneKey];
+      if (cur) next[o.paneKey] = { ...cur, dockSize: act.size };
+    }
+    return next;
+  }
+  const heir = next[act.key];
+  if (!heir?.editorRoom) return null;
+  next[act.key] = { ...heir, editorRoom: { ...heir.editorRoom, growth: { kind: 'dock', side: rec.side, ...act.growth } } };
+  return next;
+}
+
 export interface IDEOverlayState {
   /** 열려있는 에이전트 ID (null이면 닫힘) */
   agentId: string | null;
@@ -827,6 +896,23 @@ export interface IDEOverlayState {
    * 편집창(`editorFiles`)과도 독립이라 둘이 나란히 설 수 있다.
    */
   stageOpen: boolean;
+  /**
+   * §5.5 #17-4 (엔진 탭) ② — 스킬 칸에서 **고른 탭**, 에이전트마다(키 = `skillTabKey` — 에이전트 + 그때의 자기 엔진).
+   *
+   * 종전에는 칸 컴포넌트의 로컬 상태라, 좁은 창에서 세션을 바꾸면 서랍이 닫히며 칸이 내려가 고른 탭이
+   * 사라졌다("같은 에이전트의 세션 탭 이동은 유지" 위반). 사이드바를 접었다 펴거나 다른 칸에 다녀와도 같았다.
+   * 또 칸 하나에 한 벌만 기억해, 다른 에이전트에 다녀오면 거기서 탭을 골랐는지에 따라 결과가 갈렸다.
+   * `float`·`maximized` 와 같은 이유로 슬롯에 산다. 휘발 — 없으면 자기 엔진 탭이다.
+   */
+  skillTabs?: Readonly<Record<string, SkillSharingEntry['sourceProvider']>>;
+  /**
+   * §5.5 #17-27 ①-1 — 판이 열리며 창을 넓힌 기억(휘발).
+   *
+   * 종전에는 창 컴포넌트의 ref 라, 창을 접었다 펴거나 프로젝트 탭을 오가 컴포넌트가 내려가면 사라졌다 —
+   * 그 뒤 판을 닫아도 되돌리지 못해 넓힌 폭이 남았고, 다시 설 때 열려 있던 판을 새로 열린 것으로 보고
+   * 또 넓혔다(사용자가 줄여 둔 창을 도로 키웠다). `float`·`maximized` 와 같은 이유로 슬롯에 산다.
+   */
+  editorRoom?: IDEEditorRoomMemo | null;
 }
 
 /** IDE 닫힘/없음 상태 기본값. selectIDEOverlay 가 미보유 프로젝트에 대해 반환. */
@@ -1982,7 +2068,7 @@ interface GraphState {
    *  §5.5 #17-25 v4.80 — URL 하나에서 `{ url, attachment? }` 로 넓혔다. 주석본을 저장할 때
    *  **어느 첨부를 열었는지** 알아야 그 자리를 교체할 수 있다(모르면 새 첨부로만 붙는다). */
   imageLightbox: ImageLightboxState | null;
-  openImageLightbox: (url: string, attachment?: ImageLightboxAttachment, workspace?: ImageLightboxWorkspaceFile) => void;
+  openImageLightbox: (url: string, origin: ImageLightboxOrigin, attachment?: ImageLightboxAttachment, workspace?: ImageLightboxWorkspaceFile) => void;
   closeImageLightbox: (expected?: ImageLightboxState) => void;
   /**
    * §5.5 #17-25 ④-1 — 라이트박스가 워크스페이스 이미지를 덮어쓴 시각(상대 경로별).
@@ -2783,6 +2869,12 @@ interface GraphState {
   setIDEPaneMaximized: (paneKey: string | null | undefined, maximized: boolean) => void;
   setIDEActiveSession: (sessionId: string | null, paneKey?: string | null) => void;
   setIDEActiveView: (view: IDEViewType, paneKey?: string | null) => void;
+  /** §5.5 #17-4 (엔진 탭) — 스킬 칸에서 고른 탭을 그 창 슬롯에 적는다. `null` 이면 기억을 지운다(자기 엔진 탭). */
+  setIDESkillTab: (key: string, tab: SkillSharingEntry['sourceProvider'] | null, paneKey?: string | null) => void;
+  /** §5.5 #17-27 ①-1 — 그 창이 판을 두고 넓힌 기억을 적는다(`null` 이면 지운다). */
+  setIDEEditorRoom: (paneKey: string | null | undefined, memo: IDEEditorRoomMemo | null) => void;
+  /** §5.5 #17-27 ①-1 — 판을 닫은 도크 창의 두께 기록을 돌려준다(되돌리기 · 기댄 옆 창에 넘기기 — `settleDockGrowth`). */
+  settleIDEDockGrowth: (paneKey: string | null | undefined, rec: Extract<IDEEditorRoomGrowth, { kind: 'dock' }>) => void;
   toggleIDESidebar: (paneKey?: string | null) => void;
   /** §5.5 #17-17 ⑪(k) — 무대(단계 지도)를 우측에 열고 닫는다. `open` 을 안 주면 뒤집는다. */
   setIDEStageOpen: (open?: boolean, paneKey?: string | null) => void;
@@ -3556,6 +3648,33 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       // 명령 팝업처럼 draft 밖에서 보낸 첨부도 보관한다. 썸네일은 기존 파일 조회 경로로 다시 읽는다.
       ?? { tempId: `retry:${serverPath}`, previewUrl: '', serverPath, uploading: false });
     const submittedSubExisted = !!subAgentId && (get().subAgents[agentId] ?? []).some((sub) => sub.id === subAgentId);
+    pendingCommandAttachments.set(focusRequest, attachments ?? []);
+    const restoreSubmission = (failure: Pick<AgentSessionInputDraft, 'sendError' | 'sendFailure'>): boolean => {
+      let retained = false;
+      set((state) => {
+        if (!state.agents.some((a) => a.id === agentId)
+          || (submittedSubExisted && !(state.subAgents[agentId] ?? []).some((sub) => sub.id === subAgentId))) return state;
+        retained = true;
+        const current = state.agentSessionInputs[draftKey];
+        const currentText = current?.text ?? '';
+        const restoredText = currentText === text || !currentText ? text : `${text}\n\n${currentText}`;
+        const restoredAttachments = [...(current?.attachments ?? [])];
+        for (const a of submittedAttachments) {
+          if (!restoredAttachments.some((v) => v.serverPath === a.serverPath)) restoredAttachments.push(a);
+        }
+        const attachmentPreviews = { ...state.attachmentPreviews };
+        for (const a of submittedAttachments) {
+          const basename = a.serverPath.split(/[/\\]/).pop() ?? '';
+          if (a.previewUrl && attachmentPreviews[basename] === a.previewUrl) delete attachmentPreviews[basename];
+        }
+        const agentSessionInputs = { ...state.agentSessionInputs, [draftKey]: {
+          text: restoredText, attachments: restoredAttachments, ...failure,
+        } };
+        scheduleSaveSessionInputDrafts(agentSessionInputs);
+        return { agentSessionInputs, attachmentPreviews };
+      });
+      return retained;
+    };
     // §5.5 #17-23 — 사용자가 **보낸** 프롬프트를 그 세션의 명령 히스토리(↑/↓)에 적재.
     //   여기가 클라의 유일한 전송 창구(입력창·지휘통제실 카드·상세 패널 큐가 모두 지난다)라
     //   기록도 여기 한 곳에서 한다. 서버 큐는 완료된 명령을 빼 가므로 큐를 되읽는 방식으로는
@@ -3577,35 +3696,23 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
           }),
         });
         const data = await r.json() as { command?: { subAgentId?: string }; error?: string; preparation?: OrchestraPreparation };
-        if (!r.ok && data.error === 'orchestra-engine-not-ready' && data.preparation
+        if (!r.ok && data?.error === 'orchestra-engine-not-ready' && data.preparation
           && (data.preparation.engine === 'claude' || data.preparation.engine === 'codex')
           && ['setup', 'login', 'refresh'].includes(data.preparation.action)) {
           const preparation = data.preparation;
-          let retained = false;
-          set((state) => {
-            if (!state.agents.some((a) => a.id === agentId)
-              || (submittedSubExisted && !(state.subAgents[agentId] ?? []).some((sub) => sub.id === subAgentId))) return state;
-            retained = true;
-            const current = state.agentSessionInputs[draftKey];
-            const currentText = current?.text ?? '';
-            const restoredText = currentText === text || !currentText ? text : `${text}\n\n${currentText}`;
-            const restoredAttachments = [...(current?.attachments ?? [])];
-            for (const a of submittedAttachments) if (!restoredAttachments.some((v) => v.serverPath === a.serverPath)) restoredAttachments.push(a);
-            // 제출 때 큐로 넘긴 blob을 draft가 다시 소유한다. 그대로 두면 다음 snapshot이 없는 큐의 blob을 revoke한다.
-            const attachmentPreviews = { ...state.attachmentPreviews };
-            for (const a of submittedAttachments) {
-              const basename = a.serverPath.split(/[/\\]/).pop() ?? '';
-              if (a.previewUrl && attachmentPreviews[basename] === a.previewUrl) delete attachmentPreviews[basename];
-            }
-            const agentSessionInputs = { ...state.agentSessionInputs, [draftKey]: {
-              text: restoredText,
-              attachments: restoredAttachments,
-              sendError: preparation,
-            } };
-            scheduleSaveSessionInputDrafts(agentSessionInputs);
-            return { agentSessionInputs, attachmentPreviews };
-          });
-          if (retained) await get().prepareOrchestraEngine(preparation);
+          const retained = restoreSubmission({ sendError: preparation });
+          if (retained) {
+            try { await get().prepareOrchestraEngine(preparation); }
+            catch { /* 초안과 준비 오류는 보존된다. 입력의 다시 확인 손잡이로 재시도한다. */ }
+          }
+          return;
+        }
+        if (!r.ok) {
+          restoreSubmission({ sendFailure: data?.error === 'local-images-unsupported' ? 'local-images-unsupported' : 'rejected' });
+          return;
+        }
+        if (!data?.command || typeof data.command !== 'object') {
+          restoreSubmission({ sendFailure: 'unconfirmed' });
           return;
         }
         // 서버가 결정한 세션으로 자동 전환 — **그 에이전트의 창**에서만(§5.5 #17-6 (H-27) ⑦).
@@ -3625,8 +3732,14 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             && now.ideOverlays[own]?.activeSessionId === submittedSelection) now.setIDEActiveSession(sentTo, own);
           else now.acknowledgeUsageLimit({ subAgentIds: [sentTo] });
         }
-      } catch { /* 서버가 snapshot broadcast → loadSnapshot 에서 queuedCommands 갱신 */ }
+      } catch {
+        // 응답 유실은 서버 미수락의 증거가 아니다. 입력만 돌려주고 자동 재전송은 하지 않는다.
+        // 사용자 정의 transport의 동기 throw도 입력창이 비운 뒤에 복원한다.
+        await Promise.resolve();
+        restoreSubmission({ sendFailure: 'unconfirmed' });
+      }
       finally {
+        pendingCommandAttachments.delete(focusRequest);
         if (submittedPane && pendingCommandFocus.get(submittedPane) === focusRequest) pendingCommandFocus.delete(submittedPane);
       }
     })();
@@ -4838,10 +4951,11 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   },
   openContiBoard: (agentId, contiId) => set({ contiBoardOpen: { agentId, contiId } }),
   closeContiBoard: () => set({ contiBoardOpen: null }),
-  openImageLightbox: (url, attachment, workspace) =>
+  openImageLightbox: (url, origin, attachment, workspace) =>
     set({
       imageLightbox: {
         url,
+        origin: { slot: origin.slot, cell: origin.cell },
         ...(attachment ? { attachment } : {}),
         ...(workspace ? { workspace } : {}),
       },
@@ -5014,6 +5128,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       const parts = p.split(/[/\\]/);
       return parts[parts.length - 1] ?? '';
     };
+    for (const paths of pendingCommandAttachments.values()) {
+      for (const p of paths) activeBasenames.add(basenameOf(p));
+    }
     for (const queue of Object.values(commandQueues)) {
       for (const c of queue) {
         if (c.attachments) for (const p of c.attachments) activeBasenames.add(basenameOf(p));
@@ -6310,6 +6427,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
             editorFiles: [],
             activeEditorPath: null,
+            // §5.5 #17-27 ①-1 — 자리를 재사용하면 그 창이 판 때문에 넓힌 기억도 함께 넘어온다. 창 컴포넌트는 같은
+            //   슬롯 키 아래 그대로 서 있고, 판이 비는 순간 이 기억으로 넓힌 만큼 되돌린다(지우면 넓힌 폭이 남는다).
+            editorRoom: prev?.editorRoom ?? null,
             // §5.5 #17-27 ⑯ — 접어 둔 탭 묶음은 **그 에이전트의 세션들** 것이다. 버블이 갈리면 남의
             //   것이므로 함께 비운다(고정도 그 탭 묶음에 대한 결정이라 같이 풀린다).
             editorPinned: false,
@@ -6357,10 +6477,18 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     // 닫기는 그 창 하나만. 키를 안 주면 종전대로 활성 프로젝트의 주 창.
     //   슬롯 자체 제거 = 깨끗한 초기 상태로 복귀(다른 창은 그대로 남는다).
     const key = resolvePaneKey(state, paneKey);
-    if (!key || !state.ideOverlays[key]) return {};
+    const cur = key ? state.ideOverlays[key] : undefined;
+    if (!key || !cur) return {};
     const next = { ...state.ideOverlays };
     delete next[key];
-    return { ideOverlays: next };
+    // §5.5 #17-27 ①-1 — 판 때문에 넓힌 **변 두께**는 창과 함께 사라지지 않는다(같은 변의 창들이 나눠 쓴다).
+    //   판을 닫을 때와 같은 규칙으로 돌려준다 — 안 그러면 판을 연 채 창을 닫았을 때 옆 창이 넓힌 두께로 남았다.
+    const g = cur.editorRoom?.growth;
+    const settled = g?.kind === 'dock' ? settleDockGrowth(next, cur, g) : null;
+    // §5.5 #17-25 — 라이트박스는 **연 창**의 것이다(`origin.slot`). 창과 함께 내린다 — 남기면 그릴 호스트가 없는 채로
+    //   store 에 떠 있다가, 같은 창을 다시 열 때 지난 그림이 느닷없이 뜬다.
+    const lightboxGone = state.imageLightbox?.origin.slot === key;
+    return { ideOverlays: settled ?? next, ...(lightboxGone ? { imageLightbox: null } : {}) };
   }),
   focusIDEPane: (paneKey) => set((s) => {
     const cur = s.ideOverlays[paneKey];
@@ -6956,6 +7084,35 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     return {
       ideOverlays: { ...s.ideOverlays, [key]: { ...cur, activeView: view } },
     };
+  }),
+  setIDESkillTab: (tabKey, tab, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur) return {};
+    if ((cur.skillTabs?.[tabKey] ?? null) === tab) return {};
+    const skillTabs = { ...cur.skillTabs };
+    if (tab === null) delete skillTabs[tabKey];
+    else skillTabs[tabKey] = tab;
+    return {
+      ideOverlays: { ...s.ideOverlays, [key]: { ...cur, skillTabs } },
+    };
+  }),
+  setIDEEditorRoom: (paneKey, memo) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur || (cur.editorRoom ?? null) === memo) return {};
+    return {
+      ideOverlays: { ...s.ideOverlays, [key]: { ...cur, editorRoom: memo } },
+    };
+  }),
+  settleIDEDockGrowth: (paneKey, rec) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    const cur = key ? s.ideOverlays[key] : undefined;
+    if (!cur) return {};
+    const next = settleDockGrowth(s.ideOverlays, cur, rec);
+    return next ? { ideOverlays: next } : {};
   }),
   toggleIDESidebar: (paneKey) => set((s) => {
     const key = resolvePaneKey(s, paneKey);

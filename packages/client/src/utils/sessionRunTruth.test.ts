@@ -14,6 +14,15 @@
  *      화면은 **"완료"**라고 적었다. 사용자는 그 완료를 믿고 또 덧말을 보냈고, 그 덧말도 줄만
  *      섰다 — 그러는 내내 스트림 바닥은 "작업 중 · 마지막 업데이트 24m 26s 전"을 키웠다
  *      (사용자 보고 그대로). 완료와 작업 중 **둘 다 거짓말**이었고, 참말은 "대기"였다.
+ *  (J) 조용한 사전 압축(§5.3 #9-1 (P)) 뒤에 막 나간 명령이 **앞 턴 끝부터 잰** "마지막 업데이트 N분 전"
+ *      으로 시작해 멈춘 세션처럼 보였다 — 라이브 1줄 시계가 보인 줄만 쟀고, 감춘 턴의 움직임은
+ *      클라에 오지 않는다. 압축이 도는 동안에도 그 줄은 입력한 순간부터 세는 평소 "작업 중"이다.
+ *  (E) 그 압축을 물려받은 명령은 "실행 중…" 배지 아래에 대기 명령의 칩·설명·삭제가 **함께** 붙어
+ *      대기에 빠진 것으로 읽혔다 — 물려받은 명령은 실행 중인 명령과 구별되지 않아야 한다.
+ *  (K) 입력창 위 백단 셸 띠가 셸 개수 하나만 보고 떠서, 턴이 아직 도는 중에도 "답은 이미 나왔으니
+ *      계속 입력하셔도 된다"고 적었다 — 그 말을 믿고 보낸 말은 줄에 섰다. 띠를 걷었다(§5.5 #17-9 ⑰(c-1)).
+ *  (L) 라이브 1줄의 경과가 **마지막 활동부터** 재여 줄이 올 때마다 0 으로 되감겼고(`0s`·`1s` 반복),
+ *      1초 틱에 멈춘 `now` 로 그 사이 온 줄을 재면 음수라 숫자가 사라졌다. 평소엔 턴 시작부터 잰다.
  *
  * jsdom 이 없어 렌더 테스트는 못 한다 — 판정은 순수 함수로, 배선은
  * import.meta.glob(?raw) 소스 스캔으로 고정한다(promptBubbleCollapse.test.ts 와 같은 방식).
@@ -25,6 +34,7 @@ import {
   displayCommands,
   hasSessionWork,
   isSessionRunning,
+  isSessionExecuting,
   isSessionWaiting,
   resolveSessionLiveness,
   resolveSessionRunState,
@@ -32,6 +42,7 @@ import {
   type QueuedCommand,
   type SessionRunState,
   type SubAgent,
+  type SubAgentStreamEvent,
 } from '@vibisual/shared';
 import {
   SESSION_STATUS_DOT,
@@ -40,7 +51,12 @@ import {
   serializePendingSubIds,
   sessionRunStateOf,
 } from './sessionStatus.js';
-import { buildBaseItems } from '../components/IDE/streamItems.js';
+import { buildBaseItems, IncrementalStreamParser, sameStreamItem } from '../components/IDE/streamItems.js';
+import { countSessionTasks } from '../components/IDE/runningSubagents.js';
+import { formatElapsed } from '../components/IDE/elapsed.js';
+import {
+  liveLineClockFrom, liveLineStalled, sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt,
+} from './sessionActivity.js';
 import {
   classifyStopResponse, stoppedCount, sessionStopUrl, sessionForceStopUrl,
 } from '../hooks/useSessionStop.js';
@@ -117,7 +133,7 @@ describe('(A) 표시용 사본은 생존 판정에 쓰이지 않는다', () => {
     cmd({ id: 'user-1', status: 'queued' }),
   ];
   const shown = displayCommands(raw) as QueuedCommand[];
-  const sources = { sub: sub({ status: 'idle' }), runningTasks: undefined, acknowledged: false };
+  const sources = { sub: sub({ status: 'active' }), runningTasks: undefined, acknowledged: false };
 
   it('사본은 원본과 다른 목록이다 — 감추고, 승격한다', () => {
     expect(shown).toHaveLength(1);
@@ -126,7 +142,7 @@ describe('(A) 표시용 사본은 생존 판정에 쓰이지 않는다', () => {
     expect(shown[0]!.status).toBe('executing');
   });
 
-  it('사본으로 판정하면 답이 갈린다 — 두 방향 모두', () => {
+  it('원본 큐는 대기와 실제 executing을 보존하고 서버 active가 실행 판정을 유지한다', () => {
     const fromRaw = buildSessionRunInputs({ ...sources, commands: raw });
     const fromShown = buildSessionRunInputs({ ...sources, commands: shown });
 
@@ -135,14 +151,16 @@ describe('(A) 표시용 사본은 생존 판정에 쓰이지 않는다', () => {
     expect(fromRaw.hasQueuedCommand).toBe(true);
     expect(fromShown.hasQueuedCommand).toBe(false);
 
-    // 조용한 압축만 도는 순간 — 원본은 돌고 있다고, 사본은 아무것도 없다고 말한다.
+    // 조용한 압축은 원본에만 있지만, 실제 실행 상태는 서버 active가 보장한다.
     const onlySilent = [raw[0]!];
     const silentRaw = buildSessionRunInputs({ ...sources, commands: onlySilent });
     const silentShown = buildSessionRunInputs({
       ...sources, commands: displayCommands(onlySilent) as QueuedCommand[],
     });
     expect(isSessionRunning(silentRaw)).toBe(true);
-    expect(isSessionRunning(silentShown)).toBe(false);
+    expect(isSessionRunning(silentShown)).toBe(true);
+    expect(isSessionExecuting(silentRaw)).toBe(true);
+    expect(isSessionExecuting(silentShown)).toBe(false);
   });
 });
 
@@ -168,7 +186,8 @@ describe('(A) 배선 — 생존 판정 자리에 손글씨 술어가 없다', ()
     expect(renderer).toMatch(/sessionBusy\??:/);
     // (I) 대기 축도 **같은 경로로** 내려간다 — 한쪽만 내려보내면 Sub 탭만 대기를 못 그린다.
     expect(renderer).toMatch(/sessionWaiting\??:/);
-    expect(renderer).toMatch(/sync\(events, commands, sessionBusy, sessionWaiting\)/);
+    // (J) 라이브 1줄 시계의 바닥·감춘 턴도 같은 경로로 내려간다. (L) 턴 시계의 시작점도.
+    expect(renderer).toMatch(/sync\(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt\)/);
     const items = readSource('../components/IDE/streamItems.ts');
     expect(items).toMatch(/agentBusyOverride/);
     expect(items).toMatch(/agentWaitingOverride/);
@@ -356,7 +375,9 @@ describe('(I) 라이브 1줄 — 대기는 "작업 중"이 아니다', () => {
     const src = readSource('../components/IDE/ThinkingIndicator.tsx');
     // 셋 다 "지금 뭔가 하는 중"이라는 신호다. 대기에 붙으면 그 줄이 다시 거짓말을 한다.
     expect(src).toMatch(/const waiting = mode === 'waiting'/);
-    expect(src).toMatch(/!waiting && silence !== null/);
+    // 무응답 판정은 순수 함수 한 곳(대기·감춘 턴 예외 포함 — sessionActivity.test.ts 가 값을 고정한다).
+    expect(src).toMatch(/const stalled = liveLineStalled\(mode, silence, hiddenTurn\)/);
+    expect(liveLineStalled('waiting', SESSION_NO_RESPONSE_MS * 10)).toBe(false);
     expect(src).toContain("stalled || waiting ? '' : 'animate-pulse'");
     expect(src).toContain('!stalled && !waiting && <ThinkingDots />');
   });
@@ -451,8 +472,13 @@ describe('(G) 배선 — 무응답 문턱은 한 값, 시간을 말하는 자리
   it('스트림 "작업 중..." 줄이 마지막 활동 시각을 받는다', () => {
     const src = readSource('../components/IDE/ThinkingIndicator.tsx');
     expect(src).toMatch(/lastActivityAt/);
-    expect(src).toMatch(/SESSION_NO_RESPONSE_MS/);
+    expect(src).toMatch(/liveLineStalled\(/);
     expect(src).toMatch(/ide\.runningSubagents\.noResponse/);
+    // 문턱은 shared 상수 하나 — 줄이 자기 숫자를 들고 있지 않다.
+    // 같은 폴더의 파일은 glob 키가 `./` 로 잡힌다.
+    const judge = readSource('./sessionActivity.ts');
+    expect(judge).toMatch(/silenceMs >= SESSION_NO_RESPONSE_MS/);
+    expect(judge).not.toMatch(/silenceMs >= \d/);
   });
 
   // 사용자 지시(2026-09-23) — 상태바 "실행 중" 옆의 경과 시계(`· 0s`)는 걷었다. 축(⑥-6)은 그대로고
@@ -478,13 +504,322 @@ describe('(G) 배선 — 무응답 문턱은 한 값, 시간을 말하는 자리
   });
 });
 
-describe('(E) 조용한 압축 뒤에 선 명령에도 취소 손잡이가 남는다', () => {
-  it('표시 승격과 무관하게 원본 큐의 상태로 조작 가능 여부를 정한다', () => {
+describe('(K) 입력창 위에 백단 셸 띠를 두지 않는다 — 턴이 도는 중에도 "답은 나왔다"고 적었다', () => {
+  // 사용자 지시(2026-09-29) — §5.5 #17-9 ⑰(c-1). 그 띠는 셸 개수 하나만 보고 떠서, 턴이 아직 도는 중
+  //   (실행 중 · 입력줄 [중지] · "작업 중…")에도 "답변은 이미 도착했으니 계속 입력하셔도 됩니다"라고 적었고,
+  //   그 말을 믿고 보낸 말은 #17-18 대로 줄에 섰다. [보기]는 활동바 항목과 같은 뷰를 여는 두 번째 손잡이였다.
+  //   판정은 코드 모양으로만 한다 — 왜 뺐는지 적은 주석이 낱말을 품고 있다.
+  it('입력창은 셸 개수를 구독하지도, 띠 문구를 그리지도 않는다', () => {
+    const src = readSource('../components/IDE/IDEMainArea.tsx');
+    expect(src).not.toMatch(/useBackgroundShellCount/);
+    expect(src).not.toMatch(/t\('ide\.mainArea\.backgroundShells/);
+    expect(src).not.toMatch(/openBackgroundShells/);
+    // 그 띠만 쓰던 훅도 걷었다 — 남겨 두면 "짝으로 읽으라"는 주석을 보고 다음 사람이 띠를 되살린다.
+    expect(readSource('../hooks/useSessionRunning.ts')).not.toMatch(/export function useBackgroundShellCount/);
+  });
+
+  it('띠 문구는 로케일에서도 걷혔고, 커맨드 센터의 회색 칩은 남는다', () => {
+    for (const [name, bundle] of [['en', en], ['ko', ko]] as const) {
+      expect(lookupText(bundle, 'ide.mainArea.backgroundShells'), name).toBe('');
+      expect(lookupText(bundle, 'ide.mainArea.backgroundShellsTip'), name).toBe('');
+      expect(lookupText(bundle, 'ide.mainArea.backgroundShellsOpen'), name).toBe('');
+      expect(lookupText(bundle, 'commandCenter.backgroundShells'), name).toContain('{{count}}');
+    }
+  });
+
+  it('셸이 돈다는 사실은 활동바 숫자가 그대로 센다 — 종류로 거르지 않는다', () => {
+    const shell = { id: 'b1', parentAgentId: 'agent-1', subAgentId: 'sub-A', startedAt: 1, origin: 'stream' as const };
+    const child = {
+      id: 't1', parentAgentId: 'agent-1', subAgentId: 'sub-A', startedAt: 1, origin: 'hook' as const, subagentType: 'general-purpose',
+    };
+    expect(countSessionTasks([shell], 'sub-A')).toBe(1);
+    expect(countSessionTasks([shell, child], 'sub-A')).toBe(2);
+    // 활동바 "백그라운드 작업" 항목의 불과 아래 숫자가 바로 그 수다 — 띠가 없어도 셸은 화면에 남는다.
+    expect(readSource('../components/IDE/IDEActivityBar.tsx')).toMatch(/useRunningSubagentCount\(agentId\)/);
+    expect(readSource('../components/IDE/IDERunningSubagentsView.tsx')).toMatch(/countSessionTasks\(agentId \? s\.runningSubagentTasks\[agentId\]/);
+  });
+});
+
+describe('(J) 조용한 사전 압축 뒤 — 막 나간 명령이 "마지막 업데이트 N분 전"으로 시작하지 않는다', () => {
+  // 실측(2026-09-28): 끝남을 본 사용자가 다음 지시를 보냈고, 서버는 그 앞에 조용한 /compact 를
+  //   끼웠다(73.6s). 명령이 나간 뒤에도 첫 줄까지 81s 가 더 걸렸다. 그 내내 라이브 1줄은 앞 턴 끝부터
+  //   재어 무응답(회색)으로 그렸다 — 사용자는 일이 멈춘 줄 알았다.
+  const now = 10_000_000;
+  const prevTurnEnd = now - 8 * 60_000;
+  const events: SubAgentStreamEvent[] = [{
+    id: 'e-prev', subAgentId: 'sub-A', parentAgentId: 'agent-1', timestamp: prevTurnEnd,
+    eventType: 'text', content: '끝났습니다.',
+  }];
+  const streams = { 'sub-A': events };
+  const session = sub({ status: 'active', lastActivityAt: prevTurnEnd });
+  // 압축이 문턱(3분)보다 오래 돈다 — 그 명령의 시작 시각만으로는 이번엔 압축 도중에 무응답이 된다.
+  const compacting: QueuedCommand[] = [
+    cmd({ id: 'silent-1', status: 'executing', silent: true, text: '/compact', dispatchMode: 'wait', startedAt: now - 4 * 60_000 }),
+    cmd({ id: 'user-1', status: 'queued', timestamp: now - 4 * 60_000 - 5_000 }),
+  ];
+  const userStarted = now - 30_000;
+  const running: QueuedCommand[] = [
+    cmd({ id: 'silent-1', status: 'completed', silent: true, text: '/compact', dispatchMode: 'wait', startedAt: now - 4 * 60_000 }),
+    cmd({ id: 'user-1', status: 'executing', timestamp: now - 4 * 60_000 - 5_000, startedAt: userStarted }),
+  ];
+  /** 화면이 하는 그대로 — 판정은 원본 큐, 그리기는 표시용 사본. */
+  function liveOf(raw: QueuedCommand[], parser?: IncrementalStreamParser) {
+    const inputs = buildSessionRunInputs({ sub: session, commands: raw, runningTasks: undefined, acknowledged: false });
+    const shown = displayCommands(raw) as QueuedCommand[];
+    const activity = sessionLastActivityAt([session], streams, raw, 'sub-A');
+    const hidden = sessionHiddenTurnRunning(raw, 'sub-A');
+    const busy = isSessionRunning(inputs);
+    const waiting = isSessionWaiting(inputs);
+    return parser
+      ? parser.sync(events, shown, busy, waiting, activity, hidden).thinkingLive
+      : buildBaseItems(events, shown, busy, waiting, activity, hidden).thinkingLive;
+  }
+
+  /** 그 줄이 지금 무응답으로 그려지는가 — `ThinkingLiveLine` 이 하는 그대로. */
+  function stalledAt(live: ReturnType<typeof liveOf>, at: number): boolean {
+    return liveLineStalled(live!.mode, sessionSilenceMs(live!.lastActivityAt, at), live!.hiddenTurn === true);
+  }
+
+  // §5.5 #17-10 ⑥-6 (2026-09-28 대체) — 종전엔 "모름"이라 경과를 적지 않았다. 경과 없는 줄은 실행 중인
+  //   줄과 달라 보여, 사용자는 방금 넣은 지시가 대기에 빠졌다고 읽었다("입력을 하면 압축이 입력 실행처럼").
+  it('압축이 도는 동안에도 평소 "작업 중" — 입력한 순간부터 세고, 문턱을 넘겨도 무응답이 아니다', () => {
+    expect(sessionHiddenTurnRunning(compacting, 'sub-A')).toBe(true);
+    const live = liveOf(compacting);
+    expect(live?.mode).toBe('working');
+    // 압축이 나간 시각 = 사용자가 명령을 넣은 순간. 앞 턴 끝(8분 전)이 아니다.
+    expect(live?.lastActivityAt).toBe(now - 4 * 60_000);
+    expect(live?.hiddenTurn).toBe(true);
+    // 이 압축은 이미 문턱(3분)보다 오래 돌았다 — 그래도 뒤집지 않는다(그 턴의 줄은 서버가 안 보낸다).
+    expect(sessionSilenceMs(live!.lastActivityAt, now)!).toBeGreaterThanOrEqual(SESSION_NO_RESPONSE_MS);
+    expect(stalledAt(live, now)).toBe(false);
+  });
+
+  it('명령이 나가면 시계는 그 시작부터 잰다 — 앞 턴 끝이 아니다', () => {
+    expect(sessionHiddenTurnRunning(running, 'sub-A')).toBe(false);
+    const live = liveOf(running);
+    expect(live?.lastActivityAt).toBe(userStarted);
+    // 감춘 턴이 끝났으니 표식도 없다 — 이제부터는 평소 줄과 같은 규칙으로 무응답이 될 수 있다.
+    expect(live?.hiddenTurn).toBeUndefined();
+    expect(stalledAt(live, now)).toBe(false);
+    expect(stalledAt(live, userStarted + SESSION_NO_RESPONSE_MS)).toBe(true);
+    // 바닥을 주지 않으면 종전 그대로 마지막 보인 줄이다 — 사용자가 본 바로 그 줄.
+    const stale = buildBaseItems(events, displayCommands(running) as QueuedCommand[], true, false).thinkingLive;
+    expect(stale?.lastActivityAt).toBe(prevTurnEnd);
+    expect(sessionSilenceMs(stale!.lastActivityAt, now)!).toBeGreaterThanOrEqual(SESSION_NO_RESPONSE_MS);
+  });
+
+  it('새 줄이 오면 그 줄이 시계다(늦은 쪽)', () => {
+    const fresh: SubAgentStreamEvent = { ...events[0]!, id: 'e-new', timestamp: now - 2_000 };
+    const live = buildBaseItems([...events, fresh], displayCommands(running) as QueuedCommand[], true, false, userStarted, false).thinkingLive;
+    expect(live?.lastActivityAt).toBe(now - 2_000);
+  });
+
+  it('증분 파서도 같은 시계·같은 표식을 낸다(두 파서가 한 규칙)', () => {
+    const parser = new IncrementalStreamParser();
+    for (const raw of [compacting, running]) {
+      const a = liveOf(raw, parser);
+      const b = liveOf(raw);
+      expect(a?.lastActivityAt).toBe(b?.lastActivityAt);
+      expect(a?.hiddenTurn).toBe(b?.hiddenTurn);
+    }
+  });
+
+  // Sub 탭은 같은 id 의 항목이 "렌더에 쓰는 칸"까지 같으면 옛 객체를 재사용한다. 라이브 줄은 모드만 비교해,
+  //   압축이 끝나 명령이 나가도(모드는 그대로 working) 줄이 감춘 턴의 시계·표식에 머물렀다.
+  it('identity 안정화가 옛 시계·옛 표식을 붙들지 않는다', () => {
+    const during = liveOf(compacting)!;
+    const after = liveOf(running)!;
+    expect(during.mode).toBe(after.mode);
+    expect(sameStreamItem(during, after)).toBe(false);
+    expect(sameStreamItem(during, { ...during, lastActivityAt: (during.lastActivityAt ?? 0) + 1 })).toBe(false);
+    expect(sameStreamItem(after, { ...after, hiddenTurn: true })).toBe(false);
+    expect(sameStreamItem(during, { ...during })).toBe(true);
+  });
+
+  it('배선 — 메인 탭·Sub 탭이 같은 함수·같은 사실을 쓴다', () => {
+    const main = readSource('../components/IDE/IDEMainArea.tsx');
+    expect(main).toMatch(/hiddenTurn: sessionHiddenTurn/);
+    expect(main).toMatch(/liveLineActivityAt\(latest\?\.timestamp, sessionLastActivityAt\)/);
+    expect(main).toMatch(/\.\.\.\(sessionHiddenTurn \? \{ hiddenTurn: true as const \} : \{\}\)/);
+    expect(main).toMatch(/hiddenTurn=\{n\.item\.hiddenTurn === true\}/);
+    expect(main).toMatch(/sessionActivityAt=\{sessionLastActivityAt\}/);
+    expect(main).toMatch(/sessionActivityHidden=\{sessionHiddenTurn\}/);
+    const items = readSource('../components/IDE/streamItems.ts');
+    expect(items).toMatch(/liveLineActivityAt\(lastRaw\?\.timestamp, sessionActivityAt\)/);
+    expect(items).toMatch(/\.\.\.\(activityHidden \? \{ hiddenTurn: true as const \} : \{\}\)/);
+    // 전체 재구축(정답지)·증분 두 경로가 모두 넘긴다 — 한쪽만 넘기면 두 파서가 다른 줄을 낸다.
+    expect(items.match(/computeThinkingLive\(events, agentBusy, agentWaiting, sessionActivityAt \?\? null, activityHidden \?\? false, resolveTurnStartedAt\(commands, agentWaiting, turnStartedAt\)\)/g)).toHaveLength(2);
+    const renderer = readSource('../components/IDE/StreamRenderer.tsx');
+    expect(renderer).toMatch(/hiddenTurn=\{item\.hiddenTurn === true\}/);
+    // 감춘 턴은 원본 큐로만 안다 — 표시용 사본은 silent 명령을 이미 지웠다.
+    const hook = readSource('../hooks/useSessionRunning.ts');
+    expect(hook).toMatch(/sessionHiddenTurnRunning\(commands, activeSessionId\)/);
+    expect(hook).toMatch(/const commands = s\.queuedCommands\[agentId\]/);
+  });
+});
+
+describe('(L) 턴 시계 — 라이브 1줄 경과가 줄마다 0 으로 되감기거나 틱 사이에 사라지지 않는다', () => {
+  // 사용자 보고(2026-09-29): IDE 스트림 "작업 중…" 줄의 `0s`·`1s` 가 "정상적인 시간은 표시 못하고 계속 같은
+  //   시간이 반복되거나 사라지거나 0만". 시계가 마지막 활동부터 재어 줄이 올 때마다 0 으로 되감겼고,
+  //   1초 틱에 멈춘 now 보다 늦은 줄이 오면 차가 음수 → 모름(null) → 다음 틱까지 숫자가 사라졌다.
+  const now = 20_000_000;
+  const turnStart = now - 65_000;
+  const running = [cmd({ id: 'run-1', status: 'executing', timestamp: turnStart - 2_000, startedAt: turnStart })];
+
+  /** 도는 턴 — 턴 시작 1초 뒤부터 `until` 까지 매초 한 줄씩 온다. */
+  function linesUntil(until: number): SubAgentStreamEvent[] {
+    const out: SubAgentStreamEvent[] = [];
+    for (let at = turnStart + 1_000; at <= until; at += 1_000) {
+      out.push({ id: `e-${at}`, subAgentId: 'sub-A', parentAgentId: 'agent-1', timestamp: at, eventType: 'text', content: '.' });
+    }
+    return out;
+  }
+
+  type Live = NonNullable<ReturnType<typeof buildBaseItems>['thinkingLive']>;
+
+  /** `ThinkingLiveLine` 이 적는 그대로 — 무응답이면 문구("마지막 업데이트 N 전")에 들어갈 값. */
+  function shownAt(live: Live, at: number): { stalled: boolean; text: string | null } {
+    const stalled = liveLineStalled(live.mode, sessionSilenceMs(live.lastActivityAt, at), live.hiddenTurn === true);
+    const from = liveLineClockFrom(stalled, live.turnStartedAt, live.lastActivityAt, at);
+    return { stalled, text: from === null ? null : formatElapsed(from, at) };
+  }
+
+  it('줄이 매초 와도 경과는 턴 시작부터 오른다 — 종전 시계(마지막 활동)는 줄마다 0 이었다', () => {
+    const shown: (string | null)[] = [];
+    const before: string[] = [];
+    for (const at of [now - 2_000, now - 1_000, now]) {
+      const live = buildBaseItems(linesUntil(at), running, true, false, turnStart, false, turnStart).thinkingLive!;
+      shown.push(shownAt(live, at).text);
+      before.push(formatElapsed(live.lastActivityAt!, at));
+    }
+    expect(shown).toEqual(['1m 3s', '1m 4s', '1m 5s']);
+    // 사용자가 본 그 줄 — 방금 온 줄부터 재니 매번 0 이다.
+    expect(before).toEqual(['0s', '0s', '0s']);
+  });
+
+  it('1초 틱 사이에 온 줄이 숫자를 지우지 않는다', () => {
+    const tick = now - 400; // 마지막 틱이 찍어 둔 now
+    const live = buildBaseItems(linesUntil(now), running, true, false, turnStart, false, turnStart).thinkingLive!;
+    // 그 틱 뒤에 온 줄 — 멈춘 now 로 재면 미래라 "모름"이다(종전엔 이것이 곧 표시였다).
+    expect(live.lastActivityAt).toBe(now);
+    expect(sessionSilenceMs(live.lastActivityAt, tick)).toBeNull();
+    expect(shownAt(live, tick)).toEqual({ stalled: false, text: '1m 4s' });
+  });
+
+  it('무응답이면 마지막 업데이트부터 — "마지막 업데이트 N 전"이 말하는 그 시각', () => {
+    const start = now - 10 * 60_000;
+    const lastLine = now - SESSION_NO_RESPONSE_MS - 5_000;
+    const lines: SubAgentStreamEvent[] = [{
+      id: 'e-last', subAgentId: 'sub-A', parentAgentId: 'agent-1', timestamp: lastLine, eventType: 'text', content: '.',
+    }];
+    const quiet = [cmd({ id: 'run-2', status: 'executing', startedAt: start })];
+    expect(shownAt(buildBaseItems(lines, quiet, true, false, start, false, start).thinkingLive!, now))
+      .toEqual({ stalled: true, text: '3m 5s' });
+    // 감춘 턴(조용한 사전 압축)은 문턱을 넘겨도 무응답이 아니다 — 평소처럼 턴 시계.
+    expect(shownAt(buildBaseItems(lines, quiet, true, false, start, true, start).thinkingLive!, now))
+      .toEqual({ stalled: false, text: '10m 0s' });
+    // 대기 줄도 무응답이 아니다 — 줄 선 지 얼마나 됐는가.
+    const waiting = buildBaseItems(lines, [cmd({ status: 'queued', timestamp: start })], true, true, lastLine, false, start).thinkingLive!;
+    expect(waiting.mode).toBe('waiting');
+    expect(shownAt(waiting, now)).toEqual({ stalled: false, text: '10m 0s' });
+  });
+
+  it('시작을 모르면 평소 시간을 적지 않는다 — 0 으로 적지 않는다', () => {
+    const live = buildBaseItems([], [], true, false, null, false, null).thinkingLive!;
+    expect(live.turnStartedAt).toBeNull();
+    expect(shownAt(live, now)).toEqual({ stalled: false, text: null });
+  });
+
+  it('부모가 준 값이 답이다 — 안 줄 때만(Auto Agent 패널) 받은 목록으로 추정한다', () => {
+    expect(buildBaseItems([], running, true, false, null, false, now - 5_000).thinkingLive?.turnStartedAt).toBe(now - 5_000);
+    // 모름(null)도 답이다 — 추정으로 덮지 않는다.
+    expect(buildBaseItems([], running, true, false, null, false, null).thinkingLive?.turnStartedAt).toBeNull();
+    // 생존 사실을 내려 주지 않는 자리 — 추정이 없으면 그 줄은 평소 시간을 통째로 잃는다.
+    expect(buildBaseItems([], running).thinkingLive?.turnStartedAt).toBe(turnStart);
+    expect(buildBaseItems([], [cmd({ status: 'queued', timestamp: turnStart })]).thinkingLive)
+      .toMatchObject({ mode: 'waiting', turnStartedAt: turnStart });
+    // 표시 사본에서도 같은 답 — 물려받은 명령이 조용한 압축이 나간 시각을 달고 실행 중으로 선다.
+    const compacting = [
+      cmd({ id: 'silent-1', status: 'executing', silent: true, text: '/compact', dispatchMode: 'wait', startedAt: turnStart }),
+      cmd({ id: 'user-1', status: 'queued', timestamp: turnStart - 2_000 }),
+    ];
+    expect(sessionTurnStartedAt(compacting, [], 'sub-A', false)).toBe(turnStart);
+    expect(buildBaseItems([], displayCommands(compacting) as QueuedCommand[]).thinkingLive?.turnStartedAt).toBe(turnStart);
+  });
+
+  it('증분 파서도 같은 턴 시계를 낸다(두 파서가 한 규칙)', () => {
+    const parser = new IncrementalStreamParser();
+    for (const at of [now - 2_000, now - 1_000, now]) {
+      const lines = linesUntil(at);
+      expect(parser.sync(lines, running, true, false, at, false, turnStart).thinkingLive)
+        .toEqual(buildBaseItems(lines, running, true, false, at, false, turnStart).thinkingLive);
+    }
+    // 추정 경로(부모가 값을 안 줌)도 둘이 같다.
+    expect(parser.sync(linesUntil(now), running).thinkingLive?.turnStartedAt).toBe(turnStart);
+  });
+
+  // Sub 탭은 같은 id 의 항목이 렌더에 쓰는 칸까지 같으면 옛 객체를 재사용한다. 턴 시계를 비교에서 빼면
+  //   다음 명령이 나가도(모드는 그대로 working) 줄이 앞 턴의 시작부터 계속 잰다.
+  it('identity 안정화가 옛 턴 시계를 붙들지 않는다', () => {
+    const first = buildBaseItems([], running, true, false, turnStart, false, turnStart).thinkingLive!;
+    const next = buildBaseItems([], running, true, false, turnStart, false, now - 1_000).thinkingLive!;
+    expect(first.mode).toBe(next.mode);
+    expect(sameStreamItem(first, next)).toBe(false);
+    expect(sameStreamItem(first, { ...first })).toBe(true);
+  });
+
+  it('배선 — 메인 탭·Sub 탭이 같은 사실·같은 함수로 재고, 틱은 그리는 순간의 시계를 준다', () => {
+    const line = readSource('../components/IDE/ThinkingIndicator.tsx');
+    // 어느 시각부터 잴지는 한 함수 — 줄이 제 손으로 마지막 활동부터 재지 않는다.
+    expect(line).toMatch(/liveLineClockFrom\(stalled, turnStartedAt, lastActivityAt, now\)/);
+    expect(line).not.toMatch(/formatElapsed\(lastActivityAt/);
+    expect(line).toMatch(/useNowTick\(lastActivityAt !== null \|\| turnStartedAt !== null\)/);
+    const main = readSource('../components/IDE/IDEMainArea.tsx');
+    expect(main).toMatch(/turnStartedAt: sessionTurnStartedAt,\s*\}\s*=\s*useSessionLivenessFacts\(agentId, activeSessionId\)/);
+    // 구조분해 한 번 + 메인 탭 라이브 항목 한 번.
+    expect(main.match(/turnStartedAt: sessionTurnStartedAt,/g)).toHaveLength(2);
+    expect(main).toMatch(/turnStartedAt=\{n\.item\.turnStartedAt\}/);
+    expect(main).toMatch(/sessionTurnStartedAt=\{sessionTurnStartedAt\}/);
+    expect(readSource('../components/IDE/StreamRenderer.tsx')).toMatch(/turnStartedAt=\{item\.turnStartedAt\}/);
+    // 원본 큐 + 보관분 + 세션 필터 + 백단 자식 — 표시 사본으로 재면 감춘 압축이 안 보인다.
+    const hook = readSource('../hooks/useSessionRunning.ts');
+    expect(hook).toMatch(
+      /sessionTurnStartedAt\(\s*commands, s\.completedCommands\?\.\[agentId\] \?\? \[\], activeSessionId, waiting, s\.runningSubagentTasks\[agentId\] \?\? \[\],?\s*\)/,
+    );
+    // 틱은 다시 그리는 계기일 뿐 — 멈춘 틱 값으로 새 줄을 재면 음수라 숫자가 사라진다.
+    expect(readSource('../hooks/useNowTick.ts')).toMatch(/return active \? Math\.max\(now, Date\.now\(\)\) : now;/);
+  });
+});
+
+describe('(E) 조용한 압축을 물려받은 명령은 실행 중인 명령과 구별되지 않는다', () => {
+  // §5.5 #17-10 ⑥-5 (2026-09-28 대체) — 종전엔 손잡이만 원본 큐(`queued`)를 따라, "실행 중…" 배지 아래에
+  //   [대기|합치기|즉시] 칩·"지금 턴이 끝난 뒤 보냅니다"·삭제(×)가 함께 붙었다. 사용자는 방금 넣은
+  //   지시가 대기에 빠졌다가 압축 뒤에야 도는 것으로 읽었다.
+  const raw: QueuedCommand[] = [
+    cmd({ id: 'silent-1', status: 'executing', silent: true, text: '/compact', dispatchMode: 'wait', startedAt: 5_000 }),
+    cmd({ id: 'mine', status: 'queued' }),
+    cmd({ id: 'later', status: 'queued' }),
+  ];
+
+  it('물려받은 명령은 표시 사본에서 executing — 손잡이가 붙을 근거(queued)가 없다', () => {
+    const shown = displayCommands(raw);
+    expect(shown.map((c) => [c.id, c.status])).toEqual([['mine', 'executing'], ['later', 'queued']]);
+    // 뒤에 선 두 번째 명령은 진짜 대기다 — 그 손잡이는 종전대로 산다(#17-18 ⑤).
+  });
+
+  it('배선 — 손잡이는 배지와 같은 사실(표시 사본의 status)을 따른다', () => {
     const src = readSource('../components/IDE/CollapsiblePrompt.tsx');
-    // 원본 큐 직접 조회 — displayCommands 가 승격해 준 사본이 아니라.
-    expect(src).toMatch(/s\.queuedCommands\[queueAgentId\]/);
-    expect(src).toMatch(/effectiveStatus/);
-    expect(src).toMatch(/ide\.mainArea\.queuedBehindSilent/);
+    expect(src).toMatch(/const controlAgentId = command\?\.status === 'queued' \? command\.agentId : undefined/);
+    expect(src).toMatch(/const controlCommandId = command\?\.status === 'queued' \? command\.commandId : undefined/);
+    // 원본 큐를 따로 읽어 손잡이를 되살리는 길이 없다.
+    expect(src).not.toMatch(/s\.queuedCommands\[/);
+    expect(src).not.toMatch(/effectiveStatus/);
+    expect(src).not.toMatch(/queuedBehindSilent/);
+  });
+
+  it('"아직 안 나갔다" 툴팁 문구는 로케일에서도 걷혔다', () => {
+    expect(lookupText(en, 'ide.mainArea.queuedBehindSilent')).toBe('');
+    expect(lookupText(ko, 'ide.mainArea.queuedBehindSilent')).toBe('');
   });
 });
 
@@ -526,7 +861,6 @@ describe('새 문자열은 en·ko 양쪽에 있다', () => {
     'ide.mainArea.stopForceTitle',
     'ide.mainArea.stopFailed',
     'ide.mainArea.stopRetry',
-    'ide.mainArea.queuedBehindSilent',
     'ide.statusBar.elapsedTip',
     'ide.turnStop.disconnected',
     'ide.turnStop.interrupted',

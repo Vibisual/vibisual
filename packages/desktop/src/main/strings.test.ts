@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mainStrings } from './strings';
 
 const LOCALES = ['en', 'ko', 'ja', 'zh-CN', 'es', 'es-419', 'fr', 'de', 'hi', 'id', 'it', 'pt-BR'] as const;
-const RECOVERY_KEYS = ['crashTitle', 'crashMessage', 'crashReload', 'quitBtnCancel'] as const;
+const RECOVERY_KEYS = ['crashTitle', 'crashMessage', 'crashReload', 'quitBtnCancel',
+  'backendBootTitle', 'backendBootMessage', 'backendBootRetry', 'backendBootQuit'] as const;
 
 describe('native crash recovery strings', () => {
   it.each(LOCALES)('provides a complete usable recovery dialog for %s', (locale) => {
@@ -12,6 +13,7 @@ describe('native crash recovery strings', () => {
       expect(strings[key], `${locale}.${key}`).not.toMatch(/\{[^}]+\}|\uFFFD/);
     }
     expect(strings.crashReload).not.toBe(strings.quitBtnCancel);
+    expect(strings.backendBootRetry).not.toBe(strings.backendBootQuit);
   });
 
   it.each(LOCALES.filter((locale) => locale !== 'en'))('uses translated recovery content for %s', (locale) => {

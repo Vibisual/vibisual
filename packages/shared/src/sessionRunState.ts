@@ -102,9 +102,9 @@ export const EMPTY_SESSION_RUN_INPUTS: SessionRunInputs = {
 /**
  * **지금 돌고 있는가** — [중지]를 띄울지, 스피너를 돌릴지의 유일한 근거.
  *
- * 세 근거를 OR 로 묶는 이유는 셋 중 **어느 하나만 살아 있어도 사용자에게는 "도는 중"** 이기 때문이다:
+ * 서버의 실행 상태와 실제 모델 자식을 본다. 명령 큐는 상태를 모를 때만 보조 근거다:
  *  - `subStatus === 'active'`     : 서버가 이 세션을 실행 중으로 본다(봉인 후 깨어난 경우 이것만 참이다).
- *  - `hasExecutingCommand`        : 이 세션의 명령이 dispatch 돼 있다.
+ *  - `isSessionExecuting`         : 상태를 모르는 세션의 명령이 dispatch 돼 있다.
  *  - `runningAgentTaskCount > 0`  : 이 세션이 띄운 **Task/Agent 자식**이 아직 모델을 돌리고 있다.
  *
  * **`backgroundShellCount` 는 일부러 뺀다.** 백단 셸은 명령이 돌 뿐 모델이 돌지 않아, 그 턴의 답은
@@ -118,8 +118,13 @@ export const EMPTY_SESSION_RUN_INPUTS: SessionRunInputs = {
  */
 export function isSessionRunning(inputs: SessionRunInputs): boolean {
   return inputs.subStatus === 'active'
-    || inputs.hasExecutingCommand
+    || isSessionExecuting(inputs)
     || inputs.runningAgentTaskCount > 0;
+}
+
+/** 종료된 세션을 큐에 남은 실행 기록만으로 되살리지 않는다. 정상 dispatch는 먼저 active를 세운다. */
+export function isSessionExecuting(inputs: SessionRunInputs): boolean {
+  return inputs.hasExecutingCommand && (inputs.subStatus === null || inputs.subStatus === 'active');
 }
 
 /**

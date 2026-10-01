@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useGraphStore, workspaceImageFileKey } from './graphStore.js';
 
+const ORIGIN = { slot: 'proj', cell: null };
 beforeEach(() => useGraphStore.setState({ imageLightbox: null, workspaceImageSavedAt: {} }));
 describe('workspace image ownership', () => {
   it('an old save cannot close a newly opened image, including reopening the same URL', () => {
-    useGraphStore.getState().openImageLightbox('blob:same');
+    useGraphStore.getState().openImageLightbox('blob:same', ORIGIN);
     const old = useGraphStore.getState().imageLightbox!;
-    useGraphStore.getState().openImageLightbox('blob:same');
+    useGraphStore.getState().openImageLightbox('blob:same', ORIGIN);
     const current = useGraphStore.getState().imageLightbox!;
     useGraphStore.getState().closeImageLightbox(old);
     expect(useGraphStore.getState().imageLightbox).toBe(current);

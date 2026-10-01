@@ -22,6 +22,7 @@
       "availableTooltip": "La version {{version}} est disponible et se télécharge en arrière-plan",
       "downloading": "Mise à jour {{percent}}%",
       "restart": "Redémarrer pour mettre à jour",
+      "restartShort": "Mettre à jour",
       "restartTooltip": "La version {{version}} est prête — redémarrer pour appliquer",
       "confirmTitle": "Redémarrer pour mettre à jour ?",
       "confirmBody": "La mise à jour va fermer et réinstaller l'application. Tout travail d'agent en cours ou toute modification non enregistrée risque d'être perdu.",
@@ -1930,7 +1931,8 @@
       "later": "Plus tard",
       "stop": "Arrêter",
       "start": "Se connecter",
-      "successNext": "Ensuite : choisissez le dossier de projet dans lequel vos agents travailleront."
+      "successNext": "Ensuite : choisissez le dossier de projet dans lequel vos agents travailleront.",
+      "invalidEmail": "Saisissez une adresse e-mail valide ou laissez ce champ vide."
     },
     "setup": {
       "title": "Installer Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "Téléchargement uniquement"
       },
       "note": "Cela ne fait que définir le moteur par défaut des nouveaux agents. Les trois restent disponibles côte à côte, et vous pourrez configurer les autres plus tard dans Options.",
-      "later": "Décider plus tard"
+      "later": "Décider plus tard",
+      "saving": "Enregistrement de votre choix…",
+      "saveError": "Impossible d’enregistrer votre choix. Sélectionnez à nouveau un moteur."
     },
     "codexSetup": {
       "title": "Installer Codex CLI",
@@ -2370,7 +2374,7 @@
       "unsupportedHint": "Cette compétence utilise des fonctionnalités non prises en charge par {{provider}}.",
       "invalidResponse": "Le serveur a renvoyé une réponse non valide.",
       "issues": {
-        "skill-too-large": "La comp?tence d?passe le nombre de fichiers ou la taille autoris?s.",
+        "skill-too-large": "La compétence dépasse le nombre de fichiers ou la taille autorisés.",
         "invalid-name": "Le nom de la compétence n’est pas valide.",
         "invalid-skill": "La définition de la compétence n’est pas valide.",
         "unsafe-path": "La compétence contient un chemin ou un lien non sécurisé.",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "Cette compétence est désactivée dans Codex. Activez-la dans Codex avant de l’utiliser."
       }
     },
+    "skillTabs": {
+      "label": "Moteurs de compétences",
+      "own": "Compétences {{provider}} de cet agent"
+    },
     "diff": {
       "addComment": "Commenter cette ligne",
       "removeComment": "Supprimer le commentaire",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "Affichage",
+        "crop": "Recadrage",
+        "alpha": "Transparence",
         "rect": "Rectangle",
         "ellipse": "Ellipse",
         "arrow": "Flèche",
@@ -2408,6 +2418,42 @@
         "mask": "Masquer",
         "text": "Texte",
         "number": "Badge numéroté"
+      },
+      "crop": {
+        "aspectFree": "Libre",
+        "aspectOriginal": "D'origine",
+        "aspectTitle": "Verrouiller le ratio sur {{ratio}}",
+        "round": "Cercle",
+        "roundHint": "Rend transparent tout ce qui se trouve en dehors de l'ellipse.",
+        "width": "Largeur",
+        "height": "Hauteur",
+        "fieldHint": "Mesuré en pixels de l'image.",
+        "trim": "Rognage auto",
+        "trimHint": "Ajuste le cadre de recadrage au contenu, sans la bordure de la couleur des coins.",
+        "trimNone": "Il n'y a pas de bordure à rogner."
+      },
+      "alpha": {
+        "modeKey": "Supprimer une couleur",
+        "modeFill": "Remplir la transparence",
+        "pickedColor": "Couleur à supprimer : {{color}}",
+        "pickEmpty": "Cliquez sur l'image pour choisir une couleur.",
+        "tolerance": "Tolérance",
+        "contiguous": "Contiguë uniquement",
+        "contiguousHint": "Supprime uniquement la zone connectée à l'endroit où vous avez cliqué. Désactivez cette option pour supprimer la couleur dans toute l'image.",
+        "auto": "Arrière-plan auto",
+        "autoHint": "Utilise la couleur la plus courante parmi les coins comme arrière-plan à supprimer.",
+        "autoNone": "Les coins sont déjà transparents — il n'y a pas de couleur d'arrière-plan à supprimer.",
+        "pickTransparent": "Cet endroit est déjà transparent — choisissez une couleur visible.",
+        "noMatch": "Aucun pixel ne correspond à cette couleur — essayez une tolérance plus élevée.",
+        "noTransparency": "Cette image n'a aucune zone transparente à remplir.",
+        "fillWhite": "Blanc",
+        "fillBlack": "Noir",
+        "fillCustom": "Choisir une couleur"
+      },
+      "edit": {
+        "applyHint": "Appliquer ({{shortcut}})",
+        "cancelHint": "Quitter l'outil sans appliquer ({{shortcut}})",
+        "failed": "Impossible de modifier cette image."
       },
       "color": "Couleur",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "Impossible d'enregistrer dans ce fichier.",
       "fileConflict": "Ce fichier a changé sur le disque depuis son ouverture.",
       "fileConflictOverwrite": "Enregistrer quand même",
+      "fileJpegAlpha": "Le JPEG ne peut pas conserver la transparence — utilisez d'abord « {{fill}} », ou choisissez « {{download}} » à la place.",
       "textPlaceholder": "Saisissez, puis appuyez sur Entrée",
       "hintPick": "Choisissez un outil pour annoter cette image, puis enregistrez-la en tant que pièce jointe.",
       "hintDraw": "Faites glisser sur l'image pour l'annoter. {{shortcut}} annule la dernière annotation.",
+      "hintCrop": "Faites glisser le cadre pour choisir la zone à conserver. {{shortcut}} applique le recadrage.",
+      "hintAlphaKey": "Cliquez sur la couleur à supprimer. {{shortcut}} l'applique.",
+      "hintAlphaFill": "Les zones transparentes seront remplies avec la couleur choisie. {{shortcut}} l'applique.",
       "discardTitle": "Abandonner vos annotations et fermer ?",
       "discardCancel": "Continuer l'édition",
       "discardConfirm": "Abandonner et fermer",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Détacher dans une fenêtre séparée",
       "toBubble": "Transformer en bulle de superposition",
       "toBubbleHint": "Réduit cette fenêtre en bulle de superposition du bureau · double-cliquez sur la bulle pour la rouvrir",
+      "pinOnTop": "Garder au premier plan",
+      "pinOnTopHint": "Garde cette fenêtre au-dessus des autres applications, même lorsque vous basculez vers elles",
+      "pinnedOnTopHint": "Épinglée au premier plan — cliquez pour que les autres applications puissent de nouveau la recouvrir",
       "redockDwellHint": "Relâchez pour la fusionner dans l’application",
       "codexLabel": "Codex",
       "codexContextUsed": "Cette conversation a utilisé {{used}} tokens de contexte — le moteur ne signale aucune limite"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Rétablir les espaces du coréen",
       "voiceRespaceHint": "La reconnaissance renvoie le coréen sans espaces ; cette option le découpe aux particules et aux terminaisons. Basée sur des règles, elle n’est pas parfaite — vous pouvez corriger le résultat dans le champ de saisie.",
       "stallHint": "Un raisonnement ou un appel d’outil prolongé peut suspendre les mises à jour. Cela ne signifie pas à lui seul que la session s’est arrêtée.",
-      "backgroundShells": "{{count}} shell en arrière-plan toujours actif. La réponse est déjà là — vous pouvez continuer à écrire.",
-      "backgroundShellsTip": "Une commande Bash ou Monitor en arrière-plan, laissée par un tour précédent. Elle exécute une commande, pas un modèle, elle ne retient donc pas cette session. Les commandes qui ne se terminent jamais d'elles-mêmes (tail -f, while true, un sort avec un pipe) restent ici jusqu'à ce que vous les supprimiez.",
-      "backgroundShellsOpen": "Voir",
       "stopNothing": "Il n'y avait rien en cours à arrêter. L'étiquette «en cours» était périmée.",
       "stopNothingHint": "Le serveur n'a trouvé aucun processus enfant, aucune commande en file d'attente ni aucune tâche en arrière-plan pour cette portée.",
       "stopForce": "Forcer l'arrêt",
       "stopForceTitle": "Arrête tout sur cet agent, y compris les autres sessions et les commandes en file d'attente.",
       "stopFailed": "Échec de la demande d'arrêt ({{status}}).",
       "stopRetry": "Réessayer",
-      "queuedBehindSilent": "Affiché comme en cours parce qu'un compactage en arrière-plan se termine d'abord. Cette commande n'a pas encore été envoyée, vous pouvez donc encore la modifier ou la supprimer."
+      "sendRejected": "La demande a été refusée. Votre texte et vos pièces jointes ont été restaurés. Vérifiez la conversation avant de renvoyer le message.",
+      "sendUnconfirmed": "Impossible de confirmer l’envoi. Votre texte et vos pièces jointes ont été restaurés. Vérifiez la conversation avant de renvoyer le message.",
+      "localImagesUnsupported": "All Model ne prend pas encore en charge les images en entrée. Retirez les images ou choisissez un autre fournisseur pour envoyer ce message."
     },
     "voiceInstall": {
       "title": "Configurer la saisie vocale",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions",
       "sessionsTip": "Nombre d'onglets de session ouverts sur cet agent.",
-      "contextOverdueTip": "Le contexte de cette session est presque plein et continue de croître, mais aucun compactage n'a eu lieu. Cliquez pour ouvrir l'assurance de contexte.",
-      "contextStalledTip": "La fenêtre de contexte de cette session est pratiquement pleine et aucun compactage n'a eu lieu. Cliquez pour ouvrir l'assurance de contexte.",
-      "contextRejectedTip": "Nous avons envoyé une commande de compactage, mais Claude Code n'en a lancé aucun — elle a été refusée. En général, c'est que les skills et les commandes slash sont désactivés pour ce projet dans {{contextSources}}. Cliquez pour ouvrir l'assurance de contexte.",
       "elapsedTip": "Temps écoulé depuis le dernier mouvement de cette session."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Les vôtres {{count}}",
         "groupSystem": "Intégrées {{count}}",
         "groupPlugin": "Des plug-ins {{count}}",
-        "hint": "Cliquez sur une compétence pour l’ajouter au brouillon actuel. Les compétences utilisateur compatibles de Claude peuvent être partagées ci-dessous."
+        "hint": "Cliquez sur une compétence pour l’ajouter au brouillon actuel. Les compétences utilisateur compatibles de Claude peuvent être partagées depuis l’onglet Claude."
       },
       "plugins": {
         "title": "Plugins",

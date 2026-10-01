@@ -22,6 +22,7 @@
       "availableTooltip": "Version {{version}} ist verfügbar und wird im Hintergrund heruntergeladen",
       "downloading": "Aktualisierung {{percent}}%",
       "restart": "Neu starten zum Aktualisieren",
+      "restartShort": "Update",
       "restartTooltip": "Version {{version}} ist bereit — Neustart zum Anwenden",
       "confirmTitle": "Neu starten zum Aktualisieren?",
       "confirmBody": "Die Aktualisierung schließt die App und installiert sie neu. Laufende Agent-Arbeiten oder ungespeicherte Änderungen können verloren gehen.",
@@ -1930,7 +1931,8 @@
       "later": "Später",
       "stop": "Stoppen",
       "start": "Anmelden",
-      "successNext": "Als Nächstes: Wählen Sie den Projektordner, in dem Ihre Agenten arbeiten."
+      "successNext": "Als Nächstes: Wählen Sie den Projektordner, in dem Ihre Agenten arbeiten.",
+      "invalidEmail": "Geben Sie eine gültige E-Mail-Adresse ein oder lassen Sie das Feld leer."
     },
     "setup": {
       "title": "Claude Code installieren",
@@ -2205,7 +2207,9 @@
         "need": "Nur herunterladen"
       },
       "note": "Dies legt nur den Standard für neue Agenten fest. Alle drei bleiben nebeneinander verfügbar, und du kannst die anderen später in den Optionen einrichten.",
-      "later": "Später entscheiden"
+      "later": "Später entscheiden",
+      "saving": "Auswahl wird gespeichert…",
+      "saveError": "Ihre Auswahl konnte nicht gespeichert werden. Wählen Sie die Engine erneut aus."
     },
     "codexSetup": {
       "title": "Codex CLI installieren",
@@ -2370,7 +2374,7 @@
       "unsupportedHint": "Dieser Skill verwendet Funktionen, die {{provider}} nicht unterstützt.",
       "invalidResponse": "Der Server hat eine ungültige Antwort zurückgegeben.",
       "issues": {
-        "skill-too-large": "Der Skill ?berschreitet die zul?ssige Dateianzahl oder Gr??e.",
+        "skill-too-large": "Der Skill überschreitet die zulässige Dateianzahl oder Größe.",
         "invalid-name": "Der Name des Skills ist ungültig.",
         "invalid-skill": "Die Definition des Skills ist ungültig.",
         "unsafe-path": "Der Skill enthält einen unsicheren Pfad oder Link.",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "Dieser Skill ist in Codex deaktiviert. Aktiviere ihn in Codex, bevor du ihn verwendest."
       }
     },
+    "skillTabs": {
+      "label": "Skill-Engines",
+      "own": "{{provider}}-Skills dieses Agenten"
+    },
     "diff": {
       "addComment": "Diese Zeile kommentieren",
       "removeComment": "Kommentar entfernen",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "Ansicht",
+        "crop": "Zuschneiden",
+        "alpha": "Transparenz",
         "rect": "Rechteck",
         "ellipse": "Ellipse",
         "arrow": "Pfeil",
@@ -2408,6 +2418,42 @@
         "mask": "Schwärzen",
         "text": "Text",
         "number": "Nummern-Marker"
+      },
+      "crop": {
+        "aspectFree": "Frei",
+        "aspectOriginal": "Original",
+        "aspectTitle": "Seitenverhältnis auf {{ratio}} sperren",
+        "round": "Kreis",
+        "roundHint": "Macht alles außerhalb der Ellipse transparent",
+        "width": "Breite",
+        "height": "Höhe",
+        "fieldHint": "In Bildpixeln gemessen",
+        "trim": "Auto-Zuschnitt",
+        "trimHint": "Passt den Rahmen an den Inhalt an und lässt den Rand in der Eckfarbe weg",
+        "trimNone": "Es gibt keinen Rand zum Entfernen."
+      },
+      "alpha": {
+        "modeKey": "Farbe entfernen",
+        "modeFill": "Transparenz füllen",
+        "pickedColor": "Zu entfernende Farbe: {{color}}",
+        "pickEmpty": "Auf das Bild klicken, um eine Farbe auszuwählen",
+        "tolerance": "Toleranz",
+        "contiguous": "Zusammenhängend",
+        "contiguousHint": "Entfernt nur den Bereich, der mit der angeklickten Stelle verbunden ist. Deaktivieren, um die Farbe im gesamten Bild zu entfernen.",
+        "auto": "Auto-Hintergrund",
+        "autoHint": "Verwendet die häufigste Eckfarbe als zu entfernenden Hintergrund",
+        "autoNone": "Die Ecken sind bereits transparent – es gibt keine Hintergrundfarbe zum Entfernen.",
+        "pickTransparent": "Diese Stelle ist bereits transparent – wählen Sie eine sichtbare Farbe.",
+        "noMatch": "Keine Pixel stimmen mit dieser Farbe überein – versuchen Sie eine höhere Toleranz.",
+        "noTransparency": "Dieses Bild hat keine transparenten Bereiche zum Füllen.",
+        "fillWhite": "Weiß",
+        "fillBlack": "Schwarz",
+        "fillCustom": "Farbe wählen"
+      },
+      "edit": {
+        "applyHint": "Anwenden ({{shortcut}})",
+        "cancelHint": "Werkzeug ohne Anwenden verlassen ({{shortcut}})",
+        "failed": "Bild konnte nicht bearbeitet werden."
       },
       "color": "Farbe",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "Konnte nicht in diese Datei gespeichert werden.",
       "fileConflict": "Diese Datei hat sich seit dem Öffnen auf der Festplatte geändert.",
       "fileConflictOverwrite": "Trotzdem speichern",
+      "fileJpegAlpha": "JPEG kann keine Transparenz beibehalten – verwenden Sie zuerst „{{fill}}“ oder stattdessen „{{download}}“.",
       "textPlaceholder": "Eingeben und Enter drücken",
       "hintPick": "Ein Tool wählen, um dieses Bild zu markieren, und dann als Anhang speichern.",
       "hintDraw": "Auf dem Bild ziehen, um es zu markieren. {{shortcut}} macht die letzte Markierung rückgängig.",
+      "hintCrop": "Den Rahmen ziehen, um den zu behaltenden Bereich festzulegen. {{shortcut}} wendet den Zuschnitt an.",
+      "hintAlphaKey": "Die zu entfernende Farbe anklicken. {{shortcut}} entfernt sie.",
+      "hintAlphaFill": "Transparente Bereiche werden mit der gewählten Farbe gefüllt. {{shortcut}} wendet die Füllung an.",
       "discardTitle": "Markierungen verwerfen und schließen?",
       "discardCancel": "Weiter bearbeiten",
       "discardConfirm": "Verwerfen und schließen",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Als eigenes Fenster abkoppeln",
       "toBubble": "In eine Overlay-Bubble verwandeln",
       "toBubbleHint": "Verkleinert dieses Fenster zu einer Desktop-Overlay-Bubble · Doppelklick auf die Bubble öffnet es wieder",
+      "pinOnTop": "Immer im Vordergrund",
+      "pinOnTopHint": "Hält dieses Fenster über anderen Apps, auch beim Wechsel zu ihnen",
+      "pinnedOnTopHint": "Im Vordergrund fixiert — klicken, damit andere Apps es wieder verdecken können",
       "redockDwellHint": "Loslassen, um es in die App zu führen",
       "codexLabel": "Codex",
       "codexContextUsed": "Diese Unterhaltung hat {{used}} Kontext-Tokens verbraucht – die Engine meldet kein Limit"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Koreanische Wortabstände wiederherstellen",
       "voiceRespaceHint": "Die Spracherkennung gibt Koreanisch ohne Leerzeichen aus; dies trennt an Partikeln und Endungen. Regelbasiert und daher nicht perfekt — Sie können das Ergebnis im Eingabefeld korrigieren.",
       "stallHint": "Längere Denkprozesse oder Werkzeugaufrufe können Aktualisierungen pausieren. Das allein bedeutet nicht, dass die Sitzung gestoppt wurde.",
-      "backgroundShells": "{{count}} Hintergrund-Shell läuft noch. Die Antwort ist schon da – du kannst weiterschreiben.",
-      "backgroundShellsTip": "Ein Bash- oder Monitor-Hintergrundbefehl, der von einem früheren Turn übrig geblieben ist. Er führt einen Befehl aus, kein Modell – daher blockiert er diese Sitzung nicht. Befehle, die sich nicht von selbst beenden (tail -f, while true, ein per Pipe verbundenes sort), bleiben hier, bis du sie entfernst.",
-      "backgroundShellsOpen": "Anzeigen",
       "stopNothing": "Es lief nichts, was sich hätte stoppen lassen. Die Anzeige „läuft“ war veraltet.",
       "stopNothingHint": "Der Server hat für diesen Bereich keinen Kindprozess, kein wartendes Kommando und keine Hintergrundaufgabe gefunden.",
       "stopForce": "Hart beenden",
       "stopForceTitle": "Stoppt alles auf diesem Agent, einschließlich anderer Sessions und wartender Kommandos.",
       "stopFailed": "Stopp-Anfrage fehlgeschlagen ({{status}}).",
       "stopRetry": "Erneut versuchen",
-      "queuedBehindSilent": "Wird als laufend angezeigt, weil zuerst eine Kompaktierung im Hintergrund zu Ende geht. Dieses Kommando wurde noch nicht gesendet, du kannst es also noch ändern oder entfernen."
+      "sendRejected": "Die Anfrage wurde abgelehnt. Ihr Text und Ihre Anhänge wurden wiederhergestellt. Prüfen Sie den Gesprächsverlauf, bevor Sie erneut senden.",
+      "sendUnconfirmed": "Die Übermittlung konnte nicht bestätigt werden. Ihr Text und Ihre Anhänge wurden wiederhergestellt. Prüfen Sie den Gesprächsverlauf, bevor Sie erneut senden.",
+      "localImagesUnsupported": "All Model unterstützt noch keine Bildeingabe. Entfernen Sie die Bilder oder wählen Sie einen anderen Anbieter, um diese Nachricht zu senden."
     },
     "voiceInstall": {
       "title": "Spracheingabe einrichten",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} Session",
       "sessionMany": "{{count}} Sessions",
       "sessionsTip": "Wie viele Session-Tabs für diesen Agent geöffnet sind.",
-      "contextOverdueTip": "Der Kontext dieser Sitzung ist fast voll und wächst weiter, aber es wurde noch keine Kompaktierung durchgeführt. Klicke, um die Kontextversicherung zu öffnen.",
-      "contextStalledTip": "Das Kontextfenster dieser Sitzung ist praktisch voll, und es wurde keine Kompaktierung durchgeführt. Klicke, um die Kontextversicherung zu öffnen.",
-      "contextRejectedTip": "Wir haben einen Kompaktierungsbefehl gesendet, aber Claude Code hat keine Kompaktierung gestartet – sie wurde abgelehnt. Meist liegt es daran, dass Skills und Slash-Befehle für dieses Projekt unter {{contextSources}} ausgeschaltet sind. Klicke, um die Kontextversicherung zu öffnen.",
       "elapsedTip": "Zeit seit der letzten Bewegung dieser Session."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Eigene {{count}}",
         "groupSystem": "Mitgeliefert {{count}}",
         "groupPlugin": "Aus Plug-ins {{count}}",
-        "hint": "Klicke auf einen Skill, um ihn zum aktuellen Entwurf hinzuzufügen. Kompatible eigene Skills aus Claude kannst du unten teilen."
+        "hint": "Klicke auf einen Skill, um ihn zum aktuellen Entwurf hinzuzufügen. Kompatible eigene Skills aus Claude kannst du im Tab „Claude“ teilen."
       },
       "plugins": {
         "title": "Plugins",

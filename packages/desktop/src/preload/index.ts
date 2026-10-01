@@ -275,6 +275,20 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:overlay:maximize-state', listener);
     },
     /**
+     * §17-6 (H-28) — 자기 창 [항상 위에 고정]을 켜고 끈다(원하는 값을 보내는 멱등 set).
+     * 돌아오는 값은 main 이 기억한 값이다 — 버튼은 이 값으로 칠한다.
+     */
+    setPinnedSelf: (pinned: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:set-pinned-self', pinned),
+    /** §17-6 (H-28) — 자기 창이 지금 고정돼 있는가(창이 IDE 로 설 때 한 번 묻는다). */
+    getPinnedSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:get-pinned-self'),
+    /** §5.5 #17-27 ①-1 — 편집창 판이 열리며 자기 창을 오른쪽으로 `dx` 만큼 넓힌다(작업영역 안에서). */
+    growEditorRoomSelf: (dx: number): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:grow-editor-room-self', dx),
+    /** §5.5 #17-27 ①-1 — 판이 닫히면 넓힌 만큼 되돌린다(그 사이 사용자가 폭을 바꿨으면 그대로). */
+    restoreEditorRoomSelf: (): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:restore-editor-room-self'),
+    /**
      * §17-6 v2.81 — 버블 드래그 = OS 창 이동. mousedown 시 시작(메인이 커서 폴링으로 창을 따라가게).
      * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
      * 그 자리에서 앱 안 IDE 로 돌아간다(그때 실어 보낼 짐도 **시작할 때** 함께 맡긴다).

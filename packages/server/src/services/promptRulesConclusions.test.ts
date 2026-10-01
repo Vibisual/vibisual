@@ -20,6 +20,7 @@ import {
   buildAgentQuestionRules,
   buildAgentReportRules,
   buildAgentReviewRules,
+  buildCmdCardProtocolRules,
   buildSessionGoalProtocol,
   buildSessionGoalState,
   parseStageBlockBody,
@@ -60,13 +61,20 @@ const CONCLUSIONS: [string, RegExp][] = [
   ['질문 — 물어도 멈추지 않는다(골라 끝낸 뒤 묻는다)', /묻더라도 멈추지 마라[\s\S]*골라 끝낸 뒤/],
   ['질문 — 손을 놓는 것은 막혔을 때뿐', /손을 놓는 것은 \*\*막혔을 때뿐\*\*/],
   ['질문 — prompts 는 사용자가 1인칭으로 보낼 답', /1인칭으로/],
+  ['질문 — 선택형은 실제 대안을 모두 포함', /선택형은 실제 대안을 모두 포함하라\(A\/B 질문에 A만 금지\)/],
+  ['질문 — 사용자 값·수치를 지어내지 않는다', /사용자만 아는 값·수치는 지어내지 말고/],
+  ['질문 — 주관식은 빈 prompts 와 직접 답변', /prompts: \[\][\s\S]{0,16}IDE의 직접 답변 입력으로 받는다/],
+  ['질문 — 질문은 짧게, 배경은 note', /질문은 짧게, 배경은 `note`/],
   ['검수 — 결과 확인이 필요할 때만', /결과를 확인해야 할 때만/],
   ['검수 — changes 가 비면 보내지 않는다', /changes\[\][\s\S]*이게 비면 보내지 마라/],
   ['검수 — 필드 3종', /instruction\?[\s\S]*changes\[\][\s\S]*checkpoints\[\]/],
   ['공통 — 본문 먼저, 카드는 마지막 동작 1회', /본문\(짧은 결론\)을 먼저 쓰고[\s\S]*맨 마지막 동작으로 1회 호출/],
-  ['공통 — 호출 뒤 본문을 더 붙이지 않는다', /호출 뒤에는 본문을 더 붙이지 마라/],
+  // ↓ §5.5 #17-18 ⑦-6 — 카드 뒤는 "비우지 말고 정해진 한 문장". 예전 결론("아무 말 없이 끝내라")으로 되돌리면
+  //   CLI 의 "no visible output" 재촉이 보고를 카드 아래에 통째로 다시 쓰게 만든다(아래 not 검사가 지킨다).
+  ['공통 — 호출 뒤에는 정해진 한 문장만', /호출 뒤에는[\s\S]{0,12}카드를 확인해 주세요\.[\s\S]{0,6}한 문장만/],
   ['공통 — 발송 사실 보고 금지', /발송 사실 보고 금지/],
-  ['공통 — 덧붙일 맥락 없으면 침묵', /아무 말 없이 끝내라/],
+  ['공통 — 호출 뒤를 비워 두지 않는다', /비워 두지 마라/],
+  ['공통 — 재촉이 와도 보고를 다시 쓰지 않는다', /no visible output[\s\S]{0,12}재촉이 와도 보고를 다시 쓰지 말고 그 한 문장만/],
   ['공통 — 작업 도중 미리 보내지 않는다', /작업 도중에 미리 보내지 마라/],
   ['공통 — 한 턴에 카드는 하나', /한 턴에 카드는 하나/],
   ['공통 — 카드 목록을 본문에 다시 나열하지 않는다', /본문에 다시 나열하지 마라/],
@@ -122,9 +130,30 @@ describe('§5.5 #17-28 ⑧(f) — 규약을 줄여도 결론은 남는다', () =
     expect(buildAgentCardCommonRules(ARGS)).toContain(ARGS.docPath);
   });
 
+  it('CMD 질문도 대안 누락·임의 수치 없이 직접 답변을 안내한다', () => {
+    const cmd = buildCmdCardProtocolRules();
+    expect(cmd).toContain('선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지)');
+    expect(cmd).toContain('사용자만 아는 값·수치는 지어내지 말고');
+    expect(cmd).toContain('`prompts: []` — IDE의 직접 답변 입력으로 받는다');
+    expect(cmd).toContain('질문은 짧게, 배경은 `note`');
+    expect(cmd).not.toContain('이 순서로 진행할까요?');
+  });
+
   it('문서 경로가 없으면 "읽어라" 줄 자체가 빠진다(없는 파일을 가리키지 않는다)', () => {
     const withoutDoc = buildAgentCardCommonRules({ ...ARGS, docPath: undefined });
     expect(withoutDoc).not.toContain('Read 하라');
+  });
+
+  it('§5.5 #17-18 ⑦-6 — 카드 뒤 침묵 결론은 돌아오지 않는다(CMD 마커 판본도 같은 결론)', () => {
+    const SILENT = /아무 말(?:도)? (?:없이|하지 말고) (?:그대로 )?끝내라/;
+    expect(PROMPT).not.toMatch(SILENT);
+    // 판본마다 다르게 적으면 화면 모양이 에이전트 종류에 따라 갈린다(⑦-4 와 같은 이유).
+    const cmd = buildCmdCardProtocolRules();
+    expect(cmd).not.toMatch(SILENT);
+    expect(cmd).toContain('"카드를 확인해 주세요." 한 문장만');
+    expect(cmd).toContain('no visible output');
+    // 이유는 문서에 있다(프롬프트에는 결론만).
+    expect(CARD_RULES_DOCUMENT).toContain('no visible output');
   });
 
   it('압축분 — 규약 총량이 다시 부풀지 않는다(⑧(f) 시점 1,900 토큰대 · ⑰(b) 시점 4,771자 · ㉑ 시점 3,535자)', () => {

@@ -789,6 +789,8 @@ export {
   shouldCompactAfterTurn,
   AGENT_COMPACT_COMMAND,
   displayCommands,
+  silentPreCompactHeirs,
+  heirCutByImmediate,
   isInternalSlashCommand,
   withoutSlashCommandFlag,
   buildAgentSelfCompactRule,
@@ -1311,6 +1313,7 @@ export {
   CODEX_DEFAULT_LABEL_RE,
   providerForEngine,
   engineForProvider,
+  agentEngineOf,
   agentModelLabelOf,
   buildCmdCardProtocolRules,
   MOBILE_PAIR_CODE_LENGTH,
@@ -1672,6 +1675,7 @@ export {
   EMPTY_SESSION_RUN_INPUTS,
   SESSION_NO_RESPONSE_MS,
   isSessionRunning,
+  isSessionExecuting,
   isSessionWaiting,
   hasSessionWork,
   hasBackgroundShells,
@@ -2296,3 +2300,8 @@ export * from './codexToolPolicy.js';
 export * from './agentRuleShell.js';
 export { VERIFICATION_AUTOMATION } from './constants.js';
 export * from './verificationAutomation.js';
+
+// §5.5 #17-27 ①-1 — 편집창이 열릴 때 창을 오른쪽으로 넓히고 닫으면 되돌리는 가로 자리 계산.
+//   앱 안의 떠 있는 창(클라)과 독립 OS 창(main)이 같은 규칙 하나를 쓴다.
+export type { HSpan, SpanGrowth } from './editorRoom.js';
+export { growSpanRight, shrinkSpanBack } from './editorRoom.js';

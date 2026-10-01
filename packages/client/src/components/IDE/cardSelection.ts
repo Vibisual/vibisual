@@ -101,14 +101,28 @@ function clippedRanges(root: HTMLElement): Range[] {
   return out;
 }
 
-/** 지금 선택이 이 카드와 겹치는가 — 버튼 활성 판정용(문자열을 만들지 않아 드래그 중에도 싸다). */
+/** 입력칸의 선택은 DOM Range에 들어 있지 않으므로 활성 입력칸의 범위를 따로 읽는다. */
+function activeTextSelection(doc: Document): { element: Element; text: string } | null {
+  const element = doc.activeElement;
+  if (!element || (element.tagName !== 'TEXTAREA' && element.tagName !== 'INPUT')) return null;
+  const input = element as HTMLTextAreaElement | HTMLInputElement;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  if (start === null || end === null || start === end) return null;
+  return { element, text: input.value.slice(start, end) };
+}
+
+/** 지금 선택이 이 카드와 겹치는가 — DOM 조각 직렬화 없이 버튼 활성 여부만 판단한다. */
 export function hasSelectionWithin(root: HTMLElement | null): boolean {
   if (!root) return false;
+  const input = activeTextSelection(root.ownerDocument);
+  if (input) return root.contains(input.element);
   return clippedRanges(root).length > 0;
 }
 
 /** 이 문서 어딘가에 살아 있는(펼쳐진) 선택이 있는가 — "고른 게 다른 카드 몫" 판정용. */
 function hasLiveSelection(doc: Document): boolean {
+  if (activeTextSelection(doc)) return true;
   const sel = doc.defaultView?.getSelection() ?? null;
   return sel !== null && sel.rangeCount > 0 && !sel.isCollapsed;
 }
@@ -116,6 +130,8 @@ function hasLiveSelection(doc: Document): boolean {
 /** 이 카드 안쪽으로 자른 선택 텍스트. 선택이 없거나 카드 밖이면 빈 문자열. */
 export function selectionTextWithin(root: HTMLElement | null): string {
   if (!root) return '';
+  const input = activeTextSelection(root.ownerDocument);
+  if (input) return root.contains(input.element) ? input.text : '';
   const parts = clippedRanges(root)
     .map((r) => serializeFragment(r.cloneContents()))
     .filter((s) => s.trim() !== '');
@@ -256,6 +272,9 @@ export function useCardSelectionCopy(
 
     sync();
     doc.addEventListener('selectionchange', sync);
+    // 입력칸의 select 이벤트는 버블하지 않는다. 키보드 선택과 다른 카드로의 포커스 이동도 반영한다.
+    doc.addEventListener('select', sync, true);
+    doc.addEventListener('focusin', sync);
     // 드래그가 끝나는 순간을 **따로** 한 번 더 본다. `selectionchange` 하나에만 매달리면 그 이벤트가
     // 한 번이라도 새면(창 전환·포인터 취소 등) 버튼이 회색인 채로 남고, 사용자는 분명히 골랐는데
     // 누를 수가 없다 — 같은 계산을 두 신호로 받는 값싼 보험이다(같은 값이면 setState 가 멈춘다).
@@ -263,6 +282,8 @@ export function useCardSelectionCopy(
     doc.addEventListener('touchend', sync, { passive: true });
     return () => {
       doc.removeEventListener('selectionchange', sync);
+      doc.removeEventListener('select', sync, true);
+      doc.removeEventListener('focusin', sync);
       doc.removeEventListener('mouseup', sync);
       doc.removeEventListener('touchend', sync);
       if (raf !== null) view.cancelAnimationFrame(raf);
@@ -280,6 +301,9 @@ export function useCardSelectionCopy(
     // 기억보다 먼저다(사용자가 보고 있는 것과 붙여넣은 것이 어긋나면 안 된다).
     const checkedText = checkedRef.current?.present === true ? checkedRef.current.getText() : '';
     if (checkedText !== '') return checkedText;
+    // 다른 카드의 입력칸을 고른 상태에서 이전 카드의 기억을 복사하지 않는다.
+    const doc = ref.current?.ownerDocument;
+    if (doc && hasLiveSelection(doc)) return '';
     return recallSelection(key);
   }, [ref, key]);
 

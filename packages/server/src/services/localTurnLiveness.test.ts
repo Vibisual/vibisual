@@ -72,6 +72,17 @@ beforeEach(() => {
 });
 
 describe('로컬 턴 — 실행 → 실행중 → 실행완료', () => {
+  it('이미지를 가진 기존 큐는 텍스트만 보내지 않고 명시적 실패로 끝낸다', () => {
+    const sub = newSub('agent-local-image', 'sub-local-image');
+    const cmd = makeCmd(sub.id, 'Describe the attached image');
+    cmd.attachments = ['/fixture/image.png'];
+    subAgentManager.execute(cmd, PARENT_CWD, '', localConfig());
+    expect(lastTurnArgs).toBeNull();
+    expect(cmd.status).toBe('error');
+    expect(cmd.error).toMatchObject({ code: 'local', detail: 'local-images-unsupported' });
+    expect(subAgentManager.isSubProcessingCommand(sub.id)).toBe(false);
+    expect(subAgentManager.isSubRunning(sub.id)).toBe(false);
+  });
   it('명령이 나가는 그 순간 실행중이 되고, 시작 시각과 상태 통지가 함께 나간다', () => {
     const agentId = 'agent-local-start';
     const sub = newSub(agentId, 'sub-local-start');

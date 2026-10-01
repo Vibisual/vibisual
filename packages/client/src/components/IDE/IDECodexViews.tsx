@@ -26,6 +26,8 @@ import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { autosizeInput } from './inputAutosize.js';
 import { IDESkillSharingSection } from './IDESkillSharingSection.js';
+import { useSkillSharing } from './useSkillSharing.js';
+import { IDESkillProviderTabs, skillSharingCount, useSkillProviderTab } from './IDESkillProviderTabs.js';
 import {
   codexFavoriteNames, codexSkillInsertText, codexSkillSourceOf, groupCodexSkills, toggleCodexFavorite,
 } from './codexSkillList.js';
@@ -51,7 +53,7 @@ function useCodexInventory(): { inventory: CodexInventory | null; agentId: strin
 
 /** 네 칸이 공유하는 껍데기 — 제목 · [다시 읽기] · 스크롤 · 빈/미독 안내. */
 function CodexPane({
-  titleKey, count, inventory, agentId, emptyKey, children, afterList,
+  titleKey, count, inventory, agentId, emptyKey, children, toolbar, content, onReload, countInTitle = true, error,
 }: {
   titleKey: string;
   count: number | null;
@@ -59,7 +61,16 @@ function CodexPane({
   agentId: string | null;
   emptyKey: string;
   children: React.ReactNode;
-  afterList?: React.ReactNode;
+  /** 이 갈래를 못 읽은 사유(`inventory.errors.*`). 있으면 빈 목록 안내 대신 이것을 적는다. */
+  error?: string | undefined;
+  /** 머리줄 아래 스크롤되지 않는 줄(스킬 칸의 엔진 탭·검색). */
+  toolbar?: React.ReactNode;
+  /** 있으면 인벤토리 목록 대신 이것을 그린다 — 공유 탭은 코덱스 인벤토리를 읽기 전에도 선다. */
+  content?: React.ReactNode;
+  /** [다시 읽기]가 인벤토리가 아닌 다른 목록을 보고 있을 때(공유 탭). */
+  onReload?: () => void;
+  /** 개수를 탭이 적는 칸에서는 제목 옆에 다시 적지 않는다. */
+  countInTitle?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const refresh = useGraphStore((s) => s.refreshCodexInventory);
@@ -68,29 +79,34 @@ function CodexPane({
       <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-800 px-2 py-1.5">
         <span className="truncate text-[12px] font-semibold text-gray-300">
           {t(titleKey)}
-          {count !== null && count > 0 && <span className="ml-1 font-normal text-gray-500">{count}</span>}
+          {countInTitle && count !== null && count > 0 && <span className="ml-1 font-normal text-gray-500">{count}</span>}
         </span>
         <button
           type="button"
-          onClick={() => { refresh(agentId ?? undefined); }}
+          onClick={() => { if (onReload) onReload(); else refresh(agentId ?? undefined); }}
           className="app-nodrag flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100"
           title={t('ide.codex.reload')}
         >
           {t('ide.codex.reload')}
         </button>
       </div>
+      {toolbar}
       {/* `fill` 이 있어야 래퍼가 flex 컨테이너로 서서 안쪽 스크롤 칸이 남은 높이를 받는다 —
           없으면 `scroll-fade relative` 로 서고 내용이 길어질 때 스크롤이 아니라 잘린다(§5.10 (N) (g)). */}
       <ScrollFade fill className="min-h-0 flex-1">
-        {inventory === null ? (
+        {content ?? (inventory === null ? (
           /* 아직 못 읽었다 — 비어 있다와 다른 말이다. */
           <p className="px-2 py-3 text-[12px] text-gray-500">{t('ide.codex.loading')}</p>
-        ) : count === 0 ? (
-          <p className="px-2 py-3 text-[12px] text-gray-500">{t(emptyKey)}</p>
         ) : (
-          children
-        )}
-        {afterList}
+          <>
+            {/* 사유 줄은 빈 목록 판정보다 **먼저** 선다 — 서버는 못 읽은 갈래를 "빈 목록 + 사유"로 보낸다.
+                종전에는 이 줄이 목록(children) 안에 있어 "없습니다" 안내에 가려 한 번도 보이지 않았다. */}
+            <CodexReadError reason={error} />
+            {count === 0
+              ? (error ? null : <p className="px-2 py-3 text-[12px] text-gray-500">{t(emptyKey)}</p>)
+              : children}
+          </>
+        ))}
       </ScrollFade>
     </div>
   );
@@ -120,9 +136,8 @@ export const IDECodexMcpView = memo(function IDECodexMcpView(): React.JSX.Elemen
   return (
     <CodexPane
       titleKey="ide.codex.mcp.title" count={inventory ? servers.length : null}
-      inventory={inventory} agentId={agentId} emptyKey="ide.codex.mcp.empty"
+      inventory={inventory} agentId={agentId} emptyKey="ide.codex.mcp.empty" error={inventory?.errors?.mcp}
     >
-      <CodexReadError reason={inventory?.errors?.mcp} />
       <ul>
         {servers.map((s) => (
           <li key={s.name} className="border-b border-gray-800/60 px-2 py-1.5">
@@ -160,7 +175,8 @@ export const IDECodexMcpView = memo(function IDECodexMcpView(): React.JSX.Elemen
  *
  * 그래서 **클로드 칸과 같은 조작**을 준다(클릭하면 `$이름 ` 이 입력창에 들어가고, 별을 켜면 위로
  * 오고, 검색이 걸린다). 다만 **없는 권한의 손잡이는 만들지 않는다** — 삭제·복사·순서 끌기·사용
- * 횟수는 코덱스 몫이거나 우리가 모르는 값이라 그대로 뺐다. 사용자 스킬 공유는 별도 공통 섹션이다.
+ * 횟수는 코덱스 몫이거나 우리가 모르는 값이라 그대로 뺐다. 사용자 스킬 공유는 두 번째(Claude) 탭이다
+ * — 첫째·기본 탭은 늘 이 에이전트의 Codex 스킬이다(`IDESkillProviderTabs`).
  */
 export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.Element {
   const { t } = useTranslation();
@@ -212,6 +228,14 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
       autosizeInput(ta);
     });
   }, [agentId, activeSessionId, setAgentSessionInputText, executionMode]);
+
+  // §5.25 (M-1) — 탭 하나에 목록 하나. 코덱스 에이전트의 칸이라 Codex 탭이 첫째·기본이고,
+  // 에이전트를 바꾸면 다시 Codex 탭으로 돌아온다. 공유 목록은 탭 개수를 적으려고 여기서 쥔다.
+  const [skillTab, setSkillTab] = useSkillProviderTab('codex', agentId ?? '');
+  const sharing = useSkillSharing({
+    agentId, activeSessionId, provider: 'codex', onUse: insertSkill, onShared: refreshSharedSkills,
+  });
+  const onSharingTab = skillTab !== 'codex';
 
   const toggleFavorite = useCallback((name: string) => {
     void persistSkillFavorites(toggleCodexFavorite(favorites, name));
@@ -276,25 +300,31 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
 
   return (
     <CodexPane
-      titleKey="ide.codex.skills.title" count={inventory ? groups.total : null}
-      inventory={inventory} agentId={agentId} emptyKey="ide.codex.skills.empty"
-      afterList={<IDESkillSharingSection
-        key={`${agentId ?? ''}:${activeSessionId ?? ''}`}
-        agentId={agentId} activeSessionId={activeSessionId} provider="codex" query={query}
-        onUse={insertSkill} onShared={refreshSharedSkills}
-      />}
+      titleKey="ide.codex.skills.title" count={inventory ? groups.total : null} countInTitle={false}
+      inventory={inventory} agentId={agentId} emptyKey="ide.codex.skills.empty" error={inventory?.errors?.skills}
+      onReload={onSharingTab ? sharing.refresh : undefined}
+      toolbar={(
+        <div className="flex flex-shrink-0 flex-col gap-1.5 px-2 pb-1 pt-1.5">
+          {/* 못 읽었으면 개수를 모른다 — 서버는 그때 빈 목록을 보내므로 그대로 적으면 "Codex 0" 이 된다(③). */}
+          <IDESkillProviderTabs
+            own="codex" active={skillTab} onChange={setSkillTab}
+            counts={{ codex: inventory && !inventory.errors?.skills ? groups.total : null, claude: skillSharingCount(sharing) }}
+          />
+          {/* 검색 — 15개가 넘어가면 눈으로 훑는 것이 목록을 읽는 가장 느린 방법이 된다.
+              스크롤 밖에 서서 목록을 내려도 남고, 보고 있는 탭의 목록에 걸린다. */}
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); }}
+            placeholder={t('ide.codex.skills.searchPlaceholder')}
+            className="app-nodrag w-full rounded border border-gray-700 bg-gray-800/60 px-1.5 py-1 text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-gray-500 focus:outline-none"
+          />
+        </div>
+      )}
+      content={onSharingTab
+        ? <IDESkillSharingSection sharing={sharing} provider="codex" agentId={agentId} query={query} />
+        : undefined}
     >
-      <CodexReadError reason={inventory?.errors?.skills} />
-      {/* 검색 — 15개가 넘어가면 눈으로 훑는 것이 목록을 읽는 가장 느린 방법이 된다. */}
-      <div className="px-2 pb-1 pt-1.5">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); }}
-          placeholder={t('ide.codex.skills.searchPlaceholder')}
-          className="app-nodrag w-full rounded border border-gray-700 bg-gray-800/60 px-1.5 py-1 text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-gray-500 focus:outline-none"
-        />
-      </div>
       {/* 걸러 낸 결과가 0이면 "이 기계엔 없다"가 아니라 "이 검색어에 없다"를 말해야 한다. */}
       {groups.shown === 0 ? (
         <p className="px-2 py-3 text-[12px] text-gray-500">{t('ide.codex.skills.noMatch', { query })}</p>
@@ -320,9 +350,8 @@ export const IDECodexPluginsView = memo(function IDECodexPluginsView(): React.JS
   return (
     <CodexPane
       titleKey="ide.codex.plugins.title" count={inventory ? plugins.length : null}
-      inventory={inventory} agentId={agentId} emptyKey="ide.codex.plugins.empty"
+      inventory={inventory} agentId={agentId} emptyKey="ide.codex.plugins.empty" error={inventory?.errors?.plugins}
     >
-      <CodexReadError reason={inventory?.errors?.plugins} />
       <p className="px-2 py-1 text-[12px] text-gray-500">
         {t('ide.codex.plugins.installedCount', { count: installedCount })}
       </p>

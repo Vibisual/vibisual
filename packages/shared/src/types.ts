@@ -4839,7 +4839,7 @@ export interface AgentQuestionItem {
   question: string;
   /** 선택: 짧은 헤더 라벨 (질문 요지). */
   header?: string;
-  /** 제안 응답 프롬프트 목록 (0~N). 각각 복사 박스 + 복사/즉시전송 버튼. 비어도 됨(질문만 강조). */
+  /** 제안 응답 프롬프트 목록 (0~N). 각각 복사 박스 + 복사/즉시전송 버튼. 비어도 됨(직접 답변 입력). */
   prompts: string[];
 }
 
@@ -8596,6 +8596,8 @@ export interface TermCreateFrame {
   command?: string;
   /** command 를 사용자 Enter 없이 바로 실행할지. 실행 런처는 true, claude 경로는 언제나 false. */
   autoRun?: boolean;
+  /** Same environment additions as desktop PTY launchers (login paths, optional email, etc.). */
+  env?: Record<string, string>;
 }
 /** 클라 → 서버: xterm 키 입력 → PTY stdin. */
 export interface TermWriteFrame {

@@ -70,8 +70,8 @@ function makeState() {
   };
 }
 
-function renderBar(activeSession: SubAgent = session): string {
-  return renderToStaticMarkup(createElement(IDEStatusBar, { agent, activeSession, isCustom: true, sessionCount: 1 }));
+function renderBar(activeSession: SubAgent | null = session, barAgent: BubbleData = agent): string {
+  return renderToStaticMarkup(createElement(IDEStatusBar, { agent: barAgent, activeSession, isCustom: true, sessionCount: 1 }));
 }
 
 function expectEffort(level: string, activeSession?: SubAgent): void {
@@ -84,6 +84,33 @@ beforeEach(() => {
   fixture.state = makeState();
   fixture.codexConfig = null;
   fixture.readConfig.mockClear();
+});
+
+describe('IDEStatusBar main tab pending work', () => {
+  it.each(['idle', 'completed'] as const)('shows waiting instead of %s completion, including commands awaiting a session', (status) => {
+    for (const subAgentId of [session.id, null]) {
+      fixture.state!.queuedCommands[agent.id] = [{ id: 'pending', status: 'queued', subAgentId }];
+      const html = renderBar(null, { ...agent, status });
+      expect(html).toContain('panel.subAgent.status.waiting');
+      expect(html).not.toContain('panel.subAgent.status.done');
+    }
+  });
+
+  it.each([
+    ['active', 'running'],
+    ['awaiting_permission', 'running'],
+    ['error', 'error'],
+  ] as const)('keeps %s visible while another command waits', (status, label) => {
+    fixture.state!.queuedCommands[agent.id] = [{ id: 'pending', status: 'queued', subAgentId: null }];
+    const html = renderBar(null, { ...agent, status });
+    expect(html).toContain(`panel.subAgent.status.${label}`);
+    expect(html).not.toContain('panel.subAgent.status.waiting');
+  });
+
+  it('does not carry another session pending command into the selected session', () => {
+    fixture.state!.queuedCommands[agent.id] = [{ id: 'pending', status: 'queued', subAgentId: 'other-session' }];
+    expect(renderBar(session)).toContain('panel.subAgent.status.done');
+  });
 });
 
 describe('IDEStatusBar Codex inherited effort', () => {

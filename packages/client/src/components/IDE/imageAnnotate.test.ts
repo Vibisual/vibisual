@@ -11,21 +11,26 @@ import {
   canUndo,
   clearAnnotations,
   commitAnnotation,
+  commitFrame,
   createAnnotation,
   distance,
   extendAnnotation,
+  hasEdits,
   isCommittable,
   isDragTool,
   nextBadgeIndex,
   normalizeBox,
   penPathD,
   redoAnnotations,
+  referencedLayerSrcs,
   toImagePoint,
+  translateAnnotations,
   undoAnnotations,
   withAlpha,
   type Annotation,
   type AnnotationHistory,
   type AnnotationStyle,
+  type RasterLayer,
 } from './imageAnnotate.js';
 
 // §5.5 #17-25 v4.80 — 주석 좌표·모델은 DOM 없이 검증한다(이미지 상자를 인자로 받는 순수 함수).
@@ -193,6 +198,22 @@ describe('nextBadgeIndex', () => {
     ];
     expect(nextBadgeIndex(items)).toBe(8);
   });
+
+  // §5.5 #17-25 ① — 원형 자르기는 표시를 그림에 구우며 목록을 비운다. 목록만 세면 다음 배지가 다시 1 이 되어
+  //   그림에 "1" 이 둘 선다("2번 영역"이라는 공유된 이름이 깨진다).
+  it('원형 자르기로 구운 배지 뒤를 잇는다 — 목록이 비어도 1 로 돌아가지 않는다', () => {
+    expect(nextBadgeIndex([], 3)).toBe(4);
+  });
+
+  it('구운 번호보다 목록의 번호가 크면 목록을 따른다', () => {
+    const items = [createAnnotation({ id: 'n5', tool: 'number', at: { x: 0, y: 0 }, style, badgeIndex: 5 })];
+    expect(nextBadgeIndex(items, 3)).toBe(6);
+  });
+
+  it('하한이 0·음수면 없는 것과 같다', () => {
+    expect(nextBadgeIndex([], 0)).toBe(1);
+    expect(nextBadgeIndex([], -4)).toBe(1);
+  });
 });
 
 describe('되돌리기 스택', () => {
@@ -240,5 +261,122 @@ describe('되돌리기 스택', () => {
     }
     expect(h.past.length).toBe(ANNOTATION_HISTORY_LIMIT);
     expect(h.items).toHaveLength(ANNOTATION_HISTORY_LIMIT + 20);
+  });
+});
+
+// §5.5 #17-25 ⑦ — 자르기·알파 한 번이 "세 겹 한 벌" 단위로 같은 스택에 쌓인다.
+describe('세 겹 되돌리기 (⑦)', () => {
+  const a = shape('a', { x: 10, y: 10 }, { x: 90, y: 60 });
+  const layer = (src: string, transparent = false): RasterLayer => ({ src, w: 400, h: 300, transparent });
+
+  it('commitFrame 은 바탕까지 한 칸으로 쌓고 다시 하기를 비운다', () => {
+    let h = commitAnnotation(EMPTY_ANNOTATION_HISTORY, a);
+    h = undoAnnotations(h);
+    expect(canRedo(h)).toBe(true);
+    h = commitFrame(h, { items: [], base: layer('blob:crop'), marks: null });
+    expect(h.base?.src).toBe('blob:crop');
+    expect(h.future).toHaveLength(0);
+    expect(h.past).toHaveLength(1);
+  });
+
+  it('되돌리면 바탕·구운 표시·주석이 한꺼번에 돌아온다', () => {
+    let h = commitAnnotation(EMPTY_ANNOTATION_HISTORY, a);
+    h = commitFrame(h, { items: [], base: layer('blob:round', true), marks: layer('blob:marks', true) });
+    const undone = undoAnnotations(h);
+    expect(undone.base).toBeNull();
+    expect(undone.marks).toBeNull();
+    expect(undone.items).toEqual([a]);
+    const redone = redoAnnotations(undone);
+    expect(redone.base?.src).toBe('blob:round');
+    expect(redone.marks?.src).toBe('blob:marks');
+    expect(redone.items).toEqual([]);
+  });
+
+  it('전체 지우기는 구운 표시까지 지우되 자르기·알파(바탕)는 남긴다', () => {
+    const h = commitFrame(EMPTY_ANNOTATION_HISTORY, {
+      items: [a],
+      base: layer('blob:base'),
+      marks: layer('blob:marks'),
+    });
+    const cleared = clearAnnotations(h);
+    expect(cleared.items).toEqual([]);
+    expect(cleared.marks).toBeNull();
+    expect(cleared.base?.src).toBe('blob:base');
+    expect(undoAnnotations(cleared).marks?.src).toBe('blob:marks');
+  });
+
+  it('구운 표시만 남아도 전체 지우기가 할 일이 있다', () => {
+    const h = commitFrame(EMPTY_ANNOTATION_HISTORY, { items: [], base: null, marks: layer('blob:marks') });
+    expect(clearAnnotations(h)).not.toBe(h);
+  });
+
+  it('구운 배지 번호(badgeFloor)는 이어 그리기·되돌리기·다시 하기에 함께 실려 다닌다', () => {
+    let h = commitFrame(EMPTY_ANNOTATION_HISTORY, {
+      items: [],
+      base: layer('blob:round', true),
+      marks: layer('blob:marks', true),
+      badgeFloor: 3,
+    });
+    h = commitAnnotation(h, a);
+    expect(h.badgeFloor).toBe(3);
+    const afterCrop = undoAnnotations(h);
+    expect(afterCrop.badgeFloor).toBe(3);
+    const beforeCrop = undoAnnotations(afterCrop);
+    expect(beforeCrop.badgeFloor).toBeUndefined(); // 자르기 전 — 아직 구운 배지가 없다
+    expect(redoAnnotations(beforeCrop).badgeFloor).toBe(3);
+    expect(redoAnnotations(redoAnnotations(beforeCrop)).badgeFloor).toBe(3);
+  });
+
+  it('전체 지우기는 구운 표시와 함께 그 번호도 걷는다 — 그림에서 사라진 번호는 1 부터 다시', () => {
+    const h = commitFrame(EMPTY_ANNOTATION_HISTORY, { items: [], base: null, marks: layer('blob:marks', true), badgeFloor: 2 });
+    const cleared = clearAnnotations(h);
+    expect(cleared.badgeFloor).toBeUndefined();
+    expect(nextBadgeIndex(cleared.items, cleared.badgeFloor ?? 0)).toBe(1);
+    expect(undoAnnotations(cleared).badgeFloor).toBe(2);
+  });
+
+  it('바탕만 바뀌었을 때 지우기는 no-op', () => {
+    const h = commitFrame(EMPTY_ANNOTATION_HISTORY, { items: [], base: layer('blob:base'), marks: null });
+    expect(clearAnnotations(h)).toBe(h);
+  });
+
+  it('hasEdits — 주석·바탕·구운 표시 중 하나라도 있으면 편집이 있다', () => {
+    expect(hasEdits(EMPTY_ANNOTATION_HISTORY)).toBe(false);
+    expect(hasEdits({ items: [a], base: null, marks: null })).toBe(true);
+    expect(hasEdits({ items: [], base: layer('x'), marks: null })).toBe(true);
+    expect(hasEdits({ items: [], base: null, marks: layer('y') })).toBe(true);
+  });
+
+  it('referencedLayerSrcs 는 지금·과거·미래 칸의 래스터를 모두 센다', () => {
+    let h = commitFrame(EMPTY_ANNOTATION_HISTORY, { items: [], base: layer('blob:1'), marks: null });
+    h = commitFrame(h, { items: [], base: layer('blob:2'), marks: layer('blob:m2') });
+    h = commitFrame(h, { items: [], base: layer('blob:3'), marks: null });
+    h = undoAnnotations(h);
+    expect([...referencedLayerSrcs(h)].sort()).toEqual(['blob:1', 'blob:2', 'blob:3', 'blob:m2']);
+    // 되돌린 뒤 새로 쌓으면 미래 칸(blob:3)은 더 이상 가리켜지지 않는다 — 해제해도 된다.
+    h = commitFrame(h, { items: [], base: layer('blob:4'), marks: null });
+    expect(referencedLayerSrcs(h).has('blob:3')).toBe(false);
+  });
+});
+
+describe('translateAnnotations (⑦ 사각 자르기)', () => {
+  it('도형은 두 점, 글자·배지는 한 점, 펜은 모든 점을 옮긴다', () => {
+    const rect = shape('r', { x: 100, y: 100 }, { x: 200, y: 150 });
+    const text = createAnnotation({ id: 't', tool: 'text', at: { x: 50, y: 60 }, style, text: 'hi' });
+    const badge = createAnnotation({ id: 'n', tool: 'number', at: { x: 300, y: 40 }, style, badgeIndex: 2 });
+    let pen = createAnnotation({ id: 'p', tool: 'pen', at: { x: 10, y: 10 }, style });
+    pen = extendAnnotation(pen, { x: 30, y: 40 });
+    const [r2, t2, n2, p2] = translateAnnotations([rect, text, badge, pen], -40, -20);
+    expect(r2).toMatchObject({ from: { x: 60, y: 80 }, to: { x: 160, y: 130 } });
+    expect(t2).toMatchObject({ at: { x: 10, y: 40 }, text: 'hi' });
+    expect(n2).toMatchObject({ at: { x: 260, y: 20 }, index: 2 });
+    expect(p2).toMatchObject({ points: [{ x: -30, y: -10 }, { x: -10, y: 20 }] });
+  });
+
+  it('원본 배열·주석은 건드리지 않는다(되돌리기 앞 칸이 같은 객체를 붙든다)', () => {
+    const rect = shape('r', { x: 100, y: 100 }, { x: 200, y: 150 });
+    const before = JSON.stringify(rect);
+    translateAnnotations([rect], 5, 5);
+    expect(JSON.stringify(rect)).toBe(before);
   });
 });

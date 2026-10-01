@@ -7,24 +7,24 @@ import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_M
 import { isBackgroundShellTask } from '@vibisual/shared';
 import {
   useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
-  useBackgroundShellCount,
 } from '../../hooks/useSessionRunning.js';
 import { afterInputComposition, cancelPendingInputEdits, IME_ENTER_OWNER, isComposingKeyEvent, isComposingNow, isImeConsumedKey, isInputComposing } from '../../utils/inputComposition.js';
 import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.js';
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { clampStreamText, COMPACT_TEXT_CLAMP, turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, type TurnCoverage } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, type TurnCoverage } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { turnStopLabelKey } from './turnStopLabel.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
-import { useIDEPaneValue, useIDEPaneKey } from './idePane.js';
+import { useIDEPaneValue } from './idePane.js';
 // §5.5 #17-34 — 창 안 분할. 칸 컨텍스트가 있으면 이 본문은 그 칸의 세션을 그리고, 창 단위 단축키는
 //   초점 칸만 받는다(컨텍스트 밖 = 분할 없음 = 종전 동작 그대로).
 import { useSplitCellFocused, useSplitCellSession } from './splitCellContext.js';
+import { lightboxHostMatches, useImageLightboxHostSpot, useImageLightboxOrigin } from './imageLightboxOrigin.js';
 import type { AgentSessionInputAttachment, EditorFollowMark } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
 import { builtinSlashDescription } from './slashBuiltinDesc.js';
@@ -76,6 +76,7 @@ import { VoiceInputOverlay } from './VoiceInputOverlay.js';
 import { VoiceInstallDialog } from './VoiceInstallDialog.js';
 import { MicSettingsPopup } from './MicSettingsPopup.js';
 import { shortcutLabel } from '../../utils/platform.js';
+import { liveLineActivityAt } from '../../utils/sessionActivity.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -245,8 +246,12 @@ interface TerminalThinkingLive {
   /** `thinking` = 사고 중, `working` = 그 외 작업 중, `waiting` = 줄만 섬(§5.5 #17-18 ⑪). */
   mode: 'thinking' | 'working' | 'waiting';
   timestamp: number;
-  /** §2.4 (무응답) — 경과를 재는 시계(마지막 이벤트 시각). 모르면 `null`(Sub 탭과 동형). */
+  /** §2.4 (무응답) — 무응답을 재는 시계(마지막 이벤트 시각). 모르면 `null`(Sub 탭과 동형). */
   lastActivityAt: number | null;
+  /** §5.5 #17-10 ⑥-6 (턴 시계) — 평소 적는 경과의 시작점(지금 턴 · 대기면 줄 선 시각). Sub 탭과 동형. */
+  turnStartedAt: number | null;
+  /** §5.3 #9-1 (P) — 감춘 턴이 도는 중이면 무응답으로 안 뒤집는다(Sub 탭 `StreamThinkingLive` 와 동형). */
+  hiddenTurn?: true;
 }
 
 /**
@@ -307,7 +312,11 @@ function isMainEchoSkip(n: MainTimelineNode): boolean {
   if (it.kind === 'group') return it.groupType === 'tool';
   if (it.kind === 'thinking-live') return true;
   // §5.5 #17-39 — 단계 자국(`step`)도 말이 아니다(Sub 탭 CARD_ECHO_SKIP_KINDS 와 같은 목록).
-  if (it.kind === undefined) return it.type === 'system' || it.type === 'tool_use' || it.type === 'tool_result' || it.type === 'step';
+  // §5.5 #17-18 ⑦-6 — 목표 창 블록뿐인 본문도 화면에 안 그려지므로 말이 아니다(Sub 탭 precededByCard 와 같은 함수).
+  if (it.kind === undefined) {
+    if (it.type === 'text') return isInvisibleStreamText(it.text);
+    return it.type === 'system' || it.type === 'tool_use' || it.type === 'tool_result' || it.type === 'step';
+  }
   return false;
 }
 
@@ -1103,11 +1112,13 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const agents = useGraphStore((s) => s.agents);
   const registerAttachmentPreview = useGraphStore((s) => s.registerAttachmentPreview);
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
   // §5.3 #28 v1.48 — 세션 스코프 draft (text + attachments) store 구독.
   // 세션 탭 전환 시 입력 내용이 해당 세션에 매여 유지된다. key = agentSessionInputKey(agentId, activeSessionId).
   const draftKey = agentSessionInputKey(agentId, activeSessionId);
   const sessionDraft = useGraphStore((s) => s.agentSessionInputs[draftKey]);
+  const inputProviderKind = useGraphStore((s) => s.agentConfigs[agentId]?.provider?.kind);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   const updateAgentSessionInputAttachments = useGraphStore((s) => s.updateAgentSessionInputAttachments);
   const clearAgentSessionInput = useGraphStore((s) => s.clearAgentSessionInput);
@@ -1145,23 +1156,6 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   //   **스코프를 좁힐 세션이 없는 메인 탭 전용**으로 남는다 — 어느 세션 탭이든 executing 이거나
   //   백그라운드 Task 가 하나라도 살아있으면 `stop-all` 을 낼 수 있다.
   const agentBusyElsewhere = useSessionRunning(agentId, null) && activeSessionId === null;
-  /*
-   * §5.5 #17-9 ⑰ — **백단 셸은 여기서 말한다.**
-   *
-   * 위 `sessionRunning` 은 이제 셸을 세지 않는다(셸은 모델이 아니라 명령이 돈다 — 그 턴의 답은
-   * 이미 나와 있다). 그 분리 덕에 입력창이 돌아오고 [중지]가 사라지지만, 그대로 두면 사용자가
-   * 띄운 `npm run dev` 가 **화면에서 통째로 사라진다**. 그래서 같은 자리에 회색 한 줄을 남긴다 —
-   * 파랑(=기다려야 함)이 아니라 회색(=알아 두면 되는 사실)이고, 누르면 목록으로 간다.
-   */
-  const bgShellCount = useBackgroundShellCount(agentId, activeSessionId);
-  const paneKey = useIDEPaneKey();
-  const paneSidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
-  const setIDEActiveView = useGraphStore((s) => s.setIDEActiveView);
-  const toggleIDESidebar = useGraphStore((s) => s.toggleIDESidebar);
-  const openBackgroundShells = useCallback(() => {
-    setIDEActiveView('subagents', paneKey);
-    if (paneSidebarCollapsed) toggleIDESidebar(paneKey);
-  }, [setIDEActiveView, toggleIDESidebar, paneKey, paneSidebarCollapsed]);
   const sid = useMemo(() => agents.find((a) => a.id === agentId)?.path ?? null, [agents, agentId]);
   const sidRef = useRef<string | null>(sid);
   const agentIdRef = useRef<string>(agentId);
@@ -1476,7 +1470,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   }, [setAttachments]);
 
   const hasPendingUploads = attachments.some((a) => a.uploading);
-  const canSubmit = text.trim().length > 0 && !hasPendingUploads;
+  const localImagesUnsupported = inputProviderKind === 'local-llama' && attachments.length > 0;
+  const canSubmit = text.trim().length > 0 && !hasPendingUploads && !localImagesUnsupported;
 
   /**
    * @param live 입력칸의 **현재 값**(Enter 집행이 넘겨준다). 없으면 DOM → 스토어 순으로 찾는다.
@@ -1496,6 +1491,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     if (!trimmed) return;
     const pending = draft?.attachments ?? [];
     if (pending.some((a) => a.uploading)) return;
+    if (useGraphStore.getState().agentConfigs[agentId]?.provider?.kind === 'local-llama' && pending.length > 0) return;
     const submitted = pending.filter((a) => !a.uploading && a.serverPath && !a.error);
     const paths = submitted.map((a) => a.serverPath);
     // v1.38 — 제출한 첨부의 blob URL 을 스토어로 이관 (basename 키).
@@ -2064,7 +2060,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
                 onClick={() => {
                   if (a.uploading || a.error) return;
                   const previewUrl = attachmentPreviewUrl(a);
-                  if (previewUrl) openImageLightbox(previewUrl, { agentId, sessionId: activeSessionId, tempId: a.tempId });
+                  if (previewUrl) openImageLightbox(previewUrl, lightboxOrigin(), { agentId, sessionId: activeSessionId, tempId: a.tempId });
                 }}
                 className={`h-full w-full object-cover ${a.uploading || a.error ? 'opacity-40' : 'cursor-zoom-in'}`}
               />
@@ -2102,31 +2098,19 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           </button>
         </div>
       )}
-      {/*
-        §5.5 #17-9 ⑰ — 백단 셸 한 줄. **회색이고 스피너가 없다** — 기다릴 일이 아니기 때문이다.
-        종전에는 이런 셸 하나가 세션 전체를 파랗게 붙들어, 답이 이미 나왔는데도 입력창이 [중지]로
-        굳고 3분 무응답 경고까지 섰다(사용자 보고: "질문 하나 던졌는데 백으로 뭘 또 돌려서 작업이
-        안 끝난 것처럼 보인다"). 이제 그 사실은 여기 한 줄로만 남는다.
-      */}
-      {bgShellCount > 0 && (
-        <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-gray-500">
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="4 17 10 11 4 5" />
-            <line x1="12" y1="19" x2="20" y2="19" />
-          </svg>
-          <span className="min-w-0 flex-1 basis-40" title={t('ide.mainArea.backgroundShellsTip')}>
-            {t('ide.mainArea.backgroundShells', { count: bgShellCount })}
-          </span>
-          <button
-            type="button"
-            onClick={openBackgroundShells}
-            title={t('ide.mainArea.backgroundShellsTip')}
-            className="rounded border border-gray-500/30 px-2 py-1 hover:bg-gray-500/10"
-          >
-            {t('ide.mainArea.backgroundShellsOpen')}
-          </button>
+      {(localImagesUnsupported || sessionDraft?.sendFailure) && (
+        <div role="alert" className="mb-1 text-[12px] leading-relaxed text-amber-400">
+          {t(localImagesUnsupported || sessionDraft?.sendFailure === 'local-images-unsupported'
+            ? 'ide.mainArea.localImagesUnsupported'
+            : sessionDraft?.sendFailure === 'rejected' ? 'ide.mainArea.sendRejected' : 'ide.mainArea.sendUnconfirmed')}
         </div>
       )}
+      {/*
+        §5.5 #17-9 ⑰(c-1) — 여기에 백단 셸 띠를 두지 않는다(2026-09-29 사용자 지시). 셸 개수 하나만 보고
+        떠서, 턴이 아직 도는 중에도 "답은 이미 나왔으니 계속 입력하셔도 된다"고 적었고 그 말을 믿고 보낸
+        말은 줄에 섰다. 셸이 돈다는 사실은 활동바 "백그라운드 작업"의 숫자와 사이드바 목록([셸] 칩)이
+        말한다. 되살리지 마라 — `sessionRunTruth.test.ts` (K) 가 고정한다.
+      */}
       {/*
         §5.5 #17-10 ⑥-6 — 여기에 무응답 띠(경과 · [더 기다리기] · [중지])를 두지 않는다(2026-09-23 사용자 지시).
         그 [중지]는 바로 아래 입력줄의 [중지](같은 `handleStop`)와 같은 기능 두 벌이었다. 경과·무응답은
@@ -2642,6 +2626,7 @@ function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX
 function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
   // 우선순위(기본): 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
   const defaultTarget = useMemo(() => {
     const executing = commands.find((c) => c.status === 'executing');
@@ -2815,7 +2800,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
               <button
                 key={a.basename}
                 type="button"
-                onClick={(e) => { e.stopPropagation(); openImageLightbox(a.url); }}
+                onClick={(e) => { e.stopPropagation(); openImageLightbox(a.url, lightboxOrigin()); }}
                 className="h-5 w-5 flex-shrink-0 overflow-hidden rounded border border-gray-700"
               >
                 <img src={a.url} alt="" className="h-full w-full cursor-zoom-in object-cover" />
@@ -2883,7 +2868,9 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
 function ImageLightboxHost({ agentId, activeSessionId, canAttach }: ImageLightboxHostProps): React.JSX.Element | null {
   const lightbox = useGraphStore((s) => s.imageLightbox);
   const close = useGraphStore((s) => s.closeImageLightbox);
-  if (!lightbox) return null;
+  // 호스트는 대화 본문마다 있다 — **연 자리의 것만** 그린다(창·분할 칸 수만큼 겹쳐 뜨고 [저장]이 남의 입력창으로 가던 것).
+  const spot = useImageLightboxHostSpot();
+  if (!lightbox || !lightboxHostMatches(lightbox.origin, spot)) return null;
   return createPortal(
     <ImageLightboxView
       // 이미지가 바뀌면 주석·도구 상태를 새로 시작한다(다음 이미지에 앞 그림이 남아 있으면 안 된다).
@@ -2958,7 +2945,14 @@ export const IDEMainArea = memo(function IDEMainArea({
   // §2.4 (무응답) — "얼마나 조용한가"를 재는 시작점. 서버가 준 세션 활동 시각이라 여기서 만들지 않는다.
   // §5.5 #17-18 ⑪ — **줄만 서 있는가.** 같은 훅에서 함께 받는다(`isSessionWaiting` — 도는 중 ∩
   //   여집합). 이 값이 라이브 1줄의 세 번째 모습을 고르고, Sub 탭에도 그대로 내려간다.
-  const { lastActivityAt: sessionLastActivityAt, waiting: sessionWaiting } = useSessionLivenessFacts(agentId, activeSessionId);
+  // §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중인가. 그동안의 움직임은 클라에 오지 않으므로
+  //   라이브 1줄은 입력한 순간부터 경과만 세고 무응답으로 뒤집지 않는다(`liveLineStalled`).
+  // §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄이 평소 적는 경과의 시작점. 원본 큐 + 세션 필터로 낸 값이라
+  //   메인 탭·Sub 탭이 같은 사실을 본다(줄이 와도 되감기지 않는다 — 활동 시각은 무응답 판정에만).
+  const {
+    lastActivityAt: sessionLastActivityAt, waiting: sessionWaiting, hiddenTurn: sessionHiddenTurn,
+    turnStartedAt: sessionTurnStartedAt,
+  } = useSessionLivenessFacts(agentId, activeSessionId);
   // §5.5 #17-12 ③ v4.64 — 하단 상태바의 [중지]를 없애면서 여기서 쓰던 useSessionStop 도 함께 제거.
   //   중지 창구는 입력창(TerminalInput)의 [중지] 하나뿐이다(#17-10 범위 규칙 그대로).
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
@@ -3441,16 +3435,21 @@ export const IDEMainArea = memo(function IDEMainArea({
       }
       // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(Sub 탭 `computeThinkingLive` 와 동형).
       const mode = sessionWaiting ? 'waiting' : latest && isThinkingActivity(latest) ? 'thinking' : 'working';
-      // §2.4 (무응답) — 경과 시계는 **마지막 이벤트 시각**이다. 한 건도 없으면 `null`(모름) — 여기서
-      //   `Date.now()` 를 넣으면 매 프레임 "방금 움직였다"가 되어 영영 무응답이 될 수 없다.
+      // §2.4 (무응답) — 경과 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중 늦은 쪽.
+      //   감춘 턴이 도는 동안에도 입력한 순간부터 세고 무응답으로만 안 뒤집는다(`hiddenTurn`). Sub 탭과 같은
+      //   함수다. 근거가 없으면 `null` — 여기서 `Date.now()` 를 넣으면 매 프레임 "방금 움직였다"가 되어
+      //   영영 무응답이 될 수 없다.
       grouped.push({
         kind: 'thinking-live', id: 'thinking-live', mode,
         timestamp: latest?.timestamp ?? Date.now(),
-        lastActivityAt: latest?.timestamp ?? sessionLastActivityAt,
+        lastActivityAt: liveLineActivityAt(latest?.timestamp, sessionLastActivityAt),
+        // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터(Sub 탭과 같은 사실).
+        turnStartedAt: sessionTurnStartedAt,
+        ...(sessionHiddenTurn ? { hiddenTurn: true as const } : {}),
       });
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, sessionHasWork, sessionWaiting, sessionLastActivityAt]);
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt]);
 
   // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 sub 질문을 시간순.
@@ -4277,6 +4276,12 @@ export const IDEMainArea = memo(function IDEMainArea({
               sessionBusy={sessionHasWork}
               // §5.5 #17-18 ⑪ — 같은 원본 큐 + 세션 필터에서 나온 "줄만 서 있는가".
               sessionWaiting={sessionWaiting}
+              // §2.4 (무응답) — 라이브 1줄 시계의 재료(메인 탭과 같은 값). 보인 줄만 재면 조용한 압축 뒤의
+              //   새 턴이 앞 턴 끝부터 잰 "마지막 업데이트 N 전"으로 시작한다.
+              sessionActivityAt={sessionLastActivityAt}
+              sessionActivityHidden={sessionHiddenTurn}
+              // §5.5 #17-10 ⑥-6 — 라이브 1줄이 평소 적는 경과의 시작점(메인 탭과 같은 값).
+              sessionTurnStartedAt={sessionTurnStartedAt}
               // §4 v3.21 — result 블록 좋아요/싫어요 피드백 컨텍스트(소유 에이전트 + 이 세션 탭).
               agentId={agentId}
               subAgentId={activeSessionId ?? undefined}
@@ -4343,7 +4348,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                           : n.item.kind === 'group'
                             ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
-                              ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} />
+                              ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} turnStartedAt={n.item.turnStartedAt} hiddenTurn={n.item.hiddenTurn === true} />
                               : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId || mainOpeningTextIds.has(itemId)} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
                     </div>
                   );

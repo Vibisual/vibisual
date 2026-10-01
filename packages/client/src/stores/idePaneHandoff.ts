@@ -151,6 +151,9 @@ export function handoffPanePatch(
     activeEditorPath: handoff.editorFiles.some((f) => f.relPath === handoff.activeEditorPath)
       ? handoff.activeEditorPath
       : null,
+    // §5.5 #17-27 ①-1 — 짐을 지고 온 창은 **놓은 그 크기 그대로** 선다((H-17)). 열려 온 판은 새로 열린 것이
+    //   아니므로 넓힐지 이미 따진 것으로 둔다 — 안 그러면 받는 창이 서자마자 편집창 폭만큼 자랐다.
+    editorRoom: handoff.editorFiles.length > 0 ? { checked: true, growth: null } : null,
   };
   if (target === 'app') {
     patch.dockSide = handoff.dockSide;

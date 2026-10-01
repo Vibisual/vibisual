@@ -157,6 +157,13 @@ describe('handoffPanePatch', () => {
     expect(patch.activeSessionId).toBe('sub-9');
   });
 
+  it('§5.5 #17-27 ①-1 — 열려 온 판은 새로 열린 것이 아니다: 넓힐지 이미 따진 것으로 선다(놓은 크기 그대로, (H-17))', () => {
+    for (const target of ['app', 'detached'] as const) {
+      expect(handoffPanePatch(handoff, target).editorRoom).toEqual({ checked: true, growth: null });
+      expect(handoffPanePatch({ ...handoff, editorFiles: [] }, target).editorRoom).toBeNull();
+    }
+  });
+
   it('열린 탭에 없는 경로를 고르고 있으면 아무 탭도 고르지 않는다', () => {
     const stray = { ...handoff, activeEditorPath: 'src/gone.ts' };
     expect(handoffPanePatch(stray, 'app').activeEditorPath).toBeNull();

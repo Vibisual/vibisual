@@ -208,3 +208,78 @@ export function resolveIDEBodyLayout(input: IDEBodyInput): IDEBodyLayout {
     titleBarNarrow: width < IDE_BODY.TITLE_FOLD_W,
   };
 }
+
+/**
+ * §5.5 #17-27 ①-1 — 판(편집창·무대·실행 출력)을 열 때 **창을 몇 px 넓혀야** 대화 오른쪽에 설 수 있나.
+ *
+ * 지금 폭에서 그대로 열면 무언가 접히는 창에서만 양수다 — 편집창이 대화를 덮거나(③), 열기 전에는
+ * 서 있던 사이드바·활동바가 서랍으로 들어가는(②·④) 경우. 그때 창은 **편집창 폭(저장값)만큼**
+ * 자란다: 대화는 연 앞과 같은 폭으로 남고 편집창은 그 오른쪽에 선다. 넉넉한 창은 0 — 종전처럼
+ * 편집창이 대화 폭을 나눠 쓴다(①). 폰 폭과 아직 못 잰 첫 프레임도 0 이다(넓힐 창이 없거나, 모른다).
+ *
+ * 열기 전에 **이미 서랍에 들어가 있던** 사이드바·활동바는 자란 창에서 다시 선다(배치는 폭만 보고 정한다) —
+ * 그 몫도 함께 넓힌다. 편집창 폭만 넓히면 늘어난 자리를 그들이 먼저 가져가, 대화는 하한까지 찌부러지고
+ * 편집창도 저장 폭보다 좁게 섰다(500px 창·사이드바 208·편집창 520 → 대화 452→320, 편집창 444).
+ */
+export function editorGrowth(input: Omit<IDEBodyInput, 'editorOpen'>): number {
+  if (input.viewportNarrow || !(input.width > 0)) return 0;
+  const closed = resolveIDEBodyLayout({ ...input, editorOpen: false });
+  const open = resolveIDEBodyLayout({ ...input, editorOpen: true });
+  const folds = open.editorDrawer
+    || (open.sidebarDrawer && !closed.sidebarDrawer)
+    || (open.navDrawer && !closed.navDrawer);
+  if (!folds) return 0;
+  const side = input.sidebarCollapsed ? 0 : Math.max(0, input.sidebarWidth);
+  return clampEditor(input.editorWidth)
+    + (closed.sidebarDrawer ? side : 0)
+    + (closed.navDrawer ? IDE_BODY.ACTIVITY_W : 0);
+}
+
+/** 좌/우 도크 두께를 판 때문에 넓힌 한 번의 기록. `seq` 는 그 넓힘을 따진 차례다(늦게 따질수록 크다). */
+export interface DockGrowthRecord {
+  before: number;
+  after: number;
+  seq: number;
+}
+
+/** 같은 변에 붙은 다른 창 가운데 **판이 열려 있고 넓힐지 이미 따진** 창. */
+export interface DockGrowthHeir {
+  key: string;
+  /** 그 창이 넓힐지 따진 차례. */
+  seq: number;
+  /** 그 창이 쥐고 있는 같은 변의 두께 기록(없으면 `null`). */
+  growth: DockGrowthRecord | null;
+}
+
+export type DockGrowthClose =
+  | { kind: 'revert'; size: number }
+  | { kind: 'hand'; key: string; growth: DockGrowthRecord }
+  | { kind: 'keep' };
+
+/**
+ * §5.5 #17-27 ①-1 — 도크 창이 판을 닫을 때 **넓혀 둔 두께를 어떻게 할지**.
+ *
+ * 두께는 그 변 전체의 성질이다(`setIDEDockSize` 가 같은 변의 창을 함께 바꾼다). 종전에는 판을 닫는 창이 제 기록대로
+ * 되돌렸다 — 그 넓힌 두께를 보고 "자리가 있다"며 넓히지 않고 판을 연 옆 창이 대신 찌부러졌다. 넓힌 **뒤에** 따진 창
+ * (`seq` 가 더 큰 창)이 남아 있으면 되돌리지 않고 그 창에 기록을 넘긴다 — 그 넓힘에 기댄 마지막 판이 닫힐 때 처음
+ * 두께로 돌아간다. 그 창이 이어서 제 몫을 더 넓혔으면 두 기록을 하나로 잇는다.
+ */
+export function dockGrowthOnClose(
+  rec: DockGrowthRecord,
+  now: number,
+  heirs: readonly DockGrowthHeir[],
+): DockGrowthClose {
+  const relying = heirs.filter((h) => h.seq > rec.seq);
+  if (relying.length === 0) {
+    // 되돌리기는 **자란 그대로일 때만** — 그 사이 손잡이로 두께를 바꿨으면 사용자가 정한 것이다.
+    return Math.abs(now - rec.after) <= 1 ? { kind: 'revert', size: rec.before } : { kind: 'keep' };
+  }
+  const chained = relying.find((h) => h.growth !== null && Math.abs(h.growth.before - rec.after) <= 1);
+  if (chained?.growth) {
+    return { kind: 'hand', key: chained.key, growth: { before: rec.before, after: chained.growth.after, seq: rec.seq } };
+  }
+  const bare = relying.find((h) => h.growth === null);
+  if (bare) return { kind: 'hand', key: bare.key, growth: { before: rec.before, after: rec.after, seq: rec.seq } };
+  // 기댄 창이 저마다 이어지지 않는 기록을 쥐고 있다(그 사이 두께가 손으로 바뀌었다) — 이을 곳이 없으니 두께는 그대로 둔다.
+  return { kind: 'keep' };
+}

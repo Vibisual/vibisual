@@ -10,7 +10,7 @@ import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 // useAppUpdate(=desktop main updaterManager push 구독)의 phase 에 따라:
 //   - available    : "새 버전 vX" 정보 pill (autoDownload 라 곧 downloading 으로 전이).
 //   - downloading  : "업데이트 {N}%" 진행 pill.
-//   - downloaded   : "재시작하여 업데이트" 파란 액션 버튼 → 클릭 시 **확인 모달**(v2.63) →
+//   - downloaded   : 컴팩트한 "Update" 파란 액션 버튼(설명은 호버 툴팁) → 클릭 시 **확인 모달**(v2.63) →
 //                    사용자가 확인하면 install()(quitAndInstall). 즉시 재설치 ❌ — 진행 중
 //                    작업·미저장 변경 손실 우려를 재시작 직전에 명시 경고(§3.2.1 인프라 위 안전망).
 //   - idle/checking/up-to-date/error/null : 렌더 없음(숨김) — VS Code 처럼 할 일 있을 때만 노출.
@@ -229,14 +229,18 @@ export function UpdateButton(): React.JSX.Element | null {
     const readyVersion = state.readyVersion ?? state.newVersion ?? '';
     return (
       <>
+        {/* 헤더에선 짧은 한 단어(`restartShort` — 로케일마다 번역)만 — 버전·재시작 설명은 호버 툴팁으로 넘긴다.
+            긴 "재시작하여 업데이트"는 확인 모달의 확정 버튼에만 남는다.
+            접근성 이름은 보이는 글자 그대로 둔다(`aria-label` ❌) — 툴팁 문장으로 덮으면 이름에 보이는 라벨이 없어
+            음성 제어로 "업데이트"를 불러도 버튼을 못 찾고, 화면 낭독기는 보이는 것과 다른 이름을 읽는다. 툴팁은 `title` 로 설명이 된다. */}
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
           title={t('header.update.restartTooltip', { version: readyVersion })}
-          className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition-colors duration-150 hover:bg-blue-500"
+          className="app-nodrag flex items-center gap-1 rounded bg-blue-600 px-1.5 py-0.5 text-[12px] font-medium leading-4 text-white transition-colors duration-150 hover:bg-blue-500"
         >
-          <RestartIcon />
-          <span>{t('header.update.restart')}</span>
+          <RestartIcon className="h-3 w-3" />
+          <span>{t('header.update.restartShort')}</span>
         </button>
         {confirmOpen && (
           <UpdateConfirmModal

@@ -41,6 +41,10 @@ import {
   startPaneDragEscapeWatch,
   stopPaneDragEscapeWatch,
   toggleMaximizeOverlaySelfByWindowId,
+  setOverlayPinnedSelfByWindowId,
+  isOverlayPinnedByWindowId,
+  growOverlayEditorRoomByWindowId,
+  restoreOverlayEditorRoomByWindowId,
   startOverlayDragByWindowId,
   endOverlayDragByWindowId,
   endOverlayDragByAgentId,
@@ -505,6 +509,22 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:overlay:toggle-maximize-self', (event): boolean =>
     toggleMaximizeOverlaySelfByWindowId(event.sender.id),
   );
+  // §17-6 (H-28) — 독립 창 [항상 위에 고정]. 원하는 값을 받는 멱등 set 이고, 돌려준 값으로 버튼을 칠한다.
+  //   바꾸는 손이 그 창의 버튼 하나라 push 는 없다 — 창이 IDE 로 설 때 get 으로 한 번 묻는다.
+  ipcMain.handle('vibisual:overlay:set-pinned-self', (event, pinned: unknown): boolean =>
+    typeof pinned === 'boolean' ? setOverlayPinnedSelfByWindowId(event.sender.id, pinned) : false,
+  );
+  ipcMain.handle('vibisual:overlay:get-pinned-self', (event): boolean =>
+    isOverlayPinnedByWindowId(event.sender.id),
+  );
+  // §5.5 #17-27 ①-1 — 편집창 판이 열리며 독립 창을 오른쪽으로 넓히고, 닫히면 되돌린다.
+  //   얼마나는 렌더가 정하고, main 은 작업영역 안에 앉히고 넓히기 전 자리를 기억한다.
+  ipcMain.handle('vibisual:overlay:grow-editor-room-self', (event, dx: unknown): boolean =>
+    typeof dx === 'number' ? growOverlayEditorRoomByWindowId(event.sender.id, dx) : false,
+  );
+  ipcMain.handle('vibisual:overlay:restore-editor-room-self', (event): boolean =>
+    restoreOverlayEditorRoomByWindowId(event.sender.id),
+  );
   // §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링).
   ipcMain.handle(
     'vibisual:overlay:drag-start',
@@ -780,6 +800,10 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:shell-ready');
       ipcMain.removeHandler('vibisual:ide:pane-drag-watch');
       ipcMain.removeHandler('vibisual:overlay:toggle-maximize-self');
+      ipcMain.removeHandler('vibisual:overlay:set-pinned-self');
+      ipcMain.removeHandler('vibisual:overlay:get-pinned-self');
+      ipcMain.removeHandler('vibisual:overlay:grow-editor-room-self');
+      ipcMain.removeHandler('vibisual:overlay:restore-editor-room-self');
       ipcMain.removeHandler('vibisual:overlay:drag-start');
       ipcMain.removeHandler('vibisual:overlay:drag-end');
       ipcMain.removeHandler('vibisual:overlay:drag-end-for');

@@ -22,6 +22,7 @@
       "availableTooltip": "La versione {{version}} è disponibile e si sta scaricando in background",
       "downloading": "Aggiornamento {{percent}}%",
       "restart": "Riavvia per aggiornare",
+      "restartShort": "Aggiorna",
       "restartTooltip": "La versione {{version}} è pronta — riavvia per applicarla",
       "confirmTitle": "Riavviare per aggiornare?",
       "confirmBody": "L'aggiornamento chiuderà e reinstallerà l'app. Il lavoro degli agent in corso o le modifiche non salvate potrebbero andare perse.",
@@ -1930,7 +1931,8 @@
       "later": "Più tardi",
       "stop": "Interrompi",
       "start": "Accedi",
-      "successNext": "Poi: scegli la cartella di progetto in cui lavoreranno i tuoi agenti."
+      "successNext": "Poi: scegli la cartella di progetto in cui lavoreranno i tuoi agenti.",
+      "invalidEmail": "Inserisci un indirizzo e-mail valido oppure lascia il campo vuoto."
     },
     "setup": {
       "title": "Installa Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "Solo download"
       },
       "note": "Questo imposta solo il valore predefinito per i nuovi agenti. Tutti e tre restano disponibili fianco a fianco e puoi configurare gli altri più tardi in Opzioni.",
-      "later": "Decidi più tardi"
+      "later": "Decidi più tardi",
+      "saving": "Salvataggio della scelta…",
+      "saveError": "Impossibile salvare la scelta. Seleziona di nuovo un motore."
     },
     "codexSetup": {
       "title": "Installa Codex CLI",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "Questa competenza è disattivata in Codex. Attivala in Codex prima di usarla."
       }
     },
+    "skillTabs": {
+      "label": "Motori delle competenze",
+      "own": "Competenze {{provider}} di questo agente"
+    },
     "diff": {
       "addComment": "Commenta questa riga",
       "removeComment": "Rimuovi commento",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "Visualizza",
+        "crop": "Ritaglia",
+        "alpha": "Trasparenza",
         "rect": "Rettangolo",
         "ellipse": "Ellisse",
         "arrow": "Freccia",
@@ -2408,6 +2418,42 @@
         "mask": "Oscura",
         "text": "Testo",
         "number": "Etichetta numerata"
+      },
+      "crop": {
+        "aspectFree": "Libero",
+        "aspectOriginal": "Originale",
+        "aspectTitle": "Blocca il rapporto a {{ratio}}",
+        "round": "Cerchio",
+        "roundHint": "Rende trasparente tutto ciò che è fuori dall'ellisse",
+        "width": "Larghezza",
+        "height": "Altezza",
+        "fieldHint": "Misurato in pixel dell'immagine",
+        "trim": "Taglio automatico",
+        "trimHint": "Adatta il riquadro al contenuto, escludendo il bordo circostante del colore degli angoli",
+        "trimNone": "Non c'è alcun bordo da tagliare."
+      },
+      "alpha": {
+        "modeKey": "Rimuovi colore",
+        "modeFill": "Riempi trasparenza",
+        "pickedColor": "Colore da rimuovere: {{color}}",
+        "pickEmpty": "Clicca sull'immagine per scegliere un colore",
+        "tolerance": "Tolleranza",
+        "contiguous": "Solo adiacente",
+        "contiguousHint": "Rimuove solo l'area adiacente al punto in cui hai cliccato. Disattivalo per rimuovere il colore dall'intera immagine.",
+        "auto": "Sfondo automatico",
+        "autoHint": "Usa il colore più comune negli angoli come sfondo da rimuovere",
+        "autoNone": "Gli angoli sono già trasparenti — non c'è un colore di sfondo da rimuovere.",
+        "pickTransparent": "Quel punto è già trasparente — scegli un colore visibile.",
+        "noMatch": "Nessun pixel corrisponde a quel colore — prova una tolleranza più alta.",
+        "noTransparency": "Questa immagine non ha aree trasparenti da riempire.",
+        "fillWhite": "Bianco",
+        "fillBlack": "Nero",
+        "fillCustom": "Scegli un colore"
+      },
+      "edit": {
+        "applyHint": "Applica ({{shortcut}})",
+        "cancelHint": "Esci dallo strumento senza applicare ({{shortcut}})",
+        "failed": "Impossibile modificare questa immagine."
       },
       "color": "Colore",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "Impossibile salvare in quel file.",
       "fileConflict": "Quel file è cambiato sul disco dopo l'apertura.",
       "fileConflictOverwrite": "Salva comunque",
+      "fileJpegAlpha": "Il JPEG non supporta la trasparenza — usa prima «{{fill}}», oppure scegli invece «{{download}}».",
       "textPlaceholder": "Digita, poi premi Invio",
       "hintPick": "Scegli uno strumento per segnare questa immagine, poi salvala come allegato.",
       "hintDraw": "Trascina sull'immagine per segnarla. {{shortcut}} annulla l'ultimo segno.",
+      "hintCrop": "Trascina il riquadro per scegliere l'area da mantenere. {{shortcut}} applica il ritaglio.",
+      "hintAlphaKey": "Clicca sul colore da rimuovere. {{shortcut}} applica la rimozione.",
+      "hintAlphaFill": "Le aree trasparenti saranno riempite con il colore scelto. {{shortcut}} applica il riempimento.",
       "discardTitle": "Eliminare le annotazioni e chiudere?",
       "discardCancel": "Continua a modificare",
       "discardConfirm": "Elimina e chiudi",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Stacca in una finestra separata",
       "toBubble": "Trasforma in bolla dell'overlay",
       "toBubbleHint": "Riduce questa finestra a una bolla dell'overlay desktop · fai doppio clic sulla bolla per riaprirla",
+      "pinOnTop": "Mantieni in primo piano",
+      "pinOnTopHint": "Mantiene questa finestra sopra le altre app, anche quando passi a loro",
+      "pinnedOnTopHint": "Fissata in primo piano — fai clic per lasciare che le altre app la coprano di nuovo",
       "redockDwellHint": "Rilascia per unirla all’app",
       "codexLabel": "Codex",
       "codexContextUsed": "Questa conversazione ha usato {{used}} token di contesto — il motore non riporta un limite"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Ripristina la spaziatura del coreano",
       "voiceRespaceHint": "Il riconoscitore restituisce il coreano senza spazi; questa opzione lo divide in base a particelle e desinenze. È basata su regole, quindi non è perfetta: puoi correggere il risultato nel campo di testo.",
       "stallHint": "Un ragionamento o una chiamata a uno strumento prolungati possono sospendere gli aggiornamenti. Questo, da solo, non significa che la sessione si sia fermata.",
-      "backgroundShells": "{{count}} shell in background ancora in esecuzione. La risposta è già arrivata — puoi continuare a scrivere.",
-      "backgroundShellsTip": "Un comando Bash o Monitor in background, rimasto da un turno precedente. Esegue un comando, non un modello, quindi non tiene occupata questa sessione. I comandi che non terminano mai da soli (tail -f, while true, un sort in pipe) restano qui finché non li rimuovi.",
-      "backgroundShellsOpen": "Visualizza",
       "stopNothing": "Non c'era nulla in esecuzione da interrompere. L'etichetta “in esecuzione” era rimasta indietro.",
       "stopNothingHint": "Il server non ha trovato alcun processo figlio, comando in coda o attività in background per questo ambito.",
       "stopForce": "Forza chiusura",
       "stopForceTitle": "Interrompe tutto su questo agent, incluse le altre sessioni e i comandi in coda.",
       "stopFailed": "Richiesta di interruzione non riuscita ({{status}}).",
       "stopRetry": "Riprova",
-      "queuedBehindSilent": "Risulta in esecuzione perché prima sta terminando una compattazione in background. Questo comando non è ancora stato inviato, quindi puoi ancora modificarlo o rimuoverlo."
+      "sendRejected": "La richiesta è stata rifiutata. Il testo e gli allegati sono stati ripristinati. Controlla la conversazione prima di inviare di nuovo.",
+      "sendUnconfirmed": "Impossibile confermare l’invio. Il testo e gli allegati sono stati ripristinati. Controlla la conversazione prima di inviare di nuovo.",
+      "localImagesUnsupported": "All Model non supporta ancora le immagini in ingresso. Rimuovi le immagini o scegli un altro fornitore per inviare questo messaggio."
     },
     "voiceInstall": {
       "title": "Configura l’inserimento vocale",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} sessione",
       "sessionMany": "{{count}} sessioni",
       "sessionsTip": "Quante schede di sessione sono aperte su questo agente.",
-      "contextOverdueTip": "Il contesto di questa sessione è quasi pieno e continua a crescere, ma non è stata eseguita alcuna compattazione. Clicca per aprire Assicurazione del contesto.",
-      "contextStalledTip": "La finestra di contesto di questa sessione è praticamente piena e la compattazione non è stata eseguita. Clicca per aprire Assicurazione del contesto.",
-      "contextRejectedTip": "Abbiamo inviato un comando di compattazione, ma Claude Code non l'ha mai avviata: è stata rifiutata. Di solito dipende dal fatto che le skill e i comandi slash sono disattivati per questo progetto in {{contextSources}}. Clicca per aprire Assicurazione del contesto.",
       "elapsedTip": "Tempo trascorso dall'ultimo movimento di questa sessione."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Tue {{count}}",
         "groupSystem": "Integrate {{count}}",
         "groupPlugin": "Dai plug-in {{count}}",
-        "hint": "Fai clic su una competenza per aggiungerla alla bozza corrente. Qui sotto puoi condividere le competenze utente compatibili di Claude."
+        "hint": "Fai clic su una competenza per aggiungerla alla bozza corrente. Puoi condividere le competenze utente compatibili di Claude dalla scheda Claude."
       },
       "plugins": {
         "title": "Plugin",

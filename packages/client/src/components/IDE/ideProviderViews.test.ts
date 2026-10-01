@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import {
   LOCAL_PROVIDER_VIEWS, CODEX_PROVIDER_VIEWS, viewsForProviderKind,
-  fallbackViewForProvider, isViewAllowedForProvider, providerBadgeOf,
+  fallbackViewForProvider, isViewAllowedForProvider, providerBadgeOf, usesCodexPane,
 } from './ideProviderViews.js';
 
 /**
@@ -214,5 +214,22 @@ describe('§5.25 (M) 코덱스 칸은 코덱스 화면을 그린다', () => {
   it('중립 칸은 갈아 끼우지 않는다 — 두 벌이 되면 한쪽만 고쳐지는 날이 온다', () => {
     const mapped = new Set(codexMappedViews());
     for (const v of ENGINE_NEUTRAL) expect(mapped.has(v)).toBe(false);
+  });
+});
+
+/*
+ * §5.25 (M-1) — 스킬 칸은 공급자가 아니라 **실제로 도는 엔진**을 따른다. Codex CMD 는 공급자 칸이 비어 있고
+ * 터미널이 codex 를 띄운다 — 종전에는 클로드 칸을 그려 첫 탭이 엔진과 다르고 둘째 탭은 늘 거절됐다.
+ */
+describe('§5.25 (M-1) usesCodexPane — 스킬 칸은 실제로 도는 엔진', () => {
+  it('Codex CMD 의 스킬 칸은 코덱스 칸이다', () => {
+    expect(usesCodexPane('skills', CLAUDE, 'codex')).toBe(true);
+    expect(usesCodexPane('skills', CLAUDE, 'claude')).toBe(false);
+  });
+
+  it('다른 칸은 종전대로 공급자를 따른다', () => {
+    expect(usesCodexPane('mcp', CLAUDE, 'codex')).toBe(false);
+    expect(usesCodexPane('mcp', CODEX, 'codex')).toBe(true);
+    expect(usesCodexPane('plugins', LOCAL, 'local')).toBe(false);
   });
 });

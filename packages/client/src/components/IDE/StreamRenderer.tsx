@@ -26,6 +26,7 @@ import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndic
 import { AgentReportCard } from './AgentReportCard.js';
 import { FeedbackButtons } from './FeedbackButtons.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useImageLightboxOrigin } from './imageLightboxOrigin.js';
 import { StreamImageThumb } from './StreamImageThumb.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
@@ -91,6 +92,20 @@ interface StreamRendererProps {
    * 그 안의 한 갈래다: 작동 중(`sessionBusy`) 가운데 **도는 것이 없는** 경우.
    */
   sessionWaiting?: boolean;
+  /**
+   * §2.4 (무응답) — 이 세션이 마지막으로 움직인 시각(`useSessionLivenessFacts`, 명령 시작 포함).
+   * 라이브 1줄 시계는 이것과 마지막으로 보인 줄 중 늦은 쪽을 잰다 — 줄을 감추는 조용한 압축 뒤에
+   * 막 나간 명령이 앞 턴 끝부터 잰 "마지막 업데이트 N 전"으로 시작하지 않게.
+   */
+  sessionActivityAt?: number | null;
+  /** §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중. 라이브 줄은 경과만 적고 무응답으로 안 뒤집는다. */
+  sessionActivityHidden?: boolean;
+  /**
+   * §5.5 #17-10 ⑥-6 (턴 시계) — 지금 턴(대기면 줄 선) 시작 시각(`useSessionLivenessFacts().turnStartedAt`,
+   * 메인 탭과 같은 값). 라이브 1줄이 **평소** 적는 경과는 여기서부터 잰다 — 위 활동 시각으로 재면 줄이
+   * 올 때마다 0 으로 되감긴다. 활동 시각은 무응답 판정에만 쓴다.
+   */
+  sessionTurnStartedAt?: number | null;
   /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
   /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
@@ -977,6 +992,7 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
   // v2.61 — 전송한 첨부 이미지를 사용자 프롬프트 아래 썸네일로 표시. 클릭 시 전역 라이트박스로 확대.
   // v2.93 — blob preview(메모리) 우선, 없으면 server 파일 라우트로 폴백(별창/새로고침/재시작에서도 표시).
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
   const thumbs = useAttachmentThumbs(item.attachments);
   return (
     <div className="px-4 py-2 max-md:px-1.5" data-cmd-id={item.id}>
@@ -1005,7 +1021,7 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
             <button
               key={a.basename}
               type="button"
-              onClick={() => openImageLightbox(a.url)}
+              onClick={() => openImageLightbox(a.url, lightboxOrigin())}
               className="h-16 w-16 flex-shrink-0 overflow-hidden rounded border border-gray-700 bg-gray-800 transition-opacity hover:opacity-80"
             >
               <img src={a.url} alt="" className="h-full w-full cursor-zoom-in object-cover" />
@@ -1102,8 +1118,9 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     case 'image':    inner = <ImageBlock item={item} ctx={feedbackCtx} />; break;
     case 'command':  inner = <CommandBlock item={item} agentId={feedbackCtx?.agentId} />; break;
     // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
-    // §2.4 (무응답) — 마지막 이벤트 시각을 함께 넘겨 "얼마나 됐는지"를 그 줄이 직접 말하게 한다.
-    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} />; break;
+    // §2.4 (무응답) — 마지막 이벤트 시각을 함께 넘겨 "얼마나 조용한지"를 그 줄이 직접 판정하게 한다.
+    // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터다(줄이 와도 되감기지 않는다).
+    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} turnStartedAt={item.turnStartedAt} hiddenTurn={item.hiddenTurn === true} />; break;
     // §5.5 #17-39 — 끝난 사고 런이 그 자리에 남긴 자국(원문 ❌ 시간·분량만).
     case 'step':     inner = <StepTraceBlock item={item} />; break;
     // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더 `작업 중` 배지).
@@ -1146,7 +1163,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
   );
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
@@ -1154,8 +1171,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   const parserRef = useRef<IncrementalStreamParser | null>(null);
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
   const base = useMemo(
-    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting),
-    [events, commands, sessionBusy, sessionWaiting],
+    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt),
+    [events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt],
   );
   const merged = useMemo(
     () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),

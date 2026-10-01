@@ -44,10 +44,17 @@ interface SkillsState {
    * **모르면 켜진 것으로 본다**(네트워크 실패로 "다 안 됩니다"라고 겁주지 않게).
    */
   slashCommandsEnabled: boolean;
+  /**
+   * §5.5 #17-4 ③ — 목록을 **못 읽었으면** 그 사유(읽었으면 null).
+   *
+   * 종전에는 서버 500(`{error}` 만 온다)·네트워크 실패를 빈 목록으로 캐시해, 스킬 칸이 탭에
+   * "Claude 0" 을 적고 본문에 "설치된 스킬 없음"을 띄웠다 — 모르는 것을 없다고 말한 것이다.
+   */
+  failure: string | null;
 }
 
 const EMPTY_ORDER: SkillOrder = { project: [], global: [], plugin: [] };
-const EMPTY_STATE: SkillsState = { skills: [], builtins: [], order: EMPTY_ORDER, favorites: [], slashCommandsEnabled: true };
+const EMPTY_STATE: SkillsState = { skills: [], builtins: [], order: EMPTY_ORDER, favorites: [], slashCommandsEnabled: true, failure: null };
 
 /**
  * §5.5 #17-2/#17-4 v2.59 — 프로젝트별 조회.
@@ -118,7 +125,7 @@ function normalizeBuiltins(raw: unknown): BuiltinCommandInfo[] {
 
 function fetchSkills(key: string): Promise<SkillsState> {
   return fetch(urlForKey(key))
-    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; builtins?: unknown; order?: unknown; favorites?: unknown; slashCommandsEnabled?: unknown }>)
+    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; builtins?: unknown; order?: unknown; favorites?: unknown; slashCommandsEnabled?: unknown; error?: unknown }>)
     .then((d) => {
       const next: SkillsState = {
         skills: d.ok && Array.isArray(d.skills) ? d.skills : [],
@@ -127,12 +134,13 @@ function fetchSkills(key: string): Promise<SkillsState> {
         favorites: normalizeFavorites(d.favorites),
         // 명시적으로 `false` 일 때만 꺼진 것 — 옛 서버(이 칸이 없다)는 켜진 것으로 읽는다.
         slashCommandsEnabled: d.slashCommandsEnabled !== false,
+        failure: d.ok ? null : (typeof d.error === 'string' && d.error ? d.error : 'invalid response'),
       };
       caches.set(key, next);
       return next;
     })
-    .catch(() => {
-      const next: SkillsState = { ...EMPTY_STATE };
+    .catch((error: unknown) => {
+      const next: SkillsState = { ...EMPTY_STATE, failure: error instanceof Error ? error.message : String(error) };
       caches.set(key, next);
       return next;
     });
@@ -318,7 +326,7 @@ export async function persistSkillFavorites(favorites: string[]): Promise<void> 
  * 같은 프로젝트를 볼 때 같은 데이터를 본다. v2.59 부터 캐시는 projectName 키로 분리되어
  * 탭(프로젝트)마다 독립 목록을 반환한다. fetch 는 프로젝트 키별 첫 호출 시 1회.
  */
-export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; builtins: BuiltinCommandInfo[]; order: SkillOrder; favorites: string[]; slashCommandsEnabled: boolean; loaded: boolean } {
+export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; builtins: BuiltinCommandInfo[]; order: SkillOrder; favorites: string[]; slashCommandsEnabled: boolean; loaded: boolean; failure: string | null } {
   const key = keyOf(projectName, agentId);
   const [state, setState] = useState<SkillsState>(() => caches.get(key) ?? EMPTY_STATE);
   const [loaded, setLoaded] = useState<boolean>(caches.has(key));
@@ -356,5 +364,5 @@ export function useAvailableSkills(projectName?: string | null, agentId?: string
     };
   }, [key]);
 
-  return { skills: state.skills, builtins: state.builtins, order: state.order, favorites: state.favorites, slashCommandsEnabled: state.slashCommandsEnabled, loaded };
+  return { skills: state.skills, builtins: state.builtins, order: state.order, favorites: state.favorites, slashCommandsEnabled: state.slashCommandsEnabled, loaded, failure: state.failure };
 }

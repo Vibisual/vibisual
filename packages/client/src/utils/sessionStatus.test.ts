@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   EMPTY_SESSION_RUN_INPUTS,
   isSessionRunning,
+  isSessionExecuting,
   hasBackgroundShells,
   hasSessionWork,
   resolveSessionRunState,
@@ -58,7 +59,7 @@ function task(patch: Partial<RunningSubagentTask> = {}): RunningSubagentTask {
   return { id: 't1', parentAgentId: 'agent-1', startedAt: 0, ...patch };
 }
 
-describe('isSessionRunning — 세 근거를 OR', () => {
+describe('isSessionRunning — 서버 상태와 실제 작업을 우선한다', () => {
   it('아무 근거도 없으면 안 돈다', () => {
     expect(isSessionRunning(EMPTY_SESSION_RUN_INPUTS)).toBe(false);
   });
@@ -69,6 +70,29 @@ describe('isSessionRunning — 세 근거를 OR', () => {
 
   it('명령이 executing 이면 돈다', () => {
     expect(isSessionRunning(inputs({ hasExecutingCommand: true }))).toBe(true);
+  });
+
+  it.each(['idle', 'completed', 'error'] as const)('%s 상태는 오래된 executing만으로 실행중이 되지 않는다', (subStatus) => {
+    const stale = inputs({ subStatus, hasExecutingCommand: true });
+    expect(isSessionRunning(stale)).toBe(false);
+    expect(isSessionExecuting(stale)).toBe(false);
+    expect(hasSessionWork(stale)).toBe(false);
+    expect(resolveSessionLiveness(stale, 1, SESSION_NO_RESPONSE_MS * 10)).toBe('idle');
+    expect(resolveSessionRunState(stale)).toBe(sessionRunStateOf(sub({ status: subStatus }), false));
+  });
+
+  it('종료 기록이 남아도 active 또는 실제 모델 자식은 계속 실행 근거다', () => {
+    expect(isSessionRunning(inputs({ subStatus: 'active', hasExecutingCommand: true }))).toBe(true);
+    expect(isSessionExecuting(inputs({ subStatus: 'active', hasExecutingCommand: true }))).toBe(true);
+    expect(isSessionRunning(inputs({ subStatus: 'idle', hasExecutingCommand: true, runningAgentTaskCount: 1 }))).toBe(true);
+  });
+
+  it('오래된 실행 명령 뒤의 대기는 완료나 실행중이 아닌 대기로 남는다', () => {
+    const stale = inputs({ subStatus: 'idle', hasExecutingCommand: true, hasQueuedCommand: true });
+    expect(isSessionRunning(stale)).toBe(false);
+    expect(hasSessionWork(stale)).toBe(true);
+    expect(resolveSessionRunState(stale)).toBe('waiting');
+    expect(resolveSessionLiveness(stale, 1, SESSION_NO_RESPONSE_MS * 10)).toBe('waiting');
   });
 
   it('백그라운드 Task(모델 자식)가 남아 있으면 돈다', () => {
@@ -303,6 +327,21 @@ describe('buildSessionRunInputs — 세션 소유 필터', () => {
       sub: null, commands: undefined, runningTasks: undefined, acknowledged: false,
     });
     expect(built).toEqual(EMPTY_SESSION_RUN_INPUTS);
+  });
+
+  it.each(['idle', 'completed', 'disappearing'] as const)('메인 탭의 %s도 오래된 실행 기록을 되살리지 않는다', (agentStatus) => {
+    const built = buildSessionRunInputs({
+      sub: null, agentStatus, commands: [cmd({ status: 'executing' })], runningTasks: [], acknowledged: true,
+    });
+    expect(built.hasExecutingCommand).toBe(true); // 원본 사실은 남기고 해석만 가른다.
+    expect(isSessionRunning(built)).toBe(false);
+    expect(resolveSessionRunState(built)).toBe('done');
+  });
+
+  it('메인 탭 권한 승인은 실행중이고 세션 탭은 부모 상태를 물려받지 않는다', () => {
+    const main = { sub: null, agentStatus: 'awaiting_permission', commands: [], runningTasks: [], acknowledged: true } as const;
+    expect(isSessionRunning(buildSessionRunInputs({ ...main, commands: [], runningTasks: [] }))).toBe(true);
+    expect(isSessionRunning(buildSessionRunInputs({ ...main, sub: sub(), commands: [], runningTasks: [] }))).toBe(false);
   });
 });
 

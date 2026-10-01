@@ -61,6 +61,9 @@ const UNTYPED_ERROR_CODE = 'unknown' as CommandErrorCode;
 export function describeCommandError(error: CommandError): CommandErrorText {
   const code = KNOWN_CODES.has(error.code) ? error.code : 'unknown';
   const detail = error.detail && error.detail.trim() !== '' ? error.detail.trim() : null;
+  if (code === 'local' && detail === 'local-images-unsupported') {
+    return { labelKey: 'ide.mainArea.localImagesUnsupported', detail: null };
+  }
   const engine = engineLabelOf(error.engine);
   if (CODE_AWARE.has(code)) {
     return error.exitCode !== undefined

@@ -61,6 +61,7 @@ import { shouldDismissOnOpen } from './agentDismiss.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
 import { CanvasControls } from './CanvasControls.js';
+import { CANVAS_PROJECT_WATERMARK } from './constants.js';
 import { canvasViewKey } from './canvasViewMemory.js';
 import { useCanvasViewport } from './useCanvasViewport.js';
 import { resolveCanvasLoadingState } from './canvasLoading.js';
@@ -3059,6 +3060,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       >
         <EdgeMask />
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
+        {/* Screen-space decoration: stays put during pan/zoom and lets canvas gestures pass through. */}
+        {activeProject && (
+          <div aria-hidden="true" dir="auto" className={CANVAS_PROJECT_WATERMARK.className}>
+            {activeProject}
+          </div>
+        )}
         {currentFolderId === null && interiorView === null && <LayoutBoundsBox />}
         {/* §5.9 캡처 버블 이어 붙이기 — 드래그·리사이즈 중 자석이 걸린 축을 보여 주는 가이드선. */}
         <CaptureSnapGuides />

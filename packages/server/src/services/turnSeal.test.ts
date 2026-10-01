@@ -5,6 +5,7 @@ import {
   listDisplayableLiveTasks, hasLiveTasks, hasLiveAgentTasks, countLiveShells,
   turnIdOfLiveTask, shouldSleepResumedTurn,
   isResultBeforeOwnTurn,
+  shouldHoldForNoticeResume, NOTICE_RESUME_WINDOW_MS, EARLY_RESULT_SAFETY_MS, TURN_RESUME_GRACE_MS,
 } from './turnSeal.js';
 
 const START = 'task_started';
@@ -373,5 +374,42 @@ describe('isResultBeforeOwnTurn — 남의 턴 result 로는 내 명령을 봉�
     for (const k of ['cliError', 'killed', 'interrupted', 'slashCommand'] as const) {
       expect(isResultBeforeOwnTurn({ ...base, foreignTurn: true, [k]: true })).toBe(false);
     }
+  });
+});
+
+describe('shouldHoldForNoticeResume — 끝 통지는 "곧 다시 돈다"다 (§5.5 #17-9 ⑱)', () => {
+  // 사용자 보고의 그 순간: 백단 자식 덕에 떠 있던 탭, 자식은 살아서 쉬는 중, 도는 명령 없음.
+  const idleHeld = {
+    bgPromoted: true,
+    subStatus: 'active' as const,
+    processingCommand: false,
+    childIdleAlive: true,
+    dispatching: false,
+    cmdDriven: false,
+  };
+
+  it('쉬는 persistent 자식에 온 끝 칩이면 붙든다 — 일하는 중에 완료음이 울리던 자리', () => {
+    expect(shouldHoldForNoticeResume(idleHeld)).toBe(true);
+  });
+
+  it('여섯 조건은 하나씩만 어긋나도 붙들지 않는다(종전 동작)', () => {
+    // 승격 덕에 떠 있던 탭이 아니면 이 칩으로 내려갈 것도 없다.
+    expect(shouldHoldForNoticeResume({ ...idleHeld, bgPromoted: false })).toBe(false);
+    // 이미 내려간 탭 · 실패로 앉은 탭은 붙들지 않는다(`error` 세탁 ❌).
+    for (const subStatus of ['idle', 'completed', 'error'] as const) {
+      expect(shouldHoldForNoticeResume({ ...idleHeld, subStatus })).toBe(false);
+    }
+    // 명령이 도는 중이면 그 명령의 봉인이 끝을 정한다.
+    expect(shouldHoldForNoticeResume({ ...idleHeld, processingCommand: true })).toBe(false);
+    // 통지를 받아 턴을 열 자식이 없다(legacy · 죽은 자식).
+    expect(shouldHoldForNoticeResume({ ...idleHeld, childIdleAlive: false })).toBe(false);
+    expect(shouldHoldForNoticeResume({ ...idleHeld, dispatching: true })).toBe(false);
+    expect(shouldHoldForNoticeResume({ ...idleHeld, cmdDriven: true })).toBe(false);
+  });
+
+  it('상한은 #17-18 안전 마감과 같은 값이고, 3초 유예보다 넉넉하다(실측 첫 토큰 24초)', () => {
+    expect(NOTICE_RESUME_WINDOW_MS).toBe(EARLY_RESULT_SAFETY_MS);
+    expect(NOTICE_RESUME_WINDOW_MS).toBeGreaterThan(24_000);
+    expect(NOTICE_RESUME_WINDOW_MS).toBeGreaterThan(TURN_RESUME_GRACE_MS);
   });
 });

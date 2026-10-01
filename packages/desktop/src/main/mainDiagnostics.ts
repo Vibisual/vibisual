@@ -1,7 +1,7 @@
 import type { EventEmitter } from 'node:events';
 
 const LIMITS = { message: 4000, stack: 8000 };
-type FaultKind = 'uncaughtException' | 'unhandledRejection' | 'stdout' | 'stderr' | 'hook' | 'hook-listener';
+type FaultKind = 'uncaughtException' | 'unhandledRejection' | 'stdout' | 'stderr' | 'hook' | 'hook-listener' | 'backend-startup';
 interface DiagnosticSinks {
   persist: (message: string, stack?: string) => void;
   publish: (message: string, stack?: string) => void;

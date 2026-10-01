@@ -45,6 +45,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); fixture.data.clear(); fixture.exit.clear();
   fixture.create.mockResolvedValue({ ok: true }); fixture.kill.mockResolvedValue();
   fixture.refreshAuth.mockResolvedValue({ loggedIn: false, checkedAt: 1 });
+  state.claudeSetup.binPath = '/tools/claude';
   vi.stubGlobal('document', { body: {} });
   act(() => { renderer = create(<LoginWindow />); });
 });
@@ -54,6 +55,38 @@ afterEach(() => {
 });
 
 describe('Claude first sign-in owns its process until completion or dismissal', () => {
+  it.each(['C:\\Tools\\R&D %DEMO%\\claude.exe', '/opt/R&D $DEMO/it\'s claude'])(
+    'passes the UI email and host binary through environment data: %s', async (binPath) => {
+      state.claudeSetup.binPath = binPath;
+      const email = 'r&d+$DEMO%DEMO%@example.invalid';
+      await act(async () => {
+        renderer!.root.findByProps({ type: 'email' }).props.onChange({ target: { value: email } });
+      });
+      await click('panel.login.start');
+      const request = fixture.create.mock.calls.at(-1)![0];
+      expect(request.env).toEqual({ VIBISUAL_CLAUDE_LOGIN_BIN: binPath, VIBISUAL_CLAUDE_LOGIN_EMAIL: email });
+      expect(request.command).not.toContain(binPath);
+      expect(request.command).not.toContain(email);
+      expect(request.command).toContain(binPath.startsWith('C:') ? '"%VIBISUAL_CLAUDE_LOGIN_EMAIL%"' : '"$VIBISUAL_CLAUDE_LOGIN_EMAIL"');
+    },
+  );
+
+  it('shows an invalid email in the login UI, then permits correction and retry', async () => {
+    await act(async () => {
+      renderer!.root.findByProps({ type: 'email' }).props.onChange({ target: { value: 'bad"&email@example.invalid' } });
+    });
+    await click('panel.login.start');
+    expect(fixture.create).not.toHaveBeenCalled();
+    expect(renderer!.root.findByProps({ role: 'alert' }).children).toContain('panel.login.invalidEmail');
+    expect(renderer!.root.findByProps({ type: 'email' }).props['aria-invalid']).toBe(true);
+    await act(async () => {
+      renderer!.root.findByProps({ type: 'email' }).props.onChange({ target: { value: 'r&d@example.invalid' } });
+    });
+    expect(text()).not.toContain('panel.login.invalidEmail');
+    await click('panel.login.start');
+    expect(fixture.create).toHaveBeenCalledTimes(1);
+  });
+
   it('captures an approval URL printed before terminal creation replies', async () => {
     fixture.create.mockImplementationOnce(async ({ termId: id }) => {
       for (const cb of fixture.data) cb({ termId: id, data: 'https://claude.ai/oauth/authorize?code=test-fixture\n' });

@@ -82,6 +82,13 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     forbidden: ['Download'],
   },
   {
+    // §5.5 #17-25 ⑦ — jpeg 파일에 투명이 남는 편집을 덮어쓰지 못하게 막을 때의 이유. 남는 길이
+    // [투명 채우기]와 [PNG 내려받기] 둘이라 두 버튼 이름을 도구 줄 라벨에서 받아 적는다.
+    key: 'ide.imageAnnotate.fileJpegAlpha',
+    slots: { fill: 'ide.imageAnnotate.alpha.modeFill', download: 'ide.imageAnnotate.download' },
+    forbidden: ['Fill transparency', 'Download'],
+  },
+  {
     // §5.4 #14-3 — 탭 닫기 확인 팝업의 안내줄. [닫기] 가 지금 무엇을 하는지(멈추느냐 마느냐는
     // 위의 체크 한 칸이 정한다)를 말하는 문장이라, 버튼과 옵션 이름을 글자로 박으면 번역된
     // 화면에서 없는 이름을 가리키게 된다.
@@ -101,12 +108,6 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     // §5.5 #17-2 보강 — / 목록 맨 위의 경고줄. 다시 켜는 자리가 활동바의 주입원 칸 하나뿐이라
     // 그리로 보내는데, 그 칸 이름도 12 로케일에서 각자 번역된다.
     key: 'ide.mainArea.slashDisabledByContext',
-    slots: { contextSources: 'ide.activityBar.context' },
-    forbidden: ['Context sources'],
-  },
-  {
-    // §5.26 (F)(b) — 압축이 거절됐을 때 상태바 도움말. 사유가 있는 자리(주입원 칸)를 짚어 준다.
-    key: 'ide.statusBar.contextRejectedTip',
     slots: { contextSources: 'ide.activityBar.context' },
     forbidden: ['Context sources'],
   },

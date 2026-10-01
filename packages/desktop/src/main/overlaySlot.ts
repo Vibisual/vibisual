@@ -152,17 +152,24 @@ export function overlayAttentionOnReuse(activation: 'inactive' | 'foreground'): 
 
 /** 창이 서야 할 층. 부르는 쪽은 이 답을 창에 그대로 쓰기만 한다. */
 export type OverlayTopMost =
-  | { alwaysOnTop: true; level: 'screen-saver' }
+  | { alwaysOnTop: true; level: 'screen-saver' | 'floating' }
   | { alwaysOnTop: false };
 
 /**
- * 이 창은 어느 층에 서는가 — **접힌 버블만 상시-위**다.
+ * 이 창은 어느 층에 서는가 — **접힌 버블은 늘 상시-위**, 펼친 IDE 는 보통 층이 기본이다.
  *
  * 펼친 IDE 를 보통 층으로 내려도 버블은 여전히 그 위에 뜬다(상시-위 층이 보통 층보다 위라서
  * 둘 사이를 따로 조율할 것이 없다) — 사용자가 말한 "오버레이 버블을 빼곤"이 그대로 성립한다.
+ *
+ * (H-28) 사용자가 제목줄 [항상 위에 고정]을 켠 펼친 창(`pinned`)만 예외로 `'floating'` 에 선다 —
+ * 다른 앱을 골라도 그 창이 뒤로 깔리지 않는다. 버블의 `'screen-saver'` 를 쓰지 않는 까닭은 그 층이
+ * Windows 작업표시줄보다 위라서, 화면을 크게 덮는 작업 창이 거기 서면 작업표시줄까지 가리기
+ * 때문이다(`'floating'` 은 Electron 이 Windows 에서 작업표시줄 뒤에 세운다). 접힌 버블에는
+ * 고정이 뜻이 없다 — 이미 상시-위다.
  */
-export function overlayTopMostFor(expanded: boolean): OverlayTopMost {
-  return expanded ? { alwaysOnTop: false } : { alwaysOnTop: true, level: 'screen-saver' };
+export function overlayTopMostFor(expanded: boolean, pinned = false): OverlayTopMost {
+  if (!expanded) return { alwaysOnTop: true, level: 'screen-saver' };
+  return pinned ? { alwaysOnTop: true, level: 'floating' } : { alwaysOnTop: false };
 }
 
 // ─── §5.5 #17-6 (E-2) — 본체 창을 고르면 펼친 IDE 가 따라 올라온다 ──────────────

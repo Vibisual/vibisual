@@ -22,6 +22,7 @@
       "availableTooltip": "バージョン {{version}} が利用可能で、バックグラウンドでダウンロード中です",
       "downloading": "更新中 {{percent}}%",
       "restart": "再起動して更新",
+      "restartShort": "アップデート",
       "restartTooltip": "バージョン {{version}} の準備が完了しました — 再起動して適用してください",
       "confirmTitle": "再起動して更新しますか?",
       "confirmBody": "更新するとアプリが終了し、再インストールされます。進行中のエージェント作業や未保存の変更が失われる場合があります。",
@@ -1930,7 +1931,8 @@
       "later": "後で",
       "stop": "停止",
       "start": "サインイン",
-      "successNext": "次は、エージェントが作業するプロジェクトフォルダーを選びます。"
+      "successNext": "次は、エージェントが作業するプロジェクトフォルダーを選びます。",
+      "invalidEmail": "有効なメールアドレスを入力するか、空欄にしてください。"
     },
     "setup": {
       "title": "Claude Code をインストール",
@@ -2205,7 +2207,9 @@
         "need": "ダウンロードのみ"
       },
       "note": "これは新しいagentのデフォルトを設定するだけです。3つとも引き続き併用でき、他のエンジンは後から「オプション」で設定できます。",
-      "later": "後で決定"
+      "later": "後で決定",
+      "saving": "選択を保存しています…",
+      "saveError": "選択を保存できませんでした。エンジンをもう一度選択してください。"
     },
     "codexSetup": {
       "title": "Codex CLIをインストール",
@@ -2370,7 +2374,7 @@
       "unsupportedHint": "このスキルは{{provider}}が対応していない機能を使用しています。",
       "invalidResponse": "サーバーから無効な応答が返されました。",
       "issues": {
-        "skill-too-large": "??????????????????????????????",
+        "skill-too-large": "スキルのファイル数またはサイズが上限を超えています。",
         "invalid-name": "スキル名が無効です。",
         "invalid-skill": "スキルの定義が無効です。",
         "unsafe-path": "スキルに安全でないパスまたはリンクが含まれています。",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "このスキルはCodexで無効になっています。使用する前にCodexで有効にしてください。"
       }
     },
+    "skillTabs": {
+      "label": "スキルのエンジン",
+      "own": "このエージェントの{{provider}}スキル"
+    },
     "diff": {
       "addComment": "この行にコメント",
       "removeComment": "コメントを削除",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "表示",
+        "crop": "トリミング",
+        "alpha": "透過",
         "rect": "四角形",
         "ellipse": "楕円",
         "arrow": "矢印",
@@ -2408,6 +2418,42 @@
         "mask": "黒塗り",
         "text": "テキスト",
         "number": "番号バッジ"
+      },
+      "crop": {
+        "aspectFree": "自由",
+        "aspectOriginal": "オリジナル",
+        "aspectTitle": "比率を{{ratio}}に固定",
+        "round": "円形",
+        "roundHint": "楕円の外側を透明にします。",
+        "width": "幅",
+        "height": "高さ",
+        "fieldHint": "画像のピクセル単位です。",
+        "trim": "自動フィット",
+        "trimHint": "内容に合わせて枠を自動調整し、四隅と同じ色の余白を除きます。",
+        "trimNone": "除去できる余白がありません。"
+      },
+      "alpha": {
+        "modeKey": "色を除去",
+        "modeFill": "透明部分を塗りつぶし",
+        "pickedColor": "除去する色: {{color}}",
+        "pickEmpty": "画像をクリックして色を選択",
+        "tolerance": "許容値",
+        "contiguous": "隣接のみ",
+        "contiguousHint": "クリックした場所に隣接する範囲のみ除去します。オフにすると画像全体から同じ色を除去します。",
+        "auto": "自動背景",
+        "autoHint": "四隅で最も多い色を背景として除去します。",
+        "autoNone": "四隅がすでに透明なため、除去する背景色がありません。",
+        "pickTransparent": "その部分はすでに透明です。表示されている色を選択してください。",
+        "noMatch": "その色に一致するピクセルがありません。許容値を上げてください。",
+        "noTransparency": "この画像には塗りつぶせる透明部分がありません。",
+        "fillWhite": "白",
+        "fillBlack": "黒",
+        "fillCustom": "色を選択"
+      },
+      "edit": {
+        "applyHint": "適用 ({{shortcut}})",
+        "cancelHint": "適用せずにツールを終了 ({{shortcut}})",
+        "failed": "この画像を編集できませんでした。"
       },
       "color": "カラー",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "そのファイルに保存できませんでした。",
       "fileConflict": "開いた後にそのファイルがディスク上で変更されました。",
       "fileConflictOverwrite": "それでも保存",
+      "fileJpegAlpha": "JPEGは透明を保持できません。先に「{{fill}}」を使うか、代わりに「{{download}}」を選んでください。",
       "textPlaceholder": "入力してEnterを押してください",
       "hintPick": "ツールを選んでこの画像にマークし、添付として保存してください。",
       "hintDraw": "画像上をドラッグしてマークします。{{shortcut}}で直前のマークを元に戻せます。",
+      "hintCrop": "枠をドラッグして残す範囲を選びます。{{shortcut}}でトリミングを適用します。",
+      "hintAlphaKey": "除去する色をクリックします。{{shortcut}}で適用します。",
+      "hintAlphaFill": "透明部分が選択した色で塗りつぶされます。{{shortcut}}で適用します。",
       "discardTitle": "マークを破棄して閉じますか?",
       "discardCancel": "編集を続ける",
       "discardConfirm": "破棄して閉じる",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "独立ウィンドウとして切り離す",
       "toBubble": "オーバーレイのバブルに変える",
       "toBubbleHint": "このウィンドウをデスクトップオーバーレイのバブルに縮めます · バブルをダブルクリックすると再び開きます",
+      "pinOnTop": "常に最前面に固定",
+      "pinOnTopHint": "他のアプリに切り替えても、このウィンドウをその上に表示します",
+      "pinnedOnTopHint": "最前面に固定中 — クリックすると、他のアプリに再び隠れるようになります",
       "redockDwellHint": "離すとアプリ内に入ります",
       "codexLabel": "Codex",
       "codexContextUsed": "この会話はこれまでに{{used}}コンテキストトークンを使用しています。このエンジンは上限を報告しません。"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "韓国語の分かち書きを自動補正",
       "voiceRespaceHint": "認識エンジンは韓国語を空白なしで出力するため、助詞や語尾で区切ります。ルールベースなので完璧ではありません。結果は入力欄で修正できます。",
       "stallHint": "長い推論やツールの実行中は更新が途切れることがあります。それだけでセッションが停止したとは限りません。",
-      "backgroundShells": "バックグラウンドシェルが{{count}}個、まだ実行中です。回答はすでに届いているので、そのまま入力を続けられます。",
-      "backgroundShellsTip": "前のターンから残っている、バックグラウンドのBashまたはMonitorコマンドです。実行しているのはモデルではなくコマンドなので、このセッションを占有しません。自然に終了しないコマンド（tail -f、while true、パイプでつないだsortなど）は、削除するまでここに残り続けます。",
-      "backgroundShellsOpen": "表示",
       "stopNothing": "停止できる処理は動いていませんでした。「実行中」の表示が残っていただけです。",
       "stopNothingHint": "この範囲で動いている子プロセス・待機中のコマンド・バックグラウンド作業を、サーバーは一つも見つけられませんでした。",
       "stopForce": "強制終了",
       "stopForceTitle": "他のセッションや待機中のコマンドも含め、このエージェントのすべてを停止します。",
       "stopFailed": "停止リクエストが失敗しました（{{status}}）。",
       "stopRetry": "再試行",
-      "queuedBehindSilent": "先にバックグラウンドのコンパクト化が終わろうとしているため、実行中と表示されています。このコマンドはまだ送信されていないので、変更も削除もできます。"
+      "sendRejected": "リクエストが拒否されたため、本文と添付を復元しました。会話を確認してから再送信してください。",
+      "sendUnconfirmed": "送信を確認できなかったため、本文と添付を復元しました。会話を確認してから再送信してください。",
+      "localImagesUnsupported": "All Modelはまだ画像入力に対応していません。画像を削除するか、別のプロバイダーを選択してから送信してください。"
     },
     "voiceInstall": {
       "title": "音声入力の準備",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}}セッション",
       "sessionMany": "{{count}}セッション",
       "sessionsTip": "このエージェントで開いているセッションタブの数です。",
-      "contextOverdueTip": "このセッションのコンテキストはほぼ埋まっており、今も増え続けていますが、コンパクト化はまだ実行されていません。クリックすると「コンテキスト保険」を開きます。",
-      "contextStalledTip": "このセッションのコンテキストウィンドウは実質的に満杯で、コンパクト化はまだ実行されていません。クリックすると「コンテキスト保険」を開きます。",
-      "contextRejectedTip": "コンパクト化コマンドを送りましたが、Claude Code はコンパクト化を開始しませんでした — 拒否されています。多くの場合、このプロジェクトの「{{contextSources}}」でスキルとスラッシュコマンドがオフになっていることが原因です。クリックすると「コンテキスト保険」を開きます。",
       "elapsedTip": "このセッションが最後に動いてからの経過時間です。"
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "自分で追加 {{count}}",
         "groupSystem": "Codex 標準 {{count}}",
         "groupPlugin": "プラグイン {{count}}",
-        "hint": "スキルをクリックすると、作成中のメッセージに追加されます。互換性のあるClaudeのユーザースキルは、下の一覧から共有できます。"
+        "hint": "スキルをクリックすると、作成中のメッセージに追加されます。互換性のあるClaudeのユーザースキルは、Claudeタブから共有できます。"
       },
       "plugins": {
         "title": "プラグイン",

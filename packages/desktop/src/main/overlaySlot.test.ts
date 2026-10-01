@@ -364,6 +364,27 @@ describe('(E) overlayTopMostFor — 층은 펼침 여부 하나로 갈린다', (
   });
 });
 
+describe('(H-28) overlayTopMostFor — 사용자가 고정한 펼친 창만 다른 앱 위에 선다', () => {
+  it('고정한 펼친 IDE 는 floating 에 선다 — 다른 앱을 골라도 뒤로 깔리지 않는다', () => {
+    expect(overlayTopMostFor(true, true)).toEqual({ alwaysOnTop: true, level: 'floating' });
+  });
+
+  it('버블의 screen-saver 는 쓰지 않는다 — 큰 작업 창이 Windows 작업표시줄까지 가린다', () => {
+    const pinned = overlayTopMostFor(true, true);
+    expect(pinned.alwaysOnTop && pinned.level).not.toBe('screen-saver');
+  });
+
+  it('접힌 버블에는 고정이 뜻이 없다 — 켜 둔 채 접어도 종전 상시-위 그대로다', () => {
+    expect(overlayTopMostFor(false, true)).toEqual({ alwaysOnTop: true, level: 'screen-saver' });
+    expect(overlayTopMostFor(false, true)).toEqual(overlayTopMostFor(false, false));
+  });
+
+  it('고정하지 않은 펼친 창은 (E) 그대로 보통 층이다 — 기본값은 바뀌지 않는다', () => {
+    expect(overlayTopMostFor(true, false)).toEqual({ alwaysOnTop: false });
+    expect(overlayTopMostFor(true)).toEqual({ alwaysOnTop: false });
+  });
+});
+
 describe('(E-2) overlayFollowsMainFocus — 본체 창을 고를 때 따라 올라오는 창', () => {
   const base = {
     expanded: true,
@@ -405,15 +426,29 @@ describe('(E)·(E-2) 소스 집행 — 층을 박는 자리가 규칙을 빠뜨�
 
   it('층 값을 정하는 곳은 `overlayTopMostFor` 하나다 — 창은 그 답을 실행만 한다', () => {
     const fn = block(wm, 'function keepOverlayOnTop(', '\n}');
-    expect(fn).toContain('overlayTopMostFor(expanded)');
+    expect(fn).toContain('overlayTopMostFor(expanded, pinned)');
     // 값을 손으로 다시 적으면 갈림이 두 곳이 된다((E) v2.80 이 겪은 그 회귀).
     expect(fn).not.toContain("'screen-saver'");
+    // (H-28) 고정한 창의 층 이름도 판정 안에만 있다.
+    expect(fn).not.toContain("'floating'");
   });
 
-  it('오버레이 창의 층 재단언은 **한 곳도 빠짐없이** `expanded` 를 넘긴다', () => {
+  it('오버레이 창의 층 재단언은 **한 곳도 빠짐없이** `expanded` 와 `pinned` 를 넘긴다', () => {
     // 인자 하나짜리 호출이 하나라도 남으면 그 전이만 옛 규칙(늘 상시-위)으로 돈다 —
-    //   그 창을 띄워 보기 전에는 드러나지 않는 부류의 누락이다.
-    expect(wm).not.toMatch(/keepOverlayOnTop\([^,)]*\)/);
+    //   그 창을 띄워 보기 전에는 드러나지 않는 부류의 누락이다. (H-28) 두 인자짜리도 같다 —
+    //   사용자가 고정한 창이 그 전이(최대화·접었다 펴기 등) 한 번에 뒤로 깔린다.
+    expect(wm).not.toMatch(/keepOverlayOnTop\([^,)]*(,[^,)]*)?\)/);
+  });
+
+  it('(H-28) 장부가 있는 자리는 전부 그 창의 고정 기억을 넘긴다 — 갓 태어나는 한 곳만 `false`', () => {
+    const calls = wm.match(/keepOverlayOnTop\([^)]*\)/g) ?? [];
+    const definition = calls.filter((c) => c.includes('win: BrowserWindow'));
+    const birth = calls.filter((c) => c.includes('!!opts.expanded'));
+    const rest = calls.filter((c) => !definition.includes(c) && !birth.includes(c));
+    expect(definition).toHaveLength(1);
+    expect(birth).toEqual(['keepOverlayOnTop(win, !!opts.expanded, false)']);
+    expect(rest.length).toBeGreaterThanOrEqual(11);
+    for (const c of rest) expect(c).toMatch(/, entry\.expanded, entry\.pinned\)$/);
   });
 
   it('커서 팝업 메뉴는 그 갈림 밖이다 — 늘 상시-위(대상 창 뒤로 숨으면 고를 수가 없다)', () => {
@@ -427,9 +462,9 @@ describe('(E)·(E-2) 소스 집행 — 층을 박는 자리가 규칙을 빠뜨�
     const expand = block(wm, 'export function expandOverlayByWindowId(', '\n}');
     const collapse = block(wm, 'export function collapseOverlayByWindowId(', '\n}');
     expect(expand).toContain('entry.expanded = true;');
-    expect(expand).toContain('keepOverlayOnTop(win, entry.expanded);');
+    expect(expand).toContain('keepOverlayOnTop(win, entry.expanded, entry.pinned);');
     expect(collapse).toContain('entry.expanded = false;');
-    expect(collapse).toContain('keepOverlayOnTop(win, entry.expanded);');
+    expect(collapse).toContain('keepOverlayOnTop(win, entry.expanded, entry.pinned);');
   });
 
   it('따라 올리기는 Z 순서만 건드린다 — 포커스는 사용자가 고른 본체 창의 것이다', () => {

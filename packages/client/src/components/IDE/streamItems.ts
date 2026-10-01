@@ -26,10 +26,11 @@ import type {
   CommandDispatchMode,
   CommandError,
 } from '@vibisual/shared';
-import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype } from '@vibisual/shared';
+import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
 import { turnStopLabelKey } from './turnStopLabel.js';
+import { liveLineActivityAt, sessionTurnStartedAt } from '../../utils/sessionActivity.js';
 
 // ─── 계획(TodoWrite) 인식 (§5.5 #17-12) ───
 
@@ -246,11 +247,22 @@ export interface StreamThinkingLive {
   mode: 'thinking' | 'working' | 'waiting';
   timestamp: number;
   /**
-   * §2.4 (무응답) — **마지막으로 무언가 온 시각.** 이 줄이 "얼마나 됐는지"를 말하려면 시작점이
-   * 있어야 한다. `timestamp` 와 값이 같아 보여도 뜻이 다르다 — 그쪽은 정렬용(항상 맨 끝이라 쓰이지
-   * 않는다)이고 이쪽은 **경과를 재는 시계**다. 근거가 없으면 `null`(0 으로 적지 않는다).
+   * §2.4 (무응답) — **마지막으로 무언가 온 시각.** "얼마나 조용한가"를 재는 시계라 **무응답 판정**
+   * (`liveLineStalled`)과 그 문구("마지막 업데이트 N 전")에만 쓴다. `timestamp` 와 값이 같아 보여도
+   * 뜻이 다르다 — 그쪽은 정렬용(항상 맨 끝이라 쓰이지 않는다)이다. 근거가 없으면 `null`(0 으로 적지 않는다).
    */
   lastActivityAt: number | null;
+  /**
+   * §5.5 #17-10 ⑥-6 (턴 시계) — **지금 보고 있는 일이 시작된 시각**(대기면 줄 선 시각). 이 줄이
+   * 평소 적는 경과의 시작점이다 — 위 시계로 적으면 줄이 올 때마다 0 으로 되감겼다
+   * (`sessionTurnStartedAt`). 근거가 없으면 `null`(평소엔 아무것도 적지 않는다).
+   */
+  turnStartedAt: number | null;
+  /**
+   * §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중. 그 턴의 줄은 오지 않으므로 이 줄은 경과만
+   * 적고 무응답으로 뒤집지 않는다(`liveLineStalled` · §5.5 #17-10 ⑥-6). 아니면 키 자체가 없다.
+   */
+  hiddenTurn?: true;
 }
 
 /**
@@ -635,6 +647,24 @@ function computeAgentWaiting(commands: readonly QueuedCommand[] | undefined, ove
 }
 
 /**
+ * §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄이 평소 적는 경과의 시작점.
+ *
+ * `computeAgentBusy` 와 같은 규약이다: 부모가 원본 큐 + 세션 필터로 낸 값(`useSessionLivenessFacts`)이
+ * 오면 **그것이 답**이고 `null`(모름)도 답이다. 안 올 때만(생존 사실을 내려 주지 않는 자리 — Auto Agent
+ * 패널) 받은 목록으로 추정한다. 그 목록은 표시 사본이라 감춘 압축이 없지만, 물려받은 명령이 그 압축이
+ * 나간 시각을 달고 실행 중으로 서 있어 같은 답이 나온다. 추정이 없으면 그 자리의 줄은 평소 시간을
+ * 통째로 잃는다.
+ */
+function resolveTurnStartedAt(
+  commands: readonly QueuedCommand[] | undefined,
+  agentWaiting: boolean,
+  override?: number | null,
+): number | null {
+  if (override !== undefined) return override;
+  return sessionTurnStartedAt(commands ?? [], [], null, agentWaiting);
+}
+
+/**
  * §5.5 #17-39 — 봉인된 사고 런 → 자국 항목. 문턱(`shouldTraceThinking`)을 못 넘으면 `null` —
  * 순간 사고마다 한 줄을 내주면 그 줄이 곧 소음이 된다.
  *
@@ -686,6 +716,9 @@ function computeThinkingLive(
   events: SubAgentStreamEvent[],
   agentBusy: boolean,
   agentWaiting = false,
+  sessionActivityAt: number | null = null,
+  activityHidden = false,
+  turnStartedAt: number | null = null,
 ): StreamThinkingLive | null {
   if (!agentBusy) return null;
   const lastRaw = events[events.length - 1];
@@ -694,11 +727,17 @@ function computeThinkingLive(
   //   화면이 파랗게 뛰며 경과만 키운다(사용자가 본 그 줄이다).
   const mode = agentWaiting ? 'waiting' : lastRaw && isThinkingActivity(lastRaw) ? 'thinking' : 'working';
   // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
-  // §2.4 (무응답) — 경과를 재는 시계는 **마지막 이벤트 시각**이다. 한 건도 없으면 `null`(모름).
+  // §2.4 (무응답) — 무응답을 재는 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중
+  //   늦은 쪽. 감춘 턴이 도는 동안에는 무응답으로 안 뒤집는다(`hiddenTurn` → `liveLineStalled`).
+  //   메인 탭과 같은 함수다(`liveLineActivityAt`).
+  // §5.5 #17-10 ⑥-6 (턴 시계) — 평소 적는 경과는 그 시계가 아니라 **턴 시작**(`turnStartedAt`)부터다.
+  //   부모가 원본 큐로 낸 값을 그대로 싣는다(메인 탭과 같은 사실 — `useSessionLivenessFacts`).
   return {
     kind: 'thinking-live', id: 'thinking-live', mode,
     timestamp: lastRaw?.timestamp ?? 0,
-    lastActivityAt: lastRaw?.timestamp ?? null,
+    lastActivityAt: liveLineActivityAt(lastRaw?.timestamp, sessionActivityAt),
+    turnStartedAt,
+    ...(activityHidden ? { hiddenTurn: true as const } : {}),
   };
 }
 
@@ -715,6 +754,12 @@ export function buildBaseItems(
   agentBusyOverride?: boolean,
   /** §5.5 #17-18 ⑪ — 같은 규약의 "줄만 서 있는가"(`isSessionWaiting`). */
   agentWaitingOverride?: boolean,
+  /** §2.4 (무응답) — 세션이 마지막으로 움직인 시각(명령 시작 포함). 라이브 1줄 시계의 바닥. */
+  sessionActivityAt?: number | null,
+  /** §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중이면 라이브 줄은 무응답으로 안 뒤집는다. */
+  activityHidden?: boolean,
+  /** §5.5 #17-10 ⑥-6 (턴 시계) — 지금 턴(대기면 줄 선) 시작 시각. 라이브 1줄이 평소 적는 경과의 시작점. */
+  turnStartedAt?: number | null,
 ): BaseItemsResult {
   // §5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 **그 턴의 말이 버퍼에 남아 있는지**로 턴마다 갈린다.
   const turnAnchors = dispatchedTurnAnchorsAsc(commands);
@@ -880,7 +925,7 @@ export function buildBaseItems(
 
   flushText();
 
-  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting);
+  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt));
   return { items, agentBusy, thinkingLive, sortTimestamps };
 }
 
@@ -899,6 +944,13 @@ export function buildBaseItems(
  *  ① 줄바꿈 없는 한 줄, ② 짧다(`CARD_ECHO_MAX_LEN`), ③ 문장 하나(중간에 종결부호가 또 있으면 뒤에
  *  정보가 붙은 것이므로 건드리지 않는다), ④ 카드를 가리키는 낱말 + 발행·전송 동사가 **둘 다** 있다.
  * 여기에 호출측이 "바로 앞이 카드"라는 자리 조건을 더한다(`dropCardEchoTexts`).
+ *
+ * §5.5 #17-18 ⑦-6 — 지시문은 이제 카드 뒤를 **비우지 말고** "카드를 확인해 주세요." 한 문장으로 닫게 한다
+ * (비워 두면 CLI 가 "no visible output" 재촉을 넣고, 그 재촉에 보고가 카드 아래에 통째로 다시 쓰였다).
+ * 그 문장도 정보량이 0 이라 여기서 함께 뺀다 — **정해 준 문장과 그 흔한 변형만**(`CARD_CLOSING_*_RE`)이고
+ * 동사 목록은 넓히지 않는다. 같은 답에 목표 창 블록(```vibisual)이 섞여 오는 일이 잦아 판정은 무대 블록을
+ * 걷어 낸 **보이는 글**로 한다 — 블록은 렌더도 숨기고 적용은 서버가 원문에서 따로 하므로, 표시에서 빼도
+ * 목표 창은 그대로 갱신된다.
  */
 const CARD_ECHO_MAX_LEN = 200;
 /** "무엇을" — 카드를 가리키는 낱말. 이게 없으면 발송 보고가 아니다. */
@@ -907,15 +959,40 @@ const CARD_ECHO_NOUN_RE = /카드|card/i;
 const CARD_ECHO_VERB_RE = /보냈|보냅니다|보내 ?[드두]|올렸|올립니다|올려 ?[드두]|띄웠|띄웁니다|띄워 ?[드두]|발행|신고했|신고합니다|전송했|전송합니다|남겼|담아 ?[드두]|정리해 ?[드보]|sent|posted|filed|submitted|published/i;
 /** 목록·인용·헤딩·코드로 시작하는 줄은 본문 구조물이므로 대상에서 뺀다. */
 const CARD_ECHO_STRUCTURAL_RE = /^[-*#>|`\d]/;
+/** ⑦-6 — 지시문이 정해 준 닫는 문장(끝 종결부호를 뗀 몸통). 앞에는 자리("위")·카드 종류 낱말만 받는다 — "결제 카드를 확인해 주세요"는 남는다. */
+const CARD_CLOSING_KO_RE = /^(?:(?:위|아래)의? ?)?(?:(?:검수|질문|작업 ?신고|신고|목록) ?)?카드를? ?확인(?:해 ?주세요|해 ?주십시오| ?부탁드립니다)$/;
+const CARD_CLOSING_EN_RE = /^(?:please )?(?:check|review|see) the (?:(?:review|questions?|report|list) )?card(?: above| below)?$/i;
+/** 무대 블록을 걷어 볼 본문 길이 상한 — 목표 창 블록은 길어도 수 KB 라, 이보다 길면 닫는 한 줄일 수 없다(매 렌더 전체 훑기 방지). */
+const CARD_ECHO_SCAN_MAX = 8_000;
+
+/** 렌더가 숨기는 무대 블록(```vibisual 등)을 걷어 낸, 화면에 실제로 보이는 글. */
+function visibleProseOf(content: string): string {
+  if (content.length > CARD_ECHO_SCAN_MAX || (!content.includes('```') && !content.includes('~~~'))) return content.trim();
+  const spans = extractStageBlocks(content);
+  if (spans.length === 0) return content.trim();
+  let out = '';
+  let at = 0;
+  for (const span of spans) {
+    out += content.slice(at, span.start);
+    at = span.end;
+  }
+  return (out + content.slice(at)).trim();
+}
+
+/** ⑦-6 — 화면에 아무것도 그리지 않는 본문인가(비었거나 무대 블록뿐). 뒤로 훑을 때 "말"로 치지 않는다. */
+export function isInvisibleStreamText(content: string): boolean {
+  return visibleProseOf(content).length === 0;
+}
 
 export function isCardEchoText(content: string): boolean {
-  const s = content.trim();
+  const s = visibleProseOf(content);
   if (s.length === 0 || s.length > CARD_ECHO_MAX_LEN) return false;
   if (s.includes('\n')) return false;
   if (CARD_ECHO_STRUCTURAL_RE.test(s)) return false;
   // 끝의 종결부호는 떼고 본다 — 남은 몸통에 또 있으면 문장이 둘 이상(= 정보가 더 담겼다).
   const body = s.replace(/[.!?。！？]+\s*$/, '');
   if (/[.!?。！？]/.test(body)) return false;
+  if (CARD_CLOSING_KO_RE.test(body) || CARD_CLOSING_EN_RE.test(body)) return true;
   return CARD_ECHO_NOUN_RE.test(s) && CARD_ECHO_VERB_RE.test(s);
 }
 
@@ -927,9 +1004,11 @@ const CARD_ECHO_HOST_KINDS: ReadonlySet<StreamItemFull['kind']> = new Set(['repo
 /** `sofar[0..end)` 의 마지막 "말" 이 카드인가(도구·시스템 줄은 건너뛴다). */
 function precededByCard(sofar: readonly StreamItemFull[], end: number): boolean {
   for (let k = end - 1; k >= 0; k--) {
-    const kind = sofar[k]!.kind;
-    if (CARD_ECHO_SKIP_KINDS.has(kind)) continue;
-    return CARD_ECHO_HOST_KINDS.has(kind);
+    const it = sofar[k]!;
+    if (CARD_ECHO_SKIP_KINDS.has(it.kind)) continue;
+    // ⑦-6 — 목표 창 블록만 담긴 본문은 화면에 안 그려진다(렌더가 숨긴다) — 카드와 닫는 문장 사이에 끼어도 말이 아니다.
+    if (it.kind === 'text' && isInvisibleStreamText(it.content)) continue;
+    return CARD_ECHO_HOST_KINDS.has(it.kind);
   }
   return false;
 }
@@ -1112,8 +1191,16 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       return true;
     }
     // §5.5 #17-24 ② — 라벨(mode)이 바뀌면 다시 그려야 한다(생각 중 ↔ 작업 중).
-    case 'thinking-live':
-      return (a as StreamThinkingLive).mode === b.mode;
+    // §2.4 (무응답) — 시계(`lastActivityAt`)와 감춘 턴 표식도 렌더에 쓰인다. 빼면 모드가 같은 동안
+    //   identity 안정화가 옛 객체를 재사용해, 줄이 들어와도 시계가 옛 시각에서 계속 늘어 멀쩡한 턴이
+    //   "마지막 업데이트 N 전"이 되고, 압축이 끝나 명령이 나가도 줄이 감춘 턴의 모습에 머문다.
+    // §5.5 #17-10 ⑥-6 — 턴 시계(`turnStartedAt`)도 같다. 빼면 다음 명령이 나가도(모드는 그대로 working)
+    //   줄이 앞 턴 시작부터 계속 센다.
+    case 'thinking-live': {
+      const x = a as StreamThinkingLive;
+      return x.mode === b.mode && x.lastActivityAt === b.lastActivityAt
+        && x.turnStartedAt === b.turnStartedAt && !!x.hiddenTurn === !!b.hiddenTurn;
+    }
     // §5.5 #17-18 ⑦-2 — `live`(작업 중 배지)는 렌더에 영향 → 비교에 포함. 빼면 턴이 끝나도
     //   identity 안정화가 옛 객체를 그대로 재사용해 배지가 영영 안 사라진다.
     case 'report':   return (a as StreamReport).report === b.report && (a as StreamReport).review === b.review && !!(a as StreamReport).live === !!b.live;
@@ -1345,6 +1432,12 @@ export class IncrementalStreamParser {
     agentBusyOverride?: boolean,
     /** §5.5 #17-18 ⑪ — "줄만 서 있는가"(`buildBaseItems` 와 같은 뜻·같은 자리). */
     agentWaitingOverride?: boolean,
+    /** §2.4 (무응답) — 라이브 1줄 시계의 바닥(`buildBaseItems` 와 같은 뜻·같은 자리). */
+    sessionActivityAt?: number | null,
+    /** §5.3 #9-1 (P) — 감춘 턴이 도는 중(`buildBaseItems` 와 같은 뜻·같은 자리). */
+    activityHidden?: boolean,
+    /** §5.5 #17-10 ⑥-6 — 턴 시계의 시작점(`buildBaseItems` 와 같은 뜻·같은 자리). */
+    turnStartedAt?: number | null,
   ): BaseItemsResult {
     const agentBusy = computeAgentBusy(commands, agentBusyOverride);
     const agentWaiting = computeAgentWaiting(commands, agentWaitingOverride);
@@ -1368,7 +1461,7 @@ export class IncrementalStreamParser {
     // §5.5 #17-12 ③-3 — 커버리지는 소비하며 쌓였으므로 여기서 다시 훑지 않는다(O(명령 수)).
     const commandItems = buildCommandItems(commands, this.coverage);
     const items: StreamItemFull[] = commandItems.length > 0 ? [...commandItems, ...this.items] : this.items.slice();
-    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting);
+    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt));
     return { items, agentBusy, thinkingLive, sortTimestamps: this.sortTimestamps };
   }
 }

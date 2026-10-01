@@ -14,12 +14,12 @@
  */
 
 import { useMemo } from 'react';
-import { hasSessionWork, isSessionRunning, isSessionWaiting } from '@vibisual/shared';
+import { hasSessionWork, isSessionExecuting, isSessionRunning, isSessionWaiting } from '@vibisual/shared';
 import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { buildSessionRunInputs } from '../utils/sessionStatus.js';
 import type { SessionRunInputSources } from '../utils/sessionStatus.js';
-import { sessionLastActivityAt } from '../utils/sessionActivity.js';
+import { sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt } from '../utils/sessionActivity.js';
 
 /** store 전체 모양 — `GraphState` 는 스토어 밖으로 내보내지 않으므로 여기서 되짚는다. */
 type GraphSnapshot = ReturnType<typeof useGraphStore.getState>;
@@ -41,6 +41,7 @@ function pickSources(
     sub,
     sources: {
       sub,
+      agentStatus: activeSessionId === null ? s.agents?.find((agent) => agent.id === agentId)?.status : undefined,
       commands: s.queuedCommands[agentId],
       runningTasks: s.runningSubagentTasks[agentId],
       acknowledged: activeSessionId !== null && !!s.acknowledgedSubAgents[activeSessionId],
@@ -78,7 +79,7 @@ export function useSessionWork(agentId: string, activeSessionId: string | null):
 }
 
 /**
- * **이 세션이 소유한 `executing` 명령이 실제로 있는가** — 오직 원본 큐만 본다.
+ * **이 세션이 소유한 `executing` 명령이 실제로 있는가** — 원본 큐와 서버의 실행 상태를 함께 본다.
  *
  * 화면 몇 곳이 `commands.some((c) => c.status === 'executing')` 를 손으로 적었는데, 그 `commands` 가
  * `displayCommands` 를 거친 **표시용 사본**이라 승격된 대기 명령이 실행 중으로 섞여 들어갔다.
@@ -88,24 +89,7 @@ export function useSessionExecuting(agentId: string, activeSessionId: string | n
   return useGraphStore((s) => {
     const picked = pickSources(s, agentId, activeSessionId);
     if (!picked) return false;
-    return buildSessionRunInputs(picked.sources).hasExecutingCommand;
-  });
-}
-
-/**
- * §5.5 #17-9 ⑰ — **이 탭 뒤에서 도는 백단 셸이 몇 개인가**(실행 축과 직교하는 표시 축).
- *
- * `useSessionRunning` 과 **반드시 짝으로 읽어야 한다.** 셸은 실행 축에서 빠졌으므로 이 훅이 없으면
- * 그 셸들은 화면에서 통째로 사라진다 — 그러면 이번엔 "내가 띄운 `npm run dev` 가 아직 도는지"를
- * 알 길이 없어진다. 축을 가르는 일은 한쪽을 지우는 일이 아니라 **각자 제자리에 놓는 일**이다.
- *
- * 원시값(number)을 구독하므로 파생 선택자 함정에 걸리지 않는다.
- */
-export function useBackgroundShellCount(agentId: string, activeSessionId: string | null): number {
-  return useGraphStore((s) => {
-    const picked = pickSources(s, agentId, activeSessionId);
-    if (!picked) return 0;
-    return buildSessionRunInputs(picked.sources).backgroundShellCount;
+    return isSessionExecuting(buildSessionRunInputs(picked.sources));
   });
 }
 
@@ -115,11 +99,20 @@ export interface SessionLivenessFacts {
   running: boolean;
   /** 돌지는 않고 줄만 서 있는가(`isSessionWaiting`). */
   waiting: boolean;
-  /** 마지막으로 움직인 시각(ms). 근거가 없으면 `null` — 0 으로 적지 않는다. */
+  /** 마지막으로 움직인 시각(ms). 근거가 없으면 `null` — 0 으로 적지 않는다. 무응답 판정의 재료. */
   lastActivityAt: number | null;
+  /** §5.3 #9-1 (P)(a) — 감춘 턴(조용한 사전 압축)이 도는 중. 그동안의 움직임은 클라에 오지 않는다. */
+  hiddenTurn: boolean;
+  /**
+   * §5.5 #17-10 ⑥-6 (턴 시계) — 지금 보고 있는 일이 시작된 시각(ms). 라이브 1줄이 **평소** 적는
+   * 경과의 시작점이다(`sessionTurnStartedAt`). 낼 일이 없거나 근거가 없으면 `null`.
+   */
+  turnStartedAt: number | null;
 }
 
-const EMPTY_FACTS: SessionLivenessFacts = { running: false, waiting: false, lastActivityAt: null };
+const EMPTY_FACTS: SessionLivenessFacts = {
+  running: false, waiting: false, lastActivityAt: null, hiddenTurn: false, turnStartedAt: null,
+};
 
 /**
  * §2.4 (무응답) — 생존 표시의 재료. **객체가 아니라 지문 문자열을 구독**하고 그 문자열에서
@@ -133,19 +126,31 @@ export function useSessionLivenessFacts(agentId: string, activeSessionId: string
     const inputs = buildSessionRunInputs(picked.sources);
     // Stream delivery does not require a new graph snapshot. Include its actual
     // event timestamps so a busy session cannot age behind an unchanged snapshot.
-    const last = sessionLastActivityAt(
-      s.subAgents[agentId] ?? [], s.subAgentStreams, s.queuedCommands[agentId] ?? [], activeSessionId,
-    ) ?? 0;
-    return `${inputs.subStatus ?? ''}|${isSessionRunning(inputs) ? 1 : 0}|${isSessionWaiting(inputs) ? 1 : 0}|${last}`;
+    const commands = s.queuedCommands[agentId] ?? [];
+    const last = sessionLastActivityAt(s.subAgents[agentId] ?? [], s.subAgentStreams, commands, activeSessionId) ?? 0;
+    const hidden = isSessionExecuting(inputs) && sessionHiddenTurnRunning(commands, activeSessionId);
+    const running = isSessionRunning(inputs);
+    const waiting = isSessionWaiting(inputs);
+    // 턴 시계 — 낼 일이 있을 때만 잰다(보관분·백단 자식은 도는 명령이 없을 때만 읽힌다). 명령이
+    //   나가거나 줄이 바뀔 때만 값이 바뀌므로, 줄이 올 때마다 지문이 흔들리지 않는다.
+    const turnStart = running || waiting
+      ? sessionTurnStartedAt(
+        commands, s.completedCommands?.[agentId] ?? [], activeSessionId, waiting, s.runningSubagentTasks[agentId] ?? [],
+      ) ?? 0
+      : 0;
+    return `${inputs.subStatus ?? ''}|${running ? 1 : 0}|${waiting ? 1 : 0}|${last}|${hidden ? 1 : 0}|${turnStart}`;
   });
   return useMemo(() => {
     if (!fingerprint) return EMPTY_FACTS;
     const parts = fingerprint.split('|');
     const last = Number(parts[3]);
+    const turnStart = Number(parts[5]);
     return {
       running: parts[1] === '1',
       waiting: parts[2] === '1',
       lastActivityAt: Number.isFinite(last) && last > 0 ? last : null,
+      hiddenTurn: parts[4] === '1',
+      turnStartedAt: Number.isFinite(turnStart) && turnStart > 0 ? turnStart : null,
     };
   }, [fingerprint]);
 }

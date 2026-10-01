@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { createPortal } from 'react-dom';
-import { BUBBLE_COLORS } from '@vibisual/shared';
+import { BUBBLE_COLORS, growSpanRight, shrinkSpanBack } from '@vibisual/shared';
 import {
   useGraphStore,
   resolvePaneKey,
@@ -12,6 +12,7 @@ import {
   selectIDEPane,
   selectRenderedIDEPanes,
   selectVisibleDockedPanes,
+  type IDEEditorRoomGrowth,
 } from '../../stores/graphStore.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import { captureIDEPaneHandoff, type IDEPaneHandoff } from '../../stores/idePaneHandoff.js';
@@ -75,7 +76,7 @@ import { useIDEDockLayout, useVisibleDockedPanes } from './useIDEDockLayout.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
-import { ideSidebarWidth, resolveIDEBodyLayout } from './ideResponsive.js';
+import { editorGrowth, ideSidebarWidth, resolveIDEBodyLayout } from './ideResponsive.js';
 import { IDEBodyLayoutContext, type IDEBodyLayoutValue } from './ideBodyLayoutContext.js';
 import { resolveTitleBarChrome } from './titleBarChrome.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
@@ -98,6 +99,13 @@ import { groupBindingLabel } from '../Shortcuts/bindingLabel.js';
 import { ReadingSettingsPopover } from './reading/ReadingSettingsPopover.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
+
+/**
+ * §5.5 #17-27 ①-1 — 창들이 판을 두고 넓힐지 따진 **차례**(창 슬롯의 `editorRoom.seq`). 같은 변에 붙은 창은 두께를
+ * 나눠 쓰므로, 한 창이 넓힌 뒤에 판을 연 옆 창은 그 넓힘에 기대 "자리가 있다"고 판정한다 — 먼저 넓힌 창이 닫힐 때
+ * 되돌려도 되는지는 이 차례로 가른다(`dockGrowthOnClose`). 기억과 같은 휘발 값이다.
+ */
+let editorRoomSeq = 0;
 
 /**
  * 창의 모양. 'docked' 는 **네 변 중 어디에 붙었는가**를 스토어의 `dockSide` 가 쥔다
@@ -426,6 +434,31 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     }
     setMaximized((v) => !v);
   }, [fullWindow, setMaximized]);
+  /**
+   * §5.5 #17-6 (H-28) — **독립 창을 다른 앱 위에 고정.** 펼친 IDE 는 보통 층이라((E)) 다른 앱을
+   * 고르면 뒤로 깔리는데, 사용자가 켜면 그 창만 다른 앱 위에 남는다.
+   *
+   * 기억은 main 이 창마다 들고 있다(접었다 펴도 남는다) — 창이 IDE 로 설 때 한 번 묻고, 누르면
+   * 칠을 먼저 바꾼 뒤 main 이 돌려준 값으로 맞춘다. 바꾸는 손이 이 버튼 하나뿐이라 (H-5) 최대화와
+   * 달리 먼저 칠해도 어긋날 길이 없다. 구버전 preload 에 통로가 없으면 버튼을 그리지 않는다.
+   */
+  const canPinOnTop = !!window.api?.overlay?.setPinnedSelf;
+  const [pinnedOnTop, setPinnedOnTop] = useState(false);
+  useEffect(() => {
+    if (!fullWindow) return;
+    const getPinned = window.api?.overlay?.getPinnedSelf;
+    if (!getPinned) return;
+    let alive = true;
+    void getPinned().then((v) => { if (alive) setPinnedOnTop(v === true); }).catch(() => {});
+    return () => { alive = false; };
+  }, [fullWindow]);
+  const togglePinnedOnTop = useCallback(() => {
+    const setPinned = window.api?.overlay?.setPinnedSelf;
+    if (!setPinned) return;
+    const next = !pinnedOnTop;
+    setPinnedOnTop(next);
+    void setPinned(next).then((v) => setPinnedOnTop(v === true)).catch(() => setPinnedOnTop(!next));
+  }, [pinnedOnTop]);
 
   // §4 v3.24 — 폰(max-md)에선 좌측 내비(활동바+사이드바)를 기본 숨기고, 타이틀바 토글 버튼으로만 연다
   //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 이 값은 이제 **판정의 입력 하나**일 뿐이고,
@@ -479,7 +512,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     editorOpen: true,
     editorWidth: storedEditorWidth,
   }).editorDrawer, [bodyWidth, isNarrow, sidebarCollapsed, sidebarView, storedEditorWidth]);
-  useEditorFollow(agentId ?? '', activeSessionId, editorWouldCover);
+  /**
+   * 같은 물음의 다른 반쪽 — 열었을 때 **창이 자라야** 하는가(①-1). 판이 이미 서 있으면(무대·실행 출력) 파일을 더 열어도
+   * 자라지 않는다. 추종 호출은 창의 모양(`mode`)을 안 뒤로 간다(①-1 절 바로 앞).
+   */
+  const editorWouldGrow = useMemo(() => !paneOpen && editorGrowth({
+    width: bodyWidth,
+    viewportNarrow: isNarrow,
+    sidebarCollapsed,
+    sidebarWidth: ideSidebarWidth(sidebarView),
+    editorWidth: storedEditorWidth,
+  }) > 0, [paneOpen, bodyWidth, isNarrow, sidebarCollapsed, sidebarView, storedEditorWidth]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   /** 좌측 내비(활동바·사이드바) 중 하나라도 서랍인가 — 타이틀바 토글이 그 손잡이가 된다. */
   const navDrawerMode = bodyLayout.navDrawer || bodyLayout.sidebarDrawer;
@@ -758,6 +801,99 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     return () => window.removeEventListener('resize', onResize);
   }, [mode, fullWindow, commitFloat]);
 
+  // §5.5 #17-27 ⑪ (e) — [추종] 은 열면 덮개가 되거나 **창이 자라는** 폭에서는 스스로 판을 열지 않는다(이미 떠 있을 때만
+  //   따라간다 — AI 활동이 창 크기를 바꾸지 않는다). 종전에는 덮개만 물어, 사이드바가 서랍으로 들어갈 폭에서 AI 편집이
+  //   판을 열면 아래 ①-1 이 그대로 창을 넓혔다. 넓힐 가로가 없는 창(모달·최대화·상/하 도크)은 열어도 자라지 않으므로
+  //   종전 판정(덮개만) 그대로다.
+  const paneCanGrow = fullWindow
+    ? !osMaximized && !!window.api?.overlay?.growEditorRoomSelf
+    : !maximized && (mode === 'floating' || (mode === 'docked' && (storeDockSide === 'left' || storeDockSide === 'right')));
+  useEditorFollow(agentId ?? '', activeSessionId, editorWouldCover || (paneCanGrow && editorWouldGrow));
+
+  // ─── §5.5 #17-27 ①-1 — 판이 열릴 때 창이 좁으면 덮지 않고 **창이 오른쪽으로 자란다** ───────
+  //   얼마나 자랄지는 창 안 배치를 아는 여기(`editorGrowth`)가 정하고, 어떻게 자랄지는 창의 모양이
+  //   정한다 — 떠 있는 창은 오른쪽 변, 좌/우 도크는 두께, 독립 창은 OS 창. 모달·최대화·상/하 도크는
+  //   넓힐 가로가 없어 종전 판정(줄이기 → 서랍 → 덮개) 그대로다. 판이 닫히면 자란 만큼 되돌린다.
+  //   기억은 **창 슬롯**(`editorRoom`)에 산다 — 종전 ref 는 창을 접었다 펴거나 프로젝트 탭을 오가 이 컴포넌트가
+  //   내려가면 사라져, 그 뒤 판을 닫아도 되돌리지 못했고 다시 설 때 열려 있던 판을 새로 열린 것으로 보고 또 넓혔다.
+  const setEditorRoom = useGraphStore((s) => s.setIDEEditorRoom);
+  const settleDockGrowth = useGraphStore((s) => s.settleIDEDockGrowth);
+  useLayoutEffect(() => {
+    const memo = selectIDEPane(useGraphStore.getState(), paneKey).editorRoom ?? null;
+    if (!paneOpen) {
+      if (!memo) return;
+      setEditorRoom(paneKey, null);
+      const rec = memo.growth;
+      if (!rec) return;
+      if (rec.kind === 'os') {
+        if (fullWindow) void window.api?.overlay?.restoreEditorRoomSelf?.();
+        return;
+      }
+      if (fullWindow || maximized) return;
+      if (rec.kind === 'float') {
+        if (mode !== 'floating') return;
+        const cur = floatRef.current;
+        const back = shrinkSpanBack({ x: cur.x, w: cur.w }, rec.growth);
+        if (!back) return;
+        const next = clampFloatGeom({ x: back.x, y: cur.y, w: back.w, h: cur.h }, viewportNow());
+        setFloatPos({ x: next.x, y: next.y });
+        setFloatSize({ w: next.w, h: next.h });
+        commitFloat(next);
+        return;
+      }
+      if (mode !== 'docked' || storeDockSide !== rec.side) return;
+      // 두께는 그 변 전체의 것이다 — 이 넓힘에 기대 판을 연 옆 창이 남아 있으면 되돌리지 않고 기록을 넘긴다.
+      settleDockGrowth(paneKey, rec);
+      return;
+    }
+    // 넓히는 것은 **판이 열리는 순간 한 번**뿐이다(연 뒤 줄이면 다시 안 키운다) — 따진 사실을 먼저 적는다.
+    if (memo?.checked || !bodyLayout.measured) return;
+    const seq = ++editorRoomSeq;
+    const growth = ((): IDEEditorRoomGrowth | null => {
+      const dx = editorGrowth({
+        width: bodyWidth,
+        viewportNarrow: isNarrow,
+        sidebarCollapsed,
+        sidebarWidth: ideSidebarWidth(sidebarView),
+        editorWidth: storedEditorWidth,
+      });
+      if (dx <= 0) return null;
+      if (fullWindow) {
+        if (osMaximized) return null;
+        const grow = window.api?.overlay?.growEditorRoomSelf;
+        if (!grow) return null;
+        void grow(dx);
+        return { kind: 'os' };
+      }
+      if (maximized) return null;
+      if (mode === 'floating') {
+        const cur = floatRef.current;
+        const vp = viewportNow();
+        const span = growSpanRight({ x: cur.x, w: cur.w }, dx, { x: 0, w: vp.w });
+        if (span.w <= cur.w) return null;
+        const next = { x: span.x, y: cur.y, w: span.w, h: cur.h };
+        setFloatPos({ x: next.x, y: next.y });
+        setFloatSize({ w: next.w, h: next.h });
+        commitFloat(next);
+        return { kind: 'float', growth: { before: { x: cur.x, w: cur.w }, after: span } };
+      }
+      if (mode === 'docked' && (storeDockSide === 'left' || storeDockSide === 'right')) {
+        // 스스로 자라는 길은 **남의 도크를 밀지 않는다**(`pushDockSize` ❌) — 손으로 끌 때만 민다.
+        const before = storeDockSize;
+        const after = clampDockSize(storeDockSide, before + dx, viewportNow(), otherDockedPanes());
+        if (after <= before) return null;
+        setPaneDockSize(paneKey, after);
+        return { kind: 'dock', side: storeDockSide, before, after, seq };
+      }
+      return null;
+    })();
+    setEditorRoom(paneKey, { checked: true, seq, growth });
+  }, [
+    paneOpen, bodyWidth, bodyLayout.measured, isNarrow, sidebarCollapsed, sidebarView, storedEditorWidth,
+    fullWindow, osMaximized, maximized, mode, storeDockSide, storeDockSize, paneKey,
+    viewportNow, otherDockedPanes, commitFloat, setPaneDockSize, setEditorRoom, settleDockGrowth,
+  ]);
+
   // §5.5 #17-1 (v2.17) — agentId/projectId 전이 처리:
   //   (a) null → truthy : 새로 열림 — 붙어 있던 변이 있으면 도킹 복원, 새로 선 둘째 창이면 플로팅,
   //       그 밖(프로젝트의 첫 창)은 종전대로 모달.
@@ -885,6 +1021,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (!agentId || !isFrontPane) return;
     function handleKey(e: KeyboardEvent): void {
       if (isComposingKeyEvent(e)) return;
+      // §5.5 #17-25 — 그림 편집(라이트박스)이 떠 있는 동안 Esc 는 **그 창의 것**이다(①·⑤·⑦: 보기면 라이트박스만 닫고,
+      //   표시가 있으면 한 번 더 묻고, 자르기·알파 중이면 도구만 나간다). 라이트박스는 body 로 portal 되어 이 창 밖에
+      //   서지만 같은 window 리스너를 먼저 단 이쪽이 먼저 돌아, 종전에는 Esc 한 번에 IDE 창이 통째로 닫히며 안 보낸
+      //   표시까지 묻지도 않고 사라졌다.
+      //   판정은 **화면에 떠 있는가**다(store 의 `imageLightbox` 가 아니라) — 연 창이 먼저 닫혀 그릴 호스트가 없는
+      //   라이트박스가 store 에 남으면, 보이지도 않는 그것이 다른 창의 Esc 를 영영 삼킨다.
+      if (e.key === 'Escape' && document.querySelector('.vibi-image-lightbox')) return;
       if (e.key === 'Escape') closeOverlay();
     }
     window.addEventListener('keydown', handleKey);
@@ -2838,6 +2981,32 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                   <path d="M21 3l-6 6" />
                   <path d="M3 15h6v6" />
                   <path d="M3 21l6-6" />
+                </svg>
+              </button>
+            )}
+            {/* (판올림 번호 발급 대기) §5.5 #17-6 (H-28) — **[항상 위에 고정].** 떼어 낸 창을 옆에 두고
+                다른 앱을 오가면 그 창이 뒤로 깔렸다(펼친 IDE 는 보통 층 — (E)). 켜면 다른 앱을 골라도
+                이 창이 그 위에 남는다. 앱 안 창에는 "다른 앱 위"라는 뜻이 없어 그리지 않는다.
+                꺼져 있으면 핀을 눕혀 그리고, 켜지면 세워 호박색으로 칠한다. */}
+            {fullWindow && canPinOnTop && (
+              <button
+                type="button"
+                onClick={togglePinnedOnTop}
+                aria-pressed={pinnedOnTop}
+                className={`app-nodrag flex h-6 w-6 items-center justify-center rounded transition-colors pointer-coarse:h-9 pointer-coarse:w-9 ${
+                  pinnedOnTop
+                    ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+                    : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+                aria-label={t('ide.overlay.pinOnTop')}
+                title={pinnedOnTop ? t('ide.overlay.pinnedOnTopHint') : t('ide.overlay.pinOnTopHint')}
+              >
+                <svg
+                  className={`h-3.5 w-3.5 transition-transform ${pinnedOnTop ? '' : 'rotate-45'}`}
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <path d="M12 17v5" />
+                  <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
                 </svg>
               </button>
             )}

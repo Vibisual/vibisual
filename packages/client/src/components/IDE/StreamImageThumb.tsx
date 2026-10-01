@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useImageLightboxOrigin } from './imageLightboxOrigin.js';
 import { loadStreamImage } from './streamImageResource.js';
 
 export function streamImageUrl(agentId: string, subAgentId: string, eventId: string): string {
@@ -44,6 +45,7 @@ export function StreamImageThumb({
   name: string;
 }): React.JSX.Element {
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
   const endpoint = agentId && subAgentId ? streamImageUrl(agentId, subAgentId, eventId) : '';
   const [resource, setResource] = useState({ endpoint: '', src: '', failed: false });
   useEffect(() => {
@@ -73,7 +75,7 @@ export function StreamImageThumb({
     <>
       <button
         type="button"
-        onClick={() => { openImageLightbox(src); }}
+        onClick={() => { openImageLightbox(src, lightboxOrigin()); }}
         title={name}
         className="block max-w-md overflow-hidden rounded-md border border-gray-700 bg-gray-900 transition-opacity hover:opacity-90 max-md:max-w-full"
       >

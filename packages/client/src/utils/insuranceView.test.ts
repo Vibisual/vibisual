@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import type {
   CompactMarker,
   CompactNotCarried,
-  CompactWatchState,
   FilePreimage,
   InsuranceSessionCounts,
   ProjectInsuranceLedger,
@@ -22,9 +21,7 @@ import {
   preimageFileName,
   restoreLabelKey,
   skipReasonKey,
-  sessionWatchLevel,
   matchesInsuranceSession,
-  worstWatchLevel,
   INSURANCE_SCOPE_LEVELS,
   INSURANCE_SCOPE_LABEL_KEY,
   availableScopeLevels,
@@ -99,10 +96,6 @@ function ledger(over: Partial<ProjectInsuranceLedger> = {}): ProjectInsuranceLed
     updatedAt: 0,
     ...over,
   };
-}
-
-function watch(over: Partial<CompactWatchState> = {}): CompactWatchState {
-  return { sessionId: 's', level: 'ok', canSendCompact: true, ...over };
 }
 
 describe('§7.23 갈피', () => {
@@ -223,25 +216,6 @@ describe('§7.23 preimageFileName — 윈도우 경로가 그대로 온다', () 
   });
 });
 
-describe('§5.26 (F) worstWatchLevel — 칸 하나가 가장 무거운 것만 말한다', () => {
-  it('감시가 없으면 null — 평상시에는 칸이 조용하다', () => {
-    expect(worstWatchLevel(undefined)).toBeNull();
-    expect(worstWatchLevel([])).toBeNull();
-  });
-
-  it('전부 ok 면 null', () => {
-    expect(worstWatchLevel([watch(), watch()])).toBeNull();
-  });
-
-  it('stalled 하나가 overdue 여럿을 이긴다', () => {
-    expect(worstWatchLevel([watch({ level: 'overdue' }), watch({ level: 'stalled' })])).toBe('stalled');
-  });
-
-  it('overdue 만 있으면 overdue', () => {
-    expect(worstWatchLevel([watch(), watch({ level: 'overdue' })])).toBe('overdue');
-  });
-});
-
 describe('§7.23 formatBytes', () => {
   it('0 이하·유한하지 않은 값은 0B', () => {
     expect(formatBytes(0)).toBe('0B');
@@ -331,23 +305,6 @@ describe('§5.26 (I) matchesInsuranceSession — 두 id 는 namespace 가 다르
   });
 });
 
-describe('§5.26 (F)(I) sessionWatchLevel — 옆 세션이 벽에 닿아도 내 칸은 안 물든다', () => {
-  const led = ledger({
-    watch: [
-      watch({ sessionId: 'uuid-2', subAgentId: 'sub-b', agentId: 'agent-1', level: 'stalled' }),
-      watch({ sessionId: 'uuid-1', subAgentId: 'sub-a', agentId: 'agent-1', level: 'overdue' }),
-    ],
-  });
-
-  it('내 세션의 등급만 읽는다', () => {
-    expect(sessionWatchLevel(led, { agentId: 'agent-1', subAgentId: 'sub-a', sessionId: 'uuid-1' })).toBe('overdue');
-    expect(sessionWatchLevel(led, { agentId: 'agent-1', subAgentId: 'sub-b', sessionId: 'uuid-2' })).toBe('stalled');
-  });
-
-  it('감시에 안 걸린 세션은 null — 프로젝트 최악값으로 굴러떨어지지 않는다', () => {
-    expect(sessionWatchLevel(led, { agentId: 'agent-1', subAgentId: 'sub-c', sessionId: 'uuid-3' })).toBeNull();
-  });
-});
 // ─── §7.23 범위 축 — 이 세션 / 이 에이전트 / 이 프로젝트 ───
 //
 // 이 시험이 지키는 것: **좁힌 눈금이 남의 줄을 내 것으로 적지 않는다**, 그리고 **넓은 쪽에 있는

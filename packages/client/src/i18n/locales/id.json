@@ -22,6 +22,7 @@
       "availableTooltip": "Versi {{version}} tersedia dan sedang diunduh di latar belakang",
       "downloading": "Memperbarui {{percent}}%",
       "restart": "Mulai ulang untuk memperbarui",
+      "restartShort": "Perbarui",
       "restartTooltip": "Versi {{version}} siap — mulai ulang untuk menerapkan",
       "confirmTitle": "Mulai ulang untuk memperbarui?",
       "confirmBody": "Memperbarui akan menutup dan menginstal ulang aplikasi. Pekerjaan agent yang sedang berlangsung atau perubahan yang belum disimpan mungkin akan hilang.",
@@ -1930,7 +1931,8 @@
       "later": "Nanti",
       "stop": "Hentikan",
       "start": "Masuk",
-      "successNext": "Berikutnya: pilih folder proyek tempat agent Anda bekerja."
+      "successNext": "Berikutnya: pilih folder proyek tempat agent Anda bekerja.",
+      "invalidEmail": "Masukkan alamat email yang valid atau biarkan kosong."
     },
     "setup": {
       "title": "Instal Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "Hanya unduh"
       },
       "note": "Ini hanya mengatur default untuk agent baru. Ketiganya tetap tersedia berdampingan, dan Anda bisa menyiapkan yang lain nanti di Opsi.",
-      "later": "Putuskan nanti"
+      "later": "Putuskan nanti",
+      "saving": "Menyimpan pilihan Anda…",
+      "saveError": "Pilihan Anda tidak dapat disimpan. Coba pilih mesin lagi."
     },
     "codexSetup": {
       "title": "Pasang Codex CLI",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "Keterampilan ini dinonaktifkan di Codex. Aktifkan di Codex sebelum menggunakannya."
       }
     },
+    "skillTabs": {
+      "label": "Mesin keterampilan",
+      "own": "Keterampilan {{provider}} untuk agen ini"
+    },
     "diff": {
       "addComment": "Beri komentar pada baris ini",
       "removeComment": "Hapus komentar",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "Tampilan",
+        "crop": "Pangkas",
+        "alpha": "Transparansi",
         "rect": "Persegi panjang",
         "ellipse": "Elips",
         "arrow": "Panah",
@@ -2408,6 +2418,42 @@
         "mask": "Sensor",
         "text": "Teks",
         "number": "Lencana angka"
+      },
+      "crop": {
+        "aspectFree": "Bebas",
+        "aspectOriginal": "Asli",
+        "aspectTitle": "Kunci rasio ke {{ratio}}",
+        "round": "Lingkaran",
+        "roundHint": "Jadikan semua area di luar elips transparan",
+        "width": "Lebar",
+        "height": "Tinggi",
+        "fieldHint": "Diukur dalam piksel gambar",
+        "trim": "Pangkas otomatis",
+        "trimHint": "Sesuaikan kotak pangkas dengan konten, tanpa menyertakan bingkai di sekelilingnya yang warnanya sama dengan sudut gambar",
+        "trimNone": "Tidak ada bingkai untuk dipangkas."
+      },
+      "alpha": {
+        "modeKey": "Hapus warna",
+        "modeFill": "Isi transparansi",
+        "pickedColor": "Warna yang akan dihapus: {{color}}",
+        "pickEmpty": "Klik gambar untuk memilih warna",
+        "tolerance": "Toleransi",
+        "contiguous": "Hanya tersambung",
+        "contiguousHint": "Hanya menghapus area yang tersambung dengan titik yang diklik. Matikan untuk menghapus warna ini dari seluruh gambar.",
+        "auto": "Latar belakang otomatis",
+        "autoHint": "Gunakan warna sudut yang paling umum sebagai latar belakang yang akan dihapus",
+        "autoNone": "Sudut gambar sudah transparan — tidak ada warna latar belakang untuk dihapus.",
+        "pickTransparent": "Titik itu sudah transparan — pilih warna yang terlihat.",
+        "noMatch": "Tidak ada piksel yang cocok dengan warna itu — coba toleransi yang lebih tinggi.",
+        "noTransparency": "Gambar ini tidak memiliki area transparan untuk diisi.",
+        "fillWhite": "Putih",
+        "fillBlack": "Hitam",
+        "fillCustom": "Pilih warna"
+      },
+      "edit": {
+        "applyHint": "Terapkan ({{shortcut}})",
+        "cancelHint": "Keluar dari alat tanpa menerapkan perubahan ({{shortcut}})",
+        "failed": "Tidak dapat mengedit gambar ini."
       },
       "color": "Warna",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "Tidak dapat menyimpan ke file itu.",
       "fileConflict": "File itu berubah di disk setelah Anda membukanya.",
       "fileConflictOverwrite": "Tetap simpan",
+      "fileJpegAlpha": "JPEG tidak dapat mempertahankan transparansi — gunakan {{fill}} terlebih dahulu, atau {{download}} sebagai gantinya.",
       "textPlaceholder": "Ketik, lalu tekan Enter",
       "hintPick": "Pilih tool untuk menandai gambar ini, lalu simpan sebagai lampiran.",
       "hintDraw": "Seret pada gambar untuk menandainya. {{shortcut}} membatalkan tanda terakhir.",
+      "hintCrop": "Seret kotak untuk memilih area yang dipertahankan. {{shortcut}} menerapkan pemangkasan.",
+      "hintAlphaKey": "Klik warna yang ingin dihapus. {{shortcut}} menerapkannya.",
+      "hintAlphaFill": "Area transparan akan diisi dengan warna yang dipilih. {{shortcut}} menerapkannya.",
       "discardTitle": "Buang tanda Anda dan tutup?",
       "discardCancel": "Lanjutkan mengedit",
       "discardConfirm": "Buang dan tutup",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Pisahkan ke jendela tersendiri",
       "toBubble": "Ubah jadi bubble overlay",
       "toBubbleHint": "Menciutkan jendela ini menjadi bubble overlay desktop · klik dua kali bubble untuk membukanya lagi",
+      "pinOnTop": "Selalu di atas",
+      "pinOnTopHint": "Menjaga jendela ini tetap di atas aplikasi lain, bahkan saat Anda beralih ke aplikasi itu",
+      "pinnedOnTopHint": "Disematkan di atas — klik agar aplikasi lain bisa menutupinya lagi",
       "redockDwellHint": "Lepaskan untuk menggabungkannya ke aplikasi",
       "codexLabel": "Codex",
       "codexContextUsed": "Percakapan ini sudah memakai {{used}} token konteks — engine tidak melaporkan batas"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Pulihkan spasi kata bahasa Korea",
       "voiceRespaceHint": "Mesin pengenal mengeluarkan bahasa Korea tanpa spasi; fitur ini memisahkannya pada partikel dan akhiran. Berbasis aturan sehingga tidak sempurna — hasilnya dapat Anda perbaiki di kotak masukan.",
       "stallHint": "Penalaran atau pemanggilan alat yang lama dapat menjeda pembaruan. Hal ini saja tidak berarti sesi telah berhenti.",
-      "backgroundShells": "{{count}} shell latar belakang masih berjalan. Jawabannya sudah masuk — Anda tetap bisa mengetik.",
-      "backgroundShellsTip": "Perintah Bash atau Monitor yang berjalan di latar belakang dan tersisa dari giliran sebelumnya. Ini menjalankan perintah, bukan model, sehingga tidak menahan sesi ini. Perintah yang tidak pernah keluar dengan sendirinya (tail -f, while true, sort yang di-pipe) akan tetap ada di sini sampai Anda menghapusnya.",
-      "backgroundShellsOpen": "Lihat",
       "stopNothing": "Tidak ada yang berjalan untuk dihentikan. Label “berjalan” sudah usang.",
       "stopNothingHint": "Server tidak menemukan proses anak, perintah antrean, maupun tugas latar belakang untuk cakupan ini.",
       "stopForce": "Paksa tutup",
       "stopForceTitle": "Hentikan semua pada agent ini, termasuk sesi lain dan perintah yang mengantre.",
       "stopFailed": "Permintaan penghentian gagal ({{status}}).",
       "stopRetry": "Coba lagi",
-      "queuedBehindSilent": "Ditampilkan sebagai berjalan karena compaction latar belakang sedang diselesaikan lebih dulu. Perintah ini belum dikirim, jadi Anda masih bisa mengubah atau menghapusnya."
+      "sendRejected": "Permintaan ditolak. Teks dan lampiran Anda telah dipulihkan. Tinjau percakapan sebelum mengirim lagi.",
+      "sendUnconfirmed": "Pengiriman tidak dapat dikonfirmasi. Teks dan lampiran Anda telah dipulihkan. Periksa percakapan sebelum mengirim lagi.",
+      "localImagesUnsupported": "All Model belum mendukung input gambar. Hapus gambar atau pilih penyedia lain untuk mengirim pesan ini."
     },
     "voiceInstall": {
       "title": "Siapkan input suara",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} sesi",
       "sessionMany": "{{count}} sesi",
       "sessionsTip": "Berapa tab sesi yang terbuka pada agen ini.",
-      "contextOverdueTip": "Konteks sesi ini hampir penuh dan masih terus bertambah, tetapi compaction belum berjalan. Klik untuk membuka Asuransi Konteks.",
-      "contextStalledTip": "Context window sesi ini nyaris penuh dan compaction belum berjalan. Klik untuk membuka Asuransi Konteks.",
-      "contextRejectedTip": "Kami mengirim perintah compaction, tetapi Claude Code tidak pernah memulainya — perintah itu ditolak. Penyebab umumnya adalah skill dan slash command dimatikan untuk proyek ini di {{contextSources}}. Klik untuk membuka Asuransi Konteks.",
       "elapsedTip": "Waktu sejak sesi ini terakhir bergerak."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Milik Anda {{count}}",
         "groupSystem": "Bawaan {{count}}",
         "groupPlugin": "Dari plugin {{count}}",
-        "hint": "Klik keterampilan untuk menambahkannya ke draf saat ini. Keterampilan pengguna dari Claude yang kompatibel dapat dibagikan di bawah ini."
+        "hint": "Klik keterampilan untuk menambahkannya ke draf saat ini. Keterampilan pengguna dari Claude yang kompatibel dapat dibagikan dari tab Claude."
       },
       "plugins": {
         "title": "Plugin",

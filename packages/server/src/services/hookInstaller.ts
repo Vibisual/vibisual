@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveBinary } from './binLocator.js';
+import { getAppNodeRuntime } from './appNodeRuntime.js';
+import { claudeHookInvocation } from './claudeHookRuntime.js';
 // §3.6 — 설치처는 하나가 아니다. Cowork 세션 홈 목록의 정본은 이 모듈.
 import { listCoworkConfigHomes } from './claudeConfigHomes.js';
 
@@ -262,8 +263,8 @@ export function httpHookUrlAllowed(allowList: unknown, url: string): boolean {
  * 실행본을 직접 spawn 하므로 셸 파서가 아예 등장하지 않는다 — 멀티플랫폼 규칙(경로를 문자열로
  * 조립하지 않는다)과 정확히 같은 이유다.
  *
- * `node` 는 **절대경로로 못 박는다** — Finder 로 띄운 mac 앱은 Homebrew 경로가 없는 최소 PATH 를
- * 받아 `node` 를 못 찾는다(`resolveBinary`). 못 찾으면 이름 그대로 두어 CLI 의 PATH 탐색에 맡긴다.
+ * Node가 없는 신규 설치본은 Electron 안의 Node를 helper 전용 환경으로 실행한다.
+ * Claude 훅에는 env 필드가 없으므로 OS 제공 런처를 exec 형식으로 부른다(claudeHookInvocation).
  */
 function buildHandlerEntry(
   port: number,
@@ -271,16 +272,15 @@ function buildHandlerEntry(
   token: string,
   opts: { if?: string; sync: boolean; timeout: number; statusMessage?: string; extraArgs?: readonly string[] },
 ): HookCommandEntry {
-  const nodeBin = resolveBinary('node') ?? 'node';
+  const invocation = claudeHookInvocation(getAppNodeRuntime(), [
+    handlerPath,
+    '--server', `http://127.0.0.1:${port}`,
+    '--token', token,
+    ...(opts.extraArgs ?? []),
+  ], process.platform, process.env['SystemRoot']);
   const entry: HookCommandEntry = {
     type: 'command',
-    command: nodeBin,
-    args: [
-      handlerPath,
-      '--server', `http://127.0.0.1:${port}`,
-      '--token', token,
-      ...(opts.extraArgs ?? []),
-    ],
+    ...invocation,
     timeout: opts.timeout,
   };
   if (opts.if) entry.if = opts.if;

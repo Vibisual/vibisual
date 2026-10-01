@@ -22,6 +22,7 @@
       "availableTooltip": "Version {{version}} is available and downloading in the background",
       "downloading": "Updating {{percent}}%",
       "restart": "Restart to update",
+      "restartShort": "Update",
       "restartTooltip": "Version {{version}} is ready — restart to apply",
       "confirmTitle": "Restart to update?",
       "confirmBody": "Updating will close and reinstall the app. Any in-progress agent work or unsaved changes may be lost.",
@@ -1930,7 +1931,8 @@
       "later": "Later",
       "stop": "Stop",
       "start": "Sign in",
-      "successNext": "Next: choose the project folder your agents will work in."
+      "successNext": "Next: choose the project folder your agents will work in.",
+      "invalidEmail": "Enter a valid email address, or leave it blank."
     },
     "setup": {
       "title": "Install Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "Download only"
       },
       "note": "This only sets the default for new agents. All three stay available side by side, and you can set up the others later in Options.",
-      "later": "Decide later"
+      "later": "Decide later",
+      "saving": "Saving your choice…",
+      "saveError": "Could not save your choice. Try selecting an engine again."
     },
     "codexSetup": {
       "title": "Install Codex CLI",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "This skill is disabled in Codex. Enable it in Codex before using it."
       }
     },
+    "skillTabs": {
+      "label": "Skill engines",
+      "own": "{{provider}} skills for this agent"
+    },
     "diff": {
       "addComment": "Comment on this line",
       "removeComment": "Remove comment",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "View",
+        "crop": "Crop",
+        "alpha": "Transparency",
         "rect": "Rectangle",
         "ellipse": "Ellipse",
         "arrow": "Arrow",
@@ -2408,6 +2418,42 @@
         "mask": "Redact",
         "text": "Text",
         "number": "Number badge"
+      },
+      "crop": {
+        "aspectFree": "Free",
+        "aspectOriginal": "Original",
+        "aspectTitle": "Lock the ratio to {{ratio}}",
+        "round": "Circle",
+        "roundHint": "Make everything outside the ellipse transparent",
+        "width": "Width",
+        "height": "Height",
+        "fieldHint": "Measured in image pixels",
+        "trim": "Auto trim",
+        "trimHint": "Fit the box to the content, leaving out the surrounding border in the corner color",
+        "trimNone": "There is no border to trim."
+      },
+      "alpha": {
+        "modeKey": "Remove color",
+        "modeFill": "Fill transparency",
+        "pickedColor": "Color to remove: {{color}}",
+        "pickEmpty": "Click the image to pick a color",
+        "tolerance": "Tolerance",
+        "contiguous": "Connected only",
+        "contiguousHint": "Only remove the area connected to where you clicked. Turn it off to remove the color from the whole image.",
+        "auto": "Auto background",
+        "autoHint": "Use the most common corner color as the background to remove",
+        "autoNone": "The corners are already transparent — there is no background color to remove.",
+        "pickTransparent": "That spot is already transparent — pick a visible color.",
+        "noMatch": "No pixels match that color — try a higher tolerance.",
+        "noTransparency": "This image has no transparent areas to fill.",
+        "fillWhite": "White",
+        "fillBlack": "Black",
+        "fillCustom": "Pick a color"
+      },
+      "edit": {
+        "applyHint": "Apply ({{shortcut}})",
+        "cancelHint": "Leave the tool without applying ({{shortcut}})",
+        "failed": "Could not edit this image."
       },
       "color": "Color",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "Could not save to that file.",
       "fileConflict": "That file changed on disk after you opened it.",
       "fileConflictOverwrite": "Save anyway",
+      "fileJpegAlpha": "JPEG cannot keep transparency — use {{fill}} first, or {{download}} instead.",
       "textPlaceholder": "Type, then press Enter",
       "hintPick": "Pick a tool to mark this image, then save it as an attachment.",
       "hintDraw": "Drag on the image to mark it. {{shortcut}} undoes the last mark.",
+      "hintCrop": "Drag the box to choose the area to keep. {{shortcut}} applies the crop.",
+      "hintAlphaKey": "Click the color to remove. {{shortcut}} applies it.",
+      "hintAlphaFill": "Transparent areas will be filled with the chosen color. {{shortcut}} applies it.",
       "discardTitle": "Discard your marks and close?",
       "discardCancel": "Keep editing",
       "discardConfirm": "Discard and close",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Pop out as separate window",
       "toBubble": "Turn into an overlay bubble",
       "toBubbleHint": "Shrinks this window into a desktop overlay bubble · double-click the bubble to open it again",
+      "pinOnTop": "Keep on top",
+      "pinOnTopHint": "Keeps this window above other apps, even when you switch to them",
+      "pinnedOnTopHint": "Kept on top — click to let other apps cover it again",
       "redockDwellHint": "Release to merge into the app",
       "codexLabel": "Codex",
       "codexContextUsed": "This conversation has used {{used}} context tokens — the engine does not report a limit"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Restore Korean word spacing",
       "voiceRespaceHint": "The recognizer emits Korean without spaces; this splits it at particles and endings. It is rule-based, so it is not perfect — you can fix the result in the input box.",
       "stallHint": "Long reasoning or tool calls can pause updates. This alone does not mean the session has stopped.",
-      "backgroundShells": "{{count}} background shell still running. The answer is already in — you can keep typing.",
-      "backgroundShellsTip": "A background Bash or Monitor command left over from an earlier turn. It runs a command, not a model, so it does not hold this session. Commands that never exit on their own (tail -f, while true, a piped sort) stay here until you remove them.",
-      "backgroundShellsOpen": "View",
       "stopNothing": "Nothing was running to stop. The \"running\" label was stale.",
       "stopNothingHint": "The server found no child process, queued command or background task for this scope.",
       "stopForce": "Force close",
       "stopForceTitle": "Stop everything on this agent, including other sessions and queued commands.",
       "stopFailed": "Stop request failed ({{status}}).",
       "stopRetry": "Try again",
-      "queuedBehindSilent": "Shown as running because a background compaction is finishing first. This command has not been sent yet, so you can still change or remove it."
+      "sendRejected": "The request was rejected. Your text and attachments have been restored. Review the conversation before sending again.",
+      "sendUnconfirmed": "Could not confirm delivery. Your text and attachments have been restored. Check the conversation before sending again.",
+      "localImagesUnsupported": "All Model does not support image input yet. Remove the images or choose another provider to send this message."
     },
     "voiceInstall": {
       "title": "Set up voice input",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions",
       "sessionsTip": "How many session tabs are open on this agent.",
-      "contextOverdueTip": "This session's context is nearly full and still growing, but no compaction has run. Click to open Context Insurance.",
-      "contextStalledTip": "This session's context window is effectively full and compaction has not run. Click to open Context Insurance.",
-      "contextRejectedTip": "We sent a compaction command but Claude Code never started one — it was rejected. The usual cause is skills and slash commands being turned off for this project under {{contextSources}}. Click to open Context Insurance.",
       "elapsedTip": "Time since this session last moved."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Yours {{count}}",
         "groupSystem": "Built-in {{count}}",
         "groupPlugin": "From plugins {{count}}",
-        "hint": "Click a skill to add it to the current draft. Compatible user skills from Claude can be shared below."
+        "hint": "Click a skill to add it to the current draft. Compatible user skills from Claude can be shared from the Claude tab."
       },
       "plugins": {
         "title": "Plugins",

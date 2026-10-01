@@ -15,14 +15,97 @@ export function getClassString(el: Element): string {
   return el.getAttribute('class') || '';
 }
 
+// ─────────────────────────────────────────────────────────────
+// 보이는 사각형 — CSS `zoom` 아래에서도 상자가 그 요소 위에 앉는다 (§5.4 #15 (B))
+// ─────────────────────────────────────────────────────────────
+
+/** 엔진이 `zoom` 아래 요소의 사각형을 그 zoom 으로 **나눠** 주는가 — 엔진 동작이라 한 번 재서 기억한다. */
+let zoomDividesRectsMemo: boolean | null = null;
+
+/**
+ * 10px 상자를 `zoom:2` 아래 두고 잰다 — 나눈 값(10)이 오면 옛 엔진, 보이는 값(20)이 오면 표준 엔진.
+ * `zoom` 을 아예 모르는 엔진도 10 이 나오지만 그때는 곱할 zoom 도 늘 1 이라 결과가 같다.
+ * 판본 문자열로 가르지 않는다 — Electron 을 올리는 날 이 자리를 다시 찾아와 고칠 일이 없게.
+ */
+export function probeZoomDividesRects(doc: Document): boolean {
+  const root = doc.body ?? doc.documentElement;
+  if (!root) return false;
+  const host = doc.createElement('div');
+  host.style.cssText = 'position:fixed;left:0;top:0;zoom:2;visibility:hidden;pointer-events:none';
+  const box = doc.createElement('div');
+  box.style.cssText = 'width:10px;height:10px';
+  host.appendChild(box);
+  root.appendChild(host);
+  try {
+    return box.getBoundingClientRect().width < 15;
+  } finally {
+    host.remove();
+  }
+}
+
+/** 우리 문서에서 잰다 — 미리보기 페이지(남의 문서)에 잴 상자를 꽂지 않는다. */
+function zoomDividesRects(): boolean {
+  if (zoomDividesRectsMemo === null) zoomDividesRectsMemo = probeZoomDividesRects(document);
+  return zoomDividesRectsMemo;
+}
+
+/** 테스트 전용 — 재 둔 엔진 동작을 잊는다. */
+export function __resetZoomRectModeForTest(): void {
+  zoomDividesRectsMemo = null;
+}
+
+function computedCssZoom(el: Element): number {
+  const view = el.ownerDocument.defaultView;
+  if (!view) return 1;
+  const z = parseFloat(view.getComputedStyle(el).zoom);
+  return Number.isFinite(z) && z > 0 ? z : 1;
+}
+
+/** 그려지는 트리의 부모 — 슬롯에 꽂힌 요소는 슬롯, 그림자 트리의 뿌리는 호스트(zoom 은 그 길로 곱해진다). */
+function renderedParent(el: Element): Element | null {
+  if (el.assignedSlot) return el.assignedSlot;
+  if (el.parentElement) return el.parentElement;
+  return (el.getRootNode() as Node & { host?: Element }).host ?? null;
+}
+
+/**
+ * 요소와 그 조상들의 CSS `zoom` 을 곱한 값 — 그 요소가 화면에 몇 배로 그려지는가.
+ * `getComputedStyle(el).zoom` 은 자기 칸의 값만 준다(물려받지 않고 곱해진다).
+ */
+export function cumulativeCssZoom(el: Element, zoomOf: (e: Element) => number = computedCssZoom): number {
+  let z = 1;
+  for (let cur: Element | null = el; cur; cur = renderedParent(cur)) z *= zoomOf(cur);
+  return z;
+}
+
+/**
+ * 요소가 **화면에 보이는** 사각형(자기 문서의 뷰포트 기준 CSS px).
+ *
+ * 통합 앱의 엔진(Electron 31 = Chromium 126)은 CSS `zoom` 아래 요소의 `getBoundingClientRect` 를
+ * **위치·크기 모두 그 요소의 누적 zoom 으로 나눠** 준다 — 실측: `zoom:0.9` 아래 화면 `[145,100] 180×36`
+ * 인 요소가 `[161,111] 200×40` 으로 왔다. IDE 본문은 글자 크기(`ideTextZoom`)를 항목마다 `zoom` 으로
+ * 걸어서, 인스펙터 상자가 IDE 창 본문에서만 엉뚱한 자리·크기로 그려졌다(사용자 보고 — 배율 0.9 에서
+ * 상자가 오른쪽 아래로 밀리고 커져 무엇을 집었는지 알 수 없었다). 집는 요소는 맞았다 — `elementFromPoint`
+ * 는 화면 기준이다. 틀린 것은 상자와 그 옆 크기 글자뿐이었다.
+ *
+ * 표준 엔진(Chromium 130 실측)은 이미 보이는 값을 준다 — 거기서 또 곱하면 두 번 곱한 것이 된다.
+ */
+export function visualClientRect(el: Element): DOMRect {
+  const r = el.getBoundingClientRect();
+  if (!zoomDividesRects()) return r;
+  const z = cumulativeCssZoom(el);
+  if (z === 1) return r;
+  return new DOMRect(r.left * z, r.top * z, r.width * z, r.height * z);
+}
+
 /** Adjust an element's rect by adding the iframe's viewport offset */
 export function getAdjustedRect(
   el: Element,
   iframeEl: HTMLIFrameElement | null,
 ): DOMRect {
-  const r = el.getBoundingClientRect();
+  const r = visualClientRect(el);
   if (!iframeEl) return r;
-  const ir = iframeEl.getBoundingClientRect();
+  const ir = visualClientRect(iframeEl);
   return new DOMRect(r.left + ir.left, r.top + ir.top, r.width, r.height);
 }
 

@@ -22,6 +22,7 @@
       "availableTooltip": "La versión {{version}} está disponible y descargándose en segundo plano",
       "downloading": "Actualizando {{percent}}%",
       "restart": "Reiniciar para actualizar",
+      "restartShort": "Actualizar",
       "restartTooltip": "La versión {{version}} está lista — reinicia para aplicarla",
       "confirmTitle": "¿Reiniciar para actualizar?",
       "confirmBody": "Actualizar cerrará y reinstalará la app. El trabajo de los agentes en curso o los cambios sin guardar podrían perderse.",
@@ -1930,7 +1931,8 @@
       "later": "Más tarde",
       "stop": "Detener",
       "start": "Iniciar sesión",
-      "successNext": "Siguiente: elige la carpeta de proyecto en la que trabajarán tus agentes."
+      "successNext": "Siguiente: elige la carpeta de proyecto en la que trabajarán tus agentes.",
+      "invalidEmail": "Ingresa una dirección de correo válida o deja el campo vacío."
     },
     "setup": {
       "title": "Instalar Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "Solo descarga"
       },
       "note": "Esto solo define el predeterminado para agents nuevos. Los tres siguen disponibles en paralelo, y puedes configurar los demás más tarde en Opciones.",
-      "later": "Decidir más tarde"
+      "later": "Decidir más tarde",
+      "saving": "Guardando tu elección…",
+      "saveError": "No se pudo guardar tu elección. Vuelve a seleccionar un motor."
     },
     "codexSetup": {
       "title": "Instalar Codex CLI",
@@ -2370,7 +2374,7 @@
       "unsupportedHint": "Esta habilidad usa funciones que {{provider}} no admite.",
       "invalidResponse": "El servidor devolvió una respuesta no válida.",
       "issues": {
-        "skill-too-large": "La habilidad supera el n?mero de archivos o el tama?o permitidos.",
+        "skill-too-large": "La habilidad supera el número de archivos o el tamaño permitidos.",
         "invalid-name": "El nombre de la habilidad no es válido.",
         "invalid-skill": "La definición de la habilidad no es válida.",
         "unsafe-path": "La habilidad contiene una ruta o un enlace no seguros.",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "Esta habilidad está desactivada en Codex. Actívala en Codex antes de usarla."
       }
     },
+    "skillTabs": {
+      "label": "Motores de habilidades",
+      "own": "Habilidades de {{provider}} de este agente"
+    },
     "diff": {
       "addComment": "Comentar esta línea",
       "removeComment": "Eliminar comentario",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "Ver",
+        "crop": "Recortar",
+        "alpha": "Transparencia",
         "rect": "Rectángulo",
         "ellipse": "Elipse",
         "arrow": "Flecha",
@@ -2408,6 +2418,42 @@
         "mask": "Censurar",
         "text": "Texto",
         "number": "Insignia numérica"
+      },
+      "crop": {
+        "aspectFree": "Libre",
+        "aspectOriginal": "Original",
+        "aspectTitle": "Bloquear la proporción a {{ratio}}",
+        "round": "Círculo",
+        "roundHint": "Hacer transparente todo lo que quede fuera de la elipse",
+        "width": "Ancho",
+        "height": "Alto",
+        "fieldHint": "Medido en píxeles de la imagen",
+        "trim": "Ajuste automático",
+        "trimHint": "Ajustar el marco al contenido, dejando fuera el borde del color de las esquinas",
+        "trimNone": "No hay ningún borde que quitar."
+      },
+      "alpha": {
+        "modeKey": "Quitar color",
+        "modeFill": "Rellenar transparencia",
+        "pickedColor": "Color a quitar: {{color}}",
+        "pickEmpty": "Haz clic en la imagen para elegir un color",
+        "tolerance": "Tolerancia",
+        "contiguous": "Solo contiguo",
+        "contiguousHint": "Quitar solo el área conectada al punto donde se hizo clic. Desactivar esta opción para quitar el color de toda la imagen.",
+        "auto": "Fondo automático",
+        "autoHint": "Usar el color más común de las esquinas como fondo a quitar",
+        "autoNone": "Las esquinas ya son transparentes: no hay ningún color de fondo por quitar.",
+        "pickTransparent": "Ese punto ya es transparente: elige un color visible.",
+        "noMatch": "Ningún píxel coincide con ese color: intenta con una tolerancia más alta.",
+        "noTransparency": "Esta imagen no tiene áreas transparentes que rellenar.",
+        "fillWhite": "Blanco",
+        "fillBlack": "Negro",
+        "fillCustom": "Elegir color"
+      },
+      "edit": {
+        "applyHint": "Aplicar ({{shortcut}})",
+        "cancelHint": "Salir de la herramienta sin aplicar ({{shortcut}})",
+        "failed": "No se pudo editar esta imagen."
       },
       "color": "Color",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "No se pudo guardar en ese archivo.",
       "fileConflict": "Ese archivo cambió en el disco después de abrirlo.",
       "fileConflictOverwrite": "Guardar de todos modos",
+      "fileJpegAlpha": "JPEG no puede conservar la transparencia: usa «{{fill}}» primero o «{{download}}» en su lugar.",
       "textPlaceholder": "Escribe y presiona Enter",
       "hintPick": "Elige una herramienta para marcar esta imagen y luego guárdala como adjunto.",
       "hintDraw": "Arrastra sobre la imagen para marcarla. {{shortcut}} deshace la última marca.",
+      "hintCrop": "Arrastra el marco para elegir el área que quieres conservar. {{shortcut}} aplica el recorte.",
+      "hintAlphaKey": "Haz clic en el color que quieres quitar. {{shortcut}} lo aplica.",
+      "hintAlphaFill": "Las áreas transparentes se rellenarán con el color elegido. {{shortcut}} lo aplica.",
       "discardTitle": "¿Descartar tus marcas y cerrar?",
       "discardCancel": "Seguir editando",
       "discardConfirm": "Descartar y cerrar",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "Desacoplar en una ventana aparte",
       "toBubble": "Convertir en burbuja de superposición",
       "toBubbleHint": "Reduce esta ventana a una burbuja de superposición de escritorio · haz doble clic en la burbuja para volver a abrirla",
+      "pinOnTop": "Mantener siempre encima",
+      "pinOnTopHint": "Mantiene esta ventana por encima de otras aplicaciones, incluso al cambiar a ellas",
+      "pinnedOnTopHint": "Fijada siempre encima — haz clic para que otras aplicaciones puedan volver a taparla",
       "redockDwellHint": "Suelta para combinarla con la aplicación",
       "codexLabel": "Codex",
       "codexContextUsed": "Esta conversación usó {{used}} tokens de contexto — el motor no reporta un límite"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "Restaurar los espacios del coreano",
       "voiceRespaceHint": "El reconocedor devuelve el coreano sin espacios; esto lo separa por partículas y terminaciones. Se basa en reglas, así que no es perfecto: puedes corregir el resultado en el campo de texto.",
       "stallHint": "Un razonamiento o una llamada a una herramienta prolongados pueden pausar las actualizaciones. Eso por sí solo no significa que la sesión se haya detenido.",
-      "backgroundShells": "{{count}} shell en segundo plano sigue en ejecución. La respuesta ya llegó — puedes seguir escribiendo.",
-      "backgroundShellsTip": "Un comando Bash o Monitor en segundo plano que quedó de un turno anterior. Ejecuta un comando, no un modelo, así que no mantiene ocupada esta sesión. Los comandos que nunca terminan por sí solos (tail -f, while true, un sort con pipe) se quedan aquí hasta que los elimines.",
-      "backgroundShellsOpen": "Ver",
       "stopNothing": "No había nada en ejecución que detener. La etiqueta “en ejecución” quedó desactualizada.",
       "stopNothingHint": "El servidor no encontró ningún proceso hijo, comando en cola ni tarea en segundo plano para este alcance.",
       "stopForce": "Forzar cierre",
       "stopForceTitle": "Detiene todo en este agente, incluidas las demás sesiones y los comandos en cola.",
       "stopFailed": "Falló la solicitud de detención ({{status}}).",
       "stopRetry": "Reintentar",
-      "queuedBehindSilent": "Se muestra como en ejecución porque primero está terminando una compactación en segundo plano. Este comando todavía no se envió, así que aún puedes cambiarlo o quitarlo."
+      "sendRejected": "Se rechazó la solicitud. Se restauraron el texto y los archivos adjuntos. Revisa la conversación antes de volver a enviarla.",
+      "sendUnconfirmed": "No se pudo confirmar el envío. Se restauraron el texto y los archivos adjuntos. Revisa la conversación antes de volver a enviarla.",
+      "localImagesUnsupported": "All Model aún no admite imágenes como entrada. Elimina las imágenes o elige otro proveedor para enviar este mensaje."
     },
     "voiceInstall": {
       "title": "Configurar la entrada de voz",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} sesión",
       "sessionMany": "{{count}} sesiones",
       "sessionsTip": "Cuántas pestañas de sesión hay abiertas en este agente.",
-      "contextOverdueTip": "El contexto de esta sesión está casi lleno y sigue creciendo, pero no se ha ejecutado ninguna compactación. Haz clic para abrir Seguro de contexto.",
-      "contextStalledTip": "La ventana de contexto de esta sesión está prácticamente llena y no se ha ejecutado la compactación. Haz clic para abrir Seguro de contexto.",
-      "contextRejectedTip": "Enviamos un comando de compactación, pero Claude Code no llegó a iniciarla: fue rechazada. Lo habitual es que las skills y los comandos de barra estén desactivados en este proyecto, en {{contextSources}}. Haz clic para abrir Seguro de contexto.",
       "elapsedTip": "Tiempo desde el último movimiento de esta sesión."
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "Tuyas {{count}}",
         "groupSystem": "Incluidas {{count}}",
         "groupPlugin": "De complementos {{count}}",
-        "hint": "Haz clic en una habilidad para agregarla al borrador actual. Puedes compartir las habilidades de usuario compatibles de Claude a continuación."
+        "hint": "Haz clic en una habilidad para agregarla al borrador actual. Puedes compartir las habilidades de usuario compatibles de Claude desde la pestaña Claude."
       },
       "plugins": {
         "title": "Plugins",

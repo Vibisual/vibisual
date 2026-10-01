@@ -14,6 +14,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// The packaged helper may run inside Electron's Node runtime. Its resumed Claude
+// or user status-line child must not inherit Electron's helper-only launch mode.
+delete process.env['ELECTRON_RUN_AS_NODE'];
+
 // §3.6 v2.9 — installer writes --server <url> into ~/.claude/settings.json so the packaged
 // handler never needs to discover the port itself. Inline fallback: if --server is absent,
 // check VIBISUAL_SERVER_URL env; otherwise default to http://127.0.0.1:4800.

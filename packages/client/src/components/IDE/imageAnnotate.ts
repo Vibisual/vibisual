@@ -5,8 +5,9 @@
 // 확대율이 바뀌어도 표시가 어긋나지 않고 "화면에서 본 것"과 "저장된 것"이 같다.
 //
 // DOM 없이 검증 가능하게 계산은 전부 여기 순수 함수로 둔다(floatingWindowGeom 선례).
-// 캔버스에 실제로 붓을 대는 두 함수(drawAnnotations / exportAnnotatedPng)만 브라우저 API 를 쓰며,
-// 그 둘도 그리는 값 자체는 위 순수 함수들이 계산한다.
+// 캔버스에 실제로 붓을 대는 함수(drawAnnotations / composeLayers / exportAnnotated*)만 브라우저 API 를
+// 쓰며, 그것들도 그리는 값 자체는 위 순수 함수들이 계산한다.
+// ⑦ 자르기·알파 빼기의 픽셀 연산과 자르기 상자 기하는 imageEdit.ts 가 따로 소유한다.
 
 export interface Point {
   x: number;
@@ -289,8 +290,9 @@ export function isCommittable(ann: Annotation, minSize = 3): boolean {
 }
 
 /** 다음 번호 배지 값 — 지우고 다시 그려도 번호가 겹치지 않게 최댓값 +1. */
-export function nextBadgeIndex(items: readonly Annotation[]): number {
-  let max = 0;
+export function nextBadgeIndex(items: readonly Annotation[], floor = 0): number {
+  // `floor` = 이미 그림에 구워져 목록에서 빠진 배지 중 가장 큰 번호(`EditFrame.badgeFloor`) — 번호가 되풀이되지 않게.
+  let max = Math.max(0, floor);
   for (const a of items) {
     if (a.tool === 'number' && a.index > max) max = a.index;
   }
@@ -298,43 +300,90 @@ export function nextBadgeIndex(items: readonly Annotation[]): number {
 }
 
 // ─── 되돌리기 스택 ───
+//
+// §5.5 #17-25 ⑦ — 자르기·알파 빼기는 그림 자체를 바꾸므로 한 칸이 "표시 목록"이 아니라
+// **세 겹 한 벌**(바탕 래스터 / 원형 자르기가 구운 표시 / 벡터 주석)이다. 도형·자르기·알파가
+// 같은 스택에 쌓여 Ctrl+Z 한 번이 마지막 동작 하나를 되돌린다.
 
-export interface AnnotationHistory {
-  items: Annotation[];
-  past: Annotation[][];
-  future: Annotation[][];
+/** 편집이 구운 래스터 한 겹 — PNG blob URL 과 그 픽셀 크기. */
+export interface RasterLayer {
+  src: string;
+  w: number;
+  h: number;
+  /** 알파가 255 미만인 픽셀이 하나라도 있는가(체커보드·jpeg 덮어쓰기 판정). */
+  transparent: boolean;
 }
 
-export const EMPTY_ANNOTATION_HISTORY: AnnotationHistory = { items: [], past: [], future: [] };
+/** 되돌리기 한 칸. `base`·`marks` 가 null 이면 "원본 그대로"·"구운 표시 없음". */
+export interface EditFrame {
+  items: Annotation[];
+  /** 바탕 래스터 — null 이면 원본 그림, 아니면 자르기·알파가 구운 PNG. */
+  base: RasterLayer | null;
+  /** 원형 자르기가 함께 구운 앞선 표시 — base 와 같은 크기의 투명 PNG. */
+  marks: RasterLayer | null;
+  /**
+   * `marks` 에 구워 넣은 번호 배지 중 가장 큰 번호(없으면 0). 원형 자르기는 표시를 픽셀로 구우며 벡터 목록을 비우므로,
+   * 목록만 세면 다음 배지가 1 부터 다시 붙어 그림에 "1" 이 둘 선다 — "2번 영역"이라는 공유된 이름(①)이 깨진다.
+   */
+  badgeFloor?: number;
+}
+
+export interface AnnotationHistory extends EditFrame {
+  past: EditFrame[];
+  future: EditFrame[];
+}
+
+export const EMPTY_ANNOTATION_HISTORY: AnnotationHistory = {
+  items: [],
+  base: null,
+  marks: null,
+  past: [],
+  future: [],
+};
 
 /** 과거 스택 상한 — 무한 누적은 큰 이미지에서 메모리만 먹고 실사용에서 닿지 않는다. */
 export const ANNOTATION_HISTORY_LIMIT = 50;
 
-function pushPast(history: AnnotationHistory, next: Annotation[]): AnnotationHistory {
-  const past = [...history.past, history.items];
+export function frameOf(history: AnnotationHistory): EditFrame {
   return {
-    items: next,
+    items: history.items,
+    base: history.base,
+    marks: history.marks,
+    ...(history.badgeFloor ? { badgeFloor: history.badgeFloor } : {}),
+  };
+}
+
+function pushPast(history: AnnotationHistory, next: EditFrame): AnnotationHistory {
+  const past = [...history.past, frameOf(history)];
+  return {
+    ...next,
     past: past.length > ANNOTATION_HISTORY_LIMIT ? past.slice(past.length - ANNOTATION_HISTORY_LIMIT) : past,
     future: [],
   };
 }
 
 export function commitAnnotation(history: AnnotationHistory, ann: Annotation): AnnotationHistory {
-  return pushPast(history, [...history.items, ann]);
+  return pushPast(history, { ...frameOf(history), items: [...history.items, ann] });
 }
 
+/** 자르기·알파 한 번 — 새 세 겹 한 벌을 되돌리기 한 칸으로 쌓는다. */
+export function commitFrame(history: AnnotationHistory, frame: EditFrame): AnnotationHistory {
+  return pushPast(history, frame);
+}
+
+/** [전체 지우기] — 표시(벡터 주석 + 구운 표시)만 지운다. 자르기·알파는 그대로 둔다. */
 export function clearAnnotations(history: AnnotationHistory): AnnotationHistory {
-  if (history.items.length === 0) return history;
-  return pushPast(history, []);
+  if (history.items.length === 0 && history.marks === null) return history;
+  return pushPast(history, { items: [], base: history.base, marks: null });
 }
 
 export function undoAnnotations(history: AnnotationHistory): AnnotationHistory {
   const prev = history.past[history.past.length - 1];
   if (!prev) return history;
   return {
-    items: prev,
+    ...prev,
     past: history.past.slice(0, -1),
-    future: [history.items, ...history.future],
+    future: [frameOf(history), ...history.future],
   };
 }
 
@@ -342,8 +391,8 @@ export function redoAnnotations(history: AnnotationHistory): AnnotationHistory {
   const next = history.future[0];
   if (!next) return history;
   return {
-    items: next,
-    past: [...history.past, history.items],
+    ...next,
+    past: [...history.past, frameOf(history)],
     future: history.future.slice(1),
   };
 }
@@ -354,6 +403,47 @@ export function canUndo(history: AnnotationHistory): boolean {
 
 export function canRedo(history: AnnotationHistory): boolean {
   return history.future.length > 0;
+}
+
+/** 원본에서 바뀐 것이 하나라도 있는가 — 저장 버튼·닫기 확인이 이것으로 판정한다. */
+export function hasEdits(frame: EditFrame): boolean {
+  return frame.items.length > 0 || frame.base !== null || frame.marks !== null;
+}
+
+/**
+ * 스택 어디선가 아직 가리키는 래스터 URL. 여기 없는 blob URL 만 해제해도 된다 —
+ * 되돌리기로 돌아갈 수 있는 칸의 그림을 풀면 Ctrl+Z 가 빈 그림을 띄운다.
+ */
+export function referencedLayerSrcs(history: AnnotationHistory): Set<string> {
+  const out = new Set<string>();
+  const add = (frame: EditFrame): void => {
+    if (frame.base) out.add(frame.base.src);
+    if (frame.marks) out.add(frame.marks.src);
+  };
+  add(history);
+  for (const frame of history.past) add(frame);
+  for (const frame of history.future) add(frame);
+  return out;
+}
+
+/**
+ * 사각 자르기 — 주석은 벡터 그대로 두고 좌표만 (dx, dy) 옮긴다(잘린 상자의 왼쪽 위가 새 원점).
+ * 상자 밖으로 밀려난 주석도 지우지 않는다: 화면 SVG·저장 캔버스 모두 그림 크기에서 잘리고,
+ * 되돌리면 그대로 돌아와야 하기 때문이다.
+ */
+export function translateAnnotations(items: readonly Annotation[], dx: number, dy: number): Annotation[] {
+  const move = (p: Point): Point => ({ x: p.x + dx, y: p.y + dy });
+  return items.map((ann): Annotation => {
+    switch (ann.tool) {
+      case 'pen':
+        return { ...ann, points: ann.points.map(move) };
+      case 'text':
+      case 'number':
+        return { ...ann, at: move(ann.at) };
+      default:
+        return { ...ann, from: move(ann.from), to: move(ann.to) };
+    }
+  });
 }
 
 // ─── 캔버스로 굽기 (브라우저 전용) ───
@@ -448,6 +538,38 @@ export function drawAnnotations(ctx: CanvasRenderingContext2D, items: readonly A
 /** 화면 SVG 와 저장 캔버스가 **같은 글꼴**로 그려야 저장본이 화면과 어긋나지 않는다. */
 export const ANNOTATION_FONT_STACK = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
+/** 굽기에 쓸 수 있는 그림 — 화면의 원본 `<img>` 또는 편집이 만든 캔버스. */
+export type RasterSource = HTMLImageElement | HTMLCanvasElement;
+
+/** 그림의 픽셀 크기. `<img>` 는 표시 크기가 아니라 natural 크기를 본다. */
+export function rasterSize(source: RasterSource): Size {
+  return 'naturalWidth' in source
+    ? { w: source.naturalWidth, h: source.naturalHeight }
+    : { w: source.width, h: source.height };
+}
+
+/**
+ * §5.5 #17-25 ⑦ — 세 겹(바탕 · 구운 표시 · 벡터 주석)을 바탕 크기 캔버스 한 장으로 합친다.
+ * 저장본과 [여백 자동]·원형 자르기가 모두 이 한 함수의 결과를 본다(화면에 보이는 그대로).
+ */
+export function composeLayers(
+  base: RasterSource,
+  overlay: RasterSource | null,
+  items: readonly Annotation[],
+): HTMLCanvasElement | null {
+  const { w, h } = rasterSize(base);
+  if (w <= 0 || h <= 0) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(base, 0, 0, w, h);
+  if (overlay) ctx.drawImage(overlay, 0, 0, w, h);
+  drawAnnotations(ctx, items);
+  return canvas;
+}
+
 /**
  * 원본 + 주석을 **원본 해상도 한 장**으로 굽는다. 실패하면 null(호출부가 오류 표시).
  *
@@ -455,22 +577,18 @@ export const ANNOTATION_FONT_STACK = 'system-ui, -apple-system, "Segoe UI", sans
  * 확장자와 내용이 어긋나므로 원본 확장자의 MIME 을 그대로 받아 굽는다(png·jpeg·webp).
  * `canvas.toBlob` 이 모르는 MIME 을 받으면 브라우저는 조용히 PNG 를 뱉으므로, 그런 형식은
  * 애초에 호출부(`canOverwriteWorkspaceImage`)가 막는다.
+ *
+ * ⑦ — 바탕은 원본 `<img>` 대신 자르기·알파가 만든 캔버스일 수 있고, `overlay` 는 원형 자르기가
+ * 구운 앞선 표시다. 크기는 언제나 바탕을 따른다.
  */
 export async function exportAnnotatedImage(
-  image: HTMLImageElement,
+  image: RasterSource,
   items: readonly Annotation[],
   mime: string = 'image/png',
+  overlay: RasterSource | null = null,
 ): Promise<Blob | null> {
-  const w = image.naturalWidth;
-  const h = image.naturalHeight;
-  if (w <= 0 || h <= 0) return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.drawImage(image, 0, 0, w, h);
-  drawAnnotations(ctx, items);
+  const canvas = composeLayers(image, overlay, items);
+  if (!canvas) return null;
   return await new Promise<Blob | null>((resolve) => {
     canvas.toBlob((blob) => resolve(blob), mime);
   });
@@ -478,8 +596,9 @@ export async function exportAnnotatedImage(
 
 /** 원본 + 주석을 원본 해상도 PNG 한 장으로 굽는다(첨부·내려받기의 기본 형식). */
 export async function exportAnnotatedPng(
-  image: HTMLImageElement,
+  image: RasterSource,
   items: readonly Annotation[],
+  overlay: RasterSource | null = null,
 ): Promise<Blob | null> {
-  return await exportAnnotatedImage(image, items, 'image/png');
+  return await exportAnnotatedImage(image, items, 'image/png', overlay);
 }

@@ -15,6 +15,7 @@ import { hasProjectFolder, shouldSummonProjectFolder } from './projectFolderGate
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { claudeGatesMayAutoOpen } from '../Engine/engineChoiceFlow.js';
+import { buildClaudeLoginCommand, claudeLoginPlatform, isClaudeLoginEmailValid } from './claudeLoginCommand.js';
 
 const Z = 100_600; // ClaudeVersionGate(100_500) 보다 위 — 로그인이 안 되면 버전 갱신도 의미가 없다.
 
@@ -50,10 +51,12 @@ export function LoginWindow(): React.JSX.Element | null {
   // 네이티브 인스톨러가 넣은 PATH 는 **이미 떠 있는 앱의 환경에는 반영되지 않기 때문**이다
   // (§4 첫 실행 설치 온보딩의 마지막 칸이 여기서 끊긴다). 설치 판정은 절대경로를 들고 있다.
   const claudeBinPath = useGraphStore((s) => s.claudeVersion?.binPath ?? s.claudeSetup?.binPath);
+  const installCommand = useGraphStore((s) => s.claudeSetup?.installCommand);
   const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice);
 
   const [mode, setMode] = useState<ClaudeAuthLoginMode>('claudeai');
   const [email, setEmail] = useState('');
+  const [inputError, setInputError] = useState<'email' | 'path' | null>(null);
   const [code, setCode] = useState('');
   const [showTerminal, setShowTerminal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -119,15 +122,23 @@ export function LoginWindow(): React.JSX.Element | null {
   }, [running, checking, showTerminal, scan.url]);
 
   const handleStart = useCallback(async () => {
+    setInputError(null);
+    if (!isClaudeLoginEmailValid(email)) {
+      setInputError('email');
+      return;
+    }
     setCode('');
     setShowTerminal(false);
     const bin = claudeBinPath && claudeBinPath.length > 0 ? claudeBinPath : 'claude';
-    const args = [/\s/.test(bin) ? `"${bin}"` : bin, 'auth', 'login', mode === 'console' ? '--console' : '--claudeai'];
-    if (email.trim()) args.push('--email', email.trim());
-    const command = args.join(' ');
-    // 로그인 CLI가 끝나면 셸도 닫혀 기존 PTY onExit로 실패/완료를 확인할 수 있다.
-    await start({ command: `${command} && exit || exit` });
-  }, [start, mode, email, claudeBinPath]);
+    let launch: ReturnType<typeof buildClaudeLoginCommand>;
+    try {
+      launch = buildClaudeLoginCommand(bin, mode, email, claudeLoginPlatform(bin, installCommand));
+    } catch {
+      setInputError('path');
+      return;
+    }
+    await start(launch);
+  }, [start, mode, email, claudeBinPath, installCommand]);
 
   const handleSendCode = useCallback(() => {
     const value = code.trim();
@@ -232,7 +243,8 @@ export function LoginWindow(): React.JSX.Element | null {
                       <input
                         type="email"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => { setEmail(e.target.value); setInputError(null); }}
+                        aria-invalid={inputError === 'email' || undefined}
                         placeholder="you@example.com"
                         className="rounded-md border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-[13px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/60"
                       />
@@ -308,6 +320,14 @@ export function LoginWindow(): React.JSX.Element | null {
                 {scan.failed && !running && (
                   <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
                     {t('panel.codexLogin.ended', { defaultValue: 'Sign-in did not complete. Try again.' })}
+                  </div>
+                )}
+
+                {inputError && (
+                  <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
+                    {inputError === 'email'
+                      ? t('panel.login.invalidEmail', { defaultValue: 'Enter a valid email address, or leave it blank.' })
+                      : t('panel.login.startFailed', { defaultValue: 'Could not start the sign-in process.' })}
                   </div>
                 )}
 

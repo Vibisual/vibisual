@@ -11,6 +11,7 @@ import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
   listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
   isTurnResumeSignal, TURN_RESUME_GRACE_MS, shouldSleepResumedTurn,
+  NOTICE_RESUME_WINDOW_MS, shouldHoldForNoticeResume,
   EARLY_RESULT_SAFETY_MS, isMainThreadModelLine, isResultBeforeOwnTurn,
   type TurnSealState, type LiveTaskInfo,
 } from './turnSeal.js';
@@ -1325,6 +1326,12 @@ export class SubAgentManager {
     /** 턴이 이어져 봉인을 취소할 때만 부른다 — 종료 감지를 되살리는 경로(agent-view watcher)용. */
     onResume?: () => void;
   }>();
+  /**
+   * §5.5 #17-9 ⑱ — **끝 통지로 곧 다시 돌 쉬는 세션**(sub 별 만료 타이머).
+   * 여기 있는 탭은 `syncBgSubStatus` 가 대기 항목이 있는 탭과 똑같이 세어 내리지 않는다. 되살아난 턴의
+   * 첫 모델 줄이 풀고(`releaseNoticeResumeHold`), 안 오면 `NOTICE_RESUME_WINDOW_MS` 뒤에 스스로 풀린다.
+   */
+  private noticeResumeHolds = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
    * **PTY(CMD 인터랙티브 터미널)로 도는 세션.** 이 탭들은 우리가 헤드리스 자식을 띄운 게 아니라
@@ -1693,7 +1700,7 @@ export class SubAgentManager {
       timestamp: Date.now(),
       eventType: 'error',
       content: detail ? `${head} ${detail}` : head,
-    });
+    }, { recordActivity: error.code !== 'orphaned' });
     logger.warn(`SubAgent ${sub.id} command failed [${code}@${engine}]${error.exitCode !== undefined ? ` exit=${error.exitCode}` : ''}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
   }
 
@@ -1812,8 +1819,82 @@ export class SubAgentManager {
     if (ending?.subagentType) {
       this.dropPendingBySubagentEndChip(sub.parentAgentId, subAgentId, ending, task?.summary);
     }
+    // §5.5 #17-9 ⑱ — 끝 통지는 "끝"이 아니라 "곧 다시 돈다"다. 아래 `syncBgSubStatus` 가 탭을 내리기
+    //   **전에** 붙들어야 한다(순서가 바뀌면 그 사이에 버블이 `completed` 로 넘어가 완료음이 난다).
+    if (subtype === TASK_CHIP_END_SUBTYPE) this.noteNoticeAwaitingResume(sub);
     this.syncBgSubStatus(sub.parentAgentId);
     this.onSubStatusChange?.(sub.parentAgentId);
+  }
+
+  /**
+   * §5.5 #17-9 ⑱ — 백그라운드 자식의 끝 통지가 왔다. 쉬는 세션이면 CLI 가 그 통지로 **곧 새 턴을 연다.**
+   *
+   * 실측(2026-09-23, `/release` 탭): 끝 칩 06:53:02.597 → CLI 가 3ms 만에 새 턴을 열었지만 그 턴의
+   * 첫 모델 줄은 24초 뒤(첫 토큰)에야 stdout 에 왔다. 그 사이 장부가 비었다는 이유로 탭을 내리면
+   * 버블이 `completed` 로 넘어가 **일하는 중에 완료음이 울린다**(사용자 보고).
+   *
+   * 두 자리를 덮는다 —
+   *  ① 턴이 막 끝나 봉인이 유예(`deferredSeals`) 중이면 그 유예를 첫 모델 줄까지 늘린다.
+   *  ② 쉬는 persistent 자식이면 탭을 붙들어 둔다(`shouldHoldForNoticeResume`). 풀리는 것은
+   *     실제 신호(첫 모델 줄)이고, 안 오면 `NOTICE_RESUME_WINDOW_MS` 뒤에 종전처럼 내린다.
+   */
+  private noteNoticeAwaitingResume(sub: SubAgent): void {
+    this.stretchDeferredSeal(sub.id, NOTICE_RESUME_WINDOW_MS, 'task notification arrived during the grace');
+    const hold = shouldHoldForNoticeResume({
+      bgPromoted: this.bgPromotedSubs.has(sub.id),
+      subStatus: sub.status,
+      processingCommand: this.isSubProcessingCommand(sub.id),
+      childIdleAlive: this.persistentChildReady.get(sub.id) === true,
+      dispatching: this.dispatchingSubs.has(sub.id),
+      cmdDriven: this.cmdDrivenSubs.has(sub.id),
+    });
+    if (!hold) return;
+    const subId = sub.id;
+    const prev = this.noticeResumeHolds.get(subId);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      // 그새 다시 걸렸거나(끝 칩이 또 옴) 풀린 뒤의 늦은 만료는 버린다.
+      if (this.noticeResumeHolds.get(subId) !== timer) return;
+      this.noticeResumeHolds.delete(subId);
+      logger.warn(`SubAgent ${subId} task notification did not resume the session within ${NOTICE_RESUME_WINDOW_MS}ms — releasing the hold (§5.5 #17-9 ⑱)`);
+      const cur = this.index.get(subId);
+      if (!cur) return;
+      this.syncBgSubStatus(cur.parentAgentId);
+      this.onSubStatusChange?.(cur.parentAgentId);
+    }, NOTICE_RESUME_WINDOW_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+    this.noticeResumeHolds.set(subId, timer);
+    logger.info(`SubAgent ${subId} task notification on an idle session — holding active until the resumed turn's first model line (≤${NOTICE_RESUME_WINDOW_MS}ms)`);
+  }
+
+  /**
+   * §5.5 #17-9 ⑱ — 되살아난 턴이 실제로 말하기 시작했다. 붙듦을 풀고 **승격 표식도 함께 지운다** —
+   * 표식을 남기면 곧바로 이어지는 `syncBgSubStatus` 가 "자식이 다 끝났다"로 읽어 탭을 내린다.
+   * 탭은 `active` 그대로 그 턴을 돌고, 그 턴의 `result` 에서 `shouldSleepResumedTurn` 이 재운다.
+   *
+   * `deliveredNotices` 는 비우지 않는다 — 통지 턴이 둘 이어질 때 첫 턴의 `result` 가 그 셈으로
+   * 3초 유예를 받아야 둘째 턴이 그 유예를 거둔다(봉인 뒤 깨우기 경로도 비우지 않는다).
+   * @returns 붙든 것이 있었으면 true.
+   */
+  private releaseNoticeResumeHold(subAgentId: string, cause: string): boolean {
+    const timer = this.noticeResumeHolds.get(subAgentId);
+    if (timer === undefined) return false;
+    clearTimeout(timer);
+    this.noticeResumeHolds.delete(subAgentId);
+    this.bgPromotedSubs.delete(subAgentId);
+    const sub = this.index.get(subAgentId);
+    if (sub && this.syncBgSubStatus(sub.parentAgentId)) this.onSubStatusChange?.(sub.parentAgentId);
+    logger.info(`SubAgent ${subAgentId} resumed after a task notification (${cause}) — hold released`);
+    return true;
+  }
+
+  /** §5.5 #17-9 ⑱ — 붙듦을 **상태를 건드리지 않고** 걷는다(중지·제거·자식 종료처럼 다른 경로가 상태를 정하는 자리). */
+  private clearNoticeResumeHold(subAgentId: string): boolean {
+    const timer = this.noticeResumeHolds.get(subAgentId);
+    if (timer === undefined) return false;
+    clearTimeout(timer);
+    this.noticeResumeHolds.delete(subAgentId);
+    return true;
   }
 
   /**
@@ -1887,6 +1968,9 @@ export class SubAgentManager {
       return;
     }
 
+    // §5.5 #17-9 ⑱ — 끝 통지로 붙들어 둔 탭은 되살아난 턴이 말하기 시작한 지금 푼다. persistent 는 보통
+    //   그보다 이른 원시 모델 줄(`_handlePersistentStdoutLine`)에서 이미 풀렸다 — 여기는 그 밖의 경로용.
+    this.releaseNoticeResumeHold(event.subAgentId, event.eventType);
     if (this.resumeHeldSeal(event.subAgentId, event.eventType)) return;
 
     // 봉인이 이미 끝난 뒤에 다시 흐르기 시작한 경우 — 화면을 진실로 되돌린다.
@@ -1918,14 +2002,41 @@ export class SubAgentManager {
       `SubAgent ${sub.id} turn end is provisional (liveTasks=${state.liveTasks.size}, notices=${state.deliveredNotices})`
       + ` — holding ${TURN_RESUME_GRACE_MS}ms before sealing`,
     );
-    const timer = setTimeout(() => {
-      this.deferredSeals.delete(sub.id);
-      noteTurnSealed(this.getTurnSealState(sub.id));
-      logger.info(`SubAgent ${sub.id} provisional turn end expired — sealing`);
-      seal();
-    }, TURN_RESUME_GRACE_MS);
-    if (typeof timer.unref === 'function') timer.unref();
+    const timer = this.armDeferredSealTimer(sub.id, TURN_RESUME_GRACE_MS);
     this.deferredSeals.set(sub.id, { timer, seal, ...(onResume ? { onResume } : {}) });
+  }
+
+  /**
+   * 잠정 봉인의 만료 타이머를 건다 — 거는 곳이 둘(`sealTurn` · `stretchDeferredSeal`)이라 한 곳에 둔다.
+   * 만료 때 **자기가 아직 현역 타이머인지** 확인한다 — 늘리면서 갈아 끼운 옛 타이머가 봉인하지 않게.
+   */
+  private armDeferredSealTimer(subAgentId: string, ms: number): ReturnType<typeof setTimeout> {
+    const timer = setTimeout(() => {
+      const deferred = this.deferredSeals.get(subAgentId);
+      if (!deferred || deferred.timer !== timer) return;
+      this.deferredSeals.delete(subAgentId);
+      noteTurnSealed(this.getTurnSealState(subAgentId));
+      logger.info(`SubAgent ${subAgentId} provisional turn end expired — sealing`);
+      deferred.seal();
+    }, ms);
+    if (typeof timer.unref === 'function') timer.unref();
+    return timer;
+  }
+
+  /**
+   * §5.5 #17-9 ⑱(d) — 붙들어 둔 잠정 봉인의 만료를 `ms` 뒤로 **다시 건다.** 붙든 게 없으면 false.
+   *
+   * 유예 중에 끝 통지가 오면 CLI 는 그 통지로 새 턴을 여는데, 첫 토큰이 3초 유예보다 늦게 와서
+   * 유예가 먼저 봉인했다(완료음) — 되살아난 턴이 끝나며 한 번 더 울렸다. 늘린 유예도 거두는 것은
+   * 종전 그대로 첫 모델 줄(`resumeHeldSeal`)이다.
+   */
+  private stretchDeferredSeal(subAgentId: string, ms: number, cause: string): boolean {
+    const deferred = this.deferredSeals.get(subAgentId);
+    if (!deferred) return false;
+    clearTimeout(deferred.timer);
+    deferred.timer = this.armDeferredSealTimer(subAgentId, ms);
+    logger.info(`SubAgent ${subAgentId} provisional turn end stretched to ${ms}ms (${cause}) — waiting for the resumed turn`);
+    return true;
   }
 
   /**
@@ -1991,8 +2102,8 @@ export class SubAgentManager {
     if (current) event.turnId = current;
   }
 
-  /** 스트림 이벤트를 버퍼에 추가 + 디스크 append + 콜백 호출 */
-  private emitStreamEvent(event: SubAgentStreamEvent): void {
+  /** 스트림 이벤트를 버퍼에 추가 + 디스크 append + 콜백 호출. 서버의 고아 진단은 실제 활동이 아니다. */
+  private emitStreamEvent(event: SubAgentStreamEvent, options: { recordActivity?: boolean } = {}): void {
     // 턴 세대 도장 — 이 줄이 **어느 명령의 것인가**. 클라는 이 값으로 명령 블록을 고르므로
     //   봉인 판정보다 **먼저** 찍는다(아래에서 버려지는 칩도 라이브 중계로는 나간다).
     this.stampTurnId(event);
@@ -2005,7 +2116,7 @@ export class SubAgentManager {
     //   빠뜨리면 그동안 흐르는 줄이 하나도 없어 idle sweep 이 도는 세션을 죽은 것으로 읽는다.
     if (event.turnId && this.silentTurnIds.has(event.turnId)) {
       const silentSub = this.index.get(event.subAgentId);
-      if (silentSub) silentSub.lastActivityAt = Date.now();
+      if (silentSub && options.recordActivity !== false) silentSub.lastActivityAt = Date.now();
       return;
     }
     // §5.5 v4.92 — 내용 없는 SDK 상태 칩(`[task_progress]`·`[thinking_tokens]` 등)은 **복원 예산에서 뺀다**.
@@ -2014,7 +2125,7 @@ export class SubAgentManager {
     //   버퍼·디스크에만 안 남기므로, 다시 열었을 때 같은 슬롯이 실제 대화로 채워진다.
     if (isNeverRenderedStreamEvent(event)) {
       const liveOnlySub = this.index.get(event.subAgentId);
-      if (liveOnlySub) liveOnlySub.lastActivityAt = Date.now();
+      if (liveOnlySub && options.recordActivity !== false) liveOnlySub.lastActivityAt = Date.now();
       this.onStreamEvent?.(event);
       return;
     }
@@ -2050,7 +2161,7 @@ export class SubAgentManager {
     // lastActivityAt 은 execute() 시작·child.close 두 곳에서만 찍혀, 명령이 길어지면
     // idle sweep 이 staleness 만 보고 실행 중 sub 를 idle 로 강등 → 부모 버블이 거짓 completed.
     const liveSub = this.index.get(event.subAgentId);
-    if (liveSub) liveSub.lastActivityAt = Date.now();
+    if (liveSub && options.recordActivity !== false) liveSub.lastActivityAt = Date.now();
     if (dir) streamBufferStore.appendEvent(dir, event);
     this.onStreamEvent?.(event);
   }
@@ -2311,6 +2422,28 @@ export class SubAgentManager {
     return this.index.get(subAgentId);
   }
 
+  /**
+   * §5.3 #9-1 (P)(b) — 이 세션의 "마지막 명령"(탭·세션 목록·명령 센터·대화 연결이 읽는다)을 이 글로
+   * 적고, 라벨이 아직 기본값이면 그 글로 제목을 붙인다. 조용한 사전 압축이 끼는 순간 서버가 **뒤에 선
+   * 명령의 글**로 부른다 — 압축이 도는 동안에도 그 명령이 이미 도는 것처럼 보여야 하고, `execute` 는
+   * 조용한 턴에 이 두 칸을 건드리지 않는다(`/compact` 가 탭 이름·마지막 명령으로 새지 않게).
+   */
+  noteLastCommand(subAgentId: string, text: string): void {
+    const sub = this.index.get(subAgentId);
+    if (sub) this.applyLastCommand(sub, text);
+  }
+
+  private applyLastCommand(sub: SubAgent, text: string): void {
+    sub.lastCommand = text;
+    // §5.5 #17-5 v2.68 — 라벨이 아직 기본값(Sub #N)이면 첫 프롬프트로 주제명 자동 부여.
+    //   사용자가 직접 바꾼 이름은 클라(subAgentLabels)가 displayLabel 에서 항상 우선하므로
+    //   서버는 기본 라벨만 갱신하면 "직접 바꾼 게 아니라면 자동 명명"이 성립한다.
+    if (DEFAULT_SUB_LABEL_RE.test(sub.label)) {
+      const title = deriveTabTitle(text);
+      if (title) sub.label = title;
+    }
+  }
+
   /** 이 sub 가 지금 실제로 실행 중인가 — 살아있는 자식 프로세스(legacy) 또는 agent-view watcher 보유.
    *  idle sweep 의 확정 진실(ground truth). lastActivityAt staleness 같은 추측이 이걸 이길 수 없다:
    *  "동작 중인 sub 를 거짓 완료/idle 처리" 의 단일 차단막. */
@@ -2456,6 +2589,11 @@ export class SubAgentManager {
         capSetSize(this.shellOnlyLogged, SESSION_KEYED_MAP_MAX);
         logger.info('[bg-shell] sub=' + subId + ' 남은 항목이 셸 ' + shells + '개뿐 — 세션 상태는 올리지 않는다(§5.5 #17-9 ⑰). 활동바·백그라운드 목록에만 보인다.');
       }
+    }
+    // §5.5 #17-9 ⑱ — 끝 통지로 **곧 다시 돌** 탭도 같은 자격이다. CLI 는 이미 새 턴을 열었고, 첫 모델
+    //   줄이 오기 전까지 서버가 그걸 모를 뿐이다. 여기서 빼면 그 사이에 탭이 내려가 완료음이 난다.
+    for (const subId of this.noticeResumeHolds.keys()) {
+      if (this.index.get(subId)?.parentAgentId === parentAgentId) pendingSubIds.add(subId);
     }
     let changed = false;
     for (const sub of this.registry.get(parentAgentId) ?? []) {
@@ -3077,6 +3215,40 @@ export class SubAgentManager {
     return out;
   }
 
+  /** 판정에는 표시용 겹침 제거를 쓰지 않는다. 소유 미상인 자식도 이 탭의 작업일 수 있다. */
+  private sessionProbeTasks(sub: SubAgent): { live: [string, LiveTaskInfo][]; pending: [string, PendingSubagentEntry][] } {
+    return {
+      live: [...(this.turnSealStates.get(sub.id)?.liveTasks ?? [])],
+      pending: [...(this.pendingSubagentTasks.get(sub.parentAgentId) ?? [])]
+        .filter(([, task]) => !task.subId || task.subId === sub.id),
+    };
+  }
+
+  private sessionProbeTranscript(sub: SubAgent, now: number): ReturnType<typeof resolveSessionTranscript> {
+    if (!sub.sessionId) return null;
+    const preferEngine = this.agentConfigResolver?.(sub.parentAgentId)?.provider?.kind === 'codex-cli'
+      ? ('codex' as const) : undefined;
+    return resolveSessionTranscript(sub.sessionId, undefined, now, preferEngine ? { preferEngine } : undefined);
+  }
+
+  /** 모델 응답이 올 때도 같은 턴·대화록·작업을 보고 있는지 대조한다. 시간 경과 자체는 변화가 아니다. */
+  private sessionProbeFingerprint(
+    sub: SubAgent,
+    queues: Map<string, QueuedCommand[]>,
+    transcript: NonNullable<ReturnType<typeof resolveSessionTranscript>>,
+  ): string {
+    return JSON.stringify({
+      sessionId: sub.sessionId, status: sub.status, activity: sub.lastActivityAt,
+      transcript: [transcript.file, transcript.bytes, transcript.mtimeMs],
+      commands: this.commandsOfSub(queues, sub.id).map((cmd) => [cmd.id, cmd.status, cmd.timestamp, cmd.startedAt]),
+      tasks: this.sessionProbeTasks(sub),
+      processAlive: this.isSubRunning(sub.id), processing: this.isSubProcessingCommand(sub.id),
+      dispatching: this.dispatchingSubs.has(sub.id), deferred: this.deferredSeals.has(sub.id),
+      noticeResume: this.noticeResumeHolds.has(sub.id),
+      deliveredNotices: this.turnSealStates.get(sub.id)?.deliveredNotices ?? 0,
+    });
+  }
+
   /**
    * 물어볼 세션 하나를 고른다 — **가장 오래 조용한 것 하나**.
    *
@@ -3089,8 +3261,8 @@ export class SubAgentManager {
     queues: Map<string, QueuedCommand[]>,
     now: number,
     quietMinutes: number,
-  ): { subId: string; parentAgentId: string; evidence: SessionProbeEvidence } | null {
-    let best: { subId: string; parentAgentId: string; evidence: SessionProbeEvidence } | null = null;
+  ): { subId: string; parentAgentId: string; evidence: SessionProbeEvidence; fingerprint: string } | null {
+    let best: { subId: string; parentAgentId: string; evidence: SessionProbeEvidence; fingerprint: string } | null = null;
 
     for (const sub of this.index.values()) {
       if (sub.status !== 'active') continue;
@@ -3101,12 +3273,9 @@ export class SubAgentManager {
 
       // §5.25 (F) — 엔진마다 대화록이 놓이는 자리가 다르다. 코덱스면 그 규칙을 먼저 본다
       //   (힌트는 순서일 뿐 배제가 아니라, 설정이 바뀐 세션도 나머지 규칙에서 찾는다).
-      const preferEngine = this.agentConfigResolver?.(sub.parentAgentId)?.provider?.kind === 'codex-cli'
-        ? ('codex' as const)
-        : undefined;
-      const tx = resolveSessionTranscript(sub.sessionId, undefined, now, preferEngine ? { preferEngine } : undefined);
+      const tx = this.sessionProbeTranscript(sub, now);
       if (!tx) {
-        logger.info(`[session-probe] sub=${sub.id} 대화록을 못 찾아 건너뜀 (session=${sub.sessionId} engine=${preferEngine ?? 'auto'})`);
+        logger.info(`[session-probe] sub=${sub.id} 대화록을 못 찾아 건너뜀 (session=${sub.sessionId})`);
         continue;
       }
 
@@ -3117,11 +3286,12 @@ export class SubAgentManager {
       if (quietMin < threshold) continue;
       if (best && best.evidence.quietMin !== undefined && quietMin <= best.evidence.quietMin) continue;
 
-      const seal = this.turnSealStates.get(sub.id);
+      const tasks = this.sessionProbeTasks(sub);
       const queue = this.commandsOfSub(queues, sub.id);
       best = {
         subId: sub.id,
         parentAgentId: sub.parentAgentId,
+        fingerprint: this.sessionProbeFingerprint(sub, queues, tx),
         evidence: {
           subId: sub.id,
           ...(sub.label ? { label: sub.label } : {}),
@@ -3129,7 +3299,8 @@ export class SubAgentManager {
           quietMin,
           transcriptBytes: tx.bytes,
           tail: summarizeTranscriptTail(tx.file),
-          runningTaskCount: seal ? listDisplayableLiveTasks(seal).length : 0,
+          // 두 장부의 관측을 모두 싣는다. 같은 작업이 겹쳐도 '없다'는 오판을 막는 근거다.
+          runningTaskCount: tasks.live.length + tasks.pending.length,
           queuedCommandCount: queue.filter((c) => c.status === 'queued').length,
           processAlive: this.isSubRunning(sub.id),
         },
@@ -3144,13 +3315,28 @@ export class SubAgentManager {
    * 우리가 정하면 남의 작업을 죽인다(판단은 사용자 몫).
    */
   private applySessionProbeVerdict(
-    candidate: { subId: string; parentAgentId: string },
+    candidate: { subId: string; parentAgentId: string; fingerprint: string },
     result: SessionLivenessProbeResult | null,
     settings: SessionLivenessProbeSettings,
     queues: Map<string, QueuedCommand[]>,
   ): void {
+    if (!this.sessionProbeSettings.enabled) return;
+    const sub = this.index.get(candidate.subId);
+    const transcript = sub && this.sessionProbeTranscript(sub, Date.now());
+    if (!sub || !transcript || this.sessionProbeFingerprint(sub, queues, transcript) !== candidate.fingerprint) {
+      logger.info(`[session-probe] 오래된 판정 무시 sub=${candidate.subId} — 진단 중 세션 근거가 바뀜`);
+      return;
+    }
     if (!result) {
       // 답을 못 받았다 — 다음 회차에 곧바로 다시 묻지 않도록 간격만 벌린다.
+      this.bumpSessionProbeBackoff(candidate.subId);
+      return;
+    }
+    const tasks = this.sessionProbeTasks(sub);
+    if (result.verdict === 'finished' && (tasks.live.length > 0 || tasks.pending.length > 0
+      || this.dispatchingSubs.has(sub.id) || this.deferredSeals.has(sub.id) || this.noticeResumeHolds.has(sub.id))) {
+      // 모델의 해석은 실제 진행 작업·재개 대기보다 강한 종료 근거가 될 수 없다.
+      logger.info(`[session-probe] 종료 판정 거부 sub=${candidate.subId} — 살아 있는 작업 또는 재개 대기가 남음`);
       this.bumpSessionProbeBackoff(candidate.subId);
       return;
     }
@@ -3166,12 +3352,11 @@ export class SubAgentManager {
     });
     capMapSize(this.sessionProbeStates, SESSION_KEYED_MAP_MAX);
 
-    const sub = this.index.get(candidate.subId);
-    if (sub) sub.probe = result;
+    sub.probe = result;
     logger.info(`[session-probe] 판정 sub=${candidate.subId} → ${result.verdict} · ${result.reason}`);
 
-    if (result.verdict !== 'finished' || !settings.autoClose) return;
-    if (!sub || sub.status !== 'active') return; // 그 사이 스스로 끝났다 — 정상 경로다.
+    if (result.verdict !== 'finished' || !settings.autoClose || !this.sessionProbeSettings.autoClose) return;
+    if (sub.status !== 'active') return; // 그 사이 스스로 끝났다 — 정상 경로다.
 
     // 상태를 내리면서 **붙들려 있던 명령도 함께 푼다.** 하나만 하면 그 탭은 "쉬는 중"으로 보이면서
     // 새 명령은 못 받는 자리에 갇힌다(`sealZombieExecutingCommands` 가 지키는 것과 같은 짝).
@@ -3636,9 +3821,10 @@ export class SubAgentManager {
       if (this.hasLivingWork(sub.id)) continue;
 
       sub.status = 'idle';
-      sub.lastActivityAt = Date.now();
+      // 상태 정리는 새 활동이 아니다. 시각을 갱신하면 바로 뒤 좀비 봉합이 같은 멎은 턴을
+      // 방금 움직인 것으로 읽어 실행 잠금을 남긴다(살아 있는 자식/in-flight가 있는 경우).
       demoted.push(sub.id);
-      logger.info(`SubAgent ${sub.id} was 'active' with no live process — reconciled to idle`);
+      logger.info(`SubAgent ${sub.id} was 'active' with no live work — reconciled to idle`);
     }
     return demoted;
   }
@@ -3741,7 +3927,7 @@ export class SubAgentManager {
         const sub = this.index.get(subId);
         if (sub && sub.status === 'active') {
           sub.status = 'idle';
-          sub.lastActivityAt = now;
+          // 한 좀비를 걷은 것이 새 활동은 아니다. 같은 탭의 다른 좀비도 같은 근거로 걷어야 한다.
         }
         sealed.push({ sessionId, cmd });
         logger.warn(
@@ -4376,6 +4562,8 @@ export class SubAgentManager {
     }
     // 붙들어 둔 잠정 봉인은 **버리지 말고 지금 봉인**한다 — 안 그러면 그 명령이 executing 인 채로 남는다.
     this.flushDeferredSeal(subAgentId);
+    // §5.5 #17-9 ⑱ — 끝 통지 붙듦도 걷는다(사라진 탭에 늦은 만료가 오지 않게).
+    this.clearNoticeResumeHold(subAgentId);
     this.turnSealStates.delete(subAgentId);
     // 생존 대조용 표식도 함께 회수 — 탭이 사라지면 남겨 둘 이유가 없다(누수 방지).
     this.cmdDrivenSubs.delete(subAgentId);
@@ -4570,6 +4758,9 @@ export class SubAgentManager {
     // (조용함으로 걷지 않는다) 다음 프로세스 대조가 올 때까지 활성으로 붙잡는다.
     // §5.5 #17-10 v3.53 — 단, **이 세션이 띄운 항목만**. 종전엔 부모 전체를 지워 한 탭을 멈추면
     // 다른 탭이 띄운 백그라운드 서브에이전트 표시까지 함께 사라졌다.
+    // §5.5 #17-9 ⑱ — 끝 통지로 "곧 다시 돈다"며 붙든 것도 중지 앞에서는 성립하지 않는다. 아래 정리가
+    //   부르는 `syncBgSubStatus` 가 이 탭을 붙든 채로 세지 않도록 먼저 걷는다.
+    this.clearNoticeResumeHold(subAgentId);
     this.clearPendingSubagentTasksForSession(sub.parentAgentId, subAgentId);
     // 스트림 칩으로만 보이던 백그라운드 작업(`Bash run_in_background` · `Monitor`)도 함께 정리한다.
     //   이 자식들은 우리가 죽이는 프로세스 트리 안에 있어 실제로 끝나는데, 장부를 안 비우면
@@ -4615,6 +4806,11 @@ export class SubAgentManager {
     // 자식 트리 종료 — Windows 는 부모가 살아 있을 때 트리째(`taskkill /T`), POSIX 는 SIGTERM 뒤 그룹 회수.
     terminateChildTree(child);
     this.settleStoppedPersistentTurn(sub);
+    // §5.5 #17-9 ⑱(c) — 쉬던 자식이면 마감할 턴이 없어 위 마감이 상태를 건드리지 않는다. 그 탭을 `active` 로 올려 둔
+    //   것(끝 통지 붙듦 · 백단 자식 장부)은 이미 걷었으니 **다시 세어** 지금 내린다 — 대차대조 정리는 남은 항목이 있을
+    //   때만 다시 세고 스트림 장부 정리는 세지 않아, `close` 가 올 때까지 [중지] 그대로였다(⑤-1 이 막은 그 기다림).
+    //   그 사이 죽어 가는 자식이 흘린 늦은 끝 칩은 남은 승격 표식을 보고 붙듦을 다시 걸었다.
+    if (this.syncBgSubStatus(sub.parentAgentId)) this.onSubStatusChange?.(sub.parentAgentId);
     logger.info(`SubAgent stop requested by user: ${subAgentId}`);
     return true;
   }
@@ -4666,6 +4862,8 @@ export class SubAgentManager {
   stopAll(parentAgentId: string): string[] {
     // 백그라운드 서브에이전트 대차대조 즉시 해제 — 끊긴 자식은 끝 신고를 못 하므로, 안 비우면
     // pending 가드가 중지된 에이전트를 계속 활성으로 붙잡는다(= 중지했는데 계속 도는 것처럼 보임).
+    // §5.5 #17-9 ⑱ — 끝 통지 붙듦도 같은 이유로 먼저 걷는다(`stop()` 과 같은 순서).
+    for (const s of this.registry.get(parentAgentId) ?? []) this.clearNoticeResumeHold(s.id);
     this.clearPendingSubagentTasks(parentAgentId);
     // §5.3 #12-1-B — 이 버블의 대기 카드 전부(세션 id 없이 도착한 카드 포함)를 취소로 닫는다.
     permissionBroker.cancelForAgent(parentAgentId, 'agent-stopped');
@@ -4705,6 +4903,9 @@ export class SubAgentManager {
       this.settleStoppedPersistentTurn(sub);
       stopped.push(sub.id);
     }
+    // §5.5 #17-9 ⑱(c) — `stop()` 과 같은 이유로 **다시 센다.** 위 대차대조 정리가 한 번 셌지만 그때는 스트림 장부가
+    //   아직 남아 있어, 살아 있던 백단 자식 덕에 떠 있던 쉬는 탭이 `close` 가 올 때까지 [중지] 그대로였다.
+    if (this.syncBgSubStatus(parentAgentId)) this.onSubStatusChange?.(parentAgentId);
     logger.info(`SubAgent stop-all requested by user: parent=${parentAgentId} stopped=${stopped.length}`);
     return stopped;
   }
@@ -4837,15 +5038,11 @@ export class SubAgentManager {
     this.wakeSub(sub); // §2.4 (잠듦) — 명령이 들어온 순간 표식을 걷는다
     this.clearUsageLimit(sub); // §2.4 (한도 정지) — 다시 돌린 세션은 더 이상 멈춰 있지 않다
     this.dispatchingSubs.add(sub.id);
-    sub.lastCommand = cmd.text;
+    // §5.3 #9-1 (P)(b) — 조용한 압축은 "마지막 명령"도 탭 제목도 건드리지 않는다. 그 자리는 끼우는 순간
+    //   서버가 뒤에 선 사용자 명령의 글로 이미 적었다(`noteLastCommand`) — 압축이 도는 동안 탭·세션 목록·
+    //   명령 센터에 `/compact` 가 보이면 사용자가 넣은 명령이 도는 것처럼 보이지 않는다.
+    if (!cmd.silent) this.applyLastCommand(sub, cmd.text);
     sub.lastActivityAt = Date.now();
-    // §5.5 #17-5 v2.68 — 라벨이 아직 기본값(Sub #N)이면 첫 프롬프트로 주제명 자동 부여.
-    //   사용자가 직접 바꾼 이름은 클라(subAgentLabels)가 displayLabel 에서 항상 우선하므로
-    //   서버는 기본 라벨만 갱신하면 "직접 바꾼 게 아니라면 자동 명명"이 성립한다.
-    if (DEFAULT_SUB_LABEL_RE.test(sub.label)) {
-      const title = deriveTabTitle(cmd.text);
-      if (title) sub.label = title;
-    }
     cmd.status = 'executing';
     // 이 턴의 도장 — 지금부터 이 세션이 뱉는 줄은 전부 이 명령의 것이다.
     this.currentTurnId.set(sub.id, cmd.id);
@@ -5576,6 +5773,14 @@ export class SubAgentManager {
           return;
         }
 
+        // §5.5 #17-9 ⑱ — 자식이 내려갔으니 끝 통지로 열릴 턴도 없다. 붙듦을 걷어 아래 정리가 탭을 제대로 내리게 한다.
+        //   걷었으면 **상태를 다시 센다** — 아래 정리는 남은 항목이 있을 때만 다시 세고, 쉬던 자식의 크래시 분기(진행 중
+        //   명령 없음)는 탭을 건드리지 않는다. 그래서 붙듦이 올려 둔 `active` 가 영영 남았다(주기 대조
+        //   `reconcileDeadActiveSubs` 도 이 탭을 내리지 않았다 — 실측 2분 뒤에도 `active`).
+        if (this.clearNoticeResumeHold(sub!.id) && this.syncBgSubStatus(sub!.parentAgentId)) {
+          this.onSubStatusChange?.(sub!.parentAgentId);
+        }
+
         // **이 자리가 백그라운드 작업의 실제 종료 시점이다.** 배경 Bash 셸은 이 프로세스의 자식이라
         //   프로세스가 사라지면 함께 사라진다(공식 규약: `claude -p` 는 최종 결과 뒤 약 5초에 그 셸을
         //   종료한다). 그러니 여기서 장부를 내리면 시간 추정도, 주기 대조가 우리를 따라잡기를 기다릴
@@ -5696,6 +5901,8 @@ export class SubAgentManager {
           clearEarlyResultWait(inFlight);
         }
       }
+      // §5.5 #17-9 ⑱ — 끝 통지로 열린 턴의 첫 줄이다. 붙들어 둔 탭은 이제 제 턴으로 돈다.
+      this.releaseNoticeResumeHold(sub.id, `raw ${String(obj['type'])}`);
       this.resumeHeldSeal(sub.id, `raw ${String(obj['type'])}`);
     }
 
@@ -5808,7 +6015,13 @@ export class SubAgentManager {
         })) return;
         sub.status = 'idle';
         sub.lastActivityAt = Date.now();
-        logger.info(`SubAgent ${sub.id} resumed turn ended with no in-flight command — back to idle`);
+        // §5.5 #17-9 ⑱(e) — 다른 백그라운드 자식이 아직 돌면 탭은 다시 승격된다(`_finalizeLegacyCommand`
+        //   와 같은 순서 — 재우기 → 승격 대조 → 상태 통지). idle 로 두면 그 자식의 끝 칩이 왔을 때 붙들
+        //   자격(`active`)이 없어, CLI 가 그 통지로 새 턴을 여는 사이에 버블이 `completed` 로 넘어간다(완료음).
+        this.syncBgSubStatus(sub.parentAgentId);
+        logger.info(this.bgPromotedSubs.has(sub.id)
+          ? `SubAgent ${sub.id} resumed turn ended with no in-flight command — other background children still running, stays active`
+          : `SubAgent ${sub.id} resumed turn ended with no in-flight command — back to idle`);
         this.onSubStatusChange?.(sub.parentAgentId);
       });
     }
@@ -6150,6 +6363,12 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     //   전부라, 로컬 모델은 프로젝트 규칙도 카드 지시문도 목표도 기억도 한 글자를 못 봤다.
     //   순서(안정 → 가변)는 `buildLocalSystemPrompt` 가 정한다 — 프리픽스 캐시가 걸린 문제다.
     const systemPrompt = buildLocalSystemPrompt(contextSummary, livePreamble, config.rules);
+
+    // 큐 적재 후 제공자를 바꾼 경우도 이미지를 조용히 빼고 실행하지 않는다.
+    if (cmd.attachments?.length) {
+      finish('local-images-unsupported', '');
+      return;
+    }
 
     if (!provider.modelId) {
       // 모델을 아직 안 고른 버블. 조용히 아무 일도 안 일어나는 대신 사유를 남긴다.

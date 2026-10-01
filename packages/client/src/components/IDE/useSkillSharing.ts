@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SkillSharingEntry } from '@vibisual/shared';
+import { agentEngineOf } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { readIDEPane, useIDEPaneKey } from './idePane.js';
 import { readSkillSharing, shareSkill, SkillSharingRequestError } from './skillSharingApi.js';
@@ -26,7 +27,7 @@ interface SharingState {
   used: boolean;
 }
 
-interface SkillSharingState extends SharingState {
+export interface SkillSharingState extends SharingState {
   refresh: () => void;
   useSkill: (skill: SkillSharingEntry) => Promise<void>;
 }
@@ -80,8 +81,8 @@ export function useSkillSharing(options: SkillSharingOptions): SkillSharingState
     const owner = scope.current;
     const stillCurrent = (): boolean => {
       const pane = readIDEPane(paneKey);
-      const kind = useGraphStore.getState().agentConfigs[agentId]?.provider?.kind;
-      const sameProvider = provider === 'codex' ? kind === 'codex-cli' : kind === undefined;
+      // 칸을 고른 판정과 같은 판정이다(`agentEngineOf`) — Codex CMD 는 공급자 칸이 비어 있어도 코덱스다.
+      const sameProvider = agentEngineOf(useGraphStore.getState().agentConfigs[agentId]) === provider;
       return owner.current && owner === scope.current
         && sameProvider && pane.agentId === agentId && pane.activeSessionId === activeSessionId;
     };

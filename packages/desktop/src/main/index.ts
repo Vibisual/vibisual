@@ -12,6 +12,7 @@ import { isVerificationToolIngress } from './verificationToolIngress';
 import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
+import { startBackendBeforeWindow } from './backendStartup';
 import { keepDragRegionsFresh } from './dragRegions';
 // §9 — 스냅샷 팬아웃(1회 인코딩 → 창마다 바이트 postMessage, 실패 시 종전 send 폴백).
 import { broadcastToWindows, initWsFanout } from './wsFanout';
@@ -66,6 +67,7 @@ if (process.platform === 'linux') {
 let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
 let primaryMainWindow: BrowserWindow | null = null;
+let backendBootFailed = false;
 
 // Hook 리스너 인증 토큰. 예전엔 매 실행 새 랜덤이었으나, 이제 userData 에 저장된 값을
 // bootBackend 에서 불러와 재사용한다(hookIdentity.ts) — 재실행해도 동일 유지. 모듈 로드 시점엔
@@ -718,23 +720,32 @@ if (!gotSingleInstanceLock) {
     });
   });
 
-  try {
-    await bootBackend();
-  } catch (err) {
-    console.error('[main] backend boot failed:', err);
-  }
-
-  // §5.4 #14-1 — windowManager 가 메인 윈도우를 알아야 redock-hover 푸시 가능.
-  configureWindowManager({ getMainWindow: () => primaryMainWindow });
-
-  createWindow();
-
-  // §4 v2.44 — 자동 업데이트 매니저 기동(패키지 빌드에서만 실제 동작, preview 면 no-op).
-  // createWindow 이후라 첫 상태 push 가 메인 윈도우에 도달한다.
-  initAutoUpdater();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  await startBackendBeforeWindow({
+    boot: bootBackend,
+    reportError: (error) => {
+      backendBootFailed = true;
+      mainDiagnostics.report('backend-startup', error);
+    },
+    askRestart: async () => {
+      const s = mainStrings(safeUiLocale());
+      const result = await dialog.showMessageBox({
+        type: 'error', title: s.backendBootTitle, message: s.backendBootMessage,
+        buttons: [s.backendBootRetry, s.backendBootQuit], defaultId: 0, cancelId: 1, noLink: true,
+      });
+      return result.response === 0;
+    },
+    relaunch: () => app.relaunch(),
+    quit: () => app.quit(),
+    openApp: () => {
+      // §5.4 #14-1 — windowManager 가 메인 윈도우를 알아야 redock-hover 푸시 가능.
+      configureWindowManager({ getMainWindow: () => primaryMainWindow });
+      createWindow();
+      // 첫 상태 push 가 메인 윈도우에 도달하도록 창 생성 뒤 기동한다.
+      initAutoUpdater();
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    },
   });
   });
 }
@@ -803,7 +814,9 @@ app.on('before-quit', (event) => {
   //   같은 손실을 경고하고 확인까지 받았다(SSOT 2026-08-12 항목도 "업데이트 쪽은 이미 같은
   //   경고를 하고 있었다"를 근거로 이 물음을 평범한 닫기에만 추가한 것이다). 여기서 또 물으면
   //   같은 경고가 두 번 뜨고, 사용자가 답하는 동안 종료가 늦어져 설치기가 포기한다.
-  const work = isUpdateInstallPending() ? null : safeRunningWorkSummary();
+  // 부팅 오류창에서 이미 다시 시작/종료를 골랐다. 두 번째 취소창으로 돌아가면
+  // 정상 창도 없는 부분 초기화 프로세스만 남으므로, 종료 정리로 바로 넘긴다.
+  const work = isUpdateInstallPending() || backendBootFailed ? null : safeRunningWorkSummary();
   if (work && (work.sessions > 0 || work.backgroundTasks > 0)) {
     // 언어는 서버 코어가 들고 있는 UI 로케일 하나를 따른다 — main 에는 i18next 가 없다(./strings).
     const s = mainStrings(safeUiLocale());

@@ -1,5 +1,14 @@
 import type { AgentQuestionItem, AgentQuestions } from '@vibisual/shared';
 
+/** 제안 인덱스(0 이상)와 겹치지 않는 직접 답변의 선택 키. */
+export const CUSTOM_ANSWER_INDEX = -1;
+
+/** 짧은 직접 답도 어느 질문에 대한 답인지 복사·전송할 때 함께 남긴다. */
+export function buildCustomAnswerText(item: AgentQuestionItem, index: number, multi: boolean, answer: string): string {
+  const text = answer.trim();
+  return text ? `${formatQuestionLine(item, index, multi)}\n${text}` : '';
+}
+
 /**
  * 질문 카드 복사 텍스트 조립 — 카드 전체 / 질문만 / 질문 하나.
  *
@@ -61,6 +70,7 @@ export function collectCheckedAnswers(
   questions: AgentQuestions,
   selected: Readonly<Record<number, ReadonlySet<number>>>,
   answered: Readonly<Record<number, number>>,
+  customAnswers: Readonly<Record<number, string>> = {},
 ): CheckedAnswers {
   const prompts: string[] = [];
   const lockNext: Record<number, number> = {};
@@ -73,6 +83,13 @@ export function collectCheckedAnswers(
       prompts.push(p);
       if (lockNext[qi] === undefined) lockNext[qi] = pi;
     });
+    if (set.has(CUSTOM_ANSWER_INDEX)) {
+      const text = buildCustomAnswerText(item, qi, questions.items.length > 1, customAnswers[qi] ?? '');
+      if (text) {
+        prompts.push(text);
+        if (lockNext[qi] === undefined) lockNext[qi] = CUSTOM_ANSWER_INDEX;
+      }
+    }
   });
   return { prompts, lockNext };
 }

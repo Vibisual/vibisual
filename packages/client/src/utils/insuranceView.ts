@@ -8,7 +8,6 @@ import type {
   CompactMarker,
   FilePreimage,
   ProjectInsuranceLedger,
-  CompactWatchLevel,
   CompactWatchState,
   ResurrectableSession,
 } from '@vibisual/shared';
@@ -96,19 +95,6 @@ export function preimageFileName(p: FilePreimage): string {
   return parts[parts.length - 1] || p.path;
 }
 
-/** 감시 등급 중 **가장 무거운 것** — 상태바 칸 하나가 그것만 말한다. */
-export function worstWatchLevel(list: readonly CompactWatchState[] | undefined): CompactWatchLevel | null {
-  if (!list || list.length === 0) return null;
-  let worst: CompactWatchLevel = 'ok';
-  for (const w of list) {
-    if (w.level === 'stalled') return 'stalled';
-    // §5.26 (F)(b) — `rejected`(이미 안 된 것)가 `overdue`(곧 벽이다)를 이긴다.
-    if (w.level === 'rejected') worst = 'rejected';
-    else if (w.level === 'overdue' && worst !== 'rejected') worst = 'overdue';
-  }
-  return worst === 'ok' ? null : worst;
-}
-
 /**
  * §5.26 (I) — **지금 상태바가 보고 있는 세션**의 좌표.
  *
@@ -146,20 +132,8 @@ export function matchesInsuranceSession(row: InsuranceSessionRow, scope: Insuran
   return !!row.agentId && row.agentId === scope.agentId;
 }
 
-/**
- * §5.26 (F)(I) — **이 세션**의 감시 등급. 없으면 `null`(칸은 평소 색으로 선다).
- *
- * 종전에는 프로젝트 안 **모든 세션 중 최악**을 그려, 옆 세션 하나가 벽에 닿으면 멀쩡한 세션의
- * 상태바까지 빨갛게 물들었다. 한 세션에 줄이 둘일 일은 없지만 최악 고르기는 그대로 둔다 —
- * 판정 규칙을 두 벌로 만들지 않는다.
- */
-export function sessionWatchLevel(
-  led: ProjectInsuranceLedger | undefined,
-  scope: InsuranceSessionScope,
-): CompactWatchLevel | null {
-  const rows = (led?.watch ?? []).filter((w) => matchesInsuranceSession(w, scope));
-  return worstWatchLevel(rows);
-}
+// §5.26 (I) ⑥ — 상태바 컨텍스트 칸을 물들이던 감시 등급 판정(`sessionWatchLevel`·`worstWatchLevel`)은
+// 걷었다(사용자 지시 2026-09-26). 칸은 경고·에러 모양을 갖지 않고, 누르면 팝업이 열릴 뿐이다.
 
 /** 바이트를 사람이 읽는 크기로. 저장고 사용량·기록 크기가 같은 규칙을 쓴다. */
 export function formatBytes(bytes: number): string {

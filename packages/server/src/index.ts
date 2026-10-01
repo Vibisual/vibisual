@@ -56,7 +56,7 @@ import { REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES } from '@vibisual/shared';
 import { createReviewDecisionHandler } from './services/reviewDecisionRoute.js';
 // §5.5 #17-11 v3.79 — 세션 반복 실행(루프).
 import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalStatus, SessionGoalProgressSource, SessionGoalStepStatus } from '@vibisual/shared';
-import { TOKEN_SAVER_LIMITS, DEFAULT_TOKEN_SAVER_SETTINGS, normalizeTokenSaverSettings, TOKEN_SAVER_PRESET_VALUES, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule, shouldCompactAfterTurn, planSilentPreCompact, isInternalSlashCommand, withoutSlashCommandFlag } from '@vibisual/shared';
+import { TOKEN_SAVER_LIMITS, DEFAULT_TOKEN_SAVER_SETTINGS, normalizeTokenSaverSettings, TOKEN_SAVER_PRESET_VALUES, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule, shouldCompactAfterTurn, planSilentPreCompact, silentPreCompactHeirs, heirCutByImmediate, isInternalSlashCommand, withoutSlashCommandFlag } from '@vibisual/shared';
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
 import { sessionsNeedingKick } from './services/queueWatchdog.js';
@@ -385,6 +385,7 @@ import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree
 import { validatePathWithinRoot } from './services/pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
 import { CASE_INSENSITIVE_FS, HOST_PLATFORM, pathKey, samePath } from './services/pathKey.js';
+import { findReferencedCommandAttachment } from './services/commandAttachmentOwnership.js';
 import { openFile, openFileAtSearch, openFolder, openWithDefaultApp } from './services/editorLauncher.js';
 import { isMicSettingsOpenable, openMicSettings, micSettingsHintKey } from './services/micSettingsOpener.js';
 // §5.13 (R-8) — 못 읽는 영상·소리를 우리 안에서 열기 위한 변환 레일.
@@ -806,7 +807,8 @@ export async function runServer(): Promise<RunServerHandle> {
       // AppState: hook 으로 처음 감지된 프로젝트도 openProjects 에 추가되도록 보장.
       // registerProject 는 idempotent — 이미 있으면 기존 인스턴스 반환, 새로 만들면 appStateAddOpenProject 트리거.
       // 이전엔 tool 이벤트(/api/hook-event) 가 오기 전까지 appState 에 기록되지 않아, SessionStart 만 발생하고 서버 재시작 시 사라지는 문제가 있었음.
-      try { graphManager.registerProject(cwd); } catch (err) {
+      // §3.5 — 훅 cwd 는 열린 프로젝트의 하위 폴더일 수 있다. 그 폴더를 새 프로젝트로 세우지 않게 훅 전용 문으로 연다.
+      try { graphManager.registerProjectForHookCwd(cwd); } catch (err) {
         logger.warn(`session-start: registerProject("${cwd}") failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       // v1.6 SCENARIO §5.7 #24: VSCode 재오픈 시 같은 cwd로 잠들어있던 에이전트 복원.
@@ -2595,11 +2597,16 @@ export async function runServer(): Promise<RunServerHandle> {
    * @returns 실제로 끊었으면(또는 봉인을 확정해 그 자리에서 넘겼으면) true — 호출자는 `processNextCommand`
    *          를 다시 부르지 않는다. 그냥 대기 중이었으면 false(평소 dispatch 가 이어받는다).
    */
-  function interruptForImmediateCommand(cmd: QueuedCommand): boolean {
+  function interruptForImmediateCommand(cmd: QueuedCommand, sessionId: string): boolean {
     const subId = cmd.subAgentId;
     if (!subId) return false;
     // 한 턴을 실제로 처리 중일 때만 — 명령 사이에 idle 로 살아 있는 persistent 자식은 끊을 이유가 없다.
     if (!subAgentManager.isSubProcessingCommand(subId)) return false;
+    // §5.3 #9-1 (P)(b) — 도는 것이 조용한 압축이면 사용자에게 "도는 턴"은 그 진행을 물려받은 명령이다.
+    //   아래 세 갈래는 CLI 에 있는 압축만 끊으므로, 그 명령을 그대로 두면 압축이 끝나자마자 대기열 맨
+    //   앞에서 나가고 이 덧말은 그 뒤에 섰다("즉시로 끊었는데 계속 돈다"). 먼저 그 명령을 실행 중에 멈춘
+    //   명령과 똑같이 중지됨으로 봉합해 두면, 끊긴 압축 다음 턴이 이 덧말이 된다.
+    sealHeirCutByImmediate(cmd, sessionId);
     // 그 턴이 **이미 답을 내고** 백단 여운 때문에 봉인만 붙들려 있는 상태라면 **끊을 턴이 없다.**
     //   여기에 인터럽트를 쏘면 CLI 가 답할 것이 없어 3초 뒤 하드 킬 폴백으로 내려가고, 프로세스와
     //   그 세션의 감시까지 죽은 뒤 남는 것은 창구가 닫힌 자식뿐이다 — 그 창구로 이 덧말을 쓰려다
@@ -2619,6 +2626,28 @@ export async function runServer(): Promise<RunServerHandle> {
     const stopped = subAgentManager.stop(subId);
     logger.info(`[follow-up] immediate interrupt sub=${subId} cmd=${cmd.id} stopped=${stopped}`);
     return stopped;
+  }
+
+  /**
+   * §5.3 #9-1 (P)(b) — [즉시] 덧말이 끊을 턴이 조용한 압축을 물려받은 명령이면, 그 명령을 큐에서 빼
+   * 실행 중에 멈춘 명령처럼 `[Stopped by user]` 로 봉합해 대화에 남긴다. 봉합했으면 true.
+   *
+   * 고르는 규칙은 화면·두 [중지]와 같은 `silentPreCompactHeirs` 를 타는 `heirCutByImmediate` 한 곳이다.
+   * 위임 장부는 두 [중지]처럼 "나가기 전 취소"로 내린다(CLI 에 닿은 적이 없다). 지휘(오케스트라) 명령은
+   * 런 정산이 따로 있어(`DELETE /api/commands` 참조) 봉합하지 않는다 — 종전 동작 그대로 둔다.
+   */
+  function sealHeirCutByImmediate(cmd: QueuedCommand, sessionId: string): boolean {
+    const queue = commandQueues.get(sessionId);
+    if (!queue) return false;
+    const cut = heirCutByImmediate(queue, cmd);
+    if (!cut || cut.heir.orchestraRunId) return false;
+    const idx = queue.indexOf(cut.heir);
+    if (idx < 0) return false;
+    queue.splice(idx, 1);
+    settleDispatchCommand(cut.heir, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+    archiveCompletedCommands(sessionId, [sealStoppedHeir(cut.heir, cut.startedAt)]);
+    logger.info(`[follow-up] immediate ${cmd.id} cut ${cut.heir.id} riding a silent compact — sealed as stopped (§5.3 #9-1 (P)(b))`);
+    return true;
   }
 
   /**
@@ -3817,6 +3846,10 @@ export async function runServer(): Promise<RunServerHandle> {
       //   키는 CLI 세션 UUID 다(`subAgentId` 아님 — §5.26 (I)(c) "두 id 를 맞대지 않는다").
       const compactSessionId = subAgentManager.getSub(slot.subAgentId)?.sessionId;
       if (compactSessionId) graphManager.markCompactSent(compactSessionId, Date.now());
+      // §5.3 #9-1 (P)(b) — 이 순간부터 사용자에게는 뒤에 선 명령이 도는 턴이다. 탭·세션 목록·명령 센터가
+      //   읽는 "마지막 명령"도 그 명령의 글이어야 한다(압축의 `execute` 는 이 칸을 건드리지 않는다).
+      const heir = queue[slot.index + 1];
+      if (heir && heir.id === slot.beforeCommandId) subAgentManager.noteLastCommand(slot.subAgentId, heir.text);
       logger.info(`[turn-compact] injected silent ${AGENT_COMPACT_COMMAND} ahead of ${slot.beforeCommandId} sub=${slot.subAgentId} session=${sessionId}`);
     }
   }
@@ -4431,7 +4464,7 @@ export async function runServer(): Promise<RunServerHandle> {
   /**
    * v1.35 — 업로드 취소/대기 중 삭제.
    * 제출 전 사용자가 썸네일을 제거하거나 팝업을 닫을 때 호출.
-   * 제출 후엔 `setOnComplete` cleanup 이 담당하므로 이 엔드포인트는 쓰지 않음.
+   * 제출 응답을 잃으면 복원된 초안에서도 호출될 수 있다. 큐/완료 기록의 첨부는 보존한다.
    */
   app.delete('/api/agent-attachments/:sessionId', (req, res) => {
     const { sessionId } = req.params;
@@ -4455,14 +4488,23 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(403).json({ error: 'path outside attachments dir' });
       return;
     }
-    fs.unlink(resolvedPath, (unlinkErr) => {
-      if (unlinkErr && (unlinkErr as NodeJS.ErrnoException).code !== 'ENOENT') {
-        logger.warn(`attachment unlink failed: ${resolvedPath} — ${unlinkErr.message}`);
+    const references = [...(commandQueues.get(sessionId) ?? []), ...(completedCommandArchive.get(sessionId) ?? [])];
+    if (findReferencedCommandAttachment(resolvedPath, expectedDir, references)) {
+      res.json({ ok: true, retained: true });
+      return;
+    }
+    // Keep the reference check and deletion in one event-loop turn: a new command
+    // must not acquire this file while an asynchronous unlink is still pending.
+    try {
+      fs.unlinkSync(resolvedPath);
+    } catch (unlinkErr) {
+      if ((unlinkErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.warn(`attachment unlink failed: ${resolvedPath} — ${unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr)}`);
         res.status(500).json({ error: 'unlink failed' });
         return;
       }
-      res.json({ ok: true });
-    });
+    }
+    res.json({ ok: true });
   });
 
   /** GET /api/agent-attachments/:sessionId/file?rel=<subId/uuid.ext | uuid.ext> — v2.93
@@ -4563,6 +4605,13 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
 
+    // All Model은 이미지 입력을 지원하지 않는다. 첨부 이동·세션 생성 전에 거절한다.
+    if (agentId && graphManager.getAgentConfig(agentId)?.provider?.kind === 'local-llama'
+      && Array.isArray(attachments) && attachments.length > 0) {
+      res.status(415).json({ error: 'local-images-unsupported' });
+      return;
+    }
+
     // §5.3 #10-4 — 킥오프 표식(`?orchestraRunId=`)은 **loopback 에서 온 것만** 읽는다. 지휘자는 앱이 띄운
     //   자식이라 loopback 으로만 닿는다 — 바깥에서 붙인 표식은 없던 것으로 보고 아래 가로채기 판정으로 흘린다.
     //   검사는 sub 를 고르기(= 새 sub 를 만들 수 있다) **전에** 한다 — 거절할 명령이 흔적을 남기지 않게.
@@ -4638,13 +4687,21 @@ export async function runServer(): Promise<RunServerHandle> {
       const cwd = graphManager.getAgentCwd(sessionId);
       if (cwd) {
         const expectedDir = path.resolve(path.join(cwd, '.vibisual', 'attachments', sessionId));
+        const references = [...(commandQueues.get(sessionId) ?? []), ...(completedCommandArchive.get(sessionId) ?? [])];
+        const owned = new Set<string>();
         const valid: string[] = [];
         for (const a of attachments) {
           if (typeof a !== 'string') continue;
           const resolved = path.resolve(a);
-          if (resolved.startsWith(expectedDir + path.sep) && fs.existsSync(resolved)) {
-            valid.push(resolved);
-          }
+          if (!resolved.startsWith(expectedDir + path.sep)) continue;
+          const exists = fs.existsSync(resolved);
+          const reference = findReferencedCommandAttachment(resolved, expectedDir, references, !exists);
+          // An accepted command may already have moved the upload before its
+          // reply was lost. Recover through its record, never a directory scan.
+          const candidate = reference ?? resolved;
+          if (!exists && (!reference || !fs.existsSync(reference))) continue;
+          valid.push(candidate);
+          if (reference) owned.add(candidate);
         }
         if (valid.length > 0) {
           // resolvedSubId 가 있고 /, \\, .. 가 없으면 서브폴더로 이동.
@@ -4657,6 +4714,8 @@ export async function runServer(): Promise<RunServerHandle> {
             try { fs.mkdirSync(subDir, { recursive: true }); } catch { /* 실패해도 원본 경로로 fallback */ }
             const moved: string[] = [];
             for (const src of valid) {
+              // Moving a shared file would invalidate the earlier command's path.
+              if (owned.has(src)) { moved.push(src); continue; }
               const dest = path.join(subDir, path.basename(src));
               try {
                 fs.renameSync(src, dest);
@@ -4729,7 +4788,7 @@ export async function runServer(): Promise<RunServerHandle> {
     queue.push(cmd);
     // §5.5 #17-18 v4.68 — '즉시'면 도는 턴을 먼저 끊는다. 끊긴 뒤 close 핸들러 → setOnComplete 가
     //   이 명령을 `--resume` 으로 dispatch 하므로, 여기서 또 밀면 죽어가는 자식과 겹칠 수 있다.
-    const interrupted = dispatchMode === 'immediate' && interruptForImmediateCommand(cmd);
+    const interrupted = dispatchMode === 'immediate' && interruptForImmediateCommand(cmd, sessionId);
     // §5.5 #17-4 v2.36 — 명령 텍스트의 `/skill-name` 토큰들을 프로젝트 사용 카운트에 반영.
     //                    SkillsView 가 정렬 키·배지로 사용.
     graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
@@ -4763,7 +4822,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     cmd.dispatchMode = mode;
     let interrupted = false;
-    if (mode === 'immediate') interrupted = interruptForImmediateCommand(cmd);
+    if (mode === 'immediate') interrupted = interruptForImmediateCommand(cmd, sessionId);
     res.json({ ok: true, command: cmd, interrupted });
     broadcastSnapshot();
     // 실행 중인 게 없었다면(끊을 것이 없었다면) 지금 바로 나갈 수 있는지 확인.
@@ -7073,6 +7132,23 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * §5.3 #9-1 (P)(b) — 조용한 압축이 도는 동안 **실행 중으로 보이던** 명령을 [중지]가 봉합한다.
+   *
+   * 큐의 사실은 `queued`(아직 CLI 에 안 나갔다)지만, 사용자에게 이 명령은 넣은 순간부터 도는 턴이었다
+   * (`displayCommands` 가 실행 중으로 그렸다 — 가려내는 규칙은 같은 `silentPreCompactHeirs`). 다른 대기
+   * 명령처럼 버리면 말풍선이 통째로 사라져 "보낸 글이 증발했다"가 되므로, 실행 중에 멈춘 명령과 똑같이
+   * `[Stopped by user]` 로 대화에 남긴다. 자리는 실행 중으로 그려지던 그 자리(압축이 나간 시각)다.
+   * 위임 장부는 호출자가 종전대로 "나가기 전 취소"로 내린다 — 실제로 CLI 에 닿은 적이 없다.
+   */
+  function sealStoppedHeir(c: QueuedCommand, silentStartedAt: number | undefined): QueuedCommand {
+    c.status = 'completed';
+    c.result = '[Stopped by user]';
+    c.stopReason = 'cancelled'; // §5.5 #17-12 ③-6 — 사용자 [중지]가 봉합한 턴
+    if (c.startedAt === undefined && silentStartedAt !== undefined) c.startedAt = silentStartedAt;
+    return c;
+  }
+
+  /**
    * §5.5 #17-10 v3.53 — POST /api/subagents/:agentId/:subId/stop-session — **세션 스코프 전체 중지**.
    *
    * v3.51 의 `stop-all` 은 [중지] 를 에이전트 단위로 올려, 지금 보고 있지도 않은 **다른 세션 탭까지**
@@ -7098,21 +7174,28 @@ export async function runServer(): Promise<RunServerHandle> {
 
     let cancelledQueued = 0;
     let sealedExecuting = 0;
+    let sealedHeirs = 0;
     const sessionId = graphManager.findSessionByAgentId(agentId);
     const queueBeforeStop = sessionId ? commandQueues.get(sessionId) : undefined;
     if (queueBeforeStop && sessionId) {
+      // §5.3 #9-1 (P)(b) — 조용한 압축이 도는 동안 실행 중으로 보이던 명령은 버리지 않고 봉합한다.
+      const heirs = silentPreCompactHeirs(queueBeforeStop);
       const remaining: QueuedCommand[] = [];
+      const sealed: QueuedCommand[] = [];
       for (const c of queueBeforeStop) {
         // 다른 세션 소유 명령은 손대지 않는다 — 이 라우트의 존재 이유.
         if (c.subAgentId === subId && c.status === 'queued') {
           cancelledQueued++;
           // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
           settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+          if (heirs.has(c)) sealed.push(sealStoppedHeir(c, heirs.get(c)));
           continue;
         }
         remaining.push(c);
       }
       commandQueues.set(sessionId, remaining);
+      sealedHeirs = sealed.length;
+      archiveCompletedCommands(sessionId, sealed);
     }
 
     const stopped = subAgentManager.stop(subId);
@@ -7150,7 +7233,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
 
     logger.info(
-      `[stop-session] agent=${agentId} sub=${subId} stopped=${stopped} cancelledQueued=${cancelledQueued} sealedExecuting=${sealedExecuting} loopStopped=${loopStopped}`,
+      `[stop-session] agent=${agentId} sub=${subId} stopped=${stopped} cancelledQueued=${cancelledQueued} sealedHeirs=${sealedHeirs} sealedExecuting=${sealedExecuting} loopStopped=${loopStopped}`,
     );
     flushOrchestraResults();
     graphManager.recomputeCustomAgentStatus(agentId);
@@ -7201,17 +7284,23 @@ export async function runServer(): Promise<RunServerHandle> {
     const sessionId = graphManager.findSessionByAgentId(agentId);
     const queueBeforeStop = sessionId ? commandQueues.get(sessionId) : undefined;
     if (queueBeforeStop && sessionId) {
+      // §5.3 #9-1 (P)(b) — 조용한 압축이 도는 동안 실행 중으로 보이던 명령은 버리지 않고 봉합한다
+      //   (stop-session 과 같은 규칙 — 두 [중지]가 다르게 끝나면 탭에 따라 명령이 남고 사라진다).
+      const heirs = silentPreCompactHeirs(queueBeforeStop);
       const remaining: QueuedCommand[] = [];
+      const sealed: QueuedCommand[] = [];
       for (const c of queueBeforeStop) {
         if (c.status === 'queued') {
           cancelledQueued++;
           // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
           settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
+          if (heirs.has(c)) sealed.push(sealStoppedHeir(c, heirs.get(c)));
           continue;
         }
         remaining.push(c);
       }
       commandQueues.set(sessionId, remaining);
+      archiveCompletedCommands(sessionId, sealed);
     }
 
     const stopped = subAgentManager.stopAll(agentId);

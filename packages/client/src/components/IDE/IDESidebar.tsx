@@ -1,6 +1,7 @@
 import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, ActivityEdge, SessionGoalStepStatus } from '@vibisual/shared';
+import { agentEngineOf } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
@@ -8,6 +9,9 @@ import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, installPluginSkill, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
 import { IDESkillSharingSection } from './IDESkillSharingSection.js';
+import { useSkillSharing } from './useSkillSharing.js';
+import { IDESkillProviderTabs, skillSharingCount, useSkillProviderTab } from './IDESkillProviderTabs.js';
+import { usesCodexPane } from './ideProviderViews.js';
 import { IDELoopView } from './IDELoopView.js';
 import { IDEVerifyView } from './IDEVerifyView.js';
 import { IDEReadingView } from './IDEReadingView.js';
@@ -78,7 +82,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   // 스킬 목록 조회는 agentId 를 권위 키로 넘긴다 — 서버가 그 에이전트의 소속 인스턴스에서
   // 프로젝트 path 를 직접 해소하므로, 활성 프로젝트 오염·표시명 어긋남에 영향받지 않는다.
   const projectName = useGraphStore((s) => s.agentProjects[agentId]);
-  const { skills, order, favorites, loaded } = useAvailableSkills(projectName, agentId);
+  const { skills, order, favorites, loaded, failure } = useAvailableSkills(projectName, agentId);
   // §5.5 #17-4 v2.93 — 신규(미클릭) 스킬 색 구분용 "본 것" 집합 + 시드/표시 액션.
   const seenSkills = useGraphStore((s) => s.seenSkills);
   const seedSeenSkills = useGraphStore((s) => s.seedSeenSkills);
@@ -195,6 +199,14 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   }, [agentId, activeSessionId, setAgentSessionInputText, executionMode]);
 
   const insertSharedSkill = useCallback((name: string) => insertSkill({ name }), [insertSkill]);
+
+  // §5.5 #17-4 — 탭 하나에 목록 하나. 이 칸은 클로드 에이전트의 것이라 Claude 탭이 첫째·기본이고,
+  // 에이전트를 바꾸면 다시 Claude 탭으로 돌아온다. 공유 목록은 탭 개수를 적으려고 여기서 쥔다.
+  const [skillTab, setSkillTab] = useSkillProviderTab('claude', agentId);
+  const sharing = useSkillSharing({
+    agentId, activeSessionId, provider: 'claude', onUse: insertSharedSkill, onShared: refreshAvailableSkills,
+  });
+  const onSharingTab = skillTab !== 'claude';
 
   // ── 드래그 재정렬 (같은 타입 내에서만) ──
   const handleDragStart = useCallback((e: React.DragEvent, type: SkillSource, names: string[], name: string) => {
@@ -421,30 +433,39 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
       <div className="flex items-center gap-1 px-1">
+        {/* 개수는 탭이 적는다 — 머리줄에도 적으면 같은 숫자가 두 줄에 선다. */}
         <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
-          {t('ide.sidebar.skills', { count: skills.length })}
+          {t('ide.activityBar.skills')}
         </span>
+        {/* 새로고침은 하나다 — 보고 있는 탭의 목록을 다시 읽는다(공유 구역 안에 두 번째를 두지 않는다). */}
         <button
           type="button"
-          onClick={handleRefresh}
-          title={t('ide.sidebar.refreshSkills')}
-          aria-label={t('ide.sidebar.refreshSkills')}
-          className="ml-auto flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700/60 hover:text-gray-300"
+          onClick={onSharingTab ? sharing.refresh : handleRefresh}
+          disabled={onSharingTab && (sharing.loading || sharing.busyId !== null)}
+          title={onSharingTab ? t('ide.skillSharing.refresh') : t('ide.sidebar.refreshSkills')}
+          aria-label={onSharingTab ? t('ide.skillSharing.refresh') : t('ide.sidebar.refreshSkills')}
+          className="ml-auto flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700/60 hover:text-gray-300 disabled:opacity-50"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 ${(onSharingTab ? sharing.loading : refreshing) ? 'animate-spin' : ''}`}>
             <path d="M21 12a9 9 0 1 1-2.64-6.36" />
             <path d="M21 3v6h-6" />
           </svg>
         </button>
       </div>
+      <IDESkillProviderTabs
+        own="claude" active={skillTab} onChange={setSkillTab}
+        counts={{ claude: loaded && failure === null ? skills.length : null, codex: skillSharingCount(sharing) }}
+      />
       <ScrollFade fill className="flex-1">
-        <IDESkillSharingSection
-          key={`${agentId}:${activeSessionId ?? ''}`}
-          agentId={agentId} activeSessionId={activeSessionId} provider="claude"
-          onUse={insertSharedSkill} onShared={refreshAvailableSkills}
-        />
-        {!loaded ? (
+        {onSharingTab ? (
+          <IDESkillSharingSection sharing={sharing} provider="claude" agentId={agentId} />
+        ) : !loaded ? (
           <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.skillsLoading')}</div>
+        ) : failure !== null ? (
+          /* 못 읽은 것은 "설치된 스킬 없음"이 아니다 — 사유를 적고, 머리줄 새로고침이 다시 읽는다. */
+          <p className="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[12px] text-amber-300">
+            {t('ide.codex.readFailed', { reason: failure })}
+          </p>
         ) : skills.length === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.noSkills')}</div>
         ) : (
@@ -821,7 +842,9 @@ export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps)
   const { sidebarDrawer } = useIDEBodyLayout();
   // §5.25 (M) — 코덱스 버블이면 그 다섯 칸은 코덱스 것으로 갈아 끼운다(없으면 종전 표).
   const providerKind = useGraphStore((s) => s.agentConfigs[agentId]?.provider?.kind);
-  const View = (providerKind === 'codex-cli' ? CODEX_VIEW_MAP[activeView] : undefined) ?? VIEW_MAP[activeView];
+  // §5.25 (M-1) — 스킬 칸만은 공급자가 아니라 실제로 도는 엔진을 따른다(Codex CMD — `usesCodexPane`).
+  const engine = useGraphStore((s) => agentEngineOf(s.agentConfigs[agentId]));
+  const View = (usesCodexPane(activeView, providerKind, engine) ? CODEX_VIEW_MAP[activeView] : undefined) ?? VIEW_MAP[activeView];
 
   if (collapsed) return <></>;
 

@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-01
+
+### Added
+- **Crop images and change their transparency in the image preview.** The preview can now edit the picture itself. Crop offers a free box, the original ratio and seven fixed ones (1:1, 4:3, 3:4, 3:2, 2:3, 16:9, 9:16), exact width and height in image pixels, an automatic trim that fits the box to the content inside a plain border, and a circle that makes everything outside the ellipse transparent. Transparency either removes a colour you click — only the area connected to it, or the whole image, with an adjustable tolerance and an automatic pick of the background from the corners — or fills transparent areas with white, black or a colour you choose. Each applied edit is one undo step, and annotations stay editable through a rectangular crop. A JPEG cannot keep transparency, so saving over one asks you to fill the transparent areas first or to download the result instead.
+- **Keep a detached IDE window on top.** A pin in the title bar of a detached IDE window keeps it above other apps, even when you switch to them. It is off by default, stays on when you collapse the window and open it again, and is cleared when the app restarts.
+- **Write your own answer on a question card.** Every question on an agent's question card now has a field for an answer of your own — also when the agent offered a single suggestion or none — which you can copy or send like a suggestion. On a card with several questions, sending your selection includes the answers you typed, and what you are typing is kept when the card scrolls out of view. Agents are also told not to leave real alternatives out of a card and not to put guessed numbers in it.
+- **Skills come in engine tabs.** The skills panel opens on the tab for the engine the selected agent runs, and the skills you can share from the other engine have their own tab. Switching agents brings you back to that agent's tab, refresh and search act on the tab you are looking at, and the tab you chose is kept for each agent while you move between its sessions or fold the sidebar. A Codex agent running in the terminal now gets Codex's skills.
+- **The project name on the canvas.** The current project's name sits faintly in the bottom-right corner of the canvas. It stays in place while you pan and zoom, and clicks go straight through it.
+- **Claude Opus 5.5 in the model list.** It can be picked in agent settings and is listed as the newest Opus, and its sessions are costed at its own prices — $4 / $20 per million input / output tokens, cache reads at $0.20 — instead of being marked as estimates.
+
+### Changed
+- **Opening a file in a narrow IDE window makes room instead of covering the conversation.** The window grows to the right by the width of the editor — floating, docked left or right, or detached — and shrinks back when you close the editor, unless you changed its width in the meantime. This survives collapsing the window and switching project tabs.
+- **A command you type during a background compaction is shown simply as the running turn.** It used to read "Running" with the queue choices and a delete button underneath, so it looked stuck in the queue. Those are gone; the tab, the session list and Command Center show it as the last command; and Stop records it as stopped by you, in the place where it was shown running.
+- **After a card, an agent ends with "Please check the card." — and the conversation hides that line.** Agents used to be told to say nothing after a question, review or report card; Claude Code then prompted them for visible output, and the whole report was written out again below the card, pushing the card far up.
+- **The context field in the status bar is always neutral.** It no longer turns amber or red or shows a warning triangle and warning tooltips — the usage it shows is not something that can break. Clicking it still opens Context Insurance, where compaction history and failures are counted.
+- **The status bar shows only the run state.** The extra remark the session check added after "Running" is gone, and a main tab with a command waiting now reads as waiting rather than done.
+- **The update button in the header says just "Update"**, in every language. The explanation is in its tooltip, and screen readers announce the label you see.
+
+### Fixed
+- **Claude Code's hooks work on a computer without Node.js.** The hooks Vibisual adds to Claude Code started `node`, which a new machine may not have, so their events never reached the app. Without Node.js they now run on the runtime that ships inside Vibisual.
+- **The end of a background task no longer chimes "done" just before the agent carries on.** When a background task ends, Claude Code opens a new turn at once, but its first words can take half a minute; in that gap the tab dropped to idle, the bubble turned done and the completion sound played — and played again at the real end. The tab now stays running until the new turn speaks, for up to 90 seconds, and Stop, Stop all or a crash settles it at once.
+- **Typed commands could vanish and history could be lost when a session worked in a subfolder.** A session resumed in a subfolder of an open project could open that folder as a separate project. Its copy of the session was then removed every two seconds, and each removal wiped the command queue and history the two shared, so input disappeared within seconds and earlier commands were lost. A session now stays with the project that holds its bubble, and a plain subfolder of an open project counts as part of that project.
+- **[Immediate] during a background compaction interrupts the command shown as running.** It used to cut only the compaction, so that command went next and your follow-up waited behind it. That command is now recorded as stopped by you, and the follow-up becomes the next turn.
+- **A rejected or unconfirmed send gives back what you wrote.** When the app rejects a command or cannot confirm that it arrived, your text and attachments go back into the input with a note to check the conversation before sending again — nothing is resent on its own. Attachments that a queued or finished command still uses are no longer deleted when you remove them from the restored draft, and sending again reuses them.
+- **All Model turns down images before sending.** It cannot read images yet; a message with images now stays in the input with an explanation instead of going out.
+- **Codex's auto-compaction threshold now reaches Codex.** The value from Codex execution settings was dropped on its way to the Codex CLI; it is now passed on new and resumed turns.
+- **A Claude session's cost could be missing from the cost map** when its bubble had once been set to run Codex in the terminal. The map now reads the records of the engine the session actually ran on.
+- **A finished session could show as running again.** An old "executing" entry left in the queue was enough to bring it back, and cleaning up a dead run counted as activity, which kept its command from being closed. A session check that finishes late also no longer overwrites what changed in the meantime.
+- **The live line under a running turn counts from the start of the turn.** It used to restart at zero with every new line and blink out between ticks, and right after a background compaction a new command started out as "last update N minutes ago". The time since the last update is now only used to tell that a turn has gone quiet.
+- **If the app's backend fails to start, Vibisual says so.** It shows "Vibisual could not start" with Restart and Quit instead of opening a window that cannot work, a window no longer reports itself connected before the app has answered, and a damaged saved hook port no longer stops start-up.
+- **Signing in to Claude works whatever the install path, and checks the email first.** Characters such as `&`, `%`, `$`, apostrophes or spaces in the Claude path or the email no longer break the sign-in command, and an invalid email is pointed out before anything runs.
+- **Choosing an engine on first run** shows that the choice is being saved, cannot be clicked twice, and tells you when it could not be saved.
+- **The macOS install script keeps your current app until the new one is in place.** If copying fails partway, the previous app is put back instead of being left deleted.
+- **The image preview opens only where you opened it.** With several IDE windows or a split view it appeared in each of them, and Save could go to another conversation's input. While it is open, Esc closes the preview and no longer closes the IDE window.
+- **The Alt inspector lines up over zoomed IDE text.** With the IDE text zoomed, its box was offset and too large.
+- **The Reading panel stays inside narrow IDE windows**, detached ones included; in very short windows its explanations scroll along with the rest.
+- **The pulse on a connection plays in full when work finishes several times in a row.** An earlier pulse's timer could cut the next one short.
+- **A skills list that could not be read says why** instead of showing no skills.
+- **The message about skill size limits was garbled into question marks** in eight languages.
+
+### Removed
+- **The grey background-shell line above the input**, added in 0.2.1 — the one that said background shells were still running and you could keep typing, with a View button. It went only by the number of shells, so it said this even while a turn was still running. Shells that are still going are listed in the activity bar and the sidebar.
+
 ## [0.2.1] - 2026-09-23
 
 ### Added
@@ -665,7 +708,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/Vibisual/vibisual/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Vibisual/vibisual/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.2.0
 [0.1.25]: https://github.com/Vibisual/vibisual/compare/v0.1.24...v0.1.25

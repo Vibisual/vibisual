@@ -5,9 +5,7 @@ import { useGraphStore } from '../../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../../hooks/usePopupDismiss.js';
 import { ReadingWidthSection } from './ReadingWidthSection.js';
 import { ReadingTypeSection } from './ReadingTypeSection.js';
-
-/** 패널 본문 최대 높이(px) — 창이 작아도 헤더 아래에서 넘치지 않는 선. */
-const PANEL_MAX_HEIGHT = 420;
+import { useReadingPanelPlacement } from './useReadingPanelPlacement.js';
 
 interface ReadingSettingsPopoverProps {
   onClose: () => void;
@@ -30,6 +28,9 @@ export function ReadingSettingsPopover({
   const { t } = useTranslation();
   const resetIdeReading = useGraphStore((s) => s.resetIdeReading);
   const panelRef = useRef<HTMLDivElement>(null);
+  // 폭·가로 자리·최대 높이는 IDE 창 안에 들어오게 잰 값이다(좁은 창에서 창 밖으로 잘리지 않게).
+  const placement = useReadingPanelPlacement(panelRef);
+  const compact = placement?.compact ?? false;
 
   // 바깥 press 로 닫기(공통 규약). 캡처 단계에서 듣지 않는 이유는 패널 내부 클릭이 먼저 처리돼야 하기 때문.
   useOutsidePressDismiss({ onDismiss: onClose, refs: [panelRef], capture: false });
@@ -45,16 +46,31 @@ export function ReadingSettingsPopover({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  const notice = mobileAdapted ? (
+    <div className="shrink-0 border-b border-gray-700 bg-amber-500/10 px-3 py-1.5 text-[12px] leading-relaxed text-amber-300">
+      {t('ide.reading.mobileActive')}
+    </div>
+  ) : null;
+  const rationale = (
+    <p className="shrink-0 border-t border-gray-700 px-3 py-2 text-[12px] leading-relaxed text-gray-500">
+      {t('ide.reading.rationale')}
+    </p>
+  );
+
   return (
     <div
       ref={panelRef}
       // 상단 바는 창 드래그 영역이라(app-drag) 패널은 반드시 app-nodrag 로 빠져나온다.
-      className="app-nodrag absolute right-0 top-full z-50 mt-1 w-80 max-md:w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60"
+      className={`app-nodrag absolute top-full z-50 mt-1 flex flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60 ${
+        placement ? '' : 'right-0 w-80'
+      }`}
+      // 창 크기에서 잰 값이라 Tailwind 로 적을 수 없다 — 모델 카드(AgentConfigPopup)와 같은 방식.
+      style={placement ? { left: placement.left, width: placement.width, maxHeight: placement.maxHeight } : undefined}
       onMouseDown={(e) => e.stopPropagation()}
       role="dialog"
       aria-label={t('ide.reading.title')}
     >
-      <div className="flex items-center justify-between border-b border-gray-700 px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between border-b border-gray-700 px-3 py-2">
         <span className="text-[12px] font-semibold text-gray-200">{t('ide.reading.title')}</span>
         <button
           type="button"
@@ -65,22 +81,20 @@ export function ReadingSettingsPopover({
         </button>
       </div>
 
-      {mobileAdapted ? (
-        <div className="border-b border-gray-700 bg-amber-500/10 px-3 py-1.5 text-[12px] leading-relaxed text-amber-300">
-          {t('ide.reading.mobileActive')}
-        </div>
-      ) : null}
+      {compact ? null : notice}
 
-      <ScrollFade maxHeight={PANEL_MAX_HEIGHT}>
+      {/* 설정 칸은 큰 창에서도 420px 까지만 — 창이 낮으면 남은 높이만큼 더 줄고 안에서 스크롤한다.
+          아주 낮은 창(compact)에서는 안내·근거 문단도 스크롤 안으로 넣어 설정 칸 자리를 먼저 준다. */}
+      <ScrollFade fill className="max-h-[420px] flex-1">
         <div className="flex flex-col">
+          {compact ? notice : null}
           <ReadingWidthSection />
           <ReadingTypeSection fontAvailability={fontAvailability} />
+          {compact ? rationale : null}
         </div>
       </ScrollFade>
 
-      <p className="border-t border-gray-700 px-3 py-2 text-[12px] leading-relaxed text-gray-500">
-        {t('ide.reading.rationale')}
-      </p>
+      {compact ? null : rationale}
     </div>
   );
 }

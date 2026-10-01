@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planSilentPreCompact, displayCommands, capSetSize } from '@vibisual/shared';
+import { planSilentPreCompact, displayCommands, silentPreCompactHeirs, heirCutByImmediate, capSetSize } from '@vibisual/shared';
 import type { PreCompactQueueItem } from '@vibisual/shared';
 
 /**
@@ -170,6 +170,111 @@ describe('displayCommands — 감추고, 진행 표시를 넘긴다', () => {
     const list: Row[] = [{ id: 'compact', silent: true, status: 'executing', subAgentId: 's1' }, mine];
     displayCommands(list);
     expect(mine.status).toBe('queued');
+  });
+});
+
+/**
+ * §5.3 #9-1 (P)(b) — 압축의 진행 표시를 **누가 물려받는가.** 화면(`displayCommands` — 실행 중으로 그린다)과
+ * 서버의 두 [중지](도는 중에 멈추면 그 명령을 중지됨으로 남긴다)가 같은 함수를 본다. 두 벌이 되면
+ * "실행 중으로 보이던 명령"과 "중지됨으로 남는 명령"이 서로 다른 명령이 된다.
+ */
+describe('silentPreCompactHeirs — 물려받는 명령은 하나의 규칙', () => {
+  interface Row { id: string; silent?: boolean; status?: string; subAgentId?: string | null; startedAt?: number }
+
+  it('도는 압축 뒤의 **첫** 대기 명령 하나 — 그 명령 객체를 키로, 압축이 나간 시각을 값으로', () => {
+    const mine: Row = { id: 'mine', status: 'queued', subAgentId: 's1' };
+    const later: Row = { id: 'later', status: 'queued', subAgentId: 's1' };
+    const heirs = silentPreCompactHeirs<Row>([
+      { id: 'compact', silent: true, status: 'executing', subAgentId: 's1', startedAt: 100 }, mine, later,
+    ]);
+    expect([...heirs.keys()]).toEqual([mine]);
+    expect(heirs.get(mine)).toBe(100);
+  });
+
+  it('압축이 아직 대기 중이거나 없으면 아무도 물려받지 않는다 — 도는 것이 없다', () => {
+    const mine: Row = { id: 'mine', status: 'queued', subAgentId: 's1' };
+    expect(silentPreCompactHeirs<Row>([{ id: 'compact', silent: true, status: 'queued', subAgentId: 's1' }, mine]).size).toBe(0);
+    expect(silentPreCompactHeirs<Row>([mine]).size).toBe(0);
+  });
+
+  it('세션마다 따로 — 압축이 없는 세션의 대기 명령은 물려받지 않는다', () => {
+    const a: Row = { id: 'a', status: 'queued', subAgentId: 's1' };
+    const b: Row = { id: 'b', status: 'queued', subAgentId: 's2' };
+    const c: Row = { id: 'c', status: 'queued', subAgentId: 's3' };
+    const heirs = silentPreCompactHeirs<Row>([
+      { id: 'k1', silent: true, status: 'executing', subAgentId: 's1', startedAt: 1 },
+      { id: 'k2', silent: true, status: 'executing', subAgentId: 's2', startedAt: 2 },
+      a, b, c,
+    ]);
+    expect(new Set(heirs.keys())).toEqual(new Set([a, b]));
+    expect(heirs.get(a)).toBe(1);
+    expect(heirs.get(b)).toBe(2);
+  });
+
+  it('실행 중·끝난 명령과 조용한 명령 자신은 물려받지 않는다', () => {
+    const heirs = silentPreCompactHeirs<Row>([
+      { id: 'compact', silent: true, status: 'executing', subAgentId: 's1' },
+      { id: 'done', status: 'completed', subAgentId: 's1' },
+      { id: 'other-silent', silent: true, status: 'queued', subAgentId: 's1' },
+    ]);
+    expect(heirs.size).toBe(0);
+  });
+
+  it('화면이 실행 중으로 그리는 명령이 곧 [중지]가 봉합할 명령이다', () => {
+    const list: Row[] = [
+      { id: 'k1', silent: true, status: 'executing', subAgentId: 's1', startedAt: 7 },
+      { id: 'mine', status: 'queued', subAgentId: 's1' },
+      { id: 'later', status: 'queued', subAgentId: 's1' },
+      { id: 'other', status: 'queued', subAgentId: 's2' },
+    ];
+    const shownRunning = displayCommands(list).filter((c) => c.status === 'executing').map((c) => c.id);
+    expect(shownRunning).toEqual([...silentPreCompactHeirs(list).keys()].map((c) => c.id));
+  });
+});
+
+/**
+ * §5.3 #9-1 (P)(b) — [즉시] 덧말이 **실행 중으로 보이던 명령**을 끊는다. 종전에는 CLI 로 간 인터럽트가
+ * 보이지 않는 압축만 끊어, 압축이 끝나자마자 그 명령이 대기열 맨 앞에서 그대로 나가고 즉시 덧말은 그
+ * 뒤에 섰다 — 사용자에게는 "즉시로 끊었는데 계속 돈다"였다.
+ */
+describe('heirCutByImmediate — 즉시 덧말이 끊는 것은 화면에서 도는 그 명령이다', () => {
+  interface Row { id: string; silent?: boolean; status?: string; subAgentId?: string | null; startedAt?: number }
+
+  it('압축이 도는 세션에 즉시 덧말이 오면, 실행 중으로 그려지던 명령과 압축이 나간 시각을 고른다', () => {
+    const riding: Row = { id: 'riding', status: 'queued', subAgentId: 's1' };
+    const now: Row = { id: 'now', status: 'queued', subAgentId: 's1' };
+    const list: Row[] = [{ id: 'compact', silent: true, status: 'executing', subAgentId: 's1', startedAt: 42 }, riding, now];
+    expect(heirCutByImmediate(list, now)).toEqual({ heir: riding, startedAt: 42 });
+    // 고른 명령이 곧 화면이 실행 중으로 그리던 명령이다 — 두 규칙이 갈리면 엉뚱한 명령이 중지된다.
+    const shownRunning = displayCommands(list).filter((c) => c.status === 'executing').map((c) => c.id);
+    expect(shownRunning).toEqual(['riding']);
+  });
+
+  it('그 명령 자신을 즉시로 돌리면 끊을 턴이 아니다 — 압축만 비켜선다', () => {
+    const riding: Row = { id: 'riding', status: 'queued', subAgentId: 's1' };
+    const list: Row[] = [{ id: 'compact', silent: true, status: 'executing', subAgentId: 's1' }, riding];
+    expect(heirCutByImmediate(list, riding)).toBeNull();
+  });
+
+  it('다른 세션의 압축을 물려받은 명령은 건드리지 않는다', () => {
+    const otherRiding: Row = { id: 'other', status: 'queued', subAgentId: 's2' };
+    const mine: Row = { id: 'mine', status: 'queued', subAgentId: 's1' };
+    const list: Row[] = [{ id: 'k2', silent: true, status: 'executing', subAgentId: 's2' }, otherRiding, mine];
+    expect(heirCutByImmediate(list, mine)).toBeNull();
+  });
+
+  it('압축이 안 돌면(대기 중·없음) 끊을 물려받은 명령이 없다 — 평소 즉시 경로 그대로', () => {
+    const first: Row = { id: 'first', status: 'queued', subAgentId: 's1' };
+    const now: Row = { id: 'now', status: 'queued', subAgentId: 's1' };
+    expect(heirCutByImmediate<Row>([{ id: 'compact', silent: true, status: 'queued', subAgentId: 's1' }, first, now], now)).toBeNull();
+    expect(heirCutByImmediate<Row>([{ id: 'running', status: 'executing', subAgentId: 's1' }, first, now], now)).toBeNull();
+    expect(heirCutByImmediate<Row>([first, now], now)).toBeNull();
+  });
+
+  it('세션이 없는 명령은 고르지 않는다', () => {
+    const riding: Row = { id: 'riding', status: 'queued', subAgentId: 's1' };
+    const loose: Row = { id: 'loose', status: 'queued', subAgentId: null };
+    expect(heirCutByImmediate<Row>([{ id: 'compact', silent: true, status: 'executing', subAgentId: 's1' }, riding, loose], loose)).toBeNull();
   });
 });
 

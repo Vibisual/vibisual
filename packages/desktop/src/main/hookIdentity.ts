@@ -61,8 +61,11 @@ function readPersisted(): Partial<HookIdentity> | null {
 export function loadHookIdentity(): { token: string; preferredPort: number } {
   const persisted = readPersisted();
   const token = persisted?.token ?? randomBytes(24).toString('hex');
+  // 손상된 저장값도 listen() 의 동기 예외로 부팅을 막으면 안 된다. 신원 토큰은 유지하고
+  // 실제 TCP 포트로 쓸 수 있는 정수만 재사용한다(0은 새 동적 포트를 요청하는 내부 값).
   const preferredPort =
-    typeof persisted?.port === 'number' && persisted.port > 0 ? persisted.port : 0;
+    typeof persisted?.port === 'number' && Number.isInteger(persisted.port)
+      && persisted.port >= 1 && persisted.port <= 65535 ? persisted.port : 0;
   return { token, preferredPort };
 }
 

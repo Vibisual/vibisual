@@ -22,6 +22,7 @@
       "availableTooltip": "版本 {{version}} 可用，正在后台下载",
       "downloading": "更新中 {{percent}}%",
       "restart": "重启以应用更新",
+      "restartShort": "更新",
       "restartTooltip": "版本 {{version}} 已就绪 — 重启以应用",
       "confirmTitle": "要重启以更新吗？",
       "confirmBody": "更新将关闭并重新安装应用。进行中的 Agent 工作或未保存的更改可能会丢失。",
@@ -1930,7 +1931,8 @@
       "later": "稍后",
       "stop": "停止",
       "start": "登录",
-      "successNext": "下一步：选择 Agent 的工作项目文件夹。"
+      "successNext": "下一步：选择 Agent 的工作项目文件夹。",
+      "invalidEmail": "请输入有效的电子邮箱地址，或留空。"
     },
     "setup": {
       "title": "安装 Claude Code",
@@ -2205,7 +2207,9 @@
         "need": "仅需下载"
       },
       "note": "这只是设置新建 Agent 的默认引擎，三种引擎会一直保持并行可用，你可以稍后在选项中配置其他引擎。",
-      "later": "稍后决定"
+      "later": "稍后决定",
+      "saving": "正在保存您的选择…",
+      "saveError": "无法保存您的选择。请重新选择引擎。"
     },
     "codexSetup": {
       "title": "安装 Codex CLI",
@@ -2370,7 +2374,7 @@
       "unsupportedHint": "此技能使用了 {{provider}} 不支持的功能。",
       "invalidResponse": "服务器返回了无效响应。",
       "issues": {
-        "skill-too-large": "????????????????????",
+        "skill-too-large": "技能的文件数量或大小超出了支持的上限。",
         "invalid-name": "技能名称无效。",
         "invalid-skill": "技能定义无效。",
         "unsafe-path": "此技能包含不安全的路径或链接。",
@@ -2386,6 +2390,10 @@
         "disabled-skill": "此技能已在 Codex 中禁用。请先在 Codex 中启用，再使用此技能。"
       }
     },
+    "skillTabs": {
+      "label": "技能引擎",
+      "own": "此代理的 {{provider}} 技能"
+    },
     "diff": {
       "addComment": "在此行添加评论",
       "removeComment": "删除评论",
@@ -2400,6 +2408,8 @@
     "imageAnnotate": {
       "tool": {
         "view": "查看",
+        "crop": "裁剪",
+        "alpha": "透明度",
         "rect": "矩形",
         "ellipse": "椭圆",
         "arrow": "箭头",
@@ -2408,6 +2418,42 @@
         "mask": "打码",
         "text": "文字",
         "number": "编号标记"
+      },
+      "crop": {
+        "aspectFree": "自由",
+        "aspectOriginal": "原始",
+        "aspectTitle": "将比例锁定为 {{ratio}}",
+        "round": "圆形",
+        "roundHint": "将椭圆之外的区域设为透明",
+        "width": "宽度",
+        "height": "高度",
+        "fieldHint": "单位为图片像素",
+        "trim": "自动裁切",
+        "trimHint": "根据内容自动调整裁剪框，排除四周与角落同色的边框",
+        "trimNone": "没有可裁切的边框。"
+      },
+      "alpha": {
+        "modeKey": "移除颜色",
+        "modeFill": "填充透明区域",
+        "pickedColor": "移除颜色：{{color}}",
+        "pickEmpty": "点击图片以选取颜色",
+        "tolerance": "容差",
+        "contiguous": "仅连续",
+        "contiguousHint": "只移除与点击位置相连的区域。关闭后将移除整张图片中该颜色。",
+        "auto": "自动背景",
+        "autoHint": "使用四角中最常见的颜色作为要移除的背景色",
+        "autoNone": "四角已经是透明的，没有可移除的背景色。",
+        "pickTransparent": "该位置已经透明，请选取一个可见的颜色。",
+        "noMatch": "没有像素匹配该颜色，请尝试提高容差。",
+        "noTransparency": "这张图片没有可填充的透明区域。",
+        "fillWhite": "白色",
+        "fillBlack": "黑色",
+        "fillCustom": "选择颜色"
+      },
+      "edit": {
+        "applyHint": "应用（{{shortcut}}）",
+        "cancelHint": "退出工具且不应用更改（{{shortcut}}）",
+        "failed": "无法编辑图片。"
       },
       "color": "颜色",
       "width": {
@@ -2432,9 +2478,13 @@
       "fileSaveFailed": "无法保存到该文件。",
       "fileConflict": "打开之后该文件在磁盘上已更改。",
       "fileConflictOverwrite": "仍然保存",
+      "fileJpegAlpha": "JPEG 无法保留透明效果，请先使用「{{fill}}」，或改用「{{download}}」。",
       "textPlaceholder": "输入后按 Enter",
       "hintPick": "选择工具标记此图片，然后将其保存为附件。",
       "hintDraw": "在图片上拖动即可标记。{{shortcut}} 可撤销上一次标记。",
+      "hintCrop": "拖动裁剪框以选择要保留的区域。{{shortcut}} 可应用裁剪。",
+      "hintAlphaKey": "点击要移除的颜色。{{shortcut}} 可应用。",
+      "hintAlphaFill": "透明区域将被填充为所选颜色。{{shortcut}} 可应用。",
       "discardTitle": "放弃标记并关闭？",
       "discardCancel": "继续编辑",
       "discardConfirm": "放弃并关闭",
@@ -2476,6 +2526,9 @@
       "popOutLabel": "弹出为独立窗口",
       "toBubble": "变为浮窗气泡",
       "toBubbleHint": "将此窗口缩小为桌面浮窗气泡 · 双击气泡可重新展开",
+      "pinOnTop": "始终置顶",
+      "pinOnTopHint": "即使切换到其他应用，也让此窗口保持在它们之上",
+      "pinnedOnTopHint": "已置顶 — 点击后其他应用可以再次遮住它",
       "redockDwellHint": "松开即可并入应用",
       "codexLabel": "Codex",
       "codexContextUsed": "本次对话已使用 {{used}} 个上下文 token——该引擎未报告上限"
@@ -2731,16 +2784,15 @@
       "voiceRespaceLabel": "自动还原韩语分词空格",
       "voiceRespaceHint": "识别引擎输出的韩语没有空格，此功能按助词和词尾进行切分。基于规则，并不完美，结果可在输入框中修改。",
       "stallHint": "长时间推理或工具调用可能暂时没有更新。仅凭这一点不能判断会话已停止。",
-      "backgroundShells": "{{count}} 个后台 Shell 仍在运行。回复已送达——你可以继续输入。",
-      "backgroundShellsTip": "上一轮次遗留下来的后台 Bash 或 Monitor 命令。它运行的是一条命令,而不是模型,因此不会占用这个会话。不会自行退出的命令(如 tail -f、while true、经管道的 sort)会一直留在这里,直到你移除它们。",
-      "backgroundShellsOpen": "查看",
       "stopNothing": "没有正在运行的任务可停止。“正在运行”只是过时的显示。",
       "stopNothingHint": "服务器在此范围内没有找到任何子进程、排队命令或后台任务。",
       "stopForce": "强制关闭",
       "stopForceTitle": "停止此 Agent 上的所有内容，包括其他会话和排队命令。",
       "stopFailed": "停止请求失败（{{status}}）。",
       "stopRetry": "重试",
-      "queuedBehindSilent": "显示为正在运行，是因为后台压缩正在先行完成。该命令尚未发出，你仍可以修改或删除它。"
+      "sendRejected": "请求被拒绝，已恢复您的文本和附件。请检查对话后再发送。",
+      "sendUnconfirmed": "无法确认是否已发送，已恢复您的文本和附件。请检查对话后再发送。",
+      "localImagesUnsupported": "All Model 尚不支持图片输入。请移除图片或选择其他提供方后再发送此消息。"
     },
     "voiceInstall": {
       "title": "设置语音输入",
@@ -3203,9 +3255,6 @@
       "sessionOne": "{{count}} 个 Session",
       "sessionMany": "{{count}} 个 Session",
       "sessionsTip": "该 Agent 上打开的 Session 标签页数量。",
-      "contextOverdueTip": "该会话的上下文已接近上限且仍在增长，但尚未运行压缩。点击可打开“上下文保险”。",
-      "contextStalledTip": "该会话的上下文窗口实际已满，且尚未运行压缩。点击可打开“上下文保险”。",
-      "contextRejectedTip": "我们已发送压缩命令，但 Claude Code 从未开始压缩——它被拒绝了。通常是因为该项目在“{{contextSources}}”中关闭了技能与斜杠命令。点击可打开“上下文保险”。",
       "elapsedTip": "该会话上次活动至今的时长。"
     },
     "search": {
@@ -4399,7 +4448,7 @@
         "groupUser": "自己添加 {{count}}",
         "groupSystem": "Codex 内置 {{count}}",
         "groupPlugin": "来自插件 {{count}}",
-        "hint": "点击技能可将其添加到当前草稿中。下方可共享兼容的 Claude 用户技能。"
+        "hint": "点击技能可将其添加到当前草稿中。可在 Claude 标签页中共享兼容的 Claude 用户技能。"
       },
       "plugins": {
         "title": "插件",

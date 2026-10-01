@@ -105,7 +105,7 @@ import type {
   ContextScopeLevel,
   SessionMemo,
 } from '@vibisual/shared';
-import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX, MAX_AGENTS, SATELLITE_TYPES, FOLDER_BUBBLE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_PAST_TEXT_MAX, mergeGoalSteps, sanitizeGlyphPath, sanitizeScenePaths, normalizeKindSurface, sanitizeKindBlurb, applySceneTemplate, VISUAL_KIND_SEEDS, VISUAL_KIND_STARTERS, VISUAL_KIND_MAX, VISUAL_KIND_DORMANT_REF, VISUAL_KIND_TRASH_DAYS, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, isBackgroundShellTask, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX, DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, WEB_TOOLS, WEB_KEY_MARK, webNodeKey, extractWebEntry, toolAxis, buildGoalActions, isInteractiveEntrypoint } from '@vibisual/shared';
+import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX, MAX_AGENTS, SATELLITE_TYPES, FOLDER_BUBBLE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_PAST_TEXT_MAX, mergeGoalSteps, sanitizeGlyphPath, sanitizeScenePaths, normalizeKindSurface, sanitizeKindBlurb, applySceneTemplate, VISUAL_KIND_SEEDS, VISUAL_KIND_STARTERS, VISUAL_KIND_MAX, VISUAL_KIND_DORMANT_REF, VISUAL_KIND_TRASH_DAYS, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, isBackgroundShellTask, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX, DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, WEB_TOOLS, WEB_KEY_MARK, webNodeKey, extractWebEntry, toolAxis, buildGoalActions, isInteractiveEntrypoint, agentEngineOf } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry, CmdCliKind } from '@vibisual/shared';
 import { CODEX_AGENT_COLOR } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
@@ -1175,6 +1175,17 @@ interface CompactScanState {
   atEof: boolean;
 }
 
+/**
+ * 커스텀 버블의 세션 키 머리말(`createCustomAgent` 가 짓는다). CLI 세션 id(UUID)와 겹치지 않는다.
+ * 이 키는 **합성**이라 디스크에 세션 파일이 없고, 버블을 만든 인스턴스 하나에만 산다.
+ */
+export const CUSTOM_SESSION_KEY_PREFIX = 'custom-';
+
+/** 커스텀 버블의 합성 세션 키인가 — 훅 버블로 찍거나 생존 판정에 넣으면 안 되는 키다(§3.5). */
+export function isCustomSessionKey(sessionId: string): boolean {
+  return sessionId.startsWith(CUSTOM_SESSION_KEY_PREFIX);
+}
+
 export class ProjectGraph {
   private root: string | null = null;
   /** 등록된 프로젝트 목록 (normalized path → ProjectInfo). cwd 기반 자동 증가 */
@@ -1237,6 +1248,31 @@ export class ProjectGraph {
   private completedCommandArchiveRef: Map<string, QueuedCommand[]> = new Map();
   setCompletedCommandArchiveRef(ref: Map<string, QueuedCommand[]>): void {
     this.completedCommandArchiveRef = ref;
+  }
+
+  /**
+   * §3.5 — 이 세션 키를 **다른 인스턴스도** 쥐고 있는가(매니저가 주입). 위 세 참조 맵은 전 인스턴스가 같은
+   * 객체를 쓰므로, 제 버블을 치울 때 이 답이 참이면 그 줄을 지우지 않는다(`dropSharedCommandState`).
+   * 매니저 없이 혼자 쓰는 인스턴스(시험 등)는 기본값 false — 종전 그대로 지운다.
+   */
+  private sessionHeldElsewhere: (sessionId: string) => boolean = () => false;
+  setSessionHeldElsewhere(fn: (sessionId: string) => boolean): void {
+    this.sessionHeldElsewhere = fn;
+  }
+
+  /**
+   * 공유 명령 맵(큐·완료 이력·pop 메타)에서 이 세션 줄을 지운다 — **다른 인스턴스가 같은 키를 쥐고 있으면 남긴다.**
+   * 실측(2026-09-30): 하위 폴더에 선 유령 인스턴스가 커스텀 세션 키로 훅 버블을 찍었고, 생존 판정이 그것을
+   * 2초마다 치울 때마다 주인 프로젝트의 명령 큐와 완료 이력이 통째로 지워졌다(입력 소실 + 이력 32건 소실).
+   */
+  private dropSharedCommandState(sessionId: string): void {
+    if (this.sessionHeldElsewhere(sessionId)) {
+      dbg('dropSharedCommandState.kept', { sessionId, instanceRoot: this.root });
+      return;
+    }
+    this.commandQueuesRef.delete(sessionId);
+    this.completedCommandArchiveRef.delete(sessionId);
+    this.poppedCommandsRef.delete(sessionId);
   }
 
   /**
@@ -2489,9 +2525,7 @@ export class ProjectGraph {
       this.pendingTitles.delete(sessionId);
       this.dropBashHistory(sessionId);
       this.runningServers.delete(sessionId);
-      this.commandQueuesRef.delete(sessionId);
-      this.completedCommandArchiveRef.delete(sessionId);
-      this.poppedCommandsRef.delete(sessionId);
+      this.dropSharedCommandState(sessionId);
     }
 
     // 노드 제거
@@ -2686,6 +2720,9 @@ export class ProjectGraph {
     for (const [sessionId, agent] of this.agents) {
       if (agent.customCreated) continue;
       if (agent.pipelineParentId) continue;
+      // 커스텀 합성 키는 CLI 세션 파일이 없어 생존 판정에 넣으면 **항상 죽은 것**으로 나온다 — 버블 주인이
+      //   누구든 판정 대상이 아니다(§3.5 — 다른 인스턴스에 잘못 찍힌 사본이 2초마다 지워지며 공유 큐를 쓸던 고리).
+      if (isCustomSessionKey(sessionId)) continue;
       ids.push(sessionId);
     }
     return ids;
@@ -2732,7 +2769,7 @@ export class ProjectGraph {
     options?: { executionMode?: ExecutionMode; provider?: AgentProvider; cliKind?: CmdCliKind },
   ): BubbleData {
     this.agentCounter += 1;
-    const sessionId = `custom-${Date.now().toString(36)}-${this.agentCounter}-${idTail()}`;
+    const sessionId = `${CUSTOM_SESSION_KEY_PREFIX}${Date.now().toString(36)}-${this.agentCounter}-${idTail()}`;
     // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트는 생성 시점에 executionMode + 구분 색 + 이름을 baked.
     const cmdMode = options?.executionMode === 'interactive-terminal';
     // §5.25 (B-1) — 우클릭 Codex 칸의 "Codex CMD". 같은 CMD 버블이 셸에 `codex` 를 채우도록
@@ -4988,6 +5025,15 @@ export class ProjectGraph {
         // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그(`_vibisualOwnerAgentId`)는 라우트
         //   (/api/hook-event)에서 이미 session_id 를 그 CMD 버블 세션으로 rewrite 하므로
         //   여기 도달 시점엔 agents.has(session_id) 가 참 → 이 블록을 타지 않는다. 별도 redirect 불필요.
+        // §3.5 — 그런데 커스텀 합성 키의 버블이 **다른 인스턴스에 있다면**(매니저가 알려 준다), 그 이벤트는 그
+        //   프로젝트에 사는 커스텀 버블의 것이다. 여기서 받으면 아래 `touchAgent` 가 같은 키로 **훅 버블 사본**을
+        //   찍고, 생존 판정이 그 사본을 치우며 공유 명령 큐를 쓸어 간다(실측 2026-09-30). 매니저 라우팅이 주인에게
+        //   보내므로 정상 흐름에선 오지 않지만, 이 인스턴스의 그래프에는 한 줄도 남기지 않고 흘려보낸다.
+        //   (주인이 어디에도 없으면 — 매니저 없이 혼자 쓰는 그래프 포함 — 종전 그대로 받는다.)
+        if (isCustomSessionKey(workerSessionId) && this.sessionHeldElsewhere(workerSessionId)) {
+          dbg('processHookEvent.foreignCustomKey', { sessionId: workerSessionId, cwd: payload.cwd, instanceRoot: this.root });
+          return null;
+        }
 
         // v1.68: agent-view 복구 후 서브에이전트 hook 의 session_id 는 supervisor 가 준
         // agentViewSessionId 라 sub.sessionId 매칭만으론 놓쳐 orphan 버블이 새로 생긴다.
@@ -10006,9 +10052,7 @@ export class ProjectGraph {
     this.pendingTitles.delete(sessionId);
     this.dropBashHistory(sessionId);
     this.runningServers.delete(sessionId);
-    this.commandQueuesRef.delete(sessionId);
-    this.completedCommandArchiveRef.delete(sessionId);
-    this.poppedCommandsRef.delete(sessionId);
+    this.dropSharedCommandState(sessionId);
     this.agentWorktreeReadCounts.delete(sessionId);
     // 메모리 누수 방지 — 에이전트 영구 제거 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
     this.agentConfigOverrides.delete(agent.id);
@@ -15809,7 +15853,9 @@ export class ProjectGraph {
       const cwd = this.getAgentCwdByAgentId(sub.parentAgentId);
       if (!projectName || !cwd) continue;
       const config = this.getAgentConfig(sub.parentAgentId);
-      const provider = config?.provider?.kind === 'codex-cli' || config?.cliKind === 'codex' ? 'codex' : 'claude';
+      // 어느 원장을 읽을지는 그 세션이 실제로 돈 엔진이다(`agentEngineOf`) — 헤드리스로 되돌린 버블에 남은
+      //   옛 `cliKind` 를 읽으면 클로드 세션을 코덱스 기록에서 찾아 비용이 통째로 빠진다.
+      const provider = agentEngineOf(config) === 'codex' ? 'codex' : 'claude';
       const quiet = now - (sub.lastActivityAt || 0) > COST_MAP_ACTIVE_WINDOW_MS;
       const alreadyRead = provider === 'codex'
         ? this.costMapService.hasMeasuredSession(projectName, sub.sessionId)

@@ -646,3 +646,130 @@ describe('창 순환 (cycleIDEPaneFocus)', () => {
     expect(useGraphStore.getState().idePaneSeq).toBe(before);
   });
 });
+
+/**
+ * §5.5 #17-27 ①-1 — 판이 열리며 창을 넓힌 기억은 **창 슬롯**에 산다(`editorRoom`).
+ *
+ * 종전에는 창 컴포넌트의 ref 라 창을 접었다 펴거나 프로젝트 탭을 오가면 사라졌고(닫아도 안 되돌리고, 다시 서며 또
+ * 넓혔다), 좌/우 도크의 두께는 같은 변의 창들이 나눠 쓰는데 기억은 창마다 따로라 한 창이 되돌리면 옆 창의 판이
+ * 찌부러졌다. 창째 닫거나 자리를 재사용할 때도 같은 기억이 이어져야 넓힌 폭이 남지 않는다.
+ */
+describe('편집창 자리 기억 — 창 슬롯 · 같은 변 두께 (§5.5 #17-27 ①-1)', () => {
+  beforeEach(reset);
+
+  type DockGrowth = { kind: 'dock'; side: 'right'; before: number; after: number; seq: number };
+  const grown = (seq: number, before = 480, after = 1000): DockGrowth => ({ kind: 'dock', side: 'right', before, after, seq });
+
+  /** 두 창을 우측 한 변에 붙이고, 첫 창이 판을 열며 두께를 480→1000 으로 넓힌 상태. */
+  function twoOnRightEdge(): [string, string] {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [first, second] = panes() as [string, string];
+    const st = useGraphStore.getState();
+    st.setIDEPaneDock(first, { side: 'right', size: 480, order: 0 });
+    st.setIDEPaneDock(second, { side: 'right', size: 480, order: 1 });
+    st.setIDEDockSize(first, 1000);
+    st.setIDEEditorRoom(first, { checked: true, seq: 1, growth: grown(1) });
+    return [first, second];
+  }
+
+  it('기억은 창마다 따로 적히고, null 이면 지워진다 — 같은 기억을 다시 적으면 상태를 새로 만들지 않는다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [first, second] = panes() as [string, string];
+    const memo = { checked: true, seq: 3, growth: grown(3) };
+    useGraphStore.getState().setIDEEditorRoom(first, memo);
+    expect(selectIDEPane(useGraphStore.getState(), first).editorRoom).toEqual(memo);
+    expect(selectIDEPane(useGraphStore.getState(), second).editorRoom ?? null).toBeNull();
+    const before = useGraphStore.getState().ideOverlays;
+    useGraphStore.getState().setIDEEditorRoom(first, memo);
+    expect(useGraphStore.getState().ideOverlays).toBe(before);
+    useGraphStore.getState().setIDEEditorRoom(first, null);
+    expect(selectIDEPane(useGraphStore.getState(), first).editorRoom).toBeNull();
+  });
+
+  it('창을 접었다 펴도 기억이 남는다 — 다시 서며 또 넓히지 않고, 닫을 때 되돌릴 수 있다', () => {
+    const [first] = twoOnRightEdge();
+    useGraphStore.getState().setIDEPaneCollapsed(first, true);
+    useGraphStore.getState().setIDEPaneCollapsed(first, false);
+    expect(selectIDEPane(useGraphStore.getState(), first).editorRoom?.growth).toEqual(grown(1));
+  });
+
+  it('판을 닫은 창 옆에 기댄 창이 없으면 그 변의 두께가 모두 원래대로 돌아간다', () => {
+    const [first, second] = twoOnRightEdge();
+    useGraphStore.getState().settleIDEDockGrowth(first, grown(1));
+    const st = useGraphStore.getState();
+    expect(selectIDEPane(st, first).dockSize).toBe(480);
+    expect(selectIDEPane(st, second).dockSize).toBe(480);
+  });
+
+  it('넓힌 뒤에 판을 연 옆 창이 있으면 되돌리지 않고 그 창이 기록을 이어받는다 — 옆 창의 판이 찌부러지지 않는다', () => {
+    const [first, second] = twoOnRightEdge();
+    useGraphStore.getState().setIDEEditorRoom(second, { checked: true, seq: 2, growth: null });
+    useGraphStore.getState().settleIDEDockGrowth(first, grown(1));
+    let st = useGraphStore.getState();
+    expect(selectIDEPane(st, first).dockSize).toBe(1000);
+    expect(selectIDEPane(st, second).dockSize).toBe(1000);
+    expect(selectIDEPane(st, second).editorRoom?.growth).toEqual(grown(1));
+    // 이어받은 창이 판을 닫으면 — 기댄 창이 더 없으니 처음 두께로.
+    useGraphStore.getState().setIDEEditorRoom(second, null);
+    useGraphStore.getState().settleIDEDockGrowth(second, grown(1));
+    st = useGraphStore.getState();
+    expect(selectIDEPane(st, first).dockSize).toBe(480);
+    expect(selectIDEPane(st, second).dockSize).toBe(480);
+  });
+
+  it('접혀 있는 옆 창은 그 변에 서 있지 않다 — 기록을 넘기지 않고 되돌린다', () => {
+    const [first, second] = twoOnRightEdge();
+    useGraphStore.getState().setIDEEditorRoom(second, { checked: true, seq: 2, growth: null });
+    useGraphStore.getState().setIDEPaneCollapsed(second, true);
+    useGraphStore.getState().settleIDEDockGrowth(first, grown(1));
+    expect(selectIDEPane(useGraphStore.getState(), second).dockSize).toBe(480);
+  });
+
+  it('판을 연 채 창째 닫아도 넓힌 두께를 돌려준다 — 옆 창이 넓힌 두께로 남지 않는다', () => {
+    const [first, second] = twoOnRightEdge();
+    useGraphStore.getState().closeIDEOverlay(first);
+    const st = useGraphStore.getState();
+    expect(st.ideOverlays[first]).toBeUndefined();
+    expect(selectIDEPane(st, second).dockSize).toBe(480);
+  });
+
+  it('창째 닫을 때도 기댄 옆 창이 있으면 그 창이 기록을 이어받는다', () => {
+    const [first, second] = twoOnRightEdge();
+    useGraphStore.getState().setIDEEditorRoom(second, { checked: true, seq: 2, growth: null });
+    useGraphStore.getState().closeIDEOverlay(first);
+    const st = useGraphStore.getState();
+    expect(selectIDEPane(st, second).dockSize).toBe(1000);
+    expect(selectIDEPane(st, second).editorRoom?.growth).toEqual(grown(1));
+  });
+
+  it('자리를 재사용해 버블만 갈아 끼우면 넓힌 기억도 그 자리에 남는다 — 판이 비는 순간 창이 되돌릴 수 있게', () => {
+    open(A1, 'new');
+    useGraphStore.getState().setIDEPaneDock(PROJ, { side: 'right', size: 1000, order: 0 });
+    useGraphStore.getState().setIDEEditorRoom(PROJ, { checked: true, seq: 1, growth: grown(1) });
+    open(A2);
+    const pane = selectIDEPane(useGraphStore.getState(), PROJ);
+    expect(pane.agentId).toBe(A2);
+    expect(pane.editorFiles).toEqual([]);
+    expect(pane.editorRoom?.growth).toEqual(grown(1));
+  });
+});
+
+describe('라이트박스는 연 창의 것 (§5.5 #17-25)', () => {
+  beforeEach(() => {
+    reset();
+    useGraphStore.setState({ imageLightbox: null });
+  });
+
+  it('창을 닫으면 그 창에서 연 라이트박스도 내린다 — 다시 열 때 지난 그림이 뜨지 않게', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [first, second] = panes() as [string, string];
+    useGraphStore.getState().openImageLightbox('blob:shot', { slot: first, cell: null });
+    useGraphStore.getState().closeIDEOverlay(second);
+    expect(useGraphStore.getState().imageLightbox?.url, '남의 창을 닫아도 그대로다').toBe('blob:shot');
+    useGraphStore.getState().closeIDEOverlay(first);
+    expect(useGraphStore.getState().imageLightbox).toBeNull();
+  });
+});

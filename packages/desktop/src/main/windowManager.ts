@@ -1,6 +1,13 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
-import { isCursorDeepInside, isCursorOutsideRect, stepRedockDwell } from '@vibisual/shared';
+import {
+  growSpanRight,
+  isCursorDeepInside,
+  isCursorOutsideRect,
+  shrinkSpanBack,
+  stepRedockDwell,
+  type SpanGrowth,
+} from '@vibisual/shared';
 import { hidePopOutGhost, isPopOutGhostVisible, nudgePopOutGhost, showPopOutGhost } from './ghostFrame';
 import { openExternalWithNotice } from './externalOpen';
 import { keepDragRegionsFresh } from './dragRegions';
@@ -17,7 +24,7 @@ import {
   overlayTopMostFor,
   releaseSlotIfOwner,
 } from './overlaySlot';
-import { acceptReportedSize, dipStepFor, movedBounds, snapDip, type OverlaySize } from './overlaySize';
+import { acceptReportedSize, dipStepFor, landedSpan, movedBounds, snapDip, type OverlaySize } from './overlaySize';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
 //
@@ -569,6 +576,11 @@ interface OverlayEntry {
   /** 최대화 직전의 자리 — 되돌릴 때 **정확히** 여기로 온다(어디로 갈지 OS 에 묻지 않는다). */
   restoreBounds: { x: number; y: number; width: number; height: number } | null;
   /**
+   * §5.5 #17-27 ①-1 — 편집창 판이 열리며 **오른쪽으로 넓힌** 기록(가로만). 판이 닫히면 이것과
+   * 대조해 되돌린다 — 그 사이 사용자가 폭을 바꿨으면 손대지 않는다. 넓히지 않았으면 `null`.
+   */
+  editorGrowth: SpanGrowth | null;
+  /**
    * §17-6 (H-10) — **이미 닫으라고 말한 창인가.** `close()` 와 `closed` 사이에는 틈이 있고,
    * 그동안 `isDestroyed()` 는 아직 거짓이다. 그 틈에 들어온 팝아웃이 이 창을 "이미 있는 창"으로
    * 알고 다시 쓰면, 새 창이 서지 않은 채 이 창이 죽어 화면에서 IDE 가 통째로 사라진다.
@@ -624,6 +636,14 @@ interface OverlayEntry {
    * (그 창의 렌더는 이미 듣고 있어 곧바로 보낸 신호로 충분하다). 모양은 main 이 모른다.
    */
   pendingIdeFocus: unknown;
+  /**
+   * §17-6 (H-28) — **사용자가 이 창을 다른 앱 위에 고정했는가**(제목줄 [항상 위에 고정]).
+   *
+   * 펼친 IDE 는 기본이 보통 층이라((E)) 다른 앱을 고르면 뒤로 깔린다. 참이면 펼쳐 있는 동안
+   * `'floating'` 에 선다(`overlayTopMostFor`). 버블로 접었다 다시 펴도 남고, 창이 닫히면 함께
+   * 사라진다 — 앱을 다시 켜면 풀린다((F) 휘발).
+   */
+  pinned: boolean;
 }
 
 // 실제 BubbleNode 한 개(+선택 코로나/라벨)가 여유 있게 들어가고 살짝 드래그할 공간이 있는 컴팩트 창.
@@ -794,10 +814,13 @@ function overlayShouldShow(): boolean {
  *
  * 값을 정하는 일은 `overlayTopMostFor` 한 곳이 하고 여기서는 실행만 한다(창을 띄우지 않고
  * 확인할 수 있어야, 전이 하나가 규칙을 빠뜨리는 v2.80 의 회귀가 다시 나지 않는다).
+ *
+ * (H-28) `pinned` 를 **필수 인자**로 둔 것도 같은 까닭이다 — 기본값이 있으면 전이 하나가 고정을
+ * 빠뜨려도 타입이 말해 주지 않고, 사용자가 고정한 창이 최대화·접었다 펴기 한 번에 뒤로 깔린다.
  */
-function keepOverlayOnTop(win: BrowserWindow, expanded: boolean): void {
+function keepOverlayOnTop(win: BrowserWindow, expanded: boolean, pinned: boolean): void {
   if (win.isDestroyed()) return;
-  const want = overlayTopMostFor(expanded);
+  const want = overlayTopMostFor(expanded, pinned);
   try {
     if (want.alwaysOnTop) win.setAlwaysOnTop(true, want.level);
     else win.setAlwaysOnTop(false);
@@ -837,7 +860,7 @@ function raiseOverlayWindow(entry: OverlayEntry, activation: 'inactive' | 'foreg
         // mac 전용 — 창 하나를 포커스해도 앱이 뒤에 있으면 그 포커스는 화면에 보이지 않는다.
         case 'activateApp': app.focus({ steal: true }); break;
         case 'focus': win.focus(); break;
-        case 'reassertTop': keepOverlayOnTop(win, entry.expanded); break;
+        case 'reassertTop': keepOverlayOnTop(win, entry.expanded, entry.pinned); break;
         case 'moveTop': win.moveTop(); break;
       }
     } catch { /* noop — 죽는 찰나에 닿아도 나머지 손짓까지 잃지 않는다 */ }
@@ -853,7 +876,7 @@ function applyOverlayVisibility(entry: OverlayEntry, focusIt: boolean): void {
   if (overlayShouldShow()) {
     if (focusIt) win.show();
     else if (!win.isVisible()) win.showInactive();
-    keepOverlayOnTop(win, entry.expanded);
+    keepOverlayOnTop(win, entry.expanded, entry.pinned);
   } else if (win.isVisible()) {
     win.hide();
   }
@@ -1315,7 +1338,8 @@ export function openOverlay(opts: {
   keepDragRegionsFresh(win);
   // 층은 태어나는 모양이 정한다((E) 개정) — 버블로 태어나면 상시-위, 펼친 IDE 로 태어나면
   //   보통 층이다. 장부(entry)는 아직 없으므로 여기서는 `opts.expanded` 가 그 답을 대신한다.
-  keepOverlayOnTop(win, !!opts.expanded);
+  //   (H-28) 갓 태어난 창은 아직 아무도 고정하지 않았다 — 장부의 `pinned: false` 와 같은 값.
+  keepOverlayOnTop(win, !!opts.expanded, false);
 
   if (opts.expanded) {
     // 펼친 채로 태어난 창 — 최소 크기를 IDE 기준으로 두고, 나중에 접으면 이 자리에 버블로 앉는다.
@@ -1334,6 +1358,7 @@ export function openOverlay(opts: {
     opacity: 1,
     maximized: false,
     restoreBounds: null,
+    editorGrowth: null,
     closing: false,
     // (H-19) 태어난 크기가 장부의 첫 값이다 — 이제부터 창에는 이 값만 쓴다.
     size: { width: winW, height: winH },
@@ -1344,6 +1369,8 @@ export function openOverlay(opts: {
     attentionOnExpandAt: null,
     // (H-27) ⑦ 펼친 채 태어나는 창만 그 신호(`shell-ready`)를 보낸다 — 버블로 태어나는 창에 적으면 영영 안 건넨다.
     pendingIdeFocus: opts.expanded ? (opts.focus ?? null) : null,
+    // (H-28) 고정은 사용자가 그 창의 제목줄에서만 켠다 — 태어날 때는 늘 꺼져 있다.
+    pinned: false,
   };
   overlaysByAgentId.set(opts.agentId, entry);
   overlaysByWindowId.set(win.id, entry);
@@ -1392,7 +1419,7 @@ export function openOverlay(opts: {
     } else {
       win.showInactive();
     }
-    keepOverlayOnTop(win, entry.expanded);
+    keepOverlayOnTop(win, entry.expanded, entry.pinned);
   });
 
   // (H-10) **어떤 길로 닫히든** 그 순간 자리를 놓는다 — `closeOverlayEntry` 를 거치지 않는 길
@@ -1857,7 +1884,7 @@ function finishOverlayFollow(entry: OverlayEntry | undefined): boolean {
     //   눌려 있는 그 손짓의 나머지가 어디에도 도착하지 않는다).
     try { entry.window.focus(); } catch { /* noop */ }
   }
-  keepOverlayOnTop(entry.window, entry.expanded);
+  keepOverlayOnTop(entry.window, entry.expanded, entry.pinned);
   return true;
 }
 
@@ -1906,7 +1933,7 @@ function restoreOverlayMaximize(entry: OverlayEntry): Electron.Rectangle | null 
   if (win.isDestroyed()) return null;
   if (target) writeOverlayBounds(entry, target);
   // setBounds 가 층을 푸는 회귀(§17-6 (E) v2.80) — 자리를 옮길 때마다 그 창의 층을 다시 박는다.
-  keepOverlayOnTop(win, entry.expanded);
+  keepOverlayOnTop(win, entry.expanded, entry.pinned);
   sendOverlayMaximizeState(entry);
   return target ?? win.getBounds();
 }
@@ -1936,8 +1963,53 @@ export function toggleMaximizeOverlaySelfByWindowId(windowId: number): boolean {
   // **커서가 아니라 그 창이 걸쳐 있는 화면**을 채운다 — 다른 모니터의 커서를 따라가면 창이 순간이동한다.
   const wa = screen.getDisplayMatching(cur).workArea;
   writeOverlayBounds(entry, { x: wa.x, y: wa.y, width: wa.width, height: wa.height });
-  keepOverlayOnTop(win, entry.expanded);
+  keepOverlayOnTop(win, entry.expanded, entry.pinned);
   sendOverlayMaximizeState(entry);
+  return true;
+}
+
+/**
+ * §5.5 #17-27 ①-1 — 편집창 판이 열리며 독립 창을 **오른쪽으로** `dx` 만큼 넓힌다.
+ *
+ * 얼마나는 렌더가 정한다(창 안 배치를 아는 것은 그쪽뿐이다). 여기는 그 창이 걸친 화면의 작업영역
+ * 안에 앉히고(오른쪽 끝에 닿으면 왼쪽으로 물러선다 — `growSpanRight`, 앱 안의 떠 있는 창과 같은
+ * 규칙), 넓히기 전 자리를 기억할 뿐이다. 버블·최대화 상태에서는 넓힐 창이 아니므로 하지 않는다.
+ * 크기는 (H-19) 장부 값에서 출발한다 — 창에 되물은 폭에는 배율 반올림이 섞여 있다.
+ */
+export function growOverlayEditorRoomByWindowId(windowId: number, dx: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed() || !entry.expanded || entry.maximized) return false;
+  if (typeof dx !== 'number' || !Number.isFinite(dx) || dx <= 0) return false;
+  const cur = entry.window.getBounds();
+  const wa = screen.getDisplayMatching(cur).workArea;
+  const before = { x: cur.x, w: entry.size.width };
+  const grown = growSpanRight(before, dx, { x: wa.x, w: wa.width });
+  if (grown.w <= before.w) return false;
+  // 기억은 창이 **실제로 앉는** 자리로 적는다(격자에 맞춘 x) — 아래 `writeOverlayBounds` 와 같은 격자다.
+  const after = landedSpan(grown, dipStepAt(grown.x, cur.y));
+  entry.editorGrowth = { before, after };
+  writeOverlayBounds(entry, { x: after.x, y: cur.y, width: after.w, height: entry.size.height });
+  // setBounds 가 층을 푸는 회귀(§17-6 (E) v2.80) — 자리를 옮길 때마다 그 창의 층을 다시 세운다.
+  keepOverlayOnTop(entry.window, entry.expanded, entry.pinned);
+  return true;
+}
+
+/**
+ * §5.5 #17-27 ①-1 — 판이 닫히면 넓힌 만큼 되돌린다. 폭이 넓힌 그대로일 때만 — 그 사이 사용자가
+ * 창 폭을 바꿨으면(장부 `size` 가 `acceptReportedSize` 로 따라간다) 사용자가 정한 크기다.
+ * 자리만 옮겼으면 그 자리에서 폭만 되돌린다(`shrinkSpanBack`).
+ */
+export function restoreOverlayEditorRoomByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry) return false;
+  const growth = entry.editorGrowth;
+  entry.editorGrowth = null;
+  if (!growth || entry.window.isDestroyed() || !entry.expanded || entry.maximized) return false;
+  const cur = entry.window.getBounds();
+  const back = shrinkSpanBack({ x: cur.x, w: entry.size.width }, growth);
+  if (!back) return false;
+  writeOverlayBounds(entry, { x: back.x, y: cur.y, width: back.w, height: entry.size.height });
+  keepOverlayOnTop(entry.window, entry.expanded, entry.pinned);
   return true;
 }
 
@@ -1989,7 +2061,7 @@ export function expandOverlayByWindowId(windowId: number): boolean {
   // (E) 개정 — 펼친 IDE 는 **보통 층**이다. 여기가 층이 내려가는 유일한 지점이고, 동시에
   //   `setResizable`/`setBounds`/`show` 가 흩뜨린 층을 그 값으로 다시 박는 자리이기도 하다.
   //   이 뒤로는 이 창 위로 다른 앱이 올라온다(오버레이 버블만은 여전히 그 위 — 층이 다르다).
-  keepOverlayOnTop(win, entry.expanded);
+  keepOverlayOnTop(win, entry.expanded, entry.pinned);
   broadcastOverlayList();
   return true;
 }
@@ -2033,6 +2105,8 @@ export function collapseOverlayByWindowId(windowId: number): boolean {
   entry.expanded = false;
   // (H-5) 버블로 접히는 창이 "최대화 상태"라고 우기면, 복원 버튼이 버블을 엉뚱한 크기로 되돌린다.
   forgetOverlayMaximize(entry);
+  // §5.5 #17-27 ①-1 — 버블로 접히면 넓혔던 폭의 기억도 끝난다(다음에 펴는 크기는 펴는 쪽이 정한다).
+  entry.editorGrowth = null;
   const b = entry.collapsedBounds;
   try { win.setMinimumSize(OVERLAY_BUBBLE_W, OVERLAY_BUBBLE_H); } catch { /* noop */ }
   try { win.setResizable(false); } catch { /* noop */ }
@@ -2046,7 +2120,7 @@ export function collapseOverlayByWindowId(windowId: number): boolean {
   try { win.setOpacity(entry.opacity); } catch { /* noop */ }
   // (E) 개정 — 버블로 돌아오면 층도 상시-위로 함께 돌아온다(`setResizable(false)` 가 층을
   //   풀 수 있는 v2.80 의 회귀도 이 한 번으로 같이 덮인다).
-  keepOverlayOnTop(win, entry.expanded);
+  keepOverlayOnTop(win, entry.expanded, entry.pinned);
   broadcastOverlayList();
   return true;
 }
@@ -2056,6 +2130,29 @@ export function setOverlaysVisible(visible: boolean): void {
   overlaysUserVisible = visible;
   applyAllOverlayVisibility();
   broadcastOverlayList();
+}
+
+// ─── §17-6 (H-28) — 떼어 낸 IDE 창을 다른 앱 위에 고정 ─────────────────────────
+
+/**
+ * 그 창의 **[항상 위에 고정]**을 켜고 끈다(제목줄 토글 — 렌더가 자기 창에만 보낸다).
+ *
+ * 토글이 아니라 원하는 값을 받는 멱등 set 이다 — 더블클릭으로 두 번 와도 main 과 버튼이 어긋나지
+ * 않는다. 여기서는 기억만 바꾸고 층은 `keepOverlayOnTop` 이 다시 세운다(판정은 `overlayTopMostFor`
+ * 한 곳). 접힌 창에서 켜 두면 층은 그대로 상시-위이고, 펼치는 순간 고정이 걸린다.
+ * 돌려주는 값은 main 이 기억한 값이다 — 버튼은 이 값으로 칠한다.
+ */
+export function setOverlayPinnedSelfByWindowId(windowId: number, pinned: boolean): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  entry.pinned = pinned;
+  keepOverlayOnTop(entry.window, entry.expanded, entry.pinned);
+  return entry.pinned;
+}
+
+/** 그 창이 지금 고정돼 있는가 — 창이 IDE 로 설 때 버튼이 한 번 묻는다(접었다 편 창도 켜진 칠로 서게). */
+export function isOverlayPinnedByWindowId(windowId: number): boolean {
+  return overlaysByWindowId.get(windowId)?.pinned ?? false;
 }
 
 // ─── §17-6 (G) v2.82 — 버블 우클릭 컨텍스트 메뉴 액션 ──────────────────────

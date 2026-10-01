@@ -5,11 +5,13 @@
  * 지키는 순수 함수 넷을 세 OS 의 배율 값으로 한꺼번에 고정한다(`scaleFactor` 가 인자다).
  */
 import { describe, expect, it } from 'vitest';
+import { growSpanRight, shrinkSpanBack } from '@vibisual/shared';
 import {
   OVERLAY_SIZE_ECHO_MS,
   OVERLAY_SIZE_ECHO_PX,
   acceptReportedSize,
   dipStepFor,
+  landedSpan,
   movedBounds,
   snapDip,
 } from './overlaySize';
@@ -88,5 +90,47 @@ describe('acceptReportedSize — 사용자 리사이즈만 장부에 받는다',
   it('0·음수·NaN 은 받지 않는다 — 장부가 무너지면 창이 사라진다', () => {
     expect(acceptReportedSize({ ledger, writtenAt: 0, reported: { width: 0, height: 650 }, now: 10_000, following: false })).toBeNull();
     expect(acceptReportedSize({ ledger, writtenAt: 0, reported: { width: Number.NaN, height: 650 }, now: 10_000, following: false })).toBeNull();
+  });
+});
+
+/**
+ * §5.5 #17-27 ①-1 — 독립 창이 편집창 자리를 내려고 넓힌 뒤 판이 닫히면 **제자리로** 돌아와야 한다.
+ * 넓힌 기록은 창이 실제로 앉는 자리(격자에 맞춘 x)여야 한다 — 계산값을 기록하면 125·175%(격자 4)에서
+ * 되돌릴 때 읽은 x 가 최대 2px 어긋나 "사용자가 옮겼다"로 읽혔다(`shrinkSpanBack` 여유 1px).
+ */
+describe('landedSpan — 넓힌 자리를 창이 실제로 앉는 값으로 기억한다', () => {
+  /** 넓히고(기록) → 창이 앉고 → 판이 닫혀 되돌릴 자리를 구하는 한 바퀴. 읽는 x 는 창, 폭은 장부 값이다. */
+  function roundTrip(scaleFactor: number, before: { x: number; w: number }, dx: number, area: { x: number; w: number }) {
+    const step = dipStepFor(scaleFactor);
+    const grown = growSpanRight(before, dx, area);
+    const after = landedSpan(grown, step);
+    const onScreen = movedBounds({ width: grown.w, height: 600 }, grown.x, 0, step);
+    return { step, grown, back: shrinkSpanBack({ x: onScreen.x, w: grown.w }, { before, after }) };
+  }
+
+  it('125% 에서 오른쪽 끝에 닿아 왼쪽으로 물러선 창이 닫으면 원래 자리로 돌아온다', () => {
+    const before = { x: 1600, w: 480 };
+    const { step, grown, back } = roundTrip(1.25, before, 522, { x: 0, w: 2048 });
+    expect(step).toBe(4);
+    // 계산값은 격자 밖이라 창은 2px 옆에 앉는다 — 이 차이가 "옮겼다"로 읽히던 자리다.
+    expect(Math.abs(snapDip(grown.x, step) - grown.x)).toBe(2);
+    expect(back).toEqual(before);
+  });
+
+  it('폭은 장부와 대조하므로 그대로 두고 x 만 격자에 맞춘다', () => {
+    expect(landedSpan({ x: 1046, w: 1002 }, 4)).toEqual({ x: 1048, w: 1002 });
+    expect(landedSpan({ x: 1047, w: 1003 }, 1)).toEqual({ x: 1047, w: 1003 });
+  });
+
+  it('세 OS 의 배율(win 100~175% · mac Retina 2× · linux 1×/Wayland 분수)에서 한 바퀴가 늘 제자리다', () => {
+    for (const scale of [1, 1.25, 1.5, 1.75, 2]) {
+      for (let x = 1300; x <= 1700; x += 3) {
+        for (const dx of [280, 521, 522, 523, 900]) {
+          const before = { x, w: 480 };
+          const { back } = roundTrip(scale, before, dx, { x: 0, w: 2048 });
+          expect(back, `scale=${scale} x=${x} dx=${dx}`).toEqual(before);
+        }
+      }
+    }
   });
 });

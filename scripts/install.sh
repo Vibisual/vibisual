@@ -74,7 +74,52 @@ asset_url() {
 OS=$(uname -s)
 ARCH=$(uname -m)
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT INT TERM
+MOUNT=''
+MAC_WORK=''
+MAC_TARGET=''
+MAC_BACKUP=''
+MAC_COMMITTED=0
+
+cleanup() {
+  result=$?
+  trap - EXIT INT TERM
+  # Never discard the old working bundle until the complete replacement is installed.
+  if [ -n "$MAC_BACKUP" ] && { [ -e "$MAC_BACKUP" ] || [ -L "$MAC_BACKUP" ]; } && [ "$MAC_COMMITTED" -ne 1 ]; then
+    if [ ! -e "$MAC_TARGET" ] && [ ! -L "$MAC_TARGET" ]; then
+      mv "$MAC_BACKUP" "$MAC_TARGET" || true
+    fi
+    if [ -e "$MAC_BACKUP" ] || [ -L "$MAC_BACKUP" ]; then
+      printf 'Original app preserved at %s; automatic restore was not possible.\n' "$MAC_BACKUP" >&2
+      MAC_WORK='' # Preserve the recovery copy even if restoring it also failed.
+    fi
+  fi
+  if [ -n "$MOUNT" ]; then
+    hdiutil detach "$MOUNT" >/dev/null 2>&1 || hdiutil detach -force "$MOUNT" >/dev/null 2>&1 || true
+  fi
+  [ -z "$MAC_WORK" ] || rm -rf "$MAC_WORK"
+  rm -rf "$TMP"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+install_macos_bundle() {
+  bundle="$1"
+  MAC_TARGET="$2"
+  [ -f "$bundle/Contents/Info.plist" ] && [ -x "$bundle/Contents/MacOS/Vibisual" ] || die 'the disk image does not contain a complete Vibisual.app.'
+  # A sibling staging directory keeps both renames on the destination filesystem.
+  MAC_WORK=$(mktemp -d "${MAC_TARGET%/*}/.vibisual-install.XXXXXX")
+  staged="$MAC_WORK/new.app"
+  MAC_BACKUP="$MAC_WORK/previous.app"
+  ditto "$bundle" "$staged" || die 'could not copy the new app; the existing app was left in place.'
+  [ -f "$staged/Contents/Info.plist" ] && [ -x "$staged/Contents/MacOS/Vibisual" ] || die 'the copied app is incomplete; the existing app was left in place.'
+  if [ -e "$MAC_TARGET" ] || [ -L "$MAC_TARGET" ]; then
+    mv "$MAC_TARGET" "$MAC_BACKUP" || die 'could not prepare the existing app for replacement.'
+  fi
+  mv "$staged" "$MAC_TARGET" || die 'could not install the new app; restoring the previous app.'
+  MAC_COMMITTED=1
+}
 
 download() {
   say "  downloading ${1##*/}"
@@ -100,9 +145,7 @@ case "$OS" in
     [ -n "$MOUNT" ] || die "could not mount the disk image."
 
     say "  copying Vibisual.app to /Applications"
-    rm -rf "/Applications/Vibisual.app"
-    cp -R "${MOUNT}/Vibisual.app" /Applications/
-    hdiutil detach "$MOUNT" >/dev/null
+    install_macos_bundle "${MOUNT}/Vibisual.app" "/Applications/Vibisual.app"
 
     say ""
     say "Installed to /Applications/Vibisual.app"

@@ -10,6 +10,7 @@ import { app, BrowserWindow } from 'electron';
 // 지문 계산만 따로 있는 이유는 시험 — 이 파일은 electron 을 물고 있어 단위 테스트에서 못 부른다.
 import { certFingerprintOf } from './certFingerprint';
 import { createMobileSocketSender, createMobileWebSocketServer, retainTransportErrors } from './mobileSocketSafety';
+import { mobileTerminalEnv } from './mobileTerminalEnv';
 import { inject, type DispatchFunc } from 'light-my-request';
 import { type WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
@@ -899,6 +900,13 @@ function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: stri
         sendTermFrame(ws, 'term_unavailable', { termId: p.termId, reason: 'external' });
         return;
       }
+      let env: Record<string, string> | undefined;
+      try {
+        env = mobileTerminalEnv(p.env);
+      } catch {
+        sendTermFrame(ws, 'term_ack', { termId: p.termId, ok: false, error: 'invalid-terminal-env' });
+        return;
+      }
       const r = createTerminal(wsTermSink(ws), {
         termId: p.termId,
         cwd: typeof p.cwd === 'string' ? p.cwd : '',
@@ -908,6 +916,7 @@ function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: stri
         // §5.5 #17-20 ④ v4.74 — 실행 런처도 모바일에서 같은 PTY 경로를 탄다.
         ...(typeof p.command === 'string' ? { command: p.command } : {}),
         ...(typeof p.autoRun === 'boolean' ? { autoRun: p.autoRun } : {}),
+        ...(env ? { env } : {}),
       });
       sendTermFrame(ws, 'term_ack', { termId: p.termId, ok: r.ok, error: r.error });
       return;

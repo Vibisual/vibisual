@@ -5,11 +5,12 @@ import type { BubbleData, SubAgent } from '@vibisual/shared';
 import {
   resolveAutoCompact, isAutoCompactOn, resolveAliasToLatest, getModelContextLimit,
   agentModelLabelOf, BUBBLE_COLORS, resolveCmdCliKind, resolveAgentDefaults,
+  resolveSessionRunState,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
-  NODE_STATUS_RUN_STATE, sessionDotClass, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
-  sessionProbeNote, serializeBusySubIds, parseBusySubIds, serializePendingSubIds,
+  sessionDotClass, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
+  serializeBusySubIds, parseBusySubIds, serializePendingSubIds, buildSessionRunInputs,
 } from '../../utils/sessionStatus.js';
 import { followSessionKey } from './editorFollow.js';
 import { buildDiffCommentPrompt } from './diffCommentPrompt.js';
@@ -17,7 +18,6 @@ import {
   resolveStatusBarUsage, resolveStatusBarModel, resolveStatusBarThinkingOff,
   resolveStatusBarEffort, canOpenModelQuickSwitch,
 } from './statusBarContext.js';
-import { findInsuranceLedger, sessionWatchLevel } from '../../utils/insuranceView.js';
 import type { InsuranceSessionScope } from '../../utils/insuranceView.js';
 import { ContextInsurancePopup } from '../Panel/ContextInsurancePopup.js';
 // §4 (상태바 모델 칸 ②) — 모델 칸을 누르면 뜨는 카드는 새 창이 아니라 **설정창의 모델 구역**이다.
@@ -90,7 +90,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   //   NodeStatus)을 한 칸에 섞어 그리고, 그 enum 원문을 번역 없이 출력했다(`awaiting_permission` 이
   //   날 문자열로 보였다). 게다가 색 규약이 나머지 화면과 **정반대**였다 — 다른 넷은 완료·미확인을
   //   초록으로 강조하고 completed 를 회색으로 죽이는데, 이 바만 그 둘을 뒤집어 칠했다.
-  //   이제 두 축을 같은 표시 어휘로 접어(`sessionRunStateOf` / `NODE_STATUS_RUN_STATE`) 색·낱말을 공유한다.
+  //   이제 두 축을 같은 표시 어휘로 접어(`sessionRunStateOf` / `resolveSessionRunState`) 색·낱말을 공유한다.
   // §2.4 (생존 판정 단일화) — 이 바는 `sessionRunStateOf` 를 **인자 둘만** 주고 불러,
   //   판정이 `sub.status === 'active'` 하나에 걸려 있었다. 탭바(`IDETabBar`)·분할 칸
   //   (`IDESplitCell`)은 셋째 인자(백그라운드 작업)까지 주므로, 훅이 자식의 소유 세션을 못 푼
@@ -105,11 +105,14 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   const pendingSubIdsSerialized = useGraphStore((s) => serializePendingSubIds(s.queuedCommands[agent.id]));
   const pendingSubIds = useMemo(() => parseBusySubIds(pendingSubIdsSerialized), [pendingSubIdsSerialized]);
   const hasQueuedCommand = activeSession ? pendingSubIds.has(activeSession.id) : pendingSubIds.size > 0;
+  // 메인 탭도 입력창과 같은 버블·큐·작업 사실을 접는다(세션 미배정 명령 포함).
+  const mainRunState = useGraphStore((s) => activeSession ? 'done' : resolveSessionRunState(buildSessionRunInputs({
+    sub: null, agentStatus: agent.status, commands: s.queuedCommands[agent.id],
+    runningTasks: s.runningSubagentTasks[agent.id], acknowledged: true,
+  })));
   const runState = activeSession
     ? sessionRunStateOf(activeSession, acknowledged, hasBackgroundWork, hasQueuedCommand)
-    : NODE_STATUS_RUN_STATE[agent.status];
-  // §2.4 — 서버가 붙여 준 세션 생존 판정(있을 때만). 낱말로 접는 것은 `sessionProbeNote` 한 곳이다.
-  const probeNote = sessionProbeNote(activeSession);
+    : mainRunState;
   /*
    * §2.4 (경과 시계를 뺀 자리) — 이 바는 "실행 중" 옆에 **마지막 활동 이후 경과**(`· 0s`)를
    * 매초 적었다. 사용자 지시로 **상태바에서만** 걷는다 — 되살리지 마라.
@@ -180,38 +183,28 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   const outputTokens = usage.outputTokens;
   const context = usage.context;
 
-  // §4 (CLI 사양 추종) — 이 에이전트에 **실제로 실리는** 자동 압축 값. 서버 스폰과 같은 3층
-  //   해소(에이전트 설정 → 설정 창 전역 → 내장 기본)를 같은 함수로 계산해 화면과 스폰이 어긋나지
-  //   않게 한다. 두 선택자 모두 원시 문자열이라 파생 배열/맵 구독의 리렌더 함정을 타지 않는다.
   /*
-   * §5.26 (F)(I) — 컨텍스트 칸은 **누를 수 있는 칸**이다. 압축·사본·부활이 전부 이 숫자에
+   * §5.26 (I) — 컨텍스트 칸은 **누를 수 있는 칸**이다. 압축·사본·부활이 전부 이 숫자에
    * 얽힌 사건이라, 그 숫자를 보다가 "그래서 뭘 잃었나"가 궁금해지는 자리가 바로 여기다.
    * 헤더에 세 번째 필을 더하지 않는 이유이기도 하다(§5.26 (I)).
    *
-   * 등급은 서버가 매긴 것을 **그대로** 읽는다 — 여기서 비율을 다시 재면 서버와 화면이 갈린다.
-   *
-   * **주어는 원장(프로젝트)이 아니라 세션이다(§5.26 (I)).** 종전에는 등급을 프로젝트 안 모든
-   * 세션의 최악값으로, 실패 건수를 프로젝트 전체 합(`counts.failedCompacts`)으로 읽어 **세션을
-   * 넘겨도 같은 색·같은 숫자가 남았다**(사용자 보고 — 세션 8개짜리 버블의 여덟 탭 전부에 `1`).
-   * 위 모델·토큰 칸이 겪었던 것과 같은 사고라 고치는 방법도 같다: 원장은 그대로 두고 **내 줄만
-   * 골라 본다**. 팝업(§7.23)은 여전히 프로젝트 한 장이다 — 저장고가 프로젝트 단위이기 때문이다.
-   *
-   * **실패 건수는 이 칸에서 걷었다(§5.26 (I) ⑤ · 사용자 지시).** 컨텍스트 수치 옆의 설명 없는 빨간
-   * 숫자는 무엇의 숫자인지 읽히지 않았다 — 이제 칸을 눌러 들어간 팝업의 「압축 기록」 갈피 옆에서
-   * 확인한다. 이 칸에 남는 것은 감시 등급의 색·글리프("지금 눌러 볼 이유")뿐이다.
+   * **이 칸은 경고·에러 모양을 갖지 않는다(§5.26 (I) ⑥ · 사용자 지시).** 사용량 숫자는 고장 날
+   * 것이 없는데, 감시 등급으로 칸을 물들이고 삼각형을 달았더니 컨텍스트 자체가 오류처럼 읽혔다.
+   * 그래서 이 칸은 보험 원장을 읽지 않는다 — 누르면 열리는 팝업(§7.23)에 **어느 세션을 보고
+   * 있는지**만 넘긴다. 주어는 원장(프로젝트)이 아니라 세션이다((I) ④) — 팝업의 `이 세션` 눈금이
+   * 이 좌표로 좁혀진다. 실패 건수도 칸이 아니라 팝업 안에서 센다((I) ⑤).
    */
-  const insuranceLedgers = useGraphStore((s) => s.contextInsurance);
-  const activeProject = useGraphStore((s) => s.activeProject);
   const setInsurancePopupOpen = useGraphStore((s) => s.setInsurancePopupOpen);
   const insurancePopupOpen = useGraphStore((s) => s.insurancePopupOpen);
-  const insuranceLedger = findInsuranceLedger(insuranceLedgers, activeProject);
   const insuranceScope: InsuranceSessionScope = {
     agentId: agent.id,
     subAgentId: activeSession?.id ?? null,
     sessionId: activeSession?.sessionId ?? null,
   };
-  const watchLevel = sessionWatchLevel(insuranceLedger, insuranceScope);
 
+  // §4 (CLI 사양 추종) — 이 에이전트에 **실제로 실리는** 자동 압축 값. 서버 스폰과 같은 3층
+  //   해소(에이전트 설정 → 설정 창 전역 → 내장 기본)를 같은 함수로 계산해 화면과 스폰이 어긋나지
+  //   않게 한다. 두 선택자 모두 원시 문자열이라 파생 배열/맵 구독의 리렌더 함정을 타지 않는다.
   const ownAutoCompact = useGraphStore((s) => s.agentConfigs[agent.id]?.autoCompact);
   const globalAutoCompact = useGraphStore((s) => s.userDefaults?.agentConfig?.autoCompact);
   const autoCompact = resolveAutoCompact(ownAutoCompact, globalAutoCompact);
@@ -334,18 +327,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
           {t(SESSION_STATUS_LABEL_KEY[runState])}
         </span>
         {/* 경과 시계(`· 0s`)는 이 줄에서 뺐다 — 위 §2.4(경과 시계를 뺀 자리) 참조. */}
-        {/*
-          §2.4 — "실행중…" 옆의 한 마디. 스피너만으로는 정보가 0 이라 사용자가 "아직도?"를
-          판단할 근거가 없었다(이 축이 생긴 이유). 판정은 서버가 하고 여기서는 적기만 한다.
-        */}
-        {probeNote && (
-          <span
-            className={probeNote.warn ? 'text-amber-400' : 'text-gray-500'}
-            title={probeNote.detail}
-          >
-            · {t(probeNote.key)}
-          </span>
-        )}
+        {/* 상태바에는 실행 상태만 표시한다. 탐침의 추측성 보조 문구는 붙이지 않는다. */}
       </span>
 
       {/* Model — 모르면 "모름"을 적는다. 이름 자리라 `0` 으로 대신할 수 없다.
@@ -415,35 +397,16 @@ export const IDEStatusBar = memo(function IDEStatusBar({
       )}
 
       {/* Context usage — 선택한 세션 기준(없을 때만 버블 값). 못 쟀으면 `0`, 칸은 남는다.
-          §5.26 (I) — 누르면 보험 팝업(§7.23)이 열린다. 자동압축이 안 도는 것 같으면 여기 색이
-          바뀐다. 실패로 끝난 압축 건수는 이 칸에 붙이지 않는다 — 팝업 안에서 확인한다((I) ⑤). */}
+          §5.26 (I) — 누르면 보험 팝업(§7.23)이 열린다. 칸은 언제나 같은 중립색이다 — 감시 등급의
+          색·경고 삼각형·경고 툴팁을 **다시 붙이지 않는다**((I) ⑥ · 사용자 지시 2026-09-26).
+          실패로 끝난 압축 건수도 이 칸에 붙이지 않는다 — 팝업 안에서 확인한다((I) ⑤). */}
       <button
         type="button"
         onClick={() => setInsurancePopupOpen(true)}
-        className={`flex items-center gap-1 whitespace-nowrap rounded px-1 transition-colors hover:bg-white/[0.08] ${
-          watchLevel === 'stalled' || watchLevel === 'rejected'
-            ? 'text-red-400'
-            : watchLevel === 'overdue' ? 'text-amber-400' : 'text-gray-500'
-        }`}
-        title={t(
-          watchLevel === 'stalled'
-            ? 'ide.statusBar.contextStalledTip'
-            // §5.26 (F)(b) — 보냈는데 안 온 것. 사유(슬래시가 꺼져 있다)를 그 자리에서 짚어 준다.
-            : watchLevel === 'rejected'
-              ? 'ide.statusBar.contextRejectedTip'
-              : watchLevel === 'overdue' ? 'ide.statusBar.contextOverdueTip' : 'ide.statusBar.contextTip',
-          // 주입원 칸의 이름은 로케일마다 다르다 — 글자로 박지 않고 그 라벨에서 받아 적는다.
-          { contextSources: t('ide.activityBar.context') },
-        )}
+        className="flex items-center gap-1 whitespace-nowrap rounded px-1 text-gray-500 transition-colors hover:bg-white/[0.08]"
+        title={t('ide.statusBar.contextTip')}
       >
         {t('ide.statusBar.context', { used: formatTokenCount(context.used), max: formatTokenCount(context.max) })}
-        {watchLevel && (
-          <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-            <path d="M12 9v4" />
-            <path d="M12 17h.01" />
-          </svg>
-        )}
         {/* §5.26 (I) ⑤ — 여기에 실패 건수 배지를 **다시 붙이지 않는다**(사용자 지시 2026-09-13).
             툴팁을 달아도 마우스를 올리기 전에는 컨텍스트 수치 옆의 `1` 이 무엇인지 읽히지 않았다.
             그 수는 칸을 눌러 들어간 팝업의 「압축 기록」 갈피 옆 칩이 창의 범위 눈금대로 말한다. */}

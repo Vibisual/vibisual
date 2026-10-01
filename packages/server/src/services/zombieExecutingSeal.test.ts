@@ -79,6 +79,7 @@ beforeEach(() => {
   }
   lastTurnArgs = null;
   subAgentManager.setOnSubStatusChange(() => { /* 조용히 */ });
+  subAgentManager.setOnStreamEvent(() => { /* 조용히 */ });
 });
 
 describe('좀비 executing — 굳은 것은 걷는다', () => {
@@ -264,6 +265,47 @@ describe('좀비 executing — 살아 있지만 멎은 턴', () => {
     subAgentManager.getSub(sub.id)!.lastActivityAt = Date.now() - TURN_STREAM_STALL_MS - 1_000;
 
     expect(subAgentManager.reconcileDeadActiveSubs()).toContain(sub.id);
+  });
+
+  it('실제 스윕 순서로 강등 뒤 봉합해도 멎은 턴의 실행 잠금을 푼다', () => {
+    const sub = newSub('agent-z-stalled-sweep', 'sub-z-stalled-sweep');
+    const cmd = makeCmd(sub.id);
+    subAgentManager.execute(cmd, PARENT_CWD, '', localConfig());
+    cmd.startedAt = Date.now() - ZOMBIE_EXECUTING_GRACE_MS * 2;
+    const lastActivity = Date.now() - TURN_STREAM_STALL_MS - 1_000;
+    subAgentManager.getSub(sub.id)!.lastActivityAt = lastActivity;
+    const waiting = makeCmd(sub.id, { status: 'queued', startedAt: undefined });
+    const q = queues(cmd, waiting);
+
+    // index.ts의 5초 스윕 순서 그대로: 상태 대조가 먼저이고, 실행 명령 봉합이 그 뒤다.
+    expect(subAgentManager.reconcileDeadActiveSubs()).toContain(sub.id);
+    expect(subAgentManager.getSub(sub.id)!.lastActivityAt).toBe(lastActivity);
+    expect(seal(q).map((entry) => entry.cmd.id)).toEqual([cmd.id]);
+
+    expect(cmd.status).toBe('error');
+    expect(cmd.error?.detail).toContain('stalled');
+    expect([...q.values()].flat().some((c) => c.status === 'executing')).toBe(false);
+    expect(waiting.status).toBe('queued');
+    expect(subAgentManager.getSub(sub.id)!.status).toBe('idle');
+    expect(subAgentManager.getSub(sub.id)!.lastActivityAt).toBe(lastActivity);
+  });
+
+  it('첫 좀비 봉합도 활동 시각을 되감지 않아 같은 탭의 나머지 좀비를 남기지 않는다', () => {
+    const sub = newSub('agent-z-stalled-pair', 'sub-z-stalled-pair');
+    const first = makeCmd(sub.id);
+    subAgentManager.execute(first, PARENT_CWD, '', localConfig());
+    first.startedAt = Date.now() - ZOMBIE_EXECUTING_GRACE_MS * 2;
+    const lastActivity = Date.now() - TURN_STREAM_STALL_MS - 1_000;
+    subAgentManager.getSub(sub.id)!.lastActivityAt = lastActivity;
+    const second = makeCmd(sub.id);
+    const onStream = vi.fn();
+    subAgentManager.setOnStreamEvent(onStream);
+
+    expect(seal(queues(first, second))).toHaveLength(2);
+    expect(first.status).toBe('error');
+    expect(second.status).toBe('error');
+    expect(subAgentManager.getSub(sub.id)!.lastActivityAt).toBe(lastActivity);
+    expect(onStream.mock.calls.map(([event]) => event.eventType)).toEqual(['error', 'error']);
   });
 });
 

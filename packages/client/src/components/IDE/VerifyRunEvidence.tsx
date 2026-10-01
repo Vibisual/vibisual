@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next';
 import type { VerificationDemo, VerificationRun } from '@vibisual/shared';
 import { VERIFICATION_DEMO_MAX_PER_SESSION } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useImageLightboxOrigin } from './imageLightboxOrigin.js';
 import { useVerifyDemoStore } from '../../stores/verifyDemo.js';
 import { verificationEvidenceUrl, verificationOperationKey, verificationStepCoverage, verificationTargetLabel } from './verificationConnection.js';
 
 export function VerifyRunEvidence({ run, readOnly }: { run: VerificationRun; readOnly: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImage = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -52,7 +54,7 @@ export function VerifyRunEvidence({ run, readOnly }: { run: VerificationRun; rea
                 {event.stepIndex !== undefined ? ` · ${event.stepIndex + 1}` : ''}
               </span>
               <p className="break-words text-gray-400">{event.detail}</p>
-              {event.evidenceId && <button type="button" onClick={() => openImage(verificationEvidenceUrl(run.id, event.evidenceId!))} className="text-sky-400">{t('ide.verify.execution.evidence')}</button>}
+              {event.evidenceId && <button type="button" onClick={() => openImage(verificationEvidenceUrl(run.id, event.evidenceId!), lightboxOrigin())} className="text-sky-400">{t('ide.verify.execution.evidence')}</button>}
             </li>
           ))}
         </ol>
@@ -61,7 +63,7 @@ export function VerifyRunEvidence({ run, readOnly }: { run: VerificationRun; rea
         <div className="grid grid-cols-2 gap-1">
           {evidence.map((frame, index) => (
             <button type="button" key={frame.id} title={frame.title ?? t('ide.verify.execution.frame', { index: index + 1 })}
-              onClick={() => openImage(verificationEvidenceUrl(run.id, frame.id))} className="overflow-hidden rounded border border-gray-700 hover:border-sky-400">
+              onClick={() => openImage(verificationEvidenceUrl(run.id, frame.id), lightboxOrigin())} className="overflow-hidden rounded border border-gray-700 hover:border-sky-400">
               <img src={verificationEvidenceUrl(run.id, frame.id)} alt={t('ide.verify.execution.frame', { index: index + 1 })} loading="lazy" className="aspect-video w-full bg-black object-contain" />
             </button>
           ))}

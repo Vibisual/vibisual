@@ -60,6 +60,28 @@ describe('ProjectGraph Codex cost map wiring', () => {
     expect(graph.toProjectCheckpoint(projectName).costMap?.periods.all.costUsd).toBeCloseTo(map.periods.all.costUsd, 10);
   });
 
+  /*
+   * 원장은 그 세션이 실제로 돈 엔진에서 읽는다(`agentEngineOf`). 종전에는 실행 방식을 안 보고 `cliKind` 를 읽어,
+   * CMD 로 돌렸다 헤드리스로 되돌린 클로드 버블의 세션을 코덱스 기록에서 찾았다 — 그 비용이 통째로 빠졌다.
+   */
+  it('reads each session from the ledger of the engine it actually ran on', () => {
+    const graph = new ProjectGraph();
+    const projectName = graph.registerProject(process.cwd()).name;
+    const reverted = graph.createCustomAgent('Reverted CMD', undefined, projectName);
+    graph.setAgentConfig(reverted.id, { ...graph.getAgentConfig(reverted.id)!, executionMode: 'headless', cliKind: 'codex' });
+    const codexCmd = graph.createCustomAgent('', undefined, projectName, { executionMode: 'interactive-terminal', cliKind: 'codex' });
+    vi.mocked(readSessionTokenData).mockReturnValue({ sessionId: 'claude-thread', turns: [usage('claude-sonnet-4-6')], categories: [] });
+    vi.mocked(readCodexTokenUsage).mockReturnValue([usage('gpt-5.4')]);
+    vi.spyOn(subAgentManager, 'getAllSubsFlat').mockReturnValue([sub(reverted.id, 'claude-thread'), sub(codexCmd.id, 'codex-thread')]);
+
+    expect(graph.sweepCostMap(null, now)).toBe(true);
+    expect(readSessionTokenData).toHaveBeenCalledExactlyOnceWith(graph.getAgentCwdByAgentId(reverted.id), 'claude-thread');
+    expect(readCodexTokenUsage).toHaveBeenCalledExactlyOnceWith('codex-thread');
+    const sessions = graph.toProjectCheckpoint(projectName).costMap!.sessions;
+    expect(sessions.find(s => s.sessionId === 'claude-thread')?.provider).toBe('claude');
+    expect(sessions.find(s => s.sessionId === 'codex-thread')?.provider).toBe('codex');
+  });
+
   it('retries a quiet legacy unmeasured Codex row instead of leaving it permanently empty', () => {
     const graph = new ProjectGraph();
     const projectName = graph.registerProject(process.cwd()).name;

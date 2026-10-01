@@ -1534,6 +1534,7 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // 1M 세대 — 4.6 이후는 1M 이 표준가에 포함된다(장문 프리미엄 ❌).
   'claude-fable-5-1': 1_000_000,
   'claude-fable-5': 1_000_000,
+  'claude-opus-5-5': 1_000_000,
   'claude-opus-5': 1_000_000,
   'claude-opus-4-8': 1_000_000,
   'claude-opus-4-7': 1_000_000,
@@ -2162,6 +2163,7 @@ function makePricing(input: number, output: number, cacheReadMultiplier = 0.1): 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-fable-5-1': makePricing(10, 50, 0.025),
   'claude-fable-5': makePricing(10, 50),
+  'claude-opus-5-5': makePricing(4, 20, 0.05), // 캐시 읽기만 0.05× — 가격표 각주 2(확인 2026-10-01)
   'claude-opus-5': makePricing(5, 25),
   'claude-opus-4-8': makePricing(5, 25),
   'claude-opus-4-7': makePricing(5, 25),
@@ -2422,6 +2424,7 @@ export const AVAILABLE_AGENT_MODELS: readonly string[] = [
 export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
   'claude-fable-5-1',
   'claude-fable-5',
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-sonnet-5',
   'claude-haiku-4-5',
@@ -3022,6 +3025,60 @@ export interface DisplayCommandLike {
 }
 
 /**
+ * §5.3 #9-1 (P)(b) — **조용한 압축의 진행 표시를 물려받는 명령**(heir) → 물려줄 시작 시각.
+ *
+ * 세션마다 `executing` 인 조용한 압축이 있으면, 그 세션의 **첫** 대기 명령 하나가 물려받는다
+ * (뒤엣것까지 물려받으면 거짓이 된다). 시작 시각은 압축이 나간 시각이다 — 사용자에게는 그 명령을
+ * 넣은 순간이다. 압축이 아직 대기 중이면 도는 것이 없으므로 아무도 물려받지 않는다.
+ *
+ * 화면(`displayCommands` — 실행 중으로 그린다)과 서버의 두 중지 라우트(도는 중에 [중지]하면
+ * 실행 중에 멈춘 명령처럼 봉합한다)가 **같은 규칙**을 봐야 한다 — 두 벌이 되면 "실행 중으로
+ * 보이던 명령"과 "중지됨으로 남는 명령"이 서로 다른 명령이 된다.
+ */
+export function silentPreCompactHeirs<T extends DisplayCommandLike>(list: readonly T[]): Map<T, number | undefined> {
+  // 키는 **그 명령 객체**다 — id 를 몰라도 되고, 같은 배열을 도는 호출자가 그대로 `has` 로 묻는다.
+  const heirs = new Map<T, number | undefined>();
+  const runningSilent = new Map<string, number | undefined>();
+  for (const c of list) {
+    if (c.silent && c.status === 'executing' && typeof c.subAgentId === 'string') {
+      runningSilent.set(c.subAgentId, c.startedAt);
+    }
+  }
+  if (runningSilent.size === 0) return heirs;
+  for (const c of list) {
+    if (c.silent || c.status !== 'queued' || typeof c.subAgentId !== 'string') continue;
+    if (!runningSilent.has(c.subAgentId)) continue;
+    heirs.set(c, runningSilent.get(c.subAgentId));
+    runningSilent.delete(c.subAgentId);
+  }
+  return heirs;
+}
+
+/**
+ * §5.3 #9-1 (P)(b) — **[즉시] 덧말 `cmd` 가 끊을 "도는 턴"이 물려받은 명령인가.** 그렇다면 그 명령과
+ * 물려줄 시작 시각, 아니면 `null`.
+ *
+ * 즉시는 도는 턴을 끊는 손이다(§5.5 #17-18). 조용한 압축이 도는 동안 사용자에게 그 턴은 압축이 아니라
+ * 그 진행을 물려받은 명령인데, CLI 로 가는 인터럽트는 압축만 끊는다 — 압축이 끝나면 대기열 맨 앞의 그
+ * 명령이 그대로 나가고 즉시 덧말은 그 뒤에 섰다("즉시로 끊었는데 계속 돈다"). 그래서 서버는 여기서 고른
+ * 명령을 실행 중에 멈춘 명령과 똑같이 봉합한다(두 [중지]와 같은 규칙 — 같은 `silentPreCompactHeirs`).
+ *
+ * `cmd` 가 바로 그 명령이면(그 명령을 즉시로 돌리는 것) 끊을 턴이 아니다 — 압축만 비켜선다
+ * (`planSilentPreCompact` 가 즉시 명령 앞에 서지 않는 것과 같은 규율).
+ */
+export function heirCutByImmediate<T extends DisplayCommandLike>(
+  list: readonly T[],
+  cmd: T,
+): { heir: T; startedAt: number | undefined } | null {
+  if (typeof cmd.subAgentId !== 'string') return null;
+  for (const [heir, startedAt] of silentPreCompactHeirs(list)) {
+    if (heir.subAgentId !== cmd.subAgentId) continue;
+    return heir === cmd ? null : { heir, startedAt };
+  }
+  return null;
+}
+
+/**
  * §5.3 #9-1 (P) — **화면이 그릴 명령 목록.** 두 가지를 한 번에 한다.
  *
  * **① 조용한 압축을 감춘다.** 자동 압축은 사용자가 넣은 명령이 아니라 우리가 그 앞에 끼운
@@ -3048,22 +3105,14 @@ export function displayCommands<T extends DisplayCommandLike>(list: readonly T[]
   //   구조적 공유(§9)로 안정화해 둔 참조를 매 스냅샷마다 새 배열로 깨뜨리지 않는다.
   if (!list.some((c) => c.silent)) return list;
 
-  // 지금 도는 조용한 압축들 — 그 진행 표시를 물려받을 세션과, 물려줄 시작 시각.
-  const runningSilent = new Map<string, number | undefined>();
-  for (const c of list) {
-    if (c.silent && c.status === 'executing' && typeof c.subAgentId === 'string') {
-      runningSilent.set(c.subAgentId, c.startedAt);
-    }
-  }
+  // 지금 도는 조용한 압축의 진행 표시를 물려받을 명령과, 물려줄 시작 시각 — 규칙은 한 곳이다.
+  const heirs = silentPreCompactHeirs(list);
 
   const out: T[] = [];
   for (const c of list) {
     if (c.silent) continue;
-    const sub = typeof c.subAgentId === 'string' ? c.subAgentId : null;
-    if (sub !== null && c.status === 'queued' && runningSilent.has(sub)) {
-      // 그 세션의 **첫** 대기 명령만 물려받는다(뒤엣것까지 실행 중으로 그리면 거짓이 된다).
-      const startedAt = runningSilent.get(sub);
-      runningSilent.delete(sub);
+    if (heirs.has(c)) {
+      const startedAt = heirs.get(c);
       out.push({ ...c, status: 'executing', ...(c.startedAt === undefined && startedAt !== undefined ? { startedAt } : {}) });
       continue;
     }
@@ -5973,8 +6022,16 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 ## 왜 "카드로 보냈습니다"를 쓰지 말라는가
 카드 curl 이 그 턴의 마지막 도구라, 결과를 받은 뒤 무언가 말해야 턴이 닫힌다. 그때 가장 무해해 보이는
 말이 발송 사실 보고인데("검수 카드로 정리해 보냈습니다"), 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량이
-0 이면서 카드마다 똑같이 반복돼 **마지막 본문 자리**를 잡아먹는다. 덧붙일 맥락이 없으면 아무 말도 하지
-말고 끝내라. (렌더 층도 같은 줄을 표시에서 뺀다.)
+0 이면서 카드마다 똑같이 반복돼 **마지막 본문 자리**를 잡아먹는다. (렌더 층도 같은 줄을 표시에서 뺀다.)
+
+## 왜 카드 뒤를 비우지 않고 "카드를 확인해 주세요." 한 문장으로 닫는가
+예전 결론은 "덧붙일 맥락이 없으면 아무 말도 하지 말고 끝내라"였다. 그런데 Claude Code CLI 는 턴의 마지막
+응답에 보이는 글이 없으면 "[Your previous response had no visible output…]" 재촉을 넣고, 그 재촉을 받은
+모델은 보고를 처음부터 다시 쓴다(실측: 카드 턴의 절반 가까이 · 중앙값 780자 안팎). 그 글이 카드 아래에
+쌓여 카드가 한참 위로 밀리고, 사용자는 카드에 이미 있는 내용을 또 읽는다. 그래서 비우지 않는다 — 정해진
+한 문장으로 닫으면 재촉이 오지 않는다. 재촉이 오더라도 본문과 카드는 이미 사용자 눈앞에 있으니 보고를
+다시 쓰지 말고 그 한 문장만 쓴다. 이 문장도 정보량이 0 이라 렌더 층이 발송 보고와 함께 표시에서 뺀다 —
+화면은 본문 → 카드로 끝난다.
 
 ## 왜 카드에 담은 목록을 본문에 다시 쓰지 말라는가
 "한 일 / 사용자가 할 일 / 다음 단계" 같은 섹션을 본문에도 풀어 쓰면 사용자가 **같은 내용을 두 번 읽게
@@ -5990,8 +6047,9 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 ## 질문 카드의 \`prompts\` 는 어떻게 쓰는가
 사용자가 **그대로 보내면 되는 답**을 그가 1인칭으로 말하듯 적는다(예: "네, A1 계측 → 1차 → 측정 후 판단
 순으로 착수해 주세요."). IDE 가 각 프롬프트를 복사 박스로 감싸 **복사 / 즉시 전송** 버튼을 단다.
-선택지가 갈리면 여러 개 넣어라. 질문은 비차단이다 — 지금 할 수 있는 일을 끝낸 뒤 묻고, 사용자는 다음
-메시지로 답한다.
+선택형은 질문에 등장한 실제 대안을 모두 넣어라. A/B를 물으면서 A 답만 주면 다른 답을 고를 수 없다.
+사용자만 아는 값·수치는 지어내지 말고 \`prompts: []\` 로 둬라 — IDE의 직접 답변 입력으로 받는다.
+질문은 짧게, 조사 배경은 \`note\` 에 둔다. 질문은 비차단이다 — 지금 할 수 있는 일을 끝낸 뒤 묻는다.
 
 ## 왜 "뻔한 질문"을 금지하는가 — 질문 카드가 작업을 멈춰 세운 사고
 질문 카드는 원래 **비차단**으로 설계됐는데, 실제로는 그 반대로 쓰였다. 원인 규명까지 끝낸 세션이
@@ -6076,7 +6134,8 @@ JSON
 # 카드 (Vibisual IDE) — 공통
 아래 카드들은 같은 창구를 쓴다. 주소·토큰은 환경변수에 이미 있다. 해당 카드의 필드를 본문 JSON에 추가한다.
 ${request}
-- **본문(짧은 결론)을 먼저 쓰고, 그 보고의 맨 마지막 동작으로 1회 호출**한다. 호출 뒤에는 본문을 더 붙이지 마라. **"카드로 보냈습니다" 같은 발송 사실 보고 금지** — 덧붙일 맥락이 없으면 아무 말 없이 끝내라. 작업 도중에 미리 보내지 마라.
+- **본문(짧은 결론)을 먼저 쓰고, 그 보고의 맨 마지막 동작으로 1회 호출**한다. 작업 도중에 미리 보내지 마라.
+- 호출 뒤에는 **"카드를 확인해 주세요." 한 문장만** 쓰고 끝낸다(사용자 언어로). 비워 두지 마라 — "no visible output" 재촉이 와도 보고를 다시 쓰지 말고 그 한 문장만. **"카드로 보냈습니다" 같은 발송 사실 보고 금지.**
 - **한 턴에 카드는 하나** — 작업 신고와 검수 요청은 둘 중 하나만.
 - **카드에 담은 목록을 본문에 다시 나열하지 마라.** 본문은 1~2문장 결론만.
 - 전부 **표시 전용** — 결과에 영향이 없다. 실패해도 무시하고 보고는 그대로 진행.${docLine}`;
@@ -6125,7 +6184,7 @@ export function buildAgentQuestionRules(_args: {
 - **묻지 말고 그냥 하라(뻔한 질문)**: "고칠까요/진행할까요"(이미 고치라고 했다) · "원인 두 곳 다 고칠까요, 하나만?"(**원인이면 다 고친다**) · "먼저 설계를 볼까요"(막히지 않았으면 그냥 한다) · 되돌릴 수 있는 판단 · 네가 근거로 정할 수 있는 것.
 - **물어도 되는 것**: 되돌리기 어렵거나 바깥에 나가는 일(삭제·배포·과금·외부 전송) · 어느 쪽을 골라도 **버려지는 작업이 큰** 갈림길 · 사용자만 아는 값(자격증명·의도).
 - **묻더라도 멈추지 마라** — 되돌릴 수 있는 쪽을 **네 판단으로 골라 끝낸 뒤**, 그 선택을 밝히고 "다른 쪽이면 말씀해 주세요"로 묻는다. 답을 기다리며 손을 놓는 것은 **막혔을 때뿐**이다.
-- \`items[{question, header?, prompts[]}]\` — \`prompts\` 는 사용자가 **그대로 보내면 되는 답**을 1인칭으로(선택지가 갈리면 여러 개). IDE 가 복사·즉시 전송 버튼을 단다.`;
+- \`items[{question, header?, prompts[]}]\` — 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 **그대로 보내면 되는 답**을 1인칭으로. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 사용자만 아는 값·수치는 지어내지 말고 \`prompts: []\` — IDE의 직접 답변 입력으로 받는다.`;
 }
 
 /**
@@ -7607,9 +7666,9 @@ echo '${S}{"kind":"report","did":["완료한 일 1","완료한 일 2"],"userActi
 \`\`\`
 - \`userActions\` 가 비면 보내지 마라. \`did\`/\`userActions\`/\`nextSteps\` 목록을 자연어 본문에 다시 나열하지 마라(카드가 보여준다).
 
-2) 사용자 질문 — 사용자에게 **질문을 던지며 답을 기다리는 보고**에서만. 각 질문에 제안 응답 프롬프트(0~N)를 단다.
+2) 사용자 질문 — 사용자만 아는 값·의도로 막혔을 때만. 질문은 짧게, 배경은 \`note\`. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 사용자만 아는 값·수치는 지어내지 말고 \`prompts: []\` — IDE의 직접 답변 입력으로 받는다.
 \`\`\`bash
-echo '${S}{"kind":"questions","items":[{"question":"이 순서로 진행할까요?","header":"진행 순서 확인","prompts":["네, 그 순서로 진행해 주세요.","아니요, B안으로 가 주세요."]}]}'
+echo '${S}{"kind":"questions","items":[{"question":"여기서 배포는 테스트 환경인가요, 운영 환경인가요?","header":"대상 환경","prompts":["나는 테스트 환경을 뜻했어.","나는 운영 환경을 뜻했어."]}]}'
 \`\`\`
 
 3) 검수 요청 — 사용자가 **지시한 작업(버그 수정·기능 변경 등)을 완료**해, 결과 검수가 필요한 보고에서만.
@@ -7634,10 +7693,11 @@ echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
 보내든 안 보내든 실제 작업 결과엔 영향이 없다. 카드에 담은 목록을 자연어 본문에 헤딩·목록으로 다시 풀어 쓰지 마라.
 **인쇄 순서 — 자연어 설명(짧은 결론·근거)을 먼저 쓴 다음**, 그 보고의 **맨 마지막 동작**으로 1회 인쇄한다. 카드는
 **신고된 그 시각의 자리**에 앉으므로 설명보다 먼저 인쇄하면 **카드가 위, 그 카드를 설명하는 내용이 아래**로 뒤집힌다
-(읽는 순서는 늘 맥락 → 카드). 인쇄한 뒤에는 본문을 더 붙이지 마라 — 붙이면 카드가 다시 중간에 낀다.
+(읽는 순서는 늘 맥락 → 카드). 인쇄한 뒤에는 **"카드를 확인해 주세요." 한 문장만** 쓰고 끝내라(사용자 언어로) — 설명을
+더 붙이면 카드가 다시 중간에 낀다. **그렇다고 비워 두지도 마라**(§5.5 #17-18 ⑦-6) — 비우면 CLI 가 "no visible output"
+재촉을 넣고, 그 재촉에 보고를 처음부터 다시 쓰면 카드가 한참 위로 밀린다. 재촉이 와도 보고를 다시 쓰지 말고 그 한 문장만.
 **특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라**(§5.5 #17-18 ⑦-5) —
-카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다. 덧붙일 맥락이 없으면
-
+카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다.
 
 ## 더 나은 경로 — 환경변수가 있으면 curl 로 보내라 (§4 CMD 업그레이드 ⑦)
 이 터미널에는 Vibisual 이 **loopback 신원**을 환경변수로 실어 준다. \`VIBISUAL_HOOK_TOKEN\` 이 있으면 위 마커 인쇄 대신
@@ -7652,7 +7712,7 @@ JSON
 \`\`\`
 - 엔드포인트는 \`/api/agent-report\` · \`/api/agent-questions\` · \`/api/agent-review\` · \`/api/agent-list\` · \`/api/agent-iframe\` 다(본문 형식은 위 \`kind\` 별 JSON 에서 \`kind\` 만 뺀 것).
 - \`VIBISUAL_HOOK_TOKEN\` 이 **없으면**(구버전·모바일 브리지) 위의 \`${S}\` 마커 인쇄를 그대로 쓴다 — 둘 다 같은 카드를 띄운다.
-- 토큰 헤더가 없으면 401 이다. 실패해도 무시하고 자연어 보고는 그대로 진행하라(표시 전용).**아무 말도 하지 말고 그대로 끝내라.**`;
+- 토큰 헤더가 없으면 401 이다. 실패해도 무시하고 자연어 보고는 그대로 진행하라(표시 전용).`;
 }
 
 /**
@@ -9558,6 +9618,24 @@ export function engineForProvider(provider: AgentProvider | undefined): AgentEng
   if (provider?.kind === 'codex-cli') return 'codex';
   if (provider?.kind === 'local-llama') return 'local';
   return 'claude';
+}
+
+/**
+ * §5.25 (B-1) · (M-1) — **이 에이전트가 실제로 도는 엔진**(스킬을 읽고, 세션 기록을 남기는 쪽).
+ *
+ * CMD 버블은 셸에 채우는 CLI 가 곧 그 터미널의 엔진이다 — Codex CMD 는 `provider` 가 비어 있어도 코덱스다.
+ * 반대로 `cliKind` 는 **CMD 에서만** 읽는다: 헤드리스 스폰은 그 칸을 읽지 않는데, CMD 로 돌렸다 헤드리스로
+ * 되돌린 버블에는 옛 값이 남는다(`agentModelLabelOf` 와 같은 규약).
+ *
+ * 종전에는 이 판정이 자리마다 달랐다 — 서버 스킬 공유·비용 지도는 실행 방식을 안 보고 `cliKind` 를 읽고,
+ * IDE 스킬 칸은 `provider` 만 봤다. 그래서 Codex CMD 에서는 스킬 칸 둘째 탭이 늘 "응답이 올바르지 않음"이었고,
+ * 헤드리스로 되돌린 클로드 버블은 공유 대상과 비용 원장이 코덱스 쪽으로 갔다.
+ */
+export function agentEngineOf(
+  config: { provider?: AgentProvider; executionMode?: string; cliKind?: string } | null | undefined,
+): AgentEngineKind {
+  if (config?.executionMode === 'interactive-terminal' && resolveCmdCliKind(config.cliKind).value === 'codex') return 'codex';
+  return engineForProvider(config?.provider);
 }
 
 /**

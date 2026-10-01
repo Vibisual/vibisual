@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { AgentEngineKind } from '@vibisual/shared';
@@ -54,6 +54,10 @@ export function EngineChooserGate(): React.JSX.Element | null {
   const dismissed = useGraphStore((s) => s.engineChooserDismissed);
   const setEngineChooser = useGraphStore((s) => s.setEngineChooser);
   const chooseEngine = useGraphStore((s) => s.chooseEngine);
+  // A ref closes the same-render double-click gap before disabled reaches the DOM.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const shouldOpen = isEngineChooserOpen({
     userDefaults,
@@ -71,22 +75,33 @@ export function EngineChooserGate(): React.JSX.Element | null {
    */
   const pick = useCallback(
     async (engine: AgentEngineKind) => {
-      await chooseEngine(engine);
-      const now = useGraphStore.getState();
-      switch (handoffForEngine(engine)) {
-        case 'codex-setup':
-          now.setCodexSetupGate({ forced: true, dismissed: false });
-          break;
-        case 'project-folder':
-          // 로컬은 앱 차원의 설치·로그인 칸이 없다 — 폴더부터 고르면 그 다음은 캔버스 우클릭
-          //   한 번(All Model)이고, 엔진 받기는 그 창이 맡는다(§5.19 (B)).
-          now.setProjectGate({ forced: true, dismissed: false, reason: 'onboarding' });
-          break;
-        default:
-          // 클로드는 이미 있는 계단을 그대로 탄다 — 설치가 끝나 있으면 설치 게이트가 스스로
-          //   닫히며 로그인으로 넘기므로, 여기서는 열어 주기만 한다.
-          now.setSetupGate({ forced: true, dismissed: false });
-          break;
+      if (savingRef.current) return;
+      savingRef.current = true;
+      setSaving(true);
+      setSaveFailed(false);
+      try {
+        await chooseEngine(engine);
+        const now = useGraphStore.getState();
+        switch (handoffForEngine(engine)) {
+          case 'codex-setup':
+            now.setCodexSetupGate({ forced: true, dismissed: false });
+            break;
+          case 'project-folder':
+            // 로컬은 앱 차원의 설치·로그인 칸이 없다 — 폴더부터 고르면 그 다음은 캔버스 우클릭
+            //   한 번(All Model)이고, 엔진 받기는 그 창이 맡는다(§5.19 (B)).
+            now.setProjectGate({ forced: true, dismissed: false, reason: 'onboarding' });
+            break;
+          default:
+            // 클로드는 이미 있는 계단을 그대로 탄다 — 설치가 끝나 있으면 설치 게이트가 스스로
+            //   닫히며 로그인으로 넘기므로, 여기서는 열어 주기만 한다.
+            now.setSetupGate({ forced: true, dismissed: false });
+            break;
+        }
+      } catch {
+        setSaveFailed(true);
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
       }
     },
     [chooseEngine],
@@ -128,8 +143,9 @@ export function EngineChooserGate(): React.JSX.Element | null {
                   <button
                     key={opt.kind}
                     type="button"
+                    disabled={saving}
                     onClick={() => { void pick(opt.kind); }}
-                    className={`flex flex-col gap-2 rounded-lg border ${accent.border} ${accent.hover} bg-gray-950/60 px-3.5 py-3 text-left transition-colors`}
+                    className={`flex flex-col gap-2 rounded-lg border ${accent.border} ${accent.hover} bg-gray-950/60 px-3.5 py-3 text-left transition-colors disabled:cursor-wait disabled:opacity-60`}
                   >
                     <span className={accent.text}><EngineIcon kind={opt.kind} className="h-6 w-6" /></span>
                     <span className="text-[13px] font-bold text-gray-100">
@@ -158,6 +174,17 @@ export function EngineChooserGate(): React.JSX.Element | null {
               })}
             </div>
 
+            {saving && (
+              <p role="status" className="text-[12px] text-gray-400">
+                {t('panel.engineChooser.saving', { defaultValue: 'Saving your choice…' })}
+              </p>
+            )}
+            {saveFailed && (
+              <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
+                {t('panel.engineChooser.saveError', { defaultValue: 'Could not save your choice. Try selecting an engine again.' })}
+              </p>
+            )}
+
             {/* 처음 켠 사람이 가장 두려워하는 것에 먼저 답한다 — 자물쇠가 아니라 기본값이다. */}
             <p className="rounded-lg border border-gray-800 bg-gray-950/70 px-3.5 py-2.5 text-[12px] leading-relaxed text-gray-400">
               {t('panel.engineChooser.note', {
@@ -169,8 +196,9 @@ export function EngineChooserGate(): React.JSX.Element | null {
           <div className="flex items-center justify-end border-t border-gray-800 px-4 py-3">
             <button
               type="button"
+              disabled={saving}
               onClick={() => setEngineChooser({ forced: false, dismissed: true })}
-              className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
+              className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white disabled:cursor-wait disabled:opacity-60"
             >
               {t('panel.engineChooser.later', { defaultValue: 'Decide later' })}
             </button>

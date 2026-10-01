@@ -1,12 +1,16 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentQuestions } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useScrollReveal } from '../../hooks/useScrollReveal.js';
 import { CardLiveBadge } from './AgentCardParts.js';
 import { useCardSelectionCopy } from './cardSelection.js';
 import { promptOverlayReserve, PROMPT_RESERVE_FALLBACK_PX } from './promptOverlayReserve.js';
+import { QUESTION_ANSWER_MAX_LENGTH, useQuestionCardState } from './questionCardState.js';
 import {
   buildQuestionCardText,
+  buildCustomAnswerText,
+  CUSTOM_ANSWER_INDEX,
   buildQuestionsOnlyText,
   buildSingleQuestionText,
   collectCheckedAnswers,
@@ -100,9 +104,16 @@ function SelectionIcon(): React.JSX.Element {
  */
 const INSTANT_ARM_MS = 4000;
 
-function useInstantArm(onInstant: () => void): { armed: boolean; onArmOrSend: () => void } {
+function useInstantArm(onInstant: () => void, prompt: string): { armed: boolean; onArmOrSend: () => void } {
   const [armed, setArmed] = useState(false);
   const armTimer = useRef<number | null>(null);
+  // 확인한 답을 고치면 다시 확인한다. 사라진 카드의 타이머도 회수한다.
+  useEffect(() => {
+    setArmed(false);
+    return () => {
+      if (armTimer.current !== null) window.clearTimeout(armTimer.current);
+    };
+  }, [prompt]);
   const onArmOrSend = useCallback(() => {
     if (armTimer.current !== null) window.clearTimeout(armTimer.current);
     if (!armed) {
@@ -263,6 +274,7 @@ const PromptBox = memo(function PromptBox({
   selectable,
   checked,
   onToggle,
+  editable,
 }: {
   prompt: string;
   onInstant: () => void;
@@ -271,17 +283,21 @@ const PromptBox = memo(function PromptBox({
   selectable: boolean;
   checked: boolean;
   onToggle: () => void;
+  editable?: { value: string; onChange: (value: string) => void };
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const inputId = useId();
+  const scrollReveal = useScrollReveal();
 
   // 답이 확정된 질문에서는 더 이상 상호작용 ❌ (선택된 박스든 흐려진 박스든 모두 잠금).
   const inert = disabled || wasSent;
+  const actionDisabled = inert || !prompt.trim();
   // 선택되지 않은 다른 후보 → 흐리게.
   const dimmed = disabled && !wasSent;
 
   const getPromptText = useCallback(() => (inert ? '' : prompt), [prompt, inert]);
   const { copied, onCopy } = useCopyAction(getPromptText);
-  const { armed, onArmOrSend } = useInstantArm(onInstant);
+  const { armed, onArmOrSend } = useInstantArm(onInstant, prompt);
 
   // 우상단 버튼 묶음이 실제로 먹는 폭을 재서 본문이 그만큼 비켜 가게 한다.
   //
@@ -323,60 +339,80 @@ const PromptBox = memo(function PromptBox({
       {selectable && (
         <SelectCheckbox
           checked={checked}
-          disabled={inert}
+          disabled={actionDisabled}
           onToggle={onToggle}
           label={t('ide.question.selectAnswer')}
         />
       )}
-      <div ref={boxRef} className="relative min-w-0 flex-1">
-        <pre
-          style={{ paddingRight: reserve }}
-          className={`scrollbar-thin overflow-x-auto whitespace-pre-wrap break-words rounded border py-2 pl-2.5 font-mono text-[12px] leading-relaxed transition-opacity ${
-            dimmed
-              ? 'border-gray-700/40 bg-gray-800/30 text-gray-500 opacity-50'
-              : checked
-                ? 'border-sky-500/40 bg-sky-500/10 text-gray-100'
-                : 'border-gray-700/60 bg-gray-800/60 text-gray-200'
-          }`}
-        >
-          {prompt}
-        </pre>
-        <div ref={overlayRef} className="absolute right-1.5 top-1.5 flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onCopy}
-            disabled={inert}
-            title={copied ? t('ide.question.copied') : t('ide.question.copy')}
-            aria-label={copied ? t('ide.question.copied') : t('ide.question.copy')}
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-colors ${
-              inert
-                ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
-                : copied
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                  : 'border-white/10 bg-gray-900/70 text-gray-300 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100'
+      <div className="min-w-0 flex-1">
+        {editable && (
+          <label htmlFor={inputId} className="mb-1 block text-[12px] font-medium text-sky-300">
+            {t('ide.askQuestion.otherLabel')}
+          </label>
+        )}
+        <div ref={boxRef} className="relative">
+          {editable ? (
+            <textarea
+              id={inputId}
+              value={editable.value}
+              onChange={(e) => editable.onChange(e.target.value)}
+              disabled={inert}
+              rows={2}
+              maxLength={QUESTION_ANSWER_MAX_LENGTH}
+              placeholder={t('ide.askQuestion.otherAnswerPlaceholder')}
+              style={{ paddingRight: reserve }}
+              className="scrollbar-thin block w-full resize-y rounded border border-gray-700/60 bg-gray-800/60 py-2 pl-2.5 text-[12px] leading-relaxed text-gray-100 outline-none focus:border-sky-400/60 disabled:opacity-50"
+              {...scrollReveal}
+            />
+          ) : <pre
+            style={{ paddingRight: reserve }}
+            className={`scrollbar-thin overflow-x-auto whitespace-pre-wrap break-words rounded border py-2 pl-2.5 font-mono text-[12px] leading-relaxed transition-opacity ${
+              dimmed
+                ? 'border-gray-700/40 bg-gray-800/30 text-gray-500 opacity-50'
+                : checked
+                  ? 'border-sky-500/40 bg-sky-500/10 text-gray-100'
+                  : 'border-gray-700/60 bg-gray-800/60 text-gray-200'
             }`}
           >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
-          <button
-            type="button"
-            onClick={onArmOrSend}
-            disabled={inert}
-            title={instantLabel}
-            aria-label={instantLabel}
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-semibold transition-colors ${
-              wasSent
-                ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-                : dimmed
+            {prompt}
+          </pre>}
+          <div ref={overlayRef} className="absolute right-1.5 top-1.5 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onCopy}
+              disabled={actionDisabled}
+              title={copied ? t('ide.question.copied') : t('ide.question.copy')}
+              aria-label={copied ? t('ide.question.copied') : t('ide.question.copy')}
+              className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-colors ${
+                actionDisabled
                   ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
-                  : armed
-                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
-                    : 'border-sky-500/40 bg-sky-500/15 text-sky-300 hover:border-sky-400/60 hover:bg-sky-500/25 hover:text-sky-200'
-            }`}
-          >
-            {wasSent ? <CheckIcon /> : <ZapIcon />}
-            <span>{instantLabel}</span>
-          </button>
+                  : copied
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-white/10 bg-gray-900/70 text-gray-300 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100'
+              }`}
+            >
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+            <button
+              type="button"
+              onClick={onArmOrSend}
+              disabled={actionDisabled}
+              title={instantLabel}
+              aria-label={instantLabel}
+              className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-semibold transition-colors ${
+                wasSent
+                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                  : actionDisabled
+                    ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
+                    : armed
+                      ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                      : 'border-sky-500/40 bg-sky-500/15 text-sky-300 hover:border-sky-400/60 hover:bg-sky-500/25 hover:text-sky-200'
+              }`}
+            >
+              {wasSent ? <CheckIcon /> : <ZapIcon />}
+              <span>{instantLabel}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -399,6 +435,8 @@ const QuestionItem = memo(function QuestionItem({
   selectedSet,
   onInstant,
   onToggle,
+  customAnswer,
+  onCustomAnswer,
 }: {
   item: AgentQuestions['items'][number];
   index: number;
@@ -408,8 +446,11 @@ const QuestionItem = memo(function QuestionItem({
   selectedSet: Set<number>;
   onInstant: (promptIdx: number, prompt: string) => void;
   onToggle: (promptIdx: number) => void;
+  customAnswer: string;
+  onCustomAnswer: (value: string) => void;
 }): React.JSX.Element {
   const getOwnText = useCallback(() => buildSingleQuestionText(item, index, multi), [item, index, multi]);
+  const customPrompt = buildCustomAnswerText(item, index, multi, customAnswer);
   return (
     <li className="group/q flex flex-col">
       {/* 질문 */}
@@ -447,6 +488,16 @@ const QuestionItem = memo(function QuestionItem({
           ))}
         </div>
       )}
+      <PromptBox
+        prompt={customPrompt}
+        disabled={answeredIdx !== null}
+        wasSent={answeredIdx === CUSTOM_ANSWER_INDEX}
+        selectable={selectable}
+        checked={selectedSet.has(CUSTOM_ANSWER_INDEX)}
+        onToggle={() => onToggle(CUSTOM_ANSWER_INDEX)}
+        onInstant={() => onInstant(CUSTOM_ANSWER_INDEX, customPrompt)}
+        editable={{ value: customAnswer, onChange: onCustomAnswer }}
+      />
     </li>
   );
 });
@@ -473,29 +524,40 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
 
   const multi = questions.items.length > 1;
 
-  // 질문 단위 잠금: questionIdx → 확정(전송)된 promptIdx. 즉시 전송·종합 전송 양쪽에서 설정.
-  const [answered, setAnswered] = useState<Record<number, number>>({});
-  // 체크박스 선택: questionIdx → 선택된 promptIdx 들의 Set. (다중 질문에서만 사용.)
-  const [selected, setSelected] = useState<Record<number, Set<number>>>({});
+  // 질문별 선택·전송 잠금·작성 중 답변은 스크롤로 카드가 재마운트돼도 함께 보존한다.
+  const [{ answered, selected, customAnswers }, updateState] = useQuestionCardState(questions.id);
+
+  const updateCustomAnswer = useCallback((qi: number, value: string) => {
+    updateState((prev) => {
+      const cur = new Set(prev.selected[qi] ?? []);
+      if (value.trim()) cur.add(CUSTOM_ANSWER_INDEX); else cur.delete(CUSTOM_ANSWER_INDEX);
+      return {
+        ...prev,
+        customAnswers: { ...prev.customAnswers, [qi]: value },
+        selected: { ...prev.selected, [qi]: cur },
+      };
+    });
+  }, [updateState]);
 
   const handleInstant = useCallback((qi: number, pi: number, prompt: string) => {
-    setAnswered((prev) => (prev[qi] !== undefined ? prev : { ...prev, [qi]: pi }));
+    if (!prompt.trim() || answered[qi] !== undefined) return;
     sendPrompt(prompt);
-  }, [sendPrompt]);
+    updateState((prev) => ({ ...prev, answered: { ...prev.answered, [qi]: pi } }));
+  }, [sendPrompt, answered, updateState]);
 
   const toggleSelect = useCallback((qi: number, pi: number) => {
-    setSelected((prev) => {
-      const cur = new Set(prev[qi] ?? []);
+    updateState((prev) => {
+      const cur = new Set(prev.selected[qi] ?? []);
       if (cur.has(pi)) cur.delete(pi); else cur.add(pi);
-      return { ...prev, [qi]: cur };
+      return { ...prev, selected: { ...prev.selected, [qi]: cur } };
     });
-  }, []);
+  }, [updateState]);
 
   // 체크박스로 고른 답 한 벌 — **개수도 전송도 복사도 이 하나를 본다.** 따로 세면 `선택한 N개 전송` 이
   // 말하는 수와 실제로 가는 답이 어긋난다(이미 답한 질문에 남은 체크가 그 자리다).
   const checkedAnswers = useMemo(
-    () => collectCheckedAnswers(questions, selected, answered),
-    [questions, selected, answered],
+    () => collectCheckedAnswers(questions, selected, answered, customAnswers),
+    [questions, selected, answered, customAnswers],
   );
   const selectedCount = checkedAnswers.prompts.length;
 
@@ -503,11 +565,10 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
   const handleSendSelected = useCallback(() => {
     if (checkedAnswers.prompts.length === 0) return;
     sendPrompt(formatCheckedAnswers(checkedAnswers));
-    setAnswered((prev) => ({ ...checkedAnswers.lockNext, ...prev }));
-    setSelected({});
-  }, [checkedAnswers, sendPrompt]);
+    updateState((prev) => ({ ...prev, answered: { ...checkedAnswers.lockNext, ...prev.answered }, selected: {} }));
+  }, [checkedAnswers, sendPrompt, updateState]);
 
-  const clearSelection = useCallback(() => setSelected({}), []);
+  const clearSelection = useCallback(() => updateState((prev) => ({ ...prev, selected: {} })), [updateState]);
 
   // 카드 전체 복사: note + 각 질문(헤더/본문) + 제안 답들. 형식은 questionCardText 한 곳에만 둔다.
   const buildCardText = useCallback((): string => buildQuestionCardText(questions), [questions]);
@@ -581,7 +642,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
         <ul className="flex flex-col gap-3">
           {questions.items.map((item, i) => (
             <QuestionItem
-              key={i}
+              key={`${questions.id}:${i}`}
               item={item}
               index={i}
               multi={multi}
@@ -590,6 +651,8 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
               selectedSet={selected[i] ?? EMPTY_SET}
               onInstant={(pi, prompt) => handleInstant(i, pi, prompt)}
               onToggle={(pi) => toggleSelect(i, pi)}
+              customAnswer={customAnswers[i] ?? ''}
+              onCustomAnswer={(value) => updateCustomAnswer(i, value)}
             />
           ))}
         </ul>

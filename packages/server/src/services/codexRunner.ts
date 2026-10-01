@@ -276,6 +276,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     webSearch: args.webSearch,
     networkAccess: args.networkAccess,
     modelVerbosity: args.modelVerbosity,
+    autoCompactTokenLimit: args.autoCompactTokenLimit,
     ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
     ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
     ...(args.resumeThreadId ? { resumeThreadId: args.resumeThreadId } : {}),

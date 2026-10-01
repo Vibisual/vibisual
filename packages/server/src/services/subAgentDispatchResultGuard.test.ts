@@ -11,6 +11,9 @@ import { DEFAULT_SESSION_PROBE_SETTINGS, type QueuedCommand, type SessionLivenes
  */
 
 let probeAnswer: SessionLivenessProbeResult | null = null;
+// 30분 전에 쓰이고 판정 중에는 그대로인 대화록이다. 부를 때마다 시각을 새로 만들면 착수와 판정의 근거 대조가
+//   "진단 중 세션 근거가 바뀜"으로 판정을 버린다 — 두 호출이 같은 밀리초에 떨어진 시험만 통과했다.
+let transcriptMtimeMs = 0;
 
 vi.mock('./sessionLivenessProbe.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./sessionLivenessProbe.js')>();
@@ -18,7 +21,7 @@ vi.mock('./sessionLivenessProbe.js', async (importOriginal) => {
     ...real,
     runSessionLivenessProbe: () => Promise.resolve(probeAnswer),
     // 사용자의 `~/.claude/projects` 를 읽지 않는다.
-    resolveSessionTranscript: () => ({ file: '/tmp/guard.jsonl', bytes: 1_000, mtimeMs: Date.now() - 30 * 60_000 }),
+    resolveSessionTranscript: () => ({ file: '/tmp/guard.jsonl', bytes: 1_000, mtimeMs: transcriptMtimeMs }),
     summarizeTranscriptTail: () => 'assistant: done',
   };
 });
@@ -46,6 +49,7 @@ const endTurn = async (): Promise<QueuedCommand> => {
 
 beforeEach(() => {
   probeAnswer = null;
+  transcriptMtimeMs = Date.now() - 30 * 60_000;
   m = new SubAgentManager();
   m.setSessionProbeSettings(DEFAULT_SESSION_PROBE_SETTINGS);
   subId = m.create(PARENT).id;

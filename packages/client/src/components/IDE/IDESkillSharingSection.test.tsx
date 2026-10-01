@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer, type ReactTestInstance } from 'rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SkillSharingEntry } from '@vibisual/shared';
 import { IDESkillSharingSection } from './IDESkillSharingSection.js';
+import { useSkillSharing, type SkillSharingOptions } from './useSkillSharing.js';
 
 const fixture = vi.hoisted(() => ({ pane: { agentId: 'agent-a', activeSessionId: 'session-a' }, provider: 'codex-cli' as string | undefined }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -26,8 +27,13 @@ function response(skills: SkillSharingEntry[] = [skill]): Response {
 function shared(status = 'shared', issues: string[] = []): Response {
   return new Response(JSON.stringify({ ok: true, result: { status, name: skill.name, path: '/project/.agents/skills/review', issues } }));
 }
+/** 스킬 칸이 하는 그대로 — 부모가 훅을 쥐고 목록에 상태를 내려 준다(탭 개수·머리줄 새로고침이 같은 한 벌을 본다). */
+function SharingPane(props: SkillSharingOptions): React.ReactElement {
+  const sharing = useSkillSharing(props);
+  return createElement(IDESkillSharingSection, { sharing, provider: props.provider, agentId: props.agentId });
+}
 function element(activeSessionId = 'session-a', agentId = 'agent-a'): React.ReactElement {
-  return createElement(IDESkillSharingSection, { agentId, activeSessionId, provider: 'codex', onUse, onShared });
+  return createElement(SharingPane, { agentId, activeSessionId, provider: 'codex', onUse, onShared });
 }
 function button(label: string): ReactTestInstance {
   return view!.root.findAllByType('button').find((node) => node.children.includes(`ide.skillSharing.${label}`))!;

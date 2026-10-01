@@ -1,5 +1,5 @@
 import type { Express, Response } from 'express';
-import type { AgentConfig } from '@vibisual/shared';
+import { agentEngineOf, type AgentConfig } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { SkillSharingError, type SkillSharingContext, type SkillSharingService } from './skillSharingService.js';
 
@@ -21,10 +21,11 @@ export function mountSkillSharingRoutes(app: Express, deps: SkillSharingRouteDep
     const agentId = value.trim();
     const projectCwd = deps.rootForAgent(agentId);
     if (!projectCwd) throw new SkillSharingRequestError(404, 'agent-not-found');
-    const config = deps.configForAgent(agentId);
-    const kind = config?.provider?.kind;
-    if (kind && kind !== 'codex-cli') throw new SkillSharingRequestError(400, 'unsupported-provider');
-    return { projectCwd, targetProvider: kind === 'codex-cli' || config?.cliKind === 'codex' ? 'codex' : 'claude' };
+    // 받는 엔진은 IDE 스킬 칸과 **같은 판정**이다(`agentEngineOf`) — Codex CMD 는 코덱스, 헤드리스로 되돌린
+    //   버블의 옛 `cliKind` 는 읽지 않는다. 둘이 갈리면 칸이 청한 엔진과 응답의 엔진이 달라 목록이 늘 거절됐다.
+    const engine = agentEngineOf(deps.configForAgent(agentId));
+    if (engine === 'local') throw new SkillSharingRequestError(400, 'unsupported-provider');
+    return { projectCwd, targetProvider: engine };
   };
   const fail = (res: Response, error: unknown): void => {
     if (error instanceof SkillSharingRequestError) {

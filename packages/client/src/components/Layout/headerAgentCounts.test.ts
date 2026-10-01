@@ -153,14 +153,14 @@ describe('computeHeaderAgentCounts — 세션 축 실행 집계', () => {
     expect(counts.running).toBe(1);
   });
 
-  it('sub 가 idle 이어도 그 세션의 명령이 executing 이면 도는 중', () => {
+  it('idle 세션에 executing 기록만 남으면 실행 집계에서 제외한다', () => {
     const counts = computeHeaderAgentCounts(sources({
       agents: [agent('a1')],
       agentProjects: { a1: PROJECT },
       subAgents: { a1: [sub('s0', 'a1', 'idle'), sub('s1', 'a1', 'idle')] },
       queuedCommands: { a1: [cmd('c1', 's1', 'executing')] },
     }));
-    expect(counts.running).toBe(1);
+    expect(counts.running).toBe(0);
   });
 
   it('큐에 줄만 서 있는 명령은 도는 중이 아니다', () => {
@@ -435,14 +435,12 @@ describe('resolveAgentRunSummary — 그 색이 가리키는 세션(focusSession
     expect(summary.focusSessionId).toBeNull();
   });
 
-  // 줄이 파란 근거는 `isSessionRunning` 인데 세션 도트는 `error` 를 먼저 본다 — 색표로만 맞추면
-  // 이 줄은 짚을 것을 못 찾아 조용한 세션으로 열린다.
-  it('실패 표식이 남은 채 명령이 도는 세션도 파랑의 근거라면 짚는다', () => {
+  it('실패 뒤 남은 executing 기록은 실행중으로 되살리지 않고 실패한 세션을 짚는다', () => {
     const summary = resolveAgentRunSummary(agent('a1'), runSources({
       subAgents: { a1: [sub('s0', 'a1', 'error', { lastActivityAt: 3 })] },
       queuedCommands: { a1: [cmd('c1', 's0', 'executing')] },
     }));
-    expect(summary.state).toBe('running');
+    expect(summary.state).toBe('error');
     expect(summary.focusSessionId).toBe('s0');
   });
 

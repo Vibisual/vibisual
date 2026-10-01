@@ -12,8 +12,9 @@
  */
 
 import { useTranslation } from 'react-i18next';
-import { SESSION_NO_RESPONSE_MS, sessionSilenceMs } from '@vibisual/shared';
+import { sessionSilenceMs } from '@vibisual/shared';
 import { useNowTick } from '../../hooks/useNowTick.js';
+import { liveLineClockFrom, liveLineStalled } from '../../utils/sessionActivity.js';
 import { formatElapsed } from './elapsed.js';
 
 /** "." → ".." → "..." 반복. 폭 고정으로 라벨이 흔들리지 않는다. */
@@ -33,33 +34,51 @@ export function ThinkingDots(): React.JSX.Element {
  *
  * §2.4 (무응답) — 여기에 **시간**이 없던 것이 이 버그의 핵심이었다. 말줄임만 돌아가는 줄은 3초가
  * 지났는지 30분이 지났는지 말해 주지 않아, 사용자가 "끝난 건지 끊긴 건지 이어서 하는 건지" 판단할
- * 근거가 화면 어디에도 없었다. 이제 마지막 움직임 이후 흐른 시간을 그 자리에 적고, 문턱
- * (`SESSION_NO_RESPONSE_MS`)을 넘으면 마지막 업데이트 이후 시간임을 명시한다.
+ * 근거가 화면 어디에도 없었다. 이제 그 자리에 경과를 적고, 문턱(`SESSION_NO_RESPONSE_MS`)을 넘으면
+ * 마지막 업데이트 이후 시간임을 명시한다.
  * 조용한 추론/도구 호출을 고장으로 단정하거나 경고색으로 칠하지 않는다.
+ *
+ * §5.5 #17-10 ⑥-6 (턴 시계) — 평소 적는 경과는 **턴 시작**(`turnStartedAt`)부터다. 마지막 움직임부터
+ * 재면 줄이 올 때마다 0 으로 되감겨 `0s`·`1s` 만 번갈아 떴다(사용자 보고 "같은 시간이 반복되거나
+ * 사라지거나 0만"). 마지막 움직임은 무응답 판정과 그 문구에만 쓴다. 어느 쪽을 잴지는 `liveLineClockFrom`.
  */
 export function ThinkingLiveLine({
   label,
   mode = 'thinking',
   lastActivityAt = null,
+  turnStartedAt = null,
+  hiddenTurn = false,
 }: {
   label: string;
   mode?: 'thinking' | 'working' | 'waiting';
-  /** 마지막으로 움직인 시각(ms). 모르면 `null` — 그때는 시간을 적지 않는다(0 으로 적지 않는다). */
+  /** 마지막으로 움직인 시각(ms). 무응답 판정의 재료다. 모르면 `null` — 무응답으로 올리지 않는다. */
   lastActivityAt?: number | null;
+  /**
+   * §5.5 #17-10 ⑥-6 — 지금 턴(대기면 줄 선) 시작 시각(ms). 평소 적는 경과의 시작점이다.
+   * 모르면 `null` — 그때는 평소 시간을 적지 않는다(0 으로 적지 않는다).
+   */
+  turnStartedAt?: number | null;
+  /**
+   * §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중. 그 턴의 줄은 오지 않으므로 경과는 적되
+   * 무응답으로 뒤집지 않는다(§5.5 #17-10 ⑥-6 — 물려받은 명령은 평소처럼 "작업 중"이다).
+   */
+  hiddenTurn?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   // 근거가 있을 때만 시계를 돌린다 — 조용한 화면에서 초마다 리렌더하지 않기 위해.
-  const now = useNowTick(lastActivityAt !== null);
+  const now = useNowTick(lastActivityAt !== null || turnStartedAt !== null);
   const silence = sessionSilenceMs(lastActivityAt, now);
   /*
    * §5.5 #17-18 ⑪ — **줄 서 있는 줄은 무응답이 아니다.** 무응답 축(§2.4)은 "도는 턴이 말이
    * 없다"를 재는 것인데, 대기는 애초에 말할 턴이 시작되지 않은 상태다. 여기에 "마지막 업데이트
    * N 전"을 붙이면 오지도 않을 응답을 기다리는 것처럼 읽힌다 — 사용자가 본 그 문구다.
-   * 대기 줄이 적어야 할 시간은 **줄 선 지 얼마나 됐는가** 하나뿐이다.
+   * 대기 줄이 적어야 할 시간은 **줄 선 지 얼마나 됐는가** 하나뿐이다. 판정은 `liveLineStalled` 한 곳.
    */
   const waiting = mode === 'waiting';
-  const stalled = !waiting && silence !== null && silence >= SESSION_NO_RESPONSE_MS;
-  const elapsed = silence !== null && lastActivityAt !== null ? formatElapsed(lastActivityAt, now) : null;
+  const stalled = liveLineStalled(mode, silence, hiddenTurn);
+  // 무응답이면 마지막 업데이트부터("마지막 업데이트 N 전"), 그 밖에는 턴 시작부터 — 줄이 와도 되감기지 않는다.
+  const clockFrom = liveLineClockFrom(stalled, turnStartedAt, lastActivityAt, now);
+  const elapsed = clockFrom !== null ? formatElapsed(clockFrom, now) : null;
   // 대기는 **slate** — 바로 위에 쌓인 [대기] 말풍선(#17-18 ⑤)과 같은 색이라, 줄을 따로 읽지 않아도
   //   "이 줄은 저 말풍선들과 한 덩어리로 기다리는 중"이 보인다. 파랑(작업)·보라(사고)를 쓰면
   //   아무 일도 안 일어나는 화면이 도는 것처럼 보인다(그 오해가 이 색이 생긴 사고다).

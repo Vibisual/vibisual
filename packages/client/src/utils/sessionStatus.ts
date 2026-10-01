@@ -316,6 +316,8 @@ export function parseBusySubIds(serialized: string): ReadonlySet<string> {
 export interface SessionRunInputSources {
   /** 이 세션 탭의 SubAgent. 세션이 특정되지 않는 자리(메인 탭)는 `null`. */
   sub: SubAgent | null;
+  /** 메인 탭의 서버 버블 상태. 세션이 있으면 그 세션의 상태가 우선한다. */
+  agentStatus?: NodeStatus;
   /** 이 에이전트의 명령 큐 전체(세션 필터는 이 함수가 한다). */
   commands: QueuedCommand[] | undefined;
   /** 이 에이전트가 띄운 백그라운드 Task 전체(세션 필터는 이 함수가 한다). */
@@ -336,7 +338,9 @@ export function buildSessionRunInputs(src: SessionRunInputSources): SessionRunIn
   const cmds = src.commands ?? [];
   const ownedTasks = (src.runningTasks ?? []).filter((t) => subId === null || t.subAgentId === subId);
   return {
-    subStatus: src.sub?.status ?? null,
+    subStatus: src.sub?.status ?? (src.agentStatus === undefined ? null
+      : src.agentStatus === 'awaiting_permission' ? 'active'
+        : NODE_STATUS_AS_SUB_STATUS[src.agentStatus] ?? 'idle'),
     hasExecutingCommand: cmds.some((c) => c.status === 'executing' && owned(c)),
     hasQueuedCommand: cmds.some((c) => c.status === 'queued' && owned(c)),
     // 두 축을 **여기서 한 번** 가른다 — 호출부가 다시 origin 을 비교하지 않도록.

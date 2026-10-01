@@ -8,6 +8,7 @@ import {
   type SessionLivenessProbeResult,
 } from '@vibisual/shared';
 import type { SessionProbeEvidence } from './sessionLivenessProbe.js';
+import { createTurnSealState, type TurnSealState } from './turnSeal.js';
 
 /**
  * §2.4 — **도는 중으로 서 있는 세션 하나를 10분마다 물어본다.**
@@ -171,6 +172,100 @@ describe('증거 — 큐는 키가 아니라 소유로 찾는다', () => {
     await settle();
 
     expect(probeCalls[0]?.evidence.queuedCommandCount).toBe(0);
+  });
+});
+
+describe('진행 작업은 모델의 종료 해석보다 우선한다', () => {
+  const streamTask = (subagentType?: string): void => {
+    const state = createTurnSealState();
+    state.liveTasks.set('stream-task', { startedAt: Date.now(), ...(subagentType ? { subagentType } : {}) });
+    (m as unknown as { turnSealStates: Map<string, TurnSealState> }).turnSealStates.set(subId, state);
+  };
+
+  it.each([
+    ['훅 소유 작업', () => m.noteSubagentTaskStart(PARENT, 'tool-owned', subId)],
+    ['소유 미상 훅 작업', () => m.noteSubagentTaskStart(PARENT, 'tool-unknown')],
+    ['스트림 모델 자식', () => streamTask('general-purpose')],
+    ['스트림 셸', () => streamTask()],
+  ] as const)('%s를 증거에 넣고 finished 오판으로 닫지 않는다', async (_name, startTask) => {
+    startTask();
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: '모델이 작업을 놓침' };
+    const held = cmd({ id: 'c1', status: 'executing' });
+
+    m.maybeProbeRunningSessions(queuesWith(held));
+    await settle();
+
+    expect(probeCalls[0]?.evidence.runningTaskCount).toBe(1);
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(held.status).toBe('executing');
+    expect(m.getSub(subId)!.probe).toBeUndefined();
+    expect(m.getSessionProbeState(subId)).toBeUndefined();
+  });
+
+  it('다른 세션에 귀속된 훅 작업은 이 세션의 증거에 섞지 않는다', async () => {
+    m.noteSubagentTaskStart(PARENT, 'tool-other', 'sub-other');
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: '이 세션은 끝남' };
+    m.maybeProbeRunningSessions(queuesWith());
+    await settle();
+    expect(probeCalls[0]?.evidence.runningTaskCount).toBe(0);
+    expect(m.getSub(subId)!.status).toBe('idle');
+  });
+});
+
+describe('비동기 진단은 착수 때와 같은 근거에만 적용한다', () => {
+  it.each(['enabled', 'autoClose'] as const)('진단 중 %s를 끄면 뒤늦은 finished로 닫지 않는다', async (setting) => {
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: '종료 가능' };
+    const held = cmd({ id: 'c1', status: 'executing' });
+    m.maybeProbeRunningSessions(queuesWith(held));
+    m.setSessionProbeSettings({ ...DEFAULT_SESSION_PROBE_SETTINGS, [setting]: false });
+    await settle();
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(held.status).toBe('executing');
+    if (setting === 'enabled') expect(m.getSub(subId)!.probe).toBeUndefined();
+  });
+
+  it.each([
+    ['새 세션 활동', () => { m.getSub(subId)!.lastActivityAt += 1; }],
+    ['대화록 증가', () => { transcript!.bytes += 1; }],
+    ['대화록 갱신', () => { transcript!.mtimeMs += 1; }],
+    ['대화록 유실', () => { transcript = null; }],
+    ['세션 교체', () => { m.getSub(subId)!.sessionId = randomUUID(); }],
+    ['백그라운드 작업 시작', () => { m.noteSubagentTaskStart(PARENT, 'new-task', subId); }],
+  ] as const)('%s 후 도착한 finished는 상태와 명령을 덮지 않는다', async (_name, changeEvidence) => {
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: '지난 턴은 끝남' };
+    const held = cmd({ id: 'c1', status: 'executing' });
+    m.maybeProbeRunningSessions(queuesWith(held));
+    changeEvidence();
+    await settle();
+
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(held.status).toBe('executing');
+    expect(m.getSub(subId)!.probe).toBeUndefined();
+    expect(m.getSessionProbeState(subId)).toBeUndefined();
+  });
+
+  it.each(['executing', 'queued'] as const)('진단 중 새 %s 명령이 들어오면 이전 답으로 닫지 않는다', async (status) => {
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: '이전 명령 종료' };
+    const old = cmd({ id: 'old', status: 'executing' });
+    const queues = queuesWith(old);
+    m.maybeProbeRunningSessions(queues);
+    const next = cmd({ id: 'new', status });
+    if (status === 'executing') old.status = 'completed';
+    queues.get(HOOK_SESSION)!.push(next);
+    await settle();
+
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(next.status).toBe(status);
+    expect(m.getSub(subId)!.probe).toBeUndefined();
+  });
+
+  it('진단 중 정상 종료된 세션에 뒤늦은 working 판정도 붙이지 않는다', async () => {
+    probeAnswer = { at: Date.now(), verdict: 'working', reason: '아직 기다림' };
+    m.maybeProbeRunningSessions(queuesWith());
+    m.getSub(subId)!.status = 'idle';
+    await settle();
+    expect(m.getSub(subId)!.status).toBe('idle');
+    expect(m.getSub(subId)!.probe).toBeUndefined();
   });
 });
 
