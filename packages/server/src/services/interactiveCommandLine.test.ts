@@ -148,7 +148,9 @@ describe('진짜 셸 왕복 — 쳐 넣은 줄이 그 argv 그대로 프로그�
 });
 
 describe('배선 — CMD prefill 이 이 인용을 쓰고, 터미널이 자기 셸을 넘긴다', () => {
-  const read = (rel: string): string => fs.readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  // Windows 러너는 CRLF 로 체크아웃한다 — 줄끝을 LF 로 맞춰야 `\n` 패턴이 세 OS 에서 같게 읽힌다.
+  const read = (rel: string): string =>
+    fs.readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
 
   it('buildInteractiveCliPrefill 이 셸 규칙으로 줄을 짓는다 — 옛 "공백이면 큰따옴표" 규칙이 돌아오지 않는다', () => {
     const src = read('./subAgentManager.ts');
