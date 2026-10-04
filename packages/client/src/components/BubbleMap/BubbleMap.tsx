@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useMemo, useState, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ReactFlow,
   Background,
   type Node,
   type Edge,
@@ -48,7 +47,7 @@ import { CaptureSourcePicker } from './CaptureSourcePicker.js';
 import { PlaytestClipWindows } from './PlaytestClipWindow.js';
 import { CurvedEdge } from './CurvedEdge.js';
 import { EdgeMask } from './EdgeMask.js';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectActivePluginProjectPath } from '../../stores/graphStore.js';
 import { placeSatellitePositions } from '../../utils/satellite.js';
 import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
@@ -96,6 +95,7 @@ import {
   setLinkModifierHeld,
 } from '../../stores/linkFocus.js';
 import { LinkFocusHint } from './LinkFocusHint.js';
+import { SelectionFocusFlow } from './SelectionFocusFlow.js';
 import type { LinkSatelliteRef } from './linkedBubbles.js';
 import { folderCandidates, resolveSatelliteFolderId } from './satelliteNavigate.js';
 import { useTranslation } from 'react-i18next';
@@ -1841,11 +1841,15 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
     // iframe 더블클릭 → 탭 열기
     if (data.bubbleType === 'iframe' && data.url) {
+      // §7.11 / §3.5 — 탭은 프로젝트 탭과 상관없이 공유되므로, 연 프로젝트를 함께 담아 화면을 불러오기
+      //   전에 그 프로젝트 기준으로 소속을 묻게 한다(루트 경로 = 서버 인스턴스 키 — 플러그인 키와 같은 값).
+      const projectPath = selectActivePluginProjectPath(store);
       store.openIframeTab({
         id: data.id,
         url: data.url,
         label: data.label,
         serverKind: data.serverKind ?? 'backend',
+        ...(projectPath ? { projectPath } : {}),
       });
       return;
     }
@@ -3027,7 +3031,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       onTouchEnd={canvasLongPress.onTouchEnd}
       onTouchCancel={canvasLongPress.onTouchCancel}
     >
-      <ReactFlow
+      {/* §5.4 #31 (K) — 선택 초점은 이 래퍼가 구독한다. 본체가 구독하면 클릭마다 캔버스 전체가 다시 돈다. */}
+      <SelectionFocusFlow
         nodes={displayNodes} edges={edges}
         nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -3078,7 +3083,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         />
         {debugMode && <DebugOverlay flowNodes={flowNodes} />}
         <DebugResizeRefresher flowNodes={flowNodes} debugMode={debugMode} />
-      </ReactFlow>
+      </SelectionFocusFlow>
       {ctxMenu && (
         <CanvasContextMenu
           x={ctxMenu.screenX}

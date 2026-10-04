@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, ServerEntry } from '@vibisual/shared';
 import { serverRespawnGate } from './serverRespawnGate.js';
+import { refusedForOtherProject } from './serverControlRefusal.js';
 
 interface IframeServerCardProps {
   node: BubbleData;
@@ -14,12 +15,14 @@ function extractPortFromUrl(url?: string): number | null {
   return m?.[1] ? parseInt(m[1], 10) : null;
 }
 
-async function callApi(path: string, id: string): Promise<void> {
-  await fetch(path, {
+/** 호출 결과 — 서버가 "다른 프로젝트의 서버라 손대지 않았다"고 답했으면 true(§7.11 / §3.5). */
+async function callApi(path: string, id: string): Promise<boolean> {
+  const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
   });
+  return refusedForOtherProject(res);
 }
 
 export const IframeServerCard = memo(function IframeServerCard({
@@ -63,10 +66,15 @@ export const IframeServerCard = memo(function IframeServerCard({
   const startGate = serverRespawnGate(entry, 'start', processUp);
   const canRespawn = restartGate.canRespawn;
 
+  // §7.11 / §3.5 — 서버가 "그 주소는 다른 프로젝트의 서버라 손대지 않았다"고 거절한 entry. 그 entry 의
+  //   카드에만 한 줄로 알린다(다음 조작에서 걷힌다).
+  const [refusedFor, setRefusedFor] = useState<string | null>(null);
+
   const handleRestart = useCallback(async () => {
     if (!serverId || !canRespawn || busy) return;
     setBusy('restart');
-    try { await callApi('/api/restart-server', serverId); }
+    setRefusedFor(null);
+    try { if (await callApi('/api/restart-server', serverId)) setRefusedFor(serverId); }
     catch { /* ignore — 서버가 graph_snapshot 브로드캐스트 */ }
     finally { setBusy(null); }
   }, [serverId, canRespawn, busy]);
@@ -74,7 +82,8 @@ export const IframeServerCard = memo(function IframeServerCard({
   const handleStop = useCallback(async () => {
     if (!serverId || busy) return;
     setBusy('stop');
-    try { await callApi('/api/stop-server', serverId); }
+    setRefusedFor(null);
+    try { if (await callApi('/api/stop-server', serverId)) setRefusedFor(serverId); }
     catch { /* ignore */ }
     finally { setBusy(null); }
   }, [serverId, busy]);
@@ -82,8 +91,9 @@ export const IframeServerCard = memo(function IframeServerCard({
   const handleStart = useCallback(async () => {
     if (!serverId || !canRespawn || busy) return;
     setBusy('start');
+    setRefusedFor(null);
     // /api/restart-server 는 alive 면 kill+respawn, 아니면 그냥 spawn — Start 와 동일 동작
-    try { await callApi('/api/restart-server', serverId); }
+    try { if (await callApi('/api/restart-server', serverId)) setRefusedFor(serverId); }
     catch { /* ignore */ }
     finally { setBusy(null); }
   }, [serverId, canRespawn, busy]);
@@ -175,6 +185,10 @@ export const IframeServerCard = memo(function IframeServerCard({
           </button>
         )}
       </div>
+
+      {refusedFor !== null && refusedFor === serverId && (
+        <p className="text-[12px] leading-snug text-amber-300/90">{t('panel.serverList.refusedOtherProject')}</p>
+      )}
     </div>
   );
 });

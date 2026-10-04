@@ -98,6 +98,15 @@ export function visualClientRect(el: Element): DOMRect {
   return new DOMRect(r.left * z, r.top * z, r.width * z, r.height * z);
 }
 
+/**
+ * `getBoundingClientRect` 값에 곱하면 **보이는 값**이 되는 배율(표준 엔진이면 늘 1).
+ * 같은 zoom 아래 형제 여럿을 잴 때 한 번만 구해 두려고 꺼냈다 — `visualClientRect` 는 부를 때마다
+ * 조상을 거슬러 오른다(IDE 항목 래퍼 이분 탐색이 스크롤 프레임마다 그 길을 수십 번 걸었다).
+ */
+export function visualRectScale(el: Element): number {
+  return zoomDividesRects() ? cumulativeCssZoom(el) : 1;
+}
+
 /** Adjust an element's rect by adding the iframe's viewport offset */
 export function getAdjustedRect(
   el: Element,

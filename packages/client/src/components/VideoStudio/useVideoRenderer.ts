@@ -10,8 +10,14 @@
  * 걸러지고, 내려갔다는 사실은 호출부가 화면에 알린다(조용히 느려지지 않게).
  */
 
-import { useCallback, useMemo, useRef } from 'react';
-import { resolveTimeline, type VideoAsset, type VideoDoc } from '@vibisual/video';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  resolveTimeline,
+  stableHash,
+  type MediaMeasurement,
+  type VideoAsset,
+  type VideoDoc,
+} from '@vibisual/video';
 // 여기서 던지는 오류 문구는 호출부가 `String(err)` 로 **화면에 그대로** 찍는다. 모듈 수준 함수
 // (`makeOffscreenBridge`)에서도 골라야 해서 훅이 아니라 i18n 인스턴스를 직접 쓴다(useWebSocket 선례).
 import i18n from '../../i18n/index.js';
@@ -67,6 +73,33 @@ function makeLoader(project: string): AssetBytesLoader {
       return assetUrl(project, assetPath(asset));
     },
   };
+}
+
+/**
+ * 소재들을 실제로 읽어 길이·크기를 잰다(§5.13 (R-3)). 못 읽은 소재는 결과에서 빠진다.
+ *
+ * `duration:'auto'` 는 이 값이 문서에 적혀야 풀린다 — 재지 않으면 해소기가 그 아이템을
+ * 통째로 빼서 화면이 빈다.
+ */
+export async function measureAssets(
+  project: string,
+  assets: readonly VideoAsset[],
+): Promise<Record<string, MediaMeasurement>> {
+  const out: Record<string, MediaMeasurement> = {};
+  if (assets.length === 0) return out;
+  const media = new MediabunnyMediaProvider({
+    assets: Object.fromEntries(assets.map((a) => [a.id, a])),
+    loader: makeLoader(project),
+  });
+  try {
+    for (const asset of assets) {
+      const m = await media.measure(asset.id);
+      if (m) out[asset.id] = m;
+    }
+  } finally {
+    media.dispose();
+  }
+  return out;
 }
 
 function makeAudioLoader(project: string): { fetchBytes: (asset: VideoAsset) => Promise<ArrayBuffer | null> } {
@@ -157,24 +190,40 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null): Rendere
     [project],
   );
 
+  /**
+   * 미리보기 전용 소재 공급자 — **소재 목록이 같은 동안 하나를 계속 쓴다.**
+   *
+   * 프레임마다 새로 만들면 매 프레임 파일을 다시 열고(통합 앱에선 IPC 로 파일 전체를 다시
+   * 받는다) 키프레임부터 다시 디코딩해, 재생이 사실상 멈춘다. 컷을 옮기거나 자막을 고쳐도
+   * 소재가 그대로면 연 입력을 그대로 쓴다.
+   */
+  const assets = doc?.assets;
+  const assetsKey = assets ? stableHash(JSON.stringify(assets)) : '';
+  const previewMedia = useMemo(
+    () => (assets ? new MediabunnyMediaProvider({ assets, loader: makeLoader(project) }) : null),
+    // assets 는 패치마다 새 객체라 내용 해시로만 갈아 끼운다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, assetsKey],
+  );
+  useEffect(() => () => previewMedia?.dispose(), [previewMedia]);
+
   const drawPreview = useCallback(
     async (canvas: HTMLCanvasElement, t: number): Promise<void> => {
-      if (!doc || !timeline) return;
+      if (!doc || !timeline || !previewMedia) return;
       // 미리보기는 늘 canvas2d 로 그린다 — 창 안에서 즉시 반응해야 하고, 실험 API 가
       // 흔들려도 편집 화면만은 멈추면 안 된다.
-      const media = new MediabunnyMediaProvider({ assets: doc.assets, loader: makeLoader(project) });
-      const backend = new Canvas2DBackend({
-        doc,
-        timeline,
-        media,
-        scenes: withBuiltinScenes(),
-        createCanvas: () => canvas,
-      });
+      //
+      // 보이는 캔버스에 바로 그리지 않는다. 백엔드는 먼저 검게 지운 뒤 디코딩을 기다리므로,
+      // 재생 중에는 그 사이마다 검은 화면이 끼어 깜빡인다. 화면 밖에서 다 그린 뒤 한 번에 옮긴다.
+      const backend = new Canvas2DBackend({ doc, timeline, media: previewMedia, scenes: withBuiltinScenes() });
       await backend.init({ width: doc.size.width, height: doc.size.height });
       await backend.drawFrame(t);
-      media.dispose();
+      const frame = backend.canvas;
+      const ctx = canvas.getContext('2d');
+      if (frame && ctx) ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+      backend.dispose();
     },
-    [doc, timeline, project],
+    [doc, timeline, previewMedia],
   );
 
   const render = useCallback(

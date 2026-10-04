@@ -687,7 +687,7 @@
         "saveError": "Impossible d'enregistrer. Rien n'a été modifié.",
         "autoCompactWindow": "Replier la conversation dès qu'elle atteint",
         "autoCompactWindowOff": "Laisser tel que configuré",
-        "autoCompactWindowDesc": "Le levier le plus important ici. Mesuré sur trois jours, les sessions se situaient à une médiane de 186k tokens, et tout ce qui dépassait 200k représentait 62 % de toute l'entrée — chaque tour la relit intégralement. Réduire la fenêtre de 400k à 200k a diminué l'entrée de 27 %, et à 100k de 59 %, pour le même travail. Cela ne fait que se resserrer : un agent ou une valeur par défaut déjà plus basse l'emporte. Le repli lui-même est une requête volumineuse, donc le réglage le plus bas n'est pas automatiquement le moins coûteux."
+        "autoCompactWindowDesc": "Le levier le plus important ici. Mesuré sur trois jours, les sessions se situaient à une médiane de 186k tokens, et tout ce qui dépassait 200k représentait 62 % de toute l'entrée — chaque tour la relit intégralement. Réduire la fenêtre de 400k à 200k a diminué l'entrée de 27 %, et à 100k de 59 %, pour le même travail. Cela ne fait que se resserrer : un agent ou une valeur par défaut déjà plus basse l'emporte. Le repli lui-même est une requête volumineuse, donc le réglage le plus bas n'est pas automatiquement le moins coûteux. Cette fenêtre ne décide que de l'endroit où nous replions entre les commandes ; en pleine tâche, la CLI ne replie que lorsque la fenêtre du modèle est pleine."
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "Compactage auto",
-        "tip": "La taille de fenêtre servant de référence au compactage. En pratique, nous replions à {{percent}} % de cette valeur, à la fin du tour — pour ne rien couper en pleine tâche ; si un seul tour franchit toute la marge restante, la CLI replie en pleine tâche.",
-        "auto": "auto — la CLI choisit la fenêtre.",
+        "tip": "La taille de fenêtre servant de référence au repli entre les commandes. Si un tour se termine à {{percent}} % de cette valeur ou plus, nous replions discrètement avant la commande suivante. Rien n'est replié en pleine tâche : là, la CLI ne replie que lorsque la fenêtre du modèle est pleine.",
+        "auto": "auto — toute la fenêtre du modèle.",
         "tokens": "Taille de fenêtre d'environ {{tokens}} jetons.",
         "foldsAt": "Replie vers {{tokens}}, à la fin du tour.",
-        "foldsAtAuto": "Replie à {{percent}} % de la fenêtre choisie par la CLI, à la fin du tour.",
+        "foldsAtAuto": "Replie à {{percent}} % de la fenêtre du modèle, à la fin du tour.",
         "offLabel": "désactivé",
         "off": "désactivé — aucun repli. Pas d'appel de résumé, donc aucun jeton dépensé.",
         "foldsAtOff": "Aucun repli. Les conversations longues s’alourdissent à chaque tour, et lorsque la fenêtre du modèle est pleine, la CLI replie une fois en pleine tâche.",
+        "raised": "Replie plutôt selon une fenêtre de {{to}} : les conversations de cet agent démarrent à environ {{floor}} jetons, donc une fenêtre de {{from}} se remplirait de nouveau juste après chaque repli.",
         "confirm": {
           "title": "Activer la compaction automatique ? ({{value}})",
           "titleSelf": "Laisser l'agent compacter de lui-même ?",
@@ -1714,7 +1715,8 @@
       "noEntry": "Aucune entrée de serveur correspondante",
       "noCommand": "Redémarrage indisponible — déjà arrêté, la commande de démarrage n’est plus récupérable (serveur signalé par l’agent)",
       "takeover": "Redémarrer par reprise — Vibisual reprend le serveur lancé par l’agent",
-      "takeoverFailed": "Reprise échouée — commande de démarrage illisible (autre compte ou outil d’inspection absent)"
+      "takeoverFailed": "Reprise échouée — commande de démarrage illisible (autre compte ou outil d’inspection absent)",
+      "refusedOtherProject": "Laissé intact — cette adresse est servie par un serveur démarré par un autre projet ouvert."
     },
     "subAgent": {
       "heading": "Sous-agents ({{count}})",
@@ -2030,6 +2032,7 @@
       "noAudio": "Exporté sans audio.",
       "downgraded": "Le mode de rendu a été rétrogradé : {{id}}",
       "previewFailed": "Impossible d'afficher l'aperçu.",
+      "fileUnreadable": "Impossible de lire cette vidéo : {{name}}",
       "errNoDoc": "Aucun document n'est ouvert.",
       "errNoStage": "Impossible de trouver un emplacement où attacher la scène.",
       "errNoRenderBackend": "Aucun mode de rendu n'est disponible sur cet appareil.",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "Séparer les mémos qui se chevauchent",
       "ctxSpreadMemosNone": "Aucun mémo ne se chevauche",
       "jumpToBottom": "Défiler vers le bas",
+      "jumpToTop": "Défiler vers le haut",
+      "promptRail": "Vos invites",
+      "promptPrev": "Invite précédente",
+      "promptNext": "Invite suivante",
+      "promptPosition": "Invite {{n}} / {{total}}",
       "ctxSelectionRequired": "Sélectionnez du texte d'abord",
       "inputCtxCut": "Couper",
       "inputCtxCopy": "Copier",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} entrée / {{out}} sortie",
       "tokensTip": "Total de tokens utilisés par cette session depuis son démarrage. L'entrée compte aussi les lectures et écritures de cache, elle monte donc bien plus vite que la sortie. Cumulatif — cela ne fait qu'augmenter.",
       "autoCompact": "compactage auto {{value}}",
-      "autoCompactTip": "Lorsque le contexte atteint cette taille, la CLI résume d'elle-même la conversation. Modifiable par agent dans les Paramètres de l'agent, ou globalement dans Fichier > Options > Défauts d'agent.",
+      "autoCompactTip": "La fenêtre servant à résumer la conversation entre les commandes : si, à la fin d'un tour, le contexte dépasse {{percent}} % de cette fenêtre, nous replions avant la commande suivante. En pleine tâche, la CLI ne replie que lorsque la fenêtre du modèle est pleine. Modifiable par agent dans les Paramètres de l'agent, ou globalement dans Fichier > Options > Défauts d'agent.",
+      "autoCompactRaised": "Augmenté par rapport à {{from}} : les conversations avec cet agent démarrent à environ {{floor}} jetons, donc une fenêtre plus petite se remplirait de nouveau juste après chaque repli.",
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions",
       "sessionsTip": "Nombre d'onglets de session ouverts sur cet agent.",
@@ -3349,7 +3358,9 @@
       "commandReceived": "Commande reçue",
       "promptSuggestion": "Prochain prompt suggéré",
       "imageMissing": "(image indisponible)",
-      "waiting": "attente"
+      "waiting": "attente",
+      "compacting": "compactage",
+      "compactingHint": "Le contexte est plein : la CLI résume le début de la conversation pour libérer de la place. Cela prend généralement quelques minutes — il est normal qu'aucune nouvelle sortie n'apparaisse entre-temps."
     },
     "report": {
       "title": "Rapport de travail",
@@ -3548,6 +3559,12 @@
       "title": "Plan",
       "progress": "{{done}}/{{total}}",
       "superseded": "Plan mis à jour"
+    },
+    "transportRecovery": {
+      "reconnecting": "Reconnexion… {{attempt}}/{{maxAttempts}}",
+      "fallback": "Essai d’une autre méthode de connexion…",
+      "resumed": "Connexion rétablie · travail repris",
+      "ended": "Tentative de rétablissement de la connexion"
     },
     "cmdError": {
       "spawn": "{{engine}} n'a pas pu démarrer",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "Saisir une URL...",
       "serverPreview": "Aperçu du serveur",
-      "reload": "Recharger"
+      "reload": "Recharger",
+      "otherProjectTitle": "Le serveur d'un autre projet occupe cette adresse",
+      "otherProjectBody": "{{url}} est actuellement servie par un serveur démarré par un autre projet ouvert, donc cet onglet ne la charge pas. Elle se rouvre d'elle-même dès que le serveur de ce projet est de retour sur cette adresse."
     },
     "serverKind": {
       "frontendShort": "FE",
@@ -6016,6 +6035,8 @@
     "local": "Tout modèle",
     "main": "Fournisseur principal",
     "mainHint": "Le fournisseur qui assure l’essentiel du travail. Les nouveaux agents l’utilisent par défaut et l’indicateur d’utilisation en haut le suit, dans tous les projets.",
+    "setMain": "Définir par défaut",
+    "isMain": "Par défaut",
     "saveFailed": "Impossible d'enregistrer. Veuillez réessayer.",
     "project": "Paramètres du projet",
     "save": "Enregistrer",

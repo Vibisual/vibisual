@@ -71,6 +71,22 @@ describe('mapCodexLine — 봉투(envelope) 종류', () => {
     expect(r?.events).toEqual([{ eventType: 'error', content: "You've hit your usage limit." }]);
     expect(r?.turnEnded).toBeUndefined();
   });
+
+  it.each([
+    'Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)',
+    'Falling back from WebSockets to HTTPS transport. stream disconnected before completion',
+  ])('복구 안내는 원문을 보존한 system 이벤트로만 보낸다: %s', (message) => {
+    expect(mapCodexLine(JSON.stringify({ type: 'error', message })))
+      .toEqual({ events: [{ eventType: 'system', content: message }] });
+  });
+
+  it('같은 문장이 최종 실패나 item 오류에 실리면 실패 의미를 보존한다', () => {
+    const message = 'Reconnecting... 5/5 (stream disconnected before completion)';
+    expect(mapCodexLine(JSON.stringify({ type: 'turn.failed', error: { message } })))
+      .toEqual({ events: [], turnEnded: true, error: message });
+    expect(mapCodexLine(JSON.stringify({ type: 'item.completed', item: { id: 'e1', type: 'error', message } })))
+      .toEqual({ events: [{ eventType: 'error', content: message }] });
+  });
 });
 
 describe('mapCodexLine — 모르는 것을 넘겨짚지 않는다', () => {
@@ -260,11 +276,37 @@ describe('mapCodexLine — mcp_tool_call / web_search / todo_list / error', () =
     expect(r?.events[0]?.content).toBe('{"count":2}');
   });
 
-  it('web_search 는 시작 줄만 카드로 세운다', () => {
+  it('web_search 는 시작 줄이 카드를 세운다 — 검색어가 아직 없으면 자리 표시만', () => {
     expect(
       mapCodexLine('{"type":"item.started","item":{"id":"w1","type":"web_search","query":"codex hooks"}}')?.events,
     ).toEqual([{ eventType: 'tool_use', content: 'codex hooks', toolName: 'WebSearch', toolUseId: 'w1' }]);
-    expect(mapCodexLine('{"type":"item.completed","item":{"id":"w1","type":"web_search"}}')?.events).toEqual([]);
+    // 실제 공급자(0.159.2)의 시작 줄은 검색어가 비어 온다. 원장에 걸지 않는다(완료 줄이 보장되지 않는다).
+    const started = mapCodexLine('{"type":"item.started","item":{"id":"w2","type":"web_search","query":""}}')?.events;
+    expect(started).toEqual([{ eventType: 'tool_use', content: '(web search)', toolName: 'WebSearch', toolUseId: 'w2' }]);
+    expect(started?.[0]?.awaitsResult).toBeUndefined();
+  });
+
+  it('web_search 완료 줄이 같은 카드의 결과로 검색어·연 주소를 붙인다 — 버리던 동안 "(web search)"만 남았다', () => {
+    const done = (item: string): unknown => mapCodexLine(`{"type":"item.completed","item":${item}}`)?.events;
+    // 0.159.2 실측 줄 그대로(키 `id` 가 두 번 온다 — 뒤의 값이 이기므로 시작 줄과 같은 키로 짝이 맞는다).
+    expect(done('{"id":"item_3","type":"web_search","id":"ws_1","query":"codex test query","action":{"type":"search","query":"codex test query"}}'))
+      .toEqual([{ eventType: 'tool_result', content: 'search: codex test query', toolName: 'WebSearch', toolUseId: 'ws_1' }]);
+    expect(mapCodexLine('{"type":"item.started","item":{"id":"item_3","type":"web_search","id":"ws_1","query":""}}')?.events?.[0]?.toolUseId)
+      .toBe('ws_1');
+    // 동작 이름이 아니라 실린 칸으로 읽는다(표기가 `open_page`·`openPage` 로 바뀌어도 같은 결과).
+    for (const type of ['open_page', 'openPage']) {
+      expect(done(`{"id":"w3","type":"web_search","query":"","action":{"type":"${type}","url":"https://example.com/a"}}`))
+        .toEqual([{ eventType: 'tool_result', content: 'open: https://example.com/a', toolName: 'WebSearch', toolUseId: 'w3' }]);
+    }
+    expect(done('{"id":"w4","type":"web_search","action":{"type":"find_in_page","url":"https://example.com","pattern":"hooks"}}'))
+      .toEqual([{ eventType: 'tool_result', content: 'find: "hooks" in https://example.com', toolName: 'WebSearch', toolUseId: 'w4' }]);
+    expect(done('{"id":"w5","type":"web_search","action":{"type":"search","queries":["a","b"]}}'))
+      .toEqual([{ eventType: 'tool_result', content: 'search: a, b', toolName: 'WebSearch', toolUseId: 'w5' }]);
+    // 칸이 없는 옛 모양도 카드를 닫는다(결과 없이 "도는 중"으로 남지 않게).
+    expect(done('{"id":"w1","type":"web_search"}'))
+      .toEqual([{ eventType: 'tool_result', content: 'done', toolName: 'WebSearch', toolUseId: 'w1' }]);
+    // 갱신 줄은 여전히 흘리지 않는다.
+    expect(mapCodexLine('{"type":"item.updated","item":{"id":"w1","type":"web_search","query":"x"}}')?.events).toEqual([]);
   });
 
   it('todo_list 는 완료 줄 하나만 체크 목록으로 남긴다', () => {

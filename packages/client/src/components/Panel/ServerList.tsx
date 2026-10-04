@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next';
 import type { ServerEntry } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { serverRespawnGate } from './serverRespawnGate.js';
+import { refusedForOtherProject } from './serverControlRefusal.js';
+import { serverBrowserUrl } from './serverBrowserUrl.js';
+import { useGraphStore } from '../../stores/graphStore.js';
 
 interface ServerListProps {
   servers: ServerEntry[];
@@ -17,11 +20,12 @@ function formatUptime(startedAt: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-function handleOpenBrowser(port: number): void {
-  // 패키지 Electron renderer 는 file:// 로 로드돼 window.location.hostname 이 빈 문자열이다
-  // (http://:<port> 로 깨짐) → 'localhost' 고정. main 의 setWindowOpenHandler 가
-  // shell.openExternal 로 외부 브라우저에 연다.
-  window.open(`http://localhost:${port}`, '_blank');
+function handleOpenBrowser(entry: ServerEntry): void {
+  // §7.11 / §3.5 — 그 포트의 iframe 위성 주소(서버가 우리 서버에 닿는 주소로 가려 둔 것)가 있으면 그것,
+  // 없으면 'localhost'(패키지 renderer 는 file:// 라 hostname 이 비어 있다). main 의
+  // setWindowOpenHandler 가 shell.openExternal 로 외부 브라우저에 연다.
+  const url = serverBrowserUrl(entry, Object.values(useGraphStore.getState().nodeMap));
+  if (url) window.open(url, '_blank');
 }
 
 function serverName(entry: ServerEntry): string {
@@ -31,13 +35,15 @@ function serverName(entry: ServerEntry): string {
   return last.length > 30 ? last.slice(0, 30) + '…' : last;
 }
 
-async function callApi(path: string, body?: Record<string, unknown>): Promise<void> {
-  await fetch(path, {
+/** 호출 결과 — 서버가 "다른 프로젝트의 서버라 손대지 않았다"고 답했으면 true(§7.11 / §3.5). */
+async function callApi(path: string, body?: Record<string, unknown>): Promise<boolean> {
+  const res = await fetch(path, {
     method: 'POST',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   // 서버가 broadcast(graph_snapshot) 하므로 store 갱신은 WebSocket이 처리
+  return refusedForOtherProject(res);
 }
 
 export const ServerList = memo(function ServerList({
@@ -46,6 +52,8 @@ export const ServerList = memo(function ServerList({
   const { t } = useTranslation();
   const [refreshing, setRefreshing] = useState(false);
   const [stopping, setStopping] = useState<string | null>(null);
+  // §7.11 / §3.5 — 다른 프로젝트의 서버라 서버가 손대지 않은 줄(다음 조작에서 걷힌다).
+  const [refusedId, setRefusedId] = useState<string | null>(null);
 
   // id 중복 방어 — 서버 측 dedup이 깨져도 React key 경고 방지.
   // §7.11 v2.4 — 스냅샷은 죽은 ServerEntry 도 싣는다(IframeServerCard 의 Start/Restart
@@ -64,7 +72,8 @@ export const ServerList = memo(function ServerList({
   const handleStop = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setStopping(id);
-    try { await callApi('/api/stop-server', { id }); }
+    setRefusedId(null);
+    try { if (await callApi('/api/stop-server', { id })) setRefusedId(id); }
     catch { /* ignore */ }
     finally { setStopping(null); }
   }, []);
@@ -72,7 +81,8 @@ export const ServerList = memo(function ServerList({
   const handleRestart = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setStopping(id);
-    try { await callApi('/api/restart-server', { id }); }
+    setRefusedId(null);
+    try { if (await callApi('/api/restart-server', { id })) setRefusedId(id); }
     catch { /* ignore */ }
     finally { setStopping(null); }
   }, []);
@@ -111,8 +121,8 @@ export const ServerList = memo(function ServerList({
             key={s.id}
             role="button"
             tabIndex={0}
-            onClick={() => s.port && handleOpenBrowser(s.port)}
-            onKeyDown={(e) => e.key === 'Enter' && s.port && handleOpenBrowser(s.port)}
+            onClick={() => s.port && handleOpenBrowser(s)}
+            onKeyDown={(e) => e.key === 'Enter' && s.port && handleOpenBrowser(s)}
             className={`flex items-center justify-between rounded border border-gray-700/50 bg-gray-800/60 px-2.5 py-1.5 transition-colors ${s.port ? 'cursor-pointer hover:border-gray-600 hover:bg-gray-700/60' : ''}`}
             title={s.command}
           >
@@ -124,6 +134,9 @@ export const ServerList = memo(function ServerList({
                 <span>{formatUptime(s.startedAt)}</span>
                 {s.alive && <span className="text-emerald-400/80">{t('panel.serverList.running')}</span>}
               </div>
+              {refusedId === s.id && (
+                <p className="mt-0.5 text-[12px] leading-snug text-amber-300/90">{t('panel.serverList.refusedOtherProject')}</p>
+              )}
             </div>
 
             {/* Restart button — §7.11 포트 인계 신고 전용 entry 라도 프로세스가 살아 있으면 서버가

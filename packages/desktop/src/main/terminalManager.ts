@@ -421,6 +421,8 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       claudeBinPath: binPath,
       rulesDir,
       resumeId,
+      // 이 줄을 받을 셸 — 인용 규칙이 cmd.exe·POSIX 셸·fish 마다 다르다(`interactiveCommandLine.ts`).
+      shell,
     });
     if (prefill) schedulePrefill(spec.termId, prefill);
 

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-04
+
+### Added
+- **Jump between your own messages in the IDE.** A rail above "Scroll to bottom" has Top, Previous and Next buttons and a tick for each message you sent in the conversation. Hovering a tick or button shows that message, shortened when it is long, and clicking takes you straight to it.
+- **Selecting a bubble brings its connections into focus.** Bubbles linked directly to it stay sharp, ones further along the links fade a little more with each step, and unrelated items fade the most. The change eases in with a short spring and a small delay for each step away, and Ctrl/Cmd still moves linked bubbles together.
+- **Set the main engine from the usage popup.** A small "Set as default" at the end of the provider tabs makes the engine you are looking at the main one. Switching tabs alone still only changes the view.
+
+### Changed
+- **Mid-task, Claude Code compacts only when the model's context window is full.** Agents could spend an hour "thinking" while the conversation was compacted again and again: a 200k window on a conversation that already started at 71k folded about every 19 calls. The compaction window you choose now only decides when to compact between commands, and when it is small for where a conversation starts, the window is raised. Agent settings shows the raised value and why. While Claude Code is compacting, the live line says so and is not counted as gone quiet.
+- **While a turn runs, the prompt in the status bar stays on the running command** however far you scroll. It follows your scroll again once the turn ends.
+- **Questions on a question card always come with answers to pick.** Agents are told to offer two to four answers for every question and not to leave the list empty. Writing your own answer is now a small button under the suggestions that opens the field when you need it.
+- **Codex connection retries and the switch to HTTPS are shown as one neutral notice**, in new sessions and old ones alike. It tells apart work that resumed from a final failure and keeps the original message.
+- **Canvas right-click menus stay inside the window.** Submenus open to whichever side has room, long names wrap, and a tall menu scrolls instead of running off the screen.
+
+### Fixed
+- **A preview opened for one project could show another project's page.** On Windows, two dev servers could hold the same port — one on IPv4, one on IPv6 — and the preview reached the other one. Previews, "Open in browser", Stop and Restart now go to the server that belongs to this project, a tab you left open checks before loading, and Stop or Restart on another project's server says why it does nothing.
+- **Agents with sub-agents in the CMD terminal ended the moment you pressed Enter**, and on macOS a command using a model such as `opus[1m]` did not run at all. The command typed into the terminal is now quoted for the shell that receives it — cmd.exe, bash/zsh or fish.
+- **Vibisual kept starting an old Claude Code** from a VS Code extension version that VS Code had already marked for removal. Those versions are skipped, and versions are compared by number.
+- **The IDE title bar no longer reacts to clicks meant for its own fields and menus.** Double-clicking a word in the rename field restarted the rename and lost what you had typed, double-clicking empty space in a title-bar popup maximized the window, dragging inside the attach menu moved the window, and Esc in the attach menu closed the IDE window.
+- **Codex settings for reasoning summaries, personality and service tier now reach Codex.** They were saved but never passed to the Codex CLI.
+- **Codex reviews start again.** The review command was given arguments that Codex 0.159.2 rejects, so it failed before it began.
+- **On Windows, Codex can write to the project folder** when your Codex settings do not choose a Windows sandbox. Without that setting, Codex fell back to read-only. A value you set yourself is kept.
+- **Codex web searches show what was searched for and the result** on the same card.
+- **A Codex turn with restricted tools could still start sub-agents** when Codex's newer multi-agent feature was turned on in your Codex settings. Such turns now turn off both multi-agent switches.
+- **A running Codex turn on Windows could be closed as finished**, and the next command was then refused because the session was still writing. Codex's session file can stop showing changes on Windows while it is still working, so activity is now read from the time on each line.
+- **Opening a video file from the IDE showed an empty studio.** The video is now placed in the timeline, its length and size are measured first and filled in when missing, the preview no longer flickers, and playback stops at the end.
+
 ## [0.2.2] - 2026-10-01
 
 ### Added
@@ -708,7 +735,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/Vibisual/vibisual/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Vibisual/vibisual/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Vibisual/vibisual/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Vibisual/vibisual/compare/v0.1.25...v0.2.0

@@ -34,6 +34,32 @@ export const SELECT_DEFER_MS = 240;
 export const DRAG_MOVE_THRESHOLD_PX = 5;
 
 /**
+ * 지금 {@link SELECT_DEFER_MS} 를 기다리는 중인 버블 수 — "더블클릭의 1타일 수도 있는 클릭"이 있는가.
+ *
+ * 링은 그 1타에 **일부러** 즉시 반응한다(규칙 2). 그래서 링(`selectIntentId`)만 보고 움직이는 표시는
+ * 더블클릭 한 번에 켜졌다 꺼진다. 1타에 반응하면 안 되는 쪽(캔버스 선택 초점 — §5.4 #31 (K))은 링 대신
+ * 여기에 "링이 확정됐나"를 묻는다. 버블마다 상태기계가 따로라 불리언이 아니라 수를 센다.
+ */
+let deferredSelectCount = 0;
+const deferredSelectListeners = new Set<() => void>();
+
+function shiftDeferredSelects(delta: 1 | -1): void {
+  deferredSelectCount += delta;
+  for (const listener of deferredSelectListeners) listener();
+}
+
+/** 1타의 실제 선택을 미뤄 두고 2타를 기다리는 버블이 하나라도 있는가. */
+export function isSelectDeferred(): boolean {
+  return deferredSelectCount > 0;
+}
+
+/** `useSyncExternalStore` 용 구독. */
+export function subscribeSelectDeferred(listener: () => void): () => void {
+  deferredSelectListeners.add(listener);
+  return () => { deferredSelectListeners.delete(listener); };
+}
+
+/**
  * 상태기계가 포인터에서 실제로 보는 것 — React 이벤트든 네이티브든 앞의 세 값이면 된다.
  *
  * 뒤의 셋은 {@link BubbleSelectGestureOptions.ignore} 가 "이 누름은 선택이 아니라 다른 동작"
@@ -115,12 +141,15 @@ export function createBubbleSelectGesture(
     if (pending === null) return;
     clearTimeout(pending);
     pending = null;
+    shiftDeferredSelects(-1);
   };
 
+  // 링을 먼저 끄고 보류를 접는다 — 순서가 뒤집혀 그 사이에 한 번 그려지면, 보류가 풀린 링이
+  // "확정된 선택"으로 읽혀 선택 초점이 한 프레임 켜졌다 꺼진다. 보류 수는 무슨 일이 있어도
+  // 돌려놓는다(남으면 선택 초점이 영영 "아직 1타"로 읽혀 굳는다).
   const cancelPendingSelect = (): void => {
-    const hadPending = pending !== null;
-    clearPending();
-    if (hadPending) read().setIntent(false);
+    if (pending === null) return;
+    try { read().setIntent(false); } finally { clearPending(); }
   };
 
   return {
@@ -132,8 +161,7 @@ export function createBubbleSelectGesture(
       // 보류 중인데 다시 눌렀다 = 더블클릭 의도. 보류·링을 접고, 이번 press 는 선택으로
       // 잇지 않도록 `moved` 로 마킹한다(2타의 pointerup 이 다시 선택을 걸면 안 된다).
       if (pending !== null) {
-        clearPending();
-        o.setIntent(false);
+        cancelPendingSelect();
         press = { x: e.clientX, y: e.clientY, moved: true };
         return;
       }
@@ -155,13 +183,17 @@ export function createBubbleSelectGesture(
 
       const o = read();
       // 링은 지연 없이 — 눈에 보이는 반응이 늦으면 클릭이 씹힌 것처럼 느껴진다.
-      o.setIntent(true);
-      if (!o.doubleClickable) { o.select(); return; }
+      if (!o.doubleClickable) { o.setIntent(true); o.select(); return; }
       clearPending();
       pending = setTimeout(() => {
         pending = null;
-        read().select();
+        // 선택을 먼저 걸고 보류를 푼다 — 위 `cancelPendingSelect` 와 같은 이유(풀린 순간 링이 확정이다).
+        try { read().select(); } finally { shiftDeferredSelects(-1); }
       }, SELECT_DEFER_MS);
+      // 보류를 먼저 걸고 링을 켠다(같은 손 안이라 지연은 없다). 링이 켜진 순간 보류가 없으면 그 1타가
+      // "확정된 선택"으로 읽혀 선택 초점이 한 프레임 넘어갔다 돌아온다 — `cancelPendingSelect` 의 거울.
+      shiftDeferredSelects(1);
+      o.setIntent(true);
     },
 
     pointerCancel() {

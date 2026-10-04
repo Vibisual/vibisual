@@ -18,6 +18,7 @@ import {
   clearsAwaitingInput,
   needsSnapshotRefresh,
   isTaskLedgerEvent,
+  endsCompaction,
 } from './hookEventClass.js';
 import { HOOK_EVENTS } from './hookInstaller.js';
 
@@ -105,6 +106,25 @@ describe('작업 장부 이벤트', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+/**
+ * §5.5 #17-24 ⑥ — 라이브 1줄의 "압축 중" 표식을 **걷는** 이벤트. 시작은 PreCompact 하나다.
+ * PostCompact 만 믿으면 그것이 안 온 압축(§5.26 (D))에서 표식이 영영 남아 "압축 중"이 굳는다.
+ */
+describe('endsCompaction — 압축 끝으로 읽는 이벤트', () => {
+  it('압축 뒤에 반드시 오는 사건은 전부 끝이다', () => {
+    expect(trueSet(endsCompaction)).toEqual(
+      ['PostCompact', 'SessionEnd', 'SessionStart', 'Stop', 'StopFailure', 'UserPromptSubmit'].sort(),
+    );
+  });
+
+  it('시작 신호와 도구 이벤트는 끝이 아니다 — 배경 서브에이전트의 도구가 압축 도중에도 온다', () => {
+    for (const ev of ['PreCompact', 'PreToolUse', 'PostToolUse', 'SubagentStart', 'SubagentStop', 'Notification']) {
+      expect(endsCompaction(ev), ev).toBe(false);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
 describe('이름 실재 확인(오타는 조용히 통과한다)', () => {
   it('조용한 이벤트 목록이 전부 실제 등록 이벤트다', () => {
     for (const ev of QUIESCENT_HOOK_EVENTS) {
@@ -120,6 +140,7 @@ describe('이름 실재 확인(오타는 조용히 통과한다)', () => {
       ['isTaskLedgerEvent', isTaskLedgerEvent],
       ['isTurnEndEventName', isTurnEndEventName],
       ['isSessionEndEvent', isSessionEndEvent],
+      ['endsCompaction', endsCompaction],
     ];
     for (const [name, pred] of preds) {
       expect(trueSet(pred).length, name).toBeGreaterThan(0);

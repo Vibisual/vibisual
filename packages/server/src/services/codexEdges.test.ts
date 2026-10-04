@@ -43,6 +43,9 @@ describe('Codex mandatory edge delegation', () => {
       expect(args).toContain('web_search="disabled"');
       expect(args.indexOf('web_search="disabled"')).toBeGreaterThan(args.indexOf('web_search=live'));
       expect(args).toContain('features.shell_tool=false');
+      // 하위 에이전트는 v1·v2 스위치가 따로다 — v2 를 켠 사용자에게 `collaboration` 이 남지 않게 둘 다 끈다.
+      expect(args).toContain('features.multi_agent=false');
+      expect(args).toContain('features.multi_agent_v2=false');
       expect(args).toContain('sandbox_workspace_write.network_access=false');
       expect(args.some((arg) => arg.startsWith('hooks.PreToolUse='))).toBe(true);
     }

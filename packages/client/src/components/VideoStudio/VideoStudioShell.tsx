@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { WS_PATH } from '@vibisual/shared';
-import { createEmptyDoc, stableHash, type VideoDoc } from '@vibisual/video';
+import {
+  FILE_DOC_ASSET_ID,
+  assetsNeedingMeasurement,
+  buildFileDocOps,
+  buildMeasurementOps,
+  createEmptyDoc,
+  isUntouchedDoc,
+  resolveTimeline,
+  stableHash,
+  type VideoDoc,
+} from '@vibisual/video';
 
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { WindowControls } from '../Layout/WindowControls.js';
 import { VideoTimeline } from './VideoTimeline.js';
-import { useVideoRenderer } from './useVideoRenderer.js';
+import { measureAssets, useVideoRenderer } from './useVideoRenderer.js';
 import {
   VersionConflictError,
   claimJob,
@@ -83,18 +93,40 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     }
   }, [projectName]);
 
+  /**
+   * 길이가 비어 있는 영상·소리 소재를 재서 문서에 적는다(§5.13 (R-3)).
+   *
+   * `duration:'auto'` 는 이 값이 있어야 풀린다. 에이전트가 길이 없이 써 둔 문서도 열 때
+   * 여기서 풀린다. 재지 못했거나 그 사이 다른 곳이 먼저 고쳤으면 원래 문서를 그대로 쓴다.
+   */
+  const fillMeasurements = useCallback(
+    async (current: VideoDoc): Promise<VideoDoc> => {
+      const pending = assetsNeedingMeasurement(current);
+      if (pending.length === 0) return current;
+      const ops = buildMeasurementOps(current, await measureAssets(projectName, pending));
+      if (ops.length === 0) return current;
+      try {
+        return (await patchDoc(projectName, current.id, current.version, ops)).doc;
+      } catch {
+        return current;
+      }
+    },
+    [projectName],
+  );
+
   const openDoc = useCallback(
     async (docId: string): Promise<void> => {
       try {
         const env = await readDoc(projectName, docId);
-        setDoc(env.doc);
+        setDoc(await fillMeasurements(env.doc));
         setPlayhead(0);
+        setPlaying(false);
         setStatus('');
       } catch (err) {
         setStatus(String(err));
       }
     },
-    [projectName],
+    [projectName, fillMeasurements],
   );
 
   useEffect(() => {
@@ -109,6 +141,10 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
    *
    * 이미 아이템이 있는 문서는 **건드리지 않는다** — 사람이 편집한 문서에 원본 클립을 다시
    * 얹으면 그 편집을 조용히 되돌리는 셈이 된다.
+   *
+   * "손대지 않은 문서"는 **아이템이 하나도 없는 문서**다. 새 문서는 빈 트랙 셋을 달고 태어나므로
+   * 트랙 수로 판정하면 영상이 영영 실리지 않는다(`fileDoc.ts`). 그리고 영상을 먼저 재서 길이·크기를
+   * 함께 적는다 — 길이 없는 `'auto'` 클립은 해소기가 빼 버려 화면이 빈다.
    */
   const fileParam = params['file'] ?? '';
   const fileHandledRef = useRef('');
@@ -121,26 +157,29 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
         const name = fileParam.split('/').pop() ?? fileParam;
         const created = await createDoc(projectName, name, `file-${stableHash(fileParam)}`);
         let current = created;
-        if (current.tracks.length === 0) {
-          const env = await patchDoc(projectName, current.id, current.version, [
-            { op: 'setAsset', asset: { id: 'src', kind: 'video', source: { kind: 'file', path: fileParam } } },
-            {
-              op: 'addTrack',
-              track: {
-                id: 'v1',
-                kind: 'visual',
-                label: name,
-                // 길이는 'auto' — 소재의 실측 길이가 곧 클립 길이다(§5.13 (D) "오디오가 시간의 주인").
-                items: [{ id: 'clip1', kind: 'footage', at: 0, duration: 'auto', assetId: 'src', label: name }],
-              },
-            },
+        if (isUntouchedDoc(current)) {
+          const measured = await measureAssets(projectName, [
+            { id: FILE_DOC_ASSET_ID, kind: 'video', source: { kind: 'file', path: fileParam } },
           ]);
-          current = env.doc;
+          const probe = measured[FILE_DOC_ASSET_ID];
+          const ops = probe ? buildFileDocOps(current, { path: fileParam, label: name }, probe) : [];
+          if (ops.length === 0) {
+            // 못 읽었다 — 빈 화면으로 조용히 두지 않는다. 문서는 비워 둬 다시 열 때 다시 잰다.
+            fileHandledRef.current = '';
+            if (alive) {
+              setStatus(t('panel.videoStudio.fileUnreadable', { defaultValue: '이 영상을 읽지 못했습니다: {{name}}', name }));
+            }
+          } else {
+            current = (await patchDoc(projectName, current.id, current.version, ops)).doc;
+          }
+        } else {
+          current = await fillMeasurements(current);
         }
         if (!alive) return;
         setDoc(current);
         setPlayhead(0);
-        setStatus('');
+        setPlaying(false);
+        if (!isUntouchedDoc(current)) setStatus('');
         void refreshDocs();
       } catch (err) {
         if (alive) setStatus(String(err));
@@ -149,24 +188,50 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     return () => {
       alive = false;
     };
-  }, [fileParam, projectName, refreshDocs]);
+  }, [fileParam, projectName, refreshDocs, fillMeasurements, t]);
 
   // ─── 미리보기 ───
 
+  /**
+   * 그리기는 **한 번에 하나만** 돈다. 재생 중엔 매 화면마다 재생 머리가 움직이는데, 그때마다
+   * 그리기를 겹쳐 띄우면 늦게 끝난 옛 프레임이 새 프레임을 덮어 화면이 앞뒤로 튄다.
+   * 도는 동안 들어온 요청은 마지막 하나만 남겼다가, 앞의 것이 끝나면 그것을 그린다.
+   */
+  const drawLoopRef = useRef<{ busy: boolean; want: number | null }>({ busy: false, want: null });
+  const rendererRef = useRef(renderer);
+  rendererRef.current = renderer;
+
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !doc) return;
-    let canceled = false;
-    void renderer.drawPreview(canvas, playhead).catch(() => {
-      if (!canceled) setStatus(t('panel.videoStudio.previewFailed', { defaultValue: '미리보기를 그리지 못했습니다.' }));
-    });
-    return () => {
-      canceled = true;
-    };
+    if (!canvasRef.current || !doc) return;
+    const loop = drawLoopRef.current;
+    loop.want = playhead;
+    if (loop.busy) return;
+    loop.busy = true;
+    void (async () => {
+      try {
+        while (loop.want !== null) {
+          const at = loop.want;
+          loop.want = null;
+          const canvas = canvasRef.current;
+          if (!canvas) break;
+          // 도는 사이 문서가 바뀌었을 수 있다 — 늘 지금의 렌더러로 그린다.
+          await rendererRef.current.drawPreview(canvas, at);
+        }
+      } catch {
+        setStatus(t('panel.videoStudio.previewFailed', { defaultValue: '미리보기를 그리지 못했습니다.' }));
+      } finally {
+        loop.busy = false;
+      }
+    })();
   }, [doc, playhead, renderer, t]);
+
+  /** 영상 전체 길이와 마지막 프레임 시각. 끝(`end`)은 반열린 구간이라 그 시각엔 아무것도 없다. */
+  const duration = useMemo(() => (doc ? resolveTimeline(doc).duration : 0), [doc]);
+  const lastFrameAt = doc ? Math.max(0, duration - 1 / doc.fps) : 0;
 
   // 재생 — 실제 시간에 맞춰 재생 머리를 움직인다. 렌더가 아니라 미리보기라
   // 프레임을 다 그리지 못해도 시간은 어긋나지 않게 벽시계를 기준으로 삼는다.
+  // 끝에 닿으면 마지막 프레임에 멈춘다 — 계속 흘러가면 빈 검은 화면만 남는다.
   useEffect(() => {
     if (!playing || !doc) return;
     const startedAt = performance.now();
@@ -175,6 +240,11 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     const tick = (): void => {
       const elapsed = (performance.now() - startedAt) / 1000;
       const next = from + elapsed;
+      if (next >= lastFrameAt) {
+        setPlayhead(lastFrameAt);
+        setPlaying(false);
+        return;
+      }
       setPlayhead(next);
       raf = requestAnimationFrame(tick);
     };
@@ -183,6 +253,12 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     // playhead 를 의존성에 넣으면 매 프레임 타이머가 다시 걸린다 — 시작점만 잡는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, doc]);
+
+  /** 끝에서 다시 누르면 처음부터. */
+  const togglePlay = useCallback((): void => {
+    if (!playing && playhead >= lastFrameAt) setPlayhead(0);
+    setPlaying((p) => !p);
+  }, [playing, playhead, lastFrameAt]);
 
   // ─── 편집 ───
 
@@ -425,7 +501,7 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
           <div className="flex shrink-0 items-center gap-2 text-xs">
             <button
               type="button"
-              onClick={() => setPlaying((p) => !p)}
+              onClick={togglePlay}
               className="rounded bg-gray-800 px-2.5 py-1.5 hover:bg-gray-700"
             >
               {playing

@@ -79,6 +79,7 @@ import { useElementWidth } from '../../hooks/useElementWidth.js';
 import { editorGrowth, ideSidebarWidth, resolveIDEBodyLayout } from './ideResponsive.js';
 import { IDEBodyLayoutContext, type IDEBodyLayoutValue } from './ideBodyLayoutContext.js';
 import { resolveTitleBarChrome } from './titleBarChrome.js';
+import { titleBarDoubleClickAction, titleBarPressStartsDrag } from './titleBarGesture.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
@@ -641,12 +642,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §5.5 #17-6 (H-5) — **독립 창에서도 같다.** 종전에는 "OS 가 드래그 영역 더블클릭을 처리한다"고
   //   보고 넘겼는데, 그 창은 투명 창이라 Windows 가 시스템 최대화를 막고 (H-4) 가 `app-drag` 마저
   //   걷어냈다 — 아무도 처리하지 않아 더블클릭이 그냥 죽어 있었다.
+  //
+  // 이름 입력칸·제목 줄 팝업(읽기 설정·붙이기 메뉴) 안의 더블클릭은 그 자리의 것이다 — 종전에는
+  //   입력칸의 낱말 고르기가 이름 편집을 다시 시작해 친 글자를 지우고, 팝업 빈 곳이 창을 최대화했다.
+  //   판정은 `titleBarGesture.ts` 한 곳(누름의 끌기 판정과 한 벌).
   const handleTitleBarDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
+    const action = titleBarDoubleClickAction(e.target as Element);
     // 이름 더블클릭은 리네임 진입 — 최대화 토글과 겹치지 않게 여기서 가로챈다(fullWindow 에서도 동작).
-    if (target.closest('[data-ide-agent-name]')) { startNameEdit(); return; }
-    if (target.closest('button')) return;
-    toggleMaximized();
+    if (action === 'rename') startNameEdit();
+    else if (action === 'maximize') toggleMaximized();
   }, [toggleMaximized, startNameEdit]);
 
   // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 슬롯의 `openMode` 로 되돌아간다(휘발).
@@ -1127,6 +1131,21 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     refs: [dockMenuRef],
     capture: false,
   });
+
+  // 붙이기 메뉴가 열려 있으면 Esc 는 **메뉴만** 닫는다 — 같은 제목 줄의 읽기 설정 팝업과 같은 규약
+  //   (document 에서 멈추면 window 에 붙은 창 닫기 Esc 까지 가지 않는다). 종전에는 메뉴를 닫으려던
+  //   Esc 가 IDE 창을 통째로 닫았다. 판 안의 것(실행 출력·무대·편집창)을 한 겹씩 벗기지 않는 (H-20)/(H-21)
+  //   규칙과는 다른 일이다 — 이 메뉴는 방금 연 일회성 팝업이고, 닫으면 다시 열 때까지 남지 않는다.
+  useEffect(() => {
+    if (!dockMenuOpen) return;
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Escape' || isComposingKeyEvent(e)) return;
+      e.stopPropagation();
+      setDockMenuOpen(false);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [dockMenuOpen]);
 
   /**
    * (판올림 번호 발급 대기) 이 창을 **앱 밖 독립 창**으로 꺼낼 수 있는가.
@@ -2064,9 +2083,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    */
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    // 버튼·인터랙티브 자손(이름 리네임 포함)에서 시작된 mousedown 은 드래그 ❌
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('[data-ide-agent-name]')) return;
+    // 버튼·이름(리네임 입력칸 포함)·제목 줄 팝업 안에서 시작된 mousedown 은 드래그 ❌ — 종전에는
+    //   붙이기 메뉴의 안내 글·여백을 누른 채 움직이면 창이 끌려갔다(`titleBarGesture.ts`).
+    if (!titleBarPressStartsDrag(e.target as Element)) return;
 
     if (fullWindow) {
       const ov = window.api?.overlay;
@@ -3035,12 +3054,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                     <path d="M12 4v16" />
                   </svg>
                 </button>
+                {/* 팝업 표식(`titleBarGesture.ts`) — 상자 없는 감싸개라 자리·크기 측정은 그대로다. */}
                 {readingOpen && (
-                  <ReadingSettingsPopover
-                    onClose={closeReading}
-                    mobileAdapted={mobileAdapted}
-                    fontAvailability={fontAvailability}
-                  />
+                  <div className="contents" data-ide-titlebar-popup="">
+                    <ReadingSettingsPopover
+                      onClose={closeReading}
+                      mobileAdapted={mobileAdapted}
+                      fontAvailability={fontAvailability}
+                    />
+                  </div>
                 )}
               </div>
             )}
@@ -3097,7 +3119,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                   </svg>
                 </button>
                 {dockMenuOpen && (
-                  <div className="absolute right-0 top-7 z-30 w-36 rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl shadow-black/50">
+                  <div
+                    data-ide-titlebar-popup=""
+                    className="absolute right-0 top-7 z-30 w-36 rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl shadow-black/50"
+                  >
                     {IDE_DOCK_SIDES.map((side) => (
                       <button
                         key={side}

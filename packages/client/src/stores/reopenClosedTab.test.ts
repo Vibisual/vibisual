@@ -170,3 +170,72 @@ describe('closeIframeTab — 닫으면 스택에 신고한다', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe('§7.11 / §3.5 — 프리뷰 탭은 연 프로젝트를 닫았다 되열어도 들고 간다', () => {
+  beforeEach(() => {
+    useGraphStore.setState({
+      iframeTabs: [{ id: 'sat-special-8080', url: 'http://localhost:8080', label: 'localhost:8080', serverKind: 'frontend', projectPath: 'C:/work/app-a' }],
+      activeIframeId: 'sat-special-8080',
+      closingProjectPaths: {},
+    });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL_FETCH;
+    vi.restoreAllMocks();
+  });
+
+  it('닫을 때 연 프로젝트를 함께 신고한다 — 되연 탭도 그 프로젝트 기준으로 소속을 묻는다', () => {
+    const { calls } = stubFetch(200, { ok: true });
+    useGraphStore.getState().closeIframeTab('sat-special-8080');
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      key: 'i:sat-special-8080',
+      label: 'localhost:8080',
+      url: 'http://localhost:8080',
+      serverKind: 'frontend',
+      projectPath: 'C:/work/app-a',
+    });
+  });
+
+  it('되열면 연 프로젝트가 탭에 되살아난다', async () => {
+    useGraphStore.setState({ iframeTabs: [], activeIframeId: null });
+    stubFetch(200, {
+      ok: true,
+      entry: {
+        key: 'i:sat-special-8080', kind: 'iframe', label: 'localhost:8080', closedAt: 1,
+        url: 'http://localhost:8080', serverKind: 'frontend', projectPath: 'C:/work/app-a',
+      },
+    });
+
+    expect(await useGraphStore.getState().reopenClosedTab('i:sat-special-8080')).toBe('ok');
+    expect(useGraphStore.getState().iframeTabs[0]?.projectPath).toBe('C:/work/app-a');
+  });
+});
+
+describe('§7.11 / §3.5 — followIframeTab: 서버 판정이 follow 면 탭 주소를 옮긴다', () => {
+  beforeEach(() => {
+    useGraphStore.setState({
+      iframeTabs: [
+        { id: 'sat-special-8080', url: 'http://localhost:8080', label: 'localhost:8080', serverKind: 'frontend' },
+        { id: 'sat-special-5173', url: 'http://localhost:5173', label: 'localhost:5173', serverKind: 'frontend' },
+      ],
+    });
+  });
+
+  it('그 탭의 주소만 옮기고 나머지 칸·다른 탭은 그대로', () => {
+    const before = useGraphStore.getState().iframeTabs;
+    useGraphStore.getState().followIframeTab('sat-special-8080', 'http://127.0.0.1:8080/');
+
+    const after = useGraphStore.getState().iframeTabs;
+    expect(after[0]).toEqual({ id: 'sat-special-8080', url: 'http://127.0.0.1:8080/', label: 'localhost:8080', serverKind: 'frontend' });
+    expect(after[1]).toBe(before[1]);
+  });
+
+  it('없는 탭·같은 주소면 아무것도 바꾸지 않는다(같은 배열 — 구독자를 깨우지 않는다)', () => {
+    const before = useGraphStore.getState().iframeTabs;
+    useGraphStore.getState().followIframeTab('nope', 'http://127.0.0.1:8080/');
+    useGraphStore.getState().followIframeTab('sat-special-8080', 'http://localhost:8080');
+    expect(useGraphStore.getState().iframeTabs).toBe(before);
+  });
+});

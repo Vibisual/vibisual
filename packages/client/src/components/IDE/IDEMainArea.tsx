@@ -2,9 +2,9 @@ import { memo, useState, useCallback, useRef, useEffect, useLayoutEffect, useMem
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
+import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, RunningSubagentTask } from '@vibisual/shared';
 import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
-import { isBackgroundShellTask } from '@vibisual/shared';
+import { isBackgroundShellTask, isSessionRunning } from '@vibisual/shared';
 import {
   useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
 } from '../../hooks/useSessionRunning.js';
@@ -45,7 +45,9 @@ import {
   DENSITY_ANCHOR_HOLD_MS, pickDensityAnchorEntries, resolveDensityAnchor, sessionSnapshotKey,
   type DensityAnchorEntry,
 } from './densityAnchor.js';
-import { VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
+import { statusBarPinsToRunning, VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
+import { measureViewportItems, probePromptPlace, samePromptOutline, settleItemAtTop, PROMPT_JUMP_TOP_GAP, type PromptProbe, type PromptRailEntry } from './promptRail.js';
+import { PromptRail } from './PromptRailView.js';
 import { readingItemAttrsNoProse } from './reading/readingModel.js';
 import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection, markRange, clearFindHighlight, highlightSearchMatches } from './bookmarkScroll.js';
@@ -76,7 +78,11 @@ import { VoiceInputOverlay } from './VoiceInputOverlay.js';
 import { VoiceInstallDialog } from './VoiceInstallDialog.js';
 import { MicSettingsPopup } from './MicSettingsPopup.js';
 import { shortcutLabel } from '../../utils/platform.js';
-import { liveLineActivityAt } from '../../utils/sessionActivity.js';
+import { liveLineActivityAt, liveLineMode, type LiveLineMode } from '../../utils/sessionActivity.js';
+import { buildSessionRunInputs } from '../../utils/sessionStatus.js';
+import { turnOfEvent, type StreamSystem } from './streamItems.js';
+import { TransportRecoveryAccumulator, type StreamTransportRecovery } from './streamTransportRecovery.js';
+import { TransportRecoveryLine } from './TransportRecoveryLine.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -191,6 +197,7 @@ interface TerminalEntry {
   timestamp: number;
   sessionLabel?: string;
   toolName?: string;
+  transportRecovery?: StreamTransportRecovery;
   /**
    * §5.5 #17-39 — **마지막 조각이 도착한 시각**. `timestamp`(첫 조각) 와의 차이가 곧 걸린 시간이다.
    * 사고 자국(`type==='step'`)과 합쳐진 본문(`type==='text'`) 둘 다 이 필드를 쓴다(Sub 탭 `endedAt` 과 대칭).
@@ -243,8 +250,8 @@ interface TerminalGroup {
 interface TerminalThinkingLive {
   kind: 'thinking-live';
   id: string;
-  /** `thinking` = 사고 중, `working` = 그 외 작업 중, `waiting` = 줄만 섬(§5.5 #17-18 ⑪). */
-  mode: 'thinking' | 'working' | 'waiting';
+  /** `thinking` = 사고 중, `working` = 그 외 작업 중, `waiting` = 줄만 섬(§5.5 #17-18 ⑪), `compacting` = 접는 중(#17-24 ⑥). */
+  mode: LiveLineMode;
   timestamp: number;
   /** §2.4 (무응답) — 무응답을 재는 시계(마지막 이벤트 시각). 모르면 `null`(Sub 탭과 동형). */
   lastActivityAt: number | null;
@@ -252,6 +259,8 @@ interface TerminalThinkingLive {
   turnStartedAt: number | null;
   /** §5.3 #9-1 (P) — 감춘 턴이 도는 중이면 무응답으로 안 뒤집는다(Sub 탭 `StreamThinkingLive` 와 동형). */
   hiddenTurn?: true;
+  /** §5.5 #17-24 ⑥ — `compacting` 모드일 때만 — CLI 가 접기 시작한 시각(Sub 탭과 동형). */
+  compactingSince?: number;
 }
 
 /**
@@ -262,6 +271,7 @@ const MAIN_LIVE_LABEL_KEY: Record<TerminalThinkingLive['mode'], string> = {
   thinking: 'ide.streamRenderer.thinking',
   working: 'ide.streamRenderer.working',
   waiting: 'ide.streamRenderer.waiting',
+  compacting: 'ide.streamRenderer.compacting',
 };
 
 /** §5.5 #17-12 — 메인 탭에서도 TodoWrite 는 계획 블록으로(Sub 탭 StreamPlan 과 같은 모양 → PlanBlock 재사용). */
@@ -296,6 +306,25 @@ function mainTimelineNodeId(n: MainTimelineNode): string {
     case 'ask': return n.request.requestId;
     case 'item': return n.item.id;
   }
+}
+
+// ─── §5.5 #17-48: 메인 탭의 내 입력 — 타임라인의 command 줄(큐 명령 `cmd-*` · 훅 프롬프트 `evt-*`) ───
+
+const EMPTY_PROMPT_OUTLINE: readonly PromptRailEntry[] = [];
+
+/** 내 입력(명령 말풍선) 노드인가 — 레일의 눈금 하나가 된다. */
+function isMainPromptNode(n: MainTimelineNode): boolean {
+  return n.t === 'item' && n.item.kind === undefined && n.item.type === 'command';
+}
+
+/** 메인 탭 입력 목록(위→아래). 시각은 보낸 시각(`submittedAt`) — 대기 중 꼬리 표식(`timestamp`)은 시각이 아니다. */
+function mainPromptOutlineOf(timeline: readonly MainTimelineNode[]): PromptRailEntry[] {
+  const out: PromptRailEntry[] = [];
+  for (const n of timeline) {
+    if (n.t !== 'item' || n.item.kind !== undefined || n.item.type !== 'command') continue;
+    out.push({ id: n.item.id, text: n.item.text, at: n.item.submittedAt });
+  }
+  return out;
 }
 
 // ─── §5.5 #17-18 ⑦-5: 카드 발송 보고 한 줄 걷어내기(메인 탭 판본) ───
@@ -381,7 +410,7 @@ function mainTimelineReadingKind(n: MainTimelineNode): string {
 }
 
 /** 스트림 이벤트 + 명령 대기열 + agentEvents를 통합하여 터미널 항목 생성 */
-function buildEntries(
+export function buildEntries(
   commands: QueuedCommand[],
   subAgents: SubAgent[],
   streams: Record<string, SubAgentStreamEvent[]>,
@@ -389,9 +418,46 @@ function buildEntries(
   agentEvents: AgentEvent[],
   // §5.5 #17-12 ③ — 실패 사유를 사람 문장으로 바꾸는 로케일 주입(이 함수는 순수하게 유지한다).
   formatError: (error: CommandError) => string,
+  // Recovery follows original command states, not displayCommands' promoted queued copies.
+  originalCommands: QueuedCommand[] = commands,
+  runningTasks?: RunningSubagentTask[],
 ): TerminalEntry[] {
   const entries: TerminalEntry[] = [];
   const subLabelMap = new Map(subAgents.map((s) => [s.id, s.label]));
+
+  /** Main/sub views share the transport accumulator; each session owns a separate episode. */
+  const pushStreamEntries = (events: SubAgentStreamEvent[], subId: string, label?: string): void => {
+    const sessionCommands = originalCommands.filter((cmd) => cmd.subAgentId === subId);
+    const anchors = dispatchedTurnAnchorsAsc(sessionCommands);
+    const recovery = new TransportRecoveryAccumulator();
+    const recoveryRows: StreamSystem[] = [];
+    for (const evt of events) {
+      // Thinking is evidence of resumed work even though its raw body is hidden below.
+      if (recovery.consume(evt, turnOfEvent(evt, anchors), recoveryRows)) continue;
+      if (isThinkingActivity(evt) || isHiddenSystemEvent(evt)) continue;
+      entries.push({
+        id: evt.id,
+        type: evt.imagePath ? 'image' : evt.eventType,
+        text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
+        timestamp: evt.timestamp,
+        sessionLabel: label,
+        toolName: evt.toolName,
+        ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
+      });
+    }
+    const sub = subAgents.find((candidate) => candidate.id === subId);
+    const running = sub !== undefined && isSessionRunning(buildSessionRunInputs({
+      sub, commands: originalCommands, runningTasks, acknowledged: false,
+    }));
+    recovery.projectStopped(recoveryRows, sessionCommands, running);
+    for (const row of recoveryRows) {
+      entries.push({
+        id: row.id, type: 'system', text: row.content, timestamp: row.timestamp,
+        sessionLabel: label, transportRecovery: row.transportRecovery,
+      });
+    }
+    pushThinkTraces(events, subId, label);
+  };
 
   /**
    * §5.5 #17-39 — 사고 런 → 단계 자국 항목. 런 판정은 Sub 탭 파서와 **같은 규칙**을 담은
@@ -473,45 +539,13 @@ function buildEntries(
     for (const [subId, events] of Object.entries(streams)) {
       // 현재 에이전트의 서브에이전트만
       if (!subLabelMap.has(subId) && subAgents.length > 0) continue;
-      const label = subLabelMap.get(subId);
-      for (const evt of events) {
-        if (isThinkingActivity(evt)) continue; // §5.5 #17-15 — 사고(펄스·델타)는 본문에 쌓지 않음 (라이브 1줄로 대체)
-        if (isHiddenSystemEvent(evt)) continue; // §5.5 #17-13 ⑤-4 — 살림성 칩(`*_changed`)·`status` 는 원문 밀도에서도 안 그린다
-        entries.push({
-          id: evt.id,
-          // §5.25 (O) — 그림은 전선에서 `text` 지만 여기서 갈라 세운다. 그냥 두면 아래 합치기가
-          //   앞 말풍선에 붙여 그림이 사라지고 파일 이름만 문장에 끼어든다(Sub 탭과 같은 규약).
-          type: evt.imagePath ? 'image' : evt.eventType,
-          // §5.5 #17-12 ③ — 오류 줄만 서버 원문(`[code:exit] …`)이라 여기서 문장으로 편다.
-          text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
-          timestamp: evt.timestamp,
-          sessionLabel: label,
-          toolName: evt.toolName,
-          ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
-        });
-      }
-      // §5.5 #17-39 — 사고는 위에서 본문으로 안 쌓았지만, **얼마나 걸렸는지는 남긴다**.
-      pushThinkTraces(events, subId, label);
+      pushStreamEntries(events, subId, subLabelMap.get(subId));
     }
   } else {
     // 특정 세션만
     const events = streams[activeSessionId];
     if (events) {
-      for (const evt of events) {
-        if (isThinkingActivity(evt)) continue; // §5.5 #17-15 — 사고(펄스·델타)는 본문에 쌓지 않음 (라이브 1줄로 대체)
-        if (isHiddenSystemEvent(evt)) continue; // §5.5 #17-13 ⑤-4 — 살림성 칩(`*_changed`)·`status` 는 원문 밀도에서도 안 그린다
-        entries.push({
-          id: evt.id,
-          // §5.25 (O) — 전체 보기 루프와 같은 규약(둘이 어긋나면 탭에 따라 그림이 있고 없다).
-          type: evt.imagePath ? 'image' : evt.eventType,
-          text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
-          timestamp: evt.timestamp,
-          toolName: evt.toolName,
-          ...(evt.imagePath ? { imageSubAgentId: activeSessionId } : {}),
-        });
-      }
-      // §5.5 #17-39 — 사고 자국(세션 하나만 볼 때도 전체 보기와 같은 규칙).
-      pushThinkTraces(events, activeSessionId);
+      pushStreamEntries(events, activeSessionId);
     }
   }
 
@@ -588,12 +622,12 @@ function buildEntries(
  *  - 같은 턴(명령 경계)의 옛 계획은 접는다.
  * `raw` 밀도에서는 아무것도 하지 않는다.
  */
-function applyMainDensity(items: TerminalItem[], density: StreamDensity): TerminalItem[] {
+export function applyMainDensity(items: TerminalItem[], density: StreamDensity): TerminalItem[] {
   // §5.5 #17-13 ⑤-3 — 작업 칩(시작·끝)을 한 줄로 접는다. Sub 탭(`applyStreamDensity`)과 **같은 함수**라
   //   두 탭이 같은 스트림을 같은 모양으로 접는다.
   const folded = foldTaskChips(
     items,
-    (it) => (it.kind === undefined && it.type === 'system' ? it.text : null),
+    (it) => (it.kind === undefined && it.type === 'system' && !it.transportRecovery ? it.text : null),
     (it, text) => (it.kind === undefined && it.type === 'system' ? { ...it, text } : it),
   );
   if (density === 'raw') return folded;
@@ -602,7 +636,7 @@ function applyMainDensity(items: TerminalItem[], density: StreamDensity): Termin
   //   내용이 있는 system 본문(권한 결정 등)은 subtype 단독 패턴이 아니므로 그대로 남는다.
   // §5.5 #17-15 — 사고는 밀도 축에서 빠졌다(항목 조립 시점에 이미 없다 — 여기서 거를 것이 없다).
   const shown = folded.filter((it) => (
-    !(it.kind === undefined && it.type === 'system' && isSystemSubtypeChip(it.text))
+    !(it.kind === undefined && it.type === 'system' && !it.transportRecovery && isSystemSubtypeChip(it.text))
   ));
 
   // (1) 옛 계획 접기 — 뒤에서부터 훑으며 같은 턴에서 더 새로운 계획을 본 적 있으면 superseded.
@@ -623,7 +657,7 @@ function applyMainDensity(items: TerminalItem[], density: StreamDensity): Termin
     it.kind === 'group' && it.groupType === 'tool';
   const filler = (it: TerminalItem): boolean => {
     if (it.kind !== undefined) return false;
-    if (it.type === 'system') return true;
+    if (it.type === 'system') return !it.transportRecovery;
     return it.type === 'text' && it.text.trim() === '';
   };
   const out: TerminalItem[] = [];
@@ -673,7 +707,7 @@ function applyMainDensity(items: TerminalItem[], density: StreamDensity): Termin
     for (const it of out) {
       if (!(it.kind === 'group' && it.groupType === 'tool')) { compacted.push(it); continue; }
       for (const e of it.entries) {
-        if (e.type === 'system' && !isSystemSubtypeChip(e.text)) compacted.push(e);
+        if (e.type === 'system' && (e.transportRecovery || !isSystemSubtypeChip(e.text))) compacted.push(e);
       }
     }
     // §5.5 #17-43 — 본문은 **하나도 걸러내지 않는다**(Sub 탭 `applyStreamDensity` 와 동일). 종전
@@ -684,7 +718,7 @@ function applyMainDensity(items: TerminalItem[], density: StreamDensity): Termin
   return out;
 }
 
-function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
+export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
   const items: TerminalItem[] = [];
   let i = 0;
 
@@ -815,6 +849,9 @@ function TerminalTextLine({ entry, density, exempt, run }: { entry: TerminalEntr
 }
 
 function TerminalLine({ entry, density, exempt, run, agentId }: { entry: TerminalEntry; density?: StreamDensity; exempt?: boolean; run?: SpeechRunPos; agentId?: string }): React.JSX.Element {
+  if (entry.transportRecovery) {
+    return <TransportRecoveryLine recovery={entry.transportRecovery} content={entry.text} sessionLabel={entry.sessionLabel} />;
+  }
   // §5.5 #17-39 — 단계 자국(끝난 사고 런). Sub 탭과 **같은 조각·같은 문구 함수**를 쓴다.
   if (entry.type === 'step') return <TerminalStepLine entry={entry} />;
   // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
@@ -2683,14 +2720,23 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     };
   }, [scrollRef, streamRef, commands]);
 
+  // §5.5 #17-12 ③-2 (a) — 이 줄이 **실행 중**을 말하는 동안은 스크롤 위치를 묻지 않는다. 종전에는 명령을
+  //   내려 두고 위로 올려 앞 턴을 읽는 순간 `완료 / 옛 프롬프트` 로 바뀌어, 돌고 있는 일이 사라진 것처럼
+  //   보였다. 측정(viewedId)은 계속 돌리므로 실행이 끝나는 순간 보고 있는 턴으로 곧장 넘어간다.
+  const pinnedToRunning = statusBarPinsToRunning({
+    defaultStatus: defaultTarget?.status ?? null,
+    sessionRunning,
+    hasRealExecuting,
+  });
+
   // viewedId(=data-cmd-id, `cmd-${id}`)가 가리키는 커맨드를 우선, 없으면 기본 대상.
   const target = useMemo(() => {
-    if (viewedId !== null) {
+    if (viewedId !== null && !pinnedToRunning) {
       const found = commands.find((c) => `cmd-${c.id}` === viewedId);
       if (found) return found;
     }
     return defaultTarget;
-  }, [viewedId, commands, defaultTarget]);
+  }, [viewedId, commands, defaultTarget, pinnedToRunning]);
 
   // v1.38 — 첨부 썸네일(basename 으로 조회). v2.93 — blob preview 우선 + server 파일 라우트 폴백.
   //          훅은 조건부 return 위에서 호출(target 없으면 빈 배열).
@@ -2951,7 +2997,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   메인 탭·Sub 탭이 같은 사실을 본다(줄이 와도 되감기지 않는다 — 활동 시각은 무응답 판정에만).
   const {
     lastActivityAt: sessionLastActivityAt, waiting: sessionWaiting, hiddenTurn: sessionHiddenTurn,
-    turnStartedAt: sessionTurnStartedAt,
+    turnStartedAt: sessionTurnStartedAt, compactingSince: sessionCompactingSince,
   } = useSessionLivenessFacts(agentId, activeSessionId);
   // §5.5 #17-12 ③ v4.64 — 하단 상태바의 [중지]를 없애면서 여기서 쓰던 useSessionStop 도 함께 제거.
   //   중지 창구는 입력창(TerminalInput)의 [중지] 하나뿐이다(#17-10 범위 규칙 그대로).
@@ -2962,6 +3008,8 @@ export const IDEMainArea = memo(function IDEMainArea({
   }, [activeSessionId, markSubAcknowledged]);
   const queuedCmds = useGraphStore((s) => s.queuedCommands[agentId] ?? EMPTY_COMMANDS);
   const completedCmds = useGraphStore((s) => s.completedCommands[agentId] ?? EMPTY_COMMANDS);
+  const runningTasks = useGraphStore((s) => s.runningSubagentTasks[agentId]);
+  const originalCommands = useMemo(() => [...queuedCmds, ...completedCmds], [queuedCmds, completedCmds]);
   // queued/executing + completed/error 를 시간순으로 합친다 — 완료 후에도 프롬프트 이력 유지 (CommandQueue와 동일).
   // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 **말풍선이 되지 않는다.** 사용자가 넣은 적이 없는
   //   명령이라, 여기 뜨면 자기가 치지도 않은 `/compact` 가 자기 대화에 섞여 보인다. 세션이 "돌고
@@ -3405,7 +3453,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     // 없어 매 스냅샷마다 전 세션 이벤트를 재파싱·정렬한다. 이 비용이 스냅샷 비용과 겹치는지 확인.
     const _PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
     const _t0 = _PERF ? performance.now() : 0;
-    const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError);
+    const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError, originalCommands, runningTasks);
     // §2.4 (생존 판정 단일화) — 종전에는 여기서 `commands.some(executing||queued)` 를 손으로 적었다.
     //   그 목록은 ① `displayCommands` 를 거친 **표시용 사본**이고 ② **세션 필터가 전혀 없어서**,
     //   다른 세션에 남은 좀비 명령 하나가 지금 보는 탭을 영영 "작업 중"으로 칠했다(이 버그의 직접 원인).
@@ -3434,7 +3482,8 @@ export const IDEMainArea = memo(function IDEMainArea({
         if (tail && (!latest || tail.timestamp > latest.timestamp)) latest = tail;
       }
       // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(Sub 탭 `computeThinkingLive` 와 동형).
-      const mode = sessionWaiting ? 'waiting' : latest && isThinkingActivity(latest) ? 'thinking' : 'working';
+      // §5.5 #17-24 ⑥ — 접는 중이면 넷째 모드. 고르는 규칙은 Sub 탭과 같은 함수 한 곳(`liveLineMode`).
+      const mode = liveLineMode(sessionWaiting, sessionCompactingSince !== null, !!latest && isThinkingActivity(latest));
       // §2.4 (무응답) — 경과 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중 늦은 쪽.
       //   감춘 턴이 도는 동안에도 입력한 순간부터 세고 무응답으로만 안 뒤집는다(`hiddenTurn`). Sub 탭과 같은
       //   함수다. 근거가 없으면 `null` — 여기서 `Date.now()` 를 넣으면 매 프레임 "방금 움직였다"가 되어
@@ -3445,11 +3494,12 @@ export const IDEMainArea = memo(function IDEMainArea({
         lastActivityAt: liveLineActivityAt(latest?.timestamp, sessionLastActivityAt),
         // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터(Sub 탭과 같은 사실).
         turnStartedAt: sessionTurnStartedAt,
+        ...(mode === 'compacting' && sessionCompactingSince !== null ? { compactingSince: sessionCompactingSince } : {}),
         ...(sessionHiddenTurn ? { hiddenTurn: true as const } : {}),
       });
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt]);
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, originalCommands, runningTasks, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt, sessionCompactingSince]);
 
   // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 sub 질문을 시간순.
@@ -4083,6 +4133,46 @@ export const IDEMainArea = memo(function IDEMainArea({
     setShowJumpBottom(false);
   }, [sessionKey, glueToBottomDom]);
 
+  // ─── §5.5 #17-48 내 입력 레일 — 맨 위 · 이전 · 다음 · 입력 눈금(맨 아래로 위) ───
+  //   Sub 탭은 렌더러가 입력 목록을 올려 주고(목록이 실제로 바뀔 때만), 메인 탭은 타임라인의 command 줄이다.
+  //   세션 키를 함께 적어 두어, 탭을 바꾼 첫 프레임에 앞 세션의 목록으로 그리지 않게 한다.
+  const [subPromptOutline, setSubPromptOutline] = useState<{ key: string; prompts: readonly PromptRailEntry[] }>({ key: '', prompts: EMPTY_PROMPT_OUTLINE });
+  const handlePromptOutline = useCallback((prompts: readonly PromptRailEntry[]) => {
+    setSubPromptOutline({ key: sessionKey, prompts });
+  }, [sessionKey]);
+  const mainPromptOutlineNow = useMemo(
+    () => (activeSessionId === null ? mainPromptOutlineOf(mainTimeline) : EMPTY_PROMPT_OUTLINE),
+    [activeSessionId, mainTimeline],
+  );
+  // 타임라인은 스트리밍 줄마다 새 배열이다 — 입력 목록이 같으면 옛 참조를 써서 레일을 다시 그리지 않는다.
+  const mainPromptOutlineRef = useRef<readonly PromptRailEntry[]>(EMPTY_PROMPT_OUTLINE);
+  if (!samePromptOutline(mainPromptOutlineRef.current, mainPromptOutlineNow)) mainPromptOutlineRef.current = mainPromptOutlineNow;
+  const railPrompts = activeSessionId !== null
+    ? (subPromptOutline.key === sessionKey ? subPromptOutline.prompts : EMPTY_PROMPT_OUTLINE)
+    : mainPromptOutlineRef.current;
+  const railProbe = useCallback((): PromptProbe | null => {
+    if (activeSessionId !== null) return streamRef.current?.promptProbe() ?? null;
+    const el = scrollRef.current;
+    if (!el) return null;
+    const viewport = measureViewportItems(el);
+    if (!viewport) return null;
+    return probePromptPlace(mainTimelineRef.current, isMainPromptNode, viewport, mainTimelineNodeId);
+  }, [activeSessionId]);
+  // 입력으로 옮기기 — 상태바 점프와 같이 추종부터 놓는다(워치독이 바닥으로 되끌지 않게).
+  const jumpToPrompt = useCallback((itemId: string) => {
+    releaseFollowForJump();
+    if (activeSessionId !== null) { streamRef.current?.jumpToItem(itemId); return; }
+    const idx = mainTimelineRef.current.findIndex((n) => mainTimelineNodeId(n) === itemId);
+    if (idx < 0) return;
+    mainVirtuosoRef.current?.scrollToIndex({ index: idx, align: 'start', offset: -PROMPT_JUMP_TOP_GAP });
+    settleItemAtTop(() => scrollRef.current, itemId);
+  }, [activeSessionId, releaseFollowForJump]);
+  const jumpToListTop = useCallback(() => {
+    releaseFollowForJump();
+    if (activeSessionId !== null) { streamRef.current?.jumpToTop(); return; }
+    mainVirtuosoRef.current?.scrollToIndex({ index: 0, align: 'start' });
+  }, [activeSessionId, releaseFollowForJump]);
+
   // §5.5 — 놓친 카드 pill 클릭: 그 카드 위치로 이동(+중앙 정렬·플래시). 위로 갈 수 있으니 추종을 명시 해제해
   //   워치독이 바닥으로 되끌지 않게 한다(바닥 근처 도착이면 atBottomStateChange 가 자동 재무장). 검색·북마크 점프와 동형.
   const scrollToCard = useCallback((card: UnseenCardMeta) => {
@@ -4282,6 +4372,8 @@ export const IDEMainArea = memo(function IDEMainArea({
               sessionActivityHidden={sessionHiddenTurn}
               // §5.5 #17-10 ⑥-6 — 라이브 1줄이 평소 적는 경과의 시작점(메인 탭과 같은 값).
               sessionTurnStartedAt={sessionTurnStartedAt}
+              // §5.5 #17-24 ⑥ — 접는 중이면 라이브 1줄이 `압축 중`(메인 탭과 같은 값).
+              sessionCompactingSince={sessionCompactingSince}
               // §4 v3.21 — result 블록 좋아요/싫어요 피드백 컨텍스트(소유 에이전트 + 이 세션 탭).
               agentId={agentId}
               subAgentId={activeSessionId ?? undefined}
@@ -4293,6 +4385,8 @@ export const IDEMainArea = memo(function IDEMainArea({
               onScrollerRef={setScrollNode}
               restoreState={restoreStateFor(sessionKey)}
               onAtBottomChange={handleAtBottomChange}
+              // §5.5 #17-48 — 내 입력 레일의 눈금 목록.
+              onPromptOutline={handlePromptOutline}
             />
           </>
         ) : (
@@ -4348,7 +4442,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                           : n.item.kind === 'group'
                             ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
-                              ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} turnStartedAt={n.item.turnStartedAt} hiddenTurn={n.item.hiddenTurn === true} />
+                              ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} turnStartedAt={n.item.turnStartedAt} hiddenTurn={n.item.hiddenTurn === true} compactingSince={n.item.compactingSince ?? null} />
                               : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId || mainOpeningTextIds.has(itemId)} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
                     </div>
                   );
@@ -4381,20 +4475,19 @@ export const IDEMainArea = memo(function IDEMainArea({
         <UnseenCardPills scrollEl={scrollEl} cards={unseenCandidateCards} onJump={scrollToCard} />
 
         {/* §5.5 "맨 아래로" 점프 버튼 — 위로 스크롤해 바닥에서 멀어졌을 때만(showJumpBottom) 우하단에 뜬다.
-            클릭 시 추종 재무장 + 바닥으로. 덮개(z-10)·검색바(z-20) 위(z-20). */}
-        {showJumpBottom && (
-          <button
-            type="button"
-            onClick={jumpToBottom}
-            title={t('ide.mainArea.jumpToBottom')}
-            aria-label={t('ide.mainArea.jumpToBottom')}
-            className="absolute bottom-3 right-3 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-gray-600 bg-gray-800/90 text-gray-200 shadow-lg backdrop-blur-sm transition-colors hover:border-blue-400/60 hover:bg-gray-700 hover:text-white"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 5v14M19 12l-7 7-7-7" />
-            </svg>
-          </button>
-        )}
+            클릭 시 추종 재무장 + 바닥으로. 덮개(z-10)·검색바(z-20) 위(z-20).
+            §5.5 #17-48 — 그 위에 내 입력 레일(맨 위 · 이전 · 입력 눈금 · 다음). 입력이 없으면 종전 버튼 하나뿐.
+            key 로 세션마다 새로 세워 붙든 자리·팝업이 다른 세션으로 새지 않게 한다. */}
+        <PromptRail
+          key={sessionKey}
+          prompts={railPrompts}
+          probe={railProbe}
+          scrollEl={scrollEl}
+          onJumpToPrompt={jumpToPrompt}
+          onJumpToTop={jumpToListTop}
+          onJumpToBottom={jumpToBottom}
+          showJumpBottom={showJumpBottom}
+        />
       </div>
 
       {/* Stream 하단 상태바 — §5.5 #17-12 로 메인 탭에도 상주(밀도 토글이 어느 탭에서도 닿게).

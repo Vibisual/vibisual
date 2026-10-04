@@ -76,6 +76,23 @@ export function clearsAwaitingInput(eventName: string): boolean {
 }
 
 /**
+ * §5.5 #17-24 ⑥ — **압축이 끝났다**고 읽을 수 있는 이벤트. 라이브 1줄의 "압축 중" 표식
+ * (`SubAgent.compactingSince` — 시작은 `PreCompact`)을 걷는다.
+ *
+ * `PostCompact` 하나만 믿지 않는다 — 오지 않은 압축이 실제로 있다(§5.26 (D)). 그래서 압축 뒤에
+ * 반드시 오는 사건도 끝으로 본다: `SessionStart`(압축 뒤 source "compact" 로 다시 온다) · 새 프롬프트 ·
+ * 턴 끝 · 세션 끝. 도구 이벤트는 넣지 않는다 — 같은 세션의 배경 서브에이전트가 압축 도중에도 낼 수 있어,
+ * 끝으로 읽으면 압축 도중에 "생각 중"으로 되돌아간다.
+ */
+export function endsCompaction(eventName: string): boolean {
+  return eventName === 'PostCompact'
+    || eventName === 'SessionStart'
+    || eventName === 'UserPromptSubmit'
+    || isTurnEndEventName(eventName)
+    || isSessionEndEvent(eventName);
+}
+
+/**
  * 화면 스냅샷을 다시 밀어야 하는 "상태가 바뀐" 이벤트.
  *
  * 모델 전환·워크트리 생성/제거·설정 변경·작업 디렉터리 변경은 전부 **버블에 적힌 내용이 달라지는**

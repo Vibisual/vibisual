@@ -18,6 +18,7 @@ import {
   type SubmenuState,
 } from './contextMenuSubmenu.js';
 import { EngineIcon } from '../Engine/engineIcons.js';
+import { useCanvasMenuPlacement } from './useCanvasMenuPlacement.js';
 
 interface CanvasContextMenuProps {
   x: number;
@@ -57,6 +58,15 @@ const MENU_ROW_CLASS =
  */
 const MENU_ROW_OPEN_CLASS = `${MENU_ROW_CLASS} bg-gray-800`;
 
+// Reserve the scrollbar before measuring so height limits cannot widen the popup afterward.
+const SUBMENU_CLASS = 'fixed z-10 w-max overflow-y-auto overscroll-contain [scrollbar-gutter:stable] rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40 [&_button>div]:min-w-0';
+const SUBMENU_ARROW_PATH = {
+  right: 'm9 18 6-6-6-6',
+  left: 'm15 18-6-6 6-6',
+  above: 'm6 15 6-6 6 6',
+  below: 'm6 9 6 6 6-6',
+};
+
 export const CanvasContextMenu = memo(function CanvasContextMenu({
   x,
   y,
@@ -77,6 +87,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
 }: CanvasContextMenuProps): React.JSX.Element {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
   const [hoveredType, setHoveredType] = useState<PipelineType | null>(null);
   /**
    * §5.25 (B)·(B-1) · §5.13 v4.45 — **옆으로 펼쳐지는 칸(엔진 칸 · 앱 칸) 한 벌.**
@@ -92,6 +105,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
    * `contextMenuSubmenu.ts` 한 곳에 있고 그대로 단위 테스트된다.
    */
   const [submenu, setSubmenu] = useState<SubmenuState>(SUBMENU_CLOSED);
+  const submenuSide = useCanvasMenuPlacement(x, y, submenu.open, menuRef, listRef, triggerRef, submenuRef);
   /** 칸 위로 마우스가 들어왔다 — 그 칸이 펼쳐지고, 다른 칸의 고정은 풀린다. */
   const enterSubmenu = useCallback((key: SubmenuKey) => setSubmenu((s) => hoverSubmenu(s, key)), []);
   /** 칸에서 마우스가 빠져나갔다 — 고정된 칸은 그대로 남는다. */
@@ -215,23 +229,16 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
 
   const info = hoveredType ? PIPELINE_TYPE_INFO[hoveredType] : null;
 
-  // §4 v3.16 — 화면 밖으로 넘치지 않게 위치를 뷰포트 안으로 당긴다(폰 가장자리 롱프레스 대비).
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
-  const clampedX = Math.max(8, Math.min(x, vw - 244));
-  // 메뉴 높이는 게이트로 넷이 빠지면 짧아지므로 클램프도 그 높이를 따라간다.
-  const clampedY = Math.max(8, Math.min(y, vh - (debugMode ? 380 : 240)));
-
   return (
     <div
       ref={menuRef}
-      className="fixed z-50"
-      style={{ left: clampedX, top: clampedY }}
+      className="fixed z-50 w-max [overflow-wrap:anywhere] [&_button>div]:min-w-0"
+      style={{ left: x, top: y, maxWidth: 'calc(100vw - 16px)' }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
       {/* 메뉴 목록 */}
-      <div className="min-w-48 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+      <div ref={listRef} className="overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40" style={{ maxHeight: 'calc(100dvh - 16px)' }}>
         {/* §5.25 (B) — **클로드 칸.** 마우스를 올리면 클로드 전용 항목이 옆으로 펼쳐지고,
             **클릭하면 고정**돼 마우스가 벗어나도 남는다(다른 항목에 올리면 풀린다 — (B-1)).
             안에 드는 것: 클로드 에이전트(종전 "Custom Agent") · 워크트리.
@@ -244,6 +251,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         >
           <button
             type="button"
+            ref={isSubmenuOpen(submenu, 'claude') ? triggerRef : undefined}
             className={isSubmenuOpen(submenu, 'claude') ? MENU_ROW_OPEN_CLASS : MENU_ROW_CLASS}
             onClick={() => pinSubmenu('claude')}
             aria-haspopup="menu"
@@ -259,12 +267,12 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
               </span>
             </div>
             <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m9 18 6-6-6-6" />
+              <path d={SUBMENU_ARROW_PATH[isSubmenuOpen(submenu, 'claude') ? submenuSide : 'right']} />
             </svg>
           </button>
 
           {isSubmenuOpen(submenu, 'claude') && (
-            <div className="absolute left-full top-0 ml-1 min-w-64 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+            <div ref={submenuRef} className={SUBMENU_CLASS}>
               {/* 클로드 에이전트 — 종전 "Custom Agent 만들기". 이름만 엔진 기준으로 고쳤고
                   만드는 경로(`onCreateCustomAgent`)는 그대로다. */}
               <button
@@ -336,6 +344,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         >
           <button
             type="button"
+            ref={isSubmenuOpen(submenu, 'codex') ? triggerRef : undefined}
             className={isSubmenuOpen(submenu, 'codex') ? MENU_ROW_OPEN_CLASS : MENU_ROW_CLASS}
             onClick={() => pinSubmenu('codex')}
             aria-haspopup="menu"
@@ -351,12 +360,12 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
               </span>
             </div>
             <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m9 18 6-6-6-6" />
+              <path d={SUBMENU_ARROW_PATH[isSubmenuOpen(submenu, 'codex') ? submenuSide : 'right']} />
             </svg>
           </button>
 
           {isSubmenuOpen(submenu, 'codex') && (
-            <div className="absolute left-full top-0 ml-1 min-w-64 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+            <div ref={submenuRef} className={SUBMENU_CLASS}>
               {/* §5.25 (B) — 코덱스 에이전트. 누르면 버블이 먼저 생기고, 설치·로그인·모델은
                   그 버블을 눌렀을 때 판정한다(준비 창이 캔버스 앞을 막지 않는다). */}
               <button
@@ -554,6 +563,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         >
           <button
             type="button"
+            ref={isSubmenuOpen(submenu, 'apps') ? triggerRef : undefined}
             className={isSubmenuOpen(submenu, 'apps') ? MENU_ROW_OPEN_CLASS : MENU_ROW_CLASS}
             onClick={() => pinSubmenu('apps')}
             aria-haspopup="menu"
@@ -571,12 +581,12 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
               <span className="text-xs text-gray-500">{t('canvas.contextMenu.appsHint', { defaultValue: '앱 버블을 놓고 더블클릭해 엽니다' })}</span>
             </div>
             <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m9 18 6-6-6-6" />
+              <path d={SUBMENU_ARROW_PATH[isSubmenuOpen(submenu, 'apps') ? submenuSide : 'right']} />
             </svg>
           </button>
 
           {isSubmenuOpen(submenu, 'apps') && (
-            <div className="absolute left-full top-0 ml-1 min-w-72 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+            <div ref={submenuRef} className={SUBMENU_CLASS}>
               {INTERNAL_APPS.map((app) => {
                 const Icon = app.icon;
                 return (

@@ -55,7 +55,6 @@ export const ShelfNode = memo(function ShelfNode({
 }: NodeProps & { data: ShelfNodeData }): React.JSX.Element {
   const { t } = useTranslation();
   const selectShelfBubble = useGraphStore((s) => s.selectShelfBubble);
-  const selectedShelfBubbleId = useGraphStore((s) => s.selectedShelfBubbleId);
   const openShelfPanel = useGraphStore((s) => s.openShelfPanel);
   const updateShelfBubble = useGraphStore((s) => s.updateShelfBubble);
   const patchLocal = useGraphStore((s) => s.patchShelfBubbleLocal);
@@ -68,10 +67,9 @@ export const ShelfNode = memo(function ShelfNode({
 
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
   // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
-  const isSelected = selected === true
-    || selectedShelfBubbleId === data.shelfBubbleId
-    || selectIntentId === data.shelfBubbleId;
+  // 둘 다 판정 결과만 구독한다(§9) — id 를 받으면 다른 버블을 고를 때마다 이 버블도 다시 그려진다.
+  const chosenHere = useGraphStore((s) => s.selectedShelfBubbleId === data.shelfBubbleId || s.selectIntentId === data.shelfBubbleId);
+  const isSelected = selected === true || chosenHere;
   const isPinned = data.preservePinned === true;
 
   // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).

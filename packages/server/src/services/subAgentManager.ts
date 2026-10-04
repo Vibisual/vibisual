@@ -6,7 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, resolveAutoCompact, resolveEffectiveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
   listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -21,7 +21,7 @@ import {
 } from './backgroundTaskProbe.js';
 // §2.4 — 세션 생존 판정. 위 백그라운드 판정과 같은 계약(중립 cwd · 도구 없음 · 질문 쪼개기).
 import {
-  runSessionLivenessProbe, resolveSessionTranscript, summarizeTranscriptTail,
+  runSessionLivenessProbe, resolveSessionTranscript, summarizeTranscriptTail, transcriptLastWriteMs,
   type SessionProbeEvidence,
 } from './sessionLivenessProbe.js';
 import { terminateTaskProcesses } from './processDescendants.js';
@@ -48,19 +48,19 @@ import {
   type LocalToolVerdict,
   type LocalTurnDoneInfo,
 } from './localRunner.js';
-import { runCodexTurn, stopCodexTurn } from './codexRunner.js';
+import { isCodexTurnRunning, runCodexTurn, stopCodexTurn } from './codexRunner.js';
 import { createCodexBashBridge } from './codexBashBridge.js';
 import { codexEdgeInstructions, type CodexEdgeConfig, type CodexPermissionHookConfig, type CodexToolHookConfig } from './codexEdges.js';
 import { formatUndeliveredDispatchJobs } from './taskEdgeDispatchJobs.js';
 import { permissionBroker } from './permissionBroker.js';
 import { permissionSessionGrants } from './permissionSessionGrants.js';
-import { userDefaultsService } from './userDefaultsService.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readLastAssistantEntry, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import type { LastAssistantEntry } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { buildShellCommandLine, interactiveShellFamily } from './interactiveCommandLine.js';
 // §5.5 #17-2 — 턴 프롬프트 조립(슬래시 명령은 앞말 없이 원문 그대로). 순수 모듈 + 단위 테스트.
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
 import { resolveTurnResult, isAnswerlessTurnText } from './turnResult.js';
@@ -163,19 +163,6 @@ interface ConfigArgsContext {
   agentName?: string;
   /** 프로젝트 루트(= 스폰 cwd). 'project'/'local' 범위에서만 쓰인다. */
   projectRoot?: string;
-  /**
-   * §4 (CLI 사양 추종) — 설정 창(Agent Defaults)이 정한 `--autocompact` 전역 기본값.
-   *
-   * 이 조립 함수를 **순수하게** 두려고 서비스를 직접 읽지 않고 인자로 받는다(그래야 3층 해소를
-   * 단위 테스트로 고정할 수 있다). 넘기지 않으면 에이전트 설정 → 내장 기본 2층만 본다.
-   */
-  userAutoCompact?: string;
-  /**
-   * §5.3 #9-1 (Q축) — 토큰 절약이 조인 압축 창. 이 조립 함수를 **순수하게** 두려고 서비스를
-   * 직접 읽지 않고 인자로 받는다(`userAutoCompact` 와 같은 이유 — 그래야 4층 해소를 단위
-   * 테스트로 고정할 수 있다). 넘기지 않으면 종전 3층 그대로다.
-   */
-  tokenSaverAutoCompact?: string;
 }
 
 /**
@@ -271,20 +258,16 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--worktree');
   }
 
-  // §4 (CLI 사양 추종) — 아래 넷은 인터랙티브·헤드리스 양쪽에서 유효한 일반 플래그라 여기서 붙인다.
+  // §4 (CLI 사양 추종) — 아래 플래그들은 인터랙티브·헤드리스 양쪽에서 유효한 일반 플래그라 여기서 붙인다.
   //   (`--fallback-model` 은 `--print` 전용이라 여기가 아니라 스폰부 printFlags 에 있다.)
-  // §4 (CLI 사양 추종) — `--autocompact` 값은 3층(에이전트 → 설정 창 → 내장 기본 **꺼짐**)에서
-  //   `resolveAutoCompact` 한 곳이 정한다. CLI 판단에 맡기고 싶은 사람은 `'auto'` 를 고른다.
-  //
-  //   ⚠ **꺼짐이면 플래그를 싣지 않는다** — `off` 는 우리 축의 값이지 CLI 의 값이 아니다.
-  //   설치본은 `auto` 또는 100k~1M 만 받고 `--autocompact off` 를 주면 `argument 'off' is
-  //   invalid` 로 **즉시 종료**해 그 에이전트가 영영 못 뜬다(실측 2.1.252). 플래그를 생략하면
-  //   CLI 기본(창 전체)이라 `[1m]` 스폰에서는 사실상 압축이 없고, 창에 닿을 때 CLI 가 한 번
-  //   접는 최후 안전망만 남는다 — 그것이 사용자가 "끔"으로 산 상태의 정확한 의미다.
-  const resolvedAutoCompact = resolveEffectiveAutoCompact(config.autoCompact, ctx?.userAutoCompact, ctx?.tokenSaverAutoCompact);
-  if (isAutoCompactOn(resolvedAutoCompact)) {
-    args.push('--autocompact', resolvedAutoCompact);
-  }
+  // §4 (CLI 사양 추종) (5) — **자동 압축 창은 스폰에 싣지 않는다**(2026-10-05 사용자 지시: 작업 도중에는
+  //   CLI 가 모델 창 끝에서만 접고, 고른 창은 명령 사이 조용한 압축에만 쓴다). 종전에는 해소한 창(3층 →
+  //   토큰 절약 Q → 창 하한)을 `--autocompact` 로 실어 CLI 가 작업 도중 그 창 근처에서 접었는데, Opus 5.5
+  //   부터 호출 한 번이 문맥을 약 70% 더 늘려 200k 창은 약 19호출마다 접혔고 1~2시간 지시의 35~47% 가
+  //   압축이었다(접힐 때마다 읽던 문서를 다시 읽는다). 플래그가 없으면 CLI 기본(모델 창 전체)이고, 고른
+  //   창은 턴 경계 판정(index.ts `maybeCompactAfterTurn` → shared `shouldCompactAfterTurn`)만 본다.
+  //   ⚠ 다시 싣는다면 `off` 는 CLI 값이 아니다 — `--autocompact off` 는 `argument 'off' is invalid` 로
+  //   **즉시 종료**한다(실측 2.1.252). `agentCliArgs.test.ts` 가 이 플래그를 허용 목록 밖에 두고 막는다.
 
   // §4 (CLI 사양 추종) — **시스템 프롬프트를 박제하지 않는다.** 설치본 기본은 `on` 이고, 그 뜻은
   //   `--help` 원문대로 "대화의 첫 요청에서 (`--append-system-prompt` 를 포함해) 프롬프트를 렌더해
@@ -314,8 +297,9 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
 
   // §4 (CLI 사양 추종) — 이 세션에만 존재하는 서브에이전트 정의. 배열(우리) → 객체(CLI) 변환은
   //   `buildAgentsFlagJson`(shared) 한 곳이고, 넘길 게 없으면 **플래그 자체를 안 붙인다**.
-  //   ⚠ argv 로 나가는 JSON 이라 셸을 거치지 않는 spawn(배열 인자)이라야 안전하다 — 우리 스폰이
-  //   그렇다(문자열 명령줄로 조립하는 경로가 생기면 여기가 먼저 깨진다).
+  //   ⚠ argv 로 나가는 JSON 이라 셸을 거치지 않는 spawn(배열 인자)이라야 안전하다 — 헤드리스 스폰이
+  //   그렇다. 문자열 명령줄로 조립하는 CMD 터미널 prefill 은 실제로 여기서 깨졌다(cmd.exe·bash 가 안쪽
+  //   따옴표를 먹어 `Invalid --agents configuration`) — 그 길은 `interactiveCommandLine.ts` 가 셸별로 감싼다.
   const agentsJson = buildAgentsFlagJson(config.agentDefinitions);
   if (agentsJson) {
     args.push('--agents', agentsJson);
@@ -424,13 +408,9 @@ function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext
  */
 export function buildInteractiveClaudeArgs(
   config: AgentConfig,
-  opts: { includeRules?: boolean; userAutoCompact?: string } = {},
+  opts: { includeRules?: boolean } = {},
 ): string[] {
-  const args = buildConfigArgs(config, {
-    userAutoCompact: opts.userAutoCompact,
-    // §5.3 #9-1 (Q) — 사용자가 직접 치는 CMD 세션도 같은 창으로 접힌다(두 경로 한 벌).
-    tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow,
-  });
+  const args = buildConfigArgs(config);
   // includeRules 기본 false — 임베디드 터미널은 셸 프롬프트에 명령을 prefill 하는데
   // 멀티라인 rules 를 한 줄 명령에 넣으면 셸 파싱이 깨진다(데스크톱 터미널 매니저 경로).
   // 직접 spawn(argv 배열) 경로에서만 includeRules:true 로 rules 를 안전히 주입.
@@ -462,6 +442,13 @@ export function buildInteractiveCliPrefill(opts: {
   rulesDir?: string | null;
   /** 직전 대화 sessionId(있으면 `--resume`). claude 갈래 전용. */
   resumeId?: string | null;
+  /**
+   * 이 줄을 받을 셸의 실행 파일(`pickShell().shell`) — 인용 규칙이 셸마다 다르다(cmd.exe · POSIX 셸 · fish).
+   * 없으면 OS 기본(win32 = cmd.exe, 그 밖 = POSIX 셸)으로 본다.
+   */
+  shell?: string;
+  /** 판정할 OS — 시험이 세 OS 를 다 돌 수 있게 인자로 받는다. 없으면 이 프로세스의 OS. */
+  platform?: NodeJS.Platform;
 }): { prefill: string; managed: boolean; kind: CmdCliKind } {
   const row = resolveCmdCliKind(opts.config.cliKind);
   const kind = row.value as CmdCliKind;
@@ -471,24 +458,19 @@ export function buildInteractiveCliPrefill(opts: {
     return { prefill: row.bin, managed: false, kind };
   }
 
-  // §4 (CLI 사양 추종) — CMD 인터랙티브도 헤드리스와 같은 자동 압축 기본값을 받아야 한다.
-  //   여기는 순수 조립부가 아니라 런타임 진입점이라 전역 기본을 이 자리에서 읽어 넘긴다.
-  const args = buildInteractiveClaudeArgs(opts.config, {
-    includeRules: false,
-    userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
-  });
+  // §4 (CLI 사양 추종) (5) — 자동 압축 창은 CMD 에도 싣지 않는다(헤드리스와 같은 `buildConfigArgs`). 사람이
+  //   직접 치는 세션이라 우리가 명령 사이 압축을 끼울 자리도 없어, VS Code 와 같이 모델 창 끝에서만 접힌다.
+  const args = buildInteractiveClaudeArgs(opts.config, { includeRules: false });
   if (opts.rulesDir) args.push('--add-dir', opts.rulesDir);
   const fullArgs = opts.resumeId ? ['--resume', opts.resumeId, ...args] : args;
+  // 셸 문법으로 감싼다 — 종전 "공백이 있으면 큰따옴표"는 `--agents` JSON 의 안쪽 따옴표를 그대로 둬
+  //   cmd.exe·bash 가 JSON 을 쪼갰고, 맨몸 `opus[1m]` 은 mac zsh 가 글롭으로 읽어 명령을 거절했다.
+  const family = interactiveShellFamily(opts.shell, opts.platform ?? process.platform);
   return {
-    prefill: [opts.claudeBinPath, ...fullArgs].map(quoteInteractiveArg).join(' '),
+    prefill: buildShellCommandLine([opts.claudeBinPath, ...fullArgs], family),
     managed: true,
     kind,
   };
-}
-
-/** 공백 포함 인자만 따옴표 — 셸 prefill 한 줄 구성용. */
-function quoteInteractiveArg(s: string): string {
-  return /\s/.test(s) ? `"${s}"` : s;
 }
 
 /** §4 v2.64 — CMD 에이전트 로컬 스토어 폴더(`~/.vibisual/cmd-agents/<agentId>/`). rules·세션맵 공용. */
@@ -3279,10 +3261,14 @@ export class SubAgentManager {
         continue;
       }
 
-      const quietMin = Math.floor((now - tx.mtimeMs) / 60_000);
+      let quietMin = Math.floor((now - tx.mtimeMs) / 60_000);
       const st = this.sessionProbeStates.get(sub.id);
       // `working` 으로 나온 세션은 조용한 시간이 배수만큼 더 길어져야 다시 묻는다(지수 백오프).
       const threshold = quietMinutes * (st?.thresholdMult ?? 1);
+      if (quietMin < threshold) continue;
+      // 수정 시각이 멈춘 대화록이 있다(Windows 코덱스 롤아웃은 생성 시각 그대로다) — 임계를 넘어 보일
+      //   때만 마지막 줄의 시각으로 다시 잰다. 1초 전에 줄을 쓴 턴이 "8분 조용"으로 닫히던 자리다.
+      quietMin = Math.floor((now - transcriptLastWriteMs(tx.file, tx.mtimeMs, now)) / 60_000);
       if (quietMin < threshold) continue;
       if (best && best.evidence.quietMin !== undefined && quietMin <= best.evidence.quietMin) continue;
 
@@ -3334,8 +3320,13 @@ export class SubAgentManager {
     }
     const tasks = this.sessionProbeTasks(sub);
     if (result.verdict === 'finished' && (tasks.live.length > 0 || tasks.pending.length > 0
-      || this.dispatchingSubs.has(sub.id) || this.deferredSeals.has(sub.id) || this.noticeResumeHolds.has(sub.id))) {
+      || this.dispatchingSubs.has(sub.id) || this.deferredSeals.has(sub.id) || this.noticeResumeHolds.has(sub.id)
+      || isCodexTurnRunning(sub.id))) {
       // 모델의 해석은 실제 진행 작업·재개 대기보다 강한 종료 근거가 될 수 없다.
+      // 코덱스 `exec` 은 턴이 끝나면 스스로 나간다(남으면 러너가 거둔다) — 그 프로세스가 살아 있다는 것이
+      //   곧 턴이 안 끝났다는 뜻이다. 여기서 닫으면 다음 명령이 같은 스레드에 두 번째 writer 로 붙어
+      //   `already has an active writer` 로 거절되고, 옛 턴은 [중지]로도 닿지 않은 채 혼자 돈다(2026-10-02
+      //   실측 — 닫힌 뒤 20분을 더 돌았다). 정말 멎은 턴은 러너의 워치독(§5.25 (F) 20분)이 닫는다.
       logger.info(`[session-probe] 종료 판정 거부 sub=${candidate.subId} — 살아 있는 작업 또는 재개 대기가 남음`);
       this.bumpSessionProbeBackoff(candidate.subId);
       return;
@@ -3775,6 +3766,8 @@ export class SubAgentManager {
         delete item.blockedSince;
         delete item.blockedReason;
         delete item.foregroundProcess;
+        // §5.5 #17-24 ⑥ — 압축 중 표식도 런타임 표식이다. 부팅 직후엔 접는 자식이 없다(남기면 영영 "압축 중").
+        delete item.compactingSince;
         return item;
       });
       this.registry.set(agentId, items);
@@ -4059,6 +4052,42 @@ export class SubAgentManager {
     if (sub.dormant === undefined && sub.dormantSince === undefined) return;
     delete sub.dormant;
     delete sub.dormantSince;
+  }
+
+  /**
+   * §5.5 #17-24 ⑥ — 스트림 한 줄이 **압축의 시작·끝**을 말하면 그 세션의 `compactingSince` 를 세우고 걷는다.
+   *
+   * CLI 가 턴 도중에 접는 2.4~6분 동안은 스트림에 아무 줄도 오지 않아, 라이브 1줄이 "생각 중"으로 경과만
+   * 키웠다(2026-10-04 사용자 보고 "생각 중을 1시간 넘게"). 판정은 shared `readCompactionSignal` 한 곳이고,
+   * 세 스트림 경로(persistent · legacy · agent-view)가 같이 부른다 — 한도 통지(`noteUsageLimitLine`)와 같은 규율.
+   */
+  private noteCompactionLine(sub: SubAgent, obj: unknown): void {
+    const signal = readCompactionSignal(obj);
+    if (signal) this.setCompacting(sub, signal === 'start');
+  }
+
+  /**
+   * §5.5 #17-24 ⑥ — 훅으로 온 압축의 시작·끝(`PreCompact` → 시작, `PostCompact`·압축 뒤에 오는 사건 → 끝).
+   * agent-view(JSONL)에는 status 줄이 없어 시작을 이 길로만 안다. 스트림과 겹치면 먼저 온 쪽이 세운다.
+   */
+  noteCompactionHook(subId: string, phase: 'start' | 'end'): void {
+    const sub = this.index.get(subId);
+    if (sub) this.setCompacting(sub, phase === 'start');
+  }
+
+  /**
+   * 표식을 세우거나 걷고, **바뀌었을 때만** 화면을 민다. 이미 서 있으면 시각을 덮지 않는다 — 압축이
+   * 시작된 시각이 라이브 1줄 경과의 기준이라, 두 번째 신호(훅 뒤의 status 줄)가 시계를 되감으면 안 된다.
+   */
+  private setCompacting(sub: SubAgent, on: boolean): void {
+    if (on) {
+      if (sub.compactingSince !== undefined) return;
+      sub.compactingSince = Date.now();
+    } else {
+      if (sub.compactingSince === undefined) return;
+      delete sub.compactingSince;
+    }
+    this.onSubStatusChange?.(sub.parentAgentId);
   }
 
   /**
@@ -5132,16 +5161,12 @@ export class SubAgentManager {
 
     // AgentConfig → CLI 인자 변환
     // §5.3 v4.89 — 기억 폴더는 "어느 에이전트가, 어느 프로젝트에서" 로 갈리므로 맥락을 함께 넘긴다.
-    //   §4 (CLI 사양 추종) — 자동 압축은 3층 해소라 설정 창 전역 기본을 함께 넘긴다. 이 값이
-    //   여기서 실려야 **이미 만들어져 돌던 에이전트**도 설정 창에서 바꾼 값을 따른다(신규
-    //   에이전트에만 걸리는 `createCustomAgent` 의 userDefaults 머지와 별개의 경로다).
+    //   §4 (CLI 사양 추종) (5) — 자동 압축 창은 여기서 넘기지 않는다(스폰에 안 싣는다 — 2026-10-05).
+    //   설정 창 전역 기본·토큰 절약 Q·창 하한은 턴 경계 판정(index.ts `maybeCompactAfterTurn`)이 매번 읽는다.
     const configCtx: ConfigArgsContext = {
       verificationConfig: opts?.verificationConfig,
       agentName: sub!.parentAgentId,
       projectRoot: parentCwd,
-      userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
-      // §5.3 #9-1 (Q) — 절약이 조인 창. 미설정이면 위 3층 결과가 그대로 나간다.
-      tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow,
     };
     // §5.5 #17-28 — 주입원 창이 끈 줄의 CLI 인자를 뒤에 얹는다. 같은 인자가 이미 있으면 넣지 않는다.
     let configArgs: string[];
@@ -5337,6 +5362,8 @@ export class SubAgentManager {
         this.clearPendingSubagentTasksForSession(sub.parentAgentId, sub.id);
         this.runningAgentViewWatchers.delete(sub.id);
         this.clearDispatching(sub.id);
+        // §5.5 #17-24 ⑥ — 실행이 끝났으면 접는 중일 수 없다(끝 줄을 놓친 압축 표식을 여기서 걷는다).
+        this.setCompacting(sub, false);
         try { await detachWatcher(short); } catch { /* ignore */ }
         this.onSubStatusChange?.(sub.parentAgentId);
         this.onComplete?.();
@@ -5356,6 +5383,8 @@ export class SubAgentManager {
           //   (리셋 시각을 숫자로 얻는 유일한 경로다).
           this.noteUsageLimitLine(sub, obj);
           this.noteTurnStopLine(cmd.id, obj);
+          // §5.5 #17-24 ⑥ — JSONL 에는 status 줄이 없어 끝 신호(`compact_boundary`·대화 줄)만 온다. 시작은 PreCompact 훅이 세운다.
+          this.noteCompactionLine(sub, obj);
           // assistant 메시지 = 1턴. maxTurns 초과 시 supervisor 에 stop 발사.
           if (obj['type'] === 'assistant' && !killed) {
             turnCount++;
@@ -5471,7 +5500,7 @@ export class SubAgentManager {
       });
       if (decision === 'respawn') {
         logger.info(
-          `SubAgent ${sub.id} model axes changed since spawn (${this.persistentSpawnModelKey.get(sub.id)?.replace(/\n/g, ' ')}`
+          `SubAgent ${sub.id} model/compact-window axes changed since spawn (${this.persistentSpawnModelKey.get(sub.id)?.replace(/\n/g, ' ')}`
           + ` -> ${modelAxesKeyOf(configArgs).replace(/\n/g, ' ')}) — retiring idle persistent child; cmd=${cmd.id} resumes on a fresh spawn`,
         );
         this.persistentSpawnModelKey.delete(sub.id);
@@ -5482,7 +5511,7 @@ export class SubAgentManager {
         return;
       }
       if (decision === 'reuse-held') {
-        logger.info(`SubAgent ${sub.id} model axes changed but background work is still running in the child — reusing it for this turn`);
+        logger.info(`SubAgent ${sub.id} model/compact-window axes changed but background work is still running in the child — reusing it for this turn`);
       }
     }
     if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
@@ -5711,6 +5740,8 @@ export class SubAgentManager {
             this.noteUsageLimitLine(sub!, obj);
             // §5.5 #17-12 ③-6 — 모델이 적어 보낸 끝 사유를 봉인 때까지 들고 있는다.
             this.noteTurnStopLine(cmd.id, obj);
+            // §5.5 #17-24 ⑥ — 압축 시작(`status:"compacting"`)·끝을 세 스트림 경로에서 같은 판정으로.
+            this.noteCompactionLine(sub!, obj);
             // 스트림 이벤트 파싱 + 클라이언트 중계 (한 라인이 여러 블록 가능)
             // §4 v2.88 — legacy --print 스폰은 `--include-partial-messages` 가 붙어 토큰 델타가 온다 → partialMessages:true.
             const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true, hookEvents: this.streamHookEventsOn.get(sub!.id) === true });
@@ -5762,6 +5793,8 @@ export class SubAgentManager {
           logger.info(`SubAgent ${sub!.id} stale child closed (code=${code}) — current child left untouched`);
           return;
         }
+        // §5.5 #17-24 ⑥ — 자식이 내려갔으면 접는 중일 수 없다(압축 도중 크래시·의도된 종료·되태우기 모두).
+        this.setCompacting(sub!, false);
         // §4 (실행본 자가 복구) — 실행본이 사라져 되태우기로 한 경우: 아래 정리·마감을 **전부 건너뛰고**
         //   명령을 큐로 돌려놓는다. `onComplete` 가 부르는 다음 dispatch 가 재해석된 경로로 다시 띄운다.
         //   (여기서 걸러 두면 이어지는 persistent/legacy 마감 분기가 이 명령을 실패로 못박지 않는다.)
@@ -5921,6 +5954,8 @@ export class SubAgentManager {
     this.noteUsageLimitLine(sub, obj);
     // §5.5 #17-12 ③-6 — 끝 사유는 result 줄이 봉인을 부르기 **전에** 적어야 그 봉인이 읽는다.
     this.noteTurnStopLine(inFlight?.cmd.id, obj);
+    // §5.5 #17-24 ⑥ — 압축 시작·끝(legacy 경로와 같은 판정). status 줄은 화면에 그리지 않아도 여기서는 읽는다.
+    this.noteCompactionLine(sub, obj);
 
     // 스트림 이벤트 — 클라 중계.
     const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId, { hookEvents: this.streamHookEventsOn.get(sub.id) === true });

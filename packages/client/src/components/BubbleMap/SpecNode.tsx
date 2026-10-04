@@ -62,7 +62,6 @@ export const SpecNode = memo(function SpecNode({
 }: NodeProps & { data: SpecNodeData }): React.JSX.Element {
   const { t } = useTranslation();
   const selectSpecDoc = useGraphStore((s) => s.selectSpecDoc);
-  const selectedSpecDocId = useGraphStore((s) => s.selectedSpecDocId);
   const openSpecBoard = useGraphStore((s) => s.openSpecBoard);
   const updateSpecDoc = useGraphStore((s) => s.updateSpecDoc);
   const patchLocal = useGraphStore((s) => s.patchSpecDocLocal);
@@ -76,10 +75,9 @@ export const SpecNode = memo(function SpecNode({
 
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
   // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
-  const isSelected = selected === true
-    || selectedSpecDocId === data.specDocId
-    || selectIntentId === data.specDocId;
+  // 둘 다 판정 결과만 구독한다(§9) — id 를 받으면 다른 버블을 고를 때마다 이 버블도 다시 그려진다.
+  const chosenHere = useGraphStore((s) => s.selectedSpecDocId === data.specDocId || s.selectIntentId === data.specDocId);
+  const isSelected = selected === true || chosenHere;
   const isPinned = data.preservePinned === true;
 
   // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).

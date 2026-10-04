@@ -111,36 +111,36 @@ describe('§5.26 (F) judgeAll — ok 는 목록에 서지 않는다', () => {
   });
 });
 
-// ─── §5.26 (F)(a)(b) — 2026-09-09 추가분 ───
+// ─── §5.26 (F)(a)(b) — 2026-09-09 추가분 · (a) 는 2026-10-05 정정 ───
 //
-// (a) `overdue` 의 분모가 모델 창이 아니라 **사용자가 접기로 한 선**이라는 것,
-// (b) 보냈는데 안 온 압축은 예측이 아니라 **이미 일어난 실패**라는 것.
-// 둘 다 실제 사고에서 나왔다: 1M 창에 400k 를 걸어 둔 세션이 24시간 동안 한 번도 안 접혔는데
-// 창 대비로는 32% 라 보험이 침묵했고, 우리가 쏜 `/compact` 는 거절됐는데 로그만 남았다.
+// (a) `overdue` 의 분모는 **모델 창**이다. 09-09 에는 "사용자가 접기로 한 선"이었는데, 그때는 그 선이
+//     `--autocompact` 로 실려 CLI 가 작업 도중 거기서 접었기 때문이다. 10-05 부터 고른 창은 명령 사이
+//     압축에만 쓰여 작업 도중 그 선을 넘는 것이 정상이 됐다 — 그대로 두면 긴 작업마다 거짓 경보가 난다.
+// (b) 보냈는데 안 온 압축은 예측이 아니라 **이미 일어난 실패**라는 것(1M 창에 400k 를 걸어 둔 세션에서
+//     우리가 쏜 `/compact` 가 거절됐는데 로그만 남았던 사고).
 
-describe('§5.26 (F)(a) overdue 의 분모는 "접기로 한 선"이다', () => {
-  it('창 대비 39% 라도 정한 선(400k) 대비 97% 면 overdue', () => {
-    const s = judgeCompactWatch(input({
-      contextUsed: 390_000,
-      contextMax: 1_000_000,
-      autoCompactTokens: 400_000,
-    }), NOW);
-    expect(s.level).toBe('overdue');
-  });
-
-  it('선이 없으면 종전대로 창으로 잰다 — 같은 수치가 침묵한다(무보험이던 구간)', () => {
+describe('§5.26 (F)(a) overdue 의 분모는 모델 창이다(2026-10-05)', () => {
+  it('고른 창(400k)을 넘어도 모델 창 대비 39% 면 ok — 작업 도중 그 선을 넘는 것은 정상이다', () => {
     const s = judgeCompactWatch(input({
       contextUsed: 390_000,
       contextMax: 1_000_000,
     }), NOW);
     expect(s.level).toBe('ok');
+    expect(s.ratio).toBeCloseTo(0.39);
   });
 
-  it('stalled 의 분모는 그대로 창이다 — CLI 가 멈추는 자리는 우리 선과 무관하다', () => {
+  it('모델 창 끝에 다가가며 계속 자라면 overdue — CLI 가 접을 자리를 지나치고 있다', () => {
+    const s = judgeCompactWatch(input({
+      contextUsed: 960_000,
+      contextMax: 1_000_000,
+    }), NOW);
+    expect(s.level).toBe('overdue');
+  });
+
+  it('stalled 도 같은 분모다 — CLI 가 멈추는 자리', () => {
     const s = judgeCompactWatch(input({
       contextUsed: 995_000,
       contextMax: 1_000_000,
-      autoCompactTokens: 400_000,
     }), NOW);
     expect(s.level).toBe('stalled');
   });
@@ -151,7 +151,7 @@ describe('§5.26 (F)(b) rejected — 보냈는데 PreCompact 가 안 왔다', ()
 
   it('보낸 뒤 도착이 없고 시간이 지났으면 rejected', () => {
     const s = judgeCompactWatch(input({
-      contextUsed: 322_168, contextMax: 1_000_000, autoCompactTokens: 400_000,
+      contextUsed: 322_168, contextMax: 1_000_000,
       compactSentAt: sent, lastCompactAt: undefined,
     }), NOW);
     expect(s.level).toBe('rejected');
@@ -159,7 +159,7 @@ describe('§5.26 (F)(b) rejected — 보냈는데 PreCompact 가 안 왔다', ()
 
   it('비율·성장·실행 여부를 묻지 않는다 — 예측이 아니라 이미 일어난 실패다', () => {
     const s = judgeCompactWatch(input({
-      contextUsed: 10_000, contextMax: 1_000_000, autoCompactTokens: 400_000,
+      contextUsed: 10_000, contextMax: 1_000_000,
       compactSentAt: sent, lastCompactAt: undefined,
       grownBytes: 0, running: false,
     }), NOW);
@@ -183,12 +183,17 @@ describe('§5.26 (F)(b) rejected — 보냈는데 PreCompact 가 안 왔다', ()
   });
 
   it('아직 기다리는 중이면 overdue 도 안 띄운다 — 우리 명령을 우리가 고장으로 신고하지 않게', () => {
+    // 기다리는 중이 아니었다면 overdue 였을 수치(창 대비 96% · 계속 자람 · 오래전 압축).
     const s = judgeCompactWatch(input({
-      contextUsed: 390_000, contextMax: 1_000_000, autoCompactTokens: 400_000,
+      contextUsed: 960_000, contextMax: 1_000_000,
       compactSentAt: NOW - 1_000, lastCompactAt: NOW - T.overdueMs - 1,
     }), NOW);
     expect(s.level).toBe('ok');
     expect(s.sinceSentMs).toBe(1_000);
+    // 같은 수치에서 보낸 것이 없으면 overdue 다 — 위의 ok 가 "기다림" 덕분이라는 대조.
+    expect(judgeCompactWatch(input({
+      contextUsed: 960_000, contextMax: 1_000_000, lastCompactAt: NOW - T.overdueMs - 1,
+    }), NOW).level).toBe('overdue');
   });
 
   it('stalled 가 rejected 를 이긴다 — 창이 찬 것이 가장 급하다', () => {

@@ -63,3 +63,26 @@ export function owningCommandId<T extends { id: string }>(
   }
   return null;
 }
+
+/**
+ * §5.5 #17-12 ③-2 (a) — 상태바가 **실행 중 줄을 그리는 동안**은 스크롤을 따라가지 않는다.
+ *
+ * 종전에는 실행 중에도 추종이 돌아, 명령을 내려 두고 위로 올려 앞 턴을 읽는 순간 상태바가
+ * 그 옛 턴의 `완료 / 옛 프롬프트` 로 바뀌었다 — 지금 돌고 있는 일이 화면에서 사라진 것처럼 보였다
+ * (사용자 지적 — "실행 중일 때는 스크롤을 올려도 바뀌지 않게, 기존 동작은 실행이 끝났을 때").
+ *
+ * 조건은 그 줄이 스피너를 돌리는 조건 그대로다(`StreamStatusBar` 의 `isExecuting`): 세션이 실제로 돌고,
+ * 기본 대상이 `executing` 이거나 진짜 실행 중 명령 없이 세션만 도는 되살아난 턴. 끝나면 거짓이 되어
+ * 종전 추종(③-2)이 돌아온다.
+ */
+export function statusBarPinsToRunning(input: {
+  /** 기본 대상(실행 중 > 최신 완료/오류)의 상태. 대상이 없으면 `null`. */
+  defaultStatus: string | null;
+  /** 세션이 실제로 도는가(공유 생존 술어). */
+  sessionRunning: boolean;
+  /** 이 세션 원본 큐에 진짜 `executing` 명령이 있는가(표시용 사본의 승격과 무관). */
+  hasRealExecuting: boolean;
+}): boolean {
+  if (input.defaultStatus === null || !input.sessionRunning) return false;
+  return input.defaultStatus === 'executing' || !input.hasRealExecuting;
+}

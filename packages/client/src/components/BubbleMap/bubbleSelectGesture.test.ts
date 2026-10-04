@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createBubbleSelectGesture,
   DRAG_MOVE_THRESHOLD_PX,
+  isSelectDeferred,
   SELECT_DEFER_MS,
+  subscribeSelectDeferred,
   type BubbleSelectGestureOptions,
 } from './bubbleSelectGesture.js';
 
@@ -15,6 +17,9 @@ interface Harness {
   readonly intents: () => readonly boolean[];
 }
 
+/** 이 파일이 만든 코어 — 보류 수는 모듈 전역이라, 시험 하나가 남긴 보류가 다음 시험으로 새지 않게 걷는다. */
+const live: Harness[] = [];
+
 /** 기본 옵션 + 호출 기록. `patch` 로 필요한 것만 바꾼다. */
 function harness(patch: Partial<BubbleSelectGestureOptions> = {}): Harness {
   let selects = 0;
@@ -25,11 +30,13 @@ function harness(patch: Partial<BubbleSelectGestureOptions> = {}): Harness {
     setIntent: (active) => { intents.push(active); },
     ...patch,
   };
-  return {
+  const h: Harness = {
     core: createBubbleSelectGesture(() => options),
     selects: () => selects,
     intents: () => intents,
   };
+  live.push(h);
+  return h;
 }
 
 const at = (x: number, y: number, button = 0): { button: number; clientX: number; clientY: number } =>
@@ -37,7 +44,10 @@ const at = (x: number, y: number, button = 0): { button: number; clientX: number
 
 describe('bubbleSelectGesture', () => {
   beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => {
+    for (const h of live.splice(0)) h.core.dispose();
+    vi.useRealTimers();
+  });
 
   it('단일 클릭 — 링은 즉시, 실제 선택은 SELECT_DEFER_MS 뒤', () => {
     const h = harness();
@@ -184,5 +194,116 @@ describe('bubbleSelectGesture', () => {
     h.core.pointerUp();
     vi.advanceTimersByTime(SELECT_DEFER_MS);
     expect(h.selects()).toBe(2);
+  });
+
+  describe('보류 표시(isSelectDeferred) — 선택 초점이 더블클릭 1타에 반응하지 않게', () => {
+    it('단일 클릭: 링이 켜지는 순간 이미 보류 중이고, 선택이 걸린 뒤에 풀린다', () => {
+      const atIntent: boolean[] = [];
+      const atSelect: boolean[] = [];
+      const h = harness({
+        setIntent: () => { atIntent.push(isSelectDeferred()); },
+        select: () => { atSelect.push(isSelectDeferred()); },
+      });
+      expect(isSelectDeferred()).toBe(false);
+      h.core.pointerDown(at(10, 10));
+      h.core.pointerUp();
+      expect(atIntent).toEqual([true]);
+      expect(isSelectDeferred()).toBe(true);
+
+      vi.advanceTimersByTime(SELECT_DEFER_MS);
+      expect(atSelect).toEqual([true]);
+      expect(isSelectDeferred()).toBe(false);
+    });
+
+    it('더블클릭: 링이 꺼진 뒤에 보류가 풀린다', () => {
+      const atIntent: boolean[] = [];
+      const h = harness({ setIntent: () => { atIntent.push(isSelectDeferred()); } });
+      h.core.pointerDown(at(10, 10));
+      h.core.pointerUp();
+      h.core.pointerDown(at(10, 10));
+      expect(atIntent).toEqual([true, true]);
+      expect(isSelectDeferred()).toBe(false);
+    });
+
+    it('더블클릭 동작이 없는 버블은 보류를 걸지 않는다', () => {
+      const atIntent: boolean[] = [];
+      const h = harness({ doubleClickable: false, setIntent: () => { atIntent.push(isSelectDeferred()); } });
+      h.core.pointerDown(at(10, 10));
+      h.core.pointerUp();
+      expect(atIntent).toEqual([false]);
+      expect(isSelectDeferred()).toBe(false);
+    });
+
+    it('드래그·selectNow·dispose 어느 길로 끝나도 보류 수가 남지 않는다', () => {
+      const dragged = harness();
+      dragged.core.pointerDown(at(10, 10));
+      dragged.core.pointerUp();
+      dragged.core.pointerDown(at(10, 10));
+      dragged.core.pointerMove(at(80, 80));
+      dragged.core.pointerUp();
+
+      const now = harness();
+      now.core.pointerDown(at(10, 10));
+      now.core.pointerUp();
+      now.core.selectNow();
+
+      const gone = harness();
+      gone.core.pointerDown(at(10, 10));
+      gone.core.pointerUp();
+      gone.core.dispose();
+      gone.core.dispose();
+
+      expect(isSelectDeferred()).toBe(false);
+      vi.advanceTimersByTime(SELECT_DEFER_MS * 4);
+      expect(isSelectDeferred()).toBe(false);
+    });
+
+    it('선택이나 링 끄기가 던져도 보류 수는 돌려놓는다', () => {
+      const throwsOnSelect = harness({ select: () => { throw new Error('select'); } });
+      throwsOnSelect.core.pointerDown(at(10, 10));
+      throwsOnSelect.core.pointerUp();
+      expect(() => vi.advanceTimersByTime(SELECT_DEFER_MS)).toThrow('select');
+      expect(isSelectDeferred()).toBe(false);
+
+      const throwsOnCancel = harness({ setIntent: (active) => { if (!active) throw new Error('intent'); } });
+      throwsOnCancel.core.pointerDown(at(10, 10));
+      throwsOnCancel.core.pointerUp();
+      expect(() => throwsOnCancel.core.cancelPendingSelect()).toThrow('intent');
+      expect(isSelectDeferred()).toBe(false);
+    });
+
+    it('보류 중인 버블이 둘이면 둘 다 끝나야 풀린다', () => {
+      const first = harness();
+      const second = harness();
+      first.core.pointerDown(at(10, 10));
+      first.core.pointerUp();
+      vi.advanceTimersByTime(100);
+      second.core.pointerDown(at(40, 40));
+      second.core.pointerUp();
+
+      vi.advanceTimersByTime(SELECT_DEFER_MS - 100);
+      expect(first.selects()).toBe(1);
+      expect(isSelectDeferred()).toBe(true);
+      vi.advanceTimersByTime(100);
+      expect(second.selects()).toBe(1);
+      expect(isSelectDeferred()).toBe(false);
+    });
+
+    it('구독자는 보류가 걸리고 풀릴 때마다 불리고, 해제 뒤에는 불리지 않는다', () => {
+      const listener = vi.fn();
+      const unsubscribe = subscribeSelectDeferred(listener);
+      const h = harness();
+      h.core.pointerDown(at(10, 10));
+      h.core.pointerUp();
+      expect(listener).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(SELECT_DEFER_MS);
+      expect(listener).toHaveBeenCalledTimes(2);
+
+      unsubscribe();
+      h.core.pointerDown(at(10, 10));
+      h.core.pointerUp();
+      vi.advanceTimersByTime(SELECT_DEFER_MS);
+      expect(listener).toHaveBeenCalledTimes(2);
+    });
   });
 });

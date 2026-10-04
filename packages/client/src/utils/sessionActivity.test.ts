@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { SESSION_NO_RESPONSE_MS } from '@vibisual/shared';
 import type { QueuedCommand, RunningSubagentTask, SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import {
-  liveLineActivityAt, liveLineClockFrom, liveLineStalled, sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt,
+  liveLineActivityAt, liveLineClockFrom, liveLineMode, liveLineStalled, sessionCompactingSince, sessionHiddenTurnRunning,
+  sessionLastActivityAt, sessionTurnStartedAt,
 } from './sessionActivity.js';
 
 const sub = (id: string, lastActivityAt: number): SubAgent => ({
@@ -194,5 +195,52 @@ describe('live line clock start', () => {
     expect(liveLineClockFrom(false, 0, null, 300_000)).toBeNull();
     expect(liveLineClockFrom(false, 400_000, null, 300_000)).toBeNull();
     expect(liveLineClockFrom(false, undefined, undefined, 300_000)).toBeNull();
+  });
+});
+
+// §5.5 #17-24 ⑥ — while the CLI folds the conversation mid-turn (2.4–6 min each), the live line said
+// "thinking". These pin the fourth mode: how it is chosen, that it never stalls, and where its clock starts.
+describe('compacting mode', () => {
+  const folding = (id: string, since?: number): SubAgent => ({
+    ...sub(id, 1_000), ...(since !== undefined ? { compactingSince: since } : {}),
+  });
+  const silent = (subAgentId: string): QueuedCommand => ({
+    ...command(subAgentId, 265_000), id: `silent-${subAgentId}`, silent: true, text: '/compact',
+  });
+
+  it('picks the mode in one place: waiting beats compacting, compacting beats thinking and working', () => {
+    expect(liveLineMode(true, true, true)).toBe('waiting');
+    expect(liveLineMode(false, true, true)).toBe('compacting');
+    expect(liveLineMode(false, true, false)).toBe('compacting');
+    expect(liveLineMode(false, false, true)).toBe('thinking');
+    expect(liveLineMode(false, false, false)).toBe('working');
+  });
+
+  it('reads the marker of this session only, and the earliest one for the agent view', () => {
+    const subs = [folding('a', 200_000), folding('b', 150_000), folding('c')];
+    expect(sessionCompactingSince(subs, [], 'a')).toBe(200_000);
+    expect(sessionCompactingSince(subs, [], 'c')).toBeNull();
+    expect(sessionCompactingSince(subs, [], null)).toBe(150_000);
+  });
+
+  it('ignores a marker that is not a usable time', () => {
+    expect(sessionCompactingSince([folding('a', 0)], [], 'a')).toBeNull();
+    expect(sessionCompactingSince([folding('a', Number.NaN)], [], 'a')).toBeNull();
+  });
+
+  // §5.3 #9-1 (P) — the silent pre-compaction keeps looking like "working" for the inherited command.
+  it('leaves a session that runs a hidden turn as it was', () => {
+    expect(sessionCompactingSince([folding('a', 200_000)], [silent('a')], 'a')).toBeNull();
+    expect(sessionCompactingSince([folding('a', 200_000), folding('b', 250_000)], [silent('a')], null)).toBe(250_000);
+  });
+
+  it('never stalls, however long the fold takes', () => {
+    expect(liveLineStalled('compacting', SESSION_NO_RESPONSE_MS * 10)).toBe(false);
+  });
+
+  it('counts its clock from the start of the fold, not from the start of the turn', () => {
+    expect(liveLineClockFrom(false, 100_000, 290_000, 300_000, 250_000)).toBe(250_000);
+    expect(liveLineClockFrom(false, 100_000, 290_000, 300_000, null)).toBe(100_000);
+    expect(liveLineClockFrom(false, 100_000, 290_000, 300_000)).toBe(100_000);
   });
 });

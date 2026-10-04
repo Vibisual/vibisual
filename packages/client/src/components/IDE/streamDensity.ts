@@ -273,7 +273,7 @@ function groupable(item: StreamDisplayItem): item is StreamGroup {
  * 실제 대화(내용 있는 text·result·계획·카드)는 잡음이 아니므로 여기서 런이 끊긴다.
  */
 function runFiller(item: StreamDisplayItem): boolean {
-  if (item.kind === 'system') return true;
+  if (item.kind === 'system') return !item.transportRecovery;
   return item.kind === 'text' && item.content.trim() === '';
 }
 
@@ -337,7 +337,7 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
 
   // §5.5 #17-13 ⑤ — SDK 상태 칩(`[task_started]` 등)은 간결/표준에서 아예 그리지 않는다.
   //   내용 없는 레일 점이 한 줄씩 먹으며 화면을 갈랐다(사용자 스크린샷). 내용 있는 system 본문은 남긴다.
-  const visible = folded.filter((it) => !(it.kind === 'system' && isSystemSubtypeChip(it.content)));
+  const visible = folded.filter((it) => !(it.kind === 'system' && !it.transportRecovery && isSystemSubtypeChip(it.content)));
 
   const marked = markSupersededPlans(visible);
   const out: StreamDisplayItem[] = [];

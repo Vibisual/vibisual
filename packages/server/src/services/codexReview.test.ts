@@ -9,14 +9,39 @@ import { buildCodexReviewArgs, effectiveReviewTarget } from './codexReviewServic
  * ③ **권한 표는 스폰 경로와 같은 한 벌**을 쓴다(두 벌이면 한쪽만 고쳐진다).
  */
 
+/** `codex review --help`(0.159.2)가 받는 옵션 전부. 이 밖의 플래그는 인자 파싱에서 exit 2 로 죽는다. */
+const REVIEW_ACCEPTED_FLAGS = new Set([
+  '-c', '--config', '--strict-config', '--enable', '--disable',
+  '--uncommitted', '--base', '--commit', '--title', '-h', '--help',
+]);
+
+/** 설정 오버라이드 `-c key=value` 의 값. 없으면 undefined. */
+function overrideValue(args: readonly string[], key: string): string | undefined {
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === '-c' && args[i + 1]!.startsWith(`${key}=`)) return args[i + 1]!.slice(key.length + 1);
+  }
+  return undefined;
+}
+
 describe('buildCodexReviewArgs', () => {
   const BASE = { cwd: 'C:/work/proj' } as const;
 
-  it('언제나 review 하위명령 + 작업 폴더로 시작한다', () => {
+  it('언제나 review 하위명령으로 시작한다 — 작업 폴더는 인자가 아니라 스폰 cwd 로 간다', () => {
     const args = buildCodexReviewArgs({ ...BASE, mode: 'uncommitted' });
     expect(args[0]).toBe('review');
-    expect(args).toContain('-C');
-    expect(args[args.indexOf('-C') + 1]).toBe('C:/work/proj');
+    expect(args).not.toContain('C:/work/proj');
+  });
+
+  it('review 가 받지 않는 옵션을 싣지 않는다 — `-C`·`-s` 가 리뷰를 한 번도 못 띄웠다(0.159.2 `unexpected argument`)', () => {
+    for (const mode of ['uncommitted', 'base', 'commit'] as const) {
+      for (const permissionMode of [undefined, 'default', 'plan', 'acceptEdits', 'auto', 'bypassPermissions']) {
+        const args = buildCodexReviewArgs({ ...BASE, mode, target: 'main', ...(permissionMode ? { permissionMode } : {}) });
+        const flags = args.filter((a) => a.startsWith('-'));
+        expect(flags.filter((f) => !REVIEW_ACCEPTED_FLAGS.has(f))).toEqual([]);
+        // 0.159.2 의 `sandbox_mode` 열거값 — 밖이면 `unknown variant` 로 설정 읽기에서 죽는다.
+        expect(['read-only', 'workspace-write', 'danger-full-access']).toContain(overrideValue(args, 'sandbox_mode'));
+      }
+    }
   });
 
   it('세 대상을 각각 그 플래그로 옮긴다', () => {
@@ -45,17 +70,17 @@ describe('buildCodexReviewArgs', () => {
         ...BASE, mode: 'uncommitted', ...(permissionMode ? { permissionMode } : {}),
       });
       expect(args.join(' ')).not.toContain('dangerously');
-      // 승인 정책은 루트 전용 플래그가 아니라 설정 오버라이드로 실린다(`exec` 와 같은 규약).
+      // 승인 정책·샌드박스는 루트 전용 플래그가 아니라 설정 오버라이드로 실린다(`exec` 와 같은 규약).
       expect(args).not.toContain('--ask-for-approval');
-      expect(args).toContain('-s');
-      expect(args.some((a) => a.startsWith('approval_policy='))).toBe(true);
+      expect(overrideValue(args, 'sandbox_mode')).toBeTruthy();
+      expect(overrideValue(args, 'approval_policy')).toBeTruthy();
     }
   });
 
   it('권한 모드가 샌드박스 값으로 이어진다(스폰 경로와 같은 표)', () => {
     const sandboxOf = (permissionMode?: string): string => {
       const args = buildCodexReviewArgs({ ...BASE, mode: 'uncommitted', ...(permissionMode ? { permissionMode } : {}) });
-      return args[args.indexOf('-s') + 1] ?? '';
+      return overrideValue(args, 'sandbox_mode') ?? '';
     };
     // 미설정은 앱 전체 규약대로 `default` 로 읽힌다(작업 폴더 쓰기).
     expect(sandboxOf(undefined)).toBe(sandboxOf('default'));

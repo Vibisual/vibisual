@@ -187,6 +187,71 @@ export function extractSessionCliText(stdout: string): string {
 }
 
 /**
+ * 대화록 꼬리를 줄 단위로 읽는다. **꼬리만** 읽는다 — 수 MB 짜리를 통째로 파싱하면 판정 한 번이
+ * 뜨거운 경로를 막는다. 앞쪽 한 줄은 잘렸을 수 있으므로 버린다(JSON.parse 가 어차피 실패하지만
+ * 의도를 남긴다). 없는 파일·빈 파일은 빈 배열이다(예외를 던지지 않는다).
+ */
+function readTranscriptTailLines(file: string): string[] {
+  try {
+    const st = fs.statSync(file);
+    if (!st.isFile() || st.size === 0) return [];
+    const len = Math.min(256 * 1024, st.size);
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.allocUnsafe(len);
+      fs.readSync(fd, buf, 0, len, Math.max(0, st.size - len));
+      return buf.toString('utf8').split('\n').slice(1);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return [];
+  }
+}
+
+/** 코덱스 항목 본문 — 문자열이거나 `{type, text}` 조각 배열이다. */
+function codexItemText(value: unknown): string {
+  if (typeof value === 'string') return value.trim().replace(/\s+/g, ' ');
+  if (!Array.isArray(value)) return '';
+  return value
+    .map((part) => (typeof part === 'object' && part !== null && typeof (part as Record<string, unknown>)['text'] === 'string'
+      ? (part as Record<string, unknown>)['text'] as string : ''))
+    .join(' ').trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * 코덱스 롤아웃 한 줄 → 꼬리 한 줄. 코덱스 줄이 아니면 `undefined`(클로드 규칙으로 넘긴다),
+ * 코덱스 줄이지만 실을 뜻이 없으면 `''`(토큰 집계·설정·세션 머리 같은 배관).
+ *
+ * 항목은 `response_item` 만 읽는다 — 같은 내용이 `event_msg`(`agent_message`·`item_completed` …)로
+ * 한 번 더 적히므로 둘 다 읽으면 같은 말이 두 줄씩 실린다. `event_msg` 에서는 **턴의 끝** 둘만 본다.
+ * 사용자·개발자 메시지는 싣지 않는다 — 클로드 꼬리도 사용자 프롬프트는 싣지 않는다(문자열 본문이라 빠진다).
+ */
+function summarizeCodexRolloutLine(j: Record<string, unknown>): string | undefined {
+  const payload = j['payload'];
+  if ('message' in j || typeof payload !== 'object' || payload === null) return undefined;
+  const p = payload as Record<string, unknown>;
+  const type = p['type'];
+  if (j['type'] === 'event_msg') {
+    if (type === 'task_complete') return '(turn complete)';
+    if (type === 'turn_aborted') return '(turn aborted)';
+    return '';
+  }
+  if (j['type'] !== 'response_item' || typeof type !== 'string') return '';
+  if (type === 'message') {
+    const text = p['role'] === 'assistant' ? codexItemText(p['content']) : '';
+    return text ? `said: ${text}` : '';
+  }
+  if (type === 'reasoning') return '(thinking)';
+  if (type.endsWith('_call_output')) return `tool result: ${codexItemText(p['output'])}`;
+  if (type.endsWith('_call')) {
+    const name = typeof p['name'] === 'string' && p['name'] ? p['name'] : type.slice(0, -'_call'.length);
+    return `called tool: ${name}`;
+  }
+  return '';
+}
+
+/**
  * 대화록 JSONL 의 **마지막 몇 줄을 사람이 읽는 형태**로 접는다.
  *
  * 원문 JSONL 을 그대로 실으면 토큰의 대부분이 `uuid`·`parentUuid`·`sessionId` 같은 배관에 나간다
@@ -194,27 +259,8 @@ export function extractSessionCliText(stdout: string): string {
  * 뿐이라, 여기서 그 세 종류(말·도구 호출·도구 결과)만 뽑아 한 줄씩으로 접는다.
  */
 export function summarizeTranscriptTail(file: string, maxChars: number = SESSION_PROBE_TAIL_BYTES): string {
-  let raw: string;
-  try {
-    const st = fs.statSync(file);
-    if (!st.isFile() || st.size === 0) return '';
-    // 꼬리만 읽는다 — 수 MB 짜리를 통째로 파싱하면 판정 한 번이 뜨거운 경로를 막는다.
-    const len = Math.min(256 * 1024, st.size);
-    const fd = fs.openSync(file, 'r');
-    try {
-      const buf = Buffer.allocUnsafe(len);
-      fs.readSync(fd, buf, 0, len, Math.max(0, st.size - len));
-      raw = buf.toString('utf8');
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return '';
-  }
-
   const lines: string[] = [];
-  // 앞쪽 한 줄은 잘렸을 수 있으므로 버린다(JSON.parse 가 어차피 실패하지만 의도를 남긴다).
-  for (const line of raw.split('\n').slice(1)) {
+  for (const line of readTranscriptTailLines(file)) {
     if (!line.trim()) continue;
     let j: Record<string, unknown>;
     try {
@@ -222,6 +268,14 @@ export function summarizeTranscriptTail(file: string, maxChars: number = SESSION
       if (typeof parsed !== 'object' || parsed === null) continue;
       j = parsed as Record<string, unknown>;
     } catch {
+      continue;
+    }
+    // §5.25 (F) — 코덱스 롤아웃은 줄 모양이 다르다(`{type, payload}`). 클로드 모양(`message.content[]`)만
+    //   읽던 동안 코덱스 세션의 꼬리는 늘 빈 문자열이었고, 판정 모델은 그 빈칸을 "끝났다"로 읽어 도는 턴을
+    //   닫았다(2026-10-02 실측 — 사유 "Empty last lines suggests session completed").
+    const codexLine = summarizeCodexRolloutLine(j);
+    if (codexLine !== undefined) {
+      if (codexLine) lines.push(codexLine);
       continue;
     }
     const msg = j['message'];
@@ -265,7 +319,42 @@ export function summarizeTranscriptTail(file: string, maxChars: number = SESSION
 export interface TranscriptFacts {
   file: string;
   bytes: number;
+  /** OS 수정 시각. **멈춰 있을 수 있다**(Windows 코덱스 롤아웃) — 조용한 시간은 {@link transcriptLastWriteMs} 로 잰다. */
   mtimeMs: number;
+}
+
+/** 마지막 줄 시각이 이만큼 넘게 미래면 믿지 않는다 — 시계가 어긋난 줄 하나가 세션을 영영 "안 조용함"으로 묶지 않게. */
+const TRANSCRIPT_CLOCK_SKEW_MS = 60_000;
+
+/**
+ * 대화록이 **마지막으로 자란 시각** — 파일 수정 시각과 마지막 줄의 `timestamp` 중 늦은 쪽.
+ *
+ * 수정 시각만으로는 모자란다. Windows 의 코덱스 롤아웃은 쓰는 내내 수정 시각이 **생성 시각에 멈춰
+ * 있다**(이 PC 실측: 2분 넘게 돈 롤아웃 117개 중 56개 — 29분 동안 3.3MB 를 쓰고도 생성 시각 그대로).
+ * 그 값으로 조용한 시간을 재면 1초 전에 줄을 쓴 턴이 "8분 조용"이 되어, 판정이 도는 턴을 끝남으로
+ * 닫았다(2026-10-02). 줄마다 적히는 `timestamp`(클로드·코덱스 모두 맨 바깥 ISO 문자열)는 그 줄을 쓴
+ * 순간이라 이 결함을 타지 않는다. 늦은 쪽을 쓰므로 수정 시각이 정직한 대화록(클로드)의 값은 그대로다.
+ *
+ * 마지막 줄이 아직 쓰이는 중이면(개행 전) 그 앞 줄을 쓴다. 읽을 수 있는 줄이 없으면 수정 시각 그대로다.
+ */
+export function transcriptLastWriteMs(file: string, mtimeMs: number, now: number = Date.now()): number {
+  const lines = readTranscriptTailLines(file);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]!.trim();
+    if (!line) continue;
+    let stamp: unknown;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (typeof parsed !== 'object' || parsed === null) continue;
+      stamp = (parsed as Record<string, unknown>)['timestamp'];
+    } catch {
+      continue;
+    }
+    const at = typeof stamp === 'string' ? Date.parse(stamp) : Number.NaN;
+    if (!Number.isFinite(at) || at > now + TRANSCRIPT_CLOCK_SKEW_MS) continue;
+    return Math.max(mtimeMs, at);
+  }
+  return mtimeMs;
 }
 
 /**

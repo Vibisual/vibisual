@@ -801,10 +801,11 @@ export function detectTokenSaverPreset(input: TokenSaverSettings): TokenSaverPre
  *
  * - 절약이 미설정(`''`)이면 **종전 결과 그대로**다(이 축이 생기기 전과 바이트 단위로 같다).
  * - 종전 결과가 꺼짐이면 절약 값이 그 자리를 **켠다** — 절약을 켠 것 자체가 "접어라"는 뜻이다.
- * - 종전 결과가 `'auto'`(CLI 가 창을 정함)면 숫자 쪽이 조이는 값이라 절약이 이긴다.
+ * - 종전 결과가 `'auto'`(모델 창 전체)면 숫자 쪽이 조이는 값이라 절약이 이긴다.
  *
- * 이 함수를 **두 곳이 함께 본다**(`buildConfigArgs` 의 `--autocompact`, 턴 경계 압축 판정).
- * 한쪽만 고치면 CLI 는 200k 에서 접는데 우리는 400k 기준으로 쏘게 되어 둘이 어긋난다.
+ * 이 값은 **명령 사이 압축(턴 경계 판정)만** 본다 — 2026-10-05 부터 스폰은 `--autocompact` 를 싣지
+ * 않는다(사용자 지시: 작업 도중에는 CLI 가 모델 창 끝에서만 접는다). 절약이 조이는 것도 명령 사이에
+ * 접는 자리이고, 작업 도중의 CLI 압축선은 모델 창 끝 그대로다.
  */
 export function resolveEffectiveAutoCompact(
   agentValue: string | undefined,
@@ -2928,9 +2929,10 @@ export const AVAILABLE_ISOLATION_MODES: readonly string[] = [
 export const AVAILABLE_SETTING_SOURCES: readonly string[] = ['user', 'project', 'local'];
 
 /**
- * §4 (CLI 사양 추종) — `--autocompact` 드롭다운이 그리는 값.
- * 맨 앞 `''` 는 "미설정"(=위층을 따름), `'off'` 는 **꺼짐**, `'auto'` 는 CLI 판단,
- * 나머지는 토큰 수(CLI 허용 100k~1M).
+ * §4 (CLI 사양 추종) — 자동 압축 드롭다운이 그리는 값.
+ * 맨 앞 `''` 는 "미설정"(=위층을 따름), `'off'` 는 **꺼짐**, `'auto'` 는 그 모델의 창 전체,
+ * 나머지는 토큰 수. 눈금은 CLI `--autocompact` 가 받는 100k~1M 을 그대로 따른다 — 2026-10-05 부터
+ * 스폰에는 싣지 않지만 창 하한(`applyAutoCompactFloor`)이 이 눈금에서 고른다.
  */
 export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
   '', 'off', 'auto', '100000', '200000', '400000', '500000', '1000000',
@@ -2941,9 +2943,10 @@ export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
  *
  * ⚠ **CLI 에 보내는 값이 아니다.** 설치본은 `--autocompact` 에 `auto` 또는 100k~1M 만 받고,
  * `off`·`0` 을 주면 `argument 'off' is invalid` 로 **즉시 종료**한다(실측 2.1.252 —
- * `--help` + `--print` probe). 꺼짐은 **플래그를 아예 싣지 않는 것**으로 표현하며, 그러면
- * CLI 기본(창 전체)이라 Opus `[1m]` 에서는 사실상 압축이 없고 창에 닿을 때 한 번 접는
- * 최후 안전망만 남는다 — 그것이 우리가 파는 "꺼짐"의 정확한 의미다.
+ * `--help` + `--print` probe). 2026-10-05 부터 스폰은 어느 값이든 `--autocompact` 를 싣지 않아 CLI 는
+ * 늘 기본(창 전체)으로 돌고, Opus `[1m]` 에서는 작업 도중 압축이 사실상 없이 창에 닿을 때 한 번 접는
+ * 최후 안전망만 남는다. 그래서 꺼짐과 켜짐은 작업 도중에는 같고, 갈리는 것은 **명령 사이 압축**(턴 경계
+ * 발동선)이 있느냐 하나다 — 그것이 우리가 파는 "꺼짐"의 정확한 의미다.
  *
  * 문자열을 여기저기 흩뿌리면 한 곳만 고쳐져 어긋나므로 비교는 전부 이 상수를 쓴다.
  */
@@ -2987,9 +2990,10 @@ export const AUTOCOMPACT_COST_SAMPLE = {
  * 작업 도중 한 번은 잘리고**, 1M 이면 아무 일도 일어나지 않는다. 400k 는 그 분포 바로 위라
  * 평범한 세션은 끝까지 온전히 가고 길어지는 세션만 걸린다.
  *
- * ⚠ 이 값은 **`--autocompact` 에 실리는 창 크기이자 우리 턴 경계 압축의 기준**이다 — 사용자가 고르는
- * 숫자는 이것 하나뿐이고(설정 창에 체크박스가 따로 없다), 실제로 접히는 자리는
- * `turnCompactTriggerTokens` 가 정한다.
+ * ⚠ 이 값은 **우리 턴 경계 압축(명령 사이 압축)의 기준 창**이다 — 사용자가 고르는 숫자는 이것 하나뿐이고
+ * (설정 창에 체크박스가 따로 없다), 실제로 접히는 자리는 `turnCompactTriggerTokens` 가 정한다. 위
+ * "작업 도중 한 번은 잘린다"는 이 값이 `--autocompact` 로 실리던 때의 근거다 — 2026-10-05 부터 스폰은
+ * 창을 싣지 않아 작업 도중에는 CLI 가 모델 창 끝에서만 접는다.
  *
  * ⚠ **더 이상 "아무도 정하지 않았을 때"의 값이 아니다**(2026-09-02 사용자 지시). 내장 기본은
  * `DEFAULT_AUTOCOMPACT`(=꺼짐)로 옮겼고, 이 상수는 **사용자가 비용 확인 팝업에서 "켜기"를
@@ -3154,16 +3158,16 @@ ${request}
 }
 
 /**
- * §4 (CLI 사양 추종) — 실제로 `--autocompact` 에 실을 값을 정하는 **단 하나의 판정**.
+ * §4 (CLI 사양 추종) — 자동 압축 창(명령 사이 압축의 기준)을 정하는 **단 하나의 판정**.
+ * 2026-10-05 부터 이 값은 스폰(`--autocompact`)에 실리지 않고 턴 경계 발동선만 정한다.
  *
  * 3층으로 내려온다: **에이전트 설정 → 설정 창(Agent Defaults) 전역 기본 → 내장 기본**.
- * 그래서 `''`(미설정)은 "플래그 없음"이 아니라 **"위층을 따름"** 이다 — 종전처럼 CLI 판단에
- * 맡기려면 `'auto'` 를 고른다(명시값이라 그대로 실린다). 이 계층이 있어야 **이미 만들어져
- * 돌던 에이전트**도 설정 창에서 바꾼 값을 따른다.
+ * 그래서 `''`(미설정)은 "꺼짐"이 아니라 **"위층을 따름"** 이다 — 모델 창 전체를 기준으로 삼으려면
+ * `'auto'` 를 고른다. 이 계층이 있어야 **이미 만들어져 돌던 에이전트**도 설정 창에서 바꾼 값을 따른다.
  *
- * ⚠ 목록 밖의 값은 내장 기본으로 떨어뜨린다. CLI 는 범위 밖 값을 무시하지 않고
- * `argument … is invalid` 로 **즉시 종료**하므로(실측 2.1.247 — `--autocompact 50000`),
- * 저장분이 오염돼 있으면 그 에이전트는 영영 뜨지 못한다.
+ * ⚠ 목록 밖의 값은 내장 기본으로 떨어뜨린다. 이 값이 스폰에 실리던 때는 CLI 가 범위 밖 값을 무시하지
+ * 않고 `argument … is invalid` 로 **즉시 종료**해(실측 2.1.247 — `--autocompact 50000`) 저장분이
+ * 오염되면 그 에이전트가 영영 뜨지 못했다. 지금은 발동선과 창 하한이 같은 눈금을 전제한다.
  */
 export function resolveAutoCompact(agentValue?: string, userDefaultValue?: string): string {
   for (const raw of [agentValue, userDefaultValue]) {
@@ -3174,14 +3178,13 @@ export function resolveAutoCompact(agentValue?: string, userDefaultValue?: strin
 }
 
 /**
- * §4 (CLI 사양 추종) — `--autocompact` 값을 **토큰 수**로 읽는다. CLI 에게 이 숫자는 **창 크기**이지
- * 자르는 지점이 아니다(설치본 2.1.251 `--help`: "Auto-compact window size"). 요약을 돌릴 여유가
- * 있어야 하므로 CLI 는 이 선에 **닿기 전에** 접는다 — 그래서 이 숫자를 우리 발동선으로 그대로 쓰면
- * CLI 가 항상 먼저 도달해 턴 경계 압축이 **영영 걸리지 않는다**(실제로 그렇게 만들어 봤다).
- * 우리 선은 `turnCompactTriggerTokens` 가 이 값에서 한 단 낮춰 잡는다.
+ * §4 (CLI 사양 추종) — 자동 압축 창 값을 **토큰 수**로 읽는다. 창 크기이지 접는 지점이 아니다 — 우리 선
+ * (턴 경계 발동선)은 `turnCompactTriggerTokens` 가 이 값에서 한 단 낮춰 잡는다. 그 한 단은 이 값이
+ * `--autocompact` 로 실리던 때 생겼다: CLI 에게 이 숫자는 창 크기라(설치본 2.1.251 `--help`: "Auto-compact
+ * window size") 이 선에 **닿기 전에** 접었고, 같은 숫자를 발동선으로 쓰면 CLI 가 항상 먼저 도달해 턴 경계
+ * 압축이 **영영 걸리지 않았다**(실제로 그렇게 만들어 봤다). 2026-10-05 부터 스폰은 창을 싣지 않는다.
  *
- * `'auto'` 는 숫자가 아니다 — CLI 가 창 크기를 정하겠다는 뜻이므로, 그 모델의 창(`contextMax`)을
- * 선으로 삼는다. 창 크기를 모르면 `null` 을 돌려주고, 부르는 쪽은 그것을 **"아직 판정 불가"**로
+ * `'auto'` 는 숫자가 아니다 — 그 모델의 창(`contextMax`)을 선으로 삼는다. 창 크기를 모르면 `null` 을 돌려주고, 부르는 쪽은 그것을 **"아직 판정 불가"**로
  * 다뤄야 한다(모르는 채로 쏘면 종전의 매 턴 압축으로 되돌아간다).
  */
 export function autoCompactThresholdTokens(resolved: string, contextMax?: number): number | null {
@@ -3197,11 +3200,11 @@ export function autoCompactThresholdTokens(resolved: string, contextMax?: number
 /**
  * §4 (CLI 사양 추종) — 우리가 **턴 경계에서** 접는 선을 자동 압축 값의 몇 배로 잡는가.
  *
- * 1.0 이면 안 된다 — CLI 는 그 값을 창 크기로 보고 그보다 **먼저** 접으므로, 같은 숫자를 쓰면
- * 우리 차례가 오지 않는다. 0.8 은 400k 설정에서 320k 다: 한 턴이 대략 그 위 여백(약 8만 토큰)을
- * 통째로 뚫지 않는 한 우리가 먼저 도달해 **안전한 자리**에서 접고, 뚫는 예외에서는 CLI 가 도중에
- * 접는 최후 안전망이 그대로 남는다. 둘 중 무엇이 걸려도 압축은 일어난다 — 이 숫자가 정하는 것은
- * "어디서 잘리는가"이지 "잘리는가"가 아니다.
+ * 0.8 은 400k 설정에서 320k 다. 이 비율은 CLI 가 같은 창(`--autocompact`)으로 돌던 때 생겼다 — CLI 는 그
+ * 값을 창 크기로 보고 그보다 **먼저** 접었으므로 1.0 이면 우리 차례가 오지 않았다. 2026-10-05 부터 스폰은
+ * 창을 싣지 않아 그 경쟁은 없지만 비율은 그대로 둔다: 사용자가 겪어 온 명령 사이 압축 자리가 바뀌지 않고,
+ * 창 하한 산식(`minAutoCompactWindowTokens`)이 이 비율 위에 서 있다. 한 지시가 이 선을 넘어 계속 자라도
+ * 그 지시 안에서는 접지 않는다 — 작업 도중의 안전망은 모델 창 끝의 CLI 압축이다.
  */
 export const TURN_COMPACT_TRIGGER_RATIO = 0.8;
 
@@ -3216,6 +3219,82 @@ export function turnCompactTriggerTokens(resolved: string, contextMax?: number):
   const window = autoCompactThresholdTokens(resolved, contextMax);
   if (window === null) return null;
   return Math.round(window * TURN_COMPACT_TRIGGER_RATIO);
+}
+
+/**
+ * §4 (CLI 사양 추종) (5) 창 하한 — 압축 **뒤에** 시작 문맥 위로 다시 얹히는 몫의 어림(토큰).
+ *
+ * 압축은 대화만 줄인다. 시작 문맥(시스템 프롬프트·도구·CLAUDE.md·기억·스킬 목록)은 그대로 남고, 그 위에
+ * 요약과 다시 읽는 파일·스킬 본문이 얹힌다(공식 문서: 파일 최대 5개·각 5k, 스킬 본문 합계 25k 상한).
+ * 30k 는 실측에서 왔다 — 2026-10-04 압축 반복 세션(200k 창 · 시작 문맥 70.6k)의 압축 24회 직후 문맥이
+ * 89~117k 였고, "직후 수준 − 시작 문맥"의 중앙값이 약 28k 였다.
+ */
+export const COMPACT_RESTART_ALLOWANCE_TOKENS = 30_000;
+
+/**
+ * §4 (CLI 사양 추종) (5) 창 하한 — 화면이 새 세션(아직 응답이 없음)의 창을 미리 적을 때 시작 문맥을 빌려 올
+ * 같은 에이전트의 최근 세션을 몇 개까지 보는가. 턴 경계 판정은 턴이 끝난 뒤라 언제나 그 세션 자신의 값을 본다.
+ */
+export const COMPACT_FLOOR_SIBLING_SCAN = 3;
+
+/**
+ * §4 (CLI 사양 추종) (5) 창 하한 — 이 시작 문맥이면 창이 **적어도** 몇 토큰이어야 압축이 일보다 잦아지지 않는가.
+ *
+ * 압축 한 번에 다시 싣는 몫 R = 시작 문맥 + `COMPACT_RESTART_ALLOWANCE_TOKENS`. 압축 사이에 일할 몫은 발동선
+ * (창 × `TURN_COMPACT_TRIGGER_RATIO`)에서 R 을 뺀 것이고, 그것이 R 보다 작으면 압축이 일보다 잦아진다 —
+ * 2026-10-04 사고가 그 자리였다(200k 창에서 일할 몫 약 70k · 압축 한 번에 2.4~6분 · 세션 시간의 47%).
+ * 그래서 일할 몫 ≥ R ⇔ 창 ≥ 2R ÷ 비율.
+ *
+ * 시작 문맥을 모르면(없음·0 이하·비유한) `null` — **모르면 올리지 않는다**.
+ */
+export function minAutoCompactWindowTokens(startupFloor: number | null | undefined): number | null {
+  if (typeof startupFloor !== 'number' || !Number.isFinite(startupFloor) || startupFloor <= 0) return null;
+  const restart = startupFloor + COMPACT_RESTART_ALLOWANCE_TOKENS;
+  return Math.ceil((2 * restart) / TURN_COMPACT_TRIGGER_RATIO);
+}
+
+/** 창 하한이 고를 수 있는 눈금 — CLI 가 받는 숫자 값만, 작은 것부터(`AVAILABLE_AUTOCOMPACT_VALUES` 파생). */
+const AUTOCOMPACT_WINDOW_LADDER: readonly number[] = AVAILABLE_AUTOCOMPACT_VALUES
+  .map(Number)
+  .filter((n) => Number.isFinite(n) && n > 0)
+  .sort((a, b) => a - b);
+
+/** `applyAutoCompactFloor` 의 답 — 실제로 실을 값과, 올렸다면 그 사실. */
+export interface AutoCompactFloorResult {
+  /** 발동선을 잡을 창 값(눈금 값·`'auto'`). 꺼짐·미설정이면 받은 값 그대로다. */
+  value: string;
+  /** 하한 때문에 올렸으면 원래 값. 안 올렸으면 키 자체가 없다. */
+  raisedFrom?: string;
+}
+
+/**
+ * §4 (CLI 사양 추종) (5) 창 하한 — 해소된 창(`resolveEffectiveAutoCompact` 의 답)에 하한을 건다.
+ *
+ * **턴 경계 판정(`shouldCompactAfterTurn`)과 화면(설정 창·상태바)이 이 함수를 같은 시작 문맥 출처로 부른다.**
+ * 2026-10-05 부터 스폰은 창을 싣지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접고, 이 함수가 정하는
+ * 창은 명령 사이 압축의 발동선만 움직인다.
+ *
+ *  - 숫자 창만 다룬다 — `'off'`(창 전체)·`'auto'`(CLI 판단)·빈 값은 그대로 돌려준다.
+ *  - **올리기만** 한다. 눈금 중 하한 이상인 가장 작은 값으로.
+ *  - 모델 창(`contextMax`)을 넘겨 올리지 않는다 — 넘기면 턴 경계 선(창 × 0.8)이 모델 창 밖으로 나가
+ *    영영 닿지 않는다. 모델 창 안의 가장 큰 눈금이 지금 값보다 크지 않으면 그대로다.
+ *  - 시작 문맥을 모르면 그대로다(모르면 올리지 않는다).
+ */
+export function applyAutoCompactFloor(
+  resolved: string,
+  startupFloor?: number | null,
+  contextMax?: number | null,
+): AutoCompactFloorResult {
+  const current = Number(resolved);
+  if (!isAutoCompactOn(resolved) || !Number.isFinite(current) || current <= 0) return { value: resolved };
+  const need = minAutoCompactWindowTokens(startupFloor);
+  if (need === null || current >= need) return { value: resolved };
+  const cap = typeof contextMax === 'number' && Number.isFinite(contextMax) && contextMax > 0 ? contextMax : Infinity;
+  const ladder = AUTOCOMPACT_WINDOW_LADDER.filter((n) => n <= cap);
+  if (ladder.length === 0) return { value: resolved };
+  const target = ladder.find((n) => n >= need) ?? ladder[ladder.length - 1]!;
+  if (target <= current) return { value: resolved };
+  return { value: String(target), raisedFrom: resolved };
 }
 
 /** `shouldCompactAfterTurn` 이 받는 것 — 판정에 필요한 사실만. 서버 객체를 통째로 넘기지 않는다. */
@@ -3242,11 +3321,14 @@ export interface CompactAfterTurnInput {
   turnBudget?: number;
   /**
    * §5.3 #9-1 (Q축) — 토큰 절약이 조인 압축 창. `''`/undefined = 미설정(종전 판정 그대로).
-   *
-   * ⚠ 스폰(`--autocompact`)과 **같은 값**이어야 한다 — 한쪽만 조이면 CLI 는 200k 에서 접는데
-   * 우리는 400k 기준으로 쏘게 되어, 우리 차례가 영영 오지 않거나 두 벌로 접힌다.
+   * 명령 사이 압축의 발동선만 조인다 — 2026-10-05 부터 스폰에는 실리지 않는다.
    */
   tokenSaverAutoCompact?: string;
+  /**
+   * §4 (CLI 사양 추종) (5) 창 하한 — 이 세션의 **시작 문맥**(첫 응답의 문맥 크기). 모르면 undefined
+   * (하한을 걸지 않는다). 화면(`SubAgent.contextFloor`)과 **같은 출처**(`readContextInfo().firstContextUsed`)여야 한다.
+   */
+  startupFloor?: number;
 }
 
 /**
@@ -3281,8 +3363,13 @@ export function shouldCompactAfterTurn(input: CompactAfterTurnInput): boolean {
   if (budget > 0 && (input.turnsSinceCompact ?? 0) >= budget) return true;
   const used = input.contextUsed;
   if (typeof used !== 'number' || !Number.isFinite(used) || used <= 0) return false;
+  // §4 (CLI 사양 추종) (5) 창 하한 — 절약이 조인 뒤 하한으로 올린 창으로 선을 잡는다.
   const trigger = turnCompactTriggerTokens(
-    resolveEffectiveAutoCompact(input.autoCompact, input.userAutoCompact, input.tokenSaverAutoCompact),
+    applyAutoCompactFloor(
+      resolveEffectiveAutoCompact(input.autoCompact, input.userAutoCompact, input.tokenSaverAutoCompact),
+      input.startupFloor,
+      input.contextMax,
+    ).value,
     input.contextMax,
   );
   if (trigger === null) return false;
@@ -6047,8 +6134,13 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 ## 질문 카드의 \`prompts\` 는 어떻게 쓰는가
 사용자가 **그대로 보내면 되는 답**을 그가 1인칭으로 말하듯 적는다(예: "네, A1 계측 → 1차 → 측정 후 판단
 순으로 착수해 주세요."). IDE 가 각 프롬프트를 복사 박스로 감싸 **복사 / 즉시 전송** 버튼을 단다.
+**질문 카드는 사용자가 네 답을 골라 그대로 보내려고 있는 것이다.** 그래서 질문마다 고를 답을 2~4개
+넣고 \`prompts\` 를 비우지 마라. 답 없는 질문은 카드를 빈 입력칸으로 만들어 사용자가 처음부터 글을 쓰게
+한다(실제로 그렇게 되어 "고를 답은 없고 직접 입력칸만 남았다"는 지적을 받았다).
 선택형은 질문에 등장한 실제 대안을 모두 넣어라. A/B를 물으면서 A 답만 주면 다른 답을 고를 수 없다.
-사용자만 아는 값·수치는 지어내지 말고 \`prompts: []\` 로 둬라 — IDE의 직접 답변 입력으로 받는다.
+의도·경험·취향처럼 사용자만 아는 것을 묻더라도 맥락(지시·코드·기록)에서 가장 그럴듯한 답을 초안으로
+써라 — 사용자는 가까운 것을 골라 고쳐 보낸다. 비밀번호·키 같은 **값 자체**만 지어내지 말고, 그 값을
+어떻게 줄지·없이 갈지를 답으로 준다. 카드의 직접 입력은 후보에 없는 답을 위한 예비 칸일 뿐이다.
 질문은 짧게, 조사 배경은 \`note\` 에 둔다. 질문은 비차단이다 — 지금 할 수 있는 일을 끝낸 뒤 묻는다.
 
 ## 왜 "뻔한 질문"을 금지하는가 — 질문 카드가 작업을 멈춰 세운 사고
@@ -6184,7 +6276,7 @@ export function buildAgentQuestionRules(_args: {
 - **묻지 말고 그냥 하라(뻔한 질문)**: "고칠까요/진행할까요"(이미 고치라고 했다) · "원인 두 곳 다 고칠까요, 하나만?"(**원인이면 다 고친다**) · "먼저 설계를 볼까요"(막히지 않았으면 그냥 한다) · 되돌릴 수 있는 판단 · 네가 근거로 정할 수 있는 것.
 - **물어도 되는 것**: 되돌리기 어렵거나 바깥에 나가는 일(삭제·배포·과금·외부 전송) · 어느 쪽을 골라도 **버려지는 작업이 큰** 갈림길 · 사용자만 아는 값(자격증명·의도).
 - **묻더라도 멈추지 마라** — 되돌릴 수 있는 쪽을 **네 판단으로 골라 끝낸 뒤**, 그 선택을 밝히고 "다른 쪽이면 말씀해 주세요"로 묻는다. 답을 기다리며 손을 놓는 것은 **막혔을 때뿐**이다.
-- \`items[{question, header?, prompts[]}]\` — 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 **그대로 보내면 되는 답**을 1인칭으로. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 사용자만 아는 값·수치는 지어내지 말고 \`prompts: []\` — IDE의 직접 답변 입력으로 받는다.`;
+- \`items[{question, header?, prompts[]}]\` — 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 골라 보낼 답을 1인칭으로 **질문마다 2~4개 — 비우지 마라**. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 의도를 물어도 그럴듯한 답을 초안으로, 비밀값은 지어내지 말고 주는 방법을 답으로.`;
 }
 
 /**
@@ -7666,7 +7758,7 @@ echo '${S}{"kind":"report","did":["완료한 일 1","완료한 일 2"],"userActi
 \`\`\`
 - \`userActions\` 가 비면 보내지 마라. \`did\`/\`userActions\`/\`nextSteps\` 목록을 자연어 본문에 다시 나열하지 마라(카드가 보여준다).
 
-2) 사용자 질문 — 사용자만 아는 값·의도로 막혔을 때만. 질문은 짧게, 배경은 \`note\`. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 사용자만 아는 값·수치는 지어내지 말고 \`prompts: []\` — IDE의 직접 답변 입력으로 받는다.
+2) 사용자 질문 — 사용자만 아는 값·의도로 막혔을 때만. 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 골라 보낼 답을 1인칭으로 **질문마다 2~4개 — 비우지 마라**. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 의도를 물어도 그럴듯한 답을 초안으로, 비밀값은 지어내지 말고 주는 방법을 답으로.
 \`\`\`bash
 echo '${S}{"kind":"questions","items":[{"question":"여기서 배포는 테스트 환경인가요, 운영 환경인가요?","header":"대상 환경","prompts":["나는 테스트 환경을 뜻했어.","나는 운영 환경을 뜻했어."]}]}'
 \`\`\`

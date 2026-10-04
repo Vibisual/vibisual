@@ -687,7 +687,7 @@
         "saveError": "Impossibile salvare. Non è stato modificato nulla.",
         "autoCompactWindow": "Comprimi la conversazione al raggiungimento di",
         "autoCompactWindowOff": "Lascia come configurato",
-        "autoCompactWindowDesc": "La leva singola più importante qui. Misurato nell'arco di tre giorni, le sessioni si sono attestate su una mediana di 186k token, e tutto ciò che superava i 200k rappresentava il 62% di tutto l'input — ogni turno lo rilegge. Ridurre la finestra da 400k a 200k ha tagliato l'input del 27%, e a 100k del 59%, a parità di lavoro. Si restringe soltanto: se un agente o un valore predefinito è già più basso, prevale quello. Comprimere la conversazione è di per sé una richiesta corposa, quindi l'impostazione più bassa non è automaticamente la più economica."
+        "autoCompactWindowDesc": "La leva singola più importante qui. Misurato nell'arco di tre giorni, le sessioni si sono attestate su una mediana di 186k token, e tutto ciò che superava i 200k rappresentava il 62% di tutto l'input — ogni turno lo rilegge. Ridurre la finestra da 400k a 200k ha tagliato l'input del 27%, e a 100k del 59%, a parità di lavoro. Si restringe soltanto: se un agente o un valore predefinito è già più basso, prevale quello. Comprimere la conversazione è di per sé una richiesta corposa, quindi l'impostazione più bassa non è automaticamente la più economica. Questa finestra decide solo dove ripieghiamo tra un comando e l'altro: a metà lavoro, la CLI ripiega solo quando la finestra del modello è piena."
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "Compattazione automatica",
-        "tip": "La dimensione della finestra su cui si misura la compattazione. In pratica ripieghiamo all'{{percent}}% di quel valore, alla fine del turno, per non tagliare a metà lavoro; se un singolo turno supera tutto il margine rimasto, ripiega la CLI a metà lavoro.",
-        "auto": "auto — la CLI sceglie la finestra.",
+        "tip": "La dimensione della finestra su cui si basa il ripiegamento tra un comando e l'altro. Se un turno termina all'{{percent}}% di quel valore o oltre, ripieghiamo in silenzio prima del comando successivo. A metà lavoro non si ripiega: lì la CLI ripiega solo quando la finestra del modello è piena.",
+        "auto": "auto — l'intera finestra del modello.",
         "tokens": "Dimensione finestra circa {{tokens}} token.",
         "foldsAt": "Ripiega attorno a {{tokens}}, alla fine di quel turno.",
-        "foldsAtAuto": "Ripiega all'{{percent}}% della finestra scelta dalla CLI, alla fine di quel turno.",
+        "foldsAtAuto": "Ripiega all'{{percent}}% della finestra del modello, alla fine di quel turno.",
         "offLabel": "disattivato",
         "off": "disattivato — non comprime mai. Nessuna chiamata di riepilogo, quindi nessun token speso.",
         "foldsAtOff": "Non comprime mai. Le conversazioni lunghe diventano più pesanti a ogni turno e, quando la finestra del modello si riempie, la CLI comprime una volta a metà lavoro.",
+        "raised": "Ripiega invece in base a una finestra da {{to}}: le conversazioni di questo agente partono da circa {{floor}} token, quindi una finestra da {{from}} si riempirebbe di nuovo subito dopo ogni ripiegamento.",
         "confirm": {
           "title": "Attivare la compattazione automatica? ({{value}})",
           "titleSelf": "Lasciare che l'agente comprima da solo?",
@@ -1714,7 +1715,8 @@
       "noEntry": "Nessuna voce server corrispondente",
       "noCommand": "Riavvio non disponibile — già arrestato, il comando di avvio non è più recuperabile (server segnalato dall’agente)",
       "takeover": "Riavvia prendendo il controllo — Vibisual adotta il server avviato dall’agente",
-      "takeoverFailed": "Presa in carico non riuscita — comando di avvio illeggibile (di un altro account o strumento di analisi assente)"
+      "takeoverFailed": "Presa in carico non riuscita — comando di avvio illeggibile (di un altro account o strumento di analisi assente)",
+      "refusedOtherProject": "Lasciato intatto — questo indirizzo è servito da un server avviato da un altro progetto aperto."
     },
     "subAgent": {
       "heading": "SubAgent ({{count}})",
@@ -2030,6 +2032,7 @@
       "noAudio": "Esportato senza audio.",
       "downgraded": "La modalità di render è stata declassata: {{id}}",
       "previewFailed": "Impossibile disegnare l'anteprima.",
+      "fileUnreadable": "Impossibile leggere questo video: {{name}}",
       "errNoDoc": "Nessun documento aperto.",
       "errNoStage": "Impossibile trovare un punto a cui agganciare la scena.",
       "errNoRenderBackend": "Su questo dispositivo non è disponibile alcuna modalità di render.",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "Separa le note sovrapposte",
       "ctxSpreadMemosNone": "Nessuna nota sovrapposta",
       "jumpToBottom": "Scorri in fondo",
+      "jumpToTop": "Scorri in cima",
+      "promptRail": "I tuoi prompt",
+      "promptPrev": "Prompt precedente",
+      "promptNext": "Prompt successivo",
+      "promptPosition": "Prompt {{n}} / {{total}}",
       "ctxSelectionRequired": "Seleziona prima del testo",
       "inputCtxCut": "Taglia",
       "inputCtxCopy": "Copia",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} in / {{out}} out",
       "tokensTip": "Totale dei token che questa sessione ha usato da quando è partita. L'input conta anche letture e scritture di cache, perciò sale molto più in fretta dell'output. È cumulativo: può solo crescere.",
       "autoCompact": "compattazione auto {{value}}",
-      "autoCompactTip": "Quando il contesto raggiunge questa dimensione, la CLI riassume da sola la conversazione. Modificabile per singolo agente nelle Impostazioni Agent, o per tutti in File > Opzioni > Valori predefiniti Agent.",
+      "autoCompactTip": "La finestra su cui si basa il riassunto della conversazione tra un comando e l'altro: se a fine turno il contesto supera l'{{percent}}% della finestra, ripieghiamo prima del comando successivo. A metà lavoro, la CLI ripiega solo quando la finestra del modello è piena. Modificabile per singolo agente nelle Impostazioni Agent, o per tutti in File > Opzioni > Valori predefiniti Agent.",
+      "autoCompactRaised": "Aumentata da {{from}}: le conversazioni con questo agente partono da circa {{floor}} token, quindi una finestra più piccola si riempirebbe di nuovo subito dopo ogni ripiegamento.",
       "sessionOne": "{{count}} sessione",
       "sessionMany": "{{count}} sessioni",
       "sessionsTip": "Quante schede di sessione sono aperte su questo agente.",
@@ -3349,7 +3358,9 @@
       "commandReceived": "Comando ricevuto",
       "promptSuggestion": "Prossimo prompt suggerito",
       "imageMissing": "(immagine non disponibile)",
-      "waiting": "in attesa"
+      "waiting": "in attesa",
+      "compacting": "compattazione",
+      "compactingHint": "Il contesto è pieno, quindi la CLI sta riassumendo la conversazione precedente per liberare spazio. Di solito richiede qualche minuto — nel frattempo è normale non vedere nuovo output."
     },
     "report": {
       "title": "Report di lavoro",
@@ -3548,6 +3559,12 @@
       "title": "Piano",
       "progress": "{{done}}/{{total}}",
       "superseded": "Piano aggiornato"
+    },
+    "transportRecovery": {
+      "reconnecting": "Riconnessione… {{attempt}}/{{maxAttempts}}",
+      "fallback": "Tentativo con un altro metodo di connessione…",
+      "resumed": "Connessione ripristinata · lavoro ripreso",
+      "ended": "Ripristino della connessione tentato"
     },
     "cmdError": {
       "spawn": "Impossibile avviare {{engine}}",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "Inserisci URL...",
       "serverPreview": "Anteprima server",
-      "reload": "Ricarica"
+      "reload": "Ricarica",
+      "otherProjectTitle": "Su questo indirizzo c'è il server di un altro progetto",
+      "otherProjectBody": "{{url}} è al momento servito da un server avviato da un altro progetto aperto, quindi questa scheda non lo carica. Si riapre da sola non appena il server di questo progetto torna su quell'indirizzo."
     },
     "serverKind": {
       "frontendShort": "FE",
@@ -6016,6 +6035,8 @@
     "local": "All Model",
     "main": "Provider principale",
     "mainHint": "Il provider che svolge la maggior parte del lavoro. I nuovi agenti lo usano per impostazione predefinita e l’indicatore di utilizzo in alto lo segue, in tutti i progetti.",
+    "setMain": "Imposta come predefinito",
+    "isMain": "Predefinito",
     "saveFailed": "Impossibile salvare. Riprova.",
     "project": "Impostazioni del progetto",
     "save": "Salva",

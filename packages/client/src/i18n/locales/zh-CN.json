@@ -687,7 +687,7 @@
         "saveError": "保存失败,未做任何更改。",
         "autoCompactWindow": "对话达到该大小后折叠",
         "autoCompactWindowOff": "保持原有设置",
-        "autoCompactWindowDesc": "这是这里影响最大的一项设置。经过三天的测量，会话的 Token 中位数为 186k，超过 200k 的部分占全部输入的 62%。每一轮对话都会重新读取这部分内容。在相同工作量下，将窗口从 400k 降到 200k 可减少 27% 的输入，降到 100k 可减少 59%。该设置只会朝更低的方向生效：如果 Agent 或默认值已经更低，则以更低的为准。折叠本身也是一次较大的请求，因此最低的设置并不一定是最省的。"
+        "autoCompactWindowDesc": "这是这里影响最大的一项设置。经过三天的测量，会话的 Token 中位数为 186k，超过 200k 的部分占全部输入的 62%。每一轮对话都会重新读取这部分内容。在相同工作量下，将窗口从 400k 降到 200k 可减少 27% 的输入，降到 100k 可减少 59%。该设置只会朝更低的方向生效：如果 Agent 或默认值已经更低，则以更低的为准。折叠本身也是一次较大的请求，因此最低的设置并不一定是最省的。该窗口只决定在命令之间何处折叠——任务中途只有模型窗口占满时，CLI 才会折叠。"
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "自动压缩",
-        "tip": "压缩所依据的窗口大小。实际上会在达到该值的 {{percent}}% 之后、于该轮结束处折叠——这样不会在任务中途截断；若单轮直接冲破剩余余量，则由 CLI 在中途折叠。",
-        "auto": "auto — 由 CLI 选择窗口。",
+        "tip": "在命令之间折叠时所依据的窗口大小。若某轮结束时达到该值的 {{percent}}% 或以上，会在下一条命令之前静默折叠。任务中途不会折叠——只有模型窗口占满时，CLI 才会在中途折叠。",
+        "auto": "auto — 以整个模型窗口为准。",
         "tokens": "窗口大小约 {{tokens}} 个 token。",
         "foldsAt": "达到约 {{tokens}} 时，在该轮结束处折叠。",
-        "foldsAtAuto": "达到 CLI 所定窗口的 {{percent}}% 时，在该轮结束处折叠。",
+        "foldsAtAuto": "达到模型窗口的 {{percent}}% 时，在该轮结束处折叠。",
         "offLabel": "关闭",
         "off": "关闭 — 不做压缩。没有摘要调用，因此不消耗令牌。",
         "foldsAtOff": "不做压缩。对话变长后每轮都会更重，达到模型窗口时 CLI 会在任务中途折叠一次。",
+        "raised": "改为以 {{to}} 窗口为准折叠：该 Agent 的对话起始约为 {{floor}} 个 token，因此 {{from}} 窗口会在每次折叠后立刻再次填满。",
         "confirm": {
           "title": "要开启自动压缩吗？（{{value}}）",
           "titleSelf": "要允许智能体自行压缩吗？",
@@ -1714,7 +1715,8 @@
       "noEntry": "无匹配的服务器条目",
       "noCommand": "无法重启 — 已停止，无法再获取启动命令（代理上报的服务器）",
       "takeover": "接管后重启 — Vibisual 接手代理启动的服务器",
-      "takeoverFailed": "接管失败 — 无法读取启动命令（属于其他账户，或缺少查询工具）"
+      "takeoverFailed": "接管失败 — 无法读取启动命令（属于其他账户，或缺少查询工具）",
+      "refusedOtherProject": "未做任何更改——此地址由另一个已打开的项目启动的服务器响应。"
     },
     "subAgent": {
       "heading": "子 Agent（{{count}}）",
@@ -2030,6 +2032,7 @@
       "noAudio": "导出时未包含音频。",
       "downgraded": "渲染模式已降级：{{id}}",
       "previewFailed": "无法绘制预览。",
+      "fileUnreadable": "无法读取此视频：{{name}}",
       "errNoDoc": "没有打开的文档。",
       "errNoStage": "找不到可以挂载舞台的位置。",
       "errNoRenderBackend": "此设备上没有可用的渲染模式。",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "展开重叠的便签",
       "ctxSpreadMemosNone": "没有重叠的便签",
       "jumpToBottom": "滚动到底部",
+      "jumpToTop": "滚动到顶部",
+      "promptRail": "你的提示词",
+      "promptPrev": "上一条提示词",
+      "promptNext": "下一条提示词",
+      "promptPosition": "提示词 {{n}} / {{total}}",
       "ctxSelectionRequired": "请先选择文本",
       "inputCtxCut": "剪切",
       "inputCtxCopy": "复制",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} 输入 / {{out}} 输出",
       "tokensTip": "该 Session 自启动以来使用的 token 总量。输入包含缓存读取与缓存写入，因此增长远快于输出。累计值，只增不减。",
       "autoCompact": "自动压缩 {{value}}",
-      "autoCompactTip": "当上下文达到该大小时，CLI 会自动总结并压缩对话。可在 Agent 设置中单独修改，或在文件 > 选项 > Agent 默认值中修改全局默认值。",
+      "autoCompactTip": "在命令之间总结并压缩对话时所依据的窗口：若某轮结束时上下文超过该窗口的 {{percent}}%，会在下一条命令之前折叠；任务中途只有模型窗口占满时，CLI 才会折叠。可在 Agent 设置中单独修改，或在文件 > 选项 > Agent 默认值中修改全局默认值。",
+      "autoCompactRaised": "已从 {{from}} 上调：该 Agent 的对话起始约为 {{floor}} 个 token，因此更小的窗口会在每次折叠后立刻再次填满。",
       "sessionOne": "{{count}} 个 Session",
       "sessionMany": "{{count}} 个 Session",
       "sessionsTip": "该 Agent 上打开的 Session 标签页数量。",
@@ -3349,7 +3358,9 @@
       "commandReceived": "命令已接收",
       "promptSuggestion": "下一条提示建议",
       "imageMissing": "（图片不可用）",
-      "waiting": "等待中"
+      "waiting": "等待中",
+      "compacting": "压缩中",
+      "compactingHint": "上下文已满，CLI 正在总结此前的对话以腾出空间。通常需要几分钟，期间没有新输出是正常的。"
     },
     "report": {
       "title": "工作报告",
@@ -3548,6 +3559,12 @@
       "title": "计划",
       "progress": "{{done}}/{{total}}",
       "superseded": "计划已更新"
+    },
+    "transportRecovery": {
+      "reconnecting": "正在重新连接… {{attempt}}/{{maxAttempts}}",
+      "fallback": "正在尝试其他连接方式…",
+      "resumed": "连接已恢复 · 工作已继续",
+      "ended": "连接恢复尝试记录"
     },
     "cmdError": {
       "spawn": "{{engine}} 无法启动",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "输入 URL...",
       "serverPreview": "服务器预览",
-      "reload": "刷新"
+      "reload": "刷新",
+      "otherProjectTitle": "此地址上运行的是另一个项目的服务器",
+      "otherProjectBody": "{{url}} 当前由另一个已打开的项目启动的服务器响应，因此该标签页不会加载它。一旦本项目的服务器重新在该地址上运行，它就会自动再次打开。"
     },
     "serverKind": {
       "frontendShort": "前端",
@@ -6016,6 +6035,8 @@
     "local": "所有模型",
     "main": "主要提供方",
     "mainHint": "承担主要工作的提供方。新智能体的默认提供方和顶部的用量显示都以此为准，并适用于所有项目。",
+    "setMain": "设为默认",
+    "isMain": "默认",
     "saveFailed": "无法保存，请重试。",
     "project": "项目设置",
     "save": "保存",

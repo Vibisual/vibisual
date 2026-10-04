@@ -71,6 +71,8 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
 }: EdgeProps): React.JSX.Element {
   const { t } = useTranslation();
   const edgeData = data as Record<string, unknown> | undefined;
+  const selectionFocusClassName = typeof edgeData?.['selectionFocusClassName'] === 'string'
+    ? edgeData['selectionFocusClassName'] : undefined;
   // v1.33 — status 기반 "지속" 시각 전이 OFF. 엣지 모양은 kind(의미)로만 결정.
   // status 는 이벤트 펄스(아이콘이 path 따라 3회 날아감) 트리거 용도로만 사용.
   const status = (edgeData?.['status'] as TaskEdgeStatus) ?? 'idle';
@@ -210,6 +212,8 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
         interactionWidth={15}
       />
       <EdgeLabelRenderer>
+        {/* The portal shares the SVG edge's opacity without replacing each icon's own opacity. */}
+        <div className={selectionFocusClassName}>
         <svg style={{ position: 'absolute', width: 0, height: 0 }}>
           <defs>
             {/* v1.33 — marker id 는 kind 단독 (status 무반응). 화살촉 색 = kind 색 고정. */}
@@ -309,6 +313,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
             </div>
           );
         })()}
+        </div>
       </EdgeLabelRenderer>
     </>
   );

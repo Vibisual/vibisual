@@ -5,9 +5,10 @@ import type { BubbleData, SubAgent } from '@vibisual/shared';
 import {
   resolveAutoCompact, isAutoCompactOn, resolveAliasToLatest, getModelContextLimit,
   agentModelLabelOf, BUBBLE_COLORS, resolveCmdCliKind, resolveAgentDefaults,
-  resolveSessionRunState,
+  resolveSessionRunState, applyAutoCompactFloor, TURN_COMPACT_TRIGGER_RATIO,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { pickCompactFloorSource } from '../../utils/compactFloor.js';
 import {
   sessionDotClass, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
   serializeBusySubIds, parseBusySubIds, serializePendingSubIds, buildSessionRunInputs,
@@ -202,12 +203,20 @@ export const IDEStatusBar = memo(function IDEStatusBar({
     sessionId: activeSession?.sessionId ?? null,
   };
 
-  // §4 (CLI 사양 추종) — 이 에이전트에 **실제로 실리는** 자동 압축 값. 서버 스폰과 같은 3층
-  //   해소(에이전트 설정 → 설정 창 전역 → 내장 기본)를 같은 함수로 계산해 화면과 스폰이 어긋나지
+  // §4 (CLI 사양 추종) — 이 에이전트의 자동 압축 창(명령 사이 압축의 기준). 서버 턴 경계 판정과 같은 3층
+  //   해소(에이전트 설정 → 설정 창 전역 → 내장 기본)를 같은 함수로 계산해 화면과 판정이 어긋나지
   //   않게 한다. 두 선택자 모두 원시 문자열이라 파생 배열/맵 구독의 리렌더 함정을 타지 않는다.
   const ownAutoCompact = useGraphStore((s) => s.agentConfigs[agent.id]?.autoCompact);
   const globalAutoCompact = useGraphStore((s) => s.userDefaults?.agentConfig?.autoCompact);
   const autoCompact = resolveAutoCompact(ownAutoCompact, globalAutoCompact);
+  // §4 (CLI 사양 추종) (5) 창 하한 — 보고 있는 세션(없으면 같은 에이전트의 최근 세션)의 시작 문맥으로
+  //   **실제로 쓰는** 창을 적는다. 턴 경계 판정과 같은 함수다 — 칸은 200k 라는데 320k 에서 접히면 칸이 거짓말이 된다.
+  //   두 선택자 모두 원시값이다(위 칸들과 같은 문법).
+  const activeSubId = activeSession?.id ?? null;
+  const compactFloor = useGraphStore((s) => pickCompactFloorSource(s.subAgents[agent.id], activeSubId)?.floor ?? null);
+  const compactFloorMax = useGraphStore((s) => pickCompactFloorSource(s.subAgents[agent.id], activeSubId)?.contextMax ?? null);
+  const compactEffective = applyAutoCompactFloor(autoCompact, compactFloor, compactFloorMax);
+  const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
 
   // §4 (Thinking on/off) — 확장 사고를 **꺼 둔** 에이전트인가. 판정(3층 해소 · 안 띄우는 갈래
   //   셋)은 전부 `statusBarContext.ts` 에 있다 — 화면에는 그릴지 말지만 남긴다. 세 선택자 모두
@@ -420,8 +429,20 @@ export const IDEStatusBar = memo(function IDEStatusBar({
 
       {/* §4 (CLI 사양 추종) — 자동 압축 값. 컨텍스트 수치가 왼쪽에서 오르는 동안 "그래서 어디서
           잘리는가"를 같은 바에서 바로 읽게 한다. 마우스를 올리면 뜻과 바꾸는 자리를 알려 준다. */}
-      <span className="whitespace-nowrap text-gray-600" title={t('ide.statusBar.autoCompactTip')}>
-        {t('ide.statusBar.autoCompact', { value: formatAutoCompact(autoCompact, t('panel.agentConfig.autoCompact.offLabel')) })}
+      {/* 올려 잡았으면 칸은 올린 값을 적고, 이유는 툴팁에 한 단락 더한다(경고색 ❌ — 고장이 아니다). */}
+      <span
+        className="whitespace-nowrap text-gray-600"
+        title={compactEffective.raisedFrom !== undefined && compactFloor !== null
+          ? [
+            t('ide.statusBar.autoCompactTip', { percent: compactFoldsAtPercent }),
+            t('ide.statusBar.autoCompactRaised', {
+              from: formatAutoCompact(compactEffective.raisedFrom, t('panel.agentConfig.autoCompact.offLabel')),
+              floor: `${Math.round(compactFloor / 1000)}k`,
+            }),
+          ].join('\n\n')
+          : t('ide.statusBar.autoCompactTip', { percent: compactFoldsAtPercent })}
+      >
+        {t('ide.statusBar.autoCompact', { value: formatAutoCompact(compactEffective.value, t('panel.agentConfig.autoCompact.offLabel')) })}
       </span>
 
       {/* Session count */}

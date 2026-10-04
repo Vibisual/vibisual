@@ -6,6 +6,8 @@ import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
 import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
 import { PreviewFrames } from '../Preview/PreviewFrames.js';
 import { PreviewControls, PreviewPickPanel } from '../Preview/PreviewControls.js';
+import { shouldIframeViewFollow } from '../../utils/iframeTabFollow.js';
+import { useIframeTabGuard } from './useIframeTabGuard.js';
 
 interface IframeViewProps {
   url: string;
@@ -16,6 +18,23 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const [currentUrl, setCurrentUrl] = useState(url);
   const [inputUrl, setInputUrl] = useState(url);
+  // §7.11 / §3.5 — 탭 주소가 바뀌면 화면도 옮긴다. 스토어는 위성 주소를 따라 탭 주소를 고친다
+  //   (`followIframeTabUrls` — 한 포트 두 주인이면 서버가 `localhost` 를 우리 서버에 닿는 `127.0.0.1` 로
+  //   옮긴다). 연 순간의 주소를 상태로 붙들면 캔버스 버블은 고쳐져도 열어 둔 탭은 남의 화면을 계속 보여 준다.
+  //   사용자가 주소창으로 딴 데를 보고 있으면 덮어쓰지 않는다. 본창은 key 없이 이 칸을 다른 탭과 이어
+  //   쓰므로, 탭이 바뀌면 언제나 그 탭의 주소로 옮긴다.
+  const [source, setSource] = useState({ tabId, url });
+  if (source.tabId !== tabId || source.url !== url) {
+    const follow = shouldIframeViewFollow(source, { tabId, url }, currentUrl);
+    setSource({ tabId, url });
+    if (follow) {
+      setCurrentUrl(url);
+      setInputUrl(url);
+    }
+  }
+  // §7.11 / §3.5 — 불러오기 전에 이 탭을 연 프로젝트 기준으로 소속을 묻는다(B 를 보는 동안엔 A 의 위성이
+  //   스냅샷에 없어 위 따라가기만으로는 모자란다). 사용자가 주소창으로 고른 주소는 묻지 않는다.
+  const guard = useIframeTabGuard(tabId, currentUrl, currentUrl === url);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // §7.11 — 폭 프리셋 + 요소 집기(집은 요소 → 이 프리뷰를 띄운 에이전트에게 명령).
   const picker = usePreviewPicker(iframeRef, currentUrl);
@@ -99,14 +118,33 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
 
       {/* iframe content — 프록시 경유. 서버 꺼짐 시 opacity 낮춰 비활성 표시. */}
       {/*   폭 프리셋이 걸리면 그 폭 **그대로**(scale 축소 ❌), `compare` 면 세 폭을 나란히(§5.17 (A)). */}
-      <PreviewFrames
-        picker={picker}
-        snip={snip}
-        src={toProxyUrl(currentUrl)}
-        primaryRef={iframeRef}
-        className="bg-gray-950"
-        style={overlayStyle}
-      />
+      {/*   §7.11 / §3.5 — 첫 판정 전에는 iframe 을 띄우지 않고, 다른 프로젝트 서버면 안내만 보인다. */}
+      {guard === 'show' ? (
+        <PreviewFrames
+          picker={picker}
+          snip={snip}
+          src={toProxyUrl(currentUrl)}
+          primaryRef={iframeRef}
+          className="bg-gray-950"
+          style={overlayStyle}
+        />
+      ) : guard === 'block' ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-gray-950 p-6">
+          <div className="flex max-w-md flex-col items-center gap-2 text-center">
+            <svg className="h-5 w-5 text-amber-300/80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+              <path d="M12 8v4" />
+              <path d="M12 16h.01" />
+            </svg>
+            <p className="text-[13px] font-medium text-gray-200">{t('common.iframe.otherProjectTitle')}</p>
+            <p className="break-words text-[12px] leading-relaxed text-gray-400">
+              {t('common.iframe.otherProjectBody', { url: currentUrl })}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 bg-gray-950" />
+      )}
 
       <PreviewPickPanel picker={picker} snip={snip} />
     </div>

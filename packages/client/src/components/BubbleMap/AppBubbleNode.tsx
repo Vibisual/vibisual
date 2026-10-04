@@ -86,17 +86,15 @@ export const AppBubbleNode = memo(function AppBubbleNode({
    * 한 바퀴 돌아온 것이다. 그 왕복 어딘가가 끊기면 "눌러도 선택 표시가 안 뜨는" 버블이 된다 —
    * 캡처·플레이 버블이 같은 이유로 둘을 함께 본다(v4.68).
    */
-  const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   /**
    * 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다.
    *
    * 더블클릭이 있는 버블은 실제 선택을 240ms 미루므로(`bubbleSelectGesture`), 그 사이 눈에 보이는
    * 반응은 이 한 칸이 낸다. 에이전트 버블이 원래 쓰던 것과 **같은 칸**이라 링은 언제나 하나다.
+   * 둘 다 판정 결과만 구독한다(§9) — id 를 받으면 다른 버블을 고를 때마다 이 버블도 다시 그려진다.
    */
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
-  const isSelected = selected === true
-    || selectedAppBubbleId === data.appBubbleId
-    || selectIntentId === data.appBubbleId;
+  const chosenHere = useGraphStore((s) => s.selectedAppBubbleId === data.appBubbleId || s.selectIntentId === data.appBubbleId);
+  const isSelected = selected === true || chosenHere;
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);

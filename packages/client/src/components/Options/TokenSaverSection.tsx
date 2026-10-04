@@ -221,7 +221,7 @@ export function TokenSaverSection({ onDirtyChange }: TokenSaverSectionProps = {}
         </select>
         <p className="text-[12px] leading-snug text-gray-500">
           {t('panel.options.tokenSaver.autoCompactWindowDesc', {
-            defaultValue: 'The largest single lever here. Measured over three days, sessions sat at a median of 186k tokens and everything above 200k accounted for 62% of all input — every turn re-reads that. Lowering the window from 400k to 200k cut input by 27%, and 100k by 59%, for the same work. It only ever tightens: an agent or a default that is already lower wins. Folding is itself a large request, so the lowest setting is not automatically the cheapest.',
+            defaultValue: 'The largest single lever here. Measured over three days, sessions sat at a median of 186k tokens and everything above 200k accounted for 62% of all input — every turn re-reads that. Lowering the window from 400k to 200k cut input by 27%, and 100k by 59%, for the same work. It only ever tightens: an agent or a default that is already lower wins. Folding is itself a large request, so the lowest setting is not automatically the cheapest. This window only decides where we fold between commands — mid-task, the CLI only folds when the model window fills up.',
           })}
         </p>
       </div>

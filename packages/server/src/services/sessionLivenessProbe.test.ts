@@ -20,6 +20,7 @@ import {
   extractSessionCliText,
   summarizeTranscriptTail,
   resolveSessionTranscript,
+  transcriptLastWriteMs,
   type SessionProbeEvidence,
 } from './sessionLivenessProbe.js';
 
@@ -175,6 +176,90 @@ describe('대화록 꼬리 — 배관이 아니라 뜻만 싣는다', () => {
     expect(summarizeTranscriptTail(path.join(dir, 'nope.jsonl'))).toBe('');
     fs.writeFileSync(path.join(dir, 'empty.jsonl'), '', 'utf8');
     expect(summarizeTranscriptTail(path.join(dir, 'empty.jsonl'))).toBe('');
+  });
+
+  it('코덱스 롤아웃도 읽는다 — 빈 꼬리를 "끝났다"로 읽어 도는 턴을 닫았다', () => {
+    // 줄 모양은 0.159.2 실제 롤아웃(2026-10-02, 판정이 잘못 닫은 그 세션)에서 줄였다.
+    const at = (s: number): string => new Date(Date.parse('2026-10-02T14:07:00.000Z') + s * 1_000).toISOString();
+    const f = write('rollout.jsonl', [
+      { timestamp: at(0), type: 'session_meta', payload: { id: 'thread-1', cli_version: '0.159.2' } },
+      { timestamp: at(1), type: 'turn_context', payload: { turn_id: 't1', approval_policy: 'never' } },
+      { timestamp: at(2), type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills_instructions>' }] } },
+      { timestamp: at(3), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions' }] } },
+      { timestamp: at(4), type: 'response_item', payload: { type: 'message', role: 'assistant', phase: 'commentary', content: [{ type: 'output_text', text: '빌드 설정을\n확인하겠습니다.' }] } },
+      { timestamp: at(4), type: 'event_msg', payload: { type: 'agent_message', message: '빌드 설정을 확인하겠습니다.' } },
+      { timestamp: at(5), type: 'response_item', payload: { type: 'reasoning', summary: [], encrypted_content: 'gAAAAB-opaque' } },
+      { timestamp: at(6), type: 'response_item', payload: { type: 'custom_tool_call', status: 'completed', call_id: 'c1', name: 'exec', input: 'text(await tools.exec_command({cmd:"Get-Location"}))' } },
+      { timestamp: at(6), type: 'token_usage_record', payload: { thread_id: 'thread-1', usage: { input_tokens: 28510 } } },
+      { timestamp: at(7), type: 'event_msg', payload: { type: 'item_completed', item: { type: 'CommandExecution' } } },
+      { timestamp: at(7), type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'c1', output: [{ type: 'input_text', text: 'Script completed\nWall time 0.6 seconds\nOutput:\n' }, { type: 'input_text', text: 'demo-project' }] } },
+      { timestamp: at(7), type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 28510 } } } },
+      { timestamp: at(8), type: 'response_item', payload: { type: 'function_call', name: 'spawn_agent', namespace: 'collaboration', arguments: '{}', call_id: 'c2' } },
+      { timestamp: at(9), type: 'response_item', payload: { type: 'function_call_output', call_id: 'c2', output: '{"task_name":"/root/explorer"}' } },
+      { timestamp: at(10), type: 'response_item', payload: { type: 'web_search_call', status: 'completed', action: { type: 'search', query: 'x' } } },
+      { timestamp: at(11), type: 'event_msg', payload: { type: 'task_complete', last_agent_message: '카드를 확인해 주세요.' } },
+    ]);
+
+    expect(summarizeTranscriptTail(f).split('\n')).toEqual([
+      'said: 빌드 설정을 확인하겠습니다.', // `event_msg` 의 같은 말은 두 번 싣지 않는다
+      '(thinking)',
+      'called tool: exec',
+      'tool result: Script completed Wall time 0.6 seconds Output: demo-project',
+      'called tool: spawn_agent',
+      'tool result: {"task_name":"/root/explorer"}',
+      'called tool: web_search',
+      '(turn complete)',
+    ]);
+  });
+});
+
+describe('마지막 쓰기 시각 — 수정 시각을 그대로 믿지 않는다', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-lastwrite-'))); });
+  afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+  const write = (lines: unknown[], partial = ''): string => {
+    const f = path.join(dir, 'transcript.jsonl');
+    fs.writeFileSync(f, `${lines.map((l) => JSON.stringify(l)).join('\n')}\n${partial}`, 'utf8');
+    return f;
+  };
+  // 2026-10-02 사고의 실제 시각들 — 롤아웃 생성 13:59:38, 마지막 줄 14:08:20, 판정 14:08:21.
+  const BIRTH = Date.parse('2026-10-02T13:59:38.729Z');
+  const LAST_LINE = '2026-10-02T14:08:20.464Z';
+  const PROBE_AT = Date.parse('2026-10-02T14:08:21.640Z');
+  const rollout = [
+    { timestamp: '2026-10-02T13:59:38.869Z', type: 'session_meta', payload: {} },
+    { timestamp: '2026-10-02T14:08:14.357Z', type: 'event_msg', payload: { type: 'token_count' } },
+    { timestamp: LAST_LINE, type: 'response_item', payload: { type: 'reasoning' } },
+  ];
+
+  it('수정 시각이 생성 시각에 멈춘 코덱스 롤아웃 — 마지막 줄 시각을 쓴다', () => {
+    const f = write(rollout);
+    expect(transcriptLastWriteMs(f, BIRTH, PROBE_AT)).toBe(Date.parse(LAST_LINE));
+    // 판정이 실제로 본 값은 "8분 조용"이었다 — 마지막 줄 기준이면 0분이다.
+    expect(Math.floor((PROBE_AT - BIRTH) / 60_000)).toBe(8);
+    expect(Math.floor((PROBE_AT - transcriptLastWriteMs(f, BIRTH, PROBE_AT)) / 60_000)).toBe(0);
+  });
+
+  it('수정 시각이 더 늦으면 수정 시각 그대로 — 수정 시각이 정직한 대화록(클로드)은 값이 안 바뀐다', () => {
+    const f = write([{ type: 'x' }, { type: 'assistant', timestamp: LAST_LINE, message: { content: [] } }]);
+    expect(transcriptLastWriteMs(f, PROBE_AT - 500, PROBE_AT)).toBe(PROBE_AT - 500);
+  });
+
+  it('마지막 줄이 쓰이는 중이면(개행 전·잘린 JSON) 그 앞 줄을 쓴다', () => {
+    const f = write(rollout, '{"timestamp":"2026-10-02T14:08:21.000Z","type":"response_item","payload":{"type":"mess');
+    expect(transcriptLastWriteMs(f, BIRTH, PROBE_AT)).toBe(Date.parse(LAST_LINE));
+  });
+
+  it('미래 시각의 줄은 믿지 않는다 — 어긋난 시계 한 줄이 세션을 영영 "안 조용함"으로 묶지 않게', () => {
+    const f = write([...rollout, { timestamp: '2026-10-02T15:00:00.000Z', type: 'event_msg', payload: {} }]);
+    expect(transcriptLastWriteMs(f, BIRTH, PROBE_AT)).toBe(Date.parse(LAST_LINE));
+  });
+
+  it('읽을 수 있는 시각이 없으면 수정 시각 그대로 — 없는 파일·시각 없는 줄', () => {
+    expect(transcriptLastWriteMs(path.join(dir, 'nope.jsonl'), BIRTH, PROBE_AT)).toBe(BIRTH);
+    const f = write([{ type: 'x' }, { type: 'summary', summary: '요약' }, { timestamp: 'not-a-date', type: 'y' }]);
+    expect(transcriptLastWriteMs(f, BIRTH, PROBE_AT)).toBe(BIRTH);
   });
 });
 

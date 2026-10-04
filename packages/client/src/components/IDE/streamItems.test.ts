@@ -105,7 +105,8 @@ function normItem(it: StreamItemFull): unknown {
   switch (it.kind) {
     // §5.5 #17-39 — 본문의 끝 시각(작성 자국)도 렌더에 쓰이므로 등가성 비교에 넣는다.
     case 'text': return { k: 'text', id: it.id, c: it.content, ts: it.timestamp, end: it.endedAt };
-    case 'system': case 'result': case 'error': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
+    case 'system': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp, recovery: it.transportRecovery };
+    case 'result': case 'error': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
     // §5.25 (O) — 그림도 이름까지 비교한다. default 로 흘리면 두 파서가 다른 이름을 적어도 통과한다.
     case 'image': return { k: 'image', id: it.id, c: it.content, ts: it.timestamp };
     case 'tool': return { k: 'tool', id: it.id, n: it.toolName, in: it.input, out: it.output, a: it.isActive, ts: it.timestamp };
@@ -774,5 +775,41 @@ describe('턴 멈춤 한 줄의 자리', () => {
       expect(idsOf(inc)).toEqual(idsOf(full));
     }
     expect(idsOf(mergeCardsIntoItems(buildBaseItems(events, commands), commands)).at(-1)).toBe('turnstop-run');
+  });
+});
+
+// §5.5 #17-24 ⑥ — CLI 가 턴 도중에 대화를 접는 2.4~6분 동안 라이브 1줄은 "생각 중"으로 서 있었다.
+//   넷째 모드가 전체 재구축·증분 파서 양쪽에서 같은 규칙(`liveLineMode`)으로 고르는지 고정한다.
+describe('§5.5 #17-24 ⑥ — 접는 동안 라이브 1줄은 압축 중', () => {
+  const S = 'S';
+  const thinking = (id: string, ts: number): SubAgentStreamEvent =>
+    ({ id, subAgentId: S, parentAgentId: 'P', timestamp: ts, eventType: 'thinking', content: '...' }) as SubAgentStreamEvent;
+  // 라이브 1줄은 `items` 가 아니라 따로 실린다(`mergeCardsIntoItems` 가 꼬리에 붙인다).
+  const liveOf = (r: BaseItemsResult) => {
+    if (!r.thinkingLive) throw new Error('live line missing');
+    return r.thinkingLive;
+  };
+
+  it('표식이 있으면 마지막 이벤트가 사고여도 압축 중이고, 그 시각을 싣는다', () => {
+    const live = liveOf(buildBaseItems([thinking('t', 100)], [], true, false, null, false, 50, 250));
+    expect(live.mode).toBe('compacting');
+    expect(live.compactingSince).toBe(250);
+  });
+
+  it('표식이 없으면 종전대로 사고/작업이고, 압축 시각을 싣지 않는다', () => {
+    const live = liveOf(buildBaseItems([thinking('t', 100)], [], true, false, null, false, 50, null));
+    expect(live.mode).toBe('thinking');
+    expect(live.compactingSince).toBeUndefined();
+  });
+
+  it('줄만 서 있으면 표식이 있어도 대기다 — 도는 것이 없으면 접을 것도 없다', () => {
+    expect(liveOf(buildBaseItems([thinking('t', 100)], [], true, true, null, false, 50, 250)).mode).toBe('waiting');
+  });
+
+  it('증분 파서도 같은 모드를 내고, 표식이 걷히면 다시 사고로 돌아온다', () => {
+    const events = [thinking('t', 100)];
+    const parser = new IncrementalStreamParser();
+    expect(liveOf(parser.sync(events, [], true, false, null, false, 50, 250)).mode).toBe('compacting');
+    expect(liveOf(parser.sync(events, [], true, false, null, false, 50, null)).mode).toBe('thinking');
   });
 });

@@ -687,7 +687,7 @@
         "saveError": "Could not save. Nothing was changed.",
         "autoCompactWindow": "Fold the conversation once it reaches",
         "autoCompactWindowOff": "Leave as configured",
-        "autoCompactWindowDesc": "The largest single lever here. Measured over three days, sessions sat at a median of 186k tokens and everything above 200k accounted for 62% of all input — every turn re-reads that. Lowering the window from 400k to 200k cut input by 27%, and 100k by 59%, for the same work. It only ever tightens: an agent or a default that is already lower wins. Folding is itself a large request, so the lowest setting is not automatically the cheapest."
+        "autoCompactWindowDesc": "The largest single lever here. Measured over three days, sessions sat at a median of 186k tokens and everything above 200k accounted for 62% of all input — every turn re-reads that. Lowering the window from 400k to 200k cut input by 27%, and 100k by 59%, for the same work. It only ever tightens: an agent or a default that is already lower wins. Folding is itself a large request, so the lowest setting is not automatically the cheapest. This window only decides where we fold between commands — mid-task, the CLI only folds when the model window fills up."
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "Auto-compact",
-        "tip": "The window size compaction is measured against. In practice we fold at {{percent}}% of it, at the end of that turn — so nothing is cut mid-task; if a single turn blows through the remaining headroom, the CLI folds mid-task instead.",
-        "auto": "auto — the CLI picks the window.",
+        "tip": "The window size used for folding between commands. Once a turn ends at {{percent}}% of it or more, we fold quietly before the next command. Nothing is folded mid-task — there, the CLI only folds when the model window fills up.",
+        "auto": "auto — the whole model window.",
         "tokens": "Window size about {{tokens}} tokens.",
         "foldsAt": "Folds at about {{tokens}}, at the end of that turn.",
-        "foldsAtAuto": "Folds at {{percent}}% of the window the CLI picks, at the end of that turn.",
+        "foldsAtAuto": "Folds at {{percent}}% of the model window, at the end of that turn.",
         "offLabel": "off",
         "off": "off — never folds. No summarization call, so no tokens spent.",
         "foldsAtOff": "Never folds. Long conversations get heavier every turn, and the CLI folds once mid-task when the model window fills.",
+        "raised": "Folds against a {{to}} window instead: this agent's conversations start at about {{floor}} tokens, so a {{from}} window would fill up again right after each fold.",
         "confirm": {
           "title": "Turn auto-compact on? ({{value}})",
           "titleSelf": "Let the agent compact on its own?",
@@ -1714,7 +1715,8 @@
       "noEntry": "No matching server entry",
       "noCommand": "Restart unavailable — already stopped, so the start command can no longer be read (agent-reported server)",
       "takeover": "Restart by takeover — Vibisual adopts the server the agent started",
-      "takeoverFailed": "Takeover failed — could not read the start command (owned by another account, or no lookup tool)"
+      "takeoverFailed": "Takeover failed — could not read the start command (owned by another account, or no lookup tool)",
+      "refusedOtherProject": "Left untouched — this address is answered by a server that another open project started."
     },
     "subAgent": {
       "heading": "SubAgents ({{count}})",
@@ -2030,6 +2032,7 @@
       "noAudio": "Exported without audio.",
       "downgraded": "Render mode was downgraded: {{id}}",
       "previewFailed": "Could not draw the preview.",
+      "fileUnreadable": "Could not read this video: {{name}}",
       "errNoDoc": "No document is open.",
       "errNoStage": "Could not find a place to attach the stage.",
       "errNoRenderBackend": "No render mode is available on this device.",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "Spread out overlapping memos",
       "ctxSpreadMemosNone": "No overlapping memos",
       "jumpToBottom": "Scroll to bottom",
+      "jumpToTop": "Scroll to top",
+      "promptRail": "Your prompts",
+      "promptPrev": "Previous prompt",
+      "promptNext": "Next prompt",
+      "promptPosition": "Prompt {{n}} / {{total}}",
       "ctxSelectionRequired": "Select text first",
       "inputCtxCut": "Cut",
       "inputCtxCopy": "Copy",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} in / {{out}} out",
       "tokensTip": "Total tokens this session has used since it started. Input counts cache reads and cache writes too, so it climbs far faster than output. Cumulative — it only goes up.",
       "autoCompact": "auto-compact {{value}}",
-      "autoCompactTip": "The CLI summarizes the conversation by itself once context reaches this size. Change it per agent in Agent Settings, or for all agents in File > Options > Agent Defaults.",
+      "autoCompactTip": "The window used for summarizing the conversation between commands: if context is past {{percent}}% of it when a turn ends, we fold before the next command. Mid-task, the CLI only folds when the model window fills up. Change it per agent in Agent Settings, or for all agents in File > Options > Agent Defaults.",
+      "autoCompactRaised": "Raised from {{from}}: conversations with this agent start at about {{floor}} tokens, so a smaller window would fill up again right after each fold.",
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions",
       "sessionsTip": "How many session tabs are open on this agent.",
@@ -3349,7 +3358,9 @@
       "commandReceived": "Command received",
       "promptSuggestion": "Suggested next prompt",
       "imageMissing": "(image unavailable)",
-      "waiting": "waiting"
+      "waiting": "waiting",
+      "compacting": "compacting",
+      "compactingHint": "The context is full, so the CLI is summarizing the earlier conversation to make room. This usually takes a few minutes — no new output in the meantime is normal."
     },
     "report": {
       "title": "Work report",
@@ -3548,6 +3559,12 @@
       "title": "Plan",
       "progress": "{{done}}/{{total}}",
       "superseded": "Plan updated"
+    },
+    "transportRecovery": {
+      "reconnecting": "Reconnecting… {{attempt}}/{{maxAttempts}}",
+      "fallback": "Trying another connection method…",
+      "resumed": "Connection restored · work resumed",
+      "ended": "Connection recovery attempted"
     },
     "cmdError": {
       "spawn": "{{engine}} could not start",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "Enter URL...",
       "serverPreview": "Server preview",
-      "reload": "Reload"
+      "reload": "Reload",
+      "otherProjectTitle": "Another project's server is on this address",
+      "otherProjectBody": "{{url}} is currently answered by a server that another open project started, so this tab won't load it. It opens again on its own once this project's server is back on that address."
     },
     "serverKind": {
       "frontendShort": "FE",
@@ -6016,6 +6035,8 @@
     "local": "All Model",
     "main": "Main provider",
     "mainHint": "The provider that does most of the work. New agents use it by default and the usage indicator at the top follows it, in every project.",
+    "setMain": "Set as default",
+    "isMain": "Default",
     "saveFailed": "Could not save. Please try again.",
     "project": "Project settings",
     "save": "Save",

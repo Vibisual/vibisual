@@ -35,6 +35,8 @@ describe('Codex tool permissions', () => {
       const args = buildCodexExecArgs({ cwd: '/project', model: 'test', toolHook: hook, resumeThreadId, webSearch: 'live' });
       expect(args).toContain('features.shell_tool=false');
       expect(args).toContain('features.multi_agent=false');
+      // 사용자가 `multi_agent_v2` 를 켜 두면 v1 만 꺼서는 `collaboration`(spawn_agent…)이 남는다(0.159.2 재현).
+      expect(args).toContain('features.multi_agent_v2=false');
       expect(args).toContain('features.code_mode=false');
       expect(args.indexOf('web_search="disabled"')).toBeGreaterThan(args.indexOf('web_search=live'));
       expect(args.some((a) => a.startsWith('hooks.PreToolUse=') && a.includes('tool-permission'))).toBe(true);

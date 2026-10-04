@@ -187,7 +187,8 @@ describe('(A) 배선 — 생존 판정 자리에 손글씨 술어가 없다', ()
     // (I) 대기 축도 **같은 경로로** 내려간다 — 한쪽만 내려보내면 Sub 탭만 대기를 못 그린다.
     expect(renderer).toMatch(/sessionWaiting\??:/);
     // (J) 라이브 1줄 시계의 바닥·감춘 턴도 같은 경로로 내려간다. (L) 턴 시계의 시작점도.
-    expect(renderer).toMatch(/sync\(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt\)/);
+    //   §5.5 #17-24 ⑥ — 접는 중 표식(압축 시작 시각)도 같은 경로다.
+    expect(renderer).toMatch(/sync\(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince\)/);
     const items = readSource('../components/IDE/streamItems.ts');
     expect(items).toMatch(/agentBusyOverride/);
     expect(items).toMatch(/agentWaitingOverride/);
@@ -648,7 +649,7 @@ describe('(J) 조용한 사전 압축 뒤 — 막 나간 명령이 "마지막 �
     expect(items).toMatch(/liveLineActivityAt\(lastRaw\?\.timestamp, sessionActivityAt\)/);
     expect(items).toMatch(/\.\.\.\(activityHidden \? \{ hiddenTurn: true as const \} : \{\}\)/);
     // 전체 재구축(정답지)·증분 두 경로가 모두 넘긴다 — 한쪽만 넘기면 두 파서가 다른 줄을 낸다.
-    expect(items.match(/computeThinkingLive\(events, agentBusy, agentWaiting, sessionActivityAt \?\? null, activityHidden \?\? false, resolveTurnStartedAt\(commands, agentWaiting, turnStartedAt\)\)/g)).toHaveLength(2);
+    expect(items.match(/computeThinkingLive\(events, agentBusy, agentWaiting, sessionActivityAt \?\? null, activityHidden \?\? false, resolveTurnStartedAt\(commands, agentWaiting, turnStartedAt\), compactingSince \?\? null\)/g)).toHaveLength(2);
     const renderer = readSource('../components/IDE/StreamRenderer.tsx');
     expect(renderer).toMatch(/hiddenTurn=\{item\.hiddenTurn === true\}/);
     // 감춘 턴은 원본 큐로만 안다 — 표시용 사본은 silent 명령을 이미 지웠다.
@@ -771,11 +772,12 @@ describe('(L) 턴 시계 — 라이브 1줄 경과가 줄마다 0 으로 되감�
   it('배선 — 메인 탭·Sub 탭이 같은 사실·같은 함수로 재고, 틱은 그리는 순간의 시계를 준다', () => {
     const line = readSource('../components/IDE/ThinkingIndicator.tsx');
     // 어느 시각부터 잴지는 한 함수 — 줄이 제 손으로 마지막 활동부터 재지 않는다.
-    expect(line).toMatch(/liveLineClockFrom\(stalled, turnStartedAt, lastActivityAt, now\)/);
+    //   §5.5 #17-24 ⑥ — 접는 중이면 같은 함수가 압축 시작부터 잰다(넷째 인자 뒤 한 칸).
+    expect(line).toMatch(/liveLineClockFrom\(stalled, turnStartedAt, lastActivityAt, now, compacting \? compactingSince : null\)/);
     expect(line).not.toMatch(/formatElapsed\(lastActivityAt/);
-    expect(line).toMatch(/useNowTick\(lastActivityAt !== null \|\| turnStartedAt !== null\)/);
+    expect(line).toMatch(/useNowTick\(lastActivityAt !== null \|\| turnStartedAt !== null \|\| \(compacting && compactingSince !== null\)\)/);
     const main = readSource('../components/IDE/IDEMainArea.tsx');
-    expect(main).toMatch(/turnStartedAt: sessionTurnStartedAt,\s*\}\s*=\s*useSessionLivenessFacts\(agentId, activeSessionId\)/);
+    expect(main).toMatch(/turnStartedAt: sessionTurnStartedAt, compactingSince: sessionCompactingSince,\s*\}\s*=\s*useSessionLivenessFacts\(agentId, activeSessionId\)/);
     // 구조분해 한 번 + 메인 탭 라이브 항목 한 번.
     expect(main.match(/turnStartedAt: sessionTurnStartedAt,/g)).toHaveLength(2);
     expect(main).toMatch(/turnStartedAt=\{n\.item\.turnStartedAt\}/);

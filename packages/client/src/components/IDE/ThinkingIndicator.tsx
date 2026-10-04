@@ -14,7 +14,7 @@
 import { useTranslation } from 'react-i18next';
 import { sessionSilenceMs } from '@vibisual/shared';
 import { useNowTick } from '../../hooks/useNowTick.js';
-import { liveLineClockFrom, liveLineStalled } from '../../utils/sessionActivity.js';
+import { liveLineClockFrom, liveLineStalled, type LiveLineMode } from '../../utils/sessionActivity.js';
 import { formatElapsed } from './elapsed.js';
 
 /** "." → ".." → "..." 반복. 폭 고정으로 라벨이 흔들리지 않는다. */
@@ -41,6 +41,10 @@ export function ThinkingDots(): React.JSX.Element {
  * §5.5 #17-10 ⑥-6 (턴 시계) — 평소 적는 경과는 **턴 시작**(`turnStartedAt`)부터다. 마지막 움직임부터
  * 재면 줄이 올 때마다 0 으로 되감겨 `0s`·`1s` 만 번갈아 떴다(사용자 보고 "같은 시간이 반복되거나
  * 사라지거나 0만"). 마지막 움직임은 무응답 판정과 그 문구에만 쓴다. 어느 쪽을 잴지는 `liveLineClockFrom`.
+ *
+ * §5.5 #17-24 ⑥ — 넷째 모습이 `compacting`(압축 중)이다. CLI 가 턴 도중에 대화를 접는 2.4~6분은 줄이
+ * 오지 않는 것이 정상이라 **무응답으로 뒤집지 않고**, 경과는 **압축이 시작된 시각부터** 잰다. 일하는 중이
+ * 맞으므로 점이 뛰고 말줄임이 돈다. 색은 청록 — 사고(보라)·작업(파랑)·대기(slate)와 갈린다.
  */
 export function ThinkingLiveLine({
   label,
@@ -48,9 +52,10 @@ export function ThinkingLiveLine({
   lastActivityAt = null,
   turnStartedAt = null,
   hiddenTurn = false,
+  compactingSince = null,
 }: {
   label: string;
-  mode?: 'thinking' | 'working' | 'waiting';
+  mode?: LiveLineMode;
   /** 마지막으로 움직인 시각(ms). 무응답 판정의 재료다. 모르면 `null` — 무응답으로 올리지 않는다. */
   lastActivityAt?: number | null;
   /**
@@ -63,10 +68,13 @@ export function ThinkingLiveLine({
    * 무응답으로 뒤집지 않는다(§5.5 #17-10 ⑥-6 — 물려받은 명령은 평소처럼 "작업 중"이다).
    */
   hiddenTurn?: boolean;
+  /** §5.5 #17-24 ⑥ — `compacting` 모드일 때 CLI 가 접기 시작한 시각(ms). 그 모드의 경과는 여기서부터 잰다. */
+  compactingSince?: number | null;
 }): React.JSX.Element {
   const { t } = useTranslation();
   // 근거가 있을 때만 시계를 돌린다 — 조용한 화면에서 초마다 리렌더하지 않기 위해.
-  const now = useNowTick(lastActivityAt !== null || turnStartedAt !== null);
+  const compacting = mode === 'compacting';
+  const now = useNowTick(lastActivityAt !== null || turnStartedAt !== null || (compacting && compactingSince !== null));
   const silence = sessionSilenceMs(lastActivityAt, now);
   /*
    * §5.5 #17-18 ⑪ — **줄 서 있는 줄은 무응답이 아니다.** 무응답 축(§2.4)은 "도는 턴이 말이
@@ -76,20 +84,24 @@ export function ThinkingLiveLine({
    */
   const waiting = mode === 'waiting';
   const stalled = liveLineStalled(mode, silence, hiddenTurn);
-  // 무응답이면 마지막 업데이트부터("마지막 업데이트 N 전"), 그 밖에는 턴 시작부터 — 줄이 와도 되감기지 않는다.
-  const clockFrom = liveLineClockFrom(stalled, turnStartedAt, lastActivityAt, now);
+  // 무응답이면 마지막 업데이트부터("마지막 업데이트 N 전"), 접는 중이면 압축 시작부터, 그 밖에는 턴 시작부터
+  //   — 줄이 와도 되감기지 않는다.
+  const clockFrom = liveLineClockFrom(stalled, turnStartedAt, lastActivityAt, now, compacting ? compactingSince : null);
   const elapsed = clockFrom !== null ? formatElapsed(clockFrom, now) : null;
   // 대기는 **slate** — 바로 위에 쌓인 [대기] 말풍선(#17-18 ⑤)과 같은 색이라, 줄을 따로 읽지 않아도
   //   "이 줄은 저 말풍선들과 한 덩어리로 기다리는 중"이 보인다. 파랑(작업)·보라(사고)를 쓰면
   //   아무 일도 안 일어나는 화면이 도는 것처럼 보인다(그 오해가 이 색이 생긴 사고다).
-  const dot = waiting ? 'bg-slate-400/70' : stalled ? 'bg-gray-500' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
-  const text = waiting ? 'text-slate-300/85' : stalled ? 'text-gray-400' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
+  const dot = waiting ? 'bg-slate-400/70' : stalled ? 'bg-gray-500' : compacting ? 'bg-teal-400/80' : mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
+  const text = waiting ? 'text-slate-300/85' : stalled ? 'text-gray-400' : compacting ? 'text-teal-300/85' : mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
   return (
     <div className="flex items-center gap-2 px-4 py-1.5">
       {/* No pulse during an output gap; neither progress nor failure is inferred. */}
       {/* 대기도 뛰지 않는다 — 뛰는 점은 "지금 무언가 일어나는 중"이라는 말이고, 대기는 그 반대다. */}
       <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${stalled || waiting ? '' : 'animate-pulse'} ${dot}`} aria-hidden="true" />
-      <span className={`inline-flex items-baseline text-[12px] italic ${text}`}>
+      <span
+        className={`inline-flex items-baseline text-[12px] italic ${text}`}
+        title={compacting ? t('ide.streamRenderer.compactingHint') : undefined}
+      >
         {label}
         {!stalled && !waiting && <ThinkingDots />}
       </span>

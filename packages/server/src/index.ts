@@ -302,6 +302,7 @@ import {
   marksActivity,
   raisesAwaitingInput,
   clearsAwaitingInput,
+  endsCompaction,
   needsSnapshotRefresh,
   isTaskLedgerEvent,
 } from './services/hookEventClass.js';
@@ -1120,6 +1121,9 @@ export async function runServer(): Promise<RunServerHandle> {
         //   늦어지고, 최악에는 우리 때문에 압축이 안 돈다. JSONL 은 append-only 라 조금 늦게 떠도
         //   같은 바이트다 — 그래서 무거운 쪽만 뒤로 미룰 수 있다(§5.26 (B)).
         if (marker) setImmediate(() => graphManager.mirrorCompactMarker(marker));
+        // §5.5 #17-24 ⑥ — 라이브 1줄의 "압축 중". 스트림 `status:"compacting"` 과 겹치면 먼저 온 쪽이 세운다
+        //   (agent-view 처럼 status 줄이 없는 경로는 이 훅이 유일한 시작 신호다).
+        if (bgOwnerSub) subAgentManager.noteCompactionHook(bgOwnerSub.id, 'start');
         broadcastSnapshot();
         saveCheckpoint(); // compactCounts + §5.26 보험 색인은 영속화 대상
       }
@@ -1134,6 +1138,13 @@ export async function runServer(): Promise<RunServerHandle> {
          * 지금 읽으면 요약이 아직 파일에 안 내려가 빈 꼬리를 요약으로 읽을 수 있다.
          */
         if (graphManager.notePostCompact(body.session_id)) saveCheckpoint();
+      }
+
+      // §5.5 #17-24 ⑥ — "압축 중" 표식을 걷는 훅. PostCompact 하나만 믿지 않는다 — 오지 않은 압축이 실제로
+      //   있다(§5.26 (D)). 압축 뒤에 반드시 오는 사건(SessionStart — 압축 뒤 source "compact" 로 다시 온다 ·
+      //   턴 끝 · 새 프롬프트 · 세션 끝)도 끝 신호다. 스트림을 읽는 경로는 줄 단위로 따로 걷는다.
+      if (bgOwnerSub && endsCompaction(body.hook_event_name)) {
+        subAgentManager.noteCompactionHook(bgOwnerSub.id, 'end');
       }
 
       /*
@@ -2166,6 +2177,28 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /**
+   * GET /api/iframe-tab-check?project=&satellite=&url= — §7.11 / §3.5 열어 둔 프리뷰 탭이 그 주소를 지금
+   * 보여 줘도 되는가(`IframeTabVerdict`). 탭은 프로젝트 탭과 상관없이 공유되고 스냅샷은 구독한 프로젝트만
+   * 실어서, 탭이 화면을 불러오기 직전(그리고 떠 있는 동안)에 서버에 직접 묻는다. 판정 불가는 `show`.
+   */
+  app.get('/api/iframe-tab-check', async (req, res) => {
+    const q = req.query as Record<string, unknown>;
+    const url = typeof q['url'] === 'string' ? q['url'] : '';
+    if (!url) {
+      res.status(400).json({ error: 'url required' });
+      return;
+    }
+    const project = typeof q['project'] === 'string' && q['project'] ? q['project'] : null;
+    const satellite = typeof q['satellite'] === 'string' && q['satellite'] ? q['satellite'] : null;
+    try {
+      res.json(await graphManager.checkIframeTab(project, satellite, url));
+    } catch (err) {
+      logger.error('GET /api/iframe-tab-check failed', err);
+      res.json({ action: 'show' });
+    }
+  });
+
   app.post('/api/stop-server', async (req, res) => {
     try {
       const { id } = req.body as { id?: string };
@@ -2182,10 +2215,19 @@ export async function runServer(): Promise<RunServerHandle> {
         res.json({ killed: false, servers: graphManager.getRunningServers() });
         return;
       }
+      // §7.11 / §3.5 — 그 서버의 주소가 **닿는 리스너만** 죽인다. 한 포트에 주인이 둘이면(옆 프로젝트
+      // vite 가 `[::1]`, 우리 서버가 `::`) 포트 전체를 죽이면 남의 프로젝트 서버까지 내려간다.
+      // 닿는 리스너가 다른 열린 프로젝트의 것이면 아예 죽이지 않는다.
+      const scope = await graphManager.serverControlScope(id);
+      if (scope?.foreign) {
+        logger.warn(`Stop refused (port ${target.port}): the listener belongs to another open project`);
+        res.json({ killed: false, refused: 'foreign', servers: graphManager.getRunningServers() });
+        return;
+      }
       // §7.11 포트 인계 — 죽이기 **전에** 기동 명령을 넘겨받는다. 프로세스가 사라지면 OS 어디에도
       // 그 명령이 남지 않아 Start 가 영영 못 열린다. 신고 시점 인계가 이미 성공했으면 no-op.
       if (target.reportedOnly) await graphManager.takeoverServerEntry(id);
-      const killed = await killByPort(target.port);
+      const killed = await killByPort(target.port, scope?.host ? { host: scope.host } : {});
       target.alive = false;
       // §7.11 v1.29 — 매칭 iframe 위성 iframeAlive=false 즉시 반영 (5초 스윕 대기 없이 active→idle 전환)
       graphManager.markIframeStoppedByServerId(id);
@@ -2214,6 +2256,14 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'server not found' });
         return;
       }
+      // §7.11 / §3.5 — 그 서버의 주소가 닿는 리스너가 다른 열린 프로젝트의 것이면 죽이지도 넘겨받지도
+      // 않는다(남의 서버를 내리고 우리 명령을 그 포트에 띄우는 사고). 죽일 때도 그 주소의 리스너만.
+      const scope = await graphManager.serverControlScope(id);
+      if (scope?.foreign) {
+        logger.warn(`Restart refused (port ${String(target.port ?? '?')}): the listener belongs to another open project`);
+        res.status(409).json({ error: 'port held by another project', refused: 'foreign' });
+        return;
+      }
       // §7.11 포트 인계 — 에이전트가 켠 서버를 **여기서 넘겨받는다.** 신고 전용 entry 는 기동 명령을
       // 모르지만, 그 프로세스가 아직 살아 있다면 OS 프로세스 테이블에 명령이 그대로 있다.
       // 읽어 내면 그때부터 우리 서버처럼 껐다 켤 수 있다(v3.85 는 여기서 그냥 거절했다).
@@ -2228,8 +2278,8 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(409).json({ error: 'command unknown (takeover failed)', takeoverFailed: true });
         return;
       }
-      // kill
-      if (target.port) await killByPort(target.port);
+      // kill — 그 주소가 닿는 리스너만(§7.11 / §3.5 — 같은 포트의 다른 주인은 건드리지 않는다)
+      if (target.port) await killByPort(target.port, scope?.host ? { host: scope.host } : {});
       // §7.11 v2.22 — owning session 의 cwd 로 respawn. 누락 시 명령이 의존하는 파일/스크립트
       // (`node my-server.js` 등)을 못 찾고 즉시 종료된다. windowsHide 는 respawn 내부에서 처리.
       // §7.11 포트 인계 — 인계로 알아낸 **그 프로세스의 실제 cwd** 가 있으면 그쪽이 우선이다
@@ -3706,7 +3756,7 @@ export async function runServer(): Promise<RunServerHandle> {
    *  - 로컬 모델(§5.19) — JSONL 이 없다. 엔진이 왕복마다 실어 준 값이 `AgentConfig.provider` 에 있다.
    * 둘 다 없으면 `null` — **모르면 쏘지 않는다**(모르는 채로 쏘면 종전의 매 턴 압축이다).
    */
-  function readTurnEndContext(sub: { id: string; sessionId?: string }, config?: AgentConfig): { used: number; max?: number } | null {
+  function readTurnEndContext(sub: { id: string; sessionId?: string }, config?: AgentConfig): { used: number; max?: number; floor?: number } | null {
     const local = config?.provider;
     if (local && typeof local.contextUsed === 'number' && local.contextUsed > 0) {
       return { used: local.contextUsed, ...(typeof local.contextLimit === 'number' && local.contextLimit > 0 ? { max: local.contextLimit } : {}) };
@@ -3717,7 +3767,12 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!cwd) return null;
     const info = readContextInfo(cwd, subSessionId);
     if (!info || info.contextUsed <= 0) return null;
-    return { used: info.contextUsed, ...(info.contextMax > 0 ? { max: info.contextMax } : {}) };
+    return {
+      used: info.contextUsed,
+      ...(info.contextMax > 0 ? { max: info.contextMax } : {}),
+      // §4 (CLI 사양 추종) (5) 창 하한 — 화면(`SubAgent.contextFloor`)과 같은 출처의 시작 문맥.
+      ...(info.firstContextUsed > 0 ? { floor: info.firstContextUsed } : {}),
+    };
   }
 
   /**
@@ -3732,9 +3787,9 @@ export async function runServer(): Promise<RunServerHandle> {
    * 발동 조건 둘은 `shouldCompactAfterTurn`(shared) 한 곳이 판정한다:
    *  - 에이전트가 이번 턴에 요청(`agentCanCompact`) — **무조건** 쏜다. 판단을 맡긴 축이라 되묻지 않는다.
    *  - 발동선 도달 — 자동 압축 값의 80%(`turnCompactTriggerTokens`)를 넘긴 채 턴이 끝났을 때.
-   *    같은 숫자를 쓰면 안 된다: CLI 에게 그 값은 **창 크기**라 거기 닿기 전에 스스로 접어 버려,
-   *    우리 차례가 영영 오지 않는다(그렇게 만들어 봤고 옵션이 죽었다). 한 단 낮춰야 평소에는
-   *    우리가 안전한 자리에서 먼저 접고, 한 턴이 그 여백을 통째로 뚫는 예외에서만 CLI 가 도중에 접는다.
+   *    2026-10-05 부터 그 창은 스폰에 실리지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접고, 고른
+   *    창은 여기(명령 사이 압축)에만 쓴다(사용자 지시). 80% 는 CLI 가 같은 창으로 돌던 때 생긴 비율이고
+   *    명령 사이 압축 자리를 바꾸지 않으려고 그대로 둔다.
    *
    * 새 실행 레일이 아니라 §5.5 #17-11 ⑪ 이 쓰는 그 명령 큐다(사용자가 입력창에 치는 것과 같은 길).
    *
@@ -3764,7 +3819,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
     const agentId = graphManager.findAgentIdBySession(sessionId) ?? sub.parentAgentId;
     const config = agentId ? graphManager.getAgentConfig(agentId) : undefined;
-    // 발동선 게이트 — 선은 스폰이 `--autocompact` 에 실은 그 값에서 **같은 판정**으로 파생된다.
+    // 발동선 게이트 — 선은 자동 압축 창(3층 → 토큰 절약 Q → 창 하한)에서 파생된다. 스폰은 이 창을 싣지 않는다.
     //   컨텍스트 측정은 요청이 없을 때만 한다(요청은 발동선을 묻지 않으므로 읽을 이유가 없다).
     const ctx = requested ? null : readTurnEndContext(sub, config);
     if (!shouldCompactAfterTurn({
@@ -3777,8 +3832,10 @@ export async function runServer(): Promise<RunServerHandle> {
       //   세션(1M)에서도 이 축은 걸린다.
       turnsSinceCompact: turnsNow,
       turnBudget: appStateGetTokenSaver().sessionTurnBudget,
-      // §5.3 #9-1 (Q) — 스폰이 실은 창과 **같은 값**으로 발동선을 잡는다(어긋나면 우리 차례가 안 온다).
+      // §5.3 #9-1 (Q) — 절약이 조인 창. 명령 사이 압축의 발동선만 조인다(스폰에는 안 실린다).
       tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow,
+      // §4 (CLI 사양 추종) (5) 창 하한 — 이 세션 자신의 시작 문맥으로 하한을 건다(턴이 끝났으니 첫 응답이 있다).
+      ...(ctx?.floor !== undefined ? { startupFloor: ctx.floor } : {}),
     })) return false;
 
     // 압축이 압축을 부르지 않게. 사용자가 직접 친 `/compact` 뒤에도 또 쏘지 않는다.
@@ -13709,7 +13766,7 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   app.post('/api/closed-tabs', (req, res) => {
     try {
-      const body = (req.body ?? {}) as { key?: unknown; label?: unknown; url?: unknown; serverKind?: unknown };
+      const body = (req.body ?? {}) as { key?: unknown; label?: unknown; url?: unknown; serverKind?: unknown; projectPath?: unknown };
       const key = typeof body.key === 'string' ? body.key.trim() : '';
       const url = typeof body.url === 'string' ? body.url.trim() : '';
       if (!key || !url) {
@@ -13723,6 +13780,8 @@ export async function runServer(): Promise<RunServerHandle> {
         closedAt: Date.now(),
         url,
         ...(body.serverKind === 'frontend' || body.serverKind === 'backend' ? { serverKind: body.serverKind } : {}),
+        // §7.11 / §3.5 — 그 프리뷰를 연 프로젝트. 되연 탭도 이 프로젝트 기준으로 소속을 묻는다.
+        ...(typeof body.projectPath === 'string' && body.projectPath ? { projectPath: body.projectPath } : {}),
       });
       res.json({ ok: true, closedTabs: list });
       broadcastSnapshot();
@@ -17917,7 +17976,8 @@ export async function runServer(): Promise<RunServerHandle> {
   subAgentManager.setOnSubStatusChange((parentAgentId) => {
     const bubbleChanged = graphManager.recomputeCustomAgentStatus(parentAgentId);
     const fingerprint = subAgentManager.getAllSubs(parentAgentId)
-      .map((s) => `${s.id}:${s.status}`)
+      // §5.5 #17-24 ⑥ — 압축 중 표식도 화면을 민다(상태는 그대로 active 라 빠지면 라이브 1줄이 모른다).
+      .map((s) => `${s.id}:${s.status}:${s.compactingSince ?? ''}`)
       .join('|');
     const subChanged = lastSubStatusFingerprint.get(parentAgentId) !== fingerprint;
     if (subChanged) lastSubStatusFingerprint.set(parentAgentId, fingerprint);

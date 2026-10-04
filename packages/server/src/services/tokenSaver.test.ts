@@ -217,8 +217,9 @@ describe('§5.3 #9-1 — 설정이 사는 자리', () => {
 /*
  * §5.3 #9-1 (Q) — 압축 창 조이기. 실측이 가리킨 **단일 최대 지렛대**라 규칙이 어긋나면 손해가 가장 크다.
  *
- * 지켜야 하는 것 셋: ① 미설정이면 종전 그대로, ② **조이는 방향으로만**, ③ 스폰과 턴 경계 판정이
- * **같은 값**을 본다(어긋나면 CLI 는 200k 에서 접는데 우리는 400k 기준으로 쏴 우리 차례가 안 온다).
+ * 지켜야 하는 것 셋: ① 미설정이면 종전 그대로, ② **조이는 방향으로만**, ③ 이 값은 **명령 사이 압축의
+ * 발동선에만** 닿는다 — 2026-10-05 부터 스폰(`--autocompact`)에는 실리지 않아, 작업 도중에는 CLI 가 모델
+ * 창 끝에서만 접는다(종전 ③ "스폰과 판정이 같은 값"은 스폰 쪽이 없어지며 함께 풀렸다).
  */
 describe('§5.3 #9-1 (Q) — 압축 창 해소', () => {
   it('절약이 미설정이면 종전 3층 결과 그대로다', () => {
@@ -244,7 +245,7 @@ describe('§5.3 #9-1 (Q) — 압축 창 해소', () => {
     expect(resolveEffectiveAutoCompact('200000', undefined, 'auto')).toBe('200000');
   });
 
-  it('CLI 눈금 밖 값은 무시한다 — 목록 밖이면 스폰이 즉시 죽는다', () => {
+  it('CLI 눈금 밖 값은 무시한다 — 발동선과 창 하한이 같은 눈금을 전제한다', () => {
     expect(resolveEffectiveAutoCompact(undefined, '400000', '150000')).toBe('400000');
     expect(resolveEffectiveAutoCompact(undefined, '400000', '0')).toBe('400000');
     // 정규화도 같은 판정을 쓴다 — 저장분에 목록 밖 값이 들어와도 '' 로 되돌아간다.
@@ -277,20 +278,16 @@ describe('§5.3 #9-1 (Q) — 압축 창 해소', () => {
   });
 });
 
-describe('§5.3 #9-1 (Q) — 스폰과 판정이 같은 함수를 본다', () => {
+describe('§5.3 #9-1 (Q) — 턴 경계 판정만 Q 를 본다(2026-10-05 스폰 제외)', () => {
   const read = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8');
 
-  it('스폰 인자 조립이 해소 함수를 쓴다', () => {
-    expect(read('./subAgentManager.ts'))
-      .toContain('resolveEffectiveAutoCompact(config.autoCompact, ctx?.userAutoCompact, ctx?.tokenSaverAutoCompact)');
-  });
-
-  it('헤드리스·CMD 두 경로 모두 절약 값을 싣는다', () => {
+  it('스폰 인자 조립은 Q 를 보지 않는다 — 창이 스폰에 실리지 않는다', () => {
     const s = read('./subAgentManager.ts');
-    expect(s.split('tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow').length - 1).toBe(2);
+    expect(s).not.toContain('resolveEffectiveAutoCompact(');
+    expect(s).not.toContain('tokenSaverAutoCompact');
   });
 
-  it('턴 경계 판정도 같은 값을 넘긴다', () => {
+  it('턴 경계 판정이 절약 값을 넘긴다', () => {
     expect(read('../index.ts')).toContain('tokenSaverAutoCompact: appStateGetTokenSaver().autoCompactWindow');
   });
 });

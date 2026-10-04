@@ -120,7 +120,8 @@ export function codexEdgeOverrides(config: CodexEdgeConfig, options: { hooks?: b
     if (options.hooks !== false) out.push(...codexTurnHooks(config, undefined).overrides);
     // Hosted tools do not pass through PreToolUse. Disable their entry points,
     // plus shell and agent spawning, for a turn with mandatory tool delegation.
-    for (const feature of ['shell_tool', 'unified_exec', 'multi_agent', 'image_generation', 'browser_use', 'computer_use', 'apps', 'code_mode', 'code_mode_only']) {
+    // `multi_agent_v2` 는 `multi_agent` 와 따로 켜지는 스위치라 함께 끈다(켜 둔 사용자는 v1 만 끄면 `collaboration` 이 남는다).
+    for (const feature of ['shell_tool', 'unified_exec', 'multi_agent', 'multi_agent_v2', 'image_generation', 'browser_use', 'computer_use', 'apps', 'code_mode', 'code_mode_only']) {
       out.push('-c', `features.${feature}=false`);
     }
     out.push('-c', 'web_search="disabled"');

@@ -92,16 +92,14 @@ export const CaptureNode = memo(function CaptureNode({
   const patchCaptureBubbleLocal = useGraphStore((s) => s.patchCaptureBubbleLocal);
   const setCaptureBubbleDragLock = useGraphStore((s) => s.setCaptureBubbleDragLock);
   const selectCaptureBubble = useGraphStore((s) => s.selectCaptureBubble);
-  const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
   // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  // 둘 다 판정 결과만 구독한다(§9) — id 를 받으면 다른 버블을 고를 때마다 이 버블도 다시 그려진다.
+  const chosenHere = useGraphStore((s) => s.selectedCaptureBubbleId === d.captureBubbleId || s.selectIntentId === d.captureBubbleId);
 
   const liveWidth = nodeWidth ?? d.width;
   const liveHeight = nodeHeight ?? d.height;
-  const isSelected = selected
-    || selectedCaptureBubbleId === d.captureBubbleId
-    || selectIntentId === d.captureBubbleId;
+  const isSelected = selected || chosenHere;
 
   // §5.9 뷰/조작 환경설정(localStorage 영속) — 화질모드·핀·불투명도·정지절전·읽기전용·타임아웃·배지.
   // 설정 편집 UI 는 DetailPanel(CaptureBubbleDetail)이 본진이고, 자주 쓰는 몇 개만 헤더 툴바에 둔다.

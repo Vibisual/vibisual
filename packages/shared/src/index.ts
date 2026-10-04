@@ -281,6 +281,7 @@ export type {
   ConfigTrimRun,
   ConfigTrimSummary,
   StreamEventType,
+  CodexTransportNotice,
   SubAgentStreamEvent,
   TaskEdgeStatus,
   TaskEdgeForwardMode,
@@ -325,6 +326,7 @@ export type {
   AppState,
   AppStatePatch,
   ClosedTabEntry,
+  IframeTabVerdict,
   IDEActivityBarPrefs,
   RetentionSettings,
   TokenSaverSettings,
@@ -466,7 +468,7 @@ export type { ModelPricing, ModelPricingSource } from './constants.js';
 export type { LocalToolGate } from './constants.js';
 // §5.3 #12-1 — 권한 축 동결 판정의 입·출력.
 export type { AgentPermissionAxes, IngressPermissionGuardResult } from './constants.js';
-export type { CompactAfterTurnInput } from './constants.js';
+export type { CompactAfterTurnInput, AutoCompactFloorResult } from './constants.js';
 export type { NumericTokenSaverKey } from './constants.js';
 /** §3.2.3 — 보존 설정 중 숫자 축만. 스위치 축은 min/max/step 이 뜻을 갖지 않는다. */
 export type { NumericRetentionKey } from './constants.js';
@@ -786,6 +788,10 @@ export {
   autoCompactThresholdTokens,
   turnCompactTriggerTokens,
   TURN_COMPACT_TRIGGER_RATIO,
+  COMPACT_RESTART_ALLOWANCE_TOKENS,
+  COMPACT_FLOOR_SIBLING_SCAN,
+  minAutoCompactWindowTokens,
+  applyAutoCompactFloor,
   shouldCompactAfterTurn,
   AGENT_COMPACT_COMMAND,
   displayCommands,
@@ -1698,6 +1704,10 @@ export {
   detectUsageLimitStop,
 } from './usageLimitStop.js';
 
+// §5.5 #17-24 ⑥ — 스트림 한 줄이 압축의 시작·끝을 말하는가. 스트림 경로가 셋이라 판정을 한 곳에 둔다.
+export type { CompactionSignal } from './compactionSignal.js';
+export { readCompactionSignal } from './compactionSignal.js';
+
 // §5.5 #17-12 ③-6 — 턴이 끝난 이유 한 칸. 턴을 닫는 경로가 여럿이라 판정을 여기 한 곳에 둔다.
 export type { TurnStopReason, ModelStopReason, TurnStopSignal, TurnStopFacts } from './turnStopReason.js';
 export {
@@ -2296,6 +2306,7 @@ export {
 
 export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';
 export * from './codexToolPolicy.js';
+export { parseCodexTransportNotice, readCodexTransportNotice } from './codexTransport.js';
 
 export * from './agentRuleShell.js';
 export { VERIFICATION_AUTOMATION } from './constants.js';

@@ -77,6 +77,16 @@ function QuestionsIcon(): React.JSX.Element {
   );
 }
 
+/** 직접 입력 (연필) */
+function PencilIcon(): React.JSX.Element {
+  return (
+    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+      <path d="m15 5 4 4" />
+    </svg>
+  );
+}
+
 /** 선택 복사 (드래그 선택 표식 — 모서리 마키 + 글줄) */
 function SelectionIcon(): React.JSX.Element {
   return (
@@ -283,11 +293,24 @@ const PromptBox = memo(function PromptBox({
   selectable: boolean;
   checked: boolean;
   onToggle: () => void;
-  editable?: { value: string; onChange: (value: string) => void };
+  editable?: {
+    value: string;
+    onChange: (value: string) => void;
+    /** 버튼으로 막 연 입력칸 — 바로 쓸 수 있게 초점을 준다. */
+    autoFocus?: boolean;
+    onFocus?: () => void;
+    onBlur?: () => void;
+  };
 }): React.JSX.Element {
   const { t } = useTranslation();
   const inputId = useId();
   const scrollReveal = useScrollReveal();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoFocus = editable?.autoFocus === true;
+  // 칸은 사용자가 방금 누른 버튼 자리에 열리므로 이미 보인다 — 초점이 스트림 스크롤을 흔들지 않게 한다.
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
 
   // 답이 확정된 질문에서는 더 이상 상호작용 ❌ (선택된 박스든 흐려진 박스든 모두 잠금).
   const inert = disabled || wasSent;
@@ -353,9 +376,12 @@ const PromptBox = memo(function PromptBox({
         <div ref={boxRef} className="relative">
           {editable ? (
             <textarea
+              ref={textareaRef}
               id={inputId}
               value={editable.value}
               onChange={(e) => editable.onChange(e.target.value)}
+              onFocus={editable.onFocus}
+              onBlur={editable.onBlur}
               disabled={inert}
               rows={2}
               maxLength={QUESTION_ANSWER_MAX_LENGTH}
@@ -420,11 +446,57 @@ const PromptBox = memo(function PromptBox({
 });
 
 /**
+ * 직접 입력 열기 — 접힌 보조 칸(§4 질문 카드, 2026-10-01 사용자 지시).
+ *
+ * 이 카드는 사용자가 **에이전트가 낸 답을 골라** 그대로 보내려고 있는 것이다. 직접 입력칸이 제안 답과
+ * 같은 크기로 늘 펼쳐져 있으면, 답을 비워 보낸 질문은 **질문 + 입력칸**만 남아 "고를 답은 없고 직접 쓰는
+ * 칸으로 바뀌었다"로 읽힌다. 그래서 직접 입력은 후보에 없는 답을 위한 예비 칸으로 내려, 제안 답 아래
+ * 점선 버튼 한 줄로만 선다. 다중 질문에서는 답지 체크박스 폭만큼 들여 제안 답과 줄을 맞춘다.
+ */
+const CustomAnswerToggle = memo(function CustomAnswerToggle({
+  indent,
+  disabled,
+  onOpen,
+}: {
+  indent: boolean;
+  /** 다른 답으로 이미 답한 질문 — 열 수 없다. */
+  disabled: boolean;
+  onOpen: () => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const label = t('ide.askQuestion.otherLabel');
+  return (
+    <div className={`mt-1.5 ${indent ? 'pl-6' : ''}`}>
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled}
+        title={label}
+        aria-label={label}
+        aria-expanded={false}
+        className={`inline-flex items-center gap-1 rounded border border-dashed px-1.5 py-0.5 text-[12px] font-medium transition-colors ${
+          disabled
+            ? 'cursor-not-allowed border-white/5 text-gray-600'
+            : 'border-gray-600/70 text-gray-400 hover:border-sky-400/50 hover:bg-sky-500/10 hover:text-sky-200'
+        }`}
+      >
+        <PencilIcon />
+        <span>{label}</span>
+      </button>
+    </div>
+  );
+});
+
+/**
  * 질문 1개 + 제안 프롬프트들. 한 후보를 즉시 전송하면 카드가 이 질문을 `answeredIdx` 로 잠가
  * 다른 후보 박스를 비활성화한다(질문 단위 잠금 — 같은 카드의 다른 질문은 독립적으로 답 가능).
  *
  * §4 v3.42 — 다중 질문 카드에서는 선택/잠금 상태를 카드가 소유하고 이 컴포넌트로 내려준다
  * (종합 전송이 여러 질문을 가로질러 잠가야 하기 때문).
+ *
+ * 직접 입력은 `CustomAnswerToggle` 로 접혀 있다가 누르면 열린다. 열린 칸은 비운 채 초점을 떠나면 다시
+ * 접히고, 쓴 답이 있거나 그 답으로 보냈으면 열린 채 남는다 — 이 판정은 카드 캐시의 답 문자열에서 나오므로
+ * 가상 목록이 카드를 다시 그려도 같은 모양이다(여닫기 자체는 화면 상태라 캐시에 넣지 않는다).
  */
 const QuestionItem = memo(function QuestionItem({
   item,
@@ -451,6 +523,13 @@ const QuestionItem = memo(function QuestionItem({
 }): React.JSX.Element {
   const getOwnText = useCallback(() => buildSingleQuestionText(item, index, multi), [item, index, multi]);
   const customPrompt = buildCustomAnswerText(item, index, multi, customAnswer);
+  // 사용자가 열었거나 그 칸에서 쓰는 중이면 열려 있다. 쓰는 도중 글을 다 지워도 접히지 않게 초점도 연다.
+  const [customOpen, setCustomOpen] = useState(false);
+  const customShown = customOpen || customAnswer.trim() !== '' || answeredIdx === CUSTOM_ANSWER_INDEX;
+  const openCustom = useCallback(() => setCustomOpen(true), []);
+  const foldCustomIfEmpty = useCallback(() => {
+    if (!customAnswer.trim()) setCustomOpen(false);
+  }, [customAnswer]);
   return (
     <li className="group/q flex flex-col">
       {/* 질문 */}
@@ -488,16 +567,26 @@ const QuestionItem = memo(function QuestionItem({
           ))}
         </div>
       )}
-      <PromptBox
-        prompt={customPrompt}
-        disabled={answeredIdx !== null}
-        wasSent={answeredIdx === CUSTOM_ANSWER_INDEX}
-        selectable={selectable}
-        checked={selectedSet.has(CUSTOM_ANSWER_INDEX)}
-        onToggle={() => onToggle(CUSTOM_ANSWER_INDEX)}
-        onInstant={() => onInstant(CUSTOM_ANSWER_INDEX, customPrompt)}
-        editable={{ value: customAnswer, onChange: onCustomAnswer }}
-      />
+      {customShown ? (
+        <PromptBox
+          prompt={customPrompt}
+          disabled={answeredIdx !== null}
+          wasSent={answeredIdx === CUSTOM_ANSWER_INDEX}
+          selectable={selectable}
+          checked={selectedSet.has(CUSTOM_ANSWER_INDEX)}
+          onToggle={() => onToggle(CUSTOM_ANSWER_INDEX)}
+          onInstant={() => onInstant(CUSTOM_ANSWER_INDEX, customPrompt)}
+          editable={{
+            value: customAnswer,
+            onChange: onCustomAnswer,
+            autoFocus: customOpen,
+            onFocus: openCustom,
+            onBlur: foldCustomIfEmpty,
+          }}
+        />
+      ) : (
+        <CustomAnswerToggle indent={selectable} disabled={answeredIdx !== null} onOpen={openCustom} />
+      )}
     </li>
   );
 });
@@ -512,6 +601,8 @@ const QuestionItem = memo(function QuestionItem({
  *
  * §4 v3.42 — 다중 질문 편의 기능: 헤더에 "카드 전체 복사"·"질문만 복사" 버튼, 질문이 2개 이상이면
  * 각 답지에 체크박스 + 하단 "선택 항목 전송"(고른 답들을 한 번에 새 명령으로 전송)을 단다.
+ *
+ * 카드의 본체는 에이전트가 낸 **고를 답**이다 — 직접 입력은 제안 아래 접힌 보조 칸(`CustomAnswerToggle`).
  */
 export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, onSendPrompt, live }: AgentQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation();

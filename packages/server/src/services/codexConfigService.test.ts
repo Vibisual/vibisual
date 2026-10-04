@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as path from 'node:path';
-import { readCodexEffectiveConfig, scanCodexConfigToml, stripExtendedPathPrefix } from './codexConfigService.js';
+import { codexWindowsSandboxConfigured, readCodexEffectiveConfig, scanCodexConfigToml, stripExtendedPathPrefix } from './codexConfigService.js';
 
 function memFs(files: Record<string, string>, dirs: string[] = []) {
   const existing = new Set([...Object.keys(files), ...dirs]);
@@ -224,5 +224,44 @@ describe('readCodexEffectiveConfig — 코덱스와 같은 순서', () => {
     const out = readCodexEffectiveConfig({ cwd: '\\\\?\\C:\\p', codexHomeDir: 'C:\\h\\.codex', platform: 'win32', ...fs });
     expect(out.cwd).toBe('C:\\p');
     expect(out.layers.map((l) => l.source)).toEqual(['project', 'user']);
+  });
+});
+
+/**
+ * `[windows] sandbox` 가 **어느 겹에도 없는지**가 Windows 스폰을 가른다 — 없으면 코덱스가 `-s workspace-write` 를
+ * 읽기 전용으로 내려 돌리므로(0.159.2 실측) 우리가 공개 대안을 싣고, 있으면 사용자가 고른 것이라 손대지 않는다.
+ * 하나라도 못 읽으면 `elevated` 를 쓰는 사용자의 샌드박스를 우리가 낮추게 된다.
+ */
+describe('[windows] sandbox — 적혀 있는지가 Windows 스폰을 가른다', () => {
+  it('표·점 키·인라인 표·프로필 표 어느 모양으로 적어도 읽는다', () => {
+    expect(scanCodexConfigToml('[windows]\nsandbox = "elevated"\n').values).toEqual({ windowsSandbox: 'elevated' });
+    expect(scanCodexConfigToml('windows.sandbox = "unelevated"').values).toEqual({ windowsSandbox: 'unelevated' });
+    expect(scanCodexConfigToml('windows = { sandbox = "mxc" }').values).toEqual({ windowsSandbox: 'mxc' });
+    expect(scanCodexConfigToml('[profiles.work.windows]\nsandbox = "elevated"\n').profiles.get('work')).toEqual({ windowsSandbox: 'elevated' });
+    // 다른 표의 `sandbox` 는 이 키가 아니다.
+    expect(scanCodexConfigToml('[other]\nsandbox = "elevated"\n').values).toEqual({});
+  });
+
+  it('사용자·프로필·신뢰한 프로젝트 겹 어디든 적혀 있으면 정해 둔 것이다', () => {
+    const w = path.win32;
+    const home = 'C:\\h\\.codex';
+    const cwd = 'C:\\repo';
+    const judge = (files: Record<string, string>, dirs: string[] = []): boolean =>
+      codexWindowsSandboxConfigured(readCodexEffectiveConfig({ cwd, codexHomeDir: home, platform: 'win32', ...memFs(files, dirs) }));
+    const userFile = w.join(home, 'config.toml');
+
+    expect(judge({})).toBe(false);
+    expect(judge({ [userFile]: 'web_search = "live"\n' })).toBe(false);
+    expect(judge({ [userFile]: '[windows]\nsandbox = "elevated"\n' })).toBe(true);
+    expect(judge({ [userFile]: 'profile = "w"\n[profiles.w.windows]\nsandbox = "unelevated"\n' })).toBe(true);
+    expect(judge({
+      [userFile]: "[projects.'c:\\repo']\ntrust_level = \"trusted\"\n",
+      [w.join(cwd, '.codex', 'config.toml')]: '[windows]\nsandbox = "elevated"\n',
+    }, [w.join(cwd, '.git')])).toBe(true);
+    // 신뢰하지 않은 프로젝트의 값은 코덱스가 읽지 않으므로 우리도 정해 둔 것으로 보지 않는다.
+    expect(judge({
+      [userFile]: "[projects.'c:\\repo']\ntrust_level = \"untrusted\"\n",
+      [w.join(cwd, '.codex', 'config.toml')]: '[windows]\nsandbox = "elevated"\n',
+    }, [w.join(cwd, '.git')])).toBe(false);
   });
 });

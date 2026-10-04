@@ -19,7 +19,7 @@ import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { buildSessionRunInputs } from '../utils/sessionStatus.js';
 import type { SessionRunInputSources } from '../utils/sessionStatus.js';
-import { sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt } from '../utils/sessionActivity.js';
+import { sessionCompactingSince, sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt } from '../utils/sessionActivity.js';
 
 /** store 전체 모양 — `GraphState` 는 스토어 밖으로 내보내지 않으므로 여기서 되짚는다. */
 type GraphSnapshot = ReturnType<typeof useGraphStore.getState>;
@@ -108,10 +108,15 @@ export interface SessionLivenessFacts {
    * 경과의 시작점이다(`sessionTurnStartedAt`). 낼 일이 없거나 근거가 없으면 `null`.
    */
   turnStartedAt: number | null;
+  /**
+   * §5.5 #17-24 ⑥ — CLI 가 지금 접는 중이면 그 시작 시각(ms). 라이브 1줄의 넷째 모드(`압축 중`)와 그
+   * 경과의 근거다(`sessionCompactingSince` — 감춘 턴의 압축은 거른다). 돌지 않으면 `null`.
+   */
+  compactingSince: number | null;
 }
 
 const EMPTY_FACTS: SessionLivenessFacts = {
-  running: false, waiting: false, lastActivityAt: null, hiddenTurn: false, turnStartedAt: null,
+  running: false, waiting: false, lastActivityAt: null, hiddenTurn: false, turnStartedAt: null, compactingSince: null,
 };
 
 /**
@@ -138,19 +143,24 @@ export function useSessionLivenessFacts(agentId: string, activeSessionId: string
         commands, s.completedCommands?.[agentId] ?? [], activeSessionId, waiting, s.runningSubagentTasks[agentId] ?? [],
       ) ?? 0
       : 0;
-    return `${inputs.subStatus ?? ''}|${running ? 1 : 0}|${waiting ? 1 : 0}|${last}|${hidden ? 1 : 0}|${turnStart}`;
+    // 압축 중 — 도는 동안만 본다(서버가 걷기 전에 끝난 세션이 "압축 중"으로 남지 않게). 서버가 세우고 걷을
+    //   때만 값이 바뀌므로 지문이 줄마다 흔들리지 않는다.
+    const compacting = running ? sessionCompactingSince(s.subAgents[agentId] ?? [], commands, activeSessionId) ?? 0 : 0;
+    return `${inputs.subStatus ?? ''}|${running ? 1 : 0}|${waiting ? 1 : 0}|${last}|${hidden ? 1 : 0}|${turnStart}|${compacting}`;
   });
   return useMemo(() => {
     if (!fingerprint) return EMPTY_FACTS;
     const parts = fingerprint.split('|');
     const last = Number(parts[3]);
     const turnStart = Number(parts[5]);
+    const compacting = Number(parts[6]);
     return {
       running: parts[1] === '1',
       waiting: parts[2] === '1',
       lastActivityAt: Number.isFinite(last) && last > 0 ? last : null,
       hiddenTurn: parts[4] === '1',
       turnStartedAt: Number.isFinite(turnStart) && turnStart > 0 ? turnStart : null,
+      compactingSince: Number.isFinite(compacting) && compacting > 0 ? compacting : null,
     };
   }, [fingerprint]);
 }

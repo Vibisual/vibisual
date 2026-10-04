@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lastPassedIndex, owningCommandId, VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
+import { lastPassedIndex, owningCommandId, statusBarPinsToRunning, VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
 
 /** 항목 래퍼의 컨테이너 상단 기준 top(px) 배열 → 측정 함수. 실제 DOM 대신 이 배열로 재현한다. */
 function topsOf(tops: readonly number[]): (i: number) => number {
@@ -70,5 +70,33 @@ describe('owningCommandId — 맨 위 항목이 속한 턴의 명령', () => {
   it('맨 위 항목이 없거나 배열에서 사라졌으면 null (부르는 쪽이 종전 판정으로 폴백)', () => {
     expect(owningCommandId(items, isCommand, null)).toBeNull();
     expect(owningCommandId(items, isCommand, 'text-gone')).toBeNull();
+  });
+});
+
+describe('statusBarPinsToRunning — 실행 중에는 상태바가 스크롤을 따라가지 않는다 (§5.5 #17-12 ③-2 (a))', () => {
+  it('세션이 돌고 기본 대상이 실행 중이면 붙든다 — 위로 올려도 옛 턴으로 바뀌지 않는다', () => {
+    expect(statusBarPinsToRunning({ defaultStatus: 'executing', sessionRunning: true, hasRealExecuting: true })).toBe(true);
+  });
+
+  it('진짜 실행 중 명령 없이 세션만 도는 되살아난 턴도 실행 중 줄이므로 붙든다', () => {
+    expect(statusBarPinsToRunning({ defaultStatus: 'completed', sessionRunning: true, hasRealExecuting: false })).toBe(true);
+    expect(statusBarPinsToRunning({ defaultStatus: 'error', sessionRunning: true, hasRealExecuting: false })).toBe(true);
+  });
+
+  it('실행이 끝나면(세션이 멈추면) 놓는다 — 종전 스크롤 추종이 돌아온다', () => {
+    expect(statusBarPinsToRunning({ defaultStatus: 'completed', sessionRunning: false, hasRealExecuting: false })).toBe(false);
+    expect(statusBarPinsToRunning({ defaultStatus: 'error', sessionRunning: false, hasRealExecuting: false })).toBe(false);
+  });
+
+  it('표시용 사본만 실행 중이고 세션은 안 도는 좀비 칸은 붙들지 않는다', () => {
+    expect(statusBarPinsToRunning({ defaultStatus: 'executing', sessionRunning: false, hasRealExecuting: false })).toBe(false);
+  });
+
+  it('진짜 실행 중 명령이 있는데 기본 대상은 끝난 명령이면 실행 중 줄이 아니므로 붙들지 않는다', () => {
+    expect(statusBarPinsToRunning({ defaultStatus: 'completed', sessionRunning: true, hasRealExecuting: true })).toBe(false);
+  });
+
+  it('보여 줄 명령이 없으면 붙들 것도 없다', () => {
+    expect(statusBarPinsToRunning({ defaultStatus: null, sessionRunning: true, hasRealExecuting: true })).toBe(false);
   });
 });

@@ -1303,6 +1303,12 @@ export interface AgentContextInfo {
   cumulativeInputTokens: number;
   /** 누적 출력 토큰 (전체 턴 합산) */
   cumulativeOutputTokens: number;
+  /**
+   * §4 (CLI 사양 추종) (5) 창 하한 — 이 세션 **첫 응답의 문맥 크기**(= 시작 문맥 + 첫 프롬프트). 압축은
+   * 시작 문맥(시스템 프롬프트·도구·CLAUDE.md·기억·스킬 목록)을 줄이지 못하므로, 창이 이 값에 비해 작으면
+   * 압축이 일보다 잦아진다(`applyAutoCompactFloor`). 응답이 아직 없으면 0.
+   */
+  firstContextUsed: number;
 }
 
 /**
@@ -1333,6 +1339,8 @@ interface ContextScanState {
   cumOut: number;
   lastModel: string | null;
   lastContextUsed: number;
+  /** 첫 assistant 엔트리의 문맥 크기 — 한 번 정해지면 바뀌지 않는다(append-only 라 첫 줄은 그대로다). */
+  firstContextUsed: number;
   /**
    * 마지막 개행 뒤에 남은 미완결 꼬리. 보통 빈 문자열(세션 JSONL 은 개행으로 끝난다)이지만,
    * 프로세스가 개행 없이 끝난 파일에서도 **전체 재파싱과 같은 값**이 나오도록 결과 계산에만 반영한다
@@ -1387,6 +1395,8 @@ function feedContextLine(state: ContextScanState, line: string): void {
     if (model) {
       state.lastModel = model;
       state.lastContextUsed = inputTokens + cacheRead + cacheCreation;
+      // §4 (CLI 사양 추종) (5) 창 하한 — 첫 응답이 실은 문맥이 곧 시작 문맥이다(첫 프롬프트 몫이 섞인다).
+      if (state.firstContextUsed <= 0 && state.lastContextUsed > 0) state.firstContextUsed = state.lastContextUsed;
     }
   } catch {
     // skip parse error
@@ -1450,6 +1460,7 @@ export function readContextInfo(cwd: string, sessionId: string): AgentContextInf
         cumOut: 0,
         lastModel: null,
         lastContextUsed: 0,
+        firstContextUsed: 0,
         pendingTail: '',
       };
       state.parsedBytes = feedRange(state, jsonlPath, 0, stat.size);
@@ -1477,6 +1488,7 @@ export function readContextInfo(cwd: string, sessionId: string): AgentContextInf
       contextMax,
       cumulativeInputTokens: view.cumIn,
       cumulativeOutputTokens: view.cumOut,
+      firstContextUsed: view.firstContextUsed,
     };
   } catch {
     return null;

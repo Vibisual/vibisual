@@ -22,7 +22,7 @@
 import { exec } from 'node:child_process';
 import fs from 'node:fs';
 import { logger } from '../logger.js';
-import { findPortOwnerPids, isVibisualOwnPort } from './processChecker.js';
+import { findPortListeners, isVibisualOwnPort, listenerPids, reachableListeners } from './processChecker.js';
 
 /**
  * 프로세스 정보 조회 1회당 상한. 넘으면 "못 읽었다"로 보고 다음 후보로 넘어간다.
@@ -216,18 +216,25 @@ export async function readProcessStart(
  * ② 점유자를 볼 도구가 없다 ③ 남의 계정 소유라 명령줄을 읽을 권한이 없다. 호출자는 이때 종전처럼
  * "재시작 불가"로 남기면 된다(kill 은 하지 않는다 — 되살릴 수 없는 서버를 죽이면 사용자 손해다).
  *
+ * §7.11 — `host` 를 주면 **그 주소로 접속했을 때 닿는 리스너**에서만 읽는다. 한 포트에 주인이 둘일 수
+ * 있어서다(`[::1]` 의 옆 프로젝트 vite 와 `::` 의 우리 서버). 가르지 않으면 "먼저 읽힌 pid" 가 남의
+ * 서버여도 그 명령을 우리 entry 로 넘겨받아, Restart 가 남의 프로젝트 명령을 우리 폴더에서 돌린다.
+ *
  * @param platform 기본값은 실제 플랫폼. 테스트가 세 OS 를 모두 지나갈 수 있도록 인자로 열어 둔다.
+ * @param host 그 서버를 부르는 주소의 호스트(`localhost` · `127.0.0.1` · `::1`). 비우면 포트 전체.
  */
 export async function takeoverPortCommand(
   port: number,
   platform: NodeJS.Platform = process.platform,
+  host?: string,
 ): Promise<PortTakeover | null> {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
   // 우리 자신의 포트(앱 서버·훅 리스너·프리뷰 프록시)는 인계 대상이 아니다.
   if (isVibisualOwnPort(port)) return null;
 
-  const lookup = await findPortOwnerPids(port);
-  const targets = lookup.pids.filter((pid) => pid !== process.pid && pid !== process.ppid);
+  const lookup = await findPortListeners(port, platform);
+  const scoped = host !== undefined ? reachableListeners(lookup.listeners, host) : lookup.listeners;
+  const targets = listenerPids(scoped).filter((pid) => pid !== process.pid && pid !== process.ppid);
   if (targets.length === 0) return null;
 
   for (const pid of targets) {

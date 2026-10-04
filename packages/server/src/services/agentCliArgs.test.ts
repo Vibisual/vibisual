@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTOCOMPACT, DEFAULT_AUTOCOMPACT_TOKENS, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN } from '@vibisual/shared';
 
 // Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
 // `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
@@ -29,7 +29,7 @@ vi.mock('node:os', async (importOriginal) => {
   return { ...actual, default: { ...actual, homedir: () => process.env.__VIBI_FAKE_HOME__ ?? actual.homedir() } };
 });
 
-import { buildInteractiveClaudeArgs, buildBashTimeoutEnv } from './subAgentManager.js';
+import { buildInteractiveClaudeArgs, buildInteractiveCliPrefill, buildBashTimeoutEnv } from './subAgentManager.js';
 
 beforeAll(() => {
   fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-cliargs-'));
@@ -148,18 +148,32 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
     expect(['on', 'off']).toContain(valueOf(args, '--system-prompt-snapshot'));
   });
 
-  // §4 (CLI 사양 추종) — 내장 기본은 **꺼짐**이다(2026-09-02 사용자 지시). 압축은 접을 때마다
-  //   대화 전체를 다시 먹이는 요약 호출 1회가 나가는 **유료 축**이라, 사용자가 고른 적 없는 채로
-  //   켜져 있으면 안 된다. 종전에는 여기서 400k 가 항상 실렸다.
-  it('자동 압축은 기본이 꺼짐이라 미설정이면 플래그가 나가지 않는다', () => {
-    expect(buildInteractiveClaudeArgs(cfg())).not.toContain('--autocompact');
+  // §4 (CLI 사양 추종) (5) — **자동 압축 창은 스폰에 싣지 않는다**(2026-10-05 사용자 지시). 작업 도중에는
+  //   CLI 가 모델 창 끝에서만 접고, 고른 창(에이전트 → 설정 창 → 내장 기본 · 토큰 절약 Q · 창 하한)은 명령
+  //   사이 조용한 압축의 발동선에만 쓴다(그 판정은 `turnCompactGate.test.ts`·`compactFloor.test.ts`).
+  //   종전(09-02~10-04)에는 고른 창을 그대로 실었고, Opus 5.5 에서 호출당 문맥이 늘자 200k·400k 창이
+  //   작업 도중 몇 호출마다 접혀 1~2시간 지시의 35~47% 가 압축이었다.
+  it.each([undefined, '   ', ...AVAILABLE_AUTOCOMPACT_VALUES, '50000', '2000000', 'abc'])(
+    '자동 압축 창(%s)은 어떤 값이든 스폰에 실리지 않는다',
+    (v) => {
+      const args = buildInteractiveClaudeArgs(cfg(v === undefined ? {} : { autoCompact: v }));
+      expect(args).not.toContain('--autocompact');
+    },
+  );
+
+  it('CMD 터미널에 미리 쳐 넣는 줄에도 실리지 않는다 — 사람이 치는 세션이라 모델 창 끝에서만 접힌다', () => {
+    const { prefill, managed } = buildInteractiveCliPrefill({
+      config: cfg({ autoCompact: '400000' }), claudeBinPath: 'claude', platform: 'linux',
+    });
+    expect(managed).toBe(true);
+    expect(prefill).not.toContain('--autocompact');
   });
 
-  // ⚠ 이 검사가 무너지면 **꺼 둔 에이전트가 전부 못 뜬다** — CLI 는 `--autocompact off` 를
-  //   `argument 'off' is invalid` 로 거부하고 **즉시 종료**한다(실측 2.1.252). `off` 는 우리 축의
-  //   값이지 CLI 의 값이 아니며, 꺼짐은 "플래그를 싣지 않는 것"으로만 표현된다.
-  it("'off' 는 CLI 값이 아니라 무플래그다 — 그대로 실으면 스폰이 즉사한다", () => {
-    const args = buildInteractiveClaudeArgs(cfg({ autoCompact: 'off' }), { userAutoCompact: '400000' });
+  // ⚠ 창을 다시 싣게 되더라도 이 검사는 남겨 둔다 — CLI 는 `--autocompact off` 를 `argument 'off' is
+  //   invalid` 로 거부하고 **즉시 종료**한다(실측 2.1.252). `off` 는 우리 축의 값이지 CLI 의 값이 아니며,
+  //   이 값이 압축 플래그 자리로 새면 **꺼 둔 에이전트가 전부 못 뜬다.**
+  it("'off' 는 CLI 값이 아니다 — 어느 플래그의 값으로도 새지 않는다", () => {
+    const args = buildInteractiveClaudeArgs(cfg({ autoCompact: 'off' }));
     expect(args).not.toContain('--autocompact');
     // ⚠ 종전에는 `args` 안에 `'off'` 라는 **글자**가 없는지를 봤다. `--system-prompt-snapshot off` 가
     //   생긴 뒤로 그 글자는 **합법적으로** 존재하므로, 검사를 "글자가 없다"에서 **"압축 플래그의 값으로
@@ -173,7 +187,7 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
     }
   });
 
-  it('설정하면 그대로 실린다', () => {
+  it('다른 설정은 그대로 실린다 — 자동 압축 창만 스폰 밖이다', () => {
     const args = buildInteractiveClaudeArgs(cfg({
       autoCompact: '200000',
       settingSources: ['user', 'project'],
@@ -181,7 +195,7 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
       betas: ['beta-a', 'beta-b'],
       excludeDynamicSystemPromptSections: true,
     }));
-    expect(valueOf(args, '--autocompact')).toBe('200000');
+    expect(args).not.toContain('--autocompact');
     expect(valueOf(args, '--setting-sources')).toBe('user,project');
     expect(args).toContain('--safe-mode');
     expect(args).toContain('--exclude-dynamic-system-prompt-sections');
@@ -190,46 +204,9 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
   });
 
   it('빈 값·빈 배열은 미설정과 같다 — 빈 플래그를 흘리지 않는다', () => {
-    const args = buildInteractiveClaudeArgs(cfg({ autoCompact: '   ', settingSources: [], betas: ['', '  '] }));
-    // 공백뿐인 자동 압축은 "미설정"이므로 빈 플래그를 흘리지 않고 내장 기본(=꺼짐)으로 떨어진다.
-    expect(args).not.toContain('--autocompact');
+    const args = buildInteractiveClaudeArgs(cfg({ settingSources: [], betas: ['', '  '] }));
     expect(args).not.toContain('--setting-sources');
     expect(args).not.toContain('--betas');
-  });
-
-  describe('자동 압축 3층 해소 — 에이전트 → 설정 창 → 내장 기본', () => {
-    it('에이전트 설정이 있으면 그것이 이긴다', () => {
-      const args = buildInteractiveClaudeArgs(cfg({ autoCompact: '500000' }), { userAutoCompact: '100000' });
-      expect(valueOf(args, '--autocompact')).toBe('500000');
-    });
-
-    it('에이전트가 미설정이면 설정 창 전역 기본을 따른다 — 이미 만들어진 에이전트도 함께 바뀐다', () => {
-      const args = buildInteractiveClaudeArgs(cfg(), { userAutoCompact: '1000000' });
-      expect(valueOf(args, '--autocompact')).toBe('1000000');
-    });
-
-    it('둘 다 미설정이면 내장 기본 = 꺼짐이라 플래그가 나가지 않는다', () => {
-      expect(buildInteractiveClaudeArgs(cfg(), {})).not.toContain('--autocompact');
-    });
-
-    // 드롭다운에 실제로 서 있어야 사용자가 되돌릴 수 있다 — 꺼짐(내장 기본)과 켜기 권장값(400k) 둘 다.
-    it('내장 기본값과 켜기 권장값은 둘 다 선택 목록 안의 값이다', () => {
-      expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT);
-      expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT_TOKENS);
-    });
-
-    it("'auto' 는 명시값이라 그대로 실린다 — 종전처럼 CLI 판단에 맡기는 자리", () => {
-      const args = buildInteractiveClaudeArgs(cfg({ autoCompact: 'auto' }), { userAutoCompact: '100000' });
-      expect(valueOf(args, '--autocompact')).toBe('auto');
-    });
-
-    // CLI 는 범위 밖 값을 무시하지 않고 `argument … is invalid` 로 즉시 종료한다(실측 2.1.247).
-    //   저장분이 오염돼도 그 에이전트가 영영 못 뜨는 일이 없도록 내장 기본으로 떨어뜨린다.
-    it.each(['50000', '2000000', 'abc'])('CLI 가 거부할 값(%s)은 스폰을 죽이지 않고 내장 기본(꺼짐)으로 떨어진다', (bad) => {
-      const args = buildInteractiveClaudeArgs(cfg({ autoCompact: bad }), { userAutoCompact: bad });
-      expect(args).not.toContain('--autocompact');
-      expect(args).not.toContain(bad);
-    });
   });
 
   it('`--fallback-model` 은 여기서 나가지 않는다 — `--print` 전용이라 헤드리스 스폰부가 붙인다', () => {
@@ -357,9 +334,10 @@ describe('스폰 인자 — 미지의 플래그 차단', () => {  /**
    * 없는 플래그면 "unknown option"). 새 플래그를 달면서 이 목록을 고치지 않으면 이 검사가 막는다.
    */
   const ALLOWED = new Set([
+    // `--autocompact` 는 2026-10-05 부터 나가지 않는다(§4 CLI 사양 추종 (5)) — 다시 싣는다면 이 목록과 SSOT 를 함께 고친다.
     '--model', '--permission-mode', '--dangerously-skip-permissions', '--effort',
     '--tools', '--disallowedTools', '--allowedTools', '--mcp-config', '--settings',
-    '--worktree', '--autocompact', '--exclude-dynamic-system-prompt-sections',
+    '--worktree', '--exclude-dynamic-system-prompt-sections',
     '--setting-sources', '--safe-mode', '--betas', '--append-system-prompt',
     '--agents', '--plugin-dir', '--system-prompt-snapshot',
   ]);

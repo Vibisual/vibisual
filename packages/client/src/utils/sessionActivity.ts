@@ -39,6 +39,49 @@ export function sessionHiddenTurnRunning(commands: readonly QueuedCommand[], ses
 }
 
 /**
+ * §5.5 #17-24 ⑥ — 라이브 1줄의 네 모습. `thinking` 사고 · `working` 그 외 작업 · `waiting` 줄만 섬 ·
+ * `compacting` CLI 가 대화를 접는 중.
+ */
+export type LiveLineMode = 'thinking' | 'working' | 'waiting' | 'compacting';
+
+/**
+ * §5.5 #17-24 ⑥ — 이 세션(메인 탭이면 에이전트의 세션 전부)이 **접는 중이면 그 시작 시각**. 모르면 `null`.
+ *
+ * 근거는 서버가 세우고 걷는 `SubAgent.compactingSince` 하나다(스트림 `status:"compacting"`·`PreCompact` 훅).
+ * **감춘 턴(조용한 사전 압축, §5.3 #9-1 (P))이 도는 세션은 거른다** — 그 압축은 물려받은 명령이 평소처럼
+ * "작업 중"으로 보이는 것이 계약이다((P)(b) · §5.5 #17-10 ⑥-6). 원본 큐를 줘야 한다 — `displayCommands`
+ * 사본은 silent 명령을 이미 감췄다. 여럿이면(메인 탭) 가장 먼저 시작한 것 — 가장 오래 접고 있는 쪽이다.
+ */
+export function sessionCompactingSince(
+  subs: readonly SubAgent[],
+  commands: readonly QueuedCommand[],
+  sessionId: string | null,
+): number | null {
+  let earliest = Infinity;
+  for (const sub of subs) {
+    if (sessionId !== null && sub.id !== sessionId) continue;
+    const at = sub.compactingSince;
+    if (!usableAt(at) || at >= earliest) continue;
+    if (sessionHiddenTurnRunning(commands, sub.id)) continue;
+    earliest = at;
+  }
+  return earliest < Infinity ? earliest : null;
+}
+
+/**
+ * §5.5 #17-24 ⑥ — 라이브 1줄의 모습을 고르는 **단 한 곳**. 메인 탭(`IDEMainArea`)·Sub 탭(`computeThinkingLive`)이
+ * 같이 부른다 — 두 경로가 다르게 고르면 같은 세션이 탭을 옮길 때마다 말이 바뀐다.
+ *
+ * 우선순위: **대기 > 압축 > 사고/작업.** 줄만 서 있으면 도는 것이 없으니 접을 것도 없다(§5.5 #17-18 ⑪).
+ * 접는 동안은 마지막 이벤트가 사고였든 도구였든 지금 하는 일이 압축이다.
+ */
+export function liveLineMode(waiting: boolean, compacting: boolean, lastEventIsThinking: boolean): LiveLineMode {
+  if (waiting) return 'waiting';
+  if (compacting) return 'compacting';
+  return lastEventIsThinking ? 'thinking' : 'working';
+}
+
+/**
  * §2.4 (무응답) — 라이브 1줄("작업 중…")이 경과를 재는 시각. 메인 탭·Sub 탭이 **같은 함수**를 쓴다.
  *
  * **마지막으로 보인 줄**만 재면 안 된다 — 조용한 사전 압축(§5.3 #9-1 (P))은 줄을 감추므로, 그 뒤에
@@ -67,14 +110,16 @@ export function liveLineActivityAt(
  *  - **감춘 턴이 도는 중이면 뒤집지 않는다** — 그 턴의 줄은 서버가 일부러 보내지 않으므로
  *    (§5.3 #9-1 (P) ⚠ ②) "업데이트가 없다"고 말할 근거가 없고, 압축은 3분을 넘기기도 한다.
  *    물려받은 명령은 그동안 평소처럼 "작업 중"이어야 한다(§5.5 #17-10 ⑥-6).
+ *  - **접는 중(`compacting`)이면 뒤집지 않는다** — CLI 가 턴 도중에 접는 2.4~6분은 줄이 오지 않는 것이
+ *    정상이다(§5.5 #17-24 ⑥). 종전에는 그 자리가 3분 뒤 무응답으로 뒤집혔다.
  *  - 그 밖에는 조용한 시간이 문턱(`SESSION_NO_RESPONSE_MS`)에 닿았을 때만.
  */
 export function liveLineStalled(
-  mode: 'thinking' | 'working' | 'waiting',
+  mode: LiveLineMode,
   silenceMs: number | null,
   hiddenTurn = false,
 ): boolean {
-  if (mode === 'waiting' || hiddenTurn) return false;
+  if (mode === 'waiting' || mode === 'compacting' || hiddenTurn) return false;
   return silenceMs !== null && silenceMs >= SESSION_NO_RESPONSE_MS;
 }
 
@@ -151,6 +196,8 @@ export function sessionTurnStartedAt(
  * 적지 않는다). 메인 탭·Sub 탭이 `ThinkingLiveLine` 한 곳에서 이 함수를 부른다.
  *
  *  - 무응답(`stalled`)이면 **마지막 업데이트** — "마지막 업데이트 N 전"이 말하는 바로 그 시각이다.
+ *  - 접는 중이면(`compactingSince` — 넷째 모드에서만 넘긴다) **압축이 시작된 시각** — 지금 하는 일이
+ *    압축이라, 턴 시계로 적으면 압축이 몇 분째인지 알 수 없다(§5.5 #17-24 ⑥). 끝나면 턴 시계로 돌아간다.
  *  - 그 밖에는 **이 턴(대기면 줄 선) 시작**(`sessionTurnStartedAt`) — 줄이 와도 되감기지 않는다.
  *
  * 쓸 수 있는 시각인지는 무응답 시계와 **같은 규율**로 가린다(`sessionSilenceMs` — 없음·0·미래는 모름).
@@ -160,8 +207,9 @@ export function liveLineClockFrom(
   turnStartedAt: number | null | undefined,
   lastActivityAt: number | null | undefined,
   now: number,
+  compactingSince?: number | null,
 ): number | null {
-  const from = stalled ? lastActivityAt : turnStartedAt;
+  const from = stalled ? lastActivityAt : (compactingSince ?? turnStartedAt);
   if (from === null || from === undefined || sessionSilenceMs(from, now) === null) return null;
   return from;
 }

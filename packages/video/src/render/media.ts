@@ -13,6 +13,7 @@
 import { ALL_FORMATS, BlobSource, CanvasSink, Input, UrlSource } from 'mediabunny';
 
 import type { MediaProvider } from './canvas2d.js';
+import type { MediaMeasurement } from '../fileDoc.js';
 import type { VideoAsset } from '../types.js';
 
 /** 소재 파일을 어떻게 읽을지는 호스트가 정한다(파일 시스템·URL·메모리). */
@@ -128,6 +129,35 @@ export class MediabunnyMediaProvider implements MediaProvider {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 소재를 실제로 읽어 길이와 화면 크기를 잰다(§5.13 (R-3)). 소리 파일이면 크기는 null.
+   *
+   * 크기는 회전 메타데이터를 반영한 **보이는** 크기다 — 휴대폰 세로 영상은 저장은 가로로,
+   * 표시는 세로로 되어 있어 coded 크기를 쓰면 판형이 눕는다.
+   */
+  async measure(assetId: string): Promise<MediaMeasurement | null> {
+    const entry = await this.ensureVideo(assetId);
+    if (!entry) return null;
+    let duration: number | null = null;
+    let width: number | null = null;
+    let height: number | null = null;
+    try {
+      duration = await entry.input.computeDuration();
+    } catch {
+      duration = null;
+    }
+    try {
+      const track = await entry.input.getPrimaryVideoTrack();
+      if (track) {
+        width = track.displayWidth;
+        height = track.displayHeight;
+      }
+    } catch {
+      /* 크기를 못 재도 길이만으로 클립은 선다 */
+    }
+    return { duration, width, height };
   }
 
   dispose(): void {

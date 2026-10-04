@@ -18,7 +18,7 @@ import type { PlayBubble, PlayRecipe } from '@vibisual/shared';
 import { PLAY_PROBE_INTERVAL_MS, PLAY_START_TIMEOUT_MS } from '@vibisual/shared';
 
 import { logger } from '../logger.js';
-import { isPortAlive, isUrlServing, killByPort, respawn } from './processChecker.js';
+import { isPortAlive, isUrlServing, killByPort, respawn, urlHostname } from './processChecker.js';
 import { registerStaticRoot, unregisterStaticRoot } from './playStaticHost.js';
 
 /** 기동 결과. 실패해도 던지지 않는다 — 버블에 사유를 적어 보여 주는 게 목적이다. */
@@ -169,7 +169,10 @@ export async function stopPlay(bubble: PlayBubble): Promise<void> {
   }
   if (bubble.port !== undefined) {
     startedPorts.delete(bubble.port);
-    await killByPort(bubble.port);
+    // §7.11 / §3.5 — 그 버블이 여는 주소로 **닿는 리스너만** 죽인다. 한 포트에 주인이 둘이면
+    //   (다른 프로젝트 서버가 같은 포트를 다른 주소로 잡음) 포트 전체를 죽이면 남의 서버까지 내려간다.
+    const host = urlHostname(bubble.url);
+    await killByPort(bubble.port, host ? { host } : {});
   }
 }
 

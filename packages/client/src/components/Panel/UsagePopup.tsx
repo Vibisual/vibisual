@@ -320,7 +320,8 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           </button>
         </div>
 
-        <div className="px-4 pt-3"><ProviderTabs value={engine} onChange={setEngine} /></div>
+        {/* §5.25 (C) — 탭은 보기만 바꾸고, 메인 제공자는 줄 끝 [기본으로 설정]이 바로 바꾼다(사용자 지시 2026-10-03). */}
+        <div className="px-4 pt-3"><ProviderTabs value={engine} onChange={setEngine} showSetMain /></div>
         <ScrollFade fill className="min-h-0 flex-1">
           {/* 올모델은 구독 한도가 아니라 **이 PC 의 자원**을 쓴다 — 그것이 이 탭의 사용량이다(§5.19 (F)). */}
           {engine === 'local' && <LocalResourceSection />}

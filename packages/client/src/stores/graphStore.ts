@@ -25,6 +25,7 @@ import { calcFileSizeRange, calcHeatCountRange } from '../utils/sizeCalc.js';
 import { clientPathKey } from '../utils/platform.js';
 import { permissionPromptSync, askQuestionPromptSync } from '../utils/pendingPromptSync.js';
 import { registerPersistFlush } from '../utils/persistFlush.js';
+import { followIframeTabUrls } from '../utils/iframeTabFollow.js';
 import { structuralShare } from './structuralShare.js';
 import { batchedNotify } from './batchedNotify.js';
 import { diffSubAcknowledgements } from './subAckDiff.js';
@@ -614,6 +615,12 @@ export interface IframeTab {
   url: string;
   label: string;
   serverKind: ServerKind;
+  /**
+   * 이 탭을 **연 프로젝트의 절대경로**(§7.11 / §3.5). 탭 목록은 프로젝트 탭과 상관없이 하나로 공유되고
+   * 스냅샷은 구독한 프로젝트만 실어서, 화면을 불러오기 전에 이 프로젝트 기준으로 서버에 소속을 묻는다
+   * (`/api/iframe-tab-check`). 없으면 위성 id 로만 찾는다.
+   */
+  projectPath?: string;
 }
 
 /** IDE 오버레이 사이드바 뷰 타입 — §5.5 #17-4 v2.32 에서 'skills', #17-11 ⑨ v4.51 에서 'loop'(덮개 패널 → 사이드바 뷰) 추가 */
@@ -2408,6 +2415,11 @@ interface GraphState {
   /** 현재 활성 iframe 탭 ID (null이면 프로젝트 뷰) */
   activeIframeId: string | null;
   openIframeTab: (tab: IframeTab) => void;
+  /**
+   * §7.11 / §3.5 — 열어 둔 탭의 주소를 옮긴다(서버 판정이 `follow` 라고 답했을 때 — 위성이 옮겨졌거나
+   * 같은 포트의 우리 서버에 닿는 별칭). 없는 탭·같은 주소면 아무것도 하지 않는다.
+   */
+  followIframeTab: (id: string, url: string) => void;
   closeIframeTab: (id: string) => void;
   setActiveIframeTab: (id: string) => void;
   /**
@@ -5243,6 +5255,10 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         satellites: share(state.satellites, satellites),
         satellitePositions: share(state.satellitePositions, satellitePositions),
         nodeMap: share(state.nodeMap, nodeMap),
+        // §7.11 / §3.5 — 열어 둔 프리뷰 탭이 위성 주소를 따라간다(한 포트 두 주인이면 서버가 위성을 우리
+        //   서버에 닿는 별칭으로 옮긴다 — 탭이 연 순간의 주소를 붙들면 남의 화면이 그대로 남는다).
+        //   바뀐 탭이 없으면 같은 배열이라 구독자는 조용하다.
+        iframeTabs: followIframeTabUrls(state.iframeTabs, nodeMap),
         bashHistory: share(state.bashHistory, bashHistory),
         runningServers: share(state.runningServers, runningServers),
         agentProjects: share(state.agentProjects, agentProjects),
@@ -5574,6 +5590,14 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     if (exists) return { activeIframeId: tab.id };
     return { iframeTabs: [...state.iframeTabs, tab], activeIframeId: tab.id };
   }),
+  followIframeTab: (id, url) => set((state) => {
+    const at = state.iframeTabs.findIndex((t) => t.id === id);
+    const tab = at >= 0 ? state.iframeTabs[at] : undefined;
+    if (!tab || tab.url === url) return {};
+    const next = [...state.iframeTabs];
+    next[at] = { ...tab, url };
+    return { iframeTabs: next };
+  }),
   closeIframeTab: (id) => {
     // §5.4 #14-4 — "다시 열기" 스택에 신고. **iframe 만 여기서 신고한다** — 프로젝트 탭은
     //   `DELETE /api/projects/:id` 가 서버에서 직접 올리므로(닫는 길이 늘어도 한 곳),
@@ -5591,6 +5615,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
           label: closed.label,
           url: closed.url,
           serverKind: closed.serverKind,
+          // §7.11 / §3.5 — 되연 탭도 연 프로젝트 기준으로 소속을 묻는다.
+          projectPath: closed.projectPath,
         }),
       }).catch(() => { /* 표시용 목록이라 실패는 삼킨다 */ });
     }
@@ -5623,6 +5649,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
           url: entry.url,
           label: entry.label,
           serverKind: entry.serverKind ?? 'frontend',
+          ...(entry.projectPath ? { projectPath: entry.projectPath } : {}),
         });
         return 'ok';
       }

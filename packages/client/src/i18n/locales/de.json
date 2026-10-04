@@ -687,7 +687,7 @@
         "saveError": "Konnte nicht gespeichert werden. Es wurde nichts geändert.",
         "autoCompactWindow": "Die Unterhaltung kompaktieren, sobald sie erreicht",
         "autoCompactWindowOff": "Wie konfiguriert belassen",
-        "autoCompactWindowDesc": "Der größte einzelne Hebel hier. Über drei Tage gemessen lagen Sitzungen im Median bei 186k Token, und alles über 200k machte 62 % der gesamten Eingabe aus — das wird bei jedem Turn neu eingelesen. Das Fenster von 400k auf 200k zu senken reduzierte die Eingabe um 27 %, und auf 100k um 59 %, bei gleicher Arbeit. Es wirkt nur verengend: Ein Agent oder ein Standardwert, der bereits niedriger liegt, gewinnt. Das Kompaktieren selbst ist eine große Anfrage, daher ist die niedrigste Einstellung nicht automatisch die günstigste."
+        "autoCompactWindowDesc": "Der größte einzelne Hebel hier. Über drei Tage gemessen lagen Sitzungen im Median bei 186k Token, und alles über 200k machte 62 % der gesamten Eingabe aus — das wird bei jedem Turn neu eingelesen. Das Fenster von 400k auf 200k zu senken reduzierte die Eingabe um 27 %, und auf 100k um 59 %, bei gleicher Arbeit. Es wirkt nur verengend: Ein Agent oder ein Standardwert, der bereits niedriger liegt, gewinnt. Das Kompaktieren selbst ist eine große Anfrage, daher ist die niedrigste Einstellung nicht automatisch die günstigste. Dieses Fenster bestimmt nur, wo zwischen Befehlen kompaktiert wird — mitten in der Arbeit kompaktiert die CLI erst, wenn das Modellfenster voll ist."
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "Auto-Verdichtung",
-        "tip": "Die Fenstergröße, an der die Verdichtung gemessen wird. Tatsächlich falten wir bei {{percent}} % davon, am Ende der Runde — damit mitten in der Arbeit nichts abgeschnitten wird; durchbricht eine einzelne Runde den restlichen Spielraum, faltet die CLI mitten in der Arbeit.",
-        "auto": "auto — die CLI wählt das Fenster.",
+        "tip": "Die Fenstergröße, nach der zwischen Befehlen gefaltet wird. Endet eine Runde bei {{percent}} % davon oder mehr, falten wir still vor dem nächsten Befehl. Mitten in der Arbeit wird nicht gefaltet — dort faltet die CLI erst, wenn das Modellfenster voll ist.",
+        "auto": "auto — das gesamte Modellfenster.",
         "tokens": "Fenstergröße etwa {{tokens}} Token.",
         "foldsAt": "Faltet bei etwa {{tokens}}, am Ende der jeweiligen Runde.",
-        "foldsAtAuto": "Faltet bei {{percent}} % des von der CLI gewählten Fensters, am Ende der jeweiligen Runde.",
+        "foldsAtAuto": "Faltet bei {{percent}} % des Modellfensters, am Ende der jeweiligen Runde.",
         "offLabel": "aus",
         "off": "aus — es wird nie gefaltet. Kein Zusammenfassungsaufruf, also keine Token.",
         "foldsAtOff": "Wird nie gefaltet. Lange Gespräche werden mit jedem Zug schwerer, und wenn das Modellfenster voll ist, faltet die CLI einmal mitten in der Arbeit.",
+        "raised": "Faltet stattdessen nach einem {{to}}-Fenster: Dieser Agent startet Unterhaltungen bereits mit etwa {{floor}} Token, sodass ein {{from}}-Fenster direkt nach jeder Faltung wieder voll wäre.",
         "confirm": {
           "title": "Auto-Komprimierung einschalten? ({{value}})",
           "titleSelf": "Den Agenten selbst komprimieren lassen?",
@@ -1714,7 +1715,8 @@
       "noEntry": "Kein passender Server-Eintrag",
       "noCommand": "Neustart nicht möglich — bereits gestoppt, der Startbefehl ist nicht mehr ermittelbar (vom Agenten gemeldeter Server)",
       "takeover": "Neustart per Übernahme — Vibisual übernimmt den vom Agenten gestarteten Server",
-      "takeoverFailed": "Übernahme fehlgeschlagen — Startbefehl nicht lesbar (fremdes Konto oder kein Abfragewerkzeug)"
+      "takeoverFailed": "Übernahme fehlgeschlagen — Startbefehl nicht lesbar (fremdes Konto oder kein Abfragewerkzeug)",
+      "refusedOtherProject": "Unangetastet – unter dieser Adresse antwortet ein Server, den ein anderes geöffnetes Projekt gestartet hat."
     },
     "subAgent": {
       "heading": "Unteragenten ({{count}})",
@@ -2030,6 +2032,7 @@
       "noAudio": "Ohne Audio exportiert.",
       "downgraded": "Rendermodus wurde herabgestuft: {{id}}",
       "previewFailed": "Vorschau konnte nicht gezeichnet werden.",
+      "fileUnreadable": "Dieses Video konnte nicht gelesen werden: {{name}}",
       "errNoDoc": "Es ist kein Dokument geöffnet.",
       "errNoStage": "Es wurde kein Platz gefunden, an dem die Bühne angebracht werden kann.",
       "errNoRenderBackend": "Auf diesem Gerät ist kein Rendermodus verfügbar.",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "Überlappende Memos entzerren",
       "ctxSpreadMemosNone": "Keine überlappenden Memos",
       "jumpToBottom": "Zum Ende scrollen",
+      "jumpToTop": "Zum Anfang scrollen",
+      "promptRail": "Eigene Prompts",
+      "promptPrev": "Vorheriger Prompt",
+      "promptNext": "Nächster Prompt",
+      "promptPosition": "Prompt {{n}} / {{total}}",
       "ctxSelectionRequired": "Zuerst Text auswählen",
       "inputCtxCut": "Ausschneiden",
       "inputCtxCopy": "Kopieren",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} ein / {{out}} aus",
       "tokensTip": "Summe der Tokens, die diese Session seit dem Start verbraucht hat. Die Eingabe zählt auch Cache-Lese- und Cache-Schreibvorgänge mit und steigt deshalb weit schneller als die Ausgabe. Kumulativ — sie sinkt nie.",
       "autoCompact": "Auto-Verdichtung {{value}}",
-      "autoCompactTip": "Sobald der Kontext diese Größe erreicht, fasst die CLI das Gespräch von selbst zusammen. Pro Agent in den Agent-Einstellungen änderbar, global unter Datei > Optionen > Agent-Standardwerte.",
+      "autoCompactTip": "Das Fenster, nach dem das Gespräch zwischen Befehlen zusammengefasst wird: Liegt der Kontext am Ende einer Runde über {{percent}} % davon, falten wir vor dem nächsten Befehl. Mitten in der Arbeit faltet die CLI erst, wenn das Modellfenster voll ist. Pro Agent in den Agent-Einstellungen änderbar, global unter Datei > Optionen > Agent-Standardwerte.",
+      "autoCompactRaised": "Erhöht von {{from}}: Dieser Agent startet Unterhaltungen bereits mit etwa {{floor}} Token, sodass ein kleineres Fenster direkt nach jeder Faltung wieder voll wäre.",
       "sessionOne": "{{count}} Session",
       "sessionMany": "{{count}} Sessions",
       "sessionsTip": "Wie viele Session-Tabs für diesen Agent geöffnet sind.",
@@ -3349,7 +3358,9 @@
       "commandReceived": "Befehl angenommen",
       "promptSuggestion": "Vorschlag für den nächsten Prompt",
       "imageMissing": "(Bild nicht verfügbar)",
-      "waiting": "wartet"
+      "waiting": "wartet",
+      "compacting": "verdichtet",
+      "compactingHint": "Der Kontext ist voll, deshalb fasst die CLI die bisherige Unterhaltung zusammen, um Platz zu schaffen. Das dauert meist einige Minuten – dass währenddessen keine neue Ausgabe erscheint, ist normal."
     },
     "report": {
       "title": "Arbeitsbericht",
@@ -3548,6 +3559,12 @@
       "title": "Plan",
       "progress": "{{done}}/{{total}}",
       "superseded": "Plan aktualisiert"
+    },
+    "transportRecovery": {
+      "reconnecting": "Verbindung wird wiederhergestellt… {{attempt}}/{{maxAttempts}}",
+      "fallback": "Andere Verbindungsmethode wird versucht…",
+      "resumed": "Verbindung wiederhergestellt · Arbeit fortgesetzt",
+      "ended": "Wiederherstellung der Verbindung versucht"
     },
     "cmdError": {
       "spawn": "{{engine}} konnte nicht gestartet werden",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "URL eingeben...",
       "serverPreview": "Server-Vorschau",
-      "reload": "Neu laden"
+      "reload": "Neu laden",
+      "otherProjectTitle": "Der Server eines anderen Projekts läuft unter dieser Adresse",
+      "otherProjectBody": "Unter {{url}} antwortet derzeit ein Server, den ein anderes geöffnetes Projekt gestartet hat. Deshalb lädt dieser Tab die Seite nicht. Sobald der Server dieses Projekts wieder unter dieser Adresse läuft, öffnet sie sich automatisch erneut."
     },
     "serverKind": {
       "frontendShort": "FE",
@@ -6016,6 +6035,8 @@
     "local": "Alle Modelle",
     "main": "Hauptanbieter",
     "mainHint": "Der Anbieter, der den Großteil der Arbeit übernimmt. Neue Agenten verwenden ihn standardmäßig, und die Nutzungsanzeige oben richtet sich danach – in allen Projekten.",
+    "setMain": "Als Standard festlegen",
+    "isMain": "Standard",
     "saveFailed": "Speichern fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "project": "Projekteinstellungen",
     "save": "Speichern",

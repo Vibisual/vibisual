@@ -469,12 +469,10 @@ export const BubbleNode = memo(function BubbleNode({
 
   // 선택 하이라이트 링 — store.selectIntentId(클릭 확정 즉시 갱신, DetailPanel 지연과 무관).
   // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 동일 규칙으로 비교.
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
-  const showSelectRing = useMemo(() => {
-    if (!selectIntentId) return false;
-    const myId = data.id.startsWith('sat-') ? data.id.slice(4) : data.id;
-    return selectIntentId === myId;
-  }, [selectIntentId, data.id]);
+  // §9 "버블은 자기 것만 구독한다" — id 를 그대로 구독하면 클릭 한 번에 모든 버블이 다시 그려져
+  // 선택 초점(§5.4 #31 (K))의 페이드가 시작되는 바로 그 프레임을 잡아먹는다. 판정 결과만 받는다.
+  const selectRingId = data.id.startsWith('sat-') ? data.id.slice(4) : data.id;
+  const showSelectRing = useGraphStore((s) => s.selectIntentId !== null && s.selectIntentId === selectRingId);
 
   // 등장/퇴장 모두 페이드. showSelectRing off 시 즉시 언마운트하지 않고
   // opacity 0 으로 트랜지션 후 SELECT_FADE_MS 뒤 언마운트.

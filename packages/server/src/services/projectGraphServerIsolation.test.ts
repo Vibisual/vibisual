@@ -19,10 +19,22 @@
  *
  * 포트 조회는 주입한다 — `platform` 을 인자로 받는 것과 같은 이유로, 실기·실서버 없이
  * 세 OS 의 판정이 단위 테스트를 지나가야 한다.
+ *
+ * 2026-10-01 — 사용자 신고 "A 에서 테스트하던 프리뷰 버블에 B 프로젝트 것이 열린다 — 지난번에도 그랬다".
+ * 한 포트에 주인이 둘이었다(A 의 서버가 `::`, B 의 vite 가 `[::1]`, 둘 다 8080). 그래서 아래 뒤쪽 블록은
+ * 포트가 아니라 **위성 주소가 실제로 닿는 리스너**로 가르는 것을 고정한다.
+ *   ④ 남의 리스너에 닿는 위성은 우리 서버에 닿는 별칭으로 옮기고(지우지 않는다), 그런 별칭이 없으면 걷는다.
+ *   ⑤ 새 위성의 입구는 하나다 — 판정 뒤에 서고, 거절되면 짝 ServerEntry 도 서지 않는다.
+ *   ⑥ Stop/Restart 는 그 주소의 리스너만, 남의 것이면 아예 죽이지 않는다.
  */
 import { describe, it, expect } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
-import { clearPortOriginCache, type ProcessStartInfo } from './serverOrigin.js';
+import {
+  clearPortOriginCache,
+  type PortOwnership,
+  type PortOwnershipLookup,
+  type ProcessStartInfo,
+} from './serverOrigin.js';
 import type { BubbleData } from '@vibisual/shared';
 
 const OURS = 'C:/work/vibisual';
@@ -180,5 +192,395 @@ describe('§3.5 — 이미 박힌 남의 서버 위성은 생사 sweep 이 걷�
     await sweep(graph, [8080]);
 
     expect(running.get(agent.path)?.map((e) => e.port)).toEqual([5173]);
+  });
+});
+
+// ─── 2026-10-01: 한 포트 두 주인 — "그 주소가 실제로 닿는 리스너"로 가른다 ───
+
+/** 우리 서버 — 절대경로가 박힌 명령줄(ours) / 상대경로뿐인 명령줄(unknown). */
+const OURS_SERVE_CMD = '"node" "C:\\work\\vibisual\\serve.js"';
+const OURS_SERVE_RELATIVE = 'node  serve.js';
+
+/**
+ * 실측 모양 그대로 — 우리 서버가 `::`(netstat 에 `0.0.0.0`·`[::]` 두 줄), 옆 프로젝트 vite 가 `[::1]` 에
+ * 같은 8080 으로 공존한다. `localhost` 는 vite 에, `127.0.0.1` 은 우리 서버에 닿는다.
+ */
+function dualBind(oursCmd = OURS_SERVE_CMD, foreignCmd = GAME_VITE_CMD): PortOwnership {
+  return {
+    listeners: [
+      { pid: 41200, address: '0.0.0.0' },
+      { pid: 41200, address: '::' },
+      { pid: 19752, address: '::1' },
+    ],
+    starts: new Map<number, ProcessStartInfo | null>([
+      [41200, { command: oursCmd }],
+      [19752, { command: foreignCmd }],
+    ]),
+  };
+}
+
+/** 리스너 하나짜리 소유 사실. */
+function only(pid: number, address: string, command: string): PortOwnership {
+  return { listeners: [{ pid, address }], starts: new Map([[pid, { command }]]) };
+}
+
+function graphWithOwnership(
+  lookup: PortOwnershipLookup,
+  neighbors: string[] = [OURS, TRADE_APP, GAME],
+): { graph: ProjectGraph; agent: BubbleData } {
+  clearPortOriginCache();
+  const graph = new ProjectGraph();
+  (graph as unknown as { root: string | null }).root = OURS;
+  graph.setKnownProjectRootsProvider(() => neighbors);
+  graph.setPortOwnershipLookup(lookup);
+  const agent = graph.createCustomAgent('Runner');
+  return { graph, agent };
+}
+
+/** 생사 sweep 의 격리 단계 — 살아 있는 owning shell 집합(`launch` 증거의 출처)을 함께 넘긴다. */
+async function sweepWithShells(graph: ProjectGraph, ports: number[], activeShellIds: string[]): Promise<boolean> {
+  const results = ports.map((port) => ({ t: { port }, portAlive: true }));
+  return await (graph as unknown as {
+    evictDisownedIframeSatellites: (
+      r: readonly { t: { port: number }; portAlive: boolean }[],
+      active?: ReadonlySet<string>,
+    ) => Promise<boolean>;
+  }).evictDisownedIframeSatellites(results, new Set(activeShellIds));
+}
+
+interface IframeGate { evidence?: 'observed' | 'launch'; onPlaced?: (url: string) => void; onRejected?: () => void }
+type CreateIframe = (
+  sessionId: string, command: string, port: number, shellId?: string, logText?: string,
+  fromNewBash?: boolean, displayUrl?: string, gate?: IframeGate,
+) => void;
+
+/** 위성 입구(private) — 백그라운드 셸·PreToolUse·rehydrate·watcher·감지·신고가 모두 여기를 지난다. */
+function createIframe(graph: ProjectGraph): CreateIframe {
+  return (graph as unknown as { createIframeSatellite: CreateIframe }).createIframeSatellite.bind(graph);
+}
+
+/** 판정은 비동기다 — 주입한 조회 → 판정 → 배치까지 마이크로태스크를 흘려보낸다. */
+const settle = (): Promise<void> => new Promise((r) => { setTimeout(r, 0); });
+
+function pendingPortsOf(graph: ProjectGraph): Map<number, number> {
+  return (graph as unknown as { pendingIframePorts: Map<number, number> }).pendingIframePorts;
+}
+
+interface RunningEntry { id: string; command: string; port?: number; startedAt: number; alive: boolean; reportedOnly?: boolean }
+function runningOf(graph: ProjectGraph): Map<string, RunningEntry[]> {
+  return (graph as unknown as { runningServers: Map<string, RunningEntry[]> }).runningServers;
+}
+
+describe('§3.5 — 한 포트 두 주인(실측 2026-10-01): A 의 프리뷰에 B 의 화면', () => {
+  it('localhost 위성이 옆 프로젝트 vite 에 닿으면 — 걷지 않고 우리 서버에 닿는 127.0.0.1 로 옮긴다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/' })];
+
+    const changed = await sweep(graph, [8080]);
+
+    expect(changed).toBe(true);
+    const sats = iframesOf(agent.persistSatellites);
+    expect(sats).toHaveLength(1);
+    expect(sats[0]?.url).toBe('http://127.0.0.1:8080/');
+  });
+
+  it('경로·쿼리는 살리고 호스트만 바꾼다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/index.html?mode=fe' })];
+
+    await sweep(graph, [8080]);
+
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://127.0.0.1:8080/index.html?mode=fe');
+  });
+
+  it('우리 서버가 없고 옆 프로젝트 vite 만 [::1] 에 있으면 걷는다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => only(19752, '::1', GAME_VITE_CMD));
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/' })];
+
+    expect(await sweep(graph, [8080])).toBe(true);
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(0);
+  });
+
+  it('옆 프로젝트 쪽 그래프에서는 같은 localhost 위성이 제 vite 라 그대로 둔다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind(), [OURS, GAME]);
+    (graph as unknown as { root: string | null }).root = GAME;
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/' })];
+
+    expect(await sweep(graph, [8080])).toBe(false);
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://localhost:8080/');
+  });
+
+  it('고정핀도 주소 교정은 받는다(걷지는 않는다)', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/', preservePinned: true })];
+
+    expect(await sweep(graph, [8080])).toBe(true);
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://127.0.0.1:8080/');
+  });
+
+  it('상대경로로 띄운 우리 서버 — 관찰로만 들어온 위성은 옮기지 않고 걷는다(긍정 증거가 없다)', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind(OURS_SERVE_RELATIVE));
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/', shellId: 'sh-1' })];
+
+    expect(await sweepWithShells(graph, [8080], [])).toBe(true);
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(0);
+  });
+
+  it('상대경로로 띄운 우리 서버 — owning shell 이 살아 있으면(launch) 우리 서버 쪽 별칭으로 옮긴다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind(OURS_SERVE_RELATIVE));
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/', shellId: 'sh-1' })];
+
+    expect(await sweepWithShells(graph, [8080], ['sh-1'])).toBe(true);
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://127.0.0.1:8080/');
+  });
+
+  it('launch 증거는 처음 본 pid 에 묶인다 — 옆 서버가 나중에 [::1] 로 겹쳐 묶여도(둘 다 상대경로) 우리 쪽으로 옮긴다', async () => {
+    let ownership: PortOwnership = only(41200, '::', OURS_SERVE_RELATIVE);
+    const { graph, agent } = graphWithOwnership(async () => ownership);
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/', shellId: 'sh-1' })];
+
+    // ① 처음 본 리스너(41200)에 묶인다 — 그대로 둔다.
+    expect(await sweepWithShells(graph, [8080], ['sh-1'])).toBe(false);
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://localhost:8080/');
+
+    // ② 옆 프로젝트가 상대경로로 띄운 서버가 [::1] 에 겹쳐 묶인다 — 명령줄로는 둘 다 unknown 이라
+    //    pid 묶음만이 가른다. 묶음이 없으면 launch 가 남의 서버까지 통과시켜 localhost 에 남는다.
+    ownership = dualBind(OURS_SERVE_RELATIVE, 'node  server.js');
+    expect(await sweepWithShells(graph, [8080], ['sh-1'])).toBe(true);
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://127.0.0.1:8080/');
+  });
+
+  it('우리 서버가 재기동해 pid 가 바뀌면(nodemon 등) 새 pid 로 다시 묶고 그대로 둔다', async () => {
+    let ownership: PortOwnership = only(41200, '::', OURS_SERVE_RELATIVE);
+    const { graph, agent } = graphWithOwnership(async () => ownership);
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/', shellId: 'sh-1' })];
+    await sweepWithShells(graph, [8080], ['sh-1']);
+
+    ownership = only(50000, '::', OURS_SERVE_RELATIVE);
+    expect(await sweepWithShells(graph, [8080], ['sh-1'])).toBe(false);
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(1);
+    const bound = (graph as unknown as { iframeBoundPids: Map<string, number[]> }).iframeBoundPids;
+    expect(bound.get(agent.persistSatellites?.[0]?.path ?? '')).toEqual([50000]);
+  });
+
+  it('걷힌 포트라도 같은 포트를 여는 위성이 남아 있으면 짝 ServerEntry 는 둔다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind(OURS_SERVE_RELATIVE));
+    const other = graph.createCustomAgent('Viewer');
+    // 셸이 살아 있는 쪽은 옮겨지고, 관찰로만 들어온 쪽은 걷힌다 — 같은 8080.
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/', shellId: 'sh-1' })];
+    other.persistSatellites = [restoredSatellite(other.path, 8080, { url: 'http://localhost:8080/' })];
+    runningOf(graph).set(other.path, [{ id: 'e-8080__p8080', command: 'node serve.js', port: 8080, startedAt: Date.now(), alive: true }]);
+
+    await sweepWithShells(graph, [8080], ['sh-1']);
+
+    expect(iframesOf(other.persistSatellites)).toHaveLength(0);
+    expect(iframesOf(agent.persistSatellites)[0]?.url).toBe('http://127.0.0.1:8080/');
+    expect(runningOf(graph).get(other.path)?.map((e) => e.port)).toEqual([8080]);
+  });
+});
+
+describe('§3.5 — 새 위성의 입구는 하나다(createIframeSatellite): 판정 뒤에 선다', () => {
+  it('옆 프로젝트 서버에만 닿으면 만들지 않고, 짝 ServerEntry 자리(onPlaced)도 부르지 않는다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => only(19752, '::1', GAME_VITE_CMD));
+    const placed: string[] = [];
+    let rejected = 0;
+
+    createIframe(graph)(agent.path, 'npm run dev', 8080, undefined, 'Port 8080 is in use', false, undefined, {
+      onPlaced: (url) => { placed.push(url); },
+      onRejected: () => { rejected += 1; },
+    });
+    expect(pendingPortsOf(graph).get(8080)).toBe(1);
+    await settle();
+
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(0);
+    expect(placed).toEqual([]);
+    expect(rejected).toBe(1);
+    expect(pendingPortsOf(graph).size).toBe(0);
+  });
+
+  it('한 포트 두 주인이면 우리 서버에 닿는 별칭으로 세우고, 그 주소로 짝 entry 를 등록하게 한다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    const placed: string[] = [];
+
+    createIframe(graph)(agent.path, 'node serve.js', 8080, 'sh-1', undefined, true, undefined, {
+      onPlaced: (url) => { placed.push(url); },
+    });
+    await settle();
+
+    expect(iframesOf(agent.persistSatellites).map((s) => s.url)).toEqual(['http://127.0.0.1:8080/']);
+    expect(placed).toEqual(['http://127.0.0.1:8080/']);
+  });
+
+  it('관찰(감지·신고)로 들어온 상대경로 서버(unknown)는 세우지 않는다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => only(41200, '::', OURS_SERVE_RELATIVE));
+    let rejected = 0;
+
+    createIframe(graph)(agent.path, 'curl http://localhost:8080', 8080, undefined, undefined, false, 'http://localhost:8080/', {
+      evidence: 'observed',
+      onRejected: () => { rejected += 1; },
+    });
+    await settle();
+
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(0);
+    expect(rejected).toBe(1);
+  });
+
+  it('우리 셸이 방금 띄운 상대경로 서버(launch)는 세우고, 셸이 붙기 전 sweep 에도 걷히지 않는다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => only(41200, '::', OURS_SERVE_RELATIVE));
+
+    createIframe(graph)(agent.path, 'node serve.js', 8080, undefined, undefined, true);
+    await settle();
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(1);
+
+    // owning shell 을 아직 모른다(PreToolUse 직후) — "방금 띄웠다" 기록이 launch 증거다.
+    expect(await sweepWithShells(graph, [8080], [])).toBe(false);
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(1);
+  });
+
+  it('다른 탭이 없으면 판정 없이 같은 틱에 선다(조회도 하지 않는다)', () => {
+    let calls = 0;
+    const { graph, agent } = graphWithOwnership(async () => { calls += 1; return dualBind(); }, [OURS]);
+    const placed: string[] = [];
+
+    createIframe(graph)(agent.path, 'npm run dev', 8080, undefined, undefined, true, undefined, {
+      onPlaced: (url) => { placed.push(url); },
+    });
+
+    expect(iframesOf(agent.persistSatellites)).toHaveLength(1);
+    expect(placed).toEqual(['http://localhost:8080']);
+    expect(calls).toBe(0);
+  });
+
+  it('판정 중인 포트의 짝 ServerEntry 는 orphan 정리가 지우지 않는다 — 판정이 거절로 끝나면 그때 걷힌다', async () => {
+    let release: (o: PortOwnership | null) => void = () => {};
+    const pending8080 = new Promise<PortOwnership | null>((r) => { release = r; });
+    const { graph, agent } = graphWithOwnership(async (p) => (p === 8080 ? pending8080 : null));
+    // 생사 sweep 이 돌 이유가 되는 다른 위성 하나(아무도 안 쓰는 포트).
+    agent.persistSatellites = [restoredSatellite(agent.path, 39873)];
+    // PreToolUse 의 registerServerPort 가 먼저 세운 짝 entry.
+    runningOf(graph).set(agent.path, [{ id: 'e-8080__p8080', command: 'npm run dev', port: 8080, startedAt: Date.now(), alive: true }]);
+
+    createIframe(graph)(agent.path, 'npm run dev', 8080, undefined, undefined, true);
+    await graph.checkIframesAlive();
+    expect(runningOf(graph).get(agent.path)?.map((e) => e.port)).toEqual([8080]);
+
+    release(only(19752, '::1', GAME_VITE_CMD));
+    await settle();
+    expect(pendingPortsOf(graph).size).toBe(0);
+    await graph.checkIframesAlive();
+    expect(runningOf(graph).get(agent.path)?.map((e) => e.port) ?? []).toEqual([]);
+  }, 20000);
+});
+
+describe('§3.5 — Stop/Restart 는 그 주소의 리스너만, 남의 것이면 아예 안 죽인다(serverControlScope)', () => {
+  function withEntry(graph: ProjectGraph, agent: BubbleData, entry: Partial<RunningEntry> = {}): void {
+    runningOf(graph).set(agent.path, [
+      { id: 'e-8080__p8080', command: 'npm run dev', port: 8080, startedAt: Date.now(), alive: true, ...entry },
+    ]);
+  }
+
+  it('위성이 localhost(옆 프로젝트 vite 에 닿음)면 foreign — 죽이지 않는다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/' })];
+    withEntry(graph, agent);
+
+    expect(await graph.serverControlScope('e-8080__p8080')).toEqual({ host: 'localhost', foreign: true });
+  });
+
+  it('위성이 127.0.0.1(우리 서버에 닿음)이면 그 호스트로만 죽이게 한다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080)];
+    withEntry(graph, agent);
+
+    expect(await graph.serverControlScope('e-8080__p8080')).toEqual({ host: '127.0.0.1', foreign: false });
+  });
+
+  it('위성이 없는 entry 는 포트 전체로 본다 — 하나라도 남의 것이면 죽이지 않는다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    withEntry(graph, agent);
+
+    expect(await graph.serverControlScope('e-8080__p8080')).toEqual({ foreign: true });
+  });
+
+  it('신고 전용 entry 는 신고된 주소의 호스트를 쓴다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    withEntry(graph, agent, { command: 'http://127.0.0.1:8080/', reportedOnly: true });
+
+    expect(await graph.serverControlScope('e-8080__p8080')).toEqual({ host: '127.0.0.1', foreign: false });
+  });
+
+  it('다른 탭이 없으면 조회 없이 통과(호스트는 그대로 넘긴다)', async () => {
+    let calls = 0;
+    const { graph, agent } = graphWithOwnership(async () => { calls += 1; return dualBind(); }, [OURS]);
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/' })];
+    withEntry(graph, agent);
+
+    expect(await graph.serverControlScope('e-8080__p8080')).toEqual({ host: 'localhost', foreign: false });
+    expect(calls).toBe(0);
+  });
+
+  it('이 그래프의 entry 가 아니면 null', async () => {
+    const { graph } = graphWithOwnership(async () => dualBind());
+    expect(await graph.serverControlScope('nope')).toBeNull();
+  });
+});
+
+describe('§3.5 — 열어 둔 탭은 불러오기 전에 묻는다(checkIframeTab): B 를 보는 중에 누른 A 의 탭', () => {
+  it('위성이 살아 있고 서버가 옮겼으면 그 위성 주소로 따라간다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080)];
+
+    expect(await graph.checkIframeTab('special-8080', 'http://localhost:8080/')).toEqual({
+      action: 'follow',
+      url: 'http://127.0.0.1:8080/',
+    });
+  });
+
+  it('위성이 걷혔고(A 의 서버가 내려감) 그 주소를 옆 프로젝트 vite 가 받으면 불러오지 않는다', async () => {
+    const { graph } = graphWithOwnership(async () => only(19752, '::1', GAME_VITE_CMD));
+
+    expect(await graph.checkIframeTab('special-8080', 'http://localhost:8080/')).toEqual({ action: 'block' });
+  });
+
+  it('위성이 없어도 같은 포트의 우리 서버가 127.0.0.1 로 닿으면 그리로 옮긴다', async () => {
+    const { graph } = graphWithOwnership(async () => dualBind());
+
+    expect(await graph.checkIframeTab(null, 'http://localhost:8080/')).toEqual({
+      action: 'follow',
+      url: 'http://127.0.0.1:8080/',
+    });
+  });
+
+  it('위성 주소 그대로이고 우리 서버에 닿으면 그대로 보여 준다', async () => {
+    const { graph, agent } = graphWithOwnership(async () => dualBind());
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080)];
+
+    expect(await graph.checkIframeTab('special-8080', 'http://127.0.0.1:8080/')).toEqual({ action: 'show' });
+  });
+
+  it('다른 탭이 없으면 조회 없이 통과(위성 주소는 그래도 따른다)', async () => {
+    let calls = 0;
+    const { graph, agent } = graphWithOwnership(async () => { calls += 1; return dualBind(); }, [OURS]);
+    agent.persistSatellites = [restoredSatellite(agent.path, 8080)];
+
+    expect(await graph.checkIframeTab('special-8080', 'http://localhost:8080/')).toEqual({
+      action: 'follow',
+      url: 'http://127.0.0.1:8080/',
+    });
+    expect(await graph.checkIframeTab(null, 'http://localhost:8080/')).toEqual({ action: 'show' });
+    expect(calls).toBe(0);
+  });
+
+  it('조회가 던지면 판정 불가 — 막지 않는다', async () => {
+    const { graph } = graphWithOwnership(async () => { throw new Error('no lookup tool'); });
+
+    expect(await graph.checkIframeTab(null, 'http://localhost:8080/')).toEqual({ action: 'show' });
+  });
+
+  it('ownsProjectPath — 이 그래프가 그리는 프로젝트 경로인가', () => {
+    const { graph } = graphWithOwnership(async () => null);
+
+    expect(graph.ownsProjectPath(OURS)).toBe(true);
+    expect(graph.ownsProjectPath(GAME)).toBe(false);
   });
 });

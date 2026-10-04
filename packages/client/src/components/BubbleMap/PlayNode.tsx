@@ -82,7 +82,6 @@ export const PlayNode = memo(function PlayNode({
 }: NodeProps & { data: PlayNodeData }): React.JSX.Element {
   const { t } = useTranslation();
   const selectPlayBubble = useGraphStore((s) => s.selectPlayBubble);
-  const selectedPlayBubbleId = useGraphStore((s) => s.selectedPlayBubbleId);
   const startPlayBubble = useGraphStore((s) => s.startPlayBubble);
   const stopPlayBubble = useGraphStore((s) => s.stopPlayBubble);
   const detectPlayRecipe = useGraphStore((s) => s.detectPlayRecipe);
@@ -99,10 +98,9 @@ export const PlayNode = memo(function PlayNode({
 
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
   // 다른 버블을 고르는 순간 이 링이 곧바로 내려가는 것도 그 한 칸 덕이다.
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
-  const isSelected = selected === true
-    || selectedPlayBubbleId === data.playBubbleId
-    || selectIntentId === data.playBubbleId;
+  // 둘 다 판정 결과만 구독한다(§9) — id 를 받으면 다른 버블을 고를 때마다 이 버블도 다시 그려진다.
+  const chosenHere = useGraphStore((s) => s.selectedPlayBubbleId === data.playBubbleId || s.selectIntentId === data.playBubbleId);
+  const isSelected = selected === true || chosenHere;
   const status = data.status;
   const hasRecipe = data.recipe !== undefined;
   const style = STATUS_STYLE[status];

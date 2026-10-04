@@ -26,11 +26,12 @@ import type {
   CommandDispatchMode,
   CommandError,
 } from '@vibisual/shared';
-import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks } from '@vibisual/shared';
+import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks, readCodexTransportNotice } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
+import { TransportRecoveryAccumulator, sameTransportRecovery, type StreamTransportRecovery } from './streamTransportRecovery.js';
 import { turnStopLabelKey } from './turnStopLabel.js';
-import { liveLineActivityAt, sessionTurnStartedAt } from '../../utils/sessionActivity.js';
+import { liveLineActivityAt, liveLineMode, sessionTurnStartedAt, type LiveLineMode } from '../../utils/sessionActivity.js';
 
 // ─── 계획(TodoWrite) 인식 (§5.5 #17-12) ───
 
@@ -206,6 +207,7 @@ export interface StreamSystem {
   id: string;
   content: string;
   timestamp: number;
+  transportRecovery?: StreamTransportRecovery;
 }
 
 export interface StreamResult {
@@ -244,7 +246,7 @@ export interface StreamThinkingLive {
    * 덧말은 `queued` 로 멈추는데, 이 줄은 그것도 "작업 중"이라 적고 경과만 키웠다("작업 중 ·
    * 마지막 업데이트 24m 26s 전"). 도는 것과 줄 선 것이 **같은 낱말**을 쓰면 화면이 거짓말을 한다.
    */
-  mode: 'thinking' | 'working' | 'waiting';
+  mode: LiveLineMode;
   timestamp: number;
   /**
    * §2.4 (무응답) — **마지막으로 무언가 온 시각.** "얼마나 조용한가"를 재는 시계라 **무응답 판정**
@@ -263,6 +265,11 @@ export interface StreamThinkingLive {
    * 적고 무응답으로 뒤집지 않는다(`liveLineStalled` · §5.5 #17-10 ⑥-6). 아니면 키 자체가 없다.
    */
   hiddenTurn?: true;
+  /**
+   * §5.5 #17-24 ⑥ — 넷째 모드(`compacting`)일 때만 — CLI 가 접기 시작한 시각. 그 모드의 경과는 턴 시작이
+   * 아니라 이 시각부터 잰다(`liveLineClockFrom`). 아니면 키 자체가 없다.
+   */
+  compactingSince?: number;
 }
 
 /**
@@ -549,7 +556,7 @@ function isTurnAnswer(evt: SubAgentStreamEvent): boolean {
 /** 줄 하나를 커버리지에 보탠다 — 전체 재구축·증분 파서가 **같은 함수**를 쓴다(등가성 시험이 대칭을 못박는다). */
 export function coverTurn(cov: TurnCoverage, evt: SubAgentStreamEvent, anchors: readonly TurnAnchor[]): void {
   const answer = isTurnAnswer(evt);
-  const failure = evt.eventType === 'error';
+  const failure = evt.eventType === 'error' && !readCodexTransportNotice(evt);
   if (!answer && !failure) return;
   const turn = turnOfEvent(evt, anchors);
   if (turn === null) return;
@@ -719,13 +726,15 @@ function computeThinkingLive(
   sessionActivityAt: number | null = null,
   activityHidden = false,
   turnStartedAt: number | null = null,
+  compactingSince: number | null = null,
 ): StreamThinkingLive | null {
   if (!agentBusy) return null;
   const lastRaw = events[events.length - 1];
   // §5.5 #17-18 ⑪ — **줄 선 것이 먼저다.** 도는 것이 없으면 마지막 이벤트가 무엇이었든 그것은
   //   앞 턴의 잔상이지 지금 하는 일이 아니다. 여기서 `working` 으로 접으면 아무 일도 안 일어나는
   //   화면이 파랗게 뛰며 경과만 키운다(사용자가 본 그 줄이다).
-  const mode = agentWaiting ? 'waiting' : lastRaw && isThinkingActivity(lastRaw) ? 'thinking' : 'working';
+  // §5.5 #17-24 ⑥ — 접는 중이면 넷째 모드. 고르는 규칙은 메인 탭과 같은 함수 한 곳(대기 > 압축 > 사고/작업).
+  const mode = liveLineMode(agentWaiting, compactingSince !== null, !!lastRaw && isThinkingActivity(lastRaw));
   // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
   // §2.4 (무응답) — 무응답을 재는 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중
   //   늦은 쪽. 감춘 턴이 도는 동안에는 무응답으로 안 뒤집는다(`hiddenTurn` → `liveLineStalled`).
@@ -737,6 +746,7 @@ function computeThinkingLive(
     timestamp: lastRaw?.timestamp ?? 0,
     lastActivityAt: liveLineActivityAt(lastRaw?.timestamp, sessionActivityAt),
     turnStartedAt,
+    ...(mode === 'compacting' && compactingSince !== null ? { compactingSince } : {}),
     ...(activityHidden ? { hiddenTurn: true as const } : {}),
   };
 }
@@ -760,6 +770,8 @@ export function buildBaseItems(
   activityHidden?: boolean,
   /** §5.5 #17-10 ⑥-6 (턴 시계) — 지금 턴(대기면 줄 선) 시작 시각. 라이브 1줄이 평소 적는 경과의 시작점. */
   turnStartedAt?: number | null,
+  /** §5.5 #17-24 ⑥ — CLI 가 접는 중이면 그 시작 시각(`useSessionLivenessFacts().compactingSince`). */
+  compactingSince?: number | null,
 ): BaseItemsResult {
   // §5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 **그 턴의 말이 버퍼에 남아 있는지**로 턴마다 갈린다.
   const turnAnchors = dispatchedTurnAnchorsAsc(commands);
@@ -803,6 +815,7 @@ export function buildBaseItems(
   let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number; nested?: string; turnId: string | null } | null = null;
   // §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다.
   let thinkBuf: TurnThinkRun | null = null;
+  const recovery = new TransportRecoveryAccumulator();
 
   function flushText(): void {
     if (!textBuf) return;
@@ -830,6 +843,12 @@ export function buildBaseItems(
     const evt = events[i]!;
     recordEventSortTimestamp(sortTimestamps, evt, sortBounds);
     const turnId = turnOfEvent(evt, turnAnchors);
+
+    if (readCodexTransportNotice(evt)) {
+      flushText();
+      flushThink();
+    }
+    if (recovery.consume(evt, turnId, items)) { i++; continue; }
 
     if (isThinkingPulse(evt)) { i++; continue; }
     if (isHiddenSystem(evt)) { i++; continue; }
@@ -925,7 +944,9 @@ export function buildBaseItems(
 
   flushText();
 
-  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt));
+  recovery.projectStopped(items, commands, agentBusy && !agentWaiting);
+
+  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt), compactingSince ?? null);
   return { items, agentBusy, thinkingLive, sortTimestamps };
 }
 
@@ -1157,7 +1178,10 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       const x = a as StreamText;
       return x.content === b.content && x.endedAt === b.endedAt;
     }
-    case 'system':
+    case 'system': {
+      const x = a as StreamSystem;
+      return x.content === b.content && sameTransportRecovery(x.transportRecovery, b.transportRecovery);
+    }
     case 'result':
     case 'error':
       return (a as StreamSystem | StreamResult | StreamError).content === b.content;
@@ -1198,8 +1222,10 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
     //   줄이 앞 턴 시작부터 계속 센다.
     case 'thinking-live': {
       const x = a as StreamThinkingLive;
+      // §5.5 #17-24 ⑥ — 압축 시작 시각도 렌더에 쓰인다(넷째 모드의 경과). 빼면 압축이 두 번째로 시작해도 옛 시각에서 센다.
       return x.mode === b.mode && x.lastActivityAt === b.lastActivityAt
-        && x.turnStartedAt === b.turnStartedAt && !!x.hiddenTurn === !!b.hiddenTurn;
+        && x.turnStartedAt === b.turnStartedAt && !!x.hiddenTurn === !!b.hiddenTurn
+        && x.compactingSince === b.compactingSince;
     }
     // §5.5 #17-18 ⑦-2 — `live`(작업 중 배지)는 렌더에 영향 → 비교에 포함. 빼면 턴이 끝나도
     //   identity 안정화가 옛 객체를 그대로 재사용해 배지가 영영 안 사라진다.
@@ -1269,6 +1295,7 @@ export class IncrementalStreamParser {
   private sortTimestamps = new Map<string, number>();
   /** §5.5 #17-12 ③-3 — 소비한 이벤트로 쌓인 턴 커버리지(O(신규) 로 자란다). */
   private coverage: TurnCoverage = emptyTurnCoverage();
+  private recovery = new TransportRecoveryAccumulator();
 
   private openText: OpenBuf | null = null;
   /** §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다. */
@@ -1292,6 +1319,7 @@ export class IncrementalStreamParser {
     this.openThink = null;
     this.pending = [];
     this.coverage = emptyTurnCoverage();
+    this.recovery = new TransportRecoveryAccumulator();
     this.sortTimestamps = new Map();
   }
 
@@ -1329,8 +1357,17 @@ export class IncrementalStreamParser {
     // §5.5 #17-12 ③-3 — 숨김 판정보다 먼저, 모든 줄을 커버리지에 보탠다(전체 재구축 `turnCoverageOf` 와 같은 범위).
     coverTurn(this.coverage, evt, this.turnAnchors);
     recordEventSortTimestamp(this.sortTimestamps, evt, this.sortBounds);
-    if (isThinkingPulse(evt) || isHiddenSystem(evt)) return;
     const turnId = turnOfEvent(evt, this.turnAnchors);
+
+    if (readCodexTransportNotice(evt)) {
+      this.sealText();
+      this.sealThink();
+    }
+    if (this.recovery.consume(evt, turnId, this.items)) {
+      this.deactivatePending();
+      return;
+    }
+    if (isThinkingPulse(evt) || isHiddenSystem(evt)) return;
 
     const type = evt.eventType;
     const isNonTool = type !== 'tool_use' && type !== 'tool_result';
@@ -1438,6 +1475,8 @@ export class IncrementalStreamParser {
     activityHidden?: boolean,
     /** §5.5 #17-10 ⑥-6 — 턴 시계의 시작점(`buildBaseItems` 와 같은 뜻·같은 자리). */
     turnStartedAt?: number | null,
+    /** §5.5 #17-24 ⑥ — 접는 중이면 그 시작 시각(`buildBaseItems` 와 같은 뜻·같은 자리). */
+    compactingSince?: number | null,
   ): BaseItemsResult {
     const agentBusy = computeAgentBusy(commands, agentBusyOverride);
     const agentWaiting = computeAgentWaiting(commands, agentWaitingOverride);
@@ -1460,8 +1499,10 @@ export class IncrementalStreamParser {
 
     // §5.5 #17-12 ③-3 — 커버리지는 소비하며 쌓였으므로 여기서 다시 훑지 않는다(O(명령 수)).
     const commandItems = buildCommandItems(commands, this.coverage);
-    const items: StreamItemFull[] = commandItems.length > 0 ? [...commandItems, ...this.items] : this.items.slice();
-    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt));
+    const eventItems = this.items.slice();
+    this.recovery.projectStopped(eventItems, commands, agentBusy && !agentWaiting);
+    const items: StreamItemFull[] = commandItems.length > 0 ? [...commandItems, ...eventItems] : eventItems;
+    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt), compactingSince ?? null);
     return { items, agentBusy, thinkingLive, sortTimestamps: this.sortTimestamps };
   }
 }

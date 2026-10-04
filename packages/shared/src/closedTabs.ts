@@ -77,6 +77,8 @@ function coerceClosedTabEntry(raw: unknown): ClosedTabEntry | null {
   const url = typeof r['url'] === 'string' ? r['url'] : '';
   if (!url) return null;
   const sk = r['serverKind'];
+  // §7.11 / §3.5 — 그 프리뷰를 연 프로젝트. 되연 탭이 화면을 불러오기 전에 이 프로젝트 기준으로 묻는다.
+  const projectPath = typeof r['projectPath'] === 'string' ? r['projectPath'] : '';
   return {
     key,
     kind,
@@ -84,6 +86,7 @@ function coerceClosedTabEntry(raw: unknown): ClosedTabEntry | null {
     closedAt,
     url,
     ...(sk === 'frontend' || sk === 'backend' ? { serverKind: sk } : {}),
+    ...(projectPath ? { projectPath } : {}),
   };
 }
 

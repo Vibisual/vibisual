@@ -40,8 +40,10 @@ export const CommentBoxNode = memo(function CommentBoxNode({
   const updateCommentBox = useGraphStore((s) => s.updateCommentBox);
   const patchCommentBoxLocal = useGraphStore((s) => s.patchCommentBoxLocal);
   const selectCommentBox = useGraphStore((s) => s.selectCommentBox);
-  const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
-  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  // 선택 표시는 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 더블클릭(인라인 편집) 지연 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
+  // 둘 다 판정 결과만 구독한다(§9) — id 를 받으면 다른 상자를 고를 때마다 이 상자도 다시 그려진다.
+  const chosenHere = useGraphStore((s) => s.selectedCommentBoxId === d.commentBoxId || s.selectIntentId === d.commentBoxId);
 
   // 실측 — store(d.width/d.height) → React Flow live(node.width/node.height) 순으로 fallback.
   // 리사이즈 중에는 store 가 아직 갱신되기 전에 React Flow 내부 dimension 이 먼저 바뀌므로
@@ -155,11 +157,7 @@ export const CommentBoxNode = memo(function CommentBoxNode({
     })();
   };
 
-  // 선택 표시는 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
-  // 더블클릭(인라인 편집) 지연 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
-  const isSelected = selected
-    || selectedCommentBoxId === d.commentBoxId
-    || selectIntentId === d.commentBoxId;
+  const isSelected = selected || chosenHere;
   const borderColor = d.color;
   const background = `${d.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
 

@@ -687,7 +687,7 @@
         "saveError": "Tidak dapat menyimpan. Tidak ada yang diubah.",
         "autoCompactWindow": "Compact percakapan begitu mencapai",
         "autoCompactWindowOff": "Biarkan sesuai konfigurasi",
-        "autoCompactWindowDesc": "Tuas tunggal terbesar di sini. Diukur selama tiga hari, sesi berada di median 186k token, dan semua yang di atas 200k menyumbang 62% dari seluruh input — setiap giliran membacanya ulang. Menurunkan window dari 400k ke 200k mengurangi input sebesar 27%, dan ke 100k sebesar 59%, untuk pekerjaan yang sama. Ini hanya pernah makin ketat: agent atau default yang sudah lebih rendah yang berlaku. Compact itu sendiri adalah permintaan besar, jadi pengaturan paling rendah tidak otomatis menjadi yang paling murah."
+        "autoCompactWindowDesc": "Tuas tunggal terbesar di sini. Diukur selama tiga hari, sesi berada di median 186k token, dan semua yang di atas 200k menyumbang 62% dari seluruh input — setiap giliran membacanya ulang. Menurunkan window dari 400k ke 200k mengurangi input sebesar 27%, dan ke 100k sebesar 59%, untuk pekerjaan yang sama. Ini hanya pernah makin ketat: agent atau default yang sudah lebih rendah yang berlaku. Compact itu sendiri adalah permintaan besar, jadi pengaturan paling rendah tidak otomatis menjadi yang paling murah. Window ini hanya menentukan di mana kami melipat di antara perintah — di tengah tugas, CLI hanya melipat saat window model penuh."
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "Pemadatan otomatis",
-        "tip": "Ukuran jendela yang menjadi acuan pemadatan. Pada praktiknya kami melipat pada {{percent}}% dari nilai itu, di akhir giliran tersebut — agar tidak terpotong di tengah tugas; jika satu giliran menembus seluruh sisa margin, CLI yang melipat di tengah tugas.",
-        "auto": "auto — CLI memilih jendelanya.",
+        "tip": "Ukuran jendela yang menjadi acuan melipat di antara perintah. Jika satu giliran berakhir pada {{percent}}% dari nilai itu atau lebih, kami melipat diam-diam sebelum perintah berikutnya. Tidak ada yang dilipat di tengah tugas — di sana CLI hanya melipat saat jendela model penuh.",
+        "auto": "auto — seluruh jendela model.",
         "tokens": "Ukuran jendela sekitar {{tokens}} token.",
         "foldsAt": "Melipat sekitar {{tokens}}, di akhir giliran tersebut.",
-        "foldsAtAuto": "Melipat pada {{percent}}% jendela yang dipilih CLI, di akhir giliran tersebut.",
+        "foldsAtAuto": "Melipat pada {{percent}}% jendela model, di akhir giliran tersebut.",
         "offLabel": "mati",
         "off": "mati — tidak pernah dipadatkan. Tidak ada panggilan ringkasan, jadi tidak memakai token.",
         "foldsAtOff": "Tidak pernah dipadatkan. Percakapan panjang makin berat tiap giliran, dan saat jendela model penuh CLI memadatkan sekali di tengah pekerjaan.",
+        "raised": "Melipat dengan acuan jendela {{to}} sebagai gantinya: percakapan agen ini dimulai dari sekitar {{floor}} token, sehingga jendela {{from}} akan langsung penuh lagi setiap kali selesai melipat.",
         "confirm": {
           "title": "Nyalakan pemadatan otomatis? ({{value}})",
           "titleSelf": "Izinkan agen memadatkan sendiri?",
@@ -1714,7 +1715,8 @@
       "noEntry": "Tidak ada entri server yang cocok",
       "noCommand": "Tidak bisa restart — sudah berhenti sehingga perintah start tidak bisa diketahui lagi (server yang dilaporkan agen)",
       "takeover": "Restart dengan alih kendali — Vibisual mengambil alih server yang dijalankan agen",
-      "takeoverFailed": "Alih kendali gagal — perintah start tidak terbaca (milik akun lain, atau alat pemeriksa tidak tersedia)"
+      "takeoverFailed": "Alih kendali gagal — perintah start tidak terbaca (milik akun lain, atau alat pemeriksa tidak tersedia)",
+      "refusedOtherProject": "Tidak disentuh — alamat ini dilayani oleh server yang dijalankan proyek lain yang terbuka."
     },
     "subAgent": {
       "heading": "SubAgent ({{count}})",
@@ -2030,6 +2032,7 @@
       "noAudio": "Diekspor tanpa audio.",
       "downgraded": "Mode render diturunkan: {{id}}",
       "previewFailed": "Gagal menampilkan pratinjau.",
+      "fileUnreadable": "Gagal membaca video ini: {{name}}",
       "errNoDoc": "Tidak ada dokumen yang terbuka.",
       "errNoStage": "Tidak dapat menemukan tempat untuk memasang panggung.",
       "errNoRenderBackend": "Tidak ada mode render yang tersedia di perangkat ini.",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "Uraikan memo yang bertumpuk",
       "ctxSpreadMemosNone": "Tidak ada memo yang bertumpuk",
       "jumpToBottom": "Gulir ke bawah",
+      "jumpToTop": "Gulir ke atas",
+      "promptRail": "Prompt Anda",
+      "promptPrev": "Prompt sebelumnya",
+      "promptNext": "Prompt berikutnya",
+      "promptPosition": "Prompt {{n}} / {{total}}",
       "ctxSelectionRequired": "Pilih teks terlebih dahulu",
       "inputCtxCut": "Potong",
       "inputCtxCopy": "Salin",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} masuk / {{out}} keluar",
       "tokensTip": "Total token yang dipakai sesi ini sejak dimulai. Masukan juga menghitung pembacaan dan penulisan cache, jadi naiknya jauh lebih cepat daripada keluaran. Kumulatif — hanya bertambah.",
       "autoCompact": "auto-compact {{value}}",
-      "autoCompactTip": "Saat konteks mencapai ukuran ini, CLI meringkas percakapan dengan sendirinya. Ubah per agen di Pengaturan Agent, atau untuk semua di File > Opsi > Default Agent.",
+      "autoCompactTip": "Jendela acuan untuk meringkas percakapan di antara perintah: jika konteks melewati {{percent}}% darinya saat giliran berakhir, kami melipat sebelum perintah berikutnya. Di tengah tugas, CLI hanya melipat saat jendela model penuh. Ubah per agen di Pengaturan Agent, atau untuk semua di File > Opsi > Default Agent.",
+      "autoCompactRaised": "Dinaikkan dari {{from}}: percakapan dengan agen ini dimulai dari sekitar {{floor}} token, sehingga jendela yang lebih kecil akan langsung penuh lagi setiap kali selesai melipat.",
       "sessionOne": "{{count}} sesi",
       "sessionMany": "{{count}} sesi",
       "sessionsTip": "Berapa tab sesi yang terbuka pada agen ini.",
@@ -3349,7 +3358,9 @@
       "commandReceived": "Perintah diterima",
       "promptSuggestion": "Saran prompt berikutnya",
       "imageMissing": "(gambar tidak tersedia)",
-      "waiting": "menunggu"
+      "waiting": "menunggu",
+      "compacting": "memadatkan",
+      "compactingHint": "Konteks sudah penuh, sehingga CLI sedang meringkas percakapan sebelumnya untuk memberi ruang. Proses ini biasanya memakan waktu beberapa menit — wajar jika tidak ada output baru selama itu."
     },
     "report": {
       "title": "Laporan kerja",
@@ -3548,6 +3559,12 @@
       "title": "Rencana",
       "progress": "{{done}}/{{total}}",
       "superseded": "Rencana diperbarui"
+    },
+    "transportRecovery": {
+      "reconnecting": "Menghubungkan kembali… {{attempt}}/{{maxAttempts}}",
+      "fallback": "Mencoba metode koneksi lain…",
+      "resumed": "Koneksi pulih · pekerjaan dilanjutkan",
+      "ended": "Pemulihan koneksi telah dicoba"
     },
     "cmdError": {
       "spawn": "{{engine}} tidak dapat dimulai",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "Masukkan URL...",
       "serverPreview": "Pratinjau server",
-      "reload": "Muat ulang"
+      "reload": "Muat ulang",
+      "otherProjectTitle": "Server proyek lain berada di alamat ini",
+      "otherProjectBody": "{{url}} saat ini dilayani oleh server yang dijalankan proyek lain yang terbuka, sehingga tab ini tidak akan memuatnya. Tab ini akan terbuka lagi dengan sendirinya begitu server proyek ini kembali berada di alamat itu."
     },
     "serverKind": {
       "frontendShort": "FE",
@@ -6016,6 +6035,8 @@
     "local": "Semua Model",
     "main": "Penyedia utama",
     "mainHint": "Penyedia yang mengerjakan sebagian besar pekerjaan. Agen baru memakainya secara default dan indikator penggunaan di atas mengikutinya, di semua proyek.",
+    "setMain": "Jadikan default",
+    "isMain": "Default",
     "saveFailed": "Tidak dapat menyimpan. Silakan coba lagi.",
     "project": "Pengaturan proyek",
     "save": "Simpan",

@@ -44,6 +44,30 @@ function removeExtension(version: string, ide = '.vscode'): void {
   });
 }
 
+/**
+ * VS Code 가 갱신 때 옛 번들에 하는 다른 짓 — 폴더는 그대로 두고 `<extensions>/.obsolete` 에
+ * 폐기 표시만 적는다(다음 VS Code 시작 때 지운다). 실측 파일 모양 그대로: `{"<폴더 이름>": true}`.
+ */
+function markObsolete(versions: string[], ide = '.vscode'): void {
+  const extDir = path.join(tmpHome, ide, 'extensions');
+  fs.mkdirSync(extDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(extDir, '.obsolete'),
+    JSON.stringify(Object.fromEntries(versions.map((v) => [`anthropic.claude-code-${v}-win32-x64`, true]))),
+  );
+}
+
+/** PATH 에 올라 있는 설치본 하나(npm 전역·Homebrew 같은 부류) — PATH 를 그 디렉터리로 바꾼다. */
+function makePathBin(): string {
+  const dir = path.join(tmpHome, 'pathbin');
+  fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, BIN_FILE);
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n');
+  if (!IS_WIN) fs.chmodSync(bin, 0o755);
+  process.env['PATH'] = dir;
+  return bin;
+}
+
 /** 공식 네이티브 인스톨러 위치(`~/.local/bin`)의 실행본. */
 function makeNativeBin(): string {
   const dir = path.join(tmpHome, '.local', 'bin');
@@ -77,6 +101,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const k of ENV_KEYS) {
     const v = envBackup[k];
     if (v === undefined) delete process.env[k];
@@ -95,6 +120,33 @@ describe('getClaudeBin — 확장 자동 갱신 추종', () => {
     removeExtension('2.1.234');
 
     // 종전에는 캐시가 죽은 경로를 계속 돌려줘 여기서 spawn ENOENT 가 났다.
+    expect(mod.getClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
+  });
+
+  it('VS Code 가 옛 번들을 지우지 않고 폐기 표시만 해도 다음 호출이 새 번들로 옮겨 간다', () => {
+    const oldBin = makeExtensionBin('2.1.285');
+    expect(mod.getClaudeBin().binPath).toBe(oldBin);
+
+    // 실측 사고(2026-10-04) 재현 — 2.1.288 이 깔리고 2.1.285 는 `.obsolete` 에만 적힌 채 폴더가 남는다.
+    const newBin = makeExtensionBin('2.1.288');
+    markObsolete(['2.1.285']);
+
+    // 종전에는 옛 파일이 그대로 있어 캐시가 2.1.285 를 계속 돌려줬다(VS Code 를 다시 켤 때까지).
+    expect(mod.getClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
+  });
+
+  it('최후 수단으로 든 폐기 번들은 간격을 두고 다시 찾아 새 설치본으로 옮겨 간다', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const doomed = makeExtensionBin('2.1.285');
+    markObsolete(['2.1.285']);
+
+    const first = mod.getClaudeBin();
+    expect(first).toEqual({ binPath: doomed, source: 'vscode-extension' });
+    expect(mod.getClaudeBin()).toBe(first); // 간격 안에서는 매 호출 전수 재탐색 ❌
+
+    const newBin = makeExtensionBin('2.1.288');
+    vi.setSystemTime(1_000_000 + 1_001);
     expect(mod.getClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
   });
 
@@ -169,6 +221,72 @@ describe('resolveClaudeBin — override 승계', () => {
 
   it('확장 번들이 아닌 경로는 승계 대상이 아니다', () => {
     expect(mod.succeedStaleExtensionOverride(path.join(tmpHome, '.local', 'bin', BIN_FILE))).toBeNull();
+  });
+
+  it('override 번들이 폐기 표시되면 폴더가 남아 있어도 같은 확장의 최신 번들로 승계하고 그 값을 되쓴다', () => {
+    const oldBin = makeExtensionBin('2.1.285');
+    writeOverride(oldBin);
+    const newBin = makeExtensionBin('2.1.288');
+    markObsolete(['2.1.285']);
+
+    const written: string[] = [];
+    mod.setClaudeBinOverrideWriter((p) => written.push(p));
+
+    // 종전에는 옛 파일이 살아 있다는 이유로 override 를 그대로 써, 사용자가 고른 확장이 갱신돼도 옛 버전에 묶였다.
+    expect(mod.resolveClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
+    expect(written).toEqual([newBin]);
+  });
+
+  it('폐기 표시됐어도 이을 번들이 없으면(확장 제거 대기) 사용자가 고른 번들을 그대로 쓴다', () => {
+    const bin = makeExtensionBin('2.1.285');
+    writeOverride(bin);
+    makeNativeBin();
+    markObsolete(['2.1.285']);
+
+    const written: string[] = [];
+    mod.setClaudeBinOverrideWriter((p) => written.push(p));
+
+    expect(mod.resolveClaudeBin()).toEqual({ binPath: bin, source: 'vscode-extension' });
+    expect(written).toEqual([]);
+  });
+});
+
+describe('확장 번들 고르기 — 버전 순서와 폐기 표시', () => {
+  it('버전은 숫자로 비교한다 — 2.1.288 이 2.1.99 보다, 2.1.1000 이 2.1.999 보다 새것이다', () => {
+    makeExtensionBin('2.1.99');
+    const b288 = makeExtensionBin('2.1.288');
+    // 종전 문자열 정렬은 '9' > '2' 라 2.1.99 를 최신으로 골랐다.
+    expect(mod.resolveClaudeBin().binPath).toBe(b288);
+
+    makeExtensionBin('2.1.999');
+    const b1000 = makeExtensionBin('2.1.1000');
+    expect(mod.resolveClaudeBin().binPath).toBe(b1000);
+  });
+
+  it('폐기 표시된 번들은 Version 탭 설치본 목록에 올리지 않는다', () => {
+    makeExtensionBin('2.1.285');
+    const newBin = makeExtensionBin('2.1.288');
+    markObsolete(['2.1.285']);
+
+    // tmpHome 밖(시스템 Homebrew 등)에 진짜 설치본이 있는 기계에서도 흔들리지 않게 이 시험의 것만 본다.
+    const mine = mod.discoverAllClaudeBins().filter((c) => c.binPath.startsWith(tmpHome));
+    expect(mine).toEqual([{ binPath: newBin, source: 'vscode-extension' }]);
+  });
+
+  it('폐기 번들은 최후 수단 — 그것뿐이면 쓰지만 다른 설치본이 생기면 그쪽이 먼저다', () => {
+    const doomed = makeExtensionBin('2.1.285');
+    markObsolete(['2.1.285']);
+    // bare 'claude'(= spawn ENOENT) 로 떨어뜨리면 아직 도는 실행본을 버리게 된다.
+    expect(mod.resolveClaudeBin()).toEqual({ binPath: doomed, source: 'vscode-extension' });
+
+    const pathBin = makePathBin();
+    expect(mod.resolveClaudeBin()).toEqual({ binPath: pathBin, source: 'path' });
+  });
+
+  it('.obsolete 가 깨져 있으면 폐기 표시가 없는 것으로 본다(종전 동작)', () => {
+    const bin = makeExtensionBin('2.1.285');
+    fs.writeFileSync(path.join(tmpHome, '.vscode', 'extensions', '.obsolete'), '{not json');
+    expect(mod.resolveClaudeBin()).toEqual({ binPath: bin, source: 'vscode-extension' });
   });
 });
 

@@ -39,6 +39,7 @@ import {
   turnCompactTriggerTokens,
   TURN_COMPACT_TRIGGER_RATIO,
   resolveAutoCompact,
+  applyAutoCompactFloor,
   normalizeBashTimeoutMs,
   BASH_TIMEOUT_MS_MAX,
   BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
@@ -77,6 +78,7 @@ import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
 import { localContextPlaceholder, localTemperaturePlaceholder, useLocalSampling } from '../LocalModel/localEffective.js';
 import { AutoCompactConfirm, type AutoCompactConfirmKind } from './AutoCompactConfirm.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { pickCompactFloorSource } from '../../utils/compactFloor.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 // §5.5 #17-33 ⑦ — 고른 스킬이 실제로 실리는지(깔림·켜짐)를 말하고, 그 자리에서 살린다.
 import { installPluginSkill } from '../../hooks/useAvailableSkills.js';
@@ -88,7 +90,7 @@ import { SkillStateTag } from '../SkillStateTag.js';
 const API_BASE = '';
 
 // `label` — 저장값(`value`)과 화면에 보일 이름이 다를 때만 쓴다(§4 CLI 사양 추종: 권한 모드
-//   `'default'` 의 CLI 표시명은 **manual**, `--autocompact` 의 빈 값은 "미설정"). 저장값을 바꾸면
+//   `'default'` 의 CLI 표시명은 **manual**, 자동 압축의 빈 값은 "미설정"). 저장값을 바꾸면
 //   기존 체크포인트를 건드려야 하므로, 바꾸는 것은 이름뿐이다.
 interface SelectOption { value: string; description: string; disabled?: boolean; label?: string; detail?: string }
 
@@ -614,9 +616,9 @@ export function AgentConfigPopup({
     description: t(`panel.agentConfig.permissionMode.${v}`),
   })), [t]);
   const ISOLATION_OPTIONS: SelectOption[] = useMemo(() => ISOLATION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.isolation.${v}`) })), [t]);
-  // §4 (CLI 사양 추종) — `--autocompact`. 맨 앞 빈 값은 "미설정" = **설정 창의 전역 기본을 따름**
-  //   (플래그 없음 ❌ — 그 뜻이었다면 CLI 기본인 창 전체가 되어 사실상 압축이 사라진다).
-  //   종전처럼 CLI 판단에 맡기려면 `'auto'` 를 고른다.
+  // §4 (CLI 사양 추종) (5) — 자동 압축 창(명령 사이 압축의 기준 · 2026-10-05 부터 스폰 `--autocompact` 에는
+  //   실리지 않는다). 맨 앞 빈 값은 "미설정" = **설정 창의 전역 기본을 따름**(꺼짐 ❌ — 그 뜻이었다면 명령 사이
+  //   압축이 사라진다). 모델 창 전체를 기준으로 삼으려면 `'auto'` 를 고른다.
   //   §5.25 (G-2) — 빈 값의 라벨은 **지금 적용되는 값**이다: 설정 창에 값이 있으면 그것, 없으면 내장 값.
   const globalAutoCompact = userDefaults?.agentConfig?.autoCompact;
   const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => {
@@ -1260,7 +1262,8 @@ export function AgentConfigPopup({
     //   조용히 꺼진다** — 이 창이 모르는 필드라도 통과시켜야 한다.
     mcpServers: mcpServers && mcpServers.length > 0 ? mcpServers : undefined,
     // §4 (CLI 사양 추종) — 미설정은 **빈 값**으로 보낸다. 플래그가 안 붙는 것은 스폰부가
-    //   빈 값을 보고 정하며(종전과 같음), 전선에서는 "이 버블은 안 쓴다"가 위층에 닿아야 한다.
+    //   빈 값을 보고 정하며(종전과 같음 · 자동 압축 창은 2026-10-05 부터 값과 무관하게 안 실린다),
+    //   전선에서는 "이 버블은 안 쓴다"가 위층에 닿아야 한다.
     fallbackModel: fallbackModel.trim(),
     autoCompact: autoCompact.trim(),
     excludeDynamicSystemPromptSections: excludeDynamicSections,
@@ -1322,16 +1325,23 @@ export function AgentConfigPopup({
   //   저장분이 아니라 **지금 폼이 저장하려는 값**으로 재므로 고르는 즉시 붙고 되돌리면 사라진다.
   //   §4 (설정 3층) — 점이 붙은 칸이 곧 **저장될 칸**이다(서버가 같은 판정으로 갈라진 칸만 남긴다).
   const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults, isCodex ? 'codex' : isLocal ? 'local' : 'claude', projectPath), [userDefaults, isCodex, isLocal, projectPath]);
-  // §4 (CLI 사양 추종) — 지금 고른 값이면 **실제로 몇 토큰에서 접히는가**. 고른 숫자는 CLI 에게
-  //   창 크기라 그보다 낮은 자리에서 접히므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다.
+  // §4 (CLI 사양 추종) — 지금 고른 값이면 명령 사이에서 **실제로 몇 토큰에서 접히는가**. 고른 숫자는
+  //   창 크기이고 발동선은 그보다 낮으므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다(작업 도중에는
+  //   2026-10-05 부터 CLI 가 모델 창 끝에서만 접는다 — 이 숫자와 무관하다).
   //   3층 그대로다: 이 에이전트 값 → 설정 창 전역 기본 → 내장 기본. 'auto' 는 모델 창을 런타임에야
   //   아는 값이라 숫자가 없다 → null.
   // §4 — 화면에 적는 비율. 상수 한 곳(shared)에서 와야 값을 바꿔도 12개 로케일이 안 틀어진다.
   const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
-  const compactFoldsAtTokens = useMemo(
-    () => turnCompactTriggerTokens(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact)),
-    [autoCompact, userDefaults],
+  // §4 (CLI 사양 추종) (5) 창 하한 — 이 에이전트의 대화가 몇 토큰에서 시작하는가(가장 최근 세션). 시작 문맥에
+  //   비해 고른 창이 작으면 서버가 턴 경계 판정에서 창을 올려 잡는다 — 화면도 **같은 함수**로 올린 값을 적어야
+  //   "200k 로 골랐는데 왜 320k 에서 접히나"를 숨기지 않는다. 두 선택자 모두 원시값이다(파생 객체 구독 ❌).
+  const compactFloor = useGraphStore((s) => pickCompactFloorSource(s.subAgents[agentId])?.floor ?? null);
+  const compactFloorMax = useGraphStore((s) => pickCompactFloorSource(s.subAgents[agentId])?.contextMax ?? null);
+  const compactEffective = useMemo(
+    () => applyAutoCompactFloor(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact), compactFloor, compactFloorMax),
+    [autoCompact, userDefaults, compactFloor, compactFloorMax],
   );
+  const compactFoldsAtTokens = turnCompactTriggerTokens(compactEffective.value);
   // §4 — 지금 켜져 있는가. 꺼짐도 `turnCompactTriggerTokens` 는 null 이라(선이 없다) 화면에서
   //   `'auto'`(창을 아직 모름)와 뒤섞이지 않도록 이 술어로 먼저 가른다.
   const autoCompactOn = isAutoCompactOn(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact));
@@ -2591,6 +2601,17 @@ export function AgentConfigPopup({
                         ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
                         : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
                   </span>
+                  {/* §4 (CLI 사양 추종) (5) — 올려 잡을 때만 한 줄. 고른 값은 그대로 두고(저장도 그대로) **실제로
+                      기준 삼는 창과 그 이유**만 말한다. 경고색을 쓰지 않는다 — 고장이 아니라 앱이 대신 고른 값이다. */}
+                  {compactEffective.raisedFrom !== undefined && compactFloor !== null && (
+                    <span className="text-[12px] leading-snug text-gray-400">
+                      {t('panel.agentConfig.autoCompact.raised', {
+                        to: `${Number(compactEffective.value) / 1000}k`,
+                        from: `${Number(compactEffective.raisedFrom) / 1000}k`,
+                        floor: `${Math.round(compactFloor / 1000)}k`,
+                      })}
+                    </span>
+                  )}
                   {/* §4 (CLI 사양 추종) — 이 축만 직교로 남는다: 숫자로 못 잡는 자리를 에이전트가 부른다. */}
                   <label className="mt-2 flex items-start gap-2 text-[12px] text-gray-400">
                     <input

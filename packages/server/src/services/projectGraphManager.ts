@@ -94,6 +94,7 @@ import type {
 import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, EXTERNAL_TOP_BUDGET_DEFAULT, GOAL_ACTION_MAX, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
 import { webFoldAgentId } from '@vibisual/shared';
 import type { GoalActionCard } from '@vibisual/shared';
+import type { IframeTabVerdict } from '@vibisual/shared';
 // §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
 import {
   heatQuantileSamples,
@@ -3711,6 +3712,38 @@ export class ProjectGraphManager {
       if (await inst.takeoverServerEntry(serverId)) return true;
     }
     return false;
+  }
+
+  /**
+   * §7.11 / §3.5 — Stop/Restart 가 그 서버의 무엇을 죽여도 되는가(주소 호스트 · 남의 프로젝트 여부).
+   * 그 entry 를 가진 인스턴스가 답한다. 어디에도 없으면 null(호출부는 종전대로 포트 전체).
+   */
+  async serverControlScope(serverId: string): Promise<{ host?: string; foreign: boolean } | null> {
+    for (const inst of this.instances.values()) {
+      const scope = await inst.serverControlScope(serverId);
+      if (scope) return scope;
+    }
+    return null;
+  }
+
+  /**
+   * §7.11 / §3.5 — 열어 둔 프리뷰 탭이 그 주소를 지금 보여 줘도 되는가. 그 탭을 **연 프로젝트**의
+   * 인스턴스가 답한다 — 경로(대표 프로젝트 → 그 인스턴스가 그리는 하위 프로젝트) → 이름 순으로 찾고,
+   * 프로젝트를 모르는 탭(옛 닫은 탭 항목)은 그 위성을 가진 인스턴스. 어디에도 없으면 `show`
+   * (판정 불가로 막지 않는다).
+   */
+  async checkIframeTab(projectRef: string | null, satelliteId: string | null, url: string): Promise<IframeTabVerdict> {
+    let inst: ProjectGraph | null = null;
+    if (projectRef) {
+      inst = this.getInstanceByPath(projectRef)
+        ?? [...this.instances.values()].find((i) => i.ownsProjectPath(projectRef))
+        ?? this.getInstanceByName(projectRef);
+    }
+    if (!inst && satelliteId) {
+      inst = [...this.instances.values()].find((i) => i.hasSatelliteId(satelliteId)) ?? null;
+    }
+    if (!inst) return { action: 'show' };
+    return inst.checkIframeTab(satelliteId, url);
   }
 
   /** §7.11 v2.23 — respawn 직후 owning-shell 분리 (모든 인스턴스에 idempotent 전파). */

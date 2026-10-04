@@ -19,6 +19,8 @@
  * 세운 "모르는 것을 넘겨짚지 않는다"와 같은 규율).
  */
 
+import { parseCodexTransportNotice } from '@vibisual/shared';
+
 /** 우리 `SubAgentStreamEvent.eventType` 중 이 매퍼가 낼 수 있는 것. */
 export type CodexEventType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'system' | 'error' | 'result';
 
@@ -35,7 +37,8 @@ export interface CodexMappedEvent {
    * 이 `tool_use` 는 **짝이 되는 `tool_result` 가 반드시 온다**고 약속된 호출인가.
    *
    * 미결 원장(`codexPendingCalls.ts`)이 시한을 걸 수 있는 유일한 근거다. 아무 도구에나 걸면
-   * 안 된다 — `web_search` 는 완료 줄 자체가 없어 시한을 걸면 전부 거짓 실패가 되고,
+   * 안 된다 — `web_search` 는 완료 줄이 보장되지 않아(0.152.1 은 없었고, 0.159.2 는 싣지만 공급자마다
+   * 오는지 확인되지 않았다) 시한을 걸면 거짓 실패가 될 수 있고,
    * `command_execution` 은 한 시간을 정상적으로 돌 수 있다(`tool_timeout_sec=3600`).
    * 그래서 지금은 MCP 호출에만 선다.
    */
@@ -145,6 +148,23 @@ function commandSummary(item: Record<string, unknown>): string {
   return '(command)';
 }
 
+/**
+ * 웹 검색 완료 줄 → 무엇을 찾았거나 열었는지 한 줄. 동작 이름(`search`·`open_page`…)은 판마다 표기가
+ * 바뀌므로 이름이 아니라 **실린 칸**(`query`·`queries`·`url`·`pattern`)으로 읽는다. 아무것도 없으면 `done`.
+ */
+function webSearchSummary(item: Record<string, unknown>): string {
+  const actionRaw = item['action'];
+  const action = actionRaw && typeof actionRaw === 'object' ? (actionRaw as Record<string, unknown>) : {};
+  const queries = Array.isArray(action['queries']) ? action['queries'].map(str).filter(Boolean) : [];
+  const query = str(action['query']) || queries.join(', ') || str(item['query']);
+  const url = str(action['url']);
+  const pattern = str(action['pattern']);
+  if (pattern && url) return `find: "${pattern}" in ${url}`;
+  if (url) return `open: ${url}`;
+  if (query) return `search: ${query}`;
+  return 'done';
+}
+
 /** 파일 변경 item 의 경로 목록. 파일·폴더 버블은 이 경로들을 먹는다(§5.25 (F)). */
 export function codexFileChangePaths(item: Record<string, unknown>): string[] {
   const out: string[] = [];
@@ -222,7 +242,9 @@ export function mapCodexLine(line: string, platform: NodeJS.Platform = process.p
       // 턴을 끝내지는 않는다 — 사용량 한도처럼 곧이어 `turn.failed` 가 따라오는 경우가 있고,
       //   경고성 error(모델 메타데이터 없음 등)만 오고 턴은 계속되는 경우도 있다.
       const message = str(o['message']) || 'error';
-      return { events: [{ eventType: 'error', content: message }] };
+      // CLI recovery is progress, not terminal failure. Preserve the diagnostic for history.
+      const eventType = parseCodexTransportNotice(message) ? 'system' : 'error';
+      return { events: [{ eventType, content: message }] };
     }
 
     case 'item.started':
@@ -340,11 +362,22 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
     }
 
     case 'web_search': {
-      if (envelope !== 'item.started') return EMPTY;
-      const query = str(item['query']);
+      // 시작 줄이 카드를 세우고, 완료 줄이 **같은 카드의 결과**가 된다. 0.159.2 는 검색어·동작(`action`)을
+      //   완료 줄에 싣는다 — 실제 공급자에서는 시작 줄의 `query` 가 비어 카드가 "(web search)"로만 남았고,
+      //   완료 줄을 버리던 동안 무엇을 찾았는지가 화면 어디에도 없었다. 완료 줄이 매번 온다는 보장은 확인되지
+      //   않았으므로 미결 원장에는 여전히 걸지 않는다(`awaitsResult` ❌ — 안 오면 종전처럼 카드만 남는다).
+      if (envelope === 'item.started') {
+        const query = str(item['query']);
+        return {
+          events: [
+            { eventType: 'tool_use', content: query || '(web search)', toolName: 'WebSearch', ...(id ? { toolUseId: id } : {}) },
+          ],
+        };
+      }
+      if (!completed) return EMPTY;
       return {
         events: [
-          { eventType: 'tool_use', content: query || '(web search)', toolName: 'WebSearch', ...(id ? { toolUseId: id } : {}) },
+          { eventType: 'tool_result', content: webSearchSummary(item), toolName: 'WebSearch', ...(id ? { toolUseId: id } : {}) },
         ],
       };
     }

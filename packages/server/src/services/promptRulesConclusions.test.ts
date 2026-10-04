@@ -62,8 +62,12 @@ const CONCLUSIONS: [string, RegExp][] = [
   ['질문 — 손을 놓는 것은 막혔을 때뿐', /손을 놓는 것은 \*\*막혔을 때뿐\*\*/],
   ['질문 — prompts 는 사용자가 1인칭으로 보낼 답', /1인칭으로/],
   ['질문 — 선택형은 실제 대안을 모두 포함', /선택형은 실제 대안을 모두 포함하라\(A\/B 질문에 A만 금지\)/],
-  ['질문 — 사용자 값·수치를 지어내지 않는다', /사용자만 아는 값·수치는 지어내지 말고/],
-  ['질문 — 주관식은 빈 prompts 와 직접 답변', /prompts: \[\][\s\S]{0,16}IDE의 직접 답변 입력으로 받는다/],
+  // ↓ §4 질문 카드(2026-10-01) — 카드는 사용자가 **답을 골라** 보내려고 있는 것이다. 예전 결론("사용자만 아는
+  //   값은 `prompts: []` — 직접 답변 입력으로")은 의도를 묻는 질문마다 답을 비워 카드를 입력칸으로 만들었다.
+  //   이유("사용자는 답을 고르려고 이 카드를 쓴다")는 문서에 있다 — 아래 '돌아오지 않는다' 검사가 함께 본다.
+  ['질문 — 질문마다 고를 답 2~4개, 비우지 않는다', /질문마다 2~4개 — 비우지 마라/],
+  ['질문 — 의도를 물어도 그럴듯한 답을 초안으로', /의도를 물어도 그럴듯한 답을 초안으로/],
+  ['질문 — 비밀값은 지어내지 않고 주는 방법을 답으로', /비밀값은 지어내지 말고 주는 방법을 답으로/],
   ['질문 — 질문은 짧게, 배경은 note', /질문은 짧게, 배경은 `note`/],
   ['검수 — 결과 확인이 필요할 때만', /결과를 확인해야 할 때만/],
   ['검수 — changes 가 비면 보내지 않는다', /changes\[\][\s\S]*이게 비면 보내지 마라/],
@@ -130,13 +134,29 @@ describe('§5.5 #17-28 ⑧(f) — 규약을 줄여도 결론은 남는다', () =
     expect(buildAgentCardCommonRules(ARGS)).toContain(ARGS.docPath);
   });
 
-  it('CMD 질문도 대안 누락·임의 수치 없이 직접 답변을 안내한다', () => {
+  it('CMD 질문도 고를 답을 질문마다 2~4개 싣고, 대안을 빠뜨리지 않는다', () => {
     const cmd = buildCmdCardProtocolRules();
     expect(cmd).toContain('선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지)');
-    expect(cmd).toContain('사용자만 아는 값·수치는 지어내지 말고');
-    expect(cmd).toContain('`prompts: []` — IDE의 직접 답변 입력으로 받는다');
+    expect(cmd).toContain('**질문마다 2~4개 — 비우지 마라**');
+    expect(cmd).toContain('의도를 물어도 그럴듯한 답을 초안으로');
+    expect(cmd).toContain('비밀값은 지어내지 말고 주는 방법을 답으로');
+    // HTTP 판본과 한 벌 — 판본마다 다르게 적으면 카드 모양이 에이전트 종류에 따라 갈린다.
+    const http = buildAgentQuestionRules(ARGS);
+    const sameTail = cmd.slice(cmd.indexOf('`prompts` 는 사용자가'), cmd.indexOf('주는 방법을 답으로.'));
+    expect(sameTail.length).toBeGreaterThan(40);
+    expect(http).toContain(sameTail);
     expect(cmd).toContain('질문은 짧게, 배경은 `note`');
     expect(cmd).not.toContain('이 순서로 진행할까요?');
+  });
+
+  it('§4 질문 카드 — "빈 prompts 로 직접 입력을 받아라"는 결론은 어느 판본에도 돌아오지 않는다', () => {
+    // 이 결론이 실리자 에이전트가 의도·경험을 묻는 질문마다 답을 비워, 카드가 고를 답 없이 입력칸만 남았다.
+    const EMPTY_PROMPTS = /prompts: \[\]|직접 답변 입력으로 받는다/;
+    expect(PROMPT).not.toMatch(EMPTY_PROMPTS);
+    expect(buildCmdCardProtocolRules()).not.toMatch(EMPTY_PROMPTS);
+    expect(CARD_RULES_DOCUMENT).not.toMatch(EMPTY_PROMPTS);
+    // 이유는 문서에 남는다(프롬프트에는 결론만).
+    expect(CARD_RULES_DOCUMENT).toContain('질문 카드는 사용자가 네 답을 골라 그대로 보내려고 있는 것이다');
   });
 
   it('문서 경로가 없으면 "읽어라" 줄 자체가 빠진다(없는 파일을 가리키지 않는다)', () => {

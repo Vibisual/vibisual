@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   DEFAULT_SESSION_PROBE_SETTINGS,
   SESSION_PROBE_BACKOFF_FACTOR,
@@ -39,6 +42,13 @@ vi.mock('./sessionLivenessProbe.js', async (importOriginal) => {
     summarizeTranscriptTail: () => 'called tool: Bash\ntool result: building…',
   };
 });
+
+/** 코덱스 턴 프로세스가 도는지도 가로챈다 — 진짜 `codex` 를 띄우지 않는다. */
+const codexTurns = new Set<string>();
+vi.mock('./codexRunner.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./codexRunner.js')>(),
+  isCodexTurnRunning: (subAgentId: string) => codexTurns.has(subAgentId),
+}));
 
 const { SubAgentManager } = await import('./subAgentManager.js');
 
@@ -80,6 +90,7 @@ const settle = async (): Promise<void> => {
 beforeEach(() => {
   probeCalls.length = 0;
   probeAnswer = null;
+  codexTurns.clear();
 
   m = new SubAgentManager();
   m.setSessionProbeSettings(DEFAULT_SESSION_PROBE_SETTINGS);
@@ -133,6 +144,41 @@ describe('누구에게 묻나 — 기존 장치가 못 닿는 자리에만', () 
     await settle();
 
     expect(probeCalls).toHaveLength(0);
+  });
+
+  describe('조용한 시간은 마지막 줄 기준이다 — 수정 시각이 멈춘 대화록', () => {
+    let dir: string;
+    beforeEach(() => { dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-sessprobe-quiet-'))); });
+    afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+    /** 수정 시각은 30분 전에 멈춰 있고, 마지막 줄은 `lastLineAgoMs` 전에 쓴 롤아웃. */
+    const seedStuckRollout = (lastLineAgoMs: number): void => {
+      const file = path.join(dir, `rollout-${sessionId}.jsonl`);
+      const line = (agoMs: number): string => JSON.stringify({
+        timestamp: new Date(Date.now() - agoMs).toISOString(), type: 'response_item', payload: { type: 'reasoning' },
+      });
+      fs.writeFileSync(file, `${line(30 * 60_000)}\n${line(lastLineAgoMs + 5_000)}\n${line(lastLineAgoMs)}\n`, 'utf8');
+      transcript = { file, bytes: fs.statSync(file).size, mtimeMs: Date.now() - 30 * 60_000 };
+    };
+
+    it('마지막 줄이 방금이면 묻지 않는다 — 1초 전에 쓴 턴이 "8분 조용"으로 닫혔다', async () => {
+      seedStuckRollout(1_000);
+
+      m.maybeProbeRunningSessions(queuesWith());
+      await settle();
+
+      expect(probeCalls).toHaveLength(0);
+    });
+
+    it('마지막 줄도 오래됐으면 그대로 묻는다 — 그 줄의 시각으로 잰 조용한 시간을 싣는다', async () => {
+      seedStuckRollout(20 * 60_000);
+
+      m.maybeProbeRunningSessions(queuesWith());
+      await settle();
+
+      expect(probeCalls).toHaveLength(1);
+      expect(probeCalls[0]?.evidence.quietMin).toBe(20);
+    });
   });
 
   it('대화록을 못 찾으면 묻지 않는다 — 판정 근거가 없다', async () => {
@@ -200,6 +246,34 @@ describe('진행 작업은 모델의 종료 해석보다 우선한다', () => {
     expect(held.status).toBe('executing');
     expect(m.getSub(subId)!.probe).toBeUndefined();
     expect(m.getSessionProbeState(subId)).toBeUndefined();
+  });
+
+  it('코덱스 턴 프로세스가 살아 있으면 finished 오판으로 닫지 않는다 — 다음 명령이 두 번째 writer 로 거절된다', async () => {
+    // 2026-10-02 실측: 닫힌 뒤 "이어서 해" 두 번이 `already has an active writer` 로 실패했고,
+    //   옛 턴은 [중지]로도 닿지 않은 채 20분을 더 돌아 스스로 끝났다.
+    codexTurns.add(subId);
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: 'Empty last lines suggests session completed.' };
+    const held = cmd({ id: 'c1', status: 'executing' });
+
+    m.maybeProbeRunningSessions(queuesWith(held));
+    await settle();
+
+    expect(probeCalls).toHaveLength(1);
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(held.status).toBe('executing');
+    expect(held.stopReason).toBeUndefined();
+    expect(m.getSub(subId)!.probe).toBeUndefined();
+  });
+
+  it('코덱스 턴이 살아 있어도 stuck 은 그대로 세운다 — 막는 것은 닫기뿐이다', async () => {
+    codexTurns.add(subId);
+    probeAnswer = { at: Date.now(), verdict: 'stuck', reason: '도구 결과가 오지 않는다' };
+
+    m.maybeProbeRunningSessions(queuesWith());
+    await settle();
+
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(m.getSub(subId)!.probe?.verdict).toBe('stuck');
   });
 
   it('다른 세션에 귀속된 훅 작업은 이 세션의 증거에 섞지 않는다', async () => {

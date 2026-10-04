@@ -26,16 +26,13 @@ export interface CompactWatchInput {
   agentId?: string;
   /** 마지막 턴 하나의 입력 크기(§5.5 정의 — 누적이 아니다). */
   contextUsed?: number;
-  /** 그 모델의 창 크기. `stalled`(CLI 가 곧 멈춘다)의 분모. */
-  contextMax?: number;
   /**
-   * §5.26 (F)(a) — **접기로 한 선**(= `autoCompactThresholdTokens` 의 답). `overdue` 의 분모다.
-   *
-   * 모델 창과 같은 수가 아니다 — 1M 창에 자동압축 400k 를 걸어 둔 세션에서 322k 는 창 대비 32%
-   * 라 `overdue` 에 못 미치지만, 사용자가 정한 선으로 재면 81% 다. 없으면(끔·판정 불가) 창으로
-   * 되돌아간다 — 그때는 종전과 같은 값이다.
+   * 그 모델의 창 크기. `stalled`(CLI 가 곧 멈춘다)와 `overdue`(작업 도중 CLI 가 접을 자리에 왔는데 안 접는다)
+   * 둘의 분모다 — §5.26 (F)(a) 2026-10-05 정정. 스폰이 `--autocompact` 를 싣지 않게 된 뒤로 작업 도중의 CLI
+   * 압축선은 모델 창 끝이고, 사용자가 고른 창(예: 400k)은 명령 사이 압축의 기준일 뿐이라 긴 지시가 그 선을
+   * 넘는 것은 정상이다(그 선을 분모로 두면 400k 를 넘는 지시마다 거짓 경보가 선다).
    */
-  autoCompactTokens?: number;
+  contextMax?: number;
   /**
    * §5.26 (F)(b) — 우리가 이 세션에 `/compact` 를 마지막으로 **보낸** 시각.
    *
@@ -100,11 +97,10 @@ export function judgeCompactWatch(
   if (input.subAgentId) base.subAgentId = input.subAgentId;
   if (input.agentId) base.agentId = input.agentId;
 
-  // 창 대비 — `stalled` 전용. CLI 가 스스로 멈추는 자리는 우리가 정한 선과 무관하다.
-  const windowRatio = safeRatio(input.contextUsed, input.contextMax);
-  if (windowRatio === undefined) return base; // ① 모르면 말하지 않는다
-  // §5.26 (F)(a) — `overdue` 의 분모는 **접기로 한 선**이다. 없으면 창으로 되돌아간다(종전 값).
-  const ratio = safeRatio(input.contextUsed, input.autoCompactTokens) ?? windowRatio;
+  // 창 대비 — `stalled`·`overdue` 공용(§5.26 (F)(a) 2026-10-05). 작업 도중 CLI 가 접는 자리도, 스스로 멈추는
+  //   자리도 모델 창이다 — 사용자가 고른 창은 명령 사이 압축의 기준이라 여기서 재지 않는다.
+  const ratio = safeRatio(input.contextUsed, input.contextMax);
+  if (ratio === undefined) return base; // ① 모르면 말하지 않는다
   base.ratio = ratio;
 
   const sinceCompactMs = input.lastCompactAt !== undefined && Number.isFinite(input.lastCompactAt)
@@ -115,7 +111,7 @@ export function judgeCompactWatch(
   base.grownBytes = grown;
 
   // ② 창이 거의 다 찼다 — 자동압축을 껐든 켰든 이건 사실이다.
-  if (windowRatio >= thresholds.stallRatio) {
+  if (ratio >= thresholds.stallRatio) {
     base.level = 'stalled';
     return base;
   }

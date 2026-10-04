@@ -44,8 +44,10 @@ export function buildCodexReviewArgs(args: {
   if (args.mode === 'base' && target) out.push('--base', target);
   else if (args.mode === 'commit' && target) out.push('--commit', target);
   else out.push('--uncommitted');
-  out.push('-C', args.cwd);
-  out.push('-s', sandbox);
+  // `review` 는 `-C`·`-s` 를 받지 않는다 — 0.159.2 실측 `error: unexpected argument '-C' found`(exit 2)로
+  //   리뷰가 한 번도 시작하지 못했다(`exec` 와 달리 두 옵션이 이 하위명령에 없다). 작업 폴더는 스폰
+  //   `cwd` 로 이미 넘어가고(`runCodexCli(…, { cwd })`), 샌드박스는 `review` 가 받는 설정 오버라이드로 싣는다.
+  out.push('-c', `sandbox_mode=${sandbox}`);
   // `review` 에도 `--ask-for-approval` 은 없다(루트 명령 전용) — `exec` 와 같이 오버라이드로 싣는다.
   //   사용자의 `config.toml` 은 건드리지 않는다.
   out.push('-c', `approval_policy=${approval}`);

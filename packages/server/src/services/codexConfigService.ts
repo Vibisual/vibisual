@@ -63,7 +63,19 @@ function applyValue(target: CodexConfigLayerValues, keys: readonly string[], val
     target.networkAccess = value;
     return true;
   }
+  if (keys.length === 2 && a === 'windows' && b === 'sandbox' && typeof value === 'string' && value.trim()) {
+    target.windowsSandbox = value.trim();
+    return true;
+  }
   return false;
+}
+
+/**
+ * 코덱스가 이 작업 폴더에서 읽을 겹(프로필·프로젝트·사용자·시스템) 어디든 `[windows] sandbox` 가 적혀 있는가.
+ * 적혀 있으면 사용자가 고른 것이다 — `elevated`(관리자 설정을 거친 쪽)를 우리가 덮어 낮추면 안 된다.
+ */
+export function codexWindowsSandboxConfigured(config: CodexEffectiveConfig): boolean {
+  return config.layers.some((layer) => !!layer.values.windowsSandbox);
 }
 
 /** 인라인 표(`a = { b = 1 }`)를 잎 단위로 편다. 배열은 펴지 않는다. */

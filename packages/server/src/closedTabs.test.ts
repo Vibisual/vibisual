@@ -235,3 +235,23 @@ describe('global.reopenClosedTab 바인딩 (§6 · 멀티플랫폼 5축)', () =>
     expect(commandDef('global.reopenClosedTab').scope).toBe('global');
   });
 });
+
+describe('§7.11 / §3.5 — iframe 항목은 그 프리뷰를 연 프로젝트(projectPath)를 들고 다닌다', () => {
+  const entry: ClosedTabEntry = {
+    key: 'i:sat-special-8080', kind: 'iframe', label: 'localhost:8080', closedAt: 5,
+    url: 'http://localhost:8080', serverKind: 'frontend', projectPath: 'C:/work/app-a',
+  };
+
+  it('쌓을 때도, 디스크에서 다시 읽을 때도 지워지지 않는다(되연 탭이 그 프로젝트 기준으로 묻는다)', () => {
+    const pushed = pushClosedTabEntry([], entry, 'win32');
+    expect(pushed[0]?.projectPath).toBe('C:/work/app-a');
+    const reloaded = normalizeClosedTabEntries(JSON.parse(JSON.stringify(pushed)), 'win32');
+    expect(reloaded).toEqual([entry]);
+  });
+
+  it('없는 옛 항목·빈 값은 필드 없이 들어온다(위성 id 로만 찾는다)', () => {
+    const legacy = { key: entry.key, kind: entry.kind, label: entry.label, closedAt: entry.closedAt, url: entry.url };
+    expect(normalizeClosedTabEntries([legacy], 'linux')[0]).not.toHaveProperty('projectPath');
+    expect(normalizeClosedTabEntries([{ ...entry, projectPath: '' }], 'linux')[0]).not.toHaveProperty('projectPath');
+  });
+});

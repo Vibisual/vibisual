@@ -45,6 +45,18 @@ function pulses(): string[] {
 function tick(ms: number): void { act(() => { vi.advanceTimersByTime(ms); }); }
 
 describe('task edge pulse ownership', () => {
+  it('keeps portal icons and traveling pulses inside the selection focus layer', () => {
+    const focused = (state: string): EdgeProps => {
+      const base = props(state);
+      return { ...base, data: { ...base.data, selectionFocusClassName: 'opacity-[0.12]' } };
+    };
+    act(() => { renderer = create(createElement(TaskEdgeComponent, focused('idle'))); });
+    act(() => renderer.update(createElement(TaskEdgeComponent, focused('executing'))));
+    const layer = renderer.root.findByProps({ className: 'opacity-[0.12]' });
+    expect(layer.findAll((node) => typeof node.props.onDoubleClick === 'function')).toHaveLength(1);
+    expect(layer.findAll((node) => node.props.style?.animation?.startsWith('task-edge-travel'))).toHaveLength(1);
+  });
+
   it.each(['completed', 'error'])('keeps the %s pulse for its full lifetime after a recent sending pulse', (outcome) => {
     mount();
     status('executing');

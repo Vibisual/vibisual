@@ -687,7 +687,7 @@
         "saveError": "No se ha podido guardar. No se ha cambiado nada.",
         "autoCompactWindow": "Plegar la conversación en cuanto alcance",
         "autoCompactWindowOff": "Dejar como está configurado",
-        "autoCompactWindowDesc": "La palanca individual más grande aquí. Medido durante tres días, las sesiones se situaron en una mediana de 186k tokens, y todo lo que superaba los 200k suponía el 62 % de toda la entrada — cada turno vuelve a leer eso. Reducir la ventana de 400k a 200k redujo la entrada en un 27 %, y a 100k en un 59 %, para el mismo trabajo. Solo se estrecha: gana el agente o el valor predeterminado que ya sea más bajo. Plegar en sí es una solicitud grande, así que el ajuste más bajo no es automáticamente el más barato."
+        "autoCompactWindowDesc": "La palanca individual más grande aquí. Medido durante tres días, las sesiones se situaron en una mediana de 186k tokens, y todo lo que superaba los 200k suponía el 62 % de toda la entrada — cada turno vuelve a leer eso. Reducir la ventana de 400k a 200k redujo la entrada en un 27 %, y a 100k en un 59 %, para el mismo trabajo. Solo se estrecha: gana el agente o el valor predeterminado que ya sea más bajo. Plegar en sí es una solicitud grande, así que el ajuste más bajo no es automáticamente el más barato. Esta ventana solo decide dónde plegamos entre comandos; a mitad de tarea, la CLI solo pliega cuando se llena la ventana del modelo."
       }
     },
     "autoAgent": {
@@ -1263,14 +1263,15 @@
       },
       "autoCompact": {
         "label": "Compactado automático",
-        "tip": "El tamaño de ventana con el que se mide la compactación. En la práctica plegamos al {{percent}} % de ese valor, al final de ese turno, para no cortar a mitad de tarea; si un solo turno atraviesa el margen restante, la CLI pliega a mitad de tarea.",
-        "auto": "auto — la CLI elige la ventana.",
+        "tip": "El tamaño de ventana con el que se pliega entre comandos. Si un turno termina en el {{percent}} % de ese valor o más, plegamos en silencio antes del siguiente comando. No se pliega a mitad de tarea: ahí la CLI solo pliega cuando se llena la ventana del modelo.",
+        "auto": "auto — toda la ventana del modelo.",
         "tokens": "Tamaño de ventana de unos {{tokens}} tokens.",
         "foldsAt": "Pliega en torno a {{tokens}}, al final de ese turno.",
-        "foldsAtAuto": "Pliega al {{percent}} % de la ventana que elija la CLI, al final de ese turno.",
+        "foldsAtAuto": "Pliega al {{percent}} % de la ventana del modelo, al final de ese turno.",
         "offLabel": "desactivado",
         "off": "desactivado — nunca se pliega. Sin llamada de resumen, así que no gasta tokens.",
         "foldsAtOff": "Nunca se pliega. Las conversaciones largas pesan más en cada turno y, cuando la ventana del modelo se llena, la CLI pliega una vez a mitad de tarea.",
+        "raised": "En su lugar, pliega con una ventana de {{to}}: las conversaciones de este agente parten de unos {{floor}} tokens, así que una ventana de {{from}} volvería a llenarse justo después de cada plegado.",
         "confirm": {
           "title": "¿Activar la compactación automática? ({{value}})",
           "titleSelf": "¿Permitir que el agente compacte por su cuenta?",
@@ -1714,7 +1715,8 @@
       "noEntry": "No hay entrada de servidor coincidente",
       "noCommand": "Reinicio no disponible: ya está detenido, el comando de inicio ya no se puede obtener (servidor informado por el agente)",
       "takeover": "Reiniciar tomando el control: Vibisual adopta el servidor que inició el agente",
-      "takeoverFailed": "No se pudo tomar el control: no se pudo leer el comando de inicio (pertenece a otra cuenta o falta la herramienta de consulta)"
+      "takeoverFailed": "No se pudo tomar el control: no se pudo leer el comando de inicio (pertenece a otra cuenta o falta la herramienta de consulta)",
+      "refusedOtherProject": "No se ha tocado — en esta dirección responde un servidor iniciado por otro proyecto abierto."
     },
     "subAgent": {
       "heading": "SubAgentes ({{count}})",
@@ -2030,6 +2032,7 @@
       "noAudio": "Exportado sin audio.",
       "downgraded": "El modo de renderizado se degradó: {{id}}",
       "previewFailed": "No se pudo dibujar la vista previa.",
+      "fileUnreadable": "No se pudo leer este vídeo: {{name}}",
       "errNoDoc": "No hay ningún documento abierto.",
       "errNoStage": "No se ha podido encontrar un lugar para anclar el escenario.",
       "errNoRenderBackend": "No hay ningún modo de renderizado disponible en este dispositivo.",
@@ -2741,6 +2744,11 @@
       "ctxSpreadMemos": "Separar notas superpuestas",
       "ctxSpreadMemosNone": "No hay notas superpuestas",
       "jumpToBottom": "Ir al final",
+      "jumpToTop": "Ir al principio",
+      "promptRail": "Tus prompts",
+      "promptPrev": "Prompt anterior",
+      "promptNext": "Prompt siguiente",
+      "promptPosition": "Prompt {{n}} / {{total}}",
       "ctxSelectionRequired": "Selecciona texto primero",
       "inputCtxCut": "Cortar",
       "inputCtxCopy": "Copiar",
@@ -3251,7 +3259,8 @@
       "tokens": "{{in}} entrada / {{out}} salida",
       "tokensTip": "Total de tokens que esta sesión ha usado desde que empezó. La entrada también cuenta las lecturas y escrituras de caché, por eso sube mucho más rápido que la salida. Es acumulativo: solo aumenta.",
       "autoCompact": "compactación auto {{value}}",
-      "autoCompactTip": "Cuando el contexto alcanza este tamaño, la CLI resume la conversación por sí sola. Cámbialo por agente en Configuración del Agent, o para todos en Archivo > Opciones > Ajustes predeterminados del Agent.",
+      "autoCompactTip": "La ventana con la que se resume la conversación entre comandos: si al terminar un turno el contexto supera el {{percent}} % de ella, plegamos antes del siguiente comando. A mitad de tarea, la CLI solo pliega cuando se llena la ventana del modelo. Cámbialo por agente en Configuración del Agent, o para todos en Archivo > Opciones > Ajustes predeterminados del Agent.",
+      "autoCompactRaised": "Ampliada desde {{from}}: las conversaciones con este agente parten de unos {{floor}} tokens, así que una ventana más pequeña volvería a llenarse justo después de cada plegado.",
       "sessionOne": "{{count}} sesión",
       "sessionMany": "{{count}} sesiones",
       "sessionsTip": "Cuántas pestañas de sesión hay abiertas en este agente.",
@@ -3349,7 +3358,9 @@
       "commandReceived": "Comando recibido",
       "promptSuggestion": "Siguiente prompt sugerido",
       "imageMissing": "(imagen no disponible)",
-      "waiting": "esperando"
+      "waiting": "esperando",
+      "compacting": "compactando",
+      "compactingHint": "El contexto está lleno, así que la CLI está resumiendo la parte anterior de la conversación para liberar espacio. Suele tardar unos minutos; es normal no ver salida nueva mientras tanto."
     },
     "report": {
       "title": "Informe de trabajo",
@@ -3548,6 +3559,12 @@
       "title": "Plan",
       "progress": "{{done}}/{{total}}",
       "superseded": "Plan actualizado"
+    },
+    "transportRecovery": {
+      "reconnecting": "Reconectando… {{attempt}}/{{maxAttempts}}",
+      "fallback": "Probando otro método de conexión…",
+      "resumed": "Conexión restablecida · trabajo reanudado",
+      "ended": "Se intentó restablecer la conexión"
     },
     "cmdError": {
       "spawn": "No se pudo iniciar {{engine}}",
@@ -5620,7 +5637,9 @@
     "iframe": {
       "urlInput": "Ingresa una URL...",
       "serverPreview": "Vista previa del servidor",
-      "reload": "Recargar"
+      "reload": "Recargar",
+      "otherProjectTitle": "El servidor de otro proyecto está en esta dirección",
+      "otherProjectBody": "En {{url}} responde ahora un servidor iniciado por otro proyecto abierto, así que esta pestaña no cargará esa página. Se vuelve a abrir sola en cuanto el servidor de este proyecto recupere esa dirección."
     },
     "serverKind": {
       "frontendShort": "FE",
@@ -6016,6 +6035,8 @@
     "local": "Todos los modelos",
     "main": "Proveedor principal",
     "mainHint": "El proveedor que hace la mayor parte del trabajo. Los agentes nuevos lo usan por defecto y el indicador de uso de arriba lo sigue, en todos los proyectos.",
+    "setMain": "Hacer predeterminado",
+    "isMain": "Predeterminado",
     "saveFailed": "No se ha podido guardar. Vuelve a intentarlo.",
     "project": "Ajustes del proyecto",
     "save": "Guardar",

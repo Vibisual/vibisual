@@ -20,6 +20,18 @@ export type { ValidateResult } from './validateDoc.js';
 export { buildStoryboardOps, buildStoryboardDoc, storyboardLayout, storyboardDuration } from './storyboard.js';
 export type { StoryboardBuildArgs, StoryboardLayout, StoryboardRect } from './storyboard.js';
 
+// §5.13 (R-3) — 눌러 연 영상 파일 한 개를 문서로 담는 순수 변환 + 빠진 실측값 채우기.
+export {
+  FILE_DOC_ASSET_ID,
+  FILE_DOC_ITEM_ID,
+  assetsNeedingMeasurement,
+  buildFileDocOps,
+  buildMeasurementOps,
+  evenSide,
+  isUntouchedDoc,
+} from './fileDoc.js';
+export type { MediaMeasurement } from './fileDoc.js';
+
 // 순수한 렌더 결정 규칙 — 서버도 "어떤 방식으로 그렸나"를 말할 수 있어야 한다.
 export {
   RENDER_BACKEND_CAPABILITIES,

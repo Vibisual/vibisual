@@ -44,24 +44,49 @@ export function extractPortFromLog(text: string): number | undefined {
   return p > 0 && p < 65536 ? p : undefined;
 }
 
-/** 로그 텍스트에서 listen 포트 전부 추출 (ANSI 제거 후 광역 패턴 union 매칭, unique).
- *  §7.11 v2.24 — 단일 `localhost:N` 정규식만으론 `dummy server on :3999` 같은 흔한 메시지를
- *  못 잡아 LOG_PORT_PATTERNS union 으로 확장. false positive 는 isPortAlive probe 가 정리. */
-export function extractAllPortsFromLog(text: string): number[] {
-  const clean = stripAnsi(text);
-  const seen = new Set<number>();
+/**
+ * §7.11 / §3.5 — "그 포트는 **남이** 쓰고 있다"는 줄. 여기에**만** 나온 포트는 우리 서버가 아니다.
+ *
+ * probe 게이트(`isPortAlive`)는 이 오탐을 못 거른다 — 그 포트는 정말 살아 있기 때문이다(남의 서버로).
+ * 실측 문구: Vite `Port 5173 is in use, trying another one...` · Node `EADDRINUSE: address already in use :::8080`
+ * · CRA `Something is already running on port 3000.` 프로젝트를 여럿 띄우면 흔히 찍힌다.
+ */
+const PORT_IN_USE_LINE = /(?:\bis in use\b|\balready in use\b|\bEADDRINUSE\b|\balready running on\b|\bin use by another\b)/i;
+
+function portsMatchedIn(text: string, into: Set<number>): void {
   for (const pattern of LOG_PORT_PATTERNS) {
-    for (const m of clean.matchAll(pattern)) {
+    for (const m of text.matchAll(pattern)) {
       const raw = m[1];
       if (!raw) continue;
       const p = parseInt(raw, 10);
-      // 포트 유효 범위 + dev/dummy 서버가 흔히 쓰는 1024+ 로 좁혀 1~1023(well-known)
-      // 같은 timestamp/sequence noise(`:80`/`:22` 등은 매칭되지만 probe 로 거름)는
-      // probe 게이트가 처리. 여기선 숫자 범위만 1차 거름.
-      if (p > 0 && p < 65536) seen.add(p);
+      if (p > 0 && p < 65536) into.add(p);
     }
   }
-  return [...seen];
+}
+
+/** 로그 텍스트에서 listen 포트 전부 추출 (ANSI 제거 후 광역 패턴 union 매칭, unique).
+ *  §7.11 v2.24 — 단일 `localhost:N` 정규식만으론 `dummy server on :3999` 같은 흔한 메시지를
+ *  못 잡아 LOG_PORT_PATTERNS union 으로 확장. false positive 는 isPortAlive probe 가 정리.
+ *  §7.11 / §3.5 — 단, "이미 쓰이고 있다" 줄({@link PORT_IN_USE_LINE})에만 나온 포트는 뺀다 — 그건 남의
+ *  서버가 쥔 포트라는 진술이라 probe 를 통과해 남의 프리뷰가 선다. 같은 포트가 다른 줄(우리 서버의
+ *  `Local: http://localhost:8080/`)에도 나오면 남긴다(남이 놓은 뒤 우리가 잡은 경우). */
+export function extractAllPortsFromLog(text: string): number[] {
+  const clean = stripAnsi(text);
+  const seen = new Set<number>();
+  // 포트 유효 범위 + dev/dummy 서버가 흔히 쓰는 1024+ 로 좁혀 1~1023(well-known)
+  // 같은 timestamp/sequence noise(`:80`/`:22` 등은 매칭되지만 probe 로 거름)는
+  // probe 게이트가 처리. 여기선 숫자 범위만 1차 거름.
+  portsMatchedIn(clean, seen);
+  if (seen.size === 0 || !PORT_IN_USE_LINE.test(clean)) return [...seen];
+
+  // 줄 단위로 "남이 쓴다" 줄과 나머지 줄을 가른다. 줄 머리에 개행을 붙여 `:NNNN` 패턴의 앞 공백
+  // 조건이 전체 텍스트에서와 똑같이 서게 한다.
+  const inUse = new Set<number>();
+  const elsewhere = new Set<number>();
+  for (const line of clean.split(/\r?\n/)) {
+    portsMatchedIn(`\n${line}`, PORT_IN_USE_LINE.test(line) ? inUse : elsewhere);
+  }
+  return [...seen].filter((p) => !inUse.has(p) || elsewhere.has(p));
 }
 
 interface WatchEntry {

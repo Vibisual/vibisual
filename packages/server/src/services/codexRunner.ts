@@ -15,6 +15,7 @@ import { logger } from '../logger.js';
 import type { CodexToolHookConfig } from './codexEdges.js';
 import { codexToolOverrides } from './codexToolOverrides.js';
 import { codexVerificationOverrides, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
+import { codexWindowsSandboxConfigured, readCodexEffectiveConfigFor } from './codexConfigService.js';
 
 /**
  * §5.25 (F) — 코덱스 턴 하나를 돌린다.
@@ -165,6 +166,11 @@ export function buildCodexExecArgs(args: {
   permissionMode?: string;
   resumeThreadId?: string;
   images?: readonly string[];
+  /**
+   * 코덱스가 읽을 설정 겹 어디에도 `[windows] sandbox` 가 없다(호출자가 `codexWindowsSandboxConfigured` 로 판정).
+   * 모르면 넘기지 않는다 — 넘기지 않으면 아무것도 덧붙이지 않는다(사용자의 선택을 덮지 않는 쪽).
+   */
+  windowsSandboxUnset?: boolean;
 } & CodexOverrides): string[] {
   const { sandbox, approval } = resolveCodexPermission(args.permissionMode);
   // `-C`와 `-s`는 `exec resume`가 받지 않는 상위 옵션이다. 반드시 하위명령보다 앞에 둔다.
@@ -194,6 +200,14 @@ export function buildCodexExecArgs(args: {
   if (sandbox === 'workspace-write' && typeof args.networkAccess === 'boolean') {
     out.push('-c', `sandbox_workspace_write.network_access=${args.networkAccess}`);
   }
+  // Windows 는 `[windows] sandbox` 가 없으면 `-s workspace-write` 를 **읽기 전용으로 내려** 돈다(0.159.2 실측 —
+  //   turn_context 의 sandbox_policy 가 read-only, 셸은 `blocked by policy`, 패치는 `read-only sandbox` 로 거절,
+  //   둘 다 stdout 항목이 없어 화면엔 아무것도 안 남았다). 기본·편집 허용·자동 진행이 파일을 하나도 못 고쳤다.
+  //   비었을 때만 공개 문서의 대안 `unelevated`(관리자 설정 없이 도는 쪽)를 싣는다 — 적혀 있으면 손대지 않는다.
+  //   mac(Seatbelt)·linux(Landlock)는 이 키가 없고 그대로 돈다.
+  if (sandbox === 'workspace-write' && args.windowsSandboxUnset && (args.platform ?? process.platform) === 'win32') {
+    out.push('-c', 'windows.sandbox="unelevated"');
+  }
   out.push(...(args.contextArgs ?? []));
   if (args.edgeConfig) out.push(...codexEdgeOverrides(args.edgeConfig, { hooks: false }));
   if (args.verificationConfig) out.push(...codexVerificationOverrides(args.verificationConfig));
@@ -203,6 +217,19 @@ export function buildCodexExecArgs(args: {
     if (imagePath.trim()) out.push('-i', imagePath);
   }
   return out;
+}
+
+/**
+ * Windows 에서 코덱스가 읽을 설정 겹 어디에도 `[windows] sandbox` 가 없는가({@link buildCodexExecArgs} 의
+ * `windowsSandboxUnset`). 다른 OS 는 묻지 않는다. 못 읽으면 `false` — 덧붙이지 않는 종전 동작으로 둔다.
+ */
+function windowsSandboxUnsetFor(cwd: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') return false;
+  try {
+    return !codexWindowsSandboxConfigured(readCodexEffectiveConfigFor(cwd));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -276,11 +303,16 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     webSearch: args.webSearch,
     networkAccess: args.networkAccess,
     modelVerbosity: args.modelVerbosity,
+    // 셋은 화면·저장·턴 인자(`subAgentManager`)까지 오고도 여기서 빠져 한 번도 CLI 에 닿지 않았다.
+    reasoningSummary: args.reasoningSummary,
+    personality: args.personality,
+    serviceTier: args.serviceTier,
     autoCompactTokenLimit: args.autoCompactTokenLimit,
     ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
     ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
     ...(args.resumeThreadId ? { resumeThreadId: args.resumeThreadId } : {}),
     ...(args.images?.length ? { images: args.images } : {}),
+    windowsSandboxUnset: windowsSandboxUnsetFor(args.cwd, process.platform),
   });
   if (hookTrust) execArgs.push(...hookTrust);
   const invocation = buildCliInvocation(binPath, execArgs, process.platform);

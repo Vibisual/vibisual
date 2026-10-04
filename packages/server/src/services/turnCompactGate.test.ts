@@ -9,6 +9,7 @@ import {
   DEFAULT_AUTOCOMPACT_TOKENS,
   AUTOCOMPACT_OFF,
   isAutoCompactOn,
+  AVAILABLE_AUTOCOMPACT_VALUES,
 } from '@vibisual/shared';
 
 /**
@@ -19,8 +20,11 @@ import {
  *     요약 1회 호출이라 턴마다 토큰과 한도를 먹었다.
  *  2. 고쳐 놓고 보니 **체크박스와 드롭다운이 같은 일**이었고, 같은 숫자를 쓰는 한 CLI 가 늘 먼저
  *     접어 체크박스가 아예 뜨지 못했다. 그래서 하나로 합치고 우리 선을 한 단 낮췄다.
+ *
+ * 2026-10-05 부터 창은 스폰(`--autocompact`)에 실리지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접고,
+ * 이 파일의 선은 **명령 사이 조용한 압축**의 발동선이다(§4 CLI 사양 추종 (5)).
  */
-describe('autoCompactThresholdTokens — CLI 에게 넘어가는 창 크기', () => {
+describe('autoCompactThresholdTokens — 명령 사이 압축의 기준 창 크기', () => {
   it('숫자 문자열은 그대로 토큰 수', () => {
     expect(autoCompactThresholdTokens('400000')).toBe(400000);
     expect(autoCompactThresholdTokens('100000')).toBe(100000);
@@ -37,7 +41,7 @@ describe('autoCompactThresholdTokens — CLI 에게 넘어가는 창 크기', ()
 });
 
 describe('turnCompactTriggerTokens — 우리가 턴 경계에서 접는 선', () => {
-  it('창 크기보다 **낮다** — 같으면 CLI 가 먼저 접어 우리 차례가 오지 않는다', () => {
+  it('창 크기보다 **낮다** — 400k 를 고르면 320k 에서 접는 약속을 지킨다(창 하한 산식도 이 비율을 전제한다)', () => {
     const trigger = turnCompactTriggerTokens('400000');
     expect(trigger).not.toBeNull();
     expect(trigger!).toBeLessThan(400_000);
@@ -90,6 +94,30 @@ describe('shouldCompactAfterTurn', () => {
     const base = { requested: false, contextUsed: 170_000 } as const;
     expect(shouldCompactAfterTurn({ ...base, userAutoCompact: '200000' })).toBe(true);  // 선 160k
     expect(shouldCompactAfterTurn({ ...base, userAutoCompact: '400000' })).toBe(false); // 선 320k
+  });
+
+  // 아래 넷은 종전 `agentCliArgs.test.ts` 의 "3층 해소" 묶음이 옮겨 온 것이다 — 창이 스폰에 실리지 않게 된
+  //   2026-10-05 부터 3층 해소가 닿는 곳은 이 발동선(과 그것을 보여 주는 화면)뿐이다.
+  it('에이전트 설정이 있으면 그것이 전역값을 이긴다', () => {
+    expect(resolveAutoCompact('500000', '100000')).toBe('500000');
+    const base = { requested: false, contextUsed: 170_000, userAutoCompact: '100000' } as const;
+    expect(shouldCompactAfterTurn(base)).toBe(true); // 전역 100k → 선 80k
+    expect(shouldCompactAfterTurn({ ...base, autoCompact: '500000' })).toBe(false); // 에이전트 500k → 선 400k
+  });
+
+  it("'auto' 는 명시값이라 전역값에 덮이지 않는다", () => {
+    expect(resolveAutoCompact('auto', '100000')).toBe('auto');
+  });
+
+  // 드롭다운에 실제로 서 있어야 사용자가 되돌릴 수 있다 — 꺼짐(내장 기본)과 켜기 권장값(400k) 둘 다.
+  it('내장 기본값과 켜기 권장값은 둘 다 선택 목록 안의 값이다', () => {
+    expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT);
+    expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT_TOKENS);
+  });
+
+  it.each(['50000', '2000000', 'abc'])('목록 밖 저장분(%s)은 버리고 다음 층으로 — 둘 다 그러면 내장 기본(꺼짐)', (bad) => {
+    expect(resolveAutoCompact(bad, bad)).toBe(DEFAULT_AUTOCOMPACT);
+    expect(resolveAutoCompact(bad, '400000')).toBe('400000');
   });
 
   it('양쪽 다 미설정이면 내장 기본 = 꺼짐이라 아무리 차도 접지 않는다', () => {

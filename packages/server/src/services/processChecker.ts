@@ -135,8 +135,6 @@ function probeUrl(rawUrl: string, timeoutMs: number): Promise<{ ok: boolean; con
   });
 }
 
-const IS_WIN = process.platform === 'win32';
-
 /** 포트 점유자 조회 명령 1회당 상한. 넘으면 "못 봤다"로 보고 다음 후보로 넘어간다. */
 const PORT_LOOKUP_TIMEOUT_MS = 3000;
 
@@ -175,16 +173,89 @@ function uniquePositiveInts(values: number[]): number[] {
   return [...new Set(values)].filter((n) => Number.isInteger(n) && n > 0);
 }
 
-/** Windows `netstat -ano -p TCP` 출력에서 해당 포트를 LISTENING 중인 PID 추출.
- *  ⚠ 예전 구현의 `findstr :4800` 은 `127.0.0.1:48000` 도 매칭했다 — 포트를 정규식으로 못 박는다. */
-export function parseNetstatListeningPids(stdout: string, port: number): number[] {
-  const re = new RegExp(`^\\s*TCP\\s+\\S+:${port}\\s+\\S+\\s+LISTENING\\s+(\\d+)\\s*$`);
-  const out: number[] = [];
+/**
+ * 포트를 LISTEN 중인 소켓 하나 — **누가(pid) 어느 주소에(address) 묶였나.**
+ *
+ * §7.11 — 한 포트에 주인이 둘일 수 있다. Windows·macOS 는 서로 다른 프로세스가 같은 포트를
+ * 다른 주소로 동시에 잡는다(실측 2026-10-01: 한 프로젝트의 `node serve.js` 가 `::`(=`0.0.0.0`+`[::]`),
+ * 옆 프로젝트의 vite 가 `[::1]` 에 같은 8080 으로 공존). `localhost`·`[::1]` 접속은 `[::1]` 리스너로,
+ * `127.0.0.1` 은 와일드카드로 간다 — 그래서 "이 포트는 누구 것인가"가 아니라 "**이 주소는 누구에게
+ * 닿는가**"를 물어야 하고, 그러려면 리스너마다 주소가 필요하다.
+ *
+ * `address` 는 {@link normalizeListenAddress} 로 접은 모양(`::1` · `::` · `0.0.0.0` · `127.0.0.1` · `*`).
+ * 주소를 주지 않는 도구(fuser)의 결과는 `undefined` — "모두 후보"로 읽는다.
+ */
+export interface PortListener {
+  pid: number;
+  address?: string;
+}
+
+/**
+ * 리스너 주소를 한 모양으로 접는다. 대괄호·존 접미(`%lo`·`%12`)·대소문자를 걷고,
+ * IPv4 사상 주소(`::ffff:127.0.0.1`)는 IPv4 로 되돌린다. `*` 는 그대로 둔다(패밀리 미상 와일드카드).
+ */
+export function normalizeListenAddress(raw: string): string {
+  let a = raw.trim().toLowerCase();
+  if (a.startsWith('[') && a.includes(']')) a = a.slice(1, a.indexOf(']'));
+  const zone = a.indexOf('%');
+  if (zone >= 0) a = a.slice(0, zone);
+  const mapped = a.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped?.[1]) return mapped[1];
+  return a;
+}
+
+/** `host:port` 끝의 포트를 떼고 주소만 돌려준다(`[::1]:8080` → `::1`). 포트가 다르면 null. */
+function splitEndpoint(endpoint: string, port: number): string | null {
+  const colon = endpoint.lastIndexOf(':');
+  if (colon <= 0) return null;
+  if (endpoint.slice(colon + 1) !== String(port)) return null;
+  return normalizeListenAddress(endpoint.slice(0, colon));
+}
+
+/**
+ * Windows `netstat -ano` 출력에서 해당 포트를 LISTEN 중인 소켓(pid + 주소)을 뽑는다.
+ *
+ * ⚠ 두 함정을 함께 막는다.
+ *  - **IPv6 표를 봐야 한다.** 종전 `netstat -ano -p TCP` 는 IPv4 표만 준다. Windows 의 Vite 는
+ *    `localhost` 로 열면 `[::1]` 에만 묶이므로 그 서버가 **영영 안 보였다** — 소속 판정이 늘
+ *    "못 읽음"으로 떨어져 남의 프로젝트 프리뷰가 붙고 안 걷혔다(실측 2026-10-01). 호출부는
+ *    `-p` 없이 TCP·TCPv6 를 함께 읽는다.
+ *  - **상태 단어는 번역된다.** 독일어 Windows 는 `LISTENING` 대신 `ABHÖREN` 을 찍는다. LISTEN 소켓의
+ *    상대 주소는 언제나 와일드카드(`0.0.0.0:0` · `[::]:0` · `*:*`)이므로 그것으로도 판정한다
+ *    (`-a` 는 bound-nonlistening 소켓을 보이지 않는다 — 그건 `-q` 의 몫이다).
+ *  - 예전 `findstr :4800` 은 `127.0.0.1:48000` 도 잡았다 — 포트는 끝자리까지 정확히 맞춘다.
+ */
+export function parseNetstatListeners(stdout: string, port: number): PortListener[] {
+  const out: PortListener[] = [];
+  const seen = new Set<string>();
   for (const line of stdout.split(/\r?\n/)) {
-    const m = line.match(re);
-    if (m?.[1]) out.push(Number(m[1]));
+    const f = line.trim().split(/\s+/);
+    // Proto Local Foreign State PID — UDP 는 State 칸이 없고 애초에 대상이 아니다.
+    if (f.length < 5 || f[0]?.toUpperCase() !== 'TCP') continue;
+    const address = splitEndpoint(f[1] ?? '', port);
+    if (address === null) continue;
+    const foreign = f[2] ?? '';
+    const state = f[3] ?? '';
+    const listening = state.toUpperCase() === 'LISTENING' || /^(?:0\.0\.0\.0:0|\[::\]:0|\*:\*)$/.test(foreign);
+    if (!listening) continue;
+    const pid = Number(f[f.length - 1]);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    const key = `${String(pid)}@${address}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ pid, address });
   }
-  return uniquePositiveInts(out);
+  return out;
+}
+
+/** 리스너 목록 → PID 목록(중복 제거). */
+export function listenerPids(listeners: readonly PortListener[]): number[] {
+  return uniquePositiveInts(listeners.map((l) => l.pid));
+}
+
+/** Windows `netstat -ano` 출력에서 해당 포트를 LISTEN 중인 PID — {@link parseNetstatListeners} 의 PID 만. */
+export function parseNetstatListeningPids(stdout: string, port: number): number[] {
+  return listenerPids(parseNetstatListeners(stdout, port));
 }
 
 /** `lsof -t` 출력 = PID 한 줄에 하나. */
@@ -194,11 +265,67 @@ export function parseLsofPids(stdout: string): number[] {
   );
 }
 
+/**
+ * `lsof -iTCP:<port> -sTCP:LISTEN -P -n -F ptn` 출력 → 리스너(pid + 주소).
+ *
+ * 줄 머리 글자가 필드다: `p<pid>` · `f<fd>`(파일 하나의 시작) · `t<IPv4|IPv6>` · `n<주소:포트>`.
+ * `*:8080` 은 패밀리를 `t` 로 가른다(IPv4 → `0.0.0.0`, IPv6 → `::`). `t` 가 없으면 `*` 로 둔다.
+ */
+export function parseLsofListeners(stdout: string, port: number): PortListener[] {
+  const out: PortListener[] = [];
+  const seen = new Set<string>();
+  let pid = 0;
+  let family = '';
+  for (const raw of stdout.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length < 2) continue;
+    const tag = line[0];
+    const value = line.slice(1);
+    if (tag === 'p') { pid = Number(value); family = ''; continue; }
+    if (tag === 'f') { family = ''; continue; }
+    if (tag === 't') { family = value.toUpperCase(); continue; }
+    if (tag !== 'n' || !Number.isInteger(pid) || pid <= 0) continue;
+    let address = splitEndpoint(value.replace(/\s*\(LISTEN\)\s*$/i, ''), port);
+    if (address === null) continue;
+    if (address === '*') address = family === 'IPV4' ? '0.0.0.0' : family === 'IPV6' ? '::' : '*';
+    const key = `${String(pid)}@${address}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ pid, address });
+  }
+  return out;
+}
+
 /** `ss -lptn` 출력의 `users:(("node",pid=1234,fd=23))` 에서 PID 추출. */
 export function parseSsPids(stdout: string): number[] {
   const out: number[] = [];
   for (const m of stdout.matchAll(/pid=(\d+)/g)) out.push(Number(m[1]));
   return uniquePositiveInts(out);
+}
+
+/**
+ * `ss -lptnH 'sport = :<port>'` 출력 → 리스너(pid + 주소).
+ * 칸: State Recv-Q Send-Q 로컬주소:포트 상대주소:포트 users:((…)). `*:8080` 은 이중 스택 와일드카드다.
+ * `-p` 권한이 없어 `pid=` 가 빠진 줄은 리스너를 만들지 않는다(다음 도구로 넘어가게).
+ */
+export function parseSsListeners(stdout: string, port: number): PortListener[] {
+  const out: PortListener[] = [];
+  const seen = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const f = line.trim().split(/\s+/);
+    if (f.length < 5) continue;
+    const address = splitEndpoint(f[3] ?? '', port);
+    if (address === null) continue;
+    for (const m of line.matchAll(/pid=(\d+)/g)) {
+      const pid = Number(m[1]);
+      if (!Number.isInteger(pid) || pid <= 0) continue;
+      const key = `${String(pid)}@${address}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ pid, address });
+    }
+  }
+  return out;
 }
 
 /** `fuser -n tcp <port>` 출력에서 PID 추출.
@@ -217,8 +344,35 @@ export function parseFuserPids(stdout: string): number[] {
  * "도구가 없어서 모름"을 "포트가 비었다"로 오인할 여지가 없다.
  */
 export function parseProcNetTcpListenInodes(content: string, port: number): string[] {
+  return [...new Set(parseProcNetTcpListeners(content, port).map((l) => l.inode))];
+}
+
+/**
+ * `/proc/net/tcp`(+`tcp6`)의 16진 주소 → 사람이 읽는 주소. 커널은 32비트 낱말을 **호스트 바이트
+ * 순서**로 찍으므로(리틀엔디언 = x86·ARM) 낱말마다 바이트를 뒤집는다.
+ * IPv6 는 우리가 쓰는 모양만 접는다(`::` · `::1` · `::ffff:a.b.c.d` → IPv4). 그 밖은 접지 않은 8조각.
+ */
+export function decodeProcNetAddress(hex: string, littleEndian = true): string | null {
+  if (!/^[0-9A-Fa-f]+$/.test(hex) || (hex.length !== 8 && hex.length !== 32)) return null;
+  const bytes: number[] = [];
+  for (let w = 0; w < hex.length; w += 8) {
+    const word = [0, 2, 4, 6].map((i) => parseInt(hex.slice(w + i, w + i + 2), 16));
+    bytes.push(...(littleEndian ? word.reverse() : word));
+  }
+  if (bytes.length === 4) return bytes.join('.');
+  const groups: number[] = [];
+  for (let i = 0; i < 16; i += 2) groups.push(((bytes[i] ?? 0) << 8) | (bytes[i + 1] ?? 0));
+  if (groups.every((g) => g === 0)) return '::';
+  if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) return '::1';
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) return bytes.slice(12).join('.');
+  return groups.map((g) => g.toString(16)).join(':');
+}
+
+/** `/proc/net/tcp(6)` 에서 해당 포트를 LISTEN(`st=0A`) 중인 소켓의 inode + 주소. */
+export function parseProcNetTcpListeners(content: string, port: number): { inode: string; address?: string }[] {
   const hex = port.toString(16).toUpperCase().padStart(4, '0');
-  const out: string[] = [];
+  const out: { inode: string; address?: string }[] = [];
+  const seen = new Set<string>();
   for (const raw of content.split(/\r?\n/)) {
     const f = raw.trim().split(/\s+/);
     // sl local_address rem_address st tx rx tr tm retrnsmt uid timeout inode
@@ -227,17 +381,20 @@ export function parseProcNetTcpListenInodes(content: string, port: number): stri
     if (!local || !local.toUpperCase().endsWith(`:${hex}`)) continue;
     if (f[3] !== '0A') continue; // 0A = TCP_LISTEN
     const inode = f[9];
-    if (inode && /^\d+$/.test(inode)) out.push(inode);
+    if (!inode || !/^\d+$/.test(inode) || seen.has(inode)) continue;
+    seen.add(inode);
+    const address = decodeProcNetAddress(local.slice(0, local.lastIndexOf(':')));
+    out.push(address ? { inode, address } : { inode });
   }
-  return [...new Set(out)];
+  return out;
 }
 
 /** inode → PID 역매핑. `/proc/<pid>/fd/*` 심볼릭 링크가 `socket:[<inode>]` 를 가리킨다. */
-function findPidsBySocketInodes(inodes: Set<string>): number[] {
-  if (inodes.size === 0) return [];
-  const found: number[] = [];
+function mapSocketInodesToPids(inodes: Set<string>): Map<string, number[]> {
+  const found = new Map<string, number[]>();
+  if (inodes.size === 0) return found;
   let pidDirs: string[];
-  try { pidDirs = fs.readdirSync('/proc'); } catch { return []; }
+  try { pidDirs = fs.readdirSync('/proc'); } catch { return found; }
   for (const name of pidDirs) {
     if (!/^\d+$/.test(name)) continue;
     let fds: string[];
@@ -246,19 +403,22 @@ function findPidsBySocketInodes(inodes: Set<string>): number[] {
       let link: string;
       try { link = fs.readlinkSync(`/proc/${name}/fd/${fd}`); } catch { continue; }
       const m = link.match(/^socket:\[(\d+)\]$/);
-      if (m?.[1] && inodes.has(m[1])) { found.push(Number(name)); break; }
+      if (!m?.[1] || !inodes.has(m[1])) continue;
+      const list = found.get(m[1]) ?? [];
+      if (!list.includes(Number(name))) list.push(Number(name));
+      found.set(m[1], list);
     }
   }
-  return uniquePositiveInts(found);
+  return found;
 }
 
 /** 조회 1회의 결과. `available:false` = 그 도구가 이 시스템에 없거나 응답하지 않았다(≠ 포트가 비었다). */
-type LookupResult = { available: true; pids: number[] } | { available: false };
+type LookupResult = { available: true; listeners: PortListener[] } | { available: false };
 
 /** 셸 한 줄을 돌려 stdout 을 파서에 넘긴다. 명령 부재(exit 127)·타임아웃은 `available:false`. */
-function runLookup(cmd: string, parse: (stdout: string) => number[]): Promise<LookupResult> {
+function runLookup(cmd: string, parse: (stdout: string) => PortListener[]): Promise<LookupResult> {
   return new Promise((resolve) => {
-    exec(cmd, { timeout: PORT_LOOKUP_TIMEOUT_MS, windowsHide: true }, (err, stdout, stderr) => {
+    exec(cmd, { timeout: PORT_LOOKUP_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
         const e = err as Error & { code?: number | string; killed?: boolean };
         // sh 는 명령을 못 찾으면 127 로 끝낸다. Windows 는 ENOENT. 둘 다 "결과 없음"이 아니라 "못 봤다".
@@ -269,63 +429,121 @@ function runLookup(cmd: string, parse: (stdout: string) => number[]): Promise<Lo
           /not found|not recognized|No such file/i.test(String(stderr ?? ''));
         if (missing) { resolve({ available: false }); return; }
         // 그 외 비정상 종료(lsof/fuser 는 "찾은 게 없음"을 exit 1 로 알린다) = 조회 성공, 결과 0건.
-        resolve({ available: true, pids: parse(String(stdout ?? '')) });
+        resolve({ available: true, listeners: parse(String(stdout ?? '')) });
         return;
       }
-      resolve({ available: true, pids: parse(stdout) });
+      resolve({ available: true, listeners: parse(stdout) });
     });
   });
 }
 
+/** PID 만 주는 도구(fuser)의 결과 — 주소를 모르므로 `address` 를 비워 "모두 후보"로 둔다. */
+function pidsAsListeners(pids: number[]): PortListener[] {
+  return pids.map((pid) => ({ pid }));
+}
+
 /** Linux `/proc/net/tcp` 직접 읽기. 파일이 없으면(=macOS 등) `available:false`. */
 function lookupViaProc(port: number): LookupResult {
-  let content = '';
+  const sockets: { inode: string; address?: string }[] = [];
   let any = false;
   for (const p of ['/proc/net/tcp', '/proc/net/tcp6']) {
-    try { content += fs.readFileSync(p, 'utf8') + '\n'; any = true; } catch { /* 없으면 건너뜀 */ }
+    try { sockets.push(...parseProcNetTcpListeners(fs.readFileSync(p, 'utf8'), port)); any = true; } catch { /* 없으면 건너뜀 */ }
   }
   if (!any) return { available: false };
-  const inodes = new Set(parseProcNetTcpListenInodes(content, port));
-  if (inodes.size === 0) return { available: true, pids: [] };
-  return { available: true, pids: findPidsBySocketInodes(inodes) };
+  if (sockets.length === 0) return { available: true, listeners: [] };
+  const byInode = mapSocketInodesToPids(new Set(sockets.map((s) => s.inode)));
+  const listeners: PortListener[] = [];
+  for (const s of sockets) {
+    for (const pid of byInode.get(s.inode) ?? []) listeners.push(s.address ? { pid, address: s.address } : { pid });
+  }
+  return { available: true, listeners };
 }
 
 /**
- * 포트 점유자 조회 결과 — {@link killByPortDetailed} 와 {@link findPortOwnerPids} 의 공통 반환.
+ * §7.11 — **이 주소로 접속하면 어느 리스너에 닿는가.** 호스트별 계층(앞 계층에 리스너가 있으면 그것)이다.
  *
- * `anyToolWorked` 가 **결과의 신뢰도**다. `pids` 가 비었을 때 이 값이 false 면 "볼 도구가 없어서
+ *  - `[::1]`     : `::1` → `::`·`*`(IPv6 와일드카드 = 이중 스택 포함)
+ *  - `127.x.x.x` : 그 주소 → `0.0.0.0`·`*` → `::`(이중 스택이 IPv4 사상으로 받는다)
+ *  - `localhost` : IPv6 계층 먼저, 그다음 IPv4 — Node(undici)·Chromium 모두 `::1` 부터 시도하고
+ *                  거절되면 `127.0.0.1` 로 넘어간다.
+ *  - 그 밖(LAN 주소 등): 계층을 모른다 → `null`(호출부가 "모두 후보"로 읽는다).
+ *
+ * 특정 주소에 묶인 소켓이 와일드카드보다 먼저다 — Windows·BSD 는 둘이 공존할 때 특정 주소가 이긴다.
+ */
+export function listenerTiersForHost(host: string): string[][] | null {
+  const h = normalizeListenAddress(host);
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '0.0.0.0' || h === '::' || h === '*') {
+    return [['::1'], ['::', '*'], ['127.0.0.1'], ['0.0.0.0']];
+  }
+  if (h === '::1') return [['::1'], ['::', '*']];
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return [[h], ['0.0.0.0', '*'], ['::']];
+  return null;
+}
+
+/**
+ * 리스너 목록 중 **그 호스트로 접속했을 때 실제로 받는 것들**(첫 계층). 닿는 것이 없으면 빈 배열.
+ * 주소를 모르는 리스너가 하나라도 섞였거나(fuser) 계층을 모르는 호스트면 전부 돌려준다 — 가를 수 없을 때
+ * 가른 척하지 않는다.
+ */
+export function reachableListeners(listeners: readonly PortListener[], host: string): PortListener[] {
+  if (listeners.length === 0) return [];
+  if (listeners.some((l) => l.address === undefined)) return [...listeners];
+  const tiers = listenerTiersForHost(host);
+  if (!tiers) return [...listeners];
+  for (const tier of tiers) {
+    const hit = listeners.filter((l) => l.address !== undefined && tier.includes(l.address));
+    if (hit.length > 0) return hit;
+  }
+  return [];
+}
+
+/** URL 의 호스트(대괄호 벗김). 파싱이 안 되면 null. */
+export function urlHostname(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try { return new URL(rawUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase() || null; } catch { return null; }
+}
+
+/**
+ * 포트 리스너 조회 결과 — {@link killByPortDetailed} · 포트 인계 · §7.11 소속 판정의 공통 반환.
+ *
+ * `anyToolWorked` 가 **결과의 신뢰도**다. `listeners` 가 비었을 때 이 값이 false 면 "볼 도구가 없어서
  * 못 봤다"이고, true 면 "정말 아무도 LISTEN 하지 않는다"이다 — 두 경우의 처방이 다르다.
  */
-export interface PortOwnerLookup {
-  pids: number[];
+export interface PortListenerLookup {
+  listeners: PortListener[];
   anyToolWorked: boolean;
   via?: string;
 }
 
 /**
- * 포트를 LISTEN 중인 프로세스의 PID 를 찾는다(종료하지 않는다).
+ * 포트를 LISTEN 중인 소켓(pid + 묶인 주소)을 찾는다(종료하지 않는다).
  *
  * 조회 수단은 플랫폼별 후보를 순서대로 시도하고, 하나라도 "동작했다"면 그 결과를 채택한다.
- *   - Windows: `netstat -ano -p TCP`
- *   - POSIX  : `lsof` → `ss` → `fuser` → `/proc/net/tcp`
+ *   - Windows: `netstat -ano` (TCP + **TCPv6** — `-p TCP` 는 IPv4 만 준다)
+ *   - POSIX  : `lsof -F ptn` → `ss` → `fuser`(주소 없음) → `/proc/net/tcp(6)`
  *
- * {@link killByPortDetailed}(죽이기)와 §7.11 포트 인계(살려 둔 채 기동 명령 읽기)가 **같은
- * 조회 경로를 공유**해야 한다 — 한쪽만 도구 후보가 늘거나 파서가 고쳐지면 "끌 수는 있는데 넘겨받지는
- * 못하는" 비대칭이 생긴다.
+ * {@link killByPortDetailed}(죽이기)·§7.11 포트 인계(살려 둔 채 기동 명령 읽기)·§7.11 프로젝트 격리
+ * (누구 서버인가)가 **같은 조회 경로를 공유**해야 한다 — 한쪽만 도구 후보가 늘거나 파서가 고쳐지면
+ * "끌 수는 있는데 넘겨받지는 못하는" 비대칭이 생긴다.
+ *
+ * @param platform 세 OS 를 한 기기에서 테스트하기 위해 인자로 받는다(기본 = 실제 플랫폼).
  */
-export async function findPortOwnerPids(port: number): Promise<PortOwnerLookup> {
+export async function findPortListeners(
+  port: number,
+  platform: NodeJS.Platform = process.platform,
+): Promise<PortListenerLookup> {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    return { pids: [], anyToolWorked: false };
+    return { listeners: [], anyToolWorked: false };
   }
 
-  const candidates: { via: string; run: () => Promise<LookupResult> | LookupResult }[] = IS_WIN
+  const candidates: { via: string; run: () => Promise<LookupResult> | LookupResult }[] = platform === 'win32'
     ? [
-        { via: 'netstat', run: () => runLookup('netstat -ano -p TCP', (o) => parseNetstatListeningPids(o, port)) },
+        { via: 'netstat', run: () => runLookup('netstat -ano', (o) => parseNetstatListeners(o, port)) },
       ]
     : [
-        { via: 'lsof', run: () => runLookup(`lsof -iTCP:${port} -sTCP:LISTEN -P -n -t`, parseLsofPids) },
-        { via: 'ss', run: () => runLookup(`ss -lptnH 'sport = :${port}'`, parseSsPids) },
-        { via: 'fuser', run: () => runLookup(`fuser -n tcp ${port} 2>/dev/null`, parseFuserPids) },
+        { via: 'lsof', run: () => runLookup(`lsof -iTCP:${port} -sTCP:LISTEN -P -n -F ptn`, (o) => parseLsofListeners(o, port)) },
+        { via: 'ss', run: () => runLookup(`ss -lptnH 'sport = :${port}'`, (o) => parseSsListeners(o, port)) },
+        { via: 'fuser', run: () => runLookup(`fuser -n tcp ${port} 2>/dev/null`, (o) => pidsAsListeners(parseFuserPids(o))) },
         { via: '/proc/net/tcp', run: () => lookupViaProc(port) },
       ];
 
@@ -337,29 +555,70 @@ export async function findPortOwnerPids(port: number): Promise<PortOwnerLookup> 
     // 이 도구는 못 찾음 — **여기서 멈추지 않는다.** 비특권 사용자의 `ss -p` 는 LISTEN 줄은 보여주되
     //   `pid=` 를 감추고, `lsof` 는 남의 소유 프로세스를 아예 안 보여준다. 즉 "0건"은 "포트가 비었다"의
     //   증거가 아니다. 다음 도구(최종적으로 커널의 /proc/net/tcp)까지 다 본 뒤에 판정한다.
-    if (res.pids.length === 0) continue;
-    return { pids: res.pids, anyToolWorked: true, via: c.via };
+    if (res.listeners.length === 0) continue;
+    return { listeners: res.listeners, anyToolWorked: true, via: c.via };
   }
-  return { pids: [], anyToolWorked };
+  return { listeners: [], anyToolWorked };
+}
+
+/**
+ * 포트 점유자 PID 조회 결과 — {@link findPortListeners} 의 PID 만 본 모양(주소가 필요 없는 호출부용).
+ */
+export interface PortOwnerLookup {
+  pids: number[];
+  anyToolWorked: boolean;
+  via?: string;
+}
+
+/** 포트를 LISTEN 중인 프로세스의 PID 를 찾는다(종료하지 않는다). 주소별로 가르려면 {@link findPortListeners}. */
+export async function findPortOwnerPids(port: number): Promise<PortOwnerLookup> {
+  const lookup = await findPortListeners(port);
+  return {
+    pids: listenerPids(lookup.listeners),
+    anyToolWorked: lookup.anyToolWorked,
+    ...(lookup.via ? { via: lookup.via } : {}),
+  };
+}
+
+/** {@link killByPortDetailed} 의 범위 — 지정하면 **그 주소로 접속했을 때 닿는 리스너만** 죽인다. */
+export interface KillByPortOptions {
+  /**
+   * 그 서버를 부르는 주소의 호스트(`localhost` · `127.0.0.1` · `::1` …). 비우면 포트의 리스너 전부.
+   *
+   * §7.11 — 한 포트에 주인이 둘일 수 있다(위 {@link PortListener}). 프로젝트 A 의 Stop 이
+   * 같은 포트를 `[::1]` 로 잡은 프로젝트 B 의 서버까지 트리째 죽이면 안 된다.
+   */
+  host?: string;
 }
 
 /**
  * 포트를 LISTEN 중인 프로세스를 찾아 **트리째** 종료한다.
  *
- * 조회는 {@link findPortOwnerPids} 에 위임한다. 전부 없으면 `no-tool` — 호출자가 "포트가 비었다"와
- * 구분할 수 있다.
+ * 조회는 {@link findPortListeners} 에 위임한다. 전부 없으면 `no-tool` — 호출자가 "포트가 비었다"와
+ * 구분할 수 있다. `host` 를 주면 그 주소가 닿는 리스너만 죽이고, 닿는 것이 없으면 `not-listening`
+ * (그 주소의 서버는 이미 없다 — 같은 포트의 남은 리스너는 남의 것이다).
  *
  * 종료는 {@link killTree} 로 위임한다(이전엔 `taskkill /F`(트리 아님) / `kill`(SIGTERM, 손자 잔존)을
  * 여기서 따로 재구현했다). `respawn` 이 띄운 dev 서버는 `shell:true` 라 최상단이 셸이고 실제 서버는
  * 그 자식 — 단일 kill 로는 포트가 안 놓인다.
  */
-export async function killByPortDetailed(port: number): Promise<KillByPortResult> {
+export async function killByPortDetailed(port: number, options: KillByPortOptions = {}): Promise<KillByPortResult> {
   // 보안: port 는 셸 문자열에 보간되므로 정수가 아니면 즉시 거부(인젝션 차단).
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     return { killed: false, outcome: 'invalid-port', pids: [] };
   }
 
-  const lookup = await findPortOwnerPids(port);
+  const found = await findPortListeners(port);
+  const scoped = options.host !== undefined ? reachableListeners(found.listeners, options.host) : found.listeners;
+  if (options.host !== undefined && found.listeners.length > 0 && scoped.length === 0) {
+    logger.info(`killByPort(${port}): nothing reachable via ${options.host} — other listeners left untouched`);
+    return { killed: false, outcome: 'not-listening', pids: [], ...(found.via ? { via: found.via } : {}) };
+  }
+  const lookup: PortOwnerLookup = {
+    pids: listenerPids(scoped),
+    anyToolWorked: found.anyToolWorked,
+    ...(found.via ? { via: found.via } : {}),
+  };
   if (lookup.pids.length > 0) {
     // 자살 방지: 우리 자신/부모가 그 포트를 쥐고 있으면 죽이지 않는다(그룹 킬이면 앱 전체가 내려간다).
     const targets = lookup.pids.filter((pid) => pid !== process.pid && pid !== process.ppid);
@@ -382,9 +641,10 @@ export async function killByPortDetailed(port: number): Promise<KillByPortResult
   return { killed: false, outcome: 'not-listening', pids: [] };
 }
 
-/** 포트를 점유 중인 프로세스를 kill. 세부 사유가 필요하면 {@link killByPortDetailed} 를 쓸 것. */
-export function killByPort(port: number): Promise<boolean> {
-  return killByPortDetailed(port).then((r) => r.killed);
+/** 포트를 점유 중인 프로세스를 kill. 세부 사유가 필요하면 {@link killByPortDetailed} 를 쓸 것.
+ *  `options.host` 를 주면 그 주소가 닿는 리스너만 죽인다(§7.11 — 한 포트 두 주인). */
+export function killByPort(port: number, options: KillByPortOptions = {}): Promise<boolean> {
+  return killByPortDetailed(port, options).then((r) => r.killed);
 }
 
 /**

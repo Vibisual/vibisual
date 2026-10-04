@@ -195,6 +195,43 @@ describe('buildCodexExecArgs — 선택 인자', () => {
   });
 });
 
+describe('buildCodexExecArgs — Windows 샌드박스 키가 비었으면 쓰기 모드가 읽기 전용으로 내려가지 않게', () => {
+  const FALLBACK = 'windows.sandbox="unelevated"';
+  const has = (args: readonly string[]): boolean => {
+    const at = args.indexOf(FALLBACK);
+    return at > 0 && args[at - 1] === '-c';
+  };
+
+  it('win32 + 작업 폴더 쓰기 + 키 없음 → 공개 대안 unelevated 를 싣는다(새 턴·이어가기 모두)', () => {
+    for (const permissionMode of [undefined, 'default', 'acceptEdits', 'auto']) {
+      for (const resumeThreadId of [undefined, 'thread-1']) {
+        const args = buildCodexExecArgs({
+          cwd: 'C:/work', model: 'm', platform: 'win32', windowsSandboxUnset: true,
+          ...(permissionMode ? { permissionMode } : {}), ...(resumeThreadId ? { resumeThreadId } : {}),
+        });
+        expect(has(args), `${permissionMode}/${resumeThreadId}`).toBe(true);
+      }
+    }
+  });
+
+  it('사용자가 정해 뒀거나(판정 false) 판정을 못 했으면(미전달) 손대지 않는다 — elevated 를 낮추지 않는다', () => {
+    expect(has(buildCodexExecArgs({ cwd: 'C:/work', model: 'm', platform: 'win32', windowsSandboxUnset: false }))).toBe(false);
+    expect(has(buildCodexExecArgs({ cwd: 'C:/work', model: 'm', platform: 'win32' }))).toBe(false);
+  });
+
+  it('읽기 전용·전면 허용 모드에는 싣지 않는다 — 쓰기 샌드박스를 요청한 턴만의 문제다', () => {
+    for (const permissionMode of ['plan', 'dontAsk', 'bypassPermissions']) {
+      expect(has(buildCodexExecArgs({ cwd: 'C:/work', model: 'm', platform: 'win32', windowsSandboxUnset: true, permissionMode }))).toBe(false);
+    }
+  });
+
+  it('mac·linux 에는 이 키가 없다 — 판정이 와도 싣지 않는다', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(has(buildCodexExecArgs({ cwd: '/work', model: 'm', platform, windowsSandboxUnset: true, permissionMode: 'default' }))).toBe(false);
+    }
+  });
+});
+
 describe('extractFileWrites — 캔버스 파일 버블은 사후에만 흘린다', () => {
   it('완료된 file_change 의 경로를 뽑는다', () => {
     const line =

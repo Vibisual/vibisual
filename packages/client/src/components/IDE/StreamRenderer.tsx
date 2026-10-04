@@ -54,6 +54,7 @@ import {
 import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 import { describeCommandError, parseStreamErrorContent } from './commandError.js';
+import { TransportRecoveryLine } from './TransportRecoveryLine.js';
 import {
   applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText, COMPACT_TEXT_CLAMP_MD,
   turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
@@ -67,7 +68,8 @@ import {
   type StreamDensity,
 } from '@vibisual/shared';
 import { useVirtuosoFrontShift } from './frontShift.js';
-import { lastPassedIndex, owningCommandId, VIEWED_TOP_MARGIN } from './streamViewedCommand.js';
+import { lastPassedIndex, owningCommandId } from './streamViewedCommand.js';
+import { measureViewportItems, probePromptPlace, samePromptOutline, settleItemAtTop, PROMPT_JUMP_TOP_GAP, type PromptProbe, type PromptRailEntry } from './promptRail.js';
 import { olderHistoryBoundary, reachesHistoryBoundary, requestOlderStreamHistory } from './streamHistory.js';
 import { readingItemAttrs } from './reading/readingModel.js';
 
@@ -106,6 +108,11 @@ interface StreamRendererProps {
    * 올 때마다 0 으로 되감긴다. 활동 시각은 무응답 판정에만 쓴다.
    */
   sessionTurnStartedAt?: number | null;
+  /**
+   * §5.5 #17-24 ⑥ — CLI 가 이 세션을 접는 중이면 그 시작 시각(`useSessionLivenessFacts().compactingSince`,
+   * 메인 탭과 같은 값). 라이브 1줄이 넷째 모드(`압축 중`)로 바뀌고 무응답으로 뒤집지 않는다.
+   */
+  sessionCompactingSince?: number | null;
   /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
   /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
@@ -137,6 +144,11 @@ interface StreamRendererProps {
    * 추종 의도 저장·StreamStatusBar 판정에 쓴다(옛 수동 scrollTop 비교·제스처 추적을 대체).
    */
   onAtBottomChange?: (atBottom: boolean) => void;
+  /**
+   * §5.5 #17-48 — 내 입력 레일이 그릴 **입력 목록**(이 목록의 명령 말풍선, 위→아래 순서).
+   * 목록이 실제로 바뀔 때만 부른다(스트리밍 토큰마다 부모를 다시 그리지 않게).
+   */
+  onPromptOutline?: (prompts: readonly PromptRailEntry[]) => void;
 }
 
 /** §5.5 #17-7 — 북마크 "이동" 시 부모(IDEMainArea)가 호출하는 명령형 핸들. */
@@ -174,6 +186,16 @@ export interface StreamRendererHandle {
   indexOfItemId: (id: string) => number;
   /** 자료 순번 `index` 의 항목 윗변을 스크롤러 윗변에서 `offsetPx` 아래에 둔다. */
   scrollToItemIndex: (index: number, offsetPx: number) => void;
+  /**
+   * §5.5 #17-48 — 내 입력 레일이 묻는 지금 자리: 화면 맨 위 항목이 속한 입력 · 그 말풍선에 서 있는가 ·
+   * 화면 안의 마지막 입력 · 바닥인가. 측정은 `viewedCommandId` 와 **같은 함수**라 상태바와 레일이 같은 턴을 가리킨다.
+   * 잴 것이 없으면(래퍼 없음 · 측정과 데이터가 어긋난 프레임) `null`.
+   */
+  promptProbe: () => PromptProbe | null;
+  /** §5.5 #17-48 — 항목 하나(내 입력 말풍선)를 화면 위에서 16px 아래로 **즉시** 옮기고 짧게 빛낸다. */
+  jumpToItem: (itemId: string) => void;
+  /** §5.5 #17-48 — 목록 맨 위(첫 항목)로 즉시. 거기가 복원 창의 윗끝이면 그 앞 과거를 불러온다. */
+  jumpToTop: () => void;
 }
 
 // ─── 마크다운 커스텀 렌더러 ───
@@ -528,6 +550,9 @@ const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: Markdo
  *  §5.5 #17-12 — 밀도 변환 뒤의 표시 아이템(묶음 포함)을 받는다. */
 const streamItemId = displayItemId;
 
+/** §5.5 #17-12 · #17-48 — 내 입력(명령 말풍선) 항목인가. 상태바 추종과 입력 레일이 같은 술어를 쓴다. */
+const isCommandItem = (it: StreamDisplayItem): boolean => it.kind === 'command';
+
 /** v3.17 — 리스트 끝 여백(px): 마지막 줄이 하단 입력부 경계에 딱 붙어 걸려 보이지 않게.
  *  virtuoso Footer 로 렌더해 리스트(scrollHeight)의 일부가 되므로 DOM 워치독 바닥 접착과 자연히 호환
  *  (스크롤러 padding 은 virtuoso 측정과 어긋나므로 금지). Sub 탭·메인 탭 공용. */
@@ -863,6 +888,7 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
 
 /** system 메시지 — SDK subtype([task_started] 등)은 깔끔한 칩, 그 외 임의 본문은 텍스트 폴백 */
 function SystemLine({ item, density }: { item: StreamSystem; density?: StreamDensity }): React.JSX.Element {
+  if (item.transportRecovery) return <TransportRecoveryLine recovery={item.transportRecovery} content={item.content} />;
   const subtype = parseSystemSubtype(item.content);
   // §5.5 #17-13 ⑤-3 — 작업 칩이면 payload(이름·결과·소요 시간)를 함께 넘긴다(없으면 종전 모양).
   if (subtype) return <SystemNode subtype={subtype} task={parseSystemTaskInfo(item.content)} />;
@@ -1051,8 +1077,8 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 
 // ─── 메인 렌더러 ───
 
-/** §5.5 #17-24 ② — 라이브 1줄의 두 라벨(모드로 고른다). */
-interface LiveLabels { thinking: string; working: string; waiting: string }
+/** §5.5 #17-24 ② — 라이브 1줄의 라벨(모드로 고른다 — ⑤ 대기 · ⑥ 압축 중까지 넷). */
+interface LiveLabels { thinking: string; working: string; waiting: string; compacting: string }
 
 /**
  * §4 (스트림 3종 ①) — **중첩 서브에이전트(Task)가 한 말**을 감싸는 껍데기.
@@ -1120,7 +1146,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
     // §2.4 (무응답) — 마지막 이벤트 시각을 함께 넘겨 "얼마나 조용한지"를 그 줄이 직접 판정하게 한다.
     // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터다(줄이 와도 되감기지 않는다).
-    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} turnStartedAt={item.turnStartedAt} hiddenTurn={item.hiddenTurn === true} />; break;
+    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} turnStartedAt={item.turnStartedAt} hiddenTurn={item.hiddenTurn === true} compactingSince={item.compactingSince ?? null} />; break;
     // §5.5 #17-39 — 끝난 사고 런이 그 자리에 남긴 자국(원문 ❌ 시간·분량만).
     case 'step':     inner = <StepTraceBlock item={item} />; break;
     // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더 `작업 중` 배지).
@@ -1163,7 +1189,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
   );
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange, onPromptOutline }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
@@ -1171,8 +1197,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   const parserRef = useRef<IncrementalStreamParser | null>(null);
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
   const base = useMemo(
-    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt),
-    [events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt],
+    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince),
+    [events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince],
   );
   const merged = useMemo(
     () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
@@ -1269,6 +1295,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       // §5.5 #17-18 ⑪ — "작업 중"과 **다른 낱말**이어야 한다. 같은 말이면 사용자는 돌고 있는
       //   줄과 줄만 선 줄을 구별할 방법이 없다(그 혼동이 이 값이 생긴 사고다).
       waiting: t('ide.streamRenderer.waiting'),
+      // §5.5 #17-24 ⑥ — CLI 가 대화를 접는 동안. "생각 중"으로 적으면 그 몇 분이 사고로 읽힌다.
+      compacting: t('ide.streamRenderer.compacting'),
     }),
     [t],
   );
@@ -1383,17 +1411,44 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   // §5.5 #17-12 — 하단 상태바가 묻는 "지금 보고 있는 명령". 화면 맨 위를 채운 항목만 DOM 으로 재고
   //   (항목 래퍼 `data-stream-item-id` 는 위→아래 순서라 top 이 단조증가 → 이분 탐색), 그 항목이 속한
   //   명령은 items 배열로 거슬러 올라가 찾는다. 명령 블록이 선렌더 버퍼 밖이어도 정확히 나온다.
+  //   §5.5 #17-48 — 측정은 내 입력 레일과 **같은 함수**(글자 배율 아래에서도 어긋나지 않는 측정)다.
   const viewedCommandId = useCallback((): string | null => {
     const cont = scrollerElRef.current;
     if (!cont) return null;
-    const els = cont.querySelectorAll<HTMLElement>('[data-stream-item-id]');
-    if (els.length === 0) return null;
-    const contTop = cont.getBoundingClientRect().top;
-    const idx = lastPassedIndex(els.length, (i) => els[i]!.getBoundingClientRect().top - contTop, VIEWED_TOP_MARGIN);
-    // 하나도 못 지났으면 리스트 맨 위 — 렌더된 첫 항목이 곧 화면 맨 위다.
-    const topId = (idx >= 0 ? els[idx]! : els[0]!).dataset.streamItemId ?? null;
-    return owningCommandId(items, (it) => it.kind === 'command', topId);
+    const viewport = measureViewportItems(cont);
+    if (!viewport) return null;
+    return owningCommandId(items, isCommandItem, viewport.topId);
   }, [items]);
+  // §5.5 #17-48 — 내 입력 레일: 지금 자리 · 입력으로 즉시 옮기기 · 맨 위.
+  const promptProbe = useCallback((): PromptProbe | null => {
+    const cont = scrollerElRef.current;
+    if (!cont) return null;
+    const viewport = measureViewportItems(cont);
+    return viewport ? probePromptPlace(items, isCommandItem, viewport, streamItemId) : null;
+  }, [items]);
+  const jumpToItem = useCallback((itemId: string) => {
+    const idx = items.findIndex((it) => it.id === itemId);
+    if (idx < 0) return;
+    // 인덱스로 먼저 그리게 한 뒤(미렌더 항목도 간다) 추정 높이로 내려앉은 오차를 DOM 으로 맞춘다.
+    virtuosoRef.current?.scrollToIndex({ index: idx, align: 'start', offset: -PROMPT_JUMP_TOP_GAP });
+    settleItemAtTop(() => scrollerElRef.current, itemId);
+  }, [items]);
+  const jumpToTop = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start' });
+  }, []);
+  // 입력 목록이 실제로 바뀔 때만 부모에 알린다 — 콜백이 바뀌면(세션 전환) 같은 목록이어도 다시 알린다.
+  const promptOutlineSentRef = useRef<{ cb: (p: readonly PromptRailEntry[]) => void; list: readonly PromptRailEntry[] } | null>(null);
+  useEffect(() => {
+    if (!onPromptOutline) return;
+    const list: PromptRailEntry[] = [];
+    for (const it of items) {
+      if (it.kind === 'command') list.push({ id: it.id, text: it.prompt, at: it.submittedAt });
+    }
+    const sent = promptOutlineSentRef.current;
+    if (sent && sent.cb === onPromptOutline && samePromptOutline(sent.list, list)) return;
+    promptOutlineSentRef.current = { cb: onPromptOutline, list };
+    onPromptOutline(list);
+  }, [items, onPromptOutline]);
   const getState = useCallback((cb: (snap: StateSnapshot) => void) => {
     virtuosoRef.current?.getState(cb);
   }, []);
@@ -1409,7 +1464,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   const scrollToItemIndex = useCallback((index: number, offsetPx: number) => {
     virtuosoRef.current?.scrollToIndex({ index, align: 'start', offset: -offsetPx });
   }, []);
-  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId, indexOfItemId, scrollToItemIndex }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId, indexOfItemId, scrollToItemIndex]);
+  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId, indexOfItemId, scrollToItemIndex, promptProbe, jumpToItem, jumpToTop }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds, viewedCommandId, indexOfItemId, scrollToItemIndex, promptProbe, jumpToItem, jumpToTop]);
 
   if (items.length === 0) {
     return (

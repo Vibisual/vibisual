@@ -121,7 +121,6 @@ import type {
 } from '@vibisual/shared';
 import {
   resolveAutoCompact,
-  autoCompactThresholdTokens,
   INSURANCE_COMPACT_TIMEOUT_MS,
   INSURANCE_COMPACT_VERDICT_MS,
   INSURANCE_LIST_PAGE_SIZE,
@@ -176,10 +175,23 @@ import { extractBashReadPaths } from './bashReadPaths.js';
 import { extractBashWritePaths, BASH_WRITE_PATH_LIMIT, BASH_WRITE_PENDING_MAX } from '@vibisual/shared';
 // §2.1 #3 — 편집 계열 도구 입력 모양은 shared 한 곳만 안다(클라 `IDE/diffTool.ts` 와 같은 파서).
 import { EDIT_INPUT_TOOLS, parseEditToolObject, joinEditHunks } from '@vibisual/shared';
-import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, resolvePreviewUrl, isProbeCommand, isVibisualLauncherCommand, isVibisualOwnPort } from './processChecker.js';
+import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, resolvePreviewUrl, isProbeCommand, isVibisualLauncherCommand, isVibisualOwnPort, urlHostname } from './processChecker.js';
 import { takeoverPortCommand } from './portTakeover.js';
-// §7.11 — iframe 위성 **생성** 경로의 프로젝트 격리 문(v1.48 이 생사 경로에만 세워 둔 문).
-import { resolvePortOrigin, shouldAttachServer, type ProcessStartInfo } from './serverOrigin.js';
+// §7.11 — iframe 위성의 프로젝트 격리 문(생성 입구·생사 sweep·제어·열어 둔 탭이 같은 판정을 쓴다).
+import type { IframeTabVerdict } from '@vibisual/shared';
+import {
+  judgeIframeSatellite,
+  judgeIframeTab,
+  originForHost,
+  originOfListeners,
+  readPortOwnership,
+  singleProcessOwnership,
+  type IframeVerdict,
+  type PortOwnership,
+  type PortOwnershipLookup,
+  type ProcessStartInfo,
+  type ServerEvidence,
+} from './serverOrigin.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells, stripAnsi } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
 import { CostMapService } from './costMap.js';
@@ -782,6 +794,26 @@ function iframePortKey(url: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * §7.11 / §3.5 — "우리가 방금 띄웠다" 기록의 부팅 유예. 포트가 끝내 안 열리면 이만큼 뒤에 버린다
+ * (셸 출력 감시 상한 `MAX_POLL_DURATION_MS`(3분)와 같은 리듬 — 무거운 dev 서버의 기동 여유).
+ */
+const IFRAME_LAUNCH_CLAIM_BOOT_MS = 180_000;
+
+/**
+ * §7.11 / §3.5 — iframe 위성 입구(`createIframeSatellite`)의 판정 옵션.
+ * 판정이 비동기일 수 있어(다른 탭이 열려 있을 때의 새 위성) 짝 ServerEntry 등록을 호출부가 바로 잇지
+ * 않고 `onPlaced` 로 넘긴다 — 거절된 위성에 entry 만 남는 일을 막는다.
+ */
+interface IframeSatelliteGate {
+  /** 이 위성의 우리 쪽 증거. 생략 = `launch`(백그라운드 셸 경로들 — 우리 셸이 띄웠다). */
+  evidence?: ServerEvidence;
+  /** 위성이 서 있게 됐을 때(새로 만들었거나 이미 있었을 때) — 인자 = 위성 주소. */
+  onPlaced?: (url: string) => void;
+  /** 소속 판정이 서지 않아 만들지 않았을 때. */
+  onRejected?: () => void;
 }
 
 // §4 (설정 3층) — 도구 목록 백필은 shared `backfillAgentTools` 한 곳으로 옮겼다.
@@ -1426,6 +1458,25 @@ export class ProjectGraph {
    * URL 이 바뀌면 키도 바뀌어 다시 한 번 확인한다. 영속 대상 ❌(파생 판정).
    */
   private iframePreviewCheckedAt = new Map<string, number>();
+  /**
+   * §7.11 / §3.5 — **우리가 방금 띄웠다**는 기록. 키 = 위성 path(`__special__iframe__{세션}__{포트}`).
+   * owning shell 이 아직 붙지 않은 위성(PreToolUse 직후 — shellId 는 PostToolUse·rehydrate 가 늦게 채운다)과
+   * Vibisual 이 respawn 한 서버(v2.23 이 shellId 를 비운다)는 셸로 증거를 댈 수 없어, 상대경로로 띄운
+   * 우리 서버(`node serve.js` → 판정 `unknown`)가 격리 sweep 에 걷힌다. 그 자리를 이 기록이 메운다.
+   * 서버가 한 번 살아난 뒤 죽으면 지운다(그 포트에 새로 선 서버는 다시 증명해야 한다). 영속 대상 ❌.
+   */
+  private iframeLaunchClaims = new Map<string, { at: number; seenAlive: boolean }>();
+  /**
+   * §7.11 / §3.5 — `launch` 증거가 묶인 리스너 pid(처음 본 것). 키 = 위성 path.
+   * 한 포트에 주인이 둘일 수 있다 — 묶인 pid 가 아직 살아 있는데 위성 주소가 다른 pid 에 닿으면
+   * 그건 남이 같은 포트를 다른 주소로 겹쳐 묶은 것이다(`launchEvidenceHolds`). 영속 대상 ❌.
+   */
+  private iframeBoundPids = new Map<string, number[]>();
+  /**
+   * §7.11 — 소속 판정이 진행 중인 새 위성의 포트(→ 진행 중 개수). 짝 ServerEntry 는 판정 뒤에 서므로,
+   * 그 사이 생사 sweep 의 orphan 정리가 먼저 선 entry(PreToolUse 의 `registerServerPort`)를 지우지 않게 한다.
+   */
+  private pendingIframePorts = new Map<number, number>();
   /**
    * §7.11 — 오너 에이전트 키 → {실제 워커 claude 세션 → 그 워커 cwd} 매핑.
    * 커스텀/서브 에이전트는 agents 맵·sessionCwds 에 커스텀 키(`custom-…`)로 저장되지만,
@@ -4963,8 +5014,10 @@ export class ProjectGraph {
             ?? extractPortFromInlineEval(s.command)
             ?? extractPortFromScriptFile(s.command, scanCwd);
           if (inlinePort) {
-            this.createIframeSatellite(sessionId, s.command, inlinePort, s.shellId);
-            this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, inlinePort);
+            // §3.5 — 짝 ServerEntry 는 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에) 등록한다.
+            this.createIframeSatellite(sessionId, s.command, inlinePort, s.shellId, undefined, false, undefined, {
+              onPlaced: () => this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, inlinePort),
+            });
             continue;
           }
 
@@ -4975,9 +5028,12 @@ export class ProjectGraph {
           this.shellWatcher.start(s.shellId, s.outputPath, (port) => {
             let log = '';
             try { log = fs.readFileSync(s.outputPath, 'utf8'); } catch { /* ignore */ }
-            this.createIframeSatellite(sessionId, s.command, port, s.shellId, log);
-            this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, port);
-            this.onSnapshotChange?.();
+            this.createIframeSatellite(sessionId, s.command, port, s.shellId, log, false, undefined, {
+              onPlaced: () => {
+                this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, port);
+                this.onSnapshotChange?.();
+              },
+            });
           });
         }
       }
@@ -5163,11 +5219,16 @@ export class ProjectGraph {
             const sessionCwd = this.sessionCwds.get(payload.session_id) ?? payload.cwd;
             const marker = readDevServerMarker(sessionCwd);
             if (marker) {
-              this.createIframeSatellite(payload.session_id, cmd, marker.port, undefined, undefined, true);
-              this.createIframeSatellite(payload.session_id, cmd, marker.clientPort, undefined, 'vite', true);
-              // §7.11 v2.1 — foreground runserver(서버 재사용 시 즉시 종료)도 ServerEntry 등록 → ServerList 노출
-              this.registerServerPort(payload.session_id, cmd, marker.port, undefined, undefined, payload.tool_use_id);
-              this.registerServerPort(payload.session_id, cmd, marker.clientPort, undefined, undefined, payload.tool_use_id);
+              const sid = payload.session_id;
+              const toolUseId = payload.tool_use_id;
+              // §7.11 v2.1 — foreground runserver(서버 재사용 시 즉시 종료)도 ServerEntry 등록 → ServerList 노출.
+              // §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
+              this.createIframeSatellite(sid, cmd, marker.port, undefined, undefined, true, undefined, {
+                onPlaced: () => { this.registerServerPort(sid, cmd, marker.port, undefined, undefined, toolUseId); },
+              });
+              this.createIframeSatellite(sid, cmd, marker.clientPort, undefined, 'vite', true, undefined, {
+                onPlaced: () => { this.registerServerPort(sid, cmd, marker.clientPort, undefined, undefined, toolUseId); },
+              });
             }
           } else if (payload.tool_input?.['run_in_background'] === true) {
             // §7.11 v2.20 — probe 명령(curl/wget/nc 등)은 inline-cmd 단축 경로 skip.
@@ -5180,11 +5241,15 @@ export class ProjectGraph {
                 ?? extractPortFromInlineEval(cmd)
                 ?? extractPortFromScriptFile(cmd, sessionCwd);
               if (port) {
-                this.createIframeSatellite(payload.session_id, cmd, port, undefined, undefined, true);
+                const sid = payload.session_id;
+                const toolUseId = payload.tool_use_id;
                 // §7.11 v2.25 — iframe ↔ ServerEntry 대칭 보강: recordBashEntry 가 같은 port 를
                 // 못 잡았거나(별도 추출기 구성) 다른 갈래로 누락된 경우에도 1:1 invariant 유지.
                 // registerServerPort 는 같은 toolUseId 면 samePort 매치로 no-op (idempotent).
-                this.registerServerPort(payload.session_id, cmd, port, undefined, undefined, payload.tool_use_id);
+                // §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
+                this.createIframeSatellite(sid, cmd, port, undefined, undefined, true, undefined, {
+                  onPlaced: () => { this.registerServerPort(sid, cmd, port, undefined, undefined, toolUseId); },
+                });
               }
             }
           }
@@ -6092,6 +6157,8 @@ export class ProjectGraph {
               ...s,
               contextUsed: info.contextUsed,
               contextMax: info.contextMax,
+              // §4 (CLI 사양 추종) (5) 창 하한 — 화면이 스폰과 같은 함수로 실제 압축 창을 적는 근거(시작 문맥).
+              ...('firstContextUsed' in info && info.firstContextUsed > 0 ? { contextFloor: info.firstContextUsed } : {}),
               modelName: codexInfo?.modelName ?? s.modelName ?? info.modelName,
               ...(isCodex ? { reasoningEffort: codexInfo?.reasoningEffort } : {}),
               // §5.5 — **누적 토큰도 여기서 실어 준다.** `subAgentManager` 는 이 값을 명령이
@@ -8377,6 +8444,11 @@ export class ProjectGraph {
           sat.iframeDeadAt = undefined;
           changed = true;
         }
+        // §3.5 — shellId 를 비우면 owning shell 이라는 증거도 함께 사라진다. 우리가 방금 띄웠다는
+        //   기록을 대신 세운다(상대경로 명령 `node serve.js` 는 명령줄만으로 `unknown` 이라, 이게 없으면
+        //   다른 탭이 열려 있을 때 격리 sweep 이 우리 서버를 걷는다). 묶어 둔 pid 는 죽였으니 푼다.
+        this.noteIframeLaunchClaim(sat.path);
+        this.iframeBoundPids.delete(sat.path);
       }
     }
     return changed;
@@ -9447,12 +9519,11 @@ export class ProjectGraph {
       if (agent.trashed) continue;
       const cwd = this.sessionCwds.get(sessionId);
       if (!cwd) continue;
-      // §5.26 (F)(a) — 끔 여부만이 아니라 **정한 값 자체**가 필요하다(`overdue` 의 분모).
-      const resolvedAutoCompact = resolveAutoCompact(
+      // §5.26 (F) — 끔이면 `overdue` 를 띄우지 않는다. 분모는 모델 창이라 정한 값 자체는 필요 없다((F)(a) 2026-10-05).
+      const autoCompactOff = resolveAutoCompact(
         this.getAgentConfig(agent.id)?.autoCompact,
         userDefaultsService.get().agentConfig?.autoCompact,
-      );
-      const autoCompactOff = resolvedAutoCompact === 'off';
+      ) === 'off';
       // ① 버블 자신의 세션(훅 버블은 이것 하나뿐이다).
       if (!seen.has(sessionId)) {
         seen.add(sessionId);
@@ -9460,7 +9531,6 @@ export class ProjectGraph {
           ...(agent.id ? { agentId: agent.id } : {}),
           canSendCompact: agent.status === 'idle',
           autoCompactOff,
-          resolvedAutoCompact,
           running: agent.status === 'active' || agent.status === 'idle',
         });
         if (input) inputs.push(input);
@@ -9476,7 +9546,6 @@ export class ProjectGraph {
           //   하나만 돌아도 `active` 라, 그것으로 재면 멈춰 선 탭까지 벽으로 가는 중이 된다.
           canSendCompact: sub.status === 'idle',
           autoCompactOff,
-          resolvedAutoCompact,
           running: sub.status === 'active' || sub.status === 'idle',
         });
         if (input) inputs.push(input);
@@ -9497,13 +9566,11 @@ export class ProjectGraph {
     sessionId: string,
     cwd: string,
     owner: Pick<CompactWatchInput, 'canSendCompact' | 'autoCompactOff' | 'running'>
-      & { agentId?: string; subAgentId?: string; resolvedAutoCompact: string },
+      & { agentId?: string; subAgentId?: string },
   ): CompactWatchInput | null {
     let ctx: ReturnType<typeof readContextInfo> = null;
     try { ctx = readContextInfo(cwd, sessionId); } catch { ctx = null; }
     if (!ctx?.contextMax) return null; // 눈금을 모르면 넘겨짚지 않는다
-    // §5.26 (F)(a) — 접기로 한 선(끔이면 null · `'auto'` 면 그 모델의 창).
-    const autoCompactTokens = autoCompactThresholdTokens(owner.resolvedAutoCompact, ctx.contextMax);
     // §5.26 (F)(b) — 우리가 보낸 시각(있으면).
     const sentAt = this.compactSentBySession.get(sessionId);
     const marker = this.insuranceService.findLatestMarker(sessionId);
@@ -9524,9 +9591,6 @@ export class ProjectGraph {
       ...(owner.subAgentId ? { subAgentId: owner.subAgentId } : {}),
       contextUsed: ctx.contextUsed,
       contextMax: ctx.contextMax,
-      // §5.26 (F)(a) — `overdue` 의 분모. `'auto'` 면 창을 선으로 삼고, 끔이면 null 이라 실리지 않는다
-      //   (그 세션은 `autoCompactOff` 로 이미 걸러지므로 분모가 없어도 판정이 달라지지 않는다).
-      ...(autoCompactTokens !== null ? { autoCompactTokens } : {}),
       ...(marker ? { lastCompactAt: marker.at } : {}),
       ...(grown !== undefined ? { grownBytes: grown } : {}),
       ...(sentAt !== undefined ? { compactSentAt: sentAt } : {}),
@@ -11434,32 +11498,186 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 — **이 포트의 서버를 우리 캔버스에 붙여도 되는가.**
-   *
-   * v1.48 이 생사 판정(`checkIframesAlive`)에 세운 §3.5 격리 문을 **생성 경로**에도 세운 자리.
-   * 사용자 결정(2026-09-11)으로 **판정 불가(`unknown`)도 붙이지 않는다** — 종전엔 통과시켰고
-   * 그 구멍으로 남의 서버가 들어와 앱을 껐다 켜도 사라지지 않았다(`serverOrigin.ts` 참조).
-   * 못 읽은 것(`unresolved`)만 통과한다.
-   */
-  private async mayAttachServerPort(port: number): Promise<boolean> {
-    const foreign = this.foreignProjectRoots();
-    if (foreign.length === 0) return true;
-    const origin = await resolvePortOrigin(
-      port, this.ownProjectRoots(), foreign, HOST_PLATFORM, this.portOriginLookup,
-    );
-    return shouldAttachServer(origin);
-  }
-
-  /**
-   * 포트 점유 프로세스 조회의 주입점 — 기본은 `resolvePortOrigin` 안의 `takeoverPortCommand`.
+   * 포트 소유 사실 조회의 주입점 — 기본은 실제 OS(`readPortOwnership`: 리스너 + 주소 + 기동 정보).
    * `platform` 을 인자로 받는 것과 같은 이유로 열어 둔다: 실기·실서버 없이 세 OS 의 판정을
    * 단위 테스트로 지나가야 하고, 안에서 OS 도구를 직접 부르면 그 분기는 영영 검증되지 않는다.
    */
-  private portOriginLookup?: (p: number) => Promise<ProcessStartInfo | null>;
+  private portOwnershipLookup?: PortOwnershipLookup;
 
   /** 위 주입점 설정(테스트 전용 — 프로덕션 경로는 기본 조회를 쓴다). */
+  setPortOwnershipLookup(fn: PortOwnershipLookup): void {
+    this.portOwnershipLookup = fn;
+  }
+
+  /**
+   * 옛 주입점 — 포트당 프로세스 하나(주소 미상)만 돌려주는 조회. 주소를 가르지 않는 시험이 그대로
+   * 쓰도록 남긴 다리다(`singleProcessOwnership`: 그 프로세스가 모든 주소의 후보).
+   */
   setPortOriginLookup(fn: (p: number) => Promise<ProcessStartInfo | null>): void {
-    this.portOriginLookup = fn;
+    this.portOwnershipLookup = async (p) => singleProcessOwnership(await fn(p));
+  }
+
+  /** 포트의 소유 사실. 조회가 던지면 판정 불가(`null`) — 막지도 걷지도 않는다. */
+  private async portOwnershipOf(port: number): Promise<PortOwnership | null> {
+    try {
+      return await (this.portOwnershipLookup ?? readPortOwnership)(port);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * §7.11 / §3.5 — **이 주소를 이 캔버스의 위성으로 둬도 되는가.** 생성 입구 전부가 여기를 지난다
+   * (생사 sweep 은 같은 순수 판정 `judgeIframeSatellite` 를 포트별 조회 한 번으로 묶어 쓴다).
+   *
+   * 다른 탭이 하나도 안 열려 있으면 가를 대상이 없다 — 조회 없이 `keep`(혼자 쓰는 사용자의 프리뷰를
+   * 판정 비용으로 늦추지 않는다). `launch` 증거를 이번에 묶었으면 그 pid 를 기억한다.
+   */
+  private async judgeIframeUrl(
+    url: string,
+    port: number,
+    evidence: ServerEvidence,
+    satellitePath: string,
+  ): Promise<IframeVerdict> {
+    const foreignRoots = this.foreignProjectRoots();
+    if (foreignRoots.length === 0) return { action: 'keep', origin: 'unresolved' };
+    const ownRoots = this.ownProjectRoots();
+    const verdict = judgeIframeSatellite({
+      url,
+      ownership: await this.portOwnershipOf(port),
+      evidence,
+      boundPids: this.iframeBoundPids.get(satellitePath),
+      ownRoots,
+      foreignRoots,
+      platform: HOST_PLATFORM,
+    });
+    if (verdict.action !== 'reject' && verdict.bindPids) this.bindIframeListenerPids(satellitePath, verdict.bindPids);
+    return verdict;
+  }
+
+  /** `launch` 증거를 그 리스너 pid 에 묶는다(처음 본 것 / 재기동으로 바뀐 것). */
+  private bindIframeListenerPids(satellitePath: string, pids: number[]): void {
+    this.iframeBoundPids.set(satellitePath, pids);
+    capMapSize(this.iframeBoundPids, SESSION_KEYED_MAP_MAX);
+  }
+
+  /** "우리가 방금 띄웠다" 기록을 새로 세운다(PreToolUse·watcher·rehydrate·respawn). */
+  private noteIframeLaunchClaim(satellitePath: string): void {
+    this.iframeLaunchClaims.set(satellitePath, { at: Date.now(), seenAlive: false });
+    capMapSize(this.iframeLaunchClaims, SESSION_KEYED_MAP_MAX);
+  }
+
+  /** 위성이 사라질 때 그 위성에 딸린 증거 기록도 함께 버린다. */
+  private forgetIframeEvidence(satellitePath: string): void {
+    this.iframeLaunchClaims.delete(satellitePath);
+    this.iframeBoundPids.delete(satellitePath);
+  }
+
+  /**
+   * 위성의 우리 쪽 증거 — 살아 있는 owning shell 이 있거나 "방금 띄웠다" 기록이 있으면 `launch`.
+   * 둘 다 없으면 `observed`(감지·신고·클릭으로 들어왔거나, 셸이 이미 끝난 위성).
+   */
+  private iframeEvidenceOf(sat: BubbleData, activeShellIds: ReadonlySet<string>): ServerEvidence {
+    if (sat.shellId && activeShellIds.has(sat.shellId)) return 'launch';
+    return this.iframeLaunchClaims.has(sat.path) ? 'launch' : 'observed';
+  }
+
+  /** 판정 중인 새 위성의 포트 표식(+1/-1). */
+  private markIframePortPending(port: number, delta: 1 | -1): void {
+    const next = (this.pendingIframePorts.get(port) ?? 0) + delta;
+    if (next > 0) this.pendingIframePorts.set(port, next);
+    else this.pendingIframePorts.delete(port);
+  }
+
+  /** 이 포트를 여는 iframe 위성의 주소 호스트(없으면 null) — Stop/Restart·인계가 "그 주소의 리스너"를 고른다. */
+  private previewHostForPort(port: number): string | null {
+    for (const agent of this.agents.values()) {
+      for (const s of agent.persistSatellites ?? []) {
+        if (s.bubbleType !== 'iframe' || iframePortKey(s.url) !== String(port)) continue;
+        const host = urlHostname(s.url);
+        if (host) return host;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * §7.11 / §3.5 — Stop/Restart 가 **무엇을 죽여도 되는가.** 이 그래프의 ServerEntry 가 아니면 null.
+   *
+   * 포트 킬은 그 포트의 리스너를 트리째 죽인다 — 한 포트에 주인이 둘이면(옆 프로젝트 vite 가 `[::1]`,
+   * 우리 서버가 `::`) 프로젝트 A 의 Stop 이 B 의 서버까지 내린다. 그래서 ① 위성 주소의 호스트로
+   * **닿는 리스너만** 죽이게 하고(`host`) ② 닿는 리스너가 다른 열린 프로젝트의 것이면 아예 죽이지
+   * 않는다(`foreign`). 위성이 없는 entry 는 호스트를 몰라 포트 전체로 판정한다.
+   */
+  async serverControlScope(serverId: string): Promise<{ host?: string; foreign: boolean } | null> {
+    let entry: ServerEntry | undefined;
+    for (const entries of this.runningServers.values()) {
+      entry = entries.find((e) => e.id === serverId);
+      if (entry) break;
+    }
+    if (!entry) return null;
+    if (entry.port === undefined) return { foreign: false };
+    const port = entry.port;
+    const host = this.previewHostForPort(port) ?? (entry.reportedOnly ? urlHostname(entry.command) : null);
+    const foreignRoots = this.foreignProjectRoots();
+    if (foreignRoots.length === 0) return { ...(host ? { host } : {}), foreign: false };
+    const ownRoots = this.ownProjectRoots();
+    const ownership = await this.portOwnershipOf(port);
+    // 호스트를 모르면(위성 없는 entry) 포트의 리스너 전부를 본다 — 하나라도 남의 것이면 죽이지 않는다.
+    const origin = !ownership || ownership.listeners.length === 0
+      ? 'unresolved'
+      : host
+        ? originForHost(ownership, host, ownRoots, foreignRoots, HOST_PLATFORM)
+        : originOfListeners(ownership, ownership.listeners, ownRoots, foreignRoots, HOST_PLATFORM);
+    if (origin === 'foreign') {
+      logger.warn(`Server control refused (port ${String(port)}): the listener belongs to another open project`);
+    }
+    return { ...(host ? { host } : {}), foreign: origin === 'foreign' };
+  }
+
+  /**
+   * §7.11 / §3.5 — **이 프로젝트에서 연 프리뷰 탭**이 그 주소를 지금 보여 줘도 되는가.
+   *
+   * 탭은 연 순간의 주소를 들고 있고, 탭 목록은 프로젝트 탭과 상관없이 하나로 공유된다. 스냅샷은 창이
+   * 구독한 프로젝트만 싣기 때문에 B 를 보는 동안 A 에서 연 탭을 누르면 클라는 A 의 위성이 옮겨졌는지·
+   * 걷혔는지 모른다. 그 사이 A 의 서버가 내려가고 B 가 같은 주소를 잡으면 탭이 B 의 화면을 다시
+   * 불러온다 — 그래서 탭이 화면을 불러오기 직전에 여기 묻는다.
+   *
+   * ① 위성이 살아 있으면 **위성 주소가 기준**이다(서버가 판정해 둔 주소 — 옮겼으면 `follow`).
+   * ② 그 주소를 `judgeIframeTab` 으로 본다 — 남의 것이면 우리 서버에 닿는 별칭으로, 그것도 없으면 `block`.
+   * 다른 탭이 하나도 안 열려 있으면 가를 대상이 없다(조회 없이 통과).
+   */
+  async checkIframeTab(satelliteId: string | null, url: string): Promise<IframeTabVerdict> {
+    const target = (satelliteId ? this.iframeSatelliteUrl(satelliteId) : null) ?? url;
+    const pass = (): IframeTabVerdict => (target === url ? { action: 'show' } : { action: 'follow', url: target });
+    const port = iframePortKey(target);
+    const foreignRoots = this.foreignProjectRoots();
+    if (port === null || foreignRoots.length === 0) return pass();
+    const verdict = judgeIframeTab({
+      url: target,
+      ownership: await this.portOwnershipOf(Number(port)),
+      ownRoots: this.ownProjectRoots(),
+      foreignRoots,
+      platform: HOST_PLATFORM,
+    });
+    if (verdict.action === 'show') return pass();
+    if (verdict.action === 'block') logger.debug(`iframe tab held back (port ${port}): the address reaches another open project's server`);
+    return verdict;
+  }
+
+  /** 이 그래프의 iframe 위성 주소(위성 id 로). 없으면 null. */
+  private iframeSatelliteUrl(satelliteId: string): string | null {
+    for (const agent of this.agents.values()) {
+      for (const s of agent.persistSatellites ?? []) {
+        if (s.id === satelliteId && s.bubbleType === 'iframe' && s.url) return s.url;
+      }
+    }
+    return null;
+  }
+
+  /** Manager용: 이 경로가 이 그래프가 그리는 프로젝트(루트 + 등록된 프로젝트) 중 하나인가. */
+  ownsProjectPath(projectPath: string): boolean {
+    return this.ownProjectRoots().some((p) => samePath(p, projectPath));
   }
 
   /**
@@ -11479,7 +11697,8 @@ export class ProjectGraph {
    *
    * 오탐은 네 문으로 막는다: ① 우리 자신의 포트 제외(에이전트는 카드 엔드포인트를 계속 친다)
    * ② `isPortAlive` + `resolvePreviewUrl` 실응답 게이트 ③ (세션,포트)당 TTL probe 문
-   * ④ **프로젝트 격리**(`mayAttachServerPort`) — 다른 열린 프로젝트 안에서 도는 서버는
+   * ④ **프로젝트 격리**(위성 입구 `createIframeSatellite` 의 `observed` 판정 — 그 주소가 실제로 닿는
+   * 리스너로 가른다) — 다른 열린 프로젝트 안에서 도는 서버는
    * 그 주소가 우리 출력에 스쳤을 뿐이므로 붙이지 않는다. 이 문이 없으면 **문서를 grep 한
    * 출력**에 박힌 주소 하나로도 남의 프리뷰가 선다(실측: 옆 프로젝트의 vite 8080 이 vibisual
    * 캔버스에 등록). v1.48 이 생사 판정에만 세워 둔 §3.5 격리 문을 생성 경로에도 세운 것.
@@ -11526,14 +11745,17 @@ export class ProjectGraph {
         // 접는다(`resolvePreviewUrl`). `/game.html` 처럼 응답이 문서면 경로는 그대로 살아남는다.
         const servingUrl = await resolvePreviewUrl(rawUrl);
         if (!servingUrl || !this.agents.has(sessionId)) return;
-        // ④ 프로젝트 격리 — 우리 것이라는 판정이 서지 않으면 여기서 접는다.
-        if (!(await this.mayAttachServerPort(port))) return;
-        if (!this.agents.has(sessionId)) return; // 소유 조회 await 사이 재확인
         // fromNewBash=false — 이건 "새로 띄웠다"는 신호가 아니라 "여기 서버가 있더라"는 관찰이다.
         // 사용자가 지운 프리뷰가 그 다음 curl 한 번에 되살아나면 지운 의미가 없다.
-        this.createIframeSatellite(sessionId, command, port, undefined, output || undefined, false, servingUrl);
-        this.ensureReportedServerEntry(sessionId, servingUrl, port);
-        this.onSnapshotChange?.();
+        // ④ 프로젝트 격리 — 위성 입구가 `observed` 증거로 판정한다. 그 주소가 남의 리스너에 닿으면
+        //    만들지 않거나, 우리 서버에 닿는 별칭으로 바꿔 만든다(짝 ServerEntry 는 그 주소로).
+        this.createIframeSatellite(sessionId, command, port, undefined, output || undefined, false, servingUrl, {
+          evidence: 'observed',
+          onPlaced: (url) => {
+            this.ensureReportedServerEntry(sessionId, url, port);
+            this.onSnapshotChange?.();
+          },
+        });
       }).catch(() => { /* probe 실패 — 표시 전용이라 조용히 무시 */ });
     }
   }
@@ -11649,7 +11871,10 @@ export class ProjectGraph {
     }
     if (!target || target.reportedOnly !== true || target.port === undefined) return false;
 
-    const taken = await takeoverPortCommand(target.port);
+    // §7.11 / §3.5 — 위성이 여는 주소로 **닿는 리스너**에서 읽는다. 한 포트에 주인이 둘이면
+    //   (옆 프로젝트 vite 가 `[::1]`, 우리 서버가 `::`) 먼저 읽힌 pid 가 남의 서버일 수 있다.
+    const host = this.previewHostForPort(target.port) ?? urlHostname(target.command) ?? undefined;
+    const taken = await takeoverPortCommand(target.port, process.platform, host);
     // await 사이에 Stop/제거로 entry 가 사라졌을 수 있어 다시 찾는다.
     let live: ServerEntry | undefined;
     for (const entries of this.runningServers.values()) {
@@ -11733,20 +11958,22 @@ export class ProjectGraph {
         // 에이전트가 물어본 API 응답이 아니다(판정은 shared `previewUrlForServer` 한 곳).
         const servingUrl = alive ? await resolvePreviewUrl(rawUrl) : null;
         if (!this.agents.has(sessionId)) return; // HTTP probe await 사이 재확인
-        // §7.11 프로젝트 격리 — 신고·클릭이라도 **다른 열린 프로젝트 안에서 도는 서버**는
-        // 이 캔버스의 것이 아니다. 그 서버를 보려면 그 프로젝트 탭에서 열면 된다
-        // (v1.48 이 생사 판정에만 세워 둔 §3.5 문을 생성 경로에도).
-        if (servingUrl && !(await this.mayAttachServerPort(port))) {
-          logger.info(`agent-iframe: 이 프로젝트의 서버라는 판정이 서지 않음 — 위성 생성 보류 (${rawUrl.slice(0, 80)})`);
-          return;
-        }
-        if (!this.agents.has(sessionId)) return; // 소유 조회 await 사이 재확인
         if (servingUrl) {
-          this.createIframeSatellite(sessionId, servingUrl, port, undefined, undefined, true, servingUrl);
-          // §7.11 v3.85 — 위성만 만들고 끝내면 매칭 ServerEntry 가 없어 IframeServerCard 의
-          // Restart/Stop 이 통째로 disabled 된다(v2.21 strict 1:1 의 반대 방향 orphan).
-          this.ensureReportedServerEntry(sessionId, servingUrl, port);
-          this.onSnapshotChange?.();
+          // §7.11 프로젝트 격리 — 신고·클릭이라도 **다른 열린 프로젝트 안에서 도는 서버**는
+          // 이 캔버스의 것이 아니다. 그 서버를 보려면 그 프로젝트 탭에서 열면 된다. 판정은 위성
+          // 입구 한 곳이 `observed` 증거로 한다(그 주소가 실제로 닿는 리스너로 가른다).
+          this.createIframeSatellite(sessionId, servingUrl, port, undefined, undefined, true, servingUrl, {
+            evidence: 'observed',
+            // §7.11 v3.85 — 위성만 만들고 끝내면 매칭 ServerEntry 가 없어 IframeServerCard 의
+            // Restart/Stop 이 통째로 disabled 된다(v2.21 strict 1:1 의 반대 방향 orphan).
+            onPlaced: (url) => {
+              this.ensureReportedServerEntry(sessionId, url, port);
+              this.onSnapshotChange?.();
+            },
+            onRejected: () => {
+              logger.info(`agent-iframe: 이 프로젝트의 서버라는 판정이 서지 않음 — 위성 생성 보류 (${rawUrl.slice(0, 80)})`);
+            },
+          });
         } else if (retriesLeft > 0) {
           setTimeout(() => tryCreate(retriesLeft - 1), 1500);
         } else {
@@ -11764,6 +11991,13 @@ export class ProjectGraph {
    * @param fromNewBash true면 dismissed 집합을 해제하고 재생성 허용 (사용자가 Bash로
    *   서버를 새로 시작한 경우). false면 dismissed에 포함된 포트는 skip
    *   (shell watcher 로그 / rehydrate 경로).
+   *
+   * §7.11 / §3.5 — **입구는 전부 여기 하나다**(백그라운드 셸·PreToolUse·rehydrate·watcher·runserver
+   * 마커·감지 폴백·신고/클릭). 다른 탭이 열려 있으면 **새** 위성은 소속 판정(`judgeIframeUrl`)을 거친
+   * 뒤에 선다 — 종전엔 감지·신고 두 입구에만 문이 있어, 셸 로그의 `Port 8080 is in use` 한 줄이나
+   * 남의 포트를 가리킨 명령으로도 남의 프리뷰가 섰다. 짝 ServerEntry 는 `gate.onPlaced` 에서
+   * 등록한다(판정이 비동기라 호출부가 바로 이어 등록하면 거절된 위성의 entry 가 남는다).
+   * 다른 탭이 없거나 이미 있는 위성이면 종전처럼 즉시 처리한다(같은 틱에 `onPlaced`).
    */
   private createIframeSatellite(
     sessionId: string,
@@ -11775,6 +12009,60 @@ export class ProjectGraph {
     /** §7.11 v2.29 — 에이전트가 신고한 정확한 URL(경로·쿼리 포함). 있으면 기본 `http://localhost:{port}`
      *  대신 이 값을 위성 url 로 쓴다(사용자가 원하던 바로 그 페이지가 프리뷰로 열리게). */
     displayUrl?: string,
+    /** §7.11 / §3.5 — 증거 종류(생략 = `launch`: 우리 셸 경로) + 짝 ServerEntry 등록 자리. */
+    gate: IframeSatelliteGate = {},
+  ): void {
+    const iframeKey = `__special__iframe__${sessionId}__${port}`;
+    const agent = this.agents.get(sessionId);
+    if (!agent) return;
+    // 사용자가 지웠고 새 Bash 도 아니면 재생성 금지 — 판정 전에 본다(조회 비용도 아낀다).
+    if (!fromNewBash && this.dismissedIframes.get(sessionId)?.has(port)) return;
+
+    const evidence = gate.evidence ?? 'launch';
+    const exists = agent.persistSatellites?.some((s) => s.path === iframeKey) === true;
+    // 이미 있는 위성은 생사 sweep 이 같은 판정으로 돌본다 — 셸 경로는 수 초마다 이 자리를 지나므로
+    // 여기서 다시 묻지 않는다. 다른 탭이 없으면 가를 대상이 없다.
+    if (exists || this.foreignProjectRoots().length === 0) {
+      this.placeIframeSatellite(sessionId, command, port, shellId, logText, fromNewBash, displayUrl, evidence, gate);
+      return;
+    }
+
+    const url = displayUrl ?? `http://localhost:${port}`;
+    this.markIframePortPending(port, 1);
+    void this.judgeIframeUrl(url, port, evidence, iframeKey)
+      .then((verdict) => {
+        if (verdict.action === 'reject') {
+          const why = verdict.origin === 'foreign' ? '다른 프로젝트의 서버' : '이 프로젝트의 서버라는 판정이 서지 않음';
+          logger.info(`iframe 위성 보류(§3.5, port ${String(port)}): ${why} — ${url}`);
+          gate.onRejected?.();
+          return;
+        }
+        if (!this.agents.has(sessionId)) return; // 판정 await 사이 재확인
+        if (verdict.action === 'repoint') {
+          logger.info(`iframe 위성 주소 교정(§3.5, port ${String(port)}): ${url} → ${verdict.url} — 원래 주소는 다른 프로젝트의 서버에 닿는다`);
+        }
+        const finalUrl = verdict.action === 'repoint' ? verdict.url : displayUrl;
+        this.placeIframeSatellite(sessionId, command, port, shellId, logText, fromNewBash, finalUrl, evidence, gate);
+        this.onSnapshotChange?.();
+      })
+      .catch(() => { /* 판정 실패 — 표시 전용이라 조용히 무시 */ })
+      .finally(() => { this.markIframePortPending(port, -1); });
+  }
+
+  /**
+   * 위성을 실제로 세운다 — 판정을 마친 뒤, 또는 판정이 필요 없을 때(`createIframeSatellite` 의 옛 본문).
+   * 위성이 서 있게 되면(새로 만들었거나 이미 있었으면) `gate.onPlaced` 를 그 주소로 부른다.
+   */
+  private placeIframeSatellite(
+    sessionId: string,
+    command: string,
+    port: number,
+    shellId: string | undefined,
+    logText: string | undefined,
+    fromNewBash: boolean,
+    displayUrl: string | undefined,
+    evidence: ServerEvidence,
+    gate: IframeSatelliteGate,
   ): void {
     const iframeKey = `__special__iframe__${sessionId}__${port}`;
 
@@ -11789,6 +12077,8 @@ export class ProjectGraph {
       // 사용자가 지웠고 새 Bash도 아니면 재생성 금지
       return;
     }
+    // §3.5 — 우리 셸이 방금 띄웠다는 기록. owning shell 이 붙기 전(PreToolUse)에도 우리 서버로 읽힌다.
+    if (evidence === 'launch' && fromNewBash) this.noteIframeLaunchClaim(iframeKey);
 
     if (!agent.persistSatellites) agent.persistSatellites = [];
 
@@ -11810,9 +12100,13 @@ export class ProjectGraph {
       // §7.11 v2.29 — 에이전트가 명시 URL(경로 포함)을 신고했으면 표시 URL 을 그걸로 갱신한다.
       //   감지 폴백이 먼저 `http://localhost:{port}`(경로 없음)로 만들었어도, 신고가 오면
       //   사용자가 원하던 바로 그 페이지(예: /mirror-engine-autoplay.html)로 덮어써 프리뷰가 맞게 열린다.
-      if (displayUrl) existing.url = displayUrl;
       // 같은 URL을 가진 다른 에이전트의 오래된 iframe은 제거 (이 에이전트로 이동)
-      if (existing.url) this.dedupeIframeSatellitesByUrl(existing.url, sessionId);
+      if (displayUrl && displayUrl !== existing.url) {
+        this.applyIframeDisplayUrl(sessionId, existing, displayUrl, port, evidence);
+      } else if (existing.url) {
+        this.dedupeIframeSatellitesByUrl(existing.url, sessionId);
+      }
+      gate.onPlaced?.(existing.url ?? displayUrl ?? `http://localhost:${port}`);
       return;
     }
 
@@ -11836,6 +12130,40 @@ export class ProjectGraph {
     logger.info(`iframe satellite created: ${url} (${kind}) → Bash ${sessionId} shell=${shellId ?? '-'}`);
     // 같은 URL을 가진 다른 에이전트의 iframe은 제거 (가장 최근 실행한 이 에이전트만 유지)
     this.dedupeIframeSatellitesByUrl(url, sessionId);
+    gate.onPlaced?.(url);
+  }
+
+  /**
+   * 이미 선 위성의 표시 주소를 신고된 주소로 바꾼다(§7.11 v2.29 — 신고가 오면 그 페이지로).
+   *
+   * §3.5 — 다른 탭이 열려 있고 **호스트 별칭이 바뀌면** 판정 뒤에 바꾼다. 생사 sweep 이 남의 리스너를
+   * 피해 `127.0.0.1` 로 옮겨 둔 위성을, `localhost` 로 들어온 신고 한 번이 도로 남의 화면으로 돌려놓으면
+   * 신고가 올 때마다 남의 화면 ↔ 우리 화면을 오간다. 판정이 별칭을 고르므로 경로는 살리고 호스트만 지킨다.
+   */
+  private applyIframeDisplayUrl(
+    sessionId: string,
+    sat: BubbleData,
+    displayUrl: string,
+    port: number,
+    evidence: ServerEvidence,
+  ): void {
+    if (this.foreignProjectRoots().length === 0 || urlHostname(sat.url) === urlHostname(displayUrl)) {
+      sat.url = displayUrl;
+      this.dedupeIframeSatellitesByUrl(displayUrl, sessionId);
+      return;
+    }
+    const satEvidence: ServerEvidence = this.iframeLaunchClaims.has(sat.path) ? 'launch' : evidence;
+    void this.judgeIframeUrl(displayUrl, port, satEvidence, sat.path)
+      .then((verdict) => {
+        if (verdict.action === 'reject') return;
+        const next = verdict.action === 'repoint' ? verdict.url : displayUrl;
+        // 판정 await 사이 위성이 지워졌으면 건드리지 않는다.
+        if (this.agents.get(sessionId)?.persistSatellites?.includes(sat) !== true || sat.url === next) return;
+        sat.url = next;
+        this.dedupeIframeSatellitesByUrl(next, sessionId);
+        this.onSnapshotChange?.();
+      })
+      .catch(() => { /* 표시 전용 */ });
   }
 
   /**
@@ -11980,11 +12308,14 @@ export class ProjectGraph {
       const sessionCwd = this.sessionCwds.get(sessionId) ?? payload.cwd;
       const marker = readDevServerMarker(sessionCwd);
       if (marker) {
-        this.createIframeSatellite(sessionId, command, marker.port, parsed.shellId, undefined, true);
-        this.createIframeSatellite(sessionId, command, marker.clientPort, parsed.shellId, 'vite', true);
-        // §7.11 v2.1 — server·client 두 포트 각각 ServerEntry 등록 (ServerList ↔ iframe 1:1)
-        this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, marker.port);
-        this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, marker.clientPort);
+        // §7.11 v2.1 — server·client 두 포트 각각 ServerEntry 등록 (ServerList ↔ iframe 1:1).
+        // §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
+        this.createIframeSatellite(sessionId, command, marker.port, parsed.shellId, undefined, true, undefined, {
+          onPlaced: () => this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, marker.port),
+        });
+        this.createIframeSatellite(sessionId, command, marker.clientPort, parsed.shellId, 'vite', true, undefined, {
+          onPlaced: () => this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, marker.clientPort),
+        });
         return;
       }
     }
@@ -11997,8 +12328,10 @@ export class ProjectGraph {
       ?? extractPortFromInlineEval(command)
       ?? extractPortFromScriptFile(command, cwdForScript);
     if (inlinePort) {
-      this.createIframeSatellite(sessionId, command, inlinePort, parsed.shellId, undefined, true);
-      this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, inlinePort);
+      // §3.5 — 짝 ServerEntry 는 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에) 등록한다.
+      this.createIframeSatellite(sessionId, command, inlinePort, parsed.shellId, undefined, true, undefined, {
+        onPlaced: () => this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, inlinePort),
+      });
       return;
     }
 
@@ -12007,10 +12340,13 @@ export class ProjectGraph {
     this.shellWatcher.start(parsed.shellId, parsed.outputPath, (port) => {
       let log = '';
       try { log = fs.readFileSync(parsed.outputPath, 'utf8'); } catch { /* ignore */ }
-      this.createIframeSatellite(sessionId, command, port, parsed.shellId, log, true);
-      // 포트 감지 = 서버 증명 → 엔트리 생성 or port/shellId 백필
-      this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, port);
-      this.onSnapshotChange?.();
+      this.createIframeSatellite(sessionId, command, port, parsed.shellId, log, true, undefined, {
+        // 포트 감지 = 서버 증명 → 엔트리 생성 or port/shellId 백필(§3.5 — 소속 판정을 통과한 뒤에)
+        onPlaced: () => {
+          this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, port);
+          this.onSnapshotChange?.();
+        },
+      });
     });
   }
 
@@ -12027,9 +12363,11 @@ export class ProjectGraph {
     for (const agent of this.agents.values()) {
       if (!agent.persistSatellites) continue;
       const before = agent.persistSatellites.length;
-      agent.persistSatellites = agent.persistSatellites.filter(
+      const kept = agent.persistSatellites.filter(
         (s) => !(s.bubbleType === 'iframe' && s.shellId === shellId),
       );
+      for (const s of agent.persistSatellites) if (!kept.includes(s)) this.forgetIframeEvidence(s.path);
+      agent.persistSatellites = kept;
       if (agent.persistSatellites.length < before) removed = true;
     }
     // ServerEntry 비활성 처리
@@ -12064,57 +12402,94 @@ export class ProjectGraph {
    * 실측(2026-09-11): vibisual 캔버스에 옆 프로젝트 둘의 3456 과 8080 이 박힌 채
    * 앱을 껐다 켤 때마다 체크포인트에서 되살아났고, 정작 두 주인 탭의 iframe 위성은 0개였다.
    *
-   * 걷는 기준은 생성 문과 **같은 함수**다(`mayAttachServerPort`) — 두 경로의 기준이 갈리면
+   * 걷는 기준은 생성 입구와 **같은 판정**이다(`judgeIframeSatellite`) — 두 경로의 기준이 갈리면
    * 한쪽만 고쳐져 이 버그가 재발한다(v3.69 가 남긴 교훈이 세 번째로 적용되는 자리다).
-   * **고정핀(`preservePinned`)은 건드리지 않는다** — 사용자가 명시적으로 붙들어 둔 것이라면
-   * 그 판단이 우리 판정보다 위다(§7.11 v2.4 와 같은 예외).
+   * **고정핀(`preservePinned`)은 걷지 않는다** — 사용자가 명시적으로 붙들어 둔 것이라면
+   * 그 판단이 우리 판정보다 위다(§7.11 v2.4 와 같은 예외). 주소 교정은 고정핀도 받는다.
    * 죽은 위성은 여기서 보지 않는다 — 포트가 닫힌 서버는 소속과 무관하게 grace 가 걷는다.
+   *
+   * 2026-10-01 — 판정 단위가 (포트)에서 (위성 주소 → 그 주소가 닿는 리스너)로 바뀌었다. 한 포트에
+   * 주인이 둘이면(옆 프로젝트 vite 가 `[::1]`, 우리 서버가 `::`) `localhost` 위성은 남의 화면을 보여
+   * 주고 있다 — 우리 서버에 닿는 별칭이 있으면 걷지 않고 그리로 옮기고(`repoint`), 없으면 걷는다.
+   * 증거는 위성마다 다르다: 살아 있는 owning shell·방금 띄운 기록 = `launch`, 그 밖 = `observed`.
+   *
+   * @param activeShellIds 이 그래프 세션들의 살아 있는 background shell — `launch` 증거의 출처.
    */
   private async evictDisownedIframeSatellites(
     results: readonly { t: { port: number }; portAlive: boolean }[],
+    activeShellIds: ReadonlySet<string> = new Set(),
   ): Promise<boolean> {
     // 다른 프로젝트가 하나도 안 열려 있으면 가를 대상이 없다 — 조회 자체를 건너뛴다.
-    if (this.foreignProjectRoots().length === 0) return false;
+    const foreignRoots = this.foreignProjectRoots();
+    if (foreignRoots.length === 0) return false;
 
     const livePorts = new Set<number>();
     for (const { t, portAlive } of results) if (portAlive) livePorts.add(t.port);
     if (livePorts.size === 0) return false;
 
-    const ports = [...livePorts];
-    const verdicts = await Promise.all(ports.map((p) => this.mayAttachServerPort(p)));
-    const disowned = new Set<number>();
-    ports.forEach((p, i) => { if (!verdicts[i]) disowned.add(p); });
-    if (disowned.size === 0) return false;
+    // 포트당 조회 한 번 — 같은 포트의 위성 여럿이 각자 OS 를 묻지 않게.
+    const ownershipByPort = new Map<number, PortOwnership | null>();
+    await Promise.all([...livePorts].map(async (p) => { ownershipByPort.set(p, await this.portOwnershipOf(p)); }));
+    const ownRoots = this.ownProjectRoots();
+
+    // `iframePortKey` 는 **문자열**을 돌려준다(host alias·경로·쿼리를 접어 주는 대신) —
+    // 숫자 집합과 바로 비교하면 영원히 안 맞는다.
+    const portOf = (s: BubbleData): number | null => {
+      const key = iframePortKey(s.url);
+      return key === null ? null : Number(key);
+    };
 
     let changed = false;
     const evictedPorts = new Set<number>();
     for (const agent of this.agents.values()) {
       if (!agent.persistSatellites) continue;
-      // `iframePortKey` 는 **문자열**을 돌려준다(host alias·경로·쿼리를 접어 주는 대신) —
-      // 숫자 집합과 바로 비교하면 영원히 안 맞는다.
-      const portOf = (s: BubbleData): number | null => {
-        const key = iframePortKey(s.url);
-        return key === null ? null : Number(key);
-      };
-      const evicted = agent.persistSatellites.filter((s) => {
-        if (s.bubbleType !== 'iframe' || s.preservePinned === true) return false;
+      const evicted: BubbleData[] = [];
+      for (const s of agent.persistSatellites) {
+        if (s.bubbleType !== 'iframe' || !s.url) continue;
         const port = portOf(s);
-        return port !== null && disowned.has(port);
-      });
+        if (port === null || !livePorts.has(port)) continue;
+        const verdict = judgeIframeSatellite({
+          url: s.url,
+          ownership: ownershipByPort.get(port) ?? null,
+          evidence: this.iframeEvidenceOf(s, activeShellIds),
+          boundPids: this.iframeBoundPids.get(s.path),
+          ownRoots,
+          foreignRoots,
+          platform: HOST_PLATFORM,
+        });
+        if (verdict.action !== 'reject' && verdict.bindPids) this.bindIframeListenerPids(s.path, verdict.bindPids);
+        if (verdict.action === 'repoint') {
+          logger.info(`iframe 위성 주소 교정(§3.5): ${s.url} → ${verdict.url} — 원래 주소는 다른 프로젝트의 서버에 닿는다`);
+          s.url = verdict.url;
+          changed = true;
+          continue;
+        }
+        if (verdict.action === 'reject' && s.preservePinned !== true) evicted.push(s);
+      }
       if (evicted.length === 0) continue;
       agent.persistSatellites = agent.persistSatellites.filter((s) => !evicted.includes(s));
       changed = true;
       for (const s of evicted) {
         const port = portOf(s);
         if (port !== null) evictedPorts.add(port);
+        this.forgetIframeEvidence(s.path);
         logger.info(`iframe 위성 격리 제거(§3.5): 이 프로젝트의 서버가 아님 — ${s.url ?? s.path}`);
       }
     }
 
     // 짝이 되는 ServerEntry 도 함께 걷는다(v2.21 strict 1:1 — 위성 없는 entry 는 orphan).
+    // 같은 포트를 여는 위성이 이 그래프에 아직 남아 있으면(다른 세션 · 주소를 교정해 둔 것) 그 짝은 둔다.
     if (evictedPorts.size > 0) {
+      const stillOpen = new Set<number>();
+      for (const agent of this.agents.values()) {
+        for (const s of agent.persistSatellites ?? []) {
+          if (s.bubbleType !== 'iframe') continue;
+          const port = portOf(s);
+          if (port !== null) stillOpen.add(port);
+        }
+      }
       for (const [sid, entries] of this.runningServers) {
-        const kept = entries.filter((e) => e.port === undefined || !evictedPorts.has(e.port));
+        const kept = entries.filter((e) => e.port === undefined || !evictedPorts.has(e.port) || stillOpen.has(e.port));
         if (kept.length !== entries.length) this.runningServers.set(sid, kept);
       }
     }
@@ -12182,6 +12557,15 @@ export class ProjectGraph {
       // shellId 없는 레거시 위성은 port-only 동작 유지(후방호환).
       const shellOk = t.shellId ? activeShellIds.has(t.shellId) : true;
       const alive = portAlive && shellOk;
+      // §3.5 — "우리가 방금 띄웠다" 기록의 수명: 서버가 한 번 살아난 뒤 죽으면 버린다(그 포트에 새로
+      //   선 서버는 다시 증명해야 한다). 끝내 안 살아나면 부팅 유예 뒤에 버린다.
+      const claim = this.iframeLaunchClaims.get(target.path);
+      if (claim) {
+        if (portAlive) claim.seenAlive = true;
+        else if (claim.seenAlive || Date.now() - claim.at > IFRAME_LAUNCH_CLAIM_BOOT_MS) {
+          this.iframeLaunchClaims.delete(target.path);
+        }
+      }
       if (target.iframeAlive !== alive) {
         target.iframeAlive = alive;
         // SSOT: 생사에 따라 status도 동기화 — 클라는 이 값을 그대로 렌더
@@ -12217,7 +12601,8 @@ export class ProjectGraph {
 
     // §7.11 / §3.5 — **이미 박힌 남의 서버는 여기서 걷힌다.** 생성 문만 고치면 체크포인트에
     //   굳은 위성은 그대로 남는다(바로 아래 URL 정규화가 같은 이유로 서 있는 자리다).
-    if (await this.evictDisownedIframeSatellites(results)) changed = true;
+    //   살아 있는 owning shell 집합을 함께 넘긴다 — 우리 셸이 띄운 서버(`launch` 증거)를 가르는 출처다.
+    if (await this.evictDisownedIframeSatellites(results, activeShellIds)) changed = true;
     // §7.11 — 이미 떠 있는 위성의 표시 URL 을 **한 번씩** 다시 판정한다(고침, self-healing).
     //   옛 판본의 감지 폴백은 주운 주소를 통째로 실었기 때문에, 에이전트가 확인차 친 API 경로가
     //   그대로 프리뷰 주소로 굳어 체크포인트에 남았다(사용자 보고: "iframe 버블인데 계속
@@ -12241,6 +12626,9 @@ export class ProjectGraph {
           }
         }
       }
+      // §3.5 — 소속 판정이 진행 중인 새 위성의 포트는 아직 위성이 없어도 orphan 이 아니다
+      //   (짝 entry 가 먼저 선 경로 — PreToolUse 의 `registerServerPort` — 를 판정 도중에 지우지 않게).
+      for (const port of this.pendingIframePorts.keys()) iframePorts.add(port);
       for (const [sid, entries] of this.runningServers) {
         const before = entries.length;
         const kept = entries.filter((e) => e.port !== undefined && iframePorts.has(e.port));
@@ -12285,6 +12673,7 @@ export class ProjectGraph {
       agent.persistSatellites = agent.persistSatellites.filter((s) => !expired.includes(s));
       changed = true;
       for (const s of expired) {
+        this.forgetIframeEvidence(s.path);
         logger.info(`iframe satellite auto-removed (dead > ${IFRAME_DEAD_GRACE_MS}ms): ${s.url ?? s.path}`);
       }
       if (expiredPorts.size > 0) {

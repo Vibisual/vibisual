@@ -2337,6 +2337,12 @@ export interface SubAgent {
   /** 모델 최대 컨텍스트 (토큰) */
   contextMax?: number;
   /**
+   * §4 (CLI 사양 추종) (5) 창 하한 — 이 세션의 **시작 문맥**(첫 응답의 문맥 크기, 토큰). `contextUsed` 와
+   * 같은 자리(스냅샷 조립)에서 JSONL 로 매번 다시 잰다 — 영속하지 않는다. 화면은 이 값으로 스폰과 같은
+   * 함수(`applyAutoCompactFloor`)를 불러 실제로 실리는 압축 창을 적는다.
+   */
+  contextFloor?: number;
+  /**
    * §2.4 (잠듦) — 유휴가 길어 **이 세션의 claude 자식 프로세스를 회수한 상태**.
    * 상태 유니온(`status`)은 건드리지 않는다(회수된 세션은 `idle`) — 화면 표시용 직교 축이다.
    * 다음 명령이 나가면 스폰 시점에 걷히고, `sessionId` 로 `--resume` 되어 대화가 이어진다.
@@ -2384,6 +2390,13 @@ export interface SubAgent {
   probe?: SessionLivenessProbeResult;
   /** 지금 그 판정을 물어보는 중인가 — 화면에 "확인 중"을 곧바로 세우기 위한 런타임 플래그. */
   probing?: boolean;
+  /**
+   * §5.5 #17-24 ⑥ — CLI 가 이 세션을 **지금 접는 중**이면 그 시작 시각(ms). 라이브 1줄의 넷째 모드
+   * (`압축 중`)와 그 경과의 근거다. 세우고 걷는 곳은 서버 한 곳(`noteCompactionLine` — 스트림
+   * `status:"compacting"`·`compact_boundary`, 훅 `PreCompact`·`PostCompact`, 자식 종료)이다.
+   * 런타임 표식이라 영속하지 않는다 — 부팅 직후에는 접는 자식 자체가 없다(`mergeSnapshot` 이 걷는다).
+   */
+  compactingSince?: number;
   /**
    * §2.4 (한도 정지) — 이 세션이 **요금제 한도에 닿아 끊긴 채 아직 다시 돌지 않았다**.
    * `status` 유니온은 건드리지 않는다 — '잠듦'(`dormant`)·'막힘'(`blocked`)과 같은 **직교 플래그**다.
@@ -4481,7 +4494,27 @@ export interface ClosedTabEntry {
   url?: string;
   /** `kind: 'iframe'` — 되열 때 그대로 복원할 서버 종류(탭 배지 색). */
   serverKind?: ServerKind;
+  /**
+   * `kind: 'iframe'` — 그 프리뷰를 **연 프로젝트의 절대경로**. 되연 탭도 화면을 불러오기 전에 이
+   * 프로젝트 기준으로 소속을 묻는다(§7.11 / §3.5 — 그 사이 같은 주소를 다른 프로젝트 서버가 잡았으면
+   * 열지 않는다). 없으면(옛 항목) 위성 id 로만 찾는다.
+   */
+  projectPath?: string;
 }
+
+/**
+ * §7.11 / §3.5 — 열어 둔 프리뷰 탭이 그 주소를 지금 보여 줘도 되는가(`GET /api/iframe-tab-check` 응답).
+ *
+ * 탭 목록은 프로젝트 탭과 상관없이 하나로 공유되고, 스냅샷은 창이 구독한 프로젝트만 싣는다. 그래서
+ * B 를 보는 동안 A 에서 연 탭을 누르면 클라는 A 의 위성을 볼 수 없다 — 탭이 서버에 직접 묻는다.
+ * - `show` — 그대로 보여 준다(우리 서버 · 주인 미상 · 못 읽음 — 판정 불가로 막지 않는다).
+ * - `follow` — 그 주소 대신 `url` 을 연다(서버가 위성을 옮겼거나, 같은 포트의 우리 서버에 닿는 별칭).
+ * - `block` — 그 주소는 지금 **다른 열린 프로젝트의 서버**에 닿는다. 열지 않는다.
+ */
+export type IframeTabVerdict =
+  | { action: 'show' }
+  | { action: 'follow'; url: string }
+  | { action: 'block' };
 
 /** AppState 부분 업데이트 페이로드 — PATCH /api/app-state 요청 본문. `updatedAt`은 서버가 채움. */
 export type AppStatePatch = Partial<Pick<AppState, 'lastActiveProject' | 'defaultProject' | 'pinnedProjects' | 'openProjects'>>;
@@ -4839,7 +4872,10 @@ export interface AgentQuestionItem {
   question: string;
   /** 선택: 짧은 헤더 라벨 (질문 요지). */
   header?: string;
-  /** 제안 응답 프롬프트 목록 (0~N). 각각 복사 박스 + 복사/즉시전송 버튼. 비어도 됨(직접 답변 입력). */
+  /**
+   * 제안 응답 프롬프트 목록 — 사용자가 골라 보내는 카드의 본체라 규칙은 질문마다 2~4개를 요구한다.
+   * 각각 복사 박스 + 복사/즉시전송 버튼. 서버는 빈 배열도 받는다(옛 카드·규칙 위반) — 그때는 접힌 직접 입력만 남는다.
+   */
   prompts: string[];
 }
 
@@ -8003,6 +8039,11 @@ export interface ActiveContiWork {
 /** SubAgent 실시간 스트림 이벤트 — 서버가 stream-json을 파싱하여 WS로 전송 */
 export type StreamEventType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'system' | 'error' | 'result';
 
+/** Codex CLI recovery progress parsed from diagnostics, without changing terminal status. */
+export type CodexTransportNotice =
+  | { kind: 'reconnecting'; attempt: number; maxAttempts: number }
+  | { kind: 'fallback' };
+
 export interface SubAgentStreamEvent {
   /** 이벤트 ID (중복 방지) */
   id: string;
@@ -9582,7 +9623,7 @@ export interface CodexModelCatalog {
   error?: string;
 }
 
-/** §5.25 (G-2) — 코덱스 설정 파일 한 겹에서 읽은 값 중 **우리 설정 창과 겹치는 키만**. 없는 키는 생략. */
+/** §5.25 (G-2) — 코덱스 설정 파일 한 겹에서 읽은 값 중 **우리 설정 창과 겹치는 키 + 스폰 판정에 쓰는 키만**. 없는 키는 생략. */
 export interface CodexConfigLayerValues {
   /** `model_reasoning_effort` */
   reasoningEffort?: string;
@@ -9592,6 +9633,11 @@ export interface CodexConfigLayerValues {
   webSearch?: string;
   /** `sandbox_workspace_write.network_access` */
   networkAccess?: boolean;
+  /**
+   * `[windows] sandbox` — 설정 창의 칸이 아니라 **스폰 판정용**이다. Windows 에서 이 키가 어느 겹에도 없으면
+   * 코덱스는 `-s workspace-write` 를 읽기 전용으로 내려 돌린다(0.159.2 실측). 적혀 있으면 우리는 손대지 않는다.
+   */
+  windowsSandbox?: string;
 }
 
 /**

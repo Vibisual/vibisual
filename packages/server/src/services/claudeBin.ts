@@ -137,21 +137,78 @@ function vscodeExtensionDirs(): string[] {
 }
 
 /**
- * **한 `extensions` 디렉터리 안**의 확장 번들 실행본 — 최신 버전 먼저.
- * 정렬: 디렉터리 안에서 semver 내림차순(`.sort().pop()` 와 동일 의미로 최신이 앞).
- * 확장 번들 레이아웃: `<ext>/resources/native-binary/claude(.exe)` — OS 무관 동일.
+ * §4 (실행본 자가 복구) — VS Code 가 **폐기 표시한** 확장 폴더 이름(소문자) 집합.
+ *
+ * VS Code(와 그 변종)는 확장을 갱신할 때 새 버전 폴더를 깔고, 밀려난 옛 폴더는 그 자리에서 지우지 않고
+ * `<extensions>/.obsolete`(`{"<폴더 이름>": true}`)에 적어 두었다가 **다음 시작 때** 지운다. 그 사이
+ * 옛 폴더의 실행본은 멀쩡히 남아 있으므로, "폴더가 사라지면 승계" 만으로는 갱신을 따라가지 못한다
+ * (실측 2026-10-04: 10-03 19:52 에 2.1.288 이 깔리며 2.1.285 가 폐기 표시됐는데, 이튿날에도 앱은
+ * 새 에이전트를 전부 2.1.285 로 띄우고 있었다).
+ *
+ * 사용자 홈의 로컬 파일을 읽기만 한다 — 네트워크·남의 토큰·실행본 문자열과 무관하다(법적 안전선).
+ * 키를 소문자로 접는 것은 경로가 아니라 **확장 식별자**라서다(VS Code 도 확장 id 를 대소문자 없이 비교한다).
+ * 파일이 없거나 깨졌으면 빈 집합 — 종전 동작(폴더가 있으면 산 것)으로 돌아간다.
  */
-function listExtensionBinsIn(extensionsDir: string): string[] {
+function readObsoleteExtensionFolders(extensionsDir: string): Set<string> {
+  const out = new Set<string>();
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(extensionsDir, '.obsolete'), 'utf-8')) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [folderName, flagged] of Object.entries(parsed as Record<string, unknown>)) {
+        if (flagged) out.add(folderName.toLowerCase());
+      }
+    }
+  } catch {
+    /* 없음/깨짐 — 폐기 표시 없음 */
+  }
+  return out;
+}
+
+/** 확장 폴더 이름(`anthropic.claude-code-<ver>[-<platform>]`)의 숫자 버전 마디 — 못 읽으면 null. */
+function extensionFolderVersion(folderName: string): number[] | null {
+  const ver = /^(\d+(?:\.\d+)*)/.exec(folderName.slice(EXT_DIR_PREFIX.length))?.[1];
+  return ver ? ver.split('.').map(Number) : null;
+}
+
+/**
+ * 확장 폴더 정렬 — **버전 숫자** 내림차순(최신이 앞).
+ *
+ * 종전 `.sort().reverse()` 는 문자열 비교라 `2.1.99` 를 `2.1.288` 보다, `2.1.999` 를 `2.1.1000` 보다
+ * 새것으로 봤다 — 버전 자릿수가 바뀌는 갱신 때마다 옛 번들을 고른다. 버전이 같으면(플랫폼 접미사만
+ * 다름) 종전처럼 이름 내림차순.
+ */
+function compareExtensionFoldersNewestFirst(a: string, b: string): number {
+  const va = extensionFolderVersion(a);
+  const vb = extensionFolderVersion(b);
+  if (va && vb) {
+    for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+      const d = (vb[i] ?? 0) - (va[i] ?? 0);
+      if (d !== 0) return d;
+    }
+  } else if (va || vb) {
+    return va ? -1 : 1; // 버전을 읽을 수 있는 쪽이 앞
+  }
+  return a < b ? 1 : a > b ? -1 : 0;
+}
+
+/**
+ * **한 `extensions` 디렉터리 안**의 확장 번들 실행본 — 최신 버전 먼저.
+ * 확장 번들 레이아웃: `<ext>/resources/native-binary/claude(.exe)` — OS 무관 동일.
+ *
+ * 기본은 **살아 있는 번들만** 돌려준다 — VS Code 가 폐기 표시한(`.obsolete`) 폴더는 갱신으로 밀려난
+ * 옛 버전이라 디스크에 남아 있어도 고르지 않는다. `obsolete=true` 면 거꾸로 폐기 표시된 것만(최후 수단용).
+ */
+function listExtensionBinsIn(extensionsDir: string, obsolete = false): string[] {
   let entries: string[];
   try {
     entries = fs.readdirSync(extensionsDir);
   } catch {
     return []; // 해당 IDE 미설치
   }
+  const doomed = readObsoleteExtensionFolders(extensionsDir);
   const matches = entries
-    .filter((d) => d.startsWith(EXT_DIR_PREFIX))
-    .sort()
-    .reverse(); // 최신 버전 먼저
+    .filter((d) => d.startsWith(EXT_DIR_PREFIX) && doomed.has(d.toLowerCase()) === obsolete)
+    .sort(compareExtensionFoldersNewestFirst);
   const out: string[] = [];
   for (const m of matches) {
     const bin = path.join(extensionsDir, m, 'resources', 'native-binary', BIN_FILE);
@@ -162,43 +219,54 @@ function listExtensionBinsIn(extensionsDir: string): string[] {
 
 /**
  * VS Code(및 변종) 확장이 번들한 claude 바이너리 — **모든** 매칭 반환(버전·IDE 별 다수 가능).
+ * `obsolete` 의 뜻은 `listExtensionBinsIn` 과 같다(기본 = 살아 있는 번들만).
  */
-function listVscodeExtensionBins(): string[] {
+function listVscodeExtensionBins(obsolete = false): string[] {
   const out: string[] = [];
-  for (const extDir of vscodeExtensionDirs()) out.push(...listExtensionBinsIn(extDir));
+  for (const extDir of vscodeExtensionDirs()) out.push(...listExtensionBinsIn(extDir, obsolete));
   return out;
 }
 
-/** VS Code(및 변종) 확장이 번들한 claude 바이너리 절대경로 — 없으면 null (최신 우선). */
+/** VS Code(및 변종) 확장이 번들한 claude 바이너리 절대경로 — 없으면 null (최신 우선, 폐기 표시 제외). */
 function findVscodeExtensionBin(): string | null {
   return listVscodeExtensionBins()[0] ?? null;
 }
 
 /**
- * 확장 번들 실행본 경로에서 그것을 담고 있는 `extensions` 디렉터리를 되짚는다 — 아니면 null.
- * `<extensions>/anthropic.claude-code-<ver>/resources/native-binary/claude(.exe)` → `<extensions>`
+ * 확장 번들 실행본 경로를 `extensions` 디렉터리와 확장 폴더 이름으로 나눈다 — 아니면 null.
+ * `<extensions>/anthropic.claude-code-<ver>/resources/native-binary/claude(.exe)`
+ *   → `{ extensionsDir: <extensions>, folderName: anthropic.claude-code-<ver> }`
  */
-function extensionsDirOf(binPath: string): string | null {
+function locateExtensionFolder(binPath: string): { extensionsDir: string; folderName: string } | null {
   const parts = path.resolve(binPath).split(path.sep);
   const i = parts.findIndex((seg) => seg.toLowerCase().startsWith(EXT_DIR_PREFIX));
-  if (i <= 0) return null;
-  return parts.slice(0, i).join(path.sep);
+  const folderName = parts[i];
+  if (i <= 0 || !folderName) return null;
+  return { extensionsDir: parts.slice(0, i).join(path.sep), folderName };
+}
+
+/** 확장 번들 실행본이 VS Code 의 폐기 표시(`.obsolete`) 대상인가 — 확장 번들이 아니면 false. */
+function isObsoleteExtensionBin(binPath: string): boolean {
+  if (!path.isAbsolute(binPath) || classifyClaudeBinSource(binPath) !== 'vscode-extension') return false;
+  const loc = locateExtensionFolder(binPath);
+  return loc != null && readObsoleteExtensionFolders(loc.extensionsDir).has(loc.folderName.toLowerCase());
 }
 
 /**
  * §4 (실행본 자가 복구) — **확장 자동 갱신 승계**.
  *
- * VS Code 는 확장을 갱신할 때 **새 버전 폴더를 만들고 옛 폴더를 통째로 지운다**
- * (`anthropic.claude-code-2.1.234-…` → `anthropic.claude-code-2.1.235-…`). 그래서 사용자가
- * Version 탭에서 고른 override 가 하루아침에 없는 경로가 된다. 그 선택은 "이 확장 번들을
- * 쓰겠다"는 뜻이지 "그 버전 숫자를 쓰겠다"가 아니므로, **같은 `extensions` 디렉터리의 최신
- * 번들**로 이어 준다. 승계할 게 없으면 null → 호출 측이 자동 우선순위로 폴백한다.
+ * VS Code 는 확장을 갱신할 때 **새 버전 폴더를 만들고 옛 폴더를 밀어낸다**
+ * (`anthropic.claude-code-2.1.234-…` → `anthropic.claude-code-2.1.235-…`). 옛 폴더는 곧바로 지워지거나,
+ * `.obsolete` 에 폐기 표시만 된 채 VS Code 다음 시작까지 남는다. 어느 쪽이든 사용자가 Version 탭에서
+ * 고른 override 는 밀려난 번들이 된다. 그 선택은 "이 확장 번들을 쓰겠다"는 뜻이지 "그 버전 숫자를
+ * 쓰겠다"가 아니므로, **같은 `extensions` 디렉터리의 살아 있는 최신 번들**로 이어 준다.
+ * 승계할 게 없으면 null → 호출 측이 판단한다(사라졌으면 자동 우선순위로 폴백, 폐기 표시만이면 그대로 사용).
  */
 export function succeedStaleExtensionOverride(override: string): string | null {
   if (classifyClaudeBinSource(override) !== 'vscode-extension') return null;
-  const extDir = extensionsDirOf(override);
-  if (!extDir) return null;
-  const next = listExtensionBinsIn(extDir)[0];
+  const loc = locateExtensionFolder(override);
+  if (!loc) return null;
+  const next = listExtensionBinsIn(loc.extensionsDir)[0];
   if (!next) return null;
   return normalizeForDedup(next) === normalizeForDedup(override) ? null : next;
 }
@@ -314,6 +382,8 @@ export function discoverAllClaudeBins(): ClaudeBinCandidate[] {
   // 우선순위와 같은 순서라, 목록 첫 줄이 곧 "지금 활성일 가능성이 가장 높은 것"이 된다.
   const nativeBin = findNativeBin();
   if (nativeBin) push(nativeBin, 'native');
+  // 폐기 표시(`.obsolete`)된 확장 번들은 올리지 않는다 — 고르는 즉시 같은 확장의 새 번들로 승계되니
+  // 고를 수 없는 선택지다. 그래도 그것이 지금 활성이면 `getClaudeInstallsInfo` 가 목록 앞에 보강한다.
   for (const bin of listVscodeExtensionBins()) push(bin, 'vscode-extension');
   for (const c of pathAndKnownCandidates()) push(c, classifyClaudeBinSource(c));
 
@@ -331,23 +401,27 @@ export function discoverAllClaudeBins(): ClaudeBinCandidate[] {
  *  0) **사용자 override** (`UserDefaults.claudeBinPath`) — 옵션창 Version 탭에서 명시 선택. 파일 존재 검증
  *     통과 시 최우선. 경로 패턴으로 출처 분류. 파일이 사라졌으면 자동 폴백(아래 1~4).
  *     확장 번들을 계속 쓰려는 사용자는 여기서 고른다 — 선택지를 없애는 변경이 아니다.
+ *     확장 번들이 사라졌거나 VS Code 가 폐기 표시(`.obsolete`)했으면 같은 확장의 새 번들로 승계한다.
  *  1) **공식 네이티브 인스톨러 설치본**(`~/.local/bin` · `~/.claude/local`) → 'native'.
  *     우리 앱이 깔고(`claudeSetupService`) 우리가 `<bin> update` 로 갱신할 수 있는 유일한 출처라
  *     자동으로 골랐을 때 버전 관리가 끊기지 않는다.
  *  2) VS Code(및 Insiders/VSCodium/Remote/Cursor/Windsurf) 확장 번들 바이너리 → 'vscode-extension'.
  *     마켓플레이스 밖에서 갱신 ❌ 라 네이티브가 있으면 그쪽을 쓴다.
  *  3) PATH / 알려진 네이티브·패키지 설치 위치의 절대경로 → 'path'
+ *  3') VS Code 가 폐기 표시(`.obsolete`)한 확장 번들 → 'vscode-extension' — 다른 설치본이 하나도 없을 때만.
  *  4) 모두 실패해도 'claude' 문자열 반환(spawn 이 ENOENT 던지게) + source='path'(낙관)
  *     → `claudeVersionService` 가 `--version` 검증 실패 시 'unknown' 으로 격하한다.
  */
 export function resolveClaudeBin(): ClaudeBinInfo {
   const override = readClaudeBinOverride();
   if (override) {
-    if (isUsableBin(override)) {
+    const usable = isUsableBin(override);
+    if (usable && !isObsoleteExtensionBin(override)) {
       return { binPath: override, source: classifyClaudeBinSource(override) };
     }
-    // §4 (실행본 자가 복구) — 확장이 자동 갱신되어 override 폴더가 사라진 경우: 같은 확장의
-    //   최신 번들로 승계하고, 사용자의 선택이 계속 유효하도록 저장된 경로도 새 것으로 되쓴다.
+    // §4 (실행본 자가 복구) — 확장이 자동 갱신되어 override 번들이 밀려난 경우(폴더가 지워졌거나,
+    //   `.obsolete` 에 폐기 표시만 된 채 남아 있거나): 같은 확장의 최신 번들로 승계하고, 사용자의
+    //   선택이 계속 유효하도록 저장된 경로도 새 것으로 되쓴다.
     //   (되쓰지 않으면 Version 탭의 `selected` 판정이 갱신 때마다 어긋난다.)
     const successor = succeedStaleExtensionOverride(override);
     if (successor) {
@@ -355,6 +429,9 @@ export function resolveClaudeBin(): ClaudeBinInfo {
       persistClaudeBinOverride(successor);
       return { binPath: successor, source: 'vscode-extension' };
     }
+    // 폐기 표시만 됐고 이을 번들이 없으면(확장 제거 대기 등) 사용자가 고른 그대로 쓴다 —
+    //   폴더가 실제로 지워지면 그때 아래 자동 우선순위로 넘어간다.
+    if (usable) return { binPath: override, source: classifyClaudeBinSource(override) };
   }
 
   const native = findNativeBin();
@@ -365,6 +442,11 @@ export function resolveClaudeBin(): ClaudeBinInfo {
 
   const found = findOnPathOrKnownLocations();
   if (found) return { binPath: found, source: 'path' };
+
+  // 폐기 표시된 확장 번들은 최후 수단 — VS Code 가 곧 지울 폴더라 다른 설치본이 하나라도 있으면 그쪽을
+  // 쓰지만, 이것밖에 없을 때 bare 'claude'(= ENOENT) 로 떨어뜨리면 아직 도는 실행본을 버리게 된다.
+  const doomed = listVscodeExtensionBins(true)[0];
+  if (doomed) return { binPath: doomed, source: 'vscode-extension' };
 
   // 낙관적 폴백 — bare 'claude'. spawn PATH 해석에 맡기고, --version 검증 실패 시 호출 측이 'unknown' 격하.
   return { binPath: 'claude', source: 'path' };
@@ -389,16 +471,28 @@ export function resolveClaudeBin(): ClaudeBinInfo {
 // (2026-08-19): `2.1.234` → `2.1.235` 교체 후 모든 spawn 이 `ENOENT`(Windows libuv `-4058`) 로
 // 죽었고 **앱을 껐다 켜기 전에는 복구되지 않았다.** 그래서 캐시를 돌려주기 전에 그 경로가
 // 아직 있는지 확인한다(stat 1회 — spawn 비용에 비하면 무시할 수준).
+//
+//   ④ §4 (실행본 자가 복구) — **캐시가 가리키는 확장 번들에 VS Code 가 폐기 표시(`.obsolete`)를 했을 때**
+//
+// ④ 는 ③ 의 사각이다: VS Code 는 밀려난 옛 폴더를 바로 지우지 않고 `.obsolete` 에 적어 두었다가 다음
+// 시작 때 지운다. 그 사이 파일은 멀쩡히 있으니 ③ 은 발동하지 않고 앱은 옛 버전으로 계속 띄운다.
+// 실측(2026-10-04): 2.1.288 이 깔리며 2.1.285 가 폐기 표시된 이튿날에도 새 spawn 이 전부 2.1.285 였다.
 
 let cachedBin: ClaudeBinInfo | null = null;
-/** `cachedBin` 을 해석한 시각 — 낙관적 폴백(`'claude'`)의 재탐색 간격 판정에만 쓴다. */
+/** `cachedBin` 을 해석한 시각 — 낙관적 폴백(`'claude'`)·최후 수단 번들의 재탐색 간격 판정에만 쓴다. */
 let cachedAt = 0;
+/** `cachedBin` 이 해석 시점에 이미 폐기 표시된 번들이었나(= 다른 설치본이 없어 최후 수단으로 고른 것). */
+let cachedObsolete = false;
 
 /** 캐시된 해석 결과가 **아직 그 자리에 있는가**. */
 function isCachedBinStillThere(info: ClaudeBinInfo, now: number): boolean {
   // 낙관적 폴백(bare `'claude'`)은 stat 할 대상이 없다 — 간격을 두고 다시 찾아본다.
   if (!path.isAbsolute(info.binPath)) return now - cachedAt < CLAUDE_BIN_REVALIDATE_MS;
-  return isUsableBin(info.binPath);
+  if (!isUsableBin(info.binPath)) return false;
+  // ④ 폐기 표시된 번들을 알고 든 경우(이을 것이 없었다) — 폴백처럼 간격을 두고 다시 찾아본다.
+  if (cachedObsolete) return now - cachedAt < CLAUDE_BIN_REVALIDATE_MS;
+  // ④ 들고 있던 번들에 VS Code 가 그 사이 폐기 표시를 했다 — 폴더는 남아 있어도 새 번들로 옮긴다.
+  return !isObsoleteExtensionBin(info.binPath);
 }
 
 /**
@@ -413,6 +507,7 @@ export function getClaudeBin(): ClaudeBinInfo {
   const prev = cachedBin;
   cachedBin = resolveClaudeBin();
   cachedAt = now;
+  cachedObsolete = isObsoleteExtensionBin(cachedBin.binPath);
   if (prev && prev.binPath !== cachedBin.binPath) {
     // 앱이 도는 중에 실행본이 바뀐 유일한 흔적 — 이 줄이 없으면 다음 사람이 또 처음부터 추적해야 한다.
     logger.warn(
@@ -427,6 +522,7 @@ export function getClaudeBin(): ClaudeBinInfo {
 export function invalidateClaudeBinCache(): void {
   cachedBin = null;
   cachedAt = 0;
+  cachedObsolete = false;
 }
 
 /**
