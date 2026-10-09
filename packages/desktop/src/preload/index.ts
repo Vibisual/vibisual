@@ -489,15 +489,31 @@ const api = {
    * 앱이 늘어도 이 파일은 그대로다.
    */
   app: {
-    open: (appId: string, params?: Record<string, string>): Promise<{ windowId: number; reused: boolean }> =>
-      ipcRenderer.invoke('vibisual:app:open', { appId, params }),
+    open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number }): Promise<{ windowId: number; reused: boolean }> =>
+      ipcRenderer.invoke('vibisual:app:open', { appId, params, placement }),
     close: (appId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:close', { appId }),
+    updateTarget: (params: Record<string, string>): Promise<boolean> => ipcRenderer.invoke('vibisual:app:update-target', params),
+    startDrag: (): Promise<boolean> => ipcRenderer.invoke('vibisual:app:drag-start'),
+    endDrag: (commit?: boolean, appId?: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:drag-end', { commit, appId }),
+    redock: (): Promise<boolean> => ipcRenderer.invoke('vibisual:app:redock'),
+    ackRedock: (requestId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:redock-ack', requestId),
+    ackTarget: (requestId: string, accepted: boolean): Promise<boolean> => ipcRenderer.invoke('vibisual:app:target-ack', { requestId, accepted }),
+    onRedock: (cb: (payload: { requestId: string; appId: string; params: Record<string, string>; geometry?: { x: number; y: number; w: number; h: number } }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { requestId: string; appId: string; params: Record<string, string>; geometry?: { x: number; y: number; w: number; h: number } }): void => cb(payload);
+      ipcRenderer.on('vibisual:app:redock', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:redock', listener);
+    },
+    onDragState: (cb: (payload: { appId: string; dragging: boolean; armed: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { appId: string; dragging: boolean; armed: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:app:drag-state', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:drag-state', listener);
+    },
     /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
     invoke: (appId: string, action: string, payload?: unknown): Promise<unknown> =>
       ipcRenderer.invoke('vibisual:app:invoke', { appId, action, payload }),
     /** 앱 창 한정 — "이 대상을 보여라" 신호 구독(같은 앱을 다시 열었을 때). */
-    onShowTarget: (cb: (payload: { appId: string; hash: string }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { appId: string; hash: string }): void => cb(payload);
+    onShowTarget: (cb: (payload: { appId: string; hash: string; requestId?: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { appId: string; hash: string; requestId?: string }): void => cb(payload);
       ipcRenderer.on('vibisual:app:show-target', listener);
       return () => ipcRenderer.removeListener('vibisual:app:show-target', listener);
     },

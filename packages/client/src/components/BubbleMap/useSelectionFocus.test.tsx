@@ -12,8 +12,10 @@ import { useSelectionFocus } from './useSelectionFocus.js';
 type Gesture = ReturnType<typeof createBubbleSelectGesture>;
 
 const makeNode = (id: string): Node => ({ id, type: 'bubble', position: { x: 0, y: 0 }, data: {} });
-const nodeAt = (emphasis: string): string => `${SELECTION_FOCUS.nodeTransition} ${emphasis}`;
-const edgeAt = (emphasis: string): string => `${SELECTION_FOCUS.edgeTransition} ${emphasis}`;
+const nodeAt = (emphasis: string): string => [SELECTION_FOCUS.nodeTransition, emphasis].filter(Boolean).join(' ');
+const edgeAt = (emphasis: string): string => [SELECTION_FOCUS.edgeTransition, emphasis].filter(Boolean).join(' ');
+const durationsOf = (className: string | undefined): string[] =>
+  (className ?? '').split(/\s+/).filter((token) => token.startsWith('duration-'));
 const RESTORED_NODE = nodeAt(SELECTION_FOCUS.restore);
 const RESTORED_EDGE = edgeAt(SELECTION_FOCUS.restore);
 const PRESS = { button: 0, clientX: 10, clientY: 10 };
@@ -125,8 +127,10 @@ describe('selection focus presentation', () => {
     expect(nodeClass('other')).toBe(RESTORED_NODE);
   });
 
-  it('does not keep the previous click focus when a marquee selects another single node', () => {
+  it('clears the previous focus when a marquee starts, before native selection catches up', () => {
     select('agent');
+    act(() => useGraphStore.getState().setSelectIntent(null));
+    expect(nodeClass('agent')).toBe(RESTORED_NODE);
     nodes = nodes.map((node) => ({ ...node, selected: node.id === 'other' }));
     render();
     expect(nodeClass('agent')).toBe(RESTORED_NODE);
@@ -160,12 +164,65 @@ describe('selection focus presentation', () => {
 });
 
 describe('selection focus motion', () => {
-  it('gives every state exactly one duration, so no two durations race on one element', () => {
-    const states = [SELECTION_FOCUS.restore, ...SELECTION_FOCUS.nodes, ...SELECTION_FOCUS.edges,
+  it('keeps focus between pointerup intent and the later native click selection', () => {
+    select('agent');
+    nodes = nodes.map((node) => ({ ...node, selected: node.id === 'agent' }));
+    render();
+    const focused = frames.length;
+    // nodeDragThreshold > 0: the gesture selects on pointerup, React Flow follows on click.
+    select('file');
+    expect(nodeClass('file')).toBe(nodeAt(SELECTION_FOCUS.nodes[0]));
+    expect(nodeClass('other')).toBe(nodeAt(SELECTION_FOCUS.unrelatedNode));
+    nodes = nodes.map((node) => ({ ...node, selected: node.id === 'file' }));
+    render();
+    expect(frames.slice(focused).some(allLit)).toBe(false);
+  });
+
+  it('never returns to an older deferred click after another bubble is pressed', () => {
+    select('file');
+    const agent = doubleClickableBubble('agent');
+    const other = doubleClickableBubble('other');
+    click(agent);
+    wait(100);
+    click(other);
+    const focused = frames.length;
+    wait(SELECT_DEFER_MS - 100);
+    expect(useGraphStore.getState().selectIntentId).toBe('other');
+    expect(nodeClass('other')).toBe(nodeAt(SELECTION_FOCUS.nodes[0]));
+    wait(100);
+    expect(nodeClass('other')).toBe(nodeAt(SELECTION_FOCUS.nodes[0]));
+    expect(frames.slice(focused).some(allLit)).toBe(false);
+  });
+
+  it('keeps the timing on the transitions alone, so no level can run on its own clock', () => {
+    const levels = [SELECTION_FOCUS.restore, ...SELECTION_FOCUS.nodes, ...SELECTION_FOCUS.edges,
       SELECTION_FOCUS.unrelatedNode, SELECTION_FOCUS.unrelatedEdge];
-    for (const state of states) expect(state.match(/(^|\s)duration-/g)).toHaveLength(1);
-    expect(SELECTION_FOCUS.nodeTransition).not.toMatch(/(^|\s)duration-/);
-    expect(SELECTION_FOCUS.edgeTransition).not.toMatch(/(^|\s)duration-/);
+    for (const level of levels) expect(level).not.toMatch(/(^|\s)(duration|ease|delay)-/);
+    const timing = (transition: string): string[] =>
+      transition.split(/\s+/).filter((token) => /^(duration|ease|delay)-/.test(token));
+    expect(timing(SELECTION_FOCUS.nodeTransition)).toHaveLength(2);
+    expect(timing(SELECTION_FOCUS.edgeTransition)).toEqual(timing(SELECTION_FOCUS.nodeTransition));
+  });
+
+  it('moves every depth together — near, far, unrelated, lines and task-edge icons on one duration', () => {
+    nodes = [...nodes, makeNode('far')];
+    edges = [...edges, { id: 'far-link', source: 'file', target: 'far' }];
+    render();
+    select('agent');
+    const classNames = [
+      ...result.nodes.map((node) => node.className),
+      ...result.edges.map((edge) => edge.className),
+      result.edges[0]?.data?.selectionFocusClassName as string | undefined,
+    ];
+    const durations = new Set<string>();
+    for (const className of classNames) {
+      const found = durationsOf(className);
+      expect(found).toHaveLength(1);
+      durations.add(found[0]!);
+    }
+    expect(durations.size).toBe(1);
+    // One clock, still five depths to show: center, direct, second, third and unrelated.
+    expect(new Set(result.nodes.map((node) => node.className)).size).toBe(5);
   });
 
   it('never dims the map for a double-click', () => {

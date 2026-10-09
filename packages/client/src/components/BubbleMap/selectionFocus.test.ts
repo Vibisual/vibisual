@@ -58,12 +58,12 @@ describe('selectionFocusIds', () => {
     expect(selectionFocusIds([bubble('agent', true), bubble('folder')], 'agent', null)).toEqual(['agent']);
   });
 
-  it('다른 버블 하나가 네이티브로 선택돼 있으면 일반 버블 중심을 놓는다(마퀴 선택)', () => {
-    expect(selectionFocusIds([bubble('agent'), bubble('other', true)], 'agent', null)).toEqual([]);
+  it('클릭 의도가 네이티브 선택보다 먼저 바뀌어도 새 중심을 유지한다', () => {
+    expect(selectionFocusIds([bubble('agent'), bubble('other', true)], 'agent', null)).toEqual(['agent']);
   });
 
-  it('더블클릭 창을 기다리는 클릭의 네이티브 선택은 붙든 중심과 어긋난 것으로 치지 않는다', () => {
-    expect(selectionFocusIds([bubble('agent'), bubble('other', true)], 'agent', null, 'other')).toEqual(['agent']);
+  it('마퀴 시작으로 클릭 의도를 해제하면 네이티브 단일 선택이 남아도 중심을 놓는다', () => {
+    expect(selectionFocusIds([bubble('agent'), bubble('other', true)], null, null)).toEqual([]);
   });
 
   it('store 채널 버블이 중심이면 곧 내려갈 네이티브 선택 잔여를 보지 않는다', () => {

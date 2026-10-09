@@ -50,8 +50,9 @@ const title: SceneDrawFn = (ctx, op, env) => {
   const p = intro(op, 0.5);
 
   ctx.save();
+  const inheritedAlpha = ctx.globalAlpha;
   ctx.translate(0, (1 - p) * 40);
-  ctx.globalAlpha = p;
+  ctx.globalAlpha = inheritedAlpha * p;
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -86,6 +87,7 @@ const lowerThird: SceneDrawFn = (ctx, op, env) => {
   const padX = size * 0.9;
   const padY = size * 0.6;
   ctx.save();
+  const inheritedAlpha = ctx.globalAlpha;
   ctx.font = `700 ${size}px sans-serif`;
   const nameW = ctx.measureText(name).width;
   ctx.font = `500 ${Math.round(size * 0.66)}px sans-serif`;
@@ -95,7 +97,7 @@ const lowerThird: SceneDrawFn = (ctx, op, env) => {
   const boxX = size * 1.4 - (1 - p) * 80;
   const boxY = height - boxH - size * 2.4;
 
-  ctx.globalAlpha = p;
+  ctx.globalAlpha = inheritedAlpha * p;
   ctx.fillStyle = 'rgba(9,12,20,0.86)';
   ctx.beginPath();
   if (typeof ctx.roundRect === 'function') ctx.roundRect(boxX, boxY, boxW, boxH, 10);
@@ -128,6 +130,7 @@ const bulletList: SceneDrawFn = (ctx, op, env) => {
   const stagger = propNum(op, 'stagger', 0.28);
 
   ctx.save();
+  const inheritedAlpha = ctx.globalAlpha;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
@@ -135,7 +138,7 @@ const bulletList: SceneDrawFn = (ctx, op, env) => {
   let y = height * 0.28;
 
   if (heading !== '') {
-    ctx.globalAlpha = intro(op, 0.4);
+    ctx.globalAlpha = inheritedAlpha * intro(op, 0.4);
     ctx.fillStyle = '#FFFFFF';
     ctx.font = `800 ${Math.round(size * 1.5)}px sans-serif`;
     ctx.fillText(heading, left, y);
@@ -146,7 +149,7 @@ const bulletList: SceneDrawFn = (ctx, op, env) => {
   items.forEach((text, i) => {
     const p = easeOutCubic(Math.min(1, Math.max(0, (op.localTime - 0.35 - i * stagger) / 0.42)));
     if (p <= 0) return;
-    ctx.globalAlpha = p;
+    ctx.globalAlpha = inheritedAlpha * p;
     const dx = (1 - p) * 26;
 
     ctx.fillStyle = accent;
@@ -182,7 +185,8 @@ const codeBlock: SceneDrawFn = (ctx, op, env) => {
   const boxY = (height - boxH) / 2;
 
   ctx.save();
-  ctx.globalAlpha = intro(op, 0.35);
+  const inheritedAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = inheritedAlpha * intro(op, 0.35);
   ctx.fillStyle = 'rgba(12,16,26,0.94)';
   ctx.beginPath();
   if (typeof ctx.roundRect === 'function') ctx.roundRect(boxX, boxY, boxW, boxH, 14);
@@ -199,7 +203,7 @@ const codeBlock: SceneDrawFn = (ctx, op, env) => {
   lines.forEach((line, i) => {
     const p = Math.min(1, Math.max(0, (op.localTime - 0.3 - i * perLine) / 0.2));
     if (p <= 0) return;
-    ctx.globalAlpha = p;
+    ctx.globalAlpha = inheritedAlpha * p;
     ctx.fillStyle = 'rgba(255,255,255,0.34)';
     ctx.fillText(String(i + 1).padStart(2, ' '), boxX + padding * 0.6, boxY + padding + i * size * 1.55 + size * 0.5);
     ctx.fillStyle = '#E2E8F0';
@@ -219,7 +223,8 @@ const quote: SceneDrawFn = (ctx, op, env) => {
   const p = intro(op, 0.5);
 
   ctx.save();
-  ctx.globalAlpha = p;
+  const inheritedAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = inheritedAlpha * p;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 

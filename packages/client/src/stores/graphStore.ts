@@ -7,6 +7,8 @@ import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, File
   VisualKindCard, GoalActionCard, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress, CodexAuthStatus, CodexSetupState, CodexSetupProgress, CodexModelCatalog, CodexInventory, CodexReviewRun, CodexReviewMode, CodexHookState, EngineChoice, AgentEngineKind } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo, ToolAxis, HeatCurve, TidySort, SkillSharingEntry, SpanGrowth } from '@vibisual/shared';
 import { isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
+// §5.4 #36 (B) — 참조선 목록 다듬기(서버 검증과 한 벌).
+import { withLinkedAgent, withoutLinkedAgent } from '@vibisual/shared';
 // §5.24 — 히트 척도 곡선의 기본값과 분포 표본. 판정은 shared 한 곳이 소유한다(서버와 같은 함수).
 import { DEFAULT_HEAT_CURVE, DEFAULT_TIDY_SORT, heatQuantileSamples } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
@@ -22,7 +24,10 @@ import { configTrimSummaryFingerprint } from '@vibisual/shared';
 import i18n, { changeUiLocale } from '../i18n/index.js';
 import { SESSION_ACK_GLOW_MS, SESSION_FOCUS_GLOW_MS, sessionRunStateOf, type SessionFocusGlow } from '../utils/sessionStatus.js';
 import { calcFileSizeRange, calcHeatCountRange } from '../utils/sizeCalc.js';
-import { clientPathKey } from '../utils/platform.js';
+import { clientPathKey, clientPathPlatform } from '../utils/platform.js';
+// §5.3 #12-3 — 자물쇠. 낙관 반영도 서버와 같은 규칙(shared `buildPathLock`)으로 짓는다.
+import { buildPathLock } from '@vibisual/shared';
+import type { PathLock, PathLockTarget } from '@vibisual/shared';
 import { permissionPromptSync, askQuestionPromptSync } from '../utils/pendingPromptSync.js';
 import { registerPersistFlush } from '../utils/persistFlush.js';
 import { followIframeTabUrls } from '../utils/iframeTabFollow.js';
@@ -65,6 +70,10 @@ import {
   pruneEditorTabScopes,
   type EditorTabStash,
 } from './editorTabScope.js';
+// §5.5 #17-27 ⑱ — 빈 탭(판이 먼저, 파일은 그다음). 탭 목록 계산은 순수 모듈이 하고 스토어는 앉히기만 한다.
+import { openEditorOpener, fillEditorOpener } from './editorOpener.js';
+import { forgetIDEEditorTabs, rememberIDEEditorTabs, restoreIDEEditorTabs, type IDEEditorReopenState } from './ideEditorReopen.js';
+import type { EditorPaneFileKind } from '@vibisual/shared';
 // §5.5 #17-34 — 창 **안**의 화면 분할. 트리 연산은 전부 순수 모듈이 하고 스토어는 그 결과만 앉힌다.
 import {
   adjacentCellId, cellIdForSession, closeCell, dropOnCell, findCell, listCells, makeCell, pruneCells,
@@ -680,6 +689,12 @@ export interface IDEEditorFile {
   name: string;
   /** 저장하지 않은 편집이 있는가 — 편집창이 신고한다(탭 점 표시 + 탭 밀어내기 예외 판정). */
   dirty?: boolean;
+  /**
+   * §5.5 #17-27 ⑱ — **빈 탭**이면 그 갈래(코드 · 웹 페이지 · 그림 · PDF). 파일이 아니라 "이 갈래의 파일을
+   * 고르는" 탭이라 `relPath` 는 경로가 아닌 키(`editorOpenerKey`)이고 `absPath`·`name` 은 비어 있다.
+   * 판정은 언제나 이 칸으로 한다(키를 읽지 않는다 — `stores/editorOpener.ts`).
+   */
+  opener?: EditorPaneFileKind;
 }
 
 /**
@@ -2236,6 +2251,17 @@ interface GraphState {
   renameAppBubble: (id: string, title: string) => void;
   /** §2.4 preserve-pin 토글. 우클릭 메뉴·옵션 패널 공용. */
   setAppBubblePin: (id: string, pinned: boolean) => void;
+  /**
+   * §5.4 #36 (B) — 참조선 잇기·끊기. 화면 먼저(낙관), 서버는 뒤따른다 — 실패해도 다음 스냅샷이 진실을
+   * 되돌린다. 카드의 `+` 놓기와 선 위 [연결 끊기]가 **같은 이 두 경로**를 쓴다.
+   */
+  linkAppBubbleAgent: (appBubbleId: string, agentId: string) => void;
+  unlinkAppBubbleAgent: (appBubbleId: string, agentId: string) => void;
+  /**
+   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(입력 카드 ↔ 버블). 화면 먼저, 서버(`PATCH
+   * /api/bubble/:id/form`)는 뒤따른다. 대상 판정은 `agentCard.ts` 의 `canUseAgentCard` 가 부르는 쪽에서 한다.
+   */
+  setAgentForm: (agentId: string, form: 'card' | 'bubble') => void;
   /** 드래그/리사이즈 중인 캡처 버블 ID 집합 — loadSnapshot 이 이 버블들의 geometry 를 로컬 값으로 보호. */
   draggingCaptureBubbleIds: string[];
   setCaptureBubbleDragLock: (id: string, on: boolean) => void;
@@ -2513,6 +2539,17 @@ interface GraphState {
    */
   layoutBoundsByProject: Record<string, { hw: number; hh: number }>;
   applyLayoutBoundsByProject: (map: Record<string, { hw: number; hh: number }> | undefined) => void;
+  /**
+   * §5.3 #12-3 — 서버가 실어 준 프로젝트별 자물쇠(표시명 키). 버블 글리프·우클릭 메뉴가 이것으로 그린다 —
+   * "어느 버블이 잠겼나"의 판정은 shared `findPathLockCover` 한 벌(집행과 같은 경로 규칙)이다.
+   */
+  pathLocks: Record<string, PathLock[]>;
+  applyPathLocks: (map: Record<string, PathLock[]> | undefined) => void;
+  /**
+   * 잠그기(`lock` — 대상)·잠금 풀기(`unlock` — 자물쇠 id). 낙관 반영 후 fire-and-forget —
+   * 정본은 서버이고 다음 스냅샷이 그대로 덮는다(통합 앱은 IPC 직결이라 응답을 기다리지 않는다).
+   */
+  updatePathLocks: (projectName: string, lock: PathLockTarget[], unlock: string[]) => void;
   /** 활성 프로젝트 바운딩 박스 변경 — 로컬 옵티미스틱 only (드래그 중 호출). */
   setLayoutBoundsSize: (halfWidth: number, halfHeight: number) => void;
   /** 활성 프로젝트 바운딩 박스를 서버에 영속화 (드래그 종료 시 1회). */
@@ -2812,6 +2849,8 @@ interface GraphState {
    * 앞뒤 도장(`z`)을 같은 자리에서 받아 두 값이 어긋나지 않게 한다.
    */
   idePaneSeq: number;
+  /** §5.5 #17-27 ⑦ — 닫은 창의 편집 탭. 프로젝트·에이전트별 휘발 기억(본문은 보관하지 않는다). */
+  closedIDEEditorTabs: IDEEditorReopenState[];
   /**
    * IDE 창을 연다. `pane: 'new'` 면 **새 창**(캔버스 버블 더블클릭 — 나란히 보려는 진입점),
    * 그 밖(기본)은 종전대로 열려 있는 창의 **자리를 재사용**한다(북마크 점프처럼 창이 쌓이면 안 되는 곳).
@@ -2846,8 +2885,8 @@ interface GraphState {
       focus?: IDEFocusTarget;
     },
   ) => void;
-  /** 창 하나를 닫는다. 키를 안 주면 종전대로 활성 프로젝트의 주 창. */
-  closeIDEOverlay: (paneKey?: string | null) => void;
+  /** 창 하나를 닫는다. 창 인계는 옛 탭을 기억하지 않는다(그 뒤의 최신 상태는 건너간 창의 것). */
+  closeIDEOverlay: (paneKey?: string | null, opts?: { rememberEditorTabs?: boolean }) => void;
   /** 그 창을 맨 앞으로(겹칠 때 앞뒤 + 상한 초과 시 재사용 대상 판정에 함께 쓰인다). */
   focusIDEPane: (paneKey: string) => void;
   /**
@@ -2914,6 +2953,16 @@ interface GraphState {
   setIDEDockSpans: (spans: Record<string, number>) => void;
   /** §5.5 #17-27 — 파일을 내장 편집창에 연다(이미 열려 있으면 그 탭을 활성화). 여는 손잡이 3곳의 공통 창구. */
   openIDEEditorFile: (file: IDEEditorFile, paneKey?: string | null) => void;
+  /**
+   * §5.5 #17-27 ⑱ — 그 갈래의 **빈 탭**을 우측 판에 세우고 앞으로(이미 있으면 그 탭을 고른다).
+   * `after` 를 주면 그 탭 바로 오른쪽에 선다(보기의 [파일 열기] — 보던 파일은 그대로 둔다).
+   */
+  openIDEPaneOpener: (kind: EditorPaneFileKind, paneKey?: string | null, after?: string | null) => void;
+  /**
+   * §5.5 #17-27 ⑱ — 빈 탭을 고른 파일로 채운다(같은 자리에서 그 파일 탭이 된다). 빈 탭이 그 사이
+   * 사라졌으면 평소 열기(`openIDEEditorFile`)로 떨어진다 — 고른 손짓이 허공에 사라지지 않게.
+   */
+  fillIDEPaneOpener: (openerKey: string, file: IDEEditorFile, paneKey?: string | null) => void;
   /** §5.5 #17-27 — 탭 하나 닫기. 활성 탭이었으면 옆 탭으로 넘어가고, 마지막이면 편집창이 닫힌다. */
   closeIDEEditorFile: (relPath: string, paneKey?: string | null) => void;
   /** §5.5 #17-27 — 탭 전환. null 이면 편집창 자체를 접는다(탭 목록은 남는다). */
@@ -3164,6 +3213,11 @@ interface GraphState {
    * 붙을지를 그 id 로 정하기 때문이다(실패는 사유 문자열).
    */
   startVerification: (input: { agentId: string; subAgentId: string; target: VerificationTarget; expected?: string; focus?: string; demoId?: string }) => Promise<{ ok: true; runId: string } | { ok: false; error: string }>;
+  /**
+   * §5.3 #12-4 (F) — 결과 줄 [검증 실행]. 그 탭에 관련 검증 명령 한 건을 넣는다. 범위(관련 테스트·타입 검사·
+   * 린트·빌드)는 서버가 찍는다 — `prompt` 는 사람이 읽을 말(로케일)일 뿐 권한을 정하지 않는다.
+   */
+  requestCommandVerification: (agentId: string, subAgentId: string, prompt: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** §5.5 #17-35 ⑨ — 스냅샷의 시연 목록을 그대로 받는다(전량 교체 — 삭제도 곧 사라짐으로 반영). */
   applyVerificationDemos: (demos: Record<string, VerificationDemo[]> | undefined) => void;
   /** §5.11 정독 게이트 — 스냅샷의 세션별 정독 상태를 그대로 받는다(검증 이력과 같은 규약). */
@@ -4047,6 +4101,51 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preservePinned: pinned }),
+    }).catch(() => undefined);
+  },
+  // §5.4 #36 (B) — 목록 전체를 보낸다(부분 페이로드가 다른 연결을 지우지 않게 — 다듬기 규칙은 shared 한 벌).
+  linkAppBubbleAgent: (appBubbleId, agentId) => {
+    const bubble = get().appBubbles.find((b) => b.id === appBubbleId);
+    if (!bubble) return;
+    const next = withLinkedAgent(bubble.linkedAgentIds, agentId);
+    if (next.length === (bubble.linkedAgentIds ?? []).length) return; // 이미 이어졌거나 상한이 찼다
+    get().patchAppBubbleLocal(appBubbleId, { linkedAgentIds: next });
+    void fetch(`${API_BASE}/api/app-bubbles/${appBubbleId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ linkedAgentIds: next }),
+    }).catch(() => undefined);
+  },
+  unlinkAppBubbleAgent: (appBubbleId, agentId) => {
+    const bubble = get().appBubbles.find((b) => b.id === appBubbleId);
+    if (!bubble || !(bubble.linkedAgentIds ?? []).includes(agentId)) return;
+    const next = withoutLinkedAgent(bubble.linkedAgentIds, agentId);
+    get().patchAppBubbleLocal(appBubbleId, { linkedAgentIds: next });
+    void fetch(`${API_BASE}/api/app-bubbles/${appBubbleId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ linkedAgentIds: next }),
+    }).catch(() => undefined);
+  },
+  // §5.4 #36 (A) — 형태는 버블의 데이터 칸이다(`agents` 배열). 바꾼 버블만 새 객체로 — 나머지는 참조 그대로.
+  setAgentForm: (agentId, form) => {
+    set((s) => {
+      let changed = false;
+      const agents = s.agents.map((a) => {
+        if (a.id !== agentId) return a;
+        const isCard = a.agentForm === 'card';
+        if ((form === 'card') === isCard) return a;
+        changed = true;
+        if (form === 'card') return { ...a, agentForm: 'card' as const };
+        const { agentForm: _drop, ...rest } = a;
+        return rest;
+      });
+      return changed ? { agents } : s;
+    });
+    void fetch(`${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/form`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ form }),
     }).catch(() => undefined);
   },
   // ─── §5.9 캡처 버블 (CommentBox 패턴) ───
@@ -5778,6 +5877,31 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   layoutBoundsByProject: {},
   applyLayoutBoundsByProject: (map) =>
     set((s) => ({ layoutBoundsByProject: structuralShare(s.layoutBoundsByProject, map ?? {}) })),
+  pathLocks: {},
+  // 자물쇠는 사람이 누를 때만 바뀐다 — 내용이 같으면 참조를 그대로 둬 버블이 브로드캐스트마다 깨지 않게.
+  applyPathLocks: (map) => set((s) => ({ pathLocks: structuralShare(s.pathLocks, map ?? {}) })),
+  updatePathLocks: (projectName, lock, unlock) => {
+    if (!projectName || (lock.length === 0 && unlock.length === 0)) return;
+    const platform = clientPathPlatform();
+    const now = Date.now();
+    set((s) => {
+      const unlockIds = new Set(unlock);
+      const next = (s.pathLocks[projectName] ?? []).filter((l) => !unlockIds.has(l.id));
+      const have = new Set(next.map((l) => l.id));
+      for (const target of lock) {
+        const built = buildPathLock(target, platform, now);
+        if (!built || have.has(built.id)) continue;
+        have.add(built.id);
+        next.push(built);
+      }
+      return { pathLocks: { ...s.pathLocks, [projectName]: next } };
+    });
+    void fetch(`${API_BASE}/api/path-locks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectName, lock, unlock }),
+    }).catch(() => { /* 서버가 정본 — 다음 스냅샷이 실제 상태로 되돌린다 */ });
+  },
   setLayoutBoundsSize: (halfWidth, halfHeight) => {
     const hw = Math.min(8000, Math.max(300, Math.round(halfWidth)));
     const hh = Math.min(8000, Math.max(300, Math.round(halfHeight)));
@@ -6263,6 +6387,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     };
   }),
   ideOverlays: {},
+  closedIDEEditorTabs: [],
   idePaneSeq: 0,
   ideLayoutEpoch: 0,
   openIDEOverlay: (agentId, opts) => {
@@ -6427,8 +6552,15 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       // 새로 서는 창이 프로젝트의 첫 창이 아니면 **플로팅**으로 뜬다 — 모달은 캔버스를 통째로 덮어
       //   "옆에 놓고 같이 본다"는 목적과 정면으로 어긋난다.
       const openMode: 'modal' | 'floating' = keepDock || panes.length > 0 ? 'floating' : 'modal';
+      const savedTabs = state.closedIDEEditorTabs.find((entry) => entry.projectId === ownerProject && entry.agentId === agentId);
+      // 새로 건너온 짐이 최우선이다. 꺼낸 기억은 지워 직접 닫은 탭이 다음에 되살아나지 않게 한다.
+      const restoredTabs = savedTabs && !handoffPatch
+        ? restoreIDEEditorTabs(savedTabs, initialSession, subAgents.map((sub) => sub.id))
+        : null;
+      const remainingTabs = forgetIDEEditorTabs(state.closedIDEEditorTabs, ownerProject, agentId);
       return {
         idePaneSeq: seq,
+        closedIDEEditorTabs: prev?.agentId ? rememberIDEEditorTabs(remainingTabs, prev) : remainingTabs,
         ideOverlays: {
           ...state.ideOverlays,
           [targetKey]: {
@@ -6451,19 +6583,19 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             maximized: keepDock ? prev?.maximized ?? false : false,
             collapsed: false,
             openMode,
-            // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
+            // §5.5 #17-27 ⑦ — 처음 여는 주인은 빈 상태, 다시 여는 주인은 아래 기억으로 복원한다.
             editorFiles: [],
             activeEditorPath: null,
             // §5.5 #17-27 ①-1 — 자리를 재사용하면 그 창이 판 때문에 넓힌 기억도 함께 넘어온다. 창 컴포넌트는 같은
             //   슬롯 키 아래 그대로 서 있고, 판이 비는 순간 이 기억으로 넓힌 만큼 되돌린다(지우면 넓힌 폭이 남는다).
             editorRoom: prev?.editorRoom ?? null,
-            // §5.5 #17-27 ⑯ — 접어 둔 탭 묶음은 **그 에이전트의 세션들** 것이다. 버블이 갈리면 남의
-            //   것이므로 함께 비운다(고정도 그 탭 묶음에 대한 결정이라 같이 풀린다).
+            // §5.5 #17-27 ⑯ — 세션 묶음·고정은 주인의 것이다. 이전 버블 것은 기억에 접고 자기 것만 복원한다.
             editorPinned: false,
             editorTabsBySession: {},
             // §5.5 #17-17 ⑪(k) — 무대도 편집창과 같다. 버블이 갈리면 그 무대는 남의 목표를 그리던
             //   것이라 닫고 시작한다(도킹·최대화처럼 "그 자리의 성질"이 아니라 그 세션의 내용이다).
             stageOpen: false,
+            ...(restoredTabs ?? {}),
             // §5.5 #17-6 (H) — 짐을 지고 온 창은 **위 초기값 대신** 그 상태로 선다(맨 끝에 덮는다).
             //   창을 연 다음에 고치면 첫 프레임에 빈 창이 한 번 보였다가 바뀐다.
             ...(handoffPatch ?? {}),
@@ -6500,9 +6632,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       }
     }
   },
-  closeIDEOverlay: (paneKey) => set((state) => {
+  closeIDEOverlay: (paneKey, opts) => set((state) => {
     // 닫기는 그 창 하나만. 키를 안 주면 종전대로 활성 프로젝트의 주 창.
-    //   슬롯 자체 제거 = 깨끗한 초기 상태로 복귀(다른 창은 그대로 남는다).
+    //   슬롯은 제거하되 편집 탭은 주인별로 기억한다(다른 창은 그대로 남는다).
     const key = resolvePaneKey(state, paneKey);
     const cur = key ? state.ideOverlays[key] : undefined;
     if (!key || !cur) return {};
@@ -6515,7 +6647,13 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     // §5.5 #17-25 — 라이트박스는 **연 창**의 것이다(`origin.slot`). 창과 함께 내린다 — 남기면 그릴 호스트가 없는 채로
     //   store 에 떠 있다가, 같은 창을 다시 열 때 지난 그림이 느닷없이 뜬다.
     const lightboxGone = state.imageLightbox?.origin.slot === key;
-    return { ideOverlays: settled ?? next, ...(lightboxGone ? { imageLightbox: null } : {}) };
+    return {
+      ideOverlays: settled ?? next,
+      closedIDEEditorTabs: opts?.rememberEditorTabs === false && cur.agentId && cur.projectId
+        ? forgetIDEEditorTabs(state.closedIDEEditorTabs, cur.projectId, cur.agentId)
+        : rememberIDEEditorTabs(state.closedIDEEditorTabs, cur),
+      ...(lightboxGone ? { imageLightbox: null } : {}),
+    };
   }),
   focusIDEPane: (paneKey) => set((s) => {
     const cur = s.ideOverlays[paneKey];
@@ -6744,6 +6882,34 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       },
     };
   }),
+  openIDEPaneOpener: (kind, paneKey, after) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur) return {};
+    const next = openEditorOpener(cur.editorFiles, kind, after);
+    return {
+      ideOverlays: {
+        ...s.ideOverlays,
+        [key]: { ...cur, editorFiles: next.files, activeEditorPath: next.activePath },
+      },
+    };
+  }),
+  fillIDEPaneOpener: (openerKey, file, paneKey) => {
+    const key = resolvePaneKey(get(), paneKey);
+    const cur = key ? get().ideOverlays[key] : undefined;
+    const next = cur ? fillEditorOpener(cur.editorFiles, openerKey, file) : null;
+    if (!key || !cur || !next) {
+      get().openIDEEditorFile(file, paneKey);
+      return;
+    }
+    set((s) => ({
+      ideOverlays: {
+        ...s.ideOverlays,
+        [key]: { ...cur, editorFiles: next.files, activeEditorPath: next.activePath },
+      },
+    }));
+  },
   closeIDEEditorFile: (relPath, paneKey) => set((s) => {
     const key = resolvePaneKey(s, paneKey);
     if (!key) return {};
@@ -7618,6 +7784,22 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   },
   stopVerification: async (runId) => {
     await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }).catch(() => {});
+  },
+  requestCommandVerification: async (agentId, subAgentId, prompt) => {
+    // §5.5 #17-29 — 훅 버블은 읽기 전용이다(서버도 같은 술어로 거절한다).
+    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === agentId))) return { ok: false, error: 'read-only' };
+    try {
+      const res = await fetch(`${API_BASE}/api/verification-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, subAgentId, prompt }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      // 조용한 무동작 ❌ — 왜 안 됐는지 호출자가 화면에 적을 수 있게 사유를 돌려준다. 명령 자체는 스냅샷으로 온다.
+      return res.ok && data.ok ? { ok: true } : { ok: false, error: data.error ?? `HTTP ${res.status}` };
+    } catch {
+      return { ok: false, error: 'network' };
+    }
   },
   reworkVerification: async (runId) => {
     await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}/rework`, { method: 'POST' }).catch(() => {});

@@ -108,6 +108,24 @@ describe('coerceIDEPaneHandoff', () => {
     expect(out.editorFiles.map((f) => f.relPath)).toEqual([FILE_A.relPath, FILE_B.relPath]);
   });
 
+  it('§5.5 #17-27 ⑱ — 빈 탭도 짐에 실려 간다(갈래 그대로, 창을 건너도 빈 탭이다)', () => {
+    const opener = { relPath: '//opener/html', absPath: '', name: '', opener: 'html' as const };
+    const h = captureIDEPaneHandoff(pane({ editorFiles: [FILE_A, opener], activeEditorPath: opener.relPath }));
+    // IPC 는 구조적 복제라 JSON 왕복과 같은 모양으로 건너온다.
+    const out = coerceIDEPaneHandoff(JSON.parse(JSON.stringify(h)))!;
+    expect(out.editorFiles).toEqual([FILE_A, opener]);
+    expect(out.activeEditorPath).toBe(opener.relPath);
+  });
+
+  it('§5.5 #17-27 ⑱ — 갈래 칸이 없는 빈 탭 키는 버린다 — 경로가 아닌 키로 디스크를 읽으러 가지 않게', () => {
+    const out = coerceIDEPaneHandoff({
+      v: 1,
+      agentId: AGENT,
+      editorFiles: [FILE_A, { relPath: '//opener/html', absPath: '', name: '' }, { relPath: '//opener/pdf', absPath: '', name: '', opener: 'video' }],
+    })!;
+    expect(out.editorFiles.map((f) => f.relPath)).toEqual([FILE_A.relPath]);
+  });
+
   it('저장하지 않은 표시(dirty)는 지고 오지 않는다 — 새 창이 "고쳤다"고 거짓말하면 안 된다', () => {
     const out = coerceIDEPaneHandoff({
       v: 1,

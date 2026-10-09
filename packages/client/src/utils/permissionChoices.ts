@@ -84,6 +84,17 @@ export function permissionFooterButtons(
       tone: 'allow',
       always: true,
     });
+  } else if (alwaysAllow === 'unlock') {
+    // §5.3 #12-3 — 자물쇠 카드의 "항상"은 잠금 풀기뿐이다(그 자물쇠가 곧 저장 칸이다).
+    buttons.push({
+      choice: 'allow_always',
+      labelKey: 'panel.permissionPrompt.unlockAndAllow',
+      defaultLabel: 'Unlock & allow',
+      titleKey: 'panel.permissionPrompt.unlockAndAllowTitle',
+      defaultTitle: 'Removes the lock from this path, then allows this call. You can lock it again from the bubble’s right-click menu.',
+      tone: 'allow',
+      always: true,
+    });
   }
 
   buttons.push(alwaysAllow

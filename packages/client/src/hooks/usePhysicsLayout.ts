@@ -231,9 +231,16 @@ export function usePhysicsLayout(
       const pid = parentMap.current.get(node.id) ?? null;
       const measuredW = node.measured?.width;
       const w = (measuredW ?? node.width ?? 70);
+      // §5.4 #36 (A) — 정사각이 아닌 버블 노드(커스텀 에이전트의 입력 카드)는 **사각 바디**다. 원으로 재면
+      //   판 아래로 (가로-세로)/2 만큼 빈 원이 생겨 이웃을 이유 없이 밀어낸다. 1px 은 측정 반올림으로 본다.
+      const h = node.measured?.height ?? (typeof node.height === 'number' ? node.height : w);
+      const rect = Math.abs(h - w) > 1;
       const r = w / 2;
-      const cx = node.position.x + r;
-      const cy = node.position.y + r;
+      const halfW = r;
+      const halfH = rect ? h / 2 : r;
+      const radius = rect ? Math.max(halfW, halfH) : r;
+      const cx = node.position.x + halfW;
+      const cy = node.position.y + halfH;
 
       const old = existing.get(node.id);
       const isPaused = Date.now() < pausedUntilRef.current;
@@ -241,10 +248,11 @@ export function usePhysicsLayout(
         if (!old.measured && measuredW != null) measuredArrived = true;
         old.measured = measuredW != null;
         const prevRadius = old.radius;
-        old.radius = r;
-        old.halfW = r;
-        old.halfH = r;
-        if (r > prevRadius + 0.5) grown.push(old);
+        old.radius = radius;
+        old.halfW = halfW;
+        old.halfH = halfH;
+        old.shape = rect ? 'rect' : 'circle';
+        if (radius > prevRadius + 0.5) grown.push(old);
         old.parentId = pid;
         // 비위성은 항상 동기화, 위성은 pause 중일 때만 동기화 (캐시 복원 반영)
         if (!isSat || isPaused) {
@@ -260,9 +268,10 @@ export function usePhysicsLayout(
             const parentNode = nodes.find((n) => n.id === pid);
             if (parentNode) {
               const pw = (parentNode.measured?.width ?? parentNode.width ?? 70);
-              const pr = pw / 2;
-              old.offsetX = cx - (parentNode.position.x + pr);
-              old.offsetY = cy - (parentNode.position.y + pr);
+              // 부모가 입력 카드(§5.4 #36)면 세로 중심은 판 높이의 반이다.
+              const ph = parentNode.measured?.height ?? (typeof parentNode.height === 'number' ? parentNode.height : pw);
+              old.offsetX = cx - (parentNode.position.x + pw / 2);
+              old.offsetY = cy - (parentNode.position.y + ph / 2);
             }
           }
         }
@@ -274,18 +283,18 @@ export function usePhysicsLayout(
           const parentNode = nodes.find((n) => n.id === pid);
           if (parentNode) {
             const pw = (parentNode.measured?.width ?? parentNode.width ?? 70);
-            const pr = pw / 2;
-            offsetX = cx - (parentNode.position.x + pr);
-            offsetY = cy - (parentNode.position.y + pr);
+            const ph = parentNode.measured?.height ?? (typeof parentNode.height === 'number' ? parentNode.height : pw);
+            offsetX = cx - (parentNode.position.x + pw / 2);
+            offsetY = cy - (parentNode.position.y + ph / 2);
           }
         }
         newBodies.set(node.id, {
           id: node.id,
           x: cx, y: cy,
           vx: 0, vy: 0,
-          radius: r,
-          halfW: r, halfH: r,
-          shape: 'circle',
+          radius,
+          halfW, halfH,
+          shape: rect ? 'rect' : 'circle',
           group: 'bubble',
           parentId: pid,
           offsetX, offsetY,

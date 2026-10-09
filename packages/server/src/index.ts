@@ -107,6 +107,26 @@ import { shouldEscalateRisk, normalizeAuditBoundary } from '@vibisual/shared';
 // §5.22 — 위험 판정은 호스트 값(플랫폼·홈)을 물린 이 창구 하나로. 승인 카드와 타임라인이 같은 답을 본다.
 import { classifyToolRiskOnHost } from './services/auditLog.js';
 import { CodexApprovalMemory, codexApprovalKey, codexPermissionHooksRequired, planCodexPermission, type CodexPermissionHookEvent } from './services/codexPermissionPolicy.js';
+// §5.3 #12-3 — 자물쇠. 판정은 shared 한 벌, 호스트 값·엔진에 돌려줄 사유는 이 모듈 한 곳.
+import { findToolLockHitsOnHost, lockDenyReason, lockHitsForCard, unmanagedLockAnswer } from './services/pathLockGate.js';
+// §5.3 #12-4 — 검증은 시킬 때만 돈다. 분류·요청 해석·판정은 shared 한 벌, 호스트 값은 판정 객체가 물려 준다.
+import {
+  appRunVerificationScope,
+  buildVerificationPolicyRules,
+  buildVerificationStateLine,
+  buttonVerificationScope,
+  hasVerificationGrant,
+  inheritVerificationScope,
+  mergeVerificationScopes,
+  verificationScopeFromText,
+  VERIFICATION_DENY_REASON,
+  VERIFICATION_REQUEST_PROMPT_MAX,
+  type CommandVerificationSummary,
+  type VerificationScope,
+} from '@vibisual/shared';
+import { VerificationGate } from './services/verificationGate.js';
+import { normalizePathLockTarget, PATH_LOCK_MAX_PER_PROJECT } from '@vibisual/shared';
+import type { PathLockHit, PathLockTarget } from '@vibisual/shared';
 import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -244,6 +264,9 @@ import {
   isWorktreeUnderConstruction,
 } from './services/worktreeLiveness.js';
 import { listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './services/workspaceExplorer.js';
+// §5.5 #17-27 ⑱ — 판 쪽에서 그 갈래의 파일을 찾는다(빈 탭의 파일 고르기).
+import { findWorkspaceFiles } from './services/workspaceFind.js';
+import { WORKSPACE_FIND_PATH, isEditorPaneFileKind, parseClaimedExtensions } from '@vibisual/shared';
 import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage } from './services/workspaceFile.js';
 // §5.5 #17-19 ⑦⑧ — 탐색기가 내는 쓰기 넷(만들기·이름 바꾸기·삭제·옮기기). 가드는 조회 쪽과 같은 것 하나.
 import {
@@ -720,6 +743,8 @@ export async function runServer(): Promise<RunServerHandle> {
   // Iframe 프록시 — express.json() 보다 앞에 마운트 (raw body 전달 필요)
   app.use(IFRAME_PROXY_PATH, (req, res) => { void iframeProxyHandler(req, res); });
 
+  // Scene metadata and a viewport capture can exceed the default JSON limit; keep this scoped to Vibi3D.
+  app.use('/api/app/vibi3d', express.json({ limit: '8mb' }));
   app.use(express.json());
   // Task Edge dispatch raw-text 경로용 — instruction 원문을 손escape 없이 stdin 으로 받기 위함.
   // express.json() 은 application/json 만, express.text() 는 text/* 만 처리 → 상호 간섭 없음.
@@ -1219,6 +1244,20 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
+       * §5.3 #12-4 (E) ④ — 우리 CMD 터미널의 턴 = 사람이 친 문장(`UserPromptSubmit`) → 그 턴의 끝. 검증 권한은
+       *   그 문장에서만 서고 턴이 끝나면 만료된다(다음 턴으로 승계 ❌). 서브에이전트의 Stop 은 턴 끝이 아니다.
+       *   터미널 id 가 없는 세션(우리 헤드리스·외부 훅 세션)은 여기 해당하지 않는다.
+       */
+      const cmdTurnSub = body._vibisualOwnerTermId ? bgOwnerSub : undefined;
+      if (cmdTurnSub) {
+        if (body.hook_event_name === 'UserPromptSubmit' && typeof body.prompt === 'string') {
+          verificationGate.beginCmdTurn(cmdTurnSub.id, body.prompt);
+        } else if ((isTurnEndEvent && !isSubagentStop) || isSessionEnd) {
+          verificationGate.endCmdTurn(cmdTurnSub.id);
+        }
+      }
+
+      /*
        * §5.11 정독 게이트 — **읽기 영수증은 여기서만 쌓인다.**
        *
        * "기획을 끝까지 읽었는가"는 파일을 봐서는 알 수 없다 — 그건 도구 호출 이력이고, 그 이력이
@@ -1327,7 +1366,11 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
           log: (error) => logger.warn('[auto-goal] external hook context failed', error as Error),
         });
-        const additionalContext = [enforcement, recovery, procedures].filter(Boolean).join('\n\n');
+        // §5.3 #12-4 (G) — CMD 터미널 턴의 검증 권한 한 줄(정책 문단은 그 터미널의 규칙 파일에 이미 있다).
+        const verificationLine = cmdTurnSub && isContextSourceOn(overrides, ctxScope, CONTEXT_SOURCE_IDS.verificationPolicy)
+          ? verificationGate.cmdTurnStateLine(cmdTurnSub.id).trim()
+          : '';
+        const additionalContext = [enforcement, recovery, procedures, verificationLine].filter(Boolean).join('\n\n');
         if (additionalContext) {
           res.json({
             continue: true,
@@ -2443,6 +2486,50 @@ export async function runServer(): Promise<RunServerHandle> {
   const completedCommandArchive = new Map<string, QueuedCommand[]>();
 
   /**
+   * §5.3 #12-4 — 이 탭에서 **지금 도는** 명령. 검증 권한은 이 명령에 찍힌 범위뿐이라, 명령이 끝나면
+   * 여기서 못 찾게 되고 그대로 만료된다(다음 명령으로 승계 ❌). 큐는 훅 세션 id 키라 탭 id 로 훑는다.
+   */
+  function findExecutingCommandForSub(subAgentId: string): QueuedCommand | undefined {
+    for (const queue of commandQueues.values()) {
+      const cmd = queue.find((c) => c.status === 'executing' && c.subAgentId === subAgentId);
+      if (cmd) return cmd;
+    }
+    return undefined;
+  }
+
+  /** §5.3 #12-4 — 아직 큐에 있거나 이미 끝난 명령까지 id 로 찾는다(위임·킥오프가 보낸 쪽 범위를 물려받을 때). */
+  function findCommandById(commandId: string): QueuedCommand | undefined {
+    for (const queue of commandQueues.values()) {
+      const cmd = queue.find((c) => c.id === commandId);
+      if (cmd) return cmd;
+    }
+    for (const archive of completedCommandArchive.values()) {
+      const cmd = archive.find((c) => c.id === commandId);
+      if (cmd) return cmd;
+    }
+    return undefined;
+  }
+
+  /** §5.3 #12-4 — 실행 전 검증 판정 한 벌. 승인 창구 다섯이 이 객체를 부른다. */
+  const verificationGate = new VerificationGate({ findExecutingCommand: findExecutingCommandForSub });
+
+  /**
+   * §5.3 #12-4 (D) — 이 세션이 Auto Agent 하네스의 멤버면, 그 하네스를 부른 **가장 최근 빌더 명령**(사용자 원문).
+   * 하네스의 검증 런이 열려 있을 때만 찾는다 — 런이 닫혔으면(그 요청이 끝났으면) 물려줄 것이 없다.
+   */
+  function findAutoAgentBuilderCommandFor(memberSessionId: string): QueuedCommand | undefined {
+    for (const [autoAgentId, summary] of Object.entries(graphManager.getAutoAgentSummaries())) {
+      if (!summary?.spawnedAgentIds?.includes(memberSessionId)) continue;
+      if (!graphManager.getActiveAutoAgentRun(autoAgentId)) continue;
+      const cmds = [...(commandQueues.get(autoAgentId) ?? []), ...(completedCommandArchive.get(autoAgentId) ?? [])];
+      let latest: QueuedCommand | undefined;
+      for (const c of cmds) if (!c.silent && (!latest || c.timestamp > latest.timestamp)) latest = c;
+      return latest;
+    }
+    return undefined;
+  }
+
+  /**
    * §3.2.3 — 완료 명령(사용자 말풍선)을 아카이브에 넣는 **유일한 창구**.
    *
    * 종전엔 세 곳에서 각자 `archive.push(...)` 했고 **상한 검사가 어디에도 없었다**(주석도
@@ -2715,6 +2802,9 @@ export async function runServer(): Promise<RunServerHandle> {
     agentConfig?: AgentConfig;
     subAgentId?: string;
     commandText: string;
+    /** §5.3 #12-4 — 이번에 나가는 명령의 검증 범위·기록. 주입원 표를 잴 때는 없다(그때는 "권한 없음"으로 잰다). */
+    verificationScope?: VerificationScope;
+    verificationSummary?: CommandVerificationSummary;
   }): {
     parts: MeasuredPart[];
     projectRoot: string;
@@ -2728,6 +2818,11 @@ export async function runServer(): Promise<RunServerHandle> {
      * 정독 블록이 이 턴에 실릴 때만 비어 있지 않고, 주입원 창의 `plugin:spec-driven` 스위치를 따른다.
      */
     specSystemRules: string;
+    /**
+     * §5.3 #12-4 — 검증 정책의 두 절반. 표는 둘을 합쳐 한 줄로 재고, 발송은 갈라진다 — 안 변하는 정책 문단은
+     * `--append-system-prompt`(압축에도 남는다)로, 이번 명령의 권한 한 줄은 매 턴 앞말로.
+     */
+    verificationParts: { rules: string; state: string };
     /**
      * §5.26 (E) — 이번 턴 복원 브리핑이 실렸다면 그 마커. **여기서 못 박지 않는다** —
      * 이 함수는 주입원 표를 재는 데도 쓰이므로(부작용 없음이 계약) 창 한 번 여는 것으로
@@ -2868,6 +2963,13 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     parts.push({ id: CONTEXT_SOURCE_IDS.goal, text: goalText });
 
+    // §5.3 #12-4 — 검증 정책. 우리가 띄운 세션에만 싣는다(훅 세션은 우리 세션이 아니라 정책 밖이다).
+    //   끄면 **말만** 빠진다 — 실행 전 거부는 승인 창구들이 그대로 한다.
+    const verificationParts = custom
+      ? { rules: buildVerificationPolicyRules(), state: buildVerificationStateLine(input.verificationScope, input.verificationSummary) }
+      : { rules: '', state: '' };
+    parts.push({ id: CONTEXT_SOURCE_IDS.verificationPolicy, text: verificationParts.rules + verificationParts.state });
+
     /*
      * §5.10 — **자동 목표**: 이 프로젝트에서 되풀이해 온 절차의 목록.
      *
@@ -2908,7 +3010,7 @@ export async function runServer(): Promise<RunServerHandle> {
       parts.push({ id: CONTEXT_SOURCE_IDS.hookEnforcement, text: '', defaultEnabled: true });
     }
 
-    return { parts, projectRoot, goalParts, specSystemRules, ...(recoveryMarker ? { recoveryMarker } : {}) };
+    return { parts, projectRoot, goalParts, specSystemRules, verificationParts, ...(recoveryMarker ? { recoveryMarker } : {}) };
   }
 
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
@@ -3285,6 +3387,10 @@ export async function runServer(): Promise<RunServerHandle> {
       const merged = absorbMergeFollowUps(queue, next);
       if (merged.length > 0) {
         logger.info(`[follow-up] merged ${merged.length} into ${next.id} (sub=${next.subAgentId ?? '-'})`);
+        // §5.3 #12-4 (C) — 합쳐진 사람 명령들의 검증 범위를 합치고, 어느 하나라도 부정한 종류는 뺀다.
+        //   본문을 다시 읽지 않는다 — 합쳐진 것 중에 에이전트가 넣은 명령(범위 없음)이 섞여도 권한이 생기지 않게.
+        const mergedScope = mergeVerificationScopes([next.verificationScope, ...merged.map((m) => m.verificationScope)]);
+        if (mergedScope) next.verificationScope = mergedScope;
       }
       // §5.5 #17-17 ⑨ v4.59 — 목표 카드는 계획(TodoWrite)을 기다리지 않고 **이 명령이 뜨는
       //   순간** 태어난다. 그래야 사이드바가 "지금 이 세션이 하는 일"을 항상 가리킨다(계획을
@@ -3319,6 +3425,8 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(agentConfig ? { agentConfig } : {}),
         ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
         commandText: next.text ?? '',
+        ...(next.verificationScope ? { verificationScope: next.verificationScope } : {}),
+        ...(next.verification ? { verificationSummary: next.verification } : {}),
       });
       const partText = new Map(assembled.parts.map((p) => [p.id, p.text]));
       // 층 셋을 다 넘긴다 — 하나라도 빠뜨리면 그 층에 걸어 둔 사용자의 뜻이 프롬프트에서 무시된다.
@@ -3362,7 +3470,11 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.11 — 정독 규칙 줄은 목표 규약과 같은 자리로 간다. 주입원 창에서 그 카드를 껐으면 규칙도 함께 빠진다
       //   (블록은 목록만 싣도록 이미 조립됐으므로, 여기서 빠뜨리면 규칙이 어디에도 없다 — 둘은 한 벌이다).
       const specRulesBlock = pluginsOn && take(`${CONTEXT_PLUGIN_ID_PREFIX}${SPEC_DRIVEN_ID}`) ? assembled.specSystemRules : '';
-      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock;
+      // §5.3 #12-4 (G) — 검증 정책 문단은 시스템 프롬프트로(압축에도 남는다), 이번 명령의 권한 한 줄은 매 턴 앞말로.
+      const verificationOn = !!take(CONTEXT_SOURCE_IDS.verificationPolicy);
+      const verificationRulesBlock = verificationOn ? assembled.verificationParts.rules : '';
+      const verificationStateBlock = verificationOn ? assembled.verificationParts.state : '';
+      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock + verificationRulesBlock;
       // §5.3 #10-4 — 오케스트라 지휘 턴이면 **이 턴만** 설정을 덮어쓰고 편성 규칙을 시스템 프롬프트 뒤에 붙인다.
       //   저장된 설정은 그대로다(다음 턴은 평소대로). 권한 창구가 같은 설정으로 판정하도록 턴 동안 표에 올린다.
       const conductor = prepareConductorTurn(agent, next, effectiveConfig ?? DEFAULT_AGENT_CONFIG, stripSet);
@@ -3403,7 +3515,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const undeliveredForTurn = next.subAgentId ? pendingDispatchResultsFor(next.subAgentId) : [];
       const undeliveredBlock = agentConfig?.provider?.kind === 'codex-cli' ? '' : undeliveredDispatchResultInstructions(undeliveredForTurn);
       const additionalContext = take(CONTEXT_SOURCE_IDS.compactSelf) + take(CONTEXT_SOURCE_IDS.autoGoalSkills);
-      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
+      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext + verificationStateBlock;
 
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -3413,7 +3525,7 @@ export async function runServer(): Promise<RunServerHandle> {
       //   (첫 스폰 경로는 preamble 을 쓰지 않으니 중복되지 않는다 — `execute` 가 sessionId 유무로 갈라 쓴다.)
       // §5.5 #17-17 ②-2 v4.72 — "의도 먼저 + 계획을 세워라"도 같은 함정 위에 있었다(첫 스폰에만 실리면
       //   두 번째 턴부터는 계획을 세우라는 말을 아무도 안 한다). 짧은 블록이라 매 턴 실어도 비용이 미미하다.
-      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext + verificationStateBlock;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
       const codexTurn = turnConfig?.provider?.kind === 'codex-cli';
@@ -3466,9 +3578,15 @@ export async function runServer(): Promise<RunServerHandle> {
             required: codexPermissionHooksRequired(
               turnConfig.permissionMode,
               graphManager.getAuditBoundary(graphManager.getAgentProjectName(agent.id) ?? ''),
+              // §5.3 #12-3 — 자물쇠가 하나라도 있으면 훅 없이 돌 수 없다(읽기 전용 샌드박스도 읽기는 연다).
+              Object.keys(graphManager.getAllPathLocks()).length > 0,
+              // §5.3 #12-4 — 검증 정책은 늘 켜져 있다. 훅 없이 돌면 실행 전 판정이 닿지 않는다(fail-closed).
+              true,
             ),
           },
         } : {}),
+        // §5.3 #12-4 (E) ② — 호스팅 브라우저·컴퓨터 도구는 훅 밖이다. 이 명령에 브라우저 확인 권한이 없으면 끈다.
+        ...(codexTurn && !next.verificationScope?.kinds.includes('browser') ? { codexHostedBrowserOff: true } : {}),
         // §5.3 #10-2 위임 조회 — 나가는 엣지가 없어도 조회를 넘겨받은 턴이면 다리를 싣는다(`status` 만, dispatch 는 숨는다).
         //   받지 못한 결과가 남은 턴도 같다 — 그 결과를 이어 받을 `status` 가 있어야 한다.
         ...(agentConfig?.provider?.kind === 'codex-cli' && (graphManager.getOutboundTaskEdges(agent.id).some((e) => isTaskEdgeViable(e)) || statusGrantsForTurn.length > 0 || undeliveredForTurn.length > 0) ? {
@@ -3644,12 +3762,16 @@ export async function runServer(): Promise<RunServerHandle> {
       commitEachRound: loop.commitEachRound,
     });
 
+    // §5.3 #12-4 (C) — 루프의 검증 권한은 **사람이 루프 설정에 적은 본문**에서만 선다. 명령 파일에서 읽은
+    //   회차는 읽지 않는다 — 그 파일은 에이전트가 고칠 수 있다(AI 가 쓴 글은 권한이 아니다).
+    const loopScope = !loop.commandFile || source.error ? verificationScopeFromText(loop.command) : undefined;
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now()}-loop${round}`,
       text,
       timestamp: Date.now(),
       subAgentId,
       status: 'queued',
+      ...(loopScope ? { verificationScope: loopScope } : {}),
     };
     queue.push(cmd);
     graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
@@ -4070,7 +4192,9 @@ export async function runServer(): Promise<RunServerHandle> {
     projectRoot: (agentId) => graphManager.getProjectPathForAgent(agentId),
     isCommandActive: (run) => {
       const sessionId = graphManager.findSessionByAgentId(run.agentId);
-      return !!sessionId && !!commandQueues.get(sessionId)?.some((cmd) => cmd.id === run.pendingCommandId && cmd.subAgentId === run.subAgentId && cmd.status === 'executing');
+      const cmd = sessionId ? commandQueues.get(sessionId)?.find((c) => c.id === run.pendingCommandId && c.subAgentId === run.subAgentId) : undefined;
+      // §5.3 #12-4 (E) ⑤ — 전용 경로도 같은 판정을 본다. 그 명령에 사람이 [검증 실행]으로 연 범위가 있을 때만.
+      return verificationGate.commandAllows(cmd, ['browser']);
     },
     changed: () => { broadcastSnapshot(); saveCheckpoint(); },
   });
@@ -4127,6 +4251,8 @@ export async function runServer(): Promise<RunServerHandle> {
         id: cmdId, text: buildVerificationAutomationPrompt(run, demo, demoFrames.frames.map((f) => f.path)),
         timestamp, subAgentId, status: 'queued',
         ...(demoFrames.frames.length ? { attachments: demoFrames.frames.map((f) => f.path) } : {}),
+        // §5.3 #12-4 (C) — 사람이 검증 뷰에서 [검증 실행]을 눌렀다. 이 명령 하나에만 앱 조작 검증이 열린다.
+        verificationScope: appRunVerificationScope(),
       };
       queue.push(command);
       processNextCommand(sessionId);
@@ -4409,12 +4535,16 @@ export async function runServer(): Promise<RunServerHandle> {
         : null;
       let queue = commandQueues.get(sessionId);
       if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+      // §5.3 #12-4 (B) — 빌더 명령의 본문은 사용자가 Auto Agent 버블에 보낸 원문이다(그 창구는 loopback 에
+      //   열려 있지 않다 — 사람만 부른다). 하네스 멤버의 첫 명령은 이 범위를 물려받기만 한다(아래 commands 창구).
+      const builderScope = verificationScopeFromText(text);
       const cmd: QueuedCommand = {
         id: `cmd-${Date.now()}-${queue.length}`,
         text,
         timestamp: Date.now(),
         subAgentId,
         status: 'queued' as const,
+        ...(builderScope ? { verificationScope: builderScope } : {}),
       };
       queue.push(cmd);
       processNextCommand(sessionId);
@@ -4815,10 +4945,32 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.5 #17-18 v4.68 — 항상 명시 저장. 화면의 [대기|합치기|즉시] 칩이 이 값을 그대로 그린다.
       dispatchMode,
     };
+    /*
+     * §5.3 #12-4 (B) — 검증 권한은 **사람 창구로 들어온 본문에서만** 선다. loopback(에이전트가 토큰으로 넣은
+     *   명령)은 읽지 않는다 — AI 가 쓴 계획·명령은 권한이 아니다. 요청 본문에 같은 이름 칸이 와도 읽지 않는다
+     *   (서버만 찍는다 — `approved=true` 를 적어 권한을 만들 길이 없다).
+     */
+    if (!fromLoopback) {
+      const scope = verificationScopeFromText(cmd.text);
+      if (scope) cmd.verificationScope = scope;
+    } else if (!kickoffRunId) {
+      // §5.3 #12-4 (D) — Auto Agent 하네스의 킥오프(빌더가 loopback 으로 넣는 명령)는 그 하네스를 부른 사용자
+      //   메시지(빌더 명령)의 범위를 물려받기만 한다. 본문은 읽지 않는다 — 빌더가 옮겨 적은 글은 AI 의 글이다.
+      const builderCommand = findAutoAgentBuilderCommandFor(sessionId);
+      const inherited = builderCommand
+        ? inheritVerificationScope(builderCommand.verificationScope, builderCommand.verification, builderCommand.id)
+        : undefined;
+      if (inherited) cmd.verificationScope = inherited;
+    }
     // §5.3 #10-4 — 오케스트라. 킥오프면 그 런에 묶고(토큰 귀속 · 덧말 합치기 경계), 아니면 가로채기 조건을
     //   **전부** 볼 때만 지휘 런을 연다. 하나라도 어긋나면 이 기능이 없던 때와 똑같이 흐른다.
     if (kickoffRunId) {
       cmd.orchestraRunId = kickoffRunId;
+      // §5.3 #12-4 (D) — 멤버 킥오프는 지휘 런을 연 **사용자 명령**의 범위를 물려받기만 한다(넓히지 못한다).
+      const rootCommandId = graphManager.findOrchestraRun(kickoffRunId)?.commandId;
+      const rootCommand = rootCommandId ? findCommandById(rootCommandId) : undefined;
+      const inherited = rootCommand ? inheritVerificationScope(rootCommand.verificationScope, rootCommand.verification, rootCommand.id) : undefined;
+      if (inherited) cmd.verificationScope = inherited;
     } else if (agentId) {
       if (intercept && orchestraRoot && orchestraEngine) {
         const now = Date.now();
@@ -6893,8 +7045,12 @@ export async function runServer(): Promise<RunServerHandle> {
     logger.info(`[review-lane] created review=${created.id} agent=${agent.label} branch=${branch ?? '?'} files=${changes.files.length}`);
   }
 
-  /** 그 에이전트의 명령 큐에 한 건 넣고 바로 발사. 반려 재작업이 쓰는 경로(새 전송 경로 ❌). */
-  function enqueueAgentCommand(agentId: string, text: string, idTag: string, subAgentId?: string): boolean {
+  /**
+   * 그 에이전트의 명령 큐에 한 건 넣고 바로 발사. 반려 재작업이 쓰는 경로(새 전송 경로 ❌).
+   * §5.3 #12-4 — 검증 범위는 부른 쪽이 정한다. 반려 재작업은 고치기만이라 범위가 없고, 랩은 사람이 적은
+   *   과제 문장에서 만든 범위를 넘긴다.
+   */
+  function enqueueAgentCommand(agentId: string, text: string, idTag: string, subAgentId?: string, verificationScope?: VerificationScope): boolean {
     const agent = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
     if (!agent) return false;
     const sessionId = agent.path;
@@ -6908,6 +7064,7 @@ export async function runServer(): Promise<RunServerHandle> {
       timestamp: Date.now(),
       subAgentId: sub.id,
       status: 'queued',
+      ...(verificationScope ? { verificationScope } : {}),
     };
     const queue = commandQueues.get(sessionId) ?? [];
     queue.push(cmd);
@@ -8696,11 +8853,33 @@ export async function runServer(): Promise<RunServerHandle> {
         hookEvent?: string;
         /** §5.25 (H) — 코덱스 PreToolUse 의 `tool_use_id`. 원장 줄을 훅 추적 이벤트와 잇는다. */
         toolUseId?: string;
+        /**
+         * §5.3 #12-3 — 훅 페이로드의 `turn_id`. **코덱스 훅에만 있는 필드**라, 전역 코덱스 훅(§5.25 (I))이
+         * `handler.mjs` 로 보낸 문의를 가른다 — 코덱스는 `ask` 를 지원하지 않아 거부로 답해야 한다.
+         */
+        turnId?: string;
+        /**
+         * §5.3 #12-4 — env `VIBISUAL_OWNER_AGENT_ID` · `VIBISUAL_OWNER_TERM_ID`. 우리 CMD 터미널에서 뜬 CLI 의
+         * 훅만 터미널 id 를 갖는다 — 그 턴의 검증 범위로 판정하는 근거다.
+         */
+        ownerAgentId?: string;
+        ownerTermId?: string;
       }
       const body = (req.body ?? {}) as Body;
 
       const toolName = typeof body.toolName === 'string' ? body.toolName : '';
       const toolInput = (body.toolInput ?? {}) as Record<string, unknown>;
+      /*
+       * §5.3 #12-3 — 이 호출이 닿는 자물쇠. 열려 있는 **모든** 프로젝트의 자물쇠를 본다(경로는 프로젝트를
+       * 가리지 않는다). 아래 갈래 중 필요한 곳에서 한 번만 잰다.
+       */
+      let lockHitsMemo: PathLockHit[] | null = null;
+      const lockHits = (): PathLockHit[] => {
+        if (lockHitsMemo === null) {
+          lockHitsMemo = findToolLockHitsOnHost(toolName, toolInput, body.cwd ?? null, graphManager.getAllPathLocks());
+        }
+        return lockHitsMemo;
+      };
       // §5.25 (H) — 코덱스 권한 훅의 이벤트. 샌드박스 밖 실행을 묻는 `PermissionRequest` 에 "관할 밖이니
       //   통과"를 답하면 사람 없이 샌드박스가 풀린다 — 그 이벤트의 관할 밖 답은 거부다(문구는 훅이 고른다).
       const codexEvent: CodexPermissionHookEvent | null = body.engine !== 'codex' ? null
@@ -8710,8 +8889,38 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const passUnmanaged = (reason: string): void => {
-        if (codexEvent === 'PermissionRequest') res.json({ ok: true, decision: 'deny', reason: 'not-managed' });
-        else res.json({ ok: true, decision: 'allow', reason });
+        if (codexEvent === 'PermissionRequest') {
+          res.json({ ok: true, decision: 'deny', reason: 'not-managed' });
+          return;
+        }
+        /*
+         * §5.3 #12-4 (E) ④ — 우리 CMD 터미널의 AI 호출도 같은 검증 정책을 탄다. 훅이 그 터미널 id 를 실어 오면
+         * 그 턴(사람이 친 문장 → Stop)의 범위로 판정한다. 터미널 id 가 없는 세션(사용자 에디터·터미널의 훅
+         * 세션)은 우리 세션이 아니라 막지 않는다(§5.3 #12-1 절대 규칙).
+         */
+        const cmdSub = typeof body.ownerTermId === 'string' && body.ownerTermId
+          ? subAgentManager.findSubByTermId(body.ownerTermId)
+          : undefined;
+        if (cmdSub && (!body.ownerAgentId || cmdSub.parentAgentId === body.ownerAgentId)
+          && graphManager.getSnapshot().agents.some((a) => a.id === cmdSub.parentAgentId && a.customCreated)) {
+          const verification = verificationGate.checkCmdCall(cmdSub.id, { toolName, toolInput, cwd: body.cwd ?? null });
+          if (verification.verdict === 'deny') {
+            res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
+            return;
+          }
+        }
+        /*
+         * §5.3 #12-3 — 관할 밖 세션(사용자 에디터·터미널의 훅 세션, 우리 CMD 터미널)도 자물쇠는 지난다.
+         * **우리 팝업은 띄우지 않는다**(#12-1 "훅 버블은 막지 않는다" — 자물쇠만 사용자 지시로 둔 예외다).
+         * 그 엔진 자신의 강제 허락 장치로 돌려준다: 클로드는 `ask`(그 CLI 의 승인 창 — bypass 에서도 뜬다),
+         * 코덱스는 `ask` 를 읽기만 하고 도구를 그대로 실행하므로 거부 + 사유.
+         */
+        const lockAnswer = unmanagedLockAnswer(lockHits(), { engine: body.engine, turnId: body.turnId });
+        if (lockAnswer) {
+          res.json(lockAnswer);
+          return;
+        }
+        res.json({ ok: true, decision: 'allow', reason });
       };
 
       // 1) 관할 에이전트 resolve — parentAgentId 우선, 그 다음 sessionId 역방향.
@@ -8738,6 +8947,15 @@ export async function runServer(): Promise<RunServerHandle> {
       //   지휘자의 curl 이 저장된 권한 모드의 승인 카드에 걸려 턴이 멈춘다.
       const config = agentConfigForTurn(agentId, body.subAgentId);
       if (!config) {
+        // §5.3 #12-4 — 설정이 없어도 우리가 띄운 세션이다. 검증 판정만은 그대로 탄다(그 밖은 종전대로 통과).
+        const verification = verificationGate.checkSubAgentCall(
+          typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined,
+          { toolName, toolInput, cwd: body.cwd ?? null },
+        );
+        if (verification.verdict === 'deny') {
+          res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
+          return;
+        }
         // 설정 없음 — 막을 근거 없음, 통과
         passUnmanaged('no-config');
         return;
@@ -8767,10 +8985,37 @@ export async function runServer(): Promise<RunServerHandle> {
         const codexEscalate = codexRisk.length > 0
           && shouldEscalateRisk(graphManager.getAuditBoundary(codexProject), codexRisk);
         const approvalKey = codexApprovalKey(agentId, codexSessionId, toolName, toolInput);
+        /*
+         * §5.3 #12-4 (E) ② — 코덱스도 실행 전(PreToolUse)에 같은 검증 판정을 탄다. 모드와 무관하다 — 읽기 전용
+         * 샌드박스도 테스트는 돈다. 묻지 않는다(승인 카드 ❌) — 범위 밖이면 거부하고 사유는 서버가 짓는다.
+         */
+        if (codexEvent === 'PreToolUse') {
+          const verification = verificationGate.checkSubAgentCall(codexSubAgentId, { toolName, toolInput, cwd: body.cwd ?? null });
+          if (verification.verdict === 'deny') {
+            const deniedEntryId = graphManager.recordAuditCall({
+              projectName: codexProject,
+              sessionId: codexSessionId,
+              agentId,
+              ...(codexSubAgentId ? { subAgentId: codexSubAgentId } : {}),
+              ...(agentNode.label ? { agentLabel: agentNode.label } : {}),
+              ...(config.color ? { agentColor: config.color } : {}),
+              toolName,
+              toolInput,
+              ...(typeof body.toolUseId === 'string' && body.toolUseId ? { toolUseId: body.toolUseId } : {}),
+              roots: codexRoots,
+            });
+            if (deniedEntryId) graphManager.recordAuditDecision(codexProject, deniedEntryId, 'deny', 'policy', VERIFICATION_DENY_REASON);
+            res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
+            return;
+          }
+        }
+        // §5.3 #12-3 — 실행 전(PreToolUse)에만 잰다. 승인 요청은 같은 호출의 뒷단이라 앞에서 이미 물었다.
+        const codexLockHits = codexEvent === 'PreToolUse' ? lockHits() : [];
         const plan = planCodexPermission({
           event: codexEvent,
           permissionMode: config.permissionMode,
           escalate: codexEscalate,
+          locked: codexLockHits.length > 0,
           consumeApproval: () => codexApprovalMemory.consume(approvalKey, codexEvent),
         });
         // 한 호출은 원장 한 줄 — 승인 요청(`tool_use_id` 없음)과 허용된 재시도는 앞 PreToolUse 가 적은 줄을 잇는다.
@@ -8800,12 +9045,18 @@ export async function runServer(): Promise<RunServerHandle> {
         }
         if (plan.kind === 'deny') {
           noteCodexDecision('deny', 'policy', plan.reason);
-          res.json({ ok: true, decision: 'deny', reason: plan.reason, mode: config.permissionMode || 'default' });
+          res.json({
+            ok: true, decision: 'deny', reason: plan.reason, mode: config.permissionMode || 'default',
+            // §5.3 #12-3 — 묻지 않는 모드의 자물쇠 거부는 문구를 서버가 짓는다(어느 경로가 잠겼는지 말해야 한다).
+            ...(plan.reason === 'locked' ? { message: lockDenyReason(codexLockHits, 'dont-ask') } : {}),
+          });
           return;
         }
         const codexSignal = callerGoneSignal(res);
+        // §5.3 #12-3 — 자물쇠가 세운 카드: 무응답은 언제나 거부, "항상"은 잠금 풀기뿐이다.
+        const codexLockCard = codexLockHits.length > 0;
         graphManager.setPermissionWaiting(agentId, true);
-        if (codexEvent === 'PreToolUse' && codexEntryId) graphManager.markAuditEscalated(codexProject, codexEntryId);
+        if (codexEvent === 'PreToolUse' && codexEscalate && codexEntryId) graphManager.markAuditEscalated(codexProject, codexEntryId);
         broadcastSnapshot();
         let codexDecision;
         try {
@@ -8818,10 +9069,11 @@ export async function runServer(): Promise<RunServerHandle> {
             toolName,
             toolInput,
             ...(codexRisk.length > 0 ? { risk: codexRisk } : {}),
-            // PreToolUse 에서 묻는 것은 늘 경계가 붙잡은 호출이다. 승인 요청은 모드가 원래 묻는 자리다.
-            ...(codexEvent === 'PreToolUse' ? { escalated: true } : {}),
+            // PreToolUse 에서 경계가 붙잡은 호출이면 그렇다고 적는다. 승인 요청은 모드가 원래 묻는 자리다.
+            ...(codexEvent === 'PreToolUse' && codexEscalate ? { escalated: true } : {}),
+            ...(codexLockCard ? { lockHits: lockHitsForCard(codexLockHits), alwaysAllow: 'unlock' as const } : {}),
             ...(codexEntryId ? { auditEntryId: codexEntryId } : {}),
-          }, config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow', { signal: codexSignal });
+          }, codexLockCard || config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow', { signal: codexSignal });
         } finally {
           graphManager.setPermissionWaiting(agentId, false);
           broadcastSnapshot();
@@ -8922,6 +9174,67 @@ export async function runServer(): Promise<RunServerHandle> {
       if (isToolDisallowed(config.disallowedTools, toolName)) {
         noteAuditDecision('deny', 'policy', 'disallowed');
         res.json({ ok: true, decision: 'deny', reason: 'disallowed' });
+        return;
+      }
+
+      /*
+       * §5.3 #12-4 (E) ① — **검증은 시킬 때만.** 금지 목록 바로 뒤, 자물쇠·모든 모드 단축(`bypassPermissions`·
+       *   `auto`·`acceptEdits`·읽기 전용 통과·세션 기억)보다 먼저다 — 뒤에 두면 그 모드들에서 영영 안 탄다.
+       *   `plan` 은 실행이 없어 보지 않는다. 사람에게 묻지 않는다("검증할까요?" 팝업 ❌) — 범위 밖이면 실행 전에
+       *   거부하고, 무엇으로 읽었는지·우회하지 말라는 사유는 서버가 짓는다(`message`). 도는 명령을 못 찾으면
+       *   검증은 거부한다(fail-closed). 검증이 아닌 호출은 아무 영향 없이 아래로 흐른다.
+       */
+      if (mode !== 'plan') {
+        const verification = verificationGate.checkSubAgentCall(
+          typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined,
+          { toolName, toolInput, cwd: body.cwd ?? null },
+        );
+        if (verification.verdict === 'deny') {
+          noteAuditDecision('deny', 'policy', VERIFICATION_DENY_REASON);
+          res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
+          return;
+        }
+      }
+
+      /*
+       * §5.3 #12-3 — **자물쇠는 모든 모드 단축보다 먼저**(`bypassPermissions`·`auto`·`plan`·`acceptEdits`·
+       * 읽기 전용 통과·세션 기억). 금지 목록 뒤인 이유는 그쪽이 이미 사람 없이 안전한 답(거부)을 냈기 때문이다.
+       * `plan` 도 묻는다 — 계획 모드의 읽기는 실제로 일어나는 접근이다. 묻지 않는 모드(`dontAsk`)는 거부한다.
+       * 위험·확인 목록과 겹쳐도 카드는 한 장이고 자물쇠 규칙이 이긴다(무응답 거부 · "항상"은 잠금 풀기뿐).
+       */
+      const managedLockHits = lockHits();
+      if (managedLockHits.length > 0) {
+        if (mode === 'dontAsk') {
+          noteAuditDecision('deny', 'policy', 'locked');
+          res.json({ ok: true, decision: 'deny', reason: 'locked', message: lockDenyReason(managedLockHits, 'dont-ask') });
+          return;
+        }
+        const lockSubAgentId = typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined;
+        const lockSignal = callerGoneSignal(res);
+        graphManager.setPermissionWaiting(agentId, true);
+        broadcastSnapshot();
+        let lockDecision;
+        try {
+          lockDecision = await permissionBroker.request({
+            agentId,
+            subAgentId: lockSubAgentId,
+            agentLabel: agentNode.label ?? agentId,
+            agentColor: config.color ?? BUBBLE_COLORS.agent,
+            projectName: auditProject,
+            toolName,
+            toolInput,
+            ...(riskKinds.length > 0 ? { risk: riskKinds } : {}),
+            lockHits: lockHitsForCard(managedLockHits),
+            // [잠금 풀고 허용] — 카드를 세운 자물쇠를 그 주인 프로젝트에서 푼다. "항상 거절"·세션 기억은 없다.
+            alwaysAllow: 'unlock',
+            ...(auditEntryId ? { auditEntryId } : {}),
+          }, 'deny', { signal: lockSignal });
+        } finally {
+          graphManager.setPermissionWaiting(agentId, false);
+          broadcastSnapshot();
+        }
+        noteAuditDecision(lockDecision.decision, permissionDecisionSource(lockDecision), lockDecision.reason);
+        if (!res.writableEnded) res.json({ ok: true, decision: lockDecision.decision, reason: lockDecision.reason });
         return;
       }
 
@@ -9049,6 +9362,24 @@ export async function runServer(): Promise<RunServerHandle> {
   ): { ok: true } | { ok: false; error: string } {
     const scope = choice === 'allow_always' ? request.alwaysAllow : request.alwaysReject;
     if (!scope) return { ok: false, error: 'always-not-offered' };
+    if (scope === 'unlock') {
+      // §5.3 #12-3 — [잠금 풀고 허용]: 카드를 세운 자물쇠를 **그 주인 프로젝트**에서 푼다(다른 탭이 건 것일 수 있다).
+      //   자물쇠 id 는 카드에 서버가 실어 둔 것만 쓴다 — 결정 본문으로 다른 자물쇠를 풀 수 없다.
+      const hits = request.lockHits ?? [];
+      if (hits.length === 0) return { ok: false, error: 'always-not-offered' };
+      const byProject = new Map<string, string[]>();
+      for (const hit of hits) byProject.set(hit.projectName, [...(byProject.get(hit.projectName) ?? []), hit.lockId]);
+      let changed = false;
+      for (const [projectName, ids] of byProject) {
+        if (graphManager.updatePathLocks(projectName, [], ids)?.changed) changed = true;
+      }
+      if (changed) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+      logger.info(`[permission] allow_always → unlock (${request.agentId} · ${hits.map((h) => h.target).join(', ')})`);
+      return { ok: true };
+    }
     if (scope === 'session') {
       if (!request.subAgentId) return { ok: false, error: 'always-not-offered' };
       permissionSessionGrants.grant(request.agentId, request.subAgentId, request.toolName);
@@ -9134,6 +9465,51 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true });
     } catch (err) {
       logger.error('POST /api/permission-decide failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §5.3 #12-3 — POST /api/path-locks  `{ projectName, lock?: PathLockTarget[], unlock?: string[] }`
+   * 버블 위 우클릭 [잠그기]/[잠금 풀기]. 걸고 푸는 손은 **사람뿐**이다 — loopback 유입(토큰을 가진 에이전트가
+   * 닿는 길)은 403 이다. 이 경로는 loopback 화이트리스트에도 없지만 권한 축은 두 겹으로 막는다(#12-1-B "항상"과
+   * 같은 규율). `projectName` 은 표시명·원래 이름·경로 무엇이든 된다(클라는 표시명을 보낸다).
+   */
+  app.post('/api/path-locks', (req, res) => {
+    try {
+      if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+        res.status(403).json({ ok: false, error: 'path-locks-not-allowed-from-loopback' });
+        return;
+      }
+      const body = (req.body ?? {}) as { projectName?: unknown; lock?: unknown; unlock?: unknown };
+      const projectName = typeof body.projectName === 'string' ? body.projectName.trim() : '';
+      const rawLock = Array.isArray(body.lock) ? body.lock.slice(0, PATH_LOCK_MAX_PER_PROJECT) : [];
+      const unlock = Array.isArray(body.unlock)
+        ? body.unlock.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, PATH_LOCK_MAX_PER_PROJECT)
+        : [];
+      const lock: PathLockTarget[] = [];
+      let invalid = 0;
+      for (const raw of rawLock) {
+        const target = normalizePathLockTarget(raw);
+        if (target) lock.push(target);
+        else invalid++;
+      }
+      if (!projectName || (lock.length === 0 && unlock.length === 0)) {
+        res.status(400).json({ ok: false, error: 'invalid payload' });
+        return;
+      }
+      const result = graphManager.updatePathLocks(projectName, lock, unlock);
+      if (!result) {
+        res.status(404).json({ ok: false, error: 'project not found' });
+        return;
+      }
+      if (result.changed) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+      res.json({ ok: true, projectName: result.projectName, locks: result.locks, rejected: result.rejected + invalid });
+    } catch (err) {
+      logger.error('POST /api/path-locks failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
@@ -10732,6 +11108,32 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /**
+   * PATCH /api/bubble/:nodeId/form — §5.4 #36 (A) 커스텀 에이전트의 캔버스 형태(입력 카드 ↔ 버블).
+   * 대상이 아니면(훅·CMD·버려진 에이전트) 409, 없으면 404. 형태는 에이전트 노드째 체크포인트에 실린다.
+   */
+  app.patch('/api/bubble/:nodeId/form', (req, res) => {
+    try {
+      const { nodeId } = req.params;
+      const form = (req.body as { form?: unknown } | undefined)?.form;
+      if (!nodeId || (form !== 'card' && form !== 'bubble')) {
+        res.status(400).json({ error: 'nodeId and form(card|bubble) required' });
+        return;
+      }
+      const result = graphManager.setAgentForm(nodeId, form);
+      if (!result.ok) {
+        res.status(result.reason === 'not-found' ? 404 : 409).json({ error: result.reason });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, form: result.form });
+    } catch (err) {
+      logger.error('PATCH /api/bubble/form failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /** PATCH /api/bubble/:nodeId/disappear-pause — 소멸 중단/재개 토글 */
   app.patch('/api/bubble/:nodeId/disappear-pause', (req, res) => {
     try {
@@ -10850,6 +11252,47 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json(listing);
     } catch (err) {
       logger.error('GET /api/workspace-dir failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/workspace-find — §5.5 #17-27 ⑱ 판 쪽에서 **그 갈래의 파일**을 찾는다.
+   *
+   * `?root=<절대경로>&kind=code|html|image|pdf&claimed=<.확장자,…>` → `WorkspaceFindResult`
+   * (파일만 · 최근 고친 순 · 상한에 걸리면 `truncated`). `claimed` 는 앱이 받겠다고 선언한 확장자로,
+   * 등록표가 화면에 있어 화면이 실어 보낸다 — 판정은 서버도 같은 `isEditorPaneListable` 한 벌이다.
+   * 가드는 탐색기와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`(새 가드 ❌). 조회 전용이라
+   * broadcast·checkpoint 없음 · loopback 화이트리스트 밖(렌더러 전용). 걷기는 비동기라 창을 세우지 않는다.
+   */
+  app.get(WORKSPACE_FIND_PATH, async (req, res) => {
+    try {
+      const root = req.query['root'];
+      const kind = req.query['kind'];
+      if (typeof root !== 'string' || root.length === 0) {
+        res.status(400).json({ error: 'root query required' });
+        return;
+      }
+      if (!isEditorPaneFileKind(kind)) {
+        res.status(400).json({ error: 'kind must be one of code, html, image, pdf' });
+        return;
+      }
+
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`workspace-find blocked (outside project root): "${root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      const found = await findWorkspaceFiles(resolvedRoot, kind, parseClaimedExtensions(req.query['claimed']));
+      if (!found) {
+        res.status(404).json({ error: 'Directory not found' });
+        return;
+      }
+      res.json(found);
+    } catch (err) {
+      logger.error('GET /api/workspace-find failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -14685,6 +15128,7 @@ export async function runServer(): Promise<RunServerHandle> {
       height?: unknown;
       title?: unknown;
       ref?: unknown;
+      linkedAgentIds?: unknown;
     };
     if (
       typeof body.projectName !== 'string' ||
@@ -14704,6 +15148,8 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(typeof body.height === 'number' ? { height: body.height } : {}),
       ...(typeof body.title === 'string' ? { title: body.title } : {}),
       ...(typeof body.ref === 'string' ? { ref: body.ref } : {}),
+      // §5.4 #36 (B) — 카드의 `+` 로 만들면 그 에이전트를 참조한 채 태어난다. 다듬기는 인스턴스가 한다.
+      ...(body.linkedAgentIds !== undefined ? { linkedAgentIds: body.linkedAgentIds } : {}),
     });
     if (!bubble) {
       res.status(500).json({ ok: false, error: 'no project instance registered' });
@@ -14723,6 +15169,30 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
     saveCheckpoint();
     res.json({ ok: true, data: updated });
+  });
+
+  /**
+   * §5.4 #36 (C) — 결과 전달. 참조선으로 이어진 에이전트가 만든 파일을 그 앱 노드에 담는다.
+   *
+   * 외부 `claude`/`codex` 프로세스가 부르는 자리라 loopback 화이트리스트에 열려 있다(토큰 필수 —
+   * 카드 경로들과 같은 규율). **프로젝트 안의 존재하는 파일만** 받는다 — 앱 노드를 열면 그 파일이
+   * 앱으로 열리므로, 아무 경로나 적히면 노드가 프로젝트 밖을 가리키게 된다.
+   * 코어는 앱 이름을 모르므로 확장자는 보지 않는다(어느 앱이 무엇을 여는지는 클라 레지스트리의 것).
+   */
+  app.post('/api/app-bubbles/:id/output', (req, res) => {
+    const body = (req.body ?? {}) as { file?: unknown };
+    if (typeof body.file !== 'string' || body.file.trim() === '') {
+      res.status(400).json({ ok: false, error: 'file required' });
+      return;
+    }
+    const result = graphManager.setAppBubbleOutput(req.params.id, body.file.trim());
+    if (!result.ok) {
+      res.status(result.error === 'not-found' ? 404 : 400).json({ ok: false, error: result.error });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, data: { id: result.bubble.id, appId: result.bubble.appId, file: result.bubble.file } });
   });
 
   app.delete('/api/app-bubbles/:id', (req, res) => {
@@ -15179,6 +15649,55 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
     saveCheckpoint();
     res.json({ ok: true, run: result.run });
+  });
+
+  /**
+   * §5.3 #12-4 (F) — POST /api/verification-request — 결과 줄 [검증 실행]. 그 탭에 **관련 검증 명령 한 건**을
+   * 넣는다. 범위(관련 테스트·타입 검사·린트·빌드)는 서버가 찍는다 — 본문(`prompt`)은 사람이 읽을 말일 뿐
+   * 권한을 정하지 않는다. 사람이 누르는 손잡이라 에이전트(loopback) 유입은 받지 않는다.
+   */
+  app.post('/api/verification-request', (req, res) => {
+    if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+      res.status(403).json({ ok: false, error: 'user-only' });
+      return;
+    }
+    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; prompt?: unknown };
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '';
+    const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, VERIFICATION_REQUEST_PROMPT_MAX) : '';
+    if (!agentId || !subAgentId || !prompt) {
+      res.status(400).json({ ok: false, error: 'agentId, subAgentId and prompt required' });
+      return;
+    }
+    // #17-29 — 훅 버블은 전면 읽기 전용이라 명령을 보내지 않는다.
+    if (isReadOnlyHookAgentId(agentId)) {
+      res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
+      return;
+    }
+    const scopeError = verificationScopeError({ agentId, subAgentId, sub: subAgentManager.getSub(subAgentId) });
+    if (scopeError) { res.status(409).json({ ok: false, error: scopeError }); return; }
+    const sessionId = graphManager.findSessionByAgentId(agentId);
+    if (!sessionId) { res.status(409).json({ ok: false, error: 'session-not-found' }); return; }
+    let queue = commandQueues.get(sessionId);
+    if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+    // 겹쳐 쏘지 않는다 — 그 탭에 안 끝난 명령이 있으면 그것이 끝난 뒤 다시 누른다(무한 재실행 차단).
+    if (queue.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'))) {
+      res.status(409).json({ ok: false, error: 'session-busy' });
+      return;
+    }
+    const cmd: QueuedCommand = {
+      id: `cmd-${Date.now()}-verifyreq-${randomUUID().slice(0, 8)}`,
+      text: prompt,
+      timestamp: Date.now(),
+      subAgentId,
+      status: 'queued',
+      dispatchMode: 'wait',
+      verificationScope: buttonVerificationScope(),
+    };
+    queue.push(cmd);
+    processNextCommand(sessionId);
+    broadcastSnapshot();
+    res.json({ ok: true, commandId: cmd.id });
   });
 
   /** POST /api/verification-runs/:id/stop — 도는 검증을 목록에서 닫는다(그 턴 자체 중지는 기존 [중지]). */
@@ -16005,7 +16524,8 @@ export async function runServer(): Promise<RunServerHandle> {
             branch: wt.branch,
             startedAt: Date.now(),
           });
-          enqueueAgentCommand(agent.id, task, 'lab');
+          // §5.3 #12-4 — 랩 과제는 사람이 적은 문장이다. 거기서 요청한 검증만 각 변형에 열린다.
+          enqueueAgentCommand(agent.id, task, 'lab', undefined, verificationScopeFromText(task));
           started.push({ variantId: variant.id, agentId: agent.id, worktree: wtProjectName });
         }
 
@@ -17145,6 +17665,13 @@ export async function runServer(): Promise<RunServerHandle> {
     // cmd.subAgentId 에 실어 큐잉. 그래야 `processNextCommand → subAgentManager.execute` 가
     // 새 Claude 서브프로세스를 스폰하고 IDE 에 탭이 뜬다. null 로 두면 execute 가 조용히 return.
     const newSub = subAgentManager.create(targetAgent.id);
+    // §5.3 #12-4 (D) — 위임은 보낸 명령(요청자 탭에서 지금 도는 명령)의 검증 범위를 **물려받기만** 한다 —
+    //   종류는 같고 남은 횟수만큼. 요청자를 모르거나 그 명령에 권한이 없으면 받은 쪽도 없다(위임 지시문이
+    //   "테스트까지 돌려라"라고 써 있어도 그것은 AI 가 쓴 글이라 권한이 아니다).
+    const parentCommand = requesterSubAgentId ? findExecutingCommandForSub(requesterSubAgentId) : undefined;
+    const inheritedScope = parentCommand
+      ? inheritVerificationScope(parentCommand.verificationScope, parentCommand.verification, parentCommand.id)
+      : undefined;
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now().toString(36)}-edge${Math.random().toString(36).slice(2, 5)}`,
       text: instruction,
@@ -17153,6 +17680,7 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId,
       ...(dispatchOrchestraRunId ? { orchestraRunId: dispatchOrchestraRunId } : {}),
+      ...(inheritedScope ? { verificationScope: inheritedScope } : {}),
     };
     // §5.3 #10-2 — 큐에 넣기 **전에** 장부에 적는다. 넣은 직후 동기로 끝나도(스폰 실패 등) 끝을 적을 자리가 이미 있어야 한다.
     dispatchJobs.register({
@@ -17945,6 +18473,14 @@ export async function runServer(): Promise<RunServerHandle> {
   });
   // §5.3 #12-1-B — 로컬 도구 판정이 턴 도중에 저장된 "항상" 답(못 쓰는 목록·확인 목록)을 읽는 자리.
   subAgentManager.setAgentConfigResolver((parentAgentId) => graphManager.getAgentConfig(parentAgentId));
+  // §5.3 #12-3 — 로컬 도구 판정도 훅 경로와 같은 판정기·같은 자물쇠(열려 있는 모든 프로젝트)를 본다.
+  subAgentManager.setPathLockResolver((toolName, toolInput, cwd) => (
+    findToolLockHitsOnHost(toolName, toolInput, cwd, graphManager.getAllPathLocks())
+  ));
+  // §5.3 #12-4 (E) ③ — 로컬 모델의 도구 판정도 훅 경로와 같은 검증 판정 객체를 부른다.
+  subAgentManager.setVerificationChecker((cmd, toolName, toolInput, cwd) => (
+    verificationGate.checkCommandCall(cmd, { toolName, toolInput, cwd })
+  ));
   // 위 해석이 `null` 을 줄 때의 **되찾기 후보**(§5.5 `findStreamDirFor` ③). 소속은 `sessionCwds`·
   // `agents` 맵을 훑어 찾는데, 프로젝트 탭을 닫았다 오가면 그 에이전트가 두 맵에서 빠져 폴더를
   // 짚지 못한다 — 그러면 디스크에 온전한 대화가 있는데도 빈 배열이 나가 화면이 굳는다.
@@ -18157,8 +18693,23 @@ export async function runServer(): Promise<RunServerHandle> {
     contextResult: string | null,
     isFreshCycle: boolean,
     orchestraRunId?: string,
+    /** §5.3 #12-4 (D) — 이 비평을 부른 명령(끝난 작업). 그 명령의 검증 범위가 발사의 근거다. */
+    sourceCommand?: QueuedCommand,
   ): void {
     if (orchestraRunId && graphManager.findOrchestraRun(orchestraRunId)?.phase !== 'dispatched') return;
+    /*
+     * §5.3 #12-4 (D) — **완료 뒤 자동 후속이 검증을 새로 시작하지 않는다.** 비평(리뷰)은 검증이고, 끝난 작업의
+     *   명령에 사용자가 연 검증 범위가 없으면 감시자를 띄우지 않는다. 띄울 때는 그 범위를 물려받기만 한다
+     *   (종류는 같고 남은 횟수만큼 — 재작업 사이클도 같은 몫을 나눠 쓴다). 런이 기다리지 않도록 이 판정은
+     *   `expectCritique` 보다 **앞**이다.
+     */
+    const inheritedScope = sourceCommand
+      ? inheritVerificationScope(sourceCommand.verificationScope, sourceCommand.verification, sourceCommand.id)
+      : undefined;
+    if (!hasVerificationGrant(inheritedScope)) {
+      logger.info(`[critique] skip dispatch — the finished command had no verification permission (edge ${edge.id}, §5.3 #12-4)`);
+      return;
+    }
     if (orchestraRunId) orchestraResults.expectCritique(orchestraRunId, edge.id);
     if (edge.status === 'executing' && !orchestraRunId) {
       logger.debug?.(`[critique] skip dispatch — edge ${edge.id} already executing`);
@@ -18200,6 +18751,7 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId: edge.id,
       ...(orchestraRunId ? { orchestraRunId } : {}),
+      ...(inheritedScope ? { verificationScope: inheritedScope } : {}),
     };
     const queue = commandQueues.get(watcherSessionId) ?? [];
     queue.push(cmd);
@@ -18264,7 +18816,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /** Watcher 의 critique 응답이 완료되었을 때 호출. verdict 파싱 + (필요 시) auto-rework 발사 또는 에스컬레이션. */
-  function handleCritiqueCompletion(edge: TaskEdge, watcherResult: string | undefined, orchestraRunId?: string): void {
+  function handleCritiqueCompletion(edge: TaskEdge, watcherResult: string | undefined, orchestraRunId?: string, watcherCommand?: QueuedCommand): void {
     if (edge.kind !== 'critique' || (edge.bundleRole ?? 'primary') !== 'primary') return;
     const { verdict, reason, attempts } = parseCritiqueVerdict(watcherResult ?? '');
     const authority = edge.critiqueAuthority ?? 'force-rework';
@@ -18349,6 +18901,10 @@ export async function runServer(): Promise<RunServerHandle> {
     const instruction = `${TASK_EDGE_AUTO_REWORK_COMMAND_LABEL} (cycle ${nextCount}/${maxRework})${reasonBlock}\nAddress the feedback and continue.`;
 
     const newSub = subAgentManager.create(worker.id);
+    // §5.3 #12-4 (D) — 자동 재작업은 감시자 명령의 검증 범위를 물려받기만 한다(남은 횟수만큼 — 사이클이 돌수록 준다).
+    const reworkScope = watcherCommand
+      ? inheritVerificationScope(watcherCommand.verificationScope, watcherCommand.verification, watcherCommand.id)
+      : undefined;
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now().toString(36)}-rework${Math.random().toString(36).slice(2, 5)}`,
       text: instruction,
@@ -18357,6 +18913,7 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId: reworkEdge.id,
       ...(orchestraRunId ? { orchestraRunId } : {}),
+      ...(reworkScope ? { verificationScope: reworkScope } : {}),
     };
     const workerSessionId = worker.path;
     const queue = commandQueues.get(workerSessionId) ?? [];
@@ -18387,7 +18944,8 @@ export async function runServer(): Promise<RunServerHandle> {
       // v1.32 — Task Edge dispatch 매칭: edgeId 실린 명령이면 엣지 상태 갱신 + 대기 중 dispatch promise resolve
       // v1.55 — critique 엣지(watcher 응답) / auto-rework 엣지(작업자 rework) 분류해 별도 처리 hook 마련.
       // v1.56b — 사용자 강제 중단(`[Stopped by user]`)은 critique 트리거 대상에서 제외 — 중단된 결과를 watcher 가 review 할 가치 없음.
-      const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined; orchestraRunId?: string }[] = [];
+      // §5.3 #12-4 (D) — 감시자 명령도 함께 든다. 자동 재작업은 그 명령의 검증 범위를 물려받기만 한다.
+      const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined; orchestraRunId?: string; command: QueuedCommand }[] = [];
       let sawNonCritiqueResponse = false;
       let sawReworkCompletion = false;
       const isUserStopped = (cmd: QueuedCommand): boolean =>
@@ -18413,7 +18971,7 @@ export async function runServer(): Promise<RunServerHandle> {
           // watcher 의 critique 응답 — verdict 처리 대상. 작업자 watcher 발사 후보 ❌.
           // 사용자가 watcher 를 중단한 경우 verdict 파싱도 skip (rework 발사 안 함, 사이클 종료).
           if (edgeStatus === 'completed' && !userStopped) {
-            completedCritiqueEdges.push({ edge: cmdEdge, result: cmd.result, orchestraRunId: cmd.orchestraRunId });
+            completedCritiqueEdges.push({ edge: cmdEdge, result: cmd.result, orchestraRunId: cmd.orchestraRunId, command: cmd });
           }
         } else if (cmdEdge?.bundleRole === 'auto-rework') {
           // 작업자가 auto-rework 명령 완료 — 다음 사이클 watcher 재발사 대상. count 리셋 ❌(연속).
@@ -18562,9 +19120,9 @@ export async function runServer(): Promise<RunServerHandle> {
       // v1.55 — critique 런타임:
       //   (1) watcher critique 응답 완료들 처리(reject 판정 시 자매 auto-rework 발사 / 강등)
       //   (2) 작업자 본 완료(=critique 응답 외)가 있으면 incoming critique watcher 발사
-      for (const { edge, result, orchestraRunId } of completedCritiqueEdges) {
+      for (const { edge, result, orchestraRunId, command } of completedCritiqueEdges) {
         try {
-          handleCritiqueCompletion(edge, result, orchestraRunId);
+          handleCritiqueCompletion(edge, result, orchestraRunId, command);
         } catch (err) {
           logger.error(`[critique] handleCritiqueCompletion failed edge=${edge.id}`, err);
         }
@@ -18583,6 +19141,17 @@ export async function runServer(): Promise<RunServerHandle> {
             }
             return null;
           })();
+          // §5.3 #12-4 (D) — 비평(리뷰)은 검증이다. 그 결과를 낸 명령(가장 최근 일반/rework 명령)의 검증
+          //   범위가 감시자 발사의 근거다 — 범위가 없으면 완료 뒤 자동 후속이 검증을 새로 시작하지 않는다.
+          const lastNonCritiqueCommand = (() => {
+            for (let i = done.length - 1; i >= 0; i--) {
+              const c = done[i]!;
+              const e = c.edgeId ? graphManager.getTaskEdge(c.edgeId) : null;
+              if (e?.kind === 'critique' && (e.bundleRole ?? 'primary') === 'primary') continue;
+              return c;
+            }
+            return undefined;
+          })();
           // Preserve each run when concurrent sessions finish on the same worker.
           const { firings, plainFallback } = orchestraCritiqueFirings(done, workerAgentId, {
             findRun: (runId) => graphManager.findOrchestraRun(runId),
@@ -18592,10 +19161,12 @@ export async function runServer(): Promise<RunServerHandle> {
           for (const edge of incoming) {
             try {
               for (const firing of firings) {
-                dispatchCritiqueWatcher(edge, firing.result, firing.freshCycle, firing.runId);
+                // 오케스트라 런은 그 런을 연 사용자 명령이 권한의 근거다.
+                const rootCommandId = graphManager.findOrchestraRun(firing.runId)?.commandId;
+                dispatchCritiqueWatcher(edge, firing.result, firing.freshCycle, firing.runId, rootCommandId ? findCommandById(rootCommandId) : undefined);
               }
               if (plainFallback) {
-                dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion);
+                dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion, undefined, lastNonCritiqueCommand);
               }
             } catch (err) {
               logger.error(`[critique] dispatchCritiqueWatcher failed edge=${edge.id}`, err);

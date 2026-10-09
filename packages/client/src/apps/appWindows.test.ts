@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { canPopOutAppWindow, openAppWindow, useAppWindowsStore } from './appWindows.js';
 import { INTERNAL_APPS } from './registry.js';
+import { registerAppWindowTransferGuard } from './appWindowTransfer.js';
 
 /**
  * §5.13 (S) — 앱은 **앱 안 창**으로 먼저 열리고, 꺼낼 때만 밖으로 나간다.
@@ -13,6 +14,12 @@ import { INTERNAL_APPS } from './registry.js';
 
 const APP = INTERNAL_APPS[0]!;
 const PROJECT = 'C:/proj';
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
 
 function reset(): void {
   useAppWindowsStore.setState({ windows: [] });
@@ -65,24 +72,113 @@ describe('앱 안 창 store', () => {
 });
 
 describe('밖으로 꺼내기', () => {
+  const cleanups: Array<() => void> = [];
   beforeEach(reset);
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => {
+    for (const cleanup of cleanups.splice(0)) cleanup();
+    vi.restoreAllMocks();
+  });
 
-  it('종전의 OS 창 경로를 그대로 지나고, 앱 안 창은 닫힌다', () => {
+  it('편집 화면에서 고른 최신 문서로 별도 창을 연다', async () => {
+    const open = vi.spyOn(APP, 'open').mockResolvedValue(true);
+    openAppWindow({ appId: APP.id, projectId: PROJECT, file: 'old.wav' });
+    const win = useAppWindowsStore.getState().windows[0]!;
+    useAppWindowsStore.getState().updateReference(win.id, 'current-doc');
+    expect(await useAppWindowsStore.getState().popOut(win.id)).toBe(true);
+    expect(open).toHaveBeenCalledWith({ projectId: PROJECT, ref: 'current-doc', file: undefined });
+  });
+
+  it('종전의 OS 창 경로를 그대로 지나고, 앱 안 창은 닫힌다', async () => {
     const open = vi.spyOn(APP, 'open').mockResolvedValue(true);
     openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1', file: 'a/b.mp4' });
     const win = useAppWindowsStore.getState().windows[0]!;
 
-    useAppWindowsStore.getState().popOut(win.id);
+    expect(await useAppWindowsStore.getState().popOut(win.id)).toBe(true);
 
     expect(open).toHaveBeenCalledWith({ projectId: PROJECT, ref: 'doc-1', file: 'a/b.mp4' });
     expect(useAppWindowsStore.getState().windows).toHaveLength(0);
   });
 
-  it('없는 창을 꺼내라고 해도 아무 일도 하지 않는다', () => {
+  it('없는 창을 꺼내라고 해도 아무 일도 하지 않는다', async () => {
     const open = vi.spyOn(APP, 'open').mockResolvedValue(true);
-    useAppWindowsStore.getState().popOut('appwin-없음');
+    expect(await useAppWindowsStore.getState().popOut('appwin-없음')).toBe(false);
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it.each(['refused', 'rejected'] as const)('keeps the source window when opening is %s and allows retry', async (failure) => {
+    const open = vi.spyOn(APP, 'open');
+    if (failure === 'refused') open.mockResolvedValueOnce(false);
+    else open.mockRejectedValueOnce(new Error('Native window unavailable'));
+    open.mockResolvedValueOnce(true);
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'unsaved-doc', title: 'Current work' });
+    const original = useAppWindowsStore.getState().windows[0]!;
+
+    expect(await useAppWindowsStore.getState().popOut(original.id)).toBe(false);
+    expect(useAppWindowsStore.getState().windows).toEqual([original]);
+    expect(await useAppWindowsStore.getState().popOut(original.id)).toBe(true);
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(useAppWindowsStore.getState().windows).toEqual([]);
+  });
+
+  it('keeps the source while saving and opening, ignores duplicate attempts, and uses the saved target', async () => {
+    const save = deferred<boolean>();
+    const target = deferred<boolean>();
+    const open = vi.spyOn(APP, 'open').mockReturnValue(target.promise);
+    openAppWindow({ appId: APP.id, projectId: PROJECT, file: 'draft.wav', title: 'My draft' });
+    const original = useAppWindowsStore.getState().windows[0]!;
+    const guard = vi.fn(() => save.promise);
+    cleanups.push(registerAppWindowTransferGuard(original.id, guard));
+    const placement = { x: 240, y: 80, width: 960, height: 640 };
+
+    const pending = useAppWindowsStore.getState().popOut(original.id, placement);
+    expect(useAppWindowsStore.getState().windows).toEqual([original]);
+    expect(open).not.toHaveBeenCalled();
+    expect(await useAppWindowsStore.getState().popOut(original.id)).toBe(false);
+    expect(guard).toHaveBeenCalledTimes(1);
+
+    useAppWindowsStore.getState().updateReference(original.id, 'saved-doc');
+    save.resolve(true);
+    await vi.waitFor(() => { expect(open).toHaveBeenCalledTimes(1); });
+    expect(open).toHaveBeenCalledWith({ projectId: PROJECT, ref: 'saved-doc', file: undefined, title: 'My draft', placement });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
+    expect(await useAppWindowsStore.getState().popOut(original.id)).toBe(false);
+
+    target.resolve(true);
+    expect(await pending).toBe(true);
+    expect(useAppWindowsStore.getState().windows).toEqual([]);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['refused', 'rejected'] as const)('preserves the source when the save guard is %s', async (failure) => {
+    const open = vi.spyOn(APP, 'open').mockResolvedValue(true);
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'unsaved-doc' });
+    const original = useAppWindowsStore.getState().windows[0]!;
+    const guard = failure === 'refused'
+      ? async (): Promise<boolean> => false
+      : async (): Promise<boolean> => { throw new Error('Save failed'); };
+    const unregister = registerAppWindowTransferGuard(original.id, guard);
+    cleanups.push(unregister);
+
+    expect(await useAppWindowsStore.getState().popOut(original.id)).toBe(false);
+    expect(useAppWindowsStore.getState().windows).toEqual([original]);
+    expect(open).not.toHaveBeenCalled();
+    unregister();
+    expect(await useAppWindowsStore.getState().popOut(original.id)).toBe(true);
+  });
+
+  it('does not reopen a source closed while its save guard was pending', async () => {
+    const save = deferred<boolean>();
+    const open = vi.spyOn(APP, 'open').mockResolvedValue(true);
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1' });
+    const original = useAppWindowsStore.getState().windows[0]!;
+    cleanups.push(registerAppWindowTransferGuard(original.id, () => save.promise));
+
+    const pending = useAppWindowsStore.getState().popOut(original.id);
+    useAppWindowsStore.getState().close(original.id);
+    save.resolve(true);
+    expect(await pending).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    expect(useAppWindowsStore.getState().windows).toEqual([]);
   });
 });
 

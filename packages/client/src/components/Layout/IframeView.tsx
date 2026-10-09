@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
+import { isWorkspaceSiteSrc } from '../../utils/workspaceSite.js';
 import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
 import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
 import { PreviewFrames } from '../Preview/PreviewFrames.js';
@@ -59,7 +60,7 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   const handleNavigate = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     let target = inputUrl.trim();
-    if (!target.startsWith('http://') && !target.startsWith('https://')) {
+    if (!isWorkspaceSiteSrc(target) && !target.startsWith('http://') && !target.startsWith('https://')) {
       target = `http://${target}`;
     }
     setCurrentUrl(target);

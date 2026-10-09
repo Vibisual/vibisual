@@ -13,7 +13,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Express } from 'express';
+import express, { type Express } from 'express';
+import { resolveVideoAsset, saveVideoAsset, VIDEO_UPLOAD_LIMIT } from './assets.js';
 
 import {
   VIDEO_DIR,
@@ -200,9 +201,9 @@ class VideoService {
   }
 
   /** 스튜디오가 가져갈 다음 일감. 먼저 들어온 것부터. */
-  claimNext(): VideoJob | null {
+  claimNext(projectPath?: string): VideoJob | null {
     for (const job of this.jobs.values()) {
-      if (job.status === 'queued') {
+      if (job.status === 'queued' && (projectPath === undefined || job.projectPath === projectPath)) {
         job.status = 'running';
         job.updatedAt = Date.now();
         return job;
@@ -223,6 +224,9 @@ class VideoService {
   updateJob(jobId: string, patch: Partial<Pick<VideoJob, 'status' | 'progress' | 'result' | 'error' | 'note'>>): VideoJob | null {
     const job = this.jobs.get(jobId);
     if (!job) return null;
+    // A late progress response must not resurrect an already completed render.
+    if ((job.status === 'done' || job.status === 'error' || job.status === 'canceled') &&
+      (patch.status === 'running' || patch.status === 'queued')) return job;
     Object.assign(job, patch);
     job.updatedAt = Date.now();
 
@@ -384,6 +388,15 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
    * 경로는 **프로젝트 루트 안으로만** 허용한다 — 상대 경로에 `..` 를 섞어 프로젝트
    * 밖 파일을 읽어 가는 길을 막는다(§3.5 프로젝트 독립성이 여기서도 그대로 적용).
    */
+  app.put('/assets', express.raw({ type: 'application/octet-stream', limit: VIDEO_UPLOAD_LIMIT }), (req, res) => {
+    const p = project(req.query['project']);
+    if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
+    try {
+      if (!Buffer.isBuffer(req.body)) throw new Error('Expected media bytes.');
+      res.json({ ok: true, asset: saveVideoAsset(p, req.query['name'], req.body) });
+    } catch (error) { res.status(400).json({ ok: false, error: String(error) }); }
+  });
+
   app.get('/asset', (req, res) => {
     const p = project(req.query['project']);
     const rel = req.query['path'];
@@ -391,14 +404,12 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       res.status(404).json({ ok: false, error: 'unknown project or path' });
       return;
     }
-    const root = path.resolve(p);
-    const target = path.resolve(root, rel);
-    const inside = target === root || target.startsWith(root + path.sep);
-    if (!inside || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+    let target: string;
+    try { target = resolveVideoAsset(p, rel); } catch {
       res.status(404).json({ ok: false, error: 'not found' });
       return;
     }
-    res.sendFile(target);
+    res.sendFile(target, { dotfiles: 'allow' });
   });
 
   // ─── 스틸 · 렌더 ───
@@ -426,6 +437,9 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       res.status(404).json({ ok: false, error: 'unknown project' });
       return;
     }
+    if (!videoService.readDoc(p, req.params.docId)) {
+      res.status(404).json({ ok: false, error: 'unknown doc' }); return;
+    }
     const job = videoService.enqueueRender(p, req.params.docId);
     res.json({ ok: true, job });
   });
@@ -446,9 +460,24 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   });
 
   /** 스튜디오가 다음 일감을 가져간다. */
-  app.post('/jobs/claim', (_req, res) => {
-    const job = videoService.claimNext();
+  app.post('/jobs/claim', (req, res) => {
+    const raw: unknown = req.body?.project;
+    const p = raw === undefined ? undefined : project(raw);
+    if (p === null) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
+    const job = videoService.claimNext(p);
     res.json({ ok: true, job });
+  });
+
+  app.put('/job/:jobId/output', express.raw({ type: 'application/octet-stream', limit: VIDEO_UPLOAD_LIMIT }), (req, res) => {
+    const job = videoService.getJob(req.params.jobId);
+    if (!job) { res.status(404).json({ ok: false, error: 'unknown output job' }); return; }
+    if (job.status !== 'running') { res.status(409).json({ ok: false, error: 'output job is not running' }); return; }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) { res.status(400).json({ ok: false, error: 'Expected output bytes.' }); return; }
+    try {
+      const result = job.kind === 'still' ? `data:image/png;base64,${req.body.toString('base64')}`
+        : videoService.saveRenderOutput(job.projectPath, job.docId, req.body);
+      res.json({ ok: true, job: videoService.updateJob(job.id, { status: 'done', progress: 1, result }) });
+    } catch (error) { res.status(500).json({ ok: false, error: String(error) }); }
   });
 
   /** 스튜디오가 진행률·결과를 돌려준다. */

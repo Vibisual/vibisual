@@ -9,6 +9,14 @@ function roundTrip(value: unknown): unknown {
 }
 
 describe('validateDoc — 정상 문서', () => {
+  it.each([undefined, true, false])('round-trips optional audio probe metadata %s', (hasAudio) => {
+    const doc = { ...createEmptyDoc('audio-probe', 'Video'), assets: { video: { id: 'video', kind: 'video', source: { kind: 'file', path: 'clip.mp4' }, hasAudio } } };
+    expect(validateDoc(roundTrip(doc)).ok).toBe(true);
+  });
+  it('rejects non-boolean audio probe metadata', () => {
+    const doc = { ...createEmptyDoc('audio-probe', 'Video'), assets: { video: { id: 'video', kind: 'video', source: { kind: 'file', path: 'clip.mp4' }, hasAudio: 'false' } } };
+    expect(validateDoc(roundTrip(doc)).ok).toBe(false);
+  });
   it('빈 문서는 통과한다', () => {
     const r = validateDoc(roundTrip(createEmptyDoc('d', '제목', 1)));
     expect(r.ok).toBe(true);

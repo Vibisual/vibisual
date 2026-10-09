@@ -531,6 +531,18 @@ export interface AppBubble {
   createdAt: number;
   /** §2.4 v1.28 — 사용자 preserve-pin. 소멸·삭제 경로 차단. */
   preservePinned?: boolean;
+  /**
+   * §5.4 #36 (B) — 이 앱 노드가 **참조하는 에이전트**들(참조선의 출발점).
+   * 중복 없이 `APP_BUBBLE_LINK_MAX` 개까지. 에이전트가 사라져도 지우지 않는다 — 휴지통에서
+   * 되살리면 선도 돌아온다(그리는 쪽이 지금 화면에 있는 끝점만 고른다).
+   */
+  linkedAgentIds?: string[];
+  /**
+   * §5.4 #36 (C) — 이 노드에 **담긴 결과 파일**(프로젝트 루트 기준 상대 경로, `/` 구분).
+   * 에이전트가 `POST /api/app-bubbles/:id/output` 으로 넣는다(존재하는 프로젝트 안 파일만).
+   * 노드를 열면 이 파일로 앱이 열린다(§5.13 (R-2) `file`).
+   */
+  file?: string;
 }
 
 export interface CaptureBubble {
@@ -2020,6 +2032,13 @@ export interface BubbleData {
   preservePinned?: boolean;
   /** 캔버스에서 사용자가 직접 생성한 에이전트 (훅 이벤트가 아닌 UI 생성) */
   customCreated?: boolean;
+  /**
+   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태. `'card'` 면 원형 버블 대신 **입력 카드**로 그린다.
+   * 없으면 버블이다(그래서 값은 `'card'` 하나뿐 — 버블로 돌릴 때는 칸을 지운다).
+   * 서버 소유(§3.1). 에이전트 노드째 체크포인트에 실리므로 별도 영속 로직이 없다(`preservePinned` 선례).
+   * 표시 형태라 identity 대상이 아니다 — 잃으면 버블로 돌아올 뿐이다.
+   */
+  agentForm?: 'card';
   /** Ghost 메타데이터 — bubbleType이 'ghost'일 때만 존재 */
   ghostInfo?: GhostInfo;
   /** 소멸 시작 시각 (ms) — status가 'disappearing'일 때 설정 */
@@ -2827,6 +2846,58 @@ export interface QueuedCommand {
    * 이 표식이 있는 명령은 덧말 합치기의 경계다(흡수하지도 흡수되지도 않는다).
    */
   orchestraRunId?: string;
+  /**
+   * §5.3 #12-4 (C) — 이 명령에 열린 **검증 범위**. 서버만 찍는다(요청 본문의 같은 이름 칸은 읽지 않는다).
+   * 없으면 이 명령에서는 검증(테스트·린트·타입 검사·빌드·E2E·브라우저·스크린샷·검증 에이전트)을 실행할
+   * 권한이 없다. 판정은 이 명령이 `executing` 인 동안만 이 값을 본다 — 끝나면 그대로 만료된다.
+   */
+  verificationScope?: VerificationScope;
+  /**
+   * §5.3 #12-4 (F) — 이 명령에서 검증을 몇 번 돌렸고 몇 번 막았으며 파일을 고쳤는가. 서버가 판정마다 적고
+   * 화면은 그대로 그린다. **통과 여부는 담지 않는다** — 돌렸다는 사실과 통과했다는 사실은 다르다.
+   */
+  verification?: CommandVerificationSummary;
+}
+
+/**
+ * §5.3 #12-4 — 앱이 "검증"으로 세는 실행 종류. 사용자가 그 명령에서 요청했을 때만 열린다.
+ * `agent` 는 검증·리뷰 역할의 서브에이전트를 띄우는 것이다.
+ * (이름이 `VerificationKind` 가 아닌 이유 — 그 이름은 검증 증거(`VerificationAttempt.kind`)가 이미 쓴다.)
+ */
+export type VerificationPolicyKind = 'test' | 'lint' | 'typecheck' | 'build' | 'e2e' | 'browser' | 'screenshot' | 'agent';
+
+/** §5.3 #12-4 (C) — 범위가 어디서 왔나. 사용자 문장 · [검증 실행] 버튼 · 보낸 명령에서 물려받음. */
+export type VerificationScopeSource = 'user-prompt' | 'button' | 'inherited';
+
+/** §5.3 #12-4 (C) — 한 명령에 열린 검증 범위. **서버만 만든다.** */
+export interface VerificationScope {
+  /** 열린 종류. 비면 권한 없음(부정만 기록된 범위). */
+  kinds: VerificationPolicyKind[];
+  /** 그 명령에서 사용자가 부정한 종류 — 합치기 덧말에서 다른 명령의 요청을 지운다(거부가 이긴다). */
+  negated?: VerificationPolicyKind[];
+  /** `test` 의 범위. `related`(변경과 관련된 것만 — 기본) · `all`(전체 스위트). */
+  testScope?: 'related' | 'all';
+  source: VerificationScopeSource;
+  /** 권한을 세운 사용자 문장(표시·근거용, 상한 `VERIFICATION_EVIDENCE_MAX`). */
+  evidence?: string;
+  /** `inherited` 일 때 보낸 명령의 id. */
+  parentCommandId?: string;
+  /** `inherited` 일 때 넘겨받은 남은 실행 횟수. 없으면 기본 상한(`VERIFICATION_GRANT_RUNS_TOTAL`). */
+  runsRemaining?: number;
+}
+
+/** §5.3 #12-4 (F) — 한 명령의 검증 기록. 횟수는 종류별·호출별로 센다. */
+export interface CommandVerificationSummary {
+  /** 범위 안이라 실행을 허락한 호출 수(종류별). */
+  ran?: Partial<Record<VerificationPolicyKind, number>>;
+  /** 범위 안이라 실행을 허락한 호출 수(합계 — 한 호출이 여러 종류일 수 있다). */
+  ranCalls?: number;
+  /** 범위 밖이라 실행 전에 막은 호출 수(종류별). */
+  blocked?: Partial<Record<VerificationPolicyKind, number>>;
+  /** 범위 밖이라 실행 전에 막은 호출 수(합계). */
+  blockedCalls?: number;
+  /** 이 명령에서 파일을 고치는 호출이 있었다(표시 여부 판단용). */
+  edited?: boolean;
 }
 
 /**
@@ -3788,6 +3859,58 @@ export interface ContiEventPayload {
   workId?: string;
 }
 
+/**
+ * §5.3 #12-3 — 자물쇠가 거는 대상의 종류.
+ * - `file`   파일 하나(그 경로 그대로)
+ * - `folder` 폴더와 그 아래 전부
+ * - `host`   웹 호스트와 그 하위 도메인
+ */
+export type PathLockKind = 'file' | 'folder' | 'host';
+
+/** §5.3 #12-3 — 잠글 대상. `id`·`lockedAt` 은 서버가 짓는다(메뉴·REST 바디가 이 모양으로 보낸다). */
+export interface PathLockTarget {
+  kind: PathLockKind;
+  /** 파일·폴더 = 절대경로(슬래시 모양 · 대소문자 보존), 호스트 = `webHostFromUrl` 모양(소문자 · `www.` 없음). */
+  target: string;
+  /** 화면에 쓸 이름(버블 라벨). 없으면 `target`. */
+  label?: string;
+}
+
+/**
+ * §5.3 #12-3 — 자물쇠 한 개. 사용자가 손으로 건 보호라 체크포인트와 `identity.json` 양쪽에 산다.
+ * `id` 는 종류 + 플랫폼 경로 키로 정해진다(`pathLockId`) — 같은 대상은 한 번만 잠긴다.
+ */
+export interface PathLock extends PathLockTarget {
+  id: string;
+  /** 잠근 시각(ms). */
+  lockedAt: number;
+}
+
+/**
+ * §5.3 #12-3 — 그 호출이 자물쇠에 닿은 방식(카드가 "무엇을 하려는지"를 말한다).
+ * - `read`    파일을 읽는다
+ * - `write`   파일을 고치거나 만든다
+ * - `list`    잠긴 폴더 안의 이름을 훑는다
+ * - `search`  잠긴 곳을 덮는 범위의 내용을 검색한다
+ * - `shell`   셸 명령이 그 경로를 가리키거나 그 폴더째 다룬다
+ * - `network` 잠긴 호스트에 요청한다
+ */
+export type PathLockAccess = 'read' | 'write' | 'list' | 'search' | 'shell' | 'network';
+
+/** §5.3 #12-3 — 한 호출이 한 자물쇠에 닿은 사실(판정은 shared `findToolLockHits` 한 곳). */
+export interface PathLockHit {
+  lockId: string;
+  kind: PathLockKind;
+  /** 자물쇠 대상(경로·호스트). */
+  target: string;
+  label?: string;
+  /** 그 자물쇠를 건 프로젝트(표시 이름). 다른 탭이 건 자물쇠일 수 있다 — 경로는 프로젝트를 가리지 않는다. */
+  projectName: string;
+  access: PathLockAccess;
+  /** 호출 안에서 걸린 경로·주소(정규화한 모양). */
+  matched: string;
+}
+
 /** §5.3 #12-1 v1.43 — 권한 승인 요청 (서버→클라 브로드캐스트용) */
 export interface PermissionRequest {
   /** 요청 고유 ID (서버가 발급, UUID) */
@@ -3847,13 +3970,21 @@ export interface PermissionRequest {
   alwaysReject?: PermissionAlwaysRejectScope;
   /** §5.3 #12-1-B — `codex-tools` 범위일 때 그 도구가 속한 묶음 id(`CODEX_TOOL_GROUPS`). */
   codexToolGroup?: string;
+  /**
+   * §5.3 #12-3 — 이 카드를 세운 자물쇠들(`PATH_LOCK_CARD_HITS_MAX` 까지). 있으면 자물쇠 카드다 —
+   * 무응답은 언제나 거부, [항상 허용]은 `unlock`(그 자물쇠를 푼다)뿐이다.
+   */
+  lockHits?: PathLockHit[];
 }
 
 /** §5.3 #12-1-B — 카드의 답 넷. `decision` 은 서버가 접는다(`allow_*`→allow, `reject_*`→deny). */
 export type PermissionChoice = 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
 
-/** §5.3 #12-1-B — [항상 허용]이 적히는 자리. */
-export type PermissionAlwaysAllowScope = 'ask-tools' | 'session' | 'codex-tools';
+/**
+ * §5.3 #12-1-B — [항상 허용]이 적히는 자리.
+ * §5.3 #12-3 — `unlock` 은 카드를 세운 자물쇠를 그 주인 프로젝트에서 걷는다([잠금 풀고 허용]).
+ */
+export type PermissionAlwaysAllowScope = 'ask-tools' | 'session' | 'codex-tools' | 'unlock';
 
 /** §5.3 #12-1-B — [항상 거절]이 적히는 자리. */
 export type PermissionAlwaysRejectScope = 'disallowed-tools' | 'codex-tools';
@@ -5228,6 +5359,11 @@ export interface GraphSnapshot {
    */
   auditLogs?: ProjectAuditLog[];
   /**
+   * §5.3 #12-3 — 프로젝트별 자물쇠(프로젝트 표시 이름 → 그 탭이 건 자물쇠들).
+   * 키가 프로젝트 이름이라 `mergeSnapshots` 합치기·이름 바꾸기 relabel 을 함께 탄다.
+   */
+  pathLocks?: Record<string, PathLock[]>;
+  /**
    * §5.26 — 프로젝트별 컨텍스트 보험 원장(프로젝트당 한 장).
    * 전선에는 최근 `INSURANCE_SNAPSHOT_MARKERS` / `INSURANCE_SNAPSHOT_PREIMAGES` 줄만 싣고
    * 전량은 체크포인트와 `GET /api/insurance` 에 둔다(§5.22 가 감사 원장을 가른 자리와 같다).
@@ -6381,6 +6517,34 @@ export interface ExternalPathInfo {
   kind: WorkspacePathKind;
 }
 
+/**
+ * §5.5 #17-27 ⑱ — 우측 판이 파일 하나를 **무엇으로** 그리는가(코드 · 웹 페이지 · 그림 · PDF).
+ * 판정은 `editorPaneKindOf`(shared `editorPaneKind.ts`) 한 곳이다.
+ */
+export type EditorPaneFileKind = 'code' | 'html' | 'image' | 'pdf';
+
+/**
+ * §5.5 #17-27 ⑱ — 판 쪽에서 그 갈래의 파일을 찾은 결과 (`GET /api/workspace-find`).
+ *
+ * 탐색기(`WorkspaceDirListing`)는 폴더 **한 겹**이지만 이쪽은 프로젝트 전체를 걸어 **그 갈래의 파일만**
+ * 모은다 — 빈 탭이 "이 프로젝트의 HTML" 을 한 목록으로 보여 주려면 폴더를 하나씩 열게 할 수 없다.
+ */
+export interface WorkspaceFindResult {
+  /** 트리 루트 절대 경로 (요청한 값 그대로) */
+  root: string;
+  /** 찾은 갈래 */
+  kind: EditorPaneFileKind;
+  /** 찾은 파일들 — 최근 고친 순(같으면 경로순). 폴더는 없다. */
+  entries: WorkspaceEntry[];
+  /** 고른 파일 수(상한으로 자르기 전) */
+  total: number;
+  /**
+   * 끝까지 못 찾았거나(훑기 · 시간 상한) 담기 상한에서 잘랐는가. 참이면 화면은 그 사실을 적는다
+   * (조용히 자르지 않는다 — 없는 줄 알고 찾기를 그만두게 된다).
+   */
+  truncated: boolean;
+}
+
 
 // ─── §5.13 (R-8) — 변환기 상태와 변환 작업 ──────────────────────────────────────
 
@@ -6766,6 +6930,11 @@ export interface ProjectCheckpoint {
    */
   auditLog?: ProjectAuditLog;
   /**
+   * §5.3 #12-3 — 이 프로젝트에서 사용자가 건 자물쇠. optional — 구버전 체크포인트 하위호환.
+   * 사용자가 손으로 건 보호라 `identity.json` 에도 산다 — 조용히 사라지면 AI 가 그대로 연다.
+   */
+  pathLocks?: PathLock[];
+  /**
    * §5.26 — 컨텍스트 보험 원장(영속). optional — 구버전 체크포인트 하위호환.
    *
    * ⚠ 여기서 빠지면 껐다 켤 때 **색인이 통째로 사라지고 `insurance/blobs` 는 주인 없는 고아**가 된다.
@@ -7035,6 +7204,11 @@ export interface ProjectIdentity {
    * optional — 구버전 identity.json 하위호환. 미설정이면 빈 맵으로 취급.
    */
   agentMemos?: Record<string, SessionMemo[]>;
+  /**
+   * §5.3 #12-3 — 사용자가 건 자물쇠. 손으로 건 보호라 정체성이다(잃으면 AI 가 그대로 연다).
+   * 복원 보충은 id 기준 합집합 — 어긋나도 잠긴 쪽으로 남는다. optional — 구버전 identity.json 하위호환.
+   */
+  pathLocks?: PathLock[];
   /**
    * §3.2.1-3 v2.63 — 사용자가 **명시적으로 삭제**한 커스텀 에이전트의 sessionId 묘비.
    * shrink guard 가 "정상 삭제(여기 기록됨)"와 "복원 실패(미기록 소멸)"를 구분하는 신호.

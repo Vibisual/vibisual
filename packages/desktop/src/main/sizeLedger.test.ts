@@ -114,6 +114,7 @@ describe('(H-19) 창이 알려 오는 크기는 순수 함수가 가른다', () 
 // 그 핸들러만 `setPosition` 에 남아 있어서 잡고 끄는 동안 본체 창이 계속 커졌다(사용자 보고 —
 // "여기를 잡고 잡아 끌면 에디터가 점점 커진다"). 오버레이 창과 **같은 규칙**을 여기서 함께 집행한다.
 const IPC = readFileSync(join(HERE, 'ipc.ts'), 'utf8').replace(/\r\n/g, '\n');
+const TITLEBAR_MOVE = readFileSync(join(HERE, 'titlebarMove.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 /** move-self 핸들러 본문만 — 파일의 다른 창 채널과 섞이지 않게. */
 function moveSelfBody(): string {
@@ -127,26 +128,26 @@ function moveSelfBody(): string {
 describe('(H-19) 본체 창의 타이틀바 드래그도 크기를 되묻지 않는다', () => {
   it('`ipc.ts` 의 `setPosition` 호출은 0건 — 그 호출이 끄는 동안 본체 창을 키웠다', () => {
     expect(count(IPC, '.setPosition(')).toBe(0);
+    expect(count(TITLEBAR_MOVE, '.setPosition(')).toBe(0);
   });
 
   it('끌기 판이 크기 장부를 든다 — 손짓을 시작할 때 한 번만 재고, 그 값을 늘 쓴다', () => {
-    const ledger = block(IPC, 'const titlebarDrags = new WeakMap<', "ipcMain.handle('vibisual:window:move-self'");
-    expect(ledger).toContain('size: OverlaySize;');
-    expect(moveSelfBody()).toContain('size: { width: bounds.width, height: bounds.height },');
+    expect(moveSelfBody()).toContain('startTitlebarMove(');
+    expect(TITLEBAR_MOVE).toContain('let size: OverlaySize = { width: bounds.width, height: bounds.height };');
   });
 
   it('옮길 때는 장부 크기를 자리와 **함께**, 그 화면의 배율 격자에 맞춰 쓴다', () => {
-    const move = moveSelfBody();
-    expect(move).toContain('win.setBounds(movedBounds(drag.size, x, y, dipStepAt(x, y)), false);');
+    const move = TITLEBAR_MOVE;
+    expect(move).toContain('win.setBounds(movedBounds(size, x, y, dipStepAt(x, y)), false);');
     expect(move).not.toContain('win.setSize(');
   });
 
   it('매 이동이 쓰는 줄에는 창에 되묻는 호출이 없다 — 되물으면 배율 반올림이 그대로 누적된다', () => {
-    const move = moveSelfBody();
+    const move = TITLEBAR_MOVE;
     // 최대화 해제는 한 판에 한 번뿐이라 그 안에서 되물어도 쌓이지 않는다. 쌓이는 것은 그 뒤,
     // `pointermove` 마다 지나는 이 꼬리다 — 여기에 `getBounds()` 가 들어오면 자람이 되살아난다.
-    const tail = move.slice(move.indexOf('const x = drag.x + cursor.x - drag.cursorX;'));
+    const tail = block(move, 'const place =', '\n  };');
     expect(tail.length, '꼬리 앵커를 못 찾음').toBeGreaterThan(0);
-    expect(tail).not.toContain('getBounds()');
+    expect(tail).not.toContain('win.getBounds(');
   });
 });

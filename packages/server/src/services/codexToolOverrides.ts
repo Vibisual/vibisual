@@ -21,3 +21,11 @@ export function codexToolOverrides(policy: CodexToolPolicy | undefined): string[
   if (policy?.mcp === 'deny' || policy?.mcp === 'ask') disable('apps');
   return out;
 }
+
+/**
+ * §5.3 #12-4 (E) ② — 호스팅 브라우저·컴퓨터 도구는 PreToolUse 를 지나지 않아 검증 판정이 닿지 않는다.
+ * 그 턴에 브라우저 확인 권한이 없으면 기능 스위치로 끈다(권한이 있는 턴은 손대지 않는다).
+ */
+export function codexVerificationFeatureOverrides(): string[] {
+  return ['-c', 'features.browser_use=false', '-c', 'features.computer_use=false'];
+}

@@ -50,7 +50,7 @@ export class MediabunnyMediaProvider implements MediaProvider {
     return this.opts.assets[assetId];
   }
 
-  async getImage(assetId: string): Promise<CanvasImageSource | null> {
+  async getImage(assetId: string): Promise<ImageBitmap | null> {
     if (this.images.has(assetId)) return this.images.get(assetId) ?? null;
 
     const asset = this.asset(assetId);
@@ -138,11 +138,20 @@ export class MediabunnyMediaProvider implements MediaProvider {
    * 표시는 세로로 되어 있어 coded 크기를 쓰면 판형이 눕는다.
    */
   async measure(assetId: string): Promise<MediaMeasurement | null> {
+    const asset = this.asset(assetId);
+    if (!asset) return null;
+    // Images are decoded by the browser, not a media-container demuxer. Treating
+    // PNG/JPEG as video inputs makes every image import fail before insertion.
+    if (asset.kind === 'image') {
+      const image = await this.getImage(assetId);
+      return image ? { duration: null, width: image.width, height: image.height, hasAudio: false } : null;
+    }
     const entry = await this.ensureVideo(assetId);
     if (!entry) return null;
     let duration: number | null = null;
     let width: number | null = null;
     let height: number | null = null;
+    let hasAudio: boolean | undefined;
     try {
       duration = await entry.input.computeDuration();
     } catch {
@@ -157,7 +166,9 @@ export class MediabunnyMediaProvider implements MediaProvider {
     } catch {
       /* 크기를 못 재도 길이만으로 클립은 선다 */
     }
-    return { duration, width, height };
+    try { hasAudio = (await entry.input.getPrimaryAudioTrack()) !== null; }
+    catch { /* A failed probe means unknown, not proven silent. */ }
+    return { duration, width, height, ...(hasAudio === undefined ? {} : { hasAudio }) };
   }
 
   dispose(): void {

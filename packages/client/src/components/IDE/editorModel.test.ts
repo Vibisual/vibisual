@@ -99,6 +99,15 @@ describe('tabLabels', () => {
     expect(labels['a/index.ts']).toBe('a/index.ts');
     expect(labels['b/index.ts']).toBe('b/index.ts');
   });
+
+  it('§5.5 #17-27 ⑱ — 빈 탭은 세지도 짓지도 않는다(이름이 비어 서로를 "같은 이름"으로 세지 않게)', () => {
+    const labels = tabLabels([
+      file('src/App.tsx'),
+      { relPath: '//opener/html', absPath: '', name: '', opener: 'html' },
+      { relPath: '//opener/pdf', absPath: '', name: '', opener: 'pdf' },
+    ]);
+    expect(labels).toEqual({ 'src/App.tsx': 'App.tsx' });
+  });
 });
 
 describe('splitPathTail', () => {

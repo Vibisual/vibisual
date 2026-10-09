@@ -63,6 +63,11 @@ export interface GutterMenuHandlers {
 export interface TabMenuState {
   /** 닫을 다른 탭이 있는가 */
   hasOthers: boolean;
+  /**
+   * §5.5 #17-27 ⑱ — 그 탭이 **파일**인가(기본 참). 빈 탭은 경로가 없으므로 경로 복사·밖에서 열기 줄을
+   * 세우지 않는다 — 누르면 빈 글자를 복사하거나 아무것도 열지 않는 손잡이는 없는 손잡이보다 나쁘다.
+   */
+  isFile?: boolean;
 }
 
 export interface TabMenuHandlers {
@@ -197,7 +202,9 @@ export function buildTabMenuItems(
       onClick: h.closeOthers,
     },
     { id: 'closeAll', label: t('ide.editor.ctx.closeAll'), onClick: h.closeAll },
-    { id: 'copyPath', label: t('ide.editor.ctx.copyPath'), separatorBefore: true, onClick: h.copyPath },
-    { id: 'openExternal', label: t('ide.editor.ctx.openExternal'), onClick: h.openExternal },
+    ...(state.isFile === false ? [] : [
+      { id: 'copyPath', label: t('ide.editor.ctx.copyPath'), separatorBefore: true, onClick: h.copyPath },
+      { id: 'openExternal', label: t('ide.editor.ctx.openExternal'), onClick: h.openExternal },
+    ]),
   ];
 }

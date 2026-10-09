@@ -308,6 +308,40 @@ body.vib-pointer-drag .app-drag * {
     filter 0.08s ease-out;
 }
 
+/* §5.4 #31 (K) 2026-10-09 — 캔버스 버블 본체는 테두리 두께(테두리 근접 손짓)·색·그림자 전이(0.15s)를
+ * 여기서 **함께** 든다. 종전엔 BubbleNode 가 이 셋만 인라인 `transition` 으로 적어 위 스프링이 통째로
+ * 덮였다 — 누르는 순간 7% 줄고 놓는 순간 원래 크기로 순간이동했다(선택할 때마다 클릭이 덜컥거림).
+ * 같은 클래스를 쓰는 다른 창 버블(앱·플레이·스펙·랩·선반)의 전이 값은 위 규칙 그대로다. */
+.bubble-body.bubble-press {
+  transition:
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.18s ease-out,
+    border-width 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.bubble-body.bubble-press:active {
+  transition:
+    transform 0.08s cubic-bezier(0.25, 0.1, 0.25, 1),
+    filter 0.08s ease-out,
+    border-width 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* §5.4 #31 (K) 2026-10-09 — 흐르는 선(활성 엣지의 dashdraw)은 초당 24번 옮긴다. 대시 오프셋은 합성으로
+ * 못 돌려 바뀔 때마다 그 선이 지나는 캔버스 타일을 밑의 버블까지 통째로 다시 그린다. 매 프레임(75Hz)
+ * 옮기면 확대해 선이 길어지거나 선택 초점으로 흐려진 버블(채도 필터)이 깔릴수록 그 비용이 프레임을
+ * 넘겼다(실측 100% 확대: 가만히 있어도 끊김, 초점 중 37fps, 초점 이동 프레임 누락 25~32). 흐름은 초당
+ * 20px(0.5s 에 10px)이라 24번이면 한 번에 1px 안팎 — 눈엔 그대로 흐른다. 저전력(모바일)은 위 규칙이
+ * 더 성기게 덮는다. 선마다 레이어로 떼는 길은 긴 선마다 화면 폭만 한 GPU 타일을 따로 잡아(100% 확대
+ * 수백 MB) 접었다. 선택자에 `.react-flow` 를 붙인 것은 React Flow 기본 CSS(같은 선택자의 `animation`
+ * 단축 속성)가 어느 순서로 실리든 이기게 하기 위해서다. */
+.react-flow .react-flow__edge.animated path {
+  animation-timing-function: steps(12, end);
+}
+
 /* ─── Apple-style 더블클릭 열림 ─── */
 
 @keyframes bubble-open {
@@ -490,6 +524,36 @@ body.vib-pointer-drag .app-drag * {
 
 .bubble-despawn {
   animation: bubble-despawn 0.25s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+/* ─── §5.4 #36 전환과 연결 — 입력 카드 · 참조선 ─── */
+
+/* 원(에이전트 버블)에서 판으로 퍼진다 — 같은 자리에서 모양이 바뀌었다는 것이 읽히게.
+ * 시간은 shared `AGENT_CARD.morphMs`(240ms)와 같다. */
+@keyframes agent-card-morph {
+  0%   { opacity: 0.35; transform: scale(0.42); border-radius: 9999px; }
+  70%  { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.agent-card-morph {
+  animation: agent-card-morph 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 참조선 위를 흐르는 빛 한 점 — path 를 `pathLength=100` 으로 정규화해 대시 하나를 끝까지 민다.
+ * 주기는 shared `REF_LINK_STYLE.pulseMs`(1.6s)와 같다. 에이전트가 도는 동안에만 그려진다. */
+@keyframes ref-link-flow {
+  from { stroke-dashoffset: 100; }
+  to   { stroke-dashoffset: 0; }
+}
+
+.ref-link-pulse {
+  animation: ref-link-flow 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-card-morph { animation: none; }
+  .ref-link-pulse { animation: none; opacity: 0; }
 }
 
 /* ─── Ghost 버블 (fade out over lifetime) ─── */

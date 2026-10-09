@@ -1,6 +1,7 @@
 import { IFRAME_PROXY_PATH } from '@vibisual/shared';
 
 import { isPackagedDesktop } from '../transport/index.js';
+import { isWorkspaceSiteSrc } from './workspaceSite.js';
 
 /**
  * 원본 URL → iframe 프록시 URL 변환 (in-process Express 의 iframe 프록시 → 대상 서버).
@@ -15,6 +16,9 @@ import { isPackagedDesktop } from '../transport/index.js';
  * 써야 한 쪽만 흰 화면이 되는 사고가 안 난다. 그래서 이 함수는 여기 한 곳에만 산다.
  */
 export function toProxyUrl(raw: string): string {
+  if (isWorkspaceSiteSrc(raw)) {
+    return raw.startsWith('/') && isPackagedDesktop() ? `vibproxy://proxy${raw}` : raw;
+  }
   try {
     const parsed = new URL(raw);
     const proxyPath = `${IFRAME_PROXY_PATH}/${parsed.host}${parsed.pathname}${parsed.search}`;

@@ -42,6 +42,7 @@ function reset(): void {
     activeProject: PROJ,
     nodeMap,
     ideOverlays: {},
+    closedIDEEditorTabs: [],
     idePaneSeq: 0,
     subAgents: {},
     agentConfigs: {},

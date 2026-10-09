@@ -10,6 +10,9 @@ import { useGraphStore, selectIDEActiveSessionForAgent, selectSpecStaleTitle } f
 import { isAgentDormant } from '../../utils/sessionStatus.js';
 // §5.4 #34 — 우클릭 메뉴는 캔버스가 그린다(원형 버블 안에서 그리면 잘린다). 여기서는 요청만 낸다.
 import { BUBBLE_MENU_EVENT, type BubbleMenuRequest } from './BubbleContextMenu.js';
+// §5.3 #12-3 — 자물쇠 표식(판정은 shared 한 벌, 언제 다시 재는지는 캐시 한 곳).
+import { bubbleLockBadge } from '../../utils/pathLockView.js';
+import { PathLockGlyph } from '../PathLockGlyph.js';
 import { PluginBubbleBadgeSlot } from '../../plugins/host.js';
 // §5.19 (G) — 로컬 버블 정체 판정은 패널과 **같은 함수**를 쓴다(두 화면이 어긋나지 않게).
 import { localProviderOf, localModelLabelOf } from '../LocalModel/localModelEntry.js';
@@ -24,6 +27,7 @@ import { shouldDismissOnSelect } from './agentDismiss.js';
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
 import { linkFocusNodeStyle } from './linkedBubbles.js';
 import { BRAND_ICON_PATHS } from './brandIconPaths.js';
+import { SunCorona } from './SunCorona.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -369,6 +373,11 @@ export const BubbleNode = memo(function BubbleNode({
   const specStaleTitle = useGraphStore((s) => (
     data.bubbleType === 'agent' ? selectSpecStaleTitle(s, data.id) : null
   ));
+  /**
+   * §5.3 #12-3 — 자물쇠 표식. 자물쇠 목록이 바뀔 때만 다시 재고 같은 목록이면 같은 결과 객체를 돌려주므로
+   * (`bubbleLockBadge` 캐시) 스냅샷이 흘러도 이 버블은 깨지 않는다.
+   */
+  const lockBadge = useGraphStore((s) => bubbleLockBadge(s.pathLocks, data));
   // §5.10 — 휴지통 배지: 현재 프로젝트의 trashed 에이전트 수.
   //   store.agents 는 전 프로젝트 합본이라 여기서 세면 다른 프로젝트의 휴지통까지 합산된다(§3.5 프로젝트
   //   독립성 위반). 개수는 BubbleMap 이 프로젝트 필터를 거쳐 data.activity 로 실어 보낸다.
@@ -830,13 +839,7 @@ export const BubbleNode = memo(function BubbleNode({
   const bubbleWidth = size;
   const bubbleHeight = size;
 
-  // ── 선택 시 태양 코로나 SVG 지오메트리 ──
-  // feTurbulence + feDisplacementMap 으로 외곽선을 진짜 일렁이게(태양 표면/플레어).
-  // 픽셀 기준(viewBox=px)이라 버블 크기와 무관하게 일렁임 진폭이 일정.
-  const SUN_MARGIN = 16;                       // 플레어/블러 여유 (작게 = 라인이 버블에 밀착)
-  const sunBox = size + SUN_MARGIN * 2;
-  const sunC = sunBox / 2;
-  const sunR = size / 2;                        // 필라멘트를 버블 테두리 바로 위에 (안쪽은 클립)
+  // 선택 코로나의 필터 id — 문서 안에서 유일해야 한다(SunCorona).
   const sunFilterId = `sun-${String(nodeId).replace(/[^\w-]/g, '')}`;
 
   /**
@@ -1219,6 +1222,29 @@ export const BubbleNode = memo(function BubbleNode({
         </span>
       )}
 
+      {/* §5.3 #12-3 — 자물쇠 표식(왼쪽 위 — 히트 숫자·대기 종이 오른쪽 위를 쓴다). 이 버블이 잠겼으면
+          또렷하게, 상위 폴더·도메인 자물쇠에 덮였으면 같은 그림을 흐리게. 버블을 잡는 손을 가로채지 않게
+          포인터는 통과시키고, 무엇이 잠갔는지는 aria-label 이 말한다(메뉴가 같은 말을 한다). */}
+      {lockBadge && (
+        <span
+          className={`pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-gray-950/85 text-amber-300 ring-1 ring-amber-300/60 ${
+            lockBadge.relation === 'inherited' ? 'opacity-55' : ''
+          }`}
+          style={{
+            top: Math.max(1, Math.round(4 * ts)),
+            left: Math.max(1, Math.round(4 * ts)),
+            width: Math.max(12, Math.round(18 * ts)),
+            height: Math.max(12, Math.round(18 * ts)),
+          }}
+          role="img"
+          aria-label={lockBadge.relation === 'self'
+            ? t('canvas.pathLock.badgeSelf')
+            : t('canvas.pathLock.badgeInherited', { path: lockBadge.target })}
+        >
+          <PathLockGlyph className="h-[62%] w-[62%]" strokeWidth={2.2} />
+        </span>
+      )}
+
       {/* §5.11 v3.88 — 플러그인 배지 슬롯. 코어는 "여기에 자리가 있다"만 알고, 무엇이 그려지는지는 모른다.
           활성 기여가 없으면 호스트가 null 을 돌려 DOM 자체가 안 생긴다. */}
       <PluginBubbleBadgeSlot
@@ -1243,7 +1269,8 @@ export const BubbleNode = memo(function BubbleNode({
           // justify-center 가 이 영역 위에서만 일어나 2줄 라벨이 길어져도 위로 밀려 겹치지 않음.
           // absolute 하단 블록은 padding box 기준이라 이 padding 에 안 밀리고 바닥 유지.
           paddingBottom: fit.paddingBottom || undefined,
-          transition: 'border-width 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
+          // 전이는 인라인으로 적지 않는다 — 적으면 `.bubble-press` 의 누름 스프링이 통째로 덮여 누를 때
+          // 버블이 순간이동한다. 테두리·그림자 전이까지 `.bubble-body.bubble-press`(index.css)가 든다.
           background: isCreatingError
             ? 'radial-gradient(circle at 35% 35%, #fca5a5, #ef4444)'
             : isAgent && contextRatio > 0
@@ -1408,49 +1435,16 @@ export const BubbleNode = memo(function BubbleNode({
 
       {/* 선택 하이라이트 — 태양 코로나(외곽선이 일렁이는 플레어). 등장/퇴장 모두 페이드. */}
       {selectRender && (
-        <svg
-            className="animate-sun-spin pointer-events-none absolute z-[14]"
-            style={{
-              left: -SUN_MARGIN,
-              top: -SUN_MARGIN,
-              width: sunBox,
-              height: sunBox,
-              opacity: selectShown ? 1 : 0,
-              transition: `opacity ${selectShown ? SELECT_FADE_IN_MS : SELECT_FADE_MS}ms ease`,
-              // 버블 반지름 안쪽은 강제 클립 — 일렁임/블러가 어떤 경우에도 내부로 못 들어옴.
-              WebkitMask: `radial-gradient(circle closest-side, transparent calc(100% - ${SUN_MARGIN}px), #000 calc(100% - ${SUN_MARGIN - 1}px), #000 100%)`,
-              mask: `radial-gradient(circle closest-side, transparent calc(100% - ${SUN_MARGIN}px), #000 calc(100% - ${SUN_MARGIN - 1}px), #000 100%)`,
-            }}
-            viewBox={`0 0 ${sunBox} ${sunBox}`}
-            fill="none"
-          >
-            <defs>
-              <filter id={sunFilterId} x="-60%" y="-60%" width="220%" height="220%">
-                {/* 정적 노이즈 — 1회만 계산되어 캐시됨(매 프레임 재생성 X = 끊김 제거) */}
-                <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7" result="n" />
-                <feDisplacementMap in="SourceGraphic" in2="n" scale="6" xChannelSelector="R" yChannelSelector="G" result="d" />
-                <feGaussianBlur in="d" stdDeviation="1.4" result="b" />
-                <feMerge>
-                  <feMergeNode in="b" />
-                  <feMergeNode in="d" />
-                </feMerge>
-              </filter>
-              {/* 빛 falloff: 클립 경계(=버블 테두리)에서 이미 최대 밝기 → 바깥으로 0.
-                  안쪽 stop 은 클립으로 안 보이지만, edge 에서 ramp-up 없이 바로 밝게 해 빈틈 제거. */}
-              <radialGradient id={`${sunFilterId}-g`} gradientUnits="userSpaceOnUse" cx={sunC} cy={sunC} r={sunR + 12}>
-                <stop offset={(sunR - 4) / (sunR + 12)} stopColor={style.glow} stopOpacity={0.44} />
-                <stop offset={(sunR + 2) / (sunR + 12)} stopColor={style.glow} stopOpacity={0.32} />
-                <stop offset={(sunR + 6) / (sunR + 12)} stopColor={style.glow} stopOpacity={0.1} />
-                <stop offset={1} stopColor={style.glow} stopOpacity={0} />
-              </radialGradient>
-            </defs>
-            {/* 느린 회전 = 플레어가 표면을 따라 흐름.
-                레이어: (1) 안밝→밖흐림 그라디언트 띠  (2) 그 위 얇고 또렷한 빛 필라멘트 */}
-            <g filter={`url(#${sunFilterId})`}>
-              <circle cx={sunC} cy={sunC} r={sunR + 12} fill={`url(#${sunFilterId}-g)`} />
-              <circle cx={sunC} cy={sunC} r={sunR} stroke={style.glow} strokeWidth={1.25} opacity={0.72} />
-            </g>
-          </svg>
+        <SunCorona
+          filterId={sunFilterId}
+          size={size}
+          glow={style.glow}
+          className="z-[14]"
+          style={{
+            opacity: selectShown ? 1 : 0,
+            transition: `opacity ${selectShown ? SELECT_FADE_IN_MS : SELECT_FADE_MS}ms ease`,
+          }}
+        />
       )}
 
       {/* §4 v1.49 — Notification 시각 신호: awaiting_permission(bell).

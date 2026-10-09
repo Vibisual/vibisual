@@ -7,31 +7,34 @@ export const CANVAS_PROJECT_WATERMARK = {
  * Selection focus preserves category colors; distant connections stay above the unrelated floor.
  *
  * Motion is an iOS-style critically damped spring rather than a switch: the curve leaves with zero
- * velocity (nothing pops), covers half the change in the first fifth, then settles slowly. Each ring
- * recedes a little slower than the one inside it, so the map sinks back in depth order instead of
- * dimming all at once. Every state carries exactly one `duration-*` — two on one element have no
- * defined winner. Level 0 has no filter at all: `saturate(1)` changes nothing but still makes the
- * compositor filter the selected bubble's animated corona on every frame.
+ * velocity (nothing pops), covers half the change in the first fifth, then settles slowly.
+ *
+ * There is one clock. Every bubble, line and task-edge icon starts and stops on the same frames,
+ * whether the focus lights, moves or clears: the transitions carry the only duration and the levels
+ * carry values alone, so no level can run on its own timing. Per-depth timings (inner rings settling
+ * first) were tried and, on a bubble with many connections, read as each bubble playing its own
+ * effect one after another. Level 0 has no filter at all: `saturate(1)` changes nothing but still
+ * makes the compositor filter the selected bubble's animated corona on every frame.
  */
 export const SELECTION_FOCUS = {
-  nodeTransition: 'transition-[opacity,filter] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
-  edgeTransition: 'transition-opacity ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+  nodeTransition: 'transition-[opacity,filter] duration-[420ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+  edgeTransition: 'transition-opacity duration-[420ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
   /** No focus: the whole map lights back up together. */
-  restore: 'duration-[420ms]',
+  restore: '',
   nodes: [
-    'duration-[360ms]',
-    'saturate-[1.1] duration-[360ms]',
-    'opacity-[0.7] saturate-[0.85] duration-[460ms]',
-    'opacity-50 saturate-[0.7] duration-[520ms]',
-    'opacity-[0.38] saturate-[0.55] duration-[560ms]',
+    '',
+    'saturate-[1.1]',
+    'opacity-[0.7] saturate-[0.85]',
+    'opacity-50 saturate-[0.7]',
+    'opacity-[0.38] saturate-[0.55]',
   ],
   edges: [
-    'duration-[360ms]',
-    'duration-[360ms]',
-    'opacity-60 duration-[460ms]',
-    'opacity-40 duration-[520ms]',
-    'opacity-[0.28] duration-[560ms]',
+    '',
+    '',
+    'opacity-60',
+    'opacity-40',
+    'opacity-[0.28]',
   ],
-  unrelatedNode: 'opacity-[0.22] saturate-[0.4] duration-[600ms]',
-  unrelatedEdge: 'opacity-[0.12] duration-[600ms]',
+  unrelatedNode: 'opacity-[0.22] saturate-[0.4]',
+  unrelatedEdge: 'opacity-[0.12]',
 } as const;

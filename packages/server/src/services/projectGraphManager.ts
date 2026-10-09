@@ -108,7 +108,12 @@ import {
 import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
 // §5.22 — 권한·감사 경계(승인 창구가 원장에 적을 때 쓰는 입력 모양).
 import type { AuditRecordInput } from './auditLog.js';
-import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
+import { loadCheckpointByMeta, loadIdentityFromDir, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
+// §5.3 #12-3 — 자물쇠. 메모리에 없는(stub) 프로젝트의 자물쇠도 집행에 들어가야 한다(아래 `stubPathLocks`).
+import { normalizePathLocks } from '@vibisual/shared';
+import type { PathLock, PathLockTarget } from '@vibisual/shared';
+// §5.4 #36 (C) — 결과 전달 경로 판정(루트 안 · 상대 경로화). 플랫폼은 인자로 넘긴다.
+import { projectRelativePath } from '@vibisual/shared';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -120,7 +125,7 @@ import { userDefaultsService } from './userDefaultsService.js';
 import { logger } from '../logger.js';
 import { dbg, dbgOnChange } from './debugLog.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
-import { isWithinRoot, pathKey } from './pathKey.js';
+import { HOST_PLATFORM, isWithinRoot, pathKey } from './pathKey.js';
 
 // ─── 유틸 ───
 
@@ -436,6 +441,9 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     })(),
     // 루트 캔버스 바운딩 박스 — projectName 키로 머지 (b 우선)
     layoutBoundsByProject: { ...(a.layoutBoundsByProject ?? {}), ...(b.layoutBoundsByProject ?? {}) },
+    // §5.3 #12-3 — 자물쇠도 프로젝트 이름 키다. 빠뜨리면 프로젝트를 둘 이상 연 순간 글리프·메뉴가
+    //   "안 잠김"으로 보인다(집행은 서버가 하므로 계속 묻는데 화면만 거짓말을 한다).
+    pathLocks: { ...(a.pathLocks ?? {}), ...(b.pathLocks ?? {}) },
     // v1.47 — 콘티 합치기 (contiId 키로 dedup, b 우선)
     contis: { ...(a.contis ?? {}), ...(b.contis ?? {}) },
     // §4 v1.50 — 도구 시간/컴팩션 카운트는 sessionId 키로 dedup (b 우선). rateLimits 는 글로벌.
@@ -691,6 +699,8 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     worktreeProjects: renameVal(snap.worktreeProjects),
     gitDirty: renameKey(snap.gitDirty),
     layoutBoundsByProject: renameKey(snap.layoutBoundsByProject),
+    // §5.3 #12-3 — 자물쇠도 projectName 키라 표시명으로 relabel(클라가 activeProject 로 찾는다).
+    pathLocks: renameKey(snap.pathLocks),
     commentBoxes: snap.commentBoxes?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     captureBubbles: snap.captureBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     appBubbles: snap.appBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
@@ -744,6 +754,16 @@ export class ProjectGraphManager {
 
   /** project name → stub 메타 (hydrated 인스턴스가 없는 프로젝트) */
   private stubs = new Map<string, ProjectMetaSnapshot>();
+
+  /**
+   * §5.3 #12-3 — 메모리에 없는(stub) 프로젝트의 자물쇠. 키 = stub 키(정규화 경로).
+   *
+   * 탭이 열려 있어도 오래 쓰지 않으면 인스턴스가 내려간다(유휴 해제). 그 동안 자물쇠가 집행에서 빠지면
+   * 다른 탭의 에이전트나 사용자 에디터의 세션이 잠긴 파일을 그대로 연다. 그래서 내릴 때 넘겨받고,
+   * 부팅 뒤 아직 한 번도 안 올라온 탭은 처음 물을 때 `identity.json` 에서 읽는다(체크포인트보다 훨씬 작다).
+   * **유효한 것은 지금 stub 인 키뿐**이다 — 올라오면 인스턴스가 정본이고 이 칸은 읽히지 않는다.
+   */
+  private stubPathLocks = new Map<string, { name: string; locks: PathLock[] }>();
 
   /** hydrate 진행 중인 project name 집합 — 동시 hydrate 방지 */
   private hydrating = new Set<string>();
@@ -1226,6 +1246,8 @@ export class ProjectGraphManager {
         isHydrated: false,
       };
       this.stubs.set(normalize(projectInfo.path), nowMeta);
+      // §5.3 #12-3 — 내려가는 동안에도 자물쇠는 집행된다. 인스턴스가 들고 있던 것을 넘겨받는다.
+      this.stubPathLocks.set(normalize(projectInfo.path), { name: rawName, locks: inst.getPathLocks(rawName) });
     }
 
     logger.info(`unloadProject: "${rawName}" unloaded → stub`);
@@ -4308,10 +4330,53 @@ export class ProjectGraphManager {
     height?: number;
     title?: string;
     ref?: string;
+    /** §5.4 #36 (B) — 만들며 바로 잇는 에이전트들. 인스턴스가 다듬는다. */
+    linkedAgentIds?: unknown;
   }): AppBubble | null {
     const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
     if (!inst) return null;
     return inst.createAppBubble(input);
+  }
+
+  /**
+   * §5.4 #36 (C) — 결과 전달. 에이전트가 만든 파일을 그 앱 노드에 담는다.
+   *
+   * **프로젝트 안의 존재하는 파일만** 받는다 — 루트 밖·루트 자신·없는 파일·폴더는 거절한다.
+   * 안팎 판정은 `pathKey` 규칙(`projectRelativePath` — win·mac 은 대소문자를 접고 linux 는 보존)이고,
+   * 저장하는 상대 경로는 입력의 대소문자 그대로다(멀티플랫폼 1축).
+   */
+  setAppBubbleOutput(
+    id: string,
+    file: string,
+  ): { ok: true; bubble: AppBubble } | { ok: false; error: 'not-found' | 'no-project' | 'outside-project' | 'missing-file' } {
+    for (const inst of this.instances.values()) {
+      const bubble = inst.getAppBubble(id);
+      if (!bubble) continue;
+      const root = inst.getProjectByName(bubble.projectName)?.path;
+      if (!root) return { ok: false, error: 'no-project' };
+      const abs = path.isAbsolute(file) ? path.resolve(file) : path.resolve(root, file);
+      const rel = projectRelativePath(root, abs, HOST_PLATFORM);
+      if (!rel) return { ok: false, error: 'outside-project' };
+      try {
+        if (!fs.statSync(abs).isFile()) return { ok: false, error: 'missing-file' };
+      } catch {
+        return { ok: false, error: 'missing-file' };
+      }
+      const updated = inst.setAppBubbleFile(id, rel);
+      return updated ? { ok: true, bubble: updated } : { ok: false, error: 'not-found' };
+    }
+    return { ok: false, error: 'not-found' };
+  }
+
+  /** §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태. 그 에이전트를 가진 인스턴스를 찾아 맡긴다. */
+  setAgentForm(nodeId: string, form: 'card' | 'bubble'): { ok: true; form: 'card' | 'bubble' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
+    let notEligible = false;
+    for (const inst of this.instances.values()) {
+      const result = inst.setAgentForm(nodeId, form);
+      if (result.ok) return result;
+      if (result.reason === 'not-eligible') notEligible = true;
+    }
+    return { ok: false, reason: notEligible ? 'not-eligible' : 'not-found' };
   }
 
   /** 모든 인스턴스를 훑어 id 로 찾는다(어느 프로젝트 것인지 호출부가 모를 수 있다). */
@@ -4743,6 +4808,73 @@ export class ProjectGraphManager {
       if (log) return log;
     }
     return undefined;
+  }
+
+  // ─── §5.3 #12-3 — 자물쇠 ───
+
+  /**
+   * 열려 있는 **모든** 프로젝트의 자물쇠(원래 이름 키). 집행이 쓴다 — 경로는 프로젝트를 가리지 않으므로
+   * 다른 탭이 건 자물쇠도 이 호출을 붙잡는다. 메모리에 없는(stub) 탭도 넣는다(`stubPathLocks`).
+   */
+  getAllPathLocks(): Record<string, PathLock[]> {
+    const out: Record<string, PathLock[]> = {};
+    for (const inst of this.instances.values()) Object.assign(out, inst.getPathLocksByProject());
+    for (const [key, meta] of this.stubs) {
+      const entry = this.stubPathLocksFor(key, meta);
+      if (entry.locks.length > 0 && !(entry.name in out)) out[entry.name] = entry.locks.map((l) => ({ ...l }));
+    }
+    return out;
+  }
+
+  /** stub 탭의 자물쇠 — 내릴 때 넘겨받은 것이 있으면 그것, 없으면 `identity.json` 에서 한 번 읽어 기억한다. */
+  private stubPathLocksFor(key: string, meta: ProjectMetaSnapshot): { name: string; locks: PathLock[] } {
+    const cached = this.stubPathLocks.get(key);
+    if (cached) return cached;
+    let locks: PathLock[] = [];
+    try {
+      if (meta.checkpointPath) {
+        const identity = loadIdentityFromDir(path.dirname(meta.checkpointPath));
+        locks = normalizePathLocks(identity?.pathLocks, HOST_PLATFORM);
+      }
+    } catch (err) {
+      // 못 읽으면 빈 목록 — 다음 hydrate 가 체크포인트에서 정본을 다시 세운다.
+      logger.warn(`[pathLocks] stub identity read failed for "${meta.project.name}": ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const entry = { name: meta.project.name, locks };
+    this.stubPathLocks.set(key, entry);
+    return entry;
+  }
+
+  /** 자물쇠를 다룰 인스턴스와 그 안의 원래 이름. 표시명·원래 이름·경로 무엇이든 받는다(클라는 표시명을 보낸다). */
+  private resolvePathLockOwner(projectRef: string): { inst: ProjectGraph; rawName: string } | null {
+    if (!projectRef) return null;
+    for (const inst of this.instances.values()) {
+      if (inst.getProjectByName(projectRef)) return { inst, rawName: projectRef };
+    }
+    const resolved = this.resolveProjectRef(projectRef);
+    if (!resolved) return null;
+    const inst = this.getInstanceByPath(resolved.path);
+    return inst ? { inst, rawName: resolved.rawName } : null;
+  }
+
+  /**
+   * 자물쇠를 걸고(`lock`)·푼다(`unlock` — id). 그 탭이 내려가 있으면 먼저 올린다 — 정본은 인스턴스이고
+   * 저장도 그 길(체크포인트 + identity)로만 간다. 찾을 수 없는 프로젝트면 `null`.
+   */
+  updatePathLocks(
+    projectRef: string,
+    lock: readonly PathLockTarget[],
+    unlock: readonly string[],
+  ): { changed: boolean; rejected: number; locks: PathLock[]; projectName: string } | null {
+    let owner = this.resolvePathLockOwner(projectRef);
+    if (!owner) {
+      const hydrated = this.hydrateProject(projectRef);
+      if (!hydrated.ok) return null;
+      owner = this.resolvePathLockOwner(projectRef);
+      if (!owner) return null;
+    }
+    const result = owner.inst.updatePathLocks(owner.rawName, lock, unlock);
+    return { ...result, projectName: owner.rawName };
   }
 
   /** agentId 를 든 인스턴스(감사 원장이 그 인스턴스 안에 있으므로 되짚기용). */

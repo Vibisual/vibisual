@@ -121,11 +121,14 @@ export function isDirty(diskText: string, draftText: string): boolean {
  * (VS Code 가 `index.ts`, `index.ts` 를 `a/index.ts`, `b/index.ts` 로 구분해 주는 것과 같은 규칙).
  */
 export function tabLabels(files: readonly IDEEditorFile[]): Record<string, string> {
+  // §5.5 #17-27 ⑱ — 빈 탭은 파일이 아니다. 이름이 비어 있어 둘 이상이면 서로를 "같은 이름"으로 세고,
+  //   라벨은 화면이 갈래로 짓는다(여기서 지으면 번역을 모르는 계산이 문구를 정하게 된다).
+  const named = files.filter((f) => f.opener === undefined);
   const count = new Map<string, number>();
-  for (const f of files) count.set(f.name, (count.get(f.name) ?? 0) + 1);
+  for (const f of named) count.set(f.name, (count.get(f.name) ?? 0) + 1);
 
   const labels: Record<string, string> = {};
-  for (const f of files) {
+  for (const f of named) {
     if ((count.get(f.name) ?? 0) <= 1) {
       labels[f.relPath] = f.name;
       continue;

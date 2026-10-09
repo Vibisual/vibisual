@@ -18,10 +18,12 @@ import { Router as makeRouter } from 'express';
 import { logger } from '../logger.js';
 import { graphManager } from './projectGraphManager.js';
 import { atomicWriteFileSync } from './statePersistence.js';
+import { resolveWorkspacePath } from './workspaceExplorer.js';
 
 /** 앱에게 건네는 호스트. 앱이 코어에 닿는 유일한 통로다. */
 function makeHost(): {
   resolveProjectPath(raw: unknown): string | null;
+  resolveWorkspacePath(root: string, relativePath: string): { abs: string; rel: string } | null;
   atomicWriteFile(filePath: string, data: string): void;
   info(message: string): void;
   warn(message: string): void;
@@ -38,6 +40,7 @@ function makeHost(): {
       return null;
     },
     atomicWriteFile: atomicWriteFileSync,
+    resolveWorkspacePath,
     info: (m) => logger.info(m),
     warn: (m) => logger.warn(m),
   };
@@ -49,15 +52,25 @@ interface ServerAppEntry {
   readonly apiPrefix: string;
   /** 앱의 서버 몫. **호출 전까지 로드되지 않는다.** */
   readonly load: () => Promise<{
-    mountVideoRoutes: (app: Express, host: ReturnType<typeof makeHost>) => void;
+    mountRoutes: (app: Express, host: ReturnType<typeof makeHost>) => void;
   }>;
 }
 
 const SERVER_APPS: readonly ServerAppEntry[] = [
   {
+    id: 'vibisound',
+    apiPrefix: `${APP_API_PREFIX}/vibisound`,
+    load: async () => ({ mountRoutes: (await import('@vibisual/audio/server')).mountAudioRoutes }),
+  },
+  {
     id: 'vibistudio',
     apiPrefix: `${APP_API_PREFIX}/vibistudio`,
-    load: () => import('@vibisual/video/server'),
+    load: async () => ({ mountRoutes: (await import('@vibisual/video/server')).mountVideoRoutes }),
+  },
+  {
+    id: 'vibi3d',
+    apiPrefix: `${APP_API_PREFIX}/vibi3d`,
+    load: async () => ({ mountRoutes: (await import('./vibi3dRoutes.js')).mountVibi3DRoutes }),
   },
 ];
 
@@ -92,7 +105,7 @@ export function mountAppRoutes(app: Express): void {
         const mod = await entry.load();
         const router = makeRouter();
         // 앱은 Express 앱처럼 생긴 것에 라우트를 건다 — 라우터가 그 역할을 한다.
-        mod.mountVideoRoutes(router as unknown as Express, makeHost());
+        mod.mountRoutes(router as unknown as Express, makeHost());
         loaded = router;
         logger.info(`[apps] ${entry.id} 서버 몫을 이제야 불러왔습니다 (${entry.apiPrefix}).`);
       })();

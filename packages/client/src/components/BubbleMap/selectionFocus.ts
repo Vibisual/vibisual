@@ -34,15 +34,11 @@ export function selectionIdentityIds(
     .map((node) => node.id);
 }
 
-/**
- * Nodes at the center of the focus. `pendingId` is a click still waiting out the double-click window:
- * React Flow has already moved its native selection there, so that alone does not contradict the center.
- */
+/** Nodes at the center of the focus. Click intent owns single focus; native selection may lag a click. */
 export function selectionFocusIds(
   nodes: readonly SelectionFocusNode[],
   selectionId: string | null,
   currentFolderId: string | null,
-  pendingId: string | null = null,
 ): string[] {
   if (selectionId === null) return [];
   const visible = nodes.filter((node) => !node.hidden);
@@ -50,13 +46,8 @@ export function selectionFocusIds(
   // Native multi-selection is an editing gesture: do not put any member in the background.
   const nativeSelection = visible.filter((node) => node.type === 'bubble' && node.selected);
   if (nativeSelection.length > 1) return [];
-  // A marquee can change native selection without sending a new click intent. Only a native center can
-  // be contradicted that way: store-owned bubbles never take native selection, so a native leftover beside
-  // one is the previous selection the canvas is about to release, not a new choice.
-  if (nativeSelection.length === 1 && center.some((node) => node.type === 'bubble')) {
-    const nativeId = selectionIdentity(nativeSelection[0]!, currentFolderId);
-    if (nativeId !== selectionId && nativeId !== pendingId) return [];
-  }
+  // Pointer-up intent precedes React Flow's click selection. Treating that temporary mismatch as a
+  // marquee releases every dimmed node mid-fade. Marquee start clears intent in SelectionFocusFlow.
   return center.map((node) => node.id);
 }
 

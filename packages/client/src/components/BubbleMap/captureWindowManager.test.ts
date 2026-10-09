@@ -67,4 +67,28 @@ describe('captureWindowManager', () => {
     const b = registerCaptureWindow(() => {});
     expect(a.cascadeOffset).not.toBe(b.cascadeOffset);
   });
+
+  it('hidden project windows are skipped by Escape and regain their place when shown', () => {
+    const closeVisible = vi.fn();
+    const closeOtherProject = vi.fn();
+    const visible = registerCaptureWindow(closeVisible);
+    let showing = true;
+    const otherProject = registerCaptureWindow(closeOtherProject, () => showing);
+    expect(topCaptureWindowUid()).toBe(otherProject.uid);
+    showing = false;
+    expect(topCaptureWindowUid()).toBe(visible.uid);
+    expect(closeTopCaptureWindow()).toBe(true);
+    expect(closeVisible).toHaveBeenCalledOnce();
+    expect(closeOtherProject).not.toHaveBeenCalled();
+    showing = true;
+    expect(topCaptureWindowUid()).toBe(otherProject.uid);
+  });
+
+  it('all hidden windows leave Escape available to the current tab', () => {
+    const close = vi.fn();
+    registerCaptureWindow(close, () => false);
+    expect(topCaptureWindowUid()).toBe(-1);
+    expect(closeTopCaptureWindow()).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  });
 });

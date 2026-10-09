@@ -11,9 +11,13 @@
  * 늘어나는 것은 아래 배열의 한 줄이다.
  */
 import { join } from 'node:path';
-import type { IpcMain } from 'electron';
+import { BrowserWindow, type IpcMain } from 'electron';
 
-import { closeAppWindow, openAppWindow, type AppWindowSpec } from '../windowManager';
+import {
+  ackAppWindowRedock, ackAppWindowTarget, closeAppWindow, endAppWindowDrag, openAppWindow,
+  redockAppWindow, startAppWindowDrag, updateAppWindowTarget, type AppWindowSpec,
+} from '../windowManager';
+import type { AppWindowPlacement } from '../appWindowTransfer';
 
 /** 앱의 main 프로세스 몫이 갖춰야 할 모양. 앱은 코어 타입을 import 하지 않는다. */
 interface MainAppModule {
@@ -72,6 +76,18 @@ const MAIN_APPS: readonly MainAppEntry[] = [
       hash: simpleHash('vibi3d', params),
     }),
   },
+  {
+    // §5.13 (R-9) — 이미지. 화면이 렌더러에만 있는 앱이라 창 규격 한 줄이다(main 몫 없음).
+    id: 'vibimage',
+    window: (params) => ({
+      title: 'Vibisual — Vibimage',
+      width: 960,
+      height: 680,
+      minWidth: 480,
+      minHeight: 360,
+      hash: simpleHash('vibimage', params),
+    }),
+  },
 ];
 
 const attached = new Map<string, MainAppModule>();
@@ -106,12 +122,43 @@ async function moduleFor(appId: unknown): Promise<MainAppModule | null> {
 export function mountAppIpc(ipcMain: IpcMain): void {
   ipcMain.handle(
     'vibisual:app:open',
-    async (_e, payload: { appId: string; params?: Record<string, string> }): Promise<{ windowId: number; reused: boolean }> => {
+    async (event, payload: { appId: string; params?: Record<string, string>; placement?: AppWindowPlacement }): Promise<{ windowId: number; reused: boolean }> => {
       const mod = await moduleFor(payload?.appId);
       if (!mod) throw new Error(`vibisual:app:open — 알 수 없는 앱: ${String(payload?.appId)}`);
-      return openAppWindow(mod.id, mod.window(payload.params ?? {}));
+      const params = appParams(payload.params);
+      return openAppWindow(mod.id, mod.window(params), {
+        params, origin: BrowserWindow.fromWebContents(event.sender),
+        ...(payload.placement ? { placement: payload.placement } : {}),
+      });
     },
   );
+
+  ipcMain.handle('vibisual:app:update-target', (event, params: unknown): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && updateAppWindowTarget(win.id, appParams(params));
+  });
+  ipcMain.handle('vibisual:app:drag-start', (event): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && startAppWindowDrag(win.id);
+  });
+  ipcMain.handle('vibisual:app:drag-end', (event, payload?: { commit?: boolean; appId?: string }): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && endAppWindowDrag(win.id, payload?.commit !== false,
+      typeof payload?.appId === 'string' ? payload.appId : undefined);
+  });
+  ipcMain.handle('vibisual:app:redock', (event): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && redockAppWindow(win.id);
+  });
+  ipcMain.handle('vibisual:app:redock-ack', (event, requestId: unknown): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && typeof requestId === 'string' && ackAppWindowRedock(win.id, requestId);
+  });
+  ipcMain.handle('vibisual:app:target-ack', (event, payload?: { requestId?: unknown; accepted?: unknown }): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && typeof payload?.requestId === 'string'
+      && ackAppWindowTarget(win.id, payload.requestId, payload.accepted === true);
+  });
 
   ipcMain.handle('vibisual:app:close', (_e, payload: { appId: string }): boolean => {
     // 닫기는 모듈을 부를 필요가 없다 — 창 관리자만 알면 된다(안 깐 앱을 로드시키지 않는다).
@@ -132,6 +179,18 @@ export function removeAppIpc(ipcMain: IpcMain): void {
   ipcMain.removeHandler('vibisual:app:open');
   ipcMain.removeHandler('vibisual:app:close');
   ipcMain.removeHandler('vibisual:app:invoke');
+  ipcMain.removeHandler('vibisual:app:update-target');
+  ipcMain.removeHandler('vibisual:app:drag-start');
+  ipcMain.removeHandler('vibisual:app:drag-end');
+  ipcMain.removeHandler('vibisual:app:redock');
+  ipcMain.removeHandler('vibisual:app:redock-ack');
+  ipcMain.removeHandler('vibisual:app:target-ack');
+}
+
+/** The transport carries strings; ignore unexpected object values rather than stringify them. */
+function appParams(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
 }
 
 /** 앱 창을 전부 닫는다(앱 종료 경로). 로드되지 않은 앱은 창도 없으므로 건드릴 것이 없다. */

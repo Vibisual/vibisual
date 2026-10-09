@@ -257,6 +257,16 @@ if (mode === 'gate') {
     ? `PERMISSION POLICY: DENY. This agent runs in permission mode "${data.mode ?? 'unknown'}", which never asks for approval, so the request to run outside the sandbox was blocked WITHOUT asking the user. No one pressed anything. Tell the user which tool was blocked and that the agent's permission mode must be changed to run it. Do not retry the same tool.`
     : data.reason === 'not-managed'
     ? 'PERMISSION POLICY: DENY. Vibisual could not find the agent that owns this Codex turn, so no one could be asked. This tool was blocked and NOT executed. Tell the user the permission check could not reach its agent.'
+    // §5.3 #12-3 — 자물쇠 거부(묻지 않는 모드 · 관할 밖). 어느 경로가 잠겼는지는 서버가 문구에 싣는다.
+    : data.reason === 'locked'
+    ? (typeof data.message === 'string' && data.message
+      ? data.message
+      : 'Vibisual lock: this path is locked by the user, so this tool was blocked and NOT executed. Ask the user to unlock it in Vibisual if access is needed. Do not retry it or work around it with another command.')
+    // §5.3 #12-4 — 검증 정책 거부. 무엇으로 읽혔는지·우회하지 말라는 문구는 서버가 짓는다. 아무도 누르지 않았다.
+    : data.reason === 'verification'
+    ? (typeof data.message === 'string' && data.message
+      ? data.message
+      : 'VIBISUAL VERIFICATION POLICY: BLOCKED before it ran. The user did not ask for verification in this task. Do not retry it, do not run it another way, and do not ask the user for permission. Finish the requested work, then say which verification was not run.')
     : `USER PERMISSION DECISION: DENY. The user pressed "Deny" in the Vibisual approval popup. This tool was blocked and NOT executed.${data.reason ? ` User note: ${data.reason}.` : ''} In your reply, state this explicitly to the user — e.g. 'You selected: Deny — the command was not run.' Do not retry the tool unless the user explicitly asks.`;
   const unavailable = (why) => `PERMISSION CHECK UNAVAILABLE: DENY. The Vibisual permission check could not be completed (${why}), so this tool was blocked and NOT executed (safe default). Tell the user the approval check failed and ask how they want to proceed.`;
   if (event !== 'PreToolUse' && event !== 'PermissionRequest') {

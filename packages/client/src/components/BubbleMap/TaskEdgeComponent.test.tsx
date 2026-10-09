@@ -7,7 +7,11 @@ import { TaskEdgeComponent } from './TaskEdgeComponent.js';
 vi.mock('@xyflow/react', () => ({
   BaseEdge: () => null,
   EdgeLabelRenderer: ({ children }: { children: unknown }) => children,
+  // §5.4 #36 (A) — 끝 노드가 입력 카드인지 실측으로 본다. 여기서는 실측이 없다(버블 반지름 폴백).
+  useInternalNode: () => undefined,
 }));
+// §5.4 #31 (K) — 선 가림 게시판은 React Flow 스토어(인스턴스)를 열쇠로 쓴다. 여기엔 스토어가 없으니 가리는 버블도 없다.
+vi.mock('./edgeOccluders.js', () => ({ useEdgeOccluders: () => [] }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('../../stores/graphStore.js', () => ({
   useGraphStore: (select: (state: unknown) => unknown) => select({

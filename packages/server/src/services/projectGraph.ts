@@ -110,6 +110,11 @@ import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry,
 import { CODEX_AGENT_COLOR } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
+// §5.3 #12-3 — 자물쇠. 검증·합치기는 shared 한 벌(서버 복원과 identity 보충이 같은 규칙을 쓴다).
+import { buildPathLock, mergePathLocks, normalizePathLocks, PATH_LOCK_MAX_PER_PROJECT } from '@vibisual/shared';
+// §5.4 #36 — 참조선 목록 다듬기(서버 검증과 클라 낙관 반영이 한 벌).
+import { sanitizeLinkedAgentIds } from '@vibisual/shared';
+import type { PathLock, PathLockTarget } from '@vibisual/shared';
 // §5.26 — 컨텍스트 보험 원장 타입.
 import type {
   CompactMarker,
@@ -1864,6 +1869,11 @@ export class ProjectGraph {
    * PATCH 로 업데이트되어 해당 프로젝트 체크포인트에 저장.
    */
   private layoutBoundsByProject = new Map<string, { hw: number; hh: number }>();
+  /**
+   * §5.3 #12-3 — 프로젝트별 자물쇠. 키 = projectName(감사 원장·바운딩 박스와 같은 키).
+   * 사용자가 손으로 건 보호라 체크포인트 4지점 + identity 를 모두 지난다 — 조용히 사라지면 AI 가 그대로 연다.
+   */
+  private pathLocks = new Map<string, PathLock[]>();
 
   // ─── 성능 최적화: 내부 캐시 (public API / 타입 변경 없음) ───
 
@@ -6199,6 +6209,8 @@ export class ProjectGraph {
       costMaps: this.costMapService.getSnapshot(),
       // §5.22 — 감사 원장(집계는 서버가 접어서 실어 준다 — 클라가 다시 세지 않는다).
       auditLogs: this.auditLogService.getSnapshot(),
+      // §5.3 #12-3 — 자물쇠(프로젝트 이름 키). 버블 글리프·우클릭 메뉴가 이것으로 그린다.
+      pathLocks: this.getPathLocksByProject(),
       // §5.26 — 컨텍스트 보험 원장. 전선용은 상한이 걸린 최근분이고, 전문은 §7.23 팝업이 REST 로 받는다.
       contextInsurance: this.attachInsuranceDerived(this.insuranceService.getSnapshot()),
       debugBreakpoints: this.debugBreakpoints.size > 0
@@ -6479,6 +6491,8 @@ export class ProjectGraph {
       costMap: this.costMapService.toCheckpoint(project.name),
       // §5.22 — 감사 원장. 결정 이력은 재계산이 불가능하므로 빠뜨리면 영영 없다.
       auditLog: this.auditLogService.toCheckpoint(project.name),
+      // §5.3 #12-3 — 자물쇠. 사용자가 손으로 건 보호라 빠뜨리면 껐다 켠 순간 AI 가 그대로 연다.
+      pathLocks: this.pathLocks.get(project.name)?.length ? this.getPathLocks(project.name) : undefined,
       // §5.26 — 컨텍스트 보험 색인. 바이트는 디스크에 있고 **이 줄이 그 바이트를 가리키는 유일한 손**이다.
       // 여기서 빠지면 blob 은 남고 원장만 사라져 되돌릴 수 없는 고아가 된다(다음 청소가 지운다).
       contextInsurance: this.insuranceService.toCheckpoint(project.name),
@@ -6963,6 +6977,9 @@ export class ProjectGraph {
       // §5.22 — 감사 원장. **여기가 이 항목에서 가장 조용히 깨질 자리** — 결정 이력은
       // 어디서도 재계산할 수 없어서 디스크 포맷에서 빠지면 껐다 켠 순간 영영 없다.
       auditLog: this.auditLogService.toCheckpoint(project.name),
+      // §5.3 #12-3 — 자물쇠. 디스크 포맷이 이 자리다 — 빠지면 껐다 켠 순간 잠긴 곳이 열린다
+      // (identity 보충이 되살리긴 하지만 그쪽은 안전망이지 정본이 아니다).
+      pathLocks: this.pathLocks.get(project.name)?.length ? this.getPathLocks(project.name) : undefined,
       // §5.26 — 컨텍스트 보험 색인. 감사 원장과 **같은 이유로 같은 자리**에 있어야 한다:
       // 저장고의 바이트는 살아 있는데 색인이 없으면 화면에 아무것도 못 띄우고 청소가 지운다.
       contextInsurance: this.insuranceService.toCheckpoint(project.name),
@@ -7683,6 +7700,15 @@ export class ProjectGraph {
     // §5.22 — 감사 원장 병합(id 기준 합집합). 지금 돌고 있는 원장이 디스크보다 새것이라 덮지 않는다.
     this.auditLogService.merge(cp.auditLog);
 
+    // §5.3 #12-3 — 자물쇠 병합(id 기준 합집합). 어긋나도 **잠긴 쪽으로** 남는다.
+    {
+      const merged = mergePathLocks(
+        this.pathLocks.get(cp.project.name),
+        normalizePathLocks(cp.pathLocks, HOST_PLATFORM),
+      ).slice(0, PATH_LOCK_MAX_PER_PROJECT);
+      if (merged.length > 0) this.pathLocks.set(cp.project.name, merged);
+    }
+
     // §5.26 — 보험 원장 병합(id 기준 합집합). 사본은 디스크에 그대로 있으므로 색인만 이어 붙인다.
     this.insuranceService.merge(cp.contextInsurance);
 
@@ -8009,6 +8035,13 @@ export class ProjectGraph {
 
     // §5.22 — 감사 원장 복원(경계 스위치도 함께). 없으면 빈 원장 + 기본 스위치(전부 묻는다).
     this.auditLogService.restore(cp.auditLog);
+
+    // §5.3 #12-3 — 자물쇠 복원. 없으면 빈 목록(옛 체크포인트 호환). id 는 이 플랫폼 규칙으로 다시 짓는다.
+    {
+      const restored = normalizePathLocks(cp.pathLocks, HOST_PLATFORM);
+      if (restored.length > 0) this.pathLocks.set(cp.project.name, restored);
+      else this.pathLocks.delete(cp.project.name);
+    }
 
     // §5.26 — 보험 원장 복원. 없으면 빈 원장으로 시작하고, 실린 미러 표시는 디스크와 다시 맞춰 본다
     // (파일이 그새 지워졌으면 `mirrored: false` 로 내린다 — 없는데 있다고 적지 않는 것이 이 기능의 약속).
@@ -15004,8 +15037,11 @@ export class ProjectGraph {
     height?: number;
     title?: string;
     ref?: string;
+    /** §5.4 #36 (B) — `+` 로 만들며 바로 잇는 경우. 다듬은 뒤 비면 칸을 두지 않는다. */
+    linkedAgentIds?: unknown;
   }): AppBubble {
     const id = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const linked = sanitizeLinkedAgentIds(input.linkedAgentIds);
     const bubble: AppBubble = {
       id,
       projectName: input.projectName,
@@ -15016,6 +15052,7 @@ export class ProjectGraph {
       height: input.height ?? 200,
       ...(input.title === undefined ? {} : { title: input.title }),
       ...(input.ref === undefined ? {} : { ref: input.ref }),
+      ...(linked && linked.length > 0 ? { linkedAgentIds: linked } : {}),
       createdAt: Date.now(),
     };
     this.appBubbles.set(id, bubble);
@@ -15039,8 +15076,56 @@ export class ProjectGraph {
     if (updates.title !== undefined) bubble.title = updates.title;
     if (updates.ref !== undefined) bubble.ref = updates.ref;
     if (updates.preservePinned !== undefined) bubble.preservePinned = updates.preservePinned;
+    // §5.4 #36 (B) — 잇기·끊기. 본문이 배열이 아니면 칸을 건드리지 않는다(부분 페이로드가 연결을 지우지 않게).
+    if (updates.linkedAgentIds !== undefined) {
+      const linked = sanitizeLinkedAgentIds(updates.linkedAgentIds);
+      if (linked) {
+        if (linked.length > 0) bubble.linkedAgentIds = linked;
+        else delete bubble.linkedAgentIds;
+      }
+    }
+    // §5.4 #36 (C) — 담긴 파일은 여기서 **비우기만** 한다. 넣는 길은 검증하는 결과 전달 창구 하나다
+    //   (`setAppBubbleFile` — 프로젝트 안의 존재하는 파일만). PATCH 로 아무 경로나 적히면 그 검증이 무의미해진다.
+    const rawFile = (updates as Record<string, unknown>)['file'];
+    if (rawFile === null || rawFile === '') delete bubble.file;
     this.bumpMutationVersion();
     return bubble;
+  }
+
+  /**
+   * §5.4 #36 (C) — 결과 전달로 담긴 파일을 적는다. `relPath` 는 호출부(매니저)가 이미 **프로젝트 안의
+   * 존재하는 파일**로 검증해 루트 기준 상대 경로로 바꾼 값이다.
+   */
+  setAppBubbleFile(id: string, relPath: string): AppBubble | null {
+    const bubble = this.appBubbles.get(id);
+    if (!bubble) return null;
+    bubble.file = relPath;
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /**
+   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(입력 카드 ↔ 버블).
+   *
+   * 대상이 아니면(없음·훅·CMD) `null` — 라우트가 404/409 로 가른다. 대상 판정은 클라
+   * `agentCard.ts` 의 `canUseAgentCard` 와 같은 조건이다(훅은 입력이 없고 CMD 입력은 터미널의 것).
+   */
+  setAgentForm(nodeId: string, form: 'card' | 'bubble'): { ok: true; form: 'card' | 'bubble' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
+    let agent: BubbleData | undefined;
+    for (const a of this.agents.values()) {
+      if (a.id === nodeId) { agent = a; break; }
+    }
+    if (!agent) return { ok: false, reason: 'not-found' };
+    if (agent.bubbleType !== 'agent' || agent.customCreated !== true || agent.trashed === true) {
+      return { ok: false, reason: 'not-eligible' };
+    }
+    if (form === 'card' && this.getAgentConfig(agent.id)?.executionMode === 'interactive-terminal') {
+      return { ok: false, reason: 'not-eligible' };
+    }
+    if (form === 'card') agent.agentForm = 'card';
+    else delete agent.agentForm;
+    this.bumpMutationVersion();
+    return { ok: true, form };
   }
 
   /** 삭제. 핀이 걸려 있으면 거절한다(§2.4 preserve-pin). */
@@ -16224,6 +16309,58 @@ export class ProjectGraph {
   /** 조회용 — 그 프로젝트의 원장 한 장(없으면 undefined). */
   getAuditLog(projectName: string): ProjectAuditLog | undefined {
     return this.auditLogService.getSnapshot().find((l) => l.projectName === projectName);
+  }
+
+  // ─── §5.3 #12-3 — 자물쇠 ───
+
+  /** 이 인스턴스가 든 프로젝트별 자물쇠(스냅샷·집행 공용 — 원래 이름 키). 빈 프로젝트는 싣지 않는다. */
+  getPathLocksByProject(): Record<string, PathLock[]> {
+    const out: Record<string, PathLock[]> = {};
+    for (const [name, list] of this.pathLocks) {
+      if (list.length > 0) out[name] = list.map((l) => ({ ...l }));
+    }
+    return out;
+  }
+
+  /** 그 프로젝트의 자물쇠(없으면 빈 배열). */
+  getPathLocks(projectName: string): PathLock[] {
+    return (this.pathLocks.get(projectName) ?? []).map((l) => ({ ...l }));
+  }
+
+  /**
+   * 자물쇠를 걸고(`lock` — 대상)·푼다(`unlock` — id). 바뀐 게 있으면 `changed`(호출부가 방송·저장을 정한다).
+   *
+   * 상한(`PATH_LOCK_MAX_PER_PROJECT`)을 넘는 새 자물쇠는 걸지 않고 `rejected` 로 센다 — 오래된 자물쇠를
+   * 말없이 풀어 자리를 내는 일은 하지 않는다(사용자가 건 보호가 조용히 사라진다). 못 쓰는 대상(상대경로 등)도
+   * `rejected` 다. 이미 잠긴 대상은 그대로 둔다(잠근 시각을 새로 찍지 않는다).
+   */
+  updatePathLocks(
+    projectName: string,
+    lock: readonly PathLockTarget[],
+    unlock: readonly string[],
+    now: number = Date.now(),
+  ): { changed: boolean; rejected: number; locks: PathLock[] } {
+    const current = this.pathLocks.get(projectName) ?? [];
+    const unlockIds = new Set(unlock);
+    const next = current.filter((l) => !unlockIds.has(l.id));
+    const have = new Set(next.map((l) => l.id));
+    let rejected = 0;
+    for (const target of lock) {
+      const built = buildPathLock(target, HOST_PLATFORM, now);
+      if (!built) { rejected++; continue; }
+      if (have.has(built.id)) continue;
+      if (next.length >= PATH_LOCK_MAX_PER_PROJECT) { rejected++; continue; }
+      have.add(built.id);
+      next.push(built);
+    }
+    const changed = next.length !== current.length || next.some((l, i) => l.id !== current[i]?.id);
+    if (changed) {
+      if (next.length > 0) this.pathLocks.set(projectName, next);
+      else this.pathLocks.delete(projectName);
+      // §9 — 스냅샷 캐시는 mutationVersion 으로 무효화된다. 빠뜨리면 방금 건 자물쇠가 화면에 늦게 뜬다.
+      this.bumpMutationVersion();
+    }
+    return { changed, rejected, locks: next.map((l) => ({ ...l })) };
   }
 
   // ─── §5.21 — 비용·토큰 지도 ───

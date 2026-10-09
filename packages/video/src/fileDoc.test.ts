@@ -110,4 +110,25 @@ describe('§5.13 (R-3) 빠진 실측값 채우기', () => {
     const [op] = buildMeasurementOps(d, { v: { duration: 4, width: 100, height: 50 } });
     expect(op).toMatchObject({ op: 'setAsset', asset: { duration: 4, width: 7, height: 50 } });
   });
+
+  it('persists a video audio probe even when duration was already measured', () => {
+    const d = apply(base(), [{ op: 'setAsset', asset: { id: 'v', kind: 'video', source: { kind: 'file', path: 'a.mp4' }, duration: 4, width: 100, height: 50 } }]);
+    expect(assetsNeedingMeasurement(d).map(asset => asset.id)).toEqual(['v']);
+    const measured = { v: { duration: 8, width: 200, height: 100, hasAudio: false } };
+    const ops = buildMeasurementOps(d, measured);
+    expect(ops).toEqual([{ op: 'setAsset', asset: { ...d.assets['v'], hasAudio: false } }]);
+    const next = apply(d, ops);
+    expect(assetsNeedingMeasurement(next)).toEqual([]);
+    expect(buildMeasurementOps(next, measured)).toEqual([]);
+  });
+
+  it('does not write a no-op when the legacy audio probe supplies no new metadata', () => {
+    const d = apply(base(), [{ op: 'setAsset', asset: { id: 'v', kind: 'video', source: { kind: 'file', path: 'a.mp4' }, duration: 4, width: 100, height: 50 } }]);
+    expect(buildMeasurementOps(d, { v: { duration: 4, width: 100, height: 50 } })).toEqual([]);
+  });
+
+  it('keeps detected embedded audio when opening a video as a document', () => {
+    const d = apply(base(), buildFileDocOps(base(), file, { ...portrait, hasAudio: true }));
+    expect(d.assets[FILE_DOC_ASSET_ID]?.hasAudio).toBe(true);
+  });
 });

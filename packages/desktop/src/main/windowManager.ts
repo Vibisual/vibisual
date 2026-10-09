@@ -25,6 +25,8 @@ import {
   releaseSlotIfOwner,
 } from './overlaySlot';
 import { acceptReportedSize, dipStepFor, landedSpan, movedBounds, snapDip, type OverlaySize } from './overlaySize';
+import { AppWindowTransfers, type AppWindowPlacement } from './appWindowTransfer';
+import { appWindowPrimaryPressed } from './appWindowMouseButton';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
 //
@@ -298,9 +300,26 @@ export function minimizeByWindowId(windowId: number): boolean {
 export function toggleMaximizeByWindowId(windowId: number): boolean {
   const win = selfWindowById(windowId);
   if (!win || win.isDestroyed()) return false;
+  toggleMaximize(win);
+  return true;
+}
+
+// §3.7 · §5.5 #17-6 (H-19) — **본체 창의 최대화/복원.** 헤더 로고 덮개(`Header.tsx`)는 `app-nodrag`
+//   라 OS 가 그 자리의 더블클릭을 모른다. 덮개가 대신 `toggle-maximize-self` 로 제목줄과 같은 토글을
+//   부르는데, 본체는 `selfWindowById` 목록에 없어 종전에는 그 호출이 조용히 `false` 로 끝났다.
+//   본체는 번호가 아니라 **보낸 창 그 자체**로 맞춘다 — 목록은 `win.id`(창 번호)로 적혀 있고 채널은
+//   `event.sender.id`(webContents 번호)로 오는데, 둘은 서로 다른 번호다.
+//   최소화·닫기 채널은 여기에 잇지 않는다 — 본체가 부를 자리가 없고, 닫기가 본체에 닿으면 앱이 꺼진다.
+export function toggleMaximizeMainWindow(sender: BrowserWindow | null): boolean {
+  if (!sender || sender.isDestroyed() || sender !== getMainWindow()) return false;
+  toggleMaximize(sender);
+  return true;
+}
+
+/** 최대화면 풀고 아니면 최대화한다 — 바뀐 상태를 알리는 일은 창의 maximize/unmaximize 이벤트가 맡는다. */
+function toggleMaximize(win: BrowserWindow): void {
   if (win.isMaximized()) win.unmaximize();
   else win.maximize();
-  return true;
 }
 
 export function closeAll(): void {
@@ -2553,25 +2572,53 @@ export interface AppWindowSpec {
 interface AppWindowEntry {
   id: number;
   window: BrowserWindow;
+  ready: Promise<void>;
 }
 
 const appWindows = new Map<string, AppWindowEntry>();
 
-export function openAppWindow(appId: string, spec: AppWindowSpec): { windowId: number; reused: boolean } {
+const appWindowTransfers = new AppWindowTransfers({
+  main: () => getMainWindow(),
+  cursor: () => screen.getCursorScreenPoint(),
+  dipStep: dipStepAt,
+  showGhost: (opts) => {
+    nudgePopOutGhost({ dx: 0, dy: 0 });
+    return showPopOutGhost(opts);
+  },
+  hideGhost: hidePopOutGhost,
+  primaryPressed: appWindowPrimaryPressed,
+});
+
+export async function openAppWindow(appId: string, spec: AppWindowSpec, options?: {
+  params?: Record<string, string>;
+  origin?: BrowserWindow | null;
+  placement?: AppWindowPlacement;
+}): Promise<{ windowId: number; reused: boolean }> {
+  // App modules whitelist document keys. Window chrome metadata belongs to this common layer.
+  const appHash = new URLSearchParams(spec.hash.replace(/^#/, ''));
+  if (options?.params?.['_windowTitle']) appHash.set('_windowTitle', options.params['_windowTitle']);
+  const hash = appHash.toString();
   const existing = appWindows.get(appId);
   if (existing && !existing.window.isDestroyed()) {
     const win = existing.window;
+    await existing.ready;
+    if (win.isDestroyed()) throw new Error('Application window closed before loading');
+    await appWindowTransfers.requestTarget(win.id, options?.params ?? {}, options?.origin ?? null, hash);
+    if (win.isDestroyed()) throw new Error('Application window closed before accepting the target');
     if (win.isMinimized()) win.restore();
+    win.show();
     win.focus();
-    if (!win.webContents.isDestroyed()) {
-      win.webContents.send('vibisual:app:show-target', { appId, hash: spec.hash });
-    }
     return { windowId: existing.id, reused: true };
   }
 
+  const placement = options?.placement;
+  const width = placement && Number.isFinite(placement.width) ? Math.max(spec.minWidth, Math.round(placement.width)) : spec.width;
+  const height = placement && Number.isFinite(placement.height) ? Math.max(spec.minHeight, Math.round(placement.height)) : spec.height;
   const win = new BrowserWindow({
-    width: spec.width,
-    height: spec.height,
+    width,
+    height,
+    ...(placement && Number.isFinite(placement.x) ? { x: Math.round(placement.x!) } : {}),
+    ...(placement && Number.isFinite(placement.y) ? { y: Math.round(placement.y!) } : {}),
     minWidth: spec.minWidth,
     minHeight: spec.minHeight,
     show: false,
@@ -2599,7 +2646,9 @@ export function openAppWindow(appId: string, spec: AppWindowSpec): { windowId: n
     if (!win.isDestroyed()) win.show();
   });
 
-  appWindows.set(appId, { id: win.id, window: win });
+  appWindowTransfers.register({ appId, window: win, origin: options?.origin ?? null,
+    params: { ...options?.params }, size: { width, height }, writtenAt: Date.now() });
+  win.on('resize', () => appWindowTransfers.reportSize(win.id));
 
   const pushMaximizeState = (): void => {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -2609,11 +2658,37 @@ export function openAppWindow(appId: string, spec: AppWindowSpec): { windowId: n
   win.on('maximize', pushMaximizeState);
   win.on('unmaximize', pushMaximizeState);
   win.on('closed', () => {
+    appWindowTransfers.unregister(win.id);
     if (appWindows.get(appId)?.id === win.id) appWindows.delete(appId);
   });
 
-  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash: spec.hash });
+  // Keep the embedded source until loading has succeeded; a failed child must not take it away.
+  const ready = win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
+  appWindows.set(appId, { id: win.id, window: win, ready });
+  try {
+    await ready;
+    if (win.isDestroyed()) throw new Error('Application window closed before loading');
+  } catch (error) {
+    if (!win.isDestroyed()) win.close();
+    throw error;
+  }
   return { windowId: win.id, reused: false };
+}
+
+export function updateAppWindowTarget(windowId: number, params: Record<string, string>): boolean {
+  return appWindowTransfers.updateTarget(windowId, params);
+}
+
+export function startAppWindowDrag(windowId: number): boolean { return appWindowTransfers.startDrag(windowId); }
+export function endAppWindowDrag(windowId: number, commit = true, appId?: string): boolean {
+  return appWindowTransfers.endDrag(windowId, commit, appId);
+}
+export function redockAppWindow(windowId: number): boolean { return appWindowTransfers.redock(windowId); }
+export function ackAppWindowRedock(windowId: number, requestId: string): boolean {
+  return appWindowTransfers.ackRedock(windowId, requestId);
+}
+export function ackAppWindowTarget(windowId: number, requestId: string, accepted: boolean): boolean {
+  return appWindowTransfers.ackTarget(windowId, requestId, accepted);
 }
 
 export function closeAppWindow(appId: string): boolean {

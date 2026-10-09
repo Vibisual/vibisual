@@ -1,12 +1,26 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, EdgeLabelRenderer, useInternalNode, type EdgeProps, type InternalNode } from '@xyflow/react';
 import type { TaskEdgeStatus, TaskEdgeKind } from '@vibisual/shared';
 import { TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, LINK_FOCUS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { linkFocusEdgeStyle } from './linkedBubbles.js';
 import { computeTaskEdgePath, readRadiusFromData } from './taskEdgePath.js';
+import { clipCurvePath } from './edgeOcclusion.js';
+import { useEdgeOccluders } from './edgeOccluders.js';
+import { isRectNode, nodeBorderDistance } from './agentCard.js';
+
+/**
+ * §5.4 #36 (A) — 끝 노드가 입력 카드(정사각이 아닌 버블 노드)면 그 방향의 **판 테두리까지 거리**, 아니면 null
+ * (반지름은 종전대로 data 의 값). 원 반지름으로 판을 재면 위임 화살이 판 안쪽에서 끊겨 묻힌다.
+ */
+function rectReach(node: InternalNode | undefined, nx: number, ny: number): number | null {
+  const w = node?.measured?.width;
+  const h = node?.measured?.height;
+  if (typeof w !== 'number' || typeof h !== 'number' || !isRectNode(w, h)) return null;
+  return nodeBorderDistance(w, h, nx, ny);
+}
 
 /** v1.33 — 엣지 이벤트 펄스 타입. 엣지 path 를 따라 3회 날아가는 아이콘의 종류. */
 type EdgePulseEvent = 'sending' | 'completed' | 'error';
@@ -63,6 +77,8 @@ function KindIcon(
  */
 export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -81,8 +97,16 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const taskEdgeId = (edgeData?.['taskEdgeId'] as string) ?? '';
   const bundleId = (edgeData?.['bundleId'] as string | undefined) ?? undefined;
   const bundleRole = (edgeData?.['bundleRole'] as 'primary' | 'auto-artifact' | 'auto-rework' | undefined) ?? undefined;
-  const sourceRadius = readRadiusFromData(edgeData, 'sourceRadius');
-  const targetRadius = readRadiusFromData(edgeData, 'targetRadius');
+  // §5.4 #36 (A) — 끝이 입력 카드면 반지름 대신 그 방향의 판 테두리까지 거리(버블이면 data 의 반지름 그대로).
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const centerDx = targetX - sourceX;
+  const centerDy = targetY - sourceY;
+  const centerDist = Math.sqrt(centerDx * centerDx + centerDy * centerDy) || 1;
+  const sourceRadius = rectReach(sourceNode, centerDx / centerDist, centerDy / centerDist)
+    ?? readRadiusFromData(edgeData, 'sourceRadius');
+  const targetRadius = rectReach(targetNode, -centerDx / centerDist, -centerDy / centerDist)
+    ?? readRadiusFromData(edgeData, 'targetRadius');
   // 같은 source/target 쌍의 평행 엣지 분산 오프셋 (BubbleMap 에서 주입)
   const parallelOffset = typeof edgeData?.['parallelOffset'] === 'number'
     ? (edgeData['parallelOffset'] as number)
@@ -101,11 +125,16 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const lineColor = kindStyle.color;
   const iconColor = lineColor;
 
-  const { path, labelX, labelY } = computeTaskEdgePath({
+  const { path, curve, labelX, labelY } = computeTaskEdgePath({
     sourceX, sourceY, targetX, targetY, sourceRadius, targetRadius,
     offset: parallelOffset,
     targetAngularOffset,
   });
+  // §5.4 #31 (K) — 선은 지나가는 버블 원 안에서 잘린다(종전 SVG 마스크 자리). 펄스는 아래에서
+  //   잘리지 않은 `path` 를 그대로 따라간다 — 버블 밑에서도 날아가는 아이콘이 끊기지 않게.
+  const occluders = useEdgeOccluders(curve, source);
+  // path 가 곡선을 그대로 담고 있다 — 같은 path 면 같은 곡선이다.
+  const clipped = useMemo(() => clipCurvePath(curve, occluders, path), [path, occluders]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openTaskEdgeEdit = useGraphStore((s) => s.openTaskEdgeEdit);
   const selectTaskEdge = useGraphStore((s) => s.selectTaskEdge);
@@ -200,7 +229,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
     <>
       <BaseEdge
         id={id}
-        path={path}
+        path={clipped.path}
         style={{
           stroke: lineColor,
           strokeWidth: (kind === 'artifact' ? 3.5 : 2.5) * linkVisual.widthMul,
@@ -208,7 +237,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
           opacity: (isAutoSibling ? 0.55 : 1) * linkVisual.opacityMul,
           transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out, stroke-width ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
         }}
-        markerEnd={`url(#task-arrow-${kind})`}
+        markerEnd={clipped.endVisible ? `url(#task-arrow-${kind})` : undefined}
         interactionWidth={15}
       />
       <EdgeLabelRenderer>

@@ -1,6 +1,12 @@
-import { workspaceSiteUrl } from '@vibisual/shared';
+import { WORKSPACE_SITE_PATH, workspaceSiteUrl } from '@vibisual/shared';
 
 import { isPackagedDesktop } from '../transport/index.js';
+
+/** 우리 파일 창구는 HTTP 서버 프록시로 다시 감싸지 않는다. */
+export function isWorkspaceSiteSrc(url: string): boolean {
+  return url.startsWith(`${WORKSPACE_SITE_PATH}/`)
+    || url.startsWith(`vibproxy://proxy${WORKSPACE_SITE_PATH}/`);
+}
 
 /**
  * workspaceSite.ts — §5.5 #17-27 ⑮ 편집창의 페이지 미리보기가 물릴 **iframe src**.

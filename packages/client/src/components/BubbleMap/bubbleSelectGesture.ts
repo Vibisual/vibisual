@@ -38,10 +38,18 @@ export const DRAG_MOVE_THRESHOLD_PX = 5;
  *
  * 링은 그 1타에 **일부러** 즉시 반응한다(규칙 2). 그래서 링(`selectIntentId`)만 보고 움직이는 표시는
  * 더블클릭 한 번에 켜졌다 꺼진다. 1타에 반응하면 안 되는 쪽(캔버스 선택 초점 — §5.4 #31 (K))은 링 대신
- * 여기에 "링이 확정됐나"를 묻는다. 버블마다 상태기계가 따로라 불리언이 아니라 수를 센다.
+ * 여기에 "링이 확정됐나"를 묻는다. 최신 클릭으로 넘길 때 새 보류를 먼저 걸고 옛 보류를
+ * 걷으므로 잠깐 두 건이 겹칠 수 있다. 그 사이 보류가 풀리지 않게 수를 센다.
  */
 let deferredSelectCount = 0;
 const deferredSelectListeners = new Set<() => void>();
+// The ring and selected bubble are shared across gestures; their deferred owner must be shared too.
+let cancelDeferredOwner: (() => void) | null = null;
+
+/** Cancel the previous click without touching the current ring (e.g. when a marquee takes over). */
+export function cancelDeferredBubbleSelect(): void {
+  cancelDeferredOwner?.();
+}
 
 function shiftDeferredSelects(delta: 1 | -1): void {
   deferredSelectCount += delta;
@@ -141,7 +149,16 @@ export function createBubbleSelectGesture(
     if (pending === null) return;
     clearTimeout(pending);
     pending = null;
+    if (cancelDeferredOwner === clearPending) cancelDeferredOwner = null;
     shiftDeferredSelects(-1);
+  };
+
+  const selectImmediately = (): void => {
+    const cancelPrevious = cancelDeferredOwner;
+    const o = read();
+    // Publish the new intent before releasing the old wait: otherwise its ring briefly becomes
+    // a committed focus. The previous owner must never clear the newly selected bubble's ring.
+    try { o.setIntent(true); o.select(); } finally { cancelPrevious?.(); }
   };
 
   // 링을 먼저 끄고 보류를 접는다 — 순서가 뒤집혀 그 사이에 한 번 그려지면, 보류가 풀린 링이
@@ -183,17 +200,20 @@ export function createBubbleSelectGesture(
 
       const o = read();
       // 링은 지연 없이 — 눈에 보이는 반응이 늦으면 클릭이 씹힌 것처럼 느껴진다.
-      if (!o.doubleClickable) { o.setIntent(true); o.select(); return; }
+      if (!o.doubleClickable) { selectImmediately(); return; }
       clearPending();
+      const cancelPrevious = cancelDeferredOwner;
       pending = setTimeout(() => {
         pending = null;
+        if (cancelDeferredOwner === clearPending) cancelDeferredOwner = null;
         // 선택을 먼저 걸고 보류를 푼다 — 위 `cancelPendingSelect` 와 같은 이유(풀린 순간 링이 확정이다).
         try { read().select(); } finally { shiftDeferredSelects(-1); }
       }, SELECT_DEFER_MS);
+      cancelDeferredOwner = clearPending;
       // 보류를 먼저 걸고 링을 켠다(같은 손 안이라 지연은 없다). 링이 켜진 순간 보류가 없으면 그 1타가
       // "확정된 선택"으로 읽혀 선택 초점이 한 프레임 넘어갔다 돌아온다 — `cancelPendingSelect` 의 거울.
       shiftDeferredSelects(1);
-      o.setIntent(true);
+      try { o.setIntent(true); } finally { cancelPrevious?.(); }
     },
 
     pointerCancel() {
@@ -203,11 +223,8 @@ export function createBubbleSelectGesture(
     cancelPendingSelect,
 
     selectNow() {
-      clearPending();
       press = null;
-      const o = read();
-      o.setIntent(true);
-      o.select();
+      selectImmediately();
     },
 
     dispose() {

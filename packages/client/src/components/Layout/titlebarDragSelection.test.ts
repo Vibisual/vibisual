@@ -127,3 +127,22 @@ describe('드래그 영역의 정적 글자', () => {
     }
   });
 });
+
+// 로고도 주변 제목줄과 같은 OS 캡션이다. no-drag 덮개를 얹으면 기본 손짓을 가로챈다.
+describe('헤더 로고의 공통 제목줄 동작', () => {
+  it('창 이동과 더블클릭을 가로채는 로고 전용 덮개가 없다', () => {
+    const header = source('Header.tsx');
+    const at = header.indexOf('className="app-drag-label app-drag ');
+    expect(at, '헤더 로고를 못 찾음').toBeGreaterThan(-1);
+    const end = header.indexOf('{/* File 메뉴 */}', at);
+    expect(end).toBeGreaterThan(at);
+    const logo = header.slice(at, end);
+    expect(logo).not.toContain('app-nodrag');
+    expect(logo).not.toMatch(/on(?:Mouse|Pointer|DoubleClick)|moveSelf|toggleMaximizeSelf/);
+    expect(header).not.toContain('useTitlebarDrag');
+    const dragging = ruleFor('body.vib-pointer-drag .app-drag');
+    expect(dragging.selectors).toContain('body.vib-pointer-drag .app-drag *');
+    expect(decl(dragging.body, '-webkit-app-region')).toBe('no-drag');
+    expect(decl(dragging.body, 'app-region')).toBe('no-drag');
+  });
+});

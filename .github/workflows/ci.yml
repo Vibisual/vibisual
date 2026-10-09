@@ -75,7 +75,7 @@ jobs:
       # 데스크톱 패키징(electron-builder)은 여기서 돌리지 않는다 — 그건 release.yml 몫이고,
       # 여기서 확인하려는 것은 "소스가 이 OS 에서 성립하는가"다.
       - name: Build workspace packages
-        run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server -r build
+        run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/audio --filter=@vibisual/server -r build
 
       - name: Typecheck
         run: pnpm typecheck

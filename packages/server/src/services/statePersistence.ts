@@ -21,6 +21,7 @@ import {
   CHECKPOINT_SHRINK_GUARD_ENABLED,
   ROOT_NODE_KEY_PREFIX,
   LEGACY_ROOT_NODE_KEY,
+  mergePathLocks,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import {
@@ -283,6 +284,8 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     pinnedGoalActions: cp.pinnedGoalActions ?? [],
     // §5.5 #17-36 — 메인 탭 스티키 메모도 사람이 쓴 글이다(세션 탭 메모는 세션과 함께 산다).
     agentMemos: cp.agentMemos ?? {},
+    // §5.3 #12-3 — 자물쇠는 사용자가 손으로 건 보호다. 잃으면 AI 가 그대로 연다(정체성).
+    ...(cp.pathLocks && cp.pathLocks.length > 0 ? { pathLocks: cp.pathLocks } : {}),
     deletedSessionIds: cp.deletedCustomAgentIds ?? [],
   };
 }
@@ -1038,6 +1041,11 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
       cp.agentMemos[agentId] = [...existing, ...memos.filter((m) => !seen.has(m.id))];
     }
   }
+  // §5.3 #12-3 자물쇠 보충 — id 기준 합집합. 어긋나도 **잠긴 쪽으로** 남는다(사라진 자물쇠는 AI 가
+  //   그대로 열고, 되살아난 자물쇠는 카드 한 장으로 끝난다). 검증·id 재계산은 복원(`normalizePathLocks`)이 한다.
+  if (identity.pathLocks && identity.pathLocks.length > 0) {
+    cp.pathLocks = mergePathLocks(cp.pathLocks, identity.pathLocks);
+  }
   // agentCounter 는 최대값 유지(라벨 번호 역행 방지).
   cp.graph.agentCounter = Math.max(cp.graph.agentCounter ?? 0, identity.agentCounter ?? 0);
 }
@@ -1112,6 +1120,8 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     shelfBubbles: [...(identity.shelfBubbles ?? [])],
     contis: { ...identity.contis },
     agentMemos: { ...(identity.agentMemos ?? {}) },
+    // §5.3 #12-3 — 체크포인트가 죽어도 자물쇠는 identity 에서 선다(조용히 열리지 않게).
+    ...(identity.pathLocks && identity.pathLocks.length > 0 ? { pathLocks: [...identity.pathLocks] } : {}),
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],
   };
 }

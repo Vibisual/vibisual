@@ -1249,8 +1249,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     //   모듈에 단다 — 컴포넌트에 달면 언마운트와 함께 사라져 창이 커서를 계속 따라다닌다.
     //   (H-17) 놓고 나서 태어난 창은 애초에 매달리지 않으므로 풀어 줄 것도 없다.
     if (opts?.follow && !opts.follow.settled) watchDetachedFollowRelease(agentId);
-    closeOverlay();
-  }, [agentId, resolveProjectId, closeOverlay, captureHandoff, t]);
+    // 이동한 뒤에는 밖의 창이 탭을 소유한다 — 앱에 옛 목록을 남기면 밖에서 닫은 탭이 되살아난다.
+    useGraphStore.getState().closeIDEOverlay(paneKey, { rememberEditorTabs: false });
+  }, [agentId, resolveProjectId, paneKey, captureHandoff, t]);
 
   // §5.5 #17-6 (H-21) — 종전의 [앱 안으로 되돌리기(↩)] 손잡이(클릭 되돌리기 + 칩 합치기 드래그)는
   //   **없앴다.** (H-20) 부터 닫기(✕/Esc)가 앱을 앞으로 세우고 이 창을 닫으므로 같은 결과로 가는

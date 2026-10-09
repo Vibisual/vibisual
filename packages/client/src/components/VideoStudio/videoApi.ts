@@ -6,7 +6,7 @@
  * 생기고, 그때부터는 저장이 조용히 서로를 덮는다.
  */
 
-import type { VideoDoc, VideoDocOp } from '@vibisual/video';
+import type { VideoAsset, VideoDoc, VideoDocOp } from '@vibisual/video';
 // React 밖에서 문구를 고르는 통로 — `hooks/useWebSocket.ts` 와 같은 방식이다. 여기서 던지는
 // 오류는 `<pre>{error}</pre>` 로 **그대로 화면에 찍히므로** 사용자의 언어여야 한다.
 import i18n from '../../i18n/index.js';
@@ -40,7 +40,9 @@ export interface VideoJob {
 }
 
 async function json<T>(res: Response): Promise<T> {
-  const body = (await res.json()) as T & { ok?: boolean; error?: string };
+  let body: T & { ok?: boolean; error?: string };
+  try { body = await res.json() as T & { ok?: boolean; error?: string }; }
+  catch { throw new Error(i18n.t('panel.videoStudio.errRequestFailed', { status: res.status })); }
   if (res.ok) return body;
   throw new Error(body.error ?? i18n.t('panel.videoStudio.errRequestFailed', { status: res.status }));
 }
@@ -87,7 +89,7 @@ export async function patchDoc(
   project: string,
   docId: string,
   baseVersion: number,
-  ops: VideoDocOp[],
+  ops: readonly VideoDocOp[],
 ): Promise<DocEnvelope> {
   const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/patch`, {
     method: 'POST',
@@ -115,8 +117,10 @@ export async function getJob(jobId: string): Promise<VideoJob> {
 }
 
 /** 스튜디오가 다음 일감을 가져간다. 없으면 null. */
-export async function claimJob(): Promise<VideoJob | null> {
-  const res = await fetch('/api/app/vibistudio/jobs/claim', { method: 'POST' });
+export async function claimJob(project?: string): Promise<VideoJob | null> {
+  const res = await fetch('/api/app/vibistudio/jobs/claim', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project }),
+  });
   const body = await json<{ job: VideoJob | null }>(res);
   return body.job;
 }
@@ -125,11 +129,39 @@ export async function reportJob(
   jobId: string,
   patch: { status?: VideoJobStatus; progress?: number; image?: string; bytes?: string; error?: string; note?: string },
 ): Promise<void> {
-  await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/report`, {
+  const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/report`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
+  await json(res);
+}
+
+export async function importVideoAsset(project: string, file: File): Promise<VideoAsset> {
+  const res = await fetch(`/api/app/vibistudio/assets?project=${encodeURIComponent(project)}&name=${encodeURIComponent(file.name)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
+    body: new Blob([file], { type: 'application/octet-stream' }),
+  });
+  return (await json<{ asset: VideoAsset }>(res)).asset;
+}
+
+/** Binary output avoids the server's small JSON body limit and base64 expansion. */
+export async function completeRenderJob(jobId: string, bytes: Uint8Array, note: string): Promise<void> {
+  await reportJob(jobId, { note });
+  const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/output`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
+    body: new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }),
+  });
+  await json(res);
+}
+
+export async function completeStillJob(jobId: string, image: string): Promise<void> {
+  const png = await (await fetch(image)).blob();
+  const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/output`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
+    body: new Blob([png], { type: 'application/octet-stream' }),
+  });
+  await json(res);
 }
 
 /** 소재 파일 주소. 프로젝트 안 경로만 통한다(서버가 막는다). */

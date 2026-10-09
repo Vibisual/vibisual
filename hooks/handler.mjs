@@ -102,6 +102,7 @@ function executeCommand(sessionId, text) {
  *   - `deny`                                    → 명시적 `permissionDecision:'deny'` + reason (모델에게 차단 사유 전달)
  *   - `allow` & 관할 외(not-managed/view-only)  → `{continue:true}` (CC 기본 정책에 위임 — 메인 세션 가로채지 않음)
  *   - `allow` & 관할 안(custom agent)           → 명시적 `permissionDecision:'allow'` (reason 없음)
+ *   - `ask` (§5.3 #12-3 자물쇠 · 관할 외 세션)   → `permissionDecision:'ask'` + reason (그 CLI 자신의 승인 창)
  *
  * 왜 allow 도 명시적이어야 하나: 커스텀 서브에이전트는 `claude -p` (print 모드) 로 떠 있고,
  * print + permissionMode='default' 의 CLI 기본 정책은 ask 가 필요한 도구를 자동 deny 한다.
@@ -119,6 +120,40 @@ function executeCommand(sessionId, text) {
  * `codex-app-hook` — §5.25 (H) 코덱스 버블의 권한은 앱이 턴마다 싣는 훅이 따로 판정한다(전역 코덱스 훅은 비켜 선다).
  */
 const SERVER_PASSTHROUGH_REASONS = new Set(['not-managed', 'view-only-agent', 'codex-app-hook']);
+
+/**
+ * §5.3 #12-4 — 서버가 답하지 못했을 때(불통·HTTP 오류·응답 깨짐)의 **안전망**.
+ *
+ * 정본 분류기는 shared `verificationPolicy.ts` 한 벌이고, 여기서는 그 일부(가장 흔한 실행기·브라우저 MCP)만
+ * 본다. **우리가 띄운 세션**(헤드리스 = `VIBISUAL_SUBAGENT_ID`, CMD 터미널 = `VIBISUAL_OWNER_TERM_ID`)에서만
+ * 쓰고, 검증 권한을 확인할 수 없으니 검증으로 보이면 거부한다(fail-closed). 그 밖의 호출은 종전대로 통과한다 —
+ * 서버가 꺼졌다고 사용자의 일반 작업까지 막지 않는다.
+ */
+const OWNED_SESSION = Boolean(process.env.VIBISUAL_SUBAGENT_ID || process.env.VIBISUAL_OWNER_TERM_ID);
+const VERIFICATION_FALLBACK_COMMAND = /(?:^|[\s;&|(])(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|t|lint|typecheck|type-check|check|e2e|build|verify)\b|(?:npx|pnpm\s+exec|pnpm\s+dlx|yarn\s+dlx|bunx)\s+(?:vitest|jest|mocha|playwright|cypress|tsc|eslint)\b|vitest\b|jest\b|mocha\b|pytest\b|playwright\s+test\b|cypress\s+(?:run|open)\b|tsc\b|eslint\b|cargo\s+(?:test|build|check|clippy)\b|go\s+(?:test|build|vet)\b|dotnet\s+(?:test|build)\b|make\s+(?:test|check|lint|build)\b)/i;
+const VERIFICATION_FALLBACK_MCP_SERVER = /playwright|puppeteer|chrome[-_]?devtools|browser|claude[-_]?in[-_]?chrome|computer[-_]?use|vibisual_verify/i;
+
+function looksLikeVerification(toolName, toolInput) {
+  if (typeof toolName !== 'string') return false;
+  const mcp = /^mcp__(.+?)__/.exec(toolName);
+  if (mcp) return VERIFICATION_FALLBACK_MCP_SERVER.test(mcp[1]);
+  const command = toolInput && typeof toolInput.command === 'string' ? toolInput.command : '';
+  return command !== '' && VERIFICATION_FALLBACK_COMMAND.test(command);
+}
+
+/** 권한 문의가 답을 못 받았을 때의 답 — 우리 세션의 검증처럼 보이면 거부, 아니면 종전대로 통과. */
+function unconfirmedAnswer(payload) {
+  if (OWNED_SESSION && looksLikeVerification(payload.tool_name, payload.tool_input)) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: 'VIBISUAL VERIFICATION POLICY: BLOCKED before it ran. Vibisual could not confirm the verification permission for this task (the app did not answer), so verification does not run (safe default). Do not retry it, do not run it another way (another command, a script, another tool or a sub-agent), and do not ask the user for permission. Finish the requested work, then say in your report which verification was not run.',
+      },
+    };
+  }
+  return { continue: true };
+}
 
 /**
  * §5.3 #12-2 v2.26 — AskUserQuestion 전용 분기.
@@ -206,13 +241,35 @@ async function checkPermission(payload) {
         toolName: payload.tool_name,
         toolInput: payload.tool_input ?? {},
         cwd: payload.cwd,
+        // §5.3 #12-3 — 코덱스 훅에만 있는 필드. 전역 코덱스 훅이 이 핸들러를 부를 때 서버가 엔진을 가른다
+        //   (코덱스는 `ask` 를 지원하지 않아 자물쇠를 거부로 답해야 한다).
+        ...(typeof payload.turn_id === 'string' && payload.turn_id ? { turnId: payload.turn_id } : {}),
+        // §5.3 #12-4 — 우리 CMD 터미널에서 뜬 CLI 만 터미널 id 를 갖는다. 서버가 그 턴의 검증 범위로 판정한다.
+        ...(process.env.VIBISUAL_OWNER_AGENT_ID ? { ownerAgentId: process.env.VIBISUAL_OWNER_AGENT_ID } : {}),
+        ...(process.env.VIBISUAL_OWNER_TERM_ID ? { ownerTermId: process.env.VIBISUAL_OWNER_TERM_ID } : {}),
       }),
       signal: controller.signal,
     });
     clearTimeout(tid);
-    if (!res.ok) return { continue: true };
+    // §5.3 #12-4 — 답을 못 받으면 우리 세션의 검증은 거부한다(그 밖은 종전대로 통과).
+    if (!res.ok) return unconfirmedAnswer(payload);
     const data = await res.json().catch(() => null);
-    if (!data) return { continue: true };
+    if (!data) return unconfirmedAnswer(payload);
+
+    // §5.3 #12-3 — 자물쇠에 닿은 관할 밖 세션. 우리 팝업 대신 **그 CLI 자신의 승인 창**을 띄운다
+    //   (bypassPermissions 에서도 뜬다 — 2.1.291 실측). 답할 사람이 없는 `-p` 실행이면 CLI 가 거부하고
+    //   모델이 이 사유를 읽는다.
+    if (data.decision === 'ask') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'ask',
+          permissionDecisionReason: typeof data.message === 'string' && data.message
+            ? data.message
+            : 'Vibisual lock: this path is locked by the user, so this access needs their approval.',
+        },
+      };
+    }
 
     if (data.decision === 'deny') {
       const reason = data.reason === 'timeout'
@@ -227,6 +284,16 @@ async function checkPermission(payload) {
         // §5.3 #12-1-B — 이 에이전트의 금지 목록(disallowedTools)에 있는 도구. 팝업은 뜨지 않았다.
         : data.reason === 'disallowed'
         ? 'PERMISSION POLICY: DENY. This tool is on this agent\'s disallowed-tools list in Vibisual, so it was blocked WITHOUT asking the user. Do not retry this tool; use a different approach, or tell the user it must be removed from the disallowed list in the agent settings.'
+        // §5.3 #12-3 — 자물쇠 거부(묻지 않는 모드 · ask 를 못 쓰는 엔진). 어느 경로가 잠겼는지는 서버가 문구에 싣는다.
+        : data.reason === 'locked'
+        ? (typeof data.message === 'string' && data.message
+          ? data.message
+          : 'Vibisual lock: this path is locked by the user, so this tool was blocked and NOT executed. Ask the user to unlock it in Vibisual if access is needed. Do not retry it or work around it with another command.')
+        // §5.3 #12-4 — 검증 정책 거부. 무엇으로 읽혔는지·우회하지 말라는 문구는 서버가 짓는다. 아무도 누르지 않았다.
+        : data.reason === 'verification'
+        ? (typeof data.message === 'string' && data.message
+          ? data.message
+          : 'VIBISUAL VERIFICATION POLICY: BLOCKED before it ran. The user did not ask for verification in this task. Do not retry it, do not run it another way, and do not ask the user for permission. Finish the requested work, then say which verification was not run.')
         : `USER PERMISSION DECISION: DENY. The user pressed "Deny" in the Vibisual approval popup. This tool was blocked and NOT executed.${data.reason ? ` User note: ${data.reason}.` : ''} In your reply, state this explicitly to the user — e.g. 'You selected: Deny — the command was not run.' Do not retry the tool unless the user explicitly asks.`;
       return {
         hookSpecificOutput: {
@@ -251,10 +318,10 @@ async function checkPermission(payload) {
       };
     }
 
-    // 알 수 없는 decision — 보수적으로 continue.
-    return { continue: true };
+    // 알 수 없는 decision — 보수적으로 continue(§5.3 #12-4 — 우리 세션의 검증만은 거부).
+    return unconfirmedAnswer(payload);
   } catch {
-    return { continue: true };
+    return unconfirmedAnswer(payload);
   }
 }
 

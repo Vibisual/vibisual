@@ -155,40 +155,13 @@ export function Header({
       <div className="flex min-w-0 flex-1 items-stretch">
         {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스.
             §4 v3.24 — 폰(max-md)에선 로고 블록 전체(dot 포함)를 숨겨 File+탭만 남긴다.
-            로고 상자 자체를 OS 드래그 영역으로 신고하고, 내부 점과 글자만 포인터에서 제외한다. */}
+            주변 제목줄과 같은 app-drag 영역을 사용한다. 창 이동·최대화 복원·더블클릭은
+            OS 가 함께 처리하며, 탭을 끄는 동안에는 공통 vib-pointer-drag 규칙이 적용된다. */}
         <div className="app-drag-label app-drag relative flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden">
           <div className="h-3 w-3 rounded-full bg-gradient-to-br from-blue-400 to-violet-500" />
           <span className="text-[12px] font-semibold tracking-tight text-white/90">
             {t('header.logo.name')}
           </span>
-          {window.api?.window?.moveSelf && (
-            <div
-              className="app-nodrag absolute inset-0 z-10"
-              style={{ pointerEvents: 'auto' }}
-              aria-hidden="true"
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                event.stopPropagation();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                void window.api?.window?.moveSelf?.('start');
-              }}
-              onPointerMove={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  void window.api?.window?.moveSelf?.('move');
-                }
-              }}
-              onPointerUp={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                  void window.api?.window?.moveSelf?.('end');
-                }
-              }}
-              onPointerCancel={() => { void window.api?.window?.moveSelf?.('end'); }}
-              onLostPointerCapture={() => { void window.api?.window?.moveSelf?.('end'); }}
-              onDoubleClick={() => { void window.api?.window?.toggleMaximizeSelf(); }}
-            />
-          )}
         </div>
 
         {/* File 메뉴 */}

@@ -349,7 +349,7 @@ describe('(H-27) ⑤ 밖에서 IDE 가 펴지면 앱 안의 같은 창이 짐을
   it('맨 앞 창의 짐은 종전 짐 길(`overlay.open` → `pane-handoff`)로 넘기고, 창은 짐을 뜬 **뒤에** 닫는다', () => {
     const capture = yielding.indexOf('captureIDEPaneHandoff(front)');
     const send = yielding.indexOf('overlay.open({ agentId, projectId, expanded: true, handoff })');
-    const close = yielding.indexOf('for (const key of paneKeys) store.closeIDEOverlay(key);');
+    const close = yielding.indexOf('for (const key of paneKeys) store.closeIDEOverlay(key, { rememberEditorTabs: false });');
     expect(capture).toBeGreaterThan(-1);
     expect(send).toBeGreaterThan(capture);
     expect(close).toBeGreaterThan(capture);
@@ -371,7 +371,7 @@ function sourceEndingWith(suffix: string): string {
 
 describe('(H-27) ⑦ 세션을 골라 여는 손짓 — 세울 세션을 여는 길에 싣는다', () => {
   const store = source(storeSources, './graphStore.ts');
-  const whole = block(store, 'openIDEOverlay: (agentId, opts) => {', 'closeIDEOverlay: (paneKey) => set((state) => {');
+  const whole = block(store, 'openIDEOverlay: (agentId, opts) => {', 'closeIDEOverlay:');
   const head = block(store, 'openIDEOverlay: (agentId, opts) => {', '// §5.19 (B) — All Model 버블은');
 
   it('밖으로 가는 부름은 세울 세션을 기존 `overlay.open` 에 싣는다 — 앱 안에는 그 에이전트의 창이 없다', () => {

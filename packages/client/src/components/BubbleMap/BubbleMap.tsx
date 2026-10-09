@@ -16,7 +16,15 @@ import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo, TidySort } from '@vibisual/shared';
 import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
-import { BubbleNode } from './BubbleNode.js';
+// §5.4 #36 (A) — `bubble` 노드는 형태만 갈라 그린다(커스텀 에이전트의 입력 카드 ↔ 원형 버블).
+import { CanvasBubbleNode, noteAgentFormChange } from './AgentCardNode.js';
+// §5.4 #36 (B) — 참조선(에이전트 → 그 에이전트를 참조하는 앱 노드)과 `+` 끌기.
+import { RefLinkEdge } from './RefLinkEdge.js';
+import { RefLinkDragPreview } from './RefLinkDragPreview.js';
+import { useRefLinkDragStore, type RefLinkDrag } from '../../stores/refLinkDrag.js';
+import { canUseAgentCard, isAgentCardForm, refLinkPairs, refLinkPairsKey } from './agentCard.js';
+import { AGENT_CARD } from '@vibisual/shared';
+import { IDEContextMenu, type ContextMenuItem } from '../IDE/IDEContextMenu.js';
 // §5.4 #34 — 삭제 규칙 두 손(Delete 키 · 버블 우클릭 메뉴)이 나눠 쓰는 판정·메뉴.
 import {
   bubbleDeleteAction,
@@ -36,7 +44,7 @@ import { PlayPreviewNode } from './PlayPreviewNode.js';
 import { SpecNode } from './SpecNode.js';
 import { LabNode } from './LabNode.js';
 import { ShelfNode } from './ShelfNode.js';
-import { getInternalApp } from '../../apps/registry.js';
+import { getInternalApp, INTERNAL_APPS } from '../../apps/registry.js';
 import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
@@ -47,6 +55,7 @@ import { CaptureSourcePicker } from './CaptureSourcePicker.js';
 import { PlaytestClipWindows } from './PlaytestClipWindow.js';
 import { CurvedEdge } from './CurvedEdge.js';
 import { EdgeMask } from './EdgeMask.js';
+import { CoronaWarmup } from './CoronaWarmup.js';
 import { useGraphStore, selectActivePluginProjectPath } from '../../stores/graphStore.js';
 import { placeSatellitePositions } from '../../utils/satellite.js';
 import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
@@ -55,7 +64,7 @@ import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type Phy
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
-import { canCreateMainViewBubble } from './canvasScope.js';
+import { canCreateMainViewBubble, isMainCanvasView } from './canvasScope.js';
 import { shouldDismissOnOpen } from './agentDismiss.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
@@ -100,7 +109,7 @@ import type { LinkSatelliteRef } from './linkedBubbles.js';
 import { folderCandidates, resolveSatelliteFolderId } from './satelliteNavigate.js';
 import { useTranslation } from 'react-i18next';
 
-const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
+const nodeTypes: NodeTypes = { bubble: CanvasBubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
 
 /**
  * §5.14 v4.62 — 프리뷰 노드 id(`<recordId>__preview`) → 레코드 id.
@@ -111,7 +120,18 @@ const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, c
 function playRecordId(nodeId: string): string {
   return nodeId.endsWith('__preview') ? nodeId.slice(0, -'__preview'.length) : nodeId;
 }
-const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent };
+const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent, refLink: RefLinkEdge };
+
+/**
+ * §5.4 #36 (B) — `+` 로 연 "이 에이전트를 참조해 만들기" 목록. 새 노드를 **어디에** 세울지를 함께 든다 —
+ * 손잡이를 눌렀으면 카드 오른쪽(`beside`), 빈 곳에 놓았으면 놓은 자리(`drop`).
+ */
+interface RefMenuState {
+  agentId: string;
+  screenX: number;
+  screenY: number;
+  place: { kind: 'beside' | 'drop'; x: number; cy: number; index: number };
+}
 
 /** 물리로 움직인 store 기반 요소의 종류 — 이동 반영/영속화 경로가 종류마다 다르다. */
 type PhysicsExternalKind = 'comment' | 'capture' | 'app' | 'play' | 'playPreview' | 'spec' | 'lab' | 'shelf';
@@ -579,6 +599,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           refKey: b.ref,
           projectName: b.projectName,
           preservePinned: b.preservePinned,
+          // §5.4 #36 (C) — 결과 전달로 담긴 파일. 노드 이름·열기·그림 미리보기가 이 값을 본다.
+          file: b.file,
           width: size.width,
           height: size.height,
         },
@@ -992,6 +1014,31 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    *   · 고른 것 안의 버블 위에서 불렀고 여럿이면 → 고른 것 전부
    *   · 고르지 않은 버블 위에서 불렀으면 → **그 하나만**(남의 묶음을 지우지 않는다)
    */
+  /**
+   * §5.4 #36 (A) — 에이전트를 입력 카드 ↔ 버블로 바꾼다. **중심을 지킨 채** 바꾼다 — 노드 좌표는 좌상단이라
+   * 그대로 두면 판이 오른쪽 아래로 튄다. 새 좌상단 = 지금 중심 − 새 크기/2. 좌표는 기존 위치 저장 경로
+   * (`positionsRef` → 주기 flush)가 그대로 영속한다(새 저장 경로 ❌).
+   */
+  const applyAgentForm = useCallback((nodeId: string, form: 'card' | 'bubble') => {
+    const node = flowNodesRef.current.find((n) => n.id === nodeId);
+    if (node) {
+      const data = node.data as unknown as BubbleData;
+      const curW = node.measured?.width ?? calcBubbleSize(data);
+      const curH = node.measured?.height ?? curW;
+      const nextW = form === 'card' ? AGENT_CARD.width : calcBubbleSize(data);
+      const nextH = form === 'card' ? AGENT_CARD.height : nextW;
+      const pos = {
+        x: node.position.x + curW / 2 - nextW / 2,
+        y: node.position.y + curH / 2 - nextH / 2,
+      };
+      positionsRef.current.set(nodeId, pos);
+      setFlowNodes((cur) => cur.map((n) => (n.id === nodeId ? { ...n, position: pos } : n)));
+    }
+    // 원 → 판 전이는 바꾼 그 순간에만 돈다(화면 밖에서 돌아올 때마다 다시 퍼지지 않게).
+    if (form === 'card') noteAgentFormChange(nodeId);
+    useGraphStore.getState().setAgentForm(nodeId, form);
+  }, [setFlowNodes]);
+
   const openBubbleMenuAt = useCallback((nodeId: string | null, screenX: number, screenY: number) => {
     const selNodes = flowNodesRef.current.filter((nd) => nd.selected);
     const selEdges = flowEdgesRef.current.filter((ed) => ed.selected);
@@ -1004,8 +1051,19 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
     const one = flowNodesRef.current.find((nd) => nd.id === nodeId);
     if (!one) return;
+    // §5.4 #36 (A) — 커스텀 에이전트 **버블** 위 우클릭 1회 = 입력 카드로 전환(메뉴 대신, 사용자 지시).
+    //   카드 위 우클릭은 아래로 흘러 #34 메뉴(맨 위 [버블로 접기])가 열린다 — 치우는 손은 그대로 남는다.
+    //   메인 뷰에서만 — 폴더·워크트리·휴지통 안은 카드를 그리지 않는다(앱 노드도 거기엔 없다).
+    if (one.type === 'bubble') {
+      const bd = one.data as unknown as BubbleData;
+      const st = useGraphStore.getState();
+      if (isMainCanvasView(st) && !isAgentCardForm(bd) && canUseAgentCard(bd, st.agentConfigs[bd.id])) {
+        applyAgentForm(one.id, 'card');
+        return;
+      }
+    }
     setBubbleMenu({ nodes: [one], edges: [], screenX, screenY });
-  }, []);
+  }, [applyAgentForm]);
 
   useEffect(() => {
     function onBubbleMenu(e: Event): void {
@@ -1294,6 +1352,169 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // §5.4 #29 v1.51 — 캔버스 클립보드 (Ctrl/Cmd+C / Ctrl/Cmd+V)
   const { t } = useTranslation();
+
+  // ─── §5.4 #36 (B) 연결 — 참조선 그리기 · `+` 끌기 놓기 판정 · "이 에이전트를 참조해 만들기" 목록 ───
+
+  /**
+   * 참조선은 **연결 지문이 바뀔 때만** 다시 짓는다. 앱 노드는 드래그 중 매 프레임 store 좌표가 바뀌므로
+   * 배열째 의존하면 끄는 동안 선이 매 프레임 새로 만들어진다(선의 모양은 React Flow 가 노드 좌표로 따로 그린다).
+   * 메인 뷰·현재 프로젝트만 — 앱 노드가 그려지는 자리와 같은 규칙이다.
+   */
+  const refPairsKey = useMemo(() => {
+    if (currentFolderId !== null || interiorView !== null) return '';
+    return refLinkPairsKey(refLinkPairs(allAppBubbles, agentIds, activeProject));
+  }, [allAppBubbles, agentIds, activeProject, currentFolderId, interiorView]);
+  const refFlowEdges = useMemo<Edge[]>(() => {
+    if (!refPairsKey) return [];
+    return refLinkPairs(useGraphStore.getState().appBubbles, agentIds, activeProject).map((p) => ({
+      id: p.id,
+      source: p.agentId,
+      target: p.appBubbleId,
+      sourceHandle: 'src',
+      targetHandle: 'tgt',
+      type: 'refLink',
+      data: { agentId: p.agentId, appBubbleId: p.appBubbleId },
+      selectable: false,
+      focusable: false,
+      deletable: false,
+    }));
+  }, [refPairsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** React Flow 에 넘기는 선 — 활동·위성·Task Edge(`edges` 상태) + 참조선. 참조선은 선택·삭제 채널에 섞지 않는다. */
+  const displayEdges = useMemo(
+    () => (refFlowEdges.length === 0 ? edges : [...edges, ...refFlowEdges]),
+    [edges, refFlowEdges],
+  );
+
+  const [refMenu, setRefMenu] = useState<RefMenuState | null>(null);
+  const refMenuRef = useRef<RefMenuState | null>(null);
+  refMenuRef.current = refMenu;
+  const closeRefMenu = useCallback(() => setRefMenu(null), []);
+
+  /**
+   * `+` 를 놓았다. 판정은 화면을 아는 여기서 한다(손잡이를 쥔 카드는 React Flow 의 잎이라 다른 노드를 모른다).
+   *  - 문턱을 못 넘었다 = **누름** → 손잡이 옆 목록, 새 노드는 카드 오른쪽.
+   *  - 앱 노드 위 → 그 노드에 잇는다.
+   *  - 빈 캔버스 → 놓은 자리에 목록, 새 노드는 놓은 자리.
+   *  - 그 밖(다른 버블·창 위) → 아무 일도 없다(취소).
+   */
+  const finishRefLinkDrag = useCallback((drag: RefLinkDrag, clientX: number, clientY: number) => {
+    const rf = rfRef.current;
+    const store = useGraphStore.getState();
+    if (!rf || !isMainCanvasView(store)) return;
+    if (!drag.moved) {
+      const node = flowNodesRef.current.find((n) => n.id === drag.agentId);
+      if (!node) return;
+      const w = node.measured?.width ?? AGENT_CARD.width;
+      const h = node.measured?.height ?? AGENT_CARD.height;
+      const linkedCount = store.appBubbles.filter((b) => (b.linkedAgentIds ?? []).includes(drag.agentId)).length;
+      setRefMenu({
+        agentId: drag.agentId,
+        screenX: drag.startX + AGENT_CARD.handleSize,
+        screenY: drag.startY,
+        place: { kind: 'beside', x: node.position.x + w + AGENT_CARD.spawnGap, cy: node.position.y + h / 2, index: linkedCount },
+      });
+      return;
+    }
+    const el = document.elementFromPoint(clientX, clientY);
+    const targetId = el?.closest('.react-flow__node')?.getAttribute('data-id') ?? null;
+    if (targetId && store.appBubbles.some((b) => b.id === targetId)) {
+      store.linkAppBubbleAgent(targetId, drag.agentId);
+      return;
+    }
+    if (el && isCanvasSurfaceTarget(el)) {
+      const p = rf.screenToFlowPosition({ x: clientX, y: clientY });
+      setRefMenu({ agentId: drag.agentId, screenX: clientX, screenY: clientY, place: { kind: 'drop', x: p.x, cy: p.y, index: 0 } });
+    }
+  }, []);
+
+  // 끌기 손 — 마운트 시 한 번만 건다(스토어를 그때그때 읽는다 — Task Edge 끌기와 같은 이유).
+  useEffect(() => {
+    const st = (): ReturnType<typeof useRefLinkDragStore.getState> => useRefLinkDragStore.getState();
+    const onMove = (e: PointerEvent): void => { if (st().drag) st().move(e.clientX, e.clientY); };
+    const onUp = (e: PointerEvent): void => {
+      const drag = st().drag;
+      if (!drag) return;
+      st().end();
+      if (e.button !== 0) return;
+      finishRefLinkDrag(drag, e.clientX, e.clientY);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && st().drag) { e.preventDefault(); st().end(); }
+    };
+    const onContextMenu = (e: MouseEvent): void => {
+      if (!st().drag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      st().end();
+    };
+    const onBlur = (): void => { if (st().drag) st().end(); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onBlur);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('contextmenu', onContextMenu, true);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onBlur);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('contextmenu', onContextMenu, true);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [finishRefLinkDrag]);
+
+  /**
+   * 목록에서 앱을 골랐다 — 그 에이전트를 참조한 채 태어나는 앱 노드를 만든다(`POST /api/app-bubbles`,
+   * `linkedAgentIds` 한 칸 — 새 REST ❌). 크기는 앱 선언에서. 앱 이름을 묻지 않는다(§5.13 (P-4)).
+   */
+  const handleCreateLinkedApp = useCallback((appId: string) => {
+    const menu = refMenuRef.current;
+    const store = useGraphStore.getState();
+    if (!menu || !canCreateMainViewBubble(store)) return;
+    const project = store.activeProject!;
+    const size = getInternalApp(appId)?.defaultSize ?? { width: 200, height: 200 };
+    let x: number;
+    let y: number;
+    if (menu.place.kind === 'beside') {
+      x = menu.place.x;
+      y = menu.place.cy - size.height / 2 + menu.place.index * (size.height + AGENT_CARD.spawnStackGap);
+    } else {
+      // 놓은 자리가 에이전트의 왼쪽이면 노드의 오른쪽 옆구리가, 오른쪽이면 왼쪽 옆구리가 그 자리에 온다.
+      const agentNode = flowNodesRef.current.find((n) => n.id === menu.agentId);
+      const agentCx = agentNode
+        ? agentNode.position.x + (agentNode.measured?.width ?? AGENT_CARD.width) / 2
+        : menu.place.x;
+      x = menu.place.x >= agentCx ? menu.place.x : menu.place.x - size.width;
+      y = menu.place.cy - size.height / 2;
+    }
+    void fetch('/api/app-bubbles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectName: project,
+        appId,
+        x,
+        y,
+        width: size.width,
+        height: size.height,
+        linkedAgentIds: [menu.agentId],
+      }),
+    }).catch(() => undefined);
+  }, []);
+
+  /** 목록 — 등록된 앱 전부(레지스트리 순서). 앱이 늘면 목록이 저절로 는다. */
+  const refMenuItems = useMemo<ContextMenuItem[]>(() => INTERNAL_APPS.map((app) => {
+    const Icon = app.icon;
+    return {
+      id: `ref-create-${app.id}`,
+      label: t(app.nameKey, { defaultValue: app.name }),
+      note: t(app.descKey),
+      icon: <span className="flex" style={{ color: app.glow }}><Icon /></span>,
+      onClick: () => handleCreateLinkedApp(app.id),
+    };
+  }), [t, handleCreateLinkedApp]);
+
   const [canvasToast, setCanvasToast] = useState<{ msg: string; kind: 'success' | 'error' } | null>(null);
   useEffect(() => {
     if (!canvasToast) return;
@@ -2036,9 +2257,19 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const tidyDiameterOf = useCallback((node: Node): number => {
     const data = node.data as unknown as BubbleData | undefined;
     if (!data) return node.measured?.width ?? (typeof node.width === 'number' ? node.width : NODE_MIN_SIZE);
+    // §5.4 #36 (A) — 입력 카드는 가로가 긴 판이다. 정리는 원으로 자리를 잡으므로 **가로 폭**을 지름으로 넘겨
+    //   이웃을 밟지 않게 하고, 세로 중심은 `tidyHalfHeightOf` 가 판의 실제 높이로 맞춘다.
+    //   카드는 메인 뷰에서만 그려진다(`CanvasBubbleNode`) — 다른 뷰에서는 같은 에이전트가 원이다.
+    if (isAgentCardForm(data) && isMainCanvasView(useGraphStore.getState())) return AGENT_CARD.width;
     const localRange = (node.data as Record<string, unknown>)['_localRange'] as { min: number; max: number } | undefined;
     return calcBubbleSize(data, localRange ?? globalFileSizeRange, heatScale);
   }, [globalFileSizeRange, heatScale]);
+  /** 좌상단 ↔ 중심 환산의 세로 반 — 원은 지름의 반, 입력 카드는 판 높이의 반(§5.4 #36 (A)). */
+  const tidyHalfHeightOf = useCallback((node: Node | undefined, diameter: number): number => (
+    node && isAgentCardForm(node.data as unknown as BubbleData) && isMainCanvasView(useGraphStore.getState())
+      ? AGENT_CARD.height / 2
+      : diameter / 2
+  ), []);
 
   /**
    * 지금 화면에서 정리 대상이 되는 버블.
@@ -2074,7 +2305,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       if (band === null) continue;
       const diameter = tidyDiameterOf(node);
       const cx = node.position.x + diameter / 2;
-      const cy = node.position.y + diameter / 2;
+      const cy = node.position.y + tidyHalfHeightOf(node, diameter);
       const parentId = satParentById.get(node.id);
       if (parentId) { sats.push({ id: node.id, parentId, diameter, cx, cy }); continue; }
       picked.push({
@@ -2101,7 +2332,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       rank: grouping.rankById.get(p.item.id),
     }));
     return { items, sats, order: grouping.order, anchors: grouping.anchorByGroup };
-  }, [scopedCommentBoxes, tidyDiameterOf, tidyHeatAxis]);
+  }, [scopedCommentBoxes, tidyDiameterOf, tidyHalfHeightOf, tidyHeatAxis]);
 
   const handleTidy = useCallback((sort: TidySort) => {
     // 내부 뷰(휴지통)의 좌표는 임시 나열이라 저장하지 않는다 — 여기서 정리하면 원래 자리를 잃는다.
@@ -2151,7 +2382,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const node = nodeById.get(seatId);
       if (!node) return;
       const r = (diameterById.get(seatId) ?? NODE_MIN_SIZE) / 2;
-      const target = { x: cx - r, y: cy - r };
+      const target = { x: cx - r, y: cy - tidyHalfHeightOf(node, r * 2) };
       if (Math.abs(target.x - node.position.x) < TIDY_LAYOUT.SETTLED_EPSILON
         && Math.abs(target.y - node.position.y) < TIDY_LAYOUT.SETTLED_EPSILON) return;
       from.set(seatId, { x: node.position.x, y: node.position.y });
@@ -2224,7 +2455,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     tidyRafRef.current = requestAnimationFrame(step);
   }, [
     cancelTidy, collectTidyTargets, layoutBoundsForTidy, pauseFor, setFlowNodes,
-    onSatelliteDrag, onSatelliteDragStop, wake, flushPositionsFetch, t,
+    onSatelliteDrag, onSatelliteDragStop, wake, flushPositionsFetch, t, tidyHalfHeightOf,
   ]);
 
   /**
@@ -3033,7 +3264,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     >
       {/* §5.4 #31 (K) — 선택 초점은 이 래퍼가 구독한다. 본체가 구독하면 클릭마다 캔버스 전체가 다시 돈다. */}
       <SelectionFocusFlow
-        nodes={displayNodes} edges={edges}
+        nodes={displayNodes} edges={displayEdges}
         nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         onNodeDoubleClick={handleNodeDoubleClick}
@@ -3064,6 +3295,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         className={`bg-gray-950 ${covered ? 'vibisual-canvas-idle' : ''}`}
       >
         <EdgeMask />
+        {/* §5.4 #31 (K) — 첫 선택이 코로나 필터를 처음 그리느라 멈칫하지 않게, 보일 때 한 번 미리 그린다. */}
+        <CoronaWarmup hidden={covered} />
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
         {/* Screen-space decoration: stays put during pan/zoom and lets canvas gestures pass through. */}
         {activeProject && (
@@ -3111,7 +3344,18 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           edges={bubbleMenu.edges}
           x={bubbleMenu.screenX}
           y={bubbleMenu.screenY}
+          onAgentForm={applyAgentForm}
           onClose={closeBubbleMenu}
+        />
+      )}
+      {/* §5.4 #36 (B) — 카드의 `+` 로 연 "이 에이전트를 참조해 만들기" 목록(앱은 레지스트리에서). */}
+      {refMenu && (
+        <IDEContextMenu
+          x={refMenu.screenX}
+          y={refMenu.screenY}
+          heading={t('canvas.refLink.menuHeading')}
+          items={refMenuItems}
+          onClose={closeRefMenu}
         />
       )}
       {/* §5.9 화면/프로그램 캡처 소스 선택 팝업 (생성/다시 선택 공용). */}
@@ -3125,6 +3369,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       <PlaytestClipWindows />
       {/* 드래그 프리뷰 — 스크린 좌표계 SVG 오버레이 (화살표 포함, 마우스 커서 추적) */}
       <TaskEdgeDragPreview rfRef={rfRef} rfContainerRef={rfContainerRef} flowNodes={flowNodes} />
+      {/* §5.4 #36 (B) — `+` 에서 끄는 참조선 미리보기(같은 곡선 함수 — 놓는 순간 모양이 튀지 않게). */}
+      <RefLinkDragPreview />
       {/* §5.4 #29 v1.51 — 캔버스 클립보드/북마크 토스트 (Ctrl/Cmd+C·V, Alt+숫자, 숫자).
           IDE 오버레이(z-50) 위로 보이도록 body 포털 + fixed z-[70] (§5.4 #30 v2.73). */}
       {canvasToast && createPortal(

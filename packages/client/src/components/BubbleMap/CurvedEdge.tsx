@@ -3,6 +3,9 @@ import { BaseEdge, useInternalNode, type EdgeProps, type InternalNode } from '@x
 import { LINK_FOCUS } from '@vibisual/shared';
 import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { linkFocusEdgeStyle } from './linkedBubbles.js';
+import { clipCurvePath, type CubicCurve } from './edgeOcclusion.js';
+import { useEdgeOccluders } from './edgeOccluders.js';
+import { nodeBorderDistance } from './agentCard.js';
 
 /** edge ID → 안정적인 -1.0~1.0 난수 */
 function stableRandom(id: string): number {
@@ -28,7 +31,11 @@ function stableRandom(id: string): number {
 /** 기본 반지름 추정 — 노드 크기 정보 없을 때 */
 const DEFAULT_RADIUS = 45;
 
-interface Circle { cx: number; cy: number; r: number }
+/**
+ * 노드 상자. `w`·`h` 가 있으면 실측이라 끝점을 **그 방향의 테두리**에서 끊는다 — 정사각(버블)은 원 반지름,
+ * 입력 카드(§5.4 #36)는 판 테두리. 실측이 없으면 반지름 폴백만 있다.
+ */
+interface Circle { cx: number; cy: number; r: number; w?: number; h?: number }
 
 /** 노드의 실측 지오메트리에서 원 중심·반지름. 실측 없으면 null → 폴백. */
 function circleFromNode(node: InternalNode | undefined): Circle | null {
@@ -38,7 +45,12 @@ function circleFromNode(node: InternalNode | undefined): Circle | null {
   if (typeof w !== 'number' || typeof h !== 'number' || w <= 0 || h <= 0) return null;
   const { x, y } = node.internals.positionAbsolute;
   // 버블 박스는 정사각형(width===height)이지만 안전하게 작은 변 기준 반지름.
-  return { cx: x + w / 2, cy: y + h / 2, r: Math.min(w, h) / 2 };
+  return { cx: x + w / 2, cy: y + h / 2, r: Math.min(w, h) / 2, w, h };
+}
+
+/** 그 방향(단위 벡터)으로 상자 테두리까지의 거리 — 실측이 있으면 원/판을 가리고, 없으면 반지름. */
+function edgeReach(c: Circle, nx: number, ny: number): number {
+  return c.w !== undefined && c.h !== undefined ? nodeBorderDistance(c.w, c.h, nx, ny) : c.r;
 }
 
 /**
@@ -46,8 +58,8 @@ function circleFromNode(node: InternalNode | undefined): Circle | null {
  * 버블 DOM 은 SVG 엣지 위에 그려지므로, 끝점이 외곽선에 딱 붙으면
  * 화살촉(ArrowClosed ~14px)이 버블 몸체에 가려 Read/Write 방향이 안 보인다.
  * 화살촉이 통째로 빠지는 정도면 충분 — 과하면 라인이 버블에서 동떨어져 보인다.
- * 소스 쪽은 여백 0: EdgeMask 가 자기 소스 버블은 안 가리므로 라인이 외곽선에서
- * 그대로 뻗어 나와 버블에 뿌리내린 것처럼 보인다.
+ * 소스 쪽은 여백 0: 선은 자기 소스 버블에는 잘리지 않으므로(가림 원을 고를 때 소스를 뺀다)
+ * 라인이 외곽선에서 그대로 뻗어 나와 버블에 뿌리내린 것처럼 보인다.
  */
 const ARROW_CLEARANCE = 13;
 function targetEndpointGap(radius: number): number {
@@ -100,8 +112,6 @@ export function CurvedEdge({
   const sourceCY = srcCircle.cy;
   const targetCX = tgtCircle.cx;
   const targetCY = tgtCircle.cy;
-  const sourceRadius = srcCircle.r;
-  const targetRadius = tgtCircle.r;
 
   // 중심 → 중심 방향 벡터 (실측 원 중심 기준)
   const dx = targetCX - sourceCX;
@@ -110,6 +120,11 @@ export function CurvedEdge({
   const nx = dx / dist;
   const ny = dy / dist;
 
+  // §5.4 #36 (A) — 끝점까지의 거리는 **그 방향의 테두리**다. 버블은 원 반지름 그대로, 입력 카드는 판 테두리
+  //   (원 반지름으로 판을 재면 가로로 다가오는 선이 판 안쪽에서 끊겨 화살촉이 판에 묻힌다).
+  const sourceRadius = edgeReach(srcCircle, nx, ny);
+  const targetRadius = edgeReach(tgtCircle, -nx, -ny);
+
   // 타겟 여백 — 화살촉이 타겟 버블 밖에 온전히 보이게. 단 두 버블이 가까워
   // 빈 거리가 부족하면(겹침 포함) 본선이 사라지지 않게 비례 축소.
   const available = dist - sourceRadius - targetRadius;
@@ -117,7 +132,7 @@ export function CurvedEdge({
   const maxGap = Math.max(available * 0.6, 0);
   if (targetGap > maxGap) targetGap = maxGap;
 
-  // 소스: 외곽선에서 그대로 시작 (EdgeMask 가 소스 버블은 안 가림 → 뿌리내린 듯)
+  // 소스: 외곽선에서 그대로 시작 (소스 버블에는 잘리지 않음 → 뿌리내린 듯)
   const sx = sourceCX + nx * sourceRadius;
   const sy = sourceCY + ny * sourceRadius;
   // 타겟: 외곽선에서 여백만큼 더 바깥 → 화살촉이 버블 앞 빈 공간에 떠 보임
@@ -141,13 +156,20 @@ export function CurvedEdge({
 
   const path = `M ${sx},${sy} C ${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`;
 
+  // §5.4 #31 (K) — 지나가는 버블 원 안의 구간은 잘라 낸다(종전 SVG 마스크 자리 — 마스크는 선마다
+  //   오프스크린을 거쳐 래스터를 포화시켰다). 끝이 원 안에 들면 화살촉도 함께 숨는다.
+  const curve: CubicCurve = { x0: sx, y0: sy, x1: c1x, y1: c1y, x2: c2x, y2: c2y, x3: tx, y3: ty };
+  const occluders = useEdgeOccluders(curve, source);
+  // path 가 조절점 여덟 개를 그대로 담고 있다 — 같은 path 면 같은 곡선이다.
+  const clipped = useMemo(() => clipCurvePath(curve, occluders, path), [path, occluders]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <BaseEdge
       id={id}
-      path={path}
+      path={clipped.path}
       style={linkStyle}
-      markerEnd={markerEnd}
-      markerStart={markerStart}
+      markerEnd={clipped.endVisible ? markerEnd : undefined}
+      markerStart={clipped.startVisible ? markerStart : undefined}
       interactionWidth={interactionWidth}
     />
   );

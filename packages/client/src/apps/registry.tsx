@@ -121,13 +121,25 @@ export interface InternalApp {
    * 창을 못 여는 환경(웹·구버전 preload)이면 false 를 돌려준다 — 조용히 아무 일도
    * 안 일어나는 대신 호출부가 안내를 띄울 수 있게.
    */
-  readonly open: (args: { projectId: string; ref?: string | undefined; file?: string | undefined }) => Promise<boolean>;
+  readonly open: (args: AppOpenArgs) => Promise<boolean>;
   /**
    * §5.13 (Q) — 이 앱이 캔버스의 스토리보드를 받아 자기 문서로 옮길 수 있는가.
    *
    * 선언하지 않은 앱은 콘티 보드의 [렌더] 대상에서 그냥 빠진다 — 코어에 분기가 늘지 않는다.
    */
   readonly storyboard?: StoryboardCapability;
+  /**
+   * §5.4 #36 (C) — 참조 노드로서 **결과로 받는 확장자**(소문자, 마침표 포함).
+   *
+   * 생략하면 `opens` 를 쓴다. 따로 두는 이유는 (R-9) 이미지 앱처럼 파일 클릭의 갈래(`opens`)는 가로채지
+   * 않되 노드에 담길 결과는 받는 앱이 있기 때문이다. 에이전트에게 "이 노드는 무엇을 받는다"를 말할 때 쓴다.
+   */
+  readonly outputs?: readonly string[];
+  /**
+   * §5.13 (R-9) — 노드에 담긴 파일을 **노드 안에 작게 비추는가.** 지금은 `'image'` 하나(`<img>` 한 장 —
+   * 디코딩 비용이 없다). 영상·3D 미리보기는 하지 않는다. 코어(`AppBubbleNode`)는 앱 이름 대신 이 선언을 본다.
+   */
+  readonly thumbnail?: 'image';
 }
 
 function VideoIcon(): JSX.Element {
@@ -182,11 +194,32 @@ function CubeIcon(): JSX.Element {
   );
 }
 
+/** 이미지 — 액자 속 산과 해(lucide `image` 와 같은 문법의 stroke). */
+function ImageIcon(): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+    </svg>
+  );
+}
+
 /** 앱 화면이 받는 값. 앱이 해석하는 열쇠 이름(`refKey`)은 앱 선언에서 온다. */
 export interface AppOpenArgs {
   projectId: string;
   ref?: string | undefined;
   file?: string | undefined;
+  title?: string | undefined;
+  placement?: { width: number; height: number; x?: number; y?: number } | undefined;
 }
 
 /**
@@ -214,7 +247,9 @@ export function appShellParams(app: Pick<InternalApp, 'refKey'>, args: AppOpenAr
 async function openAppOsWindow(appId: string, refKey: string, args: AppOpenArgs): Promise<boolean> {
   const api = window.api?.app;
   if (!api) return false;
-  await api.open(appId, appShellParams({ refKey }, args));
+  const params = appShellParams({ refKey }, args);
+  if (args.title) params['_windowTitle'] = args.title;
+  await api.open(appId, params, args.placement);
   return true;
 }
 
@@ -293,7 +328,36 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     },
     open: async (args) => openAppOsWindow('vibi3d', 'modelId', args),
   },
+  {
+    // §5.13 (R-9) — 이미지. 캔버스 참조 노드(§5.4 #36)의 네 번째 갈래.
+    id: 'vibimage',
+    nameKey: 'panel.apps.vibimage.name',
+    name: 'Vibimage',
+    descKey: 'panel.apps.vibimage.desc',
+    // 인화지의 인상 — 따뜻한 흑갈색 본체 + 모래빛 엣지. 영상(청회)·소리(청록)·3D(보라회)와 한 가족이되 구별된다.
+    color: '#2F2A24',
+    glow: '#E6C79C',
+    icon: ImageIcon,
+    defaultSize: { width: 80, height: 50 },
+    // `opens` 는 일부러 비운다 — 선언하면 파일 클릭의 그림 미리보기(라이트박스 주석 도구, §5.5 #17-25)
+    //   갈래를 이 앱이 가로챈다. 이 앱은 **노드에 담긴 그림**을 여는 자리다(§5.13 (R-9)).
+    outputs: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp', '.avif'],
+    thumbnail: 'image',
+    refKey: 'imageId',
+    shells: {
+      main: async () => (await import('../components/Vibimage/VibimageShell.js')).VibimageShell,
+    },
+    open: async (args) => openAppOsWindow('vibimage', 'imageId', args),
+  },
 ];
+
+/**
+ * §5.4 #36 (C) — 참조 노드로서 받는 확장자. `outputs` 가 없으면 `opens`(그 앱이 여는 것이 곧 받는 것).
+ * 아이콘·로더를 건드리지 않으므로 앱 코드를 끌어오지 않는다.
+ */
+export function appOutputExtensions(app: Pick<InternalApp, 'outputs' | 'opens'>): readonly string[] {
+  return app.outputs ?? app.opens ?? [];
+}
 
 export function getInternalApp(appId: string): InternalApp | undefined {
   return INTERNAL_APPS.find((a) => a.id === appId);

@@ -37,6 +37,8 @@ import {
 import { shouldShowInlineNew } from './inlineNewButton.js';
 // §5.5 #17-41 — 탭 정렬 손잡이. 줄 세우는 판정은 `tabSort.ts` 가, 커밋은 아래 `commitOrder` 하나가 맡는다.
 import { IDETabSortMenu } from './IDETabSortMenu.js';
+// §5.5 #17-27 ⑱ — 우측 판에 무엇을 띄울지 판 쪽에서 고르는 목록.
+import { IDEPaneLauncherMenu } from './IDEPaneLauncherMenu.js';
 
 interface IDETabBarProps {
   subAgents: SubAgent[];
@@ -872,6 +874,11 @@ export const IDETabBar = memo(function IDETabBar({
       {/* §5.5 #17-41 — 탭 정렬. `+` 바로 오른쪽에 서고, 세울 줄이 있을 때(세션 2개 이상)만 뜬다.
           정렬은 세션을 만들지 않으므로 훅 버블에서도 쓸 수 있다(#17-29 의 읽기 전용 경계 밖). */}
       <IDETabSortMenu subs={orderedSubs} agentId={agentId} onSort={commitOrder} />
+
+      {/* §5.5 #17-27 ⑱ (a) — [우측 판] 목록. `+`(새 세션) → 탭 정렬 다음 셋째 자리, 정렬 **바로 오른쪽**에
+          선다(2026-10-08 사용자 지시). 세션을 만들지 않으므로 훅 버블에도 선다(#17-29 가 막는 것은 새 일을
+          시키는 것이지 보기가 아니다). */}
+      <IDEPaneLauncherMenu />
 
       {/* History(폴더) button — 이 cwd에서 쓰였던 과거 세션을 다시 열기.
           §5.5 #17-29 — 되살리기도 세션 추가라 훅 버블에는 두지 않는다. */}

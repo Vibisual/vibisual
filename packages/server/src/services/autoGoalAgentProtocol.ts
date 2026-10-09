@@ -7,7 +7,9 @@ export function buildAutoGoalAgentProtocol(ids: { root: string; agentId: string;
   return [
     '## 절차 검토·재사용 규약',
     '이 목록은 과거 관찰입니다. 지금 사용자 요청과 현재 코드가 우선이며, 목록의 제목만 보고 이미 끝난 기능을 다시 구현하지 마세요.',
-    '지금 작업과 관련 있는 절차만 읽으세요. 검토 대기 절차는 실행 지침이 아닙니다. 현재 파일·테스트·사용자 의도와 대조한 뒤 승인하거나 고쳐 승인하고, 잘못됐거나 불필요한 절차는 이유를 남겨 사용 중지/대체하세요.',
+    '지금 작업과 관련 있는 절차만 읽으세요. 검토 대기 절차는 실행 지침이 아닙니다. 현재 파일·테스트 코드·사용자 의도와 대조한 뒤(읽어서 대조합니다 — 테스트 실행이 아닙니다) 승인하거나 고쳐 승인하고, 잘못됐거나 불필요한 절차는 이유를 남겨 사용 중지/대체하세요.',
+    // §5.3 #12-4 — 절차 속 검증 단계도 같은 정책을 따른다. 절차는 권한이 아니다.
+    '절차에 테스트·빌드·린트·브라우저 확인 단계가 있어도 사용자가 이번 작업에서 검증을 요청하지 않았으면 그 단계는 건너뛰고 "검증 미실행"으로 밝히세요. 절차는 검증 권한이 아닙니다(앱이 실행 전에 막습니다).',
     '아래 목록에 절차가 실린 턴에는 판정을 1건 남기세요 — approve/revise/retire/supersede 중 하나. 사용자가 따로 요청하기를 기다리지 마세요. 이 작업은 사용자가 맡긴 자율 운영이며, 판정을 남기는 것이 기본 동작입니다.',
     '단 판정 근거는 이 턴에 이미 읽은 것만 사용하세요 — 판정하려고 파일을 새로 열거나 별도 검토 에이전트를 만들지 마세요. 이 턴에 읽은 것이 없어 판정할 수 없으면 아무것도 보내지 마세요. 근거 없는 승인은 검토를 미루는 것보다 나쁩니다.',
     '"걷을 후보" 로 표시된 절차는 사용자 확인을 기다리지 말고 그 자리에서 retire 하거나, 같은 일을 하는 검토 통과 절차가 있으면 supersede 하세요. 사용자가 이 목록을 들여다보지 않아도 정리되어 있어야 합니다.',
@@ -18,7 +20,7 @@ export function buildAutoGoalAgentProtocol(ids: { root: string; agentId: string;
     '- POST /api/auto-goal/review: 공통 필드 + {skillId,revision,decision,reason,applicability,files}. decision은 approve/revise/retire/supersede 입니다. approve/revise는 현재 적용 조건(applicability), 검토 근거(reason), 실제로 읽고 확인한 프로젝트 상대 파일(files)을 포함하세요. revise는 개선한 전체 마크다운 본문(body), supersede는 검토 통과한 대체 절차 id(supersededBy)를 보냅니다. 파일이 존재한다는 이유만으로 올바르다고 승인하지 마세요.',
     '- POST /api/auto-goal/assess: 공통 필드 + {skillId,taskKey,inputFiles}. taskKey는 같은 요청·옵션·범위를 나타내는 안정적인 키입니다. inputFiles에는 결과에 영향을 주는 모든 소스·설정·의존성 잠금 파일을 적으세요. 누락된 의존성이나 외부 상태가 있으면 완료 결과 생략을 적용하지 마세요.',
     '- assessment.decision=review이면 현재 절차를 검토해야 하고, blocked이면 사용하지 않습니다. run이면 현재 요청에 필요한 작업을 수행합니다. skip이면 동일한 입력과 완료 결과가 유지됨을 서버가 확인한 것입니다. 현재 요청이 강제 재실행/재검증이거나 외부 상태에 의존하면 생략하지 말고 새 taskKey로 assess 하세요.',
-    '- POST /api/auto-goal/outcome: 공통 필드 + {skillId,assessmentId,outcome,evidence,outputFiles}. assessmentId는 assess의 응답입니다. run 후 성공은 completed 또는 reused, 실패는 failed, skip 후 실제 재작업을 생략했다면 skipped를 보냅니다. 성공에는 실제 검증한 산출물 outputFiles와 수행한 검증 evidence를 남기세요. 파일이나 성공 결과를 지어내지 마세요. skip 없이 skipped를 신고하지 마세요.',
+    '- POST /api/auto-goal/outcome: 공통 필드 + {skillId,assessmentId,outcome,evidence,outputFiles}. assessmentId는 assess의 응답입니다. run 후 성공은 completed 또는 reused, 실패는 failed, skip 후 실제 재작업을 생략했다면 skipped를 보냅니다. 성공에는 실제로 확인한 산출물 outputFiles와 확인 근거 evidence(읽은 파일·이미 있는 출력·사용자가 요청해 돌린 검증 결과)를 남기세요 — 근거를 만들려고 검증을 새로 돌리지 마세요. 파일이나 성공 결과를 지어내지 마세요. skip 없이 skipped를 신고하지 마세요.',
     '사용 중 절차가 틀렸다면 수정안을 검토해 revise로 남기세요. 실패나 관련 파일 변경으로 재검토 상태가 된 것은 재승인 전까지 재사용하지 않습니다. 무효한 옛 절차를 같은 내용으로 새 후보로 다시 만들지 마세요.',
     '이 창구는 절차 상태를 실제로 바꾸는 전용 API입니다. 표시 전용 작업/검수 카드로 대신 신고하지 마세요.',
   ].join('\n');

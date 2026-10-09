@@ -59,7 +59,8 @@ export function composeLoopRoundText(input: LoopRoundPromptInput): string {
   if (input.commitEachRound) {
     rules.push(
       '이 회차에서 실제로 파일을 바꿨다면 회차를 끝내기 전에 커밋해라. 커밋 메시지에는 ' +
-      `무엇을 바꿨는지와 무엇으로 확인했는지(테스트·빌드 등), 그리고 회차 번호(${roundLabel(input.round, input.total)})를 적는다. ` +
+      // §5.3 #12-4 — "무엇으로 확인했는지"가 검증 실행을 재촉하지 않게: 돌린 것이 없으면 그렇다고 적는다.
+      `무엇을 바꿨는지와 무엇으로 확인했는지(돌린 검증이 있으면 그 명령, 없으면 "검증 미실행"), 그리고 회차 번호(${roundLabel(input.round, input.total)})를 적는다. ` +
       '바꾼 것이 없으면 커밋하지 않는다.',
     );
   }

@@ -1,6 +1,8 @@
 // Task Edge 공통 geometry — 실제 엣지와 드래그 프리뷰가 동일한 원리 공유.
 // 이 모듈을 거치지 않고 path 를 직접 계산하면 프리뷰와 확정 엣지가 어긋난다.
 
+import { lineCurve, quadraticCurve, type CubicCurve } from './edgeOcclusion.js';
+
 export const TASK_EDGE_DEFAULT_RADIUS = 45;
 
 export interface TaskEdgePathArgs {
@@ -29,6 +31,11 @@ export interface TaskEdgePathArgs {
 
 export interface TaskEdgePathResult {
   path: string;
+  /**
+   * §5.4 #31 (K) — 같은 선을 3차 베지어로 올린 것. 지나가는 버블 원 안의 구간을 잘라 그릴 때
+   * 쓴다(`edgeOcclusion`). 이벤트 펄스가 따라가는 `path` 는 잘리지 않은 그대로다.
+   */
+  curve: CubicCurve;
   sx: number;
   sy: number;
   tx: number;
@@ -66,7 +73,7 @@ export function computeTaskEdgePath(args: TaskEdgePathArgs): TaskEdgePathResult 
   const slot = args.offset ?? 0;
   if (slot === 0) {
     const path = `M ${sx},${sy} L ${tx},${ty}`;
-    return { path, sx, sy, tx, ty, labelX: (sx + tx) / 2, labelY: (sy + ty) / 2 };
+    return { path, curve: lineCurve(sx, sy, tx, ty), sx, sy, tx, ty, labelX: (sx + tx) / 2, labelY: (sy + ty) / 2 };
   }
 
   // 중심선 수직 단위벡터(CCW 90°) — slot 부호에 따라 양/음 방향으로 분산.
@@ -89,7 +96,7 @@ export function computeTaskEdgePath(args: TaskEdgePathArgs): TaskEdgePathResult 
   // 2차 베지어 t=0.5 지점: 0.25*P0 + 0.5*P1 + 0.25*P2
   const labelX = 0.25 * sx + 0.5 * cx + 0.25 * tx;
   const labelY = 0.25 * sy + 0.5 * cy + 0.25 * ty;
-  return { path, sx, sy, tx, ty, labelX, labelY };
+  return { path, curve: quadraticCurve(sx, sy, cx, cy, tx, ty), sx, sy, tx, ty, labelX, labelY };
 }
 
 export function readRadiusFromData(data: unknown, key: 'sourceRadius' | 'targetRadius'): number {

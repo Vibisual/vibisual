@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
+// §5.3 #12-4 — CMD 규칙 파일에 싣는 검증 정책 문단(헤드리스는 index.ts 가 시스템 프롬프트로 싣는다).
+import { buildVerificationPolicyRules } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
 import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
 import {
@@ -53,6 +55,9 @@ import { createCodexBashBridge } from './codexBashBridge.js';
 import { codexEdgeInstructions, type CodexEdgeConfig, type CodexPermissionHookConfig, type CodexToolHookConfig } from './codexEdges.js';
 import { formatUndeliveredDispatchJobs } from './taskEdgeDispatchJobs.js';
 import { permissionBroker } from './permissionBroker.js';
+// §5.3 #12-3 — 자물쇠 카드에 싣는 몫(훅 경로와 같은 상한).
+import { PATH_LOCK_CARD_HITS_MAX } from '@vibisual/shared';
+import type { PathLockHit } from '@vibisual/shared';
 import { permissionSessionGrants } from './permissionSessionGrants.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -92,6 +97,29 @@ export type AllProjectsProvider = () => ProjectInfo[];
  * 그걸 보려면 판정 자리가 저장분을 다시 읽어야 한다. `index.ts` 가 `graphManager` 로 주입한다.
  */
 export type AgentConfigResolver = (parentAgentId: string) => AgentConfig | undefined;
+
+/**
+ * §5.3 #12-3 — 이 도구 호출이 닿는 자물쇠. 훅 경로(`/api/permission-check`)와 **같은 판정기**를 쓰도록
+ * `index.ts` 가 주입한다(열려 있는 모든 프로젝트의 자물쇠 + 이 호스트의 플랫폼·홈). 두 벌이 되면 헤드리스에서는
+ * 묻는데 로컬 모델에서는 안 묻는 상태가 생긴다.
+ */
+export type PathLockResolver = (
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  cwd: string | null,
+) => PathLockHit[];
+
+/**
+ * §5.3 #12-4 — 로컬 도구 판정이 부르는 검증 판정. 훅 경로(`/api/permission-check`)와 **같은 판정 객체**
+ * (`VerificationGate`)를 `index.ts` 가 주입한다 — 이 턴의 명령에 찍힌 범위로 판정하고 그 명령에 기록한다.
+ * 거부면 사유를 모델에게 돌려준다(던지지 않는다).
+ */
+export type VerificationCallChecker = (
+  cmd: QueuedCommand,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  cwd: string,
+) => { verdict: 'none' | 'allow' | 'deny'; message?: string };
 
 /**
  * §5.19 (H) — 로컬 세션의 **호스트 도구** 한 건. 파일이 아니라 우리 화면·설정을 움직인다
@@ -549,6 +577,9 @@ export function prepareInteractiveRulesDir(
     if (enforcement) sections.push(enforcement);
     // 카드 신고 프로토콜(터미널 한 줄) — 항상 주입. claude 가 echo 한 줄로 IDE 카드를 띄울 수 있게.
     sections.push(buildCmdCardProtocolRules().trim());
+    // §5.3 #12-4 (G) — 검증 정책(안 변하는 문단). 이번 턴의 권한 한 줄은 `UserPromptSubmit` 응답이 싣고,
+    //   집행은 훅의 실행 전 판정이 한다 — 이 문단은 같은 정책을 말로도 알릴 뿐이다.
+    sections.push(buildVerificationPolicyRules().trim());
     const body = `${sections.join('\n\n')}\n`;
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body, 'utf-8');
     return dir;
@@ -1270,6 +1301,10 @@ export class SubAgentManager {
   private allProjectsProvider: AllProjectsProvider | null = null;
   /** §5.3 #12-1-B — 로컬 도구 판정이 읽는 지금 설정. 없으면 턴 시작 때 받은 설정으로 판정한다(종전 동작). */
   private agentConfigResolver: AgentConfigResolver | null = null;
+  /** §5.3 #12-3 — 로컬 도구 판정이 보는 자물쇠. 없으면 자물쇠를 보지 않는다(주입 전 단위 테스트 등). */
+  private pathLockResolver: PathLockResolver | null = null;
+  /** §5.3 #12-4 — 로컬 도구 판정이 부르는 검증 판정. 없으면 검증 판정을 하지 않는다(주입 전 단위 테스트 등). */
+  private verificationChecker: VerificationCallChecker | null = null;
   /**
    * subId → 그 세션의 스트림을 **마지막으로 읽어 낸 폴더**(`findStreamDirFor` ②).
    *
@@ -1416,6 +1451,14 @@ export class SubAgentManager {
 
   setAgentConfigResolver(resolver: AgentConfigResolver): void {
     this.agentConfigResolver = resolver;
+  }
+
+  setPathLockResolver(resolver: PathLockResolver): void {
+    this.pathLockResolver = resolver;
+  }
+
+  setVerificationChecker(checker: VerificationCallChecker): void {
+    this.verificationChecker = checker;
   }
 
   /** 소속을 잃은 세션의 스트림 폴더를 되찾을 때 훑을 후보 목록(§5.5 — 아래 `findStreamDirFor`). */
@@ -5040,6 +5083,11 @@ export class SubAgentManager {
       codexToolHook?: CodexToolHookConfig;
       /** §5.25 (H) — 코덱스 턴의 권한 다리(승인 카드·감사 원장). 코덱스 버블에만 온다. */
       codexPermissionHook?: CodexPermissionHookConfig;
+      /**
+       * §5.3 #12-4 (E) ② — 이 턴에 브라우저 확인 권한이 없다. 훅 밖에서 도는 호스팅 브라우저·컴퓨터 도구를
+       * 기능 스위치로 끈다(PreToolUse 를 지나지 않아 검증 판정이 닿지 않는다).
+       */
+      codexHostedBrowserOff?: boolean;
       /** 같은 목적의 환경변수(예: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`). */
       extraEnv?: Record<string, string>;
       /**
@@ -6103,6 +6151,7 @@ export class SubAgentManager {
       codexEdgeConfig?: CodexEdgeConfig;
       codexToolHook?: CodexToolHookConfig;
       codexPermissionHook?: CodexPermissionHookConfig;
+      codexHostedBrowserOff?: boolean;
     },
   ): void {
     const provider = config.provider;
@@ -6215,6 +6264,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       toolHook: opts?.codexToolHook,
       edgeConfig: opts?.codexEdgeConfig,
       ...(opts?.codexPermissionHook ? { permissionHook: opts.codexPermissionHook } : {}),
+      ...(opts?.codexHostedBrowserOff ? { hostedBrowserOff: true } : {}),
       subAgentId: sub.id,
       cwd: parentCwd,
       prompt,
@@ -6451,6 +6501,50 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       // 못 쓰는 목록은 모드 단축보다 먼저 본다 — 훅 경로(`/api/permission-check`)와 같은 순수 함수다.
       if (isToolDisallowed(disallowedTools, toolName)) {
         return { allowed: false, reason: `${toolName} is on this agent's disallowed-tools list, so it was blocked without asking the user` };
+      }
+      /*
+       * §5.3 #12-4 (E) ③ — 검증은 시킬 때만. 훅 경로와 **같은 판정 객체**(이 턴 명령의 범위·기록)를 부른다.
+       *   금지 목록 뒤, 자물쇠·모드 판정보다 먼저다. 사람에게 묻지 않고, 거부 사유는 모델에게 그대로 돌려준다.
+       */
+      const verification = this.verificationChecker?.(cmd, toolName, toolInput, parentCwd);
+      if (verification?.verdict === 'deny') {
+        return { allowed: false, reason: verification.message ?? 'verification is not allowed in this task' };
+      }
+      /*
+       * §5.3 #12-3 — 자물쇠는 모드 판정보다 먼저다(훅 경로와 같은 순서 · 같은 판정기). 묻지 않는 모드는
+       * 거부하고, 그 외는 카드 — 무응답은 언제나 거부, "항상"은 잠금 풀기뿐이다.
+       */
+      const lockHits = this.pathLockResolver?.(toolName, toolInput, parentCwd) ?? [];
+      if (lockHits.length > 0) {
+        const lockedTargets = lockHits.map((h) => h.target).join(', ');
+        if ((config.permissionMode || 'default') === 'dontAsk') {
+          return { allowed: false, reason: `${lockedTargets} is locked by the user in Vibisual and this agent runs in permission mode "dontAsk", so it was blocked without asking. Do not retry it or work around it with another command` };
+        }
+        const lockProject = this.projectResolver?.(sub.parentAgentId);
+        const lockDecision = await permissionBroker.request(
+          {
+            agentId: sub.parentAgentId,
+            subAgentId: sub.id,
+            agentLabel: sub.label,
+            agentColor: config.color ?? '#6b7280',
+            projectName: lockProject?.name ?? '',
+            toolName,
+            toolInput,
+            lockHits: lockHits.slice(0, PATH_LOCK_CARD_HITS_MAX),
+            alwaysAllow: 'unlock',
+          },
+          'deny',
+        );
+        if (lockDecision.decision === 'allow') return { allowed: true };
+        if (lockDecision.cancelled) {
+          return { allowed: false, reason: 'the permission request was cancelled before anyone answered (the session was stopped), so the tool was not run' };
+        }
+        return {
+          allowed: false,
+          reason: lockDecision.reason === 'timeout'
+            ? `${lockedTargets} is locked by the user and no one answered the approval card within 60s, so it was not run. Do not retry it or work around it`
+            : (lockDecision.reason || `the user denied access to ${lockedTargets}, which is locked in Vibisual. Do not retry it or work around it`),
+        };
       }
       const gate = resolveLocalToolGate(config.permissionMode, toolName);
       /*

@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { BubbleData } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { PathLockGlyph } from '../PathLockGlyph.js';
+import { groupUnlockByProject, planBubbleLock } from './bubbleLockAction.js';
+import { isAgentCardForm } from './agentCard.js';
 // §5.4 #34 — **새 메뉴 위젯을 만들지 않는다.** 넘침 보정·바깥 press 닫기·Esc·레지스트리 키캡이
 //   이미 한 벌로 들어 있는 공용 위젯을 그대로 쓴다(그 파일 헤더의 "두 벌이 되면 한쪽은 반드시
 //   뒤처진다"가 이 결정의 근거다). 이름이 `IDE*` 일 뿐 IDE 전용이 아니다.
@@ -28,6 +32,9 @@ import {
  * (`.react-flow__nodesselection-rect`)를 덮는데, 그것이 버블을 가려 우클릭이 빈 곳 메뉴(만들기)로
  * 새던 것이 2026-09-11 사용자 보고다. 이제 그 상자 위 우클릭은 **고른 것 전부**를 대상으로 하는
  * 한 줄을 낸다(대상 추림은 `Delete` 키와 같은 `planSelectionDelete` 한 벌).
+ *
+ * **자물쇠도 여기 선다(§5.3 #12-3)** — 잠글 수 있는 버블(파일·폴더·워크트리·Ghost·도메인)이면 삭제 위에
+ * [잠그기]/[잠금 풀기]. 판정은 `bubbleLockAction.ts`(shared `pathLockTargetOf`·`findPathLockCover` 한 벌)다.
  *
  * **우더블클릭(기억 화면, §5.10)과 겹치지 않는다** — 여는 쪽(`BubbleNode`)이 우더블클릭 대상
  * 버블에서는 `RIGHT_DBLCLICK_MS` 만큼 기다렸다 연다. 그 창 안에 두 번째 우클릭이 오면 메뉴 요청은
@@ -81,13 +88,49 @@ interface BubbleContextMenuProps {
   edges: readonly SelectedFlowEdge[];
   x: number;
   y: number;
+  /**
+   * §5.4 #36 (A) — 입력 카드 ↔ 버블 전환(중심을 지키는 좌표 환산은 캔버스가 한다). 주면 카드 위 우클릭의
+   * 맨 위에 [버블로 접기]가 선다.
+   */
+  onAgentForm?: (nodeId: string, form: 'card' | 'bubble') => void;
   onClose: () => void;
 }
 
-export function BubbleContextMenu({ nodes, edges, x, y, onClose }: BubbleContextMenuProps): React.JSX.Element | null {
+/** §5.4 #36 (A) — [버블로 접기] 글리프. 판이 원으로 모이는 그림(lucide `minimize-2` 톤). */
+function FoldToBubbleGlyph(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+    </svg>
+  );
+}
+
+export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, onClose }: BubbleContextMenuProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const nodeMap = useGraphStore((s) => s.nodeMap);
   const inTrashView = useGraphStore((s) => s.interiorView?.kind === 'trash');
+  const pathLocks = useGraphStore((s) => s.pathLocks);
+  const activeProject = useGraphStore((s) => s.activeProject);
+
+  /**
+   * §5.3 #12-3 — 자물쇠 계획. 대상은 **여는 순간의 노드 데이터**에서 뽑는다(위성 파일처럼 `nodeMap` 에
+   * 없는 버블도 흐름 노드가 자기 버블 데이터를 들고 있다). 판정은 순수 함수 한 곳(`planBubbleLock`).
+   */
+  const lockPlan = useMemo(() => {
+    const bubbles = nodes
+      .filter((n) => n.type === 'bubble')
+      .map((n) => ({ id: n.id, data: (n.data as BubbleData | undefined) ?? nodeMap[n.id] }));
+    return planBubbleLock(bubbles, pathLocks);
+  }, [nodes, nodeMap, pathLocks]);
 
   /** 대상이 하나뿐인가 — 워크트리 가드·영구 삭제 단건 흐름은 이쪽으로만 간다. */
   const soleBubbleId = useMemo(
@@ -131,7 +174,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onClose }: BubbleContext
     if (st.selectedTaskEdgeId) st.selectTaskEdge(null);
   }, [soleBubbleId, single, batch]);
 
-  const items = useMemo<ContextMenuItem[]>(() => {
+  const deleteItems = useMemo<ContextMenuItem[]>(() => {
     if (single) {
       const labelKey = bubbleDeleteLabelKey(single.kind);
       if (!labelKey) return [];
@@ -166,10 +209,101 @@ export function BubbleContextMenu({ nodes, edges, x, y, onClose }: BubbleContext
     }];
   }, [single, batch, handleDelete, t]);
 
+  // §5.3 #12-3 — 잠그기는 **지금 보고 있는 탭**이 건다(외부 폴더도 그 탭의 자물쇠다).
+  const handleLock = useCallback(() => {
+    if (!activeProject || lockPlan.toLock.length === 0) return;
+    useGraphStore.getState().updatePathLocks(activeProject, lockPlan.toLock, []);
+  }, [activeProject, lockPlan]);
+
+  // 풀기는 **그 자물쇠를 건 탭**에 보낸다 — 다른 탭이 건 자물쇠가 이 캔버스에 뜰 수 있다.
+  const handleUnlock = useCallback(() => {
+    const st = useGraphStore.getState();
+    for (const [projectName, ids] of groupUnlockByProject(lockPlan.toUnlock)) st.updatePathLocks(projectName, [], ids);
+  }, [lockPlan]);
+
+  const lockItems = useMemo<ContextMenuItem[]>(() => {
+    const out: ContextMenuItem[] = [];
+    const isSingle = nodes.length === 1 && edges.length === 0;
+    if (isSingle) {
+      if (lockPlan.toUnlock.length > 0) {
+        out.push({ id: 'bubble-unlock', label: t('canvas.bubbleMenu.unlock'), icon: <PathLockGlyph open />, onClick: handleUnlock });
+      } else if (lockPlan.inherited.length > 0) {
+        // 상위 폴더가 잠갔다 — 자식에서 부모를 푸는 손은 주지 않는다(잠근 그 버블에서 푼다).
+        //   눌리지 않는 항목이 **어느 폴더가 잠갔는지** 라벨 아래로 말한다.
+        const lock = lockPlan.inherited[0]!.lock;
+        out.push({
+          id: 'bubble-locked-by-parent',
+          label: t('canvas.bubbleMenu.lockedByParent'),
+          icon: <PathLockGlyph />,
+          onClick: () => undefined,
+          disabled: true,
+          note: lock.label ?? lock.target,
+          disabledTitle: t('canvas.bubbleMenu.lockedByParentTitle', { path: lock.target }),
+        });
+      } else if (lockPlan.toLock.length > 0 && activeProject) {
+        out.push({
+          id: 'bubble-lock',
+          label: t('canvas.bubbleMenu.lock'),
+          icon: <PathLockGlyph />,
+          // 처음 보는 개념이라 무엇이 되는지 한 줄로 말한다(문장이라 우측 hint 가 아니라 아랫줄).
+          note: t('canvas.bubbleMenu.lockNote'),
+          onClick: handleLock,
+        });
+      }
+      return out;
+    }
+    if (lockPlan.toLock.length > 0 && activeProject) {
+      out.push({
+        id: 'bubble-lock-selection',
+        label: t('canvas.bubbleMenu.lockN', { count: lockPlan.toLock.length }),
+        icon: <PathLockGlyph />,
+        onClick: handleLock,
+        // 잠글 수 없는 버블(에이전트 등)을 말없이 빼지 않는다 — 삭제 묶음의 워크트리 안내와 같은 규율.
+        note: lockPlan.notLockable > 0 ? t('canvas.bubbleMenu.lockSkipped', { count: lockPlan.notLockable }) : undefined,
+      });
+    }
+    if (lockPlan.toUnlock.length > 0) {
+      out.push({
+        id: 'bubble-unlock-selection',
+        label: t('canvas.bubbleMenu.unlockN', { count: lockPlan.toUnlock.length }),
+        icon: <PathLockGlyph open />,
+        onClick: handleUnlock,
+      });
+    }
+    return out;
+  }, [nodes, edges, lockPlan, activeProject, handleLock, handleUnlock, t]);
+
+  /**
+   * §5.4 #36 (A) — 카드 위 우클릭이면 맨 위에 [버블로 접기]. 버블 위 첫 우클릭은 이 메뉴가 아니라 전환이라
+   * (캔버스가 가로챈다) 여기 오는 에이전트는 이미 카드이거나 카드가 될 수 없는 버블이다.
+   */
+  const formItems = useMemo<ContextMenuItem[]>(() => {
+    if (!onAgentForm || !soleBubbleId) return [];
+    const node = nodes[0];
+    const data = (node?.data as BubbleData | undefined) ?? nodeMap[soleBubbleId];
+    if (!isAgentCardForm(data)) return [];
+    return [{
+      id: 'bubble-fold-card',
+      label: t('canvas.bubbleMenu.toBubble'),
+      icon: <FoldToBubbleGlyph />,
+      onClick: () => onAgentForm(soleBubbleId, 'bubble'),
+    }];
+  }, [onAgentForm, soleBubbleId, nodes, nodeMap, t]);
+
+  // 전환이 맨 위, 자물쇠가 그 아래, 삭제가 맨 아래다 — 묶음이 바뀌는 자리에 구분선을 긋는다.
+  const items = useMemo<ContextMenuItem[]>(() => {
+    const groups = [formItems, lockItems, deleteItems].filter((g) => g.length > 0);
+    const out: ContextMenuItem[] = [];
+    for (const group of groups) {
+      group.forEach((item, i) => out.push(i === 0 && out.length > 0 ? { ...item, separatorBefore: true } : item));
+    }
+    return out;
+  }, [formItems, lockItems, deleteItems]);
+
   // 지울 수 없는 버블(네비게이션 골격 등)에서는 메뉴 자체를 내지 않는다 — 항목 하나 없는 빈
   //   상자가 뜨면 "고장난 메뉴"로 읽힌다.
   if (items.length === 0) return null;
 
-  // 항목이 하나뿐인 메뉴다 — 여럿을 담는 IDE 메뉴의 여백을 그대로 쓰면 빈 자리가 글자보다 넓다.
+  // 항목이 한둘뿐인 메뉴다 — 여럿을 담는 IDE 메뉴의 여백을 그대로 쓰면 빈 자리가 글자보다 넓다.
   return <IDEContextMenu x={x} y={y} items={items} density="compact" onClose={onClose} />;
 }

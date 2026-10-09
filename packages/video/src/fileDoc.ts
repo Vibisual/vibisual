@@ -26,6 +26,7 @@ export interface MediaMeasurement {
   readonly duration: number | null;
   readonly width: number | null;
   readonly height: number | null;
+  readonly hasAudio?: boolean;
 }
 
 /** 아이템이 하나도 없는 문서 — 사람도 에이전트도 아직 손대지 않았다. */
@@ -52,6 +53,7 @@ function withMeasurement(asset: VideoAsset, m: MediaMeasurement): VideoAsset {
     ...(asset.duration === undefined && positive(m.duration) ? { duration: m.duration } : {}),
     ...(asset.width === undefined && positive(m.width) ? { width: m.width } : {}),
     ...(asset.height === undefined && positive(m.height) ? { height: m.height } : {}),
+    ...(asset.hasAudio === undefined && typeof m.hasAudio === 'boolean' ? { hasAudio: m.hasAudio } : {}),
   };
 }
 
@@ -97,10 +99,11 @@ export function buildFileDocOps(
   return ops;
 }
 
-/** 길이를 재야 `'auto'` 가 풀리는 소재 — 영상·소리 중 길이가 비어 있는 것. */
+/** Measure missing duration and detect embedded audio on older video assets. */
 export function assetsNeedingMeasurement(doc: VideoDoc): VideoAsset[] {
   return Object.values(doc.assets).filter(
-    (asset) => (asset.kind === 'video' || asset.kind === 'audio') && asset.duration === undefined,
+    (asset) => (asset.kind === 'video' && (asset.duration === undefined || asset.hasAudio === undefined)) ||
+      (asset.kind === 'audio' && asset.duration === undefined),
   );
 }
 
@@ -118,6 +121,7 @@ export function buildMeasurementOps(
     if (!m) continue;
     const next = withMeasurement(asset, m);
     if (next.duration === undefined) continue;
+    if (next.duration === asset.duration && next.width === asset.width && next.height === asset.height && next.hasAudio === asset.hasAudio) continue;
     ops.push({ op: 'setAsset', asset: next });
   }
   return ops;

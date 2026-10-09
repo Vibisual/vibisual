@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useBindingLabel } from '../Shortcuts/useBindingLabel.js';
 import { useGraphStore, selectIDEOverlay, workspaceImageFileKey } from '../../stores/graphStore.js';
 import { useImageLightboxOrigin } from './imageLightboxOrigin.js';
-import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions } from './idePane.js';
+import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import { CodeEditor, type EditorViewState, type FollowRange } from './CodeEditor.js';
 import { languageFromPath } from './codeLanguages.js';
 import { FOLLOW_SKIP_KEYS, findEditedLineRange, followSessionKey } from './editorFollow.js';
@@ -14,6 +14,8 @@ import { useEditorDocs } from './useEditorDocs.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
 import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
+import { workspaceSiteSrc } from '../../utils/workspaceSite.js';
+import { clientPathKey } from '../../utils/platform.js';
 import { isWorkspaceHtmlPath } from '@vibisual/shared';
 import { IDEEditorTabs } from './IDEEditorTabs.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
@@ -32,6 +34,13 @@ import { imageMetaLabel } from './editorImageMeta.js';
 import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 import { dragEditorWidth, type EditorResizeDrag } from './ideResponsive.js';
 import { IDEStageView } from './IDEStageView.js';
+// §5.5 #17-27 ⑱ — 빈 탭(그 갈래의 파일 고르기)과 보기의 [파일 열기].
+import { editorPaneKindOf } from '@vibisual/shared';
+import { workspaceOpenClaims } from '../../apps/registry.js';
+import { editorOpenerKey } from '../../stores/editorOpener.js';
+import { IDEPaneOpener } from './IDEPaneOpener.js';
+import { OpenFileGlyph } from './paneKinds.js';
+import { requestOpenerFocus } from './paneOpenerModel.js';
 
 /**
  * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 판**.
@@ -99,7 +108,9 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     setEditorFileDirty: setDirty,
     setEditorTabsPinned,
     setStageOpen,
+    openPaneOpener,
   } = useIDEPaneActions();
+  const paneKey = useIDEPaneKey();
   /**
    * §5.5 #17-17 ㉔ — 무대가 이 판의 탭으로 서 있나. 비추고 있는가는 **활성 파일이 없는가**로 정한다
    * (새 플래그 ❌ — 두 값을 따로 들면 "무대이면서 파일"이 되는 조합이 생기고, 그 조합은 화면에
@@ -157,9 +168,29 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   }, [editorViews, files]);
 
   const active = useMemo(() => files.find((f) => f.relPath === activePath) ?? null, [files, activePath]);
-  const doc = activePath ? docs[activePath] : undefined;
+  /**
+   * §5.5 #17-27 ⑱ — 지금 탭이 **빈 탭**이면 그 갈래. 빈 탭은 파일이 아니므로 디스크를 읽지 않고, 손잡이
+   * 줄·추종 띠·알림 줄을 세우지 않고, 본문 자리에 그 갈래의 파일 고르기(`IDEPaneOpener`)를 그린다.
+   * 판정은 언제나 `opener` 칸이다(키를 읽지 않는다 — `stores/editorOpener.ts`).
+   */
+  const openerKind = active?.opener ?? null;
+  const doc = activePath && !openerKind ? docs[activePath] : undefined;
   const labels = useMemo(() => tabLabels(files), [files]);
-  const language = useMemo(() => (active ? languageFromPath(active.relPath) : 'plain'), [active]);
+  const language = useMemo(() => (active && !openerKind ? languageFromPath(active.relPath) : 'plain'), [active, openerKind]);
+  /**
+   * §5.5 #17-27 ⑱ (e) — 지금 파일 탭의 갈래. 손잡이 줄의 [파일 열기] 가 **같은 갈래**의 빈 탭을 그 옆에
+   * 세운다. 판정은 목록·서버와 같은 한 벌(`editorPaneKindOf` — 앱 선언은 등록표에서)이다.
+   */
+  const activeFileKind = useMemo(
+    () => (active && !openerKind ? editorPaneKindOf(active.relPath, workspaceOpenClaims()) : null),
+    [active, openerKind],
+  );
+  const handleOpenAnother = useCallback((): void => {
+    if (!active || !activeFileKind) return;
+    openPaneOpener(activeFileKind, active.relPath);
+    // 사용자가 방금 연 빈 탭이다 — 그 탭의 검색 칸이 초점을 가져간다(⑱ (d)).
+    requestOpenerFocus(paneKey, editorOpenerKey(activeFileKind));
+  }, [active, activeFileKind, openPaneOpener, paneKey]);
 
   // ─── §5.5 #17-27 ⑭ — 이미지는 글자가 아니라 그림으로 연다 ──────────────
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
@@ -169,7 +200,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   /** 서버가 이미 판정해 보낸 값 — 클라이언트가 확장자를 다시 따지지 않는다. */
   const isImage = doc?.status === 'ready' && doc.image;
   /** §5.13 (R) — PDF 는 텍스트도 그림도 아니라 세 번째 그리기다(내장 Chromium 뷰어). */
-  const isPdf = activePath !== null && activePath.toLowerCase().endsWith('.pdf');
+  const isPdf = !openerKind && activePath !== null && activePath.toLowerCase().endsWith('.pdf');
 
   // ─── §5.5 #17-27 ⑮ — HTML 은 글자가 아니라 페이지로 연다 ────────────────
   /**
@@ -214,6 +245,26 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const handleOpenInBrowser = useCallback((): void => {
     if (active) void openExternally(active.absPath);
   }, [active]);
+  // 메인 iframe 전환은 캔버스/IDE를 내린다. 다른 창·접힌 세션의 초안도 먼저 저장해야 한다.
+  const hasUnsavedEditors = useGraphStore((s) => Object.values(s.ideOverlays).some((pane) => (
+    pane.editorFiles.some((file) => file.dirty)
+    || Object.values(pane.editorTabsBySession).some((scope) => scope.files.some((file) => file.dirty))
+  )));
+  const iframeNeedsSave = hasUnsavedEditors || Object.values(docs).some((item) => (
+    item.saving || (item.status === 'ready' && isDirty(item.diskText, item.draft))
+  ));
+  // 별창은 메인 탭바가 없으므로 그곳에서는 메인 전용 동작을 노출하지 않는다.
+  const shellParams = new URLSearchParams(window.location.hash.slice(1));
+  const canOpenIframeTab = shellParams.get('detached') !== '1' && shellParams.get('overlay') !== '1';
+  const handleOpenInIframe = useCallback((): void => {
+    if (!isHtml || !rootPath || !active || iframeNeedsSave || !canOpenIframeTab) return;
+    const store = useGraphStore.getState();
+    const id = `workspace-site:${clientPathKey(active.absPath)}`;
+    const url = workspaceSiteSrc(rootPath, active.relPath, doc?.mtimeMs ?? 0);
+    store.openIframeTab({ id, url, label: active.name, serverKind: 'frontend', projectPath: rootPath });
+    // 이미 열어 둔 탭도 이번에 저장된 파일 주소로 맞춘다.
+    store.followIframeTab(id, url);
+  }, [isHtml, rootPath, active, doc?.mtimeMs, iframeNeedsSave, canOpenIframeTab]);
   const pdfUrl = useMemo(
     () => (isPdf && rootPath !== null && activePath !== null ? workspaceMediaUrl(rootPath, activePath) : null),
     [isPdf, rootPath, activePath],
@@ -295,9 +346,10 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   );
 
   // 탭이 활성화되면 그때 읽는다(열어만 두고 안 본 탭은 디스크를 건드리지 않는다).
+  //   ⑱ — 빈 탭은 파일이 아니다. 그 키로 디스크를 읽으러 가면 판에 "읽기 오류" 만 남는다.
   useEffect(() => {
-    if (activePath) ensureLoaded(activePath);
-  }, [activePath, ensureLoaded]);
+    if (activePath && !openerKind) ensureLoaded(activePath);
+  }, [activePath, openerKind, ensureLoaded]);
 
   // 저장할 것이 있는지를 탭 줄이 알아야 한다(점 표시 + 밀어내기 예외) → store 로 신고.
   useEffect(() => {
@@ -556,7 +608,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       x: e.clientX,
       y: e.clientY,
       items: buildTabMenuItems(
-        { hasOthers: files.length > 1 },
+        // ⑱ — 빈 탭에는 경로가 없다(경로 복사·밖에서 열기 줄을 세우지 않는다).
+        { hasOthers: files.length > 1, isFile: target.opener === undefined },
         {
           close: () => handleCloseTab(relPath),
           closeOthers: () => closeTabs(files.filter((f) => f.relPath !== relPath).map((f) => f.relPath)),
@@ -743,7 +796,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
           사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록.
           ㉔ — 무대 탭에는 서지 않는다: 문구가 "그 파일을 다시 읽었다"라 비추는 것이 파일일 때만 참이고,
           무대는 그 자체가 도는 단계를 따라가므로 따로 알릴 것이 없다(⑯ 이 두 축을 한 스위치로 묶었다). */}
-      {!maximized && !stageActive && followOn && (
+      {!maximized && !stageActive && !openerKind && followOn && (
         <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[12px] ${
           bannerSkip
             ? 'border-amber-500/40 bg-amber-500/10 text-amber-200/90'
@@ -797,8 +850,9 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       {/* 손잡이 줄 — 전체 경로(누르면 그 폴더가 열린다) + 저장·다시 읽기·밖에서 열기.
           ㉔ — 무대 탭에는 이 줄이 서지 않는다(무대에는 경로도 저장도 없다). 그 자리에는 무대가
           자기 손잡이 줄을 같은 높이·같은 톤으로 세운다(`IDEStageView` — 탭을 옮겨도 줄이 안 튄다).
-          ⑰ 최대화 중에는 걷힌다(경로 = 사용자가 가리고 싶어 한 "주소"). */}
-      {!maximized && !stageActive && (
+          ⑰ 최대화 중에는 걷힌다(경로 = 사용자가 가리고 싶어 한 "주소").
+          ⑱ — 빈 탭에도 서지 않는다(경로가 없다). 빈 탭은 자기 머리 줄을 같은 높이·같은 톤으로 세운다. */}
+      {!maximized && !stageActive && !openerKind && (
       <div className="flex items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <button
           type="button"
@@ -817,6 +871,19 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
               ? imageMetaLabel(imageNatural, doc.size)
               : `${language === 'plain' ? t('ide.editor.plainLanguage') : language} · ${doc.eol.toUpperCase()}`}
           </span>
+        )}
+        {/* ⑱ (e) [파일 열기] — 우측에 뜬 보기는 기본으로 파일을 연다. 같은 갈래의 빈 탭이 지금 탭 바로
+            오른쪽에 서서 고르기가 열린다(보던 파일은 닫히지 않는다). 판에 오는 갈래일 때만 선다. */}
+        {activeFileKind && (
+          <button
+            type="button"
+            onClick={handleOpenAnother}
+            title={t('ide.editor.openFileHint')}
+            aria-label={t('ide.editor.openFile')}
+            className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-sky-300"
+          >
+            <OpenFileGlyph />
+          </button>
         )}
         <button
           type="button"
@@ -858,6 +925,22 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
           </svg>
         </button>
         {/* ⑮ HTML 일 때만 서는 손잡이 — 그려진 페이지 ↔ 태그 원문. 기본은 페이지다. */}
+        {isHtml && canOpenIframeTab && (
+          <button
+            type="button"
+            onClick={handleOpenInIframe}
+            disabled={!rootPath || iframeNeedsSave}
+            title={t(iframeNeedsSave ? 'ide.editor.html.openIframeSaveFirst' : 'ide.editor.html.openIframeHint')}
+            aria-label={t('ide.editor.html.openIframe')}
+            className="flex flex-shrink-0 items-center gap-1 rounded border border-sky-400/40 px-1.5 py-0.5 text-[12px] text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-30"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18M9 9v12" />
+            </svg>
+            {t('ide.editor.html.openIframe')}
+          </button>
+        )}
         {isHtml && (
           <button
             type="button"
@@ -994,6 +1077,10 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       {stageActive ? (
         /* ㉔ — 무대 탭의 몸통. 파일 본문과 **같은 자리**를 쓴다(형제로 서면 판이 둘로 갈린다). */
         <IDEStageView cornerReserved={maximized} />
+      ) : openerKind && activePath ? (
+        /* ⑱ (d) — 빈 탭의 몸통 = 그 갈래의 파일 고르기. 고르면 이 탭이 같은 자리에서 그 파일 탭이 된다.
+           키를 갈래마다 다르게 주어, 갈래를 옮기면 검색어·커서가 새로 선다. */
+        <IDEPaneOpener key={activePath} kind={openerKind} openerKey={activePath} />
       ) : !doc || doc.status === 'loading' ? (
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.loading')}</p>
       ) : doc.status === 'error' ? (

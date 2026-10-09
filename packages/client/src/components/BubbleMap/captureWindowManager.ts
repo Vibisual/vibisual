@@ -18,6 +18,7 @@ const CASCADE_PX = 32;
 interface CaptureWindowEntry {
   z: number;
   close: () => void;
+  isVisible: () => boolean;
 }
 
 const entries = new Map<number, CaptureWindowEntry>();
@@ -30,6 +31,7 @@ export function topCaptureWindowUid(): number {
   let topUid = -1;
   let topZ = -Infinity;
   for (const [uid, e] of entries) {
+    if (!e.isVisible()) continue;
     if (e.z > topZ) {
       topZ = e.z;
       topUid = uid;
@@ -83,10 +85,10 @@ export interface CaptureWindowHandle {
  * 캡처 창을 매니저에 등록한다. 첫 등록 시 전역 Escape 리스너를 붙이고, 마지막 창이 release 되면 뗀다.
  * @param close 이 창을 닫는 콜백(Escape 로 최상단이 이 창일 때 호출).
  */
-export function registerCaptureWindow(close: () => void): CaptureWindowHandle {
+export function registerCaptureWindow(close: () => void, isVisible: () => boolean = () => true): CaptureWindowHandle {
   const uid = ++uidSeq;
   const initialZ = ++zSeq;
-  entries.set(uid, { z: initialZ, close });
+  entries.set(uid, { z: initialZ, close, isVisible });
   ensureEscListener();
   return {
     uid,

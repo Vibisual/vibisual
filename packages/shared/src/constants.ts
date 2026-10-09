@@ -4407,7 +4407,8 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'architect-to-implementer',
     label: 'Architect → Implement',
-    defaultCommand: 'Write code following the ADR implementation plan. Run tests after each change.',
+    // §5.3 #12-4 — 기본 문구가 검증을 시키지 않는다. 검증은 사용자가 그 작업에서 요청했을 때만 열린다.
+    defaultCommand: 'Write code following the ADR implementation plan. Run tests only if the user asked for verification in this task; otherwise list the tests that should be run.',
     sourceRole: 'architect',
     targetRole: 'implementer',
     defaultForwardMode: 'auto',
@@ -4419,7 +4420,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'implementer-to-verifier',
     label: 'Implement → Verify',
-    defaultCommand: 'Independently verify the implementation. Run builds, tests, and edge cases yourself.',
+    defaultCommand: 'Independently review the implementation. Run builds and tests only within the verification the user requested for this task; if none was requested, review by reading and report what was not run.',
     sourceRole: 'implementer',
     targetRole: 'verifier',
     defaultForwardMode: 'auto',
@@ -4431,7 +4432,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'verifier-to-implementer',
     label: 'Verify → Fix',
-    defaultCommand: 'Review the verification failures and fix them. Re-run tests after fixing.',
+    defaultCommand: 'Review the verification failures and fix them. Re-run the failing tests only if the user asked for verification in this task.',
     sourceRole: 'verifier',
     targetRole: 'implementer',
     defaultForwardMode: 'manual',
@@ -4727,6 +4728,11 @@ export const CONTEXT_SOURCE_IDS = {
    * 우리가 프롬프트에 싣는 것 중 이 표에 없는 것이 있으면 그 표는 그 순간 거짓말을 시작한다.
    */
   compactRecovery: 'vibisual.compact-recovery',
+  /**
+   * §5.3 #12-4 — 검증 정책 문단 + 이번 명령의 검증 권한 한 줄. 정책은 시스템 프롬프트로, 권한은 매 턴
+   * 앞말로 간다. 끄면 **말만** 사라진다 — 실행 전 거부(집행)는 승인 창구들이 그대로 한다.
+   */
+  verificationPolicy: 'vibisual.verification-policy',
   /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11 v4.67). */
   hookEnforcement: 'vibisual.hook-enforcement',
   /** §5.11 집행 플러그인 전체 — 개별 플러그인은 `plugin:<id>` 로 따로 선다. */
@@ -5831,10 +5837,11 @@ function serializeRoleCatalog(): string {
  */
 export const HARNESS_INTENT_GATE_ROWS: ReadonlyArray<{ intent: string; signal: string; shape: string }> = [
   { intent: 'quick-fix', signal: '파일/함수 지목 + 단순 수정', shape: '단일 coder (또는 explore→coder)' },
-  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder+tester+reviewer' },
+  // §5.3 #12-4 — tester·reviewer(검증 역할)는 사용자가 원본 요청에서 검증을 요청했을 때만 편성한다.
+  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder (+tester·reviewer — 검증을 요청했을 때만)' },
   { intent: 'research', signal: '"조사/비교/알아봐"', shape: 'librarian + explore + researcher → 요약' },
-  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) → tester' },
-  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder → reviewer' },
+  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) (→ tester — 검증을 요청했을 때만)' },
+  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder (→ reviewer — 검증을 요청했을 때만)' },
 ];
 
 /** IntentGate 표의 본문 행(마크다운). 머리행·구분행은 부르는 쪽이 붙인다. */
@@ -5883,13 +5890,14 @@ ${harnessIntentGateRowsMarkdown()}
 3. **하네스 설계**: 몇 개의 어떤 역할이 필요한지, 각 역할에 어떤 모델·도구·권한이 적합한지, 누가 누구에게 위임하는지(엣지) 결정. 단순 작업은 1개로 충분, 복잡하면 PM 허브 + 워커 + 리뷰어. **고정 틀에 끼워맞추지 말고 요청에 맞춰 새로 설계**한다.
 4. **버블 생성**: 역할마다 \`POST /api/create-custom-agent\` 호출 → 응답의 \`agent.id\`(설정/엣지용)와 \`agent.path\`(엔트리 kickoff용 sessionId)를 반드시 캡처.
 5. **설정 주입**: 버블마다 \`PUT /api/agent-config/:agentId\` 로 model/tools/permissionMode/effort/rules 배정. rules 에는 그 에이전트의 역할·산출물 형식을 또렷이 적는다.
-6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. **코드를 변경하는 작업이면 검증 엣지를 반드시 포함**(바로 아래 "검증 엣지" 절 참고).
+6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. **검증 엣지는 사용자가 원본 요청에서 검증(테스트·빌드·리뷰·브라우저 확인)을 요청했을 때만** 깐다(바로 아래 "검증 엣지" 절 참고).
 7. **엔트리 기동**: 시작점(=오케스트라) 에이전트의 sessionId 로 \`POST /api/commands/:sessionId\` 에 **사용자 원본 요청**을 forward(text/plain).
 8. **마무리 보고**: 만든 버블·엣지·각자의 역할을 2~5줄로 요약하고, **"이후 추가 명령은 〈엔트리 버블 라벨〉 버블에 입력하세요"** 를 명시(사용자가 어느 버블을 오케스트라로 다룰지 알도록). (당신은 여기서 종료 — 실제 작업은 서브들이 이어간다.)
 
-## 검증 엣지 — 코드 변경 시 필수 (v2.48)
-- **코드를 변경하는 의도**(feature / refactor / debug / 파일 쓰기를 동반하는 quick-fix)면, reviewer 또는 tester 에서 coder 로 향하는 **검증 엣지를 최소 1개** 반드시 깐다. \`kind:"critique"\`, \`critiqueAuthority:"force-rework"\` 로 만들면, 리뷰어의 \`REJECT\` 나 테스터의 빌드/테스트 실패가 **자동으로 coder 재작업으로 라우팅**된다(서버가 짝(auto-rework) 엣지를 자동 생성).
-- 권장 형태: coder → reviewer(리뷰), tester → coder(\`critique+force-rework\`), reviewer → coder(\`critique+force-rework\`). 즉 "만들고 → 검증하고 → 실패하면 되돌아가 고친다" 루프를 엣지로 구성.
+## 검증 엣지 — 사용자가 검증을 요청했을 때만 (v2.48 → §5.3 #12-4)
+- **사용자가 원본 요청에서 검증을 요청했으면**(예: "테스트까지 돌려 줘"·"리뷰 받아 줘"·"브라우저에서 확인해 줘"), reviewer 또는 tester 에서 coder 로 향하는 **검증 엣지를 최소 1개** 깐다. \`kind:"critique"\`, \`critiqueAuthority:"force-rework"\` 로 만들면, 리뷰어의 \`REJECT\` 나 테스터의 빌드/테스트 실패가 **자동으로 coder 재작업으로 라우팅**된다(서버가 짝(auto-rework) 엣지를 자동 생성).
+- **요청하지 않았으면 검증 엣지·tester·reviewer 를 만들지 않는다.** "수정해 줘"·"기능 추가해 줘"는 검증 요청이 아니다. 앱이 검증 권한을 사용자 요청에만 열어 두므로, 만들어도 실행 전에 막히고 토큰만 쓴다. 마무리 보고에 "검증 미실행"과 확인할 거리를 적는다.
+- 요청했을 때의 권장 형태: coder → reviewer(리뷰), tester → coder(\`critique+force-rework\`), reviewer → coder(\`critique+force-rework\`). 요청 범위(예: "관련 테스트만")를 넘는 검증(전체 스위트·E2E)으로 넓히지 않는다.
 - **예외**: 읽기 전용 조사(research), 단순 질의, 파일을 쓰지 않는 초소형 작업은 검증 엣지 불필요.
 
 ## REST API (서버 베이스: \`${serverBase}\`)
@@ -5935,7 +5943,7 @@ printf 'EDGE_ID=%s\\n' "$EDGE_ID"
 \`\`\`
 - 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation'), \`critiqueAuthority\`('force-rework'|'comment-only', kind='critique' 한정).
 
-#### 검증(critique) 엣지 예시 — reviewer/tester → coder
+#### 검증(critique) 엣지 예시 — reviewer/tester → coder (사용자가 검증을 요청했을 때만)
 \`\`\`bash
 curl -s -X POST "${serverBase}/api/task-edges" \\
   -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
@@ -8033,6 +8041,68 @@ export const PLUGIN_API_PREFIX = '/api/plugins';
  * 있다 — loopback 화이트리스트에 앱 이름이 박히던 것이 이 규칙이 없어서 생긴 일이다.
  */
 export const APP_API_PREFIX = '/api/app';
+
+// ─── §5.4 #36 전환과 연결 — 에이전트 입력 카드 · 참조선 ─────────────────────
+
+/**
+ * §5.4 #36 (A) — 입력 카드의 크기(캔버스 px).
+ *
+ * **고정 크기다.** 물리(사각 바디)·선 끝점(판 테두리)·전환 때 중심 지키기가 전부 이 값 하나로
+ * 계산되므로, 글 길이에 따라 판이 자라면 그 셋이 매 글자마다 흔들린다. 긴 글은 입력칸 안에서 스크롤한다.
+ */
+export const AGENT_CARD = {
+  width: 288,
+  height: 164,
+  /** 판 모서리 반경. 원(에이전트 버블)과 사각(앱 노드) 사이의 인상. */
+  radius: 16,
+  /** 판 바깥 위 라벨이 판과 띄우는 간격. */
+  labelGap: 6,
+  /** 오른쪽 가운데 `+` 손잡이 지름. 판 밖으로 반쯤 나온다. */
+  handleSize: 22,
+  /** `+` 를 누른 뒤 이만큼(px) 움직여야 끌기다 — 못 넘으면 "누름"(그 자리 목록). 손떨림이 선이 되지 않게. */
+  handleDragThreshold: 4,
+  /** `+` 를 눌러 만든 노드가 카드 오른쪽 끝에서 떨어지는 거리(캔버스 px). */
+  spawnGap: 72,
+  /** 같은 카드에서 `+` 를 거듭 눌러 만든 노드끼리 세로로 띄우는 간격(캔버스 px). */
+  spawnStackGap: 16,
+  /** 원 → 판 전이 시간(ms). `prefers-reduced-motion` 이면 0. */
+  morphMs: 240,
+} as const;
+
+/** §5.4 #36 (B) — 앱 노드 하나가 참조할 수 있는 에이전트 수 상한. */
+export const APP_BUBBLE_LINK_MAX = 8;
+
+/**
+ * §5.4 #36 (B) — 참조선 모양. 파일 선(회색 곡선·화살촉)·Task Edge(파란 점선·원 아이콘)와 **일부러 다르다**.
+ * 글로우는 SVG 필터가 아니라 넓고 흐린 두 번째 path 다(#31 (K) — 선마다 필터·마스크는 래스터를 포화시킨다).
+ */
+export const REF_LINK_STYLE = {
+  /** 본선 두께. */
+  lineWidth: 2,
+  /** 글로우 한 겹의 두께와 불투명도. 손을 올렸거나 끄는 중이면 한 단계 밝게. */
+  glowWidth: 9,
+  glowOpacity: 0.16,
+  glowActiveOpacity: 0.3,
+  /** 손을 올릴 자리(보이지 않는 넓은 선)의 두께 — 2px 본선만으로는 [연결 끊기]를 부르기 어렵다. */
+  hitWidth: 16,
+  /** 수평 S 곡선의 손잡이 길이 = 가로 거리 × 이 비율(상·하한 사이). */
+  curveRatio: 0.45,
+  curveMin: 40,
+  curveMax: 220,
+  /**
+   * 도는 동안 선을 따라 흐르는 빛 한 점 — 길이(선 전체의 %)·주기(ms). 선은 `pathLength=100` 으로
+   * 정규화해 그리므로 길이는 픽셀이 아니라 비율이다(선이 길든 짧든 같은 박자로 흐른다).
+   * 주기는 `index.css` 의 `.ref-link-pulse` 와 같은 값이다.
+   */
+  pulsePercent: 8,
+  pulseMs: 1600,
+  /** 끝점(앱 노드 쪽) 점의 반지름. 화살촉 대신이다. */
+  endDotRadius: 3.5,
+  /** 출발점 색이 없을 때(에이전트 색 미지정) 쓰는 색. */
+  fallbackColor: '#60A5FA',
+  /** 끝으로 갈수록 바래는 흰빛. */
+  endColor: '#F8FAFC',
+} as const;
 
 // ─── §5.5 #17-20 v4.74 디버그·실행 런처 ────────────────────────────────────
 
@@ -10816,6 +10886,76 @@ export function isDefaultAuditBoundary(boundary: AuditBoundaryConfig | undefined
 export function emptyAuditCounts(): AuditCounts {
   return { total: 0, risky: 0, denied: 0, escalated: 0, todayRisky: 0 };
 }
+
+// ─── §5.3 #12-3 자물쇠 (판올림 번호 발급 대기) ─────────────────────────────────
+//
+// 판정 함수(`pathLock.ts`)는 이 표들만 읽는다(§3.3 — 분기 안에 도구·명령 이름을 박지 않는다).
+// 표를 넓히는 쪽이 안전하다 — 자물쇠가 놓치는 접근은 "잠갔는데 열렸다"로만 보이고, 더 묻는 쪽은
+// 카드 한 장으로 끝난다.
+
+/** 프로젝트당 자물쇠 상한. 넘치면 새로 걸지 않는다 — 오래된 자물쇠를 말없이 푸는 일은 하지 않는다. */
+export const PATH_LOCK_MAX_PER_PROJECT = 200;
+
+/** 승인 카드·거부 사유에 싣는 자물쇠 접촉 수(나머지는 수로만 말한다). */
+export const PATH_LOCK_CARD_HITS_MAX = 3;
+
+/** 화면 이름(버블 라벨) 상한 — 저장되는 글이라 길이를 묶는다. */
+export const PATH_LOCK_LABEL_MAX_CHARS = 200;
+
+/**
+ * 경로 칸에 **쓰는** 도구. 그 밖의 도구가 경로 칸으로 잠긴 곳을 가리키면 읽기로 센다 —
+ * 도구 이름을 몰라도(MCP) 경로 칸은 본다.
+ */
+export const PATH_LOCK_WRITE_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+/** 이름만 훑는 도구 — 잠긴 폴더 **안**을 가리킬 때만 센다(상위 폴더를 훑는 것은 이름뿐이다). */
+export const PATH_LOCK_LIST_TOOLS: ReadonlySet<string> = new Set(['Glob', 'LS']);
+
+/** 내용을 검색하는 도구 — 범위가 자물쇠를 **덮어도** 센다(내용을 읽는다). 경로가 없으면 cwd 가 범위다. */
+export const PATH_LOCK_SEARCH_TOOLS: ReadonlySet<string> = new Set(['Grep']);
+
+/**
+ * URL 이 담겨 오는 입력 칸 — 도구 이름과 무관하게 본다(`WebFetch` · 모르는 MCP 도구의 `url`).
+ * 셸 명령(`command` 칸 — 클로드 `Bash`·`PowerShell`, 코덱스도 훅에서 `Bash`)도 이름과 무관하게 본다.
+ */
+export const PATH_LOCK_URL_INPUT_KEYS: readonly string[] = ['url', 'endpoint'];
+
+/** 경로 없이 부르면 **cwd 트리의 내용**을 읽는 셸 명령(첫 인자는 검색어). */
+export const PATH_LOCK_TREE_READ_COMMANDS: ReadonlySet<string> = new Set(['rg', 'ag', 'ack', 'ugrep']);
+
+/** 재귀 플래그가 붙을 때만 트리의 내용을 읽는 셸 명령(첫 인자는 검색어). 경로가 없으면 cwd. */
+export const PATH_LOCK_RECURSIVE_READ_COMMANDS: ReadonlySet<string> = new Set([
+  'grep', 'egrep', 'fgrep', 'zgrep', 'select-string', 'sls', 'findstr',
+]);
+
+/** 위 명령의 재귀 플래그(`-r` · `-nri` · `--recursive` · PowerShell `-Recurse` · findstr `/s`). */
+export const PATH_LOCK_RECURSIVE_FLAG_PATTERNS: readonly RegExp[] = [
+  /^-[A-Za-z]*[rR][A-Za-z]*$/,
+  /^--(dereference-)?recursive$/,
+  /^-recurse$/i,
+  /^\/s$/i,
+];
+
+/** `find` 가 이름을 넘어 **내용·파일 자체**를 다루는 동작 — 있으면 경로(없으면 cwd) 트리를 센다. */
+export const PATH_LOCK_FIND_ACTION_FLAGS: ReadonlySet<string> = new Set([
+  '-exec', '-execdir', '-ok', '-okdir', '-delete',
+]);
+
+/** 인자로 받은 폴더를 **통째로** 지우고·묶고·권한을 바꾸는 명령 — 인자가 자물쇠를 덮으면 센다. */
+export const PATH_LOCK_TREE_ALL_ARGS_COMMANDS: ReadonlySet<string> = new Set([
+  'rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri',
+  'chmod', 'chown', 'chgrp', 'icacls', 'attrib',
+  'tar', 'zip', '7z', 'cpio', 'robocopy', 'xcopy',
+]);
+
+/**
+ * 원본(앞 인자)과 목적지(마지막 인자)를 받는 복사·이동 명령 — **원본**이 자물쇠를 덮으면 센다.
+ * 목적지가 자물쇠의 상위 폴더인 것은 그 안에 새 이름이 생길 뿐이라 세지 않는다(목적지가 자물쇠
+ * 자체이거나 그 안이면 모든 낱말에 적용되는 직접 접촉으로 이미 잡힌다).
+ */
+export const PATH_LOCK_TREE_SOURCE_DEST_COMMANDS: ReadonlySet<string> = new Set([
+  'cp', 'mv', 'rsync', 'scp', 'ditto', 'copy', 'move', 'copy-item', 'move-item', 'cpi', 'mi',
+]);
 
 // ─── §4 메신저 원격제어 브리지 (판올림 번호 발급 대기) ─────────────────────────
 //

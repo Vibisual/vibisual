@@ -1,22 +1,11 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { resolveTimeline, type ResolvedItem, type VideoDoc } from '@vibisual/video';
-
-/**
- * §5.13 Vibistudio — 타임라인.
- *
- * 폭이 곧 시간이다. 아이템의 가로 길이가 실제 초에 비례하므로, TTS 음성이 길면 그
- * 아래 붙은 씬도 같이 길어 보인다 — "오디오가 시간의 주인"이라는 문서 규칙이 화면에서
- * 그대로 보이게 하는 것이 이 화면의 목적이다.
- *
- * 트랙 순서가 곧 앞뒤(그리는 순서)라 위아래 배치도 문서 순서를 그대로 따른다.
- */
-
-const TRACK_TONE: Record<string, string> = {
-  visual: 'bg-violet-500/70 border-violet-300/50',
-  audio: 'bg-emerald-500/70 border-emerald-300/50',
-  caption: 'bg-sky-500/70 border-sky-300/50',
-};
+import { resolveTimeline, type VideoDoc, type VideoDocOp } from '@vibisual/video';
+import { useScrollReveal } from '../../hooks/useScrollReveal.js';
+import { clampTimelineSeek, lastTimelineFrame, timelineFps, timelineFrame, timelineTicks, TIMELINE_CONFIG } from './videoTimelineEdit.js';
+import { useVideoTimelineDrag } from './useVideoTimelineDrag.js';
+import { VideoTimelineToolbar } from './VideoTimelineToolbar.js';
+import { VideoTimelineClip } from './VideoTimelineClip.js';
 
 export interface VideoTimelineProps {
   doc: VideoDoc;
@@ -24,154 +13,110 @@ export interface VideoTimelineProps {
   selectedItemId: string | null;
   onSeek: (t: number) => void;
   onSelectItem: (itemId: string | null) => void;
+  onApplyOps?: (ops: readonly VideoDocOp[]) => void;
+  disabled?: boolean;
 }
 
-export function VideoTimeline({
-  doc,
-  playhead,
-  selectedItemId,
-  onSeek,
-  onSelectItem,
-}: VideoTimelineProps): React.JSX.Element {
+/** One shared time coordinate for the ruler, every lane, and drag calculations. */
+export function VideoTimeline({ doc, playhead, selectedItemId, onSeek, onSelectItem, onApplyOps, disabled = false }: VideoTimelineProps): React.JSX.Element {
   const { t } = useTranslation();
+  const key = 'panel.videoStudio.timelineEditor.';
   const laneRef = useRef<HTMLDivElement>(null);
-
-  const timeline = useMemo(() => resolveTimeline(doc), [doc]);
-  // 길이가 0이면 나눗셈이 무너지므로 최소 1초로 본다(빈 문서에서도 화면이 서게).
-  const duration = Math.max(timeline.duration, 1);
-
-  const byTrack = useMemo(() => {
-    const map = new Map<string, ResolvedItem[]>();
-    for (const track of doc.tracks) map.set(track.id, []);
-    for (const item of timeline.items) {
-      const list = map.get(item.trackId);
-      if (list) list.push(item);
-    }
-    return map;
-  }, [doc.tracks, timeline.items]);
-
-  const seekFromEvent = useCallback(
-    (clientX: number): void => {
-      const el = laneRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      onSeek(ratio * duration);
-    },
-    [duration, onSeek],
-  );
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>): void => {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      seekFromEvent(e.clientX);
-    },
-    [seekFromEvent],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>): void => {
-      if (e.buttons !== 1) return;
-      seekFromEvent(e.clientX);
-    },
-    [seekFromEvent],
-  );
-
-  // 눈금 — 길이에 따라 간격을 키워 눈금이 서로 겹치지 않게 한다.
-  const tickStep = duration <= 10 ? 1 : duration <= 60 ? 5 : duration <= 300 ? 30 : 60;
-  const ticks = useMemo(() => {
-    const out: number[] = [];
-    for (let s = 0; s <= duration; s += tickStep) out.push(s);
-    return out;
-  }, [duration, tickStep]);
-
-  return (
-    <div className="flex flex-col gap-1 select-none">
-      {/* 눈금자 + 재생 머리 */}
-      <div
-        ref={laneRef}
-        className="relative h-7 cursor-pointer rounded bg-gray-900/70"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        role="slider"
-        aria-label={t('panel.videoStudio.seek', { defaultValue: '재생 위치' })}
-        aria-valuemin={0}
-        aria-valuemax={duration}
-        aria-valuenow={playhead}
-        tabIndex={0}
-      >
-        {ticks.map((s) => (
-          <div
-            key={s}
-            className="absolute top-0 h-full border-l border-white/10 pl-1 text-[12px] leading-7 text-white/40"
-            style={{ left: `${(s / duration) * 100}%` }}
-          >
-            {s}s
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const scrubPointer = useRef<number | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [snap, setSnap] = useState(true);
+  const [laneWidth, setLaneWidth] = useState<number>(TIMELINE_CONFIG.minWidth);
+  const scrollReveal = useScrollReveal();
+  const resolved = useMemo(() => resolveTimeline(doc), [doc]);
+  // Disabled clips remain reachable, even though they do not extend the rendered movie.
+  const duration = Math.max(1, resolved.duration, ...resolved.items.map(item => item.end));
+  const drag = useVideoTimelineDrag({ doc, duration, playhead, laneRef, snap, disabled: disabled || !onApplyOps, onApplyOps, onSelectItem });
+  const timeline = useMemo(() => drag.preview ? resolveTimeline(drag.preview.doc) : resolved, [drag.preview, resolved]);
+  const ticks = useMemo(() => timelineTicks(duration, laneWidth, doc.fps), [duration, laneWidth, doc.fps]);
+  const seek = (clientX: number): void => {
+    const rect = laneRef.current?.getBoundingClientRect();
+    if (rect && rect.width > 0) onSeek(clampTimelineSeek((clientX - rect.left) / rect.width * duration, resolved.duration, doc.fps));
+  };
+  const pointerDown = (event: PointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId);
+    scrubPointer.current = event.pointerId;
+    seek(event.clientX);
+  };
+  const pointerMove = (event: PointerEvent<HTMLDivElement>): void => {
+    if (scrubPointer.current === event.pointerId) seek(event.clientX);
+  };
+  const pointerUp = (event: PointerEvent<HTMLDivElement>): void => {
+    if (scrubPointer.current !== event.pointerId) return;
+    seek(event.clientX); scrubPointer.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const keyboardSeek = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const step = (event.shiftKey ? TIMELINE_CONFIG.largeStepFrames : 1) / timelineFps(doc.fps);
+    const times: Record<string, number> = { ArrowLeft: playhead - step, ArrowRight: playhead + step,
+      PageUp: playhead - 1, PageDown: playhead + 1, Home: 0, End: lastTimelineFrame(resolved.duration, doc.fps) / timelineFps(doc.fps) };
+    const time = times[event.key];
+    if (time === undefined) return;
+    event.preventDefault(); event.stopPropagation(); onSeek(clampTimelineSeek(time, resolved.duration, doc.fps));
+  };
+  useEffect(() => {
+    const lane = laneRef.current;
+    if (!lane) return;
+    const measure = (): void => { const width = lane.getBoundingClientRect().width; if (width > 0) setLaneWidth(width); };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure); observer.observe(lane);
+    return () => observer.disconnect();
+  }, [zoom]);
+  useEffect(() => { setZoom(1); if (viewportRef.current) viewportRef.current.scrollLeft = 0; }, [doc.id]);
+  const grid = { gridTemplateColumns: `${TIMELINE_CONFIG.gutter}px minmax(0, 1fr)` };
+  const cursor = Math.min(duration, Math.max(0, playhead)) / duration * 100;
+  return <div className="flex min-w-0 flex-col gap-2 select-none" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); drag.cancel(); } }}>
+    <VideoTimelineToolbar zoom={zoom} onZoom={setZoom} snap={snap} onSnap={() => setSnap(value => !value)} playhead={playhead} duration={resolved.duration} fps={doc.fps} onSeek={onSeek} />
+    <div ref={viewportRef} className="scrollbar-thin overflow-x-auto rounded border border-white/10" {...scrollReveal}>
+      <div style={{ width: `calc((100% - ${TIMELINE_CONFIG.gutter}px) * ${zoom} + ${TIMELINE_CONFIG.gutter}px)`, minWidth: TIMELINE_CONFIG.minWidth }}>
+        <div className="grid" style={grid}>
+          <div className="sticky left-0 z-20 flex items-center border-b border-r border-white/10 bg-gray-900 px-3 text-[12px] text-gray-400">{t(`${key}tracks`)}</div>
+          <div ref={laneRef} className="relative h-8 touch-none cursor-crosshair overflow-hidden border-b border-white/10 bg-gray-950/80 outline-none focus:ring-1 focus:ring-inset focus:ring-violet-400"
+            role="slider" aria-label={t('panel.videoStudio.seek')} aria-valuemin={0} aria-valuemax={lastTimelineFrame(resolved.duration, doc.fps)}
+            aria-valuenow={timelineFrame(clampTimelineSeek(playhead, resolved.duration, doc.fps), doc.fps)}
+            aria-valuetext={t(`${key}frameValue`, { frame: timelineFrame(clampTimelineSeek(playhead, resolved.duration, doc.fps), doc.fps) })} tabIndex={0}
+            onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { scrubPointer.current = null; }} onLostPointerCapture={() => { scrubPointer.current = null; }} onKeyDown={keyboardSeek}>
+            {ticks.map(time => <div key={time} className="absolute top-0 h-full border-l border-white/15 pl-1 font-mono text-[12px] leading-8 text-gray-500" style={{ left: `${time / duration * 100}%` }}>{Number(time.toFixed(2))}s</div>)}
+            <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-rose-400" style={{ left: `${cursor}%` }} />
           </div>
-        ))}
-        <div
-          className="pointer-events-none absolute top-0 h-full w-0.5 bg-rose-400"
-          style={{ left: `${(playhead / duration) * 100}%` }}
-        />
-      </div>
-
-      {/* 트랙들 */}
-      {doc.tracks.map((track) => {
-        const items = byTrack.get(track.id) ?? [];
-        const tone = TRACK_TONE[track.kind] ?? 'bg-slate-500/70 border-slate-300/50';
-        return (
-          <div key={track.id} className="flex items-stretch gap-2">
-            <div className="flex w-24 shrink-0 items-center gap-1 truncate text-[12px] text-white/50">
-              {track.hidden === true || track.muted === true ? (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-3.5 w-3.5 shrink-0"
-                >
-                  <path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M6.6 6.6A18.5 18.5 0 0 0 2 12s3 8 10 8a9.1 9.1 0 0 0 5.4-1.6" />
-                  <path d="m2 2 20 20" />
+        </div>
+        {doc.tracks.map(track => {
+          const audio = track.kind === 'audio';
+          const off = audio ? track.muted === true : track.hidden === true;
+          const label = track.label ?? track.id;
+          const action = audio ? (off ? 'unmuteTrack' : 'muteTrack') : (off ? 'showTrack' : 'hideTrack');
+          return <div key={track.id} className="grid border-b border-white/5 last:border-b-0" style={grid}>
+            <div className="sticky left-0 z-20 flex items-center gap-2 border-r border-white/10 bg-gray-900 px-3">
+              <span className="min-w-0 flex-1 truncate text-[12px] text-gray-300" title={label}>{label}</span>
+              <button type="button" className={`rounded p-1 hover:bg-white/10 disabled:opacity-30 ${off ? 'text-amber-300' : 'text-gray-500'}`} disabled={disabled || !onApplyOps}
+                aria-label={t(`${key}${action}`, { name: label })} title={t(`${key}${action}`, { name: label })} aria-pressed={off}
+                onClick={() => onApplyOps?.([{ op: 'updateTrack', trackId: track.id, patch: audio ? { muted: !off } : { hidden: !off } }])}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">
+                  {audio ? <path d="m11 5-6 4H2v6h3l6 4V5zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /> : <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>}
+                  {off && <path d="m3 3 18 18" />}
                 </svg>
-              ) : null}
-              <span className="truncate">{track.label ?? track.id}</span>
+              </button>
             </div>
-
-            <div className="relative h-9 flex-1 rounded bg-gray-900/50">
-              {items.map((item) => {
-                const left = (item.start / duration) * 100;
-                const width = Math.max(0.4, (item.duration / duration) * 100);
-                const off = item.item.enabled === false;
-                const selected = item.id === selectedItemId;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelectItem(selected ? null : item.id)}
-                    className={`absolute top-1 h-7 overflow-hidden rounded border px-1.5 text-left text-[12px] text-white/90 transition-shadow ${tone} ${
-                      off ? 'opacity-35' : ''
-                    } ${selected ? 'ring-2 ring-white/80' : ''}`}
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                    title={`${item.id} · ${item.start.toFixed(2)}s ~ ${item.end.toFixed(2)}s`}
-                  >
-                    <span className="truncate">{item.item.label ?? item.item.sceneId ?? item.id}</span>
-                  </button>
-                );
-              })}
+            <div className={`relative h-11 overflow-hidden bg-gray-950/40 ${off ? 'opacity-40' : ''}`} data-timeline-track={track.id}
+              onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { scrubPointer.current = null; }} onLostPointerCapture={() => { scrubPointer.current = null; }}>
+              {ticks.map(time => <div key={time} className="pointer-events-none absolute inset-y-0 border-l border-white/5" style={{ left: `${time / duration * 100}%` }} />)}
+              {timeline.items.filter(item => item.trackId === track.id).map(item => <VideoTimelineClip key={item.id} item={item} doc={doc} duration={duration} selected={selectedItemId === item.id} disabled={disabled || !onApplyOps} drag={drag} onSelectItem={onSelectItem} onApplyOps={onApplyOps} />)}
+              <div className="pointer-events-none absolute inset-y-0 z-10 w-px bg-rose-400" data-timeline-playhead="true" style={{ left: `${cursor}%` }} />
+              {drag.preview?.snap !== null && drag.preview?.snap !== undefined && <div className="pointer-events-none absolute inset-y-0 z-10 w-px bg-amber-300" style={{ left: `${drag.preview.snap / duration * 100}%` }} />}
             </div>
-          </div>
-        );
-      })}
-
-      {timeline.diagnostics.length > 0 ? (
-        <ul className="mt-1 space-y-0.5 rounded bg-amber-500/10 p-2 text-[12px] text-amber-200">
-          {timeline.diagnostics.slice(0, 6).map((d, i) => (
-            <li key={`${d.code}-${i}`}>{d.message}</li>
-          ))}
-        </ul>
-      ) : null}
+          </div>;
+        })}
+      </div>
     </div>
-  );
+    <p className="text-[12px] text-gray-500">{t(`${key}dragHint`)}</p>
+    {timeline.diagnostics.length > 0 && <ul className="space-y-0.5 rounded bg-amber-500/10 p-2 text-[12px] text-amber-200">{timeline.diagnostics.slice(0, 6).map((diagnostic, index) => <li key={`${diagnostic.code}-${index}`}>{diagnostic.message}</li>)}</ul>}
+  </div>;
 }

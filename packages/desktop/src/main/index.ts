@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, screen, dialog, Notification, session } from 'electron';
+import { app, shell, BrowserWindow, protocol, dialog, Notification, session } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
@@ -29,6 +29,7 @@ import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from '
 import { installWindowCrashRecovery } from './windowCrashRecovery';
 import { createMainDiagnostics } from './mainDiagnostics';
 import { LoopbackBodyBudget, readLoopbackBody } from './loopbackBody';
+import { forwardLoopbackResponse } from './loopbackResponse';
 // §3.2.1 — 종료 직전 렌더러가 아직 안 저장한 손글씨(세션 입력·IDE 폼 초안·명령 히스토리)를 받아 낸다.
 import { flushRendererDrafts } from './rendererFlush';
 import { mainStrings, fmt } from './strings';
@@ -187,19 +188,9 @@ function createWindow(): void {
     }, 60);
   });
 
-  // §3.7 — 최대화 후 복원(restore) 시 OS 기본 동작은 직전 위치·크기로 되돌리는데, 화면이 작거나
-  // 직전 bounds 가 거의 풀스크린이면 "복원했는지 모를" 만큼 차이가 안 난다. 복원 시에는 항상
-  // 현재 디스플레이의 작업영역 중앙에 명확히 작아진 크기로 다시 배치해 "복원됨"이 한눈에 보이게 한다.
-  mainWindow.on('unmaximize', () => {
-    if (mainWindow.isDestroyed()) return;
-    const display = screen.getDisplayMatching(mainWindow.getBounds());
-    const wa = display.workArea;
-    const width = Math.min(1280, Math.round(wa.width * 0.78));
-    const height = Math.min(800, Math.round(wa.height * 0.82));
-    const x = Math.round(wa.x + (wa.width - width) / 2);
-    const y = Math.round(wa.y + (wa.height - height) / 2);
-    mainWindow.setBounds({ x, y, width, height });
-  });
+  // §3.7 — 복원 위치·크기는 OS 이동 루프가 정한다. unmaximize 뒤 중앙으로 재배치하면
+  // 헤더의 어느 app-drag 영역에서 끌어도 커서에서 창이 떨어진다. 직접 처리하는 로고도
+  // titlebarMove 가 정상 크기와 잡은 위치를 지키며, 별도 중앙 배치로 덮지 않는다.
 
   // §3.7 v2.12 — `titleBarStyle: 'hidden'` + `titleBarOverlay` Windows 조합에서 간헐적으로
   // `ready-to-show` 가 안 떠 창이 영구 숨김 상태가 되는 회귀가 보고됨. 3초 fallback —
@@ -301,6 +292,12 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     const isOrchestraPlanPath =
       path.startsWith('/api/orchestra/runs/') && path.endsWith('/plan');
 
+    // §5.4 #36 (C) — 참조선으로 이어진 앱 노드에 **결과 파일을 담는** 창구. 부르는 쪽은 앱이 띄운 외부
+    //   `claude`/`codex` 프로세스라 이 loopback 이 유일한 통로다. `/output` 으로 끝나는 POST 만 연다 —
+    //   노드를 만들고·옮기고·지우는 손은 사용자의 것이라 열지 않는다. 토큰 인증 필수(아래 분기).
+    const isAppBubbleOutputPath = req.method === 'POST'
+      && path.startsWith('/api/app-bubbles/') && path.endsWith('/output');
+
     // Procedure feedback is session-scoped server-side. Settings/deletion remain UI-only.
     const isAutoGoalAgentPath = req.method === 'POST' && [
       '/api/auto-goal/context', '/api/auto-goal/review', '/api/auto-goal/assess', '/api/auto-goal/outcome',
@@ -349,6 +346,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       //   statusLine 과 같은 이유로 이 loopback 이 유일한 도달 경로다. 토큰 인증 필수(아래 분기).
       path !== '/api/subagent-statusline' &&
       !isAppPath &&
+      !isAppBubbleOutputPath &&
       !isSessionGoalProgressPath &&
       !isOrchestraPlanPath &&
       !isAutoGoalAgentPath &&
@@ -394,10 +392,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
           payload: body.payload,
         }).then((injected) => {
           if (res.destroyed || res.writableEnded) return;
-          res.statusCode = injected.statusCode;
-          const ct = injected.headers['content-type'];
-          if (typeof ct === 'string') res.setHeader('content-type', ct);
-          res.end(injected.payload);
+          forwardLoopbackResponse(res, injected);
         }).catch((err: unknown) => {
           // 바깥이 먼저 끊겨 안쪽을 끊은 경우 — 받을 쪽이 없다.
           if (res.writableEnded || res.destroyed) return;

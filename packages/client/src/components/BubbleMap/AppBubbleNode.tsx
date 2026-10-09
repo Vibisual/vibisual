@@ -1,14 +1,32 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 
 import type { AppBubbleShape } from '../../apps/registry.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { openAppWindow } from '../../apps/appWindows.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { appNodeLabel } from './agentCard.js';
+
+/**
+ * §5.4 #36 (B) — 참조선의 끝점 계산용 숨은 손잡이(가운데). 선은 노드 실측 상자로 옆구리를 잡으므로 손잡이
+ * 자리는 계산에 쓰이지 않지만, React Flow 는 손잡이가 없는 노드에 선을 잇지 않는다.
+ */
+const LINK_HANDLE_STYLE: React.CSSProperties = {
+  left: '50%',
+  top: '50%',
+  opacity: 0,
+  width: 1,
+  height: 1,
+  border: 'none',
+  minWidth: 0,
+  minHeight: 0,
+  pointerEvents: 'none',
+};
 
 /**
  * §5.13 v4.45 — 내부 앱 버블 노드.
@@ -30,6 +48,8 @@ export interface AppBubbleNodeData extends Record<string, unknown> {
   width: number;
   height: number;
   preservePinned?: boolean | undefined;
+  /** §5.4 #36 (C) — 결과 전달로 담긴 파일(루트 기준 상대 경로). 열면 이 파일로 앱이 열린다. */
+  file?: string | undefined;
 }
 
 interface MenuPos {
@@ -114,13 +134,14 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     return () => document.removeEventListener('keydown', close);
   }, [menu]);
 
+  const projectPath = Object.values(projects).find((p) => p.name === data.projectName)?.path;
   const open = useCallback((): void => {
     if (!app) return;
-    const info = Object.values(projects).find((p) => p.name === data.projectName);
-    const projectId = info?.path ?? data.projectName;
+    const projectId = projectPath ?? data.projectName;
     // §5.13 (S-1) — **앱 안 창**으로 연다. 밖으로 나가는 것은 그 창을 끌어냈을 때뿐이다.
-    openAppWindow({ appId: data.appId, projectId, ref: data.refKey, title: data.title });
-  }, [app, projects, data.projectName, data.refKey, data.appId, data.title]);
+    // §5.4 #36 (C) — 담긴 결과 파일이 있으면 그 파일로 연다(§5.13 (R-2) `file`).
+    openAppWindow({ appId: data.appId, projectId, ref: data.refKey, file: data.file, title: data.title });
+  }, [app, projectPath, data.projectName, data.refKey, data.appId, data.title, data.file]);
 
   /**
    * 선택 — 에이전트(IDE) 버블과 **같은 상태기계**를 쓴다(`bubbleSelectGesture`).
@@ -281,6 +302,8 @@ export const AppBubbleNode = memo(function AppBubbleNode({
           } ${isSelected ? 'border-white ring-2 ring-amber-300/70' : 'border-amber-400/70'}`}
           style={{ width: data.width, height: data.height }}
         >
+          <Handle type="source" id="src" position={Position.Top} style={LINK_HANDLE_STYLE} isConnectable={false} />
+          <Handle type="target" id="tgt" position={Position.Top} style={LINK_HANDLE_STYLE} isConnectable={false} />
           {/* 작게 줄인 프레임에서는 두 줄이 안 들어간다 — 무엇이 없는지(=appId)를 남긴다. */}
           {dense ? (
             <span className="max-w-full truncate">{data.appId}</span>
@@ -301,8 +324,15 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   // 이름은 번역이 있으면 번역, 없으면 레지스트리가 선언한 **제품 이름**. `id` 로 떨어뜨리면
   // 로케일이 아직 빈 언어에서 버블에 소문자 식별자가 그대로 찍힌다(v4.66 전까지 그랬다).
   const appName = t(app.nameKey, { defaultValue: app.name });
-  const customTitle = data.title?.trim();
-  const label = customTitle !== undefined && customTitle !== '' ? customTitle : appName;
+  // §5.4 #36 (C) — 사용자 제목 → 담긴 결과 파일 이름 → 앱 이름(카드의 참조 칩과 같은 규칙 한 벌).
+  const label = appNodeLabel({ title: data.title, file: data.file }, appName);
+  /**
+   * §5.13 (R-9) — 레지스트리가 `thumbnail:'image'` 를 선언한 앱은 담긴 그림을 노드 안에 작게 비춘다.
+   * 앱 이름이 아니라 선언을 본다(코어는 앱 이름을 모른다). `<img loading="lazy">` 한 장이라 디코딩 비용이 없다.
+   */
+  const thumbSrc = app.thumbnail === 'image' && data.file && projectPath
+    ? workspaceMediaUrl(projectPath, data.file)
+    : null;
 
   /**
    * §5.13 (M) v4.60 — 모양은 앱이 정한다. 코어는 원을 그리지 않는다.
@@ -379,7 +409,23 @@ export const AppBubbleNode = memo(function AppBubbleNode({
         }`}
         style={shellStyle}
       >
-        {isFilm ? (
+        <Handle type="source" id="src" position={Position.Top} style={LINK_HANDLE_STYLE} isConnectable={false} />
+        <Handle type="target" id="tgt" position={Position.Top} style={LINK_HANDLE_STYLE} isConnectable={false} />
+        {thumbSrc ? (
+          <>
+            <img
+              src={thumbSrc}
+              alt=""
+              loading="lazy"
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            />
+            {/* 이름은 그림 아래 어둡게 깐 띠 위에 — 밝은 그림 위에서도 읽히게. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 pb-0.5 pt-3">
+              {caption}
+            </div>
+          </>
+        ) : isFilm ? (
           <>
             <FilmPerforation count={holeCount} height={stripHeight} holeWidth={holeWidth} holeHeight={holeHeight} />
             <div

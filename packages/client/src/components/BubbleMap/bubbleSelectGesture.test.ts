@@ -163,6 +163,24 @@ describe('bubbleSelectGesture', () => {
     expect(h.selects()).toBe(1);
   });
 
+  it.each([false, true])('새 즉시 선택이 이전 버블의 지연 선택을 취소한다 (selectNow=%s)', (selectNow) => {
+    const first = harness();
+    const second = harness({ doubleClickable: false });
+    first.core.pointerDown(at(10, 10));
+    first.core.pointerUp();
+    vi.advanceTimersByTime(100);
+    if (selectNow) second.core.selectNow();
+    else {
+      second.core.pointerDown(at(40, 40));
+      second.core.pointerUp();
+    }
+    expect(second.selects()).toBe(1);
+    expect(isSelectDeferred()).toBe(false);
+    vi.advanceTimersByTime(SELECT_DEFER_MS);
+    expect(first.selects()).toBe(0);
+    expect(first.intents()).toEqual([true]); // the old gesture must not extinguish the new ring
+  });
+
   it('pointerCancel 이후의 뗌은 클릭이 아니다', () => {
     const h = harness();
     h.core.pointerDown(at(10, 10));
@@ -272,17 +290,22 @@ describe('bubbleSelectGesture', () => {
       expect(isSelectDeferred()).toBe(false);
     });
 
-    it('보류 중인 버블이 둘이면 둘 다 끝나야 풀린다', () => {
+    it('다른 버블을 빠르게 고르면 최신 클릭만 확정되고 보류가 중간에 풀리지 않는다', () => {
       const first = harness();
       const second = harness();
       first.core.pointerDown(at(10, 10));
       first.core.pointerUp();
       vi.advanceTimersByTime(100);
+      const deferredDuringHandoff: boolean[] = [];
+      const unsubscribe = subscribeSelectDeferred(() => deferredDuringHandoff.push(isSelectDeferred()));
       second.core.pointerDown(at(40, 40));
       second.core.pointerUp();
+      unsubscribe();
+      expect(deferredDuringHandoff.length).toBeGreaterThan(0);
+      expect(deferredDuringHandoff.every(Boolean)).toBe(true);
 
       vi.advanceTimersByTime(SELECT_DEFER_MS - 100);
-      expect(first.selects()).toBe(1);
+      expect(first.selects()).toBe(0);
       expect(isSelectDeferred()).toBe(true);
       vi.advanceTimersByTime(100);
       expect(second.selects()).toBe(1);

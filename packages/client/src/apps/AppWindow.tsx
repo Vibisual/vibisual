@@ -9,6 +9,10 @@ import { setCanvasCover } from '../stores/canvasVisibility.js';
 import { AppShellHost } from './AppShellHost.js';
 import { appShellParams, getInternalApp } from './registry.js';
 import { canPopOutAppWindow, useAppWindowsStore, type AppWindow as AppWindowEntry } from './appWindows.js';
+import { useAppWindowRedock } from './useAppWindowRedock.js';
+import type { FloatingWindowGeom } from '../hooks/floatingWindowGeom.js';
+import { useGraphStore } from '../stores/graphStore.js';
+import { isAppWindowVisible } from './appWindowProject.js';
 
 /**
  * §5.13 (S) — 내부 앱이 **앱 안에서** 열리는 창.
@@ -24,7 +28,7 @@ import { canPopOutAppWindow, useAppWindowsStore, type AppWindow as AppWindowEntr
  * **특정 앱을 알지 않는다** (§5.13 (P-4)) — 제목·색·아이콘·화면은 전부 `appId` 로 레지스트리에서
  * 꺼내므로 앱이 늘어도 이 파일은 그대로다.
  */
-export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry }): React.JSX.Element | null {
+export const AppWindow = memo(function AppWindow({ win, visible = true }: { win: AppWindowEntry; visible?: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
   const app = getInternalApp(win.appId);
   const closeWindow = useAppWindowsStore((s) => s.close);
@@ -33,30 +37,42 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
   // 최신 닫기를 ref 로 — 창 스택에 넘긴 콜백(Escape)이 stale 되지 않게(캡처 창과 같은 규약).
   const closeRef = useRef<() => void>(() => undefined);
   closeRef.current = () => closeWindow(win.id);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   // 공용 창 스택 등록(z-order + Escape 최상단). 첫 렌더에 1회.
   const handleRef = useRef<CaptureWindowHandle | null>(null);
-  if (!handleRef.current) handleRef.current = registerCaptureWindow(() => closeRef.current());
+  if (!handleRef.current) handleRef.current = registerCaptureWindow(() => closeRef.current(), () => visibleRef.current);
   const handle = handleRef.current;
 
   const [z, setZ] = useState<number>(handle.initialZ);
-  const bringToFront = useCallback(() => { setZ(handle.bringToFront()); }, [handle]);
+  const bringToFront = useCallback(() => { if (visibleRef.current) setZ(handle.bringToFront()); }, [handle]);
 
   /** 끌어내기 무장 — 지금 손을 떼면 밖으로 나간다는 사실을 화면에 보여 주는 상태(S-4). */
   const [pullOutArmed, setPullOutArmed] = useState(false);
+  const [transferFailed, setTransferFailed] = useState(false);
+  const [transferring, setTransferring] = useState(false);
   const canPopOut = canPopOutAppWindow();
 
-  const popOutSelf = useCallback(() => {
+  const popOutSelf = useCallback((geom?: FloatingWindowGeom, screenPosition?: { x: number; y: number }) => {
     setPullOutArmed(false);
-    popOutWindow(win.id);
-  }, [popOutWindow, win.id]);
+    setTransferFailed(false);
+    setTransferring(true);
+    const rect = geom ?? win.geometry;
+    void popOutWindow(win.id, rect ? {
+      width: Math.round(rect.w), height: Math.round(rect.h),
+      x: Math.round(screenPosition?.x ?? window.screenX + rect.x), y: Math.round(screenPosition?.y ?? window.screenY + rect.y),
+    } : undefined).then(ok => { setTransferFailed(!ok); setTransferring(false); });
+  }, [popOutWindow, win.id, win.geometry]);
 
   const fw = useFloatingWindow({
+    enabled: visible,
     cascade: handle.cascadeOffset,
+    initial: win.geometry ? { geom: win.geometry, mode: 'floating' } : null,
     onInteractStart: bringToFront,
     // 창을 못 여는 판(웹·구버전 preload)에서는 손짓 자체가 없다 — 안내만 뜨고 아무 일도 안
     //   일어나면 그건 고장으로 읽힌다.
-    pullOut: { enabled: canPopOut, onArmedChange: setPullOutArmed, onRelease: popOutSelf },
+    pullOut: { enabled: visible && canPopOut && !transferring, onArmedChange: setPullOutArmed, onRelease: ({ geom, screenPosition }) => popOutSelf(geom, screenPosition) },
   });
   const maximized = fw.maximized;
   const setMode = fw.setMode;
@@ -79,9 +95,9 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
    */
   const coverKey = `app-window:${win.id}`;
   useEffect(() => {
-    setCanvasCover(coverKey, fw.fullScreen);
+    setCanvasCover(coverKey, visible && fw.fullScreen);
     return () => setCanvasCover(coverKey, false);
-  }, [coverKey, fw.fullScreen]);
+  }, [coverKey, visible, fw.fullScreen]);
 
   /**
    * 앱 화면에 넘길 값 — **OS 창과 같은 한 벌**(S-6). 원시값에서만 다시 만든다.
@@ -90,8 +106,8 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
    * (문서를 다시 읽고, 보던 자리를 잃는다).
    */
   const params = useMemo(
-    () => (app ? appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file }) : {}),
-    [app, win.projectId, win.ref, win.file],
+    () => (app ? { ...appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file }), appWindowId: win.id, appWindowAppId: win.appId } : {}),
+    [app, win.projectId, win.ref, win.file, win.id],
   );
 
   if (!app) return null;
@@ -105,9 +121,12 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
     <div
       ref={fw.windowRef}
       data-app-window=""
+      aria-hidden={!visible}
+      {...(!visible ? { inert: '' } : {})}
       className="fixed flex flex-col overflow-hidden rounded-xl shadow-2xl shadow-black/70 transition-opacity"
       style={{
         ...fw.style,
+        display: visible ? undefined : 'none',
         zIndex: z,
         background: CAPTURE_BUBBLE_DEFAULTS.STAGE_BG,
         border: `1px solid ${pullOutArmed ? `${app.glow}99` : CAPTURE_BUBBLE_DEFAULTS.CHROME_BORDER}`,
@@ -143,7 +162,8 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
         {canPopOut && (
           <button
             type="button"
-            onClick={popOutSelf}
+            onClick={() => popOutSelf(fw.geom)}
+            disabled={transferring}
             className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
             title={t('panel.apps.window.popOut', { defaultValue: '별도 창으로' })}
             aria-label={t('panel.apps.window.popOut', { defaultValue: '별도 창으로' })}
@@ -193,7 +213,8 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
       </div>
 
       {/* 본문 — 앱 화면은 레지스트리의 늦은 로더가 그린다(안 열면 그 청크는 내려오지 않는다). */}
-      <div className="relative min-h-0 flex-1">
+      {transferFailed && <p role="alert" className="shrink-0 bg-rose-950 px-3 py-1 text-xs text-rose-100">{t('panel.apps.window.transferFailed')}</p>}
+      <div className="relative min-h-0 flex-1" aria-busy={transferring} {...(transferring ? { inert: '' } : {})}>
         <AppShellHost hash={{ appId: win.appId, mode: 'main', params }} fill />
 
         {/* 무장 안내 — 손을 떼면 무슨 일이 일어나는지 그 자리에서 말한다(S-4). */}
@@ -238,11 +259,17 @@ export const AppWindow = memo(function AppWindow({ win }: { win: AppWindowEntry 
  * 캔버스가 있는 셸(App · DetachedShell)에 각각 마운트한다.
  */
 export function AppWindowHost(): React.JSX.Element | null {
+  useAppWindowRedock();
   const windows = useAppWindowsStore((s) => s.windows);
+  const activeProject = useGraphStore((s) => s.activeProject);
+  const activeIframeId = useGraphStore((s) => s.activeIframeId);
+  const projects = useGraphStore((s) => s.projects);
+  const stubProjects = useGraphStore((s) => s.stubProjects);
   if (windows.length === 0) return null;
   return (
     <>
-      {windows.map((w) => <AppWindow key={w.id} win={w} />)}
+      {/* Keep editors mounted so tab switches preserve unsaved scenes, selections and geometry. */}
+      {windows.map((w) => <AppWindow key={w.id} win={w} visible={isAppWindowVisible(w.projectId, { activeProject, activeIframeId, projects, stubProjects })} />)}
     </>
   );
 }

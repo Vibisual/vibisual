@@ -1065,6 +1065,112 @@ export function isPendingCommandItem(item: StreamItemFull): item is StreamComman
   return item.kind === 'command' && item.timestamp === PENDING_COMMAND_TS;
 }
 
+// ─── §5.5 #17-18 ⑦-7: 카드는 자기를 보낸 도구 줄 아래에 선다 ───
+
+/** 도구 호출로 신고되는 카드 종류. AskUserQuestion 은 CLI 가 띄우는 요청이라 대상이 아니다. */
+export type SentCardKind = 'report' | 'question' | 'review' | 'list';
+
+/**
+ * 카드 종류 → 그 카드를 신고하는 창구(서버 라우트 `POST /api/agent-*`). 지시문 판본(curl·PowerShell)이
+ * 부르는 경로 그대로다. 뒤에 낱말이 더 붙으면(`agent-reviews` 등) 다른 경로라 걸지 않는다.
+ */
+const CARD_ENDPOINT_RE: Readonly<Record<SentCardKind, RegExp>> = {
+  report: /\/api\/agent-report(?![\w-])/,
+  question: /\/api\/agent-questions(?![\w-])/,
+  review: /\/api\/agent-review(?![\w-])/,
+  list: /\/api\/agent-list(?![\w-])/,
+};
+/** 네 창구의 공통 앞부분 — 도구 입력을 정규식에 넣기 전에 거르는 값싼 첫 관문. */
+const CARD_ENDPOINT_PREFIX = '/api/agent-';
+/** 파일을 읽고 쓰는 도구 — 본문에 창구 경로가 적혀 있어도(그 경로를 다루는 코드·문서를 고칠 때) 신고한 것이 아니다. */
+const NON_SENDER_TOOLS: ReadonlySet<string> = new Set([
+  'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Grep', 'Glob', 'TodoWrite', 'WebFetch', 'WebSearch',
+]);
+
+/**
+ * 엔진이 도구 시작을 **카드보다 늦게** 알리는 폭의 상한. 코덱스는 명령 시작 줄(`item.started`)을 그 명령이
+ * 이미 카드를 보낸 뒤에 내보내는 일이 잦다(실측 2026-10-08: 코덱스 카드 47장 중 32장 · 최대 294ms).
+ * 관측 최대의 열 배로 넉넉히 잡되, 다음 도구 호출(모델이 새로 말해야 하므로 초 단위)과는 겹치지 않는 폭.
+ */
+export const CARD_SENDER_LATE_START_MS = 3_000;
+
+/** 카드 발신 후보 — 창구 경로가 입력에 적힌 도구 호출 하나. 두 탭이 자기 항목에서 이 모양으로 뽑아 넘긴다. */
+export interface CardSenderCall {
+  /** 엔진이 알린 호출 시작 시각 — 카드 신고 시각과의 거리를 잰다. */
+  at: number;
+  /** 그 호출이 화면에 서는 자리(정렬 키). 묶음 안이면 묶음의 자리. */
+  sortTs: number;
+  /** 도구 입력 원문(명령). */
+  input: string;
+  /** 결과 원문(아직 안 왔으면 ''). 서버가 돌려준 카드 id(`{ ok, id }`)가 찍혀 있으면 그 호출이 곧 발신자다. */
+  output: string;
+}
+
+/** 이 도구 호출이 카드를 보냈을 **수 있는가**(창구 경로가 적혀 있고, 파일 도구가 아니다). 두 탭이 같은 관문을 쓴다. */
+export function isCardSenderCandidate(toolName: string | undefined, input: string): boolean {
+  return !NON_SENDER_TOOLS.has(toolName ?? '') && input.includes(CARD_ENDPOINT_PREFIX);
+}
+
+/** 신고 시각 앞의 마지막 후보(`prev`)와 뒤 상한 안의 첫 후보(`next`) 중 발신자. */
+function pickCardSender(
+  card: { id: string; createdAt: number },
+  prev: CardSenderCall | undefined,
+  next: CardSenderCall | undefined,
+): CardSenderCall | undefined {
+  if (!next || !prev) return next ?? prev;
+  // 결과에 서버가 돌려준 카드 id 가 찍혀 있으면 그 호출이 발신자다 — 가장 확실한 근거.
+  if (next.output.includes(card.id)) return next;
+  if (prev.output.includes(card.id)) return prev;
+  // 결과가 아직 안 왔거나 id 를 찍지 않는 명령 — 신고 시각에 더 가까운 쪽.
+  return next.at - card.createdAt < card.createdAt - prev.at ? next : prev;
+}
+
+/**
+ * §5.5 #17-18 ⑦-7 — 카드가 설 정렬 키. 기본은 신고된 시각(⑦-1)이고, **카드를 보낸 도구 줄이 그보다 뒤에
+ * 정렬될 때만** 그 줄 바로 아래로 옮긴다.
+ *
+ * 카드는 그 명령이 도는 동안 만들어지므로 인과로는 늘 그 줄 뒤다. 클로드는 도구 시작 줄이 카드보다 먼저
+ * 와서 이 판정이 아무것도 바꾸지 않지만, 코덱스는 시작 줄이 카드보다 늦게 와서 카드를 보낸 명령 줄 하나가
+ * 카드 **밑에** 깔렸다(사용자 보고 — "꼭 저렇게 하나가 아래에 깔린다").
+ *
+ * `calls` 는 **카드와 같은 세션**의 후보만 넘긴다(메인 탭 전체 보기는 세션이 섞인다). 옮기는 것은 표시
+ * 순서뿐 — `createdAt`·턴 귀속·`작업 중` 배지는 신고 시각 그대로다.
+ */
+export function cardPlacementTs(
+  kind: SentCardKind,
+  card: { id: string; createdAt: number },
+  calls: readonly CardSenderCall[] | undefined,
+): number {
+  if (!calls || calls.length === 0) return card.createdAt;
+  const endpoint = CARD_ENDPOINT_RE[kind];
+  let prev: CardSenderCall | undefined;
+  let next: CardSenderCall | undefined;
+  for (const call of calls) {
+    if (!endpoint.test(call.input)) continue;
+    if (call.at <= card.createdAt) {
+      if (!prev || call.at >= prev.at) prev = call;
+    } else if (call.at - card.createdAt <= CARD_SENDER_LATE_START_MS) {
+      if (!next || call.at < next.at) next = call;
+    }
+  }
+  const sender = pickCardSender(card, prev, next);
+  // 바로 아래 — 같은 밀리초의 다른 줄보다는 뒤, 다음 밀리초보다는 앞(`turnTailSortTs` 의 -0.5 와 같은 결).
+  return sender ? Math.max(card.createdAt, sender.sortTs + 0.5) : card.createdAt;
+}
+
+/** Sub 탭 항목에서 카드 발신 후보를 뽑는다(한 세션의 스트림이라 세션은 가를 필요가 없다). */
+function cardSenderCallsOf(
+  items: readonly StreamItemFull[],
+  sortTimestamps: ReadonlyMap<string, number> | undefined,
+): CardSenderCall[] {
+  const calls: CardSenderCall[] = [];
+  for (const it of items) {
+    if (it.kind !== 'tool' || !isCardSenderCandidate(it.toolName, it.input)) continue;
+    calls.push({ at: it.timestamp, sortTs: sortTimestamps?.get(it.id) ?? it.timestamp, input: it.input, output: it.output });
+  }
+  return calls;
+}
+
 /**
  * base 아이템에 카드(reports/questions/reviews/lists/ask)를 시간순 합류 + 정렬.
  * base.items 배열은 새로 복사(원본 mutate 방지). 항목 객체 참조는 그대로 유지(정렬은 포인터만).
@@ -1112,14 +1218,26 @@ export function mergeCardsIntoItems(
     for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
     return Number.MAX_SAFE_INTEGER;
   };
+  // §5.5 #17-18 ⑦-7 — 카드를 보낸 도구 줄이 카드보다 뒤에 정렬되면(코덱스는 명령 시작을 카드 뒤에 알린다)
+  //   카드를 그 줄 바로 아래로 옮긴다. 항목 `timestamp` 는 신고 시각 그대로 두고 **정렬 키만** 따로 든다.
+  const senderCalls = cardSenderCallsOf(items, base.sortTimestamps);
+  const cardSortKeys = new Map<string, number>();
+  const placeCard = (itemId: string, kind: SentCardKind, card: { id: string; createdAt: number }): void => {
+    const sortTs = cardPlacementTs(kind, card, senderCalls);
+    if (sortTs !== card.createdAt) cardSortKeys.set(itemId, sortTs);
+  };
   // §5.5 #17-12 — 같은 턴에 작업 신고와 검수 요청이 함께 오면 카드 두 장이 겹쳐 무엇이 중요한지 묻힌다.
   //   검수는 그 턴의 신고 카드 **안쪽 구획**으로 흡수하고, 짝이 없는 검수만 독립 카드로 남긴다.
   const reportIdxByTurn = new Map<number, number>();
   for (const r of reports ?? []) {
     reportIdxByTurn.set(turnIndexOf(r.createdAt), items.length);
     items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: r.createdAt, live: isLive(r.createdAt) });
+    placeCard(`report-${r.id}`, 'report', r);
   }
-  for (const q of questions ?? []) items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: q.createdAt, live: isLive(q.createdAt) });
+  for (const q of questions ?? []) {
+    items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: q.createdAt, live: isLive(q.createdAt) });
+    placeCard(`question-${q.id}`, 'question', q);
+  }
   for (const rv of reviews ?? []) {
     const hostIdx = reportIdxByTurn.get(turnIndexOf(rv.createdAt));
     const host = hostIdx === undefined ? undefined : items[hostIdx];
@@ -1128,14 +1246,20 @@ export function mergeCardsIntoItems(
       continue;
     }
     items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: rv.createdAt, live: isLive(rv.createdAt) });
+    placeCard(`review-${rv.id}`, 'review', rv);
   }
-  for (const ls of lists ?? []) items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: ls.createdAt, live: isLive(ls.createdAt) });
+  for (const ls of lists ?? []) {
+    items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: ls.createdAt, live: isLive(ls.createdAt) });
+    placeCard(`list-${ls.id}`, 'list', ls);
+  }
   for (const req of askRequests ?? []) items.push({ kind: 'ask', id: `ask-${req.requestId}`, request: req, timestamp: pendingAskSortTs(req.createdAt) });
 
   // 경계로 옮겨 온 출력은 command 뒤·turnstop 앞에 둔다. 같은 구간의 늦은 줄끼리는 실제 시각순이다.
   const boundaryRank = (item: StreamItemFull): number => item.kind === 'command' ? -1 : item.kind === 'turnstop' ? 1 : 0;
+  const sortKeyOf = (item: StreamItemFull): number =>
+    cardSortKeys.get(item.id) ?? base.sortTimestamps?.get(item.id) ?? item.timestamp;
   items.sort((a, b) =>
-    (base.sortTimestamps?.get(a.id) ?? a.timestamp) - (base.sortTimestamps?.get(b.id) ?? b.timestamp)
+    sortKeyOf(a) - sortKeyOf(b)
     || boundaryRank(a) - boundaryRank(b)
     || a.timestamp - b.timestamp);
 

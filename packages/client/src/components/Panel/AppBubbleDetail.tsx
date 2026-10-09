@@ -45,10 +45,25 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
     const info = Object.values(projects).find((p) => p.name === bubble.projectName);
     const projectId = info?.path ?? bubble.projectName;
     // §5.13 (S-6) — 버블 더블클릭·우클릭 메뉴와 **같은 문**. 여는 곳마다 판단이 갈리지 않게.
-    openAppWindow({ appId: bubble.appId, projectId, ref: bubble.ref, title: bubble.title });
-  }, [app, projects, bubble.projectName, bubble.ref, bubble.appId, bubble.title]);
+    // §5.4 #36 (C) — 담긴 결과 파일이 있으면 그 파일로(더블클릭과 같은 인자).
+    openAppWindow({ appId: bubble.appId, projectId, ref: bubble.ref, file: bubble.file, title: bubble.title });
+  }, [app, projects, bubble.projectName, bubble.ref, bubble.appId, bubble.title, bubble.file]);
 
   const appName = app ? t(app.nameKey, { defaultValue: app.name }) : bubble.appId;
+
+  // §5.4 #36 (B)(C) — 이 노드가 참조하는 에이전트(이름만 — 끊는 손은 선 위 [연결 끊기] 하나다)와 담긴 결과.
+  const agents = useGraphStore((s) => s.agents);
+  const linkedNames = (bubble.linkedAgentIds ?? [])
+    .map((id) => agents.find((a) => a.id === id)?.label)
+    .filter((name): name is string => typeof name === 'string' && name.trim() !== '');
+  const clearFile = useCallback((): void => {
+    useGraphStore.getState().patchAppBubbleLocal(bubble.id, { file: undefined });
+    void fetch(`/api/app-bubbles/${bubble.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: null }),
+    }).catch(() => undefined);
+  }, [bubble.id]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -90,6 +105,32 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
           </p>
         )}
       </section>
+
+      {/* §5.4 #36 — 참조: 이 노드를 참조하는 에이전트와 담긴 결과 */}
+      {(linkedNames.length > 0 || bubble.file) && (
+        <section className="flex flex-col gap-2">
+          <SectionLabel>{t('panel.apps.detail.reference')}</SectionLabel>
+          {linkedNames.length > 0 && (
+            <p className="text-[12px] leading-snug text-gray-400">
+              {t('panel.apps.detail.linkedAgents', { names: linkedNames.join(', ') })}
+            </p>
+          )}
+          {bubble.file ? (
+            <div className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-1.5">
+              <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200" title={bubble.file}>{bubble.file}</span>
+              <button
+                type="button"
+                onClick={clearFile}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+              >
+                {t('panel.apps.detail.clearFile')}
+              </button>
+            </div>
+          ) : (
+            <p className="text-[12px] leading-snug text-gray-500">{t('panel.apps.detail.noFile')}</p>
+          )}
+        </section>
+      )}
 
       {/* 이 버블 — 이름 */}
       <section className="flex flex-col gap-2">

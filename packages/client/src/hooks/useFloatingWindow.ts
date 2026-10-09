@@ -39,10 +39,12 @@ export interface FloatingWindowPullOut {
   /** 무장 상태가 바뀔 때 — 화면에 "놓으면 밖으로 나갑니다"를 보여 주는 자리. */
   onArmedChange?: (armed: boolean) => void;
   /** 무장된 채 손을 뗐다. 창을 밖으로 꺼내고 이 창을 닫는 것은 부르는 쪽이 한다. */
-  onRelease: (info: { geom: FloatingWindowGeom }) => void;
+  onRelease: (info: { geom: FloatingWindowGeom; screenPosition: { x: number; y: number } }) => void;
 }
 
 export interface FloatingWindowOptions extends Partial<FloatingWindowConfig> {
+  /** A hidden project keeps its geometry but cannot continue dragging or resizing. */
+  enabled?: boolean;
   /** 초기 위치 계단식 오프셋(px) — 여러 창을 동시에 열 때 겹침 방지. */
   cascade?: number;
   /** 이전 상태 복원(다시 열면 그 자리) — 마운트 시 1회만 읽는다. */
@@ -89,7 +91,7 @@ function viewport(): { w: number; h: number } {
 }
 
 export function useFloatingWindow(options: FloatingWindowOptions = {}): FloatingWindowApi {
-  const { cascade = 0, initial = null, lockFullScreen = false, onInteractStart, onChange, pullOut, ...configPartial } = options;
+  const { enabled = true, cascade = 0, initial = null, lockFullScreen = false, onInteractStart, onChange, pullOut, ...configPartial } = options;
 
   // 설정은 매 렌더 재계산하되 핸들러는 ref 로 최신값을 본다(콜백 재생성으로 리스너가 흔들리지 않게).
   const cfg = resolveFloatingWindowConfig(configPartial);
@@ -97,6 +99,8 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
   cfgRef.current = cfg;
   const lockRef = useRef(lockFullScreen);
   lockRef.current = lockFullScreen;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const onInteractStartRef = useRef(onInteractStart);
   onInteractStartRef.current = onInteractStart;
   const onChangeRef = useRef(onChange);
@@ -117,6 +121,12 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
   const windowRef = useRef<HTMLDivElement | null>(null);
   /** 진행 중 드래그/리사이즈의 window 리스너 해제 함수 — 언마운트 시 강제 정리(누수 방지). */
   const activeDragCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (enabled) return;
+    activeDragCleanupRef.current?.();
+    activeDragCleanupRef.current = null;
+  }, [enabled]);
 
   useEffect(() => () => {
     activeDragCleanupRef.current?.();
@@ -146,23 +156,34 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       ended = true;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('blur', handleCancel);
       onEnd?.(committed);
     }
-    function handleUp(): void {
+    function handleUp(event: MouseEvent): void {
+      if (event.button !== 0) return;
       finish(true);
       activeDragCleanupRef.current = null;
     }
+    function handleCancel(): void { finish(false); activeDragCleanupRef.current = null; }
+    function handleKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); handleCancel(); }
+    }
+    activeDragCleanupRef.current?.();
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', handleUp);
+    window.addEventListener('keydown', handleKey);
+    window.addEventListener('blur', handleCancel);
     activeDragCleanupRef.current = () => { finish(false); };
   }, []);
 
   // 타이틀바 드래그 — 창 이동. 최대화 상태에서 끌면 먼저 복원하고 커서 기준으로 이어 옮긴다(IDE 톤).
   const handleTitleMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    if (e.button !== 0 || lockRef.current) return;
+    if (e.button !== 0 || lockRef.current || !enabledRef.current) return;
     if ((e.target as HTMLElement).closest(NO_DRAG_SELECTOR)) return;
     const win = windowRef.current;
     if (!win) return;
+    e.preventDefault();
 
     onInteractStartRef.current?.();
 
@@ -178,6 +199,8 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     // 화면상 크기(셰이드 중이면 타이틀바 높이) — 위치 계산용. 저장된 복원 크기와 구분한다.
     let posW = rect.width;
     let posH = rect.height;
+    let screenPosition = { x: e.screenX - grabRatioX * posW, y: e.screenY - grabRatioY * posH };
+    let releaseGeom = geomRef.current;
 
     /**
      * §5.13 (S-3) — **앱 밖으로 끌어내는** 손짓. 두 갈래를 함께 본다.
@@ -242,6 +265,8 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       const x = ev.clientX - grabRatioX * posW;
       const y = ev.clientY - grabRatioY * posH;
       const pos = clampPosition(x, y, { w: posW, h: posH }, viewport(), cfgNow);
+      screenPosition = { x: ev.screenX - grabRatioX * posW, y: ev.screenY - grabRatioY * posH };
+      releaseGeom = { ...pos, w: posW, h: posH };
       setGeom((g) => ({
         ...pos,
         // 셰이드(최소화) 중엔 복원 크기를 건드리지 않는다 — 펼치면 원래 크기로 돌아와야 한다.
@@ -254,13 +279,13 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       const wasArmed = armed;
       setArmed(false);
       // 언마운트로 강제 정리된 판(committed=false)에서는 꺼내지 않는다 — 사람이 손을 뗀 것이 아니다.
-      if (committed && wasArmed) pullOutRef.current?.onRelease({ geom: geomRef.current });
+      if (committed && wasArmed) pullOutRef.current?.onRelease({ geom: releaseGeom, screenPosition });
     });
   }, [bindDrag]);
 
   // 우하단 리사이즈 핸들.
   const handleResizeMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    if (e.button !== 0 || lockRef.current) return;
+    if (e.button !== 0 || lockRef.current || !enabledRef.current) return;
     e.preventDefault();
     onInteractStartRef.current?.();
 
@@ -280,7 +305,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
 
   // 타이틀바 더블클릭 — 최대화 토글(버튼 등 인터랙티브 자손에서 시작한 건 제외).
   const handleTitleDoubleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    if (lockRef.current) return;
+    if (lockRef.current || !enabledRef.current) return;
     if ((e.target as HTMLElement).closest(NO_DRAG_SELECTOR)) return;
     setMode((m) => (m === 'maximized' ? 'floating' : 'maximized'));
   }, []);

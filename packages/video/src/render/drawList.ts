@@ -118,9 +118,14 @@ export function audioItemsAt(doc: VideoDoc, timeline: ResolvedTimeline): readonl
   for (const track of doc.tracks) {
     if (track.muted === true) muted.add(track.id);
   }
-  return timeline.items.filter(
-    (it) => it.trackKind === 'audio' && it.item.enabled !== false && !muted.has(it.trackId),
-  );
+  return timeline.items.filter((it) => {
+    if (it.item.enabled === false || muted.has(it.trackId)) return false;
+    if (it.trackKind === 'audio') return true;
+    if (it.kind !== 'footage') return false;
+    const asset = it.item.assetId ? doc.assets[it.item.assetId] : undefined;
+    // Legacy video assets have no probe result: let the audio decoder decide.
+    return asset !== undefined && asset.hasAudio !== false;
+  });
 }
 
 /** 지금 보여야 할 자막 글자. 자동 검수가 "자막이 비었나"를 볼 때 쓴다. */

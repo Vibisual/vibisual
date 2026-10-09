@@ -68,6 +68,10 @@ const WIRE_BUDGET_EXEMPT: Record<string, { reason: ExemptReason; note: string }>
   runningServers: { reason: 'small', note: 'dev 서버 항목은 포트·URL 수준' },
   skillUsageCounts: { reason: 'small', note: '스킬명 → 호출 횟수 정수 하나. 키가 늘어도 줄이 짧다' },
   pluginFacts: { reason: 'small', note: '플러그인이 신고한 짧은 사실 — 큰 본문은 규약상 금지' },
+  pathLocks: {
+    reason: 'small',
+    note: '§5.3 #12-3 사람이 손으로 거는 자물쇠 — 항목은 경로 한 줄, 프로젝트당 상한 PATH_LOCK_MAX_PER_PROJECT',
+  },
   // 값이 `number[]` 라 스칼라 자동 면제를 못 받지만, 그 배열은 **길이가 고정**이다 —
   //   `heatQuantileSamples` 가 노드 수와 무관하게 `HEAT_QUANTILE_BINS + 1`(=33) 칸으로 접는다.
   //   즉 이 슬라이스 자체가 "값 전체를 전선에 싣지 않으려고" 이미 접어 둔 자리라, 증분을 붙여도

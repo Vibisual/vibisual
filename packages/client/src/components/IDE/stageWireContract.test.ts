@@ -21,7 +21,8 @@ import { describe, expect, it } from 'vitest';
 const sources = import.meta.glob(
   [
     './IDEGoalMapView.tsx', './StageCanvasMenu.tsx', './goalDropTarget.ts',
-    '../BubbleMap/EdgeMask.tsx', '../../stores/graphStore.ts',
+    '../BubbleMap/EdgeMask.tsx', '../BubbleMap/edgeOccluders.ts', '../BubbleMap/CurvedEdge.tsx',
+    '../BubbleMap/TaskEdgeComponent.tsx', '../../stores/graphStore.ts',
   ],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>;
@@ -44,25 +45,31 @@ function code(path: string): string {
     .join('\n');
 }
 
-describe('㉖(a) 캔버스 마스크는 자기 캔버스 밖으로 나가지 않는다', () => {
+describe('㉖(a) 캔버스의 선 가림은 자기 캔버스 밖으로 나가지 않는다', () => {
   const mask = code('../BubbleMap/EdgeMask.tsx');
+  const board = code('../BubbleMap/edgeOccluders.ts');
 
   it('엣지를 `document` 에서 걷지 않는다 — 전역 쿼리가 무대의 선까지 잡았다', () => {
     expect(mask).not.toMatch(/document\s*\.\s*querySelectorAll/);
   });
 
-  it('자기 React Flow 의 `domNode` 안에서만 엣지를 걷는다', () => {
-    expect(mask).toMatch(/useStore\(\(s\) => s\.domNode\)/);
-    expect(mask).toMatch(/domNode\.querySelectorAll<SVGGElement>\('g\.react-flow__edge'\)/);
+  it('§5.4 #31 (K) 2026-10-09 — 문서·DOM 을 아예 만지지 않고, 원만 자기 React Flow 인스턴스에 게시한다', () => {
+    expect(mask).not.toMatch(/\bdocument\s*\./);
+    expect(mask).not.toMatch(/querySelector|createElementNS/);
+    expect(mask).toMatch(/const instance = useOccluderInstance\(\);/);
+    expect(mask).toMatch(/publishOccluders\(instance, /);
   });
 
-  it('`domNode` 가 아직 없으면 아무것도 칠하지 않는다', () => {
-    expect(mask).toMatch(/if \(!svg \|\| !domNode\) return;/);
+  it('게시판은 인스턴스마다 갈라진다 — 한 화면에 캔버스가 둘이어도 서로의 선을 자르지 않게', () => {
+    expect(board).toMatch(/new WeakMap<object, OccluderBoard>\(\)/);
+    // useStoreApi() 가 돌려주는 객체는 부르는 자리마다 새로 감싼 것이라 열쇠가 못 된다(선이 하나도 안 잘렸다).
+    expect(board).toMatch(/return useStoreApi\(\)\.getState;/);
   });
 
-  it('마스크 이름은 인스턴스마다 갈라진다 — 한 화면에 캔버스가 둘이어도 서로를 덮지 않게', () => {
-    expect(mask).toMatch(/maskPrefix/);
-    expect(mask).toMatch(/maskSeq/);
+  it('선은 같은 인스턴스의 게시판에서 자기 곡선에 닿는 원만 읽는다', () => {
+    for (const edge of ['../BubbleMap/CurvedEdge.tsx', '../BubbleMap/TaskEdgeComponent.tsx']) {
+      expect(code(edge)).toMatch(/useEdgeOccluders\(curve, source\)/);
+    }
   });
 });
 

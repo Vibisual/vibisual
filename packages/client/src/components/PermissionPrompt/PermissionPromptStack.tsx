@@ -9,6 +9,8 @@ import { restorePendingPrompts } from '../../utils/pendingPrompts.js';
 import { CODEX_TOOL_GROUP_NAMES } from '../Panel/CodexToolPermissions.js';
 // §5.22 — 위험 배지는 타임라인과 **같은 색·같은 라벨**을 쓴다(두 화면이 어긋나면 못 믿는다).
 import { riskLabelKey, riskToneClass } from '../../utils/auditLog.js';
+// §5.3 #12-3 — 자물쇠 띠는 버블 표식·우클릭 메뉴와 **같은 그림**을 쓴다.
+import { PathLockGlyph } from '../PathLockGlyph.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
 import { shortcutLabel } from '../../utils/platform.js';
@@ -219,6 +221,35 @@ function PermissionModal({
             {seconds}s
           </span>
         </div>
+
+        {/* §5.3 #12-3 — 자물쇠 띠. 사용자가 직접 잠근 곳이라 **이유가 가장 먼저** 온다(위험 띠보다 위).
+            무엇을 하려는지(접근 종류)와 어디를(자물쇠 대상) 말하고, 다른 탭이 건 자물쇠면 그 탭을 밝힌다. */}
+        {(request.lockHits?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-1 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
+            <div className="flex items-center gap-1.5">
+              <PathLockGlyph className="h-3.5 w-3.5 text-amber-300" />
+              <span className="text-[12px] font-semibold text-amber-200">
+                {t('panel.permissionPrompt.lockedTitle', { defaultValue: 'Locked path' })}
+              </span>
+            </div>
+            {request.lockHits!.map((hit) => (
+              <div key={hit.lockId} className="flex flex-wrap items-baseline gap-1.5 text-[12px] text-amber-100/90">
+                <span className="rounded border border-amber-400/40 px-1.5 py-0.5 font-semibold">
+                  {t(`panel.permissionPrompt.lockAccess.${hit.access}`)}
+                </span>
+                <span className="break-all font-mono">{hit.target}</span>
+                {hit.projectName && request.projectName && hit.projectName !== request.projectName && (
+                  <span className="text-amber-200/60">
+                    {t('panel.permissionPrompt.lockOtherTab', { project: hit.projectName })}
+                  </span>
+                )}
+              </div>
+            ))}
+            <span className="text-[12px] leading-relaxed text-amber-200/80">
+              {t('panel.permissionPrompt.lockedHint')}
+            </span>
+          </div>
+        )}
 
         {/* §5.22 — 위험 띠. 위험 3종으로 분류된 호출일 때만 뜨고, 모드가 통과시켰을 호출을
             경계가 되돌려 물은 것이면 왜 지금 묻는지도 한 줄로 말한다.

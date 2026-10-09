@@ -79,6 +79,8 @@ export interface VideoAsset {
   readonly duration?: number;
   readonly width?: number;
   readonly height?: number;
+  /** Whether a measured video/audio source contains an audio track. Missing means not measured yet. */
+  readonly hasAudio?: boolean;
   /** 파일 내용 해시. 소재가 바뀌면 그 아이템의 렌더 캐시만 무효가 된다. */
   readonly contentHash?: string;
 }

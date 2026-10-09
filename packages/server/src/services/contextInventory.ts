@@ -299,6 +299,7 @@ const PART_LABEL_KEYS: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.intentFirst]: 'ide.context.src.intentFirst',
   [CONTEXT_SOURCE_IDS.compactSelf]: 'ide.context.src.compactSelf',
   [CONTEXT_SOURCE_IDS.compactRecovery]: 'ide.context.src.compactRecovery',
+  [CONTEXT_SOURCE_IDS.verificationPolicy]: 'ide.context.src.verificationPolicy',
   [CONTEXT_SOURCE_IDS.cardCommon]: 'ide.context.src.cardCommon',
   [CONTEXT_SOURCE_IDS.cardReport]: 'ide.context.src.cardReport',
   [CONTEXT_SOURCE_IDS.cardQuestion]: 'ide.context.src.cardQuestion',

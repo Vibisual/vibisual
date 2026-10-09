@@ -2,6 +2,9 @@ import { create } from 'zustand';
 
 import { clientPathKey } from '../utils/platform.js';
 import { getInternalApp } from './registry.js';
+import type { AppOpenArgs } from './registry.js';
+import type { FloatingWindowGeom } from '../hooks/floatingWindowGeom.js';
+import { prepareAppWindowTransfer } from './appWindowTransfer.js';
 
 /**
  * §5.13 (S) — **앱 안 창**으로 열린 내부 앱들.
@@ -17,6 +20,7 @@ import { getInternalApp } from './registry.js';
  * 레지스트리에서 꺼낸다.
  */
 export interface AppWindowArgs {
+  readonly geometry?: FloatingWindowGeom | undefined;
   readonly appId: string;
   /** 프로젝트 루트 절대 경로(= projectId). */
   readonly projectId: string;
@@ -66,11 +70,15 @@ interface AppWindowsState {
   windows: readonly AppWindow[];
   open: (args: AppWindowArgs) => void;
   close: (id: string) => void;
+  /** Preserve the current document when the shell changes its selection before popping out. */
+  updateReference: (id: string, ref: string) => void;
+  updateTarget: (id: string, target: { ref?: string | undefined; file?: string | undefined }) => void;
   /** §5.13 (S-5) 밖으로 꺼낸다 — 종전의 그 OS 창을 열고 앱 안 창은 닫는다. */
-  popOut: (id: string) => void;
+  popOut: (id: string, placement?: AppOpenArgs['placement']) => Promise<boolean>;
 }
 
 let seq = 0;
+const pendingPopOut = new Set<string>();
 
 export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
   windows: [],
@@ -97,14 +105,31 @@ export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
     set({ windows: get().windows.filter((w) => w.id !== id) });
   },
 
-  popOut: (id): void => {
-    const win = get().windows.find((w) => w.id === id);
-    if (!win) return;
-    const app = getInternalApp(win.appId);
-    // 등록되지 않은 앱은 밖에 내보낼 방법이 없다 — 창은 그대로 두고 아무 일도 하지 않는다.
-    if (!app) return;
-    void app.open({ projectId: win.projectId, ref: win.ref, file: win.file });
-    set({ windows: get().windows.filter((w) => w.id !== id) });
+  updateReference: (id, ref): void => {
+    set({ windows: get().windows.map(w => w.id === id ? { ...w, ref, file: undefined } : w) });
+  },
+
+  updateTarget: (id, target): void => {
+    set({ windows: get().windows.map(w => w.id === id ? { ...w, ref: target.ref, file: target.file } : w) });
+  },
+
+  popOut: async (id, placement): Promise<boolean> => {
+    if (pendingPopOut.has(id) || !get().windows.some(w => w.id === id)) return false;
+    pendingPopOut.add(id);
+    try {
+      if (!await prepareAppWindowTransfer(id)) return false;
+      const win = get().windows.find((w) => w.id === id);
+      if (!win) return false;
+      const app = getInternalApp(win.appId);
+      // An unknown app cannot receive this window; leave the source open.
+      if (!app) return false;
+      const opened = await app.open({ projectId: win.projectId, ref: win.ref, file: win.file,
+        ...(win.title ? { title: win.title } : {}), ...(placement ? { placement } : {}) });
+      if (!opened) return false;
+      set({ windows: get().windows.filter((w) => w.id !== id) });
+      return true;
+    } catch { return false; }
+    finally { pendingPopOut.delete(id); }
   },
 }));
 
@@ -129,5 +154,5 @@ export function openAppWindow(args: AppWindowArgs): boolean {
  * 않는다 — 안내만 뜨고 아무 일도 안 일어나면 그건 고장으로 읽힌다(§5.13 (S-5)).
  */
 export function canPopOutAppWindow(): boolean {
-  return typeof window !== 'undefined' && !!window.api?.app;
+  return typeof window !== 'undefined' && typeof window.api?.app?.open === 'function';
 }

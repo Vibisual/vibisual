@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { IDEEditorFile } from '../../stores/graphStore.js';
+import { PANE_KIND_TEXT, PaneKindGlyph } from './paneKinds.js';
 
 /**
  * IDEEditorTabs.tsx — §5.5 #17-27 v4.87 편집창 탭 줄(열어 둔 파일들).
@@ -113,21 +114,32 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
         )}
         {files.map((file) => {
           const isActive = file.relPath === activePath;
+          // §5.5 #17-27 ⑱ — 빈 탭. 파일이 아니므로 무대 탭(㉔)처럼 라벨 앞 글리프가 무엇을 여는 탭인지
+          //   말하고, 이름은 갈래에서 짓는다(경로가 없다). 뼈대·닫기·우클릭은 파일 탭과 같다.
+          const opener = file.opener;
           return (
             <div
               key={file.relPath}
               onContextMenu={onTabContextMenu ? (e) => onTabContextMenu(e, file.relPath) : undefined}
               className={`group/tab flex flex-shrink-0 items-center gap-1 border-r border-gray-800 pl-2 pr-1 ${
-                isActive ? 'bg-gray-950 text-gray-100' : 'text-gray-500 hover:bg-gray-800/60 hover:text-gray-300'
+                isActive
+                  ? `bg-gray-950 ${opener ? 'text-sky-200' : 'text-gray-100'}`
+                  : 'text-gray-500 hover:bg-gray-800/60 hover:text-gray-300'
               }`}
             >
               <button
                 type="button"
                 onClick={() => onSelect(file.relPath)}
-                title={file.relPath}
-                className="max-w-[160px] truncate py-1 text-left text-[12px]"
+                title={opener ? t('ide.paneOpener.tabHint') : file.relPath}
+                aria-current={isActive ? 'true' : undefined}
+                className={`max-w-[160px] truncate py-1 text-left text-[12px] ${opener ? 'flex items-center gap-1' : ''}`}
               >
-                {labels[file.relPath] ?? file.name}
+                {opener ? (
+                  <>
+                    <PaneKindGlyph kind={opener} />
+                    <span className="truncate">{t(PANE_KIND_TEXT[opener].label)}</span>
+                  </>
+                ) : (labels[file.relPath] ?? file.name)}
               </button>
               <button
                 type="button"

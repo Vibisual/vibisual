@@ -145,4 +145,11 @@ describe('buildTabMenuItems', () => {
     expect(find(items, 'close').disabled).toBeUndefined();
     expect(find(items, 'closeAll').disabled).toBeUndefined();
   });
+
+  it('§5.5 #17-27 ⑱ — 빈 탭에는 경로 줄이 없다(빈 글자를 복사하는 손잡이를 세우지 않는다)', () => {
+    const ids = (items: ContextMenuItem[]): (string | undefined)[] => items.map((it) => it.id);
+    expect(ids(buildTabMenuItems({ hasOthers: true, isFile: false }, h(), t))).toEqual(['close', 'closeOthers', 'closeAll']);
+    // 파일 탭(기본)은 종전 그대로다.
+    expect(ids(buildTabMenuItems({ hasOthers: true }, h(), t))).toEqual(['close', 'closeOthers', 'closeAll', 'copyPath', 'openExternal']);
+  });
 });

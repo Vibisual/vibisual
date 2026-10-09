@@ -448,11 +448,22 @@ export interface PackagedExternalOpenApi {
  * 늘어도 이 타입은 그대로다.
  */
 export interface PackagedAppApi {
-  open: (appId: string, params?: Record<string, string>) => Promise<{ windowId: number; reused: boolean }>;
+  open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number }) => Promise<{ windowId: number; reused: boolean }>;
   close: (appId: string) => Promise<boolean>;
+  updateTarget?: (params: Record<string, string>) => Promise<boolean>;
+  startDrag?: () => Promise<boolean>;
+  endDrag?: (commit?: boolean, appId?: string) => Promise<boolean>;
+  redock?: () => Promise<boolean>;
+  ackRedock?: (requestId: string) => Promise<boolean>;
+  ackTarget?: (requestId: string, accepted: boolean) => Promise<boolean>;
+  onRedock?: (cb: (payload: {
+    requestId: string; appId: string; params: Record<string, string>;
+    geometry?: { x: number; y: number; w: number; h: number };
+  }) => void) => () => void;
+  onDragState?: (cb: (payload: { appId: string; dragging: boolean; armed: boolean }) => void) => () => void;
   /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
   invoke: (appId: string, action: string, payload?: unknown) => Promise<unknown>;
-  onShowTarget: (cb: (payload: { appId: string; hash: string }) => void) => () => void;
+  onShowTarget: (cb: (payload: { appId: string; hash: string; requestId?: string }) => void) => () => void;
 }
 
 declare global {

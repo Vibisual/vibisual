@@ -36,8 +36,9 @@ describe('⑰ 편집창 최대화 — 탭·경로·주소 줄을 걷고 본문�
     const src = source('IDEEditorPane.tsx');
     // 줄끝은 보지 않는다 — Windows 러너의 체크아웃은 CRLF 일 수 있다.
     expect(src).toMatch(/\{!maximized && \(\s*<IDEEditorTabs/);
-    expect(src).toContain('{!maximized && !stageActive && followOn && (');
-    expect(src).toContain('{!maximized && !stageActive && (');
+    // §5.5 #17-27 ⑱ — 빈 탭에도 두 줄은 서지 않는다(경로가 없다). 최대화가 앞에서 먼저 거르는 것은 그대로다.
+    expect(src).toContain('{!maximized && !stageActive && !openerKind && followOn && (');
+    expect(src).toContain('{!maximized && !stageActive && !openerKind && (');
   });
 
   it('HTML 페이지의 브라우저 줄(주소 칸)도 걷히되, iframe 은 자리째 남는다', () => {

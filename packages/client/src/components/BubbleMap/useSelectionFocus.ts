@@ -50,7 +50,7 @@ export function useSelectionFocus(nodes: Node[], edges: Edge[]): { nodes: Node[]
   const distances = useMemo(() => {
     if (linkPhase !== 'off' || edges.some((edge) => edge.selected)) return null;
     const centered = computeSelectionDistances(
-      selectionFocusIds(nodes, centerId, currentFolderId, pendingId), nodes, edges,
+      selectionFocusIds(nodes, centerId, currentFolderId), nodes, edges,
     );
     return liftSelectionDistances(centered, selectionIdentityIds(nodes, pendingId, currentFolderId));
     // graphKey contains every node/edge field used above; coordinates deliberately stay out.
@@ -72,7 +72,7 @@ export function useSelectionFocus(nodes: Node[], edges: Edge[]): { nodes: Node[]
     const emphasis = distances === null ? SELECTION_FOCUS.restore : selectionDistanceClass(
       selectionEdgeDistance(distances, edge), SELECTION_FOCUS.edges, SELECTION_FOCUS.unrelatedEdge,
     );
-    const selectionFocusClassName = `${SELECTION_FOCUS.edgeTransition} ${emphasis}`;
+    const selectionFocusClassName = [SELECTION_FOCUS.edgeTransition, emphasis].filter(Boolean).join(' ');
     const className = [edge.className, selectionFocusClassName].filter(Boolean).join(' ');
     const previous = cache.edges.get(edge);
     if (previous?.className === className) return previous.rendered;

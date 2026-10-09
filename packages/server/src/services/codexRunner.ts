@@ -13,7 +13,7 @@ import { createCodexPendingCallLedger } from './codexPendingCalls.js';
 import { CODEX_TURN_IDLE_CHECK_MS, CODEX_TURN_IDLE_NOTICE_MS, CODEX_TURN_IDLE_SETTLE_MS, CODEX_MCP_CALL_DEADLINE_MS } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import type { CodexToolHookConfig } from './codexEdges.js';
-import { codexToolOverrides } from './codexToolOverrides.js';
+import { codexToolOverrides, codexVerificationFeatureOverrides } from './codexToolOverrides.js';
 import { codexVerificationOverrides, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
 import { codexWindowsSandboxConfigured, readCodexEffectiveConfigFor } from './codexConfigService.js';
 
@@ -42,6 +42,8 @@ export interface CodexTurnArgs extends CodexOverrides {
    * 잇는다. `required` 인데 못 붙이면 턴을 거절한다(승인 모드·감사 경계가 조용히 꺼진 채 돌지 않게).
    */
   permissionHook?: CodexPermissionHookConfig;
+  /** §5.3 #12-4 — 이 턴에 브라우저 확인 권한이 없다(호스팅 브라우저·컴퓨터 도구를 끈다). */
+  hostedBrowserOff?: boolean;
   subAgentId: string;
   /** 이 세션의 작업 폴더. `-C` 로 넘어간다. */
   cwd: string;
@@ -159,6 +161,8 @@ export function buildCodexExecArgs(args: {
   toolHook?: CodexToolHookConfig;
   edgeConfig?: CodexEdgeConfig;
   permissionHook?: CodexPermissionHookConfig;
+  /** §5.3 #12-4 — 이 턴에 브라우저 확인 권한이 없다(호스팅 브라우저·컴퓨터 도구를 끈다). */
+  hostedBrowserOff?: boolean;
   platform?: NodeJS.Platform;
   cwd: string;
   model: string;
@@ -212,6 +216,7 @@ export function buildCodexExecArgs(args: {
   if (args.edgeConfig) out.push(...codexEdgeOverrides(args.edgeConfig, { hooks: false }));
   if (args.verificationConfig) out.push(...codexVerificationOverrides(args.verificationConfig));
   out.push(...codexToolOverrides(args.toolHook?.policy));
+  if (args.hostedBrowserOff) out.push(...codexVerificationFeatureOverrides());
   out.push(...codexTurnHooks(args.edgeConfig, args.permissionHook, args.platform ?? process.platform, args.toolHook).overrides);
   for (const imagePath of args.images ?? []) {
     if (imagePath.trim()) out.push('-i', imagePath);
@@ -298,6 +303,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     toolHook: args.toolHook,
     edgeConfig: args.edgeConfig,
     ...(args.permissionHook ? { permissionHook: args.permissionHook } : {}),
+    ...(args.hostedBrowserOff ? { hostedBrowserOff: true } : {}),
     cwd: args.cwd,
     model: args.model,
     webSearch: args.webSearch,

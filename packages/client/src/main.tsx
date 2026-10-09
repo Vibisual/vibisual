@@ -9,7 +9,7 @@ import { OverlayShell, parseOverlayHash } from './components/Layout/OverlayShell
 import { OverlayMenuShell, parseOverlayMenuHash } from './components/Layout/OverlayMenuShell.js';
 import { CommandCenterShell, parseCommandCenterHash } from './components/CommandCenter/CommandCenterShell.js';
 import { parseAppHash } from './apps/appHash.js';
-import { AppShellHost } from './apps/AppShellHost.js';
+import { DetachedAppWindow } from './apps/DetachedAppWindow.js';
 import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { GlobalTextFieldContextMenu } from './components/Layout/GlobalTextFieldContextMenu.js';
 import { ExternalOpenNotice } from './components/Layout/ExternalOpenNotice.js';
@@ -118,7 +118,7 @@ createRoot(rootElement).render(
       ) : commandCenter ? (
         <CommandCenterShell projectId={commandCenter.projectId} />
       ) : appWindow ? (
-        <AppShellHost hash={appWindow} />
+        <DetachedAppWindow initial={appWindow} />
       ) : (
         <App />
       )}

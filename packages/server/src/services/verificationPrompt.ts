@@ -379,9 +379,11 @@ export function buildVerifyReworkPrompt(run: {
   expected?: string;
   toolEvents?: VerificationToolEvent[];
 }): string {
+  // §5.3 #12-4 — 재작업은 **고치기만** 한다. 재검증은 사람이 [검증 실행]으로 다시 누른다(완료 뒤 자동 후속이
+  //   검증을 새로 시작하지 않는다 · 반복 수정으로 넓히지 않는다).
   const head = run.verdict === 'fail'
     ? '방금 검증이 **실패**했습니다. 아래 근거를 보고 원인을 고쳐 주세요.'
-    : '방금 검증이 **보류**되었습니다(통과 근거가 부족합니다). 아래를 보고 실제로 돌려서 확인해 주세요.';
+    : '방금 검증이 **보류**되었습니다(통과 근거가 부족합니다). 아래를 보고 근거가 부족했던 원인(앱이 뜨지 않음·대상이 다름 등)이 코드에 있으면 고쳐 주세요.';
 
   const parts: string[] = [head];
   if (run.focus?.trim()) parts.push('', `확인하려던 것: ${run.focus.trim()}`);
@@ -400,9 +402,9 @@ export function buildVerifyReworkPrompt(run: {
       parts.push(`- [${a.kind}] ${a.command} → ${code}${a.detail ? ` (${a.detail})` : ''}`);
     }
   } else if (!run.toolEvents?.length) {
-    parts.push('', '실제로 돌린 기록이 남지 않았습니다 — 이번에는 반드시 앱을 띄워서 확인해 주세요.');
+    parts.push('', '실제로 돌린 기록이 남지 않았습니다 — 앱이 뜨지 않은 원인이 코드에 있으면 그것을 고쳐 주세요.');
   }
 
-  parts.push('', '고친 뒤에는 다시 검증을 돌릴 수 있게 무엇을 어떻게 고쳤는지 한 줄로 알려 주세요.');
+  parts.push('', '이 턴에서는 테스트·빌드·앱 실행으로 다시 검증하지 마세요 — 사용자가 [검증 실행]으로 다시 돌립니다. 무엇을 어떻게 고쳤는지 한 줄로 알려 주세요.');
   return parts.join('\n');
 }

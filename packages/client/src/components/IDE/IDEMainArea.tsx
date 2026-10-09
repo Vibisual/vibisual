@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, RunningSubagentTask } from '@vibisual/shared';
 import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
 import { isBackgroundShellTask, isSessionRunning } from '@vibisual/shared';
+import { verificationNotRun } from '@vibisual/shared';
 import {
   useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
 } from '../../hooks/useSessionRunning.js';
@@ -13,7 +14,7 @@ import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.j
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { clampStreamText, COMPACT_TEXT_CLAMP, turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, type TurnCoverage } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { turnStopLabelKey } from './turnStopLabel.js';
@@ -217,6 +218,11 @@ interface TerminalEntry {
    */
   imageSubAgentId?: string;
   /**
+   * §5.5 #17-18 ⑦-7 — 스트림에서 온 줄이면 그 줄이 나온 세션. 전체 보기에서는 여러 세션의 도구가 한
+   * 타임라인에 섞이므로, 카드를 보낸 도구를 **같은 세션 안에서만** 찾을 때 쓴다(`sessionLabel` 은 겹칠 수 있다).
+   */
+  subAgentId?: string;
+  /**
    * `type==='command'` 일 때 **내가 보낸 시각**. 위 `timestamp` 는 §5.5 #17-18 ⑥ 대로 말풍선이 설
    * 자리(= 나간 시각 · 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)라 시각 표기에 쓸 수 없다.
    */
@@ -381,6 +387,43 @@ function dropCardEchoNodes(nodes: MainTimelineNode[]): MainTimelineNode[] {
   return out ?? nodes;
 }
 
+// ─── §5.5 #17-18 ⑦-7: 카드를 보낸 도구 찾기(메인 탭 판본) ───
+//   Sub 탭은 `mergeCardsIntoItems` 가 같은 일을 한다. 판정은 **같은 함수**(`cardPlacementTs`)이고, 여기는
+//   도구 묶음에서 후보를 뽑아 세션별로 나누기만 한다. 후보의 자리는 그 도구가 든 **묶음의 자리**다 —
+//   묶음 안 한가운데에는 카드를 끼울 수 없으므로 카드는 묶음 아래로 간다. 간결은 묶음을 화면에서 빼므로
+//   후보가 없고 카드는 신고 시각 그대로다(감춘 줄 아래로 옮길 이유가 없다).
+
+/** 도구 묶음에서 카드 발신 후보를 세션별로 뽑는다. */
+export function collectMainCardSenderCalls(items: readonly TerminalItem[]): Map<string, CardSenderCall[]> {
+  const bySub = new Map<string, CardSenderCall[]>();
+  for (const it of items) {
+    if (it.kind !== 'group' || it.groupType !== 'tool') continue;
+    const entries = it.entries;
+    for (let k = 0; k < entries.length; k++) {
+      const use = entries[k]!;
+      if (use.type !== 'tool_use' || !use.subAgentId || !isCardSenderCandidate(use.toolName, use.text)) continue;
+      // 이 호출의 결과 = 다음 호출 전까지 따라붙은 결과 줄들(`groupEntries` 가 짝지은 그대로).
+      let output = '';
+      for (let j = k + 1; j < entries.length && entries[j]!.type !== 'tool_use'; j++) {
+        if (entries[j]!.type === 'tool_result') output += entries[j]!.text;
+      }
+      const calls = bySub.get(use.subAgentId);
+      const call: CardSenderCall = { at: use.timestamp, sortTs: it.timestamp, input: use.text, output };
+      if (calls) calls.push(call); else bySub.set(use.subAgentId, [call]);
+    }
+  }
+  return bySub;
+}
+
+/** 이 카드가 설 정렬 키 — 같은 세션의 후보로만 판정한다(세션을 모르는 카드는 신고 시각 그대로). */
+export function mainCardPlacementTs(
+  kind: SentCardKind,
+  card: { id: string; createdAt: number; subAgentId?: string },
+  callsBySub: ReadonlyMap<string, readonly CardSenderCall[]>,
+): number {
+  return cardPlacementTs(kind, card, card.subAgentId ? callsBySub.get(card.subAgentId) : undefined);
+}
+
 // ─── §5.5 #17-39 ⑩: 간결에서 이어 붙은 사고 자국 합치기(메인 탭 판본) ───
 //   판정은 Sub 탭(`applyStreamDensity`)과 **같은 함수**(`mergeAdjacentThinkTraces`)가 한다 — 여기는 읽기·쓰기만.
 
@@ -442,6 +485,7 @@ export function buildEntries(
         timestamp: evt.timestamp,
         sessionLabel: label,
         toolName: evt.toolName,
+        subAgentId: subId,
         ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
       });
     }
@@ -2660,6 +2704,79 @@ function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX
   );
 }
 
+/** §5.3 #12-4 (F) — [검증 실행]이 그 탭에 넣는 명령에 싣는 직전 작업 발췌의 길이. */
+const VERIFY_REQUEST_TASK_EXCERPT_MAX = 300;
+
+/**
+ * §5.3 #12-4 (F) — 끝난 명령의 검증 상태 한 칩. 서버가 적은 기록(`QueuedCommand.verification`)을 그대로 그린다.
+ *
+ * - 파일을 고쳤거나 막은 시도가 있는데 검증을 하나도 안 돌렸으면 **"검증 미실행"** + (최신 명령이면) [검증 실행].
+ * - 사용자가 연 범위 안에서 돌렸으면 **"검증 N회 실행"** — 통과라고 말하지 않는다(결과는 본문이 말한다).
+ * - 둘 다 아니면(읽기·질문만 한 턴) 아무것도 그리지 않는다. 팝업·질문은 띄우지 않는다.
+ *
+ * 바깥 줄이 `role="button"`(프롬프트로 점프)이라 버튼 클릭은 `stopPropagation` 한다(밀도 토글과 같다).
+ */
+function StreamVerificationChip({ command, canRun }: { command: QueuedCommand; canRun: boolean }): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const requestVerification = useGraphStore((s) => s.requestCommandVerification);
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const summary = command.verification;
+  const ran = summary?.ranCalls ?? 0;
+  if (ran > 0) {
+    return (
+      <span
+        className="flex-shrink-0 rounded border border-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-400"
+        title={t('ide.verifyPolicy.ranTip')}
+      >
+        {t('ide.verifyPolicy.ran', { count: ran })}
+      </span>
+    );
+  }
+  if (!verificationNotRun(summary)) return null;
+  const blocked = summary?.blockedCalls ?? 0;
+  const tip = blocked > 0
+    ? `${t('ide.verifyPolicy.notRunTip')}\n${t('ide.verifyPolicy.blockedTip', { count: blocked })}`
+    : t('ide.verifyPolicy.notRunTip');
+  const subAgentId = command.subAgentId;
+  const run = (e: React.MouseEvent): void => {
+    e.stopPropagation();
+    if (!agentId || !subAgentId || pending) return;
+    setPending(true);
+    setFailure(null);
+    const task = command.text.replace(/\s+/g, ' ').trim().slice(0, VERIFY_REQUEST_TASK_EXCERPT_MAX);
+    void requestVerification(agentId, subAgentId, t('ide.verifyPolicy.runPrompt', { task }))
+      .then((result) => { if (!result.ok) setFailure(result.error); })
+      .finally(() => setPending(false));
+  };
+  return (
+    <span className="flex flex-shrink-0 items-center gap-1">
+      <span
+        className="flex items-center gap-1 rounded border border-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-400"
+        title={tip}
+      >
+        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="3 3"><circle cx="12" cy="12" r="9" /></svg>
+        {t('ide.verifyPolicy.notRun')}
+      </span>
+      {canRun && agentId && subAgentId && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={run}
+          title={t('ide.verifyPolicy.runTip')}
+          className="rounded border border-gray-600 px-1.5 py-0.5 text-[12px] text-gray-200 transition-colors hover:bg-gray-700 disabled:opacity-50"
+        >
+          {t('ide.verify.start')}
+        </button>
+      )}
+      {failure && (
+        <span className="text-[12px] text-red-400">{t('ide.verifyPolicy.runFailed', { error: failure })}</span>
+      )}
+    </span>
+  );
+}
+
 function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
@@ -2898,6 +3015,8 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
       }`}>
         {preview}
       </span>
+      {/* §5.3 #12-4 (F) — 이 명령의 검증 상태. [검증 실행]은 지금 작업 트리를 검증하므로 **최신 명령**에만 둔다. */}
+      <StreamVerificationChip command={target} canRun={target === defaultTarget && !sessionRunning} />
       <StreamControls jumpHint />
     </div>
   );
@@ -3598,13 +3717,16 @@ export const IDEMainArea = memo(function IDEMainArea({
     const turnRunning = sessionExecuting;
     const isLive = (createdAt: number): boolean =>
       turnRunning && !(lastAnchor !== undefined && lastAnchor > createdAt);
+    // §5.5 #17-18 ⑦-7 — 카드를 보낸 도구 줄이 카드보다 뒤에 정렬되면(코덱스는 명령 시작을 카드 뒤에 알린다)
+    //   카드는 그 줄(묶음) 바로 아래에 선다. 정렬 자리(`ts`)만 바뀌고 턴 귀속·`작업 중` 은 신고 시각 그대로다.
+    const senderCallsBySub = collectMainCardSenderCalls(items);
     // §5.5 #17-12 — 같은 턴의 검수는 그 턴 신고 카드로 흡수해 한 장으로 보여준다.
     //   짝 없는 검수만 독립 카드로 남는다(StreamRenderer 의 mergeCardsIntoItems 와 동일 규칙).
     const reportNodes: Array<{ ts: number; node: MainTimelineNode }> = [];
     const reportNodeByTurn = new Map<number, { node: MainTimelineNode }>();
     for (const r of reportCards) {
       const entry = {
-        ts: r.createdAt,
+        ts: mainCardPlacementTs('report', r, senderCallsBySub),
         node: { t: 'report' as const, report: r, live: isLive(r.createdAt) } as MainTimelineNode,
       };
       reportNodes.push(entry);
@@ -3617,14 +3739,14 @@ export const IDEMainArea = memo(function IDEMainArea({
         host.node = { ...host.node, review: rv };
         continue;
       }
-      reviewNodes.push({ ts: rv.createdAt, node: { t: 'review' as const, review: rv, live: isLive(rv.createdAt) } });
+      reviewNodes.push({ ts: mainCardPlacementTs('review', rv, senderCallsBySub), node: { t: 'review' as const, review: rv, live: isLive(rv.createdAt) } });
     }
     const merged: Array<{ ts: number; node: MainTimelineNode }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
       ...reportNodes,
-      ...questionCards.map((q) => ({ ts: q.createdAt, node: { t: 'question' as const, questions: q, live: isLive(q.createdAt) } })),
+      ...questionCards.map((q) => ({ ts: mainCardPlacementTs('question', q, senderCallsBySub), node: { t: 'question' as const, questions: q, live: isLive(q.createdAt) } })),
       ...reviewNodes,
-      ...listCards.map((l) => ({ ts: l.createdAt, node: { t: 'list' as const, list: l, live: isLive(l.createdAt) } })),
+      ...listCards.map((l) => ({ ts: mainCardPlacementTs('list', l, senderCallsBySub), node: { t: 'list' as const, list: l, live: isLive(l.createdAt) } })),
       // §5.3 #12-2 — pending AskUserQuestion 카드도 타임라인 안으로(가상 리스트 밖 형제 렌더 → 겹침 제거).
       ...askCards.map((req) => ({ ts: pendingAskSortTs(req.createdAt), node: { t: 'ask' as const, request: req } })),
     ];

@@ -19,6 +19,7 @@ import {
   closeByWindowId,
   minimizeByWindowId,
   toggleMaximizeByWindowId,
+  toggleMaximizeMainWindow,
   listDetached,
   hasTabKey,
   getCursorScreenPoint,
@@ -66,8 +67,9 @@ import {
   // §5.5 #17-6 (H-19) — 이 자리(DIP)가 놓일 화면의 배율 격자. 본체 창 타이틀바 드래그도 같은 격자를 쓴다.
   dipStepAt,
 } from './windowManager';
-// §5.5 #17-6 (H-19) — 창 크기 장부의 순수 규칙(자리·크기를 배율 격자에 맞춰 **함께** 쓴다).
-import { movedBounds, type OverlaySize } from './overlaySize';
+// §3.7 · §5.5 #17-6 (H-19) — 복원 완료·커서 고정·배율 크기 장부를 창 종류와 무관하게 공유한다.
+import { startTitlebarMove, type TitlebarMove } from './titlebarMove';
+import { tryStartNativeTitlebarMove } from './nativeTitlebarMove';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
   getMobileAccessState,
@@ -292,12 +294,12 @@ export function setupIpc(expressApp: Express): IpcHub {
 
   // §5.4 #14-1 — 별창 자기 창의 최소화/최대화(복원) 토글. 닫기(close-self) 와 동일하게
   // event.sender.id 로 자기 창을 식별한다.
-  // Explicit titlebar pointer capture bypasses Chromium's startup drag-region registration.
+  // Explicit titlebar mouse gestures bypass Chromium's startup drag-region registration.
   //
   // §5.5 #17-6 (H-19) — **크기는 장부가 답한다(창에 되묻지 않는다).** 이 손잡이는 종전에
   //   `setPosition()` 으로 창을 옮겼다. 그 호출은 크기를 **창에 되물어** 다시 쓰므로, Windows 의
   //   분수 배율(125%·150%)에서 DIP↔물리 픽셀이 쓸 때와 읽을 때 따로 반올림돼 **부를 때마다 폭이
-  //   1px 자란다**(실측 150%: 40번에 +40px). 헤더 로고 덮개는 `pointermove` 마다 이 채널을
+  //   1px 자란다**(실측 150%: 40번에 +40px). 헤더 로고 덮개는 `mousemove` 마다 이 채널을
   //   부르므로, 한 번 잡고 끄는 동안 본체 창이 눈에 띄게 계속 커졌다(사용자 보고 — "여기를 잡고
   //   잡아 끌면 에디터가 점점 커진다"). 별창·오버레이 창은 `moveOverlayTo` 로 이미 고쳤는데
   //   **본체 창만 이 길에 남아 있었다.**
@@ -305,55 +307,35 @@ export function setupIpc(expressApp: Express): IpcHub {
   //   이제 끌기 판이 **시작할 때 잰 크기**를 장부로 들고, 자리와 그 크기를 `setBounds` 로 함께
   //   쓴다 — 창에 되묻지 않으니 자랄 자리가 없다. 좌표·크기는 그 화면의 배율 격자에 맞춘다
   //   (`movedBounds` + `dipStepAt` — 격자를 벗어난 좌표는 물리 픽셀 폭을 1px 씩 흔든다).
-  const titlebarDrags = new WeakMap<WebContents, {
-    x: number;
-    y: number;
-    cursorX: number;
-    cursorY: number;
-    /** (H-19) 이 손짓이 들고 갈 크기(DIP) — 창에 되묻지 않고 늘 이 값을 쓴다. */
-    size: OverlaySize;
-  }>();
+  const titlebarDrags = new Map<WebContents, TitlebarMove>();
   ipcMain.handle('vibisual:window:move-self', (event, phase: string): boolean => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return false;
-    if (phase === 'end') { titlebarDrags.delete(event.sender); return true; }
-    const cursor = screen.getCursorScreenPoint();
+    if (phase === 'end') { titlebarDrags.get(event.sender)?.end(); return true; }
     if (phase === 'start') {
-      // (H-19) 크기를 창에 묻는 것은 **손짓 시작의 이 한 번**뿐이다. 그 뒤로는 장부만 쓴다.
-      const bounds = win.getBounds();
-      titlebarDrags.set(event.sender, {
-        x: bounds.x,
-        y: bounds.y,
-        cursorX: cursor.x,
-        cursorY: cursor.y,
-        size: { width: bounds.width, height: bounds.height },
-      });
+      titlebarDrags.get(event.sender)?.cancel();
+      titlebarDrags.set(event.sender, startTitlebarMove(
+        win,
+        () => screen.getCursorScreenPoint(),
+        dipStepAt,
+        () => { titlebarDrags.delete(event.sender); },
+        process.platform === 'win32' ? () => tryStartNativeTitlebarMove(win) !== 'unavailable' : undefined,
+      ));
       return true;
     }
     const drag = titlebarDrags.get(event.sender);
     if (phase !== 'move' || !drag) return false;
-    if (win.isMaximized()) {
-      const bounds = win.getBounds();
-      const ratio = Math.max(0, Math.min(1, (drag.cursorX - bounds.x) / bounds.width));
-      win.unmaximize();
-      // (H-19) 최대화를 푼 **그 크기**가 이 손짓이 들고 갈 크기다 — 장부는 여기서 한 번만 다시
-      //   적는다(최대화 해제는 한 판에 한 번뿐이라 되물어도 누적되지 않는다). 매 이동마다
-      //   되물으면 위에서 없앤 자람이 그대로 돌아온다.
-      const restored = win.getBounds();
-      drag.size = { width: restored.width, height: restored.height };
-      drag.x = Math.round(drag.cursorX - restored.width * ratio);
-      drag.y = drag.cursorY - 18;
-    }
-    const x = drag.x + cursor.x - drag.cursorX;
-    const y = drag.y + cursor.y - drag.cursorY;
-    win.setBounds(movedBounds(drag.size, x, y, dipStepAt(x, y)), false);
+    drag.move();
     return true;
   });
   ipcMain.handle('vibisual:window:minimize-self', (event): boolean => {
     return minimizeByWindowId(event.sender.id);
   });
   ipcMain.handle('vibisual:window:toggle-maximize-self', (event): boolean => {
-    return toggleMaximizeByWindowId(event.sender.id);
+    // §3.7 — 본체 창도 이 채널을 쓴다(헤더 로고 덮개의 더블클릭). 본체는 아래 목록에 없으므로
+    //   보낸 창 그 자체로 먼저 맞춘다 — 번호로 맞추지 않는다(`toggleMaximizeMainWindow`).
+    return toggleMaximizeMainWindow(BrowserWindow.fromWebContents(event.sender))
+      || toggleMaximizeByWindowId(event.sender.id);
   });
 
   ipcMain.handle('vibisual:window:list-detached', () => listDetached());
@@ -774,6 +756,8 @@ export function setupIpc(expressApp: Express): IpcHub {
 
   return {
     stop(): void {
+      for (const drag of titlebarDrags.values()) drag.cancel();
+      titlebarDrags.clear();
       ipcMain.removeHandler('vibisual:server-info');
       ipcMain.removeHandler('vibisual:fetch');
       ipcMain.removeHandler('vibisual:send');

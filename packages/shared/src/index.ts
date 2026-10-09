@@ -99,6 +99,12 @@ export type {
   PermissionAlwaysAllowScope,
   PermissionAlwaysRejectScope,
   PermissionCancelReason,
+  // §5.3 #12-3 — 자물쇠.
+  PathLockKind,
+  PathLockTarget,
+  PathLock,
+  PathLockAccess,
+  PathLockHit,
   AskUserQuestionRequest,
   AskUserQuestionDecision,
   AskUserQuestionAnswer,
@@ -189,6 +195,8 @@ export type {
   WorkspacePathKind,
   WorkspacePathInfo,
   ExternalPathInfo,
+  EditorPaneFileKind,
+  WorkspaceFindResult,
   WorkspaceEol,
   WorkspaceFileContent,
   WorkspaceFileSaveRequest,
@@ -432,6 +440,10 @@ export type {
   VerificationAttempt,
   VerificationKind,
   VerificationVerdict,
+  VerificationPolicyKind,
+  VerificationScope,
+  VerificationScopeSource,
+  CommandVerificationSummary,
   EscalationReason,
   UpdatePhase,
   UpdateDelivery,
@@ -2090,6 +2102,25 @@ export {
   workspaceSiteInspectorScript,
 } from './workspaceSite.js';
 
+// §5.5 #17-27 ⑱ — 우측 판이 무엇으로 그리는가 + 판 쪽에서 파일을 찾는 창구. 목록(화면)과 찾기(서버)가
+// 같은 판정을 써야 "목록엔 웹 페이지인데 열면 코드" 같은 어긋남이 없다.
+export {
+  EDITOR_PANE_FILE_KINDS,
+  isEditorPaneFileKind,
+  editorPaneKindOf,
+  EDITOR_PANE_CODE_SKIP_EXTENSIONS,
+  isEditorPaneListable,
+  WORKSPACE_FIND_PATH,
+  WORKSPACE_FIND_SKIP_DIRS,
+  WORKSPACE_FIND_SCAN_MAX,
+  WORKSPACE_FIND_TIME_BUDGET_MS,
+  WORKSPACE_FIND_RESULT_MAX,
+  WORKSPACE_FIND_DIR_CONCURRENCY,
+  serializeClaimedExtensions,
+  parseClaimedExtensions,
+  workspaceFindUrl,
+} from './editorPaneKind.js';
+
 // 프리뷰 **안쪽 문서**의 스크롤바 톤. iframe 경계를 CSS 가 못 넘으므로, 페이지를 실어 보내는
 // 두 자리(프리뷰 프록시 · 워크스페이스 사이트)가 같은 조각 하나를 함께 넣는다.
 export {
@@ -2311,8 +2342,51 @@ export { parseCodexTransportNotice, readCodexTransportNotice } from './codexTran
 export * from './agentRuleShell.js';
 export { VERIFICATION_AUTOMATION } from './constants.js';
 export * from './verificationAutomation.js';
+// §5.3 #12-4 — 검증은 시킬 때만 돈다(분류·요청 해석·판정·문구 한 벌).
+export * from './verificationPolicy.js';
 
 // §5.5 #17-27 ①-1 — 편집창이 열릴 때 창을 오른쪽으로 넓히고 닫으면 되돌리는 가로 자리 계산.
 //   앱 안의 떠 있는 창(클라)과 독립 OS 창(main)이 같은 규칙 하나를 쓴다.
 export type { HSpan, SpanGrowth } from './editorRoom.js';
 export { growSpanRight, shrinkSpanBack } from './editorRoom.js';
+export * from './vibi3d.js';
+
+// §5.3 #12-3 — 자물쇠. 판정 함수는 승인 창구 셋(클로드·코덱스·로컬)과 훅 세션 답·버블 표시가 한 벌을 쓴다.
+export {
+  PATH_LOCK_MAX_PER_PROJECT,
+  PATH_LOCK_CARD_HITS_MAX,
+  PATH_LOCK_LABEL_MAX_CHARS,
+  PATH_LOCK_WRITE_TOOLS,
+  PATH_LOCK_LIST_TOOLS,
+  PATH_LOCK_SEARCH_TOOLS,
+  PATH_LOCK_URL_INPUT_KEYS,
+  PATH_LOCK_TREE_READ_COMMANDS,
+  PATH_LOCK_RECURSIVE_READ_COMMANDS,
+  PATH_LOCK_RECURSIVE_FLAG_PATTERNS,
+  PATH_LOCK_FIND_ACTION_FLAGS,
+  PATH_LOCK_TREE_ALL_ARGS_COMMANDS,
+  PATH_LOCK_TREE_SOURCE_DEST_COMMANDS,
+} from './constants.js';
+export type { PathLocksByProject, LockableBubble, PathLockCover, PathLockScope } from './pathLock.js';
+export {
+  PATH_LOCK_KINDS,
+  resolveLockPath,
+  pathLockId,
+  normalizePathLockTarget,
+  buildPathLock,
+  normalizePathLocks,
+  mergePathLocks,
+  pathLockTargetOf,
+  findPathLockCover,
+  findToolLockHits,
+} from './pathLock.js';
+// §5.4 #36 — 전환과 연결(에이전트 입력 카드 · 참조선). 서버 검증과 클라 낙관 반영이 한 벌을 쓴다.
+export { AGENT_CARD, APP_BUBBLE_LINK_MAX, REF_LINK_STYLE } from './constants.js';
+export {
+  sanitizeLinkedAgentIds,
+  withLinkedAgent,
+  withoutLinkedAgent,
+  isLinkedTo,
+  projectRelativePath,
+  linkedFileName,
+} from './canvasLink.js';

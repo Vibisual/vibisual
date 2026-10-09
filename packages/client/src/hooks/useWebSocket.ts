@@ -320,6 +320,8 @@ export function useWebSocket(
     store.applyAppState(snap.appState);
     if (snap.uiLocale) store.applyUiLocale(snap.uiLocale);
     store.applyLayoutBoundsByProject(snap.layoutBoundsByProject);
+    // §5.3 #12-3 — 자물쇠(프로젝트 이름 키). 집행은 서버가 하고 화면은 이 값으로 글리프·메뉴를 그린다.
+    store.applyPathLocks(snap.pathLocks);
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits, snap.claudeUsage);
     // §4 v4.82 — Claude 로그인 상태(글로벌). 미로그인이면 LoginWindow 가 이 값을 보고 뜬다.
     store.applyClaudeAuth(snap.claudeAuth);

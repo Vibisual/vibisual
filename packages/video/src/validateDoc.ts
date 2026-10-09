@@ -105,6 +105,9 @@ export function validateDoc(value: unknown): ValidateResult {
       if (asset['duration'] !== undefined && !isFiniteNumber(asset['duration'])) {
         errors.push(`소재 '${assetId}' 의 duration 이 숫자가 아닙니다.`);
       }
+      if (asset['hasAudio'] !== undefined && typeof asset['hasAudio'] !== 'boolean') {
+        errors.push(`소재 '${assetId}' 의 hasAudio 가 참/거짓이 아닙니다.`);
+      }
     }
   }
 

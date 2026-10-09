@@ -8,6 +8,31 @@ importers:
 
   .: {}
 
+  packages/audio:
+    dependencies:
+      '@vibisual/shared':
+        specifier: workspace:*
+        version: link:../shared
+      express:
+        specifier: ^4.21.0
+        version: 4.22.1
+      mediabunny:
+        specifier: ^1.52.2
+        version: 1.52.2
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: ^20.19.39
+        version: 20.19.39
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@20.19.39)(vite@6.4.1(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0))
+
   packages/client:
     dependencies:
       '@tailwindcss/typography':
@@ -16,6 +41,9 @@ importers:
       '@types/d3-force':
         specifier: ^3.0.10
         version: 3.0.10
+      '@vibisual/audio':
+        specifier: workspace:*
+        version: link:../audio
       '@vibisual/plugins':
         specifier: workspace:*
         version: link:../plugins
@@ -244,6 +272,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@vibisual/audio':
+        specifier: workspace:*
+        version: link:../audio
       '@vibisual/plugins':
         specifier: workspace:*
         version: link:../plugins

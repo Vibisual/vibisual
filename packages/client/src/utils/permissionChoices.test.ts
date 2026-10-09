@@ -47,12 +47,22 @@ describe('permissionFooterButtons', () => {
     expect(codex.find((b) => b.choice === 'reject_always')?.titleKey).toBe('panel.permissionPrompt.rejectAlwaysCodexTitle');
   });
 
+  it('§5.3 #12-3 자물쇠 카드 — [거절] · [잠금 풀고 허용] · [이번만 허용], "항상 거절"은 없다', () => {
+    const buttons = permissionFooterButtons({ alwaysAllow: 'unlock' });
+    expect(buttons.map((b) => b.choice)).toEqual(['reject_once', 'allow_always', 'allow_once']);
+    expect(buttons[0]?.labelKey).toBe('panel.permissionPrompt.deny');
+    expect(buttons[1]?.labelKey).toBe('panel.permissionPrompt.unlockAndAllow');
+    expect(buttons[1]?.titleKey).toBe('panel.permissionPrompt.unlockAndAllowTitle');
+    expect(buttons[2]?.labelKey).toBe('panel.permissionPrompt.allowOnce');
+  });
+
   it('모든 글자·제목 키가 en 에 있고 영어 기본값과 같다(기본값과 로케일이 따로 놀지 않게)', () => {
     const combos = [
       permissionFooterButtons({}),
       permissionFooterButtons({ alwaysAllow: 'session', alwaysReject: 'disallowed-tools' }),
       permissionFooterButtons({ alwaysAllow: 'ask-tools', alwaysReject: 'disallowed-tools' }),
       permissionFooterButtons({ alwaysAllow: 'codex-tools', alwaysReject: 'codex-tools' }),
+      permissionFooterButtons({ alwaysAllow: 'unlock' }),
     ].flat();
     for (const b of combos) {
       expect(lookup(b.labelKey)).toBe(b.defaultLabel);

@@ -50,8 +50,8 @@ describe('popOutToWindow — 창이 서지 못하면 앱 안에 되세운다', (
     expect(recover).toContain('handoff');
   });
 
-  it('앱 안 창을 닫는 줄은 그대로 남는다 — 같은 IDE 가 두 곳에 뜨지 않게', () => {
-    expect(popOut).toContain('closeOverlay();');
+  it('앱 안 창은 옛 탭 목록을 남기지 않고 닫는다 — 탭의 주인은 밖으로 옮겼다', () => {
+    expect(popOut).toContain('closeIDEOverlay(paneKey, { rememberEditorTabs: false });');
   });
 });
 

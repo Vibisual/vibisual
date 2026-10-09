@@ -1,5 +1,6 @@
 import { IDE_DOCK_SIDES, type IDEDockSide, type FloatGeom } from '../components/IDE/ideDockLayout.js';
 import type { IDEEditorFile, IDEOverlayState } from './graphStore.js';
+import { coerceEditorOpenerTab } from './editorOpener.js';
 
 // SCENARIO.md §5.5 #17-6 (H) — **창이 자리를 옮길 때 들고 가는 짐**.
 //
@@ -82,13 +83,16 @@ function coerceEditorFiles(raw: unknown): IDEEditorFile[] {
     const f = item as Record<string, unknown>;
     if (typeof f.relPath !== 'string' || f.relPath.length === 0) continue;
     if (typeof f.absPath !== 'string' || typeof f.name !== 'string') continue;
-    out.push({
+    // §5.5 #17-27 ⑱ — 빈 탭도 짐에 실려 간다. 갈래 칸을 모르는 판본의 짐이면 키만 남은 빈 탭이
+    //   "경로가 아닌 파일"로 둔갑해 판에 읽기 오류만 남기므로, 그런 짐 한 장은 버린다.
+    const tab = coerceEditorOpenerTab({
       relPath: f.relPath,
       absPath: f.absPath,
       name: f.name,
       // `dirty` 는 **지고 오지 않는다** — 저장하지 않은 편집은 그 창의 편집기 안에 있던 것이라,
       //   새 창에서 점만 찍어 두면 "고친 적 없는데 고쳤다"고 말하는 셈이 된다.
-    });
+    }, f.opener);
+    if (tab) out.push(tab);
   }
   return out;
 }

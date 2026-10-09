@@ -197,10 +197,12 @@ describe('buildVerifyReworkPrompt', () => {
     expect(text).toContain('Cannot find module');
   });
 
-  it('보류는 "실제로 돌려서 확인" 을 요구한다', () => {
+  it('보류는 근거 부족을 알리되 재검증은 사람의 [검증 실행]에 맡긴다(§5.3 #12-4)', () => {
     const text = buildVerifyReworkPrompt({ verdict: 'held', attempts: [] });
     expect(text).toContain('보류');
     expect(text).toContain('실제로 돌린 기록이 남지 않았습니다');
+    expect(text).toContain('[검증 실행]');
+    expect(text).not.toContain('반드시 앱을 띄워서');
   });
 });
 

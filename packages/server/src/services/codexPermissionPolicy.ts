@@ -23,8 +23,8 @@ export type CodexPermissionPlan =
   | { kind: 'allow'; reason: 'plan' | 'bypass' | 'sandbox'; policy?: 'bypass' | 'plan' }
   /** 바로 앞 카드에서 허용된 같은 호출 — 다시 묻지 않는다. */
   | { kind: 'allow'; reason: 'approved' }
-  /** 묻지 않고 거부. `reason` 은 훅이 문구를 고르는 약속된 마커다. */
-  | { kind: 'deny'; reason: 'dont-ask' | 'codex-no-prompt' }
+  /** 묻지 않고 거부. `reason` 은 훅이 문구를 고르는 약속된 마커다(`locked` — §5.3 #12-3 묻지 않는 모드의 자물쇠). */
+  | { kind: 'deny'; reason: 'dont-ask' | 'codex-no-prompt' | 'locked' }
   /** 승인 카드로 사람에게 묻는다. */
   | { kind: 'ask' };
 
@@ -34,6 +34,11 @@ export function planCodexPermission(input: {
   /** 감사 경계가 이 호출을 붙잡는가(위험 종류가 켜진 종류와 겹친다). */
   escalate: boolean;
   /**
+   * §5.3 #12-3 — 이 호출이 자물쇠에 닿는가. 모드보다 먼저 본다 — `plan`·`bypassPermissions` 도 묻는다
+   * (읽기 전용 샌드박스도 **읽기**는 막지 않는다). 생략하면 false(옛 호출부 호환).
+   */
+  locked?: boolean;
+  /**
    * 같은 호출을 방금 승인 카드에서 허용했으면 그 몫을 하나 쓰고 true. **물을 자리에서만** 부른다 —
    * 묻지 않고 끝나는 호출이 몫을 먼저 써 버리면 정작 재시도가 다시 묻는다.
    */
@@ -41,6 +46,12 @@ export function planCodexPermission(input: {
 }): CodexPermissionPlan {
   const mode = input.permissionMode || 'default';
   if (input.event === 'PreToolUse') {
+    // §5.3 #12-3 — 자물쇠가 모든 모드 단축보다 먼저다. 묻지 않는 모드는 물을 수 없으니 거부한다.
+    if (input.locked) {
+      if (input.consumeApproval()) return { kind: 'allow', reason: 'approved' };
+      if (mode === 'dontAsk') return { kind: 'deny', reason: 'locked' };
+      return { kind: 'ask' };
+    }
     // `plan` 은 경계가 건드리지 않는다 — 클로드 경로와 같다(읽기 전용 샌드박스가 실행을 막는다).
     if (mode === 'plan') return { kind: 'allow', reason: 'plan', policy: 'plan' };
     if (!input.escalate) {
@@ -65,12 +76,21 @@ export function planCodexPermission(input: {
  * 권한 훅을 못 붙였을 때 턴을 거절해야 하는가. 승인 모드이거나, 경계가 켜져 이 모드에서 호출을
  * 붙잡을 수 있으면 훅이 곧 집행이다 — 없이 돌면 사용자가 고른 설정이 조용히 꺼진다.
  * (`plan`·`dontAsk` 는 읽기 전용 샌드박스라 훅 없이도 위험 호출이 실행되지 않는다.)
+ *
+ * §5.3 #12-3 — 자물쇠가 하나라도 있으면 **모든 모드에서** 필수다. 읽기 전용 샌드박스도 읽기는 막지
+ * 않으므로, 훅 없이 돌면 잠긴 파일을 묻지 않고 읽는다.
+ *
+ * §5.3 #12-4 — 검증 정책이 켜져 있으면(앱의 기본) 역시 **모든 모드에서** 필수다. 읽기 전용 샌드박스에서도
+ * 테스트는 돈다 — 훅 없이 돌면 실행 전 검증 판정이 닿지 않는다(권한을 확인할 수 없으면 실행하지 않는다).
  */
 export function codexPermissionHooksRequired(
   permissionMode: string | undefined,
   boundary: AuditBoundaryConfig | undefined,
+  hasPathLocks = false,
+  verificationEnforced = false,
 ): boolean {
   const mode = permissionMode || 'default';
+  if (hasPathLocks || verificationEnforced) return true;
   if (canCodexPromptForPermission(mode)) return true;
   if (mode === 'plan' || mode === 'dontAsk') return false;
   return AUDIT_RISK_KINDS.some((kind) => isAuditRiskEnabled(boundary, kind));

@@ -70,10 +70,16 @@ interface IDEContextMenuProps {
    * (§9 한글 가독 하한 — 조밀하게 만든다고 읽기를 깎지 않는다).
    */
   density?: 'default' | 'compact';
+  /**
+   * 목록 위의 작은 머리 줄(누를 수 없다). 목록이 **무엇을 하려는 목록인지**를 한 줄로 말할 때만 준다 —
+   * §5.4 #36 의 "이 에이전트를 참조해 만들기"처럼 메뉴를 연 손짓만으로는 뜻이 안 보이는 자리.
+   * 안 주면 자리도 생기지 않는다(기존 메뉴의 배치는 1px 도 안 움직인다).
+   */
+  heading?: string;
   onClose: () => void;
 }
 
-export function IDEContextMenu({ x, y, items, zIndex, density = 'default', onClose }: IDEContextMenuProps): React.JSX.Element {
+export function IDEContextMenu({ x, y, items, zIndex, density = 'default', heading, onClose }: IDEContextMenuProps): React.JSX.Element {
   const compact = density === 'compact';
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
@@ -120,6 +126,11 @@ export function IDEContextMenu({ x, y, items, zIndex, density = 'default', onClo
       // 막으면 클릭은 그대로 오면서 초점은 원래 자리에 남는다.
       onMouseDown={(e) => e.preventDefault()}
     >
+      {heading && (
+        <div className={`select-none truncate text-[12px] text-gray-500 ${compact ? 'px-2 pb-1 pt-1' : 'px-3 pb-1.5 pt-1.5'}`}>
+          {heading}
+        </div>
+      )}
       {items.map((it, i) => (
         <div key={it.id ?? i}>
           {it.separatorBefore && i > 0 && <div className={`border-t border-gray-800 ${compact ? 'my-0.5' : 'my-1'}`} />}

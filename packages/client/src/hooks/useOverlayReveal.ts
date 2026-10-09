@@ -104,7 +104,8 @@ export function useOverlayReveal(): void {
         void overlay.open({ agentId, projectId, expanded: true, handoff })
           .catch(() => { /* 밖의 IDE 는 이미 서 있다 — 짐만 못 건넜을 뿐 두 벌은 아래에서 막는다 */ });
       }
-      for (const key of paneKeys) store.closeIDEOverlay(key);
+      // 탭의 주인은 밖의 창으로 옮겼다. 뒤에 그 창을 닫아도 앱의 옛 목록이 되살아나면 안 된다.
+      for (const key of paneKeys) store.closeIDEOverlay(key, { rememberEditorTabs: false });
     });
     return () => { off(); };
   }, []);
