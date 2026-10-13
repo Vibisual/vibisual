@@ -55,6 +55,8 @@ import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 import { describeCommandError, parseStreamErrorContent } from './commandError.js';
 import { TransportRecoveryLine } from './TransportRecoveryLine.js';
+import { ProcessGuardLine } from './ProcessGuardLine.js';
+import { parseProcessGuardNotice } from '@vibisual/shared';
 import {
   applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText, COMPACT_TEXT_CLAMP_MD,
   turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
@@ -889,6 +891,9 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
 /** system 메시지 — SDK subtype([task_started] 등)은 깔끔한 칩, 그 외 임의 본문은 텍스트 폴백 */
 function SystemLine({ item, density }: { item: StreamSystem; density?: StreamDensity }): React.JSX.Element {
   if (item.transportRecovery) return <TransportRecoveryLine recovery={item.transportRecovery} content={item.content} />;
+  // §5.3 #9-2 — 메모리 보호가 프로세스를 멈춘 사실. 칩이 아니라 본문이라 어느 밀도에서도 남는다.
+  const guard = parseProcessGuardNotice(item.content);
+  if (guard) return <ProcessGuardLine notice={guard} content={item.content} />;
   const subtype = parseSystemSubtype(item.content);
   // §5.5 #17-13 ⑤-3 — 작업 칩이면 payload(이름·결과·소요 시간)를 함께 넘긴다(없으면 종전 모양).
   if (subtype) return <SystemNode subtype={subtype} task={parseSystemTaskInfo(item.content)} />;
@@ -1077,8 +1082,8 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 
 // ─── 메인 렌더러 ───
 
-/** §5.5 #17-24 ② — 라이브 1줄의 라벨(모드로 고른다 — ⑤ 대기 · ⑥ 압축 중까지 넷). */
-interface LiveLabels { thinking: string; working: string; waiting: string; compacting: string }
+/** §5.5 #17-24 ② — 라이브 1줄의 라벨(모드로 고른다 — 작업 중 · ⑤ 대기 · ⑥ 압축 중 셋. ⑦ 로 생각 중은 걷었다). */
+interface LiveLabels { working: string; waiting: string; compacting: string }
 
 /**
  * §4 (스트림 3종 ①) — **중첩 서브에이전트(Task)가 한 말**을 감싸는 껍데기.
@@ -1143,7 +1148,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     // §5.25 (O) — 엔진이 내건 그림. 밀도에 따라 접지 않는다 — 그림은 줄이면 아무 말도 못 한다.
     case 'image':    inner = <ImageBlock item={item} ctx={feedbackCtx} />; break;
     case 'command':  inner = <CommandBlock item={item} agentId={feedbackCtx?.agentId} />; break;
-    // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
+    // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(작업 중 ↔ 대기 ↔ 압축 중 — ⑦ 이후 생각 중은 없다).
     // §2.4 (무응답) — 마지막 이벤트 시각을 함께 넘겨 "얼마나 조용한지"를 그 줄이 직접 판정하게 한다.
     // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터다(줄이 와도 되감기지 않는다).
     case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} turnStartedAt={item.turnStartedAt} hiddenTurn={item.hiddenTurn === true} compactingSince={item.compactingSince ?? null} />; break;
@@ -1290,7 +1295,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
 
   const liveLabels = useMemo<LiveLabels>(
     () => ({
-      thinking: t('ide.streamRenderer.thinking'),
+      // §5.5 #17-24 ⑦ — 작동 중이면 사고든 도구든 이 낱말 하나다. `생각 중`은 턴 시계와 붙어
+      //   `생각 중… 53m 59s` 로 서서, 일하는 세션이 멈춘 것으로 읽혔다.
       working: t('ide.streamRenderer.working'),
       // §5.5 #17-18 ⑪ — "작업 중"과 **다른 낱말**이어야 한다. 같은 말이면 사용자는 돌고 있는
       //   줄과 줄만 선 줄을 구별할 방법이 없다(그 혼동이 이 값이 생긴 사고다).

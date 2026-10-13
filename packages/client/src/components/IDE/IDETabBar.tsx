@@ -639,7 +639,7 @@ export const IDETabBar = memo(function IDETabBar({
   }, [ctx, ctxIsPinned, ctxIsDefault, agentId, orderedSubs, tabPins, requestClose, splitSlotKey, setSession]);
 
   return (
-    <div className="flex h-9 flex-shrink-0 items-end gap-0 border-b border-gray-700 bg-[#15192a]">
+    <div className="flex h-9 flex-shrink-0 items-end gap-0 border-b border-gray-700 bg-vb-ide-tabbar">
       {/* Hook 에이전트: 메인 세션 탭 (프롬프트+결과 read-only) */}
       {!isCustom && (
         <button

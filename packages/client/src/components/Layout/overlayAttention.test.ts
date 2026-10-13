@@ -33,6 +33,8 @@ function block(src: string, startMarker: string, endMarker: string): string {
 }
 
 const shell = source(tsx, './OverlayShell.tsx');
+// §5.13 (S-11) — 그림은 앱 창과 함께 쓰는 한 벌(`AttentionFlash`)로 옮겼다. 같은 대답이 창 종류마다 다르게 보이면 안 된다.
+const flash = source(tsx, './AttentionFlash.tsx');
 
 describe('불렸다는 기척은 그 창이 스스로 비춘다', () => {
   it('main 이 밀어 주는 신호를 구독한다 — 없는 판(구버전 preload)에서는 조용히 지나간다', () => {
@@ -51,7 +53,9 @@ describe('불렸다는 기척은 그 창이 스스로 비춘다', () => {
     // 같은 원소를 그대로 두면 React 가 갈아 끼우지 않아 CSS 애니메이션이 다시 돌지 않는다.
     const sub = block(shell, 'const [attention, setAttention] = useState(0);', 'const rfRef =');
     expect(sub).toContain('setAttention((n) => n + 1);');
-    expect(shell).toContain('key={attention}');
+    // 그 번호가 그림의 `key` 가 된다 — 번호가 바뀌면 새 원소다.
+    expect(shell).toContain('<AttentionFlash seq={attention}');
+    expect(flash).toContain('key={seq}');
   });
 
   it('IDE 로 서 있을 때만 비춘다 — 접힌 버블 창은 투명해서 두를 테두리가 없다', () => {
@@ -63,12 +67,14 @@ describe('불렸다는 기척은 그 창이 스스로 비춘다', () => {
   });
 
   it('클릭통과라 비추는 동안에도 창을 그대로 쓴다 — 그리고 끝나면 스스로 빠진다', () => {
-    // `)}` 로 끊으면 `setAttention(0)}` 에서 먼저 잡힌다 — 원소가 닫히는 `/>` 까지 본다.
-    const paint = block(shell, '{attention > 0 && (', '/>');
+    // 그림 원소가 닫히는 `/>` 까지 본다.
+    const paint = block(flash, '<div', '/>');
     expect(paint).toContain('pointer-events-none');
     expect(paint).toContain('animate-overlay-attention');
-    // 남겨 두면 끝난 애니메이션을 단 원소가 창 위에 영영 얹혀 있다.
-    expect(paint).toContain('onAnimationEnd={() => setAttention(0)}');
+    // 번호가 0 이면 그리지 않는다 — 끝난 애니메이션을 단 원소가 창 위에 영영 얹혀 있지 않게.
+    expect(flash).toContain('if (seq <= 0) return null;');
+    expect(paint).toContain('onAnimationEnd={onDone}');
+    expect(shell).toContain('onDone={() => setAttention(0)}');
   });
 });
 

@@ -1,0 +1,46 @@
+﻿Contrat de licence de Vibisual et avis relatif aux responsabilités
+Résumé du contrat de licence utilisateur final (EULA) de Vibisual, version 1.1 · en vigueur à compter du 13 octobre 2026
+
+Cette traduction est fournie pour des raisons de commodité. Les versions coréenne et anglaise sont les versions originales ; en cas de divergence de sens entre la présente traduction et ces versions, les versions originales prévalent.
+
+En cochant la case d'acceptation et en continuant, vous acceptez le présent avis et l'intégralité du contrat de licence utilisateur final (EULA), et reconnaissez avoir pris connaissance de l'avis de confidentialité (PRIVACY). Si vous n'êtes pas d'accord, interrompez l'installation ou quittez l'application.
+Texte intégral : resources\EULA.md dans le dossier d'installation, ou https://github.com/Vibisual/vibisual/blob/main/EULA.md
+Avis de confidentialité : https://github.com/Vibisual/vibisual/blob/main/PRIVACY.md
+
+1. Ce que vous pouvez faire
+Cette version compilée de Vibisual est gratuite. Vous pouvez l'installer et l'utiliser sur autant d'appareils que vous le souhaitez, à des fins personnelles ou commerciales, sans compte ni clé de licence. Vous pouvez également la déployer sans modification sur des appareils au sein de votre propre organisation, et publier des entrées de gestionnaire de paquets qui la téléchargent depuis nos adresses de diffusion officielles.
+
+2. Ce que vous ne pouvez pas faire
+Vous ne pouvez pas redistribuer, vendre, louer ou héberger en vue d'un téléchargement public cette version compilée ou toute forme modifiée de celle-ci ; ni la reconditionner ni en modifier le nom, l'icône, les mentions ou les signatures ; ni la présenter comme votre propre produit ou comme un produit approuvé par nous. Le code source est publié séparément sous licence Apache License 2.0, et les versions que vous compilez vous-même à partir de ce code source ne sont pas soumises à ces restrictions (donnez-leur un autre nom — voir TRADEMARK.md).
+
+3. Ce programme utilise l'intelligence artificielle
+Vibisual fonctionne au moyen de l'intelligence artificielle (IA) générative, telle que Claude d'Anthropic. Les réponses, le code, les évaluations et les résumés affichés à l'écran sont produits par l'IA et n'ont pas été examinés par un être humain.
+
+4. Ce qui se passe sur cet ordinateur
+Dans les limites des dossiers que vous leur confiez et des autorisations que vous leur accordez, les agents d'IA peuvent lire, créer, modifier et supprimer des fichiers, exécuter des commandes et accéder à Internet.
+Vibisual lui-même effectue également les opérations suivantes. (1) Au premier lancement, il ajoute un paramètre de connexion (hooks) au fichier de configuration de Claude Code (~/.claude/settings.json) ; si ce fichier existe déjà, une copie de sauvegarde en est conservée à côté de celui-ci. (2) Il peut installer ou mettre à jour Claude CLI (les mises à jour automatiques de la CLI peuvent être désactivées dans les options). (3) Lorsqu'une nouvelle version est publiée, il se met à jour automatiquement (aucun paramètre ne permet de désactiver ce comportement). (4) Il gère les processus lancés par ses agents et peut y mettre fin lorsque vous arrêtez une tâche ou fermez l'application, ou lorsqu'il procède au nettoyage d'une tâche qu'il estime terminée ou bloquée ; l'IA peut être utilisée pour effectuer cette évaluation. (5) La capture d'écran, l'accès à distance (téléphone, code QR, exposition sur Internet), les connexions à des messageries (Discord, Telegram) et le téléchargement de modèles locaux ne fonctionnent que si vous les activez.
+
+5. Les approbations et les autorisations relèvent de votre décision
+Toute action que vous approuvez dans une fenêtre d'approbation, toute action exécutée sans vous consulter parce que vous avez choisi un mode d'autorisation tel que « aucune confirmation » (bypassPermissions) et toute action figurant sur une liste d'autorisation automatique est considérée comme une instruction donnée par vous-même. Vous décidez des dossiers à confier, des autorisations à accorder et des fonctionnalités à activer, et vous êtes responsable des résultats qui en découlent.
+
+6. Résultats produits par l'IA
+L'IA peut produire du code erroné, des failles de sécurité, des affirmations inexactes ou des résultats qui enfreignent les droits d'auteur ou les licences de tiers. Il vous appartient d'examiner les résultats avant de les utiliser, de les distribuer ou de les valider (commit), et de vérifier les droits et les licences qu'ils requièrent.
+
+7. Risques de sécurité
+L'IA peut être trompée par des instructions malveillantes dissimulées dans des dépôts, des pages Web, des documents, des tickets (issues) ou des sorties de commandes (injection de prompt), et amenée ainsi à exécuter des commandes que vous n'aviez pas voulues ou à envoyer des informations à l'extérieur. Restreignez les autorisations lorsque vous travaillez sur des contenus auxquels vous ne faites pas confiance. Si vous confiez à l'IA un dossier ou un écran contenant des mots de passe, des clés API ou des données personnelles, ce contenu peut être transmis au service d'IA. Si vous exposez l'accès à distance sur Internet ou si vous connectez une messagerie, toute personne qui obtient les informations de connexion peut piloter les agents de cet ordinateur ; vous devez donc assurer la sécurité de ces informations.
+
+8. Services d'IA tiers, comptes et coûts
+Les agents fonctionnent au moyen d'outils externes que vous installez et auxquels vous vous connectez (Claude Code CLI, Codex CLI, etc.) et sous vos propres comptes. Les conditions et les politiques d'utilisation de ces fournisseurs s'appliquent à cette utilisation, et il vous incombe de les respecter. Le travail des agents et les évaluations auxiliaires de Vibisual (telles que les vérifications liées au nettoyage des tâches et les résumés) sont comptabilisés dans l'utilisation, les frais et les limites de vos comptes. L'exécution simultanée de nombreux agents peut épuiser rapidement les limites ou augmenter les frais, et un fournisseur peut restreindre votre compte à sa propre discrétion. Vibisual est un projet indépendant, qui n'est ni affilié à Anthropic, à OpenAI ou à tout autre fournisseur, ni approuvé par ceux-ci, et il n'est pas responsable de leurs pannes, de leurs modifications, de leurs frais ni des mesures qu'ils prennent à l'égard de votre compte.
+
+9. Sauvegardes et restrictions d'utilisation
+Sauvegardez, ou placez sous gestion de versions (git), tout fichier que vous ne pouvez pas vous permettre de perdre avant de laisser un agent travailler dessus. Ne laissez pas l'IA piloter, sans vérification humaine, des systèmes dans lesquels un dysfonctionnement pourrait causer un préjudice grave — tels que des systèmes touchant à la vie, à l'intégrité physique ou à la sécurité, aux soins médicaux, aux paiements ou aux transactions financières, ou aux services en production. Vous ne devez pas utiliser Vibisual pour enfreindre la loi ou porter atteinte aux droits d'autrui (par exemple, accéder sans autorisation au système d'un tiers) ; la responsabilité juridique de tout acte accompli au moyen de Vibisual incombe à l'utilisateur qui l'accomplit.
+
+10. Absence de garantie
+Vibisual est un logiciel gratuit à un stade précoce (préversion) et il est fourni « en l'état ». Nous ne garantissons pas qu'il soit exempt d'erreurs, qu'il fonctionne sans interruption, qu'aucune donnée ne soit perdue ni qu'il soit adapté à un usage particulier. Certaines versions compilées ne sont pas dotées d'une signature de code ; votre système d'exploitation peut donc vous avertir, et la décision de procéder malgré tout à l'installation vous appartient.
+
+11. Limitation de responsabilité
+Vibisual étant fourni gratuitement, dans toute la mesure permise par la loi, nous ne sommes pas responsables des dommages résultant de l'installation, de l'utilisation ou de l'impossibilité d'utiliser Vibisual — y compris la perte de données, de fichiers ou de travaux, les frais de services externes, les restrictions de compte, la perte d'activité et les dommages indirects, accessoires ou spéciaux. Ce qui précède ne s'applique pas aux dommages causés par notre faute intentionnelle ou notre faute lourde, ni à toute responsabilité qui ne peut être exclue ou limitée en vertu du droit applicable. Les droits dont vous disposez en tant que consommateur et auxquels la loi ne permet pas de renoncer ne sont pas affectés par le présent avis.
+
+12. Modifications, interprétation, droit applicable et contact
+Toute nouvelle version des présentes conditions s'applique aux versions compilées distribuées après sa publication et n'est jamais rétroactive. En cas de divergence de sens entre le présent résumé et le texte intégral de l'EULA, ou entre les versions coréenne et anglaise, l'interprétation qui vous est la plus favorable s'applique. Les présentes conditions sont régies par le droit de la République de Corée, et le tribunal de district central de Séoul (Seoul Central District Court) est compétent en tant que juridiction de première instance ; si vous êtes un consommateur, vous pouvez également vous prévaloir des dispositions impératives du droit de la consommation de votre pays de résidence et recourir aux juridictions de ce pays.
+Propriétaire : 길근오 · Contact : https://github.com/Vibisual/vibisual/issues

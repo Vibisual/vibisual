@@ -24,8 +24,9 @@ afterPack: ./build/after-pack.cjs
 # `resources/LICENSE` · `resources/NOTICE` 로 앉는다(Electron 자신의 LICENSE.electron.txt 와 같은 층).
 # EULA 도 같이 보낸다 — 소스는 Apache-2.0 이지만 "우리가 빌드해 배포하는 설치본"에는 별도
 # 조건(재배포·재포장 금지, 상표, 무보증)이 걸린다. EULA §5 가 이 경로를 직접 가리키므로
-# 셋은 한 덩어리로 움직여야 한다. oneClick NSIS 라 설치 중 동의 화면은 띄우지 않고,
-# 동의는 배포 페이지·README 고지로 받는다.
+# 셋은 한 덩어리로 움직여야 한다. 설치 중 동의는 아래 nsis 절의 언어 선택 + 사용권 계약 화면이
+# 받는다(2026-10-13 — "oneClick 이라 동의 화면 자리가 없다"던 종전 판단은 틀렸다, 그 절 참고).
+# 배포 페이지·README 고지는 그대로 둔다.
 extraResources:
   - from: ../../LICENSE
     to: LICENSE
@@ -33,6 +34,10 @@ extraResources:
     to: NOTICE
   - from: ../../EULA.md
     to: EULA.md
+  - from: ../../PRIVACY.md
+    to: PRIVACY.md
+  - from: build/license
+    to: legal
 
 # Disable asar packaging entirely. The pnpm symlink layout doesn't play well
 # with electron-builder's asarUnpack matching — better_sqlite3.node ended up
@@ -73,6 +78,27 @@ nsis:
   # 새 설치에서 설치 프로그램이 가끔 0xC0000005 로 죽는 electron-builder 24 템플릿 결함을 비껴간다.
   # 까닭·방법은 그 파일 머리말. 지우면 Windows 스모크가 다시 가끔 빨개진다(23회 중 6회였다).
   include: build/installer.nsh
+  # 설치 언어 고르기 → 사용권 계약 동의 (2026-10-13, 사용자 지시 — "다른 시중 앱들처럼", "그 전에 언어를 고르게").
+  # oneClick 이어도 동의 화면은 선다 — oneClick.nsh 가 licensePage 매크로를 넣는다(skipPageIfUpdated 와 함께).
+  # 언어 창은 무인(/S) 설치면 안 뜨고 동의 화면은 업데이트(--updated)면 건너뛰어, 자동 업데이트는 그대로 조용하다.
+  # 동의 화면과 약관 파일 목록은 build/installer.nsh 의 licensePage 가 들고 있다.
+  # ⚠️ 약관 파일을 resources/(buildResources)에 license_*.txt 로 두지 마라 — dmg 에도 동의 창이 붙어 맥 자체 업데이트가 멈춘다.
+  displayLanguageSelector: true
+  # 앱 UI 로케일 중 NSIS 가 아는 11개. installer.nsh 의 LicenseLangString 과 한 몸이다 — 여기만 늘리면 -WX 로 빌드가 멈춘다.
+  # 맨 앞이 기본 언어다(OS 언어가 목록에 없으면 English). es-419 는 따로 없다 — OS 가 es-MX 등이면 NSIS 가
+  # 주 언어가 같은 Spanish 를 고른다.
+  installerLanguages:
+    - en_US
+    - ko_KR
+    - ja_JP
+    - zh_CN
+    - de_DE
+    - fr_FR
+    - es_ES
+    - pt_BR
+    - it_IT
+    - id_ID
+    - hi_IN
   # allowToChangeInstallationDirectory 는 oneClick:false 에서만 유효 — 제거.
   artifactName: ${productName}-${version}-setup.${ext}
   # Brand bubble — installer wizard window, uninstaller, and Start-menu/Desktop shortcuts

@@ -12,8 +12,8 @@ import { useEdgeOccluders } from './edgeOccluders.js';
 import { isRectNode, nodeBorderDistance } from './agentCard.js';
 
 /**
- * §5.4 #36 (A) — 끝 노드가 입력 카드(정사각이 아닌 버블 노드)면 그 방향의 **판 테두리까지 거리**, 아니면 null
- * (반지름은 종전대로 data 의 값). 원 반지름으로 판을 재면 위임 화살이 판 안쪽에서 끊겨 묻힌다.
+ * §5.4 #36 (A) — 끝 노드가 말풍선(정사각이 아닌 버블 노드)이면 그 방향의 **실루엣까지 거리**, 아니면 null
+ * (반지름은 종전대로 data 의 값). 원 반지름으로 재면 위임 화살이 말풍선 안쪽에서 끊겨 묻힌다.
  */
 function rectReach(node: InternalNode | undefined, nx: number, ny: number): number | null {
   const w = node?.measured?.width;
@@ -97,7 +97,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const taskEdgeId = (edgeData?.['taskEdgeId'] as string) ?? '';
   const bundleId = (edgeData?.['bundleId'] as string | undefined) ?? undefined;
   const bundleRole = (edgeData?.['bundleRole'] as 'primary' | 'auto-artifact' | 'auto-rework' | undefined) ?? undefined;
-  // §5.4 #36 (A) — 끝이 입력 카드면 반지름 대신 그 방향의 판 테두리까지 거리(버블이면 data 의 반지름 그대로).
+  // §5.4 #36 (A) — 끝이 말풍선이면 반지름 대신 그 방향의 실루엣까지 거리(버블이면 data 의 반지름 그대로).
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
   const centerDx = targetX - sourceX;

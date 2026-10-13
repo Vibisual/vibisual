@@ -160,7 +160,7 @@ describe('(라) 모델 구역 카드는 새 설정창이 아니다', () => {
     expect(countOf(popup, 'onChange={(e) => handleVersionChange(e.target.value)}')).toBe(1);
     expect(countOf(popup, 'onChange={setEffort}')).toBe(1);
     expect(countOf(popup, 'onChange={(e) => setThinking(e.target.checked)}')).toBe(1);
-    expect(countOf(popup, 'onChange={setCodexModelId}')).toBe(1);
+    expect(countOf(popup, 'onChange={handleCodexModelChange}')).toBe(1);
     expect(countOf(popup, 'onChange={setCodexEffort}')).toBe(1);
   });
 

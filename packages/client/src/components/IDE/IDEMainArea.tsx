@@ -84,6 +84,8 @@ import { buildSessionRunInputs } from '../../utils/sessionStatus.js';
 import { turnOfEvent, type StreamSystem } from './streamItems.js';
 import { TransportRecoveryAccumulator, type StreamTransportRecovery } from './streamTransportRecovery.js';
 import { TransportRecoveryLine } from './TransportRecoveryLine.js';
+import { ProcessGuardLine } from './ProcessGuardLine.js';
+import { parseProcessGuardNotice } from '@vibisual/shared';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -92,7 +94,8 @@ function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
 }
 
 /** §5.5 #17-15 — "지금 생각하고 있다"를 뜻하는 이벤트(SDK 펄스 + 실제 thinking 델타).
- *  사고 원문은 본문에 쌓지 않고, 진행 중 라이브 1줄만이 유일한 표면이다(Sub 탭 streamItems 와 같은 규칙). */
+ *  사고 원문은 본문에 쌓지 않는다(Sub 탭 streamItems 와 같은 규칙). 라이브 1줄의 라벨은 이 판정을 쓰지
+ *  않는다 — 작동 중이면 늘 `작업 중`이다(§5.5 #17-24 ⑦). */
 function isThinkingActivity(evt: { eventType: string; content: string }): boolean {
   return evt.eventType === 'thinking' || isThinkingPulse(evt);
 }
@@ -256,7 +259,7 @@ interface TerminalGroup {
 interface TerminalThinkingLive {
   kind: 'thinking-live';
   id: string;
-  /** `thinking` = 사고 중, `working` = 그 외 작업 중, `waiting` = 줄만 섬(§5.5 #17-18 ⑪), `compacting` = 접는 중(#17-24 ⑥). */
+  /** `working` = 작동 중(사고 포함 — #17-24 ⑦), `waiting` = 줄만 섬(§5.5 #17-18 ⑪), `compacting` = 접는 중(#17-24 ⑥). */
   mode: LiveLineMode;
   timestamp: number;
   /** §2.4 (무응답) — 무응답을 재는 시계(마지막 이벤트 시각). 모르면 `null`(Sub 탭과 동형). */
@@ -274,7 +277,6 @@ interface TerminalThinkingLive {
  * 두 경로가 다른 낱말을 내면 같은 세션이 탭을 옮길 때마다 말이 바뀐다(§5.5 #17-18 ⑪).
  */
 const MAIN_LIVE_LABEL_KEY: Record<TerminalThinkingLive['mode'], string> = {
-  thinking: 'ide.streamRenderer.thinking',
   working: 'ide.streamRenderer.working',
   waiting: 'ide.streamRenderer.waiting',
   compacting: 'ide.streamRenderer.compacting',
@@ -900,6 +902,9 @@ function TerminalLine({ entry, density, exempt, run, agentId }: { entry: Termina
   if (entry.type === 'step') return <TerminalStepLine entry={entry} />;
   // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
   if (entry.type === 'system') {
+    // §5.3 #9-2 — 메모리 보호 알림은 세션 탭과 같은 줄로(문장은 로케일로 만든다).
+    const guard = parseProcessGuardNotice(entry.text);
+    if (guard) return <ProcessGuardLine notice={guard} content={entry.text} sessionLabel={entry.sessionLabel} />;
     const subtype = parseSystemSubtype(entry.text);
     // §5.5 #17-13 ⑤-3 — 작업 칩이면 payload(이름·결과·소요 시간)를 함께 넘긴다(없으면 종전 모양).
     if (subtype) return <SystemNode subtype={subtype} task={parseSystemTaskInfo(entry.text)} />;
@@ -3102,7 +3107,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   써서 두 자리가 어긋나지 않게 한다(종전에는 각자 명령 상태만 따로 봐서 갈라졌다).
   const streamSessionRunning = useSessionRunning(agentId, activeSessionId);
   // §2.4 (생존 판정 단일화) — **원본 큐 + 세션 필터 + 공유 술어**로 낸 "작동 중"(도는 중 ∪ 줄 서 있음).
-  //   라이브 1줄(생각 중/작업 중)과 스트림 렌더러가 이 값 하나를 본다. 화면용 사본(`displayCommands`)을
+  //   라이브 1줄(작업 중)과 스트림 렌더러가 이 값 하나를 본다. 화면용 사본(`displayCommands`)을
   //   생존 판정에 쓰면 아무것도 돌지 않는 세션이 영영 "실행 중"으로 굳는다(constants.ts 의 경고 그대로).
   const sessionHasWork = useSessionWork(agentId, activeSessionId);
   // §2.4 — "진짜 도는 명령이 있는가"(원본 큐). 하단 상태바가 되살아난 턴을 가려낼 때 쓴다.
@@ -3132,7 +3137,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   // queued/executing + completed/error 를 시간순으로 합친다 — 완료 후에도 프롬프트 이력 유지 (CommandQueue와 동일).
   // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 **말풍선이 되지 않는다.** 사용자가 넣은 적이 없는
   //   명령이라, 여기 뜨면 자기가 치지도 않은 `/compact` 가 자기 대화에 섞여 보인다. 세션이 "돌고
-  //   있다"는 판정(useSessionRunning)은 그 명령을 그대로 세므로 화면은 계속 "생각 중"이다.
+  //   있다"는 판정(useSessionRunning)은 그 명령을 그대로 세므로 화면은 계속 "작업 중"이다.
   const commands = useMemo(
     () => [...displayCommands(queuedCmds), ...completedCmds].sort((a, b) => a.timestamp - b.timestamp),
     [queuedCmds, completedCmds],
@@ -3590,7 +3595,9 @@ export const IDEMainArea = memo(function IDEMainArea({
     }
 
     // §5.5 #17-24 ② — 라이브 1줄은 **에이전트가 작동하는 동안 항상** 뜬다(Sub 탭 computeThinkingLive 와 동형).
-    //   가장 최근 이벤트는 켜고 끄는 스위치가 아니라 라벨을 고르는 값 — 사고 이벤트면 `생각 중`, 그 외는 `작업 중`.
+    //   §5.5 #17-24 ⑦ — 가장 최근 이벤트는 켜고 끄지도, 라벨을 고르지도 않는다(작동 중이면 늘 `작업 중`).
+    //   사고 이벤트면 `생각 중`이라 적던 것이 턴 시계와 붙어 `생각 중… 53m 59s` 로 서서 멈춘 것으로 읽혔다.
+    //   최근 이벤트는 정렬 시각과 무응답 시계의 재료로만 쓴다.
     if (agentBusy) {
       // v3.72 — 종전엔 "가장 최근 이벤트" 를 찾으려고 **전 세션 이벤트를 매번 완주**했다(O(전체)).
       //   스트림 배열은 도착 순서대로 append 되므로 각 배열의 **마지막 원소**만 보면 된다(O(세션 수)).
@@ -3601,8 +3608,8 @@ export const IDEMainArea = memo(function IDEMainArea({
         if (tail && (!latest || tail.timestamp > latest.timestamp)) latest = tail;
       }
       // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(Sub 탭 `computeThinkingLive` 와 동형).
-      // §5.5 #17-24 ⑥ — 접는 중이면 넷째 모드. 고르는 규칙은 Sub 탭과 같은 함수 한 곳(`liveLineMode`).
-      const mode = liveLineMode(sessionWaiting, sessionCompactingSince !== null, !!latest && isThinkingActivity(latest));
+      // §5.5 #17-24 ⑥ ⑦ — 접는 중이면 압축 중. 고르는 규칙은 Sub 탭과 같은 함수 한 곳(`liveLineMode`).
+      const mode = liveLineMode(sessionWaiting, sessionCompactingSince !== null);
       // §2.4 (무응답) — 경과 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중 늦은 쪽.
       //   감춘 턴이 도는 동안에도 입력한 순간부터 세고 무응답으로만 안 뒤집는다(`hiddenTurn`). Sub 탭과 같은
       //   함수다. 근거가 없으면 `null` — 여기서 `Date.now()` 를 넣으면 매 프레임 "방금 움직였다"가 되어
@@ -4332,7 +4339,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     //   보지 않는 셸이 그대로 남는다).
     if (!activeSessionId) {
       // 배경색은 터미널과 같은 값 — 이 찰나의 자리바꿈이 깜빡임으로 드러나지 않게.
-      return <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#11111b]" />;
+      return <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-vb-terminal" />;
     }
     // §4 v2.83 — CMD 카드는 외부 레일이 아니라 **터미널 안 ANSI 색 박스**로 인라인 렌더된다
     //   (IDETerminalView 의 TerminalCardSniffer 가 마커 줄을 박스로 대체). 여기선 터미널만 렌더.

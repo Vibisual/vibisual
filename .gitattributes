@@ -1,0 +1,4 @@
+# 설치 화면 약관(Windows 설치기의 사용권 계약 화면이 그대로 읽어 보여 주는 글) — 줄끝을 CRLF 로 고정한다.
+# 체크아웃 설정(core.autocrlf)에 따라 LF 로 바뀌지 않게 하려는 것이다. 파일 자체는 UTF-8 BOM 이다
+# (packages/desktop/build/installer.nsh 머리말 · 계약 시험 releasePackaging.test.ts 「설치 동의 화면」).
+packages/desktop/build/license/*.txt text eol=crlf

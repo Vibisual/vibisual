@@ -8,6 +8,7 @@ import { getCodexBin } from './codexCli.js';
 import { buildCliInvocation } from './claudeCliRun.js';
 import { augmentedEnv } from './binLocator.js';
 import { processGroupSpawnOptions, killTree } from './processTree.js';
+import { processGuard } from './processGuard.js';
 import { mapCodexLine, codexFileChangePaths, type CodexMappedEvent, type CodexUsage } from './codexStreamMap.js';
 import { createCodexPendingCallLedger } from './codexPendingCalls.js';
 import { CODEX_TURN_IDLE_CHECK_MS, CODEX_TURN_IDLE_NOTICE_MS, CODEX_TURN_IDLE_SETTLE_MS, CODEX_MCP_CALL_DEADLINE_MS } from '@vibisual/shared';
@@ -350,6 +351,9 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     return;
   }
 
+  // §5.3 #9-2 — 코덱스가 띄운 셸 명령도 우리 묶음 안에서 상한·압박 감시를 받는다. 턴마다 새 프로세스라
+  //   본체 종료 정리는 걸지 않는다(걸면 에이전트가 띄운 개발 서버가 턴마다 꺼진다).
+  processGuard.guardChild(child, args.ownerAgentId ? { parentAgentId: args.ownerAgentId, subAgentId: args.subAgentId } : null, 'codex', { reapOnExit: false });
   attachCodexTurn(child, args);
 
   // 프롬프트는 stdin 한 곳으로만 보낸다(위 주석 참조).

@@ -1,0 +1,46 @@
+﻿Contrato de Licença e Aviso de Responsabilidade do Vibisual
+Resumo do Contrato de Licença de Usuário Final (EULA) do Vibisual, versão 1.1 · vigente a partir de 13 de outubro de 2026
+
+Esta tradução é fornecida por conveniência. As versões em coreano e em inglês são as originais; se esta tradução divergir delas quanto ao sentido, prevalecem as originais.
+
+Ao marcar a caixa de aceitação e continuar, você concorda com este aviso e com o texto integral do Contrato de Licença de Usuário Final (EULA), e declara ter lido o aviso de privacidade (PRIVACY). Se você não concordar, interrompa a instalação ou feche o aplicativo.
+Texto integral: resources\EULA.md na pasta de instalação, ou https://github.com/Vibisual/vibisual/blob/main/EULA.md
+Aviso de privacidade: https://github.com/Vibisual/vibisual/blob/main/PRIVACY.md
+
+1. O que você pode fazer
+Esta versão compilada do Vibisual é gratuita. Você pode instalá-la e usá-la em quantos dispositivos quiser, para fins pessoais ou comerciais, sem conta e sem chave de licença. Você também pode implantá-la, sem modificações, em dispositivos da sua própria organização e publicar entradas em gerenciadores de pacotes que a baixem dos nossos endereços oficiais de distribuição.
+
+2. O que você não pode fazer
+Você não pode redistribuir, vender, alugar ou hospedar para download público esta versão compilada ou qualquer forma modificada dela; reempacotá-la ou alterar seu nome, ícone, avisos ou assinaturas; ou apresentá-la como produto seu ou como endossada por nós. O código-fonte é publicado separadamente sob a Apache License 2.0, e as versões que você mesmo compilar a partir desse código-fonte não estão sujeitas a essas restrições (dê a elas um nome diferente — consulte TRADEMARK.md).
+
+3. Este programa usa inteligência artificial
+O Vibisual funciona usando inteligência artificial (IA) generativa, como o Claude, da Anthropic. As respostas, o código, as avaliações e os resumos exibidos na tela são produzidos por IA e não foram revisados por uma pessoa.
+
+4. O que acontece neste computador
+Os agentes de IA podem, dentro das pastas que você lhes disponibilizar e das permissões que você lhes conceder, ler, criar, alterar e excluir arquivos, executar comandos e acessar a internet.
+O próprio Vibisual também faz o seguinte. (1) Na primeira execução, ele adiciona uma configuração de conexão (hooks) ao arquivo de configurações do Claude Code (~/.claude/settings.json); se esse arquivo já existir, um backup dele é mantido ao seu lado. (2) Ele pode instalar ou atualizar o Claude CLI (as atualizações automáticas do CLI podem ser desativadas nas opções). (3) Quando uma nova versão é lançada, ele se atualiza automaticamente (não há nenhuma configuração que desative isso). (4) Ele gerencia os processos iniciados por seus agentes e pode encerrá-los quando você interrompe uma tarefa ou fecha o aplicativo, ou quando faz a limpeza de uma tarefa que avalia como concluída ou travada; a IA pode ser usada para fazer essa avaliação. (5) A captura de tela, o acesso remoto (celular, código QR, exposição à internet), as conexões com mensageiros (Discord, Telegram) e o download de modelos locais só funcionam quando você os ativa.
+
+5. Aprovações e permissões são decisões suas
+Qualquer ação que você aprovar em uma janela de aprovação, qualquer ação executada sem perguntar porque você escolheu um modo de permissão como "sem confirmação" (bypassPermissions) e qualquer ação incluída em uma lista de permissão automática são tratadas como instruções dadas por você mesmo. Você decide quais pastas disponibilizar, quais permissões conceder e quais recursos ativar, e é responsável pelos resultados.
+
+6. Resultados gerados pela IA
+A IA pode produzir código incorreto, vulnerabilidades de segurança, afirmações inverídicas ou resultados que violem os direitos autorais ou as licenças de terceiros. Cabe a você revisar os resultados antes de usá-los, distribuí-los ou fazer commit deles, bem como verificar os direitos e as licenças que eles exigem.
+
+7. Riscos de segurança
+A IA pode ser enganada por instruções maliciosas ocultas em repositórios, páginas da web, documentos, issues ou saídas de comandos (injeção de prompt) e levada a executar comandos que você não pretendia ou a enviar informações para fora. Restrinja as permissões ao trabalhar com materiais em que você não confia. Se você disponibilizar à IA uma pasta ou uma tela que contenha senhas, chaves de API ou dados pessoais, esse conteúdo poderá ser enviado ao serviço de IA. Se você expuser o acesso remoto à internet ou conectar um mensageiro, qualquer pessoa que obtiver os dados de conexão poderá comandar os agentes neste computador; por isso, você deve manter esses dados em segurança.
+
+8. Serviços de IA de terceiros, contas e custos
+Os agentes funcionam por meio de ferramentas externas que você instala e nas quais faz login (Claude Code CLI, Codex CLI e outras) e com as suas próprias contas. Os termos e as políticas de uso desses provedores se aplicam a esse uso, e cumpri-los é responsabilidade sua. O trabalho dos agentes e as avaliações auxiliares do Vibisual (como verificações de limpeza de tarefas e resumos) são contabilizados no uso, nas cobranças e nos limites das suas contas. Executar muitos agentes ao mesmo tempo pode esgotar rapidamente os limites ou aumentar as cobranças, e um provedor pode restringir sua conta a seu próprio critério. O Vibisual é um projeto independente, não afiliado à Anthropic, à OpenAI nem a qualquer outro provedor, nem endossado por eles, e não se responsabiliza por interrupções, alterações, cobranças ou medidas desses provedores em relação à sua conta.
+
+9. Backups e restrições de uso
+Faça backup de todos os arquivos que você não pode perder, ou coloque-os sob controle de versão (git), antes de permitir que um agente trabalhe neles. Não permita que a IA opere, sem revisão humana, sistemas em que um mau funcionamento possa causar danos graves — como sistemas que afetem a vida, a integridade física ou a segurança, assistência médica, pagamentos ou transações financeiras, ou serviços em produção. Você não pode usar o Vibisual para infringir a lei ou violar os direitos de terceiros (por exemplo, acessar o sistema de outra pessoa sem permissão); a responsabilidade legal por qualquer ato praticado com o Vibisual é do usuário que o pratica.
+
+10. Ausência de garantia
+O Vibisual é um software gratuito em estágio inicial (versão prévia) e é fornecido "no estado em que se encontra". Não garantimos que ele esteja livre de erros, que funcione sem interrupções, que nenhum dado seja perdido ou que seja adequado a uma finalidade específica. Algumas versões compiladas não têm assinatura de código, de modo que o seu sistema operacional pode exibir um aviso; a decisão de instalar mesmo assim é sua.
+
+11. Limitação de responsabilidade
+Como o Vibisual é fornecido gratuitamente, na máxima extensão permitida por lei, não nos responsabilizamos por danos decorrentes da instalação, do uso ou da impossibilidade de uso do Vibisual — incluindo perda de dados, arquivos ou trabalho, cobranças de serviços externos, restrições de conta, perda de negócios e danos indiretos, incidentais ou especiais. Isso não se aplica a danos causados por dolo ou culpa grave de nossa parte, nem a qualquer responsabilidade que não possa ser excluída ou limitada nos termos da legislação aplicável. Os direitos que você tem como consumidor e que, por lei, não podem ser renunciados não são afetados por este aviso.
+
+12. Alterações, interpretação, lei aplicável e contato
+Uma nova versão destes termos se aplica às versões compiladas distribuídas após a sua publicação e nunca tem efeito retroativo. Se este resumo e o texto integral do EULA, ou as versões em coreano e em inglês, divergirem quanto ao sentido, aplica-se a interpretação mais favorável a você. Estes termos são regidos pelas leis da República da Coreia, e o Tribunal Distrital Central de Seul (Seoul Central District Court) tem competência como foro de primeira instância; se você for consumidor, também poderá se valer das normas cogentes de proteção ao consumidor e dos tribunais do seu país de residência.
+Responsável: 길근오 · Contato: https://github.com/Vibisual/vibisual/issues

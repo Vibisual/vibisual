@@ -10,19 +10,24 @@
  * 판정 자리 다섯(헤드리스 클로드 `/api/permission-check` · 코덱스 권한 훅 · 로컬 `requestTool` · CMD 훅 ·
  * 앱 검증 MCP)이 이 객체 하나를 부른다 — 두 벌이 되면 한 엔진에서만 막힌다.
  *
- * 권한을 확인하지 못하면(도는 명령을 못 찾음) 검증은 거부한다(fail-closed). 검증이 아닌 호출은 언제나
+ * 정책을 켠 동안 권한을 확인하지 못하면(도는 명령을 못 찾음) 검증은 거부한다(fail-closed). 검증이 아닌 호출은 언제나
  * 통과(`none`)라, 이 객체가 일반 작업(읽기·검색·편집)을 막는 일은 없다.
+ *
+ * (J) 실행 전 차단은 옵션창 권한 탭의 스위치다(기본 끔). 꺼져 있으면 다섯 자리 모두 거부하지 않고 실행으로만
+ * 센다 — 스위치를 이 객체가 쥐어야 한 자리만 빠지는 일이 없다. 값은 호출마다 읽는다(다음 호출부터 적용).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   applyVerificationDecision,
+  buildVerificationPolicyRules,
   buildVerificationStateLine,
   classifyVerificationCall,
   decideVerificationCall,
   markVerificationEdited,
   verificationScopeAllows,
   verificationScopeFromText,
+  VERIFICATION_GATE_DEFAULT_ENABLED,
   type CommandVerificationSummary,
   type QueuedCommand,
   type VerificationDecision,
@@ -37,8 +42,13 @@ export const VERIFICATION_SCRIPT_CACHE_MAX = 200;
 export const VERIFICATION_CMD_TURN_MAX = 200;
 
 export interface VerificationGateDeps {
-  /** 이 세션 탭에서 지금 도는 명령. 없으면 undefined(→ 검증은 거부). */
+  /** 이 세션 탭에서 지금 도는 명령. 없으면 undefined(정책을 켠 동안 검증은 거부). */
   findExecutingCommand(subAgentId: string): QueuedCommand | undefined;
+  /**
+   * (J) 실행 전 차단이 켜져 있는가 — 앱은 옵션 값(`isVerificationGateEnabled`, 기본 끔)을 넘긴다.
+   * 안 넘겨도 공통 기본값(끔)을 따른다.
+   */
+  isEnforced?: () => boolean;
   now?: () => number;
   /** 플랫폼(테스트 주입용 — 기본 `process.platform`). msys 경로(`/c/...`) 해석에만 쓴다. */
   platform?: NodeJS.Platform;
@@ -63,9 +73,14 @@ export class VerificationGate {
 
   constructor(private readonly deps: VerificationGateDeps) {}
 
+  /** (J) 실행 전 차단이 켜져 있는가. 코덱스 훅 필수 여부·호스팅 도구 끄기·스폰 표식도 이 답을 본다. */
+  isEnforced(): boolean {
+    return this.deps.isEnforced ? this.deps.isEnforced() : VERIFICATION_GATE_DEFAULT_ENABLED;
+  }
+
   /**
    * 헤드리스 클로드·코덱스 — 그 탭에서 **지금 도는 명령**의 범위로 판정하고 그 명령에 기록한다.
-   * 명령을 못 찾으면 `confirmed=false` 로 판정한다(검증이면 거부, 아니면 통과).
+   * 명령을 못 찾으면 `confirmed=false` 로 판정한다(정책을 켠 동안 검증이면 거부).
    */
   checkSubAgentCall(subAgentId: string | undefined, input: VerificationCallInput): VerificationDecision {
     const cmd = subAgentId ? this.deps.findExecutingCommand(subAgentId) : undefined;
@@ -82,17 +97,19 @@ export class VerificationGate {
       ...(typeof cmd?.startedAt === 'number' ? { startedAt: cmd.startedAt } : {}),
       now: this.now(),
       confirmed: !!cmd,
+      enforced: this.isEnforced(),
     });
     if (cmd) cmd.verification = applyVerificationDecision(cmd.verification, decision);
     return decision;
   }
 
   /**
-   * 전용 검증 경로(앱 검증 MCP) — 그 검증 실행의 명령에 이 종류들이 열려 있는가. 기록은 하지 않는다
-   * (같은 호출이 이미 권한 창구를 지나며 적혔다).
+   * 전용 검증 경로(앱 검증 MCP) — 그 검증 실행의 명령이 돌고 있고, 이 종류들이 열려 있는가. 기록은 하지 않는다
+   * (같은 호출이 이미 권한 창구를 지나며 적혔다). 차단을 꺼 두면(J) 그 명령이 돌고 있는지만 본다.
    */
   commandAllows(cmd: QueuedCommand | undefined, kinds: readonly VerificationPolicyKind[]): boolean {
-    return !!cmd && cmd.status === 'executing' && verificationScopeAllows(cmd.verificationScope, kinds);
+    if (!cmd || cmd.status !== 'executing') return false;
+    return !this.isEnforced() || verificationScopeAllows(cmd.verificationScope, kinds);
   }
 
   // ── CMD 터미널 턴 ──────────────────────────────────────────────────────────
@@ -114,13 +131,14 @@ export class VerificationGate {
     this.cmdTurns.delete(subAgentId);
   }
 
-  /** CMD 턴의 권한 한 줄(`UserPromptSubmit` 응답에 싣는다). */
+  /** CMD도 매 턴 현재 설정을 받는다. 이미 열린 터미널의 오래된 규칙 파일에만 의존하지 않는다. */
   cmdTurnStateLine(subAgentId: string): string {
     const turn = this.cmdTurns.get(subAgentId);
-    return buildVerificationStateLine(turn?.scope, turn?.summary);
+    const opts = { enforced: this.isEnforced() };
+    return buildVerificationPolicyRules(opts) + buildVerificationStateLine(turn?.scope, turn?.summary, opts);
   }
 
-  /** CMD 터미널의 도구 호출. 턴이 없으면(문장을 못 받음) 검증은 거부한다. */
+  /** CMD 터미널의 도구 호출. 정책을 켠 동안 턴이 없으면(문장을 못 받음) 검증은 거부한다. */
   checkCmdCall(subAgentId: string, input: VerificationCallInput): VerificationDecision {
     const turn = this.cmdTurns.get(subAgentId);
     if (turn) turn.summary = markVerificationEdited(turn.summary, input.toolName, input.toolInput);
@@ -131,6 +149,7 @@ export class VerificationGate {
       ...(turn ? { startedAt: turn.startedAt } : {}),
       now: this.now(),
       confirmed: !!turn,
+      enforced: this.isEnforced(),
     });
     if (turn) turn.summary = applyVerificationDecision(turn.summary, decision);
     return decision;

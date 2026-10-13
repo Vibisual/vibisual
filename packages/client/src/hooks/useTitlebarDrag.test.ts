@@ -3,7 +3,7 @@ import { useTitlebarDrag } from './useTitlebarDrag.js';
 
 const lifecycle = vi.hoisted(() => ({ cleanups: [] as Array<() => void> }));
 
-// 이 훅은 ref 와 창 리스너만 사용한다. DOM 없이 실제 이벤트 수명과 IPC 순서를 실행한다.
+// 이 훅은 창 리스너만 사용한다. DOM 없이 실제 이벤트 수명과 IPC 순서를 실행한다.
 vi.mock('react', () => ({
   useRef: <T>(initial: T): { current: T } => ({ current: initial }),
   useCallback: <T>(fn: T): T => fn,
@@ -14,10 +14,11 @@ vi.mock('react', () => ({
 }));
 
 type Phase = 'start' | 'move' | 'end';
+type Point = { x: number; y: number };
 
 function setup() {
   const listeners: Array<{ type: string; fn: (event: object) => void; capture: boolean }> = [];
-  const moveSelf = vi.fn((_phase: Phase): Promise<boolean> => Promise.resolve(true));
+  const moveSelf = vi.fn((_phase: Phase, _point?: Point): Promise<boolean> => Promise.resolve(true));
   const host = {
     api: { window: { moveSelf } },
     addEventListener: (type: string, fn: (event: object) => void, capture: boolean) => {
@@ -37,6 +38,7 @@ function setup() {
     unmount,
     moveSelf,
     phases: () => moveSelf.mock.calls.map(([phase]) => phase),
+    points: () => moveSelf.mock.calls.map(([phase, point]) => [phase, point ?? null]),
     listening: () => listeners.map((l) => l.type).sort(),
     dispatch: (type: string, event: object = {}) => {
       for (const listener of listeners.filter((l) => l.type === type)) listener.fn(event);
@@ -44,9 +46,10 @@ function setup() {
   };
 }
 
-function press(button = 0) {
+function press(button = 0, at?: Point) {
   return {
     button,
+    ...(at ? { screenX: at.x, screenY: at.y } : {}),
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
   } as unknown as React.MouseEvent<HTMLElement>;
@@ -202,5 +205,47 @@ describe('로고 창 이동 — 최대화 복원 중에도 같은 손짓을 이�
     expect(() => rig.down(press())).not.toThrow();
     expect(rig.phases()).toEqual(['start', 'end']);
     expect(rig.listening()).toEqual([]);
+  });
+});
+
+// §3.7 ③ — 누른 자리와 놓은 자리는 렌더러가 잰 화면 좌표로 싣는다. 메인 스레드가 바빠 늦게 받아도
+//   main 이 손이 실제로 누르고 놓은 자리로 옮길 수 있게 하기 위해서다(받는 쪽은 desktop `titlebarMove.ts`).
+describe('누른 자리·놓은 자리는 렌더러가 잰다', () => {
+  it('누름·해제는 각자의 화면 좌표를 싣고, 이동은 싣지 않는다(쥐고 있는 동안은 main 의 OS 커서가 가장 새 자리)', () => {
+    const rig = setup();
+    rig.down(press(0, { x: 410, y: 12 }));
+    rig.dispatch('mousemove', { buttons: 1, screenX: 430, screenY: 40 });
+    rig.dispatch('mouseup', { button: 0, buttons: 0, screenX: 455, screenY: 61 });
+    expect(rig.points()).toEqual([
+      ['start', { x: 410, y: 12 }],
+      ['move', null],
+      ['end', { x: 455, y: 61 }],
+    ]);
+  });
+
+  it('놓친 해제 뒤의 이동·창 이탈은 놓은 자리가 아니라 좌표 없이 끝낸다', () => {
+    const missed = setup();
+    missed.down(press(0, { x: 10, y: 10 }));
+    missed.dispatch('mousemove', { buttons: 0, screenX: 900, screenY: 500 });
+    expect(missed.points()).toEqual([['start', { x: 10, y: 10 }], ['end', null]]);
+
+    const left = setup();
+    left.down(press(0, { x: 10, y: 10 }));
+    left.dispatch('blur', {});
+    expect(left.points()).toEqual([['start', { x: 10, y: 10 }], ['end', null]]);
+  });
+
+  it('왼쪽이 이미 떨어진 뒤 다른 버튼의 해제는 놓은 자리가 아니다', () => {
+    const rig = setup();
+    rig.down(press(0, { x: 10, y: 10 }));
+    rig.dispatch('mouseup', { button: 2, buttons: 0, screenX: 700, screenY: 300 });
+    expect(rig.points()).toEqual([['start', { x: 10, y: 10 }], ['end', null]]);
+  });
+
+  it('좌표가 숫자가 아니면 싣지 않는다 — main 이 OS 커서로 대신한다', () => {
+    const rig = setup();
+    rig.down({ ...press(), screenX: Number.NaN, screenY: 5 } as unknown as React.MouseEvent<HTMLElement>);
+    rig.dispatch('mouseup', { button: 0, buttons: 0 });
+    expect(rig.points()).toEqual([['start', null], ['end', null]]);
   });
 });

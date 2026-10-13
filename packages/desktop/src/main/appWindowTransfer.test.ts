@@ -49,6 +49,17 @@ describe('app window ownership transfer', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1_000); });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
+  // §5.13 (S-10) — 앱 안 창을 끌어내 놓은 판은 이미 떠 있는 창도 선이 서 있던 자리·크기로 옮긴다.
+  it('places a reused window where the ghost stood, writing the size ledger first', () => {
+    const s = setup();
+    expect(s.transfers.place(2, { x: 300.4, y: 120.6, width: 640, height: 480 })).toBe(true);
+    expect(s.source.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 121, width: 640, height: 480 });
+    expect(s.entry.size).toEqual({ width: 640, height: 480 });
+    expect(s.transfers.place(2, { x: Number.NaN, y: 0, width: 640, height: 480 })).toBe(false);
+    expect(s.transfers.place(2, { x: 0, y: 0, width: 0, height: 480 })).toBe(false);
+    expect(s.transfers.place(99, { x: 0, y: 0, width: 640, height: 480 })).toBe(false);
+  });
+
   it('returns the latest document and geometry, closing only after the origin acknowledges', () => {
     const s = setup();
     s.transfers.updateTarget(2, { projectId: 'C:/project', docId: 'current' });
@@ -286,5 +297,55 @@ describe('app title drag matches IDE enter/dwell/release behavior', () => {
     }
     expect(s.source.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ width: 800, height: 600 }));
     s.transfers.endDrag(2, false);
+  });
+});
+
+// §5.13 (S-11) — 본체는 이 목록으로 "그 문서가 이미 밖에 떠 있다"를 안다(떠 있으면 앱 안에 한 벌 더 세우지 않고 그 창을
+//   앞으로 세운다). 그래서 창이 서고 닫히거나 보는 문서가 바뀔 때마다 알려야 한다 — 하나라도 빠지면 본체가 옛 목록을 믿는다.
+describe('outside app window list', () => {
+  function listed() {
+    const main = fakeWindow(1);
+    const source = fakeWindow(2);
+    const changed = vi.fn();
+    const transfers = new AppWindowTransfers({ main: () => main, cursor: () => ({ x: 0, y: 0 }),
+      dipStep: () => 1, showGhost: () => true, hideGhost: vi.fn(), changed });
+    transfers.register({ appId: 'vibistudio', window: source, origin: main,
+      params: { projectId: 'C:/project', docId: 'first' }, size: { width: 800, height: 600 }, writtenAt: 0 });
+    return { transfers, main, source, changed };
+  }
+
+  it('lists each live window with a copy of the document it shows, announcing the new window', () => {
+    const s = listed();
+    expect(s.changed).toHaveBeenCalledOnce();
+    const list = s.transfers.list();
+    expect(list).toEqual([{ windowId: 2, appId: 'vibistudio', params: { projectId: 'C:/project', docId: 'first' } }]);
+    // 사본이다 — 받는 쪽이 고쳐도 장부는 그대로다.
+    list[0]!.params['docId'] = 'tampered';
+    expect(s.transfers.list()[0]!.params['docId']).toBe('first');
+  });
+
+  it('announces a document chosen in the window, an accepted reuse and a close', () => {
+    const s = listed();
+    s.transfers.updateTarget(2, { projectId: 'C:/project', docId: 'second' });
+    expect(s.changed).toHaveBeenCalledTimes(2);
+    expect(s.transfers.list()[0]!.params['docId']).toBe('second');
+
+    s.transfers.reuse(2, { projectId: 'C:/project', docId: 'third' }, s.main);
+    expect(s.changed).toHaveBeenCalledTimes(3);
+    expect(s.transfers.list()[0]!.params['docId']).toBe('third');
+
+    s.transfers.unregister(2);
+    expect(s.changed).toHaveBeenCalledTimes(4);
+    expect(s.transfers.list()).toEqual([]);
+    // 없는 창은 바뀐 것이 없다 — 헛알림을 보내지 않는다.
+    s.transfers.unregister(2);
+    expect(s.transfers.updateTarget(2, { projectId: 'C:/project' })).toBe(false);
+    expect(s.changed).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not list a window that is already destroyed but not yet unregistered', () => {
+    const s = listed();
+    s.source.close();
+    expect(s.transfers.list()).toEqual([]);
   });
 });

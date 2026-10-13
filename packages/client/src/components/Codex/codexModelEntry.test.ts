@@ -76,24 +76,22 @@ describe('resolveCodexEntry — 계단 순서(설치 → 로그인 → 모델)',
   });
 });
 
-describe('resolveCodexEntry — 모델 물리기', () => {
+describe('resolveCodexEntry — 카탈로그와 무관하게 사용자 선택 보존', () => {
   it('문 모델이 목록에 있으면 그대로 간다', () => {
     expect(resolveCodexEntry(codexCfg('gpt-5.1-codex'), { setup: READY, auth: IN, models: MODELS })).toEqual({
       kind: 'ide',
     });
   });
 
-  it('아직 아무것도 안 물었으면 목록 첫 항목을 매어 준다', () => {
+  it('빈 선택은 목록이 도착해도 CLI 상속으로 남는다', () => {
     expect(resolveCodexEntry(codexCfg(''), { setup: READY, auth: IN, models: MODELS })).toEqual({
-      kind: 'bind',
-      model: MODELS[0],
+      kind: 'ide',
     });
   });
 
-  it('문 모델이 목록에서 사라졌으면 다시 매어 준다', () => {
+  it('문 모델이 은퇴하거나 목록에서 사라져도 교체하지 않는다', () => {
     expect(resolveCodexEntry(codexCfg('gone-model'), { setup: READY, auth: IN, models: MODELS })).toEqual({
-      kind: 'bind',
-      model: MODELS[0],
+      kind: 'ide',
     });
   });
 
@@ -116,9 +114,15 @@ describe('resolveCodexEntry — 모델 물리기', () => {
   });
 });
 
-describe('pickDefaultCodexModel — 발행처가 준 순서를 우리가 다시 세우지 않는다', () => {
-  it('첫 항목을 고른다', () => {
-    expect(pickDefaultCodexModel(MODELS)?.slug).toBe('gpt-5.1-codex');
+describe('pickDefaultCodexModel — 명시된 기본값만 표시 근거로 삼는다', () => {
+  it('목록 첫 항목을 기본값이라고 추측하지 않는다', () => {
+    expect(pickDefaultCodexModel(MODELS)).toBeNull();
+  });
+
+  it('순서가 바뀌어도 isDefault를 따른다', () => {
+    const announced = [{ ...MODELS[0]!, isDefault: false }, { ...MODELS[1]!, isDefault: true }];
+    expect(pickDefaultCodexModel(announced)?.slug).toBe('gpt-5.1');
+    expect(pickDefaultCodexModel([...announced].reverse())?.slug).toBe('gpt-5.1');
   });
 
   it('빈 목록이면 null', () => {

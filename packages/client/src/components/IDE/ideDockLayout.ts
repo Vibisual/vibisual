@@ -13,6 +13,8 @@ import {
   WINDOW_PULL_OUT,
   isCursorOutsideViewport,
   isCursorPinnedToViewportEdge,
+  isWindowPulledFullyOut,
+  pullOutGhostDecision,
 } from '../../hooks/floatingWindowGeom.js';
 
 /**
@@ -182,8 +184,10 @@ export const IDE_FLOAT = {
    * 문턱을 뷰포트가 아니라 **클램프 한계**(`clampFloatGeom`)로 잡는 까닭: 창을 화면 오른쪽에
    * 바짝 붙여 두는 것(80px 만 남기고 파킹)은 종전부터 정상 동작이라, 뷰포트를 기준으로 재면
    * 그 평범한 손짓마다 윤곽선이 번쩍인다.
+   *
+   * §5.13 (S-10) — 내부 앱 창도 같은 선을 쓰므로 수치는 공용 한 곳(`WINDOW_PULL_OUT`)에서 온다.
    */
-  POP_OUT_GHOST_ENTER_PX: 24,
+  POP_OUT_GHOST_ENTER_PX: WINDOW_PULL_OUT.GHOST_ENTER_PX,
   /**
    * (H-6) 손을 뗐을 때 **그대로 내보낼** 문턱(px, 놓을 수 있는 자리 기준).
    *
@@ -192,12 +196,12 @@ export const IDE_FLOAT = {
    * 읽을 여지가 없다. (H-7) 로 `popOutGhostDecision` 이 함께 쥐게 되면서 이 곳으로 왔다 —
    * 선을 켜는 문턱과 무장 문턱이 떨어져 있으면 둘이 어긋나는지 한눈에 보이지 않는다.
    */
-  POP_OUT_GHOST_COMMIT_PX: 120,
+  POP_OUT_GHOST_COMMIT_PX: WINDOW_PULL_OUT.GHOST_COMMIT_PX,
   /**
    * (H-6) 윤곽선이 **이미 떠 있을 때**의 가장자리 버팀(ms) — 밖으로 밀어냈다는 신호가 화면에
    * 이미 있는데 `POP_OUT_EDGE_DWELL_MS` 를 처음부터 다시 기다릴 이유가 없다.
    */
-  POP_OUT_EDGE_DWELL_ARMED_MS: 220,
+  POP_OUT_EDGE_DWELL_ARMED_MS: WINDOW_PULL_OUT.EDGE_DWELL_ARMED_MS,
 } as const;
 
 /**
@@ -780,10 +784,8 @@ export function overflowPastClamp(geom: FloatGeom, vp: Viewport): number {
  * 밖으로 밀어냈다)을 그대로 읽는 판정을 하나 더 둔다.
  */
 export function isPulledFullyOut(geom: FloatGeom, vp: Viewport): boolean {
-  return geom.x >= vp.w
-    || geom.y >= vp.h
-    || geom.x + geom.w <= 0
-    || geom.y + geom.h <= 0;
+  // §5.13 (S-10) — 내부 앱 창도 같은 판정을 쓴다(공용 한 곳).
+  return isWindowPulledFullyOut(geom, vp);
 }
 
 /** (H-7) 지금 윤곽선을 그려야 하는가 — 그리고 지금 손을 떼도 그대로 나가는가. */
@@ -846,19 +848,24 @@ export function popOutGhostDecision(input: {
    */
   escaped?: boolean;
 }): PopOutGhostDecision {
-  const beyond = overflowPastClamp(input.geom, input.vp);
+  // §5.13 (S-10) — 판정 자체는 공용 한 곳(`pullOutGhostDecision`)이 쥔다. 내부 앱 창도 같은 손짓으로
+  //   밖에 나가므로, 여기서 따로 재면 두 창이 다른 자리에서 선을 켜기 시작한다. IDE 에 고유한 것은
+  //   "놓을 수 있는 자리"(`clampFloatGeom`) 하나라, 그 초과량만 여기서 재서 넘긴다.
+  //
   // 커서가 앱 밖이면 **무장**이다 — 그 자리에서 손을 떼는 것은 "여기 놓겠다"는 뜻 말고 없다.
-  const outside = isOutsideViewport(input.cursor, input.vp, 0);
   // (H-17) 종전에 **그 자리에서 곧바로 나가던** 두 이유(창을 완전히 밀어냈다 · 가장자리를 다
   //   버텼다)는 이제 나감이 아니라 무장이다. 판정을 지우지 않고 뜻만 옮긴다 — 손짓은 그대로이고
   //   달라지는 것은 "언제 확정되는가" 하나뿐이어야 한다(사용자 지시 "마우스 놓는 순간").
-  const fullyOut = isPulledFullyOut(input.geom, input.vp);
-  return {
-    // (H-22) 한 번 나간 판은 도로 들어와도 선으로 간다 — 꺼지는 자리는 뗌 하나뿐이어야 한다.
-    show: !!input.escaped || outside || fullyOut || beyond > IDE_FLOAT.POP_OUT_GHOST_ENTER_PX || input.edgeDwell,
-    armed: outside || fullyOut || beyond >= IDE_FLOAT.POP_OUT_GHOST_COMMIT_PX || !!input.edgeArmed,
-    outside,
-  };
+  // (H-22) 한 번 나간 판은 도로 들어와도 선으로 간다 — 꺼지는 자리는 뗌 하나뿐이어야 한다.
+  return pullOutGhostDecision({
+    beyond: overflowPastClamp(input.geom, input.vp),
+    fullyOut: isPulledFullyOut(input.geom, input.vp),
+    cursor: input.cursor,
+    vp: input.vp,
+    edgeDwell: input.edgeDwell,
+    edgeArmed: input.edgeArmed,
+    escaped: input.escaped,
+  });
 }
 
 /** 두 자리가 같은 곳을 가리키는가 — 십자 버튼 강조가 판정과 어긋나지 않게 한 곳에서 견준다. */

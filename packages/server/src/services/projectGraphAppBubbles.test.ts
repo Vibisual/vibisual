@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { APP_NODE_RESIZE } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
@@ -205,5 +206,102 @@ describe('AppBubble — 스냅샷 캐시 무효화', () => {
 
     expect(graph.deleteAppBubble(b.id)).toBe(true);
     expect(graph.getSnapshot().appBubbles ?? []).toHaveLength(0);
+  });
+});
+
+/**
+ * §5.4 #36 (F) — 고르는 즉시 서는 앱 위성. 클라가 지은 id 를 그대로 받아야 화면의 낙관본과 서버 것이 한 노드가 된다.
+ * 결과 버전(`fileAt`)은 같은 이름으로 다시 보낸 결과의 미리보기를 다시 굽게 하는 열쇠다.
+ */
+describe('AppBubble — 클라 id 와 결과 버전 (§5.4 #36 (F))', () => {
+  it('비어 있는 클라 id 는 그대로 쓰고, 이미 있는 id 면 새로 짓는다', () => {
+    const { graph, projectName } = makeGraph();
+    const a = graph.createAppBubble({ id: 'app-mt150mku-a1b2c', projectName, appId: 'vibistudio', x: 0, y: 0 });
+    expect(a.id).toBe('app-mt150mku-a1b2c');
+    const b = graph.createAppBubble({ id: 'app-mt150mku-a1b2c', projectName, appId: 'vibistudio', x: 0, y: 0 });
+    expect(b.id).not.toBe('app-mt150mku-a1b2c');
+    expect(graph.getAppBubbles()).toHaveLength(2);
+  });
+
+  it('결과를 담으면 버전이 함께 적히고, 담긴 파일을 비우면 함께 지워진다', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.setAppBubbleFile(b.id, 'out/clip.mp4', 1_787_000_000_000);
+    expect(graph.getAppBubble(b.id)).toMatchObject({ file: 'out/clip.mp4', fileAt: 1_787_000_000_000 });
+
+    // 같은 이름으로 다시 만들어 다시 보내면 버전이 바뀐다.
+    graph.setAppBubbleFile(b.id, 'out/clip.mp4', 1_787_000_009_000);
+    expect(graph.getAppBubble(b.id)?.fileAt).toBe(1_787_000_009_000);
+
+    // 버전을 모르면 옛 버전을 남기지 않는다(다른 결과에 옛 열쇠가 붙지 않게).
+    graph.setAppBubbleFile(b.id, 'out/other.mp4');
+    expect(graph.getAppBubble(b.id)?.fileAt).toBeUndefined();
+
+    graph.setAppBubbleFile(b.id, 'out/clip.mp4', 5);
+    graph.updateAppBubble(b.id, { file: null } as unknown as Record<string, never>);
+    expect(graph.getAppBubble(b.id)?.file).toBeUndefined();
+    expect(graph.getAppBubble(b.id)?.fileAt).toBeUndefined();
+  });
+
+  it('PATCH 로는 버전을 적을 수 없다 — 결과 전달 창구 하나뿐이다', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.updateAppBubble(b.id, { fileAt: 123 } as unknown as Record<string, never>);
+    expect(graph.getAppBubble(b.id)?.fileAt).toBeUndefined();
+  });
+
+  it('결과 버전은 체크포인트 왕복에 남는다(앱 버블은 객체째 영속)', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.setAppBubbleFile(b.id, 'out/clip.mp4', 42);
+    const cp = graph.toProjectCheckpoint(projectName);
+    const fresh = new ProjectGraph();
+    fresh.restoreFromCheckpoint(cp);
+    expect(fresh.getAppBubble(b.id)).toMatchObject({ file: 'out/clip.mp4', fileAt: 42 });
+  });
+});
+
+/**
+ * §5.4 #36 (G) — 앱 노드 크기 조절. 크기는 **형태에 붙는다**(`sizedForm`) — 정한 적 없는 버블의 width/height 는
+ * 생성 시점의 선언값일 뿐이라 그리는 쪽이 믿지 않는다. 서버는 받을 수 있는 값만 받는다.
+ */
+describe('AppBubble — 크기 조절(sizedForm)', () => {
+  it('크기와 정한 형태를 함께 받고, null 이면 정한 형태만 지운다', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0, width: 208, height: 130 });
+    graph.updateAppBubble(b.id, { width: 320, height: 200, sizedForm: 'screen' });
+    expect(graph.getAppBubble(b.id)).toMatchObject({ width: 320, height: 200, sizedForm: 'screen' });
+
+    graph.updateAppBubble(b.id, { sizedForm: null } as unknown as Record<string, never>);
+    expect(graph.getAppBubble(b.id)?.sizedForm).toBeUndefined();
+    expect(graph.getAppBubble(b.id)).toMatchObject({ width: 320, height: 200 }); // 크기 칸은 그대로 — 그리는 쪽이 선언값으로 돌아간다
+  });
+
+  it('두 형태 밖의 값은 무시한다(칸을 지우지도 않는다)', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.updateAppBubble(b.id, { sizedForm: 'nameplate' });
+    graph.updateAppBubble(b.id, { sizedForm: 'circle' } as unknown as Record<string, never>);
+    expect(graph.getAppBubble(b.id)?.sizedForm).toBe('nameplate');
+  });
+
+  it('크기는 유한한 양수만 받고 상한으로 자른다', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0, width: 80, height: 50 });
+    graph.updateAppBubble(b.id, { width: '999' as unknown as number, height: -5 });
+    expect(graph.getAppBubble(b.id)).toMatchObject({ width: 80, height: 50 });
+    graph.updateAppBubble(b.id, { width: Number.POSITIVE_INFINITY, height: Number.NaN });
+    expect(graph.getAppBubble(b.id)).toMatchObject({ width: 80, height: 50 });
+    graph.updateAppBubble(b.id, { width: 99_999, height: 99_999 });
+    expect(graph.getAppBubble(b.id)).toMatchObject({ width: APP_NODE_RESIZE.maxWidth, height: APP_NODE_RESIZE.maxHeight });
+  });
+
+  it('정한 형태는 체크포인트 왕복에 남는다(앱 버블은 객체째 영속)', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.updateAppBubble(b.id, { width: 300, height: 180, sizedForm: 'screen' });
+    const fresh = new ProjectGraph();
+    fresh.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName));
+    expect(fresh.getAppBubble(b.id)).toMatchObject({ width: 300, height: 180, sizedForm: 'screen' });
   });
 });

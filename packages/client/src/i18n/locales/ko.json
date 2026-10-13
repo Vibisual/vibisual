@@ -386,19 +386,111 @@
         "version": "버전",
         "account": "계정",
         "storage": "저장소",
-        "keyboard": "키보드"
+        "keyboard": "키보드",
+        "theme": "테마"
       },
       "appearance": {
         "intro": "Vibisual 의 화면 표시를 개인화합니다.",
         "language": "언어",
         "languageDesc": "UI 표시 언어입니다. 즉시 적용됩니다."
       },
+      "theme": {
+        "intro": "패널, 캔버스, IDE, 터미널까지 앱 전체의 색을 바꿉니다. 선택하면 바로 적용되며 이 컴퓨터에 저장됩니다.",
+        "groupDark": "다크",
+        "groupLight": "라이트",
+        "inUse": "현재 테마",
+        "byAuthor": "{{author}} 제작",
+        "saveFailed": "테마 선택을 저장하지 못했습니다. 다음에는 이전에 저장된 테마로 돌아갑니다.",
+        "missing": "선택한 테마({{id}})를 찾을 수 없어 대신 {{fallback}} 테마를 표시합니다. 해당 파일을 테마 폴더에 다시 넣거나 다른 테마를 선택하세요.",
+        "builtin": {
+          "vibisualDark": {
+            "name": "Vibisual 다크",
+            "desc": "차가운 청회색 패널과 깊은 캔버스로 이루어진 원래의 모습입니다."
+          },
+          "midnight": {
+            "name": "미드나이트",
+            "desc": "밤늦게까지 이어지는 작업에 어울리는 깊은 네이비 바탕입니다."
+          },
+          "graphite": {
+            "name": "그래파이트",
+            "desc": "색조가 섞이지 않은 중립 회색이라 agent의 색이 돋보입니다."
+          },
+          "dusk": {
+            "name": "황혼",
+            "desc": "눈이 편안한 따뜻한 회갈색 톤입니다."
+          },
+          "forest": {
+            "name": "숲",
+            "desc": "고요한 숲속의 저녁처럼 차분한 녹회색입니다."
+          },
+          "highContrast": {
+            "name": "고대비",
+            "desc": "순수한 검정 바탕에 밝은 글자와 선명한 테두리입니다."
+          },
+          "light": {
+            "name": "라이트",
+            "desc": "낮에 작업하기 좋은 밝고 깔끔한 패널입니다."
+          },
+          "paper": {
+            "name": "종이",
+            "desc": "따뜻한 크림색 종이와 부드러운 갈색 잉크입니다."
+          },
+          "highContrastLight": {
+            "name": "고대비 라이트",
+            "desc": "순수한 흰색 바탕에 검은 글자와 뚜렷한 테두리입니다."
+          }
+        },
+        "custom": {
+          "title": "내 테마",
+          "desc": "직접 만든 테마는 이 폴더 안의 JSON 파일입니다. 파일을 넣은 뒤 [{{reload}}] 버튼을 눌러 주세요.",
+          "openFolder": "폴더 열기",
+          "reload": "테마 다시 불러오기",
+          "create": "{{name}} 기반 새 테마 만들기",
+          "copyName": "{{name}} 복사본",
+          "createdHint": "{{file}} 파일을 만들고 새 테마로 전환했습니다. 아무 텍스트 편집기로 열어 색을 몇 가지 바꾼 뒤 [{{reload}}] 버튼을 눌러 주세요.",
+          "empty": "직접 만든 테마가 아직 없습니다.",
+          "issuesTitle": "테마 파일에서 발견된 문제 ({{n}})",
+          "failed": {
+            "load": "테마 폴더를 읽지 못했습니다.",
+            "create": "테마 파일을 만들지 못했습니다.",
+            "open": "테마 폴더를 열지 못했습니다."
+          }
+        },
+        "help": {
+          "title": "테마 파일 작성법",
+          "extends": "\"extends\" — 다른 테마의 id를 지정해 그 테마에서 시작하고, 바꾸고 싶은 부분만 적으면 됩니다.",
+          "palette": "\"palette\" — 색 계열 전체를 다시 칠합니다. 다른 계열을 빌리거나 (\"gray\": \"zinc\"), 개별 단계의 색을 지정하거나 ({\"500\": \"#7c3aed\"}), 색조와 채도를 조정할 수 있습니다 ({\"hue\": 280, \"chromaScale\": 1.4}).",
+          "mirror": "\"mirrorPalette\": true로 설정하면 모든 색 계열이 어두운 쪽에서 밝은 쪽으로 뒤집힙니다. 라이트 테마를 가장 빠르게 만드는 방법입니다.",
+          "colors": "\"colors\" — 제목 표시줄, 캔버스, 코드 블록, 터미널처럼 이름이 붙은 영역입니다. 값은 색(#hex, rgb(), hsl(), oklch()) 또는 {gray.900}, {sky.400}/50 같은 팔레트 참조입니다.",
+          "builtinIds": "내장 테마 id",
+          "tokens": "\"colors\"에서 쓸 수 있는 이름"
+        },
+        "issue": {
+          "tooMany": "{{file}}에 테마 파일이 {{detail}}개 있어서 처음 {{max}}개만 읽습니다.",
+          "tooLarge": "{{file}} 파일이 너무 큽니다 ({{detail}}바이트). 테마 파일은 최대 {{maxKb}} KB까지 허용됩니다.",
+          "readFailed": "{{file}} 파일을 읽지 못했습니다.",
+          "invalidJson": "{{file}} 파일은 올바른 JSON 형식이 아닙니다: {{detail}}",
+          "notObject": "{{file}} 파일에는 JSON 객체 하나만 들어 있어야 합니다.",
+          "unsupportedVersion": "{{file}} 파일의 테마 형식은 {{detail}}인데, 이 버전에서는 읽을 수 없습니다.",
+          "missingName": "{{file}} 파일에 \"name\" 항목이 없어서 대신 파일 이름을 표시합니다.",
+          "duplicateId": "{{file}} 파일이 이미 다른 파일에서 쓰는 id({{detail}})를 사용하고 있어 건너뛰었습니다.",
+          "unknownBase": "{{file}} 파일이 기반으로 지정한 \"{{detail}}\" 테마가 없어서 기본 테마에서 시작합니다.",
+          "extendsCycle": "{{file}} 파일이 자기 자신을 기반으로 삼는 순환 구조입니다 (\"{{detail}}\" 지점). 그 지점에서 순환을 끊었습니다.",
+          "invalidColor": "{{file}}: {{detail}} 값은 이 앱에서 읽을 수 없는 색이라 무시했습니다.",
+          "unknownToken": "{{file}}: \"{{detail}}\" 항목은 이 앱이 모르는 색 이름이라 무시했습니다.",
+          "unknownFamily": "{{file}}: \"{{detail}}\" 항목은 팔레트의 색 계열이 아니라서 무시했습니다.",
+          "invalidRamp": "{{file}}: {{detail}} 항목은 올바른 팔레트 값이 아니라서 무시했습니다.",
+          "invalidField": "{{file}}: \"{{detail}}\" 항목은 형식이 올바르지 않아 무시했습니다."
+        }
+      },
       "version": {
         "title": "버전 및 정보",
         "intro": "Vibisual이 에이전트를 생성할 때 사용하는 Claude Code 바이너리와 그 출처입니다.",
+        "codexIntro": "Vibisual이 Codex 에이전트를 실행할 때 사용하는 Codex CLI와 그 설치 위치입니다.",
         "refresh": "다시 검색",
         "scanning": "설치 항목 검색 중…",
         "claudeCode": "Claude Code (사용 중)",
+        "codex": "Codex (사용 중)",
         "current": "현재",
         "versionLabel": "버전:",
         "latest": "최신 (npm)",
@@ -602,6 +694,28 @@
         "sessionProbeModelDesc": "도구 없이, 프로젝트에 접근하지 않고 한 번만 묻습니다 — 그 세션이 마지막으로 말하고 한 일의 꼬리 조금이 전부입니다. 한 번에 한 세션만, 시간당 12번까지만 묻습니다.",
         "sessionProbeLoadError": "지금 설정을 읽지 못했습니다.",
         "sessionProbeSaveError": "저장하지 못했습니다. 아무것도 바뀌지 않았습니다.",
+        "processGuardTitle": "에이전트가 실행하는 프로세스",
+        "processGuardIntro": "에이전트가 여기서 실행하는 모든 것과, 그 밑에서 연이어 실행되는 모든 것은 아무리 깊이 내려가도 Vibisual의 감시 아래에 있습니다. 프로세스 하나가 메모리를 걷잡을 수 없이 쓰면 그 프로세스만 종료되고, 세션이 끝나면 그 세션이 남긴 것도 함께 끝납니다. 명령 하나가 컴퓨터의 메모리를 모두 써 버려 앱까지 함께 다운되는 일은 이제 없습니다.",
+        "processGuardEnabled": "에이전트가 실행하는 프로세스 감시",
+        "processGuardEnabledDesc": "끄면 프로세스를 그룹으로 묶지도, 메모리를 제한하지도, 정리하지도 않습니다. 이 옵션이 생기기 전과 똑같이 동작합니다.",
+        "processGuardCap": "프로세스 하나가 쓸 수 있는 메모리 (RAM 대비 %)",
+        "processGuardCapDesc": "이 값을 넘는 프로세스는 종료됩니다. 한도는 {{floor}} 아래로 내려가지 않으므로 큰 빌드도 문제없이 실행됩니다. 0이면 제한이 없습니다. Windows에서는 시스템이 직접 초과 메모리를 거부하고, 그 외 운영체제에서는 Vibisual 쪽에서 {{seconds}}초마다 확인합니다.",
+        "processGuardCapNow": "이 컴퓨터 기준: 프로세스당 {{size}}",
+        "processGuardCapNone": "이 컴퓨터 기준: 프로세스당 제한 없음",
+        "processGuardPressure": "메모리가 부족하면 가장 큰 프로세스 종료",
+        "processGuardPressureDesc": "여유 메모리가 {{ratio}}(최소 {{min}}) 아래로 떨어지면 에이전트가 실행한 프로세스 중 가장 큰 것을 종료합니다. 한 번에 하나씩 종료하고, 그때마다 메모리를 다시 측정합니다. 컴퓨터의 다른 프로그램은 절대 건드리지 않습니다.",
+        "processGuardReap": "세션이 남긴 것 정리",
+        "processGuardReapDesc": "세션이 끝나거나 Claude Code가 작업을 중지했다고 알리면, 그 세션이나 작업에서 아직 남은 프로세스도 함께 종료합니다. 끄면 그대로 실행 중인 채로 남습니다.",
+        "engineBridgeTitle": "Claude Code 엔진 브리지",
+        "engineBridgeIntro": "Vibisual이 시작하는 세션에는 작은 Claude Code 모드(mod)가 함께 실립니다. 이 모드는 Claude Code 안에서 턴이 언제 시작되고 끝나는지(직접 멈춘 턴도 포함), 프로세스가 아직 살아 있는지, 컨텍스트와 사용 한도가 얼마나 찼는지를 알려 줍니다. 그러면 실행 중인지 끝났는지를 짐작하는 대신 Claude Code에서 직접 받아 옵니다. Vibisual 밖에서 직접 시작한 세션은 절대 건드리지 않습니다.",
+        "engineBridgeEnabled": "Vibisual이 시작하는 세션 연결 (헤드리스와 CMD)",
+        "engineBridgeEnabledDesc": "저장한 뒤에 시작하는 세션부터 적용됩니다. 끄면 세션은 예전과 똑같이 실행되고, 상태는 훅과 화면 감지로만 알아냅니다.",
+        "engineBridgeStatusReady": "Claude Code {{version}} 버전에서 브리지를 불러올 수 있습니다. 지금 연결된 세션: {{sessions}}개",
+        "engineBridgeStatusUnsupported": "Claude Code {{version}} 버전은 모드를 불러올 수 없습니다. {{min}} 버전 이상이 필요합니다. 세션은 예전처럼 실행됩니다.",
+        "engineBridgeStatusChecking": "Claude Code 버전을 확인하는 중입니다. 확인되면 다음 세션부터 브리지가 붙습니다.",
+        "engineBridgeStatusMissing": "이 설치본에는 브리지 파일이 빠져 있어서 세션은 예전처럼 실행됩니다.",
+        "engineBridgeStatusError": "브리지 상태를 읽지 못했습니다.",
+        "engineBridgeRefresh": "다시 확인",
         "externalBudgetTitle": "프로젝트 밖 폴더",
         "externalBudgetIntro": "에이전트가 프로젝트 밖 폴더를 건드리면 그 자리가 버블로 만들어집니다. 그대로 두면 버블이 지도를 덮거나, 반대로 하나로 접혀 아무 것도 말하지 않게 됩니다. 이 숫자는 그중 몇 곳을 동시에 최상위에 세울지를 정합니다 — 많이·최근에 건드린 자리부터 채워지고, 조용해진 자리는 다시 부모 밑으로 접힙니다.",
         "externalBudgetLabel": "최상위에 보일 외부 폴더 개수",
@@ -616,6 +730,11 @@
       "notifications": {
         "cmdBlocked": "CMD 세션이 입력을 기다리면 알림",
         "cmdBlockedDesc": "다른 탭·다른 창을 보고 있을 때만 알립니다. 창이 포커스돼 있으면 화면에 이미 보이므로 띄우지 않습니다."
+      },
+      "permissions": {
+        "verificationGateIntro": "이 정책은 켰을 때만 Codex와 Claude Code 모두에 적용됩니다. 에이전트에는 현재 작업에서 요청한 경우에만 테스트, 린트, 타입 검사, 검증용 빌드, E2E, 브라우저 확인, 스크린샷 비교, 검증 에이전트를 실행하라는 안내가 전달되며, 요청하지 않은 호출은 실행 전에 차단됩니다.",
+        "verificationGateEnabled": "검증은 요청한 경우에만 실행하도록 제한하기",
+        "verificationGateEnabledDesc": "기본은 꺼짐입니다. 꺼져 있으면 Vibisual은 프롬프트에 검증 제한을 추가하지 않고 이 정책에 따른 호출 차단도 하지 않습니다. 켜면 이름에 check, verify 또는 test가 포함된 스크립트도 차단될 수 있습니다. {{apply}}로 저장하면 실행 차단 변경은 다음 도구 호출부터, 프롬프트 안내 변경은 다음 턴부터 적용됩니다."
       },
       "engines": {
         "title": "엔진",
@@ -1413,11 +1532,11 @@
       "codex": {
         "edgeDelegationNote": "Codex 도구 위임 모드에서는 직접 실행 도구를 차단하고 연결된 에이전트로 작업을 보냅니다. 셸로 읽기·검색·편집 제한을 우회할 수 있어, 개별 도구 이름보다 넓게 제한됩니다. 계획과 답변 작성은 가능합니다. 변경은 다음 메시지부터 적용됩니다.",
         "noModel": "아직 선택한 모델이 없습니다",
-        "modelTip": "이 버블이 대화하는 Codex 모델입니다. Vibisual이 항상 이 값을 명시적으로 전달하므로, Codex 설정 파일의 기본 모델로 넘어가는 일이 없습니다.",
-        "noModelList": "모델 목록을 아직 읽어오지 않았습니다 — Codex를 한 번 실행하면 만들어집니다.",
+        "modelTip": "고른 모델은 명시적으로 전달됩니다. 비워 두면 프로젝트 설정이나 Codex 설정을 따릅니다. 목록이 갱신돼도 선택은 바뀌지 않습니다.",
+        "noModelList": "지금 모델 목록을 가져올 수 없습니다. 저장한 모델과 Codex 상속 설정은 유지됩니다.",
         "reloadModels": "새로고침",
         "effort": "추론 강도",
-        "effortTip": "값이 높을수록 더 오래 생각하고 토큰을 더 많이 사용합니다. 이 모델이 지원한다고 알려온 단계만 표시됩니다.",
+        "effortTip": "강도가 높을수록 시간과 토큰을 더 씁니다. 단계는 Codex가 제공하며, 저장한 선택은 현재 목록에 없어도 유지됩니다.",
         "toolsManaged": "Codex CLI에서 관리합니다",
         "toolAsk": "매번 확인",
         "toolReset": "모두 허용으로 초기화",
@@ -1979,6 +2098,22 @@
     "apps": {
       "open": "열기",
       "openHint": "더블클릭하면 열립니다.",
+      "screenEmpty": "결과가 여기 뜹니다",
+      "screenWorking": "만드는 중…",
+      "canvas": {
+        "tooLarge": "여기서 열기엔 큽니다 — 에디터에서 여세요",
+        "unavailable": "여기서는 열 수 없습니다 — 에디터에서 여세요",
+        "dragRotate": "끌어서 돌려 보기",
+        "fill": "채우기",
+        "copyImage": "그림 복사",
+        "copyFailed": "그림을 복사하지 못했습니다",
+        "backToDoc": "문서로 돌아가기",
+        "docShort": "문서",
+        "docEmpty": "빈 영상입니다 — 연결된 AI에게 요청하거나 에디터를 여세요",
+        "playExport": "마지막 렌더 재생",
+        "docUnreadable": "문서를 읽지 못했습니다 — 에디터를 여세요",
+        "docVersion": "v{{version}}"
+      },
       "installApp": "앱 설치",
       "installHint": "더블클릭하면 설치합니다.",
       "uninstallApp": "앱 삭제(제거)",
@@ -1986,6 +2121,7 @@
       "unknown": "알 수 없는 앱",
       "rename": "이름 바꾸기",
       "renamePrompt": "버블 이름",
+      "resetSize": "기본 크기로",
       "pin": "고정",
       "unpin": "고정 해제",
       "delete": "삭제",
@@ -2140,7 +2276,11 @@
           "boxColor": "자막 배경",
           "padding": "자막 안쪽 여백",
           "bottom": "아래쪽 여백",
-          "volume": "음량"
+          "volume": "음량",
+          "highlight": "단어 강조",
+          "highlightColor": "강조 색",
+          "soundRole": "소리 역할",
+          "duckDb": "내레이션 중 볼륨 낮추기 (dB)"
         },
         "options": {
           "left": "왼쪽",
@@ -2148,7 +2288,12 @@
           "right": "오른쪽",
           "rect": "사각형",
           "ellipse": "타원",
-          "line": "선"
+          "line": "선",
+          "none": "없음",
+          "word": "단어별",
+          "music": "음악",
+          "voice": "내레이션",
+          "sfx": "효과음"
         },
         "library": "라이브러리",
         "importMedia": "미디어 / SRT 가져오기",
@@ -2183,7 +2328,11 @@
         "loop": "반복",
         "importing": "가져오는 중…",
         "download": "MP4 다운로드",
-        "saveStill": "PNG 저장"
+        "saveStill": "PNG 저장",
+        "addComposition": "코드 컴포지션",
+        "addCompositionHint": "HTML/CSS/JS 코드로 작성한 모션 그래픽입니다. AI에게 작성을 요청하거나 파일을 직접 편집하세요.",
+        "media_composition": "코드 컴포지션",
+        "wordsEstimated": "일부 자막에 단어별 타이밍이 없어, 단어 시간을 글자 수로 추정합니다."
       },
       "timelineEditor": {
         "zoomIn": "확대",
@@ -2202,10 +2351,561 @@
         "dragHint": "클립을 끌어 이동하고 양 끝으로 자릅니다. 방향키: 1프레임 · Shift: 10프레임 · Alt: 스냅 해제.",
         "moveClip": "{{name}} 이동",
         "frameValue": "프레임 {{frame}}"
-      }
+      },
+      "composition": {
+        "title": "코드 컴포지션",
+        "noSource": "이 클립은 컴포지션 파일을 가리키지 않습니다.",
+        "reload": "코드 다시 읽기",
+        "strip": "프레임 스트립",
+        "openFile": "파일 열기",
+        "seekMode": "시간 이동",
+        "modeForward": "앞으로만 (뒤로 가면 처음부터 다시 재생)",
+        "modeRandom": "어느 시점이든 즉시",
+        "declaredLength": "선언된 길이",
+        "designSize": "디자인 크기",
+        "lint": "검사",
+        "props": "데이터 (props, JSON)",
+        "propsHint": "코드는 이 값을 window.__vibi.props에서 읽습니다.",
+        "propsNotObject": "{\"title\": \"Hello\"} 같은 JSON 객체를 입력하세요.",
+        "propsInvalid": "올바른 JSON 형식이 아닙니다.",
+        "newLabel": "모션 그래픽",
+        "stripLoading": "프레임 스트립을 캡처하는 중…",
+        "runtimeError": "컴포지션 오류: {{message}}",
+        "blocked": "컴포지션이 자신의 폴더 밖의 무언가를 불러오려 했습니다: {{url}}"
+      },
+      "lint": {
+        "network": "네트워크 호출(fetch, XMLHttpRequest, WebSocket)은 차단됩니다. 대신 클립의 props에 데이터를 넣으세요.",
+        "external-url": "외부 URL은 차단됩니다. 파일을 컴포지션 폴더에 복사한 뒤 상대 경로를 사용하세요.",
+        "media-element": "<audio>/<video>는 타임라인을 따라가지 못합니다. 소리는 오디오 트랙에, 영상은 클립으로 넣으세요.",
+        "sound-api": "코드로 만든 소리는 무음 처리됩니다. 대신 오디오 트랙에 소리를 넣으세요.",
+        "worker": "컴포지션에서는 웹 워커가 차단됩니다.",
+        "storage": "컴포지션에서는 스토리지와 쿠키를 사용할 수 없습니다.",
+        "module-script": "모듈 스크립트는 불러오지 못할 수 있습니다. 클래식 스크립트 태그를 사용하세요.",
+        "css-transition": "CSS 트랜지션은 스크러빙할 수 없습니다. @keyframes 또는 element.animate()를 사용하세요.",
+        "input-wait": "일부 코드가 클릭이나 키 입력을 기다립니다 — 영상에서는 키를 누르는 사람이 없습니다.",
+        "no-duration": "선언된 길이가 없습니다 (vibi:duration). 클립에 길이를 지정하거나 파일 안에서 선언하세요.",
+        "frame-callbacks": "프레임 콜백을 사용하므로 앞으로만 재생할 수 있습니다 — 뒤로 가면 처음부터 다시 재생됩니다.",
+        "virtual-clock": "시계와 난수 값은 영상마다 똑같이 재현되도록 처리됩니다.",
+        "no-motion": "애니메이션을 찾지 못했습니다 — 이 클립은 시간이 지나도 변하지 않을 수 있습니다.",
+        "no-props-decl": "선언된 값이 없어 스튜디오가 이 컴포지션의 핸들을 표시할 수 없습니다.",
+        "props-decl-invalid": "값 선언(vibi-props)에 오류가 있습니다.",
+        "engine-unsupported": "영상 렌더러가 아직 지원하지 않는 웹 기능을 사용합니다 — 영상에서는 무시됩니다."
+      },
+      "agent": {
+        "placeholder": "AI에게 바꿀 내용을 알려 주세요 — 예: 2초쯤에 제목을 더 크게 해줘",
+        "pick": "AI agent",
+        "pickPlaceholder": "agent 선택…",
+        "linkedLabel": "{{name}} (연결됨)",
+        "removeAttachment": "{{name}} 제거",
+        "attach": "이미지, 영상, 오디오 첨부 (이 영상의 미디어에 추가됩니다)",
+        "send": "AI에게 요청",
+        "working": "AI가 편집하는 중…",
+        "reloaded": "최신 변경 사항을 불러왔습니다 (v{{version}}).",
+        "useAttachments": "첨부한 미디어를 이 영상에 사용해줘.",
+        "sent": "AI에게 전달했습니다. AI의 변경 사항은 여기에 자동으로 나타납니다."
+      },
+      "removeNamed": "{{name}} 제거",
+      "cueNoComposition": "{{id}} 에셋은 코드 컴포지션이 아닙니다.",
+      "cueScanTimeout": "컴포지션의 {{seconds}}초 분량 실행이 제한 시간 안에 끝나지 않았습니다.",
+      "ai": {
+        "allowImages": "그림 만들기 허용",
+        "allowImagesNote": "사용량은 그 Codex 계정 몫입니다.",
+        "attach": "파일 첨부",
+        "autoAgentName": "영상 · {{title}}",
+        "changed": "바뀐 내용",
+        "collapse": "AI 패널 접기",
+        "empty": "무엇을 만들거나 바꿀지 말해 보세요. AI가 편집 가능한 코드로 만들어 주며, 모든 값은 이후에도 직접 조절할 수 있습니다.",
+        "expand": "AI 패널 열기",
+        "ide": "IDE",
+        "idle": "요청을 기다리는 중",
+        "moreChanges": "외 {{count}}개",
+        "noAgentYet": "아직 에이전트가 없습니다 — 보내면 만들어집니다",
+        "openIde": "이 대화를 IDE에서 열기",
+        "placeholder": "바꾸고 싶은 내용을 적어 보세요…",
+        "pointedChip": "가리킨 대상: {{kind}}",
+        "send": "보내기",
+        "suggestions": "추천",
+        "timeChip": "{{time}} 시점",
+        "title": "AI",
+        "undoPass": "이 바퀴 되돌리기",
+        "working": "작업 중…"
+      },
+      "chapterMenu": {
+        "merge": "다음 장면과 합치기",
+        "otherEngine": "{{engine}} 엔진으로 다시 만들기",
+        "redo": "이 장면만 AI에게 다시",
+        "redoRequest": "장면 {{n}}({{title}}) 다시 만들어 주세요.",
+        "remove": "장면 지우기",
+        "savePart": "부품으로 저장",
+        "split": "재생 머리에서 나누기",
+        "variants": "두 엔진 나란히"
+      },
+      "chapterStatus": {
+        "plan": "계획됨",
+        "approved": "승인됨",
+        "building": "만드는 중",
+        "done": "완료"
+      },
+      "diff": {
+        "title": "제목: {{from}} → {{to}}",
+        "size": "크기: {{from}} → {{to}}",
+        "fps": "프레임 속도: {{from}} → {{to}}",
+        "style": "스타일 변경됨",
+        "chapterAdded": "장면 {{n}} · {{title}} 추가됨",
+        "chapterRemoved": "장면 {{n}} · {{title}} 제거됨",
+        "chapterTitle": "장면 {{n}} 이름 변경: {{title}}",
+        "chapterDuration": "장면 {{n}} · {{title}}: 길이 {{from}} s → {{to}} s",
+        "chapterText": "장면 {{n}} · {{title}}: 화면 텍스트 변경됨",
+        "chapterBrief": "장면 {{n}} · {{title}}: 모션 계획 변경됨",
+        "chapterStatus": "장면 {{n}} · {{title}}: 상태 → {{status}}",
+        "chapterTransition": "장면 {{n}} · {{title}}: 전환 효과 → {{transition}}",
+        "chapterOther": "장면 {{n}} · {{title}} 변경됨",
+        "chapterOrder": "장면 순서 변경됨",
+        "itemAdded": "{{label}} 추가됨",
+        "itemRemoved": "{{label}} 제거됨",
+        "itemText": "{{label}}: 텍스트나 값 변경됨",
+        "itemTiming": "{{label}}: 타이밍 변경됨",
+        "itemLook": "{{label}}: 위치나 모양 변경됨",
+        "itemOther": "{{label}} 변경됨",
+        "itemsMany": "{{count}}개 항목 변경됨",
+        "assetAdded": "소재 {{count}}개 추가됨",
+        "assetRemoved": "소재 {{count}}개 제거됨",
+        "assetChanged": "소재 {{count}}개 업데이트됨"
+      },
+      "engines": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "label": "엔진",
+        "prepare": "설정",
+        "prepareInMain": "메인 창에서 {{engine}} 설정을 진행하세요.",
+        "need_setup": "{{engine}} 설치가 아직 안 되어 있습니다.",
+        "need_login": "먼저 {{engine}} 계정으로 로그인하세요.",
+        "need_refresh": "{{engine}} 상태를 다시 확인하세요."
+      },
+      "errors": {
+        "details": "자세히",
+        "offline": "Vibisual 서버에 연결할 수 없습니다. 앱이 실행 중인지 확인하세요.",
+        "conflict": "문서가 동시에 바뀌었습니다. 다시 시도하세요.",
+        "missingDoc": "이 문서나 버전이 더 이상 없습니다.",
+        "worker": "백그라운드 영상 처리 프로세스가 응답하지 않았습니다. 다시 시도하세요.",
+        "timeout": "시간이 너무 오래 걸려 중단되었습니다. 다시 시도하세요.",
+        "unreadable": "이 파일을 읽을 수 없습니다.",
+        "tooLarge": "이 파일은 너무 커서 가져올 수 없습니다.",
+        "limit": "사용 한도에 도달했습니다. 나중에 다시 시도하세요.",
+        "forbidden": "이 작업은 사용자만 할 수 있고, 에이전트는 할 수 없습니다.",
+        "generic": "문제가 발생했습니다."
+      },
+      "export": {
+        "captions": "자막",
+        "captions_burn": "굽기",
+        "captions_separate": "따로 내기",
+        "derived": "이 형식에 맞는 {{title}} 영상을 만들어 렌더링을 시작했습니다.",
+        "derivedExisting": "{{title}} 렌더링 중 — 이 형식용으로 이미 만들어 둔 버전입니다.",
+        "download": "마지막 렌더링 결과 다운로드",
+        "mp4": "영상 (MP4)",
+        "noCaptions": "내보낼 자막이 없습니다.",
+        "png": "재생 머리 위치의 정지 이미지",
+        "preset_landscape": "가로",
+        "preset_portrait": "쇼츠",
+        "preset_square": "정사각형",
+        "presets": "출력 크기",
+        "srt": "자막 파일",
+        "transparent": "모션만, 투명 배경"
+      },
+      "formats": {
+        "landscape": "가로",
+        "portrait": "세로",
+        "square": "정사각형"
+      },
+      "header": {
+        "docs": "문서",
+        "export": "내보내기",
+        "format": "형식",
+        "history": "판 기록",
+        "label": "Vibistudio 도구 모음",
+        "newDoc": "새 영상 시작",
+        "noDoc": "열린 문서 없음",
+        "recent": "최근",
+        "rename": "이름 바꾸기",
+        "title": "문서 제목"
+      },
+      "history": {
+        "beforeRestore": "되돌리기 전",
+        "byAi": "AI",
+        "byMe": "나",
+        "checkpoint": "저장점 찍기",
+        "compare": "나란히 보기",
+        "compareCount": "{{count}}개 선택됨",
+        "empty": "아직 아무것도 없습니다. AI 바퀴와 저장한 저장점가 모두 여기에 쌓이고, 어느 시점으로든 되돌릴 수 있습니다.",
+        "kind_pass-start": "맡기기 직전",
+        "kind_pass-end": "바퀴 끝",
+        "kind_checkpoint": "저장점",
+        "kind_restore": "되돌림",
+        "kind_render": "이 판을 렌더함",
+        "noDiff": "차이가 없습니다.",
+        "pick": "비교할 항목 선택",
+        "rendered": "렌더링됨",
+        "restore": "이 판으로 돌아가기",
+        "title": "판 기록"
+      },
+      "libs": {
+        "accept": "가져오기",
+        "addPack": "타임라인에 추가",
+        "download": "다운로드",
+        "drop": "스크립트, 스타일시트, 글꼴, zip 또는 HTML 페이지 하나를 여기에 끌어다 놓기",
+        "duration": "길이 (s)",
+        "fromProject": "이 프로젝트의 node_modules에서 찾기",
+        "inert": "데이터 주소 — 그대로 유지",
+        "kind_library": "라이브러리",
+        "kind_font": "글꼴",
+        "kind_pack": "HTML 페이지",
+        "kind_script": "스크립트",
+        "kind_style": "스타일시트",
+        "kind_image": "이미지",
+        "kind_module": "모듈",
+        "kind_data": "데이터",
+        "kind_other": "기타",
+        "licenseNote": "라이선스는 파일에 적힌 그대로 표시됩니다. 사용해도 되는지는 직접 판단해야 합니다.",
+        "noLicense": "라이선스를 찾지 못함",
+        "pick": "파일 선택",
+        "refsTitle": "{{name}} 파일이 외부 파일 {{count}}개를 불러옵니다",
+        "reject": "닫기",
+        "remove": "제거",
+        "request": "AI가 다음 항목의 가져오기를 요청했습니다:",
+        "title": "가져오기",
+        "url": "다운로드할 파일 주소",
+        "vendorAll": "모두 다운로드",
+        "vendorNone": "그대로 유지",
+        "vendorPicked": "선택한 항목 다운로드"
+      },
+      "media": {
+        "empty": "아직 소재가 없습니다. 파일을 가져오거나 미리보기에 끌어다 놓으면 됩니다.",
+        "import": "가져오기",
+        "importing": "가져오는 중…",
+        "search": "소재 검색"
+      },
+      "notes": {
+        "closed": "닫힘 ({{count}})",
+        "confirm": "확인",
+        "empty": "아직 메모가 없습니다.",
+        "handoff": "고칠 점 {{count}}개 맡기기",
+        "handoffRequest": "제가 핀으로 남긴 메모 {{count}}개를 수정해 주세요.",
+        "hint": "미리보기에 핀을 꽂아 메모를 남깁니다 ({{shortcut}}). AI가 정확한 시점과 위치를 전달받습니다.",
+        "newNote": "새 메모 {{n}}",
+        "pin": "핀 꽂기",
+        "pinTitle": "메모 {{n}}",
+        "placeholder": "여기서 무엇을 바꿔야 할까요?",
+        "reopen": "다시 열기",
+        "seek": "이 시점으로 이동",
+        "status_open": "열림",
+        "status_sent": "AI에게 전달됨",
+        "status_fixed": "수정됨 — 확인 필요",
+        "status_closed": "닫힘",
+        "text": "메모 {{n}} 내용"
+      },
+      "parts": {
+        "basic": "기본",
+        "group_text": "제목과 텍스트",
+        "group_data": "차트와 숫자",
+        "group_brand": "브랜드",
+        "group_captions": "자막",
+        "group_mine": "내 부품",
+        "name_lower-third": "하단 자막",
+        "name_kinetic-type": "키네틱 타이포",
+        "name_counter": "카운터",
+        "name_bar-chart": "막대 차트",
+        "name_line-chart": "꺾은선 차트",
+        "name_donut-chart": "도넛 차트",
+        "name_code-typing": "코드 타이핑",
+        "name_logo-reveal": "로고 리빌",
+        "name_word-captions": "단어별 자막",
+        "pickSeam": "재생 머리를 첫 장면 이후의 장면으로 옮기면 전환 효과를 고를 수 있습니다.",
+        "transitions": "전환 효과"
+      },
+      "plan": {
+        "add": "장면 추가",
+        "approve": "이대로 만들기",
+        "brief": "모션",
+        "buildRequest": "계획을 승인했습니다. 장면 {{count}}개를 만들어 주세요.",
+        "building": "만드는 중…",
+        "buildingThis": "만들어지는 중…",
+        "chapterTitle": "장면 제목",
+        "collapse": "계획 숨기기",
+        "drag": "드래그하여 순서 변경",
+        "expand": "계획 보기",
+        "length": "길이",
+        "newChapter": "새 장면",
+        "noFrameYet": "아직 프레임 없음",
+        "remove": "장면 삭제",
+        "seek": "{{n}}번 장면으로 이동",
+        "sound": "사운드",
+        "summary": "장면 {{count}}개 · {{length}}",
+        "text": "화면 텍스트",
+        "title": "기획 카드",
+        "styleFrame": "정지 화면"
+      },
+      "precision": {
+        "close": "정밀 편집 닫기",
+        "toggle": "정밀 편집"
+      },
+      "preview": {
+        "actualSize": "실제 크기",
+        "empty": "아직 표시할 내용이 없습니다.",
+        "fit": "창에 맞추기",
+        "label": "영상 미리보기",
+        "nextFrame": "다음 프레임",
+        "note": "메모 핀 꽂기",
+        "planReady": "계획이 준비되었습니다. 장면을 검토한 뒤 승인하세요.",
+        "planning": "AI가 계획을 세우는 중…",
+        "point": "가리키기",
+        "prevFrame": "이전 프레임",
+        "safeArea": "안전 영역"
+      },
+      "rail": {
+        "label": "서랍",
+        "media": "소재",
+        "parts": "부품",
+        "style": "스타일",
+        "notes": "메모",
+        "transcript": "대본"
+      },
+      "recipes": {
+        "app-intro": {
+          "name": "앱 소개",
+          "desc": "이 프로젝트의 실제 화면으로 만든 짧은 소개 영상.",
+          "placeholder": "누구를 위한 영상이고, 무엇을 기억하게 하고 싶나요?",
+          "wants": "실행 중인 앱의 화면 · 로고"
+        },
+        "changelog": {
+          "name": "새로운 기능",
+          "desc": "커밋이나 풀 리퀘스트를 짧은 업데이트 영상으로 만듭니다.",
+          "placeholder": "어떤 커밋이나 풀 리퀘스트인가요? (기본값: 마지막 태그 이후)",
+          "wants": "커밋 또는 풀 리퀘스트"
+        },
+        "data-story": {
+          "name": "데이터 스토리",
+          "desc": "애니메이션 차트로 데이터셋을 설명합니다.",
+          "placeholder": "데이터로 어떤 질문에 답하고 싶나요?",
+          "wants": "CSV 파일 또는 표"
+        },
+        "caption-shorts": {
+          "name": "자막 쇼츠",
+          "desc": "말하는 영상 위에 단어별 자막을 입힌 세로형 쇼츠.",
+          "placeholder": "어떤 내용의 클립인가요? 잘라낼 부분이 있나요?",
+          "wants": "영상 · SRT 파일"
+        },
+        "kinetic-text": {
+          "name": "키네틱 텍스트",
+          "desc": "움직이는 타이포그래피로 메시지를 전합니다.",
+          "placeholder": "움직이게 할 텍스트를 붙여넣으세요",
+          "wants": "텍스트"
+        },
+        "photo-slideshow": {
+          "name": "사진 슬라이드쇼",
+          "desc": "음악에 맞춰 비트마다 사진이 넘어가는 슬라이드쇼.",
+          "placeholder": "어떤 행사인가요?",
+          "wants": "사진 · 음악"
+        },
+        "logo-reveal": {
+          "name": "로고 리빌",
+          "desc": "로고를 드러내는 짧은 애니메이션.",
+          "placeholder": "원하는 분위기나 색상이 있나요?",
+          "wants": "로고"
+        },
+        "blank": {
+          "name": "빈 문서",
+          "desc": "처음부터 직접 만드는 빈 문서.",
+          "placeholder": "제목을 입력하세요 (선택)",
+          "wants": "필요한 것 없음"
+        }
+      },
+      "review": {
+        "docOnly": "문서만으로 점검했습니다. 프레임을 점검하면 낮은 대비와 빈 프레임도 찾아낼 수 있습니다.",
+        "fix": "AI에게 고치게",
+        "fixRequest": "다음 문제를 수정해 주세요: {{what}}",
+        "frames": "프레임 점검",
+        "framesBusy": "프레임 점검 중…",
+        "skip": "이번엔 넘기기",
+        "snap": "비트에 맞추기",
+        "title": "검토",
+        "read-time": "읽기에 너무 짧습니다: 화면에 {{have}} s 표시, 약 {{need}} s 필요.",
+        "safe-area": "\"{{text}}\" 문구가 안전 영역 밖에 있습니다.",
+        "text-overlap": "\"{{a}}\" 문구와 \"{{b}}\" 문구가 겹칩니다.",
+        "low-contrast": "\"{{text}}\" 문구는 읽기 어렵습니다 (대비 {{ratio}}:1).",
+        "blank": "빈 화면 — 여기에는 아무것도 보이지 않습니다.",
+        "caption-clip": "자막이 {{lines}}줄이나 됩니다. 내용을 줄이거나 나눠 주세요.",
+        "silence": "{{from}} s부터 {{to}} s까지 소리가 없습니다.",
+        "off-beat": "장면 {{n}} 시작 컷이 비트와 {{offset}} s 어긋나 있습니다."
+      },
+      "seam": {
+        "length": "전환 길이",
+        "snapBeat": "가장 가까운 강한 비트를 중심으로 맞추기",
+        "title": "전환"
+      },
+      "signals": {
+        "title": "표지",
+        "collecting": "표지 수집 중…",
+        "recollect": "표지 다시 수집",
+        "mark": "{{t}} s 지점의 {{name}} 표지",
+        "boundCount": "{{count}}개 묶임",
+        "menu": "표지",
+        "staleHint": "코드가 바뀌어서 표지 시간을 다시 수집하는 중입니다.",
+        "bind": "{{name}} 클립을 이 표지에 묶기",
+        "bindHint": "먼저 소리나 다른 클립을 선택한 뒤 여기에 묶으세요",
+        "unbind": "{{name}} 클립 묶기 해제 (현재 시간 유지)",
+        "boundTo": "{{name}} 표지에 묶임"
+      },
+      "start": {
+        "ask": "무엇을 만들까요?",
+        "dropHint": "여기에 파일을 끌어다 놓으세요: 화면, 데이터, 로고 또는 영상",
+        "make": "기획안 만들기",
+        "materials": "파일 추가",
+        "openBlank": "빈 문서 열기",
+        "placeholder": "영상을 설명해 주세요…",
+        "recipes": "레시피",
+        "seconds": "{{count}} s"
+      },
+      "steps": {
+        "label": "단계",
+        "say": "말하기",
+        "approve": "기획안 승인",
+        "refine": "직접 다듬기"
+      },
+      "strip": {
+        "chapter": "장면 {{n}} · {{title}}",
+        "chapterN": "장면 {{n}}",
+        "derive": "장면으로 나누기",
+        "empty": "아직 장면이 없습니다",
+        "menu": "장면 메뉴",
+        "seam": "전환: {{transition}}",
+        "seamDrag": "드래그해서 컷 위치 옮기기",
+        "working": "AI가 여기서 작업 중입니다"
+      },
+      "style": {
+        "applied": "적용됨",
+        "apply": "이 영상에 적용",
+        "confirm": "프로젝트 스타일로 사용",
+        "current": "이 영상",
+        "font": "글꼴",
+        "fontFile": "파일",
+        "fromProject": "프로젝트에서 가져옴",
+        "logo": "로고",
+        "noFont": "시스템 글꼴",
+        "noLogo": "로고 없음",
+        "none": "아직 스타일이 없습니다. 프로젝트를 스캔해서 색상, 글꼴, 로고를 찾아보세요.",
+        "partial": "처음 {{count}}개 파일을 스캔했습니다.",
+        "scan": "프로젝트 스캔",
+        "scanHint": "이 프로젝트의 파일에서 색상, 글꼴, 로고를 찾습니다.",
+        "scanning": "스캔 중…",
+        "slot_accent": "강조색",
+        "slot_bg": "배경",
+        "slot_fg": "글자색",
+        "slot_muted": "보조색"
+      },
+      "toast": {
+        "checkpoint": "저장점를 저장했습니다",
+        "nothingToDerive": "나눌 곳이 없습니다. 타임라인에 뚜렷한 컷이 아직 없습니다.",
+        "partSaved": "내 부품에 저장했습니다",
+        "passUndone": "AI 바퀴를 되돌렸습니다",
+        "renderDoneNote": "렌더 완료 · {{note}}",
+        "restored": "그 버전으로 되돌아갔습니다",
+        "sent": "AI에게 보냈습니다",
+        "styleConfirmed": "프로젝트 스타일로 저장했습니다",
+        "cuesStale": "표지를 다시 수집하지 못해서, 표지에 묶인 소리는 이전 시간을 그대로 사용했습니다."
+      },
+      "transcript": {
+        "clear": "표시 지우기",
+        "cut": "취소선 문장 잘라내기",
+        "empty": "아직 자막 문장이 없습니다. SRT 파일을 가져오거나 자막을 추가하세요.",
+        "hint": "문장을 클릭하면 그 위치로 이동합니다. 문장에 취소선을 그어 한 번에 잘라낼 수 있으며, 자르는 위치는 문장 경계를 따릅니다.",
+        "keep": "이 문장 남기기",
+        "seek": "이 문장으로 이동",
+        "strike": "이 문장에 취소선 긋기",
+        "summary": "문장 {{count}}개 · −{{removed}} s · {{before}} → {{after}}"
+      },
+      "transitions": {
+        "cut": "자르기",
+        "dissolve": "녹아들기",
+        "push": "밀기",
+        "zoom": "확대",
+        "flash": "빛 번짐",
+        "wipe": "닦아내기"
+      },
+      "values": {
+        "advanced": "고급 (JSON)",
+        "codeInfo": "코드 정보",
+        "codeInfoProblems": "코드 정보 · 문제 {{count}}개",
+        "declaredLength": "선언된 길이 {{seconds}} s",
+        "deselect": "선택 해제",
+        "duration": "길이",
+        "noDecl": "이 컴포지션에는 아직 선언된 값이 없습니다. 바꾸고 싶은 글자, 숫자, 색상을 선언해 달라고 AI에게 요청하세요.",
+        "responsive": "프레임 크기에 맞춰 조정됨",
+        "seekForward": "앞으로만 재생됩니다 (뒤로 이동하면 처음부터 다시 재생합니다)",
+        "seekRandom": "어느 시점으로든 바로 이동할 수 있습니다",
+        "title": "값",
+        "kind_composition": "코드 컴포지션",
+        "kind_footage": "영상",
+        "kind_image": "이미지",
+        "kind_audio": "소리",
+        "kind_caption": "자막",
+        "kind_text": "글자",
+        "kind_shape": "도형",
+        "kind_scene": "내장 장면"
+      },
+      "variants": {
+        "dropUnpicked": "안 고른 쪽 지우기",
+        "hint": "둘 다 같은 시점에 재생됩니다. 안 고른 쪽은 지우기 전까지 문서에 남아 있습니다.",
+        "missing": "이 장면에는 아직 두 버전이 없습니다.",
+        "pick": "이걸로",
+        "picked": "고른 것",
+        "request": "비교해 볼 수 있게 {{engine}} 엔진으로 \"{{title}}\" 장면을 제작해 주세요.",
+        "status_building": "진행 중",
+        "status_done": "준비됨",
+        "title": "두 엔진 나란히 · {{title}}"
+      },
+      "motion": {
+        "punchIn": "강조 줌",
+        "punchInHint": "재생 머리 위치에서 잠깐 확대하고 유지한 뒤 원래대로 돌아옵니다",
+        "slowPush": "천천히 밀기",
+        "slowPushHint": "클립 전체에 걸쳐 천천히 확대합니다",
+        "addKey": "{{time}} s에 키프레임",
+        "empty": "키프레임이 없습니다 — 박스는 움직이지 않습니다.",
+        "keyLabel": "키프레임 {{n}}",
+        "remove": "이 키프레임 제거",
+        "time": "시간(s)",
+        "dx": "X 이동(px)",
+        "dy": "Y 이동(px)",
+        "ease": "곡선",
+        "ease_linear": "일정하게",
+        "ease_in": "천천히 시작",
+        "ease_out": "천천히 끝",
+        "ease_inOut": "부드럽게",
+        "ease_hold": "유지 후 점프",
+        "clear": "모든 키프레임 제거"
+      },
+      "effects": {
+        "title": "색상 및 효과",
+        "look": "룩",
+        "look_warm": "따뜻함",
+        "look_cool": "차가움",
+        "look_mono": "흑백",
+        "look_vivid": "선명함",
+        "look_fade": "빛바램",
+        "look_cinematic": "시네마틱",
+        "brightness": "밝기",
+        "contrast": "대비",
+        "saturation": "채도",
+        "temperature": "색온도",
+        "hue": "색조 이동(°)",
+        "blur": "블러(px)",
+        "vignette": "비네트",
+        "reset": "색상 및 효과 초기화"
+      },
+      "errNoFrame": "장면 \"{{id}}\"의 정지 화면을 그릴 수 없습니다 — 컴포지션 에셋이 없습니다.",
+      "lowResolution": "이 화면에는 영상만큼 큰 렌더 창이 들어가지 않아 {{percent}}% 해상도로 렌더링했습니다."
     },
     "cost": {
-      "codexEstimateNote": "코덱스 비용은 표준 API 토큰 단가로 계산한 추정치입니다. ChatGPT 구독 청구액이나 크레딧 사용량이 아니며, Fast 모드·긴 컨텍스트 할증은 포함하지 않습니다.",
+      "codexEstimateNote": "코덱스 비용은 표준 API 토큰 단가로 계산한 추정치입니다. ChatGPT 구독 청구액이나 크레딧 사용량이 아니며, Fast/Ultrafast 모드·긴 컨텍스트 할증은 포함하지 않습니다.",
       "title": "비용 및 토큰 맵",
       "close": "비용 맵 닫기",
       "pillLabel": "오늘 비용",
@@ -2386,8 +3086,6 @@
         "invalidNumber": "허용 범위 안의 올바른 숫자를 입력하세요.",
         "reloadedDraft": "편집 중에 이 클립이 변경되었습니다. 적용하기 전에 최신 값을 확인하세요.",
         "refresh": "새로고침",
-        "removeTrack": "트랙 제거",
-        "memoryLimit": "이 오디오는 편집 메모리 한도를 초과합니다. 더 짧은 원본을 사용하세요.",
         "connections": {
           "title": "AI 및 연결",
           "builtIn": "내장 편집",
@@ -2432,7 +3130,9 @@
           "loadFailed": "연결 초안을 불러오지 못했습니다.",
           "saveFailed": "초안을 저장하지 못했습니다. 이름과 엔드포인트 주소를 확인하세요.",
           "retry": "다시 시도"
-        }
+        },
+        "removeTrack": "트랙 제거",
+        "memoryLimit": "이 오디오는 편집 메모리 한도를 초과합니다. 더 짧은 원본을 사용하세요."
       }
     },
     "vibi3d": {
@@ -3953,6 +4653,16 @@
       "resumed": "연결 복구됨 · 작업 재개",
       "ended": "연결 복구 시도 기록"
     },
+    "processGuard": {
+      "someProcess": "프로세스 하나",
+      "cap": "{{image}}의 메모리 사용량({{mem}})이 프로세스당 한도({{cap}})를 초과해서 해당 프로세스를 종료했습니다",
+      "capKernel": "Windows가 {{image}}의 추가 메모리 요청을 프로세스당 한도({{cap}})에서 거부했고, 해당 프로세스는 종료되었습니다",
+      "pressure": "메모리가 부족해서(여유 {{avail}}) 여기서 가장 큰 프로세스({{image}}, {{mem}})를 종료했습니다",
+      "sessionEnd_one": "세션이 끝나서 남아 있던 프로세스 {{count}}개를 종료했습니다",
+      "sessionEnd_other": "세션이 끝나서 남아 있던 프로세스 {{count}}개를 종료했습니다",
+      "taskKilled_one": "Claude Code가 작업을 중지했지만 해당 작업의 프로세스 {{count}}개가 계속 실행 중이어서 종료했습니다",
+      "taskKilled_other": "Claude Code가 작업을 중지했지만 해당 작업의 프로세스 {{count}}개가 계속 실행 중이어서 종료했습니다"
+    },
     "cmdError": {
       "spawn": "{{engine}} 를 실행하지 못했습니다",
       "stdin": "실행 중인 세션에 프롬프트를 전달하지 못했습니다",
@@ -4261,9 +4971,9 @@
             "off": "끄면 압축 이후에도 세션은 계속되지만, 요약에서 빠진 내용에 대한 메모는 받지 못합니다."
           },
           "verificationPolicy": {
-            "what": "검증(테스트·린트·타입 검사·빌드·E2E·브라우저 확인)은 요청하셨을 때만 실행한다는 규칙과, 이번 작업에 열린 검증 권한 한 줄입니다.",
-            "more": "Vibisual 은 사용자 본인의 입력이나 검증 버튼으로만 권한을 만들고 그 작업 하나에만 묶으며, 그 밖의 검증은 실행 전에 막습니다.",
-            "off": "끄면 에이전트가 정책을 듣지 못할 뿐, 권한 없는 검증은 여전히 실행 전에 막힙니다."
+            "what": "현재 작업에서 요청한 경우에만 검증을 실행하도록 Codex와 Claude Code에 전달하는 선택적 안내와 해당 작업의 검증 권한입니다.",
+            "more": "정책은 기본적으로 꺼져 있습니다. 켜면 Vibisual은 해당 작업의 사용자 메시지나 검증 버튼을 통해 검증 권한을 부여합니다. 끄면 제한 안내를 추가하지 않고 검증 호출도 차단하지 않습니다.",
+            "off": "이 소스 스위치는 정책이 켜져 있을 때 안내만 숨깁니다. 안내와 실행 차단을 함께 켜거나 끄려면 {{options}}의 {{permissions}}에서 설정합니다. 정책은 기본적으로 꺼져 있습니다."
           },
           "hookEnforcement": {
             "what": "Claude Code 훅으로 붙어 들어온 외부 세션에 Vibisual 이 넣는 지시 묶음입니다.",
@@ -6032,7 +6742,16 @@
       "lockN": "고른 {{count}}개 잠그기",
       "unlockN": "고른 {{count}}개 잠금 풀기",
       "lockSkipped": "잠글 수 없는 버블 {{count}}개는 빠집니다.",
-      "toBubble": "버블로 접기"
+      "toBubble": "버블로 되돌리기",
+      "toCard": "말풍선으로 전환",
+      "toCardNote": "버블 옆에 입력 말풍선을 펼쳐 바로 말을 겁니다",
+      "hideLinks": "연결선 숨기기",
+      "hideLinksNote": "선만 감춥니다 — 연결은 그대로 동작합니다",
+      "showLinks": "연결선 보이기",
+      "lensFiles": "작업 파일 위주로 보기",
+      "lensFilesNote": "파일 선을 다시 선명하게 하고 연결된 것은 접습니다",
+      "lensLinked": "연결된 것 위주로 보기",
+      "lensLinkedNote": "연결된 앱의 장면·소재를 보여 주고 파일 선은 흐리게 합니다"
     },
     "pathLock": {
       "badgeSelf": "잠김 — 어떤 AI든 열기 전에 허락을 받습니다",
@@ -6052,15 +6771,42 @@
       },
       "placeholder": "무엇을 맡길까요? Enter 보내기 · Shift+Enter 줄바꿈",
       "inputLabel": "{{name}}에게 보낼 말",
-      "linkHint": "+ 를 끌어 노드 잇기",
+      "linkHint": "궤도의 점을 끌어 앱 위성 띄우기",
       "chipOn": "{{name}} — 이번 명령에 넣습니다. 누르면 뺍니다.",
       "chipOff": "{{name}} — 이번 명령에서 뺐습니다. 누르면 넣습니다.",
       "send": "보내기",
-      "handleTitle": "끌어서 노드 만들기·잇기 (누르면 목록)"
+      "handleTitle": "끌어서 앱 위성 띄우기·잇기 (누르면 고르기)",
+      "linkedCount": "앱 위성 {{count}}개"
     },
     "refLink": {
-      "menuHeading": "이 에이전트를 참조해 만들기",
+      "bloomLabel": "띄울 앱 위성 고르기",
       "unlink": "연결 끊기"
+    },
+    "linkedItems": {
+      "rowLabel": "연결된 것",
+      "scene": "장면 {{index}}: {{title}}",
+      "sceneUntitled": "장면 {{index}}",
+      "stage": {
+        "plan": "기획",
+        "ready": "승인",
+        "building": "짓는 중",
+        "done": "끝"
+      },
+      "kind": {
+        "scene": "장면",
+        "image": "그림",
+        "video": "영상",
+        "audio": "소리",
+        "model": "3D 모델",
+        "font": "글꼴",
+        "code": "모션 코드",
+        "text": "글자",
+        "file": "파일"
+      },
+      "seconds": "{{seconds}}초",
+      "active": "AI가 지금 만지는 중",
+      "past": "지난 결과",
+      "openPastHint": "더블클릭하면 이 결과가 열립니다."
     }
   },
   "common": {
@@ -6452,7 +7198,12 @@
     "personality": "말투",
     "personalityHint": "말투 설정은 이를 지원하는 모델에서 적용됩니다.",
     "serviceTier": "서비스 등급",
-    "serviceTierHint": "사용 모델이 지원하는 등급만 입력하세요(예: fast). 빠른 등급은 사용량·요금에 영향을 줄 수 있습니다.",
+    "serviceTierFast": "Fast — 지원되는 경우",
+    "serviceTierUltrafast": "Ultrafast — 지원되는 경우",
+    "codexModelInherited": "Codex 설정 따르기",
+    "codexModelInheritedHint": "모델을 별도로 지정하지 않습니다. Codex가 설정 파일이나 현재 기본 모델에 따라 결정합니다.",
+    "retainedModelHint": "저장한 모델이 현재 목록에 없습니다. 선택은 유지되며, 실행할 때 Codex가 사용 가능 여부를 확인합니다.",
+    "serviceTierHint": "Fast/Ultrafast 지원 여부는 모델과 계정에 따라 다릅니다. 크레딧 사용량이나 요금이 늘어날 수 있습니다. 비워 두면 상속하며, 지원되는 다른 등급 이름도 입력할 수 있습니다.",
     "autoCompactTokenLimit": "자동 대화 압축 기준 (토큰)",
     "codexTools": "도구별 권한",
     "codexValues": {

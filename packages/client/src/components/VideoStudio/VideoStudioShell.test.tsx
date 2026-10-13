@@ -30,6 +30,8 @@ vi.mock('./useVideoRenderer.js', () => {
 vi.mock('./videoApi.js', () => ({
   listDocs: mocks.list, readDoc: mocks.read, createDoc: mocks.create, patchDoc: mocks.patch,
   claimJob: vi.fn(), reportJob: vi.fn(), startRender: vi.fn(), VersionConflictError: class extends Error {},
+  // §5.13 (T-7) — 스튜디오가 몇 초마다 묻는 판본. 0 이면 다시 읽지 않는다.
+  readDocVersion: vi.fn(async () => ({ id: '', title: '', version: 0, updatedAt: 0, duration: 0 })),
 }));
 
 let view: ReactTestRenderer | undefined;

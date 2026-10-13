@@ -11,8 +11,9 @@
 import { resolveTimeline } from '../resolveTimeline.js';
 import type { ResolvedTimeline, VideoDoc } from '../types.js';
 import type { RenderBackend } from './backend.js';
+import { isPlannedBackend } from './capturePool.js';
 import { frameSignature, totalFrames } from './frameSignature.js';
-import { VideoEncoder, type EncodeQuality, type PickedCodecs } from './encode.js';
+import { VideoEncoder, type EncodeQuality, type OutputContainer, type PickedCodecs } from './encode.js';
 
 /** 그려 둔 프레임을 보관하는 곳. 메모리든 디스크든 호스트가 정한다. */
 export interface FrameCache {
@@ -39,6 +40,8 @@ export interface RenderDocOptions {
   readonly cache?: FrameCache | null;
   readonly signal?: AbortSignal;
   readonly onProgress?: (p: RenderProgress) => void;
+  /** §5.13 (W) 38-3 — 투명 배경(WebM + 알파). 백엔드도 알파를 지켜 그려야 한다. */
+  readonly alpha?: boolean;
 }
 
 export interface RenderResult {
@@ -47,6 +50,8 @@ export interface RenderResult {
   readonly reusedFrames: number;
   readonly durationSec: number;
   readonly codecs: PickedCodecs;
+  /** §5.13 (W) 38-3 — 결과 그릇(mp4 · 투명이면 webm). */
+  readonly container: OutputContainer;
 }
 
 export class RenderCanceledError extends Error {
@@ -81,6 +86,7 @@ export async function renderDoc(opts: RenderDocOptions): Promise<RenderResult> {
     canvas,
     ...(opts.quality === undefined ? {} : { quality: opts.quality }),
     withAudio: opts.audio != null,
+    ...(opts.alpha === true ? { alpha: true } : {}),
   });
 
   await encoder.start();
@@ -88,6 +94,12 @@ export async function renderDoc(opts: RenderDocOptions): Promise<RenderResult> {
   const cache = opts.cache ?? null;
   const paint = cache ? ctx2d(canvas) : null;
   let reused = 0;
+  // §5.13 (W) 38-2 — 나눠 찍는 백엔드에 프레임 시각을 미리 알린다(캐시가 건너뛸 프레임까지 찍지 않게 캐시 없는 렌더만).
+  if (!cache && isPlannedBackend(backend)) {
+    const times: number[] = [];
+    for (let i = 0; i < frames; i += 1) times.push(i / fps);
+    backend.plan(times);
+  }
 
   try {
     for (let i = 0; i < frames; i += 1) {
@@ -133,6 +145,7 @@ export async function renderDoc(opts: RenderDocOptions): Promise<RenderResult> {
       reusedFrames: reused,
       durationSec: timeline.duration,
       codecs: encoder.pickedCodecs,
+      container: encoder.container,
     };
   } catch (err) {
     await encoder.cancel();

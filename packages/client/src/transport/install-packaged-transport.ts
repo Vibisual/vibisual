@@ -48,19 +48,17 @@ export interface RectWire { x: number; y: number; width: number; height: number 
 export interface PointWire { x: number; y: number }
 
 export interface PackagedWindowApi {
-  moveSelf?(phase: 'start' | 'move' | 'end'): Promise<boolean>;
+  /**
+   * §3.7 — 제목줄 손짓으로 자기 창을 옮긴다. `point` 는 렌더러가 잰 그 손짓의 화면 좌표(DIP)다 —
+   * 메인이 늦게 받아도 누른 자리·놓은 자리로 옮기기 위해 싣는다(없으면 main 이 OS 커서로 대신한다).
+   */
+  moveSelf?(phase: 'start' | 'move' | 'end', point?: PointWire): Promise<boolean>;
   detach(payload: DetachPayloadWire): Promise<{ windowId: number; reused: boolean }>;
   closeDetached(tabKey: string): Promise<boolean>;
   closeSelf(): Promise<boolean>;
   minimizeSelf(): Promise<boolean>;
   toggleMaximizeSelf(): Promise<boolean>;
   onMaximizeState(cb: (payload: { maximized: boolean }) => void): () => void;
-  /**
-   * §3.7 v2.10 — main 이 창 상태 전이(show·restore·maximize·전체화면)를 알려 오는 창구.
-   * 렌더러는 그때 드래그 영역을 다시 신고한다(`dragRegionRefresh`). 구버전 preload 에는
-   * 없을 수 있어 **선택 속성**이다 — 없으면 브라우저 계기(visibilitychange·focus)만으로 간다.
-   */
-  onDragRegionsRefresh?(cb: () => void): () => void;
   listDetached(): Promise<DetachedTabInfoWire[]>;
   hasTab(tabKey: string): Promise<boolean>;
   cursorScreen(): Promise<PointWire>;
@@ -191,6 +189,8 @@ export interface PackagedOverlayApi {
     armed?: boolean;
     /** (H-19) 선 안에 적을 한 줄 — 나가는 길에도 선이 말한다(본체가 숨어 안내 띠가 없다). */
     hint?: string;
+    /** §5.13 (S-10) 손을 뗐다 — 선을 그 자리에 **멈춘다**(끌어낸 창이 그 선의 자리·크기에 선다). */
+    settled?: boolean;
   }): Promise<boolean>;
 
   /** §17-6 (H-6) — 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낸다. */
@@ -448,7 +448,7 @@ export interface PackagedExternalOpenApi {
  * 늘어도 이 타입은 그대로다.
  */
 export interface PackagedAppApi {
-  open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number }) => Promise<{ windowId: number; reused: boolean }>;
+  open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }) => Promise<{ windowId: number; reused: boolean }>;
   close: (appId: string) => Promise<boolean>;
   updateTarget?: (params: Record<string, string>) => Promise<boolean>;
   startDrag?: () => Promise<boolean>;
@@ -464,7 +464,19 @@ export interface PackagedAppApi {
   /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
   invoke: (appId: string, action: string, payload?: unknown) => Promise<unknown>;
   onShowTarget: (cb: (payload: { appId: string; hash: string; requestId?: string }) => void) => () => void;
+  /** §5.13 (S-11) 밖에 떠 있는 앱 창 목록 — 처음 한 번 묻는다. 구버전 preload 에선 부재. */
+  list?: () => Promise<AppWindowListWire>;
+  /** §5.13 (S-11) 그 목록이 바뀔 때마다(창이 서고 닫히거나 보는 문서가 바뀔 때). */
+  onList?: (cb: (list: AppWindowListWire) => void) => () => void;
+  /** §5.13 (S-11) 밖에 이미 떠 있는 그 창을 앞으로 세운다(새로 열지 않는다). 그 창이 없으면 false. */
+  focus?: (appId: string, windowId?: number) => Promise<boolean>;
+  /** §5.13 (S-11) 앱 창 한정 — 본체가 이 창을 불렀다는 기척(테두리를 한 번 비춘다). */
+  onAttention?: (cb: (payload: { appId: string }) => void) => () => void;
 }
+
+/** §5.13 (S-11) 밖에 떠 있는 앱 창 하나와 그 창이 지금 보는 대상(앱 화면 파라미터 그대로). */
+export interface AppWindowListItemWire { windowId: number; appId: string; params: Record<string, string> }
+export type AppWindowListWire = readonly AppWindowListItemWire[];
 
 declare global {
   // Augmented locally so the client tsconfig need not include preload's d.ts.

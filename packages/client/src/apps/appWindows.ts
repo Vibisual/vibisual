@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 
-import { clientPathKey } from '../utils/platform.js';
 import { getInternalApp } from './registry.js';
 import type { AppOpenArgs } from './registry.js';
 import type { FloatingWindowGeom } from '../hooks/floatingWindowGeom.js';
 import { prepareAppWindowTransfer } from './appWindowTransfer.js';
+import { appWindowKey, resolveAppWindowDestination, type OutsideAppWindow } from './appWindowFocus.js';
 
 /**
  * §5.13 (S) — **앱 안 창**으로 열린 내부 앱들.
@@ -30,6 +30,11 @@ export interface AppWindowArgs {
   readonly file?: string | undefined;
   /** 창 제목에 쓸 이름(버블 이름 등). 없으면 앱 이름이 쓰인다. */
   readonly title?: string | undefined;
+  /**
+   * §5.13 (L) — 이 창을 연 캔버스 노드. 앱이 다른 작업 문서를 고르면 그 노드가 그 문서를 기억한다.
+   * 창의 열쇠(같은 창인가)에는 넣지 않는다 — 같은 문서를 가리키는 노드 둘이 창을 두 벌 띄우지 않게.
+   */
+  readonly bubbleId?: string | undefined;
 }
 
 export interface AppWindow extends AppWindowArgs {
@@ -44,30 +49,18 @@ export interface AppWindow extends AppWindowArgs {
   readonly focusAt: number;
 }
 
-/**
- * 같은 것을 가리키는 창인가 — 앱·프로젝트·열쇠·파일이 모두 같으면 같은 창이다.
- *
- * 버블 이름(`title`)은 열쇠가 아니다. 이름만 다른 버블 둘이 같은 문서를 가리킬 수 있고, 그때
- * 창이 두 벌 뜨면 편집이 갈라진다.
- *
- * ⚠ 경로는 `clientPathKey` 로 접는다(멀티플랫폼 규약 ① 경로키). 같은 파일이 부르는 자리에 따라
- * `C:\proj` 와 `C:/proj` 로 오는데 그대로 견주면 Windows 에서 창이 두 벌 뜬다. **소문자로 접지**
- * **않는다** — Linux 는 `Feature-X` 와 `feature-x` 가 다른 파일이라, 접으면 서로 다른 두 파일이
- * 한 창을 나눠 쓴다(그 판정은 `clientPathKey` 안에 있다).
- */
-function windowKey(a: AppWindowArgs): string {
-  // `ref` 는 앱이 발급한 식별자(문서 id)라 경로가 아니다 — 접지 않고 그대로 견준다.
-  //   JSON 으로 묶는 까닭: 구분자를 문자 하나로 두면 그 문자가 값 안에 들어올 때 두 열쇠가 같아진다.
-  return JSON.stringify([
-    a.appId,
-    clientPathKey(a.projectId),
-    a.ref ?? '',
-    a.file === undefined || a.file === '' ? '' : clientPathKey(a.file),
-  ]);
-}
+/** 같은 것을 가리키는 창인가 — 열쇠의 규칙(경로 접기 포함)은 `appWindowFocus.ts` 한 곳이 쥔다(밖의 창과 같은 말로 견준다). */
+const windowKey = appWindowKey;
 
 interface AppWindowsState {
   windows: readonly AppWindow[];
+  /**
+   * §5.13 (S-11) **밖에** 떠 있는 앱 창(OS 창)과 그 창이 보는 대상 — main 의 목록을 그대로 비춘 것(이 store 가
+   * 만들지 않는다 — `useAppWindowRedock` 이 받아 적는다). 그 문서를 다시 열면 앱 안에 한 벌 더 세우지 않고 그 창을
+   * 앞으로 세운다(`openAppWindow`).
+   */
+  outside: readonly OutsideAppWindow[];
+  setOutside: (list: readonly OutsideAppWindow[]) => void;
   open: (args: AppWindowArgs) => void;
   close: (id: string) => void;
   /** Preserve the current document when the shell changes its selection before popping out. */
@@ -82,6 +75,11 @@ const pendingPopOut = new Set<string>();
 
 export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
   windows: [],
+  outside: [],
+
+  setOutside: (list): void => {
+    set({ outside: list });
+  },
 
   open: (args): void => {
     const key = windowKey(args);
@@ -90,7 +88,9 @@ export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
       // 이미 떠 있다 — 맨 앞으로만 올린다(제목은 최신 것으로 갱신: 버블 이름을 바꾼 뒤 다시 열 때).
       set({
         windows: get().windows.map((w) => (
-          w.id === existing.id ? { ...w, title: args.title, focusAt: Date.now() } : w
+          w.id === existing.id
+            ? { ...w, title: args.title, ...(args.bubbleId ? { bubbleId: args.bubbleId } : {}), focusAt: Date.now() }
+            : w
         )),
       });
       return;
@@ -124,6 +124,7 @@ export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
       // An unknown app cannot receive this window; leave the source open.
       if (!app) return false;
       const opened = await app.open({ projectId: win.projectId, ref: win.ref, file: win.file,
+        ...(win.bubbleId ? { bubbleId: win.bubbleId } : {}),
         ...(win.title ? { title: win.title } : {}), ...(placement ? { placement } : {}) });
       if (!opened) return false;
       set({ windows: get().windows.filter((w) => w.id !== id) });
@@ -140,10 +141,31 @@ export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
  * 여기로 온다. 지점마다 자기 판단을 들면 같은 앱이 자리마다 다른 곳에서 열린다.
  *
  * 등록되지 않은 `appId` 면 열지 않고 false — 부르는 쪽이 연결 프로그램 등 다른 길로 갈 수 있게.
+ *
+ * §5.13 (S-11) — 그 문서가 **이미 밖에 떠 있으면** 앱 안에 한 벌 더 세우지 않고 밖의 그 창을 앞으로 세운다(IDE 창
+ * §5.5 #17-6 (H-13)(H-16) 과 같은 "포커싱" — 다른 프로그램 뒤에 가려져 있어도 앞으로 오고, 테두리가 한 번 대답한다).
+ * 그 사이 그 창이 닫혔으면(목록이 한 박자 늦다) 종전대로 앱 안에 연다.
+ *
+ * @param opts.redock 밖의 창을 앱 안으로 **되돌리는** 길 — 그 창은 닫히는 중이라 밖을 보지 않는다.
  */
-export function openAppWindow(args: AppWindowArgs): boolean {
+export function openAppWindow(args: AppWindowArgs, opts?: { redock?: boolean }): boolean {
   if (!getInternalApp(args.appId)) return false;
-  useAppWindowsStore.getState().open(args);
+  const store = useAppWindowsStore.getState();
+  const api = typeof window !== 'undefined' ? window.api?.app : undefined;
+  const destination = resolveAppWindowDestination({
+    args,
+    inside: store.windows,
+    outside: store.outside,
+    redock: opts?.redock === true,
+    canFocusOutside: typeof api?.focus === 'function',
+  });
+  if (destination.kind === 'outside' && api?.focus) {
+    const openInside = (): void => { useAppWindowsStore.getState().open(args); };
+    void api.focus(destination.appId, destination.windowId)
+      .then((raised) => { if (!raised) openInside(); }, openInside);
+    return true;
+  }
+  store.open(args);
   return true;
 }
 

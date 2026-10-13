@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { SESSION_MEMO, SESSION_MEMO_PALETTE, normalizeMemoName, type SessionMemo } from '@vibisual/shared';
 import { CommentBoxColorPopover } from '../Panel/CommentBoxColorPopover.js';
 import { hasMemoName, memoAlpha, memoSurface, memoTitle, moveMemo, resizeMemo, type MemoBounds, type MemoPatch } from './sessionMemo.js';
+import { useAppThemeTokenHex } from '../../theme/useAppTheme.js';
 
 /**
  * SessionMemoCard.tsx — §5.5 #17-36 스티키 메모 한 장.
@@ -161,7 +162,10 @@ function SessionMemoCardImpl({
   }, [autoFocus]);
 
   const alpha = memoAlpha(memo);
-  const surface = memoSurface(memo.color, alpha);
+  // §4 앱 테마 — 반투명 종이가 놓이는 바닥은 고른 테마의 창 바탕이다. 라이트에서 어두운 바닥으로 섞으면
+  //   글자색 판정이 거꾸로 나와(밝은 판에 흰 글씨) 아무것도 안 읽힌다.
+  const memoBase = useAppThemeTokenHex('window.background');
+  const surface = memoSurface(memo.color, alpha, memoBase);
   const collapsed = memo.collapsed === true;
   const title = memoTitle(memo, t('ide.memo.title'));
   const renaming = nameDraft !== null;

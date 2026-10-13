@@ -14,8 +14,10 @@
  * 반영되면 에이전트는 자기가 무엇을 만든 건지 알 수 없게 된다.
  */
 
+import { VIDEO_SCHEMA_VERSION } from './constants.js';
 import type {
   VideoAsset,
+  VideoChapter,
   VideoDoc,
   VideoDocOp,
   VideoDocPatch,
@@ -61,6 +63,15 @@ function insertItem(items: readonly VideoItem[], item: VideoItem, beforeItemId?:
   const at = next.findIndex((it) => it.id === beforeItemId);
   if (at < 0) next.push(item);
   else next.splice(at, 0, item);
+  return next;
+}
+
+/** `beforeChapterId` 가 있으면 그 앞에, 없으면(또는 못 찾으면) 끝에. */
+function insertChapter(chapters: readonly VideoChapter[], chapter: VideoChapter, beforeChapterId?: string): VideoChapter[] {
+  const next = chapters.slice();
+  const at = beforeChapterId === undefined ? -1 : next.findIndex((c) => c.id === beforeChapterId);
+  if (at < 0) next.push(chapter);
+  else next.splice(at, 0, chapter);
   return next;
 }
 
@@ -173,7 +184,62 @@ function applyOp(doc: VideoDoc, op: VideoDocOp): OpOutcome {
     }
 
     case 'setDoc': {
-      return { ok: true, doc: { ...doc, ...op.patch } };
+      // `style: null` = 스타일을 걷는다(JSON 은 undefined 를 보낼 수 없다).
+      const { style, ...rest } = op.patch;
+      const next: VideoDoc = { ...doc, ...rest };
+      if (style === null) {
+        const { style: _drop, ...without } = next;
+        return { ok: true, doc: without };
+      }
+      return { ok: true, doc: style === undefined ? next : { ...next, style } };
+    }
+
+    // ─── §5.13 (V) 37-4 장면 층 ───
+
+    case 'addChapter': {
+      const chapters = doc.chapters ?? [];
+      if (chapters.some((c) => c.id === op.chapter.id)) {
+        return { ok: false, message: `장면 '${op.chapter.id}' 가 이미 있습니다.` };
+      }
+      return { ok: true, doc: { ...doc, chapters: insertChapter(chapters, op.chapter, op.beforeChapterId) } };
+    }
+
+    case 'updateChapter': {
+      const chapters = doc.chapters ?? [];
+      const at = chapters.findIndex((c) => c.id === op.chapterId);
+      const prev = chapters[at];
+      if (at < 0 || !prev) return { ok: false, message: `장면 '${op.chapterId}' 가 없습니다.` };
+      const next = chapters.slice();
+      next[at] = { ...prev, ...op.patch, id: prev.id };
+      return { ok: true, doc: { ...doc, chapters: next } };
+    }
+
+    case 'removeChapter': {
+      const chapters = doc.chapters ?? [];
+      if (!chapters.some((c) => c.id === op.chapterId)) return { ok: false, message: `장면 '${op.chapterId}' 가 없습니다.` };
+      return { ok: true, doc: { ...doc, chapters: chapters.filter((c) => c.id !== op.chapterId) } };
+    }
+
+    case 'moveChapter': {
+      const chapters = doc.chapters ?? [];
+      const moving = chapters.find((c) => c.id === op.chapterId);
+      if (!moving) return { ok: false, message: `장면 '${op.chapterId}' 가 없습니다.` };
+      if (op.beforeChapterId === op.chapterId) return { ok: true, doc };
+      const rest = chapters.filter((c) => c.id !== op.chapterId);
+      return { ok: true, doc: { ...doc, chapters: insertChapter(rest, moving, op.beforeChapterId) } };
+    }
+
+    case 'setChapters': {
+      const seen = new Set<string>();
+      for (const c of op.chapters) {
+        if (seen.has(c.id)) return { ok: false, message: `장면 id '${c.id}' 가 두 번 나옵니다.` };
+        seen.add(c.id);
+      }
+      if (op.chapters.length === 0) {
+        const { chapters: _drop, ...without } = doc;
+        return { ok: true, doc: without };
+      }
+      return { ok: true, doc: { ...doc, chapters: op.chapters.slice() } };
     }
 
     default: {
@@ -185,10 +251,30 @@ function applyOp(doc: VideoDoc, op: VideoDocOp): OpOutcome {
 }
 
 /**
+ * 이 문서를 읽으려면 앱이 알아야 하는 스키마 판 — 쓰는 기능에서 정한다(§5.13 (I) — 판을 올리는 까닭은 옛 앱이 모르는
+ * 것을 조용히 버리지 않고 "앱을 업데이트하세요"로 말하게 하려는 것이다). 3 = 장면 층·장면/표지 앵커·갈래·문서 스타일·파생
+ * (§5.13 (V)), 2 = 코드 컴포지션(§5.13 (T-1)).
+ */
+export function requiredSchemaVersion(doc: VideoDoc): number {
+  if ((doc.chapters?.length ?? 0) > 0 || doc.style !== undefined || doc.derivedFrom !== undefined) return 3;
+  let need = 1;
+  for (const track of doc.tracks) {
+    for (const item of track.items) {
+      if (item.chapterId !== undefined || item.variantId !== undefined) return 3;
+      if (typeof item.at !== 'number' && ('chapter' in item.at || 'cue' in item.at)) return 3;
+      if (item.kind === 'composition') need = 2;
+    }
+  }
+  if (Object.values(doc.assets).some((a) => a.kind === 'composition')) need = Math.max(need, 2);
+  return need;
+}
+
+/**
  * 패치를 적용한다.
  *
  * 성공하면 `version` 이 1 오르고 `updatedAt` 이 갱신된 **새 문서**를 돌려준다.
- * 원본은 건드리지 않는다(불변 — 되돌리기와 비교가 공짜가 된다).
+ * 원본은 건드리지 않는다(불변 — 되돌리기와 비교가 공짜가 된다). 새 기능을 쓰기 시작한 문서는 스키마 판이 따라 오른다
+ * (내리지는 않는다 — 한 번 오른 판은 그 문서가 거쳐 온 기록이다).
  */
 export function applyPatch(doc: VideoDoc, patch: VideoDocPatch, now = Date.now()): VideoDocPatchResult {
   if (patch.baseVersion !== doc.version) {
@@ -207,9 +293,10 @@ export function applyPatch(doc: VideoDoc, patch: VideoDocPatch, now = Date.now()
     next = outcome.doc;
   }
 
+  const schemaVersion = Math.max(next.schemaVersion, Math.min(VIDEO_SCHEMA_VERSION, requiredSchemaVersion(next)));
   return {
     ok: true,
-    doc: { ...next, version: doc.version + 1, updatedAt: now },
+    doc: { ...next, schemaVersion, version: doc.version + 1, updatedAt: now },
     applied: patch.ops.length,
   };
 }
@@ -217,7 +304,7 @@ export function applyPatch(doc: VideoDoc, patch: VideoDocPatch, now = Date.now()
 /** 빈 문서. 새 영상을 시작할 때의 기본값. */
 export function createEmptyDoc(id: string, title: string, now = Date.now()): VideoDoc {
   return {
-    schemaVersion: 1,
+    schemaVersion: VIDEO_SCHEMA_VERSION,
     id,
     title,
     version: 1,

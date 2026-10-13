@@ -1,7 +1,9 @@
-import { createElement } from 'react';
+import { createElement, isValidElement, type JSXElementConstructor } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyPatch, createEmptyDoc, resolveTimeline, type VideoDoc, type VideoDocOp } from '@vibisual/video';
+import { MediaDrawer } from './MediaDrawer.js';
+import { PartsDrawer } from './PartsDrawer.js';
 import { VideoStudioShell } from './VideoStudioShell.js';
 import { VideoStudioView, type VideoStudioViewProps } from './VideoStudioView.js';
 
@@ -29,10 +31,23 @@ vi.mock('./useVideoRenderer.js', () => {
 vi.mock('./videoApi.js', () => ({
   listDocs: vi.fn(async () => []), readDoc: mocks.read, patchDoc: mocks.patch, importVideoAsset: mocks.importAsset,
   createDoc: vi.fn(), getJob: vi.fn(), assetUrl: vi.fn(), startRender: vi.fn(), VersionConflictError: class extends Error {},
+  // §5.13 (T-7) — 스튜디오가 몇 초마다 묻는 판본. 0 이면 다시 읽지 않는다.
+  readDocVersion: vi.fn(async () => ({ id: '', title: '', version: 0, updatedAt: 0, duration: 0 })),
 }));
 let view: ReactTestRenderer;
 let stored: VideoDoc;
 function props(): VideoStudioViewProps { return view.root.findByType(VideoStudioView).props as VideoStudioViewProps; }
+// §5.13 (V) 37-1 — 서랍은 레일이 그 자리에 그리는 요소다. 화면(VideoStudioView)은 가짜라 그리지 않으니 요소의 props 를 읽는다.
+function drawer<P>(type: JSXElementConstructor<P>): P {
+  const node = props().rail?.drawer;
+  if (!isValidElement<P>(node) || node.type !== type) throw new Error('drawer is not open');
+  return node.props;
+}
+// 빈 문서는 시작 화면으로 열린다 — '빈 영상'(direct) 레시피로 편집기(부품 서랍)를 연다.
+async function openEditor(): Promise<void> {
+  act(() => props().start!.onRecipe('blank'));
+  await act(async () => props().start!.onSubmit());
+}
 beforeEach(() => {
   vi.clearAllMocks(); stored = createEmptyDoc('test', 'Test');
   mocks.read.mockImplementation(async () => ({ doc: stored }));
@@ -49,33 +64,39 @@ async function mount(): Promise<void> {
   await act(async () => { view = create(createElement(VideoStudioShell, { appId: 'vibistudio', params: { projectId: 'project', docId: 'test', appWindowHosted: '1' } })); });
 }
 describe('Studio editor integration', () => {
-  it('persists a library scene, selects it for inspection, and undoes/redoes the server document', async () => {
+  it('persists a parts-drawer scene, selects it for inspection, and undoes/redoes the server document', async () => {
     await mount();
-    await act(async () => props().library!.onAddScene('quote'));
+    await openEditor();
+    await act(async () => drawer(PartsDrawer).onAddScene('quote'));
     const quote = stored.tracks.flatMap(track => track.items)[0]!;
     expect(quote.sceneId).toBe('quote');
-    expect(props().inspector?.selectedItemId).toBe(quote.id);
-    expect(props().undo.disabled).toBe(false);
-    await act(async () => props().undo.run());
+    act(() => props().controls!.onPrecision());
+    expect(props().precision?.inspector.selectedItemId).toBe(quote.id);
+    expect(props().precision!.undo.disabled).toBe(false);
+    await act(async () => props().precision!.undo.run());
     expect(stored.tracks.flatMap(track => track.items)).toHaveLength(0);
-    await act(async () => props().redo.run());
+    await act(async () => props().precision!.redo.run());
     expect(stored.tracks.flatMap(track => track.items)[0]?.sceneId).toBe('quote');
   });
   it('places batch media sequentially per track kind and retains probed audio metadata', async () => {
     await mount();
+    await openEditor();
+    act(() => props().rail!.onOpen('media'));
     const files = ['one.mp4', 'two.mp4', 'sound.wav'].map(name => new File(['data'], name));
-    await act(async () => props().library!.onImport(files));
+    await act(async () => drawer(MediaDrawer).onImport(files));
     const items = resolveTimeline(stored).items;
     expect(items.find(item => item.item.label === 'one.mp4')?.start).toBe(0);
     expect(items.find(item => item.item.label === 'two.mp4')?.start).toBe(2);
     expect(items.find(item => item.item.label === 'sound.wav')?.start).toBe(0);
     expect(stored.assets['one.mp4']?.hasAudio).toBe(true);
-    expect(props().importing).toBe(false);
+    expect(drawer(MediaDrawer).importing).toBe(false);
   });
   it('imports SRT as timestamped captions without sending it as media', async () => {
     await mount();
+    await openEditor();
+    act(() => props().rail!.onOpen('media'));
     const file = new File(['1\n00:00:01,000 --> 00:00:02,000\nHello'], 'captions.srt');
-    await act(async () => props().library!.onImport([file]));
+    await act(async () => drawer(MediaDrawer).onImport([file]));
     expect(mocks.importAsset).not.toHaveBeenCalled();
     expect(resolveTimeline(stored).items[0]?.item.cues).toEqual([{ start: 1, end: 2, text: 'Hello' }]);
   });

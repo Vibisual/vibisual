@@ -1,0 +1,46 @@
+﻿Perjanjian Lisensi dan Pemberitahuan Tanggung Jawab Vibisual
+Ringkasan Perjanjian Lisensi Pengguna Akhir (EULA) Vibisual, versi 1.1 · berlaku mulai 13 Oktober 2026
+
+Terjemahan ini disediakan untuk kemudahan. Versi bahasa Korea dan versi bahasa Inggris adalah naskah asli; apabila makna terjemahan ini berbeda dari naskah asli tersebut, yang berlaku adalah naskah asli.
+
+Dengan mencentang kotak persetujuan dan melanjutkan, Anda menyetujui pemberitahuan ini dan naskah lengkap Perjanjian Lisensi Pengguna Akhir (EULA), serta menyatakan telah membaca Pemberitahuan Privasi (PRIVACY). Jika Anda tidak setuju, hentikan instalasi atau keluar dari aplikasi.
+Naskah lengkap: resources\EULA.md di folder instalasi, atau https://github.com/Vibisual/vibisual/blob/main/EULA.md
+Pemberitahuan Privasi: https://github.com/Vibisual/vibisual/blob/main/PRIVACY.md
+
+1. Hal yang boleh Anda lakukan
+Build Vibisual ini gratis. Anda boleh menginstal dan menggunakannya di perangkat sebanyak yang Anda inginkan, untuk keperluan pribadi maupun komersial, tanpa akun dan tanpa kunci lisensi. Anda juga boleh mendistribusikannya tanpa modifikasi ke perangkat di dalam organisasi Anda sendiri, serta menerbitkan entri pengelola paket (package manager) yang mengunduhnya dari alamat rilis resmi kami.
+
+2. Hal yang tidak boleh Anda lakukan
+Anda tidak boleh mendistribusikan ulang, menjual, atau menyewakan build ini maupun bentuk modifikasi apa pun darinya, atau menyediakannya untuk diunduh oleh publik; mengemasnya ulang atau mengubah nama, ikon, pemberitahuan, atau tanda tangannya; atau menampilkannya sebagai produk Anda sendiri atau sebagai produk yang didukung oleh kami. Kode sumbernya dipublikasikan secara terpisah berdasarkan Apache License 2.0, dan build yang Anda kompilasi sendiri dari kode sumber tersebut tidak tunduk pada pembatasan ini (berikan nama yang berbeda untuk build tersebut — lihat TRADEMARK.md).
+
+3. Program ini menggunakan AI
+Vibisual bekerja dengan menggunakan kecerdasan artifisial (AI) generatif, seperti Claude dari Anthropic. Jawaban, kode, penilaian, dan ringkasan yang ditampilkan di layar dihasilkan oleh AI dan tidak ditinjau oleh manusia.
+
+4. Apa yang terjadi di komputer ini
+Dalam batas folder yang Anda serahkan dan izin yang Anda berikan, agen AI dapat membaca, membuat, mengubah, dan menghapus file, menjalankan perintah, serta mengakses internet.
+Vibisual sendiri juga melakukan hal-hal berikut. (1) Saat pertama kali dijalankan, Vibisual menambahkan pengaturan koneksi (hooks) ke file pengaturan Claude Code (~/.claude/settings.json); jika file tersebut sudah ada, salinan cadangannya disimpan di sebelahnya. (2) Vibisual dapat menginstal atau memperbarui Claude CLI (pembaruan otomatis CLI dapat dinonaktifkan di Opsi). (3) Saat versi baru dirilis, Vibisual memperbarui dirinya sendiri secara otomatis (tidak ada pengaturan untuk menonaktifkannya). (4) Vibisual mengelola proses yang dijalankan oleh agen-agennya, dan dapat mengakhiri proses tersebut ketika Anda menghentikan suatu tugas atau menutup aplikasi, atau ketika Vibisual membereskan tugas yang dinilainya telah selesai atau macet; AI dapat digunakan untuk membuat penilaian tersebut. (5) Tangkapan layar, akses jarak jauh (ponsel, kode QR, pembukaan akses ke internet), koneksi aplikasi pesan (Discord, Telegram), dan pengunduhan model lokal hanya berfungsi jika Anda mengaktifkannya.
+
+5. Persetujuan dan izin adalah keputusan Anda
+Setiap tindakan yang Anda setujui pada jendela persetujuan, setiap tindakan yang dijalankan tanpa bertanya karena Anda memilih mode izin seperti "tanpa konfirmasi" (bypassPermissions), dan setiap tindakan yang tercantum dalam daftar izin otomatis dianggap sebagai instruksi Anda sendiri. Anda menentukan folder mana yang akan diserahkan, izin apa yang akan diberikan, dan fitur apa yang akan diaktifkan, dan Anda bertanggung jawab atas hasilnya.
+
+6. Keluaran AI
+AI dapat menghasilkan kode yang salah, kerentanan keamanan, pernyataan yang tidak benar, atau keluaran yang melanggar hak cipta atau lisensi pihak lain. Peninjauan keluaran sebelum Anda menggunakannya, mendistribusikannya, atau melakukan commit atasnya, serta pemeriksaan hak dan lisensi yang diperlukannya, berada di tangan Anda.
+
+7. Risiko keamanan
+AI dapat terkecoh oleh instruksi berbahaya yang tersembunyi di dalam repositori, halaman web, dokumen, issue, atau keluaran perintah (injeksi prompt) sehingga menjalankan perintah yang tidak Anda maksudkan atau mengirimkan informasi ke luar. Persempit izin saat bekerja dengan materi yang tidak Anda percayai. Jika Anda menyerahkan kepada AI folder atau layar yang berisi kata sandi, kunci API, atau data pribadi, isi tersebut dapat dikirim ke layanan AI. Jika Anda membuka akses jarak jauh ke internet atau menghubungkan aplikasi pesan, siapa pun yang memperoleh informasi koneksi tersebut dapat memberi perintah kepada agen di komputer ini, sehingga Anda harus menjaga keamanan informasi tersebut.
+
+8. Layanan AI pihak ketiga, akun, dan biaya
+Agen bekerja melalui alat eksternal yang Anda instal dan Anda akses dengan login (Claude Code CLI, Codex CLI, dan lainnya) serta dengan akun Anda sendiri. Ketentuan dan kebijakan penggunaan dari penyedia yang bersangkutan berlaku atas penggunaan tersebut, dan mematuhinya merupakan tanggung jawab Anda. Pekerjaan agen dan penilaian pendukung Vibisual (seperti pemeriksaan untuk membereskan tugas dan ringkasan) dibebankan pada pemakaian, biaya, dan batas akun Anda. Menjalankan banyak agen sekaligus dapat menghabiskan batas dengan cepat atau menambah biaya, dan penyedia dapat membatasi akun Anda atas kebijakannya sendiri. Vibisual adalah proyek independen yang tidak berafiliasi dengan dan tidak didukung oleh Anthropic, OpenAI, atau penyedia lain mana pun, serta tidak bertanggung jawab atas gangguan, perubahan, biaya, atau tindakan mereka terhadap akun Anda.
+
+9. Cadangan dan pembatasan penggunaan
+Cadangkan, atau kelola dengan kontrol versi (git), setiap file yang tidak boleh hilang sebelum Anda membiarkan agen mengerjakannya. Jangan biarkan AI mengoperasikan, tanpa tinjauan manusia, sistem yang kegagalan fungsinya dapat menimbulkan kerugian serius — seperti sistem yang berdampak pada nyawa, tubuh, atau keselamatan, layanan medis, pembayaran atau transaksi keuangan, atau layanan yang sedang beroperasi di lingkungan produksi. Anda tidak boleh menggunakan Vibisual untuk melanggar hukum atau melanggar hak pihak lain (misalnya, mengakses sistem milik orang lain tanpa izin); tanggung jawab hukum atas segala sesuatu yang dilakukan dengan Vibisual berada pada pengguna yang melakukannya.
+
+10. Tanpa jaminan
+Vibisual adalah perangkat lunak gratis dalam tahap awal (pratinjau) dan disediakan "sebagaimana adanya". Kami tidak menjamin bahwa Vibisual bebas dari kesalahan, bahwa Vibisual akan berjalan tanpa gangguan, bahwa tidak ada data yang akan hilang, atau bahwa Vibisual sesuai untuk tujuan tertentu. Sebagian build tidak memiliki tanda tangan kode (code signing), sehingga sistem operasi Anda dapat menampilkan peringatan; apakah akan tetap menginstalnya merupakan keputusan Anda.
+
+11. Pembatasan tanggung jawab
+Karena Vibisual disediakan tanpa biaya, sampai batas maksimum yang diizinkan oleh hukum, kami tidak bertanggung jawab atas kerugian yang timbul dari penginstalan, penggunaan, atau ketidakmampuan menggunakan Vibisual — termasuk kehilangan data, file, atau hasil kerja, biaya layanan eksternal, pembatasan akun, kerugian usaha, serta kerugian tidak langsung, insidental, atau khusus. Ketentuan ini tidak berlaku untuk kerugian yang disebabkan oleh kesengajaan atau kelalaian berat kami, maupun untuk tanggung jawab apa pun yang tidak dapat dikecualikan atau dibatasi berdasarkan hukum yang berlaku. Hak-hak yang Anda miliki sebagai konsumen dan yang tidak dapat dilepaskan menurut hukum tetap tidak terpengaruh oleh pemberitahuan ini.
+
+12. Perubahan, penafsiran, hukum yang berlaku, dan kontak
+Versi baru dari ketentuan ini berlaku untuk build yang didistribusikan setelah versi baru tersebut diterbitkan dan tidak pernah berlaku surut. Apabila terdapat perbedaan makna antara ringkasan ini dan naskah lengkap EULA, atau antara versi bahasa Korea dan versi bahasa Inggris, yang berlaku adalah penafsiran yang lebih menguntungkan bagi Anda. Ketentuan ini diatur oleh hukum Republik Korea, dan Pengadilan Distrik Pusat Seoul (Seoul Central District Court) memiliki yurisdiksi sebagai pengadilan tingkat pertama; jika Anda adalah konsumen, Anda juga dapat mengandalkan ketentuan wajib hukum perlindungan konsumen di negara tempat tinggal Anda serta pengadilan di negara tersebut.
+Pemilik: 길근오 · Kontak: https://github.com/Vibisual/vibisual/issues

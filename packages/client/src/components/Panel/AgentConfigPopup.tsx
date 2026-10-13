@@ -73,6 +73,7 @@ import {
 } from './modelSectionView.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { codexReasoningLevelsOf, type CodexInheritedField } from '../Codex/codexModelEntry.js';
+import { codexModelOptionsFor, codexEffortOptionsFor } from '../Codex/codexSelectionOptions.js';
 import { codexInheritedOptionFor, codexInheritedValueText } from '../Codex/codexInheritedLabel.js';
 import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
 import { localContextPlaceholder, localTemperaturePlaceholder, useLocalSampling } from '../LocalModel/localEffective.js';
@@ -844,24 +845,23 @@ export function AgentConfigPopup({
   //   지금 값인지 알 수 없고, 그쪽에서 모델을 매면 여기 열려 있던 값은 이미 옛것이다.
   const openLocalModelWindow = useGraphStore((s) => s.openLocalModelWindow);
   /**
-   * §5.25 (G) — 코덱스 모델·추론 강도. 목록은 **코덱스가 캐시해 둔 것**이라 우리가 표를 들지 않는다.
-   * 아직 못 읽었으면 목록이 비고, 그때 화면은 고르는 칸 대신 "다시 읽기"를 보여 준다.
+   * §5.25 (G) — 서버가 갱신한 Codex 카탈로그. 선택값과 CLI 상속은 조회 결과와 무관하게 보존한다.
    */
   const codexModels = useGraphStore((st) => st.codexModels);
   const refreshCodexModels = useGraphStore((st) => st.refreshCodexModels);
   /**
    * §4 (상태바 모델 칸 ③) — **창을 열 때 모델 목록을 한 번 더 확인한다.** 클로드 경로는 서버 레지스트리
-   * (`POST /api/models/refresh` — 실행본이 바뀌었으면 강도 등급까지 다시 긁는다), 코덱스는 코덱스 캐시를
-   * 다시 읽는다. 로컬은 목록이 디스크에 있고 설치 창이 따로 다루므로 부르지 않는다. 겹친 확인은 서버가
+   * (`POST /api/models/refresh` — 실행본이 바뀌었으면 강도 등급까지 다시 긁는다), 코덱스는 최신 카탈로그를
+   * 읽는다. 로컬은 목록이 디스크에 있고 설치 창이 따로 다루므로 부르지 않는다. 겹친 확인은 서버가
    * 합치고 API 는 하한을 지키므로, 창을 연달아 열고 닫아도 바깥을 두드리지 않는다.
    */
   const refreshModelRegistry = useGraphStore((st) => st.refreshModelRegistry);
   const [modelListChecking, setModelListChecking] = useState(false);
-  const recheckModelList = useCallback(async (): Promise<void> => {
+  const recheckModelList = useCallback(async (force = true): Promise<void> => {
     if (isLocal) return;
     setModelListChecking(true);
     try {
-      await (isCodex ? refreshCodexModels() : refreshModelRegistry());
+      await (isCodex ? refreshCodexModels(force) : refreshModelRegistry());
     } finally {
       setModelListChecking(false);
     }
@@ -870,7 +870,7 @@ export function AgentConfigPopup({
   useEffect(() => {
     if (checkedOnOpenRef.current) return;
     checkedOnOpenRef.current = true;
-    void recheckModelList();
+    void recheckModelList(false);
   }, [recheckModelList]);
   // "목록 확인 N분 전"이 열어 둔 동안 낡지 않게 — 카드에서만 30초마다 다시 잰다(전체 보기는 그 줄이 없다).
   //   창 크기가 바뀌어도 다시 그린다 — 카드 자리가 뷰포트 안으로 다시 맞춰진다.
@@ -900,12 +900,9 @@ export function AgentConfigPopup({
    */
   const codexConfig = useCodexEffectiveConfig(isCodex, agentId);
   const codexModelOptions: SelectOption[] = useMemo(
-    () => (codexModels?.models ?? []).map((m) => ({
-      value: m.slug,
-      label: m.displayName,
-      description: m.description ?? m.slug,
-    })),
-    [codexModels],
+    () => codexModelOptionsFor(codexModels?.models ?? [], codexModelId,
+      provider?.modelId === codexModelId ? provider.modelName : undefined, t('providers.retainedModelHint')),
+    [codexModels, codexModelId, provider?.modelId, provider?.modelName, t],
   );
   /** 이 모델이 **신고한** 단계만 고를 수 있다 — 없는 단계를 보이면 그것을 고를 수 있는 것으로 읽는다. */
   const codexEffortLevels = useMemo(
@@ -913,8 +910,8 @@ export function AgentConfigPopup({
     [codexModelId, codexModels, userDefaults, projectPath],
   );
   const codexEffortOptions: SelectOption[] = useMemo(
-    () => codexEffortLevels.map((lv) => ({ value: lv, label: lv, description: lv })),
-    [codexEffortLevels],
+    () => codexEffortOptionsFor(codexEffortLevels, codexEffort),
+    [codexEffortLevels, codexEffort],
   );
   /** 비워 둔 칸의 선택지 한 줄 — 지금 고른 모델·권한 모드(저장 전 값)로 판정한다. */
   const codexParentProvider = resolveAgentDefaults(userDefaults, 'codex', projectPath).provider;
@@ -930,12 +927,12 @@ export function AgentConfigPopup({
       delegation: strictStripSet.size > 0,
     })
   );
-  // 모델을 바꿔 지금 강도가 그 모델에 없는 값이 되면 비운다(엔진이 거절할 값을 들고 있지 않게).
-  useEffect(() => {
-    if (codexEffort && codexEffortLevels.length > 0 && !codexEffortLevels.includes(codexEffort)) {
-      setCodexEffort('');
-    }
-  }, [codexEffort, codexEffortLevels]);
+  // 조회·새로고침은 저장된 강도도 바꾸지 않는다. 모델을 직접 고른 순간에만 강도를 상속으로 돌린다.
+  const handleCodexModelChange = (value: string): void => {
+    if (value === codexModelId) return;
+    setCodexModelId(value);
+    setCodexEffort('');
+  };
 
   /**
    * 저장할 코덱스 `provider` 한 벌. 바닥은 **지금 스토어에 있는 값**이다(창을 연 시점의 사본이
@@ -950,7 +947,7 @@ export function AgentConfigPopup({
     Object.assign(next, codexAdvanced);
     next.codexTools = codexTools;
     if (picked?.displayName) next.modelName = picked.displayName;
-    else delete next.modelName;
+    else if (codexModelId !== live.modelId) delete next.modelName;
     // 빈 값은 "안 정함"이라 키 자체를 없앤다 — 빈 문자열을 실으면 `-c` 오버라이드가 빈 값으로 붙는다.
     if (codexEffort) next.reasoningEffort = codexEffort;
     else delete next.reasoningEffort;
@@ -1588,21 +1585,18 @@ export function AgentConfigPopup({
     <div className="flex flex-col gap-1.5">
       <label className="flex items-center text-xs font-medium text-gray-400">
         {t('panel.agentConfig.model.label')}
-        <InfoTip text={t('panel.agentConfig.codex.modelTip', {
-          defaultValue: '이 버블이 말할 때 쓰는 코덱스 모델입니다. 매번 이 값을 명시해 보내므로, 코덱스 설정 파일의 기본 모델에 끌려가지 않습니다.',
-        })} />
+        <InfoTip text={t('panel.agentConfig.codex.modelTip')} />
       </label>
-      {codexModelOptions.length > 0 ? (
-        <CustomSelect value={codexModelId} onChange={setCodexModelId} options={[
-          ...(codexParentProvider?.modelId ? [{ value: '', label: `${codexParentProvider.modelName || codexParentProvider.modelId} (${t('providers.inheritProject')})`, description: t('providers.individualSettingsHint') }] : []),
-          ...codexModelOptions,
-        ]} />
-      ) : (
+      <CustomSelect value={codexModelId} onChange={handleCodexModelChange} options={[
+        { value: '', ...(codexParentProvider?.modelId
+          ? { label: `${codexParentProvider.modelName || codexParentProvider.modelId} (${t('providers.inheritProject')})`, description: t('providers.individualSettingsHint') }
+          : { label: t('providers.codexModelInherited'), description: t('providers.codexModelInheritedHint') }) },
+        ...codexModelOptions,
+      ]} />
+      {!codexModels?.models.length && (
         <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
           <span className="min-w-0 flex-1 truncate text-xs text-gray-500">
-            {t('panel.agentConfig.codex.noModelList', {
-              defaultValue: '모델 목록을 아직 못 읽었습니다 — 코덱스를 한 번 돌리면 만들어집니다.',
-            })}
+            {t('panel.agentConfig.codex.noModelList')}
           </span>
           <button
             type="button"
@@ -1614,14 +1608,12 @@ export function AgentConfigPopup({
         </div>
       )}
 
-      {/* 강도는 **모델이 신고한 단계만** 뜬다. 신고가 없으면 이 칸 자체가 없다. */}
+      {/* 신고한 강도와 명시적으로 저장한 강도. 목록이 없어도 기존 선택을 지우지 않는다. */}
       {codexEffortOptions.length > 0 && (
         <div className="flex flex-col gap-1">
           <label className="flex items-center text-xs font-medium text-gray-400">
             {t('panel.agentConfig.codex.effort', { defaultValue: '추론 강도' })}
-            <InfoTip text={t('panel.agentConfig.codex.effortTip', {
-              defaultValue: '높일수록 더 오래 생각하고 더 많은 토큰을 씁니다. 이 모델이 지원한다고 알려 온 단계만 보입니다.',
-            })} />
+            <InfoTip text={t('panel.agentConfig.codex.effortTip')} />
           </label>
           <CustomSelect
             value={codexEffort}

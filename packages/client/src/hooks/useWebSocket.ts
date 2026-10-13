@@ -710,6 +710,13 @@ export function useWebSocket(
             store.applyUserDefaults(parsed.payload as import('@vibisual/shared').UserDefaults);
             break;
           }
+          case 'app_themes_updated': {
+            // §4 앱 테마 — 한 창에서 테마 폴더를 다시 읽었다(바뀐 것이 있을 때만 온다). 고른 사용자 테마가
+            //   고쳐졌으면 이 창도 같은 색으로 다시 칠한다.
+            const catalog = parsed.payload as import('@vibisual/shared').AppThemeCatalog | null;
+            if (catalog && Array.isArray(catalog.themes) && Array.isArray(catalog.issues)) store.applyAppThemes(catalog);
+            break;
+          }
           case 'keymap_updated': {
             // §6 — 단축키 재매핑. 창이 여럿일 때 다른 창도 즉시 같은 키를 쓴다(안 그러면
             //   창마다 다른 단축키가 되고, 그건 사용자에게 "가끔 안 먹는다"로 보인다).

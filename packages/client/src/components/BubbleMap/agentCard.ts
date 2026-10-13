@@ -1,24 +1,26 @@
 /**
  * §5.4 #36 — 전환과 연결의 **화면 쪽 순수 판정** 한 벌.
  *
- * 카드(`AgentCardNode`)·버블 메뉴(`BubbleContextMenu`)·캔버스(`BubbleMap`)·선(`RefLinkEdge`·`CurvedEdge`·
- * `TaskEdgeComponent`)이 같은 답을 내야 하는 것만 여기 둔다. DOM 을 만지지 않으므로 그대로 단위 테스트된다.
+ * 말풍선(`AgentCardNode`)·버블 메뉴(`BubbleContextMenu`)·캔버스(`BubbleMap`)·선(`RefLinkEdge`·`CurvedEdge`·
+ * `TaskEdgeComponent`)·꽃잎 고르기(`RefLinkBloom`)가 같은 답을 내야 하는 것만 여기 둔다. DOM 을 만지지 않으므로
+ * 그대로 단위 테스트된다.
  *
  * **코어는 앱 이름을 모른다(§5.13 (P-4))** — 이 파일에 앱 이름을 적지 않는다. 앱의 이름·여는 확장자는
  * 부르는 쪽이 레지스트리에서 꺼내 넘긴다.
  */
 
 import type { AgentConfig, AppBubble, BubbleData } from '@vibisual/shared';
-import { REF_LINK_STYLE, linkedFileName } from '@vibisual/shared';
+import { AGENT_CARD, REF_BLOOM, REF_LINK_STYLE, linkedFileName } from '@vibisual/shared';
+import { refLinkVisible } from './linkView.js';
 
-// ─── (A) 전환 — 누가 카드가 될 수 있나 ───
+// ─── (A) 전환 — 누가 말풍선을 펼칠 수 있나 ───
 
 /**
- * 이 버블을 입력 카드로 바꿀 수 있는가.
+ * 이 버블 옆에 입력 말풍선을 펼칠 수 있는가(코드 이름은 첫 판의 "카드" 그대로 — 저장값 `agentForm:'card'` 와 짝).
  *
  * 커스텀 에이전트만이다(코덱스·All Model 포함). 훅 버블은 입력이 없고(§5.5 #17-29), CMD 는 입력이 터미널의
  * 것이며(§4 v2.63), 휴지통 안의 버려진 에이전트는 입력을 받지 않는다. **서버 `setAgentForm` 과 같은 조건**이다 —
- * 한쪽만 넓히면 화면은 카드로 바꿨는데 서버가 409 로 되돌리는 깜빡임이 생긴다.
+ * 한쪽만 넓히면 화면은 말풍선을 펼쳤는데 서버가 409 로 되돌리는 깜빡임이 생긴다.
  */
 export function canUseAgentCard(
   data: Pick<BubbleData, 'bubbleType' | 'customCreated' | 'trashed'> | undefined | null,
@@ -30,17 +32,17 @@ export function canUseAgentCard(
 }
 
 /**
- * 지금 이 노드를 카드로 그려야 하는가(형태 칸 + 커스텀 에이전트).
- * 휴지통 안의 버려진 에이전트는 카드였어도 버블로 그린다 — 그 화면은 고르는 자리지 입력하는 자리가 아니다.
+ * 지금 이 노드를 말풍선으로 그려야 하는가(형태 칸 + 커스텀 에이전트).
+ * 휴지통 안의 버려진 에이전트는 말풍선이었어도 버블로 그린다 — 그 화면은 고르는 자리지 입력하는 자리가 아니다.
  */
 export function isAgentCardForm(data: Pick<BubbleData, 'bubbleType' | 'customCreated' | 'agentForm' | 'trashed'> | undefined | null): boolean {
   return !!data && data.bubbleType === 'agent' && data.customCreated === true && data.agentForm === 'card' && data.trashed !== true;
 }
 
 /**
- * 카드에서 보낼 세션 — **버블이 보여 주는 세션과 같은 우선순위**(`BubbleNode` 의 effective sub).
+ * 말풍선에서 보낼 세션 — **버블이 보여 주는 세션과 같은 우선순위**(`BubbleNode` 의 effective sub).
  * 도는 세션 → 그 IDE 창에서 고른 탭 → 마지막으로 고른 탭 → 없으면 null(서버 기본).
- * 버블은 A 세션을 보여 주는데 카드는 B 로 보내면, 사용자는 자기가 친 글이 어디로 갔는지 모른다.
+ * 버블은 A 세션을 보여 주는데 말풍선은 B 로 보내면, 사용자는 자기가 친 글이 어디로 갔는지 모른다.
  */
 export function pickCardSession(
   subs: readonly { id: string; status: string }[] | undefined,
@@ -73,7 +75,7 @@ export function linkedAppBubblesOf(
 
 /**
  * 위 목록의 **지문** — 구독은 이 문자열로 한다(파생 선택자 함정: 배열을 돌려주면 매 스냅샷 새 참조라
- * 무변화에도 카드가 다시 그려진다). 좌표는 넣지 않는다 — 앱 노드를 끄는 매 프레임 카드가 깨면 안 된다.
+ * 무변화에도 말풍선이 다시 그려진다). 좌표는 넣지 않는다 — 앱 노드를 끄는 매 프레임 말풍선이 깨면 안 된다.
  */
 export function linkedAppBubblesKey(
   appBubbles: readonly AppBubble[],
@@ -86,7 +88,7 @@ export function linkedAppBubblesKey(
 }
 
 /**
- * 화면에 그릴 참조선 하나 — 출발(에이전트)·도착(앱 노드)·지문용 키.
+ * 화면에 그릴 위성줄 하나 — 출발(에이전트)·도착(앱 노드)·지문용 키.
  * 끝점 둘이 **지금 화면에 있을 때만** 만든다(어느 한쪽이 없으면 React Flow 가 고아 선을 경고한다).
  */
 export interface RefLinkPair {
@@ -99,24 +101,28 @@ export function refLinkPairs(
   appBubbles: readonly AppBubble[],
   visibleAgentIds: ReadonlySet<string>,
   projectName?: string | null,
+  /** §5.4 #36 (H) ① — 연결선을 감춘 에이전트들. 그 에이전트의 줄과, 노드에서 감춘(`linksHidden`) 줄은 만들지 않는다. */
+  hiddenAgentIds?: ReadonlySet<string>,
 ): RefLinkPair[] {
   const out: RefLinkPair[] = [];
   for (const b of appBubbles) {
     if (projectName && b.projectName !== projectName) continue;
     for (const agentId of b.linkedAgentIds ?? []) {
       if (!visibleAgentIds.has(agentId)) continue;
+      // 판정은 `linkView.ts` 한 벌 — 메뉴·캔버스·앱 노드가 같은 답을 낸다. 연결(`linkedAgentIds`)은 그대로다.
+      if (!refLinkVisible(agentId, b, hiddenAgentIds)) continue;
       out.push({ id: `ref-${agentId}-${b.id}`, agentId, appBubbleId: b.id });
     }
   }
   return out;
 }
 
-/** 참조선 목록의 지문 — 이 문자열이 바뀔 때만 선을 다시 짓는다(앱 노드는 드래그 중 매 프레임 좌표가 바뀐다). */
+/** 위성줄 목록의 지문 — 이 문자열이 바뀔 때만 선을 다시 짓는다(앱 노드는 드래그 중 매 프레임 좌표가 바뀐다). */
 export function refLinkPairsKey(pairs: readonly RefLinkPair[]): string {
   return pairs.map((p) => p.id).join('|');
 }
 
-// ─── (C) 노드가 결과를 받는다 — 참조 칩이 명령에 붙이는 것 ───
+// ─── (C) 노드가 결과를 받는다 — 위성 칩이 명령에 붙이는 것 ───
 
 /** 보낼 때 본문에 붙는 앱 노드 하나의 사실. 이름·확장자는 레지스트리에서 꺼낸 값이다. */
 export interface LinkedOutputNode {
@@ -129,6 +135,11 @@ export interface LinkedOutputNode {
   accepts: readonly string[];
   /** 지금 담긴 파일(루트 기준 상대 경로). */
   file?: string | undefined;
+  /**
+   * §5.4 #36 (C) 개정 — **앱 몫 브리프**(레지스트리 `agentBrief` 가 지은 그 노드의 줄들). 있으면 공통 문구(결과 파일을
+   * 만들어 `/output` 으로 넣어라) 대신 이 줄이 그 노드를 말한다 — 영상 노드는 "완성 파일"이 아니라 "작업 문서"다.
+   */
+  brief?: string | undefined;
 }
 
 /** 노드에 보일 이름 — 사용자 제목이 우선, 없으면 담긴 파일 이름, 그것도 없으면 앱 이름. */
@@ -143,25 +154,36 @@ export function appNodeLabel(bubble: Pick<AppBubble, 'title' | 'file'>, appName:
 export const LINKED_OUTPUT_MARK = 'Linked canvas nodes (Vibisual)';
 
 /**
- * 참조 칩이 켜진 노드들의 **에이전트 프로토콜 블록**.
+ * 위성 칩이 켜진 노드들의 **에이전트 프로토콜 블록**.
  *
  * 화면 라벨이 아니라 에이전트에게 주는 규약이라 영어다(`vibi3dAgentPrompt`·`buildAudioDelegatePrompt` 선례).
  * 자격 증명 **값**은 싣지 않는다 — 환경 변수 이름만 적는다(그 값은 이미 세션 환경에 있다).
  */
 export function buildLinkedOutputBrief(nodes: readonly LinkedOutputNode[]): string {
   if (nodes.length === 0) return '';
-  const lines = nodes.map((n) => {
+  // 앱이 자기 브리프를 낸 노드(작업 문서)와 공통 문구를 받는 노드(결과 파일)를 가른다 — 공통 납품 문구는 공통 노드가
+  //   있을 때만 붙는다. 작업 문서 노드에 "파일을 만들어 넣어라"를 함께 붙이면 에이전트가 다시 완성 파일을 굽는다.
+  const fileNodes = nodes.filter((n) => !n.brief);
+  const briefNodes = nodes.filter((n) => !!n.brief);
+  const fileLines = fileNodes.map((n) => {
     const accepts = n.accepts.length > 0 ? n.accepts.join(' ') : 'any file';
     const holds = n.file ? JSON.stringify(n.file) : 'nothing yet';
     return `- node ${n.id} · ${n.appName} ${JSON.stringify(n.label)} · accepts ${accepts} · holds ${holds}`;
   });
-  return [
+  const lines = [
     '---',
     `${LINKED_OUTPUT_MARK}: the user linked these canvas nodes to you. Put the results this request asks for into them.`,
-    ...lines,
-    'To deliver a result: create the file inside this project, then POST "$VIBISUAL_BASE/api/app-bubbles/<node id>/output" with the header "x-vibisual-hook-token: $VIBISUAL_TOKEN" (or $VIBISUAL_HOOK_AUTH) and JSON {"file":"<path relative to the project root>"}.',
-    'Report a node as delivered only after that call returns {"ok":true}. Never print the token or put it in a URL. If the connection values are unavailable, say so instead of guessing.',
-  ].join('\n');
+    ...fileLines,
+  ];
+  if (fileNodes.length > 0) {
+    lines.push(
+      'To deliver a result: create the file inside this project, then POST "$VIBISUAL_BASE/api/app-bubbles/<node id>/output" with the header "x-vibisual-hook-token: $VIBISUAL_TOKEN" (or $VIBISUAL_HOOK_AUTH) and JSON {"file":"<path relative to the project root>"}.',
+      'Report a node as delivered only after that call returns {"ok":true}.',
+    );
+  }
+  for (const n of briefNodes) lines.push((n.brief ?? '').trim());
+  lines.push('Never print the token or put it in a URL. If the connection values are unavailable, say so instead of guessing.');
+  return lines.join('\n');
 }
 
 /** 본문 + 블록. 켜진 노드가 없거나 본문이 이미 블록을 갖고 있으면 본문 그대로다(두 번 붙지 않게). */
@@ -171,7 +193,27 @@ export function withLinkedOutputBrief(text: string, nodes: readonly LinkedOutput
   return `${text.trimEnd()}\n\n${brief}`;
 }
 
-// ─── 기하 — 판 테두리와 참조선 ───
+// ─── 기하 — 말풍선의 실루엣 · 위성줄 · 꽃잎 ───
+
+/** 원(접혀 남은 버블)의 중심 — 노드 좌표계(좌상단 원점). 전환 때 버블 중심을 이 점에 맞춘다. */
+export function agentCardDiscCenter(): { x: number; y: number } {
+  return {
+    x: AGENT_CARD.balloonWidth + AGENT_CARD.balloonGap + AGENT_CARD.discSize / 2,
+    y: AGENT_CARD.height / 2,
+  };
+}
+
+/** 궤도 위 한 각(도, 화면 좌표 — 0 = 오른쪽, 음수 = 위)의 자리 — 원 중심 기준 오프셋. */
+export function orbitPoint(angleDeg: number, radius: number = AGENT_CARD.orbitRadius): { x: number; y: number } {
+  const a = (angleDeg * Math.PI) / 180;
+  return { x: Math.cos(a) * radius, y: Math.sin(a) * radius };
+}
+
+/** 궤도에 찍을 이어진 앱 점들의 각(도). 상한을 넘는 것은 찍지 않는다 — 전부는 위성 칩 줄이 말한다. */
+export function orbitDotAngles(count: number): number[] {
+  const n = Math.max(0, Math.min(count, AGENT_CARD.orbitDotMax));
+  return Array.from({ length: n }, (_, i) => AGENT_CARD.orbitDotStartDeg + i * AGENT_CARD.orbitDotStepDeg);
+}
 
 /**
  * 중심에서 단위 벡터 `(nx, ny)` 방향으로 나간 반직선이 **사각 테두리**와 만나는 거리.
@@ -186,21 +228,103 @@ export function rectBorderDistance(halfW: number, halfH: number, nx: number, ny:
   return Number.isFinite(t) ? t : Math.max(halfW, halfH);
 }
 
-/** 정사각이 아닌 노드인가(카드). 1px 은 측정 반올림으로 본다. */
+/** 정사각이 아닌 노드인가(말풍선·앱 노드). 1px 은 측정 반올림으로 본다. */
 export function isRectNode(width: number, height: number): boolean {
   return Math.abs(width - height) > 1;
 }
 
+/** 말풍선 노드의 경계 상자인가 — 고정 크기라 크기로 가린다(1px 은 측정 반올림). */
+export function isAgentCardBox(width: number, height: number): boolean {
+  return Math.abs(width - AGENT_CARD.width) <= 1 && Math.abs(height - AGENT_CARD.height) <= 1;
+}
+
 /**
- * 노드 박스에서 그 방향 끝점까지의 거리 — 정사각이면 원(반지름), 아니면 판 테두리.
- * 선 끝점을 정하는 세 곳(`CurvedEdge`·`TaskEdgeComponent`·`RefLinkEdge`)이 이 한 함수를 쓴다.
+ * 말풍선 노드 가운데에서 단위 벡터 `(nx, ny)` 방향으로 나간 반직선이 **말풍선 + 궤도 원의 실루엣**을 마지막으로
+ * 빠져나가는 거리. 경계 상자로 끊으면 원 위·아래의 빈 자리에서 선이 허공에 멈춘다.
+ *
+ * 가운데는 말풍선 안이다(말풍선이 노드 폭의 절반을 넘는다). 그래서 "말풍선을 나가는 거리"와 "궤도 원을 나가는
+ * 먼 쪽 거리" 중 큰 쪽이 실루엣이다 — 오른쪽으로 가는 선은 틈을 지나 궤도 바깥에서 끊긴다.
+ */
+export function agentCardBorderDistance(nx: number, ny: number): number {
+  const cx = AGENT_CARD.width / 2;
+  const cy = AGENT_CARD.height / 2;
+  // ① 말풍선 [0, balloonWidth] × [0, height] — 안에서 나가는 거리.
+  const tx = nx > 1e-9 ? (AGENT_CARD.balloonWidth - cx) / nx : nx < -1e-9 ? -cx / nx : Number.POSITIVE_INFINITY;
+  const ty = ny > 1e-9 ? (AGENT_CARD.height - cy) / ny : ny < -1e-9 ? -cy / ny : Number.POSITIVE_INFINITY;
+  const balloon = Math.min(tx, ty);
+  // ② 궤도 원 — |C + t·n − D|² = R² 의 큰 근(t² + 2bt + c = 0).
+  const d = agentCardDiscCenter();
+  const fx = cx - d.x;
+  const fy = cy - d.y;
+  const b = fx * nx + fy * ny;
+  const c = fx * fx + fy * fy - AGENT_CARD.orbitRadius * AGENT_CARD.orbitRadius;
+  const disc = b * b - c;
+  const orbit = disc >= 0 ? -b + Math.sqrt(disc) : 0;
+  return Math.max(Number.isFinite(balloon) ? balloon : 0, orbit);
+}
+
+/**
+ * 노드 박스에서 그 방향 끝점까지의 거리 — 말풍선이면 실루엣, 정사각(버블)이면 원 반지름, 그 밖의 사각(앱 노드)은
+ * 테두리. 선 끝점을 정하는 세 곳(`CurvedEdge`·`TaskEdgeComponent`·`RefLinkEdge`)이 이 한 함수를 쓴다.
  */
 export function nodeBorderDistance(width: number, height: number, nx: number, ny: number): number {
+  if (isAgentCardBox(width, height)) return agentCardBorderDistance(nx, ny);
   if (!isRectNode(width, height)) return Math.min(width, height) / 2;
   return rectBorderDistance(width / 2, height / 2, nx, ny);
 }
 
-/** 참조선 경로 — 옆구리에서 나가 옆구리로 들어가는 수평 S 곡선. */
+/** 노드 상자(중심·반폭·반높이) — 선 끝점을 재는 단위. */
+export interface NodeBox {
+  cx: number;
+  cy: number;
+  halfW: number;
+  halfH: number;
+}
+
+/** 원 하나(중심·반지름) — 위성줄이 나가는 자리. */
+export interface OrbitOrigin {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * 위성줄이 나가는 자리 — 말풍선이면 **원 중심과 궤도 반지름**(줄은 말풍선이 아니라 에이전트에서 나온다),
+ * 버블이면 그 원. 버블로 접어도 같은 문법으로 붙는다.
+ */
+export function refLinkOrigin(src: NodeBox): OrbitOrigin {
+  if (isAgentCardBox(src.halfW * 2, src.halfH * 2)) {
+    const d = agentCardDiscCenter();
+    return { x: src.cx - src.halfW + d.x, y: src.cy - src.halfH + d.y, r: AGENT_CARD.orbitRadius };
+  }
+  return { x: src.cx, y: src.cy, r: Math.min(src.halfW, src.halfH) };
+}
+
+/** 원 둘레에서 `(x, y)` 쪽을 향한 점. 손이 원 중심 위에 있으면 오른쪽 점. */
+export function pointOnOrbitToward(o: OrbitOrigin, x: number, y: number): { x: number; y: number } {
+  const dx = x - o.x;
+  const dy = y - o.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return { x: o.x + o.r, y: o.y };
+  return { x: o.x + (dx / len) * o.r, y: o.y + (dy / len) * o.r };
+}
+
+/**
+ * 위성줄의 두 끝 — 출발은 원(궤도) 둘레, 도착은 앱 노드 테두리. 둘 다 **원 중심과 앱 노드 중심을 잇는 직선 위**다
+ * (옆구리에서 옆구리로 가지 않는다 — 줄은 에이전트에서 곧장 위성으로 간다).
+ */
+export function refLinkEnds(src: NodeBox, dst: NodeBox): { sx: number; sy: number; tx: number; ty: number } {
+  const o = refLinkOrigin(src);
+  const dx = dst.cx - o.x;
+  const dy = dst.cy - o.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = dx / len;
+  const ny = dy / len;
+  const reach = nodeBorderDistance(dst.halfW * 2, dst.halfH * 2, -nx, -ny);
+  return { sx: o.x + nx * o.r, sy: o.y + ny * o.r, tx: dst.cx - nx * reach, ty: dst.cy - ny * reach };
+}
+
+/** 위성줄 경로 — 두 끝을 잇는 직선에서 아래로 처진 2차 곡선. */
 export interface RefLinkGeometry {
   path: string;
   /** 곡선의 한가운데(t=0.5) — [연결 끊기] 단추 자리. */
@@ -208,41 +332,88 @@ export interface RefLinkGeometry {
   midY: number;
 }
 
-export function refLinkPath(
-  sx: number,
-  sy: number,
-  tx: number,
-  ty: number,
-  /** 출발 쪽 접선 방향 — 오른쪽으로 나가면 1, 왼쪽이면 -1. */
-  side: 1 | -1,
-): RefLinkGeometry {
-  const reach = Math.min(
-    REF_LINK_STYLE.curveMax,
-    Math.max(REF_LINK_STYLE.curveMin, Math.abs(tx - sx) * REF_LINK_STYLE.curveRatio),
-  );
-  const c1x = sx + side * reach;
-  const c2x = tx - side * reach;
-  const path = `M ${sx},${sy} C ${c1x},${sy} ${c2x},${ty} ${tx},${ty}`;
-  // 3차 베지어 t=0.5 = (P0 + 3·P1 + 3·P2 + P3) / 8
-  const midX = (sx + 3 * c1x + 3 * c2x + tx) / 8;
-  const midY = (sy + 3 * sy + 3 * ty + ty) / 8;
-  return { path, midX, midY };
+/** 줄의 처짐(px) — 길이에 비례하되 하한·상한 사이(짧은 줄도 줄로 보이고, 긴 줄이 바닥까지 늘어지지 않게). */
+export function refLinkSag(length: number): number {
+  return Math.min(REF_LINK_STYLE.sagMax, Math.max(REF_LINK_STYLE.sagMin, length * REF_LINK_STYLE.sagRatio));
+}
+
+export function refLinkPath(sx: number, sy: number, tx: number, ty: number): RefLinkGeometry {
+  const sag = refLinkSag(Math.hypot(tx - sx, ty - sy));
+  const qx = (sx + tx) / 2;
+  const qy = (sy + ty) / 2 + sag;
+  // 2차 베지어 t=0.5 = (P0 + 2·Q + P2) / 4 — 직선 가운데에서 처짐의 절반만큼 아래.
+  return {
+    path: `M ${sx},${sy} Q ${qx},${qy} ${tx},${ty}`,
+    midX: (sx + 2 * qx + tx) / 4,
+    midY: (sy + 2 * qy + ty) / 4,
+  };
+}
+
+// ─── 꽃잎 고르기 — 놓은 자리에 앱들이 핀다 ───
+
+/**
+ * 꽃잎 자리 — 가운데 기준 오프셋(화면 px). `facing` 은 라디안(화면 좌표 — 0 = 오른쪽, π/2 = 아래).
+ * 꽃잎은 `facing` 을 가운데로 좌우 같은 간격으로 펴진다. 앱이 많으면 간격이 `maxSpreadDeg` 안으로 좁아진다.
+ */
+export function bloomPetalOffsets(count: number, facing: number): { dx: number; dy: number }[] {
+  if (count <= 0) return [];
+  const stepDeg = count > 1 ? Math.min(REF_BLOOM.stepDeg, REF_BLOOM.maxSpreadDeg / (count - 1)) : 0;
+  const step = (stepDeg * Math.PI) / 180;
+  const first = facing - (step * (count - 1)) / 2;
+  return Array.from({ length: count }, (_, i) => {
+    const a = first + step * i;
+    return { dx: Math.cos(a) * REF_BLOOM.radius, dy: Math.sin(a) * REF_BLOOM.radius };
+  });
 }
 
 /**
- * 두 박스(중심·반폭·반높이) 사이 참조선의 끝점. 앞에 있는 쪽으로 나가 마주 보는 옆구리로 들어간다.
- * 출발이 원(버블 형태)이면 원의 옆구리다 — 카드로 펼쳐도, 버블로 접어도 선이 같은 문법으로 붙는다.
+ * 꽃 전체(가운데 고리 + 꽃잎)가 화면 안에 들도록 가운데를 안쪽으로 민다. 화면이 꽃보다 작으면 왼쪽·위를 지킨다.
  */
-export function refLinkEndpoints(
-  src: { cx: number; cy: number; halfW: number; halfH: number },
-  dst: { cx: number; cy: number; halfW: number; halfH: number },
-): { sx: number; sy: number; tx: number; ty: number; side: 1 | -1 } {
-  const side: 1 | -1 = dst.cx >= src.cx ? 1 : -1;
+export function clampBloomCenter(
+  x: number,
+  y: number,
+  offsets: readonly { dx: number; dy: number }[],
+  viewW: number,
+  viewH: number,
+): { x: number; y: number } {
+  const pad = REF_BLOOM.seedSize / 2 + REF_BLOOM.margin;
+  let minDx = 0;
+  let maxDx = 0;
+  let minDy = 0;
+  let maxDy = 0;
+  for (const o of offsets) {
+    minDx = Math.min(minDx, o.dx);
+    maxDx = Math.max(maxDx, o.dx);
+    minDy = Math.min(minDy, o.dy);
+    maxDy = Math.max(maxDy, o.dy);
+  }
   return {
-    sx: src.cx + side * src.halfW,
-    sy: src.cy,
-    tx: dst.cx - side * dst.halfW,
-    ty: dst.cy,
-    side,
+    x: Math.max(pad - minDx, Math.min(x, viewW - pad - maxDx)),
+    y: Math.max(pad - minDy, Math.min(y, viewH - pad - maxDy)),
   };
+}
+
+/** 한 축 — 그 구간이 [margin, view - margin] 안에 들도록 옮길 양. 구간이 화면보다 크면 앞(왼쪽·위)을 맞춘다. */
+function axisShiftToShow(start: number, length: number, view: number, margin: number): number {
+  if (length + margin * 2 > view) return margin - start;
+  if (start < margin) return margin - start;
+  const overflow = start + length - (view - margin);
+  return overflow > 0 ? -overflow : 0;
+}
+
+/**
+ * §5.4 #36 (F) — 캔버스 사각형(노드 좌표)이 화면에 다 보이도록 뷰포트를 **모자란 만큼만** 옮길 양(화면 px).
+ * 이미 다 보이면 `null` — 고를 때마다 화면이 출렁이지 않게. 줌은 건드리지 않는다.
+ */
+export function viewportShiftToShow(
+  rect: { x: number; y: number; width: number; height: number },
+  viewport: { x: number; y: number; zoom: number },
+  view: { width: number; height: number },
+  margin: number,
+): { dx: number; dy: number } | null {
+  const sx = rect.x * viewport.zoom + viewport.x;
+  const sy = rect.y * viewport.zoom + viewport.y;
+  const dx = axisShiftToShow(sx, rect.width * viewport.zoom, view.width, margin);
+  const dy = axisShiftToShow(sy, rect.height * viewport.zoom, view.height, margin);
+  return dx === 0 && dy === 0 ? null : { dx, dy };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export const STUDIO_INPUT_CLASS = 'w-full min-w-0 rounded border border-white/10 bg-gray-950 px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-violet-400 disabled:opacity-40';
+export const STUDIO_INPUT_CLASS = 'w-full min-w-0 rounded border border-white/10 bg-vb-sunken px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-40';
 
 interface FieldProps {
   label: string;
@@ -71,6 +71,8 @@ function DraftField({ label, value, disabled, hint, multiline, numeric, validate
 export interface StudioTextFieldProps extends FieldProps {
   value: string;
   multiline?: boolean;
+  /** 틀린 값이면 이유 한 줄(번역문)을 돌려준다 — 그때는 저장하지 않는다. */
+  validate?: (value: string) => string | undefined;
   onCommit: (value: string) => void;
 }
 

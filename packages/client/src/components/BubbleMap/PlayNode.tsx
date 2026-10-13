@@ -7,6 +7,8 @@ import type { PlayBubbleStatus, PlayRecipe } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 
 /**
  * §5.14 v4.62 — 플레이 버튼 버블.
@@ -77,6 +79,7 @@ function SearchGlyph(): React.JSX.Element {
 }
 
 export const PlayNode = memo(function PlayNode({
+  id,
   data,
   selected,
 }: NodeProps & { data: PlayNodeData }): React.JSX.Element {
@@ -137,9 +140,15 @@ export const PlayNode = memo(function PlayNode({
    * ⚠ 누름을 캡처 단계로 받는 이유(v4.69)와 안쪽 버튼(재생/정지) 위에서 선택을 건너뛰는 이유는
    * 그 파일에 함께 적어 두었다.
    */
+  // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
+  const canvasSelection = useCanvasNodeSelection(id, data.playBubbleId);
   const gesture = useBubbleSelectGesture({
     doubleClickable: false,
-    select: () => selectPlayBubble(data.playBubbleId),
+    select: () => {
+      canvasSelection.replace();
+      selectPlayBubble(data.playBubbleId);
+    },
+    toggle: canvasSelection.toggle,
     setIntent: (active) => {
       useGraphStore.getState().setSelectIntent(active ? data.playBubbleId : null);
     },
@@ -149,9 +158,11 @@ export const PlayNode = memo(function PlayNode({
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
+    // §6 — 여럿을 고른 묶음 안이면 묶음 메뉴다(고르기를 그 하나로 바꾸지 않는다).
+    if (selected === true && openGroupMenuIfGrouped(id, e.clientX, e.clientY)) return;
     gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [gesture]);
+  }, [gesture, id, selected]);
 
   /** 4단 계단 ④ — 이 프로젝트의 커스텀 에이전트에게 조사를 맡긴다. */
   const askAgent = useCallback(async (): Promise<void> => {

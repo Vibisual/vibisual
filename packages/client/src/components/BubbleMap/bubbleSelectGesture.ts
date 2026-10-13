@@ -13,6 +13,9 @@
  *  3. 더블클릭 동작이 있는 버블이면 **실제 선택은 {@link SELECT_DEFER_MS} 만큼 미룬다.**
  *     그 창 안에 두 번째 누름이 오면 = 더블클릭 의도 → 보류를 접고 링도 끈다.
  *  4. 더블클릭 동작이 없는 버블은 미룰 이유가 없다 — 뗀 자리에서 바로 선택한다.
+ *  5. **누름은 왼쪽 버튼만 센다** — 우클릭은 메뉴의 손이다(§6). 우측 패널(DetailPanel)은 왼쪽 클릭
+ *     선택에서만 뜬다(2026-10-11 사용자 지시 — 종전에 예외였던 에이전트 버블도 이제 예외가 없다).
+ *     왼쪽 버튼으로 오는 우클릭(mac Control+클릭·터치 길게 누르기)은 `contextmenu` 가 누름을 접는다.
  *
  * 링(즉시)과 선택(지연)을 갈라 놓는 것이 핵심이다. 둘을 같이 미루면 단일 클릭이 240ms 늦게
  * 반응하는 것처럼 느껴지고, 둘을 같이 당기면 더블클릭 1타에서 패널이 열렸다 닫히며 깜빡인다.
@@ -45,10 +48,22 @@ let deferredSelectCount = 0;
 const deferredSelectListeners = new Set<() => void>();
 // The ring and selected bubble are shared across gestures; their deferred owner must be shared too.
 let cancelDeferredOwner: (() => void) | null = null;
+/** 같은 보류의 다른 손잡이 — 기다리던 선택을 지금 끝낸다(아래 `flushDeferredBubbleSelect`). */
+let commitDeferredOwner: (() => void) | null = null;
 
 /** Cancel the previous click without touching the current ring (e.g. when a marquee takes over). */
 export function cancelDeferredBubbleSelect(): void {
   cancelDeferredOwner?.();
+}
+
+/**
+ * 2타를 기다리는 클릭이 있으면 **지금** 고른다 — 누적(다중) 선택 직전에 부른다(§6).
+ *
+ * 보통 클릭의 실제 선택은 240ms 뒤라, 그 사이에 Ctrl/Cmd·Shift 로 다른 버블을 넣으면 늦게 온 그
+ * 클릭이 방금 만든 묶음을 자기 하나로 바꿔 버린다. 누른 순서대로 쌓이게 먼저 끝내 둔다.
+ */
+export function flushDeferredBubbleSelect(): void {
+  commitDeferredOwner?.();
 }
 
 function shiftDeferredSelects(delta: 1 | -1): void {
@@ -78,6 +93,14 @@ export interface BubbleSelectPointer {
   readonly button: number;
   readonly clientX: number;
   readonly clientY: number;
+  /**
+   * 수식 키 — 누적(다중) 선택 판정에 쓴다({@link BubbleSelectGestureOptions.toggle}). 판정은
+   * `ctrlKey || metaKey` 다(win/linux Ctrl · mac Cmd — mac 의 Control+클릭은 우클릭이라 `contextmenu`
+   * 가 누름을 접는다). 없으면 안 눌린 것으로 본다.
+   */
+  readonly ctrlKey?: boolean | undefined;
+  readonly metaKey?: boolean | undefined;
+  readonly shiftKey?: boolean | undefined;
   readonly target?: EventTarget | null | undefined;
   readonly stopPropagation?: (() => void) | undefined;
   readonly preventDefault?: (() => void) | undefined;
@@ -108,12 +131,14 @@ export interface BubbleSelectGestureOptions {
    */
   readonly ignore?: ((e: BubbleSelectPointer) => boolean) | undefined;
   /**
-   * 왼쪽 버튼만 선택으로 칠지. 기본 `true`.
+   * 누적(다중) 선택 — Ctrl/Cmd 를 쥐고 움직임 없이 뗐으면 고르지 않고(링·우측 패널 ❌, 지연 ❌) 이것을
+   * 부른다. 이 버블을 지금 묶음에 넣거나 뺀다(§6).
    *
-   * 에이전트 버블은 예외로 `false` 다 — 우클릭도 그 버블을 고른 것으로 쳐 왔고(메뉴가 뜬 대상이
-   * 무엇인지 화면에 보여야 한다), 그 손버릇을 이 정리가 바꾸지 않는다.
+   * 이 손잡이를 준 버블에서는 **Shift 누름을 세지 않는다** — Shift 는 박스 선택 키이기도 해서 React Flow
+   * 가 버블 위 Shift 누름을 박스 선택 시작으로 가져가므로, Shift 클릭은 캔버스(`BubbleMap`)가 한 곳에서
+   * 받는다. 여기서도 세면 한 번 누름에 두 번 뒤집힌다. 없으면 수식 키 클릭도 보통 클릭이다.
    */
-  readonly leftButtonOnly?: boolean | undefined;
+  readonly toggle?: (() => void) | undefined;
 }
 
 export interface BubbleSelectGestureCore {
@@ -123,7 +148,11 @@ export interface BubbleSelectGestureCore {
   pointerCancel: () => void;
   /** 더블클릭 핸들러의 **첫 줄**에서 부른다 — 보류 중 단일선택과 링을 함께 접는다. */
   cancelPendingSelect: () => void;
-  /** 지연 없이 지금 고른다(우클릭 메뉴처럼 대상이 이미 확정된 길). */
+  /**
+   * 지연 없이 지금 고른다(우클릭 메뉴처럼 대상이 이미 확정된 길 — 스펙·랩·선반·플레이 버블).
+   * ⚠ 고르면 우측 패널이 뜨는 버블(에이전트·말풍선 카드·앱)의 우클릭에는 쓰지 않는다 — 그 패널은
+   * 왼쪽 클릭 선택에서만 뜬다(규칙 5).
+   */
   selectNow: () => void;
   /** 언마운트 정리 — 보류 타이머를 남기지 않는다. */
   dispose: () => void;
@@ -133,6 +162,8 @@ interface PressState {
   x: number;
   y: number;
   moved: boolean;
+  /** Ctrl/Cmd 를 쥐고 누른 누적(다중) 선택인가 — `toggle` 을 준 버블에서만 켜진다. */
+  additive: boolean;
 }
 
 /**
@@ -145,12 +176,28 @@ export function createBubbleSelectGesture(
   let press: PressState | null = null;
   let pending: ReturnType<typeof setTimeout> | null = null;
 
+  const releaseOwner = (): void => {
+    if (cancelDeferredOwner !== clearPending) return;
+    cancelDeferredOwner = null;
+    commitDeferredOwner = null;
+  };
+
   const clearPending = (): void => {
     if (pending === null) return;
     clearTimeout(pending);
     pending = null;
-    if (cancelDeferredOwner === clearPending) cancelDeferredOwner = null;
+    releaseOwner();
     shiftDeferredSelects(-1);
+  };
+
+  // 보류를 지금 끝낸다 — 타이머가 다 돈 것과 같은 길이다(선택을 먼저 걸고 보류를 푼다 — 풀린 순간 링이
+  // "확정된 선택"으로 읽히므로). 타이머 자신도 이 함수를 부른다.
+  const commitPending = (): void => {
+    if (pending === null) return;
+    clearTimeout(pending);
+    pending = null;
+    releaseOwner();
+    try { read().select(); } finally { shiftDeferredSelects(-1); }
   };
 
   const selectImmediately = (): void => {
@@ -173,16 +220,20 @@ export function createBubbleSelectGesture(
     pointerDown(e) {
       const o = read();
       if (o.ignore?.(e) === true) { press = null; return; }
-      if ((o.leftButtonOnly ?? true) && e.button !== 0) { press = null; return; }
+      // 규칙 5 — 우클릭·가운데 버튼은 선택이 아니다(링도 우측 패널도 켜지 않는다).
+      if (e.button !== 0) { press = null; return; }
+      // §6 — Shift 클릭은 캔버스가 받는다(`toggle` 주석). 누적 손잡이가 없는 버블은 종전대로 보통 클릭이다.
+      if (o.toggle !== undefined && e.shiftKey === true) { press = null; return; }
+      const additive = o.toggle !== undefined && (e.ctrlKey === true || e.metaKey === true);
 
       // 보류 중인데 다시 눌렀다 = 더블클릭 의도. 보류·링을 접고, 이번 press 는 선택으로
       // 잇지 않도록 `moved` 로 마킹한다(2타의 pointerup 이 다시 선택을 걸면 안 된다).
       if (pending !== null) {
         cancelPendingSelect();
-        press = { x: e.clientX, y: e.clientY, moved: true };
+        press = { x: e.clientX, y: e.clientY, moved: true, additive };
         return;
       }
-      press = { x: e.clientX, y: e.clientY, moved: false };
+      press = { x: e.clientX, y: e.clientY, moved: false, additive };
     },
 
     pointerMove(e) {
@@ -199,17 +250,21 @@ export function createBubbleSelectGesture(
       if (p === null || p.moved) return; // 드래그였거나 더블클릭 2타 → 선택 없음
 
       const o = read();
+      // §6 누적(다중) 선택 — 고르지 않고 묶음에 넣거나 뺀다. 링·우측 패널은 그대로, 기다림도 없다.
+      //   앞서 누른 버블이 2타를 기다리고 있으면 그 선택을 먼저 끝낸다(누른 순서대로 쌓이게).
+      if (p.additive && o.toggle !== undefined) {
+        flushDeferredBubbleSelect();
+        o.toggle();
+        return;
+      }
       // 링은 지연 없이 — 눈에 보이는 반응이 늦으면 클릭이 씹힌 것처럼 느껴진다.
       if (!o.doubleClickable) { selectImmediately(); return; }
       clearPending();
       const cancelPrevious = cancelDeferredOwner;
-      pending = setTimeout(() => {
-        pending = null;
-        if (cancelDeferredOwner === clearPending) cancelDeferredOwner = null;
-        // 선택을 먼저 걸고 보류를 푼다 — 위 `cancelPendingSelect` 와 같은 이유(풀린 순간 링이 확정이다).
-        try { read().select(); } finally { shiftDeferredSelects(-1); }
-      }, SELECT_DEFER_MS);
+      // 선택을 먼저 걸고 보류를 푼다 — 위 `cancelPendingSelect` 와 같은 이유(풀린 순간 링이 확정이다).
+      pending = setTimeout(commitPending, SELECT_DEFER_MS);
       cancelDeferredOwner = clearPending;
+      commitDeferredOwner = commitPending;
       // 보류를 먼저 걸고 링을 켠다(같은 손 안이라 지연은 없다). 링이 켜진 순간 보류가 없으면 그 1타가
       // "확정된 선택"으로 읽혀 선택 초점이 한 프레임 넘어갔다 돌아온다 — `cancelPendingSelect` 의 거울.
       shiftDeferredSelects(1);
@@ -246,6 +301,12 @@ export interface BubbleSelectGestureHandlers {
   readonly onPointerMove: (e: React.PointerEvent) => void;
   readonly onPointerUp: (e: React.PointerEvent) => void;
   readonly onPointerCancel: (e: React.PointerEvent) => void;
+  /**
+   * 메뉴를 부른 누름은 선택이 아니다(규칙 5). 우클릭이 **왼쪽 버튼으로 오는** 자리가 있다 — mac 의
+   * Control+클릭, 터치 길게 누르기. 그 누름은 손을 떼기 전에 `contextmenu` 가 먼저 오므로 여기서 접는다
+   * (플랫폼 분기 없이 세 OS 가 같은 길). 캡처 단계라 버블 안 조각이 전파를 끊어도 먼저 닿는다.
+   */
+  readonly onContextMenuCapture: (e: React.MouseEvent) => void;
 }
 
 export interface BubbleSelectGesture {
@@ -275,6 +336,7 @@ export function useBubbleSelectGesture(options: BubbleSelectGestureOptions): Bub
         onPointerMove: (e: React.PointerEvent) => core.pointerMove(e),
         onPointerUp: () => core.pointerUp(),
         onPointerCancel: () => core.pointerCancel(),
+        onContextMenuCapture: () => core.pointerCancel(),
       },
       cancelPendingSelect: () => core.cancelPendingSelect(),
       selectNow: () => core.selectNow(),

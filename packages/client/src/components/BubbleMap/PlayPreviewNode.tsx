@@ -5,6 +5,8 @@ import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
 import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
 import { PreviewFrames } from '../Preview/PreviewFrames.js';
@@ -50,6 +52,7 @@ const CHROME_BG = 'rgba(17, 24, 39, 0.92)';
 const CHROME_BORDER = 'rgba(255, 255, 255, 0.12)';
 
 export const PlayPreviewNode = memo(function PlayPreviewNode({
+  id,
   data,
   selected,
 }: NodeProps & { data: PlayPreviewNodeData }): React.JSX.Element {
@@ -79,14 +82,26 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
    * ⚠ 캡처 단계로 받는 이유(v4.69)와 헤더의 아이콘 버튼(닫기·새로고침)에서 선택을 건너뛰는
    * 이유는 그 파일에 함께 적어 두었다.
    */
+  // §6 — 고른 묶음은 다른 버블과 같은 칸이다. 프리뷰는 표지와 따로 사는 노드라 묶음에도 따로 든다.
+  const canvasSelection = useCanvasNodeSelection(id, data.playBubbleId);
   const gesture = useBubbleSelectGesture({
     doubleClickable: false,
-    select: () => selectPlayBubble(data.playBubbleId),
+    select: () => {
+      canvasSelection.replace();
+      selectPlayBubble(data.playBubbleId);
+    },
+    toggle: canvasSelection.toggle,
     setIntent: (active) => {
       useGraphStore.getState().setSelectIntent(active ? data.playBubbleId : null);
     },
     ignore: (e) => isInteractiveTarget(e.target),
   });
+  // §6 — 여럿을 고른 묶음 안에서 우클릭하면 묶음 메뉴. 묶음 밖이면 종전대로다(이 노드에는 따로 메뉴가 없다).
+  const handleContextMenu = useCallback((e: React.MouseEvent): void => {
+    if (selected !== true || !openGroupMenuIfGrouped(id, e.clientX, e.clientY)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, [id, selected]);
 
   const close = useCallback((e: React.MouseEvent): void => {
     e.stopPropagation();
@@ -136,7 +151,8 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
   return (
     <>
       <NodeResizer
-        isVisible={isSelected}
+        // §6 — 크기 손잡이는 지금 고른 하나에만(묶음 안 노드마다 서면 묶음 표시가 손잡이에 묻힌다).
+        isVisible={chosenHere}
         minWidth={220}
         minHeight={160}
         onResizeStart={handleResizeStart}
@@ -147,6 +163,7 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
       />
       <div
         {...gesture.handlers}
+        onContextMenu={handleContextMenu}
         className="flex flex-col overflow-hidden rounded-lg"
         style={{
           width: data.width,

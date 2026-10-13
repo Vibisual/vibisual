@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { resolveTimeline, type VideoDoc } from '@vibisual/video';
+import { chapterFrameDoc, resolveTimeline, type VideoDoc } from '@vibisual/video';
 import { HtmlSceneStage, MediabunnyMediaProvider } from '@vibisual/video/render';
 
 import { assetUrl, readDoc } from './videoApi.js';
+import { readHistoryDoc } from './studioApi.js';
+import { makeCompositionSrc } from './compositionUrl.js';
 // 이 화면에는 훅을 걸 자리가 없다(카메라 앞 무대). 문구만 i18n 인스턴스에서 직접 고른다.
 import i18n from '../../i18n/index.js';
 
@@ -23,6 +25,8 @@ declare global {
     __vibiRenderReady?: boolean;
     __vibiRenderError?: string;
     __vibiRenderSeek?: (t: number) => Promise<void>;
+    /** §5.13 (V) 37-9 — 마지막으로 맞춘 시각의 컴포지션 글자 상자(JSON — main 이 `executeJavaScript` 로 받는다). */
+    __vibiRenderInspect?: () => Promise<string>;
   }
 }
 
@@ -34,10 +38,40 @@ import type { AppShellProps } from '../../apps/registry.js';
 export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
   const project = params['project'] ?? '';
   const docId = params['docId'] ?? '';
+  // §5.13 (V) 37-3 — 판 기록의 한 판을 찍을 때(그 판의 문서와 그 판의 코드).
+  const revId = params['rev'] ?? '';
   const width = Number(params['w'] ?? 1920) || 1920;
   const height = Number(params['h'] ?? 1080) || 1080;
+  // §5.13 (W) 38-1 — 창을 문서 크기로 못 키운 기기면 main 이 맞춤 배율을 준다(무대를 그만큼 줄여 세운다 — 잘리지 않게).
+  const fitRaw = Number(params['fit'] ?? 1);
+  const fit = Number.isFinite(fitRaw) && fitRaw > 0 && fitRaw < 1 ? fitRaw : 1;
+  // §5.13 (W) 38-3 — 투명 배경 렌더: 이 화면의 바탕을 전부 비운다(그린 것 밖은 알파 0).
+  const alpha = params['alpha'] === '1';
+  // §5.13 (W) 38-7 — 장면 정지 화면: 그 컴포지션 하나짜리 문서로 무대를 세운다.
+  const frameChapter = params['frame'] ?? '';
   const hostRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    // 무대가 창보다 크거나 같을 때 스크롤 막대가 서서 찍히지 않게(배율·반올림 한 픽셀).
+    const root = document.documentElement;
+    const prevOverflow = [root.style.overflow, document.body.style.overflow];
+    root.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    const cleared: Array<[HTMLElement, string]> = [];
+    if (alpha) {
+      // 조상(앱 셸·테마 바탕)까지 비운다 — 하나라도 칠하면 그 색이 영상 바탕이 된다.
+      for (let el: HTMLElement | null = hostRef.current; el; el = el.parentElement) {
+        cleared.push([el, el.style.background]);
+        el.style.background = 'transparent';
+      }
+    }
+    return () => {
+      root.style.overflow = prevOverflow[0] ?? '';
+      document.body.style.overflow = prevOverflow[1] ?? '';
+      for (const [el, bg] of cleared) el.style.background = bg;
+    };
+  }, [alpha]);
 
   useEffect(() => {
     let stage: HtmlSceneStage | null = null;
@@ -46,9 +80,10 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
 
     void (async () => {
       try {
-        const env = await readDoc(project, docId);
+        const loaded: VideoDoc = revId !== '' ? await readHistoryDoc(project, docId, revId) : (await readDoc(project, docId)).doc;
         if (disposed) return;
-        const doc: VideoDoc = env.doc;
+        const doc = frameChapter !== '' ? chapterFrameDoc(loaded, frameChapter) : loaded;
+        if (!doc) throw new Error(i18n.t('panel.videoStudio.errNoFrame', { id: frameChapter }));
 
         media = new MediabunnyMediaProvider({
           assets: doc.assets,
@@ -68,6 +103,11 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
           timeline: resolveTimeline(doc),
           media,
           container: host,
+          // §5.13 (T-3)(T-4) — 코드 컴포지션은 샌드박스 iframe 으로 이 무대 위에 선다. 렌더 무대라 엄격하다 — 한 장이라도
+          //   시각을 못 맞추면 그 프레임을 찍지 않고 어느 아이템이 몇 초에서 멈췄는지 실패 사유로 낸다.
+          compositionSrc: makeCompositionSrc(project, doc, revId !== '' ? revId : undefined),
+          strict: true,
+          transparent: alpha,
         });
 
         // 첫 프레임을 미리 세워 둔다 — main 이 곧바로 찍어도 빈 화면이 나오지 않게.
@@ -78,6 +118,7 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
           // 레이아웃과 페인트가 실제로 반영된 뒤에 찍혀야 한다.
           await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         };
+        window.__vibiRenderInspect = async (): Promise<string> => JSON.stringify((await stage?.inspectTexts()) ?? []);
         window.__vibiRenderReady = true;
       } catch (err) {
         const message = String(err);
@@ -90,16 +131,17 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
       disposed = true;
       window.__vibiRenderReady = false;
       delete window.__vibiRenderSeek;
+      delete window.__vibiRenderInspect;
       stage?.dispose();
       media?.dispose();
     };
-  }, [project, docId]);
+  }, [project, docId, revId, frameChapter, alpha]);
 
   return (
     <div
       ref={hostRef}
-      className="overflow-hidden bg-black"
-      style={{ width, height }}
+      className={alpha ? 'overflow-hidden' : 'overflow-hidden bg-black'}
+      style={fit < 1 ? { width, height, transform: `scale(${fit})`, transformOrigin: '0 0' } : { width, height }}
     >
       {error !== '' ? (
         <pre className="p-4 text-xs text-rose-300">{error}</pre>

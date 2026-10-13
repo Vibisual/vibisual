@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PackagedAppApi } from '../transport/install-packaged-transport.js';
+import type { AppWindowListWire, PackagedAppApi } from '../transport/install-packaged-transport.js';
 import { useAppWindowsStore } from './appWindows.js';
 import { INTERNAL_APPS } from './registry.js';
-import { receiveAppWindow, subscribeAppWindowDragRelease } from './useAppWindowRedock.js';
+import { receiveAppWindow, subscribeAppWindowDragRelease, subscribeOutsideAppWindows } from './useAppWindowRedock.js';
 
 function appApi(overrides: Partial<PackagedAppApi> = {}): PackagedAppApi {
   return {
@@ -146,5 +146,65 @@ describe('cross-window drag release', () => {
     events.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Escape' }));
     expect(api.endDrag).not.toHaveBeenCalled();
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+});
+
+// §5.13 (S-11) — main 이 든 "밖에 떠 있는 앱 창" 목록을 이 창의 store 에 비춘다. 이 목록이 있어야 그 문서를 다시 열 때
+//   앱 안에 한 벌 더 세우지 않고 밖의 그 창을 앞으로 세운다.
+describe('outside app window list mirror', () => {
+  const app = INTERNAL_APPS[0]!;
+  beforeEach(() => { useAppWindowsStore.setState({ windows: [], outside: [] }); });
+  afterEach(() => {
+    useAppWindowsStore.setState({ windows: [], outside: [] });
+    vi.unstubAllGlobals();
+  });
+
+  it('maps each app’s declared document key and follows every push until unsubscribed', () => {
+    let push!: (list: AppWindowListWire) => void;
+    const off = vi.fn();
+    const api = appApi({
+      list: vi.fn(() => new Promise<AppWindowListWire>(() => undefined)),
+      onList: (callback) => { push = callback; return off; },
+    });
+    const unsubscribe = subscribeOutsideAppWindows(api);
+    push([{ windowId: 4, appId: app.id, params: { projectId: 'C:/project', [app.refKey]: 'doc-1', _windowTitle: 'Demo' } }]);
+    expect(useAppWindowsStore.getState().outside).toEqual([{ windowId: 4, appId: app.id, projectId: 'C:/project', ref: 'doc-1' }]);
+    push([]);
+    expect(useAppWindowsStore.getState().outside).toEqual([]);
+    unsubscribe();
+    expect(off).toHaveBeenCalledOnce();
+  });
+
+  it('fills the list from the first answer, but a late answer never overwrites a newer push', async () => {
+    let answer!: (list: AppWindowListWire) => void;
+    let push!: (list: AppWindowListWire) => void;
+    subscribeOutsideAppWindows(appApi({
+      list: vi.fn(() => new Promise<AppWindowListWire>((done) => { answer = done; })),
+      onList: (callback) => { push = callback; return () => undefined; },
+    }));
+    push([]);
+    answer([{ windowId: 4, appId: app.id, params: { projectId: 'C:/project' } }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 방금 닫힌 창을 "떠 있다"로 되살리지 않는다.
+    expect(useAppWindowsStore.getState().outside).toEqual([]);
+
+    subscribeOutsideAppWindows(appApi({
+      list: vi.fn(async () => [{ windowId: 5, appId: app.id, params: { projectId: 'C:/project' } }]),
+      onList: () => () => undefined,
+    }));
+    await vi.waitFor(() => {
+      expect(useAppWindowsStore.getState().outside).toEqual([{ windowId: 5, appId: app.id, projectId: 'C:/project' }]);
+    });
+  });
+
+  it('brings a window back inside even while the closing outside window is still listed', () => {
+    const focus = vi.fn(async () => true);
+    vi.stubGlobal('window', { api: { app: { open: vi.fn(), focus } } });
+    useAppWindowsStore.setState({ outside: [{ windowId: 4, appId: app.id, projectId: 'C:/project', ref: 'doc-1' }] });
+    expect(receiveAppWindow(appApi(), {
+      requestId: 'back', appId: app.id, params: { projectId: 'C:/project', [app.refKey]: 'doc-1' },
+    })).toBe(true);
+    expect(focus).not.toHaveBeenCalled();
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
   });
 });

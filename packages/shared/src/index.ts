@@ -24,6 +24,8 @@ export type {
   CaptureSourceKind,
   CaptureSourceInfo,
   AppBubble,
+  AppBubblePastFile,
+  LinkLens,
   CaptureBubble,
   PlayRecipeKind,
   PlayRecipeSource,
@@ -236,6 +238,18 @@ export type {
   BuiltinSlashCommand,
   UserDefaults,
   UserDefaultsPatch,
+  AppThemeKind,
+  AppThemeFamily,
+  AppThemeShade,
+  AppThemeRamp,
+  AppThemeToken,
+  AppThemeRampSpec,
+  AppThemeDefinition,
+  AppThemeIssueCode,
+  AppThemeIssue,
+  AppThemeCatalog,
+  ResolvedAppTheme,
+  AppThemeChrome,
   AgentConfigPatch,
   UserNotificationDefaults,
   UserAdvancedDefaults,
@@ -345,6 +359,9 @@ export type {
   SessionLivenessProbeSettings,
   BackgroundTaskProbeResult,
   BackgroundTaskProbeSettings,
+  ProcessGuardSettings,
+  ProcessGuardNotice,
+  ProcessGuardNoticeReason,
   RetentionLogEntry,
   StorageUsageKind,
   StorageUsageEntry,
@@ -562,6 +579,20 @@ export {
   SESSION_PROBE_LIMITS,
   SESSION_PROBE_MODELS,
   normalizeSessionProbeSettings,
+  // §5.3 #9-2 — 에이전트가 띄운 프로세스의 보호(묶음 · 메모리 상한 · 정리).
+  PROCESS_GUARD_TICK_MS,
+  PROCESS_GUARD_FALLBACK_TICK_MS,
+  PROCESS_MEMORY_CAP_FLOOR_BYTES,
+  PROCESS_MEMORY_CAP_DEFAULT_PERCENT,
+  MEMORY_PRESSURE_FLOOR_RATIO,
+  MEMORY_PRESSURE_FLOOR_MIN_BYTES,
+  PRESSURE_VICTIM_MIN_BYTES,
+  PRESSURE_ROOT_VICTIM_MIN_BYTES,
+  SESSION_END_REAP_GRACE_MS,
+  PROCESS_GUARD_NOTICE_TAG,
+  DEFAULT_PROCESS_GUARD_SETTINGS,
+  PROCESS_GUARD_LIMITS,
+  normalizeProcessGuardSettings,
   RETENTION_LIMITS,
   normalizeRetentionSettings,
   isExpiredByDays,
@@ -781,6 +812,9 @@ export {
   CLAUDE_SETUP_OUTPUT_MAX_CHARS,
   CLAUDE_SETUP_READY_HOLD_MS,
   CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS,
+  STARTUP_JOB_SETTLE_MS,
+  STARTUP_JOB_GAP_MS,
+  STARTUP_JOB_RELEASE_CAP_MS,
   HOOK_TRANSPORT_REFRESH_DELAY_MS,  LOCKED_AGENT_TOOLS,
   AVAILABLE_PERMISSION_MODES,
   PERMISSION_MODES_WITHOUT_PROMPT,
@@ -1321,6 +1355,7 @@ export {
   CODEX_HOME_ENV,
   CODEX_HOME_DIRNAME,
   CODEX_MODELS_CACHE_FILENAME,
+  CODEX_MODELS_REFRESH_INTERVAL_MS,
   CODEX_HOOKS_FILENAME,
   CODEX_HOOK_MARKER,
   CODEX_HOOK_EVENTS,
@@ -1396,6 +1431,8 @@ export {
   PLUGIN_SUPPORTED_CONTRIBUTIONS,
   PLUGIN_ID_PATTERN,
   APP_API_PREFIX,
+  APP_CONTENT_SEGMENT,
+  isAppContentPath,
   PLUGIN_API_PREFIX,
   SECRET_REDACTION_PATTERNS,
   SECRET_REDACTION_MASK,
@@ -1719,6 +1756,40 @@ export {
 // §5.5 #17-24 ⑥ — 스트림 한 줄이 압축의 시작·끝을 말하는가. 스트림 경로가 셋이라 판정을 한 곳에 둔다.
 export type { CompactionSignal } from './compactionSignal.js';
 export { readCompactionSignal } from './compactionSignal.js';
+
+// §4 엔진 다리 — 우리가 띄운 세션에 실린 Claude Code 모드의 신고. 전선 모양·판정이 서버·클라·시험에 한 벌이다.
+export type {
+  EngineBridgeTurnState,
+  EngineBridgeEventKind,
+  EngineBridgeTurnEndReason,
+  EngineBridgeIdentity,
+  EngineBridgeEvent,
+  EngineBridgeSnapshotWire,
+  EngineBridgeRateLimitWire,
+  EngineBridgeUsageWire,
+  EngineBridgeReport,
+  EngineBridgeState,
+  EngineBridgeStatus,
+} from './engineBridge.js';
+export {
+  ENGINE_BRIDGE_PLUGIN_NAME,
+  ENGINE_BRIDGE_MIN_CLI_VERSION,
+  ENGINE_BRIDGE_HEARTBEAT_MS,
+  ENGINE_BRIDGE_STALE_MS,
+  ENGINE_BRIDGE_VOUCH_PROGRESS_MS,
+  ENGINE_BRIDGE_STATE_MAX,
+  ENGINE_BRIDGE_ENDED_KEEP_MS,
+  ENGINE_BRIDGE_EVENTS_MAX,
+  isEngineBridgeCliSupported,
+  parseEngineBridgeReport,
+  engineBridgeKeyOf,
+  normalizeEngineBridgeTurnEndReason,
+  isEngineBridgeFresh,
+  isEngineBridgeTurnRunning,
+  engineBridgeVouchesRunning,
+  describeEngineBridgeForProbe,
+  rateLimitsFromEngine,
+} from './engineBridge.js';
 
 // §5.5 #17-12 ③-6 — 턴이 끝난 이유 한 칸. 턴을 닫는 경로가 여럿이라 판정을 여기 한 곳에 둔다.
 export type { TurnStopReason, ModelStopReason, TurnStopSignal, TurnStopFacts } from './turnStopReason.js';
@@ -2380,13 +2451,83 @@ export {
   findPathLockCover,
   findToolLockHits,
 } from './pathLock.js';
-// §5.4 #36 — 전환과 연결(에이전트 입력 카드 · 참조선). 서버 검증과 클라 낙관 반영이 한 벌을 쓴다.
-export { AGENT_CARD, APP_BUBBLE_LINK_MAX, REF_LINK_STYLE } from './constants.js';
+// §5.4 #36 — 전환과 연결(에이전트 말풍선 · 위성줄). 서버 검증과 클라 낙관 반영이 한 벌을 쓴다.
+export { AGENT_CARD, APP_BUBBLE_LINK_MAX, APP_BUBBLE_PENDING_MS, APP_BUBBLE_REF_MAX, APP_THUMB, REF_BLOOM, REF_LINK_STYLE } from './constants.js';
+// §5.4 #36 (G) — 앱 노드 크기 조절 한도와 캔버스 조작 한도. 서버(PATCH 자르기)와 클라(손잡이·재생)가 한 벌을 쓴다.
+export { APP_NODE_RESIZE, APP_CANVAS_FACE } from './constants.js';
+// §5.4 #36 (H) — 연결 보기(켜고 끄기 · 전환 · 구슬 줄). 서버(지난 결과 상한)와 클라(흐림·구슬)가 한 벌을 쓴다.
+export { LINK_VIEW, APP_BUBBLE_PAST_FILE_MAX, APP_LINKED_ITEMS } from './constants.js';
 export {
   sanitizeLinkedAgentIds,
   withLinkedAgent,
   withoutLinkedAgent,
   isLinkedTo,
   projectRelativePath,
+  pushPastFile,
   linkedFileName,
+  APP_BUBBLE_ID_PATTERN,
+  makeAppBubbleId,
+  isAppBubbleId,
 } from './canvasLink.js';
+
+// §4 앱 테마 — 기본 테마도 사용자 테마도 같은 형식이고, 해석은 이 묶음 하나다. 서버(창 바탕)와
+// 클라(화면)가 같은 함수로 같은 답을 낸다 — 두 벌이 되면 창 바탕과 화면이 서로 다른 테마를 칠한다.
+export {
+  DEFAULT_APP_THEME_ID,
+  DEFAULT_LIGHT_APP_THEME_ID,
+  APP_THEME_SCHEMA_VERSION,
+  CUSTOM_APP_THEME_PREFIX,
+  APP_THEME_FAMILIES,
+  APP_THEME_SHADES,
+  APP_THEME_LIMITS,
+  APP_THEME_BOOT_CACHE_KEY,
+  APP_THEME_LOCK_ATTR,
+  APP_THEME_TOKEN_SPECS,
+} from './constants.js';
+export type { ThemeColor } from './appThemeColor.js';
+export {
+  THEME_COLOR_MAX_LENGTH,
+  parseThemeColor,
+  formatThemeColor,
+  normalizeThemeColor,
+  themeColorToHex,
+  themeColorToRgba,
+  withThemeAlpha,
+  mirrorThemeColor,
+  tintThemeColor,
+  compositeThemeColor,
+  oklchToSrgb,
+  srgbToOklch,
+} from './appThemeColor.js';
+export {
+  TAILWIND_DEFAULT_PALETTE,
+  TAILWIND_DEFAULT_WHITE,
+  TAILWIND_DEFAULT_BLACK,
+  isAppThemeFamily,
+  isAppThemeShade,
+  mirrorShade,
+  mirrorRamp,
+  tintRamp,
+  mirrorColorString,
+  clonePalette,
+} from './appThemePalette.js';
+export { BUILTIN_APP_THEMES } from './appThemeCatalog.js';
+export type { AppThemeRef, NormalizeAppThemeContext, NormalizeAppThemeResult } from './appThemeResolve.js';
+export {
+  APP_THEME_TOKENS,
+  isAppThemeToken,
+  parseAppThemeRef,
+  normalizeAppThemeTokenValue,
+  appThemeSlug,
+  customAppThemeId,
+  isCustomAppThemeId,
+  normalizeAppThemeDefinition,
+  listAppThemes,
+  findAppTheme,
+  isBuiltinAppThemeId,
+  resolveAppTheme,
+  appThemeChrome,
+  buildAppThemeTemplate,
+} from './appThemeResolve.js';
+// §5.3 #9-2 — 자손 프로세스 보호의 판정(상한·압박·희생자·POSIX 소속·알림 한 줄).
+export * from './processGuardPolicy.js';

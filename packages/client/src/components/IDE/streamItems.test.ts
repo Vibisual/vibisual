@@ -290,18 +290,19 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
     expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
   });
 
-  it('§5.5 #17-24 ② — 라이브 1줄은 작동 중 내내 떠 있고, 이벤트 종류는 라벨(mode)만 고른다', () => {
+  it('§5.5 #17-24 ② ⑦ — 라이브 1줄은 작동 중 내내 떠 있고, 마지막 이벤트가 사고여도 `작업 중`이다', () => {
     const busy = [{ id: 'c1', text: 'go', status: 'executing', timestamp: 1 }] as unknown as QueuedCommand[];
     const thinkingNow: SubAgentStreamEvent[] = [
       { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'text', content: '앞' },
       { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 101, eventType: 'thinking', content: '생각 중…' },
     ];
     const live = buildBaseItems(thinkingNow, busy);
-    expect(live.thinkingLive?.mode).toBe('thinking');
+    // ⑦ — 도구 사이 안내 문장이 사고로 오고, 큰 Write 입력을 만드는 동안은 줄이 없다. 사고 라벨은 걷었다.
+    expect(live.thinkingLive?.mode).toBe('working');
     const merged = mergeCardsIntoItems(live, busy);
     expect(merged[merged.length - 1]!.kind).toBe('thinking-live');
 
-    // 사고 뒤에 출력이 와도 줄은 그대로 있고 라벨만 `작업 중` 으로 바뀐다(깜빡임 제거 — #17-24 ②).
+    // 사고 뒤에 출력이 와도 줄은 그대로 있고 라벨도 그대로다(깜빡임 제거 — #17-24 ②).
     const done = buildBaseItems([...thinkingNow, { id: 'c', subAgentId: 'S', parentAgentId: 'P', timestamp: 102, eventType: 'text', content: '답' }], busy);
     expect(done.thinkingLive?.mode).toBe('working');
     expect(done.thinkingLive?.id).toBe(live.thinkingLive?.id); // 항목 id 고정 → remount ❌
@@ -316,11 +317,11 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
     // 작동 중이면 이벤트가 아직 하나도 없어도(스폰 직후) `작업 중` 으로 켜진다.
     const busy = [{ id: 'c1', text: 'go', status: 'executing', timestamp: 1 }] as unknown as QueuedCommand[];
     expect(buildBaseItems([], busy).thinkingLive?.mode).toBe('working');
-    // SDK 펄스(thinking_tokens)는 종전대로 `생각 중` 라벨.
+    // SDK 펄스(thinking_tokens)가 마지막이어도 `작업 중`이다(#17-24 ⑦).
     const pulse: SubAgentStreamEvent[] = [
       { id: 'p', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'system', content: '[thinking_tokens]' },
     ];
-    expect(buildBaseItems(pulse, busy).thinkingLive?.mode).toBe('thinking');
+    expect(buildBaseItems(pulse, busy).thinkingLive?.mode).toBe('working');
   });
 
   // ─── §5.5 #17-18 ⑥ 덧말 말풍선의 자리 ───
@@ -796,9 +797,9 @@ describe('§5.5 #17-24 ⑥ — 접는 동안 라이브 1줄은 압축 중', () =
     expect(live.compactingSince).toBe(250);
   });
 
-  it('표식이 없으면 종전대로 사고/작업이고, 압축 시각을 싣지 않는다', () => {
+  it('표식이 없으면 마지막 이벤트가 사고여도 작업 중이고(⑦), 압축 시각을 싣지 않는다', () => {
     const live = liveOf(buildBaseItems([thinking('t', 100)], [], true, false, null, false, 50, null));
-    expect(live.mode).toBe('thinking');
+    expect(live.mode).toBe('working');
     expect(live.compactingSince).toBeUndefined();
   });
 
@@ -806,10 +807,10 @@ describe('§5.5 #17-24 ⑥ — 접는 동안 라이브 1줄은 압축 중', () =
     expect(liveOf(buildBaseItems([thinking('t', 100)], [], true, true, null, false, 50, 250)).mode).toBe('waiting');
   });
 
-  it('증분 파서도 같은 모드를 내고, 표식이 걷히면 다시 사고로 돌아온다', () => {
+  it('증분 파서도 같은 모드를 내고, 표식이 걷히면 다시 작업 중으로 돌아온다', () => {
     const events = [thinking('t', 100)];
     const parser = new IncrementalStreamParser();
     expect(liveOf(parser.sync(events, [], true, false, null, false, 50, 250)).mode).toBe('compacting');
-    expect(liveOf(parser.sync(events, [], true, false, null, false, 50, null)).mode).toBe('thinking');
+    expect(liveOf(parser.sync(events, [], true, false, null, false, 50, null)).mode).toBe('working');
   });
 });

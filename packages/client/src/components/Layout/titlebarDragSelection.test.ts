@@ -128,18 +128,60 @@ describe('드래그 영역의 정적 글자', () => {
   });
 });
 
-// 로고도 주변 제목줄과 같은 OS 캡션이다. no-drag 덮개를 얹으면 기본 손짓을 가로챈다.
-describe('헤더 로고의 공통 제목줄 동작', () => {
-  it('창 이동과 더블클릭을 가로채는 로고 전용 덮개가 없다', () => {
+// §3.7 · §5.5 #17-6 (H-19) — 로고 덮개는 `app-nodrag` 라 OS 가 그 자리의 더블클릭을 모른다.
+//   덮개가 직접 제목줄과 같은 최대화/복원을 불러야 한다(받는 쪽 배선은 desktop `titlebarDrag.test.ts`).
+describe('헤더 로고 덮개 더블클릭', () => {
+  it('덮개가 자기 창 최대화/복원 채널을 부른다 — 사용자 보고: 로고 자리만 더블클릭해도 전체화면이 안 됐다', () => {
+    const header = source('Header.tsx');
+    const at = header.indexOf('className="app-nodrag absolute inset-0 z-10"');
+    expect(at, '헤더 로고 덮개를 못 찾음').toBeGreaterThan(-1);
+    const cover = header.slice(at, header.indexOf('/>', at));
+    expect(cover).toContain('onDoubleClick={() => { void window.api?.window?.toggleMaximizeSelf(); }}');
+  });
+});
+
+// §3.7 — `app-nodrag` 는 누르는 상자에만 건다. File 메뉴 감싸개가 헤더 높이 전체를 `app-nodrag` 로 덮으면
+//   버튼 위·아래 띠가 창 이동에서 빠진다(사용자 지시 — 다른 앱들처럼 그 둘레에 여유를 둬서 창을 옮기자).
+describe('File 메뉴 둘레', () => {
+  it('감싸개는 헤더 드래그 영역에 남고, 클릭 자리는 FileMenu 루트 하나다', () => {
+    const header = source('Header.tsx');
+    const at = header.indexOf('{/* File 메뉴 */}');
+    expect(at, 'File 메뉴 자리를 못 찾음').toBeGreaterThan(-1);
+    const tagAt = header.indexOf('<div', at);
+    const tag = header.slice(tagAt, header.indexOf('>', tagAt) + 1);
+    expect(tag, '감싸개에 app-nodrag 가 다시 걸렸습니다 — 버튼 위·아래로 창을 못 끕니다').not.toContain('app-nodrag');
+    expect(tag, '감싸개의 양옆 여유가 빠졌습니다').toContain('px-1');
+    expect(header.indexOf('<FileMenu />', tagAt), 'FileMenu 가 감싸개 밖으로 나갔습니다').toBeGreaterThan(tagAt);
+    expect(source('FileMenu.tsx')).toContain('<div ref={menuRef} className="app-nodrag relative">');
+  });
+});
+
+// 덮개는 드래그 영역 신고에 기대지 않는 손잡이다 — 신고가 어긋난 순간(§3.7)에도 로고를 눌러 창을 옮긴다.
+//   2026-10-08 에 "헤더 나머지와 같은 OS 캡션으로" 맞춘다며 덮개와 누름 연결을 걷었다가, 로고로 창이
+//   안 움직여 되살렸다(사용자 보고 — "이거 누르면 화면 움직이는 기능 있었는데 날라간거야").
+describe('헤더 로고 덮개 누름', () => {
+  it('덮개가 로고 상자 안에 있고, 누르면 useTitlebarDrag 로 창을 옮긴다', () => {
     const header = source('Header.tsx');
     const at = header.indexOf('className="app-drag-label app-drag ');
     expect(at, '헤더 로고를 못 찾음').toBeGreaterThan(-1);
     const end = header.indexOf('{/* File 메뉴 */}', at);
     expect(end).toBeGreaterThan(at);
     const logo = header.slice(at, end);
-    expect(logo).not.toContain('app-nodrag');
-    expect(logo).not.toMatch(/on(?:Mouse|Pointer|DoubleClick)|moveSelf|toggleMaximizeSelf/);
-    expect(header).not.toContain('useTitlebarDrag');
+    expect(logo, '로고 덮개가 없습니다 — 걷으면 신고가 어긋난 순간 로고로 창이 안 움직입니다')
+      .toContain('className="app-nodrag absolute inset-0 z-10"');
+    expect(logo).toContain('onMouseDown={handleLogoMouseDown}');
+    expect(header).toContain('const handleLogoMouseDown = useTitlebarDrag();');
+  });
+
+  it('덮개는 인라인으로 손짓을 되찾는다 — `.app-drag-label *` 가 덮개까지 pointer-events:none 으로 만든다', () => {
+    expect(decl(ruleFor('.app-drag-label *').body, 'pointer-events')).toBe('none');
+    const header = source('Header.tsx');
+    const at = header.indexOf('className="app-nodrag absolute inset-0 z-10"');
+    expect(at, '헤더 로고 덮개를 못 찾음').toBeGreaterThan(-1);
+    expect(header.slice(at, header.indexOf('/>', at))).toContain("style={{ pointerEvents: 'auto' }}");
+  });
+
+  it('탭을 끄는 동안에는 제목줄 드래그 영역이 자손까지 비켜 준다(공통 vib-pointer-drag 규칙)', () => {
     const dragging = ruleFor('body.vib-pointer-drag .app-drag');
     expect(dragging.selectors).toContain('body.vib-pointer-drag .app-drag *');
     expect(decl(dragging.body, '-webkit-app-region')).toBe('no-drag');

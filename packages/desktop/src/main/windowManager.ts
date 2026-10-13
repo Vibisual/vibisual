@@ -8,9 +8,9 @@ import {
   stepRedockDwell,
   type SpanGrowth,
 } from '@vibisual/shared';
-import { hidePopOutGhost, isPopOutGhostVisible, nudgePopOutGhost, showPopOutGhost } from './ghostFrame';
+import { hidePopOutGhost, isPopOutGhostVisible, nudgePopOutGhost, popOutGhostBounds, showPopOutGhost } from './ghostFrame';
 import { openExternalWithNotice } from './externalOpen';
-import { keepDragRegionsFresh } from './dragRegions';
+import { safeAppThemeChrome, trackThemedWindow } from './themeChrome';
 import { broadcastWindowMessage } from './windowDelivery';
 import {
   isOverlaySlotUsable,
@@ -25,7 +25,7 @@ import {
   releaseSlotIfOwner,
 } from './overlaySlot';
 import { acceptReportedSize, dipStepFor, landedSpan, movedBounds, snapDip, type OverlaySize } from './overlaySize';
-import { AppWindowTransfers, type AppWindowPlacement } from './appWindowTransfer';
+import { AppWindowTransfers, type AppWindowListItem, type AppWindowPlacement } from './appWindowTransfer';
 import { appWindowPrimaryPressed } from './appWindowMouseButton';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
@@ -184,7 +184,8 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
     minHeight: POPUP_MIN_H,
     ...(x !== undefined && y !== undefined ? { x, y } : {}),
     show: false,
-    backgroundColor: '#030712',
+    // §4 앱 테마 — 그리기 전의 빈 창도 고른 테마의 바탕이다(아래 trackThemedWindow 가 바뀔 때 다시 칠한다).
+    backgroundColor: safeAppThemeChrome().background,
     autoHideMenuBar: true,
     title: 'Vibisual',
     // §5.4 #14-1 (v2.30) — 별창은 OS titlebar 를 통째로 우리 UI 가 대신한다. titleBarOverlay 를 쓰면
@@ -202,9 +203,8 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
   });
   // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
-  // §3.7 v2.10 — 창이 돌아오면(show·restore·최대화 전이) 드래그 영역을 다시 신고시킨다.
-  //   신고를 한 번 놓치면 타이틀바가 정적이라 다시 신고할 계기가 영영 오지 않는다(dragRegions).
-  keepDragRegionsFresh(win);
+  // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕도 다시 칠한다.
+  trackThemedWindow(win);
 
   win.on('ready-to-show', () => {
     if (!win.isDestroyed()) win.show();
@@ -990,6 +990,25 @@ function armGhostHandoff(windowId: number, fallbackMs: number = GHOST_HANDOFF_FA
 }
 
 /**
+ * §5.13 (S-10) 끌어낸 내부 앱 창이 **보인 뒤** 선을 걷는 한 박자(ms).
+ *
+ * `show()` 를 부른 그 순간에는 창이 아직 화면에 합성되기 전일 수 있다 — 거기서 선을 걷으면 그 사이
+ * 손 아래가 빈다. 불투명 창이라(배경색이 있다) 투명 창의 "빈 문서" 문제((H-7) ③)는 없고, 합성
+ * 몇 프레임만 기다리면 된다.
+ */
+const APP_GHOST_SHOWN_SETTLE_MS = 50;
+
+/**
+ * §5.13 (S-10) 이 창이 **보였다** — 한 박자 뒤에, 그때도 이 창이 선의 주인일 때만 선을 걷는다.
+ *
+ * 주인을 여기서 다시 세우지 않는다 — 그 사이 선을 걷은 길(실패한 렌더러의 `ghost-hide` · 그물)이 있으면
+ * 지금 떠 있는 선은 다른 판의 것일 수 있다(그것을 걷으면 끌고 있는 손 아래가 빈다).
+ */
+function finishGhostHandoffOnceShown(windowId: number): void {
+  setTimeout(() => { if (isGhostHandoffTarget(windowId)) finishGhostHandoff(); }, APP_GHOST_SHOWN_SETTLE_MS);
+}
+
+/**
  * (H-12) **선을 걷어 달라**는 렌더러의 부탁 — 그물까지 함께 푼다.
  *
  * 들어오는 길에서는 앱 안 창이 그 자리를 이어받아 다 그린 뒤 이것을 부른다(나가는 길의
@@ -1352,9 +1371,6 @@ export function openOverlay(opts: {
   });
   // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
-  // §3.7 v2.10 — 창이 돌아오면(show·restore·최대화 전이) 드래그 영역을 다시 신고시킨다.
-  //   신고를 한 번 놓치면 타이틀바가 정적이라 다시 신고할 계기가 영영 오지 않는다(dragRegions).
-  keepDragRegionsFresh(win);
   // 층은 태어나는 모양이 정한다((E) 개정) — 버블로 태어나면 상시-위, 펼친 IDE 로 태어나면
   //   보통 층이다. 장부(entry)는 아직 없으므로 여기서는 `opts.expanded` 가 그 답을 대신한다.
   //   (H-28) 갓 태어난 창은 아직 아무도 고정하지 않았다 — 장부의 `pinned: false` 와 같은 값.
@@ -2313,9 +2329,6 @@ export function openOverlayMenuByWindowId(windowId: number): boolean {
   });
   // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
-  // §3.7 v2.10 — 창이 돌아오면(show·restore·최대화 전이) 드래그 영역을 다시 신고시킨다.
-  //   신고를 한 번 놓치면 타이틀바가 정적이라 다시 신고할 계기가 영영 오지 않는다(dragRegions).
-  keepDragRegionsFresh(win);
   keepOverlayMenuOnTop(win);
   overlayMenu = { window: win, targetWindowId: windowId, anchor: { x: cursor.x, y: cursor.y }, shown: false };
   // 메뉴 밖(다른 창) 클릭 → blur → 닫기. 액션 클릭은 메뉴 창 내부라 blur 없음.
@@ -2471,7 +2484,8 @@ export function openCommandCenter(opts: {
     minHeight: CC_MIN_H,
     ...(x !== undefined && y !== undefined ? { x, y } : {}),
     show: false,
-    backgroundColor: '#030712',
+    // §4 앱 테마 — 별창과 같다.
+    backgroundColor: safeAppThemeChrome().background,
     autoHideMenuBar: true,
     title: 'Vibisual — Command Center',
     // 별창과 동일하게 OS 타이틀바를 우리 미니 타이틀바가 대신한다.
@@ -2488,9 +2502,8 @@ export function openCommandCenter(opts: {
   });
   // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
-  // §3.7 v2.10 — 창이 돌아오면(show·restore·최대화 전이) 드래그 영역을 다시 신고시킨다.
-  //   신고를 한 번 놓치면 타이틀바가 정적이라 다시 신고할 계기가 영영 오지 않는다(dragRegions).
-  keepDragRegionsFresh(win);
+  // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕도 다시 칠한다.
+  trackThemedWindow(win);
 
   win.on('ready-to-show', () => {
     if (!win.isDestroyed()) win.show();
@@ -2587,7 +2600,62 @@ const appWindowTransfers = new AppWindowTransfers({
   },
   hideGhost: hidePopOutGhost,
   primaryPressed: appWindowPrimaryPressed,
+  // §5.13 (S-11) 창이 서고 닫히거나 보는 문서가 바뀔 때마다 — 본체가 "이미 밖에 떠 있다"를 판정하는 근거다.
+  changed: () => broadcastAppWindowList(),
 });
+
+/**
+ * §5.13 (S-11) — 밖에 떠 있는 앱 창 목록을 모든 창에 민다(오버레이 목록 `vibisual:overlay:list` 와 같은 길).
+ * 캔버스가 있는 창(본체·별창)은 이 목록으로 "그 문서가 이미 밖에 떠 있다"를 알고 앱 안에 한 벌 더 세우지 않는다.
+ */
+function broadcastAppWindowList(): void {
+  broadcastWindowMessage(BrowserWindow.getAllWindows(), 'vibisual:app:list', appWindowTransfers.list());
+}
+
+/** §5.13 (S-11) 지금 목록 — 구독을 붙이기 전에 지나간 알림을 메우는 첫 물음. */
+export function listAppWindows(): AppWindowListItem[] {
+  return appWindowTransfers.list();
+}
+
+/**
+ * §5.13 (S-11) — 밖에 이미 떠 있는 앱 창을 **앞으로 세운다**(본체가 같은 문서를 다시 열었을 때).
+ *
+ * §5.5 #17-6 (H-13)(H-16) 의 IDE 창과 같은 규율이다 — 같은 문서가 두 창에 뜨면 어느 쪽이 진짜인지 알 수 없으니 새로
+ * 열지 않고, 다른 프로그램 뒤에 가려져 있어도 앞으로 세운 뒤 그 창이 한 번 대답한다(테두리 기척 — 이미 보이던 창이면
+ * 앞으로 오는 것만으로는 화면이 그대로라 누른 사람은 안 먹은 줄 안다). 대상은 다시 밀어 넣지 않는다 — 다시 쓰는 갈래
+ * (`openAppWindow`)는 대상 전환 확인을 거쳐 편집기를 새로 세울 수 있어, 보던 그 문서를 부르는 손짓에는 맞지 않는다.
+ * 밟을 순서는 IDE 창과 같은 `overlayRaiseSteps` 한 곳이 정한다(세 OS — mac 은 앱 활성화가 따로다).
+ *
+ * @param windowId 본체가 본 목록의 그 창 — 그 사이 닫히고 다른 문서로 새로 선 창을 대신 세우지 않는다.
+ * @returns 세웠으면 true. 그 창이 없으면 false(본체는 종전대로 앱 안에 연다).
+ */
+export async function focusAppWindow(appId: string, windowId?: number): Promise<boolean> {
+  const entry = appWindows.get(appId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  if (windowId !== undefined && entry.id !== windowId) return false;
+  // 아직 그리는 중인 창이면 다 그린 뒤에 세운다 — 빈 창이 먼저 번쩍이지 않게.
+  try { await entry.ready; } catch { return false; }
+  const win = entry.window;
+  if (win.isDestroyed()) return false;
+  for (const step of overlayRaiseSteps({ platform: process.platform, activation: 'foreground', minimized: win.isMinimized() })) {
+    try {
+      switch (step) {
+        case 'restore': win.restore(); break;
+        case 'showInactive': win.showInactive(); break;
+        case 'show': win.show(); break;
+        case 'activateApp': app.focus({ steal: true }); break;
+        case 'focus': win.focus(); break;
+        // 앱 창은 보통 층이다 — 오버레이처럼 다시 박을 층이 없다.
+        case 'reassertTop': break;
+        case 'moveTop': win.moveTop(); break;
+      }
+    } catch { /* noop — 닫히는 찰나에 닿아도 나머지 손짓까지 잃지 않는다 */ }
+  }
+  try {
+    if (!win.webContents.isDestroyed()) win.webContents.send('vibisual:app:attention', { appId });
+  } catch { /* 닫히는 찰나 — 세우기는 이미 끝났다 */ }
+  return true;
+}
 
 export async function openAppWindow(appId: string, spec: AppWindowSpec, options?: {
   params?: Record<string, string>;
@@ -2598,6 +2666,12 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
   const appHash = new URLSearchParams(spec.hash.replace(/^#/, ''));
   if (options?.params?.['_windowTitle']) appHash.set('_windowTitle', options.params['_windowTitle']);
   const hash = appHash.toString();
+  const placement = options?.placement;
+  // §5.13 (S-10) 앱 안 창을 끌어내 놓은 판 — 손을 뗀 자리에 **멈춰 선 선(가상 창)**의 자리·크기 그대로
+  //   선다(§5.5 #17-6 (H-17) ④ "놓은 그 자리 그 크기 그대로"와 같은 규율). 렌더러가 보낸 좌표가 아니라
+  //   선의 경계를 읽는다 — 배율이 다른 모니터에서 렌더러 좌표는 엉뚱한 화면을 가리킨다((H) 와 같은 이유).
+  //   선이 없으면(못 띄운 환경) 종전대로 placement 의 x/y 를 쓴다.
+  const ghostBounds = placement?.fromGhost === true ? popOutGhostBounds() : null;
   const existing = appWindows.get(appId);
   if (existing && !existing.window.isDestroyed()) {
     const win = existing.window;
@@ -2606,23 +2680,36 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
     await appWindowTransfers.requestTarget(win.id, options?.params ?? {}, options?.origin ?? null, hash);
     if (win.isDestroyed()) throw new Error('Application window closed before accepting the target');
     if (win.isMinimized()) win.restore();
+    // (S-10) 다시 쓰는 창도 놓은 곳에 선다 — 선은 여기 있는데 창이 옛 자리에서 나타나면 놓은 보람이 없다.
+    //   선은 이 창이 보인 뒤에 걷는다(주인은 보이기 직전에 세운다 — 대상 전환을 기다리는 동안은 선이 제 수명대로 선다).
+    if (ghostBounds) {
+      appWindowTransfers.place(win.id, ghostBounds);
+      armGhostHandoff(win.id);
+    }
     win.show();
     win.focus();
+    if (ghostBounds) finishGhostHandoffOnceShown(win.id);
     return { windowId: existing.id, reused: true };
   }
 
-  const placement = options?.placement;
-  const width = placement && Number.isFinite(placement.width) ? Math.max(spec.minWidth, Math.round(placement.width)) : spec.width;
-  const height = placement && Number.isFinite(placement.height) ? Math.max(spec.minHeight, Math.round(placement.height)) : spec.height;
+  const width = ghostBounds
+    ? Math.max(spec.minWidth, Math.round(ghostBounds.width))
+    : placement && Number.isFinite(placement.width) ? Math.max(spec.minWidth, Math.round(placement.width)) : spec.width;
+  const height = ghostBounds
+    ? Math.max(spec.minHeight, Math.round(ghostBounds.height))
+    : placement && Number.isFinite(placement.height) ? Math.max(spec.minHeight, Math.round(placement.height)) : spec.height;
+  const x = ghostBounds ? ghostBounds.x : placement?.x;
+  const y = ghostBounds ? ghostBounds.y : placement?.y;
   const win = new BrowserWindow({
     width,
     height,
-    ...(placement && Number.isFinite(placement.x) ? { x: Math.round(placement.x!) } : {}),
-    ...(placement && Number.isFinite(placement.y) ? { y: Math.round(placement.y!) } : {}),
+    ...(x !== undefined && Number.isFinite(x) ? { x: Math.round(x) } : {}),
+    ...(y !== undefined && Number.isFinite(y) ? { y: Math.round(y) } : {}),
     minWidth: spec.minWidth,
     minHeight: spec.minHeight,
     show: false,
-    backgroundColor: '#030712',
+    // §4 앱 테마 — 별창과 같다(창 머리줄은 테마를 따르고, 안의 앱 화면은 렌더러가 어두운 판으로 고정한다).
+    backgroundColor: safeAppThemeChrome().background,
     autoHideMenuBar: true,
     title: spec.title,
     frame: false,
@@ -2638,12 +2725,15 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
   });
   // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
-  // §3.7 v2.10 — 창이 돌아오면(show·restore·최대화 전이) 드래그 영역을 다시 신고시킨다.
-  //   신고를 한 번 놓치면 타이틀바가 정적이라 다시 신고할 계기가 영영 오지 않는다(dragRegions).
-  keepDragRegionsFresh(win);
+  // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕도 다시 칠한다.
+  trackThemedWindow(win);
 
+  // (S-10) 선이 서 있으면 이 창이 **보일 때까지** 살려 둔다 — 걷는 것이 먼저면 창이 뜨기까지 손 아래가
+  //   빈다(그물은 나가는 길의 4초). 창이 보이면 그 자리를 창이 이어받는다("선이 창이 된다").
+  if (ghostBounds) armGhostHandoff(win.id);
   win.on('ready-to-show', () => {
     if (!win.isDestroyed()) win.show();
+    if (ghostBounds) finishGhostHandoffOnceShown(win.id);
   });
 
   appWindowTransfers.register({ appId, window: win, origin: options?.origin ?? null,
@@ -2660,6 +2750,8 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
   win.on('closed', () => {
     appWindowTransfers.unregister(win.id);
     if (appWindows.get(appId)?.id === win.id) appWindows.delete(appId);
+    // (S-10) 보이기 전에 닫혔다 — 이 창을 기다리던 선을 남기지 않는다(클릭통과라 사용자가 못 없앤다).
+    if (isGhostHandoffTarget(win.id)) finishGhostHandoff();
   });
 
   // Keep the embedded source until loading has succeeded; a failed child must not take it away.
@@ -2669,6 +2761,8 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
     await ready;
     if (win.isDestroyed()) throw new Error('Application window closed before loading');
   } catch (error) {
+    // (S-10) 못 열었다 — 선을 걷는다(앱 안 창은 렌더러가 제자리에 되살린다).
+    if (isGhostHandoffTarget(win.id)) finishGhostHandoff();
     if (!win.isDestroyed()) win.close();
     throw error;
   }

@@ -1,0 +1,5 @@
+{
+  "name": "vibisual-bridge",
+  "version": "1.0.0",
+  "description": "Vibisual engine bridge: reports turn start/end, liveness and usage of the sessions Vibisual starts to the Vibisual app over loopback. Observes only; draws nothing."
+}

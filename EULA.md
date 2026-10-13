@@ -1,6 +1,6 @@
 # Vibisual End User License Agreement
 
-**Version 1.0 — effective 2026-09-22**
+**Version 1.1 — effective 2026-10-13**
 
 This Agreement covers the **installer builds and prebuilt binaries that the
 Vibisual project distributes** on or after the date above — for example
@@ -11,6 +11,26 @@ does not apply to builds released before this date.
 
 By installing or using a distributed Vibisual build, you agree to this
 Agreement. If you do not agree, do not install it.
+
+On Windows, the installer first asks you to choose a language, then shows a
+summary of this Agreement in that language and installs nothing until you
+accept it. That summary forms part of this Agreement — see section 16.
+
+On first launch of a distributed build on Windows, macOS, or Linux, the app
+also asks you to choose a language, review the bundled summary, this Agreement,
+and the privacy notice, then check the agreement box and accept before
+continuing. This applies to existing installations too; Windows installer
+acceptance does not replace this app-level step. Declining or closing the
+consent window exits the app.
+
+The app saves your acceptance locally, including the Agreement version, a
+SHA-256 fingerprint of the bundled legal documents, your selected language,
+the time, and the app version. It asks again when those documents change or
+the record is missing or invalid. If saving fails, the app remains at the
+consent step and lets you retry. The backend, hook installation, automatic
+updates, and remote connections start only after this step succeeds. The
+documents are bundled for offline reading. This app-level step is not used
+when running the project from source in development mode.
 
 ## 1. Who owns this build, and who distributes it
 
@@ -83,10 +103,11 @@ that component. Their license texts ship inside the installed application; our
 own license and notice are at `resources/LICENSE` and `resources/NOTICE`.
 
 Vibisual also drives third-party tools that you install and authorize yourself,
-such as the Claude Code CLI. Your use of those tools, and of any AI service
-behind them, is governed by their own terms and privacy policies — not by this
-Agreement. We are not a party to that relationship. Vibisual is an independent
-project and is not affiliated with, endorsed by, or sponsored by Anthropic.
+such as the Claude Code CLI or the Codex CLI. Your use of those tools, and of any
+AI service behind them, is governed by their own terms and privacy policies — not
+by this Agreement. We are not a party to that relationship. Vibisual is an
+independent project and is not affiliated with, endorsed by, or sponsored by
+Anthropic or OpenAI.
 
 ## 6. Name and logo
 
@@ -131,6 +152,43 @@ for:
 - reviewing what an agent did before you rely on it, ship it, or commit it.
 
 We do not control, review, or endorse what an agent produces or executes.
+
+**What Vibisual itself does.** Besides installing hooks, Vibisual may install
+or update the Claude CLI (automatic CLI updates can be turned off in the
+application's options), updates itself as described in section 7, and manages
+the processes its agents start: it may end them when you stop a task or close
+the application, or when it cleans up a task it judges to be finished or stuck.
+AI may be used to make that judgment. Screen capture, remote access, messenger
+connections, and local model downloads work only when you turn them on.
+
+**Approvals are your instructions.** Any action you approve in an approval
+prompt, any action run without asking because you chose a permission mode that
+skips confirmation (such as `bypassPermissions`), and any action on an
+auto-allow list is treated as your own instruction.
+
+**AI output and security.** AI output can be wrong or insecure, or can infringe
+the rights of others; reviewing it, and checking the rights and licenses it
+requires, is your responsibility. AI can be manipulated by instructions hidden
+in repositories, web pages, documents, issues, or command output (prompt
+injection), so narrow the permissions you grant when working with material you
+do not trust. Content in the folders or screens you hand to an agent — including
+passwords, keys, or personal data — may be sent to the AI service behind it. If
+you expose remote access or connect a messenger, keep the connection details
+secure: anyone who has them can direct the agents on your computer.
+
+**Your accounts and costs.** Agents run on your own accounts with third-party AI
+providers. Agent work and Vibisual's auxiliary judgments (such as task clean-up
+checks and summaries) consume your usage, charges, and limits. Running many
+agents at once can use up limits or increase charges quickly, and a provider may
+restrict your account under its own terms. We are not responsible for providers'
+outages, changes, charges, or actions on your account.
+
+**Restrictions on use.** Do not let agents operate, without human review,
+systems in which a malfunction could cause serious harm — such as systems
+affecting life, body, or safety, medical care, financial payments or
+transactions, or services in production. Do not use Vibisual to break the law or
+to infringe the rights of others; legal responsibility for anything done with
+Vibisual rests with the user who does it.
 
 ## 9. No warranty
 
@@ -189,3 +247,13 @@ retroactive.
 
 Questions about this Agreement, or trademark licensing inquiries: open an issue
 at https://github.com/Vibisual/vibisual/issues.
+
+## 16. Installer summary and languages
+
+The Windows installer shows a summary of this Agreement in the language you
+choose and asks you to accept it before installing. That summary forms part of
+this Agreement. The English and Korean versions of the summary are originals;
+versions in other languages are translations provided for convenience, and if a
+translation differs from the originals in meaning, the originals prevail. If the
+summary and this Agreement, or the English and Korean versions, differ in
+meaning, the reading more favorable to you applies.

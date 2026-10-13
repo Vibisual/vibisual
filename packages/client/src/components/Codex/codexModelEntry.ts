@@ -22,22 +22,17 @@ import type {
 export type CodexEntryDecision =
   /** CLI와 인증이 준비됐다 — 명시 모델 또는 CLI 기본값으로 IDE에 진입한다. */
   | { kind: 'ide' }
-  /** 쓸 수 있는 모델은 있는데 이 버블이 아직 아무것도 안 물었다 — 매고 나서 IDE. */
-  | { kind: 'bind'; model: CodexModelEntry }
   /** CLI 가 없다 — 설치 게이트. */
   | { kind: 'setup' }
   /** CLI 는 있는데 로그인이 안 됐다 — 로그인 창. */
   | { kind: 'login' };
 
 /**
- * 목록에서 기본으로 물릴 모델.
- *
- * **첫 항목이다.** 코덱스가 캐시에 적어 준 순서가 곧 그쪽이 권하는 순서라, 우리가 이름으로
- * 다시 줄 세우면 CLI 가 기본을 바꾼 날 우리만 옛 모델을 고르게 된다(§5.19 가 "마지막에 받은 것"
- * 을 고른 것과 근거는 같다 — 그쪽은 디스크가, 이쪽은 발행처가 순서를 안다).
+ * CLI가 명시적으로 신고한 기본 모델의 메타데이터. 표시용이며 저장값을 고르지 않는다.
+ * 목록 순서·조회 실패·모델 은퇴로 사용자의 선택이나 빈 CLI 상속값을 바꾸지 않는다.
  */
 export function pickDefaultCodexModel(models: readonly CodexModelEntry[]): CodexModelEntry | null {
-  return models[0] ?? null;
+  return models.find((model) => model.isDefault === true) ?? null;
 }
 
 /**
@@ -62,15 +57,9 @@ export function resolveCodexEntry(
   if (input.setup && input.setup.phase !== 'ready') return { kind: 'setup' };
   if (input.auth && !input.auth.loggedIn && !input.auth.error) return { kind: 'login' };
 
-  const models = input.models ?? [];
-  // 이 버블이 문 모델이 목록에 남아 있으면 그대로 간다.
-  if (provider.modelId && models.some((m) => m.slug === provider.modelId)) return { kind: 'ide' };
-  // 새 설치에는 모델 캐시가 없을 수 있다. 설치 화면으로 돌리면 첫 실행이 캐시를 만들 기회도
-  // 없어지므로, 빈 모델은 runner가 -m을 생략해 CLI 기본값으로 실행한다.
-  if (models.length === 0) return { kind: 'ide' };
-
-  const fallback = pickDefaultCodexModel(models);
-  return fallback ? { kind: 'bind', model: fallback } : { kind: 'ide' };
+  // 카탈로그는 선택지일 뿐이다. 명시값은 -m으로, 빈 값은 CLI 상속으로 그대로 실행한다.
+  // 목록 밖 모델의 실행 가능 여부도 CLI가 답한다. 여기서 다른 모델로 바꾸면 안 된다.
+  return { kind: 'ide' };
 }
 
 /**

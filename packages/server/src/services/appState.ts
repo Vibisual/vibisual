@@ -4,11 +4,12 @@ import path from 'node:path';
 import type { AppState, AppStatePatch, RetentionSettings, KeymapOverrides, ClosedTabEntry,
   ClaudePluginAutoRefreshSettings, ClaudePluginRefreshState, TokenSaverSettings } from '@vibisual/shared';
 import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTaskProbeSettings,
-  normalizeSessionProbeSettings, normalizeExternalTopBudget, normalizeKeymapOverrides,
+  normalizeSessionProbeSettings, normalizeProcessGuardSettings, normalizeExternalTopBudget, normalizeKeymapOverrides,
   normalizePluginRefreshSettings, CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP,
   normalizeClosedTabEntries, pushClosedTabEntry, takeClosedTabEntry, pruneMissingClosedTabs,
   normalizeIDEActivityBarPrefs,
   type BackgroundTaskProbeSettings,
+  type ProcessGuardSettings,
   type IDEActivityBarPrefs,
   type SessionLivenessProbeSettings, normalizeTokenSaverSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
@@ -194,6 +195,8 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     // §5.5 #17-9 ⑭(g) — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
     bgTaskProbe: raw.bgTaskProbe ? normalizeBgTaskProbeSettings(raw.bgTaskProbe) : undefined,
     sessionProbe: raw.sessionProbe ? normalizeSessionProbeSettings(raw.sessionProbe) : undefined,
+    // §5.3 #9-2 — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
+    processGuard: raw.processGuard ? normalizeProcessGuardSettings(raw.processGuard) : undefined,
     // §2.1 (B) — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
     externalTopBudget: typeof raw.externalTopBudget === 'number'
       ? normalizeExternalTopBudget(raw.externalTopBudget)
@@ -327,6 +330,7 @@ export function saveAppState(state: AppState): void {
     tokenSaverMemo = null; // §5.3 #9-1 — 같은 이유로 함께 비운다(한쪽만 비우면 설정이 어긋난다).
     bgTaskProbeMemo = null; // 같은 이유 — 두 메모가 갈리면 한쪽만 옛 값을 들고 판정한다.
     sessionProbeMemo = null; // 같은 이유 — 세션 판정 설정도 같은 창구를 탄다.
+    processGuardMemo = null; // 같은 이유 — 자손 프로세스 보호(§5.3 #9-2)도 같은 창구를 탄다.
     externalTopBudgetMemo = null; // 같은 이유 — 외부 폴더 예산(§2.1 (B))도 같은 창구를 탄다.
     webFoldPerAgentMemo = null; // 같은 이유 — 웹 버블 접어 보기(§5.23)도 같은 창구를 탄다.
     keymapMemo = null; // 같은 이유 — 단축키(§6)도 같은 창구를 탄다.
@@ -450,6 +454,27 @@ export function appStateSetSessionProbe(
   const current = loadAppState();
   saveAppState({ ...current, sessionProbe: merged });
   sessionProbeMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return merged;
+}
+
+let processGuardMemo: ProcessGuardSettings | null = null;
+
+/**
+ * §5.3 #9-2 — 에이전트가 띄운 프로세스의 묶음·메모리 상한·정리.
+ * 저장된 값이 없으면 `DEFAULT_PROCESS_GUARD_SETTINGS`(켬).
+ */
+export function appStateGetProcessGuard(): ProcessGuardSettings {
+  if (processGuardMemo) return processGuardMemo;
+  processGuardMemo = normalizeProcessGuardSettings(loadAppState().processGuard);
+  return processGuardMemo;
+}
+
+/** 보호 설정 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본. */
+export function appStateSetProcessGuard(patch: Partial<ProcessGuardSettings>): ProcessGuardSettings {
+  const merged = normalizeProcessGuardSettings({ ...appStateGetProcessGuard(), ...patch });
+  const current = loadAppState();
+  saveAppState({ ...current, processGuard: merged });
+  processGuardMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
   return merged;
 }
 

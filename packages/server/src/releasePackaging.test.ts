@@ -242,6 +242,137 @@ describe('Windows 설치 프로그램 — 새 설치가 가끔 죽지 않는다'
   });
 });
 
+/**
+ * 설치 동의 화면 — 설치 언어를 고른 뒤 그 언어의 사용권 계약에 동의해야 설치한다(2026-10-13, 사용자 지시).
+ *
+ * 셋이 한 몸이라 하나만 어긋나도 깨진다:
+ *  ① electron-builder.yml `nsis.installerLanguages` — 설치기에 실리는 언어
+ *  ② build/installer.nsh 의 `LicenseLangString` — 언어마다 약관 파일 하나. 빠지면 makensis 가 경고를 내고 -WX 라
+ *     **Windows 빌드가 멈춘다**(릴리스가 통째로 선다).
+ *  ③ build/license/license_<언어>.txt — UTF-8 BOM. 없으면 NSIS 가 ANSI 로 읽어 한글·일본어·중국어가 깨진 채
+ *     **빌드는 초록으로 나간다**(이 파일 머리말이 말하는 바로 그 부류).
+ * 그리고 약관 파일이 buildResources(resources/)에 license_*.txt 로 들어가면 dmg-builder 가 dmg 에 동의 창을 붙여
+ * `hdiutil attach` 가 동의 입력을 기다린다 — macOS 자체 업데이트·스모크가 멈추므로 그 자리는 비어 있어야 한다.
+ */
+describe('설치 동의 화면 — 언어를 고르고, 그 언어의 약관에 동의해야 설치한다', () => {
+  const YML = 'packages/desktop/electron-builder.yml';
+  const NSH = 'packages/desktop/build/installer.nsh';
+  const LICENSE_DIR = 'packages/desktop/build/license';
+  const fromDesktop = createRequire(path.join(REPO, 'packages/desktop/package.json'));
+  const libRoot = (): string => {
+    const builderPkg = fs.realpathSync(fromDesktop.resolve('electron-builder/package.json'));
+    return path.dirname(createRequire(builderPkg).resolve('app-builder-lib/package.json'));
+  };
+  const codeOf = (src: string): string =>
+    src
+      .split(/\r?\n/)
+      .filter((line) => !/^\s*[;#]/.test(line))
+      .join('\n');
+  const nsisBlock = (): string => {
+    const yml = read(YML);
+    return yml.slice(yml.indexOf('\nnsis:'), yml.indexOf('\nmac:'));
+  };
+  const installerLanguages = (): string[] => {
+    const block = nsisBlock();
+    const at = block.indexOf('installerLanguages:');
+    expect(at).toBeGreaterThan(-1);
+    const langs: string[] = [];
+    for (const line of block.slice(at).split(/\r?\n/).slice(1)) {
+      if (/^\s*#/.test(line)) continue;
+      const m = /^\s+-\s+([A-Za-z]{2}_[A-Za-z]{2})\s*$/.exec(line);
+      if (!m) break;
+      langs.push(m[1]!);
+    }
+    return langs;
+  };
+  /** installer.nsh 의 `LicenseLangString MUILicense <번호> "...license_<언어>.txt"` 줄들. */
+  const licenseLines = (): Array<{ id: number; lang: string }> => {
+    const code = codeOf(read(NSH));
+    const re = /LicenseLangString\s+MUILicense\s+(\d+)\s+"\$\{PROJECT_DIR\}\\build\\license\\license_([A-Za-z]{2}_[A-Za-z]{2})\.txt"/g;
+    return [...code.matchAll(re)].map((m) => ({ id: Number(m[1]), lang: m[2]! }));
+  };
+
+  it('언어 선택 창을 켜고, 맨 앞(OS 언어가 목록에 없을 때의 기본)은 English 다', () => {
+    expect(nsisBlock()).toMatch(/^\s+displayLanguageSelector:\s*true\s*$/m);
+    const langs = installerLanguages();
+    expect(langs[0]).toBe('en_US');
+    expect(langs).toContain('ko_KR');
+    expect(new Set(langs).size).toBe(langs.length);
+  });
+
+  it('언어마다 약관 파일이 있고, UTF-8 BOM · CRLF 이다', () => {
+    for (const lang of installerLanguages()) {
+      const file = path.join(REPO, LICENSE_DIR, `license_${lang}.txt`);
+      expect(fs.existsSync(file), file).toBe(true);
+      const bytes = fs.readFileSync(file);
+      expect([...bytes.subarray(0, 3)], `${lang}: UTF-8 BOM`).toEqual([0xef, 0xbb, 0xbf]);
+      expect(bytes.length, `${lang}: 비어 있다`).toBeGreaterThan(1000);
+      // 줄끝은 .gitattributes(eol=crlf)가 체크아웃마다 CRLF 로 고정한다 — 그 규칙이 빠지면 여기서 넘어진다.
+      expect(bytes.toString('utf8').replace(/\r\n/g, '').includes('\n'), `${lang}: CRLF 가 아닌 줄끝`).toBe(false);
+    }
+  });
+
+  it('licensePage 가 실린 언어마다 정확히 한 번, electron-builder 의 언어 번호로 그 파일을 가리킨다', () => {
+    const { lcid } = fromDesktop(path.join(libRoot(), 'out/util/langs.js')) as { lcid: Record<string, number> };
+    const lines = licenseLines();
+    const langs = installerLanguages();
+    // 실린 언어와 약관 줄이 같은 집합이다 — 한쪽만 늘리면 -WX 로 빌드가 멈춘다.
+    expect(lines.map((l) => l.lang).sort()).toEqual([...langs].sort());
+    for (const { id, lang } of lines) {
+      // es_ES 는 SpanishInternational(3082) — 번호가 어긋나면 그 언어 표에 약관이 없다는 경고가 난다.
+      expect(id, lang).toBe(lcid[lang]);
+    }
+    expect(new Set(lines.map((l) => l.id)).size).toBe(lines.length);
+  });
+
+  it('동의는 체크해야 켜지는 칸이고, 코드페이지가 다른 언어도 고를 수 있다', () => {
+    const code = codeOf(read(NSH));
+    const at = code.indexOf('!macro licensePage');
+    expect(at).toBeGreaterThan(-1);
+    const body = code.slice(at, code.indexOf('!macroend', at));
+    expect(body).toContain('!define MUI_LICENSEPAGE_CHECKBOX');
+    expect(body).toContain('!insertmacro MUI_PAGE_LICENSE "$(MUILicense)"');
+    expect(body.indexOf('!define MUI_LICENSEPAGE_CHECKBOX')).toBeLessThan(body.indexOf('MUI_PAGE_LICENSE'));
+    // 이 정의가 없으면 LangDLL 이 시스템 코드페이지로 걸러 한국어 Windows 에서 일본어·중국어·유럽어가 사라진다.
+    expect(code).toMatch(/^!define MUI_LANGDLL_ALLLANGUAGES\s*$/m);
+  });
+
+  it('약관 파일은 buildResources 에 없다 (있으면 dmg 에 동의 창이 붙어 맥 자체 업데이트가 멈춘다)', () => {
+    const m = /^\s+buildResources:\s*(\S+)\s*$/m.exec(read(YML));
+    expect(m).not.toBeNull();
+    const dir = path.join(REPO, 'packages/desktop', m![1]!);
+    const offenders = fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter((name) => /^(license|eula)[_.].*\.(txt|rtf|html)$/i.test(name))
+      : [];
+    expect(offenders).toEqual([]);
+    // nsis.license 로 파일 하나를 지정해도 electron-builder 가 licensePage 를 따로 만들어 installer.nsh 의 것과 부딪힌다.
+    expect(nsisBlock()).not.toMatch(/^\s+license:/m);
+  });
+
+  it('업데이트는 조용하다 — 동의 화면은 --updated 면 건너뛰고, 언어 창은 .onInit 에서 무인 설치를 피한다', () => {
+    const lib = libRoot();
+    const oneClick = fs.readFileSync(path.join(lib, 'templates/nsis/oneClick.nsh'), 'utf8');
+    const skipAt = oneClick.indexOf('!insertmacro skipPageIfUpdated');
+    expect(skipAt).toBeGreaterThan(-1);
+    expect(oneClick.indexOf('!insertmacro licensePage')).toBeGreaterThan(skipAt);
+    const nsi = fs.readFileSync(path.join(lib, 'templates/nsis/installer.nsi'), 'utf8');
+    const initAt = nsi.indexOf('Function .onInit');
+    const onInit = nsi.slice(initAt, nsi.indexOf('FunctionEnd', initAt));
+    expect(onInit).toContain('!ifdef DISPLAY_LANG_SELECTOR');
+    expect(onInit).toContain('!insertmacro MUI_LANGDLL_DISPLAY');
+    // 언어 창은 무인(/S)이면 뜨지 않는다 — 우리 업데이트와 스모크가 둘 다 /S 로 도는지가 그 전제다.
+    expect(read('packages/desktop/src/main/updaterManager.ts')).toContain('autoUpdater.quitAndInstall(true, true)');
+    expect(read('.github/workflows/smoke.yml')).toContain("-ArgumentList '/S'");
+  });
+
+  it('설치 화면 요약의 판이 EULA.md 의 판과 같다', () => {
+    const m = /\*\*Version (\d+\.\d+) — effective (\d{4}-\d{2}-\d{2})\*\*/.exec(read('EULA.md'));
+    expect(m).not.toBeNull();
+    expect(read(`${LICENSE_DIR}/license_en_US.txt`)).toContain(`version ${m![1]}`);
+    expect(read(`${LICENSE_DIR}/license_ko_KR.txt`)).toContain(`${m![1]}판`);
+  });
+});
+
 describe('release publishing — 검증이 발행보다 앞선다', () => {
   it('자산은 draft 로 올라간다 (draft 면 업데이터가 못 읽는다 = 사용자에게 도달하지 않는다)', () => {
     const yml = read('packages/desktop/electron-builder.yml');

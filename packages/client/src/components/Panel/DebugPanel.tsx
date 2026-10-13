@@ -479,7 +479,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
           proOptions={{ hideAttribution: true }}
           className="bg-gray-950"
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-vb-canvas-dots)" />
         </ReactFlow>
         </div>
       </div>

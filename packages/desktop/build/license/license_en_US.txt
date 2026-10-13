@@ -1,0 +1,44 @@
+﻿Vibisual License Agreement and Responsibility Notice
+Summary of the Vibisual End User License Agreement (EULA), version 1.1 · effective 13 October 2026
+
+By selecting the acceptance box and continuing, you agree to this notice and the full End User License Agreement (EULA), and acknowledge the Privacy notice. If you do not agree, stop the installation or quit the app.
+Full text: resources\EULA.md in the installation folder, or https://github.com/Vibisual/vibisual/blob/main/EULA.md
+Privacy notice: https://github.com/Vibisual/vibisual/blob/main/PRIVACY.md
+
+1. What you may do
+This build of Vibisual is free. You may install and use it on as many devices as you like, for personal or commercial purposes, with no account and no license key. You may also deploy it unmodified to devices within your own organization, and publish package-manager entries that download it from our official release addresses.
+
+2. What you may not do
+You may not redistribute, sell, rent, or host for public download this build or any modified form of it; repackage it or change its name, icon, notices, or signatures; or present it as your own product or as endorsed by us. The source code is published separately under the Apache License 2.0, and builds you compile yourself from that source are not subject to these restrictions (give them a different name — see TRADEMARK.md).
+
+3. This program uses AI
+Vibisual works by using generative artificial intelligence (AI), such as Anthropic's Claude. The answers, code, judgments, and summaries shown on screen are produced by AI and have not been reviewed by a person.
+
+4. What happens on this computer
+Within the folders you hand over and the permissions you grant, AI agents can read, create, change, and delete files, run commands, and access the internet.
+Vibisual itself also does the following. (1) On first launch it adds a connection setting (hooks) to the Claude Code settings file (~/.claude/settings.json); if that file already exists, a backup is kept beside it. (2) It may install or update the Claude CLI (automatic CLI updates can be turned off in Options). (3) When a new version is released, it updates itself automatically (there is no setting that turns this off). (4) It manages the processes its agents start, and may end them when you stop a task or close the app, or when it cleans up a task it judges to be finished or stuck; AI may be used to make that judgment. (5) Screen capture, remote access (phone, QR code, exposure to the internet), messenger connections (Discord, Telegram), and local model downloads work only when you turn them on.
+
+5. Approvals and permissions are your decisions
+Any action you approve in an approval prompt, any action run without asking because you chose a permission mode such as "no confirmation" (bypassPermissions), and any action on an auto-allow list is treated as your own instruction. You decide which folders to hand over, which permissions to grant, and which features to turn on, and you are responsible for the results.
+
+6. AI output
+AI can produce incorrect code, security vulnerabilities, untrue statements, or output that infringes the copyright or licenses of others. Reviewing the output before you use, distribute, or commit it, and checking the rights and licenses it requires, is up to you.
+
+7. Security risks
+AI can be tricked by malicious instructions hidden in repositories, web pages, documents, issues, or command output (prompt injection) into running commands you did not intend or sending information outside. Narrow the permissions when working with material you do not trust. If you hand AI a folder or a screen that contains passwords, API keys, or personal data, that content may be sent to the AI service. If you expose remote access to the internet or connect a messenger, anyone who obtains the connection details can direct the agents on this computer, so you must keep those details secure.
+
+8. Third-party AI services, accounts, and costs
+Agents run through external tools that you install and sign in to (Claude Code CLI, Codex CLI, and others) and on your own accounts. The terms and usage policies of those providers apply to that use, and complying with them is your responsibility. Agent work and Vibisual's auxiliary judgments (such as task clean-up checks and summaries) consume the usage, charges, and limits of your accounts. Running many agents at once can use up limits quickly or increase charges, and a provider may restrict your account at its own discretion. Vibisual is an independent project that is not affiliated with or endorsed by Anthropic, OpenAI, or any other provider, and it is not responsible for their outages, changes, charges, or actions on your account.
+
+9. Backups and restrictions on use
+Back up, or put under version control (git), every file you cannot afford to lose before letting an agent work on it. Do not let AI operate, without human review, systems in which a malfunction could cause serious harm — such as systems affecting life, body, or safety, medical care, financial payments or transactions, or services in production. You must not use Vibisual to break the law or to infringe the rights of others (for example, accessing someone else's system without permission); legal responsibility for anything done with Vibisual rests with the user who does it.
+
+10. No warranty
+Vibisual is free software in an early (preview) stage and is provided "as is". We do not warrant that it is free of errors, that it will run without interruption, that no data will be lost, or that it is fit for a particular purpose. Some builds are not code-signed, so your operating system may warn you; whether to install anyway is your decision.
+
+11. Limitation of liability
+Because Vibisual is provided free of charge, to the maximum extent permitted by law we are not liable for damages arising from installing, using, or being unable to use Vibisual — including loss of data, files, or work, charges of external services, account restrictions, lost business, and indirect, incidental, or special damages. This does not apply to damages caused by our intentional misconduct or gross negligence, or to any liability that cannot be excluded or limited under applicable law. Rights that you have as a consumer and that cannot be waived by law remain unaffected by this notice.
+
+12. Changes, interpretation, governing law, and contact
+A new version of these terms applies to builds distributed after it is published and is never retroactive. If this summary and the full EULA, or the Korean and English versions, differ in meaning, the reading more favorable to you applies. These terms are governed by the laws of the Republic of Korea, and the Seoul Central District Court has jurisdiction as the court of first instance; if you are a consumer, you may also rely on the mandatory consumer-protection law and the courts of your country of residence.
+Owner: 길근오 · Contact: https://github.com/Vibisual/vibisual/issues

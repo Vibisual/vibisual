@@ -8,6 +8,8 @@ import type { ShelfItem } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { ShelfGlyph, ShelfItemGlyph } from './shelfIcons.js';
 import { exportShelfFile, pickShelfFile } from './shelfTransfer.js';
 
@@ -50,6 +52,7 @@ function RunDot({ item }: { item: ShelfItem }): React.JSX.Element {
 }
 
 export const ShelfNode = memo(function ShelfNode({
+  id,
   data,
   selected,
 }: NodeProps & { data: ShelfNodeData }): React.JSX.Element {
@@ -88,9 +91,15 @@ export const ShelfNode = memo(function ShelfNode({
 
   // 선택·더블클릭은 에이전트(IDE) 버블과 같은 상태기계 한 벌을 쓴다.
   // `ignore` 로 실행 줄(버튼)에서 시작한 누름을 걸러 낸다 — 줄 클릭은 선택이 아니라 실행이다.
+  // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
+  const canvasSelection = useCanvasNodeSelection(id, data.shelfBubbleId);
   const gesture = useBubbleSelectGesture({
     doubleClickable: true,
-    select: () => selectShelfBubble(data.shelfBubbleId),
+    select: () => {
+      canvasSelection.replace();
+      selectShelfBubble(data.shelfBubbleId);
+    },
+    toggle: canvasSelection.toggle,
     setIntent: (active) => {
       useGraphStore.getState().setSelectIntent(active ? data.shelfBubbleId : null);
     },
@@ -100,9 +109,11 @@ export const ShelfNode = memo(function ShelfNode({
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
+    // §6 — 여럿을 고른 묶음 안이면 묶음 메뉴다(고르기를 그 하나로 바꾸지 않는다).
+    if (selected === true && openGroupMenuIfGrouped(id, e.clientX, e.clientY)) return;
     gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [gesture]);
+  }, [gesture, id, selected]);
 
   // 더블클릭 = 선반 패널 열기. **선택은 하지 않는다**(패널은 id 를 직접 받는다).
   const handleOpen = useCallback((e: React.MouseEvent): void => {

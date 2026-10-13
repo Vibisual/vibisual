@@ -1,4 +1,4 @@
-import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface } from './types.js';
+import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
@@ -581,6 +581,69 @@ export function normalizeSessionProbeSettings(
   }
   if (typeof input.model === 'string' && (SESSION_PROBE_MODELS as readonly string[]).includes(input.model)) {
     out.model = input.model;
+  }
+  return out;
+}
+
+// ─── §5.3 #9-2 에이전트가 띄운 프로세스의 보호 (묶음 · 메모리 상한 · 정리) ───
+//
+// 2026-10-12 앱이 메모리 부족으로 꺼졌다 — 우리 에이전트가 돌린 grep 둘이 커밋 97GB 를 먹었다.
+// 상류(Claude Code)는 Windows 에서 작업을 끊을 때 bash.exe 만 끊어 자손이 고아로 남고(#76353),
+// Node 기본 묶음은 직계 자식만 묶는다. 그래서 띄운 쪽인 우리가 손자까지 책임진다.
+
+/** 감시 주기. 평소 비용은 묶음·그룹 조회 몇 번이다(우리 것만 잰다). */
+export const PROCESS_GUARD_TICK_MS = 15_000;
+
+/** Windows 에서 묶음 없이(바인딩 실패) PowerShell 로 목록을 뜰 때의 주기 — 그 조회가 무겁다. */
+export const PROCESS_GUARD_FALLBACK_TICK_MS = 60_000;
+
+/** 프로세스 하나의 상한의 하한 — 정당한 큰 작업(언리얼 쿡·빌드)을 막지 않을 만큼 넉넉히. */
+export const PROCESS_MEMORY_CAP_FLOOR_BYTES = 16 * 1024 ** 3;
+
+/** 프로세스 하나의 상한 기본값 — 실메모리의 백분율. */
+export const PROCESS_MEMORY_CAP_DEFAULT_PERCENT = 50;
+
+/** 시스템 압박 바닥 — 여유가 전체의 이 비율 아래로 떨어지면 압박이다. */
+export const MEMORY_PRESSURE_FLOOR_RATIO = 0.05;
+
+/** 시스템 압박 바닥의 하한 — 작은 기계에서도 이만큼은 남긴다. */
+export const MEMORY_PRESSURE_FLOOR_MIN_BYTES = 2 * 1024 ** 3;
+
+/** 압박 때 끊을 후보의 최소 크기 — 작은 것을 끊어 봐야 여유가 돌아오지 않는다. */
+export const PRESSURE_VICTIM_MIN_BYTES = 1024 ** 3;
+
+/** 에이전트 본체(claude·codex)를 압박 후보로 삼는 최소 크기 — 본체를 끊으면 세션이 통째로 멈춘다. */
+export const PRESSURE_ROOT_VICTIM_MIN_BYTES = 8 * 1024 ** 3;
+
+/** 본체가 내려간 뒤 남은 자손을 정리하기까지의 유예 — 스스로 끝나는 중인 것을 기다린다. */
+export const SESSION_END_REAP_GRACE_MS = 3_000;
+
+/** 알림 줄의 머리. 하이픈이 칩 패턴(`[a-z0-9_]+`) 밖이라 표준·간결 밀도에서도 숨지 않는다. */
+export const PROCESS_GUARD_NOTICE_TAG = '[process-guard]';
+
+/** 보호 설정 기본값 — `AppState.processGuard` 가 없을 때(구버전) 이 값으로 동작한다. */
+export const DEFAULT_PROCESS_GUARD_SETTINGS: ProcessGuardSettings = {
+  enabled: true,
+  memoryCapPercent: PROCESS_MEMORY_CAP_DEFAULT_PERCENT,
+  pressureKill: true,
+  reapOnSessionEnd: true,
+};
+
+/** 설정 UI 입력 한계. `memoryCapPercent: 0` 은 "상한 없음"이라 허용한다. */
+export const PROCESS_GUARD_LIMITS = { memoryCapPercent: { min: 0, max: 100, step: 5 } } as const;
+
+/** 들어온 보호 설정을 안전한 값으로 정규화한다(서버·클라 공용 — 판정이 두 벌이 되면 어긋난다). */
+export function normalizeProcessGuardSettings(
+  input?: Partial<ProcessGuardSettings> | null,
+): ProcessGuardSettings {
+  const out = { ...DEFAULT_PROCESS_GUARD_SETTINGS };
+  if (!input || typeof input !== 'object') return out;
+  if (typeof input.enabled === 'boolean') out.enabled = input.enabled;
+  if (typeof input.pressureKill === 'boolean') out.pressureKill = input.pressureKill;
+  if (typeof input.reapOnSessionEnd === 'boolean') out.reapOnSessionEnd = input.reapOnSessionEnd;
+  if (typeof input.memoryCapPercent === 'number' && Number.isFinite(input.memoryCapPercent)) {
+    const { min, max } = PROCESS_GUARD_LIMITS.memoryCapPercent;
+    out.memoryCapPercent = Math.min(max, Math.max(min, Math.round(input.memoryCapPercent)));
   }
   return out;
 }
@@ -1193,6 +1256,9 @@ export const WORKSPACE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
   '.fbx': 'application/octet-stream',
   '.dae': 'model/vnd.collada+xml',
   '.3mf': 'model/3mf',
+  // §5.4 #36 (F) — 그림 결과도 이 창구로 받는다(앱 위성 화면·그림 앱). blob 의 타입이 이 값이라 SVG 는 맞아야 그려진다.
+  //   표는 그림 창구의 것 한 벌을 그대로 펼친다(두 벌이면 한쪽만 고쳐진다).
+  ...WORKSPACE_IMAGE_MIME_BY_EXT,
 };
 
 /**
@@ -2177,12 +2243,15 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-sonnet-4-5': makePricing(3, 15),
   'claude-sonnet-4-0': makePricing(3, 15),
   'claude-haiku-4-5': makePricing(1, 5),
-  // OpenAI Standard / short-context API rates per 1M tokens; checked 2026-09-21.
+  // OpenAI Standard / short-context API rates per 1M tokens; checked 2026-10-13.
   // https://developers.openai.com/api/docs/pricing
   // This is a token-cost equivalent, not a ChatGPT subscription/credit charge.
   // Older Codex models: https://developers.openai.com/api/docs/models/<model-id>
   // Models without separate cache-write billing use 0; uncached input covers it.
   'gpt-6-astra': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+  'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  'gpt-6-sol': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  'gpt-6-luna': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   'gpt-5.6-sol': { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
   'gpt-5.6-terra': { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
   'gpt-5.6-luna': { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
@@ -2770,6 +2839,20 @@ export const CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS = 20_000;
  * `onClaudeInstallSettled` 가 한 번 더 판정한다(인스톨러가 idempotent 라 헛일이 아니다).
  */
 export const HOOK_TRANSPORT_REFRESH_DELAY_MS = 4_000;
+
+/**
+ * §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ② — **부팅 한 번짜리 확인은 창이 보인 뒤 한 칸씩 돈다.**
+ *
+ * 위의 설치(1.2s)·로그인(1.5s)·사용량(2s)·코덱스(2s)·훅 전송(4s) 확인은 부팅 시작 기준으로 걸려, 부팅이
+ * 느리면 창이 뜨는 그 순간 한꺼번에 터졌다(저마다 CLI 프로세스를 띄우고 스냅샷을 다시 민다 — 서버가 창의
+ * 메인 스레드에서 함께 돌아 그동안 창이 제목줄로 안 움직였다). 이제 줄에 세웠다가 본체 창이 처음 보이면
+ * `STARTUP_JOB_SETTLE_MS` 뒤부터 `STARTUP_JOB_GAP_MS` 간격으로 **원래 순서 그대로** 돌린다. 위의 지연값들은
+ * 이제 순서만 정한다. 창 소식이 끝내 안 오면(창 없는 실행·시험) 부팅 `STARTUP_JOB_RELEASE_CAP_MS` 뒤 스스로 풀린다.
+ */
+export const STARTUP_JOB_SETTLE_MS = 1_500;
+export const STARTUP_JOB_GAP_MS = 750;
+export const STARTUP_JOB_RELEASE_CAP_MS = 20_000;
+
 /** v1.36 — STRICT delegation enforcement 경로(dispatch curl)가 Bash 에 의존하므로
  *  사용자가 UI 에서 제거할 수 없고, STRICT strip 계산에서도 항상 보존된다.
  *  서버 PUT /api/agent-config/:id 가 payload.tools 에서 빠져 있으면 자동 포함, UI 는 × 잠금. */
@@ -4407,8 +4490,8 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'architect-to-implementer',
     label: 'Architect → Implement',
-    // §5.3 #12-4 — 기본 문구가 검증을 시키지 않는다. 검증은 사용자가 그 작업에서 요청했을 때만 열린다.
-    defaultCommand: 'Write code following the ADR implementation plan. Run tests only if the user asked for verification in this task; otherwise list the tests that should be run.',
+    // §5.3 #12-4 — 기본 문구도 현재 검증 정책의 켬/끔과 사용자 직접 지시를 따른다.
+    defaultCommand: 'Write code following the ADR implementation plan. When Vibisual verification policy is enabled, run tests only within the current verification grant. When disabled, this instruction adds no separate verification-request requirement. Always follow the user\'s direct instructions and scope, and report tests not run.',
     sourceRole: 'architect',
     targetRole: 'implementer',
     defaultForwardMode: 'auto',
@@ -4420,7 +4503,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'implementer-to-verifier',
     label: 'Implement → Verify',
-    defaultCommand: 'Independently review the implementation. Run builds and tests only within the verification the user requested for this task; if none was requested, review by reading and report what was not run.',
+    defaultCommand: 'Independently review the implementation. When Vibisual verification policy is enabled, run builds and tests only within the current verification grant. When disabled, this instruction adds no separate verification-request requirement. Always follow the user\'s direct instructions and scope, and report what was not run.',
     sourceRole: 'implementer',
     targetRole: 'verifier',
     defaultForwardMode: 'auto',
@@ -4432,7 +4515,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'verifier-to-implementer',
     label: 'Verify → Fix',
-    defaultCommand: 'Review the verification failures and fix them. Re-run the failing tests only if the user asked for verification in this task.',
+    defaultCommand: 'Review the verification failures and fix them. When Vibisual verification policy is enabled, re-run failing tests only within the current verification grant. When disabled, this instruction adds no separate verification-request requirement. Always follow the user\'s direct instructions and scope.',
     sourceRole: 'verifier',
     targetRole: 'implementer',
     defaultForwardMode: 'manual',
@@ -4730,7 +4813,8 @@ export const CONTEXT_SOURCE_IDS = {
   compactRecovery: 'vibisual.compact-recovery',
   /**
    * §5.3 #12-4 — 검증 정책 문단 + 이번 명령의 검증 권한 한 줄. 정책은 시스템 프롬프트로, 권한은 매 턴
-   * 앞말로 간다. 끄면 **말만** 사라진다 — 실행 전 거부(집행)는 승인 창구들이 그대로 한다.
+   * 앞말로 간다. 이 주입원 스위치는 안내 문구만 제어하고, 검증 제한·실행 전 차단은 옵션의
+   * permissions.verificationGate가 켜져 있을 때만 적용한다. 옵션이 꺼져 있으면 제한 문구를 싣지 않는다.
    */
   verificationPolicy: 'vibisual.verification-policy',
   /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11 v4.67). */
@@ -5837,11 +5921,11 @@ function serializeRoleCatalog(): string {
  */
 export const HARNESS_INTENT_GATE_ROWS: ReadonlyArray<{ intent: string; signal: string; shape: string }> = [
   { intent: 'quick-fix', signal: '파일/함수 지목 + 단순 수정', shape: '단일 coder (또는 explore→coder)' },
-  // §5.3 #12-4 — tester·reviewer(검증 역할)는 사용자가 원본 요청에서 검증을 요청했을 때만 편성한다.
-  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder (+tester·reviewer — 검증을 요청했을 때만)' },
+  // §5.3 #12-4 — 검증 역할 편성도 현재 정책의 켬/끔과 사용자 지시를 따른다.
+  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder (+tester·reviewer — 현재 검증 정책·사용자 지시에 따라)' },
   { intent: 'research', signal: '"조사/비교/알아봐"', shape: 'librarian + explore + researcher → 요약' },
-  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) (→ tester — 검증을 요청했을 때만)' },
-  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder (→ reviewer — 검증을 요청했을 때만)' },
+  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) (→ tester — 현재 검증 정책·사용자 지시에 따라)' },
+  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder (→ reviewer — 현재 검증 정책·사용자 지시에 따라)' },
 ];
 
 /** IntentGate 표의 본문 행(마크다운). 머리행·구분행은 부르는 쪽이 붙인다. */
@@ -5890,13 +5974,14 @@ ${harnessIntentGateRowsMarkdown()}
 3. **하네스 설계**: 몇 개의 어떤 역할이 필요한지, 각 역할에 어떤 모델·도구·권한이 적합한지, 누가 누구에게 위임하는지(엣지) 결정. 단순 작업은 1개로 충분, 복잡하면 PM 허브 + 워커 + 리뷰어. **고정 틀에 끼워맞추지 말고 요청에 맞춰 새로 설계**한다.
 4. **버블 생성**: 역할마다 \`POST /api/create-custom-agent\` 호출 → 응답의 \`agent.id\`(설정/엣지용)와 \`agent.path\`(엔트리 kickoff용 sessionId)를 반드시 캡처.
 5. **설정 주입**: 버블마다 \`PUT /api/agent-config/:agentId\` 로 model/tools/permissionMode/effort/rules 배정. rules 에는 그 에이전트의 역할·산출물 형식을 또렷이 적는다.
-6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. **검증 엣지는 사용자가 원본 요청에서 검증(테스트·빌드·리뷰·브라우저 확인)을 요청했을 때만** 깐다(바로 아래 "검증 엣지" 절 참고).
+6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. 검증 엣지는 현재 검증 정책과 사용자 지시에 따라 편성한다(바로 아래 "검증 엣지" 절 참고).
 7. **엔트리 기동**: 시작점(=오케스트라) 에이전트의 sessionId 로 \`POST /api/commands/:sessionId\` 에 **사용자 원본 요청**을 forward(text/plain).
 8. **마무리 보고**: 만든 버블·엣지·각자의 역할을 2~5줄로 요약하고, **"이후 추가 명령은 〈엔트리 버블 라벨〉 버블에 입력하세요"** 를 명시(사용자가 어느 버블을 오케스트라로 다룰지 알도록). (당신은 여기서 종료 — 실제 작업은 서브들이 이어간다.)
 
-## 검증 엣지 — 사용자가 검증을 요청했을 때만 (v2.48 → §5.3 #12-4)
+## 검증 엣지 — 현재 검증 정책과 사용자 범위 (§5.3 #12-4)
+- Vibisual 검증 정책이 켜져 있으면 최신 [검증 권한] 범위 안에서만 검증 멤버·엣지를 편성한다. 최신 [검증 정책]이 꺼짐이면 이 규약은 별도의 검증 요청 요건을 추가하지 않는다. 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.
 - **사용자가 원본 요청에서 검증을 요청했으면**(예: "테스트까지 돌려 줘"·"리뷰 받아 줘"·"브라우저에서 확인해 줘"), reviewer 또는 tester 에서 coder 로 향하는 **검증 엣지를 최소 1개** 깐다. \`kind:"critique"\`, \`critiqueAuthority:"force-rework"\` 로 만들면, 리뷰어의 \`REJECT\` 나 테스터의 빌드/테스트 실패가 **자동으로 coder 재작업으로 라우팅**된다(서버가 짝(auto-rework) 엣지를 자동 생성).
-- **요청하지 않았으면 검증 엣지·tester·reviewer 를 만들지 않는다.** "수정해 줘"·"기능 추가해 줘"는 검증 요청이 아니다. 앱이 검증 권한을 사용자 요청에만 열어 두므로, 만들어도 실행 전에 막히고 토큰만 쓴다. 마무리 보고에 "검증 미실행"과 확인할 거리를 적는다.
+- **검증 정책이 켜져 있고 이번 작업에 검증 권한이 없으면 검증 엣지·tester·reviewer 를 만들지 않는다.** 이때 "수정해 줘"·"기능 추가해 줘"만으로 검증 권한이 생기지 않는다. 실행하지 않은 검증은 마무리 보고에 "검증 미실행"과 확인할 거리로 적는다.
 - 요청했을 때의 권장 형태: coder → reviewer(리뷰), tester → coder(\`critique+force-rework\`), reviewer → coder(\`critique+force-rework\`). 요청 범위(예: "관련 테스트만")를 넘는 검증(전체 스위트·E2E)으로 넓히지 않는다.
 - **예외**: 읽기 전용 조사(research), 단순 질의, 파일을 쓰지 않는 초소형 작업은 검증 엣지 불필요.
 
@@ -5943,7 +6028,7 @@ printf 'EDGE_ID=%s\\n' "$EDGE_ID"
 \`\`\`
 - 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation'), \`critiqueAuthority\`('force-rework'|'comment-only', kind='critique' 한정).
 
-#### 검증(critique) 엣지 예시 — reviewer/tester → coder (사용자가 검증을 요청했을 때만)
+#### 검증(critique) 엣지 예시 — reviewer/tester → coder (현재 검증 정책·사용자 지시에 따름)
 \`\`\`bash
 curl -s -X POST "${serverBase}/api/task-edges" \\
   -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
@@ -8042,66 +8127,258 @@ export const PLUGIN_API_PREFIX = '/api/plugins';
  */
 export const APP_API_PREFIX = '/api/app';
 
-// ─── §5.4 #36 전환과 연결 — 에이전트 입력 카드 · 참조선 ─────────────────────
+/**
+ * §5.13 (T-3)(T-11) ② — 내부 앱이 **iframe 으로 띄울 정적 콘텐츠**의 경로 모양: `/api/app/<앱id>/content/…`.
+ *
+ * 패키지 앱의 문서 출처는 `file://` 라 iframe 의 `/api/…` 상대 주소가 깨진다 — 그래서 `vibproxy://proxy` 로 내준다.
+ * vibproxy 허용 목록과 프레임 이동 금지가 이 판정 **하나**를 쓴다(앱 이름 없이). API 는 이 길로 내지 않는다 — 콘텐츠만.
+ */
+export const APP_CONTENT_SEGMENT = 'content';
+
+const APP_CONTENT_PATH_RE = /^\/api\/app\/[a-z0-9][a-z0-9-]{0,40}\/content\//;
+
+/** 경로(pathname)가 내부 앱의 정적 콘텐츠인가. 쿼리·해시는 떼고 준다. */
+export function isAppContentPath(pathname: string): boolean {
+  return APP_CONTENT_PATH_RE.test(pathname);
+}
+
+// ─── §5.4 #36 전환과 연결 — 에이전트 말풍선 · 위성줄 · 꽃잎 고르기 ─────────────
 
 /**
- * §5.4 #36 (A) — 입력 카드의 크기(캔버스 px).
+ * §5.4 #36 (A) — 에이전트 말풍선의 기하(캔버스 px, 노드 좌표계 = 좌상단 원점).
  *
- * **고정 크기다.** 물리(사각 바디)·선 끝점(판 테두리)·전환 때 중심 지키기가 전부 이 값 하나로
- * 계산되므로, 글 길이에 따라 판이 자라면 그 셋이 매 글자마다 흔들린다. 긴 글은 입력칸 안에서 스크롤한다.
+ * 버블은 판으로 변하지 않는다 — **원이 그 자리에 남고** 그 왼쪽으로 말풍선이 펴진다. 읽는 방향이 곧 흐름이다:
+ * 말풍선(내 말) → 원(에이전트) → 오른쪽의 앱 위성(결과). 원 둘레 궤도 위의 흰 점이 위성 손잡이다.
+ *
+ * **고정 크기다.** 물리(사각 바디)·선 끝점(실루엣)·전환 때 원 중심 지키기가 전부 이 값으로 계산되므로,
+ * 글 길이에 따라 자라면 그 셋이 매 글자마다 흔들린다. 긴 글은 입력칸 안에서 스크롤한다.
+ * 원 중심은 `(balloonWidth + balloonGap + discSize/2, height/2)` 이고 `width` 는 그 중심에 궤도 반지름과
+ * 위성 손 자리 반을 더한 값이다(`agentCardDiscCenter` — 어긋나면 위성이 노드 밖으로 잘린다).
  */
 export const AGENT_CARD = {
-  width: 288,
-  height: 164,
-  /** 판 모서리 반경. 원(에이전트 버블)과 사각(앱 노드) 사이의 인상. */
-  radius: 16,
-  /** 판 바깥 위 라벨이 판과 띄우는 간격. */
-  labelGap: 6,
-  /** 오른쪽 가운데 `+` 손잡이 지름. 판 밖으로 반쯤 나온다. */
-  handleSize: 22,
-  /** `+` 를 누른 뒤 이만큼(px) 움직여야 끌기다 — 못 넘으면 "누름"(그 자리 목록). 손떨림이 선이 되지 않게. */
+  /** 노드 전체 = 말풍선 236 + 틈 20 + 원 60 + (궤도 − 원 반지름 10) + 위성 손 자리 반 12. */
+  width: 338,
+  /** 노드 전체 높이 = 말풍선 높이. 원은 세로 가운데. */
+  height: 132,
+  /** 말풍선 판의 폭 — 노드 왼쪽 끝부터. */
+  balloonWidth: 236,
+  /** 말풍선 모서리 반경. */
+  balloonRadius: 18,
+  /** 말풍선·꼬리의 바탕 — 꼬리가 말풍선 테두리를 덮어 한 몸으로 보이려면 불투명해야 한다. */
+  balloonFill: '#0A0C12',
+  /** 말풍선 오른쪽 끝과 원 사이의 틈 — 꼬리가 이 틈을 건너 원을 가리킨다. */
+  balloonGap: 20,
+  /** 말풍선 꼬리(45° 돌린 정사각)의 한 변. 끝이 궤도에 닿을 만큼. */
+  tailSize: 12,
+  /** 원(접혀 남은 버블)의 지름. */
+  discSize: 60,
+  /** 궤도 반지름(원 중심에서). 위성 손잡이와 이어진 앱 점이 이 위에 앉는다. */
+  orbitRadius: 40,
+  /** 위성 손잡이 — 보이는 점의 지름과 누르는 자리의 지름. */
+  satelliteSize: 12,
+  satelliteHitSize: 24,
+  /** 위성 손잡이가 앉는 궤도 각(도, 화면 좌표 — 0 = 오른쪽, 음수 = 위). */
+  satelliteAngleDeg: -40,
+  /** 이어진 앱 노드를 궤도에 찍는 점 — 지름·최대 개수·첫 각·간격(도). 손잡이 아래쪽으로 늘어선다. */
+  orbitDotSize: 6,
+  orbitDotMax: 5,
+  orbitDotStartDeg: 14,
+  orbitDotStepDeg: 17,
+  /** 에이전트가 도는 동안 궤도가 한 바퀴 도는 시간(ms). `index.css` 의 `.agent-orbit-spin` 과 같은 값. */
+  orbitSpinMs: 14000,
+  /** 이름이 궤도 아래로 떨어지는 간격. */
+  labelGap: 4,
+  /** 위성을 누른 뒤 이만큼(px) 움직여야 끌기다 — 못 넘으면 "누름"(그 자리에 꽃). 손떨림이 줄이 되지 않게. */
   handleDragThreshold: 4,
-  /** `+` 를 눌러 만든 노드가 카드 오른쪽 끝에서 떨어지는 거리(캔버스 px). */
+  /** 위성을 눌러 만든 노드가 노드 오른쪽 끝에서 떨어지는 거리(캔버스 px). */
   spawnGap: 72,
-  /** 같은 카드에서 `+` 를 거듭 눌러 만든 노드끼리 세로로 띄우는 간격(캔버스 px). */
+  /** 같은 말풍선에서 거듭 눌러 만든 노드끼리 세로로 띄우는 간격(캔버스 px). */
   spawnStackGap: 16,
-  /** 원 → 판 전이 시간(ms). `prefers-reduced-motion` 이면 0. */
+  /** 말풍선이 원 쪽에서 펴지는 시간(ms). `prefers-reduced-motion` 이면 0. */
   morphMs: 240,
 } as const;
 
 /** §5.4 #36 (B) — 앱 노드 하나가 참조할 수 있는 에이전트 수 상한. */
 export const APP_BUBBLE_LINK_MAX = 8;
 
+/** §5.13 (L) — 앱 노드가 가리키는 작업 문서 열쇠(`AppBubble.ref`) 길이 상한. 앱이 짓는 id 라 이 안에 든다. */
+export const APP_BUBBLE_REF_MAX = 200;
+
 /**
- * §5.4 #36 (B) — 참조선 모양. 파일 선(회색 곡선·화살촉)·Task Edge(파란 점선·원 아이콘)와 **일부러 다르다**.
- * 글로우는 SVG 필터가 아니라 넓고 흐린 두 번째 path 다(#31 (K) — 선마다 필터·마스크는 래스터를 포화시킨다).
+ * §5.4 #36 (B) — 위성줄(구슬 줄) 모양. 파일 선(회색 곡선·화살촉)·Task Edge(파란 점선·원 아이콘)와 **일부러 다르다**.
+ *
+ * 가는 실 한 가닥 위에 둥근 구슬이 일정 간격으로 꿰어 있다. 구슬은 `stroke-dasharray: 0 beadGap` + 둥근 끝이라
+ * path 하나다(구슬마다 원 요소 ❌ · 필터·마스크 ❌ — #31 (K) 래스터 교훈). 줄은 두 노드 중심을 잇는 직선에서
+ * 아래로 처진다(무게가 있는 줄) — 처짐 = 길이 × `sagRatio`(하한·상한 사이).
  */
 export const REF_LINK_STYLE = {
-  /** 본선 두께. */
-  lineWidth: 2,
-  /** 글로우 한 겹의 두께와 불투명도. 손을 올렸거나 끄는 중이면 한 단계 밝게. */
-  glowWidth: 9,
-  glowOpacity: 0.16,
-  glowActiveOpacity: 0.3,
-  /** 손을 올릴 자리(보이지 않는 넓은 선)의 두께 — 2px 본선만으로는 [연결 끊기]를 부르기 어렵다. */
+  /** 구슬 지름과 구슬 중심 사이 간격. 흐름 애니메이션 한 칸이 이 간격이다(`index.css` `.ref-bead-flow`). */
+  beadSize: 4,
+  beadGap: 10,
+  /** 구슬 불투명도 — 평시 · 손을 올렸거나 끄는 중. */
+  beadOpacity: 0.85,
+  beadActiveOpacity: 1,
+  /** 구슬을 꿴 실의 두께·불투명도. */
+  threadWidth: 1.25,
+  threadOpacity: 0.3,
+  threadActiveOpacity: 0.55,
+  /** 손을 올릴 자리(보이지 않는 넓은 선)의 두께 — 가는 줄만으로는 [연결 끊기]를 부르기 어렵다. */
   hitWidth: 16,
-  /** 수평 S 곡선의 손잡이 길이 = 가로 거리 × 이 비율(상·하한 사이). */
-  curveRatio: 0.45,
-  curveMin: 40,
-  curveMax: 220,
-  /**
-   * 도는 동안 선을 따라 흐르는 빛 한 점 — 길이(선 전체의 %)·주기(ms). 선은 `pathLength=100` 으로
-   * 정규화해 그리므로 길이는 픽셀이 아니라 비율이다(선이 길든 짧든 같은 박자로 흐른다).
-   * 주기는 `index.css` 의 `.ref-link-pulse` 와 같은 값이다.
-   */
-  pulsePercent: 8,
-  pulseMs: 1600,
-  /** 끝점(앱 노드 쪽) 점의 반지름. 화살촉 대신이다. */
-  endDotRadius: 3.5,
-  /** 출발점 색이 없을 때(에이전트 색 미지정) 쓰는 색. */
+  /** 처짐 비율·하한·상한(px). */
+  sagRatio: 0.12,
+  sagMin: 6,
+  sagMax: 56,
+  /** 도는 동안 구슬이 한 칸(beadGap) 흐르는 시간(ms). `index.css` 의 `.ref-bead-flow` 와 같은 값. */
+  flowMs: 600,
+  /** 앱 쪽 끝의 도킹 고리 — 반지름·두께. 끄는 중 앱 노드 위에 있으면 `dockActiveRadius`. */
+  dockRadius: 4.5,
+  dockActiveRadius: 7,
+  dockStroke: 1.5,
+  /** 고리 속 색(캔버스 바탕과 같은 어둠 — 고리가 구멍처럼 보이게). */
+  dockFill: '#0A0C12',
+  /** 출발 색을 모를 때(에이전트 색 미상). */
   fallbackColor: '#60A5FA',
-  /** 끝으로 갈수록 바래는 흰빛. */
-  endColor: '#F8FAFC',
+} as const;
+
+/**
+ * §5.4 #36 (B) — 꽃잎 고르기. 위성을 빈 곳에 놓거나 눌렀을 때 앱들이 그 자리를 가운데로 부채꼴로 핀다.
+ * 꽃잎은 끌어온 방향 **앞쪽**으로 펴진다(돌아오는 쪽 ❌ — 줄과 겹친다). 값은 화면 px 다(줌과 무관하게 같은 크기).
+ */
+export const REF_BLOOM = {
+  /** 가운데에서 꽃잎 중심까지. */
+  radius: 64,
+  /** 꽃잎(원형 단추) 지름. */
+  seedSize: 40,
+  /** 꽃잎 사이 각(도). 앱이 많으면 `maxSpreadDeg` 안에서 좁아진다. */
+  stepDeg: 40,
+  maxSpreadDeg: 160,
+  /** 화면 가장자리와 띄우는 여백. */
+  margin: 12,
+  /** 꽃잎이 차례로 피는 간격(ms). */
+  staggerMs: 28,
+  /** 가운데 고리와 그 아래(꽃잎이 아래로 피면 위) 이름 한 줄 사이. */
+  captionGap: 12,
+  /** 눌러서 연 꽃의 가운데가 궤도 바깥에서 떨어지는 거리. */
+  besideGap: 36,
+  /** §5.4 #36 (F) — 고른 노드가 화면 밖으로 삐져 서면 카메라를 밀어 들일 때 화면 가장자리와 띄우는 여백(px). */
+  revealMargin: 24,
+  /** 그 밀어 들이기의 이동 시간(ms). 줌은 그대로다. */
+  revealMs: 240,
+} as const;
+
+/**
+ * §5.4 #36 (F) — 낙관 생성한 앱 노드를 서버 확인 전까지 붙들어 두는 시간(ms).
+ *
+ * 서버가 만들기 전에 출발한 스냅샷이 도착하면 그 목록에는 새 노드가 없다 — 그대로 받으면 방금 선 노드가
+ * 한 프레임 사라졌다 돌아온다. 이 시간이 지나도 서버 목록에 없으면(만들기 실패) 걷는다.
+ */
+export const APP_BUBBLE_PENDING_MS = 8000;
+
+/**
+ * §5.4 #36 (F) — 앱 위성 화면의 미리보기. 앱이 레지스트리 `thumbnail` 로 굽고 코어가 기억한다.
+ * 비용은 "보이는 화면만 · 한 번 굽고 캐시 · 동시 건수 상한" 셋으로 묶는다.
+ */
+export const APP_THUMB = {
+  /** 기억해 두는 미리보기 수(LRU). 밀려난 그림의 blob URL 은 되돌린다. */
+  cacheMax: 40,
+  /** 동시에 굽는 수 — 영상 디코더·WebGL 문맥이 한꺼번에 뜨지 않게. */
+  concurrency: 2,
+  /** 화면 크기에 곱해 굽는 배율의 상한(고해상 화면에서 흐리지 않게, 그 이상은 낭비). */
+  pixelRatioMax: 2,
+  /** 소리 파형을 그리려고 통째로 받는 파일의 상한(bytes). 넘으면 파형 없이 아이콘. */
+  audioMaxBytes: 48_000_000,
+  /** 3D 정지 화면을 찍으려고 통째로 받는 모델의 상한(bytes). */
+  modelMaxBytes: 64_000_000,
+  /** 파형 막대 수. */
+  peakColumns: 48,
+  /** 영상 대표 프레임 시각 = 길이 × 이 비율, 최대 `videoSeekMaxSec` 초(첫 프레임은 검은 화면이 흔하다). */
+  videoSeekRatio: 0.1,
+  videoSeekMaxSec: 1,
+  /**
+   * 영상을 읽는 구간 크기(bytes). 디코더는 끝이 열린 구간(`bytes=N-`)을 요청하는데, 패키지 앱의 fetch 는 응답을 통째로
+   * IPC 한 번에 싣는다 — 묶지 않으면 대표 프레임 하나에 파일 전체가 건너온다. 묶어 두면 모자란 만큼만 다시 요청한다.
+   */
+  videoChunkBytes: 1_048_576,
+  /** 한 장을 굽는 시간 상한(ms). 넘으면 못 구운 것으로 치고 줄을 비운다(멈춘 디코더가 자리를 영영 쥐지 않게). */
+  renderTimeoutMs: 20_000,
+  /**
+   * §5.4 #36 (G) — 굽는 크기를 이 단위(캔버스 px)로 올려 잡는다. 노드 크기를 바꿀 때마다 1px 단위로 다시 굽지 않게 —
+   * 같은 칸 안에서 바꾼 크기는 앞서 구운 한 장을 그대로 늘려 쓴다.
+   */
+  bakeStep: 64,
+} as const;
+
+/**
+ * §5.4 #36 (G) — 앱 노드 크기 조절의 하한·상한(캔버스 px).
+ *
+ * 하한은 형태마다 다르다 — 화면은 머리줄(22) · 결과 · 조작줄(24)이 함께 들어가야 하고, 명패는 아이콘과 이름 한 줄이면 된다.
+ * 상한은 둘이 같다. 서버도 이 상한으로 자른다(손으로 보낸 PATCH 가 캔버스를 덮는 노드를 만들지 않게).
+ */
+export const APP_NODE_RESIZE = {
+  nameplateMinWidth: 64,
+  nameplateMinHeight: 40,
+  screenMinWidth: 176,
+  screenMinHeight: 120,
+  maxWidth: 1280,
+  maxHeight: 960,
+} as const;
+
+/**
+ * §5.4 #36 (G) — 앱 위성 화면 안에서 바로 하는 조작(재생·돌려 보기·맞춤). 무엇을 하는지는 앱이 레지스트리 `canvasFace` 로
+ * 선언하고, 비용의 한도는 여기 한 곳에 둔다.
+ */
+export const APP_CANVAS_FACE = {
+  /**
+   * 캔버스에서 바로 틀려고 **통째로 받는** 영상·소리 파일의 상한(bytes). 엘리먼트의 `/api` 요청은 패키지 앱에서 비므로
+   * (§5.13 (R-5)) fetch 로 받아 blob URL 로 건다 — 넘으면 받지 않고 "에디터에서 여세요"로 안내한다.
+   */
+  playMaxBytes: 200_000_000,
+  /** 3D 를 돌려 본 뒤 손을 떼고 이만큼(ms) 지나면 WebGL 문맥을 돌려주고 그 각도의 한 장을 정지 화면으로 남긴다. */
+  liveIdleMs: 6000,
+  /** 끌어 돌리는 감도(도/px — **화면** px 기준이라 캔버스를 키우거나 줄여도 같은 손맛이다). */
+  orbitDegPerPx: 0.6,
+  /** 위아래로 돌릴 수 있는 한계(도). 넘으면 위아래가 뒤집혀 보인다. */
+  orbitPitchLimitDeg: 85,
+  /** 자동 회전 속도(도/초). */
+  spinDegPerSec: 36,
+  /** 이미지 복사가 끝났다는 표시(✓)를 남기는 시간(ms). */
+  copiedFlashMs: 1400,
+} as const;
+
+/**
+ * §5.4 #36 (H) ② — 연결 보기. "연결된 것 위주"(앱 노드가 이어진 에이전트의 기본 보기)에서 그 에이전트의 활동 선
+ * (파일·폴더 ↔ 에이전트)을 흐리게 그리는 배율. **지우지 않는다** — "위주"이지 "만"이 아니다. 선의 #31 무리 강조 배율과 곱해진다.
+ */
+export const LINK_VIEW = {
+  dimOpacity: 0.18,
+} as const;
+
+/** §5.4 #36 (H) ③ — 결과 전달로 바뀌기 전 파일을 노드에 남기는 수(지난 결과, 최근 것부터). */
+export const APP_BUBBLE_PAST_FILE_MAX = 6;
+
+/**
+ * §5.4 #36 (H) ③ — 앱 노드 아래 **구슬 줄**(연결된 것 위성). 무엇을 띄울지는 앱이 레지스트리 `linkedItems` 로 선언하고,
+ * 크기·간격·읽는 주기의 한도는 여기 한 곳에 둔다. 길이는 캔버스 px(노드와 함께 줌된다).
+ */
+export const APP_LINKED_ITEMS = {
+  /** 구슬 지름. */
+  beadSize: 22,
+  /** 구슬 사이(테두리 사이) 간격. */
+  beadGap: 6,
+  /** 묶음(장면 · 소재 · 지난 결과) 사이에 더 띄우는 간격. */
+  groupGap: 10,
+  /** 노드 아래 가장자리에서 구슬 줄(구슬 중심선)까지. */
+  dropY: 24,
+  /** 한 줄에 보이는 구슬 수 상한 — 넘치면 마지막 자리가 `+N` 이다. */
+  maxVisible: 10,
+  /** 노드가 마운트된 동안 앱에 다시 묻는 주기(ms). 영상은 판본만 묻고 바뀔 때만 문서를 읽는다. */
+  pollMs: 5000,
+  /** 한 번 묻는 시간 상한(ms) — 넘으면 그 회차는 건너뛰고 앞 결과를 그대로 둔다. */
+  readTimeoutMs: 8000,
+  /** 읽은 결과를 기억하는 노드 수(화면 밖에서 돌아오면 바로 보이게 — 넘치면 오래 안 본 것부터). */
+  cacheMax: 64,
+  /** 구슬을 꿴 실의 불투명도. */
+  threadOpacity: 0.35,
 } as const;
 
 // ─── §5.5 #17-20 v4.74 디버그·실행 런처 ────────────────────────────────────
@@ -9673,6 +9950,9 @@ export const CODEX_HOME_DIRNAME = '.codex';
 
 /** §5.25 (G) — 모델 목록 캐시 파일 이름. 우리는 **읽기만** 한다. */
 export const CODEX_MODELS_CACHE_FILENAME = 'models_cache.json';
+
+/** §5.25 (G) — 모델 목록 자동 조회 간격. 서버 TTL과 클라이언트 재조회가 같은 주기를 쓴다. */
+export const CODEX_MODELS_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 /** §5.25 (I) — 훅 정의 파일 이름(사용자 전역). */
 export const CODEX_HOOKS_FILENAME = 'hooks.json';
@@ -11586,3 +11866,107 @@ export const VERIFICATION_AUTOMATION = {
   screenshotMaxDifference: 0.12,
   evidenceDirectory: 'verify-runs',
 } as const;
+
+// ─── §4 앱 테마 (판올림 번호 발급 대기) ──────────────────────────────────────
+// 왜 있는가: 화면이 한 벌(어두운 청회색)뿐이라 다른 IDE 처럼 테마를 고를 수 없었다(사용자 지시 2026-10-11).
+// 테마의 본체는 Tailwind 팔레트 변수(`--color-<계열>-<칸>`)를 갈아 끼우는 것이고, 클래스로 못 칠하는 자리만
+// 아래 의미 토큰으로 뽑았다. 해석은 `appThemeResolve.ts`, 기본 테마 목록은 `appThemeCatalog.ts`.
+
+/** 기본 테마 — 종전 화면 그대로다. 고른 테마를 못 찾을 때도 여기로 떨어진다. */
+export const DEFAULT_APP_THEME_ID = 'vibisual-dark';
+
+/** `kind: "light"` 인데 `extends` 가 없는 사용자 테마의 출발점. */
+export const DEFAULT_LIGHT_APP_THEME_ID = 'light';
+
+/** 테마 파일 형식 판수. 이보다 큰 판수의 파일은 읽지 않는다(모르는 형식을 넘겨짚지 않는다). */
+export const APP_THEME_SCHEMA_VERSION = 1;
+
+/** 사용자 테마 id 접두 — 기본 테마 id 를 가리지 못하게 이름 공간을 가른다. */
+export const CUSTOM_APP_THEME_PREFIX = 'custom:';
+
+/** 팔레트 계열 — 이 앱이 싣는 Tailwind 기본 색 이름(`TAILWIND_DEFAULT_PALETTE` 와 같은 순서). */
+export const APP_THEME_FAMILIES: readonly AppThemeFamily[] = [
+  'slate', 'gray', 'zinc', 'neutral', 'stone',
+  'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald', 'teal', 'cyan',
+  'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose',
+];
+
+/** 팔레트 칸 — 밝은 쪽부터. 뒤집기(50↔950)는 이 배열의 양끝을 맞바꾼다. */
+export const APP_THEME_SHADES: readonly AppThemeShade[] = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'];
+
+/** 사용자 테마 폴더를 읽을 때의 상한 — 부팅·창 생성 경로에서 동기로 읽으므로 작게 묶는다. */
+export const APP_THEME_LIMITS = {
+  maxFiles: 64,
+  maxFileBytes: 256 * 1024,
+  maxIdLength: 48,
+  maxNameLength: 60,
+  maxDescriptionLength: 240,
+  maxAuthorLength: 60,
+  /** `extends` 사슬 깊이 — 넘으면 거기서 끊는다(순환은 따로 잡는다). */
+  maxExtendsDepth: 8,
+  /** 문제 목록에 원문을 실을 때 자르는 길이. */
+  maxIssueDetailLength: 80,
+} as const;
+
+/**
+ * 마지막으로 칠한 테마의 **표시 캐시**(localStorage 키). 권위는 `UserDefaults.appearance.themeId` 이고
+ * 이 값은 다시 계산되는 파생물이다 — 첫 칠의 깜빡임을 막고, 스냅샷을 받지 않는 창이 따라오게 한다.
+ */
+export const APP_THEME_BOOT_CACHE_KEY = 'vibisual.appTheme.v1';
+
+/**
+ * 어두운 판을 고정하는 속성(`data-vb-theme-lock="dark"`). 고정 어두운 바탕을 전제로 칠한 화면
+ * (내부 앱 화면·캔버스 미디어 무대)에 붙인다 — 라이트에서 글자만 뒤집혀 사라지는 것을 막는다.
+ */
+export const APP_THEME_LOCK_ATTR = 'data-vb-theme-lock';
+
+/**
+ * 의미 토큰 — Tailwind 클래스로 못 칠하던 자리. `default` 는 기본 테마(=종전 화면)의 값이고
+ * 지금 화면에 박혀 있던 값을 그대로 옮겼다(기본 테마에서 한 픽셀도 달라지지 않게).
+ * `{gray.950}` 은 팔레트 참조라 팔레트를 바꾸면 따라간다. `cssVar` 가 있는 토큰만 CSS 변수로 나가고
+ * (Tailwind 유틸 `bg-vb-*` 가 그것을 쓴다), 없는 것은 JS 소비자(xterm)만 읽는다.
+ * 터미널 16색은 Catppuccin Mocha(MIT — 색값 사용 자유)로 종전 `IDETerminalView` 의 값 그대로다.
+ */
+export const APP_THEME_TOKEN_SPECS: Readonly<Record<AppThemeToken, { readonly default: string; readonly cssVar?: string }>> = {
+  'window.background': { default: '{gray.950}', cssVar: '--color-vb-window' },
+  'titleBar.background': { default: '#334155', cssVar: '--color-vb-titlebar' },
+  'titleBar.foreground': { default: '#cbd5e1', cssVar: '--color-vb-titlebar-fg' },
+  'canvas.background': { default: '{gray.950}', cssVar: '--color-vb-canvas' },
+  'canvas.dots': { default: '#1e293b', cssVar: '--color-vb-canvas-dots' },
+  'surface.raised': { default: '#1f2937', cssVar: '--color-vb-raised' },
+  'surface.card': { default: '#1a1d26', cssVar: '--color-vb-card' },
+  'surface.inset': { default: '#242833', cssVar: '--color-vb-inset' },
+  'surface.sunken': { default: '#0f1117', cssVar: '--color-vb-sunken' },
+  'ide.titleBar': { default: '#1a2236', cssVar: '--color-vb-ide-titlebar' },
+  'ide.tabBar': { default: '#15192a', cssVar: '--color-vb-ide-tabbar' },
+  'code.background': { default: '#1a1c20', cssVar: '--color-vb-code' },
+  'code.foreground': { default: '#e6e8ec', cssVar: '--color-vb-code-fg' },
+  'code.border': { default: 'rgb(255 255 255 / 0.06)', cssVar: '--color-vb-code-border' },
+  'code.inlineBackground': { default: 'rgb(140 149 165 / 0.24)', cssVar: '--color-vb-code-inline' },
+  'code.inlineForeground': { default: '#eceef1', cssVar: '--color-vb-code-inline-fg' },
+  'find.match': { default: '#2563eb', cssVar: '--color-vb-find' },
+  'find.matchForeground': { default: '#f8fafc', cssVar: '--color-vb-find-fg' },
+  'find.matchAll': { default: 'rgb(37 99 235 / 0.28)', cssVar: '--color-vb-find-all' },
+  'terminal.background': { default: '#11111b', cssVar: '--color-vb-terminal' },
+  'terminal.panel': { default: '#181825', cssVar: '--color-vb-terminal-panel' },
+  'terminal.foreground': { default: '#cdd6f4' },
+  'terminal.cursor': { default: '#94e2d5' },
+  'terminal.cursorAccent': { default: '#11111b' },
+  'terminal.selection': { default: 'rgb(203 166 247 / 0.3)' },
+  'terminal.black': { default: '#45475a' },
+  'terminal.red': { default: '#f38ba8' },
+  'terminal.green': { default: '#a6e3a1' },
+  'terminal.yellow': { default: '#f9e2af' },
+  'terminal.blue': { default: '#89b4fa' },
+  'terminal.magenta': { default: '#f5c2e7' },
+  'terminal.cyan': { default: '#94e2d5' },
+  'terminal.white': { default: '#bac2de' },
+  'terminal.brightBlack': { default: '#585b70' },
+  'terminal.brightRed': { default: '#f38ba8' },
+  'terminal.brightGreen': { default: '#a6e3a1' },
+  'terminal.brightYellow': { default: '#f9e2af' },
+  'terminal.brightBlue': { default: '#89b4fa' },
+  'terminal.brightMagenta': { default: '#f5c2e7' },
+  'terminal.brightCyan': { default: '#94e2d5' },
+  'terminal.brightWhite': { default: '#a6adc8' },
+};

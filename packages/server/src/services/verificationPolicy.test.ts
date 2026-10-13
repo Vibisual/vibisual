@@ -12,19 +12,25 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyVerificationDecision,
+  buildVerificationPolicyRules,
+  buildVerificationStateLine,
   buttonVerificationScope,
   classifyVerificationCall,
   decideVerificationCall,
   inheritVerificationScope,
   isEditingToolCall,
+  isVerificationGateEnabled,
   mergeVerificationScopes,
   parseVerificationRequest,
   verificationNotRun,
   verificationScopeFromText,
+  VERIFICATION_GATE_DEFAULT_ENABLED,
   VERIFICATION_GRANT_RUNS_PER_KIND,
   type CommandVerificationSummary,
+  type QueuedCommand,
   type VerificationScope,
 } from '@vibisual/shared';
+import { VerificationGate } from './verificationGate.js';
 
 const bash = (command: string) => classifyVerificationCall('Bash', { command });
 const kinds = (command: string) => bash(command).map((h) => h.kind).sort();
@@ -223,5 +229,95 @@ describe('범위의 수명 — 위임·합치기·승계', () => {
     expect(verificationNotRun({ edited: true, ranCalls: 1 })).toBe(false);
     expect(verificationNotRun({})).toBe(false);
     expect(verificationNotRun(undefined)).toBe(false);
+  });
+});
+
+describe('(J) 실행 전 차단 스위치 — 옵션창 권한 탭, 기본 끔', () => {
+  const testHit = bash('npx vitest run src/foo.test.ts');
+  const now = 1_000_000;
+
+  it('기본은 끔이다 — `true` 로만 켜진다', () => {
+    expect(VERIFICATION_GATE_DEFAULT_ENABLED).toBe(false);
+    expect(isVerificationGateEnabled(undefined)).toBe(false);
+    expect(isVerificationGateEnabled({})).toBe(false);
+    expect(isVerificationGateEnabled({ permissions: {} })).toBe(false);
+    expect(isVerificationGateEnabled({ permissions: { verificationGate: false } })).toBe(false);
+    expect(isVerificationGateEnabled({ permissions: { verificationGate: true } })).toBe(true);
+  });
+
+  it('끄면 거부하지 않고 실행으로 센다 — 권한 없음·확인 실패 모두', () => {
+    const noGrant = decideVerificationCall({ hits: testHit, now, enforced: false });
+    expect(noGrant.verdict).toBe('allow');
+    expect(decideVerificationCall({ hits: testHit, now, confirmed: false, enforced: false }).verdict).toBe('allow');
+    const summary = applyVerificationDecision(undefined, noGrant);
+    expect(summary?.ranCalls).toBe(1);
+    // 결과 줄은 "검증 미실행"이 아니라 "검증 N회 실행"을 말한다.
+    expect(verificationNotRun({ ...summary, edited: true })).toBe(false);
+    expect(decideVerificationCall({ hits: [], now, enforced: false }).verdict).toBe('none');
+  });
+
+  it('안 주면 켬 — 종전 판정 그대로', () => {
+    expect(decideVerificationCall({ hits: testHit, now }).verdict).toBe('deny');
+    expect(decideVerificationCall({ hits: testHit, now, enforced: true }).verdict).toBe('deny');
+  });
+
+  it('정책 문단 — 기본과 꺼짐에는 검증 제한 지시를 싣지 않는다', () => {
+    const on = buildVerificationPolicyRules({ enforced: true });
+    const off = buildVerificationPolicyRules({ enforced: false });
+    expect(on).toContain('Vibisual 이 실행 전에 집행한다');
+    expect(on).toContain('최신 `[검증 정책]` 상태가 켜짐일 때만 적용한다');
+    expect(on).toContain('실행이 거부되면');
+    expect(on).toContain('명시적으로 요청했을 때만');
+    expect(off).toBe('');
+    expect(buildVerificationPolicyRules()).toBe('');
+  });
+
+  it('매 턴 상태 — 꺼지면 이전 앱 제한을 해제하고 직접 받은 사용자 지시는 보존한다', () => {
+    const off = buildVerificationStateLine(undefined, undefined);
+    expect(off).toContain('[검증 정책] 꺼짐');
+    expect(off).toContain('사용자가 직접 지정한 검증 요청·금지와 작업 범위는 그대로 따른다');
+    expect(off).not.toContain('이번 작업: 없음');
+    expect(off).not.toContain('실행하지 말고');
+    const scope = buttonVerificationScope();
+    expect(buildVerificationStateLine(scope, undefined, { enforced: false })).toBe(off);
+    expect(buildVerificationStateLine(undefined, undefined, { enforced: true })).toContain('이번 작업: 없음');
+    expect(buildVerificationStateLine(undefined, undefined, { enforced: true })).toContain('[검증 정책] 켜짐');
+    expect(buildVerificationStateLine(scope, undefined, { enforced: true })).toContain('테스트: 변경 관련만');
+  });
+
+  it('판정 객체가 스위치를 쥔다 — 헤드리스·CMD·앱 검증 MCP 가 같은 답을 본다', () => {
+    let enforced = false;
+    const executing = { id: 'cmd-1', status: 'executing' } as unknown as QueuedCommand;
+    const gate = new VerificationGate({
+      findExecutingCommand: (sub) => (sub === 'sub-1' ? executing : undefined),
+      isEnforced: () => enforced,
+    });
+    const input = { toolName: 'Bash', toolInput: { command: 'npx vitest run src/foo.test.ts' } };
+    expect(gate.checkSubAgentCall('sub-1', input).verdict).toBe('allow');
+    expect(gate.checkSubAgentCall('sub-missing', input).verdict).toBe('allow');
+    expect(gate.commandAllows(executing, ['browser'])).toBe(true);
+    expect(executing.verification?.ranCalls).toBe(1);
+    // [적용] 뒤 다음 호출부터 따라간다(호출마다 읽는다).
+    enforced = true;
+    expect(gate.checkSubAgentCall('sub-1', input).verdict).toBe('deny');
+    expect(gate.checkSubAgentCall('sub-missing', input).verdict).toBe('deny');
+    expect(gate.commandAllows(executing, ['browser'])).toBe(false);
+    gate.beginCmdTurn('term-sub', '이 버그 고쳐 줘');
+    expect(gate.checkCmdCall('term-sub', input).verdict).toBe('deny');
+    expect(gate.cmdTurnStateLine('term-sub')).toContain('명시적으로 요청했을 때만');
+    expect(gate.cmdTurnStateLine('term-sub')).toContain('이번 작업: 없음');
+    enforced = false;
+    expect(gate.checkCmdCall('term-sub', input).verdict).toBe('allow');
+    expect(gate.cmdTurnStateLine('term-sub')).toContain('[검증 정책] 꺼짐');
+    expect(gate.cmdTurnStateLine('term-sub')).not.toContain('이번 작업: 없음');
+    expect(gate.cmdTurnStateLine('term-sub')).not.toContain('명시적으로 요청했을 때만');
+    // 돌지 않는 명령은 꺼 두어도 앱 검증 MCP 를 열지 않는다(소유 검사는 그대로).
+    expect(gate.commandAllows({ ...executing, status: 'completed' } as QueuedCommand, ['browser'])).toBe(false);
+  });
+
+  it('판정 객체도 기본 끔 — 설정 주입 누락으로 차단하지 않는다', () => {
+    const gate = new VerificationGate({ findExecutingCommand: () => undefined });
+    expect(gate.isEnforced()).toBe(false);
+    expect(gate.checkSubAgentCall(undefined, { toolName: 'Bash', toolInput: { command: 'pnpm test' } }).verdict).toBe('allow');
   });
 });

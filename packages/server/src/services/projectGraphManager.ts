@@ -113,7 +113,7 @@ import { loadCheckpointByMeta, loadIdentityFromDir, writeCheckpoint, projectDirF
 import { normalizePathLocks } from '@vibisual/shared';
 import type { PathLock, PathLockTarget } from '@vibisual/shared';
 // §5.4 #36 (C) — 결과 전달 경로 판정(루트 안 · 상대 경로화). 플랫폼은 인자로 넘긴다.
-import { projectRelativePath } from '@vibisual/shared';
+import { isAppBubbleId, projectRelativePath } from '@vibisual/shared';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -3079,6 +3079,16 @@ export class ProjectGraphManager {
    */
   private clientSliceScopes = new Map<object, Set<SliceScopeGroup> | null>();
 
+  /**
+   * §9 「창이 뜬 직후의 메인 스레드」 ① — 이 세션에서 아직 아무 창도 범위를 선언하지 않은 **부팅 구간**에
+   * 브로드캐스트가 싣는 프로젝트(마지막으로 보던 프로젝트의 경로). 위 "아무도 선언하지 않았으면 전부"의 부팅 예외다:
+   * 그 구간의 스냅샷(부팅 직후의 방송·첫 연결)이 열린 프로젝트 전부를 대화 기록 재파싱까지 하며 지어, 창이 막 뜬
+   * 그 순간 메인 스레드를 붙잡았다(그동안 창이 제목줄로 안 움직였다). 첫 선언이 오면 물러나고 다시 오지 않는다.
+   */
+  private bootViewPath: string | null = null;
+  /** 이 세션에서 한 창이라도 범위를 선언했는가 — 그 뒤의 침묵은 종전 규칙(전량)이다. */
+  private scopeEverDeclared = false;
+
   /** §9 배경 탭 유휴 해제 — 표시명 → 마지막으로 어떤 창의 구독 범위에 들어 있던 시각(epoch ms). */
   private lastInScopeAt = new Map<string, number>();
   /** §9 — 서버 기동 시각. "이 세션에서 한 번도 본 적 없는" 프로젝트의 유휴 기준점. */
@@ -3097,6 +3107,7 @@ export class ProjectGraphManager {
   setClientProjectScope(client: object, projects: string[], folders?: string[], slices?: string[]): void {
     const names = projects.filter((p) => typeof p === 'string' && p.length > 0);
     this.clientScopes.set(client, new Set(names));
+    this.scopeEverDeclared = true;
     // §9 폴더 스코프 — 같은 선언에 얹혀 온다. **안 보냈으면(undefined) 미선언**이라 전량으로
     //   되돌아간다(빈 배열 = "폴더 밖" 이라는 유효한 선언과 구분해야 한다).
     this.clientFolderScopes.set(
@@ -3291,10 +3302,37 @@ export class ProjectGraphManager {
    */
   getBroadcastSnapshot(): GraphSnapshot {
     return this.buildSnapshot(
-      this.getEffectiveProjectScope(),
+      this.getEffectiveProjectScope() ?? this.getBootViewScope(),
       this.getEffectiveFolderScope(),
       this.getEffectiveSliceScope(),
     );
+  }
+
+  /**
+   * §9 「창이 뜬 직후의 메인 스레드」 ① — 부팅 구간에 실을 프로젝트(마지막으로 보던 것)를 정한다.
+   * 경로를 받는다(`AppState.lastActiveProject`). 빈 값이면 부팅 구간도 종전대로 전량이다.
+   */
+  setBootViewProject(projectPath: string | null | undefined): void {
+    this.bootViewPath = typeof projectPath === 'string' && projectPath.length > 0 ? projectPath : null;
+  }
+
+  /**
+   * 부팅 구간의 브로드캐스트 범위 — 아직 아무 창도 선언하지 않았을 때만 쓴다. 범위 판정과 **같은 표시명**을
+   * 돌려준다(`instanceDisplayNames`). 그 경로의 인스턴스를 못 찾으면(닫혔다·아직 stub) `null` = 종전대로 전량 —
+   * 판정 실패가 빈 화면이 되면 안 된다. 배경 탭 유휴 해제는 이 범위를 보지 않는다(`getEffectiveProjectScope` 그대로).
+   */
+  private getBootViewScope(): Set<string> | null {
+    if (this.scopeEverDeclared || this.bootViewPath === null) return null;
+    const want = normPathId(this.bootViewPath);
+    const visible = this.visibleInstanceList();
+    const displayNames = this.instanceDisplayNames(visible);
+    for (const inst of visible) {
+      const pp = inst.getPrimaryProject();
+      if (!pp || normPathId(pp.path) !== want) continue;
+      const display = displayNames.get(inst);
+      if (display) return new Set([display]);
+    }
+    return null;
   }
 
   private buildSnapshot(
@@ -4322,6 +4360,8 @@ export class ProjectGraphManager {
   // ─── §5.13 v4.45 내부 앱 버블 위임 ───
 
   createAppBubble(input: {
+    /** §5.4 #36 (F) — 클라가 지은 id(낙관 생성). 형식이 맞고 **어느 프로젝트에도 없을 때만** 쓴다. */
+    id?: unknown;
     projectName: string;
     appId: string;
     x: number;
@@ -4335,7 +4375,10 @@ export class ProjectGraphManager {
   }): AppBubble | null {
     const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
     if (!inst) return null;
-    return inst.createAppBubble(input);
+    const { id: proposed, ...rest } = input;
+    // 다른 프로젝트에 같은 id 가 있으면 받지 않는다 — PATCH·DELETE 가 인스턴스를 훑어 id 로 찾으므로 둘이 섞인다.
+    const id = isAppBubbleId(proposed) && !this.getAppBubble(proposed) ? proposed : undefined;
+    return inst.createAppBubble(id === undefined ? rest : { ...rest, id });
   }
 
   /**
@@ -4357,15 +4400,29 @@ export class ProjectGraphManager {
       const abs = path.isAbsolute(file) ? path.resolve(file) : path.resolve(root, file);
       const rel = projectRelativePath(root, abs, HOST_PLATFORM);
       if (!rel) return { ok: false, error: 'outside-project' };
+      let modifiedAt: number;
       try {
-        if (!fs.statSync(abs).isFile()) return { ok: false, error: 'missing-file' };
+        const st = fs.statSync(abs);
+        if (!st.isFile()) return { ok: false, error: 'missing-file' };
+        modifiedAt = Math.round(st.mtimeMs);
       } catch {
         return { ok: false, error: 'missing-file' };
       }
-      const updated = inst.setAppBubbleFile(id, rel);
+      // §5.4 #36 (F) — 결과 버전은 파일의 수정 시각이다. 같은 이름으로 다시 만들어 다시 보내면 값이 바뀌어
+      //   노드 화면의 미리보기가 다시 구워진다(이름만 보면 같은 결과로 읽혀 옛 그림이 남는다).
+      const updated = inst.setAppBubbleFile(id, rel, modifiedAt);
       return updated ? { ok: true, bubble: updated } : { ok: false, error: 'not-found' };
     }
     return { ok: false, error: 'not-found' };
+  }
+
+  /**
+   * §5.13 (L) — 노드에 앱의 **작업 문서 열쇠**(`ref`)를 묶는다(결과 전달 창구의 두 번째 갈래). 앱이 짓는 id 라 뜻은 모르고,
+   * 경로·스크립트가 섞이지 않은 안전한 모양만 받는다. 못 찾거나 모양이 틀리면 false.
+   */
+  setAppBubbleRef(id: string, ref: string): boolean {
+    if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(ref)) return false;
+    return this.updateAppBubble(id, { ref }) !== null;
   }
 
   /** §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태. 그 에이전트를 가진 인스턴스를 찾아 맡긴다. */
@@ -4373,6 +4430,20 @@ export class ProjectGraphManager {
     let notEligible = false;
     for (const inst of this.instances.values()) {
       const result = inst.setAgentForm(nodeId, form);
+      if (result.ok) return result;
+      if (result.reason === 'not-eligible') notEligible = true;
+    }
+    return { ok: false, reason: notEligible ? 'not-eligible' : 'not-found' };
+  }
+
+  /** §5.4 #36 (H) — 에이전트의 연결 보기(선 켜고 끄기 · 보기 전환). 그 에이전트를 가진 인스턴스를 찾아 맡긴다. */
+  setAgentLinkView(
+    nodeId: string,
+    patch: { hidden?: boolean; lens?: 'linked' | 'files' },
+  ): { ok: true; linksHidden: boolean; linkLens: 'linked' | 'files' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
+    let notEligible = false;
+    for (const inst of this.instances.values()) {
+      const result = inst.setAgentLinkView(nodeId, patch);
       if (result.ok) return result;
       if (result.reason === 'not-eligible') notEligible = true;
     }

@@ -8,6 +8,8 @@ import type { SpecItem } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 
 /**
  * §5.15 — 스펙 표지 버블.
@@ -57,6 +59,7 @@ function StaleGlyph(): React.JSX.Element {
 }
 
 export const SpecNode = memo(function SpecNode({
+  id,
   data,
   selected,
 }: NodeProps & { data: SpecNodeData }): React.JSX.Element {
@@ -114,9 +117,15 @@ export const SpecNode = memo(function SpecNode({
    * 선택·더블클릭 — 에이전트(IDE) 버블과 **같은 상태기계 한 벌**(`bubbleSelectGesture`).
    * 드래그 래퍼의 `d3-drag` 가 누름의 전파를 끊는 함정도 그 안에서 함께 다룬다.
    */
+  // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
+  const canvasSelection = useCanvasNodeSelection(id, data.specDocId);
   const gesture = useBubbleSelectGesture({
     doubleClickable: true,
-    select: () => selectSpecDoc(data.specDocId),
+    select: () => {
+      canvasSelection.replace();
+      selectSpecDoc(data.specDocId);
+    },
+    toggle: canvasSelection.toggle,
     setIntent: (active) => {
       useGraphStore.getState().setSelectIntent(active ? data.specDocId : null);
     },
@@ -126,9 +135,11 @@ export const SpecNode = memo(function SpecNode({
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
+    // §6 — 여럿을 고른 묶음 안이면 묶음 메뉴다(고르기를 그 하나로 바꾸지 않는다).
+    if (selected === true && openGroupMenuIfGrouped(id, e.clientX, e.clientY)) return;
     gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [gesture]);
+  }, [gesture, id, selected]);
 
   // 더블클릭 = 스펙 보드 열기. **선택은 하지 않는다**(보드는 id 를 직접 받는다).
   const handleOpen = useCallback((e: React.MouseEvent): void => {

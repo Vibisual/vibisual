@@ -1,4 +1,4 @@
-import { applyPatch, resolveTimeline, type TimeAnchor, type VideoDoc, type VideoDocOp, type VideoItem } from '@vibisual/video';
+import { anchorItemRef, applyPatch, rebaseKeyframes, resolveTimeline, strongBeatsInDoc, type TimeAnchor, type VideoDoc, type VideoDocOp, type VideoItem } from '@vibisual/video';
 
 export const TIMELINE_CONFIG = {
   gutter: 176, minWidth: 440, maxZoom: 16, zoomFactor: 2, snapPixels: 8,
@@ -30,7 +30,7 @@ export function offsetTimelineAnchor(at: TimeAnchor, delta: number): TimeAnchor 
 
 /** Scenes restart their animation at localTime=0; their leading edge cannot be source-trimmed. */
 export function canTrimTimelineStart(item: VideoItem): boolean {
-  return item.kind === 'audio' || item.kind === 'footage' || item.kind === 'image' || item.kind === 'caption';
+  return item.kind === 'audio' || item.kind === 'footage' || item.kind === 'image' || item.kind === 'caption' || item.kind === 'composition';
 }
 
 export function buildTimelineEditOps(doc: VideoDoc, itemId: string, mode: TimelineEditMode, deltaSeconds: number): readonly VideoDocOp[] {
@@ -49,17 +49,20 @@ export function buildTimelineEditOps(doc: VideoDoc, itemId: string, mode: Timeli
     patch = { at: offsetTimelineAnchor(item.at, delta) };
   } else if (mode === 'trimStart') {
     if (!canTrimTimelineStart(item) || duration < frame) return [];
-    const media = item.kind === 'audio' || item.kind === 'footage';
+    // §5.13 (T-1) — 컴포지션도 시간 속을 흐르는 소재다 — 앞을 자르면 그만큼 안쪽 시각(`trimStart`)이 밀린다.
+    const media = item.kind === 'audio' || item.kind === 'footage' || item.kind === 'composition';
     const lower = media ? Math.max(-start, -(item.trimStart ?? 0)) : -start;
     const delta = Math.max(lower, Math.min(duration - frame, requested));
     if (Math.abs(delta) < 1e-8) return [];
     patch = { at: offsetTimelineAnchor(item.at, delta), duration: duration - delta };
     if (media) patch = { ...patch, trimStart: Math.max(0, (item.trimStart ?? 0) + delta) };
+    // §5.13 (W) 38-4 — 앞을 자르면(늘리면) 상자의 시간 곡선도 그만큼 당긴다(밀린다) — 움직임이 내용에 붙어 있게.
+    if (item.keyframes && item.keyframes.length > 0) patch = { ...patch, keyframes: rebaseKeyframes(item.keyframes, delta) ?? [] };
     // Cropping captions must leave absolute cue positions unchanged.
     if (item.kind === 'caption') patch = { ...patch, cues: item.cues };
   } else {
     const asset = item.assetId ? doc.assets[item.assetId] : undefined;
-    const media = item.kind === 'audio' || item.kind === 'footage';
+    const media = item.kind === 'audio' || item.kind === 'footage' || item.kind === 'composition';
     const available = media && asset?.duration !== undefined ? Math.max(frame, asset.duration - (item.trimStart ?? 0)) : Infinity;
     const nextDuration = Math.max(frame, Math.min(available, duration + requested));
     if (Math.abs(nextDuration - duration) < 1e-8) return [];
@@ -98,11 +101,17 @@ export function timelineSnapPoints(doc: VideoDoc, itemId: string, playhead: numb
     changed = false;
     for (const { item } of timeline.items) {
       if (excluded.has(item.id) || typeof item.at === 'number') continue;
-      const anchor = 'after' in item.at ? item.at.after : item.at.start;
-      if (excluded.has(anchor)) { excluded.add(item.id); changed = true; }
+      const anchor = anchorItemRef(item.at);
+      if (anchor !== undefined && excluded.has(anchor)) { excluded.add(item.id); changed = true; }
     }
   }
-  return [...new Set([0, playhead, ...timeline.items.filter(item => !excluded.has(item.id)).flatMap(item => [item.start, item.end])])];
+  // §5.13 (V) 37-12 · (T-8) — 강한 비트와 컴포지션 표지에도 붙는다(Alt 로 끄는 규칙은 같다).
+  const cues = timeline.items.filter(item => item.kind === 'composition' && !excluded.has(item.id)).flatMap(item => {
+    const asset = item.item.assetId === undefined ? undefined : doc.assets[item.item.assetId];
+    const trim = item.item.trimStart ?? 0;
+    return (asset?.cues ?? []).map(cue => item.start + (cue.t - trim)).filter(t => t >= item.start && t <= item.end);
+  });
+  return [...new Set([0, playhead, ...timeline.items.filter(item => !excluded.has(item.id)).flatMap(item => [item.start, item.end]), ...strongBeatsInDoc(doc, timeline), ...cues])];
 }
 
 export function snapTimelineDelta(start: number, end: number, delta: number, mode: TimelineEditMode, points: readonly number[], threshold: number): { delta: number; snap: number | null } {

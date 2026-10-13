@@ -6,6 +6,8 @@ import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import { computeCaptureResizeSnap, type SnapRect } from './captureSnap.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { useCaptureStream, type CaptureQuality } from '../../hooks/useCaptureStream.js';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
 import { useCaptureRecorder } from '../../hooks/useCaptureRecorder.js';
@@ -80,6 +82,7 @@ const TOOLBAR_MIN_WIDTH = 220;
  * ③ 상태(라이브·일시정지·조작 중·보기 전용·핀)를 글리프 칩으로 한눈에 보여준다.
  */
 export const CaptureNode = memo(function CaptureNode({
+  id,
   data,
   selected,
   dragging,
@@ -301,14 +304,27 @@ export const CaptureNode = memo(function CaptureNode({
    * 패널이 함께 열렸다. 이제 실제 선택은 240ms 뒤이고, 그 안에 두 번째 누름이 오면 접힌다.
    * 헤더의 아이콘 툴바(일시정지·스냅샷·크게 보기…)에서 시작한 누름은 `ignore` 로 걸러 낸다.
    */
+  // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
+  const canvasSelection = useCanvasNodeSelection(id, d.captureBubbleId);
   const gesture = useBubbleSelectGesture({
     doubleClickable: true,
-    select: () => selectCaptureBubble(d.captureBubbleId),
+    select: () => {
+      canvasSelection.replace();
+      selectCaptureBubble(d.captureBubbleId);
+    },
+    toggle: canvasSelection.toggle,
     setIntent: (active) => {
       useGraphStore.getState().setSelectIntent(active ? d.captureBubbleId : null);
     },
     ignore: (e) => isInteractiveTarget(e.target),
   });
+  // §6 — 여럿을 고른 묶음 안에서 헤더를 우클릭하면 묶음 메뉴(묶음 안 어느 버블 위에서 눌러도 같다).
+  //   묶음 밖이면 종전대로 아무것도 하지 않는다(이 노드에는 따로 메뉴가 없다).
+  const handleHeaderContextMenu = useCallback((e: React.MouseEvent) => {
+    if (selected !== true || !openGroupMenuIfGrouped(id, e.clientX, e.clientY)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, [id, selected]);
 
   // 헤더 더블클릭 → 앱 내부 IDE식 창 열기(CaptureWindow). React Flow 의 더블클릭 줌과 충돌 방지.
   // 창은 닫기(X)/Escape 로 닫으므로 여기선 열기만(이미 열려 있으면 no-op — 버블당 창 하나).
@@ -453,6 +469,7 @@ export const CaptureNode = memo(function CaptureNode({
         // 헤더에서 시작한 클릭이 캔버스까지 흘러가지 않게 한다(선택 자체는 위 제스처가 맡는다).
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={handleHeaderDoubleClick}
+        onContextMenu={handleHeaderContextMenu}
         title={t('bubbleMap.capture.expandHint', { defaultValue: '더블클릭하면 창으로 엽니다' })}
         style={{
           height: CAPTURE_BUBBLE_DEFAULTS.HEADER_HEIGHT,

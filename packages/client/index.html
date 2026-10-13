@@ -12,7 +12,9 @@
     <title>Vibisual</title>
   </head>
   <body class="bg-gray-950 text-white">
-    <div id="root"></div>
+    <!-- §3.7 — 첫 화면에도 제목줄. React 가 헤더를 그리기 전에도 창을 잡아 옮길 수 있게 36px 드래그 띠를
+         깐다(VS Code 가 첫 화면에 제목줄을 까는 것과 같다). 첫 렌더가 #root 안을 비우며 이 띠를 지운다. -->
+    <div id="root"><div class="app-drag h-9" aria-hidden="true"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

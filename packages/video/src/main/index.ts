@@ -8,7 +8,18 @@
  * 와 `windowManager` 는 손대지 않는다.
  */
 import type { AppMainHost, AppWindowSpec } from '../host.js';
-import { captureOffscreenAt, closeOffscreen, openOffscreen, probeOffscreen, setMainHost } from './offscreen.js';
+import {
+  captureOffscreenAt,
+  closeAllOffscreen,
+  closeOffscreen,
+  inspectOffscreen,
+  openOffscreen,
+  probeOffscreen,
+  setMainHost,
+} from './offscreen.js';
+import { closeWorker, ensureWorker } from './worker.js';
+import { capturePageImage } from './pageCapture.js';
+import { downloadLibrary } from './libsDownload.js';
 
 const DEFAULT_W = 1280;
 const DEFAULT_H = 860;
@@ -21,6 +32,8 @@ export interface VideoMainModule {
   attach: (host: AppMainHost) => void;
   window: (params: Record<string, string>) => AppWindowSpec;
   invoke: (action: string, payload: unknown) => Promise<unknown>;
+  /** §5.13 (T-11) ④ — 본체 창이 닫힐 때 이 앱이 띄운 숨은 창(일꾼·오프스크린)을 정리한다. */
+  dispose: () => void;
 }
 
 export const vibistudioApp: VideoMainModule = {
@@ -35,13 +48,16 @@ export const vibistudioApp: VideoMainModule = {
     // §5.13 (R-2) — 눌러서 연 파일(루트 기준 상대 경로). 창은 이 값을 그대로 셸에 넘긴다.
     const file = params['file'];
     const filePart = file === undefined || file === '' ? '' : `&file=${encodeURIComponent(file)}`;
+    // §5.13 (L) — 이 창을 연 캔버스 노드. 밖에서 다른 문서를 골라도 노드가 그 문서를 기억한다.
+    const bubble = params['appBubbleId'];
+    const bubblePart = bubble === undefined || bubble === '' ? '' : `&appBubbleId=${encodeURIComponent(bubble)}`;
     const spec: AppWindowSpec = {
       title: 'Vibisual — Vibistudio',
       width: DEFAULT_W,
       height: DEFAULT_H,
       minWidth: MIN_W,
       minHeight: MIN_H,
-      hash: `app=vibistudio&projectId=${encodeURIComponent(projectId)}${docPart}${filePart}`,
+      hash: `app=vibistudio&projectId=${encodeURIComponent(projectId)}${docPart}${filePart}${bubblePart}`,
     };
     return spec;
   },
@@ -57,21 +73,48 @@ export const vibistudioApp: VideoMainModule = {
       case 'offscreen:probe':
         return probeOffscreen();
       case 'offscreen:open': {
-        const p = payload as { width: number; height: number; project: string; docId: string };
-        await openOffscreen(p);
-        return null;
+        // §5.13 (W) 38-1·38-3·38-7 — 맞춤 배율을 돌려주고, 투명 배경·장면 정지 화면을 렌더 화면에 넘긴다.
+        const p = payload as { width: number; height: number; project: string; docId: string; session?: string; rev?: string; alpha?: boolean; frame?: string };
+        return openOffscreen(p);
       }
       case 'offscreen:capture': {
-        const p = payload as { t: number };
-        const png = await captureOffscreenAt(p.t);
-        // Buffer 를 그대로 보내면 구조적 복제에서 Uint8Array 로 바뀐다 — ArrayBuffer 로 통일.
+        const p = payload as { t: number; session?: string; format?: 'raw' | 'png' };
+        const shot = await captureOffscreenAt(p.t, p.session, p.format);
+        // §5.13 (W) 38-1 — 날 비트맵은 그대로(이미 ArrayBuffer). PNG 는 Buffer 를 ArrayBuffer 로(구조적 복제에서 모양을 지키게).
+        if (!Buffer.isBuffer(shot)) return shot;
+        return shot.buffer.slice(shot.byteOffset, shot.byteOffset + shot.byteLength) as ArrayBuffer;
+      }
+      // §5.13 (V) 37-9 — 프레임 검수: 마지막으로 찍은 시각의 컴포지션 글자 상자(읽기 전용).
+      case 'offscreen:inspect': {
+        const p = (payload ?? {}) as { session?: string };
+        return inspectOffscreen(p.session);
+      }
+      case 'offscreen:close': {
+        const p = (payload ?? {}) as { session?: string };
+        await closeOffscreen(p.session);
+        return null;
+      }
+      // §5.13 (T-4) — 서버 몫이 일감을 받으면 깨운다(이미 떠 있으면 그대로). 일꾼 창이 일감이 끊겼다며 닫아 달라고 한다.
+      case 'worker:ensure':
+        return ensureWorker();
+      case 'worker:idle':
+        closeWorker();
+        return null;
+      // §5.13 (T-6)(V) 37-11 — 사용자가 [받기]를 누른 파일 하나(https 만 · 크기 상한 · 시스템 프록시를 따르는 main 네트워크).
+      case 'libs:download':
+        return downloadLibrary(payload);
+      // §5.13 (V) 37-2 — '이 앱 소개' 의 실제 화면: loopback 프리뷰 한 장(숨은 창 — 찍고 닫는다).
+      case 'page:capture': {
+        const png = await capturePageImage((payload ?? {}) as { url: unknown; width?: unknown; height?: unknown });
         return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
       }
-      case 'offscreen:close':
-        await closeOffscreen();
-        return null;
       default:
         throw new Error(`vibistudio — 알 수 없는 동작: ${action}`);
     }
+  },
+
+  dispose: () => {
+    closeWorker();
+    closeAllOffscreen();
   },
 };

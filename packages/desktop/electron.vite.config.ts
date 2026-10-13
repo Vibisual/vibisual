@@ -1,5 +1,5 @@
 import { resolve, dirname } from 'node:path';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -26,6 +26,16 @@ delete process.env['ELECTRON_RUN_AS_NODE'];
 const CLIENT_ROOT = resolve(__dirname, '../client');
 const REPO_ROOT = resolve(__dirname, '../..');
 
+// main 번들에 넣을 워크스페이스 패키지 — 손으로 적지 않고 dependencies 의 `@vibisual/*` 에서 뽑는다.
+// 손으로 적던 목록은 내부 앱 패키지(§5.13)가 dependencies 에 더해질 때 따라오지 않았고, 그 패키지만 외부화된 채
+// 설치본 node_modules 에서 풀렸다. 그 자리에는 패키지의 devDependency 가 실리지 않으므로 앱 서버 몫이 express 를
+// import 하자 첫 요청이 ERR_MODULE_NOT_FOUND → `app failed to load` 로 끝났다(/runapp 은 워크스페이스 node_modules
+// 로 풀려 멀쩡해 설치본에서만 드러난다). 번들에 넣어도 늦은 로드(§5.13 P-1)는 그대로다 — 동적 import 는 별도 청크로 남는다.
+const DESKTOP_PKG = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as {
+  dependencies?: Record<string, string>;
+};
+const WORKSPACE_PACKAGES = Object.keys(DESKTOP_PKG.dependencies ?? {}).filter((name) => name.startsWith('@vibisual/'));
+
 // §3.6 v2.9 — Claude Code 글로벌 PreToolUse 훅이 실행할 핸들러 스크립트를
 // 앱 리소스에 동봉. main 빌드 closeBundle 단계에서 <repo>/hooks/{handler.mjs, lib/serverUrl.mjs}
 // 를 packages/desktop/out/hooks/{handler.mjs, lib/serverUrl.mjs} 로 복사.
@@ -39,6 +49,12 @@ function copyHookHandlerPlugin() {
     { from: resolve(REPO_ROOT, 'hooks/codex-edges.mjs'), to: resolve(__dirname, 'out/hooks/codex-edges.mjs') },
     { from: resolve(REPO_ROOT, 'hooks/verification-tools.mjs'), to: resolve(__dirname, 'out/hooks/verification-tools.mjs') },
     { from: resolve(REPO_ROOT, 'hooks/lib/serverUrl.mjs'), to: resolve(__dirname, 'out/hooks/lib/serverUrl.mjs') },
+    // SCENARIO §4 엔진 다리 — 우리가 띄우는 claude 세션에 `--plugin-dir` 로 싣는 Claude Code 모드.
+    //   매니페스트는 점 폴더(`.claude-plugin/`)에서 꺼내 **평평하게**(`plugin.json`) 싣는다 — 패키징이 점 폴더를
+    //   빠뜨리면 모드가 통째로 안 실린다. 서버(`services/engineBridge.ts`)가 `~/.vibisual/mods/` 에 제 모양으로 세운다.
+    { from: resolve(REPO_ROOT, 'hooks/mods/vibisual-bridge/.claude-plugin/plugin.json'), to: resolve(__dirname, 'out/mods/vibisual-bridge/plugin.json') },
+    { from: resolve(REPO_ROOT, 'hooks/mods/vibisual-bridge/hooks/hooks.json'), to: resolve(__dirname, 'out/mods/vibisual-bridge/hooks/hooks.json') },
+    { from: resolve(REPO_ROOT, 'hooks/mods/vibisual-bridge/hooks/register.js'), to: resolve(__dirname, 'out/mods/vibisual-bridge/hooks/register.js') },
     // BrowserWindow.icon (and Linux/Mac packaged window icons) need the PNG at runtime.
     // Stage it next to out/ so dev (electron-vite preview) and packaged builds resolve
     // the same path: `join(__dirname /* out/main */, '../icon.png')`.
@@ -64,15 +80,14 @@ function copyHookHandlerPlugin() {
 export default defineConfig({
   main: {
     // externalizeDepsPlugin 은 @vibisual/desktop 의 직접 dependencies 를 외부화한다.
-    // exclude: @vibisual/* 워크스페이스 패키지는 번들에 포함(CJS main 은 ESM dist 를 require 불가).
+    // exclude: @vibisual/* 워크스페이스 패키지는 전부 번들에 포함(CJS main 은 ESM dist 를 require 불가) —
+    //   목록은 위 WORKSPACE_PACKAGES 가 dependencies 에서 뽑는다.
     // include 없음: express/cors/ws/multer/chokidar 등 server 전이 의존성은 desktop/node_modules
     //   에 없으므로 외부화 금지 → Rollup 이 번들에 포함. light-my-request/ws/@runonflux/nat-upnp/
     //   selfsigned(§4 v3.16/v3.20 모바일 웹 접속)는 desktop 직접 의존성 → 외부화되어 런타임에
     //   desktop/node_modules 에서 정상 resolve. electron 은 electron-vite 가 자동 외부화.
     plugins: [
-      externalizeDepsPlugin({
-        exclude: ['@vibisual/server', '@vibisual/shared', '@vibisual/client', '@vibisual/plugins'],
-      }),
+      externalizeDepsPlugin({ exclude: WORKSPACE_PACKAGES }),
       copyHookHandlerPlugin(),
     ],
     build: {

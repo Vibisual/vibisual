@@ -30,10 +30,17 @@ export function frameSignature(doc: VideoDoc, timeline: ResolvedTimeline, t: num
     const localFrame = Math.round(op.localTime * fps);
     // 자막은 같은 아이템 안에서도 지금 보이는 줄이 달라진다.
     const cueKey = op.cues.length === 0 ? '' : op.cues.map((c) => `${c.start}:${c.text}`).join('|');
-    return `${op.z}:${op.itemId}:${itemHash}:${localFrame}:${cueKey}`;
+    // §5.13 (V) 37-8 — 전환 구간이면 효과가 얹힌 배치·잘라 보이기가 그림을 바꾼다(같은 지역 프레임이라도 다른 그림).
+    const tr = op.transform;
+    const fxKey = op.clip || op.synthetic
+      ? `${tr.x.toFixed(2)},${tr.y.toFixed(2)},${tr.scale.toFixed(4)},${tr.opacity.toFixed(4)}|${op.clip ? `${op.clip.x.toFixed(1)},${op.clip.width.toFixed(1)}` : ''}`
+      : `${tr.x.toFixed(2)},${tr.y.toFixed(2)},${tr.scale.toFixed(4)},${tr.opacity.toFixed(4)}`;
+    return `${op.z}:${op.itemId}:${itemHash}:${localFrame}:${cueKey}:${fxKey}`;
   });
 
-  return stableHash(`${doc.size.width}x${doc.size.height}@${fps}|${parts.join(';')}`);
+  // §5.13 (V) 37-10 — 문서 스타일은 기본 씬·컴포지션의 색·글꼴을 바꾼다 — 같은 아이템이라도 스타일이 다르면 다른 그림이다.
+  const styleKey = doc.style ? stableHash(JSON.stringify(doc.style)) : '';
+  return stableHash(`${doc.size.width}x${doc.size.height}@${fps}|${styleKey}|${parts.join(';')}`);
 }
 
 /**

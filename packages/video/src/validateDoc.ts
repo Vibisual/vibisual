@@ -22,6 +22,8 @@ const ITEM_KINDS: readonly VideoItemKind[] = [
   'caption',
   'shape',
   'text',
+  // §5.13 (T-1) — 코드 컴포지션. 소재가 맞는지는 의미 검사(`resolveTimeline`)가 아이템 단위로 본다.
+  'composition',
 ];
 
 export type ValidateResult =
@@ -45,10 +47,85 @@ function isTimeAnchor(v: unknown): v is TimeAnchor {
   if (!isRecord(v)) return false;
   const hasAfter = isNonEmptyString(v['after']);
   const hasStart = isNonEmptyString(v['start']);
-  // 정확히 하나만 있어야 한다 — 둘 다 있으면 어느 쪽을 따를지 알 수 없다.
-  if (hasAfter === hasStart) return false;
+  // §5.13 (V) 37-4 장면 앵커 · (T-8) 표지 앵커(그 표지를 낸 아이템 id 가 함께 있어야 한다).
+  const hasChapter = isNonEmptyString(v['chapter']);
+  const hasCue = isNonEmptyString(v['cue']);
+  if (hasCue && !isNonEmptyString(v['item'])) return false;
+  // 정확히 하나만 있어야 한다 — 둘 이상이면 어느 쪽을 따를지 알 수 없다.
+  if ([hasAfter, hasStart, hasChapter, hasCue].filter(Boolean).length !== 1) return false;
   const offset = v['offset'];
   return offset === undefined || isFiniteNumber(offset);
+}
+
+const CHAPTER_STATUSES = ['plan', 'approved', 'building', 'done'];
+const TRANSITION_KINDS = ['cut', 'dissolve', 'push', 'zoom', 'flash', 'wipe'];
+
+/** §5.13 (V) 37-4 — 장면 층의 모양. 없으면(옛 문서) 그대로 통과. */
+function validateChapters(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    errors.push('chapters 가 배열이 아닙니다.');
+    return;
+  }
+  const seen = new Set<string>();
+  value.forEach((chapter, i) => {
+    const where = `장면 #${i}`;
+    if (!isRecord(chapter)) {
+      errors.push(`${where} 가 객체가 아닙니다.`);
+      return;
+    }
+    const id = chapter['id'];
+    if (!isNonEmptyString(id)) errors.push(`${where} 에 id 가 없습니다.`);
+    else if (seen.has(id)) errors.push(`장면 id '${id}' 가 중복입니다.`);
+    else seen.add(id);
+    if (typeof chapter['title'] !== 'string') errors.push(`${where} 의 title 이 문자열이 아닙니다.`);
+    if (!isFiniteNumber(chapter['duration'])) errors.push(`${where} 의 duration 이 숫자가 아닙니다.`);
+    if (!CHAPTER_STATUSES.includes(String(chapter['status']))) errors.push(`${where} 의 status '${String(chapter['status'])}' 는 알 수 없는 값입니다.`);
+    for (const key of ['at', 'offset']) {
+      if (chapter[key] !== undefined && !isFiniteNumber(chapter[key])) errors.push(`${where} 의 ${key} 가 숫자가 아닙니다.`);
+    }
+    const tr = chapter['transition'];
+    if (tr !== undefined && (!isRecord(tr) || !TRANSITION_KINDS.includes(String(tr['kind'])) || !isFiniteNumber(tr['duration']))) {
+      errors.push(`${where} 의 transition 이 { kind, duration } 형태가 아닙니다.`);
+    }
+    const variants = chapter['variants'];
+    if (variants !== undefined && (!Array.isArray(variants) || variants.some((v) => !isRecord(v) || !isNonEmptyString(v['id'])))) {
+      errors.push(`${where} 의 variants 가 { id, engine, status } 목록이 아닙니다.`);
+    }
+    // §5.13 (W) 38-7 — 정지 화면은 { assetId, t? }. 소재가 컴포지션인지는 의미 검사(`resolveTimeline`)가 진단으로 본다.
+    const frame = chapter['frame'];
+    if (frame !== undefined && (!isRecord(frame) || !isNonEmptyString(frame['assetId']) || (frame['t'] !== undefined && !isFiniteNumber(frame['t'])))) {
+      errors.push(`${where} 의 frame 이 { assetId, t? } 형태가 아닙니다.`);
+    }
+  });
+}
+
+const KEYFRAME_NUMBERS = ['dx', 'dy', 'scale', 'rotation', 'opacity'];
+const KEYFRAME_EASES = ['linear', 'in', 'out', 'inOut', 'hold'];
+
+/** §5.13 (W) 38-4·38-5 — 키프레임·이펙트의 모양(값의 범위는 렌더가 자른다). 틀린 곳마다 한 줄. */
+function validateItemMotion(item: Record<string, unknown>, where: string, errors: string[]): void {
+  const keyframes = item['keyframes'];
+  if (keyframes !== undefined) {
+    if (!Array.isArray(keyframes)) errors.push(`${where} 의 keyframes 가 배열이 아닙니다.`);
+    else keyframes.forEach((k, ki) => {
+      if (!isRecord(k) || !isFiniteNumber(k['t'])) { errors.push(`${where} 키프레임 #${ki} 에 숫자 t 가 없습니다.`); return; }
+      for (const key of KEYFRAME_NUMBERS) {
+        if (k[key] !== undefined && !isFiniteNumber(k[key])) errors.push(`${where} 키프레임 #${ki} 의 ${key} 가 숫자가 아닙니다.`);
+      }
+      if (k['ease'] !== undefined && !KEYFRAME_EASES.includes(String(k['ease']))) {
+        errors.push(`${where} 키프레임 #${ki} 의 ease '${String(k['ease'])}' 는 ${KEYFRAME_EASES.join('·')} 가 아닙니다.`);
+      }
+    });
+  }
+  const effects = item['effects'];
+  if (effects !== undefined) {
+    if (!Array.isArray(effects)) errors.push(`${where} 의 effects 가 배열이 아닙니다.`);
+    else effects.forEach((e, ei) => {
+      if (!isRecord(e) || !isNonEmptyString(e['kind'])) errors.push(`${where} 이펙트 #${ei} 에 kind 가 없습니다.`);
+      else if (e['params'] !== undefined && !isRecord(e['params'])) errors.push(`${where} 이펙트 #${ei} 의 params 가 객체가 아닙니다.`);
+    });
+  }
 }
 
 /**
@@ -111,6 +188,8 @@ export function validateDoc(value: unknown): ValidateResult {
     }
   }
 
+  validateChapters(value['chapters'], errors);
+
   const tracks = value['tracks'];
   if (!Array.isArray(tracks)) {
     errors.push('tracks 가 배열이 아닙니다.');
@@ -163,6 +242,7 @@ export function validateDoc(value: unknown): ValidateResult {
       if (duration !== 'auto' && !isFiniteNumber(duration)) {
         errors.push(`${iw} 의 duration 이 숫자도 'auto' 도 아닙니다.`);
       }
+      validateItemMotion(item, iw, errors);
     });
   });
 

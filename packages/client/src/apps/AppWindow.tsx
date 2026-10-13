@@ -1,12 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 
 import { registerCaptureWindow, type CaptureWindowHandle } from '../components/BubbleMap/captureWindowManager.js';
 import { useFloatingWindow } from '../hooks/useFloatingWindow.js';
 import { setCanvasCover } from '../stores/canvasVisibility.js';
 import { AppShellHost } from './AppShellHost.js';
+import { AppChromeContext, useAppChromeHost, useAppChromeSlotGestures } from './appChrome.js';
 import { appShellParams, getInternalApp } from './registry.js';
 import { canPopOutAppWindow, useAppWindowsStore, type AppWindow as AppWindowEntry } from './appWindows.js';
 import { useAppWindowRedock } from './useAppWindowRedock.js';
@@ -24,6 +24,7 @@ import { isAppWindowVisible } from './appWindowProject.js';
  *
  * **타이틀바를 앱 밖으로 끌어내면** 그때 독립 OS 창이 된다(S-3). 여기서 하는 일은 그 손짓의
  * 결과를 store 에 넘기는 것뿐이고, 밖에 뜨는 창은 종전 그대로 `InternalApp.open()` 이 연다.
+ * 끄는 동안은 IDE 창(§5.5 #17-6)과 같은 **가상 창**이 손을 따라가고 본체는 숨는다(S-10).
  *
  * **특정 앱을 알지 않는다** (§5.13 (P-4)) — 제목·색·아이콘·화면은 전부 `appId` 로 레지스트리에서
  * 꺼내므로 앱이 늘어도 이 파일은 그대로다.
@@ -48,21 +49,33 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
   const [z, setZ] = useState<number>(handle.initialZ);
   const bringToFront = useCallback(() => { if (visibleRef.current) setZ(handle.bringToFront()); }, [handle]);
 
-  /** 끌어내기 무장 — 지금 손을 떼면 밖으로 나간다는 사실을 화면에 보여 주는 상태(S-4). */
-  const [pullOutArmed, setPullOutArmed] = useState(false);
   const [transferFailed, setTransferFailed] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const canPopOut = canPopOutAppWindow();
 
-  const popOutSelf = useCallback((geom?: FloatingWindowGeom, screenPosition?: { x: number; y: number }) => {
-    setPullOutArmed(false);
+  // §5.13 (V) 37-1 — 앱 화면이 이 창의 머리줄을 쓰는 일반 통로(창 제목 + 머리줄 자리). 창마다 한 벌.
+  const chromeHost = useAppChromeHost();
+
+  // 창 제목 — 타이틀바와 끌어낼 때의 가상 창(S-10)이 같은 이름을 쓴다. 앱이 정한 제목(작업 문서 이름 등)이 먼저다.
+  const appName = app ? t(app.nameKey, { defaultValue: app.name }) : win.appId;
+  const custom = chromeHost.title ?? win.title?.trim();
+  const title = custom !== undefined && custom !== '' ? custom : appName;
+
+  /**
+   * 밖으로 꺼낸다(S-5) — 끝나면 열렸는지를 돌려준다.
+   *
+   * @param fromGhost (S-10) 끌어낸 판이라 main 의 선이 그 자리에 멈춰 서 있다 — 새 창은 그 선의
+   *   자리·크기에 선다(main 이 선의 경계를 읽는다). 아니면 종전처럼 이 창의 화면 자리에 선다.
+   */
+  const popOutSelf = useCallback((geom?: FloatingWindowGeom, screenPosition?: { x: number; y: number }, fromGhost = false): Promise<boolean> => {
     setTransferFailed(false);
     setTransferring(true);
     const rect = geom ?? win.geometry;
-    void popOutWindow(win.id, rect ? {
+    return popOutWindow(win.id, rect ? {
       width: Math.round(rect.w), height: Math.round(rect.h),
       x: Math.round(screenPosition?.x ?? window.screenX + rect.x), y: Math.round(screenPosition?.y ?? window.screenY + rect.y),
-    } : undefined).then(ok => { setTransferFailed(!ok); setTransferring(false); });
+      ...(fromGhost ? { fromGhost: true } : {}),
+    } : undefined).then((ok) => { setTransferFailed(!ok); setTransferring(false); return ok; });
   }, [popOutWindow, win.id, win.geometry]);
 
   const fw = useFloatingWindow({
@@ -72,8 +85,27 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
     onInteractStart: bringToFront,
     // 창을 못 여는 판(웹·구버전 preload)에서는 손짓 자체가 없다 — 안내만 뜨고 아무 일도 안
     //   일어나면 그건 고장으로 읽힌다.
-    pullOut: { enabled: visible && canPopOut && !transferring, onArmedChange: setPullOutArmed, onRelease: ({ geom, screenPosition }) => popOutSelf(geom, screenPosition) },
+    pullOut: {
+      enabled: visible && canPopOut && !transferring,
+      // (S-10) 선 안의 이름 띠와 안내 한 줄 — 앱 안 윤곽선과 main 의 선이 같은 말을 한다(경계를 넘어도 안 바뀐다).
+      ghost: {
+        label: title,
+        hint: (armed) => (armed
+          ? t('panel.apps.window.pullOutArmed', { defaultValue: '놓으면 별도 창으로 나갑니다' })
+          : t('panel.apps.window.dragHint', { defaultValue: '앱 밖으로 끌어내면 별도 창이 됩니다.' })),
+      },
+      // (S-10) 꺼내기가 끝날 때까지 선은 그 자리에 서 있다 — 못 열면 훅이 선을 걷고 이 창을 되살린다.
+      onRelease: ({ geom, screenPosition, fromGhost }) => popOutSelf(geom, screenPosition, fromGhost),
+    },
   });
+  // §5.13 (S-11) 앱이 머리줄 자리에 그린 머리줄 위에서도 타이틀바와 같은 손짓 — 빈 곳을 잡고 끌기·밖으로 빼기·두 번
+  //   눌러 최대화. 그 머리줄은 포털이라 React 이벤트가 위 타이틀바까지 오지 않는다(자세한 것은 그 훅).
+  useAppChromeSlotGestures(chromeHost.chrome.slot, {
+    onPress: fw.titleBarProps.onMouseDown,
+    onDoublePress: fw.titleBarProps.onDoubleClick,
+  });
+  /** (S-10) 밖으로 빼는 중 — 본체는 숨고, 손을 따라가는 것은 이 선 하나다. */
+  const ghost = fw.pullOutGhost;
   const maximized = fw.maximized;
   const setMode = fw.setMode;
 
@@ -106,44 +138,55 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
    * (문서를 다시 읽고, 보던 자리를 잃는다).
    */
   const params = useMemo(
-    () => (app ? { ...appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file }), appWindowId: win.id, appWindowAppId: win.appId } : {}),
-    [app, win.projectId, win.ref, win.file, win.id],
+    () => (app ? { ...appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file, bubbleId: win.bubbleId }), appWindowId: win.id, appWindowAppId: win.appId } : {}),
+    [app, win.projectId, win.ref, win.file, win.id, win.bubbleId],
+  );
+
+  /**
+   * (S-10) ⑩ 앱 화면 — **창을 끄는 동안 다시 그리지 않는다**(§5.5 #17-6 (H-6) ② 와 같은 까닭).
+   *
+   * 창 자리는 끄는 동안 이동마다 상태로 바뀌어 이 창이 그때마다 다시 그려진다. 그 안의 앱 화면(편집기·
+   * 타임라인)까지 매번 다시 그리면 창이 클수록 프레임이 밀린다 — IDE 창이 걷어낸 그 버벅임이다. 같은
+   * 문서를 가리키는 동안은 한 번 만든 요소를 그대로 돌려줘 React 가 그 아래를 건너뛰게 한다(앱 화면은
+   * 자기 상태·구독으로는 여전히 다시 그려진다).
+   */
+  const shellView = useMemo(
+    () => <AppShellHost hash={{ appId: win.appId, mode: 'main', params }} fill />,
+    [win.appId, params],
   );
 
   if (!app) return null;
 
   const Icon = app.icon;
-  const appName = t(app.nameKey, { defaultValue: app.name });
-  const custom = win.title?.trim();
-  const title = custom !== undefined && custom !== '' ? custom : appName;
 
   return createPortal(
+    <>
     <div
       ref={fw.windowRef}
       data-app-window=""
       aria-hidden={!visible}
       {...(!visible ? { inert: '' } : {})}
-      className="fixed flex flex-col overflow-hidden rounded-xl shadow-2xl shadow-black/70 transition-opacity"
+      // (S-10) ⑨ 흐려지는 것은 **숨을 때만**(120ms) — 선이 꺼지면 손 아래에 곧바로 다시 선다(IDE 창과 같은
+      //   박자). 전환을 늘 걸어 두면 돌아올 때도 흐릿하게 떠올라 그동안 잔상처럼 보인다.
+      // §5.13 (V) 37-1 — 창 틀도 테마를 따른다(그래파이트 바탕 + 실버 1px 테 — 테마 토큰). 고정 rgba 였을 때는 라이트
+      //   테마에서 머리줄 글자만 뒤집혀 어두운 유리 위에서 사라졌다.
+      className={`fixed flex flex-col overflow-hidden rounded-xl border border-white/10 bg-vb-window shadow-2xl shadow-black/70${ghost ? ' transition-opacity duration-120 ease-out' : ''}`}
       style={{
         ...fw.style,
         display: visible ? undefined : 'none',
         zIndex: z,
-        background: CAPTURE_BUBBLE_DEFAULTS.STAGE_BG,
-        border: `1px solid ${pullOutArmed ? `${app.glow}99` : CAPTURE_BUBBLE_DEFAULTS.CHROME_BORDER}`,
-        // 끌어내는 동안 창이 흐려진다 — 손을 떼면 여기가 아니라 밖에 뜬다는 뜻이 눈에 먼저 온다.
-        opacity: pullOutArmed ? 0.55 : 1,
+        // (S-10) 밖으로 빼는 동안 본체는 **완전히 숨는다** — 손을 따라가는 것은 선 하나다(§5.5 #17-6 (H-19)).
+        //   반쯤 흐린 채 앱 경계에서 잘린 본체는 "밖으로 나가는 모습"이 아니라 잔상으로 읽혔다. 자리는
+        //   숨은 채로도 계속 맞춰 두므로(훅), 선이 꺼지면 손 아래 그 자리에 다시 나타난다.
+        opacity: ghost ? 0 : 1,
+        ...(ghost ? { pointerEvents: 'none' as const } : {}),
       }}
       onMouseDownCapture={bringToFront}
     >
       {/* 타이틀바 — 캡처 창과 같은 그래파이트 유리면. 드래그 이동 + 더블클릭 최대화 + 밖으로 끌어내기. */}
       <div
         {...fw.titleBarProps}
-        className="flex h-10 flex-shrink-0 cursor-grab select-none items-center gap-2 px-3 text-slate-200 active:cursor-grabbing"
-        style={{
-          background: CAPTURE_BUBBLE_DEFAULTS.CHROME_BG,
-          borderBottom: `1px solid ${CAPTURE_BUBBLE_DEFAULTS.CHROME_BORDER}`,
-          backdropFilter: 'blur(10px)',
-        }}
+        className="flex h-10 flex-shrink-0 cursor-grab select-none items-center gap-2 border-b border-white/10 bg-vb-sunken/90 px-3 text-slate-200 backdrop-blur-[10px] active:cursor-grabbing"
         title={canPopOut ? t('panel.apps.window.dragHint', { defaultValue: '앱 밖으로 끌어내면 별도 창이 됩니다.' }) : undefined}
       >
         <span
@@ -152,17 +195,21 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
         >
           <Icon />
         </span>
-        <span className="truncate text-[13px] font-semibold text-slate-100" title={title}>{title}</span>
-        {custom !== undefined && custom !== '' ? (
+        {/* (V) 37-1 — 앱이 머리줄 자리를 쓰는 동안은 제목 글자를 그리지 않는다(앱이 자기 제목을 그 자리에 그린다). */}
+        {!chromeHost.claimed ? (
+          <span className="truncate text-[13px] font-semibold text-slate-100" title={title}>{title}</span>
+        ) : null}
+        {!chromeHost.claimed && custom !== undefined && custom !== '' ? (
           <span className="shrink-0 truncate text-[12px] text-slate-500">{appName}</span>
         ) : null}
-        <span className="flex-1" />
+        {/* 머리줄 자리 — 앱이 쓰지 않으면 빈 칸(종전 사이 띄우개)이다. */}
+        <div ref={chromeHost.slotRef} data-app-chrome-slot="" className="flex min-w-0 flex-1 items-center gap-2" />
 
         {/* 끌 자리가 없는 사람에게도 길이 있어야 한다 — 끌어내기와 **같은 함수**를 부른다(S-5). */}
         {canPopOut && (
           <button
             type="button"
-            onClick={() => popOutSelf(fw.geom)}
+            onClick={() => { void popOutSelf(fw.geom); }}
             disabled={transferring}
             className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
             title={t('panel.apps.window.popOut', { defaultValue: '별도 창으로' })}
@@ -215,22 +262,7 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
       {/* 본문 — 앱 화면은 레지스트리의 늦은 로더가 그린다(안 열면 그 청크는 내려오지 않는다). */}
       {transferFailed && <p role="alert" className="shrink-0 bg-rose-950 px-3 py-1 text-xs text-rose-100">{t('panel.apps.window.transferFailed')}</p>}
       <div className="relative min-h-0 flex-1" aria-busy={transferring} {...(transferring ? { inert: '' } : {})}>
-        <AppShellHost hash={{ appId: win.appId, mode: 'main', params }} fill />
-
-        {/* 무장 안내 — 손을 떼면 무슨 일이 일어나는지 그 자리에서 말한다(S-4). */}
-        {pullOutArmed && (
-          <div
-            className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-b-xl border-2 border-dashed"
-            style={{ borderColor: `${app.glow}AA`, background: 'rgba(2,6,23,0.45)' }}
-          >
-            <span
-              className="rounded-full border px-3 py-1 text-[12px] font-semibold"
-              style={{ borderColor: `${app.glow}AA`, background: 'rgba(2,6,23,0.85)', color: app.glow }}
-            >
-              {t('panel.apps.window.pullOutArmed', { defaultValue: '놓으면 별도 창으로 나갑니다' })}
-            </span>
-          </div>
-        )}
+        <AppChromeContext.Provider value={chromeHost.chrome}>{shellView}</AppChromeContext.Provider>
       </div>
 
       {/* 우하단 리사이즈 핸들 — 최대화 중엔 숨김. */}
@@ -246,7 +278,41 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
           </svg>
         </div>
       )}
-    </div>,
+    </div>
+    {/* (S-10) **선으로 그린 가상 창**(앱 안 폴백) — 앱 밖까지 이어지는 정본은 main 의 클릭통과 창
+        (`ghostFrame.ts`)이고, 이것은 그 창이 아직 안 섰거나 못 띄우는 환경에서 그린다(앱 경계에서
+        잘리지만 선이 아예 없는 것보다 낫다). 그림은 main 의 선·IDE 창의 앱 안 선과 **같다** — 이름 띠
+        34px + 안내 한 줄, 같은 색 — 그래서 main 의 선으로 넘어가는 순간이 보이지 않는다. */}
+    {visible && ghost?.kind === 'inapp' && (
+      <div
+        data-app-window-ghost=""
+        aria-hidden="true"
+        className={`fixed overflow-hidden rounded-[10px] border-2 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.55),0_10px_30px_rgba(0,0,0,0.35)] ${
+          ghost.armed ? 'border-violet-300/95 bg-violet-500/[0.14]' : 'border-violet-400/75 bg-violet-500/[0.07]'
+        }`}
+        style={{
+          left: Math.round(ghost.rect.x),
+          top: Math.round(ghost.rect.y),
+          width: Math.round(ghost.rect.w),
+          height: Math.round(ghost.rect.h),
+          zIndex: z + 1,
+          pointerEvents: 'none',
+        }}
+      >
+        <div className={`flex h-[34px] items-center gap-1.5 border-b bg-slate-900/55 px-2.5 text-[12px] font-medium text-violet-100/95 ${
+          ghost.armed ? 'border-violet-300/80' : 'border-violet-400/55'
+        }`}>
+          <span className="h-2 w-2 flex-none rounded-full bg-violet-400/95" />
+          <span className="truncate">{title}</span>
+        </div>
+        <div className="truncate border-b border-violet-400/30 bg-slate-900/40 px-[11px] py-[7px] text-[12px] font-medium leading-[1.35] text-violet-200/90">
+          {ghost.armed
+            ? t('panel.apps.window.pullOutArmed', { defaultValue: '놓으면 별도 창으로 나갑니다' })
+            : t('panel.apps.window.dragHint', { defaultValue: '앱 밖으로 끌어내면 별도 창이 됩니다.' })}
+        </div>
+      </div>
+    )}
+    </>,
     document.body,
   );
 });

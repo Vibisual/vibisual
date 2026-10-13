@@ -15,8 +15,10 @@ import { GlobalTextFieldContextMenu } from './components/Layout/GlobalTextFieldC
 import { ExternalOpenNotice } from './components/Layout/ExternalOpenNotice.js';
 import { installRendererDiagnostics } from './utils/diagnostics.js';
 import { installPersistFlushBridge } from './utils/persistFlush.js';
-import { installDragRegionKeepalive } from './utils/dragRegionKeepalive.js';
+import { installTitlebarPressCatch } from './utils/titlebarPress.js';
 import { installInputCompositionGuard } from './utils/inputComposition.js';
+import { bootAppTheme } from './theme/appThemeEngine.js';
+import { AppThemeHost } from './components/Theme/AppThemeHost.js';
 // §5.5 — 읽기 설정 글꼴은 OS 설치에 기대지 않고 앱에 동봉해 싣는다(`scripts/fetch-reading-fonts.mjs`).
 // index.css 보다 먼저 실어야 `--font-sans` 첫 후보(Pretendard)가 첫 페인트부터 잡힌다.
 import './assets/fonts/fonts.css';
@@ -25,6 +27,11 @@ import './i18n/index.js';
 
 // §4 v1.98 — renderer 에러 캡처 설치(가능한 한 일찍 — 부팅 초기 에러도 잡도록).
 installRendererDiagnostics();
+
+// §4 앱 테마 — **첫 칠 전에** 지난번 테마로 먼저 칠한다. 스냅샷(고른 테마 id)은 창이 뜬 뒤에 오므로,
+// 이 줄이 없으면 라이트 테마를 쓰는 사람도 매번 어두운 화면이 한 번 번쩍인 뒤 바뀐다. 창 종류를
+// 가리지 않으므로 부팅 지점에 둔다. 권위는 서버 저장값이고, 이 캐시는 아래 AppThemeHost 가 늘 갱신한다.
+bootAppTheme();
 installInputCompositionGuard(window);
 
 // §3.2.1 — 종료 직전 main 의 "지금 초안을 밀어라"를 받는 창구.
@@ -35,16 +42,13 @@ installInputCompositionGuard(window);
 // 별창·오버레이 창·지휘통제실 창·내부 앱 창에도 입력칸이 있다(InspectorOverlay 와 같은 이유).
 installPersistFlushBridge();
 
-// §3.7 v2.10 — **타이틀바를 잡으면 창이 움직인다**를 창이 돌아올 때마다 다시 못 박는다.
+// §3.7 — **제목줄을 잡으면 창이 움직인다.** 드래그 영역이 신고돼 있으면 OS 가 그 누름을 가져가고,
+// 아니면(앱을 막 켰을 때 등) 누름이 페이지까지 온다 — 그때 그 누름 그대로 덮개와 같은 길로 창을 옮긴다.
+// 영역을 코드로 흔들어 다시 신고시키던 장치는 걷었다(그 흔들기가 누름을 버리게 했다 — `titlebarPress.ts`).
 //
-// OS 가 아는 드래그 영역은 렌더러가 신고한 목록인데, Chromium 은 그 목록이 **달라졌을 때만**
-// 보낸다. 창이 숨었다 돌아오는 사이 그 신고를 한 번 놓치면 헤더는 정적이라 다시 신고할 계기가
-// 영영 오지 않아, CSS 는 `app-drag` 그대로인데 OS 만 모르는 상태로 굳는다(사용자 보고 —
-// "최소화하거나 앱이 새로 켜지면 간헐적으로 잡고 못 옮긴다"). 까닭과 규약은 `dragRegionRefresh`.
-//
-// 위 둘과 같은 이유로 **부팅 지점**에 둔다 — 타이틀바를 가진 창이 메인 하나가 아니다(별창 미니
-// 타이틀바·지휘통제실·오버레이 위젯·내부 앱 셸이 전부 `.app-drag` 를 쓴다).
-installDragRegionKeepalive();
+// 위 둘과 같은 이유로 **부팅 지점**에 둔다 — 제목줄을 가진 창이 메인 하나가 아니다(별창 미니
+// 제목줄·지휘통제실·내부 앱 셸·오류 화면이 전부 `.app-drag` 를 쓴다).
+installTitlebarPressCatch();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
@@ -96,6 +100,9 @@ if (overlay || overlayMenu) document.documentElement.classList.add('overlay-wind
 createRoot(rootElement).render(
   <StrictMode>
     <AppErrorBoundary>
+      {/* §4 앱 테마 — 고른 테마를 이 창의 `<html>` 에 싣는다. 별창·오버레이·지휘통제실·내부 앱 창도
+          같은 테마를 칠해야 하므로 InspectorOverlay 와 같은 이유로 **부팅 지점에서 한 번만** 마운트한다. */}
+      <AppThemeHost />
       <InspectorOverlay />
       {/* 입력칸 우클릭 메뉴(잘라내기·복사·붙여넣기·전체 선택) — Electron 에는 브라우저 기본 메뉴가
           없어 직접 메뉴를 그려 둔 세 자리(IDE 입력창·편집창·터미널) 말고는 우클릭이 통째로 무반응이었다.

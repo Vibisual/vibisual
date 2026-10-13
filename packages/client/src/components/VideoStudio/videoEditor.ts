@@ -1,5 +1,5 @@
 import {
-  DEFAULT_VIDEO_FPS, resolveTimeline,
+  DEFAULT_VIDEO_FPS, anchorItemRef, rebaseKeyframes, resolveTimeline, restoreOps,
   type VideoAsset, type VideoDoc, type VideoDocOp, type VideoItem, type VideoTrackKind,
 } from '@vibisual/video';
 
@@ -61,10 +61,18 @@ export function buildAddShapeOps(doc: VideoDoc, at: number, label: string): Vide
 
 export function buildAssetItemOps(doc: VideoDoc, asset: VideoAsset, at: number, label: string): VideoDocOp[] {
   if (asset.kind === 'font') return [];
-  if (asset.kind !== 'image' && (!Number.isFinite(asset.duration) || (asset.duration ?? 0) <= 0)) return [];
-  const item: VideoItem = { id: nextEditorId(doc, 'media'), kind: asset.kind === 'video' ? 'footage' : asset.kind,
-    assetId: asset.id, at: snapEditorTime(doc, at), duration: asset.kind === 'image' ? DEFAULTS.duration : 'auto', label };
+  const measured = Number.isFinite(asset.duration) && (asset.duration ?? 0) > 0;
+  // §5.13 (T-1) — 컴포지션은 길이를 선언하지 않았어도 올린다(기본 길이로) — 코드를 쓰기 전의 뼈대도 타임라인에 선다.
+  if (asset.kind !== 'image' && asset.kind !== 'composition' && !measured) return [];
+  const duration = asset.kind === 'image' || (asset.kind === 'composition' && !measured) ? DEFAULTS.duration : 'auto';
+  const item: VideoItem = { id: nextEditorId(doc, asset.kind === 'composition' ? 'comp' : 'media'), kind: asset.kind === 'video' ? 'footage' : asset.kind,
+    assetId: asset.id, at: snapEditorTime(doc, at), duration, label };
   return [{ op: 'setAsset', asset }, ...buildInsertItemOps(doc, item)];
+}
+
+/** 시간 속을 흐르는 소재(앞을 잘라 낼 수 있는 것) — 영상·소리·컴포지션. 분할·트림이 `trimStart` 를 민다. */
+export function isTimedSourceKind(kind: VideoItem['kind']): boolean {
+  return kind === 'footage' || kind === 'audio' || kind === 'composition';
 }
 
 function duplicateId(doc: VideoDoc, itemId: string, newId?: string): string | undefined {
@@ -98,8 +106,11 @@ export function buildSplitOps(doc: VideoDoc, itemId: string, at: number, newId?:
   const cuePatch = (start: number, end: number): Partial<VideoItem> => original.cues ? {
     cues: original.cues.filter(c => c.start < end && c.end > start).map(c => ({ ...c, start: Math.max(c.start, start), end: Math.min(c.end, end) })),
   } : {};
+  // 오른쪽 반은 왼쪽이 끝난 자리부터 이어 흐른다 — 컴포지션도 처음으로 되감기지 않게 `trimStart` 를 민다.
   const right: VideoItem = { ...structuredClone(original), id, at: { after: itemId }, duration: resolved.end - cut,
-    ...((original.kind === 'footage' || original.kind === 'audio') ? { trimStart: (original.trimStart ?? 0) + leftDuration } : {}),
+    ...(isTimedSourceKind(original.kind) ? { trimStart: (original.trimStart ?? 0) + leftDuration } : {}),
+    // §5.13 (W) 38-4 — 오른쪽 반의 상자 곡선은 자른 자리부터 이어진다(그 자리 값에서 시작).
+    ...(original.keyframes && original.keyframes.length > 0 ? { keyframes: rebaseKeyframes(original.keyframes, leftDuration) ?? [] } : {}),
     ...cuePatch(cut, resolved.end) };
   const track = doc.tracks.find(t => t.id === resolved.trackId);
   const nextItem = track?.items[(track.items.findIndex(i => i.id === itemId)) + 1];
@@ -121,7 +132,7 @@ export function buildRemoveOps(doc: VideoDoc, itemId: string): VideoDocOp[] {
   const timeline = new Map(resolveTimeline(doc).items.map(i => [i.id, i]));
   const ops: VideoDocOp[] = [];
   for (const item of items) {
-    if (typeof item.at === 'number' || ('after' in item.at ? item.at.after : item.at.start) !== itemId) continue;
+    if (anchorItemRef(item.at) !== itemId) continue;
     const resolved = timeline.get(item.id);
     // An unresolved dependency has no trustworthy absolute time; do not break it further by deleting its anchor.
     if (!resolved) return [];
@@ -130,16 +141,10 @@ export function buildRemoveOps(doc: VideoDoc, itemId: string): VideoDocOp[] {
   return [...ops, { op: 'removeItem', itemId }];
 }
 
-/** Content-only restoration uses existing atomic operations; server identity and version stay authoritative. */
+/**
+ * Content-only restoration uses existing atomic operations; server identity and version stay authoritative.
+ * §5.13 (V) 37-3 — 정본은 순수 층의 `restoreOps`(판 기록의 [이 판으로 돌아가기]와 한 벌 — 장면·스타일까지).
+ */
 export function buildRestoreOps(current: VideoDoc, target: VideoDoc): VideoDocOp[] {
-  const snapshot = structuredClone(target);
-  return [
-    ...current.tracks.map((track): VideoDocOp => ({ op: 'removeTrack', trackId: track.id })),
-    ...Object.keys(current.assets).map((assetId): VideoDocOp => ({ op: 'removeAsset', assetId })),
-    ...Object.values(snapshot.assets).map((asset): VideoDocOp => ({ op: 'setAsset', asset })),
-    ...snapshot.tracks.map((track): VideoDocOp => ({ op: 'addTrack', track })),
-    { op: 'setDoc', patch: { title: snapshot.title, size: snapshot.size, fps: snapshot.fps,
-      // JSON cannot send undefined. A missing seed has the same deterministic seed as zero.
-      ...(snapshot.seed !== undefined || current.seed !== undefined ? { seed: snapshot.seed ?? 0 } : {}) } },
-  ];
+  return restoreOps(current, target);
 }

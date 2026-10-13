@@ -8,7 +8,7 @@ vi.mock('node-pty', () => ({ spawn: mocks.spawn }));
 vi.mock('node:fs', () => ({ existsSync: () => true, statSync: () => ({ mode: 0o755 }), chmodSync: vi.fn() }));
 vi.mock('@vibisual/server', () => ({
   getClaudeBin: () => ({ binPath: 'test-claude' }), buildInteractiveCliPrefill: () => ({ managed: false, prefill: '' }),
-  buildBashTimeoutEnv: () => ({}), buildAgentTokenSaverEnv: () => ({}), prepareInteractiveRulesDir: () => null,
+  buildBashTimeoutEnv: () => ({}), buildAgentTokenSaverEnv: () => ({}), buildVerificationGateEnv: () => ({}), prepareInteractiveRulesDir: () => null,
   buildInteractivePluginBlockForAgent: () => '', getCmdResumeSession: () => null, parseCmdTermId: () => null,
   recordDiagnostic: mocks.diagnostic, killTree: mocks.killTree,
 }));

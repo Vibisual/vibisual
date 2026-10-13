@@ -14,10 +14,10 @@ import { join } from 'node:path';
 import { BrowserWindow, type IpcMain } from 'electron';
 
 import {
-  ackAppWindowRedock, ackAppWindowTarget, closeAppWindow, endAppWindowDrag, openAppWindow,
+  ackAppWindowRedock, ackAppWindowTarget, closeAppWindow, endAppWindowDrag, focusAppWindow, listAppWindows, openAppWindow,
   redockAppWindow, startAppWindowDrag, updateAppWindowTarget, type AppWindowSpec,
 } from '../windowManager';
-import type { AppWindowPlacement } from '../appWindowTransfer';
+import type { AppWindowListItem, AppWindowPlacement } from '../appWindowTransfer';
 
 /** 앱의 main 프로세스 몫이 갖춰야 할 모양. 앱은 코어 타입을 import 하지 않는다. */
 interface MainAppModule {
@@ -26,6 +26,11 @@ interface MainAppModule {
   attach: (host: { rendererFile: string; preloadFile: string }) => void;
   window: (params: Record<string, string>) => AppWindowSpec;
   invoke?: (action: string, payload: unknown) => Promise<unknown>;
+  /**
+   * §5.13 (T-11) ④ — 본체 창이 닫힐 때 앱이 띄운 **숨은 창**(일꾼·오프스크린)을 정리한다. 숨은 창이 살아 있으면
+   * Windows·Linux 에서 `window-all-closed` 가 오지 않아 앱이 보이지 않게 남는다(별창·오버레이와 같은 이유).
+   */
+  dispose?: () => void;
 }
 
 interface MainAppEntry {
@@ -45,7 +50,8 @@ interface MainAppEntry {
 /** 창 규격만 있는 앱의 hash 를 만든다 — 파라미터 이름이 앱마다 갈리지 않게 한 곳에서. */
 function simpleHash(appId: string, params: Record<string, string>): string {
   const parts = [`app=${encodeURIComponent(appId)}`];
-  for (const key of ['projectId', 'file', 'clipId', 'modelId']) {
+  // `appBubbleId` — §5.13 (L) 이 창을 연 캔버스 노드(앱이 고른 작업 문서를 그 노드가 기억한다).
+  for (const key of ['projectId', 'file', 'clipId', 'modelId', 'imageId', 'appBubbleId']) {
     const value = params[key];
     if (value !== undefined && value !== '') parts.push(`${key}=${encodeURIComponent(value)}`);
   }
@@ -165,6 +171,15 @@ export function mountAppIpc(ipcMain: IpcMain): void {
     return typeof payload?.appId === 'string' ? closeAppWindow(payload.appId) : false;
   });
 
+  // §5.13 (S-11) 밖에 떠 있는 앱 창 목록 — 처음 한 번 묻는 길(바뀔 때는 `vibisual:app:list` 로 밀어 준다).
+  ipcMain.handle('vibisual:app:list', (): AppWindowListItem[] => listAppWindows());
+  // §5.13 (S-11) 본체가 이미 밖에 떠 있는 문서를 다시 열었다 — 새로 열지 않고 그 창을 앞으로 세운다(모듈을 부르지 않는다).
+  ipcMain.handle('vibisual:app:focus', async (_e, payload?: { appId?: unknown; windowId?: unknown }): Promise<boolean> => (
+    typeof payload?.appId === 'string'
+      ? focusAppWindow(payload.appId, typeof payload.windowId === 'number' ? payload.windowId : undefined)
+      : false
+  ));
+
   ipcMain.handle(
     'vibisual:app:invoke',
     async (_e, payload: { appId: string; action: string; payload?: unknown }): Promise<unknown> => {
@@ -185,6 +200,8 @@ export function removeAppIpc(ipcMain: IpcMain): void {
   ipcMain.removeHandler('vibisual:app:redock');
   ipcMain.removeHandler('vibisual:app:redock-ack');
   ipcMain.removeHandler('vibisual:app:target-ack');
+  ipcMain.removeHandler('vibisual:app:list');
+  ipcMain.removeHandler('vibisual:app:focus');
 }
 
 /** The transport carries strings; ignore unexpected object values rather than stringify them. */
@@ -196,4 +213,25 @@ function appParams(value: unknown): Record<string, string> {
 /** 앱 창을 전부 닫는다(앱 종료 경로). 로드되지 않은 앱은 창도 없으므로 건드릴 것이 없다. */
 export function closeAllAppWindows(): void {
   for (const entry of MAIN_APPS) closeAppWindow(entry.id);
+}
+
+/**
+ * §5.13 (T-11) ① — 서버 몫이 같은 앱의 main 몫을 부르는 길(`setAppMainInvoker` 로 서버 코어에 꽂힌다).
+ * 렌더러의 `vibisual:app:invoke` 와 **같은 모듈·같은 `invoke`** 를 탄다 — 두 길이 갈리지 않게.
+ */
+export async function invokeAppMain(appId: string, action: string, payload: unknown): Promise<unknown> {
+  const mod = await moduleFor(appId);
+  if (!mod?.invoke) throw new Error(`app main invoke — unsupported app: ${appId}`);
+  return mod.invoke(action, payload);
+}
+
+/** §5.13 (T-11) ④ — 붙어 있는 앱 main 몫의 숨은 창을 정리한다(본체 창이 닫힐 때). 로드되지 않은 앱은 띄운 것도 없다. */
+export function disposeAppMains(): void {
+  for (const mod of attached.values()) {
+    try {
+      mod.dispose?.();
+    } catch (err) {
+      console.warn('[apps] dispose failed:', err);
+    }
+  }
 }

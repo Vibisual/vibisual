@@ -27,8 +27,8 @@ interface BgTaskProbeSectionProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-/** 체크박스 한 줄 — 세 개가 같은 리듬을 갖도록 한 곳에 둔다(설명은 항상 값 아래에). */
-function ToggleRow({
+/** 체크박스 한 줄 — 세 개가 같은 리듬을 갖도록 한 곳에 둔다(설명은 항상 값 아래에). §5.3 #9-2 보호 손잡이도 같은 줄을 쓴다. */
+export function ToggleRow({
   checked, onChange, disabled, label, desc,
 }: {
   checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string; desc: string;

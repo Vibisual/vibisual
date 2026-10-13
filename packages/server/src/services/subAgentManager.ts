@@ -6,8 +6,10 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 // §5.3 #12-4 — CMD 규칙 파일에 싣는 검증 정책 문단(헤드리스는 index.ts 가 시스템 프롬프트로 싣는다).
-import { buildVerificationPolicyRules } from '@vibisual/shared';
+//   (J) 실행 전 차단 스위치(옵션창 권한 탭, 기본 끔)에 따라 문단 머리말·스폰 표식이 갈린다.
+import { buildVerificationPolicyRules, isVerificationGateEnabled, VERIFICATION_GATE_ENV } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
+import { userDefaultsService } from './userDefaultsService.js';
 import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
@@ -27,7 +29,7 @@ import {
   type SessionProbeEvidence,
 } from './sessionLivenessProbe.js';
 import { terminateTaskProcesses } from './processDescendants.js';
-import { scanActiveBackgroundShells } from './backgroundShellWatcher.js';
+import { scanActiveBackgroundShells, findBackgroundShellCommand } from './backgroundShellWatcher.js';
 
 /**
  * §5.5 #17-9 ⑭ — 판정 상태의 열쇠. **작업 id 만으로는 부족하다** — 하니스가 발급하는 `taskId` 는
@@ -72,10 +74,13 @@ import { resolveTurnResult, isAnswerlessTurnText } from './turnResult.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
 import { killTree, terminateChildTree, forceCloseAfterExit, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
+import { processGuard } from './processGuard.js';
 import { prepareMcpConfig } from './mcpConfigService.js';
 import { decideVerificationReuse, verificationMcpKeyOf, verificationMcpServer, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
 import { prepareAgentSettings } from './agentMemoryService.js';
 import { decidePersistentReuse, modelAxesKeyOf } from './persistentChildModelAxes.js';
+// §4 엔진 다리 — 우리가 띄우는 세션에 싣는 모드 폴더 + 모드가 올린 사실(턴·생존·진척).
+import { engineBridge } from './engineBridge.js';
 
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
@@ -338,6 +343,9 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   for (const dir of normalizePluginDirs(config.pluginDirs)) {
     args.push('--plugin-dir', dir);
   }
+  // §4 엔진 다리 — 우리 모드(`vibisual-bridge`)를 이 세션에만 싣는다. 스위치를 껐거나·판올림이 낮거나·
+  //   모르거나·파일을 못 옮겼으면 아무것도 붙지 않는다(종전 스폰과 바이트 단위로 같다).
+  appendEngineBridgeArgs(args);
   // §5.3 v4.89 자기 기억 + §4 Fast 모드 — **설정 파일 한 장**으로 나간다.
   //   `--settings` 로 들어간 값은 사용자 설정 계층과 병합되므로 사용자 설정을 지우지 않고
   //   필요한 키만 바꿔 끼운다. 기억 `'off'` 는 파일이 아니라 환경변수 쪽이라 여기서는 인자가
@@ -356,6 +364,19 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   }
 
   return args;
+}
+
+/**
+ * §4 엔진 다리 — 실을 모드 폴더가 있으면 `--plugin-dir <폴더>` 를 붙인다. 같은 폴더가 이미 있으면 두 번
+ * 붙이지 않는다 — `buildConfigArgs` 가 붙인 뒤 `execute` 가 설정 없는 맨 스폰을 위해 한 번 더 부른다.
+ */
+function appendEngineBridgeArgs(args: string[]): void {
+  const dir = engineBridge.pluginDirForSpawn();
+  if (!dir) return;
+  for (let i = 0; i + 1 < args.length; i++) {
+    if (args[i] === '--plugin-dir' && args[i + 1] === dir) return;
+  }
+  args.push('--plugin-dir', dir);
 }
 
 /**
@@ -392,6 +413,17 @@ export function buildBashTimeoutEnv(config: AgentConfig | undefined): Record<str
  */
 export function buildAgentTokenSaverEnv(config: AgentConfig | undefined): Record<string, string> {
   return buildTokenSaverEnv(config, appStateGetTokenSaver());
+}
+
+/**
+ * §5.3 #12-4 (J) — 실행 전 차단을 켠 채 띄우는 세션의 표식 env.
+ *
+ * 훅 안전망(`hooks/handler.mjs`)은 서버와 저장된 최신 설정을 모두 읽지 못할 때 이 표식으로 판단한다.
+ * 부르는 자리는 위 토큰 절약과 같은 둘 — 헤드리스(index.ts 디스패치의 `extraEnv`)와
+ * CMD 인터랙티브 PTY(`terminalManager`). 끔도 0을 명시해 부모 프로세스의 낡은 1을 물려받지 않는다.
+ */
+export function buildVerificationGateEnv(): Record<string, string> {
+  return { [VERIFICATION_GATE_ENV]: isVerificationGateEnabled(userDefaultsService.get()) ? '1' : '0' };
 }
 
 /**
@@ -577,9 +609,9 @@ export function prepareInteractiveRulesDir(
     if (enforcement) sections.push(enforcement);
     // 카드 신고 프로토콜(터미널 한 줄) — 항상 주입. claude 가 echo 한 줄로 IDE 카드를 띄울 수 있게.
     sections.push(buildCmdCardProtocolRules().trim());
-    // §5.3 #12-4 (G) — 검증 정책(안 변하는 문단). 이번 턴의 권한 한 줄은 `UserPromptSubmit` 응답이 싣고,
-    //   집행은 훅의 실행 전 판정이 한다 — 이 문단은 같은 정책을 말로도 알릴 뿐이다.
-    sections.push(buildVerificationPolicyRules().trim());
+    // §5.3 #12-4 (G)(J) — 켠 동안만 제한 문단을 쓴다. 기존 터미널의 설정 변경은 매 턴 훅 응답이 알린다.
+    const verificationRules = buildVerificationPolicyRules({ enforced: isVerificationGateEnabled(userDefaultsService.get()) }).trim();
+    if (verificationRules) sections.push(verificationRules);
     const body = `${sections.join('\n\n')}\n`;
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body, 'utf-8');
     return dir;
@@ -1844,6 +1876,12 @@ export class SubAgentManager {
     if (ending?.subagentType) {
       this.dropPendingBySubagentEndChip(sub.parentAgentId, subAgentId, ending, task?.summary);
     }
+    // §5.3 #9-2 (C-1) — **끊겼다고 온 셸 작업**은 남은 프로세스도 거둔다. 상류는 Windows 에서 작업을 끊을 때
+    //   `bash.exe` 만 끊어(anthropics/claude-code#27273·#76353) 그 아래 grep 이 고아로 남는다. 끝 통지는 사실이라
+    //   이 자리에서 거두는 것은 "조용하니 죽었겠지"와 다르다. 스스로 끝난 것(`completed`·`failed`)은 건드리지 않는다.
+    if (subtype === TASK_CHIP_END_SUBTYPE && task?.status === 'stopped' && task.id && ending && !ending.subagentType) {
+      void this.reapStoppedTaskProcesses(sub, subAgentId, task.id);
+    }
     // §5.5 #17-9 ⑱ — 끝 통지는 "끝"이 아니라 "곧 다시 돈다"다. 아래 `syncBgSubStatus` 가 탭을 내리기
     //   **전에** 붙들어야 한다(순서가 바뀌면 그 사이에 버블이 `completed` 로 넘어가 완료음이 난다).
     if (subtype === TASK_CHIP_END_SUBTYPE) this.noteNoticeAwaitingResume(sub);
@@ -3101,6 +3139,29 @@ export class SubAgentManager {
   }
 
   /**
+   * §5.3 #9-2 (C-1) — 끊긴 셸 작업의 **남은 프로세스**를 거둔다. 매칭은 ⑭(e) 와 같은 함수(`terminateTaskProcesses` —
+   * 세션 자손 중 명령을 담은 것 + 부모가 죽은 고아 중 인자가 명령의 일부인 것)라 판정이 두 벌이 되지 않는다.
+   * 명령 원문을 못 찾거나 목록을 못 뜨면 **아무것도 하지 않는다**(모른다 ≠ 없다).
+   */
+  private async reapStoppedTaskProcesses(sub: SubAgent, subId: string, taskId: string): Promise<void> {
+    if (!processGuard.isReapEnabled()) return;
+    try {
+      const sessionPid = this.runningChildren.get(subId)?.pid;
+      const cwd = this.projectResolver?.(sub.parentAgentId)?.path;
+      if (!sessionPid || !cwd || !sub.sessionId) return;
+      const command = findBackgroundShellCommand(getSessionJsonlPath(cwd, sub.sessionId), taskId);
+      if (!command) return;
+      const killed = await terminateTaskProcesses(sessionPid, command);
+      if (killed && killed > 0) {
+        logger.info(`[process-guard] stopped task left ${killed} process(es) — reaped sub=${subId} key=${taskId}`);
+        processGuard.reportTaskReaped({ parentAgentId: sub.parentAgentId, subAgentId: subId }, killed);
+      }
+    } catch (err) {
+      logger.warn(`[process-guard] reaping stopped task failed sub=${subId} key=${taskId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
    * 판정을 반영한다. **모르면 손대지 않는다** — `null`·`unknown`·`alive` 는 전부 항목을 남긴다.
    */
   private async applyProbeVerdict(
@@ -3295,6 +3356,9 @@ export class SubAgentManager {
       if (!this.hasLivingWork(sub.id)) continue;
       if (this.sessionProbesInFlight.has(sub.id)) continue;
       if (!sub.sessionId) continue;
+      // §4 엔진 다리 — 엔진이 직접 "턴이 돌고, 최근에 진척이 있다"고 말하는 세션은 물을 이유가 없다.
+      //   진척이 오래 끊긴 턴은 보증하지 않으므로 아래로 내려가 종전대로 묻는다(멈춘 턴 찾기는 판정의 몫).
+      if (engineBridge.vouchesRunning(sub.id, now)) continue;
 
       // §5.25 (F) — 엔진마다 대화록이 놓이는 자리가 다르다. 코덱스면 그 규칙을 먼저 본다
       //   (힌트는 순서일 뿐 배제가 아니라, 설정이 바뀐 세션도 나머지 규칙에서 찾는다).
@@ -3317,6 +3381,8 @@ export class SubAgentManager {
 
       const tasks = this.sessionProbeTasks(sub);
       const queue = this.commandsOfSub(queues, sub.id);
+      // §4 엔진 다리 — 다리가 붙어 있으면 엔진이 말한 사실을 증거 한 줄로 싣는다(없으면 종전 증거 그대로).
+      const engine = engineBridge.sessionFacts(sub.id, now);
       best = {
         subId: sub.id,
         parentAgentId: sub.parentAgentId,
@@ -3332,6 +3398,8 @@ export class SubAgentManager {
           runningTaskCount: tasks.live.length + tasks.pending.length,
           queuedCommandCount: queue.filter((c) => c.status === 'queued').length,
           processAlive: this.isSubRunning(sub.id),
+          ...(engine ? { engine: engine.line } : {}),
+          ...(engine?.toolInFlight ? { lastTool: engine.toolInFlight } : {}),
         },
       };
     }
@@ -3364,7 +3432,9 @@ export class SubAgentManager {
     const tasks = this.sessionProbeTasks(sub);
     if (result.verdict === 'finished' && (tasks.live.length > 0 || tasks.pending.length > 0
       || this.dispatchingSubs.has(sub.id) || this.deferredSeals.has(sub.id) || this.noticeResumeHolds.has(sub.id)
-      || isCodexTurnRunning(sub.id))) {
+      || isCodexTurnRunning(sub.id)
+      // §4 엔진 다리 — 엔진이 직접 "턴이 돈다"고 말하는 동안 모델의 해석으로 닫지 않는다.
+      || engineBridge.isTurnRunning(sub.id))) {
       // 모델의 해석은 실제 진행 작업·재개 대기보다 강한 종료 근거가 될 수 없다.
       // 코덱스 `exec` 은 턴이 끝나면 스스로 나간다(남으면 러너가 거둔다) — 그 프로세스가 살아 있다는 것이
       //   곧 턴이 안 끝났다는 뜻이다. 여기서 닫으면 다음 명령이 같은 스레드에 두 번째 writer 로 붙어
@@ -3623,6 +3693,10 @@ export class SubAgentManager {
         state.liveTasks.delete(id);
         this.archiveStreamTask(sub.parentAgentId, subId, id, info, endedAt, probe.end, { closedBy: 'end-marker' });
         const how = probe.end.kind === 'killed' ? 'killed' : `exit=${probe.end.exitCode}`;
+        // §5.3 #9-2 (C-1) — 하니스가 `[killed]` 를 적었다 = 끊으려 한 작업이다. 장부만 걷으면 남은 프로세스가
+        //   계속 산다(2026-10-12 사고의 grep 이 18:32 에 정확히 이 자리를 빠져나가 5시간 동안 72GB 까지 갔다).
+        //   `exited with code N` 은 스스로 끝난 명령이라 그대로 둔다 — 일부러 남긴 데몬일 수 있다.
+        if (probe.end.kind === 'killed') void this.reapStoppedTaskProcesses(sub, subId, id);
         logger.info(`[bg-subagent] end-marker swept sub=${subId} key=${id} ${how} desc=${info.description ?? '-'} (출력 파일이 종료를 적었다 — 끝 통지 미도달)`);
         touched.add(sub.parentAgentId);
       }
@@ -4024,6 +4098,9 @@ export class SubAgentManager {
 
       // ── 백그라운드가 살아 있으면 재우지 않는다(이 회수가 유일하게 되살리지 못하는 것) ──
       if (this.hasLiveBackgroundWork(sub)) continue;
+      // §4 엔진 다리 — 우리 장부로는 놀고 있어도 엔진이 "턴이 돈다"고 말하면 재우지 않는다
+      //   (백그라운드 끝 통지로 스스로 깨어난 턴처럼 우리가 보내지 않은 턴이 있다).
+      if (engineBridge.isTurnRunning(sub.id, now)) continue;
 
       // 아직 나가지 않은 명령이나 켜져 있는 루프가 있으면 곧 쓸 자식이다.
       if (hasPendingWork?.(sub.id)) continue;
@@ -4297,6 +4374,9 @@ export class SubAgentManager {
       // (이 가드가 없으면 5분 넘게 도는 명령이 idle 처리되고 recomputeCustomAgentStatus 가
       //  그 idle 을 부모 커스텀 버블의 'completed' 로 세탁 → 동작 중인데 완료 거짓보고.)
       if (this.isSubRunning(sub.id)) continue;
+      // §4 엔진 다리 — 같은 원칙(확정이 이긴다). 엔진이 "턴이 돈다"고 말하면 활동 시각이 오래돼도
+      //   내리지 않는다 — 훅 없이 긴 도구 하나를 도는 CMD 탭이 5분 뒤 '쉬는 중'으로 거짓 강등되던 자리.
+      if (engineBridge.isTurnRunning(sub.id, now)) continue;
       if (now - sub.lastActivityAt > thresholdMs) {
         sub.status = 'idle';
         changed.push(sub.id);
@@ -4432,6 +4512,11 @@ export class SubAgentManager {
       if (v.state === 'blocked' && state !== 'blocked') { state = 'blocked'; reason = v.reason; }
     }
 
+    // §4 엔진 다리 — 엔진이 턴 시작·끝을 직접 알려 주는 탭에서는 화면의 바이트 흐름이 status 를 뒤집지
+    //   않는다(입력창에 글자를 치는 것도 바이트다). blocked 표식과 활동 시각만 이 자리가 보탠다 —
+    //   위 CMD 터미널 ① 이 적어 둔 "권위가 있으면 화면 감지는 blocked 만" 규칙이다.
+    const engineOwnsStatus = engineBridge.ownsCmdStatus(sub.id);
+
     if (state === 'working') {
       sub.lastActivityAt = Date.now();
       if (sub.blocked) {
@@ -4439,7 +4524,7 @@ export class SubAgentManager {
         delete sub.blockedSince;
         delete sub.blockedReason;
       }
-      if (sub.status !== 'active') sub.status = 'active';
+      if (!engineOwnsStatus && sub.status !== 'active') sub.status = 'active';
     } else if (state === 'blocked') {
       // 멈춰 있지만 살아 있다 — 사용자를 부르는 상태라 `active` 를 유지한 채 플래그만 세운다.
       if (!sub.blocked) {
@@ -4455,7 +4540,7 @@ export class SubAgentManager {
         delete sub.blockedReason;
       }
       // `error` 는 강등 대상이 아니다(§2.4 — 실패를 거짓 idle 로 세탁하지 않는다).
-      if (sub.status === 'active') sub.status = 'idle';
+      if (!engineOwnsStatus && sub.status === 'active') sub.status = 'idle';
     }
 
     return sub.status !== prevStatus || (sub.blocked === true) !== prevBlocked || sub.foregroundProcess !== prevProcess;
@@ -5227,6 +5312,9 @@ export class SubAgentManager {
     for (const extra of opts?.extraArgs ?? []) {
       if (!configArgs.includes(extra)) configArgs.push(extra);
     }
+    // §4 엔진 다리 — 설정이 없는 맨 스폰(`configArgs` 가 빈 배열)도 우리가 띄우는 세션이다. 설정이 있으면
+    //   `buildConfigArgs` 가 이미 붙였으므로 여기서는 아무것도 늘지 않는다.
+    appendEngineBridgeArgs(configArgs);
     // §5.5 #17-28 ⑧(c) — 안 변하는 규약은 프롬프트가 아니라 시스템 프롬프트로. `--append-system-prompt`
     //   는 `--print` 전용이 아니라 일반 플래그라 지속 자식·매 턴 spawn 양쪽에 그대로 붙는다(설치본
     //   2.1.246 `--help` 확인). 이미 붙어 있으면 덧붙이지 않는다(중복 주입 방지).
@@ -5686,6 +5774,10 @@ export class SubAgentManager {
       this.childStderrTails.delete(sub.id);
       registerSpawnedPid(child.pid);
       child.once('exit', () => unregisterSpawnedPid(child.pid));
+      // §5.3 #9-2 — 손자까지 우리 묶음에 넣는다(Windows Job Object · mac/Linux 그룹 + 기억). 상주 자식이 내려가면
+      //   그 세션이 끝난 것이라 남은 것을 정리한다. 일회성(legacy) 실행은 명령마다 내려가므로 정리하지 않고
+      //   상한·압박 감시만 받는다 — 정리하면 에이전트가 띄운 개발 서버가 명령마다 꺼진다.
+      processGuard.guardChild(child, { parentAgentId: sub.parentAgentId, subAgentId: sub.id }, 'claude', { reapOnExit: usePersistent });
       // §5.5 #17-18 — 아래 마감은 전부 `close` 에 걸려 있다. 트리 종료가 놓친 손자가 파이프를 쥐고 있으면
       //   그 `close` 가 몇 분씩 안 와 끝난 턴이 "도는 중"으로 남고, 새 명령은 그 뒤에 줄을 섰다.
       forceCloseAfterExit(child);

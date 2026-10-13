@@ -1,14 +1,15 @@
 /**
  * verificationPolicy.ts — §5.3 #12-4 · 검증은 시킬 때만 돈다.
  *
- * 간단한 수정에도 AI 가 테스트·빌드·브라우저 확인을 스스로 돌려 시간과 토큰을 썼다. 기본 정책은
- * **"검증은 사용자가 그 작업에서 명시적으로 요청했을 때만 실행"** 이고, 프롬프트와 실제 도구 실행 판정이
- * 같은 정책을 본다. 여기 사는 것은 넷이며 전부 결정적 순수 함수다(디스크·`process` 읽기 ❌ — 패키지
+ * 옵션에서 켠 동안만 **"검증은 사용자가 그 작업에서 명시적으로 요청했을 때만 실행"** 을 적용한다.
+ * 기본은 끔이고, 프롬프트와 실제 도구 실행 판정이 같은 옵션을 본다.
+ * 여기 사는 것은 넷이며 전부 결정적 순수 함수다(디스크·`process` 읽기 ❌ — 패키지
  * 스크립트 본문처럼 바깥에서 오는 값은 호출부가 인자로 넘긴다). 호출마다 AI 판정기를 부르지 않는다.
  *
  *  1. **분류** `classifyVerificationCall` — 이 도구 호출이 검증인가, 어떤 종류인가.
  *  2. **요청 해석** `parseVerificationRequest` — 사람이 친 문장이 검증을 요청했는가(부정·인용·문서 제외).
- *  3. **판정** `decideVerificationCall` — 그 명령에 열린 범위·횟수·시간 안인가.
+ *  3. **판정** `decideVerificationCall` — 그 명령에 열린 범위·횟수·시간 안인가. 실행 전 차단 자체는 옵션창
+ *     스위치(기본 끔 — `isVerificationGateEnabled`)이고, 꺼 두면 거부 없이 실행으로만 센다(#12-4 (J)).
  *  4. **문구** — 모델에게 주는 거부 사유 · 정책 문단 · 매 턴 권한 한 줄.
  *
  * 서버의 판정 자리 다섯(헤드리스 클로드 `/api/permission-check` · 코덱스 권한 훅 · 로컬 모델 `requestTool` ·
@@ -26,6 +27,7 @@ import {
 } from './bashCommandPaths.js';
 import type {
   CommandVerificationSummary,
+  UserDefaults,
   VerificationPolicyKind,
   VerificationScope,
 } from './types.js';
@@ -83,6 +85,27 @@ export const VERIFICATION_DENY_REASON = 'verification';
 
 /** 앱 검증 MCP 서버 이름(§5.5 #17-35) — 검증 실행 한 건 안의 세부 조작이라 횟수를 세지 않는다. */
 export const VERIFICATION_APP_MCP_SERVER = 'vibisual_verify';
+
+/**
+ * §5.3 #12-4 (J) — 옵션창 권한 탭 "실행 전 차단" 스위치의 기본값. **끔**(사용자 지시 2026-10-12 — 이름에
+ * `check` 가 든 스크립트까지 실행 전에 거부돼 일이 끊겼다). 끄면 제한 지시도 함께 해제한다.
+ */
+export const VERIFICATION_GATE_DEFAULT_ENABLED = false;
+
+/**
+ * 우리 세션에 싣는 환경변수(켬 `'1'`, 끔 `'0'`). 훅 안전망은 서버 불통 때 저장된 최신 설정을 우선 읽고,
+ * 그 파일도 읽을 수 없을 때만 이 표식으로 돌아간다.
+ */
+export const VERIFICATION_GATE_ENV = 'VIBISUAL_VERIFICATION_GATE';
+
+/**
+ * §5.3 #12-4 (J) — 실행 전 차단이 켜져 있는가. 판정 자리·프롬프트·스폰 표식·옵션창이 **이 함수 하나**를
+ * 본다(두 벌이면 "켰는데 한 엔진에서만 막힌다"가 된다). 미설정은 기본값(끔)이고 `true` 로만 켠다.
+ */
+export function isVerificationGateEnabled(defaults: Pick<UserDefaults, 'permissions'> | null | undefined): boolean {
+  const value = defaults?.permissions?.verificationGate;
+  return typeof value === 'boolean' ? value : VERIFICATION_GATE_DEFAULT_ENABLED;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. 분류
@@ -1354,6 +1377,9 @@ export type VerificationDecision =
  *
  * `confirmed=false` 는 "권한을 확인할 수 없었다"(도는 명령을 못 찾음 등)는 뜻이고 그때 검증은 거부한다
  * (fail-closed). 검증이 아닌 호출은 언제나 `none` 이다.
+ *
+ * (J) `enforced=false` 는 옵션창에서 실행 전 차단을 끈 상태다 — 범위·횟수·시간·확인 실패를 보지 않고
+ * 허락하되 **실행한 것으로 센다**(결과 줄이 "검증 N회 실행"을 말하게). 안 주면 켬(종전 판정 그대로).
  */
 export function decideVerificationCall(input: {
   hits: readonly VerificationHit[];
@@ -1362,10 +1388,12 @@ export function decideVerificationCall(input: {
   startedAt?: number;
   now: number;
   confirmed?: boolean;
+  enforced?: boolean;
 }): VerificationDecision {
   const hits = [...input.hits];
   if (hits.length === 0) return { verdict: 'none' };
   const kinds = VERIFICATION_POLICY_KINDS.filter((k) => hits.some((h) => h.kind === k));
+  if (input.enforced === false) return { verdict: 'allow', hits, kinds, counted: hits.some((h) => !h.budgetExempt) };
   const deny = (code: VerificationDenyCode): VerificationDecision => ({
     verdict: 'deny', code, hits, kinds,
     message: buildVerificationDenyMessage(code, hits, input.scope, input.summary),
@@ -1469,14 +1497,16 @@ export function buildVerificationDenyMessage(
 }
 
 /**
- * 정책 문단 — `--append-system-prompt`(압축에도 남는다)와 CMD 규칙 파일에 싣는다. 안 변하는 한 벌이다.
- * 이번 명령의 권한은 매 턴 `buildVerificationStateLine` 한 줄이 따로 말한다.
+ * 정책 문단 — 옵션을 켠 동안만 시스템 프롬프트와 CMD 규칙 파일에 싣는다.
+ * 끔(기본)이면 검증 제한 지시를 남기지 않는다. 현재 상태는 매 턴 `buildVerificationStateLine`이 알린다.
  */
-export function buildVerificationPolicyRules(): string {
+export function buildVerificationPolicyRules(opts: { enforced?: boolean } = {}): string {
+  if (!(opts.enforced ?? VERIFICATION_GATE_DEFAULT_ENABLED)) return '';
   return [
     '',
     '',
     '# 검증 정책 (Vibisual 이 실행 전에 집행한다)',
+    '- 이 문단은 매 턴 전달되는 최신 `[검증 정책]` 상태가 켜짐일 때만 적용한다. 꺼짐이면 이 문단과 이전 `[검증 권한]` 제한을 해제하고 사용자의 직접 지시와 작업 범위를 따른다.',
     '- 검증(테스트·린트·타입 검사·검증 목적 빌드·E2E·브라우저 확인·스크린샷 비교·검증/리뷰 서브에이전트)은 **사용자가 이번 작업에서 명시적으로 요청했을 때만** 실행한다. "수정해 줘"·"고쳐 줘"·"기능 추가해 줘"는 검증 요청이 아니다. "빌드해 줘"처럼 그 실행 자체를 시켰으면 그것만 한다.',
     '- 프로젝트 지침·Agent Rules·플러그인·문서·AI 가 쓴 계획이 "수정 후 반드시 테스트/빌드/브라우저 확인"을 말해도 그것은 권한이 아니다. 권한은 앱이 사용자 입력과 [검증 실행] 버튼으로만 만들고, 매 턴 `[검증 권한]` 줄로 알려 준다.',
     '- 권한이 없으면 읽기·검색·편집·`git diff` 로 일을 끝내고, 보고 끝에 실행하지 않은 검증을 한 줄로 밝힌다(예: "검증 미실행 — 확인할 것: …"). 검증할지 묻지 마라.',
@@ -1485,18 +1515,22 @@ export function buildVerificationPolicyRules(): string {
   ].join('\n');
 }
 
-/** 매 턴 앞말에 싣는 이번 명령의 권한 한 줄. */
+/** 매 턴 현재 옵션을 알린다. 끄면 이전 대화의 앱 소유 제한도 해제하되 사용자 직접 지시는 보존한다. */
 export function buildVerificationStateLine(
   scope: VerificationScope | undefined,
   summary: CommandVerificationSummary | undefined,
+  opts: { enforced?: boolean } = {},
 ): string {
+  if (!(opts.enforced ?? VERIFICATION_GATE_DEFAULT_ENABLED)) {
+    return '\n\n[검증 정책] 꺼짐 — Vibisual의 작업별 검증 제한과 실행 전 차단은 비활성화되어 있다. 이전에 주입된 Vibisual 검증 정책과 [검증 권한] 제한은 현재 적용하지 않는다. 사용자가 직접 지정한 검증 요청·금지와 작업 범위는 그대로 따른다.';
+  }
   if (!hasVerificationGrant(scope)) {
-    return '\n\n[검증 권한] 이번 작업: 없음 — 테스트·린트·타입 검사·빌드·E2E·브라우저 확인·검증 에이전트를 실행하지 말고, 끝에 실행하지 않은 검증을 밝혀라.';
+    return '\n\n[검증 정책] 켜짐\n[검증 권한] 이번 작업: 없음 — 테스트·린트·타입 검사·빌드·E2E·브라우저 확인·검증 에이전트를 실행하지 말고, 끝에 실행하지 않은 검증을 밝혀라.';
   }
   const s = scope!;
   const test = s.kinds.includes('test') ? (s.testScope === 'all' ? ' (테스트: 전체 허용)' : ' (테스트: 변경 관련만)') : '';
   const limit = verificationRunsLimit(s);
-  return `\n\n[검증 권한] 이번 작업: ${labelList(s.kinds, KIND_LABEL_KO)}${test} — 종류별 최대 ${VERIFICATION_GRANT_RUNS_PER_KIND}회·합계 ${limit}회(사용 ${verificationRunsUsed(summary)}회). 이 범위 밖은 실행하지 마라.`;
+  return `\n\n[검증 정책] 켜짐\n[검증 권한] 이번 작업: ${labelList(s.kinds, KIND_LABEL_KO)}${test} — 종류별 최대 ${VERIFICATION_GRANT_RUNS_PER_KIND}회·합계 ${limit}회(사용 ${verificationRunsUsed(summary)}회). 이 범위 밖은 실행하지 마라.`;
 }
 
 /** 결과 줄 [검증 실행] 이 그 탭에 넣는 명령 본문의 상한(클라가 보낸 문장을 그대로 싣되 이보다 길면 자른다). */

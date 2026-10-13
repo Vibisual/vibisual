@@ -4,7 +4,17 @@ import type { BubbleData } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { PathLockGlyph } from '../PathLockGlyph.js';
 import { groupUnlockByProject, planBubbleLock } from './bubbleLockAction.js';
-import { isAgentCardForm } from './agentCard.js';
+import { canUseAgentCard, isAgentCardForm } from './agentCard.js';
+import { agentHasAppLinks, effectiveLinkLens } from './linkView.js';
+import { isMainCanvasView } from './canvasScope.js';
+// §5.4 #36 (A) — 카드 입력칸 우클릭의 글자 항목. 전역 입력칸 메뉴와 **같은 함수**라 동작이 갈리지 않는다.
+import { buildTextFieldMenuItems } from '../../hooks/textFieldContextMenu.js';
+import {
+  createTextFieldActions,
+  hasSelectionFrom,
+  type FieldSelection,
+  type TextFieldElement,
+} from '../../hooks/textFieldActions.js';
 // §5.4 #34 — **새 메뉴 위젯을 만들지 않는다.** 넘침 보정·바깥 press 닫기·Esc·레지스트리 키캡이
 //   이미 한 벌로 들어 있는 공용 위젯을 그대로 쓴다(그 파일 헤더의 "두 벌이 되면 한쪽은 반드시
 //   뒤처진다"가 이 결정의 근거다). 이름이 `IDE*` 일 뿐 IDE 전용이 아니다.
@@ -16,6 +26,7 @@ import {
   planSelectionDelete,
   runBubbleDelete,
   runSelectionDelete,
+  selectionDeleteRunnerOf,
   type SelectedFlowEdge,
   type SelectedFlowNode,
 } from './bubbleDeleteAction.js';
@@ -39,6 +50,11 @@ import {
  * **우더블클릭(기억 화면, §5.10)과 겹치지 않는다** — 여는 쪽(`BubbleNode`)이 우더블클릭 대상
  * 버블에서는 `RIGHT_DBLCLICK_MS` 만큼 기다렸다 연다. 그 창 안에 두 번째 우클릭이 오면 메뉴 요청은
  * 취소되고 기억 화면이 열린다.
+ *
+ * **형태 전환은 맨 아래 한 줄이다(§5.4 #36 (A), 2026-10-10 사용자 지시)** — 우클릭이 곧바로 무언가를
+ * 바꾸지 않는다. 혼자 고른 커스텀 에이전트면 버블에서는 [말풍선으로 전환], 말풍선에서는 **같은 자리에**
+ * [버블로 되돌리기]. 말풍선 입력칸 위 우클릭이면 맨 위에 글자 항목(잘라내기·복사·붙여넣기·전체 선택)이 선다 —
+ * 말풍선은 거의 전부가 입력칸이라, 그 자리에서 이 메뉴가 안 열리면 되돌리는 길이 숨는다.
  */
 
 /** `BubbleNode`·묶음 상자가 "이 자리에 메뉴를 열어 달라"고 알릴 때 `BubbleMap` 이 듣는 이벤트. */
@@ -55,6 +71,38 @@ export interface BubbleMenuRequest {
   nodeId: string | null;
   screenX: number;
   screenY: number;
+  /**
+   * §5.4 #36 (A) — 카드 **입력칸** 위에서 부른 것이면 그 칸과 우클릭 순간의 선택 범위. 있으면 메뉴 맨 위에
+   * 글자 항목이 서고, 대상은 묶음과 무관하게 **그 카드 하나**다(글을 치던 칸의 메뉴다).
+   */
+  textField?: BubbleMenuTextField;
+  /**
+   * §6 — 자기 메뉴가 따로 있는 노드(앱·플레이·스펙·랩·선반·캡처)가 "여럿을 고른 묶음 안에서 눌렸으면 묶음
+   * 메뉴를 열어 달라"고 물을 때 켠다. 캔버스는 그 노드가 묶음 안일 때만 메뉴를 열고 `handled` 를 켠다 —
+   * 아니면 아무것도 하지 않고, 노드가 자기 메뉴를 연다(`openGroupMenuIfGrouped`).
+   */
+  groupOnly?: boolean;
+  /** 캔버스가 이 요청으로 메뉴를 열었는가 — 받는 쪽(`BubbleMap`)이 동기로 채운다. */
+  handled?: boolean;
+}
+
+/**
+ * §6 — 묶음 안에서 눌린 우클릭이면 **묶음 메뉴**를 연다. 열었으면 `true`(호출한 노드는 자기 메뉴를 열지 않는다).
+ *
+ * "묶음 위 우클릭은 어느 버블 위에서 눌러도 같다"(§5.4 #34)를 자기 메뉴를 가진 노드에도 지키는 길이다 —
+ * 판정(그 노드가 여럿을 고른 묶음에 들었나)은 묶음을 아는 캔버스가 하고, 이벤트는 동기라 답이 곧바로 돌아온다.
+ */
+export function openGroupMenuIfGrouped(nodeId: string, screenX: number, screenY: number): boolean {
+  if (typeof window === 'undefined') return false;
+  const detail: BubbleMenuRequest = { nodeId, screenX, screenY, groupOnly: true, handled: false };
+  window.dispatchEvent(new CustomEvent<BubbleMenuRequest>(BUBBLE_MENU_EVENT, { detail }));
+  return detail.handled === true;
+}
+
+/** 우클릭 순간에 떠 둔 입력칸 — 선택 범위는 메뉴를 누를 때가 아니라 **연 순간**의 것이어야 한다. */
+export interface BubbleMenuTextField {
+  el: TextFieldElement;
+  sel: FieldSelection;
 }
 
 /**
@@ -89,14 +137,104 @@ interface BubbleContextMenuProps {
   x: number;
   y: number;
   /**
-   * §5.4 #36 (A) — 입력 카드 ↔ 버블 전환(중심을 지키는 좌표 환산은 캔버스가 한다). 주면 카드 위 우클릭의
-   * 맨 위에 [버블로 접기]가 선다.
+   * §5.4 #36 (A) — 말풍선 ↔ 버블 전환(원 중심을 지키는 좌표 환산은 캔버스가 한다). 주면 혼자 고른 커스텀
+   * 에이전트의 메뉴 **맨 아래**에 [말풍선으로 전환] 또는 같은 자리 [버블로 되돌리기]가 선다.
    */
   onAgentForm?: (nodeId: string, form: 'card' | 'bubble') => void;
+  /** §5.4 #36 (A) — 말풍선 입력칸에서 열었으면 그 칸. 맨 위에 글자 항목이 선다. */
+  textField?: BubbleMenuTextField | undefined;
   onClose: () => void;
 }
 
-/** §5.4 #36 (A) — [버블로 접기] 글리프. 판이 원으로 모이는 그림(lucide `minimize-2` 톤). */
+/** §5.4 #36 (A) — [말풍선으로 전환] 글리프. 말풍선 하나(lucide `message-circle` 톤). */
+function SpeechBalloonGlyph(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+    </svg>
+  );
+}
+
+/**
+ * §5.4 #36 (H) ① — [연결선 숨기기]/[연결선 보이기] 글리프. 끊기(`unlink`)가 아니라 **눈**이다 — 연결은 그대로 두고
+ * 보이기만 바꾼다는 뜻이 그림에서 읽혀야 한다(lucide `eye-off` / `eye` 톤).
+ */
+function LinksVisibilityGlyph({ hidden }: { hidden: boolean }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      {hidden ? (
+        // 지금 숨겨져 있다 → [보이기]: 뜬 눈.
+        <>
+          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      ) : (
+        // 지금 보인다 → [숨기기]: 빗금 친 눈.
+        <>
+          <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+          <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+          <path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+          <path d="M2 2l20 20" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/**
+ * §5.4 #36 (H) ② — 보기 전환 글리프. 갈 곳을 그린다: "연결된 것 위주로"는 궤도와 위성(우리 캔버스의 연결 언어 —
+ * lucide `orbit` 톤), "작업 파일 위주로"는 겹친 문서(lucide `files` 톤).
+ */
+function LinkLensGlyph({ to }: { to: 'linked' | 'files' }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      {to === 'linked' ? (
+        <>
+          <circle cx="12" cy="12" r="3" />
+          <circle cx="19" cy="5" r="2" />
+          <circle cx="5" cy="19" r="2" />
+          <path d="M10.4 21.9a10 10 0 0 0 9.94-15.42" />
+          <path d="M13.5 2.1a10 10 0 0 0-9.84 15.42" />
+        </>
+      ) : (
+        <>
+          <path d="M20 7h-3a2 2 0 0 1-2-2V2" />
+          <path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z" />
+          <path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** §5.4 #36 (A) — [버블로 되돌리기] 글리프. 펼친 것이 원으로 모이는 그림(lucide `minimize-2` 톤). */
 function FoldToBubbleGlyph(): React.JSX.Element {
   return (
     <svg
@@ -114,7 +252,7 @@ function FoldToBubbleGlyph(): React.JSX.Element {
   );
 }
 
-export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, onClose }: BubbleContextMenuProps): React.JSX.Element | null {
+export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, onClose }: BubbleContextMenuProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const nodeMap = useGraphStore((s) => s.nodeMap);
   const inTrashView = useGraphStore((s) => s.interiorView?.kind === 'trash');
@@ -161,12 +299,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, onClose }: 
       return;
     }
     if (!batch) return;
-    runSelectionDelete(batch, {
-      requestTrashPurge: st.requestTrashPurge,
-      deleteTaskEdge: st.deleteTaskEdge,
-      deleteCommentBox: st.deleteCommentBox,
-      deleteCaptureBubble: st.deleteCaptureBubble,
-    });
+    runSelectionDelete(batch, selectionDeleteRunnerOf(st));
     // 패널에 지워진 것의 상세가 남지 않게 — 키 경로가 하는 정리와 같다.
     st.selectNode(null);
     if (st.selectedCommentBoxId) st.selectCommentBox(null);
@@ -274,31 +407,94 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, onClose }: 
   }, [nodes, edges, lockPlan, activeProject, handleLock, handleUnlock, t]);
 
   /**
-   * §5.4 #36 (A) — 카드 위 우클릭이면 맨 위에 [버블로 접기]. 버블 위 첫 우클릭은 이 메뉴가 아니라 전환이라
-   * (캔버스가 가로챈다) 여기 오는 에이전트는 이미 카드이거나 카드가 될 수 없는 버블이다.
+   * §5.4 #36 (A) — 형태 전환 한 줄. **맨 아래**에 서고(사용자 지시 — 우클릭은 기존 메뉴를 그대로 연다),
+   * 버블이면 [말풍선으로 전환], 말풍선이면 같은 자리 [버블로 되돌리기]. 두 방향이 같은 자리라 되돌리는 길을
+   * 찾지 않는다. 메인 뷰에서만 — 폴더·워크트리·휴지통 안은 말풍선을 그리지 않는다(바꿔도 화면이 그대로다).
+   * 판정은 `agentCard.ts`(서버 `setAgentForm` 과 같은 조건) 한 벌.
    */
+  const mainView = useGraphStore((s) => isMainCanvasView(s));
+  const soleExecutionMode = useGraphStore((s) => (soleBubbleId ? s.agentConfigs[soleBubbleId]?.executionMode : undefined));
   const formItems = useMemo<ContextMenuItem[]>(() => {
-    if (!onAgentForm || !soleBubbleId) return [];
-    const node = nodes[0];
-    const data = (node?.data as BubbleData | undefined) ?? nodeMap[soleBubbleId];
-    if (!isAgentCardForm(data)) return [];
+    if (!onAgentForm || !soleBubbleId || !mainView) return [];
+    const data = (nodes[0]?.data as BubbleData | undefined) ?? nodeMap[soleBubbleId];
+    if (isAgentCardForm(data)) {
+      return [{
+        id: 'bubble-form-to-bubble',
+        label: t('canvas.bubbleMenu.toBubble'),
+        icon: <FoldToBubbleGlyph />,
+        onClick: () => onAgentForm(soleBubbleId, 'bubble'),
+      }];
+    }
+    if (!canUseAgentCard(data, { executionMode: soleExecutionMode })) return [];
     return [{
-      id: 'bubble-fold-card',
-      label: t('canvas.bubbleMenu.toBubble'),
-      icon: <FoldToBubbleGlyph />,
-      onClick: () => onAgentForm(soleBubbleId, 'bubble'),
+      id: 'bubble-form-to-card',
+      label: t('canvas.bubbleMenu.toCard'),
+      icon: <SpeechBalloonGlyph />,
+      // 처음 보는 형태라 무엇이 되는지 한 줄로 말한다(자물쇠 항목과 같은 규율 — 문장은 아랫줄로).
+      note: t('canvas.bubbleMenu.toCardNote'),
+      onClick: () => onAgentForm(soleBubbleId, 'card'),
     }];
-  }, [onAgentForm, soleBubbleId, nodes, nodeMap, t]);
+  }, [onAgentForm, soleBubbleId, mainView, soleExecutionMode, nodes, nodeMap, t]);
 
-  // 전환이 맨 위, 자물쇠가 그 아래, 삭제가 맨 아래다 — 묶음이 바뀌는 자리에 구분선을 긋는다.
+  /**
+   * §5.4 #36 (H) — 연결 보기 한 묶음. ① [연결선 숨기기] ↔ 같은 자리 [연결선 보이기] — 모든 에이전트(커스텀·CMD·훅,
+   * 버블·말풍선). ② 앱 노드가 이어진 에이전트면 그 아래 [작업 파일 위주로 보기] ↔ [연결된 것 위주로 보기].
+   * 혼자 고른 에이전트에서만이고(묶음 일괄 ❌), 휴지통 안에서는 뜨지 않는다(그 화면에는 선이 없다).
+   * 상태는 **연 순간의 노드 데이터**에서 읽고(누르면 메뉴는 닫힌다), 판정은 `linkView.ts`, 저장은 store 한 경로다.
+   */
+  const soleHasAppLinks = useGraphStore((s) => (soleBubbleId ? agentHasAppLinks(s.appBubbles, soleBubbleId, s.activeProject) : false));
+  const linkItems = useMemo<ContextMenuItem[]>(() => {
+    if (!soleBubbleId || inTrashView) return [];
+    const data = (nodes[0]?.data as BubbleData | undefined) ?? nodeMap[soleBubbleId];
+    if (!data || data.bubbleType !== 'agent') return [];
+    const agentId = soleBubbleId;
+    const hidden = data.linksHidden === true;
+    const out: ContextMenuItem[] = [{
+      id: hidden ? 'bubble-links-show' : 'bubble-links-hide',
+      label: t(hidden ? 'canvas.bubbleMenu.showLinks' : 'canvas.bubbleMenu.hideLinks'),
+      icon: <LinksVisibilityGlyph hidden={hidden} />,
+      // 끄는 쪽에만 한 줄 — "연결이 끊긴다"로 읽히지 않게(되돌리는 쪽은 라벨이 이미 말한다).
+      note: hidden ? undefined : t('canvas.bubbleMenu.hideLinksNote'),
+      onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { hidden: !hidden }),
+    }];
+    if (soleHasAppLinks) {
+      const lens = effectiveLinkLens(data, true);
+      const to = lens === 'linked' ? 'files' : 'linked';
+      out.push({
+        id: to === 'files' ? 'bubble-lens-files' : 'bubble-lens-linked',
+        label: t(to === 'files' ? 'canvas.bubbleMenu.lensFiles' : 'canvas.bubbleMenu.lensLinked'),
+        icon: <LinkLensGlyph to={to} />,
+        note: t(to === 'files' ? 'canvas.bubbleMenu.lensFilesNote' : 'canvas.bubbleMenu.lensLinkedNote'),
+        onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { lens: to }),
+      });
+    }
+    return out;
+  }, [soleBubbleId, inTrashView, nodes, nodeMap, soleHasAppLinks, t]);
+
+  /**
+   * §5.4 #36 (A) — 카드 입력칸에서 열었으면 맨 위에 글자 항목. 전역 입력칸 메뉴와 같은 함수·같은 문구라,
+   * 이 칸만 다른 동작을 하지 않는다. 선택 범위는 **연 순간**의 것(누르는 순간 초점이 옮겨가도 그대로).
+   */
+  const textItems = useMemo<ContextMenuItem[]>(() => {
+    if (!textField) return [];
+    return buildTextFieldMenuItems(
+      { hasSelection: hasSelectionFrom(textField.sel), readOnly: textField.el.readOnly },
+      createTextFieldActions(textField.el, textField.sel),
+      t,
+      undefined,
+    );
+  }, [textField, t]);
+
+  // 글자 항목이 맨 위(입력칸에서 열었을 때), 연결 보기(§5.4 #36 (H) — 보는 일이 먼저), 자물쇠·삭제(버리는 일은 나중),
+  //   형태 전환이 맨 아래다 — 묶음이 바뀌는 자리에 구분선을 긋는다.
   const items = useMemo<ContextMenuItem[]>(() => {
-    const groups = [formItems, lockItems, deleteItems].filter((g) => g.length > 0);
+    const groups = [textItems, linkItems, lockItems, deleteItems, formItems].filter((g) => g.length > 0);
     const out: ContextMenuItem[] = [];
     for (const group of groups) {
       group.forEach((item, i) => out.push(i === 0 && out.length > 0 ? { ...item, separatorBefore: true } : item));
     }
     return out;
-  }, [formItems, lockItems, deleteItems]);
+  }, [textItems, linkItems, lockItems, deleteItems, formItems]);
 
   // 지울 수 없는 버블(네비게이션 골격 등)에서는 메뉴 자체를 내지 않는다 — 항목 하나 없는 빈
   //   상자가 뜨면 "고장난 메뉴"로 읽힌다.

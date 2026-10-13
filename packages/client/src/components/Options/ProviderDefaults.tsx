@@ -5,7 +5,6 @@ import { CodexAdvancedSettings } from '../Codex/CodexAdvancedSettings.js';
 import { CodexToolPermissions } from '../Panel/CodexToolPermissions.js';
 import { providerDefaultsPatch } from './providerDefaultsDraft.js';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { pickDefaultCodexModel } from '../Codex/codexModelEntry.js';
 import { codexInheritedOptionFor, codexInheritedValueText } from '../Codex/codexInheritedLabel.js';
 import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
 import { pickDefaultModel } from '../LocalModel/localModelEntry.js';
@@ -28,13 +27,14 @@ export const ProviderDefaults = forwardRef<ProviderDefaultsHandle, { engine: Age
   const updateProvider = (patch: object): void => { setDirty(true); setStatus(''); setDraft(d => ({ ...d, provider: { ...(d.provider ?? providerForEngine(engine))!, ...patch } })); };
   const updateConfig = (patch: Partial<AgentConfig>): void => { setDirty(true); setStatus(''); setDraft(d => ({ ...d, ...patch })); };
   const refreshModels = useGraphStore(s => s.refreshCodexModels);
-  useEffect(() => { if (engine === 'codex') void refreshModels(); }, [engine, refreshModels]);
+  useEffect(() => { if (engine === 'codex') void refreshModels(false); }, [engine, refreshModels]);
   // §5.25 (G-2) — 빈 선택지에 "기본값" 대신 **지금 새 에이전트에 실제로 물릴 값**을 적는다.
-  //   모델: 비워 두면 버블을 처음 열 때 코덱스는 목록 첫 모델(`resolveCodexEntry`), 로컬은 가장 최근에 받은 모델
-  //   (`resolveLocalEntry`)에 매인다. 목록은 스냅샷으로 오므로 여기서 비어 있으면 서버에도 없다 — 그때는 설치 창에서 고른다.
+  //   코덱스의 빈 모델은 CLI 상속으로 남는다. 카탈로그는 저장값을 고르거나 바꾸지 않는다.
   //   나머지 칸은 에이전트 설정 창과 같은 판정·같은 문구다(새 에이전트라 도구 위임 연결은 없다).
   const inheritedProvider = projectPath ? resolveAgentDefaults(defaults, engine).provider : undefined;
-  const codexBound = codexModels?.find(m => m.slug === (provider?.modelId || inheritedProvider?.modelId)) ?? (codexModels ? pickDefaultCodexModel(codexModels) ?? undefined : undefined);
+  const codexBoundId = provider?.modelId || inheritedProvider?.modelId;
+  // A blank model inherits CLI configuration, which may differ from the catalog default.
+  const codexBound = codexBoundId ? codexModels?.find(m => m.slug === codexBoundId) : undefined;
   const localBoundId = provider?.modelId && localModels?.some(m => m.id === provider.modelId) ? provider.modelId : pickDefaultModel(localModels ?? [])?.id ?? '';
   const codexConfig = useCodexEffectiveConfig(engine === 'codex', undefined, projectPath ?? '');
   const localSampling = useLocalSampling(engine === 'local' ? localBoundId : '');
@@ -43,11 +43,12 @@ export const ProviderDefaults = forwardRef<ProviderDefaultsHandle, { engine: Age
     : codexInheritedOptionFor(t, field, { config: codexConfig, model: codexBound, modelsLoaded: true, sandbox: resolveCodexPermission(draft.permissionMode).sandbox });
   const modelEmpty = ((): { label: string; description: string } => {
     if (inheritedProvider?.modelId) return { label: `${inheritedProvider.modelName || inheritedProvider.modelId} (${t('providers.globalScope')})`, description: t('providers.projectSettingsHint') };
-    const first = engine === 'codex' ? pickDefaultCodexModel(codexModels ?? []) : localModels?.find(m => m.id === localBoundId);
+    if (engine === 'codex') return { label: t('providers.codexModelInherited'), description: t('providers.codexModelInheritedHint') };
+    const first = localModels?.find(m => m.id === localBoundId);
     if (!first) return { label: t('providers.modelChosenOnOpen'), description: '' };
     return {
-      label: t('panel.agentConfig.effective.resolved', { value: 'slug' in first ? first.displayName || first.slug : first.name, source: t(engine === 'codex' ? 'providers.modelSource.codexFirst' : 'providers.modelSource.localLatest') }),
-      description: t(engine === 'codex' ? 'providers.modelSourceTip.codexFirst' : 'providers.modelSourceTip.localLatest'),
+      label: t('panel.agentConfig.effective.resolved', { value: first.name, source: t('providers.modelSource.localLatest') }),
+      description: t('providers.modelSourceTip.localLatest'),
     };
   })();
   const tempHint = localTemperaturePlaceholder(t, localSampling);

@@ -19,8 +19,14 @@ class Probe extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
+  readonly requests: unknown[] = [];
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
+  constructor() {
+    super();
+    this.stdin.on('data', (chunk: Buffer) => { this.requests.push(JSON.parse(chunk.toString())); });
+  }
+  initialize(): void { this.stdout.write(JSON.stringify({ id: 1, result: {} }) + '\n'); }
   exit(): void { this.exitCode = 0; this.emit('exit', 0); }
   respond(trustStatus: string): void {
     this.stdout.write(JSON.stringify({ id: 2, result: { data: [{ hooks: [{
@@ -88,16 +94,40 @@ describe('Codex hook preparation has a bounded, cancellable child lifecycle', ()
     mocks.spawn.mockReturnValueOnce(first).mockReturnValueOnce(second);
     const settled = vi.fn();
     void start(new AbortController()).then(settled, settled);
+    expect(first.requests).toEqual([expect.objectContaining({ id: 1, method: 'initialize' })]);
+    first.initialize();
+    expect(first.requests).toEqual([
+      expect.objectContaining({ id: 1, method: 'initialize' }),
+      { method: 'initialized' },
+      { id: 2, method: 'hooks/list', params: { cwds: [process.cwd()] } },
+    ]);
     first.respond('untrusted');
     first.exit();
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
 
+    expect(second.requests).toEqual([expect.objectContaining({ id: 1, method: 'initialize' })]);
+    second.initialize();
+    expect(second.requests).toEqual(first.requests);
     second.respond('trusted');
     second.exit();
     await vi.advanceTimersByTimeAsync(0);
     expect(settled).toHaveBeenCalledExactlyOnceWith(['-c', 'hooks.state={"app-hook"={trusted_hash="hash"}}']);
     second.emit('close', 0);
     expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not acknowledge or inspect hooks after initialize fails', async () => {
+    const child = new Probe();
+    mocks.spawn.mockReturnValue(child);
+    const settled = vi.fn();
+    void start(new AbortController()).then(settled, settled);
+    child.stdout.write(JSON.stringify({ id: 1, error: { message: 'unsupported' } }) + '\n');
+    child.exit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(child.requests).toEqual([expect.objectContaining({ id: 1, method: 'initialize' })]);
+    expect(settled).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Codex hook inspection initialization failed' }));
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { selectEffectiveProject, useGraphStore } from '../../stores/graphStore.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { isMac } from '../../utils/platform.js';
+import { useTitlebarDrag } from '../../hooks/useTitlebarDrag.js';
+import { isDragRegionTarget } from '../../utils/titlebarPress.js';
 import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
 import { HeaderLanguageSlot } from './HeaderLanguageSlot.js';
@@ -65,6 +67,15 @@ export function Header({
   // 폰에서 우측 도구 묶음을 펼쳤는지. 기본 접힘 — 프로젝트 탭이 폭을 그대로 쓰게 한다.
   //   데스크톱은 묶음이 CSS 로 항상 보이므로 이 값이 화면을 바꾸지 않는다.
   const [rightToolsOpen, setRightToolsOpen] = useState(false);
+  // §3.7 · §5.5 #17-6 (H-19) — 로고 덮개의 누름. 드래그 영역 신고에 기대지 않고 창을 옮긴다(아래 로고 블록).
+  const handleLogoMouseDown = useTitlebarDrag();
+  // §3.7 — 헤더 빈 자리·탭 줄 빈 자리의 더블클릭이 페이지까지 왔다 = OS 가 그 자리를 제목줄로 못 봤다.
+  //   덮개와 같은 최대화/복원을 부른다(신고가 맞으면 OS 가 먼저 가져가 여기 오지 않는다). 누름은 부팅 지점의
+  //   `installTitlebarPressCatch` 가 받는다. 덮개·탭·버튼(`app-nodrag`)은 거른다 — 덮개는 자기 처리기가 있다.
+  const handleTitlebarDoubleClick = useCallback((event: React.MouseEvent<HTMLElement>): void => {
+    if (!isDragRegionTarget(event.target)) return;
+    void window.api?.window?.toggleMaximizeSelf();
+  }, []);
 
   // 지금 보고 있는 캔버스 스코프로만 집계 — 전역 합산 ❌, 휴지통 ❌, 판정은 세션 축.
   //   숫자를 만드는 규칙 자체는 headerAgentCounts 가 갖는다(순수 함수 + 단위 테스트).
@@ -143,29 +154,45 @@ export function Header({
     //   - 우측 `pr-36` 은 mac 에서 불필요하다 — titleBarOverlay 의 min/max/close 는 Windows·Linux
     //     전용이라, mac 에서 그대로 두면 144px 이 통째로 낭비돼 탭 영역만 짓눌린다.
     <header
-      className={`app-drag relative z-[100] flex h-9 items-stretch bg-[#334155] ${
+      className={`app-drag relative z-[100] flex h-9 items-stretch bg-vb-titlebar ${
         isPackagedDesktop()
           ? isMac()
             ? 'pl-20 pr-1'
             : 'pr-36'
           : 'pr-1'
       }`}
+      onDoubleClick={handleTitlebarDoubleClick}
     >
       {/* 좌측: 로고 + File 메뉴 + 프로젝트 탭 — 탭이 많아지면 내부에서 가로 스크롤. */}
       <div className="flex min-w-0 flex-1 items-stretch">
         {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스.
             §4 v3.24 — 폰(max-md)에선 로고 블록 전체(dot 포함)를 숨겨 File+탭만 남긴다.
-            주변 제목줄과 같은 app-drag 영역을 사용한다. 창 이동·최대화 복원·더블클릭은
-            OS 가 함께 처리하며, 탭을 끄는 동안에는 공통 vib-pointer-drag 규칙이 적용된다. */}
+            덮개는 드래그 영역 등록에 의존하지 않는 손잡이다. 누르면 moveSelf 가 창을 직접 옮기고
+            (세 OS 같은 수동 경로 — `ipc.ts` move-self 주석), 더블클릭은 같은 창의 최대화/복원을 부른다.
+            페이지까지 온 나머지 제목줄 누름도 이 덮개와 같은 길로 옮긴다(`utils/titlebarPress.ts`).
+            2026-10-08 에 OS 캡션으로 맞춘다며 걷었다가 로고로 창이 안 움직여 되살렸다 — 다시 걷지 말 것.
+            덮개를 둔 채 끌기만 OS 이동 루프로 넘긴 판도 창이 안 움직였다(2026-10-12 걷음) — 다시 넘기지 말 것. */}
         <div className="app-drag-label app-drag relative flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden">
           <div className="h-3 w-3 rounded-full bg-gradient-to-br from-blue-400 to-violet-500" />
           <span className="text-[12px] font-semibold tracking-tight text-white/90">
             {t('header.logo.name')}
           </span>
+          {window.api?.window?.moveSelf && (
+            <div
+              className="app-nodrag absolute inset-0 z-10"
+              style={{ pointerEvents: 'auto' }}
+              aria-hidden="true"
+              onMouseDown={handleLogoMouseDown}
+              onDoubleClick={() => { void window.api?.window?.toggleMaximizeSelf(); }}
+            />
+          )}
         </div>
 
         {/* File 메뉴 */}
-        <div className="app-nodrag flex h-full items-center">
+        <div className="flex h-full items-center px-1">
+          {/* §3.7 — 클릭 자리는 메뉴 상자(`FileMenu` 루트의 `app-nodrag`)뿐이다. 이 감싸개는 헤더의 `app-drag` 안에
+              남아, 버튼 위·아래 띠와 양옆 여유(`px-1`)를 잡아도 창이 움직인다(다른 데스크톱 앱처럼). 종전에는 감싸개가
+              `app-nodrag` 라 헤더 높이 전체가 창 이동에서 빠졌다 — 다시 감싸개에 걸지 말 것. */}
           <FileMenu />
         </div>
 

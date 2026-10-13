@@ -4,10 +4,6 @@ import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, Chat
 // §9 — 스냅샷 무복사 경로의 채널명·디코더. electron 무의존 순수 모듈이라 preload 번들에 그대로
 // 들어간다. main 과 **같은 상수**를 쓰게 해 채널명이 양쪽에서 따로 흘러가지 않게 한다.
 import { WS_BUFFER_CHANNEL, WS_BUFFER_READY_CHANNEL, WS_OBJECT_CHANNEL, decodeWire } from '../main/snapshotWire';
-// §3.7 v2.10 — 드래그 영역 재신고 채널. 같은 이유로 **main 과 같은 상수**를 쓴다(리터럴을 양쪽에
-// 따로 적으면 한쪽만 고쳐도 아무도 모른다). 이 모듈은 electron 을 타입으로만 쓰므로 preload
-// 번들에 그대로 들어간다.
-import { DRAG_REGIONS_REFRESH_CHANNEL } from '../main/dragRegions';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -63,6 +59,9 @@ export interface OverlayListWire {
   overlays: OverlayInfoWire[];
   userVisible: boolean;
 }
+
+// SCENARIO.md §5.13 (S-11) — 밖에 떠 있는 앱 창과 그 창이 지금 보는 대상(앱 화면 파라미터 그대로).
+export type AppWindowListWire = Array<{ windowId: number; appId: string; params: Record<string, string> }>;
 
 // ─── §9 스냅샷 무복사 수신 ──────────────────────────────────────────────────
 //
@@ -128,8 +127,9 @@ const api = {
   },
   /** §5.4 #14-1 별창 surface. */
   window: {
-    moveSelf: (phase: 'start' | 'move' | 'end'): Promise<boolean> =>
-      ipcRenderer.invoke('vibisual:window:move-self', phase),
+    /** §3.7 — `point` 는 렌더러가 잰 그 손짓의 화면 좌표(DIP). 메인이 늦게 받아도 누른·놓은 자리로 옮긴다. */
+    moveSelf: (phase: 'start' | 'move' | 'end', point?: PointWire): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:window:move-self', phase, point),
     detach: (payload: DetachPayloadWire): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:window:detach', payload),
     closeDetached: (tabKey: string): Promise<boolean> =>
@@ -143,16 +143,6 @@ const api = {
       const listener = (_e: unknown, payload: { maximized: boolean }): void => cb(payload);
       ipcRenderer.on('vibisual:window:maximize-state', listener);
       return () => ipcRenderer.removeListener('vibisual:window:maximize-state', listener);
-    },
-    /**
-     * §3.7 v2.10 — main 이 창 상태 전이(show·restore·maximize·전체화면)를 알려 오는 창구.
-     * 렌더러는 그때 드래그 영역을 다시 신고한다 — 최소화 복원은 창 크기가 그대로라 레이아웃이
-     * 바뀌지 않고, 환경에 따라 `visibilitychange` 도 뜨지 않아 렌더러 혼자서는 계기가 없다.
-     */
-    onDragRegionsRefresh: (cb: () => void): (() => void) => {
-      const listener = (): void => cb();
-      ipcRenderer.on(DRAG_REGIONS_REFRESH_CHANNEL, listener);
-      return () => ipcRenderer.removeListener(DRAG_REGIONS_REFRESH_CHANNEL, listener);
     },
     listDetached: (): Promise<DetachedTabInfoWire[]> =>
       ipcRenderer.invoke('vibisual:window:list-detached'),
@@ -324,6 +314,8 @@ const api = {
       armed?: boolean;
       /** (H-19) 선 안에 적을 한 줄 — 나가는 길도 말한다(본체가 숨어 앱 안 안내 띠가 없다). */
       hint?: string;
+      /** §5.13 (S-10) 손을 뗐다 — 선을 그 자리에 **멈춘다**(끌어낸 창이 그 선의 자리·크기에 선다). */
+      settled?: boolean;
     }): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:ghost-show', payload),
 
     /** §17-6 (H-6) — 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낸다(어디에 설지 미리 보여 주기). */
@@ -489,7 +481,7 @@ const api = {
    * 앱이 늘어도 이 파일은 그대로다.
    */
   app: {
-    open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number }): Promise<{ windowId: number; reused: boolean }> =>
+    open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:app:open', { appId, params, placement }),
     close: (appId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:close', { appId }),
     updateTarget: (params: Record<string, string>): Promise<boolean> => ipcRenderer.invoke('vibisual:app:update-target', params),
@@ -516,6 +508,21 @@ const api = {
       const listener = (_e: unknown, payload: { appId: string; hash: string; requestId?: string }): void => cb(payload);
       ipcRenderer.on('vibisual:app:show-target', listener);
       return () => ipcRenderer.removeListener('vibisual:app:show-target', listener);
+    },
+    /** §5.13 (S-11) 밖에 떠 있는 앱 창 목록 — 처음 한 번 묻는다(바뀔 때는 `onList` 로 받는다). */
+    list: (): Promise<AppWindowListWire> => ipcRenderer.invoke('vibisual:app:list'),
+    onList: (cb: (list: AppWindowListWire) => void): (() => void) => {
+      const listener = (_e: unknown, list: AppWindowListWire): void => cb(list);
+      ipcRenderer.on('vibisual:app:list', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:list', listener);
+    },
+    /** §5.13 (S-11) 밖에 이미 떠 있는 그 창을 앞으로 세운다(새로 열지 않는다). 그 창이 없으면 false. */
+    focus: (appId: string, windowId?: number): Promise<boolean> => ipcRenderer.invoke('vibisual:app:focus', { appId, windowId }),
+    /** §5.13 (S-11) 앱 창 한정 — 본체가 이 창을 불렀다는 기척 신호(테두리를 한 번 비춘다). */
+    onAttention: (cb: (payload: { appId: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { appId: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:app:attention', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:attention', listener);
     },
   },
   /** §4 v2.44 자동 업데이트 surface — VS Code 식 업데이트 버튼. */

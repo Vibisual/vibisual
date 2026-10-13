@@ -14,7 +14,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { passedTitlebarDragThreshold, TITLEBAR_RESTORE_DRAG_DIP } from './titlebarDrag';
+import {
+  passedTitlebarDragThreshold,
+  pickTitlebarPoint,
+  TITLEBAR_LATE_SAMPLE_DIP,
+  TITLEBAR_RESTORE_DRAG_DIP,
+  toScreenPoint,
+} from './titlebarDrag';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -107,5 +113,47 @@ describe('덮개의 더블클릭 — 자기 창 최대화 채널이 본체 창�
   it('본체를 자기 창 목록에 넣지 않는다 — 넣으면 닫기 채널이 본체에 닿아 앱이 꺼진다', () => {
     const lookup = block(wm, 'function selfWindowById(', '\n}');
     expect(lookup).not.toContain('getMainWindow');
+  });
+});
+
+// §3.7 ③ — 렌더러가 잰 자리. 메인 스레드가 바빠 move-self 를 늦게 받으면 OS 커서는 손이 이미 옮겨 간 자리다.
+describe('렌더러가 잰 자리 — 받는 규칙', () => {
+  it('렌더러가 실어 보낸 좌표는 숫자 둘일 때만 쓴다(아니면 OS 커서로 대신한다)', () => {
+    expect(toScreenPoint({ x: 10, y: -20.5 })).toEqual({ x: 10, y: -20.5 });
+    expect(toScreenPoint(undefined)).toBeUndefined();
+    expect(toScreenPoint(null)).toBeUndefined();
+    expect(toScreenPoint({ x: '10', y: 3 })).toBeUndefined();
+    expect(toScreenPoint({ x: Number.NaN, y: 3 })).toBeUndefined();
+    expect(toScreenPoint({ x: 1 })).toBeUndefined();
+  });
+
+  it('놓은 자리가 지금 커서와 벌어져 있으면(메인이 늦게 받았다) 렌더러 쪽이 맞다', () => {
+    const live = { x: 1700, y: 900 };
+    expect(pickTitlebarPoint({ x: 1050, y: 80 }, live)).toEqual({ x: 1050, y: 80 });
+    // 한 축만 벌어져도 늦은 것이다.
+    expect(pickTitlebarPoint({ x: 1700, y: 900 - TITLEBAR_LATE_SAMPLE_DIP - 1 }, live)).toEqual({ x: 1700, y: 900 - TITLEBAR_LATE_SAMPLE_DIP - 1 });
+  });
+
+  it('가까우면 지금 커서를 쓴다 — 옮기던 중의 작은 좌표 차이가 놓는 순간의 튐이 되지 않게', () => {
+    const live = { x: 1000, y: 42 };
+    expect(pickTitlebarPoint({ x: 1003, y: 45 }, live)).toBe(live);
+    expect(pickTitlebarPoint({ x: 1000 + TITLEBAR_LATE_SAMPLE_DIP, y: 42 }, live)).toBe(live);
+    expect(pickTitlebarPoint(undefined, live)).toBe(live);
+  });
+});
+
+// §3.7 「제목줄 영역은 코드로 껐다 켜지 않는다」 — 창 상태 전이(show·restore·최대화·focus)마다 렌더러에 드래그 영역
+//   재신고를 시키던 배선은 걷었다. 그 재신고(영역을 두 프레임 동안 no-drag 로 흔들기)가 제목줄 누름을 버리게 했다 —
+//   Chromium 126 은 제목줄 누름을 첫 마우스 이동에서야 OS 이동으로 넘기는데, 그 사이 흔들기가 끼면 넘기지 않는다.
+describe('제목줄 영역을 흔드는 배선은 다시 붙지 않는다', () => {
+  const code = (text: string): string => text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('main·창 관리·IPC·preload 어디에도 재신고 채널이 없다', () => {
+    for (const file of ['index.ts', 'windowManager.ts', 'ipc.ts', '../preload/index.ts']) {
+      expect(code(source(file)), `${file} 에 드래그 영역 재신고 배선이 돌아왔다`)
+        .not.toMatch(/keepDragRegionsFresh|drag-regions-refresh|DRAG_REGIONS_REFRESH|onDragRegionsRefresh/);
+    }
   });
 });

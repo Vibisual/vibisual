@@ -27,6 +27,12 @@ This document exists so you can verify that rather than take it on faith.
   bookkeeping live in the operating system's user-data directory for the app
   (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS,
   `~/.config` on Linux).
+- **Agreement acceptance** — `legal-consent.json` in that user-data directory
+  records the EULA version, a SHA-256 fingerprint of the bundled legal documents,
+  your chosen language, the acceptance time, and the app version. It stays on
+  your machine and is not uploaded. The app asks again if the documents change
+  or this record is missing or invalid. The consent window reads bundled
+  documents offline, before backend services and update checks start.
 - **Crash diagnostics** — a local `crash.log` and, when the process dies hard,
   minidumps under the same user-data directory. These are written for you to
   read. There is no upload server configured, and none is planned.

@@ -9,11 +9,15 @@ import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
 import { isVerificationToolIngress } from './verificationToolIngress';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
-import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE } from '@vibisual/shared';
+import { releaseStartupJobs, unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setEngineBridgeSourceDir, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
+import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE, isAppContentPath } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { startBackendBeforeWindow } from './backendStartup';
-import { keepDragRegionsFresh } from './dragRegions';
+import { ensureDesktopConsent, focusConsentWindow, closeConsentWindow } from './consentWindow';
+// §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ④ — 메인 스레드 멈춤을 늘 기록한다(userData/logs/main-stall.log).
+import { markMainWindowShown, startMainStallLog } from './mainStallLog';
+// §4 앱 테마 — 창 바탕·제목줄 단추 색(렌더러가 못 칠하는 두 곳).
+import { installAppThemeChromeSync, safeAppThemeChrome, trackThemedWindow } from './themeChrome';
 // §9 — 스냅샷 팬아웃(1회 인코딩 → 창마다 바이트 postMessage, 실패 시 종전 send 폴백).
 import { broadcastToWindows, initWsFanout } from './wsFanout';
 import { loadSecrets } from './secrets';
@@ -33,8 +37,13 @@ import { forwardLoopbackResponse } from './loopbackResponse';
 // §3.2.1 — 종료 직전 렌더러가 아직 안 저장한 손글씨(세션 입력·IDE 폼 초안·명령 히스토리)를 받아 낸다.
 import { flushRendererDrafts } from './rendererFlush';
 import { mainStrings, fmt } from './strings';
-import { setVerificationAutomationAdapter } from '@vibisual/server';
+import { setVerificationAutomationAdapter, setAppMainInvoker } from '@vibisual/server';
+import { setProcessContainmentBackend } from '@vibisual/server';
+import { createWindowsJobBackend } from './winJobObject.js';
 import { verificationAutomationAdapter, closeAllVerificationTargets } from './verificationAutomation';
+// §5.13 (T-11) — 내부 앱 공통 층의 앱 이름 없는 접점: 서버 몫 → main 몫 호출 · 숨은 창 정리 · 콘텐츠 프레임 이동 금지.
+import { disposeAppMains, invokeAppMain } from './apps';
+import { guardAppContentFrames } from './appContentGuard';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -69,6 +78,7 @@ let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
 let primaryMainWindow: BrowserWindow | null = null;
 let backendBootFailed = false;
+let backendStartAttempted = false;
 
 // Hook 리스너 인증 토큰. 예전엔 매 실행 새 랜덤이었으나, 이제 userData 에 저장된 값을
 // bootBackend 에서 불러와 재사용한다(hookIdentity.ts) — 재실행해도 동일 유지. 모듈 로드 시점엔
@@ -127,22 +137,24 @@ function createWindow(): void {
   // React Header(`app-drag` 영역)가 그 자리에 타이틀바 역할을 한다. Windows 는 titleBarOverlay 가
   // 우상단에 네이티브 윈도우 컨트롤(min/max/close)을 오버레이로 깔아준다 — 헤더 우측의 `pr-36` 가
   // 그 오버레이 폭(=Windows 기본 138px)을 비워둔다. Mac 은 같은 설정이 트래픽 라이트를 자동 표기.
+  // §4 앱 테마 — 창 바탕·제목줄 단추 색은 고른 테마에서 온다(화면과 같은 해석). 기본 테마는 종전 값 그대로다.
+  const chrome = safeAppThemeChrome();
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: '#030712',
+    backgroundColor: chrome.background,
     autoHideMenuBar: true,
     title: 'Vibisual',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      // §3.7 v2.15 — Header `bg-[#334155]` (slate-700) 와 컬러 매치.
+      // §3.7 v2.15 — Header(`bg-vb-titlebar` = 테마 토큰 `titleBar.background`)와 같은 색.
       // ⚠️ `color`/`symbolColor` 는 Windows·Linux 전용이다. macOS 는 이 값을 무시하고
       //    대신 신호등(닫기/최소화/최대화)을 기본 위치에 그대로 띄운다 — 아래 참조.
-      color: '#334155',
-      symbolColor: '#cbd5e1',
+      color: chrome.titleBar,
+      symbolColor: chrome.titleBarSymbol,
       height: 36,
     },
     // macOS 전용 — `titleBarStyle:'hidden'` 이면 신호등이 좌상단 기본 좌표에 그대로 뜨는데,
@@ -166,13 +178,20 @@ function createWindow(): void {
     },
   });
 
-  // §3.7 v2.10 — **타이틀바를 잡으면 창이 움직인다**를 창이 돌아올 때마다 다시 신고시킨다.
-  //   OS 가 아는 드래그 영역은 렌더러가 신고한 목록이고 Chromium 은 그것이 달라졌을 때만 보낸다.
-  //   최소화 복원은 크기가 그대로라 레이아웃이 안 바뀌므로 그 계기가 스스로는 오지 않는다
-  //   (사용자 보고 — "최소화하거나 앱이 새로 켜지면 간헐적으로 헤더를 잡고 못 옮긴다").
-  keepDragRegionsFresh(mainWindow);
+  // §3.7 — 창 상태 전이마다 렌더러에 드래그 영역 재신고를 시키던 배선은 걷었다. 그 재신고(영역 흔들기)가
+  //   제목줄 누름을 버리게 했다 — 페이지까지 온 누름은 렌더러가 덮개와 같은 길로 옮긴다(client `titlebarPress.ts`).
+  // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕과 제목줄 단추도 다시 칠한다(그 창의 렌더러는 화면만 칠한다).
+  trackThemedWindow(mainWindow, { titleBarOverlay: true });
 
   mainWindow.on('ready-to-show', () => mainWindow.show());
+
+  // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 — 본체 창이 처음 보이는 순간을 두 곳에 알린다.
+  //   ② 부팅 때 줄에 세워 둔 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)이 이때부터 한 칸씩 돈다.
+  //   ④ 멈춤 기록이 "창이 뜬 뒤 몇 ms" 를 재는 기준점. 둘 다 첫 번만 센다(mac 에서 창을 다시 만들어도 같다).
+  mainWindow.once('show', () => {
+    markMainWindowShown();
+    releaseStartupJobs();
+  });
 
   // §5.5 #17-6 (E-2) — **본체 창을 고르면 밖의 펼친 IDE 창이 따라 올라온다.**
   //   펼친 IDE 는 (E) 개정으로 보통 층이라 다른 앱 뒤에 깔릴 수 있는데, `skipTaskbar:true` 라
@@ -233,6 +252,8 @@ function createWindow(): void {
     closeAllOverlays();
     // §5.12 (v4.43) — 지휘통제실 창도 함께 정리(같은 데드락 회피).
     closeAllCommandCenters();
+    // §5.13 (T-11) ④ — 내부 앱이 띄운 숨은 창(일꾼·오프스크린)도 함께 정리(같은 데드락 회피).
+    disposeAppMains();
   });
 }
 
@@ -292,11 +313,16 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     const isOrchestraPlanPath =
       path.startsWith('/api/orchestra/runs/') && path.endsWith('/plan');
 
-    // §5.4 #36 (C) — 참조선으로 이어진 앱 노드에 **결과 파일을 담는** 창구. 부르는 쪽은 앱이 띄운 외부
+    // §5.4 #36 (C) — 위성줄로 이어진 앱 노드에 **결과 파일을 담는** 창구. 부르는 쪽은 앱이 띄운 외부
     //   `claude`/`codex` 프로세스라 이 loopback 이 유일한 통로다. `/output` 으로 끝나는 POST 만 연다 —
     //   노드를 만들고·옮기고·지우는 손은 사용자의 것이라 열지 않는다. 토큰 인증 필수(아래 분기).
     const isAppBubbleOutputPath = req.method === 'POST'
       && path.startsWith('/api/app-bubbles/') && path.endsWith('/output');
+
+    // §4 엔진 다리 — 우리가 띄운 claude 세션에 실린 모드(`vibisual-bridge`)의 신고(턴·생존·사용량).
+    //   부르는 쪽이 그 claude 프로세스 안이라 이 loopback 이 유일한 통로다. POST 만 연다 — 상태 조회(GET)는
+    //   렌더러 전용이다. 토큰 인증 필수(아래 분기).
+    const isEngineBridgePath = req.method === 'POST' && path === '/api/engine-bridge';
 
     // Procedure feedback is session-scoped server-side. Settings/deletion remain UI-only.
     const isAutoGoalAgentPath = req.method === 'POST' && [
@@ -350,6 +376,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       !isSessionGoalProgressPath &&
       !isOrchestraPlanPath &&
       !isAutoGoalAgentPath &&
+      !isEngineBridgePath &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
@@ -462,9 +489,10 @@ function registerIframeProxyProtocol(expressApp: Express): void {
     //   /api/workspace-site/… — §5.5 #17-27 ⑮ 워크스페이스 HTML 을 페이지로. 그 페이지가 부르는
     //                           상대 경로 자산(css·js·그림)이 같은 오리진으로 다시 들어온다.
     // 그 외는 404 — 이 스킴이 in-process Express 전체로 가는 우회로가 되어서는 안 된다.
+    //   + §5.13 (T-3) 내부 앱이 iframe 으로 띄울 정적 콘텐츠(`/api/app/<앱id>/content/…`) — 앱 이름 없이 모양 하나로.
     const allowed = ALLOWED_PROTOCOL_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
-    );
+    ) || isAppContentPath(pathname);
     if (!allowed) {
       return new Response('not found', { status: 404 });
     }
@@ -536,11 +564,22 @@ async function bootBackend(): Promise<void> {
     chatBroadcast(msg);
   });
 
+  // §5.3 #9-2 (A) — Windows 에서는 우리가 띄우는 에이전트 자식을 Job Object 로 묶는다(손자까지 · 프로세스당
+  //   메모리 상한 · 본체가 끝나면 함께 정리). **`runServer()` 앞**이어야 부팅 때 되살아나는 세션도 묶인다.
+  //   다른 OS 는 null — 서버가 종전 detached 그룹 + 감시로 간다. 바인딩이 실패해도 null(감시가 받친다).
+  setProcessContainmentBackend(createWindowsJobBackend(process.platform));
+
   // server 코어를 in-process 구동 — HTTP listen / ws 없이 Express app 만 받는다.
   const handle = await runServer();
 
   // iframe 서버 프리뷰용 vibproxy:// 프로토콜 핸들러 등록(app.ready 이후이므로 여기서).
   registerIframeProxyProtocol(handle.app);
+
+  // §5.13 (T-11) ① — 내부 앱의 서버 몫이 같은 앱의 main 몫을 부르는 통로(일꾼 창 깨우기 등). 렌더러의
+  //   `vibisual:app:invoke` 와 같은 모듈·같은 `invoke` 를 탄다.
+  setAppMainInvoker((appId, action, payload) => invokeAppMain(appId, action, payload));
+  // §5.13 (T-11) ③ — 앱 콘텐츠 프레임(샌드박스 iframe)이 처음 연 문서 밖으로 가지 못하게. 이후에 생기는 창마다 건다.
+  app.on('web-contents-created', (_event, contents) => guardAppContentFrames(contents));
 
   // hook loopback 리스너 → §3.6 글로벌 훅 인스톨러로 그 포트를 등록.
   // 포트·토큰은 userData 에 저장된 값을 재사용한다(hookIdentity.ts) — 재실행해도 동일하게
@@ -593,6 +632,12 @@ async function bootBackend(): Promise<void> {
     } catch { /* 알림은 표시 전용 — 실패해도 작업에 영향 없음 */ }
   });
   console.log(`[main] hook listener on http://127.0.0.1:${hookPort} (loopback — hook + edge dispatch ingest)`);
+
+  // §4 엔진 다리 — 우리가 띄우는 claude 세션에 `--plugin-dir` 로 싣는 모드의 동봉 자리. electron-vite 가
+  //   빌드 때 <repo>/hooks/mods/vibisual-bridge 를 out/mods/vibisual-bridge 로 복사하므로 훅 핸들러와 같은
+  //   규칙(out/main/index.cjs 기준 ../mods)으로 dev·packaged 양쪽에서 같은 위치다. 훅 설치를 건너뛰는
+  //   실행에서도 주입한다 — 모드는 이 인스턴스의 루프백으로만 신고하므로 설치와 무관하다.
+  setEngineBridgeSourceDir(join(__dirname, '..', 'mods', 'vibisual-bridge'));
 
   // Item #1 — VIBISUAL_SKIP_HOOK_INSTALL opt-out gate.
   const skipInstall = process.env['VIBISUAL_SKIP_HOOK_INSTALL'];
@@ -670,11 +715,22 @@ if (!gotSingleInstanceLock) {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
-    }
+    } else focusConsentWindow();
   });
+  app.on('activate', () => { if (!primaryMainWindow) focusConsentWindow(); });
 
   app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.vibisual.app');
+
+  // Distributed binaries must obtain consent before backend restoration, hooks, remote access,
+  // provider setup, and updates. The consent window has no app preload or transport.
+  if (!await ensureDesktopConsent()) { app.quit(); return; }
+  if (quitting) return;
+
+  // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ④ — 메인 스레드 멈춤을 늘 잰다. 서버가 이 스레드에서 함께 돌아
+  //   그 스레드가 멈추면 제목줄로도 덮개로도 창이 따라오지 않는다. 백엔드를 띄우기 **전에** 건다 — 부팅의 동기
+  //   구간이 얼마나 막았는지도 "before-window" 한 줄로 남는다.
+  startMainStallLog();
 
   // §5.5 #17-38 — **마이크를 열 수 있게 한다.** 받아쓰기는 렌더러의 getUserMedia 로 마이크를
   //   여는데, 패키지 앱의 렌더러는 file:// 에서 뜨고 Electron 은 그 출처의 media 권한을 앱이
@@ -715,6 +771,7 @@ if (!gotSingleInstanceLock) {
     });
   });
 
+  backendStartAttempted = true;
   await startBackendBeforeWindow({
     boot: bootBackend,
     reportError: (error) => {
@@ -735,6 +792,9 @@ if (!gotSingleInstanceLock) {
       // §5.4 #14-1 — windowManager 가 메인 윈도우를 알아야 redock-hover 푸시 가능.
       configureWindowManager({ getMainWindow: () => primaryMainWindow });
       createWindow();
+      closeConsentWindow();
+      // §4 앱 테마 — 테마가 바뀌면 열린 창 전부의 바탕·제목줄 단추를 다시 칠한다(구독은 한 번).
+      installAppThemeChromeSync();
       // 첫 상태 push 가 메인 윈도우에 도달하도록 창 생성 뒤 기동한다.
       initAutoUpdater();
       app.on('activate', () => {
@@ -800,6 +860,8 @@ const UPDATE_INSTALL_SPAWN_GRACE_MS = 200;
 let quitting = false;
 app.on('before-quit', (event) => {
   if (quitting) return;
+  // Declining/closing the pre-start gate must not run project shutdown or persistence.
+  if (!backendStartAttempted) { quitting = true; logCleanExit(); return; }
 
   // 헤드리스 자식은 우리 프로세스의 자식이라 앱이 내려가면 **함께 죽는다.** 대화는 세션에 남아
   //   다음 턴이 `--resume` 으로 잇지만(부팅 reconcile 이 자동으로 재개한다), 그 턴이 만들던

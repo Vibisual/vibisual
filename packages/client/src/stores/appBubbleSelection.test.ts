@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppBubble } from '@vibisual/shared';
+import { APP_BUBBLE_PENDING_MS } from '@vibisual/shared';
 
 import { useGraphStore } from './graphStore.js';
 
@@ -284,5 +285,94 @@ describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는�
       const src = NODE_SOURCES[path] ?? '';
       expect(src, path).toContain('gesture.cancelPendingSelect()');
     }
+  });
+});
+
+/**
+ * §5.4 #36 (F) — 앱 위성은 **고르는 즉시** 선다. 클라가 id 를 지어 화면에 먼저 넣고 같은 id 로 POST 한다.
+ * 서버 확인 전에 도착한 스냅샷(만들기 전에 출발한 것)이 방금 선 노드를 지우면 한 프레임 사라졌다 돌아온다.
+ */
+describe('app bubble optimistic create', () => {
+  const input = {
+    projectName: 'demo',
+    appId: 'vibistudio',
+    x: 1,
+    y: 2,
+    width: 208,
+    height: 130,
+    linkedAgentIds: ['agent-1'],
+  };
+  const pending = (): Promise<never> => new Promise<never>(() => undefined);
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  beforeEach(() => {
+    useGraphStore.setState({ appBubbles: [], pendingAppBubbles: {}, selectedAppBubbleId: null, draggingAppBubbleIds: [] });
+  });
+
+  it('화면에 먼저 서고, 같은 id 로 POST 한다', () => {
+    const fetchMock = vi.fn().mockImplementation(pending);
+    vi.stubGlobal('fetch', fetchMock);
+    const id = useGraphStore.getState().createAppBubble(input);
+    expect(useGraphStore.getState().appBubbles.map((b) => b.id)).toEqual([id]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/api/app-bubbles');
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body['id']).toBe(id);
+    expect(body['linkedAgentIds']).toEqual(['agent-1']);
+    vi.unstubAllGlobals();
+  });
+
+  it('서버 확인 전 스냅샷은 낙관본을 지우지 않고, 서버 목록에 나타나면 서버가 권위다', () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(pending));
+    const id = useGraphStore.getState().createAppBubble(input);
+    useGraphStore.getState().applyAppBubbles([]); // 만들기 전에 출발한 스냅샷
+    expect(useGraphStore.getState().appBubbles.map((b) => b.id)).toEqual([id]);
+
+    const confirmed = { ...useGraphStore.getState().appBubbles[0]!, x: 99 };
+    useGraphStore.getState().applyAppBubbles([confirmed]);
+    expect(useGraphStore.getState().pendingAppBubbles).toEqual({});
+    expect(useGraphStore.getState().appBubbles[0]?.x).toBe(99);
+    vi.unstubAllGlobals();
+  });
+
+  it('붙드는 시간이 지나도 서버 목록에 없으면 걷는다(만들기 실패)', () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(pending));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    useGraphStore.getState().createAppBubble(input);
+    now.mockReturnValue(1_000 + APP_BUBBLE_PENDING_MS + 1);
+    useGraphStore.getState().applyAppBubbles([]);
+    expect(useGraphStore.getState().appBubbles).toHaveLength(0);
+    expect(useGraphStore.getState().pendingAppBubbles).toEqual({});
+    now.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('서버가 다른 id 를 지으면 낙관본을 걷는다 — 진짜는 스냅샷으로 온다', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: { id: 'app-zzz-1' } }) }));
+    useGraphStore.getState().createAppBubble(input);
+    await flush();
+    expect(useGraphStore.getState().appBubbles).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+
+  it('서버가 거절하면 낙관본을 걷는다', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    useGraphStore.getState().createAppBubble(input);
+    await flush();
+    expect(useGraphStore.getState().appBubbles).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+
+  it('잇기로 명패가 화면이 되면 같은 PATCH 에 가운데를 지킨 좌표를 싣는다', () => {
+    useGraphStore.setState({ appBubbles: [bubble('app-1', { x: 0, y: 0, width: 80, height: 50 })] });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    useGraphStore.getState().linkAppBubbleAgent('app-1', 'agent-1', { x: -64, y: -40 });
+    expect(useGraphStore.getState().appBubbles[0]).toMatchObject({ x: -64, y: -40, linkedAgentIds: ['agent-1'] });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ linkedAgentIds: ['agent-1'], x: -64, y: -40 });
+    vi.unstubAllGlobals();
   });
 });

@@ -1,47 +1,43 @@
 import { REF_LINK_STYLE } from '@vibisual/shared';
 import { useRefLinkDragStore } from '../../stores/refLinkDrag.js';
-import { refLinkPath } from './agentCard.js';
+import { pointOnOrbitToward, rectBorderDistance, refLinkPath } from './agentCard.js';
+import { RefDock, RefTether } from './RefTether.js';
 
 /**
- * §5.4 #36 (B) — 카드의 `+` 에서 끄는 참조선의 **미리보기**. 화면 좌표에 고정된 SVG 한 장이다.
+ * §5.4 #36 (B) — 궤도 위성에서 끄는 위성줄의 **미리보기**. 화면 좌표에 고정된 SVG 한 장이다.
  *
  * Task Edge 미리보기(`TaskEdgeDragPreview`)와 같은 방식 — 가상 노드를 만들어 React Flow 엣지로 그리면
- * 측정 타이밍이 엇갈려 손을 늦게 따라온다. 여기서는 출발점(손잡이 가운데)과 손 위치만 알면 된다.
- * 모양은 확정된 참조선(`RefLinkEdge`)과 **같은 곡선 함수**를 쓴다 — 놓는 순간 선이 다른 모양으로 튀지 않게.
+ * 측정 타이밍이 엇갈려 손을 늦게 따라온다. 여기서는 출발 원(원 중심·궤도 반지름)과 손 위치만 알면 된다.
+ * 줄은 위성이 아니라 **원 둘레에서 손 쪽으로** 나간다(확정 줄과 같은 문법). 손 아래가 앱 노드면 줄 끝이 그 노드
+ * 테두리에 붙고 구슬이 흐른다 — "놓으면 여기 이어진다"를 놓기 전에 보여 준다. 모양은 확정 줄과 **같은 조각**
+ * (`RefTether`)·같은 곡선 함수라 놓는 순간 튀지 않는다.
  */
 export function RefLinkDragPreview(): React.JSX.Element | null {
   const drag = useRefLinkDragStore((s) => s.drag);
   if (!drag || !drag.moved) return null;
 
-  const side: 1 | -1 = drag.mouseX >= drag.startX ? 1 : -1;
-  const geo = refLinkPath(drag.startX, drag.startY, drag.mouseX, drag.mouseY, side);
+  const origin = { x: drag.originX, y: drag.originY, r: drag.originR };
+  let end = { x: drag.mouseX, y: drag.mouseY };
+  const target = drag.target;
+  if (target) {
+    // 앱 노드 테두리 — 원 중심과 노드 중심을 잇는 직선 위(확정 줄의 `refLinkEnds` 와 같은 자리).
+    const dx = target.cx - origin.x;
+    const dy = target.cy - origin.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const reach = rectBorderDistance(target.halfW, target.halfH, dx / len, dy / len);
+    end = { x: target.cx - (dx / len) * reach, y: target.cy - (dy / len) * reach };
+  }
+  // 손이 아직 궤도 안이면 그릴 줄이 없다.
+  if (Math.hypot(end.x - origin.x, end.y - origin.y) <= origin.r) return null;
+
+  const start = pointOnOrbitToward(origin, end.x, end.y);
+  const geo = refLinkPath(start.x, start.y, end.x, end.y);
   const color = drag.color || REF_LINK_STYLE.fallbackColor;
 
   return (
     <svg className="pointer-events-none fixed inset-0 z-40 h-screen w-screen" aria-hidden="true">
-      <defs>
-        <linearGradient
-          id="ref-link-drag-grad"
-          gradientUnits="userSpaceOnUse"
-          x1={drag.startX}
-          y1={drag.startY}
-          x2={drag.mouseX}
-          y2={drag.mouseY}
-        >
-          <stop offset="0%" stopColor={color} />
-          <stop offset="100%" stopColor={REF_LINK_STYLE.endColor} />
-        </linearGradient>
-      </defs>
-      <path
-        d={geo.path}
-        fill="none"
-        stroke={color}
-        strokeWidth={REF_LINK_STYLE.glowWidth}
-        strokeOpacity={REF_LINK_STYLE.glowActiveOpacity}
-        strokeLinecap="round"
-      />
-      <path d={geo.path} fill="none" stroke="url(#ref-link-drag-grad)" strokeWidth={REF_LINK_STYLE.lineWidth} strokeLinecap="round" />
-      <circle cx={drag.mouseX} cy={drag.mouseY} r={REF_LINK_STYLE.endDotRadius + 1} fill={REF_LINK_STYLE.endColor} />
+      <RefTether d={geo.path} stroke={color} bright flowing={target !== null} />
+      <RefDock x={end.x} y={end.y} color={color} active={target !== null} />
     </svg>
   );
 }

@@ -386,19 +386,111 @@
         "version": "版本",
         "account": "账户",
         "storage": "存储",
-        "keyboard": "键盘"
+        "keyboard": "键盘",
+        "theme": "主题"
       },
       "appearance": {
         "intro": "个性化 Vibisual 的外观。",
         "language": "语言",
         "languageDesc": "界面显示语言。设置后立即生效。"
       },
+      "theme": {
+        "intro": "更改整个应用的颜色——面板、画布、IDE 和终端。你的选择会立即生效，并保存在本机。",
+        "groupDark": "深色",
+        "groupLight": "浅色",
+        "inUse": "当前主题",
+        "byAuthor": "作者：{{author}}",
+        "saveFailed": "无法保存你选择的主题。下次启动时将恢复之前保存的主题。",
+        "missing": "找不到你选择的主题（{{id}}），因此改用 {{fallback}}。请把该主题的文件放回主题文件夹，或另选一个主题。",
+        "builtin": {
+          "vibisualDark": {
+            "name": "Vibisual 深色",
+            "desc": "最初的外观——冷调蓝灰色面板和深色画布。"
+          },
+          "midnight": {
+            "name": "午夜",
+            "desc": "深海军蓝底色，适合长时间的夜间工作。"
+          },
+          "graphite": {
+            "name": "石墨",
+            "desc": "没有偏色的中性灰，让你的 Agent 颜色更醒目。"
+          },
+          "dusk": {
+            "name": "黄昏",
+            "desc": "温暖的石质色调，柔和护眼。"
+          },
+          "forest": {
+            "name": "森林",
+            "desc": "低饱和的灰绿色，仿佛林间安静的傍晚。"
+          },
+          "highContrast": {
+            "name": "高对比度",
+            "desc": "纯黑底色，搭配明亮的文字和分明的边框。"
+          },
+          "light": {
+            "name": "浅色",
+            "desc": "明亮整洁的面板，适合白天工作。"
+          },
+          "paper": {
+            "name": "纸张",
+            "desc": "暖奶油色的纸张，搭配柔和的棕色墨迹。"
+          },
+          "highContrastLight": {
+            "name": "高对比度浅色",
+            "desc": "纯白底色，搭配黑色文字和鲜明的轮廓。"
+          }
+        },
+        "custom": {
+          "title": "我的主题",
+          "desc": "你制作的主题以 JSON 文件形式存放在此文件夹中。放入文件后，点击{{reload}}。",
+          "openFolder": "打开文件夹",
+          "reload": "重新加载主题",
+          "create": "基于 {{name}} 新建主题",
+          "copyName": "{{name}} 副本",
+          "createdHint": "已创建 {{file}} 并切换到该主题。用任意文本编辑器打开它，修改几处颜色，然后点击{{reload}}。",
+          "empty": "你还没有自己的主题。",
+          "issuesTitle": "主题文件中发现的问题（{{n}}）",
+          "failed": {
+            "load": "无法读取主题文件夹。",
+            "create": "无法创建主题文件。",
+            "open": "无法打开主题文件夹。"
+          }
+        },
+        "help": {
+          "title": "如何编写主题文件",
+          "extends": "\"extends\"——用 id 指定另一个主题作为起点，只写你想改动的部分。",
+          "palette": "\"palette\"——为整个色系重新配色：借用另一个色系（\"gray\": \"zinc\"），设置单个色阶（{\"500\": \"#7c3aed\"}），或整体调整（{\"hue\": 280, \"chromaScale\": 1.4}）。",
+          "mirror": "\"mirrorPalette\": true 会把每个色系从深色翻转为浅色——这是制作浅色主题最快的方法。",
+          "colors": "\"colors\"——界面中有名称的位置，例如标题栏、画布、代码块和终端。值可以是颜色（#hex、rgb()、hsl()、oklch()），也可以是调色板引用，例如 {gray.900} 或 {sky.400}/50。",
+          "builtinIds": "内置主题 id",
+          "tokens": "可在 \"colors\" 中使用的名称"
+        },
+        "issue": {
+          "tooMany": "{{file}} 中有 {{detail}} 个主题文件——只会读取前 {{max}} 个。",
+          "tooLarge": "{{file}} 过大（{{detail}} 字节）——主题文件最大为 {{maxKb}} KB。",
+          "readFailed": "无法读取 {{file}}。",
+          "invalidJson": "{{file}} 不是有效的 JSON：{{detail}}",
+          "notObject": "{{file}} 必须包含单个 JSON 对象。",
+          "unsupportedVersion": "{{file}} 使用了主题格式 {{detail}}，当前版本无法读取。",
+          "missingName": "{{file}} 缺少 \"name\"，因此改为显示文件名。",
+          "duplicateId": "{{file}} 使用的 id（{{detail}}）已被另一个文件使用，因此已跳过。",
+          "unknownBase": "{{file}} 的 \"extends\" 指向 \"{{detail}}\"，但该主题不存在，因此改为以默认主题为起点。",
+          "extendsCycle": "{{file}} 的 \"extends\" 形成了循环（位于 \"{{detail}}\"），因此在该处断开了循环。",
+          "invalidColor": "{{file}}：{{detail}} 不是此应用能识别的颜色，因此已忽略。",
+          "unknownToken": "{{file}}：\"{{detail}}\" 不是此应用已知的颜色名称，因此已忽略。",
+          "unknownFamily": "{{file}}：\"{{detail}}\" 不是调色板中的色系，因此已忽略。",
+          "invalidRamp": "{{file}}：{{detail}} 不是有效的调色板条目，因此已忽略。",
+          "invalidField": "{{file}}：\"{{detail}}\" 的结构不正确，因此已忽略。"
+        }
+      },
       "version": {
         "title": "版本与关于",
         "intro": "Vibisual 用于派生 Agent 的 Claude Code 二进制文件及其来源。",
+        "codexIntro": "Vibisual 用于运行 Codex Agent 的 Codex CLI 及其安装位置。",
         "refresh": "重新扫描",
         "scanning": "正在扫描安装…",
         "claudeCode": "Claude Code（使用中）",
+        "codex": "Codex（使用中）",
         "current": "当前版本",
         "versionLabel": "版本：",
         "latest": "最新版（npm）",
@@ -602,6 +694,28 @@
         "sessionProbeModelDesc": "只问一次，不带任何工具，也不访问你的项目 — 只提供该会话最后所说和所做内容的一小段末尾。一次只问一个会话，每小时最多 12 次。",
         "sessionProbeLoadError": "无法读取当前设置。",
         "sessionProbeSaveError": "无法保存，未做任何更改。",
+        "processGuardTitle": "Agent 启动的进程",
+        "processGuardIntro": "Agent 在这里运行的一切，以及随之层层启动的所有进程，无论嵌套多深，都处于 Vibisual 的监控之下。如果某个进程的内存占用失控，只会停止该进程；会话结束时，它遗留的进程也会随之结束。单条命令再也无法耗尽电脑内存并拖垮整个应用。",
+        "processGuardEnabled": "监控 Agent 启动的进程",
+        "processGuardEnabledDesc": "关闭后，不会对进程分组、设置上限或清理——和此选项出现之前一样。",
+        "processGuardCap": "单个进程可使用的内存（占 RAM 的百分比）",
+        "processGuardCapDesc": "超出此上限的进程会被停止。上限不会低于 {{floor}}，以保证大型构建仍有足够内存。0 表示不限制。在 Windows 上，由系统本身拒绝分配多出的内存；在其他系统上，Vibisual 每 {{seconds}} 秒检查一次。",
+        "processGuardCapNow": "本机：每个进程 {{size}}",
+        "processGuardCapNone": "本机：每个进程不限制",
+        "processGuardPressure": "内存不足时，停止内存占用最大的进程",
+        "processGuardPressureDesc": "当可用内存低于 {{ratio}}（至少 {{min}}）时，会停止 Agent 启动的进程中内存占用最大的那个——一次只停止一个，然后重新检测内存。你电脑上的其他程序绝不会受到影响。",
+        "processGuardReap": "清理会话遗留的进程",
+        "processGuardReapDesc": "会话结束时，或 Claude Code 报告已停止某个任务时，仍遗留的相关进程也会被停止。关闭后，这些进程会继续运行。",
+        "engineBridgeTitle": "Claude Code 引擎桥接",
+        "engineBridgeIntro": "由 Vibisual 启动的会话会携带一个小型 Claude Code mod。它在 Claude Code 内部上报：每一轮何时开始和结束（包括被你中断的轮次）、进程是否仍然存活，以及上下文和用量限额的使用情况。这样，运行中和已完成的状态就直接来自 Claude Code 本身，而不是靠推测。你在 Vibisual 之外启动的会话绝不会被改动。",
+        "engineBridgeEnabled": "连接 Vibisual 启动的会话（headless 和 CMD）",
+        "engineBridgeEnabledDesc": "对保存后启动的会话生效。关闭后，会话与之前的运行方式完全相同，状态仅来自 hooks 和屏幕检测。",
+        "engineBridgeStatusReady": "Claude Code {{version}} 可以加载桥接 mod。当前已连接的会话：{{sessions}}",
+        "engineBridgeStatusUnsupported": "Claude Code {{version}} 无法加载 mod，需要 {{min}} 或更高版本。会话仍按原有方式运行。",
+        "engineBridgeStatusChecking": "正在检查 Claude Code 版本。确认后，桥接将从下一个会话起接入。",
+        "engineBridgeStatusMissing": "此安装中缺少桥接文件，因此会话仍按原有方式运行。",
+        "engineBridgeStatusError": "无法读取桥接状态。",
+        "engineBridgeRefresh": "重新检查",
         "externalBudgetTitle": "项目外的文件夹",
         "externalBudgetIntro": "当代理访问项目外部的文件夹时，该位置会生成独立的气泡。放任不管，这些气泡要么淹没整个地图，要么合并成一个毫无意义的气泡。此数值用于设置同时在顶层显示的气泡数量——最活跃、最新的位置优先占据顶层，变得不活跃的位置则会折叠回其父级气泡下。",
         "externalBudgetLabel": "顶层显示的外部文件夹数量",
@@ -616,6 +730,11 @@
       "notifications": {
         "cmdBlocked": "CMD 会话等待输入时通知我",
         "cmdBlockedDesc": "仅在你正查看其他标签页或窗口时通知——如果该窗口已聚焦，说明内容已经显示在屏幕上。"
+      },
+      "permissions": {
+        "verificationGateIntro": "此策略仅在启用时同时适用于 Codex 和 Claude Code。启用后，会要求代理仅在当前任务明确请求时运行测试、代码检查、类型检查、验证构建、E2E、浏览器检查、截图比较和验证代理，并在执行前拦截未经请求的调用。",
+        "verificationGateEnabled": "仅在请求后允许执行验证",
+        "verificationGateEnabledDesc": "默认关闭。关闭时，Vibisual 不会在提示中添加验证限制，也不会依据此策略拦截调用。开启时，名称包含 check、verify 或 test 的脚本也可能被拦截。使用{{apply}}保存：执行拦截的更改从下一次工具调用起生效，提示中的指引更改从下一轮起生效。"
       },
       "engines": {
         "title": "引擎",
@@ -1413,11 +1532,11 @@
       "codex": {
         "edgeDelegationNote": "Codex 工具委派会屏蔽可直接执行的工具，并把工作发送给已连接的 Agent。由于 shell 命令可以绕过单独的读取、搜索、编辑限制，此模式会施加更宽泛的限制。计划和最终回复仍然可用。更改从下一条消息开始生效。",
         "noModel": "尚未选择模型",
-        "modelTip": "此气泡所使用的 Codex 模型。Vibisual 始终显式发送该设置，因此它不会回退到你的 Codex 配置文件中的默认模型。",
-        "noModelList": "模型列表尚未读取——运行一次 Codex 即可生成。",
+        "modelTip": "所选模型会被明确传递。留空时遵循项目设置或 Codex 配置。列表更新不会改变您的选择。",
+        "noModelList": "暂时无法获取模型列表。已保存的模型和 Codex 继承设置会保留。",
         "reloadModels": "刷新",
         "effort": "推理强度",
-        "effortTip": "数值越高，思考时间越长，消耗的 token 也越多。这里只列出该模型所报告支持的等级。",
+        "effortTip": "推理强度越高，消耗的时间和令牌越多。可用级别由 Codex 提供；已保存的选择即使不在当前列表中也会保留。",
         "toolsManaged": "由 Codex CLI 管理",
         "toolAsk": "每次确认",
         "toolReset": "重置为全部允许",
@@ -1979,6 +2098,22 @@
     "apps": {
       "open": "打开",
       "openHint": "双击打开。",
+      "screenEmpty": "结果将显示在这里",
+      "screenWorking": "正在生成…",
+      "canvas": {
+        "tooLarge": "文件太大，无法在此打开 — 请在编辑器中打开",
+        "unavailable": "无法在此打开 — 请在编辑器中打开",
+        "dragRotate": "拖动以旋转",
+        "fill": "填满窗口",
+        "copyImage": "复制图片",
+        "copyFailed": "无法复制图片",
+        "backToDoc": "返回文档",
+        "docShort": "文档",
+        "docEmpty": "空视频 — 可让已连接的 AI 来制作，或打开编辑器",
+        "playExport": "播放最近一次渲染",
+        "docUnreadable": "无法读取文档 — 请打开编辑器",
+        "docVersion": "v{{version}}"
+      },
       "installApp": "安装应用",
       "installHint": "双击安装。",
       "uninstallApp": "卸载应用",
@@ -1986,6 +2121,7 @@
       "unknown": "未知应用",
       "rename": "重命名",
       "renamePrompt": "气泡名称",
+      "resetSize": "恢复默认大小",
       "pin": "固定",
       "unpin": "取消固定",
       "delete": "删除",
@@ -2140,7 +2276,11 @@
           "boxColor": "字幕背景",
           "padding": "字幕内边距",
           "bottom": "底部边距",
-          "volume": "音量"
+          "volume": "音量",
+          "highlight": "词语高亮",
+          "highlightColor": "高亮颜色",
+          "soundRole": "声音角色",
+          "duckDb": "旁白时降低音量（dB）"
         },
         "options": {
           "left": "左对齐",
@@ -2148,7 +2288,12 @@
           "right": "右对齐",
           "rect": "矩形",
           "ellipse": "椭圆",
-          "line": "线条"
+          "line": "线条",
+          "none": "无",
+          "word": "逐词",
+          "music": "音乐",
+          "voice": "旁白",
+          "sfx": "音效"
         },
         "library": "素材库",
         "importMedia": "导入媒体 / SRT",
@@ -2183,7 +2328,11 @@
         "loop": "循环",
         "importing": "正在导入…",
         "download": "下载 MP4",
-        "saveStill": "保存 PNG"
+        "saveStill": "保存 PNG",
+        "addComposition": "代码合成",
+        "addCompositionHint": "用 HTML/CSS/JS 编写的动态图形。可以让 AI 来写，也可以自己编辑文件。",
+        "media_composition": "代码合成",
+        "wordsEstimated": "部分字幕没有逐词时间，因此按文字长度估算每个词的时间。"
       },
       "timelineEditor": {
         "zoomIn": "放大",
@@ -2202,10 +2351,561 @@
         "dragHint": "拖动片段以移动，拖动边缘以修剪。方向键：1 帧；Shift：10 帧；Alt：暂时关闭吸附。",
         "moveClip": "移动 {{name}}",
         "frameValue": "第 {{frame}} 帧"
-      }
+      },
+      "composition": {
+        "title": "代码合成",
+        "noSource": "此片段没有指向合成文件。",
+        "reload": "重新读取代码",
+        "strip": "帧条",
+        "openFile": "打开文件",
+        "seekMode": "跳转方式",
+        "modeForward": "仅向前（回退时从头重放）",
+        "modeRandom": "任意时刻立即跳转",
+        "declaredLength": "声明的时长",
+        "designSize": "设计尺寸",
+        "lint": "检查项",
+        "props": "数据（props，JSON）",
+        "propsHint": "代码会从 window.__vibi.props 中读取这些值。",
+        "propsNotObject": "请输入 JSON 对象，例如 {\"title\": \"Hello\"}。",
+        "propsInvalid": "这不是有效的 JSON。",
+        "newLabel": "动态图形",
+        "stripLoading": "正在捕获帧条…",
+        "runtimeError": "合成错误：{{message}}",
+        "blocked": "某个合成尝试加载其文件夹之外的内容：{{url}}"
+      },
+      "lint": {
+        "network": "网络请求（fetch、XMLHttpRequest、WebSocket）已被阻止。请改为把数据放在片段的 props 中。",
+        "external-url": "外部 URL 已被阻止。请把文件复制到合成文件夹中，并使用相对路径。",
+        "media-element": "<audio>/<video> 无法跟随时间轴。请把声音放到音频轨道上，视频则作为片段添加。",
+        "sound-api": "代码中产生的声音会被静音。请改为把声音放到音频轨道上。",
+        "worker": "Web Worker 在合成中已被阻止。",
+        "storage": "合成中无法使用存储和 Cookie。",
+        "module-script": "模块脚本可能无法加载。请改用普通的 script 标签。",
+        "css-transition": "CSS 过渡无法拖动预览。请改用 @keyframes 或 element.animate()。",
+        "input-wait": "有些代码在等待点击或按键——视频里没有人会按键。",
+        "no-duration": "未声明时长（vibi:duration）。请为片段设置时长，或在文件中声明。",
+        "frame-callbacks": "使用了帧回调，因此只能向前播放——回退时会从头重放。",
+        "virtual-clock": "每个视频中的时钟和随机值都会被设为可重复。",
+        "no-motion": "未检测到动画——此片段可能始终不会随时间变化。",
+        "no-props-decl": "未声明任何值，因此 Vibistudio 无法为此合成显示手柄。",
+        "props-decl-invalid": "值声明（vibi-props）存在错误。",
+        "engine-unsupported": "使用了视频渲染器暂不支持的网页功能——这些功能在视频中会被忽略。"
+      },
+      "agent": {
+        "placeholder": "告诉 AI 要改什么——例如在 2 秒左右把标题放大",
+        "pick": "AI Agent",
+        "pickPlaceholder": "选择 Agent…",
+        "linkedLabel": "{{name}}（已连接）",
+        "removeAttachment": "移除 {{name}}",
+        "attach": "附加图片、视频或音频（会加入此视频的素材）",
+        "send": "询问 AI",
+        "working": "AI 正在编辑…",
+        "reloaded": "已加载最新更改（v{{version}}）。",
+        "useAttachments": "请在此视频中使用附加的素材。",
+        "sent": "已发送给 AI。它所做的更改会自动显示在这里。"
+      },
+      "removeNamed": "移除 {{name}}",
+      "cueNoComposition": "素材 {{id}} 不是代码合成。",
+      "cueScanTimeout": "合成未能在限定时间内完成 {{seconds}} 秒的运行。",
+      "ai": {
+        "allowImages": "允许生成图片",
+        "allowImagesNote": "用量会计入该 Codex 账号。",
+        "attach": "附加文件",
+        "autoAgentName": "视频 · {{title}}",
+        "changed": "变更内容",
+        "collapse": "收起 AI 面板",
+        "empty": "说说想制作或修改什么。AI 会把它构建成可编辑的代码，你仍然可以手动调整每一个值。",
+        "expand": "展开 AI 面板",
+        "ide": "IDE",
+        "idle": "等待你的指示",
+        "moreChanges": "另有 {{count}} 项",
+        "noAgentYet": "还没有 Agent，发送时会自动创建一个",
+        "openIde": "在 IDE 中打开此对话",
+        "placeholder": "描述想要的修改…",
+        "pointedChip": "指向：{{kind}}",
+        "send": "发送",
+        "suggestions": "建议",
+        "timeChip": "在 {{time}} 处",
+        "title": "AI",
+        "undoPass": "撤销这一轮修改",
+        "working": "工作中…"
+      },
+      "chapterMenu": {
+        "merge": "与下一场景合并",
+        "otherEngine": "用 {{engine}} 重做",
+        "redo": "让 AI 重做此场景",
+        "redoRequest": "请重做第 {{n}} 个场景（{{title}}）。",
+        "remove": "删除此场景",
+        "savePart": "保存为部件",
+        "split": "在播放头处分割",
+        "variants": "两个引擎并排对比"
+      },
+      "chapterStatus": {
+        "plan": "已规划",
+        "approved": "已批准",
+        "building": "构建中",
+        "done": "已完成"
+      },
+      "diff": {
+        "title": "标题：{{from}} → {{to}}",
+        "size": "尺寸：{{from}} → {{to}}",
+        "fps": "帧率：{{from}} → {{to}}",
+        "style": "样式已更改",
+        "chapterAdded": "新增场景 {{n}} · {{title}}",
+        "chapterRemoved": "移除场景 {{n}} · {{title}}",
+        "chapterTitle": "场景 {{n}} 已重命名为 {{title}}",
+        "chapterDuration": "场景 {{n}} · {{title}}：{{from}} s → {{to}} s",
+        "chapterText": "场景 {{n}} · {{title}}：画面文字已更改",
+        "chapterBrief": "场景 {{n}} · {{title}}：动效方案已更改",
+        "chapterStatus": "场景 {{n}} · {{title}} 的状态变为{{status}}",
+        "chapterTransition": "场景 {{n}} · {{title}}：转场设为 {{transition}}",
+        "chapterOther": "场景 {{n}} · {{title}} 已更改",
+        "chapterOrder": "场景顺序已调整",
+        "itemAdded": "新增 {{label}}",
+        "itemRemoved": "移除 {{label}}",
+        "itemText": "{{label}}：文字或值已更改",
+        "itemTiming": "{{label}}：时间已更改",
+        "itemLook": "{{label}}：位置或外观已更改",
+        "itemOther": "{{label}} 已更改",
+        "itemsMany": "{{count}} 项已更改",
+        "assetAdded": "新增 {{count}} 个媒体文件",
+        "assetRemoved": "移除 {{count}} 个媒体文件",
+        "assetChanged": "更新 {{count}} 个媒体文件"
+      },
+      "engines": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "label": "引擎",
+        "prepare": "设置",
+        "prepareInMain": "在主窗口中设置 {{engine}}。",
+        "need_setup": "尚未安装 {{engine}}。",
+        "need_login": "请先登录 {{engine}}。",
+        "need_refresh": "请重新检查 {{engine}}。"
+      },
+      "errors": {
+        "details": "详情",
+        "offline": "无法连接到 Vibisual 服务器。请确认应用正在运行。",
+        "conflict": "文档在同一时刻被修改。请重试。",
+        "missingDoc": "此文档或版本已不存在。",
+        "worker": "后台视频处理进程没有响应。请重试。",
+        "timeout": "耗时过长，已停止。请重试。",
+        "unreadable": "无法读取此文件。",
+        "tooLarge": "此文件过大，无法导入。",
+        "limit": "已达到用量限额。请稍后重试。",
+        "forbidden": "此操作只能由你本人执行，Agent 无权执行。",
+        "generic": "出了点问题。"
+      },
+      "export": {
+        "captions": "字幕",
+        "captions_burn": "烧录到画面",
+        "captions_separate": "单独文件",
+        "derived": "已为此格式制作 {{title}}，并开始渲染。",
+        "derivedExisting": "正在渲染 {{title}}，这是你已为此格式制作好的版本。",
+        "download": "下载最近一次渲染结果",
+        "mp4": "视频（MP4）",
+        "noCaptions": "没有可导出的字幕。",
+        "png": "播放头处的静态图片",
+        "preset_landscape": "横屏",
+        "preset_portrait": "竖屏短视频",
+        "preset_square": "方形",
+        "presets": "输出尺寸",
+        "srt": "字幕文件",
+        "transparent": "仅动态图形，背景透明"
+      },
+      "formats": {
+        "landscape": "横屏",
+        "portrait": "竖屏",
+        "square": "方形"
+      },
+      "header": {
+        "docs": "文档",
+        "export": "导出",
+        "format": "画幅",
+        "history": "历史",
+        "label": "Vibistudio 工具栏",
+        "newDoc": "新建视频",
+        "noDoc": "未打开文档",
+        "recent": "最近",
+        "rename": "重命名",
+        "title": "文档标题"
+      },
+      "history": {
+        "beforeRestore": "回退前",
+        "byAi": "AI",
+        "byMe": "你",
+        "checkpoint": "保存检查点",
+        "compare": "并排比较",
+        "compareCount": "已选 {{count}} 项",
+        "empty": "这里还没有内容。AI 的每一轮和你保存的每个检查点都会出现在这里，你可以回退到其中任何一个。",
+        "kind_pass-start": "AI 一轮开始前",
+        "kind_pass-end": "AI 一轮",
+        "kind_checkpoint": "检查点",
+        "kind_restore": "已回退",
+        "kind_render": "已渲染此版本",
+        "noDiff": "没有差异。",
+        "pick": "选择以比较",
+        "rendered": "已渲染",
+        "restore": "回退到此版本",
+        "title": "历史"
+      },
+      "libs": {
+        "accept": "导入",
+        "addPack": "添加到时间轴",
+        "download": "下载",
+        "drop": "拖入脚本、样式表、字体、zip 压缩包或单个 HTML 页面",
+        "duration": "时长（s）",
+        "fromProject": "在本项目的 node_modules 中查找",
+        "inert": "数据地址——保持原样",
+        "kind_library": "库",
+        "kind_font": "字体",
+        "kind_pack": "HTML 页面",
+        "kind_script": "脚本",
+        "kind_style": "样式表",
+        "kind_image": "图片",
+        "kind_module": "模块",
+        "kind_data": "数据",
+        "kind_other": "其他",
+        "licenseNote": "许可证信息按文件中的原样显示。是否可以使用，由你自行决定。",
+        "noLicense": "未找到许可证",
+        "pick": "选择文件",
+        "refsTitle": "{{name}} 会加载 {{count}} 个外部文件",
+        "reject": "忽略",
+        "remove": "移除",
+        "request": "AI 请求你导入：",
+        "title": "导入内容",
+        "url": "要下载的文件地址",
+        "vendorAll": "全部下载",
+        "vendorNone": "保持原样",
+        "vendorPicked": "下载所选"
+      },
+      "media": {
+        "empty": "还没有素材。导入文件，或将文件拖放到预览画面上。",
+        "import": "导入",
+        "importing": "正在导入…",
+        "search": "搜索素材"
+      },
+      "notes": {
+        "closed": "已关闭（{{count}}）",
+        "confirm": "没问题",
+        "empty": "还没有批注。",
+        "handoff": "将 {{count}} 条批注交给 AI",
+        "handoffRequest": "请按我标记的 {{count}} 条批注修改。",
+        "hint": "在预览上标记一条批注（{{shortcut}}）。AI 会收到确切的时间点和位置。",
+        "newNote": "新批注 {{n}}",
+        "pin": "标记",
+        "pinTitle": "批注 {{n}}",
+        "placeholder": "这里需要改什么？",
+        "reopen": "重新打开",
+        "seek": "跳转到此时间点",
+        "status_open": "待处理",
+        "status_sent": "已发送给 AI",
+        "status_fixed": "已修改——请检查",
+        "status_closed": "已关闭",
+        "text": "批注 {{n}} 的文字"
+      },
+      "parts": {
+        "basic": "基础",
+        "group_text": "标题与文字",
+        "group_data": "图表与数字",
+        "group_brand": "品牌",
+        "group_captions": "字幕",
+        "group_mine": "我的部件",
+        "name_lower-third": "人名条",
+        "name_kinetic-type": "动态文字",
+        "name_counter": "计数器",
+        "name_bar-chart": "柱状图",
+        "name_line-chart": "折线图",
+        "name_donut-chart": "环形图",
+        "name_code-typing": "代码打字",
+        "name_logo-reveal": "Logo 亮相",
+        "name_word-captions": "逐字字幕",
+        "pickSeam": "把播放头移到第一个场景之后的任一场景，即可选择它的转场。",
+        "transitions": "转场"
+      },
+      "plan": {
+        "add": "添加场景",
+        "approve": "批准并制作",
+        "brief": "动效",
+        "buildRequest": "规划已批准，请制作这 {{count}} 个场景。",
+        "building": "制作中…",
+        "buildingThis": "正在制作…",
+        "chapterTitle": "场景标题",
+        "collapse": "收起规划",
+        "drag": "拖动调整顺序",
+        "expand": "展开规划",
+        "length": "时长",
+        "newChapter": "新场景",
+        "noFrameYet": "暂无画面",
+        "remove": "移除场景",
+        "seek": "跳到场景 {{n}}",
+        "sound": "声音",
+        "summary": "{{count}} 个场景 · {{length}}",
+        "text": "画面文字",
+        "title": "场景规划",
+        "styleFrame": "风格帧"
+      },
+      "precision": {
+        "close": "关闭精细编辑",
+        "toggle": "精细编辑"
+      },
+      "preview": {
+        "actualSize": "实际大小",
+        "empty": "暂无内容可显示。",
+        "fit": "适应窗口",
+        "label": "视频预览",
+        "nextFrame": "下一帧",
+        "note": "标记批注",
+        "planReady": "规划已就绪，请查看各场景并批准。",
+        "planning": "AI 正在规划…",
+        "point": "指向某处",
+        "prevFrame": "上一帧",
+        "safeArea": "安全区域"
+      },
+      "rail": {
+        "label": "抽屉",
+        "media": "素材",
+        "parts": "部件",
+        "style": "样式",
+        "notes": "批注",
+        "transcript": "文字稿"
+      },
+      "recipes": {
+        "app-intro": {
+          "name": "应用介绍",
+          "desc": "用本项目的真实界面制作一段简短介绍。",
+          "placeholder": "它面向谁？希望他们记住什么？",
+          "wants": "运行中应用的界面 · Logo"
+        },
+        "changelog": {
+          "name": "更新内容",
+          "desc": "把提交或拉取请求做成简短的更新视频。",
+          "placeholder": "哪些提交或哪个拉取请求？（默认：自上一个标签起）",
+          "wants": "提交或拉取请求"
+        },
+        "data-story": {
+          "name": "数据故事",
+          "desc": "用动画图表讲解一个数据集。",
+          "placeholder": "这些数据要回答什么问题？",
+          "wants": "CSV 文件或表格"
+        },
+        "caption-shorts": {
+          "name": "字幕短视频",
+          "desc": "在口播视频上叠加逐字字幕的竖屏短视频。",
+          "placeholder": "这段视频讲什么？有需要剪掉的部分吗？",
+          "wants": "视频 · SRT 文件"
+        },
+        "kinetic-text": {
+          "name": "动态文字",
+          "desc": "用动起来的文字传达信息。",
+          "placeholder": "粘贴要做成动画的文字",
+          "wants": "你的文字"
+        },
+        "photo-slideshow": {
+          "name": "照片幻灯片",
+          "desc": "照片配上音乐，按节拍切换。",
+          "placeholder": "是什么场合？",
+          "wants": "照片 · 音乐"
+        },
+        "logo-reveal": {
+          "name": "Logo 亮相",
+          "desc": "让你的 Logo 亮相的简短动画。",
+          "placeholder": "有想要的氛围或配色吗？",
+          "wants": "一个 Logo"
+        },
+        "blank": {
+          "name": "空白",
+          "desc": "一份空白文档，供你手动制作。",
+          "placeholder": "给它起个标题（可选）",
+          "wants": "无需准备"
+        }
+      },
+      "review": {
+        "docOnly": "仅根据文档检查。检查画面还能发现对比度过低和空白画面。",
+        "fix": "让 AI 修复",
+        "fixRequest": "请修复这个问题：{{what}}",
+        "frames": "检查画面",
+        "framesBusy": "正在检查画面…",
+        "skip": "本次跳过",
+        "snap": "对齐节拍",
+        "title": "审查",
+        "read-time": "显示时间太短，来不及阅读：画面上仅 {{have}} s，约需 {{need}} s。",
+        "safe-area": "“{{text}}”超出了安全区域。",
+        "text-overlap": "文字重叠：“{{a}}”与“{{b}}”。",
+        "low-contrast": "“{{text}}”难以阅读（对比度 {{ratio}}:1）。",
+        "blank": "空白画面——这里什么都看不到。",
+        "caption-clip": "字幕长达 {{lines}} 行，请缩短或拆分。",
+        "silence": "{{from}} s 到 {{to}} s 之间没有声音。",
+        "off-beat": "进入场景 {{n}} 的切点偏离节拍 {{offset}} s。"
+      },
+      "seam": {
+        "length": "转场时长",
+        "snapBeat": "以最近的强拍为中心",
+        "title": "转场"
+      },
+      "signals": {
+        "title": "提示点",
+        "collecting": "正在收集提示点…",
+        "recollect": "重新收集提示点",
+        "mark": "提示点 {{name}} 位于 {{t}} s",
+        "boundCount": "已绑定 {{count}} 个",
+        "menu": "提示点",
+        "staleHint": "代码已更改，这些时间正在重新收集。",
+        "bind": "将 {{name}} 绑定到此提示点",
+        "bindHint": "先选中一个声音或其他元素，再绑定到这里",
+        "unbind": "解除 {{name}} 的绑定（保留当前时间）",
+        "boundTo": "已绑定到提示点 {{name}}"
+      },
+      "start": {
+        "ask": "你想制作什么？",
+        "dropHint": "将文件拖放到此处：界面截图、数据、Logo 或视频",
+        "make": "制定规划",
+        "materials": "添加文件",
+        "openBlank": "打开空白文档",
+        "placeholder": "描述这个视频…",
+        "recipes": "配方",
+        "seconds": "{{count}} s"
+      },
+      "steps": {
+        "label": "步骤",
+        "say": "说出需求",
+        "approve": "批准规划",
+        "refine": "手动精修"
+      },
+      "strip": {
+        "chapter": "场景 {{n}} · {{title}}",
+        "chapterN": "场景 {{n}}",
+        "derive": "拆分为场景",
+        "empty": "还没有场景",
+        "menu": "场景菜单",
+        "seam": "转场：{{transition}}",
+        "seamDrag": "拖动可移动切点",
+        "working": "AI 正在处理这里"
+      },
+      "style": {
+        "applied": "已应用",
+        "apply": "应用到此视频",
+        "confirm": "设为项目样式",
+        "current": "此视频",
+        "font": "字体",
+        "fontFile": "文件",
+        "fromProject": "来自项目",
+        "logo": "Logo",
+        "noFont": "系统字体",
+        "noLogo": "无 Logo",
+        "none": "还没有样式。扫描项目即可找到其中的颜色、字体和 Logo。",
+        "partial": "已扫描前 {{count}} 个文件。",
+        "scan": "扫描项目",
+        "scanHint": "从此项目的文件中找出颜色、字体和 Logo。",
+        "scanning": "正在扫描…",
+        "slot_accent": "强调色",
+        "slot_bg": "背景色",
+        "slot_fg": "文字色",
+        "slot_muted": "弱化色"
+      },
+      "toast": {
+        "checkpoint": "检查点已保存",
+        "nothingToDerive": "没有可拆分的内容：时间线上还没有明确的切点。",
+        "partSaved": "已保存到“我的部件”",
+        "passUndone": "已撤销 AI 的这一轮",
+        "renderDoneNote": "渲染完成 · {{note}}",
+        "restored": "已回退到该版本",
+        "sent": "已发送给 AI",
+        "styleConfirmed": "已保存为项目样式",
+        "cuesStale": "无法重新收集提示点，因此绑定到提示点的声音沿用了之前的时间。"
+      },
+      "transcript": {
+        "clear": "清除标记",
+        "cut": "剪除已划掉的句子",
+        "empty": "还没有字幕句子。导入 SRT 文件或添加字幕。",
+        "hint": "点击句子可跳转到该处。先划掉句子，再一次性剪掉；剪切沿句子边界进行。",
+        "keep": "保留这句",
+        "seek": "跳转到这句",
+        "strike": "划掉这句",
+        "summary": "{{count}} 句 · −{{removed}} s · {{before}} → {{after}}"
+      },
+      "transitions": {
+        "cut": "硬切",
+        "dissolve": "叠化",
+        "push": "推移",
+        "zoom": "缩放",
+        "flash": "闪光",
+        "wipe": "划像"
+      },
+      "values": {
+        "advanced": "高级（JSON）",
+        "codeInfo": "代码信息",
+        "codeInfoProblems": "代码信息 · {{count}} 个问题",
+        "declaredLength": "声明时长 {{seconds}} s",
+        "deselect": "取消选择",
+        "duration": "时长",
+        "noDecl": "此合成还没有声明任何参数。请让 AI 声明你想修改的文字、数字和颜色。",
+        "responsive": "自适应画幅",
+        "seekForward": "只能向前播放（回退会从头重播）",
+        "seekRandom": "可跳转到任意时刻",
+        "title": "参数",
+        "kind_composition": "代码合成",
+        "kind_footage": "视频",
+        "kind_image": "图片",
+        "kind_audio": "声音",
+        "kind_caption": "字幕",
+        "kind_text": "文字",
+        "kind_shape": "形状",
+        "kind_scene": "内置场景"
+      },
+      "variants": {
+        "dropUnpicked": "删除另一个版本",
+        "hint": "两个版本在同一时间点同步播放。未选用的那个会一直保留在文档中，直到你将其删除。",
+        "missing": "此场景还没有两个版本。",
+        "pick": "使用这个",
+        "picked": "使用中",
+        "request": "用 {{engine}} 制作场景“{{title}}”，方便我对比。",
+        "status_building": "制作中",
+        "status_done": "已就绪",
+        "title": "两种引擎 · {{title}}"
+      },
+      "motion": {
+        "punchIn": "强调放大",
+        "punchInHint": "在播放头处瞬间放大，保持片刻后恢复原状",
+        "slowPush": "缓慢推近",
+        "slowPushHint": "在整个片段中缓慢放大",
+        "addKey": "在 {{time}} 秒处添加关键帧",
+        "empty": "没有关键帧——该框保持静止。",
+        "keyLabel": "关键帧 {{n}}",
+        "remove": "移除此关键帧",
+        "time": "时间（秒）",
+        "dx": "移动 X（px）",
+        "dy": "移动 Y（px）",
+        "ease": "曲线",
+        "ease_linear": "匀速",
+        "ease_in": "起步慢",
+        "ease_out": "收尾慢",
+        "ease_inOut": "平滑",
+        "ease_hold": "保持后跳变",
+        "clear": "移除全部关键帧"
+      },
+      "effects": {
+        "title": "色彩与效果",
+        "look": "调色风格",
+        "look_warm": "暖色",
+        "look_cool": "冷色",
+        "look_mono": "黑白",
+        "look_vivid": "鲜艳",
+        "look_fade": "褪色",
+        "look_cinematic": "电影感",
+        "brightness": "亮度",
+        "contrast": "对比度",
+        "saturation": "饱和度",
+        "temperature": "色温",
+        "hue": "色相偏移（°）",
+        "blur": "模糊（px）",
+        "vignette": "暗角",
+        "reset": "重置色彩与效果"
+      },
+      "errNoFrame": "无法绘制章节“{{id}}”的风格帧——该章节没有合成素材。",
+      "lowResolution": "当前屏幕放不下与视频同样大的渲染窗口，因此已按 {{percent}}% 的分辨率渲染。"
     },
     "cost": {
-      "codexEstimateNote": "Codex 费用按标准 API 令牌单价估算，不代表 ChatGPT 订阅账单或额度用量，也不包含 Fast 模式和长上下文附加费。",
+      "codexEstimateNote": "Codex 费用按标准 API 令牌单价估算，不代表 ChatGPT 订阅账单或额度用量，也不包含 Fast/Ultrafast 模式和长上下文附加费。",
       "title": "费用与 Token 地图",
       "close": "关闭费用地图",
       "pillLabel": "今日费用",
@@ -2386,8 +3086,6 @@
         "invalidNumber": "请输入允许范围内的有效数字。",
         "reloadedDraft": "此片段在编辑期间发生了变化。应用前请检查最新值。",
         "refresh": "刷新",
-        "removeTrack": "移除轨道",
-        "memoryLimit": "此音频超出了编辑内存限制。请使用更短的源素材。",
         "connections": {
           "title": "AI 与连接",
           "builtIn": "内置编辑",
@@ -2432,7 +3130,9 @@
           "loadFailed": "无法加载连接草稿。",
           "saveFailed": "无法保存草稿。请检查名称和端点地址。",
           "retry": "重试"
-        }
+        },
+        "removeTrack": "移除轨道",
+        "memoryLimit": "此音频超出了编辑内存限制。请使用更短的源素材。"
       }
     },
     "vibi3d": {
@@ -2450,7 +3150,54 @@
       "triangles": "三角形 {{n}}",
       "dragHint": "拖动旋转，滚轮缩放",
       "viewOnly": "仅查看",
-      "missingTextures": "已在缺少 {{count}} 个纹理文件的情况下打开：{{names}}。请将它们与模型一起选择，或放在模型所在的文件夹中。"
+      "open": "打开文件",
+      "save": "保存 GLB",
+      "download": "下载",
+      "undo": "撤销",
+      "redo": "重做",
+      "tool_translate": "移动",
+      "tool_rotate": "旋转",
+      "tool_scale": "缩放",
+      "properties": "属性",
+      "viewport": "3D 视图",
+      "start": "打开模型，改成你想要的样子",
+      "openHint": "将 GLB、glTF、OBJ、STL、PLY、FBX、DAE 或 3MF 文件拖放到此处。请同时选择配套的贴图。",
+      "sample": "试试立方体",
+      "working": "处理中…",
+      "clip": "动画片段",
+      "play": "播放",
+      "pause": "暂停",
+      "stop": "停止",
+      "seek": "动画时间",
+      "downloadStarted": "已开始下载 GLB。",
+      "saveFailed": "无法保存。请尝试下载 GLB。",
+      "saved": "已保存：{{path}}",
+      "connectionIssue": "AI 连接不可用。你仍可编辑和保存。",
+      "missingTextures": "已在缺少 {{count}} 个纹理文件的情况下打开：{{names}}。请将它们与模型一起选择，或放在模型所在的文件夹中。",
+      "objects": "对象",
+      "selectObject": "选择一个对象",
+      "position": "位置",
+      "rotation": "旋转（°）",
+      "scale": "缩放",
+      "color": "颜色",
+      "selectHint": "点击视图中的对象即可编辑。",
+      "lighting": "光照",
+      "agentTitle": "询问 AI",
+      "agentChoose": "选择 Agent",
+      "agentRequestLabel": "描述要对场景做的修改",
+      "agentPlaceholder": "把它稍微向右移一点，并改成蓝色",
+      "agentSend": "请求修改",
+      "agentHint": "先选中一个对象，再描述要做的修改。Agent 会读取当前的场景和视图。",
+      "agentOpenFirst": "先打开一个模型，才能让 Agent 修改。",
+      "agentConnecting": "正在连接场景和 Agent…",
+      "agentNone": "在此项目中创建 Agent 后，即可请求修改。",
+      "agentSending": "正在发送请求…",
+      "agentSendFailed": "无法确认请求是否已送达。重试前请先查看 Agent 的对话。你输入的文字仍保留在这里。",
+      "agentTaskFailed": "Agent 因出错而停止。详情请查看其对话。",
+      "agentResponded": "Agent 已回复。请查看场景及其对话。",
+      "agentQueued": "请求已接收。可在所选 Agent 的对话中查看进度。",
+      "agentSceneChanged": "场景已变化。请针对当前模型重新发送请求。",
+      "agentUnavailable": "所选 Agent 不可用。请检查连接后重试。"
     },
     "mediaConvert": {
       "videoIntro": "此视频格式无法在应用内直接打开。仅更换封装（画质不变）即可在我们的编辑器中打开。",
@@ -3906,6 +4653,16 @@
       "resumed": "连接已恢复 · 工作已继续",
       "ended": "连接恢复尝试记录"
     },
+    "processGuard": {
+      "someProcess": "一个进程",
+      "cap": "已停止 {{image}}——它占用了 {{mem}}，超出单个进程的上限（{{cap}}）",
+      "capKernel": "{{image}} 达到了单个进程的上限（{{cap}}），Windows 拒绝为其分配更多内存，该进程随即结束",
+      "pressure": "内存不足（可用 {{avail}}）——已停止 {{image}}，它是这里最大的进程（{{mem}}）",
+      "sessionEnd_one": "会话已结束——已停止它遗留的 {{count}} 个进程",
+      "sessionEnd_other": "会话已结束——已停止它遗留的 {{count}} 个进程",
+      "taskKilled_one": "Claude Code 已停止某个任务，但该任务仍有 {{count}} 个进程在运行——已将其停止",
+      "taskKilled_other": "Claude Code 已停止某个任务，但该任务仍有 {{count}} 个进程在运行——已将其停止"
+    },
     "cmdError": {
       "spawn": "{{engine}} 无法启动",
       "stdin": "无法将提示词发送到正在运行的 Session",
@@ -4093,6 +4850,7 @@
         "systemPrompt": "Claude Code 系统提示词",
         "compactSelf": "Agent 自主压缩",
         "compactRecovery": "压缩后恢复简报",
+        "verificationPolicy": "验证策略",
         "autoGoalSkills": "已检测到的流程",
         "codexInstructions": "Codex 项目指令",
         "codexGlobalInstructions": "Codex 全局指令",
@@ -4211,6 +4969,11 @@
             "what": "一条只出现一轮的说明，列出压缩摘要似乎未带入的内容。",
             "more": "基于压缩前捕获的快照生成，并与摘要文本进行比对。仅发送一次，不会重复。",
             "off": "关闭此设置后，压缩完成后会话会照常继续，且不会提示摘要遗漏了哪些内容。"
+          },
+          "verificationPolicy": {
+            "what": "向 Codex 和 Claude Code 提供可选指引，要求仅在当前任务请求时运行验证，并提供该任务的验证权限。",
+            "more": "策略默认关闭。启用后，Vibisual 会根据你在该任务中的消息或验证按钮操作授予验证权限。禁用时，不会添加限制性指引，也不会拦截验证调用。",
+            "off": "此来源开关仅在策略启用时隐藏指引。要同时启用或禁用指引与执行拦截，请前往{{options}}中的{{permissions}}。策略默认关闭。"
           },
           "hookEnforcement": {
             "what": "Vibisual 注入到通过 Claude Code Hooks 自行接入的 Session 中的内容块。",
@@ -4652,6 +5415,16 @@
         "warn": "如果必读小节尚未读完就要结束本轮，会退回让它继续读。",
         "enforce": "必读小节未读完期间拒绝修改。达到退回次数上限后不再拦截。"
       }
+    },
+    "verifyPolicy": {
+      "notRun": "未运行验证",
+      "notRunTip": "此任务未运行任何测试、构建或浏览器检查。可使用此标记旁的按钮，或在你的消息中要求验证。",
+      "blockedTip": "Agent 尝试了 {{count}} 次验证调用；均在运行前被阻止。",
+      "ran": "已运行验证 ×{{count}}",
+      "ranTip": "验证已在你要求的范围内运行。是否通过，请见上方的回复。",
+      "runTip": "运行与此次修改相关的检查（相关测试、类型检查、lint、构建）。失败只会报告，不会修复。",
+      "runFailed": "无法启动：{{error}}",
+      "runPrompt": "验证上一个任务所做的修改。只运行与之相关的检查（相关测试、类型检查、lint、构建）——不要运行完整测试套件、E2E 或浏览器检查。对每一项分别报告通过、失败或未检查。不要修复失败项；只需报告。\n\n上一个任务：{{task}}"
     },
     "verify": {
       "title": "验证",
@@ -5969,7 +6742,16 @@
       "lockN": "锁定所选 {{count}} 项",
       "unlockN": "解锁所选 {{count}} 项",
       "lockSkipped": "将跳过 {{count}} 个无法锁定的气泡。",
-      "toBubble": "折叠回气泡"
+      "toBubble": "折叠回气泡",
+      "toCard": "切换为对话气泡",
+      "toCardNote": "在气泡旁展开输入气泡，直接在这里与它对话",
+      "hideLinks": "隐藏连线",
+      "hideLinksNote": "只有连线会消失——连接照常工作",
+      "showLinks": "显示连线",
+      "lensFiles": "聚焦工作文件",
+      "lensFilesNote": "文件连线恢复清晰，并折叠已连接的内容",
+      "lensLinked": "聚焦已连接的内容",
+      "lensLinkedNote": "显示已连接应用的场景和素材，并淡化文件连线"
     },
     "pathLock": {
       "badgeSelf": "已锁定——任何 AI 打开前都必须先询问你",
@@ -5989,15 +6771,42 @@
       },
       "placeholder": "想让它做什么？Enter 发送，Shift+Enter 换行。",
       "inputLabel": "发给 {{name}} 的消息",
-      "linkHint": "拖动 + 可添加已连接的节点",
+      "linkHint": "拖动轨道上的点来添加应用卫星",
       "chipOn": "{{name}} 已纳入此消息。点击可将其排除。",
       "chipOff": "{{name}} 未纳入此消息。点击可将其纳入。",
       "send": "发送",
-      "handleTitle": "拖动可创建或连接节点，或点击查看列表"
+      "handleTitle": "拖动以添加或连接应用卫星（点击可选择）",
+      "linkedCount": "应用卫星：{{count}}"
     },
     "refLink": {
-      "menuHeading": "以此 Agent 为参考创建",
+      "bloomLabel": "选择要添加的应用卫星",
       "unlink": "断开连接"
+    },
+    "linkedItems": {
+      "rowLabel": "已连接的内容",
+      "scene": "场景 {{index}}：{{title}}",
+      "sceneUntitled": "场景 {{index}}",
+      "stage": {
+        "plan": "已规划",
+        "ready": "已批准",
+        "building": "制作中",
+        "done": "已完成"
+      },
+      "kind": {
+        "scene": "场景",
+        "image": "图片",
+        "video": "视频",
+        "audio": "声音",
+        "model": "3D 模型",
+        "font": "字体",
+        "code": "动态图形代码",
+        "text": "文本",
+        "file": "文件"
+      },
+      "seconds": "{{seconds}} 秒",
+      "active": "AI 正在处理这一项",
+      "past": "之前的结果",
+      "openPastHint": "双击打开此结果。"
     }
   },
   "common": {
@@ -6389,7 +7198,12 @@
     "personality": "表达风格",
     "personalityHint": "仅适用于支持表达风格设置的模型。",
     "serviceTier": "服务等级",
-    "serviceTierHint": "请输入模型支持的等级（例如 fast）。较快的等级可能影响用量和费用。",
+    "serviceTierFast": "Fast — 支持时可用",
+    "serviceTierUltrafast": "Ultrafast — 支持时可用",
+    "codexModelInherited": "遵循 Codex 配置",
+    "codexModelInheritedHint": "不发送模型覆盖值。Codex 根据配置或当前默认模型进行选择。",
+    "retainedModelHint": "已保存的模型不在当前列表中。所选模型会保留，Codex 将在运行时检查其可用性。",
+    "serviceTierHint": "Fast/Ultrafast 是否可用取决于模型和账号。这些模式可能消耗更多额度或产生更高费用。留空以继承设置，也可输入其他受支持的等级名称。",
     "autoCompactTokenLimit": "自动压缩对话的阈值（令牌）",
     "codexTools": "工具权限",
     "codexValues": {

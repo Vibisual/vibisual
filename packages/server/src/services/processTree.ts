@@ -16,8 +16,9 @@ import { logger } from '../logger.js';
  *   1) 정상 종료: `taskkill /PID <pid> /T /F` 로 트리 전체를 강제 종료(pnpm·tree-kill 등이 쓰는 방식).
  *      → {@link killTree}, {@link terminateChildTree}.
  *   2) 크래시(부모가 신호 없이 먼저 죽음): VS Code/Chromium 은 Windows Job Object(KILL_ON_JOB_CLOSE)로
- *      자식이 부모보다 오래 못 살게 한다. 순수 Node 로는 네이티브 애드온이 필요 → 그 대안으로 스폰한
- *      PID 를 파일에 기록해 두고 **다음 부팅 때** 살아남은 고아를 회수한다.
+ *      자식이 부모보다 오래 못 살게 한다. **이제 우리도 그렇게 한다(§5.3 #9-2)** — desktop main 이 이미 싣고
+ *      있는 koffi 로 Job Object 를 짓고(`winJobObject.ts`) `processGuard.ts` 가 에이전트 자식마다 묶는다.
+ *      아래 PID 기록 → **다음 부팅 때** 고아 회수는 묶기가 없는 자리(mac/Linux · 바인딩 실패)의 그물로 남는다.
  *      → {@link registerSpawnedPid}/{@link unregisterSpawnedPid}/{@link reapOrphanedPidsFromPreviousRun}.
  */
 

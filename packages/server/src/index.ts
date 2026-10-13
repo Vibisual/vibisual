@@ -41,6 +41,8 @@ import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS, BG_TASK_PROBE_LIMITS, BG_
 import { defaultKeymap, isCommandId } from '@vibisual/shared';
 // §2.4 — 세션 생존 판정 설정(위 백그라운드 판정과 같은 계약).
 import { SESSION_PROBE_LIMITS, SESSION_PROBE_MODELS, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeSettings } from '@vibisual/shared';
+import { PROCESS_GUARD_LIMITS, DEFAULT_PROCESS_GUARD_SETTINGS, formatProcessGuardNotice, type ProcessGuardSettings } from '@vibisual/shared';
+import { processGuard } from './services/processGuard.js';
 // §2.1 (B) — 최상위 외부 폴더 예산의 범위·기본값(설정 UI 와 서버가 같은 표를 본다).
 import { EXTERNAL_TOP_BUDGET_BOUNDS, EXTERNAL_TOP_BUDGET_DEFAULT } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
@@ -117,6 +119,7 @@ import {
   buttonVerificationScope,
   hasVerificationGrant,
   inheritVerificationScope,
+  isVerificationGateEnabled,
   mergeVerificationScopes,
   verificationScopeFromText,
   VERIFICATION_DENY_REASON,
@@ -136,6 +139,8 @@ import { graphManager } from './services/projectGraphManager.js';
 import { parseConversationSearchTerms, searchSessionConversations } from './services/sessionConversationSearch.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
+// §4 앱 테마 — 사용자 테마 폴더(`~/.vibisual/themes`) 목록과 창 색. 고른 id 는 위 user-defaults 가 든다.
+import { appThemeService } from './services/appThemeService.js';
 import { resolveAgentMemoryDirOverride } from './services/agentMemoryService.js';
 import {
   mountPluginRoutes, buildPluginPromptSection, buildPluginPromptSectionParts, getPluginFactsForProjects,
@@ -315,7 +320,7 @@ import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebFoldPerAgent, appStateSetWebFoldPerAgent, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebFoldPerAgent, appStateSetWebFoldPerAgent, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
 import { ensureHooksInstalledEverywhere, installHooksIntoNewCoworkHomes } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -379,7 +384,10 @@ import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getIn
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readContextInfo, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
-import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
+import { subAgentManager, recordCmdTermSession, buildVerificationGateEnv } from './services/subAgentManager.js';
+// §4 엔진 다리 — 우리가 띄운 세션에 실린 Claude Code 모드의 신고(턴·생존·사용량).
+import { engineBridge } from './services/engineBridge.js';
+import { parseEngineBridgeReport, rateLimitsFromEngine, ENGINE_BRIDGE_HEARTBEAT_MS } from '@vibisual/shared';
 // §5.3 #10-2 (위임 결과 복구) — dispatch 결과를 대기 소켓과 따로 쥐는 장부 · 대기 허브 · 소유권 판정.
 import {
   createDispatchJobRegistry,
@@ -423,12 +431,16 @@ import { hasForeignSubAgent, subAgentOwnerGuard, subAgentBodyOwnerGuard } from '
 import { discardSessionQueuedCommands } from './services/sessionCommandDiscard.js';
 import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/diskWriteQueue.js';
 import { CheckpointCoalescer, setActiveCheckpointCoalescer } from './services/checkpointCoalescer.js';
-import { diagnosticService } from './services/diagnosticService.js';
+import { diagnosticService, recordDiagnostic } from './services/diagnosticService.js';
 import { createSnapshotBroadcastScheduler } from './services/snapshotBroadcastScheduler.js';
+import { deferStartupJob } from './services/startupJobs.js';
 
 // §3.7 — desktop in-process 진입점이 server 코어를 라이브러리로 쓰기 위한 re-export.
 // `@vibisual/server` 단일 import 지점에서 코어 API를 모두 가져갈 수 있게 한다.
 export { setBroadcastSink, broadcast, type BroadcastSink } from './broadcastBus.js';
+// §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ② — 본체 창이 처음 보이면 desktop main 이 부른다. 그때부터
+// 부팅 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)이 원래 순서대로 한 칸씩 돈다.
+export { releaseStartupJobs } from './services/startupJobs.js';
 // §9 — 체크포인트 디스크 쓰기 워커. desktop main 의 before-quit 가 남은 쓰기를 마무리하고 워커를 내린다.
 export { shutdownDiskWriteQueue, flushPendingDiskWritesSync, getDiskWriteQueueStats } from './services/diskWriteQueue.js';
 // §9 — 코얼레스된 체크포인트 창. desktop main 의 before-quit 가 디스크 큐를 내리기 **직전에**
@@ -452,11 +464,21 @@ export { refreshStatusLineIfInstalled } from './services/statusLineInstaller.js'
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
-export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, buildAgentTokenSaverEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
+export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, buildAgentTokenSaverEnv, buildVerificationGateEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
 // §5.11 v4.65 — CMD 세션에도 집행 플러그인의 지시를 싣는다(desktop 터미널 매니저가 rules 파일에 함께 기록).
 export { buildInteractivePluginBlockForAgent } from './services/pluginHost.js';
 // § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
 export { killTree } from './services/processTree.js';
+// §5.3 #9-2 — desktop 이 koffi 로 지은 Windows 묶음 바인딩을 넣고(`runServer()` 앞), CMD 터미널 PTY 를 같은 감시에 등록한다.
+export {
+  processGuard,
+  setProcessContainmentBackend,
+  type ContainmentBackend,
+  type ContainmentHandle,
+  type ContainmentLimits,
+  type ContainmentEvent,
+  type ProcessGuardOwner,
+} from './services/processGuard.js';
 /**
  * desktop main 이 **직접** 띄우는 네이티브 대화상자·OS 알림의 언어. 렌더러의 i18next 는 main 에서
  * 못 쓰므로, 언어만 여기서 읽어 `main/strings.ts` 표에서 문구를 고른다(새 레일 ❌ — 이미 있는 값).
@@ -464,6 +486,11 @@ export { killTree } from './services/processTree.js';
 export function getUiLocale(): UiLocale {
   return graphManager.getUiLocale();
 }
+/**
+ * §4 앱 테마 — desktop main 이 칠하는 창 바탕·제목줄 버튼 색. `getUiLocale()` 과 같은 얇은 주입이다
+ * (desktop main 은 설정 저장소도 테마 폴더도 직접 알지 못한다). 화면과 같은 해석을 거친 값이다.
+ */
+export { currentAppThemeChrome as getAppThemeChrome, subscribeAppThemeChrome } from './services/appThemeService.js';
 /**
  * §4 메신저 브리지 — 폰에서 고를 수 있는 **명령 대상 전량**(프로젝트 → 에이전트 → 세션).
  *
@@ -506,6 +533,8 @@ export function listChatCommandTargets(): ChatCommandTarget[] {
  * 남겨 두면 어댑터 자식 프로세스와 소켓이 그대로 살아 다음 실행에서 포트를 물고 있다.
  */
 export { debugSessionManager } from './services/debug/debugSessionManager.js';
+// Desktop's pre-start consent record needs the same durable write before the server is running.
+export { atomicWriteFileSync } from './services/statePersistence.js';
 // §3.5 v4.67 — 버블 생명주기 진단 로그 위치. 프로젝트 데이터가 아니라 앱 진단이므로 desktop main 이
 // 부팅 시 userData/logs 로 고정한다(미주입 시 cwd 상대 폴백 — 서버 단독 실행 호환).
 export { setDebugLogDir } from './services/debugLog.js';
@@ -518,6 +547,10 @@ export { setWorkspaceTrash, isWorkspaceTrashAvailable, type WorkspaceTrashItem }
 // 설정 URI 라 경로 가드를 쓰는 `/api/open-external` 로는 갈 수 없다(임의 URI 문을 열게 된다).
 // 휴지통과 같은 규율으로 desktop main 이 `shell.openExternal` 을 부팅 때 꽂는다.
 export { setMicSettingsOpener } from './services/micSettingsOpener.js';
+
+// §5.13 (T-11) ① — 내부 앱의 서버 몫이 같은 앱의 main 몫을 부르는 통로. desktop main 이 부팅 때 한 번 꽂는다
+//   (앱 이름을 모르는 함수 하나 — 어느 앱인지는 앱 호스트가 묶는다).
+export { setAppMainInvoker, type AppMainInvoker } from './services/appHost.js';
 
 // §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
@@ -593,6 +626,14 @@ export function setHookListenerIdentityFile(filePath: string): void {
 let hookHandlerPath: string | null = null;
 export function setHookHandlerPath(filePath: string): void {
   hookHandlerPath = filePath;
+}
+
+/**
+ * §4 엔진 다리 — 동봉 모드 폴더(앱 리소스의 `mods/vibisual-bridge`). desktop main 이 주입한다.
+ * 훅 설치를 건너뛰는 실행(격리 인스턴스 등)에서도 주입한다 — 모드는 그 인스턴스의 루프백으로만 신고한다.
+ */
+export function setEngineBridgeSourceDir(dir: string): void {
+  engineBridge.setSourceDir(dir);
 }
 
 /**
@@ -683,12 +724,21 @@ export async function runServer(): Promise<RunServerHandle> {
    *   둘 다 아니면 onDead로 즉시 제거. VSCode를 다시 열면 새 프로세스가 뜨고
    *   SessionStart 훅으로 재등록되므로 손실 없음.
    */
+  // §9 「창이 뜬 직후의 메인 스레드」 ③ — 걷은 세션마다 체크포인트를 통째로 저장하던 것을 주기 끝 한 번으로
+  //   묶는다. 부팅 직후 첫 폴링이 복원된 죽은 세션을 여럿 걷으면 그 수만큼 전 프로젝트 재구축·직렬화가
+  //   메인 스레드에서 돌았다(그동안 창이 제목줄로 안 움직였다). 걷는 순서와 방송은 그대로다.
+  let deadRemovedSinceSave = false;
   const lifecycle = new SessionLifecycleManager({
     onDead: (sessionId) => {
       if (graphManager.removeAgentBySession(sessionId)) {
+        deadRemovedSinceSave = true;
         broadcastSnapshot();
-        saveCheckpoint();
       }
+    },
+    onDeadSettled: () => {
+      if (!deadRemovedSinceSave) return;
+      deadRemovedSinceSave = false;
+      saveCheckpoint();
     },
     onVSCodeClosed: (sessionId) => {
       // 현재 정책에서는 호출되지 않지만 콜백 시그니처 호환 유지.
@@ -728,6 +778,12 @@ export async function runServer(): Promise<RunServerHandle> {
   // §4 v2.42 — 사용자 옵션 갱신 broadcast (다른 창/탭 즉시 반영)
   userDefaultsService.subscribe((d) => {
     broadcast({ type: 'user_defaults_updated', timestamp: Date.now(), payload: d });
+  });
+
+  // §4 앱 테마 — 사용자 테마 폴더를 다시 읽어 **내용이 바뀌었을 때만** 다른 창에도 같은 목록을 민다
+  //   (한 창에서 [다시 읽기]·[새로 만들기]를 누르면 별창·지휘통제실 창의 테마도 함께 따라간다).
+  appThemeService.subscribe((catalog) => {
+    broadcast({ type: 'app_themes_updated', timestamp: Date.now(), payload: catalog });
   });
 
   /** 프로세스 부팅 시각 — Debug 패널 "Restart Server"가 startedAt 증가로 재시작 여부 확인 */
@@ -779,6 +835,55 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       res.json({ ok: true, userDefaults: next });
     } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * §4 앱 테마 — 사용자 테마 폴더. 세 라우트 모두 **렌더러 전용**이다(hook 리스너 화이트리스트 ❌):
+   * 바깥 claude 프로세스가 사용자 디스크에 파일을 쓰거나 탐색기를 띄울 이유가 없다.
+   * 고른 테마 자체는 기존 `PUT /api/user-defaults {appearance:{themeId}}` 로 저장한다(새 저장소 ❌).
+   *
+   * GET — 마지막으로 읽은 목록. `?rescan=1` 이면 폴더를 다시 읽는다(바뀌었으면 WS 로도 민다).
+   */
+  app.get('/api/app-themes', (req, res) => {
+    try {
+      res.json(req.query['rescan'] === '1' ? appThemeService.rescan() : appThemeService.list());
+    } catch (err) {
+      logger.error('GET /api/app-themes failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST — [지금 테마로 새로 만들기]. body `{ baseId?, name }` → 견본 파일을 쓰고 새 id 를 돌려준다. */
+  app.post('/api/app-themes', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { baseId?: unknown; name?: unknown };
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) {
+        res.status(400).json({ ok: false, error: 'name required' });
+        return;
+      }
+      const baseId = typeof body.baseId === 'string' && body.baseId ? body.baseId : undefined;
+      const created = appThemeService.createFromTheme(baseId, name);
+      res.json({ ok: true, ...created, catalog: appThemeService.list() });
+    } catch (err) {
+      logger.error('POST /api/app-themes failed', err);
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * POST — [폴더 열기]. 없으면 만들고 연다. 여는 실행부는 이미 있는 `openFolder` 하나다(새 열기 레일 ❌) —
+   * Windows `explorer` · macOS `open` · 그 밖 `xdg-open`.
+   */
+  app.post('/api/app-themes/open-folder', (_req, res) => {
+    try {
+      const dir = appThemeService.ensureDir();
+      openFolder(dir);
+      res.json({ ok: true, dir });
+    } catch (err) {
+      logger.error('POST /api/app-themes/open-folder failed', err);
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
   });
@@ -1366,7 +1471,7 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
           log: (error) => logger.warn('[auto-goal] external hook context failed', error as Error),
         });
-        // §5.3 #12-4 (G) — CMD 터미널 턴의 검증 권한 한 줄(정책 문단은 그 터미널의 규칙 파일에 이미 있다).
+        // §5.3 #12-4 (G) — CMD도 매 턴 현재 정책을 받는다(끔이면 이전 제한의 해제 안내).
         const verificationLine = cmdTurnSub && isContextSourceOn(overrides, ctxScope, CONTEXT_SOURCE_IDS.verificationPolicy)
           ? verificationGate.cmdTurnStateLine(cmdTurnSub.id).trim()
           : '';
@@ -1467,21 +1572,85 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'No valid fields' });
         return;
       }
-      // §4 v3.60 — statusLine 은 렌더마다(최대 300ms 주기) 돌 수 있다. 값이 실제로 바뀐
-      // 경우에만 브로드캐스트해 전체 스냅샷이 초당 여러 번 나가는 것을 막는다(핸들러 측
-      // 전송 스로틀과 2중 방어). updatedAt 만 갱신되는 경우는 조용히 흡수.
-      const before = graphManager.getRateLimits();
-      const changed = (['used5h', 'resetAt5h', 'used7d', 'resetAt7d'] as const).some(
-        (k) => payload[k] !== undefined && payload[k] !== before?.[k],
-      );
-      graphManager.setRateLimits(payload);
-      // statusLine 이 원천이므로, 값이 바뀌면 표시용 사용량도 그 자리에서 다시 만든다
-      // (안에서 broadcastSnapshot 을 부르므로 여기서 또 부르지 않는다).
-      if (changed) refreshClaudeUsage();
+      const changed = applyRateLimitPayload(payload);
       res.json({ ok: true, changed });
     } catch (err) {
       logger.error('POST /api/rate-limits failed', err);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * 한도 사용률을 **한 자리**에 쓴다 — statusLine 수집기(`/api/rate-limits`)와 §4 엔진 다리가 같은 길을 탄다.
+   *
+   * §4 v3.60 — statusLine 은 렌더마다(최대 300ms 주기) 돌 수 있다. 값이 실제로 바뀐 경우에만 표시용
+   * 사용량을 다시 만들어(안에서 broadcastSnapshot) 전체 스냅샷이 초당 여러 번 나가는 것을 막는다(핸들러 측
+   * 전송 스로틀과 2중 방어). updatedAt 만 갱신되는 경우는 조용히 흡수.
+   * @returns 값이 실제로 바뀌었는가.
+   */
+  function applyRateLimitPayload(payload: Partial<Record<'used5h' | 'resetAt5h' | 'used7d' | 'resetAt7d', number>>): boolean {
+    const before = graphManager.getRateLimits();
+    const changed = (['used5h', 'resetAt5h', 'used7d', 'resetAt7d'] as const).some(
+      (k) => payload[k] !== undefined && payload[k] !== before?.[k],
+    );
+    graphManager.setRateLimits(payload);
+    if (changed) refreshClaudeUsage();
+    return changed;
+  }
+
+  /**
+   * §4 엔진 다리 — POST /api/engine-bridge
+   *
+   * 우리가 띄운 클로드 세션에 실린 모드(`hooks/mods/vibisual-bridge`)의 신고. 루프백 허용 목록(§3.7)·토큰
+   * 필수. 모드는 사실만 올리고 판정은 서버가 한다(§3.1). 생존 판정·유휴 강등·잠듦 회수는
+   * `subAgentManager` 가 `engineBridge` 상태를 직접 읽고, 여기서는 CMD 탭 상태와 한도 칸만 반영한다.
+   */
+  app.post('/api/engine-bridge', (req, res) => {
+    try {
+      const report = parseEngineBridgeReport(req.body);
+      if (!report) {
+        res.status(400).json({ ok: false, error: 'invalid report' });
+        return;
+      }
+      const reply = { ok: true, heartbeatMs: ENGINE_BRIDGE_HEARTBEAT_MS };
+      // 우리가 띄운 세션만 받는다 — 살아 있는 세션 탭과 대조한다. CMD 는 터미널 칸의 주인까지 맞아야 한다.
+      const sub = subAgentManager.getSub(report.identity.subAgentId);
+      const termId = report.identity.termId;
+      if (!sub || (termId && subAgentManager.findSubByTermId(termId)?.id !== sub.id)) {
+        res.json({ ...reply, ignored: true });
+        return;
+      }
+      const now = Date.now();
+      const result = engineBridge.ingest(report, now);
+      if (!result.accepted) {
+        res.json({ ...reply, ignored: true });
+        return;
+      }
+      // CMD 탭 — 턴 가장자리마다, 그리고 턴이 도는 동안의 생존 신호마다 훅과 **같은 함수**로 세운다.
+      //   분할 pane 은 하나라도 돌면 active 다. Esc 로 끊은 턴(Stop 훅이 오지 않는다)도 여기서 내린다.
+      if (termId) {
+        const running = engineBridge.isTurnRunning(sub.id, now);
+        if (result.edges.length > 0 || running) {
+          if (subAgentManager.markCmdSubActivity(termId, !running)) broadcastSnapshot();
+        }
+      }
+      // 한도 — `/api/rate-limits` 와 같은 저장 자리(statusLine 수집기를 안 켠 사용자의 한도 칸도 채운다).
+      const limits = rateLimitsFromEngine(report.usage?.rateLimits);
+      if (limits) applyRateLimitPayload(limits);
+      res.json(reply);
+    } catch (err) {
+      logger.error('POST /api/engine-bridge failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** §4 엔진 다리 — 옵션창 상태 줄(스위치·판올림·지금 붙은 세션 수). 렌더러 전용(루프백 허용 목록 밖). */
+  app.get('/api/engine-bridge', (_req, res) => {
+    try {
+      res.json(engineBridge.status(Date.now()));
+    } catch (err) {
+      logger.error('GET /api/engine-bridge failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
 
@@ -1607,7 +1776,8 @@ export async function runServer(): Promise<RunServerHandle> {
   // 부팅 직후 1회 + 주기 probe + 리셋 시각 일회성(scheduleResetRefresh).
   // probe 는 `claude -p "/usage"` 1회 실행이고 모델 호출이 0턴이라 과금이 없다(실측).
   // statusLine 이 켜져 있으면 `POST /api/rate-limits` 가 그 사이사이를 더 촘촘히 메운다.
-  setTimeout(() => { void probeAndRefreshClaudeUsage(); }, 2_000);
+  // §9 「창이 뜬 직후의 메인 스레드」 ② — 부팅 1회분은 창이 보인 뒤 한 칸씩 도는 줄에 세운다(`startupJobs.ts`).
+  deferStartupJob('claude-usage', 2_000, () => { void probeAndRefreshClaudeUsage(); });
   setInterval(() => { void probeAndRefreshClaudeUsage(); }, CLAUDE_USAGE_POLL_INTERVAL_MS);
 
   /**
@@ -1660,7 +1830,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   // 부팅 직후 1회 + 느슨한 폴링(밖에서 로그아웃한 것을 앱만 모르는 구간 제거). 실패해도 기동엔 무관.
-  setTimeout(() => { void refreshClaudeAuth().catch(() => {}); }, 1_500);
+  // §9 「창이 뜬 직후의 메인 스레드」 ② — 부팅 1회분은 창이 보인 뒤 한 칸씩 도는 줄에 세운다.
+  deferStartupJob('claude-auth', 1_500, () => { void refreshClaudeAuth().catch(() => {}); });
   setInterval(
     () => { void refreshClaudeAuth().catch(() => {}); },
     CLAUDE_AUTH_POLL_INTERVAL_MS,
@@ -1769,6 +1940,8 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!t) return;
     try {
       const info = await getClaudeVersionInfo();
+      // §4 엔진 다리 — 모드를 실을 수 있는 판인지는 같은 판올림으로 정한다(`--version` 을 두 번 띄우지 않는다).
+      engineBridge.noteCliVersion(info.binPath, info.current);
       // §3.6 — 호스트 홈 + Cowork 세션 홈들에 같은 블록을 심는다. Cowork 는 설정 홈이 세션마다
       //   따로라 우리 `~/.claude/settings.json` 을 보지 않는다(#63360) — 그 홈에 심어야 발화한다.
       const all = ensureHooksInstalledEverywhere(t.port, t.handlerPath, t.token, {
@@ -1797,7 +1970,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   // 부팅 직후 1회. 설치 판정(1.2s)보다 뒤에 두어 갓 설치한 실행본의 판올림도 잡히게 한다.
-  setTimeout(() => { void refreshHookTransport('boot'); }, HOOK_TRANSPORT_REFRESH_DELAY_MS);
+  // §9 「창이 뜬 직후의 메인 스레드」 ② — 창이 보인 뒤 한 칸씩 도는 줄에서도 이 순서는 그대로다.
+  deferStartupJob('hook-transport', HOOK_TRANSPORT_REFRESH_DELAY_MS, () => { void refreshHookTransport('boot'); });
 
   // 자동/수동 업데이트로 실행본이 바뀐 뒤에도 같은 이유로 다시 태운다 — 새 버전이 추가한 모델·
   // effort 등급·슬래시 명령이 "다음 실행부터"가 아니라 그 자리에서 반영되게.
@@ -1837,7 +2011,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   // 부팅 직후 1회 판정. 로그인 판정보다 먼저 떠야 게이트 순서(설치 → 로그인)가 뒤집히지 않는다.
-  setTimeout(() => { void claudeSetupService.refresh().catch(() => {}); }, 1_200);
+  // §9 「창이 뜬 직후의 메인 스레드」 ② — 창이 보인 뒤 한 칸씩 도는 줄에서도 이 순서는 그대로다.
+  deferStartupJob('claude-setup', 1_200, () => { void claudeSetupService.refresh().catch(() => {}); });
 
   /**
    * §5.25 — 코덱스 창구 셋(설치·로그인·모델 목록·훅).
@@ -1845,7 +2020,17 @@ export async function runServer(): Promise<RunServerHandle> {
    * 클로드 쪽과 **같은 모양**이다: 상태는 스냅샷으로도 흘러가므로 클라는 평소 스냅샷만 봐도 되고,
    * REST 는 사용자가 버튼을 눌렀을 때의 즉시 확인 창구다. 새 전달 방식을 만들지 않는다.
    */
-  async function refreshCodexAuth(): Promise<import('@vibisual/shared').CodexAuthStatus> {
+  function refreshCodexCatalogAfterAuth(invalidate = true): void {
+    // login status may omit account ids. Explicit login refresh/logout must still invalidate discovery.
+    if (invalidate) codexModelService.invalidate();
+    graphManager.setCodexModels({ models: [], checkedAt: Date.now(), stale: true });
+    void codexModelService.publish((catalog) => {
+      graphManager.setCodexModels(catalog);
+      broadcastSnapshot();
+    }).catch(() => {});
+  }
+
+  async function refreshCodexAuth(forceModels = false): Promise<import('@vibisual/shared').CodexAuthStatus> {
     const before = graphManager.getCodexAuth();
     const status = await codexAuthService.refresh();
     graphManager.setCodexAuth(status);
@@ -1856,7 +2041,12 @@ export async function runServer(): Promise<RunServerHandle> {
       before.error !== status.error ||
       before.authMethod !== status.authMethod ||
       before.account !== status.account;
-    if (changed) broadcastSnapshot();
+    // A failed auth probe is unknown, not a new account: keep the last usable catalog.
+    // get() detects a changed known identity but retains it across transient unknown probes.
+    const explicitLoginRefresh = forceModels && status.loggedIn;
+    const refreshModels = !status.error && (explicitLoginRefresh || !codexModelService.get());
+    if (refreshModels) refreshCodexCatalogAfterAuth(explicitLoginRefresh);
+    if (changed || refreshModels) broadcastSnapshot();
     return status;
   }
 
@@ -1897,7 +2087,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   app.post('/api/codex-auth/refresh', (_req, res) => {
-    void refreshCodexAuth()
+    void refreshCodexAuth(true)
       .then((status) => res.json(status))
       .catch(() => res.status(500).json({ error: 'Internal server error' }));
   });
@@ -1906,6 +2096,7 @@ export async function runServer(): Promise<RunServerHandle> {
     void codexAuthService.logout()
       .then((result) => {
         graphManager.setCodexAuth(result.status);
+        if (result.ok) refreshCodexCatalogAfterAuth();
         broadcastSnapshot();
         res.json(result);
       })
@@ -1922,25 +2113,28 @@ export async function runServer(): Promise<RunServerHandle> {
     return graphManager.getRoot() ?? null;
   };
 
-  /** §5.25 (G) — 모델 목록. 코덱스가 캐시해 둔 것을 **읽기만** 한다(우리가 표를 들지 않는다). */
-  app.get('/api/codex-models', (_req, res) => {
+  /** §5.25 (G) — 공식 model/list 조회. 일반 읽기는 TTL, 수동 새로고침은 즉시 재조회한다. */
+  app.get('/api/codex-models', async (_req, res) => {
     try {
-      const catalog = codexModelService.get() ?? codexModelService.refresh();
-      graphManager.setCodexModels(catalog);
-      res.json(catalog);
+      await codexModelService.publish((catalog) => {
+        if (graphManager.getCodexModels() !== catalog) {
+          graphManager.setCodexModels(catalog);
+          broadcastSnapshot();
+        }
+        res.json(catalog);
+      });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  app.post('/api/codex-models/refresh', (_req, res) => {
+  app.post('/api/codex-models/refresh', async (_req, res) => {
     try {
-      const catalog = codexModelService.refresh();
-      // 스냅샷에도 실어 준다 — 설정 창 말고도(버블 라벨·오른쪽 패널) 이 목록을 보는 자리가 있어,
-      //   REST 응답만 돌려주면 그 화면들은 다음 새로고침까지 옛 목록을 든다.
-      graphManager.setCodexModels(catalog);
-      broadcastSnapshot();
-      res.json(catalog);
+      await codexModelService.publish((catalog) => {
+        graphManager.setCodexModels(catalog);
+        broadcastSnapshot();
+        res.json(catalog);
+      }, { force: true });
     } catch {
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -2117,21 +2311,23 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // 부팅 직후 1회 판정. 코덱스를 안 쓰는 사용자에게도 돈다 — 우클릭 메뉴가 "준비 안 됨"을
   //   말하려면 판정이 있어야 하고, 판정 자체는 `codex --version` 한 번이라 값이 싸다.
-  setTimeout(() => {
+  // §9 「창이 뜬 직후의 메인 스레드」 ② — 창이 보인 뒤 한 칸씩 도는 줄에 세운다.
+  deferStartupJob('codex-setup', 2_000, () => {
     void codexSetupService.refresh()
       .then((state) => {
         // 설치돼 있을 때만 로그인·모델·훅까지 본다(없는 CLI 에 세 번 더 묻지 않는다).
         if (state.phase !== 'ready') return;
         void refreshCodexAuth().catch(() => {});
-        try {
-          graphManager.setCodexModels(codexModelService.refresh());
-        } catch { /* 캐시 없음은 정상 */ }
+        void codexModelService.publish((catalog) => {
+          graphManager.setCodexModels(catalog);
+          broadcastSnapshot();
+        }).catch(() => { /* 조회 실패는 서비스가 오래된 목록/빈 목록으로 표시한다. */ });
         try {
           graphManager.setCodexHooks(getCodexHookState(codexHookContext?.handlerPath ?? null));
         } catch { /* 훅 파일 없음은 정상 */ }
       })
       .catch(() => {});
-  }, 2_000);
+  });
 
   /**
    * §4 (Claude Code CLI 자동 업데이트) — 앱을 켤 때 1회 CLI 를 최신으로 맞춘다(기본 켬).
@@ -2510,8 +2706,16 @@ export async function runServer(): Promise<RunServerHandle> {
     return undefined;
   }
 
+  /**
+   * §5.3 #12-4 (J) — 실행 전 차단이 켜져 있는가(옵션창 권한 탭, 기본 끔). 판정 객체·정책 문단·코덱스 훅 필수
+   * 여부·호스팅 도구 끄기가 이 답 하나를 본다. 호출마다 읽으므로 [적용] 뒤 다음 도구 호출부터 따라간다.
+   */
+  function verificationGateOn(): boolean {
+    return isVerificationGateEnabled(userDefaultsService.get());
+  }
+
   /** §5.3 #12-4 — 실행 전 검증 판정 한 벌. 승인 창구 다섯이 이 객체를 부른다. */
-  const verificationGate = new VerificationGate({ findExecutingCommand: findExecutingCommandForSub });
+  const verificationGate = new VerificationGate({ findExecutingCommand: findExecutingCommandForSub, isEnforced: verificationGateOn });
 
   /**
    * §5.3 #12-4 (D) — 이 세션이 Auto Agent 하네스의 멤버면, 그 하네스를 부른 **가장 최근 빌더 명령**(사용자 원문).
@@ -2964,9 +3168,11 @@ export async function runServer(): Promise<RunServerHandle> {
     parts.push({ id: CONTEXT_SOURCE_IDS.goal, text: goalText });
 
     // §5.3 #12-4 — 검증 정책. 우리가 띄운 세션에만 싣는다(훅 세션은 우리 세션이 아니라 정책 밖이다).
-    //   끄면 **말만** 빠진다 — 실행 전 거부는 승인 창구들이 그대로 한다.
+    //   옵션을 끄면 제한 문단과 권한 없음 지시를 함께 걷고 이전 제한의 해제 안내만 보낸다.
+    //   주입원 스위치는 안내만 제어하며 실행 전 판정은 같은 옵션을 호출마다 읽는다.
+    const verificationOptions = { enforced: verificationGateOn() };
     const verificationParts = custom
-      ? { rules: buildVerificationPolicyRules(), state: buildVerificationStateLine(input.verificationScope, input.verificationSummary) }
+      ? { rules: buildVerificationPolicyRules(verificationOptions), state: buildVerificationStateLine(input.verificationScope, input.verificationSummary, verificationOptions) }
       : { rules: '', state: '' };
     parts.push({ id: CONTEXT_SOURCE_IDS.verificationPolicy, text: verificationParts.rules + verificationParts.state });
 
@@ -3580,13 +3786,15 @@ export async function runServer(): Promise<RunServerHandle> {
               graphManager.getAuditBoundary(graphManager.getAgentProjectName(agent.id) ?? ''),
               // §5.3 #12-3 — 자물쇠가 하나라도 있으면 훅 없이 돌 수 없다(읽기 전용 샌드박스도 읽기는 연다).
               Object.keys(graphManager.getAllPathLocks()).length > 0,
-              // §5.3 #12-4 — 검증 정책은 늘 켜져 있다. 훅 없이 돌면 실행 전 판정이 닿지 않는다(fail-closed).
-              true,
+              // §5.3 #12-4 — 실행 전 차단이 켜져 있으면 훅 없이 돌 수 없다(판정이 닿지 않는다 — fail-closed).
+              //   (J) 옵션에서 꺼 두면(기본) 이 정책 때문에 필수가 되지는 않는다.
+              verificationGateOn(),
             ),
           },
         } : {}),
-        // §5.3 #12-4 (E) ② — 호스팅 브라우저·컴퓨터 도구는 훅 밖이다. 이 명령에 브라우저 확인 권한이 없으면 끈다.
-        ...(codexTurn && !next.verificationScope?.kinds.includes('browser') ? { codexHostedBrowserOff: true } : {}),
+        // §5.3 #12-4 (E) ② — 호스팅 브라우저·컴퓨터 도구는 훅 밖이다. 차단이 켜진 채 이 명령에 브라우저 확인 권한이
+        //   없으면 끈다. (J) 차단을 꺼 두면 끄지 않는다 — 막지 않기로 한 것을 기능 스위치로 대신 막지 않는다.
+        ...(codexTurn && verificationGateOn() && !next.verificationScope?.kinds.includes('browser') ? { codexHostedBrowserOff: true } : {}),
         // §5.3 #10-2 위임 조회 — 나가는 엣지가 없어도 조회를 넘겨받은 턴이면 다리를 싣는다(`status` 만, dispatch 는 숨는다).
         //   받지 못한 결과가 남은 턴도 같다 — 그 결과를 이어 받을 `status` 가 있어야 한다.
         ...(agentConfig?.provider?.kind === 'codex-cli' && (graphManager.getOutboundTaskEdges(agent.id).some((e) => isTaskEdgeViable(e)) || statusGrantsForTurn.length > 0 || undeliveredForTurn.length > 0) ? {
@@ -3601,7 +3809,8 @@ export async function runServer(): Promise<RunServerHandle> {
         } : {}),
         customParent: !!agent.customCreated,
         ...(spawnArgs.length > 0 ? { extraArgs: spawnArgs } : {}),
-        extraEnv: { ...cardEnv, ...spawnSwitches.env, VIBISUAL_OWNER_AGENT_ID: agent.id, VIBISUAL_SUBAGENT_ID: next.subAgentId ?? '' },
+        // §5.3 #12-4 (J) — 차단을 켠 채 띄우면 훅 안전망 표식(`VIBISUAL_VERIFICATION_GATE=1`)을 함께 싣는다(끄면 빈 객체).
+        extraEnv: { ...cardEnv, ...spawnSwitches.env, ...buildVerificationGateEnv(), VIBISUAL_OWNER_AGENT_ID: agent.id, VIBISUAL_SUBAGENT_ID: next.subAgentId ?? '' },
         ...(turnAppendSystemPrompt.trim() ? { appendSystemPrompt: turnAppendSystemPrompt } : {}),
       });
       // §5.26 (E) — **실어 보낸 뒤에** 못 박는다. 조립 단계에서 찍으면 주입원 표를 여는 것만으로
@@ -9183,6 +9392,7 @@ export async function runServer(): Promise<RunServerHandle> {
        *   `plan` 은 실행이 없어 보지 않는다. 사람에게 묻지 않는다("검증할까요?" 팝업 ❌) — 범위 밖이면 실행 전에
        *   거부하고, 무엇으로 읽었는지·우회하지 말라는 사유는 서버가 짓는다(`message`). 도는 명령을 못 찾으면
        *   검증은 거부한다(fail-closed). 검증이 아닌 호출은 아무 영향 없이 아래로 흐른다.
+       *   (J) 옵션에서 차단을 꺼 두면(기본) 판정 객체가 거부 없이 실행으로만 센다 — 스위치는 그 객체가 쥔다.
        */
       if (mode !== 'plan') {
         const verification = verificationGate.checkSubAgentCall(
@@ -11109,7 +11319,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PATCH /api/bubble/:nodeId/form — §5.4 #36 (A) 커스텀 에이전트의 캔버스 형태(입력 카드 ↔ 버블).
+   * PATCH /api/bubble/:nodeId/form — §5.4 #36 (A) 커스텀 에이전트의 캔버스 형태(말풍선 ↔ 버블).
    * 대상이 아니면(훅·CMD·버려진 에이전트) 409, 없으면 404. 형태는 에이전트 노드째 체크포인트에 실린다.
    */
   app.patch('/api/bubble/:nodeId/form', (req, res) => {
@@ -11130,6 +11340,36 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, form: result.form });
     } catch (err) {
       logger.error('PATCH /api/bubble/form failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PATCH /api/bubble/:nodeId/link-view — §5.4 #36 (H) 에이전트의 연결 보기.
+   * `{hidden?: boolean, lens?: 'linked'|'files'}` — 준 칸만 바꾼다. 둘 다 없거나 모양이 틀리면 400,
+   * 에이전트가 아니면 409, 없으면 404. 표시 형태라 에이전트 노드째 체크포인트에 실린다(`/form` 과 같다).
+   */
+  app.patch('/api/bubble/:nodeId/link-view', (req, res) => {
+    try {
+      const { nodeId } = req.params;
+      const body = (req.body ?? {}) as { hidden?: unknown; lens?: unknown };
+      const patch: { hidden?: boolean; lens?: 'linked' | 'files' } = {};
+      if (typeof body.hidden === 'boolean') patch.hidden = body.hidden;
+      if (body.lens === 'linked' || body.lens === 'files') patch.lens = body.lens;
+      if (!nodeId || (patch.hidden === undefined && patch.lens === undefined)) {
+        res.status(400).json({ error: 'nodeId and hidden(boolean) or lens(linked|files) required' });
+        return;
+      }
+      const result = graphManager.setAgentLinkView(nodeId, patch);
+      if (!result.ok) {
+        res.status(result.reason === 'not-found' ? 404 : 409).json({ error: result.reason });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, linksHidden: result.linksHidden, linkLens: result.linkLens });
+    } catch (err) {
+      logger.error('PATCH /api/bubble/link-view failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -13982,6 +14222,45 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  // ─── §5.3 #9-2 에이전트가 띄운 프로세스의 보호 (묶음 · 메모리 상한 · 정리) ───
+  //
+  // 프로세스를 자동으로 끊는 기능이라 위 판정들과 같은 이유로 **끌 수 있어야 한다**.
+
+  /** GET /api/process-guard-settings — 현재 설정 + 입력 한계 + 기본값(설정 UI 의 "되돌리기"용). */
+  app.get('/api/process-guard-settings', (_req, res) => {
+    try {
+      res.json({
+        settings: appStateGetProcessGuard(),
+        limits: PROCESS_GUARD_LIMITS,
+        defaults: DEFAULT_PROCESS_GUARD_SETTINGS,
+        // 설정 UI 가 "이 컴퓨터에서 실제 상한"을 같은 shared 함수로 미리 보여 주도록 실메모리 총량을 싣는다.
+        totalMemBytes: os.totalmem(),
+      });
+    } catch (err) {
+      logger.error('GET /api/process-guard-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PUT /api/process-guard-settings — 부분 갱신. 정규화(범위)는 shared 한 곳에서. */
+  app.put('/api/process-guard-settings', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const patch: Partial<ProcessGuardSettings> = {};
+      for (const key of ['enabled', 'pressureKill', 'reapOnSessionEnd'] as const) {
+        if (typeof body[key] === 'boolean') patch[key] = body[key] as boolean;
+      }
+      if (typeof body['memoryCapPercent'] === 'number') patch.memoryCapPercent = body['memoryCapPercent'] as number;
+      const settings = appStateSetProcessGuard(patch);
+      // 저장과 동시에 감시에 먹인다 — 이미 떠 있는 묶음의 상한·닫힘 동작도 곧바로 바뀐다.
+      processGuard.setSettings(settings);
+      res.json({ settings, limits: PROCESS_GUARD_LIMITS, defaults: DEFAULT_PROCESS_GUARD_SETTINGS, totalMemBytes: os.totalmem() });
+    } catch (err) {
+      logger.error('PUT /api/process-guard-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /**
    * §2.1 (B) — GET /api/external-folder-budget
    * 최상위에 동시에 세울 외부 폴더 예산 + 입력 범위 + 기본값(설정 UI 의 "되돌리기"용).
@@ -15120,6 +15399,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   app.post('/api/app-bubbles', (req, res) => {
     const body = req.body as {
+      id?: unknown;
       projectName?: unknown;
       appId?: unknown;
       x?: unknown;
@@ -15140,6 +15420,8 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     const bubble = graphManager.createAppBubble({
+      // §5.4 #36 (F) — 클라가 지어 먼저 그려 둔 id(낙관 생성). 형식이 맞고 비어 있을 때만 쓰고, 아니면 새로 짓는다.
+      ...(body.id !== undefined ? { id: body.id } : {}),
       projectName: body.projectName,
       appId: body.appId,
       x: body.x,
@@ -15148,7 +15430,7 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(typeof body.height === 'number' ? { height: body.height } : {}),
       ...(typeof body.title === 'string' ? { title: body.title } : {}),
       ...(typeof body.ref === 'string' ? { ref: body.ref } : {}),
-      // §5.4 #36 (B) — 카드의 `+` 로 만들면 그 에이전트를 참조한 채 태어난다. 다듬기는 인스턴스가 한다.
+      // §5.4 #36 (B) — 말풍선의 궤도 위성으로 만들면 그 에이전트를 참조한 채 태어난다. 다듬기는 인스턴스가 한다.
       ...(body.linkedAgentIds !== undefined ? { linkedAgentIds: body.linkedAgentIds } : {}),
     });
     if (!bubble) {
@@ -15172,7 +15454,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.4 #36 (C) — 결과 전달. 참조선으로 이어진 에이전트가 만든 파일을 그 앱 노드에 담는다.
+   * §5.4 #36 (C) — 결과 전달. 위성줄로 이어진 에이전트가 만든 파일을 그 앱 노드에 담는다.
    *
    * 외부 `claude`/`codex` 프로세스가 부르는 자리라 loopback 화이트리스트에 열려 있다(토큰 필수 —
    * 카드 경로들과 같은 규율). **프로젝트 안의 존재하는 파일만** 받는다 — 앱 노드를 열면 그 파일이
@@ -15180,19 +15462,31 @@ export async function runServer(): Promise<RunServerHandle> {
    * 코어는 앱 이름을 모르므로 확장자는 보지 않는다(어느 앱이 무엇을 여는지는 클라 레지스트리의 것).
    */
   app.post('/api/app-bubbles/:id/output', (req, res) => {
-    const body = (req.body ?? {}) as { file?: unknown };
-    if (typeof body.file !== 'string' || body.file.trim() === '') {
-      res.status(400).json({ ok: false, error: 'file required' });
+    const body = (req.body ?? {}) as { file?: unknown; ref?: unknown };
+    const file = typeof body.file === 'string' && body.file.trim() !== '' ? body.file.trim() : null;
+    // §5.13 (L) — 결과가 파일이 아니라 앱의 **작업 문서**일 수 있다(영상 앱이면 문서 id). 그 열쇠를 노드에 묶는다 —
+    //   노드를 열면 그 문서가 열린다. 코어는 뜻을 모르고 모양(안전한 id)만 본다.
+    const ref = typeof body.ref === 'string' && body.ref.trim() !== '' ? body.ref.trim() : null;
+    if (!file && !ref) {
+      res.status(400).json({ ok: false, error: 'file or ref required' });
       return;
     }
-    const result = graphManager.setAppBubbleOutput(req.params.id, body.file.trim());
-    if (!result.ok) {
-      res.status(result.error === 'not-found' ? 404 : 400).json({ ok: false, error: result.error });
+    if (ref && !graphManager.setAppBubbleRef(req.params.id, ref)) {
+      const exists = graphManager.getAppBubble(req.params.id);
+      res.status(exists ? 400 : 404).json({ ok: false, error: exists ? 'invalid-ref' : 'not-found' });
       return;
     }
+    if (file) {
+      const result = graphManager.setAppBubbleOutput(req.params.id, file);
+      if (!result.ok) {
+        res.status(result.error === 'not-found' ? 404 : 400).json({ ok: false, error: result.error });
+        return;
+      }
+    }
+    const bubble = graphManager.getAppBubble(req.params.id);
     broadcastSnapshot();
     saveCheckpoint();
-    res.json({ ok: true, data: { id: result.bubble.id, appId: result.bubble.appId, file: result.bubble.file } });
+    res.json({ ok: true, data: { id: req.params.id, appId: bubble?.appId, file: bubble?.file, ref: bubble?.ref } });
   });
 
   app.delete('/api/app-bubbles/:id', (req, res) => {
@@ -16663,6 +16957,9 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       registerSpawnedPid(child.pid);
+      // §5.3 #9-2 — 선반 명령도 묶는다(사용자 스크립트라 주인 세션이 없어 알림은 진단 로그만). 시간 초과로
+      //   끊을 때 `taskkill /T` 가 놓친 손자도 본체 종료 뒤 정리된다.
+      processGuard.guardChild(child, null, 'shelf', { reapOnExit: true });
 
       child.stdout?.on('data', (d: Buffer) => append(d.toString()));
       child.stderr?.on('data', (d: Buffer) => append(d.toString()));
@@ -18016,6 +18313,11 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
+  // §9 「창이 뜬 직후의 메인 스레드」 ① — 아무 창도 범위를 선언하기 전의 스냅샷(부팅 직후의 방송·첫 연결)은
+  //   마지막으로 보던 프로젝트 하나만 짓는다. 종전에는 열린 프로젝트 전부를 대화 기록 재파싱까지 하며 지어,
+  //   창이 막 뜬 그 순간 메인 스레드를 붙잡았다. 첫 선언이 오면 종전 규칙 그대로다(`ProjectGraphManager`).
+  graphManager.setBootViewProject(loadAppState().lastActiveProject);
+
   // Lazy boot: project.json 메타만 읽어 stub 등록. 체크포인트 본문은 hydrate 시점까지 로드하지 않는다.
   // openProjects 필터 — `~/.vibisual/app-state.json` 에 기록된 "사용자가 열어둔" 프로젝트만 stub으로 등록.
   // 사용자가 × 로 닫은 프로젝트는 체크포인트는 보존되되 탭으로 뜨지 않는다 (다시 파일 열기 또는 hook 이벤트로 복귀 가능).
@@ -18699,14 +19001,14 @@ export async function runServer(): Promise<RunServerHandle> {
     if (orchestraRunId && graphManager.findOrchestraRun(orchestraRunId)?.phase !== 'dispatched') return;
     /*
      * §5.3 #12-4 (D) — **완료 뒤 자동 후속이 검증을 새로 시작하지 않는다.** 비평(리뷰)은 검증이고, 끝난 작업의
-     *   명령에 사용자가 연 검증 범위가 없으면 감시자를 띄우지 않는다. 띄울 때는 그 범위를 물려받기만 한다
+     *   정책을 켠 동안만 사용자가 연 검증 범위를 요구한다. 띄울 때는 그 범위를 물려받기만 한다
      *   (종류는 같고 남은 횟수만큼 — 재작업 사이클도 같은 몫을 나눠 쓴다). 런이 기다리지 않도록 이 판정은
      *   `expectCritique` 보다 **앞**이다.
      */
     const inheritedScope = sourceCommand
       ? inheritVerificationScope(sourceCommand.verificationScope, sourceCommand.verification, sourceCommand.id)
       : undefined;
-    if (!hasVerificationGrant(inheritedScope)) {
+    if (verificationGateOn() && !hasVerificationGrant(inheritedScope)) {
       logger.info(`[critique] skip dispatch — the finished command had no verification permission (edge ${edge.id}, §5.3 #12-4)`);
       return;
     }
@@ -19371,6 +19673,21 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // §2.4 — **"실행중…"이 진짜인가**를 에이전트가 확인한다. 위와 같은 이유로 부팅 때 한 번 먹인다.
     subAgentManager.setSessionProbeSettings(appStateGetSessionProbe());
+
+    // §5.3 #9-2 — 에이전트가 띄운 프로세스의 보호. 위와 같은 이유로 부팅 때 한 번 먹인다(끈 사용자의
+    //   설정이 재기동마다 되살아나지 않게). 알림은 그 프로세스를 낳은 세션의 스트림 한 줄 + 진단 로그 —
+    //   문장은 클라가 로케일로 만들고 여기서는 사실만 싣는다. 주인을 모르는 자식은 진단 로그만.
+    processGuard.setSettings(appStateGetProcessGuard());
+    processGuard.setNoticeSink((owner, notice) => {
+      recordDiagnostic('server', 'warn', `[process-guard] ${notice.reason} by ${notice.enforcedBy}`
+        + `${notice.image ? ` ${notice.image}` : ''}${notice.pid !== undefined ? ` pid=${notice.pid}` : ''}`
+        + `${notice.memBytes !== undefined ? ` mem=${notice.memBytes}` : ''}${notice.capBytes !== undefined ? ` cap=${notice.capBytes}` : ''}`
+        + `${notice.availBytes !== undefined ? ` avail=${notice.availBytes}` : ''}${notice.count !== undefined ? ` count=${notice.count}` : ''}`);
+      // 그 세션이 실제로 있을 때만 — CMD 의 `main` 토큰처럼 세션이 아닌 자리에 줄을 만들지 않는다.
+      if (owner && subAgentManager.getSub(owner.subAgentId)) {
+        subAgentManager.emitSystemMessage(owner.parentAgentId, owner.subAgentId, formatProcessGuardNotice(notice));
+      }
+    });
 
     // §2.1 (B) — 최상위 외부 폴더 예산도 같은 규약이다. 이 주입이 빠지면 사용자가 정한 밀도가
     //   재기동마다 기본값(12)으로 되돌아간다(설정은 저장돼 있는데 아무도 안 읽는 상태).

@@ -1,4 +1,6 @@
 ; Vibisual 설치 프로그램에 끼워 넣는 NSIS 스크립트 — electron-builder.yml 의 `nsis.include`.
+; 하는 일 둘: ① preInit — 새 설치가 가끔 0xC0000005 로 죽는 것을 비껴간다(바로 아래)
+;            ② licensePage — 설치 언어를 고른 뒤 그 언어의 사용권 계약에 동의해야 설치한다(맨 아래).
 ;
 ; ☠️ 왜 있나 — 새 설치에서 설치 프로그램이 가끔 0xC0000005 로 죽는다(아무것도 설치하지 않고 끝난다).
 ;   electron-builder 24.13.3 의 multiUser.nsh(setInstallModePerUser)는 레지스트리에 이전 설치 위치가
@@ -50,4 +52,51 @@
     Pop $1
     Pop $0
   !endif
+!macroend
+
+; ─────────────────────────────────────────────────────────────────────────────
+; 설치 언어 고르기 → 사용권 계약 동의 (2026-10-13, 사용자 지시 — "다른 시중 앱들처럼", "그 전에 언어를 고르게")
+;
+; 순서: .onInit 의 언어 선택 창(electron-builder.yml `nsis.displayLanguageSelector: true` → 템플릿이 preInit 다음에
+;   MUI_LANGDLL_DISPLAY 를 부른다. 기본 선택은 OS 언어) → 아래 licensePage(고른 언어의 약관 요약 + 동의 체크 → [설치])
+;   → 설치. 동의 화면 안에서 언어를 바꾸는 손잡이는 표준 MUI 화면에 없다 — 그래서 앞에서 고르게 했다.
+;
+; 업데이트는 전처럼 조용하다:
+;   - 언어 창은 무인(/S) 설치면 뜨지 않는다(MUI2 Localization.nsh 의 MUI_LANGDLL_DISPLAY 가 ${Silent} 를 본다).
+;   - 동의 화면은 --updated 면 건너뛴다(oneClick.nsh 가 licensePage 앞에 skipPageIfUpdated 를 넣는다).
+;   - 자동 업데이트(quitAndInstall(true, true) · 종료 시 설치)·smoke.yml·/reinstall 은 전부 /S 로 돈다.
+;
+; ⚠️ 약관 파일을 buildResources(packages/desktop/resources/)에 `license_*.txt` 로 두지 마라.
+;   그렇게 두면 electron-builder 가 동의 화면을 알아서 만들어 주지만, dmg-builder 의 addLicenseToDmg 도 같은 파일을
+;   보고 dmg 에 동의 창(SLA)을 조건 없이 붙인다. 그러면 `hdiutil attach` 가 동의 입력을 기다려 macOS 자체 업데이트
+;   (packages/desktop/src/main/macSelfInstall.ts)·smoke·try-mac·reinstall-mac 이 멈춘다 — 비대화로 수락하는 공식
+;   수단이 없다. 그래서 파일은 build/license/ 에 두고 licensePage 매크로를 여기서 직접 정의한다(electron-builder 는
+;   license 파일을 못 찾으면 이 매크로를 만들지 않으므로 겹치지 않는다).
+; ⚠️ 언어 목록은 electron-builder.yml `nsis.installerLanguages` 와 한 몸이다. 거기 있는 언어마다 아래 LicenseLangString
+;   이 하나씩 있어야 한다 — 하나라도 빠지면 makensis 가 "not set in language table" 경고를 내고, -WX 라 빌드가 멈춘다.
+;   번호는 electron-builder util/langs.js 의 lcid 와 같다(es_ES 는 SpanishInternational = 3082).
+; ⚠️ 약관 파일은 UTF-8 BOM 으로 저장한다 — BOM 이 없으면 NSIS 가 ANSI 로 읽어 한글·일본어·중국어가 깨진다.
+; 계약 시험: packages/server/src/releasePackaging.test.ts 「설치 동의 화면」.
+
+; 코드페이지가 다른 언어도 목록에 남긴다. 이 정의가 없으면 LangDLL 이 시스템 코드페이지로 걸러서
+; 한국어 Windows 에서 일본어·중국어·유럽어가 목록에서 사라진다(유니코드 설치기라 거를 까닭이 없다).
+!define MUI_LANGDLL_ALLLANGUAGES
+
+!macro licensePage
+  ; 체크해야 [설치]가 켜진다 — 시중 설치기의 "위 약관에 동의합니다" 칸.
+  !define MUI_LICENSEPAGE_CHECKBOX
+  ; 동의 다음은 곧바로 설치라 단추 이름도 [설치]로 둔다.
+  !define MUI_LICENSEPAGE_BUTTON "$(^InstallBtn)"
+  LicenseLangString MUILicense 1033 "${PROJECT_DIR}\build\license\license_en_US.txt"
+  LicenseLangString MUILicense 1042 "${PROJECT_DIR}\build\license\license_ko_KR.txt"
+  LicenseLangString MUILicense 1041 "${PROJECT_DIR}\build\license\license_ja_JP.txt"
+  LicenseLangString MUILicense 2052 "${PROJECT_DIR}\build\license\license_zh_CN.txt"
+  LicenseLangString MUILicense 1031 "${PROJECT_DIR}\build\license\license_de_DE.txt"
+  LicenseLangString MUILicense 1036 "${PROJECT_DIR}\build\license\license_fr_FR.txt"
+  LicenseLangString MUILicense 3082 "${PROJECT_DIR}\build\license\license_es_ES.txt"
+  LicenseLangString MUILicense 1046 "${PROJECT_DIR}\build\license\license_pt_BR.txt"
+  LicenseLangString MUILicense 1040 "${PROJECT_DIR}\build\license\license_it_IT.txt"
+  LicenseLangString MUILicense 1057 "${PROJECT_DIR}\build\license\license_id_ID.txt"
+  LicenseLangString MUILicense 1081 "${PROJECT_DIR}\build\license\license_hi_IN.txt"
+  !insertmacro MUI_PAGE_LICENSE "$(MUILicense)"
 !macroend

@@ -33,7 +33,7 @@ const DEFAULT_RADIUS = 45;
 
 /**
  * 노드 상자. `w`·`h` 가 있으면 실측이라 끝점을 **그 방향의 테두리**에서 끊는다 — 정사각(버블)은 원 반지름,
- * 입력 카드(§5.4 #36)는 판 테두리. 실측이 없으면 반지름 폴백만 있다.
+ * 말풍선(§5.4 #36)은 말풍선 + 궤도의 실루엣. 실측이 없으면 반지름 폴백만 있다.
  */
 interface Circle { cx: number; cy: number; r: number; w?: number; h?: number }
 
@@ -120,8 +120,8 @@ export function CurvedEdge({
   const nx = dx / dist;
   const ny = dy / dist;
 
-  // §5.4 #36 (A) — 끝점까지의 거리는 **그 방향의 테두리**다. 버블은 원 반지름 그대로, 입력 카드는 판 테두리
-  //   (원 반지름으로 판을 재면 가로로 다가오는 선이 판 안쪽에서 끊겨 화살촉이 판에 묻힌다).
+  // §5.4 #36 (A) — 끝점까지의 거리는 **그 방향의 테두리**다. 버블은 원 반지름 그대로, 말풍선은 말풍선 + 궤도의
+  //   실루엣(원 반지름으로 재면 가로로 다가오는 선이 말풍선 안쪽에서 끊겨 화살촉이 묻힌다).
   const sourceRadius = edgeReach(srcCircle, nx, ny);
   const targetRadius = edgeReach(tgtCircle, -nx, -ny);
 

@@ -17,6 +17,7 @@ import {
   Output,
   QUALITY_HIGH,
   QUALITY_MEDIUM,
+  WebMOutputFormat,
   canEncodeAudio,
   canEncodeVideo,
   type AudioCodec,
@@ -27,6 +28,15 @@ import {
 /** 선호 순서. 앞에서부터 이 기기가 할 수 있는 것을 고른다. */
 const VIDEO_CODEC_PREFERENCE: readonly VideoCodec[] = ['avc', 'vp9', 'av1', 'vp8'];
 const AUDIO_CODEC_PREFERENCE: readonly AudioCodec[] = ['aac', 'opus'];
+/**
+ * §5.13 (W) 38-3 — 투명 배경(WebM). 알파를 곁 데이터로 싣는 코덱만(실측: Mediabunny 1.52.2 + VP9 `alpha:'keep'` → 디코딩에서
+ * 투명 0·반투명 128·불투명 255 유지). 소리는 WebM 이 받는 Opus.
+ */
+const ALPHA_VIDEO_CODEC_PREFERENCE: readonly VideoCodec[] = ['vp9', 'vp8'];
+const WEBM_AUDIO_CODEC_PREFERENCE: readonly AudioCodec[] = ['opus'];
+
+/** 출력 그릇 — 보통은 mp4, 투명 배경이면 webm. */
+export type OutputContainer = 'mp4' | 'webm';
 
 export interface EncodeQuality {
   readonly video: Quality;
@@ -41,10 +51,12 @@ export interface PickedCodecs {
   readonly audio: AudioCodec | null;
 }
 
-/** 이 기기가 실제로 인코딩할 수 있는 코덱을 고른다. */
-export async function pickCodecs(width: number, height: number, withAudio: boolean): Promise<PickedCodecs> {
+/** 이 기기가 실제로 인코딩할 수 있는 코덱을 고른다. `alpha` 면 알파를 싣는 코덱(WebM)만 본다. */
+export async function pickCodecs(width: number, height: number, withAudio: boolean, alpha = false): Promise<PickedCodecs> {
+  const videoPreference = alpha ? ALPHA_VIDEO_CODEC_PREFERENCE : VIDEO_CODEC_PREFERENCE;
+  const audioPreference = alpha ? WEBM_AUDIO_CODEC_PREFERENCE : AUDIO_CODEC_PREFERENCE;
   let video: VideoCodec | null = null;
-  for (const codec of VIDEO_CODEC_PREFERENCE) {
+  for (const codec of videoPreference) {
     try {
       if (await canEncodeVideo(codec, { width, height })) {
         video = codec;
@@ -57,7 +69,7 @@ export async function pickCodecs(width: number, height: number, withAudio: boole
 
   let audio: AudioCodec | null = null;
   if (withAudio) {
-    for (const codec of AUDIO_CODEC_PREFERENCE) {
+    for (const codec of audioPreference) {
       try {
         if (await canEncodeAudio(codec)) {
           audio = codec;
@@ -81,6 +93,8 @@ export interface VideoEncoderOptions {
   readonly withAudio?: boolean;
   /** 키프레임 간격(초). 잦으면 탐색이 빨라지고 파일이 커진다. */
   readonly keyFrameInterval?: number;
+  /** §5.13 (W) 38-3 — 투명 배경: WebM + 알파를 싣는 코덱(`alpha:'keep'`). */
+  readonly alpha?: boolean;
 }
 
 /**
@@ -103,22 +117,32 @@ export class VideoEncoder {
     return this.codecs;
   }
 
+  /** 이 출력의 그릇(mp4 · 투명이면 webm). */
+  get container(): OutputContainer {
+    return this.opts.alpha === true ? 'webm' : 'mp4';
+  }
+
   async start(): Promise<void> {
     const { width, height, canvas, fps } = this.opts;
     const quality = this.opts.quality ?? ENCODE_QUALITY_HIGH;
     const withAudio = this.opts.withAudio ?? false;
+    const alpha = this.opts.alpha === true;
 
-    this.codecs = await pickCodecs(width, height, withAudio);
+    this.codecs = await pickCodecs(width, height, withAudio, alpha);
     if (this.codecs.video === null) {
-      throw new Error('이 기기에서 인코딩할 수 있는 영상 코덱을 찾지 못했습니다.');
+      // §5.13 (W) 38-3 — 투명 배경을 시켰는데 알파 코덱이 없으면 불투명 영상으로 조용히 내보내지 않는다.
+      throw new Error(alpha
+        ? '이 기기에서 투명 배경(VP9/VP8 알파)을 인코딩할 수 없습니다.'
+        : '이 기기에서 인코딩할 수 있는 영상 코덱을 찾지 못했습니다.');
     }
 
-    const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() });
+    const output = new Output({ format: alpha ? new WebMOutputFormat() : new Mp4OutputFormat(), target: new BufferTarget() });
 
     const videoSource = new CanvasSource(canvas, {
       codec: this.codecs.video,
       quality: quality.video,
       keyFrameInterval: this.opts.keyFrameInterval ?? 2,
+      ...(alpha ? { alpha: 'keep' as const } : {}),
     });
     output.addVideoTrack(videoSource, { frameRate: fps });
 

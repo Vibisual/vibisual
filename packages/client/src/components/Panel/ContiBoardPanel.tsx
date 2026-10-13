@@ -295,7 +295,7 @@ function FrameCard({
       // dragOver/drop 은 컨테이너 단일 핸들러에서 cursor x 로 gap 판정 → 여기는 더 이상 핸들링하지 않음.
       style={{ width: CARD_W }}
       className={`flex h-full flex-shrink-0 cursor-pointer flex-col gap-3 rounded-xl border p-5 transition-[opacity,transform,box-shadow,border-color] duration-200 ${
-        selected ? 'border-[#A78BFA] bg-[#1A1D26] shadow-lg shadow-[#A78BFA]/20' : 'border-white/[0.06] bg-[#1A1D26] hover:border-white/10'
+        selected ? 'border-violet-400 bg-vb-card shadow-lg shadow-violet-400/20' : 'border-white/[0.06] bg-vb-card hover:border-white/10'
       } ${isDragging ? 'pointer-events-none scale-95 opacity-25' : ''}`}
     >
       <div
@@ -332,7 +332,7 @@ function FrameCard({
             if (runEnterKey(e, commitEdit)) return;
             if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
           }}
-          className="rounded border border-[#A78BFA] bg-[#0F1117] px-2 py-1 text-base font-semibold leading-tight text-gray-100 outline-none focus:ring-1 focus:ring-[#A78BFA]"
+          className="rounded border border-violet-400 bg-vb-sunken px-2 py-1 text-base font-semibold leading-tight text-gray-100 outline-none focus:ring-1 focus:ring-violet-400"
         />
       ) : (
         <div
@@ -344,7 +344,7 @@ function FrameCard({
         </div>
       )}
       {/* v1.61 — 와이어프레임 16:9 표준. 배경 = bg_demo `#242833` (Conti Design System 3-레이어). */}
-      <div className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border border-white/5 bg-[#242833] p-0 shadow-inner">
+      <div className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border border-white/5 bg-vb-inset p-0 shadow-inner">
         <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="h-full w-full" preserveAspectRatio="xMidYMid meet">
           {/* v1.61 — 기본 배경 면 (LLM 이 첫 element 로 까는 걸 깜빡해도 톤 유지). */}
           <rect x={0} y={0} width={VB_W} height={VB_H} fill="#242833" stroke="none" />
@@ -379,7 +379,7 @@ function FrameCard({
             if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
           }}
           rows={3}
-          className="resize-y rounded border border-[#A78BFA] bg-[#0F1117] px-2 py-1 text-xs leading-snug text-gray-300 outline-none focus:ring-1 focus:ring-[#A78BFA]"
+          className="resize-y rounded border border-violet-400 bg-vb-sunken px-2 py-1 text-xs leading-snug text-gray-300 outline-none focus:ring-1 focus:ring-violet-400"
         />
       ) : (
         <div
@@ -909,9 +909,9 @@ export function ContiBoardPanel(): React.JSX.Element | null {
                 transition: 'left 220ms cubic-bezier(0.4, 0, 0.2, 1)',
                 pointerEvents: 'none',
               }}
-              className="flex items-center justify-center rounded-xl border-2 border-dashed border-[#A78BFA]/80 bg-[#A78BFA]/15"
+              className="flex items-center justify-center rounded-xl border-2 border-dashed border-violet-400/80 bg-violet-400/15"
             >
-              <div className="flex flex-col items-center gap-2 text-[#A78BFA]">
+              <div className="flex flex-col items-center gap-2 text-violet-400">
                 <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 5v14M5 12l7 7 7-7" />
                 </svg>

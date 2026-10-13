@@ -39,10 +39,14 @@ export function sessionHiddenTurnRunning(commands: readonly QueuedCommand[], ses
 }
 
 /**
- * §5.5 #17-24 ⑥ — 라이브 1줄의 네 모습. `thinking` 사고 · `working` 그 외 작업 · `waiting` 줄만 섬 ·
- * `compacting` CLI 가 대화를 접는 중.
+ * §5.5 #17-24 ⑥ ⑦ — 라이브 1줄의 세 모습. `working` 작동 중 · `waiting` 줄만 섬 · `compacting` CLI 가
+ * 대화를 접는 중.
+ *
+ * ⑦ — `thinking`(생각 중)은 걷었다. 마지막 이벤트가 사고라고 지금 사고 중인 것이 아니다 — 도구 사이 안내
+ * 문장이 사고로 오고, 큰 `Write` 입력을 만드는 수십 초는 줄이 하나도 없다. 그 라벨이 턴 시계와 붙어
+ * `생각 중… 53m 59s` 로 서자 일하는 세션이 멈춘 것으로 읽혔다.
  */
-export type LiveLineMode = 'thinking' | 'working' | 'waiting' | 'compacting';
+export type LiveLineMode = 'working' | 'waiting' | 'compacting';
 
 /**
  * §5.5 #17-24 ⑥ — 이 세션(메인 탭이면 에이전트의 세션 전부)이 **접는 중이면 그 시작 시각**. 모르면 `null`.
@@ -69,16 +73,17 @@ export function sessionCompactingSince(
 }
 
 /**
- * §5.5 #17-24 ⑥ — 라이브 1줄의 모습을 고르는 **단 한 곳**. 메인 탭(`IDEMainArea`)·Sub 탭(`computeThinkingLive`)이
+ * §5.5 #17-24 ⑥ ⑦ — 라이브 1줄의 모습을 고르는 **단 한 곳**. 메인 탭(`IDEMainArea`)·Sub 탭(`computeThinkingLive`)이
  * 같이 부른다 — 두 경로가 다르게 고르면 같은 세션이 탭을 옮길 때마다 말이 바뀐다.
  *
- * 우선순위: **대기 > 압축 > 사고/작업.** 줄만 서 있으면 도는 것이 없으니 접을 것도 없다(§5.5 #17-18 ⑪).
- * 접는 동안은 마지막 이벤트가 사고였든 도구였든 지금 하는 일이 압축이다.
+ * 우선순위: **대기 > 압축 > 작업.** 줄만 서 있으면 도는 것이 없으니 접을 것도 없다(§5.5 #17-18 ⑪).
+ * 접는 동안은 마지막 이벤트가 사고였든 도구였든 지금 하는 일이 압축이다. 마지막 이벤트 종류는 고르지
+ * 않는다(⑦) — 사고든 도구든 본문이든 작동 중이면 `작업 중`이다.
  */
-export function liveLineMode(waiting: boolean, compacting: boolean, lastEventIsThinking: boolean): LiveLineMode {
+export function liveLineMode(waiting: boolean, compacting: boolean): LiveLineMode {
   if (waiting) return 'waiting';
   if (compacting) return 'compacting';
-  return lastEventIsThinking ? 'thinking' : 'working';
+  return 'working';
 }
 
 /**

@@ -211,6 +211,14 @@ export function showPopOutGhost(opts: {
   armed?: boolean;
   /** (H-12) 선 안에 적을 한 줄. 없으면 안 그린다(나가는 길은 앱 안 문구가 따로 말한다). */
   hint?: string;
+  /**
+   * §5.13 (S-10) 손을 뗐다 — 선을 **지금 그 자리에 멈춘다**(커서 폴링을 멈춘다).
+   *
+   * 끌어낸 창은 손을 뗀 뒤에 태어나는데, 그동안 선이 커서를 계속 따라가면 창이 선 자리와 선이 있던
+   * 자리가 어긋난다. 멈춘 선의 경계는 `popOutGhostBounds` 가 읽고, 창이 그 자리·크기에 선다.
+   * 멈춘 선을 다음 판이 다시 쓰면(멈추지 않은 부탁) 폴링은 다시 돈다.
+   */
+  settled?: boolean;
 }): boolean {
   const width = Math.max(120, Math.round(opts.width));
   const height = Math.max(80, Math.round(opts.height));
@@ -218,27 +226,36 @@ export function showPopOutGhost(opts: {
   const grabY = Math.round(opts.grabY);
   const armed = !!opts.armed;
   const hint = ghostHint(opts.hint);
+  const settled = !!opts.settled;
 
   if (ghost && !ghost.window.isDestroyed()) {
-    ghost.width = width;
-    ghost.height = height;
-    ghost.grabX = grabX;
-    ghost.grabY = grabY;
-    if (ghost.armed !== armed) {
-      ghost.armed = armed;
-      applyArmed(ghost);
+    const g = ghost;
+    g.width = width;
+    g.height = height;
+    g.grabX = grabX;
+    g.grabY = grabY;
+    if (g.armed !== armed) {
+      g.armed = armed;
+      applyArmed(g);
     }
     // 같은 선이 나가는 판 → 들어오는 판으로 이어질 수 있다(빠른 왕복) — 말도 함께 갈아 끼운다.
-    if (ghost.hint !== hint) {
-      ghost.hint = hint;
-      applyHint(ghost);
+    if (g.hint !== hint) {
+      g.hint = hint;
+      applyHint(g);
     }
     // §17-6 (H-10) 다시 쓰는 선은 **수명도 다시 잰다.** 앱 안 ↔ 밖을 여러 번 오가면 같은 창을
     //   계속 갈아 끼우는데, 상한이 첫 판에서부터 흐르면 아직 끌고 있는 손 아래에서 선이 그냥
     //   사라진다(그물이 기능을 끊는다).
-    if (ghost.lifeTimer) clearTimeout(ghost.lifeTimer);
-    ghost.lifeTimer = setTimeout(() => hidePopOutGhost(), GHOST_MAX_LIFE_MS);
-    positionGhost(ghost);
+    if (g.lifeTimer) clearTimeout(g.lifeTimer);
+    g.lifeTimer = setTimeout(() => hidePopOutGhost(), GHOST_MAX_LIFE_MS);
+    if (settled) {
+      // §5.13 (S-10) 손을 뗀 자리에 멈춘다 — 마지막으로 그린 자리가 곧 창이 설 자리다(다시 재지 않는다).
+      if (g.timer) { clearInterval(g.timer); g.timer = null; }
+      return true;
+    }
+    // 멈춰 있던 선을 다음 판이 다시 쓴다 — 커서를 다시 따라간다.
+    if (!g.timer) g.timer = setInterval(() => positionGhost(g), GHOST_POLL_MS);
+    positionGhost(g);
     return true;
   }
 
@@ -325,7 +342,8 @@ export function showPopOutGhost(opts: {
     positionGhost(state);
     win.showInactive();
     if (ghost !== state || win.isDestroyed()) return false;
-    state.timer = setInterval(() => positionGhost(state), GHOST_POLL_MS);
+    // §5.13 (S-10) 손을 뗀 뒤에 처음 세운 선은 그 자리에 서 있기만 한다(커서를 따라가지 않는다).
+    if (!settled) state.timer = setInterval(() => positionGhost(state), GHOST_POLL_MS);
     state.lifeTimer = setTimeout(() => discardGhost(state), GHOST_MAX_LIFE_MS);
     return true;
   } catch (error) {
@@ -364,4 +382,21 @@ export function hidePopOutGhost(): boolean {
 /** 지금 윤곽선이 떠 있는가 — 앱 종료·정리 경로가 묻는다. */
 export function isPopOutGhostVisible(): boolean {
   return !!ghost && !ghost.window.isDestroyed();
+}
+
+/**
+ * §5.13 (S-10) 지금 선이 서 있는 **자리와 크기**(화면 좌표) — 끌어낸 창이 그 자리에 선다. 없으면 null.
+ *
+ * 크기는 창에 되묻지 않고 장부(`width`/`height`) 값을 쓴다 — 분수 배율에서 창이 돌려주는 크기에는
+ * 반올림이 섞여 있다(`overlaySize`). 자리는 마지막으로 그린 곳이다(손을 뗐으면 멈춘 그 자리).
+ */
+export function popOutGhostBounds(): { x: number; y: number; width: number; height: number } | null {
+  const g = ghost;
+  if (!g || g.window.isDestroyed()) return null;
+  try {
+    const b = g.window.getBounds();
+    return { x: b.x, y: b.y, width: g.width, height: g.height };
+  } catch {
+    return null;
+  }
 }

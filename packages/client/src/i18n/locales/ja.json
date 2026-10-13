@@ -386,19 +386,111 @@
         "version": "バージョン",
         "account": "アカウント",
         "storage": "ストレージ",
-        "keyboard": "キーボード"
+        "keyboard": "キーボード",
+        "theme": "テーマ"
       },
       "appearance": {
         "intro": "Vibisualの見た目をカスタマイズします。",
         "language": "言語",
         "languageDesc": "UIの表示言語です。即座に反映されます。"
       },
+      "theme": {
+        "intro": "アプリ全体の配色（パネル、キャンバス、IDE、ターミナル）を変更します。選んだテーマはすぐに適用され、このコンピューターに保存されます。",
+        "groupDark": "ダーク",
+        "groupLight": "ライト",
+        "inUse": "現在のテーマ",
+        "byAuthor": "作者：{{author}}",
+        "saveFailed": "テーマの選択を保存できませんでした。次回は、前回保存したテーマに戻ります。",
+        "missing": "選択したテーマ（{{id}}）が見つからないため、代わりに{{fallback}}を使用しています。そのテーマのファイルをテーマフォルダに戻すか、別のテーマを選んでください。",
+        "builtin": {
+          "vibisualDark": {
+            "name": "Vibisual ダーク",
+            "desc": "クールなブルーグレーのパネルと深い色のキャンバスが特徴の、オリジナルの外観。"
+          },
+          "midnight": {
+            "name": "ミッドナイト",
+            "desc": "夜の長時間作業に向いた、深いネイビーの背景。"
+          },
+          "graphite": {
+            "name": "グラファイト",
+            "desc": "色味のないニュートラルなグレーで、agentの色が引き立ちます。"
+          },
+          "dusk": {
+            "name": "ダスク",
+            "desc": "目にやさしい、温かみのあるストーン系の色合い。"
+          },
+          "forest": {
+            "name": "フォレスト",
+            "desc": "森の静かな夕暮れのような、落ち着いたグリーングレー。"
+          },
+          "highContrast": {
+            "name": "ハイコントラスト",
+            "desc": "真っ黒な背景に、明るい文字とくっきりした枠線。"
+          },
+          "light": {
+            "name": "ライト",
+            "desc": "日中の作業に向いた、明るくすっきりしたパネル。"
+          },
+          "paper": {
+            "name": "ペーパー",
+            "desc": "温かみのあるクリーム色の紙に、やわらかな茶色のインク。"
+          },
+          "highContrastLight": {
+            "name": "ハイコントラスト ライト",
+            "desc": "真っ白な背景に、黒い文字と強い輪郭線。"
+          }
+        },
+        "custom": {
+          "title": "マイテーマ",
+          "desc": "自作のテーマは、このフォルダ内のJSONファイルです。ファイルを置いたら、「{{reload}}」を押してください。",
+          "openFolder": "フォルダを開く",
+          "reload": "テーマを再読み込み",
+          "create": "{{name}}をもとに新しいテーマを作成",
+          "copyName": "{{name}}のコピー",
+          "createdHint": "{{file}}を作成し、そのテーマに切り替えました。好きなテキストエディタで開き、色をいくつか変更して「{{reload}}」を押してください。",
+          "empty": "自作のテーマはまだありません。",
+          "issuesTitle": "テーマファイルで見つかった問題（{{n}}件）",
+          "failed": {
+            "load": "テーマフォルダを読み込めませんでした。",
+            "create": "テーマファイルを作成できませんでした。",
+            "open": "テーマフォルダを開けませんでした。"
+          }
+        },
+        "help": {
+          "title": "テーマファイルの書き方",
+          "extends": "\"extends\"：別のテーマをIDで指定してベースにし、変更したい部分だけを書きます。",
+          "palette": "\"palette\"：カラーファミリー全体を塗り替えます。別のファミリーを借りたり（\"gray\": \"zinc\"）、個々の濃さを指定したり（{\"500\": \"#7c3aed\"}）、全体をずらしたり（{\"hue\": 280, \"chromaScale\": 1.4}）できます。",
+          "mirror": "\"mirrorPalette\": trueを指定すると、すべてのファミリーがダークからライトに反転します。ライトテーマを作る最短の方法です。",
+          "colors": "\"colors\"：タイトルバー、キャンバス、コードブロック、ターミナルなど、名前の付いた箇所ごとに色を設定します。値には、色（#hex、rgb()、hsl()、oklch()）か、{gray.900}や{sky.400}/50のようなパレット参照を指定できます。",
+          "builtinIds": "組み込みテーマのID",
+          "tokens": "\"colors\"で使える名前"
+        },
+        "issue": {
+          "tooMany": "{{file}}にはテーマファイルが{{detail}}個あります。読み込まれるのは最初の{{max}}個だけです。",
+          "tooLarge": "{{file}}はサイズが大きすぎます（{{detail}}バイト）。テーマファイルの上限は{{maxKb}}KBです。",
+          "readFailed": "{{file}}を読み込めませんでした。",
+          "invalidJson": "{{file}}は有効なJSONではありません：{{detail}}",
+          "notObject": "{{file}}の内容は、JSONオブジェクト1つである必要があります。",
+          "unsupportedVersion": "{{file}}はテーマ形式{{detail}}を使用しており、このバージョンでは読み込めません。",
+          "missingName": "{{file}}に\"name\"がないため、代わりにファイル名を表示します。",
+          "duplicateId": "{{file}}のID（{{detail}}）は別のファイルですでに使われているため、スキップされました。",
+          "unknownBase": "{{file}}の\"extends\"で指定された\"{{detail}}\"は存在しないため、代わりに既定のテーマから始めます。",
+          "extendsCycle": "{{file}}の\"extends\"がループしているため、\"{{detail}}\"の箇所でループを切断しました。",
+          "invalidColor": "{{file}}：{{detail}}はこのアプリが解釈できる色ではないため、無視されました。",
+          "unknownToken": "{{file}}：\"{{detail}}\"はこのアプリが認識する色の名前ではないため、無視されました。",
+          "unknownFamily": "{{file}}：\"{{detail}}\"はパレットファミリーではないため、無視されました。",
+          "invalidRamp": "{{file}}：{{detail}}は有効なパレット項目ではないため、無視されました。",
+          "invalidField": "{{file}}：\"{{detail}}\"の形式が正しくないため、無視されました。"
+        }
+      },
       "version": {
         "title": "バージョン・概要",
         "intro": "Vibisualがエージェントのスポーンに使用するClaude Codeバイナリと、その入手元。",
+        "codexIntro": "VibisualがCodexエージェントの実行に使用するCodex CLIと、そのインストール先。",
         "refresh": "再スキャン",
         "scanning": "インストールを確認中…",
         "claudeCode": "Claude Code（使用中）",
+        "codex": "Codex（使用中）",
         "current": "現在",
         "versionLabel": "バージョン：",
         "latest": "最新 (npm)",
@@ -602,6 +694,28 @@
         "sessionProbeModelDesc": "ツールなしで、プロジェクトにアクセスせずに一度だけ尋ねます — 渡すのはそのセッションが最後に話し、行ったことの末尾だけです。一度に 1 セッションのみ、1 時間に 12 回までです。",
         "sessionProbeLoadError": "現在の設定を読み込めませんでした。",
         "sessionProbeSaveError": "保存できませんでした。何も変わっていません。",
+        "processGuardTitle": "エージェントが起動するプロセス",
+        "processGuardIntro": "エージェントがここで実行するものはすべて、そこからさらに起動されるものも、何階層先であってもVibisualの監視下に置かれます。1つのプロセスがメモリを大量に消費して暴走しても、停止されるのはそのプロセスだけです。セッションが終了すると、そのセッションが残したものも一緒に終了します。コマンド1つでコンピューターのメモリを使い切り、アプリごと落ちてしまうことはなくなります。",
+        "processGuardEnabled": "エージェントが起動するプロセスを監視",
+        "processGuardEnabledDesc": "オフにすると、プロセスのグループ化も、上限の設定も、後片付けも行われません。このオプションがなかったときと同じ動作です。",
+        "processGuardCap": "1プロセスが使えるRAMの割合（%）",
+        "processGuardCapDesc": "これを超えたプロセスは停止されます。上限が{{floor}}を下回ることはないため、大きなビルドも問題なく実行できます。0にすると上限なしになります。WindowsではOS自体が超過分のメモリ割り当てを拒否し、それ以外のOSではVibisualが{{seconds}}秒ごとに確認します。",
+        "processGuardCapNow": "このコンピューターでは、1プロセスあたり{{size}}まで",
+        "processGuardCapNone": "このコンピューターでは、1プロセスあたり上限なし",
+        "processGuardPressure": "メモリ不足時に最大のプロセスを停止",
+        "processGuardPressureDesc": "空きメモリが{{ratio}}（最低でも{{min}}）を下回ると、エージェントが起動したプロセスのうち最大のものを停止します。1つずつ停止し、そのたびに空きメモリを再計測します。お使いのコンピューター上のほかのプログラムには一切触れません。",
+        "processGuardReap": "セッションが残したものを後片付け",
+        "processGuardReapDesc": "セッションが終了したとき、またはClaude Codeがタスクを停止したと報告したときに、そのセッションまたはタスクのプロセスがまだ残っていれば、それも停止します。オフにすると、そのまま動き続けます。",
+        "engineBridgeTitle": "Claude Code エンジンブリッジ",
+        "engineBridgeIntro": "Vibisual が起動するセッションには、小さな Claude Code モッドが組み込まれます。このモッドは Claude Code の内部から、ターンの開始と終了（中断したターンを含む）、プロセスが稼働中であること、コンテキストと使用制限の消費状況を報告します。これにより、実行中や完了といった状態は、推測ではなく Claude Code 自身から取得されます。Vibisual の外で起動したセッションには一切手を加えません。",
+        "engineBridgeEnabled": "Vibisual が起動するセッションを接続する（ヘッドレスと CMD）",
+        "engineBridgeEnabledDesc": "保存後に起動したセッションから適用されます。オフの場合、セッションはこれまでとまったく同じように動作し、状態はフックと画面検出のみから取得されます。",
+        "engineBridgeStatusReady": "Claude Code {{version}} はブリッジを読み込めます。現在接続中のセッション: {{sessions}}",
+        "engineBridgeStatusUnsupported": "Claude Code {{version}} はモッドを読み込めません。バージョン {{min}} 以降が必要です。セッションはこれまでどおり動作します。",
+        "engineBridgeStatusChecking": "Claude Code のバージョンを確認しています。確認でき次第、次のセッションからブリッジが接続されます。",
+        "engineBridgeStatusMissing": "このインストールにはブリッジのファイルが見つからないため、セッションはこれまでどおり動作します。",
+        "engineBridgeStatusError": "ブリッジの状態を読み取れませんでした。",
+        "engineBridgeRefresh": "再確認",
         "externalBudgetTitle": "プロジェクト外のフォルダ",
         "externalBudgetIntro": "エージェントがプロジェクト外のフォルダを操作すると、その場所専用のバブルが作られます。放置すると、そうしたバブルはマップを埋め尽くすか、何も伝えない一つの塊に潰れてしまいます。この数値は、トップレベルに同時に表示される場所の数を設定するものです。最も活発で直近の場所から優先的に表示され、動きが止まった場所は親バブルの下に折りたたまれます。",
         "externalBudgetLabel": "トップレベルに表示する外部フォルダ数",
@@ -616,6 +730,11 @@
       "notifications": {
         "cmdBlocked": "CMDセッションが入力待ちのときに通知",
         "cmdBlockedDesc": "他のタブやウィンドウを見ているときだけ通知します。ウィンドウがフォーカスされていれば、すでに画面に表示されているので通知は不要です。"
+      },
+      "permissions": {
+        "verificationGateIntro": "このポリシーは、有効にした場合のみ Codex と Claude Code の両方に適用されます。有効時は、現在のタスクで依頼された場合にのみ、テスト、リンター、型チェック、検証用ビルド、E2E、ブラウザー確認、スクリーンショット比較、検証エージェントを実行するようエージェントに指示し、依頼されていない呼び出しを実行前にブロックします。",
+        "verificationGateEnabled": "検証の実行には依頼を必須にする",
+        "verificationGateEnabledDesc": "初期設定はオフです。オフの場合、Vibisual はプロンプトに検証の制限を追加せず、このポリシーによる呼び出しのブロックも行いません。オンの場合、名前に check、verify、test を含むスクリプトもブロックされることがあります。{{apply}}で保存すると、実行ブロックの変更は次のツール呼び出しから、プロンプトの案内の変更は次のターンから適用されます。"
       },
       "engines": {
         "title": "エンジン",
@@ -1413,11 +1532,11 @@
       "codex": {
         "edgeDelegationNote": "Codex のツール委任は、直接実行するツールをブロックし、作業を接続されたエージェントに送ります。シェルコマンドでは読み取り・検索・編集の個別の制限を回避できるため、このモードではより広い制限がかかります。計画と最終回答は引き続き使えます。変更は次のメッセージから適用されます。",
         "noModel": "モデルはまだ選択されていません",
-        "modelTip": "このバブルがやり取りするCodexモデルです。Vibisualは常にこれを明示的に送信するため、Codex設定ファイルの既定モデルにフォールバックすることはありません。",
-        "noModelList": "モデル一覧はまだ読み込まれていません。Codexを一度実行すると作成されます。",
+        "modelTip": "選択したモデルは明示的に送信されます。空欄の場合はプロジェクト設定または Codex の設定に従います。一覧の更新で選択が変わることはありません。",
+        "noModelList": "現在、モデル一覧を取得できません。保存したモデルと Codex の設定継承は維持されます。",
         "reloadModels": "再読み込み",
         "effort": "推論エフォート",
-        "effortTip": "値が高いほど、考える時間が長くなり、消費するトークンも増えます。表示されるのは、このモデルが対応しているレベルだけです。",
+        "effortTip": "強度を上げると時間とトークンを多く使います。段階は Codex が提供し、保存した選択は現在の一覧になくても維持されます。",
         "toolsManaged": "Codex CLIによる管理",
         "toolAsk": "毎回確認",
         "toolReset": "すべて許可に戻す",
@@ -1979,6 +2098,22 @@
     "apps": {
       "open": "開く",
       "openHint": "ダブルクリックで開きます。",
+      "screenEmpty": "結果はここに表示されます",
+      "screenWorking": "作成中…",
+      "canvas": {
+        "tooLarge": "ここで開くには大きすぎます — エディタで開いてください",
+        "unavailable": "ここでは開けません — エディタで開いてください",
+        "dragRotate": "ドラッグして回転",
+        "fill": "フィル",
+        "copyImage": "画像をコピー",
+        "copyFailed": "画像をコピーできませんでした",
+        "backToDoc": "文書に戻る",
+        "docShort": "文書",
+        "docEmpty": "動画が空です — リンクされたAIに依頼するか、エディタを開いてください",
+        "playExport": "最新のレンダリングを再生",
+        "docUnreadable": "文書を読み込めませんでした — エディタを開いてください",
+        "docVersion": "v{{version}}"
+      },
       "installApp": "アプリをインストール",
       "installHint": "ダブルクリックでインストールします。",
       "uninstallApp": "アプリをアンインストール",
@@ -1986,6 +2121,7 @@
       "unknown": "不明なアプリ",
       "rename": "名前を変更",
       "renamePrompt": "バブル名",
+      "resetSize": "既定のサイズに戻す",
       "pin": "ピン留め",
       "unpin": "ピン留め解除",
       "delete": "削除",
@@ -2140,7 +2276,11 @@
           "boxColor": "字幕の背景",
           "padding": "字幕の内側余白",
           "bottom": "下の余白",
-          "volume": "音量"
+          "volume": "音量",
+          "highlight": "単語ハイライト",
+          "highlightColor": "ハイライト色",
+          "soundRole": "音の役割",
+          "duckDb": "ナレーション中に下げる量（dB）"
         },
         "options": {
           "left": "左",
@@ -2148,7 +2288,12 @@
           "right": "右",
           "rect": "四角形",
           "ellipse": "楕円",
-          "line": "線"
+          "line": "線",
+          "none": "なし",
+          "word": "単語ごと",
+          "music": "音楽",
+          "voice": "ナレーション",
+          "sfx": "効果音"
         },
         "library": "ライブラリ",
         "importMedia": "メディア / SRTを読み込む",
@@ -2183,7 +2328,11 @@
         "loop": "ループ",
         "importing": "読み込み中…",
         "download": "MP4をダウンロード",
-        "saveStill": "PNGを保存"
+        "saveStill": "PNGを保存",
+        "addComposition": "コードコンポジション",
+        "addCompositionHint": "HTML/CSS/JSで書かれたモーショングラフィックス。AIに書いてもらうか、ファイルを自分で編集してください。",
+        "media_composition": "コードコンポジション",
+        "wordsEstimated": "一部の字幕には単語ごとのタイミングがないため、各単語の時刻は文字数から推定しています。"
       },
       "timelineEditor": {
         "zoomIn": "拡大",
@@ -2202,10 +2351,561 @@
         "dragHint": "クリップをドラッグして移動、端をドラッグしてトリミング。矢印キー: 1フレーム、Shift: 10フレーム、Alt: スナップ解除。",
         "moveClip": "{{name}}を移動",
         "frameValue": "フレーム {{frame}}"
-      }
+      },
+      "composition": {
+        "title": "コードコンポジション",
+        "noSource": "このクリップはコンポジションファイルを指していません。",
+        "reload": "コードを再読み込み",
+        "strip": "フレームストリップ",
+        "openFile": "ファイルを開く",
+        "seekMode": "シーク",
+        "modeForward": "前方向のみ（戻ると最初から再生し直されます）",
+        "modeRandom": "どの時点へも即座に移動",
+        "declaredLength": "宣言された長さ",
+        "designSize": "デザインサイズ",
+        "lint": "チェック",
+        "props": "データ（props、JSON）",
+        "propsHint": "コードはこれらの値をwindow.__vibi.propsから読み取ります。",
+        "propsNotObject": "{\"title\": \"Hello\"}のようなJSONオブジェクトを入力してください。",
+        "propsInvalid": "これは有効なJSONではありません。",
+        "newLabel": "モーショングラフィックス",
+        "stripLoading": "フレームストリップをキャプチャしています…",
+        "runtimeError": "コンポジションエラー：{{message}}",
+        "blocked": "コンポジションが自身のフォルダの外にあるリソースを読み込もうとしました：{{url}}"
+      },
+      "lint": {
+        "network": "ネットワーク通信（fetch、XMLHttpRequest、WebSocket）はブロックされています。代わりに、データはクリップのpropsに入れてください。",
+        "external-url": "外部URLはブロックされています。ファイルをコンポジションのフォルダにコピーし、相対パスで指定してください。",
+        "media-element": "<audio>/<video>はタイムラインと同期できません。音は音声トラックに、動画はクリップとして配置してください。",
+        "sound-api": "コードで鳴らした音はミュートされます。代わりに、音は音声トラックに配置してください。",
+        "worker": "コンポジションではWeb Workerがブロックされています。",
+        "storage": "コンポジションではストレージとCookieを利用できません。",
+        "module-script": "モジュールスクリプトは読み込まれない場合があります。クラシックなscriptタグを使ってください。",
+        "css-transition": "CSSトランジションはスクラブできません。@keyframesまたはelement.animate()を使ってください。",
+        "input-wait": "クリックやキー入力を待つコードがあります。動画では誰もキーを押しません。",
+        "no-duration": "宣言された長さ（vibi:duration）がありません。クリップに長さを設定するか、ファイル内で宣言してください。",
+        "frame-callbacks": "フレームコールバックを使っているため、前方向にしか再生できません。戻ると最初から再生し直されます。",
+        "virtual-clock": "時刻と乱数は、動画ごとに同じ結果を再現できるようになっています。",
+        "no-motion": "アニメーションが見つかりません。このクリップは時間が経っても変化しない可能性があります。",
+        "no-props-decl": "値が宣言されていないため、スタジオはこのコンポジションのハンドルを表示できません。",
+        "props-decl-invalid": "値の宣言（vibi-props）にエラーがあります。",
+        "engine-unsupported": "動画レンダラーがまだ対応していないウェブ機能を使用しています。動画では無視されます。"
+      },
+      "agent": {
+        "placeholder": "AIに変更内容を伝えてください（例：2秒あたりでタイトルを大きくして）",
+        "pick": "AI agent",
+        "pickPlaceholder": "agentを選択…",
+        "linkedLabel": "{{name}}（リンク済み）",
+        "removeAttachment": "{{name}}を削除",
+        "attach": "画像・動画・音声を添付（この動画のメディアに追加されます）",
+        "send": "AIに依頼",
+        "working": "AIが編集中…",
+        "reloaded": "最新の変更を読み込みました（v{{version}}）。",
+        "useAttachments": "添付したメディアをこの動画で使ってください。",
+        "sent": "AIに送信しました。変更は自動的にここに表示されます。"
+      },
+      "removeNamed": "{{name}}を削除",
+      "cueNoComposition": "アセット {{id}}はコードコンポジションではありません。",
+      "cueScanTimeout": "コンポジションの {{seconds}} 秒分の実行が時間内に完了しませんでした。",
+      "ai": {
+        "allowImages": "画像生成を許可",
+        "allowImagesNote": "その Codex アカウントの使用量として計上されます。",
+        "attach": "ファイルを添付",
+        "autoAgentName": "動画 · {{title}}",
+        "changed": "変更内容",
+        "collapse": "AI パネルを折りたたむ",
+        "empty": "作りたいものや変更したい点を伝えてください。AI が編集できるコードとして作成します。どの値も引き続き手動で調整できます。",
+        "expand": "AI パネルを開く",
+        "ide": "IDE",
+        "idle": "指示を待っています",
+        "moreChanges": "ほか {{count}} 件",
+        "noAgentYet": "エージェントはまだありません。送信すると作成されます。",
+        "openIde": "この会話を IDE で開く",
+        "placeholder": "変更したい内容を入力…",
+        "pointedChip": "指定: {{kind}}",
+        "send": "送信",
+        "suggestions": "提案",
+        "timeChip": "{{time}}の位置",
+        "title": "AI",
+        "undoPass": "この作業を元に戻す",
+        "working": "作業中…"
+      },
+      "chapterMenu": {
+        "merge": "次のシーンと結合",
+        "otherEngine": "{{engine}}でやり直す",
+        "redo": "このシーンのやり直しを AI に依頼",
+        "redoRequest": "シーン {{n}}（{{title}}）をやり直してください。",
+        "remove": "このシーンを削除",
+        "savePart": "パーツとして保存",
+        "split": "再生ヘッドの位置で分割",
+        "variants": "2つのエンジンで並べて比較"
+      },
+      "chapterStatus": {
+        "plan": "計画済み",
+        "approved": "承認済み",
+        "building": "作成中",
+        "done": "完了"
+      },
+      "diff": {
+        "title": "タイトル: {{from}} → {{to}}",
+        "size": "サイズ: {{from}} → {{to}}",
+        "fps": "フレームレート: {{from}} → {{to}}",
+        "style": "スタイルを変更",
+        "chapterAdded": "シーン {{n}} · {{title}}を追加",
+        "chapterRemoved": "シーン {{n}} · {{title}}を削除",
+        "chapterTitle": "シーン {{n}}の名前を「{{title}}」に変更",
+        "chapterDuration": "シーン {{n}} · {{title}}: {{from}} s → {{to}} s",
+        "chapterText": "シーン {{n}} · {{title}}: 画面上のテキストを変更",
+        "chapterBrief": "シーン {{n}} · {{title}}: モーションの計画を変更",
+        "chapterStatus": "シーン {{n}} · {{title}}のステータスを「{{status}}」に変更",
+        "chapterTransition": "シーン {{n}} · {{title}}: トランジションを「{{transition}}」に設定",
+        "chapterOther": "シーン {{n}} · {{title}}を変更",
+        "chapterOrder": "シーンを並べ替え",
+        "itemAdded": "{{label}}を追加",
+        "itemRemoved": "{{label}}を削除",
+        "itemText": "{{label}}: テキストまたは値を変更",
+        "itemTiming": "{{label}}: タイミングを変更",
+        "itemLook": "{{label}}: 位置または見た目を変更",
+        "itemOther": "{{label}}を変更",
+        "itemsMany": "{{count}} 件の項目を変更",
+        "assetAdded": "メディアを {{count}} 件追加",
+        "assetRemoved": "メディアを {{count}} 件削除",
+        "assetChanged": "メディアを {{count}} 件更新"
+      },
+      "engines": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "label": "エンジン",
+        "prepare": "セットアップ",
+        "prepareInMain": "メインウィンドウで {{engine}}をセットアップしてください。",
+        "need_setup": "{{engine}}はまだインストールされていません。",
+        "need_login": "先に {{engine}}にログインしてください。",
+        "need_refresh": "{{engine}}を再確認してください。"
+      },
+      "errors": {
+        "details": "詳細",
+        "offline": "Vibisual サーバーに接続できません。アプリが起動しているか確認してください。",
+        "conflict": "文書が同時に変更されました。もう一度お試しください。",
+        "missingDoc": "この文書またはバージョンはもう存在しません。",
+        "worker": "非表示の動画ワーカーが応答しませんでした。もう一度お試しください。",
+        "timeout": "処理に時間がかかりすぎたため停止しました。もう一度お試しください。",
+        "unreadable": "このファイルを読み取れませんでした。",
+        "tooLarge": "このファイルは大きすぎてインポートできません。",
+        "limit": "使用制限に達しました。しばらくしてからもう一度お試しください。",
+        "forbidden": "この操作はご自身でのみ行えます。エージェントには許可されていません。",
+        "generic": "問題が発生しました。"
+      },
+      "export": {
+        "captions": "字幕",
+        "captions_burn": "焼き込み",
+        "captions_separate": "別ファイル",
+        "derived": "このフォーマット用に {{title}}を作成し、レンダリングを開始しました。",
+        "derivedExisting": "このフォーマット用にすでに作成済みのバージョン「{{title}}」をレンダリングしています。",
+        "download": "最新のレンダリングをダウンロード",
+        "mp4": "動画（MP4）",
+        "noCaptions": "エクスポートできる字幕がありません。",
+        "png": "再生ヘッド位置の静止画",
+        "preset_landscape": "横向き",
+        "preset_portrait": "ショート動画",
+        "preset_square": "正方形",
+        "presets": "出力サイズ",
+        "srt": "字幕ファイル",
+        "transparent": "モーションのみ、背景透過"
+      },
+      "formats": {
+        "landscape": "横向き",
+        "portrait": "縦向き",
+        "square": "正方形"
+      },
+      "header": {
+        "docs": "文書",
+        "export": "エクスポート",
+        "format": "フォーマット",
+        "history": "履歴",
+        "label": "Vibistudioツールバー",
+        "newDoc": "新しい動画を作成",
+        "noDoc": "開いている文書はありません",
+        "recent": "最近使用",
+        "rename": "名前を変更",
+        "title": "文書のタイトル"
+      },
+      "history": {
+        "beforeRestore": "戻す前",
+        "byAi": "AI",
+        "byMe": "あなた",
+        "checkpoint": "チェックポイントを保存",
+        "compare": "並べて比較",
+        "compareCount": "{{count}}件選択中",
+        "empty": "まだ何もありません。AI作業とチェックポイントの保存はすべてここに表示され、どの時点にも戻せます。",
+        "kind_pass-start": "AI作業の前",
+        "kind_pass-end": "AI作業",
+        "kind_checkpoint": "チェックポイント",
+        "kind_restore": "戻した",
+        "kind_render": "このバージョンをレンダリングした",
+        "noDiff": "差分はありません。",
+        "pick": "選択して比較",
+        "rendered": "レンダリング済み",
+        "restore": "この時点に戻す",
+        "title": "履歴"
+      },
+      "libs": {
+        "accept": "インポート",
+        "addPack": "タイムラインに追加",
+        "download": "ダウンロード",
+        "drop": "スクリプト、スタイルシート、フォント、zip、またはHTMLページ1つをここにドロップ",
+        "duration": "長さ（s）",
+        "fromProject": "このプロジェクトのnode_modulesから検索",
+        "inert": "データアドレス：そのまま保持",
+        "kind_library": "ライブラリ",
+        "kind_font": "フォント",
+        "kind_pack": "HTMLページ",
+        "kind_script": "スクリプト",
+        "kind_style": "スタイルシート",
+        "kind_image": "画像",
+        "kind_module": "モジュール",
+        "kind_data": "データ",
+        "kind_other": "その他",
+        "licenseNote": "ライセンスは、ファイルで見つかった記載のまま表示されます。使用できるかどうかは、ご自身で判断してください。",
+        "noLicense": "ライセンスが見つかりません",
+        "pick": "ファイルを選択",
+        "refsTitle": "{{name}}は{{count}}個の外部ファイルを読み込みます",
+        "reject": "却下",
+        "remove": "削除",
+        "request": "AIが次のインポートを求めています：",
+        "title": "インポート",
+        "url": "ダウンロードするファイルのアドレス",
+        "vendorAll": "すべてダウンロード",
+        "vendorNone": "そのまま保持",
+        "vendorPicked": "選択したものをダウンロード"
+      },
+      "media": {
+        "empty": "メディアはまだありません。ファイルをインポートするか、プレビューにドロップしてください。",
+        "import": "インポート",
+        "importing": "インポート中…",
+        "search": "メディアを検索"
+      },
+      "notes": {
+        "closed": "クローズ済み（{{count}}）",
+        "confirm": "問題なし",
+        "empty": "メモはまだありません。",
+        "handoff": "{{count}}件のメモをAIに渡す",
+        "handoffRequest": "ピン留めした{{count}}件のメモに沿って修正してください。",
+        "hint": "プレビュー上にメモをピン留めできます（{{shortcut}}）。AIには正確な時点と位置が伝わります。",
+        "newNote": "新しいメモ{{n}}",
+        "pin": "ピン留め",
+        "pinTitle": "メモ{{n}}",
+        "placeholder": "ここで何を変更したいですか？",
+        "reopen": "再オープン",
+        "seek": "この時点に移動",
+        "status_open": "オープン",
+        "status_sent": "AIに送信済み",
+        "status_fixed": "修正済み（要確認）",
+        "status_closed": "クローズ済み",
+        "text": "メモ{{n}}のテキスト"
+      },
+      "parts": {
+        "basic": "基本",
+        "group_text": "タイトルとテキスト",
+        "group_data": "グラフと数値",
+        "group_brand": "ブランド",
+        "group_captions": "字幕",
+        "group_mine": "マイパーツ",
+        "name_lower-third": "ローワーサード",
+        "name_kinetic-type": "動く文字",
+        "name_counter": "カウンター",
+        "name_bar-chart": "棒グラフ",
+        "name_line-chart": "折れ線グラフ",
+        "name_donut-chart": "ドーナツグラフ",
+        "name_code-typing": "コードタイピング",
+        "name_logo-reveal": "ロゴリビール",
+        "name_word-captions": "単語ごとの字幕",
+        "pickSeam": "2つ目以降のシーンに再生ヘッドを移動すると、そのシーンのトランジションを選べます。",
+        "transitions": "トランジション"
+      },
+      "plan": {
+        "add": "シーンを追加",
+        "approve": "承認して作成",
+        "brief": "動き",
+        "buildRequest": "プランを承認しました。{{count}}個のシーンを作成してください。",
+        "building": "作成中…",
+        "buildingThis": "このシーンを作成中…",
+        "chapterTitle": "シーンのタイトル",
+        "collapse": "プランを隠す",
+        "drag": "ドラッグして並べ替え",
+        "expand": "プランを表示",
+        "length": "長さ",
+        "newChapter": "新しいシーン",
+        "noFrameYet": "フレームはまだありません",
+        "remove": "シーンを削除",
+        "seek": "シーン{{n}}へ移動",
+        "sound": "サウンド",
+        "summary": "{{count}}シーン · {{length}}",
+        "text": "画面上のテキスト",
+        "title": "シーンプラン",
+        "styleFrame": "スタイルフレーム"
+      },
+      "precision": {
+        "close": "詳細編集を閉じる",
+        "toggle": "詳細編集"
+      },
+      "preview": {
+        "actualSize": "実寸表示",
+        "empty": "表示するものはまだありません。",
+        "fit": "ウィンドウに合わせる",
+        "label": "動画プレビュー",
+        "nextFrame": "次のフレーム",
+        "note": "メモをピン留め",
+        "planReady": "プランができました。シーンを確認して承認してください。",
+        "planning": "AIがプランを考えています…",
+        "point": "対象を指し示す",
+        "prevFrame": "前のフレーム",
+        "safeArea": "セーフエリア"
+      },
+      "rail": {
+        "label": "ドロワー",
+        "media": "メディア",
+        "parts": "パーツ",
+        "style": "スタイル",
+        "notes": "メモ",
+        "transcript": "文字起こし"
+      },
+      "recipes": {
+        "app-intro": {
+          "name": "アプリ紹介",
+          "desc": "実際の画面から作る、このプロジェクトの短い紹介動画です。",
+          "placeholder": "誰に向けた紹介で、何を覚えてほしいですか？",
+          "wants": "実行中のアプリの画面 · ロゴ"
+        },
+        "changelog": {
+          "name": "更新内容",
+          "desc": "コミットやプルリクエストを、短いアップデート動画にします。",
+          "placeholder": "どのコミット、またはプルリクエストですか？（既定は前回のタグ以降）",
+          "wants": "コミット、またはプルリクエスト"
+        },
+        "data-story": {
+          "name": "データストーリー",
+          "desc": "動くグラフでデータセットを説明します。",
+          "placeholder": "データで答えたい問いは何ですか？",
+          "wants": "CSVファイル、または表"
+        },
+        "caption-shorts": {
+          "name": "字幕付きショート",
+          "desc": "話している動画に単語ごとの字幕を重ねた、縦型のショート動画です。",
+          "placeholder": "どんな内容のクリップですか？カットしたい部分はありますか？",
+          "wants": "動画 · SRTファイル"
+        },
+        "kinetic-text": {
+          "name": "キネティックテキスト",
+          "desc": "動くタイポグラフィでメッセージを伝えます。",
+          "placeholder": "動かしたいテキストを貼り付けてください",
+          "wants": "テキスト"
+        },
+        "photo-slideshow": {
+          "name": "写真スライドショー",
+          "desc": "写真を音楽に乗せ、ビートに合わせて切り替えます。",
+          "placeholder": "どんなイベントですか？",
+          "wants": "写真 · 音楽"
+        },
+        "logo-reveal": {
+          "name": "ロゴリビール",
+          "desc": "ロゴを披露する短いアニメーションです。",
+          "placeholder": "雰囲気や色の希望はありますか？",
+          "wants": "ロゴ"
+        },
+        "blank": {
+          "name": "白紙",
+          "desc": "自分で一から組み立てる、空の文書です。",
+          "placeholder": "タイトルを付けてください（任意）",
+          "wants": "必要なものはありません"
+        }
+      },
+      "review": {
+        "docOnly": "文書の内容だけで確認しました。フレームも確認すると、低コントラストや空白のフレームも見つけられます。",
+        "fix": "AIに修正を依頼",
+        "fixRequest": "これを修正してください：{{what}}",
+        "frames": "フレームを確認",
+        "framesBusy": "フレームを確認中…",
+        "skip": "今回はスキップ",
+        "snap": "ビートに合わせる",
+        "title": "レビュー",
+        "read-time": "短すぎて読めません。画面に{{have}} s、必要なのは約{{need}} sです。",
+        "safe-area": "「{{text}}」がセーフエリアの外にあります。",
+        "text-overlap": "テキストが重なっています：「{{a}}」と「{{b}}」。",
+        "low-contrast": "「{{text}}」が読みにくいです（コントラスト比 {{ratio}}:1）。",
+        "blank": "空白の画面です。ここには何も表示されていません。",
+        "caption-clip": "字幕が{{lines}}行に及んでいます。短くするか、分割してください。",
+        "silence": "{{from}} s〜{{to}} s は無音です。",
+        "off-beat": "シーン{{n}}へのカットがビートから {{offset}} s ずれています。"
+      },
+      "seam": {
+        "length": "トランジションの長さ",
+        "snapBeat": "最も近い強拍に中心を合わせる",
+        "title": "トランジション"
+      },
+      "signals": {
+        "title": "キュー",
+        "collecting": "キューを収集中…",
+        "recollect": "キューを再収集",
+        "mark": "キュー {{name}}（{{t}} s）",
+        "boundCount": "{{count}}件紐づけ済み",
+        "menu": "キュー",
+        "staleHint": "コードが変更されたため、これらの時刻を再収集しています。",
+        "bind": "{{name}}をこのキューに紐づける",
+        "bindHint": "先にサウンドなどのアイテムを選択してから、ここで紐づけます",
+        "unbind": "{{name}}の紐づけを解除（現在の時刻は維持されます）",
+        "boundTo": "キュー {{name}}に紐づけ済み"
+      },
+      "start": {
+        "ask": "何を作りたいですか？",
+        "dropHint": "ここにファイルをドロップ：画面、データ、ロゴ、動画",
+        "make": "プランを作成",
+        "materials": "ファイルを追加",
+        "openBlank": "空の文書を開く",
+        "placeholder": "動画の内容を説明…",
+        "recipes": "レシピ",
+        "seconds": "{{count}} s"
+      },
+      "steps": {
+        "label": "ステップ",
+        "say": "伝える",
+        "approve": "プランを承認する",
+        "refine": "手で仕上げる"
+      },
+      "strip": {
+        "chapter": "シーン{{n}} · {{title}}",
+        "chapterN": "シーン{{n}}",
+        "derive": "シーンに分割",
+        "empty": "まだシーンがありません",
+        "menu": "シーンメニュー",
+        "seam": "トランジション：{{transition}}",
+        "seamDrag": "ドラッグでカット位置を移動",
+        "working": "AIがここで作業中です"
+      },
+      "style": {
+        "applied": "適用済み",
+        "apply": "この動画に適用",
+        "confirm": "プロジェクトのスタイルとして使用",
+        "current": "この動画",
+        "font": "フォント",
+        "fontFile": "ファイル",
+        "fromProject": "プロジェクトから",
+        "logo": "ロゴ",
+        "noFont": "システムフォント",
+        "noLogo": "ロゴなし",
+        "none": "スタイルはまだありません。プロジェクトをスキャンすると、色・フォント・ロゴを検出できます。",
+        "partial": "最初の{{count}}件のファイルをスキャンしました。",
+        "scan": "プロジェクトをスキャン",
+        "scanHint": "このプロジェクトのファイルから、色・フォント・ロゴを探します。",
+        "scanning": "スキャン中…",
+        "slot_accent": "アクセント",
+        "slot_bg": "背景",
+        "slot_fg": "文字色",
+        "slot_muted": "控えめ"
+      },
+      "toast": {
+        "checkpoint": "チェックポイントを保存しました",
+        "nothingToDerive": "分割できる箇所がありません：タイムラインにはまだ明確なカットがありません。",
+        "partSaved": "マイパーツに保存しました",
+        "passUndone": "AIの作業を元に戻しました",
+        "renderDoneNote": "レンダリングが完了しました · {{note}}",
+        "restored": "そのバージョンに戻しました",
+        "sent": "AIに送信しました",
+        "styleConfirmed": "プロジェクトのスタイルとして保存しました",
+        "cuesStale": "キューを再収集できなかったため、キューに紐づけられたサウンドは以前の時刻を使用しました。"
+      },
+      "transcript": {
+        "clear": "マークをクリア",
+        "cut": "取り消し線を引いた文をカット",
+        "empty": "字幕の文がまだありません。SRTファイルをインポートするか、字幕を追加してください。",
+        "hint": "文をクリックすると、その位置に移動します。文に取り消し線を引いて、まとめてカットできます。カットは文の区切りに沿って行われます。",
+        "keep": "この文を残す",
+        "seek": "この文に移動",
+        "strike": "この文に取り消し線を引く",
+        "summary": "{{count}}文 · −{{removed}} s · {{before}} → {{after}}"
+      },
+      "transitions": {
+        "cut": "カット",
+        "dissolve": "ディゾルブ",
+        "push": "プッシュ",
+        "zoom": "ズーム",
+        "flash": "フラッシュ",
+        "wipe": "ワイプ"
+      },
+      "values": {
+        "advanced": "高度な設定（JSON）",
+        "codeInfo": "コード情報",
+        "codeInfoProblems": "コード情報 · {{count}}件の問題",
+        "declaredLength": "宣言された長さ {{seconds}} s",
+        "deselect": "選択を解除",
+        "duration": "長さ",
+        "noDecl": "このコンポジションには、まだ値が宣言されていません。変更したいテキスト、数値、色を宣言するよう、AIに依頼してください。",
+        "responsive": "フレームに合わせて自動調整",
+        "seekForward": "順方向にのみ再生（戻ると最初から再生し直します）",
+        "seekRandom": "どの時点にもジャンプできます",
+        "title": "値",
+        "kind_composition": "コードコンポジション",
+        "kind_footage": "動画",
+        "kind_image": "画像",
+        "kind_audio": "サウンド",
+        "kind_caption": "字幕",
+        "kind_text": "テキスト",
+        "kind_shape": "図形",
+        "kind_scene": "組み込みシーン"
+      },
+      "variants": {
+        "dropUnpicked": "もう一方のバージョンを削除",
+        "hint": "どちらも同じ時点で再生されます。選ばなかった方は、削除するまで文書に残ります。",
+        "missing": "このシーンには、まだ2つのバージョンがありません。",
+        "pick": "これを使用",
+        "picked": "使用中",
+        "request": "比較できるように、{{engine}}でシーン「{{title}}」を作成してください。",
+        "status_building": "作成中",
+        "status_done": "作成済み",
+        "title": "2つのエンジン · {{title}}"
+      },
+      "motion": {
+        "punchIn": "パンチインズーム",
+        "punchInHint": "再生ヘッドの位置で一瞬だけズームインし、保持してから元に戻します",
+        "slowPush": "スロープッシュイン",
+        "slowPushHint": "クリップ全体を通してゆっくりズームインします",
+        "addKey": "{{time}}秒にキーフレームを追加",
+        "empty": "キーフレームがありません。ボックスは動きません。",
+        "keyLabel": "キーフレーム{{n}}",
+        "remove": "このキーフレームを削除",
+        "time": "時間（s）",
+        "dx": "X移動（px）",
+        "dy": "Y移動（px）",
+        "ease": "カーブ",
+        "ease_linear": "等速",
+        "ease_in": "ゆっくり始まる",
+        "ease_out": "ゆっくり終わる",
+        "ease_inOut": "なめらか",
+        "ease_hold": "保持してから切り替え",
+        "clear": "すべてのキーフレームを削除"
+      },
+      "effects": {
+        "title": "カラーとエフェクト",
+        "look": "ルック",
+        "look_warm": "ウォーム",
+        "look_cool": "クール",
+        "look_mono": "白黒",
+        "look_vivid": "ビビッド",
+        "look_fade": "色あせ",
+        "look_cinematic": "シネマティック",
+        "brightness": "明るさ",
+        "contrast": "コントラスト",
+        "saturation": "彩度",
+        "temperature": "色温度",
+        "hue": "色相シフト（°）",
+        "blur": "ぼかし（px）",
+        "vignette": "ビネット",
+        "reset": "カラーとエフェクトをリセット"
+      },
+      "errNoFrame": "チャプター「{{id}}」にはコンポジションアセットがないため、スタイルフレームを描画できません。",
+      "lowResolution": "この画面には動画と同じ大きさのレンダリングウィンドウが収まらなかったため、解像度{{percent}}%でレンダリングしました。"
     },
     "cost": {
-      "codexEstimateNote": "Codex の費用は標準 API トークン単価による概算です。ChatGPT のサブスクリプション請求額やクレジット使用量ではなく、Fast モードや長いコンテキストの割増料金は含みません。",
+      "codexEstimateNote": "Codex の費用は標準 API トークン単価による概算です。ChatGPT のサブスクリプション請求額やクレジット使用量ではなく、Fast/Ultrafast モードや長いコンテキストの割増料金は含みません。",
       "title": "コスト＆トークンマップ",
       "close": "コストマップを閉じる",
       "pillLabel": "今日のコスト",
@@ -2386,8 +3086,6 @@
         "invalidNumber": "許容範囲内の有効な数値を入力してください。",
         "reloadedDraft": "編集中にこのクリップが変更されました。適用前に最新の値を確認してください。",
         "refresh": "更新",
-        "removeTrack": "トラックを削除",
-        "memoryLimit": "この音声は編集用メモリの上限を超えています。短い素材を使ってください。",
         "connections": {
           "title": "AIと接続",
           "builtIn": "内蔵編集",
@@ -2432,7 +3130,9 @@
           "loadFailed": "接続の下書きを読み込めませんでした。",
           "saveFailed": "下書きを保存できませんでした。名前とエンドポイントのアドレスを確認してください。",
           "retry": "再試行"
-        }
+        },
+        "removeTrack": "トラックを削除",
+        "memoryLimit": "この音声は編集用メモリの上限を超えています。短い素材を使ってください。"
       }
     },
     "vibi3d": {
@@ -2450,7 +3150,54 @@
       "triangles": "三角形 {{n}}",
       "dragHint": "ドラッグで回転、ホイールで拡大",
       "viewOnly": "表示のみ",
-      "missingTextures": "テクスチャファイル {{count}} 件なしで開きました：{{names}}。モデルと一緒に選ぶか、モデルと同じフォルダーに置くと反映されます。"
+      "open": "ファイルを開く",
+      "save": "GLBを保存",
+      "download": "ダウンロード",
+      "undo": "元に戻す",
+      "redo": "やり直し",
+      "tool_translate": "移動",
+      "tool_rotate": "回転",
+      "tool_scale": "スケール",
+      "properties": "プロパティ",
+      "viewport": "3Dビュー",
+      "start": "モデルを開いて、自分好みにカスタマイズ",
+      "openHint": "GLB、glTF、OBJ、STL、PLY、FBX、DAE、3MFのいずれかのファイルをここにドロップしてください。付属のテクスチャも一緒に選択してください。",
+      "sample": "キューブで試す",
+      "working": "処理中…",
+      "clip": "アニメーションクリップ",
+      "play": "再生",
+      "pause": "一時停止",
+      "stop": "停止",
+      "seek": "アニメーション時間",
+      "downloadStarted": "GLBのダウンロードを開始しました。",
+      "saveFailed": "保存できませんでした。GLBのダウンロードをお試しください。",
+      "saved": "保存しました：{{path}}",
+      "connectionIssue": "AIに接続できません。編集と保存は引き続き行えます。",
+      "missingTextures": "テクスチャファイル {{count}} 件なしで開きました：{{names}}。モデルと一緒に選ぶか、モデルと同じフォルダーに置くと反映されます。",
+      "objects": "オブジェクト",
+      "selectObject": "オブジェクトを選択",
+      "position": "位置",
+      "rotation": "回転（°）",
+      "scale": "スケール",
+      "color": "カラー",
+      "selectHint": "ビュー内のオブジェクトをクリックすると編集できます。",
+      "lighting": "ライティング",
+      "agentTitle": "AIに依頼",
+      "agentChoose": "agentを選択",
+      "agentRequestLabel": "シーンの変更内容を説明",
+      "agentPlaceholder": "これを少し右に動かして、青くして",
+      "agentSend": "変更を依頼",
+      "agentHint": "オブジェクトを選択してから、変更内容を説明してください。agentは現在のシーンとビューを読み取ります。",
+      "agentOpenFirst": "agentに変更を依頼するには、モデルを開いてください。",
+      "agentConnecting": "シーンとagentに接続中…",
+      "agentNone": "変更を依頼するには、このプロジェクトでagentを作成してください。",
+      "agentSending": "依頼を送信中…",
+      "agentSendFailed": "依頼が届いたか確認できませんでした。再試行する前に、agentとの会話を確認してください。入力したテキストはここに残っています。",
+      "agentTaskFailed": "agentがエラーで停止しました。詳細は会話を確認してください。",
+      "agentResponded": "agentが応答しました。シーンと会話の内容を確認してください。",
+      "agentQueued": "依頼を受け付けました。進捗は、選択したagentの会話で確認してください。",
+      "agentSceneChanged": "シーンが変更されました。現在のモデルに対して、もう一度依頼を送信してください。",
+      "agentUnavailable": "選択したagentは利用できません。接続を確認して、もう一度お試しください。"
     },
     "mediaConvert": {
       "videoIntro": "この映像形式はアプリで直接開けません。コンテナを入れ替えるだけ（画質そのまま）で編集画面が開きます。",
@@ -3906,6 +4653,16 @@
       "resumed": "接続復旧 · 作業再開",
       "ended": "接続復旧の試行記録"
     },
+    "processGuard": {
+      "someProcess": "あるプロセス",
+      "cap": "{{image}}を停止しました（{{mem}}を使用し、1プロセスあたりの上限{{cap}}を超過）",
+      "capKernel": "{{image}}は、1プロセスあたりの上限{{cap}}でWindowsから追加のメモリ割り当てを拒否され、終了しました",
+      "pressure": "メモリ不足（空き{{avail}}）のため、{{image}}を停止しました（監視対象で最大のプロセス：{{mem}}）",
+      "sessionEnd_one": "セッションの終了に伴い、残っていた{{count}}個のプロセスを停止しました",
+      "sessionEnd_other": "セッションの終了に伴い、残っていた{{count}}個のプロセスを停止しました",
+      "taskKilled_one": "Claude Codeはタスクを停止していましたが、そのプロセスのうち{{count}}個がまだ実行中だったため、停止しました",
+      "taskKilled_other": "Claude Codeはタスクを停止していましたが、そのプロセスのうち{{count}}個がまだ実行中だったため、停止しました"
+    },
     "cmdError": {
       "spawn": "{{engine}}を起動できませんでした",
       "stdin": "実行中のセッションにプロンプトを送信できませんでした",
@@ -4093,6 +4850,7 @@
         "systemPrompt": "Claude Codeのシステムプロンプト",
         "compactSelf": "Agent自律圧縮",
         "compactRecovery": "コンパクト化後の復旧メモ",
+        "verificationPolicy": "検証ポリシー",
         "autoGoalSkills": "検出済み手順",
         "codexInstructions": "Codexのプロジェクト指示",
         "codexGlobalInstructions": "Codexのグローバル指示",
@@ -4211,6 +4969,11 @@
             "what": "コンパクト化の要約が反映していないと思われる内容を一覧にした、1ターン限りのメモです。",
             "more": "コンパクト化の直前に取得したスナップショットを要約テキストと比較して作成されます。これは一度だけ送信され、繰り返されることはありません。",
             "off": "オフにすると、コンパクト化後もセッションはそのまま継続しますが、要約から漏れた内容についてのメモは送られません。"
+          },
+          "verificationPolicy": {
+            "what": "現在のタスクで依頼された場合にのみ検証を実行するよう Codex と Claude Code に伝える任意の案内と、そのタスクの検証権限です。",
+            "more": "ポリシーは初期設定ではオフです。有効にすると、Vibisual はそのタスクのユーザーメッセージまたは検証ボタンから検証権限を付与します。無効の場合、制限する案内は追加せず、検証の呼び出しもブロックしません。",
+            "off": "このソースのスイッチは、ポリシーが有効な場合に案内だけを非表示にします。案内と実行ブロックをまとめて有効または無効にするには、{{options}}の{{permissions}}で設定します。ポリシーは初期設定ではオフです。"
           },
           "hookEnforcement": {
             "what": "Claude Codeのフック経由で自ら接続してきたセッションにVibisualが注入するブロック。",
@@ -4652,6 +5415,16 @@
         "warn": "未読の必須の節が残ったままターンを終えようとすると、差し戻して読み続けさせます。",
         "enforce": "必須の節が未読のあいだ編集を拒否します。差し戻し上限に達すると止めなくなります。"
       }
+    },
+    "verifyPolicy": {
+      "notRun": "検証未実行",
+      "notRunTip": "このタスクでは、テスト、ビルド、ブラウザチェックのいずれも実行されていません。このマークの横のボタンを使うか、メッセージで検証を依頼してください。",
+      "blockedTip": "agentが検証の呼び出しを{{count}}回試みましたが、実行前にブロックされました。",
+      "ran": "検証を{{count}}回実行",
+      "ranTip": "依頼した範囲内で検証が実行されました。成功したかどうかは上の回答に書かれています。",
+      "runTip": "この変更に関連するチェック（関連テスト、型チェック、lint、ビルド）を実行します。失敗した場合は報告のみで、修正は行いません。",
+      "runFailed": "開始できませんでした：{{error}}",
+      "runPrompt": "直前のタスクで行った変更を検証してください。関連するチェック（関連テスト、型チェック、lint、ビルド）だけを実行し、テストスイート全体、E2E、ブラウザチェックは実行しないでください。それぞれの結果を「成功」「失敗」「未確認」のいずれかで報告してください。失敗は修正せず、報告だけにしてください。\n\n直前のタスク：{{task}}"
     },
     "verify": {
       "title": "検証",
@@ -5969,7 +6742,16 @@
       "lockN": "選択した{{count}}個をロック",
       "unlockN": "選択した{{count}}個のロックを解除",
       "lockSkipped": "ロックできない{{count}}個のバブルは除外されます。",
-      "toBubble": "バブルに折りたたむ"
+      "toBubble": "バブルに折りたたむ",
+      "toCard": "吹き出しに切り替え",
+      "toCardNote": "バブルの横に入力用の吹き出しを開き、その場で話しかけます",
+      "hideLinks": "リンクを非表示",
+      "hideLinksNote": "線が消えるだけで、リンクは引き続き機能します",
+      "showLinks": "リンクを表示",
+      "lensFiles": "作業ファイルにフォーカス",
+      "lensFilesNote": "ファイルの線を元の濃さに戻し、リンクされた項目を折りたたみます",
+      "lensLinked": "リンクされた項目にフォーカス",
+      "lensLinkedNote": "リンクされたアプリのシーンと素材を表示し、ファイルの線を薄くします"
     },
     "pathLock": {
       "badgeSelf": "ロック中：どのAIも開く前に必ず確認を求めます",
@@ -5989,15 +6771,42 @@
       },
       "placeholder": "何をしてほしいですか？Enterで送信、Shift+Enterで改行。",
       "inputLabel": "{{name}}へのメッセージ",
-      "linkHint": "「+」をドラッグしてリンク先のノードを追加",
+      "linkHint": "軌道の点をドラッグしてアプリ衛星を追加",
       "chipOn": "{{name}}はこのメッセージに含まれています。クリックして除外します。",
       "chipOff": "{{name}}はこのメッセージから除外されています。クリックして含めます。",
       "send": "送信",
-      "handleTitle": "ドラッグでノードを作成・リンク、クリックで一覧を表示"
+      "handleTitle": "ドラッグでアプリ衛星を追加・リンク（クリックで選択）",
+      "linkedCount": "アプリ衛星: {{count}}"
     },
     "refLink": {
-      "menuHeading": "このagentを参照として作成",
+      "bloomLabel": "追加するアプリ衛星を選択",
       "unlink": "リンク解除"
+    },
+    "linkedItems": {
+      "rowLabel": "リンクされた項目",
+      "scene": "シーン{{index}}：{{title}}",
+      "sceneUntitled": "シーン{{index}}",
+      "stage": {
+        "plan": "計画済み",
+        "ready": "承認済み",
+        "building": "制作中",
+        "done": "完了"
+      },
+      "kind": {
+        "scene": "シーン",
+        "image": "画像",
+        "video": "動画",
+        "audio": "サウンド",
+        "model": "3Dモデル",
+        "font": "フォント",
+        "code": "モーションコード",
+        "text": "テキスト",
+        "file": "ファイル"
+      },
+      "seconds": "{{seconds}}秒",
+      "active": "AIが今これに取り組んでいます",
+      "past": "以前の結果",
+      "openPastHint": "ダブルクリックでこの結果を開きます。"
     }
   },
   "common": {
@@ -6389,7 +7198,12 @@
     "personality": "話し方",
     "personalityHint": "対応モデルでのみ適用されます。",
     "serviceTier": "サービス階層",
-    "serviceTierHint": "モデルが対応する階層を入力してください（例: fast）。高速な階層は使用量や料金に影響する場合があります。",
+    "serviceTierFast": "Fast — 対応している場合",
+    "serviceTierUltrafast": "Ultrafast — 対応している場合",
+    "codexModelInherited": "Codex の設定に従う",
+    "codexModelInheritedHint": "モデルの上書きは送信しません。Codex が設定ファイルまたは現在の既定モデルから決定します。",
+    "retainedModelHint": "保存したモデルは現在の一覧にありません。選択は維持され、実行時に Codex が利用可否を確認します。",
+    "serviceTierHint": "Fast/Ultrafast の利用可否はモデルとアカウントによって異なります。クレジット使用量や料金が増える場合があります。空欄で設定を継承し、対応する他の階層名も入力できます。",
     "autoCompactTokenLimit": "会話の自動圧縮基準（トークン）",
     "codexTools": "ツール別の権限",
     "codexValues": {

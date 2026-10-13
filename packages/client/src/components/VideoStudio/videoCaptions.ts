@@ -1,34 +1,27 @@
-import type { CaptionCue, VideoDoc, VideoDocOp } from '@vibisual/video';
-import { buildInsertItemOps, nextEditorId } from './videoEditor.js';
+import { captionFormatOf, captionImportOps, looksLikeCaptionJson, parseCaptionText, parseSrt, type CaptionCue, type VideoDoc, type VideoDocOp } from '@vibisual/video';
 
-const TIMESTAMP = /^(\d{2,}):([0-5]\d):([0-5]\d)[,.](\d{3})$/;
-
-function parseTimestamp(value: string): number | undefined {
-  const match = TIMESTAMP.exec(value.trim());
-  return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000 : undefined;
-}
-
-/** Strict SRT parsing: a malformed nonempty block rejects the import instead of silently losing subtitles. */
-export function parseSrt(text: string): CaptionCue[] {
-  const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
-  if (!normalized) return [];
-  const cues = normalized.split(/\n[\t ]*\n/).map((block, index): CaptionCue => {
-    const lines = block.split('\n');
-    if (/^\d+$/.test(lines[0]?.trim() ?? '')) lines.shift();
-    const timing = lines.shift()?.match(/^\s*(\S+)\s+-->\s+(\S+)\s*$/);
-    const start = timing ? parseTimestamp(timing[1] ?? '') : undefined;
-    const end = timing ? parseTimestamp(timing[2] ?? '') : undefined;
-    const body = lines.join('\n').trim();
-    if (start === undefined || end === undefined || end <= start || !body) throw new Error(`Invalid SRT cue ${index + 1}`);
-    return { start, end, text: body };
-  });
-  return cues.sort((a, b) => a.start - b.start);
-}
+/**
+ * §5.13 (W) 38-6 — 자막 파서·자막 아이템 연산의 정본은 순수 층(`@vibisual/video` `captions.ts`)이다 — 에이전트의
+ * `POST /doc/:id/captions/import` 와 화면의 가져오기가 같은 함수를 쓴다(두 벌 ❌). 여기는 옛 이름을 잇는 얇은 자리다.
+ */
+export { parseSrt };
 
 export function buildCaptionOps(doc: VideoDoc, cues: readonly CaptionCue[], label: string): VideoDocOp[] {
-  if (!cues.length || cues.some(c => !Number.isFinite(c.start) || !Number.isFinite(c.end) || c.start < 0 || c.end <= c.start || !c.text.trim())) return [];
-  const start = Math.min(...cues.map(c => c.start));
-  const end = Math.max(...cues.map(c => c.end));
-  return buildInsertItemOps(doc, { id: nextEditorId(doc, 'caption'), kind: 'caption', at: start, duration: end - start,
-    label, cues: structuredClone(cues) });
+  return captionImportOps(doc, cues, label);
+}
+
+/**
+ * 끌어 놓거나 고른 파일이 자막이면 그 연산을, 아니면 null. SRT·VTT 는 언제나 자막이고(깨졌으면 이유와 함께 던진다 — 조용히 잃지
+ * 않게), JSON 은 낱말 시각 모양일 때만 자막이다(아니면 재료 — 데이터 이야기 레시피의 CSV·JSON).
+ */
+export async function captionOpsFromFile(doc: VideoDoc, file: File): Promise<VideoDocOp[] | null> {
+  const format = captionFormatOf(file.name);
+  if (!format) return null;
+  const text = await file.text();
+  if (format === 'json') {
+    let parsed: unknown;
+    try { parsed = JSON.parse(text.replace(/^﻿/, '')); } catch { return null; }
+    if (!looksLikeCaptionJson(parsed)) return null;
+  }
+  return buildCaptionOps(doc, parseCaptionText(file.name, text).cues, file.name);
 }

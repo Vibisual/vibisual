@@ -1224,25 +1224,29 @@ export function DetailPanel({
             agentConfig={agentConfig ?? undefined}
           />
 
-          {/* Agent: SubAgent 목록 */}
-          {node.bubbleType === 'agent' && (subAgents[node.id] ?? []).length > 0 && (
-            <SubAgentList subAgents={subAgents[node.id] ?? []} />
+          {/* §7.2 (판올림 번호 발급 대기, 사용자 지시 2026-10-12) — 위쪽(세션 ID ~ 마지막 도구 칸)은 그대로 두고,
+              아래는 끝낸 것 → 하는 것 → 할 것 → 세션 순이다: 마지막 결과(§7.1) → 대기열(실행 중·대기) → 세션 목록.
+              IDE 스트림(최신이 아래)과 같은 방향으로 읽힌다. */}
+
+          {/* Agent: 마지막 결과 한 건 — 누르면 IDE 의 그 세션(§7.1). 전체 기록은 IDE·지휘통제실의 몫이다. */}
+          {node.bubbleType === 'agent' && (
+            <AgentEventList
+              agentId={node.id}
+              events={agentEvents[node.id] ?? []}
+              subAgents={subAgents[node.id] ?? []}
+              completedCommands={completedCommands[node.id] ?? []}
+            />
           )}
 
           {/* Agent: 명령 대기열 (라이브 모드만).
-              §5.5 #17-29 — 훅 버블은 읽기 전용이라 대기열은 보이되 [추가] 손잡이는 없다. */}
+              §5.5 #17-29 — 훅 버블은 읽기 전용이라 대기열은 보이되 [추가] 손잡이는 없다(비었으면 칸째 숨긴다). */}
           {node.bubbleType === 'agent' && (
             <CommandQueue agentId={node.id} readOnly={!node.customCreated} />
           )}
 
-          {/* Agent: 결과 목록 */}
-          {node.bubbleType === 'agent' && (
-            <AgentEventList
-              events={agentEvents[node.id] ?? []}
-              subAgents={subAgents[node.id] ?? []}
-              completedCommands={completedCommands[node.id] ?? []}
-              sessionId={node.path}
-            />
+          {/* Agent: SubAgent 목록 — 행을 누르면 IDE 의 그 세션 탭(§7.2). */}
+          {node.bubbleType === 'agent' && (subAgents[node.id] ?? []).length > 0 && (
+            <SubAgentList subAgents={subAgents[node.id] ?? []} />
           )}
 
           {/* Bash: server list + command history */}

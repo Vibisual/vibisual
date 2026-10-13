@@ -54,6 +54,12 @@ describe('selectionFocusIds', () => {
     expect(selectionFocusIds(nodes, 'agent', null)).toEqual([]);
   });
 
+  // §6 — 앱·캡처 노드도 이제 묶음에 든다. 종류가 섞인 묶음도 묶음이다(편집 손짓 — 아무도 뒤로 물리지 않는다).
+  it('버블과 앱 노드를 함께 고르면 종류가 달라도 묶음이라 포커싱을 끈다', () => {
+    const nodes = [bubble('agent', true), { id: 'app', type: 'appNode', selected: true }, bubble('other')];
+    expect(selectionFocusIds(nodes, 'agent', null)).toEqual([]);
+  });
+
   it('일반 버블이 하나만 선택된 경우에는 포커싱을 유지한다', () => {
     expect(selectionFocusIds([bubble('agent', true), bubble('folder')], 'agent', null)).toEqual(['agent']);
   });

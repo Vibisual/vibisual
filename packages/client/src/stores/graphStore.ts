@@ -6,9 +6,13 @@ import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, File
   ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, AutoGoalSummary, PluginFactMap, VerificationRun, VerificationDemo, SpecReadingState, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal,
   VisualKindCard, GoalActionCard, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress, CodexAuthStatus, CodexSetupState, CodexSetupProgress, CodexModelCatalog, CodexInventory, CodexReviewRun, CodexReviewMode, CodexHookState, EngineChoice, AgentEngineKind } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo, ToolAxis, HeatCurve, TidySort, SkillSharingEntry, SpanGrowth } from '@vibisual/shared';
+// §4 앱 테마 — 사용자 테마 폴더 목록(서버가 읽어 준다).
+import type { AppThemeCatalog, UserDefaultsPatch } from '@vibisual/shared';
+// §5.4 #36 (H) — 연결 보기(보기 전환의 말).
+import type { LinkLens } from '@vibisual/shared';
 import { isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
-// §5.4 #36 (B) — 참조선 목록 다듬기(서버 검증과 한 벌).
-import { withLinkedAgent, withoutLinkedAgent } from '@vibisual/shared';
+// §5.4 #36 (B) — 위성줄 목록 다듬기(서버 검증과 한 벌).
+import { APP_BUBBLE_PENDING_MS, makeAppBubbleId, withLinkedAgent, withoutLinkedAgent } from '@vibisual/shared';
 // §5.24 — 히트 척도 곡선의 기본값과 분포 표본. 판정은 shared 한 곳이 소유한다(서버와 같은 함수).
 import { DEFAULT_HEAT_CURVE, DEFAULT_TIDY_SORT, heatQuantileSamples } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
@@ -91,6 +95,7 @@ import { clearCapturePlaytest } from './capturePlaytest.js';
 import { resolveLocalEntry } from '../components/LocalModel/localModelEntry.js';
 import { localLlmResponseError, type LocalModelBindingResult } from '../components/LocalModel/localLlmApi.js';
 import { resolveCodexEntry } from '../components/Codex/codexModelEntry.js';
+import { codexModelCatalogClient } from './codexModelCatalogClient.js';
 
 /**
  * §5.3 #28 v1.48 — IDE TerminalInput 세션 스코프 draft.
@@ -1930,6 +1935,17 @@ interface GraphState {
   applyVoiceAsrProgress: (p: VoiceAsrInstallProgress) => void;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
   userDefaults: UserDefaults | null;
+  /**
+   * §4 앱 테마 — 사용자 테마 폴더(`~/.vibisual/themes`)를 서버가 읽은 목록. 아직 안 받았으면 `null`.
+   * 스냅샷에는 싣지 않는다(설정 조회성 데이터라 그래프와 함께 흐를 이유가 없다) — `GET /api/app-themes`
+   * 와 WS `app_themes_updated` 두 길로만 온다.
+   */
+  appThemes: AppThemeCatalog | null;
+  /**
+   * §4 앱 테마 — 방금 누른 테마 id(낙관 반영). 서버 저장값이 이 값으로 돌아오면 걷힌다. 늦게 풀린 옛
+   * 스냅샷이 저장 직전 값을 다시 얹어도 화면이 되돌아가지 않게 저장값보다 먼저 본다.
+   */
+  appThemePending: string | null;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌, 외부 statusline 푸시). */
   rateLimits: RateLimitInfo | null;
   /** §4 v3.62 — Claude 앱 /usage 와 같은 원천(OAuth)의 사용량. 글로벌, 비영속. */
@@ -2015,7 +2031,7 @@ interface GraphState {
   installCodexSetup: () => Promise<void>;
   refreshCodexSetup: () => Promise<void>;
   refreshCodexAuth: () => Promise<CodexAuthStatus | null>;
-  refreshCodexModels: () => Promise<void>;
+  refreshCodexModels: (force?: boolean) => Promise<void>;
   /** 훅 설치/제거 — 남의 전역 설정을 고치는 일이라 **사용자가 누를 때만** 돈다. */
   setCodexHooksInstalled: (install: boolean) => Promise<void>;
 
@@ -2227,6 +2243,17 @@ interface GraphState {
   appBubbles: AppBubble[];
   /** 스냅샷에서 받은 앱 버블을 반영. loadSnapshot 의 긴 인자 목록을 더 늘리지 않는다. */
   applyAppBubbles: (list: AppBubble[]) => void;
+  /**
+   * §5.4 #36 (F) — 낙관 생성한 앱 버블 id → 만든 시각. 서버 목록에 나타나거나 `APP_BUBBLE_PENDING_MS` 가 지나면 빠진다.
+   * 그 사이 도착한 스냅샷이 방금 선 노드를 지우지 않게 `applyAppBubbles` 가 이 목록의 버블을 붙든다.
+   */
+  pendingAppBubbles: Readonly<Record<string, number>>;
+  /**
+   * §5.4 #36 (F) — 앱 버블을 **화면 먼저** 만든다. id 를 지어 store 에 넣고 같은 id 로 `POST /api/app-bubbles` 한다.
+   * 서버가 다른 id 를 돌려주거나 실패하면 낙관본을 걷는다. 만든 id 를 돌려준다.
+   * 꽃잎 고르기와 캔버스 우클릭 → 앱이 **같은 이 경로**를 쓴다.
+   */
+  createAppBubble: (input: Omit<AppBubble, 'id' | 'createdAt'>) => string;
   /** 드래그 중 위치를 화면에만 먼저 반영(서버 왕복 전). */
   patchAppBubbleLocal: (id: string, updates: Partial<AppBubble>) => void;
   /** 드래그 중인 앱 버블 ID 집합 — applyAppBubbles 가 이 버블들의 geometry 를 로컬 값으로 보호. */
@@ -2252,16 +2279,45 @@ interface GraphState {
   /** §2.4 preserve-pin 토글. 우클릭 메뉴·옵션 패널 공용. */
   setAppBubblePin: (id: string, pinned: boolean) => void;
   /**
-   * §5.4 #36 (B) — 참조선 잇기·끊기. 화면 먼저(낙관), 서버는 뒤따른다 — 실패해도 다음 스냅샷이 진실을
-   * 되돌린다. 카드의 `+` 놓기와 선 위 [연결 끊기]가 **같은 이 두 경로**를 쓴다.
+   * §5.13 (L)(M) — 노드가 가리키는 **앱의 작업 문서**(`ref` — 영상 앱이면 문서 id)를 묶는다. 노드를 열면 그 문서가 열린다.
+   * 에이전트 브리프가 문서를 만들어 묶을 때와, 노드에서 연 앱 창이 다른 문서를 고를 때 **같은 이 경로**를 쓴다.
+   * 화면 먼저(낙관), 서버는 뒤따른다. `at` 은 그 묶기로 형태(명패 → 화면)가 바뀔 때 가운데를 지키는 새 좌상단.
    */
-  linkAppBubbleAgent: (appBubbleId: string, agentId: string) => void;
-  unlinkAppBubbleAgent: (appBubbleId: string, agentId: string) => void;
+  setAppBubbleRef: (id: string, ref: string, at?: { x: number; y: number } | null) => void;
   /**
-   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(입력 카드 ↔ 버블). 화면 먼저, 서버(`PATCH
+   * §5.4 #36 (B) — 위성줄 잇기·끊기. 화면 먼저(낙관), 서버는 뒤따른다 — 실패해도 다음 스냅샷이 진실을
+   * 되돌린다. 궤도 위성을 앱 노드에 놓기와 줄 위 [연결 끊기]가 **같은 이 두 경로**를 쓴다.
+   * §5.4 #36 (F) — `at` 은 그 잇기·끊기로 형태(명패 ↔ 화면)가 바뀔 때 가운데를 지키는 새 좌상단 — 같은 PATCH 에 싣는다.
+   */
+  linkAppBubbleAgent: (appBubbleId: string, agentId: string, at?: { x: number; y: number } | null) => void;
+  unlinkAppBubbleAgent: (appBubbleId: string, agentId: string, at?: { x: number; y: number } | null) => void;
+  /**
+   * §5.4 #36 (G) — 크기 조절을 **확정**한다(손을 뗄 때 한 번). 끄는 동안의 화면 반영은 `patchAppBubbleLocal` 이 맡고,
+   * 여기서 같은 값을 store 에 한 번 더 앉힌 뒤 `PATCH {x, y, width, height, sizedForm}` 를 보낸다. 끝나면(성공·실패 무관) 돌아온다 —
+   * 드래그 락을 푸는 쪽이 그 뒤에 푼다(먼저 출발한 스냅샷이 방금 정한 크기를 덮지 않게).
+   */
+  commitAppBubbleSize: (
+    id: string,
+    rect: { x: number; y: number; width: number; height: number },
+    form: 'nameplate' | 'screen',
+  ) => Promise<void>;
+  /**
+   * §5.4 #36 (G) — [기본 크기로]. 정한 형태(`sizedForm`)를 걷어 선언 크기로 돌아가고, `at`(가운데를 지키는 새 좌상단)이
+   * 있으면 함께 옮긴다. 화면 먼저, 서버는 `PATCH {sizedForm: null, x, y}` 로 뒤따른다.
+   */
+  resetAppBubbleSize: (id: string, at: { x: number; y: number } | null) => void;
+  /**
+   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(말풍선 ↔ 버블). 화면 먼저, 서버(`PATCH
    * /api/bubble/:id/form`)는 뒤따른다. 대상 판정은 `agentCard.ts` 의 `canUseAgentCard` 가 부르는 쪽에서 한다.
    */
   setAgentForm: (agentId: string, form: 'card' | 'bubble') => void;
+  /**
+   * §5.4 #36 (H) — 에이전트의 연결 보기. `hidden` = 연결선 켜고 끄기(①), `lens` = 보기 전환(②). 준 칸만 바꾼다.
+   * 화면 먼저(낙관), 서버(`PATCH /api/bubble/:id/link-view`)는 뒤따른다 — 실패해도 다음 스냅샷이 진실을 되돌린다.
+   */
+  setAgentLinkView: (agentId: string, patch: { hidden?: boolean; lens?: LinkLens }) => void;
+  /** §5.4 #36 (H) ① — 앱 노드의 위성줄·구슬 줄 켜고 끄기. 화면 먼저, 서버(`PATCH /api/app-bubbles/:id`)는 뒤따른다. */
+  setAppBubbleLinksHidden: (id: string, hidden: boolean) => void;
   /** 드래그/리사이즈 중인 캡처 버블 ID 집합 — loadSnapshot 이 이 버블들의 geometry 를 로컬 값으로 보호. */
   draggingCaptureBubbleIds: string[];
   setCaptureBubbleDragLock: (id: string, on: boolean) => void;
@@ -3350,6 +3406,20 @@ interface GraphState {
   applyUserDefaults: (d: UserDefaults | undefined) => void;
   /** UI에서 언어 변경 요청 — 서버 PUT /api/ui-locale 후 성공 시 applyUiLocale 호출. */
   setUiLocale: (locale: UiLocale) => Promise<void>;
+  /** §4 앱 테마 — 사용자 테마 목록 반영(REST 응답 · WS `app_themes_updated`). */
+  applyAppThemes: (catalog: AppThemeCatalog) => void;
+  /** §4 앱 테마 — 목록을 받아 온다. `rescan` 이면 서버가 폴더를 다시 읽는다. 실패해도 던지지 않는다. */
+  loadAppThemes: (opts?: { rescan?: boolean }) => Promise<boolean>;
+  /**
+   * §4 앱 테마 — 테마를 고른다. **누르는 순간 칠하고**(낙관 반영) 저장은 뒤에서 한다
+   * (`PUT /api/user-defaults {appearance:{themeId}}` — 언어와 같은 즉시 축, 설정 창 [적용]과 무관).
+   * 저장이 실패하면 낙관 반영을 거두고 `false`.
+   */
+  setAppTheme: (themeId: string) => Promise<boolean>;
+  /** §4 앱 테마 — [지금 테마로 새로 만들기]. 성공하면 새 테마 id 와 파일 이름. */
+  createAppTheme: (baseId: string, name: string) => Promise<{ id: string; file: string } | null>;
+  /** §4 앱 테마 — [폴더 열기]. 없으면 서버가 만들고 연다. */
+  openAppThemesFolder: () => Promise<boolean>;
 
   // §5.3 #12-1 v1.43 — 권한 승인 요청 스택
   /** 대기 중인 권한 승인 요청 (requestId → PermissionRequest). 여러 개 쌓이면 스택 모달로 표시. */
@@ -4030,28 +4100,93 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
 
   connectionStatus: 'connecting',
   setConnectionStatus: (status) => set((s) => (s.connectionStatus === status ? {} : { connectionStatus: status })),
-  applyAppBubbles: (list) => set((s) => {
+  applyAppBubbles: (incoming) => set((s) => {
+    // §5.4 #36 (F) — 낙관 생성분: 서버 목록에 나타난 것은 확인이 끝났고, 아직 없고 시간이 남은 것은 붙든다.
+    //   서버가 만들기 전에 출발한 스냅샷이 방금 선 노드를 한 프레임 지웠다 되살리지 않게.
+    let pendingAppBubbles = s.pendingAppBubbles;
+    let list = incoming;
+    const pendingIds = Object.keys(pendingAppBubbles);
+    if (pendingIds.length > 0) {
+      const now = Date.now();
+      const confirmed = new Set(incoming.map((b) => b.id));
+      const keep: Record<string, number> = {};
+      const held: AppBubble[] = [];
+      for (const id of pendingIds) {
+        const madeAt = pendingAppBubbles[id] ?? 0;
+        if (confirmed.has(id) || now - madeAt > APP_BUBBLE_PENDING_MS) continue;
+        const local = s.appBubbles.find((b) => b.id === id);
+        if (!local) continue;
+        keep[id] = madeAt;
+        held.push(local);
+      }
+      pendingAppBubbles = keep;
+      if (held.length > 0) list = [...incoming, ...held];
+    }
     // 드래그 중인 버블의 geometry 는 서버 값으로 덮지 않는다(CommentBox·CaptureBubble 과 동일 규칙).
     // 손이 움직이는 도중 WS 스냅샷이 도착하면 옛 좌표로 회귀해 버블이 마우스 뒤로 튄다.
     // 다른 창·다른 인스턴스에서 지워졌으면 선택도 함께 놓는다(없는 것을 고른 채로 두지 않는다).
     const keepSelected = s.selectedAppBubbleId !== null && list.some((b) => b.id === s.selectedAppBubbleId)
       ? s.selectedAppBubbleId
       : null;
-    if (s.draggingAppBubbleIds.length === 0) return { appBubbles: list, selectedAppBubbleId: keepSelected };
+    if (s.draggingAppBubbleIds.length === 0) return { appBubbles: list, selectedAppBubbleId: keepSelected, pendingAppBubbles };
     const locked = new Map<string, AppBubble>();
     for (const id of s.draggingAppBubbleIds) {
       const local = s.appBubbles.find((b) => b.id === id);
       if (local) locked.set(id, local);
     }
-    if (locked.size === 0) return { appBubbles: list, selectedAppBubbleId: keepSelected };
+    if (locked.size === 0) return { appBubbles: list, selectedAppBubbleId: keepSelected, pendingAppBubbles };
     return {
       appBubbles: list.map((b) => {
         const local = locked.get(b.id);
-        return local ? { ...b, x: local.x, y: local.y, width: local.width, height: local.height } : b;
+        if (!local) return b;
+        // §5.4 #36 (G) — 크기를 정한 형태도 geometry 다. 끄는 중에 옛 스냅샷의 칸(없음)이 오면 렌더 치수가 선언값으로
+        //   튀었다가 손을 따라 돌아온다 — 크기와 함께 붙든다.
+        const { sizedForm: _incoming, ...rest } = b;
+        const geometry = { ...rest, x: local.x, y: local.y, width: local.width, height: local.height };
+        return local.sizedForm === undefined ? geometry : { ...geometry, sizedForm: local.sizedForm };
       }),
       selectedAppBubbleId: keepSelected,
+      pendingAppBubbles,
     };
   }),
+  pendingAppBubbles: {},
+  createAppBubble: (input) => {
+    const id = makeAppBubbleId();
+    const bubble: AppBubble = { ...input, id, createdAt: Date.now() };
+    set((s) => ({
+      appBubbles: [...s.appBubbles, bubble],
+      pendingAppBubbles: { ...s.pendingAppBubbles, [id]: bubble.createdAt },
+    }));
+    // 서버가 받지 않았으면 낙관본만 걷는다 — 이미 확인된(목록에 들어온) 것은 건드리지 않는다.
+    const drop = (): void => set((s) => {
+      if (!(id in s.pendingAppBubbles)) return s;
+      const { [id]: _gone, ...rest } = s.pendingAppBubbles;
+      return {
+        appBubbles: s.appBubbles.filter((b) => b.id !== id),
+        pendingAppBubbles: rest,
+        selectedAppBubbleId: s.selectedAppBubbleId === id ? null : s.selectedAppBubbleId,
+      };
+    });
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/app-bubbles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, ...input }),
+        });
+        if (!res.ok) {
+          drop();
+          return;
+        }
+        const body = (await res.json().catch(() => null)) as { data?: { id?: unknown } } | null;
+        // 서버가 id 를 새로 지었다(형식 밖·중복) — 진짜는 스냅샷으로 오고, 낙관본은 걷는다.
+        if (body?.data?.id !== id) drop();
+      } catch {
+        drop(); // 실제로는 만들어졌다면 다음 스냅샷이 같은 id 로 되돌려 놓는다.
+      }
+    })();
+    return id;
+  },
   patchAppBubbleLocal: (id, updates) => set((s) => ({
     appBubbles: s.appBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
   })),
@@ -4103,28 +4238,70 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       body: JSON.stringify({ preservePinned: pinned }),
     }).catch(() => undefined);
   },
+  setAppBubbleRef: (id, ref, at) => {
+    const bubble = get().appBubbles.find((b) => b.id === id);
+    if (!bubble || bubble.ref === ref || ref === '') return;
+    const move = at ? { x: at.x, y: at.y } : {};
+    get().patchAppBubbleLocal(id, { ref, ...move });
+    void fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref, ...move }),
+    }).catch(() => undefined);
+  },
   // §5.4 #36 (B) — 목록 전체를 보낸다(부분 페이로드가 다른 연결을 지우지 않게 — 다듬기 규칙은 shared 한 벌).
-  linkAppBubbleAgent: (appBubbleId, agentId) => {
+  linkAppBubbleAgent: (appBubbleId, agentId, at) => {
     const bubble = get().appBubbles.find((b) => b.id === appBubbleId);
     if (!bubble) return;
     const next = withLinkedAgent(bubble.linkedAgentIds, agentId);
     if (next.length === (bubble.linkedAgentIds ?? []).length) return; // 이미 이어졌거나 상한이 찼다
-    get().patchAppBubbleLocal(appBubbleId, { linkedAgentIds: next });
+    // §5.4 #36 (F) — 형태가 바뀌면(명패 → 화면) 가운데를 지키는 자리로 함께 옮긴다. 같은 PATCH 한 번.
+    const move = at ? { x: at.x, y: at.y } : {};
+    get().patchAppBubbleLocal(appBubbleId, { linkedAgentIds: next, ...move });
     void fetch(`${API_BASE}/api/app-bubbles/${appBubbleId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ linkedAgentIds: next }),
+      body: JSON.stringify({ linkedAgentIds: next, ...move }),
     }).catch(() => undefined);
   },
-  unlinkAppBubbleAgent: (appBubbleId, agentId) => {
+  unlinkAppBubbleAgent: (appBubbleId, agentId, at) => {
     const bubble = get().appBubbles.find((b) => b.id === appBubbleId);
     if (!bubble || !(bubble.linkedAgentIds ?? []).includes(agentId)) return;
     const next = withoutLinkedAgent(bubble.linkedAgentIds, agentId);
-    get().patchAppBubbleLocal(appBubbleId, { linkedAgentIds: next });
+    const move = at ? { x: at.x, y: at.y } : {};
+    get().patchAppBubbleLocal(appBubbleId, { linkedAgentIds: next, ...move });
     void fetch(`${API_BASE}/api/app-bubbles/${appBubbleId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ linkedAgentIds: next }),
+      body: JSON.stringify({ linkedAgentIds: next, ...move }),
+    }).catch(() => undefined);
+  },
+  // §5.4 #36 (G) — 크기·정한 형태·자리를 한 PATCH 로(부분 페이로드가 다른 칸을 건드리지 않는 것은 서버 규칙).
+  commitAppBubbleSize: async (id, rect, form) => {
+    const body = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, sizedForm: form };
+    get().patchAppBubbleLocal(id, body);
+    try {
+      await fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      /* 다음 스냅샷이 서버 권위 값으로 정리한다 */
+    }
+  },
+  resetAppBubbleSize: (id, at) => {
+    set((s) => ({
+      appBubbles: s.appBubbles.map((b) => {
+        if (b.id !== id) return b;
+        const { sizedForm: _cleared, ...rest } = b;
+        return at ? { ...rest, x: at.x, y: at.y } : rest;
+      }),
+    }));
+    void fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sizedForm: null, ...(at ? { x: at.x, y: at.y } : {}) }),
     }).catch(() => undefined);
   },
   // §5.4 #36 (A) — 형태는 버블의 데이터 칸이다(`agents` 배열). 바꾼 버블만 새 객체로 — 나머지는 참조 그대로.
@@ -4146,6 +4323,49 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ form }),
+    }).catch(() => undefined);
+  },
+  // §5.4 #36 (H) — 연결 보기도 버블의 데이터 칸이다(`agents` 배열). 서버와 같은 모양으로 적는다 — 기본값은 칸을 지운다
+  //   (안 그러면 다음 스냅샷과 모양이 달라 버블이 한 번 더 그려진다). 바꾼 버블만 새 객체.
+  setAgentLinkView: (agentId, patch) => {
+    if (patch.hidden === undefined && patch.lens === undefined) return;
+    set((s) => {
+      let changed = false;
+      const agents = s.agents.map((a) => {
+        if (a.id !== agentId) return a;
+        const next: BubbleData = { ...a };
+        if (patch.hidden === true) next.linksHidden = true;
+        else if (patch.hidden === false) delete next.linksHidden;
+        if (patch.lens === 'files') next.linkLens = 'files';
+        else if (patch.lens === 'linked') delete next.linkLens;
+        if (next.linksHidden === a.linksHidden && next.linkLens === a.linkLens) return a;
+        changed = true;
+        return next;
+      });
+      return changed ? { agents } : s;
+    });
+    void fetch(`${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/link-view`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).catch(() => undefined);
+  },
+  setAppBubbleLinksHidden: (id, hidden) => {
+    set((s) => {
+      let changed = false;
+      const appBubbles = s.appBubbles.map((b) => {
+        if (b.id !== id || (b.linksHidden === true) === hidden) return b;
+        changed = true;
+        if (hidden) return { ...b, linksHidden: true };
+        const { linksHidden: _shown, ...rest } = b;
+        return rest;
+      });
+      return changed ? { appBubbles } : s;
+    });
+    void fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ linksHidden: hidden }),
     }).catch(() => undefined);
   },
   // ─── §5.9 캡처 버블 (CommentBox 패턴) ───
@@ -4975,6 +5195,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   localLlm: null,
   voiceAsr: null,
   userDefaults: null,
+  appThemes: null,
+  appThemePending: null,
   rateLimits: null,
   claudeUsage: null,
   claudeAuth: null,
@@ -6464,10 +6686,6 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         now.setCodexLoginGate({ forced: true, dismissed: false });
         return;
       }
-      if (decision.kind === 'bind') {
-        now.bindCodexModel(agentId, decision.model.slug, decision.model.displayName);
-        return;
-      }
     }
     // §5.5 #17-6 (H) — 다른 창에서 건너온 짐을 **슬롯을 세우기 전에** 조각으로 편다.
     //   뷰 이름은 여기서 한 번 가린다(`migrateIDEViewType`) — 건너온 값이라 아는 뷰라는 보장이 없고,
@@ -7603,14 +7821,11 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       return null;
     }
   },
-  refreshCodexModels: async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/codex-models/refresh`, { method: 'POST' });
-      const data = await r.json() as CodexModelCatalog;
-      if (data && Array.isArray(data.models)) get().applyCodexModels(data);
-    } catch {
-      // 목록을 못 읽어도 화면은 "아직 못 읽었다"로 남는다 — 지어내지 않는다.
-    }
+  refreshCodexModels: async (force = true) => {
+    const catalog = await codexModelCatalogClient.refresh(force);
+    const current = get().codexModels;
+    // A delayed HTTP response must not undo a newer WebSocket refresh/auth invalidation.
+    if (catalog && (!current || catalog.checkedAt >= current.checkedAt)) get().applyCodexModels(catalog);
   },
   setCodexHooksInstalled: async (install) => {
     try {
@@ -8009,7 +8224,11 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       const cur = get().userDefaults;
       if (cur && typeof cur.updatedAt === 'number' && typeof d.updatedAt === 'number' && d.updatedAt < cur.updatedAt) return;
     }
-    set((s) => ({ userDefaults: structuralShare(s.userDefaults, d ?? null) }));
+    set((s) => ({
+      userDefaults: structuralShare(s.userDefaults, d ?? null),
+      // §4 앱 테마 — 저장값이 방금 누른 테마를 따라잡았으면 낙관 반영을 걷는다(이제 저장값이 같은 답을 낸다).
+      ...(s.appThemePending !== null && d?.appearance?.themeId === s.appThemePending ? { appThemePending: null } : {}),
+    }));
   },
   setUiLocale: async (locale) => {
     const res = await fetch(`${API_BASE}/api/ui-locale`, {
@@ -8019,6 +8238,63 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     });
     if (res.ok) {
       get().applyUiLocale(locale);
+    }
+  },
+  // ─── §4 앱 테마 ───
+  applyAppThemes: (catalog) => set({ appThemes: catalog }),
+  loadAppThemes: async (opts) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/app-themes${opts?.rescan ? '?rescan=1' : ''}`);
+      if (!res.ok) return false;
+      const catalog = await res.json() as AppThemeCatalog | null;
+      if (!catalog || !Array.isArray(catalog.themes) || !Array.isArray(catalog.issues)) return false;
+      get().applyAppThemes(catalog);
+      return true;
+    } catch {
+      // 목록을 못 받았다 — 지난번에 칠한 테마(부팅 캐시)가 그대로 남는다. 테마 칸이 다시 시도한다.
+      return false;
+    }
+  },
+  setAppTheme: async (themeId) => {
+    // 누르는 순간 칠한다 — 저장 왕복을 기다리면 고른 뒤 한 박자 늦게 바뀌어 "안 눌렸나"로 읽힌다.
+    set({ appThemePending: themeId });
+    try {
+      const res = await fetch(`${API_BASE}/api/user-defaults`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appearance: { themeId } } satisfies UserDefaultsPatch),
+      });
+      const data = await res.json() as { ok?: boolean; userDefaults?: UserDefaults };
+      if (!res.ok || data.ok !== true) throw new Error('theme save failed');
+      if (data.userDefaults) get().applyUserDefaults(data.userDefaults);
+      return true;
+    } catch {
+      // 저장 실패 — 낙관 반영을 거둔다. 남겨 두면 저장된 것으로 읽히고, 다시 켜면 옛 테마로 돌아온다.
+      if (get().appThemePending === themeId) set({ appThemePending: null });
+      return false;
+    }
+  },
+  createAppTheme: async (baseId, name) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/app-themes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseId, name }),
+      });
+      const data = await res.json() as { ok?: boolean; id?: unknown; file?: unknown; catalog?: AppThemeCatalog };
+      if (!res.ok || data.ok !== true || typeof data.id !== 'string' || typeof data.file !== 'string') return null;
+      if (data.catalog && Array.isArray(data.catalog.themes)) get().applyAppThemes(data.catalog);
+      return { id: data.id, file: data.file };
+    } catch {
+      return null;
+    }
+  },
+  openAppThemesFolder: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/app-themes/open-folder`, { method: 'POST' });
+      return res.ok;
+    } catch {
+      return false;
     }
   },
 

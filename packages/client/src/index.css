@@ -23,6 +23,60 @@
   --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
 }
 
+/* §4 앱 테마 — **의미 토큰**(Tailwind 클래스로 못 칠하던 자리). 여기 값은 기본 테마(= 종전 화면)이고,
+   고른 테마는 `AppThemeHost` 가 `<html>` 에 같은 이름의 변수를 실어 덮는다(팔레트 `--color-<계열>-<칸>` 과 함께).
+   `--color-` 이름이라 Tailwind 가 `bg-vb-titlebar`·`text-vb-code-fg` 같은 유틸을 만든다.
+   `static` — 클래스로 안 쓰고 아래 규칙의 `var()` 로만 쓰는 값도 늘 내보낸다.
+   ⚠ 값의 정본은 shared `APP_THEME_TOKEN_SPECS` 다(기본 테마를 풀면 이 값이 나온다) — 여기를 바꾸려면 그쪽을
+   함께 바꾼다. server `services/appThemeSourceSync.test.ts` 가 둘을 대조한다. */
+@theme static {
+  --color-vb-window: oklch(13% 0.028 261.692);
+  --color-vb-titlebar: #334155;
+  --color-vb-titlebar-fg: #cbd5e1;
+  --color-vb-canvas: oklch(13% 0.028 261.692);
+  --color-vb-canvas-dots: #1e293b;
+  --color-vb-raised: #1f2937;
+  --color-vb-card: #1a1d26;
+  --color-vb-inset: #242833;
+  --color-vb-sunken: #0f1117;
+  --color-vb-ide-titlebar: #1a2236;
+  --color-vb-ide-tabbar: #15192a;
+  --color-vb-code: #1a1c20;
+  --color-vb-code-fg: #e6e8ec;
+  --color-vb-code-border: rgb(255 255 255 / 0.06);
+  --color-vb-code-inline: rgb(140 149 165 / 0.24);
+  --color-vb-code-inline-fg: #eceef1;
+  --color-vb-find: #2563eb;
+  --color-vb-find-fg: #f8fafc;
+  --color-vb-find-all: rgb(37 99 235 / 0.28);
+  --color-vb-terminal: #11111b;
+  --color-vb-terminal-panel: #181825;
+}
+
+/* §4 앱 테마 — 본문 마크다운(`prose-invert`)의 글자색. typography 플러그인은 이 값들을 **빌드 때 숫자로 박아**
+   팔레트 변수를 따르지 않는다(실측: `--tw-prose-invert-body:oklch(87.2% .01 258.338)`). 그래서 같은 칸을
+   팔레트 변수로 다시 정의한다 — 기본 테마에서는 박힌 값과 같고, 라이트에서는 팔레트를 따라 어두워진다. */
+.prose {
+  --tw-prose-invert-body: var(--color-gray-300);
+  --tw-prose-invert-headings: var(--color-white);
+  --tw-prose-invert-lead: var(--color-gray-400);
+  --tw-prose-invert-links: var(--color-white);
+  --tw-prose-invert-bold: var(--color-white);
+  --tw-prose-invert-counters: var(--color-gray-400);
+  --tw-prose-invert-bullets: var(--color-gray-600);
+  --tw-prose-invert-hr: var(--color-gray-700);
+  --tw-prose-invert-quotes: var(--color-gray-100);
+  --tw-prose-invert-quote-borders: var(--color-gray-700);
+  --tw-prose-invert-captions: var(--color-gray-400);
+  --tw-prose-invert-kbd: var(--color-white);
+  --tw-prose-invert-kbd-shadows: color-mix(in srgb, var(--color-white) 10%, transparent);
+  --tw-prose-invert-code: var(--color-white);
+  --tw-prose-invert-pre-code: var(--color-gray-300);
+  --tw-prose-invert-pre-bg: color-mix(in srgb, var(--color-gray-950) 50%, transparent);
+  --tw-prose-invert-th-borders: var(--color-gray-600);
+  --tw-prose-invert-td-borders: var(--color-gray-700);
+}
+
 /* §5.5 #17-22 ⑤-3 — **한자 통합**: 같은 코드포인트라도 나라마다 자형이 다르다.
    스택을 고정하면 Pretendard 가 가진 한자만 한국식으로 먼저 그려지고 없는 것만 Noto 로 떨어져
    한 문장 안에서 자형이 섞인다. 그래서 UI 언어(`<html lang>` — i18n 이 갱신한다)에 맞춰
@@ -78,7 +132,7 @@ html:lang(hi) {
 /* 정적 로고 상자는 창 드래그 hit target 으로 남긴다.
  * pointer-events:none 은 내부 장식에만 적용한다. 상자까지 제외하면
  * 로고 자리의 hit target 이 바깥 레이아웃으로 넘어간다.
- * .app-drag 와 함께 사용해 선택 방지와 드래그 영역 재신고도 적용한다. */
+ * .app-drag 와 함께 사용해 선택 방지와 페이지까지 온 누름의 창 이동(`utils/titlebarPress.ts`)도 적용한다. */
 .app-drag-label {
   pointer-events: auto;
 }
@@ -342,6 +396,26 @@ body.vib-pointer-drag .app-drag * {
   animation-timing-function: steps(12, end);
 }
 
+/* §6 2026-10-11 — 캔버스 고르기 표시. 둘 다 React Flow 기본 그대로라 어두운 캔버스와 따로 놀았다(사용자 보고
+ * "선택할 때 영역을 표현해 주는 게 자연스럽지 않다").
+ *  ① 끄는 동안의 상자(`.react-flow__selection`) — 기본은 흐린 파랑 점선이라 어두운 바탕에서 거의 안 보였다.
+ *     하늘색 실선 + 옅은 채움 + 둥근 모서리로 앱의 다른 고른 표시(흰 고리 + 제 색 번짐)와 같은 결로 맞춘다.
+ *  ② 고른 뒤 덮이는 묶음 상자(`.react-flow__nodesselection`)는 그리지 않는다. 그 상자는 고른 노드들의 사각
+ *     테두리 합(원형 버블·궤도·말풍선의 빈 모서리까지)이라 실제 모양보다 크게 떴고, 물리 엔진이 버블을 움직이면
+ *     매 프레임 크기가 흔들렸고, 박스로 골랐을 때만 떠서 Shift·Ctrl 클릭으로 고른 묶음과 생김새가 갈렸다. 무엇보다
+ *     `pointer-events: all` 로 버블을 통째로 덮어 그 안의 클릭·더블클릭을 삼켰다. 고른 것은 노드마다 고리가 말하고,
+ *     묶음은 그 안의 아무 노드를 끌어도 함께 간다. 이 캔버스(`.vibisual-canvas`)에만 건다 — 다른 React Flow
+ *     (목표 지도·디버그 판·오버레이)는 손대지 않는다. */
+.vibisual-canvas .react-flow__selection {
+  background: rgba(56, 189, 248, 0.07);
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(8, 47, 73, 0.35), inset 0 0 24px rgba(56, 189, 248, 0.06);
+}
+.vibisual-canvas .react-flow__nodesselection {
+  display: none;
+}
+
 /* ─── Apple-style 더블클릭 열림 ─── */
 
 @keyframes bubble-open {
@@ -526,34 +600,70 @@ body.vib-pointer-drag .app-drag * {
   animation: bubble-despawn 0.25s cubic-bezier(0.4, 0, 1, 1) both;
 }
 
-/* ─── §5.4 #36 전환과 연결 — 입력 카드 · 참조선 ─── */
+/* ─── §5.4 #36 전환과 연결 — 말풍선 · 궤도 · 위성줄 · 꽃잎 ─── */
 
-/* 원(에이전트 버블)에서 판으로 퍼진다 — 같은 자리에서 모양이 바뀌었다는 것이 읽히게.
- * 시간은 shared `AGENT_CARD.morphMs`(240ms)와 같다. */
-@keyframes agent-card-morph {
-  0%   { opacity: 0.35; transform: scale(0.42); border-radius: 9999px; }
-  70%  { opacity: 1; transform: scale(1.02); }
-  100% { opacity: 1; transform: scale(1); }
+/* 말풍선이 원 쪽(오른쪽 가운데)에서 왼쪽으로 펴진다 — 원은 그 자리에 남고 말이 옆으로 나온다는 것이 읽히게.
+ * 바꾼 그 순간에만 붙는다(`AgentCardNode`). 시간은 shared `AGENT_CARD.morphMs`(240ms)와 같다. */
+@keyframes agent-balloon-unfold {
+  0%   { opacity: 0; transform: translateX(28px) scale(0.55); }
+  70%  { opacity: 1; transform: translateX(0) scale(1.02); }
+  100% { opacity: 1; transform: none; }
 }
 
-.agent-card-morph {
-  animation: agent-card-morph 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+.agent-balloon-unfold {
+  transform-origin: right center;
+  animation: agent-balloon-unfold 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* 참조선 위를 흐르는 빛 한 점 — path 를 `pathLength=100` 으로 정규화해 대시 하나를 끝까지 민다.
- * 주기는 shared `REF_LINK_STYLE.pulseMs`(1.6s)와 같다. 에이전트가 도는 동안에만 그려진다. */
-@keyframes ref-link-flow {
-  from { stroke-dashoffset: 100; }
+/* 에이전트가 도는 동안 궤도(점선 원 + 이어진 앱 점)가 천천히 돈다. **감싼 div 를 돌린다** — SVG transform 회전은
+ * 배율≠100% 에서 메인 스레드로 떨어진다(§5.4 #31 (K)). 주기는 shared `AGENT_CARD.orbitSpinMs`(14s)와 같다. */
+@keyframes agent-orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+.agent-orbit-spin {
+  animation: agent-orbit-spin 14s linear infinite;
+}
+
+/* 위성줄의 구슬이 출발(에이전트) → 도착(앱) 쪽으로 한 칸씩 흐른다. offset 이 줄면 무늬가 경로 진행 방향으로 나아간다.
+ * 한 칸 = shared `REF_LINK_STYLE.beadGap`(10px), 주기 = `REF_LINK_STYLE.flowMs`(0.6s). */
+@keyframes ref-bead-flow {
+  from { stroke-dashoffset: 10; }
   to   { stroke-dashoffset: 0; }
 }
 
-.ref-link-pulse {
-  animation: ref-link-flow 1.6s linear infinite;
+.ref-bead-flow {
+  animation: ref-bead-flow 0.6s linear infinite;
+}
+
+/* 꽃잎 고르기 — 꽃잎이 가운데에서 제자리로 차례로 핀다(`RefLinkBloom` 이 `--bloom-dx/dy`·지연을 준다).
+ * 채움은 `backwards`(시작 전만) — 끝난 뒤엔 원래 스타일로 돌아가야 손을 올렸을 때의 확대가 먹는다. */
+@keyframes ref-bloom-pop {
+  from { opacity: 0; transform: translate(var(--bloom-dx, 0px), var(--bloom-dy, 0px)) scale(0.4); }
+  to   { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+
+.ref-bloom-seed {
+  animation: ref-bloom-pop 0.18s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* §5.4 #36 (F) 앱 위성 화면 — 이어진 에이전트가 도는 동안 바닥을 훑는 가는 줄. transform 만 움직여 합성으로 돈다. */
+@keyframes app-screen-scan {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(250%); }
+}
+
+.app-screen-scan {
+  animation: app-screen-scan 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-card-morph { animation: none; }
-  .ref-link-pulse { animation: none; opacity: 0; }
+  .agent-balloon-unfold { animation: none; }
+  .agent-orbit-spin { animation: none; }
+  .ref-bead-flow { animation: none; }
+  .ref-bloom-seed { animation: none; }
+  /* 멈춘 줄은 가운데에 선다 — 도는 중이라는 사실은 남긴다. */
+  .app-screen-scan { animation: none; transform: translateX(75%); }
 }
 
 /* ─── Ghost 버블 (fade out over lifetime) ─── */
@@ -565,7 +675,8 @@ body.vib-pointer-drag .app-drag * {
 .bubble-ghost-label {
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
-  text-decoration-color: rgba(255, 255, 255, 0.4);
+  /* §4 앱 테마 — 글자와 같은 "앞쪽" 색(white)의 40%. 라이트에서는 글자와 함께 어두워진다. */
+  text-decoration-color: color-mix(in srgb, var(--color-white) 40%, transparent);
 }
 
 /* ─── 장면 전환 (폴더 진입/복귀) ─── */
@@ -609,10 +720,12 @@ body.vib-pointer-drag .app-drag * {
 }
 
 /* ─── 전역 스크롤바 기본값 (앱 전체 공통 톤) ─── */
+/* §4 앱 테마 — 스크롤바·페이드·체크박스의 색은 팔레트 변수(slate)에서 섞는다. 고정 rgba 였을 때는 테마를
+   바꿔도 이 자리만 그대로 남았다. 기본 테마에서는 종전 값과 같은 색이다(slate-500/400 의 같은 비율). */
 /* Firefox / 최신 엔진 */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-slate-500) 28%, transparent) transparent;
 }
 
 /* WebKit / Chromium */
@@ -624,12 +737,12 @@ body.vib-pointer-drag .app-drag * {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.28);
+  background: color-mix(in srgb, var(--color-slate-500) 28%, transparent);
   border-radius: 9999px;
   transition: background 0.2s;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: color-mix(in srgb, var(--color-slate-400) 50%, transparent);
 }
 *::-webkit-scrollbar-corner {
   background: transparent;
@@ -644,7 +757,7 @@ body.vib-pointer-drag .app-drag * {
 }
 
 .scrollbar-thin:hover {
-  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-slate-500) 35%, transparent) transparent;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -663,11 +776,11 @@ body.vib-pointer-drag .app-drag * {
 }
 
 .scrollbar-thin:hover::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.3);
+  background: color-mix(in srgb, var(--color-slate-500) 30%, transparent);
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: color-mix(in srgb, var(--color-slate-400) 50%, transparent);
 }
 
 /* 굴리는 동안에도 뜬다 — hover 와 짝이 되는 **두 번째 입구**.
@@ -680,12 +793,12 @@ body.vib-pointer-drag .app-drag * {
  * 온 신고로 대신 채운다. 값이 같으므로 어느 입구로 떠도 모양은 하나다. */
 .scrollbar-thin[data-scrolling='true'],
 .scrollbar-thin[data-hovering='true'] {
-  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-slate-500) 35%, transparent) transparent;
 }
 
 .scrollbar-thin[data-scrolling='true']::-webkit-scrollbar-thumb,
 .scrollbar-thin[data-hovering='true']::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.3);
+  background: color-mix(in srgb, var(--color-slate-500) 30%, transparent);
 }
 
 /* ─── 스크롤 페이드 — 물결 그라데이션 + 애니메이션 ─── */
@@ -716,14 +829,14 @@ body.vib-pointer-drag .app-drag * {
 .scroll-fade-top {
   top: 0;
   background:
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.18) 0%, rgba(148, 163, 184, 0.06) 40%, transparent 100%);
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-slate-400) 18%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 6%, transparent) 40%, transparent 100%);
 }
 
 /* 하단 — 아래에서 위로 페이드 */
 .scroll-fade-bottom {
   bottom: 0;
   background:
-    linear-gradient(to top, rgba(148, 163, 184, 0.18) 0%, rgba(148, 163, 184, 0.06) 40%, transparent 100%);
+    linear-gradient(to top, color-mix(in srgb, var(--color-slate-400) 18%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 6%, transparent) 40%, transparent 100%);
 }
 
 /* 좌/우 — 가로 스크롤 에지 페이드 (IDE 탭바 등) */
@@ -747,13 +860,13 @@ body.vib-pointer-drag .app-drag * {
 .scroll-fade-left {
   left: 0;
   background:
-    linear-gradient(to right, rgba(148, 163, 184, 0.22) 0%, rgba(148, 163, 184, 0.08) 40%, transparent 100%);
+    linear-gradient(to right, color-mix(in srgb, var(--color-slate-400) 22%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 8%, transparent) 40%, transparent 100%);
 }
 
 .scroll-fade-right {
   right: 0;
   background:
-    linear-gradient(to left, rgba(148, 163, 184, 0.22) 0%, rgba(148, 163, 184, 0.08) 40%, transparent 100%);
+    linear-gradient(to left, color-mix(in srgb, var(--color-slate-400) 22%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 8%, transparent) 40%, transparent 100%);
 }
 
 /* 가로 스크롤바 — .scrollbar-thin 의 가로 보강 (높이만 추가) */
@@ -784,9 +897,9 @@ body.vib-pointer-drag .app-drag * {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
-  border: 1.5px solid rgba(100, 116, 139, 0.4);
+  border: 1.5px solid color-mix(in srgb, var(--color-slate-500) 40%, transparent);
   border-radius: 3px;
-  background: rgba(30, 41, 59, 0.6);
+  background: color-mix(in srgb, var(--color-slate-800) 60%, transparent);
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
@@ -794,13 +907,13 @@ body.vib-pointer-drag .app-drag * {
 }
 
 .checkbox-slate:hover {
-  border-color: rgba(148, 163, 184, 0.6);
-  background: rgba(51, 65, 85, 0.5);
+  border-color: color-mix(in srgb, var(--color-slate-400) 60%, transparent);
+  background: color-mix(in srgb, var(--color-slate-700) 50%, transparent);
 }
 
 .checkbox-slate:checked {
-  border-color: rgba(139, 92, 246, 0.7);
-  background: rgba(139, 92, 246, 0.25);
+  border-color: color-mix(in srgb, var(--color-violet-500) 70%, transparent);
+  background: color-mix(in srgb, var(--color-violet-500) 25%, transparent);
 }
 
 .checkbox-slate:checked::after {
@@ -810,7 +923,7 @@ body.vib-pointer-drag .app-drag * {
   top: 0.5px;
   width: 5px;
   height: 8px;
-  border: solid rgba(196, 181, 253, 0.9);
+  border: solid color-mix(in srgb, var(--color-violet-300) 90%, transparent);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
@@ -1031,8 +1144,9 @@ body.vib-pointer-drag .app-drag * {
   /* §9 가독 하한 — 읽기 설정에서 본문 크기를 줄여도 인라인 코드가 12px 아래로 내려가지 않게 바닥을 둔다. */
   font-size: max(12px, 0.86em);
   font-weight: 500;
-  color: #eceef1;
-  background: rgba(140, 149, 165, 0.24);
+  /* §4 앱 테마 — 인라인 코드 칩(의미 토큰 `code.inline*`). */
+  color: var(--color-vb-code-inline-fg);
+  background: var(--color-vb-code-inline);
   border-radius: 4px;
   padding: 1.5px 5px;
 }
@@ -1048,17 +1162,18 @@ body.vib-pointer-drag .app-drag * {
  * inline-flex 로 두면 긴 경로가 줄바꿈되지 않으므로 display 는 inline 그대로 두고, 아이콘만 띄운다. */
 .ide-md .ide-path-link {
   display: inline;
-  color: #7dd3fc; /* sky-300 */
+  /* §4 앱 테마 — 팔레트 sky 를 따른다(라이트에서는 뒤집힌 사다리라 진한 하늘색이 된다). */
+  color: var(--color-sky-300);
   text-decoration: underline;
-  text-decoration-color: rgba(125, 211, 252, 0.45);
+  text-decoration-color: color-mix(in srgb, var(--color-sky-300) 45%, transparent);
   text-underline-offset: 2px;
   cursor: pointer;
   font: inherit;
 }
 
 .ide-md .ide-path-link:hover {
-  color: #bae6fd; /* sky-200 */
-  text-decoration-color: #bae6fd;
+  color: var(--color-sky-200);
+  text-decoration-color: var(--color-sky-200);
 }
 
 .ide-md .ide-path-link > svg {
@@ -1078,9 +1193,10 @@ body.vib-pointer-drag .app-drag * {
  * 글자를 얇게 보이려는 관용구이고, Windows 에서는 ClearType(서브픽셀) 렌더링을 끄는 쪽으로 작용해
  * "또렷하게" 라는 원래 의도와 반대다. 이 앱의 주 사용 환경이 Windows 이므로 브라우저 기본에 맡긴다. */
 .ide-md :where(pre) {
-  background: #1a1c20;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: #e6e8ec;
+  /* §4 앱 테마 — 코드 블록(의미 토큰 `code.*`). */
+  background: var(--color-vb-code);
+  border: 1px solid var(--color-vb-code-border);
+  color: var(--color-vb-code-fg);
   border-radius: 6px;
 }
 
@@ -1136,20 +1252,22 @@ html.overlay-window .overlay-bubble-canvas .react-flow__node {
  * 그리로 가게 하고(`::selection` 과 같은 톤), 같은 문단 안의 나머지 출현은 옅은 파랑으로 깔아
  * "여기 더 있다" 만 알린다 — 둘이 같은 색이면 몇 번째로 이동한 건지 구분할 수 없다. */
 ::highlight(vibisual-find) {
-  background-color: #2563eb; /* blue-600 — 드래그 선택과 같은 톤 */
-  color: #f8fafc;
+  /* blue-600 — 드래그 선택과 같은 톤. §4 앱 테마 — 의미 토큰 `find.*`(고대비는 노랑). */
+  background-color: var(--color-vb-find);
+  color: var(--color-vb-find-fg);
 }
 ::highlight(vibisual-find-all) {
-  background-color: rgb(37 99 235 / 0.28); /* 같은 파랑을 옅게 — 본문 글자는 그대로 읽힌다 */
+  background-color: var(--color-vb-find-all); /* 같은 파랑을 옅게 — 본문 글자는 그대로 읽힌다 */
 }
 
 /* §5.5 #17-27 ⑭ — 이미지 미리보기 바탕. 투명 PNG 의 알파를 눈으로 확인하는 바둑판.
    미리보기 뒤에만 깔리고 두 겹 그러데이션이라 그리는 비용이 사실상 없다(§9). */
 @utility bg-alpha-checker {
-  background-color: rgb(17 24 39);
+  /* §4 앱 테마 — 바둑판도 팔레트를 따른다(gray-900 바탕 · gray-700 칸). */
+  background-color: var(--color-gray-900);
   background-image:
-    linear-gradient(45deg, rgb(55 65 81 / 0.55) 25%, transparent 25%, transparent 75%, rgb(55 65 81 / 0.55) 75%),
-    linear-gradient(45deg, rgb(55 65 81 / 0.55) 25%, transparent 25%, transparent 75%, rgb(55 65 81 / 0.55) 75%);
+    linear-gradient(45deg, color-mix(in srgb, var(--color-gray-700) 55%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--color-gray-700) 55%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, var(--color-gray-700) 55%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--color-gray-700) 55%, transparent) 75%);
   background-position: 0 0, 8px 8px;
   background-size: 16px 16px;
 }

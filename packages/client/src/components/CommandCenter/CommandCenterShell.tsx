@@ -216,7 +216,7 @@ function CommandCenterTitleBar({
   });
 
   return (
-    <div className="flex h-9 flex-shrink-0 items-stretch border-b border-black/40 bg-[#1f2937] select-none">
+    <div className="flex h-9 flex-shrink-0 items-stretch border-b border-black/40 bg-vb-raised select-none">
       <div className="flex flex-shrink-0 items-center gap-2 px-3 text-[12px] font-medium text-gray-200">
         <svg className="h-3.5 w-3.5 flex-shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />

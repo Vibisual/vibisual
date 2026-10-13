@@ -87,6 +87,11 @@ export interface SessionProbeEvidence {
   queuedCommandCount: number;
   /** 세션 프로세스가 살아 있는가. 못 세었으면 undefined(모른다 ≠ 없다). */
   processAlive?: boolean;
+  /**
+   * §4 엔진 다리 — 그 세션 안에 실린 모드가 **엔진에게서 직접** 받은 사실 한 줄(턴이 도는가·마지막 진척·
+   * 도는 도구). 다리가 없으면 undefined 라 프롬프트가 종전과 글자까지 같다.
+   */
+  engine?: string;
 }
 
 /**
@@ -126,6 +131,7 @@ export function buildSessionProbePrompt(ev: SessionProbeEvidence): string {
     `background jobs it started and has not finished: ${ev.runningTaskCount}`,
     `commands still queued behind it: ${ev.queuedCommandCount}`,
     ...(ev.processAlive === undefined ? [] : [`its process is alive: ${ev.processAlive}`]),
+    ...(ev.engine ? [`first-hand engine report: ${ev.engine}`] : []),
     ev.tail ? `last lines of its transcript:\n${ev.tail}` : 'last lines of its transcript: (empty)',
     '</facts>',
     '',

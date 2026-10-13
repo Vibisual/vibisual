@@ -3,6 +3,8 @@ import type { VideoItem } from '@vibisual/video';
 export interface InspectorField {
   key: string;
   label: string;
+  /** 번역 키가 속성 이름과 달라야 할 때(같은 이름이 다른 뜻 — 씬의 role = 직함, 소리의 role = 역할). */
+  labelKey?: string;
   defaultValue: string | number;
   min?: number;
   max?: number;
@@ -51,13 +53,22 @@ const KIND_FIELDS: Readonly<Partial<Record<VideoItem['kind'], readonly Inspector
     { key: 'boxColor', label: 'Caption background', defaultValue: 'rgba(0,0,0,0.62)' },
     { key: 'padding', label: 'Caption padding', defaultValue: 18, min: 0 },
     { key: 'bottom', label: 'Bottom margin', defaultValue: 96, min: 0 },
+    // §5.13 (V) 37-12 — 단어 강조(canvas2d·htmlStage 의 captionWordSpans 가 읽는다).
+    { key: 'highlight', label: 'Word highlight', defaultValue: 'none', options: ['none', 'word'] },
+    { key: 'highlightColor', label: 'Highlight color', defaultValue: '#FACC15' },
   ],
-  audio: [{ key: 'volume', label: 'Volume', defaultValue: 1, min: 0 }],
+  // §5.13 (V) 37-12 — 소리 역할(덕킹: voice 동안 music 을 낮춘다 — audioMix.ts 의 duckCurveFor 가 읽는다).
+  audio: [
+    { key: 'volume', label: 'Volume', defaultValue: 1, min: 0 },
+    { key: 'role', labelKey: 'soundRole', label: 'Sound role', defaultValue: 'none', options: ['none', 'music', 'voice', 'sfx'] },
+    { key: 'duckDb', label: 'Ducking under narration (dB)', defaultValue: -10, max: 0 },
+  ],
   footage: [{ key: 'volume', label: 'Volume', defaultValue: 1, min: 0 }],
 };
 
 export const INSPECTOR_OPTION_LABELS: Readonly<Record<string, string>> = {
   left: 'Left', center: 'Center', right: 'Right', rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line',
+  none: 'None', word: 'Word by word', music: 'Music', voice: 'Narration', sfx: 'Sound effect',
 };
 
 export function inspectorFields(item: VideoItem, outputHeight: number, hasAudio?: boolean): readonly InspectorField[] {

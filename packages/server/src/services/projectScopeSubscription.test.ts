@@ -33,6 +33,8 @@ interface Fixture {
   manager: ProjectGraphManager;
   nameA: string;
   nameB: string;
+  dirA: string;
+  dirB: string;
   agentA: BubbleData;
   agentB: BubbleData;
 }
@@ -50,7 +52,7 @@ function makeTwoProjects(): Fixture {
   // 바로 위에서 두 폴더를 등록했으니 생성은 성공한다(§4 온보딩 ③: 폴더가 없으면 null).
   const agentA = manager.createCustomAgent('Agent A', undefined, nameA)!;
   const agentB = manager.createCustomAgent('Agent B', undefined, nameB)!;
-  return { manager, nameA, nameB, agentA, agentB };
+  return { manager, nameA, nameB, dirA, dirB, agentA, agentB };
 }
 
 afterEach(() => {
@@ -265,5 +267,57 @@ describe('§9 저장은 바뀐 프로젝트만', () => {
 
     expect(manager.toProjectCheckpoint(nameA).seq).toBe(seqABefore + 1);
     expect(manager.toProjectCheckpoint(nameB).seq).toBe(seqBBefore);
+  });
+});
+
+// §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ① — **부팅 구간의 스냅샷은 마지막으로 보던 프로젝트만 짓는다.**
+//   아무 창도 선언하기 전의 방송·첫 연결 스냅샷이 열린 프로젝트 전부를 대화 기록 재파싱까지 하며 지어, 창이 막
+//   뜬 그 순간 메인 스레드를 붙잡았다(사용자 보고 — "앱이 켜지면 드래그해도 우리 앱만 안 움직인다").
+describe('§9 부팅 구간 — 마지막으로 보던 프로젝트만', () => {
+  it('아직 아무 창도 선언하지 않았으면 그 프로젝트만 싣는다 — 탭 목록·배지는 그대로 전량', () => {
+    const { manager, nameA, nameB, dirA, agentA, agentB } = makeTwoProjects();
+    manager.setBootViewProject(dirA);
+
+    const snap = manager.getBroadcastSnapshot();
+    const labels = snap.agents.map((a) => a.label);
+    expect(labels).toContain(agentA.label);
+    expect(labels).not.toContain(agentB.label);
+    expect(snap.scopedProjects).toEqual([nameA]);
+    expect(Object.keys(snap.projects)).toEqual(expect.arrayContaining([nameA, nameB]));
+    expect(snap.projectAgentCounts?.[nameB]?.total).toBe(1);
+  });
+
+  it('첫 선언이 오면 물러난다 — 그 뒤의 침묵은 종전대로 전량', () => {
+    const { manager, nameB, dirA, agentA, agentB } = makeTwoProjects();
+    manager.setBootViewProject(dirA);
+    const client = {};
+    manager.setClientProjectScope(client, [nameB]);
+    expect(manager.getBroadcastSnapshot().agents.map((a) => a.label)).toEqual([agentB.label]);
+
+    manager.clearClientProjectScope(client);
+    const labels = manager.getBroadcastSnapshot().agents.map((a) => a.label);
+    expect(labels).toContain(agentA.label);
+    expect(labels).toContain(agentB.label);
+  });
+
+  it('그 경로의 프로젝트가 열려 있지 않으면 종전대로 전량 — 판정 실패가 빈 화면이 되면 안 된다', () => {
+    const { manager, agentA, agentB } = makeTwoProjects();
+    manager.setBootViewProject(path.join(os.tmpdir(), 'vibi-scope-not-open'));
+    const labels = manager.getBroadcastSnapshot().agents.map((a) => a.label);
+    expect(labels).toContain(agentA.label);
+    expect(labels).toContain(agentB.label);
+  });
+
+  it('빈 값이면 부팅 구간도 종전대로 전량이다', () => {
+    const { manager, agentA, agentB } = makeTwoProjects();
+    manager.setBootViewProject(null);
+    const labels = manager.getBroadcastSnapshot().agents.map((a) => a.label);
+    expect(labels).toEqual(expect.arrayContaining([agentA.label, agentB.label]));
+  });
+
+  it('배경 탭 유휴 해제의 근거가 되지 않는다 — 선언한 창이 없으면 여전히 아무것도 내리지 않는다', () => {
+    const { manager, dirA } = makeTwoProjects();
+    manager.setBootViewProject(dirA);
+    expect(manager.getEffectiveProjectScope()).toBeNull();
   });
 });

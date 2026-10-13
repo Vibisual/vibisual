@@ -45,6 +45,12 @@ export interface LifecycleCallbacks {
   /** 세션 PID 사망 — 버블 제거 (v1.2부터 vscode/cli 구분 없이 공통). */
   onDead: (sessionId: string) => void;
   /**
+   * §9 「창이 뜬 직후의 메인 스레드」 ③ — 한 폴링 주기에서 죽은 세션을 **다 걷은 뒤** 한 번 불린다
+   * (걷은 것이 있을 때만). 세션마다 저장하던 체크포인트를 여기서 한 번으로 묶는다 — 부팅 직후 첫 폴링이
+   * 복원된 죽은 세션을 여럿 걷으면 그 수만큼 전 프로젝트 재구축·직렬화가 메인 스레드에서 돌았다.
+   */
+  onDeadSettled?: () => void;
+  /**
    * @deprecated v1.2 — 호출되지 않음. 이전 정책(VSCode 닫아도 유지) 흔적.
    * 시그니처 호환 유지를 위해 남겨둠. 다음 리팩토링에서 제거 예정.
    */
@@ -258,6 +264,7 @@ export class SessionLifecycleManager {
         this.sessions.delete(sessionId);
         this.callbacks.onDead(sessionId);
       }
+      if (dead.length > 0) this.callbacks.onDeadSettled?.();
     } finally {
       this.probing = false;
     }

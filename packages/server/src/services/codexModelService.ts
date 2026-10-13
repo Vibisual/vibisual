@@ -1,111 +1,160 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CODEX_MODELS_CACHE_FILENAME } from '@vibisual/shared';
+import { CODEX_MODELS_CACHE_FILENAME, CODEX_MODELS_REFRESH_INTERVAL_MS } from '@vibisual/shared';
 import type { CodexModelEntry, CodexModelCatalog } from '@vibisual/shared';
-import { codexHome } from './codexCli.js';
+import { codexHome, getCodexBin } from './codexCli.js';
+import { codexAuthService } from './codexAuthService.js';
+import { parseCodexModelsCache } from './codexModelCatalog.js';
+import { queryCodexModelList } from './codexModelRpc.js';
+import { CODEX_MODEL_DISCOVERY } from './codexModelRpcConfig.js';
+import { pathKey } from './pathKey.js';
 import { logger } from '../logger.js';
 
-/**
- * §5.25 (G) — 코덱스가 캐시해 둔 모델 목록을 **읽기만** 한다.
- *
- * 우리가 모델 표를 들지 않는 이유는 §4 v2.38(동적 모델 레지스트리)이 클로드에 대해 세운 것과
- * 같다 — 박아 두면 그 모델이 사라진 날 선택지가 거짓이 되고, 새로 나온 모델은 영영 안 뜬다.
- *
- * **없으면 빈 목록이다.** 지어내지 않는다 — 화면은 "아직 못 읽었다"고 말하고, 사용자가 코덱스를
- * 한 번 돌리면 CLI 가 캐시를 만든다.
- */
+export { parseCodexModelsCache } from './codexModelCatalog.js';
 
-/** 캐시 파일 원문 → 목록. 모양이 다르면 빈 배열(우리가 채워 넣지 않는다). */
-export function parseCodexModelsCache(raw: string): CodexModelEntry[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!parsed || typeof parsed !== 'object') return [];
-  const models = (parsed as Record<string, unknown>)['models'];
-  if (!Array.isArray(models)) return [];
-
-  const out: CodexModelEntry[] = [];
-  for (const m of models) {
-    if (!m || typeof m !== 'object') continue;
-    const rec = m as Record<string, unknown>;
-    const slug = typeof rec['slug'] === 'string' ? rec['slug'].trim() : '';
-    if (!slug) continue;
-
-    const displayName =
-      typeof rec['display_name'] === 'string' && rec['display_name'].trim() ? rec['display_name'].trim() : slug;
-
-    const levels: string[] = [];
-    const supported = rec['supported_reasoning_levels'];
-    if (Array.isArray(supported)) {
-      for (const lv of supported) {
-        if (lv && typeof lv === 'object') {
-          const effort = (lv as Record<string, unknown>)['effort'];
-          if (typeof effort === 'string' && effort.trim()) levels.push(effort.trim());
-        } else if (typeof lv === 'string' && lv.trim()) {
-          levels.push(lv.trim());
-        }
-      }
-    }
-
-    const entry: CodexModelEntry = { slug, displayName, reasoningLevels: levels };
-    if (typeof rec['description'] === 'string' && rec['description'].trim()) {
-      entry.description = rec['description'].trim();
-    }
-    const def = rec['default_reasoning_level'];
-    if (typeof def === 'string' && def.trim()) entry.defaultReasoningLevel = def.trim();
-    // §5.25 (G-2) — 답변 길이 칸을 비워 두었을 때 무엇이 도는지 말하려면 이 둘이 필요하다.
-    if (typeof rec['support_verbosity'] === 'boolean') entry.supportsVerbosity = rec['support_verbosity'];
-    const verbosity = rec['default_verbosity'];
-    if (typeof verbosity === 'string' && verbosity.trim()) entry.defaultVerbosity = verbosity.trim();
-    out.push(entry);
-  }
-  return out;
+interface CatalogContext {
+  bin: string | null;
+  home: string;
+  key: string;
+  /** Unknown auth probes omit this, preserving the last known identity. Never contains tokens. */
+  authKey?: string;
 }
 
-/** 캐시 파일 절대 경로. 홈 판정은 `codexCli` 한 곳이 소유한다. */
+interface CatalogDependencies {
+  context: () => CatalogContext;
+  query: (bin: string, home: string) => Promise<CodexModelEntry[]>;
+  cache: (home: string) => CodexModelEntry[];
+  now: () => number;
+}
+
+function fileRevision(file: string): string {
+  try { const stat = fs.statSync(file); return `${stat.mtimeMs}:${stat.size}`; }
+  catch { return 'unavailable'; }
+}
+
+function currentContext(): CatalogContext {
+  const bin = getCodexBin();
+  const home = codexHome();
+  const auth = codexAuthService.get();
+  return {
+    bin, home,
+    key: JSON.stringify([bin ? pathKey(bin) : null, bin ? fileRevision(bin) : null,
+      pathKey(home), fileRevision(path.join(home, 'config.toml'))]),
+    ...(auth && !auth.error ? { authKey: JSON.stringify([auth.loggedIn, auth.authMethod, auth.account]) } : {}),
+  };
+}
+
+/** Read-only fallback. No credentials or Codex settings are modified. */
+function readCache(home: string): CodexModelEntry[] {
+  try { return parseCodexModelsCache(fs.readFileSync(path.join(home, CODEX_MODELS_CACHE_FILENAME), 'utf8')); }
+  catch { return []; }
+}
+
 export function codexModelsCachePath(): string {
   return path.join(codexHome(), CODEX_MODELS_CACHE_FILENAME);
 }
 
-class CodexModelService {
+/** Official discovery is primary; a catalog never proves inference entitlement. */
+export class CodexModelService {
   private cached: CodexModelCatalog | null = null;
+  private inflight: { key: string; generation: number; promise: Promise<CodexModelCatalog> } | null = null;
+  private contextKey: string | undefined;
+  private authKey = '';
+  private generation = 0;
+  private readonly deps: CatalogDependencies;
 
-  get(): CodexModelCatalog | null {
-    return this.cached;
+  constructor(deps: Partial<CatalogDependencies> = {}) {
+    this.deps = { context: currentContext, query: queryCodexModelList, cache: readCache, now: Date.now, ...deps };
   }
 
-  /**
-   * 캐시 파일을 다시 읽는다. 파일이 없거나 못 읽어도 throw 하지 않는다 —
-   * 그때는 빈 목록 + 사유가 실린 결과를 돌려준다.
-   */
-  refresh(): CodexModelCatalog {
-    const file = codexModelsCachePath();
-    const now = Date.now();
-    let raw: string;
-    try {
-      raw = fs.readFileSync(file, 'utf8');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // 없는 것은 흔한 정상 상태다(코덱스를 한 번도 안 돌린 기계) — 경고로만 남긴다.
-      logger.debug(`[codexModels] cache unreadable: ${message}`);
-      this.cached = { models: [], checkedAt: now, error: 'models cache not found' };
-      return this.cached;
+  private context(): CatalogContext {
+    const context = this.deps.context();
+    this.authKey = context.authKey ?? this.authKey;
+    const key = JSON.stringify([context.key, this.authKey]);
+    if (this.contextKey !== key) {
+      this.invalidate();
+      this.contextKey = key;
     }
-    const models = parseCodexModelsCache(raw);
-    this.cached = { models, checkedAt: now, ...(models.length === 0 ? { error: 'no models in cache' } : {}) };
+    return { ...context, key };
+  }
+
+  /** Login/logout events can invalidate even when login status doesn't expose an account id. */
+  invalidate(): void {
+    this.generation++;
+    this.cached = null;
+    this.inflight = null;
+  }
+
+  /** Synchronous compatibility for snapshot readers; detected account/runtime changes clear it. */
+  get(): CodexModelCatalog | null {
+    this.context();
     return this.cached;
   }
 
-  /**
-   * 이 slug 가 신고한 추론 단계. 모르는 slug 면 빈 배열 —
-   * 화면은 그때 강도 칸을 아예 그리지 않는다(고를 수 없는 값을 보이지 않는다).
+  /** Publish inside the identity check's synchronous boundary. Consumers must update their
+   * snapshot/HTTP response synchronously here, not in a later await/then after refresh().
    */
+  publish(consume: (catalog: CodexModelCatalog) => void, options: { force?: boolean } = {}): Promise<void> {
+    return this.refresh(options).then((catalog) => {
+      // refresh's promise can settle just before login invalidation. Rejoin the current lookup
+      // instead of letting that previously valid object escape through a response callback.
+      if (catalog !== this.get()) return this.publish(consume);
+      consume(catalog);
+    });
+  }
+
+  refresh(options: { force?: boolean } = {}): Promise<CodexModelCatalog> {
+    const context = this.context();
+    const generation = this.generation;
+    if (this.inflight?.key === context.key && this.inflight.generation === generation) return this.inflight.promise;
+    const ttl = this.cached?.stale ? CODEX_MODEL_DISCOVERY.retryMs : CODEX_MODELS_REFRESH_INTERVAL_MS;
+    if (!options.force && this.cached && this.deps.now() - this.cached.checkedAt < ttl) return Promise.resolve(this.cached);
+    const previous = this.cached;
+    const promise = this.probe(context, previous).then((catalog) => {
+      // A late response from another login/home/runtime must never overwrite or return its catalog.
+      const current = this.context();
+      if (generation !== this.generation || current.key !== context.key) return this.refresh();
+      this.cached = catalog;
+      return catalog;
+    }).finally(() => {
+      if (this.inflight?.promise === promise) this.inflight = null;
+    });
+    this.inflight = { key: context.key, generation, promise };
+    return promise;
+  }
+
+  private async probe(context: CatalogContext, previous: CodexModelCatalog | null): Promise<CodexModelCatalog> {
+    try {
+      if (!context.bin) throw new Error('Codex CLI unavailable');
+      const discovered = await this.deps.query(context.bin, context.home);
+      // RPC owns membership/defaults/efforts. The legacy cache only fills verbosity metadata
+      // absent from older model/list schemas, retaining the existing advanced-settings labels.
+      const cached = new Map(this.deps.cache(context.home).map((model) => [model.slug, model]));
+      const models = discovered.map((model): CodexModelEntry => {
+        const fallback = cached.get(model.slug);
+        return {
+          ...model,
+          ...(model.supportsVerbosity === undefined && fallback?.supportsVerbosity !== undefined
+            ? { supportsVerbosity: fallback.supportsVerbosity } : {}),
+          ...(model.defaultVerbosity === undefined && fallback?.defaultVerbosity !== undefined
+            ? { defaultVerbosity: fallback.defaultVerbosity } : {}),
+        };
+      });
+      const now = this.deps.now();
+      // A successful empty list is authoritative; retired cache entries must not reappear.
+      return { models, checkedAt: now, fetchedAt: now, source: 'app-server', stale: false };
+    } catch {
+      const checkedAt = this.deps.now();
+      const error = context.bin ? 'Codex model catalog unavailable' : 'Codex CLI unavailable';
+      logger.debug(`[codexModels] ${error}; using read-only fallback`);
+      if (previous?.source === 'app-server') return { ...previous, checkedAt, stale: true, error };
+      const models = this.deps.cache(context.home);
+      return { models, checkedAt, source: 'cache', stale: true, error };
+    }
+  }
+
   reasoningLevelsOf(slug: string): string[] {
-    const found = (this.cached ?? this.refresh()).models.find((m: CodexModelEntry) => m.slug === slug);
-    return found ? found.reasoningLevels : [];
+    return this.get()?.models.find((model) => model.slug === slug)?.reasoningLevels ?? [];
   }
 }
 

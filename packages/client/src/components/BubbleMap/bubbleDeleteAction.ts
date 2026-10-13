@@ -141,6 +141,16 @@ export interface SelectionDeletePlan {
   commentBoxIds: string[];
   captureIds: string[];
   /**
+   * §6 — store 가 좌표를 쥔 노드들. 이제 박스·Shift·Ctrl/Cmd 로 묶음에 들어오므로 묶음 삭제도 이들을 센다
+   * (종전에는 묶음에 들 수 없어 셀 일이 없었다). 각자의 창구로 지운다 — 고정(§2.4)이면 서버가 거절한다.
+   * 플레이 버블은 표지·프리뷰 두 노드가 한 레코드라 레코드 id 로 한 번만 담는다.
+   */
+  appBubbleIds: string[];
+  playBubbleIds: string[];
+  specDocIds: string[];
+  labRunIds: string[];
+  shelfBubbleIds: string[];
+  /**
    * 묶음에서 빠진 워크트리 버블. 지울 수 없어서가 아니라 **merge 가드 다이얼로그가 있어 단건
    * 처리만 가능**하기 때문이다(§5.7 #26). 메뉴는 이 수를 사용자에게 알려 준다 — 말없이 빼면
    * "지웠는데 하나가 남았다"가 된다.
@@ -148,9 +158,25 @@ export interface SelectionDeletePlan {
   skippedWorktreeIds: string[];
   /** 메뉴 문구를 고르는 대표 동작. 전부 휴지통행이면 `trash`, 섞였으면 `remove`. */
   kind: BubbleDeleteKind;
-  /** 실제로 지워지는 것의 총 개수(버블 + 엣지 + 메모 상자 + 캡처). */
+  /** 실제로 지워지는 것의 총 개수(버블 + 엣지 + 메모 상자 + 캡처 + 앱·플레이·스펙·랩·선반). */
   count: number;
 }
+
+/**
+ * store 가 좌표를 쥔 노드 종류 → 계획의 칸과 `data` 의 식별자 키. 종류가 늘면 **여기 한 줄**이다 —
+ * 키·메뉴가 같은 표를 보므로 한쪽만 새 종류를 빠뜨리지 않는다.
+ */
+const STORE_NODE_DELETE: Readonly<Record<string, {
+  readonly field: 'appBubbleIds' | 'playBubbleIds' | 'specDocIds' | 'labRunIds' | 'shelfBubbleIds';
+  readonly key: string;
+}>> = {
+  appNode: { field: 'appBubbleIds', key: 'appBubbleId' },
+  playNode: { field: 'playBubbleIds', key: 'playBubbleId' },
+  playPreviewNode: { field: 'playBubbleIds', key: 'playBubbleId' },
+  specNode: { field: 'specDocIds', key: 'specDocId' },
+  labNode: { field: 'labRunIds', key: 'labRunId' },
+  shelfNode: { field: 'shelfBubbleIds', key: 'shelfBubbleId' },
+};
 
 /** React Flow 노드에서 이 판정이 보는 것만 — `@xyflow` 타입을 이 모듈로 들이지 않는다. */
 export interface SelectedFlowNode {
@@ -187,6 +213,7 @@ export function planSelectionDelete(
 ): SelectionDeletePlan {
   const plan: SelectionDeletePlan = {
     purgeIds: [], bubbleIds: [], taskEdgeIds: [], commentBoxIds: [], captureIds: [],
+    appBubbleIds: [], playBubbleIds: [], specDocIds: [], labRunIds: [], shelfBubbleIds: [],
     skippedWorktreeIds: [], kind: 'none', count: 0,
   };
 
@@ -207,6 +234,13 @@ export function planSelectionDelete(
     if (opts.inTrashView) continue;
     if (n.type === 'commentBox') { plan.commentBoxIds.push(dataId(n, 'commentBoxId')); sawOther = true; continue; }
     if (n.type === 'captureNode') { plan.captureIds.push(dataId(n, 'captureBubbleId')); sawOther = true; continue; }
+    const storeKind = n.type === undefined ? undefined : STORE_NODE_DELETE[n.type];
+    if (storeKind) {
+      const id = dataId(n, storeKind.key);
+      const ids = plan[storeKind.field];
+      if (!ids.includes(id)) ids.push(id);
+      sawOther = true;
+    }
   }
 
   if (!opts.inTrashView) {
@@ -219,7 +253,9 @@ export function planSelectionDelete(
   }
 
   plan.count = plan.purgeIds.length + plan.bubbleIds.length
-    + plan.taskEdgeIds.length + plan.commentBoxIds.length + plan.captureIds.length;
+    + plan.taskEdgeIds.length + plan.commentBoxIds.length + plan.captureIds.length
+    + plan.appBubbleIds.length + plan.playBubbleIds.length + plan.specDocIds.length
+    + plan.labRunIds.length + plan.shelfBubbleIds.length;
 
   // 문구는 **되돌릴 수 있는지**로 갈린다. 하나라도 그냥 없어지는 것이 섞였으면 "휴지통으로 이동"이라
   //   말해서는 안 된다 — 되돌릴 수 있다고 약속하는 말이기 때문이다.
@@ -235,8 +271,31 @@ export function planSelectionDelete(
 export interface SelectionDeleteRunner {
   requestTrashPurge: (ids: string[]) => void;
   deleteTaskEdge: (id: string) => void;
-  deleteCommentBox: (id: string) => void | Promise<void>;
-  deleteCaptureBubble: (id: string) => void | Promise<void>;
+  deleteCommentBox: (id: string) => void | Promise<unknown>;
+  deleteCaptureBubble: (id: string) => void | Promise<unknown>;
+  deleteAppBubble: (id: string) => void | Promise<unknown>;
+  deletePlayBubble: (id: string) => void | Promise<unknown>;
+  deleteSpecDoc: (id: string) => void | Promise<unknown>;
+  deleteLabRun: (id: string) => void | Promise<unknown>;
+  deleteShelfBubble: (id: string) => void | Promise<unknown>;
+}
+
+/**
+ * 스토어(같은 모양의 무엇이든)에서 묶음 삭제 손잡이를 뽑는다 — `Delete` 키와 묶음 우클릭 메뉴가 **같은 목록**을
+ * 쓴다. 둘이 각자 적으면 새 종류가 생길 때 한쪽만 빠뜨린다(§5.4 #34 "키와 메뉴가 같은 일을 한다").
+ */
+export function selectionDeleteRunnerOf(s: SelectionDeleteRunner): SelectionDeleteRunner {
+  return {
+    requestTrashPurge: s.requestTrashPurge,
+    deleteTaskEdge: s.deleteTaskEdge,
+    deleteCommentBox: s.deleteCommentBox,
+    deleteCaptureBubble: s.deleteCaptureBubble,
+    deleteAppBubble: s.deleteAppBubble,
+    deletePlayBubble: s.deletePlayBubble,
+    deleteSpecDoc: s.deleteSpecDoc,
+    deleteLabRun: s.deleteLabRun,
+    deleteShelfBubble: s.deleteShelfBubble,
+  };
 }
 
 /** 계획대로 지운다 — `Delete` 키와 묶음 우클릭 메뉴가 이 함수를 나눠 쓴다. */
@@ -249,6 +308,11 @@ export function runSelectionDelete(plan: SelectionDeletePlan, runner: SelectionD
   for (const id of plan.taskEdgeIds) runner.deleteTaskEdge(id);
   for (const id of plan.commentBoxIds) void runner.deleteCommentBox(id);
   for (const id of plan.captureIds) void runner.deleteCaptureBubble(id);
+  for (const id of plan.appBubbleIds) void runner.deleteAppBubble(id);
+  for (const id of plan.playBubbleIds) void runner.deletePlayBubble(id);
+  for (const id of plan.specDocIds) void runner.deleteSpecDoc(id);
+  for (const id of plan.labRunIds) void runner.deleteLabRun(id);
+  for (const id of plan.shelfBubbleIds) void runner.deleteShelfBubble(id);
   if (plan.bubbleIds.length > 0) {
     // 한 번의 스냅샷으로 동시에 사라지게 — 배치 창구 하나로 보낸다.
     void fetch('/api/bubbles/delete', {

@@ -261,7 +261,7 @@ const BuilderActivityWindow = memo(function BuilderActivityWindow({ agentId, pha
   return (
     <div className="overflow-hidden rounded-md border border-gray-700 bg-gray-950/60">
       {/* 타이틀 바 */}
-      <div className="flex items-center gap-2 border-b border-gray-800 bg-[#1a2236] px-2.5 py-1.5">
+      <div className="flex items-center gap-2 border-b border-gray-800 bg-vb-ide-titlebar px-2.5 py-1.5">
         <svg className="h-3.5 w-3.5 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />

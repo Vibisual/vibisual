@@ -22,6 +22,8 @@ import { planBubbleText, BUBBLE_LINE_HEIGHT, type BubbleBottomLine, type BubbleC
 // 클릭=선택 / 더블클릭=열기 를 가르는 상태기계는 캔버스 **공용 한 벌**이다 — 이 버블이 그 기준이고,
 // 앱·캡처·스펙·랩·선반·플레이·메모 버블이 같은 것을 쓴다(따로 두면 손버릇이 갈린다).
 import { SELECT_DEFER_MS, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+// §6 — 고른 묶음은 캔버스 한 칸(React Flow `selected`)이다. 클릭이 그 칸을 바꾸는 손잡이.
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { shouldDismissOnSelect } from './agentDismiss.js';
 // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 잡으면 그 무리만 남고 나머지는 뒤로 물러난다.
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
@@ -482,6 +484,16 @@ export const BubbleNode = memo(function BubbleNode({
   // 선택 초점(§5.4 #31 (K))의 페이드가 시작되는 바로 그 프레임을 잡아먹는다. 판정 결과만 받는다.
   const selectRingId = data.id.startsWith('sat-') ? data.id.slice(4) : data.id;
   const showSelectRing = useGraphStore((s) => s.selectIntentId !== null && s.selectIntentId === selectRingId);
+  /**
+   * §6 — 고른 묶음(React Flow `selected`)에 든 버블. 보통 클릭은 묶음을 이 버블 하나로 바꾸고, Ctrl/Cmd
+   * 클릭은 넣고 뺀다(Shift 클릭·박스 선택은 캔버스가 같은 칸에 쓴다). 오버레이 위젯은 고르는 자리가 아니다.
+   * 링 id 는 홈 버블(`__root_home__` — 링이 지금 폴더 id 를 쓴다)만 비워 둔다(빼도 링을 내리지 않는다).
+   */
+  const inGroup = rest['selected'] === true;
+  const canvasSelection = useCanvasNodeSelection(
+    overlayMode ? null : nodeId,
+    data.id === '__root_home__' ? null : selectRingId,
+  );
 
   // 등장/퇴장 모두 페이드. showSelectRing off 시 즉시 언마운트하지 않고
   // opacity 0 으로 트랜지션 후 SELECT_FADE_MS 뒤 언마운트.
@@ -703,7 +715,10 @@ export const BubbleNode = memo(function BubbleNode({
   const startTaskEdgeDrag = useGraphStore((s) => s.startTaskEdgeDrag);
 
   // 실제 단일선택 동작 (클릭 확정 후 즉시 또는 지연 실행).
+  //   §6 — 고른 묶음도 이 버블 하나로 바꾼다. 패널과 같은 순간(더블클릭 보류가 끝난 뒤)이라, 창을 열려던
+  //   더블클릭은 묶음을 건드리지 않는다.
   const performSelect = useCallback((): void => {
+    canvasSelection.replace();
     if (data.id === '__root_home__') {
       const folderId = useGraphStore.getState().currentFolderId;
       if (folderId) useGraphStore.getState().selectNode(folderId);
@@ -721,7 +736,7 @@ export const BubbleNode = memo(function BubbleNode({
         body: JSON.stringify({ agentId: data.id }),
       }).catch(() => {});
     }
-  }, [data.id, data.bubbleType, data.status]);
+  }, [data.id, data.bubbleType, data.status, canvasSelection]);
 
   /**
    * 선택 제스처 — 캔버스 공용 상태기계 한 벌(`bubbleSelectGesture`).
@@ -734,13 +749,15 @@ export const BubbleNode = memo(function BubbleNode({
    *  - **커스텀 에이전트 테두리 누름** → 선택이 아니라 Task Edge 연결 드래그(노드 이동도 막는다).
    *  - **Back 버블** → 네비게이션 전용이라 선택 대상이 아니다.
    *
-   * `leftButtonOnly:false` 인 이유: 이 버블은 우클릭도 "그 버블을 골랐다"로 쳐 왔다(메뉴가 뜬
-   * 대상이 화면에 보여야 한다). 정리하면서 그 손버릇을 바꾸지 않는다.
+   * 우클릭은 고르지 않는다 — 우측 패널(DetailPanel)은 왼쪽 클릭 선택에서만 뜬다(§6, 2026-10-11 사용자
+   * 지시). 종전에는 이 버블만 우클릭도 선택으로 쳐서, 메뉴를 열려던 손이 패널을 열고 끝난 에이전트의
+   * 확인 dismiss(§2.4)까지 일으켰다. 메뉴의 대상은 여는 쪽이 `nodeId` 로 넘기므로 선택이 없어도 갈리지 않는다.
    */
   const gesture = useBubbleSelectGesture({
     doubleClickable: isDoubleClickable,
-    leftButtonOnly: false,
     select: performSelect,
+    // §6 — Ctrl/Cmd 클릭은 묶음에 넣고 뺀다(링·우측 패널 ❌). 오버레이 위젯에는 묶음이 없다.
+    toggle: overlayMode ? undefined : canvasSelection.toggle,
     setIntent: (active) => {
       const store = useGraphStore.getState();
       if (!active) { store.setSelectIntent(null); return; }
@@ -754,12 +771,14 @@ export const BubbleNode = memo(function BubbleNode({
       // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 누르면 그건 "무리를 잡는" 손짓이다.
       //   ① 미리보기를 확정으로 올려 누르는 순간 세기가 한 단계 오르게 하고(무리 계산은 이미
       //      hover 가 해 뒀다 — 이 컴포넌트는 화면에 그려진 엣지 목록을 모른다),
-      //   ② 선택으로는 치지 않는다(선택 링·우측 패널 ❌ — 강조와 겹쳐 무엇을 보는 중인지 흐려진다).
+      //   ② 누름은 그대로 기록한다(§6, 2026-10-11 사용자 지시 — Ctrl 클릭은 다중 선택이다). 끌면 무리 동반
+      //      이동이고, 움직임 없이 떼면 이 버블을 묶음에 넣거나 뺀다 — 링·우측 패널은 켜지 않는다(누적 선택).
       //   `stopPropagation` 은 하지 않는다 — React Flow 의 노드 드래그가 그대로 살아 있어야
-      //   그 손짓이 곧 동반 이동이 된다. 테두리 판정보다 **앞**에 둔다(수식 키 쪽이 명시적).
+      //   그 손짓이 곧 동반 이동이 된다. 테두리 판정보다 **앞**에 둔다(수식 키 쪽이 명시적 — Ctrl 을 쥔
+      //   동안 Task Edge 연결 손짓은 잔다).
       if (isAgent && !overlayMode && linkModifierHeld) {
         promoteLinkGrab(data.id);
-        return true;
+        return false;
       }
       // 커스텀 에이전트 테두리 클릭 → 연결 모드 진입 (노드 이동 차단).
       // Hook 에이전트/파이프라인/서브에이전트는 Task Edge 소스가 될 수 없다.
@@ -822,7 +841,7 @@ export const BubbleNode = memo(function BubbleNode({
       // 2타가 왔다 — 미뤄 둔 메뉴는 열리지 않는다.
       if (menuTimerRef.current) { clearTimeout(menuTimerRef.current); menuTimerRef.current = null; }
       e.stopPropagation();
-      // 보류 중 단일선택 + 1타에서 떴던 링을 함께 접는다(좌더블클릭과 같은 처리).
+      // 직전 왼쪽 클릭이 걸어 둔 보류 단일선택·링이 남아 있으면 함께 접는다(우클릭 자체는 고르지 않는다).
       gesture.cancelPendingSelect();
       const store = useGraphStore.getState();
       store.setSelectIntent(null);
@@ -1444,6 +1463,22 @@ export const BubbleNode = memo(function BubbleNode({
             opacity: selectShown ? 1 : 0,
             transition: `opacity ${selectShown ? SELECT_FADE_IN_MS : SELECT_FADE_MS}ms ease`,
           }}
+        />
+      )}
+
+      {/* §6 — 고른 묶음에 든 버블의 고리. 코로나는 "지금 고른 하나"의 표시라 묶음에는 이 고리만 쓴다 —
+          여럿을 고를 때 코로나가 버블마다 돌면 비싸고, 무엇이 중심인지도 흐려진다. 코로나가 뜬 버블에는
+          겹쳐 그리지 않는다. 모양은 말풍선 원·앱 노드의 고른 표시와 같은 말(흰 고리 + 제 색 번짐)이고,
+          늘 깔아 두고 투명도만 바꿔 들고 날 때 모두 부드럽다. 클릭은 통과시킨다. */}
+      {!overlayMode && (
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute -inset-[3px] z-[14] rounded-full transition-opacity duration-150 ease-out ${
+            inGroup && !showSelectRing ? 'opacity-100' : 'opacity-0'
+          }`}
+          // §4 앱 테마 — 고리는 "앞쪽" 색(white)이다. 기본 테마에서는 종전 그대로 흰색이고, 라이트 캔버스에서는
+          //   어두워져 밝은 바탕에 묻히지 않는다.
+          style={{ boxShadow: `0 0 0 2px var(--color-white), 0 0 0 5px ${style.glow}4D, 0 0 14px 2px ${style.glow}59` }}
         />
       )}
 

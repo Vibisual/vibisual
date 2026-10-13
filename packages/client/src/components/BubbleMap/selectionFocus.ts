@@ -44,8 +44,13 @@ export function selectionFocusIds(
   const visible = nodes.filter((node) => !node.hidden);
   const center = visible.filter((node) => selectionIdentity(node, currentFolderId) === selectionId);
   // Native multi-selection is an editing gesture: do not put any member in the background.
-  const nativeSelection = visible.filter((node) => node.type === 'bubble' && node.selected);
-  if (nativeSelection.length > 1) return [];
+  // §6 — every node kind joins the group now (app/capture/play… too), so count *logical* selections:
+  // a play bubble's button and preview are one selection drawn twice, not a multi-selection.
+  const nativeSelection = new Set<string>();
+  for (const node of visible) {
+    if (node.selected) nativeSelection.add(selectionIdentity(node, currentFolderId) ?? node.id);
+  }
+  if (nativeSelection.size > 1) return [];
   // Pointer-up intent precedes React Flow's click selection. Treating that temporary mismatch as a
   // marquee releases every dimmed node mid-fade. Marquee start clears intent in SelectionFocusFlow.
   return center.map((node) => node.id);

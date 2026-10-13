@@ -11,9 +11,10 @@
  *    옮길 때 그 상자를 출력 화면 안으로 담아(contain) 배치하고 좌표만 비례로 옮긴다.
  * 2. **스탬프 SVG 를 복제하지 않는다.** 스탬프는 카탈로그 기본 치수를 가진 라벨 도형으로
  *    내린다. 복제하면 보드와 영상에 같은 그림이 두 벌 생기고, 그 순간부터 어긋나기 시작한다.
- * 3. **시각은 절대 초로 적는다.** 이 문서의 컷은 고정 격자이고 자막 큐는 스키마상 절대
- *    시각이라(§5.13 (D) `CaptionCue.start/end`), 아이템만 상대 앵커로 두면 나중에 컷을
- *    하나 끼울 때 그림과 자막이 서로 다른 곳으로 밀린다. 둘을 같은 좌표계에 둔다.
+ * 3. **컷 하나 = 장면 하나** (§5.13 (V) 37-4). 컷마다 장면(`sb-<frameId>`)을 세우고 그 컷의 아이템은 `{ chapter }` 앵커 +
+ *    `chapterId` 로 묶는다 — 스튜디오의 장면 구슬 줄·기획 카드가 콘티를 그대로 받고, 장면 순서를 바꾸면 그림이 따라간다.
+ *    자막 큐는 스키마상 절대 시각이라(§5.13 (D) `CaptionCue.start/end`) 장면 시작과 같은 값으로 적는다 — 장면이 겹치지 않고
+ *    차례로 서므로 처음에는 둘이 같고, 스튜디오에서 장면을 옮기면 편집 경로(`withCaptionTimingOps`)가 큐를 함께 민다.
  */
 
 import type { ContiElement, ContiFrame, StoryboardPreset } from '@vibisual/shared';
@@ -25,7 +26,7 @@ import {
   STORYBOARD_MAX_ITEMS,
   STORYBOARD_VISUAL_TRACK,
 } from './constants.js';
-import type { VideoDoc, VideoDocOp, VideoItem } from './types.js';
+import type { TimeAnchor, VideoChapter, VideoDoc, VideoDocOp, VideoItem } from './types.js';
 
 /** 콘티 좌표계 — 프리셋과 무관하게 고정이다. */
 const VB_W = CONTI_DEFAULTS.viewBoxWidth;
@@ -148,17 +149,42 @@ export function buildStoryboardOps(args: StoryboardBuildArgs): VideoDocOp[] {
     return id;
   };
 
+  // §5.13 (V) 37-4 — 컷 하나 = 장면 하나. 장면 id 는 컷에서 파생한다(같은 콘티를 다시 넘기면 같은 id — 대조가 된다).
+  const chapterIds = new Set<string>();
+  const chapterIdOfFrame = frames.map((frame) => {
+    const base = `sb-${frame.id}`;
+    let id = base;
+    for (let n = 2; chapterIds.has(id); n += 1) id = `${base}-${n}`;
+    chapterIds.add(id);
+    return id;
+  });
+  const chapters: VideoChapter[] = frames.map((frame, index) => {
+    const brief = frame.action.trim();
+    return {
+      id: chapterIdOfFrame[index] ?? `sb-${index + 1}`,
+      title: frame.title.trim(),
+      duration: preset.secondsPerFrame,
+      status: 'done',
+      ...(brief !== '' ? { brief } : {}),
+    };
+  });
+  if (chapters.length > 0) ops.push({ op: 'setChapters', chapters });
+
   let count = 0;
+  /** 지금 옮기는 컷의 장면 — 그 컷의 아이템은 장면 시작(+0)에 서고 `chapterId` 로 소속을 적는다. */
+  let chapterId = '';
   const push = (trackId: string, item: VideoItem): void => {
     if (count >= STORYBOARD_MAX_ITEMS) return;
     count += 1;
-    ops.push({ op: 'addItem', trackId, item });
+    const at: TimeAnchor = { chapter: chapterId };
+    ops.push({ op: 'addItem', trackId, item: { ...item, at, chapterId } });
   };
 
   frames.forEach((frame, index) => {
     const start = round3(index * preset.secondsPerFrame);
     const duration = preset.secondsPerFrame;
     const base = `sb-${frame.id}`;
+    chapterId = chapterIdOfFrame[index] ?? base;
 
     // 바탕 — transform 을 비우면 문서 전체 크기가 된다.
     push(STORYBOARD_VISUAL_TRACK, {

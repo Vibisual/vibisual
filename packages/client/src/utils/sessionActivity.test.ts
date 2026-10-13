@@ -87,7 +87,7 @@ describe('live line stall', () => {
   it('stalls a running line only once the silence reaches the threshold', () => {
     expect(liveLineStalled('working', LIMIT - 1)).toBe(false);
     expect(liveLineStalled('working', LIMIT)).toBe(true);
-    expect(liveLineStalled('thinking', LIMIT + 60_000)).toBe(true);
+    expect(liveLineStalled('working', LIMIT + 60_000)).toBe(true);
   });
 
   it('never stalls a line that is only queued, or one without a clock', () => {
@@ -100,7 +100,6 @@ describe('live line stall', () => {
   // command must keep looking like it is working.
   it('never stalls while a hidden turn runs, however long it takes', () => {
     expect(liveLineStalled('working', LIMIT * 3, true)).toBe(false);
-    expect(liveLineStalled('thinking', LIMIT * 3, true)).toBe(false);
   });
 });
 
@@ -208,12 +207,13 @@ describe('compacting mode', () => {
     ...command(subAgentId, 265_000), id: `silent-${subAgentId}`, silent: true, text: '/compact',
   });
 
-  it('picks the mode in one place: waiting beats compacting, compacting beats thinking and working', () => {
-    expect(liveLineMode(true, true, true)).toBe('waiting');
-    expect(liveLineMode(false, true, true)).toBe('compacting');
-    expect(liveLineMode(false, true, false)).toBe('compacting');
-    expect(liveLineMode(false, false, true)).toBe('thinking');
-    expect(liveLineMode(false, false, false)).toBe('working');
+  // §5.5 #17-24 ⑦ — there is no "thinking" mode any more: a running session reads "working" whatever the last
+  // event was ("thinking… 53m 59s" next to the turn clock read as a stalled session while it was writing files).
+  it('picks the mode in one place: waiting beats compacting, compacting beats working', () => {
+    expect(liveLineMode(true, true)).toBe('waiting');
+    expect(liveLineMode(true, false)).toBe('waiting');
+    expect(liveLineMode(false, true)).toBe('compacting');
+    expect(liveLineMode(false, false)).toBe('working');
   });
 
   it('reads the marker of this session only, and the earliest one for the agent view', () => {

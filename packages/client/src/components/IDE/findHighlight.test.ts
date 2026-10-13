@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { APP_THEME_TOKEN_SPECS } from '@vibisual/shared';
 // CSS 원문은 설정 파일이 넘겨 준다 — `?raw` 도 `import.meta.glob` 도 CSS 에서는 빈 문자열이 온다
 // (`vitest.config.ts` 의 `vibisual:css-source` 주석에 실측과 이유가 있다).
 import indexCss from 'virtual:vibisual-css-source/index';
@@ -58,7 +59,10 @@ describe('검색 하이라이트 — CSS 계약', () => {
     // 사용자 지시의 핵심 — "드래그해서 텍스트 선택한 것처럼". 앰버로 되돌리면 여기서 걸린다.
     const active = highlightBlock('vibisual-find') ?? '';
     expect(active).not.toMatch(/#fbbf24/i); // amber-400
-    expect(active.toLowerCase()).toContain('#2563eb'); // blue-600
+    // §4 앱 테마 — 색은 테마 토큰(`find.match`)으로 칠한다. 기본 테마의 그 값이 선택 톤 파랑이어야 한다
+    //   (고대비 테마만 노랑을 쓴다 — 검정 바탕에서 파랑은 대비가 모자란다).
+    expect(active).toContain('var(--color-vb-find)');
+    expect(APP_THEME_TOKEN_SPECS['find.match'].default.toLowerCase()).toBe('#2563eb'); // blue-600
   });
 });
 

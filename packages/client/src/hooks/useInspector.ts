@@ -14,6 +14,7 @@ import {
   siteHitSummary,
   type SiteProbeResult,
 } from '../utils/inspectorSite.js';
+import { createInspectorHitTest, type InspectorHitTest } from '../utils/inspectorHitTest.js';
 
 export interface InspectorInfo {
   rect: DOMRect;
@@ -46,34 +47,31 @@ interface Target {
 }
 
 /**
- * 마우스 좌표가 iframe 영역 안에 있으면 contentDocument에서 요소를 찾는다.
- * pointer-events: none 상태이므로 elementFromPoint가 iframe을 반환하지 않아
- * bounding rect로 수동 판별한다.
+ * 브라우저가 맨 앞에서 집은 iframe 안의 요소를 찾는다.
+ * 뒤에 가려진 프레임이나 영상 렌더용 프레임은 일반 UI의 선택을 가로채지 않는다.
  *
  * §5.5 #17-27 ⑮ (i) — 문서를 못 읽는(다른 오리진) iframe 도 **건너뛰지 않고** `el: null` 로
  * 돌려준다. 종전에는 여기서 조용히 넘겨, 커서가 미리보기 페이지 위에 있어도 인스펙터는 그
  * 페이지를 못 본 척하고 뒤에 있는 우리 컴포넌트를 집었다(사용자 보고). 페이지에 직접 물어보는
  * 길은 부르는 쪽이 잇는다 — 여기서는 "그 iframe 위다"까지만 말한다.
  */
-function probeIframes(
+function probeIframe(
+  el: Element | null,
   cx: number,
   cy: number,
 ): { el: Element | null; iframeEl: HTMLIFrameElement } | null {
-  const iframes = document.querySelectorAll('iframe');
-  for (const iframe of iframes) {
-    const ir = iframe.getBoundingClientRect();
-    if (cx < ir.left || cx > ir.right || cy < ir.top || cy > ir.bottom) continue;
-    try {
-      const doc = iframe.contentDocument;
-      if (!doc) return { el: null, iframeEl: iframe };
-      const inner = doc.elementFromPoint(cx - ir.left, cy - ir.top);
-      return { el: inner, iframeEl: iframe };
-    } catch {
-      // cross-origin — 문서는 못 읽지만 자리는 안다. 부르는 쪽이 페이지에 물어본다.
-      return { el: null, iframeEl: iframe };
-    }
+  if (el?.tagName !== 'IFRAME') return null;
+  const iframe = el as HTMLIFrameElement;
+  const ir = iframe.getBoundingClientRect();
+  try {
+    const doc = iframe.contentDocument;
+    if (!doc) return { el: null, iframeEl: iframe };
+    const inner = doc.elementFromPoint(cx - ir.left, cy - ir.top);
+    return { el: inner, iframeEl: iframe };
+  } catch {
+    // cross-origin — 문서는 못 읽지만 자리는 안다. 부르는 쪽이 페이지에 물어본다.
+    return { el: null, iframeEl: iframe };
   }
-  return null;
 }
 
 /** 포커스를 우리 문서로 되가져올 때 쓰는 보이지 않는 자리. 한 창에 하나만 만든다. */
@@ -153,8 +151,10 @@ export function useInspector(): {
   const [region, setRegion] = useState<RegionDragState | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState('');
-  const lastElRef = useRef<Element | null>(null);
   const copiedTimer = useRef(0);
+  const hitTest = useRef<InspectorHitTest | null>(null);
+  /** 늦은 iframe 응답이 그 뒤에 누른 요소의 복사를 덮지 않게 한다(Alt 를 떼어도 누름은 유효). */
+  const pickRequest = useRef(0);
   /**
    * §7.11 (G) — Alt 를 누르는 순간 포커스를 **뺏어 온** 프리뷰. Alt 를 떼면 그 자리로 돌려준다.
    *
@@ -185,7 +185,6 @@ export function useInspector(): {
         setInfo(null);
         setCopied(false);
         setRegion(null);
-        lastElRef.current = null;
         giveFocusBack();
       }
       if (e.key === 'Shift') setShiftHeld(false);
@@ -214,7 +213,6 @@ export function useInspector(): {
       setInfo(null);
       setCopied(false);
       setRegion(null);
-      lastElRef.current = null;
       focusStolenFrom.current = null;
     };
     const blur = (): void => {
@@ -223,7 +221,6 @@ export function useInspector(): {
       setInfo(null);
       setCopied(false);
       setRegion(null);
-      lastElRef.current = null;
       // 창 자체가 포커스를 잃었다 — 지금 남의 창으로 포커스를 던지면 안 되므로 표식만 버린다.
       focusStolenFrom.current = null;
     };
@@ -234,8 +231,8 @@ export function useInspector(): {
         try {
           const doc = iframe.contentDocument;
           if (!doc || attachedDocs.has(doc)) return;
-          doc.addEventListener('keydown', down);
-          doc.addEventListener('keyup', up);
+          doc.addEventListener('keydown', down, true);
+          doc.addEventListener('keyup', up, true);
           attachedDocs.add(doc);
         } catch { /* cross-origin — skip */ }
       });
@@ -260,21 +257,24 @@ export function useInspector(): {
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
+    // 입력칸·포털 내부가 키 전파를 막아도 Alt 의 시작과 끝은 먼저 받는다.
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
     window.addEventListener('blur', blur);
     window.addEventListener('message', onPreviewMessage);
     return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
+      pickRequest.current += 1;
+      window.clearTimeout(copiedTimer.current);
+      window.removeEventListener('keydown', down, true);
+      window.removeEventListener('keyup', up, true);
       window.removeEventListener('blur', blur);
       window.removeEventListener('message', onPreviewMessage);
       observer.disconnect();
       trackedIframes.forEach((iframe) => iframe.removeEventListener('load', onIframeLoad));
       attachedDocs.forEach((doc) => {
         try {
-          doc.removeEventListener('keydown', down);
-          doc.removeEventListener('keyup', up);
+          doc.removeEventListener('keydown', down, true);
+          doc.removeEventListener('keyup', up, true);
         } catch { /* doc may be gone */ }
       });
     };
@@ -283,10 +283,11 @@ export function useInspector(): {
   // ── Inspector 활성 시 iframe pointer-events 차단 ──────
   useEffect(() => {
     if (!active) return;
-    const iframes = document.querySelectorAll('iframe');
-    iframes.forEach((f) => { f.style.pointerEvents = 'none'; });
+    const inspectorHitTest = createInspectorHitTest(document);
+    hitTest.current = inspectorHitTest;
     return () => {
-      iframes.forEach((f) => { f.style.pointerEvents = ''; });
+      hitTest.current = null;
+      inspectorHitTest.dispose();
     };
   }, [active]);
 
@@ -303,6 +304,7 @@ export function useInspector(): {
     let remoteBusy = false;
     /** 기다리는 동안 커서가 움직였다면 그 마지막 자리 — 답이 오면 곧바로 다시 묻는다. */
     let remotePending: { x: number; y: number } | null = null;
+    let disposed = false;
 
     // 영역 드래그 상태
     let dragStart: { x: number; y: number; iframeEl: HTMLIFrameElement | null } | null = null;
@@ -332,10 +334,14 @@ export function useInspector(): {
       remoteBusy = true;
       const ir = iframeEl.getBoundingClientRect();
       void probeWorkspaceSite(iframeEl, cx - ir.left, cy - ir.top, target.depthOffset).then((res) => {
+        if (disposed) return;
         remoteBusy = false;
         // 그 사이 Alt 를 떼었거나 다른 곳으로 갔으면 옛 답이다 — 버린다.
-        if (res && target.iframeEl === iframeEl) {
+        if (target.iframeEl === iframeEl) {
           target.remote = res;
+          if (!res) setInfo(null);
+        }
+        if (res && target.iframeEl === iframeEl) {
           const now = iframeEl.getBoundingClientRect();
           const rect = new DOMRect(
             now.left + res.hit.rect.x,
@@ -377,6 +383,58 @@ export function useInspector(): {
     };
     rafId = requestAnimationFrame(syncRect);
 
+    /**
+     * 호버와 클릭은 같은 좌표 판정을 쓴다. 이동 이벤트가 누락되거나 Alt 직후 바로 눌러도
+     * 예전 헤더 전체를 복사하지 않는다. 같은 최하위 요소라면 휠로 고른 부모는 유지한다.
+     */
+    const updateTargetAtPoint = (cx: number, cy: number, probeRemote = true): void => {
+      lastPoint = { x: cx, y: cy };
+
+      const el = hitTest.current?.elementFromPoint(cx, cy) ?? null;
+      // 1) 실제로 맨 앞에 보이는 iframe만 안쪽을 묻는다.
+      const iframeHit = probeIframe(el, cx, cy);
+      if (iframeHit) {
+        // 1-a) 문서를 못 읽는 iframe(미리보기 페이지) — 페이지에 물어본다(⑮ (i)).
+        if (iframeHit.el === null) {
+          if (target.iframeEl !== iframeHit.iframeEl || target.innermost !== null) {
+            target.iframeEl = iframeHit.iframeEl;
+            target.depthOffset = 0;
+            target.remote = null;
+            target.el = null;
+            target.innermost = null;
+            setInfo(null);
+          }
+          if (probeRemote) askPage(iframeHit.iframeEl, cx, cy);
+          return;
+        }
+        if (iframeHit.el === target.innermost && iframeHit.iframeEl === target.iframeEl) return;
+        target.innermost = iframeHit.el;
+        target.iframeEl = iframeHit.iframeEl;
+        target.remote = null;
+        target.depthOffset = 0;  // 새 요소로 이동 시 offset 리셋
+        refreshTargetFromInnermost();
+        return;
+      }
+
+      // 2) 일반 요소
+      if (!el || (el as HTMLElement).closest?.(`#${INSPECTOR_OVERLAY_ID}`)) {
+        setInfo(null);
+        target.el = null;
+        target.iframeEl = null;
+        target.innermost = null;
+        target.remote = null;
+        target.depthOffset = 0;
+        return;
+      }
+
+      if (el === target.innermost && target.iframeEl === null) return;
+      target.innermost = el;
+      target.iframeEl = null;
+      target.remote = null;
+      target.depthOffset = 0;
+      refreshTargetFromInnermost();
+    };
+
     const move = (e: MouseEvent): void => {
       // 드래그 중이면 region만 갱신
       if (dragStart) {
@@ -387,55 +445,7 @@ export function useInspector(): {
         setRegion({ x, y, width, height });
         return;
       }
-
-      lastPoint = { x: e.clientX, y: e.clientY };
-
-      // 1) iframe 영역 안인지 수동 체크
-      const iframeHit = probeIframes(e.clientX, e.clientY);
-      if (iframeHit) {
-        // 1-a) 문서를 못 읽는 iframe(미리보기 페이지) — 페이지에 물어본다(⑮ (i)).
-        if (iframeHit.el === null) {
-          if (target.iframeEl !== iframeHit.iframeEl) {
-            target.iframeEl = iframeHit.iframeEl;
-            target.depthOffset = 0;
-            target.remote = null;
-            target.el = null;
-            target.innermost = null;
-            lastElRef.current = null;
-          }
-          askPage(iframeHit.iframeEl, e.clientX, e.clientY);
-          return;
-        }
-        if (iframeHit.el === lastElRef.current) return;
-        lastElRef.current = iframeHit.el;
-        target.innermost = iframeHit.el;
-        target.iframeEl = iframeHit.iframeEl;
-        target.remote = null;
-        target.depthOffset = 0;  // 새 요소로 이동 시 offset 리셋
-        refreshTargetFromInnermost();
-        return;
-      }
-
-      // 2) 일반 요소
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      if (!el || (el as HTMLElement).closest?.(`#${INSPECTOR_OVERLAY_ID}`)) {
-        setInfo(null);
-        target.el = null;
-        target.iframeEl = null;
-        target.innermost = null;
-        target.remote = null;
-        target.depthOffset = 0;
-        lastElRef.current = null;
-        return;
-      }
-
-      if (el === lastElRef.current) return;
-      lastElRef.current = el;
-      target.innermost = el;
-      target.iframeEl = null;
-      target.remote = null;
-      target.depthOffset = 0;
-      refreshTargetFromInnermost();
+      updateTargetAtPoint(e.clientX, e.clientY);
     };
 
     // 스크롤 휠 → 부모/자식 체인 이동 (A 기능)
@@ -461,13 +471,15 @@ export function useInspector(): {
     };
 
     const handlePointerDown = (e: PointerEvent): void => {
+      const request = ++pickRequest.current;
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
 
       // Shift+Alt+드래그 → 영역 선택 모드 시작 (B 기능)
       if (e.shiftKey) {
-        const iframeHit = probeIframes(e.clientX, e.clientY);
+        const el = hitTest.current?.elementFromPoint(e.clientX, e.clientY) ?? null;
+        const iframeHit = probeIframe(el, e.clientX, e.clientY);
         dragStart = {
           x: e.clientX,
           y: e.clientY,
@@ -477,34 +489,18 @@ export function useInspector(): {
         return;
       }
 
-      // ⑮ (i) — 페이지 요소를 이미 집어 두었으면 그 답을 그대로 쓴다(왕복 없이 즉시 복사).
-      if (target.remote) {
-        void copyAndFlash(
-          buildSiteClipboardText(target.remote.hit, target.remote.url),
-          siteHitSummary(target.remote.hit),
-        );
-        return;
-      }
+      updateTargetAtPoint(e.clientX, e.clientY, false);
 
-      // 기존: 요소 클릭 → 복사
-      if (!target.el) {
-        const iframeHit = probeIframes(e.clientX, e.clientY);
-        if (iframeHit && iframeHit.el === null) {
-          // Alt 를 누르자마자 움직이지 않고 눌렀다 — 답을 받고 나서 복사한다(⑮ (i)).
-          const ir = iframeHit.iframeEl.getBoundingClientRect();
-          void probeWorkspaceSite(iframeHit.iframeEl, e.clientX - ir.left, e.clientY - ir.top, 0)
-            .then((res) => {
-              if (!res) return;
-              void copyAndFlash(buildSiteClipboardText(res.hit, res.url), siteHitSummary(res.hit));
-            });
-          return;
-        }
-        if (iframeHit?.el) {
-          target.innermost = iframeHit.el;
-          target.iframeEl = iframeHit.iframeEl;
-          target.depthOffset = 0;
-          refreshTargetFromInnermost();
-        }
+      // 다른 오리진 페이지도 클릭 좌표를 새로 묻는다 — 이전 호버 응답을 복사하지 않는다.
+      if (!target.el && target.iframeEl) {
+        const iframe = target.iframeEl;
+        const ir = iframe.getBoundingClientRect();
+        void probeWorkspaceSite(iframe, e.clientX - ir.left, e.clientY - ir.top, target.depthOffset)
+          .then((res) => {
+            if (!res || request !== pickRequest.current) return;
+            void copyAndFlash(buildSiteClipboardText(res.hit, res.url), siteHitSummary(res.hit));
+          });
+        return;
       }
       if (!target.el) return;
 
@@ -591,14 +587,15 @@ export function useInspector(): {
       e.stopImmediatePropagation();
     };
 
-    document.addEventListener('mousemove', move);
+    document.addEventListener('mousemove', move, true);
     document.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('pointerup', handlePointerUp, true);
     document.addEventListener('click', blockClick, true);
     document.addEventListener('wheel', handleWheel, { capture: true, passive: false });
     return () => {
+      disposed = true;
       cancelAnimationFrame(rafId);
-      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mousemove', move, true);
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('pointerup', handlePointerUp, true);
       document.removeEventListener('click', blockClick, true);

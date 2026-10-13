@@ -7,11 +7,14 @@ export const ENGINES: AgentEngineKind[] = ['claude', 'codex', 'local'];
 /**
  * 제공자 탭 줄. 탭은 **보기만 바꾼다**(§5.25 (C)) — 메인 제공자를 바꾸는 것은 `showSetMain` 을 켠 자리의
  * [기본으로 설정] 하나다. tablist 안에는 tab 만 두므로 그 버튼은 바깥, 같은 줄 오른쪽 끝에 선다.
+ *
+ * `engines` — 보일 탭(기본 세 엔진 전부). 옵션창 버전 칸처럼 일부만 뜻이 있는 자리는 그 몇만 넘긴다.
+ * `labelOf` — 탭 이름(기본 제공자 이름 `providers.*`). 실행본 버전을 말하는 버전 칸은 제품 이름으로 부른다.
  */
-export function ProviderTabs({ value, onChange, disabled = false, showSetMain = false }: { value: AgentEngineKind; onChange: (engine: AgentEngineKind) => void; disabled?: boolean; showSetMain?: boolean }): React.JSX.Element {
+export function ProviderTabs({ value, onChange, disabled = false, showSetMain = false, engines = ENGINES, labelOf }: { value: AgentEngineKind; onChange: (engine: AgentEngineKind) => void; disabled?: boolean; showSetMain?: boolean; engines?: readonly AgentEngineKind[]; labelOf?: (engine: AgentEngineKind) => string }): React.JSX.Element {
   const { t } = useTranslation();
   return <div className="mb-4 flex flex-wrap items-center gap-2">
-    <div role="tablist" aria-label={t('providers.provider')} className="flex gap-2">{ENGINES.map(engine => <button type="button" role="tab" aria-selected={engine === value} key={engine} disabled={disabled} onClick={() => onChange(engine)} className={`flex items-center gap-2 rounded border px-3 py-2 text-xs disabled:opacity-40 ${engine === value ? 'border-blue-500 bg-blue-500/15 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800'}`}><EngineIcon kind={engine} className="h-4 w-4" />{t(`providers.${engine}`)}</button>)}</div>
+    <div role="tablist" aria-label={t('providers.provider')} className="flex gap-2">{engines.map(engine => <button type="button" role="tab" aria-selected={engine === value} key={engine} disabled={disabled} onClick={() => onChange(engine)} className={`flex items-center gap-2 rounded border px-3 py-2 text-xs disabled:opacity-40 ${engine === value ? 'border-blue-500 bg-blue-500/15 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800'}`}><EngineIcon kind={engine} className="h-4 w-4" />{labelOf ? labelOf(engine) : t(`providers.${engine}`)}</button>)}</div>
     {showSetMain && <SetMainProvider engine={value} />}
   </div>;
 }

@@ -231,8 +231,8 @@ export function usePhysicsLayout(
       const pid = parentMap.current.get(node.id) ?? null;
       const measuredW = node.measured?.width;
       const w = (measuredW ?? node.width ?? 70);
-      // §5.4 #36 (A) — 정사각이 아닌 버블 노드(커스텀 에이전트의 입력 카드)는 **사각 바디**다. 원으로 재면
-      //   판 아래로 (가로-세로)/2 만큼 빈 원이 생겨 이웃을 이유 없이 밀어낸다. 1px 은 측정 반올림으로 본다.
+      // §5.4 #36 (A) — 정사각이 아닌 버블 노드(커스텀 에이전트의 말풍선)는 **사각 바디**다. 원으로 재면
+      //   상자 아래로 (가로-세로)/2 만큼 빈 원이 생겨 이웃을 이유 없이 밀어낸다. 1px 은 측정 반올림으로 본다.
       const h = node.measured?.height ?? (typeof node.height === 'number' ? node.height : w);
       const rect = Math.abs(h - w) > 1;
       const r = w / 2;
@@ -268,7 +268,7 @@ export function usePhysicsLayout(
             const parentNode = nodes.find((n) => n.id === pid);
             if (parentNode) {
               const pw = (parentNode.measured?.width ?? parentNode.width ?? 70);
-              // 부모가 입력 카드(§5.4 #36)면 세로 중심은 판 높이의 반이다.
+              // 부모가 말풍선(§5.4 #36)이면 세로 중심은 상자 높이의 반이다.
               const ph = parentNode.measured?.height ?? (typeof parentNode.height === 'number' ? parentNode.height : pw);
               old.offsetX = cx - (parentNode.position.x + pw / 2);
               old.offsetY = cy - (parentNode.position.y + ph / 2);

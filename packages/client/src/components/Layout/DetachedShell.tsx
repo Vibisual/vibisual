@@ -236,7 +236,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
         className={`flex h-full w-full flex-col items-stretch justify-center gap-0.5 select-none px-3 py-1 ${
           hovering
             ? 'bg-blue-600/90 ring-2 ring-blue-300/80'
-            : 'bg-[#1f2937] ring-1 ring-amber-400/50 shadow-lg shadow-black/60'
+            : 'bg-vb-raised ring-1 ring-amber-400/50 shadow-lg shadow-black/60'
         } rounded-md`}
         onPointerDown={handlePointerDown}
       >
@@ -275,7 +275,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     <div
       data-tab-key={tabKey}
       data-detached-titlebar="1"
-      className="flex h-9 flex-shrink-0 items-stretch border-b border-black/40 bg-[#1f2937] select-none"
+      className="flex h-9 flex-shrink-0 items-stretch border-b border-black/40 bg-vb-raised select-none"
     >
       {/* (a) 좌측 redock-trigger zone — 컨텐츠 폭만큼만 (flex-shrink-0). */}
       <div

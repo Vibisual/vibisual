@@ -105,10 +105,13 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
 });
 
 describe('Codex 모델 — Standard API 환산 단가', () => {
-  // Official pricing / individual model pages, checked 2026-09-21.
+  // Official pricing / individual model pages, checked 2026-10-13.
   // [model ID, input, output, cached input, separate cache writes] per 1M tokens.
   const TABLE: ReadonlyArray<readonly [string, number, number, number, number]> = [
     ['gpt-6-astra', 10, 50, 1, 12.5],
+    ['gpt-6.1-sol', 2, 10, 0.1, 2.5],
+    ['gpt-6-sol', 2, 10, 0.2, 2.5],
+    ['gpt-6-luna', 0.1, 0.5, 0.01, 0.125],
     ['gpt-5.6-sol', 4, 20, 0.4, 5],
     ['gpt-5.6-terra', 2, 12, 0.2, 2.5],
     ['gpt-5.6-luna', 0.2, 1.2, 0.02, 0.25],

@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
+import { useLoginXtermTheme } from '../../theme/xtermTheme.js';
 
 /**
  * §4 v4.82 — 로그인 팝업의 터미널 폴백.
@@ -17,13 +18,8 @@ import { getTerminalTransport } from '../../transport/terminalTransport.js';
  * 최소 기능만.
  */
 
-const THEME = {
-  background: '#030712',
-  foreground: '#e5e7eb',
-  cursor: '#a78bfa',
-  cursorAccent: '#030712',
-  selectionBackground: 'rgba(139, 92, 246, 0.35)',
-} as const;
+// §4 앱 테마 — 색표는 고른 테마에서 온다(`useLoginXtermTheme` — 창 바탕 · gray-200 · violet). 종전의 고정 값
+// (#030712 바탕 · #e5e7eb 글자 · 보라 커서)은 기본 테마를 풀면 나오는 값과 같은 자리다.
 
 interface LoginTerminalProps {
   termId: string;
@@ -39,6 +35,14 @@ interface LoginTerminalProps {
 export function LoginTerminal({ termId, command, env }: LoginTerminalProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const transport = useMemo(() => getTerminalTransport(), []);
+  // 만드는 순간의 색은 ref 로 읽고(테마를 바꿨다고 재부착하지 않게), 바뀌면 떠 있는 터미널에 얹는다.
+  const xtermTheme = useLoginXtermTheme();
+  const xtermThemeRef = useRef(xtermTheme);
+  xtermThemeRef.current = xtermTheme;
+  const termRef = useRef<Terminal | null>(null);
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = { ...xtermTheme };
+  }, [xtermTheme]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -51,9 +55,10 @@ export function LoginTerminal({ termId, command, env }: LoginTerminalProps): Rea
       fontSize: 12,
       cursorBlink: true,
       convertEol: false,
-      theme: THEME,
+      theme: { ...xtermThemeRef.current },
       scrollback: 2_000,
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
@@ -98,6 +103,7 @@ export function LoginTerminal({ termId, command, env }: LoginTerminalProps): Rea
       offData();
       offExit();
       keySub.dispose();
+      if (termRef.current === term) termRef.current = null;
       term.dispose();
     };
   }, [transport, termId, command, env]);

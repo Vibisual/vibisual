@@ -5,13 +5,35 @@
  * 한 곳에서 보여야 한다.
  */
 
-/** 문서 스키마 버전. 올릴 때는 로드 시 마이그레이션을 함께 넣는다(§5.13 (I)). */
-export const VIDEO_SCHEMA_VERSION = 1;
+/**
+ * 문서 스키마 버전. 올릴 때는 로드 시 마이그레이션을 함께 넣는다(§5.13 (I)).
+ *
+ * 2 — §5.13 (T-1) `composition` 아이템·소재 종류. 1 → 2 는 모양이 그대로라 마이그레이션이 없다(옛 문서는 그대로 읽힌다).
+ * 올리는 이유는 옛 앱이 composition 이 든 문서를 "모르는 종류"로 조용히 버리지 않고 "앱을 업데이트하세요"로 말하게 하려는 것.
+ *
+ * 3 — §5.13 (V) 37-4 장면 층(`chapters`·`chapterId`·`{chapter}` 앵커) + (T-8) 표지 앵커(`{cue,item}`) + 갈래(`variantId`)
+ * + 문서 `style`. 2 → 3 도 더하기만이라 마이그레이션이 없다(옛 문서는 그대로 읽힌다).
+ */
+export const VIDEO_SCHEMA_VERSION = 3;
 
 /** 프로젝트 폴더 안에서 이 앱이 쓰는 자리(§3.5 프로젝트 독립성). */
 export const VIDEO_DIR = 'video';
 export const VIDEO_OUT_DIR = 'video/out';
 export const VIDEO_CACHE_DIR = 'video/cache';
+/** §5.13 (T-1) — 컴포지션 폴더의 기본 자리(`.vibisual/` 아래). */
+export const VIDEO_COMPOSITIONS_DIR = 'video/compositions';
+/** §5.13 (T-6) — 사용자가 들여놓은 라이브러리·글꼴 자리(`.vibisual/` 아래). 컴포지션이 함께 읽을 수 있는 두 번째 뿌리. */
+export const VIDEO_LIBS_DIR = 'video/libs';
+/**
+ * 가져온 소재 자리(`.vibisual/` 아래). §5.13 (V) 37-5 — 컴포지션의 '그림' 값이 문서 소재를 가리킬 수 있게 세 번째 뿌리로도
+ * 내준다(웹 그림 형식만 — 영상·소리 파일은 내주지 않는다, (T-3) ②).
+ */
+export const VIDEO_ASSETS_DIR = 'video/assets';
+/**
+ * §5.13 (G)(T-9) — 에이전트가 자기 결과를 눈으로 보도록 스틸·프레임 띠를 써 두는 자리(`.vibisual/` 아래).
+ * 같은 문서·같은 시각이면 같은 파일을 **덮어쓴다** — 지우는 코드 없이도 끝없이 쌓이지 않는다((K) 자동 삭제 ❌).
+ */
+export const VIDEO_REVIEW_DIR = 'video/review';
 
 /** 새 문서 기본값. */
 export const DEFAULT_VIDEO_SIZE = { width: 1920, height: 1080 } as const;
@@ -58,3 +80,147 @@ export const STORYBOARD_MAX_ITEMS = 1200;
 
 /** 판넬 바깥 여백 — 출력 짧은 변 대비 비율. */
 export const STORYBOARD_MARGIN_RATIO = 0.045;
+
+// ─── §5.13 (T) 코드 컴포지션 ───
+
+/**
+ * 가상 프레임 콜백의 고정 틱(Hz) — 출력 fps 와 떼어 낸다(T-2). rAF 마다 고정량을 더하는 코드는 브라우저의 60Hz 를
+ * 전제로 쓰여 있어, 출력 프레임마다 부르면 30fps 문서에서 절반 속도가 된다.
+ */
+export const COMPOSITION_RAF_HZ = 60;
+
+/** 컴포지션 한 장을 맞추는 데 기다리는 상한(ms). 넘으면 어느 아이템이 몇 초에서 멈췄는지 말한다. */
+export const COMPOSITION_SEEK_TIMEOUT_MS = 10_000;
+
+/** 컴포지션 문서가 처음 뜨기를 기다리는 상한(ms). */
+export const COMPOSITION_LOAD_TIMEOUT_MS = 15_000;
+
+/** 가상 시계의 0초가 가리키는 날짜(2026-01-01T00:00:00Z) — `Date.now()` 도 문서마다 같은 값을 낸다(결정성). */
+export const COMPOSITION_CLOCK_EPOCH = 1_767_225_600_000;
+
+/** 컴포지션 폴더에서 내주는(=읽을 수 있는) 웹 형식. 나머지는 뿌리 안에 있어도 내주지 않는다(T-3 ②). */
+export const COMPOSITION_WEB_EXTENSIONS: readonly string[] = [
+  '.html', '.htm', '.js', '.mjs', '.css', '.json', '.svg',
+  '.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif',
+  '.woff2', '.woff', '.ttf', '.otf',
+];
+
+/** 컴포지션 지문·결정성 검사에서 훑는 파일 수 상한(폴더가 크면 앞에서부터 이만큼). */
+export const COMPOSITION_SCAN_MAX_FILES = 400;
+
+/** 결정성 검사가 한 파일에서 읽는 바이트 상한 — 압축된 큰 라이브러리를 통째로 훑지 않는다. */
+export const COMPOSITION_SCAN_MAX_BYTES = 2 * 1024 * 1024;
+
+/** 뼈대 컴포지션의 기본 길이(초). */
+export const COMPOSITION_DEFAULT_DURATION = 5;
+
+// ─── §5.13 (G)(T-4)(T-9) 스틸 · 프레임 띠 · 일꾼 ───
+
+/** 스틸 요청이 응답을 기다리는 최대 시간(ms). 숨은 일꾼 창을 처음 띄우는 몫까지 포함한다. */
+export const STILL_TIMEOUT_MS = 45_000;
+
+/** 프레임 띠의 기본 칸 수와 상한. */
+export const STRIP_DEFAULT_FRAMES = 8;
+export const STRIP_MAX_FRAMES = 24;
+
+/** 프레임 띠 한 장의 최대 변(px). 칸은 이 안의 격자로 붙는다. */
+export const STRIP_MAX_EDGE = 1600;
+
+/** 프레임 띠 요청이 기다리는 최대 시간(ms) — 칸 수만큼 찍어야 해서 스틸보다 길다. */
+export const STRIP_TIMEOUT_MS = 120_000;
+
+/**
+ * 집어 간 일감이 진행을 알려야 하는 간격 상한(ms) — 임대(T-4). 넘기면 일꾼이 죽은 것으로 보고 그 일감을 오류로 닫는다
+ * (`running` 으로 영원히 굳지 않게). 일꾼은 이보다 훨씬 짧게(`JOB_HEARTBEAT_MS`) 진행을 보낸다.
+ */
+export const JOB_LEASE_MS = 90_000;
+export const JOB_HEARTBEAT_MS = 5_000;
+
+/** 일감이 없을 때 숨은 일꾼 창이 스스로 닫히기까지(ms) — 안 쓰면 0(P-1). */
+export const WORKER_IDLE_MS = 120_000;
+
+// ─── §5.13 (V) 스튜디오 개편 ───
+
+/** §5.13 (V) 37-3 — 판 기록 자리(`.vibisual/` 아래 `<docId>/`). 자동 삭제 코드는 없다((K)). */
+export const VIDEO_HISTORY_DIR = 'video/history';
+/** §5.13 (V) 37-7 — 메모 핀 자리(`.vibisual/` 아래 `<docId>.json`). */
+export const VIDEO_NOTES_DIR = 'video/notes';
+/** §5.13 (V) 37-10 — 프로젝트 스타일 카드(`.vibisual/` 아래). */
+export const VIDEO_STYLE_FILE = 'video/style.json';
+/** §5.13 (V) 37-10 — 스타일 글꼴·로고 사본 자리(라이브러리 뿌리 안 — 컴포지션이 읽을 수 있다). */
+export const VIDEO_STYLE_ASSET_DIR = 'video/libs/style';
+/** §5.13 (V) 37-11 — 부품 자리(우리 부품의 사본·내 부품·썸네일). */
+export const VIDEO_PARTS_DIR = 'video/parts';
+
+/** §5.13 (V) 37-3 — 판 기록 한 줄의 요청 글 상한(글자). 긴 요청은 앞부분만 남긴다(목록이 부풀지 않게). */
+export const HISTORY_REQUEST_MAX_CHARS = 600;
+/** §5.13 (V) 37-3 — 바퀴 보고의 요약·제안·경고 상한. */
+export const PASS_SUMMARY_MAX_CHARS = 2000;
+export const PASS_LIST_MAX_ITEMS = 12;
+export const PASS_LIST_ITEM_MAX_CHARS = 400;
+
+/** §5.13 (V) 37-15 — 판형 셋. 출력 프리셋(쇼츠·가로·정사각)도 이 표를 쓴다. */
+export const VIDEO_FORMATS = {
+  landscape: { width: 1920, height: 1080 },
+  portrait: { width: 1080, height: 1920 },
+  square: { width: 1080, height: 1080 },
+} as const;
+
+/** §5.13 (V) 37-2 — 시작 화면의 길이 칩(초). */
+export const START_LENGTH_CHOICES: readonly number[] = [15, 30, 60];
+
+/** §5.13 (T-8) — 컴포지션 하나에서 모으는 신호 표지 상한(파티클마다 부르는 코드가 문서를 부풀리지 않게). */
+export const COMPOSITION_CUES_MAX = 500;
+/** §5.13 (T-8) — 표지 모으기 일감(렌더 줄 — 끝까지 한 번 흘린다)을 기다리는 상한(ms). */
+export const CUES_TIMEOUT_MS = 180_000;
+
+/** §5.13 (V) 37-9 — 프레임 검수 일감(`frames=1`)을 기다리는 상한(ms) — 표본 여러 장을 찍는다. */
+export const REVIEW_TIMEOUT_MS = 150_000;
+/** §5.13 (V) 37-9 — 프레임 검수 표본 수 상한. */
+export const REVIEW_MAX_SAMPLES = 24;
+
+/** §5.13 (V) 37-8 — 전환 길이 범위(초)와 기본값. */
+export const TRANSITION_MIN_SECONDS = 0.2;
+export const TRANSITION_MAX_SECONDS = 1.5;
+export const TRANSITION_DEFAULT_SECONDS = 0.5;
+
+/**
+ * §5.13 (W) 38-2 — 렌더가 나눠 쓰는 숨은 캡처 창 수(상한). 실제 수는 논리 코어 절반을 넘지 않는다 — 창 하나가 렌더러
+ * 프로세스 하나다.
+ */
+export const VIDEO_CAPTURE_SESSIONS = 3;
+/** §5.13 (W) 38-2 — 세션마다 앞질러 찍어 두는 프레임 수(날 비트맵이 메모리에 머무는 상한). */
+export const VIDEO_CAPTURE_LOOKAHEAD_PER_SESSION = 2;
+/**
+ * §5.13 (W) 38-1 — 숨은 렌더 창의 크기 상한(DIP). Windows 는 창을 화면 작업 영역으로 줄인다(실측: 1920×1080 → 1707×912) —
+ * 최대 크기를 이만큼 연 뒤 내용 크기를 다시 준다.
+ */
+export const OFFSCREEN_MAX_EDGE = 16_384;
+
+/** §5.13 (W) 38-4 — [강조 줌]: 이만큼 키우고(배율), 오르내리는 데 걸리는 초, 유지하는 초. */
+export const PUNCH_IN_SCALE = 1.15;
+export const PUNCH_IN_RAMP_SECONDS = 0.3;
+export const PUNCH_IN_HOLD_SECONDS = 1.2;
+/** §5.13 (W) 38-4 — [천천히 밀기]: 아이템 길이 동안 이 배율까지. */
+export const SLOW_PUSH_SCALE = 1.08;
+
+/**
+ * §5.13 (W) 38-5 — 이름 붙은 색 룩(우리가 정한 값). 값의 뜻은 `color` 이펙트와 같다(곱 1 = 그대로, `temperature` -1~1,
+ * `vignette` 0~1). 새 룩은 여기 한 줄로만.
+ */
+export const VIDEO_LOOKS = {
+  warm: { temperature: 0.45, saturation: 1.08, contrast: 1.04 },
+  cool: { temperature: -0.45, saturation: 0.96, contrast: 1.04 },
+  mono: { saturation: 0, contrast: 1.12 },
+  vivid: { saturation: 1.3, contrast: 1.1 },
+  fade: { contrast: 0.86, brightness: 1.06, saturation: 0.85 },
+  cinematic: { contrast: 1.14, saturation: 0.9, temperature: -0.12, vignette: 0.35 },
+} as const satisfies Readonly<Record<string, Readonly<Partial<Record<'brightness' | 'contrast' | 'saturation' | 'hue' | 'temperature' | 'vignette', number>>>>>;
+export type VideoLookName = keyof typeof VIDEO_LOOKS;
+
+/** §5.13 (W) 38-6 — 낱말만 있는 받아쓰기를 자막 큐로 묶는 기준: 이만큼 쉬면 끊고, 글자 수·길이를 넘으면 끊는다. */
+export const CAPTION_GROUP_PAUSE_SECONDS = 0.6;
+export const CAPTION_GROUP_MAX_CHARS = 42;
+export const CAPTION_GROUP_MAX_SECONDS = 7;
+/** §5.13 (W) 38-6 — 에이전트가 가져오는 자막 파일 크기 상한(바이트). */
+export const CAPTION_IMPORT_MAX_BYTES = 8 * 1024 * 1024;

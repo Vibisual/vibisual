@@ -1,7 +1,11 @@
 import { isCursorDeepInside, stepRedockDwell } from '@vibisual/shared';
 import { acceptReportedSize, movedBounds, type OverlaySize } from './overlaySize';
 
-export interface AppWindowPlacement { width: number; height: number; x?: number; y?: number }
+/**
+ * 밖에 뜰 앱 창의 크기·자리. `fromGhost` 면 §5.13 (S-10) 끌어낸 판이라 선(가상 창)이 손을 뗀 자리에
+ * 멈춰 서 있다 — 창은 x/y 대신 그 선의 자리·크기에 선다(렌더러 좌표는 배율이 다른 모니터에서 어긋난다).
+ */
+export interface AppWindowPlacement { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }
 export interface AppWindowGeometry { x: number; y: number; w: number; h: number }
 interface Bounds { x: number; y: number; width: number; height: number }
 
@@ -34,6 +38,12 @@ export interface AppTransferEntry {
   size: OverlaySize;
   writtenAt: number;
 }
+
+/**
+ * §5.13 (S-11) 밖에 떠 있는 앱 창 하나와 **그 창이 지금 보는 대상**(앱 화면 파라미터 그대로).
+ * 본체는 이 목록으로 "그 문서가 이미 밖에 떠 있다"를 판정한다 — 떠 있으면 앱 안에 한 벌 더 세우지 않는다.
+ */
+export interface AppWindowListItem { windowId: number; appId: string; params: Record<string, string> }
 
 interface Drag {
   entry: AppTransferEntry;
@@ -73,6 +83,8 @@ export interface AppWindowTransferHost {
   hideGhost(): unknown;
   /** Native release detection covers lost renderer capture; null means unavailable. */
   primaryPressed?(): boolean | null;
+  /** §5.13 (S-11) 창이 서고 닫히거나 보는 대상이 바뀌었다 — 목록(`list`)을 다시 알릴 때. */
+  changed?(): void;
 }
 
 const DRAG_POLL_MS = 16;
@@ -89,7 +101,10 @@ export class AppWindowTransfers {
 
   constructor(private readonly host: AppWindowTransferHost) {}
 
-  register(entry: AppTransferEntry): void { this.entries.set(entry.window.id, entry); }
+  register(entry: AppTransferEntry): void {
+    this.entries.set(entry.window.id, entry);
+    this.host.changed?.();
+  }
 
   unregister(windowId: number): void {
     const entry = this.entries.get(windowId);
@@ -98,12 +113,14 @@ export class AppWindowTransfers {
     this.cancelPending(entry);
     this.stopDrag(entry, true);
     this.entries.delete(windowId);
+    this.host.changed?.();
   }
 
   updateTarget(windowId: number, params: Record<string, string>): boolean {
     const entry = this.entries.get(windowId);
     if (!entry) return false;
     entry.params = { ...params };
+    this.host.changed?.();
     return true;
   }
 
@@ -115,6 +132,17 @@ export class AppWindowTransfers {
     this.stopDrag(entry, true);
     entry.params = { ...params };
     entry.origin = origin;
+    this.host.changed?.();
+  }
+
+  /** §5.13 (S-11) 지금 밖에 떠 있는 앱 창과 그 창이 보는 대상 — 사본이라 받는 쪽이 고쳐도 장부는 그대로다. */
+  list(): AppWindowListItem[] {
+    const out: AppWindowListItem[] = [];
+    for (const entry of this.entries.values()) {
+      if (entry.window.isDestroyed()) continue;
+      out.push({ windowId: entry.window.id, appId: entry.appId, params: { ...entry.params } });
+    }
+    return out;
   }
 
   /** Reusing a native window must not overwrite an editor until its dirty-document guard agrees. */
@@ -158,6 +186,23 @@ export class AppWindowTransfers {
       this.targets.delete(id);
       pending.reject(new Error(message));
     }
+  }
+
+  /**
+   * §5.13 (S-10) 이미 떠 있는 이 창을 **그 자리·그 크기로** 옮긴다 — 앱 안 창을 끌어내 놓은 판이라,
+   * 다시 쓰는 창도 선(가상 창)이 서 있던 곳에 서야 한다(놓은 곳과 다른 데서 나타나면 "놓았는데 엉뚱한
+   * 창이 떴다"로 읽힌다). 크기는 장부를 먼저 적고 쓴다 — 창에 되묻지 않는다(`overlaySize`).
+   */
+  place(windowId: number, bounds: Bounds): boolean {
+    const entry = this.entries.get(windowId);
+    if (!entry || entry.window.isDestroyed()) return false;
+    if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) return false;
+    if (bounds.width <= 0 || bounds.height <= 0) return false;
+    if (entry.window.isMaximized()) entry.window.unmaximize();
+    entry.size = { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    entry.writtenAt = Date.now();
+    entry.window.setBounds(movedBounds(entry.size, bounds.x, bounds.y, this.host.dipStep(bounds.x, bounds.y)));
+    return true;
   }
 
   reportSize(windowId: number): void {

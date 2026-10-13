@@ -1,0 +1,46 @@
+﻿Vibisual-Lizenzvereinbarung und Hinweis zur Verantwortung
+Zusammenfassung des Endbenutzer-Lizenzvertrags (EULA) von Vibisual, Version 1.1 · gültig ab 13. Oktober 2026
+
+Diese Übersetzung wird der Einfachheit halber bereitgestellt. Die koreanische und die englische Fassung sind die Originale; weicht diese Übersetzung inhaltlich von ihnen ab, sind die Originale maßgeblich.
+
+Indem Sie das Kästchen zur Zustimmung ankreuzen und fortfahren, stimmen Sie diesem Hinweis und dem vollständigen Endbenutzer-Lizenzvertrag (EULA) zu und nehmen den Datenschutzhinweis (PRIVACY) zur Kenntnis. Wenn Sie nicht zustimmen, brechen Sie die Installation ab oder beenden Sie die App.
+Volltext: resources\EULA.md im Installationsordner oder https://github.com/Vibisual/vibisual/blob/main/EULA.md
+Datenschutzhinweis: https://github.com/Vibisual/vibisual/blob/main/PRIVACY.md
+
+1. Was Sie tun dürfen
+Dieser Build von Vibisual ist kostenlos. Sie dürfen ihn auf beliebig vielen Geräten installieren und nutzen, für private oder gewerbliche Zwecke, ohne Konto und ohne Lizenzschlüssel. Sie dürfen ihn außerdem unverändert auf Geräten innerhalb Ihrer eigenen Organisation bereitstellen und Paketmanager-Einträge veröffentlichen, die ihn von unseren offiziellen Release-Adressen herunterladen.
+
+2. Was Sie nicht tun dürfen
+Sie dürfen diesen Build oder eine veränderte Form davon nicht weiterverbreiten, verkaufen, vermieten oder zum öffentlichen Download bereitstellen; ihn nicht neu verpacken oder seinen Namen, sein Symbol, seine Hinweise oder Signaturen ändern; und ihn nicht als Ihr eigenes Produkt oder als von uns gebilligt ausgeben. Der Quellcode wird gesondert unter der Apache License 2.0 veröffentlicht, und Builds, die Sie selbst aus diesem Quellcode kompilieren, unterliegen diesen Einschränkungen nicht (geben Sie ihnen einen anderen Namen – siehe TRADEMARK.md).
+
+3. Dieses Programm nutzt KI
+Vibisual funktioniert, indem es generative künstliche Intelligenz (KI) nutzt, etwa Claude von Anthropic. Antworten, Code, Einschätzungen und Zusammenfassungen, die auf dem Bildschirm angezeigt werden, werden von KI erzeugt und wurden nicht von einem Menschen geprüft.
+
+4. Was auf diesem Computer geschieht
+Innerhalb der Ordner, die Sie übergeben, und der Berechtigungen, die Sie erteilen, können KI-Agenten Dateien lesen, erstellen, ändern und löschen, Befehle ausführen und auf das Internet zugreifen.
+Vibisual selbst tut außerdem Folgendes. (1) Beim ersten Start fügt es der Einstellungsdatei von Claude Code (~/.claude/settings.json) eine Verbindungseinstellung (Hooks) hinzu; ist diese Datei bereits vorhanden, wird daneben eine Sicherungskopie aufbewahrt. (2) Es kann die Claude CLI installieren oder aktualisieren (automatische CLI-Updates lassen sich in den Optionen deaktivieren). (3) Wenn eine neue Version veröffentlicht wird, aktualisiert es sich automatisch selbst (es gibt keine Einstellung, mit der sich dies deaktivieren lässt). (4) Es verwaltet die Prozesse, die seine Agenten starten, und kann sie beenden, wenn Sie eine Aufgabe stoppen oder die App schließen oder wenn es eine Aufgabe bereinigt, die es als abgeschlossen oder hängengeblieben einschätzt; für diese Einschätzung kann KI eingesetzt werden. (5) Bildschirmaufnahme, Fernzugriff (Mobiltelefon, QR-Code, Freigabe ins Internet), Messenger-Verbindungen (Discord, Telegram) und das Herunterladen lokaler Modelle funktionieren nur, wenn Sie sie einschalten.
+
+5. Genehmigungen und Berechtigungen sind Ihre Entscheidungen
+Jede Aktion, die Sie in einer Genehmigungsabfrage genehmigen, jede Aktion, die ohne Rückfrage ausgeführt wird, weil Sie einen Berechtigungsmodus wie „keine Bestätigung“ (bypassPermissions) gewählt haben, und jede Aktion auf einer Liste automatisch zugelassener Aktionen gilt als Ihre eigene Anweisung. Sie entscheiden, welche Ordner Sie übergeben, welche Berechtigungen Sie erteilen und welche Funktionen Sie einschalten, und Sie sind für die Ergebnisse verantwortlich.
+
+6. KI-Ausgaben
+KI kann fehlerhaften Code, Sicherheitslücken, unwahre Aussagen oder Ausgaben erzeugen, die Urheberrechte oder Lizenzen Dritter verletzen. Es liegt bei Ihnen, die Ausgaben zu prüfen, bevor Sie sie verwenden, verbreiten oder committen, und die dafür erforderlichen Rechte und Lizenzen zu klären.
+
+7. Sicherheitsrisiken
+KI kann durch bösartige Anweisungen, die in Repositorys, Webseiten, Dokumenten, Issues oder Befehlsausgaben versteckt sind (Prompt-Injection), so getäuscht werden, dass sie Befehle ausführt, die Sie nicht beabsichtigt haben, oder Informationen nach außen sendet. Schränken Sie die Berechtigungen ein, wenn Sie mit Material arbeiten, dem Sie nicht vertrauen. Wenn Sie der KI einen Ordner oder einen Bildschirm übergeben, der Passwörter, API-Schlüssel oder personenbezogene Daten enthält, können diese Inhalte an den KI-Dienst gesendet werden. Wenn Sie den Fernzugriff im Internet freigeben oder einen Messenger verbinden, kann jeder, der die Verbindungsdaten erlangt, die Agenten auf diesem Computer steuern; daher müssen Sie diese Daten sicher verwahren.
+
+8. KI-Dienste Dritter, Konten und Kosten
+Agenten laufen über externe Werkzeuge, die Sie installieren und bei denen Sie sich anmelden (Claude Code CLI, Codex CLI und andere), und mit Ihren eigenen Konten. Für diese Nutzung gelten die Bedingungen und Nutzungsrichtlinien der jeweiligen Anbieter, und deren Einhaltung liegt in Ihrer Verantwortung. Die Arbeit der Agenten und die Hilfsbeurteilungen von Vibisual (etwa Prüfungen zur Aufgabenbereinigung und Zusammenfassungen) gehen zulasten des Nutzungsvolumens, der Gebühren und der Limits Ihrer Konten. Wenn viele Agenten gleichzeitig laufen, können Limits schnell aufgebraucht werden oder die Gebühren steigen, und ein Anbieter kann Ihr Konto nach eigenem Ermessen einschränken. Vibisual ist ein unabhängiges Projekt, das weder mit Anthropic, OpenAI oder einem anderen Anbieter verbunden ist noch von ihnen gebilligt wird, und es ist nicht verantwortlich für deren Ausfälle, Änderungen, Gebühren oder Maßnahmen in Bezug auf Ihr Konto.
+
+9. Sicherungen und Nutzungsbeschränkungen
+Sichern Sie jede Datei, deren Verlust Sie sich nicht leisten können, oder stellen Sie sie unter Versionsverwaltung (git), bevor Sie einen Agenten daran arbeiten lassen. Lassen Sie KI keine Systeme ohne menschliche Überprüfung bedienen, bei denen eine Fehlfunktion schweren Schaden verursachen könnte – etwa Systeme, die Leben, Körper oder Sicherheit betreffen, medizinische Versorgung, finanzielle Zahlungen oder Transaktionen oder Dienste im Produktivbetrieb. Sie dürfen Vibisual nicht verwenden, um gegen Gesetze zu verstoßen oder die Rechte anderer zu verletzen (zum Beispiel durch unbefugten Zugriff auf fremde Systeme); die rechtliche Verantwortung für alles, was mit Vibisual getan wird, liegt bei dem Nutzer, der es tut.
+
+10. Keine Gewährleistung
+Vibisual ist kostenlose Software in einem frühen Stadium (Vorschau) und wird „wie besehen“ bereitgestellt. Wir gewährleisten nicht, dass sie fehlerfrei ist, dass sie ohne Unterbrechung läuft, dass keine Daten verloren gehen oder dass sie für einen bestimmten Zweck geeignet ist. Einige Builds sind nicht mit einer Codesignatur versehen, sodass Ihr Betriebssystem Sie möglicherweise warnt; ob Sie dennoch installieren, entscheiden Sie.
+
+11. Haftungsbeschränkung
+Da Vibisual kostenlos bereitgestellt wird, haften wir im größtmöglichen gesetzlich zulässigen Umfang nicht für Schäden, die aus der Installation, der Nutzung oder der Unmöglichkeit der Nutzung von Vibisual entstehen – einschließlich des Verlusts von Daten, Dateien oder Arbeit, Gebühren externer Dienste, Kontoeinschränkungen, Geschäftsverlusten sowie mittelbarer, Neben- oder besonderer Schäden. Dies gilt nicht für Schäden, die durch Vorsatz oder grobe Fahrlässigkeit unsererseits verursacht werden, und nicht für eine Haftung, die nach geltendem Recht nicht ausgeschlossen oder beschränkt werden kann. Rechte, die Ihnen als Verbraucher zustehen und auf die nach dem Gesetz nicht verzichtet werden kann, bleiben von diesem Hinweis unberührt.
+
+12. Änderungen, Auslegung, anwendbares Recht und Kontakt
+Eine neue Fassung dieser Bedingungen gilt für Builds, die nach ihrer Veröffentlichung verbreitet werden, und gilt niemals rückwirkend. Weichen diese Zusammenfassung und der vollständige EULA oder die koreanische und die englische Fassung inhaltlich voneinander ab, gilt die für Sie günstigere Auslegung. Diese Bedingungen unterliegen dem Recht der Republik Korea, und das Zentrale Bezirksgericht Seoul (Seoul Central District Court) ist als Gericht erster Instanz zuständig; wenn Sie Verbraucher sind, können Sie sich außerdem auf das zwingende Verbraucherschutzrecht Ihres Wohnsitzlandes berufen und die Gerichte dieses Landes anrufen.
+Inhaber: 길근오 · Kontakt: https://github.com/Vibisual/vibisual/issues

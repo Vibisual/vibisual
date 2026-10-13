@@ -14,12 +14,54 @@
  * - **씬은 HTML 문자열이 아니라 노드를 갱신한다.** 문자열을 매번 파싱하면 같은 문제가 난다.
  */
 
-import type { VideoDoc } from '../types.js';
+import type { VideoAsset, VideoDoc } from '../types.js';
 import type { MediaProvider } from './canvas2d.js';
 import { buildDrawList, type DrawOp } from './drawList.js';
 import { fadeFactor } from './canvas2d.js';
 import type { DomStage } from './htmlInCanvas.js';
 import type { ResolvedTimeline } from '../types.js';
+import { CompositionFrame, type CompositionFrameEvent, type FrameRect, type InspectedText, type PickedElement } from './compositionFrame.js';
+import { hitTest } from './hitTest.js';
+import { captionWordSpans, wantsWordHighlight } from './captionWords.js';
+import { vignetteCss } from './effects.js';
+
+/** §5.13 (V) 37-6 — 무대에서 고른 것(사각형은 문서 픽셀). 컴포지션 안 요소면 `element` 가 붙는다. */
+export interface StagePick {
+  readonly op: DrawOp;
+  readonly rect: FrameRect;
+  readonly element?: PickedElement;
+}
+
+/** §5.13 (V) 37-9 — 컴포지션 안의 보이는 글자 상자(사각형은 문서 픽셀). */
+export interface StageText extends InspectedText {
+  readonly itemId: string;
+}
+
+/** 값(props)을 주소에 실을 때의 상한(글자) — 넘으면 싣지 않는다(디스크의 값이 쓰인다). */
+const PROPS_OVERRIDE_MAX_CHARS = 24_000;
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value ?? {});
+}
+
+/** 브라우저에서 base64url(UTF-8). */
+function base64url(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * §5.13 (V) 37-5 — 지금 값을 실은 주소. 무대가 갖고 있는 값(낙관 갱신 포함)이 디스크보다 앞설 수 있어, 프레임을 열 때 그 값을
+ * 그대로 싣는다(서버가 시작 값으로 넣는다). 너무 크면 싣지 않는다.
+ */
+export function withPropsOverride(src: string, props: Readonly<Record<string, unknown>> | undefined): string {
+  if (!props || Object.keys(props).length === 0) return src;
+  const encoded = base64url(JSON.stringify(props));
+  if (encoded.length > PROPS_OVERRIDE_MAX_CHARS) return src;
+  return `${src}${src.includes('?') ? '&' : '?'}props=${encoded}`;
+}
 
 /** 씬 하나의 DOM 을 만들고 갱신하는 쪽. */
 export interface HtmlScene {
@@ -248,6 +290,11 @@ export const HTML_STAGE_CSS = `
 .vs-media { width: 100%; height: 100%; object-fit: contain; display: block; }
 .vs-missing { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   border: 4px dashed #F59E0B; color: #F59E0B; font: 600 32px system-ui, sans-serif; text-align: center; }
+.vs-comp-box { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.vs-comp { position: absolute; left: 0; top: 0; border: 0; background: transparent; transform-origin: 0 0;
+  pointer-events: none; }
+.vs-vignette { position: absolute; inset: 0; pointer-events: none; }
+.vs-stage.vs-alpha { background: transparent; }
 `;
 
 export interface HtmlSceneStageOptions {
@@ -257,6 +304,20 @@ export interface HtmlSceneStageOptions {
   readonly scenes?: HtmlSceneRegistry;
   /** 무대를 붙일 부모. 없으면 화면 밖에 둔다(렌더 전용). */
   readonly container?: HTMLElement;
+  /**
+   * §5.13 (T-3) — composition 아이템의 문서 주소를 만드는 쪽. 프로젝트·패키지 앱 여부(vibproxy)를 아는 것은 호출부라
+   * 무대는 묻기만 한다. 없거나 `null` 이면 그 아이템 자리에 "그릴 수 없다" 표식을 둔다(조용히 빈 칸 ❌).
+   *
+   * ⚠ 컴포지션은 **보이는 자리**에 세워야 한다 — 화면 밖(`left:-99999px`)의 교차 출처 프레임은 브라우저가 그리기를
+   * 멈춰 `ready` 가 늦는다. 그래서 컴포지션을 그리는 무대에는 `container` 를 준다.
+   */
+  readonly compositionSrc?: (op: DrawOp, asset: VideoAsset | undefined) => string | null;
+  /** 렌더처럼 한 장도 틀리면 안 되는 자리 — 컴포지션이 시각을 못 맞추면 `seek` 가 그 이유로 거절된다. */
+  readonly strict?: boolean;
+  /** §5.13 (W) 38-3 — 투명 배경 렌더: 무대가 바탕을 칠하지 않는다(그린 것 밖은 알파 0). */
+  readonly transparent?: boolean;
+  /** 컴포지션이 알려 온 오류·막힌 주소(표시용). */
+  readonly onCompositionEvent?: (itemId: string, event: CompositionFrameEvent) => void;
 }
 
 interface Slot {
@@ -264,6 +325,13 @@ interface Slot {
   inner: HTMLElement;
   kind: string;
   sceneId?: string | undefined;
+  /** composition 슬롯 — 문서 주소(값 제외)가 바뀌면(코드·스타일이 바뀌면) 프레임을 새로 연다. */
+  src?: string | undefined;
+  frame?: CompositionFrame | undefined;
+  /** §5.13 (V) 37-5 — 이 프레임에 마지막으로 보낸 값(props) — 바뀌면 데이터 메시지로 맞춘다. */
+  propsKey?: string | undefined;
+  /** §5.13 (W) 38-5 — 비네트 덧칠(필요할 때만 만든다). 필터는 `inner` 에 건다 — 비네트까지 필터를 타지 않게. */
+  vignette?: HTMLElement | undefined;
 }
 
 /**
@@ -277,12 +345,19 @@ export class HtmlSceneStage implements DomStage {
   readonly element: HTMLElement;
   private readonly slots = new Map<string, Slot>();
   private readonly scenes: HtmlSceneRegistry;
+  /** §5.13 (T-7) — 미리보기는 문서가 바뀔 때마다 무대를 새로 세우지 않는다(컴포지션 프레임을 다시 열지 않게). */
+  private doc: VideoDoc;
+  private timeline: ResolvedTimeline;
+  /** §5.13 (V) 37-6 — 마지막으로 맞춘 시각(고르기·살피기가 그 시각의 그림을 묻는다). */
+  private lastT = 0;
 
   constructor(private readonly opts: HtmlSceneStageOptions) {
     this.scenes = { ...BUILTIN_HTML_SCENES, ...(opts.scenes ?? {}) };
+    this.doc = opts.doc;
+    this.timeline = opts.timeline;
 
     const root = document.createElement('div');
-    root.className = 'vs-stage';
+    root.className = opts.transparent === true ? 'vs-stage vs-alpha' : 'vs-stage';
     root.style.width = `${opts.doc.size.width}px`;
     root.style.height = `${opts.doc.size.height}px`;
 
@@ -305,15 +380,27 @@ export class HtmlSceneStage implements DomStage {
     this.element = root;
   }
 
+  /**
+   * 문서만 갈아 끼운다 — 슬롯은 다음 `seek` 가 맞춘다. 같은 아이템·같은 종류·같은 문서 주소면 노드(컴포지션 프레임
+   * 포함)를 그대로 쓴다. 판형이 바뀌었으면 무대 크기도 따라간다.
+   */
+  setDoc(doc: VideoDoc, timeline: ResolvedTimeline): void {
+    this.doc = doc;
+    this.timeline = timeline;
+    this.element.style.width = `${doc.size.width}px`;
+    this.element.style.height = `${doc.size.height}px`;
+  }
+
   async seek(t: number): Promise<void> {
-    const { doc, timeline } = this.opts;
+    const { doc, timeline } = this;
+    this.lastT = t;
     const ops = buildDrawList(doc, timeline, t);
     const alive = new Set(ops.map((o) => o.itemId));
 
     // 사라진 것 정리.
     for (const [id, slot] of this.slots) {
       if (!alive.has(id)) {
-        slot.wrapper.remove();
+        this.dropSlot(slot);
         this.slots.delete(id);
       }
     }
@@ -334,6 +421,20 @@ export class HtmlSceneStage implements DomStage {
         transform.rotation === 0 && transform.scale === 1
           ? ''
           : `rotate(${transform.rotation}deg) scale(${transform.scale})`;
+      // §5.13 (V) 37-8 — 전환이 잘라 보이게 한 사각형(문서 픽셀) → 상자 기준 안쪽 여백.
+      if (op.clip) {
+        const top = Math.max(0, op.clip.y - transform.y);
+        const left = Math.max(0, op.clip.x - transform.x);
+        const right = Math.max(0, transform.x + transform.width - (op.clip.x + op.clip.width));
+        const bottom = Math.max(0, transform.y + transform.height - (op.clip.y + op.clip.height));
+        w.style.clipPath = `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+      } else if (w.style.clipPath !== '') {
+        w.style.clipPath = '';
+      }
+      // §5.13 (W) 38-5 — 이펙트: 필터는 안쪽에, 비네트는 그 위 덧칠(같은 값을 canvas2d 도 쓴다).
+      const filter = op.filter ?? '';
+      if (slot.inner.style.filter !== filter) slot.inner.style.filter = filter;
+      this.applyVignette(slot, op.vignette ?? 0);
 
       pending.push(this.updateSlot(slot, op));
     }
@@ -343,24 +444,76 @@ export class HtmlSceneStage implements DomStage {
     if (typeof document.fonts?.ready?.then === 'function') await document.fonts.ready;
   }
 
+  private dropSlot(slot: Slot): void {
+    slot.frame?.dispose();
+    slot.wrapper.remove();
+  }
+
+  /** §5.13 (W) 38-5 — 비네트 덧칠을 세우거나 걷는다(세기가 0 이면 노드도 없다). */
+  private applyVignette(slot: Slot, amount: number): void {
+    if (amount <= 0) {
+      if (slot.vignette) { slot.vignette.remove(); slot.vignette = undefined; }
+      return;
+    }
+    if (!slot.vignette) {
+      slot.vignette = div('vs-vignette');
+      slot.wrapper.appendChild(slot.vignette);
+    }
+    const bg = vignetteCss(amount);
+    if (slot.vignette.style.background !== bg) slot.vignette.style.background = bg;
+  }
+
+  /** composition 아이템의 문서 주소(코드·props 가 바뀌면 달라진다). 만들 수 없으면 null. */
+  private compositionSrcOf(op: DrawOp): string | null {
+    if (op.kind !== 'composition') return null;
+    const assetId = op.resolved.item.assetId;
+    const asset = assetId === undefined ? undefined : this.doc.assets[assetId];
+    return this.opts.compositionSrc?.(op, asset) ?? null;
+  }
+
   private ensureSlot(op: DrawOp): Slot {
     const existing = this.slots.get(op.itemId);
     const sceneId = op.resolved.item.sceneId;
-    if (existing && existing.kind === op.kind && existing.sceneId === sceneId) return existing;
-    existing?.wrapper.remove();
+    const src = op.kind === 'composition' ? this.compositionSrcOf(op) ?? undefined : undefined;
+    if (existing && existing.kind === op.kind && existing.sceneId === sceneId && existing.src === src) return existing;
+    if (existing) this.dropSlot(existing);
 
     const wrapper = div('vs-item');
-    const inner = this.createInner(op);
+    let frame: CompositionFrame | undefined;
+    let inner: HTMLElement;
+    if (op.kind === 'composition' && src !== undefined) {
+      const assetId = op.resolved.item.assetId;
+      const asset = assetId === undefined ? undefined : this.doc.assets[assetId];
+      const itemId = op.itemId;
+      // §5.13 (V) 37-15 — 반응형 컴포지션은 선언 크기 대신 상자 크기로 짠다(판형 파생).
+      const responsive = asset?.responsive === true;
+      frame = new CompositionFrame({
+        src: withPropsOverride(src, op.resolved.item.props),
+        width: responsive ? op.transform.width : asset?.width ?? this.doc.size.width,
+        height: responsive ? op.transform.height : asset?.height ?? this.doc.size.height,
+        label: op.resolved.item.label ?? itemId,
+        onEvent: (event) => this.opts.onCompositionEvent?.(itemId, event),
+      });
+      inner = frame.element;
+    } else {
+      inner = this.createInner(op);
+    }
     wrapper.appendChild(inner);
     this.element.appendChild(wrapper);
 
-    const slot: Slot = { wrapper, inner, kind: op.kind, sceneId };
+    const slot: Slot = { wrapper, inner, kind: op.kind, sceneId, src, frame, propsKey: frame ? stableJson(op.resolved.item.props) : undefined };
     this.slots.set(op.itemId, slot);
     return slot;
   }
 
   private createInner(op: DrawOp): HTMLElement {
     switch (op.kind) {
+      case 'composition': {
+        // 주소를 만들 수 없는 자리(창 없는 환경 등) — 조용히 빈 칸으로 두지 않는다.
+        const missing = div('vs-missing');
+        missing.textContent = `컴포지션을 그릴 수 없습니다: ${op.resolved.item.label ?? op.itemId}`;
+        return missing;
+      }
       case 'scene': {
         const scene = op.resolved.item.sceneId === undefined ? undefined : this.scenes[op.resolved.item.sceneId];
         if (!scene) {
@@ -368,7 +521,7 @@ export class HtmlSceneStage implements DomStage {
           missing.textContent = `등록되지 않은 씬: ${op.resolved.item.sceneId ?? '(없음)'}`;
           return missing;
         }
-        return scene.create(this.opts.doc);
+        return scene.create(this.doc);
       }
       case 'text':
         return div('vs-text');
@@ -390,9 +543,30 @@ export class HtmlSceneStage implements DomStage {
 
   private async updateSlot(slot: Slot, op: DrawOp): Promise<void> {
     switch (op.kind) {
+      case 'composition': {
+        const frame = slot.frame;
+        if (!frame) return;
+        frame.layout(op.transform.width, op.transform.height);
+        // §5.13 (V) 37-5 — 값만 바뀌었으면 프레임을 다시 열지 않고 데이터로 맞춘다. 묶인 곳이 없으면 새 값을 실어 다시 연다.
+        const props = op.resolved.item.props ?? {};
+        const key = stableJson(props);
+        if (slot.propsKey !== key) {
+          slot.propsKey = key;
+          const live = await frame.applyProps(props);
+          if (!live && slot.src) frame.reload(withPropsOverride(slot.src, props));
+        }
+        try {
+          // 컴포지션 안 시각 = 아이템 시작 뒤 흐른 시간 + 트림(drawList 가 이미 계산했다).
+          await frame.seek(op.sourceTime);
+        } catch (err) {
+          if (this.opts.strict === true) throw err;
+          this.opts.onCompositionEvent?.(op.itemId, { kind: 'error', message: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
       case 'scene': {
         const scene = op.resolved.item.sceneId === undefined ? undefined : this.scenes[op.resolved.item.sceneId];
-        scene?.update(slot.inner, op, this.opts.doc);
+        scene?.update(slot.inner, op, this.doc);
         return;
       }
       case 'text': {
@@ -408,7 +582,24 @@ export class HtmlSceneStage implements DomStage {
       }
       case 'caption': {
         const el = slot.inner;
-        el.textContent = op.cues.map((c) => c.text).join(' ');
+        if (wantsWordHighlight(op.resolved.item.props)) {
+          // §5.13 (V) 37-12 — 단어 강조: 낱말마다 조각을 세우고 지금 낱말만 강조색(캔버스 백엔드와 같은 함수).
+          const t = op.resolved.start + op.localTime;
+          const accent = str(op, 'highlightColor', '#FACC15');
+          const spans: HTMLElement[] = [];
+          op.cues.forEach((cue, ci) => {
+            if (ci > 0) spans.push(document.createElement('br'));
+            captionWordSpans(cue, t).words.forEach((w, wi) => {
+              const span = document.createElement('span');
+              span.textContent = wi > 0 ? ` ${w.text}` : w.text;
+              if (w.active) span.style.color = accent;
+              spans.push(span);
+            });
+          });
+          el.replaceChildren(...spans);
+        } else {
+          el.textContent = op.cues.map((c) => c.text).join(' ');
+        }
         el.style.display = op.cues.length === 0 ? 'none' : 'block';
         el.style.fontSize = `${numProp(op, 'fontSize', 48)}px`;
         el.style.bottom = `${numProp(op, 'bottom', 96)}px`;
@@ -454,8 +645,40 @@ export class HtmlSceneStage implements DomStage {
     }
   }
 
+  /**
+   * §5.13 (V) 37-6 — 마지막으로 맞춘 시각의 그림에서 문서 픽셀 (x, y) 아래 맨 위의 것. 컴포지션이면 샌드박스에 읽기 전용으로
+   * 그 자리 요소를 묻는다(답이 없으면 아이템 단위).
+   */
+  async pickAt(x: number, y: number): Promise<StagePick | null> {
+    const hit = hitTest(this.doc, this.timeline, this.lastT, x, y);
+    if (!hit) return null;
+    const slot = this.slots.get(hit.op.itemId);
+    if (hit.op.kind === 'composition' && slot?.frame) {
+      const box = hit.op.transform;
+      const element = await slot.frame.pick(x - box.x, y - box.y);
+      if (element) {
+        return { op: hit.op, element, rect: { x: box.x + element.rect.x, y: box.y + element.rect.y, width: element.rect.width, height: element.rect.height } };
+      }
+    }
+    return { op: hit.op, rect: hit.rect };
+  }
+
+  /** §5.13 (V) 37-9 — 마지막으로 맞춘 시각에 컴포지션들 안에서 보이는 글자 상자(문서 픽셀). */
+  async inspectTexts(): Promise<StageText[]> {
+    const ops = buildDrawList(this.doc, this.timeline, this.lastT).filter((op) => op.kind === 'composition');
+    const out: StageText[] = [];
+    for (const op of ops) {
+      const frame = this.slots.get(op.itemId)?.frame;
+      if (!frame) continue;
+      for (const text of await frame.inspect()) {
+        out.push({ ...text, itemId: op.itemId, rect: { x: op.transform.x + text.rect.x, y: op.transform.y + text.rect.y, width: text.rect.width, height: text.rect.height } });
+      }
+    }
+    return out;
+  }
+
   dispose(): void {
-    for (const slot of this.slots.values()) slot.wrapper.remove();
+    for (const slot of this.slots.values()) this.dropSlot(slot);
     this.slots.clear();
     this.element.remove();
   }

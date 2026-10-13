@@ -69,6 +69,8 @@ function listHooks(bin: string, cwd: string, overrides: string[], signal: AbortS
         const message = JSON.parse(line);
         if (message.id === 1) {
           if (message.error) { finish(new Error('Codex hook inspection initialization failed')); return; }
+          // App-server requires this notification after initialize succeeds, before any request.
+          child.stdin.write(JSON.stringify({ method: 'initialized' }) + '\n');
           send(2, 'hooks/list', { cwds: [cwd] });
         } else if (message.id === 2) {
           if (message.error || !Array.isArray(message.result?.data)) { finish(new Error('Codex CLI does not support hook inspection')); return; }

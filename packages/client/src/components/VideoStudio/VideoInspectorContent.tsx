@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { VideoDoc, VideoItem, VideoTransform } from '@vibisual/video';
+import { wantsWordHighlight, type VideoDoc, type VideoItem, type VideoTransform } from '@vibisual/video';
 import { StudioNumberField, StudioTextField, STUDIO_INPUT_CLASS } from './StudioField.js';
 import { inspectorFields, INSPECTOR_OPTION_LABELS } from './videoInspectorFields.js';
 
@@ -32,11 +32,14 @@ export function VideoInspectorContent({ item, size, disabled, hasAudio, onUpdate
             }) })}
           />)}
           {!item.cues?.length ? <p className="text-xs text-white/40">{t('panel.videoStudio.editor.noCues', { defaultValue: 'This clip has no caption cues.' })}</p> : null}
+          {/* §5.13 (V) 37-12 — 낱말 시각이 없는 큐는 글자 길이 비례로 추정한다 — 그 사실을 적는다. */}
+          {wantsWordHighlight(item.props) && (item.cues ?? []).some((cue) => !cue.words?.length)
+            ? <p className="text-[12px] text-amber-200/80">{t('panel.videoStudio.editor.wordsEstimated')}</p> : null}
         </div>
       ) : null}
       {inspectorFields(item, size.height, hasAudio).map((field) => {
         const raw = item.props?.[field.key];
-        const label = t(`panel.videoStudio.editor.props.${field.key}`, { defaultValue: field.label });
+        const label = t(`panel.videoStudio.editor.props.${field.labelKey ?? field.key}`, { defaultValue: field.label });
         if (typeof field.defaultValue === 'number') {
           const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : field.defaultValue;
           return <StudioNumberField key={field.key} label={label} value={value} min={field.min} max={field.max} disabled={disabled} onCommit={(next) => setProp(field.key, next)} />;

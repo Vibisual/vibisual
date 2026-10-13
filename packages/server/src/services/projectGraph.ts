@@ -112,8 +112,10 @@ import { CODEX_AGENT_COLOR } from '@vibisual/shared';
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
 // §5.3 #12-3 — 자물쇠. 검증·합치기는 shared 한 벌(서버 복원과 identity 보충이 같은 규칙을 쓴다).
 import { buildPathLock, mergePathLocks, normalizePathLocks, PATH_LOCK_MAX_PER_PROJECT } from '@vibisual/shared';
-// §5.4 #36 — 참조선 목록 다듬기(서버 검증과 클라 낙관 반영이 한 벌).
-import { sanitizeLinkedAgentIds } from '@vibisual/shared';
+// §5.4 #36 — 위성줄 목록 다듬기(서버 검증과 클라 낙관 반영이 한 벌).
+import { makeAppBubbleId, pushPastFile, sanitizeLinkedAgentIds } from '@vibisual/shared';
+// §5.4 #36 (G) — 앱 노드 크기 상한(클라 손잡이와 같은 값으로 자른다).
+import { APP_BUBBLE_REF_MAX, APP_NODE_RESIZE } from '@vibisual/shared';
 import type { PathLock, PathLockTarget } from '@vibisual/shared';
 // §5.26 — 컨텍스트 보험 원장 타입.
 import type {
@@ -260,6 +262,16 @@ const EMPTY_ID_LIST: readonly string[] = [];
 function idTail(): string {
   return Math.random().toString(36).slice(2, 6);
 }
+
+/**
+ * §5.4 #36 (G) — PATCH 로 온 앱 노드 한 변의 길이. 유한한 양수만 받고 `max` 로 자른다. 못 받는 값이면 `null`
+ * (칸을 건드리지 않는다). 하한은 형태마다 달라 서버가 형태를 모르는 자리에서는 자르지 않는다 — 그리는 쪽이 자른다.
+ */
+function appBubbleDimension(value: unknown, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+  return Math.min(max, value);
+}
+
 function sanitizePlayBubbleOnLoad(bubble: PlayBubble): PlayBubble {
   const { url: _url, port: _port, error: _error, ...rest } = bubble;
   return { ...rest, status: 'idle', previewOpen: false };
@@ -2517,13 +2529,23 @@ export class ProjectGraph {
    * 스냅샷이 내장 목록으로 덮었다(실측: 전역 11종 · 살아 있는 에이전트 22종). 두 경로가 서로
    * 반대 방향으로 싸운 것이라 한쪽을 이기게 하는 게 아니라, **관측을 저장에서 떼어 내** 끝낸다.
    *
-   * 이제 여기서 하는 일은 둘뿐이다 — ① 관측 모델을 휘발성 맵에 기록(읽을 때만 얹힌다),
+   * 이제 여기서 하는 일은 둘뿐이다 — ① **훅 버블의** 관측 모델을 휘발성 맵에 기록(읽을 때만 얹힌다),
    * ② 처음 보는 에이전트 버블에 **빈 오버라이드**를 열어 그 버블에도 설정 창구가 생기게 한다.
    */
   private syncDetectedAgentConfigs(enrichedAgents: BubbleData[]): void {
     for (const agent of enrichedAgents) {
       if (agent.bubbleType !== 'agent') continue;
       if (!this.agentConfigOverrides.has(agent.id)) this.agentConfigOverrides.set(agent.id, {});
+      // 우리가 띄우는 버블(커스텀·CMD)의 모델은 3층(에이전트 → 설정 창 → 내장)이 정하고, 관측은 그 결과일
+      //   뿐이다. 여기에도 얹으면 **기본값과 같은 모델을 고른 저장**이 지난 턴의 관측으로 도로 덮인다 —
+      //   기본값과 같은 칸은 못 박히지 않으므로(`sparsifyAgentConfig`) 그 빈자리를 관측이 채우고, 스폰도
+      //   그 모델로 나간다(사용자 보고: 전역 기본이 opus 인 채 Fable → Opus 로 바꿔 저장해도 fable 로 돌았다).
+      //   설정 창 기본 모델을 바꿔도 이미 한 턴 돈 버블이 따라오지 않던 것도 같은 자리다.
+      //   관측이 유일한 진실인 것은 우리가 띄우지 않은 훅 버블뿐이다(`getAgentConfig` 주석).
+      if (agent.customCreated) {
+        this.detectedAgentModels.delete(agent.id);
+        continue;
+      }
       // 자기 `model` 을 못 박은 에이전트는 관측으로 덮지 않는다(사용자가 고른 값이 우선).
       if (this.agentConfigOverrides.get(agent.id)?.model !== undefined) continue;
       const detectedModel = parseModelFamily(agent.modelName);
@@ -15029,6 +15051,8 @@ export class ProjectGraph {
   // 늘리기로 한 이상, 앱 하나가 코어에 남기는 자국이 상수여야 한다.
 
   createAppBubble(input: {
+    /** §5.4 #36 (F) — 매니저가 형식·중복을 본 클라 id(낙관 생성). 없거나 이 인스턴스에 이미 있으면 새로 짓는다. */
+    id?: string;
     projectName: string;
     appId: string;
     x: number;
@@ -15037,10 +15061,10 @@ export class ProjectGraph {
     height?: number;
     title?: string;
     ref?: string;
-    /** §5.4 #36 (B) — `+` 로 만들며 바로 잇는 경우. 다듬은 뒤 비면 칸을 두지 않는다. */
+    /** §5.4 #36 (B) — 궤도 위성으로 만들며 바로 잇는 경우. 다듬은 뒤 비면 칸을 두지 않는다. */
     linkedAgentIds?: unknown;
   }): AppBubble {
-    const id = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const id = input.id !== undefined && !this.appBubbles.has(input.id) ? input.id : makeAppBubbleId();
     const linked = sanitizeLinkedAgentIds(input.linkedAgentIds);
     const bubble: AppBubble = {
       id,
@@ -15071,11 +15095,33 @@ export class ProjectGraph {
     if (!bubble) return null;
     if (updates.x !== undefined) bubble.x = updates.x;
     if (updates.y !== undefined) bubble.y = updates.y;
-    if (updates.width !== undefined) bubble.width = updates.width;
-    if (updates.height !== undefined) bubble.height = updates.height;
+    // §5.4 #36 (G) — 크기는 손잡이로 바뀐다. 유한한 양수만 받고 상한으로 자른다 — 손으로 보낸 PATCH 가 문자열·음수를
+    //   적거나 캔버스를 통째로 덮는 노드를 만들지 않게. 못 받는 값은 칸을 건드리지 않는다(부분 페이로드 규칙과 같다).
+    const width = appBubbleDimension(updates.width, APP_NODE_RESIZE.maxWidth);
+    if (width !== null) bubble.width = width;
+    const height = appBubbleDimension(updates.height, APP_NODE_RESIZE.maxHeight);
+    if (height !== null) bubble.height = height;
+    // §5.4 #36 (G) — 사용자가 크기를 정한 형태. 두 값만 받고, `null`·빈 값은 지운다([기본 크기로]). 그 밖은 무시.
+    const rawSized = (updates as Record<string, unknown>)['sizedForm'];
+    if (rawSized === 'nameplate' || rawSized === 'screen') bubble.sizedForm = rawSized;
+    else if (rawSized === null || rawSized === '') delete bubble.sizedForm;
     if (updates.title !== undefined) bubble.title = updates.title;
-    if (updates.ref !== undefined) bubble.ref = updates.ref;
+    // §5.13 (L) — 노드가 가리키는 앱 작업 문서. 앱이 해석하는 열쇠라 뜻은 모르지만, 글자열이 아니면 받지 않는다
+    //   (손으로 보낸 PATCH 가 객체·숫자를 적어 앱 창을 깨지 않게). 빈 글자는 지운다.
+    const rawRef = (updates as Record<string, unknown>)['ref'];
+    if (typeof rawRef === 'string') {
+      const ref = rawRef.trim().slice(0, APP_BUBBLE_REF_MAX);
+      if (ref === '') delete bubble.ref;
+      else bubble.ref = ref;
+    } else if (rawRef === null) {
+      delete bubble.ref;
+    }
     if (updates.preservePinned !== undefined) bubble.preservePinned = updates.preservePinned;
+    // §5.4 #36 (H) ① — 연결선 켜고 끄기. 불리언만 받는다(손으로 보낸 PATCH 의 다른 값은 칸을 건드리지 않는다 —
+    //   부분 페이로드 규칙). 끄면 칸을 지운다(없음 = 보인다 — 저장본에 쓸데없는 false 를 남기지 않는다).
+    const rawHidden = (updates as Record<string, unknown>)['linksHidden'];
+    if (rawHidden === true) bubble.linksHidden = true;
+    else if (rawHidden === false || rawHidden === null) delete bubble.linksHidden;
     // §5.4 #36 (B) — 잇기·끊기. 본문이 배열이 아니면 칸을 건드리지 않는다(부분 페이로드가 연결을 지우지 않게).
     if (updates.linkedAgentIds !== undefined) {
       const linked = sanitizeLinkedAgentIds(updates.linkedAgentIds);
@@ -15087,7 +15133,10 @@ export class ProjectGraph {
     // §5.4 #36 (C) — 담긴 파일은 여기서 **비우기만** 한다. 넣는 길은 검증하는 결과 전달 창구 하나다
     //   (`setAppBubbleFile` — 프로젝트 안의 존재하는 파일만). PATCH 로 아무 경로나 적히면 그 검증이 무의미해진다.
     const rawFile = (updates as Record<string, unknown>)['file'];
-    if (rawFile === null || rawFile === '') delete bubble.file;
+    if (rawFile === null || rawFile === '') {
+      delete bubble.file;
+      delete bubble.fileAt; // §5.4 #36 (F) — 버전은 파일과 한 몸이다.
+    }
     this.bumpMutationVersion();
     return bubble;
   }
@@ -15095,17 +15144,25 @@ export class ProjectGraph {
   /**
    * §5.4 #36 (C) — 결과 전달로 담긴 파일을 적는다. `relPath` 는 호출부(매니저)가 이미 **프로젝트 안의
    * 존재하는 파일**로 검증해 루트 기준 상대 경로로 바꾼 값이다.
+   * §5.4 #36 (F) — `modifiedAt`(그 파일의 수정 시각)을 결과 버전으로 함께 적는다. 모르면 칸을 지운다.
    */
-  setAppBubbleFile(id: string, relPath: string): AppBubble | null {
+  setAppBubbleFile(id: string, relPath: string, modifiedAt?: number): AppBubble | null {
     const bubble = this.appBubbles.get(id);
     if (!bubble) return null;
+    // §5.4 #36 (H) ③ — 바뀌기 전 결과를 **지난 결과**로 남긴다(노드 아래 구슬 줄). 같은 파일을 다시 보낸 것은 쌓지 않는다 —
+    //   그 파일은 방금 덮였다. 판정은 shared `pushPastFile` 한 벌(비교는 이 기계의 경로 규칙 — 플랫폼은 인자로 넘긴다).
+    const past = pushPastFile(bubble.pastFiles, { file: bubble.file, at: bubble.fileAt }, relPath, HOST_PLATFORM);
+    if (past.length > 0) bubble.pastFiles = past;
+    else delete bubble.pastFiles;
     bubble.file = relPath;
+    if (typeof modifiedAt === 'number' && Number.isFinite(modifiedAt)) bubble.fileAt = modifiedAt;
+    else delete bubble.fileAt;
     this.bumpMutationVersion();
     return bubble;
   }
 
   /**
-   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(입력 카드 ↔ 버블).
+   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(말풍선 ↔ 버블).
    *
    * 대상이 아니면(없음·훅·CMD) `null` — 라우트가 404/409 로 가른다. 대상 판정은 클라
    * `agentCard.ts` 의 `canUseAgentCard` 와 같은 조건이다(훅은 입력이 없고 CMD 입력은 터미널의 것).
@@ -15126,6 +15183,31 @@ export class ProjectGraph {
     else delete agent.agentForm;
     this.bumpMutationVersion();
     return { ok: true, form };
+  }
+
+  /**
+   * §5.4 #36 (H) — 에이전트의 연결 보기. ① `hidden` = 연결선 켜고 끄기(그 에이전트가 끝점인 활동·위성 선 + 위성줄),
+   * ② `lens` = 보기 전환("연결된 것 위주" 기본 ↔ "작업 파일"). 둘 다 표시 계층만 바꾼다 — 활동 엣지·연결은 그대로다.
+   *
+   * 대상은 에이전트 버블 전부다(커스텀·CMD·훅 — 파일 선은 누구에게나 있다). 아니면 `not-eligible`(라우트가 409).
+   * 준 칸만 바꾼다(부분 페이로드가 다른 칸을 지우지 않게). 기본값은 칸을 지워서 적는다(저장본에 쓸데없는 값을 남기지 않는다).
+   */
+  setAgentLinkView(
+    nodeId: string,
+    patch: { hidden?: boolean; lens?: 'linked' | 'files' },
+  ): { ok: true; linksHidden: boolean; linkLens: 'linked' | 'files' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
+    let agent: BubbleData | undefined;
+    for (const a of this.agents.values()) {
+      if (a.id === nodeId) { agent = a; break; }
+    }
+    if (!agent) return { ok: false, reason: 'not-found' };
+    if (agent.bubbleType !== 'agent') return { ok: false, reason: 'not-eligible' };
+    if (patch.hidden === true) agent.linksHidden = true;
+    else if (patch.hidden === false) delete agent.linksHidden;
+    if (patch.lens === 'files') agent.linkLens = 'files';
+    else if (patch.lens === 'linked') delete agent.linkLens;
+    this.bumpMutationVersion();
+    return { ok: true, linksHidden: agent.linksHidden === true, linkLens: agent.linkLens === 'files' ? 'files' : 'linked' };
   }
 
   /** 삭제. 핀이 걸려 있으면 거절한다(§2.4 preserve-pin). */

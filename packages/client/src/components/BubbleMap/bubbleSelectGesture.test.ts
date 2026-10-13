@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createBubbleSelectGesture,
   DRAG_MOVE_THRESHOLD_PX,
+  flushDeferredBubbleSelect,
   isSelectDeferred,
   SELECT_DEFER_MS,
   subscribeSelectDeferred,
@@ -133,22 +134,34 @@ describe('bubbleSelectGesture', () => {
     expect(h.intents()).toEqual([]);
   });
 
-  it('기본은 왼쪽 버튼만 — 우클릭 누름은 선택으로 치지 않는다', () => {
+  // 규칙 5 — 우측 패널은 왼쪽 클릭 선택에서만 뜬다(2026-10-11 사용자 지시). 종전에는 에이전트 버블만
+  //   `leftButtonOnly:false` 로 우클릭도 골라, 메뉴를 열려던 손이 패널까지 열었다 — 그 스위치를 걷었다.
+  it('왼쪽 버튼만 — 우클릭 누름은 선택도 링도 켜지 않는다', () => {
     const h = harness();
     h.core.pointerDown(at(10, 10, 2));
     h.core.pointerUp();
 
     vi.advanceTimersByTime(SELECT_DEFER_MS * 4);
     expect(h.selects()).toBe(0);
+    expect(h.intents()).toEqual([]);
   });
 
-  it('leftButtonOnly:false 면 우클릭도 선택으로 친다(에이전트 버블의 손버릇)', () => {
-    const h = harness({ leftButtonOnly: false });
-    h.core.pointerDown(at(10, 10, 2));
+  // 우클릭이 왼쪽 버튼으로 오는 자리(mac Control+클릭·터치 길게 누르기) — 손을 떼기 전에 contextmenu 가 온다.
+  it('메뉴를 부른 왼쪽 누름은 선택이 아니다 — 훅이 contextmenu 로 누름을 접는다', () => {
+    const h = harness();
+    h.core.pointerDown(at(10, 10));
+    h.core.pointerCancel(); // 훅의 `onContextMenuCapture` 가 부르는 자리
     h.core.pointerUp();
 
-    vi.advanceTimersByTime(SELECT_DEFER_MS);
-    expect(h.selects()).toBe(1);
+    vi.advanceTimersByTime(SELECT_DEFER_MS * 4);
+    expect(h.selects()).toBe(0);
+    expect(h.intents()).toEqual([]);
+
+    const src = Object.values(import.meta.glob<string>(
+      '/src/components/BubbleMap/bubbleSelectGesture.ts',
+      { query: '?raw', import: 'default', eager: true },
+    ))[0] ?? '';
+    expect(src).toContain('onContextMenuCapture: () => core.pointerCancel()');
   });
 
   it('selectNow 는 지연 없이 고르고, 보류가 있었다면 대신 접는다(우클릭 메뉴)', () => {
@@ -327,6 +340,82 @@ describe('bubbleSelectGesture', () => {
       h.core.pointerUp();
       vi.advanceTimersByTime(SELECT_DEFER_MS);
       expect(listener).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // §6 (2026-10-11 사용자 지시 — "보통 컨트롤 키 누르면 다중 선택하는데 정상이 아냐"). Ctrl/Cmd 클릭은 묶음에
+  //   넣고 빼기다. §5.4 #31 무리 잡기와 병행 — 끌면 무리 동반 이동, 움직임 없이 떼면 넣고 빼기.
+  describe('누적(다중) 선택 — Ctrl/Cmd 클릭은 묶음에 넣고 뺀다', () => {
+    it('Ctrl 클릭은 고르지 않고(링·우측 패널 ❌) 기다림 없이 toggle 을 부른다', () => {
+      const toggle = vi.fn();
+      const h = harness({ toggle });
+      h.core.pointerDown({ ...at(10, 10), ctrlKey: true });
+      h.core.pointerUp();
+      expect(toggle).toHaveBeenCalledTimes(1);
+      expect(h.intents()).toEqual([]);
+      expect(isSelectDeferred()).toBe(false);
+      vi.advanceTimersByTime(SELECT_DEFER_MS * 4);
+      expect(h.selects()).toBe(0);
+    });
+
+    it('mac Cmd 클릭도 같다 — 판정은 ctrlKey || metaKey', () => {
+      const toggle = vi.fn();
+      const h = harness({ toggle });
+      h.core.pointerDown({ ...at(10, 10), metaKey: true });
+      h.core.pointerUp();
+      expect(toggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('수식 키를 쥐고 끌면 드래그다 — 넣고 빼지 않는다(무리 동반 이동의 자리)', () => {
+      const toggle = vi.fn();
+      const h = harness({ toggle });
+      h.core.pointerDown({ ...at(10, 10), ctrlKey: true });
+      h.core.pointerMove(at(10 + DRAG_MOVE_THRESHOLD_PX + 1, 10));
+      h.core.pointerUp();
+      expect(toggle).not.toHaveBeenCalled();
+      expect(h.selects()).toBe(0);
+    });
+
+    it('누적 손잡이가 없는 버블은 Ctrl 클릭도 보통 클릭이다', () => {
+      const h = harness();
+      h.core.pointerDown({ ...at(10, 10), ctrlKey: true });
+      h.core.pointerUp();
+      vi.advanceTimersByTime(SELECT_DEFER_MS);
+      expect(h.selects()).toBe(1);
+    });
+
+    it('Shift 클릭은 캔버스가 받는다 — 누적 손잡이가 있으면 여기서는 세지 않는다(한 누름에 두 번 뒤집히지 않게)', () => {
+      const toggle = vi.fn();
+      const h = harness({ toggle });
+      h.core.pointerDown({ ...at(10, 10), shiftKey: true });
+      h.core.pointerUp();
+      vi.advanceTimersByTime(SELECT_DEFER_MS * 4);
+      expect(toggle).not.toHaveBeenCalled();
+      expect(h.selects()).toBe(0);
+      expect(h.intents()).toEqual([]);
+    });
+
+    it('앞서 누른 버블이 2타를 기다리면 그 선택을 먼저 끝내고 넣는다(누른 순서대로 쌓인다)', () => {
+      const order: string[] = [];
+      const first = harness({ select: () => { order.push('select:first'); } });
+      const second = harness({ toggle: () => { order.push('toggle:second'); } });
+      first.core.pointerDown(at(10, 10));
+      first.core.pointerUp();
+      vi.advanceTimersByTime(100);
+      second.core.pointerDown({ ...at(40, 40), ctrlKey: true });
+      second.core.pointerUp();
+      expect(order).toEqual(['select:first', 'toggle:second']);
+      expect(isSelectDeferred()).toBe(false);
+      // 늦게 온 타이머가 방금 만든 묶음을 다시 바꾸지 않는다.
+      vi.advanceTimersByTime(SELECT_DEFER_MS * 4);
+      expect(order).toEqual(['select:first', 'toggle:second']);
+    });
+
+    it('기다리는 클릭이 없으면 flushDeferredBubbleSelect 는 아무것도 하지 않는다', () => {
+      const h = harness();
+      flushDeferredBubbleSelect();
+      expect(h.selects()).toBe(0);
+      expect(isSelectDeferred()).toBe(false);
     });
   });
 });

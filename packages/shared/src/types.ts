@@ -532,7 +532,7 @@ export interface AppBubble {
   /** §2.4 v1.28 — 사용자 preserve-pin. 소멸·삭제 경로 차단. */
   preservePinned?: boolean;
   /**
-   * §5.4 #36 (B) — 이 앱 노드가 **참조하는 에이전트**들(참조선의 출발점).
+   * §5.4 #36 (B) — 이 앱 노드가 **참조하는 에이전트**들(위성줄의 출발점).
    * 중복 없이 `APP_BUBBLE_LINK_MAX` 개까지. 에이전트가 사라져도 지우지 않는다 — 휴지통에서
    * 되살리면 선도 돌아온다(그리는 쪽이 지금 화면에 있는 끝점만 고른다).
    */
@@ -543,7 +543,42 @@ export interface AppBubble {
    * 노드를 열면 이 파일로 앱이 열린다(§5.13 (R-2) `file`).
    */
   file?: string;
+  /**
+   * §5.4 #36 (F) — 담긴 결과의 **버전**(그 파일의 수정 시각, ms). 결과 전달 창구가 `file` 과 함께 적는다.
+   * 같은 이름으로 다시 만들어 다시 보내도 노드 화면의 미리보기가 바뀌게 하는 열쇠다. `file` 을 비우면 함께 지운다.
+   */
+  fileAt?: number;
+  /**
+   * §5.4 #36 (G) — 사용자가 **크기를 정한 형태**(명패 `'nameplate'` · 화면 `'screen'`).
+   * 지금 형태와 같으면 `width`/`height` 가 곧 렌더 치수이고, 다르거나 없으면 앱 선언 크기를 쓴다 —
+   * 정한 적 없는 옛 버블의 `width`/`height` 는 생성 시점의 선언값일 뿐이라(v4.66) 그대로 믿지 않는다.
+   * 형태가 바뀌어도 지우지 않는다(그 형태로 돌아오면 다시 그 크기). [기본 크기로] 가 지운다.
+   */
+  sizedForm?: 'nameplate' | 'screen';
+  /**
+   * §5.4 #36 (H) ① — 이 노드의 위성줄과 구슬 줄(연결된 것 위성)을 **감췄다**. 연결(`linkedAgentIds`)·결과 전달은 그대로다.
+   * 없거나 false 면 보인다.
+   */
+  linksHidden?: boolean;
+  /**
+   * §5.4 #36 (H) ③ — **지난 결과**. 결과 전달(`/output {file}`)이 `file` 을 바꾸기 전에 담겨 있던 파일들(최근 것부터,
+   * `APP_BUBBLE_PAST_FILE_MAX` 까지). 같은 파일을 다시 보낸 것은 쌓지 않는다(그 파일은 이미 덮였다). 노드 아래 구슬 줄에
+   * 뜬다 — 문서가 없는 앱(이미지·3D)도 에이전트가 다시 만든 판들이 버블로 남는다.
+   */
+  pastFiles?: AppBubblePastFile[];
 }
+
+/** §5.4 #36 (H) ③ — 지난 결과 한 건. `at` 은 그때의 결과 버전(그 파일의 수정 시각, ms — 모르면 없다). */
+export interface AppBubblePastFile {
+  file: string;
+  at?: number;
+}
+
+/**
+ * §5.4 #36 (H) ② — 연결 버블의 보기. `'linked'` = 연결된 것 위주(기본), `'files'` = 작업 파일 위주.
+ * 저장되는 값은 `'files'` 하나뿐이다(`BubbleData.linkLens`) — 이 유니온은 판정·창구가 주고받는 말이다.
+ */
+export type LinkLens = 'linked' | 'files';
 
 export interface CaptureBubble {
   /** 고유 id (예: "capture-lp3x9-a1b2"). */
@@ -2033,12 +2068,24 @@ export interface BubbleData {
   /** 캔버스에서 사용자가 직접 생성한 에이전트 (훅 이벤트가 아닌 UI 생성) */
   customCreated?: boolean;
   /**
-   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태. `'card'` 면 원형 버블 대신 **입력 카드**로 그린다.
+   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태. `'card'` 면 원 옆에 입력 **말풍선**을 펼쳐 그린다(값 이름은 첫 판 그대로).
    * 없으면 버블이다(그래서 값은 `'card'` 하나뿐 — 버블로 돌릴 때는 칸을 지운다).
    * 서버 소유(§3.1). 에이전트 노드째 체크포인트에 실리므로 별도 영속 로직이 없다(`preservePinned` 선례).
    * 표시 형태라 identity 대상이 아니다 — 잃으면 버블로 돌아올 뿐이다.
    */
   agentForm?: 'card';
+  /**
+   * §5.4 #36 (H) ① — 이 에이전트의 **연결선을 감췄다**(그 에이전트가 끝점인 활동·위성 선 + 위성줄). 표시 계층만 바꾼다 —
+   * 서버의 활동 엣지·`linkedAgentIds`·위성 칩·결과 전달은 그대로다. 서버 소유(§3.1), 에이전트 노드째 체크포인트에 실린다
+   * (`agentForm` 선례). 표시 형태라 identity 대상이 아니다. 없거나 false 면 보인다.
+   */
+  linksHidden?: boolean;
+  /**
+   * §5.4 #36 (H) ② — 앱 노드가 이어진 에이전트의 보기. `'files'` 면 "작업 파일 위주"(활동 선 또렷 · 앱 노드 구슬 줄 접음),
+   * 없으면 기본 "연결된 것 위주"다(그래서 값은 `'files'` 하나뿐 — 되돌릴 때는 칸을 지운다). 앱 노드가 이어지지 않은
+   * 에이전트에는 뜻이 없다(늘 작업 파일 — 위주로 볼 연결된 것이 없다).
+   */
+  linkLens?: 'files';
   /** Ghost 메타데이터 — bubbleType이 'ghost'일 때만 존재 */
   ghostInfo?: GhostInfo;
   /** 소멸 시작 시각 (ms) — status가 'disappearing'일 때 설정 */
@@ -2470,6 +2517,58 @@ export interface BackgroundTaskProbeSettings {
   killProcess: boolean;
   /** 판정에 쓸 모델 별칭. 실측에서 `haiku`·`sonnet` 둘 다 5/5 였으므로 싼 쪽이 기본이다. */
   model: string;
+}
+
+/**
+ * §5.3 #9-2 — **에이전트가 띄운 프로세스의 보호** 손잡이(머신 단위 `AppState.processGuard`).
+ *
+ * 프로세스를 자동으로 끊는 기능이라 §5.5 #17-9 ⑭(g) 와 같은 이유로 **끌 수 있어야 한다**.
+ * 넷은 자동의 세기 순이다: 끄기 → 프로세스 하나의 상한 → 압박 때 가장 큰 것 끊기 → 끝나면 남은 것 정리.
+ */
+export interface ProcessGuardSettings {
+  /** 끄면 묶음을 만들지 않고 감시·정리도 하지 않는다(이 기능이 생기기 전과 같은 동작). */
+  enabled: boolean;
+  /**
+   * 프로세스 하나가 쓸 수 있는 메모리 — **실메모리의 백분율**. 0 = 상한 없음.
+   * 실제 상한은 `PROCESS_MEMORY_CAP_FLOOR_BYTES` 아래로 내려가지 않는다(정당한 큰 작업을 막지 않게).
+   */
+  memoryCapPercent: number;
+  /** 시스템 메모리 여유가 바닥나면 우리 묶음에서 가장 큰 프로세스 하나를 끊는다. */
+  pressureKill: boolean;
+  /** 에이전트 본체가 내려가거나 하니스가 작업을 끊었다고 적으면 남은 자손을 정리한다. */
+  reapOnSessionEnd: boolean;
+}
+
+/** §5.3 #9-2 — 프로세스를 멈춘 이유. */
+export type ProcessGuardNoticeReason =
+  /** 프로세스 하나가 상한을 넘었다. */
+  | 'cap'
+  /** 시스템 메모리 여유가 바닥나 가장 큰 것을 끊었다. */
+  | 'pressure'
+  /** 에이전트 본체가 내려간 뒤 남은 자손을 정리했다. */
+  | 'session-end'
+  /** 하니스가 끊었다고 적은 작업의 남은 프로세스를 거뒀다. */
+  | 'task-killed';
+
+/**
+ * §5.3 #9-2 — 세션 스트림에 남기는 알림 한 줄의 **사실**. 문장은 클라가 로케일로 만든다
+ * (서버는 숫자·이름만 싣는다 — §5.5 #17-12 ③ 실패 사유와 같은 규율).
+ */
+export interface ProcessGuardNotice {
+  reason: ProcessGuardNoticeReason;
+  /** `kernel` = Windows 묶음이 할당을 거부했다(프로세스가 스스로 끝난다) · `watchdog` = 우리가 끊었다. */
+  enforcedBy: 'kernel' | 'watchdog';
+  /** 실행본 이름(`grep.exe`). 여럿을 정리한 줄(session-end·task-killed)은 비울 수 있다. */
+  image?: string;
+  pid?: number;
+  /** 그 프로세스가 쓰던 메모리(바이트). */
+  memBytes?: number;
+  /** 걸린 상한(바이트) — `cap`. */
+  capBytes?: number;
+  /** 그때의 시스템 여유(바이트) — `pressure`. */
+  availBytes?: number;
+  /** 정리한 프로세스 수 — `session-end`·`task-killed`. */
+  count?: number;
 }
 
 /**
@@ -3826,6 +3925,8 @@ export type WSMessageType =
   | 'model_registry_updated'
   // §4 v2.42 — Options 창에서 사용자 글로벌 디폴트 갱신. payload = UserDefaults
   | 'user_defaults_updated'
+  // §4 앱 테마 — 사용자 테마 폴더를 다시 읽었다(바뀐 것이 있을 때만). payload = AppThemeCatalog
+  | 'app_themes_updated'
   // §6 — 단축키 재매핑. payload = KeymapOverrides. 창이 여럿이면 다른 창도 즉시 같은 키를 쓴다.
   | 'keymap_updated'
   // §5.5 #16-1 — IDE 활동바 구성(순서·제외) 변경. payload = IDEActivityBarPrefs. 단축키와 같은 이유로
@@ -4533,6 +4634,12 @@ export interface AppState {
    * 위 판정과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_SESSION_PROBE_SETTINGS`.
    */
   sessionProbe?: SessionLivenessProbeSettings;
+  /**
+   * §5.3 #9-2 — 에이전트가 띄운 프로세스의 묶음·메모리 상한·정리.
+   *
+   * 위 판정들과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_PROCESS_GUARD_SETTINGS`(켬).
+   */
+  processGuard?: ProcessGuardSettings;
   /**
    * §2.1 (B) — 최상위에 동시에 세울 **외부 폴더 예산**.
    *
@@ -7251,6 +7358,198 @@ export interface TokenCategoryEstimate {
   detail?: string;
 }
 
+// ─── 앱 테마 (§4 앱 테마 — 판올림 번호 발급 대기) ───
+
+/** 테마의 밝기 계열. `color-scheme`(네이티브 컨트롤)과 옵션창의 묶음(다크/라이트)이 이 값을 따른다. */
+export type AppThemeKind = 'dark' | 'light';
+
+/**
+ * 팔레트 계열 — Tailwind 기본 색 이름 그대로다. 앱의 색 클래스(`bg-gray-950` …)는 전부
+ * `--color-<계열>-<칸>` 변수로 칠해지므로, 테마의 본체는 이 표의 값을 갈아 끼우는 것이다.
+ */
+export type AppThemeFamily =
+  | 'slate' | 'gray' | 'zinc' | 'neutral' | 'stone'
+  | 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'emerald' | 'teal' | 'cyan'
+  | 'sky' | 'blue' | 'indigo' | 'violet' | 'purple' | 'fuchsia' | 'pink' | 'rose';
+
+/** 팔레트 칸 — 50(가장 밝음) ~ 950(가장 어두움). */
+export type AppThemeShade = '50' | '100' | '200' | '300' | '400' | '500' | '600' | '700' | '800' | '900' | '950';
+
+/** 계열 하나의 11칸. 값은 CSS 색 문자열(우리가 다시 쓴 것). */
+export type AppThemeRamp = Record<AppThemeShade, string>;
+
+/**
+ * 의미 토큰 — Tailwind 클래스로 못 칠하는 자리의 이름. 기본값·CSS 변수 이름의 정본은
+ * `APP_THEME_TOKEN_SPECS`(constants). **이 이름이 곧 사용자 테마 파일의 `colors` 키다** —
+ * 바꾸면 사람들이 써 둔 파일이 조용히 안 먹으므로, 늘리기만 하고 고치거나 지우지 않는다.
+ */
+export type AppThemeToken =
+  | 'window.background'
+  | 'titleBar.background'
+  | 'titleBar.foreground'
+  | 'canvas.background'
+  | 'canvas.dots'
+  | 'surface.raised'
+  | 'surface.card'
+  | 'surface.inset'
+  | 'surface.sunken'
+  | 'ide.titleBar'
+  | 'ide.tabBar'
+  | 'code.background'
+  | 'code.foreground'
+  | 'code.border'
+  | 'code.inlineBackground'
+  | 'code.inlineForeground'
+  | 'find.match'
+  | 'find.matchForeground'
+  | 'find.matchAll'
+  | 'terminal.background'
+  | 'terminal.panel'
+  | 'terminal.foreground'
+  | 'terminal.cursor'
+  | 'terminal.cursorAccent'
+  | 'terminal.selection'
+  | 'terminal.black'
+  | 'terminal.red'
+  | 'terminal.green'
+  | 'terminal.yellow'
+  | 'terminal.blue'
+  | 'terminal.magenta'
+  | 'terminal.cyan'
+  | 'terminal.white'
+  | 'terminal.brightBlack'
+  | 'terminal.brightRed'
+  | 'terminal.brightGreen'
+  | 'terminal.brightYellow'
+  | 'terminal.brightBlue'
+  | 'terminal.brightMagenta'
+  | 'terminal.brightCyan'
+  | 'terminal.brightWhite';
+
+/**
+ * 팔레트 계열 하나를 다시 짓는 지시. 기본 테마도 사용자 테마도 같은 모양이다.
+ * 적용 순서: `from` 계열(없으면 같은 계열)의 **물려받은 값**에서 출발 → `mirror` → 색조·채도 이동 → `shades`.
+ */
+export interface AppThemeRampSpec {
+  /** 출발 계열. 없으면 같은 이름의 계열에서 출발한다. */
+  from?: AppThemeFamily;
+  /** 명도 사다리를 뒤집는다(50↔950, 500 은 그대로). */
+  mirror?: boolean;
+  /** OKLCH 색상각(0~360)으로 통째로 돌린다. */
+  hue?: number;
+  /** OKLCH 채도를 이 값으로 고정한다(0~0.4). */
+  chroma?: number;
+  /** OKLCH 채도에 곱한다(0~4). `chroma` 와 함께 오면 `chroma` 가 이긴다. */
+  chromaScale?: number;
+  /** 칸별 직접 지정 — 위 변환 뒤에 덮어쓴다. */
+  shades?: Partial<Record<AppThemeShade, string>>;
+}
+
+/**
+ * 테마 정의 — 기본 테마(`BUILTIN_APP_THEMES`)와 사용자 테마 파일(`~/.vibisual/themes/*.json`)이
+ * **같은 모양**이다. 해석은 shared `resolveAppTheme` 한 곳(서버 창 바탕과 클라 화면이 같은 답을 낸다).
+ */
+export interface AppThemeDefinition {
+  schemaVersion: number;
+  /** 기본 테마는 맨 이름(`midnight`), 사용자 테마는 `custom:` 접두 — 기본 테마를 가리지 못한다. */
+  id: string;
+  name: string;
+  /** 없으면 물려받는다(`extends` 의 kind). */
+  kind?: AppThemeKind;
+  /** 출발 테마 id. 없으면 kind 가 light 면 `light`, 아니면 기본 테마. */
+  extends?: string;
+  description?: string;
+  author?: string;
+  /** 물려받은 팔레트의 모든 계열을 뒤집는다 — 다크 테마를 라이트로 옮기는 가장 짧은 길. */
+  mirrorPalette?: boolean;
+  /** 계열 → 별칭(다른 계열 이름) 또는 다시 짓는 지시. 특별 키 `white`·`black` 은 색 문자열. */
+  palette?: Partial<Record<AppThemeFamily, string | AppThemeRampSpec>> & { white?: string; black?: string };
+  /** 의미 토큰 → 색 또는 팔레트 참조(`{gray.900}` · `{sky.400}/50` · `{white}`). */
+  colors?: Partial<Record<AppThemeToken, string>>;
+  /** 기본 테마 이름·설명의 번역 키 꼬리(`panel.options.theme.builtin.<i18nKey>`). 사용자 테마엔 없다. */
+  i18nKey?: string;
+  /** 사용자 테마를 읽어 온 파일 이름(경로 아님 · 표시용). 기본 테마엔 없다. */
+  file?: string;
+}
+
+/**
+ * 사용자 테마를 읽다 생긴 문제. **문장이 아니라 코드**로 남긴다 — 화면이 번역해 보여 준다.
+ * `error` = 그 파일을 못 쓴다 · `warning` = 그 칸만 버리고 테마는 쓴다.
+ */
+export type AppThemeIssueCode =
+  | 'tooMany'
+  | 'tooLarge'
+  | 'readFailed'
+  | 'invalidJson'
+  | 'notObject'
+  | 'unsupportedVersion'
+  | 'missingName'
+  | 'duplicateId'
+  | 'unknownBase'
+  | 'extendsCycle'
+  | 'invalidColor'
+  | 'unknownToken'
+  | 'unknownFamily'
+  | 'invalidRamp'
+  /** 최상위 칸의 모양이 틀렸다(`kind` 가 dark/light 가 아님 · `palette` 가 객체가 아님 …). 그 칸만 버린다. */
+  | 'invalidField';
+
+export interface AppThemeIssue {
+  /** 파일 이름(경로 아님) — 화면에 그대로 뜬다. 해석 단계 문제면 테마 id. */
+  file: string;
+  level: 'error' | 'warning';
+  code: AppThemeIssueCode;
+  /** 어느 칸·어떤 값인가(원문은 잘라서). */
+  detail?: string;
+}
+
+/** `GET /api/app-themes` 응답이자 WS `app_themes_updated` 페이로드. */
+export interface AppThemeCatalog {
+  /** 사용자 테마 폴더 절대경로 — 표시·[폴더 열기]용. */
+  dir: string;
+  /** 읽어 낸 사용자 테마(검증·정규화 끝). */
+  themes: AppThemeDefinition[];
+  issues: AppThemeIssue[];
+  scannedAt: number;
+}
+
+/** 해석이 끝난 테마 — 화면은 `cssVars` 를, 터미널·창 바탕은 `tokens`·`palette` 를 쓴다. */
+export interface ResolvedAppTheme {
+  /** 실제로 칠한 테마 id — 고른 id 를 못 찾으면 기본 테마 id 가 된다. */
+  id: string;
+  /** 고른 id 를 못 찾아 기본 테마로 떨어졌는가. */
+  fellBack: boolean;
+  name: string;
+  kind: AppThemeKind;
+  source: 'builtin' | 'custom';
+  i18nKey?: string;
+  description?: string;
+  author?: string;
+  file?: string;
+  /** 팔레트 칸(`gray-950` · `white` · `black`) → CSS 색. */
+  palette: Record<string, string>;
+  /** 의미 토큰 → CSS 색. */
+  tokens: Record<AppThemeToken, string>;
+  /**
+   * 의미 토큰 → 풀기 전 원문(팔레트 참조 `{gray.900}` 를 그대로 둔 것). "지금 테마로 새로 만들기"가
+   * 이 값으로 견본을 써서, 사용자가 팔레트만 바꿔도 참조 칸이 따라오게 한다.
+   */
+  tokenSources: Record<AppThemeToken, string>;
+  /** CSS 변수 이름(`--color-…`) → 값. `<html>`(또는 미리보기 칸)에 그대로 싣는다. */
+  cssVars: Record<string, string>;
+  /** 해석하다 버린 값들. */
+  issues: AppThemeIssue[];
+}
+
+/** 데스크톱 창 바탕·제목줄 버튼에 칠할 색 — 전부 불투명 sRGB `#rrggbb`. */
+export interface AppThemeChrome {
+  themeId: string;
+  kind: AppThemeKind;
+  background: string;
+  titleBar: string;
+  titleBarSymbol: string;
+}
+
 // ─── User Defaults (§4 v2.42) ───
 
 /**
@@ -7288,6 +7587,25 @@ export interface UserAdvancedDefaults extends Record<string, unknown> {
    * 이 한 값이 xterm `scrollback` 과 desktop PTY 링버퍼 상한을 **동시에** 정한다.
    */
   terminalScrollbackLines?: number;
+  /**
+   * §4 엔진 다리 — 우리가 띄우는 클로드 세션(헤드리스·CMD)에 동봉 모드(`vibisual-bridge`)를 실어
+   * 엔진이 턴·생존·사용량을 직접 신고하게 할지. undefined = 켬(기본). false 로만 끈다.
+   * 다음에 뜨는 세션부터 적용된다(떠 있는 세션의 인자는 바뀌지 않는다).
+   */
+  engineBridge?: boolean;
+}
+
+/**
+ * §4 v2.42 / §5.3 #12-4 (J) — 권한 기본값(옵션창 권한 탭). 위 두 칸과 같은 이유로 인덱스 시그니처를 유지한다.
+ */
+export interface UserPermissionDefaults extends Record<string, unknown> {
+  /**
+   * §5.3 #12-4 (J) — 검증 정책을 켤지. undefined = 끔(기본 — `VERIFICATION_GATE_DEFAULT_ENABLED`).
+   * true일 때만 Codex·Claude Code에 제한 안내와 실행 전 차단을 적용한다. 끄면 제한 프롬프트를 주입하지 않고
+   * 검증을 거부하지 않는다(실행한 것으로만 센다). 주입원 창은 켜진 정책의 안내만 숨길 수 있다.
+   * 판정은 `isVerificationGateEnabled` 한 곳 — 저장 뒤 차단은 다음 도구 호출, 프롬프트 안내는 다음 턴부터 적용된다.
+   */
+  verificationGate?: boolean;
 }
 
 /**
@@ -7313,11 +7631,17 @@ export interface UserDefaults {
   /** §4 v2.42 — 외관. 1차는 uiLocale 만. */
   appearance?: {
     uiLocale?: UiLocale;
+    /**
+     * §4 앱 테마 — 고른 테마 id. 없으면 기본 테마(`DEFAULT_APP_THEME_ID`).
+     * 사용자 테마는 `custom:` 접두다. 파일이 사라져도 이 값은 지우지 않는다 — 해석이 기본 테마로
+     * 떨어질 뿐이라, 파일을 되돌려 놓으면 그대로 돌아온다.
+     */
+    themeId?: string;
   };
   /** §4 v2.42 — 알림. 1차 placeholder. */
   notifications?: UserNotificationDefaults;
-  /** §4 v2.42 — 권한 승인 UX. 1차 placeholder. */
-  permissions?: Record<string, unknown>;
+  /** §4 v2.42 — 권한. §5.3 #12-4 (J) 검증 실행 전 차단 스위치가 첫 칸이다. */
+  permissions?: UserPermissionDefaults;
   /** §4 v2.42 — 고급(API 키·bin 경로·debug). 1차 placeholder. */
   advanced?: UserAdvancedDefaults;
   /**
@@ -9767,10 +10091,8 @@ export interface CodexSetupProgress {
 }
 
 /**
- * §5.25 (G) — 코덱스가 캐시해 둔 모델 한 개(`models_cache.json` 한 항목을 좁힌 것).
- *
- * **우리가 목록을 들지 않는다.** 이 파일이 없거나 못 읽으면 목록은 빈 배열이고, 그때 화면은
- * "모델 목록을 아직 못 읽었다"고 말한다 — 없는 목록을 지어내면 고를 수 없는 모델이 뜬다.
+ * §5.25 (G) — Codex model/list가 신고한 모델. 로컬 캐시는 조회 실패 시에만 대체한다.
+ * 목록에 있는 것은 실행 권한이나 성공을 보증하지 않는다. 실제 실행 결과가 최종 판정이다.
  */
 export interface CodexModelEntry {
   /** `codex exec -m <slug>` 에 그대로 실리는 값. */
@@ -9786,13 +10108,24 @@ export interface CodexModelEntry {
   supportsVerbosity?: boolean;
   /** §5.25 (G-2) — 답변 길이를 아무도 안 정했을 때 이 모델이 쓰는 값(`default_verbosity`). */
   defaultVerbosity?: string;
+  /** 공식 목록의 권장 기본값. 저장된 사용자의 모델 선택을 바꾸지는 않는다. */
+  isDefault?: boolean;
+  inputModalities?: string[];
+  supportsPersonality?: boolean;
+  /** 공식 목록이 제안한 교체 모델. 자동으로 저장하거나 선택하지 않는다. */
+  upgrade?: string;
 }
 
 /** §5.25 (G) — `GET /api/codex-models` 응답. */
 export interface CodexModelCatalog {
   models: CodexModelEntry[];
-  /** 캐시 파일을 읽은 시각. 파일이 없으면 `models` 는 빈 배열이고 이 값만 갱신된다. */
+  /** 마지막 조회 시도 시각. 실패해도 갱신하며 목록 자체의 나이는 fetchedAt과 구분한다. */
   checkedAt: number;
+  /** 마지막 공식 조회 성공 시각. 캐시 파일로만 얻은 목록이면 생략한다. */
+  fetchedAt?: number;
+  source?: 'app-server' | 'cache';
+  /** 공식 재조회 실패로 이전 목록/로컬 캐시를 보여 주고 있는가. */
+  stale?: boolean;
   /** 못 읽었으면 사유(사람 읽기용). */
   error?: string;
 }

@@ -112,7 +112,7 @@ export function InfoTooltip({
             ref={boxRef}
             role="tooltip"
             style={{ left: pos?.x ?? -9999, top: pos?.y ?? -9999, width: TOOLTIP_WIDTH, visibility: pos ? 'visible' : 'hidden' }}
-            className="pointer-events-none fixed z-[9999] rounded-md border border-white/[0.08] bg-[#1f2937] px-2.5 py-2 shadow-xl shadow-black/50"
+            className="pointer-events-none fixed z-[9999] rounded-md border border-white/[0.08] bg-vb-raised px-2.5 py-2 shadow-xl shadow-black/50"
           >
             <p className="text-[12px] font-semibold leading-snug text-gray-100">{title}</p>
             <p className="mt-1 whitespace-pre-line text-[12px] leading-relaxed text-gray-300">{body}</p>

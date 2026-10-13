@@ -128,8 +128,13 @@ const SERVER_PASSTHROUGH_REASONS = new Set(['not-managed', 'view-only-agent', 'c
  * 본다. **우리가 띄운 세션**(헤드리스 = `VIBISUAL_SUBAGENT_ID`, CMD 터미널 = `VIBISUAL_OWNER_TERM_ID`)에서만
  * 쓰고, 검증 권한을 확인할 수 없으니 검증으로 보이면 거부한다(fail-closed). 그 밖의 호출은 종전대로 통과한다 —
  * 서버가 꺼졌다고 사용자의 일반 작업까지 막지 않는다.
+ *
+ * §5.3 #12-4 (J) — 실행 전 차단은 옵션창 스위치이고 기본은 끔이다. 서버가 답하지 못하면 현재 저장된
+ * 옵션을 읽는다. 스폰 때의 표식만 보면 이미 끈 뒤에도 옛 CMD 세션이 계속 거부한다. 저장분도 읽지 못할 때만
+ * 스폰 표식(`VIBISUAL_VERIFICATION_GATE=1`, shared `VERIFICATION_GATE_ENV`)으로 돌아간다.
  */
 const OWNED_SESSION = Boolean(process.env.VIBISUAL_SUBAGENT_ID || process.env.VIBISUAL_OWNER_TERM_ID);
+const USER_DEFAULTS_FILE = path.join(os.homedir(), '.vibisual', 'user-defaults.json');
 const VERIFICATION_FALLBACK_COMMAND = /(?:^|[\s;&|(])(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|t|lint|typecheck|type-check|check|e2e|build|verify)\b|(?:npx|pnpm\s+exec|pnpm\s+dlx|yarn\s+dlx|bunx)\s+(?:vitest|jest|mocha|playwright|cypress|tsc|eslint)\b|vitest\b|jest\b|mocha\b|pytest\b|playwright\s+test\b|cypress\s+(?:run|open)\b|tsc\b|eslint\b|cargo\s+(?:test|build|check|clippy)\b|go\s+(?:test|build|vet)\b|dotnet\s+(?:test|build)\b|make\s+(?:test|check|lint|build)\b)/i;
 const VERIFICATION_FALLBACK_MCP_SERVER = /playwright|puppeteer|chrome[-_]?devtools|browser|claude[-_]?in[-_]?chrome|computer[-_]?use|vibisual_verify/i;
 
@@ -141,9 +146,21 @@ function looksLikeVerification(toolName, toolInput) {
   return command !== '' && VERIFICATION_FALLBACK_COMMAND.test(command);
 }
 
+/** 서버 저장소와 같은 파일을 읽어, 세션을 다시 띄우지 않아도 사용자가 저장한 켬/끔을 따른다. */
+function verificationGateEnabled() {
+  try {
+    const defaults = JSON.parse(fs.readFileSync(USER_DEFAULTS_FILE, 'utf8'));
+    return defaults?.permissions?.verificationGate === true;
+  } catch (error) {
+    // 파일 자체가 없으면 미설정(기본 끔)이다. 접근·파싱 오류만 기존 스폰 표식으로 보완한다.
+    if (error?.code === 'ENOENT') return false;
+    return process.env.VIBISUAL_VERIFICATION_GATE === '1';
+  }
+}
+
 /** 권한 문의가 답을 못 받았을 때의 답 — 우리 세션의 검증처럼 보이면 거부, 아니면 종전대로 통과. */
 function unconfirmedAnswer(payload) {
-  if (OWNED_SESSION && looksLikeVerification(payload.tool_name, payload.tool_input)) {
+  if (OWNED_SESSION && looksLikeVerification(payload.tool_name, payload.tool_input) && verificationGateEnabled()) {
     return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',

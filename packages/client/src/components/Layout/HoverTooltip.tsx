@@ -108,7 +108,7 @@ export function HoverTooltip({
         createPortal(
           <div
             ref={boxRef}
-            className="pointer-events-none fixed z-[9999] whitespace-pre-wrap break-words rounded-md border border-white/[0.08] bg-[#1f2937] px-2 py-1 text-[12px] font-medium leading-snug text-gray-100 shadow-lg shadow-black/50"
+            className="pointer-events-none fixed z-[9999] whitespace-pre-wrap break-words rounded-md border border-white/[0.08] bg-vb-raised px-2 py-1 text-[12px] font-medium leading-snug text-gray-100 shadow-lg shadow-black/50"
             style={{
               left: pos?.left ?? 0,
               top: pos?.top ?? 0,

@@ -6,6 +6,7 @@ import { clampTimelineSeek, lastTimelineFrame, timelineFps, timelineFrame, timel
 import { useVideoTimelineDrag } from './useVideoTimelineDrag.js';
 import { VideoTimelineToolbar } from './VideoTimelineToolbar.js';
 import { VideoTimelineClip } from './VideoTimelineClip.js';
+import { VideoTimelineSignals } from './VideoTimelineSignals.js';
 
 export interface VideoTimelineProps {
   doc: VideoDoc;
@@ -15,10 +16,13 @@ export interface VideoTimelineProps {
   onSelectItem: (itemId: string | null) => void;
   onApplyOps?: (ops: readonly VideoDocOp[]) => void;
   disabled?: boolean;
+  /** §5.13 (T-8) — 표지 줄의 [다시 모으기]. */
+  onRecollectCues?: () => void;
+  recollectingCues?: boolean;
 }
 
 /** One shared time coordinate for the ruler, every lane, and drag calculations. */
-export function VideoTimeline({ doc, playhead, selectedItemId, onSeek, onSelectItem, onApplyOps, disabled = false }: VideoTimelineProps): React.JSX.Element {
+export function VideoTimeline({ doc, playhead, selectedItemId, onSeek, onSelectItem, onApplyOps, disabled = false, onRecollectCues, recollectingCues }: VideoTimelineProps): React.JSX.Element {
   const { t } = useTranslation();
   const key = 'panel.videoStudio.timelineEditor.';
   const laneRef = useRef<HTMLDivElement>(null);
@@ -78,14 +82,14 @@ export function VideoTimeline({ doc, playhead, selectedItemId, onSeek, onSelectI
     <div ref={viewportRef} className="scrollbar-thin overflow-x-auto rounded border border-white/10" {...scrollReveal}>
       <div style={{ width: `calc((100% - ${TIMELINE_CONFIG.gutter}px) * ${zoom} + ${TIMELINE_CONFIG.gutter}px)`, minWidth: TIMELINE_CONFIG.minWidth }}>
         <div className="grid" style={grid}>
-          <div className="sticky left-0 z-20 flex items-center border-b border-r border-white/10 bg-gray-900 px-3 text-[12px] text-gray-400">{t(`${key}tracks`)}</div>
-          <div ref={laneRef} className="relative h-8 touch-none cursor-crosshair overflow-hidden border-b border-white/10 bg-gray-950/80 outline-none focus:ring-1 focus:ring-inset focus:ring-violet-400"
+          <div className="sticky left-0 z-20 flex items-center border-b border-r border-white/10 bg-vb-card px-3 text-[12px] text-slate-400">{t(`${key}tracks`)}</div>
+          <div ref={laneRef} className="relative h-8 touch-none cursor-crosshair overflow-hidden border-b border-white/10 bg-vb-sunken outline-none focus:ring-1 focus:ring-inset focus:ring-[var(--vs-accent)]"
             role="slider" aria-label={t('panel.videoStudio.seek')} aria-valuemin={0} aria-valuemax={lastTimelineFrame(resolved.duration, doc.fps)}
             aria-valuenow={timelineFrame(clampTimelineSeek(playhead, resolved.duration, doc.fps), doc.fps)}
             aria-valuetext={t(`${key}frameValue`, { frame: timelineFrame(clampTimelineSeek(playhead, resolved.duration, doc.fps), doc.fps) })} tabIndex={0}
             onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { scrubPointer.current = null; }} onLostPointerCapture={() => { scrubPointer.current = null; }} onKeyDown={keyboardSeek}>
             {ticks.map(time => <div key={time} className="absolute top-0 h-full border-l border-white/15 pl-1 font-mono text-[12px] leading-8 text-gray-500" style={{ left: `${time / duration * 100}%` }}>{Number(time.toFixed(2))}s</div>)}
-            <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-rose-400" style={{ left: `${cursor}%` }} />
+            <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-slate-100" style={{ left: `${cursor}%` }} />
           </div>
         </div>
         {doc.tracks.map(track => {
@@ -94,7 +98,7 @@ export function VideoTimeline({ doc, playhead, selectedItemId, onSeek, onSelectI
           const label = track.label ?? track.id;
           const action = audio ? (off ? 'unmuteTrack' : 'muteTrack') : (off ? 'showTrack' : 'hideTrack');
           return <div key={track.id} className="grid border-b border-white/5 last:border-b-0" style={grid}>
-            <div className="sticky left-0 z-20 flex items-center gap-2 border-r border-white/10 bg-gray-900 px-3">
+            <div className="sticky left-0 z-20 flex items-center gap-2 border-r border-white/10 bg-vb-card px-3">
               <span className="min-w-0 flex-1 truncate text-[12px] text-gray-300" title={label}>{label}</span>
               <button type="button" className={`rounded p-1 hover:bg-white/10 disabled:opacity-30 ${off ? 'text-amber-300' : 'text-gray-500'}`} disabled={disabled || !onApplyOps}
                 aria-label={t(`${key}${action}`, { name: label })} title={t(`${key}${action}`, { name: label })} aria-pressed={off}
@@ -105,15 +109,17 @@ export function VideoTimeline({ doc, playhead, selectedItemId, onSeek, onSelectI
                 </svg>
               </button>
             </div>
-            <div className={`relative h-11 overflow-hidden bg-gray-950/40 ${off ? 'opacity-40' : ''}`} data-timeline-track={track.id}
+            <div className={`relative h-11 overflow-hidden bg-vb-sunken/60 ${off ? 'opacity-40' : ''}`} data-timeline-track={track.id}
               onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { scrubPointer.current = null; }} onLostPointerCapture={() => { scrubPointer.current = null; }}>
               {ticks.map(time => <div key={time} className="pointer-events-none absolute inset-y-0 border-l border-white/5" style={{ left: `${time / duration * 100}%` }} />)}
               {timeline.items.filter(item => item.trackId === track.id).map(item => <VideoTimelineClip key={item.id} item={item} doc={doc} duration={duration} selected={selectedItemId === item.id} disabled={disabled || !onApplyOps} drag={drag} onSelectItem={onSelectItem} onApplyOps={onApplyOps} />)}
-              <div className="pointer-events-none absolute inset-y-0 z-10 w-px bg-rose-400" data-timeline-playhead="true" style={{ left: `${cursor}%` }} />
+              <div className="pointer-events-none absolute inset-y-0 z-10 w-px bg-slate-100" data-timeline-playhead="true" style={{ left: `${cursor}%` }} />
               {drag.preview?.snap !== null && drag.preview?.snap !== undefined && <div className="pointer-events-none absolute inset-y-0 z-10 w-px bg-amber-300" style={{ left: `${drag.preview.snap / duration * 100}%` }} />}
             </div>
           </div>;
         })}
+        <VideoTimelineSignals doc={doc} timeline={timeline} duration={duration} grid={grid} playhead={playhead} selectedItemId={selectedItemId}
+          disabled={disabled} onSeek={onSeek} onApplyOps={onApplyOps} onRecollect={onRecollectCues} recollecting={recollectingCues} />
       </div>
     </div>
     <p className="text-[12px] text-gray-500">{t(`${key}dragHint`)}</p>

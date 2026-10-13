@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { AgentConfig, ProjectCheckpoint, UserDefaults } from '@vibisual/shared';
+import type { AgentConfig, BubbleData, ProjectCheckpoint, UserDefaults } from '@vibisual/shared';
 import { AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, CMD_AGENT_COLOR, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 
 /**
@@ -214,6 +214,57 @@ describe('§4 설정 3층 — 영속화', () => {
     expect(restored.getAgentConfigOverrides(agent.id)?.model).toBeUndefined();
     setGlobalDefaults({ model: 'haiku' });
     expect(restored.getAgentConfig(agent.id)?.model).toBe('haiku');
+  });
+});
+
+/*
+ * §4 (설정 3층) — 관측 모델은 **훅 버블에만** 얹힌다. 우리가 띄우는 버블의 모델은 3층이 정하고 관측은
+ * 그 결과일 뿐이라, 얹으면 기본값과 같은 모델을 고른 저장이 못 박히지 않은 채 지난 턴의 관측으로 도로
+ * 덮인다 — 다시 연 창도 상태바도 스폰(`--model`)도 옛 모델로 남는다(사용자 보고: 전역 기본 opus 인 채
+ * 버블을 Fable → Opus 로 바꿔 저장해도 fable 로 돌았다).
+ */
+describe('§4 설정 3층 — 관측 모델은 우리가 띄운 버블의 선택을 덮지 않는다', () => {
+  /** 스냅샷이 버블에 실측 모델을 실어 동기화하는 한 걸음만 흉내낸다(대화록·sub 없이). */
+  function syncObserved(graph: InstanceType<typeof ProjectGraph>, agent: BubbleData, modelName: string): void {
+    (graph as unknown as { syncDetectedAgentConfigs(agents: BubbleData[]): void })
+      .syncDetectedAgentConfigs([{ ...agent, modelName }]);
+  }
+
+  it('지난 턴이 다른 모델로 돌았어도 기본값과 같은 모델로 바꾼 저장이 산다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ model: 'opus' });
+    const agent = graph.createCustomAgent('Switcher');
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'fable' }));
+    syncObserved(graph, agent, 'claude-fable-5-1');
+
+    // 기본값(opus)과 같은 선택이라 못 박히지 않는다 — 그 빈자리를 지난 턴의 관측이 채우면 안 된다.
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'opus' }));
+    syncObserved(graph, agent, 'claude-fable-5-1');
+
+    expect(graph.getAgentConfigOverrides(agent.id)?.model).toBeUndefined();
+    expect(graph.getAgentConfig(agent.id)?.model).toBe('opus');
+  });
+
+  it('한 턴 돈 버블도 설정 창의 기본 모델 변경을 따라간다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ model: 'opus' });
+    const agent = graph.createCustomAgent('Follower');
+    syncObserved(graph, agent, 'claude-opus-5-5');
+
+    setGlobalDefaults({ model: 'sonnet' });
+    syncObserved(graph, agent, 'claude-opus-5-5');
+
+    expect(graph.getAgentConfig(agent.id)?.model).toBe('sonnet');
+  });
+
+  it('훅 버블은 종전대로 관측 모델이 그 버블의 모델이다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ model: 'opus' });
+    // 우리가 띄우지 않은 외부 세션 — 고른 값이 없어 관측이 유일한 진실이다.
+    const hook = { id: 'agent-hook-observed', bubbleType: 'agent', customCreated: false } as BubbleData;
+    syncObserved(graph, hook, 'claude-sonnet-5');
+
+    expect(graph.getAgentConfig(hook.id)?.model).toBe('sonnet');
   });
 });
 

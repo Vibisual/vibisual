@@ -36,8 +36,8 @@ function logDir(): string {
   return join(base, 'logs');
 }
 
-function logFile(): string {
-  return join(logDir(), 'crash.log');
+function logFile(name = 'crash.log'): string {
+  return join(logDir(), name);
 }
 
 /** 파일이 임계치를 넘었으면 crash.log.1 로 밀어낸다(백업 1개 유지). */
@@ -68,14 +68,22 @@ export function appendCrashLine(
   message: string,
   stack?: string,
 ): void {
+  const head = `[${nowIso()}] [${source}/${level}] ${message}\n`;
+  const body = stack ? `${stack}\n` : '';
+  appendLogText('crash.log', head + body);
+}
+
+/**
+ * userData/logs 아래 진단 파일(`fileName`)에 글을 동기 append — crash.log 와 같은 정책(2MB 회전, 백업 1개).
+ * 메인 스레드 멈춤 기록(`mainStallLog.ts`)도 이 길을 쓴다. 실패해도 절대 throw 하지 않는다.
+ */
+export function appendLogText(fileName: string, text: string): void {
   try {
     const dir = logDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const file = logFile();
+    const file = logFile(fileName);
     rotateIfNeeded(file);
-    const head = `[${nowIso()}] [${source}/${level}] ${message}\n`;
-    const body = stack ? `${stack}\n` : '';
-    appendFileSync(file, head + body, 'utf8');
+    appendFileSync(file, text, 'utf8');
   } catch {
     /* 디스크 오류 등 — 로깅 실패는 조용히 삼킨다 */
   }

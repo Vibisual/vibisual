@@ -32,6 +32,11 @@ export interface MediabunnyProviderOptions {
   readonly loader: AssetBytesLoader;
   /** 디코딩 결과 캔버스의 최대 가로. 원본이 4K 여도 화면에 쓸 만큼만 받는다. */
   readonly maxFrameWidth?: number;
+  /**
+   * URL 소재를 읽을 fetch. 생략하면 그 문맥의 fetch 다. 응답을 통째로 넘기는 호스트에서 대표 프레임만 읽을 때
+   * `boundedRangeFetch` 를 넘긴다(§5.4 #36 (F)) — 편집 화면은 종전대로 생략한다.
+   */
+  readonly fetchFn?: typeof fetch;
 }
 
 /**
@@ -90,7 +95,9 @@ export class MediabunnyMediaProvider implements MediaProvider {
       const opened = await this.opts.loader.open(asset);
       if (opened === null) throw new Error('소재를 열 수 없습니다.');
 
-      const source = opened instanceof Blob ? new BlobSource(opened) : new UrlSource(opened);
+      const source = opened instanceof Blob
+        ? new BlobSource(opened)
+        : new UrlSource(opened, this.opts.fetchFn ? { fetchFn: this.opts.fetchFn } : {});
       const input = new Input({ formats: ALL_FORMATS, source });
       const track = await input.getPrimaryVideoTrack();
       const sink =

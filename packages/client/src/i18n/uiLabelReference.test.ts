@@ -55,6 +55,18 @@ interface LabelReference {
 
 const LABEL_REFERENCES: readonly LabelReference[] = [
   {
+    // §4 앱 테마 — 내 테마 구역의 안내문 둘. 파일을 고친 뒤 누를 버튼([다시 읽기])을 가리키는데,
+    // 그 버튼 이름도 로케일마다 번역되므로 버튼 라벨에서 받아 적는다.
+    key: 'panel.options.theme.custom.desc',
+    slots: { reload: 'panel.options.theme.custom.reload' },
+    forbidden: ['Reload themes'],
+  },
+  {
+    key: 'panel.options.theme.custom.createdHint',
+    slots: { reload: 'panel.options.theme.custom.reload' },
+    forbidden: ['Reload themes'],
+  },
+  {
     // §5.25 (M) — 코덱스 훅 목록 아래 안내문. 우리 훅을 켜고 끄는 자리는 옵션창 엔진 칸 하나뿐이라
     // 이 문장이 그리로 보낸다. 라벨 둘 다 번역 대상이라 반드시 보간이어야 한다.
     key: 'ide.codex.hooks.switchHint',
@@ -187,6 +199,13 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     key: 'ide.orchestra.member.toolsOption',
     slots: { name: 'panel.agentConfig.toolTemplate.review.name' },
     forbidden: ['Read-only', 'Review & verify', 'Web research', 'Docs writing', 'Implementation', 'Orchestrator'],
+  },
+  {
+    // §5.3 #12-4 (J) — 주입원 창 "검증 정책" 줄의 끄기 설명. 그 창의 스위치는 말만 끄고, 실행 전 차단은
+    // 옵션창 권한 칸에 따로 있다 — 그리로 보내는 문장이라 두 이름 다 받아 적는다(`useContextAbout` 이 넣는다).
+    key: 'ide.context.about.src.verificationPolicy.off',
+    slots: { options: 'panel.options.title', permissions: 'panel.options.categories.permissions' },
+    forbidden: ['Options', 'Permissions'],
   },
 ];
 

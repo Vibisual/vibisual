@@ -541,7 +541,7 @@ function DraggableItem({
 export const CommandQueue = memo(function CommandQueue({
   agentId,
   readOnly = false,
-}: CommandQueueProps): React.JSX.Element {
+}: CommandQueueProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const allQueues = useGraphStore((s) => s.queuedCommands);
   // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 대기열에 뜨지 않는다(사용자가 넣은 명령이 아니다).
@@ -585,6 +585,10 @@ export const CommandQueue = memo(function CommandQueue({
     setDragIndex(null);
     setOverIndex(null);
   }, []);
+
+  // §7.2 (판올림 번호 발급 대기) — 읽기 전용(훅) 버블에서 비어 있으면 칸째 그리지 않는다. [추가] 손잡이가
+  //   없는 빈 제목 줄은 할 수 있는 일이 없다. 커스텀은 비어도 제목 줄과 [+] 를 남긴다(입력 입구).
+  if (readOnly && commands.length === 0) return null;
 
   return (
     <>

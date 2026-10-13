@@ -31,7 +31,7 @@ const BACKDROP_EXCEPTIONS: Record<string, string> = {
 const PRESS_LISTENER_EXCEPTIONS: Record<string, string> = {
   'components/BubbleMap/BubbleMap.tsx': 'Task Edge 연결 드래그 취소 — 팝업 닫기가 아니다.',
   'hooks/useInspector.ts': 'Alt 홀드 Inspector 의 요소 집기 — 팝업 닫기가 아니다.',
-  'utils/dragRegionKeepalive.ts': '드래그 영역 재신고를 미룰지 판정하는 눌림 추적 — 팝업 닫기가 아니다.',
+  'utils/titlebarPress.ts': '페이지까지 온 제목줄 누름을 창 이동 손짓으로 받는 부팅 지점 받기 — 팝업 닫기가 아니다.',
 };
 
 /**

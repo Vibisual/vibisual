@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentProvider } from '@vibisual/shared';
 
@@ -10,6 +11,7 @@ export function CodexAdvancedSettings({ value, onChange }: {
   value: CodexAdvancedDraft; onChange: (patch: CodexAdvancedDraft) => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const tierId = useId();
   const cls = 'mt-1 w-full rounded border border-gray-700 bg-gray-950 p-2 text-xs text-gray-200';
   return <fieldset className="flex flex-col gap-3 rounded border border-gray-700/60 p-3">
     <legend className="px-1 text-xs font-semibold text-gray-300">{t('providers.codexAdvanced')}</legend>
@@ -25,8 +27,13 @@ export function CodexAdvancedSettings({ value, onChange }: {
     </label>)}
     <p className="text-[12px] text-gray-500">{t('providers.personalityHint')}</p>
     <label className="text-xs text-gray-300">{t('providers.serviceTier')}
-      <input className={cls} value={value.serviceTier ?? ''} placeholder={t('providers.inheritSetting')} onChange={e => onChange({ serviceTier: e.target.value.trim() || undefined })} />
-      <span className="mt-1 block text-[12px] text-gray-500">{t('providers.serviceTierHint')}</span>
+      <input className={cls} value={value.serviceTier ?? ''} list={`${tierId}-suggestions`} aria-describedby={`${tierId}-hint`}
+        placeholder={t('providers.inheritSetting')} onChange={e => onChange({ serviceTier: e.target.value.trim() || undefined })} />
+      <datalist id={`${tierId}-suggestions`}>
+        <option value="fast">{t('providers.serviceTierFast')}</option>
+        <option value="ultrafast">{t('providers.serviceTierUltrafast')}</option>
+      </datalist>
+      <span id={`${tierId}-hint`} className="mt-1 block text-[12px] text-gray-500">{t('providers.serviceTierHint')}</span>
     </label>
     <label className="text-xs text-gray-300">{t('providers.autoCompactTokenLimit')}
       <input type="number" min={1} step={1} className={cls} value={value.autoCompactTokenLimit ?? ''} placeholder={t('providers.inheritSetting')}

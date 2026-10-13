@@ -83,6 +83,8 @@ export function hashItem(
     sceneId: item.sceneId,
     props: item.props,
     transform: item.transform,
+    // §5.13 (W) 38-4 — 상자의 시간 곡선도 그림을 바꾼다.
+    keyframes: item.keyframes,
     effects: item.effects,
     cues: item.cues,
     trimStart: item.trimStart,

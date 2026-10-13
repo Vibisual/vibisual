@@ -20,15 +20,32 @@ import { graphManager } from './projectGraphManager.js';
 import { atomicWriteFileSync } from './statePersistence.js';
 import { resolveWorkspacePath } from './workspaceExplorer.js';
 
+/**
+ * §5.13 (T-11) ① — 서버 몫이 **같은 앱의 main 몫**을 부르는 통로. 데스크톱 main 이 부팅 때 한 번 주입한다
+ * (`setAppMainInvoker`). 서버와 main 이 한 프로세스라(§3.7) 새 소켓도 새 IPC 채널도 없다 — 함수 하나다.
+ * 앱 이름을 모른다: 어느 앱의 몫인지는 아래 `makeHost(appId)` 가 묶어 준다.
+ */
+export type AppMainInvoker = (appId: string, action: string, payload: unknown) => Promise<unknown>;
+let appMainInvoker: AppMainInvoker | null = null;
+
+export function setAppMainInvoker(fn: AppMainInvoker | null): void {
+  appMainInvoker = fn;
+}
+
 /** 앱에게 건네는 호스트. 앱이 코어에 닿는 유일한 통로다. */
-function makeHost(): {
+function makeHost(appId: string): {
   resolveProjectPath(raw: unknown): string | null;
   resolveWorkspacePath(root: string, relativePath: string): { abs: string; rel: string } | null;
   atomicWriteFile(filePath: string, data: string): void;
   info(message: string): void;
   warn(message: string): void;
+  invokeMain(action: string, payload?: unknown): Promise<unknown>;
 } {
   return {
+    // main 이 없는 실행 형태(시험 등)면 거절한다 — 부르는 앱이 그 사실을 이유로 남긴다.
+    invokeMain: (action, payload) => (appMainInvoker
+      ? appMainInvoker(appId, action, payload)
+      : Promise.reject(new Error('main process bridge unavailable'))),
     resolveProjectPath(raw: unknown): string | null {
       if (typeof raw !== 'string' || raw.length === 0) return null;
       const byName = graphManager.getProjectByName(raw);
@@ -105,7 +122,7 @@ export function mountAppRoutes(app: Express): void {
         const mod = await entry.load();
         const router = makeRouter();
         // 앱은 Express 앱처럼 생긴 것에 라우트를 건다 — 라우터가 그 역할을 한다.
-        mod.mountRoutes(router as unknown as Express, makeHost());
+        mod.mountRoutes(router as unknown as Express, makeHost(entry.id));
         loaded = router;
         logger.info(`[apps] ${entry.id} 서버 몫을 이제야 불러왔습니다 (${entry.apiPrefix}).`);
       })();

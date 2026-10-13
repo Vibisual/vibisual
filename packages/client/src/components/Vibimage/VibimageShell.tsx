@@ -2,13 +2,15 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import type { AppShellProps } from '../../apps/registry.js';
 import { WindowControls } from '../Layout/WindowControls.js';
-import { mediaFileName, workspaceMediaUrl } from '../../utils/workspaceMedia.js';
+import { fetchWorkspaceMediaBlob, mediaFileName } from '../../utils/workspaceMedia.js';
 
 /**
  * §5.13 (R-9) — **Vibimage.** 캔버스 참조 노드(§5.4 #36)에 담긴 그림 한 장을 본다.
  *
- * 바이트는 영상·소리·3D 와 같은 창구(`workspaceMediaUrl`)로 읽는다 — 앱마다 쿼리를 조립하면 서버 가드가
- * 바뀔 때 앱 수만큼 고치게 된다. 그림 표시는 브라우저 `<img>` 하나라 새로 들여온 제3자 코드가 없다.
+ * 바이트는 영상·소리·3D 와 같은 창구(`workspaceMediaUrl`)를 **`fetch` 로** 읽어 blob URL 로 그린다 — 앱마다 쿼리를
+ * 조립하면 서버 가드가 바뀔 때 앱 수만큼 고치게 되고, 그 주소를 `<img src>` 에 바로 걸면 패키지 앱(file://)에서
+ * IPC 를 타지 않아 빈 화면이 된다(첫 판이 그랬다 — §5.4 #36 (F)). 그림 표시는 브라우저 `<img>` 하나라 새로 들여온
+ * 제3자 코드가 없다.
  *
  * 높이는 호스트가 준다(§5.13 (S-7)) — 셸은 `h-full` 이다.
  */
@@ -61,11 +63,33 @@ export function VibimageShell({ params }: AppShellProps): React.JSX.Element {
   const root = params['projectId'] ?? '';
   const file = params['file'] ?? '';
   const hosted = !!params['appWindowId'] || params['appWindowHosted'] === '1';
-  const src = root && file ? workspaceMediaUrl(root, file) : '';
+  /** 받아 둔 그림의 blob URL. 받는 중이면 ''(빈 화면 문구는 `!file` 일 때만 — 받는 중에 "없음"이라 말하지 않는다). */
+  const [src, setSrc] = useState('');
 
   const stageRef = useRef<HTMLDivElement>(null);
   const [natural, setNatural] = useState<Natural | null>(null);
   const [failed, setFailed] = useState(false);
+
+  // 그림을 fetch 로 받아 이 문서의 blob URL 로 — 다른 그림이 오거나 창을 닫으면 앞의 것을 되돌린다.
+  useEffect(() => {
+    setSrc('');
+    if (!root || !file) return undefined;
+    let cancelled = false;
+    let made = '';
+    void fetchWorkspaceMediaBlob(root, file).then((blob) => {
+      if (cancelled) return;
+      if (!blob) {
+        setFailed(true);
+        return;
+      }
+      made = URL.createObjectURL(blob);
+      setSrc(made);
+    });
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [root, file]);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   /** null = 맞춤(창이 바뀌면 다시 맞춘다). 숫자 = 사용자가 고른 배율. */
   const [zoom, setZoom] = useState<number | null>(null);
@@ -192,7 +216,7 @@ export function VibimageShell({ params }: AppShellProps): React.JSX.Element {
           />
         )}
 
-        {(!src || failed) && (
+        {(!file || failed) && (
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="max-w-sm rounded-lg border border-white/10 bg-gray-900/95 p-5 text-center">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3 h-6 w-6 text-amber-200/70" aria-hidden="true">

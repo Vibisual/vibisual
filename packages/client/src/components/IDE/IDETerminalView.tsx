@@ -31,6 +31,7 @@ import { useTitleWithBinding } from '../Shortcuts/useBindingLabel.js';
 import { openWebSearch } from './webSearchUrl.js';
 import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 import { TERMINAL_FONT_STACK, ensureTerminalFonts } from '../../utils/terminalFont.js';
+import { useXtermTheme } from '../../theme/xtermTheme.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -111,29 +112,9 @@ function readStoredFontSize(): number {
 //
 // 배경만 스킴 기본(#1e1e2e)이 아니라 한 단 어두운 crust(#11111b)를 쓴다 — IDE 본문(gray-950)
 // 위에 얹히는 패널이라 본문보다 밝으면 터미널이 붕 떠 보인다.
-const TERMINAL_THEME = {
-  background: '#11111b', // crust — IDE 본문(gray-950)보다 반 단 밝아 '패널'로 읽힌다
-  foreground: '#cdd6f4', // text
-  cursor: '#94e2d5', // teal — 우리 CMD 액센트와 같은 계열
-  cursorAccent: '#11111b',
-  selectionBackground: 'rgba(203, 166, 247, 0.30)', // mauve — 선택은 IDE 액센트(보라)와 이어진다
-  black: '#45475a', // surface1
-  red: '#f38ba8',
-  green: '#a6e3a1',
-  yellow: '#f9e2af',
-  blue: '#89b4fa',
-  magenta: '#f5c2e7', // pink
-  cyan: '#94e2d5', // teal
-  white: '#bac2de', // subtext1
-  brightBlack: '#585b70', // surface2
-  brightRed: '#f38ba8',
-  brightGreen: '#a6e3a1',
-  brightYellow: '#f9e2af',
-  brightBlue: '#89b4fa',
-  brightMagenta: '#f5c2e7',
-  brightCyan: '#94e2d5',
-  brightWhite: '#a6adc8', // subtext0
-} as const;
+//
+// §4 앱 테마 — 이 색표는 이제 **테마의 `terminal.*` 토큰**이다(shared `APP_THEME_TOKEN_SPECS` 기본값 = 위
+// Mocha 그대로, 라이트 테마 = Catppuccin Latte). 아래 컴포넌트가 `useXtermTheme()` 으로 받아 쓴다.
 
 /**
  * §4 (CMD) — 행간. 글꼴 크기와 달리 이 값은 사용자가 만지는 축이 아니라 **판독성의 기본선**이라
@@ -172,6 +153,15 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
 
   // xterm 인스턴스/애드온 — effect 밖(메뉴·검색바·폰트 버튼 핸들러)에서 조작하려고 ref 로 보관.
   const termRef = useRef<Terminal | null>(null);
+  // §4 앱 테마 — 터미널 색표는 고른 테마의 `terminal.*` 토큰에서 온다. 만드는 순간의 값은 ref 로 읽고
+  //   (테마를 바꿨다고 PTY 를 다시 붙이지 않게), 바뀌면 아래 effect 가 떠 있는 터미널에 그대로 얹는다.
+  const xtermTheme = useXtermTheme();
+  const xtermThemeRef = useRef(xtermTheme);
+  xtermThemeRef.current = xtermTheme;
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) term.options.theme = { ...xtermTheme };
+  }, [xtermTheme]);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   // GPU 렌더러 — 컨텍스트 손실 시 스스로 물러나므로 null 이 될 수 있다(그때는 DOM 렌더러).
@@ -363,7 +353,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
       // 굵은 글자를 밝은 색으로 바꿔치지 않는다. 스킴이 이미 대비를 맞춰 뒀는데 여기서 색을 한 단
       // 올리면 굵기와 색이 같은 뜻을 두 번 말하면서 팔레트가 어긋난다.
       drawBoldTextInBrightColors: false,
-      theme: { ...TERMINAL_THEME },
+      theme: { ...xtermThemeRef.current },
       scrollback: scrollbackRef.current,
       allowProposedApi: true,
     });
@@ -646,9 +636,9 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const paneLabel = fgProcess ?? `pane ${paneId}`;
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#11111b]">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-vb-terminal">
       {/* §4 v2.63 — 권한 경계 고지 + v2.65 폰트/검색 컨트롤. */}
-      <div className="flex items-center gap-1.5 border-b border-gray-800/80 bg-[#11111b] px-3 py-1">
+      <div className="flex items-center gap-1.5 border-b border-gray-800/80 bg-vb-terminal px-3 py-1">
         <svg className="h-3 w-3 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2.5" y="4" width="19" height="16" rx="2" />
           <path d="M6 9l3 3-3 3" />
@@ -715,7 +705,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
                   라벨이 테두리를 뚫고 나온 모양이 된다). 글자는 그 창에서 도는 프로그램 이름이라
                   "저 창이 claude, 이 창이 dev 서버"가 한눈에 갈린다. */}
               <span
-                className={`pointer-events-none absolute left-4 top-[9px] z-10 -translate-y-1/2 bg-[#11111b] px-1.5 font-mono text-[12px] leading-[1.1] tracking-wide transition-colors ${
+                className={`pointer-events-none absolute left-4 top-[9px] z-10 -translate-y-1/2 bg-vb-terminal px-1.5 font-mono text-[12px] leading-[1.1] tracking-wide transition-colors ${
                   paneState === 'blocked'
                     ? 'text-amber-300'
                     : focused
@@ -747,7 +737,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           >
           {/* 인앱 검색바 — Ctrl+F. */}
           {searchOpen && (
-            <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-gray-700 bg-[#181825]/95 px-1.5 py-1 shadow-xl backdrop-blur">
+            <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-gray-700 bg-vb-terminal-panel/95 px-1.5 py-1 shadow-xl backdrop-blur">
               <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
               <input
                 ref={searchInputRef}

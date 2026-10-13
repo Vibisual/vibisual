@@ -336,7 +336,7 @@ export function PromptRail({
         <div
           ref={popupRef}
           role="tooltip"
-          className="pointer-events-none fixed z-[9999] w-max max-w-[360px] rounded-md border border-white/[0.08] bg-[#1f2937] px-2.5 py-1.5 text-[12px] leading-snug text-gray-100 shadow-lg shadow-black/50"
+          className="pointer-events-none fixed z-[9999] w-max max-w-[360px] rounded-md border border-white/[0.08] bg-vb-raised px-2.5 py-1.5 text-[12px] leading-snug text-gray-100 shadow-lg shadow-black/50"
           style={{
             left: popupPos?.left ?? 0,
             top: popupPos?.top ?? 0,

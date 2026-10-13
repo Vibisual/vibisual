@@ -48,8 +48,9 @@ export function FileMenu(): React.JSX.Element {
     }
   }, []);
 
+  // §3.7 — 클릭 자리(`app-nodrag`)는 이 메뉴 상자 하나다. 헤더가 감싸는 둘레는 제목줄로 남아 창을 끈다.
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={menuRef} className="app-nodrag relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

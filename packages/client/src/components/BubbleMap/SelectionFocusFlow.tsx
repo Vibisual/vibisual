@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ReactFlow, type Edge, type Node, type ReactFlowProps } from '@xyflow/react';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { cancelDeferredBubbleSelect } from './bubbleSelectGesture.js';
@@ -29,16 +29,39 @@ type SelectionFocusFlowProps = ReactFlowProps & Required<Pick<ReactFlowProps, 'o
  * `LinkFocusHint` lives on its own. Here only this wrapper and React Flow wake up.
  */
 export function SelectionFocusFlow({
-  nodes, edges, onNodesChange, onSelectionStart, onPaneClick, onNodeDragStart, onKeyDownCapture,
+  nodes, edges, onNodesChange, onSelectionStart, onSelectionEnd, onPaneClick, onNodeDragStart, onKeyDownCapture,
   ...rest
 }: SelectionFocusFlowProps): React.JSX.Element {
-  const focused = useSelectionFocus(nodes ?? NO_NODES, edges ?? NO_EDGES);
+  /**
+   * §6 — 박스 선택이 도는 중인가. 이 동안만 노드를 React Flow 가 고를 수 있다(`useSelectionFocus` 의 `marquee`).
+   * 끝은 React Flow 가 알리지만(`onSelectionEnd`), 손을 창 밖에서 떼거나 창이 포커스를 잃으면 그 알림이 안 올
+   * 수 있다 — 그대로 굳으면 클릭마다 React Flow 가 다시 스스로 고른다. 그래서 손을 뗀 모든 순간에 함께 내린다.
+   */
+  const [marquee, setMarquee] = useState(false);
+  useEffect(() => {
+    if (!marquee || typeof window === 'undefined') return;
+    const end = (): void => setMarquee(false);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
+    return () => {
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
+    };
+  }, [marquee]);
+  const focused = useSelectionFocus(nodes ?? NO_NODES, edges ?? NO_EDGES, marquee);
   const handleSelectionStart = useCallback<NonNullable<ReactFlowProps['onSelectionStart']>>((event) => {
     // React Flow calls this when a marquee actually starts moving, not on a bubble click. Native
     // selected flags also change during clicks, so they cannot reliably identify a marquee instead.
     clearSelectionFocus();
+    setMarquee(true);
     onSelectionStart?.(event);
   }, [onSelectionStart]);
+  const handleSelectionEnd = useCallback<NonNullable<ReactFlowProps['onSelectionEnd']>>((event) => {
+    setMarquee(false);
+    onSelectionEnd?.(event);
+  }, [onSelectionEnd]);
   const handlePaneClick = useCallback<NonNullable<ReactFlowProps['onPaneClick']>>((event) => {
     clearSelectionFocus();
     onPaneClick?.(event);
@@ -60,6 +83,6 @@ export function SelectionFocusFlow({
       && target.matches?.('.react-flow__node.selectable')) clearSelectionFocus();
   }, [onKeyDownCapture, rest.disableKeyboardA11y, rest.elementsSelectable]);
   return <ReactFlow {...rest} nodes={focused.nodes} edges={focused.edges} onNodesChange={onNodesChange}
-    onSelectionStart={handleSelectionStart} onPaneClick={handlePaneClick} onNodeDragStart={handleNodeDragStart}
-    onKeyDownCapture={handleKeyDownCapture} />;
+    onSelectionStart={handleSelectionStart} onSelectionEnd={handleSelectionEnd} onPaneClick={handlePaneClick}
+    onNodeDragStart={handleNodeDragStart} onKeyDownCapture={handleKeyDownCapture} />;
 }

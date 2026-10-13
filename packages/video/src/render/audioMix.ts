@@ -8,12 +8,14 @@
  * `OfflineAudioContext` 를 쓰는 이유는 **실시간보다 빠르게** 렌더되기 때문이다. 4분짜리
  * 영상의 소리를 섞는 데 4분을 기다릴 수는 없다.
  *
- * 여기서 처리하는 것: 배치 시각, 트림, 볼륨, 페이드 인·아웃, 음소거 트랙 제외.
+ * 여기서 처리하는 것: 배치 시각, 트림, 볼륨, 페이드 인·아웃, 음소거 트랙 제외, §5.13 (V) 37-12 덕킹(내레이션 동안 음악을
+ * 낮춘다 — `props.role` 이 `voice` 인 구간에서 `music` 을, 곡선은 순수 함수 `duckEnvelope`).
  * 여기서 처리하지 않는 것: 소재 생성(§5.13 (H) — 앱은 소리를 만들지 않는다).
  */
 
 import type { ResolvedItem, ResolvedTimeline, VideoAsset, VideoDoc } from '../types.js';
 import { audioItemsAt } from './drawList.js';
+import { DUCK_DEFAULT_DB, duckEnvelope, type DuckPoint } from '../audio/duck.js';
 
 /** 오디오 소재의 원본 바이트를 내주는 쪽. 파일 접근 방식은 호스트가 정한다. */
 export interface AudioBytesLoader {
@@ -46,6 +48,7 @@ function scheduleItem(
   buffer: AudioBuffer,
   item: ResolvedItem,
   destination: AudioNode,
+  duck: readonly DuckPoint[] = [],
 ): void {
   const props = item.item.props;
   const volume = Math.max(0, num(props, 'volume', 1));
@@ -76,8 +79,33 @@ function scheduleItem(
   }
 
   source.connect(gain);
-  gain.connect(destination);
+  if (duck.length > 0) {
+    // 덕킹은 볼륨·페이드와 따로 건다(두 곡선이 한 게인에서 서로를 지우지 않게) — 점 사이는 직선.
+    const ducker = ctx.createGain();
+    const [first, ...rest] = duck;
+    if (first) ducker.gain.setValueAtTime(first.gain, first.t);
+    for (const point of rest) ducker.gain.linearRampToValueAtTime(point.gain, point.t);
+    gain.connect(ducker);
+    ducker.connect(destination);
+  } else {
+    gain.connect(destination);
+  }
   source.start(start, trimStart, playDuration);
+}
+
+/** 아이템의 소리 역할(`props.role`). */
+function roleOf(item: ResolvedItem): string | undefined {
+  const role = item.item.props?.['role'];
+  return typeof role === 'string' ? role : undefined;
+}
+
+/**
+ * §5.13 (V) 37-12 — 음악 아이템 하나에 걸 덕킹 곡선. `props.duckDb`(0 이하 dB — 0 이면 끔)로 깊이를 바꾼다. 목소리가 없으면 빈 곡선.
+ */
+export function duckCurveFor(item: ResolvedItem, voice: readonly { start: number; end: number }[]): DuckPoint[] {
+  if (roleOf(item) !== 'music' || voice.length === 0) return [];
+  const depth = num(item.item.props, 'duckDb', DUCK_DEFAULT_DB);
+  return duckEnvelope(voice, { depthDb: Math.min(0, depth) });
 }
 
 /**
@@ -97,6 +125,9 @@ export async function mixAudio(opts: MixAudioOptions): Promise<AudioBuffer | nul
   const frames = Math.ceil(timeline.duration * sampleRate);
 
   const ctx = new OfflineAudioContext(channels, frames, sampleRate);
+
+  // §5.13 (V) 37-12 — 목소리 구간(덕킹의 기준). 음악 아이템마다 같은 곡선을 건다.
+  const voice = items.filter((it) => roleOf(it) === 'voice').map((it) => ({ start: it.start, end: it.end }));
 
   // 소재는 한 번만 디코딩한다 — 같은 음성을 여러 컷에서 쓰는 것이 흔하다.
   const decoded = new Map<string, AudioBuffer | null>();
@@ -124,7 +155,7 @@ export async function mixAudio(opts: MixAudioOptions): Promise<AudioBuffer | nul
 
     const buffer = decoded.get(assetId);
     if (!buffer) continue;
-    scheduleItem(ctx, buffer, item, ctx.destination);
+    scheduleItem(ctx, buffer, item, ctx.destination, duckCurveFor(item, voice));
     scheduled += 1;
   }
 

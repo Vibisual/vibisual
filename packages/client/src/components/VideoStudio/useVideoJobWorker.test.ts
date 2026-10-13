@@ -20,7 +20,7 @@ function deferred<T>() {
 const pending = { current: 0 };
 let view: ReactTestRenderer | undefined;
 const doc = createEmptyDoc('queued-doc', 'Queued document', 100);
-const outcome: RenderOutcome = { bytes: new Uint8Array([1, 2, 3]), hasAudio: true, selection: null, warnings: [] };
+const outcome: RenderOutcome = { bytes: new Uint8Array([1, 2, 3]), hasAudio: true, selection: null, warnings: [], container: 'mp4' };
 const job = (kind: VideoJob['kind'] = 'render'): VideoJob => ({ id: 'job', kind, projectPath: 'A', docId: doc.id, status: 'running', progress: 0, t: 2.5 });
 function Harness({ project }: { project: string }) { useVideoJobWorker(project, pending, mocks.progress, mocks.status, mocks.download); return null; }
 function mount(): void { act(() => { view = create(createElement(Harness, { project: 'A' })); }); }

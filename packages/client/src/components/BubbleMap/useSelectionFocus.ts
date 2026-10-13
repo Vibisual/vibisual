@@ -3,6 +3,7 @@ import type { Node, Edge } from '@xyflow/react';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { isSelectDeferred, subscribeSelectDeferred } from './bubbleSelectGesture.js';
+import { flowSelectable } from './canvasMultiSelect.js';
 import { SELECTION_FOCUS } from './constants.js';
 import {
   computeSelectionDistances,
@@ -15,6 +16,7 @@ import {
 } from './selectionFocus.js';
 
 interface Presentation<T> { className: string; rendered: T }
+interface NodePresentation extends Presentation<Node> { selectable: boolean }
 
 /**
  * The focus center, plus the click still waiting out the double-click window. The center lives in
@@ -30,15 +32,21 @@ function useSelectionFocusCenter(): { centerId: string | null; pendingId: string
   return { centerId, pendingId: selectDeferred && intentId !== centerId ? intentId : null };
 }
 
-/** Presentation only: never write these classes or derived edge data back to graph/layout state. */
-export function useSelectionFocus(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+/**
+ * Presentation only: never write these classes or derived edge data back to graph/layout state.
+ *
+ * §6 — `marquee` 가 켜진 동안만 노드를 React Flow 가 "고를 수 있는 것"으로 내보낸다(`flowSelectable`). 클릭은
+ * 우리 선택 제스처가 고르고, React Flow 에는 박스 안 노드를 세는 일만 맡긴다 — 그 판정이 우리 규칙(5px 문턱 ·
+ * 더블클릭 보류 · Ctrl/Cmd 누적)과 따로 돌아 Ctrl 클릭 묶음을 덮어쓰던 자리다. 이 값도 같은 캐시를 탄다(바뀔 때만 새 객체).
+ */
+export function useSelectionFocus(nodes: Node[], edges: Edge[], marquee = false): { nodes: Node[]; edges: Edge[] } {
   const { centerId, pendingId } = useSelectionFocusCenter();
   const currentFolderId = useGraphStore((state) => state.currentFolderId);
   const linkPhase = useLinkFocusPhase();
   // React Flow also caches by the node object's identity. A physics update to one node
   // must not invalidate every unchanged node/edge; weak keys release departed snapshots.
   const cache = useMemo(() => ({
-    nodes: new WeakMap<Node, Presentation<Node>>(),
+    nodes: new WeakMap<Node, NodePresentation>(),
     edges: new WeakMap<Edge, Presentation<Edge>>(),
   }), []);
   // Position/status frames do not change connectivity. Memoize BFS by topology and selection,
@@ -61,12 +69,13 @@ export function useSelectionFocus(nodes: Node[], edges: Edge[]): { nodes: Node[]
       distances.get(node.id), SELECTION_FOCUS.nodes, SELECTION_FOCUS.unrelatedNode,
     );
     const className = [node.className, SELECTION_FOCUS.nodeTransition, emphasis].filter(Boolean).join(' ');
+    const selectable = flowSelectable(node, marquee);
     const previous = cache.nodes.get(node);
-    if (previous?.className === className) return previous.rendered;
-    const rendered = { ...node, className };
-    cache.nodes.set(node, { className, rendered });
+    if (previous?.className === className && previous.selectable === selectable) return previous.rendered;
+    const rendered = { ...node, className, selectable };
+    cache.nodes.set(node, { className, selectable, rendered });
     return rendered;
-  }), [nodes, distances, cache]);
+  }), [nodes, distances, cache, marquee]);
 
   const focusedEdges = useMemo(() => edges.map((edge) => {
     const emphasis = distances === null ? SELECTION_FOCUS.restore : selectionDistanceClass(

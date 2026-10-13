@@ -11,9 +11,12 @@
 
 import type { DrawOp } from './drawList.js';
 import { buildDrawList } from './drawList.js';
+import { captionWordSpans, wantsWordHighlight, type CaptionWordSpan } from './captionWords.js';
 import type { BackendProbe, RenderBackend, RenderBackendCapabilities, RenderSurface } from './backend.js';
 import { RENDER_BACKEND_CAPABILITIES } from './backend.js';
 import type { ResolvedTimeline, VideoDoc } from '../types.js';
+import { docHasCompositions } from '../resolveTimeline.js';
+import { vignetteStops } from './effects.js';
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -61,6 +64,21 @@ export function fadeFactor(op: DrawOp): number {
   return Math.max(0, Math.min(1, f));
 }
 
+/** §5.13 (W) 38-5 — 상자 (0,0,w,h) 위에 비네트(가운데 투명 → 가장자리 검게). DOM 무대의 `vignetteCss` 와 같은 정지점. */
+export function drawVignette(ctx: Ctx2D, w: number, h: number, amount: number): void {
+  if (!(w > 0) || !(h > 0) || !(amount > 0)) return;
+  ctx.filter = 'none';
+  // 타원: CSS `ellipse at center`(farthest-corner)와 같은 모양 — 가로 반지름 w/2·√2 의 원을 세로로 h/w 만큼 눌러 그린다.
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(1, h / w);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, (w / 2) * Math.SQRT2);
+  for (const s of vignetteStops(amount)) g.addColorStop(s.at, `rgba(0,0,0,${s.alpha})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(-w / 2, -w / 2, w, w);
+  ctx.restore();
+}
+
 /** `object-fit: contain` 과 같은 배치를 계산한다(레터박스 포함). */
 export function containRect(
   srcW: number,
@@ -99,6 +117,22 @@ export function wrapText(ctx: Ctx2D, text: string, maxWidth: number): string[] {
   return out;
 }
 
+/** §5.13 (V) 37-12 — 낱말 조각을 폭 안에서 줄로 나눈다(단어 강조 자막). */
+export function wrapWordSpans(ctx: Ctx2D, words: readonly CaptionWordSpan[], maxWidth: number): CaptionWordSpan[][] {
+  const out: CaptionWordSpan[][] = [];
+  const space = ctx.measureText(' ').width;
+  let line: CaptionWordSpan[] = [];
+  let w = 0;
+  for (const span of words) {
+    const sw = ctx.measureText(span.text).width;
+    if (line.length > 0 && w + space + sw > maxWidth) { out.push(line); line = []; w = 0; }
+    w += (line.length > 0 ? space : 0) + sw;
+    line.push(span);
+  }
+  if (line.length > 0) out.push(line);
+  return out;
+}
+
 function sourceSize(src: CanvasImageSource): { w: number; h: number } {
   const anyimg = src as { width?: number; height?: number; videoWidth?: number; videoHeight?: number };
   const w = anyimg.videoWidth ?? anyimg.width ?? 0;
@@ -113,7 +147,13 @@ export interface Canvas2DBackendOptions {
   readonly scenes?: SceneRegistry;
   /** 캔버스를 만드는 쪽. 창이 있으면 document, 워커면 OffscreenCanvas. */
   readonly createCanvas?: (w: number, h: number) => HTMLCanvasElement | OffscreenCanvas;
-  readonly background?: string;
+  /** 바탕색(기본 검정). §5.13 (W) 38-3 — `null` 이면 칠하지 않는다(투명 배경 렌더). */
+  readonly background?: string | null;
+  /**
+   * §5.13 (F)(T-4) — composition 이 든 문서면 **렌더 후보에서 빠진다**(이유와 함께). canvas2d 는 HTML 을 그릴 수 없어,
+   * 그대로 두면 컴포지션 자리에 표식만 찍힌 영상이 조용히 나온다. 미리보기처럼 표식이라도 보이는 게 나은 자리는 끈다.
+   */
+  readonly refuseCompositions?: boolean;
 }
 
 function defaultCreateCanvas(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
@@ -142,9 +182,15 @@ export class Canvas2DBackend implements RenderBackend {
 
   async probe(): Promise<BackendProbe> {
     const hasCanvas = typeof OffscreenCanvas !== 'undefined' || typeof document !== 'undefined';
-    return hasCanvas
-      ? { id: this.id, available: true }
-      : { id: this.id, available: false, reason: '캔버스를 만들 수 없는 환경입니다.' };
+    if (!hasCanvas) return { id: this.id, available: false, reason: '캔버스를 만들 수 없는 환경입니다.' };
+    if (this.opts.refuseCompositions === true && docHasCompositions(this.opts.doc)) {
+      return {
+        id: this.id,
+        available: false,
+        reason: '코드 컴포지션은 DOM 무대(오프스크린 창)에서만 그릴 수 있습니다.',
+      };
+    }
+    return { id: this.id, available: true };
   }
 
   async init(surface: RenderSurface): Promise<void> {
@@ -166,8 +212,10 @@ export class Canvas2DBackend implements RenderBackend {
     const { width, height } = this.surface;
     ctx.save();
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = this.opts.background ?? '#000000';
-    ctx.fillRect(0, 0, width, height);
+    if (this.opts.background !== null) {
+      ctx.fillStyle = this.opts.background ?? '#000000';
+      ctx.fillRect(0, 0, width, height);
+    }
     ctx.restore();
 
     const ops = buildDrawList(this.opts.doc, this.opts.timeline, t);
@@ -185,6 +233,12 @@ export class Canvas2DBackend implements RenderBackend {
 
     ctx.save();
     ctx.globalAlpha = alpha;
+    // §5.13 (V) 37-8 — 전환이 잘라 보이게 한 사각형(문서 픽셀) 밖은 그리지 않는다.
+    if (op.clip) {
+      ctx.beginPath();
+      ctx.rect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
+      ctx.clip();
+    }
     // 회전은 사각형 가운데를 축으로 — 사람이 기대하는 방향.
     const cx = transform.x + transform.width / 2;
     const cy = transform.y + transform.height / 2;
@@ -192,6 +246,8 @@ export class Canvas2DBackend implements RenderBackend {
     if (transform.rotation !== 0) ctx.rotate((transform.rotation * Math.PI) / 180);
     if (transform.scale !== 1) ctx.scale(transform.scale, transform.scale);
     ctx.translate(-transform.width / 2, -transform.height / 2);
+    // §5.13 (W) 38-5 — DOM 무대와 같은 필터 문자열(이펙트는 그리기 목록이 접었다).
+    if (op.filter) ctx.filter = op.filter;
 
     try {
       switch (op.kind) {
@@ -213,11 +269,17 @@ export class Canvas2DBackend implements RenderBackend {
         case 'scene':
           this.drawScene(ctx, op, env);
           break;
+        case 'composition':
+          // §5.13 (T-4) — HTML 은 이 백엔드가 그릴 수 없다. 빈 화면 대신 "여기 컴포지션이 있다"를 보인다.
+          this.drawCompositionPlaceholder(ctx, op);
+          break;
         case 'audio':
           break; // 화면에 그릴 것이 없다.
         default:
           break;
       }
+      // §5.13 (W) 38-5 — 비네트는 필터 밖에서 상자 위에 덧칠한다(DOM 무대의 덧칠 칸과 같은 정지점).
+      if (op.vignette !== undefined && op.vignette > 0) drawVignette(ctx, transform.width, transform.height, op.vignette);
     } finally {
       ctx.restore();
     }
@@ -299,15 +361,21 @@ export class Canvas2DBackend implements RenderBackend {
 
     ctx.font = `600 ${size}px ${family}`;
     ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
 
     const maxWidth = width * 0.86;
-    const lines = op.cues.flatMap((c) => wrapText(ctx, c.text, maxWidth));
+    // §5.13 (V) 37-12 — 단어 강조면 낱말 단위로 줄을 짓는다(지금 낱말만 강조색). 아니면 종전대로 큐 글을 줄로.
+    const highlight = wantsWordHighlight(p);
+    const lines: CaptionWordSpan[][] = highlight
+      ? op.cues.flatMap((c) => wrapWordSpans(ctx, captionWordSpans(c, op.resolved.start + op.localTime).words, maxWidth))
+      : op.cues.flatMap((c) => wrapText(ctx, c.text, maxWidth)).map((line) => [{ text: line, active: false, spoken: false }]);
     if (lines.length === 0) return;
+    const space = ctx.measureText(' ').width;
+    const lineWidth = (line: readonly CaptionWordSpan[]): number =>
+      line.reduce((w, span, i) => w + ctx.measureText(span.text).width + (i > 0 ? space : 0), 0);
 
     const step = size * 1.32;
     const blockH = step * lines.length;
-    const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const widest = Math.max(...lines.map(lineWidth));
     const boxW = Math.min(width, widest + padding * 2);
     const boxH = blockH + padding * 1.2;
     const boxX = (width - boxW) / 2;
@@ -319,10 +387,16 @@ export class Canvas2DBackend implements RenderBackend {
     else ctx.rect(boxX, boxY, boxW, boxH);
     ctx.fill();
 
-    ctx.fillStyle = color;
+    const accent = str(p, 'highlightColor', '#FACC15');
+    ctx.textAlign = 'left';
     let y = boxY + boxH / 2 - blockH / 2 + step / 2;
     for (const line of lines) {
-      ctx.fillText(line, width / 2, y);
+      let x = width / 2 - lineWidth(line) / 2;
+      for (const span of line) {
+        ctx.fillStyle = span.active ? accent : color;
+        ctx.fillText(span.text, x, y);
+        x += ctx.measureText(span.text).width + space;
+      }
       y += step;
     }
   }
@@ -350,6 +424,23 @@ export class Canvas2DBackend implements RenderBackend {
       return;
     }
     fn(ctx, op, env);
+  }
+
+  private drawCompositionPlaceholder(ctx: Ctx2D, op: DrawOp): void {
+    const { width, height } = op.transform;
+    ctx.fillStyle = 'rgba(99,102,241,0.10)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = '#818CF8';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([14, 10]);
+    ctx.strokeRect(2, 2, width - 4, height - 4);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#C7D2FE';
+    ctx.font = `600 ${Math.max(16, Math.round(height * 0.04))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = op.resolved.item.label ?? op.resolved.item.id;
+    ctx.fillText(`</> ${label}`, width / 2, height / 2);
   }
 
   private drawMissingScene(ctx: Ctx2D, op: DrawOp, sceneId: string | undefined): void {

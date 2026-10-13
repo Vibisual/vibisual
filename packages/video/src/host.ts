@@ -20,9 +20,20 @@ export interface AppServerHost {
   atomicWriteFile(filePath: string, data: string): void;
   info(message: string): void;
   warn(message: string): void;
+  /**
+   * §5.13 (T-4)(T-11) ① — 서버 몫 → **같은 앱의 main 몫** `invoke(action, payload)`.
+   *
+   * 서버와 main 이 한 프로세스라(§3.7) 새 소켓도 새 IPC 채널도 없다. 일감이 들어오면 숨은 일꾼 창을 깨우는 데 쓴다.
+   * main 이 없는 실행 형태(단위 시험·웹)에서는 비어 있다 — 그때 일감은 줄에 남아 다른 일꾼을 기다린다.
+   */
+  invokeMain?(action: string, payload?: unknown): Promise<unknown>;
 }
 
-/** main 프로세스 몫이 호스트에게 요구하는 것. */
+/**
+ * main 프로세스 몫이 호스트에게 요구하는 것.
+ *
+ * 앱의 main 몫은 이것 말고도 `dispose()`(본체 창이 닫힐 때 — 앱이 띄운 숨은 창 정리, T-11 ④)를 낼 수 있다.
+ */
 export interface AppMainHost {
   /** 렌더러 파일 경로(오프스크린 창이 열 화면). */
   rendererFile: string;

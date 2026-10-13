@@ -1037,7 +1037,8 @@ export function IDEGoalMapView({
         //   `null` 로 오므로 추종이 자기가 옮긴 화면 때문에 꺼지는 일이 없다.
         onMoveStart={(event) => { if (event) onUserMove(); }}
       >
-        <Background color="#374151" gap={16} />
+        {/* §4 앱 테마 — 팔레트 gray-700(라이트에서는 뒤집힌 사다리의 같은 자리). */}
+        <Background color="var(--color-gray-700)" gap={16} />
         {/* 기본 <Controls> 는 흰 사각 버튼이라 이 어두운 지도 위에서 혼자 뜬다 —
             캔버스와 같은 손잡이를 쓴다(`canvasControlKit`). 아래 진행 레일 위로 올려 세운다. */}
         <CanvasZoomControls className="!mb-8" />

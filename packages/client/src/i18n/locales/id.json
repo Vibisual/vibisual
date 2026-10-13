@@ -386,19 +386,111 @@
         "version": "Versi",
         "account": "Akun",
         "storage": "Penyimpanan",
-        "keyboard": "Keyboard"
+        "keyboard": "Keyboard",
+        "theme": "Tema"
       },
       "appearance": {
         "intro": "Sesuaikan tampilan Vibisual.",
         "language": "Bahasa",
         "languageDesc": "Bahasa tampilan UI. Berlaku langsung."
       },
+      "theme": {
+        "intro": "Ubah warna seluruh aplikasi — panel, canvas, IDE, dan terminal. Pilihan Anda langsung diterapkan dan disimpan di komputer ini.",
+        "groupDark": "Gelap",
+        "groupLight": "Terang",
+        "inUse": "Tema saat ini",
+        "byAuthor": "oleh {{author}}",
+        "saveFailed": "Pilihan tema Anda tidak dapat disimpan. Tema yang tersimpan sebelumnya akan kembali dipakai lain kali.",
+        "missing": "Tema yang Anda pilih ({{id}}) tidak ditemukan, sehingga {{fallback}} ditampilkan sebagai gantinya. Kembalikan filenya ke folder tema atau pilih tema lain.",
+        "builtin": {
+          "vibisualDark": {
+            "name": "Vibisual Gelap",
+            "desc": "Tampilan asli — panel abu-abu kebiruan yang sejuk dan canvas yang gelap pekat."
+          },
+          "midnight": {
+            "name": "Tengah Malam",
+            "desc": "Permukaan biru tua pekat untuk sesi malam yang panjang."
+          },
+          "graphite": {
+            "name": "Grafit",
+            "desc": "Abu-abu netral tanpa semburat warna, sehingga warna agent Anda lebih menonjol."
+          },
+          "dusk": {
+            "name": "Senja",
+            "desc": "Nuansa batu yang hangat dan nyaman di mata."
+          },
+          "forest": {
+            "name": "Hutan",
+            "desc": "Abu-abu kehijauan yang kalem, seperti petang yang tenang di tengah hutan."
+          },
+          "highContrast": {
+            "name": "Kontras Tinggi",
+            "desc": "Hitam murni dengan teks terang dan garis tepi yang tajam."
+          },
+          "light": {
+            "name": "Terang",
+            "desc": "Panel yang cerah dan bersih untuk bekerja di siang hari."
+          },
+          "paper": {
+            "name": "Kertas",
+            "desc": "Kertas krem yang hangat dengan tinta cokelat lembut."
+          },
+          "highContrastLight": {
+            "name": "Kontras Tinggi Terang",
+            "desc": "Putih murni dengan teks hitam dan garis luar yang tegas."
+          }
+        },
+        "custom": {
+          "title": "Tema saya",
+          "desc": "Tema buatan Anda berupa file JSON di folder ini. Letakkan file di dalamnya, lalu tekan {{reload}}.",
+          "openFolder": "Buka folder",
+          "reload": "Muat ulang tema",
+          "create": "Tema baru dari {{name}}",
+          "copyName": "Salinan {{name}}",
+          "createdHint": "{{file}} sudah dibuat dan langsung dipakai. Buka filenya di editor teks apa pun, ubah beberapa warna, lalu tekan {{reload}}.",
+          "empty": "Belum ada tema buatan Anda.",
+          "issuesTitle": "Masalah ditemukan di file tema ({{n}})",
+          "failed": {
+            "load": "Folder tema tidak dapat dibaca.",
+            "create": "File tema tidak dapat dibuat.",
+            "open": "Folder tema tidak dapat dibuka."
+          }
+        },
+        "help": {
+          "title": "Cara menulis file tema",
+          "extends": "\"extends\" — mulai dari tema lain berdasarkan id-nya dan tulis hanya bagian yang ingin Anda ubah.",
+          "palette": "\"palette\" — warnai ulang satu keluarga warna sekaligus: pinjam keluarga warna lain (\"gray\": \"zinc\"), atur tingkat warna tertentu ({\"500\": \"#7c3aed\"}), atau geser seluruh keluarga itu ({\"hue\": 280, \"chromaScale\": 1.4}).",
+          "mirror": "\"mirrorPalette\": true membalik setiap keluarga warna dari gelap ke terang — cara tercepat untuk membuat tema terang.",
+          "colors": "\"colors\" — area bernama seperti bilah judul, canvas, blok kode, dan terminal. Nilainya berupa warna (#hex, rgb(), hsl(), oklch()) atau referensi palet seperti {gray.900} atau {sky.400}/50.",
+          "builtinIds": "ID tema bawaan",
+          "tokens": "Nama yang dapat dipakai di \"colors\""
+        },
+        "issue": {
+          "tooMany": "{{file}} berisi {{detail}} file tema — hanya {{max}} file pertama yang dibaca.",
+          "tooLarge": "{{file}} terlalu besar ({{detail}} byte) — file tema dapat berukuran maksimal {{maxKb}} KB.",
+          "readFailed": "{{file}} tidak dapat dibaca.",
+          "invalidJson": "{{file}} bukan JSON yang valid: {{detail}}",
+          "notObject": "{{file}} harus berisi satu objek JSON.",
+          "unsupportedVersion": "{{file}} memakai format tema {{detail}}, yang tidak dapat dibaca oleh versi ini.",
+          "missingName": "{{file}} tidak memiliki \"name\", sehingga nama file ditampilkan sebagai gantinya.",
+          "duplicateId": "{{file}} memakai id yang sudah dipakai file lain ({{detail}}), sehingga dilewati.",
+          "unknownBase": "{{file}} berbasis pada \"{{detail}}\", yang tidak ada, sehingga dimulai dari tema default.",
+          "extendsCycle": "{{file}} berbasis pada dirinya sendiri secara melingkar (di \"{{detail}}\"), sehingga lingkaran itu diputus di sana.",
+          "invalidColor": "{{file}}: {{detail}} bukan warna yang dapat dibaca aplikasi ini, sehingga diabaikan.",
+          "unknownToken": "{{file}}: \"{{detail}}\" bukan nama warna yang dikenal aplikasi ini, sehingga diabaikan.",
+          "unknownFamily": "{{file}}: \"{{detail}}\" bukan keluarga palet, sehingga diabaikan.",
+          "invalidRamp": "{{file}}: {{detail}} bukan entri palet yang valid, sehingga diabaikan.",
+          "invalidField": "{{file}}: \"{{detail}}\" memiliki struktur yang salah, sehingga diabaikan."
+        }
+      },
       "version": {
         "title": "Versi & Tentang",
         "intro": "Binary Claude Code yang digunakan Vibisual untuk memunculkan agent, dan asalnya.",
+        "codexIntro": "Codex CLI yang digunakan Vibisual untuk menjalankan agent Codex, dan lokasi instalasinya.",
         "refresh": "Pindai ulang",
         "scanning": "Memindai instalasi…",
         "claudeCode": "Claude Code (digunakan)",
+        "codex": "Codex (digunakan)",
         "current": "Saat ini",
         "versionLabel": "Versi:",
         "latest": "Terbaru (npm)",
@@ -602,6 +694,28 @@
         "sessionProbeModelDesc": "Ia ditanya sekali, tanpa alat dan tanpa akses ke proyek Anda — hanya potongan singkat dari apa yang terakhir dikatakan dan dilakukan sesi itu. Paling banyak satu sesi ditanya pada satu waktu, dan tidak lebih dari 12 kali per jam.",
         "sessionProbeLoadError": "Tidak bisa membaca pengaturan saat ini.",
         "sessionProbeSaveError": "Tidak bisa menyimpan. Tidak ada yang diubah.",
+        "processGuardTitle": "Proses yang dijalankan agent Anda",
+        "processGuardIntro": "Semua yang dijalankan agent di sini, beserta semua proses turunannya sedalam apa pun, tetap diawasi Vibisual. Jika satu proses memakai memori secara tak terkendali, hanya proses itu yang dihentikan, dan saat sesi berakhir, apa pun yang ditinggalkan sesi itu ikut berakhir. Satu perintah tidak lagi dapat menghabiskan memori komputer dan membuat aplikasi ikut mati.",
+        "processGuardEnabled": "Awasi proses yang dijalankan agent",
+        "processGuardEnabledDesc": "Jika nonaktif, tidak ada yang dikelompokkan, dibatasi, atau dibersihkan — sama seperti sebelum opsi ini ada.",
+        "processGuardCap": "Memori yang boleh dipakai satu proses (% dari RAM)",
+        "processGuardCapDesc": "Proses yang melebihi batas ini dihentikan. Batas ini tidak pernah turun di bawah {{floor}}, sehingga build besar tetap muat. 0 berarti tanpa batas. Di Windows, sistem operasi sendiri yang menolak memberikan memori tambahan; di sistem operasi lain, Vibisual memeriksa setiap {{seconds}} detik.",
+        "processGuardCapNow": "Di komputer ini: {{size}} per proses",
+        "processGuardCapNone": "Di komputer ini: tanpa batas per proses",
+        "processGuardPressure": "Saat memori hampir habis, hentikan proses terbesar",
+        "processGuardPressureDesc": "Saat memori bebas turun di bawah {{ratio}} (minimal {{min}}), proses terbesar yang dijalankan agent Anda dihentikan — satu per satu, lalu memori diukur lagi. Program lain di komputer Anda tidak pernah disentuh.",
+        "processGuardReap": "Bersihkan sisa yang ditinggalkan sesi",
+        "processGuardReapDesc": "Saat sesi berakhir, atau Claude Code melaporkan telah menghentikan suatu tugas, proses yang masih tersisa dari sesi atau tugas itu ikut dihentikan. Jika nonaktif, proses tersebut dibiarkan berjalan.",
+        "engineBridgeTitle": "Jembatan engine Claude Code",
+        "engineBridgeIntro": "Sesi yang dimulai Vibisual membawa mod kecil untuk Claude Code. Dari dalam Claude Code, mod ini melaporkan kapan giliran dimulai dan berakhir (termasuk giliran yang diinterupsi), bahwa proses masih aktif, serta seberapa penuh konteks dan batas penggunaan. Dengan begitu, status berjalan dan selesai berasal dari Claude Code sendiri, bukan hasil tebakan. Sesi yang dimulai di luar Vibisual tidak pernah disentuh.",
+        "engineBridgeEnabled": "Sambungkan sesi yang dimulai Vibisual (headless dan CMD)",
+        "engineBridgeEnabledDesc": "Berlaku untuk sesi yang dimulai setelah disimpan. Jika dimatikan, sesi berjalan persis seperti sebelumnya, dengan status yang hanya diambil dari hook dan deteksi layar.",
+        "engineBridgeStatusReady": "Claude Code {{version}} dapat memuat jembatan. Sesi yang tersambung saat ini: {{sessions}}",
+        "engineBridgeStatusUnsupported": "Claude Code {{version}} tidak dapat memuat mod; diperlukan versi {{min}} atau yang lebih baru. Sesi berjalan seperti sebelumnya.",
+        "engineBridgeStatusChecking": "Memeriksa versi Claude Code. Setelah dikonfirmasi, jembatan mulai tersambung dari sesi berikutnya.",
+        "engineBridgeStatusMissing": "File jembatan tidak ada di instalasi ini, sehingga sesi berjalan seperti sebelumnya.",
+        "engineBridgeStatusError": "Tidak dapat membaca status jembatan.",
+        "engineBridgeRefresh": "Periksa lagi",
         "externalBudgetTitle": "Folder di luar proyek",
         "externalBudgetIntro": "Saat agent menyentuh folder di luar proyek, tempat itu mendapatkan bubble-nya sendiri. Jika dibiarkan, bubble-bubble ini bisa mengubur peta atau menyatu menjadi satu bubble yang tidak menunjukkan apa-apa. Angka ini menentukan berapa banyak yang berada di level teratas sekaligus — tempat yang paling sibuk dan terbaru mengisi lebih dulu, sementara tempat yang mulai sepi akan dilipat kembali ke bawah induknya.",
         "externalBudgetLabel": "Folder eksternal yang ditampilkan di level teratas",
@@ -616,6 +730,11 @@
       "notifications": {
         "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
         "cmdBlockedDesc": "Hanya memberi tahu saat Anda sedang melihat tab atau jendela lain — jika jendela sedang fokus, itu sudah terlihat di layar."
+      },
+      "permissions": {
+        "verificationGateIntro": "Kebijakan ini hanya berlaku untuk Codex dan Claude Code saat diaktifkan. Agen kemudian diinstruksikan untuk menjalankan pengujian, lint, pemeriksaan tipe, build verifikasi, E2E, pemeriksaan browser, perbandingan tangkapan layar, dan agen verifikasi hanya jika diminta dalam tugas saat ini. Pemanggilan yang tidak diminta diblokir sebelum dijalankan.",
+        "verificationGateEnabled": "Wajibkan permintaan sebelum menjalankan verifikasi",
+        "verificationGateEnabledDesc": "Nonaktif secara default. Saat nonaktif, Vibisual tidak menambahkan batasan verifikasi ke prompt dan tidak memblokir pemanggilan berdasarkan kebijakan ini. Saat aktif, skrip dengan nama yang mengandung check, verify, atau test juga dapat diblokir. Simpan dengan {{apply}}: perubahan pemblokiran berlaku mulai pemanggilan alat berikutnya, sedangkan perubahan panduan dalam prompt berlaku mulai giliran berikutnya."
       },
       "engines": {
         "title": "Engine",
@@ -1413,11 +1532,11 @@
       "codex": {
         "edgeDelegationNote": "Delegasi tool Codex memblokir tool yang dapat dieksekusi langsung dan mengirim pekerjaan ke agent yang terhubung. Karena perintah shell dapat melewati batasan baca, cari, dan edit secara terpisah, mode ini menerapkan batasan yang lebih luas. Perencanaan dan jawaban akhir tetap tersedia. Perubahan berlaku mulai pesan berikutnya.",
         "noModel": "Belum ada model yang dipilih",
-        "modelTip": "Model Codex yang digunakan bubble ini. Vibisual selalu mengirimkan ini secara eksplisit, sehingga tidak pernah kembali ke model default di file config Codex Anda.",
-        "noModelList": "Daftar model belum pernah dibaca — menjalankan Codex sekali akan membuatnya.",
+        "modelTip": "Model yang dipilih dikirim secara eksplisit. Pilihan kosong mengikuti pengaturan proyek atau konfigurasi Codex. Pembaruan katalog tidak pernah mengubah pilihan Anda.",
+        "noModelList": "Katalog model saat ini tidak tersedia. Model tersimpan dan pewarisan Codex tetap dipertahankan.",
         "reloadModels": "Muat ulang",
         "effort": "Upaya penalaran",
-        "effortTip": "Semakin tinggi berarti model berpikir lebih lama dan memakai lebih banyak token. Hanya tingkat yang dilaporkan model ini yang ditampilkan.",
+        "effortTip": "Upaya yang lebih tinggi memakai lebih banyak waktu dan token. Tingkat yang tersedia berasal dari Codex; pilihan tersimpan tetap dipertahankan meski tidak ada dalam katalog saat ini.",
         "toolsManaged": "Dikelola oleh Codex CLI",
         "toolAsk": "Selalu tanya",
         "toolReset": "Izinkan semua",
@@ -1979,6 +2098,22 @@
     "apps": {
       "open": "Buka",
       "openHint": "Klik dua kali untuk membuka.",
+      "screenEmpty": "Hasil akan muncul di sini",
+      "screenWorking": "Sedang membuat…",
+      "canvas": {
+        "tooLarge": "Terlalu besar untuk dibuka di sini — gunakan editor",
+        "unavailable": "Tidak dapat dibuka di sini — gunakan editor",
+        "dragRotate": "Seret untuk memutar",
+        "fill": "Penuhi",
+        "copyImage": "Salin gambar",
+        "copyFailed": "Gagal menyalin gambar",
+        "backToDoc": "Kembali ke dokumen",
+        "docShort": "Dok",
+        "docEmpty": "Video kosong — minta bantuan AI yang terhubung atau buka editor",
+        "playExport": "Putar render terakhir",
+        "docUnreadable": "Dokumen tidak dapat dibaca — buka editor",
+        "docVersion": "v{{version}}"
+      },
       "installApp": "Pasang aplikasi",
       "installHint": "Klik dua kali untuk memasang.",
       "uninstallApp": "Copot pemasangan aplikasi",
@@ -1986,6 +2121,7 @@
       "unknown": "Aplikasi tidak dikenal",
       "rename": "Ganti Nama",
       "renamePrompt": "Nama bubble",
+      "resetSize": "Kembalikan ukuran",
       "pin": "Sematkan",
       "unpin": "Lepas Sematan",
       "delete": "Hapus",
@@ -2140,7 +2276,11 @@
           "boxColor": "Latar subtitel",
           "padding": "Jarak dalam subtitel",
           "bottom": "Margin bawah",
-          "volume": "Volume"
+          "volume": "Volume",
+          "highlight": "Sorotan kata",
+          "highlightColor": "Warna sorotan",
+          "soundRole": "Peran suara",
+          "duckDb": "Turunkan saat ada narasi (dB)"
         },
         "options": {
           "left": "Kiri",
@@ -2148,7 +2288,12 @@
           "right": "Kanan",
           "rect": "Persegi panjang",
           "ellipse": "Elips",
-          "line": "Garis"
+          "line": "Garis",
+          "none": "Tidak ada",
+          "word": "Kata demi kata",
+          "music": "Musik",
+          "voice": "Narasi",
+          "sfx": "Efek suara"
         },
         "library": "Pustaka",
         "importMedia": "Impor media / SRT",
@@ -2183,7 +2328,11 @@
         "loop": "Putar berulang",
         "importing": "Mengimpor…",
         "download": "Unduh MP4",
-        "saveStill": "Simpan PNG"
+        "saveStill": "Simpan PNG",
+        "addComposition": "Komposisi kode",
+        "addCompositionHint": "Motion graphic yang ditulis dalam HTML/CSS/JS. Minta AI menulisnya, atau edit sendiri file-nya.",
+        "media_composition": "Komposisi kode",
+        "wordsEstimated": "Sebagian subtitel tidak memiliki waktu per kata, sehingga waktu kata diperkirakan dari panjang teks."
       },
       "timelineEditor": {
         "zoomIn": "Perbesar",
@@ -2202,10 +2351,561 @@
         "dragHint": "Seret klip untuk memindahkan; seret tepi untuk memangkas. Tombol panah: 1 bingkai; Shift: 10 bingkai; Alt: tanpa jepret.",
         "moveClip": "Pindahkan {{name}}",
         "frameValue": "Bingkai {{frame}}"
-      }
+      },
+      "composition": {
+        "title": "Komposisi kode",
+        "noSource": "Item ini tidak merujuk ke file komposisi.",
+        "reload": "Baca ulang kode",
+        "strip": "Deretan frame",
+        "openFile": "Buka file",
+        "seekMode": "Lompat ke waktu",
+        "modeForward": "Hanya maju (diputar ulang dari awal saat mundur)",
+        "modeRandom": "Momen mana pun secara instan",
+        "declaredLength": "Durasi dideklarasikan",
+        "designSize": "Ukuran desain",
+        "lint": "Pemeriksaan",
+        "props": "Data (props, JSON)",
+        "propsHint": "Kode membaca nilai-nilai ini dari window.__vibi.props.",
+        "propsNotObject": "Masukkan objek JSON, seperti {\"title\": \"Hello\"}.",
+        "propsInvalid": "Ini bukan JSON yang valid.",
+        "newLabel": "Motion graphic",
+        "stripLoading": "Menangkap deretan frame…",
+        "runtimeError": "Kesalahan komposisi: {{message}}",
+        "blocked": "Sebuah komposisi mencoba memuat sesuatu di luar foldernya: {{url}}"
+      },
+      "lint": {
+        "network": "Permintaan jaringan (fetch, XMLHttpRequest, WebSocket) diblokir. Masukkan data ke props item sebagai gantinya.",
+        "external-url": "URL eksternal diblokir. Salin file ke folder komposisi dan gunakan path relatif.",
+        "media-element": "<audio>/<video> tidak dapat mengikuti timeline. Letakkan suara di trek audio, dan video sebagai klip.",
+        "sound-api": "Suara yang dihasilkan kode dibisukan. Letakkan suara di trek audio sebagai gantinya.",
+        "worker": "Web worker diblokir di dalam komposisi.",
+        "storage": "Penyimpanan dan cookie tidak tersedia di dalam komposisi.",
+        "module-script": "Script modul mungkin tidak termuat. Gunakan tag script klasik.",
+        "css-transition": "Transisi CSS tidak dapat di-scrub. Gunakan @keyframes atau element.animate().",
+        "input-wait": "Ada kode yang menunggu klik atau penekanan tombol — tidak ada yang menekan tombol di dalam video.",
+        "no-duration": "Tidak ada durasi yang dideklarasikan (vibi:duration). Tetapkan durasi klip atau deklarasikan di dalam file.",
+        "frame-callbacks": "Menggunakan frame callback, sehingga hanya dapat diputar maju — saat mundur, diputar ulang dari awal.",
+        "virtual-clock": "Jam dan nilai acak dibuat dapat diulang untuk setiap video.",
+        "no-motion": "Animasi tidak ditemukan — klip ini mungkin tidak pernah berubah seiring waktu.",
+        "no-props-decl": "Tidak ada nilai yang dideklarasikan, sehingga studio tidak dapat menampilkan handle untuk komposisi ini.",
+        "props-decl-invalid": "Deklarasi nilai (vibi-props) mengandung kesalahan.",
+        "engine-unsupported": "Menggunakan fitur web yang belum didukung renderer video — fitur tersebut diabaikan dalam video."
+      },
+      "agent": {
+        "placeholder": "Beri tahu AI apa yang ingin diubah — mis. perbesar judul sekitar detik ke-2",
+        "pick": "Agent AI",
+        "pickPlaceholder": "Pilih agent…",
+        "linkedLabel": "{{name}} (terhubung)",
+        "removeAttachment": "Hapus {{name}}",
+        "attach": "Lampirkan gambar, video, atau audio (ditambahkan ke media video ini)",
+        "send": "Tanya AI",
+        "working": "AI sedang mengedit…",
+        "reloaded": "Perubahan terbaru dimuat (v{{version}}).",
+        "useAttachments": "Gunakan media yang dilampirkan dalam video ini.",
+        "sent": "Dikirim ke AI. Perubahannya akan muncul di sini dengan sendirinya."
+      },
+      "removeNamed": "Hapus {{name}}",
+      "cueNoComposition": "Aset {{id}} bukan komposisi kode.",
+      "cueScanTimeout": "Komposisi berdurasi {{seconds}} detik tidak selesai dijalankan dalam batas waktu.",
+      "ai": {
+        "allowImages": "Izinkan pembuatan gambar",
+        "allowImagesNote": "Penggunaan dihitung pada akun Codex tersebut.",
+        "attach": "Lampirkan file",
+        "autoAgentName": "Video · {{title}}",
+        "changed": "Yang berubah",
+        "collapse": "Ciutkan panel AI",
+        "empty": "Sampaikan apa yang ingin dibuat atau diubah. AI membuatnya sebagai kode yang dapat diedit, dan setiap nilai tetap dapat disesuaikan secara manual.",
+        "expand": "Buka panel AI",
+        "ide": "IDE",
+        "idle": "Menunggu pesan",
+        "moreChanges": "dan {{count}} lainnya",
+        "noAgentYet": "Belum ada agen — dibuat saat pesan dikirim",
+        "openIde": "Buka percakapan ini di IDE",
+        "placeholder": "Jelaskan perubahan…",
+        "pointedChip": "Ditunjuk: {{kind}}",
+        "send": "Kirim",
+        "suggestions": "Saran",
+        "timeChip": "Pada {{time}}",
+        "title": "AI",
+        "undoPass": "Urungkan pengerjaan ini",
+        "working": "Bekerja…"
+      },
+      "chapterMenu": {
+        "merge": "Gabungkan dengan adegan berikutnya",
+        "otherEngine": "Buat ulang dengan {{engine}}",
+        "redo": "Minta AI membuat ulang adegan ini",
+        "redoRequest": "Tolong buat ulang adegan {{n}} ({{title}}).",
+        "remove": "Hapus adegan ini",
+        "savePart": "Simpan sebagai komponen",
+        "split": "Pisahkan di posisi pemutaran",
+        "variants": "Dua engine berdampingan"
+      },
+      "chapterStatus": {
+        "plan": "direncanakan",
+        "approved": "disetujui",
+        "building": "sedang dibuat",
+        "done": "selesai"
+      },
+      "diff": {
+        "title": "Judul: {{from}} → {{to}}",
+        "size": "Ukuran: {{from}} → {{to}}",
+        "fps": "Frame rate: {{from}} → {{to}}",
+        "style": "Gaya diubah",
+        "chapterAdded": "Adegan {{n}} · {{title}} ditambahkan",
+        "chapterRemoved": "Adegan {{n}} · {{title}} dihapus",
+        "chapterTitle": "Nama adegan {{n}} diubah menjadi {{title}}",
+        "chapterDuration": "Adegan {{n}} · {{title}}: {{from}} s → {{to}} s",
+        "chapterText": "Adegan {{n}} · {{title}}: teks di layar diubah",
+        "chapterBrief": "Adegan {{n}} · {{title}}: rencana gerak diubah",
+        "chapterStatus": "Adegan {{n}} · {{title}} sekarang {{status}}",
+        "chapterTransition": "Adegan {{n}} · {{title}}: transisi diatur ke {{transition}}",
+        "chapterOther": "Adegan {{n}} · {{title}} diubah",
+        "chapterOrder": "Adegan diurutkan ulang",
+        "itemAdded": "{{label}} ditambahkan",
+        "itemRemoved": "{{label}} dihapus",
+        "itemText": "{{label}}: teks atau nilai diubah",
+        "itemTiming": "{{label}}: waktu diubah",
+        "itemLook": "{{label}}: posisi atau tampilan diubah",
+        "itemOther": "{{label}} diubah",
+        "itemsMany": "{{count}} item diubah",
+        "assetAdded": "{{count}} media ditambahkan",
+        "assetRemoved": "{{count}} media dihapus",
+        "assetChanged": "{{count}} media diperbarui"
+      },
+      "engines": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "label": "Engine",
+        "prepare": "Siapkan",
+        "prepareInMain": "Siapkan {{engine}} di jendela utama.",
+        "need_setup": "{{engine}} belum terinstal.",
+        "need_login": "Masuk ke {{engine}} terlebih dahulu.",
+        "need_refresh": "Periksa {{engine}} lagi."
+      },
+      "errors": {
+        "details": "Detail",
+        "offline": "Tidak dapat menjangkau server Vibisual. Pastikan aplikasi sedang berjalan.",
+        "conflict": "Dokumen diubah pada saat yang sama. Coba lagi.",
+        "missingDoc": "Dokumen atau versi ini sudah tidak ada.",
+        "worker": "Worker video tersembunyi tidak merespons. Coba lagi.",
+        "timeout": "Proses terlalu lama dan dihentikan. Coba lagi.",
+        "unreadable": "File ini tidak dapat dibaca.",
+        "tooLarge": "File ini terlalu besar untuk diimpor.",
+        "limit": "Batas penggunaan tercapai. Coba lagi nanti.",
+        "forbidden": "Hanya pengguna yang dapat melakukan ini — agen tidak diizinkan.",
+        "generic": "Terjadi kesalahan."
+      },
+      "export": {
+        "captions": "Subtitel",
+        "captions_burn": "Tanam ke video",
+        "captions_separate": "File terpisah",
+        "derived": "{{title}} dibuat untuk format ini dan proses render dimulai.",
+        "derivedExisting": "Merender {{title}}, versi yang sudah dibuat sebelumnya untuk format ini.",
+        "download": "Unduh render terakhir",
+        "mp4": "Video (MP4)",
+        "noCaptions": "Tidak ada subtitel untuk diekspor.",
+        "png": "Gambar diam di posisi pemutaran",
+        "preset_landscape": "Lanskap",
+        "preset_portrait": "Shorts",
+        "preset_square": "Persegi",
+        "presets": "Ukuran output",
+        "srt": "File subtitel",
+        "transparent": "Hanya motion, latar belakang transparan"
+      },
+      "formats": {
+        "landscape": "Lanskap",
+        "portrait": "Vertikal",
+        "square": "Persegi"
+      },
+      "header": {
+        "docs": "Dokumen",
+        "export": "Ekspor",
+        "format": "Format",
+        "history": "Riwayat",
+        "label": "Bilah alat Vibistudio",
+        "newDoc": "Mulai video baru",
+        "noDoc": "Tidak ada dokumen terbuka",
+        "recent": "Terbaru",
+        "rename": "Ganti nama",
+        "title": "Judul dokumen"
+      },
+      "history": {
+        "beforeRestore": "Sebelum kembali ke versi lama",
+        "byAi": "AI",
+        "byMe": "Anda",
+        "checkpoint": "Simpan checkpoint",
+        "compare": "Bandingkan berdampingan",
+        "compareCount": "{{count}} dipilih",
+        "empty": "Belum ada apa pun. Setiap pengerjaan AI dan setiap checkpoint yang disimpan muncul di sini, dengan pilihan untuk kembali ke salah satunya.",
+        "kind_pass-start": "Sebelum pengerjaan AI",
+        "kind_pass-end": "Pengerjaan AI",
+        "kind_checkpoint": "Checkpoint",
+        "kind_restore": "Kembali ke versi lama",
+        "kind_render": "Versi ini dirender",
+        "noDiff": "Tidak ada perbedaan.",
+        "pick": "Pilih untuk membandingkan",
+        "rendered": "Dirender",
+        "restore": "Kembali ke versi ini",
+        "title": "Riwayat"
+      },
+      "libs": {
+        "accept": "Impor",
+        "addPack": "Tambahkan ke timeline",
+        "download": "Unduh",
+        "drop": "Letakkan script, stylesheet, font, zip, atau satu halaman HTML",
+        "duration": "Durasi (s)",
+        "fromProject": "Cari di node_modules proyek ini",
+        "inert": "Alamat data — dibiarkan apa adanya",
+        "kind_library": "Pustaka",
+        "kind_font": "Font",
+        "kind_pack": "Halaman HTML",
+        "kind_script": "Script",
+        "kind_style": "Stylesheet",
+        "kind_image": "Gambar",
+        "kind_module": "Modul",
+        "kind_data": "Data",
+        "kind_other": "Lainnya",
+        "licenseNote": "Lisensi ditampilkan sesuai yang ditemukan di dalam file. Pengguna sendiri yang menentukan boleh tidaknya memakainya.",
+        "noLicense": "Lisensi tidak ditemukan",
+        "pick": "Pilih file",
+        "refsTitle": "{{name}} memuat {{count}} file eksternal",
+        "reject": "Abaikan",
+        "remove": "Hapus",
+        "request": "AI meminta untuk mengimpor:",
+        "title": "Impor",
+        "url": "Alamat file yang akan diunduh",
+        "vendorAll": "Unduh semua",
+        "vendorNone": "Biarkan apa adanya",
+        "vendorPicked": "Unduh yang dipilih"
+      },
+      "media": {
+        "empty": "Belum ada media. Impor file atau letakkan di pratinjau.",
+        "import": "Impor",
+        "importing": "Mengimpor…",
+        "search": "Cari media"
+      },
+      "notes": {
+        "closed": "Ditutup ({{count}})",
+        "confirm": "Sudah bagus",
+        "empty": "Belum ada catatan.",
+        "handoff": "Serahkan {{count}} catatan ke AI",
+        "handoffRequest": "Tolong perbaiki {{count}} catatan yang saya sematkan.",
+        "hint": "Sematkan catatan di pratinjau ({{shortcut}}). AI menerima momen dan titik yang tepat.",
+        "newNote": "Catatan baru {{n}}",
+        "pin": "Sematkan",
+        "pinTitle": "Catatan {{n}}",
+        "placeholder": "Apa yang perlu diubah di sini?",
+        "reopen": "Buka kembali",
+        "seek": "Lompat ke momen ini",
+        "status_open": "Terbuka",
+        "status_sent": "Dikirim ke AI",
+        "status_fixed": "Sudah diperbaiki — periksa",
+        "status_closed": "Ditutup",
+        "text": "Teks catatan {{n}}"
+      },
+      "parts": {
+        "basic": "Dasar",
+        "group_text": "Judul dan teks",
+        "group_data": "Bagan dan angka",
+        "group_brand": "Merek",
+        "group_captions": "Subtitel",
+        "group_mine": "Komponen saya",
+        "name_lower-third": "Lower third",
+        "name_kinetic-type": "Tipografi kinetik",
+        "name_counter": "Penghitung",
+        "name_bar-chart": "Diagram batang",
+        "name_line-chart": "Diagram garis",
+        "name_donut-chart": "Diagram donat",
+        "name_code-typing": "Pengetikan kode",
+        "name_logo-reveal": "Logo reveal",
+        "name_word-captions": "Subtitel per kata",
+        "pickSeam": "Pindahkan playhead ke adegan setelah adegan pertama untuk memilih transisinya.",
+        "transitions": "Transisi"
+      },
+      "plan": {
+        "add": "Tambah adegan",
+        "approve": "Setujui dan buat",
+        "brief": "Gerakan",
+        "buildRequest": "Rencana sudah disetujui. Tolong buat {{count}} adegan.",
+        "building": "Membuat…",
+        "buildingThis": "Sedang dibuat…",
+        "chapterTitle": "Judul adegan",
+        "collapse": "Sembunyikan rencana",
+        "drag": "Seret untuk mengubah urutan",
+        "expand": "Tampilkan rencana",
+        "length": "Durasi",
+        "newChapter": "Adegan baru",
+        "noFrameYet": "Belum ada frame",
+        "remove": "Hapus adegan",
+        "seek": "Pindah ke adegan {{n}}",
+        "sound": "Suara",
+        "summary": "{{count}} adegan · {{length}}",
+        "text": "Teks di layar",
+        "title": "Rencana adegan",
+        "styleFrame": "Frame gaya"
+      },
+      "precision": {
+        "close": "Tutup edit presisi",
+        "toggle": "Edit presisi"
+      },
+      "preview": {
+        "actualSize": "Ukuran sebenarnya",
+        "empty": "Belum ada yang bisa ditampilkan.",
+        "fit": "Sesuaikan dengan jendela",
+        "label": "Pratinjau video",
+        "nextFrame": "Frame berikutnya",
+        "note": "Sematkan catatan",
+        "planReady": "Rencana sudah siap. Tinjau adegannya, lalu setujui.",
+        "planning": "AI sedang menyusun rencana…",
+        "point": "Tunjuk sesuatu",
+        "prevFrame": "Frame sebelumnya",
+        "safeArea": "Area aman"
+      },
+      "rail": {
+        "label": "Panel samping",
+        "media": "Media",
+        "parts": "Komponen",
+        "style": "Gaya",
+        "notes": "Catatan",
+        "transcript": "Transkrip"
+      },
+      "recipes": {
+        "app-intro": {
+          "name": "Intro aplikasi",
+          "desc": "Intro singkat proyek ini, dibuat dari layar aslinya.",
+          "placeholder": "Ditujukan untuk siapa, dan apa yang perlu mereka ingat?",
+          "wants": "Layar aplikasi yang berjalan · logo"
+        },
+        "changelog": {
+          "name": "Yang baru",
+          "desc": "Mengubah commit atau pull request menjadi video pembaruan singkat.",
+          "placeholder": "Commit atau pull request yang mana? (default: sejak tag terakhir)",
+          "wants": "Commit atau pull request"
+        },
+        "data-story": {
+          "name": "Cerita data",
+          "desc": "Menjelaskan dataset dengan diagram beranimasi.",
+          "placeholder": "Pertanyaan apa yang perlu dijawab oleh data?",
+          "wants": "File CSV atau tabel"
+        },
+        "caption-shorts": {
+          "name": "Shorts bersubtitel",
+          "desc": "Shorts vertikal dengan subtitel per kata di atas video orang berbicara.",
+          "placeholder": "Klip ini tentang apa? Ada bagian yang perlu dipotong?",
+          "wants": "Video · file SRT"
+        },
+        "kinetic-text": {
+          "name": "Teks kinetik",
+          "desc": "Menyampaikan pesan lewat tipografi bergerak.",
+          "placeholder": "Tempel teks yang akan dianimasikan",
+          "wants": "Teks"
+        },
+        "photo-slideshow": {
+          "name": "Slideshow foto",
+          "desc": "Foto yang diiringi musik, berganti tepat di beat.",
+          "placeholder": "Untuk acara apa?",
+          "wants": "Foto · musik"
+        },
+        "logo-reveal": {
+          "name": "Logo reveal",
+          "desc": "Animasi singkat yang memperlihatkan logo.",
+          "placeholder": "Ada suasana atau warna tertentu?",
+          "wants": "Logo"
+        },
+        "blank": {
+          "name": "Kosong",
+          "desc": "Dokumen kosong untuk disusun secara manual.",
+          "placeholder": "Beri judul (opsional)",
+          "wants": "Tidak perlu apa pun"
+        }
+      },
+      "review": {
+        "docOnly": "Hanya diperiksa dari dokumen. Periksa frame untuk ikut menemukan kontras rendah dan frame kosong.",
+        "fix": "Minta AI memperbaikinya",
+        "fixRequest": "Tolong perbaiki ini: {{what}}",
+        "frames": "Periksa frame",
+        "framesBusy": "Memeriksa frame…",
+        "skip": "Lewati kali ini",
+        "snap": "Sejajarkan dengan beat",
+        "title": "Tinjauan",
+        "read-time": "Terlalu singkat untuk dibaca: {{have}} s di layar, butuh sekitar {{need}} s.",
+        "safe-area": "\"{{text}}\" berada di luar area aman.",
+        "text-overlap": "Teks saling tumpang tindih: \"{{a}}\" dan \"{{b}}\".",
+        "low-contrast": "\"{{text}}\" sulit dibaca (kontras {{ratio}}:1).",
+        "blank": "Layar kosong — tidak ada yang terlihat di sini.",
+        "caption-clip": "Subtitel mencapai {{lines}} baris. Persingkat atau pisahkan.",
+        "silence": "Tidak ada suara dari {{from}} s hingga {{to}} s.",
+        "off-beat": "Potongan ke adegan {{n}} meleset {{offset}} s dari beat."
+      },
+      "seam": {
+        "length": "Panjang transisi",
+        "snapBeat": "Tengahkan pada beat kuat terdekat",
+        "title": "Transisi"
+      },
+      "signals": {
+        "title": "Cue",
+        "collecting": "Mengumpulkan cue…",
+        "recollect": "Kumpulkan cue lagi",
+        "mark": "Cue {{name}} pada {{t}} s",
+        "boundCount": "{{count}} terikat",
+        "menu": "Cue",
+        "staleHint": "Kode berubah, jadi waktu-waktu ini sedang dikumpulkan ulang.",
+        "bind": "Ikat {{name}} ke cue ini",
+        "bindHint": "Pilih suara atau item lain terlebih dahulu, lalu ikat di sini",
+        "unbind": "Lepas ikatan {{name}} (waktu saat ini tetap dipertahankan)",
+        "boundTo": "Terikat ke cue {{name}}"
+      },
+      "start": {
+        "ask": "Apa yang ingin dibuat?",
+        "dropHint": "Letakkan file di sini: tangkapan layar, data, logo, atau video",
+        "make": "Buat rencana",
+        "materials": "Tambah file",
+        "openBlank": "Buka dokumen kosong",
+        "placeholder": "Jelaskan videonya…",
+        "recipes": "Resep",
+        "seconds": "{{count}} s"
+      },
+      "steps": {
+        "label": "Langkah",
+        "say": "Sampaikan",
+        "approve": "Setujui rencana",
+        "refine": "Sempurnakan manual"
+      },
+      "strip": {
+        "chapter": "Adegan {{n}} · {{title}}",
+        "chapterN": "Adegan {{n}}",
+        "derive": "Bagi menjadi adegan",
+        "empty": "Belum ada adegan",
+        "menu": "Menu adegan",
+        "seam": "Transisi: {{transition}}",
+        "seamDrag": "seret untuk menggeser potongan",
+        "working": "AI sedang bekerja di sini"
+      },
+      "style": {
+        "applied": "Diterapkan",
+        "apply": "Terapkan ke video ini",
+        "confirm": "Gunakan sebagai gaya proyek",
+        "current": "Video ini",
+        "font": "Font",
+        "fontFile": "file",
+        "fromProject": "Dari proyek",
+        "logo": "Logo",
+        "noFont": "Font sistem",
+        "noLogo": "Tanpa logo",
+        "none": "Belum ada gaya. Pindai proyek untuk menemukan warna, font, dan logonya.",
+        "partial": "{{count}} file pertama dipindai.",
+        "scan": "Pindai proyek",
+        "scanHint": "Mencari warna, font, dan logo di file proyek ini.",
+        "scanning": "Memindai…",
+        "slot_accent": "Aksen",
+        "slot_bg": "Latar belakang",
+        "slot_fg": "Warna teks",
+        "slot_muted": "Redup"
+      },
+      "toast": {
+        "checkpoint": "Checkpoint disimpan",
+        "nothingToDerive": "Tidak ada yang bisa dibagi: timeline belum memiliki potongan yang jelas.",
+        "partSaved": "Disimpan ke Komponen saya",
+        "passUndone": "Pengerjaan AI diurungkan",
+        "renderDoneNote": "Render selesai · {{note}}",
+        "restored": "Kembali ke versi itu",
+        "sent": "Dikirim ke AI",
+        "styleConfirmed": "Disimpan sebagai gaya proyek",
+        "cuesStale": "Cue tidak dapat dikumpulkan ulang, sehingga suara yang terikat ke Cue memakai waktu sebelumnya."
+      },
+      "transcript": {
+        "clear": "Hapus tanda",
+        "cut": "Potong kalimat yang dicoret",
+        "empty": "Belum ada kalimat subtitel. Impor file SRT atau tambahkan subtitel.",
+        "hint": "Klik kalimat untuk pindah ke sana. Coret beberapa kalimat lalu potong sekaligus; potongan mengikuti batas kalimat.",
+        "keep": "Pertahankan kalimat ini",
+        "seek": "Pindah ke kalimat ini",
+        "strike": "Coret kalimat ini",
+        "summary": "{{count}} kalimat · −{{removed}} s · {{before}} → {{after}}"
+      },
+      "transitions": {
+        "cut": "Potong",
+        "dissolve": "Pudar",
+        "push": "Dorong",
+        "zoom": "Zoom",
+        "flash": "Kilatan",
+        "wipe": "Sapuan"
+      },
+      "values": {
+        "advanced": "Lanjutan (JSON)",
+        "codeInfo": "Info kode",
+        "codeInfoProblems": "Info kode · {{count}} masalah",
+        "declaredLength": "Panjang yang dideklarasikan {{seconds}} s",
+        "deselect": "Batalkan pilihan",
+        "duration": "Durasi",
+        "noDecl": "Komposisi ini belum mendeklarasikan nilai apa pun. Minta AI mendeklarasikan teks, angka, dan warna yang ingin diubah.",
+        "responsive": "menyesuaikan dengan frame",
+        "seekForward": "Hanya diputar maju (mundur berarti diputar ulang dari awal)",
+        "seekRandom": "Bisa melompat ke momen mana pun",
+        "title": "Nilai",
+        "kind_composition": "Komposisi kode",
+        "kind_footage": "Video",
+        "kind_image": "Gambar",
+        "kind_audio": "Suara",
+        "kind_caption": "Subtitel",
+        "kind_text": "Teks",
+        "kind_shape": "Bentuk",
+        "kind_scene": "Adegan bawaan"
+      },
+      "variants": {
+        "dropUnpicked": "Hapus versi yang lain",
+        "hint": "Keduanya diputar pada saat yang sama. Versi yang tidak dipilih tetap ada di dokumen sampai dihapus.",
+        "missing": "Adegan ini belum memiliki dua versi.",
+        "pick": "Gunakan ini",
+        "picked": "Digunakan",
+        "request": "Tolong buat adegan \"{{title}}\" dengan {{engine}} agar bisa saya bandingkan.",
+        "status_building": "Sedang dibuat",
+        "status_done": "Siap",
+        "title": "Dua engine · {{title}}"
+      },
+      "motion": {
+        "punchIn": "Zoom punch-in",
+        "punchInHint": "Perbesar sesaat di posisi playhead, tahan, lalu kembali",
+        "slowPush": "Push perlahan",
+        "slowPushHint": "Perbesar perlahan sepanjang klip",
+        "addKey": "Keyframe pada {{time}} s",
+        "empty": "Tidak ada keyframe — kotak tidak bergerak.",
+        "keyLabel": "Keyframe {{n}}",
+        "remove": "Hapus keyframe ini",
+        "time": "Waktu (s)",
+        "dx": "Geser X (px)",
+        "dy": "Geser Y (px)",
+        "ease": "Kurva",
+        "ease_linear": "Merata",
+        "ease_in": "Awal lambat",
+        "ease_out": "Akhir lambat",
+        "ease_inOut": "Mulus",
+        "ease_hold": "Tahan, lalu lompat",
+        "clear": "Hapus semua keyframe"
+      },
+      "effects": {
+        "title": "Warna & efek",
+        "look": "Nuansa",
+        "look_warm": "Hangat",
+        "look_cool": "Dingin",
+        "look_mono": "Hitam putih",
+        "look_vivid": "Vivid",
+        "look_fade": "Pudar",
+        "look_cinematic": "Sinematik",
+        "brightness": "Kecerahan",
+        "contrast": "Kontras",
+        "saturation": "Saturasi",
+        "temperature": "Suhu warna",
+        "hue": "Pergeseran rona (°)",
+        "blur": "Blur (px)",
+        "vignette": "Vinyet",
+        "reset": "Atur ulang warna dan efek"
+      },
+      "errNoFrame": "Frame gaya untuk bab \"{{id}}\" tidak dapat digambar — bab tersebut tidak memiliki aset komposisi.",
+      "lowResolution": "Layar ini tidak cukup besar untuk jendela render seukuran video, sehingga video dirender pada resolusi {{percent}}%."
     },
     "cost": {
-      "codexEstimateNote": "Biaya Codex diperkirakan dari tarif token API standar. Ini bukan tagihan langganan ChatGPT atau penggunaan kredit; biaya tambahan mode Fast dan konteks panjang tidak termasuk.",
+      "codexEstimateNote": "Biaya Codex diperkirakan dari tarif token API standar. Ini bukan tagihan langganan ChatGPT atau penggunaan kredit; biaya tambahan mode Fast/Ultrafast dan konteks panjang tidak termasuk.",
       "title": "Peta biaya & token",
       "close": "Tutup peta biaya",
       "pillLabel": "Biaya hari ini",
@@ -2386,8 +3086,6 @@
         "invalidNumber": "Masukkan angka yang valid dalam rentang yang diizinkan.",
         "reloadedDraft": "Klip ini berubah saat Anda mengedit. Tinjau nilai terbaru sebelum menerapkannya.",
         "refresh": "Muat ulang",
-        "removeTrack": "Hapus trek",
-        "memoryLimit": "Audio ini melebihi batas memori pengeditan. Gunakan sumber yang lebih pendek.",
         "connections": {
           "title": "AI dan koneksi",
           "builtIn": "Pengeditan bawaan",
@@ -2432,7 +3130,9 @@
           "loadFailed": "Draf koneksi tidak dapat dimuat.",
           "saveFailed": "Draf tidak dapat disimpan. Periksa nama dan alamat endpoint.",
           "retry": "Coba lagi"
-        }
+        },
+        "removeTrack": "Hapus trek",
+        "memoryLimit": "Audio ini melebihi batas memori pengeditan. Gunakan sumber yang lebih pendek."
       }
     },
     "vibi3d": {
@@ -2450,7 +3150,54 @@
       "triangles": "{{n}} segitiga",
       "dragHint": "Seret untuk memutar, gulir untuk memperbesar",
       "viewOnly": "Hanya lihat",
-      "missingTextures": "Dibuka tanpa {{count}} berkas tekstur: {{names}}. Pilih berkas itu bersama modelnya, atau simpan di folder model."
+      "open": "Buka file",
+      "save": "Simpan GLB",
+      "download": "Unduh",
+      "undo": "Urungkan",
+      "redo": "Ulangi",
+      "tool_translate": "Geser",
+      "tool_rotate": "Rotasi",
+      "tool_scale": "Skala",
+      "properties": "Properti",
+      "viewport": "Tampilan 3D",
+      "start": "Buka model dan ubah sesuka Anda",
+      "openHint": "Letakkan file GLB, glTF, OBJ, STL, PLY, FBX, DAE, atau 3MF di sini. Pilih tekstur pendamping sekaligus.",
+      "sample": "Coba kubus",
+      "working": "Memproses…",
+      "clip": "Klip animasi",
+      "play": "Putar",
+      "pause": "Jeda",
+      "stop": "Hentikan",
+      "seek": "Waktu animasi",
+      "downloadStarted": "Unduhan GLB dimulai.",
+      "saveFailed": "Tidak dapat menyimpan. Coba unduh file GLB.",
+      "saved": "Tersimpan: {{path}}",
+      "connectionIssue": "Koneksi AI tidak tersedia. Anda tetap dapat mengedit dan menyimpan.",
+      "missingTextures": "Dibuka tanpa {{count}} berkas tekstur: {{names}}. Pilih berkas itu bersama modelnya, atau simpan di folder model.",
+      "objects": "Objek",
+      "selectObject": "Pilih objek",
+      "position": "Posisi",
+      "rotation": "Rotasi (°)",
+      "scale": "Skala",
+      "color": "Warna",
+      "selectHint": "Klik objek di tampilan 3D untuk mengeditnya.",
+      "lighting": "Pencahayaan",
+      "agentTitle": "Tanya AI",
+      "agentChoose": "Pilih agent",
+      "agentRequestLabel": "Jelaskan perubahan adegan",
+      "agentPlaceholder": "Geser ini sedikit ke kanan dan jadikan biru",
+      "agentSend": "Minta perubahan",
+      "agentHint": "Pilih objek, lalu jelaskan perubahannya. Agent membaca adegan dan tampilan saat ini.",
+      "agentOpenFirst": "Buka model untuk meminta perubahan dari agent.",
+      "agentConnecting": "Menghubungkan ke adegan dan agent…",
+      "agentNone": "Buat agent di proyek ini untuk meminta perubahan.",
+      "agentSending": "Mengirim permintaan…",
+      "agentSendFailed": "Pengiriman permintaan tidak dapat dikonfirmasi. Periksa percakapan agent sebelum mencoba lagi. Teks Anda tetap disimpan di sini.",
+      "agentTaskFailed": "Agent berhenti karena terjadi error. Periksa percakapan agent untuk detail.",
+      "agentResponded": "Agent telah merespons. Tinjau adegan dan percakapan agent.",
+      "agentQueued": "Permintaan diterima. Pantau progres di percakapan agent yang dipilih.",
+      "agentSceneChanged": "Adegan berubah. Kirim ulang permintaan Anda untuk model saat ini.",
+      "agentUnavailable": "Agent yang dipilih tidak tersedia. Periksa koneksi lalu coba lagi."
     },
     "mediaConvert": {
       "videoIntro": "Format video ini tidak bisa dibuka langsung. Cukup ganti kontainernya (tanpa kehilangan kualitas) untuk membukanya di editor kami.",
@@ -3906,6 +4653,16 @@
       "resumed": "Koneksi pulih · pekerjaan dilanjutkan",
       "ended": "Pemulihan koneksi telah dicoba"
     },
+    "processGuard": {
+      "someProcess": "sebuah proses",
+      "cap": "{{image}} dihentikan — memakai {{mem}}, melebihi batas {{cap}} per proses",
+      "capKernel": "Windows menolak memberikan memori tambahan untuk {{image}} pada batas {{cap}} per proses, sehingga proses itu berakhir",
+      "pressure": "Memori hampir habis ({{avail}} bebas) — {{image}} dihentikan, proses terbesar di sini ({{mem}})",
+      "sessionEnd_one": "Sesi berakhir — {{count}} proses yang tersisa dihentikan",
+      "sessionEnd_other": "Sesi berakhir — {{count}} proses yang tersisa dihentikan",
+      "taskKilled_one": "Claude Code telah menghentikan suatu tugas, tetapi {{count}} proses dari tugas itu masih berjalan — proses tersebut dihentikan",
+      "taskKilled_other": "Claude Code telah menghentikan suatu tugas, tetapi {{count}} proses dari tugas itu masih berjalan — proses tersebut dihentikan"
+    },
     "cmdError": {
       "spawn": "{{engine}} tidak dapat dimulai",
       "stdin": "Tidak dapat mengirim prompt ke sesi yang berjalan",
@@ -4093,6 +4850,7 @@
         "systemPrompt": "System prompt Claude Code",
         "compactSelf": "Pemadatan mandiri Agent",
         "compactRecovery": "Catatan pemulihan pasca-compaction",
+        "verificationPolicy": "Kebijakan verifikasi",
         "autoGoalSkills": "Prosedur terdeteksi",
         "codexInstructions": "Instruksi proyek Codex",
         "codexGlobalInstructions": "Instruksi global Codex",
@@ -4211,6 +4969,11 @@
             "what": "Catatan satu giliran yang mencantumkan apa yang tampaknya tidak dibawa oleh ringkasan compaction.",
             "more": "Dibuat dari snapshot yang diambil tepat sebelum compaction, lalu dibandingkan dengan teks ringkasan. Ini dikirim sekali dan tidak pernah diulang.",
             "off": "Matikan ini, dan sesi tetap berlanjut setelah compaction tanpa catatan tentang apa yang hilang dari ringkasan."
+          },
+          "verificationPolicy": {
+            "what": "Panduan opsional bagi Codex dan Claude Code untuk menjalankan verifikasi hanya jika diminta dalam tugas saat ini, beserta izin verifikasi untuk tugas tersebut.",
+            "more": "Kebijakan ini nonaktif secara default. Saat diaktifkan, Vibisual memberikan izin verifikasi berdasarkan pesan Anda atau tombol verifikasi untuk tugas tersebut. Saat dinonaktifkan, tidak ada panduan pembatasan yang ditambahkan dan pemanggilan verifikasi tidak diblokir.",
+            "off": "Sakelar sumber ini hanya menyembunyikan panduan saat kebijakan aktif. Aktifkan atau nonaktifkan panduan dan pemblokiran eksekusi sekaligus di {{options}}, pada bagian {{permissions}}. Kebijakan ini nonaktif secara default."
           },
           "hookEnforcement": {
             "what": "Blok yang disuntikkan Vibisual ke sesi yang menyambungkan dirinya lewat hooks Claude Code.",
@@ -4652,6 +5415,16 @@
         "warn": "Jika masih ada bagian wajib yang belum dibaca saat giliran hendak berakhir, giliran dikembalikan agar terus dibaca.",
         "enforce": "Suntingan ditolak selama bagian wajib belum dibaca. Setelah batas percobaan tercapai, penghalangan berhenti."
       }
+    },
+    "verifyPolicy": {
+      "notRun": "Verifikasi tidak dijalankan",
+      "notRunTip": "Tidak ada tes, build, atau pemeriksaan browser yang dijalankan untuk tugas ini. Gunakan tombol di samping tanda ini, atau minta verifikasi di pesan Anda.",
+      "blockedTip": "Agent mencoba menjalankan verifikasi sebanyak {{count}} kali; upaya tersebut diblokir sebelum sempat berjalan.",
+      "ran": "Verifikasi dijalankan ×{{count}}",
+      "ranTip": "Verifikasi dijalankan sesuai cakupan yang Anda minta. Lulus atau tidaknya dapat dilihat di balasan di atas.",
+      "runTip": "Jalankan pemeriksaan yang terkait dengan perubahan ini (tes terkait, type check, lint, build). Kegagalan dilaporkan, tidak diperbaiki.",
+      "runFailed": "Tidak dapat memulai: {{error}}",
+      "runPrompt": "Verifikasi perubahan dari tugas sebelumnya. Jalankan hanya pemeriksaan yang terkait dengan perubahan itu (tes terkait, type check, lint, build) — bukan seluruh test suite, E2E, atau pemeriksaan browser. Laporkan masing-masing sebagai lulus, gagal, atau tidak diperiksa. Jangan perbaiki kegagalan; cukup laporkan.\n\nTugas sebelumnya: {{task}}"
     },
     "verify": {
       "title": "Verifikasi",
@@ -5969,7 +6742,16 @@
       "lockN": "Kunci {{count}} yang dipilih",
       "unlockN": "Buka kunci {{count}} yang dipilih",
       "lockSkipped": "Mengecualikan {{count}} bubble yang tidak dapat dikunci.",
-      "toBubble": "Lipat kembali menjadi bubble"
+      "toBubble": "Lipat kembali menjadi bubble",
+      "toCard": "Ubah ke balon percakapan",
+      "toCardNote": "Membuka balon input di samping bubble agar bisa langsung bicara di sini",
+      "hideLinks": "Sembunyikan tautan",
+      "hideLinksNote": "Hanya garis yang menghilang — tautan tetap berfungsi",
+      "showLinks": "Tampilkan tautan",
+      "lensFiles": "Fokus pada file kerja",
+      "lensFilesNote": "Mengembalikan garis file ke kecerahan penuh dan melipat item terhubung",
+      "lensLinked": "Fokus pada item terhubung",
+      "lensLinkedNote": "Menampilkan adegan dan aset aplikasi terhubung, serta meredupkan garis file"
     },
     "pathLock": {
       "badgeSelf": "Terkunci — AI apa pun harus bertanya kepada Anda sebelum membukanya",
@@ -5989,15 +6771,42 @@
       },
       "placeholder": "Apa yang harus dikerjakan? Enter untuk mengirim, Shift+Enter untuk baris baru.",
       "inputLabel": "Pesan untuk {{name}}",
-      "linkHint": "Seret tombol + untuk menambahkan node terhubung",
+      "linkHint": "Seret titik orbit untuk menambahkan satelit aplikasi",
       "chipOn": "{{name}} disertakan dalam pesan ini. Klik untuk mengecualikannya.",
       "chipOff": "{{name}} dikecualikan dari pesan ini. Klik untuk menyertakannya.",
       "send": "Kirim",
-      "handleTitle": "Seret untuk membuat atau menghubungkan node, atau klik untuk melihat daftar"
+      "handleTitle": "Seret untuk menambahkan atau menautkan satelit aplikasi, atau klik untuk memilih",
+      "linkedCount": "Satelit aplikasi: {{count}}"
     },
     "refLink": {
-      "menuHeading": "Buat dengan agent ini sebagai referensi",
+      "bloomLabel": "Pilih satelit aplikasi yang akan ditambahkan",
       "unlink": "Putuskan tautan"
+    },
+    "linkedItems": {
+      "rowLabel": "Item terhubung",
+      "scene": "Adegan {{index}}: {{title}}",
+      "sceneUntitled": "Adegan {{index}}",
+      "stage": {
+        "plan": "Direncanakan",
+        "ready": "Disetujui",
+        "building": "Sedang dibuat",
+        "done": "Selesai"
+      },
+      "kind": {
+        "scene": "Adegan",
+        "image": "Gambar",
+        "video": "Video",
+        "audio": "Suara",
+        "model": "Model 3D",
+        "font": "Font",
+        "code": "Kode motion",
+        "text": "Teks",
+        "file": "File"
+      },
+      "seconds": "{{seconds}} d",
+      "active": "AI sedang mengerjakan item ini",
+      "past": "Hasil sebelumnya",
+      "openPastHint": "Klik dua kali untuk membuka hasil ini."
     }
   },
   "common": {
@@ -6389,7 +7198,12 @@
     "personality": "Gaya komunikasi",
     "personalityHint": "Gaya berlaku pada model yang mendukungnya.",
     "serviceTier": "Tingkat layanan",
-    "serviceTierHint": "Masukkan tingkat yang didukung model (misalnya fast). Tingkat lebih cepat dapat memengaruhi penggunaan dan biaya.",
+    "serviceTierFast": "Fast — jika didukung",
+    "serviceTierUltrafast": "Ultrafast — jika didukung",
+    "codexModelInherited": "Ikuti konfigurasi Codex",
+    "codexModelInheritedHint": "Tidak ada penggantian model yang dikirim. Codex menentukan model dari konfigurasi atau model bawaan saat ini.",
+    "retainedModelHint": "Model tersimpan tidak ada dalam katalog ini. Pilihan tetap dipertahankan; Codex memeriksa ketersediaannya saat dijalankan.",
+    "serviceTierHint": "Ketersediaan Fast/Ultrafast bergantung pada model dan akun. Mode ini dapat memakai lebih banyak kredit atau menambah biaya. Kosongkan untuk mewarisi; nama tingkat lain yang didukung juga diterima.",
     "autoCompactTokenLimit": "Ambang pemadatan otomatis (token)",
     "codexTools": "Izin alat",
     "codexValues": {

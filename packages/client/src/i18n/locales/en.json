@@ -386,19 +386,111 @@
         "version": "Version",
         "account": "Account",
         "storage": "Storage",
-        "keyboard": "Keyboard"
+        "keyboard": "Keyboard",
+        "theme": "Theme"
       },
       "appearance": {
         "intro": "Personalize how Vibisual looks.",
         "language": "Language",
         "languageDesc": "UI display language. Applies immediately."
       },
+      "theme": {
+        "intro": "Change the colors of the whole app — panels, canvas, IDE and terminal. Your pick applies right away and is kept on this computer.",
+        "groupDark": "Dark",
+        "groupLight": "Light",
+        "inUse": "Current theme",
+        "byAuthor": "by {{author}}",
+        "saveFailed": "Could not save your theme choice. The previously saved theme will come back next time.",
+        "missing": "The theme you picked ({{id}}) could not be found, so {{fallback}} is shown instead. Put its file back in the theme folder or pick another theme.",
+        "builtin": {
+          "vibisualDark": {
+            "name": "Vibisual Dark",
+            "desc": "The original look — cool blue-gray panels and a deep canvas."
+          },
+          "midnight": {
+            "name": "Midnight",
+            "desc": "Deep navy surfaces for long night sessions."
+          },
+          "graphite": {
+            "name": "Graphite",
+            "desc": "Neutral grays with no color cast, so your agents' colors stand out."
+          },
+          "dusk": {
+            "name": "Dusk",
+            "desc": "Warm stone tones that are easy on the eyes."
+          },
+          "forest": {
+            "name": "Forest",
+            "desc": "Muted green-gray, like a quiet evening in the woods."
+          },
+          "highContrast": {
+            "name": "High Contrast",
+            "desc": "Pure black with bright text and sharp borders."
+          },
+          "light": {
+            "name": "Light",
+            "desc": "Bright, clean panels for daylight work."
+          },
+          "paper": {
+            "name": "Paper",
+            "desc": "Warm cream paper with soft brown ink."
+          },
+          "highContrastLight": {
+            "name": "High Contrast Light",
+            "desc": "Pure white with black text and strong outlines."
+          }
+        },
+        "custom": {
+          "title": "My themes",
+          "desc": "Themes you make are JSON files in this folder. Put a file in, then press {{reload}}.",
+          "openFolder": "Open folder",
+          "reload": "Reload themes",
+          "create": "New theme from {{name}}",
+          "copyName": "{{name}} copy",
+          "createdHint": "Created {{file}} and switched to it. Open it in any text editor, change a few colors, then press {{reload}}.",
+          "empty": "No themes of your own yet.",
+          "issuesTitle": "Problems found in theme files ({{n}})",
+          "failed": {
+            "load": "Could not read the theme folder.",
+            "create": "Could not create the theme file.",
+            "open": "Could not open the theme folder."
+          }
+        },
+        "help": {
+          "title": "How to write a theme file",
+          "extends": "\"extends\" — start from another theme by its id and write only what you want to change.",
+          "palette": "\"palette\" — recolor a whole color family: borrow another family (\"gray\": \"zinc\"), set single shades ({\"500\": \"#7c3aed\"}), or shift it ({\"hue\": 280, \"chromaScale\": 1.4}).",
+          "mirror": "\"mirrorPalette\": true flips every family from dark to light — the quickest way to make a light theme.",
+          "colors": "\"colors\" — named spots such as the title bar, canvas, code blocks and terminal. A value is a color (#hex, rgb(), hsl(), oklch()) or a palette reference such as {gray.900} or {sky.400}/50.",
+          "builtinIds": "Built-in theme ids",
+          "tokens": "Names you can use in \"colors\""
+        },
+        "issue": {
+          "tooMany": "{{file}} has {{detail}} theme files — only the first {{max}} are read.",
+          "tooLarge": "{{file}} is too large ({{detail}} bytes) — a theme file can be up to {{maxKb}} KB.",
+          "readFailed": "{{file}} could not be read.",
+          "invalidJson": "{{file}} is not valid JSON: {{detail}}",
+          "notObject": "{{file}} must contain a single JSON object.",
+          "unsupportedVersion": "{{file}} uses theme format {{detail}}, which this version cannot read.",
+          "missingName": "{{file}} has no \"name\", so the file name is shown instead.",
+          "duplicateId": "{{file}} uses an id that another file already uses ({{detail}}), so it was skipped.",
+          "unknownBase": "{{file}} extends \"{{detail}}\", which does not exist, so it starts from the default theme instead.",
+          "extendsCycle": "{{file}} extends itself in a loop (at \"{{detail}}\"), so the loop was cut there.",
+          "invalidColor": "{{file}}: {{detail}} is not a color this app can read, so it was ignored.",
+          "unknownToken": "{{file}}: \"{{detail}}\" is not a color name this app knows, so it was ignored.",
+          "unknownFamily": "{{file}}: \"{{detail}}\" is not a palette family, so it was ignored.",
+          "invalidRamp": "{{file}}: {{detail}} is not a valid palette entry, so it was ignored.",
+          "invalidField": "{{file}}: \"{{detail}}\" has the wrong shape, so it was ignored."
+        }
+      },
       "version": {
         "title": "Version & About",
         "intro": "The Claude Code binary Vibisual uses to spawn agents, and where it comes from.",
+        "codexIntro": "The Codex CLI Vibisual uses to run Codex agents, and where it is installed.",
         "refresh": "Rescan",
         "scanning": "Scanning installations…",
         "claudeCode": "Claude Code (in use)",
+        "codex": "Codex (in use)",
         "current": "Current",
         "versionLabel": "Version:",
         "latest": "Latest (npm)",
@@ -602,6 +694,28 @@
         "sessionProbeModelDesc": "It is asked once, with no tools and no access to your project — only a short tail of what that session last said and did. At most one session is asked at a time, and no more than 12 times an hour.",
         "sessionProbeLoadError": "Could not read the current setting.",
         "sessionProbeSaveError": "Could not save. Nothing was changed.",
+        "processGuardTitle": "Processes your agents start",
+        "processGuardIntro": "Everything an agent runs here, and everything that starts in turn however deep it goes, stays under Vibisual’s watch. If one process runs away with memory, only that process is stopped, and when a session ends whatever it left behind ends with it. A single command can no longer use up the computer’s memory and take the app down with it.",
+        "processGuardEnabled": "Watch the processes agents start",
+        "processGuardEnabledDesc": "Off means nothing is grouped, capped or cleaned up — the way it was before this option existed.",
+        "processGuardCap": "Memory one process may use (% of RAM)",
+        "processGuardCapDesc": "A process that goes over this is stopped. The limit never goes below {{floor}}, so large builds still fit. 0 means no limit. On Windows the system itself refuses the extra memory; elsewhere Vibisual checks every {{seconds}} seconds.",
+        "processGuardCapNow": "On this computer: {{size}} per process",
+        "processGuardCapNone": "On this computer: no limit per process",
+        "processGuardPressure": "When memory runs out, stop the largest one",
+        "processGuardPressureDesc": "When free memory falls below {{ratio}} (at least {{min}}), the largest process your agents started is stopped — one at a time, then memory is measured again. Other programs on your computer are never touched.",
+        "processGuardReap": "Clean up what a session leaves behind",
+        "processGuardReapDesc": "When a session ends, or Claude Code reports that it stopped a task, processes still left over from it are stopped too. Off leaves them running.",
+        "engineBridgeTitle": "Claude Code engine bridge",
+        "engineBridgeIntro": "Sessions that Vibisual starts carry a small Claude Code mod. From inside Claude Code it reports when a turn starts and ends (including turns you interrupt), that the process is still alive, and how full the context and usage limits are. Running and finished states then come from Claude Code itself instead of being guessed. Sessions you start outside Vibisual are never touched.",
+        "engineBridgeEnabled": "Connect the sessions Vibisual starts (headless and CMD)",
+        "engineBridgeEnabledDesc": "Applies to sessions started after saving. Off means sessions run exactly as before, with their state taken from hooks and screen detection only.",
+        "engineBridgeStatusReady": "Claude Code {{version}} can load the bridge. Sessions connected right now: {{sessions}}",
+        "engineBridgeStatusUnsupported": "Claude Code {{version}} cannot load mods; version {{min}} or later is needed. Sessions run as before.",
+        "engineBridgeStatusChecking": "Checking the Claude Code version. The bridge joins from the next session once it is confirmed.",
+        "engineBridgeStatusMissing": "The bridge files are missing from this installation, so sessions run as before.",
+        "engineBridgeStatusError": "Could not read the bridge status.",
+        "engineBridgeRefresh": "Check again",
         "externalBudgetTitle": "Folders outside the project",
         "externalBudgetIntro": "When an agent touches a folder outside the project, that place gets its own bubble. Left alone, those bubbles either bury the map or collapse into one that says nothing. This number sets how many of them stand at the top level at once — the busiest and most recent places fill it first, and places that go quiet fold back under their parent.",
         "externalBudgetLabel": "External folders shown at the top level",
@@ -616,6 +730,11 @@
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
         "cmdBlockedDesc": "Only notifies while you are looking at another tab or window — if the window is focused it is already on screen."
+      },
+      "permissions": {
+        "verificationGateIntro": "This policy applies to both Codex and Claude Code only when enabled. Agents are then told to run tests, lint, type checks, verification builds, E2E, browser checks, screenshot comparisons and verification agents only when requested in the current task, and unrequested calls are blocked before execution.",
+        "verificationGateEnabled": "Require a request before running verification",
+        "verificationGateEnabledDesc": "Off by default. When off, Vibisual adds no verification restriction to prompts and does not block calls under this policy. When on, script names containing check, verify or test may also be blocked. Save with {{apply}}: blocking changes from the next tool call, and prompt guidance from the next turn."
       },
       "engines": {
         "title": "Engines",
@@ -1413,11 +1532,11 @@
       "codex": {
         "edgeDelegationNote": "Codex tool delegation blocks direct executable tools and sends work to connected agents. Because shell commands can bypass individual read/search/edit restrictions, this mode applies broader limits. Planning and final responses remain available. Changes apply to the next message.",
         "noModel": "No model chosen yet",
-        "modelTip": "The Codex model this bubble speaks with. Vibisual always sends this explicitly, so it never falls back to the default model in your Codex config file.",
-        "noModelList": "The model list has not been read yet — running Codex once creates it.",
+        "modelTip": "A selected model is sent explicitly. An empty choice follows project settings or Codex configuration. Catalog updates never change your choice.",
+        "noModelList": "The model catalog is currently unavailable. Your saved model and Codex inheritance are preserved.",
         "reloadModels": "Reload",
         "effort": "Reasoning effort",
-        "effortTip": "Higher means it thinks longer and spends more tokens. Only the levels this model reports are listed.",
+        "effortTip": "Higher effort uses more time and tokens. Available levels come from Codex; saved selections remain even when absent from the current catalog.",
         "toolsManaged": "Managed by the Codex CLI",
         "toolAsk": "Ask every time",
         "toolReset": "Reset to allow all",
@@ -1979,6 +2098,22 @@
     "apps": {
       "open": "Open",
       "openHint": "Double-click to open.",
+      "screenEmpty": "Results appear here",
+      "screenWorking": "Working…",
+      "canvas": {
+        "tooLarge": "Too large to open here — use the editor",
+        "unavailable": "Can't open this here — use the editor",
+        "dragRotate": "Drag to rotate",
+        "fill": "Fill",
+        "copyImage": "Copy image",
+        "copyFailed": "Couldn't copy the image",
+        "backToDoc": "Back to the document",
+        "docShort": "Doc",
+        "docEmpty": "Empty video — ask the linked AI or open the editor",
+        "playExport": "Play the last render",
+        "docUnreadable": "Could not read the document — open the editor",
+        "docVersion": "v{{version}}"
+      },
       "installApp": "Install app",
       "installHint": "Double-click to install.",
       "uninstallApp": "Uninstall app",
@@ -1986,6 +2121,7 @@
       "unknown": "Unknown app",
       "rename": "Rename",
       "renamePrompt": "Bubble name",
+      "resetSize": "Reset size",
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Delete",
@@ -2140,7 +2276,11 @@
           "boxColor": "Caption background",
           "padding": "Caption padding",
           "bottom": "Bottom margin",
-          "volume": "Volume"
+          "volume": "Volume",
+          "highlight": "Word highlight",
+          "highlightColor": "Highlight color",
+          "soundRole": "Sound role",
+          "duckDb": "Lower under narration (dB)"
         },
         "options": {
           "left": "Left",
@@ -2148,7 +2288,12 @@
           "right": "Right",
           "rect": "Rectangle",
           "ellipse": "Ellipse",
-          "line": "Line"
+          "line": "Line",
+          "none": "None",
+          "word": "Word by word",
+          "music": "Music",
+          "voice": "Narration",
+          "sfx": "Sound effect"
         },
         "library": "Library",
         "importMedia": "Import media / SRT",
@@ -2183,7 +2328,11 @@
         "loop": "Loop",
         "importing": "Importing…",
         "download": "Download MP4",
-        "saveStill": "Save PNG"
+        "saveStill": "Save PNG",
+        "addComposition": "Code composition",
+        "addCompositionHint": "Motion graphics written as HTML/CSS/JS. Ask the AI to write it, or edit the file yourself.",
+        "media_composition": "Code composition",
+        "wordsEstimated": "Some captions have no word timing, so word times are estimated from text length."
       },
       "timelineEditor": {
         "zoomIn": "Zoom in",
@@ -2202,10 +2351,561 @@
         "dragHint": "Drag clips to move; drag edges to trim. Arrow keys: 1 frame; Shift: 10 frames; Alt: bypass snap.",
         "moveClip": "Move {{name}}",
         "frameValue": "Frame {{frame}}"
-      }
+      },
+      "composition": {
+        "title": "Code composition",
+        "noSource": "This item does not point to a composition file.",
+        "reload": "Re-read code",
+        "strip": "Frame strip",
+        "openFile": "Open file",
+        "seekMode": "Seeking",
+        "modeForward": "Forward only (replays from the start when going back)",
+        "modeRandom": "Any moment instantly",
+        "declaredLength": "Declared length",
+        "designSize": "Design size",
+        "lint": "Checks",
+        "props": "Data (props, JSON)",
+        "propsHint": "The code reads these values from window.__vibi.props.",
+        "propsNotObject": "Enter a JSON object, like {\"title\": \"Hello\"}.",
+        "propsInvalid": "This is not valid JSON.",
+        "newLabel": "Motion graphic",
+        "stripLoading": "Capturing the frame strip…",
+        "runtimeError": "Composition error: {{message}}",
+        "blocked": "A composition tried to load something outside its folder: {{url}}"
+      },
+      "lint": {
+        "network": "Network calls (fetch, XMLHttpRequest, WebSocket) are blocked. Put the data in the item props instead.",
+        "external-url": "External URLs are blocked. Copy the file into the composition folder and use a relative path.",
+        "media-element": "<audio>/<video> cannot follow the timeline. Put sound on an audio track and video as a clip.",
+        "sound-api": "Sound made in code is silenced. Put sound on an audio track instead.",
+        "worker": "Web workers are blocked in compositions.",
+        "storage": "Storage and cookies are not available in compositions.",
+        "module-script": "Module scripts may not load. Use classic script tags.",
+        "css-transition": "CSS transitions cannot be scrubbed. Use @keyframes or element.animate().",
+        "input-wait": "Some code waits for a click or key press — nobody presses keys in a video.",
+        "no-duration": "No declared length (vibi:duration). Give the clip a duration or declare one in the file.",
+        "frame-callbacks": "Uses frame callbacks, so it can only play forward — going back replays it from the start.",
+        "virtual-clock": "Clock and random values are made repeatable for each video.",
+        "no-motion": "No animation found — this clip may never change over time.",
+        "no-props-decl": "No values are declared, so the studio can't show handles for this composition.",
+        "props-decl-invalid": "The value declaration (vibi-props) has errors.",
+        "engine-unsupported": "Uses web features the video renderer does not support yet — they are ignored in the video."
+      },
+      "agent": {
+        "placeholder": "Tell the AI what to change — e.g. make the title bigger around 2s",
+        "pick": "AI agent",
+        "pickPlaceholder": "Choose an agent…",
+        "linkedLabel": "{{name}} (linked)",
+        "removeAttachment": "Remove {{name}}",
+        "attach": "Attach images, video or audio (added to this video's media)",
+        "send": "Ask AI",
+        "working": "AI is editing…",
+        "reloaded": "Loaded the latest changes (v{{version}}).",
+        "useAttachments": "Use the attached media in this video.",
+        "sent": "Sent to the AI. Its changes will appear here by themselves."
+      },
+      "removeNamed": "Remove {{name}}",
+      "cueNoComposition": "Asset {{id}} is not a code composition.",
+      "cueScanTimeout": "The composition did not finish its {{seconds}}-second run in time.",
+      "ai": {
+        "allowImages": "Allow image generation",
+        "allowImagesNote": "Usage counts against that Codex account.",
+        "attach": "Attach files",
+        "autoAgentName": "Video · {{title}}",
+        "changed": "What changed",
+        "collapse": "Collapse the AI panel",
+        "empty": "Say what to make or change. The AI builds it as editable code, and you can still adjust every value by hand.",
+        "expand": "Open the AI panel",
+        "ide": "IDE",
+        "idle": "Waiting for your note",
+        "moreChanges": "and {{count}} more",
+        "noAgentYet": "No agent yet — one is created when you send",
+        "openIde": "Open this conversation in the IDE",
+        "placeholder": "Describe a change…",
+        "pointedChip": "Pointed: {{kind}}",
+        "send": "Send",
+        "suggestions": "Suggestions",
+        "timeChip": "At {{time}}",
+        "title": "AI",
+        "undoPass": "Undo this pass",
+        "working": "Working…"
+      },
+      "chapterMenu": {
+        "merge": "Merge with the next scene",
+        "otherEngine": "Redo with {{engine}}",
+        "redo": "Ask the AI to redo this scene",
+        "redoRequest": "Please redo scene {{n}} ({{title}}).",
+        "remove": "Delete this scene",
+        "savePart": "Save as a part",
+        "split": "Split at the playhead",
+        "variants": "Two engines side by side"
+      },
+      "chapterStatus": {
+        "plan": "planned",
+        "approved": "approved",
+        "building": "being built",
+        "done": "done"
+      },
+      "diff": {
+        "title": "Title: {{from}} → {{to}}",
+        "size": "Size: {{from}} → {{to}}",
+        "fps": "Frame rate: {{from}} → {{to}}",
+        "style": "Style changed",
+        "chapterAdded": "Added scene {{n}} · {{title}}",
+        "chapterRemoved": "Removed scene {{n}} · {{title}}",
+        "chapterTitle": "Scene {{n}} renamed to {{title}}",
+        "chapterDuration": "Scene {{n}} · {{title}}: {{from}} s → {{to}} s",
+        "chapterText": "Scene {{n}} · {{title}}: on-screen text changed",
+        "chapterBrief": "Scene {{n}} · {{title}}: motion plan changed",
+        "chapterStatus": "Scene {{n}} · {{title}} is now {{status}}",
+        "chapterTransition": "Scene {{n}} · {{title}}: transition set to {{transition}}",
+        "chapterOther": "Scene {{n}} · {{title}} changed",
+        "chapterOrder": "Scenes reordered",
+        "itemAdded": "Added {{label}}",
+        "itemRemoved": "Removed {{label}}",
+        "itemText": "{{label}}: text or values changed",
+        "itemTiming": "{{label}}: timing changed",
+        "itemLook": "{{label}}: position or look changed",
+        "itemOther": "{{label}} changed",
+        "itemsMany": "{{count}} items changed",
+        "assetAdded": "{{count}} media added",
+        "assetRemoved": "{{count}} media removed",
+        "assetChanged": "{{count}} media updated"
+      },
+      "engines": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "label": "Engine",
+        "prepare": "Set up",
+        "prepareInMain": "Set up {{engine}} in the main window.",
+        "need_setup": "{{engine}} is not installed yet.",
+        "need_login": "Sign in to {{engine}} first.",
+        "need_refresh": "Check {{engine}} again."
+      },
+      "errors": {
+        "details": "Details",
+        "offline": "Can't reach the Vibisual server. Check that the app is running.",
+        "conflict": "The document was changed at the same moment. Try again.",
+        "missingDoc": "This document or version no longer exists.",
+        "worker": "The hidden video worker did not respond. Try again.",
+        "timeout": "That took too long and was stopped. Try again.",
+        "unreadable": "This file could not be read.",
+        "tooLarge": "This file is too large to import.",
+        "limit": "A usage limit was reached. Try again later.",
+        "forbidden": "Only you can do this — agents are not allowed to.",
+        "generic": "Something went wrong."
+      },
+      "export": {
+        "captions": "Captions",
+        "captions_burn": "Burn in",
+        "captions_separate": "Separate file",
+        "derived": "Made {{title}} for this format and started rendering it.",
+        "derivedExisting": "Rendering {{title}}, the version you already made for this format.",
+        "download": "Download the last render",
+        "mp4": "Video (MP4)",
+        "noCaptions": "There are no captions to export.",
+        "png": "Still image at the playhead",
+        "preset_landscape": "Landscape",
+        "preset_portrait": "Shorts",
+        "preset_square": "Square",
+        "presets": "Output size",
+        "srt": "Captions file",
+        "transparent": "Motion only, transparent background"
+      },
+      "formats": {
+        "landscape": "Landscape",
+        "portrait": "Vertical",
+        "square": "Square"
+      },
+      "header": {
+        "docs": "Documents",
+        "export": "Export",
+        "format": "Format",
+        "history": "History",
+        "label": "Vibistudio toolbar",
+        "newDoc": "Start a new video",
+        "noDoc": "No document open",
+        "recent": "Recent",
+        "rename": "Rename",
+        "title": "Document title"
+      },
+      "history": {
+        "beforeRestore": "Before going back",
+        "byAi": "AI",
+        "byMe": "You",
+        "checkpoint": "Save a checkpoint",
+        "compare": "Compare side by side",
+        "compareCount": "{{count}} selected",
+        "empty": "Nothing here yet. Every AI pass and every checkpoint you save appears here, and you can go back to any of them.",
+        "kind_pass-start": "Before the AI pass",
+        "kind_pass-end": "AI pass",
+        "kind_checkpoint": "Checkpoint",
+        "kind_restore": "Went back",
+        "kind_render": "Rendered this version",
+        "noDiff": "No differences.",
+        "pick": "Select to compare",
+        "rendered": "Rendered",
+        "restore": "Go back to this",
+        "title": "History"
+      },
+      "libs": {
+        "accept": "Import",
+        "addPack": "Add to the timeline",
+        "download": "Download",
+        "drop": "Drop a script, stylesheet, font, zip or a single HTML page",
+        "duration": "Length (s)",
+        "fromProject": "Find in this project's node_modules",
+        "inert": "Data address — kept as it is",
+        "kind_library": "Library",
+        "kind_font": "Font",
+        "kind_pack": "HTML page",
+        "kind_script": "Script",
+        "kind_style": "Stylesheet",
+        "kind_image": "Image",
+        "kind_module": "Module",
+        "kind_data": "Data",
+        "kind_other": "Other",
+        "licenseNote": "Licenses are shown as found in the files. You decide whether you may use them.",
+        "noLicense": "No license found",
+        "pick": "Choose files",
+        "refsTitle": "{{name}} loads {{count}} outside files",
+        "reject": "Dismiss",
+        "remove": "Remove",
+        "request": "The AI asked you to import:",
+        "title": "Imports",
+        "url": "Address of a file to download",
+        "vendorAll": "Download all",
+        "vendorNone": "Keep as is",
+        "vendorPicked": "Download selected"
+      },
+      "media": {
+        "empty": "No media yet. Import files or drop them on the preview.",
+        "import": "Import",
+        "importing": "Importing…",
+        "search": "Search media"
+      },
+      "notes": {
+        "closed": "Closed ({{count}})",
+        "confirm": "Looks good",
+        "empty": "No notes yet.",
+        "handoff": "Hand {{count}} notes to the AI",
+        "handoffRequest": "Please fix the {{count}} notes I pinned.",
+        "hint": "Pin a note on the preview ({{shortcut}}). The AI gets the exact moment and spot.",
+        "newNote": "New note {{n}}",
+        "pin": "Pin",
+        "pinTitle": "Note {{n}}",
+        "placeholder": "What should change here?",
+        "reopen": "Reopen",
+        "seek": "Go to this moment",
+        "status_open": "Open",
+        "status_sent": "Sent to the AI",
+        "status_fixed": "Fixed — check it",
+        "status_closed": "Closed",
+        "text": "Note {{n}} text"
+      },
+      "parts": {
+        "basic": "Basic",
+        "group_text": "Titles and text",
+        "group_data": "Charts and numbers",
+        "group_brand": "Brand",
+        "group_captions": "Captions",
+        "group_mine": "My parts",
+        "name_lower-third": "Lower third",
+        "name_kinetic-type": "Kinetic type",
+        "name_counter": "Counter",
+        "name_bar-chart": "Bar chart",
+        "name_line-chart": "Line chart",
+        "name_donut-chart": "Donut chart",
+        "name_code-typing": "Code typing",
+        "name_logo-reveal": "Logo reveal",
+        "name_word-captions": "Word captions",
+        "pickSeam": "Move the playhead into a scene after the first one to choose its transition.",
+        "transitions": "Transitions"
+      },
+      "plan": {
+        "add": "Add scene",
+        "approve": "Approve and build",
+        "brief": "Motion",
+        "buildRequest": "The plan is approved. Please build the {{count}} scenes.",
+        "building": "Building…",
+        "buildingThis": "Being built…",
+        "chapterTitle": "Scene title",
+        "collapse": "Hide the plan",
+        "drag": "Drag to reorder",
+        "expand": "Show the plan",
+        "length": "Length",
+        "newChapter": "New scene",
+        "noFrameYet": "No frame yet",
+        "remove": "Remove scene",
+        "seek": "Go to scene {{n}}",
+        "sound": "Sound",
+        "summary": "{{count}} scenes · {{length}}",
+        "text": "On-screen text",
+        "title": "Scene plan",
+        "styleFrame": "Style frame"
+      },
+      "precision": {
+        "close": "Close precise editing",
+        "toggle": "Precise editing"
+      },
+      "preview": {
+        "actualSize": "Actual size",
+        "empty": "Nothing to show yet.",
+        "fit": "Fit to window",
+        "label": "Video preview",
+        "nextFrame": "Next frame",
+        "note": "Pin a note",
+        "planReady": "The plan is ready. Review the scenes and approve them.",
+        "planning": "The AI is planning…",
+        "point": "Point at something",
+        "prevFrame": "Previous frame",
+        "safeArea": "Safe area"
+      },
+      "rail": {
+        "label": "Drawers",
+        "media": "Media",
+        "parts": "Parts",
+        "style": "Style",
+        "notes": "Notes",
+        "transcript": "Transcript"
+      },
+      "recipes": {
+        "app-intro": {
+          "name": "App intro",
+          "desc": "A short intro to this project, made from its real screens.",
+          "placeholder": "Who is it for, and what should they remember?",
+          "wants": "Screens of the running app · logo"
+        },
+        "changelog": {
+          "name": "What's new",
+          "desc": "Turn commits or a pull request into a short update video.",
+          "placeholder": "Which commits or pull request? (default: since the last tag)",
+          "wants": "Commits or a pull request"
+        },
+        "data-story": {
+          "name": "Data story",
+          "desc": "Explain a dataset with animated charts.",
+          "placeholder": "What question should the data answer?",
+          "wants": "A CSV file or a table"
+        },
+        "caption-shorts": {
+          "name": "Captioned short",
+          "desc": "A vertical short with word-by-word captions over a talking video.",
+          "placeholder": "What is the clip about? Anything to cut?",
+          "wants": "A video · an SRT file"
+        },
+        "kinetic-text": {
+          "name": "Kinetic text",
+          "desc": "Tell a message with moving typography.",
+          "placeholder": "Paste the text to animate",
+          "wants": "Your text"
+        },
+        "photo-slideshow": {
+          "name": "Photo slideshow",
+          "desc": "Photos set to music, cut on the beat.",
+          "placeholder": "What is the occasion?",
+          "wants": "Photos · music"
+        },
+        "logo-reveal": {
+          "name": "Logo reveal",
+          "desc": "A short animation that reveals your logo.",
+          "placeholder": "Any mood or colors?",
+          "wants": "A logo"
+        },
+        "blank": {
+          "name": "Blank",
+          "desc": "An empty document to build by hand.",
+          "placeholder": "Give it a title (optional)",
+          "wants": "Nothing needed"
+        }
+      },
+      "review": {
+        "docOnly": "Checked from the document only. Check the frames to also catch low contrast and blank frames.",
+        "fix": "Ask the AI to fix it",
+        "fixRequest": "Please fix this: {{what}}",
+        "frames": "Check the frames",
+        "framesBusy": "Checking frames…",
+        "skip": "Skip this time",
+        "snap": "Snap to the beat",
+        "title": "Review",
+        "read-time": "Too short to read: {{have}} s on screen, needs about {{need}} s.",
+        "safe-area": "\"{{text}}\" is outside the safe area.",
+        "text-overlap": "Text overlaps: \"{{a}}\" and \"{{b}}\".",
+        "low-contrast": "\"{{text}}\" is hard to read (contrast {{ratio}}:1).",
+        "blank": "Blank screen — nothing is visible here.",
+        "caption-clip": "The caption runs to {{lines}} lines. Shorten or split it.",
+        "silence": "No sound from {{from}} s to {{to}} s.",
+        "off-beat": "The cut into scene {{n}} is {{offset}} s off the beat."
+      },
+      "seam": {
+        "length": "Transition length",
+        "snapBeat": "Center it on the nearest strong beat",
+        "title": "Transition"
+      },
+      "signals": {
+        "title": "Cues",
+        "collecting": "Collecting cues…",
+        "recollect": "Collect cues again",
+        "mark": "Cue {{name}} at {{t}} s",
+        "boundCount": "{{count}} bound",
+        "menu": "Cue",
+        "staleHint": "The code changed, so these times are being collected again.",
+        "bind": "Bind {{name}} to this cue",
+        "bindHint": "Select a sound or another item first, then bind it here",
+        "unbind": "Unbind {{name}} (it keeps its current time)",
+        "boundTo": "Bound to cue {{name}}"
+      },
+      "start": {
+        "ask": "What do you want to make?",
+        "dropHint": "Drop files here: screens, data, a logo or a video",
+        "make": "Make the plan",
+        "materials": "Add files",
+        "openBlank": "Open a blank document",
+        "placeholder": "Describe the video…",
+        "recipes": "Recipes",
+        "seconds": "{{count}} s"
+      },
+      "steps": {
+        "label": "Steps",
+        "say": "Say it",
+        "approve": "Approve the plan",
+        "refine": "Refine by hand"
+      },
+      "strip": {
+        "chapter": "Scene {{n}} · {{title}}",
+        "chapterN": "Scene {{n}}",
+        "derive": "Split into scenes",
+        "empty": "No scenes yet",
+        "menu": "Scene menu",
+        "seam": "Transition: {{transition}}",
+        "seamDrag": "drag to move the cut",
+        "working": "The AI is working here"
+      },
+      "style": {
+        "applied": "Applied",
+        "apply": "Apply to this video",
+        "confirm": "Use as the project style",
+        "current": "This video",
+        "font": "Font",
+        "fontFile": "file",
+        "fromProject": "From the project",
+        "logo": "Logo",
+        "noFont": "System font",
+        "noLogo": "No logo",
+        "none": "No style yet. Scan the project to find its colors, fonts and logo.",
+        "partial": "Scanned the first {{count}} files.",
+        "scan": "Scan the project",
+        "scanHint": "Finds the colors, fonts and logo in this project's files.",
+        "scanning": "Scanning…",
+        "slot_accent": "Accent",
+        "slot_bg": "Background",
+        "slot_fg": "Text color",
+        "slot_muted": "Muted"
+      },
+      "toast": {
+        "checkpoint": "Checkpoint saved",
+        "nothingToDerive": "Nothing to split: the timeline has no clear cuts yet.",
+        "partSaved": "Saved to My parts",
+        "passUndone": "Undid the AI pass",
+        "renderDoneNote": "Render finished · {{note}}",
+        "restored": "Went back to that version",
+        "sent": "Sent to the AI",
+        "styleConfirmed": "Saved as the project style",
+        "cuesStale": "Cues could not be collected again, so sounds bound to cues used their previous times."
+      },
+      "transcript": {
+        "clear": "Clear marks",
+        "cut": "Cut the struck sentences",
+        "empty": "No caption sentences yet. Import an SRT file or add captions.",
+        "hint": "Click a sentence to go there. Strike sentences and cut them in one go; the cut follows sentence boundaries.",
+        "keep": "Keep this sentence",
+        "seek": "Go to this sentence",
+        "strike": "Strike this sentence",
+        "summary": "{{count}} sentences · −{{removed}} s · {{before}} → {{after}}"
+      },
+      "transitions": {
+        "cut": "Cut",
+        "dissolve": "Dissolve",
+        "push": "Push",
+        "zoom": "Zoom",
+        "flash": "Flash",
+        "wipe": "Wipe"
+      },
+      "values": {
+        "advanced": "Advanced (JSON)",
+        "codeInfo": "Code info",
+        "codeInfoProblems": "Code info · {{count}} issues",
+        "declaredLength": "Declared length {{seconds}} s",
+        "deselect": "Deselect",
+        "duration": "Duration",
+        "noDecl": "This composition declares no values yet. Ask the AI to declare the text, numbers and colors you want to change.",
+        "responsive": "adapts to the frame",
+        "seekForward": "Plays forward only (going back replays from the start)",
+        "seekRandom": "Can jump to any moment",
+        "title": "Values",
+        "kind_composition": "Code composition",
+        "kind_footage": "Video",
+        "kind_image": "Image",
+        "kind_audio": "Sound",
+        "kind_caption": "Captions",
+        "kind_text": "Text",
+        "kind_shape": "Shape",
+        "kind_scene": "Built-in scene"
+      },
+      "variants": {
+        "dropUnpicked": "Delete the other version",
+        "hint": "Both play at the same moment. The one you don't pick stays in the document until you delete it.",
+        "missing": "This scene doesn't have two versions yet.",
+        "pick": "Use this",
+        "picked": "In use",
+        "request": "Build scene \"{{title}}\" with {{engine}} so I can compare.",
+        "status_building": "In progress",
+        "status_done": "Ready",
+        "title": "Two engines · {{title}}"
+      },
+      "motion": {
+        "punchIn": "Punch-in zoom",
+        "punchInHint": "Zoom in at the playhead for a moment, hold, then return",
+        "slowPush": "Slow push",
+        "slowPushHint": "Slowly zoom in over the whole clip",
+        "addKey": "Keyframe at {{time}} s",
+        "empty": "No keyframes — the box stays still.",
+        "keyLabel": "Keyframe {{n}}",
+        "remove": "Remove this keyframe",
+        "time": "Time (s)",
+        "dx": "Move X (px)",
+        "dy": "Move Y (px)",
+        "ease": "Curve",
+        "ease_linear": "Even",
+        "ease_in": "Slow start",
+        "ease_out": "Slow end",
+        "ease_inOut": "Smooth",
+        "ease_hold": "Hold, then jump",
+        "clear": "Remove all keyframes"
+      },
+      "effects": {
+        "title": "Color & effects",
+        "look": "Look",
+        "look_warm": "Warm",
+        "look_cool": "Cool",
+        "look_mono": "Black and white",
+        "look_vivid": "Vivid",
+        "look_fade": "Faded",
+        "look_cinematic": "Cinematic",
+        "brightness": "Brightness",
+        "contrast": "Contrast",
+        "saturation": "Saturation",
+        "temperature": "Color temperature",
+        "hue": "Hue shift (°)",
+        "blur": "Blur (px)",
+        "vignette": "Vignette",
+        "reset": "Reset color and effects"
+      },
+      "errNoFrame": "The style frame of chapter \"{{id}}\" cannot be drawn — it has no composition asset.",
+      "lowResolution": "This screen could not fit a render window as large as the video, so it was rendered at {{percent}}% resolution."
     },
     "cost": {
-      "codexEstimateNote": "Codex costs use standard API token prices. They are estimates, not ChatGPT subscription charges or credit usage; Fast mode and long-context surcharges are not included.",
+      "codexEstimateNote": "Codex costs use standard API token prices. They are estimates, not ChatGPT subscription charges or credit usage; Fast/Ultrafast modes and long-context surcharges are not included.",
       "title": "Cost & token map",
       "close": "Close cost map",
       "pillLabel": "Today's cost",
@@ -3953,6 +4653,16 @@
       "resumed": "Connection restored · work resumed",
       "ended": "Connection recovery attempted"
     },
+    "processGuard": {
+      "someProcess": "a process",
+      "cap": "Stopped {{image}} — it was using {{mem}}, over the {{cap}} limit for one process",
+      "capKernel": "Windows refused more memory to {{image}} at the {{cap}} limit for one process, and it ended",
+      "pressure": "Memory was running out ({{avail}} free) — stopped {{image}}, the largest process here ({{mem}})",
+      "sessionEnd_one": "The session ended — stopped {{count}} process it left behind",
+      "sessionEnd_other": "The session ended — stopped {{count}} processes it left behind",
+      "taskKilled_one": "Claude Code had stopped a task, but {{count}} of its processes was still running — stopped it",
+      "taskKilled_other": "Claude Code had stopped a task, but {{count}} of its processes were still running — stopped them"
+    },
     "cmdError": {
       "spawn": "{{engine}} could not start",
       "stdin": "Could not deliver the prompt to the running session",
@@ -4261,9 +4971,9 @@
             "off": "Turn it off and the session continues after a compaction with no note about what fell out of the summary."
           },
           "verificationPolicy": {
-            "what": "The rule that verification (tests, lint, type checks, builds, E2E, browser checks) runs only when you ask for it, plus one line saying what this task is allowed to run.",
-            "more": "Vibisual grants the permission only from your own message or the verification button, ties it to that one task, and blocks any other verification before it runs.",
-            "off": "The agent is no longer told about the policy, but verification without permission is still blocked before it runs."
+            "what": "Optional guidance for Codex and Claude Code to run verification only when requested in the current task, plus the task's verification permission.",
+            "more": "The policy is off by default. When enabled, Vibisual grants verification permission from your message or the verification button for that task. When disabled, it adds no restrictive guidance and does not block verification calls.",
+            "off": "This source switch only hides the guidance when the policy is enabled. Enable or disable both guidance and execution blocking in {{options}}, under {{permissions}}. The policy is off by default."
           },
           "hookEnforcement": {
             "what": "The block Vibisual injects into sessions that attached themselves through Claude Code hooks.",
@@ -6032,7 +6742,16 @@
       "lockN": "Lock {{count}} selected",
       "unlockN": "Unlock {{count}} selected",
       "lockSkipped": "Leaves out {{count}} bubble(s) that can’t be locked.",
-      "toBubble": "Fold back into a bubble"
+      "toBubble": "Fold back into a bubble",
+      "toCard": "Switch to speech balloon",
+      "toCardNote": "Opens an input balloon beside the bubble so you can talk to it here",
+      "hideLinks": "Hide links",
+      "hideLinksNote": "Only the lines disappear — the connections keep working",
+      "showLinks": "Show links",
+      "lensFiles": "Focus on work files",
+      "lensFilesNote": "Brings file lines back to full strength and folds the connected items",
+      "lensLinked": "Focus on connected items",
+      "lensLinkedNote": "Shows the connected apps’ scenes and materials, and dims file lines"
     },
     "pathLock": {
       "badgeSelf": "Locked — any AI must ask you before opening it",
@@ -6052,15 +6771,42 @@
       },
       "placeholder": "What should it do? Enter sends, Shift+Enter adds a line.",
       "inputLabel": "Message to {{name}}",
-      "linkHint": "Drag the + to add a linked node",
+      "linkHint": "Drag the orbit dot to add an app satellite",
       "chipOn": "{{name}} is included in this message. Click to leave it out.",
       "chipOff": "{{name}} is left out of this message. Click to include it.",
       "send": "Send",
-      "handleTitle": "Drag to create or link a node, or click for the list"
+      "handleTitle": "Drag to add or link an app satellite, or click to choose",
+      "linkedCount": "App satellites: {{count}}"
     },
     "refLink": {
-      "menuHeading": "Create with this agent as reference",
+      "bloomLabel": "Choose an app satellite to add",
       "unlink": "Unlink"
+    },
+    "linkedItems": {
+      "rowLabel": "Connected items",
+      "scene": "Scene {{index}}: {{title}}",
+      "sceneUntitled": "Scene {{index}}",
+      "stage": {
+        "plan": "Planned",
+        "ready": "Approved",
+        "building": "Being built",
+        "done": "Finished"
+      },
+      "kind": {
+        "scene": "Scene",
+        "image": "Image",
+        "video": "Video",
+        "audio": "Sound",
+        "model": "3D model",
+        "font": "Font",
+        "code": "Motion code",
+        "text": "Text",
+        "file": "File"
+      },
+      "seconds": "{{seconds}} s",
+      "active": "The AI is working on this now",
+      "past": "Earlier result",
+      "openPastHint": "Double-click to open this result."
     }
   },
   "common": {
@@ -6452,7 +7198,12 @@
     "personality": "Communication style",
     "personalityHint": "Communication style applies to models that support it.",
     "serviceTier": "Service tier",
-    "serviceTierHint": "Enter a tier supported by the selected model (for example, fast). Faster tiers may affect usage and pricing.",
+    "serviceTierFast": "Fast — when supported",
+    "serviceTierUltrafast": "Ultrafast — when supported",
+    "codexModelInherited": "Follow Codex configuration",
+    "codexModelInheritedHint": "No model override is sent. Codex resolves the model from its configuration or current default.",
+    "retainedModelHint": "The saved model is not in this catalog. It remains selected; Codex checks availability when you run it.",
+    "serviceTierHint": "Fast/Ultrafast availability depends on the model and account. These modes can use more credits or incur higher charges. Leave blank to inherit; other supported tier names are accepted.",
     "autoCompactTokenLimit": "Auto-compaction threshold (tokens)",
     "codexTools": "Tool permissions",
     "codexValues": {

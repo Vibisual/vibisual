@@ -8,6 +8,8 @@ import type { LabRunStatus, LabVariant } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 
 /**
  * §5.18 / §7.17 — 에이전트 랩 표지 버블.
@@ -65,6 +67,7 @@ function formatCost(usd: number | undefined): string {
 }
 
 export const LabNode = memo(function LabNode({
+  id,
   data,
   selected,
 }: NodeProps & { data: LabNodeData }): React.JSX.Element {
@@ -124,9 +127,15 @@ export const LabNode = memo(function LabNode({
 
   // 선택·더블클릭은 에이전트(IDE) 버블과 같은 상태기계 한 벌을 쓴다 — 더블클릭으로 랩을 열 때
   // 1타의 선택(우측 패널)이 함께 발동하지 않는다.
+  // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
+  const canvasSelection = useCanvasNodeSelection(id, data.labRunId);
   const gesture = useBubbleSelectGesture({
     doubleClickable: true,
-    select: () => selectLabRun(data.labRunId),
+    select: () => {
+      canvasSelection.replace();
+      selectLabRun(data.labRunId);
+    },
+    toggle: canvasSelection.toggle,
     setIntent: (active) => {
       useGraphStore.getState().setSelectIntent(active ? data.labRunId : null);
     },
@@ -136,9 +145,11 @@ export const LabNode = memo(function LabNode({
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
+    // §6 — 여럿을 고른 묶음 안이면 묶음 메뉴다(고르기를 그 하나로 바꾸지 않는다).
+    if (selected === true && openGroupMenuIfGrouped(id, e.clientX, e.clientY)) return;
     gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [gesture]);
+  }, [gesture, id, selected]);
 
   // 더블클릭 = 랩 패널 열기. **선택은 하지 않는다** — 패널은 id 를 직접 받으므로 선택이 필요 없고,
   // 여는 동작이 선택까지 끌고 오면 에이전트 버블과 손버릇이 갈린다.

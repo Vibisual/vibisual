@@ -23,3 +23,36 @@ export function passedTitlebarDragThreshold(
 ): boolean {
   return Math.abs(cursor.x - press.x) >= threshold || Math.abs(cursor.y - press.y) >= threshold;
 }
+
+// §3.7 ③ — **누른 자리·놓은 자리는 렌더러가 잰다.** 서버가 창의 메인 스레드에서 함께 돌아, 그 스레드가 바쁘면
+//   `move-self` 를 늦게 받는다. 그때 OS 커서는 손이 이미 옮겨 간 자리라, 누른 자리를 거기서 읽으면 창이 손에서
+//   떨어지고 손짓이 통째로 0px 이 된다. 렌더러는 그 손짓의 화면 좌표(DIP)를 실어 보낸다.
+
+/** 렌더러가 실어 보낸 화면 좌표 — 모양이 틀리면 없는 것으로 본다(그때는 OS 커서로 대신한다). */
+export function toScreenPoint(value: unknown): { x: number; y: number } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { x, y } = value as { x?: unknown; y?: unknown };
+  if (typeof x !== 'number' || typeof y !== 'number') return undefined;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined;
+  return { x, y };
+}
+
+/**
+ * 렌더러가 잰 자리와 지금 OS 커서가 이만큼(DIP, 가로나 세로) 넘게 벌어져 있으면 메인이 그 손짓을 **늦게
+ * 받은** 것이다. 제때 받으면 둘은 몇 px 안이다(손이 빨라도 IPC 몇 ms 동안 움직인 만큼).
+ */
+export const TITLEBAR_LATE_SAMPLE_DIP = 16;
+
+/**
+ * 놓은 자리를 고른다 — 렌더러가 잰 자리(`sample`)와 지금 OS 커서(`live`) 중 하나.
+ * 벌어졌으면 메인이 늦게 받은 것이라 손이 실제로 놓은 `sample` 이 맞다(그 뒤 손이 어디로 갔든). 가까우면
+ * `live` 를 쓴다 — 창을 옮기던 중의 작은 좌표 차이가 놓는 순간의 튐이 되지 않게.
+ */
+export function pickTitlebarPoint(
+  sample: { x: number; y: number } | undefined,
+  live: { x: number; y: number },
+  gap = TITLEBAR_LATE_SAMPLE_DIP,
+): { x: number; y: number } {
+  if (!sample) return live;
+  return Math.abs(sample.x - live.x) > gap || Math.abs(sample.y - live.y) > gap ? sample : live;
+}

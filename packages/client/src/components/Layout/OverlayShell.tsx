@@ -14,6 +14,7 @@ import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { coerceIDEPaneHandoff } from '../../stores/idePaneHandoff.js';
 import { coerceIDEFocusTarget, type IDEFocusTarget } from '../../stores/detachedIDEFocus.js';
 import { resolveOverlayCloseIntent } from './overlayCloseIntent.js';
+import { AttentionFlash } from './AttentionFlash.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useOverlaySync } from '../../hooks/useOverlaySync.js';
 import { BubbleNode } from '../BubbleMap/BubbleNode.js';
@@ -469,14 +470,7 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
 
       {/* §5.5 #17-6 (H-16) — 앱 안에서 불렸을 때의 기척. 클릭통과(`pointer-events-none`)라
           비치는 동안에도 창은 그대로 쓴다. 끝나면 스스로 빠져 DOM 에 남지 않는다. */}
-      {attention > 0 && (
-        <div
-          key={attention}
-          aria-hidden
-          onAnimationEnd={() => setAttention(0)}
-          className="animate-overlay-attention pointer-events-none fixed inset-0 z-[200] rounded-xl border-2 border-sky-300/80 bg-sky-300/10 shadow-[0_0_28px_rgba(125,211,252,0.35)_inset]"
-        />
-      )}
+      <AttentionFlash seq={attention} onDone={() => setAttention(0)} className="rounded-xl" />
     </div>
   );
 }

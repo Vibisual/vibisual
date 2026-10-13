@@ -297,6 +297,19 @@ function activeShellsOf(state: ShellScanState): ActiveBackgroundShell[] {
   );
 }
 
+/**
+ * §5.3 #9-2 (C-1) — **끊긴 셸까지 포함해** 그 셸의 명령 원문.
+ *
+ * `scanActiveBackgroundShells` 는 살아 있는 셸만 돌려준다(에이전트가 KillShell 로 끊은 것은 뺀다). 그런데
+ * 끊긴 작업의 남은 프로세스를 찾을 때 필요한 것이 바로 그 끊긴 셸의 명령이다 — 상류가 Windows 에서
+ * `bash.exe` 만 끊어 그 아래 `grep` 이 고아로 사는 자리(anthropics/claude-code#27273·#76353).
+ * 증분 상태를 먼저 최신으로 당긴 뒤 전체 목록에서 찾는다(디스크를 다시 읽지 않는다).
+ */
+export function findBackgroundShellCommand(jsonlPath: string, shellId: string): string | undefined {
+  scanActiveBackgroundShells(jsonlPath);
+  return scanStates.get(jsonlPath)?.shells.find((s) => s.shellId === shellId)?.command;
+}
+
 /** 테스트·재기동용 — 증분 캐시를 비운다. */
 export function resetBackgroundShellScanCache(): void {
   scanStates.clear();

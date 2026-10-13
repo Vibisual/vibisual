@@ -682,7 +682,7 @@ export function TabBar(): React.JSX.Element | null {
             style={tabDrag.dragSize ?? undefined}
             className={`flex items-center gap-1.5 rounded-t-md border-t-2 px-2.5 text-[12px] font-medium shadow-lg shadow-black/60 transition-colors duration-100 ${
               detachHint
-                ? 'border-t-amber-400 bg-[#1f2937] text-amber-100 ring-1 ring-amber-400/60'
+                ? 'border-t-amber-400 bg-vb-raised text-amber-100 ring-1 ring-amber-400/60'
                 : 'border-t-blue-400 bg-gray-950 text-white/90 ring-1 ring-white/[0.08]'
             }`}
           >
@@ -691,8 +691,8 @@ export function TabBar(): React.JSX.Element | null {
           <div
             className={`mt-1 flex max-w-[260px] items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-medium shadow-lg shadow-black/50 transition-colors duration-100 ${
               detachHint
-                ? 'bg-[#1f2937] text-amber-200 ring-1 ring-amber-400/60'
-                : 'bg-[#1f2937]/85 text-gray-300 ring-1 ring-white/[0.08]'
+                ? 'bg-vb-raised text-amber-200 ring-1 ring-amber-400/60'
+                : 'bg-vb-raised/85 text-gray-300 ring-1 ring-white/[0.08]'
             }`}
           >
             {detachHint ? (

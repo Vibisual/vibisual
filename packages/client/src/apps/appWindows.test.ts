@@ -22,7 +22,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 function reset(): void {
-  useAppWindowsStore.setState({ windows: [] });
+  useAppWindowsStore.setState({ windows: [], outside: [] });
 }
 
 describe('앱 안 창 store', () => {
@@ -179,6 +179,50 @@ describe('밖으로 꺼내기', () => {
     expect(await pending).toBe(false);
     expect(open).not.toHaveBeenCalled();
     expect(useAppWindowsStore.getState().windows).toEqual([]);
+  });
+});
+
+// §5.13 (S-11) — 사용자 보고: 스튜디오 창이 IDE 창과 달리 "포커싱"이 빠졌다. 그 문서가 이미 밖에 떠 있으면 앱 안에 한 벌
+//   더 세우지 않고 밖의 그 창을 앞으로 세운다(IDE §5.5 #17-6 (H-13) 과 같다). 그 사이 닫혔으면 종전대로 앱 안에 연다.
+describe('이미 밖에 떠 있는 문서를 다시 열면 — 포커싱', () => {
+  beforeEach(() => {
+    reset();
+    useAppWindowsStore.setState({ outside: [{ windowId: 7, appId: APP.id, projectId: PROJECT, ref: 'doc-1' }] });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('앱 안에 한 벌 더 세우지 않고 밖의 그 창을 앞으로 세운다', async () => {
+    const focus = vi.fn(async () => true);
+    vi.stubGlobal('window', { api: { app: { open: vi.fn(), focus } } });
+
+    expect(openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1', title: '내 영상' })).toBe(true);
+    expect(focus).toHaveBeenCalledExactlyOnceWith(APP.id, 7);
+    await Promise.resolve();
+    expect(useAppWindowsStore.getState().windows).toEqual([]);
+  });
+
+  it.each(['gone', 'failed'] as const)('밖의 창이 그 사이 사라졌으면(%s) 종전대로 앱 안에 연다', async (outcome) => {
+    const focus = outcome === 'gone' ? vi.fn(async () => false) : vi.fn(async () => { throw new Error('closed'); });
+    vi.stubGlobal('window', { api: { app: { open: vi.fn(), focus } } });
+
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1' });
+    await vi.waitFor(() => { expect(useAppWindowsStore.getState().windows).toHaveLength(1); });
+    expect(useAppWindowsStore.getState().windows[0]).toMatchObject({ appId: APP.id, projectId: PROJECT, ref: 'doc-1' });
+  });
+
+  it('다른 문서·되돌아오는 길·세울 수 없는 판은 종전대로 곧바로 앱 안에 연다', () => {
+    const focus = vi.fn(async () => true);
+    vi.stubGlobal('window', { api: { app: { open: vi.fn(), focus } } });
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-2' });
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1' }, { redock: true });
+    expect(focus).not.toHaveBeenCalled();
+    expect(useAppWindowsStore.getState().windows.map((w) => w.ref)).toEqual(['doc-2', 'doc-1']);
+
+    reset();
+    useAppWindowsStore.setState({ outside: [{ windowId: 7, appId: APP.id, projectId: PROJECT, ref: 'doc-1' }] });
+    vi.stubGlobal('window', { api: { app: { open: vi.fn() } } });
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1' });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
   });
 });
 

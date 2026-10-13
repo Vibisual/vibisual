@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import * as pty from 'node-pty';
 import { observePtyTransportErrors } from './ptyTransportErrors';
-import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, buildAgentTokenSaverEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, type CmdTerminalController } from '@vibisual/server';
+import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, buildAgentTokenSaverEnv, buildVerificationGateEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, processGuard, type CmdTerminalController } from '@vibisual/server';
 import { isPathWithin } from '@vibisual/shared';
 import type { AgentConfig } from '@vibisual/shared';
 import {
@@ -358,6 +358,8 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
         // §5.3 #9-1 (J~M) — 토큰 절약 축. 같은 규율로 헤드리스와 **한 벌**을 쓴다 —
         //   설정 창에서 켠 절약이 사용자가 직접 치는 CMD 세션에도 그대로 걸린다.
         ...(managed ? buildAgentTokenSaverEnv(spec.config) : {}),
+        // §5.3 #12-4 (J) — 검증 실행 전 차단을 켠 채 여는 터미널이면 훅 안전망 표식. 헤드리스와 같은 함수(끄면 빈 객체).
+        ...(managed ? buildVerificationGateEnv() : {}),
         // 디버그 모드가 실어 보내는 것(NODE_OPTIONS 등) + 실행 구성의 env.
         ...(spec.env ?? {}),
       },
@@ -375,6 +377,9 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       processAt: 0,
     };
     sessions.set(spec.termId, session);
+    // §5.3 #9-2 — CMD 터미널도 같은 감시에 넣는다(손자까지 · 메모리 상한). 터미널이 닫히면 그 안에서 띄운 것도
+    //   끝난다 — POSIX 터미널이 닫힐 때 그 안의 작업이 함께 끝나는 것과 같은 결. 실행 런처(사용자 명령)도 같다.
+    processGuard.adopt(child.pid, agentId && subAgentId ? { parentAgentId: agentId, subAgentId } : null, 'pty', { reapOnExit: true });
 
     observePtyTransportErrors(child, (side, error) => failTerminalTransport(spec.termId, session, side, error));
 
@@ -396,6 +401,8 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     });
     child.onExit(({ exitCode }) => {
       cancelPrefill(session);
+      // 세션 판정보다 먼저 — 같은 탭 id 를 새 PTY 가 이어받았어도 이 PTY 의 본체는 끝났다.
+      processGuard.rootExited(child.pid);
       // An older PTY can exit after a replacement has claimed the same tab id.
       if (sessions.get(spec.termId) !== session) return;
       sessions.delete(spec.termId);

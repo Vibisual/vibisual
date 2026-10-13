@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetachedAppWindow } from './DetachedAppWindow.js';
 import { AppShellHost } from './AppShellHost.js';
 import { WindowControls } from '../components/Layout/WindowControls.js';
+import { AttentionFlash } from '../components/Layout/AttentionFlash.js';
 import type { AppHash } from './appHash.js';
 
 const mocks = vi.hoisted(() => ({
@@ -164,5 +165,67 @@ describe('detached internal app chrome and handoff', () => {
     expect(view!.root.findAllByType(WindowControls)).toHaveLength(0);
     expect(view!.root.findByType(AppShellHost).props.hash).toEqual(stage);
     expect(view!.root.findByType(AppShellHost).props.fill).toBeUndefined();
+  });
+
+  // §5.13 (S-11) — 앱이 머리줄 자리에 포털로 그린 머리줄 위의 누름은 React 이벤트로는 이 제목줄에 닿지 않는다. 창 틀이 그
+  //   자리에서 네이티브로 받아 같은 손잡이에 넘긴다 — 밖으로 뺀 창도 머리줄 빈 곳을 잡아 옮기고, 두 번 눌러 최대화한다.
+  it('drags and maximizes from the app header drawn into the title bar slot, but not from its own controls', async () => {
+    const slotListeners = new Map<string, Set<(event: unknown) => void>>();
+    const slotNode = {
+      addEventListener: (type: string, callback: (event: unknown) => void) => {
+        if (!slotListeners.has(type)) slotListeners.set(type, new Set());
+        slotListeners.get(type)!.add(callback);
+      },
+      removeEventListener: (type: string, callback: (event: unknown) => void) => slotListeners.get(type)?.delete(callback),
+    };
+    const inSlot = (type: string, event: unknown): void => { for (const callback of [...slotListeners.get(type) ?? []]) callback(event); };
+    act(() => {
+      view = create(createElement(DetachedAppWindow, { initial }), {
+        createNodeMock: (element) => ((element.props as Record<string, unknown>)['data-app-chrome-slot'] !== undefined ? slotNode : null),
+      });
+    });
+
+    act(() => inSlot('mousedown', { button: 0, clientX: 10, clientY: 10, target: { closest: () => ({}) }, preventDefault: vi.fn() }));
+    expect(listeners.get('mousemove')?.size ?? 0).toBe(0);
+    act(() => inSlot('mousedown', { button: 0, clientX: 10, clientY: 10, target: { closest: () => null }, preventDefault: vi.fn() }));
+    await act(async () => emit('mousemove', { buttons: 1, clientX: 30, clientY: 10 }));
+    expect(mocks.startDrag).toHaveBeenCalledOnce();
+    await act(async () => emit('mouseup', { button: 0 }));
+    expect(mocks.endDrag).toHaveBeenCalledOnce();
+
+    act(() => inSlot('dblclick', { target: { closest: () => ({}) } }));
+    expect(mocks.maximize).not.toHaveBeenCalled();
+    act(() => inSlot('dblclick', { target: { closest: () => null } }));
+    expect(mocks.maximize).toHaveBeenCalledOnce();
+    // 자리 자체(앱이 덮지 않은 칸)는 제목줄의 React 손잡이 몫이다 — 두 번 받지 않는다.
+    act(() => inSlot('dblclick', { target: slotNode }));
+    expect(mocks.maximize).toHaveBeenCalledOnce();
+  });
+
+  // §5.13 (S-11) — 본체가 이 창의 문서를 캔버스에서 다시 열면 main 이 이 창을 앞으로 세우고 기척을 보낸다. 이미 보이던
+  //   창이면 앞으로 오는 것만으로는 화면이 그대로라, 이 창이 테두리로 한 번 대답한다(IDE 창 §5.5 #17-6 (H-16) 과 같다).
+  it('answers a call from the main window with one border flash, for its own app only', () => {
+    let attention!: (payload: { appId: string }) => void;
+    const offAttention = vi.fn();
+    (window as unknown as { api: { app: Record<string, unknown> } }).api.app['onAttention'] = (callback: typeof attention) => {
+      attention = callback;
+      return offAttention;
+    };
+    act(() => mount());
+    expect(view!.root.findByType(AttentionFlash).props.seq).toBe(0);
+    act(() => attention({ appId: 'vibisound' }));
+    expect(view!.root.findByType(AttentionFlash).props.seq).toBe(0);
+    act(() => attention({ appId: 'vibi3d' }));
+    expect(view!.root.findByType(AttentionFlash).props.seq).toBe(1);
+    const flash = view!.root.findAll((node) => node.type === 'div' && String(node.props.className).includes('animate-overlay-attention'));
+    expect(flash).toHaveLength(1);
+    expect(flash[0]!.props.className).toContain('pointer-events-none');
+    // 연달아 불러도 매번 대답한다 — 번호가 올라 새 원소가 된다.
+    act(() => attention({ appId: 'vibi3d' }));
+    expect(view!.root.findByType(AttentionFlash).props.seq).toBe(2);
+    act(() => view!.root.findByType(AttentionFlash).props.onDone());
+    expect(view!.root.findByType(AttentionFlash).props.seq).toBe(0);
+    act(() => view!.unmount()); view = undefined;
+    expect(offAttention).toHaveBeenCalledOnce();
   });
 });

@@ -386,19 +386,111 @@
         "version": "Version",
         "account": "Konto",
         "storage": "Speicher",
-        "keyboard": "Tastatur"
+        "keyboard": "Tastatur",
+        "theme": "Theme"
       },
       "appearance": {
         "intro": "Passen Sie das Erscheinungsbild von Vibisual an.",
         "language": "Sprache",
         "languageDesc": "Anzeigesprache der Oberfläche. Wird sofort übernommen."
       },
+      "theme": {
+        "intro": "Ändere die Farben der gesamten App – Panels, Arbeitsfläche, IDE und Terminal. Deine Auswahl gilt sofort und bleibt auf diesem Computer gespeichert.",
+        "groupDark": "Dunkel",
+        "groupLight": "Hell",
+        "inUse": "Aktuelles Theme",
+        "byAuthor": "von {{author}}",
+        "saveFailed": "Deine Theme-Auswahl konnte nicht gespeichert werden. Beim nächsten Mal erscheint wieder das zuvor gespeicherte Theme.",
+        "missing": "Das gewählte Theme ({{id}}) wurde nicht gefunden, daher wird stattdessen {{fallback}} verwendet. Lege die zugehörige Datei wieder in den Theme-Ordner oder wähle ein anderes Theme.",
+        "builtin": {
+          "vibisualDark": {
+            "name": "Vibisual Dunkel",
+            "desc": "Der ursprüngliche Look – kühle blaugraue Panels und eine tiefdunkle Arbeitsfläche."
+          },
+          "midnight": {
+            "name": "Mitternacht",
+            "desc": "Tief marineblaue Flächen für lange Nachtschichten."
+          },
+          "graphite": {
+            "name": "Graphit",
+            "desc": "Neutrale Grautöne ohne Farbstich, damit sich die Farben deiner Agenten abheben."
+          },
+          "dusk": {
+            "name": "Dämmerung",
+            "desc": "Warme, augenschonende Steintöne."
+          },
+          "forest": {
+            "name": "Wald",
+            "desc": "Gedämpftes Grüngrau, wie ein ruhiger Abend im Wald."
+          },
+          "highContrast": {
+            "name": "Hoher Kontrast",
+            "desc": "Reines Schwarz mit hellem Text und deutlichen Rahmen."
+          },
+          "light": {
+            "name": "Hell",
+            "desc": "Helle, klare Panels für die Arbeit bei Tageslicht."
+          },
+          "paper": {
+            "name": "Papier",
+            "desc": "Warmes cremefarbenes Papier mit sanfter brauner Tinte."
+          },
+          "highContrastLight": {
+            "name": "Hoher Kontrast Hell",
+            "desc": "Reines Weiß mit schwarzem Text und kräftigen Konturen."
+          }
+        },
+        "custom": {
+          "title": "Meine Themes",
+          "desc": "Selbst erstellte Themes sind JSON-Dateien in diesem Ordner. Lege eine Datei hinein und klicke dann auf {{reload}}.",
+          "openFolder": "Ordner öffnen",
+          "reload": "Themes neu laden",
+          "create": "Neues Theme aus {{name}}",
+          "copyName": "Kopie von {{name}}",
+          "createdHint": "{{file}} wurde erstellt und aktiviert. Öffne die Datei in einem beliebigen Texteditor, ändere ein paar Farben und klicke dann auf {{reload}}.",
+          "empty": "Noch keine eigenen Themes.",
+          "issuesTitle": "In Theme-Dateien gefundene Probleme ({{n}})",
+          "failed": {
+            "load": "Der Theme-Ordner konnte nicht gelesen werden.",
+            "create": "Die Theme-Datei konnte nicht erstellt werden.",
+            "open": "Der Theme-Ordner konnte nicht geöffnet werden."
+          }
+        },
+        "help": {
+          "title": "Eine Theme-Datei schreiben",
+          "extends": "\"extends\" – nimm ein anderes Theme über dessen ID als Ausgangspunkt und schreibe nur das, was du ändern willst.",
+          "palette": "\"palette\" – färbe eine ganze Farbfamilie um: übernimm eine andere Familie (\"gray\": \"zinc\"), setze einzelne Farbstufen ({\"500\": \"#7c3aed\"}) oder verschiebe die ganze Familie ({\"hue\": 280, \"chromaScale\": 1.4}).",
+          "mirror": "\"mirrorPalette\": true kehrt jede Familie von dunkel zu hell um – der schnellste Weg zu einem hellen Theme.",
+          "colors": "\"colors\" – benannte Stellen wie Titelleiste, Arbeitsfläche, Codeblöcke und Terminal. Ein Wert ist eine Farbe (#hex, rgb(), hsl(), oklch()) oder ein Palettenverweis wie {gray.900} oder {sky.400}/50.",
+          "builtinIds": "Eingebaute Theme-IDs",
+          "tokens": "Namen, die du in \"colors\" verwenden kannst"
+        },
+        "issue": {
+          "tooMany": "{{file}} enthält {{detail}} Theme-Dateien – es werden nur die ersten {{max}} gelesen.",
+          "tooLarge": "{{file}} ist zu groß ({{detail}} Bytes) – eine Theme-Datei darf bis zu {{maxKb}} KB groß sein.",
+          "readFailed": "{{file}} konnte nicht gelesen werden.",
+          "invalidJson": "{{file}} ist kein gültiges JSON: {{detail}}",
+          "notObject": "{{file}} muss ein einzelnes JSON-Objekt enthalten.",
+          "unsupportedVersion": "{{file}} verwendet das Theme-Format {{detail}}, das diese Version nicht lesen kann.",
+          "missingName": "In {{file}} fehlt \"name\", daher wird stattdessen der Dateiname angezeigt.",
+          "duplicateId": "{{file}} verwendet eine ID, die bereits von einer anderen Datei genutzt wird ({{detail}}), und wurde daher übersprungen.",
+          "unknownBase": "{{file}} erweitert \"{{detail}}\", das nicht existiert, und verwendet daher stattdessen das Standard-Theme als Ausgangspunkt.",
+          "extendsCycle": "{{file}} erweitert sich selbst in einer Schleife (bei \"{{detail}}\"), daher wurde die Schleife dort unterbrochen.",
+          "invalidColor": "{{file}}: {{detail}} ist keine Farbe, die diese App lesen kann, und wurde daher ignoriert.",
+          "unknownToken": "{{file}}: \"{{detail}}\" ist kein Farbname, den diese App kennt, und wurde daher ignoriert.",
+          "unknownFamily": "{{file}}: \"{{detail}}\" ist keine Palettenfamilie und wurde daher ignoriert.",
+          "invalidRamp": "{{file}}: {{detail}} ist kein gültiger Paletteneintrag und wurde daher ignoriert.",
+          "invalidField": "{{file}}: \"{{detail}}\" hat nicht die erwartete Form und wurde daher ignoriert."
+        }
+      },
       "version": {
         "title": "Version & Info",
         "intro": "Das Claude Code-Programm, das Vibisual zum Starten von Agenten verwendet, und dessen Herkunft.",
+        "codexIntro": "Das Codex CLI-Programm, das Vibisual zum Starten von Codex-Agenten verwendet, und dessen Installationsort.",
         "refresh": "Erneut prüfen",
         "scanning": "Installationen werden gesucht…",
         "claudeCode": "Claude Code (aktiv)",
+        "codex": "Codex (aktiv)",
         "current": "Aktuell",
         "versionLabel": "Version:",
         "latest": "Neueste (npm)",
@@ -602,6 +694,28 @@
         "sessionProbeModelDesc": "Es wird einmal gefragt, ohne Werkzeuge und ohne Zugriff auf Ihr Projekt — nur ein kurzes Ende dessen, was diese Sitzung zuletzt gesagt und getan hat. Es wird höchstens eine Sitzung gleichzeitig gefragt und nicht öfter als 12-mal pro Stunde.",
         "sessionProbeLoadError": "Die aktuelle Einstellung konnte nicht gelesen werden.",
         "sessionProbeSaveError": "Speichern nicht möglich. Es wurde nichts geändert.",
+        "processGuardTitle": "Von deinen Agenten gestartete Prozesse",
+        "processGuardIntro": "Alles, was ein Agent hier ausführt, und alles, was daraus wiederum startet, egal wie tief verschachtelt, bleibt unter der Aufsicht von Vibisual. Verbraucht ein Prozess unkontrolliert Arbeitsspeicher, wird nur dieser Prozess gestoppt, und wenn eine Sitzung endet, endet auch alles, was sie zurückgelassen hat. Ein einzelner Befehl kann nicht mehr den ganzen Arbeitsspeicher des Computers aufbrauchen und die App gleich mit abstürzen lassen.",
+        "processGuardEnabled": "Von Agenten gestartete Prozesse überwachen",
+        "processGuardEnabledDesc": "Ausgeschaltet wird nichts gruppiert, begrenzt oder aufgeräumt – wie vor Einführung dieser Option.",
+        "processGuardCap": "Maximaler Arbeitsspeicher pro Prozess (% des RAM)",
+        "processGuardCapDesc": "Überschreitet ein Prozess diesen Wert, wird er gestoppt. Das Limit liegt nie unter {{floor}}, damit auch große Builds noch Platz haben. 0 bedeutet kein Limit. Unter Windows verweigert das System selbst den zusätzlichen Arbeitsspeicher. Auf anderen Systemen prüft Vibisual im {{seconds}}-Sekunden-Takt.",
+        "processGuardCapNow": "Auf diesem Computer: {{size}} pro Prozess",
+        "processGuardCapNone": "Auf diesem Computer: kein Limit pro Prozess",
+        "processGuardPressure": "Wenn der Arbeitsspeicher knapp wird, den größten Prozess stoppen",
+        "processGuardPressureDesc": "Fällt der freie Arbeitsspeicher unter {{ratio}} (mindestens {{min}}), wird der größte Prozess gestoppt, den deine Agenten gestartet haben – jeweils nur einer, danach wird der Arbeitsspeicher erneut gemessen. Andere Programme auf deinem Computer werden nie angetastet.",
+        "processGuardReap": "Aufräumen, was eine Sitzung zurücklässt",
+        "processGuardReapDesc": "Wenn eine Sitzung endet oder Claude Code eine Aufgabe als gestoppt meldet, werden auch alle Prozesse gestoppt, die davon noch übrig sind. Ausgeschaltet laufen sie weiter.",
+        "engineBridgeTitle": "Engine-Brücke für Claude Code",
+        "engineBridgeIntro": "Von Vibisual gestartete Sitzungen laufen mit einer kleinen Mod für Claude Code. Aus Claude Code heraus meldet die Mod, wann ein Turn beginnt und endet (auch bei unterbrochenen Turns), dass der Prozess noch lebt und wie weit Kontext und Nutzungslimits ausgeschöpft sind. Ob eine Sitzung läuft oder fertig ist, erfährt Vibisual dann von Claude Code selbst, statt es zu erraten. Außerhalb von Vibisual gestartete Sitzungen werden nie angetastet.",
+        "engineBridgeEnabled": "Von Vibisual gestartete Sitzungen anbinden (Headless und CMD)",
+        "engineBridgeEnabledDesc": "Gilt für Sitzungen, die nach dem Speichern gestartet werden. Wenn deaktiviert, laufen Sitzungen genau wie bisher – ihr Zustand stammt dann nur aus Hooks und Bildschirmerkennung.",
+        "engineBridgeStatusReady": "Claude Code {{version}} kann die Brücke laden. Aktuell angebundene Sitzungen: {{sessions}}",
+        "engineBridgeStatusUnsupported": "Claude Code {{version}} kann keine Mods laden; erforderlich ist Version {{min}} oder neuer. Sitzungen laufen wie bisher.",
+        "engineBridgeStatusChecking": "Die Version von Claude Code wird geprüft. Sobald sie bestätigt ist, greift die Brücke ab der nächsten Sitzung.",
+        "engineBridgeStatusMissing": "Die Dateien der Brücke fehlen in dieser Installation, daher laufen Sitzungen wie bisher.",
+        "engineBridgeStatusError": "Der Status der Brücke konnte nicht gelesen werden.",
+        "engineBridgeRefresh": "Erneut prüfen",
         "externalBudgetTitle": "Ordner außerhalb des Projekts",
         "externalBudgetIntro": "Wenn ein Agent auf einen Ordner außerhalb des Projekts zugreift, erhält dieser Ort eine eigene Bubble. Bleiben sie unbeachtet, überladen diese Bubbles entweder die Karte oder verschmelzen zu einer, die nichts aussagt. Diese Zahl legt fest, wie viele davon gleichzeitig auf oberster Ebene stehen — die aktivsten und neuesten Orte werden zuerst berücksichtigt, und ruhig gewordene Orte klappen wieder unter ihr übergeordnetes Element ein.",
         "externalBudgetLabel": "Externe Ordner auf oberster Ebene",
@@ -616,6 +730,11 @@
       "notifications": {
         "cmdBlocked": "Benachrichtigen, wenn eine CMD-Sitzung auf eine Eingabe wartet",
         "cmdBlockedDesc": "Benachrichtigt nur, wenn du gerade einen anderen Tab oder ein anderes Fenster betrachtest – ist das Fenster fokussiert, ist es ohnehin schon zu sehen."
+      },
+      "permissions": {
+        "verificationGateIntro": "Diese Richtlinie gilt nur im aktivierten Zustand für Codex und Claude Code. Die Agenten werden dann angewiesen, Tests, Lint-Prüfungen, Typprüfungen, Builds zur Verifizierung, E2E, Browserprüfungen, Screenshot-Vergleiche und Verifizierungsagenten nur auf Anforderung in der aktuellen Aufgabe auszuführen. Nicht angeforderte Aufrufe werden vor der Ausführung blockiert.",
+        "verificationGateEnabled": "Verifizierung nur auf Anforderung ausführen",
+        "verificationGateEnabledDesc": "Standardmäßig deaktiviert. Im deaktivierten Zustand fügt Vibisual den Prompts keine Einschränkungen zur Verifizierung hinzu und blockiert keine Aufrufe aufgrund dieser Richtlinie. Im aktivierten Zustand können auch Skripte blockiert werden, deren Namen check, verify oder test enthalten. Mit {{apply}} speichern: Änderungen an der Blockierung gelten ab dem nächsten Werkzeugaufruf, Änderungen an den Prompt-Hinweisen ab dem nächsten Dialogschritt."
       },
       "engines": {
         "title": "Engines",
@@ -1413,11 +1532,11 @@
       "codex": {
         "edgeDelegationNote": "Die Codex-Tool-Delegation sperrt direkt ausführbare Tools und leitet die Arbeit an verbundene Agenten weiter. Da Shell-Befehle einzelne Lese-, Such- und Bearbeitungsbeschränkungen umgehen können, gelten in diesem Modus weiter gefasste Grenzen. Planung und abschließende Antworten bleiben verfügbar. Änderungen gelten ab der nächsten Nachricht.",
         "noModel": "Noch kein Modell ausgewählt",
-        "modelTip": "Das Codex-Modell, mit dem diese Blase spricht. Vibisual sendet es immer explizit mit, sodass nie auf das Standardmodell in deiner Codex-Konfigurationsdatei zurückgegriffen wird.",
-        "noModelList": "Die Modellliste wurde noch nicht eingelesen – sie wird beim ersten Ausführen von Codex erstellt.",
+        "modelTip": "Ein ausgewähltes Modell wird ausdrücklich übergeben. Eine leere Auswahl folgt den Projekteinstellungen oder der Codex-Konfiguration. Katalogaktualisierungen ändern Ihre Auswahl nicht.",
+        "noModelList": "Der Modellkatalog ist derzeit nicht verfügbar. Das gespeicherte Modell und die Übernahme der Codex-Einstellungen bleiben erhalten.",
         "reloadModels": "Neu laden",
         "effort": "Denkaufwand",
-        "effortTip": "Höher bedeutet, dass es länger nachdenkt und mehr Tokens verbraucht. Es werden nur die Stufen aufgeführt, die dieses Modell meldet.",
+        "effortTip": "Höherer Aufwand benötigt mehr Zeit und Tokens. Die Stufen stammen von Codex; gespeicherte Auswahlen bleiben auch dann erhalten, wenn sie im aktuellen Katalog fehlen.",
         "toolsManaged": "Wird von der Codex CLI verwaltet",
         "toolAsk": "Jedes Mal fragen",
         "toolReset": "Alle erlauben",
@@ -1979,6 +2098,22 @@
     "apps": {
       "open": "Öffnen",
       "openHint": "Doppelklick zum Öffnen.",
+      "screenEmpty": "Ergebnisse erscheinen hier",
+      "screenWorking": "Wird erstellt…",
+      "canvas": {
+        "tooLarge": "Zu groß, um es hier zu öffnen — im Editor öffnen",
+        "unavailable": "Kann hier nicht geöffnet werden — im Editor öffnen",
+        "dragRotate": "Zum Drehen ziehen",
+        "fill": "Ausfüllen",
+        "copyImage": "Bild kopieren",
+        "copyFailed": "Bild konnte nicht kopiert werden",
+        "backToDoc": "Zurück zum Dokument",
+        "docShort": "Dok.",
+        "docEmpty": "Leeres Video — die verknüpfte KI fragen oder den Editor öffnen",
+        "playExport": "Letztes Rendering abspielen",
+        "docUnreadable": "Das Dokument konnte nicht gelesen werden — den Editor öffnen",
+        "docVersion": "v{{version}}"
+      },
       "installApp": "App installieren",
       "installHint": "Doppelklick zum Installieren.",
       "uninstallApp": "App deinstallieren",
@@ -1986,6 +2121,7 @@
       "unknown": "Unbekannte App",
       "rename": "Umbenennen",
       "renamePrompt": "Blasenname",
+      "resetSize": "Größe zurücksetzen",
       "pin": "Anheften",
       "unpin": "Lösen",
       "delete": "Löschen",
@@ -2140,7 +2276,11 @@
           "boxColor": "Untertitelhintergrund",
           "padding": "Innenabstand der Untertitel",
           "bottom": "Unterer Rand",
-          "volume": "Lautstärke"
+          "volume": "Lautstärke",
+          "highlight": "Wort-Hervorhebung",
+          "highlightColor": "Hervorhebungsfarbe",
+          "soundRole": "Sound-Rolle",
+          "duckDb": "Unter der Sprecherstimme absenken (dB)"
         },
         "options": {
           "left": "Links",
@@ -2148,7 +2288,12 @@
           "right": "Rechts",
           "rect": "Rechteck",
           "ellipse": "Ellipse",
-          "line": "Linie"
+          "line": "Linie",
+          "none": "Keine",
+          "word": "Wort für Wort",
+          "music": "Musik",
+          "voice": "Sprecherstimme",
+          "sfx": "Soundeffekt"
         },
         "library": "Bibliothek",
         "importMedia": "Medien / SRT importieren",
@@ -2183,7 +2328,11 @@
         "loop": "Schleife",
         "importing": "Importieren…",
         "download": "MP4 herunterladen",
-        "saveStill": "PNG speichern"
+        "saveStill": "PNG speichern",
+        "addComposition": "Code-Komposition",
+        "addCompositionHint": "Bewegtgrafiken, geschrieben in HTML/CSS/JS. Lass die KI sie schreiben oder bearbeite die Datei selbst.",
+        "media_composition": "Code-Komposition",
+        "wordsEstimated": "Bei einigen Untertiteln fehlt das Wort-Timing, daher werden die Wortzeiten anhand der Textlänge geschätzt."
       },
       "timelineEditor": {
         "zoomIn": "Vergrößern",
@@ -2202,10 +2351,561 @@
         "dragHint": "Ziehen Sie Clips zum Verschieben und ihre Ränder zum Trimmen. Pfeiltasten: 1 Bild; Umschalt: 10 Bilder; Alt: Einrasten umgehen.",
         "moveClip": "{{name}} verschieben",
         "frameValue": "Bild {{frame}}"
-      }
+      },
+      "composition": {
+        "title": "Code-Komposition",
+        "noSource": "Dieses Element verweist nicht auf eine Kompositionsdatei.",
+        "reload": "Code neu einlesen",
+        "strip": "Frame-Leiste",
+        "openFile": "Datei öffnen",
+        "seekMode": "Zeitsprünge",
+        "modeForward": "Nur vorwärts (beim Zurückgehen wird ab dem Anfang neu abgespielt)",
+        "modeRandom": "Jeder Zeitpunkt sofort",
+        "declaredLength": "Deklarierte Länge",
+        "designSize": "Designgröße",
+        "lint": "Prüfungen",
+        "props": "Daten (props, JSON)",
+        "propsHint": "Der Code liest diese Werte aus window.__vibi.props.",
+        "propsNotObject": "Gib ein JSON-Objekt ein, zum Beispiel {\"title\": \"Hello\"}.",
+        "propsInvalid": "Das ist kein gültiges JSON.",
+        "newLabel": "Bewegtgrafik",
+        "stripLoading": "Frame-Leiste wird erfasst…",
+        "runtimeError": "Fehler in der Komposition: {{message}}",
+        "blocked": "Eine Komposition hat versucht, etwas außerhalb ihres Ordners zu laden: {{url}}"
+      },
+      "lint": {
+        "network": "Netzwerkaufrufe (fetch, XMLHttpRequest, WebSocket) werden blockiert. Hinterlege die Daten stattdessen in den props des Elements.",
+        "external-url": "Externe URLs werden blockiert. Kopiere die Datei in den Ordner der Komposition und verwende einen relativen Pfad.",
+        "media-element": "<audio>/<video> können der Zeitleiste nicht folgen. Lege den Ton auf eine Audiospur und füge das Video als Clip hinzu.",
+        "sound-api": "Per Code erzeugter Ton wird stummgeschaltet. Lege den Ton stattdessen auf eine Audiospur.",
+        "worker": "Web Workers werden in Kompositionen blockiert.",
+        "storage": "Storage und Cookies stehen in Kompositionen nicht zur Verfügung.",
+        "module-script": "Modulskripte werden möglicherweise nicht geladen. Verwende klassische Skript-Tags.",
+        "css-transition": "CSS-Transitions lassen sich nicht scrubben. Verwende @keyframes oder element.animate().",
+        "input-wait": "Ein Teil des Codes wartet auf einen Klick oder Tastendruck — in einem Video drückt niemand Tasten.",
+        "no-duration": "Keine deklarierte Länge (vibi:duration). Gib dem Clip eine Dauer oder deklariere eine in der Datei.",
+        "frame-callbacks": "Verwendet Frame-Callbacks und lässt sich daher nur vorwärts abspielen — beim Zurückgehen wird ab dem Anfang neu abgespielt.",
+        "virtual-clock": "Uhr und Zufallswerte werden für jedes Video reproduzierbar gemacht.",
+        "no-motion": "Keine Animation gefunden — dieser Clip verändert sich möglicherweise nie.",
+        "no-props-decl": "Es sind keine Werte deklariert, daher kann das Studio für diese Komposition keine Ziehpunkte anzeigen.",
+        "props-decl-invalid": "Die Wertedeklaration (vibi-props) enthält Fehler.",
+        "engine-unsupported": "Verwendet Webfunktionen, die der Video-Renderer noch nicht unterstützt — sie werden im Video ignoriert."
+      },
+      "agent": {
+        "placeholder": "Sag der KI, was sie ändern soll — z. B. den Titel bei etwa 2 s größer machen",
+        "pick": "KI-Agent",
+        "pickPlaceholder": "Agent auswählen…",
+        "linkedLabel": "{{name}} (verknüpft)",
+        "removeAttachment": "{{name}} entfernen",
+        "attach": "Bilder, Video oder Audio anhängen (werden den Medien dieses Videos hinzugefügt)",
+        "send": "KI fragen",
+        "working": "Die KI bearbeitet…",
+        "reloaded": "Neueste Änderungen geladen (v{{version}}).",
+        "useAttachments": "Verwende die angehängten Medien in diesem Video.",
+        "sent": "An die KI gesendet. Änderungen erscheinen hier automatisch."
+      },
+      "removeNamed": "{{name}} entfernen",
+      "cueNoComposition": "Asset {{id}} ist keine Code-Komposition.",
+      "cueScanTimeout": "Die Komposition hat ihren {{seconds}}-Sekunden-Durchlauf nicht rechtzeitig abgeschlossen.",
+      "ai": {
+        "allowImages": "Bildgenerierung erlauben",
+        "allowImagesNote": "Die Nutzung wird auf das Codex-Konto angerechnet.",
+        "attach": "Dateien anhängen",
+        "autoAgentName": "Video · {{title}}",
+        "changed": "Was sich geändert hat",
+        "collapse": "KI-Panel einklappen",
+        "empty": "Was soll erstellt oder geändert werden? Die KI baut es als bearbeitbaren Code, und jeder Wert lässt sich weiterhin von Hand anpassen.",
+        "expand": "KI-Panel öffnen",
+        "ide": "IDE",
+        "idle": "Wartet auf eine Nachricht",
+        "moreChanges": "und {{count}} weitere",
+        "noAgentYet": "Noch kein Agent – er wird beim Senden erstellt",
+        "openIde": "Diese Unterhaltung in der IDE öffnen",
+        "placeholder": "Änderung beschreiben…",
+        "pointedChip": "Ausgewählt: {{kind}}",
+        "send": "Senden",
+        "suggestions": "Vorschläge",
+        "timeChip": "Bei {{time}}",
+        "title": "KI",
+        "undoPass": "Diesen Durchgang rückgängig machen",
+        "working": "Arbeitet…"
+      },
+      "chapterMenu": {
+        "merge": "Mit der nächsten Szene zusammenführen",
+        "otherEngine": "Mit {{engine}} neu erstellen",
+        "redo": "Die KI bitten, diese Szene neu zu erstellen",
+        "redoRequest": "Bitte Szene {{n}} ({{title}}) neu erstellen.",
+        "remove": "Diese Szene löschen",
+        "savePart": "Als Baustein speichern",
+        "split": "An der Abspielposition teilen",
+        "variants": "Zwei Engines nebeneinander"
+      },
+      "chapterStatus": {
+        "plan": "geplant",
+        "approved": "freigegeben",
+        "building": "in Arbeit",
+        "done": "fertig"
+      },
+      "diff": {
+        "title": "Titel: {{from}} → {{to}}",
+        "size": "Größe: {{from}} → {{to}}",
+        "fps": "Bildrate: {{from}} → {{to}}",
+        "style": "Stil geändert",
+        "chapterAdded": "Szene {{n}} · {{title}} hinzugefügt",
+        "chapterRemoved": "Szene {{n}} · {{title}} entfernt",
+        "chapterTitle": "Szene {{n}} umbenannt in {{title}}",
+        "chapterDuration": "Szene {{n}} · {{title}}: {{from}} s → {{to}} s",
+        "chapterText": "Szene {{n}} · {{title}}: Text im Bild geändert",
+        "chapterBrief": "Szene {{n}} · {{title}}: Bewegungsplan geändert",
+        "chapterStatus": "Szene {{n}} · {{title}} ist jetzt {{status}}",
+        "chapterTransition": "Szene {{n}} · {{title}}: Übergang auf {{transition}} gesetzt",
+        "chapterOther": "Szene {{n}} · {{title}} geändert",
+        "chapterOrder": "Szenen neu angeordnet",
+        "itemAdded": "{{label}} hinzugefügt",
+        "itemRemoved": "{{label}} entfernt",
+        "itemText": "{{label}}: Text oder Werte geändert",
+        "itemTiming": "{{label}}: Timing geändert",
+        "itemLook": "{{label}}: Position oder Aussehen geändert",
+        "itemOther": "{{label}} geändert",
+        "itemsMany": "{{count}} Elemente geändert",
+        "assetAdded": "Medien hinzugefügt: {{count}}",
+        "assetRemoved": "Medien entfernt: {{count}}",
+        "assetChanged": "Medien aktualisiert: {{count}}"
+      },
+      "engines": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "label": "Engine",
+        "prepare": "Einrichten",
+        "prepareInMain": "{{engine}} im Hauptfenster einrichten.",
+        "need_setup": "{{engine}} ist noch nicht installiert.",
+        "need_login": "Zuerst bei {{engine}} anmelden.",
+        "need_refresh": "{{engine}} erneut prüfen."
+      },
+      "errors": {
+        "details": "Details",
+        "offline": "Der Vibisual-Server ist nicht erreichbar. Bitte prüfen, ob die App läuft.",
+        "conflict": "Das Dokument wurde gleichzeitig geändert. Bitte erneut versuchen.",
+        "missingDoc": "Dieses Dokument oder diese Version existiert nicht mehr.",
+        "worker": "Der Video-Worker im Hintergrund hat nicht geantwortet. Bitte erneut versuchen.",
+        "timeout": "Das hat zu lange gedauert und wurde abgebrochen. Bitte erneut versuchen.",
+        "unreadable": "Diese Datei konnte nicht gelesen werden.",
+        "tooLarge": "Diese Datei ist zu groß für den Import.",
+        "limit": "Ein Nutzungslimit wurde erreicht. Bitte später erneut versuchen.",
+        "forbidden": "Das kann nur der Nutzer selbst – Agents dürfen das nicht.",
+        "generic": "Etwas ist schiefgelaufen."
+      },
+      "export": {
+        "captions": "Untertitel",
+        "captions_burn": "Einbrennen",
+        "captions_separate": "Separate Datei",
+        "derived": "{{title}} für dieses Format erstellt und das Rendering gestartet.",
+        "derivedExisting": "Gerendert wird {{title}}, die bereits für dieses Format erstellte Version.",
+        "download": "Letztes Rendering herunterladen",
+        "mp4": "Video (MP4)",
+        "noCaptions": "Es gibt keine Untertitel zum Exportieren.",
+        "png": "Standbild an der Abspielposition",
+        "preset_landscape": "Querformat",
+        "preset_portrait": "Shorts",
+        "preset_square": "Quadrat",
+        "presets": "Ausgabegröße",
+        "srt": "Untertiteldatei",
+        "transparent": "Nur Bewegtgrafik, transparenter Hintergrund"
+      },
+      "formats": {
+        "landscape": "Querformat",
+        "portrait": "Hochformat",
+        "square": "Quadrat"
+      },
+      "header": {
+        "docs": "Dokumente",
+        "export": "Exportieren",
+        "format": "Format",
+        "history": "Verlauf",
+        "label": "Vibistudio-Symbolleiste",
+        "newDoc": "Neues Video beginnen",
+        "noDoc": "Kein Dokument geöffnet",
+        "recent": "Zuletzt verwendet",
+        "rename": "Umbenennen",
+        "title": "Dokumenttitel"
+      },
+      "history": {
+        "beforeRestore": "Vor dem Zurückgehen",
+        "byAi": "KI",
+        "byMe": "Ich",
+        "checkpoint": "Checkpoint speichern",
+        "compare": "Nebeneinander vergleichen",
+        "compareCount": "{{count}} ausgewählt",
+        "empty": "Noch nichts vorhanden. Jeder KI-Durchgang und jeder gespeicherte Checkpoint erscheint hier, und zu jedem davon lässt sich zurückgehen.",
+        "kind_pass-start": "Vor dem KI-Durchgang",
+        "kind_pass-end": "KI-Durchgang",
+        "kind_checkpoint": "Checkpoint",
+        "kind_restore": "Zurückgegangen",
+        "kind_render": "Diese Version gerendert",
+        "noDiff": "Keine Unterschiede.",
+        "pick": "Zum Vergleichen auswählen",
+        "rendered": "Gerendert",
+        "restore": "Zu diesem Stand zurückgehen",
+        "title": "Verlauf"
+      },
+      "libs": {
+        "accept": "Importieren",
+        "addPack": "Zur Zeitleiste hinzufügen",
+        "download": "Herunterladen",
+        "drop": "Skript, Stylesheet, Schriftart, ZIP-Datei oder einzelne HTML-Seite hier ablegen",
+        "duration": "Länge (s)",
+        "fromProject": "In node_modules dieses Projekts suchen",
+        "inert": "Datenadresse – bleibt unverändert",
+        "kind_library": "Bibliothek",
+        "kind_font": "Schriftart",
+        "kind_pack": "HTML-Seite",
+        "kind_script": "Skript",
+        "kind_style": "Stylesheet",
+        "kind_image": "Bild",
+        "kind_module": "Modul",
+        "kind_data": "Daten",
+        "kind_other": "Sonstiges",
+        "licenseNote": "Lizenzen werden so angezeigt, wie sie in den Dateien stehen. Ob eine Verwendung zulässig ist, liegt in der eigenen Verantwortung.",
+        "noLicense": "Keine Lizenz gefunden",
+        "pick": "Dateien auswählen",
+        "refsTitle": "{{name}} lädt externe Dateien ({{count}})",
+        "reject": "Verwerfen",
+        "remove": "Entfernen",
+        "request": "Die KI bittet um den Import von:",
+        "title": "Importe",
+        "url": "Adresse einer Datei zum Herunterladen",
+        "vendorAll": "Alle herunterladen",
+        "vendorNone": "Unverändert lassen",
+        "vendorPicked": "Ausgewählte herunterladen"
+      },
+      "media": {
+        "empty": "Noch keine Medien. Dateien importieren oder auf die Vorschau ziehen.",
+        "import": "Importieren",
+        "importing": "Wird importiert…",
+        "search": "Medien durchsuchen"
+      },
+      "notes": {
+        "closed": "Geschlossen ({{count}})",
+        "confirm": "Sieht gut aus",
+        "empty": "Noch keine Notizen.",
+        "handoff": "Notizen an die KI übergeben ({{count}})",
+        "handoffRequest": "Bitte die von mir angehefteten Notizen abarbeiten ({{count}}).",
+        "hint": "Notiz in der Vorschau anheften ({{shortcut}}). Die KI erhält den genauen Zeitpunkt und die genaue Stelle.",
+        "newNote": "Neue Notiz {{n}}",
+        "pin": "Anheften",
+        "pinTitle": "Notiz {{n}}",
+        "placeholder": "Was soll sich hier ändern?",
+        "reopen": "Erneut öffnen",
+        "seek": "Zu diesem Zeitpunkt springen",
+        "status_open": "Offen",
+        "status_sent": "An die KI gesendet",
+        "status_fixed": "Behoben – bitte prüfen",
+        "status_closed": "Geschlossen",
+        "text": "Text der Notiz {{n}}"
+      },
+      "parts": {
+        "basic": "Basis",
+        "group_text": "Titel und Text",
+        "group_data": "Diagramme und Zahlen",
+        "group_brand": "Marke",
+        "group_captions": "Untertitel",
+        "group_mine": "Eigene Bausteine",
+        "name_lower-third": "Bauchbinde",
+        "name_kinetic-type": "Kinetische Typografie",
+        "name_counter": "Zähler",
+        "name_bar-chart": "Balkendiagramm",
+        "name_line-chart": "Liniendiagramm",
+        "name_donut-chart": "Ringdiagramm",
+        "name_code-typing": "Getippter Code",
+        "name_logo-reveal": "Logo-Enthüllung",
+        "name_word-captions": "Wortweise Untertitel",
+        "pickSeam": "Abspielposition in eine Szene nach der ersten verschieben, um den Übergang in diese Szene zu wählen.",
+        "transitions": "Übergänge"
+      },
+      "plan": {
+        "add": "Szene hinzufügen",
+        "approve": "Freigeben und erstellen",
+        "brief": "Bewegung",
+        "buildRequest": "Der Plan ist freigegeben. Bitte die {{count}} Szenen erstellen.",
+        "building": "Wird erstellt…",
+        "buildingThis": "Wird gerade erstellt…",
+        "chapterTitle": "Szenentitel",
+        "collapse": "Plan ausblenden",
+        "drag": "Zum Umsortieren ziehen",
+        "expand": "Plan anzeigen",
+        "length": "Länge",
+        "newChapter": "Neue Szene",
+        "noFrameYet": "Noch kein Bild",
+        "remove": "Szene entfernen",
+        "seek": "Zu Szene {{n}} springen",
+        "sound": "Ton",
+        "summary": "{{count}} Szenen · {{length}}",
+        "text": "Text im Bild",
+        "title": "Szenenplan",
+        "styleFrame": "Style Frame"
+      },
+      "precision": {
+        "close": "Feinbearbeitung schließen",
+        "toggle": "Feinbearbeitung"
+      },
+      "preview": {
+        "actualSize": "Originalgröße",
+        "empty": "Noch nichts zu sehen.",
+        "fit": "An Fenster anpassen",
+        "label": "Videovorschau",
+        "nextFrame": "Nächstes Einzelbild",
+        "note": "Notiz anheften",
+        "planReady": "Der Plan ist fertig. Szenen prüfen und freigeben.",
+        "planning": "Die KI plant…",
+        "point": "Auf etwas zeigen",
+        "prevFrame": "Vorheriges Einzelbild",
+        "safeArea": "Sicherer Bereich"
+      },
+      "rail": {
+        "label": "Seitenbereiche",
+        "media": "Medien",
+        "parts": "Bausteine",
+        "style": "Stil",
+        "notes": "Notizen",
+        "transcript": "Transkript"
+      },
+      "recipes": {
+        "app-intro": {
+          "name": "App-Intro",
+          "desc": "Kurzes Intro zu diesem Projekt, erstellt aus den echten Bildschirmansichten.",
+          "placeholder": "Für wen ist es gedacht, und was soll hängen bleiben?",
+          "wants": "Bildschirmansichten der laufenden App · Logo"
+        },
+        "changelog": {
+          "name": "Was ist neu",
+          "desc": "Aus Commits oder einem Pull Request ein kurzes Update-Video erstellen.",
+          "placeholder": "Welche Commits oder welcher Pull Request? (Standard: seit dem letzten Tag)",
+          "wants": "Commits oder ein Pull Request"
+        },
+        "data-story": {
+          "name": "Datengeschichte",
+          "desc": "Einen Datensatz mit animierten Diagrammen erklären.",
+          "placeholder": "Welche Frage sollen die Daten beantworten?",
+          "wants": "Eine CSV-Datei oder eine Tabelle"
+        },
+        "caption-shorts": {
+          "name": "Short mit Untertiteln",
+          "desc": "Short im Hochformat mit wortweisen Untertiteln über einem Video, in dem gesprochen wird.",
+          "placeholder": "Worum geht es im Clip? Soll etwas herausgeschnitten werden?",
+          "wants": "Ein Video · eine SRT-Datei"
+        },
+        "kinetic-text": {
+          "name": "Kinetischer Text",
+          "desc": "Eine Botschaft mit bewegter Typografie vermitteln.",
+          "placeholder": "Text zum Animieren einfügen",
+          "wants": "Eigener Text"
+        },
+        "photo-slideshow": {
+          "name": "Foto-Diashow",
+          "desc": "Fotos zu Musik, auf den Beat geschnitten.",
+          "placeholder": "Was ist der Anlass?",
+          "wants": "Fotos · Musik"
+        },
+        "logo-reveal": {
+          "name": "Logo-Enthüllung",
+          "desc": "Kurze Animation, die das Logo enthüllt.",
+          "placeholder": "Gewünschte Stimmung oder Farben?",
+          "wants": "Ein Logo"
+        },
+        "blank": {
+          "name": "Leer",
+          "desc": "Ein leeres Dokument zum Aufbauen von Hand.",
+          "placeholder": "Titel vergeben (optional)",
+          "wants": "Nichts erforderlich"
+        }
+      },
+      "review": {
+        "docOnly": "Nur anhand des Dokuments geprüft. Einzelbilder prüfen, um zusätzlich schwachen Kontrast und leere Bilder zu erkennen.",
+        "fix": "Von der KI beheben lassen",
+        "fixRequest": "Bitte beheben: {{what}}",
+        "frames": "Einzelbilder prüfen",
+        "framesBusy": "Einzelbilder werden geprüft…",
+        "skip": "Diesmal überspringen",
+        "snap": "Am Beat ausrichten",
+        "title": "Prüfung",
+        "read-time": "Zu kurz zum Lesen: {{have}} s im Bild, benötigt werden etwa {{need}} s.",
+        "safe-area": "„{{text}}“ liegt außerhalb des sicheren Bereichs.",
+        "text-overlap": "Texte überlappen sich: „{{a}}“ und „{{b}}“.",
+        "low-contrast": "„{{text}}“ ist schwer lesbar (Kontrast {{ratio}}:1).",
+        "blank": "Leeres Bild — hier ist nichts zu sehen.",
+        "caption-clip": "Der Untertitel ist {{lines}} Zeilen lang. Kürzen oder teilen.",
+        "silence": "Kein Ton von {{from}} s bis {{to}} s.",
+        "off-beat": "Der Schnitt in Szene {{n}} weicht um {{offset}} s vom Beat ab."
+      },
+      "seam": {
+        "length": "Übergangslänge",
+        "snapBeat": "Auf den nächsten starken Beat zentrieren",
+        "title": "Übergang"
+      },
+      "signals": {
+        "title": "Cues",
+        "collecting": "Cues werden gesammelt…",
+        "recollect": "Cues erneut sammeln",
+        "mark": "Cue {{name}} bei {{t}} s",
+        "boundCount": "{{count}} gebunden",
+        "menu": "Cue",
+        "staleHint": "Der Code wurde geändert, daher werden diese Zeiten erneut gesammelt.",
+        "bind": "{{name}} an diesen Cue binden",
+        "bindHint": "Zuerst einen Sound oder ein anderes Element auswählen, dann hier binden",
+        "unbind": "Bindung von {{name}} lösen (die aktuelle Zeit bleibt erhalten)",
+        "boundTo": "An Cue {{name}} gebunden"
+      },
+      "start": {
+        "ask": "Was soll entstehen?",
+        "dropHint": "Dateien hier ablegen: Screenshots, Daten, ein Logo oder ein Video",
+        "make": "Plan erstellen",
+        "materials": "Dateien hinzufügen",
+        "openBlank": "Leeres Dokument öffnen",
+        "placeholder": "Das Video beschreiben…",
+        "recipes": "Rezepte",
+        "seconds": "{{count}} s"
+      },
+      "steps": {
+        "label": "Schritte",
+        "say": "Beschreiben",
+        "approve": "Plan bestätigen",
+        "refine": "Von Hand verfeinern"
+      },
+      "strip": {
+        "chapter": "Szene {{n}} · {{title}}",
+        "chapterN": "Szene {{n}}",
+        "derive": "In Szenen aufteilen",
+        "empty": "Noch keine Szenen",
+        "menu": "Szenenmenü",
+        "seam": "Übergang: {{transition}}",
+        "seamDrag": "ziehen, um den Schnitt zu verschieben",
+        "working": "Die KI arbeitet hier"
+      },
+      "style": {
+        "applied": "Angewendet",
+        "apply": "Auf dieses Video anwenden",
+        "confirm": "Als Projektstil verwenden",
+        "current": "Dieses Video",
+        "font": "Schriftart",
+        "fontFile": "Datei",
+        "fromProject": "Aus dem Projekt",
+        "logo": "Logo",
+        "noFont": "Systemschrift",
+        "noLogo": "Kein Logo",
+        "none": "Noch kein Stil vorhanden. Projekt scannen, um Farben, Schriften und das Logo zu finden.",
+        "partial": "Die ersten {{count}} Dateien wurden gescannt.",
+        "scan": "Projekt scannen",
+        "scanHint": "Findet die Farben, Schriften und das Logo in den Dateien dieses Projekts.",
+        "scanning": "Wird gescannt…",
+        "slot_accent": "Akzent",
+        "slot_bg": "Hintergrund",
+        "slot_fg": "Textfarbe",
+        "slot_muted": "Gedämpft"
+      },
+      "toast": {
+        "checkpoint": "Checkpoint gespeichert",
+        "nothingToDerive": "Nichts aufzuteilen: Die Timeline enthält noch keine klaren Schnitte.",
+        "partSaved": "In „Meine Bausteine“ gespeichert",
+        "passUndone": "KI-Durchgang rückgängig gemacht",
+        "renderDoneNote": "Rendering abgeschlossen · {{note}}",
+        "restored": "Zu dieser Version zurückgekehrt",
+        "sent": "An die KI gesendet",
+        "styleConfirmed": "Als Projektstil gespeichert",
+        "cuesStale": "Cues konnten nicht erneut erfasst werden, sodass an Cues gebundene Sounds ihre vorherigen Zeitpunkte verwendet haben."
+      },
+      "transcript": {
+        "clear": "Markierungen entfernen",
+        "cut": "Durchgestrichene Sätze herausschneiden",
+        "empty": "Noch keine Untertitelsätze. SRT-Datei importieren oder Untertitel hinzufügen.",
+        "hint": "Auf einen Satz klicken, um dorthin zu springen. Sätze durchstreichen und in einem Zug herausschneiden; der Schnitt folgt den Satzgrenzen.",
+        "keep": "Diesen Satz behalten",
+        "seek": "Zu diesem Satz springen",
+        "strike": "Diesen Satz durchstreichen",
+        "summary": "Sätze: {{count}} · −{{removed}} s · {{before}} → {{after}}"
+      },
+      "transitions": {
+        "cut": "Schnitt",
+        "dissolve": "Überblendung",
+        "push": "Schiebeblende",
+        "zoom": "Zoom",
+        "flash": "Blitz",
+        "wipe": "Wischblende"
+      },
+      "values": {
+        "advanced": "Erweitert (JSON)",
+        "codeInfo": "Code-Info",
+        "codeInfoProblems": "Code-Info · Probleme: {{count}}",
+        "declaredLength": "Deklarierte Länge {{seconds}} s",
+        "deselect": "Auswahl aufheben",
+        "duration": "Dauer",
+        "noDecl": "Diese Komposition deklariert noch keine Werte. Die KI bitten, die Texte, Zahlen und Farben zu deklarieren, die sich ändern lassen sollen.",
+        "responsive": "passt sich dem Bildformat an",
+        "seekForward": "Läuft nur vorwärts (beim Zurückgehen startet die Wiedergabe von vorn)",
+        "seekRandom": "Kann zu jedem beliebigen Zeitpunkt springen",
+        "title": "Werte",
+        "kind_composition": "Code-Komposition",
+        "kind_footage": "Video",
+        "kind_image": "Bild",
+        "kind_audio": "Sound",
+        "kind_caption": "Untertitel",
+        "kind_text": "Text",
+        "kind_shape": "Form",
+        "kind_scene": "Eingebaute Szene"
+      },
+      "variants": {
+        "dropUnpicked": "Andere Version löschen",
+        "hint": "Beide Versionen werden zum selben Zeitpunkt abgespielt. Die nicht gewählte Version bleibt im Dokument, bis sie gelöscht wird.",
+        "missing": "Diese Szene liegt noch nicht in zwei Versionen vor.",
+        "pick": "Diese verwenden",
+        "picked": "In Verwendung",
+        "request": "Bitte die Szene „{{title}}“ mit {{engine}} erstellen, damit ich vergleichen kann.",
+        "status_building": "In Arbeit",
+        "status_done": "Fertig",
+        "title": "Zwei Engines · {{title}}"
+      },
+      "motion": {
+        "punchIn": "Punch-in-Zoom",
+        "punchInHint": "An der Abspielposition kurz heranzoomen, halten, dann zurückkehren",
+        "slowPush": "Langsames Heranzoomen",
+        "slowPushHint": "Über den gesamten Clip langsam heranzoomen",
+        "addKey": "Keyframe bei {{time}} s",
+        "empty": "Keine Keyframes – die Box bewegt sich nicht.",
+        "keyLabel": "Keyframe {{n}}",
+        "remove": "Diesen Keyframe entfernen",
+        "time": "Zeit (s)",
+        "dx": "Verschiebung X (px)",
+        "dy": "Verschiebung Y (px)",
+        "ease": "Kurve",
+        "ease_linear": "Gleichmäßig",
+        "ease_in": "Langsamer Start",
+        "ease_out": "Langsames Ende",
+        "ease_inOut": "Sanft",
+        "ease_hold": "Halten, dann springen",
+        "clear": "Alle Keyframes entfernen"
+      },
+      "effects": {
+        "title": "Farbe & Effekte",
+        "look": "Look",
+        "look_warm": "Warm",
+        "look_cool": "Kühl",
+        "look_mono": "Schwarzweiß",
+        "look_vivid": "Lebhaft",
+        "look_fade": "Verblasst",
+        "look_cinematic": "Filmisch",
+        "brightness": "Helligkeit",
+        "contrast": "Kontrast",
+        "saturation": "Sättigung",
+        "temperature": "Farbtemperatur",
+        "hue": "Farbtonverschiebung (°)",
+        "blur": "Unschärfe (px)",
+        "vignette": "Vignette",
+        "reset": "Farbe und Effekte zurücksetzen"
+      },
+      "errNoFrame": "Das Style Frame von Kapitel „{{id}}“ kann nicht gerendert werden – dem Kapitel fehlt ein Kompositions-Asset.",
+      "lowResolution": "Dieser Bildschirm war zu klein für ein Renderfenster in der Größe des Videos, daher wurde mit {{percent}} % der Auflösung gerendert."
     },
     "cost": {
-      "codexEstimateNote": "Codex-Kosten werden anhand der Standard-API-Tokenpreise geschätzt. Sie entsprechen weder ChatGPT-Abogebühren noch dem Credit-Verbrauch; Aufschläge für den Fast-Modus und lange Kontexte sind nicht enthalten.",
+      "codexEstimateNote": "Codex-Kosten werden anhand der Standard-API-Tokenpreise geschätzt. Sie entsprechen weder ChatGPT-Abogebühren noch dem Credit-Verbrauch; Aufschläge für den Fast/Ultrafast-Modus und lange Kontexte sind nicht enthalten.",
       "title": "Kosten- & Token-Übersicht",
       "close": "Kostenübersicht schließen",
       "pillLabel": "Kosten heute",
@@ -2386,8 +3086,6 @@
         "invalidNumber": "Gib eine gültige Zahl innerhalb des erlaubten Bereichs ein.",
         "reloadedDraft": "Dieser Clip wurde während deiner Bearbeitung geändert. Prüfe den aktuellen Wert vor dem Anwenden.",
         "refresh": "Aktualisieren",
-        "removeTrack": "Spur entfernen",
-        "memoryLimit": "Diese Audiodatei überschreitet das Speicherlimit für die Bearbeitung. Verwende eine kürzere Quelle.",
         "connections": {
           "title": "KI und Verbindungen",
           "builtIn": "Integrierte Bearbeitung",
@@ -2432,7 +3130,9 @@
           "loadFailed": "Die Verbindungsentwürfe konnten nicht geladen werden.",
           "saveFailed": "Die Entwürfe konnten nicht gespeichert werden. Prüfe die Namen und Endpunktadressen.",
           "retry": "Erneut versuchen"
-        }
+        },
+        "removeTrack": "Spur entfernen",
+        "memoryLimit": "Diese Audiodatei überschreitet das Speicherlimit für die Bearbeitung. Verwende eine kürzere Quelle."
       }
     },
     "vibi3d": {
@@ -2450,7 +3150,54 @@
       "triangles": "{{n}} Dreiecke",
       "dragHint": "Ziehen zum Drehen, Scrollen zum Zoomen",
       "viewOnly": "Nur Ansicht",
-      "missingTextures": "Ohne {{count}} Texturdatei(en) geöffnet: {{names}}. Wählen Sie sie zusammen mit dem Modell aus oder legen Sie sie in den Ordner des Modells."
+      "open": "Dateien öffnen",
+      "save": "GLB speichern",
+      "download": "Herunterladen",
+      "undo": "Rückgängig",
+      "redo": "Wiederholen",
+      "tool_translate": "Verschieben",
+      "tool_rotate": "Drehen",
+      "tool_scale": "Skalieren",
+      "properties": "Eigenschaften",
+      "viewport": "3D-Ansicht",
+      "start": "Öffne ein Modell und mach es zu deinem eigenen",
+      "openHint": "Lege hier eine Datei im Format GLB, glTF, OBJ, STL, PLY, FBX, DAE oder 3MF ab. Wähle zugehörige Texturen zusammen mit der Datei aus.",
+      "sample": "Würfel ausprobieren",
+      "working": "Wird verarbeitet…",
+      "clip": "Animationsclip",
+      "play": "Wiedergabe",
+      "pause": "Pause",
+      "stop": "Stoppen",
+      "seek": "Animationszeit",
+      "downloadStarted": "GLB-Download gestartet.",
+      "saveFailed": "Speichern fehlgeschlagen. Versuche, die GLB-Datei herunterzuladen.",
+      "saved": "Gespeichert: {{path}}",
+      "connectionIssue": "KI-Verbindung nicht verfügbar. Du kannst weiterhin bearbeiten und speichern.",
+      "missingTextures": "Ohne {{count}} Texturdatei(en) geöffnet: {{names}}. Wählen Sie sie zusammen mit dem Modell aus oder legen Sie sie in den Ordner des Modells.",
+      "objects": "Objekte",
+      "selectObject": "Objekt auswählen",
+      "position": "Position",
+      "rotation": "Drehung (°)",
+      "scale": "Skalierung",
+      "color": "Farbe",
+      "selectHint": "Klicke in der Ansicht auf ein Objekt, um es zu bearbeiten.",
+      "lighting": "Beleuchtung",
+      "agentTitle": "KI fragen",
+      "agentChoose": "Agent auswählen",
+      "agentRequestLabel": "Änderung an der Szene beschreiben",
+      "agentPlaceholder": "Verschiebe das ein Stück nach rechts und mach es blau",
+      "agentSend": "Änderung anfordern",
+      "agentHint": "Wähle ein Objekt aus und beschreibe dann die Änderung. Der Agent liest die aktuelle Szene und Ansicht.",
+      "agentOpenFirst": "Öffne ein Modell, um Änderungen von einem Agenten anzufordern.",
+      "agentConnecting": "Verbindung zur Szene und zu den Agenten wird hergestellt…",
+      "agentNone": "Erstelle einen Agenten in diesem Projekt, um Änderungen anzufordern.",
+      "agentSending": "Anfrage wird gesendet…",
+      "agentSendFailed": "Die Zustellung der Anfrage konnte nicht bestätigt werden. Prüfe die Unterhaltung mit dem Agenten, bevor du es erneut versuchst. Dein Text bleibt hier erhalten.",
+      "agentTaskFailed": "Der Agent wurde mit einem Fehler beendet. Details findest du in seiner Unterhaltung.",
+      "agentResponded": "Der Agent hat geantwortet. Prüfe die Szene und seine Unterhaltung.",
+      "agentQueued": "Anfrage angenommen. Verfolge den Fortschritt in der Unterhaltung mit dem ausgewählten Agenten.",
+      "agentSceneChanged": "Die Szene hat sich geändert. Sende deine Anfrage für das aktuelle Modell erneut.",
+      "agentUnavailable": "Der ausgewählte Agent ist nicht verfügbar. Prüfe die Verbindung und versuche es erneut."
     },
     "mediaConvert": {
       "videoIntro": "Dieses Videoformat lässt sich nicht direkt öffnen. Nur der Container wird getauscht (ohne Qualitätsverlust), dann öffnet es sich im Editor.",
@@ -3906,6 +4653,16 @@
       "resumed": "Verbindung wiederhergestellt · Arbeit fortgesetzt",
       "ended": "Wiederherstellung der Verbindung versucht"
     },
+    "processGuard": {
+      "someProcess": "ein Prozess",
+      "cap": "Gestoppt – {{image}} belegte {{mem}} und lag damit über dem Limit von {{cap}} pro Prozess",
+      "capKernel": "Windows verweigerte weiteren Arbeitsspeicher, als {{image}} das Limit von {{cap}} pro Prozess erreichte, und der Prozess endete",
+      "pressure": "Der Arbeitsspeicher wurde knapp ({{avail}} frei) – gestoppt wurde {{image}}, der größte Prozess hier ({{mem}})",
+      "sessionEnd_one": "Die Sitzung endete – {{count}} von ihr zurückgelassener Prozess wurde gestoppt",
+      "sessionEnd_other": "Die Sitzung endete – {{count}} von ihr zurückgelassene Prozesse wurden gestoppt",
+      "taskKilled_one": "Claude Code hatte eine Aufgabe gestoppt, aber {{count}} zugehöriger Prozess lief noch – er wurde gestoppt",
+      "taskKilled_other": "Claude Code hatte eine Aufgabe gestoppt, aber {{count}} zugehörige Prozesse liefen noch – sie wurden gestoppt"
+    },
     "cmdError": {
       "spawn": "{{engine}} konnte nicht gestartet werden",
       "stdin": "Prompt konnte nicht an die laufende Session übermittelt werden",
@@ -4093,6 +4850,7 @@
         "systemPrompt": "Claude Code System-Prompt",
         "compactSelf": "Selbstverdichtung des Agent",
         "compactRecovery": "Wiederherstellungsbericht nach der Kompaktierung",
+        "verificationPolicy": "Verifizierungsrichtlinie",
         "autoGoalSkills": "Erkannte Verfahren",
         "codexInstructions": "Codex-Projektanweisungen",
         "codexGlobalInstructions": "Globale Codex-Anweisungen",
@@ -4211,6 +4969,11 @@
             "what": "Eine Notiz für genau einen Turn, die auflistet, was die Kompaktierungs-Zusammenfassung anscheinend nicht übernommen hat.",
             "more": "Sie wird aus dem Snapshot erstellt, der kurz vor der Kompaktierung aufgenommen wurde, und mit dem Text der Zusammenfassung verglichen. Sie wird einmal gesendet und nie wiederholt.",
             "off": "Schalte es aus, und die Sitzung läuft nach einer Kompaktierung einfach weiter, ohne dass es eine Notiz darüber gibt, was aus der Zusammenfassung herausgefallen ist."
+          },
+          "verificationPolicy": {
+            "what": "Optionale Hinweise für Codex und Claude Code, Verifizierungen nur auf Anforderung in der aktuellen Aufgabe auszuführen, sowie die Verifizierungsberechtigung für diese Aufgabe.",
+            "more": "Die Richtlinie ist standardmäßig deaktiviert. Wenn sie aktiviert ist, erteilt Vibisual die Verifizierungsberechtigung anhand deiner Nachricht oder über die Verifizierungsschaltfläche der jeweiligen Aufgabe. Wenn sie deaktiviert ist, werden keine einschränkenden Hinweise hinzugefügt und keine Verifizierungsaufrufe blockiert.",
+            "off": "Dieser Quellenschalter blendet bei aktivierter Richtlinie lediglich die Hinweise aus. Hinweise und Ausführungsblockierung lassen sich gemeinsam in {{options}} unter {{permissions}} aktivieren oder deaktivieren. Die Richtlinie ist standardmäßig deaktiviert."
           },
           "hookEnforcement": {
             "what": "Der Block, den Vibisual in Sessions einfügt, die sich über Claude-Code-Hooks selbst angehängt haben.",
@@ -4652,6 +5415,16 @@
         "warn": "Sind beim Versuch, den Turn zu beenden, noch erforderliche Abschnitte ungelesen, wird er zurückgeschickt, um weiterzulesen.",
         "enforce": "Änderungen werden abgelehnt, solange erforderliche Abschnitte ungelesen sind. Sobald das Wiederholungslimit erreicht ist, wird nicht mehr blockiert."
       }
+    },
+    "verifyPolicy": {
+      "notRun": "Verifizierung nicht ausgeführt",
+      "notRunTip": "Für diese Aufgabe wurden keine Tests, Builds oder Browser-Prüfungen ausgeführt. Nutze die Schaltfläche neben dieser Markierung oder bitte in deiner Nachricht um eine Verifizierung.",
+      "blockedTip": "Der Agent hat {{count}}-mal versucht, eine Verifizierung zu starten; das wurde blockiert, bevor sie lief.",
+      "ran": "Verifizierung ausgeführt ×{{count}}",
+      "ranTip": "Die Verifizierung lief im von dir angeforderten Umfang. Ob sie erfolgreich war, steht in der Antwort oben.",
+      "runTip": "Die mit dieser Änderung zusammenhängenden Prüfungen ausführen (zugehörige Tests, Typprüfung, Lint, Build). Fehler werden gemeldet, nicht behoben.",
+      "runFailed": "Start fehlgeschlagen: {{error}}",
+      "runPrompt": "Verifiziere die Änderung aus der vorherigen Aufgabe. Führe nur die damit zusammenhängenden Prüfungen aus (zugehörige Tests, Typprüfung, Lint, Build) – nicht die komplette Testsuite, E2E- oder Browser-Prüfungen. Melde jede einzeln als bestanden, fehlgeschlagen oder nicht geprüft. Behebe Fehler nicht, melde sie nur.\n\nVorherige Aufgabe: {{task}}"
     },
     "verify": {
       "title": "Prüfen",
@@ -5969,7 +6742,16 @@
       "lockN": "Auswahl sperren ({{count}})",
       "unlockN": "Auswahl entsperren ({{count}})",
       "lockSkipped": "Lässt {{count}} nicht sperrbare Blase(n) aus.",
-      "toBubble": "Zurück in eine Blase einklappen"
+      "toBubble": "Zurück in eine Blase einklappen",
+      "toCard": "In Sprechblase umwandeln",
+      "toCardNote": "Öffnet neben der Blase eine Eingabe-Sprechblase, damit du direkt hier mit ihm sprichst",
+      "hideLinks": "Verknüpfungen ausblenden",
+      "hideLinksNote": "Nur die Linien verschwinden – die Verknüpfungen funktionieren weiter",
+      "showLinks": "Verknüpfungen anzeigen",
+      "lensFiles": "Auf Arbeitsdateien fokussieren",
+      "lensFilesNote": "Zeigt die Dateilinien wieder in voller Stärke und klappt die verknüpften Elemente ein",
+      "lensLinked": "Auf verknüpfte Elemente fokussieren",
+      "lensLinkedNote": "Zeigt die Szenen und Materialien der verknüpften Apps und dimmt die Dateilinien"
     },
     "pathLock": {
       "badgeSelf": "Gesperrt – jede AI muss vor dem Öffnen bei dir nachfragen",
@@ -5989,15 +6771,42 @@
       },
       "placeholder": "Was soll der Agent tun? Enter sendet, Shift+Enter fügt eine neue Zeile ein.",
       "inputLabel": "Nachricht an {{name}}",
-      "linkHint": "Zum Hinzufügen eines verknüpften Knotens das + ziehen",
+      "linkHint": "Ziehe den Punkt auf der Umlaufbahn, um einen App-Satelliten hinzuzufügen",
       "chipOn": "{{name}} ist in dieser Nachricht enthalten. Zum Weglassen klicken.",
       "chipOff": "{{name}} wird in dieser Nachricht weggelassen. Zum Einbeziehen klicken.",
       "send": "Senden",
-      "handleTitle": "Zum Erstellen oder Verknüpfen eines Knotens ziehen, für die Liste klicken"
+      "handleTitle": "Ziehen, um einen App-Satelliten hinzuzufügen oder zu verknüpfen; klicken zum Auswählen",
+      "linkedCount": "App-Satelliten: {{count}}"
     },
     "refLink": {
-      "menuHeading": "Mit diesem Agenten als Referenz erstellen",
+      "bloomLabel": "App-Satelliten zum Hinzufügen wählen",
       "unlink": "Verknüpfung aufheben"
+    },
+    "linkedItems": {
+      "rowLabel": "Verknüpfte Elemente",
+      "scene": "Szene {{index}}: {{title}}",
+      "sceneUntitled": "Szene {{index}}",
+      "stage": {
+        "plan": "Geplant",
+        "ready": "Genehmigt",
+        "building": "Wird gebaut",
+        "done": "Fertig"
+      },
+      "kind": {
+        "scene": "Szene",
+        "image": "Bild",
+        "video": "Video",
+        "audio": "Sound",
+        "model": "3D-Modell",
+        "font": "Schriftart",
+        "code": "Bewegtgrafik-Code",
+        "text": "Text",
+        "file": "Datei"
+      },
+      "seconds": "{{seconds}} s",
+      "active": "Die KI arbeitet gerade daran",
+      "past": "Früheres Ergebnis",
+      "openPastHint": "Doppelklick zum Öffnen dieses Ergebnisses."
     }
   },
   "common": {
@@ -6389,7 +7198,12 @@
     "personality": "Kommunikationsstil",
     "personalityHint": "Der Stil gilt nur für unterstützte Modelle.",
     "serviceTier": "Servicestufe",
-    "serviceTierHint": "Eine vom Modell unterstützte Stufe eingeben (z. B. fast). Schnellere Stufen können Verbrauch und Kosten beeinflussen.",
+    "serviceTierFast": "Fast — falls unterstützt",
+    "serviceTierUltrafast": "Ultrafast — falls unterstützt",
+    "codexModelInherited": "Codex-Konfiguration folgen",
+    "codexModelInheritedHint": "Es wird kein Modell überschrieben. Codex bestimmt das Modell anhand seiner Konfiguration oder des aktuellen Standardmodells.",
+    "retainedModelHint": "Das gespeicherte Modell fehlt in diesem Katalog. Es bleibt ausgewählt; Codex prüft die Verfügbarkeit beim Ausführen.",
+    "serviceTierHint": "Die Verfügbarkeit von Fast/Ultrafast hängt von Modell und Konto ab. Diese Modi können mehr Credits verbrauchen oder höhere Kosten verursachen. Leer lassen zum Übernehmen; andere unterstützte Stufennamen sind ebenfalls möglich.",
     "autoCompactTokenLimit": "Schwelle für automatische Komprimierung (Token)",
     "codexTools": "Werkzeugberechtigungen",
     "codexValues": {

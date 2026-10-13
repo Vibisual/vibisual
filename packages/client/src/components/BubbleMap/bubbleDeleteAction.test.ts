@@ -269,6 +269,35 @@ describe('묶음 삭제 판정 — 키와 메뉴가 같은 것을 센다', () =>
     expect(p.count).toBe(4);
   });
 
+  // §6 — 앱·플레이·스펙·랩·선반 노드도 이제 박스·Shift·Ctrl/Cmd 로 묶음에 든다. 묶음에 들었는데 `Delete`·묶음
+  //   메뉴가 그것을 세지 않으면 "고른 것 중 몇 개만 지워졌다"가 된다.
+  it('store 가 좌표를 쥔 노드도 같은 묶음으로 센다 — 플레이 표지·프리뷰는 한 레코드다', () => {
+    const p = plan(['a'], {
+      nodes: [
+        { id: 'app-node', type: 'appNode', data: { appBubbleId: 'app-1' } },
+        { id: 'play-1', type: 'playNode', data: { playBubbleId: 'play-1' } },
+        { id: 'play-1__preview', type: 'playPreviewNode', data: { playBubbleId: 'play-1' } },
+        { id: 'spec-1', type: 'specNode', data: { specDocId: 'spec-1' } },
+        { id: 'lab-1', type: 'labNode', data: { labRunId: 'lab-1' } },
+        { id: 'shelf-1', type: 'shelfNode', data: { shelfBubbleId: 'shelf-1' } },
+      ],
+    });
+    expect(p.appBubbleIds).toEqual(['app-1']);
+    expect(p.playBubbleIds).toEqual(['play-1']);
+    expect(p.specDocIds).toEqual(['spec-1']);
+    expect(p.labRunIds).toEqual(['lab-1']);
+    expect(p.shelfBubbleIds).toEqual(['shelf-1']);
+    expect(p.count).toBe(6);
+    // 되돌릴 수 없는 것이 섞였으니 "휴지통으로 이동"이라 말하지 않는다.
+    expect(p.kind).toBe('remove');
+  });
+
+  it('휴지통 안에서는 store 노드도 손대지 않는다', () => {
+    const p = plan(['trashed'], { nodes: [{ id: 'app-node', type: 'appNode', data: { appBubbleId: 'app-1' } }] }, true);
+    expect(p.appBubbleIds).toEqual([]);
+    expect(p.purgeIds).toEqual(['trashed']);
+  });
+
   it('휴지통 안에서는 버려진 것의 영구 삭제만 담는다', () => {
     const p = plan(['trashed', 'a'], {}, true);
     expect(p.purgeIds).toEqual(['trashed']);
@@ -290,15 +319,23 @@ describe('묶음 삭제 판정 — 키와 메뉴가 같은 것을 센다', () =>
 });
 
 describe('묶음 삭제 실행 — 한 번의 스냅샷으로 사라진다', () => {
-  interface Calls { purge: string[][]; edge: string[]; box: string[]; cap: string[] }
+  interface Calls {
+    purge: string[][]; edge: string[]; box: string[]; cap: string[];
+    app: string[]; play: string[]; spec: string[]; lab: string[]; shelf: string[];
+  }
   function runner(): SelectionDeleteRunner & { calls: Calls } {
-    const calls: Calls = { purge: [], edge: [], box: [], cap: [] };
+    const calls: Calls = { purge: [], edge: [], box: [], cap: [], app: [], play: [], spec: [], lab: [], shelf: [] };
     return {
       calls,
       requestTrashPurge: (ids) => { calls.purge.push(ids); },
       deleteTaskEdge: (id) => { calls.edge.push(id); },
       deleteCommentBox: (id) => { calls.box.push(id); },
       deleteCaptureBubble: (id) => { calls.cap.push(id); },
+      deleteAppBubble: (id) => { calls.app.push(id); },
+      deletePlayBubble: (id) => { calls.play.push(id); },
+      deleteSpecDoc: (id) => { calls.spec.push(id); },
+      deleteLabRun: (id) => { calls.lab.push(id); },
+      deleteShelfBubble: (id) => { calls.shelf.push(id); },
     };
   }
   function withFetch(run: (f: ReturnType<typeof vi.fn>) => void): ReturnType<typeof vi.fn> {
@@ -310,6 +347,7 @@ describe('묶음 삭제 실행 — 한 번의 스냅샷으로 사라진다', () 
   }
   const empty = {
     purgeIds: [], bubbleIds: [], taskEdgeIds: [], commentBoxIds: [], captureIds: [],
+    appBubbleIds: [], playBubbleIds: [], specDocIds: [], labRunIds: [], shelfBubbleIds: [],
     skippedWorktreeIds: [], kind: 'remove' as const, count: 0,
   };
 
@@ -341,5 +379,20 @@ describe('묶음 삭제 실행 — 한 번의 스냅샷으로 사라진다', () 
     expect(r.calls.edge).toEqual(['7']);
     expect(r.calls.box).toEqual(['box-1']);
     expect(r.calls.cap).toEqual(['cap-1']);
+  });
+
+  it('앱·플레이·스펙·랩·선반은 각자의 창구로 간다 — 배치 창구(버블 전용)로 섞이지 않는다', () => {
+    const r = runner();
+    const f = withFetch(() => {
+      runSelectionDelete({
+        ...empty,
+        appBubbleIds: ['app-1'], playBubbleIds: ['play-1'], specDocIds: ['spec-1'],
+        labRunIds: ['lab-1'], shelfBubbleIds: ['shelf-1'], count: 5,
+      }, r);
+    });
+    expect(f).not.toHaveBeenCalled();
+    expect(r.calls).toMatchObject({
+      app: ['app-1'], play: ['play-1'], spec: ['spec-1'], lab: ['lab-1'], shelf: ['shelf-1'],
+    });
   });
 });

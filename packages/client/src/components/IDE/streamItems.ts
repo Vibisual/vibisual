@@ -106,14 +106,6 @@ export function isThinkingPulse(evt: { eventType: string; content: string }): bo
 }
 
 /**
- * §5.5 #17-15 — "지금 생각하고 있다"를 뜻하는 이벤트(SDK 펄스 + 실제 thinking 델타).
- * 사고 원문은 어느 밀도에서도 그리지 않으므로, 이 이벤트들의 유일한 표면은 라이브 1줄이다.
- */
-export function isThinkingActivity(evt: { eventType: string; content: string }): boolean {
-  return evt.eventType === 'thinking' || isThinkingPulse(evt);
-}
-
-/**
  * §5.5 #17-13 ⑤ — `[task_started]` 처럼 **subtype 단독 패턴**인 SDK 상태 표식인가.
  * 이런 줄은 내용이 없고 레일 점 한 줄만 먹어, 간결/표준 밀도에서는 표시 단계에서 걸러낸다.
  * 내용이 있는 system 본문(권한 결정, 짝 없는 `[ToolName] …` 결과)은 여기에 걸리지 않는다.
@@ -180,7 +172,7 @@ export interface StreamText {
  *
  * #17-15 가 없앤 것은 사고 **원문**을 보여 주는 표면이다. 이 항목은 원문을 담지 않는다 —
  * 길이(`chars`)와 시각 둘뿐이라, 사고를 버퍼에 쌓지 않는다는 #17-15 ② 는 그대로다.
- * 자국은 **봉인된 런에만** 생긴다(자라는 자국 ❌ — 지금 생각 중은 라이브 1줄이 맡는다).
+ * 자국은 **봉인된 런에만** 생긴다(자라는 자국 ❌ — 지금 도는 일은 라이브 1줄 `작업 중` 이 맡는다, #17-24 ⑦).
  */
 export interface StreamStep {
   kind: 'step';
@@ -232,15 +224,16 @@ export interface StreamError {
 }
 
 /**
- * 라이브 1줄 — 에이전트가 작동하는 **내내** 본문 하단에 1개 떠 있다(§5.5 #17-15 사고의 유일한 표면,
- * #17-24 ② 상시 표시). 마지막 이벤트 종류는 켜고 끄는 스위치가 아니라 **라벨을 고르는 값**이다.
+ * 라이브 1줄 — 에이전트가 작동하는 **내내** 본문 하단에 1개 떠 있다(#17-24 ② 상시 표시). 마지막 이벤트
+ * 종류는 켜고 끄는 스위치도, 라벨을 고르는 값도 아니다(#17-24 ⑦ — 작동 중이면 늘 `작업 중`).
  */
 export interface StreamThinkingLive {
   kind: 'thinking-live';
   id: string;
   /**
-   * `thinking` = 사고 중, `working` = 도구·본문 등 그 외 작업 중, `waiting` = **줄만 서 있고
-   * 아무것도 안 돈다**(§5.5 #17-18 ⑪). 라벨·색만 가른다(항목은 그대로 — 생멸 ❌).
+   * `working` = 작동 중(사고·도구·본문 무엇이든), `waiting` = **줄만 서 있고 아무것도 안 돈다**
+   * (§5.5 #17-18 ⑪), `compacting` = CLI 가 접는 중(#17-24 ⑥). 라벨·색만 가른다(항목은 그대로 — 생멸 ❌).
+   * 사고/작업을 가르던 `thinking` 은 걷었다(#17-24 ⑦ — `생각 중… 53m 59s` 가 멈춘 것으로 읽혔다).
    *
    * `waiting` 이 없던 것이 사용자 보고의 절반이었다 — 앞 턴이 자물쇠를 쥔 채 사라지면 뒤에 선
    * 덧말은 `queued` 로 멈추는데, 이 줄은 그것도 "작업 중"이라 적고 경과만 키웠다("작업 중 ·
@@ -588,7 +581,7 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
     for (const cmd of commands) {
       // §5.3 #9-1 (P) — 우리가 사용자 명령 앞에 끼운 조용한 압축은 **말풍선이 되지 않는다.**
       //   사용자가 친 적이 없는 글이라, 뜨면 자기 대화에 `/compact` 가 섞여 보인다. 그 명령이
-      //   도는 동안 화면이 "생각 중"인 것은 `isSessionRunning` 이 따로 맡는다(그쪽은 안 거른다).
+      //   도는 동안 화면이 "작업 중"인 것은 `isSessionRunning` 이 따로 맡는다(그쪽은 안 거른다).
       if (cmd.silent) continue;
       items.push({
         kind: 'command',
@@ -712,12 +705,15 @@ function thinkOwnerChanged(open: TurnThinkRun | null, evt: SubAgentStreamEvent, 
 }
 
 /**
- * 라이브 "생각 중 …/작업 중 …" 1줄 — **에이전트가 작동하는 동안 항상** 켠다.
+ * 라이브 "작업 중 …" 1줄 — **에이전트가 작동하는 동안 항상** 켠다.
  *
  * §5.5 #17-24 ② — 종전엔 `agentBusy && 마지막 이벤트가 사고` 였다. 그래서 사고 → 도구 → 본문으로
  * 이벤트 종류가 바뀔 때마다 이 줄이 사라졌다 다시 나타나 화면이 깜빡였다. 이제 발화 조건은 `agentBusy`
- * 하나이고, 마지막 이벤트 종류는 **라벨(mode)** 만 고른다 — 항목 id 가 고정이라 라벨만 바뀌고 항목은
- * 생멸하지 않는다(가상 리스트 remount ❌).
+ * 하나이고 항목 id 가 고정이라 항목은 생멸하지 않는다(가상 리스트 remount ❌).
+ *
+ * §5.5 #17-24 ⑦ — 마지막 이벤트 종류는 라벨도 고르지 않는다. 사고 이벤트면 `생각 중`이라 적던 것을
+ * 걷었다 — 도구 사이 안내 문장이 사고로 오고 큰 `Write` 입력을 만드는 동안은 줄이 없어, 파일을 쓰는
+ * 중에도 `생각 중… 53m 59s`(턴 시계)로 서서 멈춘 것으로 읽혔다. 마지막 이벤트는 시계 재료로만 쓴다.
  */
 function computeThinkingLive(
   events: SubAgentStreamEvent[],
@@ -733,8 +729,8 @@ function computeThinkingLive(
   // §5.5 #17-18 ⑪ — **줄 선 것이 먼저다.** 도는 것이 없으면 마지막 이벤트가 무엇이었든 그것은
   //   앞 턴의 잔상이지 지금 하는 일이 아니다. 여기서 `working` 으로 접으면 아무 일도 안 일어나는
   //   화면이 파랗게 뛰며 경과만 키운다(사용자가 본 그 줄이다).
-  // §5.5 #17-24 ⑥ — 접는 중이면 넷째 모드. 고르는 규칙은 메인 탭과 같은 함수 한 곳(대기 > 압축 > 사고/작업).
-  const mode = liveLineMode(agentWaiting, compactingSince !== null, !!lastRaw && isThinkingActivity(lastRaw));
+  // §5.5 #17-24 ⑥ ⑦ — 접는 중이면 압축 중. 고르는 규칙은 메인 탭과 같은 함수 한 곳(대기 > 압축 > 작업).
+  const mode = liveLineMode(agentWaiting, compactingSince !== null);
   // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
   // §2.4 (무응답) — 무응답을 재는 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중
   //   늦은 쪽. 감춘 턴이 도는 동안에는 무응답으로 안 뒤집는다(`hiddenTurn` → `liveLineStalled`).
@@ -1338,7 +1334,7 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       }
       return true;
     }
-    // §5.5 #17-24 ② — 라벨(mode)이 바뀌면 다시 그려야 한다(생각 중 ↔ 작업 중).
+    // §5.5 #17-24 ② — 라벨(mode)이 바뀌면 다시 그려야 한다(작업 중 ↔ 대기 ↔ 압축 중 — ⑦ 이후 생각 중은 없다).
     // §2.4 (무응답) — 시계(`lastActivityAt`)와 감춘 턴 표식도 렌더에 쓰인다. 빼면 모드가 같은 동안
     //   identity 안정화가 옛 객체를 재사용해, 줄이 들어와도 시계가 옛 시각에서 계속 늘어 멀쩡한 턴이
     //   "마지막 업데이트 N 전"이 되고, 압축이 끝나 명령이 나가도 줄이 감춘 턴의 모습에 머문다.

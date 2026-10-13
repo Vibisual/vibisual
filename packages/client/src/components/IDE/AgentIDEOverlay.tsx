@@ -74,6 +74,7 @@ import {
 } from './ideFloatPush.js';
 import { useIDEDockLayout, useVisibleDockedPanes } from './useIDEDockLayout.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
+import { WINDOW_PULL_OUT } from '../../hooks/floatingWindowGeom.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
 import { editorGrowth, ideSidebarWidth, resolveIDEBodyLayout } from './ideResponsive.js';
@@ -127,17 +128,19 @@ const MIN_FLOAT_H = IDE_FLOAT.MIN_H;
  * 표현된다. 그 시간을 **두 마디**로 나눈다 — 먼저 선으로 된 가상 창을 띄워 무슨 일이 일어나는지
  * 보여 주고(`EDGE_GHOST_MS`), 그 다음에 실제로 내보낸다. 아무 것도 안 보이는 채로 기다리게 하면
  * "안 되는 기능"으로 읽힌다(H-3 이 예고 문구를 둔 까닭과 같다 — 이제는 문구가 아니라 그림이다).
+ *
+ * §5.13 (S-10) — 내부 앱 창도 같은 선·같은 버팀을 쓰므로 이 수치들은 공용 한 곳(`WINDOW_PULL_OUT`)에서 온다.
  */
-const EDGE_GHOST_MS = 120;
+const EDGE_GHOST_MS = WINDOW_PULL_OUT.EDGE_GHOST_MS;
 /** 그 타임라인을 재는 시계의 결 — 윤곽선이 밖으로 밀려 나가는 것이 끊겨 보이지 않을 만큼만 잦게. */
-const EDGE_TICK_MS = 32;
+const EDGE_TICK_MS = WINDOW_PULL_OUT.EDGE_TICK_MS;
 /**
  * (H-6) 버티는 동안 윤곽선이 그 변 밖으로 밀려 나가는 거리(px).
  *
  * **완전히** 밀어내지 않는 까닭: 단일 모니터에 앱이 최대화돼 있으면 앱 밖에 보일 자리가 없어,
  * 다 밀면 선이 화면에서 사라져 버린다(보여 주려던 것을 감추는 셈). 어디로 빠지는지만 말한다.
  */
-const EDGE_NUDGE_PX = 72;
+const EDGE_NUDGE_PX = WINDOW_PULL_OUT.EDGE_NUDGE_PX;
 /**
  * (판올림 번호 발급 대기) (H-7) 팝아웃이 **윤곽선이 서기를** 기다리는 상한(ms).
  *
@@ -155,7 +158,7 @@ const POP_OUT_GHOST_WAIT_MS = 160;
  * 그물을 늘리는 대신(늘리면 렌더러가 죽었을 때 그만큼 오래 남는다) 판이 살아 있는 동안 다시
  * 재게 한다: 손을 떼면 이 알림이 멎고, 그때부터 그물은 종전 그대로 20초다.
  */
-const GHOST_KEEPALIVE_MS = 5_000;
+const GHOST_KEEPALIVE_MS = WINDOW_PULL_OUT.GHOST_KEEPALIVE_MS;
 
 /**
  * 이 창이 앉을 자리 — **사용자가 옮겨 둔 자리가 있으면 그것**, 없으면 계단식 초기 자리.
@@ -2867,7 +2870,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           onDoubleClick={handleTitleBarDoubleClick}
           onMouseEnter={() => { titleBarHoveredRef.current = true; }}
           onMouseLeave={() => { titleBarHoveredRef.current = false; }}
-          className="flex h-10 flex-shrink-0 cursor-grab items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none active:cursor-grabbing"
+          className="flex h-10 flex-shrink-0 cursor-grab items-center justify-between border-b border-gray-700 bg-vb-ide-titlebar px-4 select-none active:cursor-grabbing"
         >
           {/* 좌측 묶음은 **줄어들 수 있어야** 한다(min-w-0) — 이게 없으면 긴 에이전트 이름이
               우측 버튼 묶음을 통째로 화면 밖으로 밀어 [닫기]가 사라진다(폰 실사용 보고). */}

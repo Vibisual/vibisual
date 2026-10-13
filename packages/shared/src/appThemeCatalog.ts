@@ -1,0 +1,374 @@
+/**
+ * appThemeCatalog.ts — §4 앱 테마의 **기본 테마 목록** (데이터).
+ *
+ * 기본 테마도 사용자 테마 파일과 **같은 형식**(`AppThemeDefinition`)으로 적는다. 그래서 사용자는 이 중
+ * 하나를 `extends` 로 이어받아 몇 칸만 바꾸면 되고, 해석기(`resolveAppTheme`)는 두 출처를 가르지 않는다.
+ *
+ * 값 쓰는 법(사용자 테마도 같다):
+ *  - `palette.<계열>` — 다른 계열 이름(`"neutral"`)이면 그 계열을 그대로 빌린다. 객체면 `from` 계열에서
+ *    출발해 `mirror` → OKLCH 색조·채도 이동(`hue`·`chroma`·`chromaScale`) → `shades` 덮어쓰기 순.
+ *    빌려 오는 값은 **이어받은 팔레트**에서 온다(같은 정의 안에서 바꾼 계열은 보지 않는다).
+ *  - `colors.<토큰>` — 색이거나 팔레트 참조(`{gray.900}` · `{sky.400}/50` · `{white}`). 참조는 이 테마의
+ *    **최종 팔레트**에서 풀리므로, 팔레트를 뒤집으면 참조도 함께 뒤집힌다.
+ *
+ * 터미널 색: 다크 = Catppuccin Mocha(종전 값, `APP_THEME_TOKEN_SPECS` 기본), 라이트 = Catppuccin Latte.
+ * 둘 다 MIT 라이선스라 색값 사용이 자유롭다. 고대비 두 벌의 터미널 색은 대비를 맞춰 새로 골랐다.
+ */
+import type { AppThemeDefinition, AppThemeRampSpec } from './types.js';
+
+/** 의미 토큰 묶음(테마끼리 나눠 쓰는 조각). */
+type ThemeColors = NonNullable<AppThemeDefinition['colors']>;
+
+/** 고대비 다크의 무채색 사다리 — 글자 쪽(50~600)을 밝히고 테두리 칸(700)을 또렷하게. */
+const HIGH_CONTRAST_DARK_NEUTRAL: AppThemeRampSpec = {
+  shades: {
+    '50': '#ffffff',
+    '100': '#fafafa',
+    '200': '#f2f2f2',
+    '300': '#e8e8e8',
+    '400': '#d4d4d4',
+    '500': '#b5b5b5',
+    '600': '#939393',
+    '700': '#707070',
+    '800': '#1f1f1f',
+    '900': '#0d0d0d',
+    '950': '#000000',
+  },
+};
+
+/** 고대비 라이트의 무채색 사다리 — 다크의 역할 그대로(950 = 바탕, 700 = 테두리, 300 = 글자). */
+const HIGH_CONTRAST_LIGHT_NEUTRAL: AppThemeRampSpec = {
+  shades: {
+    '50': '#000000',
+    '100': '#0a0a0a',
+    '200': '#141414',
+    '300': '#1f1f1f',
+    '400': '#2e2e2e',
+    '500': '#474747',
+    '600': '#5c5c5c',
+    '700': '#757575',
+    '800': '#e6e6e6',
+    '900': '#f5f5f5',
+    '950': '#ffffff',
+  },
+};
+
+/** Catppuccin Latte(MIT) — 라이트 테마의 터미널. 공식 터미널 배치(검정=subtext1, 흰색=surface2)를 따른다. */
+const LATTE_TERMINAL: ThemeColors = {
+  'terminal.background': '#eff1f5',
+  'terminal.panel': '#e6e9ef',
+  'terminal.foreground': '#4c4f69',
+  'terminal.cursor': '#179299',
+  'terminal.cursorAccent': '#eff1f5',
+  'terminal.selection': 'rgb(136 57 239 / 0.2)',
+  'terminal.black': '#5c5f77',
+  'terminal.red': '#d20f39',
+  'terminal.green': '#40a02b',
+  'terminal.yellow': '#df8e1d',
+  'terminal.blue': '#1e66f5',
+  'terminal.magenta': '#ea76cb',
+  'terminal.cyan': '#179299',
+  'terminal.white': '#acb0be',
+  'terminal.brightBlack': '#6c6f85',
+  'terminal.brightRed': '#d20f39',
+  'terminal.brightGreen': '#40a02b',
+  'terminal.brightYellow': '#df8e1d',
+  'terminal.brightBlue': '#1e66f5',
+  'terminal.brightMagenta': '#ea76cb',
+  'terminal.brightCyan': '#179299',
+  'terminal.brightWhite': '#bcc0cc',
+};
+
+/**
+ * 다크 변주들이 함께 쓰는 의미 토큰 — 전부 팔레트 참조라, 각 테마가 계열만 바꾸면 따라온다.
+ * 기본 테마(Vibisual Dark)는 이것을 쓰지 않는다 — 종전 화면의 리터럴 값을 그대로 지킨다.
+ */
+const DARK_VARIANT_SURFACES: ThemeColors = {
+  'window.background': '{gray.950}',
+  'titleBar.background': '{slate.800}',
+  'titleBar.foreground': '{slate.300}',
+  'canvas.background': '{gray.950}',
+  'canvas.dots': '{slate.800}',
+  'surface.raised': '{gray.800}',
+  'surface.card': '{slate.900}',
+  'surface.inset': '{slate.800}',
+  'surface.sunken': '{gray.950}',
+  'ide.titleBar': '{slate.900}',
+  'ide.tabBar': '{gray.900}',
+  'code.background': '{gray.900}',
+  'code.foreground': '{gray.200}',
+  'code.border': '{white}/8',
+  'code.inlineBackground': '{gray.500}/24',
+  'code.inlineForeground': '{gray.100}',
+  'terminal.background': '{gray.900}',
+  'terminal.panel': '{gray.800}',
+  'terminal.cursorAccent': '{gray.900}',
+};
+
+/**
+ * 기본 테마 9벌 — 순서가 곧 옵션창의 표시 순서다(다크 → 라이트). 첫 칸이 기본 테마다.
+ * `i18nKey` 는 이름·설명의 번역 키 꼬리(`panel.options.theme.builtin.<i18nKey>.name/desc`)이고,
+ * `name`·`description` 은 번역이 없을 때의 영문 폴백이다.
+ */
+export const BUILTIN_APP_THEMES: readonly AppThemeDefinition[] = [
+  {
+    schemaVersion: 1,
+    id: 'vibisual-dark',
+    name: 'Vibisual Dark',
+    kind: 'dark',
+    i18nKey: 'vibisualDark',
+    description: 'The original look — cool blue-gray panels and a deep canvas.',
+  },
+  {
+    schemaVersion: 1,
+    id: 'midnight',
+    name: 'Midnight',
+    kind: 'dark',
+    extends: 'vibisual-dark',
+    i18nKey: 'midnight',
+    description: 'Deep navy surfaces for long night sessions.',
+    palette: {
+      gray: { from: 'slate', hue: 268, chromaScale: 1.6 },
+      slate: { hue: 268, chromaScale: 1.6 },
+    },
+    colors: { ...DARK_VARIANT_SURFACES },
+  },
+  {
+    schemaVersion: 1,
+    id: 'graphite',
+    name: 'Graphite',
+    kind: 'dark',
+    extends: 'vibisual-dark',
+    i18nKey: 'graphite',
+    description: 'Neutral grays with no color cast — lets your agents\' colors stand out.',
+    palette: {
+      gray: 'neutral',
+      slate: 'zinc',
+    },
+    colors: {
+      ...DARK_VARIANT_SURFACES,
+      'titleBar.background': '{gray.800}',
+      'titleBar.foreground': '{gray.300}',
+      'canvas.dots': '{gray.800}',
+      'surface.card': '{gray.900}',
+      'surface.inset': '{gray.800}',
+      'ide.titleBar': '{gray.900}',
+      'terminal.foreground': '{gray.200}',
+      'terminal.selection': '{gray.500}/35',
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 'dusk',
+    name: 'Dusk',
+    kind: 'dark',
+    extends: 'vibisual-dark',
+    i18nKey: 'dusk',
+    description: 'Warm stone tones that are easy on the eyes.',
+    palette: {
+      gray: { from: 'stone', chromaScale: 2.2 },
+      slate: { from: 'stone', chromaScale: 2.6 },
+    },
+    colors: {
+      ...DARK_VARIANT_SURFACES,
+      'terminal.foreground': '{gray.200}',
+      'terminal.cursor': '{amber.400}',
+      'terminal.selection': '{amber.500}/25',
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 'forest',
+    name: 'Forest',
+    kind: 'dark',
+    extends: 'vibisual-dark',
+    i18nKey: 'forest',
+    description: 'Muted green-gray, like a quiet evening in the woods.',
+    palette: {
+      gray: { from: 'gray', hue: 160, chromaScale: 1.15 },
+      slate: { from: 'slate', hue: 165, chromaScale: 0.95 },
+    },
+    colors: {
+      ...DARK_VARIANT_SURFACES,
+      'terminal.cursor': '{emerald.400}',
+      'terminal.selection': '{emerald.500}/25',
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 'high-contrast',
+    name: 'High Contrast',
+    kind: 'dark',
+    extends: 'vibisual-dark',
+    i18nKey: 'highContrast',
+    description: 'Pure black with bright text and sharp borders.',
+    palette: {
+      gray: HIGH_CONTRAST_DARK_NEUTRAL,
+      slate: HIGH_CONTRAST_DARK_NEUTRAL,
+      zinc: HIGH_CONTRAST_DARK_NEUTRAL,
+      neutral: HIGH_CONTRAST_DARK_NEUTRAL,
+      stone: HIGH_CONTRAST_DARK_NEUTRAL,
+    },
+    colors: {
+      'window.background': '#000000',
+      'titleBar.background': '#1f1f1f',
+      'titleBar.foreground': '#ffffff',
+      'canvas.background': '#000000',
+      'canvas.dots': '#3d3d3d',
+      'surface.raised': '#1f1f1f',
+      'surface.card': '#0d0d0d',
+      'surface.inset': '#1f1f1f',
+      'surface.sunken': '#000000',
+      'ide.titleBar': '#0d0d0d',
+      'ide.tabBar': '#0d0d0d',
+      'code.background': '#0d0d0d',
+      'code.foreground': '#ffffff',
+      'code.border': '#707070',
+      'code.inlineBackground': 'rgb(255 255 255 / 0.16)',
+      'code.inlineForeground': '#ffffff',
+      'find.match': '#ffd60a',
+      'find.matchForeground': '#000000',
+      'find.matchAll': 'rgb(255 214 10 / 0.35)',
+      'terminal.background': '#000000',
+      'terminal.panel': '#0d0d0d',
+      'terminal.foreground': '#ffffff',
+      'terminal.cursor': '#ffd60a',
+      'terminal.cursorAccent': '#000000',
+      'terminal.selection': 'rgb(255 255 255 / 0.3)',
+      'terminal.black': '#808080',
+      'terminal.red': '#ff6b6b',
+      'terminal.green': '#5ff28a',
+      'terminal.yellow': '#f5f58c',
+      'terminal.blue': '#5cc8ff',
+      'terminal.magenta': '#ff70c6',
+      'terminal.cyan': '#7ff0ff',
+      'terminal.white': '#f0f0f0',
+      'terminal.brightBlack': '#a8a8a8',
+      'terminal.brightRed': '#ff8f8f',
+      'terminal.brightGreen': '#8dfaa8',
+      'terminal.brightYellow': '#fbffb8',
+      'terminal.brightBlue': '#8ed9ff',
+      'terminal.brightMagenta': '#ff9fd8',
+      'terminal.brightCyan': '#b8f7ff',
+      'terminal.brightWhite': '#ffffff',
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 'light',
+    name: 'Light',
+    kind: 'light',
+    extends: 'vibisual-dark',
+    i18nKey: 'light',
+    description: 'Bright, clean panels for daylight work.',
+    // 팔레트를 통째로 뒤집는다 — `text-white` 같은 "앞쪽 글자"는 아래 white 로 어두워지고, `bg-gray-950`
+    // 바탕은 밝아진다. black 은 그대로 둔다(덮개·그림자는 라이트에서도 어둡게 깔려야 한다).
+    mirrorPalette: true,
+    palette: {
+      white: 'oklch(21% 0.034 264.665)',
+    },
+    colors: {
+      'window.background': '{gray.950}',
+      'titleBar.background': '{slate.800}',
+      'titleBar.foreground': '{slate.300}',
+      'canvas.background': '{slate.900}',
+      'canvas.dots': '{slate.700}',
+      'surface.raised': '{gray.800}',
+      'surface.card': '{gray.900}',
+      'surface.inset': '{gray.800}',
+      'surface.sunken': '{gray.950}',
+      'ide.titleBar': '{slate.800}',
+      'ide.tabBar': '{slate.900}',
+      'code.background': '{gray.900}',
+      'code.foreground': '{gray.100}',
+      'code.border': '{gray.700}',
+      'code.inlineBackground': '{gray.500}/16',
+      'code.inlineForeground': '{gray.100}',
+      'find.match': '#2563eb',
+      'find.matchForeground': '#ffffff',
+      'find.matchAll': 'rgb(37 99 235 / 0.18)',
+      ...LATTE_TERMINAL,
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 'paper',
+    name: 'Paper',
+    kind: 'light',
+    extends: 'light',
+    i18nKey: 'paper',
+    description: 'Warm cream paper with soft brown ink.',
+    palette: {
+      gray: { from: 'stone', hue: 80, chroma: 0.014 },
+      slate: { from: 'stone', hue: 75, chroma: 0.018 },
+      white: 'oklch(24% 0.02 60)',
+    },
+    colors: {
+      'terminal.background': '{gray.900}',
+      'terminal.panel': '{gray.800}',
+      'terminal.foreground': '{gray.200}',
+      'terminal.cursorAccent': '{gray.900}',
+      'terminal.selection': '{amber.500}/22',
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 'high-contrast-light',
+    name: 'High Contrast Light',
+    kind: 'light',
+    extends: 'light',
+    i18nKey: 'highContrastLight',
+    description: 'Pure white with black text and strong outlines.',
+    palette: {
+      gray: HIGH_CONTRAST_LIGHT_NEUTRAL,
+      slate: HIGH_CONTRAST_LIGHT_NEUTRAL,
+      zinc: HIGH_CONTRAST_LIGHT_NEUTRAL,
+      neutral: HIGH_CONTRAST_LIGHT_NEUTRAL,
+      stone: HIGH_CONTRAST_LIGHT_NEUTRAL,
+      white: '#000000',
+    },
+    colors: {
+      'window.background': '#ffffff',
+      'titleBar.background': '#f5f5f5',
+      'titleBar.foreground': '#000000',
+      'canvas.background': '#ffffff',
+      'canvas.dots': '#a3a3a3',
+      'surface.raised': '#e6e6e6',
+      'surface.card': '#f5f5f5',
+      'surface.inset': '#e6e6e6',
+      'surface.sunken': '#ffffff',
+      'ide.titleBar': '#f5f5f5',
+      'ide.tabBar': '#f5f5f5',
+      'code.background': '#f5f5f5',
+      'code.foreground': '#000000',
+      'code.border': '#757575',
+      'code.inlineBackground': 'rgb(0 0 0 / 0.08)',
+      'code.inlineForeground': '#000000',
+      'find.match': '#0f4fd6',
+      'find.matchForeground': '#ffffff',
+      'find.matchAll': 'rgb(15 79 214 / 0.2)',
+      'terminal.background': '#ffffff',
+      'terminal.panel': '#f5f5f5',
+      'terminal.foreground': '#000000',
+      'terminal.cursor': '#0f4fd6',
+      'terminal.cursorAccent': '#ffffff',
+      'terminal.selection': 'rgb(15 79 214 / 0.25)',
+      'terminal.black': '#000000',
+      'terminal.red': '#b3001b',
+      'terminal.green': '#006b15',
+      'terminal.yellow': '#7a5600',
+      'terminal.blue': '#0039b3',
+      'terminal.magenta': '#8f007a',
+      'terminal.cyan': '#005f73',
+      'terminal.white': '#5c5c5c',
+      'terminal.brightBlack': '#333333',
+      'terminal.brightRed': '#d0021b',
+      'terminal.brightGreen': '#007f1a',
+      'terminal.brightYellow': '#8f6600',
+      'terminal.brightBlue': '#0047d6',
+      'terminal.brightMagenta': '#a8008f',
+      'terminal.brightCyan': '#007a91',
+      'terminal.brightWhite': '#757575',
+    },
+  },
+];

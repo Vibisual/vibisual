@@ -69,7 +69,7 @@ import {
 } from './windowManager';
 // §3.7 · §5.5 #17-6 (H-19) — 복원 완료·커서 고정·배율 크기 장부를 창 종류와 무관하게 공유한다.
 import { startTitlebarMove, type TitlebarMove } from './titlebarMove';
-import { tryStartNativeTitlebarMove } from './nativeTitlebarMove';
+import { toScreenPoint } from './titlebarDrag';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
   getMobileAccessState,
@@ -307,19 +307,35 @@ export function setupIpc(expressApp: Express): IpcHub {
   //   이제 끌기 판이 **시작할 때 잰 크기**를 장부로 들고, 자리와 그 크기를 `setBounds` 로 함께
   //   쓴다 — 창에 되묻지 않으니 자랄 자리가 없다. 좌표·크기는 그 화면의 배율 격자에 맞춘다
   //   (`movedBounds` + `dipStepAt` — 격자를 벗어난 좌표는 물리 픽셀 폭을 1px 씩 흔든다).
+  //
+  // §3.7 (2026-10-12) — **덮개는 창을 스스로 옮긴다. OS 이동 루프로 넘기지 않는다(세 OS 같은 길).**
+  //   10-08 에 win 에서만 4 DIP 를 넘으면 제목줄 누름을 창에 게시해 OS 이동 루프로 넘기고, 넘긴
+  //   즉시 이 수동 경로를 끊는 인계가 붙었다. 그 "넘겼다"는 메시지를 큐에 넣었다는 뜻일 뿐 창이
+  //   움직였다는 뜻이 아니었고(만든 세션도 실제 이동은 확인하지 못했다고 남겼다), 실제 앱에서는
+  //   로고를 잡아 끌어도 창이 꿈쩍하지 않았다 — 수동 경로는 이미 끊긴 뒤라 손짓이 통째로 사라졌다
+  //   (사용자 보고 — "앱이 켜졌을때 여기 잡고 옮겨야 하는데 왜 맨날 이거 막는거야"). 덮개가 있는
+  //   이유가 "OS 캡션이 그 순간 안 먹을 때도 옮긴다"인데, OS 에 다시 맡기면 그 이유가 사라진다.
+  //   그래서 인계를 걷고 이 경로 하나로 옮긴다. 잃는 것은 로고 자리에서 끌 때의 OS 가장자리 스냅뿐이다
+  //   (헤더 빈 자리는 여전히 OS 캡션이라 스냅된다). 다시 붙이려면 실제 앱에서 창이 움직이는 것을
+  //   먼저 확인할 것 — 회귀는 `titlebarMove.test.ts` 가 원문으로 지킨다.
+  //
+  // §3.7 ③ (2026-10-12) — **누른 자리·놓은 자리는 렌더러가 잰다.** 서버가 이 메인 스레드에서 함께 돌아,
+  //   스레드가 바쁘면 이 채널을 늦게 받는다. 그때 OS 커서는 손이 이미 옮겨 간 자리라 누른 자리를 여기서 읽으면
+  //   끝난 손짓이 0px 이 됐다. 렌더러가 실어 보낸 화면 좌표로 누른 자리를 잡고, 늦게 받은 해제는 놓은 자리까지
+  //   옮긴다(`titlebarMove.ts`). 페이지까지 온 제목줄 누름도 덮개와 같은 이 채널을 탄다(client `titlebarPress.ts`).
   const titlebarDrags = new Map<WebContents, TitlebarMove>();
-  ipcMain.handle('vibisual:window:move-self', (event, phase: string): boolean => {
+  ipcMain.handle('vibisual:window:move-self', (event, phase: string, point?: unknown): boolean => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return false;
-    if (phase === 'end') { titlebarDrags.get(event.sender)?.end(); return true; }
+    const at = toScreenPoint(point);
+    if (phase === 'end') { titlebarDrags.get(event.sender)?.end(at); return true; }
     if (phase === 'start') {
       titlebarDrags.get(event.sender)?.cancel();
       titlebarDrags.set(event.sender, startTitlebarMove(
         win,
-        () => screen.getCursorScreenPoint(),
+        { current: () => screen.getCursorScreenPoint(), ...(at ? { press: at } : {}) },
         dipStepAt,
         () => { titlebarDrags.delete(event.sender); },
-        process.platform === 'win32' ? () => tryStartNativeTitlebarMove(win) !== 'unavailable' : undefined,
       ));
       return true;
     }
@@ -532,7 +548,7 @@ export function setupIpc(expressApp: Express): IpcHub {
   //   드래그·(H-4) `follow` 와 같은 물리라, 윤곽선과 곧 태어날 창이 정확히 같은 자리를 그린다.
   ipcMain.handle(
     'vibisual:overlay:ghost-show',
-    async (_event, payload: { width?: number; height?: number; grabX?: number; grabY?: number; label?: string; armed?: boolean; hint?: string }): Promise<boolean> => {
+    async (_event, payload: { width?: number; height?: number; grabX?: number; grabY?: number; label?: string; armed?: boolean; hint?: string; settled?: boolean }): Promise<boolean> => {
       // 숫자일 때만 받는다 — 렌더러가 무엇을 보내든 창 기하가 NaN 으로 무너지지 않게(open 과 같은 규약).
       if (!payload
         || !Number.isFinite(payload.width) || !Number.isFinite(payload.height)
@@ -546,6 +562,8 @@ export function setupIpc(expressApp: Express): IpcHub {
         armed: !!payload.armed,
         // (H-19) 나가는 길에도 선이 말한다 — 본체가 숨으므로 앱 안 안내 띠가 함께 사라진다.
         hint: typeof payload.hint === 'string' ? payload.hint.slice(0, 160) : undefined,
+        // §5.13 (S-10) 손을 뗐다 — 선을 그 자리에 멈춘다(끌어낸 창이 그 선의 자리·크기에 선다).
+        settled: payload.settled === true,
       });
       if (!shown) return false;
       // (H-19) 문서가 **실제로 선 뒤에** 대답한다 — 렌더러는 이 대답을 듣고 앱 안 윤곽선을 내린다.

@@ -1,28 +1,33 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { resolveTimeline, type VideoDoc, type VideoDocOp, type VideoItem } from '@vibisual/video';
+import { VIDEO_FORMATS, anchorItemRef, resolveTimeline, type VideoDoc, type VideoDocOp, type VideoItem } from '@vibisual/video';
 import { ScrollFade } from '../ScrollFade.js';
 import { StudioNumberField, StudioTextField, STUDIO_INPUT_CLASS } from './StudioField.js';
 import { VideoInspectorContent, VideoInspectorTransform } from './VideoInspectorContent.js';
-import { isCompatibleTrack } from './videoEditor.js';
+import { VideoInspectorComposition, type CompositionInspectorActions } from './VideoInspectorComposition.js';
+import { VideoInspectorEffects, VideoInspectorMotion } from './VideoInspectorMotion.js';
+import { isCompatibleTrack, isTimedSourceKind } from './videoEditor.js';
 
 export interface VideoInspectorProps {
   doc: VideoDoc;
   selectedItemId: string | null;
   disabled?: boolean;
   onApplyOps: (ops: readonly VideoDocOp[]) => void;
+  /** §5.13 (T-7) — 컴포지션 아이템의 손잡이(다시 읽기·프레임 띠·파일 열기). 없으면 그 구역의 단추가 서지 않는다. */
+  composition?: CompositionInspectorActions;
+  /** §5.13 (V) 37-5 — 값 하나를 낙관적으로(화면 먼저, 저장은 뒤에서 — `useLocalProps`). 없으면 바로 적는다. */
+  onSetProp?: (itemId: string, key: string, value: unknown) => void;
+  /** §5.13 (W) 38-4 — 재생 머리(문서 시각) — [강조 줌]·[재생 머리에 키프레임]이 그 자리에 선다. 없으면 아이템 시작. */
+  playhead?: number;
 }
 
-const OUTPUT_PRESETS = {
-  landscape: { width: 1920, height: 1080 },
-  portrait: { width: 1080, height: 1920 },
-  square: { width: 1080, height: 1080 },
-};
+/** 판형 표는 한 곳(`VIDEO_FORMATS`) — 판형 칩·출력 프리셋과 같은 값. */
+const OUTPUT_PRESETS = VIDEO_FORMATS;
 const OUTPUT_LABELS = { landscape: 'Landscape · 1920 × 1080', portrait: 'Portrait · 1080 × 1920', square: 'Square · 1080 × 1080' };
 const MIN_DURATION = 0.001;
 
 /** All edits use document operations, so autosave, conflicts and undo share one path. */
-export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps }: VideoInspectorProps): React.JSX.Element {
+export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps, composition, onSetProp, playhead }: VideoInspectorProps): React.JSX.Element {
   const { t } = useTranslation();
   const timeline = useMemo(() => resolveTimeline(doc), [doc]);
   const track = doc.tracks.find((entry) => entry.items.some((item) => item.id === selectedItemId));
@@ -41,7 +46,7 @@ export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps }: Vi
   const trimMax = sourceDuration === undefined ? undefined : Math.max(0, sourceDuration - MIN_DURATION);
   const durationMax = sourceDuration === undefined ? undefined : Math.max(MIN_DURATION, sourceDuration - (item?.trimStart ?? 0));
   return (
-    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col rounded-lg border border-white/10 bg-gray-900/60" aria-label={t('panel.videoStudio.editor.inspector', { defaultValue: 'Inspector' })}>
+    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col rounded-lg border border-white/10 bg-vb-sunken/60" aria-label={t('panel.videoStudio.editor.inspector', { defaultValue: 'Inspector' })}>
       <h2 className="shrink-0 border-b border-white/10 px-3 py-2.5 text-xs font-semibold text-white/80">{t('panel.videoStudio.editor.inspector', { defaultValue: 'Inspector' })}</h2>
       <ScrollFade fill className="flex-1">
         <div className="space-y-4 p-3" key={`${doc.id}:${selectedItemId ?? ''}`}>
@@ -82,17 +87,26 @@ export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps }: Vi
                   }} />
                 <StudioNumberField label={t('panel.videoStudio.editor.duration', { defaultValue: 'Duration (s)' })} value={duration} min={MIN_DURATION} max={durationMax} disabled={disabled} onCommit={(next) => update({ duration: next })} />
               </div>
-              {typeof item.at !== 'number' ? <p className="text-xs text-white/40">{t('panel.videoStudio.editor.linkedStart', { defaultValue: 'Timing stays linked to {{item}}.', item: 'after' in item.at ? item.at.after : item.at.start })}</p> : null}
+              {typeof item.at !== 'number' ? <p className="text-xs text-white/40">{t('panel.videoStudio.editor.linkedStart', { defaultValue: 'Timing stays linked to {{item}}.', item: anchorItemRef(item.at) ?? ('chapter' in item.at ? item.at.chapter : '') })}</p> : null}
               {canAuto || item.duration === 'auto' ? <label className="flex items-center gap-2 text-xs text-white/60">
                 <input type="checkbox" checked={item.duration === 'auto'} disabled={disabled || (!canAuto && item.duration !== 'auto')} onChange={(event) => update({ duration: event.target.checked && canAuto ? 'auto' : Math.max(duration, MIN_DURATION) })} />
                 {t('panel.videoStudio.editor.autoDuration', { defaultValue: 'Follow source duration' })}
               </label> : null}
-              {item.kind === 'footage' || item.kind === 'audio' ? <StudioNumberField label={t('panel.videoStudio.editor.trimStart', { defaultValue: 'Source in (s)' })} value={item.trimStart ?? 0} min={0} max={trimMax} disabled={disabled}
+              {isTimedSourceKind(item.kind) ? <StudioNumberField label={t('panel.videoStudio.editor.trimStart', { defaultValue: 'Source in (s)' })} value={item.trimStart ?? 0} min={0} max={trimMax} disabled={disabled}
                 onCommit={(trimStart) => update({ trimStart, ...(sourceDuration !== undefined && typeof item.duration === 'number' ? { duration: Math.min(item.duration, Math.max(MIN_DURATION, sourceDuration - trimStart)) } : {}) })} /> : null}
-              {asset ? <p className="break-all text-xs text-white/40">{asset.source.kind === 'file' ? asset.source.path : asset.source.output}</p> : null}
+              {asset && item.kind !== 'composition' ? <p className="break-all text-xs text-white/40">{asset.source.kind === 'file' ? asset.source.path : asset.source.output}</p> : null}
             </section>
+            {item.kind === 'composition' && composition ? (
+              <VideoInspectorComposition doc={doc} item={item} asset={asset} disabled={disabled} actions={composition} onUpdate={update}
+                onSetProp={onSetProp ? (key, value) => onSetProp(item.id, key, value) : undefined} />
+            ) : null}
             <VideoInspectorContent item={item} size={doc.size} disabled={disabled} hasAudio={asset?.hasAudio} onUpdate={update} />
             {item.kind !== 'audio' ? <VideoInspectorTransform item={item} size={doc.size} disabled={disabled} onUpdate={update} /> : null}
+            {/* §5.13 (W) 38-4·38-5 — 상자의 시간 곡선(강조 줌·천천히 밀기)과 색·효과. 소리·자막은 상자 움직임·색이 없다. */}
+            {item.kind !== 'audio' && item.kind !== 'caption' ? <>
+              <VideoInspectorMotion item={item} playhead={playhead ?? resolved?.start ?? 0} start={resolved?.start ?? 0} duration={duration} disabled={disabled} onUpdate={update} />
+              <VideoInspectorEffects item={item} disabled={disabled} onUpdate={update} />
+            </> : null}
           </> : <p className="border-t border-white/10 pt-3 text-xs text-white/40">{t('panel.videoStudio.editor.selectClip', { defaultValue: 'Select a timeline clip to edit its content, timing and appearance.' })}</p>}
         </div>
       </ScrollFade>
