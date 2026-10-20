@@ -41,7 +41,7 @@ describe('native architecture recipes', () => {
       const material = mesh.material as THREE.MeshStandardMaterial; expect(material.map).toBeTruthy(); expect(material.normalMap).toBeTruthy(); expect(material.roughnessMap).toBeTruthy();
       original.dispose(); regenerated.dispose();
     }
-    const loaded = await loadModelSource(JSON.parse(JSON.stringify(serializeModelSource(first, []))));
+    const loaded = await loadModelSource(JSON.parse(firstJson));
     expect(loaded.object.userData['vibi3dArchitectureRecipe']).toEqual(first.userData['vibi3dArchitectureRecipe']);
     expect(meshes(loaded.object).map(node => node.userData['vibi3dId'])).toEqual(meshes(first).map(node => node.userData['vibi3dId']));
   });

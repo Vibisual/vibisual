@@ -1,5 +1,6 @@
+import type { ComponentProps } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { SESSION_MEMO, type SessionMemo } from '@vibisual/shared';
 import { SessionMemoHistory } from './SessionMemoHistory.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
@@ -20,8 +21,11 @@ afterEach(() => {
 function memo(id: string, text: string, name?: string): SessionMemo {
   return { id, text, name, x: 0, y: 0, w: 220, h: 140, color: '#334155', createdAt: 1, updatedAt: 1 };
 }
-function mount(closedMemos: SessionMemo[], restoreDisabled = false): ReturnType<typeof vi.fn> {
-  const restore = vi.fn();
+type RestoreMemo = ComponentProps<typeof SessionMemoHistory>['onRestore'];
+type MenuProps = ComponentProps<typeof IDEContextMenu>;
+
+function mount(closedMemos: SessionMemo[], restoreDisabled = false): Mock<RestoreMemo> {
+  const restore = vi.fn<RestoreMemo>();
   act(() => {
     view = create(<SessionMemoHistory closedMemos={closedMemos} onRestore={restore} restoreDisabled={restoreDisabled} />, {
       createNodeMock: () => ({ getBoundingClientRect: () => ({ left: 120, bottom: 80 }) }),
@@ -30,8 +34,14 @@ function mount(closedMemos: SessionMemo[], restoreDisabled = false): ReturnType<
   return restore;
 }
 function open(): void { act(() => view!.root.findByType('button').props.onClick()); }
-function menu(): { items: ContextMenuItem[]; onClose: () => void; x: number; y: number } {
-  return view!.root.findByType(IDEContextMenu).props;
+function menu(): MenuProps {
+  // react-test-renderer erases prop types; findByType identifies the component whose contract we read.
+  return view!.root.findByType(IDEContextMenu).props as MenuProps;
+}
+function menuItem(popup: MenuProps, id: string): ContextMenuItem {
+  const item = popup.items.find(value => value.id === id);
+  if (!item) throw new Error(`Expected memo history menu item: ${id}`);
+  return item;
 }
 
 describe('closed session memo history', () => {
@@ -55,9 +65,9 @@ describe('closed session memo history', () => {
     expect(popup.items.map((item) => item.label)).toEqual([
       'ide.memo.history.title', 'Named memo', 'First line', 'ide.memo.title',
     ]);
-    expect(popup.items[0].note).toBe('ide.memo.history.help');
+    expect(menuItem(popup, 'history-heading').note).toBe('ide.memo.history.help');
     expect(view!.root.findByType('button').props['aria-label']).toBe('ide.memo.history.count:3');
-    act(() => { popup.items[2].onClick(); popup.onClose(); });
+    act(() => { menuItem(popup, 'first-line').onClick(); popup.onClose(); });
     expect(restore).toHaveBeenCalledExactlyOnceWith('first-line');
     expect(view!.root.findAllByType(IDEContextMenu)).toHaveLength(0);
   });
@@ -65,12 +75,13 @@ describe('closed session memo history', () => {
   it('keeps history readable at the open-memo cap and explains why restoration is disabled', () => {
     const restore = mount([memo('closed', 'Saved memo')], true);
     open();
-    const items = menu().items;
+    const popup = menu();
+    const closed = menuItem(popup, 'closed');
     const reason = `ide.memo.history.limit:${SESSION_MEMO.MAX_PER_OWNER}`;
-    expect(items[0].note).toBe(reason);
-    expect(items[1].disabled).toBe(true);
-    expect(items[1].disabledTitle).toBe(reason);
-    act(() => items[1].onClick());
+    expect(menuItem(popup, 'history-heading').note).toBe(reason);
+    expect(closed.disabled).toBe(true);
+    expect(closed.disabledTitle).toBe(reason);
+    act(() => closed.onClick());
     expect(restore).not.toHaveBeenCalled();
   });
 

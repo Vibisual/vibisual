@@ -11,7 +11,9 @@ let host: CreationHost;
 let store: CreationStore;
 let clock: number;
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'creation-cleanup-'));
+  // macOS temp paths can enter through /var and be read through /private/var.
+  // Match the store's canonical paths so read/write hooks actually inject the concurrent save.
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'creation-cleanup-')));
   clock = Date.now();
   host = {
     resolveProjectPath: value => value === 'project' ? root : null,
@@ -98,12 +100,18 @@ describe('creation cleanup and concurrent saves', () => {
       store.commit('project', source.id, { baseRevision: revision, requestId: `edit-${revision}`, payload: { revision } }, 'user');
     }
     const consumer = create();
-    const writer = secondStore ? new CreationStore(host, () => clock) : store;
+    // Separate store instances must invalidate the same cleanup even through a project alias.
+    const alias = path.join(root, 'project-alias');
+    if (secondStore) fs.symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const writer = secondStore ? new CreationStore({
+      ...host, resolveProjectPath: value => value === 'project' ? alias : null,
+    }, () => clock) : store;
     const ran = duringRead(path.join(docDir(source.id), 'revisions', '61.json'), () => {
       writer.commit('project', consumer.id, { baseRevision: 1, requestId: 'link', links: [link(source.id)] }, 'user');
     });
-    expect((await store.prune('project')).revisions).toBe(0);
+    const removed = await store.prune('project');
     expect(ran()).toBe(true);
+    expect(removed.revisions).toBe(0);
     expect(store.get('project', consumer.id).links[0]?.sourceRevision).toBe(1);
     expect(store.revision('project', source.id, 1).revision).toBe(1);
     // An aborted pass must not poison later cleanup or leave an active observer behind.
@@ -162,8 +170,9 @@ describe('creation cleanup and concurrent saves', () => {
       replaced = true;
       queueMicrotask(() => { store.propose('project', doc.id, { baseRevision: 1, requestId: 'reused', payload: { new: true } }); });
     };
-    expect((await store.prune('project')).candidates).toBe(0);
+    const removed = await store.prune('project');
     expect(replaced).toBe(true);
+    expect(removed.candidates).toBe(0);
     expect(store.candidate('project', doc.id, 'reused').payload).toEqual({ new: true });
   });
 });

@@ -37,13 +37,22 @@ const failedAt = new Map<string, number>();
 
 /** 디코더 조각을 하나씩 내려 담는다. 이 판에서 못 푸는 소리면 null. */
 async function decodeMono(url: string, signal: AbortSignal): Promise<{ mono: Float32Array; bpmTag: number | null } | null> {
+  signal.throwIfAborted();
   const mb = await loadMediabunny();
+  signal.throwIfAborted();
   const input = new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.UrlSource(url, { fetchFn: studioMediaFetch() }) });
+  // Disposing cancels pending track reads, decoding, and the source's fetch retries too.
+  const dispose = (): void => input.dispose();
+  signal.addEventListener('abort', dispose, { once: true });
   try {
     const track = await input.getPrimaryAudioTrack();
+    signal.throwIfAborted();
     if (!track || !(await track.canDecode().catch(() => false))) return null;
+    signal.throwIfAborted();
     const tags = await input.getMetadataTags().catch(() => null);
+    signal.throwIfAborted();
     const duration = await track.computeDuration();
+    signal.throwIfAborted();
     if (!(duration > 0)) return null;
     const mono = new Float32Array(Math.ceil(duration * BEAT_ANALYSIS_RATE));
     const sink = new mb.AudioBufferSink(track);
@@ -60,27 +69,34 @@ async function decodeMono(url: string, signal: AbortSignal): Promise<{ mono: Flo
     }
     return { mono, bpmTag: usableBpmTag(tags?.beatsPerMinute) };
   } finally {
+    signal.removeEventListener('abort', dispose);
     input.dispose();
   }
 }
 
 /** 물러선 길 — 통째로 받아 낮은 표본율로 디코딩한다(이 판에서 조각으로 못 푸는 코덱만). */
 async function decodeWhole(url: string, signal: AbortSignal): Promise<Float32Array | null> {
+  signal.throwIfAborted();
   if (typeof OfflineAudioContext === 'undefined') return null;
   const res = await fetch(url, { signal });
   if (!res.ok) return null;
   const bytes = await res.arrayBuffer();
+  signal.throwIfAborted();
   if (bytes.byteLength === 0) return null;
   // 문맥의 표본율로 다시 표본화해 준다(디코딩 결과는 문맥 표본율이다).
   const buffer = await new OfflineAudioContext(1, 1, BEAT_ANALYSIS_RATE).decodeAudioData(bytes);
+  signal.throwIfAborted();
   const channels: Float32Array[] = [];
   for (let c = 0; c < buffer.numberOfChannels; c += 1) channels.push(buffer.getChannelData(c));
   return downmixToMono(channels);
 }
 
 async function measureBeats(project: string, asset: VideoAsset, signal: AbortSignal): Promise<BeatFacts | null> {
+  signal.throwIfAborted();
   const url = assetUrl(project, assetPath(asset));
-  const hash = stableHash(await assetFingerprint(url, studioMediaFetch()));
+  const send = studioMediaFetch();
+  const hash = stableHash(await assetFingerprint(url, (input, init) => send(input, { ...init, signal })));
+  signal.throwIfAborted();
   const known = measured.get(hash);
   if (known) return known;
   let decoded: { mono: Float32Array; bpmTag: number | null } | null = null;
@@ -132,6 +148,7 @@ export function useBeatAnalysis(project: string, doc: VideoDoc | null, onDoc: (d
         try {
           // 40-10 ④ — 배경 줄: 재생·끌기·입력 중에는 쉬었다가 한가할 때 낮은 우선순위로.
           const facts = await runWhenIdle(() => measureBeats(project, asset, abort.signal), { signal: abort.signal });
+          abort.signal.throwIfAborted();
           if (!facts) { failedAt.set(key, Date.now()); continue; }
           const next = await writeBeatFacts(project, docId, assetId, facts);
           if (!abort.signal.aborted) onDocRef.current(next);

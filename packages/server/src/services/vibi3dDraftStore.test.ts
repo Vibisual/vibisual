@@ -13,7 +13,8 @@ const input = (overrides: Partial<Vibi3DDraftSaveInput> = {}): Vibi3DDraftSaveIn
   actor: 'human', requestId: 'save-1', expectedVersion: 0, fileName: 'New model', payload: { model: { objects: [{ id: 'mesh', color: 'white' }] } }, ...overrides });
 const save = (overrides: Partial<Vibi3DDraftSaveInput> = {}) => store.save('project', { ...input(overrides) });
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi3d-drafts-')); clock = Date.now();
+  // Keep injected filesystem-read hooks on the same path as the stores (/var ≠ /private/var).
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vibi3d-drafts-'))); clock = Date.now();
   host = { resolveProjectPath: value => value === 'project' ? root : null,
     atomicWriteFile: (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(`${file}.tmp`, data); fs.renameSync(`${file}.tmp`, file); },
     warn: vi.fn() };
@@ -126,7 +127,9 @@ describe('Vibi3D durable actor drafts', () => {
       }
       return result;
     }) as typeof fsp.readFile);
-    expect((await creation.prune('project')).blobs).toBe(0); expect(saved).toBe(true);
+    const removed = await creation.prune('project');
+    expect(saved).toBe(true);
+    expect(removed.blobs).toBe(0);
     expect(store.read('project', localKey, 'human').draft?.payload).toEqual({ texture });
   });
   it('pins the original document revision and linked revisions without applying the draft', async () => {

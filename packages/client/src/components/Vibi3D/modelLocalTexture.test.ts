@@ -46,10 +46,11 @@ describe('local uploads on regenerable graphics', () => {
   });
 
   it('leaves the current image and recipe intact when blob persistence fails or an intervening edit makes the upload stale', async () => {
-    const { root, sign, editor, target } = fixture(), before = serializeModelSource(root, []);
+    const { root, sign, editor, target } = fixture(), before = JSON.stringify(serializeModelSource(root, []));
     api.externalizeForSave.mockRejectedValueOnce(new Error('blob-upload-failed'));
     await expect(prepareLocalGraphicTexture('project', root, target, image)).rejects.toThrow('blob-upload-failed');
-    expect(serializeModelSource(root, [])).toEqual(before); expect(editor.revision).toBe(0);
+    // Compare the complete saved value without recursively diffing millions of embedded texture bytes.
+    expect(JSON.stringify(serializeModelSource(root, [])) === before).toBe(true); expect(editor.revision).toBe(0);
     const source = await prepareLocalGraphicTexture('project', root, target, image), oldMap = target.material.map;
     editor.apply({ type: 'update', id: 'sign', position: [2, 0, 0] }, 0);
     expect(() => editor.applyTexture(editor.getId(target)!, new THREE.Texture(), 0, 'upload.png', false, source)).toThrow('model-changed');

@@ -63,7 +63,9 @@ beforeEach(() => {
   mocks.importAsset.mockImplementation(async (_project: string, file: File) => ({ id: file.name, kind: file.name.endsWith('.wav') ? 'audio' : 'video', source: { kind: 'file', path: file.name } }));
   mocks.measure.mockImplementation(async (_project: string, assets: { id: string }[]) => Object.fromEntries(assets.map(asset => [asset.id, { duration: 2, width: 1920, height: 1080, hasAudio: true }])));
 });
-afterEach(() => act(() => view.unmount()));
+afterEach(async () => {
+  await act(async () => { view.unmount(); });
+});
 async function mount(): Promise<void> {
   await act(async () => { view = create(createElement(VideoStudioShell, { appId: 'vibistudio', params: { projectId: 'project', docId: 'test', appWindowHosted: '1' } })); });
 }

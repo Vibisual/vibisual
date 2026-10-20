@@ -21,6 +21,30 @@ const REPO = path.resolve(__dirname, '../../..');
 const read = (rel: string): string => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
 describe('release packaging — mac/linux', () => {
+  it('TypeScript 입력은 대소문자를 접어도 .ts/.tsx 기본 경로가 겹치지 않는다', () => {
+    // Windows/macOS에서는 sessionMemoHistory.test.ts가 SessionMemoHistory.test.tsx를
+    // 소스 목록에서 가려 로컬 typecheck가 통과했고, Linux에서만 TSX의 오류가 드러났다.
+    // 컴파일러의 선택 결과 대신 실제 파일을 세어 모든 OS에서 같은 입력을 검사하게 한다.
+    const byStem = new Map<string, string[]>();
+    const visit = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) visit(full);
+        else if (entry.isFile() && /\.tsx?$/i.test(entry.name)) {
+          const relative = path.relative(REPO, full).replace(/\\/g, '/');
+          const stem = relative.replace(/\.tsx?$/i, '').toLowerCase();
+          byStem.set(stem, [...(byStem.get(stem) ?? []), relative]);
+        }
+      }
+    };
+    for (const entry of fs.readdirSync(path.join(REPO, 'packages'), { withFileTypes: true })) {
+      const src = path.join(REPO, 'packages', entry.name, 'src');
+      if (entry.isDirectory() && fs.existsSync(src)) visit(src);
+    }
+    const collisions = [...byStem.values()].filter((files) => files.length > 1);
+    expect(collisions, '동일한 대소문자 무시 경로의 .ts/.tsx는 TypeScript 입력을 가린다').toEqual([]);
+  });
+
   it('afterPack 은 리소스 경로를 electron-builder 에 물어본다 (mac 의 리소스는 .app 안이다)', () => {
     const src = read('packages/desktop/build/after-pack.cjs');
     // mac 의 리소스 디렉터리는 <appOutDir>/<Product>.app/Contents/Resources 다.
