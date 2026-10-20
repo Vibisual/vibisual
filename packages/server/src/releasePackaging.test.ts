@@ -449,16 +449,27 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
     try {
       const app = path.join(root, 'Vibisual fixture.app');
       fs.mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
-      fs.symlinkSync('/usr/bin/true', path.join(app, 'Contents/MacOS/Vibisual'));
+      // macOS system tools can use arm64e even when uname reports arm64.
+      // The running Node is a fixture for the same architecture as this test.
+      const executable = fs.realpathSync(process.execPath);
+      fs.symlinkSync(executable, path.join(app, 'Contents/MacOS/Vibisual'));
       const commands = read('.github/workflows/smoke.yml').split('\n')
         .map((line) => line.trim()).filter((line) => line.startsWith('lipo '));
       expect(commands).toHaveLength(2);
+      const architectures = spawnSync('lipo', [executable, '-archs'], { encoding: 'utf8', timeout: 5_000 });
+      const host = spawnSync('uname', ['-m'], { encoding: 'utf8', timeout: 5_000 });
       for (const command of commands) {
         const result = spawnSync('/bin/bash', ['-euo', 'pipefail', '-c', command], {
           env: { ...process.env, APP: app, ZIP_APP: app }, encoding: 'utf8', timeout: 5_000,
         });
-        expect(result.error, result.stdout + result.stderr).toBeUndefined();
-        expect(result.status, result.stdout + result.stderr).toBe(0);
+        const context = JSON.stringify({
+          command, executable, nodeArch: process.arch,
+          architectures: { status: architectures.status, stdout: architectures.stdout, stderr: architectures.stderr, error: architectures.error?.message },
+          host: { status: host.status, stdout: host.stdout, stderr: host.stderr, error: host.error?.message },
+          result: { status: result.status, stdout: result.stdout, stderr: result.stderr, error: result.error?.message },
+        }, null, 2);
+        expect(result.error, context).toBeUndefined();
+        expect(result.status, context).toBe(0);
       }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
