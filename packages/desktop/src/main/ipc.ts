@@ -1,8 +1,14 @@
-import { BrowserWindow, screen, ipcMain, type WebContents } from 'electron';
+import { app, BrowserWindow, screen, ipcMain, type WebContents } from 'electron';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { createCommandAppIconResolver, isCommandAppIconRenderer } from './commandAppIcon';
+import { COMMAND_APP_ICON_CHANNEL } from './commandAppIconConfig';
+import { isVerificationWindow } from './verificationWindows';
 import { mountAppIpc, removeAppIpc } from './apps/index';
 // §5.5 #17-6 (H-6) — 밖으로 빼는 동안 앱 밖까지 이어지는 가상 창 윤곽선.
 import { showPopOutGhost, nudgePopOutGhost, whenPopOutGhostPainted } from './ghostFrame';
 import { inject, type DispatchFunc } from 'light-my-request';
+import { logPerfLine, logTransfer } from './mainStallLog';
 import type { Express } from 'express';
 import {
   handleClientMessage,
@@ -11,6 +17,7 @@ import {
   shutdownIframeLogStreamer,
   shutdownServerLogService,
   debugSessionManager,
+  knownBinDirs,
   type ClientConnection,
 } from '@vibisual/server';
 import {
@@ -68,8 +75,11 @@ import {
   dipStepAt,
 } from './windowManager';
 // §3.7 · §5.5 #17-6 (H-19) — 복원 완료·커서 고정·배율 크기 장부를 창 종류와 무관하게 공유한다.
-import { startTitlebarMove, type TitlebarMove } from './titlebarMove';
+import { followTitlebarMove, startTitlebarMove, type TitlebarMove } from './titlebarMove';
 import { toScreenPoint } from './titlebarDrag';
+import { createWindowImmersiveController } from './windowImmersive';
+// §3.7 (2026-10-16) — 덮개 끌기도 앱 창 끌기와 같은 물리 버튼 판정으로 손을 뗀 것을 안다.
+import { appWindowPrimaryPressed } from './appWindowMouseButton';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
   getMobileAccessState,
@@ -105,7 +115,8 @@ import {
 } from './terminalManager';
 import { listCaptureSources } from './captureManager';
 import { injectCaptureInput, resolveCaptureTargetRect } from './captureInputManager';
-import type { ChatBridgeState, ChatChannelKind, ChatVerbosity, UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
+import type { ChatBridgeState, ChatChannelKind, ChatVerbosity, UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, PerfProcessMemoryWire } from '@vibisual/shared';
+import { summarizeProcessMetrics } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -141,8 +152,13 @@ interface FetchResponseWire {
   statusText: string;
   headers: Record<string, string>;
   body: string;
-  /** `body` 가 base64 인코딩 바이너리임을 표시 — 비텍스트 응답(이미지 등) 무손실 전달. */
+  /** `body` 가 base64 인코딩 바이너리임을 표시 — 옛 길(하위 호환). 새 main 은 바이너리를 `bodyBytes` 로 싣는다. */
   bodyEncoding?: 'base64';
+  /**
+   * §5.13 (Y) 40-7 ① — 비텍스트 응답의 바이트 그대로(구조화 복제). 있으면 `body` 는 빈 문자열이다. 종전에는 바이너리를
+   * UTF-8 문자열 → base64 로 두 번 바꿔 실었다(164MB 에 메인 1.5초 + 렌더러 0.46초).
+   */
+  bodyBytes?: Uint8Array;
 }
 
 export interface IpcHub {
@@ -200,6 +216,27 @@ export function setupIpc(expressApp: Express): IpcHub {
 
   ipcMain.handle('vibisual:server-info', () => ({ port: 0, running: true }));
 
+  const commandAppIcons = createCommandAppIconResolver({
+    platform: process.platform,
+    env: process.env,
+    knownDirs: knownBinDirs({ platform: process.platform, env: process.env, home: homedir() }),
+    getIconPng: async (file) => {
+      const icon = await app.getFileIcon(file, { size: 'normal' });
+      return icon.isEmpty() ? null : icon.toPNG();
+    },
+  });
+  ipcMain.handle(COMMAND_APP_ICON_CHANNEL, (event, executable: unknown): Promise<string | null> => {
+    if (isVerificationWindow(event.sender.id) || !BrowserWindow.fromWebContents(event.sender)
+      || !isCommandAppIconRenderer(event, join(__dirname, '../renderer/index.html'), process.platform)) return Promise.resolve(null);
+    return commandAppIcons.get(executable);
+  });
+
+  // §5.13 (Y) 40-12 — 계측(렌더러 계측 스위치를 켠 창만 부른다). 프로세스 종류별 메모리 · 계측 한 줄(`main-stall.log` 의 `perf`).
+  ipcMain.handle('vibisual:perf:metrics', (): PerfProcessMemoryWire[] => summarizeProcessMetrics(app.getAppMetrics()));
+  ipcMain.on('vibisual:perf:line', (_event, line: unknown) => {
+    if (typeof line === 'string' && line.trim() !== '') logPerfLine(line);
+  });
+
   ipcMain.handle(
     'vibisual:fetch',
     async (_event, path: string, init?: FetchInitWire): Promise<FetchResponseWire> => {
@@ -214,12 +251,24 @@ export function setupIpc(expressApp: Express): IpcHub {
           : init.bodyEncoding === 'base64'
             ? Buffer.from(init.body, 'base64')
             : init.body;
+      const startedAt = performance.now();
+      // §5.13 (Y) 40-7 ① — `payloadAsStream`: 조각을 모으기만 하고 바이너리를 문자열로 바꾸지 않는다(light-my-request 의 기본 길은
+      //   응답마다 `rawPayload.toString()` 을 만든다 — 바이너리여도).
       const res = await inject(expressApp as unknown as DispatchFunc, {
         method: (init?.method ?? 'GET') as 'GET',
         url: path,
         headers: init?.headers,
         payload,
+        payloadAsStream: true,
       });
+      const chunks: Buffer[] = [];
+      let received = 0;
+      for await (const chunk of res.stream()) {
+        const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+        chunks.push(part);
+        received += part.length;
+      }
+      const raw = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, received);
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(res.headers)) {
         if (v == null) continue;
@@ -231,9 +280,12 @@ export function setupIpc(expressApp: Express): IpcHub {
         status: res.statusCode,
         statusText: res.statusMessage ?? '',
         headers,
-        body: textual ? res.payload : res.rawPayload.toString('base64'),
+        body: textual ? raw.toString('utf8') : '',
       };
-      if (!textual) wire.bodyEncoding = 'base64';
+      // 구조화 복제는 보기(view)가 아니라 밑의 버퍼 전체를 실어 나른다 — 풀(pool)에서 잘라 낸 조각이면 제 크기로 옮겨 싣는다.
+      if (!textual) wire.bodyBytes = raw.byteOffset === 0 && raw.byteLength === raw.buffer.byteLength ? new Uint8Array(raw.buffer) : new Uint8Array(raw);
+      // §5.13 (Y) 40-12 — 느리거나(100ms) 큰(8MB) 응답은 경로·크기와 함께 남긴다(멈춤의 원인을 가를 수 있게).
+      logTransfer({ at: Date.now(), channel: 'ipc-fetch', path, ms: performance.now() - startedAt, bytes: received });
       return wire;
     },
   );
@@ -286,10 +338,9 @@ export function setupIpc(expressApp: Express): IpcHub {
   });
 
   ipcMain.handle('vibisual:window:close-self', (event): boolean => {
-    // 별창의 X 가 아니라 별창 안의 "메인으로 합치기" 버튼 같은 데서 자기 창 직접 닫기용.
-    const wcId = event.sender.id;
-    // detached 매핑이 있는 창이면 closeByWindowId, 아니면 BrowserWindow.fromWebContents 로 닫음.
-    return closeByWindowId(wcId);
+    // Renderer confirmation already ran. WebContents ids are not BrowserWindow ids.
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && closeByWindowId(win.id);
   });
 
   // §5.4 #14-1 — 별창 자기 창의 최소화/최대화(복원) 토글. 닫기(close-self) 와 동일하게
@@ -323,6 +374,14 @@ export function setupIpc(expressApp: Express): IpcHub {
   //   스레드가 바쁘면 이 채널을 늦게 받는다. 그때 OS 커서는 손이 이미 옮겨 간 자리라 누른 자리를 여기서 읽으면
   //   끝난 손짓이 0px 이 됐다. 렌더러가 실어 보낸 화면 좌표로 누른 자리를 잡고, 늦게 받은 해제는 놓은 자리까지
   //   옮긴다(`titlebarMove.ts`). 페이지까지 온 제목줄 누름도 덮개와 같은 이 채널을 탄다(client `titlebarPress.ts`).
+  //
+  // §3.7 (2026-10-16) — **최대화된 창을 덮개로 끌면 작아지며 끝까지 따라온다.** 종전에는 페이지의 `mousemove` 마다 오는
+  //   `move` 에만 기대 창을 옮겼다. 최대화를 푸는 순간 창 크기가 손 밑에서 바뀌며 페이지가 손짓을 놓치면 그 `move` 가
+  //   끊겨 창이 따라오지 않았다(사용자 지시 — 헤더 빈 자리처럼 덮개에서도 되게 "연결만 시켜"). 이제 손짓을 시작하면
+  //   main 이 앱 창 끌기(`appWindowTransfer.ts`)와 같은 박자로 OS 커서를 직접 읽어 따라가고, 손을 뗀 것은 같은 물리
+  //   버튼 판정으로 안다(`followTitlebarMove`). 페이지의 `move`·`end` 는 그대로 받는다 — 놓은 자리는 여전히 렌더러 값이다.
+  // 로고도 이제 헤더와 같은 native drag 영역이다. 이 채널은 OS 가 페이지로 보낸 누름의
+  // 공통 보조 경로로 남긴다(installTitlebarPressCatch). native 이동 중에는 호출하지 않는다.
   const titlebarDrags = new Map<WebContents, TitlebarMove>();
   ipcMain.handle('vibisual:window:move-self', (event, phase: string, point?: unknown): boolean => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -331,12 +390,20 @@ export function setupIpc(expressApp: Express): IpcHub {
     if (phase === 'end') { titlebarDrags.get(event.sender)?.end(at); return true; }
     if (phase === 'start') {
       titlebarDrags.get(event.sender)?.cancel();
-      titlebarDrags.set(event.sender, startTitlebarMove(
+      let stopFollowing = (): void => { /* 박자는 아래에서 건다 */ };
+      const gesture = startTitlebarMove(
         win,
         { current: () => screen.getCursorScreenPoint(), ...(at ? { press: at } : {}) },
         dipStepAt,
-        () => { titlebarDrags.delete(event.sender); },
-      ));
+        () => {
+          stopFollowing();
+          if (titlebarDrags.get(event.sender) === gesture) titlebarDrags.delete(event.sender);
+        },
+      );
+      titlebarDrags.set(event.sender, gesture);
+      // §3.7 (2026-10-16) — main 도 제 박자로 손을 따라간다. 페이지의 `move` 는 최대화를 푸는 순간 끊길 수 있다.
+      //   앱 창 끌기와 같은 박자·같은 물리 버튼 판정(`appWindowPrimaryPressed` — win32 만 값, 그 밖은 null)이다.
+      stopFollowing = followTitlebarMove(gesture, appWindowPrimaryPressed);
       return true;
     }
     const drag = titlebarDrags.get(event.sender);
@@ -352,6 +419,20 @@ export function setupIpc(expressApp: Express): IpcHub {
     //   보낸 창 그 자체로 먼저 맞춘다 — 번호로 맞추지 않는다(`toggleMaximizeMainWindow`).
     return toggleMaximizeMainWindow(BrowserWindow.fromWebContents(event.sender))
       || toggleMaximizeByWindowId(event.sender.id);
+  });
+
+  const immersiveWindows = new Map<BrowserWindow, ReturnType<typeof createWindowImmersiveController>>();
+  ipcMain.handle('vibisual:window:set-immersive-self', async (event, enabled: unknown): Promise<void> => {
+    if (typeof enabled !== 'boolean') throw new Error('Immersive state must be a boolean');
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) throw new Error('The immersive window has closed');
+    let controller = immersiveWindows.get(win);
+    if (!controller) {
+      controller = createWindowImmersiveController(win);
+      immersiveWindows.set(win, controller);
+      win.once('closed', () => immersiveWindows.delete(win));
+    }
+    await controller.setEnabled(enabled);
   });
 
   ipcMain.handle('vibisual:window:list-detached', () => listDetached());
@@ -776,7 +857,11 @@ export function setupIpc(expressApp: Express): IpcHub {
     stop(): void {
       for (const drag of titlebarDrags.values()) drag.cancel();
       titlebarDrags.clear();
+      for (const controller of immersiveWindows.values()) controller.dispose();
+      immersiveWindows.clear();
       ipcMain.removeHandler('vibisual:server-info');
+      ipcMain.removeHandler(COMMAND_APP_ICON_CHANNEL);
+      commandAppIcons.dispose();
       ipcMain.removeHandler('vibisual:fetch');
       ipcMain.removeHandler('vibisual:send');
       ipcMain.removeHandler('vibisual:ws-connect');
@@ -786,6 +871,7 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:window:move-self');
       ipcMain.removeHandler('vibisual:window:minimize-self');
       ipcMain.removeHandler('vibisual:window:toggle-maximize-self');
+      ipcMain.removeHandler('vibisual:window:set-immersive-self');
       ipcMain.removeHandler('vibisual:window:list-detached');
       ipcMain.removeHandler('vibisual:window:has-tab');
       ipcMain.removeHandler('vibisual:window:cursor-screen');

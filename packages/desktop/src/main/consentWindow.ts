@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import { showAppMessageBox } from './appMessageBox';
 import { consentDocuments, type ConsentDocuments } from './consentDocuments';
 import { consentLocale, consentStrings, CONSENT_LANGUAGES } from './consentStrings';
 import { hasCurrentConsent, saveConsent } from './consentRecord';
 import { CONSENT_ACTION_ORIGIN, CONSENT_WINDOW, consentPage } from './consentPage';
+import { coverFirstShow } from './windowCloak';
 
 let consentWindow: BrowserWindow | null = null;
 
@@ -30,6 +32,8 @@ function askConsent(documents: ConsentDocuments, recordPath: string, initialLoca
         partition: 'vibisual-consent', spellcheck: false },
     });
     consentWindow = window;
+    // §3.7 · §9 「시작 화면」 ② 첫 표시 — Windows 의 첫 표시 흰 프레임을 가림 뒤로(스플래시·본체 창과 같은 길).
+    void coverFirstShow(window, { platform: process.platform });
     let settled = false;
     let saving = false;
     const finish = (accepted: boolean): void => { if (!settled) { settled = true; resolve(accepted); } };
@@ -72,21 +76,30 @@ function askConsent(documents: ConsentDocuments, recordPath: string, initialLoca
   });
 }
 
-/** Gate packaged desktop apps; development execution does not prompt for the distribution EULA. */
-export async function ensureDesktopConsent(): Promise<boolean> {
+/**
+ * Gate packaged desktop apps; development execution does not prompt for the distribution EULA.
+ * `onPrompt` runs right before any consent UI appears (the agreement or its load error) — the
+ * startup splash hides there so it never sits beside or over the agreement (§3.7 「시작 화면」).
+ */
+export async function ensureDesktopConsent(options: { onPrompt?: () => void } = {}): Promise<boolean> {
   if (!app.isPackaged) return true;
   const locale = consentLocale(app.getLocale());
+  const prompting = (): void => {
+    try { options.onPrompt?.(); } catch (error) { console.error('[consent] onPrompt failed:', error); }
+  };
   try {
     const documents = consentDocuments();
     const recordPath = join(app.getPath('userData'), 'legal-consent.json');
     if (hasCurrentConsent(recordPath, documents)) return true;
+    prompting();
     return await askConsent(documents, recordPath, locale);
   } catch (error) {
     console.error('[consent] could not open agreement:', error);
+    prompting();
     try {
       const strings = consentStrings(locale);
-      await dialog.showMessageBox({ type: 'error', title: strings.title, message: strings.loadError,
-        buttons: [strings.decline], noLink: true });
+      await showAppMessageBox({ type: 'error', title: strings.title, message: strings.loadError,
+        buttons: [strings.decline], locale });
     } catch (dialogError) { console.error('[consent] could not show error:', dialogError); }
     return false;
   }

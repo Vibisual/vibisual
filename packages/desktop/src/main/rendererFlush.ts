@@ -12,10 +12,13 @@
  * 이 한 번으로 별창·오버레이·지휘통제실·내부 앱 창까지 전부 덮인다.
  */
 import { BrowserWindow, ipcMain, session } from 'electron';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isVerificationWindow } from './verificationWindows';
 import {
   FLUSH_DRAFTS_REQUEST_CHANNEL,
   FLUSH_DRAFTS_DONE_CHANNEL,
+  FLUSH_DRAFTS_CANCELED_CHANNEL,
   FLUSH_DRAFTS_TIMEOUT_MS,
   collectFlushAcks,
   type FlushAckResult,
@@ -26,25 +29,43 @@ import {
 let requestSeq = 0;
 
 /** 지금 살아 있어 요청을 받을 수 있는 창들. */
-function liveTargets(): FlushAckTarget[] {
-  const out: FlushAckTarget[] = [];
+function liveRenderers(): Electron.WebContents[] {
+  const out: Electron.WebContents[] = [];
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
     const wc = win.webContents;
-    if (wc.isDestroyed() || wc.isCrashed() || isVerificationWindow(wc.id)) continue;
-    out.push({
-      id: wc.id,
-      send: (requestId: number) => wc.send(FLUSH_DRAFTS_REQUEST_CHANNEL, { requestId }),
-    });
+    if (wc.isDestroyed() || isVerificationWindow(wc.id)) continue;
+    // Message/splash windows have no application draft registry. Visibility is irrelevant:
+    // retained modeling windows still own work that must be saved before process teardown.
+    try {
+      if (fileURLToPath(wc.getURL()) !== join(__dirname, '../renderer/index.html')) continue;
+    } catch { continue; }
+    out.push(wc);
   }
   return out;
+}
+
+function liveTargets(): FlushAckTarget[] {
+  return liveRenderers().map((wc) => ({
+      id: wc.id,
+      send: (requestId: number) => {
+        if (wc.isCrashed()) throw new Error('Renderer stopped before drafts were saved');
+        wc.send(FLUSH_DRAFTS_REQUEST_CHANNEL, { requestId });
+      },
+    }));
+}
+
+/** Release editors even after a failed/timed-out round, before allowing retry or cancellation. */
+export function releaseRendererDrafts(): void {
+  for (const wc of liveRenderers()) {
+    try { wc.send(FLUSH_DRAFTS_CANCELED_CHANNEL); } catch { /* The renderer may have stopped. */ }
+  }
 }
 
 /**
  * 열려 있는 모든 창에 "지금 초안을 밀어라"를 보내고 응답을 기다린 뒤, DOMStorage 를 디스크에 앉힌다.
  *
- * **종료를 막지 않는다** — 상한(`FLUSH_DRAFTS_TIMEOUT_MS`)을 넘기면 받은 만큼만 들고 나가고,
- * 어떤 실패에서도 reject 하지 않는다(호출부의 `Promise.all` 이 이 하나 때문에 끊기면 안 된다).
+ * A failed or missing acknowledgement is returned to the caller, which must keep the app alive.
  */
 export async function flushRendererDrafts(timeoutMs = FLUSH_DRAFTS_TIMEOUT_MS): Promise<FlushAckResult> {
   const requestId = (requestSeq += 1);
@@ -57,15 +78,17 @@ export async function flushRendererDrafts(timeoutMs = FLUSH_DRAFTS_TIMEOUT_MS): 
       timeoutMs,
       subscribe: (onAck) => {
         const listener = (event: Electron.IpcMainEvent, payload: unknown): void => {
-          // payload 는 숫자 하나(회차 번호). 모양이 다르면 무시한다 — 남의 메시지를 답으로 세지 않는다.
-          if (typeof payload !== 'number') return;
-          onAck(event.sender.id, payload);
+          if (!payload || typeof payload !== 'object') return;
+          const ack = payload as { requestId?: unknown; ok?: unknown };
+          if (typeof ack.requestId !== 'number' || typeof ack.ok !== 'boolean') return;
+          onAck(event.sender.id, ack.requestId, ack.ok);
         };
         ipcMain.on(FLUSH_DRAFTS_DONE_CHANNEL, listener);
         return () => ipcMain.removeListener(FLUSH_DRAFTS_DONE_CHANNEL, listener);
       },
     });
   } catch (err) {
+    result.failed += 1;
     console.warn('[main] flushRendererDrafts: ack collection failed:', err);
   }
 
@@ -73,12 +96,13 @@ export async function flushRendererDrafts(timeoutMs = FLUSH_DRAFTS_TIMEOUT_MS): 
   try {
     session.defaultSession.flushStorageData();
   } catch (err) {
+    result.failed += 1;
     console.warn('[main] flushRendererDrafts: flushStorageData failed:', err);
   }
 
   if (result.timedOut) {
     console.warn(
-      `[main] flushRendererDrafts: ${result.acked}/${result.requested} window(s) acked within ${timeoutMs}ms — exiting anyway`,
+      `[main] flushRendererDrafts: ${result.acked}/${result.requested} window(s) acked within ${timeoutMs}ms — shutdown blocked`,
     );
   }
   return result;

@@ -27,6 +27,7 @@ import {
 import { acceptReportedSize, dipStepFor, landedSpan, movedBounds, snapDip, type OverlaySize } from './overlaySize';
 import { AppWindowTransfers, type AppWindowListItem, type AppWindowPlacement } from './appWindowTransfer';
 import { appWindowPrimaryPressed } from './appWindowMouseButton';
+import { createAppWindowClose } from './appWindowClose';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
 //
@@ -281,6 +282,8 @@ function selfWindowById(windowId: number): BrowserWindow | null {
 }
 
 export function closeByWindowId(windowId: number): boolean {
+  // This IPC is sent only after renderer confirmation; transfers use the same explicit teardown.
+  for (const entry of appWindows.values()) if (entry.id === windowId) return entry.lifecycle.close();
   const win = selfWindowById(windowId);
   if (!win) return false;
   if (!win.isDestroyed()) win.close();
@@ -332,6 +335,9 @@ export function closeAll(): void {
   }
   byTabKey.clear();
   byWindowId.clear();
+  // Closing the main application owns teardown, including hidden retained app renderers.
+  for (const entry of [...appWindows.values()]) if (!entry.window.isDestroyed()) entry.window.destroy();
+  appWindows.clear();
 }
 
 export function getCursorScreenPoint(): { x: number; y: number } {
@@ -2586,6 +2592,7 @@ interface AppWindowEntry {
   id: number;
   window: BrowserWindow;
   ready: Promise<void>;
+  lifecycle: ReturnType<typeof createAppWindowClose>;
 }
 
 const appWindows = new Map<string, AppWindowEntry>();
@@ -2602,6 +2609,7 @@ const appWindowTransfers = new AppWindowTransfers({
   primaryPressed: appWindowPrimaryPressed,
   // §5.13 (S-11) 창이 서고 닫히거나 보는 문서가 바뀔 때마다 — 본체가 "이미 밖에 떠 있다"를 판정하는 근거다.
   changed: () => broadcastAppWindowList(),
+  close: (window) => { closeByWindowId(window.id); },
 });
 
 /**
@@ -2755,15 +2763,17 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
   });
 
   // Keep the embedded source until loading has succeeded; a failed child must not take it away.
+  const lifecycle = createAppWindowClose(win);
+  win.on('close', lifecycle.onClose);
   const ready = win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
-  appWindows.set(appId, { id: win.id, window: win, ready });
+  appWindows.set(appId, { id: win.id, window: win, ready, lifecycle });
   try {
     await ready;
     if (win.isDestroyed()) throw new Error('Application window closed before loading');
   } catch (error) {
     // (S-10) 못 열었다 — 선을 걷는다(앱 안 창은 렌더러가 제자리에 되살린다).
     if (isGhostHandoffTarget(win.id)) finishGhostHandoff();
-    if (!win.isDestroyed()) win.close();
+    if (!win.isDestroyed()) lifecycle.close();
     throw error;
   }
   return { windowId: win.id, reused: false };
@@ -2788,6 +2798,16 @@ export function ackAppWindowTarget(windowId: number, requestId: string, accepted
 export function closeAppWindow(appId: string): boolean {
   const entry = appWindows.get(appId);
   if (!entry) return false;
-  if (!entry.window.isDestroyed()) entry.window.close();
+  if (!entry.window.isDestroyed()) entry.lifecycle.close();
   return true;
+}
+
+export function setAppWindowCloseRetention(windowId: number, retained: boolean): boolean {
+  for (const entry of appWindows.values()) if (entry.id === windowId) return entry.lifecycle.setRetention(retained);
+  return false;
+}
+
+export function hideAppWindow(windowId: number): boolean {
+  for (const entry of appWindows.values()) if (entry.id === windowId) return entry.lifecycle.hide();
+  return false;
 }

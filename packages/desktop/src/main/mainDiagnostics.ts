@@ -1,7 +1,8 @@
 import type { EventEmitter } from 'node:events';
 
 const LIMITS = { message: 4000, stack: 8000 };
-type FaultKind = 'uncaughtException' | 'unhandledRejection' | 'stdout' | 'stderr' | 'hook' | 'hook-listener' | 'backend-startup';
+// `launch` — §3.7 「시작 화면」 시작 흐름(동의 → 백엔드 → 본체 창)에서 백엔드 부팅 밖으로 새어 나온 오류.
+type FaultKind = 'uncaughtException' | 'unhandledRejection' | 'stdout' | 'stderr' | 'hook' | 'hook-listener' | 'backend-startup' | 'launch' | 'quit-confirmation';
 interface DiagnosticSinks {
   persist: (message: string, stack?: string) => void;
   publish: (message: string, stack?: string) => void;

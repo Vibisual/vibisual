@@ -91,7 +91,10 @@ export default defineConfig({
       copyHookHandlerPlugin(),
     ],
     build: {
-      lib: { entry: resolve(__dirname, 'src/main/index.ts'), formats: ['cjs'] },
+      // §3.7 · §9 「시작 화면(스플래시)」 — 입구는 가벼운 시작 진입점이다. 그것이 스플래시를 먼저 띄운 뒤
+      //   `import('./index')` 로 본체(서버 코어 전부)를 읽으므로 본체는 별도 청크로 나뉜다. 출력 이름은 그대로
+      //   `index.cjs` — package.json `main` 과 설치본이 가리키는 자리가 바뀌지 않는다.
+      lib: { entry: resolve(__dirname, 'src/main/bootstrap.ts'), formats: ['cjs'] },
       rollupOptions: {
         output: { entryFileNames: 'index.cjs' },
       },
@@ -102,8 +105,16 @@ export default defineConfig({
     build: {
       // preload 는 CJS(.cjs)로 emit. ESM preload(.mjs)는 Electron 에서 window.api 노출이
       // 불안정. .cjs 확장자라 package.json "type":"module" 과 무관하게 CJS 로 로드된다.
-      lib: { entry: resolve(__dirname, 'src/preload/index.ts'), formats: ['cjs'] },
-      rollupOptions: { output: { entryFileNames: 'index.cjs' } },
+      // §3.7 「시작 화면」 — 스플래시 창 전용 preload(`splash.cjs`)를 함께 낸다. 샌드박스 preload 라 다른 파일을
+      //   require 할 수 없다 — 둘이 나눠 쓰는 모듈이 생기면 공유 청크가 생겨 스플래시가 깨진다(splash.ts 는 electron 만 부른다).
+      lib: {
+        entry: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          splash: resolve(__dirname, 'src/preload/splash.ts'),
+        },
+        formats: ['cjs'],
+      },
+      rollupOptions: { output: { entryFileNames: '[name].cjs' } },
     },
   },
   renderer: {

@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure, PerfMemoryWire, PerfProcessMemoryWire, PerfRendererMemoryWire } from '@vibisual/shared';
 // §9 — 스냅샷 무복사 경로의 채널명·디코더. electron 무의존 순수 모듈이라 preload 번들에 그대로
 // 들어간다. main 과 **같은 상수**를 쓰게 해 채널명이 양쪽에서 따로 흘러가지 않게 한다.
 import { WS_BUFFER_CHANNEL, WS_BUFFER_READY_CHANNEL, WS_OBJECT_CHANNEL, decodeWire } from '../main/snapshotWire';
+import { COMMAND_APP_ICON_CHANNEL } from '../main/commandAppIconConfig';
+import { IMMERSIVE_SHORTCUT_CHANNEL } from '../main/windowImmersive';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -24,8 +26,10 @@ export interface FetchResponseWire {
   statusText: string;
   headers: Record<string, string>;
   body: string;
-  /** `body` 가 base64 인코딩 바이너리임을 표시 — 비텍스트 응답(이미지 등) 무손실 전달. */
+  /** `body` 가 base64 인코딩 바이너리임을 표시 — 옛 길(하위 호환). */
   bodyEncoding?: 'base64';
+  /** §5.13 (Y) 40-7 ① — 비텍스트 응답의 바이트 그대로(구조화 복제 — 문자열로 바꾸지 않는다). 있으면 `body` 는 빈 문자열. */
+  bodyBytes?: Uint8Array;
 }
 
 export interface ServerInfo {
@@ -99,6 +103,7 @@ ipcRenderer.send(WS_BUFFER_READY_CHANNEL);
 
 const api = {
   serverInfo: (): Promise<ServerInfo> => ipcRenderer.invoke('vibisual:server-info'),
+  getCommandAppIcon: (executable: string): Promise<string | null> => ipcRenderer.invoke(COMMAND_APP_ICON_CHANNEL, executable),
   /**
    * OS 파일 드래그앤드롭 — 드롭된 File 의 절대경로 해석(Electron 31+ webUtils).
    * `File.path` 는 Electron 32 에서 제거 예정이라 공식 권장 경로(webUtils.getPathForFile)로 통일.
@@ -138,6 +143,18 @@ const api = {
     minimizeSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:window:minimize-self'),
     toggleMaximizeSelf: (): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:window:toggle-maximize-self'),
+    setImmersiveSelf: (enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke('vibisual:window:set-immersive-self', enabled),
+    onImmersionShortcut: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on(IMMERSIVE_SHORTCUT_CHANNEL, listener);
+      return () => ipcRenderer.removeListener(IMMERSIVE_SHORTCUT_CHANNEL, listener);
+    },
+    onImmersiveState: (cb: (payload: { immersive: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { immersive: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:window:immersive-state', listener);
+      return () => ipcRenderer.removeListener('vibisual:window:immersive-state', listener);
+    },
     /** main 이 maximize/unmaximize 시 푸시하는 자기 창의 최대화 상태 구독(아이콘 토글용). */
     onMaximizeState: (cb: (payload: { maximized: boolean }) => void): (() => void) => {
       const listener = (_e: unknown, payload: { maximized: boolean }): void => cb(payload);
@@ -484,6 +501,13 @@ const api = {
     open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:app:open', { appId, params, placement }),
     close: (appId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:close', { appId }),
+    hideSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:app:hide-self'),
+    setCloseRetention: (retained: boolean): Promise<boolean> => ipcRenderer.invoke('vibisual:app:close-retention', retained),
+    onCloseRequested: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on('vibisual:app:close-requested', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:close-requested', listener);
+    },
     updateTarget: (params: Record<string, string>): Promise<boolean> => ipcRenderer.invoke('vibisual:app:update-target', params),
     startDrag: (): Promise<boolean> => ipcRenderer.invoke('vibisual:app:drag-start'),
     endDrag: (commit?: boolean, appId?: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:drag-end', { commit, appId }),
@@ -499,6 +523,11 @@ const api = {
       const listener = (_e: unknown, payload: { appId: string; dragging: boolean; armed: boolean }): void => cb(payload);
       ipcRenderer.on('vibisual:app:drag-state', listener);
       return () => ipcRenderer.removeListener('vibisual:app:drag-state', listener);
+    },
+    onTransferSettled: (cb: (payload: { appId: string; transferred: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { appId: string; transferred: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:app:transfer-settled', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:transfer-settled', listener);
     },
     /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
     invoke: (appId: string, action: string, payload?: unknown): Promise<unknown> =>
@@ -682,24 +711,56 @@ const api = {
    * 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 **그 세 이벤트가 뜨지 않는다** —
    * main 이 대신 물어봐 주는 길이다.
    *
-   * `cb` 가 던져도 **반드시 답한다** — 답이 없으면 main 이 상한(600ms)까지 기다렸다 나가고,
-   * 그만큼 다른 창의 초안 저장까지 늦어진다.
+   * Durable writes must finish before acknowledging success. Failure keeps the app open.
    */
   lifecycle: {
-    onFlushDrafts: (cb: () => void): (() => void) => {
+    onFlushDraftsCanceled: (cb: () => void): (() => void) => {
+      const listener = (): void => { cb(); };
+      ipcRenderer.on('vibisual:lifecycle:flush-drafts:canceled', listener);
+      return () => ipcRenderer.removeListener('vibisual:lifecycle:flush-drafts:canceled', listener);
+    },
+    onFlushDrafts: (cb: () => boolean | Promise<boolean>): (() => void) => {
       // 채널 이름 정본은 main 의 `rendererFlushPlan.ts` — 바꾸면 양쪽을 함께 고친다.
       const listener = (_e: unknown, payload: { requestId?: number } | undefined): void => {
-        try {
-          cb();
-        } catch (err) {
-          console.error('[preload] flush-drafts handler failed', err);
-        } finally {
-          ipcRenderer.send('vibisual:lifecycle:flush-drafts:done', payload?.requestId ?? 0);
-        }
+        void Promise.resolve().then(cb).then(
+          (ok) => ipcRenderer.send('vibisual:lifecycle:flush-drafts:done', { requestId: payload?.requestId ?? 0, ok: ok === true }),
+          () => ipcRenderer.send('vibisual:lifecycle:flush-drafts:done', { requestId: payload?.requestId ?? 0, ok: false }),
+        );
       };
       ipcRenderer.on('vibisual:lifecycle:flush-drafts', listener);
       return () => ipcRenderer.removeListener('vibisual:lifecycle:flush-drafts', listener);
     },
+    /**
+     * §3.7 · §9 「시작 화면(스플래시)」 — **본체 창이 첫 화면을 다 그렸다.** 앱을 켤 때 본체 창은 숨긴 채 그리고
+     * 스플래시가 그 앞을 지킨다. main 은 이 신호(와 부팅 확인·메인 스레드의 조용함)를 보고 창을 보인다.
+     * 본체 창이 아닌 창이 보내거나 이미 보인 뒤면 main 이 무시한다(거짓). 채널 정본은 main 의 `mainReveal.ts`.
+     */
+    mainReady: (): Promise<boolean> => ipcRenderer.invoke('vibisual:lifecycle:main-ready'),
+  },
+  /**
+   * §5.13 (Y) 40-12 — 계측. 렌더러 계측 스위치(`__VIBI_PERF__`)를 켠 창만 부른다(기본 비용 0). 이 창(렌더러)의 메모리·Blink 힙과
+   * 앱 전체 프로세스별 메모리(main 의 `app.getAppMetrics()` — GPU 포함, Windows 는 privateBytes 도), 그리고 `main-stall.log` 에
+   * 남길 한 줄. `residentSet` 은 Linux·Windows 만 준다(macOS 에서는 비어 있다).
+   */
+  perf: {
+    memory: async (): Promise<PerfMemoryWire> => {
+      let renderer: PerfRendererMemoryWire | null = null;
+      try {
+        const info = await process.getProcessMemoryInfo();
+        const blink = process.getBlinkMemoryInfo();
+        renderer = {
+          privateKB: info.private,
+          ...(typeof info.residentSet === 'number' ? { residentKB: info.residentSet } : {}),
+          blinkAllocatedKB: blink.allocated,
+          blinkTotalKB: blink.total,
+        };
+      } catch {
+        renderer = null;
+      }
+      const processes = await (ipcRenderer.invoke('vibisual:perf:metrics') as Promise<PerfProcessMemoryWire[]>).catch(() => []);
+      return { renderer, processes };
+    },
+    log: (line: string): void => { ipcRenderer.send('vibisual:perf:line', String(line).slice(0, 4000)); },
   },
 };
 

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 import { createTerminal, killAllTerminals, killTerminal, terminalController, writeTerminal, type TermSink } from './terminalManager';
 
-const mocks = vi.hoisted(() => ({ spawn: vi.fn(), killTree: vi.fn(), diagnostic: vi.fn() }));
+const mocks = vi.hoisted(() => ({ spawn: vi.fn(), killTree: vi.fn(), diagnostic: vi.fn(), adopt: vi.fn(), rootExited: vi.fn() }));
 vi.mock('node-pty', () => ({ spawn: mocks.spawn }));
 vi.mock('node:fs', () => ({ existsSync: () => true, statSync: () => ({ mode: 0o755 }), chmodSync: vi.fn() }));
 vi.mock('@vibisual/server', () => ({
@@ -11,6 +11,7 @@ vi.mock('@vibisual/server', () => ({
   buildBashTimeoutEnv: () => ({}), buildAgentTokenSaverEnv: () => ({}), buildVerificationGateEnv: () => ({}), prepareInteractiveRulesDir: () => null,
   buildInteractivePluginBlockForAgent: () => '', getCmdResumeSession: () => null, parseCmdTermId: () => null,
   recordDiagnostic: mocks.diagnostic, killTree: mocks.killTree,
+  processGuard: { adopt: mocks.adopt, rootExited: mocks.rootExited },
 }));
 
 class Terminal extends EventEmitter {
@@ -34,6 +35,7 @@ afterEach(() => { killAllTerminals(); vi.useRealTimers(); });
 describe('PTY failures and delayed events only affect their original session', () => {
   it('preserves the actual successful exit after node-pty reports normal output EIO', () => {
     const h = create('normal-eio');
+    expect(mocks.adopt).toHaveBeenCalledWith(h.terminal.pid, null, 'pty', { reapOnExit: true });
     h.terminal.emit('error', Object.assign(new Error('read EIO'), { code: 'EIO' }));
     expect(terminalController.exists('normal-eio')).toBe(true);
     expect(h.sink.sendExit).not.toHaveBeenCalled();
@@ -41,6 +43,7 @@ describe('PTY failures and delayed events only affect their original session', (
     h.terminal.emit('exit', { exitCode: 0 });
     expect(h.sink.sendExit).toHaveBeenCalledExactlyOnceWith('normal-eio', 0);
     expect(terminalController.exists('normal-eio')).toBe(false);
+    expect(mocks.rootExited).toHaveBeenCalledExactlyOnceWith(h.terminal.pid);
   });
 
   it.each(['input', 'output'])('reports %s failure once and retains late error listeners', (side) => {

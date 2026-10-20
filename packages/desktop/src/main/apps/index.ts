@@ -16,8 +16,10 @@ import { BrowserWindow, type IpcMain } from 'electron';
 import {
   ackAppWindowRedock, ackAppWindowTarget, closeAppWindow, endAppWindowDrag, focusAppWindow, listAppWindows, openAppWindow,
   redockAppWindow, startAppWindowDrag, updateAppWindowTarget, type AppWindowSpec,
+  hideAppWindow, setAppWindowCloseRetention,
 } from '../windowManager';
 import type { AppWindowListItem, AppWindowPlacement } from '../appWindowTransfer';
+import { simpleAppWindowHash } from '../appWindowHash';
 
 /** 앱의 main 프로세스 몫이 갖춰야 할 모양. 앱은 코어 타입을 import 하지 않는다. */
 interface MainAppModule {
@@ -47,17 +49,6 @@ interface MainAppEntry {
   readonly window?: (params: Record<string, string>) => AppWindowSpec;
 }
 
-/** 창 규격만 있는 앱의 hash 를 만든다 — 파라미터 이름이 앱마다 갈리지 않게 한 곳에서. */
-function simpleHash(appId: string, params: Record<string, string>): string {
-  const parts = [`app=${encodeURIComponent(appId)}`];
-  // `appBubbleId` — §5.13 (L) 이 창을 연 캔버스 노드(앱이 고른 작업 문서를 그 노드가 기억한다).
-  for (const key of ['projectId', 'file', 'clipId', 'modelId', 'imageId', 'appBubbleId']) {
-    const value = params[key];
-    if (value !== undefined && value !== '') parts.push(`${key}=${encodeURIComponent(value)}`);
-  }
-  return parts.join('&');
-}
-
 const MAIN_APPS: readonly MainAppEntry[] = [
   { id: 'vibistudio', load: () => import('@vibisual/video/main') },
   {
@@ -68,7 +59,7 @@ const MAIN_APPS: readonly MainAppEntry[] = [
       height: 660,
       minWidth: 720,
       minHeight: 440,
-      hash: simpleHash('vibisound', params),
+      hash: simpleAppWindowHash('vibisound', params),
     }),
   },
   {
@@ -79,7 +70,7 @@ const MAIN_APPS: readonly MainAppEntry[] = [
       height: 780,
       minWidth: 720,
       minHeight: 520,
-      hash: simpleHash('vibi3d', params),
+      hash: simpleAppWindowHash('vibi3d', params),
     }),
   },
   {
@@ -91,7 +82,7 @@ const MAIN_APPS: readonly MainAppEntry[] = [
       height: 680,
       minWidth: 480,
       minHeight: 360,
-      hash: simpleHash('vibimage', params),
+      hash: simpleAppWindowHash('vibimage', params),
     }),
   },
 ];
@@ -126,6 +117,14 @@ async function moduleFor(appId: unknown): Promise<MainAppModule | null> {
 }
 
 export function mountAppIpc(ipcMain: IpcMain): void {
+  ipcMain.handle('vibisual:app:hide-self', (event): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && hideAppWindow(win.id);
+  });
+  ipcMain.handle('vibisual:app:close-retention', (event, retained: unknown): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && typeof retained === 'boolean' && setAppWindowCloseRetention(win.id, retained);
+  });
   ipcMain.handle(
     'vibisual:app:open',
     async (event, payload: { appId: string; params?: Record<string, string>; placement?: AppWindowPlacement }): Promise<{ windowId: number; reused: boolean }> => {
@@ -191,6 +190,8 @@ export function mountAppIpc(ipcMain: IpcMain): void {
 }
 
 export function removeAppIpc(ipcMain: IpcMain): void {
+  ipcMain.removeHandler('vibisual:app:hide-self');
+  ipcMain.removeHandler('vibisual:app:close-retention');
   ipcMain.removeHandler('vibisual:app:open');
   ipcMain.removeHandler('vibisual:app:close');
   ipcMain.removeHandler('vibisual:app:invoke');

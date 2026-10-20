@@ -48,6 +48,33 @@ function redockPayload(win: AppTransferWindow) {
 describe('app window ownership transfer', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1_000); });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+  it('settles source quiescence after destination acknowledgement, never when delivery is only queued', () => {
+    const s = setup();
+    expect(s.transfers.redock(2)).toBe(true);
+    expect(vi.mocked(s.source.webContents.send).mock.calls.filter(([channel]) => channel === 'vibisual:app:transfer-settled')).toHaveLength(0);
+    expect(s.transfers.ackRedock(1, redockPayload(s.main).requestId)).toBe(true);
+    expect(s.source.webContents.send).toHaveBeenCalledWith('vibisual:app:transfer-settled', { appId: 'vibistudio', transferred: true });
+  });
+  it('releases the original editor when a redock times out or a native drag is cancelled', () => {
+    const s = setup(); s.transfers.redock(2); vi.advanceTimersByTime(5_001);
+    expect(s.source.webContents.send).toHaveBeenCalledWith('vibisual:app:transfer-settled', { appId: 'vibistudio', transferred: false });
+    vi.mocked(s.source.webContents.send).mockClear();
+    s.transfers.startDrag(2); s.transfers.endDrag(2, false);
+    expect(s.source.webContents.send).toHaveBeenCalledWith('vibisual:app:transfer-settled', { appId: 'vibistudio', transferred: false });
+  });
+
+  it('uses owner-approved teardown after redock rather than triggering another native close request', () => {
+    const main = fakeWindow(1), source = fakeWindow(2), close = vi.fn();
+    const transfers = new AppWindowTransfers({ main: () => main, cursor: () => ({ x: 0, y: 0 }),
+      dipStep: () => 1, showGhost: () => true, hideGhost: vi.fn(), close });
+    transfers.register({ appId: 'vibi3d', window: source, origin: main, params: {}, size: { width: 800, height: 600 }, writtenAt: 0 });
+    expect(transfers.redock(2)).toBe(true);
+    const request = redockPayload(main);
+    expect(close).not.toHaveBeenCalled();
+    expect(transfers.ackRedock(1, request.requestId)).toBe(true);
+    expect(close).toHaveBeenCalledWith(source);
+    expect(source.close).not.toHaveBeenCalled();
+  });
 
   // §5.13 (S-10) — 앱 안 창을 끌어내 놓은 판은 이미 떠 있는 창도 선이 서 있던 자리·크기로 옮긴다.
   it('places a reused window where the ghost stood, writing the size ledger first', () => {

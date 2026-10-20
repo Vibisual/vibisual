@@ -1,7 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { LOOPBACK_REQUEST_MAX_BYTES, LOOPBACK_TOTAL_MAX_BYTES } from '@vibisual/shared';
 
-/** Hook/control ingress only. Media uploads have separate IPC routes and their existing limits. */
-export const LOOPBACK_BODY_LIMITS = { requestBytes: 16 * 1024 * 1024, totalBytes: 64 * 1024 * 1024 };
+/**
+ * Hook/control ingress only. Media uploads have separate IPC routes and their existing limits.
+ * The per-request limit is the shared constant the routes behind this door derive their own limits from (§5.13 (R-10)).
+ */
+export const LOOPBACK_BODY_LIMITS = { requestBytes: LOOPBACK_REQUEST_MAX_BYTES, totalBytes: LOOPBACK_TOTAL_MAX_BYTES };
 
 export class LoopbackBodyBudget {
   private held = 0;

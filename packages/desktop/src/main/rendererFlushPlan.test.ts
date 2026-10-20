@@ -1,9 +1,8 @@
 /**
  * rendererFlushPlan.test.ts — 종료 직전 렌더러 초안 flush 왕복의 회귀.
  *
- * 고정하는 것은 한 줄이다: **한 창이 답하지 않아도 종료는 상한 안에 끝나고, 답한 창의 손글씨는
- * 반드시 디스크로 간다.** 판정이 electron 에 붙어 있으면 영영 검증되지 않으므로 여기 순수 모듈로
- * 나와 있다(`chat/policy.ts` 와 같은 이유).
+ * A missing or failed acknowledgement returns within a bound and blocks shutdown. The decision
+ * stays independent of Electron so hidden windows, late replies, and failed writes are testable.
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -11,19 +10,20 @@ import {
   FLUSH_DRAFTS_REQUEST_CHANNEL,
   FLUSH_DRAFTS_DONE_CHANNEL,
   FLUSH_DRAFTS_TIMEOUT_MS,
+  rendererDraftsFlushed,
   type FlushAckTarget,
 } from './rendererFlushPlan';
 
 /** 테스트용 가짜 IPC — 창이 언제 답할지를 직접 고른다. */
 function makeBus() {
-  const listeners = new Set<(senderId: number, requestId: number) => void>();
+  const listeners = new Set<(senderId: number, requestId: number, ok?: boolean) => void>();
   return {
-    subscribe: (onAck: (senderId: number, requestId: number) => void): (() => void) => {
+    subscribe: (onAck: (senderId: number, requestId: number, ok?: boolean) => void): (() => void) => {
       listeners.add(onAck);
       return () => { listeners.delete(onAck); };
     },
-    ack: (senderId: number, requestId: number): void => {
-      for (const l of [...listeners]) l(senderId, requestId);
+    ack: (senderId: number, requestId: number, ok = true): void => {
+      for (const l of [...listeners]) l(senderId, requestId, ok);
     },
     get subscriberCount(): number { return listeners.size; },
   };
@@ -45,9 +45,9 @@ describe('collectFlushAcks — 채널·상한 상수', () => {
     expect(FLUSH_DRAFTS_DONE_CHANNEL).toBe('vibisual:lifecycle:flush-drafts:done');
   });
 
-  it('기다림 상한은 종료 정리 총 상한(4초)보다 넉넉히 짧다', () => {
-    expect(FLUSH_DRAFTS_TIMEOUT_MS).toBeGreaterThan(0);
-    expect(FLUSH_DRAFTS_TIMEOUT_MS).toBeLessThan(4000);
+  it('server-backed drafts get a bounded saving period before the cleanup watchdog starts', () => {
+    expect(FLUSH_DRAFTS_TIMEOUT_MS).toBeGreaterThan(4000);
+    expect(FLUSH_DRAFTS_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
   });
 });
 
@@ -83,7 +83,7 @@ describe('collectFlushAcks — 정상 경로', () => {
   });
 });
 
-describe('collectFlushAcks — 종료를 막지 않는다', () => {
+describe('collectFlushAcks — bounded failures block teardown', () => {
   it('한 창이 답하지 않아도 상한에서 나온다(규약 1)', async () => {
     vi.useFakeTimers();
     try {
@@ -100,6 +100,7 @@ describe('collectFlushAcks — 종료를 막지 않는다', () => {
       const r = await p;
 
       expect(r).toEqual({ requested: 2, acked: 1, failed: 0, timedOut: true });
+      expect(rendererDraftsFlushed(r)).toBe(false);
       expect(seen).toEqual([1]); // 침묵한 창에도 요청은 갔다
       expect(bus.subscriberCount).toBe(0); // 상한 경로에서도 해제된다
     } finally {
@@ -148,6 +149,28 @@ describe('collectFlushAcks — 종료를 막지 않는다', () => {
 });
 
 describe('collectFlushAcks — 응답 판정', () => {
+  it('a failed durable write blocks teardown even after every window has responded', async () => {
+    const bus = makeBus();
+    const result = await collectFlushAcks({
+      targets: [autoAckTarget(1, bus), { id: 2, send: (id) => bus.ack(2, id, false) }],
+      requestId: 1, subscribe: bus.subscribe,
+    });
+    expect(result).toEqual({ requested: 2, acked: 1, failed: 1, timedOut: false });
+    expect(rendererDraftsFlushed(result)).toBe(false);
+  });
+
+  it('an unrelated window cannot acknowledge a silent editor', async () => {
+    vi.useFakeTimers();
+    try {
+      const bus = makeBus();
+      const promise = collectFlushAcks({
+        targets: [silentTarget(1, [])], requestId: 1, subscribe: bus.subscribe, timeoutMs: 100,
+      });
+      bus.ack(99, 1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(await promise).toEqual({ requested: 1, acked: 0, failed: 0, timedOut: true });
+    } finally { vi.useRealTimers(); }
+  });
   it('지난 회차의 늦은 응답은 이번 회차를 끝내지 못한다(규약 2)', async () => {
     vi.useFakeTimers();
     try {

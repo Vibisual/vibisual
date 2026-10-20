@@ -25,6 +25,9 @@ export interface MainStrings {
   /** `{count}` */
   quitBackgroundTasks: string;
   quitDetailNote: string;
+  draftSaveTitle: string;
+  draftSaveMessage: string;
+  draftSaveRetry: string;
 
   // ─ CMD 터미널이 입력을 기다릴 때의 OS 알림
   /** `{label}` */
@@ -41,6 +44,9 @@ export interface MainStrings {
 }
 
 const en: MainStrings = {
+  draftSaveTitle: "Drafts could not be saved",
+  draftSaveMessage: "The app is still open to protect your work. Retry saving, or cancel to continue editing.",
+  draftSaveRetry: "Retry saving",
   backendBootTitle: 'Vibisual could not start',
   backendBootMessage: 'Restart the app to try again. If the problem continues, check the diagnostic log.',
   backendBootRetry: 'Restart',
@@ -61,6 +67,9 @@ const en: MainStrings = {
 };
 
 const ko: MainStrings = {
+  draftSaveTitle: "작업안을 저장하지 못했습니다",
+  draftSaveMessage: "작업을 보호하기 위해 앱을 열어 두었습니다. 저장을 다시 시도하거나 취소하고 계속 편집할 수 있습니다.",
+  draftSaveRetry: "저장 재시도",
   backendBootTitle: 'Vibisual을 시작할 수 없습니다',
   backendBootMessage: '앱을 다시 시작해 주세요. 문제가 계속되면 진단 로그를 확인해 주세요.',
   backendBootRetry: '다시 시작',
@@ -81,6 +90,9 @@ const ko: MainStrings = {
 };
 
 const ja: MainStrings = {
+  draftSaveTitle: "下書きを保存できませんでした",
+  draftSaveMessage: "作業を保護するためアプリは開いたままです。保存を再試行するか、キャンセルして編集を続けてください。",
+  draftSaveRetry: "保存を再試行",
   backendBootTitle: 'Vibisualを起動できませんでした',
   backendBootMessage: 'アプリを再起動してください。問題が続く場合は、診断ログを確認してください。',
   backendBootRetry: '再起動',
@@ -101,6 +113,9 @@ const ja: MainStrings = {
 };
 
 const zhCN: MainStrings = {
+  draftSaveTitle: "无法保存草稿",
+  draftSaveMessage: "应用仍保持打开以保护您的工作。请重试保存，或取消并继续编辑。",
+  draftSaveRetry: "重试保存",
   backendBootTitle: 'Vibisual 无法启动',
   backendBootMessage: '请重启应用后重试。如果问题仍然存在，请检查诊断日志。',
   backendBootRetry: '重启',
@@ -121,6 +136,9 @@ const zhCN: MainStrings = {
 };
 
 const es: MainStrings = {
+  draftSaveTitle: "No se han podido guardar los borradores",
+  draftSaveMessage: "La aplicación sigue abierta para proteger tu trabajo. Reintenta guardar o cancela para seguir editando.",
+  draftSaveRetry: "Reintentar guardar",
   backendBootTitle: 'No se ha podido iniciar Vibisual',
   backendBootMessage: 'Reinicia la aplicación para volver a intentarlo. Si el problema persiste, consulta el registro de diagnóstico.',
   backendBootRetry: 'Reiniciar',
@@ -141,6 +159,9 @@ const es: MainStrings = {
 };
 
 const es419: MainStrings = {
+  draftSaveTitle: "No se pudieron guardar los borradores",
+  draftSaveMessage: "La aplicación sigue abierta para proteger tu trabajo. Vuelve a intentar guardar o cancela para seguir editando.",
+  draftSaveRetry: "Volver a guardar",
   backendBootTitle: 'No se pudo iniciar Vibisual',
   backendBootMessage: 'Reinicia la aplicación para volver a intentarlo. Si el problema continúa, consulta el registro de diagnóstico.',
   backendBootRetry: 'Reiniciar',
@@ -161,6 +182,9 @@ const es419: MainStrings = {
 };
 
 const fr: MainStrings = {
+  draftSaveTitle: "Impossible d’enregistrer les brouillons",
+  draftSaveMessage: "L’application reste ouverte pour protéger votre travail. Réessayez l’enregistrement ou annulez pour continuer à modifier.",
+  draftSaveRetry: "Réessayer",
   backendBootTitle: 'Vibisual n’a pas pu démarrer',
   backendBootMessage: 'Redémarrez l’application pour réessayer. Si le problème persiste, consultez le journal de diagnostic.',
   backendBootRetry: 'Redémarrer',
@@ -181,6 +205,9 @@ const fr: MainStrings = {
 };
 
 const de: MainStrings = {
+  draftSaveTitle: "Entwürfe konnten nicht gespeichert werden",
+  draftSaveMessage: "Die App bleibt geöffnet, um Ihre Arbeit zu schützen. Versuchen Sie erneut zu speichern oder brechen Sie ab, um weiterzuarbeiten.",
+  draftSaveRetry: "Erneut speichern",
   backendBootTitle: 'Vibisual konnte nicht gestartet werden',
   backendBootMessage: 'Starten Sie die App erneut. Wenn das Problem weiterhin besteht, prüfen Sie das Diagnoseprotokoll.',
   backendBootRetry: 'Neu starten',
@@ -201,6 +228,9 @@ const de: MainStrings = {
 };
 
 const hi: MainStrings = {
+  draftSaveTitle: "ड्राफ़्ट सहेजे नहीं जा सके",
+  draftSaveMessage: "आपके काम को सुरक्षित रखने के लिए ऐप खुला है। फिर से सहेजें या संपादन जारी रखने के लिए रद्द करें।",
+  draftSaveRetry: "फिर से सहेजें",
   backendBootTitle: 'Vibisual शुरू नहीं हो सका',
   backendBootMessage: 'दोबारा कोशिश करने के लिए ऐप फिर से शुरू करें। समस्या बनी रहे तो निदान लॉग देखें।',
   backendBootRetry: 'फिर से शुरू करें',
@@ -221,6 +251,9 @@ const hi: MainStrings = {
 };
 
 const id: MainStrings = {
+  draftSaveTitle: "Draf tidak dapat disimpan",
+  draftSaveMessage: "Aplikasi tetap terbuka untuk melindungi pekerjaan Anda. Coba simpan lagi atau batalkan untuk melanjutkan penyuntingan.",
+  draftSaveRetry: "Coba simpan lagi",
   backendBootTitle: 'Vibisual tidak dapat dimulai',
   backendBootMessage: 'Mulai ulang aplikasi untuk mencoba lagi. Jika masalah berlanjut, periksa log diagnostik.',
   backendBootRetry: 'Mulai ulang',
@@ -241,6 +274,9 @@ const id: MainStrings = {
 };
 
 const it: MainStrings = {
+  draftSaveTitle: "Impossibile salvare le bozze",
+  draftSaveMessage: "L’app resta aperta per proteggere il tuo lavoro. Riprova a salvare o annulla per continuare a modificare.",
+  draftSaveRetry: "Riprova a salvare",
   backendBootTitle: 'Impossibile avviare Vibisual',
   backendBootMessage: 'Riavvia l’app per riprovare. Se il problema persiste, controlla il registro diagnostico.',
   backendBootRetry: 'Riavvia',
@@ -261,6 +297,9 @@ const it: MainStrings = {
 };
 
 const ptBR: MainStrings = {
+  draftSaveTitle: "Não foi possível salvar os rascunhos",
+  draftSaveMessage: "O aplicativo continua aberto para proteger seu trabalho. Tente salvar novamente ou cancele para continuar editando.",
+  draftSaveRetry: "Tentar salvar novamente",
   backendBootTitle: 'Não foi possível iniciar o Vibisual',
   backendBootMessage: 'Reinicie o aplicativo para tentar novamente. Se o problema continuar, verifique o log de diagnóstico.',
   backendBootRetry: 'Reiniciar',

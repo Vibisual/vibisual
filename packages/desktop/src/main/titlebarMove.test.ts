@@ -3,7 +3,13 @@ import { readFileSync } from 'node:fs';
 import type { BrowserWindow } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { dipStepFor } from './overlaySize';
-import { startTitlebarMove } from './titlebarMove';
+import {
+  TITLEBAR_FOLLOW_MS,
+  TITLEBAR_GESTURE_MAX_MS,
+  TITLEBAR_RELEASE_GRACE_TICKS,
+  TITLEBAR_RESTORE_WAIT_TICKS,
+} from './titlebarDrag';
+import { followTitlebarMove, startTitlebarMove } from './titlebarMove';
 
 function fixture(options: {
   maximized?: boolean; sync?: boolean; scale?: number; x?: number; y?: number; grabX?: number; grabY?: number;
@@ -269,5 +275,225 @@ describe('renderer-measured press and drop points', () => {
     expect(body).toContain('.end(at)');
     expect(body).toContain('{ current: () => screen.getCursorScreenPoint(), ...(at ? { press: at } : {}) }');
     expect(body).toContain('drag.move();');
+  });
+});
+
+// §3.7 (2026-10-16) — main follows the hand on its own beat too. The logo handle used to move the window
+// only on the page's `move`; restoring a maximized window resizes it under the hand, the page can lose the
+// gesture right there, and the window stopped following (user instruction: make the logo do what the rest
+// of the title bar does). The app-window drag already follows this way — a fixed beat that reads the OS
+// cursor itself, and the physical button for the release. These pin that beat.
+describe("main's own beat — follows without the page, ends on the physical release", () => {
+  it('a maximized window restores and keeps following with no page move at all', () => {
+    const f = fixture({ sync: true });
+    f.drag.follow(true);
+    expect(f.win.unmaximize).not.toHaveBeenCalled();
+    f.cursor(980, 42);
+    f.drag.follow(true);
+    expect(f.win.unmaximize).toHaveBeenCalledOnce();
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 480, y: 30, width: 1000, height: 700 }, false);
+    f.cursor(1100, 180);
+    f.drag.follow(true);
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 600, y: 168, width: 1000, height: 700 }, false);
+    expect(f.done).not.toHaveBeenCalled();
+  });
+
+  it('the beat keeps the 4 DIP threshold — a held click never restores a maximized window', () => {
+    const f = fixture();
+    f.cursor(962, 14);
+    for (let i = 0; i < 10; i += 1) f.drag.follow(true);
+    expect(f.win.unmaximize).not.toHaveBeenCalled();
+    expect(f.win.setBounds).not.toHaveBeenCalled();
+  });
+
+  it('a physical release ends the gesture even when the page never sends its mouseup — never chasing the free mouse', () => {
+    const f = fixture({ maximized: false });
+    f.drag.follow(true);
+    f.cursor(1000, 42);
+    f.drag.follow(true);
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 40, y: 30, width: 1920, height: 1080 }, false);
+    f.cursor(1300, 300);
+    for (let i = 0; i < TITLEBAR_RELEASE_GRACE_TICKS - 1; i += 1) f.drag.follow(false);
+    expect(f.done).not.toHaveBeenCalled();
+    f.drag.follow(false);
+    expect(f.done).toHaveBeenCalledOnce();
+    expect(f.win.setBounds).toHaveBeenCalledOnce();
+  });
+
+  it('records a held button first observed during restore and freezes at its physical release', () => {
+    const f = fixture();
+    f.cursor(980, 42);
+    f.drag.move();
+    // A renderer move can request restore before the first button-poll beat.
+    f.drag.follow(true);
+    f.cursor(1000, 72);
+    f.drag.follow(false);
+    f.cursor(1700, 900);
+    f.completeRestore();
+    expect(f.win.setBounds).toHaveBeenCalledExactlyOnceWith({ x: 500, y: 60, width: 1000, height: 700 }, false);
+    expect(f.done).not.toHaveBeenCalled();
+    // Neither a queued page move nor an unreadable button may resume a released gesture.
+    f.drag.move();
+    f.drag.follow(null);
+    for (let i = 1; i < TITLEBAR_RELEASE_GRACE_TICKS; i += 1) f.drag.follow(false);
+    expect(f.done).toHaveBeenCalledOnce();
+    expect(f.win.setBounds).toHaveBeenCalledOnce();
+  });
+
+  it.each(['event', 'timeout'] as const)('finishes a pending restore at the physical release after grace, without mouseup (%s)', (completion) => {
+    const f = fixture();
+    f.drag.follow(true);
+    f.cursor(980, 42);
+    f.drag.move();
+    f.cursor(1000, 72);
+    f.drag.follow(false);
+    f.cursor(1700, 900);
+    for (let i = 1; i < TITLEBAR_RELEASE_GRACE_TICKS; i += 1) f.drag.follow(false);
+    expect(f.done).not.toHaveBeenCalled();
+    expect(f.win.setBounds).not.toHaveBeenCalled();
+    if (completion === 'event') f.completeRestore();
+    else {
+      for (let i = 0; i < TITLEBAR_RESTORE_WAIT_TICKS; i += 1) f.drag.follow(false);
+    }
+    expect(f.win.setBounds).toHaveBeenCalledExactlyOnceWith({ x: 500, y: 60, width: 1000, height: 700 }, false);
+    expect(f.done).toHaveBeenCalledOnce();
+    expect(f.events.listenerCount('unmaximize')).toBe(0);
+    expect(f.events.listenerCount('closed')).toBe(0);
+    f.drag.move();
+    f.drag.follow(true);
+    expect(f.win.setBounds).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a renderer-measured drop point when mouseup arrives during pending-restore release grace', () => {
+    const f = fixture();
+    f.cursor(980, 42);
+    f.drag.move();
+    f.drag.follow(true);
+    f.cursor(1100, 100);
+    f.drag.follow(false);
+    f.cursor(1700, 900);
+    f.drag.end({ x: 1000, y: 72 });
+    f.completeRestore();
+    expect(f.win.setBounds).toHaveBeenCalledExactlyOnceWith({ x: 500, y: 60, width: 1000, height: 700 }, false);
+    expect(f.done).toHaveBeenCalledOnce();
+  });
+
+  it("after a release the page's late move does not chase, and its drop point still lands the window", () => {
+    const f = fixture({ maximized: false, press: { x: 960, y: 12 } });
+    f.drag.follow(true);
+    f.cursor(1000, 42);
+    f.drag.follow(true);
+    f.cursor(1700, 900);
+    f.drag.follow(false);
+    f.drag.move();
+    expect(f.win.setBounds).toHaveBeenCalledOnce();
+    f.drag.end({ x: 1050, y: 80 });
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 90, y: 68, width: 1920, height: 1080 }, false);
+    expect(f.done).toHaveBeenCalledOnce();
+  });
+
+  it('a release never seen held proves nothing — pen and synthetic input leave the end to the page', () => {
+    const f = fixture({ maximized: false });
+    f.cursor(1000, 42);
+    for (let i = 0; i < TITLEBAR_RELEASE_GRACE_TICKS * 3; i += 1) f.drag.follow(false);
+    expect(f.done).not.toHaveBeenCalled();
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 40, y: 30, width: 1920, height: 1080 }, false);
+    f.drag.end();
+    expect(f.done).toHaveBeenCalledOnce();
+  });
+
+  it('where the OS cannot read the button (mac·linux: null) the beat follows and the page ends it', () => {
+    const f = fixture({ maximized: false });
+    f.cursor(1000, 42);
+    f.drag.follow(null);
+    f.cursor(1010, 52);
+    f.drag.follow(null);
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 50, y: 40, width: 1920, height: 1080 }, false);
+    expect(f.done).not.toHaveBeenCalled();
+    f.drag.end({ x: 1010, y: 52 });
+    expect(f.done).toHaveBeenCalledOnce();
+  });
+
+  it('a still hand costs nothing — the beat never writes the same bounds twice', () => {
+    const f = fixture({ maximized: false });
+    f.cursor(1000, 42);
+    for (let i = 0; i < 20; i += 1) f.drag.follow(true);
+    expect(f.win.setBounds).toHaveBeenCalledOnce();
+  });
+
+  it('a frameless window that keeps reporting maximized is asked to restore once, then attached to the hand', () => {
+    // §5.4 #14-1 — a frame:false window can answer "maximized" after unmaximize() and never emit the event.
+    const f = fixture();
+    f.win.unmaximize.mockImplementation(() => { /* restores on screen but says nothing */ });
+    f.cursor(980, 42);
+    f.drag.follow(true);
+    expect(f.win.unmaximize).toHaveBeenCalledOnce();
+    for (let i = 0; i < TITLEBAR_RESTORE_WAIT_TICKS - 1; i += 1) f.drag.follow(true);
+    expect(f.win.setBounds).not.toHaveBeenCalled();
+    f.drag.follow(true);
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 480, y: 30, width: 1000, height: 700 }, false);
+    f.cursor(1100, 180);
+    f.drag.move();
+    f.drag.follow(true);
+    expect(f.win.setBounds).toHaveBeenLastCalledWith({ x: 600, y: 168, width: 1000, height: 700 }, false);
+    expect(f.win.unmaximize).toHaveBeenCalledOnce();
+    expect(f.events.listenerCount('unmaximize')).toBe(0);
+  });
+
+  it('runs every TITLEBAR_FOLLOW_MS with the physical button and stops when told', () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture({ maximized: false });
+      const follow = vi.spyOn(f.drag, 'follow');
+      const stop = followTitlebarMove(f.drag, () => true);
+      vi.advanceTimersByTime(TITLEBAR_FOLLOW_MS * 3);
+      expect(follow).toHaveBeenCalledTimes(3);
+      expect(follow).toHaveBeenLastCalledWith(true);
+      stop();
+      vi.advanceTimersByTime(TITLEBAR_FOLLOW_MS * 3);
+      expect(follow).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an unreadable button is an unknown one — the beat keeps following', () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture({ maximized: false });
+      const follow = vi.spyOn(f.drag, 'follow');
+      const stop = followTitlebarMove(f.drag, () => { throw new Error('user32 unavailable'); });
+      vi.advanceTimersByTime(TITLEBAR_FOLLOW_MS);
+      expect(follow).toHaveBeenCalledExactlyOnceWith(null);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a gesture whose end never arrives gives up after TITLEBAR_GESTURE_MAX_MS', () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture({ maximized: false });
+      const stop = followTitlebarMove(f.drag, () => null);
+      vi.advanceTimersByTime(TITLEBAR_GESTURE_MAX_MS - 1);
+      expect(f.done).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(f.done).toHaveBeenCalledOnce();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('move-self starts the beat with the physical button and stops it when the gesture is done', () => {
+    const ipc = readFileSync(new URL('./ipc.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    const at = ipc.indexOf("ipcMain.handle('vibisual:window:move-self'");
+    expect(at, 'move-self handler not found').toBeGreaterThan(-1);
+    const body = ipc.slice(at, ipc.indexOf("ipcMain.handle('vibisual:window:minimize-self'", at));
+    expect(body).toContain('stopFollowing = followTitlebarMove(gesture, appWindowPrimaryPressed);');
+    // The beat stops with the gesture — release, page end, cap, a new press or a closed window.
+    const done = body.slice(body.indexOf('dipStepAt,'), body.indexOf('titlebarDrags.set(event.sender, gesture);'));
+    expect(done).toContain('stopFollowing();');
   });
 });

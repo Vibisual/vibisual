@@ -3,19 +3,31 @@ import { pathToFileURL } from 'node:url';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, dialog, Notification, session } from 'electron';
-import { electronApp, optimizer } from '@electron-toolkit/utils';
+import { app, shell, BrowserWindow, protocol, Notification, session } from 'electron';
+import { hasAppMessageBox, showAppMessageBox } from './appMessageBox';
+import { createQuitConfirmationGate } from './quitConfirmation';
+import { optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
 import { isVerificationToolIngress } from './verificationToolIngress';
-import { releaseStartupJobs, unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setEngineBridgeSourceDir, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
-import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE, isAppContentPath } from '@vibisual/shared';
+import { releaseStartupJobs, unloadAllLocalModels, runServer, resolveAppMediaFile, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setEngineBridgeSourceDir, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
+import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE, appIdOfMediaPath, isAppContentPath, isAppMediaPath } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { startBackendBeforeWindow } from './backendStartup';
 import { ensureDesktopConsent, focusConsentWindow, closeConsentWindow } from './consentWindow';
 // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ④ — 메인 스레드 멈춤을 늘 기록한다(userData/logs/main-stall.log).
-import { markMainWindowShown, startMainStallLog } from './mainStallLog';
+//   시계는 시작 진입점(`bootstrap.ts`)이 본체를 읽기 **전에** 건다 — 여기서는 기준점과 시작 이정표만 찍는다.
+import { logStartupMilestone, logTransfer, markMainWindowShown } from './mainStallLog';
+import { appMediaResponse } from './appMediaResponse';
+// §3.7 · §9 「시작 화면(스플래시)」 — 스플래시가 앞을 지키는 동안 본체 창은 숨긴 채 그리고, 준비가 끝나면 보인다.
+import { pendingStartupJobCount, setBootProgressSink, subscribeAppThemeChrome, atomicWriteFileSync } from '@vibisual/server';
+import type { SplashHandle } from './splashWindow';
+import { startMainReveal, type MainRevealController } from './mainReveal';
+import { coverFirstShow } from './windowCloak';
+import { writeSplashCache } from './splashCache';
+import { makeSplashCache } from './splashPolicy';
+import { retireBootErrorLog } from './bootErrors';
 // §4 앱 테마 — 창 바탕·제목줄 단추 색(렌더러가 못 칠하는 두 곳).
 import { installAppThemeChromeSync, safeAppThemeChrome, trackThemedWindow } from './themeChrome';
 // §9 — 스냅샷 팬아웃(1회 인코딩 → 창마다 바이트 postMessage, 실패 시 종전 send 폴백).
@@ -29,13 +41,14 @@ import { chatBroadcast, initChatBridge, stopChatBridge } from './chat';
 import { initAutoUpdater, stopAutoUpdater, isUpdateInstallPending, runPendingUpdateInstall } from './updaterManager';
 import { openExternalWithNotice } from './externalOpen';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
-import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
+import { appendCrashLine, logCleanExit } from './crashLog';
 import { installWindowCrashRecovery } from './windowCrashRecovery';
 import { createMainDiagnostics } from './mainDiagnostics';
 import { LoopbackBodyBudget, readLoopbackBody } from './loopbackBody';
 import { forwardLoopbackResponse } from './loopbackResponse';
 // §3.2.1 — 종료 직전 렌더러가 아직 안 저장한 손글씨(세션 입력·IDE 폼 초안·명령 히스토리)를 받아 낸다.
-import { flushRendererDrafts } from './rendererFlush';
+import { flushRendererDrafts, releaseRendererDrafts } from './rendererFlush';
+import { waitForDurableDrafts } from './durableShutdown';
 import { mainStrings, fmt } from './strings';
 import { setVerificationAutomationAdapter, setAppMainInvoker } from '@vibisual/server';
 import { setProcessContainmentBackend } from '@vibisual/server';
@@ -55,24 +68,11 @@ import { guardAppContentFrames } from './appContentGuard';
 // 외부 프로세스라 in-process 흡수(IPC)가 불가능하다. 그래서 main 은 127.0.0.1 loopback
 // HTTP 리스너 하나를 띄워 /api/hook-event·/api/task-edges/dispatch·/health 만 받는다
 // (renderer 브리지가 아니라 외부 claude 프로세스 ingress 전용 — §3.7 v2.8).
-
-// §3.7 — iframe 서버 프리뷰용 커스텀 스킴 등록(app.ready 전 필수).
-// renderer 는 file:// 로 로드되므로 <iframe src="/iframe-proxy/…"> 상대경로가
-// file:///iframe-proxy/… 로 깨진다(fetch 몽키패치는 엘리먼트 로드를 못 가로챔).
-// vibproxy:// 스킴이 main 의 protocol.handle 을 거쳐 in-process Express(iframe 프록시)에
-// 합성 디스패치된다. standard=호스트/경로 파싱(iframe 내부 root-relative 링크 해석용).
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'vibproxy', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
-]);
-
-// §5.9 화면/프로그램 캡처 — Linux Wayland 세션에서 desktopCapturer 가 소스를 못 받는 것을 막는다.
-// Wayland 는 X11 처럼 아무 창이나 긁게 두지 않고 PipeWire 포털을 거치게 하는데,
-// Chromium 은 이 스위치가 있어야 그 경로를 쓴다. 없으면 X11 캡처러로 폴백해
-// 소스 목록이 비거나 검은 화면이 잡힌다(Ubuntu 22.04+·Fedora 는 기본이 Wayland).
-// ⚠️ app.whenReady() **이전**에 설정해야 먹는다 — 아래로 옮기지 마라.
-if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
-}
+//
+// §3.7 · §9 「시작 화면(스플래시)」 — **이 파일은 더 이상 빌드의 입구가 아니다.** 입구는 `bootstrap.ts` 이고, 그것이
+// 화면 가운데에 스플래시를 먼저 띄운 뒤 `ready` 가 지나서 이 모듈을 읽는다(`launchApp`). 그래서 `ready` 전에 해야만
+// 하는 일 — vibproxy 스킴 등록 · Linux 캡처 스위치 · 크래시 수집·부팅 배너 · 단일 인스턴스 잠금 — 은 전부 거기로 갔다.
+// 여기 다시 두지 마라: 이 모듈이 읽힐 때는 이미 늦다.
 
 let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
@@ -106,11 +106,7 @@ function isValidHookToken(incoming: string | string[] | undefined): boolean {
   return timingSafeEqual(a, b);
 }
 
-// crashLog(§4 v1.98 확장) — 네이티브 크래시 minidump 수집을 app ready·창 생성 전에 켜고,
-// 이번 실행의 부팅 배너를 crash.log 에 남긴다(다음에 로그를 볼 때 "clean exit 마커 없이
-// 다음 배너로 넘어갔으면 그 사이에 팅긴 것" 판별용).
-startCrashReporter();
-logAppStart();
+// crashLog(§4 v1.98 확장) — 크래시 수집과 부팅 배너는 시작 진입점(`bootstrap.ts`)이 이 모듈보다 먼저 건다.
 
 // §3.5 v4.67 — 서버 코어의 버블 생명주기 진단 로그도 crash.log 와 같은 곳(userData/logs)에 둔다.
 // 이 로그는 프로젝트 데이터가 아니라 앱 진단이고, 종전엔 server 가 `process.cwd()` 상대 경로를
@@ -131,8 +127,33 @@ const mainDiagnostics = createMainDiagnostics({
 mainDiagnostics.guardStreams(process.stdout, process.stderr);
 process.on('uncaughtException', (error) => mainDiagnostics.report('uncaughtException', error));
 process.on('unhandledRejection', (error) => mainDiagnostics.report('unhandledRejection', error));
+// 시작 진입점이 본체를 읽기 전 구간만 받던 오류 기록은 여기서 물러난다(같은 오류가 두 번 적히지 않게).
+retireBootErrorLog();
 
-function createWindow(): void {
+/** §3.7 · §9 「시작 화면(스플래시)」 — 시작 진입점이 띄운 스플래시. 본체 창이 보이면 걷히고 `null` 이 된다. */
+let bootSplash: SplashHandle | null = null;
+/** 본체 창이 숨은 채 그리는 동안의 공개 제어 — 두 번째 실행·Dock 클릭은 숨은 본체 대신 스플래시를 앞으로 부른다. */
+let mainReveal: MainRevealController | null = null;
+
+/**
+ * §9 「시작 화면(스플래시)」 — 다음 실행의 스플래시가 첫 칠에 쓸 언어·바탕(userData/splash.json, 표시 캐시).
+ * 권위는 프로젝트 체크포인트(`uiLocale`)·설정 창(`appearance.themeId`)이다. 쓰기는 서버의 원자적 쓰기를 쓴다.
+ */
+function saveSplashDisplayCache(): void {
+  try {
+    const chrome = safeAppThemeChrome();
+    writeSplashCache(makeSplashCache(safeUiLocale(), chrome.background, chrome.kind), atomicWriteFileSync);
+  } catch (err) {
+    console.warn('[main] splash display cache failed:', err);
+  }
+}
+
+/**
+ * 본체 창. `splash` 가 있으면(앱을 켠 첫 창) 숨긴 채 그리다가 준비가 끝나면 보이고, 없으면(mac 에서 창을 다시
+ * 만들 때 등) 종전처럼 첫 칠(`ready-to-show`)에 곧바로 보인다.
+ */
+function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
+  const splash = opts.splash ?? null;
   // §3.7 v2.10 — 통합 앱 단일 타이틀바. Electron 네이티브 타이틀바를 숨기고(titleBarStyle: 'hidden')
   // React Header(`app-drag` 영역)가 그 자리에 타이틀바 역할을 한다. Windows 는 titleBarOverlay 가
   // 우상단에 네이티브 윈도우 컨트롤(min/max/close)을 오버레이로 깔아준다 — 헤더 우측의 `pr-36` 가
@@ -183,10 +204,37 @@ function createWindow(): void {
   // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕과 제목줄 단추도 다시 칠한다(그 창의 렌더러는 화면만 칠한다).
   trackThemedWindow(mainWindow, { titleBarOverlay: true });
 
-  mainWindow.on('ready-to-show', () => mainWindow.show());
+  // §3.7 · §9 「시작 화면」 ② 첫 표시 — Windows 에서 숨겨 만든 창을 처음 보이면 첫 프레임이 흰색으로 찍힌다(바탕색을 줘도).
+  //   보이기 전에 DWM 으로 가려 두고 첫 show 뒤 프레임이 지나면 걷는다 — 누가 어떤 길로 보이든 같다(아래 두 갈래·두 번째 실행).
+  //   다른 OS 는 아무것도 하지 않는다(곧바로 'plain').
+  const firstShow = coverFirstShow(mainWindow, { platform: process.platform });
+
+  if (splash) {
+    // §3.7 · §9 「시작 화면(스플래시)」 — 종전에는 빈 껍데기를 한 번 칠한 순간(`ready-to-show`) 보여, 그 뒤의 React
+    //   마운트·첫 스냅샷·부팅 확인이 창이 뜬 첫 3초에 몰렸다(실측 멈춤 0.2~2.9초). 이제 스플래시가 앞을 지키는 동안
+    //   숨긴 채 그리고(숨긴 창도 그린다), 렌더러가 첫 화면을 다 그리고 · 부팅 확인이 다 돌고 · 메인 스레드가 조용해지면
+    //   보인다. 순서·상한은 `splashPolicy.decideMainReveal` 이 갖는다 — 무엇이 막혀도 상한 뒤에는 보인다.
+    splash.stage('workspace');
+    mainReveal = startMainReveal({
+      window: mainWindow,
+      splash,
+      pendingStartupJobs: pendingStartupJobCount,
+      firstShow,
+      onRevealed: (reason, waitedMs, cover) => {
+        mainReveal = null;
+        bootSplash = null;
+        const covered = cover === 'plain' ? '' : `, first frames covered → ${cover}`;
+        logStartupMilestone(`main window revealed (${reason}, ${waitedMs}ms after the window was created${covered})`);
+        saveSplashDisplayCache();
+      },
+    });
+  } else {
+    mainWindow.on('ready-to-show', () => mainWindow.show());
+  }
 
   // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 — 본체 창이 처음 보이는 순간을 두 곳에 알린다.
   //   ② 부팅 때 줄에 세워 둔 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)이 이때부터 한 칸씩 돈다.
+  //      (스플래시가 있었으면 그 뒤에서 이미 풀었다 — 그때 이 부름은 아무것도 하지 않는다.)
   //   ④ 멈춤 기록이 "창이 뜬 뒤 몇 ms" 를 재는 기준점. 둘 다 첫 번만 센다(mac 에서 창을 다시 만들어도 같다).
   mainWindow.once('show', () => {
     markMainWindowShown();
@@ -214,12 +262,15 @@ function createWindow(): void {
   // §3.7 v2.12 — `titleBarStyle: 'hidden'` + `titleBarOverlay` Windows 조합에서 간헐적으로
   // `ready-to-show` 가 안 떠 창이 영구 숨김 상태가 되는 회귀가 보고됨. 3초 fallback —
   // 그때까지 안 떴으면 강제 show. 정상 경우엔 이미 ready-to-show 가 처리해서 이 분기 no-op.
-  setTimeout(() => {
-    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      console.warn('[main] ready-to-show timeout — forcing window show()');
-      mainWindow.show();
-    }
-  }, 3000);
+  // 스플래시가 있으면 이 3초 그물은 걸지 않는다 — 공개 제어가 `ready-to-show` 를 기다리지 않고 자기 상한을 든다.
+  if (!splash) {
+    setTimeout(() => {
+      if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+        console.warn('[main] ready-to-show timeout — forcing window show()');
+        mainWindow.show();
+      }
+    }, 3000);
+  }
 
   // Renderer diagnostics and recovery are installed for every BrowserWindow below.
 
@@ -243,6 +294,20 @@ function createWindow(): void {
 
   // SCENARIO.md §5.4 #14-1 (v2.29) — 별창 매니저가 메인 윈도우를 참조해야 한다(redock 푸시 대상).
   primaryMainWindow = mainWindow;
+  // Keep the main renderer alive while the themed quit question awaits an answer.
+  let preparingMainClose = false;
+  mainWindow.on('close', (event) => {
+    event.preventDefault();
+    if (quitting || preparingQuit || preparingMainClose) return;
+    if (process.platform !== 'darwin') { app.quit(); return; }
+    // macOS closes this renderer without quitting the app. Its embedded apps and hidden
+    // child renderers still need the same durable barrier before `closed` destroys them.
+    preparingMainClose = true;
+    void flushDraftsBeforeClose(mainWindow).then((saved) => {
+      if (saved && !mainWindow.isDestroyed()) mainWindow.destroy();
+    }).catch((error: unknown) => mainDiagnostics.report('quit-confirmation', error))
+      .finally(() => { preparingMainClose = false; });
+  });
   mainWindow.on('closed', () => {
     if (primaryMainWindow === mainWindow) primaryMainWindow = null;
     // §5.4 #14-1 (v2.34) — 본체가 닫히면 별창도 같이 닫힌다(사용자 의도: "본체 꺼지면 별창도 같이").
@@ -492,21 +557,52 @@ function registerIframeProxyProtocol(expressApp: Express): void {
     //   + §5.13 (T-3) 내부 앱이 iframe 으로 띄울 정적 콘텐츠(`/api/app/<앱id>/content/…`) — 앱 이름 없이 모양 하나로.
     const allowed = ALLOWED_PROTOCOL_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
-    ) || isAppContentPath(pathname);
+    ) || isAppContentPath(pathname) || isAppMediaPath(pathname);
     if (!allowed) {
       return new Response('not found', { status: 404 });
     }
+    // §5.13 (Y) 40-1 — 앱 **미디어**(`/api/app/<id>/media?…`)는 Express 를 거치지 않고 파일을 흘려 보낸다(구간 지원 · 끊으면 멈춤).
+    //   어느 파일인지는 그 앱의 서버 몫이 답한다(경로 검사는 그쪽 규칙) — 이 줄은 앱 이름을 모른다.
+    if (isAppMediaPath(pathname)) {
+      const startedAt = performance.now();
+      const appId = appIdOfMediaPath(pathname);
+      const file = appId ? await resolveAppMediaFile(appId, new URL(request.url).searchParams) : null;
+      if (!file) return new Response('not found', { status: 404, headers: { 'X-Content-Type-Options': 'nosniff' } });
+      const setupMs = performance.now() - startedAt;
+      if (setupMs >= 100) logTransfer({ at: Date.now(), channel: 'vibproxy-media-open', path: pathname + search, ms: setupMs, bytes: 0 });
+      try {
+        return await appMediaResponse(file, request, (done) => {
+          logTransfer({ at: Date.now(), channel: done.cancelled ? 'vibproxy-media-cancelled' : 'vibproxy-media', path: pathname + search, ms: 0, bytes: done.bytes });
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return new Response(`media unavailable: ${msg}`, { status: 502, headers: { 'X-Content-Type-Options': 'nosniff' } });
+      }
+    }
     try {
+      const startedAt = performance.now();
       const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
       const payload = hasBody ? Buffer.from(await request.arrayBuffer()) : undefined;
       const headers: Record<string, string> = {};
       request.headers.forEach((v, k) => { headers[k] = v; });
+      // §5.13 (Y) 40-7 ① — `payloadAsStream`: 조각을 모으기만 한다. 종전 길은 바이너리여도 응답 전체를 UTF-8 문자열로 한 번 더
+      //   바꿨다(light-my-request 가 `res.payload` 를 늘 만든다 — 164MB 에 메인 1.5초).
       const injected = await inject(expressApp as unknown as DispatchFunc, {
         method: (request.method ?? 'GET') as 'GET',
         url: pathname + search,
         headers,
         payload,
+        payloadAsStream: true,
       });
+      const chunks: Buffer[] = [];
+      let received = 0;
+      for await (const chunk of injected.stream()) {
+        const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+        chunks.push(part);
+        received += part.length;
+      }
+      const rawPayload = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, received);
+      logTransfer({ at: Date.now(), channel: 'vibproxy', path: pathname + search, ms: performance.now() - startedAt, bytes: received });
       const resHeaders = new Headers();
       for (const [k, v] of Object.entries(injected.headers)) {
         if (v == null) continue;
@@ -517,8 +613,9 @@ function registerIframeProxyProtocol(expressApp: Express): void {
         injected.statusCode === 204 ||
         injected.statusCode === 304 ||
         (injected.statusCode >= 100 && injected.statusCode < 200);
-      // Uint8Array is directly assignable to BodyInit — no cast needed.
-      return new Response(nullBody ? null : new Uint8Array(injected.rawPayload), {
+      // §5.13 (Y) 40-7 ① — 모은 바이트를 한 번 더 복사하지 않고 보기(view)로 넘긴다(Response 가 본문을 만들 때 스스로 복사한다 — Fetch
+      //   명세). Node 의 Buffer 는 일반 ArrayBuffer 위에 선다(SharedArrayBuffer ❌) — 그 형을 밝힌다.
+      return new Response(nullBody ? null : new Uint8Array(rawPayload.buffer as ArrayBuffer, rawPayload.byteOffset, rawPayload.byteLength), {
         status: injected.statusCode,
         statusText: injected.statusMessage ?? '',
         headers: resHeaders,
@@ -571,6 +668,9 @@ async function bootBackend(): Promise<void> {
 
   // server 코어를 in-process 구동 — HTTP listen / ws 없이 Express app 만 받는다.
   const handle = await runServer();
+  // §9 「시작 화면(스플래시)」 — 서버 코어의 복원은 끝났다. 진척 창구를 걷고, 바깥 에이전트가 닿을 길(훅 리스너·설치)을 연다.
+  setBootProgressSink(null);
+  bootSplash?.stage('connecting');
 
   // iframe 서버 프리뷰용 vibproxy:// 프로토콜 핸들러 등록(app.ready 이후이므로 여기서).
   registerIframeProxyProtocol(handle.app);
@@ -700,37 +800,68 @@ async function bootBackend(): Promise<void> {
   initChatBridge(handle.app);
 }
 
-// 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를
-// 자기 동적 포트로 덮어쓰는 사고를 원천 차단한다. 그 2번째 인스턴스가 닫히면 settings.json 이
-// 죽은 포트를 가리켜, 새로 뜨는 훅·스폰 에이전트의 loopback curl(작업 신고/질문/검수)이 전부
-// connection refused 로 "전송 실패"하던 회귀의 근본 원인. 락을 못 얻으면 즉시 종료하고, 기존
-// 인스턴스 창을 앞으로 가져온다.
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    const win = primaryMainWindow;
-    if (win && !win.isDestroyed()) {
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    } else focusConsentWindow();
-  });
-  app.on('activate', () => { if (!primaryMainWindow) focusConsentWindow(); });
+/**
+ * §3.7 · §9 「시작 화면(스플래시)」 — **앱의 시작.** 시작 진입점(`bootstrap.ts`)이 `ready` 뒤에 화면 가운데에 스플래시를
+ * 띄우고 이 모듈을 읽은 다음 부른다. 단일 인스턴스 잠금도 거기서 잡는다 — 두 번째 실행·Dock 클릭은 시작 진입점이 받아
+ * 여기서 돌려준 `LaunchedApp` 으로 넘긴다.
+ *
+ * 순서: 동의(배포본 — 그동안 스플래시는 숨는다) → 권한 처리기·창 공통 배선 → 백엔드(스플래시에 진척) → 본체 창(숨긴 채
+ * 그린다) → 준비가 끝나면 보이고 스플래시를 걷는다. 스플래시를 못 만들었으면(`null`) 종전처럼 본체 창이 곧바로 보인다.
+ */
+export interface LaunchedApp {
+  onSecondInstance(): void;
+  onActivate(): void;
+}
 
-  app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.vibisual.app');
+export function launchApp(opts: { splash: SplashHandle | null }): LaunchedApp {
+  bootSplash = opts.splash;
+  void runLaunch().catch((error: unknown) => mainDiagnostics.report('launch', error));
+  return {
+    // 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를
+    // 자기 동적 포트로 덮어쓰는 사고를 원천 차단한다. 그 2번째 인스턴스가 닫히면 settings.json 이
+    // 죽은 포트를 가리켜, 새로 뜨는 훅·스폰 에이전트의 loopback curl(작업 신고/질문/검수)이 전부
+    // connection refused 로 "전송 실패"하던 회귀의 근본 원인. 락을 못 얻은 쪽은 시작 진입점이 즉시 끝내고,
+    // 이 쪽은 기존 인스턴스 창을 앞으로 가져온다 — 본체가 아직 숨어 있으면 그 앞을 지키는 스플래시를.
+    onSecondInstance: () => {
+      if (mainReveal?.pending) {
+        mainReveal.focusSplash();
+        return;
+      }
+      const win = primaryMainWindow;
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      } else {
+        focusConsentWindow();
+        bootSplash?.focus();
+      }
+    },
+    onActivate: () => {
+      if (mainReveal?.pending) {
+        mainReveal.focusSplash();
+        return;
+      }
+      if (!primaryMainWindow) {
+        focusConsentWindow();
+        bootSplash?.focus();
+      }
+    },
+  };
+}
 
+async function runLaunch(): Promise<void> {
   // Distributed binaries must obtain consent before backend restoration, hooks, remote access,
   // provider setup, and updates. The consent window has no app preload or transport.
-  if (!await ensureDesktopConsent()) { app.quit(); return; }
+  // §3.7 「시작 화면」 — 동의 창이 떠 있는 동안 스플래시는 숨는다(약관 옆·위에 함께 서지 않게).
+  if (!await ensureDesktopConsent({ onPrompt: () => bootSplash?.hide() })) {
+    bootSplash?.close();
+    bootSplash = null;
+    app.quit();
+    return;
+  }
   if (quitting) return;
-
-  // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ④ — 메인 스레드 멈춤을 늘 잰다. 서버가 이 스레드에서 함께 돌아
-  //   그 스레드가 멈추면 제목줄로도 덮개로도 창이 따라오지 않는다. 백엔드를 띄우기 **전에** 건다 — 부팅의 동기
-  //   구간이 얼마나 막았는지도 "before-window" 한 줄로 남는다.
-  startMainStallLog();
+  bootSplash?.show();
 
   // §5.5 #17-38 — **마이크를 열 수 있게 한다.** 받아쓰기는 렌더러의 getUserMedia 로 마이크를
   //   여는데, 패키지 앱의 렌더러는 file:// 에서 뜨고 Electron 은 그 출처의 media 권한을 앱이
@@ -743,6 +874,7 @@ if (!gotSingleInstanceLock) {
   //   중 무엇이 조용히 죽을지 실기 없이 알 수 없다. 노출면도 늘지 않는다 — 이 세션에 뜨는
   //   것은 우리 번들과 로컬 프리뷰뿐이고, 바깥 주소는 기본 브라우저로 내보낸다(§5.13 (R-6)).
   //   모든 창이 defaultSession 하나를 쓰므로(커스텀 partition ❌) 이 한 벌이 전부를 덮는다.
+  //   (스플래시·동의 창은 자기 partition 이라 이 처리기 밖이다 — 둘 다 전부 거절한다.)
   const allowPermission = (): true => true;
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(allowPermission());
@@ -757,21 +889,26 @@ if (!gotSingleInstanceLock) {
       log: (level, message) => appendCrashLine('renderer', level, message),
       askReload: async (owner): Promise<boolean> => {
         const s = mainStrings(safeUiLocale());
-        const result = await dialog.showMessageBox(owner, {
+        const result = await showAppMessageBox({
           type: 'error',
           title: s.crashTitle,
           message: s.crashMessage,
           buttons: [s.crashReload, s.quitBtnCancel],
           defaultId: 0,
           cancelId: 1,
-          noLink: true,
-        });
+          locale: safeUiLocale() ?? undefined,
+          theme: safeAppThemeChrome(),
+        }, owner);
         return result.response === 0;
       },
     });
   });
 
   backendStartAttempted = true;
+  // §9 「시작 화면(스플래시)」 — 서버 코어가 부팅하는 동안의 진척을 스플래시로 흘려보낸다(프로젝트 복원 "3/10" 등 —
+  //   표시 전용). 복원은 동기라 그동안 메인 스레드가 붙잡히지만, 스플래시는 메시지 포트로 받아 그대로 그린다.
+  bootSplash?.stage('services');
+  setBootProgressSink((progress) => bootSplash?.boot(progress));
   await startBackendBeforeWindow({
     boot: bootBackend,
     reportError: (error) => {
@@ -779,29 +916,41 @@ if (!gotSingleInstanceLock) {
       mainDiagnostics.report('backend-startup', error);
     },
     askRestart: async () => {
+      // 부팅 실패 안내가 스플래시 뒤에 가려지지 않게 먼저 걷는다.
+      setBootProgressSink(null);
+      bootSplash?.close();
+      bootSplash = null;
       const s = mainStrings(safeUiLocale());
-      const result = await dialog.showMessageBox({
+      const result = await showAppMessageBox({
         type: 'error', title: s.backendBootTitle, message: s.backendBootMessage,
-        buttons: [s.backendBootRetry, s.backendBootQuit], defaultId: 0, cancelId: 1, noLink: true,
+        buttons: [s.backendBootRetry, s.backendBootQuit], defaultId: 0, cancelId: 1,
+        locale: safeUiLocale() ?? undefined, theme: safeAppThemeChrome(),
       });
       return result.response === 0;
     },
     relaunch: () => app.relaunch(),
     quit: () => app.quit(),
     openApp: () => {
+      setBootProgressSink(null);
       // §5.4 #14-1 — windowManager 가 메인 윈도우를 알아야 redock-hover 푸시 가능.
       configureWindowManager({ getMainWindow: () => primaryMainWindow });
-      createWindow();
+      // §3.7 · §9 「시작 화면」 — 스플래시가 앞을 지키는 동안 부팅 한 번짜리 확인을 먼저 돌린다(좁은 간격). 본체 창은 그 줄이
+      //   다 돈 뒤에 보이므로, 창이 보인 뒤 +1.5s~ 에 몰리던 CLI 기동 멈춤이 오지 않는다. 스플래시가 없으면 종전대로 첫 show 에서.
+      if (bootSplash) releaseStartupJobs('splash');
+      createWindow({ splash: bootSplash });
       closeConsentWindow();
       // §4 앱 테마 — 테마가 바뀌면 열린 창 전부의 바탕·제목줄 단추를 다시 칠한다(구독은 한 번).
       installAppThemeChromeSync();
+      // §9 「시작 화면」 — 테마를 바꾸면 다음 스플래시의 바탕도 따라간다(표시 캐시 — 바뀐 값만 쓴다).
+      try {
+        subscribeAppThemeChrome(() => saveSplashDisplayCache());
+      } catch { /* 표시 캐시 — 없어도 스플래시는 기본 바탕으로 뜬다 */ }
       // 첫 상태 push 가 메인 윈도우에 도달하도록 창 생성 뒤 기동한다.
       initAutoUpdater();
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
       });
     },
-  });
   });
 }
 
@@ -817,7 +966,7 @@ app.on('child-process-gone', (_e, details) => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin' && !hasAppMessageBox()) app.quit();
 });
 
 // Item #8 — await cleanup before exit to prevent socket leak on dev-cycle restarts.
@@ -851,15 +1000,32 @@ function safeUiLocale(): string | null {
  * 종료 정리의 **시간 상한**. 소켓 `close()` 는 열려 있던 연결이 전부 끝나야 콜백이 오므로
  * (폰이 붙어 있거나 keep-alive 가 살아 있으면 분 단위로 끌린다) 상한이 없으면 프로세스가
  * 언제 사라지는지 아무도 모른다. 2026-08-27 실측 68초 — 그 사이 업데이트 설치기가 포기했다.
- * 여기까지 기다렸으면 남은 것은 버리고 나간다(디스크 flush 는 이 앞에서 동기로 끝나 있다).
+ * 여기까지 기다렸으면 남은 것은 버리고 나간다(작업안의 내구 저장은 이 정리 시작 전에 끝난다).
  */
 const QUIT_CLEANUP_TIMEOUT_MS = 4000;
 /** 설치기 spawn 직후 프로세스를 내리기까지의 여유 — detached 자식이 완전히 뜨는 시간. */
 const UPDATE_INSTALL_SPAWN_GRACE_MS = 200;
 
 let quitting = false;
+let preparingQuit = false;
+let quitConfirmed = false;
+const quitConfirmation = createQuitConfirmationGate();
+
+async function flushDraftsBeforeClose(owner: BrowserWindow | null): Promise<boolean> {
+  return waitForDurableDrafts(() => flushRendererDrafts(), async () => {
+    releaseRendererDrafts();
+    const s = mainStrings(safeUiLocale());
+    const result = await showAppMessageBox({
+      type: 'warning', buttons: [s.quitBtnCancel, s.draftSaveRetry], defaultId: 1, cancelId: 0,
+      title: s.draftSaveTitle, message: s.draftSaveMessage,
+      locale: safeUiLocale() ?? undefined, theme: safeAppThemeChrome(),
+    }, owner);
+    return result.response === 1;
+  });
+}
+
 app.on('before-quit', (event) => {
-  if (quitting) return;
+  if (quitting || preparingQuit) { event.preventDefault(); return; }
   // Declining/closing the pre-start gate must not run project shutdown or persistence.
   if (!backendStartAttempted) { quitting = true; logCleanExit(); return; }
 
@@ -873,7 +1039,7 @@ app.on('before-quit', (event) => {
   //   같은 경고가 두 번 뜨고, 사용자가 답하는 동안 종료가 늦어져 설치기가 포기한다.
   // 부팅 오류창에서 이미 다시 시작/종료를 골랐다. 두 번째 취소창으로 돌아가면
   // 정상 창도 없는 부분 초기화 프로세스만 남으므로, 종료 정리로 바로 넘긴다.
-  const work = isUpdateInstallPending() || backendBootFailed ? null : safeRunningWorkSummary();
+  const work = quitConfirmed || isUpdateInstallPending() || backendBootFailed ? null : safeRunningWorkSummary();
   if (work && (work.sessions > 0 || work.backgroundTasks > 0)) {
     // 언어는 서버 코어가 들고 있는 UI 로케일 하나를 따른다 — main 에는 i18next 가 없다(./strings).
     const s = mainStrings(safeUiLocale());
@@ -887,38 +1053,41 @@ app.on('before-quit', (event) => {
       work.backgroundTasks > 0 ? fmt(s.quitBackgroundTasks, { count: work.backgroundTasks }) : '',
       s.quitDetailNote,
     ].filter(Boolean).join(String.fromCharCode(10));
-    const picked = dialog.showMessageBoxSync({
-      type: 'warning',
-      buttons: [s.quitBtnCancel, s.quitBtnClose],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-      title: s.quitTitle,
-      message: s.quitMessage,
-      detail,
-    });
-    if (picked === 0) { event.preventDefault(); return; }
+    event.preventDefault();
+    quitConfirmation.request(async () => {
+      const result = await showAppMessageBox({
+        type: 'warning', buttons: [s.quitBtnCancel, s.quitBtnClose], defaultId: 0, cancelId: 0, destructiveId: 1,
+        title: s.quitTitle, message: s.quitMessage, detail,
+        locale: safeUiLocale() ?? undefined, theme: safeAppThemeChrome(),
+      }, primaryMainWindow);
+      return result.response === 1;
+    }, () => { quitConfirmed = true; app.quit(); }, (error) => mainDiagnostics.report('quit-confirmation', error));
+    return;
   }
 
-  quitting = true;
   event.preventDefault();
+  preparingQuit = true;
+  void flushDraftsBeforeClose(primaryMainWindow).then((saved) => {
+    if (!saved) { quitConfirmed = false; return; }
+    quitting = true;
+    finishApprovedQuit();
+  }).catch((error: unknown) => {
+    quitConfirmed = false;
+    mainDiagnostics.report('quit-confirmation', error);
+  }).finally(() => { preparingQuit = false; });
+});
 
+function finishApprovedQuit(): void {
   // crashLog — 정상 종료 마커. 다음 부팅 배너 이전에 이 줄이 있으면 지난 실행은 정상 종료,
   // 없으면 그 사이 팅긴 것으로 판별된다.
   logCleanExit();
 
-  // §3.2.1 — 렌더러가 아직 디스크에 안 앉힌 손글씨(세션 입력 초안 §5.3 #28 · IDE 폼 초안 §5.5 ⑬ ·
-  //   명령 히스토리 §5.5 #17-23)를 먼저 받아 낸다. 그 셋은 타이핑 핫패스를 지키려고 400ms
-  //   debounce 로 쓰고 `pagehide`/`beforeunload` 에서 즉시 flush 하기로 돼 있는데, 우리 종료는
-  //   창을 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 **그 이벤트가 뜨지 않는다**.
-  //   ⚠ 이 요청은 **창 정리보다 위**에 있어야 한다 — 닫힌 창은 답하지 않는다.
-  const draftFlush = flushRendererDrafts().catch((err: unknown) => {
-    console.warn('[main] flushRendererDrafts failed:', err);
-  });
+  // §9 「시작 화면(스플래시)」 — 이번 실행에서 바꾼 언어·테마를 다음 스플래시의 첫 칠로 남긴다(표시 캐시 — 바뀐 값만 쓴다).
+  if (!backendBootFailed) saveSplashDisplayCache();
 
-  // 창 정리는 그 답을 받은 뒤에 한다(순서가 뒤집히면 그 창의 초안을 잃는다).
-  // 어차피 마지막은 `app.exit(0)` 이라 몇 ms 늦게 닫히는 것 자체는 아무 차이가 없다.
-  const windowsClosed = draftFlush.then(() => {
+  // Durable writes have succeeded while IPC/the server were still available. Only now may
+  // windows be destroyed, writers shut down, and the bounded cleanup watchdog start.
+  const windowsClosed = Promise.resolve().then(() => {
     closeAllVerificationTargets();
     // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
     closeAllDetachedWindows();
@@ -1033,7 +1202,6 @@ app.on('before-quit', (event) => {
     finishQuit();
   }, QUIT_CLEANUP_TIMEOUT_MS);
 
-  // `windowsClosed` 가 여기 들어 있으므로 렌더러 초안 flush 가 끝나기 전에는 나가지 않는다
-  // (그 안에서도 상한을 지키므로 워치독보다 먼저 풀린다).
+  // The durable flush barrier has already completed; this watchdog only bounds service cleanup.
   Promise.all([windowsClosed, listenerClose, mobileClose, chatClose, subShutdown, playShutdown]).finally(finishQuit);
-});
+}

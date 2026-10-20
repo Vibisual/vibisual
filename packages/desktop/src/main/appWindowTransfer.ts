@@ -85,6 +85,8 @@ export interface AppWindowTransferHost {
   primaryPressed?(): boolean | null;
   /** §5.13 (S-11) 창이 서고 닫히거나 보는 대상이 바뀌었다 — 목록(`list`)을 다시 알릴 때. */
   changed?(): void;
+  /** Acknowledged transfer owns teardown; it must bypass a retained editor's human-close request. */
+  close?(window: AppTransferWindow): void;
 }
 
 const DRAG_POLL_MS = 16;
@@ -239,6 +241,12 @@ export class AppWindowTransfers {
     if (!entry.window.isDestroyed()) entry.window.showInactive();
   }
 
+  private settled(entry: AppTransferEntry, transferred: boolean): void {
+    if (entry.window.isDestroyed() || entry.window.webContents.isDestroyed()) return;
+    try { entry.window.webContents.send('vibisual:app:transfer-settled', { appId: entry.appId, transferred }); }
+    catch { /* The old renderer may already have finished closing. */ }
+  }
+
   private stopDrag(entry: AppTransferEntry, reveal: boolean, keepGhost = false): Drag | undefined {
     const drag = this.drags.get(entry.window.id);
     if (!drag) return undefined;
@@ -249,6 +257,7 @@ export class AppWindowTransfers {
     if (drag.ghost && !keepGhost) this.host.hideGhost();
     if (reveal && drag.dwelling) this.reveal(entry);
     this.sendState(entry, false);
+    if (!keepGhost) this.settled(entry, false);
     return drag;
   }
 
@@ -376,7 +385,11 @@ export class AppWindowTransfers {
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
     if (pending.ghost) this.host.hideGhost();
-    if (!pending.entry.window.isDestroyed()) pending.entry.window.close();
+    this.settled(pending.entry, true);
+    if (!pending.entry.window.isDestroyed()) {
+      if (this.host.close) this.host.close(pending.entry.window);
+      else pending.entry.window.close();
+    }
     return true;
   }
 
@@ -387,6 +400,7 @@ export class AppWindowTransfers {
       this.pending.delete(id);
       if (pending.ghost) this.host.hideGhost();
       this.reveal(entry);
+      this.settled(entry, false);
     }
   }
 }

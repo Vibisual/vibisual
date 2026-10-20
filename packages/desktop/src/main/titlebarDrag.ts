@@ -56,3 +56,30 @@ export function pickTitlebarPoint(
   if (!sample) return live;
   return Math.abs(sample.x - live.x) > gap || Math.abs(sample.y - live.y) > gap ? sample : live;
 }
+
+// §3.7 (2026-10-16) — **덮개 끌기는 main 이 제 박자로도 따라간다.** 종전에는 페이지의 `mousemove` 마다 오는 `move` 에만
+//   기대 창을 옮겼다. 최대화를 푸는 순간 창 크기가 손 밑에서 바뀌며 페이지가 손짓을 놓치면(§3.7 "복원 중 캡처 상실")
+//   그 `move` 가 끊겨 창이 따라오지 않는다(사용자 지시 — "기존 곳 클릭하면 있는 기능인데 여기도 가능하게 연결만 시켜").
+//   앱 창 끌기(`appWindowTransfer.ts`)가 이미 같은 일을 이렇게 한다 — 정해진 박자로 OS 커서를 직접 읽어 옮기고,
+//   손을 뗐는지는 물리 버튼(`appWindowPrimaryPressed`)으로 본다. 덮개도 그 길에 잇는다(`titlebarMove.ts`).
+
+/** main 이 OS 커서를 직접 읽어 창을 옮기는 박자(ms) — 앱 창 끌기(`DRAG_POLL_MS`)와 같은 값이다. */
+export const TITLEBAR_FOLLOW_MS = 16;
+
+/**
+ * 한 손짓의 수명 상한(ms). 버튼을 읽을 수 없는 OS(mac·linux)에서 페이지가 끝을 못 알려도 창이 커서를 영영
+ * 쫓지 않게 한다 — 앱 창 끌기와 같은 값이다.
+ */
+export const TITLEBAR_GESTURE_MAX_MS = 30_000;
+
+/**
+ * 최대화 해제를 요청한 뒤 `unmaximize` 소식을 기다리는 박자 수. 테두리 없는 창은 해제 뒤에도 최대화라고 답하고
+ * 소식을 늦게 주거나 안 줄 수 있다(§5.4 #14-1). 이만큼 기다렸으면 복원된 것으로 보고 손 밑에 붙인다.
+ */
+export const TITLEBAR_RESTORE_WAIT_TICKS = 12;
+
+/**
+ * 물리 버튼이 떨어진 것을 본 뒤, 페이지가 놓은 자리(§3.7 ③)를 실어 보내기를 기다리는 박자 수. 그동안 창은
+ * 자유로운 마우스를 쫓지 않는다. 오지 않으면(캡처를 잃어 페이지가 mouseup 을 못 봤다) 창이 선 자리에서 끝낸다.
+ */
+export const TITLEBAR_RELEASE_GRACE_TICKS = 3;

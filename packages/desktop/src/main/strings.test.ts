@@ -3,7 +3,8 @@ import { mainStrings } from './strings';
 
 const LOCALES = ['en', 'ko', 'ja', 'zh-CN', 'es', 'es-419', 'fr', 'de', 'hi', 'id', 'it', 'pt-BR'] as const;
 const RECOVERY_KEYS = ['crashTitle', 'crashMessage', 'crashReload', 'quitBtnCancel',
-  'backendBootTitle', 'backendBootMessage', 'backendBootRetry', 'backendBootQuit'] as const;
+  'backendBootTitle', 'backendBootMessage', 'backendBootRetry', 'backendBootQuit',
+  'draftSaveTitle', 'draftSaveMessage', 'draftSaveRetry'] as const;
 
 describe('native crash recovery strings', () => {
   it.each(LOCALES)('provides a complete usable recovery dialog for %s', (locale) => {

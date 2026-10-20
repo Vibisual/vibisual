@@ -32,32 +32,109 @@ export interface MainStallRecord {
   uptimeMs: number;
   /** 본체 창이 처음 보인 시각(epoch ms) — 아직이면 null. */
   windowShownAt: number | null;
+  /** §9 「시작 화면(스플래시)」 — 스플래시가 보인 시각(epoch ms). 없었거나 아직이면 null. */
+  splashShownAt?: number | null;
 }
 
 /**
  * 로그 한 줄. 멈춤이 **시작된** 시각을 앞에 둔다(그때 무엇이 돌았는지 다른 로그와 맞춰 보는 기준).
- * 창이 뜨기 전의 멈춤(부팅 동기 구간)은 `before-window`, 뜬 뒤면 뜬 때부터 몇 ms 지나 멈췄는지 적는다.
+ * 본체 창이 뜬 뒤면 뜬 때부터 몇 ms 지나 멈췄는지(`window+`), 스플래시만 떠 있던 구간이면 스플래시가 뜬 때부터
+ * (`splash+` — 사용자는 막대가 도는 것을 보고 있었다), 둘 다 없으면(부팅 동기 구간) `before-window` 로 적는다.
  */
 export function formatStallLine(r: MainStallRecord): string {
   const startedAt = r.at - r.stallMs;
-  const phase = r.windowShownAt === null
-    ? 'before-window'
-    : `window+${Math.max(0, Math.round(startedAt - r.windowShownAt))}ms`;
+  const splashAt = r.splashShownAt ?? null;
+  const phase = r.windowShownAt !== null
+    ? `window+${Math.max(0, Math.round(startedAt - r.windowShownAt))}ms`
+    : splashAt !== null
+      ? `splash+${Math.max(0, Math.round(startedAt - splashAt))}ms`
+      : 'before-window';
   return `[${new Date(startedAt).toISOString()}] main-thread stall ${Math.round(r.stallMs)}ms `
     + `(${phase}, uptime ${Math.round(r.uptimeMs)}ms)\n`;
 }
 
+/**
+ * §9 「시작 화면(스플래시)」 — 시작의 이정표 한 줄(스플래시가 보였다 · 본체 창이 보였다). 멈춤 줄과 같은 파일에 두어
+ * "언제 무엇이 보였고 그 사이 얼마나 멈췄나"를 한 파일에서 읽는다.
+ */
+export function formatStartupLine(at: number, label: string, uptimeMs: number): string {
+  return `[${new Date(at).toISOString()}] startup ${label} (uptime ${Math.round(uptimeMs)}ms)\n`;
+}
+
 let timer: ReturnType<typeof setInterval> | null = null;
 let windowShownAt: number | null = null;
+let splashShownAt: number | null = null;
 
 /** 본체 창이 처음 보였다 — 이후 멈춤은 "창이 뜬 뒤 몇 ms" 로 적힌다. 첫 번만 센다. */
 export function markMainWindowShown(now: number = Date.now()): void {
   if (windowShownAt === null) windowShownAt = now;
 }
 
+/** §9 「시작 화면(스플래시)」 — 스플래시가 보였다. 본체 창이 보이기 전까지의 멈춤은 "스플래시가 뜬 뒤 몇 ms" 로 적힌다. */
+export function markSplashShown(now: number = Date.now()): void {
+  if (splashShownAt === null) splashShownAt = now;
+}
+
+/** 시작 이정표를 기록한다(콘솔 + main-stall.log). 실패해도 던지지 않는다. */
+export function logStartupMilestone(label: string, write: (line: string) => void = writeStallLine): void {
+  try {
+    write(formatStartupLine(Date.now(), label, process.uptime() * 1000));
+  } catch { /* 기록 실패가 앱을 멈추게 하면 안 된다 */ }
+}
+
 function writeStallLine(line: string): void {
   console.warn(`[main] ${line.trimEnd()}`);
   appendLogText(MAIN_STALL_LOG_FILE, line);
+}
+
+/**
+ * §5.13 (Y) 40-12 — 이 길이(ms)를 넘게 걸린 IPC·vibproxy 처리는 **경로·크기와 함께** 적는다. 종전에는 멈춘 길이만 남아 무엇이
+ * 멈추게 했는지 가를 수 없었다(10-16 의 2.6초 멈춤 넷이 실사 파일 둘의 통째 전송이었다는 것을 크기 비로 거꾸로 짚어야 했다).
+ */
+export const TRANSFER_LOG_MS = 100;
+/** 이만큼(바이트) 넘게 실어 나른 응답은 걸린 시간과 무관하게 적는다 — IPC 로 큰 본문이 다니는 일 자체가 고칠 거리다. */
+export const TRANSFER_LOG_BYTES = 8 * 1024 * 1024;
+const TRANSFER_PATH_MAX = 240;
+
+export interface TransferRecord {
+  /** 처리가 끝난 시각(epoch ms). */
+  at: number;
+  /** 통로 이름(`ipc-fetch` · `vibproxy` · `vibproxy-media`). */
+  channel: string;
+  /** 요청 경로(쿼리 포함 — 길면 자른다). */
+  path: string;
+  ms: number;
+  bytes: number;
+}
+
+export function shouldLogTransfer(ms: number, bytes: number): boolean {
+  return ms >= TRANSFER_LOG_MS || bytes >= TRANSFER_LOG_BYTES;
+}
+
+/** 전송 한 줄 — 시작 시각을 앞에 둔다(멈춤 줄과 같은 기준이라 나란히 읽힌다). */
+export function formatTransferLine(r: TransferRecord): string {
+  const startedAt = r.at - r.ms;
+  const path = r.path.length > TRANSFER_PATH_MAX ? `${r.path.slice(0, TRANSFER_PATH_MAX)}…` : r.path;
+  return `[${new Date(startedAt).toISOString()}] transfer ${r.channel} ${Math.round(r.ms)}ms `
+    + `${(r.bytes / 1048576).toFixed(1)}MB ${path}\n`;
+}
+
+/** 문턱을 넘은 전송만 적는다. 실패해도 던지지 않는다. */
+export function logTransfer(r: TransferRecord, write: (line: string) => void = writeStallLine): void {
+  if (!shouldLogTransfer(r.ms, r.bytes)) return;
+  try { write(formatTransferLine(r)); } catch { /* 기록 실패가 앱을 멈추게 하면 안 된다 */ }
+}
+
+const PERF_LINE_MAX = 1200;
+
+/** §5.13 (Y) 40-12 — 렌더러 계측 한 줄(`__VIBI_PERF__` 를 켠 창만 보낸다). 같은 파일에 두어 멈춤과 나란히 읽는다. */
+export function formatPerfLine(at: number, text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return `[${new Date(at).toISOString()}] perf ${flat.length > PERF_LINE_MAX ? `${flat.slice(0, PERF_LINE_MAX)}…` : flat}\n`;
+}
+
+export function logPerfLine(text: string, write: (line: string) => void = writeStallLine): void {
+  try { write(formatPerfLine(Date.now(), text)); } catch { /* 기록 실패가 앱을 멈추게 하면 안 된다 */ }
 }
 
 /**
@@ -73,7 +150,7 @@ export function startMainStallLog(write: (line: string) => void = writeStallLine
     prev = now;
     if (lag < MAIN_STALL_LOG_MS) return;
     try {
-      write(formatStallLine({ at: Date.now(), stallMs: lag, uptimeMs: process.uptime() * 1000, windowShownAt }));
+      write(formatStallLine({ at: Date.now(), stallMs: lag, uptimeMs: process.uptime() * 1000, windowShownAt, splashShownAt }));
     } catch { /* 기록 실패가 앱을 멈추게 하면 안 된다 */ }
   }, MAIN_STALL_PROBE_MS);
   // 이 시계 때문에 프로세스가 종료를 미루지 않게.
@@ -90,4 +167,5 @@ export function stopMainStallLog(): void {
 export function __resetMainStallLogForTest(): void {
   stopMainStallLog();
   windowShownAt = null;
+  splashShownAt = null;
 }

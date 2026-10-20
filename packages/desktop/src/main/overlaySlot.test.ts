@@ -11,7 +11,7 @@
  * 판정은 `overlaySlot.ts` 순수 함수가 쥐고, 그 규칙을 **실제로 부르는지**는 소스로 집행한다
  * (windowManager 는 electron 에 붙어 있어 여기서 실행할 수 없다 — `vitest.config.ts` 의 전제).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -229,9 +229,29 @@ describe('ghostFrame 소스 집행 — 다시 쓰는 선은 수명도 다시 잰
     // 여러 번 오가면 같은 창을 계속 갈아 끼우는데, 상한이 첫 판에서부터 흐르면 아직 끌고 있는
     // 손 아래에서 선이 그냥 사라진다(그물이 기능을 끊는다).
     const gf = source('ghostFrame.ts');
-    const reuse = block(gf, 'if (ghost && !ghost.window.isDestroyed()) {', 'return true;');
-    expect(reuse).toContain('clearTimeout(ghost.lifeTimer)');
-    expect(reuse).toContain('GHOST_MAX_LIFE_MS');
+    const reuse = block(gf, 'if (ghost && !ghost.window.isDestroyed()) {', '// 죽은 창을');
+    // Electron 창을 만들지 않고 실제 재사용 분기를 실행한다. 지역 별칭의 이름과 무관하게
+    // 첫 타이머가 취소되고 재사용 시점부터 수명이 다시 시작되는지 확인한다.
+    const runReuse = new Function('ctx', `
+      const { ghost, hidePopOutGhost, positionGhost, applyArmed, applyHint } = ctx;
+      const width = 200, height = 100, grabX = 0, grabY = 0, armed = false, hint = '', settled = true;
+      const GHOST_MAX_LIFE_MS = 20000, GHOST_POLL_MS = 16;
+      ${reuse}
+    `) as (ctx: Record<string, unknown>) => boolean;
+    vi.useFakeTimers();
+    try {
+      const hide = vi.fn();
+      const ghost = { window: { isDestroyed: () => false }, lifeTimer: setTimeout(hide, 20000), timer: null, armed: false, hint: '' };
+      vi.advanceTimersByTime(19000);
+      expect(runReuse({ ghost, hidePopOutGhost: hide, positionGhost: vi.fn(), applyArmed: vi.fn(), applyHint: vi.fn() })).toBe(true);
+      vi.advanceTimersByTime(1000);
+      expect(hide).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(19000);
+      expect(hide).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it('(H-12) 선에 적는 한 줄은 `textContent` 로 들어간다 — 렌더러가 지어 넘긴 글이다', () => {
