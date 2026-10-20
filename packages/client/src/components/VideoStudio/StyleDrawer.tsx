@@ -95,7 +95,7 @@ export function StyleDrawer(p: StyleDrawerProps): React.JSX.Element {
           ) : <p className="text-[12px] leading-relaxed text-slate-500">{t('panel.videoStudio.style.none')}</p>}
           {current ? (
             <button type="button" disabled={p.disabled || applied} onClick={() => p.onApply(current)}
-              className="flex items-center justify-center gap-1.5 rounded-md border border-white/15 px-2 py-1.5 text-[12px] text-slate-100 hover:bg-white/10 disabled:opacity-40">
+              className="flex items-center justify-center gap-1.5 rounded-md border border-white/15 px-2 py-1.5 text-[12px] text-slate-100 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2.5">
               <StudioIcon name="check" className="h-3.5 w-3.5" />{applied ? t('panel.videoStudio.style.applied') : t('panel.videoStudio.style.apply')}
             </button>
           ) : null}
@@ -103,9 +103,9 @@ export function StyleDrawer(p: StyleDrawerProps): React.JSX.Element {
 
         <section className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <h3 className="flex-1 text-[12px] font-semibold text-slate-500">{t('panel.videoStudio.style.fromProject')}</h3>
+            <h3 className="min-w-0 flex-1 text-[12px] font-semibold text-slate-500">{t('panel.videoStudio.style.fromProject')}</h3>
             <button type="button" disabled={scanning} onClick={scan}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40">
+              className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2">
               <StudioIcon name="folder" className="h-3.5 w-3.5" />{scanning ? t('panel.videoStudio.style.scanning') : t('panel.videoStudio.style.scan')}
             </button>
           </div>
@@ -122,7 +122,7 @@ export function StyleDrawer(p: StyleDrawerProps): React.JSX.Element {
                       {candidates.colors.slice(0, 12).map((c) => (
                         <button key={c.value} type="button" onClick={() => setDraft((d) => (d ? { ...d, [slot]: c.value } : d))}
                           title={`${c.name ?? c.value} · ${c.source}`} aria-label={c.name ?? c.value}
-                          className={`h-5 w-5 rounded-full border ${draft[slot] === c.value ? 'border-transparent ring-2 ring-[var(--vs-accent)]' : 'border-white/20'}`} style={{ background: c.value }} />
+                          className={`h-5 w-5 rounded-full border pointer-coarse:h-8 pointer-coarse:w-8 ${draft[slot] === c.value ? 'border-transparent ring-2 ring-[var(--vs-accent)]' : 'border-white/20'}`} style={{ background: c.value }} />
                       ))}
                     </div>
                   ) : null}
@@ -138,7 +138,7 @@ export function StyleDrawer(p: StyleDrawerProps): React.JSX.Element {
                     return font ? { ...rest, fontFamily: font.family, ...(font.file ? { fontFile: font.file } : {}) } : rest;
                   });
                 }} onKeyDown={(e) => e.stopPropagation()}
-                  className="h-7 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)]">
+                  className="h-7 min-w-0 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] pointer-coarse:h-9">
                   <option value="">{t('panel.videoStudio.style.noFont')}</option>
                   {candidates.fonts.map((f) => <option key={f.family} value={f.family}>{f.family}{f.file ? ` · ${t('panel.videoStudio.style.fontFile')}` : ''}</option>)}
                 </select>
@@ -159,7 +159,7 @@ export function StyleDrawer(p: StyleDrawerProps): React.JSX.Element {
                 </div>
               </div>
               <button type="button" disabled={saving} onClick={confirm}
-                className="mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-slate-50 ring-1 ring-[var(--vs-accent)] hover:bg-white/15 disabled:opacity-40">
+                className="mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-slate-50 ring-1 ring-[var(--vs-accent)] hover:bg-white/15 disabled:opacity-40 pointer-coarse:py-2.5">
                 <StudioIcon name="check" className="h-3.5 w-3.5" />{t('panel.videoStudio.style.confirm')}
               </button>
             </>

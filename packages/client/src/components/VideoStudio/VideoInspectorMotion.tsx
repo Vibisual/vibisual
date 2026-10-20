@@ -22,7 +22,8 @@ import { StudioIcon } from './studioIcons.js';
  * 되돌리기·저장·충돌이 다른 칸과 같은 길이다. 계산(보간·프리셋·필터)은 순수 층(`@vibisual/video`)이 하고 여기서는 값만 고친다.
  */
 
-const BUTTON = 'flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-white/10 px-2 text-[12px] text-slate-200 hover:bg-white/10 disabled:opacity-40';
+// 높이는 바닥만 둔다(`min-h-7`) — 256px 인스펙터에서 긴 번역이 두 줄이 되면 단추가 늘어난다(고정 높이면 글자가 넘쳤다). 터치에서는 36px.
+const BUTTON = 'flex min-h-7 flex-1 items-center justify-center gap-1 rounded-md border border-white/10 px-2 py-1 text-center text-[12px] leading-tight text-slate-200 hover:bg-white/10 disabled:opacity-40 pointer-coarse:min-h-9';
 
 function round3(n: number): number {
   return Math.round(n * 1000) / 1000 || 0;
@@ -77,7 +78,7 @@ export function VideoInspectorMotion({ item, playhead, start, duration, disabled
             <span className="flex-1 text-[12px] font-semibold text-white/70">{t('panel.videoStudio.motion.keyLabel', { defaultValue: 'Keyframe {{n}}', n: index + 1 })}</span>
             <button type="button" disabled={disabled} onClick={() => write(keyframes.filter((_, i) => i !== index))}
               aria-label={t('panel.videoStudio.motion.remove', { defaultValue: 'Remove this keyframe' })} title={t('panel.videoStudio.motion.remove', { defaultValue: 'Remove this keyframe' })}
-              className="rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40"><StudioIcon name="trash" className="h-3.5 w-3.5" /></button>
+              className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:p-2"><StudioIcon name="trash" className="h-3.5 w-3.5" /></button>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <StudioNumberField label={t('panel.videoStudio.motion.time', { defaultValue: 'Time (s)' })} value={k.t} min={0} max={Math.max(0, duration)} disabled={disabled}

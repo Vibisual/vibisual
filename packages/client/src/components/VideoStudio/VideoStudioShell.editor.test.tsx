@@ -22,7 +22,7 @@ vi.mock('../../stores/graphStore.js', () => {
 });
 vi.mock('../../apps/appWindowLifecycle.js', () => ({ useAppWindowTarget: () => undefined, useAppWindowTransferGuard: () => undefined }));
 vi.mock('./VideoStudioView.js', () => ({ VideoStudioView: () => null }));
-vi.mock('./useVideoAudio.js', () => ({ useVideoAudio: () => ({ resume: () => undefined }) }));
+vi.mock('./useVideoAudio.js', () => ({ useVideoAudio: () => ({ resume: () => undefined, setOutput: () => undefined }) }));
 vi.mock('./useVideoJobWorker.js', () => ({ useVideoJobWorker: () => undefined }));
 vi.mock('./useVideoRenderer.js', () => {
   const renderer = { drawPreview: vi.fn(), render: vi.fn() };
@@ -33,6 +33,10 @@ vi.mock('./videoApi.js', () => ({
   createDoc: vi.fn(), getJob: vi.fn(), assetUrl: vi.fn(), startRender: vi.fn(), VersionConflictError: class extends Error {},
   // §5.13 (T-7) — 스튜디오가 몇 초마다 묻는 판본. 0 이면 다시 읽지 않는다.
   readDocVersion: vi.fn(async () => ({ id: '', title: '', version: 0, updatedAt: 0, duration: 0 })),
+  // §5.13 (AA) 42 — 렌더 대기열·내보내기 설정(빈 줄 · 기본 설정).
+  listRenderJobs: vi.fn(async () => []), readExportSettings: vi.fn(async () => ({ last: undefined, presets: [] })),
+  saveExportSettings: vi.fn(async () => undefined), controlRenderJob: vi.fn(), controlRenderQueue: vi.fn(),
+  saveExportPreset: vi.fn(), deleteExportPreset: vi.fn(), deriveDoc: vi.fn(),
 }));
 let view: ReactTestRenderer;
 let stored: VideoDoc;

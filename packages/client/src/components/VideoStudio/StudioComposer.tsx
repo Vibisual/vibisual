@@ -39,7 +39,7 @@ export function StudioComposer(p: StudioComposerProps): React.JSX.Element {
         <div className="flex flex-wrap gap-1.5" aria-label={t('panel.videoStudio.ai.suggestions')}>
           {p.suggestions.map((s) => (
             <button key={s} type="button" onClick={() => p.onText(s)} title={s}
-              className="max-w-full truncate rounded-full border border-white/15 px-2.5 py-1 text-left text-[12px] text-slate-300 hover:bg-white/10 hover:text-slate-50">
+              className="max-w-full truncate rounded-full border border-white/15 px-2.5 py-1 text-left text-[12px] text-slate-300 hover:bg-white/10 hover:text-slate-50 pointer-coarse:py-2">
               {s}
             </button>
           ))}
@@ -53,7 +53,7 @@ export function StudioComposer(p: StudioComposerProps): React.JSX.Element {
               <span className="truncate">{c.label}</span>
               {c.onRemove ? (
                 <button type="button" onClick={c.onRemove} aria-label={t('panel.videoStudio.removeNamed', { name: c.label })}
-                  className="rounded-full p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="close" className="h-3 w-3" /></button>
+                  className="shrink-0 rounded-full p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-1.5"><StudioIcon name="close" className="h-3 w-3" /></button>
               ) : null}
             </span>
           ))}
@@ -62,11 +62,11 @@ export function StudioComposer(p: StudioComposerProps): React.JSX.Element {
       <div className="flex items-end gap-1.5 rounded-xl border border-white/10 bg-vb-sunken p-1.5 focus-within:ring-1 focus-within:ring-[var(--vs-accent)]">
         <button type="button" onClick={() => fileInput.current?.click()} disabled={p.disabled || p.busy}
           aria-label={t('panel.videoStudio.ai.attach')} title={t('panel.videoStudio.ai.attach')}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-35">
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-35 pointer-coarse:h-10 pointer-coarse:w-10">
           <StudioIcon name="attach" />
         </button>
         <input ref={fileInput} type="file" multiple className="hidden" aria-label={t('panel.videoStudio.ai.attach')}
-          accept=".mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.png,.jpg,.jpeg,.webp,.gif,.avif"
+          accept=".mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.png,.jpg,.jpeg,.webp,.gif,.avif,.glb,.gltf,.bin,.vibi3d,.vibimage"
           onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; if (files.length > 0) p.onAttach(files); }} />
         <textarea
           {...IME_ENTER_OWNER}
@@ -87,7 +87,7 @@ export function StudioComposer(p: StudioComposerProps): React.JSX.Element {
           className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-1.5 text-[13px] leading-relaxed text-slate-100 outline-none placeholder:text-slate-500 disabled:opacity-40"
         />
         <button type="button" disabled={!p.canSend} onClick={() => p.onSend()} aria-label={t('panel.videoStudio.ai.send')} title={t('panel.videoStudio.ai.send')}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-slate-50 hover:bg-white/15 disabled:opacity-35">
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-slate-50 hover:bg-white/15 disabled:opacity-35 pointer-coarse:h-10 pointer-coarse:w-10">
           {p.busy ? <span className="h-3 w-3 animate-[vs-breathe_1.2s_ease-in-out_infinite] rounded-full bg-[var(--vs-accent)]" aria-hidden="true" /> : <StudioIcon name="send" />}
         </button>
       </div>

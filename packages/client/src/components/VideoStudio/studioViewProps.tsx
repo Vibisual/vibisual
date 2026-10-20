@@ -1,6 +1,7 @@
-import type { Dispatch, KeyboardEventHandler, ReactNode, RefObject, SetStateAction } from 'react';
+import { CreationAgentSettings } from '../Creation/CreationAgentSettings.js';
+import { Suspense, type Dispatch, type KeyboardEventHandler, type ReactNode, type RefObject, type SetStateAction } from 'react';
 import type { TFunction } from 'i18next';
-import { buildRemoveChapterOps } from '@vibisual/video';
+import { buildRemoveChapterOps, renderTiming } from '@vibisual/video';
 import type {
   ResolvedTimeline,
   VideoChapter,
@@ -17,7 +18,6 @@ import type { VideoStudioViewProps } from './VideoStudioView.js';
 import type { StudioDoc } from './useStudioDoc.js';
 import type { StudioPlayback } from './useStudioPlayback.js';
 import type { StudioAgent } from './useStudioAgent.js';
-import type { StudioChatLine } from './useStudioConversation.js';
 import type { StudioHistory } from './useStudioHistory.js';
 import type { PassChange } from './usePassChange.js';
 import type { StudioRender } from './useStudioRender.js';
@@ -33,14 +33,15 @@ import { MediaDrawer } from './MediaDrawer.js';
 import { PartsDrawer } from './PartsDrawer.js';
 import { NotesDrawer } from './NotesDrawer.js';
 import { StudioChangeCard } from './StudioChangeCard.js';
-import { ExportMenu } from './ExportMenu.js';
-import { HistoryCompare } from './HistoryCompare.js';
+import { formatDuration } from './exportLabels.js';
 import { StudioSteps } from './StudioSteps.js';
-import { FrameStripViewer } from './FrameStripViewer.js';
+import { LazyFrameStripViewer, LazyHistoryCompare } from './studioPanels.js';
 import { PlanCards } from './PlanCards.js';
 import { ValueCard } from './ValueCard.js';
 import { StudioIcon } from './studioIcons.js';
 import { formatClock } from './PreviewControls.js';
+import { itemKindKey } from './kindLabels.js';
+import { stripPickClipboard } from './studioAgentMessage.js';
 
 /**
  * §5.13 (V) 37-1 — 스튜디오 상태 → 화면 부품 props 조립(셸을 묶기 전용으로 두려고 떼었다). 무엇이 어느 칸에 서는지가 이 파일 한
@@ -56,7 +57,7 @@ export interface StudioUiState {
   readonly interaction: 'none' | 'point' | 'note';
   readonly compare: readonly string[];
   readonly compareOpen: boolean;
-  readonly strip: { readonly image: string; readonly times: readonly number[]; readonly title: string } | null;
+  readonly strip: { readonly image: string; readonly times: readonly number[]; readonly title: string; readonly itemId?: string } | null;
   /** 판 기록을 연 때의 AI 판 수(머리줄 숫자를 거두는 자리). */
   readonly historySeen: number;
   /** 빈 문서 레시피로 편집 화면을 고른 문서(시작 화면을 거둔다). */
@@ -66,12 +67,17 @@ export interface StudioUiState {
   readonly markerMenu: { readonly id: string; readonly anchor: HTMLElement } | null;
   /** §5.13 (V) 37-4 — 기획 카드를 접었다(장면 구슬 줄만 남긴다). */
   readonly planCollapsed: boolean;
+  /** §5.13 (AA) 42-8 — 내보내기 설정 창(열린 탭). */
+  readonly exportDialog: 'settings' | 'queue' | null;
+  /** §5.13 (AA) 42-3 — 미리보기 음소거·크기(창 세션 동안만 — §3.2). */
+  readonly muted: boolean;
+  readonly volume: number;
 }
 
 export const INITIAL_UI: StudioUiState = {
   drawer: null, aiCollapsed: false, historyOpen: false, precisionOpen: false, safeArea: false, zoom: 'fit', interaction: 'none',
   compare: [], compareOpen: false, strip: null, historySeen: 0, editorFor: null, chapterMenu: null, seamMenu: null, markerMenu: null,
-  planCollapsed: false,
+  planCollapsed: false, exportDialog: null, muted: false, volume: 1,
 };
 
 /** 3·4 라운드가 채우는 자리(장면 메뉴·전환·검수·부품·스타일·대본·비트·내보내기). 없으면 그 칸이 서지 않는다. */
@@ -107,7 +113,10 @@ export interface StudioViewInputs {
   readonly edits: { undo: () => Promise<void>; redo: () => Promise<void>; canUndo: boolean; canRedo: boolean; applyOps: (ops: readonly VideoDocOp[]) => Promise<boolean> };
   readonly editing: StudioEditing;
   readonly agent: StudioAgent;
-  readonly conversation: { readonly lines: readonly StudioChatLine[]; readonly busy: boolean };
+  /** §5.13 (Y) 40-5 ② — 대화는 AI 패널이 직접 구독한다(셸은 세션 id 만 넘긴다). */
+  readonly conversation: { readonly agentId: string | null; readonly sessionId: string | null };
+  /** §5.13 (Y) 40-3 ⑤ — 미리보기 배율을 공급자에 알린다. */
+  readonly onDisplayScale?: (scale: number) => void;
   readonly history: StudioHistory;
   readonly passChange: PassChange;
   readonly render: StudioRender;
@@ -116,6 +125,16 @@ export interface StudioViewInputs {
   readonly notes: StudioNotes;
   readonly interaction: PreviewInteraction;
   readonly thumbs: Readonly<Record<string, string | null>>;
+  /** §5.13 (X) 39-3 — 미리보기가 첫 그림을 세우기 전에 띄울 포스터(지금 장면의 대표 프레임). 없으면 null. */
+  readonly poster: string | null;
+  /** §5.13 (X) 39-3 — 미리보기의 첫 그림이 섰는가(그 뒤에는 포스터를 걷는다). */
+  readonly previewReady: boolean;
+  /**
+   * §5.13 (Z) 41-5 ② — 재생 중 보여야 할 컴포지션이 아직 첫 그림을 못 냈는가 · 그동안 깔 가벼운 판(그 시각 장면의 대표 프레임).
+   * 첫 그림이 서면 걷힌다(39-3 포스터와 같은 걷힘).
+   */
+  readonly previewCold?: boolean;
+  readonly posterAt?: (t: number) => string | null;
   readonly setProp: (itemId: string, key: string, value: unknown) => void;
   readonly ui: StudioUiState;
   readonly setUi: Dispatch<SetStateAction<StudioUiState>>;
@@ -136,6 +155,24 @@ export interface StudioViewInputs {
   /** 장면 구슬 줄 자리의 [장면으로 나누기]. */
   readonly onDeriveChapters: () => void;
   readonly extras: StudioExtras;
+}
+
+/** §5.13 (AA) 42-8 — 내보내기 단추 툴팁(도는 렌더의 진행·남은 시간 · 멈춤 · 기다리는 수). */
+function exportTitleText(t: TFunction, render: StudioRender): string | null {
+  const running = render.queue.running;
+  if (running) {
+    const percent = Math.round(Math.max(0, Math.min(1, running.progress)) * 100);
+    if (running.paused) return t('panel.videoStudio.export.headerPaused', { percent });
+    const timing = renderTiming({
+      status: running.status, progress: running.progress,
+      ...(running.startedAt !== undefined ? { startedAt: running.startedAt } : {}),
+      ...(running.pausedMs !== undefined ? { pausedMs: running.pausedMs } : {}),
+    }, Date.now());
+    return timing.etaMs !== null
+      ? t('panel.videoStudio.export.headerRunningEta', { percent, time: formatDuration(timing.etaMs) })
+      : t('panel.videoStudio.export.headerRunning', { percent });
+  }
+  return render.queue.activeCount > 0 ? t('panel.videoStudio.export.headerWaiting', { count: render.queue.activeCount }) : null;
 }
 
 function isEmptyDoc(doc: VideoDoc): boolean {
@@ -164,7 +201,7 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
   const activeNote = a.interaction.activeNoteId ? a.notes.notes.find((n) => n.id === a.interaction.activeNoteId) : undefined;
 
   const chips: ComposerChip[] = [
-    ...a.composer.pointed.map((p, i): ComposerChip => ({ id: `pointed-${i}`, icon: 'point', label: p.text ? `“${p.text.slice(0, 24)}”` : t('panel.videoStudio.ai.pointedChip', { kind: t(`panel.videoStudio.values.kind_${p.kind}`) }), onRemove: () => a.composer.removePointed(i) })),
+    ...a.composer.pointed.map((p, i): ComposerChip => ({ id: `pointed-${i}`, icon: 'point', label: p.text ? `“${p.text.slice(0, 24)}”` : t('panel.videoStudio.ai.pointedChip', { kind: t(itemKindKey(p.kind)) }), onRemove: () => a.composer.removePointed(i) })),
     ...(activeNote && activeNote.status !== 'closed' ? [{ id: `note-${activeNote.id}`, icon: 'note' as const, label: t('panel.videoStudio.notes.pinTitle', { n: activeNote.n }), onRemove: () => a.interaction.setActiveNoteId(null) }] : []),
     ...a.composer.assets.map(({ asset, label }): ComposerChip => ({ id: asset.id, icon: 'attach', label, onRemove: () => a.composer.removeAsset(asset.id) })),
     ...(doc && a.composer.useTime ? [{ id: 'time', icon: 'history' as const, label: t('panel.videoStudio.ai.timeChip', { time: formatClock(playback.playhead) }), onRemove: () => a.composer.setUseTime(false) }] : []),
@@ -188,11 +225,14 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
     const owner = doc?.tracks.flatMap((tr) => tr.items).find((it) => it.assetId === assetId);
     return owner?.label ?? (asset?.source.kind === 'file' ? asset.source.path.split('/').pop() ?? assetId : assetId);
   };
+  // §5.13 (Y) 40-5 ③ — 기획 카드에는 이름을 값으로 넘긴다(카드가 쓰는 소재만).
+  const mediaNames: Record<string, string> = {};
+  if (planVisible) for (const c of chapters) for (const id of c.chapter.media ?? []) mediaNames[id] ??= mediaName(id);
   const updateChapter = (chapterId: string, patch: Partial<Omit<VideoChapter, 'id'>>): void => applyOps([{ op: 'updateChapter', chapterId, patch }]);
 
   // §5.13 (V) 37-7 — 맡기기는 AI 패널 한 자리(열린 메모가 있을 때만).
   const openNotes = a.notes.open.length;
-  const aiActions: ReactNode = (openNotes > 0 || a.extras.aiActions || agent.engine === 'codex') ? (
+  const aiActions: ReactNode = (openNotes > 0 || a.extras.aiActions || !!agent.agent || agent.engine === 'codex') ? (
     <>
       {openNotes > 0 ? (
         <button type="button" disabled={agent.sending} onClick={a.onHandNotes}
@@ -202,13 +242,14 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       ) : null}
       {agent.engine === 'codex' ? (
         <label className="flex items-start gap-2 text-[12px] text-slate-300">
-          <input type="checkbox" className="mt-0.5" checked={a.composer.imageGeneration} onChange={(e) => a.composer.setImageGeneration(e.target.checked)} />
+          <input type="checkbox" className="mt-0.5 shrink-0 pointer-coarse:h-5 pointer-coarse:w-5" checked={a.composer.imageGeneration} onChange={(e) => a.composer.setImageGeneration(e.target.checked)} />
           <span>
             <span className="block">{t('panel.videoStudio.ai.allowImages')}</span>
             {a.composer.imageGeneration ? <span className="block text-slate-500">{t('panel.videoStudio.ai.allowImagesNote')}</span> : null}
           </span>
         </label>
       ) : null}
+      {agent.agent && <CreationAgentSettings agentId={agent.agent.id} />}
       {a.extras.aiActions ?? null}
     </>
   ) : null;
@@ -262,13 +303,11 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       onToggleHistory: () => setUi((u) => ({ ...u, historyOpen: !u.historyOpen })),
       historyBadge: Math.max(0, aiRevisions - ui.historySeen),
       exportProgress: a.render.progress,
-      exportMenu: a.extras.exportMenu ?? ((close) => (
-        <ExportMenu format={a.format ?? 'landscape'} busy={a.render.busy} canExport={playback.duration > 0} hasCaptions={hasCaptions}
-          captions="burn" onCaptions={() => undefined} download={a.render.download}
-          transparent={{ onExport: () => { void a.render.renderMp4(undefined, { transparent: true }); } }}
-          onMp4={() => { void a.render.renderMp4(); }} onPng={() => { void a.render.savePng(); }} onSrt={() => undefined}
-          onPreset={() => { void a.render.renderMp4(); }} close={close} />
-      )),
+      exportBadge: a.render.queue.activeCount,
+      exportTitle: exportTitleText(t, a.render),
+      exportPaused: a.render.queue.running?.paused === true,
+      // 셸이 판을 늘 준다(§5.13 (AA) 42-8). 없는 형태(시험)에서는 판 없이 단추만.
+      exportMenu: a.extras.exportMenu ?? (() => null),
       disabled: a.disabled,
     },
     start: startMode ? {
@@ -288,7 +327,13 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
     },
     preview: startMode || !doc || !view ? null : {
       doc: view, mode: a.previewMode, canvasRef: a.canvasRef, stageHostRef: a.stageHostRef, zoom: ui.zoom, safeArea: ui.safeArea, interaction: ui.interaction,
+      poster: a.poster, ready: a.previewReady,
+      ...(a.previewCold !== undefined ? { cold: a.previewCold } : {}),
+      ...(a.posterAt ? { posterAt: a.posterAt } : {}),
       rings: a.interaction.rings, pins: a.interaction.pins, edit: a.interaction.edit,
+      clock: playback.clock, playhead: playback.playhead, overlaysAt: a.interaction.overlaysAt,
+      ...(a.onDisplayScale ? { onDisplayScale: a.onDisplayScale } : {}),
+      inspect: a.interaction.inspect,
       onHover: a.interaction.onHover,
       onLeave: a.interaction.onLeave,
       onPress: a.interaction.onPress,
@@ -314,14 +359,18 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       ),
     },
     controls: startMode || !doc ? null : {
-      playing: playback.playing, playhead: playback.playhead, duration: playback.duration, loop: playback.loop, safeArea: ui.safeArea, zoom: ui.zoom,
+      playing: playback.playing, preparing: playback.preparing, playhead: playback.playhead, clock: playback.clock, duration: playback.duration, loop: playback.loop, safeArea: ui.safeArea, zoom: ui.zoom,
       interaction: ui.interaction, precisionOpen: ui.precisionOpen, disabled: a.disabled,
-      onPlay: playback.togglePlay, onStep: (n) => playback.seek(playback.playhead + n / playback.fps), onLoop: playback.toggleLoop,
+      onPlay: playback.togglePlay, onStep: (n) => playback.seek(playback.clock.get() + n / playback.fps), onLoop: playback.toggleLoop,
       onSafeArea: () => setUi((u) => ({ ...u, safeArea: !u.safeArea })), onZoom: () => setUi((u) => ({ ...u, zoom: u.zoom === 'fit' ? 'actual' : 'fit' })),
       onInteraction: setInteraction, onPrecision: () => setUi((u) => ({ ...u, precisionOpen: !u.precisionOpen })),
+      // §5.13 (AA) 42-3 — 미리보기 음소거(`M`)·크기. 크기를 움직이면 음소거는 풀린다.
+      muted: ui.muted, volume: ui.volume,
+      onMute: () => setUi((u) => ({ ...u, muted: !u.muted })),
+      onVolume: (volume) => setUi((u) => ({ ...u, volume, muted: volume === 0 ? u.muted : false })),
     },
     strip: startMode || !doc ? null : {
-      duration: playback.duration, playhead: playback.playhead,
+      duration: playback.duration, playhead: playback.playhead, clock: playback.clock,
       chapters: chapters.map((c) => ({ id: c.id, index: c.index, title: c.chapter.title, start: c.start, end: c.end, status: c.chapter.status, thumb: a.thumbs[c.id] ?? null, transition: c.chapter.transition?.kind ?? null, seam: c.start + c.overlapIn / 2 })),
       selectedChapterId: selectedChapterId ?? null, glow: a.studio.glow.chapters, workingChapterId: working?.focus ?? null,
       markers: a.extras.markers ?? [],
@@ -354,7 +403,7 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       <PlanCards
         chapters={chapters}
         thumbs={a.thumbs}
-        mediaName={mediaName}
+        mediaNames={mediaNames}
         workingChapterId={working?.focus ?? null}
         fps={doc.fps}
         disabled={a.disabled}
@@ -380,16 +429,16 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       />
     ) : chapters.some((c) => c.chapter.status !== 'done') ? (
       <button type="button" onClick={() => setUi((u) => ({ ...u, planCollapsed: false }))}
-        className="flex shrink-0 items-center gap-1.5 self-start rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100">
+        className="flex shrink-0 items-center gap-1.5 self-start rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 pointer-coarse:py-2">
         <StudioIcon name="chevronDown" className="h-3.5 w-3.5 rotate-180" />{t('panel.videoStudio.plan.expand')}
       </button>
     ) : null,
     ai: startMode || !doc ? null : {
       collapsed: ui.aiCollapsed, onToggleCollapsed: () => setUi((u) => ({ ...u, aiCollapsed: !u.aiCollapsed })),
       engine: agent.engine, onEngine: agent.setEngine, preparation: agent.preparation, onPrepare: agent.prepare, prepareElsewhere,
-      agentName: agent.agent?.label ?? null, running: (agent.agent?.running ?? false) || a.conversation.busy, activityText,
+      agentName: agent.agent?.label ?? null, running: agent.agent?.running ?? false, activityText,
       valueCard,
-      lines: a.conversation.lines,
+      conversation: a.conversation,
       changeCard: (a.passChange.lines.length > 0 || a.passChange.report) ? (
         <StudioChangeCard lines={a.passChange.lines} report={a.passChange.report} open={a.passChange.open}
           onJump={(target) => {
@@ -430,10 +479,13 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
     } : null,
     precision: ui.precisionOpen && doc && view && !startMode ? {
       timeline: {
-        doc: view, playhead: playback.playhead, selectedItemId: a.selectedItemId, onSeek: playback.seek, onSelectItem: a.setSelectedItemId, onApplyOps: applyOps, disabled: a.disabled,
+        doc: view, playhead: playback.playhead, clock: playback.clock, selectedItemId: a.selectedItemId, onSeek: playback.seek, onSelectItem: a.setSelectedItemId, onApplyOps: applyOps, disabled: a.disabled,
         ...(a.extras.cues ? { onRecollectCues: a.extras.cues.onRecollect, recollectingCues: a.extras.cues.busy } : {}),
       },
-      inspector: { doc: view, selectedItemId: a.selectedItemId, disabled: a.disabled, onApplyOps: applyOps, composition: a.editing.compositionActions, onSetProp: a.setProp, playhead: playback.playhead },
+      inspector: {
+        doc: view, selectedItemId: a.selectedItemId, disabled: a.disabled, onApplyOps: applyOps, composition: a.editing.compositionActions,
+        onSetProp: a.setProp, playhead: playback.playhead, project: a.projectName,
+      },
       undo: { run: () => { void a.edits.undo(); }, disabled: !a.edits.canUndo },
       redo: { run: () => { void a.edits.redo(); }, disabled: !a.edits.canRedo },
       split: { run: a.editing.split, disabled: !a.editing.canSplit },
@@ -445,12 +497,13 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
     } : null,
     overlays: (
       <>
-        {ui.strip ? <FrameStripViewer strip={ui.strip} onClose={() => setUi((u) => ({ ...u, strip: null }))} /> : null}
+        {ui.strip ? <Suspense fallback={null}><LazyFrameStripViewer strip={ui.strip} onClose={() => setUi((u) => ({ ...u, strip: null }))}
+          pickClipboard={stripPickClipboard(a.projectName, doc, playback.duration, ui.strip.itemId)} /></Suspense> : null}
         {ui.compareOpen && doc && ui.compare.length === 2 ? (() => {
           const [ra, rb] = ui.compare;
           const ea = a.history.entries.find((e) => e.id === ra);
           const eb = a.history.entries.find((e) => e.id === rb);
-          return ea && eb ? <HistoryCompare project={a.projectName} docId={doc.id} a={ea} b={eb} onClose={() => setUi((u) => ({ ...u, compareOpen: false }))} /> : null;
+          return ea && eb ? <Suspense fallback={null}><LazyHistoryCompare project={a.projectName} docId={doc.id} a={ea} b={eb} onClose={() => setUi((u) => ({ ...u, compareOpen: false }))} /></Suspense> : null;
         })() : null}
         {a.extras.overlays ?? null}
       </>

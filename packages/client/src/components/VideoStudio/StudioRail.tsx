@@ -44,11 +44,13 @@ export function StudioRail(p: StudioRailProps): React.JSX.Element {
         ))}
       </nav>
       {p.open && p.drawer ? (
-        <aside className="flex w-72 shrink-0 animate-[vs-in-left_160ms_ease-out] flex-col border-r border-white/10 bg-vb-card" aria-label={t(`panel.videoStudio.rail.${p.open}`)}>
+        // 1024px 미만 창에서는 서랍이 미리보기를 밀지 않고 그 **위에 덮인다**(레일 바로 오른쪽, 창 폭 − 레일까지) — 나란히 두면
+        //   레일 48 + 서랍 288 + AI 칸이 창을 다 먹어 미리보기가 0 이 된다. 부모 행(VideoStudioView)이 `relative` 다.
+        <aside className="flex w-72 shrink-0 animate-[vs-in-left_160ms_ease-out] flex-col border-r border-white/10 bg-vb-card box-compact:absolute box-compact:inset-y-0 box-compact:left-12 box-compact:z-30 box-compact:max-w-[calc(100%-3rem)] box-compact:shadow-2xl box-compact:shadow-black/60" aria-label={t(`panel.videoStudio.rail.${p.open}`)}>
           <header className="flex h-10 shrink-0 items-center gap-2 border-b border-white/10 px-3">
-            <span className="flex-1 text-[13px] font-semibold text-slate-200">{t(`panel.videoStudio.rail.${p.open}`)}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-200">{t(`panel.videoStudio.rail.${p.open}`)}</span>
             <button type="button" onClick={() => p.onOpen(null)} aria-label={t('common.close', { defaultValue: 'Close' })}
-              className="rounded p-1 text-slate-500 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="close" className="h-3.5 w-3.5" /></button>
+              className="shrink-0 rounded p-1 text-slate-500 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-2.5"><StudioIcon name="close" className="h-3.5 w-3.5" /></button>
           </header>
           {p.drawer}
         </aside>

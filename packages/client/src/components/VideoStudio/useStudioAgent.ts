@@ -91,6 +91,20 @@ function linkedAgentsOf(st: Pick<GraphState, 'agents' | 'agentConfigs'>, bound: 
   return out;
 }
 
+/**
+ * §5.13 (X) 39-7 — 이 문서에 이어진 것의 **지문**(원시 문자열). `agents`·`subAgents`·`agentConfigs`·`appBubbles` 를 통째로 구독하면
+ * 다른 프로젝트·다른 세션이 움직일 때마다(스냅샷마다 — AI 가 일하는 동안 초당 여러 번) 스튜디오 전체가 다시 그려졌다. 지문은 이
+ * 문서의 노드와 거기 이어진 에이전트가 실제로 바뀔 때만 달라지고, 목록은 그때 스토어에서 다시 만든다(지문 구독 + 재구성).
+ */
+function linkSignature(st: Pick<GraphState, 'appBubbles' | 'agents' | 'agentConfigs'>, projectName: string, docId: string, bubbleId: string): string {
+  const bound = boundBubblesOf(st, projectName, docId, bubbleId);
+  if (bound.length === 0) return '';
+  return JSON.stringify([
+    bound.map((b) => [b.id, b.x, b.y, b.ref ?? '', b.file ?? '', b.linkedAgentIds ?? []]),
+    linkedAgentsOf(st, bound).map((a) => [a.id, a.label, a.engine, a.running]),
+  ]);
+}
+
 function waitForAgent(agentId: string): Promise<void> {
   if (useGraphStore.getState().agents?.some((a) => a.id === agentId)) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -108,10 +122,7 @@ function waitForAgent(agentId: string): Promise<void> {
 export function useStudioAgent(opts: { projectName: string; docId: string; docTitle: string; bubbleId: string }): StudioAgent {
   const { projectName, docId, docTitle, bubbleId } = opts;
   const { t } = useTranslation();
-  const agents = useGraphStore((s) => s.agents);
-  const agentConfigs = useGraphStore((s) => s.agentConfigs);
-  const appBubbles = useGraphStore((s) => s.appBubbles);
-  const subAgents = useGraphStore((s) => s.subAgents);
+  const signature = useGraphStore((s) => linkSignature(s, projectName, docId, bubbleId));
   const claudeSetup = useGraphStore((s) => s.claudeSetup);
   const claudeAuth = useGraphStore((s) => s.claudeAuth);
   const codexSetup = useGraphStore((s) => s.codexSetup);
@@ -119,10 +130,14 @@ export function useStudioAgent(opts: { projectName: string; docId: string; docTi
   const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice?.kind);
   const [sending, setSending] = useState(false);
 
-  const bound = useMemo(() => boundBubblesOf({ appBubbles }, projectName, docId, bubbleId), [appBubbles, projectName, docId, bubbleId]);
+  // 지문이 바뀔 때만 스토어에서 다시 만든다 — 지문이 비면(이어진 노드 없음) 스토어를 열어 보지도 않는다.
+  const { bound, linked } = useMemo((): { bound: AppBubble[]; linked: StudioAgentInfo[] } => {
+    if (signature === '') return { bound: [], linked: [] };
+    const st = useGraphStore.getState();
+    const nodes = boundBubblesOf(st, projectName, docId, bubbleId);
+    return { bound: nodes, linked: linkedAgentsOf(st, nodes) };
+  }, [signature, projectName, docId, bubbleId]);
   const bubble = bound[0] ?? null;
-
-  const linked = useMemo<StudioAgentInfo[]>(() => linkedAgentsOf({ agents, agentConfigs }, bound), [bound, agents, agentConfigs]);
 
   const initialEngine = (): VideoEngineKind => linked[0]?.engine ?? (engineChoice === 'codex' ? 'codex' : 'claude');
   const [engine, setEngine] = useState<VideoEngineKind>(initialEngine);
@@ -146,9 +161,11 @@ export function useStudioAgent(opts: { projectName: string; docId: string; docTi
   }, [preparation]);
 
   const agent = linked.find((a) => a.engine === engine) ?? null;
-  const sessionId = agent
-    ? pickCardSession(subAgents?.[agent.id], selectIDEActiveSessionForAgent(useGraphStore.getState(), agent.id), useGraphStore.getState().selectedSubByAgent?.[agent.id])
-    : null;
+  // 세션은 **그 에이전트의 것만** 원시값(id)으로 구독한다 — 다른 세션이 움직여도 깨지 않는다(39-7).
+  const linkedAgentId = agent?.id ?? null;
+  const sessionId = useGraphStore((s) => (linkedAgentId
+    ? pickCardSession(s.subAgents?.[linkedAgentId], selectIDEActiveSessionForAgent(s, linkedAgentId), s.selectedSubByAgent?.[linkedAgentId])
+    : null));
 
   /**
    * 그 엔진의 이어진 에이전트 — 없으면 기존 생성 경로로 만들어 이 문서의 노드에 잇는다. 묶인 노드·에이전트는 **부르는 순간의

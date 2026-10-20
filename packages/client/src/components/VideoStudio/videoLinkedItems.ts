@@ -32,6 +32,7 @@ const STAGE: Readonly<Record<ChapterStatus, AppLinkedItemStage>> = {
 const ASSET_KIND: Readonly<Record<VideoAsset['kind'], AppLinkedItemKind>> = {
   composition: 'code',
   image: 'image',
+  model: 'file',
   video: 'video',
   audio: 'audio',
   font: 'font',
@@ -41,6 +42,7 @@ const ASSET_KIND: Readonly<Record<VideoAsset['kind'], AppLinkedItemKind>> = {
 const ASSET_ORDER: Readonly<Record<VideoAsset['kind'], number>> = {
   composition: 0,
   image: 1,
+  model: 1,
   video: 2,
   audio: 3,
   font: 4,

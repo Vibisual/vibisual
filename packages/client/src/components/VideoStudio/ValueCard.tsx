@@ -8,6 +8,8 @@ import { ValueControl, ValueFieldList } from './StudioValueControls.js';
 import { formatClock } from './PreviewControls.js';
 import { itemValueFields, toPropValue, type ValueField } from './valueFields.js';
 import type { CompositionInspectorActions } from './VideoInspectorComposition.js';
+import { itemKindKey } from './kindLabels.js';
+import { memoLatest } from './studioMemo.js';
 
 /**
  * §5.13 (V) 37-5 — **값 카드**: AI 패널 맨 위에 고른 것이 있을 때만 선다. 값을 손으로 바꾸거나(종류별 손잡이 — 바꾸는 즉시
@@ -33,7 +35,10 @@ const KIND_ICON: Readonly<Record<string, StudioIconName>> = {
 /** 길이 손잡이 — 끄는 동안 패치가 쏟아지지 않게 잠잠해지면 한 번 적는다. */
 const DURATION_SAVE_MS = 450;
 
-export function ValueCard(p: ValueCardProps): React.JSX.Element {
+/** §5.13 (Y) 40-5 ③ — 값이 같으면 다시 그리지 않는다(손잡이는 늘 최신을 부른다 — `studioMemo.ts`). */
+export const ValueCard = memoLatest(ValueCardView);
+
+function ValueCardView(p: ValueCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const item = p.resolved.item;
   const asset = item.assetId ? p.doc.assets[item.assetId] : undefined;
@@ -45,10 +50,12 @@ export function ValueCard(p: ValueCardProps): React.JSX.Element {
   const durationField: ValueField | null = typeof item.duration === 'number'
     ? { key: '__duration', type: 'time', label: t('panel.videoStudio.values.duration'), value: durationDraft ?? item.duration, min: 1 / Math.max(1, p.doc.fps), step: 0.05 }
     : null;
-  const title = item.label ?? (item.kind === 'scene' && item.sceneId ? t(`panel.videoStudio.editor.scene_${item.sceneId}`, { defaultValue: item.sceneId }) : t(`panel.videoStudio.values.kind_${item.kind}`));
+  const title = item.label ?? (item.kind === 'scene' && item.sceneId ? t(`panel.videoStudio.editor.scene_${item.sceneId}`, { defaultValue: item.sceneId }) : t(itemKindKey(item.kind)));
 
   return (
-    <section className="flex max-h-[46%] shrink-0 flex-col border-b border-white/10 bg-vb-raised/40" aria-label={t('panel.videoStudio.values.title')}>
+    // 높이 상한 = AI 칸의 46% 이되, 짧은 칸(짧은 창·폰에서 아래로 쌓인 AI 칸)에서는 머리·입력창·대화 몫 16rem 을 남긴 만큼까지만
+    //   (그래도 5.5rem 은 둔다 — 제목 줄과 손잡이 한 줄). 넘치는 손잡이는 아래 목록 안에서 스크롤한다. 키 큰 칸에서는 종전과 같다.
+    <section className="flex max-h-[min(46%,max(5.5rem,calc(100%_-_16rem)))] shrink-0 flex-col border-b border-white/10 bg-vb-raised/40" aria-label={t('panel.videoStudio.values.title')}>
       <header className="flex shrink-0 items-center gap-2 px-3 pb-1.5 pt-2.5">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/15 text-slate-300">
           <StudioIcon name={KIND_ICON[item.kind] ?? 'parts'} className="h-3.5 w-3.5" />
@@ -58,7 +65,7 @@ export function ValueCard(p: ValueCardProps): React.JSX.Element {
           <span className="block text-[12px] tabular-nums text-slate-500">{formatClock(p.resolved.start)} – {formatClock(p.resolved.end)}</span>
         </span>
         <button type="button" onClick={p.onClose} aria-label={t('panel.videoStudio.values.deselect')} title={t('panel.videoStudio.values.deselect')}
-          className="rounded p-1 text-slate-500 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="close" className="h-3.5 w-3.5" /></button>
+          className="shrink-0 rounded p-1 text-slate-500 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-2.5"><StudioIcon name="close" className="h-3.5 w-3.5" /></button>
       </header>
       <div className="scrollbar-thin flex min-h-0 flex-col gap-3 overflow-y-auto px-3 pb-3">
         {fields.length > 0 ? (
@@ -93,7 +100,7 @@ export function Disclosure({ label, children, defaultOpen = false }: { readonly 
   return (
     <div className="rounded-md border border-white/10">
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[12px] font-semibold text-slate-400 hover:text-slate-100">
+        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[12px] font-semibold text-slate-400 hover:text-slate-100 pointer-coarse:py-2.5">
         <StudioIcon name="chevronDown" className={`h-3.5 w-3.5 transition-transform duration-150 ease-out ${open ? '' : '-rotate-90'}`} />
         {label}
       </button>
@@ -131,7 +138,7 @@ export function CompositionDetails({ item, asset, disabled, actions, onReplacePr
       return t('panel.videoStudio.composition.propsInvalid');
     }
   };
-  const BUTTON = 'flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40';
+  const BUTTON = 'flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2';
   return (
     <>
       <Disclosure label={problems > 0 ? t('panel.videoStudio.values.codeInfoProblems', { count: problems }) : t('panel.videoStudio.values.codeInfo')}>

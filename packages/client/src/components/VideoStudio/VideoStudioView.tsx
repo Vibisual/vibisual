@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type KeyboardEventHandler, type ReactNode } from 'react';
+import { Suspense, useEffect, type CSSProperties, type KeyboardEventHandler, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -11,8 +11,9 @@ import { StudioPreview, type StudioPreviewProps } from './StudioPreview.js';
 import { PreviewControls, type PreviewControlsProps } from './PreviewControls.js';
 import { SceneStrip, type SceneStripProps } from './SceneStrip.js';
 import { StudioAiPanel, type StudioAiPanelProps } from './StudioAiPanel.js';
-import { HistoryPanel, type HistoryPanelProps } from './HistoryPanel.js';
-import { PrecisionSheet, type PrecisionSheetProps } from './PrecisionSheet.js';
+import type { HistoryPanelProps } from './HistoryPanel.js';
+import type { PrecisionSheetProps } from './PrecisionSheet.js';
+import { LazyHistoryPanel, LazyPrecisionSheet } from './studioPanels.js';
 import { StudioToastStack } from './StudioToastStack.js';
 import type { StudioToast } from './useStudioToasts.js';
 
@@ -23,6 +24,9 @@ import type { StudioToast } from './useStudioToasts.js';
  * 머리줄과 스튜디오 머리줄이 겹치던 세 줄이 한 줄이 된다). 가운데: 왼쪽 아이콘 레일 + 서랍 · 큰 미리보기(+ 조작 줄 · 장면 구슬
  * 줄) · 오른쪽 AI 패널(판 기록을 열면 그 자리). 아래: [정밀 편집] 판(열 때만). 시작 화면에서는 레일·AI 패널을 거두고 입력창
  * 하나만 남긴다(같은 입력이 두 군데 있지 않게).
+ *
+ * 반응형은 **창 폭**이 기준이다(앱 창은 1920 화면에서도 400px 일 수 있다 — `box-*` 변형, `apps/AppShellHost.tsx` 가 잰다):
+ * 1024px 미만은 서랍이 미리보기 위에 덮이고 AI 칸 하한이 260px 로 낮아지며, 640px 미만은 AI 칸이 미리보기 아래로 쌓인다.
  */
 export interface VideoStudioViewProps {
   readonly accent: string;
@@ -62,21 +66,27 @@ export function VideoStudioView(p: VideoStudioViewProps): React.JSX.Element {
           {!p.hosted ? <WindowControls /> : null}
         </header>
       )}
-      <div className="flex min-h-0 flex-1">
+      {/* `relative` — 1024px 미만 창에서 레일 서랍이 미리보기를 밀지 않고 그 위에 덮인다(StudioRail). */}
+      <div className="relative flex min-h-0 flex-1">
         {p.rail ? <StudioRail {...p.rail} /> : null}
-        <main className="flex min-w-0 flex-1 flex-col gap-2 p-3">
-          {p.start ? <StudioStart {...p.start} /> : (
-            <>
-              {p.preview ? <StudioPreview {...p.preview} /> : null}
-              {p.controls ? <PreviewControls {...p.controls} /> : null}
-              {p.above}
-              {p.strip ? <SceneStrip {...p.strip} /> : null}
-            </>
-          )}
-        </main>
-        {p.history ? <HistoryPanel {...p.history} /> : p.ai ? <StudioAiPanel {...p.ai} /> : null}
+        {/* 가운데 + 오른쪽 칸. 640px 미만 창(폰)에서는 세로로 쌓는다 — 미리보기 위, AI·판 기록 칸 아래. 나란히 두면 AI 칸의
+            하한(260px)이 미리보기를 0 으로 민다. 넓은 창에서는 종전 그대로 나란하다(이 상자는 배치만 바꾼다). */}
+        <div className="flex min-h-0 min-w-0 flex-1 box-narrow:flex-col">
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-3 box-narrow:p-2">
+            {p.start ? <StudioStart {...p.start} /> : (
+              <>
+                {p.preview ? <StudioPreview {...p.preview} /> : null}
+                {p.controls ? <PreviewControls {...p.controls} /> : null}
+                {p.above}
+                {p.strip ? <SceneStrip {...p.strip} /> : null}
+              </>
+            )}
+          </main>
+          {/* 39-2 — 판 기록·정밀 편집은 늦게 받는 판이다(한가할 때 미리 받아 둔다). */}
+          {p.history ? <Suspense fallback={null}><LazyHistoryPanel {...p.history} /></Suspense> : p.ai ? <StudioAiPanel {...p.ai} /> : null}
+        </div>
       </div>
-      {p.precision ? <PrecisionSheet {...p.precision} /> : null}
+      {p.precision ? <Suspense fallback={null}><LazyPrecisionSheet {...p.precision} /></Suspense> : null}
       {p.overlays}
       <StudioToastStack toasts={p.toasts} onDismiss={p.onDismissToast} />
     </div>

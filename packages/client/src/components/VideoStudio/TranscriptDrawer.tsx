@@ -5,6 +5,7 @@ import { buildCutOps, buildTranscript, sentenceCutRanges, type ResolvedTimeline,
 import { ScrollFade } from '../ScrollFade.js';
 import { formatClock } from './PreviewControls.js';
 import { StudioIcon } from './studioIcons.js';
+import { usePlayheadSampled, type PlayheadClock } from './playheadClock.js';
 
 /**
  * §5.13 (V) 37-13 — **대본 서랍**(자막이 있을 때 레일에 선다). 자막 큐를 문장 목록으로 보이고, 문장을 누르면 그 자리로 간다.
@@ -15,6 +16,8 @@ export interface TranscriptDrawerProps {
   readonly doc: VideoDoc;
   readonly timeline: ResolvedTimeline;
   readonly playhead: number;
+  /** §5.13 (Y) 40-5 ① — 재생 중 지금 줄을 따라 비춘다(굵은 구독 — 서랍만 깨운다). 없으면 `playhead` 그대로. */
+  readonly clock?: PlayheadClock;
   readonly disabled: boolean;
   readonly onSeek: (t: number) => void;
   readonly onCut: (ops: readonly VideoDocOp[]) => Promise<boolean>;
@@ -23,6 +26,7 @@ export interface TranscriptDrawerProps {
 export function TranscriptDrawer(p: TranscriptDrawerProps): React.JSX.Element {
   const { t } = useTranslation();
   const sentences = useMemo(() => buildTranscript(p.doc, p.timeline), [p.doc, p.timeline]);
+  const at = usePlayheadSampled(p.clock, p.playhead);
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   // 문서가 바뀌어 사라진 문장의 표시는 걷는다.
@@ -57,7 +61,7 @@ export function TranscriptDrawer(p: TranscriptDrawerProps): React.JSX.Element {
           <ol className="flex flex-col gap-0.5">
             {sentences.map((s) => {
               const on = marked.has(s.id);
-              const playing = p.playhead >= s.start && p.playhead < s.end;
+              const playing = at >= s.start && at < s.end;
               return (
                 <li key={s.id} className={`group flex items-start gap-2 rounded-lg px-2 py-1.5 ${playing ? 'bg-white/[0.06] ring-1 ring-[var(--vs-accent)]' : 'hover:bg-white/[0.04]'}`}>
                   <button type="button" onClick={() => p.onSeek(s.start)} className="shrink-0 pt-px text-[12px] tabular-nums text-slate-500 hover:text-slate-100"
@@ -68,10 +72,11 @@ export function TranscriptDrawer(p: TranscriptDrawerProps): React.JSX.Element {
                     className={`min-w-0 flex-1 text-left text-[12px] leading-relaxed ${on ? 'text-slate-500 line-through decoration-slate-400' : 'text-slate-200'}`}>
                     {s.text}
                   </button>
+                  {/* 터치에는 hover 가 없다 — 빼기 단추를 늘 보인다(마우스에서는 종전대로 줄에 올렸을 때만). */}
                   <button type="button" disabled={p.disabled} aria-pressed={on} onClick={() => toggle(s.id)}
                     aria-label={on ? t('panel.videoStudio.transcript.keep') : t('panel.videoStudio.transcript.strike')}
                     title={on ? t('panel.videoStudio.transcript.keep') : t('panel.videoStudio.transcript.strike')}
-                    className={`shrink-0 rounded p-0.5 hover:bg-white/10 disabled:opacity-40 ${on ? 'text-slate-100' : 'text-slate-500 opacity-0 focus:opacity-100 group-hover:opacity-100'}`}>
+                    className={`shrink-0 rounded p-0.5 hover:bg-white/10 disabled:opacity-40 pointer-coarse:p-2 ${on ? 'text-slate-100' : 'text-slate-500 opacity-0 focus:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100'}`}>
                     <StudioIcon name={on ? 'restore' : 'trash'} className="h-3.5 w-3.5" />
                   </button>
                 </li>
@@ -92,11 +97,11 @@ export function TranscriptDrawer(p: TranscriptDrawerProps): React.JSX.Element {
           </p>
           <div className="flex gap-1.5">
             <button type="button" disabled={p.disabled || busy || plan.ops.length === 0} onClick={cut}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[12px] font-semibold text-slate-100 hover:bg-white/15 disabled:opacity-40">
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[12px] font-semibold text-slate-100 hover:bg-white/15 disabled:opacity-40 pointer-coarse:py-2">
               <StudioIcon name="split" className="h-3.5 w-3.5" />{t('panel.videoStudio.transcript.cut')}
             </button>
             <button type="button" disabled={busy} onClick={() => setMarked(new Set())}
-              className="rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40">
+              className="rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:py-2">
               {t('panel.videoStudio.transcript.clear')}
             </button>
           </div>

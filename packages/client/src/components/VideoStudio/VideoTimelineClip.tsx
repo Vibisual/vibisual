@@ -63,12 +63,15 @@ export function VideoTimelineClip({ item, doc, duration, selected, disabled, dra
         <span className="block truncate font-medium">{label}</span>
       </span>
     </button>
+    {/* 자르기 손잡이 — 고른 클립은 늘 보이고 조금 굵다(w-3). 터치에서는 hover 가 없어 고른 클립만 손잡이를 쓰고(테두리에 걸쳐 20px),
+        고르지 않은 클립의 보이지 않는 손잡이는 누름을 받지 않는다(옮기려던 손가락이 자르기로 새지 않게). */}
     {(['trimStart', 'trimEnd'] as const).map(mode => {
       const supported = mode !== 'trimStart' || canTrimTimelineStart(item.item);
       const handleLabel = t(`${key}${mode}`, { name: label });
+      const edge = mode === 'trimStart' ? `left-0${selected ? ' pointer-coarse:-left-2' : ''}` : `right-0${selected ? ' pointer-coarse:-right-2' : ''}`;
       return <button key={mode} type="button" disabled={disabled || !supported} aria-label={handleLabel}
         title={supported ? handleLabel : t(`${key}trimUnsupported`)}
-        className={`absolute top-0 h-full w-2 touch-none cursor-ew-resize rounded bg-white/25 opacity-0 hover:bg-white/60 focus:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:bg-white/10 ${selected ? 'opacity-100' : ''} ${mode === 'trimStart' ? 'left-0' : 'right-0'}`}
+        className={`absolute top-0 h-full touch-none cursor-ew-resize rounded bg-white/25 hover:bg-white/60 focus:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:bg-white/10 ${selected ? 'w-3 opacity-100 pointer-coarse:w-5' : 'w-2 opacity-0 pointer-coarse:pointer-events-none'} ${edge}`}
         {...events(mode)} />;
     })}
   </div>;

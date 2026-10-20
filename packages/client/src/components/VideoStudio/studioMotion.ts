@@ -22,6 +22,7 @@ const CSS = `
 }
 @keyframes vs-orbit { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes vs-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes vs-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   [class*="animate-[vs-"] { animation: none; }
 }

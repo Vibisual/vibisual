@@ -13,6 +13,8 @@ import { useStagePreview } from './useStagePreview.js';
  * §5.13 (V) 37-14 — **비교 판**: 같은 장면의 두 갈래(엔진마다 하나)를 같은 시각에 나란히 — 재생하면 둘이 함께 흐르고, 막대를
  * 끌면 둘이 함께 간다. 무대는 미리보기와 같은 DOM 무대(같은 문서에서 고른 갈래만 바꾼 사본)다. [이걸로] → 장면 `pick`.
  * 고르지 않은 쪽은 [안 고른 쪽 지우기]를 누를 때까지 문서에 남는다(그리지 않을 뿐).
+ * 반응형 — 폰 폭 창에서는 두 화면을 위아래로 쌓고, 창보다 길면 창 안에서 스크롤한다. 화면 높이 상한은 `dvh`(폰 주소창이 접혀도
+ * 맞는 높이).
  */
 export interface VariantCompareProps {
   readonly project: string;
@@ -48,13 +50,13 @@ function VariantPane(p: {
   return (
     <figure className="flex min-w-0 flex-1 flex-col gap-1.5">
       <div ref={host} {...DARK_THEME_LOCK} style={{ aspectRatio: String(ratio) }}
-        className={`relative max-h-[52vh] overflow-hidden rounded-lg border bg-black ${p.picked ? 'border-transparent ring-2 ring-[var(--vs-accent)]' : 'border-white/10'}`} />
+        className={`relative max-h-[52dvh] overflow-hidden rounded-lg border bg-black ${p.picked ? 'border-transparent ring-2 ring-[var(--vs-accent)]' : 'border-white/10'}`} />
       <figcaption className="flex items-center gap-2 text-[12px] text-slate-300">
-        <span className="font-semibold">{t(`panel.videoStudio.engines.${p.variant.engine}`, { defaultValue: p.variant.engine })}</span>
-        <span className="text-slate-500">· {t(`panel.videoStudio.variants.status_${p.variant.status}`)}</span>
+        <span className="shrink-0 font-semibold">{t(`panel.videoStudio.engines.${p.variant.engine}`, { defaultValue: p.variant.engine })}</span>
+        <span className="min-w-0 truncate text-slate-500">· {t(`panel.videoStudio.variants.status_${p.variant.status}`)}</span>
         <span className="flex-1" />
         <button type="button" disabled={p.disabled || p.picked} onClick={p.onPick}
-          className="flex items-center gap-1 rounded-md border border-white/15 px-2 py-0.5 text-[12px] text-slate-100 hover:bg-white/10 disabled:opacity-40">
+          className="flex shrink-0 items-center gap-1 rounded-md border border-white/15 px-2 py-0.5 text-[12px] text-slate-100 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2">
           <StudioIcon name="check" className="h-3.5 w-3.5" />{p.picked ? t('panel.videoStudio.variants.picked') : t('panel.videoStudio.variants.pick')}
         </button>
       </figcaption>
@@ -89,34 +91,34 @@ export function VariantCompare(p: VariantCompareProps): React.JSX.Element {
   }, [playing, p.chapter.start, p.chapter.end]);
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6" {...backdrop}>
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6 box-narrow:p-2" {...backdrop}>
       <div role="dialog" aria-modal="true" aria-label={t('panel.videoStudio.variants.title', { title: p.chapter.chapter.title })}
-        className="flex max-h-full w-full max-w-6xl animate-[vs-pop_160ms_ease-out] flex-col gap-3 rounded-xl border border-white/10 bg-vb-card p-4 shadow-2xl shadow-black/60">
-        <header className="flex items-center gap-2">
-          <StudioIcon name="compare" className="h-4 w-4 text-slate-400" />
-          <span className="flex-1 truncate text-[14px] font-semibold text-slate-100">{t('panel.videoStudio.variants.title', { title: p.chapter.chapter.title })}</span>
-          <button type="button" onClick={p.onClose} aria-label={t('common.close', { defaultValue: 'Close' })} className="rounded p-1 text-slate-400 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="close" /></button>
+        className="scrollbar-thin flex max-h-full w-full max-w-6xl animate-[vs-pop_160ms_ease-out] flex-col gap-3 overflow-y-auto rounded-xl border border-white/10 bg-vb-card p-4 shadow-2xl shadow-black/60 box-narrow:p-3">
+        <header className="flex shrink-0 items-center gap-2">
+          <StudioIcon name="compare" className="h-4 w-4 shrink-0 text-slate-400" />
+          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-100">{t('panel.videoStudio.variants.title', { title: p.chapter.chapter.title })}</span>
+          <button type="button" onClick={p.onClose} aria-label={t('common.close', { defaultValue: 'Close' })} className="shrink-0 rounded p-1 text-slate-400 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-2"><StudioIcon name="close" /></button>
         </header>
         {variants.length < 2 ? <p className="text-[12px] text-slate-400">{t('panel.videoStudio.variants.missing')}</p> : (
-          <div className="flex gap-3">
+          <div className="flex shrink-0 gap-3 box-narrow:flex-col">
             {variants.map((v, i) => (
               <VariantPane key={v.id} project={p.project} doc={docs[i] ?? p.doc} media={p.media} t={time} variant={v}
                 picked={explicitPick && v.id === pick} disabled={p.disabled} onPick={() => p.onPick(v.id)} />
             ))}
           </div>
         )}
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <button type="button" onClick={() => setPlaying((v) => !v)} aria-label={playing ? t('panel.videoStudio.pause') : t('panel.videoStudio.play')}
-            className="rounded-full p-1.5 text-slate-200 hover:bg-white/10"><StudioIcon name={playing ? 'pause' : 'play'} /></button>
+            className="shrink-0 rounded-full p-1.5 text-slate-200 hover:bg-white/10 pointer-coarse:p-2.5"><StudioIcon name={playing ? 'pause' : 'play'} /></button>
           <input type="range" min={p.chapter.start} max={Math.max(p.chapter.start + 0.01, p.chapter.end)} step={0.01} value={time}
             aria-label={t('panel.videoStudio.seek')} onChange={(e) => { setPlaying(false); setTime(Number(e.target.value)); }}
-            className="flex-1 accent-[var(--vs-accent)]" />
-          <span className="text-[12px] tabular-nums text-slate-400">{formatClock(time)}</span>
+            className="min-w-0 flex-1 accent-[var(--vs-accent)] pointer-coarse:h-8" />
+          <span className="shrink-0 text-[12px] tabular-nums text-slate-400">{formatClock(time)}</span>
         </div>
-        <footer className="flex items-center gap-2">
-          <p className="flex-1 text-[12px] text-slate-500">{t('panel.videoStudio.variants.hint')}</p>
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <p className="min-w-0 flex-1 text-[12px] text-slate-500">{t('panel.videoStudio.variants.hint')}</p>
           <button type="button" disabled={p.disabled || !explicitPick || variants.length < 2} onClick={p.onDropUnpicked}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40">
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:py-2">
             <StudioIcon name="trash" className="h-3.5 w-3.5" />{t('panel.videoStudio.variants.dropUnpicked')}
           </button>
         </footer>

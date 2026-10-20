@@ -6,9 +6,9 @@ import { useVideoJobWorker } from './useVideoJobWorker.js';
 import type { VideoJob } from './videoApi.js';
 import type { RenderOutcome } from './useVideoRenderer.js';
 
-const mocks = vi.hoisted(() => ({ claim: vi.fn(), complete: vi.fn(), completeStill: vi.fn(), read: vi.fn(), report: vi.fn(), render: vi.fn(), still: vi.fn(), progress: vi.fn(), status: vi.fn(), download: vi.fn() }));
+const mocks = vi.hoisted(() => ({ claim: vi.fn(), complete: vi.fn(), completeStill: vi.fn(), read: vi.fn(), report: vi.fn(), render: vi.fn(), still: vi.fn(), progress: vi.fn(), status: vi.fn(), download: vi.fn(), getJob: vi.fn() }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: { id?: string }): string => options?.id ? `${key}:${options.id}` : key }) }));
-vi.mock('./videoApi.js', () => ({ claimJob: mocks.claim, completeRenderJob: mocks.complete, completeStillJob: mocks.completeStill, readDoc: mocks.read, reportJob: mocks.report }));
+vi.mock('./videoApi.js', () => ({ claimJob: mocks.claim, completeRenderJob: mocks.complete, completeStillJob: mocks.completeStill, readDoc: mocks.read, reportJob: mocks.report, getJob: mocks.getJob }));
 vi.mock('./useVideoRenderer.js', () => ({ useVideoRenderer: (project: string, doc: VideoDoc | null) => ({
   render: (options: unknown) => mocks.render(project, doc, options), still: (at: number) => mocks.still(project, doc, at),
 }) }));
@@ -31,6 +31,7 @@ beforeEach(() => {
   mocks.complete.mockReset().mockResolvedValue(undefined);
   mocks.completeStill.mockReset().mockResolvedValue(undefined);
   mocks.render.mockReset().mockResolvedValue(outcome); mocks.still.mockReset().mockResolvedValue('data:image/png;base64,STILL');
+  mocks.getJob.mockReset().mockResolvedValue(job());
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:result');
 });
 afterEach(() => { act(() => view?.unmount()); view = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -125,6 +126,62 @@ describe('studio job worker', () => {
     expect(mocks.report).toHaveBeenLastCalledWith('job', { status: 'error', error: 'Error: Upload failed' });
     expect(mocks.download).not.toHaveBeenCalled(); expect(mocks.status).toHaveBeenLastCalledWith('Error: Upload failed');
     expect(pending.current).toBe(0);
+  });
+
+  // §5.13 (AA) 42-5 — 대기열의 일시정지·취소·설정.
+  it('closes the frame gate while the queue says paused, heartbeats the lease, and reopens on resume', async () => {
+    const render = deferred<RenderOutcome>(); mocks.render.mockReturnValueOnce(render.promise); mocks.claim.mockResolvedValueOnce(job()); mount(); await tick();
+    const options = mocks.render.mock.calls[0]?.[2] as { gate: () => Promise<void> };
+    mocks.getJob.mockResolvedValue({ ...job(), paused: true });
+    await tick();
+    let passed = false;
+    void options.gate().then(() => { passed = true; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(passed).toBe(false);
+    expect(mocks.report.mock.calls.some((call) => call[1].status === 'running')).toBe(true);
+    mocks.getJob.mockResolvedValue(job());
+    await tick();
+    expect(passed).toBe(true);
+    await act(async () => { render.resolve(outcome); });
+    expect(mocks.complete).toHaveBeenCalledOnce();
+  });
+
+  it('aborts a render canceled from the queue without overwriting it with an error report', async () => {
+    const render = deferred<RenderOutcome>(); mocks.render.mockReturnValueOnce(render.promise); mocks.claim.mockResolvedValueOnce(job()); mount(); await tick();
+    const options = mocks.render.mock.calls[0]?.[2] as { signal: AbortSignal };
+    mocks.getJob.mockResolvedValue({ ...job(), status: 'canceled' });
+    await tick();
+    expect(options.signal.aborted).toBe(true);
+    await act(async () => { render.reject(new Error('aborted')); });
+    expect(mocks.report.mock.calls.some((call) => call[1].status === 'error')).toBe(false);
+    expect(mocks.complete).not.toHaveBeenCalled(); expect(mocks.status).not.toHaveBeenCalled(); expect(pending.current).toBe(0);
+  });
+
+  it('applies the job render settings, mutes the chosen tracks only in the render copy, and does not warn about removed sound', async () => {
+    const spec = { format: 'webm' as const, quality: 'low' as const, scale: 0.5, fps: 24, audio: false, mutedTracks: ['audio'], captions: 'burn' as const, range: { start: 1, end: 2 } };
+    mocks.render.mockResolvedValueOnce({ ...outcome, hasAudio: false, container: 'webm' });
+    mocks.claim.mockResolvedValueOnce({ ...job(), spec }); mount(); await tick();
+    const [, renderedDoc, options] = mocks.render.mock.calls[0] as [string, VideoDoc, Record<string, unknown>];
+    expect(options).toMatchObject({ quality: 'low', scale: 0.5, fps: 24, audio: false, range: { start: 1, end: 2 }, container: 'webm' });
+    expect(renderedDoc.tracks.find((track) => track.id === 'audio')?.muted).toBe(true);
+    expect(doc.tracks.find((track) => track.id === 'audio')?.muted).toBeUndefined();
+    expect(mocks.complete).toHaveBeenLastCalledWith('job', outcome.bytes, '');
+    expect(mocks.download).toHaveBeenCalledWith({ url: 'blob:result', name: 'Queued document.webm', docId: 'queued-doc' });
+  });
+
+  it('asks for a sound-only render and saves it as WAV', async () => {
+    const spec = { format: 'wav' as const, quality: 'high' as const, scale: 1, fps: null, audio: true, mutedTracks: [], captions: 'burn' as const, range: null };
+    mocks.render.mockResolvedValueOnce({ ...outcome, container: 'wav' });
+    mocks.claim.mockResolvedValueOnce({ ...job(), spec }); mount(); await tick();
+    expect(mocks.render.mock.calls[0]?.[2]).toMatchObject({ audioOnly: true });
+    expect(mocks.download).toHaveBeenCalledWith({ url: 'blob:result', name: 'Queued document.wav', docId: 'queued-doc' });
+  });
+
+  it('refuses a result over the transfer limit before uploading it', async () => {
+    const huge = { length: 128 * 1024 * 1024 + 1 } as unknown as Uint8Array;
+    mocks.render.mockResolvedValueOnce({ ...outcome, bytes: huge }); mocks.claim.mockResolvedValueOnce(job()); mount(); await tick();
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.report).toHaveBeenLastCalledWith('job', { status: 'error', error: 'Error: panel.videoStudio.export.tooLarge' });
   });
 
   it('uses the binary completion API for large still images and reports upload errors', async () => {

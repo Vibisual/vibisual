@@ -63,8 +63,8 @@ export function buildAssetItemOps(doc: VideoDoc, asset: VideoAsset, at: number, 
   if (asset.kind === 'font') return [];
   const measured = Number.isFinite(asset.duration) && (asset.duration ?? 0) > 0;
   // §5.13 (T-1) — 컴포지션은 길이를 선언하지 않았어도 올린다(기본 길이로) — 코드를 쓰기 전의 뼈대도 타임라인에 선다.
-  if (asset.kind !== 'image' && asset.kind !== 'composition' && !measured) return [];
-  const duration = asset.kind === 'image' || (asset.kind === 'composition' && !measured) ? DEFAULTS.duration : 'auto';
+  if (asset.kind !== 'image' && asset.kind !== 'model' && asset.kind !== 'composition' && !measured) return [];
+  const duration = asset.kind === 'image' || ((asset.kind === 'composition' || asset.kind === 'model') && !measured) ? DEFAULTS.duration : 'auto';
   const item: VideoItem = { id: nextEditorId(doc, asset.kind === 'composition' ? 'comp' : 'media'), kind: asset.kind === 'video' ? 'footage' : asset.kind,
     assetId: asset.id, at: snapEditorTime(doc, at), duration, label };
   return [{ op: 'setAsset', asset }, ...buildInsertItemOps(doc, item)];
@@ -72,7 +72,7 @@ export function buildAssetItemOps(doc: VideoDoc, asset: VideoAsset, at: number, 
 
 /** 시간 속을 흐르는 소재(앞을 잘라 낼 수 있는 것) — 영상·소리·컴포지션. 분할·트림이 `trimStart` 를 민다. */
 export function isTimedSourceKind(kind: VideoItem['kind']): boolean {
-  return kind === 'footage' || kind === 'audio' || kind === 'composition';
+  return kind === 'footage' || kind === 'audio' || kind === 'composition' || kind === 'model';
 }
 
 function duplicateId(doc: VideoDoc, itemId: string, newId?: string): string | undefined {

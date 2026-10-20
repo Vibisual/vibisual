@@ -1,4 +1,5 @@
 import type { VideoItem } from '@vibisual/video';
+import { STUDIO_LIGHT } from '../Creation/studioLightLevels.js';
 
 export interface InspectorField {
   key: string;
@@ -62,6 +63,17 @@ const KIND_FIELDS: Readonly<Partial<Record<VideoItem['kind'], readonly Inspector
     { key: 'volume', label: 'Volume', defaultValue: 1, min: 0 },
     { key: 'role', labelKey: 'soundRole', label: 'Sound role', defaultValue: 'none', options: ['none', 'music', 'voice', 'sfx'] },
     { key: 'duckDb', label: 'Ducking under narration (dB)', defaultValue: -10, max: 0 },
+  ],
+  model: [
+    { key: 'turntable', label: 'Object rotation (degrees/s)', defaultValue: 0 },
+    { key: 'cameraOrbit', label: 'Camera orbit (degrees/s)', defaultValue: 0 },
+    { key: 'cameraYaw', label: 'Camera angle (radians)', defaultValue: 0.55 },
+    { key: 'cameraElevation', label: 'Camera elevation', defaultValue: 0.28 },
+    { key: 'cameraDistance', label: 'Camera distance', defaultValue: 2.4, min: 0.01 },
+    { key: 'cameraFov', label: 'Field of view', defaultValue: 35, min: 1, max: 160 },
+    // The renderer's real defaults (the model's own lighting level multiplies them when the prop is not set).
+    { key: 'ambientLight', label: 'Ambient light', defaultValue: STUDIO_LIGHT.ambient, min: 0 },
+    { key: 'keyLight', label: 'Key light', defaultValue: STUDIO_LIGHT.key, min: 0 },
   ],
   footage: [{ key: 'volume', label: 'Volume', defaultValue: 1, min: 0 }],
 };

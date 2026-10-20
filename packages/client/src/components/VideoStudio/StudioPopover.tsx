@@ -30,7 +30,7 @@ const MARGIN = 8;
 export function StudioPopover(p: StudioPopoverProps): React.JSX.Element | null {
   const panelRef = useRef<HTMLDivElement>(null);
   const accent = useContext(StudioAccentContext);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; maxWidth: number; maxHeight: number } | null>(null);
   useOutsidePressDismiss({ enabled: p.open, onDismiss: p.onClose, refs: [panelRef, p.anchor] });
 
   useLayoutEffect(() => {
@@ -39,14 +39,19 @@ export function StudioPopover(p: StudioPopoverProps): React.JSX.Element | null {
       const a = p.anchor.current?.getBoundingClientRect();
       const panel = panelRef.current?.getBoundingClientRect();
       if (!a) return;
-      const w = panel?.width ?? 240;
-      const h = panel?.height ?? 200;
+      // 판은 화면보다 클 수 없다 — 넘치면 화면 안에 묶고 안쪽을 스크롤한다(폰·낮은 창에서 문서 목록 아래 항목에 닿지 못하던 것).
+      const maxWidth = Math.max(0, window.innerWidth - MARGIN * 2);
+      const maxHeight = Math.max(0, window.innerHeight - MARGIN * 2);
+      const w = Math.min(panel?.width ?? 240, maxWidth);
+      const h = Math.min(panel?.height ?? 200, maxHeight);
       let left = p.align === 'end' ? a.right - w : a.left;
       left = Math.max(MARGIN, Math.min(window.innerWidth - w - MARGIN, left));
       let top = p.side === 'above' ? a.top - h - GAP : a.bottom + GAP;
       if (top + h > window.innerHeight - MARGIN) top = Math.max(MARGIN, a.top - h - GAP);
       if (top < MARGIN) top = a.bottom + GAP;
-      setPos({ left, top });
+      // 위·아래 어느 쪽에도 다 들어가지 않으면(앵커가 화면 가운데·판이 거의 화면만 할 때) 화면 안으로 당긴다.
+      top = Math.max(MARGIN, Math.min(top, window.innerHeight - MARGIN - h));
+      setPos({ left, top, maxWidth, maxHeight });
     };
     place();
     const raf = requestAnimationFrame(place);
@@ -61,8 +66,8 @@ export function StudioPopover(p: StudioPopoverProps): React.JSX.Element | null {
       role="dialog"
       aria-label={p.label}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); p.onClose(); } }}
-      className={`fixed animate-[vs-pop_140ms_ease-out] rounded-lg border border-white/[0.08] bg-vb-raised p-1.5 text-[13px] text-slate-200 shadow-xl shadow-black/50 ${p.className ?? ''}`}
-      style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999, zIndex: STUDIO_POPOVER_Z, '--vs-accent': accent } as CSSProperties}
+      className={`fixed animate-[vs-pop_140ms_ease-out] overflow-y-auto rounded-lg border border-white/[0.08] bg-vb-raised p-1.5 text-[13px] text-slate-200 shadow-xl shadow-black/50 ${p.className ?? ''}`}
+      style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxWidth: pos?.maxWidth, maxHeight: pos?.maxHeight, zIndex: STUDIO_POPOVER_Z, '--vs-accent': accent } as CSSProperties}
     >
       {p.children}
     </div>,

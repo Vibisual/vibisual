@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export const STUDIO_INPUT_CLASS = 'w-full min-w-0 rounded border border-white/10 bg-vb-sunken px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-40';
+/** 인스펙터 칸 — 넓을 때 256px · 폰 폭에서는 전폭이라 폭은 부모가 정한다(`w-full min-w-0`). 터치에서는 누름 자리를 키운다. */
+export const STUDIO_INPUT_CLASS = 'w-full min-w-0 rounded border border-white/10 bg-vb-sunken px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-40 pointer-coarse:py-2';
 
 interface FieldProps {
   label: string;

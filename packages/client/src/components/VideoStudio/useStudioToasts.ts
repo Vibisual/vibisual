@@ -6,7 +6,7 @@ import { classifyStudioError, type StudioErrorKind } from './studioErrors.js';
  * 종전 amber 상태줄을 대신한다. 같은 말이 연달아 오면 한 장으로 접는다(폴링이 같은 오류를 2초마다 내도 쌓이지 않게).
  */
 export type StudioToast =
-  | { readonly id: number; readonly tone: 'error'; readonly kind: StudioErrorKind; readonly detail: string }
+  | { readonly id: number; readonly tone: 'error'; readonly kind: StudioErrorKind; readonly detail: string; readonly code?: string }
   | { readonly id: number; readonly tone: 'success' | 'info'; readonly key: string; readonly values?: Readonly<Record<string, string | number>> };
 
 /** 성공·안내 알림이 떠 있는 시간(ms). */
@@ -46,7 +46,7 @@ export function useStudioToasts(): StudioToasts {
 
   const error = useCallback((err: unknown): void => {
     const e = classifyStudioError(err);
-    push({ id: ++seq.current, tone: 'error', kind: e.kind, detail: e.detail });
+    push({ id: ++seq.current, tone: 'error', kind: e.kind, detail: e.detail, ...(e.code ? { code: e.code } : {}) });
   }, [push]);
   const success = useCallback((key: string, values?: Readonly<Record<string, string | number>>): void => {
     push({ id: ++seq.current, tone: 'success', key, ...(values ? { values } : {}) });

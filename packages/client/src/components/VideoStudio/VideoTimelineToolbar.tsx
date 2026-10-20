@@ -15,7 +15,8 @@ interface VideoTimelineToolbarProps {
 export function VideoTimelineToolbar({ zoom, onZoom, snap, onSnap, playhead, duration, fps, onSeek }: VideoTimelineToolbarProps): React.JSX.Element {
   const { t } = useTranslation();
   const key = 'panel.videoStudio.timelineEditor.';
-  const button = 'rounded px-2 py-1 text-[12px] text-gray-300 hover:bg-white/10 disabled:opacity-30';
+  // 터치에서는 누름 자리를 키운다(28px → 36px 남짓).
+  const button = 'rounded px-2 py-1 text-[12px] text-gray-300 hover:bg-white/10 disabled:opacity-30 pointer-coarse:py-2';
   return <div className="flex flex-wrap items-center gap-1 border-b border-white/10 pb-2">
     <button type="button" className={button} aria-label={t(`${key}zoomOut`)} title={t(`${key}zoomOut`)} disabled={zoom <= 1} onClick={() => onZoom(Math.max(1, zoom / TIMELINE_CONFIG.zoomFactor))}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4" aria-hidden="true"><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6M7 10h6" /></svg>
@@ -28,7 +29,7 @@ export function VideoTimelineToolbar({ zoom, onZoom, snap, onSnap, playhead, dur
     <button type="button" className={`${button} ml-1 ${snap ? 'bg-white/10 text-slate-50 ring-1 ring-[var(--vs-accent)]' : ''}`} aria-pressed={snap} onClick={onSnap}>{t(`${key}snap`)}</button>
     <label className="ml-auto flex items-center gap-2 text-[12px] text-gray-400">
       {t(`${key}frame`)}
-      <input className="w-20 rounded border border-white/10 bg-vb-sunken px-2 py-1 font-mono text-slate-200" type="number" min={0} max={lastTimelineFrame(duration, fps)} step={1}
+      <input className="w-20 rounded border border-white/10 bg-vb-sunken px-2 py-1 font-mono text-slate-200 pointer-coarse:py-2" type="number" min={0} max={lastTimelineFrame(duration, fps)} step={1}
         value={timelineFrame(clampTimelineSeek(playhead, duration, fps), fps)} aria-label={t(`${key}frame`)}
         onChange={event => { if (event.target.value !== '' && Number.isFinite(event.target.valueAsNumber)) onSeek(clampTimelineSeek(event.target.valueAsNumber / timelineFps(fps), duration, fps)); }} />
       <span className="font-mono">{timelineFps(fps)} fps</span>

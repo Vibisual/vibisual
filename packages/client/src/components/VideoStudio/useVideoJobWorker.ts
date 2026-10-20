@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { JOB_HEARTBEAT_MS, STRIP_MAX_EDGE, chapterFrameDoc, withoutCaptions, type VideoDoc } from '@vibisual/video';
-import { claimJob, completeRenderJob, completeStillJob, readDoc, reportJob, type VideoJob, type VideoJobLane } from './videoApi.js';
+import {
+  JOB_HEARTBEAT_MS,
+  RENDER_CONTROL_POLL_MS,
+  STRIP_MAX_EDGE,
+  VIDEO_TRANSFER_MAX_BYTES,
+  chapterFrameDoc,
+  withMutedTracks,
+  withoutCaptions,
+  type VideoDoc,
+} from '@vibisual/video';
+import { claimJob, completeRenderJob, completeStillJob, getJob, readDoc, reportJob, type VideoJob, type VideoJobLane } from './videoApi.js';
 import { useVideoRenderer } from './useVideoRenderer.js';
 import { readHistoryDoc } from './studioApi.js';
 import { composeStripGrid, stripColumns } from './stripGrid.js';
@@ -64,8 +73,10 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
         }
         const prepare = optionsRef.current.prepare;
         if (prepare && !claimed.revId) doc = await prepare(jobProject, doc).catch(() => doc);
-        // §5.13 (V) 37-15 — 자막 따로 내기: 자막 트랙을 숨긴 사본으로 그린다(문서는 그대로).
+        // §5.13 (V) 37-15 — 자막 따로 내기: 자막 트랙을 숨긴 사본으로 그린다(문서는 그대로). (AA) 42-1 — 자막 빼기도 같은 사본.
         if (claimed.kind === 'render' && claimed.hideCaptions === true) doc = withoutCaptions(doc);
+        // §5.13 (AA) 42-3 — 이 렌더에서만 소리를 뺄 트랙(문서는 그대로).
+        if (claimed.kind === 'render' && claimed.spec && claimed.spec.mutedTracks.length > 0) doc = withMutedTracks(doc, claimed.spec.mutedTracks);
         // §5.13 (W) 38-7 — 장면 정지 화면: 그 장면의 컴포지션 하나짜리 문서로 그린다(렌더 화면도 같은 함수).
         if (claimed.frameOf) {
           const frameDoc = chapterFrameDoc(doc, claimed.frameOf);
@@ -92,6 +103,8 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
     // Terminal reports wait for progress reports so a slow `running` response cannot resurrect a finished job.
     let reports = Promise.resolve();
     let lastReportAt = 0;
+    /** §5.13 (AA) 42-5 — 사람이 대기열에서 취소했다(일꾼이 상태를 묻다 알아챘다). */
+    let canceled = false;
     void (async () => {
       try {
         if (work.job.kind === 'still') {
@@ -119,6 +132,17 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
           const probes = await renderer.probeFrames(work.job.times ?? []);
           if (!active) throw new Error('Studio worker closed.');
           await reportJob(work.job.id, { status: 'done', progress: 1, data: JSON.stringify(probes) });
+        } else if (work.job.kind === 'stills') {
+          // §5.13 (X) 39-4 — 여러 시각을 한 무대에서 차례로(장면 대표 프레임 묶음). 칸마다 진행을 알린다(임대의 숨소리).
+          const times = work.job.times ?? [];
+          const edge = work.job.maxEdge !== undefined && work.job.maxEdge > 0 ? work.job.maxEdge : undefined;
+          const images = await renderer.stills(times, edge, (done) => {
+            if (!active) return;
+            reports = reports.then(() => reportJob(work.job.id, { status: 'running', progress: done / Math.max(1, times.length) })).catch(() => undefined);
+          }, work.job.imageType);
+          await reports;
+          if (!active) throw new Error('Studio worker closed.');
+          await reportJob(work.job.id, { status: 'done', progress: 1, data: JSON.stringify(images) });
         } else if (work.job.kind === 'strip') {
           // §5.13 (T-9) — 시각을 앞에서부터 차례로 한 무대에서 찍고 격자 한 장으로 붙인다. 칸마다 진행을 알린다(임대의 숨소리).
           const times = work.job.times ?? [];
@@ -136,36 +160,89 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
         } else {
           if (showResult()) callbacks.current.onProgress(0);
           let reported = -1;
-          const result = await renderer.render({ signal: controller.signal, ...(work.job.transparent === true ? { transparent: true } : {}), onProgress: progress => {
-            const value = progress.totalFrames > 0 ? progress.frame / progress.totalFrames : 0;
-            if (showResult()) callbacks.current.onProgress(value);
-            // 5% 마다, 또는 그 사이가 길어지면 시간으로도 알린다 — 긴 렌더에서 임대(T-4)가 끊기지 않게.
-            const now = Date.now();
-            if (active && (value - reported >= 0.05 || now - lastReportAt >= JOB_HEARTBEAT_MS)) {
-              reported = value;
-              lastReportAt = now;
-              reports = reports.then(() => reportJob(work.job.id, { status: 'running', progress: value })).catch(() => undefined);
-            }
-          } });
+          let lastValue = 0;
+          let lastFrame = 0;
+          let lastTotal = 0;
+          // §5.13 (AA) 42-5 — 일시정지·취소: 상태를 짧게 묻는다. 멈춘 동안 프레임 사이 관문이 닫히고, 그래도 숨소리는 보낸다(임대 — T-4).
+          let paused = false;
+          let wake: (() => void) | null = null;
+          const gate = (): Promise<void> => (paused && !controller.signal.aborted ? new Promise<void>((resolve) => { wake = resolve; }) : Promise.resolve());
+          const open = (): void => { const w = wake; wake = null; w?.(); };
+          controller.signal.addEventListener('abort', open, { once: true });
+          const watch = setInterval(() => {
+            if (!active) return;
+            // 묻기가 실패해도(연결 끊김 등) 렌더는 그대로 간다 — 다음 간격에 다시 묻는다.
+            void Promise.resolve().then(() => getJob(work.job.id)).then((latest) => {
+              if (latest.status === 'canceled') { canceled = true; controller.abort(); return; }
+              paused = latest.paused === true;
+              if (!paused) open();
+              else if (Date.now() - lastReportAt >= JOB_HEARTBEAT_MS) {
+                lastReportAt = Date.now();
+                reports = reports.then(() => reportJob(work.job.id, { status: 'running', progress: lastValue })).catch(() => undefined);
+              }
+            }).catch(() => undefined);
+          }, RENDER_CONTROL_POLL_MS);
+          const spec = work.job.spec;
+          let result: Awaited<ReturnType<typeof renderer.render>>;
+          try {
+            result = await renderer.render({
+              signal: controller.signal,
+              gate,
+              ...(work.job.transparent === true ? { transparent: true } : {}),
+              ...(spec ? {
+                quality: spec.quality,
+                scale: spec.scale,
+                fps: spec.fps,
+                audio: spec.audio,
+                range: spec.range,
+                ...(spec.format === 'webm' ? { container: 'webm' as const } : {}),
+                ...(spec.format === 'wav' ? { audioOnly: true } : {}),
+              } : {}),
+              onProgress: (progress) => {
+                const value = progress.totalFrames > 0 ? progress.frame / progress.totalFrames : 0;
+                lastValue = value;
+                lastFrame = progress.frame;
+                lastTotal = progress.totalFrames;
+                if (showResult()) callbacks.current.onProgress(value);
+                // 5% 마다, 또는 그 사이가 길어지면 시간으로도 알린다 — 긴 렌더에서 임대(T-4)가 끊기지 않게.
+                const now = Date.now();
+                if (active && (value - reported >= 0.05 || now - lastReportAt >= JOB_HEARTBEAT_MS)) {
+                  reported = value;
+                  lastReportAt = now;
+                  reports = reports.then(() => reportJob(work.job.id, { status: 'running', progress: value, frame: lastFrame, totalFrames: lastTotal })).catch(() => undefined);
+                }
+              },
+            });
+          } finally {
+            clearInterval(watch);
+            controller.signal.removeEventListener('abort', open);
+          }
           if (!active) throw new Error('Studio worker closed.');
+          // §5.13 (AA) 42-11 — 일꾼 → 서버 전달 상한을 넘으면 올리기 전에 사람 말로(서버가 413 으로 끊기 전에).
+          if (result.bytes.length > VIDEO_TRANSFER_MAX_BYTES) {
+            throw new Error(t('panel.videoStudio.export.tooLarge', { size: Math.round(result.bytes.length / (1024 * 1024)), max: Math.round(VIDEO_TRANSFER_MAX_BYTES / (1024 * 1024)) }));
+          }
           const warnings = [...result.warnings];
-          if (!result.hasAudio) warnings.push(t('panel.videoStudio.noAudio'));
+          // §5.13 (AA) 42-3 — 사람이 소리를 뺀 렌더는 "소리 없음" 이 경고가 아니다.
+          if (!result.hasAudio && spec?.audio !== false) warnings.push(t('panel.videoStudio.noAudio'));
           if (result.selection?.downgraded) warnings.push(t('panel.videoStudio.downgraded', { id: result.selection.chosen }));
           const note = warnings.join(' · ');
           await reports;
           if (!active) throw new Error('Studio worker closed.');
           await completeRenderJob(work.job.id, result.bytes, note);
           if (showResult()) {
-            // §5.13 (W) 38-3 — 투명 배경이면 WebM.
-            const ext = result.container === 'webm' ? 'webm' : 'mp4';
-            callbacks.current.onDownload({ url: URL.createObjectURL(new Blob([new Uint8Array(result.bytes)], { type: `video/${ext}` })), name: `${work.doc.title || work.doc.id}.${ext}`, docId: work.doc.id });
+            // §5.13 (W) 38-3 — 투명 배경이면 WebM. §5.13 (AA) 42-1 — 소리만이면 WAV.
+            const ext = result.container;
+            const type = ext === 'wav' ? 'audio/wav' : `video/${ext}`;
+            callbacks.current.onDownload({ url: URL.createObjectURL(new Blob([new Uint8Array(result.bytes)], { type })), name: `${work.doc.title || work.doc.id}.${ext}`, docId: work.doc.id });
             callbacks.current.onStatus(note);
           }
         }
       } catch (error) {
         await reports;
-        await reportJob(work.job.id, { status: 'error', error: String(error) }).catch(() => undefined);
-        if (showResult()) callbacks.current.onStatus(String(error));
+        // §5.13 (AA) 42-5 — 사람이 취소한 렌더는 이미 '취소됨' 이다(늦은 '중단됨' 오류로 덮지 않는다 — 서버도 끝난 일감은 바꾸지 않는다).
+        if (!canceled) await reportJob(work.job.id, { status: 'error', error: String(error) }).catch(() => undefined);
+        if (showResult() && !canceled) callbacks.current.onStatus(String(error));
       } finally {
         pending.current -= 1; busy.current = false;
         if (showResult()) callbacks.current.onProgress(null);

@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { Suspense, type Dispatch, type ReactNode, type SetStateAction, type MutableRefObject } from 'react';
 import type { TFunction } from 'i18next';
 import {
   TRANSITION_DEFAULT_SECONDS,
@@ -21,8 +21,8 @@ import type { MotionReview } from './useMotionReview.js';
 import type { StudioToasts } from './useStudioToasts.js';
 import { ChapterMenu, SeamMenu } from './ChapterMenus.js';
 import { ReviewMenu } from './ReviewMenu.js';
-import { StyleDrawer } from './StyleDrawer.js';
-import { LibrariesPanel } from './LibrariesPanel.js';
+// 39-2 — 스타일 서랍·라이브러리·원본·요청 검토는 처음엔 닫혀 있는 판이라 늦게 받는다(한가할 때 미리 받아 둔다).
+import { LazyLibrariesPanel, LazyStyleDrawer, LazyVideoRequestReview, LazyVideoSourcesDrawer } from './studioPanels.js';
 
 /**
  * §5.13 (V) 3·4 라운드 — 셸이 화면 조립에 넘기는 **덧붙임**(`StudioExtras`)을 짓는다: 장면 구슬 메뉴·이음매(37-8) · 검수 표시와 그
@@ -31,15 +31,21 @@ import { LibrariesPanel } from './LibrariesPanel.js';
 export interface StudioExtrasInputs {
   readonly t: TFunction;
   readonly projectName: string;
+  readonly projectRoot: string;
+  readonly pendingWork: MutableRefObject<number>;
   readonly doc: VideoDoc | null;
   readonly timeline: ResolvedTimeline | null;
   readonly playhead: number;
+  /** §5.13 (Y) 40-5 ① — 누른 순간의 시각(재생 중에도 정확하게 — 시계). 없으면 `playhead`. */
+  readonly readPlayhead?: () => number;
+  /** The item selected in the preview/timeline (request checks "only this changes" / "keep this"). */
+  readonly selectedItemId?: string | null;
   readonly engine: VideoEngineKind;
   readonly sending: boolean;
   readonly disabled: boolean;
   readonly ui: StudioUiState;
   readonly setUi: Dispatch<SetStateAction<StudioUiState>>;
-  readonly applyOps: (ops: readonly VideoDocOp[]) => void;
+  readonly applyOps: (ops: readonly VideoDocOp[]) => void | Promise<boolean>;
   readonly composer: StudioComposerState;
   readonly parts: StudioParts;
   readonly review: MotionReview;
@@ -54,7 +60,10 @@ export interface StudioExtrasInputs {
 export function buildStudioExtras(x: StudioExtrasInputs): StudioExtras {
   const { t, doc, timeline, ui, setUi } = x;
   const chapters = timeline?.chapters ?? [];
-  const atPlayhead = chapters.find((c) => x.playhead >= c.start && x.playhead < c.end) ?? null;
+  const now = (): number => x.readPlayhead?.() ?? x.playhead;
+  const chapterAt = (at: number): (typeof chapters)[number] | null => chapters.find((c) => at >= c.start && at < c.end) ?? null;
+  // 판에 보이는 자리(이음매 전환이 걸릴 장면)는 멈춘 재생 머리 기준 — 재생 중에는 시작 자리에 머문다.
+  const atPlayhead = chapterAt(x.playhead);
   const beats = doc && timeline ? strongBeatsInDoc(doc, timeline) : [];
   const overlays: ReactNode[] = [];
 
@@ -76,7 +85,10 @@ export function buildStudioExtras(x: StudioExtrasInputs): StudioExtras {
         onOtherEngine={() => { void x.composer.sendPass(t('panel.videoStudio.chapterMenu.redoRequest', { n: menuChapter.index + 1, title: menuChapter.chapter.title }), 'chapter', { chapter: range }, other); }}
         onVariants={() => x.onVariants(menuChapter.id)}
         onSavePart={() => { void x.parts.save(menuChapter.id, menuChapter.chapter.title).then(() => x.toasts.success('panel.videoStudio.toast.partSaved')); }}
-        onSplit={() => x.applyOps(buildSplitChapterOps(doc, timeline, menuChapter.id, x.playhead, t('panel.videoStudio.plan.newChapter')))}
+        onSplit={() => {
+          const at = now();
+          if (at > menuChapter.start + 0.05 && at < menuChapter.end - 0.05) void x.applyOps(buildSplitChapterOps(doc, timeline, menuChapter.id, at, t('panel.videoStudio.plan.newChapter')));
+        }}
         onMerge={() => x.applyOps(buildMergeChapterOps(doc, timeline, menuChapter.id))}
         onRemove={() => x.applyOps(buildRemoveChapterOps(doc, menuChapter.id, (itemId) => timeline.items.find((it) => it.id === itemId)?.start))}
         onClose={() => setUi((u) => ({ ...u, chapterMenu: null }))}
@@ -145,15 +157,27 @@ export function buildStudioExtras(x: StudioExtrasInputs): StudioExtras {
     markers: x.review.findings.map((f) => ({ id: f.id, t: f.t, level: f.level, label: t(`panel.videoStudio.review.${f.code}`, { ...(f.values ?? {}) }) })),
     beats,
     styleDrawer: doc ? (
-      <StyleDrawer project={x.projectName} doc={doc} disabled={x.disabled}
-        onApply={(style: DocStyle) => x.applyOps([{ op: 'setDoc', patch: { style } }])}
-        onError={x.toasts.error}
-        onConfirmed={() => x.toasts.success('panel.videoStudio.toast.styleConfirmed')} />
+      <Suspense fallback={null}>
+        <LazyStyleDrawer project={x.projectName} doc={doc} disabled={x.disabled}
+          onApply={(style: DocStyle) => x.applyOps([{ op: 'setDoc', patch: { style } }])}
+          onError={x.toasts.error}
+          onConfirmed={() => x.toasts.success('panel.videoStudio.toast.styleConfirmed')} />
+      </Suspense>
     ) : null,
-    libraries: <LibrariesPanel project={x.projectName} disabled={x.disabled} onError={x.toasts.error} onAddPack={x.addPack} />,
+    libraries: <Suspense fallback={null}>
+      {doc && <>
+        <LazyVideoSourcesDrawer pendingWork={x.pendingWork} project={x.projectName} doc={doc} playhead={x.playhead} readPlayhead={now} disabled={x.disabled} onApply={x.applyOps} onError={x.toasts.error} />
+        <LazyVideoRequestReview projectRoot={x.projectRoot} doc={doc} disabled={x.disabled} selectedItemId={x.selectedItemId ?? null} onApply={x.applyOps} />
+      </>}
+      <LazyLibrariesPanel project={x.projectName} disabled={x.disabled} onError={x.toasts.error} onAddPack={x.addPack} />
+    </Suspense>,
     parts: {
       parts: x.parts.parts,
-      onUsePart: (partId) => { void x.parts.use(partId, { t: x.playhead, chapterId: atPlayhead?.id ?? null, chapterStart: atPlayhead?.start ?? 0 }); },
+      onUsePart: (partId) => {
+        const at = now();
+        const chapter = chapterAt(at);
+        void x.parts.use(partId, { t: at, chapterId: chapter?.id ?? null, chapterStart: chapter?.start ?? 0 });
+      },
       transitions: (['dissolve', 'push', 'zoom', 'flash', 'wipe'] as const).map((kind) => ({ kind })),
       onTransition: (kind) => {
         if (!seamChapterForParts) return;

@@ -6,13 +6,17 @@
  * 화면 문구는 번역 키(`panel.videoStudio.errors.<kind>`)가 맡는다.
  */
 
+import { creationErrorCode } from '../Creation/creationErrors.js';
+
 export type StudioErrorKind =
-  | 'offline' | 'conflict' | 'missingDoc' | 'worker' | 'timeout' | 'unreadable' | 'tooLarge' | 'limit' | 'forbidden' | 'generic';
+  | 'offline' | 'conflict' | 'missingDoc' | 'worker' | 'timeout' | 'unreadable' | 'tooLarge' | 'limit' | 'forbidden' | 'generic' | 'coded';
 
 export interface StudioError {
   readonly kind: StudioErrorKind;
   /** 원문 — [자세히] 안에 접는다. */
   readonly detail: string;
+  /** §5.13 (R-10) — 서버·화면이 코드로 던진 이유(`media-size-invalid`, `model-renderer-unavailable` …). 그 문장이 따로 번역돼 있다. */
+  readonly code?: string;
 }
 
 const RULES: ReadonlyArray<{ readonly kind: StudioErrorKind; readonly test: RegExp }> = [
@@ -29,6 +33,8 @@ const RULES: ReadonlyArray<{ readonly kind: StudioErrorKind; readonly test: RegE
 
 export function classifyStudioError(err: unknown): StudioError {
   const detail = err instanceof Error ? err.message : String(err);
+  const code = creationErrorCode(err);
+  if (code !== 'unexpected') return { kind: 'coded', detail, code };
   for (const rule of RULES) if (rule.test.test(detail)) return { kind: rule.kind, detail };
   return { kind: 'generic', detail };
 }

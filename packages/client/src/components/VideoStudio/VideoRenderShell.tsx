@@ -1,8 +1,10 @@
+import type { VideoMediaProvider } from './videoMediaProvider.js';
 import { useEffect, useRef, useState } from 'react';
 import { chapterFrameDoc, resolveTimeline, type VideoDoc } from '@vibisual/video';
-import { HtmlSceneStage, MediabunnyMediaProvider } from '@vibisual/video/render';
+import { HtmlSceneStage } from '@vibisual/video/render';
 
-import { assetUrl, readDoc } from './videoApi.js';
+import { readDoc } from './videoApi.js';
+import { createStudioMedia } from './studioMedia.js';
 import { readHistoryDoc } from './studioApi.js';
 import { makeCompositionSrc } from './compositionUrl.js';
 // 이 화면에는 훅을 걸 자리가 없다(카메라 앞 무대). 문구만 i18n 인스턴스에서 직접 고른다.
@@ -27,6 +29,11 @@ declare global {
     __vibiRenderSeek?: (t: number) => Promise<void>;
     /** §5.13 (V) 37-9 — 마지막으로 맞춘 시각의 컴포지션 글자 상자(JSON — main 이 `executeJavaScript` 로 받는다). */
     __vibiRenderInspect?: () => Promise<string>;
+    /**
+     * §5.13 (Y) 40-7 ③ — 쉬던 렌더 창에 **새 일감**을 건넨다(창을 다시 읽지 않는다 — 본체 번들을 다시 해석하지 않게). 받은 값은
+     * 해시와 같은 이름(`project`·`docId`·`rev`·`w`·`h`·`fit`·`alpha`·`frame`)이다. 준비되면 `__vibiRenderReady` 가 다시 선다.
+     */
+    __vibiRenderOpen?: (next: Record<string, string>) => void;
   }
 }
 
@@ -35,7 +42,17 @@ import type { AppShellProps } from '../../apps/registry.js';
 // 창 판별(`parseVideoRenderHash`)은 `videoRenderHash.ts` 에 따로 있다 — 부팅 경로가
 // 이 파일(무대·디코더)을 끌어오면 동적 청크로 나눈 의미가 사라진다.
 
-export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
+export function VideoRenderShell({ params: initialParams }: AppShellProps): React.JSX.Element {
+  // §5.13 (Y) 40-7 ③ — 풀로 다시 쓰는 창은 해시 대신 main 이 건넨 값으로 무대를 다시 세운다.
+  const [params, setParams] = useState<Readonly<Record<string, string>>>(initialParams);
+  useEffect(() => {
+    window.__vibiRenderOpen = (next: Record<string, string>): void => {
+      window.__vibiRenderReady = false;
+      delete window.__vibiRenderError;
+      setParams({ ...next });
+    };
+    return () => { delete window.__vibiRenderOpen; };
+  }, []);
   const project = params['project'] ?? '';
   const docId = params['docId'] ?? '';
   // §5.13 (V) 37-3 — 판 기록의 한 판을 찍을 때(그 판의 문서와 그 판의 코드).
@@ -75,8 +92,13 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
 
   useEffect(() => {
     let stage: HtmlSceneStage | null = null;
-    let media: MediabunnyMediaProvider | null = null;
+    let media: VideoMediaProvider | null = null;
     let disposed = false;
+    // §5.13 (Y) 40-7 ③ — 쉬는 창(빈 값을 건네받았다)은 아무것도 세우지 않는다(무대·디코더를 내려놓고 다음 일감을 기다린다).
+    if (project === '' || docId === '') {
+      window.__vibiRenderReady = false;
+      return undefined;
+    }
 
     void (async () => {
       try {
@@ -85,15 +107,8 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
         const doc = frameChapter !== '' ? chapterFrameDoc(loaded, frameChapter) : loaded;
         if (!doc) throw new Error(i18n.t('panel.videoStudio.errNoFrame', { id: frameChapter }));
 
-        media = new MediabunnyMediaProvider({
-          assets: doc.assets,
-          loader: {
-            async open(asset) {
-              const source = asset.source;
-              return assetUrl(project, source.kind === 'file' ? source.path : source.output);
-            },
-          },
-        });
+        // §5.13 (Y) 40-3 ⑦ — 숨은 창의 스틸·검수·렌더는 소프트웨어 디코딩으로(하드웨어 칸은 사람이 보는 미리보기가 쓴다).
+        media = createStudioMedia(project, doc.assets, { decoderPreference: 'prefer-software' });
 
         const host = hostRef.current;
         if (!host) throw new Error(i18n.t('panel.videoStudio.errNoStage'));
@@ -135,7 +150,7 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
       stage?.dispose();
       media?.dispose();
     };
-  }, [project, docId, revId, frameChapter, alpha]);
+  }, [project, docId, revId, frameChapter, alpha, width, height]);
 
   return (
     <div

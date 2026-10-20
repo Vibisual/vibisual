@@ -4,6 +4,7 @@ import type { VideoAsset, VideoDoc } from '@vibisual/video';
 
 import { ScrollFade } from '../ScrollFade.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
+import { mediaKindKey } from './kindLabels.js';
 
 /**
  * §5.13 (V) 37-1 — **소재 서랍**(종전 라이브러리의 '가져오기'·'프로젝트 미디어' 를 옮겼다). 미디어·SRT 가져오기(프로젝트에
@@ -19,7 +20,7 @@ export interface MediaDrawerProps {
   readonly libraries?: ReactNode;
 }
 
-const KIND_ICON: Readonly<Record<string, StudioIconName>> = { video: 'film', audio: 'music', image: 'image', composition: 'code', font: 'text' };
+const KIND_ICON: Readonly<Record<string, StudioIconName>> = { video: 'film', model: 'media', audio: 'music', image: 'image', composition: 'code', font: 'text' };
 
 function assetPath(asset: VideoAsset): string {
   return asset.source.kind === 'file' ? asset.source.path : asset.source.output;
@@ -46,7 +47,7 @@ export function MediaDrawer(p: MediaDrawerProps): React.JSX.Element {
           {p.importing ? t('panel.videoStudio.media.importing') : t('panel.videoStudio.media.import')}
         </button>
         <input ref={input} type="file" multiple className="hidden" aria-label={t('panel.videoStudio.media.import')}
-          accept=".mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.png,.jpg,.jpeg,.webp,.gif,.avif,.srt,.vtt"
+          accept=".mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.srt,.vtt,.glb,.gltf,.bin,.vibi3d,.vibimage"
           onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; p.onImport(files); }} />
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.stopPropagation()}
           aria-label={t('panel.videoStudio.media.search')} placeholder={t('panel.videoStudio.media.search')}
@@ -64,7 +65,7 @@ export function MediaDrawer(p: MediaDrawerProps): React.JSX.Element {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] text-slate-200">{label(asset)}</span>
                 <span className="block text-[12px] tabular-nums text-slate-500">
-                  {t(`panel.videoStudio.editor.media_${asset.kind}`)}{asset.duration !== undefined ? ` · ${asset.duration.toFixed(1)}s` : ''}
+                  {t(mediaKindKey(asset.kind))}{asset.duration !== undefined ? ` · ${asset.duration.toFixed(1)}s` : ''}
                 </span>
               </span>
               <StudioIcon name="plus" className="h-3.5 w-3.5 shrink-0 text-slate-500" />

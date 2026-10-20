@@ -10,6 +10,7 @@
  */
 
 import type { AppAgentBrief, AppAgentBriefArgs } from '../../apps/registry.js';
+import { AppAgentPreparationError } from '../../apps/registry.js';
 import { createDoc, readDoc, type DocEnvelope } from './videoApi.js';
 
 function describe(env: DocEnvelope): string {
@@ -31,7 +32,8 @@ export async function buildVibistudioBrief(args: AppAgentBriefArgs): Promise<App
       docId = env.doc.id;
       summary = describe(env);
     } catch {
-      docId = null; // 지워졌거나 못 읽는다 — 새로 만든다(노드는 새 문서로 다시 묶인다).
+      // A failed source read cannot turn a continuation into a new task.
+      throw new AppAgentPreparationError('vibistudio-source-unavailable');
     }
   }
   if (!docId) {
@@ -40,7 +42,7 @@ export async function buildVibistudioBrief(args: AppAgentBriefArgs): Promise<App
       docId = doc.id;
       summary = 'new and empty';
     } catch {
-      docId = null;
+      throw new AppAgentPreparationError('vibistudio-source-unavailable');
     }
   }
 

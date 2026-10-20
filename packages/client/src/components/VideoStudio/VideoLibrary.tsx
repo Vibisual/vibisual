@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { VideoAsset, VideoDoc } from '@vibisual/video';
 import { ScrollFade } from '../ScrollFade.js';
+import { mediaKindKey } from './kindLabels.js';
 
 export interface VideoLibraryProps {
   doc: VideoDoc; disabled: boolean;
@@ -67,7 +68,7 @@ export function VideoLibrary({ doc, disabled, onAddScene, onAddText, onAddShape,
             const label = assetLabel(asset);
             return <button key={asset.id} className={`${BUTTON} block w-full`} type="button" disabled={disabled} onClick={() => onAddAsset(asset)} title={path}>
               <span className="block truncate">{label}</span>
-              <span className="mt-1 block text-white/40">{t(`panel.videoStudio.editor.media_${asset.kind}`, { defaultValue: asset.kind })}{asset.duration !== undefined ? ` · ${asset.duration.toFixed(1)}s` : ''}</span>
+              <span className="mt-1 block text-white/40">{t(mediaKindKey(asset.kind), { defaultValue: asset.kind })}{asset.duration !== undefined ? ` · ${asset.duration.toFixed(1)}s` : ''}</span>
             </button>;
           })}
         </section>

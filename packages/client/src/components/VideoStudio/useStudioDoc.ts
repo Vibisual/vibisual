@@ -17,6 +17,8 @@ import {
 
 import { measureAssets } from './useVideoRenderer.js';
 import { createDoc, listDocs, patchDoc, readDoc, readDocVersion, type DocSummary } from './videoApi.js';
+import { STUDIO_APP_ID } from './studioAppId.js';
+import { onAppEvent } from '../../apps/appEvents.js';
 import { GLOW_ONCE_MS } from './studioMotion.js';
 
 /**
@@ -27,8 +29,11 @@ import { GLOW_ONCE_MS } from './studioMotion.js';
  * 장면)도 여기서 받는다. 종전 셸(`VideoStudioShell`)이 들던 문서 수명은 그대로 옮겼다(측정값 채우기·파일 문서·열기 순번).
  */
 
-/** 에이전트가 고친 것을 알아채려고 문서 판본을 묻는 간격(ms). 판본만 묻는 가벼운 요청이다. */
-const DOC_POLL_MS = 2000;
+/**
+ * 에이전트가 고친 것을 알아채려고 문서 판본을 묻는 간격(ms). 판본만 묻는 가벼운 요청이다. §5.13 (Y) 40-7 ② — 주 신호는 서버의 앱
+ * 알림(판이 올랐다·지금 하는 일이 바뀌었다 — 받는 즉시 묻는다)이고, 이 간격은 소켓이 끊겼을 때의 안전망이다(종전 2초).
+ */
+const DOC_POLL_MS = 10_000;
 
 export interface StudioChange {
   readonly before: VideoDoc;
@@ -43,6 +48,29 @@ export interface StudioGlow {
 }
 
 const NO_GLOW: StudioGlow = { chapters: new Set(), items: new Set() };
+
+/**
+ * §5.13 (Y) 40-10 ③ — 창 안 문서 기억(영속 ❌ — 창이 사는 동안만). 다시 열 때 지난번 상태로 **먼저 그리고** 뒤에서 새로 읽는다
+ * (새로 읽은 판이 같으면 바꾸지 않는다 — 화면 전체가 같은 값으로 다시 그려지지 않게).
+ */
+const DOC_MEMORY_MAX = 8;
+const docMemory = new Map<string, VideoDoc>();
+
+function docMemoryKey(project: string, docId: string): string {
+  return `${project}\u0000${docId}`;
+}
+
+function rememberDoc(project: string, doc: VideoDoc): void {
+  const key = docMemoryKey(project, doc.id);
+  docMemory.delete(key);
+  docMemory.set(key, doc);
+  while (docMemory.size > DOC_MEMORY_MAX) docMemory.delete(docMemory.keys().next().value as string);
+}
+
+/** 시험 전용 — 기억을 비운다. */
+export function __clearStudioDocMemoryForTest(): void {
+  docMemory.clear();
+}
 
 export interface StudioDoc {
   readonly docs: readonly DocSummary[];
@@ -69,8 +97,15 @@ export function useStudioDoc(opts: {
   onFileUnreadable: (name: string) => void;
   /** 다른 문서로 갈아탈 때(되돌리기 이력·선택을 비운다). */
   onSwitch: () => void;
+  /**
+   * §5.13 (X) 39-8 — 화면이 숨었다(다른 탭으로 가려진 앱 안 창·최소화된 창). 그동안 판본을 묻지 않고, 돌아오면 간격을 기다리지
+   * 않고 한 번 묻는다. 종전에는 숨은 스튜디오도 2초마다 계속 물었다.
+   */
+  paused?: boolean;
 }): StudioDoc {
   const { projectName, docParam, fileParam, onError, onFileUnreadable, onSwitch } = opts;
+  const paused = opts.paused === true;
+  const pausedBefore = useRef(false);
   const [docs, setDocs] = useState<readonly DocSummary[]>([]);
   const [doc, setDocState] = useState<VideoDoc | null>(null);
   const [activity, setActivity] = useState<DocActivity | null>(null);
@@ -87,6 +122,7 @@ export function useStudioDoc(opts: {
   useEffect(() => () => { if (glowTimer.current) clearTimeout(glowTimer.current); }, []);
 
   const setDoc = useCallback((next: VideoDoc): void => setDocState(next), []);
+  useEffect(() => { if (doc && projectName) rememberDoc(projectName, doc); }, [doc, projectName]);
 
   const refreshDocs = useCallback(async (): Promise<void> => {
     try {
@@ -114,11 +150,14 @@ export function useStudioDoc(opts: {
     const sequence = ++openSequence.current;
     cb.current.onSwitch();
     pendingWork.current += 1;
+    // 40-10 ③ — 지난번 상태로 먼저 그린다(뒤에서 새로 읽는다).
+    const remembered = docMemory.get(docMemoryKey(projectName, docId));
+    if (remembered) { setDocState(remembered); setLastChange(null); setGlow(NO_GLOW); }
     try {
       const env = await readDoc(projectName, docId);
       const next = await fillMeasurements(env.doc);
       if (sequence !== openSequence.current) return;
-      setDocState(next);
+      if (!remembered || remembered.version !== next.version || remembered.updatedAt !== next.updatedAt) setDocState(next);
       setLastChange(null);
       setGlow(NO_GLOW);
     } catch (err) {
@@ -199,6 +238,7 @@ export function useStudioDoc(opts: {
    */
   const docId = doc?.id ?? '';
   useEffect(() => {
+    if (paused) { pausedBefore.current = true; return; }
     if (docId === '' || projectName === '') return;
     let active = true;
     let polling = false;
@@ -232,8 +272,12 @@ export function useStudioDoc(opts: {
       }
     };
     const timer = setInterval(() => void poll(), DOC_POLL_MS);
-    return () => { active = false; clearInterval(timer); };
-  }, [docId, projectName]);
+    // 40-7 ② — 이 문서의 판이 올랐다·지금 하는 일이 바뀌었다는 알림이 오면 간격을 기다리지 않고 묻는다.
+    const offEvent = onAppEvent(STUDIO_APP_ID, (event) => { if (event.key === docId) void poll(); });
+    // 숨었다 돌아왔다 — 그 사이 AI 가 고친 것을 간격을 기다리지 않고 바로 본다.
+    if (pausedBefore.current) { pausedBefore.current = false; void poll(); }
+    return () => { active = false; clearInterval(timer); offEvent(); };
+  }, [docId, projectName, paused]);
 
   return {
     docs, doc, setDoc, openDoc, closeDoc, createDoc: create, refreshDocs, activity, lastChange, glow, reloadTick, pendingWork, openSequence,

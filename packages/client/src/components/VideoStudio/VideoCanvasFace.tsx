@@ -26,6 +26,9 @@ import {
 } from '../../apps/canvasFaceKit.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { fetchStillImage, readDocVersion, type DocVersion } from './videoApi.js';
+import { STUDIO_APP_ID } from './studioAppId.js';
+import { onAppEvent } from '../../apps/appEvents.js';
+import { runWhenIdle } from './studioIdle.js';
 import { GLOW_ONCE_MS, ensureStudioMotion } from './studioMotion.js';
 
 /**
@@ -59,8 +62,11 @@ export function VideoCanvasFace(props: AppCanvasFaceProps): React.JSX.Element {
   return <VideoFileFace {...props} />;
 }
 
-/** 문서 판본을 묻는 간격(ms) — 판본만 묻는 가벼운 요청이다. 보이는 노드만 묻는다(화면 밖이면 언마운트). */
-const DOC_POLL_MS = 5000;
+/**
+ * 문서 판본을 묻는 간격(ms) — 판본만 묻는 가벼운 요청이다. 보이는 노드만 묻는다(화면 밖이면 언마운트). §5.13 (Y) 40-7 ② — 주 신호는
+ * 서버의 앱 알림이고(받는 즉시 묻는다), 이 간격은 소켓이 끊겼을 때의 안전망이다(종전 5초).
+ */
+const DOC_POLL_MS = 15_000;
 /** 판본이 바뀐 뒤 이만큼 잠잠하면 포스터를 새로 찍는다(ms) — 에이전트가 연달아 고치는 동안 매번 찍지 않게. */
 const POSTER_SETTLE_MS = 1200;
 /** 찍어 둔 포스터 기억 — 판본마다 한 장, 상한을 넘으면 오래된 것부터 버린다(화면 밖에서 돌아와도 바로 보인다). */
@@ -174,7 +180,8 @@ function VideoDocFace({
     };
     void tick();
     const timer = setInterval(() => void tick(), DOC_POLL_MS);
-    return () => { active = false; clearInterval(timer); };
+    const offEvent = onAppEvent(STUDIO_APP_ID, (event) => { if (event.key === workRef) void tick(); });
+    return () => { active = false; clearInterval(timer); offEvent(); };
   }, [project, workRef]);
 
   useEffect(() => {
@@ -184,19 +191,19 @@ function VideoDocFace({
     const cached = posterCache.get(key);
     if (cached) { setPoster(cached); return; }
     let active = true;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          // 최종 렌더와 같은 경로(숨은 일꾼 창)로 한 장 — 코드 컴포지션도 그대로 보인다.
-          const image = await fetchStillImage(project, workRef, posterTime(info.duration));
-          rememberPoster(key, image);
-          if (active) setPoster(image);
-        } catch {
-          // 못 찍었으면 아이콘으로 남는다 — 다음 판본이 다시 찍는다.
-        }
-      })();
-    }, POSTER_SETTLE_MS);
-    return () => { active = false; clearTimeout(timer); };
+    const abort = new AbortController();
+    // §5.13 (Y) 40-7 ④ · 40-10 ④ — 잠잠해지기를 기다린 뒤(디바운스 유지), 같은 창의 스튜디오가 재생·끌기·입력 중이면 쉬었다가 찍는다.
+    void runWhenIdle(async () => {
+      try {
+        // 최종 렌더와 같은 경로(숨은 일꾼 창)로 한 장 — 코드 컴포지션도 그대로 보인다.
+        const image = await fetchStillImage(project, workRef, posterTime(info.duration));
+        rememberPoster(key, image);
+        if (active) setPoster(image);
+      } catch {
+        // 못 찍었으면 아이콘으로 남는다 — 다음 판본이 다시 찍는다.
+      }
+    }, { delayMs: POSTER_SETTLE_MS, signal: abort.signal }).catch(() => undefined);
+    return () => { active = false; abort.abort(); };
   }, [info, project, workRef]);
 
   const stageHeight = Math.max(1, height - FACE_BAR_HEIGHT);

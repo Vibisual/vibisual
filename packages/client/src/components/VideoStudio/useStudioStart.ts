@@ -1,3 +1,4 @@
+import { prepareVideoImports } from './videoImportFiles.js';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -36,7 +37,7 @@ export interface StartMaterialFile {
   readonly file: File;
 }
 
-const MEDIA_RE = /\.(mp4|webm|mov|m4v|mp3|wav|ogg|m4a|flac|aac|png|jpe?g|webp|gif|avif)$/i;
+const MEDIA_RE = /\.(mp4|webm|mov|m4v|mp3|wav|ogg|m4a|flac|aac|png|jpe?g|webp|gif|avif|glb|gltf|vibi3d|vibimage)$/i;
 /** 제목으로 쓸 첫 줄의 길이 상한(글자). */
 const TITLE_MAX = 40;
 
@@ -84,7 +85,8 @@ export function useStudioStart(d: {
     const assets: VideoAsset[] = [];
     const paths: string[] = [];
     const ops: VideoDocOp[] = [];
-    for (const { file } of materials) {
+    if (materials.reduce((sum, material) => sum + material.file.size, 0) > MEDIA_IMPORT_LIMIT) throw new Error(t('panel.videoStudio.editor.fileTooLarge'));
+    for (const file of await prepareVideoImports(materials.map(material => material.file))) {
       // §5.13 (W) 38-6 — SRT·VTT·낱말 시각 JSON 은 자막으로(JSON 이 낱말 모양이 아니면 아래에서 재료로).
       const captionOps = await captionOpsFromFile(doc, file);
       if (captionOps) { ops.push(...captionOps); continue; }

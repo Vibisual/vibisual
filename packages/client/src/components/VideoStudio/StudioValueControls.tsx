@@ -11,9 +11,12 @@ import type { ValueField, ValueOption } from './valueFields.js';
  * 바꾸는 즉시 `onChange` 가 불린다 — 셸은 화면을 낙관적으로 먼저 바꾸고 저장은 뒤에서 묶어 한 번 한다(`useLocalProps`).
  * 숫자·시각은 이름표를 가로로 끌면 `step` 씩 바뀐다(Shift 면 10배) — 직접 쳐 넣어도 된다. 색은 원형 견본(누르면 색 고르기) + 16진
  * 칸. 키 입력은 스튜디오 단축키로 새지 않게 막는다.
+ *
+ * 반응형 — 칸은 `min-w-0` 이라 좁은 판(기획 카드 240px · 인스펙터 256px)에서 줄어들 뿐 넘치지 않는다(줄을 접을 일이 없다). 터치에서는
+ * 칸·견본·끌기 이름표가 커지고, 끌기 이름표는 손가락 끌기가 밀기 손짓으로 넘어가지 않게 한다(`touch-none`).
  */
 
-const INPUT = 'h-7 min-w-0 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-40';
+const INPUT = 'h-7 min-w-0 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-40 pointer-coarse:h-9';
 /** 끌기 한 칸의 화면 거리(px). */
 const DRAG_PX_PER_STEP = 4;
 
@@ -76,7 +79,7 @@ function NumberScrub({ field, onChange, disabled }: { readonly field: ValueField
         }}
         onPointerUp={() => { drag.current = null; }}
         onPointerCancel={() => { drag.current = null; }}
-        className={`flex h-7 w-6 shrink-0 cursor-ew-resize select-none items-center justify-center rounded-md text-slate-500 hover:bg-white/10 hover:text-slate-200 ${disabled ? 'pointer-events-none opacity-40' : ''}`}
+        className={`flex h-7 w-6 shrink-0 cursor-ew-resize touch-none select-none items-center justify-center rounded-md text-slate-500 hover:bg-white/10 hover:text-slate-200 pointer-coarse:h-9 pointer-coarse:w-8 ${disabled ? 'pointer-events-none opacity-40' : ''}`}
         title={field.label}
       >
         <StudioIcon name="grip" className="h-3.5 w-3.5 rotate-90" />
@@ -118,7 +121,7 @@ function ColorSwatch({ field, onChange, disabled }: { readonly field: ValueField
   return (
     <div className="flex items-center gap-1.5">
       <button type="button" disabled={disabled} onClick={() => picker.current?.click()} aria-label={field.label} title={field.label}
-        className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full border border-white/20 shadow-inner disabled:opacity-40"
+        className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full border border-white/20 shadow-inner disabled:opacity-40 pointer-coarse:h-8 pointer-coarse:w-8"
         style={{ background: value === '' ? 'transparent' : value }}>
         {value === '' ? <span className="absolute inset-0 flex items-center justify-center text-slate-500"><StudioIcon name="close" className="h-3 w-3" /></span> : null}
       </button>
@@ -171,7 +174,7 @@ function ChoiceControl({ field, onChange, disabled }: { readonly field: ValueFie
     <div className="flex w-full rounded-md border border-white/10 p-0.5" role="radiogroup" aria-label={field.label}>
       {options.map((o) => (
         <button key={o.value} type="button" role="radio" aria-checked={o.value === field.value} disabled={disabled} onClick={() => onChange(o.value)}
-          className={`min-w-0 flex-1 truncate rounded px-1.5 py-1 text-[12px] transition-colors duration-150 ease-out disabled:opacity-40 ${o.value === field.value ? 'bg-white/10 text-slate-50 ring-1 ring-[var(--vs-accent)]' : 'text-slate-400 hover:text-slate-100'}`}>
+          className={`min-w-0 flex-1 truncate rounded px-1.5 py-1 text-[12px] transition-colors duration-150 ease-out disabled:opacity-40 pointer-coarse:py-2 ${o.value === field.value ? 'bg-white/10 text-slate-50 ring-1 ring-[var(--vs-accent)]' : 'text-slate-400 hover:text-slate-100'}`}>
           {o.label}
         </button>
       ))}
@@ -196,7 +199,7 @@ function TextControl({ field, onChange, disabled }: { readonly field: ValueField
   };
   if (field.multiline) {
     return <textarea {...common} rows={3} onChange={(e) => { setDraft(e.target.value); onChange(e.target.value); }}
-      className={`${INPUT} h-auto w-full resize-y py-1.5 leading-relaxed`} />;
+      className={`${INPUT} h-auto w-full resize-y py-1.5 leading-relaxed pointer-coarse:h-auto`} />;
   }
   return <input {...common} onChange={(e) => { setDraft(e.target.value); onChange(e.target.value); }} className={`${INPUT} w-full`} />;
 }

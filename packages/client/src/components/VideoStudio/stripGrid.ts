@@ -11,6 +11,35 @@ export function stripColumns(count: number): number {
   return Math.min(count, Math.ceil(Math.sqrt(count * 1.5)));
 }
 
+/** 칸 사이·둘레의 틈(띠 그림 픽셀). */
+export const STRIP_GAP = 6;
+
+/**
+ * §5.4 #15 (C) — 띠 그림의 (x, y)(그림 픽셀)가 몇 번째 칸인가. 칸 크기는 `composeStripGrid` 가 그린 그대로 그림 크기에서 되짚는다
+ * (가로 = 열 × 칸 + 틈 × (열 + 1)). 틈·바깥이면 null.
+ */
+export function stripCellAt(
+  image: { readonly width: number; readonly height: number },
+  count: number,
+  x: number,
+  y: number,
+): { index: number; rect: { x: number; y: number; width: number; height: number } } | null {
+  const cells = Math.max(1, count);
+  const cols = stripColumns(cells);
+  const rows = Math.ceil(cells / cols);
+  const cellW = (image.width - (cols + 1) * STRIP_GAP) / cols;
+  const cellH = (image.height - (rows + 1) * STRIP_GAP) / rows;
+  if (cellW <= 0 || cellH <= 0) return null;
+  const col = Math.floor((x - STRIP_GAP) / (cellW + STRIP_GAP));
+  const row = Math.floor((y - STRIP_GAP) / (cellH + STRIP_GAP));
+  if (col < 0 || row < 0 || col >= cols || row >= rows) return null;
+  const left = STRIP_GAP + col * (cellW + STRIP_GAP);
+  const top = STRIP_GAP + row * (cellH + STRIP_GAP);
+  const index = row * cols + col;
+  if (index >= cells || x > left + cellW || y > top + cellH) return null;
+  return { index, rect: { x: left, y: top, width: cellW, height: cellH } };
+}
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -27,7 +56,7 @@ export async function composeStripGrid(images: readonly string[], times: readonl
   const count = Math.max(1, images.length);
   const cols = stripColumns(count);
   const rows = Math.ceil(count / cols);
-  const gap = 6;
+  const gap = STRIP_GAP;
   // 큰 변이 maxEdge 안에 들도록 칸 크기를 정한다.
   const cellW0 = 320;
   const cellH0 = cellW0 / aspect;

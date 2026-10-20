@@ -53,7 +53,7 @@ export function VideoTimelineSignals(p: VideoTimelineSignalsProps): React.JSX.El
           {signals.collecting ? t(`${key}collecting`) : t(`${key}title`)}
         </span>
         {p.onRecollect && signals.hasCueSources && (
-          <button type="button" className="rounded p-1 text-gray-500 hover:bg-white/10 hover:text-gray-200 disabled:opacity-30" disabled={p.disabled || p.recollecting === true}
+          <button type="button" className="shrink-0 rounded p-1 text-gray-500 hover:bg-white/10 hover:text-gray-200 disabled:opacity-30 pointer-coarse:p-2" disabled={p.disabled || p.recollecting === true}
             aria-label={t(`${key}recollect`)} title={t(`${key}recollect`)} onClick={p.onRecollect}>
             <StudioIcon name="restore" className={`h-3.5 w-3.5 ${p.recollecting === true ? 'animate-spin' : ''}`} />
           </button>
@@ -66,7 +66,8 @@ export function VideoTimelineSignals(p: VideoTimelineSignalsProps): React.JSX.El
         ))}
         {signals.cues.map((mark) => (
           <button key={mark.key} type="button"
-            className={`absolute top-0 flex -translate-x-1/2 flex-col items-center gap-0.5 rounded px-0.5 text-[12px] leading-none outline-none focus-visible:ring-1 focus-visible:ring-[var(--vs-accent)] ${mark.stale ? 'opacity-40' : ''} ${open?.mark.key === mark.key ? 'text-slate-100' : 'text-slate-300 hover:text-slate-100'}`}
+            // 터치에서는 좌우·아래로 누름 자리를 넓힌다(구슬·이름의 자리는 그대로 — 위쪽 끝에 붙어 있다).
+            className={`absolute top-0 flex -translate-x-1/2 flex-col items-center gap-0.5 rounded px-0.5 text-[12px] leading-none outline-none focus-visible:ring-1 focus-visible:ring-[var(--vs-accent)] pointer-coarse:px-2 pointer-coarse:pb-3 ${mark.stale ? 'opacity-40' : ''} ${open?.mark.key === mark.key ? 'text-slate-100' : 'text-slate-300 hover:text-slate-100'}`}
             style={{ left: `${mark.t / p.duration * 100}%` }}
             aria-label={t(`${key}mark`, { name: mark.name, t: mark.t.toFixed(2) })}
             title={`${mark.name} · ${mark.t.toFixed(2)}s${mark.stale ? ` · ${t(`${key}collecting`)}` : ''}${mark.bound.length > 0 ? ` · ${t(`${key}boundCount`, { count: mark.bound.length })}` : ''}`}

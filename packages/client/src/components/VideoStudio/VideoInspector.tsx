@@ -6,6 +6,7 @@ import { StudioNumberField, StudioTextField, STUDIO_INPUT_CLASS } from './Studio
 import { VideoInspectorContent, VideoInspectorTransform } from './VideoInspectorContent.js';
 import { VideoInspectorComposition, type CompositionInspectorActions } from './VideoInspectorComposition.js';
 import { VideoInspectorEffects, VideoInspectorMotion } from './VideoInspectorMotion.js';
+import { VideoInspectorLayerMotion } from './VideoInspectorLayerMotion.js';
 import { isCompatibleTrack, isTimedSourceKind } from './videoEditor.js';
 
 export interface VideoInspectorProps {
@@ -19,6 +20,8 @@ export interface VideoInspectorProps {
   onSetProp?: (itemId: string, key: string, value: unknown) => void;
   /** §5.13 (W) 38-4 — 재생 머리(문서 시각) — [강조 줌]·[재생 머리에 키프레임]이 그 자리에 선다. 없으면 아이템 시작. */
   playhead?: number;
+  /** §5.13 (R-10) — 편집 가능한 그림 소재의 레이어를 읽을 프로젝트(레이어별 움직임). 없으면 그 구역이 서지 않는다. */
+  project?: string;
 }
 
 /** 판형 표는 한 곳(`VIDEO_FORMATS`) — 판형 칩·출력 프리셋과 같은 값. */
@@ -27,7 +30,7 @@ const OUTPUT_LABELS = { landscape: 'Landscape · 1920 × 1080', portrait: 'Portr
 const MIN_DURATION = 0.001;
 
 /** All edits use document operations, so autosave, conflicts and undo share one path. */
-export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps, composition, onSetProp, playhead }: VideoInspectorProps): React.JSX.Element {
+export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps, composition, onSetProp, playhead, project }: VideoInspectorProps): React.JSX.Element {
   const { t } = useTranslation();
   const timeline = useMemo(() => resolveTimeline(doc), [doc]);
   const track = doc.tracks.find((entry) => entry.items.some((item) => item.id === selectedItemId));
@@ -46,7 +49,8 @@ export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps, comp
   const trimMax = sourceDuration === undefined ? undefined : Math.max(0, sourceDuration - MIN_DURATION);
   const durationMax = sourceDuration === undefined ? undefined : Math.max(MIN_DURATION, sourceDuration - (item?.trimStart ?? 0));
   return (
-    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col rounded-lg border border-white/10 bg-vb-sunken/60" aria-label={t('panel.videoStudio.editor.inspector', { defaultValue: 'Inspector' })}>
+    // 640px 미만 창에서는 정밀 편집 판이 속성 칸을 타임라인 아래로 내리므로 전폭이다(PrecisionSheet).
+    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col rounded-lg border border-white/10 bg-vb-sunken/60 box-narrow:w-full" aria-label={t('panel.videoStudio.editor.inspector', { defaultValue: 'Inspector' })}>
       <h2 className="shrink-0 border-b border-white/10 px-3 py-2.5 text-xs font-semibold text-white/80">{t('panel.videoStudio.editor.inspector', { defaultValue: 'Inspector' })}</h2>
       <ScrollFade fill className="flex-1">
         <div className="space-y-4 p-3" key={`${doc.id}:${selectedItemId ?? ''}`}>
@@ -101,6 +105,7 @@ export function VideoInspector({ doc, selectedItemId, disabled, onApplyOps, comp
                 onSetProp={onSetProp ? (key, value) => onSetProp(item.id, key, value) : undefined} />
             ) : null}
             <VideoInspectorContent item={item} size={doc.size} disabled={disabled} hasAudio={asset?.hasAudio} onUpdate={update} />
+            {item.kind === 'image' && project ? <VideoInspectorLayerMotion project={project} item={item} asset={asset} disabled={disabled} onUpdate={update} /> : null}
             {item.kind !== 'audio' ? <VideoInspectorTransform item={item} size={doc.size} disabled={disabled} onUpdate={update} /> : null}
             {/* §5.13 (W) 38-4·38-5 — 상자의 시간 곡선(강조 줌·천천히 밀기)과 색·효과. 소리·자막은 상자 움직임·색이 없다. */}
             {item.kind !== 'audio' && item.kind !== 'caption' ? <>

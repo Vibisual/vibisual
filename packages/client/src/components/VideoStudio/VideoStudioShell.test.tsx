@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyDoc, type VideoDoc } from '@vibisual/video';
 import { VideoStudioShell } from './VideoStudioShell.js';
 import { WindowControls } from '../Layout/WindowControls.js';
+import { StudioHeader } from './StudioHeader.js';
+import { StudioStart } from './StudioStart.js';
 
 const mocks = vi.hoisted(() => {
   vi.stubGlobal('window', { location: { protocol: 'http:', host: 'localhost' } });
@@ -32,13 +34,17 @@ vi.mock('./videoApi.js', () => ({
   claimJob: vi.fn(), reportJob: vi.fn(), startRender: vi.fn(), VersionConflictError: class extends Error {},
   // §5.13 (T-7) — 스튜디오가 몇 초마다 묻는 판본. 0 이면 다시 읽지 않는다.
   readDocVersion: vi.fn(async () => ({ id: '', title: '', version: 0, updatedAt: 0, duration: 0 })),
+  // §5.13 (AA) 42 — 렌더 대기열·내보내기 설정(빈 줄 · 기본 설정).
+  listRenderJobs: vi.fn(async () => []), readExportSettings: vi.fn(async () => ({ last: undefined, presets: [] })),
+  saveExportSettings: vi.fn(async () => undefined), controlRenderJob: vi.fn(), controlRenderQueue: vi.fn(),
+  saveExportPreset: vi.fn(), deleteExportPreset: vi.fn(), deriveDoc: vi.fn(),
 }));
 
 let view: ReactTestRenderer | undefined;
 function mount(params: Record<string, string>): void {
   view = create(createElement(VideoStudioShell, { appId: 'vibistudio', params }));
 }
-function docSelect() { return view!.root.findAllByType('select')[0]!; }
+function header() { return view!.root.findByType(StudioHeader); }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 beforeEach(() => {
   vi.clearAllMocks(); mocks.prepare = null; mocks.read.mockReset(); mocks.create.mockReset(); mocks.measure.mockReset(); mocks.patch.mockReset(); mocks.list.mockResolvedValue([]);
@@ -59,7 +65,9 @@ describe('video shell window handoff', () => {
     const pending = deferred<VideoDoc>(); mocks.create.mockReturnValueOnce(pending.promise);
     await act(async () => mount({ projectId: '/project' }));
     expect(await mocks.prepare!()).toBe(true);
-    act(() => view!.root.findAllByType('button').find(node => node.children.join('') === '새 영상')!.props.onClick());
+    act(() => view!.root.findByType(StudioStart).props.onRecipe('blank'));
+    mocks.patch.mockResolvedValueOnce({ doc: createEmptyDoc('new', 'New') });
+    act(() => view!.root.findByType(StudioStart).props.onSubmit());
     expect(await mocks.prepare!()).toBe(false);
     await act(async () => pending.resolve(createEmptyDoc('new', 'New')));
     expect(await mocks.prepare!()).toBe(true);
@@ -74,7 +82,7 @@ describe('video shell window handoff', () => {
     await act(async () => measured.resolve({}));
     expect(await mocks.prepare!()).toBe(true);
     const patched = deferred<{ doc: VideoDoc }>(); mocks.patch.mockReturnValueOnce(patched.promise);
-    act(() => view!.root.findAllByType('button').find(node => node.children.join('') === '제목 추가')!.props.onClick());
+    act(() => header().props.onRename('Edited'));
     expect(await mocks.prepare!()).toBe(false);
     await act(async () => patched.resolve({ doc: createEmptyDoc('file-doc', 'Edited') }));
     expect(await mocks.prepare!()).toBe(true);
@@ -87,11 +95,12 @@ describe('video shell window handoff', () => {
     expect(mocks.read).toHaveBeenCalledWith('/project', 'requested');
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.target).toHaveBeenLastCalledWith(params, { ref: 'requested', file: undefined });
-    await act(async () => { docSelect().props.onChange({ target: { value: 'selected' } }); });
+    await act(async () => { header().props.onOpenDoc('selected'); });
     expect(mocks.target).toHaveBeenLastCalledWith(params, { ref: 'selected', file: undefined });
     await act(async () => view!.update(createElement(VideoStudioShell, { appId: 'vibistudio', params: { ...params, docId: 'selected', file: '' } })));
     expect(mocks.read).toHaveBeenCalledTimes(2);
-    act(() => docSelect().props.onChange({ target: { value: '' } }));
+    // Leaving the document (the header's "new video" entry) clears the window target, as clearing the old select did.
+    act(() => header().props.onNewDoc());
     expect(mocks.target).toHaveBeenLastCalledWith(expect.anything(), { ref: undefined, file: undefined });
   });
 
@@ -99,9 +108,9 @@ describe('video shell window handoff', () => {
     const first = deferred<{ doc: VideoDoc }>();
     mocks.read.mockReturnValueOnce(first.promise).mockResolvedValueOnce({ doc: createEmptyDoc('latest', 'Latest') });
     await act(async () => mount({ projectId: '/project', docId: 'old' }));
-    await act(async () => { docSelect().props.onChange({ target: { value: 'latest' } }); });
+    await act(async () => { header().props.onOpenDoc('latest'); });
     await act(async () => { first.resolve({ doc: createEmptyDoc('old', 'Old') }); });
-    expect(docSelect().props.value).toBe('latest');
+    expect(header().props.currentDocId).toBe('latest');
     expect(mocks.target).toHaveBeenLastCalledWith(expect.anything(), { ref: 'latest', file: undefined });
   });
 

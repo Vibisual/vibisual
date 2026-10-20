@@ -13,6 +13,7 @@ import { historyStill, readHistoryDoc } from './studioApi.js';
 /**
  * §5.13 (V) 37-3 — **두 판 나란히 보기**: 같은 시각의 정지 화면 둘(그 판의 문서·코드로 일꾼이 찍는다)과 둘 사이의 차이 줄.
  * 시각은 막대로 옮기고, 손을 떼면 그 시각을 다시 찍는다.
+ * 반응형 — 폰 폭 창에서는 두 그림을 위아래로 쌓고(나란히 두면 한 장이 손톱만 해진다) 창 안에서 스크롤한다.
  */
 export interface HistoryCompareProps {
   readonly project: string;
@@ -63,26 +64,29 @@ export function HistoryCompare(p: HistoryCompareProps): React.JSX.Element {
   );
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6" {...backdrop}>
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6 box-narrow:p-2" {...backdrop}>
       <div role="dialog" aria-modal="true" aria-label={t('panel.videoStudio.history.compare')}
-        className="flex max-h-full w-full max-w-5xl animate-[vs-pop_160ms_ease-out] flex-col gap-3 rounded-xl border border-white/10 bg-vb-card p-4 shadow-2xl shadow-black/60">
-        <header className="flex items-center gap-2">
-          <span className="flex-1 text-[14px] font-semibold text-slate-100">{t('panel.videoStudio.history.compare')}</span>
-          <button type="button" onClick={p.onClose} aria-label={t('common.close', { defaultValue: 'Close' })} className="rounded p-1 text-slate-400 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="close" /></button>
+        className="scrollbar-thin flex max-h-full w-full max-w-5xl animate-[vs-pop_160ms_ease-out] flex-col gap-3 overflow-y-auto rounded-xl border border-white/10 bg-vb-card p-4 shadow-2xl shadow-black/60 box-narrow:p-3">
+        <header className="flex shrink-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-100">{t('panel.videoStudio.history.compare')}</span>
+          <button type="button" onClick={p.onClose} aria-label={t('common.close', { defaultValue: 'Close' })} className="shrink-0 rounded p-1 text-slate-400 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-2"><StudioIcon name="close" /></button>
         </header>
-        <div className="flex gap-3">{pane(older, images.a)}{pane(newer, images.b)}</div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 gap-3 box-narrow:flex-col">{pane(older, images.a)}{pane(newer, images.b)}</div>
+        <div className="flex shrink-0 items-center gap-3">
           <input type="range" min={0} max={Math.max(0.01, duration)} step={0.01} value={time} aria-label={t('panel.videoStudio.seek')}
             onChange={(e) => setTime(Number(e.target.value))} onPointerUp={() => setShot(time)} onKeyUp={() => setShot(time)}
-            className="flex-1 accent-[var(--vs-accent)]" />
-          <span className="text-[12px] tabular-nums text-slate-400">{formatClock(time)}</span>
+            className="min-w-0 flex-1 accent-[var(--vs-accent)] pointer-coarse:h-8" />
+          <span className="shrink-0 text-[12px] tabular-nums text-slate-400">{formatClock(time)}</span>
         </div>
-        <ScrollFade maxHeight={160}>
-          <ul className="flex flex-col gap-0.5">
-            {lines.length === 0 ? <li className="text-[12px] text-slate-500">{t('panel.videoStudio.history.noDiff')}</li> : null}
-            {lines.map((line, i) => <li key={`${line.kind}-${i}`} className="text-[13px] text-slate-300">{diffLineText(t, line)}</li>)}
-          </ul>
-        </ScrollFade>
+        {/* 낮은 창에서는 창이 스크롤한다 — 차이 줄 칸이 0 으로 짓눌리지 않게 줄지 않는 상자로 감싼다(ScrollFade 겉은 overflow 를 숨겨 줄어든다). */}
+        <div className="shrink-0">
+          <ScrollFade maxHeight={160}>
+            <ul className="flex flex-col gap-0.5">
+              {lines.length === 0 ? <li className="text-[12px] text-slate-500">{t('panel.videoStudio.history.noDiff')}</li> : null}
+              {lines.map((line, i) => <li key={`${line.kind}-${i}`} className="break-words text-[13px] text-slate-300">{diffLineText(t, line)}</li>)}
+            </ul>
+          </ScrollFade>
+        </div>
       </div>
     </div>
   );

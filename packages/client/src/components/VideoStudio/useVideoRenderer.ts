@@ -1,3 +1,4 @@
+import type { VideoMediaProvider } from './videoMediaProvider.js';
 /**
  * §5.13 Vibistudio — 렌더 글루.
  *
@@ -10,20 +11,24 @@
  * 걸러지고, 내려갔다는 사실은 호출부가 화면에 알린다(조용히 느려지지 않게).
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CUES_TIMEOUT_MS,
   computeFrameStats,
   cueScanLength,
   docHasCompositions,
   docTextBoxesAt,
+  encodeWav,
   resolveTimeline,
+  scaledSize,
   stableHash,
   type CompositionCue,
+  type ExportRange,
   type CueScanError,
   type FrameProbe,
   type MediaMeasurement,
   type ProbeText,
+  type ResolvedTimeline,
   type VideoAsset,
   type VideoDoc,
 } from '@vibisual/video';
@@ -35,7 +40,6 @@ import {
   CompositionFrame,
   HtmlInCanvasBackend,
   HtmlSceneStage,
-  MediabunnyMediaProvider,
   OffscreenCaptureBackend,
   PooledCaptureBackend,
   audioLevelAt,
@@ -49,6 +53,7 @@ import {
   type BackendProbe,
   type BackendSelection,
   type CapturedFrame,
+  type EncodeQualityLevel,
   type MediaProvider,
   type OffscreenCaptureBridge,
   type OffscreenOpenResult,
@@ -59,8 +64,9 @@ import {
 } from '@vibisual/video/render';
 import { VIDEO_CAPTURE_SESSIONS } from '@vibisual/video';
 
-import { assetUrl } from './videoApi.js';
 import { compositionAssetSrc, makeCompositionSrc } from './compositionUrl.js';
+import { createStudioMedia, studioAudioLoader } from './studioMedia.js';
+import { studioBudget } from './studioBudget.js';
 
 export interface RenderOutcome {
   readonly bytes: Uint8Array;
@@ -68,21 +74,42 @@ export interface RenderOutcome {
   /** 소리를 실제로 실었는가. 무음으로 나갔다면 호출부가 알려야 한다. */
   readonly hasAudio: boolean;
   readonly warnings: readonly string[];
-  /** §5.13 (W) 38-3 — 결과 그릇(mp4 · 투명 배경이면 webm). */
-  readonly container: OutputContainer;
+  /** §5.13 (W) 38-3 — 결과 그릇(mp4 · 투명 배경이면 webm). §5.13 (AA) 42-1 — 소리만이면 wav. */
+  readonly container: OutputContainer | 'wav';
+}
+
+/** §5.13 (AA) 42 — 렌더 한 번의 그리는 방법(없는 칸은 종전 그대로). */
+export interface RenderCallOptions {
+  readonly onProgress?: (p: RenderProgress) => void;
+  readonly signal?: AbortSignal;
+  /** §5.13 (W) 38-3 — 투명 배경 WebM(알파). */
+  readonly transparent?: boolean;
+  readonly quality?: EncodeQualityLevel;
+  /** 해상도 배율(문서 크기 기준 — 짝수로). */
+  readonly scale?: number;
+  readonly fps?: number | null;
+  /** false = 소리 트랙 없이(내보내기 음소거). */
+  readonly audio?: boolean;
+  readonly range?: ExportRange | null;
+  readonly container?: OutputContainer;
+  /** 소리만(WAV). */
+  readonly audioOnly?: boolean;
+  /** 프레임 사이 관문(일시정지). */
+  readonly gate?: () => Promise<void>;
 }
 
 export interface RendererHandle {
   drawPreview: (canvas: HTMLCanvasElement, t: number) => Promise<void>;
-  /** §5.13 (W) 38-3 — `transparent` 면 투명 배경 WebM(알파). */
-  render: (opts: { onProgress?: (p: RenderProgress) => void; signal?: AbortSignal; transparent?: boolean }) => Promise<RenderOutcome>;
+  /** §5.13 (W) 38-3 — `transparent` 면 투명 배경 WebM(알파). §5.13 (AA) 42 — 화질·해상도·프레임·구간·소리·그릇·관문. */
+  render: (opts: RenderCallOptions) => Promise<RenderOutcome>;
   /** 한 장(PNG data URL). `maxEdge` 를 주면 그 안으로 줄인다(0·없음 = 문서 원본 크기). */
   still: (t: number, maxEdge?: number) => Promise<string>;
   /**
    * §5.13 (T-9) — 여러 장을 **앞에서부터 차례로** 한 무대에서 찍는다(프레임 띠). 순방향 전용 컴포지션도 처음부터 한 번만
-   * 흘린다(칸마다 무대를 다시 열지 않는다). 그림 순서는 `times` 순서다.
+   * 흘린다(칸마다 무대를 다시 열지 않는다). 그림 순서는 `times` 순서다. §5.13 (X) 39-4 — `imageType` 이 `webp` 면 그 형식(작은
+   * 대표 프레임 — 같은 크기 png 의 몇 분의 일).
    */
-  stills: (times: readonly number[], maxEdge?: number, onFrame?: (index: number) => void) => Promise<string[]>;
+  stills: (times: readonly number[], maxEdge?: number, onFrame?: (index: number) => void, imageType?: 'png' | 'webp') => Promise<string[]>;
   review: () => Promise<{ findings: readonly { code: string; level: string; message: string }[] }>;
   /**
    * §5.13 (V) 37-9 — 프레임 검수 표본: 그 시각들을 차례로 찍어 평평함(빈 화면)·글자 상자(문서 글자 + 컴포지션 안 글자)·그 둘레
@@ -97,9 +124,10 @@ export interface RendererHandle {
   lastSelection: () => BackendSelection | null;
   /**
    * 미리보기용 소재 공급자 — 소재 목록이 같은 동안 하나를 계속 쓴다. §5.13 (T-7) 컴포지션 문서의 DOM 무대 미리보기도 이것을
-   * 받는다(영상 프레임을 무대마다 다시 열지 않게).
+   * 받는다(영상 프레임을 무대마다 다시 열지 않게). §5.13 (Y) 40-2 · 40-3 — 소리 조각·프레임 방식·화면 배율·놓친 프레임 수도 이 공급자에
+   * 묻는다(그래서 스튜디오 공급자 형으로 낸다).
    */
-  media: MediaProvider | null;
+  media: VideoMediaProvider | null;
 }
 
 /** 오프스크린 세션 열쇠 — 일감마다 자기 창을 쓴다(렌더 중에 찍는 스틸이 렌더의 창을 닫지 않게, §5.13 (T-4)). */
@@ -107,8 +135,14 @@ function newSessionKey(): string {
   return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** 캔버스 → PNG data URL. `maxEdge` 가 있고 더 크면 그 안으로 줄인다(에이전트 확인용은 작아도 된다). */
-function canvasToPng(source: HTMLCanvasElement | OffscreenCanvas, maxEdge?: number): string {
+/** §5.13 (X) 39-4 — webp 로 구울 때의 품질(작은 대표 프레임 — 눈으로 차이가 안 나는 선). */
+const STILL_WEBP_QUALITY = 0.86;
+
+/**
+ * 캔버스 → data URL(기본 PNG). `maxEdge` 가 있고 더 크면 그 안으로 줄인다(에이전트 확인용은 작아도 된다). `webp` 를 못 굽는 판이면
+ * 브라우저가 PNG 로 돌려준다(주소 머리가 그 형식을 말한다 — 받는 쪽이 머리로 가른다).
+ */
+function canvasToPng(source: HTMLCanvasElement | OffscreenCanvas, maxEdge?: number, imageType: 'png' | 'webp' = 'png'): string {
   const w = source.width;
   const h = source.height;
   const scale = maxEdge !== undefined && maxEdge > 0 && Math.max(w, h) > maxEdge ? maxEdge / Math.max(w, h) : 1;
@@ -118,24 +152,9 @@ function canvasToPng(source: HTMLCanvasElement | OffscreenCanvas, maxEdge?: numb
   const ctx = out.getContext('2d');
   if (!ctx) throw new Error(i18n.t('panel.videoStudio.errNoDoc'));
   ctx.drawImage(source, 0, 0, out.width, out.height);
-  return out.toDataURL('image/png');
+  return imageType === 'webp' ? out.toDataURL('image/webp', STILL_WEBP_QUALITY) : out.toDataURL('image/png');
 }
 
-/** 프로젝트 안의 파일을 주소로 바꿔 주는 로더. 경로 검사는 서버가 한다. */
-function assetPath(asset: VideoAsset): string {
-  const source = asset.source;
-  // 외부 명령으로 만드는 소재는 **결과 파일이 이미 있을 때만** 읽는다. 여기서 명령을
-  // 실행하지 않는다(§5.13 (H) — 앱은 소재를 만들지 않는다).
-  return source.kind === 'file' ? source.path : source.output;
-}
-
-function makeLoader(project: string): AssetBytesLoader {
-  return {
-    async open(asset: VideoAsset): Promise<Blob | string | null> {
-      return assetUrl(project, assetPath(asset));
-    },
-  };
-}
 
 /**
  * 소재들을 실제로 읽어 길이·크기를 잰다(§5.13 (R-3)). 못 읽은 소재는 결과에서 빠진다.
@@ -149,10 +168,7 @@ export async function measureAssets(
 ): Promise<Record<string, MediaMeasurement>> {
   const out: Record<string, MediaMeasurement> = {};
   if (assets.length === 0) return out;
-  const media = new MediabunnyMediaProvider({
-    assets: Object.fromEntries(assets.map((a) => [a.id, a])),
-    loader: makeLoader(project),
-  });
+  const media = createStudioMedia(project, Object.fromEntries(assets.map((a) => [a.id, a])));
   try {
     for (const asset of assets) {
       const m = await media.measure(asset.id);
@@ -162,16 +178,6 @@ export async function measureAssets(
     media.dispose();
   }
   return out;
-}
-
-export function makeAudioLoader(project: string): { fetchBytes: (asset: VideoAsset) => Promise<ArrayBuffer | null> } {
-  return {
-    async fetchBytes(asset: VideoAsset): Promise<ArrayBuffer | null> {
-      const res = await fetch(assetUrl(project, assetPath(asset)));
-      if (!res.ok) return null;
-      return res.arrayBuffer();
-    },
-  };
 }
 
 /** §5.13 (W) 38-3·38-7 — 오프스크린 창을 열 때 렌더 화면에 넘길 것. */
@@ -220,7 +226,8 @@ function makeOffscreenBridge(project: string, docId: string, session: string = n
       return call<CapturedFrame>('offscreen:capture', { t, session, format: 'raw' });
     },
     async close() {
-      if (api) await call<null>('offscreen:close', { session });
+      // §5.13 (Y) 40-7 ③ — 기기 예산이 허락하면 창을 쉬게 둔다(다음 스틸·검수가 본체를 다시 읽지 않게).
+      if (api) await call<null>('offscreen:close', { session, keep: studioBudget().offscreenIdleWindows > 0 });
     },
     // §5.13 (V) 37-9 — 마지막으로 찍은 시각의 컴포지션 글자 상자(읽기 전용).
     async inspect() {
@@ -281,7 +288,7 @@ const CAPTURE_RATIO_WARN = 0.99;
  * @param opts.frameChapter §5.13 (W) 38-7 — 장면 정지 화면을 그릴 때(문서는 이미 그 컴포지션 하나짜리로 바뀌어 온다 — 오프스크린
  *   렌더 화면도 같은 문서를 세우게 그 장면 id 를 넘긴다).
  */
-export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { revId?: string | undefined; frameChapter?: string | undefined } = {}): RendererHandle {
+export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { revId?: string | undefined; frameChapter?: string | undefined; previewActive?: boolean } = {}): RendererHandle {
   const revId = opts.revId;
   const frameChapter = opts.frameChapter;
   const selectionRef = useRef<BackendSelection | null>(null);
@@ -290,7 +297,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
   /** 이 기기에서 쓸 수 있는 백엔드를 골라 하나 만든다(세 후보 전부 탐지). `transparent` 면 투명 배경으로 그린다. */
   const makeBackend = useCallback(
     async (d: VideoDoc, transparent = false): Promise<{ backend: RenderBackend; selection: BackendSelection } | null> => {
-      const media = new MediabunnyMediaProvider({ assets: d.assets, loader: makeLoader(project) });
+      const media = createStudioMedia(project, d.assets);
       const resolved = resolveTimeline(d);
 
       // html-in-canvas 는 그릴 DOM 이 있어야 의미가 있다 — 실제 무대를 세워 준다.
@@ -352,48 +359,107 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
    * 받는다) 키프레임부터 다시 디코딩해, 재생이 사실상 멈춘다. 컷을 옮기거나 자막을 고쳐도
    * 소재가 그대로면 연 입력을 그대로 쓴다.
    */
-  const assets = doc?.assets;
-  const assetsKey = assets ? stableHash(JSON.stringify(assets)) : '';
-  const previewMedia = useMemo(
-    () => (assets ? new MediabunnyMediaProvider({ assets, loader: makeLoader(project) }) : null),
-    // assets 는 패치마다 새 객체라 내용 해시로만 갈아 끼운다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, assetsKey],
-  );
-  useEffect(() => () => previewMedia?.dispose(), [previewMedia]);
+  const assets = opts.previewActive === false ? undefined : doc?.assets;
+  const previewOn = assets !== undefined;
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
+  // §5.13 (Y) 40-6 — 공급자는 **프로젝트 하나에 하나**다. 종전에는 소재 전체의 지문이 열쇠라 효과음 하나만 더해도 공급자가 새로 섰고,
+  //   그에 매인 무대·실사 입력이 전부 다시 열렸다. 이제 소재 목록은 `setAssets` 로 갈아 끼운다(그대로인 소재의 입력·읽개는 남는다).
+  const [mediaLease, setMediaLease] = useState<{ project: string; media: VideoMediaProvider } | null>(null);
+  // Allocate inside the effect: StrictMode cleanup/setup must get a fresh, live provider.
+  useEffect(() => {
+    if (!previewOn) { setMediaLease(null); return undefined; }
+    const media = createStudioMedia(project, assetsRef.current ?? {});
+    setMediaLease({ project, media });
+    return () => media.dispose();
+  }, [project, previewOn]);
+  const previewMedia = previewOn && mediaLease?.project === project ? mediaLease.media : null;
+  const appliedAssets = useRef<Readonly<Record<string, VideoAsset>> | undefined>(undefined);
+  if (previewMedia && assets && appliedAssets.current !== assets) {
+    // 같은 판의 그리기가 새 소재를 보도록 그리기 전에 맞춘다(같은 값이면 아무 일 없다 — 되풀이해도 안전하다).
+    appliedAssets.current = assets;
+    previewMedia.setAssets(assets);
+  }
+
+  /**
+   * §5.13 (X) 39-6 — 미리보기 그리기 판은 **같은 문서·같은 소재 공급자인 동안 하나**를 쓴다. 종전에는 프레임마다 문서 크기 캔버스
+   * (1080×1920 이면 약 8MB)를 새로 만들고 버려, 재생하는 내내 그만큼의 쓰레기가 쌓였다. 그리기는 **줄을 세운다** — 스틸·검수
+   * 표본도 같은 판을 쓰므로, 두 요청이 한 캔버스에 섞여 그려지지 않게.
+   */
+  const previewBackend = useRef<{ doc: VideoDoc; timeline: ResolvedTimeline; media: MediaProvider; backend: Canvas2DBackend } | null>(null);
+  const previewScope = useMemo(() => ({ active: true, queue: Promise.resolve() }), [doc, previewMedia]);
+  useEffect(() => {
+    previewScope.active = true;
+    return () => {
+      previewScope.active = false;
+      previewBackend.current?.backend.dispose();
+      previewBackend.current = null;
+    };
+  }, [previewScope]);
 
   const drawPreview = useCallback(
-    async (canvas: HTMLCanvasElement, t: number): Promise<void> => {
-      if (!doc || !timeline || !previewMedia) return;
-      // 미리보기는 늘 canvas2d 로 그린다 — 창 안에서 즉시 반응해야 하고, 실험 API 가
-      // 흔들려도 편집 화면만은 멈추면 안 된다.
-      //
-      // 보이는 캔버스에 바로 그리지 않는다. 백엔드는 먼저 검게 지운 뒤 디코딩을 기다리므로,
-      // 재생 중에는 그 사이마다 검은 화면이 끼어 깜빡인다. 화면 밖에서 다 그린 뒤 한 번에 옮긴다.
-      const backend = new Canvas2DBackend({ doc, timeline, media: previewMedia, scenes: withBuiltinScenes() });
-      await backend.init({ width: doc.size.width, height: doc.size.height });
-      await backend.drawFrame(t);
-      const frame = backend.canvas;
-      const ctx = canvas.getContext('2d');
-      if (frame && ctx) ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-      backend.dispose();
+    (canvas: HTMLCanvasElement, t: number): Promise<void> => {
+      const run = previewScope.queue.then(async () => {
+        if (!previewScope.active || !doc || !timeline || !previewMedia) return;
+        // 미리보기는 늘 canvas2d 로 그린다 — 창 안에서 즉시 반응해야 하고, 실험 API 가
+        // 흔들려도 편집 화면만은 멈추면 안 된다.
+        //
+        // 보이는 캔버스에 바로 그리지 않는다. 백엔드는 먼저 검게 지운 뒤 디코딩을 기다리므로,
+        // 재생 중에는 그 사이마다 검은 화면이 끼어 깜빡인다. 화면 밖에서 다 그린 뒤 한 번에 옮긴다.
+        let held = previewBackend.current;
+        if (!held || held.doc !== doc || held.timeline !== timeline || held.media !== previewMedia) {
+          held?.backend.dispose();
+          const backend = new Canvas2DBackend({ doc, timeline, media: previewMedia, scenes: withBuiltinScenes(), prewarmFootage: true });
+          await backend.init({ width: doc.size.width, height: doc.size.height });
+          if (!previewScope.active) { backend.dispose(); return; }
+          held = { doc, timeline, media: previewMedia, backend };
+          previewBackend.current = held;
+        }
+        await held.backend.drawFrame(t);
+        if (!previewScope.active) return;
+        const frame = held.backend.canvas;
+        const ctx = canvas.getContext('2d');
+        if (frame && ctx) ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+      });
+      previewScope.queue = run.catch(() => undefined);
+      return run;
     },
-    [doc, timeline, previewMedia],
+    [doc, timeline, previewMedia, previewScope],
   );
 
   const render = useCallback(
-    async (opts: { onProgress?: (p: RenderProgress) => void; signal?: AbortSignal; transparent?: boolean }): Promise<RenderOutcome> => {
+    async (opts: RenderCallOptions): Promise<RenderOutcome> => {
       if (!doc || !timeline) throw new Error(i18n.t('panel.videoStudio.errNoDoc'));
       const transparent = opts.transparent === true;
+      const range = opts.range ?? null;
 
       const warnings: string[] = [];
-      // 소리를 먼저 섞는다 — 프레임과 달리 구간 단위라 렌더 루프 밖에서 한 번에 만든다.
-      const audio = await mixAudio({
-        doc,
-        timeline,
-        loader: makeAudioLoader(project),
-        onWarn: (m) => warnings.push(m),
-      });
+      // 소리를 먼저 섞는다 — 프레임과 달리 구간 단위라 렌더 루프 밖에서 한 번에 만든다. 쓰는 구간의 조각만 푼다(40-2 ②).
+      // §5.13 (AA) 42-3·42-4 — 내보내기 음소거면 섞지 않는다(소리 트랙 없는 영상) · 구간 렌더면 그 구간만(0 표본 = 구간 시작).
+      let audio: AudioBuffer | null = null;
+      if (opts.audio !== false || opts.audioOnly === true) {
+        const audioMedia = createStudioMedia(project, doc.assets);
+        try {
+          audio = await mixAudio({
+            doc,
+            timeline,
+            loader: studioAudioLoader(project, audioMedia),
+            onWarn: (m) => warnings.push(m),
+            ...(range ? { range } : {}),
+            ...(opts.signal ? { signal: opts.signal } : {}),
+          });
+        } finally {
+          audioMedia.dispose();
+        }
+      }
+
+      // §5.13 (AA) 42-1 — 소리만(WAV 그릇 — 프레임을 그리지 않는다).
+      if (opts.audioOnly === true) {
+        const mixed = audio;
+        if (!mixed) throw new Error(i18n.t('panel.videoStudio.export.noSoundToExport'));
+        const channels = Array.from({ length: mixed.numberOfChannels }, (_, i) => mixed.getChannelData(i));
+        return { bytes: encodeWav(channels, mixed.sampleRate), selection: null, hasAudio: true, warnings, container: 'wav' };
+      }
 
       const made = await makeBackend(doc, transparent);
       if (!made) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
@@ -404,6 +470,12 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
         backend: made.backend,
         audio,
         ...(transparent ? { alpha: true } : {}),
+        ...(opts.container ? { container: opts.container } : {}),
+        ...(opts.quality ? { quality: { video: opts.quality, audio: opts.quality } } : {}),
+        ...(opts.scale !== undefined && opts.scale !== 1 ? { outputSize: scaledSize(doc.size, opts.scale) } : {}),
+        ...(opts.fps ? { fps: opts.fps } : {}),
+        ...(range ? { range } : {}),
+        ...(opts.gate ? { gate: opts.gate } : {}),
         ...(opts.onProgress === undefined ? {} : { onProgress: opts.onProgress }),
         ...(opts.signal === undefined ? {} : { signal: opts.signal }),
       });
@@ -418,7 +490,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
   );
 
   const stills = useCallback(
-    async (times: readonly number[], maxEdge?: number, onFrame?: (index: number) => void): Promise<string[]> => {
+    async (times: readonly number[], maxEdge?: number, onFrame?: (index: number) => void, imageType: 'png' | 'webp' = 'png'): Promise<string[]> => {
       if (!doc || !timeline) throw new Error(i18n.t('panel.videoStudio.errNoDoc'));
       const last = Math.max(0, timeline.duration - 1e-6);
       const clamp = (t: number): number => Math.max(0, Math.min(Number.isFinite(t) ? t : 0, last));
@@ -439,7 +511,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
             await backend.drawFrame(t);
             const canvas = backend.canvas;
             if (!canvas) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
-            byIndex[i] = canvasToPng(canvas, maxEdge);
+            byIndex[i] = canvasToPng(canvas, maxEdge, imageType);
             done += 1;
             onFrame?.(done);
           }
@@ -457,7 +529,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
       let done = 0;
       for (const t of times) {
         await drawPreview(canvas, clamp(t));
-        out.push(canvasToPng(canvas, maxEdge));
+        out.push(canvasToPng(canvas, maxEdge, imageType));
         done += 1;
         onFrame?.(done);
       }
@@ -479,9 +551,8 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
     if (!doc || !timeline) return { findings: [] };
 
     // 소리까지 함께 봐야 "말은 나오는데 무음" 같은 문제를 잡는다.
-    const audio = await mixAudio({ doc, timeline, loader: makeAudioLoader(project) }).catch(() => null);
-
-    const media = new MediabunnyMediaProvider({ assets: doc.assets, loader: makeLoader(project) });
+    const media = createStudioMedia(project, doc.assets, { decoderPreference: 'prefer-software' });
+    const audio = await mixAudio({ doc, timeline, loader: studioAudioLoader(project, media) }).catch(() => null);
     const backend = new Canvas2DBackend({ doc, timeline, media, scenes: withBuiltinScenes() });
     const result = await autoReview({
       doc,

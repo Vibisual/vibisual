@@ -131,22 +131,22 @@ export function LibrariesPanel(p: LibrariesPanelProps): React.JSX.Element {
         <StudioIcon name="upload" />
         <span>{t('panel.videoStudio.libs.drop')}</span>
         <button type="button" disabled={p.disabled || busy} onClick={() => input.current?.click()}
-          className="rounded-md border border-white/15 px-2 py-0.5 text-[12px] text-slate-200 hover:bg-white/10 disabled:opacity-40">{t('panel.videoStudio.libs.pick')}</button>
+          className="rounded-md border border-white/15 px-2 py-0.5 text-[12px] text-slate-200 hover:bg-white/10 disabled:opacity-40 pointer-coarse:px-3 pointer-coarse:py-2">{t('panel.videoStudio.libs.pick')}</button>
         <input ref={input} type="file" multiple className="hidden" accept={ACCEPT} aria-label={t('panel.videoStudio.libs.pick')}
           onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; importFiles(files); }} />
       </div>
       <div className="flex gap-1.5">
         <input value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.stopPropagation()} placeholder="https://…" aria-label={t('panel.videoStudio.libs.url')}
-          className="h-7 min-w-0 flex-1 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none placeholder:text-slate-600 focus:ring-1 focus:ring-[var(--vs-accent)]" />
+          className="h-7 min-w-0 flex-1 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none placeholder:text-slate-600 focus:ring-1 focus:ring-[var(--vs-accent)] pointer-coarse:h-9" />
         <button type="button" disabled={p.disabled || busy || !/^https:\/\//i.test(url.trim())} onClick={() => { const u = url.trim(); setUrl(''); run(() => importLibUrl(p.project, u)); }}
           className="shrink-0 rounded-md border border-white/15 px-2 text-[12px] text-slate-200 hover:bg-white/10 disabled:opacity-40">{t('panel.videoStudio.libs.download')}</button>
       </div>
       <div className="flex flex-col gap-1">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.stopPropagation()} placeholder={t('panel.videoStudio.libs.fromProject')} aria-label={t('panel.videoStudio.libs.fromProject')}
-          className="h-7 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none placeholder:text-slate-600 focus:ring-1 focus:ring-[var(--vs-accent)]" />
+          className="h-7 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none placeholder:text-slate-600 focus:ring-1 focus:ring-[var(--vs-accent)] pointer-coarse:h-9" />
         {found.slice(0, 12).map((f) => (
           <button key={f.path} type="button" disabled={p.disabled || busy} onClick={() => run(() => importLibFromProject(p.project, f.path))} title={f.path}
-            className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-slate-300 hover:bg-white/[0.06] disabled:opacity-40">
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-slate-300 hover:bg-white/[0.06] disabled:opacity-40 pointer-coarse:py-2">
             <StudioIcon name="plus" className="h-3.5 w-3.5 shrink-0 text-slate-500" />
             <span className="min-w-0 flex-1 truncate">{f.path.replace(/^node_modules\//, '')}</span>
             <span className="shrink-0 tabular-nums text-slate-500">{bytesLabel(f.bytes)}</span>
@@ -160,7 +160,7 @@ export function LibrariesPanel(p: LibrariesPanelProps): React.JSX.Element {
           <p className="text-[12px] font-semibold text-slate-200">{t('panel.videoStudio.libs.refsTitle', { name: pending.item.name, count: pending.refs.length })}</p>
           {pending.refs.map((ref) => (
             <label key={ref.url} className="flex items-start gap-1.5 text-[12px] text-slate-300">
-              <input type="checkbox" className="mt-0.5" disabled={ref.inert === true} checked={picked.has(ref.url)}
+              <input type="checkbox" className="mt-0.5 shrink-0 pointer-coarse:h-5 pointer-coarse:w-5" disabled={ref.inert === true} checked={picked.has(ref.url)}
                 onChange={(e) => setPicked((s) => { const next = new Set(s); if (e.target.checked) next.add(ref.url); else next.delete(ref.url); return next; })} />
               <span className="min-w-0 flex-1 break-all">
                 <span className="text-slate-500">{t(`panel.videoStudio.libs.kind_${ref.kind}`)} · </span>{ref.url}
@@ -172,17 +172,17 @@ export function LibrariesPanel(p: LibrariesPanelProps): React.JSX.Element {
             <label className="flex items-center gap-1.5 text-[12px] text-slate-300">
               <span>{t('panel.videoStudio.libs.duration')}</span>
               <input value={duration} onChange={(e) => setDuration(e.target.value)} onKeyDown={(e) => e.stopPropagation()} inputMode="decimal" aria-label={t('panel.videoStudio.libs.duration')}
-                className="h-6 w-16 rounded border border-white/10 bg-vb-sunken px-1.5 text-right tabular-nums text-slate-100 outline-none" />
+                className="h-6 w-16 rounded border border-white/10 bg-vb-sunken px-1.5 text-right tabular-nums text-slate-100 outline-none pointer-coarse:h-9" />
               <span className="text-slate-500">s</span>
             </label>
           ) : null}
           <div className="flex flex-wrap gap-1">
             <button type="button" disabled={busy} onClick={() => finishPack(pending.refs.filter((x) => !x.inert).map((x) => x.url))}
-              className="rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[12px] font-semibold text-slate-50 hover:bg-white/15 disabled:opacity-40">{t('panel.videoStudio.libs.vendorAll')}</button>
+              className="rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[12px] font-semibold text-slate-50 hover:bg-white/15 disabled:opacity-40 pointer-coarse:py-2">{t('panel.videoStudio.libs.vendorAll')}</button>
             <button type="button" disabled={busy || picked.size === 0} onClick={() => finishPack([...picked])}
-              className="rounded-md border border-white/15 px-2 py-1 text-[12px] text-slate-200 hover:bg-white/10 disabled:opacity-40">{t('panel.videoStudio.libs.vendorPicked')}</button>
+              className="rounded-md border border-white/15 px-2 py-1 text-[12px] text-slate-200 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2">{t('panel.videoStudio.libs.vendorPicked')}</button>
             <button type="button" disabled={busy} onClick={() => finishPack([])}
-              className="rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40">{t('panel.videoStudio.libs.vendorNone')}</button>
+              className="rounded-md px-2 py-1 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:py-2">{t('panel.videoStudio.libs.vendorNone')}</button>
           </div>
         </div>
       ) : null}
@@ -194,11 +194,11 @@ export function LibrariesPanel(p: LibrariesPanelProps): React.JSX.Element {
               <p className="text-slate-200">{t('panel.videoStudio.libs.request')}</p>
               <p className="break-all text-slate-400">{r.url}</p>
               {r.reason ? <p className="mt-0.5 text-slate-500">{r.reason}</p> : null}
-              <div className="mt-1.5 flex gap-1">
+              <div className="mt-1.5 flex flex-wrap gap-1">
                 <button type="button" disabled={p.disabled || busy} onClick={() => run(() => importLibUrl(p.project, r.url, r.id))}
-                  className="rounded-md border border-white/15 bg-white/10 px-2 py-0.5 text-slate-50 hover:bg-white/15 disabled:opacity-40">{t('panel.videoStudio.libs.accept')}</button>
+                  className="rounded-md border border-white/15 bg-white/10 px-2 py-0.5 text-slate-50 hover:bg-white/15 disabled:opacity-40 pointer-coarse:py-2">{t('panel.videoStudio.libs.accept')}</button>
                 <button type="button" disabled={busy} onClick={() => { void rejectLibRequest(p.project, r.id).then(refresh).catch(p.onError); }}
-                  className="rounded-md px-2 py-0.5 text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40">{t('panel.videoStudio.libs.reject')}</button>
+                  className="rounded-md px-2 py-0.5 text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:py-2">{t('panel.videoStudio.libs.reject')}</button>
               </div>
             </div>
           ))}
@@ -218,10 +218,10 @@ export function LibrariesPanel(p: LibrariesPanelProps): React.JSX.Element {
               </span>
               {item.kind === 'pack' ? (
                 <button type="button" disabled={p.disabled} onClick={() => p.onAddPack(`${item.folder}/${item.entry ?? 'index.html'}`, item.name)} title={t('panel.videoStudio.libs.addPack')} aria-label={t('panel.videoStudio.libs.addPack')}
-                  className="rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40"><StudioIcon name="plus" className="h-3.5 w-3.5" /></button>
+                  className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:p-2"><StudioIcon name="plus" className="h-3.5 w-3.5" /></button>
               ) : null}
               <button type="button" disabled={busy} onClick={() => { void deleteLib(p.project, item.id).then(refresh).catch(p.onError); }} title={t('panel.videoStudio.libs.remove')} aria-label={t('panel.videoStudio.libs.remove')}
-                className="rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40"><StudioIcon name="trash" className="h-3.5 w-3.5" /></button>
+                className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:p-2"><StudioIcon name="trash" className="h-3.5 w-3.5" /></button>
             </li>
           ))}
         </ul>

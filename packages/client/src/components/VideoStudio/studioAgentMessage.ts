@@ -7,7 +7,7 @@
  * (`GET …/guide`)이 말하고, 여기서는 가리키기만 한다(두 벌 ❌). 엔진이 Claude 든 Codex 든 같은 글이다.
  */
 
-import type { ResolvedItem, VideoAsset, VideoDoc, VideoFormatId } from '@vibisual/video';
+import { VIDEO_DIR, type ResolvedItem, type VideoAsset, type VideoDoc, type VideoFormatId } from '@vibisual/video';
 
 /** 블록이 시작되는 표식 — 같은 블록이 두 번 붙지 않게(전송 실패로 초안에 되돌아온 글을 다시 보낼 때). */
 export const STUDIO_CONTEXT_MARK = '[Vibistudio editor context]';
@@ -17,9 +17,16 @@ export type StudioPassMode = 'plan' | 'build' | 'revise' | 'chapter' | 'notes' |
 
 /** §5.13 (V) 37-6 — 화면에서 가리킨 것. */
 export interface StudioPointed {
+  readonly bounds?: { x: number; y: number; width: number; height: number };
+  readonly objectId?: string;
+  readonly adapter?: string;
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly source?: { readonly id: string; readonly revision: number; readonly appId: string };
   readonly itemId: string;
   readonly t: number;
   readonly kind: string;
+  /** 기본 씬이면 그 씬 이름(`title` · `bulletList` …) — 어느 그리기 함수의 글자인지 에이전트가 안다. */
+  readonly scene?: string | undefined;
   readonly file?: string | undefined;
   readonly path?: string | undefined;
   readonly text?: string | undefined;
@@ -76,6 +83,66 @@ function quote(s: string, max = 160): string {
   return JSON.stringify(s.length > max ? `${s.slice(0, max)}…` : s);
 }
 
+/**
+ * §5.13 (V) 37-6 — 가리킨 것 한 줄(에이전트가 읽는 데이터). 가리키기 칩의 문맥 블록과 Alt 인스펙터 복사(§5.4 #15 (C))가 **같은
+ * 말**을 쓴다 — 두 벌이면 한쪽만 고쳐져 같은 것을 두 가지로 말하게 된다.
+ */
+export function describePointed(p: StudioPointed): string {
+  const parts = [`item "${p.itemId}" (${p.kind}${p.scene ? ` "${p.scene}"` : ''}) at ${seconds(p.t)}`];
+  if (p.file) parts.push(`file ${p.file}`);
+  if (p.path) parts.push(`element ${quote(p.path, 200)}`);
+  if (p.objectId) parts.push(`object id ${quote(p.objectId)}, adapter ${p.adapter ?? 'custom'}`);
+  if (p.bounds) {
+    const b = p.bounds;
+    parts.push(`selection bounds ${JSON.stringify({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })}`);
+  }
+  if (p.properties) parts.push(`object properties ${JSON.stringify(p.properties)}`);
+  if (p.source) parts.push(`editable source ${p.source.id} revision ${p.source.revision} (${p.source.appId}); modify this source with its baseRevision, preserve other objects, then selectively update linked video items`);
+  if (p.prop) parts.push(`bound to prop "${p.prop}"`);
+  if (p.text) parts.push(`text ${quote(p.text, 120)}`);
+  return parts.join(', ');
+}
+
+/** 이 문서가 프로젝트 안 어디에 있나(프로젝트 기준 경로). */
+export function studioDocFile(docId: string): string {
+  return `.vibisual/${VIDEO_DIR}/${docId}.json`;
+}
+
+/**
+ * §5.4 #15 (C) — Alt 인스펙터로 미리보기 안을 집었을 때 복사하는 글. 받는 쪽은 스튜디오 밖의 에이전트일 수도 있어(사용자가
+ * 아무 대화에나 붙여 넣는다) 문서·판본·프로젝트·파일 자리를 함께 싣고, 고치는 길(규약 글)을 한 줄로 알린다.
+ */
+export function buildStudioPickClipboard(ctx: {
+  readonly projectName: string;
+  readonly doc: Pick<VideoDoc, 'id' | 'title' | 'version'> & { readonly size?: VideoDoc['size'] };
+  readonly duration: number;
+}, p: StudioPointed): string {
+  const size = ctx.doc.size ? `, ${ctx.doc.size.width}x${ctx.doc.size.height}` : '';
+  return [
+    `[Video] document "${ctx.doc.id}" (${quote(ctx.doc.title)}, version ${ctx.doc.version}, ${seconds(ctx.duration)}${size}) in project ${quote(ctx.projectName)} — file ${studioDocFile(ctx.doc.id)}`,
+    `[Pointed] ${describePointed(p)}`,
+    '[Hint] This is video document data, not app code. Change it through the Vibistudio API (guide: GET $VIBISUAL_BASE/api/app/vibistudio/guide); GET the document before you patch.',
+  ].join('\n');
+}
+
+/**
+ * §5.4 #15 (C) — 프레임 띠의 칸 하나(그 아이템의 그 시각)를 Alt 인스펙터로 집었을 때의 복사 글. 띠는 그림 한 장이라 칸을 모르면
+ * 통째로 집혔다. 아이템을 모르면 undefined — 그림 그대로 DOM 으로 집힌다.
+ */
+export function stripPickClipboard(
+  projectName: string,
+  doc: VideoDoc | null,
+  duration: number,
+  itemId: string | undefined,
+): ((t: number, frame: number, count: number) => string) | undefined {
+  if (!doc || !itemId) return undefined;
+  const item = doc.tracks.flatMap((track) => track.items).find((entry) => entry.id === itemId);
+  if (!item) return undefined;
+  return (t, frame, count) => buildStudioPickClipboard({ projectName, doc, duration }, {
+    itemId, t, kind: item.kind, path: `frame strip, frame ${frame} of ${count}`,
+  });
+}
+
 export function buildStudioAgentContext(ctx: StudioAgentContext): string {
   const size = ctx.doc.size ? `, ${ctx.doc.size.width}x${ctx.doc.size.height}` : '';
   const lines = [
@@ -91,14 +158,7 @@ export function buildStudioAgentContext(ctx: StudioAgentContext): string {
     const item = ctx.selected.item;
     lines.push(`- Selected item: "${item.id}" (${item.kind}${item.label ? `, ${quote(item.label, 80)}` : ''}) at ${seconds(ctx.selected.start)}–${seconds(ctx.selected.end)}.`);
   }
-  for (const p of ctx.pointed ?? []) {
-    const parts = [`item "${p.itemId}" (${p.kind}) at ${seconds(p.t)}`];
-    if (p.file) parts.push(`file ${p.file}`);
-    if (p.path) parts.push(`element ${quote(p.path, 200)}`);
-    if (p.prop) parts.push(`bound to prop "${p.prop}"`);
-    if (p.text) parts.push(`text ${quote(p.text, 120)}`);
-    lines.push(`- Pointed at: ${parts.join(', ')}.`);
-  }
+  for (const p of ctx.pointed ?? []) lines.push(`- Pointed at: ${describePointed(p)}.`);
   for (const n of ctx.notes ?? []) {
     const where = `${seconds(n.t)}, x ${n.x.toFixed(2)} y ${n.y.toFixed(2)}${n.itemId ? `, item "${n.itemId}"` : ''}${n.path ? `, element ${quote(n.path, 160)}` : ''}`;
     lines.push(`- Note #${n.n} (id "${n.id}") at ${where}: ${quote(n.text, 400)}`);

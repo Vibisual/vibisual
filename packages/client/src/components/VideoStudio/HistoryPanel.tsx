@@ -36,7 +36,8 @@ export function HistoryPanel(p: HistoryPanelProps): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.entries]);
   return (
-    <aside className="flex w-[clamp(300px,27vw,380px)] shrink-0 animate-[vs-in-right_160ms_ease-out] flex-col border-l border-white/10 bg-vb-card" aria-label={t('panel.videoStudio.history.title')}>
+    // AI 칸과 같은 자리·같은 폭 규칙(StudioAiPanel) — 창 폭의 %, 1024px 미만은 하한 260px, 640px 미만은 미리보기 아래로 쌓인다.
+    <aside className="flex w-[clamp(300px,27%,380px)] shrink-0 animate-[vs-in-right_160ms_ease-out] flex-col border-l border-white/10 bg-vb-card box-compact:w-[clamp(260px,34%,340px)] box-narrow:h-[45%] box-narrow:min-h-40 box-narrow:w-full box-narrow:animate-[vs-in-up_160ms_ease-out] box-narrow:border-l-0 box-narrow:border-t" aria-label={t('panel.videoStudio.history.title')}>
       <header className="flex h-10 shrink-0 items-center gap-1 border-b border-white/10 px-3">
         <span className="flex-1 text-[13px] font-semibold text-slate-200">{t('panel.videoStudio.history.title')}</span>
         <StudioIconButton icon="checkpoint" label={t('panel.videoStudio.history.checkpoint')} text={t('panel.videoStudio.history.checkpoint')} onClick={p.onCheckpoint} disabled={p.busy} size="sm" />
@@ -46,7 +47,7 @@ export function HistoryPanel(p: HistoryPanelProps): React.JSX.Element {
         <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2 text-[12px] text-slate-400">
           <span className="flex-1">{t('panel.videoStudio.history.compareCount', { count: p.compare.length })}</span>
           <button type="button" disabled={p.compare.length !== 2} onClick={p.onOpenCompare}
-            className="flex items-center gap-1 rounded-md border border-white/15 px-2 py-1 text-slate-200 hover:bg-white/10 disabled:opacity-40">
+            className="flex items-center gap-1 rounded-md border border-white/15 px-2 py-1 text-slate-200 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2">
             <StudioIcon name="compare" className="h-3.5 w-3.5" />{t('panel.videoStudio.history.compare')}
           </button>
         </div>
@@ -75,11 +76,11 @@ export function HistoryPanel(p: HistoryPanelProps): React.JSX.Element {
                     {e.label === 'before-restore' ? t('panel.videoStudio.history.beforeRestore') : e.summary ?? e.label ?? e.request ?? ''}
                   </p>
                   <p className="text-[12px] tabular-nums text-slate-500">{new Date(e.createdAt).toLocaleString()} · v{e.docVersion}</p>
-                  <div className="mt-1 flex gap-1 opacity-70 group-hover:opacity-100">
-                    <button type="button" disabled={p.busy} onClick={() => p.onRestore(e.id)} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40">
+                  <div className="mt-1 flex flex-wrap gap-1 opacity-70 group-hover:opacity-100 pointer-coarse:opacity-100">
+                    <button type="button" disabled={p.busy} onClick={() => p.onRestore(e.id)} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40 pointer-coarse:px-2.5 pointer-coarse:py-1.5">
                       <StudioIcon name="restore" className="h-3.5 w-3.5" />{t('panel.videoStudio.history.restore')}
                     </button>
-                    <button type="button" disabled={p.busy} onClick={() => p.onDelete(e.id)} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-40">
+                    <button type="button" disabled={p.busy} onClick={() => p.onDelete(e.id)} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-40 pointer-coarse:px-2.5 pointer-coarse:py-1.5">
                       <StudioIcon name="trash" className="h-3.5 w-3.5" />{t('common.delete')}
                     </button>
                   </div>

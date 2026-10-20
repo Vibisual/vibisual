@@ -91,7 +91,7 @@ export function PartsDrawer(p: PartsDrawerProps): React.JSX.Element {
             <div className="flex flex-wrap gap-1.5">
               {p.transitions.map((tr) => (
                 <button key={tr.kind} type="button" disabled={p.disabled || !p.seamReady} onClick={() => p.onTransition(tr.kind)}
-                  className="rounded-full border border-white/15 px-2.5 py-1 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40">
+                  className="rounded-full border border-white/15 px-2.5 py-1 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2">
                   {t(`panel.videoStudio.transitions.${tr.kind}`)}
                 </button>
               ))}

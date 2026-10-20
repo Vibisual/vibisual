@@ -13,7 +13,9 @@ export type StudioIconName =
   | 'appIntro' | 'changelog' | 'dataStory' | 'captions' | 'kinetic' | 'slideshow' | 'logo' | 'blank'
   | 'grip' | 'more' | 'magnet' | 'sparkle' | 'upload' | 'link' | 'folder' | 'cue' | 'unlink'
   // §5.13 (W) 38-4·38-5 — 강조 줌 · 천천히 밀기 · 색·효과.
-  | 'zoomIn' | 'push' | 'palette';
+  | 'zoomIn' | 'push' | 'palette'
+  // §5.13 (AA) 42 — 소리 · 대기열 · 예약 · 멈춤 · 순서 · 다시 · 설정 · 폴더 열기.
+  | 'volume' | 'volumeOff' | 'queue' | 'clock' | 'stop' | 'arrowUp' | 'arrowDown' | 'retry' | 'sliders' | 'folderOpen';
 
 const PATHS: Readonly<Record<StudioIconName, ReactNode>> = {
   play: <path d="M7 5.5v13l11-6.5z" />,
@@ -78,6 +80,16 @@ const PATHS: Readonly<Record<StudioIconName, ReactNode>> = {
   zoomIn: <><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /><path d="M11 8v6" /><path d="M8 11h6" /></>,
   push: <><rect x="3" y="5" width="18" height="14" rx="2" /><rect x="7.5" y="8.5" width="9" height="7" rx="1" /><path d="m3 5 4.5 3.5" /><path d="m21 19-4.5-3.5" /></>,
   palette: <><path d="M12 21a9 9 0 1 1 9-9c0 2.2-1.8 3-3.5 3H16a2 2 0 0 0-1.4 3.4A1.6 1.6 0 0 1 12 21z" /><circle cx="7.5" cy="10.5" r="1" /><circle cx="10.5" cy="7" r="1" /><circle cx="15" cy="7.5" r="1" /></>,
+  volume: <><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></>,
+  volumeOff: <><path d="M11 5 6 9H3v6h3l5 4z" /><path d="m22 9-6 6" /><path d="m16 9 6 6" /></>,
+  queue: <><path d="M3 6h12" /><path d="M3 12h12" /><path d="M3 18h8" /><path d="m17 15 4 3-4 3z" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  stop: <rect x="6" y="6" width="12" height="12" rx="1.5" />,
+  arrowUp: <><path d="m6 11 6-6 6 6" /><path d="M12 5v14" /></>,
+  arrowDown: <><path d="m6 13 6 6 6-6" /><path d="M12 19V5" /></>,
+  retry: <><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></>,
+  sliders: <><path d="M4 6h10" /><path d="M18 6h2" /><circle cx="16" cy="6" r="2" /><path d="M4 12h4" /><path d="M12 12h8" /><circle cx="10" cy="12" r="2" /><path d="M4 18h12" /><circle cx="18" cy="18" r="2" /></>,
+  folderOpen: <><path d="M4 20h14l3-8H7l-3 8z" /><path d="M4 20V5a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v3" /></>,
 };
 
 export function StudioIcon({ name, className }: { readonly name: StudioIconName; readonly className?: string }): React.JSX.Element {

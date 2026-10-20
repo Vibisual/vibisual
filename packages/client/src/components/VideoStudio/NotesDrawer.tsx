@@ -39,13 +39,13 @@ function NoteRow({ note, active, disabled, onSeek, onText, onStatus, onRemove }:
   return (
     <li className={`flex gap-2 rounded-lg p-2 ${active ? 'bg-white/[0.06] ring-1 ring-[var(--vs-accent)]' : 'hover:bg-white/[0.04]'}`}>
       <button type="button" onClick={onSeek} title={t('panel.videoStudio.notes.seek')}
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[12px] font-semibold tabular-nums ${fixed ? 'border-slate-200 text-slate-100' : note.status === 'closed' ? 'border-white/20 text-slate-500' : 'border-white/70 bg-black/40 text-white'}`}>
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[12px] font-semibold tabular-nums pointer-coarse:h-9 pointer-coarse:w-9 ${fixed ? 'border-slate-200 text-slate-100' : note.status === 'closed' ? 'border-white/20 text-slate-500' : 'border-white/70 bg-black/40 text-white'}`}>
         {fixed ? <StudioIcon name="check" className="h-3.5 w-3.5" /> : note.n}
       </button>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-[12px]">
-          <button type="button" onClick={onSeek} className="tabular-nums text-slate-400 hover:text-slate-100">{formatClock(note.t)}</button>
-          <span className="text-slate-500">· {t(`panel.videoStudio.notes.status_${note.status}`)}</span>
+          <button type="button" onClick={onSeek} className="shrink-0 tabular-nums text-slate-400 hover:text-slate-100 pointer-coarse:py-1.5">{formatClock(note.t)}</button>
+          <span className="min-w-0 truncate text-slate-500">· {t(`panel.videoStudio.notes.status_${note.status}`)}</span>
         </div>
         <textarea
           value={draft}
@@ -63,16 +63,16 @@ function NoteRow({ note, active, disabled, onSeek, onText, onStatus, onRemove }:
         <div className="mt-1 flex flex-wrap gap-1">
           {fixed ? (
             <button type="button" disabled={disabled} onClick={() => onStatus('closed')}
-              className="flex items-center gap-1 rounded-md border border-white/15 px-1.5 py-0.5 text-[12px] text-slate-100 hover:bg-white/10 disabled:opacity-40">
+              className="flex items-center gap-1 rounded-md border border-white/15 px-1.5 py-0.5 text-[12px] text-slate-100 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2">
               <StudioIcon name="check" className="h-3.5 w-3.5" />{t('panel.videoStudio.notes.confirm')}
             </button>
           ) : null}
           {note.status === 'closed' || fixed ? (
             <button type="button" disabled={disabled} onClick={() => onStatus('open')}
-              className="rounded-md px-1.5 py-0.5 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40">{t('panel.videoStudio.notes.reopen')}</button>
+              className="rounded-md px-1.5 py-0.5 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:py-2">{t('panel.videoStudio.notes.reopen')}</button>
           ) : null}
           <button type="button" disabled={disabled} onClick={onRemove}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40">
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:py-2">
             <StudioIcon name="trash" className="h-3.5 w-3.5" />{t('common.delete')}
           </button>
         </div>
@@ -100,7 +100,7 @@ export function NotesDrawer(p: NotesDrawerProps): React.JSX.Element {
         {closed.length > 0 ? (
           <section>
             <button type="button" aria-expanded={showClosed} onClick={() => setShowClosed((v) => !v)}
-              className="flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-slate-200">
+              className="flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-slate-200 pointer-coarse:py-2">
               <StudioIcon name="chevronDown" className={`h-3.5 w-3.5 transition-transform duration-150 ease-out ${showClosed ? '' : '-rotate-90'}`} />
               {t('panel.videoStudio.notes.closed', { count: closed.length })}
             </button>

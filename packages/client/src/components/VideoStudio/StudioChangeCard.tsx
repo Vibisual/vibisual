@@ -29,7 +29,7 @@ export function StudioChangeCard(p: StudioChangeCardProps): React.JSX.Element | 
         {p.open ? <span className="h-1.5 w-1.5 animate-[vs-breathe_1.2s_ease-in-out_infinite] rounded-full bg-[var(--vs-accent)]" aria-label={t('panel.videoStudio.ai.working')} /> : null}
         <span className="flex-1" />
         {p.onUndoPass ? (
-          <button type="button" onClick={p.onUndoPass} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100">
+          <button type="button" onClick={p.onUndoPass} className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 pointer-coarse:py-2">
             <StudioIcon name="undoPass" className="h-3.5 w-3.5" />{t('panel.videoStudio.ai.undoPass')}
           </button>
         ) : null}
@@ -40,7 +40,7 @@ export function StudioChangeCard(p: StudioChangeCardProps): React.JSX.Element | 
             <li key={`${line.kind}-${i}`}>
               {line.target ? (
                 <button type="button" onClick={() => line.target && p.onJump(line.target)}
-                  className="w-full truncate rounded-md px-1.5 py-1 text-left text-[13px] text-slate-300 hover:bg-white/[0.06] hover:text-slate-50">
+                  className="w-full truncate rounded-md px-1.5 py-1 text-left text-[13px] text-slate-300 hover:bg-white/[0.06] hover:text-slate-50 pointer-coarse:py-2">
                   {diffLineText(t, line)}
                 </button>
               ) : (
@@ -53,11 +53,11 @@ export function StudioChangeCard(p: StudioChangeCardProps): React.JSX.Element | 
       ) : null}
       {p.report ? (
         <div className="mt-2 border-t border-white/10 pt-2">
-          {p.report.summary ? <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-300">{p.report.summary}</p> : null}
+          {p.report.summary ? <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-slate-300">{p.report.summary}</p> : null}
           {p.report.warnings.length > 0 ? (
             <ul className="mt-1.5 flex flex-col gap-1">
               {p.report.warnings.map((w) => (
-                <li key={w} className="flex items-start gap-1.5 text-[12px] text-amber-300"><StudioIcon name="warn" className="mt-0.5 h-3.5 w-3.5 shrink-0" />{w}</li>
+                <li key={w} className="flex items-start gap-1.5 break-words text-[12px] text-amber-300"><StudioIcon name="warn" className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0">{w}</span></li>
               ))}
             </ul>
           ) : null}

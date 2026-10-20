@@ -14,6 +14,8 @@ import type { DocSummary } from './videoApi.js';
 /**
  * §5.13 (V) 37-2 — **한 줄로 시작**. 빈 트랙 대신 "무엇을 만들까요?" 입력창, 그 아래 레시피 위성 한 줄, 판형·길이·엔진 칩, 소재를
  * 끌어 놓는 자리, 최근 영상. 보내면 셸이 문서를 만들고(없으면) 영상용 에이전트를 잇고 기획 바퀴를 보낸다.
+ * 반응형 — 폰 폭 창에서는 바깥 여백을 줄이고, 입력창 아래 줄의 안내 글(끌어 놓기·레시피가 바라는 것)을 단추 아래 줄로 내린다
+ * (한 줄에 두면 안내가 0 폭으로 사라졌다). 터치에서는 판형·길이·엔진 칩이 커진다.
  */
 export interface StartMaterial {
   readonly id: string;
@@ -51,7 +53,7 @@ const RECIPE_ICONS: Readonly<Record<string, StudioIconName>> = {
   'kinetic-text': 'kinetic', 'photo-slideshow': 'slideshow', 'logo-reveal': 'logo', blank: 'blank',
 };
 const ENGINES: readonly VideoEngineKind[] = ['claude', 'codex'];
-const CHIP = 'flex h-7 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-150 ease-out disabled:opacity-40';
+const CHIP = 'flex h-7 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-150 ease-out disabled:opacity-40 pointer-coarse:h-9';
 
 function chip(active: boolean): string {
   return `${CHIP} ${active ? 'border-transparent bg-white/10 text-slate-50 ring-1 ring-[var(--vs-accent)]' : 'border-white/15 text-slate-300 hover:bg-white/10'}`;
@@ -66,7 +68,7 @@ export function StudioStart(p: StudioStartProps): React.JSX.Element {
   const canSend = !p.busy && (recipe?.direct === true || p.prompt.trim() !== '' || recipe !== null) && (recipe?.direct === true || prep === null);
   return (
     <ScrollFade fill className="flex-1">
-      <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center gap-6 px-6 py-10"
+      <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center gap-6 px-6 py-10 box-narrow:gap-5 box-narrow:px-3 box-narrow:py-6"
         onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
         onDrop={(e) => { e.preventDefault(); const files = Array.from(e.dataTransfer.files); if (files.length > 0) p.onAddMaterials(files); }}>
         <StudioSteps step={0} />
@@ -89,21 +91,22 @@ export function StudioStart(p: StudioStartProps): React.JSX.Element {
                 <span key={m.id} className="flex max-w-56 items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] py-0.5 pl-2.5 pr-1 text-[12px] text-slate-200">
                   <span className="truncate">{m.name}</span>
                   <button type="button" onClick={() => p.onRemoveMaterial(m.id)} aria-label={t('panel.videoStudio.removeNamed', { name: m.name })}
-                    className="rounded-full p-0.5 text-slate-400 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="close" className="h-3 w-3" /></button>
+                    className="shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-1.5"><StudioIcon name="close" className="h-3 w-3" /></button>
                 </span>
               ))}
             </div>
           ) : null}
-          <div className="mt-2 flex items-center gap-2">
-            <button type="button" onClick={() => fileInput.current?.click()} className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100">
+          {/* 폰 폭에서는 안내 글이 맨 아래 줄 전체를 쓴다(순서만 바꾼다 — [만들기]는 오른쪽 끝 그대로). */}
+          <div className="mt-2 flex items-center gap-2 box-narrow:flex-wrap">
+            <button type="button" onClick={() => fileInput.current?.click()} className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-slate-400 hover:bg-white/10 hover:text-slate-100 pointer-coarse:h-10">
               <StudioIcon name="attach" />{t('panel.videoStudio.start.materials')}
             </button>
             <input ref={fileInput} type="file" multiple className="hidden" aria-label={t('panel.videoStudio.start.materials')}
-              accept=".mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.srt,.vtt,.csv,.tsv,.json"
+              accept=".mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.png,.jpg,.jpeg,.webp,.gif,.avif,.glb,.gltf,.bin,.vibi3d,.vibimage,.svg,.srt,.vtt,.csv,.tsv,.json"
               onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; if (files.length > 0) p.onAddMaterials(files); }} />
-            <span className="flex-1 truncate text-[12px] text-slate-500">{recipe ? t(`panel.videoStudio.recipes.${recipe.id}.wants`) : t('panel.videoStudio.start.dropHint')}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-slate-500 box-narrow:order-last box-narrow:basis-full box-narrow:whitespace-normal">{recipe ? t(`panel.videoStudio.recipes.${recipe.id}.wants`) : t('panel.videoStudio.start.dropHint')}</span>
             <button type="button" disabled={!canSend} onClick={() => p.onSubmit()}
-              className="flex h-9 items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-4 text-[13px] font-semibold text-slate-50 hover:bg-white/15 disabled:opacity-40">
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-4 text-[13px] font-semibold text-slate-50 hover:bg-white/15 disabled:opacity-40 box-narrow:ml-auto pointer-coarse:h-10">
               {recipe?.direct ? t('panel.videoStudio.start.openBlank') : t('panel.videoStudio.start.make')}
               <StudioIcon name="send" />
             </button>
@@ -153,7 +156,7 @@ export function StudioStart(p: StudioStartProps): React.JSX.Element {
             {p.prepareElsewhere ? t('panel.videoStudio.engines.prepareInMain', { engine: t(`panel.videoStudio.engines.${p.engine}`) })
               : t(`panel.videoStudio.engines.need_${prep.action}`, { engine: t(`panel.videoStudio.engines.${p.engine}`) })}
             {!p.prepareElsewhere ? (
-              <button type="button" onClick={() => p.onPrepare(p.engine)} className="rounded-md border border-white/15 px-2 py-0.5 text-[12px] text-slate-200 hover:bg-white/10">
+              <button type="button" onClick={() => p.onPrepare(p.engine)} className="rounded-md border border-white/15 px-2 py-0.5 text-[12px] text-slate-200 hover:bg-white/10 pointer-coarse:py-2">
                 {t('panel.videoStudio.engines.prepare')}
               </button>
             ) : null}

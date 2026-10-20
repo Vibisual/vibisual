@@ -3,6 +3,8 @@ import { anchorItemRef, applyPatch, rebaseKeyframes, resolveTimeline, strongBeat
 export const TIMELINE_CONFIG = {
   gutter: 176, minWidth: 440, maxZoom: 16, zoomFactor: 2, snapPixels: 8,
   dragPixels: 3, largeStepFrames: 10, tickPixels: 80, defaultFps: 30,
+  /** 640px 미만 창(box-narrow) — 트랙 이름 칸이 좁은 판의 레인을 다 덮지 않게 줄이고, 레인 최소 폭도 낮춘다. */
+  compactGutter: 96, compactMinWidth: 320,
 } as const;
 export type TimelineEditMode = 'move' | 'trimStart' | 'trimEnd';
 

@@ -1,3 +1,4 @@
+import { prepareVideoImports } from './videoImportFiles.js';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { resolveTimeline, type VideoAsset, type VideoDoc, type VideoDocOp } from '@vibisual/video';
@@ -40,7 +41,8 @@ export function useStudioComposer(d: {
     setAttaching(true);
     try {
       const added: { asset: VideoAsset; label: string }[] = [];
-      for (const file of files) {
+      if (files.reduce((sum, file) => sum + file.size, 0) > MEDIA_IMPORT_LIMIT) throw new Error(t('panel.videoStudio.editor.fileTooLarge'));
+      for (const file of await prepareVideoImports(files)) {
         if (file.size > MEDIA_IMPORT_LIMIT) throw new Error(t('panel.videoStudio.editor.fileTooLarge'));
         const imported = await importVideoAsset(d.projectName, file);
         const measured = imported.kind === 'image' ? undefined : (await measureAssets(d.projectName, [imported]))[imported.id];
@@ -79,7 +81,8 @@ export function useStudioComposer(d: {
         compose: (id) => withStudioAgentContext(note, {
           projectName: d.projectName,
           doc: { id: doc.id, title: doc.title, version: doc.version, size: doc.size },
-          playhead: useTime ? d.playback.playhead : 0,
+          // §5.13 (Y) 40-5 ① — 보내는 순간의 시각(재생 중이면 상태 재생 머리는 시작 자리에 머문다).
+          playhead: useTime ? d.playback.clock.get() : 0,
           duration: timeline.duration,
           passId: id,
           mode,

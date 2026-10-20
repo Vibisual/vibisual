@@ -5,6 +5,7 @@ import type { ChapterStatus, ResolvedChapter, VideoChapter } from '@vibisual/vid
 import { formatClock } from './PreviewControls.js';
 import { StudioIcon } from './studioIcons.js';
 import { ValueControl } from './StudioValueControls.js';
+import { memoLatest } from './studioMemo.js';
 
 /**
  * §5.13 (V) 37-4 — **기획 카드**: AI 의 첫 바퀴는 영상이 아니라 기획이다. 장면마다 길이·화면 문구·움직임 설명·쓸 소재·소리를
@@ -13,12 +14,19 @@ import { ValueControl } from './StudioValueControls.js';
  *
  * 카드의 글은 칸을 떠날 때 한 번 적는다(글자마다 패치하지 않는다). 기획이 다 지어지면 카드는 거두고 장면 구슬 줄이 남는다.
  * §5.13 (W) 38-7 — 기획 장면에 정지 화면(`chapter.frame`)이 있으면 그 그림이 카드에 서고 '정지 화면' 표가 붙는다(모양을 승인하는 그림).
+ *
+ * 반응형 — 판은 가운데 칸 높이의 45% 를 넘지 않는다(짧은 창에서 미리보기·장면 구슬 줄을 밀어내지 않게). 카드가 판보다 길면 카드
+ * 안에서 세로로 스크롤한다(종전에는 아래쪽 칸 — 소리·소재 — 이 잘려 닿을 수 없었다). 머리줄은 좁으면 아랫줄로 접히고 [숨기기]는
+ * 늘 오른쪽 끝에 선다. 끌어 옮기기(HTML5 끌기)는 터치에서 안 되므로 터치에서는 카드에 [앞으로]·[뒤로] 단추가 선다(같은 `onMove`).
  */
 export interface PlanCardsProps {
   readonly chapters: readonly ResolvedChapter[];
   readonly thumbs: Readonly<Record<string, string | null>>;
-  /** 소재 id → 이름(카드의 '쓸 소재' 칩). */
-  readonly mediaName: (assetId: string) => string;
+  /**
+   * 소재 id → 이름(카드의 '쓸 소재' 칩). §5.13 (Y) 40-5 ③ — 함수가 아니라 값으로 받는다(렌더 중에 부르는 함수는 판을 다시 그리지 않는
+   * 동안 낡은 이름을 남긴다 — 값이면 이름이 바뀔 때 판이 다시 그려진다). 없는 id 는 id 그대로.
+   */
+  readonly mediaNames: Readonly<Record<string, string>>;
   readonly workingChapterId: string | null;
   readonly fps: number;
   readonly disabled: boolean;
@@ -63,7 +71,7 @@ function DraftText({ value, label, multiline, disabled, onCommit, placeholder, c
     spellCheck: false,
     onFocus: () => setEditing(true),
     onBlur: commit,
-    className: `w-full rounded-md border border-transparent bg-transparent px-1.5 py-1 text-slate-100 outline-none placeholder:text-slate-600 hover:border-white/10 focus:border-white/15 focus:bg-vb-sunken focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-50 ${className ?? ''}`,
+    className: `w-full rounded-md border border-transparent bg-transparent px-1.5 py-1 text-slate-100 outline-none placeholder:text-slate-600 hover:border-white/10 focus:border-white/15 focus:bg-vb-sunken focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-50 pointer-coarse:py-2 ${className ?? ''}`,
   };
   return multiline ? (
     <textarea {...common} rows={2} onChange={(e) => setDraft(e.target.value)}
@@ -80,41 +88,51 @@ function DraftText({ value, label, multiline, disabled, onCommit, placeholder, c
   );
 }
 
-export function PlanCards(p: PlanCardsProps): React.JSX.Element {
+/** §5.13 (Y) 40-5 ③ — 값이 같으면 다시 그리지 않는다(손잡이는 늘 최신을 부른다 — `studioMemo.ts`). */
+export const PlanCards = memoLatest(PlanCardsView);
+
+function PlanCardsView(p: PlanCardsProps): React.JSX.Element {
   const { t } = useTranslation();
   const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined);
   const plan = p.chapters.filter((c) => c.chapter.status === 'plan');
   const total = p.chapters.reduce((s, c) => Math.max(s, c.end), 0);
   const building = p.chapters.some((c) => c.chapter.status === 'approved' || c.chapter.status === 'building');
   return (
-    <section className="flex shrink-0 animate-[vs-in-up_160ms_ease-out] flex-col gap-2 rounded-lg border border-white/10 bg-vb-card p-2.5" aria-label={t('panel.videoStudio.plan.title')}>
-      <header className="flex items-center gap-2">
-        <span className="text-[13px] font-semibold text-slate-100">{t('panel.videoStudio.plan.title')}</span>
-        <span className="text-[12px] tabular-nums text-slate-500">{t('panel.videoStudio.plan.summary', { count: p.chapters.length, length: formatClock(total) })}</span>
-        <span className="flex-1" />
-        <button type="button" disabled={p.disabled} onClick={() => p.onAdd(p.chapters[p.chapters.length - 1]?.id)}
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40">
-          <StudioIcon name="plus" className="h-3.5 w-3.5" />{t('panel.videoStudio.plan.add')}
-        </button>
-        {plan.length > 0 ? (
-          <button type="button" disabled={p.disabled || p.busy} onClick={p.onApprove}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 text-[12px] font-semibold text-slate-50 ring-1 ring-[var(--vs-accent)] hover:bg-white/15 disabled:opacity-40">
-            <StudioIcon name="sparkle" className="h-3.5 w-3.5" />{t('panel.videoStudio.plan.approve')}
+    <section className="flex max-h-[45%] min-h-0 animate-[vs-in-up_160ms_ease-out] flex-col gap-2 rounded-lg border border-white/10 bg-vb-card p-2.5" aria-label={t('panel.videoStudio.plan.title')}>
+      {/* 왼쪽 묶음만 접힌다 — [숨기기]는 묶음 밖이라 줄이 몇 번 접혀도 오른쪽 끝에 남는다. */}
+      <header className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span className="shrink-0 text-[13px] font-semibold text-slate-100">{t('panel.videoStudio.plan.title')}</span>
+          <span className="min-w-0 truncate text-[12px] tabular-nums text-slate-500">{t('panel.videoStudio.plan.summary', { count: p.chapters.length, length: formatClock(total) })}</span>
+          <span className="flex-1" />
+          <button type="button" disabled={p.disabled} onClick={() => p.onAdd(p.chapters[p.chapters.length - 1]?.id)}
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-slate-300 hover:bg-white/10 disabled:opacity-40 pointer-coarse:h-9">
+            <StudioIcon name="plus" className="h-3.5 w-3.5" />{t('panel.videoStudio.plan.add')}
           </button>
-        ) : building ? (
-          <span className="flex items-center gap-1.5 text-[12px] text-slate-400">
-            <span className="h-1.5 w-1.5 animate-[vs-breathe_1.2s_ease-in-out_infinite] rounded-full bg-[var(--vs-accent)]" />{t('panel.videoStudio.plan.building')}
-          </span>
-        ) : null}
+          {plan.length > 0 ? (
+            <button type="button" disabled={p.disabled || p.busy} onClick={p.onApprove}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 text-[12px] font-semibold text-slate-50 ring-1 ring-[var(--vs-accent)] hover:bg-white/15 disabled:opacity-40 pointer-coarse:h-10">
+              <StudioIcon name="sparkle" className="h-3.5 w-3.5" />{t('panel.videoStudio.plan.approve')}
+            </button>
+          ) : building ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-slate-400">
+              <span className="h-1.5 w-1.5 animate-[vs-breathe_1.2s_ease-in-out_infinite] rounded-full bg-[var(--vs-accent)]" />{t('panel.videoStudio.plan.building')}
+            </span>
+          ) : null}
+        </div>
         <button type="button" onClick={p.onCollapse} aria-label={t('panel.videoStudio.plan.collapse')} title={t('panel.videoStudio.plan.collapse')}
-          className="rounded p-1 text-slate-500 hover:bg-white/10 hover:text-slate-100"><StudioIcon name="chevronDown" className="h-3.5 w-3.5" /></button>
+          className="shrink-0 rounded p-1 text-slate-500 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-2.5"><StudioIcon name="chevronDown" className="h-3.5 w-3.5" /></button>
       </header>
-      <div className="min-h-0">
-        <ol className="scrollbar-thin flex max-h-[300px] gap-2 overflow-x-auto overflow-y-hidden pb-1" onDragOver={(e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) e.preventDefault(); }}>
+      {/* 높이 상한 300px 은 그대로이고, 판이 줄어들면 줄도 그만큼 줄어든다(줄은 이 칸을 채운다). 카드는 줄 높이까지 늘어 카드 안에서
+          세로로 스크롤한다. */}
+      <div className="flex max-h-[300px] min-h-0 flex-col">
+        <ol className="scrollbar-thin flex min-h-0 gap-2 overflow-x-auto overflow-y-hidden pb-1" onDragOver={(e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) e.preventDefault(); }}>
           {p.chapters.map((c) => {
             const ch = c.chapter;
             const thumb = p.thumbs[c.id] ?? null;
             const working = c.id === p.workingChapterId || ch.status === 'building';
+            const prev = p.chapters[c.index - 1];
+            const last = c.index >= p.chapters.length - 1;
             return (
               <li key={c.id} draggable={!p.disabled}
                 onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, c.id); e.dataTransfer.effectAllowed = 'move'; }}
@@ -129,15 +147,22 @@ export function PlanCards(p: PlanCardsProps): React.JSX.Element {
                   p.onMove(id, before ?? undefined);
                 }}
                 onDragEnd={() => setDropBefore(undefined)}
-                className={`relative flex w-60 shrink-0 flex-col gap-1.5 rounded-lg border bg-vb-sunken p-2 ${STATUS_TONE[ch.status]} ${dropBefore === c.id ? 'shadow-[-3px_0_0_0_var(--vs-accent)]' : ''}`}>
+                className={`scrollbar-thin relative flex w-60 shrink-0 flex-col gap-1.5 overflow-y-auto rounded-lg border bg-vb-sunken p-2 ${STATUS_TONE[ch.status]} ${dropBefore === c.id ? 'shadow-[-3px_0_0_0_var(--vs-accent)]' : ''}`}>
                 <div className="flex items-center gap-1.5">
-                  <span className="flex h-5 min-w-5 cursor-grab items-center justify-center rounded-full bg-white/10 px-1 text-[12px] font-semibold tabular-nums text-slate-200" title={t('panel.videoStudio.plan.drag')}>{c.index + 1}</span>
+                  <span className="flex h-5 min-w-5 shrink-0 cursor-grab items-center justify-center rounded-full bg-white/10 px-1 text-[12px] font-semibold tabular-nums text-slate-200" title={t('panel.videoStudio.plan.drag')}>{c.index + 1}</span>
                   <DraftText value={ch.title} label={t('panel.videoStudio.plan.chapterTitle')} placeholder={t('panel.videoStudio.plan.chapterTitle')} disabled={p.disabled}
-                    className="text-[13px] font-semibold" onCommit={(title) => p.onUpdate(c.id, { title })} />
+                    className="min-w-0 text-[13px] font-semibold" onCommit={(title) => p.onUpdate(c.id, { title })} />
+                  {/* 터치의 순서 바꾸기 — 끌기와 같은 `onMove`(앞 장면 앞으로 · 다음 장면 뒤로). 마우스에서는 끌기가 있어 서지 않는다. */}
+                  <button type="button" disabled={p.disabled || !prev} onClick={() => { if (prev) p.onMove(c.id, prev.id); }}
+                    aria-label={t('panel.videoStudio.plan.moveEarlier', { defaultValue: 'Move earlier' })} title={t('panel.videoStudio.plan.moveEarlier', { defaultValue: 'Move earlier' })}
+                    className="hidden shrink-0 rounded p-2 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:flex"><StudioIcon name="chevronDown" className="h-3.5 w-3.5 rotate-90" /></button>
+                  <button type="button" disabled={p.disabled || last} onClick={() => { if (!last) p.onMove(c.id, p.chapters[c.index + 2]?.id); }}
+                    aria-label={t('panel.videoStudio.plan.moveLater', { defaultValue: 'Move later' })} title={t('panel.videoStudio.plan.moveLater', { defaultValue: 'Move later' })}
+                    className="hidden shrink-0 rounded p-2 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:flex"><StudioIcon name="chevronDown" className="h-3.5 w-3.5 -rotate-90" /></button>
                   <button type="button" disabled={p.disabled} onClick={() => p.onRemove(c.id)} aria-label={t('panel.videoStudio.plan.remove')} title={t('panel.videoStudio.plan.remove')}
-                    className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40"><StudioIcon name="trash" className="h-3.5 w-3.5" /></button>
+                    className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 disabled:opacity-40 pointer-coarse:p-2"><StudioIcon name="trash" className="h-3.5 w-3.5" /></button>
                 </div>
-                <button type="button" onClick={() => p.onSeek(c.start)} className="relative aspect-video w-full overflow-hidden rounded-md border border-white/10 bg-black" aria-label={t('panel.videoStudio.plan.seek', { n: c.index + 1 })}>
+                <button type="button" onClick={() => p.onSeek(c.start)} className="relative aspect-video w-full shrink-0 overflow-hidden rounded-md border border-white/10 bg-black" aria-label={t('panel.videoStudio.plan.seek', { n: c.index + 1 })}>
                   {thumb ? <img src={thumb} alt="" draggable={false} className="h-full w-full object-cover" /> : (
                     <span className="absolute inset-0 flex items-center justify-center px-3 text-center text-[12px] leading-snug text-slate-500">
                       {ch.status === 'plan' ? (ch.text?.trim() || t('panel.videoStudio.plan.noFrameYet')) : working ? t('panel.videoStudio.plan.buildingThis') : t('panel.videoStudio.plan.noFrameYet')}
@@ -175,7 +200,7 @@ export function PlanCards(p: PlanCardsProps): React.JSX.Element {
                 {(ch.media ?? []).length > 0 ? (
                   <div className="flex flex-wrap gap-1 px-1">
                     {(ch.media ?? []).map((id) => (
-                      <span key={id} className="max-w-full truncate rounded-full border border-white/10 px-1.5 text-[12px] text-slate-400" title={id}>{p.mediaName(id)}</span>
+                      <span key={id} className="max-w-full truncate rounded-full border border-white/10 px-1.5 text-[12px] text-slate-400" title={id}>{p.mediaNames[id] ?? id}</span>
                     ))}
                   </div>
                 ) : null}

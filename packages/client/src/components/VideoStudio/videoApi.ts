@@ -1,3 +1,7 @@
+import { readJsonResponse as json } from '../Creation/videoDocumentApi.js';
+import type { DocEnvelope } from '../Creation/videoDocumentApi.js';
+export { createDoc, patchDoc, importVideoAsset, readJsonResponse, VersionConflictError } from '../Creation/videoDocumentApi.js';
+export type { DocEnvelope } from '../Creation/videoDocumentApi.js';
 /**
  * §5.13 Vibistudio — 클라이언트 REST 얇은 층.
  *
@@ -6,30 +10,43 @@
  * 생기고, 그때부터는 저장이 조용히 서로를 덮는다.
  */
 
-import type { CompositionLintEntry, CompositionPropDecl, CompositionSeekMode, DocActivity, VideoAsset, VideoDoc, VideoDocOp } from '@vibisual/video';
+import type {
+  CompositionLintEntry,
+  CompositionPropDecl,
+  CompositionSeekMode,
+  DocActivity,
+  ExportPreset,
+  ExportSettings,
+  RenderOutputSpec,
+  RenderSpec,
+  VideoAsset,
+  VideoDoc,
+} from '@vibisual/video';
 // React 밖에서 문구를 고르는 통로 — `hooks/useWebSocket.ts` 와 같은 방식이다. 여기서 던지는
 // 오류는 `<pre>{error}</pre>` 로 **그대로 화면에 찍히므로** 사용자의 언어여야 한다.
 import i18n from '../../i18n/index.js';
 
-export interface DocEnvelope {
-  readonly doc: VideoDoc;
-  readonly duration: number;
-  readonly diagnostics: readonly { code: string; level: string; message: string; itemId?: string }[];
-}
+
 
 export interface DocSummary {
   readonly id: string;
   readonly title: string;
   readonly updatedAt: number;
   readonly version: number;
+  /** §5.13 (AA) 42-4 — 문서 크기(판형). 옛 서버면 없다. */
+  readonly width?: number;
+  readonly height?: number;
 }
 
 export type VideoJobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled';
 
 export interface VideoJob {
   readonly id: string;
-  /** §5.13 (V) 37-9 — `review` = 프레임 검수 표본. §5.13 (T-8) — `cues` = 표지 모으기(렌더 줄). */
-  readonly kind: 'render' | 'still' | 'strip' | 'review' | 'cues';
+  /**
+   * §5.13 (V) 37-9 — `review` = 프레임 검수 표본. §5.13 (T-8) — `cues` = 표지 모으기(렌더 줄). §5.13 (X) 39-4 — `stills` = 여러
+   * 시각을 한 무대에서 차례로 찍은 그림 목록(JSON).
+   */
+  readonly kind: 'render' | 'still' | 'strip' | 'review' | 'cues' | 'stills';
   readonly projectPath: string;
   readonly docId: string;
   readonly status: VideoJobStatus;
@@ -56,6 +73,60 @@ export interface VideoJob {
   readonly transparent?: boolean;
   /** §5.13 (W) 38-7 — `still` 이 장면 정지 화면이면 그 장면 id(그 컴포지션 하나짜리 문서로 그린다). */
   readonly frameOf?: string;
+  /** §5.13 (X) 39-4 — `stills` 의 그림 형식(없으면 png). */
+  readonly imageType?: 'png' | 'webp';
+  /** §5.13 (AA) 42-5 — 대기열 칸(서버 `VideoJob` 과 같은 이름). */
+  readonly order?: number;
+  readonly held?: boolean;
+  readonly heldReason?: 'user' | 'missed' | 'interrupted';
+  readonly notBefore?: number;
+  readonly paused?: boolean;
+  readonly pausedAt?: number;
+  readonly pausedMs?: number;
+  readonly startedAt?: number;
+  readonly finishedAt?: number;
+  readonly frame?: number;
+  readonly totalFrames?: number;
+  readonly spec?: RenderSpec;
+  readonly output?: RenderOutputSpec;
+  readonly title?: string;
+  readonly label?: string;
+  readonly exported?: string;
+  readonly exportNote?: { readonly code: 'export-failed' | 'overwrite-fallback'; readonly detail?: string };
+  readonly delivered?: boolean;
+  readonly createdAt?: number;
+}
+
+/** §5.13 (AA) 42-5 — 일감 하나에 거는 조작 · 줄 전체에 거는 조작(서버 `renderQueue.ts` 와 같은 이름). */
+export type RenderJobAction = 'pause' | 'resume' | 'cancel' | 'start-now' | 'hold' | 'move-up' | 'move-down' | 'delivered';
+export type RenderQueueAction = 'start-all' | 'hold-all' | 'cancel-all' | 'clear-finished';
+
+/** §5.13 (AA) 42 — 렌더를 거는 방법. 아무것도 없으면 종전 렌더(기본 자리 · 지금). */
+export interface RenderRequest {
+  readonly captions?: 'burn' | 'separate';
+  readonly transparent?: boolean;
+  readonly spec?: RenderSpec;
+  readonly output?: RenderOutputSpec;
+  /** `hold` = 대기열에 멈춘 채 · `at` = 예약 시각(ms). */
+  readonly schedule?: { readonly at?: number; readonly hold?: boolean };
+  readonly label?: string;
+}
+
+/** §5.13 (AA) 42-1 — 마지막 설정 + 내 프리셋. */
+export interface ExportSettingsEnvelope {
+  readonly last: ExportSettings;
+  readonly presets: readonly ExportPreset[];
+}
+
+/**
+ * §5.13 (X) 39-4 — 장면 대표 프레임 한 번에. 디스크에 남은 것은 바로 오고(`thumbs` — 열쇠 → 그림), `render` 면 빠진 것을 일감 하나로
+ * 묶어 굽고 남긴 뒤 함께 온다. 열쇠는 `chapterThumbWants` 와 같다. `missing` 은 그래도 없는 열쇠.
+ */
+export async function fetchChapterThumbs(project: string, docId: string, render: boolean): Promise<{ thumbs: Record<string, string>; missing: string[] }> {
+  const q = `project=${encodeURIComponent(project)}${render ? '&render=1' : ''}`;
+  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/chapter-thumbs?${q}`);
+  const body = await json<{ thumbs?: Record<string, string>; missing?: string[] }>(res);
+  return { thumbs: body.thumbs ?? {}, missing: body.missing ?? [] };
 }
 
 /** §5.13 (T-8) — 표지 모으기 한 벌의 끝(서버 `CueOutcome`). */
@@ -110,37 +181,10 @@ export async function deriveDoc(project: string, docId: string, format: 'landsca
 /** §5.13 (T-4) — 일감 두 줄. 스틸·프레임 띠는 렌더 뒤에 줄 서지 않는다. */
 export type VideoJobLane = 'still' | 'render';
 
-/** 응답 JSON 을 읽는다 — 실패면 서버의 이유 한 줄(없으면 사용자 언어의 일반 문구)로 던진다. 다른 REST 층도 쓴다. */
-export async function readJsonResponse<T>(res: Response): Promise<T> {
-  return json<T>(res);
-}
-
-async function json<T>(res: Response): Promise<T> {
-  let body: T & { ok?: boolean; error?: string };
-  try { body = await res.json() as T & { ok?: boolean; error?: string }; }
-  catch { throw new Error(i18n.t('panel.videoStudio.errRequestFailed', { status: res.status })); }
-  if (res.ok) return body;
-  throw new Error(body.error ?? i18n.t('panel.videoStudio.errRequestFailed', { status: res.status }));
-}
-
 export async function listDocs(project: string): Promise<DocSummary[]> {
   const res = await fetch(`/api/app/vibistudio/docs?project=${encodeURIComponent(project)}`);
   const body = await json<{ docs: DocSummary[] }>(res);
   return body.docs;
-}
-
-/**
- * 문서를 만든다. `id` 를 주면 **그 id 로** 만들고 이미 있으면 그것을 돌려받는다(§5.13 (R-3)).
- * 파일을 눌러 여는 경로가 이 인자를 쓴다 — 같은 파일은 언제 눌러도 같은 문서로 간다.
- */
-export async function createDoc(project: string, title: string, id?: string): Promise<VideoDoc> {
-  const res = await fetch('/api/app/vibistudio/docs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(id === undefined ? { project, title } : { project, title, id }),
-  });
-  const body = await json<{ doc: VideoDoc }>(res);
-  return body.doc;
 }
 
 export async function readDoc(project: string, docId: string): Promise<DocEnvelope> {
@@ -148,41 +192,24 @@ export async function readDoc(project: string, docId: string): Promise<DocEnvelo
   return json<DocEnvelope>(res);
 }
 
-export class VersionConflictError extends Error {
-  constructor() {
-    super(i18n.t('panel.videoStudio.reloaded'));
-    this.name = 'VersionConflictError';
-  }
-}
-
 /**
- * 문서를 고친다.
- *
- * 409 를 특별한 오류로 구분하는 이유는, 그때는 실패가 아니라 **다시 읽고 재시도하면
- * 되는 상황**이기 때문이다. 화면이 이 둘을 같게 다루면 사용자에게 헛된 오류를 띄운다.
+ * `captions: 'separate'` — 자막 트랙을 숨기고 렌더한다(§5.13 (V) 37-15 자막 따로 내기). §5.13 (AA) 42 — `spec`·`output`·`schedule`
+ * 을 실으면 대기열의 한 줄이 된다(저장 위치·이름·예약·멈춤).
  */
-export async function patchDoc(
-  project: string,
-  docId: string,
-  baseVersion: number,
-  ops: readonly VideoDocOp[],
-): Promise<DocEnvelope> {
-  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/patch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project, baseVersion, ops }),
-  });
-  if (res.status === 409) throw new VersionConflictError();
-  return json<DocEnvelope>(res);
-}
-
-/** `captions: 'separate'` — 자막 트랙을 숨기고 렌더한다(§5.13 (V) 37-15 자막 따로 내기). */
-export async function startRender(project: string, docId: string, opts: { captions?: 'burn' | 'separate'; transparent?: boolean } = {}): Promise<VideoJob> {
+export async function startRender(project: string, docId: string, opts: RenderRequest = {}): Promise<VideoJob> {
   const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/render`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // §5.13 (W) 38-3 — 투명 배경(WebM)은 따로 싣는다.
-    body: JSON.stringify({ project, ...(opts.captions === 'separate' ? { captions: 'separate' } : {}), ...(opts.transparent === true ? { transparent: true } : {}) }),
+    body: JSON.stringify({
+      project,
+      ...(opts.captions === 'separate' ? { captions: 'separate' } : {}),
+      ...(opts.transparent === true ? { transparent: true } : {}),
+      ...(opts.spec ? { spec: opts.spec } : {}),
+      ...(opts.output ? { output: opts.output } : {}),
+      ...(opts.schedule ? { schedule: opts.schedule } : {}),
+      ...(opts.label ? { label: opts.label } : {}),
+    }),
   });
   const body = await json<{ job: VideoJob }>(res);
   return body.job;
@@ -192,6 +219,55 @@ export async function getJob(jobId: string): Promise<VideoJob> {
   const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}`);
   const body = await json<{ job: VideoJob }>(res);
   return body.job;
+}
+
+/** §5.13 (AA) 42-5 — 이 프로젝트의 렌더 대기열(끝난 기록 포함). */
+export async function listRenderJobs(project: string): Promise<VideoJob[]> {
+  const res = await fetch(`/api/app/vibistudio/jobs?project=${encodeURIComponent(project)}&kind=render`);
+  const body = await json<{ jobs: VideoJob[] }>(res);
+  return body.jobs;
+}
+
+export async function controlRenderJob(jobId: string, action: RenderJobAction): Promise<VideoJob> {
+  const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/control`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
+  });
+  return (await json<{ job: VideoJob }>(res)).job;
+}
+
+export async function controlRenderQueue(project: string, action: RenderQueueAction): Promise<number> {
+  const res = await fetch('/api/app/vibistudio/jobs/control', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, action }),
+  });
+  return (await json<{ changed: number }>(res)).changed;
+}
+
+/** §5.13 (AA) 42-1 — 마지막 내보내기 설정·내 프리셋. */
+export async function readExportSettings(project: string): Promise<ExportSettingsEnvelope> {
+  const res = await fetch(`/api/app/vibistudio/export-settings?project=${encodeURIComponent(project)}`);
+  const body = await json<ExportSettingsEnvelope>(res);
+  return { last: body.last, presets: body.presets };
+}
+
+export async function saveExportSettings(project: string, settings: ExportSettings): Promise<void> {
+  const res = await fetch('/api/app/vibistudio/export-settings', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, settings }),
+  });
+  await json(res);
+}
+
+export async function saveExportPreset(project: string, name: string, settings: ExportSettings): Promise<ExportSettingsEnvelope> {
+  const res = await fetch('/api/app/vibistudio/export-presets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, name, settings }),
+  });
+  const body = await json<ExportSettingsEnvelope>(res);
+  return { last: body.last, presets: body.presets };
+}
+
+export async function deleteExportPreset(project: string, presetId: string): Promise<ExportSettingsEnvelope> {
+  const res = await fetch(`/api/app/vibistudio/export-presets/${encodeURIComponent(presetId)}?project=${encodeURIComponent(project)}`, { method: 'DELETE' });
+  const body = await json<ExportSettingsEnvelope>(res);
+  return { last: body.last, presets: body.presets };
 }
 
 /** 일꾼이 다음 일감을 가져간다. 없으면 null. `lane` 을 주면 그 줄만(§5.13 (T-4)). */
@@ -309,7 +385,7 @@ export async function deliverToNode(bubbleId: string, body: { file?: string; ref
 
 export async function reportJob(
   jobId: string,
-  patch: { status?: VideoJobStatus; progress?: number; image?: string; bytes?: string; error?: string; note?: string; data?: string },
+  patch: { status?: VideoJobStatus; progress?: number; image?: string; bytes?: string; error?: string; note?: string; data?: string; frame?: number; totalFrames?: number },
 ): Promise<void> {
   const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/report`, {
     method: 'POST',
@@ -319,13 +395,7 @@ export async function reportJob(
   await json(res);
 }
 
-export async function importVideoAsset(project: string, file: File): Promise<VideoAsset> {
-  const res = await fetch(`/api/app/vibistudio/assets?project=${encodeURIComponent(project)}&name=${encodeURIComponent(file.name)}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
-    body: new Blob([file], { type: 'application/octet-stream' }),
-  });
-  return (await json<{ asset: VideoAsset }>(res)).asset;
-}
+
 
 /** Binary output avoids the server's small JSON body limit and base64 expansion. */
 export async function completeRenderJob(jobId: string, bytes: Uint8Array, note: string): Promise<void> {
@@ -346,7 +416,4 @@ export async function completeStillJob(jobId: string, image: string): Promise<vo
   await json(res);
 }
 
-/** 소재 파일 주소. 프로젝트 안 경로만 통한다(서버가 막는다). */
-export function assetUrl(project: string, relPath: string): string {
-  return `/api/app/vibistudio/asset?project=${encodeURIComponent(project)}&path=${encodeURIComponent(relPath)}`;
-}
+export { assetUrl } from './assetUrl.js';

@@ -83,7 +83,7 @@ export function SeamMenu(p: SeamMenuProps): React.JSX.Element {
         {KINDS.map((k) => (
           <button key={k} type="button" role="radio" aria-checked={k === kind}
             onClick={() => p.onSet(k, k === 'cut' ? 0 : duration)}
-            className={`rounded-md px-2 py-1.5 text-left text-[12px] transition-colors duration-150 ease-out ${k === kind ? 'bg-white/10 text-slate-50 ring-1 ring-[var(--vs-accent)]' : 'text-slate-300 hover:bg-white/10'}`}>
+            className={`rounded-md px-2 py-1.5 text-left text-[12px] transition-colors duration-150 ease-out pointer-coarse:py-2.5 ${k === kind ? 'bg-white/10 text-slate-50 ring-1 ring-[var(--vs-accent)]' : 'text-slate-300 hover:bg-white/10'}`}>
             {t(`panel.videoStudio.transitions.${k}`)}
           </button>
         ))}
