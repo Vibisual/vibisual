@@ -171,7 +171,8 @@ export function VoiceInstallDialog(props: VoiceInstallDialogProps): JSX.Element 
           ) : null}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-gray-800 px-4 py-3">
+        {/* 단추 글이 긴 언어·폰 폭에서는 줄을 넘겨 쌓인다(한 줄을 고집하면 상자 밖으로 밀린다). */}
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-800 px-4 py-3">
           {running ? (
             <button
               type="button"

@@ -1,10 +1,19 @@
-import { memo as reactMemo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo as reactMemo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { SESSION_MEMO, SESSION_MEMO_PALETTE, normalizeMemoName, type SessionMemo } from '@vibisual/shared';
 import { CommentBoxColorPopover } from '../Panel/CommentBoxColorPopover.js';
 import { hasMemoName, memoAlpha, memoSurface, memoTitle, moveMemo, resizeMemo, type MemoBounds, type MemoPatch } from './sessionMemo.js';
 import { useAppThemeTokenHex } from '../../theme/useAppTheme.js';
+import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
+import { readFieldSelection, type FieldSelection } from '../../hooks/textFieldActions.js';
+import { MemoLinkMirror } from './MemoLinkMirror.js';
+import { MemoLinkBubble } from './MemoLinkBubble.js';
+import { linkAtRange, linkHoldingRange, memoLinkInk, memoLinkSegments, shiftMemoLinks, type MemoLinkSegment, type TextEditHint, type TextRange } from './memoLinks.js';
+import type { MemoLinkHost } from './useMemoLinkHost.js';
+import { visibleMemoLinkAnchor, type MemoLinkAnchor } from './memoLinkGeometry.js';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
+import { SessionMemoHistory } from './SessionMemoHistory.js';
 
 /**
  * SessionMemoCard.tsx — §5.5 #17-36 스티키 메모 한 장.
@@ -51,10 +60,30 @@ import { useAppThemeTokenHex } from '../../theme/useAppTheme.js';
  * 셋이 같은 `startRename` 한 곳으로 모이므로 어느 길로 들어와도 동작이 갈리지 않는다.
  * 커밋은 Enter·포커스 이탈, 취소는 Esc. 제목줄이 폭에 비해 길면 CSS 말줄임(`truncate`)이 `…` 로
  * 줄이고 전문은 툴팁으로 남는다 — 글자수로 자르지 않는 이유는 카드 폭이 사용자마다 다르기 때문이다.
+ *
+ * **본문의 고른 글자에 링크를 건다(⑫).** 입력칸은 자기 우클릭 메뉴를 갖는다(`data-text-menu="own"`) —
+ * 메뉴 자체는 판이 그린다(내 입력·다른 세션·파일 목록을 아는 것이 판이다). 링크 글자는 입력칸 **뒤에 깐
+ * 거울 층**이 밑줄로 칠하고(textarea 는 한 색 글자뿐이다), 캐럿이 링크 안에 들어가면 **링크 상자**가
+ * 그 글자 아래에 뜬다. 그냥 클릭은 글을 고치는 캐럿이고, 따라가는 손은 상자의 [이동]과 Ctrl/Cmd+클릭이다.
  */
 
 /** 저장은 언제 — `'defer'` 는 잠잠해지면, `'now'` 는 지금. */
 export type MemoSaveWhen = 'defer' | 'now';
+
+/** 메모 입력칸 우클릭 — 판이 글자 항목(잘라내기·붙여넣기…)과 링크 항목을 함께 연다. */
+export interface MemoTextMenuRequest {
+  x: number;
+  y: number;
+  el: HTMLTextAreaElement;
+  /** 우클릭 **순간**의 선택 — 메뉴를 누를 때는 초점이 옮겨가 있을 수 있다. */
+  sel: FieldSelection;
+}
+
+/** 링크 층이 없는 장의 토막(빈 배열) — 매 렌더 새 배열을 만들지 않는다. */
+const NO_SEGMENTS: MemoLinkSegment[] = [];
+
+/** 밝은 판 판정의 기준 종이(흰색) — 이 종이와 글자색이 같으면 밝은 판이다(`memoSurface` 와 같은 판정). */
+const LIGHT_PROBE = '#FFFFFF';
 
 interface SessionMemoCardProps {
   /** 지금 보이는 장(= 활성 탭). 자리·크기·색은 이 장의 것이다. */
@@ -76,12 +105,16 @@ interface SessionMemoCardProps {
    * 값 갱신. **id 를 함께 넘긴다** — 카드마다 새 클로저를 만들면 `memo()` 가 무력해져
    * 한 장을 건드릴 때마다 모든 카드가 다시 그려진다.
    */
-  onPatch: (id: string, patch: MemoPatch, when: MemoSaveWhen) => void;
+  onPatch: (id: string, patch: MemoPatch, when: MemoSaveWhen, editHint?: TextEditHint) => void;
   /** 이 장을 맨 앞으로. */
   onRaise: (id: string) => void;
   /** 이 장이 덮고 있는 것 중 **바로 밑장**을 맨 앞으로(한 겹씩 벗겨 보기). */
   onRaiseUnder: (id: string) => void;
   onDelete: (id: string) => void;
+  /** This session's closed memos, newest first. */
+  closedMemos?: SessionMemo[];
+  onRestore?: (id: string) => void;
+  restoreDisabled?: boolean;
   /** 탭 전환 — 그 장을 보이게 한다. */
   onActivateTab: (id: string) => void;
   /**
@@ -91,6 +124,21 @@ interface SessionMemoCardProps {
   onMerge: (dragId: string, targetId: string, wholeCard: boolean) => void;
   /** 떼어내기 — 탭을 판의 그 자리에 혼자 서는 카드로 내려놓는다(좌표는 판 기준). */
   onDetach: (id: string, at: { x: number; y: number }) => void;
+  /**
+   * ⑫ 링크가 이 화면에 묻는 것·따라가는 길(본문이 내려 준다). 없으면 링크 상자를 띄우지 않는다.
+   * 정체가 고정된 묶음이라 `memo()` 를 깨지 않는다.
+   */
+  linkHost: MemoLinkHost | null;
+  /** ⑫ 이 장의 글자를 지금 고르는 중이면 그 범위(점선으로 보인다), 아니면 null. */
+  pickRange: TextRange | null;
+  /** ⑫ 입력칸 우클릭 — 판이 글자 항목 + 링크 항목을 연다. */
+  onTextMenu: (id: string, req: MemoTextMenuRequest) => void;
+  /** ⑫ 링크를 따라간다 — 못 가면 false. */
+  onLinkFollow: (id: string, linkId: string) => Promise<boolean>;
+  /** ⑫ 링크 다시 고르기 — 종류 목록을 그 자리(화면 좌표)에 연다. */
+  onLinkRepick: (id: string, linkId: string, at: { x: number; y: number }) => void;
+  /** ⑫ 링크 해제 — 글자는 두고 링크만 걷는다. */
+  onLinkRemove: (id: string, linkId: string) => void;
 }
 
 /** 방금 닫힌 팝오버를 같은 클릭이 다시 여는 것을 막는 창(ms). */
@@ -111,6 +159,8 @@ const DROP_HIT_STEP = 4;
 function SessionMemoCardImpl({
   memo, tabs, bounds, zIndex, stackedUnder, autoFocus,
   onPatch, onRaise, onRaiseUnder, onDelete, onActivateTab, onMerge, onDetach,
+  closedMemos, onRestore, restoreDisabled,
+  linkHost, pickRange, onTextMenu, onLinkFollow, onLinkRepick, onLinkRemove,
 }: SessionMemoCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -134,6 +184,16 @@ function SessionMemoCardImpl({
   memoRef.current = memo;
   const boundsRef = useRef(bounds);
   boundsRef.current = bounds;
+  /** 편집 직전 선택. 반복된 글자는 전후 본문만으로 실제로 지운 위치를 구별할 수 없다. */
+  const textEditRef = useRef<{ text: string; hint: TextEditHint } | null>(null);
+  const captureTextEdit = useCallback((inputType?: string) => {
+    const ta = textRef.current;
+    if (!ta) return;
+    textEditRef.current = {
+      text: ta.value,
+      hint: { start: ta.selectionStart, end: ta.selectionEnd, ...(inputType ? { inputType } : {}) },
+    };
+  }, []);
 
   /** 끌고 있는 제스처 — null 이면 안 끌고 있다. */
   const gestureRef = useRef<{
@@ -173,6 +233,190 @@ function SessionMemoCardImpl({
   const merged = tabs.length > 1;
   // 손이 올라가 있거나 이름을 고치는 중이면 앞으로 — 편집 중에 다른 장이 덮어 오면 글을 잃는다.
   const peeking = hovered || renaming;
+
+  // 탭 줄이 넘치면 **가려진 쪽 끝에 페이드** — 스크롤바를 숨긴 줄이라 "옆에 장이 더 있다"를 말하는 것이 이것뿐이다
+  //   (좁은 카드·폰 폭에서 합친 장이 셋만 넘어도 끝 탭이 안 보였다). 세션 탭 줄과 같은 페이드(`.scroll-fade-left/right`)를
+  //   쓰고, 표시는 클래스만 바꾼다(스크롤마다 다시 그리지 않는다). 탭 하나하나의 크기도 지켜본다 — 이름을 고치면 줄 폭이 바뀐다.
+  const tabRowRef = useRef<HTMLDivElement>(null);
+  const tabFadeLeftRef = useRef<HTMLDivElement>(null);
+  const tabFadeRightRef = useRef<HTMLDivElement>(null);
+  const tabRowShown = merged && !renaming;
+  useEffect(() => {
+    const row = tabRowRef.current;
+    if (!tabRowShown || !row) return;
+    const sync = (): void => {
+      const overflow = row.scrollWidth - row.clientWidth;
+      tabFadeLeftRef.current?.classList.toggle('scroll-fade-shown', row.scrollLeft > 4);
+      tabFadeRightRef.current?.classList.toggle('scroll-fade-shown', overflow - row.scrollLeft > 4);
+    };
+    sync();
+    row.addEventListener('scroll', sync, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(sync);
+    ro?.observe(row);
+    for (const tab of Array.from(row.children)) ro?.observe(tab);
+    return () => { row.removeEventListener('scroll', sync); ro?.disconnect(); };
+  }, [tabRowShown, tabs.length]);
+
+  useEffect(() => {
+    const ta = textRef.current;
+    if (!ta) return;
+    // React의 beforeinput 합성 이벤트가 아닌 원래 inputType과 편집 전 선택을 함께 받는다.
+    const onBeforeInput = (event: Event): void => captureTextEdit((event as InputEvent).inputType);
+    ta.addEventListener('beforeinput', onBeforeInput);
+    return () => ta.removeEventListener('beforeinput', onBeforeInput);
+  }, [collapsed, captureTextEdit]);
+
+  const onTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const m = memoRef.current;
+    const text = e.target.value;
+    const pending = textEditRef.current;
+    textEditRef.current = null;
+    // beforeinput 없이 input만 온 경우도 원래 종류(특히 실행 취소·IME)를 잃지 않는다.
+    const inputType = (e.nativeEvent as InputEvent | undefined)?.inputType;
+    const hint = pending?.text === m.text ? { ...pending.hint, ...(inputType ? { inputType } : {}) } : undefined;
+    // 같은 패치에 링크를 싣는다. 판의 일반 본문 패치가 다시 추정하여 옮기지 않게 한다.
+    const links = m.links ? shiftMemoLinks(m.links, m.text, text, hint) : undefined;
+    onPatch(m.id, { text, ...(links ? { links: [...links] } : {}) }, 'defer', hint);
+  }, [onPatch]);
+
+  // ─── ⑫ 링크: 거울 층 · 캐럿 · 링크 상자 ───
+
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  const links = memo.links;
+  const hasLinkLayer = (links?.length ?? 0) > 0 || pickRange !== null;
+  // 링크 잉크는 글자색과 **같은 판정**으로 고른다 — 이 종이의 글자색이 흰 종이의 글자색과 같으면 밝은 판이다.
+  const ink = useMemo(() => memoLinkInk(surface.text === pickReadableTextColor(LIGHT_PROBE)), [surface.text]);
+  const segments = useMemo(
+    () => (hasLinkLayer ? memoLinkSegments(memo.text, links, pickRange) : NO_SEGMENTS),
+    [hasLinkLayer, memo.text, links, pickRange],
+  );
+
+  /**
+   * 거울 층을 입력칸에 맞춘다 — 폭(스크롤 막대를 뺀 `clientWidth`)과 스크롤. 직접 쓰기라 React 를 거치지 않는다.
+   * 폭이 어긋나면 줄바꿈 자리가 달라져 밑줄이 엉뚱한 글자 밑에 그어진다.
+   */
+  const syncMirror = useCallback(() => {
+    const ta = textRef.current;
+    const inner = mirrorRef.current;
+    if (!ta || !inner) return;
+    inner.style.width = `${ta.clientWidth}px`;
+    inner.style.transform = `translate3d(0, ${-ta.scrollTop}px, 0)`;
+  }, []);
+  // 렌더마다(본문·링크가 바뀌면 줄이 바뀐다) 먼저 거울을 맞추고, 아래에서 링크 자리를 잰다.
+  useLayoutEffect(syncMirror);
+
+  /** 본문 칸에 초점이 있나 — 링크 상자는 글을 고치는 동안에만 뜬다. */
+  const [textFocused, setTextFocused] = useState(false);
+  /** 본문 칸의 캐럿·선택(onSelect 가 따라 적는다). */
+  const [caret, setCaret] = useState<TextRange | null>(null);
+  const readCaret = useCallback(() => {
+    const ta = textRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    // execCommand가 막혀 직접 값을 바꾸는 글자 메뉴도 마지막 선택으로 추적한다.
+    captureTextEdit();
+    setCaret((prev) => (prev && prev.start === start && prev.end === end ? prev : { start, end }));
+  }, [captureTextEdit]);
+  // 접으면 본문 칸이 사라진다 — 사라지는 칸은 blur 를 안 보내므로 여기서 내려 둔다(펴는 순간 상자가 튀지 않게).
+  useEffect(() => { if (collapsed) setTextFocused(false); }, [collapsed]);
+  /** 끄는 중 — 카드가 `transform` 으로 움직이는 동안 상자는 옛 자리에 남으므로 접어 둔다. */
+  const [gesturing, setGesturing] = useState(false);
+
+  const activeLink = linkHost && textFocused && caret && !gesturing && !renaming && !collapsed
+    ? (linkHoldingRange(links, caret.start, caret.end) ?? null)
+    : null;
+  const activeLinkId = activeLink?.id ?? null;
+  const activeLinkIdRef = useRef(activeLinkId);
+  activeLinkIdRef.current = activeLinkId;
+
+  /** 링크 상자를 띄울 자리 — 여러 줄이면 입력칸 안에 보이는 첫 줄이다. */
+  const [anchor, setAnchor] = useState<MemoLinkAnchor | null>(null);
+  const measureAnchor = useCallback(() => {
+    const id = activeLinkIdRef.current;
+    const inner = mirrorRef.current;
+    const ta = textRef.current;
+    const span = id && inner ? inner.querySelector<HTMLElement>(`[data-memo-link="${CSS.escape(id)}"]`) : null;
+    const box = ta?.getBoundingClientRect();
+    const next = span && box ? visibleMemoLinkAnchor(span.getClientRects(), box) : null;
+    if (!next) {
+      setAnchor((prev) => (prev === null ? prev : null));
+      return;
+    }
+    setAnchor((prev) => (prev && prev.left === next.left && prev.top === next.top && prev.bottom === next.bottom ? prev : next));
+  }, []);
+  // 판의 위치만 바뀐 렌더도 따라간다(예: 분할 칸 이동). 좌표가 같으면 상태를 바꾸지 않는다.
+  useLayoutEffect(measureAnchor);
+  useEffect(() => {
+    const ta = textRef.current;
+    if (!hasLinkLayer || !ta || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => { syncMirror(); measureAnchor(); });
+    ro.observe(ta);
+    return () => ro.disconnect();
+  }, [hasLinkLayer, collapsed, syncMirror, measureAnchor]);
+  useEffect(() => {
+    if (!activeLinkId) return;
+    window.addEventListener('resize', measureAnchor);
+    // textarea 밖의 스크롤 조상도 링크의 화면 좌표를 바꾼다.
+    window.addEventListener('scroll', measureAnchor, true);
+    return () => {
+      window.removeEventListener('resize', measureAnchor);
+      window.removeEventListener('scroll', measureAnchor, true);
+    };
+  }, [activeLinkId, measureAnchor]);
+
+  const onTextScroll = useCallback(() => {
+    syncMirror();
+    if (activeLinkIdRef.current) measureAnchor();
+  }, [syncMirror, measureAnchor]);
+
+  // 상자는 body 포털이다. 키보드 초점이 그 버튼으로 옮겨 가도 링크를 보고 있는 동안이다.
+  const onLinkAreaBlur = useCallback((e: React.FocusEvent<HTMLElement>) => {
+    const next = e.relatedTarget;
+    if (next === textRef.current) return;
+    if (next instanceof Element && next.closest('[data-memo-link-bubble]')?.getAttribute('data-memo-link-bubble') === memoRef.current.id) return;
+    setTextFocused(false);
+  }, []);
+  const returnToText = useCallback(() => textRef.current?.focus({ preventScroll: true }), []);
+  const onTextKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isComposingKeyEvent(e.nativeEvent)) return;
+    const inputType = e.key === 'Backspace' ? 'deleteContentBackward'
+      : e.key === 'Delete' ? 'deleteContentForward'
+        : (e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y') ? 'historyUndo' : undefined;
+    captureTextEdit(inputType);
+    if (e.key !== 'Tab' || e.shiftKey) return;
+    const button = document.querySelector<HTMLButtonElement>(`[data-memo-link-bubble="${CSS.escape(memoRef.current.id)}"] button:not(:disabled)`);
+    if (!button) return;
+    e.preventDefault();
+    button.focus();
+  }, [captureTextEdit]);
+
+  /**
+   * Ctrl/Cmd+클릭 = 따라가기(편집기의 손버릇). 판정은 `ctrlKey || metaKey` — mac 의 Control+클릭은
+   * 우클릭이라 여기 오지 않는다. 끌어서 고른 것은 따라가기가 아니다.
+   */
+  const onTextClick = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const ta = e.currentTarget;
+    if (ta.selectionStart !== ta.selectionEnd) return;
+    const m = memoRef.current;
+    const link = linkAtRange(m.links, ta.selectionStart, ta.selectionEnd);
+    if (!link) return;
+    e.preventDefault();
+    void onLinkFollow(m.id, link.id);
+  }, [onLinkFollow]);
+
+  /**
+   * 본문 칸 우클릭 — 메뉴는 판이 그린다(내 입력·다른 세션·파일 목록을 아는 것이 판이다). 선택은 **지금**
+   * 떠 둔다(메뉴를 누를 때는 초점이 옮겨가 있을 수 있다). 대화 본문의 메뉴가 같이 뜨지 않게 여기서 끊는다.
+   */
+  const onTextContextMenu = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    captureTextEdit();
+    onTextMenu(memoRef.current.id, { x: e.clientX, y: e.clientY, el, sel: readFieldSelection(el) });
+  }, [onTextMenu, captureTextEdit]);
 
   // ─── 이름 바꾸기: 여는 길은 셋, 도착지는 하나 ───
 
@@ -376,6 +620,7 @@ function SessionMemoCardImpl({
     const m = memoRef.current;
     onRaise(m.id);
     gestureRef.current = { kind, px: e.clientX, py: e.clientY, start: { x: m.x, y: m.y, w: m.w, h: m.h } };
+    setGesturing(true);
     e.currentTarget.setPointerCapture(e.pointerId);
     const el = rootRef.current;
     // 합성기에 "이 축이 곧 움직인다"를 미리 알린다 — 첫 프레임의 승격 비용을 없앤다.
@@ -394,6 +639,7 @@ function SessionMemoCardImpl({
       start: { x: m.x, y: m.y, w: m.w, h: m.h },
       tabId, tabLabel, moved: false,
     };
+    setGesturing(true);
     e.currentTarget.setPointerCapture(e.pointerId);
   }, [onRaise]);
 
@@ -436,6 +682,7 @@ function SessionMemoCardImpl({
     paintDrop(null);
     hideGhost(true);
     gestureRef.current = null;
+    setGesturing(false);
     if (el) el.style.willChange = '';
 
     if (g.kind === 'move') {
@@ -561,38 +808,43 @@ function SessionMemoCardImpl({
         {!renaming && merged ? (
           /* 탭 줄 — 합쳐진 카드의 제목줄은 탭이 된다. 넘치면 가로로 스크롤한다(카드가 좁으므로
              줄바꿈 ❌ — 제목줄 높이가 늘면 본문이 밀린다). 탭을 끌면 뽑혀 나온다. */
-          <div className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tabs.map((tab) => {
-              const on = tab.id === memo.id;
-              const label = memoTitle(tab, t('ide.memo.title'));
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  title={`${label}\n${t('ide.memo.tabHint')}`}
-                  aria-current={on ? 'true' : undefined}
-                  // 탭이 캡처를 쥐므로 제스처는 여기서 끝난다 — 제목줄까지 올려 보내면 같은
-                  //   제스처가 두 번 돈다(무해하지만 헛일이고, 어느 쪽이 주인인지도 흐려진다).
-                  onPointerDown={(e) => beginTabGesture(e, tab.id, label)}
-                  onPointerMove={(e) => { e.stopPropagation(); moveGesture(e); }}
-                  onPointerUp={(e) => { e.stopPropagation(); endGesture(e); }}
-                  onPointerCancel={(e) => { e.stopPropagation(); endGesture(e); }}
-                  onLostPointerCapture={(e) => { e.stopPropagation(); endGesture(e); }}
-                  onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); if (on) startRename(); }}
-                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (on) startRename(); }}
-                  className={`flex min-w-0 max-w-[9rem] flex-shrink-0 items-center gap-1 rounded px-1.5 text-[12px] leading-none transition-opacity ${on ? 'opacity-100' : 'opacity-55 hover:opacity-85'}`}
-                  style={on ? { background: surface.hairline } : undefined}
-                >
-                  {/* 탭마다 자기 색 — 합쳐도 색은 장마다 따로다(그것이 "합쳤다"와 "뭉갰다"의 차이). */}
-                  <span
-                    className="h-2 w-2 flex-shrink-0 rounded-full"
-                    style={{ backgroundColor: tab.color, opacity: memoAlpha(tab) }}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 truncate">{label}</span>
-                </button>
-              );
-            })}
+          <div className="relative flex min-w-0 flex-1 items-stretch">
+            <div ref={tabRowRef} className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {tabs.map((tab) => {
+                const on = tab.id === memo.id;
+                const label = memoTitle(tab, t('ide.memo.title'));
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    title={`${label}\n${t('ide.memo.tabHint')}`}
+                    aria-current={on ? 'true' : undefined}
+                    // 탭이 캡처를 쥐므로 제스처는 여기서 끝난다 — 제목줄까지 올려 보내면 같은
+                    //   제스처가 두 번 돈다(무해하지만 헛일이고, 어느 쪽이 주인인지도 흐려진다).
+                    onPointerDown={(e) => beginTabGesture(e, tab.id, label)}
+                    onPointerMove={(e) => { e.stopPropagation(); moveGesture(e); }}
+                    onPointerUp={(e) => { e.stopPropagation(); endGesture(e); }}
+                    onPointerCancel={(e) => { e.stopPropagation(); endGesture(e); }}
+                    onLostPointerCapture={(e) => { e.stopPropagation(); endGesture(e); }}
+                    onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); if (on) startRename(); }}
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (on) startRename(); }}
+                    className={`flex min-w-0 max-w-[9rem] flex-shrink-0 items-center gap-1 rounded px-1.5 text-[12px] leading-none transition-opacity ${on ? 'opacity-100' : 'opacity-55 hover:opacity-85'}`}
+                    style={on ? { background: surface.hairline } : undefined}
+                  >
+                    {/* 탭마다 자기 색 — 합쳐도 색은 장마다 따로다(그것이 "합쳤다"와 "뭉갰다"의 차이). */}
+                    <span
+                      className="h-2 w-2 flex-shrink-0 rounded-full"
+                      style={{ backgroundColor: tab.color, opacity: memoAlpha(tab) }}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {/* 좌/우 끝 페이드 — 가려진 방향에만 뜬다(위 효과가 `visible` 을 켜고 끈다). 누름은 통과시킨다. */}
+            <div ref={tabFadeLeftRef} className="scroll-fade-left" />
+            <div ref={tabFadeRightRef} className="scroll-fade-right" />
           </div>
         ) : renaming ? (
           // 제자리 편집 — 제목이 서 있던 자리를 그대로 쓴다(칸이 따로 열리면 눈이 한 번 더 움직인다).
@@ -653,6 +905,7 @@ function SessionMemoCardImpl({
             <span className="tabular-nums">{stackedUnder}</span>
           </button>
         )}
+        {onRestore && <SessionMemoHistory closedMemos={closedMemos ?? []} onRestore={onRestore} restoreDisabled={restoreDisabled} />}
         {/* 색 칩 — 지금 색과 지금 불투명도를 그대로 보여 준다(체커보드가 비치는 만큼이 뚫린 정도). */}
         <button
           ref={colorBtnRef}
@@ -680,8 +933,8 @@ function SessionMemoCardImpl({
         </button>
         <button
           type="button"
-          title={t('ide.memo.delete')}
-          aria-label={t('ide.memo.delete')}
+          title={t('ide.memo.close')}
+          aria-label={t('ide.memo.close')}
           onClick={() => onDelete(memo.id)}
           className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded transition-colors hover:bg-rose-500/30"
         >
@@ -694,17 +947,33 @@ function SessionMemoCardImpl({
 
       {!collapsed && (
         <>
-          <textarea
-            ref={textRef}
-            value={memo.text}
-            aria-label={t('ide.memo.title')}
-            maxLength={SESSION_MEMO.TEXT_MAX}
-            spellCheck={false}
-            placeholder={t('ide.memo.placeholder')}
-            onChange={(e) => onPatch(memo.id, { text: e.target.value }, 'defer')}
-            onBlur={() => onPatch(memo.id, {}, 'now')}
-            className="min-h-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-[13px] leading-relaxed outline-none placeholder:opacity-40"
-          />
+          {/* ⑫ 본문 칸은 거울 층 위에 겹쳐 선다 — 거울이 링크 글자 밑을 칠하고, 글자와 캐럿은 위의 칸이 그린다. */}
+          <div className="relative min-h-0 flex-1">
+            {hasLinkLayer && (
+              <MemoLinkMirror ref={mirrorRef} segments={segments} ink={ink} activeLinkId={activeLinkId} />
+            )}
+            <textarea
+              ref={textRef}
+              value={memo.text}
+              aria-label={t('ide.memo.title')}
+              maxLength={SESSION_MEMO.TEXT_MAX}
+              spellCheck={false}
+              placeholder={t('ide.memo.placeholder')}
+              // ⑫ 이 칸은 자기 우클릭 메뉴를 갖는다(글자 항목 + 링크) — 전역 글자 메뉴가 가로채지 않게 알린다.
+              data-text-menu="own"
+              onChange={onTextChange}
+              onCut={() => captureTextEdit('deleteByCut')}
+              onPaste={() => captureTextEdit('insertFromPaste')}
+              onFocus={() => { setTextFocused(true); readCaret(); }}
+              onBlur={(e) => { onLinkAreaBlur(e); onPatch(memo.id, {}, 'now'); }}
+              onKeyDown={onTextKeyDown}
+              onSelect={readCaret}
+              onScroll={onTextScroll}
+              onClick={onTextClick}
+              onContextMenu={onTextContextMenu}
+              className="absolute inset-0 h-full w-full resize-none bg-transparent px-2.5 py-2 text-[13px] leading-relaxed outline-none placeholder:opacity-40"
+            />
+          </div>
           <div
             // 마우스 전용 손잡이 — 키보드로는 닿을 수 없으므로 보조기술에는 감춘다.
             aria-hidden="true"
@@ -722,6 +991,22 @@ function SessionMemoCardImpl({
             </svg>
           </div>
         </>
+      )}
+
+      {/* ⑫ 링크 상자 — 캐럿이 링크 안에 있을 때만. 스스로 body 로 포털한다(색 선택기와 같은 이유). */}
+      {activeLink && anchor && linkHost && (
+        <MemoLinkBubble
+          key={activeLink.id}
+          memoId={memo.id}
+          link={activeLink}
+          anchor={anchor}
+          host={linkHost}
+          onFollow={() => onLinkFollow(memo.id, activeLink.id)}
+          onRepick={(at) => onLinkRepick(memo.id, activeLink.id, at)}
+          onRemove={() => onLinkRemove(memo.id, activeLink.id)}
+          onBlur={onLinkAreaBlur}
+          onReturnToText={returnToText}
+        />
       )}
 
       {/* 색 선택기 — 카드의 overflow-hidden·transform 에 갇히지 않게 body 로 포털한다. */}

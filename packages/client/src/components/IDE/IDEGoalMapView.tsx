@@ -57,6 +57,7 @@ import {
   type VisualKindCard,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { confirmDialog, promptDialog } from '../../utils/appDialog.js';
 import { useIDEPaneValue } from './idePane.js';
 import { CanvasZoomControls } from '../BubbleMap/canvasControlKit.js';
 import { KindGlyph, SceneArt, StepMark, KIND_NEUTRAL } from './StageGlyph.js';
@@ -571,13 +572,18 @@ export function IDEGoalMapView({
     [canEdit, activeSessionId, agentId, points, currentRows, payloadOfRows, currentPayload, setUserGoalSteps],
   );
 
+  const latestInsert = useRef({ activeSessionId, insertStep });
+  latestInsert.current = { activeSessionId, insertStep };
+
   /** 직접 쓰기 — 메뉴의 첫 칸. 우클릭한 자리에 선다. */
   const askAndInsert = useCallback(
-    (at: { x: number; y: number }) => {
-      const text = window.prompt(t('ide.goalMap.insertPrompt'));
-      if (text) insertStep(text, at);
+    async (at: { x: number; y: number }) => {
+      const text = await promptDialog(t('ide.goalMap.insertPrompt'));
+      if (text && latestInsert.current.activeSessionId === activeSessionId) {
+        latestInsert.current.insertStep(text, at);
+      }
     },
-    [insertStep, t],
+    [activeSessionId, t],
   );
 
   /**
@@ -760,12 +766,14 @@ export function IDEGoalMapView({
    * 직접 써 넣은 본문은 여기서 끝이다. 손이 놓은 자리도 함께 잊는다(남으면 죽은 좌표가 된다).
    */
   const onDeleteStep = useCallback(
-    (stepId: string) => {
+    async (stepId: string) => {
       if (!canEdit || !activeSessionId) return;
       const target = steps.find((s) => s.id === stepId);
       if (!target) return;
-      if (!window.confirm(t('ide.stage.menu.deleteStepConfirm', { text: target.text }))) return;
-      const next = steps
+      if (!await confirmDialog(t('ide.stage.menu.deleteStepConfirm', { text: target.text }), { tone: 'danger' })) return;
+      const latestSteps = useGraphStore.getState().sessionGoals[activeSessionId]?.steps;
+      if (!latestSteps?.some((s) => s.id === stepId)) return;
+      const next = latestSteps
         .filter((s) => s.id !== stepId)
         .map((s, i) => withRow(payloadOf(s), i > 0 && !!s.parallel));
       forgetGoalNodePosition(activeSessionId, stepId);

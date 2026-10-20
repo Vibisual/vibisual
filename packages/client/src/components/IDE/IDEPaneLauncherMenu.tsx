@@ -70,9 +70,10 @@ export function IDEPaneLauncherMenu(): React.JSX.Element | null {
       </button>
 
       {open && (
+        // 실행 출력 줄은 돌린 만큼 는다 — 창 높이를 넘기면 창(`overflow-hidden`)에 잘리므로 메뉴 안에서 스크롤한다.
         <div
           role="menu"
-          className="absolute right-0 top-8 z-50 w-64 rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl shadow-black/50"
+          className="scrollbar-thin absolute right-0 top-8 z-50 max-h-[min(70vh,calc(100dvh-6rem))] w-64 overflow-y-auto rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl shadow-black/50"
         >
           <p className="px-2 pb-0.5 pt-1 text-xs font-semibold text-gray-500">{t('ide.paneLauncher.title')}</p>
           {EDITOR_PANE_FILE_KINDS.map((kind) => (
@@ -81,7 +82,7 @@ export function IDEPaneLauncherMenu(): React.JSX.Element | null {
               type="button"
               role="menuitem"
               onClick={() => launchKind(kind)}
-              className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-gray-100"
+              className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-gray-100 pointer-coarse:py-2.5"
             >
               <PaneKindGlyph kind={kind} className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sky-300" />
               <span className="min-w-0 flex-1">
@@ -104,7 +105,7 @@ export function IDEPaneLauncherMenu(): React.JSX.Element | null {
               role="menuitem"
               onClick={() => showRun(run.runId)}
               title={run.command}
-              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-gray-100"
+              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-gray-100 pointer-coarse:py-2.5"
             >
               <RunOutputGlyph className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
               <span className="min-w-0 flex-1 truncate">{run.name}</span>

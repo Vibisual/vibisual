@@ -516,7 +516,7 @@ describe('⑲ 무대 목록은 저절로 섞이지 않는다', () => {
     const view = source('IDEGoalMapView.tsx');
     expect(view).toContain('onDeleteStep={onDeleteStep}');
     // 되돌릴 수 없는 조작이라 한 번 묻는다.
-    expect(view).toContain("window.confirm(t('ide.stage.menu.deleteStepConfirm'");
+    expect(view).toContain("await confirmDialog(t('ide.stage.menu.deleteStepConfirm'");
     // 지운 단계의 좌표도 함께 잊는다 — 남으면 죽은 좌표가 된다.
     const at = view.indexOf('const onDeleteStep');
     expect(at, 'onDeleteStep 을 못 찾음').toBeGreaterThan(-1);

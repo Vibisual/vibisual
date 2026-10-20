@@ -41,7 +41,8 @@ import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { useIDEPaneActions } from './idePane.js';
 import { parseStreamPathCandidate } from './streamPathLinks.js';
-import { parseLinkHrefCandidate, isWebLinkHref, streamUrlTransform } from './streamLinkHref.js';
+import { parseLinkHrefCandidate, isWebLinkHref, streamUrlTransform, withLinkLabelLines } from './streamLinkHref.js';
+import { formatLineRef, type EditorLineRange } from './editorLineRange.js';
 import { usePathLinkRails, useWebLinkRails } from './usePathLinkRails.js';
 import type { MenuText } from './editorContextMenu.js';
 import { getInternalApp } from '../../apps/registry.js';
@@ -51,14 +52,16 @@ import {
   type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError, type StreamImage,
   type StreamCommand, type StreamItemFull, type StreamStep, type StreamTurnStop,
 } from './streamItems.js';
-import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
-import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
-import { describeCommandError, parseStreamErrorContent } from './commandError.js';
+import { shouldTraceWriting, toolGroupElapsedMs, toolSpanTimestamps, toolCallElapsedMs } from './turnSteps.js';
+import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText } from './stepTraceText.js';
+import { formatStreamClock, type StreamClock } from './promptStamp.js';
+import { parseStreamErrorContent } from './commandError.js';
+import { CommandErrorNotice } from './CommandErrorNotice.js';
 import { TransportRecoveryLine } from './TransportRecoveryLine.js';
 import { ProcessGuardLine } from './ProcessGuardLine.js';
 import { parseProcessGuardNotice } from '@vibisual/shared';
 import {
-  applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText, COMPACT_TEXT_CLAMP_MD,
+  applyStreamDensity, sameDisplayItem, displayItemId, clampVisibleStreamMarkdown,
   turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
   type StreamDisplayItem, type StreamToolGroup, type SpeechRunPos,
 } from './streamDensity.js';
@@ -228,7 +231,7 @@ function fencedLangOf(children: React.ReactNode): string | null {
   return /language-([A-Za-z0-9_-]+)/u.exec(className)?.[1] ?? null;
 }
 
-function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>): React.JSX.Element | null {
+function CodeBlock({ children, className, ...rest }: React.HTMLAttributes<HTMLPreElement>): React.JSX.Element | null {
   const { t } = useTranslation();
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
@@ -258,17 +261,20 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
     //   여기 붙는다. C·D 안에서 코드 블록만 읽기 칼럼 밖으로 나가는 지점.
     <div className="ide-breakout group/code relative">
       <InCodeBlock.Provider value={true}>
-        <pre ref={preRef} {...rest}>{children}</pre>
+        {/* 터치에서는 복사 단추가 늘 떠 있다 — 오른쪽 안쪽 여백을 그만큼 비워, 첫 줄 끝이 단추 밑에 깔려도
+            가로로 밀면 단추 옆까지 나오게 한다(넘치는 줄의 끝은 이 여백 앞에서 멈춘다). */}
+        <pre ref={preRef} {...rest} className={`${className ?? ''} pointer-coarse:pr-12`}>{children}</pre>
       </InCodeBlock.Provider>
       <button
         type="button"
         onClick={onCopy}
         title={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
         aria-label={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
-        className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-opacity ${
+        // 터치에는 hover 가 없다 — 늘 보이고 손가락 크기로 키운다.
+        className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-opacity pointer-coarse:p-2.5 ${
           copied
             ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 opacity-100'
-            : 'border-white/10 bg-gray-900/70 text-gray-300 opacity-0 group-hover/code:opacity-100 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100 focus:opacity-100'
+            : 'border-white/10 bg-gray-900/70 text-gray-300 opacity-0 group-hover/code:opacity-100 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100 focus:opacity-100 pointer-coarse:opacity-100'
         }`}
       >
         {copied ? (
@@ -356,8 +362,11 @@ const PathLinkGlyph = memo(function PathLinkGlyph({ plan }: { plan: WorkspaceOpe
   );
 });
 
-/** ⑬ (f) — 툴팁은 "전체 경로 + 벌어질 일". 여는 곳이 갈리면 말도 갈려야 누르기 전에 안다. */
-function pathLinkTitle(plan: WorkspaceOpenPlan, absPath: string, t: MenuText): string {
+/**
+ * ⑬ (f) — 툴팁은 "전체 경로 + 벌어질 일". 여는 곳이 갈리면 말도 갈려야 누르기 전에 안다.
+ * ⑬ (g) — 편집창으로 갈 때 줄 범위가 있으면 경로 뒤에 `:806-807` 까지 적는다(그 줄로 간다는 것까지 말한다).
+ */
+function pathLinkTitle(plan: WorkspaceOpenPlan, absPath: string, t: MenuText, lines: EditorLineRange | null): string {
   const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
   switch (plan.action) {
     case 'run':
@@ -369,7 +378,8 @@ function pathLinkTitle(plan: WorkspaceOpenPlan, absPath: string, t: MenuText): s
     case 'folder':
       return t('ide.streamRenderer.pathLink.openFolder', { path: absPath });
     default:
-      return t('ide.streamRenderer.pathLink.openFile', { path: absPath });
+      // 줄은 텍스트 편집창에서만 뜻이 있다(그림·PDF 는 줄을 버린다 — `openWorkspaceTarget` 과 같은 판정).
+      return t('ide.streamRenderer.pathLink.openFile', { path: plan.action === 'editor' ? formatLineRef(absPath, lines) : absPath });
   }
 }
 
@@ -401,9 +411,11 @@ const MarkdownLink = memo(function MarkdownLink({ href, children }: React.Anchor
 
   // 훅은 `href` 가 있든 없든 **언제나 같은 순서로** 부른다(리액트 규칙). 웹 주소는 경로로 읽지 않으므로
   //   후보가 null 이 되어 아무것도 묻지 않는다 — 주소 하나에 판정 요청이 두 번 가지 않는다.
+  // ⑬ (g) ③ — 목적지에 줄이 없으면 링크 글자(`X.h:806-807`)의 줄을 빌린다(이름이 같을 때만).
+  const label = inlineCodeText(children);
   const candidate = useMemo(
-    () => (!href || isWebLinkHref(href) ? null : parseLinkHrefCandidate(href, rootPath)),
-    [href, rootPath],
+    () => (!href || isWebLinkHref(href) ? null : withLinkLabelLines(parseLinkHrefCandidate(href, rootPath), label)),
+    [href, rootPath, label],
   );
   const path = usePathLinkRails(candidate, rootPath);
   const web = useWebLinkRails(href ?? '', ownerAgentId);
@@ -427,7 +439,7 @@ const MarkdownLink = memo(function MarkdownLink({ href, children }: React.Anchor
   }
 
   if (path.linked && path.plan) {
-    const title = pathLinkTitle(path.plan, path.linked.absPath, t);
+    const title = pathLinkTitle(path.plan, path.linked.absPath, t, candidate?.lines ?? null);
     return (
       <>
         <button type="button" onClick={path.onOpen} onContextMenu={path.onContextMenu} title={title} aria-label={title} className="ide-path-link break-all">
@@ -501,7 +513,7 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
 
   if (!linked || !plan) return <code {...rest}>{children}</code>;
 
-  const title = pathLinkTitle(plan, linked.absPath, t);
+  const title = pathLinkTitle(plan, linked.absPath, t, candidate?.lines ?? null);
 
   return (
     // 칩(배경·모노폰트)은 `<code>` 가 그대로 유지하고, 그 안의 버튼만 링크 색·밑줄을 얻는다 —
@@ -546,7 +558,24 @@ const MarkdownOrderedList = memo(function MarkdownOrderedList(
   );
 });
 
-const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode, ol: MarkdownOrderedList };
+/**
+ * 마크다운 표 — 열이 많아 칸보다 넓어지면 **표 상자 안에서** 가로로 스크롤한다.
+ *
+ * 기본 `<table>` 은 칸 내용의 최소 폭 아래로 줄지 않아, 폰 폭·좁힌 창에서 열 많은 표가 대화 칸 밖으로 삐져나갔다
+ * (옆 글은 제자리인데 표만 잘렸다). 표 자체는 손대지 않고(`width:100%` — 넓은 칸에서는 종전 모양 그대로) 감싼 상자만
+ * 스크롤 칸이 된다. 이 상자가 `.ide-md` 그리드의 직접 자식이라 읽기 폭 탈출 표식·간격도 여기 붙는다 — 코드 블록
+ * 래퍼와 같은 결(`index.css` 의 `.ide-breakout`). `display:block` 으로 표를 스크롤 칸으로 만들지 않는 까닭은 그러면
+ * 표가 내용 폭으로 줄어 넓은 칸의 모양이 바뀌기 때문이다.
+ */
+function MarkdownTable({ children, ...rest }: React.TableHTMLAttributes<HTMLTableElement>): React.JSX.Element {
+  return (
+    <div className="ide-breakout scrollbar-thin overflow-x-auto">
+      <table {...rest}>{children}</table>
+    </div>
+  );
+}
+
+const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode, ol: MarkdownOrderedList, table: MarkdownTable };
 
 /** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수).
  *  §5.5 #17-12 — 밀도 변환 뒤의 표시 아이템(묶음 포함)을 받는다. */
@@ -584,13 +613,31 @@ function TextMarkdown({ body }: { body: string }): React.JSX.Element {
   );
 }
 
+/**
+ * §5.5 #17-39 ⑫ — 그 일을 한 시각(`10:52`, 호버에 전체 표기). 도구 머리줄·묶음 머리줄·AI 글이 **같은 조각**을
+ * 쓴다 — 세 자리의 시각이 한 세로줄에 서려면 글자 크기·색·숫자 폭이 같아야 한다. 본문을 긁어 복사할 때
+ * 시각이 딸려 가지 않게 선택에서 뺀다.
+ */
+function StreamClockStamp({ clock }: { clock: StreamClock | null }): React.JSX.Element | null {
+  if (!clock) return null;
+  return (
+    <time dateTime={clock.iso} title={clock.title} className="flex-shrink-0 select-none tabular-nums text-[12px] leading-4 text-gray-500">
+      {clock.text}
+    </time>
+  );
+}
+
 const TextBlock = memo(function TextBlock({ item, density, exempt, run }: { item: StreamText; density: StreamDensity; exempt: boolean; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  // §5.5 #17-39 ⑫ — 이 글이 온 시각. 간결의 연속 발화 런(#17-45)은 말머리가 선 첫 문단에만 —
+  //   이어지는 문단마다 줄을 늘리면 런의 실선이 그 줄에서 끊긴다(그 줄은 말머리 칸 밖이다).
+  const clock = run === 'solo' || run === 'head' ? formatStreamClock(item.timestamp, i18n.language) : null;
   // §5.5 #17-46 — 간결에서는 **머리와 꼬리만 남기고 가운데**를 접는다([더 보기]로 펼침). 종전(#17-21 ②)은
   //   앞부분만 남겨 그 문단의 결론이 매번 잘렸다 — 사용자가 읽어야 하는 줄은 앞이 아니라 끝에 있다.
   //   `exempt`(화면의 마지막 본문·턴의 여는 본문)는 지금 하는 말이자 그 턴의 결론이라 아예 자르지 않는다.
+  //   목표 블록은 펼쳐도 숨겨지므로 접을 분량에서 뺀다 — 보이는 글이 같으면 접기 버튼도 없어야 한다.
   const clamped = useMemo(
-    () => (density === 'compact' && !exempt ? clampStreamText(item.content, COMPACT_TEXT_CLAMP_MD) : null),
+    () => (density === 'compact' && !exempt ? clampVisibleStreamMarkdown(item.content) : null),
     [density, exempt, item.content],
   );
   // 펼침은 #17-16 ④ 모듈 저장소 — 가상 리스트가 언마운트해도 펼쳐 둔 채로 돌아온다.
@@ -606,6 +653,13 @@ const TextBlock = memo(function TextBlock({ item, density, exempt, run }: { item
     // §5.5 #17-45 — 세로 여백은 **본문 칸**이 갖는다(바깥 상자 ❌). 그래야 왼쪽 말머리 칸이 항목 높이를
     //   꽉 채워 런의 실선이 문단 사이에서 끊기지 않는다. `solo` 는 py-1 이라 종전과 높이가 같다.
     <div className="px-4 max-md:px-1.5">
+      {/* §5.5 #17-39 ⑫ — VS Code 대화처럼 글 위 한 줄의 오른쪽 끝(말머리는 종전대로 첫 줄 옆).
+          오른쪽 여백(pr-0.5 · 폰 pr-2)은 도구 머리줄 끝(mx-2 + px-2.5)에 맞춘 값 — 시각들이 한 세로줄에 선다. */}
+      {clock && (
+        <div className="flex justify-end pr-0.5 pt-1 max-md:pr-2">
+          <StreamClockStamp clock={clock} />
+        </div>
+      )}
       <div className="flex gap-2">
         <AiSpeakerGlyph run={run} />
         <div className={`min-w-0 flex-1 ${run === 'mid' || run === 'tail' ? 'py-0.5' : 'py-1'}`}>
@@ -632,7 +686,7 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
   /** §5.5 #17-30 — 이 스트림이 속한 세션(코멘트를 담을 자리). 없으면 코멘트 손잡이는 뜨지 않는다. */
   review?: DiffReviewCtx | undefined;
 }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // §5.5 #17-27 — 헤더에 적힌 파일명이 곧 여는 손잡이다(앱 안 편집창 — 밖 편집기는 diff 우측 연필 그대로).
   const rootPath = useIDEProjectRoot();
   const { openEditorFile: openInEditor } = useIDEPaneActions();
@@ -669,6 +723,12 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
   // §5.5 #17-13 — input 미리보기는 공용 순수 함수로(원본 JSON·`cd <절대경로> &&` 노출 제거).
   const preview = useMemo(() => toolPreview(item.input), [item.input]);
 
+  // §5.5 #17-39 ⑪ — 이 도구가 쓴 시간(호출 → 결과 도착). **진행 중에는 재지 않는다** — 끝을 모르는 채로
+  //   적으면 매 틱 숫자가 바뀌며 머리줄이 깜빡인다(묶음 머리줄과 같은 규율). 결과가 없으면 아무것도 안 붙인다.
+  const elapsed = item.isActive ? '' : toolCallElapsedText(t, toolCallElapsedMs(item.timestamp, item.endedAt));
+  // §5.5 #17-39 ⑫ — 이 도구를 쓴 시각(호출이 나간 시각). 시각은 자라지 않으므로 진행 중에도 적는다.
+  const clock = formatStreamClock(item.timestamp, i18n.language);
+
   const handleOpenFile = useCallback((e: React.MouseEvent): void => {
     // 헤더 전체는 펼치기/접기라, 파일명 클릭만 따로 떼어 낸다.
     e.stopPropagation();
@@ -704,6 +764,9 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
           {item.toolName}
         </span>
 
+        {/* §5.5 #17-39 ⑪ — 이 도구가 쓴 시간. 묶음 머리줄의 `×N` 뒤 경과와 같은 자리·같은 모양(이름 바로 뒤). */}
+        {elapsed && <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-600">{elapsed}</span>}
+
         {/* 미리보기 — Edit 계열은 펼침 여부와 무관하게 파일명 + 생성/수정 라벨을 항상 표시. */}
         {parsedEdit ? (
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -731,14 +794,16 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
           </span>
         ))}
 
-        {/* 스피너 or hover 힌트 */}
-        <div className="flex flex-shrink-0 items-center gap-1.5">
+        {/* 스피너 or hover 힌트 + §5.5 #17-39 ⑫ 시각 — `ml-auto` 로 늘 오른쪽 끝에 붙는다(종전엔 펼친 비-Edit
+            상자에서 이 칸이 이름 바로 옆에 붙었다). 맨 끝이 시각이라 힌트가 떠도 시각 자리는 움직이지 않는다. */}
+        <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">
           {item.isActive && (
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
           )}
           <span className="hidden text-[12px] text-gray-500 group-hover/hdr:inline">
             {open ? t('ide.streamRenderer.collapse') : t('ide.streamRenderer.expand')}
           </span>
+          <StreamClockStamp clock={clock} />
         </div>
       </div>
 
@@ -812,7 +877,9 @@ function ToolGroupLatestLine({ item }: { item: StreamGroup }): React.JSX.Element
  * 도구가 1개일 때부터 이 묶음이 존재하므로(streamDensity), 도구가 늘어도 상자가 교체되지 않는다.
  */
 const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: StreamToolGroup; density: StreamDensity }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // §5.5 #17-39 ⑫ — 이 묶음을 시작한 시각(첫 도구). 펼치면 도구 상자마다 제 시각이 따로 선다.
+  const clock = formatStreamClock(item.timestamp, i18n.language);
   const [open, toggleOpen] = useStreamToggle(item.id, false);
   const shownNames = item.toolNames.slice(0, TOOL_GROUP_NAME_CHIPS);
   const restNames = item.toolNames.length - shownNames.length;
@@ -830,8 +897,9 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
 
   // §5.5 #17-39 — 이 묶음이 걸린 시간. **진행 중에는 재지 않는다** — 끝을 모르는 채로 적으면 매 틱 숫자가
   //   바뀌며 헤더가 깜빡인다(자라는 자국 ❌ 는 사고 자국과 같은 규율).
+  //   ⑪ — 도구 상자의 결과 도착 시각까지 폭에 넣는다(마지막 도구의 실행 시간이 빠지지 않게 — 메인 탭과 같은 폭).
   const elapsed = useMemo(
-    () => (item.active ? '' : toolElapsedText(t, toolGroupElapsedMs(item.children.map((c) => c.timestamp)))),
+    () => (item.active ? '' : toolElapsedText(t, toolGroupElapsedMs(toolSpanTimestamps(item.children)))),
     [item.active, item.children, t],
   );
 
@@ -870,6 +938,8 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
           ))}
           {restNames > 0 && <span className="flex-shrink-0 text-[12px] text-gray-600">+{restNames}</span>}
         </span>
+        {/* §5.5 #17-39 ⑫ — 오른쪽 끝 시각(이름 칩 칸이 flex-1 이라 늘 맨 끝에 선다). */}
+        <StreamClockStamp clock={clock} />
       </button>
       {/* 접혀 있어도 최근 도구 한 줄은 항상 — 활성이든 완료든 같은 높이라 스트리밍 중 화면이 안 움직인다. */}
       {!open && latest && <ToolGroupLatestLine item={latest} />}
@@ -929,23 +999,7 @@ function ImageBlock({ item, ctx }: { item: StreamImage; ctx?: StreamFeedbackCtx 
  * 그 아래 코드 폰트로 그대로 보여준다(번역 대상 아님 — 손대면 검색·대조가 안 된다).
  */
 function ErrorLine({ item }: { item: StreamError }): React.JSX.Element {
-  const { t } = useTranslation();
-  const desc = describeCommandError(parseStreamErrorContent(item.content));
-  return (
-    <div className="mx-2 my-1 rounded-md border border-red-500/30 bg-red-500/5 px-4 py-2.5 max-md:mx-1 max-md:px-2.5">
-      <div className="flex items-start gap-2">
-        <svg viewBox="0 0 24 24" className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-        </svg>
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-red-300">{t(desc.labelKey, desc.labelParams)}</div>
-          {desc.detail && (
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-gray-400">{desc.detail}</pre>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  return <CommandErrorNotice error={parseStreamErrorContent(item.content)} className="mx-2 my-1 max-md:mx-1" />;
 }
 
 /**
@@ -989,20 +1043,6 @@ function ResultBlock({ item, feedbackCtx }: { item: StreamResult; feedbackCtx?: 
             summary={[item.content.slice(0, 200)]}
           />
         </div>
-      )}
-    </div>
-  );
-}
-
-/** §5.5 #17-12 ③ — 명령 말풍선에 붙는 실패 사유(스트림 폴백 경로). 문장 조립 규칙은 `ErrorLine` 과 같다. */
-function CommandErrorNotice({ error }: { error: CommandError }): React.JSX.Element {
-  const { t } = useTranslation();
-  const desc = describeCommandError(error);
-  return (
-    <div className="mb-1.5 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2">
-      <div className="text-[12px] font-medium text-red-300">{t(desc.labelKey, desc.labelParams)}</div>
-      {desc.detail && (
-        <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-gray-400">{desc.detail}</pre>
       )}
     </div>
   );

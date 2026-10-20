@@ -24,6 +24,10 @@ function bodyHandlers(): BodyMenuHandlers {
     cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), selectAll: vi.fn(), undo: vi.fn(), redo: vi.fn(),
     save: vi.fn(), reload: vi.fn(), copyPath: vi.fn(), copyLineRef: vi.fn(), openExternal: vi.fn(),
     searchWeb: vi.fn(),
+    find: vi.fn(), replace: vi.fn(), goToLine: vi.fn(),
+    copyLineUp: vi.fn(), copyLineDown: vi.fn(), moveLineUp: vi.fn(), moveLineDown: vi.fn(), deleteLine: vi.fn(),
+    insertLineBelow: vi.fn(), insertLineAbove: vi.fn(), selectLine: vi.fn(), indentLines: vi.fn(), outdentLines: vi.fn(),
+    toggleLineComment: vi.fn(), toggleBlockComment: vi.fn(),
   };
 }
 
@@ -74,7 +78,53 @@ describe('buildBodyMenuItems', () => {
 
   it('묶음이 바뀌는 자리에만 구분선이 있다', () => {
     const items = buildBodyMenuItems({ hasSelection: true, readOnly: false, dirty: true }, bodyHandlers(), t);
-    expect(items.filter((i) => i.separatorBefore).map((i) => i.id)).toEqual(['undo', 'save', 'copyPath']);
+    expect(items.filter((i) => i.separatorBefore).map((i) => i.id)).toEqual(['undo', 'find', 'save', 'copyPath']);
+  });
+
+  it('§5.5 #17-27 ⑲ 찾기·바꾸기·줄 번호로 가기는 레지스트리의 키를 그린다(재매핑하면 메뉴도 따라간다)', () => {
+    const h = bodyHandlers();
+    const items = buildBodyMenuItems({ hasSelection: false, readOnly: false, dirty: false }, h, t);
+    expect(find(items, 'find').cmd).toBe('editor.find');
+    expect(find(items, 'replace').cmd).toBe('editor.replace');
+    expect(find(items, 'goToLine').cmd).toBe('editor.goToLine');
+    // "Find" 는 터미널 찾기와 같은 원문이라 키도 하나다(같은 말에 번역 키 두 벌 ❌).
+    expect(find(items, 'find').label).toBe('ide.terminal.find');
+    find(items, 'find').onClick();
+    find(items, 'goToLine').onClick();
+    expect(h.find).toHaveBeenCalledOnce();
+    expect(h.goToLine).toHaveBeenCalledOnce();
+  });
+
+  it('읽기 전용이면 바꾸기와 줄 편집이 흐려지고, 찾기·줄 이동·줄 고르기는 된다', () => {
+    const items = buildBodyMenuItems({ hasSelection: false, readOnly: true, dirty: false }, bodyHandlers(), t);
+    expect(find(items, 'find').disabled).toBeUndefined();
+    expect(find(items, 'goToLine').disabled).toBeUndefined();
+    expect(find(items, 'replace').disabled).toBe(true);
+    expect(find(items, 'replace').disabledTitle).toBe('ide.editor.ctx.readOnlyFile');
+    const lines = find(items, 'lineEdits').children ?? [];
+    for (const id of ['copyLineUp', 'moveLineDown', 'deleteLine', 'indentLines', 'toggleLineComment']) {
+      expect(find(lines, id).disabled, id).toBe(true);
+      expect(find(lines, id).disabledTitle, id).toBe('ide.editor.ctx.readOnlyFile');
+    }
+    expect(find(lines, 'selectLine').disabled).toBeUndefined();
+  });
+
+  it('줄 편집 하위 메뉴 — 명령 이름은 단축키 목록과 같은 키, 주석 기호가 없으면 주석 항목이 이유와 함께 흐려진다', () => {
+    const h = bodyHandlers();
+    const items = buildBodyMenuItems(
+      { hasSelection: false, readOnly: false, dirty: false, canLineComment: false, canBlockComment: false }, h, t,
+    );
+    const lines = find(items, 'lineEdits').children ?? [];
+    expect(find(lines, 'moveLineUp').label).toBe('common.shortcuts.cmd.editor.moveLineUp');
+    expect(find(lines, 'moveLineUp').cmd).toBe('editor.moveLineUp');
+    expect(find(lines, 'toggleLineComment').disabled).toBe(true);
+    expect(find(lines, 'toggleLineComment').disabledTitle).toBe('ide.editor.ctx.noCommentSyntax');
+    expect(find(lines, 'toggleBlockComment').disabled).toBe(true);
+    find(lines, 'moveLineUp').onClick();
+    expect(h.moveLineUp).toHaveBeenCalledOnce();
+    // 주석 기호를 따로 안 알려 주면(종전 호출부) 있다고 본다.
+    const legacy = buildBodyMenuItems({ hasSelection: false, readOnly: false, dirty: false }, bodyHandlers(), t);
+    expect(find(find(legacy, 'lineEdits').children ?? [], 'toggleLineComment').disabled).toBe(false);
   });
   it('웹에서 검색은 고른 글자가 있을 때만 눌린다 — 읽기 전용이어도 막지 않는다', () => {
     const off = buildBodyMenuItems({ hasSelection: false, readOnly: true, dirty: false }, bodyHandlers(), t);

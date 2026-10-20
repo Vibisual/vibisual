@@ -1,4 +1,5 @@
 import { toRelativeFromRoot } from './explorerModel.js';
+import { lineRangeOf, type EditorLineRange } from './editorLineRange.js';
 
 /**
  * streamPathLinks.ts — §5.5 #17-27 ⑬ 스트림 본문 속 경로 손잡이의 **순수 판정**.
@@ -31,17 +32,17 @@ export type StreamPathCandidate =
       /** 루트 기준 상대 경로(forward slash, 앞뒤 구분자 제거). `''` = 프로젝트 루트 자신. */
       readonly relPath: string;
       /**
-       * 원문에서 떼어 낸 줄 번호(`경로:42` / `경로:42:7`). 없으면 null.
-       * **여는 데는 쓰지 않는다**(⑬ (g) — 줄로 스크롤하는 일은 #17-20 ⑪ 담당). 툴팁에만 쓴다.
+       * 원문에서 떼어 낸 줄 범위(`경로:42` · `경로:42:7` · `경로:42-51` · 링크 조각 `#L42-L51`). 없으면 null.
+       * 경로 판정에는 쓰지 않고((b) — 디스크는 경로만 본다), **열 때** 편집창을 그 줄로 데려간다(⑬ (g)).
        */
-      readonly line: number | null;
+      readonly lines: EditorLineRange | null;
     }
   | {
       readonly scope: 'outside';
       /** 루트 밖 절대 경로(forward slash 로 정규화, 뒤 구분자 제거). 탐색기에 그대로 넘긴다. */
       readonly absPath: string;
-      /** `inside` 쪽과 같은 뜻 — 툴팁 전용이다. */
-      readonly line: number | null;
+      /** `inside` 쪽과 같은 모양 — 루트 밖은 탐색기 하나뿐이라(⑬ (d)) 여는 데는 쓰이지 않는다. */
+      readonly lines: EditorLineRange | null;
     };
 
 /** 경로로 보기엔 너무 긴 조각(Windows MAX_PATH). 이보다 길면 본문 문장이지 위치가 아니다. */
@@ -77,8 +78,11 @@ const NON_PATH_CHARS_ABS = /[\t\n\r\v\f"'`<>|*?()[\]{}=;,!$&^~+]/;
 /** 원문(역슬래시 그대로) 기준으로 "절대 경로처럼 시작하는가". 공백 허용 여부를 이걸로 가른다. */
 const ABS_HEAD = /^(?:[A-Za-z]:[\\/]|\/)/;
 
-/** `경로:42` · `경로:42:7` — 뒤에 붙은 줄(열) 번호. */
-const LINE_SUFFIX = /^(.*?):(\d+)(?::\d+)?$/;
+/**
+ * `경로:42` · `경로:42:7`(열은 버린다) · `경로:42-51`(범위) — 뒤에 붙은 줄 표기.
+ * 범위의 대시는 en dash(`–`)도 받는다 — 에이전트가 문장 속 범위를 그렇게 적는 일이 있다.
+ */
+const LINE_SUFFIX = /^(.*?):(\d+)(?:[-–](\d+)|:\d+)?$/;
 
 /** `C:/repo` · `D:\repo` — Windows 절대 경로의 드라이브 머리. */
 const WIN_DRIVE = /^[A-Za-z]:\//;
@@ -122,14 +126,8 @@ export function toStreamPathCandidate(raw: string, rootPath: string | null): Str
   // 명시된 경로라도 상한은 둔다 — 긴 쪽 여유는 주되(win32 긴 경로), 본문 문장이 통째로 들어오는 것은 막는다.
   if (!text || text.length > MAX_LINK_PATH_LEN) return null;
 
-  // (g) 줄 번호를 먼저 떼어 낸다. 앞 토막이 한 글자면 그것은 줄 번호가 아니라 드라이브(`C:`)다.
-  let body = text;
-  let line: number | null = null;
-  const withLine = LINE_SUFFIX.exec(text);
-  if (withLine && withLine[1] !== undefined && withLine[1].length > 1) {
-    body = withLine[1];
-    line = Number(withLine[2]);
-  }
+  // (g) 줄 표기를 먼저 떼어 낸다 — 경로 판정은 경로만 보고, 줄은 들고 가서 열 때 쓴다.
+  const { body, lines } = splitLineSuffix(text);
 
   const norm = body.replace(/\\/g, '/').replace(/\/+$/, '');
   if (!norm) return null;
@@ -147,8 +145,8 @@ export function toStreamPathCandidate(raw: string, rootPath: string | null): Str
     const rel = toRelativeFromRoot(norm, rootPath);
     // ⑬ (d) — 루트 밖도 후보가 된다(종전에는 여기서 null 이었다). 다만 갈 수 있는 곳은 탐색기 하나뿐이라
     // 상대 경로가 아니라 **절대 경로 그대로** 들고 간다 — 기준이 없는 값을 상대처럼 쓰면 엉뚱한 곳이 열린다.
-    if (rel === norm && rel !== '') return { scope: 'outside', absPath: norm, line };
-    return { scope: 'inside', relPath: rel, line };
+    if (rel === norm && rel !== '') return { scope: 'outside', absPath: norm, lines };
+    return { scope: 'inside', relPath: rel, lines };
   }
 
   const relPath = norm.replace(/^\.\//, '');
@@ -157,5 +155,17 @@ export function toStreamPathCandidate(raw: string, rootPath: string | null): Str
   if (relPath === '..' || relPath.startsWith('../')) return null;
   if (relPath === '.') return null;
 
-  return { scope: 'inside', relPath, line };
+  return { scope: 'inside', relPath, lines };
+}
+
+/**
+ * 끝에 붙은 줄 표기를 떼어 낸다(`a.ts:42-51` → `a.ts` + 42~51). 앞 토막이 한 글자면 줄이 아니라
+ * 드라이브(`C:`)라 떼지 않는다. 표기는 있는데 줄로 쓸 수 없는 값(`a.ts:0`)이면 떼기만 하고 줄은 null 이다.
+ *
+ * 링크 글자(⑬ (g) ③ — `streamLinkHref.ts`)도 이 함수로 읽는다. 두 벌이면 한쪽만 범위 표기를 알게 된다.
+ */
+export function splitLineSuffix(text: string): { body: string; lines: EditorLineRange | null } {
+  const m = LINE_SUFFIX.exec(text);
+  if (!m || m[1] === undefined || m[1].length <= 1) return { body: text, lines: null };
+  return { body: m[1], lines: lineRangeOf(Number(m[2]), m[3] === undefined ? null : Number(m[3])) };
 }

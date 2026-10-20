@@ -32,6 +32,11 @@ import {
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 import { KindGlyph, KIND_NEUTRAL } from './StageGlyph.js';
+import { placeCanvasMenu } from '../BubbleMap/canvasMenuPlacement.js';
+import { followVisibleViewport, viewportMaxHeight, visibleViewport } from './popupPlacement.js';
+
+/** 메뉴 치수 — 클래스(`w-64` · `max-h-[22rem]`)와 짝이다. 화면 안으로 접을 때 이 크기를 가정한다. */
+const STAGE_MENU_SIZE = { width: 256, height: 352 } as const;
 
 /** 메뉴가 뜬 자리 — 화면 좌표(어디 그릴지)와 캔버스 좌표(무엇이 될지)를 함께 나른다. */
 export interface StageMenuAnchor {
@@ -203,6 +208,10 @@ export const StageCanvasMenu = memo(function StageCanvasMenu({
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
+  // 보이는 화면(시각 뷰포트)이 바뀌면 다시 접는다 — 검색칸이 곧바로 초점을 가져가므로 폰에서는 메뉴가 뜨자마자
+  //   가상 키보드가 올라와 화면 아래를 덮는다. 값은 아래 자리 계산이 그때그때 읽는다(여기는 다시 그리라는 신호뿐).
+  const [, setViewportTick] = useState(0);
+  useEffect(() => (typeof window === 'undefined' ? undefined : followVisibleViewport(() => setViewportTick((n) => n + 1))), []);
 
   // 캔버스 생성 메뉴와 **같은 닫기 규약** — 좌클릭·휠클릭만 닫기 사유고, 우클릭은 메뉴 재오픈용이라 무시한다.
   useOutsidePressDismiss({
@@ -485,24 +494,26 @@ export const StageCanvasMenu = memo(function StageCanvasMenu({
 
   const first = shown.find((g) => g.rows.length > 0)?.rows[0];
 
-  // 화면 밖으로 넘치지 않게 뷰포트 안으로 당긴다(캔버스 생성 메뉴와 같은 규약).
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
-  const left = Math.max(8, Math.min(anchor.screenX, vw - 268));
-  // 아래 상한은 메뉴의 최대 높이(`max-h-[22rem]` = 352px)보다 커야 한다 — 작으면 긴 메뉴의 꼬리가
-  //   화면 밖으로 나가 [자동 정렬]처럼 맨 아래 칸에 영영 닿지 못한다.
-  const top = Math.max(8, Math.min(anchor.screenY, vh - 360));
+  // 화면 밖으로 넘치지 않게 **보이는 화면** 안으로 당긴다(캔버스 생성 메뉴와 같은 규약·같은 함수).
+  //   아래 상한은 메뉴의 최대 높이(`max-h-[22rem]` = 352px)로 잡는다 — 그보다 작게 잡으면 긴 메뉴의 꼬리가
+  //   화면 밖으로 나가 [자동 정렬]처럼 맨 아래 칸에 영영 닿지 못한다. 보이는 화면이 그보다 낮으면(키보드가 덮은 폰)
+  //   메뉴 높이를 그 화면에 맞춰 줄이고 안에서 스크롤한다.
+  const viewport = typeof window !== 'undefined' ? visibleViewport() : null;
+  const maxHeight = viewport ? Math.min(STAGE_MENU_SIZE.height, viewportMaxHeight(viewport)) : STAGE_MENU_SIZE.height;
+  const { left, top } = viewport
+    ? placeCanvasMenu({ x: anchor.screenX, y: anchor.screenY }, { width: STAGE_MENU_SIZE.width, height: maxHeight }, viewport)
+    : { left: anchor.screenX, top: anchor.screenY };
 
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-64"
+      className="fixed z-50 w-64 max-w-[calc(100vw-16px)]"
       style={{ left, top }}
       onMouseDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
       onWheel={(e) => e.stopPropagation()}
     >
-      <div className="flex max-h-[22rem] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+      <div className="flex max-h-[22rem] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40" style={{ maxHeight }}>
         <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-gray-800 px-2 py-1.5">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 flex-shrink-0 text-gray-500" aria-hidden>
             <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />

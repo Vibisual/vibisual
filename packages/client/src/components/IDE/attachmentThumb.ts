@@ -74,13 +74,16 @@ export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThum
 
   useEffect(() => {
     let cancelled = false;
+    const pending = new Set<string>();
     void (async () => {
       for (const p of paths ?? []) {
+        if (cancelled) return;
         const bn = basenameOf(p);
         if (previews[bn] || doneRef.current.has(p)) continue;
         doneRef.current.add(p);
         const url = buildAttachmentFetchUrl(p);
         if (!url) continue;
+        pending.add(p);
         try {
           const res = await fetch(url);
           if (!res.ok || cancelled) continue;
@@ -88,6 +91,7 @@ export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThum
           if (cancelled) return;
           const obj = URL.createObjectURL(blob);
           createdRef.current.push(obj);
+          pending.delete(p);
           setFetched((prev) => (prev[p] ? prev : { ...prev, [p]: obj }));
         } catch {
           /* 폴백 실패 — 썸네일 없이 진행 */
@@ -96,6 +100,9 @@ export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThum
     })();
     return () => {
       cancelled = true;
+      // A session switch cancels unfinished previews, not the ability to fetch them on return.
+      // Clear only this effect's pending paths before the next effect claims them.
+      for (const p of pending) doneRef.current.delete(p);
     };
   }, [key, previews]);
 

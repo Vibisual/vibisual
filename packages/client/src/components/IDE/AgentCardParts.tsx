@@ -147,10 +147,13 @@ export function CompactCardLine({ icon, label, labelClass, summary, onExpand, li
   );
 }
 
-/** 좋아요/싫어요 등 보조 컨트롤 — 호버(또는 포커스) 때만 드러나 상시 잡음을 없앤다. */
+/**
+ * 좋아요/싫어요 등 보조 컨트롤 — 호버(또는 포커스) 때만 드러나 상시 잡음을 없앤다.
+ * 터치에는 hover 가 없어 늘 보인다 — 숨겨 두면 보이지 않는 단추가 손가락에 눌린다(투명해도 눌린다).
+ */
 export function CardHoverControls({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="mt-1.5 border-t border-gray-800/60 pt-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100">
+    <div className="mt-1.5 border-t border-gray-800/60 pt-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100">
       {children}
     </div>
   );

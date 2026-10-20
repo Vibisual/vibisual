@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { WORKSPACE_DIR_ENTRY_MAX } from '@vibisual/shared';
 import type { WorkspaceEntry, WorkspacePathKind } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { confirmDialog } from '../../utils/appDialog.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { flattenExplorerRows, splitRelPath, workspaceMutateErrorKey, type ExplorerDraft } from './explorerModel.js';
 import { editorFileFromAbsPath, editorFileFromRelPath } from './editorModel.js';
@@ -55,6 +56,14 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   const rootPath = useIDEProjectRoot();
   // §5.5 #17-1 — 탐색기에서 연 파일은 **이 창의** 편집창에 뜬다.
   const paneKey = useIDEPaneKey();
+  const mutationPending = useRef(false);
+  const explorerScope = useMemo(() => ({ rootPath, paneKey }), [rootPath, paneKey]);
+  const explorerScopeRef = useRef<typeof explorerScope | null>(explorerScope);
+  explorerScopeRef.current = explorerScope;
+  useEffect(() => {
+    explorerScopeRef.current = explorerScope;
+    return () => { explorerScopeRef.current = null; };
+  }, [explorerScope]);
   const { openEditorFile: openInEditor, closeEditorFile } = useIDEPaneActions();
   /** #17-29 — 훅 버블은 전면 읽기 전용이라 넣을 입력창 자체가 없다(그때는 복사만 하고 이름도 갈린다). */
   const isCustom = useGraphStore((s) => s.nodeMap[agentId]?.customCreated ?? false);
@@ -237,13 +246,13 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
 
   /**
    * ⑧ — 폴더 위에서 손을 뗐다. **되물음은 여기서** 뜬다 — 되돌릴 수 없는 쓰기의 되물음은 언제나
-   * 화면의 몫이고(⑦ 삭제와 같은 분담), 방식도 그 자리와 같은 것 하나(`window.confirm`)를 쓴다.
+   * 화면의 몫이고(⑦ 삭제와 같은 분담), 방식도 그 자리와 같은 앱 팝업을 쓴다.
    *
    * 옮기고 나면 **열려 있던 탭은 옛 경로를 가리킨다** — 그대로 두면 저장이 없는 파일로 간다.
    * 그래서 영향을 받은 탭은 닫고, 방금 옮긴 그 파일만 새 자리에서 다시 연다(있던 자리를 잃지 않게).
    */
   const handleEntryDrop = useCallback((e: React.DragEvent, targetDir: WorkspaceEntry) => {
-    if (!rootPath) return;
+    if (!rootPath || mutationPending.current) return;
     const drag = decodeWorkspaceDrag(e.dataTransfer.getData(WORKSPACE_DRAG_MIME));
     clearActiveWorkspaceDrag();
     if (!drag) return;
@@ -255,25 +264,31 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
       else if (block === 'other-root') setNotice({ text: t('ide.explorer.ctx.err.outside'), tone: 'error' });
       return;
     }
-    if (!window.confirm(t('ide.explorer.ctx.confirmMove', { name: drag.name, folder: targetDir.name }))) return;
-
-    const fromDir = parentRelOf(drag.relPath);
-    const openTabs = openTabsUnder(drag.relPath);
-    const wasOpen = openTabs.includes(drag.relPath);
+    mutationPending.current = true;
     void (async () => {
-      const reply = await moveWorkspaceEntry(rootPath, drag.relPath, targetDir.relPath);
-      if (!reply.ok) {
-        setNotice({ text: t(workspaceMutateErrorKey(reply.error)), tone: 'error' });
-        return;
+      try {
+        if (!await confirmDialog(t('ide.explorer.ctx.confirmMove', { name: drag.name, folder: targetDir.name }))) return;
+        if (explorerScopeRef.current !== explorerScope) return;
+        const fromDir = parentRelOf(drag.relPath);
+        const openTabs = openTabsUnder(drag.relPath);
+        const wasOpen = openTabs.includes(drag.relPath);
+        const reply = await moveWorkspaceEntry(rootPath, drag.relPath, targetDir.relPath);
+        if (explorerScopeRef.current !== explorerScope) return;
+        if (!reply.ok) {
+          setNotice({ text: t(workspaceMutateErrorKey(reply.error)), tone: 'error' });
+          return;
+        }
+        refreshDir(fromDir);
+        refreshDir(targetDir.relPath);
+        for (const relPath of openTabs) closeEditorFile(relPath);
+        if (wasOpen && !reply.result.isDirectory) openInEditor(editorFileFromRelPath(reply.result.path, rootPath));
+        setSelectedPath((prev) => (prev === drag.relPath ? reply.result.path : prev));
+        setNotice({ text: t('ide.explorer.ctx.moved', { name: drag.name, folder: targetDir.name }), tone: 'info' });
+      } finally {
+        mutationPending.current = false;
       }
-      refreshDir(fromDir);
-      refreshDir(targetDir.relPath);
-      for (const relPath of openTabs) closeEditorFile(relPath);
-      if (wasOpen && !reply.result.isDirectory) openInEditor(editorFileFromRelPath(reply.result.path, rootPath));
-      setSelectedPath((prev) => (prev === drag.relPath ? reply.result.path : prev));
-      setNotice({ text: t('ide.explorer.ctx.moved', { name: drag.name, folder: targetDir.name }), tone: 'info' });
     })();
-  }, [rootPath, t, refreshDir, openTabsUnder, closeEditorFile, openInEditor]);
+  }, [rootPath, explorerScope, t, refreshDir, openTabsUnder, closeEditorFile, openInEditor]);
 
   const handleDraftCancel = useCallback(() => setDraft(null), []);
 
@@ -323,31 +338,37 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
 
   /** 삭제 — 되돌릴 수 없는 유일한 항목이라 **여기서만** 되묻는다. */
   const requestDelete = useCallback((entry: WorkspaceEntry) => {
-    if (!rootPath) return;
+    if (!rootPath || mutationPending.current) return;
     const message = trashAvailable
       ? t('ide.explorer.ctx.confirmTrash', { name: entry.name })
       : t('ide.explorer.ctx.confirmDelete', { name: entry.name });
-    if (!window.confirm(message)) return;
-
-    const { dir } = splitRelPath(entry.relPath);
-    const openTabs = openTabsUnder(entry.relPath);
+    mutationPending.current = true;
     void (async () => {
-      const reply = await deleteWorkspaceEntry(rootPath, entry.relPath);
-      if (!reply.ok) {
-        setNotice({ text: t(workspaceMutateErrorKey(reply.error)), tone: 'error' });
-        return;
+      try {
+        if (!await confirmDialog(message, { tone: 'danger' })) return;
+        if (explorerScopeRef.current !== explorerScope) return;
+        const { dir } = splitRelPath(entry.relPath);
+        const openTabs = openTabsUnder(entry.relPath);
+        const reply = await deleteWorkspaceEntry(rootPath, entry.relPath);
+        if (explorerScopeRef.current !== explorerScope) return;
+        if (!reply.ok) {
+          setNotice({ text: t(workspaceMutateErrorKey(reply.error)), tone: 'error' });
+          return;
+        }
+        refreshDir(dir);
+        for (const relPath of openTabs) closeEditorFile(relPath);
+        setSelectedPath((prev) => (prev === entry.relPath ? null : prev));
+        setNotice({
+          text: reply.result.trashed
+            ? t('ide.explorer.ctx.trashed', { name: entry.name })
+            : t('ide.explorer.ctx.deleted', { name: entry.name }),
+          tone: 'info',
+        });
+      } finally {
+        mutationPending.current = false;
       }
-      refreshDir(dir);
-      for (const relPath of openTabs) closeEditorFile(relPath);
-      setSelectedPath((prev) => (prev === entry.relPath ? null : prev));
-      setNotice({
-        text: reply.result.trashed
-          ? t('ide.explorer.ctx.trashed', { name: entry.name })
-          : t('ide.explorer.ctx.deleted', { name: entry.name }),
-        tone: 'info',
-      });
     })();
-  }, [rootPath, trashAvailable, t, refreshDir, closeEditorFile, openTabsUnder]);
+  }, [rootPath, explorerScope, trashAvailable, t, refreshDir, closeEditorFile, openTabsUnder]);
 
   /** 트리 행 우클릭 — 고른 행을 표시로 옮기고(무엇에 대한 메뉴인지 보이게) 그 행의 메뉴를 연다. */
   const handleRowContextMenu = useCallback((e: React.MouseEvent, entry: WorkspaceEntry) => {
@@ -412,7 +433,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
           disabled={!rootPath}
           title={t('ide.explorer.ctx.newFile')}
           aria-label={t('ide.explorer.ctx.newFile')}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700 pointer-coarse:p-2.5"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
@@ -425,7 +446,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
           disabled={!rootPath}
           title={t('ide.explorer.ctx.newFolder')}
           aria-label={t('ide.explorer.ctx.newFolder')}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700 pointer-coarse:p-2.5"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z" />
@@ -437,7 +458,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
           onClick={refresh}
           title={t('ide.explorer.refresh')}
           aria-label={t('ide.explorer.refresh')}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2.5"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-2.6-6.4" />
@@ -449,7 +470,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
           onClick={collapseAll}
           title={t('ide.explorer.collapseAll')}
           aria-label={t('ide.explorer.collapseAll')}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2.5"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="m7 4 5 5 5-5" />

@@ -17,6 +17,8 @@ import type { TodoItem } from '@vibisual/shared';
 import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
+import { CommandErrorNotice } from './CommandErrorNotice.js';
+import { StreamErrorAccumulator } from './streamErrorDedup.js';
 import { turnStopLabelKey } from './turnStopLabel.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
@@ -32,6 +34,7 @@ import { builtinSlashDescription } from './slashBuiltinDesc.js';
 // §5.5 #17-33 ⑦ — 스킬 상태 태그. 여기서는 **표시 전용**(`onFix` 를 안 넘긴다).
 import { SkillStateTag } from '../SkillStateTag.js';
 import { useSessionStop } from '../../hooks/useSessionStop.js';
+import { clearFieldText } from '../../hooks/textFieldActions.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { openWebSearch } from './webSearchUrl.js';
 import { StreamRenderer, StreamEndGap, type StreamRendererHandle } from './StreamRenderer.js';
@@ -62,10 +65,11 @@ import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalPanes } from './IDETerminalPanes.js';
 import { SessionMemoLayer } from './SessionMemoLayer.js';
 import { canAddMemoCount, hasHiddenMemoHeaders } from './sessionMemo.js';
+import { useMemoLinkHost } from './useMemoLinkHost.js';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
-import { collectThinkRuns, mergeAdjacentThinkTraces, shouldTraceWriting, toolGroupElapsedMs, type ThinkTraceView } from './turnSteps.js';
-import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
+import { collectThinkRuns, mergeAdjacentThinkTraces, shouldTraceWriting, toolGroupElapsedMs, toolCallElapsedMs, type ThinkTraceView } from './turnSteps.js';
+import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText } from './stepTraceText.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
 import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
@@ -202,6 +206,7 @@ interface TerminalEntry {
   sessionLabel?: string;
   toolName?: string;
   transportRecovery?: StreamTransportRecovery;
+  error?: CommandError;
   /**
    * §5.5 #17-39 — **마지막 조각이 도착한 시각**. `timestamp`(첫 조각) 와의 차이가 곧 걸린 시간이다.
    * 사고 자국(`type==='step'`)과 합쳐진 본문(`type==='text'`) 둘 다 이 필드를 쓴다(Sub 탭 `endedAt` 과 대칭).
@@ -475,21 +480,24 @@ export function buildEntries(
     const sessionCommands = originalCommands.filter((cmd) => cmd.subAgentId === subId);
     const anchors = dispatchedTurnAnchorsAsc(sessionCommands);
     const recovery = new TransportRecoveryAccumulator();
+    const errors = new StreamErrorAccumulator();
     const recoveryRows: StreamSystem[] = [];
+    const makeStreamEntry = (evt: SubAgentStreamEvent): TerminalEntry => ({
+      id: evt.id,
+      type: evt.imagePath ? 'image' : evt.eventType,
+      text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
+      timestamp: evt.timestamp,
+      sessionLabel: label,
+      toolName: evt.toolName,
+      subAgentId: subId,
+      ...(evt.eventType === 'error' ? { error: parseStreamErrorContent(evt.content) } : {}),
+      ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
+    });
     for (const evt of events) {
       // Thinking is evidence of resumed work even though its raw body is hidden below.
       if (recovery.consume(evt, turnOfEvent(evt, anchors), recoveryRows)) continue;
       if (isThinkingActivity(evt) || isHiddenSystemEvent(evt)) continue;
-      entries.push({
-        id: evt.id,
-        type: evt.imagePath ? 'image' : evt.eventType,
-        text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
-        timestamp: evt.timestamp,
-        sessionLabel: label,
-        toolName: evt.toolName,
-        subAgentId: subId,
-        ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
-      });
+      if (!errors.consume(evt, turnOfEvent(evt, anchors), entries, makeStreamEntry)) entries.push(makeStreamEntry(evt));
     }
     const sub = subAgents.find((candidate) => candidate.id === subId);
     const running = sub !== undefined && isSessionRunning(buildSessionRunInputs({
@@ -621,6 +629,7 @@ export function buildEntries(
         type: 'error',
         // §5.5 #17-18 ⑥ — 결과 줄은 그 명령의 말풍선 **바로 아래**에 붙는다(같은 기준 + 1).
         text: formatError(cmd.error),
+        error: cmd.error,
         timestamp: commandAnchorTs(cmd) + 1,
         sessionLabel,
       });
@@ -898,6 +907,12 @@ function TerminalLine({ entry, density, exempt, run, agentId }: { entry: Termina
   if (entry.transportRecovery) {
     return <TransportRecoveryLine recovery={entry.transportRecovery} content={entry.text} sessionLabel={entry.sessionLabel} />;
   }
+  if (entry.type === 'error' && entry.error) {
+    return <div className="mx-2 my-1">
+      {entry.sessionLabel && <div className="mb-1 px-3 text-[12px] text-cyan-400/80">{entry.sessionLabel}</div>}
+      <CommandErrorNotice error={entry.error} />
+    </div>;
+  }
   // §5.5 #17-39 — 단계 자국(끝난 사고 런). Sub 탭과 **같은 조각·같은 문구 함수**를 쓴다.
   if (entry.type === 'step') return <TerminalStepLine entry={entry} />;
   // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
@@ -1025,6 +1040,16 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
   // §5.5 #17-39 — 이 묶음이 걸린 시간(Sub 탭 ToolGroupBlock 과 같은 함수·같은 규칙).
   //   **진행 중에는 재지 않는다** — 끝을 모르는 채로 적으면 매 틱 숫자가 바뀌며 헤더가 깜빡인다.
   const elapsed = group.isActive ? '' : toolElapsedText(t, toolGroupElapsedMs(group.entries.map((e) => e.timestamp)));
+  // §5.5 #17-39 ⑪ — 묶이지 않은 도구 하나(원문 밀도)의 머리줄에도 그 도구가 쓴 시간 — Sub 탭 ToolBlock 과
+  //   같은 함수·같은 규칙(1초 미만도 적는다). 끝은 **짝 결과 줄이 도착한 시각**이고, 결과 줄이 없으면 잴 수 없다.
+  let callResultAt: number | undefined;
+  if (isTool && !isRun && !group.isActive) {
+    for (let k = group.entries.length - 1; k >= 0; k--) {
+      const e = group.entries[k]!;
+      if (e.type === 'tool_result') { callResultAt = e.timestamp; break; }
+    }
+  }
+  const callElapsed = callResultAt === undefined ? '' : toolCallElapsedText(t, toolCallElapsedMs(group.timestamp, callResultAt));
 
   // §5.5 #17-24 ① — 간결에는 도구 묶음이 **아예 도달하지 않는다**(진행 중이든 완료든 applyMainDensity 가
   //   배열에서 뺐다). 종전의 "진행 중 한 줄" 분기는 그 줄이 생겼다 사라지며 화면을 깜빡이게 해 없앴다.
@@ -1101,6 +1126,8 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
                   {group.toolName}
                 </span>
               )}
+              {/* §5.5 #17-39 ⑪ — 이 도구가 쓴 시간(이름 바로 뒤 — 묶음의 `×N` 뒤 경과와 같은 모양). */}
+              {callElapsed && <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-600">{callElapsed}</span>}
               {/* 미리보기 텍스트 (접힌 상태) */}
               {!open && preview && (
                 <span className="truncate font-mono text-[12px] text-gray-400">
@@ -1186,7 +1213,7 @@ const API_BASE = '';
  */
 type PastedAttachment = AgentSessionInputAttachment;
 
-function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
+export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   // §5.5 #17-12 ③ v4.64 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구이자, 이제 화면에서도 유일한 [중지].
   // §2.4 — 이제 **응답을 읽는다.** 종전에는 보내고 1.5초 뒤 버튼만 되돌려, 서버가 "멈출 것이 없다"고
@@ -1208,7 +1235,6 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   const updateAgentSessionInputAttachments = useGraphStore((s) => s.updateAgentSessionInputAttachments);
   const clearAgentSessionInput = useGraphStore((s) => s.clearAgentSessionInput);
-  const takeAgentSessionInputs = useGraphStore((s) => s.takeAgentSessionInputs);
   const text = sessionDraft?.text ?? '';
   const attachments = useMemo<PastedAttachment[]>(() => sessionDraft?.attachments ?? [], [sessionDraft]);
   const recoveredAttachmentPaths = useMemo(() => attachments.filter((a) => !a.previewUrl && a.serverPath).map((a) => a.serverPath), [attachments]);
@@ -1244,7 +1270,6 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const agentBusyElsewhere = useSessionRunning(agentId, null) && activeSessionId === null;
   const sid = useMemo(() => agents.find((a) => a.id === agentId)?.path ?? null, [agents, agentId]);
   const sidRef = useRef<string | null>(sid);
-  const agentIdRef = useRef<string>(agentId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputOwnerRef = useRef(draftKey);
   inputOwnerRef.current = draftKey;
@@ -1354,6 +1379,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   const voiceShortcut = useMemo(() => shortcutLabel(VOICE_INPUT.SHORTCUT), []);
+  // §5.5 #17 — 입력칸 x 의 호버 안내. 되돌리기는 브라우저 것이라 표기만 OS 를 따른다.
+  const undoShortcut = useMemo(() => shortcutLabel('Ctrl+Z'), []);
   // §5.5 #17-38 ⑮ — 마이크가 막혔을 때 **데려다 주는** 판. 우클릭으로도, 실패 안내의
   //   [해결 방법] 으로도 같은 판이 뜬다(같은 물음에 대한 답이라 두 벌로 만들지 않는다).
   const micSettings = useMicSettings();
@@ -1425,7 +1452,6 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const slashKeyboardNavRef = useRef(false);
 
   useEffect(() => { sidRef.current = sid; }, [sid]);
-  useEffect(() => { agentIdRef.current = agentId; }, [agentId]);
 
   // 세션 전환/외부 텍스트 변경 시 textarea height 재조정 — JS 폴백 전용(field-sizing 지원 시 no-op).
   useEffect(() => {
@@ -1452,34 +1478,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     }
   }, [draftForAgent, agentId, activeSessionId, consumeAgentInputDraft, setAgentSessionInputText, draftKey, isCurrentInput, restoreCaret]);
 
-  // unmount 시 이 agent 의 모든 세션 draft(text+첨부)를 일괄 정리 — 단 "진짜 IDE 닫기" 일 때만.
-  // §5.3 #28 v2.x — IDE 오버레이는 ideOverlays[projectId] 로 프로젝트 단위 보관이라(selectIDEOverlay)
-  //   옆 프로젝트 탭으로 전환만 해도 AgentIDEOverlay 가 null 을 리턴해 이 컴포넌트가 unmount 된다.
-  //   그 unmount 에서 draft 를 지우면 탭 복귀 시 치던 텍스트/첨부가 사라진다(사용자 보고 버그).
-  //   closeIDEOverlay 는 ideOverlays 슬롯을 통째로 삭제하므로, unmount 시점에 어떤 슬롯이든
-  //   이 agent 의 IDE 가 아직 열려 있으면(=탭 전환) draft 를 보존하고, 아무 슬롯도 없을 때만(=닫힘) 정리한다.
-  // 세션 전환은 애초에 unmount 가 아니므로 늘 보존된다.
-  useEffect(() => {
-    return () => {
-      const aid = agentIdRef.current;
-      const stillOpen = Object.values(useGraphStore.getState().ideOverlays).some(
-        (o) => o.agentId === aid,
-      );
-      if (stillOpen) return;
-      const removed = takeAgentSessionInputs(aid);
-      const s = sidRef.current;
-      for (const a of removed) URL.revokeObjectURL(a.previewUrl);
-      if (!s) return;
-      for (const a of removed) {
-        if (!a.serverPath) continue;
-        fetch(`${API_BASE}/api/agent-attachments/${s}`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filePath: a.serverPath }),
-        }).catch(() => {});
-      }
-    };
-  }, [takeAgentSessionInputs]);
+  // 초안은 입력창의 수명이 아니라 세션에 속한다. 프로젝트 이동·창 교체·닫기에서
+  // unmount 되어도 글과 첨부를 함께 보존한다. 첨부 제거는 사용자의 삭제/제출에서만 한다.
 
   // v1.48 — paste 시점 세션을 캡처해 그 세션 draft 의 attachments 로 update.
   // 업로드 중 사용자가 세션을 바꿔도 완료 시 원래 세션에 기록된다.
@@ -1850,6 +1850,15 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     if (activeSessionId) markSubAcknowledged(activeSessionId);
   }, [activeSessionId, markSubAcknowledged, setHint]);
 
+  // §5.5 #17 — 입력칸의 x. 값을 갈아 끼우지 않고 편집 명령 한 번으로 지워 Ctrl/Cmd+Z 로 되살아난다.
+  //   지우기가 보통의 input 이벤트로 흐르므로 초안·히스토리 해제·슬래시 닫기·높이는 타이핑과 같은 길이다.
+  //   첨부는 건드리지 않는다 — 그림 떼기는 서버 파일까지 지우고 되돌릴 길이 없다(각 그림의 x 로 뗀다).
+  const handleClearInput = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el || !isCurrentInput(el, draftKey)) return;
+    clearFieldText(el);
+  }, [draftKey, isCurrentInput]);
+
   // §5.5 #17-3 v2.79 — 입력 textarea 우클릭 컨텍스트 메뉴 (Cut/Copy/Paste/Select All).
   //   Electron packaged 빌드엔 브라우저 기본 메뉴가 없어 우클릭 시 아무 것도 안 떴다 →
   //   일반 IDE 입력창처럼 우클릭 메뉴를 직접 그린다. 출력 영역 메뉴(handleContextMenu)와 별개.
@@ -2163,7 +2172,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               <button
                 type="button"
                 onClick={() => removeAttachment(a.tempId)}
-                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[12px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[12px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100 pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:opacity-100"
                 aria-label={t('panel.commandQueue.removeAttachment')}
               >
                 <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
@@ -2289,6 +2298,22 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             data-ide-input-session={activeSessionId ?? ''}
           />
         </div>
+        {/* §5.5 #17 — 입력칸의 x. 쓴 글이 있을 때만 선다(빈 칸의 x 는 누를 것이 없다).
+            누르는 순간 입력칸이 초점을 잃어 한글 조합이 먼저 확정되고, 지운 뒤 초점은 입력칸으로 돌아간다. */}
+        {text.length > 0 && (
+          <button
+            type="button"
+            onClick={handleClearInput}
+            aria-label={t('ide.mainArea.inputClear')}
+            title={`${t('ide.mainArea.inputClear')}\n${t('ide.mainArea.inputClearUndoHint', { shortcut: undoShortcut })}`}
+            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
+          >
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
         {/* §5.5 #17-38 — 마이크. 실행/중지 왼쪽에 상주하고, 듣는 중에는 같은 자리에서 빨갛게 뛴다.
             `aria-pressed` 로 켜짐을 알린다(색만으로는 읽어 주는 도구에 전달되지 않는다). */}
         <button
@@ -2599,7 +2624,7 @@ function StreamFollowToggle(): React.JSX.Element {
         <span
           key={flyout.at}
           role="status"
-          className={`animate-follow-flyout pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-20 flex max-w-[18rem] items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[12px] shadow-lg shadow-black/40 ${
+          className={`animate-follow-flyout pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-20 flex max-w-[min(18rem,calc(100vw-16px))] items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[12px] shadow-lg shadow-black/40 ${
             flySkip
               ? 'border-amber-400/60 bg-amber-950/95 text-amber-200'
               : 'border-blue-400/60 bg-blue-950/95 text-blue-100'
@@ -2936,9 +2961,13 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   //   "오류"라는 단어만 놓고 원인을 삼키면 사용자는 무엇이 잘못됐는지 알 길이 없다(사용자 지적).
   //   사유가 없는 옛 명령은 결과 텍스트 → 프롬프트 순으로 폴백해 종전 화면과 같아진다.
   const errorDesc = isError && target.error ? describeCommandError(target.error) : null;
+  const errorGuidance = errorDesc?.guidance;
   const errorLine = errorDesc
-    ? joinCommandErrorLine(t(errorDesc.labelKey, errorDesc.labelParams), errorDesc.detail)
+    ? joinCommandErrorLine(t(errorDesc.labelKey, errorDesc.labelParams), errorGuidance ? null : errorDesc.detail)
     : (isError && target.result ? target.result.replace(/\s*\n+\s*/g, ' ') : null);
+  const errorTitle = errorDesc && errorGuidance
+    ? [errorLine, t(errorGuidance.explanationKey), t(errorGuidance.actionKey), errorDesc.detail].filter(Boolean).join('\n')
+    : errorLine;
   // §5.3 #12-1 — 자기 턴은 끝났는데 **백단 자식이 아직 도는** 상태. 이 줄이 그때 내가 친 프롬프트를
   //   되뇌면 "왜 멈춰 있지?"로 읽힌다 — 무엇을 기다리는지(몇 개가 도는지)를 말해야 한다.
   const waitingOnBackground = isExecuting && bgTaskCount > 0 && !hasRealExecuting;
@@ -2999,11 +3028,11 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleJump(); } }}
       className={`group cursor-pointer text-left transition-colors hover:bg-gray-800/70 ${STATUS_ROW_CLASS} py-1.5`}
       // §5.5 #17-12 ③ — 한 줄이라 80자에서 잘린다. 잘린 사유 전문은 툴팁이 받는다(잘려서 못 읽는 일 방지).
-      title={errorLine ? `${errorLine}
+      title={errorTitle ? `${errorTitle}
 
 ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
     >
-      <span className={`flex flex-shrink-0 items-center ${isError ? 'text-red-400' : stopLabelKey ? 'text-amber-400' : 'text-emerald-400'}`}>
+      <span className={`flex flex-shrink-0 items-center ${errorGuidance ? 'text-gray-400' : isError ? 'text-red-400' : stopLabelKey ? 'text-amber-400' : 'text-emerald-400'}`}>
         {isError ? (
           <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
         ) : stopLabelKey ? (
@@ -3012,11 +3041,11 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
           <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         )}
       </span>
-      <span className={`flex-shrink-0 text-[12px] ${isError ? 'text-red-400' : stopLabelKey ? 'text-amber-400' : 'text-emerald-400'}`}>
+      {!errorGuidance && <span className={`flex-shrink-0 text-[12px] ${isError ? 'text-red-400' : stopLabelKey ? 'text-amber-400' : 'text-emerald-400'}`}>
         {isError ? t('ide.mainArea.statusError') : stopLabelKey ? t(stopLabelKey) : t('ide.mainArea.statusCompleted')}
-      </span>
+      </span>}
       <span className={`${STATUS_SUMMARY_CLASS} ${
-        isError ? 'text-red-200/90 group-hover:text-red-100' : 'text-gray-300 group-hover:text-gray-100'
+        isError && !errorGuidance ? 'text-red-200/90 group-hover:text-red-100' : 'text-gray-300 group-hover:text-gray-100'
       }`}>
         {preview}
       </span>
@@ -3061,6 +3090,12 @@ interface ImageLightboxHostProps {
   /** 붙일 입력창이 있는가 — 읽기 전용(Hook 에이전트 메인 탭)이면 [내려받기]만 남는다. */
   canAttach: boolean;
 }
+
+/**
+ * §5.5 #17-36 ⑫ — 메인 탭에서 메모 링크로 갈 때, 가상 리스트를 그 항목으로 옮긴 뒤 **그려지기를 기다리는** 틈(ms).
+ * 북마크 이동이 같은 단계 사이에 두는 간격(옮기기 60ms → 찾기 340ms)과 같은 280ms 다.
+ */
+const MEMO_LINK_JUMP_SETTLE_MS = 280;
 
 // IDE 본문 텍스트 줌 배율 사다리 — 크롬 페이지 줌처럼 정해진 단(段)만 밟아, 어디서 확대/축소해도 항상
 //   60·67·75·80·90·100·110·125·150·175·200·240% 같은 깔끔한 값에 떨어진다(옛 ×1.1 곱셈 누적은
@@ -3363,8 +3398,8 @@ export const IDEMainArea = memo(function IDEMainArea({
   // 이 화면(세션 탭 또는 메인 탭)에 붙은 메모 장수 — 상한에 닿으면 메뉴 항목을 흐린다.
   const memoCount = useGraphStore((s) => (
     activeSessionId
-      ? (s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.memos?.length ?? 0)
-      : (s.agentMemos[agentId]?.length ?? 0)
+      ? (s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.memos?.filter((m) => m.closedAt === undefined).length ?? 0)
+      : (s.agentMemos[agentId]?.filter((m) => m.closedAt === undefined).length ?? 0)
   ));
   // §5.5 #17-36 ⑨ — 이 화면에 **이름이 가려진** 메모가 있나. 불린 하나만 돌려주므로 스냅샷마다
   //   새 참조가 나오지 않는다(배열을 그대로 돌려주면 매 스냅샷이 리렌더가 된다 — 스토어 규약).
@@ -3519,7 +3554,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       {
         label: t('ide.mainArea.ctxSelectAll'),
         onClick: () => {
-          const el = scrollRef.current;
+          const el = ideBodyRef.current?.querySelector('[data-prompt-reader-body]') ?? scrollRef.current;
           if (!el) return;
           const range = document.createRange();
           range.selectNodeContents(el);
@@ -4302,6 +4337,28 @@ export const IDEMainArea = memo(function IDEMainArea({
     mainVirtuosoRef.current?.scrollToIndex({ index: 0, align: 'start' });
   }, [activeSessionId, releaseFollowForJump]);
 
+  // §5.5 #17-36 ⑫ — 메모 링크의 "세션 글 위치"로 가기. 같은 화면 안이라 북마크 이동(#17-7)과 **같은 손잡이**를
+  //   기다림 없이 부른다(북마크는 세션을 세운 뒤라 소비 효과가 타이머로 기다린다). 추종부터 놓는다.
+  const jumpToStreamAnchor = useCallback((anchorId: string | undefined, text: string) => {
+    releaseFollowForJump();
+    if (activeSessionId !== null) { streamRef.current?.scrollToBookmark(anchorId, text); return; }
+    const idx = anchorId ? mainTimelineRef.current.findIndex((n) => mainTimelineNodeId(n) === anchorId) : -1;
+    if (idx >= 0) mainVirtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' });
+    // 가상 리스트가 그 항목을 그린 뒤에 찾는다 — 화면 밖 항목은 DOM 에 없다.
+    window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (el) performBookmarkScroll(el, anchorId, text);
+    }, idx >= 0 ? MEMO_LINK_JUMP_SETTLE_MS : 0);
+  }, [activeSessionId, releaseFollowForJump]);
+  // ⑫ 메모 판이 묻는 것(내 입력·다른 세션·루트)과 따라가는 길 — 정체가 고정된 묶음이라 판·카드가 다시 그려지지 않는다.
+  const memoLinkHost = useMemoLinkHost({
+    agentId,
+    activeSessionId,
+    isCustom,
+    prompts: railPrompts,
+    jumpToStream: jumpToStreamAnchor,
+  });
+
   // §5.5 — 놓친 카드 pill 클릭: 그 카드 위치로 이동(+중앙 정렬·플래시). 위로 갈 수 있으니 추종을 명시 해제해
   //   워치독이 바닥으로 되끌지 않게 한다(바닥 근처 도착이면 atBottomStateChange 가 자동 재무장). 검색·북마크 점프와 동형.
   const scrollToCard = useCallback((card: UnseenCardMeta) => {
@@ -4381,6 +4438,7 @@ export const IDEMainArea = memo(function IDEMainArea({
           레이아웃(flex 높이)만 담당하고 직접 스크롤하지 않는다(옛 overflow 컨테이너 + onScroll 폐기). */}
       <div
         ref={ideBodyRef}
+        data-ide-text-viewport=""
         onClick={handleAckClick}
         onContextMenu={handleContextMenu}
         className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
@@ -4395,6 +4453,7 @@ export const IDEMainArea = memo(function IDEMainArea({
           onSpawnConsumed={clearMemoSpawn}
           spreadRequest={memoSpread}
           onSpreadConsumed={clearMemoSpread}
+          linkHost={memoLinkHost}
         />
         {/* 본문 텍스트 줌 배율 표시 — Ctrl+휠/Ctrl±/핀치로 배율이 바뀐 직후에만 우측 상단에 떠 "지금 몇 배인지"
             기준을 잡아주고, 손을 떼면 잠시 뒤 스르륵 사라진다(zoomBadgeVisible). 페이드 전환을 위해 항상

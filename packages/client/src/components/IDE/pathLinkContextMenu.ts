@@ -113,7 +113,7 @@ export interface OutsidePathLinkMenuState {
  * 손잡이를 **받을 자리 자체가 없다** — 임의 경로가 본문 글자 하나로 실행되는 길을 만들지 않는다.
  */
 export interface OutsidePathLinkMenuHandlers {
-  /** `POST /api/reveal-path` — 파일이면 그 파일이 든 폴더. */
+  /** `POST /api/reveal-path` — 파일이면 상위 폴더에서 해당 파일 선택. */
   reveal: () => void;
   copyPath: () => void;
 }

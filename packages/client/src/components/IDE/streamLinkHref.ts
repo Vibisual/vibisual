@@ -1,5 +1,6 @@
 import { defaultUrlTransform } from 'react-markdown';
-import { toStreamPathCandidate, type StreamPathCandidate } from './streamPathLinks.js';
+import { splitLineSuffix, toStreamPathCandidate, type StreamPathCandidate } from './streamPathLinks.js';
+import { lineRangeOf, type EditorLineRange } from './editorLineRange.js';
 
 /**
  * streamLinkHref.ts — §5.5 #17-27 ⑬ (k) 스트림 본문 **마크다운 링크**의 목적지 판정(순수).
@@ -9,10 +10,12 @@ import { toStreamPathCandidate, type StreamPathCandidate } from './streamPathLin
  * 통과하지 않아 `window.open` 한 갈래로 떨어졌다 — 로컬 파일에서 그 길은 `file:` 이 되어
  * `ALLOWED_EXTERNAL_SCHEMES`(shared `externalOpen.ts`)에 막히므로 **파일이 열리는 일이 없다.**
  *
- * 여기서 하는 일은 둘이다.
+ * 여기서 하는 일은 셋이다.
  *  1. `streamUrlTransform` — react-markdown 의 기본 세척이 `file:`·`C:\…` 를 **빈 문자열로 지워**
  *     앵커조차 서지 않던 것을, 그 둘만 통과시켜 되살린다.
  *  2. `parseLinkHrefCandidate` — 링크의 목적지를 ⑬ (c)(d) 와 **같은 후보 타입**으로 되돌린다.
+ *     줄 조각(`#L806-L807`)은 떼어 버리지 않고 후보의 줄 범위로 들고 간다(⑬ (g)).
+ *  3. `withLinkLabelLines` — 목적지에 줄이 없으면 링크 글자의 `이름:줄` 을 빌린다(⑬ (g) ③).
  *
  * 화면·통신이 섞이지 않은 계산만 두는 이유는 `streamPathLinks.ts` 와 같다 — "이 주소가 무엇으로
  * 읽히는가" 는 앱을 띄워 눈으로 확인하기 어렵고, 단위 테스트가 훨씬 촘촘히 잡는다.
@@ -32,6 +35,12 @@ const SCHEME_HEAD = /^([A-Za-z][A-Za-z0-9+.-]*):/;
 
 /** `/C:/…` — react-markdown 이 "상대 주소"로 판단해 그대로 흘려보낸 Windows 경로의 앞 슬래시. */
 const SLASH_DRIVE = /^\/([A-Za-z]:[\\/])/;
+
+/**
+ * ⑬ (g) ① — 줄 조각. `#L806` · `#L806-L807` · `#L806-807` · `#L806C5-L807C2`(GitHub 와 같은 모양 —
+ * 에이전트가 IDE 규약대로 줄을 가리킬 때 쓰는 그 꼴이다). 열(`C5` · `,5`)은 버린다 — 편집창은 줄 머리에 선다.
+ */
+const LINE_FRAGMENT = /^L(\d+)(?:[C,]\d+)?(?:-L?(\d+)(?:[C,]\d+)?)?$/i;
 
 /**
  * ⑬ (k) ① — 스트림 본문에 쓰는 주소 세척.
@@ -84,11 +93,54 @@ export function parseLinkHrefCandidate(href: string, rootPath: string | null): S
 
   // 조각(`#top`)·질의(`?v=2`)는 파일 이름의 일부가 아니다. **퍼센트 복호보다 먼저** 떼어 내
   // 이름 안에 인코딩돼 있던 `%23`·`%3F` 가 구분자로 오인되지 않게 한다.
+  // ⑬ (g) ① — 단, 떼어 낸 조각이 줄(`#L806-L807`)이면 버리지 않고 들고 간다.
   const cut = text.search(/[#?]/);
   if (cut === 0) return null;
-  if (cut > 0) text = text.slice(0, cut);
+  let fragmentLines: EditorLineRange | null = null;
+  if (cut > 0) {
+    fragmentLines = lineFragmentOf(text.slice(cut));
+    text = text.slice(0, cut);
+  }
 
-  return toStreamPathCandidate(decodePercent(text), rootPath);
+  const candidate = toStreamPathCandidate(decodePercent(text), rootPath);
+  // 경로 끝(`:806`)에 이미 줄이 적혀 있으면 그쪽이 먼저다 — 둘을 함께 적는 일은 드물고, 섞으면 어느 쪽인지 모른다.
+  return candidate && candidate.lines === null && fragmentLines ? { ...candidate, lines: fragmentLines } : candidate;
+}
+
+/** 주소 꼬리(`#…` · `?…#…`)에서 줄 조각을 읽는다. 질의는 건너뛰고 `#` 뒤만 본다. */
+function lineFragmentOf(tail: string): EditorLineRange | null {
+  const hash = tail.indexOf('#');
+  if (hash === -1) return null;
+  const m = LINE_FRAGMENT.exec(tail.slice(hash + 1));
+  if (!m) return null;
+  return lineRangeOf(Number(m[1]), m[2] === undefined ? null : Number(m[2]));
+}
+
+/**
+ * ⑬ (g) ③ — 목적지에 줄이 없으면 **링크 글자**에서 읽는다(`[X.h:806-807](Source/…/X.h)`).
+ *
+ * 사용자가 보는 것은 글자 쪽이다 — 글자에 `:806-807` 이 적혀 있는데 첫 줄이 뜨면 그건 고장으로 읽힌다.
+ * 다만 글자의 이름이 목적지 파일 이름과 **같을 때만** 쓴다. 다른 파일 이름을 단 글자의 줄을 빌려 오면
+ * 엉뚱한 파일의 엉뚱한 줄로 간다. 목적지에 이미 줄이 있으면(조각·경로 끝) 그쪽이 이긴다.
+ */
+export function withLinkLabelLines(candidate: StreamPathCandidate | null, label: string | null): StreamPathCandidate | null {
+  if (!candidate || candidate.lines !== null || !label) return candidate;
+  const { body, lines } = splitLineSuffix(label.trim());
+  if (!lines) return candidate;
+  const target = candidate.scope === 'inside' ? candidate.relPath : candidate.absPath;
+  const labelName = baseNameOf(body);
+  if (labelName === '' || labelName !== baseNameOf(target)) return candidate;
+  return { ...candidate, lines };
+}
+
+/**
+ * 경로의 마지막 조각 — 구분자는 둘 다 받는다(링크 글자는 에이전트가 적은 그대로다).
+ * 비교는 대소문자까지 그대로 한다 — 세 OS 에서 같은 답을 내고, 어긋나면 줄을 빌리지 않을 뿐이다
+ * (틀린 줄로 가는 일은 없다). 경로 키(`pathKey`)가 아니라 두 글자가 같은 이름인지 보는 자리다.
+ */
+function baseNameOf(p: string): string {
+  const parts = p.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
+  return parts[parts.length - 1] ?? '';
 }
 
 /**

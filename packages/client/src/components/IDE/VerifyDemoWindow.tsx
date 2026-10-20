@@ -12,6 +12,7 @@ import {
 import type { VerificationDemoStep } from '@vibisual/shared';
 
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.js';
+import { useFloatingWindowFullScreenLock } from '../../hooks/useIsMobile.js';
 import { useVerifyDemoSave } from '../../hooks/useVerifyDemoSave.js';
 import { useCapturePlaytestStore } from '../../stores/capturePlaytest.js';
 import { useVerifyDemoStore, verifyRecorderKey } from '../../stores/verifyDemo.js';
@@ -66,10 +67,13 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
   const bringToFront = useCallback(() => { setZ(handle.bringToFront()); }, [handle]);
   useEffect(() => () => { handle.release(); }, [handle]);
 
+  // 폰 폭·터치 기기에서는 화면 전체로 고정(이동·크기 조절·최소화·최대화 잠금) — 앱 창과 같은 기준.
+  const lockFullScreen = useFloatingWindowFullScreenLock();
   const fw = useFloatingWindow({
     cascade: handle.cascadeOffset,
     maxDefaultSize: { w: 760, h: 680 },
     onInteractStart: bringToFront,
+    lockFullScreen,
   });
 
   const clip = useMemo(() => clips?.find((c) => c.id === clipId) ?? null, [clips, clipId]);
@@ -251,13 +255,13 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
   return createPortal(
     <div
       ref={fw.windowRef}
-      className="fixed flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-gray-900/95 shadow-2xl backdrop-blur-sm"
+      className={`fixed flex flex-col overflow-hidden border border-white/[0.08] bg-gray-900/95 shadow-2xl backdrop-blur-sm${lockFullScreen ? '' : ' rounded-xl'}`}
       style={{ ...fw.style, zIndex: z }}
       onMouseDown={bringToFront}
     >
       {/* 타이틀바 — 드래그 이동 + 더블클릭 최대화(§5.9 창 문법 그대로) */}
       <div
-        className="flex flex-shrink-0 cursor-move select-none items-center gap-2 border-b border-white/[0.06] px-3 py-2"
+        className={`flex flex-shrink-0 select-none items-center gap-2 border-b border-white/[0.06] px-3 py-2${lockFullScreen ? '' : ' cursor-move'}`}
         {...fw.titleBarProps}
       >
         <svg className="h-4 w-4 flex-shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -269,26 +273,31 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
         </span>
         <span className="truncate text-[12px] text-gray-500">{clip.sourceName}</span>
         <div className="ml-auto flex flex-shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={fw.toggleMinimized}
-            className="rounded p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
-            aria-label={t('common.minimize', { defaultValue: 'Minimize' })}
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14" /></svg>
-          </button>
-          <button
-            type="button"
-            onClick={fw.toggleMaximized}
-            className="rounded p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
-            aria-label={t('common.maximize', { defaultValue: 'Maximize' })}
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
-          </button>
+          {/* 잠긴 전체 화면(폰 폭·터치)에서는 최소화·최대화가 할 일이 없다 — 눌러도 그대로인 버튼은 고장으로 읽힌다. */}
+          {!lockFullScreen && (
+            <>
+              <button
+                type="button"
+                onClick={fw.toggleMinimized}
+                className="rounded p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                aria-label={t('common.minimize', { defaultValue: 'Minimize' })}
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14" /></svg>
+              </button>
+              <button
+                type="button"
+                onClick={fw.toggleMaximized}
+                className="rounded p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                aria-label={t('common.maximize', { defaultValue: 'Maximize' })}
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+            className="rounded p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:p-2"
             aria-label={t('common.close', { defaultValue: 'Close' })}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
@@ -479,8 +488,8 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
         </div>
       )}
 
-      {/* 우하단 리사이즈 핸들 */}
-      {!fw.minimized && !fw.maximized && (
+      {/* 우하단 리사이즈 핸들 — 최대화·잠긴 전체 화면에선 숨김. */}
+      {!fw.minimized && !fw.maximized && !lockFullScreen && (
         <div {...fw.resizeProps} className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize" />
       )}
     </div>,

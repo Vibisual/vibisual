@@ -269,7 +269,8 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
             onClick={(e) => { e.stopPropagation(); toggleFavorite(s.name); }}
             title={isFav ? t('ide.sidebar.favoriteRemove') : t('ide.sidebar.favoriteAdd')}
             aria-label={isFav ? t('ide.sidebar.favoriteRemove') : t('ide.sidebar.favoriteAdd')}
-            className={`app-nodrag ml-auto flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-amber-500/20 ${isFav ? 'text-amber-400 opacity-100' : 'text-gray-500 opacity-0 hover:text-amber-300 group-hover:opacity-100'}`}
+            // 터치에는 hover 가 없다 — 즐겨찾지 않은 별도 늘 보이고 손가락 크기로 선다.
+            className={`app-nodrag ml-auto flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-amber-500/20 pointer-coarse:h-8 pointer-coarse:w-8 ${isFav ? 'text-amber-400 opacity-100' : 'text-gray-500 opacity-0 hover:text-amber-300 group-hover:opacity-100 pointer-coarse:opacity-100'}`}
           >
             <svg viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
               <path d="M12 2.5l2.95 5.98 6.6.96-4.77 4.65 1.13 6.57L12 17.52 6.09 20.63l1.13-6.57L2.45 9.44l6.6-.96L12 2.5z" />

@@ -85,14 +85,14 @@ export const AutoGoalSkillRow = memo(function AutoGoalSkillRow({
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
         {waiting && <button type="button" disabled={disabled || !hasEvidence} onClick={onApprove}
           title={t(hasEvidence ? 'ide.autoGoal.approveHint' : 'ide.autoGoal.approveNoEvidence')}
-          className="flex items-center gap-1 rounded py-0.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-40">
+          className="flex items-center gap-1 rounded py-0.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-40 pointer-coarse:py-2">
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m5 13 4 4L19 7" /></svg>
           {t('ide.autoGoal.approve')}
         </button>}
-        {!stopped && <button type="button" disabled={disabled} onClick={onRetire} className="rounded py-0.5 text-gray-400 hover:text-amber-300 disabled:opacity-40">{t('ide.autoGoal.pause')}</button>}
-        {(status === 'active' || status === 'retired') && <button type="button" disabled={disabled} onClick={onRequestReview} title={t('ide.autoGoal.reviewHint')} className="rounded py-0.5 text-sky-400 hover:text-sky-300 disabled:opacity-40">{t('ide.autoGoal.requestReview')}</button>}
+        {!stopped && <button type="button" disabled={disabled} onClick={onRetire} className="rounded py-0.5 text-gray-400 hover:text-amber-300 disabled:opacity-40 pointer-coarse:py-2">{t('ide.autoGoal.pause')}</button>}
+        {(status === 'active' || status === 'retired') && <button type="button" disabled={disabled} onClick={onRequestReview} title={t('ide.autoGoal.reviewHint')} className="rounded py-0.5 text-sky-400 hover:text-sky-300 disabled:opacity-40 pointer-coarse:py-2">{t('ide.autoGoal.requestReview')}</button>}
         <button type="button" disabled={disabled} onClick={onRemove} title={t('ide.autoGoal.removeSkill')} aria-label={t('ide.autoGoal.removeSkill')}
-          className="ml-auto rounded p-1 text-gray-500 hover:text-rose-400 disabled:opacity-40">
+          className="ml-auto rounded p-1 text-gray-500 hover:text-rose-400 disabled:opacity-40 pointer-coarse:p-2.5">
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
         </button>
       </div>

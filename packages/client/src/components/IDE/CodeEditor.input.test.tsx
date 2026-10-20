@@ -88,4 +88,32 @@ describe('CodeEditor uses the original live input surface', () => {
     expect(h.exec).not.toHaveBeenCalled(); expect(h.field.select).not.toHaveBeenCalled();
     h.dispose();
   });
+
+  // §5.5 #17-27 ⑲ — Enter 는 줄바꿈과 함께 지금 줄의 들여쓰기를 잇는다. 입력기가 먹은 키는 입력기 몫이다.
+  it('Enter keeps the indentation, but an IME-consumed Enter is left to the input method', () => {
+    const h = fixture(); const preventDefault = vi.fn();
+    const press = (nativeEvent: { keyCode?: number; isComposing?: boolean }) => act(() => {
+      h.renderer.root.findByType('textarea').props.onKeyDown({ key: 'Enter', currentTarget: h.field, nativeEvent, preventDefault });
+    });
+    press({ keyCode: 229 }); press({ isComposing: true });
+    expect(h.change).not.toHaveBeenCalled(); expect(preventDefault).not.toHaveBeenCalled();
+    h.field.value = '  ab'; h.field.selectionStart = h.field.selectionEnd = 4;
+    press({ keyCode: 13 });
+    // insertText 가 막힌 환경(이 시험)에서는 값을 직접 넘긴다 — 되돌리기 기록 대신 같은 결과.
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(h.change).toHaveBeenCalledWith('  ab\n  ');
+    h.dispose();
+  });
+
+  it('Tab follows the file indentation — a tab-indented file gets a tab, not two spaces', () => {
+    const h = fixture();
+    h.field.value = '\tx\n\ty'; h.field.selectionStart = h.field.selectionEnd = 0;
+    act(() => {
+      h.renderer.root.findByType('textarea').props.onKeyDown({
+        key: 'Tab', currentTarget: h.field, nativeEvent: { keyCode: 9 }, preventDefault: vi.fn(),
+      });
+    });
+    expect(h.change).toHaveBeenCalledWith('\t\tx\n\ty');
+    h.dispose();
+  });
 });

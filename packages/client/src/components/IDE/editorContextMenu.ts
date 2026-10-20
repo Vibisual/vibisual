@@ -23,6 +23,10 @@ export interface BodyMenuState {
   readOnly: boolean;
   /** 저장할 것이 남아 있는가 */
   dirty: boolean;
+  /** §5.5 #17-27 ⑲ — 이 파일 형식에 줄 주석(또는 줄마다 감쌀 블록 주석)이 있는가(안 주면 있다고 본다). */
+  canLineComment?: boolean;
+  /** §5.5 #17-27 ⑲ — 블록 주석이 있는가(안 주면 있다고 본다). */
+  canBlockComment?: boolean;
 }
 
 /** 본문 우클릭이 할 수 있는 일. */
@@ -40,6 +44,22 @@ export interface BodyMenuHandlers {
   openExternal: () => void;
   /** §5.5 #17-3 (판올림 번호 발급 대기) — 고른 글자를 기본 브라우저에서 검색. */
   searchWeb: () => void;
+  /** §5.5 #17-27 ⑲ — 단축키와 같은 조작(찾기 막대·줄 번호 상자·줄 편집). */
+  find: () => void;
+  replace: () => void;
+  goToLine: () => void;
+  copyLineUp: () => void;
+  copyLineDown: () => void;
+  moveLineUp: () => void;
+  moveLineDown: () => void;
+  deleteLine: () => void;
+  insertLineBelow: () => void;
+  insertLineAbove: () => void;
+  selectLine: () => void;
+  indentLines: () => void;
+  outdentLines: () => void;
+  toggleLineComment: () => void;
+  toggleBlockComment: () => void;
 }
 
 /** 줄 번호 칸 우클릭이 아는 상태. */
@@ -138,6 +158,24 @@ export function buildBodyMenuItems(
       disabledTitle: readOnlyWhy,
       onClick: h.redo,
     },
+    // §5.5 #17-27 ⑲ — 찾기·바꾸기·줄 번호로 가기·줄 편집. 전부 우리 명령이라 키는 레지스트리에서 읽는다(`cmd`).
+    { id: 'find', label: t('ide.terminal.find'), cmd: 'editor.find', separatorBefore: true, onClick: h.find },
+    {
+      id: 'replace',
+      label: t('ide.editor.find.replace'),
+      cmd: 'editor.replace',
+      disabled: state.readOnly,
+      disabledTitle: readOnlyWhy,
+      onClick: h.replace,
+    },
+    { id: 'goToLine', label: t('common.shortcuts.cmd.editor.goToLine'), cmd: 'editor.goToLine', onClick: h.goToLine },
+    {
+      id: 'lineEdits',
+      label: t('ide.editor.ctx.lineEdits'),
+      // 하위 메뉴를 펼치는 항목이라 누름 자체는 할 일이 없다(IDEContextMenuPanel 이 펼친다).
+      onClick: () => undefined,
+      children: buildLineEditItems(state, h, t),
+    },
     {
       id: 'save',
       label: t('ide.editor.ctx.save'),
@@ -153,6 +191,57 @@ export function buildBodyMenuItems(
     { id: 'copyPath', label: t('ide.editor.ctx.copyPath'), separatorBefore: true, onClick: h.copyPath },
     { id: 'copyLineRef', label: t('ide.editor.ctx.copyLineRef'), onClick: h.copyLineRef },
     { id: 'openExternal', label: t('ide.editor.ctx.openExternal'), onClick: h.openExternal },
+  ];
+}
+
+/**
+ * (a′) 본문의 "줄 편집" 하위 메뉴 — §5.5 #17-27 ⑲ 의 줄 명령을 이름과 키로 보여 준다.
+ * 라벨은 단축키 목록의 명령 이름과 **같은 키**를 쓴다(같은 말에 번역 키를 두 벌 두지 않는다).
+ * 읽기 전용 파일이면 고치는 항목이 흐려지고, 주석 기호가 없는 파일 형식이면 주석 항목이 흐려진다 — 이유를 말한다.
+ */
+function buildLineEditItems(state: BodyMenuState, h: BodyMenuHandlers, t: MenuText): ContextMenuItem[] {
+  const readOnlyWhy = t('ide.editor.ctx.readOnlyFile');
+  const noComment = t('ide.editor.ctx.noCommentSyntax');
+  const edit = (id: string, labelKey: string, cmd: ContextMenuItem['cmd'], onClick: () => void, separatorBefore = false): ContextMenuItem => ({
+    id,
+    label: t(labelKey),
+    cmd,
+    separatorBefore,
+    disabled: state.readOnly,
+    disabledTitle: readOnlyWhy,
+    onClick,
+  });
+  const comment = (id: string, labelKey: string, cmd: ContextMenuItem['cmd'], can: boolean, onClick: () => void, separatorBefore = false): ContextMenuItem => ({
+    id,
+    label: t(labelKey),
+    cmd,
+    separatorBefore,
+    disabled: state.readOnly || !can,
+    disabledTitle: state.readOnly ? readOnlyWhy : noComment,
+    onClick,
+  });
+  return [
+    edit('copyLineUp', 'common.shortcuts.cmd.editor.copyLineUp', 'editor.copyLineUp', h.copyLineUp),
+    edit('copyLineDown', 'common.shortcuts.cmd.editor.copyLineDown', 'editor.copyLineDown', h.copyLineDown),
+    edit('moveLineUp', 'common.shortcuts.cmd.editor.moveLineUp', 'editor.moveLineUp', h.moveLineUp),
+    edit('moveLineDown', 'common.shortcuts.cmd.editor.moveLineDown', 'editor.moveLineDown', h.moveLineDown),
+    edit('deleteLine', 'common.shortcuts.cmd.editor.deleteLine', 'editor.deleteLine', h.deleteLine),
+    edit('insertLineBelow', 'common.shortcuts.cmd.editor.insertLineBelow', 'editor.insertLineBelow', h.insertLineBelow, true),
+    edit('insertLineAbove', 'common.shortcuts.cmd.editor.insertLineAbove', 'editor.insertLineAbove', h.insertLineAbove),
+    edit('indentLines', 'common.shortcuts.cmd.editor.indentLines', 'editor.indentLines', h.indentLines, true),
+    edit('outdentLines', 'common.shortcuts.cmd.editor.outdentLines', 'editor.outdentLines', h.outdentLines),
+    comment('toggleLineComment', 'common.shortcuts.cmd.editor.toggleLineComment', 'editor.toggleLineComment',
+      state.canLineComment ?? true, h.toggleLineComment, true),
+    comment('toggleBlockComment', 'common.shortcuts.cmd.editor.toggleBlockComment', 'editor.toggleBlockComment',
+      state.canBlockComment ?? true, h.toggleBlockComment),
+    // 줄 고르기는 고치는 일이 아니라 읽기 전용 파일에서도 된다.
+    {
+      id: 'selectLine',
+      label: t('common.shortcuts.cmd.editor.selectLine'),
+      cmd: 'editor.selectLine',
+      separatorBefore: true,
+      onClick: h.selectLine,
+    },
   ];
 }
 

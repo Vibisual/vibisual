@@ -8,6 +8,7 @@
  * (streamDensity.test.ts). 밀도는 클라 전용 UI 상태(`graphStore.ideStreamDensity`).
  */
 import {
+  extractStageBlocks,
   STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS,
   STREAM_COMPACT_TEXT_TAIL_LINES, STREAM_COMPACT_TEXT_TAIL_CHARS,
   STREAM_COMPACT_TEXT_MIN_HIDDEN_CHARS,
@@ -110,20 +111,36 @@ function keepTail(s: string, max: number): string {
 }
 
 /**
- * 이 글이 **닫히지 않은 코드펜스 안에서 끝나는가** — 그렇다면 여는 펜스 문자열(``` 또는 ~~~), 아니면 `null`.
+ * 이 글이 **닫히지 않은 코드펜스 안에서 끝나는가** — 그렇다면 언어 정보를 포함한 여는 펜스, 아니면 `null`.
  * 잘라 낸 꼬리를 따로 파싱할 때 이 값을 앞에 덧대야 "꼬리의 닫는 펜스가 여는 펜스로 읽혀 남은 글이
- * 통째로 코드로 그려지는" 뒤집힘을 막는다(§5.5 #17-46 ④).
+ * 통째로 코드로 그려지는" 뒤집힘을 막는다(§5.5 #17-46 ④). 언어를 버리면 `vibisual` 목표 블록도
+ * 일반 코드로 바뀌어, 렌더러가 숨겨야 할 작업 목록이 간결 모드에 다시 노출된다.
  */
 function unclosedFence(s: string): string | null {
-  let open: string | null = null;
+  let open: { marker: string; opening: string } | null = null;
   for (const line of s.split('\n')) {
-    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const m = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/.exec(line);
     if (!m) continue;
-    const mark = m[1]![0]!;
-    if (open === null) open = mark;
-    else if (open === mark) open = null;
+    const marker = m[1]!;
+    const info = m[2]!;
+    if (open === null) {
+      // 백틱 펜스의 정보 문자열에는 백틱이 올 수 없다(인라인 코드 등을 블록으로 오인하지 않는다).
+      if (marker[0] === '`' && info.includes('`')) continue;
+      open = { marker, opening: marker + info };
+    } else if (marker[0] === open.marker[0] && marker.length >= open.marker.length && /^[ \t]*$/.test(info)) {
+      open = null;
+    }
   }
-  return open === null ? null : open.repeat(3);
+  return open?.opening ?? null;
+}
+
+/** 글자 제한이 펜스 줄 자체를 자르면 언어명이나 닫힘 표식이 깨지므로, 그 줄은 통째로 남긴다. */
+function splitFenceLine(content: string, offset: number): { start: number; end: number } | null {
+  const start = content.lastIndexOf('\n', offset - 1) + 1;
+  const newline = content.indexOf('\n', offset);
+  const end = newline < 0 ? content.length : newline;
+  if (offset <= start || offset >= end) return null;
+  return /^ {0,3}(`{3,}|~{3,})/.test(content.slice(start, end)) ? { start, end } : null;
 }
 
 /**
@@ -143,6 +160,8 @@ export function clampStreamText(content: string, spec: ClampSpec): ClampedText |
   // ① 머리 — 줄 경계로 먼저 자르고, 그래도 길면 글자 수로 한 번 더.
   let head = lines.length > spec.headLines ? lines.slice(0, spec.headLines).join('\n') : content;
   if (head.length > spec.headChars) head = keepHead(head, spec.headChars);
+  const headFence = spec.markdown ? splitFenceLine(content, head.length) : null;
+  if (headFence) head = content.slice(0, headFence.end);
   if (head.length >= content.length) return null;
 
   // ② 꼬리 — 머리 뒤에 남은 글에서 **뒤에서부터** 같은 방식으로 떼어 낸다.
@@ -152,6 +171,8 @@ export function clampStreamText(content: string, spec: ClampSpec): ClampedText |
     ? restLines.slice(restLines.length - spec.tailLines).join('\n')
     : rest;
   if (tail.length > spec.tailChars) tail = keepTail(tail, spec.tailChars);
+  const tailFence = spec.markdown ? splitFenceLine(content, content.length - tail.length) : null;
+  if (tailFence) tail = content.slice(tailFence.start);
 
   // ③ 가운데가 없거나 버튼 한 줄과 상쇄될 만큼 적으면 접지 않는다(§5.5 #17-46 ②).
   const middle = rest.slice(0, rest.length - tail.length);
@@ -163,6 +184,20 @@ export function clampStreamText(content: string, spec: ClampSpec): ClampedText |
   // ④ 꼬리가 코드블록 안에서 시작하면 여는 펜스를 덧대 넘긴다(마크다운으로 그릴 때만).
   const fence = spec.markdown ? unclosedFence(head + middle) : null;
   return { head, tail: fence ? `${fence}\n${tail.replace(/^\n+/, '')}` : tail, hiddenLines };
+}
+
+/** Count only rendered Markdown when folding: goal blocks are hidden by CodeBlock in both states. */
+export function clampVisibleStreamMarkdown(content: string): ClampedText | null {
+  const spans = extractStageBlocks(content);
+  if (spans.length === 0) return clampStreamText(content, COMPACT_TEXT_CLAMP_MD);
+  const parts: string[] = [];
+  let at = 0;
+  for (const span of spans) {
+    parts.push(content.slice(at, span.start));
+    at = span.end;
+  }
+  parts.push(content.slice(at));
+  return clampStreamText(parts.join('').trim(), COMPACT_TEXT_CLAMP_MD);
 }
 
 /** 여는 본문 판정에 필요한 최소 형태 — Sub 탭(`StreamDisplayItem`)·메인 탭(`TerminalEntry`) 공용. */

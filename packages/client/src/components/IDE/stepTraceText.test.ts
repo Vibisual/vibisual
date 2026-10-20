@@ -7,7 +7,7 @@
  * ⚠ `packages/client` 에서 실행해야 한다(레포 루트에서 돌리면 glob 이 비어 아래에서 멈춘다).
  */
 import { describe, it, expect } from 'vitest';
-import { thinkTraceText, writeTraceText, toolElapsedText, elapsedText, TRACE_SEP, type TranslateFn } from './stepTraceText.js';
+import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText, elapsedText, TRACE_SEP, type TranslateFn } from './stepTraceText.js';
 
 const LOCALES = import.meta.glob<string>(
   ['/src/i18n/locales/en.json', '/src/i18n/locales/ko.json'],
@@ -62,6 +62,15 @@ describe('§5.5 #17-39 자국 문구 (en)', () => {
     expect(toolElapsedText(t, 999)).toBe('');
     expect(toolElapsedText(t, 38_000)).toBe('38s');
   });
+
+  it('§5.5 #17-39 ⑪ 도구 상자 하나의 경과 — 1초 미만도 적고, 잴 수 없을 때(null)만 비운다', () => {
+    expect(toolCallElapsedText(t, null)).toBe('');
+    // 묶음 경과와 다른 점 — 0.3초는 결과까지 실제로 잰 값이라 `under 1s` 로 남긴다.
+    expect(toolCallElapsedText(t, 0)).toBe('under 1s');
+    expect(toolCallElapsedText(t, 300)).toBe('under 1s');
+    expect(toolCallElapsedText(t, 12_000)).toBe('12s');
+    expect(toolCallElapsedText(t, 73_000)).toBe('1m 13s');
+  });
 });
 
 describe('§5.5 #17-39 자국 문구 (ko)', () => {
@@ -69,6 +78,11 @@ describe('§5.5 #17-39 자국 문구 (ko)', () => {
 
   it('사진의 그 문장이 한국어로도 그대로 나온다', () => {
     expect(thinkTraceText(t, 'ko-KR', 73_000, 4_182)).toBe(`1분 13초 동안 사고함${TRACE_SEP}4,182자`);
+  });
+
+  it('§5.5 #17-39 ⑪ 도구 상자 하나의 경과 — 한국어', () => {
+    expect(toolCallElapsedText(t, 300)).toBe('1초 미만');
+    expect(toolCallElapsedText(t, 12_000)).toBe('12초');
   });
 });
 

@@ -22,6 +22,7 @@ import { AppShellHost } from '../../apps/AppShellHost.js';
 import { appShellParams, getInternalApp, workspaceOpenClaims } from '../../apps/index.js';
 import { selectPaneProjectPath, useGraphStore } from '../../stores/graphStore.js';
 import { toWorkspaceRelative } from './debugPaths.js';
+import { lineRangeOf } from './editorLineRange.js';
 import { IDEImagePreview } from './IDEImagePreview.js';
 import { useIDEPaneKey } from './idePane.js';
 import { ProblemOutputLine } from './ProblemOutputLine.js';
@@ -155,9 +156,14 @@ export const StageLiveSurface = memo(function StageLiveSurface({
     [rootPath, openEditorFile, paneKey],
   );
   const openRelFile = useCallback(
-    (relPath: string) => {
+    (relPath: string, lineNo?: number) => {
       if (!rootPath) return;
-      openEditorFile({ relPath, absPath: `${rootPath}/${relPath}`, name: baseName(relPath) }, paneKey);
+      // 로그의 진단 줄이면 그 줄로 연다(#17-27 ⑬ (g) — 실행 출력 패널과 같은 한 길).
+      openEditorFile(
+        { relPath, absPath: `${rootPath}/${relPath}`, name: baseName(relPath) },
+        paneKey,
+        lineNo === undefined ? null : lineRangeOf(lineNo),
+      );
     },
     [rootPath, openEditorFile, paneKey],
   );

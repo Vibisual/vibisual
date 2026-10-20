@@ -20,6 +20,9 @@ export interface IDESplitCellValue {
 
 export const IDESplitCellContext = createContext<IDESplitCellValue | null>(null);
 
+/** A hidden window keeps its selected cell but cannot own window-wide keyboard commands. */
+export const IDEWindowFocusEnabledContext = createContext(true);
+
 /**
  * 이 자리가 보여 줄 세션.
  * @param windowSession 분할이 없을 때 쓸 값 = 이 **창**의 활성 세션.
@@ -37,5 +40,6 @@ export function useSplitCellSession(windowSession: string | null): string | null
  */
 export function useSplitCellFocused(): boolean {
   const cell = useContext(IDESplitCellContext);
-  return cell ? cell.focused : true;
+  const windowFocusEnabled = useContext(IDEWindowFocusEnabledContext);
+  return windowFocusEnabled && (cell ? cell.focused : true);
 }

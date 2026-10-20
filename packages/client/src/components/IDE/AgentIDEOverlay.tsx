@@ -73,13 +73,15 @@ import {
   settleFloatPushPane,
 } from './ideFloatPush.js';
 import { useIDEDockLayout, useVisibleDockedPanes } from './useIDEDockLayout.js';
+import { useIDEImmersiveMaximize } from './useIDEImmersiveMaximize.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { WINDOW_PULL_OUT } from '../../hooks/floatingWindowGeom.js';
-import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+import { useCoarsePointer, useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
 import { editorGrowth, ideSidebarWidth, resolveIDEBodyLayout } from './ideResponsive.js';
 import { IDEBodyLayoutContext, type IDEBodyLayoutValue } from './ideBodyLayoutContext.js';
-import { resolveTitleBarChrome } from './titleBarChrome.js';
+import { IDEWindowFocusEnabledContext } from './splitCellContext.js';
+import { autoFloatOnMultiPane, resolveTitleBarChrome, touchWindowMode } from './titleBarChrome.js';
 import { titleBarDoubleClickAction, titleBarPressStartsDrag } from './titleBarGesture.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
@@ -339,8 +341,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     const i = list.findIndex((o) => o.paneKey === key);
     return i < 0 ? 0 : i;
   });
-  /** 맨 앞 창인가 — Escape 는 **맨 앞 한 창만** 먹는다(여러 창이 한 번에 닫히면 안 된다). */
-  const isFrontPane = paneCount === 0 || zRank === paneCount - 1;
   // 네 변 도크의 자리 — 자리를 비우는 쪽(App·DetailPanel)과 **같은 함수**를 읽는다.
   const dockLayout = useIDEDockLayout();
   const dockedPanes = useVisibleDockedPanes();
@@ -414,6 +414,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     const cur = selectIDEPane(useGraphStore.getState(), paneKey).maximized;
     setPaneMaximized(paneKey, typeof next === 'function' ? next(cur) : next);
   }, [paneKey, setPaneMaximized]);
+  const { immersive, hidden, fillsWindow, nextAction, cycle } = useIDEImmersiveMaximize({
+    project: overlayProjectId,
+    paneKey: selfPaneKey,
+    maximized,
+    onMaximized: setMaximized,
+    enabled: !fullWindow && !!agentId && !!agent,
+  });
+  /** 몰입 창이 있으면 그 창만, 아니면 맨 앞 창만 Escape와 배치 명령을 받는다. */
+  const isFrontPane = !hidden && (immersive || paneCount === 0 || zRank === paneCount - 1);
   /**
    * §5.5 #17-6 (H-5) — **독립 창의 OS 최대화 상태.** 앱 안 창의 `maximized`(창 안 레이아웃)와는
    * 다루는 대상이 다르다 — 이쪽은 OS 창 자체다.
@@ -436,8 +445,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       void window.api?.overlay?.toggleMaximizeSelf?.();
       return;
     }
-    setMaximized((v) => !v);
-  }, [fullWindow, setMaximized]);
+    cycle();
+  }, [fullWindow, cycle]);
   /**
    * §5.5 #17-6 (H-28) — **독립 창을 다른 앱 위에 고정.** 펼친 IDE 는 보통 층이라((E)) 다른 앱을
    * 고르면 뒤로 깔리는데, 사용자가 켜면 그 창만 다른 앱 위에 남는다.
@@ -468,6 +477,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 이 값은 이제 **판정의 입력 하나**일 뿐이고,
   //   무엇을 접을지는 아래 `bodyLayout` 이 창 폭까지 함께 보고 정한다.
   const isNarrow = useIsNarrowViewport();
+  // 터치 기기(굵은 포인터) — 제목줄 끌기·변 끌기·도킹 두께 손잡이가 전부 마우스 이벤트라 손가락으로는 창을 옮기거나
+  //   늘릴 수 없다. 그래서 폭이 넓은 태블릿이어도 떠 있는 창을 세우지 않고 모달로 둔다(`touchWindowMode`).
+  const coarse = useCoarsePointer();
 
   // ─── 창 안 반응형 — 기준은 뷰포트가 아니라 **이 창 자신의 폭**이다 ────────────────────
   // 종전에는 위 `isNarrow`(뷰포트 max-md) 하나가 창 안 배치까지 결정했다. 그런데 IDE 창은 화면이
@@ -606,7 +618,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   해야 window bubble 단계에 붙은 IDETabBar 의 F2(세션 탭 리네임)가 같은 키에 함께 반응하지 않는다.
   //   포인터가 타이틀바 밖이면 여기선 아무것도 안 해 탭 리네임이 예전대로 동작한다.
   useEffect(() => {
-    if (!agentId) return;
+    if (!agentId || hidden) return;
     function onKeyDownCapture(e: KeyboardEvent): void {
       if (isComposingKeyEvent(e)) return;
       if (e.key !== 'F2') return;
@@ -618,7 +630,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     }
     window.addEventListener('keydown', onKeyDownCapture, true);
     return () => window.removeEventListener('keydown', onKeyDownCapture, true);
-  }, [agentId, editingName, startNameEdit]);
+  }, [agentId, editingName, startNameEdit, hidden]);
 
   const commitNameEdit = useCallback(() => {
     setEditingName(false);
@@ -673,7 +685,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (fullWindow) return 'modal';
     if (resumeGeom) return 'floating';
     if (storeDockSide && !disableDock) return 'docked';
-    return openModeHint === 'floating' ? 'floating' : 'modal';
+    // 터치 기기는 떠 있는 창으로 열지 않는다 — 아래 되돌림 효과보다 먼저 막아 첫 프레임이 튀지 않게.
+    return touchWindowMode(openModeHint === 'floating' ? 'floating' : 'modal', coarse, fullWindow);
   });
   const [floatPos, setFloatPos] = useState<{ x: number; y: number }>(
     () => resumeGeom ?? floatGeomFor(paneKey, paneIndex),
@@ -928,7 +941,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       // (오버레이 창에선 disableDock 이라 항상 modal 로 연다 — 도킹 없음)
       if (storeDockSide && !disableDock) {
         setMode('docked');
-      } else if (openModeHint === 'floating' && !fullWindow) {
+      } else if (openModeHint === 'floating' && !fullWindow && touchWindowMode('floating', coarse, fullWindow) === 'floating') {
         goFloating();
       } else {
         setMode('modal');
@@ -948,10 +961,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
   // §5.5 #17-1 — 창이 둘 이상이면 **모달로 남지 않는다**. 모달은 백드롭으로 화면 전체를 덮어
   //   옆 창을 통째로 가리므로, "여러 창을 나란히 본다"는 목적과 정면으로 어긋난다.
+  //   터치 기기는 예외다(`autoFloatOnMultiPane`) — 풀면 손으로 못 옮기는 창이 되고, 아래 되돌림이 곧바로 모달로 감는다.
   useEffect(() => {
-    if (fullWindow || !agentId || mode !== 'modal' || paneCount <= 1) return;
+    if (fullWindow || !agentId || mode !== 'modal' || !autoFloatOnMultiPane(paneCount, coarse)) return;
     goFloating();
-  }, [fullWindow, agentId, mode, paneCount, goFloating]);
+  }, [fullWindow, agentId, mode, paneCount, coarse, goFloating]);
+
+  // 터치 기기 — 어느 길로(레이아웃 프리셋·[떼기]·마우스를 뗀 태블릿) 떠 있는 창이 되든 여기 한 곳에서 모달로
+  //   되돌린다(`touchWindowMode`). 떠 있는 창은 제목줄·변 끌기로만 옮기고 늘리는데 그 손잡이가 마우스 전용이다.
+  useEffect(() => {
+    if (!agentId) return;
+    const next = touchWindowMode(mode, coarse, fullWindow);
+    if (next !== mode) setMode(next);
+  }, [agentId, mode, coarse, fullWindow]);
 
   /**
    * (판올림 번호 발급 대기) 헤더 [창과 버블] 메뉴의 **레이아웃 프리셋**이 밖에서 배치를 바꿨다 —
@@ -2577,7 +2599,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   floating 은 일부만 가리고, docked-right 는 캔버스가 옆으로 줄어들 뿐이라 계속 보인다.
   //   등록되면 BubbleMap 이 React Flow 페인트·물리 루프·주기 flush 를 통째로 멈춘다.
   const coverKey = `${CANVAS_COVER_PREFIX}:${selfPaneKey || 'primary'}`;
-  const coversCanvas = !!agentId && !!agent && (fullWindow || maximized || mode === 'modal');
+  const coversCanvas = !hidden && !!agentId && !!agent && (fullWindow || maximized || mode === 'modal');
   useEffect(() => {
     setCanvasCover(coverKey, coversCanvas);
     return () => setCanvasCover(coverKey, false);
@@ -2588,7 +2610,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   훅은 이미 다 돌았으므로 뒤 탭도 스트림·상태는 그대로 살아 있고, 무거운 본문만 안 붙는다.
   //   ⚠ 오버레이 위젯 창(fullWindow·disableDock)은 이 셈에서 뺀다 — 그 창은 **자기 창 전체가 IDE** 라
   //   메인 창에서 뒤 탭이 됐다는 이유로 통째로 비면 사용자는 빈 창을 보게 된다.
-  if (!fullWindow && !disableDock && storeDockSide && selfPaneKey && slotFrontKey !== selfPaneKey) return null;
+  if (!fullWindow && !disableDock && !immersive && storeDockSide && selfPaneKey && slotFrontKey !== selfPaneKey) return null;
 
   // §5.5 #17-1 윈도우 모드 — mode 에 따라 컨테이너/윈도우 스타일 분기
   const isModal = mode === 'modal';
@@ -2602,9 +2624,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     && mode === 'floating' && !maximized && !isModal && !isDocked && !fullWindow;
   const dockRect = isDocked ? dockLayout.rects[selfPaneKey] ?? null : null;
 
-  // §5.5 #17-6 (H-5) — 지금 이 창이 최대화 상태인가. 앱 안 창은 창 안 레이아웃(`maximized`),
-  //   독립 창은 **OS 창**(main 이 밀어 준 `osMaximized`) — 아이콘·툴팁이 그 하나만 본다.
-  const isMaximized = fullWindow ? osMaximized : maximized;
+  // 독립 창은 main이 알려 준 OS 상태를 따르고, 앱 안 창은 다음 확대 단계에 맞춰 안내한다.
+  const maximizeAction = fullWindow ? (osMaximized ? 'restore' : 'maximize') : nextAction;
+  const maximizeLabel = t(maximizeAction === 'restore' ? 'ide.overlay.restoreLabel'
+    : maximizeAction === 'immerse' ? 'ide.overlay.immersiveMaximizeLabel' : 'ide.overlay.maximizeLabel');
 
   // 폰 폭에서 타이틀바 한 줄이 넘쳐 **맨 오른쪽 [닫기]가 화면 밖으로 밀려나던** 것을 막는다.
   //   무엇을 접을지는 순수 함수 한 곳에서만 정한다(titleBarChrome + 단위 테스트) — 조건을 JSX 에
@@ -2612,7 +2635,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   접는 기준은 이제 뷰포트가 아니라 **이 창의 폭**이다 — 같은 넘침이 넓은 화면에서 창만 좁혀도
   //   똑같이 일어나는데, `max-md` 는 그 경우를 모른다(`bodyLayout.titleBarNarrow`).
   const chrome = resolveTitleBarChrome({
-    narrow: bodyLayout.titleBarNarrow, isModal, isDocked, fullWindow, disableDock,
+    narrow: bodyLayout.titleBarNarrow, touch: coarse, isModal, isDocked, fullWindow, disableDock,
   });
 
   let windowClass = 'flex flex-col overflow-hidden border-gray-700 bg-gray-900 shadow-2xl shadow-black/60';
@@ -2622,8 +2645,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // 백드롭/검은 여백 ❌). 이동·리사이즈는 OS 창 몫이라 modal/floating/maximized 분기 불필요.
     windowClass += ' fixed inset-0 rounded-xl border';
   } else if (maximized) {
-    // 모드와 무관 — 풀스크린 (Header h-9 = 36px 아래)
-    windowClass += ' fixed left-0 right-0 top-9 bottom-0';
+    // 첫 최대화는 헤더 아래, 몰입 상태에서는 헤더가 비운 영역까지 채운다.
+    windowClass += fillsWindow ? ' fixed inset-0' : ' fixed left-0 right-0 top-9 bottom-0';
   } else if (isModal) {
     // §4 v3.16 — 좁은 화면(폰)에선 80vw/80vh 모달이 너무 작다 — 풀스크린으로 전환.
     // 단 Header(h-9, z-[100])가 IDE(z-50)보다 위라, inset-0 풀스크린이면 IDE 타이틀바(닫기 버튼)가
@@ -2676,12 +2699,16 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
   return (
     <IDEBodyLayoutContext.Provider value={bodyLayoutValue}>
+    <IDEWindowFocusEnabledContext.Provider value={!hidden}>
     <div
       className={outerClass}
+      aria-hidden={hidden}
+      {...(hidden ? { inert: '' } : {})}
       // 겹침 순서 — 스토어의 앞뒤 도장으로 매긴 **순위**를 쓴다(도장 자체를 z-index 로 쓰면
       //   세션이 길어질수록 자라 헤더(z-100)까지 덮는다). 바닥은 **모달 층(z-50) 아래**다 —
       //   그러지 않으면 설정창·확인 대화상자가 창 뒤로 깔린다.
-      style={{ zIndex: IDE_PANE_Z_BASE + zRank }}
+      // Keep layout dimensions and mounted editors while another IDE owns immersion.
+      style={{ zIndex: IDE_PANE_Z_BASE + zRank, visibility: hidden ? 'hidden' : undefined }}
       onMouseDown={useBackdrop ? backdrop.onMouseDown : undefined}
       onClick={useBackdrop ? backdrop.onClick : undefined}
       // modal(백드롭 블러) 모드에선 뒤쪽 캔버스가 가려진 상태다 — 백드롭 우클릭이 rfContainer 까지
@@ -2983,30 +3010,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 <path d="M3 15h18" />
               </svg>
             </button>
-            {/* (판올림 번호 발급 대기) §5.5 #17-6 (H-18) — **밖에 서 있을 때만 서는 손잡이:
-                이 창을 오버레이 버블로 바꾼다.** 밖으로 끌어낸 창에는 여태 돌아갈 길이 [앱 안으로
-                되돌리기(↩)] 하나뿐이었다(그 ↩ 는 (H-21) 에서 없앴다 — 닫기가 같은 일을 한다) — 데스크톱에 그대로 두되 자리만 덜 먹게 하려면 길이 없어
-                창을 닫았다 설정창을 거쳐 위젯으로 다시 보내야 했다. 이제 그 왕복이 버튼 하나다.
-                앱 안 창에는 뜻이 없어 그리지 않는다(`fullWindow` — 그 창은 밖에 있지 않다). */}
-            {fullWindow && !!onCollapseToBubble && (
-              <button
-                type="button"
-                onClick={onCollapseToBubble}
-                className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
-                aria-label={t('ide.overlay.toBubble')}
-                title={t('ide.overlay.toBubbleHint')}
-              >
-                {/* 안으로 모이는 두 화살표 + 가운데 버블 — "창을 저 동그라미로 줄인다".
-                    화살촉은 반지름(3) 밖(중심에서 4.2)에 두어 14px 에서도 원과 붙지 않는다. */}
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M21 9h-6V3" />
-                  <path d="M21 3l-6 6" />
-                  <path d="M3 15h6v6" />
-                  <path d="M3 21l6-6" />
-                </svg>
-              </button>
-            )}
             {/* (판올림 번호 발급 대기) §5.5 #17-6 (H-28) — **[항상 위에 고정].** 떼어 낸 창을 옆에 두고
                 다른 앱을 오가면 그 창이 뒤로 깔렸다(펼친 IDE 는 보통 층 — (E)). 켜면 다른 앱을 골라도
                 이 창이 그 위에 남는다. 앱 안 창에는 "다른 앱 위"라는 뜻이 없어 그리지 않는다.
@@ -3207,6 +3210,30 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 손잡이가 됐다(끌기가 어려운 트랙패드·터치를 위해 [붙이기] 메뉴 항목은 남아 있다). */}
             {/* §5.5 #17-6 (H-21) — 종전의 [앱 안으로 되돌리기(↩)] 손잡이도 **없앴다.** 닫기(✕/Esc)가
                 앱을 앞으로 세우고 이 창을 닫으므로((H-20)) 같은 결과로 가는 손잡이가 둘이었다. */}
+            {/* (판올림 번호 발급 대기) §5.5 #17-6 (H-18) — **밖에 서 있을 때만 서는 손잡이:
+                이 창을 오버레이 버블로 바꾼다.** 밖으로 끌어낸 창에는 여태 돌아갈 길이 [앱 안으로
+                되돌리기(↩)] 하나뿐이었다(그 ↩ 는 (H-21) 에서 없앴다 — 닫기가 같은 일을 한다) — 데스크톱에 그대로 두되 자리만 덜 먹게 하려면 길이 없어
+                창을 닫았다 설정창을 거쳐 위젯으로 다시 보내야 했다. 이제 그 왕복이 버튼 하나다.
+                앱 안 창에는 뜻이 없어 그리지 않는다(`fullWindow` — 그 창은 밖에 있지 않다). */}
+            {fullWindow && !!onCollapseToBubble && (
+              <button
+                type="button"
+                onClick={onCollapseToBubble}
+                className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+                aria-label={t('ide.overlay.toBubble')}
+                title={t('ide.overlay.toBubbleHint')}
+              >
+                {/* 안으로 모이는 두 화살표 + 가운데 버블 — "창을 저 동그라미로 줄인다".
+                    화살촉은 반지름(3) 밖(중심에서 4.2)에 두어 14px 에서도 원과 붙지 않는다. */}
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M21 9h-6V3" />
+                  <path d="M21 3l-6 6" />
+                  <path d="M3 15h6v6" />
+                  <path d="M3 21l6-6" />
+                </svg>
+              </button>
+            )}
             {/* §5.5 #17-6 (H-5) — 독립 창에서는 이 버튼이 **OS 창**을 최대화한다(앱 안 창은 종전대로
                 창 안 레이아웃). 같은 자리·같은 아이콘이라 두 창에서 배울 손버릇이 하나다. */}
             {chrome.showMaximize && (
@@ -3214,15 +3241,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               type="button"
               onClick={toggleMaximized}
               className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
-              aria-label={isMaximized ? t('ide.overlay.restoreLabel') : t('ide.overlay.maximizeLabel')}
-              title={isMaximized ? t('ide.overlay.restoreLabel') : t('ide.overlay.maximizeLabel')}
+              aria-label={maximizeLabel}
+              title={maximizeLabel}
             >
-              {isMaximized ? (
+              {maximizeAction === 'restore' ? (
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M8 3v3a2 2 0 0 1-2 2H3" />
                   <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
                   <path d="M3 16h3a2 2 0 0 1 2 2v3" />
                   <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+                </svg>
+              ) : maximizeAction === 'immerse' ? (
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" />
                 </svg>
               ) : (
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -3337,6 +3368,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         )}
       </div>
     </div>
+    </IDEWindowFocusEnabledContext.Provider>
     </IDEBodyLayoutContext.Provider>
   );
 });

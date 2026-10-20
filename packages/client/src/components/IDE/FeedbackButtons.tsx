@@ -74,7 +74,8 @@ export const FeedbackButtons = memo(function FeedbackButtons({ agentId, subAgent
     setReasonOpen(false);
   };
 
-  const baseBtn = 'flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors';
+  // 터치에서는 손가락 크기로 키운다(아이콘만 있는 단추가 20px 남짓이다).
+  const baseBtn = 'flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors pointer-coarse:px-2.5 pointer-coarse:py-2';
 
   return (
     <div className="min-w-0">

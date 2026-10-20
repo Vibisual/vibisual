@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 import {
   describeStepDuration, shouldTraceThinking, shouldTraceWriting, collectThinkRuns, toolGroupElapsedMs,
+  toolSpanTimestamps, toolCallElapsedMs,
   mergeAdjacentThinkTraces,
   THINK_TRACE_MIN_CHARS, THINK_TRACE_MIN_MS, WRITE_TRACE_MIN_CHARS,
   type ThinkTraceView,
@@ -152,5 +153,38 @@ describe('toolGroupElapsedMs', () => {
     expect(toolGroupElapsedMs([100, 5_100])).toBe(5_000);
     // 순서가 뒤섞여 들어와도 폭은 같다(정렬을 전제하지 않는다).
     expect(toolGroupElapsedMs([5_100, 100, 3_000])).toBe(5_000);
+  });
+
+  it('§5.5 #17-39 ⑪ — Sub 탭 묶음은 도구 상자의 결과 도착 시각까지 폭에 넣는다(마지막 도구 실행 시간이 빠지지 않는다)', () => {
+    const children = [
+      { timestamp: 1_000, endedAt: 2_000 },
+      { timestamp: 3_000 },                  // 사이 잡음(system) — 끝 시각이 없다
+      { timestamp: 4_000, endedAt: 16_000 }, // 마지막 도구가 12초 돌았다
+    ];
+    expect(toolSpanTimestamps(children)).toEqual([1_000, 2_000, 3_000, 4_000, 16_000]);
+    // 종전(호출 시각만)이면 3초였다 — 이제 첫 호출부터 마지막 결과까지 15초.
+    expect(toolGroupElapsedMs(toolSpanTimestamps(children))).toBe(15_000);
+    // 결과 없는 도구 하나뿐이면 여전히 잴 수 없다(없는 끝을 지어내지 않는다).
+    expect(toolGroupElapsedMs(toolSpanTimestamps([{ timestamp: 5_000 }]))).toBe(0);
+  });
+});
+
+describe('toolCallElapsedMs — §5.5 #17-39 ⑪ 도구 호출 하나가 쓴 시간', () => {
+  it('호출 → 결과 도착의 차이다', () => {
+    expect(toolCallElapsedMs(1_000, 13_000)).toBe(12_000);
+  });
+
+  it('결과가 없으면 잴 수 없다 — 0 이 아니라 null(0 은 "곧바로 끝났다"는 잰 값이다)', () => {
+    expect(toolCallElapsedMs(1_000, undefined)).toBeNull();
+    expect(toolCallElapsedMs(1_000, 1_000)).toBe(0);
+  });
+
+  it('시각이 거꾸로 온 짝은 음수를 적지 않고 0 으로 접는다', () => {
+    expect(toolCallElapsedMs(5_000, 4_000)).toBe(0);
+  });
+
+  it('망가진 시각(NaN·무한)은 잴 수 없는 것으로 본다', () => {
+    expect(toolCallElapsedMs(Number.NaN, 4_000)).toBeNull();
+    expect(toolCallElapsedMs(1_000, Number.POSITIVE_INFINITY)).toBeNull();
   });
 });

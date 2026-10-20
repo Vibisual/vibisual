@@ -87,7 +87,8 @@ const CandidateRow = memo(function CandidateRow({
         disabled={disabled}
         title={t('ide.autoGoal.dismiss')}
         aria-label={t('ide.autoGoal.dismiss')}
-        className="mt-[2px] flex-shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100 focus-visible:opacity-100"
+        // 터치에는 hover 가 없다 — 늘 보이고 손가락 크기로 키운다.
+        className="mt-[2px] flex-shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:mt-0 pointer-coarse:p-2.5 pointer-coarse:opacity-100"
       >
         <RemoveGlyph />
       </button>
@@ -140,7 +141,7 @@ export const IDEAutoGoalView = memo(function IDEAutoGoalView({
           className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${control.effective ? 'bg-emerald-400' : 'bg-gray-600'}`}
         />
         <button type="button" disabled={control.saving} onClick={control.refresh} title={t('ide.autoGoal.refresh')} aria-label={t('ide.autoGoal.refresh')}
-          className="rounded p-0.5 text-gray-500 hover:text-gray-200 disabled:opacity-40">
+          className="rounded p-0.5 text-gray-500 hover:text-gray-200 disabled:opacity-40 pointer-coarse:p-2.5">
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6 7a7 7 0 0 1 11.5-2L20 8M4 16l2.5 3A7 7 0 0 0 18 17" /></svg>
         </button>
       </div>

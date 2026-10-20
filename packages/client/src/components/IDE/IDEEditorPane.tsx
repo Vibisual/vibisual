@@ -8,6 +8,7 @@ import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions, useIDEPaneKe
 import { CodeEditor, type EditorViewState, type FollowRange } from './CodeEditor.js';
 import { languageFromPath } from './codeLanguages.js';
 import { FOLLOW_SKIP_KEYS, findEditedLineRange, followSessionKey } from './editorFollow.js';
+import { clampLineRange, countTextLines } from './editorLineRange.js';
 import { isDirty, splitPathTail, tabLabels } from './editorModel.js';
 import { splitRelPath } from './explorerModel.js';
 import { useEditorDocs } from './useEditorDocs.js';
@@ -16,10 +17,13 @@ import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
 import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
 import { workspaceSiteSrc } from '../../utils/workspaceSite.js';
 import { clientPathKey } from '../../utils/platform.js';
+import { confirmDialog } from '../../utils/appDialog.js';
 import { isWorkspaceHtmlPath } from '@vibisual/shared';
 import { IDEEditorTabs } from './IDEEditorTabs.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { buildBodyMenuItems, buildGutterMenuItems, buildTabMenuItems } from './editorContextMenu.js';
+import { commentTokensFor } from './editorComments.js';
+import type { EditorFindMemory } from './useEditorFind.js';
 import { openWebSearch } from './webSearchUrl.js';
 import type { CodeEditorBodyMenuContext } from './CodeEditor.js';
 import { useDebugSessions } from '../../stores/debugSessions.js';
@@ -154,7 +158,17 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   }, [paneShown, handleRestore]);
   const clearBreakpointsInFile = useGraphStore((s) => s.clearBreakpointsInFile);
 
-  const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath);
+  const editorPaneKey = useIDEPaneValue((o) => o.paneKey);
+  const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath, editorPaneKey);
+  const closePending = useRef(false);
+  const editorScope = useMemo(() => ({ rootPath, paneKey }), [rootPath, paneKey]);
+  const closeStateRef = useRef({ scope: editorScope, docs, files });
+  closeStateRef.current = { scope: editorScope, docs, files };
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const editorViews = useMemo(() => new Map<string, { current: EditorViewState | null }>(), [rootPath]);
   const editorViewStateRef = useMemo(() => {
     if (!activePath) return undefined;
@@ -177,6 +191,13 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const doc = activePath && !openerKind ? docs[activePath] : undefined;
   const labels = useMemo(() => tabLabels(files), [files]);
   const language = useMemo(() => (active && !openerKind ? languageFromPath(active.relPath) : 'plain'), [active, openerKind]);
+  /** §5.5 #17-27 ⑲ — 이 파일의 주석 기호(확장자까지 본다 — lua 는 `--`, 언리얼 `.ini` 는 `;`). */
+  const comments = useMemo(() => commentTokensFor(active?.relPath ?? null, language), [active, language]);
+  /**
+   * §5.5 #17-27 ⑲ — 판의 찾기 기억(찾을 말·바꿀 말·스위치). 편집창은 파일마다 새로 서므로(`key={activePath}`)
+   * 여기 둬야 파일 탭을 바꿔도 같은 말로 이어 찾는다. 화면 안 휘발 상태다(영속 ❌).
+   */
+  const findMemoryRef = useRef<EditorFindMemory | null>(null);
   /**
    * §5.5 #17-27 ⑱ (e) — 지금 파일 탭의 갈래. 손잡이 줄의 [파일 열기] 가 **같은 갈래**의 빈 탭을 그 옆에
    * 세운다. 판정은 목록·서버와 같은 한 벌(`editorPaneKindOf` — 앱 선언은 등록표에서)이다.
@@ -367,8 +388,11 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const clearFollowSignal = useGraphStore((s) => s.clearIdeEditorFollowSignal);
   const setFollowLast = useGraphStore((s) => s.setIdeEditorFollowLast);
   const followMark = useGraphStore((s) => s.ideEditorFollowLast);
-  /** 지금 강조 중인 줄 범위(그 파일에 한정) — 잠깐 뒤 스스로 사라진다. */
-  const [follow, setFollow] = useState<{ relPath: string; range: FollowRange; token: number } | null>(null);
+  /**
+   * 지금 강조 중인 줄 범위(그 파일에 한정) — 잠깐 뒤 스스로 사라진다.
+   * `focus` 는 ⑬ (g) 사용자가 눌러 온 이동일 때만 선다(캐럿·초점까지 그 줄로 — 추종은 초점을 뺏지 않는다).
+   */
+  const [follow, setFollow] = useState<{ relPath: string; range: FollowRange; token: number; focus?: boolean } | null>(null);
   /** (h) ④ 잔상 — 강조가 꺼진 뒤에도 **다음 편집까지** 남는 "여기가 방금 바뀐 자리" 표시. */
   const [recent, setRecent] = useState<{ relPath: string; range: FollowRange } | null>(null);
   /** 이미 접수한 신호의 시각 — 같은 신호를 두 번 처리하지 않는다. */
@@ -468,7 +492,55 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     return () => window.clearTimeout(timer);
   }, [follow]);
 
+  // ─── §5.5 #17-27 ⑬ (g) — 줄을 들고 온 열기: 그 줄로 · 캐럿 · 강조 · 칠하기 ───────────────
+  /**
+   * 본문 링크(`X.h#L806-L807`)·오류 줄(#17-20 ⑪)이 `openIDEEditorFile` 에 줄 범위를 실어 보내면 스토어에
+   * 요청 한 건이 선다. **이 창의 것만** 받는다 — 옆 창의 편집창이 가로채면 엉뚱한 창이 스크롤한다.
+   * 스크롤·강조는 위 추종과 **같은 길**(`follow` → `CodeEditor`)을 타고, 다른 것은 셋이다: 캐럿·초점까지
+   * 그 줄로(`focus`), 그 범위를 칠해 둔다(`mark`), 추종의 자국·잔상은 건드리지 않는다(누른 이동은 에이전트
+   * 편집이 아니다).
+   */
+  const ownPaneKey = useIDEPaneValue((o) => o.paneKey);
+  const reveal = useGraphStore((s) => (s.ideEditorReveal?.paneKey === ownPaneKey ? s.ideEditorReveal : null));
+  const clearReveal = useGraphStore((s) => s.clearIdeEditorReveal);
+  /** 칠해 둔 범위 — 그 탭의 본문이 **칠할 때 그대로**인 동안만 산다(`draft` 로 대조한다). */
+  const [mark, setMark] = useState<{ relPath: string; range: FollowRange; draft: string } | null>(null);
+
+  useEffect(() => {
+    if (!reveal) return;
+    // 그 사이 다른 탭으로 옮겼으면 낡은 요청이다 — 나중에 그 탭으로 돌아왔을 때 끌려가지 않게 버린다.
+    if (reveal.relPath !== activePath) {
+      clearReveal(reveal.at);
+      return;
+    }
+    const target = docs[reveal.relPath];
+    // 아직 읽는 중이면 기다린다 — 본문이 오면 이 효과가 다시 돈다(탭이 서면 `ensureLoaded` 가 읽기를 시작한다).
+    if (!target || target.status === 'loading') return;
+    clearReveal(reveal.at);
+    // 줄이 없는 것(그림·이진)과 못 읽은 것은 열기만 한다.
+    if (target.status !== 'ready' || target.binary || target.image) return;
+    // 파일 끝을 넘는 끝 줄은 자르고, 첫 줄부터 넘으면 움직이지 않는다(⑪ (c) — 엉뚱한 줄로 끌고 가지 않는다).
+    const range = clampLineRange(reveal, countTextLines(target.draft));
+    if (!range) return;
+    // ⑮ 페이지에는 줄이 없다 — HTML 은 [소스] 로 돌려 그 줄을 보여 준다(탭마다의 보기 상태).
+    if (isWorkspaceHtmlPath(reveal.relPath)) {
+      setHtmlSourceTabs((prev) => (prev.has(reveal.relPath) ? prev : new Set(prev).add(reveal.relPath)));
+    }
+    setFollow({ relPath: reveal.relPath, range, token: reveal.at, focus: true });
+    setMark({ relPath: reveal.relPath, range, draft: target.draft });
+  }, [reveal, activePath, docs, clearReveal]);
+
+  // 칠은 본문이 그대로인 동안만 — 고치거나 다시 읽어 내용이 달라지면 그 줄 번호가 그 자리를 가리킨다고
+  //   장담할 수 없다. 탭을 닫아 문서가 내려가도 걷힌다.
+  useEffect(() => {
+    if (!mark) return;
+    const d = docs[mark.relPath];
+    if (!d || d.status !== 'ready' || d.draft !== mark.draft) setMark(null);
+  }, [mark, docs]);
+
   const followRange = follow && follow.relPath === activePath ? follow.range : null;
+  const followFocus = !!follow?.focus && follow.relPath === activePath;
+  const markRange = mark && mark.relPath === activePath ? mark.range : null;
   const recentRange = recent && recent.relPath === activePath ? recent.range : null;
   /** 추종 띠에 적을 자국 — 이 세션의 것만(옆 세션이 따라간 것을 여기 적으면 세션 격리가 무너져 보인다). */
   const bannerMark = followMark && followMark.sessionKey === sessionKey ? followMark : null;
@@ -505,36 +577,59 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
    * 탭 닫기 공통 — 저장할 것이 남은 탭이 있으면 **한 번만** 되묻는다(③ 규칙).
    * 여러 탭을 한꺼번에 닫는 우클릭 항목도 같은 문을 지나므로, 확인 없이 사라지는 편집분은 없다.
    */
-  const closeTabs = useCallback((relPaths: string[]): void => {
-    if (relPaths.length === 0) return;
-    const unsaved = relPaths.filter((p) => {
-      const d = docs[p];
-      return !!d && d.status === 'ready' && d.draft !== d.diskText;
-    });
-    if (unsaved.length > 0) {
-      const message = unsaved.length === 1
-        ? t('ide.editor.closeDirtyConfirm')
-        : t('ide.editor.closeDirtyConfirmMany', { count: unsaved.length });
-      if (!window.confirm(message)) return;
+  const closeTabs = useCallback(async (relPaths: string[]): Promise<boolean> => {
+    if (closePending.current) return false;
+    if (relPaths.length === 0) return true;
+    closePending.current = true;
+    try {
+      const unsaved = relPaths.filter((p) => {
+        const d = docs[p];
+        return !!d && d.status === 'ready' && d.draft !== d.diskText;
+      });
+      if (unsaved.length > 0) {
+        const message = unsaved.length === 1
+          ? t('ide.editor.closeDirtyConfirm')
+          : t('ide.editor.closeDirtyConfirmMany', { count: unsaved.length });
+        if (!await confirmDialog(message, {
+          title: t('panel.options.discardTitle'),
+          confirmLabel: t('panel.options.discardLeave'),
+          cancelLabel: t('panel.options.discardKeep'),
+          tone: 'danger',
+        })) return false;
+      }
+      const current = closeStateRef.current;
+      if (!mountedRef.current || current.scope !== editorScope) return false;
+      // 팝업을 기다리는 사이 바뀐 초안은 이전 닫기 확인으로 버리지 않는다.
+      if (relPaths.some((p) => {
+        const latest = current.docs[p];
+        return latest?.status === 'ready' && latest.draft !== latest.diskText
+          && (!unsaved.includes(p) || latest.draft !== docs[p]?.draft);
+      })) return false;
+      for (const p of relPaths) {
+        const original = files.find((file) => file.relPath === p);
+        if (!current.files.some((file) => file.relPath === p && file.absPath === original?.absPath)) continue;
+        drop(p);
+        closeFile(p);
+      }
+      return true;
+    } finally {
+      closePending.current = false;
     }
-    for (const p of relPaths) {
-      drop(p);
-      closeFile(p);
-    }
-  }, [docs, drop, closeFile, t]);
+  }, [docs, files, editorScope, drop, closeFile, t]);
 
   const handleCloseTab = useCallback((relPath: string): void => {
-    closeTabs([relPath]);
+    void closeTabs([relPath]);
   }, [closeTabs]);
 
   /**
    * 탭 줄 오른쪽의 [판 닫기] — 이 판에 서 있는 것을 **전부** 내린다.
    * ㉔ 이후로 그 "전부"에는 무대도 든다(파일만 닫으면 무대만 남은 판에서 이 손잡이가 헛버튼이 된다).
    */
-  const handleCloseAll = useCallback((): void => {
-    closeTabs(files.map((f) => f.relPath));
+  const handleCloseAll = useCallback(async (): Promise<void> => {
+    if (!await closeTabs(files.map((f) => f.relPath))) return;
+    if (!mountedRef.current || closeStateRef.current.scope !== editorScope) return;
     if (stageOpen) setStageOpen(false);
-  }, [closeTabs, files, stageOpen, setStageOpen]);
+  }, [closeTabs, files, editorScope, stageOpen, setStageOpen]);
 
   const handleOpenExternal = useCallback((): void => {
     if (active) openFileByPath(active.absPath, active.relPath);
@@ -562,7 +657,13 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   /** (a) 본문 — 편집 조작은 `CodeEditor` 가 넘겨 준 것을 그대로 쓰고, 저장·경로 같은 것만 여기서 얹는다. */
   const buildBodyMenu = useCallback((ctx: CodeEditorBodyMenuContext): ContextMenuItem[] => (
     buildBodyMenuItems(
-      { hasSelection: ctx.hasSelection, readOnly, dirty },
+      {
+        hasSelection: ctx.hasSelection,
+        readOnly,
+        dirty,
+        canLineComment: ctx.canLineComment,
+        canBlockComment: ctx.canBlockComment,
+      },
       {
         ...ctx.actions,
         save: () => handleSave(),
@@ -1138,6 +1239,10 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
           followRange={followRange}
           followToken={follow?.token ?? 0}
           recentRange={recentRange}
+          followFocus={followFocus}
+          markRange={markRange}
+          comments={comments}
+          findMemoryRef={findMemoryRef}
         />
       )}
 
@@ -1161,7 +1266,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
             onClick={handleRestore}
             title={t('ide.editor.restorePane')}
             aria-label={t('ide.editor.restorePane')}
-            className={`flex items-center justify-center rounded-md border border-gray-700 bg-gray-900/90 p-1 text-gray-300 shadow-lg shadow-black/40 backdrop-blur-sm transition-all duration-200 ease-out hover:bg-gray-800 hover:text-white focus-visible:translate-y-0 focus-visible:opacity-100 group-hover/restore:translate-y-0 group-hover/restore:opacity-100 ${
+            // 터치에는 구석을 훑는 hover 가 없다 — 가라앉으면 최대화를 푸는 길이 사라지므로 늘 떠 있고 손가락 크기로 선다.
+            className={`flex items-center justify-center rounded-md border border-gray-700 bg-gray-900/90 p-1 text-gray-300 shadow-lg shadow-black/40 backdrop-blur-sm transition-all duration-200 ease-out hover:bg-gray-800 hover:text-white focus-visible:translate-y-0 focus-visible:opacity-100 group-hover/restore:translate-y-0 group-hover/restore:opacity-100 pointer-coarse:translate-y-0 pointer-coarse:p-2 pointer-coarse:opacity-100 ${
               restoreHint ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0'
             }`}
           >

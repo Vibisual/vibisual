@@ -9,8 +9,18 @@ import { splitRelPath, toRelativeFromRoot } from './explorerModel.js';
  * 다루는 계산은 화면에서 눈으로 확인하기 어려워, 단위 테스트로 못 박아 두는 편이 훨씬 촘촘하다.
  */
 
-/** 한 단계 들여쓰기 폭(공백). 편집창은 탭 문자 대신 공백을 넣는다(우리 저장소 규약과 같다). */
+/**
+ * 한 단계 들여쓰기 폭(공백) — **들여쓴 줄이 없는 파일의 기본값**이다(우리 저장소 규약과 같다).
+ * §5.5 #17-27 ⑲ 부터 편집창은 파일이 이미 쓰는 단위(탭·스페이스 넷 …)를 알아보고 그것을 넣는다
+ * (`detectIndentUnit`) — 탭으로 들여쓴 언리얼 소스에서 `Tab` 이 스페이스 두 칸을 넣으면 그 파일의 모양이 깨진다.
+ */
 export const INDENT_UNIT = '  ';
+
+/**
+ * 탭 한 칸이 화면에서 차지하는 폭(글자) — VS Code 의 기본값과 같다. 편집창 두 층의 `tab-size` 와 같아야
+ * 하고, 탭 단위 파일에서 `Shift+Tab` 이 스페이스로 들여쓴 줄을 당길 때 몇 칸까지 걷을지도 이 값이다.
+ */
+export const EDITOR_TAB_SIZE = 4;
 
 /** 텍스트 편집 결과 — 본문과 캐럿/선택 범위를 함께 돌려준다(둘 중 하나만 바뀌면 커서가 튄다). */
 export interface EditResult {
@@ -64,13 +74,16 @@ function spansLines(text: string, start: number, end: number): boolean {
   return end > start && text.slice(start, end).includes('\n');
 }
 
-/** `Tab` — 선택이 여러 줄이면 각 줄을 한 단계 밀고, 아니면 캐럿 자리에 들여쓰기를 넣는다. */
-export function applyIndent(text: string, start: number, end: number): EditResult {
+/**
+ * `Tab` — 선택이 여러 줄이면 각 줄을 한 단계 밀고, 아니면 캐럿 자리에 들여쓰기를 넣는다.
+ * `unit` 은 그 파일의 들여쓰기 한 단계(`detectIndentUnit`) — 안 주면 기본값.
+ */
+export function applyIndent(text: string, start: number, end: number, unit: string = INDENT_UNIT): EditResult {
   if (!spansLines(text, start, end)) {
     return {
-      text: `${text.slice(0, start)}${INDENT_UNIT}${text.slice(end)}`,
-      selectionStart: start + INDENT_UNIT.length,
-      selectionEnd: start + INDENT_UNIT.length,
+      text: `${text.slice(0, start)}${unit}${text.slice(end)}`,
+      selectionStart: start + unit.length,
+      selectionEnd: start + unit.length,
     };
   }
 
@@ -78,26 +91,30 @@ export function applyIndent(text: string, start: number, end: number): EditResul
   let next = text;
   // 뒤에서부터 넣어야 앞 줄의 삽입이 뒤 줄의 위치를 밀지 않는다.
   for (const pos of [...starts].reverse()) {
-    next = `${next.slice(0, pos)}${INDENT_UNIT}${next.slice(pos)}`;
+    next = `${next.slice(0, pos)}${unit}${next.slice(pos)}`;
   }
   return {
     text: next,
-    selectionStart: start + INDENT_UNIT.length,
-    selectionEnd: end + INDENT_UNIT.length * starts.length,
+    selectionStart: start + unit.length,
+    selectionEnd: end + unit.length * starts.length,
   };
 }
 
-/** `Shift+Tab` — 선택이 걸친 줄(또는 캐럿 줄)의 앞 공백을 한 단계까지 뺀다. */
-export function applyDedent(text: string, start: number, end: number): EditResult {
+/**
+ * `Shift+Tab` — 선택이 걸친 줄(또는 캐럿 줄)의 앞 공백을 한 단계까지 뺀다.
+ * 줄이 탭으로 시작하면 탭 하나, 아니면 스페이스를 한 단계 폭까지(탭 단위면 `EDITOR_TAB_SIZE` 칸).
+ */
+export function applyDedent(text: string, start: number, end: number, unit: string = INDENT_UNIT): EditResult {
   const starts = lineStarts(text, start, end);
+  const spaceLimit = unit === '\t' ? EDITOR_TAB_SIZE : unit.length;
   let next = text;
   let removedBeforeStart = 0;
   let removedTotal = 0;
 
   for (const pos of [...starts].reverse()) {
     let width = 0;
-    while (width < INDENT_UNIT.length && next[pos + width] === ' ') width += 1;
-    if (width === 0 && next[pos] === '\t') width = 1;
+    if (next[pos] === '\t') width = 1;
+    else while (width < spaceLimit && next[pos + width] === ' ') width += 1;
     if (width === 0) continue;
     next = `${next.slice(0, pos)}${next.slice(pos + width)}`;
     removedTotal += width;

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { extractStageBlocks, STAGE_BLOCK_LANGS } from '@vibisual/shared';
 import { applyStreamDensity, sameDisplayItem, clampStreamText, turnOpeningTextIds, speechRunPositions, type StreamToolGroup } from './streamDensity.js';
 import type { StreamGroup, StreamItemFull, StreamPlan } from './streamItems.js';
 
@@ -372,7 +373,7 @@ describe('clampStreamText — §5.5 #17-46 머리 + 꼬리, 가운데만 접기'
       '결론입니다',
     ].join('\n');
     const md = clampStreamText(content, { ...SPEC, markdown: true });
-    expect(md?.tail.startsWith(`${FENCE}\n`)).toBe(true);
+    expect(md?.tail.startsWith(`${FENCE}ts\n`)).toBe(true);
     expect(md?.tail.endsWith('결론입니다')).toBe(true);
     // 평문으로 그리는 메인 탭은 보정하지 않는다(펜스 글자가 그대로 보이면 안 된다).
     expect(clampStreamText(content, SPEC)?.tail.startsWith(`${FENCE}\n`)).toBe(false);
@@ -387,6 +388,84 @@ describe('clampStreamText — §5.5 #17-46 머리 + 꼬리, 가운데만 접기'
     ].join('\n');
     const md = clampStreamText(content, { ...SPEC, markdown: true });
     expect(md?.tail).toBe('마무리 1\n마무리 2\n마무리 3');
+  });
+
+  it.each(STAGE_BLOCK_LANGS)('간결 꼬리에서도 %s 목표 목록을 숨길 언어 정보를 보존한다', (lang) => {
+    const content = [
+      '첫 줄', '둘', '셋', '넷', `${FENCE}${lang}`,
+      'goal: 시안 확인', '- [x] 범위 확인 @locate', '- [~] 표시 수정 @change',
+      '- [ ] 시안 범위와 동작 검사 후 보고 @verify /', FENCE, '검사 결과입니다.',
+    ].join('\n');
+    const tail = clampStreamText(content, { ...SPEC, markdown: true })!.tail;
+    const spans = extractStageBlocks(tail);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toMatchObject({ body: '- [ ] 시안 범위와 동작 검사 후 보고 @verify /', closed: true });
+    expect(tail.slice(spans[0]!.end).trim()).toBe('검사 결과입니다.');
+  });
+
+  it.each([FENCE, '~~~~'])('스트리밍 중인 %s 목표 블록도 꼬리에서 노출하지 않는다', (marker) => {
+    const content = [
+      '첫 줄', '둘', '셋', '넷', `${marker}vibisual json`,
+      'goal: 시안 확인', '- [x] 범위 확인 @locate', '- [~] 표시 수정 @change',
+      '- [ ] 시안 검사 @verify', 'note: 검사 중',
+    ].join('\n');
+    const tail = clampStreamText(content, { ...SPEC, markdown: true })!.tail;
+    expect(tail.startsWith(`${marker}vibisual json\n`)).toBe(true);
+    expect(extractStageBlocks(tail)).toMatchObject([{ start: 0, end: tail.length, closed: false }]);
+  });
+
+  it('긴 펜스 안의 짧은 펜스나 정보가 붙은 줄을 닫는 펜스로 오인하지 않는다', () => {
+    const marker = FENCE + '`';
+    const content = [
+      '첫 줄', '둘', '셋', '넷', `${marker}vibisual`,
+      'goal: 시안 확인', FENCE, `${marker}example`,
+      '- [ ] 시안 검사 @verify', marker, '검사 결과입니다.',
+    ].join('\n');
+    const tail = clampStreamText(content, { ...SPEC, markdown: true })!.tail;
+    expect(tail.startsWith(`${marker}vibisual\n`)).toBe(true);
+    expect(extractStageBlocks(tail)).toMatchObject([{ body: '- [ ] 시안 검사 @verify', closed: true }]);
+  });
+
+  it('CRLF 목표 블록도 언어 정보를 보존하고 긴 닫는 펜스 뒤 결론을 남긴다', () => {
+    const content = [
+      '첫 줄', '둘', '셋', '넷', `  ${FENCE}vibisual`,
+      'goal: 시안 확인', '- [x] 범위 확인 @locate', '- [~] 표시 수정 @change',
+      '- [ ] 시안 검사 @verify', `${FENCE}\`\`\t`, '검사 결과입니다.',
+    ].join('\r\n');
+    const tail = clampStreamText(content, { ...SPEC, markdown: true })!.tail;
+    const spans = extractStageBlocks(tail);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.closed).toBe(true);
+    expect(tail.slice(spans[0]!.end).trim()).toBe('검사 결과입니다.');
+  });
+
+  it('글자 제한이 여는 언어명 중간을 잘라도 꼬리의 목표 목록이 노출되지 않는다', () => {
+    const tail = [`${FENCE}vibisual`, 'goal:시안확인', '- [ ] 검사 @verify', FENCE].join('\n');
+    const content = ['첫 줄', '둘', '셋', '넷', '가운데 1', '가운데 2', tail].join('\n');
+    const out = clampStreamText(content, { ...SPEC, tailLines: 4, tailChars: tail.length - 7, markdown: true });
+    expect(out!.tail).toBe(tail);
+    expect(extractStageBlocks(out!.tail)).toMatchObject([{ start: 0, end: tail.length, closed: true }]);
+  });
+
+  it('글자 제한이 닫는 펜스 중간을 잘라도 블록 뒤 결론이 코드 안에 갇히지 않는다', () => {
+    const tail = [FENCE, '결론'].join('\n');
+    const content = [
+      '첫 줄', '둘', '셋', '넷', `${FENCE}vibisual`,
+      'goal: 시안 확인', '- [ ] 검사 @verify', tail,
+    ].join('\n');
+    const out = clampStreamText(content, { ...SPEC, tailChars: tail.length - 1, markdown: true });
+    const spans = extractStageBlocks(out!.tail);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.closed).toBe(true);
+    expect(out!.tail.slice(spans[0]!.end).trim()).toBe('결론');
+  });
+
+  it('머리 글자 제한도 목표 블록의 언어명을 자르지 않는다', () => {
+    const opening = `설명\n${FENCE}vibisual`;
+    const content = [opening, 'goal: 시안 확인', '- [x] 범위 확인', '- [ ] 검사', FENCE, '결론'].join('\n');
+    const out = clampStreamText(content, { ...SPEC, headChars: opening.length - 3, markdown: true });
+    expect(out!.head).toBe(opening);
+    expect(extractStageBlocks(out!.head)).toMatchObject([{ closed: false }]);
   });
 });
 

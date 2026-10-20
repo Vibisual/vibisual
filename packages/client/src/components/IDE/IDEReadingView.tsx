@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SpecCitation, SpecGateStrength, SpecReadSpan, SpecReadingSettings, SpecReadingState, SpecRequiredEntry } from '@vibisual/shared';
+import type { SpecCitation, SpecGateStrength, SpecReadSpan, SpecReadingState, SpecRequiredEntry } from '@vibisual/shared';
 import { SPEC_DOC_ROOT_CANDIDATES, SPEC_GATE_STRENGTHS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
@@ -102,56 +102,16 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
   const { openEditorFile } = useIDEPaneActions();
   const setFollowSignal = useGraphStore((s) => s.setIdeEditorFollowSignal);
 
-  /**
-   * 프로젝트 설정 한 벌 — **전량 교체**가 규약이라(부분 페이로드 강등 사고) 바꾸기 전에 먼저 받아 둔다.
-   * 화면에 보이는 강도는 스냅샷의 것이고(그것이 게이트가 실제로 쓰는 값), 여기 것은 저장할 때의 재료다.
-   */
-  const [settings, setSettings] = useState<SpecReadingSettings | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!rootPath) return;
-    let alive = true;
-    void fetch(`/api/spec-reading/settings?projectPath=${encodeURIComponent(rootPath)}`)
-      .then((r) => r.json())
-      .then((body: { ok?: boolean; settings?: SpecReadingSettings | null }) => {
-        if (alive && body.ok) setSettings(body.settings ?? null);
-      })
-      .catch(() => { /* 스냅샷이 권위 — 설정을 못 받아도 화면은 그대로 그린다 */ });
-    return () => { alive = false; };
-  }, [rootPath]);
-
-  /** 강도를 바꾼다 — 나머지 칸은 받아 둔 설정을 그대로 실어 보낸다(한 칸만 보내면 나머지가 강등된다). */
+  const { settings, saving, patch, waive } = scope;
+  /** 강도만 보낸다 — 서버의 최신 켬/끔·면제·뿌리는 그대로 남긴다. */
   const changeStrength = useCallback((strength: SpecGateStrength) => {
-    if (!rootPath || saving) return;
-    setSaving(true);
-    void fetch('/api/spec-reading/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectPath: rootPath, settings: { ...(settings ?? {}), strength } }),
-    })
-      .then((r) => r.json())
-      .then((body: { ok?: boolean; settings?: SpecReadingSettings }) => {
-        if (body.ok && body.settings) setSettings(body.settings);
-      })
-      .catch(() => { /* 실패하면 다음 스냅샷이 종전 값을 그대로 말한다 */ })
-      .finally(() => setSaving(false));
-  }, [rootPath, saving, settings]);
+    patch({ strength });
+  }, [patch]);
 
   /** 절 하나를 면제하거나 되돌린다 — **사용자만** 할 수 있다(에이전트에게는 이 경로가 없다). */
   const toggleWaive = useCallback((unitId: string, waived: boolean) => {
-    if (!rootPath) return;
-    void fetch('/api/spec-reading/waive', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectPath: rootPath, unitId, waived }),
-    })
-      .then((r) => r.json())
-      .then((body: { ok?: boolean; settings?: SpecReadingSettings }) => {
-        if (body.ok && body.settings) setSettings(body.settings);
-      })
-      .catch(() => { /* 스냅샷이 권위 */ });
-  }, [rootPath]);
+    waive(unitId, waived);
+  }, [waive]);
 
   /**
    * 인용 대조를 펼친 절 — 「인용 일치/어긋남」 한 마디로는 무엇이 어긋났는지 모른다. 에이전트가 적은 문장과
@@ -172,27 +132,15 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
    * 비워 두면 기본 후보(`SPEC_DOC_ROOT_CANDIDATES`)로 돌아간다 — 서버 정규화가 빈 목록을 "없음"으로 접는다.
    */
   const [rootsDraft, setRootsDraft] = useState('');
+  const savedRoots = (settings?.roots ?? []).join('\n');
   useEffect(() => {
-    setRootsDraft((settings?.roots ?? []).join('\n'));
-  }, [settings?.roots]);
-  const rootsDirty = rootsDraft.trim() !== (settings?.roots ?? []).join('\n').trim();
+    setRootsDraft(savedRoots);
+  }, [rootPath, savedRoots]);
+  const rootsDirty = rootsDraft.trim() !== savedRoots.trim();
   const saveRoots = useCallback(() => {
-    if (!rootPath || saving) return;
     const roots = rootsDraft.split(/[\n,]/).map((r) => r.trim()).filter((r) => r !== '');
-    setSaving(true);
-    void fetch('/api/spec-reading/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      // 전량 교체 규약 — 받아 둔 한 벌에 뿌리만 얹어 보낸다(한 칸만 보내면 나머지가 강등된다).
-      body: JSON.stringify({ projectPath: rootPath, settings: { ...(settings ?? {}), roots } }),
-    })
-      .then((r) => r.json())
-      .then((body: { ok?: boolean; settings?: SpecReadingSettings }) => {
-        if (body.ok && body.settings) setSettings(body.settings);
-      })
-      .catch(() => { /* 실패하면 초안이 그대로 남고 다음 스냅샷이 종전 뿌리를 말한다 */ })
-      .finally(() => setSaving(false));
-  }, [rootPath, saving, settings, rootsDraft]);
+    patch({ roots });
+  }, [patch, rootsDraft]);
 
   /**
    * 절을 누르면 **내장 편집창**에서 그 문서를 연다(#17-27).
@@ -354,6 +302,7 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
                     </button>
                     <button
                       type="button"
+                        disabled={saving || scope.loading}
                       onClick={() => toggleWaive(entry.unitId, entry.status !== 'waived')}
                       className="flex-shrink-0 rounded px-1 text-[12px] text-gray-500 hover:bg-gray-800 hover:text-gray-300"
                     >
@@ -458,8 +407,8 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
           )}
         </section>
 
-        {/* ⑥ 색인 — 어디를 훑었고 무엇이 밀렸는지(§5.5 #17-44 ③-1). 뿌리는 여기서 고친다 — 설정은 전량 교체 규약이라
-            받아 둔 한 벌에 얹어 보내고, 색인은 다음 턴에 다시 선다. */}
+        {/* ⑥ 색인 — 어디를 훑었고 무엇이 밀렸는지(§5.5 #17-44 ③-1). 뿌리는 여기서 고친다 — 변경한 뿌리만 보내
+            서버 최신 설정에 합치고, 색인은 다음 턴에 다시 선다. */}
         <section className="mt-2 flex flex-col gap-1">
           <span className="px-1 text-[12px] font-semibold uppercase tracking-wider text-gray-500">
             {t('ide.specReading.indexTitle')}
@@ -478,7 +427,7 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
           <div className="flex items-center gap-1.5 px-1">
             <button
               type="button"
-              disabled={saving || !rootsDirty}
+              disabled={saving || scope.loading || !rootsDirty}
               onClick={saveRoots}
               className="rounded px-1.5 py-0.5 text-[12px] text-sky-300 hover:bg-gray-800 disabled:cursor-default disabled:text-gray-600 disabled:hover:bg-transparent"
             >
@@ -514,7 +463,7 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
             <button
               key={s}
               type="button"
-              disabled={saving}
+              disabled={saving || scope.loading}
               onClick={() => changeStrength(s)}
               className={`rounded px-1.5 py-0.5 text-[12px] transition-colors ${
                 state.strength === s

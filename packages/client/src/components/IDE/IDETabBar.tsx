@@ -29,6 +29,7 @@ import { notePointerUse } from '../../stores/keyPromoter.js';
 import { useIDESlotKey } from './ideSlot.js';
 import { useSelectSessionInSplit } from './useSplitDrop.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 import {
   findHiddenRunningTabs, sameHiddenRunningTabs, noHiddenRunningTabs,
   type HiddenRunningTabs, type TabBox,
@@ -39,6 +40,7 @@ import { shouldShowInlineNew } from './inlineNewButton.js';
 import { IDETabSortMenu } from './IDETabSortMenu.js';
 // §5.5 #17-27 ⑱ — 우측 판에 무엇을 띄울지 판 쪽에서 고르는 목록.
 import { IDEPaneLauncherMenu } from './IDEPaneLauncherMenu.js';
+import { useActiveSessionTabScroll } from './useActiveSessionTabScroll.js';
 
 interface IDETabBarProps {
   subAgents: SubAgent[];
@@ -88,6 +90,7 @@ export const IDETabBar = memo(function IDETabBar({
 }: IDETabBarProps): React.JSX.Element {
   const { t } = useTranslation();
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  const paneRevealKey = useIDEPaneValue((o) => o.z);
   const agentId = useIDEPaneValue((o) => o.agentId);
   const { setSession } = useIDEPaneActions();
   const tabPins = useGraphStore((s) => s.tabPins);
@@ -118,6 +121,9 @@ export const IDETabBar = memo(function IDETabBar({
   //   선택자가 늘 달라진다 — 도트·루프와 같은 수법으로 문자열 하나만 구독한다.
   const splitSlotKey = useIDESlotKey();
   const isNarrowViewport = useIsNarrowViewport();
+  // 탭을 좁게 세울지 — 뷰포트가 아니라 **이 창의 폭**으로 묻는다(타이틀바가 손잡이를 접는 것과 같은 판정).
+  //   폰은 언제나 참이고(종전 `max-md` 와 같다), 넓은 화면에서 창만 좁힌 경우도 이제 같은 모양이 된다.
+  const { titleBarNarrow: compactTabs } = useIDEBodyLayout();
   const splitCellKey = useGraphStore((s) => {
     const layout = s.ideSplits[splitSlotKey]?.layout;
     return layout ? [...cellSessionIds(layout)].sort().join('|') : '';
@@ -490,8 +496,8 @@ export const IDETabBar = memo(function IDETabBar({
     //   아래 페이드·썸 계산은 **정리된 뒤의** 폭을 봐야 한 프레임 어긋나지 않는다.
     syncInlineNew(el);
     const overflow = el.scrollWidth - el.clientWidth;
-    fL.classList.toggle('visible', el.scrollLeft > 4);
-    fR.classList.toggle('visible', overflow - el.scrollLeft > 4);
+    fL.classList.toggle('scroll-fade-shown', el.scrollLeft > 4);
+    fR.classList.toggle('scroll-fade-shown', overflow - el.scrollLeft > 4);
     // 넘치지 않는 경우(아래 early return)에도 알림은 꺼져야 하므로 여기서 먼저 맞춘다.
     syncHiddenRunning(el);
     if (overflow <= 0 || el.clientWidth <= 0) {
@@ -558,20 +564,14 @@ export const IDETabBar = memo(function IDETabBar({
     e.preventDefault();
   }, []);
 
-  // 활성 탭이 뷰포트 밖이면 자동 가시화.
-  useEffect(() => {
-    if (!activeSessionId) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const tab = el.querySelector<HTMLElement>(`[data-tab-id="${activeSessionId}"]`);
-    if (!tab) return;
-    const tl = tab.offsetLeft;
-    const tr = tl + tab.offsetWidth;
-    const vl = el.scrollLeft;
-    const vr = vl + el.clientWidth;
-    if (tl < vl) el.scrollLeft = tl - 8;
-    else if (tr > vr) el.scrollLeft = tr - el.clientWidth + 8;
-  }, [activeSessionId, subAgents.length]);
+  // 같은 세션으로 창을 다시 열 때도 탭을 보여 준다. 드래그 중에는 손의 스크롤이 우선한다.
+  useActiveSessionTabScroll({
+    container: scrollRef,
+    sessionId: activeSessionId,
+    orderKey: orderedSubs.map((sub) => sub.id).join('\0'),
+    revealKey: paneRevealKey,
+    paused: dragApi.dragKey !== null,
+  });
 
   // --- Context menu ---
   const [ctx, setCtx] = useState<{ subId: string; index: number; x: number; y: number } | null>(null);
@@ -661,7 +661,7 @@ export const IDETabBar = memo(function IDETabBar({
           } ${dragApi.dragKey === MAIN_TAB_DRAG_KEY ? 'opacity-0' : ''}`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
-          <HoverTooltip className="max-w-[100px] truncate max-md:max-w-[4.5rem]" label={t('ide.tabbar.agentTabLabel')} />
+          <HoverTooltip className={`truncate ${compactTabs ? 'max-w-[4.5rem]' : 'max-w-[100px]'}`} label={t('ide.tabbar.agentTabLabel')} />
         </button>
       )}
 
@@ -670,7 +670,7 @@ export const IDETabBar = memo(function IDETabBar({
         <div
           ref={scrollRef}
           onWheel={handleWheel}
-          className="scrollbar-overlay flex h-9 min-w-0 flex-1 items-end overflow-x-auto overflow-y-hidden"
+          className="scrollbar-overlay relative flex h-9 min-w-0 flex-1 items-end overflow-x-auto overflow-y-hidden"
         >
           {orderedSubs.map((sub, index) => {
         const isActive = activeSessionId === sub.id;
@@ -768,14 +768,14 @@ export const IDETabBar = memo(function IDETabBar({
                   else if (e.key === 'Escape') cancelRename();
                 }}
                 onBlur={() => commitRename(sub.id)}
-                className="w-[120px] rounded border border-blue-400/60 bg-gray-900 px-1 py-0.5 text-xs text-gray-100 outline-none max-md:w-[6.5rem]"
+                className={`rounded border border-blue-400/60 bg-gray-900 px-1 py-0.5 text-xs text-gray-100 outline-none ${compactTabs ? 'w-[6.5rem]' : 'w-[120px]'}`}
               />
             ) : (
               // 탭 크기 고정 — 이름이 길면 ...(truncate). HoverTooltip 으로 전체 라벨 빠르게 호버 표시.
-              //   폰(max-md)에서는 120px 탭 두 개면 화면이 찬다 — **지금 보고 있는 탭만** 넓게 두고
-              //   나머지는 좁혀, 세션이 여럿일 때 옆 탭이 화면 밖으로 밀리지 않게 한다.
+              //   좁은 창(폰·좁힌 창 — `compactTabs`)에서는 120px 탭 두 개면 창이 찬다 — **지금 보고 있는 탭만**
+              //   넓게 두고 나머지는 좁혀, 세션이 여럿일 때 옆 탭이 창 밖으로 밀리지 않게 한다.
               <HoverTooltip
-                className={`w-[120px] truncate ${isActive ? 'max-md:w-[6.5rem]' : 'max-md:w-[4rem]'}`}
+                className={`truncate ${compactTabs ? (isActive ? 'w-[6.5rem]' : 'w-[4rem]') : 'w-[120px]'}`}
                 label={displayLabel(sub)}
               />
             )}
@@ -917,7 +917,7 @@ export const IDETabBar = memo(function IDETabBar({
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
           {...confirmBackdrop}
         >
-          <div className="mx-4 w-[clamp(20rem,34vw,28rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+          <div className="mx-4 w-[clamp(20rem,34vw,28rem)] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
             <div className="border-b border-gray-800 px-5 py-3 text-sm font-semibold text-gray-100">
               {t('ide.tabbar.confirmCloseTitle')}
             </div>
@@ -1076,7 +1076,7 @@ function HistoryButton(): React.JSX.Element | null {
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+                className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
                 aria-label={t('ide.tabbar.pastSessionsClose')}
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

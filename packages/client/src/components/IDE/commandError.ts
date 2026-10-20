@@ -5,6 +5,7 @@ import {
   UNKNOWN_ENGINE_CLI_LABEL,
 } from '@vibisual/shared';
 import type { AgentEngineKind, CommandError, CommandErrorCode } from '@vibisual/shared';
+import { providerErrorGuidance, type ProviderErrorGuidance } from './providerError.js';
 
 /**
  * §5.5 #17-12 ③ — "오류" 한 단어를 사람이 읽을 수 있는 사유로 바꾸는 순수 모듈.
@@ -34,6 +35,8 @@ export interface CommandErrorText {
   labelParams?: Record<string, string | number>;
   /** 원문 꼬리(있을 때만). 코드 폰트로 그대로 보여준다. */
   detail: string | null;
+  /** Known service response: calm explanation and recovery advice; raw detail stays available. */
+  guidance?: ProviderErrorGuidance;
 }
 
 // 목록은 shared 한 벌뿐이다 — 여기에 자기 집합을 또 두면 코드가 늘 때마다 한쪽만 늘어나고,
@@ -65,6 +68,13 @@ export function describeCommandError(error: CommandError): CommandErrorText {
     return { labelKey: 'ide.mainArea.localImagesUnsupported', detail: null };
   }
   const engine = engineLabelOf(error.engine);
+  const guidance = providerErrorGuidance(error);
+  if (guidance) {
+    return {
+      labelKey: code === 'usageLimit' ? 'ide.cmdError.usageLimit' : `ide.providerNotice.${guidance.kind}.title`,
+      labelParams: { engine }, detail, guidance,
+    };
+  }
   if (CODE_AWARE.has(code)) {
     return error.exitCode !== undefined
       ? { labelKey: `ide.cmdError.${code}`, labelParams: { code: error.exitCode, engine }, detail }

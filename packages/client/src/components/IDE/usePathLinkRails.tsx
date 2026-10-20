@@ -105,6 +105,8 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
   //   훅은 둘 다 무조건 부르되(리액트 규칙) 해당 없는 쪽에 null 을 넘겨 아무것도 묻지 않게 한다.
   const insideRel = candidate?.scope === 'inside' ? candidate.relPath : null;
   const outsideAbs = candidate?.scope === 'outside' ? candidate.absPath : null;
+  // ⑬ (g) — 적혀 온 줄 범위. 편집창 갈래로 열 때만 쓰인다(`openWorkspaceTarget` 이 갈래를 보고 거른다).
+  const insideLines = candidate?.scope === 'inside' ? candidate.lines : null;
   const resolved = useWorkspacePathKind(rootPath, insideRel);
   const external = useExternalPathKind(outsideAbs);
 
@@ -137,12 +139,13 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
         absPath: linked.absPath,
         kind: linked.kind === 'directory' ? 'directory' : 'file',
         ...(linked.executable ? { executable: true } : {}),
+        lines: insideLines,
       },
       rootPath,
       t('ide.streamRenderer.pathLink.runFailed'),
       paneKey,
     );
-  }, [linked, insideRel, rootPath, t, paneKey]);
+  }, [linked, insideRel, insideLines, rootPath, t, paneKey]);
 
   /**
    * ⑬ (d) — 루트 **밖** 경로를 누르면 벌어지는 일은 하나뿐이다: 시스템 탐색기가 그 자리를 보여 준다.
@@ -179,6 +182,7 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
     const absPath = linked.absPath;
     const relPath = insideRel;
     const root = rootPath;
+    const lines = insideLines;
     const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
     return buildPathLinkMenuItems(
       {
@@ -188,8 +192,9 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
       },
       {
         open: () => {
+          // 첫 줄은 왼쪽 클릭과 **같은 곳**이다 — 줄 범위도 같이 들고 간다(⑬ (g)).
           void openWorkspaceTarget(
-            { relPath, absPath, kind: linked.kind === 'directory' ? 'directory' : 'file', ...(linked.executable ? { executable: true } : {}) },
+            { relPath, absPath, kind: linked.kind === 'directory' ? 'directory' : 'file', ...(linked.executable ? { executable: true } : {}), lines },
             root,
             t('ide.streamRenderer.pathLink.runFailed'),
             paneKey,
@@ -202,14 +207,14 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
           requestHtmlPageView(file.relPath);
         },
         openBrowser: () => { void openExternally(absPath); },
-        // 파일을 주면 서버(`openFolder`)가 그 파일이 든 폴더를 연다 — 탐색기와 같은 창구(⑩).
+        // 파일을 주면 서버(`openFolder`)가 상위 폴더에서 그 파일을 선택한다 — 탐색기와 같은 창구(⑩).
         reveal: () => openFolderByPath(absPath, relPath),
         copyPath: () => copyText(absPath),
         copyRelativePath: () => copyText(relPath),
       },
       t,
     );
-  }, [at, linkedOutside, linked, plan, insideRel, rootPath, paneKey, t]);
+  }, [at, linkedOutside, linked, plan, insideRel, insideLines, rootPath, paneKey, t]);
 
   return {
     linked,

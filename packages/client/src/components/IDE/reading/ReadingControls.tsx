@@ -81,7 +81,11 @@ interface ReadingSegmentedProps<T extends string> {
   value: T | undefined;
   options: readonly SegmentedOption<T>[];
   onChange: (id: T) => void;
-  /** 항목이 많으면 줄바꿈(글꼴 목록처럼). */
+  /**
+   * 줄바꿈. 기본은 **넘칠 때만** 다음 줄로 넘긴다 — 한 줄에 들어가면 종전과 같은 한 줄이고, 좁힌 창에서
+   * 패널이 줄어 버튼 글(`whitespace-nowrap`)이 다 안 들어가면 패널 밖으로 삐져나가는 대신 쌓인다.
+   * `false` 면 한 줄을 고집한다.
+   */
   wrap?: boolean;
 }
 
@@ -89,7 +93,7 @@ export function ReadingSegmented<T extends string>({
   value, options, onChange, wrap,
 }: ReadingSegmentedProps<T>): React.JSX.Element {
   return (
-    <div className={`flex gap-1 ${wrap ? 'flex-wrap' : ''}`} role="group">
+    <div className={`flex gap-1 ${wrap === false ? '' : 'flex-wrap'}`} role="group">
       {options.map((opt) => {
         const active = opt.id === value;
         const disabled = Boolean(opt.disabledReason);
@@ -101,7 +105,7 @@ export function ReadingSegmented<T extends string>({
             onClick={() => onChange(opt.id)}
             aria-pressed={active}
             title={opt.disabledReason ?? opt.title ?? opt.label}
-            className={`flex-1 whitespace-nowrap rounded border px-2 py-1 text-[12px] transition-colors ${
+            className={`flex-1 whitespace-nowrap rounded border px-2 py-1 text-[12px] transition-colors pointer-coarse:py-2 ${
               active
                 ? 'border-blue-500 bg-blue-500/20 text-blue-200'
                 : 'border-gray-700 bg-gray-800/60 text-gray-400 hover:border-gray-600 hover:text-gray-200'

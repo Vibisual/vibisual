@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatPromptStamp, calendarDayDiff } from './promptStamp.js';
+import { formatPromptStamp, formatStreamClock, calendarDayDiff } from './promptStamp.js';
 
 /**
  * 내 명령 말풍선의 "언제 보냈나" 표기.
@@ -119,5 +119,37 @@ describe('formatPromptStamp — 기계 판독용 값', () => {
   it('iso 는 그 시각의 ISO 표기다', () => {
     const at = local(2026, 9, 2, 14, 32, 7);
     expect(formatPromptStamp(at, 'ko', NOW)?.iso).toBe(new Date(at).toISOString());
+  });
+});
+
+describe('formatStreamClock — §5.5 #17-39 ⑫ 도구 머리줄·AI 글의 오른쪽 끝 시각', () => {
+  it('보이는 표기는 시:분뿐이다 — 오늘/어제·날짜는 툴팁에만', () => {
+    const at = local(2026, 9, 2, 14, 32, 7);
+    const c = formatStreamClock(at, 'ko');
+    expect(c?.text).toBe('14:32');
+    expect(c?.title).toContain('2026');
+    expect(c?.iso).toBe(new Date(at).toISOString());
+    // 어제 것도 짧은 표기는 시각만 — 그 턴의 말풍선이 날짜를 이미 말한다.
+    expect(formatStreamClock(local(2026, 9, 1, 9, 7, 0), 'ko')?.text).toBe('09:07');
+  });
+
+  it('말풍선과 같은 24시간제 HH:MM 이다(어느 로케일에서나)', () => {
+    for (const loc of ['ko', 'en', 'ja', 'de', 'pt-BR', 'zh-CN']) {
+      expect(formatStreamClock(local(2026, 9, 2, 21, 5), loc)?.text).toContain('21:05');
+      expect(formatStreamClock(local(2026, 9, 2, 0, 0), loc)?.text).toContain('00:00');
+      // 말풍선 표기 안의 시각과 한 글자도 다르지 않다(두 벌이 되지 않는다).
+      expect(formatPromptStamp(local(2026, 9, 2, 21, 5), loc, NOW)?.text).toContain(formatStreamClock(local(2026, 9, 2, 21, 5), loc)!.text);
+    }
+  });
+
+  it('시각으로 못 읽는 값은 null — 대기 꼬리 표식·없음·0·NaN·Infinity·음수', () => {
+    for (const v of [Number.MAX_SAFE_INTEGER, undefined, 0, Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(formatStreamClock(v, 'ko')).toBeNull();
+    }
+  });
+
+  it('알아들을 수 없는 로케일 태그에도 던지지 않는다', () => {
+    expect(() => formatStreamClock(local(2026, 9, 2, 14, 32), '!!!not-a-locale')).not.toThrow();
+    expect(formatStreamClock(local(2026, 9, 2, 14, 32), '')).not.toBeNull();
   });
 });

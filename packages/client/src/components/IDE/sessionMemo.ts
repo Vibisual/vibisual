@@ -6,6 +6,7 @@ import {
   type SessionMemo,
 } from '@vibisual/shared';
 import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
+import { shiftMemoLinks } from './memoLinks.js';
 
 /**
  * sessionMemo.ts — §5.5 #17-36 스티키 메모의 **순수 계산**(React·DOM 없음).
@@ -26,8 +27,11 @@ export interface MemoBounds {
   h: number;
 }
 
-/** 한 장을 갱신할 때 바꿀 수 있는 값들(`updatedAt` 은 자동). */
-export type MemoPatch = Partial<Pick<SessionMemo, 'text' | 'name' | 'x' | 'y' | 'w' | 'h' | 'color' | 'alpha' | 'collapsed'>>;
+/**
+ * 한 장을 갱신할 때 바꿀 수 있는 값들(`updatedAt` 은 자동).
+ * `links`(⑫)를 함께 주지 않고 `text` 만 바꾸면 링크는 그 편집만큼 **저절로** 따라 움직인다.
+ */
+export type MemoPatch = Partial<Pick<SessionMemo, 'text' | 'name' | 'x' | 'y' | 'w' | 'h' | 'color' | 'alpha' | 'collapsed' | 'links'>>;
 
 /** 위치·크기 넷 — 끄는 동안 화면이 들고 있는 임시 사각형. */
 export interface MemoRect {
@@ -110,7 +114,17 @@ export function canAddMemoCount(count: number): boolean {
 
 /** 이 판에 메모를 더 붙일 수 있나(§3.2.3 장수 상한). */
 export function canAddMemo(memos: SessionMemo[]): boolean {
-  return canAddMemoCount(memos.length);
+  return canAddMemoCount(openSessionMemos(memos).length);
+}
+
+/** 닫힌 메모는 세션에 보관하지만 화면의 장수·배치에는 참여하지 않는다. */
+export function openSessionMemos(memos: SessionMemo[]): SessionMemo[] {
+  return memos.some((m) => m.closedAt !== undefined) ? memos.filter((m) => m.closedAt === undefined) : memos;
+}
+
+/** 최근 닫은 장부터 보여 준다. 원본 순서는 저장된 화면의 겹침 순서다. */
+export function closedSessionMemos(memos: SessionMemo[]): SessionMemo[] {
+  return memos.filter((m) => m.closedAt !== undefined).sort((a, b) => b.closedAt! - a.closedAt!);
 }
 
 /**
@@ -189,6 +203,13 @@ export function patchMemo(
   }
   // alpha 도 같은 규약 — 기본값이면 필드를 지운다(서버 정화본과 글자 그대로 같아야 낙관 표시가 풀린다).
   if (merged.alpha === undefined || merged.alpha === SESSION_MEMO.DEFAULT_ALPHA) delete merged.alpha;
+  // ⑫ 본문이 바뀌면 링크가 그 편집만큼 따라 움직인다(`memoLinks.ts`). 링크를 직접 고친 패치면 그 값이 이긴다.
+  if ('text' in patch && !('links' in patch) && cur.links && cur.links.length > 0) {
+    const shifted = shiftMemoLinks(cur.links, cur.text, merged.text);
+    if (shifted !== cur.links) merged.links = [...shifted];
+  }
+  // 링크도 같은 규약 — 하나도 없으면 필드를 남기지 않는다(서버 정화본과 글자가 같아야 낙관 표시가 풀린다).
+  if (merged.links !== undefined && merged.links.length === 0) delete merged.links;
   // 이름은 **정화한 결과끼리** 견준다 — 없는 이름과 공백뿐인 이름은 같은 것이라, 그대로 비교하면
   //   같은 값을 다시 저장하며 `updatedAt` 만 흔든다(빈 칸에서 Enter 를 칠 때마다 왕복이 나간다).
   const same = (Object.keys(patch) as (keyof MemoPatch)[]).every((k) => (
@@ -219,6 +240,30 @@ export function patchMemo(
 export function removeMemo(memos: SessionMemo[], id: string): SessionMemo[] {
   if (!memos.some((m) => m.id === id)) return memos;
   return repairMemoGroups(memos.filter((m) => m.id !== id));
+}
+
+/** 닫기는 삭제가 아니다. 내용·링크·모양을 세션에 남기고 현재 탭 묶음에서만 뺀다. */
+export function closeMemo(memos: SessionMemo[], id: string, now: number = Date.now()): SessionMemo[] {
+  const memo = memos.find((m) => m.id === id);
+  if (!memo || memo.closedAt !== undefined) return memos;
+  const closed = { ...memo, closedAt: now, updatedAt: now };
+  delete closed.groupId;
+  delete closed.groupActive;
+  return [...removeMemo(memos, id), closed];
+}
+
+/** 닫힌 장을 독립된 카드로 맨 앞에 펼친다. 이미 열린 장·상한 초과는 그대로 둔다. */
+export function restoreMemo(
+  memos: SessionMemo[], id: string, bounds: MemoBounds, now: number = Date.now(),
+): SessionMemo[] {
+  const memo = memos.find((m) => m.id === id);
+  if (!memo || memo.closedAt === undefined || !canAddMemo(memos)) return memos;
+  const restored = { ...memo, updatedAt: now };
+  delete restored.closedAt;
+  delete restored.collapsed;
+  delete restored.groupId;
+  delete restored.groupActive;
+  return [...memos.filter((m) => m.id !== id), ...clampMemos([restored], bounds)];
 }
 
 
@@ -256,6 +301,7 @@ export interface MemoCard {
 export function memoCards(memos: SessionMemo[]): MemoCard[] {
   const groups = new Map<string, { members: SessionMemo[]; top: number }>();
   memos.forEach((m, i) => {
+    if (m.closedAt !== undefined) return;
     const key = m.groupId ?? m.id;
     const hit = groups.get(key);
     if (hit) { hit.members.push(m); hit.top = i; }
@@ -393,6 +439,7 @@ export function memoCardAnchors(memos: SessionMemo[]): SessionMemo[] {
   const seen = new Set<string>();
   const out: SessionMemo[] = [];
   for (const m of memos) {
+    if (m.closedAt !== undefined) continue;
     if (!m.groupId) { out.push(m); continue; }
     if (seen.has(m.groupId)) continue;
     seen.add(m.groupId);

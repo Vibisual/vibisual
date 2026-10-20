@@ -35,7 +35,10 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 import { formatPromptStamp } from './promptStamp.js';
+import { FullscreenPrompt } from './FullscreenPrompt.js';
+import { PromptActions } from './PromptActions.js';
 import type { SpeechRunPos } from './streamDensity.js';
+import { streamToggleProps } from './streamToggle.js';
 
 /** 접이식(여러 줄/긴 입력)으로 다룰지 — 짧은 한 줄이면 정적 말풍선. */
 export function isLongUserPrompt(prompt: string): boolean {
@@ -103,6 +106,7 @@ export function StreamTextFold({ open, hiddenLines, onToggle }: {
     <button
       type="button"
       onClick={onToggle}
+      {...streamToggleProps(open)}
       className={`flex items-center gap-2 text-[12px] text-gray-500 transition-colors hover:text-gray-300 ${
         open ? 'mt-0.5' : 'my-1 w-full'
       }`}
@@ -138,7 +142,7 @@ export interface PromptCommandState {
 }
 
 /** 말풍선 색 한 벌 — Tailwind 는 문자열을 정적으로 훑으므로 색마다 전체 클래스를 적어 둔다. */
-interface PromptTone {
+export interface PromptTone {
   bubble: string;
   hover: string;
   chip: string;
@@ -278,6 +282,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [fullscreenHost, setFullscreenHost] = useState<HTMLElement | null>(null);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
@@ -309,8 +314,9 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   //   - 접혀 있으면 리스너를 아예 걸지 않는다(`enabled`) — 스트림에 말풍선이 수백 개 쌓여도
   //     window 리스너는 지금 펼친 것 수만큼만 산다.
   const collapse = useCallback(() => setOpen(false), []);
+  const closeFullscreen = useCallback(() => setFullscreenHost(null), []);
   useOutsidePressDismiss({
-    enabled: collapsible && open,
+    enabled: collapsible && open && !fullscreenHost,
     onDismiss: collapse,
     refs: [bubbleRef],
     graceMs: POPUP_DISMISS.openGraceMs,
@@ -380,11 +386,12 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
+            {...streamToggleProps(open)}
             title={open ? t('ide.streamRenderer.clickToCollapse') : t('ide.streamRenderer.clickToExpand')}
-            className={`group/hdr flex w-full items-center gap-2 py-2 pl-2.5 pr-10 text-left transition-colors ${tone.hover}`}
+            className={`group/hdr flex w-full items-center gap-2 py-2 pl-2.5 pr-[4.5rem] text-left transition-colors ${tone.hover}`}
           >
             {identity}
-            <span className={`min-w-0 flex-1 truncate text-[13px] leading-relaxed ${tone.body}`}>{firstLine}</span>
+            <span className={`ide-prompt-text min-w-0 flex-1 truncate text-[13px] ${tone.body}`}>{firstLine}</span>
             <svg className={`h-3 w-3 flex-shrink-0 transition-transform ${tone.chevron} ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M8 5v14l11-7z" />
             </svg>
@@ -393,37 +400,24 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           /* 짧은 한 줄 — 접을 게 없으니 셰브론 없는 정적 말풍선, 본문 그대로 표시. */
           <div className="flex w-full items-center gap-2 py-2 pl-2.5 pr-10">
             {identity}
-            <span className={`min-w-0 flex-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed ${tone.body}`}>{prompt}</span>
+            <span className={`ide-prompt-text min-w-0 flex-1 whitespace-pre-wrap break-words text-[13px] ${tone.body}`}>{prompt}</span>
           </div>
         )}
 
-        {/* 우상단 복사 버튼 — 항상 표시 */}
-        <button
-          type="button"
-          onClick={onCopy}
-          title={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
-          aria-label={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
-          className={`absolute right-2 top-2 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-colors ${
-            copied ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : tone.copyIdle
-          }`}
-        >
-          {copied ? (
-            // check
-            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          ) : (
-            // copy (overlapping squares)
-            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="11" height="11" rx="2" />
-              <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-            </svg>
-          )}
-        </button>
+        {/* 확대해도 복사와 보기 버튼의 자리·모양은 같다. 헤더 button과 형제여야 한다. */}
+        <PromptActions
+          tone={tone}
+          copied={copied}
+          onCopy={onCopy}
+          onView={collapsible ? (event) => {
+            const host = event.currentTarget.closest<HTMLElement>('[data-ide-text-viewport]');
+            if (host) setFullscreenHost(host);
+          } : undefined}
+        />
 
         {/* 펼친 내용 — 사용자가 넣은 그대로(공백·줄바꿈 보존) */}
         {collapsible && open && (
-          <pre className={`scrollbar-thin max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2.5 font-mono text-[13px] leading-relaxed ${tone.pre}`}>
+          <pre className={`ide-prompt-text scrollbar-thin max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2.5 text-[13px] ${tone.pre}`}>
             {prompt}
           </pre>
         )}
@@ -476,6 +470,9 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           </div>
         )}
       </div>
+      {fullscreenHost && (
+        <FullscreenPrompt host={fullscreenHost} tone={tone} prompt={prompt} identity={identity} preview={firstLine} copied={copied} onCopy={onCopy} onClose={closeFullscreen} />
+      )}
     </div>
   );
 }

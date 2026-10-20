@@ -193,7 +193,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
         <button
           type="button"
           onClick={load}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:p-2.5"
           title={t('ide.mcp.refresh')}
           aria-label={t('ide.mcp.refresh')}
         >

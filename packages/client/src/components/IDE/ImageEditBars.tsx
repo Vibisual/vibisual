@@ -78,7 +78,7 @@ function Chip({ active, disabled, title, onClick, children }: ChipProps): React.
       disabled={disabled ?? false}
       onMouseDown={holdFocus}
       onClick={onClick}
-      className={`flex h-6 flex-shrink-0 items-center gap-1 rounded px-1.5 text-[12px] transition-colors ${
+      className={`flex h-6 flex-shrink-0 items-center gap-1 rounded px-1.5 text-[12px] transition-colors pointer-coarse:h-8 pointer-coarse:px-2 ${
         active ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
       } disabled:cursor-not-allowed disabled:text-gray-600 disabled:hover:bg-transparent`}
     >
@@ -171,7 +171,7 @@ function ApplyCancel({ pending, busy, onApply, onCancel }: ApplyCancelProps): Re
         onMouseDown={holdFocus}
         onClick={onApply}
         title={t('ide.imageAnnotate.edit.applyHint', { shortcut: shortcutLabel('Enter') })}
-        className="flex h-6 flex-shrink-0 items-center gap-1 rounded bg-blue-600 px-2 text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+        className="flex h-6 flex-shrink-0 items-center gap-1 rounded bg-blue-600 px-2 text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500 pointer-coarse:h-8"
       >
         {busy ? (
           <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-white border-t-transparent" />
@@ -185,7 +185,7 @@ function ApplyCancel({ pending, busy, onApply, onCancel }: ApplyCancelProps): Re
         onMouseDown={holdFocus}
         onClick={onCancel}
         title={t('ide.imageAnnotate.edit.cancelHint', { shortcut: shortcutLabel('Esc') })}
-        className="flex h-6 flex-shrink-0 items-center rounded px-2 text-[12px] text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+        className="flex h-6 flex-shrink-0 items-center rounded px-2 text-[12px] text-gray-300 transition-colors hover:bg-gray-800 hover:text-white pointer-coarse:h-8"
       >
         {t('common.cancel')}
       </button>
@@ -624,7 +624,8 @@ export function CropOverlay({ box, natural, shape, ratio, disabled, onChange }: 
             <div
               key={h}
               data-crop-handle={h}
-              className={`absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center ${HANDLE_CURSOR[h]}`}
+              // 터치에서는 잡는 자리를 손가락 크기로(32px) — 보이는 손잡이 표식은 그대로다(가운데 정렬은 translate 가 지킨다).
+              className={`absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center pointer-coarse:h-8 pointer-coarse:w-8 ${HANDLE_CURSOR[h]}`}
               style={{ left: pct(hx, W), top: pct(hy, H) }}
             >
               <span className={`block rounded-sm border border-black/60 bg-white ${HANDLE_MARK[h]}`} />

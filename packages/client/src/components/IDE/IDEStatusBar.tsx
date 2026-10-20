@@ -229,6 +229,9 @@ export const IDEStatusBar = memo(function IDEStatusBar({
     cliKind: cmdCliKind,
     agentThinking: ownThinking,
     userDefaultThinking: globalThinking,
+    // 사고를 끌 수 없는 모델(Opus 5.5·Fable 5.x)이면 꺼 둔 설정이 실려도 그 턴은 생각한다 — 모델 칸과 같은 모델로 본다.
+    model,
+    registry: modelRegistry,
   });
 
   // §4 (상태바 모델 칸 ①) — 모델 옆에 붙는 추론 강도. 판정(3층 · 코덱스 갈래 · 안 띄우는 셋)은

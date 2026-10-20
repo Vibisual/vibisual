@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
 import type { TerminalCard } from './terminalCardSniffer.js';
@@ -24,7 +24,16 @@ interface IDETerminalCardRailProps {
   onSendPrompt: (prompt: string) => void;
   /** 패널 비우기. */
   onClear: () => void;
+  /**
+   * 터미널 칸이 좁아 레일을 **옆에** 세울 자리가 없다(`terminalRailOverlays`). 그때는 접힌 띠로 시작하고,
+   * 펼치면 터미널 **위에** 뜬다 — 옆에 세우면 레일 360px 이 터미널 본문을 0 까지 누른다.
+   * 띠는 덮는 동안에도 제자리를 지킨다 — 빠지면 터미널 폭이 바뀌어 PTY 가 다시 그려진다(리사이즈 1회 = 화면 한 벌).
+   */
+  overlay?: boolean;
 }
+
+/** 레일 헤더의 작은 아이콘 단추 — 터치에서는 손가락 크기로 키운다. */
+const RAIL_ICON_BUTTON = 'rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-100 pointer-coarse:p-2.5';
 
 /** 카드 헤더 글리프 — 겹친 카드(layers). */
 function CardsIcon(): React.JSX.Element {
@@ -107,40 +116,83 @@ function TerminalCardItem({ card, review, agentId, sessionId, onSendPrompt }: {
 }
 
 export const IDETerminalCardRail = memo(function IDETerminalCardRail({
-  cards, agentId, sessionId, onSendPrompt, onClear,
+  cards, agentId, sessionId, onSendPrompt, onClear, overlay = false,
 }: IDETerminalCardRailProps): React.JSX.Element {
   const { t } = useTranslation();
+  // 넓은 칸에서 사용자가 접어 둔 것.
   const [collapsed, setCollapsed] = useState(false);
+  // 좁은 칸에서 펼쳐 덮은 것 — 넓은 칸의 접힘과 따로 든다. 넓어지면 내려 두어, 다시 좁아질 때는 접힌 띠로 시작한다.
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => {
+    if (!overlay) setOverlayOpen(false);
+  }, [overlay]);
 
-  if (collapsed) {
-    // 접힘 — 얇은 세로 스트립(개수 배지 + 펼치기).
+  // 접힘 — 얇은 세로 스트립(개수 배지 + 펼치기).
+  const strip = (
+    <button
+      type="button"
+      onClick={() => { if (overlay) setOverlayOpen(true); else setCollapsed(false); }}
+      title={t('ide.terminal.cards.expand')}
+      aria-label={t('ide.terminal.cards.expand')}
+      className="flex w-9 flex-shrink-0 flex-col items-center gap-2 border-l border-gray-800 bg-gray-900/60 py-2 text-gray-400 transition-colors hover:bg-gray-800/60 hover:text-gray-200"
+    >
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+      <span className="rounded bg-violet-500/20 px-1 py-0.5 text-[12px] font-bold tabular-nums text-violet-300">
+        {cards.length}
+      </span>
+      <span className="[writing-mode:vertical-rl] text-[12px] font-semibold uppercase tracking-wide">
+        {t('ide.terminal.cards.title')}
+      </span>
+    </button>
+  );
+
+  if (overlay) {
+    // 좁은 칸 — 띠는 늘 제자리, 펼치면 터미널 위에 덮는다(칸보다 넓어지지 않는다).
     return (
-      <button
-        type="button"
-        onClick={() => setCollapsed(false)}
-        title={t('ide.terminal.cards.expand')}
-        aria-label={t('ide.terminal.cards.expand')}
-        className="flex w-9 flex-shrink-0 flex-col items-center gap-2 border-l border-gray-800 bg-gray-900/60 py-2 text-gray-400 transition-colors hover:bg-gray-800/60 hover:text-gray-200"
-      >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-        <span className="rounded bg-violet-500/20 px-1 py-0.5 text-[12px] font-bold tabular-nums text-violet-300">
-          {cards.length}
-        </span>
-        <span className="[writing-mode:vertical-rl] text-[12px] font-semibold uppercase tracking-wide">
-          {t('ide.terminal.cards.title')}
-        </span>
-      </button>
+      <>
+        {strip}
+        {overlayOpen && (
+          <div className="absolute inset-y-0 right-0 z-30 flex w-[min(360px,100%)] flex-col border-l border-gray-800 bg-gray-950 shadow-2xl shadow-black/60">
+            <CardRailBody
+              cards={cards} agentId={agentId} sessionId={sessionId}
+              onSendPrompt={onSendPrompt} onClear={onClear} onCollapse={() => setOverlayOpen(false)}
+            />
+          </div>
+        )}
+      </>
     );
   }
 
+  if (collapsed) return strip;
+
   return (
     <div className="flex w-[360px] flex-shrink-0 flex-col border-l border-gray-800 bg-gray-950">
+      <CardRailBody
+        cards={cards} agentId={agentId} sessionId={sessionId}
+        onSendPrompt={onSendPrompt} onClear={onClear} onCollapse={() => setCollapsed(true)}
+      />
+    </div>
+  );
+});
+
+/** 펼친 레일의 속 — 헤더(제목·개수·비우기·접기) + 카드 목록. 자리(옆에 서느냐 덮느냐)는 감싸는 쪽이 정한다. */
+function CardRailBody({ cards, agentId, sessionId, onSendPrompt, onClear, onCollapse }: {
+  cards: TerminalCard[];
+  agentId: string;
+  sessionId: string | null;
+  onSendPrompt: (prompt: string) => void;
+  onClear: () => void;
+  onCollapse: () => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <>
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-gray-800 bg-gray-900/70 px-3 py-1.5">
         <span className="text-violet-300"><CardsIcon /></span>
-        <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-gray-300">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold uppercase tracking-wide text-gray-300">
           {t('ide.terminal.cards.title')}
         </span>
         <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] font-bold tabular-nums text-violet-300">
@@ -151,7 +203,7 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
           onClick={onClear}
           title={t('ide.terminal.cards.clear')}
           aria-label={t('ide.terminal.cards.clear')}
-          className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-100"
+          className={RAIL_ICON_BUTTON}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 6h18" />
@@ -163,10 +215,10 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
         </button>
         <button
           type="button"
-          onClick={() => setCollapsed(true)}
+          onClick={onCollapse}
           title={t('ide.terminal.cards.collapse')}
           aria-label={t('ide.terminal.cards.collapse')}
-          className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-100"
+          className={RAIL_ICON_BUTTON}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 18l6-6-6-6" />
@@ -193,6 +245,6 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
           ))
         )}
       </div>
-    </div>
+    </>
   );
-});
+}

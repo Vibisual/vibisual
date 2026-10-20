@@ -105,7 +105,8 @@ const SourceRow = memo(function SourceRow({
             : t(item.hintKey ?? 'ide.context.locked')}
           aria-label={title}
           aria-pressed={on}
-          className={`mt-px flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors ${
+          // 터치에서는 보이는 크기는 그대로 두고 누르는 자리만 손가락 크기로 넓힌다(투명 ::before).
+          className={`relative mt-px flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors pointer-coarse:before:absolute pointer-coarse:before:-inset-2.5 pointer-coarse:before:content-[''] ${
             !lockable
               ? 'cursor-not-allowed bg-gray-700/60'
               : on
@@ -336,7 +337,7 @@ function ContextInventoryPane({ agentId, activeSessionId, scope, setScope }: {
           onClick={() => { setErrorKey(null); void refresh(); }}
           title={t('ide.context.refresh')}
           aria-label={t('ide.context.refresh')}
-          className="ml-auto flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          className="ml-auto flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:h-8 pointer-coarse:w-8"
         >
           <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" />
@@ -396,7 +397,7 @@ function ContextInventoryPane({ agentId, activeSessionId, scope, setScope }: {
           disabled={busy || loading || !inventory}
           title={t('ide.context.reset', { scope: t(`ide.context.scope.${scope}`) })}
           aria-label={t('ide.context.reset', { scope: t(`ide.context.scope.${scope}`) })}
-          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:h-8 pointer-coarse:w-8"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />

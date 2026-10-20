@@ -29,6 +29,9 @@
  *
  * 렌더마다 불리므로 `Intl.*` 인스턴스는 **로케일별로 한 번만** 짓고 모듈에 붙들어 둔다(생성이 비싸다).
  * 대신 결과를 캐시하지 않는다 — 캐시하면 자정을 넘겨도 `오늘` 이 그대로 남는다.
+ *
+ * 도구 머리줄·AI 글의 오른쪽 끝 시각(§5.5 #17-39 ⑫ `formatStreamClock`)도 같은 인스턴스를 쓴다 —
+ * 한 스트림 안에서 시각 모양이 두 벌이 되지 않게.
  */
 
 /** 말풍선 머리에 붙는 시각 표기 한 벌. */
@@ -141,4 +144,27 @@ export function formatPromptStamp(at: number | undefined, locale: string, now: n
   if (days === 1) return { text: `${relativeDayWord(key, loc, -1)} ${time}`, title, iso, aged: true };
   // 그 밖(과거의 다른 날 · 시계가 앞선 미래)은 전부 날짜를 적는다.
   return { text: `${dateText(key, loc, d, d.getFullYear() !== ref.getFullYear())} ${time}`, title, iso, aged: true };
+}
+
+/** 스트림 한 항목의 오른쪽 끝 시각 한 벌. */
+export interface StreamClock {
+  /** 늘 보이는 `시:분`(24시간제) — `10:52`. */
+  text: string;
+  /** 호버 툴팁 — 요일·초까지 있는 로케일 전체 표기. */
+  title: string;
+  /** `<time dateTime>` 에 넣을 기계 판독용 값. */
+  iso: string;
+}
+
+/**
+ * §5.5 #17-39 ⑫ — 그 일을 한 시각(VS Code 대화의 메시지 오른쪽 위 시각처럼). 말풍선과 달리 `오늘`·날짜를
+ * 붙이지 않는다 — 그 턴의 말풍선이 이미 말하고, 접은 값은 전부 툴팁에 남는다.
+ * 시각으로 읽을 수 없는 값이면 `null`(표기를 그리지 않는다).
+ */
+export function formatStreamClock(at: number | undefined, locale: string): StreamClock | null {
+  const d = toValidDate(at);
+  if (!d) return null;
+  const loc = safeLocale(locale);
+  const key = loc ?? '';
+  return { text: timeText(key, loc, d), title: fullText(key, loc, d), iso: d.toISOString() };
 }

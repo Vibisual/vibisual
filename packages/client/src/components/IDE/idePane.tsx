@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { EditorPaneFileKind } from '@vibisual/shared';
 import { useGraphStore, selectIDEPane, selectPaneProjectName, type IDEEditorFile, type IDEOverlayState, type IDEViewType } from '../../stores/graphStore.js';
+import type { EditorLineRange } from './editorLineRange.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — **이 창이 누구인가**를 IDE 컴포넌트 나무에 흘리는 통로.
 //
@@ -68,7 +69,8 @@ export function readIDEPane(paneKey: string | null): IDEOverlayState {
 }
 
 export interface IDEPaneActions {
-  openEditorFile: (file: IDEEditorFile) => void;
+  /** §5.5 #17-27 ⑬ (g) — `lines` 를 주면 편집창이 그 줄로 가서 칠한다(오류 줄·본문 링크와 같은 한 길). */
+  openEditorFile: (file: IDEEditorFile, lines?: EditorLineRange | null) => void;
   /**
    * §5.5 #17-27 ⑱ — 그 갈래의 빈 탭을 이 창 우측 판에 세운다(이미 있으면 앞으로).
    * `after` 를 주면 그 탭 바로 오른쪽(보기의 [파일 열기]).
@@ -101,7 +103,7 @@ export interface IDEPaneActions {
 export function useIDEPaneActions(): IDEPaneActions {
   const paneKey = useIDEPaneKey();
   return useMemo<IDEPaneActions>(() => ({
-    openEditorFile: (file) => useGraphStore.getState().openIDEEditorFile(file, paneKey),
+    openEditorFile: (file, lines) => useGraphStore.getState().openIDEEditorFile(file, paneKey, lines),
     openPaneOpener: (kind, after) => useGraphStore.getState().openIDEPaneOpener(kind, paneKey, after),
     fillPaneOpener: (openerKey, file) => useGraphStore.getState().fillIDEPaneOpener(openerKey, file, paneKey),
     closeEditorFile: (relPath) => useGraphStore.getState().closeIDEEditorFile(relPath, paneKey),

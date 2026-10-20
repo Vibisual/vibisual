@@ -356,7 +356,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
         <button
           type="button"
           onClick={loadConfigs}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:p-2.5"
           title={t('ide.debug.refresh')}
           aria-label={t('ide.debug.refresh')}
         >
@@ -431,7 +431,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                           <button
                             type="button"
                             onClick={() => void stopRun(runId)}
-                            className="rounded p-0.5 text-rose-400 transition-colors hover:bg-gray-700 hover:text-rose-300"
+                            className="rounded p-0.5 text-rose-400 transition-colors hover:bg-gray-700 hover:text-rose-300 pointer-coarse:p-2.5"
                             title={t('ide.debug.stop')}
                             aria-label={t('ide.debug.stop')}
                           >
@@ -442,7 +442,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                             type="button"
                             onClick={() => handleRun(cfg)}
                             disabled={cfg.attachOnly || !config}
-                            className="rounded p-0.5 text-emerald-400 transition-colors hover:bg-gray-700 hover:text-emerald-300 disabled:cursor-not-allowed disabled:text-gray-600"
+                            className="rounded p-0.5 text-emerald-400 transition-colors hover:bg-gray-700 hover:text-emerald-300 disabled:cursor-not-allowed disabled:text-gray-600 pointer-coarse:p-2.5"
                             title={cfg.attachOnly ? t('ide.debug.attachOnly') : t('ide.debug.run')}
                             aria-label={t('ide.debug.run')}
                           >
@@ -597,7 +597,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                           <button
                             type="button"
                             onClick={() => void stopRun(run.runId)}
-                            className="rounded p-0.5 text-rose-400 transition-colors hover:bg-gray-700 hover:text-rose-300"
+                            className="rounded p-0.5 text-rose-400 transition-colors hover:bg-gray-700 hover:text-rose-300 pointer-coarse:p-2.5"
                             title={t('ide.debug.stop')}
                             aria-label={t('ide.debug.stop')}
                           >

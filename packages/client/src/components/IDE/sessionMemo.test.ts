@@ -540,3 +540,41 @@ describe('memoSurface — 글자색은 "고른 색"이 아니라 "보이는 색"
       .toBe(memoSurface(SESSION_MEMO_DEFAULT_COLOR, 1).background);
   });
 });
+
+describe('patchMemo — 본문을 고치면 링크가 따라 움직인다(§5.5 #17-36 ⑫)', () => {
+  const linked = (): SessionMemo => memo({
+    id: 'm',
+    text: 'build log app',
+    links: [
+      { id: 'l1', start: 0, end: 5, target: { kind: 'url', url: 'https://a.dev' } },
+      { id: 'l2', start: 10, end: 13, target: { kind: 'file', path: 'src/App.tsx' } },
+    ],
+  });
+
+  it('앞에 친 글자만큼 링크가 밀린다 — 따로 링크를 넘기지 않아도', () => {
+    const out = patchMemo([linked()], 'm', { text: '>> build log app' }, 9);
+    expect(out[0]?.links?.map((l) => [l.id, l.start, l.end])).toEqual([['l1', 3, 8], ['l2', 13, 16]]);
+  });
+
+  it('링크 글자를 다 지우면 그 링크만 사라지고, 다 사라지면 필드도 남지 않는다', () => {
+    const one = patchMemo([linked()], 'm', { text: ' log app' }, 9);
+    expect(one[0]?.links?.map((l) => l.id)).toEqual(['l2']);
+    const none = patchMemo(one, 'm', { text: ' log ' }, 10);
+    expect(none[0]).not.toHaveProperty('links');
+  });
+
+  it('링크를 직접 고친 패치면 그 값이 이긴다(본문 편집으로 다시 옮기지 않는다)', () => {
+    const out = patchMemo([linked()], 'm', { text: 'X build log app', links: [] }, 9);
+    expect(out[0]).not.toHaveProperty('links');
+  });
+
+  it('본문이 그대로면 같은 배열 — 헛 저장이 나가지 않는다', () => {
+    const list = [linked()];
+    expect(patchMemo(list, 'm', { text: 'build log app' }, 9)).toBe(list);
+  });
+
+  it('[회귀] 옮긴 결과는 서버 정화를 다시 지나도 같다 — 낙관 표시가 풀린다', () => {
+    const out = patchMemo([linked()], 'm', { text: 'my build log app' }, 9);
+    expect(sanitizeSessionMemos(out)[0]?.links).toEqual(out[0]?.links);
+  });
+});

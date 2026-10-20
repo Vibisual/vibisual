@@ -203,9 +203,10 @@ export function mergeAdjacentThinkTraces<T>(
 /**
  * 도구 묶음 하나가 걸린 시간 — 첫 호출이 나간 시각부터 마지막 항목까지.
  *
- * 도구는 짝(`tool_use`↔`tool_result`)이 붙어야 끝이 정해지는데 우리 항목에는 결과 시각이 없다.
- * 그래서 **묶음 안 항목들의 시각 폭**으로 잰다 — 마지막 도구의 실행 시간만큼 짧게 잡히지만,
- * 없는 시각을 지어내는 것보다 낫다(진행 중 묶음은 애초에 재지 않는다).
+ * **묶음 안 항목들의 시각 폭**으로 잰다. 도구 상자는 짝 결과가 도착한 시각(`endedAt`, §5.5 #17-39 ⑪)도
+ * 함께 넣으므로(`toolSpanTimestamps`) 마지막 도구의 실행 시간까지 든다 — 메인 탭은 결과 줄이 항목으로
+ * 따로 있어 처음부터 그랬다. 결과가 없는 도구는 호출 시각만 들어간다(없는 시각을 지어내지 않는다).
+ * 진행 중 묶음은 애초에 재지 않는다.
  */
 export function toolGroupElapsedMs(timestamps: readonly number[]): number {
   if (timestamps.length < 2) return 0;
@@ -216,4 +217,27 @@ export function toolGroupElapsedMs(timestamps: readonly number[]): number {
     if (ts > max) max = ts;
   }
   return max - min;
+}
+
+/**
+ * Sub 탭 묶음의 자식들 → 시각 폭을 잴 시각 목록. 도구 상자는 호출 시각과 **결과 도착 시각**을 둘 다 낸다
+ * (결과가 따로 줄이 되는 메인 탭과 같은 폭을 재기 위함 — 두 탭이 같은 묶음에 다른 숫자를 적지 않게).
+ */
+export function toolSpanTimestamps(items: readonly { timestamp: number; endedAt?: number | undefined }[]): number[] {
+  const out: number[] = [];
+  for (const it of items) {
+    out.push(it.timestamp);
+    if (it.endedAt !== undefined) out.push(it.endedAt);
+  }
+  return out;
+}
+
+/**
+ * §5.5 #17-39 ⑪ — 도구 호출 **하나**가 쓴 시간: 호출이 나간 시각부터 그 결과가 도착한 시각까지.
+ * 결과가 없으면(진행 중·중지·거부) 잴 수 없다 → `null`(0 이 아니다 — 0 은 "곧바로 끝났다"는 잰 값이다).
+ * 시각이 거꾸로 온 짝(순서 짝맞추기가 어긋난 자리)은 음수를 적지 않고 0 으로 접는다.
+ */
+export function toolCallElapsedMs(startedAt: number, endedAt: number | undefined): number | null {
+  if (endedAt === undefined || !Number.isFinite(endedAt) || !Number.isFinite(startedAt)) return null;
+  return Math.max(0, endedAt - startedAt);
 }

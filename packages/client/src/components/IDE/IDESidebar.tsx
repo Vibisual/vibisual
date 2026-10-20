@@ -333,7 +333,8 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               {count}×
             </span>
           )}
-          {/* 즐겨찾기 별 — 모든 출처. 즐겨찾기면 항상 노출(amber), 아니면 hover 시 노출. */}
+          {/* 즐겨찾기 별 — 모든 출처. 즐겨찾기면 항상 노출(amber), 아니면 hover 시 노출.
+              터치에는 hover 가 없다 — 이 줄의 손잡이(별·복사·삭제)는 늘 보이고 손가락 크기로 선다. */}
           <button
             type="button"
             draggable={false}
@@ -342,7 +343,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
             onDragStart={(e) => e.preventDefault()}
             title={isFav ? t('ide.sidebar.favoriteRemove') : t('ide.sidebar.favoriteAdd')}
             aria-label={isFav ? t('ide.sidebar.favoriteRemove') : t('ide.sidebar.favoriteAdd')}
-            className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-amber-500/20 ${count > 0 ? 'ml-1' : 'ml-auto'} ${isFav ? 'text-amber-400 opacity-100' : 'text-gray-500 opacity-0 hover:text-amber-300 group-hover:opacity-100'}`}
+            className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-amber-500/20 pointer-coarse:h-8 pointer-coarse:w-8 ${count > 0 ? 'ml-1' : 'ml-auto'} ${isFav ? 'text-amber-400 opacity-100' : 'text-gray-500 opacity-0 hover:text-amber-300 group-hover:opacity-100 pointer-coarse:opacity-100'}`}
           >
             <svg viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
               <path d="M12 2.5l2.95 5.98 6.6.96-4.77 4.65 1.13 6.57L12 17.52 6.09 20.63l1.13-6.57L2.45 9.44l6.6-.96L12 2.5z" />
@@ -358,7 +359,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               onDragStart={(e) => e.preventDefault()}
               title={t('ide.sidebar.copySkillTitle')}
               aria-label={t('ide.sidebar.copySkillTitle')}
-              className={`ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-sky-500/20 hover:text-sky-300 ${copying ? 'text-sky-300 opacity-100' : 'text-gray-500 opacity-0 group-hover:opacity-100'}`}
+              className={`ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-sky-500/20 hover:text-sky-300 pointer-coarse:h-8 pointer-coarse:w-8 ${copying ? 'text-sky-300 opacity-100' : 'text-gray-500 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'}`}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
                 <rect x="9" y="9" width="12" height="12" rx="2" />
@@ -376,7 +377,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               onDragStart={(e) => e.preventDefault()}
               title={t('ide.sidebar.deleteSkillTitle')}
               aria-label={t('ide.sidebar.deleteSkillTitle')}
-              className="ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100"
+              className="ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100 pointer-coarse:h-8 pointer-coarse:w-8 pointer-coarse:opacity-100"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
                 <path d="M18 6 6 18M6 6l12 12" />

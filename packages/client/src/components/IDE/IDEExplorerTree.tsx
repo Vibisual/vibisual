@@ -289,7 +289,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
                 onContextMenu={(e) => onContextMenu(e, entry)}
                 onKeyDown={(e) => handleRowKeyDown(e, entry)}
                 title={entry.relPath}
-                className={`flex w-full items-center gap-1 py-[3px] pr-1 text-left text-[12px] transition-colors ${
+                className={`flex w-full items-center gap-1 py-[3px] pr-1 text-left text-[12px] transition-colors pointer-coarse:py-2 ${
                   dropDir === entry.relPath
                     ? 'bg-blue-500/25 text-blue-100 ring-1 ring-inset ring-blue-400'
                     : isSelected
@@ -345,9 +345,11 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               onContextMenu={(e) => onContextMenu(e, entry)}
               onKeyDown={(e) => handleRowKeyDown(e, entry)}
               title={entry.relPath}
-              className={`flex w-full items-center gap-1 py-[3px] pr-9 text-left text-[12px] transition-colors ${
+              // 터치 — 줄을 손가락 높이로 키우고, 손잡이(32px 둘)가 뜨는 고른 줄은 그 폭만큼 오른쪽을 비워
+              //   이름 끝이 손잡이 밑에 깔리지 않게 한다(고르지 않은 줄은 손잡이가 안 뜨므로 종전 여백 그대로).
+              className={`flex w-full items-center gap-1 py-[3px] pr-9 text-left text-[12px] transition-colors pointer-coarse:py-2 ${
                 isSelected
-                  ? 'bg-blue-500/20 text-blue-100'
+                  ? 'bg-blue-500/20 text-blue-100 pointer-coarse:pr-[4.5rem]'
                   : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
               }`}
               style={{ paddingLeft: pad + 16 }}
@@ -364,6 +366,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               §5.5 #17-19 ③(c) — 행 손잡이 묶음. **고른 행에서는 늘 보이고**(지금 만질 행이라 손잡이가
               사라지면 안 된다), 고르지 않은 행에서는 마우스를 올렸을 때만 뜬다.
               왼쪽이 경로 손잡이(입력창에 넣기 + 복사), 오른쪽이 앱 밖 편집기로 열기.
+              터치에는 hover 가 없다 — 줄을 눌러 고르면 뜨는 고른 행의 손잡이가 그대로 입구이고, 손가락 크기로 선다.
             */}
             <div
               className={`absolute right-0.5 top-1/2 -translate-y-1/2 items-center gap-0.5 ${
@@ -380,7 +383,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
                     : t(insertsIntoInput ? 'ide.explorer.pathToInput' : 'ide.explorer.copyPath')
                 }
                 aria-label={t(insertsIntoInput ? 'ide.explorer.pathToInput' : 'ide.explorer.copyPath')}
-                className={`rounded p-0.5 transition-colors hover:bg-gray-700 ${
+                className={`rounded p-0.5 transition-colors hover:bg-gray-700 pointer-coarse:p-2.5 ${
                   isCopied ? 'text-emerald-400' : 'text-gray-500 hover:text-blue-300'
                 }`}
               >
@@ -407,7 +410,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
                 onContextMenu={(e) => onContextMenu(e, entry)}
                 title={t('ide.explorer.openFile')}
                 aria-label={t('ide.explorer.openFile')}
-                className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-700 hover:text-blue-300"
+                className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-700 hover:text-blue-300 pointer-coarse:p-2.5"
               >
                 <svg
                   className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"

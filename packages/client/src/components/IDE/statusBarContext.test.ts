@@ -228,6 +228,32 @@ describe('resolveStatusBarThinkingOff', () => {
     expect(resolveStatusBarThinkingOff({ ...on, cliKind: 'claude', agentThinking: false })).toBe(true);
     expect(resolveStatusBarThinkingOff({ ...on, cliKind: undefined, agentThinking: false })).toBe(true);
   });
+
+  // 공식 모델 개요표의 Thinking 행이 "Adaptive (always on)" 인 모델 — API 가 사고 끄기를 400 으로 거부하므로 꺼 둔
+  //   설정이 실려도 그 턴은 생각한다. 칸이 뜨면 생각하는 세션을 "안 생각한다"고 말하게 된다(2026-10-15).
+  it('사고를 끌 수 없는 모델(실측 풀ID·날짜형·1M 변형)이면 꺼 둬도 안 뜬다', () => {
+    for (const model of ['claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-fable-5-1', 'claude-fable-5']) {
+      expect(resolveStatusBarThinkingOff({ ...on, agentThinking: false, model }), model).toBe(false);
+    }
+  });
+
+  it('alias 는 지금 가리키는 최신으로 본다 — 레지스트리가 없으면 시드 최신(opus = Opus 5.5)', () => {
+    expect(resolveStatusBarThinkingOff({ ...on, agentThinking: false, model: 'opus' })).toBe(false);
+    expect(resolveStatusBarThinkingOff({ ...on, agentThinking: false, model: 'fable' })).toBe(false);
+    // 레지스트리가 opus 의 최신을 옛 판으로 말하면 그 판으로 본다(끌 수 있는 판).
+    const registry = {
+      entries: [{ id: 'claude-opus-5', family: 'opus', source: 'seed' as const, isLatestOfFamily: true }],
+      updatedAt: 0,
+      sourceMix: 'seed-only' as const,
+    };
+    expect(resolveStatusBarThinkingOff({ ...on, agentThinking: false, model: 'opus', registry })).toBe(true);
+  });
+
+  it('끌 수 있는 모델(Opus 5·Sonnet·Haiku)이면 종전대로 뜬다 — 모르는 것을 잠그지 않는다', () => {
+    for (const model of ['claude-opus-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'sonnet', 'haiku', 'claude-zzz-9']) {
+      expect(resolveStatusBarThinkingOff({ ...on, agentThinking: false, model }), model).toBe(true);
+    }
+  });
 });
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useTranslation } from 'react-i18next';
@@ -32,6 +32,10 @@ import { openWebSearch } from './webSearchUrl.js';
 import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 import { TERMINAL_FONT_STACK, ensureTerminalFonts } from '../../utils/terminalFont.js';
 import { useXtermTheme } from '../../theme/xtermTheme.js';
+import { useElementWidth } from '../../hooks/useElementWidth.js';
+import { placeCanvasMenu } from '../BubbleMap/canvasMenuPlacement.js';
+import { terminalRailOverlays } from './ideResponsive.js';
+import { followVisibleViewport, viewportMaxHeight, visibleViewport } from './popupPlacement.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -188,6 +192,10 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // 카드 레일을 옆에 세울지 위에 띄울지 — 터미널 칸(레일 포함) **자기 폭**으로 묻는다(뷰포트 ❌).
+  //   칸 폭은 레일이 서든 말든 같으므로(레일은 이 칸 안에서 터미널과 나눠 쓴다) 판정이 진동하지 않는다.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const railOverlay = terminalRailOverlays(useElementWidth(bodyRef));
 
   const hasTerminalApi = !!transport;
 
@@ -618,13 +626,24 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    // 뷰포트 클리핑 — 메뉴(약 180×210)가 화면 밖으로 넘치지 않게 좌상단 보정.
-    const MENU_W = 200;
-    const MENU_H = 220;
-    const x = Math.min(e.clientX, window.innerWidth - MENU_W - 8);
-    const y = Math.min(e.clientY, window.innerHeight - MENU_H - 8);
-    setMenu({ x: Math.max(8, x), y: Math.max(8, y) });
+    // 누른 자리를 그대로 적는다 — 화면 안으로 접는 일은 연 뒤 실제 크기를 재는 아래 효과가 맡는다.
+    setMenu({ x: e.clientX, y: e.clientY });
   }, []);
+
+  // 메뉴를 연 뒤 **실제 크기**를 재어 보이는 화면 안으로 접는다(`IDEContextMenuPanel` 과 같은 규칙). 종전에는
+  //   어림 상수(200×220)로 접어 분할·확대·닫기 항목이 붙거나 글자가 긴 언어에서 아래가 잘렸고, 폰 가상 키보드가
+  //   줄인 화면(시각 뷰포트)도 몰랐다. 화면보다 길면 메뉴 안에서 스크롤한다.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!menu || !el) return;
+    return followVisibleViewport(() => {
+      const viewport = visibleViewport();
+      el.style.maxHeight = `${viewportMaxHeight(viewport)}px`;
+      const pos = placeCanvasMenu(menu, el.getBoundingClientRect(), viewport);
+      el.style.left = `${pos.left}px`;
+      el.style.top = `${pos.top}px`;
+    });
+  }, [menu]);
 
   const hasSelection = () => !!termRef.current?.hasSelection();
 
@@ -652,7 +671,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => applyFontSize(fontSize - 1)}
               title={t('ide.terminal.fontDecrease')}
               aria-label={t('ide.terminal.fontDecrease')}
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200 pointer-coarse:p-2.5"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>
             </button>
@@ -661,7 +680,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => applyFontSize(FONT_SIZE_DEFAULT)}
               title={t('ide.terminal.fontReset')}
               aria-label={t('ide.terminal.fontReset')}
-              className="min-w-[28px] rounded px-1 py-0.5 text-center text-[12px] tabular-nums text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
+              className="min-w-[28px] rounded px-1 py-0.5 text-center text-[12px] tabular-nums text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200 pointer-coarse:min-w-[34px] pointer-coarse:py-2"
             >
               {fontSize}
             </button>
@@ -670,7 +689,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => applyFontSize(fontSize + 1)}
               title={t('ide.terminal.fontIncrease')}
               aria-label={t('ide.terminal.fontIncrease')}
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200 pointer-coarse:p-2.5"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
             </button>
@@ -679,7 +698,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => openSearch()}
               title={findTitle}
               aria-label={t('ide.terminal.find')}
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200 pointer-coarse:p-2.5"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
             </button>
@@ -692,7 +711,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           <span className="text-[12px] text-gray-500">{t('ide.terminal.unavailable')}</span>
         </div>
       ) : (
-        <div className={`relative flex min-h-0 min-w-0 flex-1 ${showPaneChrome ? 'px-[3px] pb-[3px] pt-[9px]' : ''}`}>
+        <div className={`relative flex min-h-0 min-w-0 flex-1 ${showPaneChrome ? 'px-[3px] pb-[3px] pt-[9px]' : ''}`} ref={bodyRef}>
           {showPaneChrome && (
             <>
               {/* §4 (CMD) — pane 테두리. 지금 타이핑이 가는 창만 액센트로 서고 나머지는 물러난다. */}
@@ -737,7 +756,8 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           >
           {/* 인앱 검색바 — Ctrl+F. */}
           {searchOpen && (
-            <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-gray-700 bg-vb-terminal-panel/95 px-1.5 py-1 shadow-xl backdrop-blur">
+            // 좁은 칸(분할·폰)에서는 입력칸이 줄어 막대가 칸 밖으로 나가지 않는다(`max-w` + 입력칸 `min-w-0`).
+            <div className="absolute right-2 top-2 z-20 flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-md border border-gray-700 bg-vb-terminal-panel/95 px-1.5 py-1 shadow-xl backdrop-blur">
               <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
               <input
                 ref={searchInputRef}
@@ -748,7 +768,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
                   else if (e.key === 'Escape') { e.preventDefault(); closeSearch(); }
                 }}
                 placeholder={t('ide.terminal.findPlaceholder')}
-                className="w-44 bg-transparent text-[12px] text-gray-100 placeholder:text-gray-600 focus:outline-none"
+                className="w-44 min-w-0 bg-transparent text-[12px] text-gray-100 placeholder:text-gray-600 focus:outline-none"
                 spellCheck={false}
               />
               <button
@@ -756,7 +776,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
                 onClick={() => findPrev(searchQuery)}
                 title={t('ide.terminal.findPrev')}
                 aria-label={t('ide.terminal.findPrev')}
-                className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-100"
+                className="flex-shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-100 pointer-coarse:p-2.5"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
               </button>
@@ -765,7 +785,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
                 onClick={() => findNext(searchQuery)}
                 title={t('ide.terminal.findNext')}
                 aria-label={t('ide.terminal.findNext')}
-                className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-100"
+                className="flex-shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-100 pointer-coarse:p-2.5"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
               </button>
@@ -774,7 +794,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
                 onClick={() => closeSearch()}
                 title={t('ide.terminal.findClose')}
                 aria-label={t('ide.terminal.findClose')}
-                className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-100"
+                className="flex-shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-100 pointer-coarse:p-2.5"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
@@ -791,16 +811,17 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               sessionId={sessionId}
               onSendPrompt={sendPromptToTerminal}
               onClear={clearCards}
+              overlay={railOverlay}
             />
           )}
         </div>
       )}
 
-      {/* 우클릭 컨텍스트 메뉴 — createPortal 로 body 에. */}
+      {/* 우클릭 컨텍스트 메뉴 — createPortal 로 body 에. 자리·최대 높이는 위 효과가 실제 크기로 맞춘다. */}
       {menu && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[1000] min-w-[200px] rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
+          className="scrollbar-thin fixed z-[1000] min-w-[min(200px,calc(100vw-16px))] overflow-y-auto rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
           style={{ left: menu.x, top: menu.y }}
         >
           <TerminalMenuItem label={t('ide.terminal.copy')} cmd="terminal.copyOrPass" disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />
@@ -856,7 +877,7 @@ function TerminalMenuItem({ label, cmd, disabled, onClick }: {
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center justify-between gap-4 px-3 py-1.5 text-left text-[12px] text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-600 disabled:hover:bg-transparent"
+      className="flex w-full items-center justify-between gap-4 px-3 py-1.5 text-left text-[12px] text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-600 disabled:hover:bg-transparent pointer-coarse:py-2.5"
     >
       <span>{label}</span>
       {/* 메뉴 항목은 읽기 전용 — 바꾸는 자리는 오버레이(Ctrl+/)와 설정 탭이다. */}

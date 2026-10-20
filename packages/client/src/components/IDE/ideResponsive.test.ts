@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { IDE_EDITOR_WIDTH } from '@vibisual/shared';
-import { IDE_BODY, dockGrowthOnClose, dragEditorWidth, editorGrowth, ideSidebarWidth, resolveIDEBodyLayout, type IDEBodyInput } from './ideResponsive.js';
+import { IDE_BODY, IDE_PIECE_FOLD, diffStacked, dockGrowthOnClose, dragEditorWidth, editorGrowth, findBarStacked, ideSidebarWidth, resolveIDEBodyLayout, terminalRailOverlays, type IDEBodyInput } from './ideResponsive.js';
 
 /**
  * 창 안 반응형 판정 회귀 — 사용자 보고("사이즈 조절했더니 아예 벗어나버려")의 재현 조건을 못 박는다.
@@ -23,6 +23,41 @@ describe('ideSidebarWidth', () => {
     expect(ideSidebarWidth('context')).toBe(IDE_BODY.SIDEBAR_CONTEXT_W);
     expect(ideSidebarWidth('files')).toBe(IDE_BODY.SIDEBAR_W);
     expect(ideSidebarWidth('debug')).toBe(IDE_BODY.SIDEBAR_W);
+  });
+});
+
+describe('조각 접기 — 저마다 받은 칸 폭으로 묻는다', () => {
+  /** 찾기 막대는 `min(460px, 편집창 - 2rem)` — 편집창 폭에서 막대 폭으로. */
+  const barOf = (editorWidth: number): number => Math.min(460, editorWidth - 32);
+
+  it('못 쟀으면(0) 아무것도 접지 않는다 — 첫 프레임에 넓은 화면을 흔들지 않는다', () => {
+    expect(findBarStacked(0)).toBe(false);
+    expect(diffStacked(0)).toBe(false);
+    expect(terminalRailOverlays(0)).toBe(false);
+  });
+
+  it('찾기 막대 — 기본 편집창(520)에서는 한 줄 그대로, 하한(280)·폰 폭(360)에서는 두 줄', () => {
+    expect(findBarStacked(barOf(IDE_EDITOR_WIDTH.DEFAULT))).toBe(false);
+    expect(findBarStacked(barOf(IDE_EDITOR_WIDTH.MIN))).toBe(true);
+    expect(findBarStacked(barOf(360))).toBe(true);
+    // 문턱 바로 위아래 — 문턱 폭 자체는 한 줄이다.
+    expect(findBarStacked(IDE_PIECE_FOLD.FIND_BAR_STACK_W)).toBe(false);
+    expect(findBarStacked(IDE_PIECE_FOLD.FIND_BAR_STACK_W - 1)).toBe(true);
+  });
+
+  it('diff — 넓은 대화에서는 두 열 그대로, 폰 폭 대화에서는 한 열', () => {
+    expect(diffStacked(900)).toBe(false);
+    expect(diffStacked(IDE_PIECE_FOLD.DIFF_STACK_W)).toBe(false);
+    expect(diffStacked(340)).toBe(true);
+  });
+
+  it('카드 레일 — 레일을 세우고도 터미널에 대화 하한이 남는 칸에서만 옆에 선다', () => {
+    const fits = IDE_PIECE_FOLD.TERMINAL_RAIL_W + IDE_BODY.MIN_STREAM_W;
+    expect(terminalRailOverlays(1100)).toBe(false);
+    expect(terminalRailOverlays(fits)).toBe(false);
+    expect(terminalRailOverlays(fits - 1)).toBe(true);
+    // 기본 도킹 두께(480px) 창 — 종전에는 레일 360px 이 터미널을 120px 로 눌렀다.
+    expect(terminalRailOverlays(480)).toBe(true);
   });
 });
 

@@ -87,13 +87,14 @@ const BookmarkRow = memo(function BookmarkRow({ bookmark }: { bookmark: IDEBookm
         <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600" title={formatFull(bookmark.createdAt)}>
           {formatShort(bookmark.createdAt)}
         </span>
-        <div className="ml-auto flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {/* 터치에는 hover 가 없다 — 액션 묶음은 늘 보이고 단추는 손가락 크기로 선다. */}
+        <div className="ml-auto flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); handleCopy(); }}
             title={t('ide.bookmarks.copy')}
             aria-label={t('ide.bookmarks.copy')}
-            className="flex h-4 w-4 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200"
+            className="flex h-4 w-4 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
           >
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" />
@@ -106,7 +107,7 @@ const BookmarkRow = memo(function BookmarkRow({ bookmark }: { bookmark: IDEBookm
             disabled={!sourceAlive}
             title={sourceAlive ? t('ide.bookmarks.jump') : t('ide.bookmarks.sourceGone')}
             aria-label={sourceAlive ? t('ide.bookmarks.jump') : t('ide.bookmarks.sourceGone')}
-            className={`flex h-4 w-4 items-center justify-center rounded transition-colors ${
+            className={`flex h-4 w-4 items-center justify-center rounded transition-colors pointer-coarse:h-8 pointer-coarse:w-8 ${
               sourceAlive ? 'text-blue-400 hover:bg-blue-500/20 hover:text-blue-300' : 'cursor-not-allowed text-gray-600'
             }`}
           >
@@ -120,7 +121,7 @@ const BookmarkRow = memo(function BookmarkRow({ bookmark }: { bookmark: IDEBookm
             onClick={(e) => { e.stopPropagation(); removeBookmark(bookmark.id); }}
             title={t('ide.bookmarks.remove')}
             aria-label={t('ide.bookmarks.remove')}
-            className="flex h-4 w-4 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-600/80 hover:text-white"
+            className="flex h-4 w-4 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-600/80 hover:text-white pointer-coarse:h-8 pointer-coarse:w-8"
           >
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />

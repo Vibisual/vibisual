@@ -43,7 +43,7 @@ function ControlButton({
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="rounded p-0.5 text-gray-300 transition-colors hover:bg-gray-700 hover:text-gray-100 disabled:cursor-not-allowed disabled:text-gray-600"
+      className="rounded p-0.5 text-gray-300 transition-colors hover:bg-gray-700 hover:text-gray-100 disabled:cursor-not-allowed disabled:text-gray-600 pointer-coarse:p-2.5"
     >
       {children}
     </button>

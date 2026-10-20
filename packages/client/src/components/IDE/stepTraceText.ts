@@ -64,3 +64,15 @@ export function writeTraceText(t: TranslateFn, locale: string, ms: number, chars
 export function toolElapsedText(t: TranslateFn, ms: number): string {
   return ms < TRACE_SHOW_MS ? '' : elapsedText(t, ms);
 }
+
+/**
+ * §5.5 #17-39 ⑪ — 도구 상자 **하나**의 머리줄에 붙는 경과 — `12초` / `1초 미만`.
+ *
+ * 묶음 경과(`toolElapsedText`)와 달리 **1초 미만도 적는다.** 묶음의 0 은 "잴 수 없었다"(호출 하나뿐)
+ * 이지만, 여기의 0.3초는 결과 시각까지 실제로 잰 값이고 "곧바로 끝났다"는 것 자체가 알려 주는 사실이다
+ * (대부분의 Read·Edit·Write 가 여기에 든다 — 비우면 머리줄마다 시간이 있다 없다 한다).
+ * 잴 수 없으면(`null` — 진행 중·결과 없음) 빈 문자열을 돌려 호출측이 아무것도 붙이지 않게 한다.
+ */
+export function toolCallElapsedText(t: TranslateFn, ms: number | null): string {
+  return ms === null ? '' : elapsedText(t, ms);
+}

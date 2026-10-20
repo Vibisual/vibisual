@@ -153,7 +153,7 @@ export function IDETabSortMenu({ subs, agentId, onSort }: IDETabSortMenuProps): 
               role="menuitemradio"
               aria-checked={anchor === a}
               onClick={() => setAnchor(a)}
-              className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors ${
+              className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors pointer-coarse:py-2.5 ${
                 anchor === a ? 'bg-blue-500/15 text-blue-300' : 'text-gray-300 hover:bg-gray-800'
               }`}
             >
@@ -170,7 +170,7 @@ export function IDETabSortMenu({ subs, agentId, onSort }: IDETabSortMenuProps): 
               type="button"
               role="menuitem"
               onClick={() => runSort(key)}
-              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-gray-100"
+              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-gray-100 pointer-coarse:py-2.5"
             >
               <MenuGlyph paths={TAB_SORT_GLYPH[key]} />
               {t(TAB_SORT_LABEL_KEY[key])}

@@ -89,6 +89,7 @@ import {
 } from './ImageEditBars.js';
 import { putWorkspaceImage } from './workspaceImageSave.js';
 import { copyImageToClipboard, resolveClipboardSurface, type ClipboardScope } from './imageClipboard.js';
+import { imageZoomAction, MAX_IMAGE_ZOOM, MIN_IMAGE_ZOOM, useImageLightboxZoom } from './useImageLightboxZoom.js';
 
 // §5.5 #17-25 v4.80 — 라이트박스 안에서 이미지에 직접 표시하고, 표시가 박힌 PNG 를 그대로 첨부한다.
 //
@@ -113,6 +114,11 @@ interface ImageLightboxViewProps {
   /** 입력창이 있는 뷰인가(읽기 전용 Hook 메인 탭이면 false → [내려받기]만). */
   canAttach: boolean;
   onClose: () => void;
+  /**
+   * §5.13 (R-10) — 편집 결과를 **부른 쪽에 돌려준다**(파일도 첨부도 아니다). 편집 원본 앱이 그 그림을 자기 문서에
+   * 넣고, 디스크에는 문서를 저장할 때만 쓴다 — 편집 전에 PNG 를 사용자 폴더에 미리 쓰지 않기 위한 자리.
+   */
+  onApplyImage?: (png: Blob) => Promise<void>;
 }
 
 /** 막대에서 고르는 도구 — 표시 도구에 ⑦ 의 편집 도구 둘을 더한다. null 은 [보기]. */
@@ -184,6 +190,7 @@ export function ImageLightboxView({
   activeSessionId,
   canAttach,
   onClose,
+  onApplyImage,
 }: ImageLightboxViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const agents = useGraphStore((s) => s.agents);
@@ -312,6 +319,7 @@ export function ImageLightboxView({
   // 체커보드 — 알파를 다루는 동안, 그리고 편집으로 투명이 생긴 뒤로는 늘. 채우기 미리보기 중엔 그 색이 깔린다.
   const showChecker = !fillPreview && (tool === 'alpha' || history.base?.transparent === true);
   const optionsOpen = (tool === 'crop' || tool === 'alpha') && layoutReady;
+  const { viewportRef, surfaceRef, size: viewSize, zoom, changeZoom } = useImageLightboxZoom(natural, state.url);
 
   // 굵기 3단은 "이미지 크기에서 뽑은 기본값"에 곱한다 — 4K 든 아이콘 캡처든 화면에서 같은 두께로 보인다.
   const style = useMemo<AnnotationStyle>(() => {
@@ -798,6 +806,23 @@ export function ImageLightboxView({
     }
   }, [state.workspace, saving, jpegBlocked, edited, pendingOp, renderExport, markWorkspaceImageSaved, onClose, t]);
 
+  /** §5.13 (R-10) — 결과를 부른 쪽 문서로(파일에 쓰지 않는다). PNG 라 투명도 그대로 간다. */
+  const handleApply = useCallback(async () => {
+    if (!onApplyImage || saving || busyRef.current || !(edited || pendingOp)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const blob = await renderExport('image/png');
+      if (!blob) throw new Error(t('ide.imageAnnotate.renderFailed'));
+      await onApplyImage(blob);
+      onClose();
+    } catch {
+      setError(t('ide.imageAnnotate.renderFailed'));
+    } finally {
+      setSaving(false);
+    }
+  }, [onApplyImage, saving, edited, pendingOp, renderExport, onClose, t]);
+
   const handleDownload = useCallback(async () => {
     if (busyRef.current) return;
     setError(null);
@@ -951,6 +976,14 @@ export function ImageLightboxView({
       return;
     }
     if (confirmDiscard || textDraftRef.current) return;
+    const zoomAction = imageZoomAction(e);
+    if (zoomAction && !typing && !outside) {
+      // Consume Ctrl/⌘ combinations even at the zoom limits so browser zoom cannot take over.
+      e.preventDefault();
+      e.stopPropagation();
+      if (layoutReady && !drawingRef.current) changeZoom(zoomAction);
+      return;
+    }
     if (e.key === 'Enter') {
       if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (outside || (inside && ownsEnterKey(target))) return;
@@ -989,6 +1022,8 @@ export function ImageLightboxView({
 
   // 배경 클릭으로 닫기(작업물이 없을 때만). 그림·주석 위에서 시작한 드래그는 배경에서 끝나도 안 닫힌다.
   const backdrop = useBackdropDismiss(() => { if (!dirty) onClose(); });
+  // 스크롤 영역의 빈 여백도 배경이다. 별도 press 기록으로 이미지에서 끌고 나온 제스처를 보호한다.
+  const imageBackdrop = useBackdropDismiss(() => { if (!dirty) onClose(); });
 
   const applyPending = (): void => {
     if (pendingOp) void commitOp(pendingOp);
@@ -1009,7 +1044,7 @@ export function ImageLightboxView({
       {/* 도구 막대 — 배경 클릭 닫기와 겹치지 않게 이벤트를 여기서 끊는다. */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-w-[92vw] flex-wrap items-center justify-center gap-1 rounded-xl border border-gray-700 bg-gray-900/95 px-2 py-1.5 shadow-2xl"
+        className="flex max-w-[92vw] shrink-0 flex-wrap items-center justify-center gap-1 rounded-xl border border-gray-700 bg-gray-900/95 px-2 py-1.5 shadow-2xl"
       >
         <ToolbarButton
           active={tool === null}
@@ -1018,6 +1053,31 @@ export function ImageLightboxView({
         >
           <ToolGlyph tool="view" />
         </ToolbarButton>
+        <div className="flex shrink-0 items-center gap-1">
+          <ToolbarButton
+            label={t('ide.imageAnnotate.zoom.out', { shortcut: '−' })}
+            disabled={!layoutReady || zoom <= MIN_IMAGE_ZOOM}
+            onClick={() => changeZoom('out')}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5M7.5 10.5h6" /></svg>
+          </ToolbarButton>
+          <output className="w-10 text-center text-[12px] tabular-nums text-gray-300" aria-live="polite">{Math.round(zoom * 100)}%</output>
+          <ToolbarButton
+            label={t('ide.imageAnnotate.zoom.in', { shortcut: '+' })}
+            disabled={!layoutReady || zoom >= MAX_IMAGE_ZOOM}
+            onClick={() => changeZoom('in')}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5M7.5 10.5h6M10.5 7.5v6" /></svg>
+          </ToolbarButton>
+          <ToolbarButton
+            label={t('ide.imageAnnotate.zoom.reset', { shortcut: '0' })}
+            disabled={!layoutReady}
+            onClick={() => changeZoom('reset')}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4v6h6M3.5 10a9 9 0 1 1 2.4 8.4" /></svg>
+          </ToolbarButton>
+        </div>
+        <Divider />
         {/* ⑦ 그림 자체를 고치는 두 도구 — [보기] 옆. */}
         <ToolbarButton
           active={tool === 'crop'}
@@ -1128,6 +1188,24 @@ export function ImageLightboxView({
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
           )}
         </ToolbarButton>
+        {onApplyImage && (
+          <button
+            type="button"
+            disabled={!canSave || saving}
+            onMouseDown={holdFocus}
+            onClick={() => void handleApply()}
+            className="ml-1 flex h-7 items-center gap-1.5 rounded bg-emerald-600 px-2.5 text-[12px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+          >
+            {saving ? (
+              <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-white border-t-transparent" />
+            ) : (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+            {t('panel.options.apply')}
+          </button>
+        )}
         {/* ④-1 워크스페이스 파일에서 연 팝업 — 첨부가 아니라 그 파일을 덮어쓴다(둘은 병행). */}
         {workspace && (
           <button
@@ -1237,91 +1315,102 @@ export function ImageLightboxView({
       {/* 이미지 + 겹들 — 상자가 정확히 같아야 natural 좌표가 화면과 맞는다. 테두리는 바깥 상자가 그리고,
           그 안쪽(체커보드·채우기 미리보기 색)이 투명한 픽셀 뒤로 비친다. */}
       <div
-        className={`relative rounded-lg border border-gray-700 shadow-2xl ${showChecker ? 'bg-alpha-checker' : ''}`}
-        style={fillPreview ? { backgroundColor: fillColor } : undefined}
+        ref={viewportRef}
+        className={`min-h-0 w-full max-w-[92vw] flex-1 overflow-auto overscroll-contain ${optionsOpen ? 'max-h-[70vh]' : 'max-h-[78vh]'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <img
-          ref={imgRef}
-          src={baseSrc}
-          alt=""
-          onLoad={(e) => {
-            const el = e.currentTarget;
-            const src = el.getAttribute('src');
-            if (src === state.url) setOriginalNatural({ w: el.naturalWidth, h: el.naturalHeight });
-            setLoadedSrc(src);
-          }}
-          className={`block max-w-[92vw] rounded-[7px] ${optionsOpen ? 'max-h-[70vh]' : 'max-h-[78vh]'} ${
-            showKeyPreview ? 'invisible' : ''
-          }`}
-        />
-        {keyPreviewOn && (
-          <canvas
-            ref={previewRef}
-            className={`pointer-events-none absolute inset-0 h-full w-full rounded-[7px] ${showKeyPreview ? '' : 'invisible'}`}
-          />
-        )}
-        {ready && history.marks && (
-          <img
-            src={history.marks.src}
-            alt=""
-            className="pointer-events-none absolute inset-0 h-full w-full rounded-[7px]"
-          />
-        )}
-        {ready && (
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${natural.w} ${natural.h}`}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            className={`absolute inset-0 h-full w-full rounded-[7px] ${
-              drawTool ? 'cursor-crosshair touch-none' : 'pointer-events-none'
-            }`}
-          >
-            {items.map((ann) => (
-              <AnnotationShape key={ann.id} ann={ann} />
-            ))}
-            {draft && <AnnotationShape ann={draft} />}
-          </svg>
-        )}
-        {ready && tool === 'crop' && cropBox && (
-          <CropOverlay
-            box={cropBox}
-            natural={natural}
-            shape={cropShape}
-            ratio={cropRatio}
-            disabled={busy || saving}
-            onChange={handleCropChange}
-          />
-        )}
-        {ready && tool === 'alpha' && alphaMode === 'key' && (
+        <div {...imageBackdrop} className="flex min-h-full w-max min-w-full p-3">
           <div
-            onPointerDown={handlePick}
-            className={`absolute inset-0 touch-none rounded-[7px] ${busy ? 'cursor-wait' : 'cursor-crosshair'}`}
-          />
-        )}
-        {textDraft && ready && (
-          <input
-            autoFocus
-            value={textDraft.value}
-            onChange={(e) => setTextDraftBoth(textDraft ? { ...textDraft, value: e.target.value } : textDraft)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); commitText(); }
-            }}
-            onBlur={commitText}
-            placeholder={t('ide.imageAnnotate.textPlaceholder')}
-            className="absolute z-10 min-w-[7rem] rounded border border-blue-400 bg-gray-900/95 px-1.5 py-0.5 text-[12px] text-white outline-none"
-            style={{
-              left: `${(textDraft.at.x / natural.w) * 100}%`,
-              top: `${(textDraft.at.y / natural.h) * 100}%`,
-            }}
-          />
-        )}
+            ref={surfaceRef}
+            className={`relative m-auto shrink-0 rounded-lg outline outline-1 outline-dashed outline-white/20 shadow-2xl ${showChecker ? 'bg-alpha-checker' : ''}`}
+            style={{ width: viewSize.w, height: viewSize.h, ...(fillPreview ? { backgroundColor: fillColor } : {}) }}
+          >
+            <img
+              ref={imgRef}
+              src={baseSrc}
+              alt=""
+              onLoad={(e) => {
+                const el = e.currentTarget;
+                const src = el.getAttribute('src');
+                if (src === state.url) setOriginalNatural({ w: el.naturalWidth, h: el.naturalHeight });
+                setLoadedSrc(src);
+              }}
+              draggable={false}
+              className={`block h-full w-full max-w-none rounded-[7px] ${
+                showKeyPreview ? 'invisible' : ''
+              }`}
+            />
+            {keyPreviewOn && (
+              <canvas
+                ref={previewRef}
+                className={`pointer-events-none absolute inset-0 h-full w-full rounded-[7px] ${showKeyPreview ? '' : 'invisible'}`}
+              />
+            )}
+            {ready && history.marks && (
+              <img
+                src={history.marks.src}
+                alt=""
+                className="pointer-events-none absolute inset-0 h-full w-full rounded-[7px]"
+              />
+            )}
+            {ready && (
+              <svg
+                ref={svgRef}
+                viewBox={`0 0 ${natural.w} ${natural.h}`}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                className={`absolute inset-0 h-full w-full rounded-[7px] ${
+                  drawTool ? 'cursor-crosshair touch-none' : 'pointer-events-none'
+                }`}
+              >
+                {items.map((ann) => (
+                  <AnnotationShape key={ann.id} ann={ann} />
+                ))}
+                {draft && <AnnotationShape ann={draft} />}
+              </svg>
+            )}
+            {ready && tool === 'crop' && cropBox && (
+              <CropOverlay
+                box={cropBox}
+                natural={natural}
+                shape={cropShape}
+                ratio={cropRatio}
+                disabled={busy || saving}
+                onChange={handleCropChange}
+              />
+            )}
+            {ready && tool === 'alpha' && alphaMode === 'key' && (
+              <div
+                onPointerDown={handlePick}
+                className={`absolute inset-0 touch-none rounded-[7px] ${busy ? 'cursor-wait' : 'cursor-crosshair'}`}
+              />
+            )}
+            {textDraft && ready && (
+              <input
+                autoFocus
+                value={textDraft.value}
+                onChange={(e) => setTextDraftBoth(textDraft ? { ...textDraft, value: e.target.value } : textDraft)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); commitText(); }
+                }}
+                onBlur={commitText}
+                placeholder={t('ide.imageAnnotate.textPlaceholder')}
+                className="absolute z-10 w-40 max-w-full rounded border border-blue-400 bg-gray-900/95 px-1.5 py-0.5 text-[12px] text-white outline-none pointer-coarse:py-1.5"
+                // 그림 오른쪽·아래 끝을 눌러도 입력칸이 그림 밖(폰에서는 화면 밖)으로 나가지 않게 칸 크기만큼 안으로 접는다.
+                //   글은 여전히 누른 자리(`textDraft.at`)에 그려진다 — 입력칸은 그 글을 받는 상자일 뿐이다.
+                style={{
+                  left: `clamp(0px, ${(textDraft.at.x / natural.w) * 100}%, calc(100% - 10rem))`,
+                  top: `clamp(0px, ${(textDraft.at.y / natural.h) * 100}%, calc(100% - 2rem))`,
+                }}
+              />
+            )}
+          </div>
+        </div>
       </div>
 
-      <p className="text-[12px] text-gray-500" onClick={(e) => e.stopPropagation()}>
+      <p className="shrink-0 text-center text-[12px] text-gray-500" onClick={(e) => e.stopPropagation()}>
         {tool === 'crop'
           ? t('ide.imageAnnotate.hintCrop', { shortcut: shortcutLabel('Enter') })
           : tool === 'alpha'
@@ -1331,6 +1420,7 @@ export function ImageLightboxView({
             : drawTool
               ? t('ide.imageAnnotate.hintDraw', { shortcut: shortcutLabel('Ctrl+Z') })
               : t('ide.imageAnnotate.hintPick')}
+        <span className="mt-1 block">{t('ide.imageAnnotate.zoom.hint')}</span>
       </p>
 
       {/* v2.94 — 닫기는 Windows 네이티브 타이틀바 오버레이(우상단 ~144×36px)를 피해 top-12. */}

@@ -186,8 +186,9 @@ export const MediaConvertDialog = memo(function MediaConvertDialog(): React.JSX.
   const percent = job?.percent ?? 0;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6">
-      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-2xl shadow-black/50">
+    // 키 작은 화면(가로로 든 폰)에서는 상자 안에서 스크롤한다 — 아래 단추 줄이 화면 밖으로 밀리지 않게.
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6 max-md:p-3">
+      <div className="scrollbar-thin max-h-full w-full max-w-md overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-2xl shadow-black/50">
         <div className="mb-3 flex items-start gap-3">
           <span className="mt-0.5 text-sky-300">
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">

@@ -48,6 +48,48 @@ export function ideSidebarWidth(activeView: IDEViewType): number {
   return activeView === 'context' ? IDE_BODY.SIDEBAR_CONTEXT_W : IDE_BODY.SIDEBAR_W;
 }
 
+/**
+ * 창 안 **조각**의 접기 문턱(px) — 아래 `resolveIDEBodyLayout` 이 창 뼈대(활동바·사이드바·편집창)를
+ * 접는다면, 이 표는 그 안에 든 막대·레일·diff 가 **저마다 받은 칸**이 좁을 때 어떻게 접을지를 정한다.
+ *
+ * 판정의 폭은 그 조각이 스스로 잰 값이다(`useElementWidth`). 뷰포트(`max-md`)로 물으면 1920px 화면에서
+ * 창만 480px 로 줄였을 때 아무것도 안 접힌다 — 이 파일 머리말이 고친 바로 그 함정이다.
+ * 못 쟀으면(0) 전부 **접지 않는다** — 첫 프레임에 넓은 화면을 흔들지 않는다(넓은 칸은 종전 그대로다).
+ */
+export const IDE_PIECE_FOLD = {
+  /**
+   * 편집창 찾기 막대(§5.5 #17-27 ⑲) — 이보다 좁으면 상태 글자·이전/다음/닫기 줄을 둘째 줄로 내린다.
+   * 오른쪽 칸(상태 5.5rem + 단추 셋)과 입력칸 안 토글 셋이 늘 먼저 자리를 가져가, 편집창 하한(280px)에서는
+   * 입력칸이 0 까지 눌렸다. 기본 막대(460px)는 이보다 넓어 한 줄 그대로다.
+   */
+  FIND_BAR_STACK_W: 400,
+  /**
+   * diff(§5.5 #17-30) — 이보다 좁으면 좌우 두 열 대신 **한 열**(지운 줄 위, 고친 줄 아래)로 쌓는다.
+   * 두 열이면 열마다 줄 번호·표식 몫(약 60px)을 따로 내 글자 칸이 한 열에 120px 남짓만 남는다.
+   */
+  DIFF_STACK_W: 480,
+  /** CMD 카드 레일(§4 v2.89)의 펼친 폭 — `IDETerminalCardRail` 의 `w-[360px]` 와 짝이다. */
+  TERMINAL_RAIL_W: 360,
+} as const;
+
+/** 찾기 막대가 두 줄로 쌓이는가 — 막대 **자기 폭**으로 묻는다. */
+export function findBarStacked(barWidth: number): boolean {
+  return barWidth > 0 && barWidth < IDE_PIECE_FOLD.FIND_BAR_STACK_W;
+}
+
+/** diff 를 한 열로 쌓는가 — diff 상자 자기 폭으로 묻는다. */
+export function diffStacked(width: number): boolean {
+  return width > 0 && width < IDE_PIECE_FOLD.DIFF_STACK_W;
+}
+
+/**
+ * CMD 카드 레일이 터미널 **옆**이 아니라 **위**에 떠야 하는가 — 터미널 칸(레일 포함) 폭으로 묻는다.
+ * 옆에 세우면 터미널에 대화 하한(`MIN_STREAM_W`)도 안 남는 칸이면 접힌 띠로 시작하고, 펼치면 덮는다.
+ */
+export function terminalRailOverlays(width: number): boolean {
+  return width > 0 && width < IDE_PIECE_FOLD.TERMINAL_RAIL_W + IDE_BODY.MIN_STREAM_W;
+}
+
 export interface IDEBodyInput {
   /** 창 본문 행의 실제 폭(px). `0` 이하면 아직 못 쟀다(첫 프레임) → 뷰포트 기준으로 폴백. */
   width: number;

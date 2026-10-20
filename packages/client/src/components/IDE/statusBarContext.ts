@@ -28,7 +28,14 @@
  *  - **컨텍스트 창 크기(`max`)**: 실측이 없으면 **그 모델의 창 크기**(레지스트리)를 쓴다. 창 크기는
  *    세션이 아니라 모델의 성질이므로, 첫 턴 전에도 `0/1.0M` 이 참이다.
  */
-import { isThinkingEnabled, resolveCmdCliKind, type CodexEffectiveConfig, type CodexModelEntry } from '@vibisual/shared';
+import {
+  isThinkingAlwaysOnModel,
+  isThinkingEnabled,
+  resolveCmdCliKind,
+  type CodexEffectiveConfig,
+  type CodexModelEntry,
+  type ModelRegistry,
+} from '@vibisual/shared';
 import { resolveCodexInherited } from '../Codex/codexModelEntry.js';
 
 export interface StatusBarScopeSource {
@@ -149,6 +156,8 @@ export function resolveStatusBarUsage(
  *  - **프로바이더 버블**(코덱스·로컬): 클로드 CLI 의 settings 키라 그 턴이 읽지 않는다.
  *  - **클로드가 아닌 CMD 갈래**(`CMD_CLI_KINDS[].managed === false`): 우리가 조립한 인자·설정
  *    파일을 하나도 안 붙인다. `cliKind` 가 없으면(헤드리스 버블) 표의 기본 행 = 클로드다.
+ *  - **사고를 끌 수 없는 모델**(Opus 5.5·Fable 5.x — `isThinkingAlwaysOnModel`): 설정은 실리지만 모델이
+ *    읽지 않는다. 판정 모델은 모델 칸과 같은 `resolveStatusBarModel` 결과(세션 실측 → 설정 모델)다.
  */
 export function resolveStatusBarThinkingOff(input: {
   /** 우리가 띄운 버블인가. 훅 버블이면 `false`. */
@@ -161,10 +170,15 @@ export function resolveStatusBarThinkingOff(input: {
   agentThinking?: boolean;
   /** 설정 창 전역 기본값. **그 에이전트를 아예 모를 때만** 쓰인다. */
   userDefaultThinking?: boolean;
+  /** 모델 칸이 적는 모델(세션 실측 → 설정 모델). 풀ID 든 alias 든 된다. */
+  model?: string;
+  /** alias 를 최신 풀ID 로 풀 레지스트리. */
+  registry?: ModelRegistry | null;
 }): boolean {
   if (!input.isCustom) return false;
   if (input.providerKind) return false;
   if (!resolveCmdCliKind(input.cliKind).managed) return false;
+  if (isThinkingAlwaysOnModel(input.model, input.registry)) return false;
   return !isThinkingEnabled(input.agentThinking ?? input.userDefaultThinking);
 }
 

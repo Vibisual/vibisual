@@ -399,7 +399,7 @@ const StrategyRow = memo(function StrategyRow({
           title={selectable
             ? (allowed ? t('ide.orchestra.strategies.allowedTip') : t('ide.orchestra.strategies.deniedTip'))
             : t('ide.orchestra.strategies.referenceOnlyTip')}
-          className={`flex-shrink-0 rounded p-0.5 ${!selectable || disabled ? 'cursor-default opacity-40' : 'hover:bg-gray-800'}`}
+          className={`flex-shrink-0 rounded p-0.5 pointer-coarse:p-2 ${!selectable || disabled ? 'cursor-default opacity-40' : 'hover:bg-gray-800'}`}
         >
           <CheckGlyph on={selectable && allowed} />
         </button>

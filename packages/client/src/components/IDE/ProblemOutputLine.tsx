@@ -26,8 +26,11 @@ export const ProblemOutputLine = memo(function ProblemOutputLine({
 }: {
   line: string;
   root: string | null;
-  /** 프로젝트 안의 파일이 잡혔을 때만 불린다. 없으면 줄은 색만 얻는다. */
-  onOpen: (relPath: string) => void;
+  /**
+   * 프로젝트 안의 파일이 잡혔을 때만 불린다. 없으면 줄은 색만 얻는다.
+   * `lineNo` 는 매처가 뽑은 줄 번호(없으면 undefined) — 편집창이 그 줄로 간다(#17-27 ⑬ (g) 와 같은 한 길).
+   */
+  onOpen: (relPath: string, lineNo?: number) => void;
 }): React.JSX.Element {
   const problem = useMemo(() => matchProblemLine(line), [line]);
   const relPath = useMemo(
@@ -39,7 +42,7 @@ export const ProblemOutputLine = memo(function ProblemOutputLine({
   if (relPath) {
     return (
       <div
-        onClick={() => onOpen(relPath)}
+        onClick={() => onOpen(relPath, problem?.line)}
         className={`cursor-pointer whitespace-pre-wrap break-all underline decoration-dotted underline-offset-2 hover:bg-gray-800/60 ${tone ?? ''}`}
       >
         {line}

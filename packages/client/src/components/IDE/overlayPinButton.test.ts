@@ -6,7 +6,7 @@
  * 렌더 쪽 약속만 못 박는다.
  *
  *  ① 버튼은 **떼어 낸 창(`fullWindow`)에만** 서고, preload 통로가 없으면(구버전) 서지 않는다.
- *     자리는 (H-18) [오버레이 버블로 바꾸기] 바로 뒤, [읽기 설정] 앞.
+ *     자리는 [읽기 설정] 앞. [오버레이 버블로 바꾸기]는 최대화 바로 앞.
  *  ② 켜짐은 `aria-pressed` 로 말하고, 툴팁은 켜짐·꺼짐에 따라 누르면 일어날 일을 말한다.
  *  ③ 칠은 main 이 돌려준 값으로 맞춘다 — 누르는 즉시 바꾸되, 답이 오면 그 값을 믿고 실패하면
  *     되돌린다. 창이 IDE 로 설 때 한 번 물어, 접었다 편 창도 켜진 칠로 선다.
@@ -61,17 +61,20 @@ describe('① 떼어 낸 창에만, 통로가 있을 때만 선다', () => {
     expect(src).toContain('const canPinOnTop = !!window.api?.overlay?.setPinnedSelf;');
   });
 
-  it('자리는 (H-18) [오버레이 버블로 바꾸기] 바로 뒤, [읽기 설정] 앞', () => {
+  it('고정은 읽기 설정 앞, 오버레이 버블은 최대화 바로 앞', () => {
     const src = readSource(OVERLAY);
     const toBubble = src.indexOf('{fullWindow && !!onCollapseToBubble && (');
     const pin = src.indexOf(BUTTON_OPEN);
     const reading = src.indexOf('§5.5 읽기 설정 — 폭 안');
+    const maximize = src.indexOf('{chrome.showMaximize && (');
     expect(toBubble, '(H-18) 버튼을 못 찾았다').toBeGreaterThan(-1);
     expect(reading, '[읽기 설정] 자리를 못 찾았다').toBeGreaterThan(-1);
-    expect(pin).toBeGreaterThan(toBubble);
+    expect(pin).toBeGreaterThan(-1);
     expect(pin).toBeLessThan(reading);
-    // 사이에 다른 손잡이가 끼지 않는다 — (H-18) 블록이 끝나면 곧바로 이 버튼의 주석이다.
-    const between = src.slice(src.indexOf('</button>', toBubble), pin);
+    expect(toBubble).toBeGreaterThan(reading);
+    expect(maximize).toBeGreaterThan(toBubble);
+    // 버블 버튼과 최대화 사이에는 다른 손잡이가 끼지 않는다.
+    const between = src.slice(src.indexOf('</button>', toBubble), maximize);
     expect(between.match(/<button\b/g)).toBeNull();
   });
 });

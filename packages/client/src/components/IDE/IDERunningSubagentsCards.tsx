@@ -260,7 +260,7 @@ export const RunningTaskRow = memo(function RunningTaskRow({
             onClick={() => onDismiss(task.id)}
             title={t('ide.runningSubagents.dismissTip')}
             aria-label={t('ide.runningSubagents.dismiss')}
-            className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700/60 hover:text-gray-200"
+            className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700/60 hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
           >
             <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" aria-hidden>
               <line x1="18" y1="6" x2="6" y2="18" />

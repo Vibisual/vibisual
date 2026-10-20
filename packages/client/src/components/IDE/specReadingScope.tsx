@@ -13,7 +13,7 @@
  * **판정은 여기서 하지 않는다.** 층을 접는 것은 shared 순수 함수(`specReadingScopeStates`)이고,
  * 서버 집행·게이트·배지가 전부 같은 함수를 부른다(§5.11 v4.65 규율).
  */
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { specReadingScopeStates } from '@vibisual/shared';
 import type { SpecReadingScope, SpecReadingScopeState, SpecReadingSettings } from '@vibisual/shared';
@@ -22,6 +22,7 @@ import type { SpecReadingScope, SpecReadingScopeState, SpecReadingSettings } fro
 export type SpecScopeWrite = (scope: SpecReadingScope, enabled: boolean | null) => void;
 
 export interface SpecScopeControl {
+  settings: SpecReadingSettings | null;
   states: SpecReadingScopeState[];
   /** 세 층을 다 접은 값 — 배지·집행이 보는 것과 같다. */
   effective: boolean;
@@ -29,6 +30,8 @@ export interface SpecScopeControl {
   /** 설정을 아직 못 받았다(서버 응답 전). 그동안 스위치는 눌리지 않는다. */
   loading: boolean;
   set: SpecScopeWrite;
+  patch: (preferences: Partial<Pick<SpecReadingSettings, 'strength' | 'roots'>>) => void;
+  waive: (unitId: string, waived: boolean) => void;
 }
 
 /**
@@ -42,48 +45,73 @@ export function useSpecScope(
   agentId: string | null | undefined,
   subAgentId: string | null | undefined,
 ): SpecScopeControl {
-  const [settings, setSettings] = useState<SpecReadingSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  // Scope, strength, roots and waivers share one acknowledged settings value. Previously the view
+  // kept a second copy and a strength save silently undid a scope toggle from this very screen.
+  const owner = useMemo(() => ({ rootPath, version: 0, busy: false }), [rootPath]);
+  const activeOwner = useRef<typeof owner | null>(owner);
+  activeOwner.current = owner;
+  const [state, setState] = useState({ owner, settings: null as SpecReadingSettings | null, loading: true, saving: false });
+  const current = state.owner === owner ? state : { settings: null, loading: true, saving: false };
+  const { settings, loading, saving } = current;
 
   useEffect(() => {
-    if (!rootPath) { setLoading(false); return; }
-    let alive = true;
-    setLoading(true);
+    activeOwner.current = owner;
+    if (!rootPath) {
+      setState({ owner, settings: null, loading: false, saving: false });
+      return () => { if (activeOwner.current === owner) activeOwner.current = null; };
+    }
+    const version = ++owner.version;
     void fetch(`/api/spec-reading/settings?projectPath=${encodeURIComponent(rootPath)}`)
       .then((r) => r.json())
       .then((body: { ok?: boolean; settings?: SpecReadingSettings | null }) => {
-        if (!alive) return;
-        if (body.ok) setSettings(body.settings ?? null);
-        setLoading(false);
+        if (activeOwner.current !== owner || owner.version !== version) return;
+        setState({ owner, settings: body.ok ? body.settings ?? null : null, loading: false, saving: false });
       })
       // 못 받아도 화면은 선다 — 스위치가 "안 정함"으로 보일 뿐이고, 누르면 서버가 지금 값을 읽어 고친다.
-      .catch(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [rootPath]);
+      .catch(() => {
+        if (activeOwner.current === owner && owner.version === version) {
+          setState({ owner, settings: null, loading: false, saving: false });
+        }
+      });
+    return () => { if (activeOwner.current === owner) activeOwner.current = null; };
+  }, [rootPath, owner]);
 
-  const set = useCallback<SpecScopeWrite>((scope, enabled) => {
-    if (!rootPath || saving) return;
-    const id = scope === 'agent' ? agentId : scope === 'session' ? subAgentId : null;
-    if (scope !== 'project' && !id) return;
-    setSaving(true);
-    void fetch('/api/spec-reading/scope', {
-      method: 'POST',
+  const write = useCallback((endpoint: string, method: 'POST' | 'PATCH', body: Record<string, unknown>): void => {
+    if (!rootPath || activeOwner.current !== owner || owner.busy) return;
+    owner.busy = true;
+    const version = ++owner.version;
+    setState((prev) => ({ owner, settings: prev.owner === owner ? prev.settings : null, loading: false, saving: true }));
+    void fetch(`/api/spec-reading/${endpoint}`, {
+      method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectPath: rootPath, scope, id, enabled }),
+      body: JSON.stringify({ projectPath: rootPath, ...body }),
     })
       .then((r) => r.json())
-      .then((body: { ok?: boolean; settings?: SpecReadingSettings }) => {
-        // 서버가 돌려준 **저장된 값**으로 갈아 낀다 — 낙관적 갱신을 하면 서버가 접은 결과(칸 상한 등)와
-        //   화면이 갈린다.
-        if (body.ok && body.settings) setSettings(body.settings);
+      .then((response: { ok?: boolean; settings?: SpecReadingSettings }) => {
+        if (activeOwner.current !== owner || owner.version !== version || !response.ok || !response.settings) return;
+        setState({ owner, settings: response.settings, loading: false, saving: true });
       })
-      .catch(() => { /* 실패하면 화면은 그대로 — 다음 누름이 다시 시도한다 */ })
-      .finally(() => setSaving(false));
-  }, [rootPath, agentId, subAgentId, saving]);
+      .catch(() => { /* Preserve the last acknowledged settings; the control can retry. */ })
+      .finally(() => {
+        owner.busy = false;
+        if (activeOwner.current === owner && owner.version === version) setState((prev) => ({ ...prev, saving: false }));
+      });
+  }, [rootPath, owner]);
+
+  const set = useCallback<SpecScopeWrite>((scope, enabled) => {
+    const id = scope === 'agent' ? agentId : scope === 'session' ? subAgentId : null;
+    if (scope !== 'project' && !id) return;
+    write('scope', 'POST', { scope, id, enabled });
+  }, [agentId, subAgentId, write]);
+  const patch = useCallback((preferences: Partial<Pick<SpecReadingSettings, 'strength' | 'roots'>>): void => {
+    write('settings', 'PATCH', { settings: preferences });
+  }, [write]);
+  const waive = useCallback((unitId: string, waived: boolean): void => {
+    write('waive', 'POST', { unitId, waived });
+  }, [write]);
 
   const states = specReadingScopeStates(settings, { agentId, subAgentId });
-  return { states, effective: states[states.length - 1]?.effective ?? false, saving, loading, set };
+  return { settings, states, effective: states[states.length - 1]?.effective ?? false, saving, loading, set, patch, waive };
 }
 
 /** 켜짐·꺼짐·상속 세 모양의 글리프 — 이모지 ❌, lucide 톤 stroke SVG. */

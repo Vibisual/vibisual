@@ -169,7 +169,7 @@ export function IDEContextSourceDialog({
             type="button"
             onClick={onClose}
             aria-label={t('common.close')}
-            className="rounded-md p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+            className="rounded-md p-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:p-2"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18" /><path d="m6 6 12 12" />
@@ -177,9 +177,12 @@ export function IDEContextSourceDialog({
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1">
+        {/* 폰 폭에서는 두 칸을 위아래로 쌓는다 — 왼쪽 칸 320px 을 옆에 세우면 본문 칸이 몇 px 만 남는다.
+            이 창은 body 로 포털되는 화면 전체 대화상자라 판정 기준이 뷰포트(`max-md`)다(IDE 창 폭이 아니다).
+            위 칸은 높이 40% 까지만 쓰고 그 안에서 스크롤한다 — 실제로 나가는 본문이 늘 화면에 남게. */}
+        <div className="flex min-h-0 flex-1 max-md:flex-col">
           {/* 왼쪽 — 설명 · 상태 · 파일 목록 */}
-          <div className="flex w-[320px] flex-shrink-0 flex-col gap-3 overflow-y-auto border-r border-white/[0.06] p-4">
+          <div className="flex w-[320px] flex-shrink-0 flex-col gap-3 overflow-y-auto border-r border-white/[0.06] p-4 max-md:max-h-[40%] max-md:w-full max-md:border-b max-md:border-r-0">
             {CONTEXT_ABOUT_FIELDS.map((field) => {
               const body = about(item, field);
               if (!body) return null;
@@ -204,7 +207,8 @@ export function IDEContextSourceDialog({
                   title={lockable
                     ? t(scopedOn ? 'ide.context.turnOff' : 'ide.context.turnOn')
                     : t(item.hintKey ?? 'ide.context.locked')}
-                  className={`flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors ${
+                  // 터치에서는 보이는 크기는 그대로 두고 누르는 자리만 손가락 크기로 넓힌다(투명 ::before).
+                  className={`relative flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors pointer-coarse:before:absolute pointer-coarse:before:-inset-2.5 pointer-coarse:before:content-[''] ${
                     !lockable
                       ? 'cursor-not-allowed bg-gray-700/60'
                       : scopedOn
@@ -272,7 +276,8 @@ export function IDEContextSourceDialog({
                               onClick={() => handleOpenFile(f.path as string)}
                               title={t(isInsideRoot(f.path, rootPath) ? 'ide.context.detail.openInEditor' : 'ide.context.detail.openOutside')}
                               aria-label={t(isInsideRoot(f.path, rootPath) ? 'ide.context.detail.openInEditor' : 'ide.context.detail.openOutside')}
-                              className="flex-shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-gray-200 group-hover:opacity-100"
+                              // 터치에는 hover 가 없다 — 늘 보이고 손가락 크기로 키운다.
+                              className="flex-shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-gray-200 group-hover:opacity-100 pointer-coarse:p-2.5 pointer-coarse:opacity-100"
                             >
                               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
@@ -288,8 +293,8 @@ export function IDEContextSourceDialog({
             )}
           </div>
 
-          {/* 오른쪽 — 실제로 나가는 본문 */}
-          <div className="flex min-w-0 flex-1 flex-col">
+          {/* 오른쪽 — 실제로 나가는 본문. `min-h-0` 은 위아래로 쌓였을 때(폰) 안쪽 스크롤이 먹게 하는 몫이다. */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2">
               <span className="text-[12px] font-bold uppercase tracking-wider text-gray-600">
                 {t('ide.context.detail.bodyLabel')}

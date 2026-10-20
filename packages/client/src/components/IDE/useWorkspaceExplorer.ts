@@ -54,7 +54,7 @@ export function openFileByPath(absolutePath: string, nodePath: string): void {
   }).catch(() => { /* 열기 실패는 화면을 막지 않는다 */ });
 }
 
-/** 절대 경로가 든 폴더를 시스템 탐색기에서 연다 — 기존 폴더 열기 경로 재사용(새 열기 레일 ❌). */
+/** 시스템 탐색기에서 폴더를 열거나 파일을 선택한다 — 기존 폴더 열기 경로 재사용(새 열기 레일 ❌). */
 export function openFolderByPath(absolutePath: string, nodePath: string): void {
   void fetch('/api/open-node-folder', {
     method: 'POST',

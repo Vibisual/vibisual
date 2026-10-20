@@ -173,7 +173,7 @@ export function useExternalPathKind(absPath: string | null): ResolvedExternalPat
   return absPath === null ? null : externalCache.get(absPath) ?? null;
 }
 
-/** 루트 밖 경로를 **시스템 탐색기에 보여준다**(파일이면 그 파일이 든 폴더). 실패는 화면을 막지 않는다. */
+/** 루트 밖 경로를 **시스템 탐색기에 보여준다**(파일이면 상위 폴더에서 선택). 실패는 화면을 막지 않는다. */
 export function revealExternalPath(absPath: string): void {
   void fetch('/api/reveal-path', {
     method: 'POST',

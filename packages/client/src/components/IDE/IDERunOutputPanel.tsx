@@ -6,6 +6,7 @@ import { RUN_OUTPUT_BUFFER_LINES } from '@vibisual/shared';
 import { useGraphStore, selectPaneProjectPath } from '../../stores/graphStore.js';
 import { useIDEPaneKey } from './idePane.js';
 import { ProblemOutputLine } from './ProblemOutputLine.js';
+import { lineRangeOf } from './editorLineRange.js';
 
 import { getRunTail, stopRun, useRunSessions } from '../../stores/runSessions.js';
 
@@ -33,13 +34,14 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
   const openEditorFile = useGraphStore((s) => s.openIDEEditorFile);
 
   const handleOpenProblemFile = useCallback(
-    (relPath: string) => {
+    (relPath: string, lineNo?: number) => {
       if (!rootPath) return;
+      // ⑪ — 매처가 뽑은 줄로 연다(#17-27 ⑬ (g) 의 본문 링크와 같은 한 길).
       openEditorFile({
         relPath,
         absPath: `${rootPath}/${relPath}`,
         name: relPath.split('/').pop() ?? relPath,
-      }, paneKey);
+      }, paneKey, lineNo === undefined ? null : lineRangeOf(lineNo));
       onClose();
     },
     [rootPath, openEditorFile, paneKey, onClose],
@@ -119,7 +121,7 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:p-2.5"
           title={t('ide.debug.close')}
           aria-label={t('ide.debug.close')}
         >

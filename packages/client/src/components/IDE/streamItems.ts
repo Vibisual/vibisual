@@ -30,6 +30,7 @@ import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, 
 import { parseSystemSubtype } from './SystemNode.js';
 import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
 import { TransportRecoveryAccumulator, sameTransportRecovery, type StreamTransportRecovery } from './streamTransportRecovery.js';
+import { StreamErrorAccumulator } from './streamErrorDedup.js';
 import { turnStopLabelKey } from './turnStopLabel.js';
 import { liveLineActivityAt, liveLineMode, sessionTurnStartedAt, type LiveLineMode } from '../../utils/sessionActivity.js';
 
@@ -133,6 +134,11 @@ export interface StreamGroup {
   input: string;
   output: string;
   timestamp: number;
+  /**
+   * §5.5 #17-39 ⑪ — 짝 `tool_result` 가 **도착한 시각**. `timestamp`(호출이 나간 시각)와의 차이가 곧
+   * "이 도구가 쓴 시간"이다. 결과가 아직 없으면(진행 중·중지·거부) 미설정 — 잴 수 없는 것을 0 으로 적지 않는다.
+   */
+  endedAt?: number;
   isActive: boolean;
   /** §4 (스트림 3종 ①) — 중첩 서브에이전트가 부른 도구면 그 바깥 Task 호출의 id. */
   nestedUnderToolUseId?: string;
@@ -812,6 +818,7 @@ export function buildBaseItems(
   // §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다.
   let thinkBuf: TurnThinkRun | null = null;
   const recovery = new TransportRecoveryAccumulator();
+  const errors = new StreamErrorAccumulator();
 
   function flushText(): void {
     if (!textBuf) return;
@@ -906,7 +913,8 @@ export function buildBaseItems(
       const resultIdx = resultByToolIdx.get(i);
       if (resultIdx !== undefined) {
         const resultEvt = events[resultIdx]!;
-        items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: resultEvt.content, timestamp: evt.timestamp, isActive: false, ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}) });
+        // §5.5 #17-39 ⑪ — 결과가 도착한 시각까지 든다(도구 상자 머리줄의 걸린 시간 — 증분 파서와 같은 값).
+        items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: resultEvt.content, timestamp: evt.timestamp, endedAt: resultEvt.timestamp, isActive: false, ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}) });
       } else {
         items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: '', timestamp: evt.timestamp, isActive: agentBusy && i > lastNonToolIdx, ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}) });
       }
@@ -929,7 +937,8 @@ export function buildBaseItems(
 
     // §5.5 #17-12 ③ — 실패 사유는 시스템 잡음으로 섞지 않고 전용 항목으로(증분 파서와 같은 규약).
     if (evt.eventType === 'error') {
-      items.push({ kind: 'error', id: evt.id, content: evt.content, timestamp: evt.timestamp });
+      const makeError = (event: SubAgentStreamEvent): StreamError => ({ kind: 'error', id: event.id, content: event.content, timestamp: event.timestamp });
+      if (!errors.consume(evt, turnId, items, makeError)) items.push(makeError(evt));
       i++;
       continue;
     }
@@ -1289,14 +1298,18 @@ function sameAttachments(a?: string[], b?: string[]): boolean {
   return true;
 }
 
-/** 같은 id 의 두 항목이 렌더 결과에 영향 주는 모든 필드까지 동일한가(timestamp 는 렌더 미사용 → 제외). */
+/**
+ * 같은 id 의 두 항목이 렌더 결과에 영향 주는 모든 필드까지 동일한가.
+ * timestamp 는 본문·도구만 렌더한다(§5.5 #17-39 ⑫ 오른쪽 끝 시각) — 그 밖의 종류는 렌더 미사용이라 제외.
+ */
 export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
   if (a.kind !== b.kind) return false;
   switch (b.kind) {
     // §5.5 #17-39 — 본문 말풍선은 끝난 시각도 렌더(작성 자국)에 쓰이므로 비교에 넣는다.
+    //   ⑫ — 시작 시각도 글 위 오른쪽 끝 시각으로 렌더된다.
     case 'text': {
       const x = a as StreamText;
-      return x.content === b.content && x.endedAt === b.endedAt;
+      return x.content === b.content && x.endedAt === b.endedAt && x.timestamp === b.timestamp;
     }
     case 'system': {
       const x = a as StreamSystem;
@@ -1313,9 +1326,12 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       const x = a as StreamStep;
       return x.phase === b.phase && x.endedAt === b.endedAt && x.chars === b.chars;
     }
+    // §5.5 #17-39 ⑪ — 결과 시각도 렌더(머리줄의 걸린 시간)에 쓰이므로 비교에 넣는다.
+    //   ⑫ — 호출 시각도 머리줄 오른쪽 끝 시각으로 렌더된다.
     case 'tool': {
       const x = a as StreamGroup;
-      return x.toolName === b.toolName && x.input === b.input && x.output === b.output && x.isActive === b.isActive;
+      return x.toolName === b.toolName && x.input === b.input && x.output === b.output && x.isActive === b.isActive
+        && x.endedAt === b.endedAt && x.timestamp === b.timestamp;
     }
     case 'command': {
       const x = a as StreamCommand;
@@ -1416,6 +1432,7 @@ export class IncrementalStreamParser {
   /** §5.5 #17-12 ③-3 — 소비한 이벤트로 쌓인 턴 커버리지(O(신규) 로 자란다). */
   private coverage: TurnCoverage = emptyTurnCoverage();
   private recovery = new TransportRecoveryAccumulator();
+  private errors = new StreamErrorAccumulator();
 
   private openText: OpenBuf | null = null;
   /** §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다. */
@@ -1440,6 +1457,7 @@ export class IncrementalStreamParser {
     this.pending = [];
     this.coverage = emptyTurnCoverage();
     this.recovery = new TransportRecoveryAccumulator();
+    this.errors = new StreamErrorAccumulator();
     this.sortTimestamps = new Map();
   }
 
@@ -1559,7 +1577,8 @@ export class IncrementalStreamParser {
       if (j !== undefined) {
         const pendingItem = this.items[j]!;
         // 계획 블록은 결과 본문을 쓰지 않는다(짝을 소비만 하고 화면은 계획 그대로).
-        if (pendingItem.kind === 'tool') this.items[j] = { ...pendingItem, output: evt.content, isActive: false };
+        // §5.5 #17-39 ⑪ — 결과가 도착한 시각까지 든다(buildBaseItems 와 같은 값 — 등가성 테스트가 못박는다).
+        if (pendingItem.kind === 'tool') this.items[j] = { ...pendingItem, output: evt.content, endedAt: evt.timestamp, isActive: false };
       } else {
         this.items.push({ kind: 'system', id: evt.id, content: `${evt.toolName ? `[${evt.toolName}] ` : ''}${evt.content}`, timestamp: evt.timestamp });
       }
@@ -1573,7 +1592,8 @@ export class IncrementalStreamParser {
 
     // §5.5 #17-12 ③ — buildBaseItems 와 동일 규약(등가성 테스트가 이 대칭을 못박는다).
     if (type === 'error') {
-      this.items.push({ kind: 'error', id: evt.id, content: evt.content, timestamp: evt.timestamp });
+      const makeError = (event: SubAgentStreamEvent): StreamError => ({ kind: 'error', id: event.id, content: event.content, timestamp: event.timestamp });
+      if (!this.errors.consume(evt, turnId, this.items, makeError)) this.items.push(makeError(evt));
       return;
     }
 

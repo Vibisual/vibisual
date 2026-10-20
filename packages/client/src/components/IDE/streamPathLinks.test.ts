@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseStreamPathCandidate } from './streamPathLinks.js';
+import { parseStreamPathCandidate, splitLineSuffix } from './streamPathLinks.js';
 
 /**
  * §5.5 #17-27 ⑬ — 본문 속 경로 손잡이의 1차 체.
@@ -15,41 +15,61 @@ const ROOT = 'C:/repo';
 describe('parseStreamPathCandidate — 루트 안(inside)', () => {
   it('상대 경로를 그대로 후보로 올린다', () => {
     expect(parseStreamPathCandidate('packages/client/src/App.tsx', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'packages/client/src/App.tsx', line: null });
+      .toEqual({ scope: 'inside', relPath: 'packages/client/src/App.tsx', lines: null });
   });
 
   it('폴더의 끝 슬래시를 떼어 낸다 — 같은 폴더가 두 경로로 갈리지 않게', () => {
     expect(parseStreamPathCandidate('assets/test/gpt-image/', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'assets/test/gpt-image', line: null });
+      .toEqual({ scope: 'inside', relPath: 'assets/test/gpt-image', lines: null });
   });
 
   it('확장자가 있으면 폴더 없이 이름만 있어도 후보다', () => {
     expect(parseStreamPathCandidate('README.md', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'README.md', line: null });
+      .toEqual({ scope: 'inside', relPath: 'README.md', lines: null });
   });
 
-  it('`경로:줄`·`경로:줄:열` 은 뒤를 떼고 경로만 본다', () => {
+  it('`경로:줄`·`경로:줄:열` 은 뒤를 떼고 경로만 판정하되, 줄은 들고 간다(⑬ (g))', () => {
     expect(parseStreamPathCandidate('src/App.tsx:42', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', line: 42 });
+      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', lines: { start: 42, end: 42 } });
     expect(parseStreamPathCandidate('src/App.tsx:42:7', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', line: 42 });
+      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', lines: { start: 42, end: 42 } });
+  });
+
+  it('⑬ (g) `경로:줄-줄` 범위 — 종전엔 `:806-807` 이 남아 경로가 아닌 것으로 버려졌다', () => {
+    expect(parseStreamPathCandidate('Source/Risk/MPSThreatPhaseAuthoritySubsystem.h:806-807', ROOT))
+      .toEqual({ scope: 'inside', relPath: 'Source/Risk/MPSThreatPhaseAuthoritySubsystem.h', lines: { start: 806, end: 807 } });
+    // 문장 속 범위를 en dash 로 적는 일도 있다.
+    expect(parseStreamPathCandidate('src/App.tsx:42–51', ROOT))
+      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', lines: { start: 42, end: 51 } });
+  });
+
+  it('⑬ (g) 거꾸로 적힌 범위는 바로 세우고, 0 번 줄은 줄이 아니다(경로 판정은 그대로)', () => {
+    expect(parseStreamPathCandidate('src/App.tsx:51-42', ROOT))
+      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', lines: { start: 42, end: 51 } });
+    expect(parseStreamPathCandidate('src/App.tsx:0', ROOT))
+      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', lines: null });
+  });
+
+  it('⑬ (g) 루트 안 절대 경로 + 줄 범위', () => {
+    expect(parseStreamPathCandidate('C:\\repo\\src\\App.tsx:10-12', ROOT))
+      .toEqual({ scope: 'inside', relPath: 'src/App.tsx', lines: { start: 10, end: 12 } });
   });
 
   it('루트 안 절대 경로는 상대 경로로 되돌린다 (역슬래시·대소문자 차이 흡수)', () => {
     expect(parseStreamPathCandidate('C:\\repo\\docs\\SCENARIO.md', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'docs/SCENARIO.md', line: null });
+      .toEqual({ scope: 'inside', relPath: 'docs/SCENARIO.md', lines: null });
     expect(parseStreamPathCandidate('c:/REPO/docs/SCENARIO.md', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'docs/SCENARIO.md', line: null });
+      .toEqual({ scope: 'inside', relPath: 'docs/SCENARIO.md', lines: null });
   });
 
   it('`./` 머리는 떼어 낸다', () => {
     expect(parseStreamPathCandidate('./docs/rules', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'docs/rules', line: null });
+      .toEqual({ scope: 'inside', relPath: 'docs/rules', lines: null });
   });
 
   it('루트 자신은 빈 상대 경로 — 폴더 열기의 정상 대상이다', () => {
     expect(parseStreamPathCandidate('C:/repo', ROOT))
-      .toEqual({ scope: 'inside', relPath: '', line: null });
+      .toEqual({ scope: 'inside', relPath: '', lines: null });
   });
 });
 
@@ -60,27 +80,27 @@ describe('parseStreamPathCandidate — 루트 안(inside)', () => {
 describe('parseStreamPathCandidate — 루트 밖(outside)', () => {
   it('다른 드라이브의 절대 경로', () => {
     expect(parseStreamPathCandidate('D:/other/note.md', ROOT))
-      .toEqual({ scope: 'outside', absPath: 'D:/other/note.md', line: null });
+      .toEqual({ scope: 'outside', absPath: 'D:/other/note.md', lines: null });
   });
 
   it('같은 드라이브라도 루트 밖이면 밖이다', () => {
     expect(parseStreamPathCandidate('C:\\tools\\AppData\\Local\\pip', ROOT))
-      .toEqual({ scope: 'outside', absPath: 'C:/tools/AppData/Local/pip', line: null });
+      .toEqual({ scope: 'outside', absPath: 'C:/tools/AppData/Local/pip', lines: null });
   });
 
   it('POSIX 절대 경로', () => {
     expect(parseStreamPathCandidate('/etc/hosts', ROOT))
-      .toEqual({ scope: 'outside', absPath: '/etc/hosts', line: null });
+      .toEqual({ scope: 'outside', absPath: '/etc/hosts', lines: null });
   });
 
   it('끝 구분자는 안쪽과 같은 규칙으로 떨어낸다', () => {
     expect(parseStreamPathCandidate('D:\\models\\', ROOT))
-      .toEqual({ scope: 'outside', absPath: 'D:/models', line: null });
+      .toEqual({ scope: 'outside', absPath: 'D:/models', lines: null });
   });
 
   it('`경로:줄` 규칙도 안쪽과 같다', () => {
     expect(parseStreamPathCandidate('D:/other/note.md:12', ROOT))
-      .toEqual({ scope: 'outside', absPath: 'D:/other/note.md', line: 12 });
+      .toEqual({ scope: 'outside', absPath: 'D:/other/note.md', lines: { start: 12, end: 12 } });
   });
 });
 
@@ -91,12 +111,12 @@ describe('parseStreamPathCandidate — 루트 밖(outside)', () => {
 describe('parseStreamPathCandidate — 공백은 절대 경로에서만', () => {
   it('공백이 든 루트 밖 절대 경로', () => {
     expect(parseStreamPathCandidate('C:\\games\\Documents\\Unreal Projects\\Sample Game\\Saved', ROOT))
-      .toEqual({ scope: 'outside', absPath: 'C:/games/Documents/Unreal Projects/Sample Game/Saved', line: null });
+      .toEqual({ scope: 'outside', absPath: 'C:/games/Documents/Unreal Projects/Sample Game/Saved', lines: null });
   });
 
   it('공백이 든 루트 안 절대 경로도 같은 규칙', () => {
     expect(parseStreamPathCandidate('C:/repo/my docs/a.txt', ROOT))
-      .toEqual({ scope: 'inside', relPath: 'my docs/a.txt', line: null });
+      .toEqual({ scope: 'inside', relPath: 'my docs/a.txt', lines: null });
   });
 
   it('공백이 든 상대 조각은 종전대로 경로가 아니다 — 명령이 파랗게 칠해지지 않게', () => {
@@ -151,5 +171,27 @@ describe('parseStreamPathCandidate — 경로가 아닌 것', () => {
 
   it('상한을 넘는 긴 조각', () => {
     expect(parseStreamPathCandidate(`a/${'b'.repeat(300)}.ts`, ROOT)).toBeNull();
+  });
+});
+
+/**
+ * ⑬ (g) — 줄 표기를 떼는 **한 벌**. 경로 조각과 링크 글자(`streamLinkHref.ts`)가 같이 쓴다 —
+ * 두 벌이면 한쪽만 범위 표기를 알게 된다.
+ */
+describe('splitLineSuffix', () => {
+  it('드라이브 머리(`C:`)는 줄이 아니다', () => {
+    expect(splitLineSuffix('C:/repo/a.ts')).toEqual({ body: 'C:/repo/a.ts', lines: null });
+    expect(splitLineSuffix('C:/repo/a.ts:42')).toEqual({ body: 'C:/repo/a.ts', lines: { start: 42, end: 42 } });
+  });
+
+  it('표기가 없으면 원문 그대로', () => {
+    expect(splitLineSuffix('a.ts')).toEqual({ body: 'a.ts', lines: null });
+    expect(splitLineSuffix('MPSThreatPhaseAuthoritySubsystem.h')).toEqual({ body: 'MPSThreatPhaseAuthoritySubsystem.h', lines: null });
+  });
+
+  it('줄 · 줄:열 · 줄-줄', () => {
+    expect(splitLineSuffix('X.h:806')).toEqual({ body: 'X.h', lines: { start: 806, end: 806 } });
+    expect(splitLineSuffix('X.h:806:3')).toEqual({ body: 'X.h', lines: { start: 806, end: 806 } });
+    expect(splitLineSuffix('X.h:806-807')).toEqual({ body: 'X.h', lines: { start: 806, end: 807 } });
   });
 });

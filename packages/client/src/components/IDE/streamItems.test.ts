@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { QueuedCommand, SubAgentStreamEvent, AgentReport, AgentList } from '@vibisual/shared';
-import { buildBaseItems, IncrementalStreamParser, mergeCardsIntoItems, isHiddenSystem, turnOfEvent, dispatchedTurnAnchorsAsc, type StreamItemFull, type BaseItemsResult, type StreamCommand } from './streamItems.js';
+import { buildBaseItems, IncrementalStreamParser, mergeCardsIntoItems, isHiddenSystem, turnOfEvent, dispatchedTurnAnchorsAsc, sameStreamItem, type StreamItemFull, type BaseItemsResult, type StreamCommand, type StreamGroup } from './streamItems.js';
 
 // ─── 시드 PRNG (mulberry32) — 재현 가능한 랜덤 ───
 function mulberry32(seed: number): () => number {
@@ -109,7 +109,8 @@ function normItem(it: StreamItemFull): unknown {
     case 'result': case 'error': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
     // §5.25 (O) — 그림도 이름까지 비교한다. default 로 흘리면 두 파서가 다른 이름을 적어도 통과한다.
     case 'image': return { k: 'image', id: it.id, c: it.content, ts: it.timestamp };
-    case 'tool': return { k: 'tool', id: it.id, n: it.toolName, in: it.input, out: it.output, a: it.isActive, ts: it.timestamp };
+    // §5.5 #17-39 ⑪ — 결과 도착 시각(머리줄의 걸린 시간)도 렌더에 쓰이므로 등가성 비교에 넣는다.
+    case 'tool': return { k: 'tool', id: it.id, n: it.toolName, in: it.input, out: it.output, a: it.isActive, ts: it.timestamp, end: it.endedAt };
     case 'command': return { k: 'command', id: it.id, p: it.prompt, r: it.result, s: it.status, e: it.error, ts: it.timestamp };
     case 'thinking-live': return { k: 'thinking-live', id: it.id, m: it.mode, ts: it.timestamp };
     case 'plan': return { k: 'plan', id: it.id, todos: it.todos, sup: !!it.superseded, ts: it.timestamp };
@@ -276,6 +277,43 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
     // §5.5 #17-39 ⑩ — 자국이 주인을 든다(간결에서 이어 붙어도 부모와 자식을 한 줄로 합치지 않게).
     expect(steps.map((i) => i.nestedUnderToolUseId)).toEqual([undefined, 'task-1']);
     expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('§5.5 #17-39 ⑪ — 도구 상자는 짝 결과가 도착한 시각을 든다(머리줄의 걸린 시간) · 결과가 없으면 비운다', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'u1', subAgentId: 'S', parentAgentId: 'P', timestamp: 1_000, eventType: 'tool_use', toolName: 'Bash', content: 'npm test' },
+      { id: 'r1', subAgentId: 'S', parentAgentId: 'P', timestamp: 13_000, eventType: 'tool_result', content: 'ok' },
+      { id: 'u2', subAgentId: 'S', parentAgentId: 'P', timestamp: 14_000, eventType: 'tool_use', toolName: 'Write', content: 'a.ts' },
+    ];
+    const full = buildBaseItems(events, []);
+    const isTool = (i: StreamItemFull): i is StreamGroup => i.kind === 'tool';
+    const tools = full.items.filter(isTool);
+    expect(tools.map((i) => [i.timestamp, i.endedAt])).toEqual([
+      [1_000, 13_000],   // 12초 돌았다
+      [14_000, undefined], // 결과가 아직 없다 — 잴 수 없는 것을 0 으로 적지 않는다
+    ]);
+    // 증분 파서도 같은 순간에 같은 값을 든다 — 결과가 나중 틱에 와도 그 시각이 붙는다.
+    const parser = new IncrementalStreamParser();
+    parser.sync(events, []);
+    const done = [...events, { id: 'r2', subAgentId: 'S', parentAgentId: 'P', timestamp: 14_400, eventType: 'tool_result', content: 'written' } as SubAgentStreamEvent];
+    const inc = parser.sync(done, []);
+    expect(normBase(inc)).toEqual(normBase(buildBaseItems(done, [])));
+    expect(inc.items.filter(isTool).map((i) => i.endedAt)).toEqual([13_000, 14_400]);
+  });
+
+  it('§5.5 #17-39 ⑪ — 결과 시각만 바뀌어도 같은 항목으로 재사용하지 않는다(머리줄 경과가 낡지 않게)', () => {
+    const base = { kind: 'tool' as const, id: 't', toolName: 'Read', input: 'a', output: 'b', timestamp: 1, isActive: false };
+    expect(sameStreamItem(base, { ...base, endedAt: 900 })).toBe(false);
+    expect(sameStreamItem({ ...base, endedAt: 900 }, { ...base, endedAt: 900 })).toBe(true);
+  });
+
+  it('§5.5 #17-39 ⑫ — 시작 시각만 바뀌어도 같은 항목으로 재사용하지 않는다(오른쪽 끝 시각이 낡지 않게)', () => {
+    const tool = { kind: 'tool' as const, id: 't', toolName: 'Read', input: 'a', output: 'b', timestamp: 1, endedAt: 900, isActive: false };
+    expect(sameStreamItem(tool, { ...tool, timestamp: 60_001 })).toBe(false);
+    expect(sameStreamItem(tool, { ...tool })).toBe(true);
+    const text = { kind: 'text' as const, id: 'x', content: '본문', timestamp: 1, endedAt: 900 };
+    expect(sameStreamItem(text, { ...text, timestamp: 60_001 })).toBe(false);
+    expect(sameStreamItem(text, { ...text })).toBe(true);
   });
 
   it('§5.5 #17-39 — 본문 말풍선은 마지막 델타 시각을 든다(작성 자국의 걸린 시간)', () => {

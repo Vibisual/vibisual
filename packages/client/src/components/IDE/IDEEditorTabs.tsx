@@ -101,7 +101,7 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
               onClick={stageTab.onClose}
               title={t('ide.editor.closeTab')}
               aria-label={t('ide.editor.closeTab')}
-              className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-100"
+              className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-100 pointer-coarse:h-8 pointer-coarse:w-8"
             >
               <svg
                 className="h-3 w-3"
@@ -141,18 +141,23 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
                   </>
                 ) : (labels[file.relPath] ?? file.name)}
               </button>
+              {/* 안 저장한 탭은 점이 X 자리에 앉고, 마우스를 올리면 X 로 바뀐다. 터치에는 hover 가 없어
+                  점만 보이고 그 점을 누르면 탭이 닫혔다 — 터치에서는 점과 X 를 **나란히** 세운다(안 저장했다는
+                  표시도, 닫는 손잡이라는 표시도 지우지 않는다). */}
               <button
                 type="button"
                 onClick={() => onClose(file.relPath)}
                 title={t('ide.editor.closeTab')}
                 aria-label={t('ide.editor.closeTab')}
-                className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-100"
+                className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-100 pointer-coarse:h-8 ${
+                  file.dirty ? 'pointer-coarse:w-auto pointer-coarse:gap-1 pointer-coarse:px-2' : 'pointer-coarse:w-8'
+                }`}
               >
                 {file.dirty ? (
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-400 group-hover/tab:hidden" />
                 ) : null}
                 <svg
-                  className={`h-3 w-3 ${file.dirty ? 'hidden group-hover/tab:block' : ''}`}
+                  className={`h-3 w-3 ${file.dirty ? 'hidden group-hover/tab:block pointer-coarse:block' : ''}`}
                   viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
                 >
                   <path d="M18 6 6 18M6 6l12 12" />
@@ -170,7 +175,7 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
         aria-pressed={pinned}
         title={t(pinned ? 'ide.editor.unpinTabs' : 'ide.editor.pinTabs')}
         aria-label={t(pinned ? 'ide.editor.unpinTabs' : 'ide.editor.pinTabs')}
-        className={`flex flex-shrink-0 items-center border-l border-gray-800 px-1.5 transition-colors ${
+        className={`flex flex-shrink-0 items-center border-l border-gray-800 px-1.5 transition-colors pointer-coarse:px-2.5 ${
           pinned ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-200'
         }`}
       >
@@ -191,7 +196,7 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
         onClick={onMaximize}
         title={t('ide.editor.maximizePane')}
         aria-label={t('ide.editor.maximizePane')}
-        className="flex flex-shrink-0 items-center border-l border-gray-800 px-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        className="flex flex-shrink-0 items-center border-l border-gray-800 px-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:px-2.5"
       >
         <svg
           className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -208,7 +213,7 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
         onClick={onCloseAll}
         title={t('ide.editor.closePane')}
         aria-label={t('ide.editor.closePane')}
-        className="flex flex-shrink-0 items-center px-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        className="flex flex-shrink-0 items-center px-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:px-2.5"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 6 6 18M6 6l12 12" />

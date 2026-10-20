@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceEol, WorkspaceFileContent, WorkspaceFileSaveResult } from '@vibisual/shared';
 import { isDirty } from './editorModel.js';
+import { registerIDEEditorDrafts } from '../../stores/ideEditorClose.js';
 
 /**
  * useEditorDocs.ts — §5.5 #17-27 v4.87 내장 편집창의 서버 대화 담당(파일 읽기·저장·초안 보관).
@@ -117,13 +118,23 @@ function saveErrorKey(status: number): string {
 }
 
 /** 루트가 바뀌면(프로젝트 전환) 열어 둔 문서를 통째로 버린다 — 같은 상대 경로가 다른 파일이 된다. */
-export function useEditorDocs(rootPath: string | null): EditorDocsApi {
+export function useEditorDocs(rootPath: string | null, paneKey?: string): EditorDocsApi {
   // 프로젝트를 떠났다 돌아와도 이전 요청을 되살리지 않는다. 파일마다 재읽기/닫기 소유권도 둔다.
   const scope = useMemo(() => ({ requests: new Map<string, symbol>(), saves: new Set<symbol>() }), [rootPath]);
   const activeScope = useRef<typeof scope | null>(scope);
   activeScope.current = scope;
   const [state, setState] = useState({ scope, docs: {} as Record<string, EditorDoc> });
   const docs = state.scope === scope ? state.docs : {};
+  const currentDocs = useRef(docs);
+  currentDocs.current = docs;
+  useEffect(() => {
+    if (paneKey === undefined) return;
+    return registerIDEEditorDrafts(paneKey, () => Object.fromEntries(
+      Object.entries(currentDocs.current)
+        .filter(([, doc]) => doc.draft !== doc.diskText)
+        .map(([path, doc]) => [path, doc.draft]),
+    ));
+  }, [paneKey, scope]);
   const setDocs = useCallback((update: (prev: Record<string, EditorDoc>) => Record<string, EditorDoc>): void => {
     setState((prev) => {
       if (activeScope.current !== scope) return prev;

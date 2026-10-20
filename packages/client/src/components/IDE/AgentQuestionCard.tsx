@@ -221,10 +221,11 @@ const QuestionCopyButton = memo(function QuestionCopyButton({ getText }: { getTe
       onClick={onCopy}
       title={copied ? t('ide.question.copied') : t('ide.question.copyOne')}
       aria-label={copied ? t('ide.question.copied') : t('ide.question.copyOne')}
-      className={`mt-0.5 inline-flex flex-shrink-0 items-center rounded border p-1 transition-all focus-visible:opacity-100 group-hover/q:opacity-100 ${
+      // 터치에는 hover 가 없다 — 늘 보이고 손가락 크기로 키운다(그래야 이 질문만 복사하는 길이 남는다).
+      className={`mt-0.5 inline-flex flex-shrink-0 items-center rounded border p-1 transition-all focus-visible:opacity-100 group-hover/q:opacity-100 pointer-coarse:mt-0 pointer-coarse:p-2.5 ${
         copied
           ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 opacity-100'
-          : 'border-white/10 bg-gray-900/60 text-gray-400 opacity-0 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100'
+          : 'border-white/10 bg-gray-900/60 text-gray-400 opacity-0 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100 pointer-coarse:opacity-100'
       }`}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
@@ -253,7 +254,8 @@ function SelectCheckbox({
       title={label}
       onClick={onToggle}
       disabled={disabled}
-      className={`mt-2 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors ${
+      // 터치에서는 보이는 크기는 그대로 두고 누르는 자리만 손가락 크기로 넓힌다(투명 ::before).
+      className={`relative mt-2 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors pointer-coarse:before:absolute pointer-coarse:before:-inset-2 pointer-coarse:before:content-[''] ${
         disabled
           ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-700'
           : checked

@@ -250,7 +250,7 @@ export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }
         <button
           type="button"
           onClick={load}
-          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:p-2.5"
           title={t('ide.plugins.refresh')}
           aria-label={t('ide.plugins.refresh')}
         >

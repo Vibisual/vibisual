@@ -5,12 +5,16 @@
  * 두 열을 그린다. 변경 라인은 단어 단위로 바뀐 토큰만 진하게 강조. MultiEdit 는 여러 hunk 를 순서대로 쌓는다.
  * 순수 diff 계산은 diffTool.ts, 여기선 표시만.
  *
- * §5.5 #17-30 — 여기서 **리뷰 코멘트**도 받는다. 행에 마우스를 올리면 [코멘트] 글리프가 뜨고,
- * 누르면 그 행 바로 아래가 입력창으로 펼쳐진다(모달 ❌). 적은 코멘트는 그 행 아래 남아 있다가
+ * §5.5 #17-30 — 여기서 **리뷰 코멘트**도 받는다. 행에 마우스를 올리면(터치에서는 행을 눌러 고르면) [코멘트]
+ * 글리프가 뜨고, 누르면 그 행 바로 아래가 입력창으로 펼쳐진다(모달 ❌). 적은 코멘트는 그 행 아래 남아 있다가
  * 상태바의 [리뷰 N건 보내기] 로 **한 명령에 모여** 나간다 — 조립은 `diffCommentPrompt.ts`.
+ *
+ * 상자가 좁으면(폰 폭·좁힌 창 — `diffStacked`) 좌우 두 열 대신 한 열로 쌓는다(지운 줄 위, 고친 줄 아래).
  */
-import { memo, useMemo, useCallback, useState, Fragment } from 'react';
+import { memo, useMemo, useCallback, useRef, useState, Fragment } from 'react';
 import { runEnterKey } from '../../hooks/useEnterSubmit.js';
+import { useElementWidth } from '../../hooks/useElementWidth.js';
+import { useCoarsePointer } from '../../hooks/useIsMobile.js';
 import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 import { useTranslation } from 'react-i18next';
 import { shortcutLabel } from '../../utils/platform.js';
@@ -19,6 +23,7 @@ import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { computeLineDiff, type ParsedEdit, type DiffRow, type WordSpan } from './diffTool.js';
 import { makeDiffCommentId, type DiffComment } from './diffCommentPrompt.js';
+import { diffStacked } from './ideResponsive.js';
 
 /** 긴 diff 방어 — hunk 당 이 줄 수까지만 렌더하고 나머지는 "… N줄 더" 로 접는다. */
 const MAX_VISIBLE_ROWS = 600;
@@ -79,12 +84,24 @@ function XIcon(): React.JSX.Element {
   );
 }
 
-/** side-by-side 한 행: [번호][마커][이전]  [번호][마커][이후]. */
-const DiffRowLine = memo(function DiffRowLine({ row, onComment, commentLabel }: {
+/**
+ * side-by-side 한 행: [번호][마커][이전]  [번호][마커][이후].
+ *
+ * 좁은 diff(`stacked`)에서는 **한 열**로 쌓는다 — 지운 줄(-)이 위, 고친 줄(+)이 아래, 그대로인 줄은 한 번만
+ * (고친 쪽 번호로). 같은 내용·같은 색·같은 단어 강조를 위아래로 옮겨 세울 뿐 버리는 줄은 없다.
+ */
+const DiffRowLine = memo(function DiffRowLine({ row, onComment, commentLabel, stacked = false, touchReveal = false }: {
   row: DiffRow;
   /** §5.5 #17-30 — 있으면 hover 시 [코멘트] 손잡이가 뜬다. 훅 버블(읽기 전용)에서는 넘기지 않는다. */
   onComment?: (() => void) | undefined;
   commentLabel?: string | undefined;
+  /** 한 열로 쌓아 그린다(좁은 diff). */
+  stacked?: boolean;
+  /**
+   * 터치 기기 — hover 가 없으니 행을 **눌러 고른** 동안 [코멘트] 손잡이가 뜬다(행이 초점을 받는다).
+   * 손잡이를 모든 행에 늘 세우면 줄마다 글자 끝을 덮는다. 마우스 기기에서는 행이 초점을 받지 않는다(종전 그대로).
+   */
+  touchReveal?: boolean;
 }): React.JSX.Element {
   const leftFilled = row.left !== null;
   const rightFilled = row.right !== null;
@@ -93,36 +110,57 @@ const DiffRowLine = memo(function DiffRowLine({ row, onComment, commentLabel }: 
   const leftMark = row.type === 'delete' || row.type === 'replace' ? '-' : '';
   const rightMark = row.type === 'insert' || row.type === 'replace' ? '+' : '';
 
+  const leftCell = (
+    <div className={`flex gap-1.5 px-1.5 ${stacked ? '' : 'border-r border-gray-800/60'} ${leftBg}`}>
+      <span className="w-7 flex-shrink-0 select-none text-right text-gray-600">{row.left?.no ?? ''}</span>
+      <span className="w-2 flex-shrink-0 select-none text-red-400/70">{leftMark}</span>
+      <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+        {leftFilled ? <CellText spans={row.leftSpans} text={row.left!.text} changedClass="rounded-sm bg-red-500/30 text-red-100" /> : ''}
+      </span>
+    </div>
+  );
+  const rightCell = (
+    <div className={`flex gap-1.5 px-1.5 ${rightBg}`}>
+      <span className="w-7 flex-shrink-0 select-none text-right text-gray-600">{row.right?.no ?? ''}</span>
+      <span className="w-2 flex-shrink-0 select-none text-emerald-400/70">{rightMark}</span>
+      <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+        {rightFilled ? <CellText spans={row.rightSpans} text={row.right!.text} changedClass="rounded-sm bg-emerald-500/40 text-emerald-50" /> : ''}
+      </span>
+    </div>
+  );
+
   return (
-    <div className="group/diffrow relative grid grid-cols-2">
-      {/* §5.5 #17-30 — 행 오른쪽 끝 [코멘트]. 평소엔 숨어 있다가 그 행에 마우스를 올릴 때만 뜬다. */}
+    <div
+      className={`group/diffrow relative ${stacked ? '' : 'grid grid-cols-2'} ${touchReveal && onComment ? 'outline-none' : ''}`}
+      tabIndex={touchReveal && onComment ? -1 : undefined}
+    >
+      {/* §5.5 #17-30 — 행 오른쪽 끝 [코멘트]. 평소엔 숨어 있다가 그 행에 마우스를 올릴 때만 뜬다.
+          터치에서는 hover 가 없으므로 그 행을 눌러 고른 동안(초점이 행 안에 있는 동안) 손가락 크기로 뜬다. */}
       {onComment && (
         <button
           type="button"
           onClick={onComment}
-          className="absolute right-0.5 top-0 z-10 hidden h-[18px] w-[18px] items-center justify-center rounded border border-gray-700/70 bg-gray-900/90 text-gray-400 transition-colors hover:border-blue-500/60 hover:text-blue-300 group-hover/diffrow:flex"
+          className="absolute right-0.5 top-0 z-10 hidden h-[18px] w-[18px] items-center justify-center rounded border border-gray-700/70 bg-gray-900/90 text-gray-400 transition-colors hover:border-blue-500/60 hover:text-blue-300 group-hover/diffrow:flex pointer-coarse:h-8 pointer-coarse:w-8 pointer-coarse:group-focus-within/diffrow:flex"
           aria-label={commentLabel}
           title={commentLabel}
         >
           <CommentIcon />
         </button>
       )}
-      {/* 이전(좌) */}
-      <div className={`flex gap-1.5 border-r border-gray-800/60 px-1.5 ${leftBg}`}>
-        <span className="w-7 flex-shrink-0 select-none text-right text-gray-600">{row.left?.no ?? ''}</span>
-        <span className="w-2 flex-shrink-0 select-none text-red-400/70">{leftMark}</span>
-        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
-          {leftFilled ? <CellText spans={row.leftSpans} text={row.left!.text} changedClass="rounded-sm bg-red-500/30 text-red-100" /> : ''}
-        </span>
-      </div>
-      {/* 이후(우) */}
-      <div className={`flex gap-1.5 px-1.5 ${rightBg}`}>
-        <span className="w-7 flex-shrink-0 select-none text-right text-gray-600">{row.right?.no ?? ''}</span>
-        <span className="w-2 flex-shrink-0 select-none text-emerald-400/70">{rightMark}</span>
-        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
-          {rightFilled ? <CellText spans={row.rightSpans} text={row.right!.text} changedClass="rounded-sm bg-emerald-500/40 text-emerald-50" /> : ''}
-        </span>
-      </div>
+      {stacked ? (
+        <>
+          {/* 그대로인 줄은 양쪽이 같은 글이라 한 번만 — 고친 쪽(지금 파일의) 번호로 선다. */}
+          {leftFilled && row.type !== 'equal' && leftCell}
+          {rightFilled && rightCell}
+        </>
+      ) : (
+        <>
+          {/* 이전(좌) */}
+          {leftCell}
+          {/* 이후(우) */}
+          {rightCell}
+        </>
+      )}
     </div>
   );
 });
@@ -157,6 +195,11 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
     [parsed.hunks],
   );
   const multi = hunks.length > 1;
+  // 두 열로 설지 한 열로 쌓을지 — diff 상자 **자기 폭**으로 묻는다(뷰포트 ❌ — 넓은 화면의 좁은 창에서도 같은 일이다).
+  //   상자 폭은 열 수와 무관하게 바깥이 정하므로 쌓아도 판정이 진동하지 않는다.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const stacked = diffStacked(useElementWidth(rootRef));
+  const coarse = useCoarsePointer();
 
   // ─── §5.5 #17-30 리뷰 코멘트 ───
   const sessionComments = useGraphStore((s) => (review ? s.diffComments[review.sessionKey] : undefined));
@@ -199,12 +242,12 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
   }, [parsed.filePath, parsed.hunks]);
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       {/* 우측 상단 편집 버튼 — 등록된 에디터로 파일을 열고 편집 위치로 이동. */}
       <button
         type="button"
         onClick={handleOpen}
-        className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded border border-gray-700/70 bg-gray-900/80 text-violet-400 shadow-sm backdrop-blur-sm transition-colors hover:bg-violet-500/20 hover:text-violet-300"
+        className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded border border-gray-700/70 bg-gray-900/80 text-violet-400 shadow-sm backdrop-blur-sm transition-colors hover:bg-violet-500/20 hover:text-violet-300 pointer-coarse:h-8 pointer-coarse:w-8"
         aria-label={t('panel.fileEdit.openInEditor')}
         title={t('panel.fileEdit.openInVSCode')}
       >
@@ -237,6 +280,8 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                         ? () => { setDraftAt({ hunk: hi, row: ri }); setDraftText(''); }
                         : undefined}
                       commentLabel={t('ide.diff.addComment')}
+                      stacked={stacked}
+                      touchReveal={coarse}
                     />
                     {rowComments.map((c) => (
                       <div key={c.id} className="flex items-start gap-1.5 border-l-2 border-blue-500/60 bg-blue-500/10 py-1 pl-2 pr-1 text-[12px] text-blue-100">
@@ -244,7 +289,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                         <button
                           type="button"
                           onClick={() => { if (review) removeDiffComment(review.sessionKey, c.id); }}
-                          className="flex-shrink-0 rounded p-0.5 text-blue-300/70 transition-colors hover:bg-blue-500/20 hover:text-blue-100"
+                          className="flex-shrink-0 rounded p-0.5 text-blue-300/70 transition-colors hover:bg-blue-500/20 hover:text-blue-100 pointer-coarse:p-2.5"
                           aria-label={t('ide.diff.removeComment')}
                           title={t('ide.diff.removeComment')}
                         >
@@ -272,7 +317,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                           <button
                             type="button"
                             onClick={closeDraft}
-                            className="rounded px-2 py-0.5 font-sans text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                            className="rounded px-2 py-0.5 font-sans text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:py-2"
                           >
                             {t('ide.diff.commentCancel')}
                           </button>
@@ -280,7 +325,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                             type="button"
                             onClick={() => submitDraft(row)}
                             disabled={draftText.trim() === ''}
-                            className="rounded bg-blue-600/80 px-2 py-0.5 font-sans text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+                            className="rounded bg-blue-600/80 px-2 py-0.5 font-sans text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500 pointer-coarse:py-2"
                           >
                             {t('ide.diff.commentSave')}
                           </button>

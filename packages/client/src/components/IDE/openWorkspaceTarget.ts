@@ -19,6 +19,7 @@ import { openAppWindow } from '../../apps/appWindows.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { fetchCachedConversion, useMediaConvert } from '../../stores/mediaConvert.js';
 import { editorFileFromAbsPath } from './editorModel.js';
+import type { EditorLineRange } from './editorLineRange.js';
 import { runExecutableFile } from './runExecutableFile.js';
 import { openFolderByPath } from './useWorkspaceExplorer.js';
 
@@ -29,6 +30,11 @@ export interface WorkspaceOpenTarget {
   readonly kind: WorkspacePathKind;
   /** 서버가 디스크를 보고 정한 값. 모르면 생략(실행 갈래로 가지 않는다). */
   readonly executable?: boolean;
+  /**
+   * §5.5 #17-27 ⑬ (g) — 적혀 온 줄 범위. **텍스트 편집창으로 갈 때만** 쓴다 — 그림·PDF·앱·실행에는
+   * 줄이 없으므로 받아도 버린다.
+   */
+  readonly lines?: EditorLineRange | null;
 }
 
 /** 이 파일이 어디로 갈지만 계산한다(아이콘·툴팁이 누르기 전에 말하기 위해 화면도 이걸 쓴다). */
@@ -103,8 +109,13 @@ export async function openWorkspaceTarget(
 
     // editor · image · pdf 는 전부 내장 편집창이 받는다. 텍스트로 그릴지 그림으로 그릴지
     // PDF 뷰어로 그릴지는 **편집창이** 정한다 — 여는 쪽이 그리는 방법까지 알 필요는 없다.
+    // ⑬ (g) — 줄 범위는 텍스트 갈래에만 싣는다(그 줄로 스크롤·칠하기는 편집창이 본문을 읽은 뒤 한다).
     default:
-      useGraphStore.getState().openIDEEditorFile(editorFileFromAbsPath(target.absPath, rootPath), paneKey);
+      useGraphStore.getState().openIDEEditorFile(
+        editorFileFromAbsPath(target.absPath, rootPath),
+        paneKey,
+        plan.action === 'editor' ? target.lines : null,
+      );
       break;
   }
 
