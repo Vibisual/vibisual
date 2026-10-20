@@ -9,6 +9,8 @@
 //
 // 순수 스택 로직(등록/최상단/앞으로)은 window 바인딩과 분리해 단위 테스트 가능하게 두었다.
 
+import { selectShellImmersive, useProjectImmersionStore } from '../../stores/projectImmersion.js';
+
 /** 캡처 창 base z — 앱 UI(수십~수백)·IDE 오버레이(z-50)보다 확실히 위, 32-bit 상한 여유. */
 const CAPTURE_WINDOW_Z_BASE = 1_000_000;
 /** 계단식 초기 위치 오프셋 — 새 창이 정확히 겹치지 않게 순환. */
@@ -52,8 +54,14 @@ export function closeTopCaptureWindow(): boolean {
 
 function handleEsc(ev: KeyboardEvent): void {
   if (ev.key !== 'Escape') return;
-  // 최상단 캡처 창만 닫고, 닫았을 때만 전파를 끊는다(IDE 오버레이 등 다른 Escape 핸들러가 함께 반응하지 않게).
-  if (closeTopCaptureWindow()) ev.stopPropagation();
+  // This listener can predate immersion. Let the project shell restore its layout first.
+  if (selectShellImmersive(useProjectImmersionStore.getState())) return;
+  // 이 누름으로 비동기 확인 팝업이 열릴 수 있다. 같은 window의 다른 캡처 리스너도 멈춰야
+  // 팝업을 연 Escape가 뒤에 있던 편집창/메뉴까지 닫지 않는다.
+  if (closeTopCaptureWindow()) {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+  }
 }
 
 function ensureEscListener(): void {

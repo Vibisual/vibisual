@@ -437,8 +437,8 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
   }, [onAgentForm, soleBubbleId, mainView, soleExecutionMode, nodes, nodeMap, t]);
 
   /**
-   * §5.4 #36 (H) — 연결 보기 한 묶음. ① [연결선 숨기기] ↔ 같은 자리 [연결선 보이기] — 모든 에이전트(커스텀·CMD·훅,
-   * 버블·말풍선). ② 앱 노드가 이어진 에이전트면 그 아래 [작업 파일 위주로 보기] ↔ [연결된 것 위주로 보기].
+   * §5.4 #36 (H) — [숨기기] 하위 메뉴에 버블·연결선 표시를 모은다. children 배열에 항목을 더해 확장한다.
+   * 앱 노드가 이어진 에이전트면 그 아래 [작업 파일 위주로 보기] ↔ [연결된 것 위주로 보기].
    * 혼자 고른 에이전트에서만이고(묶음 일괄 ❌), 휴지통 안에서는 뜨지 않는다(그 화면에는 선이 없다).
    * 상태는 **연 순간의 노드 데이터**에서 읽고(누르면 메뉴는 닫힌다), 판정은 `linkView.ts`, 저장은 store 한 경로다.
    */
@@ -449,13 +449,26 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
     if (!data || data.bubbleType !== 'agent') return [];
     const agentId = soleBubbleId;
     const hidden = data.linksHidden === true;
+    const bubblesHidden = data.bubblesHidden === true;
     const out: ContextMenuItem[] = [{
-      id: hidden ? 'bubble-links-show' : 'bubble-links-hide',
-      label: t(hidden ? 'canvas.bubbleMenu.showLinks' : 'canvas.bubbleMenu.hideLinks'),
-      icon: <LinksVisibilityGlyph hidden={hidden} />,
-      // 끄는 쪽에만 한 줄 — "연결이 끊긴다"로 읽히지 않게(되돌리는 쪽은 라벨이 이미 말한다).
-      note: hidden ? undefined : t('canvas.bubbleMenu.hideLinksNote'),
-      onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { hidden: !hidden }),
+      id: 'bubble-visibility',
+      label: t('canvas.bubbleMenu.visibility'),
+      icon: <LinksVisibilityGlyph hidden={false} />,
+      onClick: () => undefined,
+      children: [{
+        id: bubblesHidden ? 'bubble-bubbles-show' : 'bubble-bubbles-hide',
+        label: t(bubblesHidden ? 'canvas.bubbleMenu.showBubbles' : 'canvas.bubbleMenu.hideBubbles'),
+        icon: <LinksVisibilityGlyph hidden={bubblesHidden} />,
+        note: bubblesHidden ? undefined : t('canvas.bubbleMenu.hideBubblesNote'),
+        onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { bubblesHidden: !bubblesHidden }),
+      }, {
+        id: hidden ? 'bubble-links-show' : 'bubble-links-hide',
+        label: t(hidden ? 'canvas.bubbleMenu.showLinks' : 'canvas.bubbleMenu.hideLinks'),
+        icon: <LinksVisibilityGlyph hidden={hidden} />,
+        // 끄는 쪽에만 한 줄 — 연결이 끊기는 것으로 읽히지 않게.
+        note: hidden ? undefined : t('canvas.bubbleMenu.hideLinksNote'),
+        onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { hidden: !hidden }),
+      }],
     }];
     if (soleHasAppLinks) {
       const lens = effectiveLinkLens(data, true);

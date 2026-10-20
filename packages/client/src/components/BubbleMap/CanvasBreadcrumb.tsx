@@ -10,8 +10,11 @@ import { useGraphStore } from '../../stores/graphStore.js';
  * 하나가 줄 전체를 밀어내지 못하게.
  */
 const CRUMB_TAIL = 3;
-/** 조각 하나가 차지할 수 있는 최대 폭. 넘치면 이름 자체가 `…` 로 잘린다. */
-const CRUMB_LABEL_CLASS = 'inline-block max-w-[9rem] truncate align-bottom';
+/**
+ * 조각 하나가 차지할 수 있는 최대 폭. 넘치면 이름 자체가 `…` 로 잘린다.
+ * 굵은 포인터에서는 위아래를 넓혀 손가락이 닿는 높이(28px)를 준다 — 16px 글줄 그대로는 누르기 어렵다.
+ */
+const CRUMB_LABEL_CLASS = 'inline-block max-w-[9rem] truncate align-bottom pointer-coarse:py-1.5';
 
 /**
  * ID로 버블 찾기 — nodeMap(에이전트·topFolders·children·위성 전부) 우선.
@@ -83,8 +86,10 @@ export function CanvasBreadcrumb(): React.JSX.Element | null {
   const hiddenCount = collapsed ? breadcrumbs.length - CRUMB_TAIL : 0;
   const shown = collapsed ? breadcrumbs.slice(hiddenCount) : breadcrumbs;
 
+  // `canvas-crumb` — 표식 클래스(스타일 없음). 같은 자리(`top-3`)에 뜨는 로딩 알약(`CanvasLoadingHint`)이 이 줄이
+  //   있으면 그 아래로 비켜 선다 — 폴더를 오가며 불러오는 동안 경로가 알약에 가려졌다.
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center px-3">
+    <div className="canvas-crumb pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center px-3">
       <nav className="pointer-events-auto flex max-w-full items-center gap-1 text-[12px]">
         <button
           type="button"
@@ -101,7 +106,7 @@ export function CanvasBreadcrumb(): React.JSX.Element | null {
               type="button"
               onClick={() => setExpandedFor(pathKey)}
               title={breadcrumbs.slice(0, hiddenCount).map((c) => c.label).join(' / ')}
-              className="rounded px-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
+              className="rounded px-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white/80 pointer-coarse:px-2 pointer-coarse:py-1.5"
             >
               …
             </button>

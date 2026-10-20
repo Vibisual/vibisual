@@ -1,12 +1,13 @@
-import { memo, useMemo } from 'react';
+import { Fragment, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { AppBubblePastFile } from '@vibisual/shared';
-import { APP_LINKED_ITEMS, linkedFileName } from '@vibisual/shared';
+import { APP_LINKED_ITEMS, fileFaceKindOf, linkedFileName, previewLaneOf } from '@vibisual/shared';
 
 import type { AppLinkedItem, AppLinkedItemKind, AppLinkedItemStage } from '../../apps/registry.js';
 import { thumbnailAppFor } from '../../apps/appLinkedItems.js';
 import { thumbPixelSize, useAppThumbnail } from '../../apps/appThumbnails.js';
+import { usePreviewGrant } from '../../apps/previewBudget.js';
 import { layoutBeadRow } from './linkedBeads.js';
 
 /**
@@ -57,6 +58,9 @@ function stageStyle(stage: AppLinkedItemStage | undefined, glow: string): React.
   switch (stage) {
     case 'plan':
       return { borderStyle: 'dashed', borderColor: `${glow}B3`, background: BEAD_FILL, color: glow };
+    case 'proposed':
+      // 제안 대기 — 기획과 같은 점선이되 테를 또렷하게(사람이 고를 차례다).
+      return { borderStyle: 'dashed', borderColor: glow, background: BEAD_FILL, color: glow };
     case 'ready':
       return { borderStyle: 'solid', borderColor: glow, background: BEAD_FILL, color: glow };
     case 'building':
@@ -106,6 +110,9 @@ function KindGlyph({ kind }: { kind: AppLinkedItemKind }): React.JSX.Element {
         return <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />;
       case 'text':
         return <path d="M17 6.1H3M21 12.1H3M15.1 18H3" />;
+      case 'shape':
+        // 도형 레이어 — 네모와 원이 겹친 그림(우리가 그린 획).
+        return <path d="M3 3h10v10H3zM13.5 9a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z" />;
       case 'scene':
       case 'file':
       default:
@@ -149,9 +156,12 @@ function BeadPicture({
 }): React.JSX.Element {
   const inner = APP_LINKED_ITEMS.beadSize - 2;
   const px = thumbPixelSize(inner, inner, typeof window === 'undefined' ? 1 : window.devicePixelRatio);
+  // §5.1 #2-1 (G) ②③ — 구슬 안 미리보기도 화면 기준(구슬 크기에 맞춘 문턱)·한눈 기준 안에서만 굽고 그린다.
+  const granted = usePreviewGrant(appId !== null && projectId !== undefined ? `bead:${appId}:${projectId}:${file}` : null, inner, { small: true });
+  const lane = previewLaneOf(fileFaceKindOf(file)) ?? undefined;
   const state = useAppThumbnail(
-    appId !== null && projectId !== undefined
-      ? { appId, projectId, file, version, width: px.width, height: px.height }
+    granted && appId !== null && projectId !== undefined
+      ? { appId, projectId, file, version, width: px.width, height: px.height, ...(lane ? { lane } : {}) }
       : null,
   );
   const thumb = state.status === 'ready' ? state.thumb : null;
@@ -168,12 +178,17 @@ function formatSeconds(sec: number): string {
 function itemTitle(item: AppLinkedItem, t: TFunction): string {
   const lines: string[] = [];
   if (item.group === 'scene' && typeof item.index === 'number') {
+    // 번호 구슬이 세는 것 — 장면(영상) · 만드는 단계(3D) · 고르기 전 제안(그림). §5.1 #2-1 (F) 앱별.
+    const word = item.numbered ?? 'scene';
     lines.push(
       item.label !== ''
-        ? t('canvas.linkedItems.scene', { index: item.index, title: item.label })
-        : t('canvas.linkedItems.sceneUntitled', { index: item.index }),
+        ? t(`canvas.linkedItems.${word}`, { index: item.index, title: item.label })
+        : t(`canvas.linkedItems.${word}Untitled`, { index: item.index }),
     );
     if (item.stage) lines.push(t(`canvas.linkedItems.stage.${item.stage}`));
+    if (typeof item.pictureCount === 'number' && item.pictureCount > 0) {
+      lines.push(t('canvas.linkedItems.pictures', { count: item.pictureCount }));
+    }
   } else {
     lines.push(`${t(`canvas.linkedItems.kind.${item.kind}`)} · ${item.label}`);
   }
@@ -277,12 +292,33 @@ export const AppLinkedSatellites = memo(function AppLinkedSatellites({
         const visual = isScene
           ? stageStyle(item.stage, glow)
           : { borderStyle: 'solid' as const, borderColor: `${glow}73`, background: BEAD_FILL, color: glow };
-        const pictureApp = !isScene && item.file !== undefined && (item.kind === 'image' || item.kind === 'video')
+        // 장면·단계 구슬도 그림을 가질 수 있다(Vibi3D 단계의 대표 캡처) — 그 확장자를 받는 앱이 굽는다.
+        const pictureApp = item.file !== undefined && (isScene || item.kind === 'image' || item.kind === 'video')
           ? thumbnailAppFor(item.file)
           : null;
+        const steppedPicture = isScene && pictureApp !== null && item.file !== undefined;
         return (
+          <Fragment key={item.id}>
+          {steppedPicture ? (
+            // 그림이 든 단계 구슬의 번호 — 구슬 밖 왼쪽 위(구슬은 안을 잘라 그리므로 안에 두면 잘린다).
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute z-10 flex items-center justify-center rounded-full border text-[12px] font-semibold leading-none tabular-nums"
+              style={{
+                left: x - size / 2 - 6,
+                top: drop - size / 2 - 6,
+                minWidth: 16,
+                height: 16,
+                padding: '0 3px',
+                borderColor: glow,
+                background: BEAD_FILL,
+                color: glow,
+              }}
+            >
+              {item.index}
+            </span>
+          ) : null}
           <button
-            key={item.id}
             type="button"
             title={title}
             aria-label={title}
@@ -296,8 +332,17 @@ export const AppLinkedSatellites = memo(function AppLinkedSatellites({
             }}
             onContextMenu={onContextMenu}
           >
-            {isScene ? (
-              <span className="text-[11px] font-semibold leading-none tabular-nums">{item.index}</span>
+            {isScene && pictureApp !== null && item.file !== undefined ? (
+              // 단계 구슬 — 안은 그 단계의 대표 그림(번호는 구슬 밖 왼쪽 위 표식 — 아래). 구슬을 늘어놓으면 자라는 과정이다.
+              <BeadPicture
+                appId={pictureApp}
+                projectId={projectId}
+                file={item.file}
+                version={0}
+                fallback={<span className="text-[12px] font-semibold leading-none tabular-nums">{item.index}</span>}
+              />
+            ) : isScene ? (
+              <span className="text-[12px] font-semibold leading-none tabular-nums">{item.index}</span>
             ) : pictureApp !== null && item.file !== undefined ? (
               <BeadPicture appId={pictureApp} projectId={projectId} file={item.file} version={0} fallback={<KindGlyph kind={item.kind} />} />
             ) : (
@@ -312,11 +357,12 @@ export const AppLinkedSatellites = memo(function AppLinkedSatellites({
               />
             ) : null}
           </button>
+          </Fragment>
         );
       })}
       {row.moreX !== null ? (
         <span
-          className="pointer-events-auto absolute flex items-center justify-center rounded-full border text-[11px] font-semibold leading-none tabular-nums"
+          className="pointer-events-auto absolute flex items-center justify-center rounded-full border text-[12px] font-semibold leading-none tabular-nums"
           style={{
             left: row.moreX - size / 2,
             top: drop - size / 2,

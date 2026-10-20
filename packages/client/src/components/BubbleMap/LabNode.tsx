@@ -1,15 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { NodeProps } from '@xyflow/react';
 import { BUBBLE_STYLES } from '@vibisual/shared';
 import type { LabRunStatus, LabVariant } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
-import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { promptDialog } from '../../utils/appDialog.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
+import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 
 /**
  * §5.18 / §7.17 — 에이전트 랩 표지 버블.
@@ -81,7 +81,8 @@ export const LabNode = memo(function LabNode({
   const deleteLabRun = useGraphStore((s) => s.deleteLabRun);
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // 바깥 press·아무 키로 닫기는 메뉴 껍데기(`CanvasNodeMenu`)가 든다 — 다섯 노드가 같은 규약 한 벌.
+  const closeMenu = useCallback((): void => setMenu(null), []);
   const [busy, setBusy] = useState(false);
 
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
@@ -90,20 +91,6 @@ export const LabNode = memo(function LabNode({
   const chosenHere = useGraphStore((s) => s.selectedLabRunId === data.labRunId || s.selectIntentId === data.labRunId);
   const isSelected = selected === true || chosenHere;
   const isPinned = data.preservePinned === true;
-
-  // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).
-  useOutsidePressDismiss({
-    enabled: menu !== null,
-    onDismiss: () => setMenu(null),
-    refs: [menuRef],
-  });
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = (): void => setMenu(null);
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [menu]);
 
   /** 서버가 준 값의 단순 집계뿐 — 판정 로직은 서버가 전부 들고 있다(§3.1 View 전용). */
   const counts = useMemo(() => {
@@ -159,9 +146,9 @@ export const LabNode = memo(function LabNode({
     openLabPanel(data.labRunId);
   }, [gesture, openLabPanel, data.labRunId]);
 
-  const rename = useCallback((): void => {
+  const rename = useCallback(async (): Promise<void> => {
     setMenu(null);
-    const next = window.prompt(t('canvas.lab.renamePrompt', { defaultValue: '랩 제목' }), data.title);
+    const next = await promptDialog(t('canvas.lab.renamePrompt', { defaultValue: '랩 제목' }), data.title);
     if (next === null) return;
     const title = next.trim();
     patchLocal(data.labRunId, { title });
@@ -197,29 +184,13 @@ export const LabNode = memo(function LabNode({
     text: string,
     opts: { danger?: boolean; disabled?: boolean; title?: string } = {},
   ): React.JSX.Element => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={opts.disabled === true}
-      title={opts.title}
-      className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-        opts.disabled === true
-          ? 'cursor-not-allowed text-gray-500'
-          : `hover:bg-gray-800 ${opts.danger === true ? 'text-rose-300' : 'text-gray-200'}`
-      }`}
-    >
-      {text}
-    </button>
+    <CanvasNodeMenuItem onClick={onClick} label={text} danger={opts.danger} disabled={opts.disabled} title={opts.title} />
   );
 
+  // 화면 밖으로 넘치면 안쪽으로 밀고 길면 스크롤한다(폰 폭 — `CanvasNodeMenu`).
   const menuPortal = menu
-    ? createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-[60] min-w-52 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+    ? (
+        <CanvasNodeMenu x={menu.x} y={menu.y} minWidthClass="min-w-52" onClose={closeMenu}>
           {menuItem(() => {
             setMenu(null);
             openLabPanel(data.labRunId);
@@ -235,7 +206,7 @@ export const LabNode = memo(function LabNode({
           {menuItem(togglePin, isPinned
             ? t('canvas.lab.unpin', { defaultValue: '고정 해제' })
             : t('canvas.lab.pin', { defaultValue: '고정' }))}
-          <div className="mx-2 my-1 border-t border-gray-700" />
+          <CanvasNodeMenuSeparator />
           {menuItem(remove, t('canvas.lab.delete', { defaultValue: '삭제' }), {
             danger: true,
             disabled: isPinned,
@@ -243,8 +214,7 @@ export const LabNode = memo(function LabNode({
               ? { title: t('canvas.lab.deletePinnedHint', { defaultValue: '고정된 랩입니다. 먼저 고정을 해제하세요.' }) }
               : {}),
           })}
-        </div>,
-        document.body,
+        </CanvasNodeMenu>
       )
     : null;
 

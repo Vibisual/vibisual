@@ -1,14 +1,14 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { NodeProps } from '@xyflow/react';
 import type { PlayBubbleStatus, PlayRecipe } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
-import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { promptDialog } from '../../utils/appDialog.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
+import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 
 /**
  * §5.14 v4.62 — 플레이 버튼 버블.
@@ -96,7 +96,8 @@ export const PlayNode = memo(function PlayNode({
   const agentProjects = useGraphStore((s) => s.agentProjects);
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // 바깥 press·아무 키로 닫기는 메뉴 껍데기(`CanvasNodeMenu`)가 든다 — 다섯 노드가 같은 규약 한 벌.
+  const closeMenu = useCallback((): void => setMenu(null), []);
   const [notice, setNotice] = useState<string | null>(null);
 
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
@@ -107,21 +108,6 @@ export const PlayNode = memo(function PlayNode({
   const status = data.status;
   const hasRecipe = data.recipe !== undefined;
   const style = STATUS_STYLE[status];
-
-  // 바깥 press 로 닫기(공통 규약 — 메뉴 안에서 시작한 press·드래그로는 안 닫힌다).
-  // capture 단계 — React Flow 가 이벤트를 선점하기 전에 닫는다.
-  useOutsidePressDismiss({
-    enabled: menu !== null,
-    onDismiss: () => setMenu(null),
-    refs: [menuRef],
-  });
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = (): void => setMenu(null);
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [menu]);
 
   // 안내 문구는 잠깐만 — 버블은 상태를 보여 주는 자리이지 로그를 쌓는 자리가 아니다.
   useEffect(() => {
@@ -218,9 +204,9 @@ export const PlayNode = memo(function PlayNode({
     void updatePlayBubble(data.playBubbleId, { preservePinned: next });
   }, [data.preservePinned, data.playBubbleId, patchLocal, updatePlayBubble]);
 
-  const rename = useCallback((): void => {
+  const rename = useCallback(async (): Promise<void> => {
     setMenu(null);
-    const next = window.prompt(t('canvas.play.renamePrompt', { defaultValue: '버튼 이름' }), data.title ?? '');
+    const next = await promptDialog(t('canvas.play.renamePrompt', { defaultValue: '버튼 이름' }), data.title ?? '');
     if (next === null) return;
     const title = next.trim();
     patchLocal(data.playBubbleId, { title });
@@ -228,12 +214,12 @@ export const PlayNode = memo(function PlayNode({
   }, [t, data.title, data.playBubbleId, patchLocal, updatePlayBubble]);
 
   /** 명령 직접 고치기 — 무엇이 실행되는지는 언제나 사용자가 읽고 바꿀 수 있어야 한다. */
-  const editCommand = useCallback((): void => {
+  const editCommand = useCallback(async (): Promise<void> => {
     setMenu(null);
     const current = data.recipe;
     const isStatic = current?.kind === 'static';
     const seed = isStatic ? (current?.root ?? '') : (current?.command ?? '');
-    const next = window.prompt(
+    const next = await promptDialog(
       isStatic
         ? t('canvas.play.editRootPrompt', { defaultValue: '서빙할 폴더(절대 경로)' })
         : t('canvas.play.editCommandPrompt', { defaultValue: '실행 명령' }),
@@ -286,29 +272,13 @@ export const PlayNode = memo(function PlayNode({
     text: string,
     opts: { danger?: boolean; disabled?: boolean; title?: string } = {},
   ): React.JSX.Element => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={opts.disabled === true}
-      title={opts.title}
-      className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-        opts.disabled === true
-          ? 'cursor-not-allowed text-gray-500'
-          : `hover:bg-gray-800 ${opts.danger === true ? 'text-rose-300' : 'text-gray-200'}`
-      }`}
-    >
-      {text}
-    </button>
+    <CanvasNodeMenuItem onClick={onClick} label={text} danger={opts.danger} disabled={opts.disabled} title={opts.title} />
   );
 
+  // 화면 밖으로 넘치면 안쪽으로 밀고 길면 스크롤한다(폰 폭 — `CanvasNodeMenu`).
   const menuPortal = menu
-    ? createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-[60] min-w-52 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+    ? (
+        <CanvasNodeMenu x={menu.x} y={menu.y} minWidthClass="min-w-52" onClose={closeMenu}>
           {menuItem(() => {
             setMenu(null);
             void findRecipe();
@@ -326,7 +296,7 @@ export const PlayNode = memo(function PlayNode({
           {menuItem(togglePin, isPinned
             ? t('canvas.play.unpin', { defaultValue: '고정 해제' })
             : t('canvas.play.pin', { defaultValue: '고정' }))}
-          <div className="mx-2 my-1 border-t border-gray-700" />
+          <CanvasNodeMenuSeparator />
           {menuItem(remove, t('canvas.play.delete', { defaultValue: '삭제' }), {
             danger: true,
             disabled: isPinned,
@@ -334,8 +304,7 @@ export const PlayNode = memo(function PlayNode({
               ? { title: t('canvas.play.deletePinnedHint', { defaultValue: '고정된 버블입니다. 먼저 고정을 해제하세요.' }) }
               : {}),
           })}
-        </div>,
-        document.body,
+        </CanvasNodeMenu>
       )
     : null;
 

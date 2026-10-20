@@ -2,7 +2,7 @@ import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
-import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG, LINK_FOCUS, agentModelLabelOf, resolveCmdCliKind } from '@vibisual/shared';
+import { APP_WORK, clipNameList, BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG, LINK_FOCUS, agentModelLabelOf, resolveCmdCliKind } from '@vibisual/shared';
 import { externalPlaceHint, formatHeatCount, heatColor, heatRatio, heatValueOf, isHeatBubbleType } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
@@ -19,6 +19,7 @@ import { localProviderOf, localModelLabelOf } from '../LocalModel/localModelEntr
 import { codexProviderOf, codexModelLabelOf } from '../Codex/codexModelEntry.js';
 // §2.4 버블 타이포 오토핏 — 하단 블록 예약·요약·현(chord) 폭 계산은 전부 이 순수 모듈이 한다.
 import { planBubbleText, BUBBLE_LINE_HEIGHT, type BubbleBottomLine, type BubbleCenterExtra } from './bubbleTextFit.js';
+import { webFoldTitle } from './webFoldTitle.js';
 // 클릭=선택 / 더블클릭=열기 를 가르는 상태기계는 캔버스 **공용 한 벌**이다 — 이 버블이 그 기준이고,
 // 앱·캡처·스펙·랩·선반·플레이·메모 버블이 같은 것을 쓴다(따로 두면 손버릇이 갈린다).
 import { SELECT_DEFER_MS, useBubbleSelectGesture } from './bubbleSelectGesture.js';
@@ -30,6 +31,24 @@ import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from
 import { linkFocusNodeStyle } from './linkedBubbles.js';
 import { BRAND_ICON_PATHS } from './brandIconPaths.js';
 import { SunCorona } from './SunCorona.js';
+import { BubbleStatusEffects } from './BubbleStatusEffects.js';
+import { bubbleAgentStyle, bubbleStatusRingClass } from './bubbleStatus.js';
+import { resolveBubbleSkin } from '@vibisual/shared';
+import { DARK_THEME_LOCK } from '../../theme/themeLock.js';
+import { bubbleSurface } from './bubbleSurface.js';
+import { BubbleSurfaceDetail } from './BubbleSurfaceDetail.js';
+import { BubbleHiddenIndicator } from './BubbleHiddenIndicator.js';
+// §5.1 #2-1 — 파일 얼굴(미디어 렌즈 · 종류 글리프 · 원 아래 이름) · 작업물 별자리(중심 궤도 · 위성 툴팁).
+import { getInternalApp } from '../../apps/registry.js';
+import { fileFaceOf, fileFaceVersion } from '../../utils/fileFaceView.js';
+import { moonCountOf } from '../../utils/sizeCalc.js';
+import type { ConstellationTag } from '../../utils/constellationView.js';
+import { useFileFaceThumbnail } from './useFileFaceThumbnail.js';
+import { FileFaceLens } from './FileFaceLens.js';
+import { ConstellationOrbit, FileFaceRim } from './FileFaceRim.js';
+import { FileFamilyGlyph } from './fileFaceGlyphs.js';
+import type { AppWorkFoldedBadge } from './appWorkFold.js';
+import { CommandAppIcon } from '../CommandAppIcon.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -201,7 +220,7 @@ function formatModelName(model: string): string {
 
 // (§5.7 #26 에서 `indeterminate` 모드 제거 — 수위가 위아래로 진동하던 "작업 중" 물결은 워크트리
 //  생성 연출 전용이었고, 그 연출 자체가 폐기됐다. 여기 남은 물결은 **실측 컨텍스트 비율**뿐이다.)
-function WaveFill({ ratio, color }: { ratio: number; color: string }): React.JSX.Element {
+function WaveFill({ ratio, color, opacity }: { ratio: number; color: string; opacity: number }): React.JSX.Element {
   // ratio 0~1 → 물 높이 (0 = 바닥, 1 = 꼭대기)
   const clamped = Math.max(0, Math.min(1, ratio));
   // SVG viewBox 100x100, 물결 y위치: 100(빈) → 0(가득)
@@ -212,6 +231,7 @@ function WaveFill({ ratio, color }: { ratio: number; color: string }): React.JSX
       className="pointer-events-none absolute inset-0 h-full w-full"
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
+      style={{ opacity }}
     >
       <defs>
         <clipPath id="wave-clip">
@@ -249,6 +269,9 @@ function WaveFill({ ratio, color }: { ratio: number; color: string }): React.JSX
     </svg>
   );
 }
+
+/** 툴팁 줄바꿈(여러 줄 `title`). */
+const LINE_BREAK = '\n';
 
 // ─── 핸들 스타일 (중심 1개 — CurvedEdge가 원 둘레 계산) ───
 
@@ -321,8 +344,22 @@ export const BubbleNode = memo(function BubbleNode({
   //   계열의 더 어둡고 탁한 톤(HOOK_AGENT_STYLE=#1E3A6B)으로 명도만 구분. bubbleType 은 그대로 'agent'.
   const isHookAgent = data.bubbleType === 'agent' && !data.customCreated;
   const baseStyle = isHookAgent ? HOOK_AGENT_STYLE : BUBBLE_STYLES[data.bubbleType];
+  /**
+   * §5.1 #2-1 (A) — 파일의 얼굴(종류 · 굽는 앱 · 색). 경로가 같으면 같은 객체라 아래 미리보기 일감이 흔들리지 않는다.
+   * 미디어(영상·사진·소리·3D)는 원 안이 렌즈가 되고, 나머지 종류는 종전 배치 그대로 글리프만 바뀐다.
+   */
+  const face = useMemo(
+    () => fileFaceOf(data),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data.bubbleType, data.absolutePath, data.path, data.label],
+  );
+  const isMediaFace = face !== null && face.media;
+  /** §5.1 #2-1 (B) — 별자리: 중심이면 위성 수, 위성이면 이유 꼬리표(둘 다 화면이 단 표시 전용 값). */
+  const moonCount = moonCountOf(data);
+  const constellationTag = (data as Record<string, unknown>)['_constellation'] as ConstellationTag | undefined;
   // 에이전트 커스텀 색상 — AgentConfig.color가 있으면 기본 스타일 오버라이드
   const customColor = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.color : undefined);
+  const skin = useGraphStore((s) => resolveBubbleSkin(s.bubbleAppearancePending?.bubbleSkin ?? s.userDefaults?.appearance?.bubbleSkin));
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트면 라벨 옆 'CMD' 배지로 구분.
   const isCmdAgent = useGraphStore((s) => data.bubbleType === 'agent' && s.agentConfigs[data.id]?.executionMode === 'interactive-terminal');
   // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움.
@@ -385,6 +422,7 @@ export const BubbleNode = memo(function BubbleNode({
   //   독립성 위반). 개수는 BubbleMap 이 프로젝트 필터를 거쳐 data.activity 로 실어 보낸다.
   const trashedCount = data.bubbleType === 'trash' ? data.activity : 0;
   const isTrashBubble = data.bubbleType === 'trash';
+  const inTrashView = useGraphStore((s) => s.interiorView?.kind === 'trash');
   // §5.24 — 히트맵 척도. 켜져 있고 이 버블이 "읽히는 것"일 때만 색·지름이 갈린다.
   const heat = useHeatScale();
   const heatOn = !!heat && isHeatBubbleType(data.bubbleType);
@@ -397,15 +435,11 @@ export const BubbleNode = memo(function BubbleNode({
       // 글로우는 한 단계 더 뜨겁게 — 본체와 같은 색이면 평평해 보인다.
       return { ...baseStyle, color: heatColor(r), glow: heatColor(Math.min(1, r + 0.25)) };
     }
+    // §5.1 #2-1 (A) — 파일 얼굴의 색. 미디어는 굽는 앱의 색(앱 노드와 한 가족), 나머지 종류는 보라 계열 안의 명도.
+    if (face !== null) return { ...baseStyle, color: face.color, glow: face.glow };
     // Provider identity stays visible even when the agent has a custom body color.
-    const providerStyle = isCodexAgent
-      ? { ...baseStyle, color: '#8B5CF6', glow: '#C4B5FD',
-          ringIdle: 'border-violet-300',
-          ringActive: 'border-violet-400 shadow-lg shadow-violet-500/30' }
-      : baseStyle;
-    if (!customColor) return providerStyle;
-    return { ...providerStyle, color: customColor, glow: customColor };
-  }, [baseStyle, customColor, isCodexAgent, heatOn, heat,
+    return bubbleAgentStyle(baseStyle, isCodexAgent, customColor);
+  }, [baseStyle, customColor, isCodexAgent, heatOn, heat, face,
     data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount]);
   /**
    * §5.24 — 히트 숫자 배지가 적을 값. **색·지름과 같은 `heatValueOf` 한 함수에서 나온다** —
@@ -426,14 +460,12 @@ export const BubbleNode = memo(function BubbleNode({
   const localRange = (data as Record<string, unknown>)['_localRange'] as { min: number; max: number } | undefined;
   const globalRange = useGraphStore((s) => s.fileSizeRange);
   const range = localRange ?? globalRange;
-  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, range, heat]);
+  // §5.1 #2-1 — 미디어 얼굴·별자리 중심의 지름 하한도 같은 함수(`calcBubbleSize`)가 읽는다 — 경로·위성 수가 바뀌면 다시 잰다.
+  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, moonCount, range, heat]); // eslint-disable-line react-hooks/exhaustive-deps
   // 단일 스케일 팩터 — 모든 텍스트/아이콘이 이 비율로 비례 축소/확대
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
   const isCompleted = data.status === 'completed';
-  // 소속 세션이 실패로 끝났다 — completed(시안)와 **같은 자리, 다른 색**으로 그린다.
-  //   종전에는 이 상태가 completed 로 내려가 실패가 완료로 보였다.
-  const isFailed = data.status === 'error';
   // §4 v1.49 — Notification 시각 신호 (permission 대기). v1.73 — awaiting_input(모래시계) 제거.
   const isAwaitingPermission = data.status === 'awaiting_permission';
   const isFolder = data.bubbleType === 'internal_folder' || data.bubbleType === 'external_folder';
@@ -458,6 +490,8 @@ export const BubbleNode = memo(function BubbleNode({
     data.bubbleType === 'conti' ||
     data.bubbleType === 'trash' ||
     data.id.startsWith('sat-') ||
+    // §5.1 #2-1 (A) — 미디어 얼굴은 더블클릭이 그 앱의 편집기를 연다(원 둘레에 선 직속 파일도).
+    isMediaFace ||
     data.id === '__root_home__' ||
     data.id === '__pipeline_parent__';
   const isDespawning = !!(data as Record<string, unknown>)._despawning;
@@ -626,15 +660,7 @@ export const BubbleNode = memo(function BubbleNode({
       ? 0.35
       : undefined;
 
-  const ringClass = isAwaitingPermission
-    ? 'border-amber-400 shadow-lg shadow-amber-400/40 animate-pulse'
-    : isActive
-      ? style.ringActive
-      : isFailed
-        ? 'border-rose-500 shadow-lg shadow-rose-500/30'
-        : isCompleted
-          ? 'border-cyan-400 shadow-lg shadow-cyan-400/30'
-          : style.ringIdle;
+  const ringClass = bubbleStatusRingClass(data.status, style);
 
   // 마운트 시 스폰 애니메이션
   const [spawning, setSpawning] = useState(true);
@@ -879,6 +905,7 @@ export const BubbleNode = memo(function BubbleNode({
         ? 'border-violet-200 shadow-md shadow-violet-400/30'
         : 'border-blue-400 shadow-md shadow-blue-400/30'
       : '';
+  const surface = bubbleSurface(skin, style.color, style.glow, data.status, { highlighted: !!borderHighlight, creatingError: isCreatingError });
 
   // §4 v2.63 — 에이전트 종류 구분 배지(라벨 아래): All Model(로컬 LLM) / CMD(인터랙티브 터미널) /
   //   커스텀(우리가 오케스트레이션) / 훅(Claude Code 이벤트 캡처). 넷 다 같은 위치·타이포로 색만 달라
@@ -1113,14 +1140,18 @@ export const BubbleNode = memo(function BubbleNode({
   /**
    * §2.1 (D) — 알려진 자리면 경로 대신 그 자리의 **이름**을 보여 준다.
    *
-   * `c--users-dev-work-my-app` 같은 slug 와 세션 UUID 는 읽을 수 없다.
+   * `c--work-my-app` 같은 slug 와 세션 UUID 는 읽을 수 없다.
    * 서버는 문구가 아니라 **i18n 키**만 실어 보내므로(12개 로케일) 고르는 것은 여기다.
    * 번역이 없으면 종전 라벨 그대로 — 경로·`absolutePath`·열기 동작은 한 글자도 바뀌지 않는다.
    */
   const displayLabel = useMemo(() => {
-    // §5.23 접어 보기 — 접힌 웹 버블의 제목은 호스트가 아니라 "웹"이다. 어느 호스트들인지는 하단 줄이
-    //   말한다(IDE 무대의 웹 면과 같은 낱말 — 같은 원문에 키를 둘 두면 로케일마다 갈린다).
-    if (data.webFold) return t('ide.stage.surfaceName.web');
+    if (data.commandApp) return data.commandApp.name;
+    // §5.1 #2-1 (F) ⑦ — 연속 번호 묶음의 대표 위성은 묶음 이름과 개수로 말한다(`frame_####.exr ×240`).
+    const seqWork = constellationTag?.work;
+    if (seqWork?.sequenceLabel) return `${seqWork.sequenceLabel} ×${seqWork.sequenceCount ?? 0}`;
+    // §5.23 웹 버블 묶기 — 접힌 웹 버블의 제목은 호스트가 아니라 **무엇으로 묶었나**다(사이트·종류·그 밖의 웹·웹).
+    //   어느 호스트들인지는 하단 줄이 말한다. 패널 머리와 같은 함수다(§7.22).
+    if (data.webFold) return webFoldTitle(data.webFold, t);
     const placeKey = data.externalPlaceKey;
     if (!placeKey) return data.label;
     // 같은 이름의 자리가 여럿 생기는 곳(프로젝트별 기록 · 스킬)은 그 자리를 가르는 조각을 함께 넣는다 —
@@ -1132,7 +1163,7 @@ export const BubbleNode = memo(function BubbleNode({
     //   잘라 버린다. 남는 글자가 없으면 종전 라벨이 더 정확하다.
     const cleaned = hint ? named : named.replace(/[\s·・:：|/,、\-–—]+$/u, '');
     return cleaned.trim() || data.label;
-  }, [data.webFold, data.externalPlaceKey, data.absolutePath, data.path, data.label, t]);
+  }, [data.commandApp, data.webFold, data.externalPlaceKey, data.absolutePath, data.path, data.label, t, constellationTag]);
 
   /**
    * §2.4 오토핏 — 중앙 아이콘. 종류와 px 를 **여기 한 곳에서** 정하고 예약(`iconPx`)과 실제 렌더가
@@ -1142,6 +1173,69 @@ export const BubbleNode = memo(function BubbleNode({
   const bubbleIconPx = isBrandIcon(bubbleIcon)
     ? Math.max(10, Math.round(32 * ts * BRAND_ICON_SCALE))
     : Math.max(12, Math.round(32 * ts));
+
+  /** §5.1 #2-1 (A) — 미디어 얼굴의 미리보기(앱 위성 화면과 같은 기억 장소). 미디어가 아니면 일감이 없다(구독도 없다). */
+  const { state: faceThumb, target: faceTarget, blocked: faceBlocked } = useFileFaceThumbnail(
+    isMediaFace ? face : null, data.absolutePath, fileFaceVersion(data), size,
+    // §5.1 #2-1 (G) — 성능 기준: 파일 크기(①) · 화면 속 상한(②③)이 이 자리 이름으로 가른다.
+    { id: nodeId, bytes: data.fileSize, active: isActive, last: data.lastActivity },
+  );
+
+  /**
+   * §5.1 #2-1 — 파일 버블의 툴팁. 이름 · 별자리 이유("무엇과 · 왜" — 판정하지 않은 사실을 단정하지 않는다) · 중심이면 위성 수 ·
+   * 미디어면 더블클릭이 여는 앱. 파일이 아니면 `undefined`(종전 툴팁 규칙 그대로).
+   */
+  const fileTitle = useMemo(() => {
+    if (face === null) return undefined;
+    // 첫 줄은 전체 경로 — 이름은 원 아래·안에 이미 보인다(같은 이름의 파일이 여럿일 때 어느 것인지 가른다).
+    const lines: string[] = [data.absolutePath ?? data.label];
+    if (constellationTag?.work) {
+      // §5.1 #2-1 (F) ⑥ — 앱 작업 위성: "어느 앱의 작업물 · 무슨 역할 · 몇 번 썼나 · 스크립트가 만들었나 · 묶인 연속 번호".
+      const work = constellationTag.work;
+      lines.push(t('canvas.appWork.moon', { app: work.appName, role: t(`canvas.appWork.role.${work.role}`) }));
+      if (work.writes > 0) lines.push(t('canvas.appWork.writes', { count: work.writes }));
+      if (work.script) lines.push(t('canvas.appWork.script'));
+      if (work.sequenceNames && work.sequenceNames.length > 0) {
+        const { shown, more } = clipNameList(work.sequenceNames);
+        lines.push(t('canvas.appWork.sequence', { count: work.sequenceCount ?? work.sequenceNames.length }));
+        lines.push(...shown.map((n) => `  ${n}`));
+        if (more > 0) lines.push(t('canvas.appWork.more', { count: more }));
+      }
+    } else if (constellationTag) {
+      const reason = t(`canvas.constellation.reason.${constellationTag.reason}`);
+      lines.push(constellationTag.viaLabel !== undefined
+        ? t('canvas.constellation.groupVia', { hub: constellationTag.hubLabel, reason, via: constellationTag.viaLabel })
+        : t('canvas.constellation.group', { hub: constellationTag.hubLabel, reason }));
+    }
+    if (moonCount > 0) lines.push(t('canvas.constellation.hub', { count: moonCount }));
+    // 프로젝트 밖 파일은 더블클릭도 기존 폴더 진입으로 빠진다 — 실제로 열 수 있는 파일만 앱 열기를 안내한다.
+    const appName = faceTarget !== null && face.appId !== null ? getInternalApp(face.appId)?.name : undefined;
+    if (appName) lines.push(t('canvas.fileFace.openIn', { app: appName }));
+    // §5.1 #2-1 (G) ① — 미리보기를 굽지 않은 이유(앱 성능 기준). 파일은 그대로 열린다.
+    if (faceBlocked === 'tooLarge') lines.push(t('canvas.fileFace.previewSkippedLarge'));
+    return lines.join('\n');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [face, faceTarget, faceBlocked, constellationTag, moonCount, data.label, data.absolutePath, t]);
+
+  /**
+   * §5.4 #36 (I) — 앱 작업 보기에서 이 에이전트 때문에 접힌 버블(그리는 사본에만 실린 표시 값). 점은 오른쪽 아래 45° 림에 앉고
+   * 툴팁이 접힌 이름과 되돌리는 길([작업 파일 위주로 보기])을 말한다.
+   */
+  const appWorkFolded = (data as Record<string, unknown>)['_appWorkFolded'] as AppWorkFoldedBadge | undefined;
+  const foldedDot = Math.max(18, Math.round(20 * ts));
+  const foldedInset = Math.max(0, Math.round((size / 2) * (1 - Math.SQRT1_2) - foldedDot / 2));
+  const hiddenIndicatorSize = Math.max(14, Math.min(18, Math.round(16 * ts)));
+  const hiddenIndicatorInset = Math.max(0, (size / 2) * (1 - Math.SQRT1_2) - hiddenIndicatorSize / 2);
+  const appWorkFoldedTitle = useMemo(() => {
+    if (!appWorkFolded || appWorkFolded.count === 0) return undefined;
+    const { shown, more } = clipNameList(appWorkFolded.names);
+    return [
+      t('canvas.appWork.folded', { count: appWorkFolded.count }),
+      ...shown.map((n) => `  ${n}`),
+      ...(more > 0 ? [t('canvas.appWork.more', { count: more })] : []),
+      t('canvas.appWork.foldedHint', { label: t('canvas.bubbleMenu.lensFiles') }),
+    ].join(LINE_BREAK);
+  }, [appWorkFolded, t]);
 
   const fit = useMemo(() => planBubbleText({
     size,
@@ -1191,6 +1285,57 @@ export const BubbleNode = memo(function BubbleNode({
       )}
       <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} />
       <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} />
+
+      {/* §5.1 #2-1 (B) — 별자리 중심의 궤도(위성이 앉는 반지름의 흐린 점선). 본체보다 먼저 그려 그 뒤에 깔린다. */}
+      {moonCount > 0 && face !== null ? <ConstellationOrbit size={size} glow={style.glow} /> : null}
+
+      {/* §5.1 #2-1 (F) ⑥ — 앱 작업 위성의 **앱 색 테**. 본체는 종류 색 그대로, 테만 이 작업의 앱 색이다(새 배지 ❌). */}
+      {constellationTag?.work ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute rounded-full"
+          style={{
+            inset: -(APP_WORK.ringWidth + 1),
+            borderStyle: 'solid',
+            borderWidth: APP_WORK.ringWidth,
+            borderColor: constellationTag.work.ring,
+            opacity: 0.9,
+          }}
+        />
+      ) : null}
+
+      {/* §5.4 #36 (I) — 앱 작업 보기에서 접힌 버블 수(회색 숫자 점 · 표시 전용 — 누르는 손잡이 ❌). 오른쪽 아래 림. */}
+      {appWorkFolded && appWorkFolded.count > 0 ? (
+        <span
+          className="absolute z-20 flex items-center justify-center rounded-full border border-gray-500/70 bg-gray-800 font-semibold leading-none tabular-nums text-gray-200"
+          style={{
+            right: foldedInset,
+            bottom: foldedInset,
+            minWidth: foldedDot,
+            height: foldedDot,
+            padding: '0 4px',
+            fontSize: 12,
+          }}
+          title={appWorkFoldedTitle}
+          aria-label={appWorkFoldedTitle}
+        >
+          {appWorkFolded.count}
+        </span>
+      ) : null}
+
+      {/* Explicit hiding sits on the lower-left rim, clear of folded counts and status badges. */}
+      {isAgent && !inTrashView && !overlayMode && (
+        <BubbleHiddenIndicator
+          bubblesHidden={data.bubblesHidden}
+          linksHidden={data.linksHidden}
+          size={hiddenIndicatorSize}
+          style={{ left: hiddenIndicatorInset, bottom: hiddenIndicatorInset }}
+          {...gesture.handlers}
+          onPointerUp={handlePointerUp}
+          onDoubleClick={handleDoubleClick}
+          onContextMenu={handleContextMenu}
+        />
+      )}
 
       {/* §5.24 — 히트 숫자 배지. 램프는 순서만 주고 양은 주지 않아서, 켠 동안은 그 값을 숫자로도 적는다.
           **칩은 어둡게 두고 글자는 흰색, 히트색은 링·글로우가 맡는다** — 본체와 같은 히트색으로 채우면
@@ -1277,12 +1422,15 @@ export const BubbleNode = memo(function BubbleNode({
       {/* 바디 — 드래그 핸들 (원/네모 영역만 잡아끌기 가능) */}
       <div
         className={`bubble-body bubble-press absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-full ${borderHighlight || ringClass} ${isDisappearing ? 'bubble-ghost' : ''} ${isTrashBubble && trashedCount === 0 ? 'opacity-50' : ''}`}
+        {...DARK_THEME_LOCK}
+        data-bubble-skin={skin}
         {...gesture.handlers}
         onPointerUp={handlePointerUp}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
+        title={fileTitle}
         style={{
-          borderWidth,
+          ...surface.body,
           borderStyle: 'solid',
           // §2.4 오토핏 — 하단 블록 높이만큼 바닥 예약. 값은 **그릴 줄에서 계산**한다(고정 3줄치 ❌).
           // justify-center 가 이 영역 위에서만 일어나 2줄 라벨이 길어져도 위로 밀려 겹치지 않음.
@@ -1290,28 +1438,12 @@ export const BubbleNode = memo(function BubbleNode({
           paddingBottom: fit.paddingBottom || undefined,
           // 전이는 인라인으로 적지 않는다 — 적으면 `.bubble-press` 의 누름 스프링이 통째로 덮여 누를 때
           // 버블이 순간이동한다. 테두리·그림자 전이까지 `.bubble-body.bubble-press`(index.css)가 든다.
-          background: isCreatingError
-            ? 'radial-gradient(circle at 35% 35%, #fca5a5, #ef4444)'
-            : isAgent && contextRatio > 0
-              ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
-              : isAgent
-                // §2.4 v1.68/v1.69 — 모든 에이전트(커스텀+훅)는 컨텍스트 물결과 동일한 반투명 배경으로 시작
-                ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
-                : isActive
-                ? `radial-gradient(circle at 35% 35%, ${style.glow}, ${style.color})`
-                : `radial-gradient(circle at 35% 35%, ${style.glow}90, ${style.color}CC)`,
         }}
       >
-        {codexProvider && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute rounded-full border border-violet-300/25"
-            style={{ inset: Math.max(4, Math.round(6 * ts)) }}
-          />
-        )}
+        <BubbleSurfaceDetail surface={surface} />
         {/* 에이전트 물결 채움 */}
         {isAgent && contextRatio > 0 && (
-          <WaveFill ratio={contextRatio} color={style.color} />
+          <WaveFill ratio={contextRatio} color={style.color} opacity={surface.contextOpacity} />
         )}
         {/* §2.4 v1.68 — 커스텀 에이전트는 컨텍스트 전엔 물결 ❌, 반투명 배경만(빈 상태).
             컨텍스트가 쌓이면 위 contextRatio>0 분기의 실측 물결로 자연 등장. */}
@@ -1321,20 +1453,26 @@ export const BubbleNode = memo(function BubbleNode({
         {/* §2.4 오토핏 — gap·라벨 줄 수·배지 표시 여부는 fit 이 정한다(원 안에 들어갈 때까지 단계적으로).
             maxHeight 는 마지막 안전망 — 사다리를 다 내려가고도 안 들어가는 아주 작은 버블에서
             중앙 열이 예약 영역(하단 블록 자리)으로 흘러드는 것을 막는다(겹침 대신 잘림). */}
+        {/* §5.1 #2-1 (A) — 미디어 얼굴은 원 안이 렌즈다(이름은 원 아래 — `FileFaceRim`). 나머지는 종전 중앙 열. */}
+        {isMediaFace && face !== null ? <FileFaceLens face={face} thumb={faceThumb} size={size} /> : null}
         <div
-          className="z-10 flex flex-col items-center justify-center overflow-hidden"
+          className={`z-10 flex-col items-center justify-center overflow-hidden ${isMediaFace ? 'hidden' : 'flex'}`}
           style={{ gap: fit.centerGap, maxHeight: fit.centerMaxHeight }}
         >
-          <BubbleIcon icon={bubbleIcon} px={bubbleIconPx} />
+          {/* §5.1 #2-1 (A) — 파일은 종류 글리프(코드 `</>` · 데이터 `{}` · 문서 · 자막 · 글꼴). 모르는 종류는 종전 파일 아이콘. */}
+          {/* §5.1 #2-1 (G) ⑤ — 갈래 아이콘(셸 · 노트북 · 표 · DB · 설정 · 압축 …). 갈래를 모르는 파일은 종전 파일 아이콘. */}
+          {data.commandApp ? <CommandAppIcon executable={data.commandApp.iconSource ?? data.commandApp.executable} px={bubbleIconPx} /> : face !== null && face.family !== 'other'
+            ? <FileFamilyGlyph family={face.family} px={bubbleIconPx} />
+            : <BubbleIcon icon={bubbleIcon} px={bubbleIconPx} />}
           <span
             className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
             style={{
               maxWidth: fit.labelMaxWidth,
               fontSize: Math.max(7, Math.round(13 * ts)),
             }}
-            title={isFolder
+            title={fileTitle ?? (isFolder
               ? (data.absolutePath ?? data.label)
-              : (isAgent || fit.labelText !== displayLabel) ? displayLabel : undefined}
+              : (isAgent || fit.labelText !== displayLabel) ? displayLabel : undefined)}
           >
             {fit.labelText}
           </span>
@@ -1402,13 +1540,13 @@ export const BubbleNode = memo(function BubbleNode({
 
       </div>
 
-      {/* 펄스 링 — active 상태일 때만 표시 (§4 v3.71 — 저줌에선 링이 서로 겹쳐 뭉개지기만 하므로 생략) */}
-      {isActive && (
-        <>
-          <div className="pointer-events-none absolute inset-0 animate-pulse-ring rounded-full border-2" style={{ borderColor: style.glow }} />
-          <div className="pointer-events-none absolute inset-0 animate-pulse-ring rounded-full border-2" style={{ borderColor: style.glow, animationDelay: '0.75s' }} />
-        </>
-      )}
+      {/* §5.1 #2-1 (A) — 미디어 얼굴의 원 밖 표식: 종류 배지(45° 림) + 원 아래 이름 줄(영상·소리는 길이). */}
+      {isMediaFace && face !== null ? (
+        <FileFaceRim face={face} thumb={faceThumb} size={size} ts={ts} label={displayLabel} />
+      ) : null}
+
+      {/* 버블·말풍선 원이 같은 작업 파동과 완료·실패 후광을 쓴다. */}
+      <BubbleStatusEffects status={data.status} glow={style.glow} />
 
       {/* §7.6 root 버블: git 상태 보조 이펙트 (refresh sweep + dirty dot) */}
       {isRoot && gitRefreshing && (
@@ -1434,22 +1572,6 @@ export const BubbleNode = memo(function BubbleNode({
           }}
           title={t('common.uncommittedChanges')}
         />
-      )}
-
-      {/* completed 빨강 글로우 */}
-      {isCompleted && (
-        <>
-          <div className="pointer-events-none absolute -inset-1 rounded-full border-[3px] border-cyan-400" />
-          <div className="pointer-events-none absolute -inset-2 animate-pulse rounded-full opacity-50" style={{ boxShadow: '0 0 20px 8px #22D3EE', animationDuration: '3s' }} />
-        </>
-      )}
-
-      {/* error 글로우 — completed 와 같은 형태, 색만 rose. 완료와 실패가 한눈에 갈려야 한다. */}
-      {isFailed && (
-        <>
-          <div className="pointer-events-none absolute -inset-1 rounded-full border-[3px] border-rose-500" />
-          <div className="pointer-events-none absolute -inset-2 animate-pulse rounded-full opacity-50" style={{ boxShadow: '0 0 20px 8px #F43F5E', animationDuration: '3s' }} />
-        </>
       )}
 
       {/* 선택 하이라이트 — 태양 코로나(외곽선이 일렁이는 플레어). 등장/퇴장 모두 페이드. */}

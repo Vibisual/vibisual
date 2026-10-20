@@ -1,6 +1,25 @@
-import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT } from '@vibisual/shared';
-import { heatRatio, heatSize, heatValueOf, isHeatBubbleType } from '@vibisual/shared';
+import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT, FILE_FACE } from '@vibisual/shared';
+import { fileFaceKindOf, heatRatio, heatSize, heatValueOf, isHeatBubbleType, isMediaFaceKind } from '@vibisual/shared';
 import type { BubbleData, HeatScale, ToolAxis } from '@vibisual/shared';
+
+/**
+ * §5.1 #2-1 (B) — 화면이 별자리 중심에 달아 주는 위성 수(표시 전용 — 서버 데이터가 아니다). `constellationView` 가 버블
+ * 사본에 싣고, 여기서 크기 하한을 읽는다(렌더·배치·선 끝점·정리가 같은 자를 쓰게).
+ */
+export function moonCountOf(bubble: BubbleData): number {
+  const n = (bubble as BubbleData & { _moonCount?: unknown })._moonCount;
+  return typeof n === 'number' && n > 0 ? n : 0;
+}
+
+/**
+ * §5.1 #2-1 (A)(B) — 파일 얼굴의 지름 하한. 미디어는 그림이 읽혀야 하고(`mediaMinSize`), 위성을 거느린 중심은 한 단계
+ * 더 크다(`hubMinSize`). 판정 경로는 얼굴과 같다(절대경로 → 노드 키 → 이름).
+ */
+function fileFaceMinSize(bubble: BubbleData): number {
+  if (moonCountOf(bubble) > 0) return FILE_FACE.hubMinSize;
+  const src = bubble.absolutePath || bubble.path || bubble.label;
+  return isMediaFaceKind(fileFaceKindOf(src)) ? FILE_FACE.mediaMinSize : 0;
+}
 
 /** 활동량 기반 크기 계산을 위한 상한 */
 const MAX_EXPECTED_ACTIVITY = 50;
@@ -32,8 +51,9 @@ export function calcBubbleSize(
   }
 
   // file 타입: 파일 용량 기반 상대 크기
+  // §5.1 #2-1 — 미디어 얼굴·별자리 중심은 하한을 둔다(히트맵이 켜져 있으면 위에서 이미 히트가 이겼다).
   if (bubble.bubbleType === 'file') {
-    return calcFileBubbleSize(bubble, fileSizeRange);
+    return Math.max(calcFileBubbleSize(bubble, fileSizeRange), fileFaceMinSize(bubble));
   }
 
   // §5.10 — 휴지통 버블: 고정 중간 크기(홈 위성 상주).

@@ -7,7 +7,8 @@
  *
  * 아이콘은 이모지 ❌, lucide 톤 stroke SVG 만(`CLAUDE.md` UI 아이콘 규칙).
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Panel, useReactFlow, type PanelPosition } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 
@@ -45,6 +46,8 @@ export const FitIcon = (): React.JSX.Element => (
 
 export interface CtrlButtonProps {
   label: string;
+  /** Hover/touch hint can include the current shortcut while the accessible name stays stable. */
+  title?: string;
   onClick: () => void;
   active?: boolean;
   /** 지금은 누를 수 없다 — 이유는 `label` 이 말한다(버튼을 숨기면 자리가 튀어 더 헷갈린다). */
@@ -52,25 +55,145 @@ export interface CtrlButtonProps {
   children: React.ReactNode;
 }
 
+/** 터치에서 이름표를 띄우기까지 누르고 있어야 하는 시간(ms). */
+const HOLD_LABEL_MS = 450;
+/** 손을 뗀 뒤 이름표가 남아 있는 시간(ms) — 읽을 틈. */
+const HOLD_LABEL_LINGER_MS = 1200;
+/** 이만큼 움직이면 누르기가 아니라 끌기(무리 스크롤 등) — 이름표를 걸지 않는다(px). */
+const HOLD_LABEL_MOVE_PX = 10;
+/** 이름표와 단추 사이 틈(px). */
+const HOLD_LABEL_GAP = 8;
+
+/**
+ * 터치에서 **길게 누르면 이름표**를 띄운다. 아이콘만 있는 단추의 이름(`title`)은 마우스를 올려야 뜨는데, 손가락에는
+ * 올리는 동작이 없어 폰에서는 단추가 무엇인지 알 길이 없었다(안드로이드 도구 막대의 길게 누르기 이름표와 같은 문법).
+ *
+ * 이름표를 띄운 누름은 **누르기로 치지 않는다** — 이름을 보려던 손이 잠금·전체화면을 바꾸면 안 된다. 그 뒤 click 이
+ * 오지 않는 브라우저도 있어 다음 누름이나 이름표가 걷히는 순간 그 표시를 푼다(키보드 Enter 가 먹히지 않는 일이 없게).
+ * 마우스는 이 길을 타지 않는다 — 종전 `title` 그대로다.
+ */
+function useHoldLabel(): {
+  rect: DOMRect | null;
+  handlers: {
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
+    onPointerMove: (e: React.PointerEvent<HTMLButtonElement>) => void;
+    onPointerUp: () => void;
+    onPointerCancel: () => void;
+    onContextMenu: (e: React.MouseEvent) => void;
+  };
+  consumeClick: () => boolean;
+} {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  /** 손가락이 지금 누르고 있는가 — 길게 누르기가 부르는 브라우저 메뉴(contextmenu)를 그동안만 막는다. */
+  const holding = useRef(false);
+  /** 이름표를 띄운 누름 — 그 누름이 낳은 click 은 단추 동작이 아니다. */
+  const swallow = useRef(false);
+
+  const clearHold = (): void => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+  };
+  const clearHide = (): void => {
+    if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
+  };
+  useEffect(() => () => { clearHold(); clearHide(); }, []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>): void => {
+    swallow.current = false;
+    if (e.pointerType === 'mouse') return;
+    clearHold();
+    clearHide();
+    setRect(null);
+    const el = e.currentTarget;
+    start.current = { x: e.clientX, y: e.clientY };
+    holding.current = true;
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      swallow.current = true;
+      setRect(el.getBoundingClientRect());
+    }, HOLD_LABEL_MS);
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>): void => {
+    const s = start.current;
+    if (!s || !holdTimer.current) return;
+    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > HOLD_LABEL_MOVE_PX) {
+      clearHold();
+      start.current = null;
+    }
+  }, []);
+
+  const release = useCallback((): void => {
+    clearHold();
+    start.current = null;
+    holding.current = false;
+    if (!swallow.current) return;
+    clearHide();
+    hideTimer.current = setTimeout(() => {
+      hideTimer.current = null;
+      swallow.current = false;
+      setRect(null);
+    }, HOLD_LABEL_LINGER_MS);
+  }, []);
+
+  const onContextMenu = useCallback((e: React.MouseEvent): void => {
+    if (holding.current) e.preventDefault();
+  }, []);
+
+  const consumeClick = useCallback((): boolean => {
+    if (!swallow.current) return false;
+    swallow.current = false;
+    return true;
+  }, []);
+
+  return {
+    rect,
+    handlers: { onPointerDown, onPointerMove, onPointerUp: release, onPointerCancel: release, onContextMenu },
+    consumeClick,
+  };
+}
+
 /** 컨트롤 버튼 하나 — 다크 + blue 액센트. 활성 표기는 캔버스 전반과 같은 톤이다. */
-export function CtrlButton({ label, onClick, active, disabled, children }: CtrlButtonProps): React.JSX.Element {
+export function CtrlButton({ label, title = label, onClick, active, disabled, children }: CtrlButtonProps): React.JSX.Element {
+  const hold = useHoldLabel();
+  const rect = hold.rect;
+  // 이름표는 단추 옆 넓은 쪽에 선다(무리는 보통 왼쪽 아래 — 오른쪽). 화면 좌표라 캔버스 패널의 잘림 밖으로 띄운다.
+  const placeLeft = rect !== null && typeof window !== 'undefined' && rect.left > window.innerWidth / 2;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={`flex h-7 w-7 items-center justify-center transition-colors pointer-coarse:h-11 pointer-coarse:w-11 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-400 ${
-        disabled
-          ? 'cursor-not-allowed text-gray-600'
-          : active
-            ? 'bg-blue-500/25 text-blue-300'
-            : 'text-gray-100 hover:bg-blue-500/20 hover:text-blue-300 active:bg-blue-500/30'
-      }`}
-    >
-      {children}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => { if (!hold.consumeClick()) onClick(); }}
+        {...hold.handlers}
+        disabled={disabled}
+        title={title}
+        aria-label={label}
+        aria-pressed={active}
+        className={`flex h-7 w-7 items-center justify-center transition-colors pointer-coarse:h-11 pointer-coarse:w-11 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-400 ${
+          disabled
+            ? 'cursor-not-allowed text-gray-600'
+            : active
+              ? 'bg-blue-500/25 text-blue-300'
+              : 'text-gray-100 hover:bg-blue-500/20 hover:text-blue-300 active:bg-blue-500/30'
+        }`}
+      >
+        {children}
+      </button>
+      {rect && createPortal(
+        <span
+          role="tooltip"
+          className="pointer-events-none fixed z-[70] max-w-[calc(100vw-16px)] -translate-y-1/2 truncate whitespace-nowrap rounded-md border border-white/10 bg-gray-900/95 px-2 py-1 text-[12px] text-gray-100 shadow-lg shadow-black/40"
+          style={placeLeft
+            ? { right: window.innerWidth - rect.left + HOLD_LABEL_GAP, top: rect.top + rect.height / 2 }
+            : { left: rect.right + HOLD_LABEL_GAP, top: rect.top + rect.height / 2 }}
+        >
+          {title}
+        </span>,
+        document.body,
+      )}
+    </>
   );
 }
 

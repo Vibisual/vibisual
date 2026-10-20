@@ -31,6 +31,27 @@ export interface SatelliteInfo {
    * `placeSatellitePositions` 가 배치용 지름을 다시 계산할 때 렌더와 같은 자를 쓰게 하기 위함.
    */
   heat: HeatScale | undefined;
+  /**
+   * §5.1 #2-1 (B) — 이 위성선을 그리지 않는다(연결은 그대로). 별자리 중심인 앱 노드가 연결선을 숨겼을 때(§5.4 #36 (H) ①).
+   */
+  edgeHidden?: boolean;
+  /** 별자리 위성은 첫 자리도 부모 반경 + 위성 반경 + 간격인 궤도에 건다. 일반 폴더 위성의 초기 퍼짐은 유지한다. */
+  orbitSeat?: boolean;
+  /**
+   * §5.1 #2-1 (F) ⑤ — 앱 작업 위성의 자리 각도(라디안 · 화면 좌표: 0 = 3시, π/2 = 6시). 있으면 첫 자리도 이 각도에 서고,
+   * 물리가 이 각도를 스프링 오프셋으로 건다(위쪽 반원에 역할 순). 노드 데이터에는 `_seatAngle` 로 실린다.
+   */
+  seatAngle?: number;
+}
+
+/**
+ * §5.1 #2-1 (B) — 버블 밖 부모(앱 노드)의 자리. 그런 부모는 `positionsRef` 에 없으므로 새 위성의 첫 자리를 이 값으로 잡는다
+ * (중심 좌표 + 부모를 원으로 볼 때의 지름).
+ */
+export interface SatelliteAnchor {
+  cx: number;
+  cy: number;
+  size: number;
 }
 
 // ─── 위성 데이터 수집 ───
@@ -129,29 +150,45 @@ const SAT_SPAWN_MAX_TRIES = 50;
 /**
  * positionsRef 기준으로 위성 위치를 계산한다.
  * 유효한 캐시 위치가 있는 위성은 스킵 (물리 엔진이 이동시킨 위치 보존).
- * 새 위성은 부모 중심 반경 250px 내에서 충돌 없는 위치에 배치.
+ * 일반 위성은 부모 중심 반경 250px 내, 별자리 위성은 부모 둘레 궤도에서 충돌 없는 위치에 배치.
  */
 export function placeSatellitePositions(
   sats: SatelliteInfo[],
   positionsRef: Map<string, XYPosition>,
+  /** §5.1 #2-1 (B) — 버블 밖 부모(앱 노드)의 자리. `positionsRef` 에 없는 부모만 여기서 찾는다. */
+  anchorOf?: (parentId: string) => SatelliteAnchor | null,
 ): void {
   for (const sat of sats) {
     const existing = positionsRef.get(sat.bubble.id);
     if (existing && (existing.x !== 0 || existing.y !== 0)) continue;
 
     const parentPos = positionsRef.get(sat.parentId);
-    if (!parentPos) continue;
-
-    const ps = sat.parentSize;
-    const anchor = { x: parentPos.x + ps / 2, y: parentPos.y + ps / 2 };
+    const external = parentPos ? null : anchorOf?.(sat.parentId) ?? null;
+    const ps = external ? external.size : sat.parentSize;
+    const anchor = parentPos
+      ? { x: parentPos.x + ps / 2, y: parentPos.y + ps / 2 }
+      : external
+        ? { x: external.cx, y: external.cy }
+        : null;
+    if (!anchor) continue;
 
     // 부모 중심 반경 SAT_SPAWN_RADIUS 내에서 충돌 없는 위치 탐색
     const satSize = calcBubbleSize(sat.bubble, sat.localRange, sat.heat);
     const minDist = Math.max(SAT_SPAWN_MIN_DIST, satSize);
+    const orbitR = ps / 2 + satSize / 2 + SATELLITE_ORBIT_GAP;
+    // §5.1 #2-1 (F) ⑤ — 앱 작업 위성은 정해진 각도에 바로 선다(무작위 ❌ — 역할 순서가 자리다).
+    if (typeof sat.seatAngle === 'number' && Number.isFinite(sat.seatAngle)) {
+      positionsRef.set(sat.bubble.id, {
+        x: anchor.x + Math.cos(sat.seatAngle) * orbitR - satSize / 2,
+        y: anchor.y + Math.sin(sat.seatAngle) * orbitR - satSize / 2,
+      });
+      continue;
+    }
     let placed = false;
     for (let i = 0; i < SAT_SPAWN_MAX_TRIES; i++) {
       const angle = Math.random() * 2 * Math.PI;
-      const r = ps / 2 + satSize / 2 + SATELLITE_ORBIT_GAP + Math.random() * (SAT_SPAWN_RADIUS - ps / 2 - satSize / 2 - SATELLITE_ORBIT_GAP);
+      // 새 파일 중심 위성은 물리가 이 첫 거리 자체를 스프링 오프셋으로 기억한다. 무작위 반경이면 궤도로 모이지 않는다.
+      const r = sat.orbitSeat ? orbitR : orbitR + Math.random() * (SAT_SPAWN_RADIUS - orbitR);
       const cx = anchor.x + Math.cos(angle) * r - satSize / 2;
       const cy = anchor.y + Math.sin(angle) * r - satSize / 2;
       let collides = false;
@@ -168,7 +205,7 @@ export function placeSatellitePositions(
     }
     if (!placed) {
       const fallbackAngle = Math.random() * 2 * Math.PI;
-      const fallbackR = ps / 2 + satSize / 2 + SATELLITE_ORBIT_GAP;
+      const fallbackR = orbitR;
       positionsRef.set(sat.bubble.id, {
         x: anchor.x + Math.cos(fallbackAngle) * fallbackR - satSize / 2,
         y: anchor.y + Math.sin(fallbackAngle) * fallbackR - satSize / 2,

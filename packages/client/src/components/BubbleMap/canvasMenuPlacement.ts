@@ -20,6 +20,28 @@ export interface MenuAnchor {
 
 export const MENU_VIEWPORT_MARGIN = 8;
 
+/** 화면 크기를 읽는 자리 — 시험이 가짜 창을 넣을 수 있게 필요한 칸만 받는다. */
+export interface ViewportSource {
+  innerWidth: number;
+  innerHeight: number;
+  visualViewport?: Pick<VisualViewport, 'offsetLeft' | 'offsetTop' | 'width' | 'height'> | null;
+}
+
+/**
+ * 지금 **보이는** 화면(문서 좌표) — 떠 있는 상자를 화면 안에 넣을 때의 기준은 이것 하나다.
+ * 폰에서 가상 키보드가 올라오거나 핀치로 확대하면 보이는 화면(시각 뷰포트)만 줄고·옮겨 가고 `innerHeight` 는 그대로라,
+ * 창 크기로 재면 아래로 접힌 상자가 키보드 밑에 깔린다. 시각 뷰포트가 없는 환경은 창 크기로 폴백한다.
+ */
+export function visibleViewport(win: ViewportSource = window): MenuViewport {
+  const v = win.visualViewport;
+  return {
+    left: v?.offsetLeft ?? 0,
+    top: v?.offsetTop ?? 0,
+    width: v?.width ?? win.innerWidth,
+    height: v?.height ?? win.innerHeight,
+  };
+}
+
 /** The caller constrains the rendered size; an oversized measurement starts at the near edge. */
 function clampAxis(position: number, size: number, origin: number, extent: number): number {
   const start = origin + MENU_VIEWPORT_MARGIN;

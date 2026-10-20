@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_PLAYTEST, type CaptureSourceKind } from '@vibisual/shared';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.js';
+import { useFloatingWindowFullScreenLock } from '../../hooks/useIsMobile.js';
 import { useCapturePrefs } from '../../stores/captureBubblePrefs.js';
 import { useCaptureRuntime, type CaptureControlMode } from '../../stores/captureBubbleRuntime.js';
 import { CaptureControlOverlay } from './CaptureControlOverlay.js';
@@ -86,7 +87,9 @@ export const CaptureWindow = memo(function CaptureWindow({
 
   // 창 좌표·3상태(가운데 팝업 → 드래그 이동 → 리사이즈 → 최대화)는 공용 훅이 담당(v3.77).
   // 최소화(셰이드)는 캡처 창에선 쓰지 않는다 — 라이브 영상을 접어 둘 이유가 없다.
-  const fw = useFloatingWindow({ cascade: handle.cascadeOffset, onInteractStart: bringToFront });
+  // 폰 폭·터치 기기에서는 화면 전체로 고정(이동·크기 조절·최대화 잠금) — 앱 창과 같은 기준.
+  const lockFullScreen = useFloatingWindowFullScreenLock();
+  const fw = useFloatingWindow({ cascade: handle.cascadeOffset, onInteractStart: bringToFront, lockFullScreen });
   const maximized = fw.maximized;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -134,7 +137,7 @@ export const CaptureWindow = memo(function CaptureWindow({
     <div
       ref={fw.windowRef}
       data-capture-window=""
-      className="fixed flex flex-col overflow-hidden rounded-xl shadow-2xl shadow-black/70"
+      className={`fixed flex flex-col overflow-hidden shadow-2xl shadow-black/70${lockFullScreen ? '' : ' rounded-xl'}`}
       style={{
         ...geomStyle,
         background: CAPTURE_BUBBLE_DEFAULTS.STAGE_BG,
@@ -158,7 +161,7 @@ export const CaptureWindow = memo(function CaptureWindow({
       {/* Title bar — 그래파이트 유리면(v3.56, 종전 rose 색면 대체). 드래그 이동 + 더블클릭 최대화. */}
       <div
         {...fw.titleBarProps}
-        className="flex h-10 flex-shrink-0 select-none items-center gap-2 px-3 text-slate-200 cursor-grab active:cursor-grabbing"
+        className={`flex h-10 flex-shrink-0 select-none items-center gap-2 px-3 text-slate-200${lockFullScreen ? '' : ' cursor-grab active:cursor-grabbing'}`}
         style={{
           background: CAPTURE_BUBBLE_DEFAULTS.CHROME_BG,
           borderBottom: `1px solid ${CAPTURE_BUBBLE_DEFAULTS.CHROME_BORDER}`,
@@ -205,7 +208,8 @@ export const CaptureWindow = memo(function CaptureWindow({
                   type="button"
                   disabled={disabled}
                   onClick={() => setRuntime({ controlMode: m })}
-                  className="rounded-full px-2 py-0.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  // 손가락에는 20px 단추가 작다 — 굵은 포인터에서만 32px 로(제목 줄 40px 안에 든다).
+                  className="rounded-full px-2 py-0.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:py-2"
                   style={{
                     background: on
                       ? CAPTURE_BUBBLE_DEFAULTS.CONTROL_COLOR
@@ -220,12 +224,13 @@ export const CaptureWindow = memo(function CaptureWindow({
           </div>
         )}
 
-        {/* 플레이 녹화 — 캔버스 버블 헤더의 그 버튼과 같은 축(어느 쪽에서 눌러도 같은 녹화기). */}
+        {/* 플레이 녹화 — 캔버스 버블 헤더의 그 버튼과 같은 축(어느 쪽에서 눌러도 같은 녹화기).
+            손가락에는 24px 가 작다 — 닫기 단추와 같이 굵은 포인터에서 32px. */}
         {stream && (
           <button
             type="button"
             onClick={toggleRecording}
-            className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-white/10"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/10 pointer-coarse:h-8 pointer-coarse:w-8"
             style={recording
               ? { color: CAPTURE_PLAYTEST.RECORD_COLOR, background: `${CAPTURE_PLAYTEST.RECORD_COLOR}1f` }
               : { color: '#94A3B8' }}
@@ -241,10 +246,11 @@ export const CaptureWindow = memo(function CaptureWindow({
             </svg>
           </button>
         )}
-        <button
+        {/* 잠긴 전체 화면(폰 폭·터치)에서는 최대화가 할 일이 없다. */}
+        {!lockFullScreen && <button
           type="button"
           onClick={fw.toggleMaximized}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
           title={maximized ? t('bubbleMap.capture.restore', { defaultValue: '원래 크기로' }) : t('bubbleMap.capture.maximize', { defaultValue: '최대화' })}
           aria-label={maximized ? t('bubbleMap.capture.restore', { defaultValue: '원래 크기로' }) : t('bubbleMap.capture.maximize', { defaultValue: '최대화' })}
         >
@@ -263,11 +269,11 @@ export const CaptureWindow = memo(function CaptureWindow({
               <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
             </svg>
           )}
-        </button>
+        </button>}
         <button
           type="button"
           onClick={() => onClose()}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-500/80 hover:text-white"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-500/80 hover:text-white pointer-coarse:h-8 pointer-coarse:w-8"
           title={t('bubbleMap.capture.windowClose', { defaultValue: '닫기 (Esc)' })}
           aria-label={t('bubbleMap.capture.windowClose', { defaultValue: '닫기 (Esc)' })}
         >
@@ -335,8 +341,8 @@ export const CaptureWindow = memo(function CaptureWindow({
           />
         )}
 
-        {/* 우하단 리사이즈 핸들 — 최대화 중엔 숨김. */}
-        {!maximized && (
+        {/* 우하단 리사이즈 핸들 — 최대화·잠긴 전체 화면에선 숨김. */}
+        {!maximized && !lockFullScreen && (
           <div
             {...fw.resizeProps}
             className="absolute bottom-0 right-0 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1 text-slate-600 transition-colors hover:text-slate-300"

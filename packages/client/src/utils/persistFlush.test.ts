@@ -16,6 +16,9 @@ import {
   flushAllPersisted,
   persistFlushCount,
   installPersistFlushBridge,
+  registerDurableFlush,
+  flushAllDurable,
+  releaseDurableFlushes,
 } from './persistFlush.js';
 
 /** 이 파일이 등록한 것만 걷어 내기 위한 해제 목록(앱 모듈이 올린 것은 건드리지 않는다). */
@@ -160,6 +163,56 @@ describe('installPersistFlushBridge', () => {
 
     dispose();
     expect(off).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('durable draft flush', () => {
+  it('waits for actual asynchronous persistence before reporting success', async () => {
+    let saved!: (value: boolean) => void;
+    cleanups.push(registerDurableFlush(() => new Promise((resolve) => { saved = resolve; })));
+    const result = vi.fn();
+    const promise = flushAllDurable().then(result);
+    await Promise.resolve();
+    expect(result).not.toHaveBeenCalled();
+    saved(true);
+    await promise;
+    expect(result).toHaveBeenCalledWith(true);
+  });
+
+  it('false results and exceptions block teardown but do not stop other editors saving', async () => {
+    const saved = vi.fn(async () => true);
+    cleanups.push(registerDurableFlush(async () => false));
+    cleanups.push(registerDurableFlush(async () => { throw new Error('disk full'); }));
+    cleanups.push(registerDurableFlush(saved));
+    expect(await flushAllDurable()).toBe(false);
+    expect(saved).toHaveBeenCalledOnce();
+  });
+
+  it('canceled shutdown releases all editors, including when another release handler throws', () => {
+    const release = vi.fn();
+    cleanups.push(registerDurableFlush(async () => true, () => { throw new Error('unmounted'); }));
+    cleanups.push(registerDurableFlush(async () => true, release));
+    releaseDurableFlushes();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('the lifecycle bridge returns durable results and unsubscribes cancellation', async () => {
+    const captured: { flush?: () => Promise<boolean>; release?: () => void } = {};
+    const offFlush = vi.fn();
+    const offRelease = vi.fn();
+    vi.stubGlobal('window', { api: { lifecycle: {
+      onFlushDrafts: (fn: () => Promise<boolean>) => { captured.flush = fn; return offFlush; },
+      onFlushDraftsCanceled: (fn: () => void) => { captured.release = fn; return offRelease; },
+    } } });
+    const release = vi.fn();
+    cleanups.push(registerDurableFlush(async () => false, release));
+    const dispose = installPersistFlushBridge();
+    expect(await captured.flush?.()).toBe(false);
+    captured.release?.();
+    expect(release).toHaveBeenCalledOnce();
+    dispose();
+    expect(offFlush).toHaveBeenCalledOnce();
+    expect(offRelease).toHaveBeenCalledOnce();
   });
 });
 

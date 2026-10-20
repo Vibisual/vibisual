@@ -21,9 +21,12 @@ export function TrashToolbar(): React.JSX.Element | null {
   // 휴지통 밖이거나 빈 휴지통이면 아무것도 그리지 않는다(지울 게 없는데 버튼만 떠 있으면 소음).
   if (interiorView?.kind !== 'trash' || trashedAgents.length === 0) return null;
 
+  // `canvas-trash-toolbar` — 표식 클래스(스타일 없음). 같은 줄 위에 뜨는 로딩 알약(`CanvasLoadingHint`)이 이 띠가
+  //   있으면 그 아래로 비켜 선다.
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-10 z-20 flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-gray-800 bg-gray-900/85 px-2 py-1 shadow-lg shadow-black/30 backdrop-blur-sm">
+    <div className="canvas-trash-toolbar pointer-events-none absolute inset-x-0 top-10 z-20 flex justify-center">
+      {/* 폰 폭에서는 한 줄에 다 들어가지 않는다 — 캔버스 폭 안에서 줄을 바꾸고, 조작 안내는 지우지 않고 둘째 줄로 내린다. */}
+      <div className="pointer-events-auto flex max-w-[calc(100%-16px)] flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-md border border-gray-800 bg-gray-900/85 px-2 py-1 shadow-lg shadow-black/30 backdrop-blur-sm">
         <span className="text-[12px] text-white/45">
           {t('trash.trashCountLabel', { defaultValue: '버려진 에이전트 {{n}}개', n: trashedAgents.length })}
         </span>
@@ -31,7 +34,7 @@ export function TrashToolbar(): React.JSX.Element | null {
         <button
           type="button"
           onClick={() => requestTrashPurge(trashedAgents.map((a) => a.id))}
-          className="flex items-center gap-1.5 rounded bg-red-900/40 px-2 py-1 text-[12px] font-medium text-red-300 transition-colors hover:bg-red-900/70 hover:text-red-200"
+          className="flex items-center gap-1.5 rounded bg-red-900/40 px-2 py-1 text-[12px] font-medium text-red-300 transition-colors hover:bg-red-900/70 hover:text-red-200 pointer-coarse:py-2"
         >
           <svg
             viewBox="0 0 24 24"
@@ -50,7 +53,7 @@ export function TrashToolbar(): React.JSX.Element | null {
           </svg>
           {t('trash.purgeAll', { defaultValue: '모두 삭제' })}
         </button>
-        <span className="hidden text-[12px] text-white/30 sm:inline">
+        <span className="text-[12px] text-white/30 max-sm:basis-full max-sm:text-center">
           {t('trash.trashDeleteHint', { defaultValue: '선택 후 Delete · Shift 로 여러 개' })}
         </span>
       </div>

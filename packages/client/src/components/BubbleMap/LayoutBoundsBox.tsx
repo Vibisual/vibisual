@@ -3,22 +3,24 @@ import { useTranslation } from 'react-i18next';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { LAYOUT_BOUNDS_DEFAULT, LAYOUT_CENTER_X, LAYOUT_CENTER_Y } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import {
+  BOUNDS_HANDLES,
+  handleCursor,
+  handleRect,
+  resizeBounds,
+  type BoundsHandle,
+} from './layoutBoundsHandles.js';
 
 /**
  * 루트 캔버스에서 부모 버블이 나가지 못하도록 하는 사각 바운딩 박스.
  * - 회색 점선(드문드문)으로 영역만 시각화 — 별도 핸들 글리프 없음.
  * - 4개 변(N/E/S/W) 어디든 pointerdown → 해당 변을 끌어 박스 크기 조절.
- * - 변 근처 일정 두께(`HIT_THICKNESS`) 만 hit 영역, 나머지는 클릭 통과.
+ * - 4개 모서리(NW/NE/SW/SE) pointerdown → 가로·세로를 함께 끌어 대각선 조절 (SSOT §5.4 #42).
+ * - 변 띠·모서리 칸만 hit 영역(`layoutBoundsHandles.ts`), 나머지는 클릭 통과.
  *
  * 물리 클램프는 usePhysicsLayout 가 store 의 layoutBoundsByProject 를 읽어 처리.
  * 이 컴포넌트는 루트 뷰(currentFolderId === null) 에서만 마운트한다.
  */
-
-type Edge = 'n' | 's' | 'e' | 'w';
-
-const HIT_THICKNESS = 16;
-const MIN_HALF = 300;
-const MAX_HALF = 8000;
 
 const DEFAULT_HW = LAYOUT_BOUNDS_DEFAULT.hw;
 const DEFAULT_HH = LAYOUT_BOUNDS_DEFAULT.hh;
@@ -37,9 +39,9 @@ export function LayoutBoundsBox(): React.JSX.Element | null {
   const halfWidth = bounds?.hw ?? DEFAULT_HW;
   const halfHeight = bounds?.hh ?? DEFAULT_HH;
 
-  const [dragging, setDragging] = useState<Edge | null>(null);
+  const [dragging, setDragging] = useState<BoundsHandle | null>(null);
   const dragRef = useRef<{
-    edge: Edge;
+    handle: BoundsHandle;
     startHW: number;
     startHH: number;
     startFlowX: number;
@@ -51,19 +53,19 @@ export function LayoutBoundsBox(): React.JSX.Element | null {
   const width = halfWidth * 2;
   const height = halfHeight * 2;
 
-  const onEdgePointerDown = useCallback(
-    (edge: Edge) => (e: React.PointerEvent) => {
+  const onHandlePointerDown = useCallback(
+    (handle: BoundsHandle) => (e: React.PointerEvent) => {
       e.stopPropagation();
       e.preventDefault();
       const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       dragRef.current = {
-        edge,
+        handle,
         startHW: halfWidth,
         startHH: halfHeight,
         startFlowX: flow.x,
         startFlowY: flow.y,
       };
-      setDragging(edge);
+      setDragging(handle);
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     },
     [halfWidth, halfHeight, screenToFlowPosition],
@@ -75,17 +77,14 @@ export function LayoutBoundsBox(): React.JSX.Element | null {
       const ctx = dragRef.current;
       if (!ctx) return;
       const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      const dx = flow.x - ctx.startFlowX;
-      const dy = flow.y - ctx.startFlowY;
-      let nextHW = ctx.startHW;
-      let nextHH = ctx.startHH;
-      if (ctx.edge === 'e') nextHW = ctx.startHW + dx;
-      else if (ctx.edge === 'w') nextHW = ctx.startHW - dx;
-      else if (ctx.edge === 's') nextHH = ctx.startHH + dy;
-      else if (ctx.edge === 'n') nextHH = ctx.startHH - dy;
-      nextHW = Math.min(MAX_HALF, Math.max(MIN_HALF, nextHW));
-      nextHH = Math.min(MAX_HALF, Math.max(MIN_HALF, nextHH));
-      setSize(nextHW, nextHH);
+      // 모서리는 두 축을 한 번에 — store 갱신도 한 번
+      const next = resizeBounds(
+        ctx.handle,
+        { hw: ctx.startHW, hh: ctx.startHH },
+        flow.x - ctx.startFlowX,
+        flow.y - ctx.startFlowY,
+      );
+      setSize(next.hw, next.hh);
     };
     const onUp = (): void => {
       dragRef.current = null;
@@ -222,51 +221,18 @@ export function LayoutBoundsBox(): React.JSX.Element | null {
           </span>
           <span>{width} × {height}</span>
         </div>
-        {/* hit-zone — 변 어디서나 드래그 시작 가능. 보이지 않는 두꺼운 띠. */}
-        <div
-          onPointerDown={onEdgePointerDown('n')}
-          style={{
-            ...hitBase,
-            left: 0,
-            top: -HIT_THICKNESS / 2,
-            width: '100%',
-            height: HIT_THICKNESS,
-            cursor: 'ns-resize',
-          }}
-        />
-        <div
-          onPointerDown={onEdgePointerDown('s')}
-          style={{
-            ...hitBase,
-            left: 0,
-            top: height - HIT_THICKNESS / 2,
-            width: '100%',
-            height: HIT_THICKNESS,
-            cursor: 'ns-resize',
-          }}
-        />
-        <div
-          onPointerDown={onEdgePointerDown('w')}
-          style={{
-            ...hitBase,
-            left: -HIT_THICKNESS / 2,
-            top: 0,
-            width: HIT_THICKNESS,
-            height: '100%',
-            cursor: 'ew-resize',
-          }}
-        />
-        <div
-          onPointerDown={onEdgePointerDown('e')}
-          style={{
-            ...hitBase,
-            left: width - HIT_THICKNESS / 2,
-            top: 0,
-            width: HIT_THICKNESS,
-            height: '100%',
-            cursor: 'ew-resize',
-          }}
-        />
+        {/* hit-zone — 변 띠 넷 + 모서리 칸 넷. 보이지 않고 서로 겹치지 않는다. */}
+        {BOUNDS_HANDLES.map((handle) => (
+          <div
+            key={handle}
+            onPointerDown={onHandlePointerDown(handle)}
+            style={{
+              ...hitBase,
+              ...handleRect(handle, width, height),
+              cursor: handleCursor(handle),
+            }}
+          />
+        ))}
       </div>
     </ViewportPortal>
   );

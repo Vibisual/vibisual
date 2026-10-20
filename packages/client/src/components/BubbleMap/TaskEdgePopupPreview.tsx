@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import type { RefObject } from 'react';
 import type { ReactFlowInstance, Node } from '@xyflow/react';
 import type { BubbleData } from '@vibisual/shared';
-import { TASK_EDGE_STYLES } from '@vibisual/shared';
+import { TASK_EDGE_STYLES, resolveBubbleEdgeStyle } from '@vibisual/shared';
+import { useGraphStore } from '../../stores/graphStore.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { computeTaskEdgePath } from './taskEdgePath.js';
+import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /**
  * Task Edge 팝업 프리뷰 — popup(입력창)이 열려있는 동안 source↔target 을 잇는
@@ -50,6 +52,9 @@ export function TaskEdgePopupPreview({
   parallelOffset = 0,
   targetAngularOffset = 0,
 }: TaskEdgePopupPreviewProps): React.JSX.Element | null {
+  const appearance = useGraphStore((s) => resolveBubbleEdgeStyle(
+    s.bubbleAppearancePending?.edgeStyle ?? s.userDefaults?.appearance?.edgeStyle,
+  ));
   // popup 이 떠있는 동안에도 물리 엔진/드래그로 노드가 움직이거나 viewport 가 바뀔 수 있으므로
   // rAF 로 재렌더해 엣지가 양쪽 버블을 따라가게 한다.
   const [, forceFrame] = useState(0);
@@ -96,6 +101,8 @@ export function TaskEdgePopupPreview({
   const idle = TASK_EDGE_STYLES['idle'];
   const dash = idle?.strokeDasharray ?? '6 4';
   const strokeWidth = Math.max(1.5, 2.5 * vp.zoom);
+  const lineStyle = { stroke: PREVIEW_COLOR, strokeWidth, strokeDasharray: dash, opacity: 0.95 };
+  const paint = bubbleEdgeAppearance(appearance, { semantic: 'task', base: lineStyle });
 
   return (
     <svg
@@ -115,13 +122,14 @@ export function TaskEdgePopupPreview({
           <path d="M 0 0 L 12 6 L 0 12 z" fill={PREVIEW_COLOR} />
         </marker>
       </defs>
+      {paint.map((layer) => (
+        <path key={layer.role} className="bubble-edge-paint" data-paint-layer={layer.role}
+          d={path} style={layer.style} pointerEvents="none" aria-hidden="true" />
+      ))}
       <path
         d={path}
         fill="none"
-        stroke={PREVIEW_COLOR}
-        strokeWidth={strokeWidth}
-        strokeDasharray={dash}
-        opacity={0.95}
+        style={bubbleEdgeMarkerStyle(lineStyle)}
         markerEnd={`url(#${PREVIEW_MARKER_ID})`}
       />
     </svg>

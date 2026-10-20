@@ -1,20 +1,23 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 import type { AppBubblePastFile } from '@vibisual/shared';
+import { fileFaceKindOf, previewLaneOf } from '@vibisual/shared';
 
 import type { AppBubbleShape } from '../../apps/registry.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { openAppWindow } from '../../apps/appWindows.js';
+import { prefetchAppShell } from '../../apps/prefetchAppShell.js';
 import { appNodeResizeBounds, resetSizeMove, type AppNodeForm } from '../../apps/appNodeForm.js';
 import { thumbBakeBox, thumbPixelSize, useSteadyThumbnail } from '../../apps/appThumbnails.js';
 import { useAppCanvasFace } from '../../apps/appCanvasFaces.js';
 import { FACE_CONTROL, isFaceControlTarget } from '../../apps/canvasFaceKit.js';
+import { useCoarsePointer } from '../../hooks/useIsMobile.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { promptDialog } from '../../utils/appDialog.js';
 import { useRefLinkDragStore } from '../../stores/refLinkDrag.js';
-import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { appNodeLabel } from './agentCard.js';
@@ -22,6 +25,8 @@ import { AppScreenFace } from './AppScreenFace.js';
 import { useAppLinkedItems } from '../../apps/appLinkedItems.js';
 import { appNodeShowsLinkedItems } from './linkView.js';
 import { AppLinkedSatellites } from './AppLinkedSatellites.js';
+import { AppWorkOrbit } from './AppWorkOrbit.js';
+import type { AppWorkOrbitInfo } from './appWorkFold.js';
 
 /** §5.4 #36 (H) ③ — 지난 결과가 없을 때 한 객체를 돌려 써서, 구슬 줄 memo 가 매 그리기마다 깨지지 않게. */
 const EMPTY_PAST: readonly AppBubblePastFile[] = [];
@@ -64,7 +69,7 @@ const SPROCKET_ROW = 'repeating-linear-gradient(90deg, rgba(255,255,255,0.5) 0 3
  * **화면**이다 — 커져서 담긴 결과를 비춘다(앱이 구운 미리보기).
  *
  * §5.4 #36 (G) — 화면은 **작은 작업대**다. ① 누름은 선택(명패·다른 버블과 같은 상태기계), 여는 손은 둘 — 더블클릭과
- * 머리줄의 [에디터에서 열기] 단추. ② 명패·화면 둘 다 고르면 모서리·변 손잡이로 크기를 바꾼다(크기는 형태에 붙는다 —
+ * 머리줄의 [에디터에서 열기] 단추. ② 명패·화면 둘 다 선택 없이 모서리·변 손잡이로 크기를 바꾼다(크기는 형태에 붙는다 —
  * `sizedForm`). ③ 결과가 담긴 화면의 안쪽은 앱이 레지스트리 `canvasFace` 로 그린다 — 캔버스에서 바로 하는 간단한 조작
  * (재생·돌려 보기·맞춤). ④ 생김새는 컴팩트하게 — 4px 모서리·1px 테·22px 머리줄, 화면에는 스프링 눌림이 없다(안쪽 조작
  * 단추를 누를 때 노드 전체가 줄어들지 않게).
@@ -96,6 +101,8 @@ export interface AppBubbleNodeData extends Record<string, unknown> {
   linksHidden?: boolean | undefined;
   /** §5.4 #36 (H) ③ — 지난 결과(결과 전달로 바뀌기 전 파일들, 최근 것부터). 구슬 줄의 마지막 묶음이 된다. */
   pastFiles?: readonly AppBubblePastFile[] | undefined;
+  /** §5.1 #2-1 (F) ⑤⑧ — 앱 작업 보기의 초점 노드면 작업 궤도(위성 수 · 넘침). 그리는 사본에만 실린 표시 값이다. */
+  appWorkOrbit?: AppWorkOrbitInfo | undefined;
 }
 
 interface MenuPos {
@@ -208,6 +215,8 @@ export const AppBubbleNode = memo(function AppBubbleNode({
    */
   const chosenHere = useGraphStore((s) => s.selectedAppBubbleId === data.appBubbleId || s.selectIntentId === data.appBubbleId);
   const isSelected = selected === true || chosenHere;
+  // 터치에는 hover 가 없다 — 크기 조절 손잡이는 **고른 노드에서만** 보이고 손가락 크기다(전부 띄우면 캔버스가 손잡이로 덮인다).
+  const coarsePointer = useCoarsePointer();
   /**
    * §5.4 #36 (B) — 끄는 위성줄이 지금 이 노드 위에 있다 — 놓으면 여기 이어진다는 것을 **놓기 전에** 에이전트 색 테로
    * 알린다. 판정 결과(색 한 글자 또는 null)만 구독한다 — 끄는 매 프레임 모든 앱 노드가 깨면 안 된다.
@@ -215,22 +224,8 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const dropColor = useRefLinkDragStore((s) => (s.drag?.target?.id === data.appBubbleId ? s.drag.color : null));
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // 바깥 press 로 닫기(공통 규약 — 메뉴 안에서 시작한 press·드래그로는 안 닫힌다).
-  // capture 단계 — React Flow 가 이벤트를 선점하기 전에 닫는다.
-  useOutsidePressDismiss({
-    enabled: menu !== null,
-    onDismiss: () => setMenu(null),
-    refs: [menuRef],
-  });
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = (): void => setMenu(null);
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [menu]);
+  // 바깥 press·아무 키로 닫기는 메뉴 껍데기(`CanvasNodeMenu`)가 든다 — 다섯 노드가 같은 규약 한 벌.
+  const closeMenu = useCallback((): void => setMenu(null), []);
 
   const projectPath = Object.values(projects).find((p) => p.name === data.projectName)?.path;
   const open = useCallback((): void => {
@@ -242,6 +237,9 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     //   고르면 이 노드가 그 문서를 기억한다.
     openAppWindow({ appId: data.appId, projectId, ref: data.refKey, file: data.file, title: data.title, bubbleId: data.appBubbleId });
   }, [app, projectPath, data.projectName, data.refKey, data.appId, data.title, data.file, data.appBubbleId]);
+  // §5.13 (X) 39-2 — 손이 올라가면 한가할 때, 누르면 바로 그 앱의 화면 청크를 받아 둔다(더블클릭으로 열 때 기다리지 않게).
+  const prefetchSoon = useCallback((): void => prefetchAppShell(data.appId), [data.appId]);
+  const prefetchNow = useCallback((): void => prefetchAppShell(data.appId, { now: true }), [data.appId]);
 
   /**
    * 선택 — 에이전트(IDE) 버블과 **같은 상태기계**를 쓴다(`bubbleSelectGesture`).
@@ -270,24 +268,46 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   });
 
   /**
+   * §5.13 39-2 — 누르면 바로 그 앱의 화면 청크를 받아 둔다. 선택 손짓의 캡처 단계 누름과 **한 핸들러**다 —
+   * `{...gesture.handlers}` 뒤에 `onPointerDownCapture={prefetchNow}` 를 따로 적었더니 손짓의 누름을 덮어써, 등록된
+   * 앱 노드는 눌러도 고르지 않았고 `Delete` 가 지울 것이 없었다(2026-10-20 사용자 보고 — 일부 앱이 안 지워진다.
+   * 미리 받기가 없는 미등록 앱 노드만 멀쩡했다).
+   */
+  const handlePressCapture = useCallback((e: React.PointerEvent): void => {
+    prefetchNow();
+    gesture.handlers.onPointerDownCapture(e);
+  }, [prefetchNow, gesture]);
+
+  /**
    * §5.4 #36 (G) — 크기 조절. 플레이 프리뷰(§5.14)와 같은 길이다 — 끄는 동안은 store 에 낙관 반영 + 드래그 락
    * (먼저 출발한 스냅샷이 손을 따라오던 크기를 되돌리지 않게), 손을 떼면 PATCH 한 번 뒤에 락을 푼다.
    * 크기는 **지금 형태에 붙는다**(`sizedForm`) — 명패에서 정한 크기가 화면을 키우지 않고, 그 반대도 같다.
    */
   const [resizing, setResizing] = useState(false);
+  /** 크기가 실제로 바뀌는 중인가 — 첫 변화(`handleResize`)에서 켜고 끝(`handleResizeEnd`)에서 끈다. */
+  const resizingRef = useRef(false);
   const bounds = appNodeResizeBounds(form);
-  const handleResizeStart = useCallback((): void => {
-    setAppBubbleDragLock(data.appBubbleId, true);
-    setResizing(true);
-  }, [setAppBubbleDragLock, data.appBubbleId]);
+  /**
+   * 락은 크기가 **실제로 바뀌기 시작할 때** 건다. React Flow 는 크기가 그대로인 누름(테두리 띠 클릭)에는 끝 콜백
+   * (`onResizeEnd`)을 부르지 않는다 — 누르는 순간(`onResizeStart`) 걸었더니 풀 손이 없어, 그 노드는 스냅샷의 자리·크기를
+   * 영영 받지 않았고 손잡이도 켜진 채 남았다. 바뀌기 시작했으면 끝 콜백은 반드시 온다.
+   * 그 누름은 이제 크기 조절이다 — 선택 손짓에서 접는다(손을 떼도 클릭으로 잇지 않게).
+   */
   const handleResize = useCallback<NonNullable<React.ComponentProps<typeof NodeResizer>['onResize']>>(
     (_evt, p) => {
+      if (!resizingRef.current) {
+        resizingRef.current = true;
+        gesture.cancelPress();
+        setAppBubbleDragLock(data.appBubbleId, true);
+        setResizing(true);
+      }
       patchAppBubbleLocal(data.appBubbleId, { x: p.x, y: p.y, width: p.width, height: p.height, sizedForm: form });
     },
-    [patchAppBubbleLocal, data.appBubbleId, form],
+    [gesture, setAppBubbleDragLock, patchAppBubbleLocal, data.appBubbleId, form],
   );
   const handleResizeEnd = useCallback<NonNullable<React.ComponentProps<typeof NodeResizer>['onResizeEnd']>>(
     (_evt, p) => {
+      resizingRef.current = false;
       setResizing(false);
       const id = data.appBubbleId;
       void (async () => {
@@ -319,9 +339,14 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const resultProject = isScreen && (hasFile || hasRefFace) ? projectPath : undefined;
   const resultFile = data.file ?? '';
   // 코어가 굽는 정지 미리보기는 **결과 파일**의 것이다 — 문서 모드는 앱이 스스로 비춘다.
+  // §5.1 #2-1 (G) ④ — 결과 파일의 종류로 굽는 줄을 가른다(영상·소리·3D 는 한 번에 하나). 화면은 한 화면 속 상한 밖이다.
+  const resultLane = hasFile ? previewLaneOf(fileFaceKindOf(resultFile)) ?? undefined : undefined;
   const thumbState = useSteadyThumbnail(
     resultProject !== undefined && hasFile
-      ? { appId: data.appId, projectId: resultProject, file: resultFile, version: data.fileAt ?? 0, width: thumbPx.width, height: thumbPx.height }
+      ? {
+        appId: data.appId, projectId: resultProject, file: resultFile, version: data.fileAt ?? 0,
+        width: thumbPx.width, height: thumbPx.height, ...(resultLane ? { lane: resultLane } : {}),
+      }
       : null,
   );
   const thumb = thumbState.status === 'ready' ? thumbState.thumb : null;
@@ -377,9 +402,9 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   }, [id, selected]);
 
   // 이름·핀·삭제는 전부 store 한 경로로 — 우클릭 메뉴와 우측 옵션 패널이 같은 함수를 쓴다(v4.68).
-  const rename = useCallback((): void => {
+  const rename = useCallback(async (): Promise<void> => {
     setMenu(null);
-    const next = window.prompt(
+    const next = await promptDialog(
       t('panel.apps.renamePrompt', { defaultValue: '버블 이름' }),
       data.title ?? '',
     );
@@ -440,19 +465,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     text: string,
     opts: { danger?: boolean; disabled?: boolean; title?: string } = {},
   ): React.JSX.Element => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={opts.disabled === true}
-      title={opts.title}
-      className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-        opts.disabled === true
-          ? 'cursor-not-allowed text-gray-500'
-          : `hover:bg-gray-800 ${opts.danger === true ? 'text-rose-300' : 'text-gray-200'}`
-      }`}
-    >
-      {text}
-    </button>
+    <CanvasNodeMenuItem onClick={onClick} label={text} danger={opts.danger} disabled={opts.disabled} title={opts.title} />
   );
 
   /**
@@ -461,15 +474,11 @@ export const AppBubbleNode = memo(function AppBubbleNode({
    * 미등록 앱 버블에서 메뉴가 안 뜨면 그 버블은 지울 방법이 없다(가장 지우고 싶은 버블인데도).
    * 고정·삭제는 앱을 몰라도 되는 조작이라 두 경우가 공유하고, 열기·설치·이름 바꾸기만 앱이
    * 있을 때 붙는다. §5.4 #36 (G) — [기본 크기로] 는 지금 형태에서 크기를 정했을 때만.
+   * 화면 밖으로 넘치면 안쪽으로 밀고 길면 스크롤한다(폰 폭 — `CanvasNodeMenu`).
    */
   const menuPortal = menu
-    ? createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-[60] min-w-44 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+    ? (
+        <CanvasNodeMenu x={menu.x} y={menu.y} minWidthClass="min-w-44" onClose={closeMenu}>
           {app
             ? menuItem(() => {
                 setMenu(null);
@@ -494,7 +503,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
                 linksHidden ? {} : { title: t('canvas.bubbleMenu.hideLinksNote') },
               )
             : null}
-          <div className="mx-2 my-1 border-t border-gray-700" />
+          <CanvasNodeMenuSeparator />
           {/* 핀이 걸린 버블은 서버가 409 로 거절한다(§2.4) — 눌러도 아무 일 없는 대신 이유를 보여 준다. */}
           {menuItem(remove, t('panel.apps.delete', { defaultValue: '삭제' }), {
             danger: true,
@@ -503,8 +512,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
               ? { title: t('panel.apps.deletePinnedHint', { defaultValue: '고정된 버블입니다. 먼저 고정을 해제하세요.' }) }
               : {}),
           })}
-        </div>,
-        document.body,
+        </CanvasNodeMenu>
       )
     : null;
 
@@ -556,24 +564,36 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const isFilm = shape === 'film';
 
   /**
-   * §5.4 #36 (G) — 크기 손잡이. 고른 노드에만 뜨고, 위성줄을 받을 참일 때는 숨긴다(무엇에 이어질지가 먼저다).
-   * 손잡이는 네모다 — 둥근 공 손잡이 ❌("동글동글" 지적). 하한·상한은 형태마다(`APP_NODE_RESIZE`).
-   * §6 — **지금 고른 하나**(클릭해 우측 패널이 보는 노드)에만 뜬다. 여럿을 묶어 골랐을 때 노드마다 네모 손잡이가
-   * 서면 묶음 표시가 손잡이에 묻힌다 — 묶음 안 노드는 고른 테두리만 낸다.
+   * 가장자리·모서리는 선택하지 않아도 바로 잡는다. 투명한 조절 영역에 마우스가 닿거나 크기를 바꾸는 동안만
+   * 네모 손잡이를 보인다. 가운데는 pointer-events 를 통과시켜 선택·이동·앱 안 조작을 그대로 받는다.
+   * 위성줄을 받을 참일 때는 숨긴다(무엇에 이어질지가 먼저다). 하한·상한은 형태마다(`APP_NODE_RESIZE`).
+   *
+   * **띠도 노드다** — 띠는 몸통 밖 형제라 몸통에 단 손잡이가 닿지 않는다. 그래서 같은 선택 손짓·더블클릭·우클릭 메뉴를
+   * 이 감싸개에도 단다(이벤트는 띠에서 이리로 올라온다 — `pointer-events-none` 은 맞히기만 막지 전파는 막지 않는다).
+   * 크기를 바꾸지 않고 뗀 누름은 클릭(선택 — `Delete` 의 대상), 두 번 누르면 연다, 우클릭은 노드 메뉴(§5.4 #34 ②).
+   * 띠 위 우클릭이 아무 메뉴도 열지 않던 자리다(2026-10-20 사용자 보고 — 작게 줄인 명패에서는 띠가 몸통의 큰 몫이다).
    */
   const resizer = (
-    <NodeResizer
-      isVisible={chosenHere && !dropColor}
-      minWidth={bounds.minWidth}
-      minHeight={bounds.minHeight}
-      maxWidth={bounds.maxWidth}
-      maxHeight={bounds.maxHeight}
-      onResizeStart={handleResizeStart}
-      onResize={handleResize}
-      onResizeEnd={handleResizeEnd}
-      lineClassName="!border-white/35"
-      handleClassName="!h-2 !w-2 !rounded-none !border !border-white !bg-[#0A0C12]"
-    />
+    <div
+      className="group/app-resize pointer-events-none absolute inset-0 z-10"
+      {...gesture.handlers}
+      onPointerDownCapture={handlePressCapture}
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
+    >
+      <NodeResizer
+        isVisible={!dropColor}
+        minWidth={bounds.minWidth}
+        minHeight={bounds.minHeight}
+        maxWidth={bounds.maxWidth}
+        maxHeight={bounds.maxHeight}
+        onResize={handleResize}
+        onResizeEnd={handleResizeEnd}
+        lineStyle={{ borderColor: 'transparent', borderWidth: 4, pointerEvents: 'auto' }}
+        handleStyle={{ width: coarsePointer ? 18 : 10, height: coarsePointer ? 18 : 10, borderColor: app.glow, background: '#0A0C12', pointerEvents: 'auto' }}
+        handleClassName={`!rounded-none ${resizing ? 'opacity-100' : `opacity-0 group-hover/app-resize:opacity-100${isSelected ? ' pointer-coarse:opacity-100' : ''}`}`}
+      />
+    </div>
   );
 
   /**
@@ -588,20 +608,24 @@ export const AppBubbleNode = memo(function AppBubbleNode({
       width: data.width,
       height: data.height,
       border: `${SCREEN_BORDER}px solid`,
-      borderColor: isSelected ? '#FFFFFF' : `${app.glow}59`,
+      borderColor: isSelected ? app.glow : `${app.glow}59`,
       background: '#07090D',
-      // 선택 링은 흰 테 + 바깥 헤일로 두 겹(v4.68) — 컴팩트하게 얇게. 위성줄을 받을 참이면 에이전트 색 두 겹.
+      // 에이전트 버블처럼 바깥 고리로 선택을 알리되, 흰 선 대신 앱 색을 쓴다. 연결 대상 색이 선택보다 먼저다.
       boxShadow: isSelected && !dropColor
-        ? `0 0 0 1px #FFFFFF, 0 0 0 4px ${app.glow}4D, 0 6px 18px rgba(0,0,0,0.55)`
+        ? `0 0 0 1px ${app.glow}80, 0 0 0 4px ${app.glow}4D, 0 6px 18px rgba(0,0,0,0.55)`
         : dropColor
           ? `0 0 0 1px ${dropColor}, 0 0 0 4px ${dropColor}40, 0 6px 18px rgba(0,0,0,0.55)`
           : '0 4px 14px rgba(0,0,0,0.5)',
     };
     return (
       <>
+        {/* §5.1 #2-1 (F) ⑤⑧ — 작업 위성이 앉는 위쪽 반원 궤도 · 넘친 작업물 점(앱 작업 보기에서만). 화면 뒤에 깔린다. */}
+        {data.appWorkOrbit ? <AppWorkOrbit orbit={data.appWorkOrbit} width={data.width} height={data.height} /> : null}
         {resizer}
         <div
           {...gesture.handlers}
+          onPointerEnter={prefetchSoon}
+          onPointerDownCapture={handlePressCapture}
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}
           title={t('panel.apps.openHint', { defaultValue: '더블클릭하면 열립니다.' })}
@@ -701,7 +725,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
    * 명패 — 놓아 둔 앱. §5.4 #36 (G) 컴팩트한 언어: 4px 모서리 · 1px 테 · 평평한 앱 색 · 네모 퍼포레이션(클래퍼 사선 ❌).
    * 안쪽 조작이 없으니 눌림 반응(`bubble-press`)은 남긴다 — 다른 버블과 같은 손끝 감각.
    */
-  const borderColor = isSelected ? '#FFFFFF' : `${app.glow}80`;
+  const borderColor = isSelected ? app.glow : `${app.glow}80`;
   const shellStyle: React.CSSProperties = {
     width: data.width,
     height: data.height,
@@ -710,12 +734,11 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     // 구(球)로 보이는 방사형 그라디언트 ❌ — 그게 에이전트 버블의 인상이다. 평면 판으로.
     background: app.color,
     // 색 번짐(bloom) ❌ — 그 인상이 곧 "장난감"이다. 선택 링만 앱 색으로, 평시엔 그림자로 띄운다.
-    //   선택 링은 **흰 테 + 바깥 헤일로 두 겹**이다(v4.68). 작게 줄인 버블에서는 테두리 색만
-    //   흰색으로 바뀌어서는 "선택됐다"가 눈에 안 들어온다 — 다른 버블처럼 바깥으로 한 겹 더 나간다.
+    //   작게 줄인 버블에서도 선택을 알아보도록 앱 색 고리와 바깥 헤일로를 함께 그린다.
     //   box-shadow 는 자기 박스 밖에 그려지므로 `overflow-hidden` 에 잘리지 않는다.
     //   위성줄을 받을 참이면(§5.4 #36 (B)) 선택 링 대신 에이전트 색 두 겹 — 무엇에 이어질지가 먼저다.
     boxShadow: isSelected && !dropColor
-      ? `0 0 0 1px #FFFFFF, 0 0 0 ${dense ? 3 : 4}px ${app.glow}59, 0 4px 14px rgba(0,0,0,0.5)`
+      ? `0 0 0 1px ${app.glow}80, 0 0 0 ${dense ? 3 : 4}px ${app.glow}59, 0 4px 14px rgba(0,0,0,0.5)`
       : dropColor
         ? `0 0 0 1px ${dropColor}, 0 0 0 ${dense ? 3 : 4}px ${dropColor}40, 0 4px 14px rgba(0,0,0,0.5)`
         : '0 3px 10px rgba(0,0,0,0.45)',
@@ -748,6 +771,8 @@ export const AppBubbleNode = memo(function AppBubbleNode({
       {resizer}
       <div
         {...gesture.handlers}
+        onPointerEnter={prefetchSoon}
+        onPointerDownCapture={handlePressCapture}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         title={t('panel.apps.openHint', { defaultValue: '더블클릭하면 열립니다.' })}

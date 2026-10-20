@@ -1,15 +1,15 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { NodeProps } from '@xyflow/react';
 import { BUBBLE_STYLES, SHELF_EXPORT_VERSION, SHELF_MAX_ITEMS } from '@vibisual/shared';
 import type { ShelfItem } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
-import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { promptDialog } from '../../utils/appDialog.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
+import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 import { ShelfGlyph, ShelfItemGlyph } from './shelfIcons.js';
 import { exportShelfFile, pickShelfFile } from './shelfTransfer.js';
 
@@ -66,7 +66,8 @@ export const ShelfNode = memo(function ShelfNode({
   const deleteShelfBubble = useGraphStore((s) => s.deleteShelfBubble);
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // 바깥 press·아무 키로 닫기는 메뉴 껍데기(`CanvasNodeMenu`)가 든다 — 다섯 노드가 같은 규약 한 벌.
+  const closeMenu = useCallback((): void => setMenu(null), []);
 
   // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
   // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
@@ -74,20 +75,6 @@ export const ShelfNode = memo(function ShelfNode({
   const chosenHere = useGraphStore((s) => s.selectedShelfBubbleId === data.shelfBubbleId || s.selectIntentId === data.shelfBubbleId);
   const isSelected = selected === true || chosenHere;
   const isPinned = data.preservePinned === true;
-
-  // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).
-  useOutsidePressDismiss({
-    enabled: menu !== null,
-    onDismiss: () => setMenu(null),
-    refs: [menuRef],
-  });
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = (): void => setMenu(null);
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [menu]);
 
   // 선택·더블클릭은 에이전트(IDE) 버블과 같은 상태기계 한 벌을 쓴다.
   // `ignore` 로 실행 줄(버튼)에서 시작한 누름을 걸러 낸다 — 줄 클릭은 선택이 아니라 실행이다.
@@ -128,9 +115,9 @@ export const ShelfNode = memo(function ShelfNode({
     void runShelfItem(data.shelfBubbleId, item.id);
   }, [runShelfItem, data.shelfBubbleId]);
 
-  const rename = useCallback((): void => {
+  const rename = useCallback(async (): Promise<void> => {
     setMenu(null);
-    const next = window.prompt(t('canvas.shelf.renamePrompt', { defaultValue: '선반 이름' }), data.title);
+    const next = await promptDialog(t('canvas.shelf.renamePrompt', { defaultValue: '선반 이름' }), data.title);
     if (next === null) return;
     const title = next.trim();
     patchLocal(data.shelfBubbleId, { title });
@@ -167,29 +154,13 @@ export const ShelfNode = memo(function ShelfNode({
     text: string,
     opts: { danger?: boolean; disabled?: boolean; title?: string } = {},
   ): React.JSX.Element => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={opts.disabled === true}
-      title={opts.title}
-      className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-        opts.disabled === true
-          ? 'cursor-not-allowed text-gray-500'
-          : `hover:bg-gray-800 ${opts.danger === true ? 'text-rose-300' : 'text-gray-200'}`
-      }`}
-    >
-      {text}
-    </button>
+    <CanvasNodeMenuItem onClick={onClick} label={text} danger={opts.danger} disabled={opts.disabled} title={opts.title} />
   );
 
+  // 화면 밖으로 넘치면 안쪽으로 밀고 길면 스크롤한다(폰 폭 — `CanvasNodeMenu`).
   const menuPortal = menu
-    ? createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-[60] min-w-52 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+    ? (
+        <CanvasNodeMenu x={menu.x} y={menu.y} minWidthClass="min-w-52" onClose={closeMenu}>
           {menuItem(() => {
             setMenu(null);
             openShelfPanel(data.shelfBubbleId);
@@ -204,7 +175,7 @@ export const ShelfNode = memo(function ShelfNode({
               : {}),
           })}
           {menuItem(rename, t('canvas.shelf.rename', { defaultValue: '이름 바꾸기' }))}
-          <div className="mx-2 my-1 border-t border-gray-700" />
+          <CanvasNodeMenuSeparator />
           {menuItem(exportShelf, t('canvas.shelf.export', { defaultValue: '내보내기 (JSON)' }), {
             disabled: data.items.length === 0,
             ...(data.items.length === 0
@@ -212,7 +183,7 @@ export const ShelfNode = memo(function ShelfNode({
               : {}),
           })}
           {menuItem(importShelf, t('canvas.shelf.import', { defaultValue: '가져오기 (JSON)' }))}
-          <div className="mx-2 my-1 border-t border-gray-700" />
+          <CanvasNodeMenuSeparator />
           {menuItem(togglePin, isPinned
             ? t('canvas.shelf.unpin', { defaultValue: '고정 해제' })
             : t('canvas.shelf.pin', { defaultValue: '고정' }))}
@@ -223,8 +194,7 @@ export const ShelfNode = memo(function ShelfNode({
               ? { title: t('canvas.shelf.deletePinnedHint', { defaultValue: '고정된 선반입니다. 먼저 고정을 해제하세요.' }) }
               : {}),
           })}
-        </div>,
-        document.body,
+        </CanvasNodeMenu>
       )
     : null;
 

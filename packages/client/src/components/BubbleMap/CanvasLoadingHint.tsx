@@ -89,9 +89,16 @@ export function CanvasLoadingHint(): React.JSX.Element | null {
       ? t('canvas.loading.slow', { defaultValue: '회선이 느립니다 — 아직 받는 중…' })
       : t('canvas.loading.project', { defaultValue: '프로젝트를 불러오는 중…' });
 
+  /**
+   * 자리 — 경로 표시(`CanvasBreadcrumb`)와 같은 `top-3` 이라, 폴더를 오가며 불러오는 동안 알약이 경로를 덮었다.
+   * 경로가 떠 있으면 그 **아래**로, 휴지통 띠(`TrashToolbar`)까지 떠 있으면 그 띠 아래로 비켜 선다. 판정은 표식
+   * 클래스(`canvas-crumb` · `canvas-trash-toolbar`)를 단 형제가 **있느냐**로 CSS 가 한다 — 경로·띠가 뜨는 규칙을
+   * 여기서 다시 세우지 않는다(두 벌이 되면 한쪽만 고쳐진다). ⚠ 셸(`App` · `DetachedShell`)에서 세 줄이
+   * 경로 → 이 알약 → 휴지통 띠 순서로 형제여야 한다. 띠는 좁은 화면에서 안내가 둘째 줄로 내려가 키가 크다.
+   */
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center"
+      className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center [.canvas-crumb~&]:top-10 pointer-coarse:[.canvas-crumb~&]:top-12 [.canvas-crumb~&:has(~.canvas-trash-toolbar)]:top-[5.5rem] max-sm:[.canvas-crumb~&:has(~.canvas-trash-toolbar)]:top-28"
       role="status"
       aria-live="polite"
     >

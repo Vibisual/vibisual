@@ -17,9 +17,10 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo, TidySort } from '@vibisual/shared';
-import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
+import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH, WEB_ORBIT_TYPES } from '@vibisual/shared';
 // §5.4 #36 (A) — `bubble` 노드는 형태만 갈라 그린다(커스텀 에이전트의 말풍선 ↔ 원형 버블).
 import { CanvasBubbleNode, noteAgentFormChange } from './AgentCardNode.js';
+import { archivedCardTaskNodes, loadCardTasks, useCardTaskStore } from './agentCardTaskState.js';
 // §5.4 #36 (B) — 위성줄(에이전트 → 그 에이전트를 참조하는 앱 노드)과 궤도 위성 끌기 · 꽃잎 고르기.
 import { RefLinkEdge } from './RefLinkEdge.js';
 import { RefLinkDragPreview } from './RefLinkDragPreview.js';
@@ -27,6 +28,10 @@ import { RefLinkBloom, type RefBloomItem } from './RefLinkBloom.js';
 import { useRefLinkDragStore, type RefLinkDrag, type RefLinkTarget } from '../../stores/refLinkDrag.js';
 import { agentCardDiscCenter, isAgentCardForm, refLinkPairs, refLinkPairsKey, viewportShiftToShow, type OrbitOrigin } from './agentCard.js';
 import { applyLinkViewToEdges, linkViewKey, linkViewSets } from './linkView.js';
+import { applyBubbleVisibilityToEdges, applyBubbleVisibilityToNodes, hiddenActivityBubbleIds } from './bubbleVisibility.js';
+import { appWorkFoldOf, decorateAppWorkNodes } from './appWorkFold.js';
+import { useAppWorkPlan } from './useAppWorkPlan.js';
+import { previewBudget } from '../../apps/previewBudget.js';
 import { AGENT_CARD, REF_BLOOM } from '@vibisual/shared';
 // §5.4 #34 — 삭제 규칙 두 손(Delete 키 · 버블 우클릭 메뉴)이 나눠 쓰는 판정·메뉴.
 import {
@@ -74,6 +79,10 @@ import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, sh
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type PhysicsMove } from '../../hooks/usePhysicsLayout.js';
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
+// §5.1 #2-1 — 파일 얼굴(미디어 더블클릭 열기) · 작업물 별자리(앱 노드 중심 · 버블 밖 부모의 첫 자리).
+import { useConstellationAppHubs } from '../../hooks/useConstellationAppHubs.js';
+import { fileFaceOf, fileMediaTarget } from '../../utils/fileFaceView.js';
+import { openAppWindow } from '../../apps/appWindows.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { canCreateMainViewBubble, isMainCanvasView } from './canvasScope.js';
@@ -97,14 +106,16 @@ import { TaskEdgePopupPreview } from './TaskEdgePopupPreview.js';
 import { isTaskEdgePopupOwnedByActiveProject } from './taskEdgePopupOwner.js';
 import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets.js';
 // §5.4 #33 — 버블 정리. 물리가 말하지 않는 "어디에 놓을까"를 정하는 순수 기하.
-import { computeTidyLayout, computeTidySatellites, tidyBandOf, type TidyItem, type TidyParentSeat, type TidySatellite } from './tidyLayout.js';
+import { computeTidyLayout, computeTidySatellitesNested, tidyBandOf, type TidyItem, type TidyParentSeat, type TidySatellite } from './tidyLayout.js';
 // §5.4 #33 (I) — "누구와 함께 앉나"는 여기가 쥔다(배치 기하와 갈라 둔다).
 import { computeTidyGrouping, type TidySortItem } from './tidySort.js';
+import { seatWebOrbitBubbles } from './webOrbitSeating.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress, isNarrowViewportNow } from '../../hooks/useIsMobile.js';
 import { isCanvasSurfaceTarget } from './canvasSurface.js';
+import { useNodeLongPressMenu } from './nodeLongPressMenu.js';
 // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 잡으면 무리만 남고, 그대로 끌면 무리가 함께 간다.
 import {
   clearLinkFocus,
@@ -362,7 +373,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // 그래서 최소 배율만 0.5 → 0.1 로 낮춰 훨씬 더 축소(작게)할 수 있게 한다. 최대 배율(줌인)은
   // 데스크톱과 동일(2) — 확대는 손대지 않는다(그게 오히려 초기 화면을 크게 만들었음).
   // 굵은 포인터 감지가 애매한 기기까지 잡도록 좁은 뷰포트 조건도 함께 건다.
-  const mobileZoom = useCoarsePointer() || useIsNarrowViewport();
+  // 두 훅을 언제나 둘 다 부른다 — `a() || b()` 는 앞이 참일 때 뒤 훅을 건너뛰어 훅 순서가 바뀐다(React 규칙 위반).
+  const coarsePointer = useCoarsePointer();
+  const narrowViewport = useIsNarrowViewport();
+  const mobileZoom = coarsePointer || narrowViewport;
 
   // Ctrl 키를 누른 채 줌할 때만 줌 한계를 확장 (기본은 ReactFlow 기본 0.5~2)
   const [zoomCtrlHeld, setZoomCtrlHeld] = useState(false);
@@ -644,7 +658,21 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // §5.9 핀 고정("항상 위") — prefs.pinned 인 캡처 버블만 높은 zIndex 로 다른 버블 위에 올린다.
   const capturePrefsMap = useCapturePrefsStore((s) => s.prefs);
   // ── §5.13 v4.45 내부 앱 버블 — 메인 뷰에서만, 현재 프로젝트만 ──
-  const allAppBubbles = useGraphStore((s) => s.appBubbles);
+  const storedAppBubbles = useGraphStore((s) => s.appBubbles);
+  const cardTaskEntries = useCardTaskStore((s) => s.entries);
+  const cardHistoryAgentIds = agents.filter((agent) => isAgentCardForm(agent)).map((agent) => agent.id).sort().join('|');
+  const allAppBubbles = useMemo(() => {
+    const archived = archivedCardTaskNodes(cardTaskEntries, storedAppBubbles, new Set(cardHistoryAgentIds.split('|')));
+    return storedAppBubbles.filter((bubble) => !archived.has(bubble.id));
+  }, [storedAppBubbles, cardTaskEntries, cardHistoryAgentIds]);
+  useEffect(() => {
+    const state = useGraphStore.getState();
+    for (const agentId of cardHistoryAgentIds.split('|').filter(Boolean)) {
+      const name = state.agentProjects[agentId] ?? activeProject;
+      const project = Object.values(state.projects).find((item) => item.name === name);
+      if (project) void loadCardTasks(project.path, agentId).catch(() => undefined);
+    }
+  }, [cardHistoryAgentIds, activeProject]);
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   const appBubbleNodes = useMemo<Node[]>(() => {
     if (currentFolderId !== null || interiorView !== null) return [];
@@ -894,12 +922,60 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     } as Node));
   }, [allShelfBubbles, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
 
+  // §5.4 #36 (I) — 앱 작업 보기: 앱과 연결해 일하는 에이전트는 그 작업물만 앱 노드 둘레에 두고 나머지 활동 버블을 접는다.
+  //   판정은 순수 모듈(`appWorkView.ts` · `appWorkFold.ts`) — 메인 뷰에서만(앱 노드는 메인에만 그려진다).
+  const appWorkPlan = useAppWorkPlan({
+    enabled: currentFolderId === null && interiorView === null,
+    agents,
+    folders: filteredFolders,
+    satellites: storeSatellites,
+    appBubbles: allAppBubbles,
+  });
+  const appWorkFold = useMemo(
+    () => appWorkFoldOf(flowNodes, [...storeEdges, ...edges], allAgents, storeSatellites, appWorkPlan),
+    [flowNodes, storeEdges, edges, allAgents, storeSatellites, appWorkPlan],
+  );
+
+  // Hide only at the rendering boundary; layout, physics, and source connections retain every node.
+  const hiddenBubbleIdsNow = useMemo(() => {
+    const explicit = hiddenActivityBubbleIds(flowNodes, [...storeEdges, ...edges], allAgents, storeSatellites);
+    if (appWorkFold.hidden.size === 0) return explicit;
+    return new Set([...explicit, ...appWorkFold.hidden]);
+  }, [flowNodes, storeEdges, edges, allAgents, storeSatellites, appWorkFold]);
+  const hiddenBubbleKey = JSON.stringify([...hiddenBubbleIdsNow].sort());
+  const hiddenBubbleIds = useMemo(() => hiddenBubbleIdsNow, [hiddenBubbleKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hiddenBubbleIdsRef = useRef(hiddenBubbleIds);
+  hiddenBubbleIdsRef.current = hiddenBubbleIds;
+  useEffect(() => {
+    if (hiddenBubbleIds.size === 0) return;
+    // Hidden nodes must not remain in a native drag/delete group. Only selection changes;
+    // source nodes, edges, positions, and layout inputs all remain present.
+    const nodeChanges = flowNodesRef.current.filter((n) => n.selected && hiddenBubbleIds.has(n.id))
+      .map((n) => ({ type: 'select' as const, id: n.id, selected: false }));
+    const edgeChanges = flowEdgesRef.current.filter((e) => e.selected
+      && (hiddenBubbleIds.has(e.source) || hiddenBubbleIds.has(e.target)))
+      .map((e) => ({ type: 'select' as const, id: e.id, selected: false }));
+    if (nodeChanges.length > 0) onNodesChange(nodeChanges);
+    if (edgeChanges.length > 0) onEdgesChange(edgeChanges);
+    const store = useGraphStore.getState();
+    if (store.selectedNodeId && (hiddenBubbleIds.has(store.selectedNodeId)
+      || hiddenBubbleIds.has(`sat-${store.selectedNodeId}`))) store.selectNode(null);
+    if (store.selectIntentId && (hiddenBubbleIds.has(store.selectIntentId)
+      || hiddenBubbleIds.has(`sat-${store.selectIntentId}`))) store.setSelectIntent(null);
+  }, [hiddenBubbleIds, onNodesChange, onEdgesChange]);
   const displayNodes = useMemo<Node[]>(() => {
     const base = failedWorktreeNodes.length === 0 ? flowNodes : [...flowNodes, ...failedWorktreeNodes];
-    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0 && specNodes.length === 0 && labNodes.length === 0 && shelfNodes.length === 0) return base;
+    // §5.4 #36 (I) — 접힌 개수(에이전트) · 작업 궤도와 넘침(앱 노드)은 그리는 사본에만 얹는다(표시 전용).
+    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0 && specNodes.length === 0 && labNodes.length === 0 && shelfNodes.length === 0) {
+      return decorateAppWorkNodes(applyBubbleVisibilityToNodes(base, hiddenBubbleIds), appWorkPlan, appWorkFold);
+    }
     // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/실패 표식 (앞으로)
-    return [...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...specNodes, ...labNodes, ...shelfNodes, ...base];
-  }, [flowNodes, failedWorktreeNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes]);
+    return decorateAppWorkNodes(
+      applyBubbleVisibilityToNodes([...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...specNodes, ...labNodes, ...shelfNodes, ...base], hiddenBubbleIds),
+      appWorkPlan,
+      appWorkFold,
+    );
+  }, [flowNodes, failedWorktreeNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, hiddenBubbleIds, appWorkPlan, appWorkFold]);
   /** 묶음 메뉴·Shift 클릭·`Delete` 가 **지금 화면의** 노드를 읽는 자리(키 핸들러는 마운트 때 한 번 건다). */
   const displayNodesRef = useRef<Node[]>(displayNodes);
   displayNodesRef.current = displayNodes;
@@ -931,11 +1007,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    */
   const selectedCanvasItems = useCallback((): { nodes: Node[]; edges: Edge[] } => {
     const storeSel = storeNodeSelectionRef.current;
-    const nodes = flowNodesRef.current.filter((n) => n.selected);
+    const hidden = hiddenBubbleIdsRef.current;
+    const nodes = flowNodesRef.current.filter((n) => n.selected && !hidden.has(n.id));
     if (storeSel.size > 0) {
       for (const n of displayNodesRef.current) if (storeSel.has(n.id)) nodes.push(n);
     }
-    return { nodes, edges: flowEdgesRef.current.filter((ed) => ed.selected) };
+    return { nodes, edges: flowEdgesRef.current.filter((ed) => ed.selected && !hidden.has(ed.source) && !hidden.has(ed.target)) };
   }, []);
 
   /**
@@ -1281,6 +1358,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   //   ⚠ 이 손짓은 컨테이너 전체에서 받는다 — 캔버스인지 아닌지는 `openCanvasMenuAt` 이 가린다.
   //   (폰에서 IDE 글자를 꾹 눌러 선택하려던 손짓이 이 메뉴를 열던 사고를 그 판정이 막는다.)
   const canvasLongPress = useLongPress(openCanvasMenuAt);
+  // §5.4 #34 — 버블·노드 위 길게 누르기 = 그 버블의 우클릭 메뉴(iOS 처럼 길게 눌러도 contextmenu 가 없는 브라우저).
+  //   노드 래퍼의 d3-drag 가 버블 단계 터치를 삼키므로 **캡처 단계**로 받는다 — 빈 곳 길은 위 `canvasLongPress` 그대로.
+  const nodeLongPress = useNodeLongPressMenu();
 
   const handleCtxClose = useCallback(() => {
     setCtxMenu(null);
@@ -1520,7 +1600,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [allAppBubbles, agentIds, activeProject, currentFolderId, interiorView, linkSets]);
   const refFlowEdges = useMemo<Edge[]>(() => {
     if (!refPairsKey) return [];
-    return refLinkPairs(useGraphStore.getState().appBubbles, agentIds, activeProject, linkSets.hidden).map((p) => ({
+    return refLinkPairs(allAppBubbles, agentIds, activeProject, linkSets.hidden).map((p) => ({
       id: p.id,
       source: p.agentId,
       target: p.appBubbleId,
@@ -1540,8 +1620,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    */
   const displayEdges = useMemo(() => {
     const shown = applyLinkViewToEdges(edges, linkSets);
-    return refFlowEdges.length === 0 ? shown : [...shown, ...refFlowEdges];
-  }, [edges, refFlowEdges, linkSets]);
+    return applyBubbleVisibilityToEdges(refFlowEdges.length === 0 ? shown : [...shown, ...refFlowEdges], hiddenBubbleIds);
+  }, [edges, refFlowEdges, linkSets, hiddenBubbleIds]);
 
   const [refBloom, setRefBloom] = useState<RefBloomState | null>(null);
   const refBloomRef = useRef<RefBloomState | null>(null);
@@ -1836,6 +1916,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return [trash];
   }, [activeProject, trashedAgents.length, t]);
 
+  // §5.1 #2-1 (B) — 메인 캔버스의 앱 노드 중심(그 노드가 선언한 파일이 그 노드를 돈다). 앱 노드는 메인에만 그려진다.
+  const constellationAppHubs = useConstellationAppHubs(currentFolderId === null && interiorView === null, appWorkPlan);
+
   // 메인 뷰 데이터
   const mainViewData = useBubbleLayout({
     agents,
@@ -1844,6 +1927,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     satellites: mergedSatellites,
     satellitePositions,
     residentBubbles,
+    appHubs: constellationAppHubs,
   });
 
   // §5.10 — 휴지통 내부 뷰 데이터(버려진 에이전트 나열).
@@ -1909,6 +1993,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     };
   }, [taskEdgePopup, storeTaskEdges, flowNodes]);
 
+  /**
+   * §5.24 지름의 자 — 렌더(`BubbleNode`)와 같은 척도. 아래 동기화 effect(§5.23 웹 궤도의 첫 자리)와
+   * §5.4 #33 정리가 함께 쓴다 — 둘이 따로 들면 한쪽만 다른 크기로 자리를 잡는다.
+   */
+  const heatScale = useHeatScale();
+
   // 노드/엣지 동기화 + 뷰 전환 캐시 (하나의 이펙트로 순서 보장)
   useEffect(() => {
     // Save before clearing even when the destination is empty or still waiting for its snapshot.
@@ -1957,6 +2047,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       }
     }
 
+    const pendingWebOrbit: BubbleData[] = [];
     for (const b of viewData.bubbles) {
       if (b.id.startsWith('sat-')) continue;
       // positionsRef에 이미 있으면 유지 (위에서 현재 렌더 위치가 들어감)
@@ -1992,16 +2083,48 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         const bw = bNode?.measured?.width ?? 80;
         const bh = bNode?.measured?.height ?? 80;
         pos = { x: center.x - bw / 2, y: center.y - bh / 2 };
+      } else if (WEB_ORBIT_TYPES.has(b.bubbleType)) {
+        // §5.23 웹 궤도 — 원(`layout`)이 아니라 읽은 에이전트 둘레 궤도의 빈칸에 앉는다. 다른 새 버블이
+        //   다 앉은 뒤(아래 6) 한꺼번에 앉혀야 그것들도 장애물로 센다.
+        pendingWebOrbit.push(b);
+        continue;
       } else {
         pos = layout.get(b.id);
       }
       if (pos) positionsRef.current.set(b.id, pos);
     }
 
+    // 6) §5.23 웹 궤도 — 새 웹 버블의 첫 자리. 12시에서 시계 방향, 안쪽 궤도부터 첫 빈칸.
+    //    이미 자리가 있는 버블은 하나도 옮기지 않는다(처음 설 때 한 번뿐). 상자는 물리 클램프와 같은 상자다.
+    if (pendingWebOrbit.length > 0) {
+      const store = useGraphStore.getState();
+      const box = (store.activeProject ? store.layoutBoundsByProject[store.activeProject] : undefined) ?? LAYOUT_BOUNDS_DEFAULT;
+      const seats = seatWebOrbitBubbles({
+        pending: pendingWebOrbit,
+        bubbles: viewData.bubbles,
+        nodes: flowNodesRef.current,
+        positions: positionsRef.current,
+        edges: viewData.flowEdges,
+        heat: heatScale,
+        fileSizeRange: store.fileSizeRange,
+        bounds: { cx: LAYOUT_CENTER_X, cy: LAYOUT_CENTER_Y, hw: box.hw, hh: box.hh },
+        cardForm: isMainCanvasView(store),
+        fallbackCenter: { x: LAYOUT_CENTER_X, y: LAYOUT_CENTER_Y },
+      });
+      for (const [id, pos] of seats) positionsRef.current.set(id, pos);
+    }
+
     // 7) 위성 위치 — positionsRef의 실제 폴더 위치 기준으로 계산 (캐시에 있으면 스킵)
     if (viewData.satInfos) {
       satInfosRef.current = viewData.satInfos;
-      placeSatellitePositions(viewData.satInfos, positionsRef.current);
+      // §5.1 #2-1 (B) — 별자리 중심이 앱 노드면 그 노드는 `positionsRef` 밖(store 좌표)이다. 새 위성의 첫 자리는
+      //   그 순간의 노드 가운데에서 잡는다(물리는 그 둘레 궤도로 다시 건다 — `usePhysicsLayout`).
+      placeSatellitePositions(viewData.satInfos, positionsRef.current, (parentId) => {
+        const app = useGraphStore.getState().appBubbles.find((b) => b.id === parentId);
+        if (!app) return null;
+        const size = appNodeSize(getInternalApp(app.appId), appNodeForm(app), app);
+        return { cx: app.x + size.width / 2, cy: app.y + size.height / 2, size: Math.max(size.width, size.height) };
+      });
     }
 
     // 8) 노드 업데이트 — positionsRef 기반으로 위치 결정 (서버 위치 우선)
@@ -2212,6 +2335,15 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     //   store.enterFolder(data.id);
     //   return;
     // }
+    // §5.1 #2-1 (A) — 미디어 얼굴은 그 파일을 **굽는 앱**의 편집기로 연다(굽는 앱이 곧 여는 앱 · 같은 문 `openAppWindow`
+    //   — 앱 안 창). 굽는 앱이 없거나 프로젝트 밖이면 아래 종전 길(위성이면 그 파일의 폴더로 들어가기)로 떨어진다.
+    if (data.bubbleType === 'file') {
+      const face = fileFaceOf(data);
+      if (face !== null && face.media && face.appId !== null) {
+        const target = fileMediaTarget(data.absolutePath, Object.values(store.projects).map((p) => p.path));
+        if (target !== null && openAppWindow({ appId: face.appId, projectId: target.root, file: target.rel })) return;
+      }
+    }
     // §5.3 #28 v1.47 — 콘티 버블 더블클릭 → 가장 최근 콘티의 보드 오픈
     if (data.bubbleType === 'conti') {
       const agentId = data.path.startsWith('__conti__:') ? data.path.slice('__conti__:'.length) : null;
@@ -2417,8 +2549,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   //
   // **좌표를 우리가 직접 몰아간다** — 계산한 자리로 순간이동시키면 무엇이 어디로 갔는지 눈이 따라갈
   // 수 없어서 "정리됐다"가 아니라 "화면이 바뀌었다"로 읽힌다. 가는 동안 물리는 재우고(`pauseFor`),
-  // 도착하면 깨워(`wake`) 남은 겹침만 물리에게 넘긴다.
-  const heatScale = useHeatScale();
+  // 도착하면 깨워(`wake`) 남은 겹침만 물리에게 넘긴다. 지름의 자(`heatScale`)는 위 동기화 effect 와 함께 쓴다.
   /**
    * §5.4 #33 (I-2) `heat` 기준이 잴 축 — **§5.24 히트맵이 쥔 그 축**이다(`useHeatScale` 은
    * 히트맵이 꺼져 있으면 `undefined` 라 여기서 쓸 수 없다; 정렬은 히트맵과 무관하게 돌아야 한다).
@@ -2555,7 +2686,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         bandIndex: seat.bandIndex,
       });
     }
-    const satSeats = computeTidySatellites(sats, parentSeats);
+    // §5.1 #2-1 (B) — 별자리 위성(위성의 위성)은 중심이 앉은 뒤 그 둘레에 다시 건다(두 바퀴).
+    const satSeats = computeTidySatellitesNested(sats, parentSeats);
 
     // 좌상단 기준으로 환산해 둔다 — 노드 좌표계가 좌상단이라 매 프레임 다시 계산하지 않게.
     const from = new Map<string, XYPosition>();
@@ -2652,7 +2784,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     if (currentFolderId !== null) return; // 메인 뷰 전용
     if (!activeProject) return;
     const padding = COMMENT_BOX_DEFAULTS.PADDING;
-    const selected = flowNodesRef.current.filter((n) => n.selected && n.type === 'bubble');
+    const selected = flowNodesRef.current.filter((n) => n.selected && n.type === 'bubble' && !hiddenBubbleIdsRef.current.has(n.id));
     let x: number, y: number, width: number, height: number;
     const childNodeIds: string[] = [];
 
@@ -3440,7 +3572,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const fallbackNodeId = state.selectedNodeId
       ?? selectedFlowNodes.find((n) => n.type === 'bubble')?.id
       ?? null;
-    if (!fallbackNodeId) return;
+    if (!fallbackNodeId || hiddenBubbleIdsRef.current.has(fallbackNodeId)
+      || hiddenBubbleIdsRef.current.has(`sat-${fallbackNodeId}`)) return;
     const node = state.nodeMap[fallbackNodeId];
     if (!node) return;
     // §5.4 #34 — 판정도 실행도 `bubbleDeleteAction` 한 곳이다(버블 우클릭 메뉴가 같은 함수를 쓴다).
@@ -3603,6 +3736,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       onTouchMove={canvasLongPress.onTouchMove}
       onTouchEnd={canvasLongPress.onTouchEnd}
       onTouchCancel={canvasLongPress.onTouchCancel}
+      {...nodeLongPress}
     >
       {/* §5.4 #31 (K) — 선택 초점은 이 래퍼가 구독한다. 본체가 구독하면 클릭마다 캔버스 전체가 다시 돈다. */}
       <SelectionFocusFlow
@@ -3616,9 +3750,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handleCtxClose}
         onSelectionContextMenu={handleSelectionContextMenu}
-        onInit={(i) => { rfRef.current = i; }}
-        onMoveStart={rememberViewport}
-        onMoveEnd={rememberViewport}
+        onInit={(i) => { rfRef.current = i; previewBudget.setZoom(i.getViewport().zoom); }}
+        // §5.1 #2-1 (G) ③④ — 움직이는 동안은 새로 굽지 않고 고른 미리보기를 바꾸지 않는다. 멈추면 그 줌으로 다시 고른다.
+        onMoveStart={(event, viewport) => { previewBudget.setMoving(true, viewport.zoom); rememberViewport(event, viewport); }}
+        onMoveEnd={(event, viewport) => { previewBudget.setMoving(false, viewport.zoom); rememberViewport(event, viewport); }}
         defaultEdgeOptions={{ style: { stroke: EDGE_STYLE.inactiveColor, strokeWidth: EDGE_STYLE.inactiveWidth }, type: 'curved', focusable: false, interactionWidth: 0 }}
         minZoom={zoomCtrlHeld || mobileZoom ? 0.1 : 0.5}
         maxZoom={zoomCtrlHeld ? 4 : 2}

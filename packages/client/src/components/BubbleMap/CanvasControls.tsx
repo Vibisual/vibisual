@@ -14,6 +14,8 @@ import {
 } from '@vibisual/shared';
 import type { TidySort } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore';
+import { useProjectImmersionStore } from '../../stores/projectImmersion.js';
+import { useTitleWithBinding } from '../Shortcuts/useBindingLabel.js';
 // §5.24 — 색·지름이 쓰는 척도 한 벌을 범례도 그대로 받는다(따로 조합하면 눈금만 다른 곡선을 본다).
 import { useHeatScale } from '../../hooks/useHeatScale.js';
 import {
@@ -22,7 +24,6 @@ import {
   CtrlPanel,
   PlusIcon,
   MinusIcon,
-  FitIcon,
 } from './canvasControlKit.js';
 
 const LockIcon = (): React.JSX.Element => (
@@ -47,7 +48,7 @@ const ExitFullscreenIcon = (): React.JSX.Element => (
     <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
   </Glyph>
 );
-// §5.4 #33 버블 정리 — 지팡이. 조준경(FitIcon)·불꽃(HeatIcon)과 실루엣이 겹치지 않아
+// §5.4 #33 버블 정리 — 지팡이. 전체화면·불꽃(HeatIcon)과 실루엣이 겹치지 않아
 // 14px 에서도 무엇인지 바로 갈린다. "알아서 자리를 잡아 준다"를 한 글리프로 말하는 기호다.
 const TidyIcon = (): React.JSX.Element => (
   <Glyph>
@@ -237,7 +238,8 @@ function HeatLegend(): React.JSX.Element {
           onChange={onCurveChange}
           title={`${t('canvas.heatmap.curveHint')} — ${t(`canvas.heatmap.curveRule.${curve}`)}`}
           aria-label={t('canvas.heatmap.curveLabel')}
-          className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 text-[12px] text-gray-300 outline-none [color-scheme:dark] hover:border-gray-600 focus:border-blue-500"
+          // 손가락에는 20px 손잡이가 작다 — 굵은 포인터에서만 위아래를 넓힌다(데스크톱 모습은 그대로).
+          className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 text-[12px] text-gray-300 outline-none [color-scheme:dark] hover:border-gray-600 focus:border-blue-500 pointer-coarse:py-1.5"
         >
           {HEAT_CURVES.map((c) => (
             <option
@@ -332,9 +334,10 @@ function SortRow({ sort, active, disabled, onPick }: {
       <span className="min-w-0 flex-1">
         <span className={`block truncate text-[12px] leading-tight ${active ? 'font-medium' : ''}`}>{name}</span>
         {/* 좁은 화면에서는 설명을 접는다 — 다섯 줄이 두 행씩이면 컨트롤 무리와 함께 화면 밖으로
-            넘친다. **지우는 것이 아니라 접는 것**이라 설명은 버튼의 `title` 에 그대로 남는다
-            (§9 "폰에서는 지우지 말고 접어라"). 글자 크기는 접든 펴든 한글 가독 하한 12px 이다. */}
-        <span className="block truncate text-[12px] leading-tight text-gray-500 max-sm:hidden">{rule}</span>
+            넘친다. **지우는 것이 아니라 접는 것**이라 지금 고른 줄의 설명은 펼쳐 둔다 — 줄을 누르면(고르는 즉시
+            돈다) 그 줄의 설명이 펴지므로 손가락으로도 읽힌다(`title` 은 마우스에서만 뜬다). 펴진 줄은 언제나 하나라
+            카드 높이도 흔들리지 않는다(§9 "폰에서는 지우지 말고 접어라"). 글자 크기는 접든 펴든 가독 하한 12px 이다. */}
+        <span className={`block truncate text-[12px] leading-tight text-gray-500 ${active ? '' : 'max-sm:hidden'}`}>{rule}</span>
       </span>
     </button>
   );
@@ -422,13 +425,13 @@ interface CanvasControlsProps {
 }
 
 /**
- * 캔버스 좌하단 줌/핏/잠금 컨트롤.
+ * 캔버스 좌하단 줌/프로젝트 몰입/잠금 컨트롤.
  * React Flow 기본 <Controls> 를 대체 — 프로젝트 디자인(다크 + blue 액센트)에 맞춘
  * 고대비 플로팅 패널. 상호작용 토글은 공식 Controls 와 동일하게 store 를 갱신한다.
  */
 export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControlsProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const { zoomIn, zoomOut } = useReactFlow();
   const store = useStoreApi();
   const isNarrow = useIsNarrowViewport();
   const isInteractive = useStore(
@@ -436,6 +439,10 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
   );
   // 새로고침 — 활성 프로젝트 스냅샷을 서버(디스크)에서 다시 불러온다(버블/에이전트 재적재).
   const activeProject = useGraphStore((s) => s.activeProject);
+  const immersive = useProjectImmersionStore((s) => activeProject !== null && s.immersiveProject === activeProject);
+  const toggleImmersion = useProjectImmersionStore((s) => s.toggle);
+  const immersionLabel = t(immersive ? 'canvas.controls.exitImmersiveMode' : 'canvas.controls.immersiveMode');
+  const immersionTitle = useTitleWithBinding(immersionLabel, 'global.projectImmersion');
   const isHydrating = useGraphStore((s) => (activeProject ? !!s.hydratingProjects[activeProject] : false));
   // §5.24 — 히트맵. 캔버스를 **보는 방식**을 바꾸는 것이라 줌·핏·잠금과 같은 줄에 선다.
   //   어느 축(읽기/쓰기)을 보는지는 범례가 말하므로 여기 버튼 이름은 축 중립이다.
@@ -468,7 +475,9 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
 
   const handleZoomIn = useCallback(() => { zoomIn(); }, [zoomIn]);
   const handleZoomOut = useCallback(() => { zoomOut(); }, [zoomOut]);
-  const handleFitView = useCallback(() => { fitView({ duration: 300 }); }, [fitView]);
+  const handleToggleImmersion = useCallback(() => {
+    if (activeProject !== null) toggleImmersion(activeProject);
+  }, [activeProject, toggleImmersion]);
   const handleToggleLock = useCallback(() => {
     store.setState({
       nodesDraggable: !isInteractive,
@@ -499,11 +508,20 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
 
   return (
     <Panel position="bottom-left" className="!mb-12 !ml-3">
-      <div className="flex flex-col items-start gap-1.5">
-      {heatmapMode && <HeatLegend />}
-      {/* §5.4 #33 (I) — 범례와 같은 자리(컨트롤 무리 바로 위). 둘 다 켜면 정리 패널이 더 가깝게
-          선다 — 방금 누른 버튼 바로 옆에 열려야 그 버튼이 연 것으로 읽힌다. */}
-      {tidyPanelOpen && <TidySortPanel disabled={tidyLocked} onPick={handlePickSort} />}
+      {/* 이 무리는 위로 자란다 — 폰에서 굵은 포인터 단추(44px) 여덟 개에 범례·정리 패널까지 펴면 캔버스 키를 넘어
+          위쪽이 잘렸고 스크롤도 없었다. 그래서 화면 높이 안으로 묶고(헤더·아래 여백만큼 뺀다) 모자라면 **패널부터**
+          줄여 안에서 스크롤하게 한다(`shrink-[1000]`) — 단추 무리는 마지막까지 제 키를 지키고, 그래도 모자랄 때만
+          (가로로 눕힌 폰) 단추 무리도 스크롤한다. 데스크톱 높이에서는 상한에 닿지 않아 모습이 그대로다. */}
+      <div className="flex max-h-[calc(100dvh-8rem)] flex-col items-start gap-1.5">
+      {(heatmapMode || tidyPanelOpen) && (
+        <div className="flex min-h-0 shrink-[1000] flex-col items-start gap-1.5 overflow-y-auto overscroll-contain">
+          {heatmapMode && <HeatLegend />}
+          {/* §5.4 #33 (I) — 범례와 같은 자리(컨트롤 무리 바로 위). 둘 다 켜면 정리 패널이 더 가깝게
+              선다 — 방금 누른 버튼 바로 옆에 열려야 그 버튼이 연 것으로 읽힌다. */}
+          {tidyPanelOpen && <TidySortPanel disabled={tidyLocked} onPick={handlePickSort} />}
+        </div>
+      )}
+      <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain rounded-lg">
       <CtrlPanel>
         <CtrlButton label={t('canvas.controls.zoomIn')} onClick={handleZoomIn}>
           <PlusIcon />
@@ -511,10 +529,16 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
         <CtrlButton label={t('canvas.controls.zoomOut')} onClick={handleZoomOut}>
           <MinusIcon />
         </CtrlButton>
-        <CtrlButton label={t('canvas.controls.fitView')} onClick={handleFitView}>
-          <FitIcon />
+        <CtrlButton
+          label={immersionLabel}
+          title={immersionTitle}
+          onClick={handleToggleImmersion}
+          active={immersive}
+          disabled={activeProject === null}
+        >
+          {immersive ? <ExitFullscreenIcon /> : <FullscreenIcon />}
         </CtrlButton>
-        {/* §5.4 #33 — 화면맞춤이 **카메라**를 옮긴다면 이쪽은 **버블**을 옮긴다. 나란히 둔다.
+        {/* §5.4 #33 — 정리는 버블의 배치를 바꾼다.
             (I) 이후 이 버튼은 **패널 토글**이다 — 그래서 잠긴 화면에서도 눌러 무엇이 있는지
             볼 수 있고(패널 안에서 왜 못 도는지 말한다), 실행은 패널의 기준 줄이 건다. */}
         <CtrlButton
@@ -554,6 +578,7 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
           </CtrlButton>
         )}
       </CtrlPanel>
+      </div>
       </div>
     </Panel>
   );

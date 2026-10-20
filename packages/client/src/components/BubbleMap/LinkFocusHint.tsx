@@ -29,13 +29,15 @@ export function LinkFocusHint(): React.JSX.Element | null {
       ? t('canvas.linkFocus.moving', { count, defaultValue: 'Moving {{count}} linked bubble(s) together' })
       : t('canvas.linkFocus.hover', { count, key, defaultValue: 'Drag with {{key}} to move {{count}} linked bubble(s) together' });
 
+  // 폭은 글자만큼(`w-max`)이되 캔버스 폭에서 양옆 여백을 뺀 만큼까지만 — 가운데 패널은 `left:50%` 라 그대로 두면
+  //   남은 절반 폭에서 줄이 꺾이고, 좁은 화면에서는 알약이 여러 줄 기둥이 된다. 넘치면 가운데 정렬로 줄을 바꾼다.
   return (
     <Panel
       position="bottom-center"
-      className="pointer-events-none !mb-6 select-none rounded-full border border-white/15 bg-gray-900/85 px-3.5 py-1.5 text-xs font-medium text-gray-200 shadow-lg backdrop-blur-sm"
+      className="pointer-events-none !mb-6 w-max max-w-[calc(100%-3rem)] select-none rounded-full border border-white/15 bg-gray-900/85 px-3.5 py-1.5 text-center text-xs font-medium text-gray-200 shadow-lg backdrop-blur-sm"
       role="status"
     >
-      <span className="flex items-center gap-2">
+      <span className="flex items-center justify-center gap-2">
         {/* 무리를 뜻하는 글리프 — 가운데 점 하나에 세 점이 매달린 모양(lucide 톤 stroke SVG). */}
         <svg
           viewBox="0 0 24 24"
@@ -44,7 +46,7 @@ export function LinkFocusHint(): React.JSX.Element | null {
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="h-3.5 w-3.5 text-gray-400"
+          className="h-3.5 w-3.5 shrink-0 text-gray-400"
           aria-hidden="true"
         >
           <circle cx="12" cy="12" r="3" />

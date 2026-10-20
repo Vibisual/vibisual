@@ -3,7 +3,7 @@
  *
  * 제목줄(`.app-drag`)을 누르면 보통은 OS 가 그 손짓을 가져가 창을 옮기고, 페이지에는 아무것도 오지 않는다.
  * 그 자리가 지금 드래그 영역으로 신고돼 있지 않으면(앱을 막 켰을 때 등) 손짓이 페이지까지 온다. 그때 그
- * 누름 그대로 `move-self` 로 창을 옮긴다 — 헤더 로고 덮개가 쓰는 바로 그 길(`beginTitlebarDrag`)이다.
+ * 누름 그대로 `move-self` 로 창을 옮긴다(`beginTitlebarDrag`). 로고도 같은 `.app-drag` 라 이 보조 경로를 쓴다.
  *
  * ⚠ **영역을 코드로 흔들지 않는다.** 종전에는 같은 관측("제목줄인데 손짓이 왔다")을 다음 누름을 위해 영역을
  *   두 프레임 동안 `no-drag` 로 바꿨다 되돌리는 데 썼고, 창 상태 전이·포커스·시작 시각에도 같은 흔들기를
@@ -50,6 +50,8 @@ export function isDragRegionTarget(target: EventTarget | null): boolean {
  * 전파를 끊는다. 이동 창구(`move-self`)가 없는 창(웹·모바일 접속)에서는 아무것도 하지 않는다.
  *
  * 최대화 해제가 pointercancel·캡처 상실을 일으켜도 손은 아직 눌려 있으므로 창의 mouseup 을 끝으로 삼는다.
+ * 그 사이 이 페이지의 `move` 가 끊겨도 main 이 제 박자로 OS 커서를 따라가고, 손을 뗀 것은 물리 버튼으로 안다
+ * (desktop `titlebarMove.ts` 의 `followTitlebarMove` — 앱 창 끌기와 같은 길, §3.7 2026-10-16).
  * IPC 는 응답을 기다리지 않고 start → move → end 순서로 보낸다 — 응답을 기다렸다 이어 보내면 이미 손을
  * 뗀 뒤의 늦은 성공이 끝난 손짓을 되살리거나 다음 손짓을 덮는다.
  *
@@ -65,6 +67,13 @@ export function beginTitlebarDrag(down: { button: number; screenX?: number; scre
 
   activeStop?.();
 
+  // 페이지에서 시작한 보조 끌기가 주변 OS 캡션으로 넘어가도 mousemove/up 을 계속 받는다.
+  // 최대화 복원 중에는 커서 아래 헤더 영역도 바뀐다. 손을 쥔 동안만 기존 끌기 CSS 를 쓰고,
+  // 끝나면 원래 영역으로 돌린다(다음 누름을 위한 드래그 영역 재신고가 아니다).
+  const body = typeof document === 'undefined' ? undefined : document.body;
+  const ownsDragClass = !!body && !body.classList.contains('vib-titlebar-drag');
+  if (ownsDragClass) body.classList.add('vib-titlebar-drag');
+
   let finished = false;
   // `at` 은 실제로 손을 뗀 자리일 때만 싣는다. 놓친 mouseup 뒤의 이동·창 이탈은 놓은 자리가 아니다.
   const end = (at?: TitlebarPoint): void => {
@@ -73,12 +82,18 @@ export function beginTitlebarDrag(down: { button: number; screenX?: number; scre
     if (activeStop === stop) activeStop = null;
     window.removeEventListener('mousemove', onMove, true);
     window.removeEventListener('mouseup', onUp, true);
-    window.removeEventListener('blur', stop, true);
+    window.removeEventListener('blur', onBlur, true);
     window.removeEventListener('pagehide', stop, true);
+    if (ownsDragClass) body.classList.remove('vib-titlebar-drag');
     try { void moveSelf('end', at).catch(() => { /* 종료 중인 창은 IPC 가 이미 닫혔을 수 있다. */ }); }
     catch { /* preload 가 종료된 경우에도 리스너는 위에서 먼저 걷었다. */ }
   };
   const stop = (): void => { end(); };
+  // 창이 포커스를 잃을 때만 끝낸다(§3.7). capture 로 들으면 페이지 안 요소의 blur 도 여기로 오는데 — 최대화를 풀며
+  //   화면이 다시 놓일 때 입력칸이 포커스를 잃는 일 등 — 그것은 손을 뗀 것이 아니다.
+  const onBlur = (event: Event): void => {
+    if (event.target === window) stop();
+  };
 
   const send = (phase: 'start' | 'move', at?: TitlebarPoint): void => {
     // 거절·실패는 **이 손짓**만 끝낸다 — 이미 끝난 앞 손짓의 늦은 응답은 다음 손짓을 건드리지 않는다.
@@ -102,7 +117,7 @@ export function beginTitlebarDrag(down: { button: number; screenX?: number; scre
   activeStop = stop;
   window.addEventListener('mousemove', onMove, true);
   window.addEventListener('mouseup', onUp, true);
-  window.addEventListener('blur', stop, true);
+  window.addEventListener('blur', onBlur, true);
   window.addEventListener('pagehide', stop, true);
   send('start', pointOf(down));
   return true;
@@ -121,7 +136,7 @@ let installed = false;
  *
  * capture 로 듣는다 — 그 누름이 페이지의 다른 처리기(캔버스·탭 끌기·팝업 닫기)로 흘러가기 전에 받는다.
  * 드래그 영역은 원래 OS 가 손짓을 가져가 페이지가 아무것도 받지 못하는 자리라, 여기서 전파를 끊어도 신고가
- * 맞을 때와 같은 결과다. 덮개(`app-nodrag`)는 여기서 거르고 자기 처리기(`useTitlebarDrag`)가 받는다.
+ * 맞을 때와 같은 결과다. 버튼·탭(`app-nodrag`)은 여기서 거른다.
  */
 export function installTitlebarPressCatch(): () => void {
   if (installed) return () => { /* 이미 설치됨 — 해제는 첫 설치자의 몫 */ };

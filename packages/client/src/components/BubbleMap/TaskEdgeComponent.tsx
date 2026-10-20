@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BaseEdge, EdgeLabelRenderer, useInternalNode, type EdgeProps, type InternalNode } from '@xyflow/react';
 import type { TaskEdgeStatus, TaskEdgeKind } from '@vibisual/shared';
-import { TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, LINK_FOCUS } from '@vibisual/shared';
+import { TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, LINK_FOCUS, resolveBubbleEdgeStyle } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { linkFocusEdgeStyle } from './linkedBubbles.js';
@@ -10,6 +10,7 @@ import { computeTaskEdgePath, readRadiusFromData } from './taskEdgePath.js';
 import { clipCurvePath } from './edgeOcclusion.js';
 import { useEdgeOccluders } from './edgeOccluders.js';
 import { isRectNode, nodeBorderDistance } from './agentCard.js';
+import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /**
  * §5.4 #36 (A) — 끝 노드가 말풍선(정사각이 아닌 버블 노드)이면 그 방향의 **실루엣까지 거리**, 아니면 null
@@ -87,6 +88,9 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
 }: EdgeProps): React.JSX.Element {
   const { t } = useTranslation();
   const edgeData = data as Record<string, unknown> | undefined;
+  const appearance = useGraphStore((s) => resolveBubbleEdgeStyle(
+    s.bubbleAppearancePending?.edgeStyle ?? s.userDefaults?.appearance?.edgeStyle,
+  ));
   const selectionFocusClassName = typeof edgeData?.['selectionFocusClassName'] === 'string'
     ? edgeData['selectionFocusClassName'] : undefined;
   // v1.33 — status 기반 "지속" 시각 전이 OFF. 엣지 모양은 kind(의미)로만 결정.
@@ -224,19 +228,25 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const linkRole = useLinkEdgeRole(id);
   const linkPhase = useLinkFocusPhase();
   const linkVisual = linkFocusEdgeStyle(linkRole, linkPhase);
+  const lineStyle: React.CSSProperties = {
+    stroke: lineColor,
+    strokeWidth: (kind === 'artifact' ? 3.5 : 2.5) * linkVisual.widthMul,
+    strokeDasharray: idleDash,
+    opacity: (isAutoSibling ? 0.55 : 1) * linkVisual.opacityMul,
+    transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out, stroke-width ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
+  };
+  const paint = bubbleEdgeAppearance(appearance, { semantic: 'task', base: lineStyle });
 
   return (
     <>
+      {paint.map((layer) => (
+        <path key={layer.role} className="bubble-edge-paint" data-paint-layer={layer.role}
+          d={clipped.path} style={layer.style} pointerEvents="none" aria-hidden="true" />
+      ))}
       <BaseEdge
         id={id}
         path={clipped.path}
-        style={{
-          stroke: lineColor,
-          strokeWidth: (kind === 'artifact' ? 3.5 : 2.5) * linkVisual.widthMul,
-          strokeDasharray: idleDash,
-          opacity: (isAutoSibling ? 0.55 : 1) * linkVisual.opacityMul,
-          transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out, stroke-width ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
-        }}
+        style={bubbleEdgeMarkerStyle(lineStyle)}
         markerEnd={clipped.endVisible ? `url(#task-arrow-${kind})` : undefined}
         interactionWidth={15}
       />

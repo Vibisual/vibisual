@@ -23,6 +23,7 @@ import {
   buildLinkedOutputBrief,
   canUseAgentCard,
   clampBloomCenter,
+  clampCaptionCenterX,
   isAgentCardBox,
   isAgentCardForm,
   isRectNode,
@@ -257,6 +258,21 @@ describe('§5.4 #36 기하 — 말풍선 실루엣 · 위성줄 · 꽃잎', () =
       expect(c.x + p.dx).toBeLessThanOrEqual(1000 - pad + 1e-6);
       expect(c.y + p.dy).toBeLessThanOrEqual(700 - pad + 1e-6);
     }
+  });
+
+  it('꽃 이름 한 줄은 가장자리에서 잘리지 않게 안쪽으로 밀리고, 화면보다 넓으면 화면 가운데에 선다', () => {
+    const m = REF_BLOOM.margin;
+    // 꽃잎이 아래로 피면 꽃 가운데가 왼쪽 가장자리 근처까지 붙는다 — 그 아래 120px 이름은 반이 밖이었다.
+    const pinned = clampBloomCenter(0, 300, bloomPetalOffsets(1, Math.PI / 2), 360, 740);
+    const left = clampCaptionCenterX(pinned.x, 120, 360, m);
+    expect(left - 60).toBeGreaterThanOrEqual(m - 1e-6);
+    // 오른쪽 가장자리도 같다.
+    const right = clampCaptionCenterX(355, 120, 360, m);
+    expect(right + 60).toBeLessThanOrEqual(360 - m + 1e-6);
+    // 들어갈 자리면 움직이지 않는다(데스크톱 그대로).
+    expect(clampCaptionCenterX(500, 120, 1280, m)).toBe(500);
+    // 이름이 화면보다 넓으면 화면 가운데.
+    expect(clampCaptionCenterX(40, 400, 360, m)).toBe(180);
   });
 });
 

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { REF_BLOOM, REF_LINK_STYLE } from '@vibisual/shared';
 import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import {
   bloomPetalOffsets,
   clampBloomCenter,
+  clampCaptionCenterX,
   pointOnOrbitToward,
   refLinkPath,
   type OrbitOrigin,
@@ -117,6 +118,18 @@ export function RefLinkBloom({
     : center.y + REF_BLOOM.captionGap;
   const current = items[active];
 
+  // 이름은 가운데 정렬이라 꽃이 가장자리에 붙으면 긴 이름의 반이 화면 밖으로 나갔다(폰 폭). 그리기 전에 재서 이름만
+  //   안쪽으로 민다 — 꽃은 그 자리 그대로다. 들어갈 자리면 가운데(`center.x`) 그대로라 데스크톱 모습은 같다.
+  const captionRef = useRef<HTMLDivElement>(null);
+  const [captionX, setCaptionX] = useState<number | null>(null);
+  const currentLabel = current?.label;
+  useLayoutEffect(() => {
+    const el = captionRef.current;
+    if (!el) return;
+    const next = clampCaptionCenterX(center.x, el.offsetWidth, window.innerWidth, REF_BLOOM.margin);
+    setCaptionX((prev) => (prev === next ? prev : next));
+  }, [center.x, currentLabel]);
+
   return createPortal(
     <div
       className="fixed inset-0 z-[60]"
@@ -173,8 +186,9 @@ export function RefLinkBloom({
       </div>
       {current && (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded-full border border-white/10 bg-gray-950/90 px-2 py-0.5 text-[12px] leading-4 text-gray-100 shadow-md shadow-black/40"
-          style={{ left: center.x, top: captionTop }}
+          ref={captionRef}
+          className="pointer-events-none absolute max-w-[calc(100vw-24px)] -translate-x-1/2 truncate whitespace-nowrap rounded-full border border-white/10 bg-gray-950/90 px-2 py-0.5 text-[12px] leading-4 text-gray-100 shadow-md shadow-black/40"
+          style={{ left: captionX ?? center.x, top: captionTop }}
         >
           {current.label}
         </div>

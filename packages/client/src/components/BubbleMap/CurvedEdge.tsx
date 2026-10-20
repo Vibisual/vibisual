@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { BaseEdge, useInternalNode, type EdgeProps, type InternalNode } from '@xyflow/react';
-import { LINK_FOCUS } from '@vibisual/shared';
+import { LINK_FOCUS, resolveBubbleEdgeStyle } from '@vibisual/shared';
+import { useGraphStore } from '../../stores/graphStore.js';
 import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { linkFocusEdgeStyle } from './linkedBubbles.js';
 import { clipCurvePath, type CubicCurve } from './edgeOcclusion.js';
 import { useEdgeOccluders } from './edgeOccluders.js';
 import { nodeBorderDistance } from './agentCard.js';
+import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /** edge ID → 안정적인 -1.0~1.0 난수 */
 function stableRandom(id: string): number {
@@ -75,11 +77,15 @@ export function CurvedEdge({
   targetX,
   targetY,
   style,
+  animated,
   markerEnd,
   markerStart,
   interactionWidth,
   data,
 }: EdgeProps): React.JSX.Element {
+  const appearance = useGraphStore((s) => resolveBubbleEdgeStyle(
+    s.bubbleAppearancePending?.edgeStyle ?? s.userDefaults?.appearance?.edgeStyle,
+  ));
   // 실측 지오메트리(있으면 진실). 없으면 핸들 좌표 + data 반지름으로 폴백.
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
@@ -100,6 +106,10 @@ export function CurvedEdge({
       transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out, stroke-width ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
     };
   }, [style, linkRole, linkPhase]);
+  // Ownership links retain their green, non-directional dashed meaning.
+  const paint = useMemo(() => id.startsWith('play-owner-') ? null : bubbleEdgeAppearance(appearance, {
+    semantic: 'activity', base: linkStyle, active: animated === true,
+  }), [appearance, id, linkStyle, animated]);
 
   const srcR = (data as Record<string, unknown> | undefined)?.['sourceRadius'];
   const tgtR = (data as Record<string, unknown> | undefined)?.['targetRadius'];
@@ -164,13 +174,19 @@ export function CurvedEdge({
   const clipped = useMemo(() => clipCurvePath(curve, occluders, path), [path, occluders]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <BaseEdge
-      id={id}
-      path={clipped.path}
-      style={linkStyle}
-      markerEnd={clipped.endVisible ? markerEnd : undefined}
-      markerStart={clipped.startVisible ? markerStart : undefined}
-      interactionWidth={interactionWidth}
-    />
+    <>
+      {paint?.map((layer) => (
+        <path key={layer.role} className="bubble-edge-paint" data-paint-layer={layer.role}
+          d={clipped.path} style={layer.style} pointerEvents="none" aria-hidden="true" />
+      ))}
+      <BaseEdge
+        id={id}
+        path={clipped.path}
+        style={paint ? bubbleEdgeMarkerStyle(linkStyle) : linkStyle}
+        markerEnd={clipped.endVisible ? markerEnd : undefined}
+        markerStart={clipped.startVisible ? markerStart : undefined}
+        interactionWidth={interactionWidth}
+      />
+    </>
   );
 }

@@ -7,6 +7,7 @@ import {
   AGENT_CLUSTER_RADIUS_PER_AGENT,
   ORBIT_BASE_RADIUS,
   ORBIT_RADIUS_PER_ITEM,
+  WEB_ORBIT_TYPES,
 } from '@vibisual/shared';
 import { calcBubbleSize } from './sizeCalc.js';
 import type { EdgeInput, SatelliteInfo } from './satellite.js';
@@ -117,6 +118,17 @@ export function radialLayout(
   return positions;
 }
 
+/**
+ * §5.23 웹 궤도 — 큰 원(`radialLayout`)에 세울 항목. 웹 버블(`WEB_ORBIT_TYPES`)은 뺀다.
+ *
+ * 그 원의 반지름은 개수에 비례해 자란다. 자료조사 한 번에 호스트 수십 곳이 거기 들면 원이 물리 상자를
+ * 넘고, 물리 클램프가 그 버블들을 상자 벽에 눌러 사각 테두리가 된다(함께 선 폴더도 부푼 반지름을 받는다).
+ * 웹 버블의 첫 자리는 읽은 에이전트 둘레 궤도가 정한다(`webOrbitSeating.ts`).
+ */
+export function radialItemsOf(items: readonly BubbleData[]): BubbleData[] {
+  return items.filter((b) => !WEB_ORBIT_TYPES.has(b.bubbleType));
+}
+
 // ─── 충돌 방지 배치 ───
 
 export const SPAWN_RADIUS = 300;
@@ -194,7 +206,8 @@ export function appendSatelliteBubbles(
 // ─── 위성 엣지 빌드 ───
 
 export function buildSatelliteEdges(satInfos: SatelliteInfo[]): Edge[] {
-  return satInfos.map((s) => buildFlowEdge(s.edge));
+  // §5.1 #2-1 (B) — 별자리 중심인 앱 노드가 연결선을 숨겼으면 그 위성선도 그리지 않는다(연결은 그대로 — `hidden`).
+  return satInfos.map((s) => (s.edgeHidden === true ? { ...buildFlowEdge(s.edge), hidden: true } : buildFlowEdge(s.edge)));
 }
 
 // ─── ViewData 결과 타입 ───

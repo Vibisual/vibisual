@@ -24,6 +24,28 @@ export type PersistFlushFn = () => void;
 
 const flushers = new Set<PersistFlushFn>();
 
+/** A durable writer resolves true only after its newest draft has reached storage. */
+export type DurableFlushFn = () => Promise<boolean>;
+const durableFlushers = new Map<DurableFlushFn, (() => void) | undefined>();
+
+export function registerDurableFlush(fn: DurableFlushFn, release?: () => void): () => void {
+  durableFlushers.set(fn, release);
+  return () => { durableFlushers.delete(fn); };
+}
+
+/** All writers get a chance to save; one failure must prevent teardown. */
+export async function flushAllDurable(): Promise<boolean> {
+  const results = await Promise.allSettled([...durableFlushers.keys()].map(async (flush) => flush()));
+  return results.every((result) => result.status === 'fulfilled' && result.value === true);
+}
+
+/** Resume editing when shutdown was canceled, failed, or will be retried. */
+export function releaseDurableFlushes(): void {
+  for (const release of [...durableFlushers.values()]) {
+    try { release?.(); } catch { /* One editor must not keep other editors locked. */ }
+  }
+}
+
 /**
  * 저장소의 flush 를 창구에 올린다.
  * @returns 해제 함수(테스트·핫리로드용). 앱 코드는 보통 버려도 된다 — 모듈은 프로세스와 함께 산다.
@@ -74,5 +96,10 @@ export function installPersistFlushBridge(): () => void {
   if (typeof window === 'undefined') return () => { /* SSR·테스트 */ };
   const onFlush = window.api?.lifecycle?.onFlushDrafts;
   if (!onFlush) return () => { /* 웹 모드·구버전 preload */ };
-  return onFlush(() => { flushAllPersisted(); });
+  const offFlush = onFlush(async () => {
+    flushAllPersisted();
+    return flushAllDurable();
+  });
+  const offRelease = window.api?.lifecycle?.onFlushDraftsCanceled?.(releaseDurableFlushes);
+  return () => { offFlush(); offRelease?.(); };
 }

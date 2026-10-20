@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { answerAppDialog, confirmDialog, getAppDialog, installAppDialogKeyboardGuard } from '../../utils/appDialog.js';
+import { selectShellImmersive, useProjectImmersionStore } from '../../stores/projectImmersion.js';
 import {
   registerCaptureWindow,
   topCaptureWindowUid,
@@ -11,7 +13,63 @@ import {
  * 핵심 계약: 마지막 등록/클릭한 창이 맨 앞(z 최대), Escape 는 그 최상단 창 하나만 닫는다.
  */
 describe('captureWindowManager', () => {
-  beforeEach(() => __resetCaptureWindowsForTest());
+  beforeEach(() => {
+    __resetCaptureWindowsForTest();
+    useProjectImmersionStore.getState().exit();
+  });
+  afterEach(() => {
+    __resetCaptureWindowsForTest();
+    useProjectImmersionStore.getState().exit();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(['project', 'ide'])('lets %s immersion handle Escape before closing a previously registered window', (kind) => {
+    const browser = new EventTarget();
+    vi.stubGlobal('window', browser);
+    const close = vi.fn();
+    registerCaptureWindow(close);
+    if (kind === 'project') useProjectImmersionStore.getState().toggle('project');
+    else useProjectImmersionStore.getState().enterIDE('project', 'pane');
+    // The shell installs its listener after the existing floating window has registered.
+    browser.addEventListener('keydown', (event) => {
+      if (!selectShellImmersive(useProjectImmersionStore.getState())) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      useProjectImmersionStore.getState().exit();
+    }, true);
+    const escape = (): Event => {
+      const event = new Event('keydown', { cancelable: true });
+      Object.defineProperty(event, 'key', { value: 'Escape' });
+      browser.dispatchEvent(event);
+      return event;
+    };
+
+    expect(escape().defaultPrevented).toBe(true);
+    expect(useProjectImmersionStore.getState().immersiveProject).toBeNull();
+    expect(useProjectImmersionStore.getState().immersiveIDE).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(escape().defaultPrevented).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('consumes the Escape that opens a discard dialog before other window capture listeners can close background UI', async () => {
+    const browser = new EventTarget();
+    vi.stubGlobal('window', browser);
+    installAppDialogKeyboardGuard(browser as unknown as Window);
+    let answer: Promise<boolean> | undefined;
+    registerCaptureWindow(() => { answer = confirmDialog('Discard edits?'); });
+    const backgroundClose = vi.fn();
+    browser.addEventListener('keydown', backgroundClose, true);
+
+    const event = new Event('keydown', { cancelable: true });
+    Object.defineProperty(event, 'key', { value: 'Escape' });
+    browser.dispatchEvent(event);
+    expect(getAppDialog()?.message).toBe('Discard edits?');
+    expect(event.defaultPrevented).toBe(true);
+    expect(backgroundClose).not.toHaveBeenCalled();
+    answerAppDialog(getAppDialog()!.id, false);
+    await expect(answer).resolves.toBe(false);
+  });
 
   it('여러 창을 등록하면 나중 등록이 맨 앞(top)이고 z 가 더 크다', () => {
     const a = registerCaptureWindow(() => {});

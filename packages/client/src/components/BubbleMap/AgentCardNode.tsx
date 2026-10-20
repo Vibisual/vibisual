@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData } from '@vibisual/shared';
-import { AGENT_CARD, BUBBLE_STYLES, LINK_FOCUS } from '@vibisual/shared';
+import { AGENT_CARD, BUBBLE_STYLES, LINK_FOCUS, clipNameList } from '@vibisual/shared';
+import type { AppWorkFoldedBadge } from './appWorkFold.js';
 import { useGraphStore, selectIDEActiveSessionForAgent, agentSessionInputKey } from '../../stores/graphStore.js';
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
 import { useRefLinkDragStore } from '../../stores/refLinkDrag.js';
@@ -13,6 +14,13 @@ import { readFieldSelection } from '../../hooks/textFieldActions.js';
 import { codexProviderOf } from '../Codex/codexModelEntry.js';
 import { localProviderOf } from '../LocalModel/localModelEntry.js';
 import { BubbleNode } from './BubbleNode.js';
+import { BubbleStatusEffects } from './BubbleStatusEffects.js';
+import { bubbleAgentStyle, bubbleStatusRingClass } from './bubbleStatus.js';
+import { resolveBubbleSkin } from '@vibisual/shared';
+import { DARK_THEME_LOCK } from '../../theme/themeLock.js';
+import { bubbleSurface } from './bubbleSurface.js';
+import { BubbleSurfaceDetail } from './BubbleSurfaceDetail.js';
+import { BubbleHiddenIndicator } from './BubbleHiddenIndicator.js';
 import { BUBBLE_MENU_EVENT, type BubbleMenuRequest } from './BubbleContextMenu.js';
 import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
@@ -20,7 +28,12 @@ import { shouldDismissOnSelect } from './agentDismiss.js';
 import { isMainCanvasView } from './canvasScope.js';
 import { linkFocusNodeStyle } from './linkedBubbles.js';
 import { BRAND_ICON_PATHS } from './brandIconPaths.js';
-import { composeLinkedBriefs } from './linkedNodeBriefs.js';
+import { useAgentCardSend } from './useAgentCardSend.js';
+import { useAgentCardWork } from './useAgentCardWork.js';
+import { useAgentCardTasks } from './useAgentCardTasks.js';
+import { AgentCardTaskControls } from './AgentCardTaskControls.js';
+import { CARD_TASK_DRAFT, cardTaskNodes, needsCardTaskDestination, useCardTaskStore } from './agentCardTaskState.js';
+import { reserveCardTask, restoreCardTaskDraft, selectCardTask } from './agentCardTaskFlow.js';
 import {
   agentCardDiscCenter,
   appNodeLabel,
@@ -30,7 +43,6 @@ import {
   orbitDotAngles,
   orbitPoint,
   pickCardSession,
-  withLinkedOutputBrief,
   type LinkedOutputNode,
 } from './agentCard.js';
 
@@ -49,14 +61,6 @@ import {
  *
  * 생김새는 이 앱의 것이다 — 원·궤도·위성(캔버스의 기존 낱말)·Lucide 글리프·우리 상태 색·에이전트 색·앱 색(§5.4 #36 (D)).
  */
-
-/** 원의 링 — 버블 링과 같은 상태 규칙(클래스). 실행 중·평시는 에이전트 색이라 인라인으로 준다(빈 문자열). */
-function statusRingClass(status: BubbleData['status']): string {
-  if (status === 'awaiting_permission') return 'border-amber-400';
-  if (status === 'error') return 'border-rose-500';
-  if (status === 'completed') return 'border-cyan-400';
-  return '';
-}
 
 /** 원 안의 엔진 글리프 — 버블이 쓰는 그 브랜드 로고(같은 정체는 어디서 보든 같은 그림). */
 function EngineGlyph({ engine, className }: { engine: 'claude' | 'codex' | 'local'; className: string }): React.JSX.Element {
@@ -89,6 +93,11 @@ const HANDLE_STYLE: React.CSSProperties = {
 
 /** 말풍선 테두리 — 평시 흐린 선(입력 중엔 에이전트 색). 꼬리도 같은 색이라야 한 몸으로 보인다. */
 const BALLOON_BORDER_IDLE = 'rgba(255,255,255,0.12)';
+/** §5.4 #36 (I) — 접힌 개수 점의 지름 · 궤도 위 자리(도 — 화면 좌표, 왼쪽 위). */
+const FOLDED_DOT = 18;
+const FOLDED_DOT_ANGLE_DEG = -135;
+/** 툴팁 줄바꿈(여러 줄 `title`). */
+const LINE_BREAK = '\n';
 
 type CardNodeProps = NodeProps & { data: BubbleData & Record<string, unknown> };
 
@@ -120,26 +129,37 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
   const customColor = useGraphStore((s) => s.agentConfigs[agentId]?.color);
   const isCodex = useGraphStore((s) => codexProviderOf(s.agentConfigs[agentId]) !== null);
   const isLocal = useGraphStore((s) => localProviderOf(s.agentConfigs[agentId]) !== null);
-  // 빈 문자열도 "지정 안 함"이다(`BubbleNode` 와 같은 판정 — `if (!customColor)`).
-  const color = customColor || (isCodex ? '#8B5CF6' : BUBBLE_STYLES.agent.color);
+  const bubbleStyle = useMemo(() => bubbleAgentStyle(BUBBLE_STYLES.agent, isCodex, customColor), [isCodex, customColor]);
+  const color = bubbleStyle.color;
+  const skin = useGraphStore((s) => resolveBubbleSkin(s.bubbleAppearancePending?.bubbleSkin ?? s.userDefaults?.appearance?.bubbleSkin));
   const engine: 'claude' | 'codex' | 'local' = isLocal ? 'local' : isCodex ? 'codex' : 'claude';
 
   // ── 보낼 세션 — 버블이 보여 주는 세션과 같은 우선순위 ──
   const subs = useGraphStore((s) => s.subAgents[agentId]);
   const ideActive = useGraphStore((s) => selectIDEActiveSessionForAgent(s, agentId));
   const sticky = useGraphStore((s) => s.selectedSubByAgent[agentId]);
-  const sessionId = useMemo(() => pickCardSession(subs, ideActive, sticky), [subs, ideActive, sticky]);
+  const tasks = useAgentCardTasks(agentId);
+  const activeTask = tasks.entry.book?.tasks.find((task) => task.id === tasks.entry.book?.activeTaskId);
+  const sessionId = activeTask ? activeTask.sessionId : pickCardSession(subs, ideActive, sticky);
+  const taskMode = tasks.entry.mode;
+  const pendingTask = tasks.entry.book?.pending;
+  const inputSessionId = taskMode ? CARD_TASK_DRAFT : sessionId;
+  const [destinationChoice, setDestinationChoice] = useState<string | null>(null);
+  const [reserving, setReserving] = useState(false);
+  const reservationInFlight = useRef(false);
 
   // ── 초안 — IDE 입력창과 같은 칸(말풍선에서 치던 글이 IDE 에서 이어진다) ──
-  const draft = useGraphStore((s) => s.agentSessionInputs[agentSessionInputKey(agentId, sessionId)]?.text ?? '');
+  const sessionDraft = useGraphStore((s) => s.agentSessionInputs[agentSessionInputKey(agentId, inputSessionId)]);
+  const draft = sessionDraft?.text ?? '';
+  const sessionWork = useAgentCardWork(agentId, sessionId);
 
   // ── 위성 칩 — 이 에이전트를 참조하는 앱 노드들(지문 구독 → getState 재구성) ──
   const activeProject = useGraphStore((s) => s.activeProject);
   const linkKey = useGraphStore((s) => linkedAppBubblesKey(s.appBubbles, agentId, s.activeProject));
   const linked = useMemo(
-    () => linkedAppBubblesOf(useGraphStore.getState().appBubbles, agentId, activeProject),
+    () => cardTaskNodes(linkedAppBubblesOf(useGraphStore.getState().appBubbles, agentId, activeProject), tasks.entry.book),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [linkKey, agentId, activeProject],
+    [linkKey, agentId, activeProject, tasks.entry.book],
   );
   /** 이번 명령에서 뺀 노드 — 휘발 상태(§5.4 #36 (E) 토글 영속 ❌). */
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
@@ -172,14 +192,42 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
   //   §5.4 #36 (C) 개정 — 앱이 자기 브리프를 선언한 노드(작업 문서)는 그 브리프를 지어 붙인다(문서를 새로 만들었으면
   //   노드에 묶인다). 초안은 먼저 비운다 — 브리프를 짓는 짧은 왕복 동안 같은 글을 두 번 보내지 않게(전송이 실패하면
   //   `addCommand` 가 초안을 되돌린다).
-  const send = useCallback((live?: string): void => {
-    const text = (live ?? draft).trim();
-    if (!text) return;
-    useGraphStore.getState().setAgentSessionInputText(agentId, sessionId, '');
-    void composeLinkedBriefs(outputNodes).then((nodes) => {
-      useGraphStore.getState().addCommand(agentId, withLinkedOutputBrief(text, nodes), sessionId);
-    });
-  }, [draft, agentId, sessionId, outputNodes]);
+  const { send: sendCurrent, sending, preparationFailed } = useAgentCardSend(agentId, sessionId, draft, outputNodes,
+    tasks.projectId ? { projectId: tasks.projectId, ...(activeTask ? { taskId: activeTask.id } : {}) } : undefined);
+  const taskTitle = activeTask?.title ?? (linked.map((node) => appNodeLabel(node, getInternalApp(node.appId)?.name ?? node.appId)).join(', ')
+    || subs?.find((sub) => sub.id === sessionId)?.label || t('canvas.agentCard.tasks.current'));
+  const taskError = (error: unknown): void => useCardTaskStore.getState().patch(tasks.key,
+    { error: error instanceof Error ? error.message : 'task-prepare-failed' });
+  const beginTask = (mode: 'new' | 'copy'): void => {
+    if (sending || reserving || pendingTask) return;
+    setDestinationChoice(null);
+    useCardTaskStore.getState().patch(tasks.key, { mode, error: undefined });
+  };
+  const submitNewTask = (mode: 'new' | 'copy', text: string, fromCurrent = false): void => {
+    if (!text.trim() || !tasks.projectId || pendingTask || reservationInFlight.current) return;
+    reservationInFlight.current = true;
+    setReserving(true);
+    setDestinationChoice(null);
+    useCardTaskStore.getState().patch(tasks.key, { mode, error: undefined });
+    void reserveCardTask({ projectId: tasks.projectId, agentId, mode, text: text.trim(), sessionId,
+      currentNodes: linked, targetNodeIds: outputNodes.map((node) => node.id), title: taskTitle })
+      .then(() => {
+        if (fromCurrent && useGraphStore.getState().agentSessionInputs[agentSessionInputKey(agentId, sessionId)]?.text === text)
+          useGraphStore.getState().setAgentSessionInputText(agentId, sessionId, '');
+      }).catch((error) => {
+        useGraphStore.getState().setAgentSessionInputText(agentId, CARD_TASK_DRAFT, text);
+        taskError(error);
+      }).finally(() => { reservationInFlight.current = false; setReserving(false); });
+  };
+  const send = (live?: string): void => {
+    const text = live ?? draft;
+    if (pendingTask || reserving || sending) return;
+    if (taskMode) { submitNewTask(taskMode, text); return; }
+    if (tasks.projectId && needsCardTaskDestination(text, !!activeTask || linked.some((node) => !!node.ref || !!node.file))) {
+      setDestinationChoice(text); return;
+    }
+    sendCurrent(text);
+  };
   const onEnterKey = useEnterSubmit(send);
 
   // ── 선택 — 버블과 같은 상태기계(클릭 선택·확인 dismiss·더블클릭 IDE) ──
@@ -274,16 +322,30 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
   const [morph] = useState(() => consumeFormChange(agentId));
   const [typing, setTyping] = useState(false);
   const status = data.status;
-  const running = status === 'active';
-  const statusText = status === 'active'
-    ? t('canvas.agentCard.status.active')
-    : status === 'awaiting_permission'
-      ? t('canvas.agentCard.status.waiting')
-      : status === 'completed'
-        ? t('canvas.agentCard.status.completed')
-        : status === 'error'
-          ? t('canvas.agentCard.status.error')
-          : t('canvas.agentCard.status.idle');
+  const running = status !== 'awaiting_permission' && sessionWork === 'running';
+  const waiting = sessionWork === 'waiting';
+  const sendFailed = preparationFailed || !!sessionDraft?.sendFailure || !!sessionDraft?.sendError;
+  const busy = sending || reserving || pendingTask?.status === 'preparing' || (running && !sendFailed);
+  const statusText = sending || reserving || pendingTask?.status === 'preparing' ? t('ide.askQuestion.sending')
+    : pendingTask?.status === 'failed' ? t('canvas.agentCard.status.error')
+    : pendingTask?.status === 'waiting' ? t('panel.subAgent.status.waiting')
+    : sendFailed ? t('canvas.agentCard.status.error')
+      : status === 'awaiting_permission' ? t('canvas.agentCard.status.waiting')
+        : running ? t('canvas.agentCard.status.active')
+          : status === 'error' ? t('canvas.agentCard.status.error')
+            : waiting ? t('panel.subAgent.status.waiting')
+              : status === 'completed' ? t('canvas.agentCard.status.completed')
+                : t('canvas.agentCard.status.idle');
+  const statusDetail = sessionDraft?.sendError
+    ? t('ide.orchestra.readiness.retry', { engine: sessionDraft.sendError.engine === 'codex' ? 'Codex' : 'Claude Code' })
+    : sendFailed ? t(sessionDraft?.sendFailure === 'local-images-unsupported' ? 'ide.mainArea.localImagesUnsupported'
+      : sessionDraft?.sendFailure === 'unconfirmed' ? 'ide.mainArea.sendUnconfirmed' : 'ide.mainArea.sendRejected')
+      : statusText;
+  const statusColor = sending ? 'text-sky-300'
+    : sendFailed || status === 'error' ? 'text-rose-300'
+      : status === 'awaiting_permission' || waiting ? 'text-amber-300'
+        : running ? 'text-sky-300'
+          : status === 'completed' ? 'text-cyan-300' : 'text-gray-400';
   const discTitle = [
     data.label,
     statusText,
@@ -296,20 +358,34 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
   const discR = AGENT_CARD.discSize / 2;
   const sat = orbitPoint(AGENT_CARD.satelliteAngleDeg);
   const dotAngles = orbitDotAngles(linked.length);
+  // §5.4 #36 (I) — 앱 작업 보기에서 접힌 버블(그리는 사본에만 실린 표시 값). 궤도 왼쪽 위(-135°)에 앉는다.
+  const appWorkFolded = (data as Record<string, unknown>)['_appWorkFolded'] as AppWorkFoldedBadge | undefined;
+  const foldedSeat = orbitPoint(FOLDED_DOT_ANGLE_DEG);
+  const appWorkFoldedTitle = appWorkFolded && appWorkFolded.count > 0
+    ? [
+      t('canvas.appWork.folded', { count: appWorkFolded.count }),
+      ...clipNameList(appWorkFolded.names).shown.map((n) => `  ${n}`),
+      ...(clipNameList(appWorkFolded.names).more > 0
+        ? [t('canvas.appWork.more', { count: clipNameList(appWorkFolded.names).more })]
+        : []),
+      t('canvas.appWork.foldedHint', { label: t('canvas.bubbleMenu.lensFiles') }),
+    ].join(LINE_BREAK)
+    : undefined;
   /** 이름 폭 — 원을 가운데로 말풍선 끝까지(말풍선 위로 넘어가지 않게). */
   const labelWidth = 2 * (disc.x - AGENT_CARD.balloonWidth);
   const balloonBorder = typing ? `${color}99` : BALLOON_BORDER_IDLE;
 
-  const ringClass = statusRingClass(status);
-  const discShadow = [
-    running ? `0 0 18px ${color}80` : null,
+  // 원은 버블과 같은 에이전트 전체 상태. 입력줄·궤도는 보낼 세션의 실행/큐 상태를 유지한다.
+  const ringClass = bubbleStatusRingClass(status, bubbleStyle);
+  const surface = bubbleSurface(skin, color, bubbleStyle.glow, status, { creatingError: data.creatingStatus === 'error' });
+  const selectionShadow = [
     // §6 — 묶음에 든 카드도 같은 고리다(버블의 묶음 고리와 같은 말 — 흰 고리 + 제 색 번짐).
     //   §4 앱 테마 — 흰 고리는 "앞쪽" 색 변수라 라이트 캔버스에서는 어두워진다(기본 테마는 종전 그대로 흰색).
     showRing || selected === true ? `0 0 0 2px var(--color-white), 0 0 0 6px ${color}4D` : null,
     linkVisual.boxShadow,
   ].filter(Boolean).join(', ') || undefined;
 
-  const canSend = draft.trim().length > 0;
+  const canSend = !sending && !reserving && !pendingTask && !destinationChoice && draft.trim().length > 0;
 
   return (
     <div
@@ -345,12 +421,43 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
             boxShadow: '0 10px 28px rgba(0,0,0,0.45)',
           }}
         >
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-busy={busy}
+            title={statusDetail}
+            className={`flex shrink-0 items-center gap-1.5 border-b border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium leading-4 ${statusColor}`}
+          >
+            {busy ? (
+              // 진행 표시는 동작 줄이기에서도 멈추지 않고 더 천천히 회전한다.
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:[animation-duration:2s]" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-9-9" />
+              </svg>
+            ) : <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />}
+            <span className="min-w-0 truncate">{statusText}</span>
+          </div>
+          <AgentCardTaskControls book={tasks.entry.book} title={taskTitle}
+            disabled={!tasks.projectId || !tasks.entry.book || sending || reserving}
+            canCopy={linked.length > 0 && linked.every((node) => !!getInternalApp(node.appId)?.taskDocument)}
+            mode={taskMode} error={tasks.entry.error} choosing={destinationChoice !== null}
+            begin={beginTask}
+            select={(taskId) => { if (tasks.projectId) void selectCardTask(tasks.projectId, agentId, taskId).catch(taskError); }}
+            cancel={() => useCardTaskStore.getState().patch(tasks.key, { mode: undefined, error: undefined })}
+            restore={() => { if (tasks.projectId) void restoreCardTaskDraft(tasks.projectId, agentId).catch(taskError); }}
+            choose={(destination) => {
+              const text = destinationChoice;
+              setDestinationChoice(null);
+              if (text === null) return;
+              if (destination === 'new') submitNewTask('new', text, true); else sendCurrent(text);
+            }} />
           <textarea
             {...IME_ENTER_OWNER}
             data-text-menu="own"
             onContextMenu={handleFieldContextMenu}
-            value={draft}
-            onChange={(e) => useGraphStore.getState().setAgentSessionInputText(agentId, sessionId, e.target.value)}
+            value={pendingTask ? pendingTask.text : draft}
+            readOnly={!!pendingTask || reserving}
+            onChange={(e) => { setDestinationChoice(null); useGraphStore.getState().setAgentSessionInputText(agentId, inputSessionId, e.target.value); }}
             onFocus={() => setTyping(true)}
             onBlur={() => setTyping(false)}
             onKeyDown={(e) => {
@@ -362,7 +469,7 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
               if (e.key === 'Escape') { e.preventDefault(); e.currentTarget.blur(); }
             }}
             onDoubleClick={(e) => e.stopPropagation()}
-            placeholder={t('canvas.agentCard.placeholder')}
+            placeholder={t(taskMode ? 'canvas.agentCard.tasks.placeholder' : activeTask ? 'canvas.agentCard.tasks.editPlaceholder' : 'canvas.agentCard.placeholder')}
             aria-label={t('canvas.agentCard.inputLabel', { name: data.label })}
             spellCheck={false}
             className="nodrag nowheel nopan min-h-0 w-full flex-1 resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-[1.45] text-gray-100 outline-none placeholder:text-gray-500"
@@ -480,6 +587,9 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
       {/* 원 — 접혀 남은 버블. 끌기 손잡이이자 상태 링(버블 링과 같은 규칙). 상태 글자는 툴팁. */}
       <div
         ref={discRef}
+        data-agent-card-disc
+        {...DARK_THEME_LOCK}
+        data-bubble-skin={skin}
         className={`bubble-body absolute flex cursor-grab items-center justify-center rounded-full border-2 active:cursor-grabbing ${ringClass}`}
         {...gesture.handlers}
         onPointerUp={handlePointerUp}
@@ -491,18 +601,40 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
           top: disc.y - discR,
           width: AGENT_CARD.discSize,
           height: AGENT_CARD.discSize,
-          borderColor: ringClass ? undefined : running ? color : `${color}99`,
-          background: `radial-gradient(circle at 35% 35%, ${color}66, ${color}26)`,
-          boxShadow: discShadow,
+          ...surface.body,
         }}
       >
+        <BubbleSurfaceDetail surface={surface} />
         <EngineGlyph engine={engine} className="h-6 w-6 shrink-0 text-white/90" />
       </div>
+
+      {/* 원 지름에만 맞춘 공통 상태 효과. 선택 고리는 별도 면으로 두어 상태 그림자를 덮지 않는다. */}
+      <div
+        aria-hidden="true"
+        data-agent-card-status={status}
+        className="pointer-events-none absolute"
+        style={{ left: disc.x - discR, top: disc.y - discR, width: AGENT_CARD.discSize, height: AGENT_CARD.discSize }}
+      >
+        <BubbleStatusEffects status={status} glow={bubbleStyle.glow} />
+        {selectionShadow && (
+          <span className="pointer-events-none absolute inset-0 z-10 rounded-full" style={{ boxShadow: selectionShadow }} />
+        )}
+      </div>
+
+      <BubbleHiddenIndicator
+        bubblesHidden={data.bubblesHidden}
+        linksHidden={data.linksHidden}
+        style={{ left: disc.x - discR * Math.SQRT1_2 - 8, top: disc.y + discR * Math.SQRT1_2 - 8 }}
+        {...gesture.handlers}
+        onPointerUp={handlePointerUp}
+        onDoubleClick={() => gesture.cancelPendingSelect()}
+        onContextMenu={handleContextMenu}
+      />
 
       {/* 권한 대기 종 — 버블과 같은 표식(원 오른쪽 위). */}
       {status === 'awaiting_permission' && (
         <div
-          className="pointer-events-none absolute flex h-4 w-4 animate-pulse items-center justify-center rounded-full border border-amber-300 bg-amber-500/90 text-amber-50"
+          className="pointer-events-none absolute z-20 flex h-4 w-4 animate-pulse items-center justify-center rounded-full border border-amber-300 bg-amber-500/90 text-amber-50"
           style={{ left: disc.x + discR - 12, top: disc.y - discR - 2 }}
           title={t('common.bubble.awaitingPermission')}
           aria-label={t('common.bubble.awaitingPermission')}
@@ -513,6 +645,26 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
           </svg>
         </div>
       )}
+
+      {/* §5.4 #36 (I) — 앱 작업 보기에서 접힌 버블 수(회색 숫자 점 · 표시 전용). 궤도 왼쪽 위 — 위성 손잡이(오른쪽 위)·
+          이어진 앱 점(오른쪽 아래)·꼬리(왼쪽 가운데)를 피한다. */}
+      {appWorkFolded && appWorkFolded.count > 0 ? (
+        <span
+          className="absolute z-20 flex items-center justify-center rounded-full border border-gray-500/70 bg-gray-800 font-semibold leading-none tabular-nums text-gray-200"
+          style={{
+            left: disc.x + foldedSeat.x - FOLDED_DOT / 2,
+            top: disc.y + foldedSeat.y - FOLDED_DOT / 2,
+            minWidth: FOLDED_DOT,
+            height: FOLDED_DOT,
+            padding: '0 4px',
+            fontSize: 12,
+          }}
+          title={appWorkFoldedTitle}
+          aria-label={appWorkFoldedTitle}
+        >
+          {appWorkFolded.count}
+        </span>
+      ) : null}
 
       {/* 이름 — 원 아래(버블 문법). 이것도 끌기 손잡이다(같은 선택 상태기계·같은 우클릭·더블클릭 IDE). */}
       <div

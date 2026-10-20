@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import type { RefObject } from 'react';
 import type { ReactFlowInstance, Node } from '@xyflow/react';
 import type { BubbleData } from '@vibisual/shared';
-import { TASK_EDGE_STYLES } from '@vibisual/shared';
+import { TASK_EDGE_STYLES, resolveBubbleEdgeStyle } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { computeTaskEdgePath } from './taskEdgePath.js';
+import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /**
  * Task Edge 드래그 프리뷰 — 스크린 좌표계 고정 SVG 오버레이.
@@ -40,6 +41,9 @@ interface TaskEdgeDragPreviewProps {
 
 export function TaskEdgeDragPreview({ rfRef, rfContainerRef, flowNodes }: TaskEdgeDragPreviewProps): React.JSX.Element | null {
   const taskEdgeDrag = useGraphStore((s) => s.taskEdgeDrag);
+  const appearance = useGraphStore((s) => resolveBubbleEdgeStyle(
+    s.bubbleAppearancePending?.edgeStyle ?? s.userDefaults?.appearance?.edgeStyle,
+  ));
   // viewport 변경(pan/zoom) 이 일어나도 재렌더 되도록 frame 카운터 유지
   const [, forceFrame] = useState(0);
 
@@ -101,6 +105,8 @@ export function TaskEdgeDragPreview({ rfRef, rfContainerRef, flowNodes }: TaskEd
   const dash = idle?.strokeDasharray ?? '6 4';
   // stroke 는 실 엣지(플로우 내부 SVG)도 zoom 과 함께 스케일되므로 동일 비율로 맞춤
   const strokeWidth = Math.max(1.5, 2.5 * vp.zoom);
+  const lineStyle = { stroke: PREVIEW_COLOR, strokeWidth, strokeDasharray: dash, opacity: 0.95 };
+  const paint = bubbleEdgeAppearance(appearance, { semantic: 'task', base: lineStyle });
 
   return (
     <svg
@@ -120,13 +126,14 @@ export function TaskEdgeDragPreview({ rfRef, rfContainerRef, flowNodes }: TaskEd
           <path d="M 0 0 L 12 6 L 0 12 z" fill={PREVIEW_COLOR} />
         </marker>
       </defs>
+      {paint.map((layer) => (
+        <path key={layer.role} className="bubble-edge-paint" data-paint-layer={layer.role}
+          d={path} style={layer.style} pointerEvents="none" aria-hidden="true" />
+      ))}
       <path
         d={path}
         fill="none"
-        stroke={PREVIEW_COLOR}
-        strokeWidth={strokeWidth}
-        strokeDasharray={dash}
-        opacity={0.95}
+        style={bubbleEdgeMarkerStyle(lineStyle)}
         markerEnd={`url(#${PREVIEW_MARKER_ID})`}
       />
     </svg>

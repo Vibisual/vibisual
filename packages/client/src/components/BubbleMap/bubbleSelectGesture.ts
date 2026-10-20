@@ -315,6 +315,11 @@ export interface BubbleSelectGesture {
   readonly cancelPendingSelect: () => void;
   /** 우클릭 메뉴처럼 지연 없이 고르는 길. */
   readonly selectNow: () => void;
+  /**
+   * 지금 누름을 접는다 — 그 누름이 다른 손짓(테두리 띠를 끈 크기 조절 등)으로 넘어갔을 때 부른다. 손을 떼도
+   * 선택으로 잇지 않는다. 움직임 문턱만으로는 모자란 자리다 — 손이 노드 밖으로 나갔다 오면 움직임이 노드에 안 잡힌다.
+   */
+  readonly cancelPress: () => void;
 }
 
 /**
@@ -340,6 +345,7 @@ export function useBubbleSelectGesture(options: BubbleSelectGestureOptions): Bub
       },
       cancelPendingSelect: () => core.cancelPendingSelect(),
       selectNow: () => core.selectNow(),
+      cancelPress: () => core.pointerCancel(),
     }),
     [core],
   );

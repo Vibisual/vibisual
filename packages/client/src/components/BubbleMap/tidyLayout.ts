@@ -645,6 +645,37 @@ export function computeTidySatellites(
 }
 
 /**
+ * §5.1 #2-1 (B) — **위성의 위성**(별자리)까지 정리한다. 한 바퀴에 부모가 이미 앉은 위성만 걸리므로, 자리가 잡힌 위성을
+ * 다시 부모로 넘겨 한 번 더 돈다 — 중심(파일 위성)이 폴더 둘레에 앉은 뒤 그 둘레에 별자리 위성이 걸린다. 별자리는 깊이를
+ * 1 로 묶어 두므로 두 바퀴면 끝나고, 상한은 그 이상을 돌지 않게 하는 그물이다. 부모가 끝내 정리 대상이 아닌 위성(앱 노드
+ * 둘레)은 그 자리에 둔다(`computeTidySatellites` 와 같은 규칙).
+ */
+export function computeTidySatellitesNested(
+  satellites: TidySatellite[],
+  parents: Map<string, TidyParentSeat>,
+): TidyPlacement[] {
+  const seats = new Map(parents);
+  const diameterById = new Map(satellites.map((s) => [s.id, s.diameter] as const));
+  let remaining = satellites;
+  const out: TidyPlacement[] = [];
+  for (let pass = 0; pass < TIDY_SATELLITE_PASSES && remaining.length > 0; pass += 1) {
+    const placed = computeTidySatellites(remaining, seats);
+    if (placed.length === 0) break;
+    const placedIds = new Set<string>();
+    for (const p of placed) {
+      placedIds.add(p.id);
+      seats.set(p.id, { cx: p.cx, cy: p.cy, diameter: diameterById.get(p.id) ?? 0, bandIndex: p.bandIndex });
+    }
+    out.push(...placed);
+    remaining = remaining.filter((s) => !placedIds.has(s.id));
+  }
+  return out;
+}
+
+/** 위성 정리를 몇 바퀴까지 도나 — 폴더 위성 한 바퀴 + 별자리 위성 한 바퀴, 그리고 여유 한 바퀴. */
+const TIDY_SATELLITE_PASSES = 3;
+
+/**
  * 자리를 옮기지 않는 버블. `back`/`root` 는 탐색 손잡이라 **자리가 곧 뜻이고**(옮기면 되돌아갈
  * 곳을 눈으로 찾아야 한다), `bash` 는 애초에 캔버스에 그리지 않는다(§2.4 v4.48).
  */

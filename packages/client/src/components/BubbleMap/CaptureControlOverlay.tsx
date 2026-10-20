@@ -116,10 +116,12 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
       )}
 
       {/* 왜 안 먹는지 — 종전엔 실패해도 조용해서 "클릭이 안 먹는다"로만 보였다(v3.61).
-          대상을 못 찾거나 주입 엔진이 없으면 그 이유를 칩으로 띄운다. */}
+          대상을 못 찾거나 주입 엔진이 없으면 그 이유를 칩으로 띄운다.
+          폭은 글자만큼(`w-max`)이되 표면 폭에서 양옆 8px 를 넘지 않는다 — `left-1/2` 만으로는 남은 절반 폭에서
+          줄이 꺾여, 좁은 버블·폰에서 긴 사유가 반쪽짜리 기둥이 됐다. 넘치면 가운데 정렬로 줄을 바꾼다. */}
       {(targetMissing || injectError) && (
         <div
-          className="absolute left-1/2 top-2 z-[4] -translate-x-1/2 rounded-full px-2.5 py-1 text-[12px] font-semibold"
+          className="absolute left-1/2 top-2 z-[4] w-max max-w-[calc(100%-16px)] -translate-x-1/2 rounded-full px-2.5 py-1 text-center text-[12px] font-semibold"
           style={{ ...GLASS, color: '#FCA5A5', pointerEvents: 'none' }}
         >
           {injectError === 'nut-unavailable'
@@ -134,7 +136,7 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
           움직였는지 몰라 헤매지 않도록 알려 준다(v3.62). */}
       {!targetMissing && !injectError && backgroundFallback && (
         <div
-          className="absolute left-1/2 top-2 z-[4] -translate-x-1/2 rounded-full px-2.5 py-1 text-[12px] font-semibold"
+          className="absolute left-1/2 top-2 z-[4] w-max max-w-[calc(100%-16px)] -translate-x-1/2 rounded-full px-2.5 py-1 text-center text-[12px] font-semibold"
           style={{ ...GLASS, color: '#FCD34D', pointerEvents: 'none' }}
         >
           {backgroundFallback === 'message-deaf-app'
@@ -143,7 +145,8 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
         </div>
       )}
 
-      {/* 특수키 — 평소엔 알약 하나, 누르면 한 줄로 펼쳐진다(영상 가림 최소화). */}
+      {/* 특수키 — 평소엔 알약 하나, 누르면 한 줄로 펼쳐진다(영상 가림 최소화).
+          손가락에는 20px 키가 작다 — 굵은 포인터에서만 32px 로 키운다(이 바는 폰에서 PC 를 몰 때 쓰는 자리다). */}
       <div
         className="nodrag nowheel absolute bottom-1.5 left-1/2 z-[4] flex max-w-[calc(100%-12px)] -translate-x-1/2 items-center gap-1 rounded-full px-1 py-1"
         style={{ ...GLASS, pointerEvents: 'auto' }}
@@ -156,7 +159,7 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setKeysOpen((v) => !v); }}
-          className="flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[12px] font-semibold transition-colors"
+          className="flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[12px] font-semibold transition-colors pointer-coarse:h-8 pointer-coarse:px-2.5"
           style={{ background: keysOpen ? `${control}2e` : 'transparent', color: keysOpen ? control : '#CBD5E1' }}
           title={t('bubbleMap.capture.keysToggle', { defaultValue: '특수키 · 붙여넣기' })}
           aria-label={t('bubbleMap.capture.keysToggle', { defaultValue: '특수키 · 붙여넣기' })}
@@ -173,7 +176,7 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onPaste(); }}
-              className="flex h-5 shrink-0 items-center gap-1 rounded-full px-2 text-[12px] font-semibold text-slate-900 transition-opacity hover:opacity-90"
+              className="flex h-5 shrink-0 items-center gap-1 rounded-full px-2 text-[12px] font-semibold text-slate-900 transition-opacity hover:opacity-90 pointer-coarse:h-8 pointer-coarse:px-3"
               style={{ background: '#E2E8F0' }}
               title={t('bubbleMap.capture.paste', { defaultValue: '클립보드 붙여넣기 (폰→PC)' })}
             >
@@ -189,7 +192,7 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
                 key={k.label}
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onSpecialKey(k); }}
-                className="h-5 min-w-[22px] shrink-0 rounded-md px-1.5 text-[12px] font-semibold text-slate-200 transition-colors hover:bg-white/20"
+                className="h-5 min-w-[22px] shrink-0 rounded-md px-1.5 text-[12px] font-semibold text-slate-200 transition-colors hover:bg-white/20 pointer-coarse:h-8 pointer-coarse:min-w-8 pointer-coarse:px-2"
                 style={{ background: 'rgba(255,255,255,0.08)' }}
               >
                 {k.label}

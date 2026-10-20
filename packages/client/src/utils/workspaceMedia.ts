@@ -57,6 +57,44 @@ export async function workspaceMediaSize(root: string, relPath: string): Promise
   }
 }
 
+/**
+ * §5.1 #2-1 (G) ① — 그 파일의 **앞부분만**(`bytes` 바이트, 끝이 닫힌 구간 요청). 그림 머리에서 가로×세로를 읽어 통째로
+ * 받을지 정하는 자리다. 구간을 무시하고 통째로 오는 응답은 앞부분만 잘라 쓰고 나머지는 받지 않는다. 못 받으면 `null`.
+ */
+export async function fetchWorkspaceMediaHead(root: string, relPath: string, bytes: number): Promise<Uint8Array | null> {
+  const want = Math.max(1, Math.floor(bytes));
+  try {
+    const res = await fetch(workspaceMediaUrl(root, relPath), { headers: { Range: `bytes=0-${want - 1}` } });
+    if (!res.ok && res.status !== 206) return null;
+    if (res.status === 206 || !res.body) {
+      const buf = new Uint8Array(await res.arrayBuffer());
+      return buf.length > want ? buf.subarray(0, want) : buf;
+    }
+    // 200 통째 응답 — 앞부분만 읽고 끊는다.
+    const reader = res.body.getReader();
+    const parts: Uint8Array[] = [];
+    let got = 0;
+    while (got < want) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      parts.push(value);
+      got += value.length;
+    }
+    try { await reader.cancel(); } catch { /* 이미 끝났다 */ }
+    const out = new Uint8Array(Math.min(got, want));
+    let at = 0;
+    for (const p of parts) {
+      if (at >= out.length) break;
+      const take = Math.min(p.length, out.length - at);
+      out.set(p.subarray(0, take), at);
+      at += take;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** 편집 결과를 **새 파일로** 쓴다. 이름이 이미 있으면 `exists` — 덮어쓰지 않는다(§5.13 (R-4)). */
 export async function writeWorkspaceMedia(
   root: string,

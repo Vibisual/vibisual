@@ -15,7 +15,7 @@ import type {
 } from '@vibisual/shared';
 import { TASK_EDGE_TEMPLATES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface TaskEdgePopupProps {
   sourceAgentId: string;
@@ -28,6 +28,10 @@ interface TaskEdgePopupProps {
   editingEdgeId?: string | null;
 }
 
+/**
+ * 팝업 폭(`w-96`). 자리 잡기는 **실제로 잰 폭**으로 하고 이 값은 재기 전 폴백일 뿐이다 — 폰 폭에서는
+ * `max-w-[calc(100vw-24px)]`(양옆 `VIEWPORT_MARGIN`)이 폭을 줄인다.
+ */
 const POPUP_WIDTH = 384; // w-96
 const VIEWPORT_MARGIN = 12;
 
@@ -78,24 +82,49 @@ function matchTemplates(
   });
 }
 
+/**
+ * 터치로 띄운 설명은 **다른 곳을 누르면 접힌다**(hover 가 없으니 떠나는 순간도 없다) — 바깥 누르기 규약
+ * (`useOutsidePressDismiss`) 그대로다. 누름은 창 캡처 단계에서 먼저 받으므로, 다른 단추를 누르면 접힌 뒤 그 단추가
+ * 제 설명을 다시 띄운다.
+ */
+const TOUCH_TIP_PRESS_EVENTS = ['pointerdown'] as const;
+
 /** Inline help icon with a custom hover tooltip. Rendered via fixed positioning
- * so it escapes the popup's `overflow-y-auto` and never gets clipped. */
+ * so it escapes the popup's `overflow-y-auto` and never gets clipped.
+ *
+ * 마우스는 올리면 뜨고 떠나면 진다(종전 그대로). 터치에는 hover 가 없어 **눌러서 펴고 다시 눌러 접는다** —
+ * 14px 글리프는 손가락으로 맞히기 어려워 굵은 포인터에서만 누르는 자리를 넓힌다(보이는 크기는 그대로). 가로는
+ * 34px, 세로는 바로 아래 칸(선택 상자)의 윗변을 덮지 않게 26px 까지만. */
 function InfoIcon({ title }: { title: string }): React.JSX.Element {
   const iconRef = useRef<HTMLSpanElement>(null);
-  const [rect, setRect] = useState<DOMRect | null>(null);
+  // `touch` — 손가락으로 편 것인가(그건 마우스가 떠나도 접히지 않고, 다른 곳을 눌러야 접힌다).
+  const [tip, setTip] = useState<{ rect: DOMRect; touch: boolean } | null>(null);
+  const rect = tip?.rect ?? null;
 
-  const handleEnter = useCallback(() => {
-    if (iconRef.current) setRect(iconRef.current.getBoundingClientRect());
+  const handleEnter = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse' || !iconRef.current) return;
+    setTip({ rect: iconRef.current.getBoundingClientRect(), touch: false });
   }, []);
-  const handleLeave = useCallback(() => setRect(null), []);
+  const handleLeave = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse') return;
+    setTip((prev) => (prev?.touch ? prev : null));
+  }, []);
+  const handlePress = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') return;
+    const icon = iconRef.current;
+    setTip((prev) => (prev || !icon ? null : { rect: icon.getBoundingClientRect(), touch: true }));
+  }, []);
+  const closeTouch = useCallback(() => setTip(null), []);
+  useOutsidePressDismiss({ enabled: tip?.touch === true, onDismiss: closeTouch, refs: [iconRef], events: TOUCH_TIP_PRESS_EVENTS });
 
   return (
     <>
       <span
         ref={iconRef}
-        onMouseEnter={handleEnter}
-        onMouseLeave={handleLeave}
-        className="ml-1 inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-gray-600 text-[12px] leading-none text-gray-500 hover:border-gray-400 hover:text-gray-300"
+        onPointerEnter={handleEnter}
+        onPointerLeave={handleLeave}
+        onPointerDown={handlePress}
+        className="ml-1 inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-gray-600 text-[12px] leading-none text-gray-500 hover:border-gray-400 hover:text-gray-300 pointer-coarse:relative pointer-coarse:before:absolute pointer-coarse:before:-inset-x-2.5 pointer-coarse:before:-inset-y-1.5 pointer-coarse:before:content-['']"
       >
         ?
       </span>
@@ -129,16 +158,30 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
   // Shared hover tooltip for every button/control. Only one element can be
   // hovered at a time, so a single shared slot is enough.
-  const [hoverTip, setHoverTip] = useState<{ rect: DOMRect; text: string } | null>(null);
+  //
+  // 터치에는 hover 가 없다. 종전 `onMouseEnter` 는 탭 뒤에 브라우저가 흉내 내는 마우스 이벤트로 떠서, 다른 곳을
+  // 누를 때까지 아래 칸을 가린 채 남았다. 이제 마우스만 올림·떠남을 따르고, 터치는 **누르는 순간** 그 단추의 설명을
+  // 띄운다(단추 동작은 그대로 일어난다) — 다른 곳을 누르면 접힌다(`useOutsidePressDismiss`).
+  const [hoverTip, setHoverTip] = useState<{ rect: DOMRect; text: string; touch?: boolean } | null>(null);
   const tipProps = useCallback(
     (text: string) => ({
-      onMouseEnter: (e: React.MouseEvent) => {
+      onPointerEnter: (e: React.PointerEvent) => {
+        if (e.pointerType !== 'mouse') return;
         setHoverTip({ rect: (e.currentTarget as HTMLElement).getBoundingClientRect(), text });
       },
-      onMouseLeave: () => setHoverTip(null),
+      onPointerLeave: (e: React.PointerEvent) => {
+        if (e.pointerType !== 'mouse') return;
+        setHoverTip(null);
+      },
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.pointerType === 'mouse') return;
+        setHoverTip({ rect: (e.currentTarget as HTMLElement).getBoundingClientRect(), text, touch: true });
+      },
     }),
     [],
   );
+  const closeTouchTip = useCallback(() => setHoverTip(null), []);
+  useOutsidePressDismiss({ enabled: hoverTip?.touch === true, onDismiss: closeTouchTip, events: TOUCH_TIP_PRESS_EVENTS });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   // v1.48 — backdrop 닫기 판정은 공통 규약(useBackdropDismiss)에 위임한다. textarea/input 안에서
@@ -242,6 +285,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const [userMoved, setUserMoved] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** 끌고 있는 포인터 — 두 번째 손가락이 닿아도 그 움직임은 창을 옮기지 않는다. */
+  const dragPointerRef = useRef<number | null>(null);
 
   const clampToViewport = useCallback((left: number, top: number, w: number, h: number) => {
     const vw = window.innerWidth;
@@ -292,10 +337,15 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
     return () => window.removeEventListener('resize', onResize);
   }, [recomputePosition]);
 
-  const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {
+  // 머리줄 끌기 — 포인터 이벤트라 마우스·손가락·펜이 같은 길이다(종전 mousedown 전용이라 폰에서는 안 옮겨졌다).
+  //   포인터를 붙잡아(`setPointerCapture`) 손이 머리줄 밖으로 나가도 끝까지 따라오고, 머리줄은 `touch-none` 이라
+  //   브라우저가 그 손짓을 스크롤로 가져가지 않는다.
+  const handleHeaderPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!position) return;
     e.preventDefault();
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragPointerRef.current = e.pointerId;
     dragOffsetRef.current = { x: e.clientX - position.left, y: e.clientY - position.top };
     setDragging(true);
     setUserMoved(true);
@@ -303,7 +353,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
   useEffect(() => {
     if (!dragging) return;
-    const onMove = (ev: MouseEvent): void => {
+    const onMove = (ev: PointerEvent): void => {
+      if (ev.pointerId !== dragPointerRef.current) return;
       const el = popupRef.current;
       if (!el) return;
       const w = el.offsetWidth || POPUP_WIDTH;
@@ -315,12 +366,18 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
       );
       setPosition(next);
     };
-    const onUp = (): void => setDragging(false);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = (ev: PointerEvent): void => {
+      if (ev.pointerId !== dragPointerRef.current) return;
+      dragPointerRef.current = null;
+      setDragging(false);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [dragging, clampToViewport]);
 
@@ -426,9 +483,11 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
   return (
     <div className="fixed inset-0 z-50" {...backdrop}>
+      {/* 폰 폭(360px)에서는 `w-96` 이 화면보다 넓어 오른쪽 36px 와 주 버튼이 잘렸다 — 폭은 화면에서 양옆 여백을 뺀
+          만큼까지만, 높이는 주소창이 오가도 맞는 `dvh` 로 잡는다(자리 잡기는 실제로 잰 폭을 쓴다). */}
       <div
         ref={popupRef}
-        className={`scrollbar-thin absolute z-50 max-h-[90vh] w-96 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl ${
+        className={`scrollbar-thin absolute z-50 max-h-[90dvh] w-96 max-w-[calc(100vw-24px)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl ${
           dragging ? 'select-none' : ''
         }`}
         style={{
@@ -439,18 +498,18 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header — drag handle */}
+        {/* Header — drag handle. 이름이 길어도 줄이 넘치지 않게 두 이름은 각자 40% 까지만 쓰고 잘린다. */}
         <div
-          className={`mb-2 -mx-3 -mt-3 flex items-center gap-2 rounded-t-lg border-b border-gray-800 bg-gray-900/80 px-3 py-1.5 text-xs text-gray-400 ${
+          className={`mb-2 -mx-3 -mt-3 flex touch-none select-none items-center gap-2 rounded-t-lg border-b border-gray-800 bg-gray-900/80 px-3 py-1.5 text-xs text-gray-400 ${
             dragging ? 'cursor-grabbing' : 'cursor-grab'
           }`}
-          onMouseDown={handleHeaderMouseDown}
+          onPointerDown={handleHeaderPointerDown}
           title={t('bubbleMap.taskEdgePopup.dragToMove')}
         >
-          <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-blue-300">{sourceLabel}</span>
-          <span>→</span>
-          <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-green-300">{targetLabel}</span>
-          {isEditing && <span className="ml-auto text-[12px] uppercase tracking-wider text-amber-400">{t('bubbleMap.taskEdgePopup.editBadge')}</span>}
+          <span className="min-w-0 max-w-[40%] truncate rounded bg-blue-500/20 px-1.5 py-0.5 text-blue-300">{sourceLabel}</span>
+          <span className="shrink-0">→</span>
+          <span className="min-w-0 max-w-[40%] truncate rounded bg-green-500/20 px-1.5 py-0.5 text-green-300">{targetLabel}</span>
+          {isEditing && <span className="ml-auto shrink-0 text-[12px] uppercase tracking-wider text-amber-400">{t('bubbleMap.taskEdgePopup.editBadge')}</span>}
         </div>
 
         {/* Template dropdown */}
@@ -959,11 +1018,11 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           </div>
         )}
 
-        {/* Actions */}
+        {/* Actions — 손가락에는 24px 단추가 작다. 굵은 포인터에서만 32px 로 키운다(데스크톱 모습은 그대로). */}
         <div className="flex items-center justify-end gap-1.5">
           {isEditing && (
             <button
-              className="mr-auto rounded px-3 py-1 text-xs text-red-400 hover:bg-red-500/10"
+              className="mr-auto rounded px-3 py-1 text-xs text-red-400 hover:bg-red-500/10 pointer-coarse:py-2"
               onClick={handleDelete}
               {...tipProps(t('bubbleMap.taskEdgePopup.deleteTooltip'))}
             >
@@ -971,14 +1030,14 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             </button>
           )}
           <button
-            className="rounded px-3 py-1 text-xs text-gray-400 hover:bg-gray-800"
+            className="rounded px-3 py-1 text-xs text-gray-400 hover:bg-gray-800 pointer-coarse:py-2"
             onClick={onClose}
             {...tipProps(t('bubbleMap.taskEdgePopup.cancelTooltip'))}
           >
             {t('bubbleMap.taskEdgePopup.cancel')}
           </button>
           <button
-            className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-500 disabled:opacity-40"
+            className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-500 disabled:opacity-40 pointer-coarse:py-2"
             onClick={handleSubmit}
             disabled={!command.trim()}
             {...tipProps(

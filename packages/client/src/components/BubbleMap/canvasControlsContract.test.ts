@@ -81,10 +81,11 @@ describe('캔버스 컨트롤 디자인 규약 집행', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('② 컨트롤 버튼·패널·글리프는 kit 한 곳에서만 정의한다', () => {
+  it('② 공용 컨트롤 버튼·패널·글리프는 kit 한 곳에서만 내보낸다', () => {
     for (const symbol of ['Glyph', 'CtrlButton', 'CtrlPanel']) {
       const declaredIn = sources
-        .filter(({ text }) => text.includes(`function ${symbol}(`))
+        // 미디어 앱 등 다른 영역의 동명 비공개 도우미는 공용 컨트롤이 아니다.
+        .filter(({ text }) => new RegExp(`\\bexport\\s+function\\s+${symbol}\\s*\\(`).test(stripComments(text)))
         .map(({ path }) => path);
       expect(declaredIn).toEqual([KIT]);
     }

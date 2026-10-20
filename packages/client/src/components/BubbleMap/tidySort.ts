@@ -71,8 +71,11 @@ export function tidyQuantileKey(bucket: number): string {
   return `q${bucket}`;
 }
 
-/** 에이전트 계열 — `lineage` 에서 무리의 **중심**이 되는 종류. */
-const LINEAGE_HUB_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['agent', 'auto', 'pipeline']);
+/**
+ * 에이전트 계열 — `lineage` 에서 무리의 **중심**이 되는 종류. §5.23 웹 궤도도 같은 목록으로 궤도의 중심을
+ * 찾는다(`webOrbitSeating.ts`) — 두 벌로 들면 정리한 무리의 중심과 웹 버블이 도는 중심이 갈린다.
+ */
+export const LINEAGE_HUB_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['agent', 'auto', 'pipeline']);
 
 /**
  * 연속값을 **순위로** 자른다 — 절대 기준으로 자르면 프로젝트마다 전부 한 칸에 몰린다

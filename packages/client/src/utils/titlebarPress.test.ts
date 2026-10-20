@@ -32,9 +32,11 @@ function tree() {
   const tabStrip = new FakeElement(['flex'], header);
   const tab = new FakeElement(['app-nodrag'], tabStrip);
   const tabLabel = new FakeElement([], tab);
-  const cover = new FakeElement(['app-nodrag'], new FakeElement(['app-drag-label', 'app-drag'], header));
+  const logo = new FakeElement(['app-titlebar-handle', 'app-drag'], header);
+  const logoDot = new FakeElement([], logo);
+  const logoText = new FakeElement([], logo);
   const canvas = new FakeElement(['react-flow__pane']);
-  return { header, tabStrip, tab, tabLabel, cover, canvas };
+  return { header, tabStrip, tab, tabLabel, logo, logoDot, logoText, canvas };
 }
 
 type Listener = { type: string; fn: (event: unknown) => void; capture: boolean };
@@ -94,12 +96,19 @@ describe('드래그 영역 판정 — CSS 의 두 이름 그대로', () => {
     expect(isDragRegionTarget(t.tabStrip as unknown as EventTarget)).toBe(true);
   });
 
-  it('탭·덮개처럼 app-nodrag 로 되돌린 자리와 그 안은 아니다', () => {
+  it('탭처럼 app-nodrag 로 되돌린 자리와 그 안은 아니다', () => {
     rig();
     const t = tree();
     expect(isDragRegionTarget(t.tab as unknown as EventTarget)).toBe(false);
     expect(isDragRegionTarget(t.tabLabel as unknown as EventTarget)).toBe(false);
-    expect(isDragRegionTarget(t.cover as unknown as EventTarget)).toBe(false);
+  });
+
+  it('로고 배경과 내부 장식은 모두 같은 제목줄 영역이다', () => {
+    rig();
+    const t = tree();
+    for (const target of [t.logo, t.logoDot, t.logoText]) {
+      expect(isDragRegionTarget(target as unknown as EventTarget)).toBe(true);
+    }
   });
 
   it('드래그 영역 밖과 요소가 아닌 것은 아니다', () => {
@@ -115,7 +124,7 @@ describe('드래그 영역 판정 — CSS 의 두 이름 그대로', () => {
   });
 });
 
-describe('페이지까지 온 제목줄 누름 — 덮개와 같은 길로 옮긴다', () => {
+describe('페이지까지 온 제목줄 누름 — 전역 받기 하나로 옮긴다', () => {
   it('헤더 빈 자리 누름이 그 자리의 화면 좌표로 move-self 를 시작하고, 다른 처리기로 흘리지 않는다', () => {
     const r = rig();
     install();
@@ -138,8 +147,26 @@ describe('페이지까지 온 제목줄 누름 — 덮개와 같은 길로 옮�
   });
 
   it.each([
+    ['로고 배경', (t: ReturnType<typeof tree>) => t.logo],
+    ['로고 점', (t: ReturnType<typeof tree>) => t.logoDot],
+    ['로고 글자', (t: ReturnType<typeof tree>) => t.logoText],
+  ])('%s의 DOM 누름도 전역 받기가 한 번만 옮긴다', (_name, pick) => {
+    const r = rig();
+    install();
+    const down = mousedown(pick(tree()));
+    r.dispatch('mousedown', down);
+    expect(r.moveSelf.mock.calls).toEqual([['start', { x: 300, y: 14 }]]);
+    expect(down.preventDefault).toHaveBeenCalledOnce();
+    expect(down.stopPropagation).toHaveBeenCalledOnce();
+    r.dispatch('mouseup', { button: 0, buttons: 0, screenX: 400, screenY: 100 });
+    expect(r.moveSelf.mock.calls).toEqual([
+      ['start', { x: 300, y: 14 }], ['end', { x: 400, y: 100 }],
+    ]);
+  });
+
+  it.each([
     ['탭(app-nodrag)', (t: ReturnType<typeof tree>) => t.tab],
-    ['덮개 — 자기 처리기가 받는다', (t: ReturnType<typeof tree>) => t.cover],
+    ['탭 글자', (t: ReturnType<typeof tree>) => t.tabLabel],
     ['캔버스', (t: ReturnType<typeof tree>) => t.canvas],
   ])('%s 누름은 건드리지 않는다', (_name, pick) => {
     const r = rig();
@@ -226,7 +253,7 @@ describe('제목줄 영역은 코드로 껐다 켜지 않는다', () => {
     expect(html).toMatch(/<div id="root"><div class="app-drag h-9" aria-hidden="true"><\/div><\/div>/);
   });
 
-  it('헤더의 더블클릭은 드래그 영역에 도착한 것만 최대화/복원한다(덮개·탭은 거른다)', () => {
+  it('헤더의 더블클릭은 드래그 영역에 도착한 것만 최대화/복원한다(탭·버튼은 거른다)', () => {
     const header = code(srcFiles['../components/Layout/Header.tsx'] ?? '');
     expect(header).toContain('onDoubleClick={handleTitlebarDoubleClick}');
     const at = header.indexOf('const handleTitlebarDoubleClick');

@@ -1,0 +1,12 @@
+/* Only the dedicated paint paths animate. Geometry, marker paths and pointer
+ * interaction paths are never selected by these rules. Whole pattern periods
+ * avoid a jump at the end of each loop. */
+@keyframes bubble-edge-wire-flow { to { stroke-dashoffset: -36; } }
+@keyframes bubble-edge-dash-flow { to { stroke-dashoffset: -32; } }
+@keyframes bubble-edge-beads-flow { to { stroke-dashoffset: -38; } }
+@keyframes bubble-edge-glow-flow { to { stroke-dashoffset: -100; } }
+@keyframes bubble-edge-rail-flow { to { stroke-dashoffset: -36; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble-edge-paint[data-paint-layer="travel"] { animation: none !important; }
+}

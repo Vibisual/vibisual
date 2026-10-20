@@ -9,7 +9,7 @@
  * 부르는 쪽이 레지스트리에서 꺼내 넘긴다.
  */
 
-import type { AgentConfig, AppBubble, BubbleData } from '@vibisual/shared';
+import type { AgentConfig, AppBubble, BubbleData, CommandExecutionRequirements, CreationRunLimits } from '@vibisual/shared';
 import { AGENT_CARD, REF_BLOOM, REF_LINK_STYLE, linkedFileName } from '@vibisual/shared';
 import { refLinkVisible } from './linkView.js';
 
@@ -126,6 +126,7 @@ export function refLinkPairsKey(pairs: readonly RefLinkPair[]): string {
 
 /** 보낼 때 본문에 붙는 앱 노드 하나의 사실. 이름·확장자는 레지스트리에서 꺼낸 값이다. */
 export interface LinkedOutputNode {
+  executionRequirements?: CommandExecutionRequirements & { runLimits?: CreationRunLimits };
   id: string;
   /** 앱의 제품 이름(브랜드 — 번역 대상 ❌). */
   appName: string;
@@ -391,6 +392,21 @@ export function clampBloomCenter(
     x: Math.max(pad - minDx, Math.min(x, viewW - pad - maxDx)),
     y: Math.max(pad - minDy, Math.min(y, viewH - pad - maxDy)),
   };
+}
+
+/**
+ * 꽃 가운데 아래(위)의 **이름 한 줄**이 화면 가장자리에서 잘리지 않게 그 가로 가운데를 안쪽으로 민다.
+ *
+ * 꽃 자리(`clampBloomCenter`)는 꽃잎만 보고 잡힌다 — 꽃잎이 위·아래로 피면 가운데가 가장자리 `seedSize/2 + margin`
+ * 까지 붙고, 그 아래 이름은 가운데 정렬이라 긴 이름의 반이 화면 밖으로 나갔다(폰 폭). 꽃은 그대로 두고 이름만 민다.
+ * 이름이 화면보다 넓으면(말줄임으로 잘린다) 화면 가운데에 둔다.
+ */
+export function clampCaptionCenterX(x: number, width: number, viewW: number, margin: number): number {
+  const half = width / 2;
+  const min = margin + half;
+  const max = viewW - margin - half;
+  if (min > max) return viewW / 2;
+  return Math.max(min, Math.min(x, max));
 }
 
 /** 한 축 — 그 구간이 [margin, view - margin] 안에 들도록 옮길 양. 구간이 화면보다 크면 앞(왼쪽·위)을 맞춘다. */

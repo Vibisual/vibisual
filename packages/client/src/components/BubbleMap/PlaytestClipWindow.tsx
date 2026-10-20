@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_PLAYTEST, isReadOnlyHookAgent } from '@vibisual/shared';
 
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.js';
+import { useFloatingWindowFullScreenLock } from '../../hooks/useIsMobile.js';
 import { useCapturePlaytestAttach } from '../../hooks/useCapturePlaytestAttach.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useCapturePlaytest, useCapturePlaytestStore, type PlaytestClip } from '../../stores/capturePlaytest.js';
@@ -48,10 +49,13 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
   const bringToFront = useCallback(() => { setZ(handle.bringToFront()); }, [handle]);
   useEffect(() => () => { handle.release(); }, [handle]);
 
+  // 폰 폭·터치 기기에서는 화면 전체로 고정(이동·크기 조절·최대화 잠금) — 앱 창과 같은 기준.
+  const lockFullScreen = useFloatingWindowFullScreenLock();
   const fw = useFloatingWindow({
     cascade: handle.cascadeOffset,
     maxDefaultSize: { w: 720, h: 640 },
     onInteractStart: bringToFront,
+    lockFullScreen,
   });
 
   const clip = useMemo(
@@ -147,8 +151,12 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
   }, []);
 
   // ── 구간 손잡이 ─────────────────────────────────────────────────────────────
+  // 포인터 이벤트라 마우스·손가락·펜이 같은 길이다(종전 mousedown 전용이라 폰에서는 손잡이가 안 움직였다).
+  //   누른 손잡이가 포인터를 붙잡아(`setPointerCapture`) 손이 띠 밖으로 나가도 따라오고, 손잡이는 `touch-none` 이라
+  //   창 본문의 세로 스크롤이 그 손짓을 가져가지 않는다. 두 번째 손가락은 끌던 손잡이를 흔들지 않는다.
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<'start' | 'end' | null>(null);
+  const dragPointerRef = useRef<number | null>(null);
 
   const msFromClientX = useCallback((clientX: number): number => {
     const el = trackRef.current;
@@ -158,17 +166,22 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
     return Math.min(Math.max(ratio, 0), 1) * clipDuration;
   }, [clipDuration]);
 
-  const beginDrag = useCallback((which: 'start' | 'end') => (e: React.MouseEvent) => {
+  const beginDrag = useCallback((which: 'start' | 'end') => (e: React.PointerEvent<HTMLSpanElement>) => {
+    // 누름을 막으면(`preventDefault`) 뒤따르는 mousedown 이 오지 않아 창 맨 앞으로 올리기(`onMouseDownCapture`)도
+    //   건너뛴다 — 종전처럼 손잡이를 잡는 순간 이 창이 앞으로 오도록 여기서 직접 올린다.
+    bringToFront();
     e.preventDefault();
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragPointerRef.current = e.pointerId;
     dragRef.current = which;
-  }, []);
+  }, [bringToFront]);
 
   useEffect(() => {
     if (clipDuration <= 0) return;
-    const onMove = (e: MouseEvent): void => {
+    const onMove = (e: PointerEvent): void => {
       const which = dragRef.current;
-      if (!which) return;
+      if (!which || e.pointerId !== dragPointerRef.current) return;
       const ms = msFromClientX(e.clientX);
       setRange((prev) => {
         const next = which === 'start' ? { ...prev, startMs: ms } : { ...prev, endMs: ms };
@@ -176,12 +189,18 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
       });
       if (which === 'start') seekTo(ms);
     };
-    const onUp = (): void => { dragRef.current = null; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = (e: PointerEvent): void => {
+      if (e.pointerId !== dragPointerRef.current) return;
+      dragPointerRef.current = null;
+      dragRef.current = null;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [clipDuration, msFromClientX, seekTo]);
 
@@ -215,7 +234,7 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
     <div
       ref={fw.windowRef}
       data-playtest-window=""
-      className="fixed flex flex-col overflow-hidden rounded-xl shadow-2xl shadow-black/70"
+      className={`fixed flex flex-col overflow-hidden shadow-2xl shadow-black/70${lockFullScreen ? '' : ' rounded-xl'}`}
       style={{
         ...fw.style,
         zIndex: z,
@@ -232,7 +251,7 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
       {/* Title bar — 캡처 창과 같은 그래파이트 유리면. 드래그 이동 + 더블클릭 최대화. */}
       <div
         {...fw.titleBarProps}
-        className="flex h-10 flex-shrink-0 cursor-grab select-none items-center gap-2 px-3 text-slate-200 active:cursor-grabbing"
+        className={`flex h-10 flex-shrink-0 select-none items-center gap-2 px-3 text-slate-200${lockFullScreen ? '' : ' cursor-grab active:cursor-grabbing'}`}
         style={{
           background: CAPTURE_BUBBLE_DEFAULTS.CHROME_BG,
           borderBottom: `1px solid ${CAPTURE_BUBBLE_DEFAULTS.CHROME_BORDER}`,
@@ -253,7 +272,8 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
         <span className="min-w-0 flex-1 truncate text-[12px] text-slate-500" title={clip.sourceName}>
           {clip.sourceName}
         </span>
-        <button
+        {/* 잠긴 전체 화면(폰 폭·터치)에서는 최대화가 할 일이 없다. */}
+        {!lockFullScreen && <button
           type="button"
           onClick={fw.toggleMaximized}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
@@ -271,11 +291,11 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
               <><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></>
             )}
           </svg>
-        </button>
+        </button>}
         <button
           type="button"
           onClick={onClose}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-500/80 hover:text-white"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-500/80 hover:text-white pointer-coarse:h-8 pointer-coarse:w-8"
           title={t('bubbleMap.capture.windowClose', { defaultValue: '닫기 (Esc)' })}
           aria-label={t('bubbleMap.capture.windowClose', { defaultValue: '닫기 (Esc)' })}
         >
@@ -318,7 +338,7 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
             src={clip.url}
             muted
             playsInline
-            className="max-h-[46vh] w-full object-contain"
+            className="max-h-[46dvh] w-full object-contain"
             onLoadedMetadata={handleLoadedMetadata}
             onTimeUpdate={handleTimeUpdate}
             onEnded={() => setPlaying(false)}
@@ -374,9 +394,10 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
                 aria-valuemax={Math.round(clipDuration)}
                 aria-valuenow={Math.round(which === 'start' ? range.startMs : range.endMs)}
                 tabIndex={0}
-                className="absolute inset-y-0 -ml-1.5 w-3 cursor-ew-resize rounded-sm"
+                // 손가락에는 12px 손잡이가 좁다 — 굵은 포인터에서만 24px 로(가운데는 그대로 그 시각에 둔다).
+                className="absolute inset-y-0 -ml-1.5 w-3 cursor-ew-resize touch-none rounded-sm pointer-coarse:-ml-3 pointer-coarse:w-6"
                 style={{ left: `${pct(which === 'start' ? range.startMs : range.endMs)}%`, background: accent }}
-                onMouseDown={beginDrag(which)}
+                onPointerDown={beginDrag(which)}
               />
             ))}
           </div>
@@ -522,8 +543,8 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
         </div>
       </div>
 
-      {/* 우하단 리사이즈 핸들 — 최대화 중엔 숨김. */}
-      {!fw.maximized && (
+      {/* 우하단 리사이즈 핸들 — 최대화·잠긴 전체 화면에선 숨김. */}
+      {!fw.maximized && !lockFullScreen && (
         <div
           {...fw.resizeProps}
           className="absolute bottom-0 right-0 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1 text-slate-600 transition-colors hover:text-slate-300"

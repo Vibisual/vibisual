@@ -35,7 +35,8 @@ export function RefLinkDragPreview(): React.JSX.Element | null {
   const color = drag.color || REF_LINK_STYLE.fallbackColor;
 
   return (
-    <svg className="pointer-events-none fixed inset-0 z-40 h-screen w-screen" aria-hidden="true">
+    // 높이는 보이는 화면(`dvh`) — 폰 주소창이 오가도 `inset-0` 과 같은 상자다(지원하지 않는 브라우저는 `inset-0` 이 받친다).
+    <svg className="pointer-events-none fixed inset-0 z-40 h-dvh w-screen" aria-hidden="true">
       <RefTether d={geo.path} stroke={color} bright flowing={target !== null} />
       <RefDock x={end.x} y={end.y} color={color} active={target !== null} />
     </svg>
