@@ -26,11 +26,12 @@ export function TrifectaSection({ ctx }: { ctx: PluginPanelContext }): React.JSX
 
   return (
     <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-400">
+      {/* 머리줄·행 배치는 공용 카드(`ui/kit.tsx`)와 같은 규칙 — 좁으면 줄을 바꾸고 서로 밀지 않는다. */}
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <span className="min-w-0 break-words text-[12px] font-semibold uppercase tracking-wide text-gray-400">
           {t('panel.plugins.lethalTrifecta.heading')}
         </span>
-        <span className={`text-[12px] font-medium ${levelClass}`}>
+        <span className={`min-w-0 max-w-[50%] break-words text-right text-[12px] font-medium ${levelClass}`}>
           {t(`panel.plugins.lethalTrifecta.level.${verdict.level}`)}
         </span>
       </div>
@@ -48,7 +49,8 @@ export function TrifectaSection({ ctx }: { ctx: PluginPanelContext }): React.JSX
                     {t(`panel.plugins.lethalTrifecta.state.${result.state}`)}
                   </span>
                 </div>
-                <div className="mt-0.5 truncate text-[12px] text-gray-500">
+                {/* 도구 목록은 "무엇을 끊으면 되는가"의 답이라 자르지 않는다 — 넘치면 줄을 바꾼다. */}
+                <div className="mt-0.5 break-words text-[12px] text-gray-500">
                   {result.tools.length > 0 ? result.tools.join(' · ') : t('panel.plugins.lethalTrifecta.noTool')}
                 </div>
               </div>

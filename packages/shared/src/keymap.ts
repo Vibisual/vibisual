@@ -372,12 +372,25 @@ export function bindingFromEvent(e: KeyEventLike, platform: PlatformName): strin
 // 명령 표 — 이 앱의 단축키 전부
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** 바인딩이 OS 마다 다를 수 있는 세 OS. */
+export type KeymapOs = 'win32' | 'darwin' | 'linux';
+
 /** 명령 하나의 정의. */
 export interface CommandDef {
   /** 어디서 듣는가. */
   scope: CommandScope;
   /** 기본 바인딩(정규 표기). `''` = 기본값 없음(사용자가 붙일 수 있는 빈 자리). */
   defaultBinding: string;
+  /**
+   * 그 OS 에서만 다른 기본 바인딩(선택). 없는 OS 는 `defaultBinding` 을 쓴다 — 읽는 곳은
+   * `defaultBindingFor` 하나다.
+   *
+   * 편집기의 손에 익은 키는 OS 마다 다르다(VS Code 도 기본값을 OS 별로 둔다). mac 의 ⌘H 는 앱
+   * 숨기기라 바꾸기가 ⌥⌘F 이고, ⌘G 는 다음 찾기라 줄 번호 이동이 ⌃G 다. linux 는 Shift+Alt+방향키를
+   * 데스크톱이 가져가는 일이 있어 줄 복사가 Ctrl+Shift+Alt+방향키다. 한 값으로 묶으면 어느 OS 에서는
+   * 키가 아예 오지 않거나(OS 예약) 그 OS 사람의 손과 다른 키가 된다.
+   */
+  osBinding?: Partial<Record<KeymapOs, string>>;
   /** i18n 키(`common.shortcuts.cmd.<id>`). 번역문에 `Ctrl+` 를 박지 않기 위해 **이름만** 여기 둔다. */
   labelKey: string;
   /**
@@ -403,6 +416,12 @@ export const COMMANDS = {
     scope: 'global',
     defaultBinding: 'Ctrl+/',
     labelKey: 'common.shortcuts.cmd.global.shortcutOverlay',
+    typingSafe: true,
+  },
+  'global.projectImmersion': {
+    scope: 'global',
+    defaultBinding: 'F11',
+    labelKey: 'canvas.controls.immersiveMode',
     typingSafe: true,
   },
   // §5.4 #14-4 — 방금 닫은 탭 되살리기. 브라우저가 30년 가까이 같은 키를 써 왔으므로 여기서
@@ -549,6 +568,158 @@ export const COMMANDS = {
     typingSafe: true,
   },
 
+  // §5.5 #17-27 ⑲ — 찾기·바꾸기·줄 번호 이동. 키는 **VS Code 기본값 그대로**다(사용자 지시 —
+  //   "기존 편집 툴들처럼 … 단축키랑 동일하게"). 여기서 다른 키를 지으면 그것만으로 못 찾는 기능이 된다.
+  //   OS 마다 다른 자리는 `osBinding` 이 갖는다. 찾기 막대 안에서만 사는 키(옵션 셋·바꾸기 둘)는
+  //   처리기가 막대가 열린 동안만 등록한다(`enabled`) — 닫혀 있으면 Alt+C 같은 키를 가로채지 않는다.
+  //   ⚠ `Ctrl+/` 줄 주석은 전역 단축키 목록(`global.shortcutOverlay`)을 편집창 **안에서만** 가린다 —
+  //   주석을 달 수 없는 파일(읽기 전용·주석 없는 언어)에서는 처리기가 넘겨 목록이 그대로 뜬다.
+  'editor.find': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+F',
+    labelKey: 'common.shortcuts.cmd.editor.find',
+    typingSafe: true,
+  },
+  'editor.replace': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+H',
+    osBinding: { darwin: 'Ctrl+Alt+F' },
+    labelKey: 'common.shortcuts.cmd.editor.replace',
+    typingSafe: true,
+  },
+  'editor.findNext': {
+    scope: 'editor',
+    defaultBinding: 'F3',
+    osBinding: { darwin: 'Ctrl+G' },
+    labelKey: 'common.shortcuts.cmd.editor.findNext',
+    typingSafe: true,
+  },
+  'editor.findPrev': {
+    scope: 'editor',
+    defaultBinding: 'Shift+F3',
+    osBinding: { darwin: 'Ctrl+Shift+G' },
+    labelKey: 'common.shortcuts.cmd.editor.findPrev',
+    typingSafe: true,
+  },
+  'editor.toggleMatchCase': {
+    scope: 'editor',
+    defaultBinding: 'Alt+C',
+    osBinding: { darwin: 'Ctrl+Alt+C' },
+    labelKey: 'common.shortcuts.cmd.editor.toggleMatchCase',
+    typingSafe: true,
+  },
+  'editor.toggleWholeWord': {
+    scope: 'editor',
+    defaultBinding: 'Alt+W',
+    osBinding: { darwin: 'Ctrl+Alt+W' },
+    labelKey: 'common.shortcuts.cmd.editor.toggleWholeWord',
+    typingSafe: true,
+  },
+  'editor.toggleRegex': {
+    scope: 'editor',
+    defaultBinding: 'Alt+R',
+    osBinding: { darwin: 'Ctrl+Alt+R' },
+    labelKey: 'common.shortcuts.cmd.editor.toggleRegex',
+    typingSafe: true,
+  },
+  'editor.replaceOne': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+Shift+1',
+    labelKey: 'common.shortcuts.cmd.editor.replaceOne',
+    typingSafe: true,
+  },
+  'editor.replaceAll': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+Alt+Enter',
+    labelKey: 'common.shortcuts.cmd.editor.replaceAll',
+    typingSafe: true,
+  },
+  'editor.goToLine': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+G',
+    // mac 은 ⌘G 가 다음 찾기다 — 진짜 Control(⌃G)이라 둘은 다른 손짓이다(`bindingSpecificity`).
+    osBinding: { darwin: 'Control+G' },
+    labelKey: 'common.shortcuts.cmd.editor.goToLine',
+    typingSafe: true,
+  },
+
+  // §5.5 #17-27 ⑲ — 줄 편집. 역시 VS Code 기본값 그대로다.
+  'editor.copyLineUp': {
+    scope: 'editor',
+    defaultBinding: 'Alt+Shift+Up',
+    osBinding: { linux: 'Ctrl+Alt+Shift+Up' },
+    labelKey: 'common.shortcuts.cmd.editor.copyLineUp',
+    typingSafe: true,
+  },
+  'editor.copyLineDown': {
+    scope: 'editor',
+    defaultBinding: 'Alt+Shift+Down',
+    osBinding: { linux: 'Ctrl+Alt+Shift+Down' },
+    labelKey: 'common.shortcuts.cmd.editor.copyLineDown',
+    typingSafe: true,
+  },
+  'editor.moveLineUp': {
+    scope: 'editor',
+    defaultBinding: 'Alt+Up',
+    labelKey: 'common.shortcuts.cmd.editor.moveLineUp',
+    typingSafe: true,
+  },
+  'editor.moveLineDown': {
+    scope: 'editor',
+    defaultBinding: 'Alt+Down',
+    labelKey: 'common.shortcuts.cmd.editor.moveLineDown',
+    typingSafe: true,
+  },
+  'editor.deleteLine': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+Shift+K',
+    labelKey: 'common.shortcuts.cmd.editor.deleteLine',
+    typingSafe: true,
+  },
+  'editor.insertLineBelow': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+Enter',
+    labelKey: 'common.shortcuts.cmd.editor.insertLineBelow',
+    typingSafe: true,
+  },
+  'editor.insertLineAbove': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+Shift+Enter',
+    labelKey: 'common.shortcuts.cmd.editor.insertLineAbove',
+    typingSafe: true,
+  },
+  'editor.selectLine': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+L',
+    labelKey: 'common.shortcuts.cmd.editor.selectLine',
+    typingSafe: true,
+  },
+  'editor.indentLines': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+]',
+    labelKey: 'common.shortcuts.cmd.editor.indentLines',
+    typingSafe: true,
+  },
+  'editor.outdentLines': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+[',
+    labelKey: 'common.shortcuts.cmd.editor.outdentLines',
+    typingSafe: true,
+  },
+  'editor.toggleLineComment': {
+    scope: 'editor',
+    defaultBinding: 'Ctrl+/',
+    labelKey: 'common.shortcuts.cmd.editor.toggleLineComment',
+    typingSafe: true,
+  },
+  'editor.toggleBlockComment': {
+    scope: 'editor',
+    defaultBinding: 'Alt+Shift+A',
+    osBinding: { linux: 'Ctrl+Shift+A' },
+    labelKey: 'common.shortcuts.cmd.editor.toggleBlockComment',
+    typingSafe: true,
+  },
+
   // ── terminal — 터미널 안 ──────────────────────────────────────────────────
   // 터미널은 셸이 키를 먹는 자리라 규칙이 하나 더 있다: **셸에게 넘겨야 하는 키를 뺏지 않는다.**
   // 그래서 `Ctrl+C` 는 선택이 있을 때만 우리 것이고(없으면 SIGINT 로 내려간다), 그 판단은
@@ -632,11 +803,46 @@ export function isCommandId(id: string): id is CommandId {
   return Object.prototype.hasOwnProperty.call(COMMANDS, id);
 }
 
-/** 기본 바인딩 전체. */
-export function defaultKeymap(): Record<CommandId, string> {
+/**
+ * 그 OS 에서의 기본 바인딩 — `osBinding` 에 그 OS 칸이 있으면 그것, 없으면 `defaultBinding`.
+ *
+ * OS 를 **인자로 받는다**(멀티플랫폼 5축) — 판정이 함수 안에서 `process.platform`·`navigator` 를 읽으면
+ * Windows 개발기에서 mac·linux 기본값을 시험으로 고정할 수 없다. 모르는 OS(또는 생략)는 `defaultBinding`.
+ */
+export function defaultBindingFor(id: CommandId, platform?: PlatformName): string {
+  const def = commandDef(id);
+  const os = keymapOs(platform);
+  return (os && def.osBinding?.[os]) || def.defaultBinding;
+}
+
+/** 우리가 기본값을 가르는 세 OS 중 하나인가. 아니면(모름·생략) `null`. */
+function keymapOs(platform: PlatformName | undefined): KeymapOs | null {
+  switch (platform) {
+    case 'win32': return 'win32';
+    case 'darwin': return 'darwin';
+    case 'linux': return 'linux';
+    default: return null;
+  }
+}
+
+/** 기본 바인딩 전체(그 OS 의 것). */
+export function defaultKeymap(platform?: PlatformName): Record<CommandId, string> {
   const out = {} as Record<CommandId, string>;
-  for (const id of COMMAND_IDS) out[id] = COMMANDS[id].defaultBinding;
+  for (const id of COMMAND_IDS) out[id] = defaultBindingFor(id, platform);
   return out;
+}
+
+/**
+ * 같은 키 이벤트에 바인딩 둘이 함께 맞을 때 **먼저 볼 쪽**(클수록 먼저).
+ *
+ * `Ctrl` 토큰은 `ctrlKey || metaKey` 로 판정하므로(5축) mac 에서 진짜 Control 을 누른 손짓(⌃G)은
+ * `Ctrl+G`(⌘G 자리)와 `Control+G` 에 **둘 다** 맞는다. 진짜 Control 바인딩은 ⌘ 가 눌리면 맞지 않는
+ * 좁은 바인딩이므로, 둘이 겹치면 그쪽이 그 손짓의 주인이다 — mac 의 줄 번호 이동(⌃G)이 다음 찾기(⌘G)에
+ * 먹히지 않는 이유가 이것이다. 디스패처(`useCommand`)가 같은 스코프 안의 후보를 이 순서로 고른다.
+ */
+export function bindingSpecificity(binding: string): number {
+  const parsed = parseBinding(binding);
+  return parsed?.control ? 1 : 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -652,8 +858,11 @@ export function defaultKeymap(): Record<CommandId, string> {
  */
 export type KeymapOverrides = Record<string, string | null>;
 
-/** 받은 덮어쓰기를 믿을 수 있는 모양으로. 모르는 명령·못 읽는 바인딩은 버린다. */
-export function normalizeKeymapOverrides(raw: unknown): KeymapOverrides {
+/**
+ * 받은 덮어쓰기를 믿을 수 있는 모양으로. 모르는 명령·못 읽는 바인딩은 버린다.
+ * `platform` 은 "기본값과 같은가"를 그 OS 의 기본값(`defaultBindingFor`)으로 견주기 위해 받는다.
+ */
+export function normalizeKeymapOverrides(raw: unknown, platform?: PlatformName): KeymapOverrides {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out: KeymapOverrides = {};
   for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
@@ -663,18 +872,21 @@ export function normalizeKeymapOverrides(raw: unknown): KeymapOverrides {
     const normalized = normalizeBinding(value);
     if (!normalized) continue;
     // 기본값과 같으면 덮어쓸 것이 없다 — 저장해 두면 기본값이 바뀌어도 옛 값에 묶인다.
-    if (normalized === COMMANDS[id].defaultBinding) continue;
+    if (normalized === defaultBindingFor(id, platform)) continue;
     out[id] = normalized;
   }
   return out;
 }
 
-/** 기본값 + 덮어쓰기 = 지금 실제로 도는 바인딩. `null` = 해제된 명령. */
-export function resolveKeymap(overrides: KeymapOverrides | undefined): Record<CommandId, string | null> {
+/** 기본값(그 OS 의 것) + 덮어쓰기 = 지금 실제로 도는 바인딩. `null` = 해제된 명령. */
+export function resolveKeymap(
+  overrides: KeymapOverrides | undefined,
+  platform?: PlatformName,
+): Record<CommandId, string | null> {
   const out = {} as Record<CommandId, string | null>;
   for (const id of COMMAND_IDS) {
     const override = overrides ? overrides[id] : undefined;
-    out[id] = override === undefined ? COMMANDS[id].defaultBinding : override;
+    out[id] = override === undefined ? defaultBindingFor(id, platform) : override;
   }
   return out;
 }

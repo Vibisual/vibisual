@@ -40,7 +40,7 @@ export function TrifectaBadge({ ctx }: { ctx: PluginBubbleContext }): React.JSX.
       ))}
       {verdict.isolated && (
         <svg
-          className="h-2.5 w-2.5 text-sky-300"
+          className="h-3 w-3 text-sky-300"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

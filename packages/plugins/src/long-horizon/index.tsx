@@ -74,7 +74,7 @@ function Badge({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {
   const s = computeLongHorizon(ctx.data.agentEvents, ctx.now);
   return (
     <PluginBadgePill tone={TONE[s.level]} title={ctx.t(`${K}.badge`, { turns: s.turns, elapsed: formatElapsed(s.elapsedMs) })}>
-      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" />
       </svg>
       {s.turns}

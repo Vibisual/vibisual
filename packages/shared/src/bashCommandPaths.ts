@@ -351,3 +351,54 @@ export function extractBashWritePaths(
 
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §5.1 #2-1 (F) ③ — 작업 폴더 훑기의 기준 자리 후보
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 이 Bash 명령에 **적힌 경로처럼 생긴 낱말**(`cd` 대상 포함, 원문 그대로 · 앞의 `cd` 를 기준으로 상대 경로를 잇는다).
+ *
+ * 판정은 하지 않는다 — 스크립트가 만든 파일(렌더한 glb · 생성한 텍스처)은 명령 글에 이름이 없으므로, 서버가 이
+ * 낱말들이 **실재하는지** 보고 파일이면 그 폴더, 폴더면 그 자리를 훑는다. heredoc 본문은 건너뛴다(셸이 실행하지 않는
+ * 글이다). 쓰기 축(`extractBashWritePaths`)과 달리 무엇도 쓰기로 세지 않는다 — 훑을 자리를 말할 뿐이다.
+ */
+export function extractBashScanAnchors(
+  command: string,
+  limit: number,
+  opts?: { platform?: PlatformName },
+): string[] {
+  if (!command || typeof command !== 'string' || limit <= 0) return [];
+  const platform = opts?.platform ?? FALLBACK_PLATFORM;
+  const toNative = platform === 'win32' ? toNativeDriveShellPath : (p: string): string => p;
+  const segments = stripHeredocBodies(splitShellSegments(tokenizeShellCommand(command)));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  let base: string | null = null;
+  const take = (raw: string): boolean => {
+    const joined = isAbsoluteShellPath(raw) || !base ? raw : `${base}/${raw}`;
+    const resolved = toNative(joined);
+    const key = pathKey(resolved, platform);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    out.push(resolved);
+    return out.length >= limit;
+  };
+  for (const segment of segments) {
+    const cdTarget = readShellCdTarget(segment);
+    if (cdTarget) {
+      base = cdTarget.replace(/[\/]+$/, '');
+      if (take(base)) return out;
+      continue;
+    }
+    for (const tok of segment) {
+      // 붙어 온 리다이렉트(`>out.txt` · `2>>log`)는 대상만 본다.
+      const t = tok.replace(/^\d*>>?/, '');
+      if (!t || t.startsWith('-') || isUnusableShellArg(t) || SHELL_SEGMENT_SEPARATORS.has(t)) continue;
+      if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(t)) continue; // URL
+      if (!looksLikeShellPath(t)) continue;
+      if (take(t)) return out;
+    }
+  }
+  return out;
+}

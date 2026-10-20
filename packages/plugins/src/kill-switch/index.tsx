@@ -51,7 +51,8 @@ function KillButton({ ctx }: { ctx: PluginHeaderContext }): React.JSX.Element {
       onClick={() => void fire()}
       disabled={busy}
       title={ctx.t(`${K}.title`, { count: ctx.liveAgents })}
-      className={`app-nodrag flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium transition-colors ${
+      // 헤더 버튼은 한 줄·제 폭 — 헤더가 좁아져도 글자가 두 줄로 꺾이거나 눌려 사라지지 않게.
+      className={`app-nodrag flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[12px] font-medium transition-colors pointer-coarse:py-2 ${
         armed
           ? 'bg-red-500/25 text-red-200 ring-1 ring-red-400/60'
           : 'bg-white/[0.06] text-gray-400 hover:bg-red-500/15 hover:text-red-300'

@@ -19,6 +19,24 @@ import type { PluginPromptContext } from './types.js';
 const SRC = path.resolve(__dirname);
 const ids = PLUGIN_MANIFESTS.map((m) => m.id);
 
+// 모든 카드가 지켜야 하는 실행 범위는 카드 고유 규칙의 중복에 포함하지 않는다.
+const VERIFICATION_SCOPE = 'Vibisual 검증 정책이 켜져 있으면 최신 [검증 권한] 범위 안에서만, 꺼져 있으면 사용자의 직접 지시와 작업 범위에 맞춰';
+const STOP = new Set(['그', '것', '수', '때', '더', '이', '하라', '마라', '하고', '있으면', '있는', '함께']);
+function ruleWords(s: string): Set<string> {
+  return new Set(
+    s.replaceAll(VERIFICATION_SCOPE, '').replace(/\*\*|`|—|·/g, ' ')
+      .split(/[\s,.·—()"']+/)
+      .map((w) => w.replace(/(을|를|은|는|이|가|에|의|로|으로|과|와|도|만|까지|부터|처럼|보다)$/, ''))
+      .filter((w) => w.length > 1 && !STOP.has(w)),
+  );
+}
+function overlap(a: Set<string>, b: Set<string>): number {
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  const union = a.size + b.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
 /**
  * 아무 프로젝트나 하나 — 집행 블록은 프로젝트 사정과 무관하게 "낼 말"이 있어야 한다.
  *
@@ -116,26 +134,12 @@ describe('집행 블록의 모양', () => {
    * "…실행 전에 물어라" 같은 뼈대는 여러 카드가 공유하므로 그보다 낮추면 정상 규칙이 걸린다.
    */
   it('다른 카드가 한 낱말만 바꾼 같은 말을 하지 않는다', () => {
-    const STOP = new Set(['그', '것', '수', '때', '더', '이', '하라', '마라', '하고', '있으면', '있는', '함께']);
-    const bag = (s: string): Set<string> =>
-      new Set(
-        s.replace(/\*\*|`|—|·/g, ' ')
-          .split(/[\s,.·—()"']+/)
-          .map((w) => w.replace(/(을|를|은|는|이|가|에|의|로|으로|과|와|도|만|까지|부터|처럼|보다)$/, ''))
-          .filter((w) => w.length > 1 && !STOP.has(w)),
-      );
-    const overlap = (a: Set<string>, b: Set<string>): number => {
-      let inter = 0;
-      for (const x of a) if (b.has(x)) inter++;
-      return inter / (a.size + b.size - inter);
-    };
-
     const rules: { id: string; text: string; bag: Set<string> }[] = [];
     for (const mod of PLUGIN_PROMPT_MODULES) {
       for (const line of (mod.buildBlock(ctx) ?? '').split('\n')) {
         if (!line.startsWith('- ')) continue;
         const text = line.slice(2).trim();
-        rules.push({ id: mod.id, text, bag: bag(text) });
+        rules.push({ id: mod.id, text, bag: ruleWords(text) });
       }
     }
 
@@ -150,5 +154,11 @@ describe('집행 블록의 모양', () => {
       }
     }
     expect(tooClose).toEqual([]);
+  });
+
+  it('공통 검증 범위를 제외해도 같은 핵심 규칙은 잡는다', () => {
+    const core = '실패 원인을 기록하고 다음 시도에서 같은 실수를 반복하지 마라.';
+    expect(overlap(ruleWords(core), ruleWords(`${core} ${VERIFICATION_SCOPE} 하라.`))).toBe(1);
+    expect(overlap(ruleWords(`접근 키를 마스킹하라. ${VERIFICATION_SCOPE}`), ruleWords(`색상 대비를 측정하라. ${VERIFICATION_SCOPE}`))).toBeLessThan(0.55);
   });
 });

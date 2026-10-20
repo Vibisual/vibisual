@@ -3,6 +3,8 @@ import type { KeymapOverrides } from './keymap.js';
 import type { MobileAddressEntry } from './mobileAddress.js';
 import type { UsageLimitStop } from './usageLimitStop.js';
 import type { TurnStopReason } from './turnStopReason.js';
+import type { BubbleSkin, BubbleEdgeStyle } from './bubbleAppearance.js';
+import type { CommandAppTarget } from './commandApps.js';
 /** UI 표시 언어 — 서버 ProjectCheckpoint에 저장, 클라이언트는 서버 SSOT를 따름 */
 export type UiLocale =
   | 'ko'
@@ -317,6 +319,101 @@ export type NodeStatus =
 
 /** 버블 타입 — 시각 카테고리 */
 export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'domain';
+
+/**
+ * §5.1 #2-1 (A) — 파일 버블의 **얼굴**(무엇을 담았나). `BubbleType` 과 별개 축이다 — 버블 타입은 여전히 `file` 이고,
+ * 얼굴은 그 파일을 어떻게 그릴지만 정한다. 앞의 넷(영상·사진·소리·3D)은 버블 안에 미리보기를 굽는 **미디어**다.
+ *
+ * 판정은 shared `fileFaceKindOf` 한 곳(확장자 표 `FILE_FACE_EXTENSIONS`). 어느 앱이 굽고 여는지는 이 값이 아니라
+ * 레지스트리 선언이 정한다(§5.13 (R-1) — 코어는 확장자→앱 표를 들지 않는다).
+ */
+export type FileFaceKind =
+  | 'video'
+  | 'image'
+  | 'audio'
+  | 'model'
+  | 'code'
+  | 'data'
+  | 'doc'
+  | 'subtitle'
+  | 'font'
+  | 'other';
+
+/**
+ * §5.1 #2-1 (G) ⑤ — 종류 안의 **갈래**. 미리보기가 없을 때(굽지 않는 확장자 · 성능 기준이 막았을 때 · 굽는 중) 그 파일이
+ * 무엇인지 아이콘이 말하는 단위다. 종류(`FileFaceKind`)와 직교하지 않는다 — 갈래는 아이콘만 정하고, 별자리·역할 판정은
+ * 여전히 종류가 한다(`.musicxml` 은 데이터 종류지만 악보 갈래 아이콘이다).
+ *
+ * 판정은 shared `fileFaceFamilyOf` 한 곳(표 `FILE_FACE_FAMILY_EXTENSIONS`). 표에 없는 확장자는 그 종류의 기본 갈래다.
+ */
+export type FileFaceFamily =
+  // 영상
+  | 'video' | 'videoRaw' | 'motion' | 'videoProject'
+  // 그림
+  | 'image' | 'vector' | 'photoRaw' | 'hdr' | 'texture' | 'material' | 'layered' | 'icon'
+  // 소리
+  | 'audio' | 'sequence' | 'soundfont' | 'daw' | 'score'
+  // 3D
+  | 'model' | 'scene' | 'modelSource' | 'cad' | 'avatar' | 'pointCloud' | 'splat' | 'motionData'
+  // 자막 · 글꼴
+  | 'subtitle' | 'lyrics' | 'font'
+  // 코드
+  | 'code' | 'shader' | 'shell' | 'notebook' | 'web'
+  // 데이터
+  | 'data' | 'table' | 'database' | 'config' | 'lut' | 'timeline' | 'weights'
+  // 문서
+  | 'doc' | 'pdf' | 'slides' | 'screenplay' | 'log'
+  // 기타
+  | 'archive' | 'other';
+
+/**
+ * §5.1 #2-1 (F) ① — 이 파일이 **어느 앱 작업 중에 생겼나**(앱 노드 id 마다 한 표식). 서버가 훅 귀속으로 단다 — sub 의 도는
+ * 명령이 싣는 앱 노드(`QueuedCommand.appNodeIds`), 없으면 같은 세션의 마지막 앱 명령. 노드 객체째 체크포인트에 실린다
+ * (새 영속 창구 ❌). 화면은 앱 작업 보기(§5.4 #36 (I))에서만 읽는다.
+ */
+export interface AppWorkMark {
+  /** 그 작업 중에 쓴 횟수(사후 이벤트 기준 · 되짚기는 노드의 `writeCount`). */
+  w: number;
+  /** 마지막으로 쓴 시각(ms). */
+  at: number;
+  /** 스크립트가 만든 파일 — 작업 폴더 훑기가 올렸다(§5.1 #2-1 (F) ③). */
+  script?: boolean;
+  /** 이미 떠 있던 캔버스를 되짚어 단 표식(§5.1 #2-1 (F) ②). */
+  retro?: boolean;
+}
+
+/**
+ * §5.1 #2-1 (F) ⑤ — 앱 작업 위성의 **역할**. 앱 노드 위쪽 반원에서 왼쪽부터 이 순서로 앉는다(`APP_WORK_ROLES`).
+ * - `result` — 그 앱 노드에 담긴 파일(결과 · 지난 결과).
+ * - `sibling` — 그 앱이 다루는 종류와 같은 종류인데 아직 안 담긴 것(시안 · 원본 · 판본 · 스템).
+ * - `material` — 다른 미디어 · 자막 · 글꼴(소재).
+ * - `code` · `data` · `memo`(문서) · `other`.
+ */
+export type AppWorkRole = 'result' | 'sibling' | 'material' | 'code' | 'data' | 'memo' | 'other';
+
+/**
+ * §5.1 #2-1 (B) — 파일이 그 별자리 중심을 **왜** 도는가. 위성의 툴팁이 이 값으로 이유를 말한다(판정 안 한 사실을
+ * 단정하지 않는다). 점수는 `CONSTELLATION.score` 가 정본이고 판정은 shared `planConstellations` 한 곳이다.
+ *
+ * - `appResult`/`appPart` — 앱 노드가 선언한 것(결과·지난 결과 / "연결된 것"의 파일과 코드 소재의 폴더).
+ * - `mention`/`mentioned` — 이 파일이 중심을 적고 있다 / 중심이 이 파일을 적고 있다(서버 내용 언급).
+ * - `chain` — 이미 묶인 재료가 이 파일을 적고 있다(또는 그 반대).
+ * - `sameStem`/`stemFamily` — 이름이 같다 / 이름의 낱말을 나눠 가진다.
+ * - `sameFolder` — 같은 폴더의 곁 파일·재료 미디어.
+ * - `album` — 같은 폴더의 사진끼리.
+ * - `appWork` — 그 앱 노드의 작업 중에 생긴 파일(§5.1 #2-1 (F) — 앱 작업 보기에서만 넘어온다).
+ */
+export type ConstellationReason =
+  | 'appResult'
+  | 'appPart'
+  | 'appWork'
+  | 'mention'
+  | 'mentioned'
+  | 'chain'
+  | 'sameStem'
+  | 'stemFamily'
+  | 'sameFolder'
+  | 'album';
 
 /**
  * §5.4 #33 버블 정리 — 정리했을 때 그 버블이 앉는 **띠**.
@@ -1938,6 +2035,8 @@ export interface BubbleData {
   activity: number;
   lastActivity?: number;
   lastTool?: string;
+  /** External executable identified from a shell invocation; never an internal app registry id. */
+  commandApp?: CommandAppTarget;
   childCount?: number;
   /**
    * 폴더에 satellite 로 매달린 파일 수 (§2.1 v1.55).
@@ -2021,13 +2120,30 @@ export interface BubbleData {
    */
   externalPromoted?: boolean;
   /**
-   * §5.23 접어 보기 — 이 버블이 **한 에이전트가 읽은 호스트들을 접은 것**이면 그 내역.
-   * 옵션(`AppState.webFoldPerAgent`)이 켜졌을 때만 서버 `getSnapshot` 이 호스트 버블들 대신 싣는다.
-   * **표시 전용 파생값이다** — 체크포인트에 저장하지 않고, 기록(`domainEntries`)은 속한 호스트
-   * 노드 id 에 그대로 남는다(`externalPromoted` 선례). 없으면 보통 버블.
+   * §5.23 접어 보기·웹 버블 묶기 — 이 버블이 **한 에이전트가 읽은 호스트들을 묶은 것**이면 그 내역
+   * (무엇으로 묶었나는 `scope`). 묶기 설정(`AppState.webGroup`)이 묶을 것을 낼 때만 서버 `getSnapshot` 이
+   * 호스트 버블들 대신 싣는다. **표시 전용 파생값이다** — 체크포인트에 저장하지 않고, 기록(`domainEntries`)은
+   * 속한 호스트 노드 id 에 그대로 남는다(`externalPromoted` 선례). 없으면 보통 버블.
    */
   webFold?: WebFoldInfo;
   fileSize?: number;
+  /**
+   * §5.1 #2-1 (A) — 파일의 디스크 수정 시각(epoch ms). 버블 안 미리보기의 **판본**이다 — 같은 이름으로 다시 만들면
+   * 다시 굽는다. 서버가 `fileSize` 와 같은 stat 에서 스냅샷 사본에만 싣는 **표시 전용 파생값**이라 체크포인트에
+   * 저장하지 않는다(`externalSummaryChips` 선례).
+   */
+  fileMtime?: number;
+  /**
+   * §5.1 #2-1 (C) — 이 글 파일의 내용이 **이름으로 적고 있는** 다른 파일 노드의 id. 별자리 판정(`planConstellations`)의
+   * 가장 강한 근거다("이 json 이 저 영상·그림을 쓴다"). 서버가 앞부분만 비동기로 읽어 뽑고 같은 프로젝트 안에서만
+   * 푼다. 스냅샷 사본에만 싣는 **표시 전용 파생값** — 체크포인트 ❌. 못 읽었거나 없으면 생략.
+   */
+  mentions?: string[];
+  /**
+   * §5.1 #2-1 (F) ① — 이 파일이 생긴 **앱 작업**(앱 노드 id → 표식). 서버가 훅 귀속·되짚기·작업 폴더 훑기로 단다.
+   * 노드 객체째 체크포인트에 실린다(`preservePinned` 선례 — 새 영속 창구 ❌). 파일 노드에만 있다.
+   */
+  appWork?: Record<string, AppWorkMark>;
   /** fade 시작 시각 (completed → 60초 후 idle 전환) */
   fadeStartedAt?: number;
   /** 에이전트 작업 완료 요약 (Stop 훅 시점 마지막 assistant 메시지) */
@@ -2074,6 +2190,11 @@ export interface BubbleData {
    * 표시 형태라 identity 대상이 아니다 — 잃으면 버블로 돌아올 뿐이다.
    */
   agentForm?: 'card';
+  /**
+   * 에이전트 주변의 연결된 파일·위성 버블을 감춘다. 에이전트와 실제 연결·작업 기록은 그대로 유지한다.
+   * 서버 소유의 표시 상태이며 에이전트 노드째 체크포인트에 실린다. 없거나 false 면 보인다.
+   */
+  bubblesHidden?: boolean;
   /**
    * §5.4 #36 (H) ① — 이 에이전트의 **연결선을 감췄다**(그 에이전트가 끝점인 활동·위성 선 + 위성줄). 표시 계층만 바꾼다 —
    * 서버의 활동 엣지·`linkedAgentIds`·위성 칩·결과 전달은 그대로다. 서버 소유(§3.1), 에이전트 노드째 체크포인트에 실린다
@@ -2206,6 +2327,15 @@ export interface BashEntry {
   timestamp: number;
   /** Unknown legacy outcomes are not evidence of a successful procedure. */
   status?: 'running' | 'success' | 'error';
+  cwd?: string;
+  startedAt?: number;
+  endedAt?: number;
+  /** Command evidence, not a claim that every conditional command actually ran. */
+  apps?: CommandAppTarget[];
+  /** Exact graph node membership; histories are stored once, under the originating session. */
+  appNodeIds?: string[];
+  commandTruncated?: boolean;
+  outputTruncated?: boolean;
 }
 
 /** 파일 수정 기록 항목 (Edit 도구 호출 1회 = 1 엔트리) */
@@ -2270,11 +2400,46 @@ export interface WebFoldHost {
   maxWebEntries?: number;
 }
 
+/**
+ * §5.23 웹 버블 묶기 (B) — **비슷한 종류**. 넘친 웹 버블을 아무렇게나 자르지 않고 이 종류로 묶는다.
+ * 판정은 shared `webHostKind.ts` 한 곳, 표는 §3.3 상수(`WEB_KIND_HOSTS`·`WEB_KIND_SUBDOMAINS`·`WEB_KIND_SITES`·
+ * `WEB_KIND_PATHS`)다. 화면 낱말은 클라가 `canvas.webFold.kind.<종류>` 로 번역한다.
+ */
+export type WebKind = 'search' | 'docs' | 'code' | 'package' | 'qa' | 'spec' | 'article' | 'video';
+
+/**
+ * §5.23 웹 버블 묶기 — 접힌 버블이 **무엇으로** 묶였나. 제목이 이것을 말한다.
+ * - `agent` 그 에이전트가 읽은 전부(종전 접어 보기 · 최대 1개)
+ * - `site` 같은 사이트(등록 도메인)의 호스트들
+ * - `kind` 비슷한 종류의 사이트들
+ * - `rest` 다른 묶음·버블 옆에 남은 나머지("그 밖의 웹")
+ */
+export type WebFoldScope = 'agent' | 'site' | 'kind' | 'rest';
+
 /** §5.23 접어 보기 — 접힌 웹 버블의 내역. `hosts` 는 최신 호스트가 앞이다. */
 export interface WebFoldInfo {
   /** 이 접힌 버블의 주인 에이전트 id. */
   agentId: string;
   hosts: WebFoldHost[];
+  /** 무엇으로 묶었나. 없으면 `'agent'`(종전 접어 보기와 같은 뜻). */
+  scope?: WebFoldScope;
+  /** `scope === 'site'` 일 때 그 사이트(`github.com`) — 제목이 된다. */
+  site?: string;
+  /** `scope === 'kind'` 일 때 그 종류 — 제목이 된다. */
+  kind?: WebKind;
+}
+
+/**
+ * §5.23 웹 버블 묶기 — 한 에이전트가 읽은 호스트들을 **무엇으로, 몇 개까지** 묶어 보일지.
+ * 기계 단위 앱 설정(`AppState.webGroup`). 정규화는 shared `normalizeWebGroupSettings` 한 곳.
+ */
+export interface WebGroupSettings {
+  /** (A) 같은 사이트 — 등록 도메인이 같은 호스트를 버블 하나로(`docs.github.com` + `github.com`). */
+  sameSite: boolean;
+  /** (B) 비슷한 종류 — 넘친 것을 문서·코드·패키지… 종류끼리 묶는다. */
+  byKind: boolean;
+  /** (C) 에이전트마다 따로 세울 웹 버블 수. `0` = 상한 없음, `1` = 에이전트마다 하나(종전 접어 보기). */
+  maxPerAgent: number;
 }
 
 /** 실행 중인 서버 프로세스 항목 */
@@ -2314,10 +2479,48 @@ export interface ServerEntry {
 }
 
 /**
+ * §5.5 #17-36 ⑫ — 메모 링크가 **가리키는 곳**. 종류는 `SESSION_MEMO_LINK_KINDS` 한 표가 정하고,
+ * 그 순서가 곧 [링크 ▸] 목록의 순서다(첫 자리 = 세션 글 위치).
+ *
+ *  - `stream`  — 대화의 한 자리. 북마크(#17-7)와 **같은 두 값**으로 기억한다: 항목 id
+ *    (`data-stream-item-id` — 가상 리스트를 그 항목으로 먼저 옮긴다)와 그 자리의 글(도착해서 칠할
+ *    글자이자 링크 상자에 보일 요약). `sessionId` 가 null 이면 메인 탭이다.
+ *  - `session` — 같은 에이전트의 세션 탭 하나(null = 메인 탭). `label` 은 걸 때의 탭 이름이다 —
+ *    탭이 닫혀도 무엇을 가리켰는지 말하려고 둔다(보일 때는 살아 있는 이름이 이긴다).
+ *  - `file`    — 프로젝트 파일. 본문 경로 링크(#17-27 ⑬)와 같은 글자 규칙이라 루트 기준 상대 경로·
+ *    절대 경로·줄 표기(`src/App.tsx:42`)를 그대로 받는다.
+ *  - `url`     — 웹 주소. http(s) 만 받는다(정화가 `javascript:`·`file:` 을 버린다).
+ */
+export type SessionMemoLinkTarget =
+  | { kind: 'stream'; sessionId: string | null; anchorId?: string; text: string }
+  | { kind: 'session'; sessionId: string | null; label?: string }
+  | { kind: 'file'; path: string }
+  | { kind: 'url'; url: string };
+
+/** §5.5 #17-36 ⑫ — 링크 종류 이름(`SessionMemoLinkTarget['kind']`). */
+export type SessionMemoLinkKind = SessionMemoLinkTarget['kind'];
+
+/**
+ * §5.5 #17-36 ⑫ — 메모 본문의 글자 한 토막에 건 링크.
+ *
+ * 범위는 **본문 오프셋**(UTF-16 — textarea 의 `selectionStart/End` 와 같은 단위)이다. 글자를 표식으로
+ * 본문에 박지 않는 이유: 그러면 사용자가 치는 칸에 `[글](주소)` 같은 문법이 그대로 보인다.
+ */
+export interface SessionMemoLink {
+  /** 링크 고유 id(메모 안에서 유일). 클라이언트가 발급한다. */
+  id: string;
+  /** 시작 오프셋(포함). */
+  start: number;
+  /** 끝 오프셋(제외). 늘 `start` 보다 크다 — 빈 링크는 없다. */
+  end: number;
+  target: SessionMemoLinkTarget;
+}
+
+/**
  * §5.5 #17-36 — 스트림 본문 위에 붙이는 **스티키 메모** 1장.
  *
  * 이 메모는 **그것을 만든 세션 탭의 소지품**이다. 그래서 자리도 `SubAgent` 안이다(별도 맵 ❌) —
- * 세션이 사라지는 어떤 경로(탭 닫기·아카이브·프로젝트 정리)로도 메모가 뒤에 남을 수 없다.
+ * 탭 닫기·아카이브에는 세션과 함께 보존하고, 소유 세션이 최종 삭제되면 메모와 닫은 기록도 함께 지운다.
  * 메인 탭(세션 미선택)에서 만든 메모만 예외로 에이전트 쪽(`ProjectGraph.agentMemos`)에 산다.
  *
  * 좌표계는 **스트림 본문 컨테이너의 좌상단(px)** 이다. 대화 내용과 함께 스크롤되지 않는다 —
@@ -2351,6 +2554,8 @@ export interface SessionMemo {
   alpha?: number;
   /** 제목줄만 남기고 접은 상태. */
   collapsed?: boolean;
+  /** 닫은 시각(ms). 있으면 화면 대신 이 세션의 다시 열기 목록에 보관하며, 세션 최종 삭제 때 함께 지운다. */
+  closedAt?: number;
   /**
    * **합쳐진 묶음의 이름표.** 같은 값을 가진 장들은 화면에서 **한 카드**가 되고 제목줄이 탭 줄이
    * 된다(브라우저 탭과 같은 언어). 없으면 혼자 서 있는 장이다.
@@ -2366,6 +2571,13 @@ export interface SessionMemo {
    * 혼자인 장에는 없다.
    */
   groupActive?: boolean;
+  /**
+   * §5.5 #17-36 ⑫ — 본문의 고른 글자에 건 **링크**. 범위는 본문 오프셋이라 글을 고치면 화면이
+   * 그 편집만큼 옮긴다(`memoLinks.ts`). 범위는 시작 순이고 서로 겹치지 않으며(정화가 보정한다),
+   * **비면 필드를 남기지 않는다**(`collapsed`·`alpha` 와 같은 규약 — 옛 체크포인트가 부풀지 않는다).
+   * 합쳐진 묶음(⑩)에서도 본문과 함께 **장마다 따로** 산다.
+   */
+  links?: SessionMemoLink[];
   createdAt: number;
   updatedAt: number;
 }
@@ -2445,8 +2657,8 @@ export interface SubAgent {
    *  발급 주체 구분 위해 별도 필드. legacy `-p` 경로에선 undefined. */
   agentViewSessionId?: string;
   /**
-   * §5.5 #17-36 — 이 세션 탭에 붙여 둔 스티키 메모들. 그 탭의 **표시 상태**라 `paneTree` 와 같이
-   * 체크포인트에 그대로 실리고, 세션이 제거되면 이 객체와 함께 사라진다(별도 정리 경로 ❌).
+   * §5.5 #17-36 — 이 세션의 열린 스티키 메모와 닫은 기록. `paneTree` 와 같이 체크포인트에 실리고,
+   * 탭을 닫아 아카이브해도 보존한다. 소유 세션/에이전트가 최종 제거될 때 함께 정리한다.
    */
   memos?: SessionMemo[];
   /**
@@ -2860,6 +3072,11 @@ export interface CommandError {
   detail?: string;
 }
 
+/** Per-command capabilities declared by an app; never changes the saved agent profile. */
+export interface CommandExecutionRequirements {
+  localTransport?: boolean;
+}
+
 export interface QueuedCommand {
   id: string;
   text: string;
@@ -2923,6 +3140,8 @@ export interface QueuedCommand {
    * 큐에 있는 동안 `PATCH /api/commands/:sessionId/:commandId/mode` 로 바꿀 수 있다.
    */
   dispatchMode?: CommandDispatchMode;
+  /** Server-captured unfinished commands that preceded a new task. Later submissions never extend this wait. */
+  waitForCommandIds?: string[];
   /**
    * §5.5 #17-18 v4.68 — 합치기로 이 명령에 흡수된 뒤따른 덧말 수(표시 전용 배지).
    * 0/undefined = 단독 dispatch.
@@ -2945,6 +3164,23 @@ export interface QueuedCommand {
    * 이 표식이 있는 명령은 덧말 합치기의 경계다(흡수하지도 흡수되지도 않는다).
    */
   orchestraRunId?: string;
+  /**
+   * §5.13 (R-10) — 이 명령 한 건의 **턴·시간 상한**(제작 앱의 '빠른 초안 / 정교하게'). 에이전트 설정의 상한과 함께
+   * 걸리면 더 좁은 쪽이 이긴다. 턴 수를 세고 끊을 수 있는 엔진에서만 적용되며(`runLimitsApplied`), 비용을 수치로
+   * 약속하지 않는다.
+   */
+  runLimits?: { maxTurns?: number; maxMinutes?: number };
+  /** Optional app capability requirements for this command only. */
+  executionRequirements?: CommandExecutionRequirements;
+  /**
+   * §5.1 #2-1 (F) ① — 이 명령이 **어느 앱 노드의 작업**인가(말풍선이 보낼 때 넣은 노드 · `APP_WORK.commandNodeMax` 까지).
+   * 서버가 그 명령 중 쓴 파일에 `appWork` 꼬리표를 다는 열쇠다. 없으면 본문에 적힌 앱 노드 id(옛 명령)를 읽는다.
+   */
+  appNodeIds?: string[];
+  /** 서버가 실제로 건 상한(없으면 이 엔진은 상한을 지원하지 않았다). 화면은 이것만 "적용됨"으로 말한다. */
+  runLimitsApplied?: { maxTurns?: number; maxMinutes?: number };
+  /** 시간 상한에 닿아 서버가 멈춘 명령(턴 상한은 기존 `error.code === 'maxTurns'` 가 말한다). */
+  runLimitHit?: 'maxMinutes';
   /**
    * §5.3 #12-4 (C) — 이 명령에 열린 **검증 범위**. 서버만 찍는다(요청 본문의 같은 이름 칸은 읽지 않는다).
    * 없으면 이 명령에서는 검증(테스트·린트·타입 검사·빌드·E2E·브라우저·스크린샷·검증 에이전트)을 실행할
@@ -3927,6 +4163,8 @@ export type WSMessageType =
   | 'user_defaults_updated'
   // §4 앱 테마 — 사용자 테마 폴더를 다시 읽었다(바뀐 것이 있을 때만). payload = AppThemeCatalog
   | 'app_themes_updated'
+  // §5.13 (Y) 40-7 ② — 내부 앱 서버 몫의 알림(문서 판이 올랐다 등). payload = AppEventPayload. 코어는 뜻을 모르고 나른다.
+  | 'app_event'
   // §6 — 단축키 재매핑. payload = KeymapOverrides. 창이 여럿이면 다른 창도 즉시 같은 키를 쓴다.
   | 'keymap_updated'
   // §5.5 #16-1 — IDE 활동바 구성(순서·제외) 변경. payload = IDEActivityBarPrefs. 단축키와 같은 이유로
@@ -4650,9 +4888,17 @@ export interface AppState {
   /**
    * §5.23 접어 보기 — 켜면 한 에이전트가 읽은 호스트들을 **에이전트마다 웹 버블 하나**로 접는다.
    *
-   * 위 설정들과 같은 이유로 **머신 단위**다. optional — 없으면 꺼짐(호스트마다 버블 하나).
+   * **종전 설정이다(2026-10-16 `webGroup.maxPerAgent = 1` 로 흡수).** 이제 읽기만 한다 — `webGroup` 이 저장된 적
+   * 없고 이 값이 `true` 면 최대 1개로 읽는다(설정 이주). 새로 쓰지 않는다.
    */
   webFoldPerAgent?: boolean;
+  /**
+   * §5.23 웹 버블 묶기 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개.
+   *
+   * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
+   * optional — 없으면 `WEB_GROUP_DEFAULTS`(켬). 종전 `webFoldPerAgent: true` 만 있으면 최대 1개(위 이주).
+   */
+  webGroup?: WebGroupSettings;
   /**
    * §6 — 사용자가 바꾼 **단축키**만. 안 건드린 칸은 여기 없고 코드의 기본값을 따라간다.
    *
@@ -7550,6 +7796,19 @@ export interface AppThemeChrome {
   titleBarSymbol: string;
 }
 
+/**
+ * §3.7 · §9 「시작 화면(스플래시)」 — 서버 코어가 부팅하는 동안 desktop main 에 알리는 진척.
+ *
+ * 화면에 무엇을 적을지는 main 이 정한다(문구는 main 의 표에 있다) — 서버는 **사실만** 넘긴다.
+ * 프로젝트 복원은 동기 반복이라 메인 스레드를 붙잡지만, main 은 이 값을 메시지 포트로 스플래시에
+ * 흘려보내므로 붙잡힌 동안에도 "몇 번째를 복원하는 중"이 화면에 그대로 뜬다.
+ */
+export type BootProgress =
+  /** 열어 둔 프로젝트를 복원하는 중 — `done` 개를 끝냈고 지금 `label` 을 읽는다(끝나면 `done === total`). */
+  | { phase: 'projects'; done: number; total: number; label?: string }
+  /** 프로젝트 복원을 마치고 세션·감시·정리 같은 나머지 기동을 하는 중. */
+  | { phase: 'services' };
+
 // ─── User Defaults (§4 v2.42) ───
 
 /**
@@ -7561,7 +7820,7 @@ export interface AppThemeChrome {
  *
  * 카테고리:
  * - agentConfig — Agent Defaults 탭(1차 구현). Partial<AgentConfig> 라 undefined 필드는 DEFAULT 유지.
- * - appearance — Appearance 탭(uiLocale 만 1차, 나머지 추후).
+ * - appearance — UI 언어·앱 테마·버블과 연결선 외관.
  * - notifications / permissions / advanced — placeholder 슬롯(1차는 빈 객체).
  */
 /**
@@ -7620,15 +7879,18 @@ export interface UserPermissionDefaults extends Record<string, unknown> {
  */
 export type AgentConfigPatch = { [K in keyof AgentConfig]?: AgentConfig[K] | null };
 
-/** 위와 같은 이유로 `agentConfig` 만 nullable 로 바꿔 받는 요청 본문. */
-export type UserDefaultsPatch = Omit<Partial<UserDefaults>, 'agentConfig'> & { agentConfig?: AgentConfigPatch };
+/** 카테고리의 `null` 필드는 저장값을 지워 내장 기본값으로 돌아간다. */
+export type UserDefaultsPatch = Omit<Partial<UserDefaults>, 'agentConfig' | 'appearance'> & {
+  agentConfig?: AgentConfigPatch;
+  appearance?: { [K in keyof NonNullable<UserDefaults['appearance']>]?: NonNullable<UserDefaults['appearance']>[K] | null };
+};
 
 export interface UserDefaults {
   engineConfigs?: Partial<Record<AgentEngineKind, Partial<AgentConfig>>>;
   projectEngineConfigs?: Record<string, Partial<Record<AgentEngineKind, Partial<AgentConfig>>>>;
   /** §4 v2.42 — 신규 에이전트 기본 설정. Partial — 미설정 필드는 `DEFAULT_AGENT_CONFIG` 사용. */
   agentConfig?: Partial<AgentConfig>;
-  /** §4 v2.42 — 외관. 1차는 uiLocale 만. */
+  /** §4 — 외관. 미설정 값은 각 공통 resolver의 내장 기본값을 사용한다. */
   appearance?: {
     uiLocale?: UiLocale;
     /**
@@ -7637,6 +7899,10 @@ export interface UserDefaults {
      * 떨어질 뿐이라, 파일을 되돌려 놓으면 그대로 돌아온다.
      */
     themeId?: string;
+    /** 원형 버블의 표면 표현. 미설정 = `DEFAULT_BUBBLE_SKIN`. */
+    bubbleSkin?: BubbleSkin;
+    /** 연결선의 표면 표현. 미설정 = `DEFAULT_BUBBLE_EDGE_STYLE`. */
+    edgeStyle?: BubbleEdgeStyle;
   };
   /** §4 v2.42 — 알림. 1차 placeholder. */
   notifications?: UserNotificationDefaults;
@@ -7898,6 +8164,19 @@ export interface ModelPricing {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /**
+   * 프롬프트 길이 구간 요금 — 한 요청의 프롬프트(입력 + 캐시 읽기 + 캐시 쓰기)가 `aboveTokens` 를
+   * **넘으면** 그 요청 전체가 이 단가를 탄다. 없으면 길이와 무관한 단일 단가다.
+   * 공개 가격표 "Long context pricing" — 현재는 Haiku 5.5(10만 토큰)뿐이다(§4 동적 모델 레지스트리 ⑧).
+   * 요청 단위로만 가를 수 있으므로 `calculateTokenCost(…, { singleRequest: true })` 일 때만 적용된다.
+   */
+  longPrompt?: {
+    aboveTokens: number;
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
 }
 
 /**
@@ -10149,7 +10428,7 @@ export interface CodexConfigLayerValues {
 
 /**
  * §5.25 (G-2) — 그 값이 적힌 곳. `project` 는 신뢰한 프로젝트의 `.codex/config.toml`,
- * `profile` 은 설정 파일의 `profile = "<이름>"` 이 고른 `[profiles.<이름>]` 표다.
+ * `profile` 은 `profile = "<이름>"` 이 고른 `<이름>.config.toml` 또는 옛 `[profiles.<이름>]` 표다.
  */
 export type CodexConfigLayerSource = 'profile' | 'project' | 'user' | 'system';
 

@@ -1,62 +1,139 @@
 /**
- * webFoldView.ts — §5.23 접어 보기 · **에이전트마다 웹 버블 하나**.
+ * webFoldView.ts — §5.23 접어 보기 · **웹 버블 묶기**.
  *
- * 옵션(`AppState.webFoldPerAgent`)을 켜면 서버 `getSnapshot` 이 이 함수로 한 에이전트가 읽은 호스트
- * 버블들을 버블 하나로 접어 싣는다. 바꾸는 것은 **실어 보내는 모양뿐**이다 — 노드·엣지 장부,
- * 기록(`domainEntries`), 체크포인트는 그대로라 옵션을 끄면 다음 스냅샷에서 호스트마다 버블 하나로
- * 돌아온다(기본 보기와 병행).
+ * 서버 `getSnapshot` 이 실어 보내기 직전에 이 함수로 한 에이전트가 읽은 호스트 버블들을 묶어 싣는다. 축은 셋이다
+ * (설정 `AppState.webGroup`):
+ *  (A) 같은 사이트 — 등록 도메인이 같은 호스트는 버블 하나(`webSiteOf`).
+ *  (B) 비슷한 종류 — 넘치면 문서·코드·패키지… 종류끼리(`webKindOfHost` · `webKindOfSite`).
+ *  (C) 에이전트마다 최대 N개 — 넘친 만큼만 묶고, 가장 최근에 읽은 것부터 따로 선다. **N=1 이 종전 접어 보기다.**
+ * 바꾸는 것은 **실어 보내는 모양뿐**이다 — 노드·엣지 장부, 기록(`domainEntries`), 체크포인트는 그대로라 설정을 끄면
+ * 다음 스냅샷에서 호스트마다 버블 하나로 돌아온다(기본 보기와 병행).
  *
- * 누구의 것인가는 **화살표가 정한다** — 이번 스냅샷에 실리는 에이전트와 엣지로 이어진 호스트만 접는다.
- * 두 에이전트가 같은 호스트를 읽었으면 그 호스트는 두 접힌 버블에 다 들어간다. 고정한 호스트는
- * 사용자가 따로 세워 둔 것이라 접지 않는다.
+ * 누구의 것인가는 **화살표가 정한다** — 이번 스냅샷에 실리는 에이전트와 엣지로 이어진 호스트만 묶는다. 두 에이전트가
+ * 같은 호스트를 읽었으면 **에이전트마다 따로 판정한다** — 한쪽에는 따로 서고 다른 쪽에서는 묶음에 들 수 있다. 화면에서
+ * 빠지는 호스트는 읽은 에이전트 **모두가** 묶은 것뿐이다. 고정한 호스트는 사용자가 따로 세워 둔 것이라 묶지 않고 N 에도
+ * 세지 않는다. 구성원이 하나뿐인 묶음은 묶지 않는다 — 그 호스트가 제 이름으로 서는 편이 정확하다.
  *
  * 순수 함수 모듈이다 — 디스크 접근 ❌ · 시각 읽기 ❌ · **입력 배열과 객체를 고치지 않는다**
  * (서버는 200ms 동안 스냅샷 객체를 캐시해 되돌려 주므로, 그 객체를 고치면 다음 호출이 오염된다).
  */
-import { WEB_KEY_MARK } from './constants.js';
-import type { ActivityEdge, BubbleData, NodeStatus, WebFoldHost } from './types.js';
+import { WEB_GROUP_DEFAULTS, WEB_GROUP_MAX_BOUNDS, WEB_KEY_MARK, WEB_KINDS } from './constants.js';
+import type {
+  ActivityEdge,
+  BubbleData,
+  NodeStatus,
+  WebFoldHost,
+  WebFoldInfo,
+  WebFoldScope,
+  WebGroupSettings,
+  WebKind,
+} from './types.js';
+import { webKindOfHost, webKindOfSite, webSiteOf } from './webHostKind.js';
+import { webHostFromNodeKey } from './webToolEntry.js';
 
 /** 접힌 버블 id 의 머리 — 뒤에 에이전트 id 가 붙는다. */
 export const WEB_FOLD_ID_PREFIX = 'webfold-';
+/**
+ * 묶음 id 의 칸 구분자. URL 경로에 그대로 실리는 글자라 고른다 — 단일 지우기(`DELETE /api/bubble/:id`)는 id 를
+ * 인코딩하지 않아 `/` 를 쓰면 경로가 갈라진다. 에이전트 버블 id(`agent-<숫자>`)와 호스트에는 `~` 가 올 수 없다.
+ */
+export const WEB_FOLD_ID_SEPARATOR = '~';
 
-/** 접힌 버블 id 를 만든다. 조립은 여기 한 곳. */
-export function webFoldId(agentId: string): string {
-  return `${WEB_FOLD_ID_PREFIX}${agentId}`;
+/** 묶음의 이름표 — 없으면 그 에이전트의 나머지(또는 전부) 묶음이다. */
+export type WebFoldPart = { site: string } | { kind: WebKind };
+
+/**
+ * 접힌 버블 id 를 만든다. 조립은 여기 한 곳.
+ * - 나머지·전부: `webfold-<에이전트>` (종전 접어 보기 id 그대로)
+ * - 사이트: `webfold-<에이전트>~site~<사이트>` · 종류: `webfold-<에이전트>~kind~<종류>`
+ */
+export function webFoldId(agentId: string, part?: WebFoldPart): string {
+  const head = `${WEB_FOLD_ID_PREFIX}${agentId}`;
+  if (!part) return head;
+  const sep = WEB_FOLD_ID_SEPARATOR;
+  return 'site' in part ? `${head}${sep}site${sep}${part.site}` : `${head}${sep}kind${sep}${part.kind}`;
 }
 
 /** 접힌 버블 id 에서 에이전트 id 를 되꺼낸다. 접힌 버블 id 가 아니면 `null`. 해체도 여기 한 곳. */
 export function webFoldAgentId(id: string): string | null {
   if (!id.startsWith(WEB_FOLD_ID_PREFIX)) return null;
-  const agentId = id.slice(WEB_FOLD_ID_PREFIX.length);
+  const rest = id.slice(WEB_FOLD_ID_PREFIX.length);
+  const cut = rest.indexOf(WEB_FOLD_ID_SEPARATOR);
+  const agentId = cut < 0 ? rest : rest.slice(0, cut);
   return agentId.length > 0 ? agentId : null;
 }
 
 /**
- * 접힌 버블의 `path` — `__web__/<에이전트 id>`.
+ * 접힌 버블의 `path` — `__web__/<접힌 id 에서 머리를 뗀 것>`(나머지 묶음은 `__web__/<에이전트 id>`).
  *
  * 표식(`__web__`)으로 시작하므로 루트 패널 "표시됨" 이 합성 키로 걸러 행으로 만들지 않는다.
  * `/` 를 끼우는 이유 — 호스트는 URL 파서가 뽑아 `/` 를 품을 수 없으므로(`webHostFromNodeKey` 도
- * `/` 가 든 키를 거절한다) 이 모양은 어떤 호스트 키와도 같아질 수 없다.
+ * `/` 가 든 키를 거절한다) 이 모양은 어떤 호스트 키와도 같아질 수 없다. 머리 없이 에이전트 id 만 받아도 같은 답이다.
  */
-export function webFoldNodePath(agentId: string): string {
-  return `${WEB_KEY_MARK}/${agentId}`;
+export function webFoldNodePath(foldIdOrAgentId: string): string {
+  const key = foldIdOrAgentId.startsWith(WEB_FOLD_ID_PREFIX)
+    ? foldIdOrAgentId.slice(WEB_FOLD_ID_PREFIX.length)
+    : foldIdOrAgentId;
+  return `${WEB_KEY_MARK}/${key}`;
 }
+
+// ─── 설정 ───
+
+/** (C) 최대 개수 하나를 범위 안으로. 숫자로 못 읽으면 기본값. */
+export function normalizeWebGroupMax(value: unknown): number {
+  const n = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN;
+  if (!Number.isFinite(n)) return WEB_GROUP_DEFAULTS.maxPerAgent;
+  return Math.min(WEB_GROUP_MAX_BOUNDS.MAX, Math.max(WEB_GROUP_MAX_BOUNDS.MIN, Math.floor(n)));
+}
+
+/** 묶기 설정 정규화 — 빠진 칸·모양이 틀린 칸은 기본값(`WEB_GROUP_DEFAULTS`)으로. 정본은 여기 한 곳. */
+export function normalizeWebGroupSettings(raw: unknown): WebGroupSettings {
+  const r = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+  const sameSite = r['sameSite'];
+  const byKind = r['byKind'];
+  return {
+    sameSite: typeof sameSite === 'boolean' ? sameSite : WEB_GROUP_DEFAULTS.sameSite,
+    byKind: typeof byKind === 'boolean' ? byKind : WEB_GROUP_DEFAULTS.byKind,
+    maxPerAgent: normalizeWebGroupMax(r['maxPerAgent']),
+  };
+}
+
+/** 이 설정이 무엇이든 묶을 수 있는가 — 셋 다 꺼져 있으면(0 · 끔 · 끔) 호스트마다 버블 하나다. */
+export function isWebGroupActive(settings: WebGroupSettings): boolean {
+  return settings.sameSite || settings.byKind || settings.maxPerAgent > 0;
+}
+
+/** 두 설정이 같은가 — 바뀐 것이 없으면 판을 올리지 않으려고 쓴다. */
+export function sameWebGroupSettings(a: WebGroupSettings, b: WebGroupSettings): boolean {
+  return a.sameSite === b.sameSite && a.byKind === b.byKind && a.maxPerAgent === b.maxPerAgent;
+}
+
+// ─── 묶기 ───
 
 /** 접힌 버블 하나가 대신한 것. 지우기가 속한 호스트로 풀릴 때 서버가 이 목록을 쓴다. */
 export interface WebFoldGroup {
   agentId: string;
   /** 접힌 호스트 노드 id — 최신이 앞. */
   hostIds: string[];
+  /** 무엇으로 묶었나. */
+  scope: WebFoldScope;
 }
 
 export interface WebFoldInput {
   /** 이번 스냅샷의 최상위 버블(이미 생존 필터를 거친 복사본). */
   topFolders: BubbleData[];
   edges: ActivityEdge[];
-  /** 이번 스냅샷에 실리는 에이전트 id. 이 밖의 에이전트와만 이어진 호스트는 접지 않는다. */
+  /** 이번 스냅샷에 실리는 에이전트 id. 이 밖의 에이전트와만 이어진 호스트는 묶지 않는다. */
   agentIds: ReadonlySet<string>;
   /** 호스트 노드 id → 그 호스트에 쌓인 항목 수. */
   entryCount: (nodeId: string) => number;
+  /**
+   * 호스트 노드 id → 그 호스트에서 읽은 주소(**최신이 앞**). (B) 종류를 경로로 가르는 근거다.
+   * 없으면 경로를 보지 않는다(표에 있는 사이트만 종류가 선다).
+   */
+  urlsOf?: (nodeId: string) => readonly string[];
   /** 접힌 버블 id → 사용자가 옮겨 둔 자리. 없으면 최신 호스트의 자리를 물려받는다. */
   positionOf?: (foldId: string) => { x: number; y: number } | undefined;
 }
@@ -64,13 +141,18 @@ export interface WebFoldInput {
 export interface WebFoldResult {
   topFolders: BubbleData[];
   edges: ActivityEdge[];
-  /** 접힌 버블 id → 대신한 호스트들. 접은 것이 없으면 비어 있고, 그때 두 배열은 입력 그대로다. */
+  /** 접힌 버블 id → 대신한 호스트들. 묶은 것이 없으면 비어 있고, 그때 두 배열은 입력 그대로다. */
   folds: Map<string, WebFoldGroup>;
 }
 
-/** 접을 수 있는 호스트 버블인가 — 도메인이고, 고정하지 않았고, 이미 접힌 버블이 아니다. */
+/** 묶을 수 있는 호스트 버블인가 — 도메인이고, 고정하지 않았고, 이미 접힌 버블이 아니다. */
 function isFoldableHost(node: BubbleData): boolean {
   return node.bubbleType === 'domain' && !node.pinned && !node.preservePinned && !node.webFold;
+}
+
+/** 호스트 버블의 호스트 — 라벨은 사용자가 바꿀 수 있어 노드 키(`__web__<호스트>`)를 먼저 믿는다. */
+function hostOf(node: BubbleData): string {
+  return webHostFromNodeKey(node.path) ?? node.label;
 }
 
 /** 최신이 앞 — 마지막 활동 시각이 같으면 라벨·id 순으로 고정한다(스냅샷마다 순서가 흔들리지 않게). */
@@ -81,13 +163,178 @@ function compareLatestFirst(a: BubbleData, b: BubbleData): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** 에이전트 하나가 읽은 호스트들 → 접힌 버블 하나. */
+/** (A) 를 거친 한 단위 — 같은 사이트면 사이트 하나, (A) 를 끄면 호스트 하나. */
+interface Unit {
+  key: string;
+  site: string;
+  /** 구성원 호스트 — 최신이 앞. */
+  hosts: BubbleData[];
+  lastActivity: number;
+  entries: number;
+}
+
+/** 단위도 최신이 앞 — 같으면 많이 읽은 쪽, 그다음 키 순(흔들리지 않게). */
+function compareUnits(a: Unit, b: Unit): number {
+  if (a.lastActivity !== b.lastActivity) return b.lastActivity - a.lastActivity;
+  if (a.entries !== b.entries) return b.entries - a.entries;
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
+function buildUnits(members: readonly BubbleData[], settings: WebGroupSettings, input: WebFoldInput): Unit[] {
+  const byKey = new Map<string, Unit>();
+  for (const m of members) {
+    const site = webSiteOf(hostOf(m));
+    const key = settings.sameSite ? `site:${site}` : `host:${m.id}`;
+    let unit = byKey.get(key);
+    if (!unit) {
+      unit = { key, site, hosts: [], lastActivity: 0, entries: 0 };
+      byKey.set(key, unit);
+    }
+    unit.hosts.push(m);
+    unit.lastActivity = Math.max(unit.lastActivity, m.lastActivity ?? 0);
+    unit.entries += input.entryCount(m.id);
+  }
+  return [...byKey.values()].sort(compareUnits);
+}
+
+/** 한 에이전트 몫의 화면 칸 — 따로 서는 단위이거나, 단위 여럿을 묶은 묶음이다. */
+type PlanItem =
+  | { type: 'unit'; unit: Unit }
+  | { type: 'bucket'; scope: 'kind' | 'rest' | 'agent'; kind?: WebKind; units: Unit[] };
+
+interface Bucket {
+  scope: 'kind' | 'rest';
+  kind?: WebKind;
+  units: Unit[];
+}
+
+/**
+ * 한 에이전트의 단위들을 화면 칸으로 나눈다(§5.23 묶기 (B)(C)).
+ *
+ * - N=0: (B) 가 켜져 있으면 구성원 둘 이상인 종류만 묶고, 나머지는 따로 선다. 꺼져 있으면 전부 따로.
+ * - 단위 수 ≤ N: 더 묶지 않는다.
+ * - (B) 꺼짐: 최근 N−1 단위가 따로 서고 나머지가 한 묶음.
+ * - (B) 켜짐: 종류 묶음(구성원 많은 종류부터)과 "그 밖의 웹"이 N 을 넘지 않게 세우고, 남은 자리에 최근 단위부터 따로 세운다.
+ *   구성원이 하나 남은 묶음은 그 단위로 선다(개수는 같고 이름이 정확하다).
+ */
+function planAgent(units: Unit[], settings: WebGroupSettings, kindOf: (unit: Unit) => WebKind | undefined): PlanItem[] {
+  const max = settings.maxPerAgent;
+  const asUnits = (): PlanItem[] => units.map((unit) => ({ type: 'unit', unit }));
+
+  if (max === 0) {
+    if (!settings.byKind) return asUnits();
+    const byKind = new Map<WebKind, Unit[]>();
+    for (const u of units) {
+      const kind = kindOf(u);
+      if (!kind) continue;
+      const list = byKind.get(kind);
+      if (list) list.push(u);
+      else byKind.set(kind, [u]);
+    }
+    const items: PlanItem[] = [];
+    const emitted = new Set<WebKind>();
+    for (const u of units) {
+      const kind = kindOf(u);
+      const group = kind ? byKind.get(kind) : undefined;
+      if (!kind || !group || group.length < 2) {
+        items.push({ type: 'unit', unit: u });
+        continue;
+      }
+      if (emitted.has(kind)) continue;
+      emitted.add(kind);
+      items.push({ type: 'bucket', scope: 'kind', kind, units: group });
+    }
+    return items;
+  }
+
+  if (units.length <= max) return asUnits();
+
+  if (!settings.byKind) {
+    const head: PlanItem[] = units.slice(0, max - 1).map((unit) => ({ type: 'unit', unit }));
+    return [...head, { type: 'bucket', scope: head.length === 0 ? 'agent' : 'rest', units: units.slice(max - 1) }];
+  }
+
+  // (B) 종류 묶음 — **많이 읽은 종류부터**(읽은 항목 수 → 호스트 수 → 최근 → 정본 순서). 단위(사이트) 수로 세면
+  //   호스트 여럿을 품은 사이트 하나(`github.com`)나 검색 의사 호스트처럼 자주 쓰는 한 곳이 작은 종류로 밀려난다.
+  const named = new Map<WebKind, Unit[]>();
+  const rest: Unit[] = [];
+  for (const u of units) {
+    const kind = kindOf(u);
+    if (!kind) {
+      rest.push(u);
+      continue;
+    }
+    const list = named.get(kind);
+    if (list) list.push(u);
+    else named.set(kind, [u]);
+  }
+  const weight = (list: readonly Unit[]): { reads: number; hosts: number; recent: number } => ({
+    reads: list.reduce((n, u) => n + u.entries, 0),
+    hosts: list.reduce((n, u) => n + u.hosts.length, 0),
+    recent: list[0]!.lastActivity,
+  });
+  const ranked = [...named.entries()]
+    .map(([kind, list]) => ({ kind, list, w: weight(list) }))
+    .sort((a, b) =>
+      (b.w.reads - a.w.reads)
+      || (b.w.hosts - a.w.hosts)
+      || (b.w.recent - a.w.recent)
+      || (WEB_KINDS.indexOf(a.kind) - WEB_KINDS.indexOf(b.kind)))
+    .map(({ kind, list }): [WebKind, Unit[]] => [kind, list]);
+  while (ranked.length > 0 && ranked.length + (rest.length > 0 ? 1 : 0) > max) {
+    rest.push(...ranked.pop()![1]);
+  }
+  rest.sort(compareUnits);
+  const buckets: Bucket[] = ranked.map(([kind, list]) => ({ scope: 'kind', kind, units: list }));
+  if (rest.length > 0) buckets.push({ scope: 'rest', units: rest });
+
+  // 남은 자리 — 최근 단위부터 따로 세운다. 구성원이 둘 이상 남은 묶음에서만 꺼낸다(하나 남은 묶음은 어차피 그 단위로 선다).
+  const bucketOf = new Map<Unit, Bucket>();
+  for (const b of buckets) for (const u of b.units) bucketOf.set(u, b);
+  const remaining = new Map<Bucket, number>(buckets.map((b) => [b, b.units.length]));
+  const promoted = new Set<Unit>();
+  let slots = max - buckets.length;
+  for (const u of units) {
+    if (slots <= 0) break;
+    const b = bucketOf.get(u)!;
+    const left = remaining.get(b)!;
+    if (left < 2) continue;
+    promoted.add(u);
+    remaining.set(b, left - 1);
+    slots--;
+  }
+
+  const items: PlanItem[] = [];
+  const emitted = new Set<Bucket>();
+  for (const u of units) {
+    const b = bucketOf.get(u)!;
+    if (promoted.has(u) || remaining.get(b)! < 2) {
+      items.push({ type: 'unit', unit: u });
+      continue;
+    }
+    if (emitted.has(b)) continue;
+    emitted.add(b);
+    items.push({
+      type: 'bucket',
+      scope: b.scope,
+      ...(b.kind !== undefined ? { kind: b.kind } : {}),
+      units: b.units.filter((x) => !promoted.has(x)),
+    });
+  }
+  // 그 에이전트의 전부를 품은 나머지 묶음은 "그 밖"이 아니라 "웹" 이다.
+  const only = items.length === 1 ? items[0] : undefined;
+  if (only && only.type === 'bucket' && only.scope === 'rest') items[0] = { ...only, scope: 'agent' };
+  return items;
+}
+
+/** 묶음 하나 → 접힌 버블 하나. 구성원은 최신이 앞이어야 한다. */
 function buildFoldNode(
+  foldId: string,
   agentId: string,
-  members: BubbleData[],
+  members: readonly BubbleData[],
+  info: { scope: WebFoldScope; site?: string; kind?: WebKind },
   input: WebFoldInput,
 ): BubbleData {
-  const foldId = webFoldId(agentId);
   const latest = members[0]!;
 
   let anyActive = false;
@@ -115,18 +362,23 @@ function buildFoldNode(
     });
   }
 
+  const webFold: WebFoldInfo = { agentId, hosts, scope: info.scope };
+  if (info.site !== undefined) webFold.site = info.site;
+  if (info.kind !== undefined) webFold.kind = info.kind;
+
   const status: NodeStatus = anyActive ? 'active' : latest.status;
   const position = input.positionOf?.(foldId) ?? latest.position;
   const fold: BubbleData = {
     id: foldId,
-    // 서버에는 i18n 런타임이 없다 — 라벨은 최신 호스트로 두고, 제목·"호스트 N곳"은 클라가 번역한다.
-    label: latest.label,
+    // 서버에는 i18n 런타임이 없다 — 라벨은 사이트 묶음이면 사이트, 아니면 최신 호스트로 두고, 제목("문서"·"웹")과
+    //   "도메인 N곳"은 클라가 번역한다(`webFoldTitle`).
+    label: info.scope === 'site' && info.site !== undefined ? info.site : latest.label,
     bubbleType: 'domain',
-    path: webFoldNodePath(agentId),
+    path: webFoldNodePath(foldId),
     status,
     activity,
     childCount: 0,
-    webFold: { agentId, hosts },
+    webFold,
   };
   if (lastActivity > 0) fold.lastActivity = lastActivity;
   if (latest.lastTool !== undefined) fold.lastTool = latest.lastTool;
@@ -138,24 +390,36 @@ function buildFoldNode(
   return fold;
 }
 
+/** (에이전트, 호스트) 짝 키 — 그 에이전트가 그 호스트를 묶었나. */
+function pairKey(agentId: string, hostId: string): string {
+  return `${agentId}\u0000${hostId}`;
+}
+
 /**
- * 호스트 버블들을 에이전트마다 하나로 접는다.
+ * 호스트 버블들을 설정대로 묶는다(§5.23 웹 버블 묶기).
  *
  * - 접힌 버블은 **첫 구성원이 있던 자리**(배열 순서)에 선다 — 캔버스의 그리기 순서가 흔들리지 않게.
- * - 구성원에 닿는 엣지는 전부 빠지고, 접힌 버블마다 에이전트로 가는 읽기 엣지 **하나**가 선다.
- * - 접을 것이 없으면 입력 배열을 그대로 돌려준다(새 배열을 만들지 않는다).
+ * - 그 에이전트가 묶은 호스트와의 엣지는 빠지고, 접힌 버블마다 에이전트로 가는 읽기 엣지 **하나**가 선다.
+ * - 읽은 에이전트 모두가 묶은 호스트만 화면에서 빠진다(그 호스트에 닿는 엣지도 함께).
+ * - 묶을 것이 없으면 입력 배열을 그대로 돌려준다(새 배열을 만들지 않는다).
  */
-export function foldWebBubblesPerAgent(input: WebFoldInput): WebFoldResult {
+export function groupWebBubbles(input: WebFoldInput, settingsRaw: WebGroupSettings): WebFoldResult {
   const { topFolders, edges, agentIds } = input;
+  const unchanged: WebFoldResult = { topFolders, edges, folds: new Map() };
+  const settings = normalizeWebGroupSettings(settingsRaw);
+  if (!isWebGroupActive(settings)) return unchanged;
+
   const candidates = new Map<string, BubbleData>();
   for (const node of topFolders) {
     if (isFoldableHost(node)) candidates.set(node.id, node);
   }
-  if (candidates.size === 0) return { topFolders, edges, folds: new Map() };
+  if (candidates.size === 0) return unchanged;
 
-  // 에이전트 → 이어진 호스트들 · 그 사이 엣지들. 엣지 방향은 가리지 않는다(읽기는 호스트 → 에이전트).
+  // 에이전트 → 이어진 호스트들 · (에이전트, 호스트) → 그 사이 엣지들 · 호스트 → 읽은 에이전트들.
+  // 엣지 방향은 가리지 않는다(읽기는 호스트 → 에이전트).
   const hostsByAgent = new Map<string, Set<string>>();
-  const edgesByAgent = new Map<string, ActivityEdge[]>();
+  const edgesByPair = new Map<string, ActivityEdge[]>();
+  const readersByHost = new Map<string, Set<string>>();
   for (const edge of edges) {
     let hostId: string | null = null;
     let agentId: string | null = null;
@@ -170,53 +434,106 @@ export function foldWebBubblesPerAgent(input: WebFoldInput): WebFoldResult {
     let hostSet = hostsByAgent.get(agentId);
     if (!hostSet) { hostSet = new Set(); hostsByAgent.set(agentId, hostSet); }
     hostSet.add(hostId);
-    const list = edgesByAgent.get(agentId);
+    let readers = readersByHost.get(hostId);
+    if (!readers) { readers = new Set(); readersByHost.set(hostId, readers); }
+    readers.add(agentId);
+    const key = pairKey(agentId, hostId);
+    const list = edgesByPair.get(key);
     if (list) list.push(edge);
-    else edgesByAgent.set(agentId, [edge]);
+    else edgesByPair.set(key, [edge]);
   }
-  if (hostsByAgent.size === 0) return { topFolders, edges, folds: new Map() };
+  if (hostsByAgent.size === 0) return unchanged;
+
+  // 종류는 비싸지 않지만 스냅샷마다 돈다 — 단위마다 한 번만 잰다.
+  const urlsOf = input.urlsOf;
+  const kindMemo = new Map<Unit, WebKind | undefined>();
+  const kindOf = (unit: Unit): WebKind | undefined => {
+    if (kindMemo.has(unit)) return kindMemo.get(unit);
+    const kind = unit.hosts.length === 1
+      ? webKindOfHost(hostOf(unit.hosts[0]!), urlsOf?.(unit.hosts[0]!.id) ?? [])
+      : webKindOfSite(unit.site, unit.hosts.map((h) => ({ host: hostOf(h), urls: urlsOf?.(h.id) ?? [] })));
+    kindMemo.set(unit, kind);
+    return kind;
+  };
 
   const folds = new Map<string, WebFoldGroup>();
   const foldNodes = new Map<string, BubbleData>();
   const foldEdges: ActivityEdge[] = [];
   const foldsByHost = new Map<string, string[]>();
+  const foldedPairs = new Set<string>();
   for (const [agentId, hostSet] of hostsByAgent) {
     const members = [...hostSet].map((id) => candidates.get(id)!).sort(compareLatestFirst);
-    const foldId = webFoldId(agentId);
-    foldNodes.set(foldId, buildFoldNode(agentId, members, input));
-    folds.set(foldId, { agentId, hostIds: members.map((m) => m.id) });
-    for (const m of members) {
-      const owners = foldsByHost.get(m.id);
-      if (owners) owners.push(foldId);
-      else foldsByHost.set(m.id, [foldId]);
-    }
+    const units = buildUnits(members, settings, input);
+    for (const item of planAgent(units, settings, kindOf)) {
+      let foldId: string;
+      let hosts: BubbleData[];
+      let info: { scope: WebFoldScope; site?: string; kind?: WebKind };
+      if (item.type === 'unit') {
+        // 호스트 하나짜리 단위는 그 호스트가 제 버블로 선다 — 묶을 것이 없다.
+        if (item.unit.hosts.length < 2) continue;
+        foldId = webFoldId(agentId, { site: item.unit.site });
+        hosts = item.unit.hosts;
+        info = { scope: 'site', site: item.unit.site };
+      } else {
+        hosts = item.units.flatMap((u) => u.hosts).sort(compareLatestFirst);
+        if (item.scope === 'kind' && item.kind !== undefined) {
+          foldId = webFoldId(agentId, { kind: item.kind });
+          info = { scope: 'kind', kind: item.kind };
+        } else {
+          foldId = webFoldId(agentId);
+          info = { scope: item.scope === 'kind' ? 'rest' : item.scope };
+        }
+      }
 
-    // 접힌 버블의 화살표 하나 — 가장 최근 구성원 엣지의 라벨·시각을 따르고, 하나라도 켜져 있으면 켜진다.
-    const memberEdges = edgesByAgent.get(agentId) ?? [];
-    let newest = memberEdges[0]!;
-    let anyActive = false;
-    for (const e of memberEdges) {
-      if (e.timestamp > newest.timestamp) newest = e;
-      if (e.isActive) anyActive = true;
+      foldNodes.set(foldId, buildFoldNode(foldId, agentId, hosts, info, input));
+      folds.set(foldId, { agentId, hostIds: hosts.map((h) => h.id), scope: info.scope });
+      for (const h of hosts) {
+        const owners = foldsByHost.get(h.id);
+        if (owners) owners.push(foldId);
+        else foldsByHost.set(h.id, [foldId]);
+        foldedPairs.add(pairKey(agentId, h.id));
+      }
+
+      // 접힌 버블의 화살표 하나 — 가장 최근 구성원 엣지의 라벨·시각을 따르고, 하나라도 켜져 있으면 켜진다.
+      let newest: ActivityEdge | null = null;
+      let anyActive = false;
+      for (const h of hosts) {
+        for (const e of edgesByPair.get(pairKey(agentId, h.id)) ?? []) {
+          if (newest === null || e.timestamp > newest.timestamp) newest = e;
+          if (e.isActive) anyActive = true;
+        }
+      }
+      if (newest !== null) {
+        foldEdges.push({
+          id: `${agentId}-${foldId}-read`,
+          source: foldId,
+          target: agentId,
+          label: newest.label,
+          timestamp: newest.timestamp,
+          isActive: anyActive,
+        });
+      }
     }
-    foldEdges.push({
-      id: `${agentId}-${foldId}-read`,
-      source: foldId,
-      target: agentId,
-      label: newest.label,
-      timestamp: newest.timestamp,
-      isActive: anyActive,
-    });
+  }
+  if (folds.size === 0) return unchanged;
+
+  // 읽은 에이전트 모두가 묶은 호스트만 화면에서 빠진다 — 한 에이전트라도 따로 세우면 그 호스트는 남는다.
+  const hidden = new Set<string>();
+  for (const [hostId, readers] of readersByHost) {
+    if (!foldsByHost.has(hostId)) continue;
+    let all = true;
+    for (const agentId of readers) {
+      if (!foldedPairs.has(pairKey(agentId, hostId))) { all = false; break; }
+    }
+    if (all) hidden.add(hostId);
   }
 
   const nextTopFolders: BubbleData[] = [];
   const placed = new Set<string>();
   for (const node of topFolders) {
+    if (!hidden.has(node.id)) nextTopFolders.push(node);
     const owners = foldsByHost.get(node.id);
-    if (!owners) {
-      nextTopFolders.push(node);
-      continue;
-    }
+    if (!owners) continue;
     for (const foldId of owners) {
       if (placed.has(foldId)) continue;
       placed.add(foldId);
@@ -226,7 +543,9 @@ export function foldWebBubblesPerAgent(input: WebFoldInput): WebFoldResult {
 
   const nextEdges: ActivityEdge[] = [];
   for (const edge of edges) {
-    if (foldsByHost.has(edge.source) || foldsByHost.has(edge.target)) continue;
+    if (hidden.has(edge.source) || hidden.has(edge.target)) continue;
+    // 그 에이전트가 묶은 호스트와의 화살표 — 묶음 화살표 하나가 대신한다.
+    if (foldedPairs.has(pairKey(edge.source, edge.target)) || foldedPairs.has(pairKey(edge.target, edge.source))) continue;
     nextEdges.push(edge);
   }
   for (const e of foldEdges) nextEdges.push(e);

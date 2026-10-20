@@ -133,11 +133,15 @@ export type {
   WebEntryKind,
   WebFoldHost,
   WebFoldInfo,
+  WebFoldScope,
+  WebGroupSettings,
+  WebKind,
   ServerEntry,
   AgentEvent,
   TodoItem,
   StreamDensity,
   QueuedCommand,
+  CommandExecutionRequirements,
   CommandDispatchMode,
   CommandErrorCode,
   CommandError,
@@ -183,6 +187,9 @@ export type {
   SubAgent,
   SubAgentStatus,
   SessionMemo,
+  SessionMemoLink,
+  SessionMemoLinkKind,
+  SessionMemoLinkTarget,
   SubAgentHistoryItem,
   RunningSubagentTask,
   FinishedSubagentTask,
@@ -250,6 +257,7 @@ export type {
   AppThemeCatalog,
   ResolvedAppTheme,
   AppThemeChrome,
+  BootProgress,
   AgentConfigPatch,
   UserNotificationDefaults,
   UserAdvancedDefaults,
@@ -538,6 +546,7 @@ export {
   MAX_FILE_EDITS,
   MAX_WRITE_DIFF_BYTES,
   BASH_WRITE_PENDING_MAX,
+  CODEX_PATCH_PENDING_MAX,
   FILE_EDIT_RETENTION_DAYS,
   MAX_FILE_EDIT_PATHS,
   FILE_EDIT_MERGE_WINDOW_MS,
@@ -569,6 +578,9 @@ export {
   SESSION_PROBE_QUIET_MINUTES,
   SESSION_PROBE_TIMEOUT_MS,
   SESSION_PROBE_TAIL_BYTES,
+  SESSION_PROBE_TAIL_WINDOW_BYTES,
+  SESSION_PROBE_TAIL_SCAN_BYTES,
+  SESSION_PROBE_TAIL_BULK_LINE_BYTES,
   SESSION_PROBE_REASON_MAX,
   SESSION_PROBE_MAX_PER_HOUR,
   SESSION_PROBE_CONCURRENCY,
@@ -644,6 +656,16 @@ export {
   WEB_SEARCH_HOST,
   WEB_KEY_MARK,
   WEB_TOOLS,
+  // §5.23 웹 버블 묶기 — 기본값·범위·사이트 접미사·종류 표
+  WEB_GROUP_DEFAULTS,
+  WEB_GROUP_OFF,
+  WEB_GROUP_MAX_BOUNDS,
+  WEB_SITE_SUFFIXES,
+  WEB_KINDS,
+  WEB_KIND_HOSTS,
+  WEB_KIND_SUBDOMAINS,
+  WEB_KIND_SITES,
+  WEB_KIND_PATHS,
   WORKSPACE_DIR_ENTRY_MAX,
   WORKSPACE_FILE_MAX_BYTES,
   IDE_EDITOR_MAX_TABS,
@@ -700,6 +722,22 @@ export {
   ORBIT_RADIUS_PER_ITEM,
   SATELLITE_ORBIT_GAP,
   SATELLITE_TYPES,
+  // §5.1 #2-1 — 파일 버블 얼굴 · 작업물 별자리
+  FILE_FACE_EXTENSIONS,
+  FILE_FACE_BASE_FAMILY,
+  FILE_FACE_FAMILY_EXTENSIONS,
+  APP_WORK,
+  PREVIEW_POLICY,
+  FILE_FACE_MEDIA_KINDS,
+  FILE_FACE_STYLES,
+  FILE_FACE,
+  CONSTELLATION_HUB_RANK,
+  CONSTELLATION_INGREDIENT_OF,
+  CONSTELLATION_SIDECAR_KINDS,
+  CONSTELLATION_STOP_TOKENS,
+  CONSTELLATION_SCAN_MODEL_EXTENSIONS,
+  CONSTELLATION_SCAN_SKIP_EXTENSIONS,
+  CONSTELLATION,
   FOLDER_BUBBLE_TYPES,
   GHOST_FADE_DURATION,
   PANEL_DEFAULT_WIDTH,
@@ -735,6 +773,7 @@ export {
   MODEL_PRICING,
   DEFAULT_PRICING,
   calculateTokenCost,
+  pricingForPromptTokens,
   MODEL_FAMILY_DEFAULTS,
   isKnownFamily,
   MODEL_SEED_ENTRIES,
@@ -792,9 +831,13 @@ export {
   AVAILABLE_AGENT_MODEL_FULL_IDS,
   AVAILABLE_AGENT_MODEL_IDS,
   isOpusModel,
+  EFFORT_MODEL_FAMILIES,
+  supportsEffortSelection,
   supportsFastMode,
   isForwardSubagentTextEnabled,
   isThinkingEnabled,
+  THINKING_ALWAYS_ON_MODEL_IDS,
+  isThinkingAlwaysOnModel,
   AVAILABLE_AGENT_TOOLS,
   BACKFILL_AGENT_TOOLS,
   AGENT_TOOLS_BACKFILL_GEN,
@@ -815,12 +858,17 @@ export {
   STARTUP_JOB_SETTLE_MS,
   STARTUP_JOB_GAP_MS,
   STARTUP_JOB_RELEASE_CAP_MS,
+  STARTUP_JOB_SPLASH_SETTLE_MS,
+  STARTUP_JOB_SPLASH_GAP_MS,
+  MAIN_WINDOW_READY_QUIET_MS,
+  MAIN_WINDOW_READY_CAP_MS,
   HOOK_TRANSPORT_REFRESH_DELAY_MS,  LOCKED_AGENT_TOOLS,
   AVAILABLE_PERMISSION_MODES,
   PERMISSION_MODES_WITHOUT_PROMPT,
   PERMISSION_MODE_CLI_VALUES,
   toCliPermissionMode,
   normalizeAgentDefinitionName,
+  AGENT_DEFINITION_NAME_MAX,
   buildAgentsFlagJson,
   normalizePluginDirs,
   AVAILABLE_SETTING_SOURCES,
@@ -883,12 +931,15 @@ export {
   DEFAULT_TIDY_SORT,
   normalizeTidySort,
   tidyGeometryOf,
+  WEB_ORBIT,
+  WEB_ORBIT_TYPES,
   LAYOUT_BOUNDS_DEFAULT,
   COMMENT_BOX_PALETTE,
   SESSION_MEMO,
   SESSION_MEMO_PALETTE,
   SESSION_MEMO_DEFAULT_COLOR,
   SESSION_MEMO_LEGACY_COLOR_MAP,
+  SESSION_MEMO_LINK_KINDS,
   CAPTURE_BUBBLE_DEFAULTS,
   CAPTURE_SNAP,
   CAPTURE_PLAYTEST,
@@ -930,6 +981,11 @@ export {
   CMD_PANE_SEPARATOR,
   sanitizeCmdPaneTree,
   normalizeMemoName,
+  normalizeMemoLinkText,
+  normalizeMemoLinkUrl,
+  normalizeMemoLinkPath,
+  sanitizeMemoLinkTarget,
+  sanitizeMemoLinks,
   repairMemoGroups,
   sanitizeSessionMemo,
   sanitizeSessionMemos,
@@ -998,6 +1054,8 @@ export {
   AGENT_CARD_ENV_TOKEN,
   LOOPBACK_INGRESS_HEADER,
   LOOPBACK_INGRESS_VALUE,
+  LOOPBACK_REQUEST_MAX_BYTES,
+  LOOPBACK_TOTAL_MAX_BYTES,
   AGENT_QUESTIONS_MAX_PER_AGENT,
   buildAgentQuestionRules,
   AGENT_REVIEWS_MAX_PER_AGENT,
@@ -1143,6 +1201,7 @@ export {
   isAuditLoopbackTarget,
   isAuditPathOutside,
   extractPatchFileOps,
+  auditPatchText,
   classifyToolRisk,
   summarizeToolCall,
   isAuditRiskEnabled,
@@ -1503,6 +1562,11 @@ export {
   AUTO_GOAL_SCAN_TAIL,
   AUTO_GOAL_SKILL_BUDGET,
 } from './constants.js';
+// §5.13 (Y) 40-1 — 내부 앱 미디어(흘려 보내기)·앱 알림 계약(앱 이름 없음).
+export { APP_MEDIA_SEGMENT, APP_MEDIA_STREAM_CHUNK_BYTES, appIdOfMediaPath, isAppMediaPath, mediaContentType, mediaEtag, parseByteRange } from './appMedia.js';
+export type { AppEventPayload, ByteRangeResult } from './appMedia.js';
+export { summarizeProcessMetrics } from './perfWire.js';
+export type { AppMetricLike, PerfMemoryWire, PerfProcessMemoryWire, PerfRendererMemoryWire } from './perfWire.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)
 export type { StampSpec } from './constants.js';
@@ -2030,6 +2094,7 @@ export {
   toNativeDriveShellPath,
   readShellCdTarget,
   extractBashWritePaths,
+  extractBashScanAnchors,
 } from './bashCommandPaths.js';
 
 // §5.23 — 도메인 버블의 공용 추출기. 서버 그래프(버블 세우기)와 §5.22 감사 원장(`target` 채우기)이
@@ -2065,16 +2130,24 @@ export {
   normalizeHeatCurve,
 } from './heatmap.js';
 
-// §5.23 접어 보기 — 에이전트마다 웹 버블 하나. 서버 `getSnapshot` 이 접고, 서버 지우기·자리 저장과
-// 클라 화면이 **같은 id 규약**(`webFoldId`/`webFoldAgentId`)을 읽는다 — 두 벌이면 지우기가 헛돈다.
-export type { WebFoldGroup, WebFoldInput, WebFoldResult } from './webFoldView.js';
+// §5.23 접어 보기·웹 버블 묶기 — 같은 사이트·비슷한 종류·에이전트마다 최대 N개. 서버 `getSnapshot` 이 묶고,
+// 서버 지우기·자리 저장과 클라 화면이 **같은 id 규약**(`webFoldId`/`webFoldAgentId`)을 읽는다 — 두 벌이면 지우기가 헛돈다.
+export type { WebFoldGroup, WebFoldInput, WebFoldPart, WebFoldResult } from './webFoldView.js';
 export {
   WEB_FOLD_ID_PREFIX,
+  WEB_FOLD_ID_SEPARATOR,
   webFoldId,
   webFoldAgentId,
   webFoldNodePath,
-  foldWebBubblesPerAgent,
+  normalizeWebGroupMax,
+  normalizeWebGroupSettings,
+  isWebGroupActive,
+  sameWebGroupSettings,
+  groupWebBubbles,
 } from './webFoldView.js';
+
+// §5.23 웹 버블 묶기 — 사이트(등록 도메인 어림)와 종류 판정. 묶기와 시험이 같은 함수를 본다.
+export { webSiteOf, webKindOfHost, webKindOfSite, webKindOfUrl } from './webHostKind.js';
 
 // §2.1 — 외부 폴더 버블의 "무엇을 보여 줄까" 판정. 서버가 트리를 세울 때와 클라이언트가 그릴
 // 때가 **같은 답**을 내야 한다(두 벌이 되면 한쪽만 고쳐져 화면과 숫자가 어긋난다).
@@ -2099,12 +2172,14 @@ export {
 // 유일한 자리. 종전에는 클라 `IDE/diffTool.ts` 한 곳에만 있어 서버 그래프가 `MultiEdit`/
 // `NotebookEdit` 를 아예 몰랐다(버블·쓰기 화살표·수정 이력 0). 셸 토크나이저와 같은 규율 —
 // 파서가 두 벌이 되면 도구 입력이 바뀔 때 한쪽만 고쳐진다.
-export type { EditToolHunk, EditToolMode, ParsedEditToolInput } from './editToolInput.js';
+export type { EditToolHunk, EditToolMode, ParsedEditToolInput, ApplyPatchFileEdit } from './editToolInput.js';
 export {
   EDIT_INPUT_TOOLS,
   parseEditToolObject,
   parseEditToolInputJson,
   joinEditHunks,
+  clampEditSide,
+  parseApplyPatch,
 } from './editToolInput.js';
 
 // §4 — 개별 에이전트 설정이 설정 창의 전역 기본값과 어디서 갈라지는지. "미설정"의 표기가 필드마다
@@ -2317,6 +2392,7 @@ export type {
   ParsedBinding,
   KeyEventLike,
   KeymapOverrides,
+  KeymapOs,
   BindingIssueKind,
   BindingIssue,
 } from './keymap.js';
@@ -2340,6 +2416,8 @@ export {
   matchesBinding,
   bindingFromEvent,
   isCommandId,
+  defaultBindingFor,
+  bindingSpecificity,
   defaultKeymap,
   normalizeKeymapOverrides,
   resolveKeymap,
@@ -2452,7 +2530,7 @@ export {
   findToolLockHits,
 } from './pathLock.js';
 // §5.4 #36 — 전환과 연결(에이전트 말풍선 · 위성줄). 서버 검증과 클라 낙관 반영이 한 벌을 쓴다.
-export { AGENT_CARD, APP_BUBBLE_LINK_MAX, APP_BUBBLE_PENDING_MS, APP_BUBBLE_REF_MAX, APP_THUMB, REF_BLOOM, REF_LINK_STYLE } from './constants.js';
+export { AGENT_CARD, APP_BUBBLE_LINK_MAX, APP_BUBBLE_PENDING_MS, APP_BUBBLE_REF_MAX, APP_SHELL_SKELETON, APP_THUMB, REF_BLOOM, REF_LINK_STYLE } from './constants.js';
 // §5.4 #36 (G) — 앱 노드 크기 조절 한도와 캔버스 조작 한도. 서버(PATCH 자르기)와 클라(손잡이·재생)가 한 벌을 쓴다.
 export { APP_NODE_RESIZE, APP_CANVAS_FACE } from './constants.js';
 // §5.4 #36 (H) — 연결 보기(켜고 끄기 · 전환 · 구슬 줄). 서버(지난 결과 상한)와 클라(흐림·구슬)가 한 벌을 쓴다.
@@ -2531,3 +2609,71 @@ export {
 } from './appThemeResolve.js';
 // §5.3 #9-2 — 자손 프로세스 보호의 판정(상한·압박·희생자·POSIX 소속·알림 한 줄).
 export * from './processGuardPolicy.js';
+export * from './creation.js';
+export * from './agentCardTasks.js';
+export * from './vibi3dProduction.js';
+export * from './vibi3dCommandCatalog.js';
+export * from './vibi3dWorkflow.js';
+export * from './vibi3dDraft.js';
+export * from './vibi3dLook.js';
+export * from './vibi3dMaterials.js';
+export * from './vibi3dGeometry.js';
+export * from './vibi3dArchitecture.js';
+export * from './vibi3dKit.js';
+export * from './vibi3dStats.js';
+export * from './vibi3dLimits.js';
+export * from './vibi3dDecorations.js';
+export * from './vibi3dCamera.js';
+// §5.1 #2-1 — 파일 버블 얼굴(종류) · 내용 언급 · 작업물 별자리(서버 위성 상한과 클라 화면이 같은 판정을 쓴다).
+export type { FileFaceKind, FileFaceFamily, ConstellationReason, AppWorkMark, AppWorkRole } from './types.js';
+export { fileBaseName, fileFaceExtOf, fileFaceKindOf, fileFaceFamilyOf, isMediaFaceKind, fileStemOf, stemTokensOf, isMeaningfulStem } from './fileFace.js';
+// §5.1 #2-1 (F) · §5.4 #36 (I) — 앱 작업물(꼬리표 · 역할 · 자리 · 연속 번호). 서버와 클라가 같은 판정을 쓴다.
+export {
+  appNodeIdsInText,
+  normalizeAppNodeIds,
+  commandAppNodeIds,
+  withAppWorkMark,
+  sameAppWork,
+  APP_WORK_ROLES,
+  appKindOfExtensions,
+  appWorkRoleOf,
+  appWorkRoleRank,
+  companionPartnerName,
+  appWorkSeatAngles,
+  pickAppWorkHub,
+  fileSequenceOf,
+  sequenceLabel,
+  clipNameList,
+} from './appWork.js';
+export type { AppWorkMarkOptions, FileSequence } from './appWork.js';
+// §5.1 #2-1 (G) — 미리보기 성능 기준(파일 · 화면 · 한눈).
+export {
+  previewLaneOf,
+  previewByteCap,
+  previewTooLarge,
+  previewTooManyPixels,
+  imageHeaderSize,
+  selectPreviewGrants,
+} from './previewPolicy.js';
+export type { PreviewLane, PreviewCandidate, PreviewGrantOptions } from './previewPolicy.js';
+export {
+  BUBBLE_SKINS,
+  BUBBLE_EDGE_STYLES,
+  DEFAULT_BUBBLE_SKIN,
+  DEFAULT_BUBBLE_EDGE_STYLE,
+  resolveBubbleSkin,
+  resolveBubbleEdgeStyle,
+} from './bubbleAppearance.js';
+export type { BubbleSkin, BubbleEdgeStyle } from './bubbleAppearance.js';
+export { extractFileMentions, createMentionResolver, isMentionScannablePath } from './fileMentions.js';
+export type { MentionCandidate, MentionResolver } from './fileMentions.js';
+export { planConstellations, EMPTY_CONSTELLATION_PLAN } from './constellation.js';
+export type {
+  ConstellationFileInput,
+  ConstellationAppHubInput,
+  ConstellationOptions,
+  ConstellationMoon,
+  ConstellationPlan,
+} from './constellation.js';
+export { detectCommandApps, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
+export type { CommandAppTarget } from './commandApps.js';

@@ -13,7 +13,14 @@
  * - `MultiEdit`    `{ file_path, edits: [{ old_string, new_string }] }`
  * - `Write`        `{ file_path, content }`                     → `create`
  * - `NotebookEdit` `{ notebook_path, new_source, old_source? }` → 셀 하나
+ * - 코덱스 `apply_patch` 는 입력이 **패치 본문** 하나라 위 모양으로 접히지 않는다 — 파일별로 푸는
+ *   `parseApplyPatch` 가 따로 있다(§5.25 (F)). 머리줄 정규식은 §5.22 감사 원장과 한 벌이다.
  */
+import {
+  AUDIT_PATCH_FILE_HEADER_PATTERN,
+  AUDIT_PATCH_MOVE_HEADER_PATTERN,
+  MAX_WRITE_DIFF_BYTES,
+} from './constants.js';
 
 /** 한 편집 조각 — 이전 텍스트 → 이후 텍스트. `Write` 는 `oldText=''`(전량 추가). */
 export interface EditToolHunk {
@@ -128,4 +135,128 @@ export function joinEditHunks(hunks: readonly EditToolHunk[]): { oldString: stri
     oldString: hunks.map((h) => h.oldText).join('\n'),
     newString: hunks.map((h) => h.newText).join('\n'),
   };
+}
+
+/**
+ * 수정 이력 한 쪽 본문을 상한(`MAX_WRITE_DIFF_BYTES`)으로 자른다 — 넘친 만큼은 표식으로 남긴다.
+ *
+ * 서버의 모든 이력 경로(`Edit`/`Write` · §2.1 Bash 쓰기 축 · §5.25 (F) 코덱스 패치 장부)가 **이 한 벌**을
+ * 쓴다. 두 벌이면 표식 모양이 갈리고, 이미 자른 본문을 다른 쪽이 또 자르면 표식이 두 번 붙는다.
+ */
+export function clampEditSide(text: string, max: number = MAX_WRITE_DIFF_BYTES): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n…[truncated ${text.length - max} chars]`;
+}
+
+/** 코덱스 `apply_patch` 한 파일의 조작 — 머리줄 하나와 그 아래 바뀐 덩어리. */
+export interface ApplyPatchFileEdit {
+  op: 'add' | 'update' | 'delete';
+  /** 머리줄에 적힌 그대로의 경로(절대·상대가 모두 온다 — 올리는 일은 부르는 쪽 몫이다). */
+  path: string;
+  /** `*** Move to:` 가 붙은 Update 의 새 경로. */
+  movePath?: string;
+  /**
+   * 바뀐 덩어리. 한 덩어리 = 문맥·지운 줄(`oldText`) → 문맥·넣은 줄(`newText`).
+   * Add 는 하나(`oldText=''`), Delete 는 비어 있다 — 패치에 지운 본문이 없으므로 지어내지 않는다.
+   */
+  hunks: EditToolHunk[];
+}
+
+/**
+ * §5.25 (F) — 코덱스 `apply_patch` 본문을 **파일별 바뀐 덩어리**로 푼다. 수정 이력이 클로드 `MultiEdit`
+ * 과 같은 모양(덩어리를 `joinEditHunks` 로 한 줄에 잇는다)으로 남게 하려는 것이다.
+ *
+ * 문법(공개 도구 설명):
+ * ```
+ * *** Begin Patch
+ * *** Update File: <경로>
+ * *** Move to: <새 경로>      (있을 때만)
+ * @@ <닻 글자>                (첫 덩어리는 없을 수 있다)
+ *  문맥 줄
+ * -지운 줄
+ * +넣은 줄
+ * *** End of File            (있을 때만)
+ * *** Add File: <경로>
+ * +새 파일의 줄
+ * *** Delete File: <경로>
+ * *** End Patch
+ * ```
+ * - 머리줄은 §5.22 감사 원장과 **같은 정규식**으로 읽는다(본문 줄은 접두 문자가 있어 머리줄로 오인되지 않는다).
+ * - 빈 줄은 빈 문맥 줄이다(코덱스 파서와 같은 해석). `@@` 의 닻 글자·`*** End of File` 은 본문이 아니다.
+ * - 모르는 줄은 건너뛴다(넘겨짚지 않는다). 바뀐 줄이 하나도 없는 덩어리는 이력이 아니라 버린다.
+ */
+export function parseApplyPatch(patch: string): ApplyPatchFileEdit[] {
+  const out: ApplyPatchFileEdit[] = [];
+  let file: ApplyPatchFileEdit | null = null;
+  let oldLines: string[] = [];
+  let newLines: string[] = [];
+  let changed = false;
+
+  const flushHunk = (): void => {
+    if (file && changed) {
+      // 본문 끝 개행이 만든 빈 문맥 줄은 양쪽에서 같이 걷는다 — 이력 끝에 빈 줄이 덧붙지 않게.
+      while (oldLines.length > 0 && newLines.length > 0 && oldLines[oldLines.length - 1] === '' && newLines[newLines.length - 1] === '') {
+        oldLines.pop();
+        newLines.pop();
+      }
+      file.hunks.push({ oldText: oldLines.join('\n'), newText: newLines.join('\n') });
+    }
+    oldLines = [];
+    newLines = [];
+    changed = false;
+  };
+  const flushFile = (): void => {
+    flushHunk();
+    if (file) out.push(file);
+    file = null;
+  };
+
+  for (const rawLine of patch.split(/\r?\n/)) {
+    const header = rawLine.trimEnd().match(AUDIT_PATCH_FILE_HEADER_PATTERN);
+    if (header && header[1] && header[2]?.trim()) {
+      flushFile();
+      file = { op: header[1].toLowerCase() as ApplyPatchFileEdit['op'], path: header[2].trim(), hunks: [] };
+      continue;
+    }
+    const current: ApplyPatchFileEdit | null = file;
+    if (!current) continue; // `*** Begin Patch` 와 그 앞
+    const moved = rawLine.trimEnd().match(AUDIT_PATCH_MOVE_HEADER_PATTERN);
+    if (moved && moved[1]?.trim()) {
+      if (current.op === 'update') current.movePath = moved[1].trim();
+      continue;
+    }
+    if (rawLine.startsWith('*** ')) {
+      // `*** End Patch` 는 파일을 닫고, `*** End of File` 은 덩어리 끝을 붙드는 닻일 뿐이다.
+      if (rawLine.trimEnd() === '*** End Patch') flushFile();
+      continue;
+    }
+    if (current.op === 'delete') continue;
+    if (current.op === 'add') {
+      if (rawLine.startsWith('+')) {
+        newLines.push(rawLine.slice(1));
+        changed = true;
+      }
+      continue;
+    }
+    if (rawLine.startsWith('@@')) {
+      flushHunk();
+      continue;
+    }
+    const mark = rawLine.charAt(0);
+    if (mark === '+') {
+      newLines.push(rawLine.slice(1));
+      changed = true;
+    } else if (mark === '-') {
+      oldLines.push(rawLine.slice(1));
+      changed = true;
+    } else if (mark === ' ') {
+      oldLines.push(rawLine.slice(1));
+      newLines.push(rawLine.slice(1));
+    } else if (rawLine === '') {
+      oldLines.push('');
+      newLines.push('');
+    }
+  }
+  flushFile();
+  return out;
 }

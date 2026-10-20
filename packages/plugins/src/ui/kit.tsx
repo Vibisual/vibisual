@@ -36,9 +36,10 @@ export function PluginSection(
 ): React.JSX.Element {
   return (
     <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-400">{title}</span>
-        {status && <span className={`text-[12px] font-medium ${TONE_TEXT[tone]}`}>{status}</span>}
+      {/* 좁은 패널(폰 하단 시트)에서는 제목·상태가 서로 밀지 않고 각자 줄을 바꾼다 — 상태는 폭의 절반까지만. */}
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <span className="min-w-0 break-words text-[12px] font-semibold uppercase tracking-wide text-gray-400">{title}</span>
+        {status && <span className={`min-w-0 max-w-[50%] break-words text-right text-[12px] font-medium ${TONE_TEXT[tone]}`}>{status}</span>}
       </div>
       {children}
       {note && (
@@ -48,7 +49,13 @@ export function PluginSection(
   );
 }
 
-/** 라벨 + 값 한 줄. 값이 없으면 흐리게. */
+/**
+ * 라벨 + 값 한 줄. 값이 없으면 흐리게.
+ *
+ * 값은 오른쪽 절반(55%)까지만 쓰고 넘으면 줄을 바꾼다 — 종전에는 값이 줄지 않아(`shrink-0`) 긴 값(모델 id·경로·
+ * 도구 목록)이 행 밖으로 나가고 같은 행 라벨이 먼저 0 으로 눌렸다. 힌트는 그 행의 유일한 설명이라 한 줄로
+ * 자르지 않고 두 줄까지 보인다(전문은 `title` — 터치에서는 두 줄이 곧 전부다).
+ */
 export function PluginRow(
   { label, value, tone = 'neutral', hint }:
   { label: string; value: string; tone?: PluginTone; hint?: string },
@@ -57,11 +64,11 @@ export function PluginRow(
     <div className="flex items-start gap-2 py-0.5">
       <span className={`mt-1.5 block h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-start justify-between gap-2">
           <span className="truncate text-[12px] text-gray-300">{label}</span>
-          <span className="shrink-0 text-[12px] text-gray-400">{value}</span>
+          <span className="min-w-0 max-w-[55%] break-words text-right text-[12px] text-gray-400">{value}</span>
         </div>
-        {hint && <div className="mt-0.5 truncate text-[12px] text-gray-500">{hint}</div>}
+        {hint && <div className="mt-0.5 line-clamp-2 break-words text-[12px] text-gray-500" title={hint}>{hint}</div>}
       </div>
     </div>
   );
@@ -73,8 +80,9 @@ export function PluginBadgePill(
   { tone?: PluginTone; title: string; children: ReactNode },
 ): React.JSX.Element {
   return (
+    // 알약은 한 줄이다 — 버블 둘레가 좁아도 글자가 두 줄로 꺾여 알약이 세로로 부풀지 않게.
     <span
-      className={`pointer-events-auto flex items-center gap-1 rounded-full bg-gray-950/85 px-1.5 py-[3px] text-[12px] font-bold leading-none ring-1 ${TONE_RING[tone]} ${TONE_TEXT[tone]}`}
+      className={`pointer-events-auto flex items-center gap-1 whitespace-nowrap rounded-full bg-gray-950/85 px-1.5 py-[3px] text-[12px] font-bold leading-none ring-1 ${TONE_RING[tone]} ${TONE_TEXT[tone]}`}
       title={title}
     >
       {children}

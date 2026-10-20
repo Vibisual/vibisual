@@ -91,13 +91,13 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
           disabled={!editable || busy}
           placeholder={t(`${K}.placeholder`)}
           onChange={(e) => setDoc(e.target.value)}
-          className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-200 placeholder:text-gray-600 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-200 placeholder:text-gray-600 disabled:opacity-50 pointer-coarse:py-2"
         />
         <button
           type="button"
           disabled={!editable || busy}
           onClick={() => void run('config', { doc }, 'PUT')}
-          className="shrink-0 rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40"
+          className="shrink-0 whitespace-nowrap rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40 pointer-coarse:py-2"
         >
           {t(`${K}.save`)}
         </button>
@@ -108,7 +108,7 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
           type="button"
           disabled={!editable || busy}
           onClick={() => void run('create-doc', { path: doc.trim() === '' ? 'docs/SSOT.md' : doc.trim() }, 'POST')}
-          className="rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40"
+          className="rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40 pointer-coarse:py-2"
         >
           {t(`${K}.create`)}
         </button>
@@ -116,7 +116,7 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
           type="button"
           disabled={!editable || busy}
           onClick={() => void run('config', { doc: '' }, 'PUT')}
-          className="rounded bg-white/[0.05] px-2 py-1 text-[12px] text-gray-400 hover:bg-white/[0.1] disabled:opacity-40"
+          className="rounded bg-white/[0.05] px-2 py-1 text-[12px] text-gray-400 hover:bg-white/[0.1] disabled:opacity-40 pointer-coarse:py-2"
         >
           {t(`${K}.clear`)}
         </button>

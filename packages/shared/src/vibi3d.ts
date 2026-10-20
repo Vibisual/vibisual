@@ -1,3 +1,17 @@
+import {
+  validateVibi3DAuthoringCommand,
+  type Vibi3DAuthoringCommand, type Vibi3DCameraKey, type Vibi3DLight, type Vibi3DMaterial, type Vibi3DMotionKey, type Vibi3DRecipe,
+} from './vibi3dAuthoring.js';
+import { getVibi3DCommandDefinition } from './vibi3dCommandCatalog.js';
+import { validateVibi3DLook, validateVibi3DNodeShadows, type Vibi3DLook, type Vibi3DNodeShadows } from './vibi3dLook.js';
+import { validateVibi3DArchitectureCommand, type Vibi3DArchitectureCommand, type Vibi3DArchitectureRecipe } from './vibi3dArchitecture.js';
+import { validateVibi3DWorkflowCommand,
+  type Vibi3DDocumentBinding, type Vibi3DWorkflowCommand, type Vibi3DWorkflowResult } from './vibi3dWorkflow.js';
+import { validateVibi3DKitCommand, type Vibi3DKitCommand, type Vibi3DInstance, type Vibi3DKitModule } from './vibi3dKit.js';
+import { VIBI3D_LIMITS, vibi3DJsonBytes } from './vibi3dLimits.js';
+import { validateVibi3DDecorationCommand, type Vibi3DDecorationCommand, type Vibi3DSignRecipe, type Vibi3DDecalRecipe, type Vibi3DMascotRecipe } from './vibi3dDecorations.js';
+import type { Vibi3DCameraView, Vibi3DShot } from './vibi3dCamera.js';
+export * from './vibi3dAuthoring.js';
 /** The Vibi3D bridge exposes data and bounded edits, never executable source. */
 export const VIBI3D_API_PREFIX = '/api/app/vibi3d';
 export const VIBI3D_RENDERER_TOKEN_HEADER = 'x-vibi3d-renderer-token';
@@ -12,6 +26,19 @@ export interface Vibi3DNode {
   rotation: Vibi3DVec3;
   scale: Vibi3DVec3;
   color?: string;
+  recipe?: Vibi3DRecipe;
+  architecture?: Vibi3DArchitectureRecipe;
+  sign?: Vibi3DSignRecipe;
+  decal?: Vibi3DDecalRecipe;
+  mascot?: Vibi3DMascotRecipe;
+  instance?: Vibi3DInstance;
+  material?: Vibi3DMaterial;
+  locked?: boolean;
+  shadows?: Vibi3DNodeShadows;
+  /** Present on lights: what the light editor shows and edits. */
+  light?: Vibi3DLight;
+  /** Named motions authored on this object (re-opened for editing). */
+  motions?: { name: string; keys: Vibi3DMotionKey[] }[];
 }
 export interface Vibi3DSnapshot {
   sessionId: string;
@@ -20,17 +47,32 @@ export interface Vibi3DSnapshot {
   revision: number;
   selectedId: string | null;
   nodes: Vibi3DNode[];
+  kitModules?: Vibi3DKitModule[];
+  document?: Vibi3DDocumentBinding;
+  ownerId?: string;
+  runId?: string;
   canUndo?: boolean;
   canRedo?: boolean;
   lighting?: number;
-  camera?: { position: Vibi3DVec3; target: Vibi3DVec3 };
+  look?: Vibi3DLook;
+  camera?: Vibi3DCameraView;
+  shots?: Vibi3DShot[];
+  activeShotId?: string;
+  /** The keyframed view-camera path, if one was authored. */
+  cameraMotion?: { name: string; keys: Vibi3DCameraKey[] };
   playback?: { clip: string | null; time: number; playing: boolean };
 }
 export type Vibi3DCommand =
-  | { type: 'update'; id: string; position?: Vibi3DVec3; rotation?: Vibi3DVec3; scale?: Vibi3DVec3; color?: string }
+  | Vibi3DAuthoringCommand
+  | Vibi3DWorkflowCommand
+  | Vibi3DArchitectureCommand
+  | Vibi3DKitCommand
+  | Vibi3DDecorationCommand
+  | { type: 'update'; id: string; position?: Vibi3DVec3; rotation?: Vibi3DVec3; scale?: Vibi3DVec3; color?: string; shadows?: Partial<Vibi3DNodeShadows> }
   | { type: 'select'; id: string | null }
-  | { type: 'undo' | 'redo' | 'capture' }
-  | { type: 'lighting'; intensity: number };
+  | { type: 'undo' | 'redo' }
+  | { type: 'lighting'; intensity: number }
+  | ({ type: 'look' } & Vibi3DLook);
 export interface Vibi3DCommandRequest {
   commandId: string;
   expectedRevision: number;
@@ -38,9 +80,12 @@ export interface Vibi3DCommandRequest {
 }
 export interface Vibi3DCommandResult {
   commandId: string;
-  status: 'pending' | 'applied' | 'rejected';
+  status: 'pending' | 'running' | 'applied' | 'rejected';
   revision?: number;
   error?: string;
+  progress?: number;
+  expiresAt?: number;
+  result?: Vibi3DWorkflowResult;
 }
 
 type Bag = Record<string, unknown>;
@@ -57,8 +102,15 @@ function keys(v: Bag, allowed: string[]): boolean { return Object.keys(v).every(
 
 /** Returns a canonical copy; unknown command fields are rejected, not silently executed later. */
 export function validateVibi3DCommand(value: unknown): Vibi3DCommand | null {
-  if (!bag(value)) return null;
-  if (value.type === 'undo' || value.type === 'redo' || value.type === 'capture') {
+  if (!bag(value) || !getVibi3DCommandDefinition(value.type)) return null;
+  const kit = validateVibi3DKitCommand(value); if (kit) return kit;
+  const decoration = validateVibi3DDecorationCommand(value); if (decoration) return decoration;
+  const architecture = validateVibi3DArchitectureCommand(value); if (architecture) return architecture;
+  const workflow = validateVibi3DWorkflowCommand(value);
+  if (workflow) return workflow;
+  const authored = validateVibi3DAuthoringCommand(value);
+  if (authored) return authored;
+  if (value.type === 'undo' || value.type === 'redo') {
     return keys(value, ['type']) ? { type: value.type } : null;
   }
   if (value.type === 'select') {
@@ -68,7 +120,12 @@ export function validateVibi3DCommand(value: unknown): Vibi3DCommand | null {
     return keys(value, ['type', 'intensity']) && finite(value.intensity, 10) && value.intensity >= 0
       ? { type: 'lighting', intensity: value.intensity } : null;
   }
-  if (value.type !== 'update' || !text(value.id) || !keys(value, ['type', 'id', 'position', 'rotation', 'scale', 'color'])) return null;
+  if (value.type === 'look') {
+    const { type: _type, ...settings } = value;
+    const look = validateVibi3DLook(settings);
+    return look && Object.keys(look).length ? { type: 'look', ...look } : null;
+  }
+  if (value.type !== 'update' || !text(value.id) || !keys(value, ['type', 'id', 'position', 'rotation', 'scale', 'color', 'shadows'])) return null;
   const result: Extract<Vibi3DCommand, { type: 'update' }> = { type: 'update', id: value.id };
   for (const key of ['position', 'rotation', 'scale'] as const) {
     if (value[key] !== undefined) {
@@ -80,48 +137,21 @@ export function validateVibi3DCommand(value: unknown): Vibi3DCommand | null {
     if (!color(value.color)) return null;
     result.color = value.color.toLowerCase();
   }
+  if (value.shadows !== undefined) {
+    const shadows = validateVibi3DNodeShadows(value.shadows); if (!shadows) return null; result.shadows = shadows;
+  }
   return Object.keys(result).length > 2 ? result : null;
 }
 
 export function validateVibi3DCommandRequest(value: unknown): Vibi3DCommandRequest | null {
   if (!bag(value) || !keys(value, ['commandId', 'expectedRevision', 'commands']) || !isVibi3DIdentifier(value.commandId)
-    || !revision(value.expectedRevision) || !Array.isArray(value.commands) || value.commands.length < 1 || value.commands.length > 100) return null;
+    || !revision(value.expectedRevision) || !Array.isArray(value.commands) || value.commands.length < 1 || value.commands.length > VIBI3D_LIMITS.commandCount
+    || vibi3DJsonBytes(value) > VIBI3D_LIMITS.requestBytes) return null;
   const commands = value.commands.map(validateVibi3DCommand);
   if (commands.some((c) => c === null)) return null;
   const valid = commands as Vibi3DCommand[];
-  if (valid.length > 1 && valid.some((c) => c.type !== 'update' && c.type !== 'lighting')) return null;
+  if (valid.length > 1 && valid.some((c) => ['select', 'undo', 'redo', 'capture', 'checkpoint', 'propose', 'resume', 'stats'].includes(c.type))) return null;
   return { commandId: value.commandId, expectedRevision: value.expectedRevision, commands: valid };
 }
 
-export function validateVibi3DSnapshot(value: unknown): Vibi3DSnapshot | null {
-  if (!bag(value) || !isVibi3DIdentifier(value.sessionId) || !text(value.projectId, 4096) || !text(value.fileName, 4096)
-    || !revision(value.revision) || !Array.isArray(value.nodes) || value.nodes.length > 20000
-    || !(value.selectedId === null || text(value.selectedId))) return null;
-  const nodes: Vibi3DNode[] = [];
-  const ids = new Set<string>();
-  for (const n of value.nodes) {
-    if (!bag(n) || !text(n.id) || ids.has(n.id) || typeof n.name !== 'string' || n.name.length > 4096 || !text(n.type)
-      || !(n.parentId === null || text(n.parentId)) || !vec(n.position) || !vec(n.rotation) || !vec(n.scale)
-      || (n.color !== undefined && !color(n.color))) return null;
-    ids.add(n.id);
-    nodes.push({ id: n.id, name: n.name, type: n.type, parentId: n.parentId, position: [...n.position],
-      rotation: [...n.rotation], scale: [...n.scale], ...(typeof n.color === 'string' ? { color: n.color.toLowerCase() } : {}) });
-  }
-  if ((value.selectedId !== null && !ids.has(value.selectedId)) || nodes.some((n) => n.parentId !== null && (!ids.has(n.parentId) || n.parentId === n.id))) return null;
-  const result: Vibi3DSnapshot = { sessionId: value.sessionId, projectId: value.projectId, fileName: value.fileName,
-    revision: value.revision, selectedId: value.selectedId, nodes };
-  for (const key of ['canUndo', 'canRedo'] as const) {
-    if (value[key] !== undefined) { if (typeof value[key] !== 'boolean') return null; result[key] = value[key]; }
-  }
-  if (value.lighting !== undefined) { if (!finite(value.lighting, 10) || value.lighting < 0) return null; result.lighting = value.lighting; }
-  if (value.camera !== undefined) {
-    if (!bag(value.camera) || !vec(value.camera.position) || !vec(value.camera.target)) return null;
-    result.camera = { position: [...value.camera.position], target: [...value.camera.target] };
-  }
-  if (value.playback !== undefined) {
-    const p = value.playback;
-    if (!bag(p) || !(p.clip === null || text(p.clip, 4096)) || !finite(p.time) || p.time < 0 || typeof p.playing !== 'boolean') return null;
-    result.playback = { clip: p.clip, time: p.time, playing: p.playing };
-  }
-  return result;
-}
+export { validateVibi3DSnapshot } from './vibi3dSnapshot.js';

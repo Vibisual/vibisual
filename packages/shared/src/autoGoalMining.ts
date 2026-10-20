@@ -220,7 +220,7 @@ export function mineAutoGoalCandidates(input: AutoGoalMiningInput): AutoGoalMini
     const lines = tail.map((e): ObservedLine | null => {
       const text = e.command ?? '';
       // 실패·진행 중·옛 상태 미상은 경계다. 걸러 붙이면 A 실패 B 가 A B 절차로 바뀐다.
-      if (e.status !== 'success' || !fitsObservation(text, AUTO_GOAL_COMMAND_MAX)) return null;
+      if (e.status !== 'success' || e.commandTruncated || !fitsObservation(text, AUTO_GOAL_COMMAND_MAX)) return null;
       return { text, at: e.timestamp, files: pathsIn(text) };
     });
     observed += lines.filter((line) => line !== null).length;

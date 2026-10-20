@@ -83,6 +83,10 @@ export interface EngineBridgeSnapshotWire {
   turnState: EngineBridgeTurnState;
   turnAgeMs?: number;
   progressAgeMs?: number;
+  /**
+   * 도는 도구. 동봉 모드는 2026-10-15 부터 보내지 않는다(`tool.call` 을 걷었다 — 막을 수 있는 훅은 2.1.299 부터
+   * 답을 못 돌려주면 도구 호출이 거부된다). 그 전 판의 모드가 실린 채 도는 세션이 있어 받기는 그대로 둔다.
+   */
   toolsInFlight: number;
   toolInFlight?: { name: string; ageMs: number };
 }
@@ -323,10 +327,15 @@ export function isEngineBridgeTurnRunning(state: TurnFields, now: number): boole
  * §2.4 — 생존 판정을 **묻지 않아도 되는가.** 턴이 돌고, 최근(`ENGINE_BRIDGE_VOUCH_PROGRESS_MS`)에
  * 진척이 있었으면 그 세션은 끝난 것이 아니다. 진척이 오래 없으면 보증하지 않는다 — 멈춘 턴을
  * 찾는 일은 판정의 몫이라 그 길을 막지 않는다.
+ *
+ * `observedProgressAt` — 다리 밖에서 관측한 진척 시각(대화록 마지막 쓰기). 다리는 턴 가장자리만 진척으로 센다
+ * (도구를 보던 `tool.call` 은 2026-10-15 걷었다). 도는 턴 안의 진척은 대화록에 붙는 줄이 말하므로 둘 중 늦은 쪽을
+ * 본다. 턴이 도는지는 여전히 다리만 말한다 — 대화록이 쓰여도 다리가 쉰다면 보증하지 않는다.
  */
-export function engineBridgeVouchesRunning(state: TurnFields, now: number): boolean {
+export function engineBridgeVouchesRunning(state: TurnFields, now: number, observedProgressAt?: number): boolean {
   if (!isEngineBridgeTurnRunning(state, now)) return false;
-  const progressAt = state.lastProgressAt ?? state.turnStartedAt ?? state.attachedAt;
+  const bridged = state.lastProgressAt ?? state.turnStartedAt ?? state.attachedAt;
+  const progressAt = observedProgressAt !== undefined && observedProgressAt > bridged ? observedProgressAt : bridged;
   return now - progressAt <= ENGINE_BRIDGE_VOUCH_PROGRESS_MS;
 }
 

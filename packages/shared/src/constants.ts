@@ -1,4 +1,4 @@
-import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken } from './types.js';
+import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, SessionMemoLink, SessionMemoLinkKind, SessionMemoLinkTarget, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken, FileFaceKind, FileFaceFamily, WebGroupSettings, WebKind } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
@@ -331,6 +331,14 @@ export const MAX_WRITE_DIFF_BYTES = 100_000;
  * (§3.2.4 F′축 — 키가 늘 수 있는 자리는 다시 만들 수 있는 파생물에만 캡을 건다).
  */
 export const BASH_WRITE_PENDING_MAX = 64;
+/**
+ * §5.25 (F) "쓴 내용도 남는다" — 코덱스 `apply_patch` 의 **적용 전 덩어리**를 붙들어 두는 칸(sub × 파일) 개수 상한.
+ *
+ * 앱 소유 사전 훅이 적은 칸은 그 파일의 `file_change` 완료가 오면 곧바로 소비돼 지워지고, 그 sub 의 턴이
+ * 시작될 때 통째로 비워진다. 이 상한은 완료가 영영 오지 않는 경우(적용 실패·중단)에만 쓰이는 안전망이다
+ * (§3.2.4 F′축 — `BASH_WRITE_PENDING_MAX` 와 같은 자리).
+ */
+export const CODEX_PATCH_PENDING_MAX = 64;
 
 // ─── 보존 정책 (§3.2.3) ───
 //
@@ -528,6 +536,21 @@ export const SESSION_PROBE_TIMEOUT_MS = 90_000;
 
 /** 증거로 싣는 대화록 꼬리 바이트. 프롬프트를 부풀리지 않으면서 마지막 상황을 담는 선. */
 export const SESSION_PROBE_TAIL_BYTES = 1_200;
+
+/**
+ * 꼬리를 모으는 창 — 뒤에서 거슬러 읽어 **증거 줄**(대화·코덱스 항목)이 이만큼 차면 멈춘다(종전 고정 창과
+ * 같은 값). 요약은 이 중 끝 `SESSION_PROBE_TAIL_BYTES` 만 싣는다.
+ */
+export const SESSION_PROBE_TAIL_WINDOW_BYTES = 256 * 1024;
+
+/**
+ * 거슬러 읽는 전체 상한 — 큰 기록 줄만 이어져도 여기서 멈춘다. CLI 2.1.300 부터 클로드 대화록은 요청마다
+ * 시스템 프롬프트·도구 정의를 한 줄로 적어(줄 하나가 수백 KB), 그 줄들만으로 종전 고정 창이 찼다.
+ */
+export const SESSION_PROBE_TAIL_SCAN_BYTES = 8 * 1024 * 1024;
+
+/** 이보다 긴 줄은 머리만 보고 증거 줄(대화·코덱스 항목)이 아니면 담지 않는다 — 통째로 파싱하지 않는다. */
+export const SESSION_PROBE_TAIL_BULK_LINE_BYTES = 64 * 1024;
 
 /** 모델이 쓴 사유·대기 대상을 화면·저장에 남길 때의 길이 상한. */
 export const SESSION_PROBE_REASON_MAX = 160;
@@ -1097,6 +1120,10 @@ export const WORKSPACE_IMAGE_EXTENSIONS: readonly string[] = [
   '.bmp',
   '.avif',
   '.ico',
+  // §5.1 #2-1 (G) ⑦ — 브라우저가 그대로 푸는 이름만 다른 형식(JPEG 의 다른 확장자 · 움직이는 PNG).
+  '.jfif',
+  '.jpe',
+  '.apng',
 ];
 
 /**
@@ -1127,6 +1154,9 @@ export const WORKSPACE_IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
   '.bmp': 'image/bmp',
   '.avif': 'image/avif',
   '.ico': 'image/x-icon',
+  '.jfif': 'image/jpeg',
+  '.jpe': 'image/jpeg',
+  '.apng': 'image/apng',
 };
 
 /** 경로에서 소문자 확장자를 뽑는다(마침표 포함, 없으면 빈 문자열). 구분자는 `/`·`\` 둘 다. */
@@ -1246,8 +1276,13 @@ export const WORKSPACE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
   '.oga': 'audio/ogg',
   '.opus': 'audio/opus',
   '.weba': 'audio/webm',
+  // §5.1 #2-1 (G) ⑦ — mp4 소리의 다른 이름(오디오북 · 벨소리). 엔진이 m4a 와 똑같이 푼다.
+  '.m4b': 'audio/mp4',
+  '.m4r': 'audio/mp4',
   '.pdf': 'application/pdf',
   '.glb': 'model/gltf-binary',
+  // §5.1 #2-1 (G) ⑦ — VRM 은 glb 그릇이다(같은 로더가 읽는다).
+  '.vrm': 'model/gltf-binary',
   '.gltf': 'model/gltf+json',
   '.obj': 'text/plain',
   '.mtl': 'text/plain',
@@ -1439,7 +1474,7 @@ export interface ExternalPlacePattern {
 /**
  * (D) **알려진 자리 사전** — 경로가 아니라 정체를 말한다.
  *
- * `c--users-dev-work-my-app` 같은 slug 와 세션 UUID 는 사람이 읽을 수
+ * `c--work-my-app` 같은 slug 와 세션 UUID 는 사람이 읽을 수
  * 없다. 이 표에 걸리면 라벨을 그 자리의 **이름**으로 바꾼다. **경로를 지우지 않는다** —
  * 바뀌는 것은 라벨뿐이고 `absolutePath`·노드 키는 그대로라 탐색기 열기·위성 매칭은 불변이다.
  *
@@ -1502,6 +1537,176 @@ export const WEB_SEARCH_HOST = 'web-search';
 export const WEB_KEY_MARK = '__web__';
 /** 도메인 버블을 만드는 도구들. 이 집합 밖은 이 축이 보지 않는다. */
 export const WEB_TOOLS: ReadonlySet<string> = new Set(['WebFetch', 'WebSearch']);
+
+// ─── 웹 버블 묶기 (§5.23) ───
+
+/**
+ * 묶기 기본값 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 6개.
+ * **기본 켬**은 사용자 지시다(2026-10-16 "지금 너무 많이 나와"). 종전 화면(호스트마다 하나)은 옵션창에서
+ * 두 칸을 끄고 0 으로 두면 그대로 돌아온다.
+ */
+export const WEB_GROUP_DEFAULTS: Readonly<WebGroupSettings> = { sameSite: true, byKind: true, maxPerAgent: 6 };
+/**
+ * 묶지 않음 — 호스트마다 버블 하나. 그래프 엔진(`ProjectGraph`·매니저)의 씨앗이다. 앱이 부팅 때 저장값(없으면
+ * 위 기본값)을 밀어 넣으므로 사용자가 보는 기본은 위 값이다 — 엔진 단위 시험이 앱 기본값에 끌려가지 않게 둘을 가른다.
+ */
+export const WEB_GROUP_OFF: Readonly<WebGroupSettings> = { sameSite: false, byKind: false, maxPerAgent: 0 };
+/** (C) 에이전트마다 따로 세울 웹 버블 수의 범위. `0` = 상한 없음, `1` = 에이전트마다 하나. */
+export const WEB_GROUP_MAX_BOUNDS = { MIN: 0, MAX: 40 } as const;
+
+/**
+ * (A) **끝 두 칸이 사이트가 아닌 접미사** — 여기 걸리면 한 칸 더 붙여 사이트로 본다.
+ *
+ * 공개 접미사 목록 전체를 싣지 않고 자주 만나는 것만 둔다. 두 부류다 — 나라별 두 칸 접미사(`co.uk`·`co.kr`)와
+ * **칸마다 주인이 다른 호스팅**(`github.io`·`vercel.app`). 뒤의 것을 빼면 서로 다른 사람의 `*.github.io` 가
+ * "같은 사이트"로 한 버블에 묶인다. 표에 없는 접미사는 끝 두 칸으로 어림한다(틀려도 묶음이 조금 커질 뿐이다).
+ */
+export const WEB_SITE_SUFFIXES: ReadonlySet<string> = new Set([
+  // 나라별 두 칸 접미사
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'net.uk', 'ltd.uk', 'plc.uk',
+  'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au', 'id.au',
+  'co.nz', 'org.nz', 'net.nz', 'ac.nz', 'govt.nz',
+  'co.jp', 'ne.jp', 'or.jp', 'ac.jp', 'go.jp', 'gr.jp', 'ed.jp', 'lg.jp',
+  'co.kr', 'or.kr', 'ne.kr', 'go.kr', 'ac.kr', 're.kr', 'pe.kr', 'hs.kr', 'sc.kr', 'es.kr', 'ms.kr', 'kg.kr',
+  'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'edu.cn', 'ac.cn',
+  'com.tw', 'org.tw', 'net.tw', 'edu.tw', 'gov.tw', 'idv.tw',
+  'com.hk', 'org.hk', 'net.hk', 'edu.hk', 'gov.hk',
+  'com.sg', 'org.sg', 'net.sg', 'edu.sg', 'gov.sg',
+  'co.in', 'net.in', 'org.in', 'ac.in', 'gov.in', 'firm.in', 'gen.in', 'ind.in',
+  'com.br', 'net.br', 'org.br', 'gov.br', 'edu.br',
+  'com.mx', 'org.mx', 'gob.mx', 'edu.mx', 'net.mx',
+  'com.ar', 'org.ar', 'gob.ar', 'net.ar',
+  'co.za', 'org.za', 'gov.za', 'ac.za', 'net.za',
+  'com.tr', 'org.tr', 'gov.tr', 'edu.tr', 'net.tr',
+  'co.id', 'or.id', 'ac.id', 'go.id', 'web.id', 'my.id',
+  'com.my', 'org.my', 'net.my', 'edu.my', 'gov.my',
+  'com.ph', 'org.ph', 'net.ph', 'gov.ph', 'edu.ph',
+  'com.vn', 'net.vn', 'org.vn', 'edu.vn', 'gov.vn',
+  'co.th', 'or.th', 'ac.th', 'go.th', 'in.th',
+  'co.il', 'org.il', 'ac.il', 'gov.il',
+  'com.sa', 'com.eg', 'com.pk', 'com.ng', 'com.ua', 'com.co', 'com.pe', 'com.uy', 'com.ec', 'co.ke', 'com.bd',
+  // 칸마다 주인이 다른 호스팅
+  'github.io', 'gitlab.io', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'web.app', 'firebaseapp.com',
+  'herokuapp.com', 'readthedocs.io', 'blogspot.com', 'azurewebsites.net', 'azurestaticapps.net', 'cloudfront.net',
+  'appspot.com', 'glitch.me', 'surge.sh', 'fly.dev', 'onrender.com', 'deno.dev', 'replit.app', 'repl.co',
+  'ngrok.io', 'ngrok-free.app', 'csb.app', 'stackblitz.io', 'gitbook.io', 'notion.site', 'neocities.org',
+]);
+
+/** (B) 종류의 정본 순서 — 같은 크기의 묶음은 이 순서로 선다(스냅샷마다 흔들리지 않게). */
+export const WEB_KINDS: readonly WebKind[] = ['search', 'docs', 'code', 'package', 'qa', 'spec', 'article', 'video'];
+
+/**
+ * (B) **호스트 그대로**의 종류 — 같은 사이트 안에서도 하는 일이 다른 호스트(`pkg.go.dev` 는 패키지, `go.dev` 는
+ * 문서)와 검색 엔진처럼 **사이트로 넓히면 틀리는** 것만 둔다(`cloud.google.com` 은 검색이 아니다).
+ */
+export const WEB_KIND_HOSTS: Readonly<Record<string, WebKind>> = {
+  'google.com': 'search', 'www.google.com': 'search', 'bing.com': 'search', 'www.bing.com': 'search',
+  'duckduckgo.com': 'search', 'html.duckduckgo.com': 'search', 'lite.duckduckgo.com': 'search',
+  'search.brave.com': 'search', 'kagi.com': 'search', 'search.yahoo.com': 'search', 'search.naver.com': 'search',
+  'www.baidu.com': 'search', 'yandex.com': 'search', 'perplexity.ai': 'search', 'www.perplexity.ai': 'search',
+  'www.ecosia.org': 'search', 'www.startpage.com': 'search', 'startpage.com': 'search',
+  'pkg.go.dev': 'package', 'cdnjs.cloudflare.com': 'package', 'repo.maven.apache.org': 'package',
+  'search.maven.org': 'package', 'central.sonatype.com': 'package',
+  'news.ycombinator.com': 'qa', 'groups.google.com': 'qa',
+  'html.spec.whatwg.org': 'spec', 'datatracker.ietf.org': 'spec',
+};
+
+/**
+ * (B) **하위 도메인 머리**의 종류 — `docs.`·`developer.`·`blog.` 처럼 앞 칸이 하는 일을 말하는 경우.
+ * 사이트보다 앞에 붙은 칸만 왼쪽부터 본다(`www` 는 건너뛴다). 모호한 머리(`api.`·`code.`·`dev.`)는 일부러 뺐다 —
+ * `code.claude.com` 은 코드 저장소가 아니라 문서다(그런 곳은 아래 경로 판정이 맡는다).
+ */
+export const WEB_KIND_SUBDOMAINS: Readonly<Record<string, WebKind>> = {
+  docs: 'docs', doc: 'docs', developer: 'docs', developers: 'docs', learn: 'docs', reference: 'docs',
+  manual: 'docs', guide: 'docs', guides: 'docs', documentation: 'docs', devdocs: 'docs', help: 'docs',
+  support: 'docs', wiki: 'docs', kb: 'docs', tutorial: 'docs', tutorials: 'docs',
+  blog: 'article', blogs: 'article', news: 'article', engineering: 'article', press: 'article',
+  forum: 'qa', forums: 'qa', discuss: 'qa', discussion: 'qa', discourse: 'qa', community: 'qa', answers: 'qa',
+  ask: 'qa', bugs: 'qa', issues: 'qa', bugzilla: 'qa', tracker: 'qa',
+  spec: 'spec', specs: 'spec', standards: 'spec', drafts: 'spec',
+  git: 'code', gitlab: 'code', raw: 'code', gist: 'code', svn: 'code', hg: 'code',
+  registry: 'package', pkg: 'package', packages: 'package', repo: 'package',
+  video: 'video', videos: 'video',
+};
+
+/**
+ * (B) **사이트(와 그 위 접미사)**의 종류 — 사이트 전체가 한 가지 일을 하는 곳. 사이트에서 시작해 접미사로
+ * 올라가며 찾는다(`x.readthedocs.io` → `readthedocs.io`).
+ */
+export const WEB_KIND_SITES: Readonly<Record<string, WebKind>> = {
+  // 코드 저장소·놀이터
+  'github.com': 'code', 'githubusercontent.com': 'code', 'gitlab.com': 'code', 'bitbucket.org': 'code',
+  'codeberg.org': 'code', 'sourceforge.net': 'code', 'sourcegraph.com': 'code', 'googlesource.com': 'code',
+  'sr.ht': 'code', 'gitee.com': 'code', 'gitea.com': 'code', 'launchpad.net': 'code', 'codepen.io': 'code',
+  'jsfiddle.net': 'code', 'codesandbox.io': 'code', 'stackblitz.com': 'code', 'replit.com': 'code',
+  'glitch.com': 'code', 'huggingface.co': 'code',
+  // 패키지
+  'npmjs.com': 'package', 'npmjs.org': 'package', 'yarnpkg.com': 'package', 'pypi.org': 'package',
+  'crates.io': 'package', 'rubygems.org': 'package', 'packagist.org': 'package', 'nuget.org': 'package',
+  'mvnrepository.com': 'package', 'maven.org': 'package', 'jsdelivr.com': 'package', 'jsdelivr.net': 'package',
+  'unpkg.com': 'package', 'bundlephobia.com': 'package', 'packagephobia.com': 'package', 'libraries.io': 'package',
+  'deno.land': 'package', 'jsr.io': 'package', 'hex.pm': 'package', 'pub.dev': 'package', 'cocoapods.org': 'package',
+  'anaconda.org': 'package', 'conda-forge.org': 'package', 'chocolatey.org': 'package', 'brew.sh': 'package',
+  'snapcraft.io': 'package', 'flathub.org': 'package', 'socket.dev': 'package', 'npmtrends.com': 'package',
+  'skypack.dev': 'package', 'esm.sh': 'package', 'cdnjs.com': 'package',
+  // 질문·토론
+  'stackoverflow.com': 'qa', 'stackexchange.com': 'qa', 'superuser.com': 'qa', 'serverfault.com': 'qa',
+  'askubuntu.com': 'qa', 'mathoverflow.net': 'qa', 'reddit.com': 'qa', 'redd.it': 'qa', 'quora.com': 'qa',
+  'lobste.rs': 'qa',
+  // 표준·명세
+  'w3.org': 'spec', 'whatwg.org': 'spec', 'tc39.es': 'spec', 'ietf.org': 'spec', 'rfc-editor.org': 'spec',
+  'ecma-international.org': 'spec', 'unicode.org': 'spec', 'iso.org': 'spec', 'khronos.org': 'spec',
+  'json-schema.org': 'spec', 'semver.org': 'spec', 'commonmark.org': 'spec', 'csswg.org': 'spec',
+  'webassembly.org': 'spec', 'opengroup.org': 'spec', 'iana.org': 'spec', 'chromestatus.com': 'spec',
+  'caniuse.com': 'spec',
+  // 글·위키·논문
+  'wikipedia.org': 'article', 'wikimedia.org': 'article', 'wikiwand.com': 'article', 'medium.com': 'article',
+  'dev.to': 'article', 'substack.com': 'article', 'hashnode.com': 'article', 'hashnode.dev': 'article',
+  'velog.io': 'article', 'tistory.com': 'article', 'brunch.co.kr': 'article', 'zenn.dev': 'article',
+  'qiita.com': 'article', 'note.com': 'article', 'freecodecamp.org': 'article', 'smashingmagazine.com': 'article',
+  'css-tricks.com': 'article', 'infoq.com': 'article', 'thenewstack.io': 'article', 'hackernoon.com': 'article',
+  'baeldung.com': 'article', 'geeksforgeeks.org': 'article', 'arxiv.org': 'article', 'acm.org': 'article',
+  'ieee.org': 'article', 'techcrunch.com': 'article', 'theverge.com': 'article', 'arstechnica.com': 'article',
+  // 영상
+  'youtube.com': 'video', 'youtu.be': 'video', 'vimeo.com': 'video', 'twitch.tv': 'video', 'bilibili.com': 'video',
+  'loom.com': 'video',
+  // 문서
+  'readthedocs.io': 'docs', 'readthedocs.org': 'docs', 'gitbook.io': 'docs', 'github.io': 'docs', 'devdocs.io': 'docs',
+  'docs.rs': 'docs', 'go.dev': 'docs', 'nodejs.org': 'docs', 'nodejs.dev': 'docs', 'python.org': 'docs',
+  'react.dev': 'docs', 'reactjs.org': 'docs', 'vuejs.org': 'docs', 'angular.dev': 'docs', 'angular.io': 'docs',
+  'svelte.dev': 'docs', 'nextjs.org': 'docs', 'vitejs.dev': 'docs', 'vite.dev': 'docs', 'vitest.dev': 'docs',
+  'webpack.js.org': 'docs', 'rollupjs.org': 'docs', 'typescriptlang.org': 'docs', 'electronjs.org': 'docs',
+  'electron.build': 'docs', 'tailwindcss.com': 'docs', 'web.dev': 'docs', 'v8.dev': 'docs', 'chromium.org': 'docs',
+  'webkit.org': 'docs', 'rust-lang.org': 'docs', 'cppreference.com': 'docs', 'cplusplus.com': 'docs',
+  'man7.org': 'docs', 'gnu.org': 'docs', 'ss64.com': 'docs', 'w3schools.com': 'docs', 'tutorialspoint.com': 'docs',
+  'javatpoint.com': 'docs', 'swift.org': 'docs', 'kotlinlang.org': 'docs', 'dart.dev': 'docs', 'flutter.dev': 'docs',
+  'php.net': 'docs', 'ruby-lang.org': 'docs', 'postgresql.org': 'docs', 'sqlite.org': 'docs', 'redis.io': 'docs',
+  'kubernetes.io': 'docs', 'nginx.org': 'docs', 'expressjs.com': 'docs', 'nestjs.com': 'docs', 'fastify.dev': 'docs',
+  'bun.sh': 'docs', 'pnpm.io': 'docs', 'eslint.org': 'docs', 'prettier.io': 'docs', 'jestjs.io': 'docs',
+  'playwright.dev': 'docs', 'testing-library.com': 'docs', 'reactflow.dev': 'docs', 'xyflow.com': 'docs',
+  'tanstack.com': 'docs', 'redux.js.org': 'docs', 'threejs.org': 'docs', 'd3js.org': 'docs', 'motion.dev': 'docs',
+  'gsap.com': 'docs', 'remotion.dev': 'docs', 'pixijs.com': 'docs', 'babylonjs.com': 'docs',
+  'godotengine.org': 'docs',
+};
+
+/**
+ * (B) **주소 경로**의 종류 — 표에 없는 사이트를 그 호스트에서 읽은 주소로 가른다(`electronjs.org/docs/…`,
+ * `react.dev/reference/…`). 순서가 우선순위다 — 넓은 문서 판정이 맨 뒤라야 `/blog/` 가 글로 남는다.
+ * 한 호스트의 주소들은 다수결이고, 같으면 가장 최근 주소를 따른다.
+ */
+export const WEB_KIND_PATHS: readonly { readonly kind: WebKind; readonly test: RegExp }[] = [
+  // `/TR/` 는 W3C 의 대문자 경로라 대소문자를 가린다(`/tr/` 는 터키어 로케일 경로다).
+  { kind: 'spec', test: /\/(?:specs?|rfcs?|standards?)(?:[/.?#]|$)|\/TR\// },
+  { kind: 'qa', test: /\/(?:questions|discussions?|forums?|threads?|issues|community|t)(?:[/?#]|$)/i },
+  { kind: 'code', test: /\/(?:blob|tree|commits?|pull|compare|raw)\//i },
+  { kind: 'package', test: /\/(?:package|packages|crates?|gems?)\//i },
+  { kind: 'video', test: /\/(?:watch|videos?|embed)(?:[/?#]|$)/i },
+  { kind: 'article', test: /\/(?:blogs?|posts?|articles?|news|stories|story|@[^/]+)(?:[/?#]|$)/i },
+  {
+    kind: 'docs',
+    test: /\/(?:docs?|documentation|reference|references|api|apis|manuals?|man|guides?|learn|tutorials?|handbook|how-?to|cookbook|getting-started|quickstart|library|sdk|kb|help|wiki)(?:[/.?#]|$)/i,
+  },
+];
 
 // ─── 버블 크기 ───
 
@@ -1592,13 +1797,13 @@ export const IFRAME_BUBBLE_HEIGHT = 90;
  *
  * 출처는 Anthropic 공개 문서 — 모델 개요표(`platform.claude.com/docs/en/about-claude/models/overview`)
  * 의 Context window 행 + 가격표의 long-context 주석("Claude 4.6 and later models ... include the full
- * 1M token context window"). 확인 2026-09-02.
+ * 1M token context window"). 확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15.
  *
  * 해소 순서는 `getModelContextLimit` — (1) 레지스트리 entry → (2) 이 시드 → (3) 패밀리 디폴트 → (4) `DEFAULT_CONTEXT_LIMIT`.
  * `ANTHROPIC_API_KEY` 가 있으면 `/v1/models` 의 `max_input_tokens` 가 (1) 에서 이 시드를 덮어 최신을 따라간다.
  */
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  // 1M 세대 — 4.6 이후는 1M 이 표준가에 포함된다(장문 프리미엄 ❌).
+  // 1M 세대 — 4.6 이후는 1M 이 표준가에 포함된다(장문 프리미엄 ❌). Haiku 5.5 만 예외로 길이 구간 요금이다(`MODEL_PRICING`).
   'claude-fable-5-1': 1_000_000,
   'claude-fable-5': 1_000_000,
   'claude-opus-5-5': 1_000_000,
@@ -1606,8 +1811,10 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-opus-4-8': 1_000_000,
   'claude-opus-4-7': 1_000_000,
   'claude-opus-4-6': 1_000_000,
+  'claude-sonnet-5-5': 1_000_000,
   'claude-sonnet-5': 1_000_000,
   'claude-sonnet-4-6': 1_000_000,
+  'claude-haiku-5-5': 1_000_000,
   // 200K 세대 — 4.5 이하. 은퇴 모델도 남긴다(지난 세션 JSONL 에 그 ID 가 그대로 남아 조회된다).
   'claude-opus-4-5': 200_000,
   'claude-opus-4-1': 200_000,
@@ -2051,6 +2258,347 @@ export const SATELLITE_ORBIT_GAP = 20;
 /** 위성으로 허용되는 버블 타입 */
 export const SATELLITE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['file', 'bash', 'ghost', 'iframe']);
 
+// ─── §5.1 #2-1 — 파일 버블 얼굴 · 작업물 별자리 ───
+
+/** 미디어 MIME 표에서 그 갈래(`video/`·`audio/`·`model/`)의 확장자만 — 표를 두 벌로 들지 않게 펼쳐 쓴다. */
+function mediaExtsWithMime(prefix: string): string[] {
+  return Object.entries(WORKSPACE_MEDIA_MIME_BY_EXT)
+    .filter(([, mime]) => mime.startsWith(prefix))
+    .map(([ext]) => ext);
+}
+
+/**
+ * (A) 파일 얼굴의 **종류 표**(소문자, 마침표 포함). 판정은 `fileFaceKindOf` 한 곳이다.
+ *
+ * **종류 표이지 확장자→앱 대응표가 아니다** — 어느 앱이 굽고 여는지는 레지스트리 선언이 정한다(§5.13 (R-1)).
+ * 미디어는 이미 있는 표(그림 창구·미디어 창구·변환 표)를 그대로 펼친다 — 같은 사실을 두 벌로 들면 한쪽만 고쳐진다.
+ * 앞의 갈래가 이긴다(한 확장자는 한 얼굴). **`.ts` 는 코드다** — 영상 컨테이너이기도 하지만 이 앱의 사용자에게는
+ * 압도적으로 TypeScript 다(변환 표가 같은 이유로 뺀 것과 같다).
+ */
+export const FILE_FACE_EXTENSIONS: Readonly<Record<Exclude<FileFaceKind, 'other'>, readonly string[]>> = {
+  video: [
+    ...mediaExtsWithMime('video/'), '.mkv', '.3gp', '.3g2', ...WORKSPACE_CONVERT_VIDEO_EXTENSIONS,
+    // §5.1 #2-1 (G) ⑥ — 날 스트림 · 카메라 RAW · 모션 그래픽 · 편집 원본(미리보기 없이 갈래 아이콘).
+    '.y4m', '.h264', '.h265', '.hevc', '.ivf', '.braw', '.r3d', '.lottie', '.riv',
+    '.prproj', '.aep', '.aepx', '.drp', '.veg', '.mogrt',
+  ],
+  audio: [
+    ...mediaExtsWithMime('audio/'), ...WORKSPACE_CONVERT_AUDIO_EXTENSIONS, '.mid', '.midi',
+    // §5.1 #2-1 (G) ⑥ — 그 밖의 소리 · 트래커 · 사운드폰트 · DAW 원본 · 악보 앱 원본.
+    '.caf', '.aifc', '.w64', '.rf64', '.bwf', '.mp2', '.ac3', '.eac3', '.spx', '.gsm', '.voc', '.snd',
+    '.xm', '.it', '.s3m', '.sf2', '.sf3', '.sfz',
+    '.als', '.flp', '.logicx', '.rpp', '.cpr', '.song', '.band', '.aup3', '.sesx', '.mmp', '.mscz', '.gp5', '.gpx',
+  ],
+  image: [
+    ...WORKSPACE_IMAGE_EXTENSIONS,
+    // 우리가 그리지 못하는 사진·디자인 원본도 "사진"이다 — 미리보기 없이 얼굴(색·글리프)만 쓴다.
+    '.tif', '.tiff', '.heic', '.heif', '.psd', '.psb', '.tga', '.exr', '.hdr', '.dds', '.raw', '.cr2', '.cr3',
+    '.nef', '.arw', '.dng', '.orf', '.rw2', '.xcf', '.ai', '.eps', '.sketch', '.fig', '.kra',
+    // §5.1 #2-1 (G) ⑥ — 그 밖의 그림 · GPU 텍스처 · 재질 그래프 · 그림 원본.
+    '.jxl', '.jp2', '.j2k', '.qoi', '.ppm', '.pgm', '.pbm', '.pnm', '.pcx', '.icns', '.cur', '.svgz',
+    '.ktx', '.ktx2', '.basis', '.sbs', '.sbsar',
+    '.ora', '.pdn', '.clip', '.procreate', '.afphoto', '.afdesign', '.cdr', '.aseprite',
+  ],
+  model: [
+    ...mediaExtsWithMime('model/'), '.obj', '.stl', '.ply', '.fbx', '.usd', '.usda', '.usdc', '.usdz', '.abc',
+    '.blend', '.max', '.ma', '.mb', '.c4d', '.3ds', '.x3d', '.vrm',
+    // §5.1 #2-1 (G) ⑥ — 저작 원본 · CAD · 건축 · 아바타 · 점구름 · 가우시안 스플랫.
+    '.blend1', '.step', '.stp', '.iges', '.igs', '.skp', '.ifc', '.wrl', '.pmx', '.pmd', '.lwo',
+    '.hip', '.hiplc', '.hipnc', '.hda', '.ztl', '.zpr', '.spp', '.splat', '.ksplat', '.spz', '.las', '.laz', '.e57', '.pcd',
+  ],
+  subtitle: [
+    '.srt', '.vtt', '.ass', '.ssa', '.sbv', '.lrc', '.ttml', '.dfxp',
+    // §5.1 #2-1 (G) ⑥ — 국내에서 흔한 SAMI · 디스크 자막 · 방송·애플 자막.
+    '.smi', '.sami', '.sub', '.sup', '.scc', '.itt',
+  ],
+  font: ['.ttf', '.otf', '.ttc', '.woff', '.woff2', '.eot', '.fon', '.fnt'],
+  code: [
+    '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rb', '.php', '.go', '.rs', '.java', '.kt',
+    '.kts', '.scala', '.swift', '.m', '.mm', '.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.hh', '.cs', '.fs', '.vb',
+    '.lua', '.dart', '.r', '.jl', '.sh', '.bash', '.zsh', '.fish', '.ps1', '.psm1', '.bat', '.cmd', '.html', '.htm',
+    '.css', '.scss', '.sass', '.less', '.styl', '.vue', '.svelte', '.astro', '.glsl', '.hlsl', '.wgsl', '.vert',
+    '.frag', '.comp', '.shader', '.cginc', '.gd', '.gdshader', '.sql', '.graphql', '.gql', '.ex', '.exs', '.erl',
+    '.hs', '.clj', '.elm', '.zig', '.nim', '.sol', '.asm', '.wat', '.ipynb',
+    // §5.1 #2-1 (G) ⑥ — 셰이더 · 3D 툴 스크립트 · 크리에이티브 코딩 · 소리 코딩.
+    '.osl', '.metal', '.geom', '.tesc', '.tese', '.mel', '.ms', '.mcr', '.vex', '.scad', '.pde', '.ino',
+    '.sc', '.scd', '.ck', '.csd', '.orc', '.sco', '.ly', '.tidal',
+  ],
+  data: [
+    '.json', '.jsonc', '.json5', '.jsonl', '.ndjson', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.env',
+    '.xml', '.csv', '.tsv', '.plist', '.properties', '.lock', '.mtl', '.proto', '.prisma',
+    // §5.1 #2-1 (G) ⑥ — 배열·표 · DB · 색 보정 LUT · 편집 타임라인 · 악보 · 동작 · 3D 출력 · 재질 · 곁 정보 · 모델 가중치.
+    '.npy', '.npz', '.h5', '.hdf5', '.parquet', '.db', '.sqlite', '.sqlite3', '.xlsx', '.xls', '.ods', '.numbers',
+    '.cube', '.3dl', '.edl', '.otio', '.fcpxml', '.kdenlive', '.mlt', '.musicxml', '.mxl', '.bvh', '.vmd', '.gcode',
+    '.mtlx', '.xmp', '.safetensors', '.ckpt', '.pt', '.pth', '.onnx', '.gguf',
+  ],
+  doc: [
+    '.md', '.mdx', '.markdown', '.txt', '.rst', '.adoc', '.org', '.tex', '.pdf', '.rtf', '.doc', '.docx', '.odt',
+    '.hwp', '.hwpx', '.pages', '.epub', '.log',
+    // §5.1 #2-1 (G) ⑥ — 대본 · Typst · 슬라이드.
+    '.fountain', '.fdx', '.typ', '.pptx', '.ppt', '.odp',
+  ],
+};
+
+/**
+ * §5.1 #2-1 (G) ⑤ — 종류마다의 **기본 갈래**. 아래 갈래 표에 없는 확장자는 이 갈래(그 종류의 종전 글리프)다.
+ */
+export const FILE_FACE_BASE_FAMILY: Readonly<Record<FileFaceKind, FileFaceFamily>> = {
+  video: 'video',
+  image: 'image',
+  audio: 'audio',
+  model: 'model',
+  code: 'code',
+  data: 'data',
+  doc: 'doc',
+  subtitle: 'subtitle',
+  font: 'font',
+  other: 'other',
+};
+
+/**
+ * §5.1 #2-1 (G) ⑤ — **갈래 표**(소문자, 마침표 포함). 판정은 `fileFaceFamilyOf` 한 곳이고 앞 갈래가 이긴다.
+ * 갈래는 아이콘만 정한다 — 종류(`FILE_FACE_EXTENSIONS`)와 다른 축이라 `.musicxml`(데이터 종류)도 악보 아이콘이다.
+ * 기본 갈래(종류와 같은 이름)는 적지 않는다.
+ */
+export const FILE_FACE_FAMILY_EXTENSIONS: Readonly<Partial<Record<FileFaceFamily, readonly string[]>>> = {
+  // 영상
+  videoRaw: ['.braw', '.r3d', '.y4m', '.h264', '.h265', '.hevc', '.ivf'],
+  motion: ['.lottie', '.riv'],
+  videoProject: ['.prproj', '.aep', '.aepx', '.drp', '.veg', '.mogrt'],
+  // 그림
+  vector: ['.svg', '.svgz', '.ai', '.eps', '.cdr', '.afdesign'],
+  photoRaw: ['.raw', '.cr2', '.cr3', '.nef', '.arw', '.dng', '.orf', '.rw2'],
+  hdr: ['.exr', '.hdr'],
+  texture: ['.ktx', '.ktx2', '.basis', '.dds', '.tga'],
+  material: ['.sbs', '.sbsar', '.mtlx'],
+  layered: ['.psd', '.psb', '.xcf', '.kra', '.ora', '.pdn', '.clip', '.procreate', '.afphoto', '.sketch', '.fig', '.aseprite'],
+  icon: ['.ico', '.icns', '.cur'],
+  // 소리
+  sequence: ['.mid', '.midi', '.xm', '.it', '.s3m'],
+  soundfont: ['.sf2', '.sf3', '.sfz'],
+  daw: ['.als', '.flp', '.logicx', '.rpp', '.cpr', '.song', '.band', '.aup3', '.sesx', '.mmp'],
+  score: ['.mscz', '.gp5', '.gpx', '.musicxml', '.mxl', '.ly'],
+  // 3D
+  scene: ['.usd', '.usda', '.usdc', '.usdz', '.abc'],
+  modelSource: ['.blend', '.blend1', '.max', '.ma', '.mb', '.c4d', '.hip', '.hiplc', '.hipnc', '.hda', '.ztl', '.zpr', '.spp', '.skp'],
+  cad: ['.step', '.stp', '.iges', '.igs', '.ifc'],
+  avatar: ['.vrm', '.pmx', '.pmd'],
+  pointCloud: ['.las', '.laz', '.e57', '.pcd'],
+  splat: ['.splat', '.ksplat', '.spz'],
+  motionData: ['.bvh', '.vmd'],
+  // 자막
+  lyrics: ['.lrc'],
+  // 코드
+  shader: ['.glsl', '.hlsl', '.wgsl', '.vert', '.frag', '.comp', '.shader', '.cginc', '.gdshader', '.osl', '.metal', '.geom', '.tesc', '.tese'],
+  shell: ['.sh', '.bash', '.zsh', '.fish', '.ps1', '.psm1', '.bat', '.cmd'],
+  notebook: ['.ipynb'],
+  web: ['.html', '.htm', '.css', '.scss', '.sass', '.less', '.styl', '.vue', '.svelte', '.astro'],
+  // 데이터
+  table: ['.csv', '.tsv', '.xlsx', '.xls', '.ods', '.numbers', '.parquet', '.npy', '.npz', '.h5', '.hdf5'],
+  database: ['.db', '.sqlite', '.sqlite3'],
+  config: ['.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.env', '.properties', '.plist'],
+  lut: ['.cube', '.3dl'],
+  timeline: ['.edl', '.otio', '.fcpxml', '.kdenlive', '.mlt'],
+  weights: ['.safetensors', '.ckpt', '.pt', '.pth', '.onnx', '.gguf'],
+  // 문서
+  pdf: ['.pdf'],
+  slides: ['.pptx', '.ppt', '.odp'],
+  screenplay: ['.fountain', '.fdx'],
+  log: ['.log'],
+  // 기타 — 종류 표에는 없는 것(얼굴은 `other`)도 갈래는 말한다.
+  archive: ['.zip', '.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.txz', '.zst', '.lz', '.lz4', '.lzma', '.zipx'],
+};
+
+/** (A) 버블 안에 미리보기를 굽는 **미디어** 얼굴 — 이 넷만 렌즈가 된다. */
+export const FILE_FACE_MEDIA_KINDS: ReadonlySet<FileFaceKind> = new Set<FileFaceKind>(['video', 'image', 'audio', 'model']);
+
+/**
+ * (A) 얼굴의 기본색. 미디어는 **그 확장자를 받겠다고 선언한 앱의 색**이 이기고(레지스트리 — 앱 노드와 한 가족으로
+ * 읽히게), 이 값은 선언한 앱이 없을 때(psd 등)만 쓴다. 미디어가 아닌 종류는 §2.2 파일 보라 계열 안에서 명도만 가른다 —
+ * 파일이라는 정체는 그대로 두고 무엇인지만 더 말한다.
+ */
+export const FILE_FACE_STYLES: Readonly<Record<FileFaceKind, { readonly color: string; readonly glow: string }>> = {
+  video: { color: '#2B3243', glow: '#9FB0CF' },
+  image: { color: '#3A3024', glow: '#E2C08F' },
+  audio: { color: '#1F3A3C', glow: '#86D0C4' },
+  model: { color: '#2E2944', glow: '#B6A4E6' },
+  code: { color: '#8B5CF6', glow: '#C4B5FD' },
+  data: { color: '#7C5CE0', glow: '#BFB0F5' },
+  doc: { color: '#6B63B5', glow: '#C2BCEB' },
+  subtitle: { color: '#5E6AB0', glow: '#B7BFE9' },
+  font: { color: '#8A5CC9', glow: '#D2B8F0' },
+  other: { color: '#8B5CF6', glow: '#C4B5FD' },
+};
+
+/** (A) 얼굴 기하 — 크기 하한은 `calcBubbleSize` 한 곳이 읽어 렌더·배치·선 끝점이 같은 자를 쓴다. */
+export const FILE_FACE = {
+  /** 미디어 얼굴 지름 하한(px) — 그림이 읽혀야 한다. */
+  mediaMinSize: 56,
+  /** 위성을 거느린 중심의 지름 하한(px). */
+  hubMinSize: 68,
+  /** 영상 렌즈 둘레의 네모 구멍 수(필름 퍼포레이션을 원으로 감은 것). */
+  sprocketCount: 12,
+  /** 소리 방사형 파형의 막대 수(구운 파형을 이 수로 다시 뽑는다). */
+  radialBars: 40,
+  /** 이름 줄을 원 아래로 띄우는 거리(px). */
+  captionGap: 3,
+  /** 중심 둘레 궤도 점선의 투명도. */
+  orbitOpacity: 0.32,
+} as const;
+
+/** (B) 미디어 중심의 순위 — 한 파일이 둘 이상의 중심에 걸리면 높은 쪽으로 간다. */
+export const CONSTELLATION_HUB_RANK: Readonly<Record<'video' | 'model' | 'audio' | 'image', number>> = {
+  video: 4,
+  model: 3,
+  audio: 2,
+  image: 1,
+};
+
+/** (B) 재료 미디어 — 이 종류는 저 종류 중심의 재료로 들어갈 수 있다(순위가 높은 쪽으로만). */
+export const CONSTELLATION_INGREDIENT_OF: Readonly<Record<'image' | 'audio' | 'model', readonly ('video' | 'model')[]>> = {
+  image: ['video', 'model'],
+  audio: ['video'],
+  model: ['video'],
+};
+
+/** (B) **같은 폴더만으로** 묶이는 곁 파일 종류. 코드는 여기 없다 — `src/` 의 로고 하나가 컴포넌트 전부를 삼키지 않게. */
+export const CONSTELLATION_SIDECAR_KINDS: ReadonlySet<FileFaceKind> = new Set<FileFaceKind>(['data', 'doc', 'subtitle', 'font']);
+
+/**
+ * (B) 이름 갈래·같은 이름 판정에서 빼는 흔한 낱말. 이것들이 같다고 같은 작업물은 아니다
+ * (`index.html` 과 `index.png`, `main.ts` 와 `main.wav`).
+ */
+export const CONSTELLATION_STOP_TOKENS: ReadonlySet<string> = new Set([
+  'index', 'main', 'app', 'test', 'tests', 'spec', 'src', 'lib', 'util', 'utils', 'file', 'files', 'new', 'old',
+  'copy', 'temp', 'tmp', 'out', 'output', 'input', 'default', 'final', 'draft', 'the', 'and', 'readme', 'style',
+  'styles', 'image', 'img', 'asset', 'assets', 'data', 'config', 'types', 'common', 'base', 'untitled',
+]);
+
+/** (C) 내용 언급을 읽는 글 파일 중 종류가 3D 인 것(텍스트로 된 모델·재질 형식). 나머지 3D 는 바이너리라 읽지 않는다. */
+export const CONSTELLATION_SCAN_MODEL_EXTENSIONS: readonly string[] = ['.gltf', '.obj', '.dae'];
+
+/** (C) 글 종류여도 읽지 않는 것 — 바이너리 문서(앞부분이 압축·이진이다)와 잠금 파일(크고 남의 이름만 가득하다). */
+export const CONSTELLATION_SCAN_SKIP_EXTENSIONS: readonly string[] = [
+  '.pdf', '.doc', '.docx', '.odt', '.hwp', '.hwpx', '.pages', '.epub', '.lock',
+];
+
+/** (B)(C)(D) 작업물 별자리의 수치 — 점수는 `ConstellationReason` 의 근거별 세기다. */
+export const CONSTELLATION = {
+  /** 한 중심이 거느리는 위성 상한. 넘치는 것은 원래 부모 곁에 남는다(화면) · 오래된 것부터 뺀다(서버 위성 상한). */
+  moonMax: 8,
+  /** 이 점수 아래면 묶지 않는다. */
+  minScore: 20,
+  /** 이름 갈래로 치는 낱말의 최소 글자 수(라틴·숫자). */
+  familyTokenMin: 3,
+  /** 한글·한자·가나가 든 낱말은 한 글자에 뜻이 더 담겨 두 글자부터 친다(영상·배경·로고). */
+  familyTokenMinCjk: 2,
+  score: {
+    appResult: 140,
+    /**
+     * (F) ④ — 그 앱 노드의 작업 중에 생긴 파일(앱 작업 보기에서만 넘어온다). 앱 결과 아래 · 소재 위 —
+     * 다른 노드가 결과로 선언한 파일은 그 노드에 남고, 언급·이름 같은 약한 근거는 작업 귀속을 이기지 못한다.
+     */
+    appWork: 135,
+    appPart: 120,
+    appPartFolder: 110,
+    mention: 100,
+    sameStem: 60,
+    chain: 50,
+    stemFamily: 30,
+    sameFolder: 20,
+  },
+  /** 한 번에 판정하는 파일 수 상한 — 넘으면 최근 것만 본다(판정 비용이 파일 수의 제곱으로 자라지 않게). */
+  planMaxFiles: 600,
+  /** (C) 글 파일에서 읽는 앞부분 크기(bytes). */
+  scanMaxBytes: 262_144,
+  /** (C) 동시에 읽는 파일 수. */
+  scanConcurrency: 2,
+  /** (C) 기억해 두는 파일 수(§3.2.4 F′ — 다시 만들 수 있는 파생물). */
+  scanCacheMax: 2_000,
+  /** (C) 한 파일에서 뽑는 이름 낱말 상한. */
+  scanTokenMax: 256,
+  /** (C) 한 파일이 가리키는 파일 수 상한(스냅샷에 싣는 id). */
+  mentionMax: 32,
+} as const;
+
+/**
+ * §5.1 #2-1 (F) · §5.4 #36 (I) — **앱 작업물**(앱과 연결해 한 일의 파일)의 수치. 귀속은 서버(`appWork` 꼬리표),
+ * 보기는 클라(`appWorkView.ts`)가 하고 둘 다 이 표를 본다.
+ */
+export const APP_WORK = {
+  /** 명령 한 건이 싣는 앱 노드 수 상한(`QueuedCommand.appNodeIds`). */
+  commandNodeMax: 8,
+  /** 파일 노드 하나가 드는 앱 꼬리표 수 상한 — 넘으면 오래된 것부터 뺀다. */
+  nodeTagMax: 4,
+  /** (F) ⑦ — 이름 끝 번호만 다른 같은 확장자 파일이 이 수 이상이면 위성 하나로 묶는다. */
+  sequenceMin: 3,
+  /** (F) ③ 작업 폴더 훑기 — Bash 가 끝나고 이만큼 기다렸다가 훑는다(이어 도는 명령을 한 번에). */
+  scanDelayMs: 400,
+  /** (F) ③ — 한 번에 훑는 폴더 수 · 파일 수 · 깊이(시작 폴더가 0). */
+  scanFolderMax: 8,
+  scanFileMax: 200,
+  scanDepthMax: 3,
+  /** (F) ③ — 명령 글에서 폴더 후보로 보는 경로 낱말 수 상한. */
+  scanCommandPathMax: 4,
+  /** (F) ③ — 훑지 않는 폴더 이름(정확히 같은 이름 · 대소문자 그대로). */
+  scanSkipDirs: [
+    '.git', 'node_modules', '.vibisual', '__pycache__', '.venv', 'venv', '.next', '.turbo', '.cache', '.idea', '.vscode',
+    '.svn', '.hg', 'bower_components', '.pnpm-store', '.yarn',
+  ] as readonly string[],
+  /** (F) ⑤ — 위성이 앉는 위쪽 반원(라디안 · 화면 좌표: 0 = 3시, π/2 = 6시). 9시(π) → 12시(1.5π) → 3시(2π). */
+  seatArcFrom: Math.PI,
+  seatArcTo: Math.PI * 2,
+  /** (F) ⑤ — 앱 노드 둘레 타원 궤도의 불투명도. */
+  orbitOpacity: 0.3,
+  /** (F) ⑥ — 작업 위성 테(앱 색)의 두께(캔버스 px). */
+  ringWidth: 2,
+  /** (F) ⑦⑧ · (I) — 툴팁에 적는 이름 목록 상한(넘치면 "…외 N"). */
+  tooltipNameMax: 12,
+} as const;
+
+/**
+ * §5.1 #2-1 (G) — **미리보기 성능 기준**. 앱을 무겁게 하는 미리보기는 굽지 않고 갈래 아이콘으로 둔다.
+ * 판정은 shared `previewPolicy.ts`(파일·크기) 와 클라 `previewBudget.ts`(화면·한눈·시각) 둘이 이 표 하나를 본다.
+ */
+export const PREVIEW_POLICY = {
+  /** ① 파일 기준 — 종류별 크기 상한(bytes). 영상은 구간 읽기라 상한이 없다(표에 없다). */
+  maxBytes: {
+    /** 래스터 그림 — 통째로 받아 해독한다. */
+    image: 16_000_000,
+    /** 벡터 그림 — 그리는 비용이 메인 스레드다. */
+    svg: 1_000_000,
+    /** 압축 소리(mp3·m4a·ogg·opus…) ≈ 16분. */
+    audioCompressed: 16_000_000,
+    /** PCM·무손실 소리(wav·flac·aiff…). */
+    audioPcm: 48_000_000,
+    /** 3D 정지 화면 — 읽기·파싱·GPU 올리기가 메인 스레드다. 끌어 돌려 보기는 `APP_THUMB.modelMaxBytes`. */
+    model: 8_000_000,
+  },
+  /** ① — PCM·무손실로 보는 소리 확장자. 나머지 소리는 압축으로 본다(더 작은 상한). */
+  audioPcmExtensions: ['.wav', '.flac', '.aiff', '.aif', '.aifc', '.w64', '.rf64', '.bwf', '.caf'] as readonly string[],
+  /** ① — 그림 크기를 알려고 머리만 읽는 바이트(구간 요청). */
+  headerBytes: 65_536,
+  /** ① — 그림 픽셀 상한(가로×세로). 넘으면 아이콘 — 해독 메모리가 픽셀 × 4 바이트다. */
+  imageMaxPixels: 40_000_000,
+  /** ① — 소리 파형을 푸는 표본률(Hz). 48칸 파형에는 충분하고 해독 메모리가 44.1kHz 의 약 1/15 이다. */
+  audioDecodeSampleRate: 3000,
+  /** ② 화면 기준 — 화면에서 이 지름(px)보다 작으면 굽지도 그리지도 않는다. */
+  minScreenPx: 28,
+  /** ② — 아이콘이던 것을 다시 미리보기로 켜는 문턱(깜빡임 방지). */
+  showScreenPx: 34,
+  /** ② — 구슬 안 미리보기(지름 `APP_LINKED_ITEMS.beadSize` − 2)의 문턱 — 제 크기에 맞춘다(배율 1 에서 보인다). */
+  beadMinScreenPx: 15,
+  beadShowScreenPx: 19,
+  /** ③ 한눈 기준 — 한 화면에 동시에 그리는 미리보기 수 상한. */
+  maxOnScreen: 24,
+  /** ④ 시각 기준 — 캔버스가 멈추고 이만큼 지나야 새로 굽기 시작한다(ms). */
+  idleAfterMotionMs: 250,
+  /** ④ — 종류별 동시 굽기 수(전체 상한은 `APP_THUMB.concurrency`). */
+  laneConcurrency: { image: 2, video: 1, audio: 1, model: 1 },
+  /** ④ — 줄에 서고 이만큼 지나도록 아무도 보지 않으면 시작 전에 버린다(ms). */
+  staleQueuedMs: 1_500,
+} as const;
+
 /**
  * **안에 들어갈 수 있는** 폴더 버블 타입 — 더블클릭하면 `children` 을 펼쳐 내부 뷰가 되는 것들.
  *
@@ -2200,19 +2748,35 @@ export const PHYSICS_SLEEP_FRAMES = 15;
  * 단가 한 벌 만들기 — **캐시 두 값은 기본 입력가에서 파생한다**(손으로 옮겨 적지 않는다).
  *
  * Anthropic 공개 가격표의 배수: 5분 캐시 쓰기 = 입력가 × 1.25, 캐시 읽기 = 입력가 × 0.1.
- * 예외가 하나 있어 `cacheReadMultiplier` 를 열어 둔다 — **Fable 5.1 / Mythos 5.1 만 캐시 읽기가 0.025×** 다
- * (가격표 각주: "All other models use the standard 0.1x multiplier").
+ * 예외가 있어 `cacheReadMultiplier` 를 열어 둔다 — **Fable 5.1 / Mythos 5.1 은 0.025×, Opus 5.5 / Sonnet 5.5 는
+ * 0.05×** 다(가격표 각주: "All other models use the standard 0.1x multiplier").
+ * `longPrompt` 는 길이 구간 요금(현재 Haiku 5.5 뿐) — 장문 구간의 캐시 두 값도 같은 배수로 파생한다.
  * 부동소수 꼬리(3 × 0.1 = 0.30000000000000004)는 6자리에서 끊는다.
  */
-function makePricing(input: number, output: number, cacheReadMultiplier = 0.1): ModelPricing {
+function makePricing(
+  input: number,
+  output: number,
+  cacheReadMultiplier = 0.1,
+  longPrompt?: { aboveTokens: number; input: number; output: number },
+): ModelPricing {
   const round = (v: number): number => Math.round(v * 1e6) / 1e6;
-  return {
-    input,
-    output,
-    cacheRead: round(input * cacheReadMultiplier),
-    cacheWrite: round(input * 1.25),
-  };
+  const tier = (i: number, o: number): Omit<ModelPricing, 'longPrompt'> => ({
+    input: i,
+    output: o,
+    cacheRead: round(i * cacheReadMultiplier),
+    cacheWrite: round(i * 1.25),
+  });
+  const base = tier(input, output);
+  if (!longPrompt) return base;
+  return { ...base, longPrompt: { aboveTokens: longPrompt.aboveTokens, ...tier(longPrompt.input, longPrompt.output) } };
 }
+
+/**
+ * Haiku 5.5 길이 구간 요금 — 한 요청의 프롬프트가 10만 토큰을 **넘으면** 그 요청 전체가 $0.50/$2.50
+ * (이하는 $0.10/$0.50). 공개 가격표 Model pricing 두 행 + "Long context pricing" 절, 확인 2026-10-15.
+ * 시드 단가와 패밀리 디폴트가 같은 값을 쓰도록 한 벌만 둔다.
+ */
+const HAIKU_5_5_PRICING: ModelPricing = makePricing(0.1, 0.5, 0.1, { aboveTokens: 100_000, input: 0.5, output: 2.5 });
 
 /**
  * 풀ID → 가격 **시드**.
@@ -2222,8 +2786,8 @@ function makePricing(input: number, output: number, cacheReadMultiplier = 0.1): 
  * 두면 둘 중 하나는 반드시 틀리므로, **아는 풀ID 는 여기 정확히 적는다**(컨텍스트 시드와 같은 규율).
  *
  * 출처는 Anthropic 공개 가격표(`platform.claude.com/docs/en/about-claude/pricing`) 의 Model pricing 표.
- * 확인 2026-09-02. 은퇴 모델(Opus 4.1 등)도 남겨 둔다 — 드롭다운에는 없지만 **지난 세션의 JSONL 에**
- * 그 ID 가 남아 있어 `getModelPricing(view.lastModel)` 이 그대로 조회하기 때문이다.
+ * 확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15. 은퇴 모델(Opus 4.1 등)도 남겨 둔다 — 드롭다운에는 없지만
+ * **지난 세션의 JSONL 에** 그 ID 가 남아 있어 `getModelPricing(view.lastModel)` 이 그대로 조회하기 때문이다.
  *
  * 해소 순서는 `getModelPricing` — (1) 레지스트리 entry.pricing → (2) 이 시드 → (3) 패밀리 디폴트 → (4) `DEFAULT_PRICING`.
  */
@@ -2238,10 +2802,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-5': makePricing(5, 25),
   'claude-opus-4-1': makePricing(15, 75),
   'claude-opus-4-0': makePricing(15, 75),
+  'claude-sonnet-5-5': makePricing(2, 10, 0.05), // 캐시 읽기만 0.05× — 가격표 각주 2(확인 2026-10-15)
   'claude-sonnet-5': makePricing(2, 10),
   'claude-sonnet-4-6': makePricing(3, 15),
   'claude-sonnet-4-5': makePricing(3, 15),
   'claude-sonnet-4-0': makePricing(3, 15),
+  'claude-haiku-5-5': HAIKU_5_5_PRICING, // 길이 구간 요금 — 10만 토큰 초과 요청은 5배
   'claude-haiku-4-5': makePricing(1, 5),
   // OpenAI Standard / short-context API rates per 1M tokens; checked 2026-10-13.
   // https://developers.openai.com/api/docs/pricing
@@ -2288,13 +2854,17 @@ export const DEFAULT_PRICING: ModelPricing = makePricing(10, 50);
  * (판올림 번호 발급 대기) — fable/mythos 를 실제로 채운다. 종전에는 이 둘이 표에 없어 `isKnownFamily` 가
  * 걸러내고 `DEFAULT_*` 로 떨어졌는데, 그 폴백이 $15/$75 · 200K 라 **Fable 에이전트의 비용이 1.5배 과대,
  * 컨텍스트가 5배 과소**로 나왔다(문맥 게이지가 실제 20% 지점에서 100% 로 보임).
+ *
+ * 2026-10-15 — 값을 다시 "그 패밀리의 현재 latest" 로 맞춘다: opus=Opus 5.5, sonnet=Sonnet 5.5,
+ * haiku=Haiku 5.5. 종전 opus 는 Opus 5, haiku 는 Haiku 4.5($1/$5·200K)라 시드가 놓친 Haiku 5.5 세션이
+ * 비용 약 10배·컨텍스트 5배 과소로 보였다(§4 동적 모델 레지스트리 ⑧).
  */
 export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
   fable:  { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
   mythos: { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
-  opus:   { contextWindow: 1_000_000, pricing: makePricing(5, 25) },
-  sonnet: { contextWindow: 1_000_000, pricing: makePricing(2, 10) },
-  haiku:  { contextWindow:   200_000, pricing: makePricing(1, 5) },
+  opus:   { contextWindow: 1_000_000, pricing: makePricing(4, 20, 0.05) },
+  sonnet: { contextWindow: 1_000_000, pricing: makePricing(2, 10, 0.05) },
+  haiku:  { contextWindow: 1_000_000, pricing: HAIKU_5_5_PRICING },
 };
 
 /**
@@ -2446,7 +3016,23 @@ export function resolveAliasToLatest(alias: string | undefined | null, registry?
   return registry?.entries.find((e) => e.family === alias && e.isLatestOfFamily)?.id;
 }
 
-/** 토큰 수 → 비용($) 계산 — v2.38: registry 우선 가격 조회. */
+/**
+ * 한 요청의 프롬프트 길이(입력 + 캐시 읽기 + 캐시 쓰기)로 단가 한 벌을 고른다.
+ * 구간 요금(`longPrompt`)이 없거나 문턱 **이하**면 기본 단가 그대로다 — 가격표는 "over 100,000 tokens" 만 장문이다.
+ */
+export function pricingForPromptTokens(pricing: ModelPricing, promptTokens: number): ModelPricing {
+  const long = pricing.longPrompt;
+  if (!long || !(promptTokens > long.aboveTokens)) return pricing;
+  return { input: long.input, output: long.output, cacheRead: long.cacheRead, cacheWrite: long.cacheWrite };
+}
+
+/**
+ * 토큰 수 → 비용($) 계산 — v2.38: registry 우선 가격 조회.
+ *
+ * `singleRequest` — 넘긴 토큰이 **API 요청 한 번**의 것이면 true. 그때만 길이 구간 요금(`longPrompt`, 현재 Haiku 5.5)을
+ * 가른다. 가격표는 요청마다 따로 프롬프트 길이로 단가를 고르므로, 여러 요청을 합친 값에 문턱을 대면 짧은 요청들이
+ * 모여 문턱을 넘어 전부 장문 단가(5배)로 부푼다 — 합산 호출(루프 예산·랩·비용 카드)은 기본 단가로 둔다.
+ */
 export function calculateTokenCost(
   inputTokens: number,
   outputTokens: number,
@@ -2454,8 +3040,12 @@ export function calculateTokenCost(
   cacheCreateTokens: number,
   model?: string,
   registry?: ModelRegistry | null,
+  opts?: { singleRequest?: boolean },
 ): { total: number; input: number; output: number; cacheRead: number; cacheWrite: number } {
-  const p: ModelPricing = getModelPricing(model, registry);
+  const base: ModelPricing = getModelPricing(model, registry);
+  const p: ModelPricing = opts?.singleRequest
+    ? pricingForPromptTokens(base, inputTokens + cacheReadTokens + cacheCreateTokens)
+    : base;
   const input = (inputTokens / 1_000_000) * p.input;
   const output = (outputTokens / 1_000_000) * p.output;
   const cacheRead = (cacheReadTokens / 1_000_000) * p.cacheRead;
@@ -2496,7 +3086,9 @@ export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
   'claude-fable-5',
   'claude-opus-5-5',
   'claude-opus-5',
+  'claude-sonnet-5-5',
   'claude-sonnet-5',
+  'claude-haiku-5-5',
   'claude-haiku-4-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
@@ -2563,6 +3155,25 @@ export function isOpusModel(modelId: string | undefined | null): boolean {
 }
 
 /**
+ * §4 (xhigh effort 등급 · 2026-10-15) — Effort 칸이 열리는 모델 패밀리. 종전에는 Opus 하나였다.
+ * 공식 모델 개요표가 네 패밀리 모두에 effort 기본값을 적고(Fable 5.1 high · Opus 5.5 medium · Sonnet 5.5 high ·
+ * Haiku 5.5 medium), 2.1.300 실측에서 옛 Sonnet 4.5·Haiku 4.5 까지 `--effort` 를 거부한 모델이 없었다.
+ * 레지스트리가 새로 알려 준 패밀리는 사용자가 열기로 하기 전까지 넣지 않는다.
+ */
+export const EFFORT_MODEL_FAMILIES: readonly string[] = ['opus', 'fable', 'sonnet', 'haiku'];
+
+/**
+ * 설정창·옵션창의 Effort 칸을 열어도 되는 모델인가. alias(설정창의 `model` 칸)와 풀ID 를 다 받는다 —
+ * 풀ID 는 그 패밀리로 접는다. 로컬·코덱스 버블은 이 칸을 쓰지 않으므로 부르는 쪽이 따로 가린다.
+ */
+export function supportsEffortSelection(modelId: string | undefined | null): boolean {
+  if (!modelId) return false;
+  if (EFFORT_MODEL_FAMILIES.includes(modelId)) return true;
+  const family = parseFamilyFromFullId(modelId);
+  return family !== undefined && EFFORT_MODEL_FAMILIES.includes(family);
+}
+
+/**
  * §4 (스트림 3종 ①) — 중첩 서브에이전트 텍스트 전달이 켜져 있는가.
  *
  * **기본이 켬**이라 판정이 단순 truthy 가 아니다 — `undefined`(한 번도 안 만짐)와 `true` 는 켬,
@@ -2583,6 +3194,45 @@ export function isForwardSubagentTextEnabled(value: boolean | undefined): boolea
  */
 export function isThinkingEnabled(value: boolean | undefined): boolean {
   return value !== false;
+}
+
+/**
+ * §4 (Thinking on/off) — **사고를 끌 수 없는 모델**(공개 문서 근거가 있는 풀ID 만).
+ *
+ * 공식 모델 개요표의 Thinking 행이 "Adaptive (always on)" 인 것(Opus 5.5·Fable 5.1)과 같은 성질의 이전 판(Fable 5) —
+ * API 가 `thinking: {type: "disabled"}` 를 400 으로 거부하므로 `alwaysThinkingEnabled: false` 가 아무 일도 하지 않는다
+ * (CLI 2.1.300 의 VS Code 확장도 이 모델들에서 토글을 감췄다). 확인 2026-10-15.
+ * Sonnet 5.5(`between_tools` 로 끈다)·Haiku 5.5(근거 부족)는 넣지 않는다 — 모르는 것을 잠그지 않는다.
+ */
+export const THINKING_ALWAYS_ON_MODEL_IDS: readonly string[] = [
+  'claude-fable-5-1',
+  'claude-fable-5',
+  'claude-opus-5-5',
+];
+
+/**
+ * §4 (Thinking on/off) — 이 모델은 사고를 끌 수 없는가. 설정창 체크박스 잠금과 상태바 「확장 사고 꺼짐」 칸이
+ * 이 함수 하나를 본다(두 자리가 따로 판정하면 한쪽만 거짓말을 한다).
+ *
+ * `modelId` 는 풀ID(날짜형·`[1m]` 변형 포함)나 alias(`opus`·`fable`…)다. alias 는 지금 그 alias 가 가리키는 최신
+ * 풀ID 로 본다 — 레지스트리 latest, 레지스트리가 아직 없으면 시드 최신(CLI 가 alias 를 그렇게 해소한다).
+ */
+export function isThinkingAlwaysOnModel(modelId: string | undefined | null, registry?: ModelRegistry | null): boolean {
+  if (!modelId) return false;
+  let full = modelId;
+  if (AVAILABLE_AGENT_MODELS.includes(modelId)) {
+    const latest = resolveAliasToLatest(modelId, registry)
+      ?? AVAILABLE_AGENT_MODEL_FULL_IDS
+        .filter((id) => parseFamilyFromFullId(id) === modelId)
+        .sort((a, b) => {
+          const [aMaj, aMin] = parseModelSemver(a);
+          const [bMaj, bMin] = parseModelSemver(b);
+          return bMaj - aMaj || bMin - aMin;
+        })[0];
+    if (!latest) return false;
+    full = latest;
+  }
+  return THINKING_ALWAYS_ON_MODEL_IDS.includes(normalizeModelId(full));
 }
 
 /**
@@ -2853,6 +3503,27 @@ export const STARTUP_JOB_SETTLE_MS = 1_500;
 export const STARTUP_JOB_GAP_MS = 750;
 export const STARTUP_JOB_RELEASE_CAP_MS = 20_000;
 
+/**
+ * §3.7 · §9 「시작 화면(스플래시)」 — **스플래시가 떠 있으면 위 확인들을 그 뒤에서 먼저 돌린다.**
+ *
+ * 스플래시가 있는 실행에서는 본체 창이 아직 숨어 있어 아무도 창을 끌지 않는다. 그래서 본체 창이 보일 때까지
+ * 미루지 않고 백엔드가 뜬 직후 이 간격으로 풀고, 본체 창은 줄이 다 돈 뒤에 보인다 — 창이 보인 뒤 1.5~4.5초에
+ * 몰리던 CLI 기동(실측: 창이 뜬 뒤 +1.5s·+2.1s·+2.6s 멈춤)이 사용자가 만지기 전에 끝난다. 순서는 그대로다.
+ * 간격은 종전 부팅 기준 지연에서 가장 가까웠던 두 칸(설치 1.2s → 로그인 1.5s, 0.3초)보다 좁히지 않는다.
+ */
+export const STARTUP_JOB_SPLASH_SETTLE_MS = 300;
+export const STARTUP_JOB_SPLASH_GAP_MS = 400;
+
+/**
+ * §3.7 · §9 「시작 화면(스플래시)」 — 본체 창 렌더러가 "첫 화면을 다 그렸다"고 main 에 알리기 전에 기다리는 것.
+ *
+ * 지금 보는 탭의 스냅샷이 오고(§9 `canvasLoading` 의 'ready') 그 그림이 한 번 칠해진 뒤, 렌더러의 긴 작업(50ms+)이
+ * `MAIN_WINDOW_READY_QUIET_MS` 동안 없을 때 알린다. 긴 작업이 그치지 않아도 `MAIN_WINDOW_READY_CAP_MS` 뒤에는
+ * 알린다 — 조용해지기를 기다리느라 창이 영영 숨어 있으면 안 된다.
+ */
+export const MAIN_WINDOW_READY_QUIET_MS = 300;
+export const MAIN_WINDOW_READY_CAP_MS = 2_500;
+
 /** v1.36 — STRICT delegation enforcement 경로(dispatch curl)가 Bash 에 의존하므로
  *  사용자가 UI 에서 제거할 수 없고, STRICT strip 계산에서도 항상 보존된다.
  *  서버 PUT /api/agent-config/:id 가 payload.tools 에서 빠져 있으면 자동 포함, UI 는 × 잠금. */
@@ -2917,8 +3588,16 @@ export function normalizeAgentDefinitionName(raw: string | undefined | null): st
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')   // 공백·언더스코어·콜론·한글 전부 하이픈으로
     .replace(/-{2,}/g, '-')          // 연달아 생긴 하이픈은 하나로
-    .replace(/^-+|-+$/g, '');        // 앞뒤 하이픈 제거(선두 하이픈은 CLI 가 거부)
+    .replace(/^-+|-+$/g, '')         // 앞뒤 하이픈 제거(선두 하이픈은 CLI 가 거부)
+    .slice(0, AGENT_DEFINITION_NAME_MAX)
+    .replace(/-+$/g, '');            // 자른 자리에 남은 끝 하이픈도 뗀다
 }
+
+/**
+ * §4 (CLI 사양 추종) — 서브에이전트 이름 길이 상한. CLI 2.1.292 부터 에이전트 이름은 최대 256자다
+ * (공식 변경 기록 — 더 긴 skill·plugin 파일의 `name` 은 무시된다). 이름 칸·정규화가 같은 값을 쓴다.
+ */
+export const AGENT_DEFINITION_NAME_MAX = 256;
 
 /**
  * §4 (CLI 사양 추종) — `AgentDefinition[]` → `--agents` 가 받는 **JSON 문자열**.
@@ -5186,6 +5865,30 @@ export const TIDY_LAYOUT = {
 } as const;
 
 /**
+ * §5.23 **웹 궤도** — 새 도메인 버블이 처음 앉는 자리(읽은 에이전트 둘레 동심 궤도의 빈칸).
+ *
+ * 간격은 따로 두지 않는다 — 첫 궤도 앞과 같은 궤도의 이웃 사이는 `TIDY_LAYOUT.RING_GAP`, 궤도 사이는
+ * `TIDY_LAYOUT.ROW_GAP` 이다. 정리(§5.4 #33)와 같은 간격이라야 물리가 다시 밀어낼 이유가 없고,
+ * 정리한 지도와 갓 자란 지도가 같은 말로 읽힌다.
+ */
+export const WEB_ORBIT = {
+  /**
+   * 모든 궤도의 첫 칸이 서는 방향(라디안) — 12시. 화면 y 는 아래로 자라므로 각이 커지면 **시계 방향**이다.
+   * 고리에 시작점이 없으면 순서가 읽히지 않는다(§5.4 #33 I-1) — 시작점과 방향을 약속해 순서를 읽히게 한다.
+   */
+  START_ANGLE: -Math.PI / 2,
+} as const;
+
+/**
+ * §5.23 웹 궤도에 앉는 버블 타입 — 새 버블 원(`radialLayout`)에서 빠지고 읽은 에이전트 둘레에 선다.
+ *
+ * 그 원의 반지름은 개수에 비례해 자란다(`ORBIT_RADIUS_PER_ITEM`). 리서치 한 번에 수십 개가 서는 타입이
+ * 거기 들면 원이 물리 상자를 넘고, 물리 클램프가 그 버블들을 상자 벽에 눌러 사각 테두리를 만든다.
+ * **새 타입은 여기 한 줄 추가로만.**
+ */
+export const WEB_ORBIT_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['domain']);
+
+/**
  * §5.4 #33 (I) **버블 정리 — 기준 다섯.** 순서가 곧 패널에 서는 순서다.
  *
  * `geometry` 가 `TidySort` 와 별개 축인 것이 이 표의 핵심이다 — 순위가 있는 기준(`status`·
@@ -5354,7 +6057,7 @@ export const SESSION_MEMO = {
    * `…` 로 줄지만(CSS), **저장까지 무한히 길어지면 안 된다**(§3.2.3 "쓸수록 커지는 것에 상한").
    */
   NAME_MAX: 60,
-  /** 한 세션(또는 메인 탭)이 가질 수 있는 메모 장수 상한. */
+  /** 한 세션(또는 메인 탭)에서 열 수 있는 메모 장수 상한. 닫은 기록은 포함하지 않는다. */
   MAX_PER_OWNER: 24,
   /** 좌표 상한 (px) — 창 밖 좌표가 들어와도 여기서 멈춘다(복원 시 화면 밖 실종 방지). */
   MAX_COORD: 20000,
@@ -5383,7 +6086,36 @@ export const SESSION_MEMO = {
   MAX_ALPHA: 1,
   /** 불투명도 슬라이더 눈금. 저장은 소수 둘째 자리까지만(왕복 비교가 부동소수로 흔들리지 않게). */
   ALPHA_STEP: 0.01,
+  /**
+   * §5.5 #17-36 ⑫ — 메모 한 장에 걸 수 있는 링크 수. 본문 글자수(`TEXT_MAX`)만 막으면 링크 개수로
+   * 자란다 — 두 축을 함께 막는 위 규약(§3.2.3)을 링크에도 그대로 건다.
+   */
+  LINK_MAX: 32,
+  /** 세션 글 위치 링크가 기억하는 **그 자리의 글** 상한(자) — 도착해 칠할 글자이자 링크 상자의 요약. */
+  LINK_TEXT_MAX: 200,
+  /**
+   * 항목을 **눌러서** 고른 자리의 글로 남기는 머리 길이(자). 드래그로 고른 글자는 `LINK_TEXT_MAX` 까지
+   * 그대로 남지만, 누른 항목은 본문이 수천 자일 수 있어 첫머리만 들고 간다(칠할 자리도 그 첫머리다).
+   */
+  LINK_HEAD_MAX: 80,
+  /** 다른 세션 링크가 기억하는 탭 이름 상한(자) — 탭이 닫힌 뒤에도 무엇을 가리켰는지 말하려고 둔다. */
+  LINK_LABEL_MAX: 80,
+  /** 파일 링크 경로 상한(자) — 본문 경로 링크(#17-27 ⑬ `MAX_LINK_PATH_LEN`)와 같은 값. */
+  LINK_PATH_MAX: 1024,
+  /** 웹 주소 링크 상한(자). */
+  LINK_URL_MAX: 2048,
+  /** 스트림 항목 id 상한(자). */
+  LINK_ANCHOR_MAX: 200,
+  /** [세션 글 위치 ▸] 목록에 세우는 **내 입력** 수(최근 것부터). 더 오래된 것은 대화에서 직접 고른다. */
+  LINK_PROMPT_MAX: 12,
 } as const;
+
+/**
+ * §5.5 #17-36 ⑫ — 메모 링크 종류와 **목록 순서**. 첫 자리가 세션 글 위치인 것은 사용자 지시다
+ * ("리스트들은 첫번째가 세션의 글 위치"). 화면의 [링크 ▸] 목록은 이 표를 그대로 돌므로,
+ * 다음 종류는 여기 한 줄 + 화면의 종류별 손잡이 하나로 붙는다.
+ */
+export const SESSION_MEMO_LINK_KINDS: readonly SessionMemoLinkKind[] = ['stream', 'session', 'file', 'url'] as const;
 
 /**
  * 스티키 메모 팔레트 — **앱과 같은 색 언어**다. IDE 본문이 `bg-gray-950` 인 어두운 화면이라
@@ -5463,6 +6195,148 @@ export function normalizeMemoName(raw: unknown): string {
   return oneLine.length > SESSION_MEMO.NAME_MAX ? oneLine.slice(0, SESSION_MEMO.NAME_MAX).trim() : oneLine;
 }
 
+// ─── §5.5 #17-36 ⑫ 메모 링크 정화 ───
+//
+// 화면과 서버가 **같은 함수**를 쓴다(`normalizeMemoName` 과 같은 이유) — 화면이 링크를 만들 때 이미
+// 이 규칙으로 다듬어 두면, 서버 정화본과 글자가 같아 낙관 표시의 왕복 비교가 흔들리지 않는다.
+
+/** id·세션 id 모양 — 메모 id 와 같은 규칙(임의 문자열이 키·DOM 속성으로 새지 않게). */
+const SESSION_MEMO_ID_RE = /^[\w-]{1,64}$/;
+/** 제어 문자 — 경로·주소·항목 id 에 들어오면 그 링크는 버린다. */
+const SESSION_MEMO_LINK_CONTROL_RE = /[\u0000-\u001f\u007f]/;
+/**
+ * 스트림 항목 id — 공백·따옴표·역슬래시·꺾쇠가 없는 한 덩어리. 화면이 이 값으로 항목을 찾으므로
+ * 선택자·속성 문자열을 깨뜨릴 글자를 막는다(id 는 우리가 만든 값이라 정상 입력은 다 통과한다).
+ */
+const SESSION_MEMO_LINK_ANCHOR_RE = /^[^\s"'`\\<>]+$/;
+/**
+ * 웹 주소 — **http(s) 만**. 링크를 누르면 바깥 브라우저로 가는 길(`window.open`)을 타므로
+ * `javascript:`·`file:`·`data:` 가 그 길로 새면 안 된다. 호스트 자리가 비어 있어도 버린다.
+ */
+const SESSION_MEMO_LINK_URL_RE = /^https?:\/\/[^\s/?#"'<>\\][^\s"'<>\\]*$/i;
+
+/**
+ * 링크가 기억하는 글(그 자리의 글·탭 이름) 정화 — 제어 문자를 공백으로, 공백을 한 칸으로 접고,
+ * 앞뒤를 다듬어 상한까지 자른다. 접는 이유: 화면은 한 줄 요약으로만 보이고, 도착해서 칠할 때도
+ * 공백을 접어 견준다(`findTextRangeInContainer`) — 원문 공백을 들고 다닐 까닭이 없다.
+ */
+export function normalizeMemoLinkText(raw: unknown, max: number = SESSION_MEMO.LINK_TEXT_MAX): string {
+  if (typeof raw !== 'string') return '';
+  const folded = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  return folded.length > max ? folded.slice(0, max).trim() : folded;
+}
+
+/** 웹 주소 정화 — 앞뒤 공백만 다듬고, 규칙에 안 맞으면 `''`(= 그 링크는 버린다). */
+export function normalizeMemoLinkUrl(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const url = raw.trim();
+  if (url.length === 0 || url.length > SESSION_MEMO.LINK_URL_MAX) return '';
+  return SESSION_MEMO_LINK_URL_RE.test(url) ? url : '';
+}
+
+/** 파일 링크 경로 정화 — 앞뒤 공백만 다듬는다. 제어 문자가 있거나 상한을 넘으면 `''`. */
+export function normalizeMemoLinkPath(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const p = raw.trim();
+  if (p.length === 0 || p.length > SESSION_MEMO.LINK_PATH_MAX) return '';
+  return SESSION_MEMO_LINK_CONTROL_RE.test(p) ? '' : p;
+}
+
+/** 세션 id — null(메인 탭)은 그대로, 문자열은 모양이 맞을 때만. 안 맞으면 `undefined`(= 버린다). */
+function sanitizeMemoLinkSessionId(v: unknown): string | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== 'string') return undefined;
+  const id = v.trim();
+  return SESSION_MEMO_ID_RE.test(id) ? id : undefined;
+}
+
+/**
+ * 링크가 가리키는 곳 한 개 정화. 모양이 어긋나면 `null`(= 그 링크는 버린다).
+ * 키 순서를 **종류마다 고정**해 돌려준다 — 저장 왕복 비교는 직렬화한 글자로 견주기 때문이다.
+ */
+export function sanitizeMemoLinkTarget(input: unknown): SessionMemoLinkTarget | null {
+  if (!input || typeof input !== 'object') return null;
+  const n = input as Record<string, unknown>;
+  switch (n['kind']) {
+    case 'stream': {
+      const sessionId = sanitizeMemoLinkSessionId(n['sessionId']);
+      if (sessionId === undefined) return null;
+      const rawAnchor = typeof n['anchorId'] === 'string' ? n['anchorId'].trim() : '';
+      const anchorId = rawAnchor.length > 0
+        && rawAnchor.length <= SESSION_MEMO.LINK_ANCHOR_MAX
+        && SESSION_MEMO_LINK_ANCHOR_RE.test(rawAnchor)
+        && !SESSION_MEMO_LINK_CONTROL_RE.test(rawAnchor)
+        ? rawAnchor
+        : '';
+      const text = normalizeMemoLinkText(n['text']);
+      // 갈 곳이 하나도 없으면(항목도 글도 없다) 링크가 아니다.
+      if (!anchorId && !text) return null;
+      return { kind: 'stream', sessionId, ...(anchorId ? { anchorId } : {}), text };
+    }
+    case 'session': {
+      const sessionId = sanitizeMemoLinkSessionId(n['sessionId']);
+      if (sessionId === undefined) return null;
+      const label = normalizeMemoLinkText(n['label'], SESSION_MEMO.LINK_LABEL_MAX);
+      return { kind: 'session', sessionId, ...(label ? { label } : {}) };
+    }
+    case 'file': {
+      const path = normalizeMemoLinkPath(n['path']);
+      return path ? { kind: 'file', path } : null;
+    }
+    case 'url': {
+      const url = normalizeMemoLinkUrl(n['url']);
+      return url ? { kind: 'url', url } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** 링크 한 개 정화 — 범위가 본문 밖이거나 비었거나 정수가 아니면 `null`. */
+function sanitizeMemoLink(input: unknown, textLength: number): SessionMemoLink | null {
+  if (!input || typeof input !== 'object') return null;
+  const n = input as Record<string, unknown>;
+  const id = typeof n['id'] === 'string' ? n['id'].trim() : '';
+  if (!SESSION_MEMO_ID_RE.test(id)) return null;
+  const start = n['start'];
+  const end = n['end'];
+  if (typeof start !== 'number' || typeof end !== 'number') return null;
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+  if (start < 0 || end <= start || end > textLength) return null;
+  const target = sanitizeMemoLinkTarget(n['target']);
+  return target ? { id, start, end, target } : null;
+}
+
+/**
+ * 메모 한 장의 링크 목록 정화. 고치는 것 넷 — ① 모양이 어긋난 링크는 버린다, ② id 가 겹치면 앞의 것만,
+ * ③ **시작 순으로 세우고 겹치는 범위는 앞의 것만 남긴다**(한 글자가 두 곳을 가리키면 눌렀을 때 어디로
+ * 갈지 규칙이 없다), ④ 상한(`LINK_MAX`)까지만. 여러 번 거쳐도 같은 답이 나온다(멱등).
+ *
+ * @param textLength 정화가 끝난 본문 길이 — 본문이 상한에서 잘렸으면 그 뒤에 걸린 링크도 함께 사라진다.
+ */
+export function sanitizeMemoLinks(input: unknown, textLength: number): SessionMemoLink[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const candidates: SessionMemoLink[] = [];
+  // 거대한 배열이 들어와도 일을 묶는다 — 상한의 몇 배까지만 본다(겹침으로 버려질 몫까지 여유를 둔다).
+  for (const raw of input.slice(0, SESSION_MEMO.LINK_MAX * 4)) {
+    const link = sanitizeMemoLink(raw, textLength);
+    if (!link || seen.has(link.id)) continue;
+    seen.add(link.id);
+    candidates.push(link);
+  }
+  candidates.sort((a, b) => a.start - b.start || a.end - b.end);
+  const out: SessionMemoLink[] = [];
+  let lastEnd = -1;
+  for (const link of candidates) {
+    if (link.start < lastEnd) continue;
+    out.push(link);
+    lastEnd = link.end;
+    if (out.length >= SESSION_MEMO.LINK_MAX) break;
+  }
+  return out;
+}
+
 /**
  * §5.5 #17-36 — 신뢰할 수 없는 입력(REST body·옛 체크포인트)에서 메모 1장을 안전하게 복원한다.
  * 모양이 어긋나면 `null`(= 그 장은 버린다). `sanitizeCmdPaneTree` 와 같은 자리·같은 규약이다.
@@ -5481,9 +6355,14 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
   const color = SESSION_MEMO_LEGACY_COLOR_MAP[rawColor.toUpperCase()] ?? rawColor;
   const alpha = clampMemoAlpha(n['alpha']);
   const name = normalizeMemoName(n['name']);
+  const closedAt = typeof n['closedAt'] === 'number' && Number.isFinite(n['closedAt']) && n['closedAt'] >= 0
+    ? clampNumber(n['closedAt'], 0, Number.MAX_SAFE_INTEGER, 0)
+    : undefined;
   // 묶음 이름표는 id 와 같은 모양만 통과 — 임의 문자열이 그룹 키·DOM 속성으로 새지 않게.
   const rawGroup = typeof n['groupId'] === 'string' ? n['groupId'].trim() : '';
-  const groupId = /^[\w-]{1,64}$/.test(rawGroup) ? rawGroup : '';
+  const groupId = closedAt === undefined && /^[\w-]{1,64}$/.test(rawGroup) ? rawGroup : '';
+  // ⑫ 링크는 **잘린 뒤의 본문**을 기준으로 거른다 — 상한 밖으로 밀려난 글자에 걸린 링크는 갈 글자가 없다.
+  const links = sanitizeMemoLinks(n['links'], text.length);
   const now = Date.now();
   const createdAt = clampNumber(n['createdAt'], 0, Number.MAX_SAFE_INTEGER, now);
   return {
@@ -5500,27 +6379,35 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
     ...(name ? { name } : {}),
     ...(alpha !== SESSION_MEMO.DEFAULT_ALPHA ? { alpha } : {}),
     ...(n['collapsed'] === true ? { collapsed: true } : {}),
+    ...(closedAt !== undefined ? { closedAt } : {}),
     ...(groupId ? { groupId } : {}),
     ...(groupId && n['groupActive'] === true ? { groupActive: true } : {}),
+    // 링크도 같은 규약 — 하나도 없으면 필드를 남기지 않는다.
+    ...(links.length > 0 ? { links } : {}),
     createdAt,
     updatedAt: clampNumber(n['updatedAt'], 0, Number.MAX_SAFE_INTEGER, createdAt),
   };
 }
 
 /**
- * 메모 목록 정화 — 장수 상한 + id 중복 제거. 배열이 아니면 빈 목록.
+ * 메모 목록 정화 — 열린 장수 상한 + id 중복 제거. 배열이 아니면 빈 목록.
+ * 닫은 기록은 소유 세션이 최종 삭제될 때까지 보관한다. 앞의 열린 장이 상한에 닿아도 순회를 끝내지 않는다.
  * 중복 id 를 남기면 한 장을 지웠는데 다른 장이 사라지는 것처럼 보인다(React key 충돌).
  */
 export function sanitizeSessionMemos(input: unknown): SessionMemo[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();
   const out: SessionMemo[] = [];
+  let openCount = 0;
   for (const raw of input) {
     const memo = sanitizeSessionMemo(raw);
     if (!memo || seen.has(memo.id)) continue;
     seen.add(memo.id);
+    if (memo.closedAt === undefined) {
+      if (openCount >= SESSION_MEMO.MAX_PER_OWNER) continue;
+      openCount++;
+    }
     out.push(memo);
-    if (out.length >= SESSION_MEMO.MAX_PER_OWNER) break;
   }
   return repairMemoGroups(out);
 }
@@ -5541,12 +6428,12 @@ export function sanitizeSessionMemos(input: unknown): SessionMemo[] {
 export function repairMemoGroups(memos: SessionMemo[]): SessionMemo[] {
   const members = new Map<string, SessionMemo[]>();
   for (const m of memos) {
-    if (!m.groupId) continue;
+    if (!m.groupId || m.closedAt !== undefined) continue;
     const list = members.get(m.groupId);
     if (list) list.push(m);
     else members.set(m.groupId, [m]);
   }
-  if (members.size === 0) return memos;
+  if (members.size === 0 && !memos.some((m) => m.closedAt !== undefined && (m.groupId || m.groupActive))) return memos;
 
   /** 각 묶음의 정본 장(활성) — 표시된 것 중 마지막, 없으면 마지막 멤버. */
   const anchors = new Map<string, SessionMemo>();
@@ -5559,6 +6446,13 @@ export function repairMemoGroups(memos: SessionMemo[]): SessionMemo[] {
 
   let changed = false;
   const out = memos.map((m) => {
+    if (m.closedAt !== undefined && (m.groupId || m.groupActive)) {
+      changed = true;
+      const closed = { ...m };
+      delete closed.groupId;
+      delete closed.groupActive;
+      return closed;
+    }
     if (!m.groupId) return m;
     const anchor = anchors.get(m.groupId);
     if (!anchor) {
@@ -6131,6 +7025,14 @@ export const AGENT_CARD_ENV_TOKEN = 'VIBISUAL_TOKEN';
  */
 export const LOOPBACK_INGRESS_HEADER = 'x-vibisual-ingress';
 export const LOOPBACK_INGRESS_VALUE = 'loopback';
+/**
+ * loopback 리스너가 받는 **요청 한 건의 본문 상한**. 외부 에이전트가 보내는 모든 REST 본문이 이 문을 지나므로,
+ * 그 뒤의 라우트가 더 큰 본문을 약속하면 에이전트에게는 지켜지지 않는 약속이 된다(§5.13 (R-10) — 편집 원본
+ * 24MB 와 리스너 16MB 가 어긋나 있던 것). 라우트 상한은 이 값에서 끌어 쓴다.
+ */
+export const LOOPBACK_REQUEST_MAX_BYTES = 16 * 1024 * 1024;
+/** loopback 리스너가 동시에 붙들 수 있는 본문 합계(여러 요청이 겹칠 때). */
+export const LOOPBACK_TOTAL_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
  * 카드 curl 한 줄이 쓰는 베이스 주소 + 토큰 헤더.
@@ -8159,7 +9061,7 @@ export const AGENT_CARD = {
   /** 노드 전체 = 말풍선 236 + 틈 20 + 원 60 + (궤도 − 원 반지름 10) + 위성 손 자리 반 12. */
   width: 338,
   /** 노드 전체 높이 = 말풍선 높이. 원은 세로 가운데. */
-  height: 132,
+  height: 200,
   /** 말풍선 판의 폭 — 노드 왼쪽 끝부터. */
   balloonWidth: 236,
   /** 말풍선 모서리 반경. */
@@ -8279,8 +9181,12 @@ export const APP_BUBBLE_PENDING_MS = 8000;
  * 비용은 "보이는 화면만 · 한 번 굽고 캐시 · 동시 건수 상한" 셋으로 묶는다.
  */
 export const APP_THUMB = {
-  /** 기억해 두는 미리보기 수(LRU). 밀려난 그림의 blob URL 은 되돌린다. */
-  cacheMax: 40,
+  /**
+   * 기억해 두는 미리보기 수(LRU). 밀려난 그림의 blob URL 은 되돌린다.
+   * §5.1 #2-1 (A) — 파일 버블 얼굴도 이 기억 장소를 함께 쓴다(화면에 미디어 파일이 수십 개 떠도 같은 그림을 다시
+   * 굽지 않게). 얼굴은 작게 굽는다(64px 칸 × 배율) — 한 장 수십 KB 라 상한을 넉넉히 둬도 메모리 부담이 작다.
+   */
+  cacheMax: 120,
   /** 동시에 굽는 수 — 영상 디코더·WebGL 문맥이 한꺼번에 뜨지 않게. */
   concurrency: 2,
   /** 화면 크기에 곱해 굽는 배율의 상한(고해상 화면에서 흐리지 않게, 그 이상은 낭비). */
@@ -8306,6 +9212,14 @@ export const APP_THUMB = {
    * 같은 칸 안에서 바꾼 크기는 앞서 구운 한 장을 그대로 늘려 쓴다.
    */
   bakeStep: 64,
+} as const;
+
+/**
+ * §5.13 (X) 39-3 — 앱 창이 늦은 화면(동적 청크)을 기다리는 동안 띄우는 **뼈대**. 빈 검은 칸 대신 편집기 모양을 먼저 보여
+ * 기다림을 짧게 느끼게 한다. 바로 뜨는 화면 앞에서 한 번 번쩍이면 그게 더 거슬리므로 `delayMs` 를 넘겨 기다릴 때만 띄운다.
+ */
+export const APP_SHELL_SKELETON = {
+  delayMs: 120,
 } as const;
 
 /**
@@ -8343,6 +9257,8 @@ export const APP_CANVAS_FACE = {
   spinDegPerSec: 36,
   /** 이미지 복사가 끝났다는 표시(✓)를 남기는 시간(ms). */
   copiedFlashMs: 1400,
+  /** §5.13 (R-10) — 편집 원본을 비추는 노드가 원본 머리(판 번호)만 묻는 간격(ms). 본문은 판이 바뀔 때만 읽는다. */
+  sourcePollMs: 5000,
 } as const;
 
 /**
@@ -8351,6 +9267,12 @@ export const APP_CANVAS_FACE = {
  */
 export const LINK_VIEW = {
   dimOpacity: 0.18,
+  /**
+   * ①·①-1·② — 누른 칸(선·버블 숨기기·보기)을 화면이 붙드는 최대 시간(ms). 보낸 PATCH 가 다 답한 뒤 스냅샷이 같은 값을
+   * 실어 오면 그 전에 놓는다 — 이 값은 서버가 끝내 다른 값을 말할 때(다른 창이 되돌렸다)의 안전망이다.
+   * 낙관 생성의 `APP_BUBBLE_PENDING_MS` 와 같은 창(클라 `linkViewHold.ts`).
+   */
+  pendingMs: 8000,
 } as const;
 
 /** §5.4 #36 (H) ③ — 결과 전달로 바뀌기 전 파일을 노드에 남기는 수(지난 결과, 최근 것부터). */
@@ -10978,8 +11900,11 @@ export function extractPatchFileOps(patch: string): AuditPatchFileOp[] {
   return out;
 }
 
-/** 패치 도구 입력에서 본문을 꺼낸다. 패치 도구가 아니면 undefined. */
-function auditPatchText(toolName: string, input: Record<string, unknown>): string | undefined {
+/**
+ * 패치 도구 입력에서 본문을 꺼낸다. 패치 도구가 아니면 undefined.
+ * §5.25 (F) 코덱스 패치 장부도 이 한 곳에서 본문을 꺼낸다 — 실리는 칸(`AUDIT_PATCH_INPUT_KEYS`)을 두 벌로 두지 않는다.
+ */
+export function auditPatchText(toolName: string, input: Record<string, unknown>): string | undefined {
   if (!AUDIT_PATCH_TOOLS.has(toolName)) return undefined;
   return auditFirstString(input, AUDIT_PATCH_INPUT_KEYS) ?? '';
 }
