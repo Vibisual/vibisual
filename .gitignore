@@ -129,8 +129,11 @@ dev/
 
 # 이동형 개인 자산은 전부 이 한 폴더 안에만 둔다 (folder 단위 차단 — 새 파일도 자동 보호).
 # docs/ 등 공개 폴더에 개인 파일을 절대 만들지 말 것. 새 개인 artifact = 여기로.
-/.private/
+.private/
 /.docvault/
+
+# Local design studies, comparison templates, and generated previews
+/docs/design/
 
 # 작업용 임시 산출물(설명 문서·스크래치). 공개 docs/ 아래지만 폴더 단위로 차단 — 새 파일도 자동 보호.
 /docs/temp/
