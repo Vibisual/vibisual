@@ -22,10 +22,12 @@ useGraphStore.subscribe(scheduleReservations);
 useCardTaskStore.subscribe(scheduleReservations);
 
 export function useAgentCardTasks(agentId: string): { projectId: string | undefined; entry: CardTaskEntry; key: string } {
-  const projectId = useGraphStore((state) => {
-    const name = state.agentProjects[agentId] ?? state.activeProject;
-    return Object.values(state.projects).find((project) => project.name === name)?.path;
-  });
+  const name = useGraphStore((state) => state.agentProjects[agentId] ?? state.activeProject);
+  const projects = useGraphStore((state) => state.projects);
+  const projectId = useMemo(
+    () => Object.values(projects).find((project) => project.name === name)?.path,
+    [projects, name],
+  );
   const key = cardTaskKey(projectId ?? '', agentId);
   const entry = useCardTaskStore((state) => state.entries[key] ?? EMPTY);
   useEffect(() => {

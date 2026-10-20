@@ -39,6 +39,7 @@ function install(failure: '' | 'copy' | 'swap' | 'backup' | 'invalid' | 'restore
     .replaceAll('/Volumes/', `${shellPath(root)}/Volumes/`);
   expect(redirected).not.toContain('"/Applications/');
   const stubs = `
+if [ "$FIXTURE_FAILURE" = 'interrupt' ]; then PS4='+ \${EPOCHREALTIME:-?} '; set -x; fi
 uname() { if [ "$1" = '-s' ]; then printf 'Darwin\\n'; else printf 'arm64\\n'; fi; }
 curl() {
   if [ "$1" = '-fsSL' ]; then
@@ -70,7 +71,7 @@ mv() {
       FIXTURE_MOUNT: shellPath(mounted), FIXTURE_FAILURE: failure, TMPDIR: shellPath(path.join(root, 'tmp')) },
     encoding: 'utf8', timeout: 10_000, windowsHide: true,
   });
-  expect(child.error).toBeUndefined();
+  expect(child.error, child.stdout + child.stderr).toBeUndefined();
   return { child, root, target, applications };
 }
 

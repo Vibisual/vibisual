@@ -5,6 +5,10 @@ import { shotVideoOps, saveShotStills, createShotVideo } from './vibi3dShotOutpu
 import { recordCreationOutput } from '../Creation/creationApi.js';
 import { writeWorkspaceMedia } from '../../utils/workspaceMedia.js';
 import { vibi3dViewSize } from './vibi3dViewSize.js';
+// Load the real lazy HTTP dependencies before tests install per-test fetch mocks. Otherwise a cold Vite
+// transform (including the locale modules) can outlive a test and send its request through the next mock.
+import '../Creation/videoDocumentApi.js';
+import '../Creation/creationVideoSource.js';
 
 vi.mock('../Creation/creationApi.js', async original => ({ ...await original<typeof import('../Creation/creationApi.js')>(), recordCreationOutput: vi.fn() }));
 vi.mock('../../utils/workspaceMedia.js', () => ({ writeWorkspaceMedia: vi.fn() }));

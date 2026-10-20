@@ -113,6 +113,13 @@ jobs:
           echo "설치본을 가져올 릴리스 런: ${RUN_ID:-(못 찾음 — 릴리스 자산으로 떨어진다)}"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
 
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       # ── 설치본 확보 ────────────────────────────────────────────────────
       # ⚠️ **릴리스 자산(`gh release download`)을 기본 경로로 되돌리지 마라.**
       #    그 다운로드는 GitHub 의 공개 다운로드 수에 그대로 잡히고, 그 숫자는
@@ -144,16 +151,20 @@ jobs:
           case "${{ runner.os }}" in
             Linux)
               gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.AppImage' --dir artifact
-              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir artifact || true
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir artifact
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --dir artifact
               ;;
             macOS)
               # 파일명 규약: arm64 는 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg`.
               # 아키텍처가 어긋난 dmg 를 집으면 그것이야말로 이 워크플로가 잡으려는 즉사 사고다.
               if [ "$(uname -m)" = "arm64" ]; then
                 gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64.dmg' --dir artifact
+                gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64-mac.zip' --dir artifact
               else
                 gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.dmg' --dir artifact
                 rm -f artifact/*-arm64.dmg
+                gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-mac.zip' --dir artifact
+                rm -f artifact/*-arm64-mac.zip
               fi
               ;;
             Windows)
@@ -173,13 +184,9 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           mkdir -p debpkg
-          cp artifact/*.deb debpkg/ 2>/dev/null || true
-          if ! ls debpkg/*.deb >/dev/null 2>&1; then
-            echo "::warning::이 릴리스에는 .deb 가 없다(deb 타깃 추가 이전 버전) — 건너뛴다"
-            exit 0
-          fi
+          cp artifact/*.deb debpkg/
           ls -la debpkg
           # 사용자가 하는 것과 같다: 받은 파일을 apt 에 넘기면 **의존성은 apt 가 끌어온다.**
           sudo apt-get update -qq
@@ -191,10 +198,14 @@ jobs:
           echo "== 설치 결과 =="
           command -v vibisual || { echo "::error::vibisual 이 PATH 에 없다"; dpkg -L vibisual | head -40; exit 1; }
           sudo apt-get install -y -qq xvfb >/dev/null 2>&1 || true
-          xvfb-run -a vibisual > deb-run.log 2>&1 &
+          PROFILE="$RUNNER_TEMP/vibisual-smoke-deb"
+          node .github/scripts/installed-smoke.cjs prepare /opt/Vibisual/resources "$PROFILE"
+          ELECTRON_RUN_AS_NODE=1 /opt/Vibisual/vibisual .github/scripts/installed-smoke.cjs native /opt/Vibisual/resources x64
+          xvfb-run -a vibisual "--user-data-dir=$PROFILE" > deb-run.log 2>&1 &
           DPID=$!
           sleep 25
           if kill -0 "$DPID" 2>/dev/null; then
+            node .github/scripts/installed-smoke.cjs check "$PROFILE"
             echo "RESULT: deb 는 **아무 것도 따로 깔지 않고** 그대로 실행된다 — 안내문이 필요 없다."
           else
             echo "::error::deb 설치본이 25초 안에 죽었다"
@@ -208,6 +219,33 @@ jobs:
           pkill -f "/opt/Vibisual" 2>/dev/null || true
           pkill -f "chrome_crashpad_handler" 2>/dev/null || true
           sleep 3
+
+      # Ubuntu의 rpm 파일 검사만으로는 dnf 의존성·실행 실패를 찾을 수 없다.
+      # Fedora 컨테이너에서 패키지 관리자로 설치하고 일반 사용자로 실행한다.
+      - name: Linux — rpm 설치와 실행 (Fedora)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls artifact/*.rpm >/dev/null
+          docker run --rm \
+            -e GITHUB_ACTIONS=true -e RUNNER_TEMP=/tmp -e VIBISUAL_SKIP_HOOK_INSTALL=1 \
+            -v "$PWD/artifact:/artifact:ro" \
+            -v "$PWD/.github/scripts/installed-smoke.cjs:/installed-smoke.cjs:ro" \
+            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+              dnf -y install /artifact/*.rpm
+              dnf -y install xorg-x11-server-Xvfb xorg-x11-xauth nodejs shadow-utils util-linux
+              useradd --create-home smoke
+              runuser -u smoke -- node /installed-smoke.cjs prepare /opt/Vibisual/resources /tmp/vibisual-smoke-rpm
+              runuser -u smoke -- env ELECTRON_RUN_AS_NODE=1 /opt/Vibisual/vibisual /installed-smoke.cjs native /opt/Vibisual/resources x64
+              # Docker의 user namespace 제약만 우회한다. root 실행은 하지 않는다.
+              runuser -u smoke -- xvfb-run -a vibisual --no-sandbox --user-data-dir=/tmp/vibisual-smoke-rpm > /tmp/rpm-run.log 2>&1 &
+              pid=$!
+              sleep 25
+              if ! kill -0 "$pid" 2>/dev/null; then cat /tmp/rpm-run.log; exit 1; fi
+              node /installed-smoke.cjs check /tmp/vibisual-smoke-rpm
+              echo "RESULT-RPM: Fedora dnf install, native modules, backend and renderer passed"
+            '
 
       # ① 아래부터는 **AppImage** 경로 — deb/rpm 이 안 통하는 배포판(Arch·NixOS)용 대체재다.
       - name: Linux — AppImage 확인
@@ -291,7 +329,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # 위 ①이 포장(FUSE)까지 포함한 사용자 경로라면, 이 스텝은 그 변수를 걷어내고
           # **앱 자신이 도는가**만 격리해서 잰다. 둘이 갈리면 원인이 어느 쪽인지 바로 안다.
           # (xvfb 는 ① 에서 설치했다.)
@@ -312,11 +350,16 @@ jobs:
           #    (실행 파일명이 `@vibisualdesktop` 인 것은 electron-builder 가 `executableName`
           #     미지정 시 package.json 의 `@vibisual/desktop` 에서 파생하기 때문이다.)
           export APPDIR="$PWD/squashfs-root"
+          SCRIPT="$GITHUB_WORKSPACE/.github/scripts/installed-smoke.cjs"
+          PROFILE="$RUNNER_TEMP/vibisual-smoke-appimage"
+          node "$SCRIPT" prepare "$APPDIR/resources" "$PROFILE"
+          ELECTRON_RUN_AS_NODE=1 "$APPDIR/vibisual" "$SCRIPT" native "$APPDIR/resources" x64
           # Electron 의 SUID 샌드박스는 CI 러너에서 자주 막힌다 — 앱 결함과 뒤섞이지 않게 끈다.
-          xvfb-run -a "$APPDIR/AppRun" --no-sandbox > run.log 2>&1 &
+          xvfb-run -a "$APPDIR/AppRun" --no-sandbox "--user-data-dir=$PROFILE" > run.log 2>&1 &
           APP_PID=$!
           sleep 25
           if kill -0 "$APP_PID" 2>/dev/null; then
+            node "$SCRIPT" check "$PROFILE"
             echo "OK — 25초 생존. 앱이 떴다."
             kill "$APP_PID" 2>/dev/null || true
           else
@@ -362,11 +405,19 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          set -uo pipefail
-          arch -"$(uname -m)" "$APP/Contents/MacOS/Vibisual" > run.log 2>&1 &
+          set -euo pipefail
+          EXPECTED=x64
+          if [ "$(uname -m)" = "arm64" ]; then EXPECTED=arm64; fi
+          lipo -verify_arch "$(uname -m)" "$APP/Contents/MacOS/Vibisual"
+          PROFILE="$RUNNER_TEMP/vibisual-smoke-dmg"
+          node .github/scripts/installed-smoke.cjs prepare "$APP/Contents/Resources" "$PROFILE"
+          ELECTRON_RUN_AS_NODE=1 arch -"$(uname -m)" "$APP/Contents/MacOS/Vibisual" \
+            .github/scripts/installed-smoke.cjs native "$APP/Contents/Resources" "$EXPECTED"
+          arch -"$(uname -m)" "$APP/Contents/MacOS/Vibisual" "--user-data-dir=$PROFILE" > run.log 2>&1 &
           APP_PID=$!
           sleep 25
           if kill -0 "$APP_PID" 2>/dev/null; then
+            node .github/scripts/installed-smoke.cjs check "$PROFILE"
             echo "OK — 25초 생존. 앱이 떴다."
             kill "$APP_PID" 2>/dev/null || true
           else
@@ -374,6 +425,29 @@ jobs:
             echo "── run.log ──"; tail -80 run.log || true
             exit 1
           fi
+
+      - name: macOS — 업데이트 zip 실행 (아키텍처·네이티브·본체 준비)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=x64
+          if [ "$(uname -m)" = "arm64" ]; then EXPECTED=arm64; fi
+          mkdir -p "$RUNNER_TEMP/zip-app"
+          ditto -x -k artifact/*-mac.zip "$RUNNER_TEMP/zip-app"
+          ZIP_APP="$RUNNER_TEMP/zip-app/Vibisual.app"
+          lipo -verify_arch "$(uname -m)" "$ZIP_APP/Contents/MacOS/Vibisual"
+          PROFILE="$RUNNER_TEMP/vibisual-smoke-zip"
+          node .github/scripts/installed-smoke.cjs prepare "$ZIP_APP/Contents/Resources" "$PROFILE"
+          ELECTRON_RUN_AS_NODE=1 arch -"$(uname -m)" "$ZIP_APP/Contents/MacOS/Vibisual" \
+            .github/scripts/installed-smoke.cjs native "$ZIP_APP/Contents/Resources" "$EXPECTED"
+          arch -"$(uname -m)" "$ZIP_APP/Contents/MacOS/Vibisual" "--user-data-dir=$PROFILE" > zip-run.log 2>&1 &
+          pid=$!
+          sleep 25
+          if ! kill -0 "$pid" 2>/dev/null; then cat zip-run.log; exit 1; fi
+          node .github/scripts/installed-smoke.cjs check "$PROFILE"
+          echo "RESULT-ZIP: $EXPECTED update bundle passed"
+          kill "$pid" 2>/dev/null || true
 
       # ── 실사용자 재현: 받아서 여는 것까지 한 스텝에서 ──────────────────
       # ⚠️ 이 검증은 **반드시 한 스텝 안에서** 끝내야 한다. 스텝을 갈랐더니 run #5 에서 사본이 통째로
@@ -547,12 +621,18 @@ jobs:
           # 인스톨러가 앱을 자동 실행(runAfterFinish)했을 수 있으므로 먼저 정리하고 우리가 띄운다.
           Get-Process Vibisual -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
-          $p = Start-Process -FilePath $exe -PassThru
+          $profileDir = Join-Path $env:RUNNER_TEMP 'vibisual-smoke-win'
+          $resources = Join-Path (Split-Path -Parent $exe) 'resources'
+          node .github/scripts/installed-smoke.cjs prepare $resources $profileDir
+          if ($LASTEXITCODE -ne 0) { throw '스모크 프로필 준비 실패' }
+          $p = Start-Process -FilePath $exe -ArgumentList "`"--user-data-dir=$profileDir`"" -PassThru
           Start-Sleep -Seconds 25
           if ($p.HasExited) {
             Write-Host "::error::앱이 25초 안에 죽었다 (exit=$($p.ExitCode))"
             exit 1
           }
+          node .github/scripts/installed-smoke.cjs check $profileDir
+          if ($LASTEXITCODE -ne 0) { throw '백엔드·본체 준비 확인 실패' }
           Write-Host "OK — 25초 생존. 앱이 떴다."
           Stop-Process -Id $p.Id -Force
 

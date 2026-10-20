@@ -18,7 +18,7 @@ export function AgentCardTaskControls(props: {
     return () => clearTimeout(timer);
   }, [leaseUntil]);
   const canRestore = pending?.status !== 'preparing' || leaseUntil === undefined || leaseUntil <= Date.now();
-  const control = 'nodrag nopan min-w-0 rounded border border-white/10 bg-[#11151d] px-1.5 py-1 text-[11px] text-gray-200 outline-none focus-visible:ring-1 focus-visible:ring-sky-400 disabled:opacity-40';
+  const control = 'nodrag nopan min-w-0 rounded border border-white/10 bg-[#11151d] px-1.5 py-1 text-[12px] text-gray-200 outline-none focus-visible:ring-1 focus-visible:ring-sky-400 disabled:opacity-40';
   return <>
     <div className="nodrag nopan flex shrink-0 items-center gap-1 px-3 pt-1.5" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <select aria-label={t('canvas.agentCard.tasks.history')} title={props.title}
@@ -38,7 +38,7 @@ export function AgentCardTaskControls(props: {
     </div>
     {(props.mode || pending || props.error || props.choosing) && <div
       data-card-task-notice="true" aria-live="polite"
-      className="nodrag nopan shrink-0 px-3 pt-1.5 text-[11px] leading-[15px] text-gray-400"
+      className="nodrag nopan shrink-0 px-3 pt-1.5 text-[12px] leading-[15px] text-gray-400"
       onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       {props.choosing ? <>
         <span>{t('canvas.agentCard.tasks.destination')}</span>

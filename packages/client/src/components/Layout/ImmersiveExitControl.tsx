@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { exitImmersionLayer, selectShellImmersive, useProjectImmersionStore } from '../../stores/projectImmersion.js';
 
 function ExitControl(): React.JSX.Element {
@@ -12,14 +13,12 @@ function ExitControl(): React.JSX.Element {
   const revealed = hovered || focused || touchRevealed;
   const label = t('canvas.controls.exitImmersiveMode');
 
-  useEffect(() => {
-    if (!touchRevealed) return;
-    const dismissOutside = (event: PointerEvent): void => {
-      if (!region.current?.contains(event.target as Node)) setTouchRevealed(false);
-    };
-    document.addEventListener('pointerdown', dismissOutside, true);
-    return () => document.removeEventListener('pointerdown', dismissOutside, true);
-  }, [touchRevealed]);
+  useOutsidePressDismiss({
+    enabled: touchRevealed,
+    onDismiss: () => setTouchRevealed(false),
+    refs: [region],
+    events: ['pointerdown'],
+  });
 
   return <div ref={region} data-immersive-exit-control="" data-revealed={revealed}
     className="app-nodrag fixed left-1/2 top-0 flex w-48 -translate-x-1/2 justify-center"

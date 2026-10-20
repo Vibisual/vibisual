@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { VIBI3D_SIGN_KINDS, type Vibi3DSignRecipe } from '@vibisual/shared';
 import fontData from './fonts/nanumgothic/NanumGothic-Regular.ttf?inline';
@@ -10,6 +10,13 @@ import { serializeModelSource, loadModelSource } from './modelSource.js';
 import { pinModelTexture, modelTextureReferences } from './modelTextureReferences.js';
 import { applyModelMaterial } from './modelMaterials.js';
 
+// Keep real procedural maps and the full source round trip without repeating production-size pixel fixtures
+// for every sign kind. materialQuality/proceduralMaterialPixels cover the default 512 and 1024 pixel bakes.
+vi.mock('./modelMaterials.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('./modelMaterials.js')>();
+  return { ...actual, createModelMaterial: (...args: Parameters<typeof actual.createModelMaterial>) => actual.createModelMaterial({ resolution: 128, ...args[0] }, args[1]) };
+});
+
 const font = parseSignFont(Uint8Array.from(atob(fontData.slice(fontData.indexOf(',') + 1)), char => char.charCodeAt(0)).buffer);
 const meshes = (root: THREE.Object3D): THREE.Mesh[] => { const result: THREE.Mesh[] = []; root.traverse(node => { if (node instanceof THREE.Mesh) result.push(node); }); return result; };
 const bake = (): THREE.CanvasTexture => {
@@ -20,8 +27,9 @@ const build = (recipe: Vibi3DSignRecipe, id = 'sign', sourceTexture?: THREE.Text
 describe('editable signs and channel glyphs', () => {
   it.each(VIBI3D_SIGN_KINDS)('%s is deterministic and round trips its recipe, geometry and embedded map', async kind => {
     const recipe = { ...defaultSignRecipe(kind), text: '모퉁이', lit: true }, first = build(recipe), second = build(recipe);
-    expect(JSON.stringify(serializeModelSource(first, [])) === JSON.stringify(serializeModelSource(second, []))).toBe(true);
-    const loaded = await loadModelSource(JSON.parse(JSON.stringify(serializeModelSource(first, [])))); expect(loaded.object.userData['vibi3dSignRecipe']).toEqual(first.userData['vibi3dSignRecipe']);
+    const firstJson = JSON.stringify(serializeModelSource(first, [])), secondJson = JSON.stringify(serializeModelSource(second, []));
+    expect(firstJson === secondJson).toBe(true);
+    const loaded = await loadModelSource(JSON.parse(firstJson)); expect(loaded.object.userData['vibi3dSignRecipe']).toEqual(first.userData['vibi3dSignRecipe']);
     expect(meshes(loaded.object).map(node => node.userData['vibi3dId'])).toEqual(meshes(first).map(node => node.userData['vibi3dId']));
     if (kind === 'projecting') { const back = meshes(first).find(node => node.name === 'lettering-back')!; expect(back.rotation.y).toBe(Math.PI); }
   });

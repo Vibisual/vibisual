@@ -374,6 +374,23 @@ describe('설치 동의 화면 — 언어를 고르고, 그 언어의 약관에 
 });
 
 describe('release publishing — 검증이 발행보다 앞선다', () => {
+  it('Linux 세 포장과 mac 업데이트 zip 은 실제 설치·실행 게이트에 들어간다', () => {
+    const release = read('.github/workflows/release.yml');
+    const smoke = read('.github/workflows/smoke.yml');
+    const uploads = release.slice(release.indexOf('- name: Upload installers for smoke'));
+    for (const suffix of ['*.rpm', '*-mac.zip']) expect(uploads).toContain(`packages/desktop/dist/${suffix}`);
+    expect(smoke).toContain('dnf -y install /artifact/*.rpm');
+    expect(smoke).toContain('runuser -u smoke -- xvfb-run');
+    expect(smoke).toContain('RESULT-RPM:');
+    expect(smoke).toContain('RESULT-ZIP:');
+    expect(smoke).not.toContain('이 릴리스에는 .deb 가 없다');
+    // Fixed runner labels alone cannot catch swapped or missing native modules.
+    expect(smoke).toContain('lipo -verify_arch');
+    expect(smoke).toContain('installed-smoke.cjs native');
+    expect(smoke).toContain('installed-smoke.cjs check');
+    expect(smoke).toContain('ref: ${{ env.TAG }}');
+  });
+
   it('자산은 draft 로 올라간다 (draft 면 업데이터가 못 읽는다 = 사용자에게 도달하지 않는다)', () => {
     const yml = read('packages/desktop/electron-builder.yml');
     const live = yml.split('\n').filter((line) => !line.trim().startsWith('#'));

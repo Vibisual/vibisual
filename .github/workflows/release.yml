@@ -314,8 +314,10 @@ jobs:
           path: |
             packages/desktop/dist/*-setup.exe
             packages/desktop/dist/*.dmg
+            packages/desktop/dist/*-mac.zip
             packages/desktop/dist/*.AppImage
             packages/desktop/dist/*.deb
+            packages/desktop/dist/*.rpm
           # 이미 압축된 설치본이라 다시 압축해 봐야 시간만 쓴다.
           compression-level: 0
           # 스모크는 릴리스 직후에 돈다. 손으로 옛 태그를 검증할 때만 만료가 문제인데,

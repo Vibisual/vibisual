@@ -12,8 +12,10 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 
 let renderer: ReactTestRenderer | undefined;
 let doc: EventTarget & { body: object };
+let win: EventTarget & { innerWidth: number; innerHeight: number };
 let inside: object;
 let regionNode: { contains: (node: unknown) => boolean };
+class MockElement {}
 
 function render(): void {
   act(() => {
@@ -47,10 +49,23 @@ function blur(relatedTarget: object | null): void {
   act(() => { region().props.onBlurCapture({ currentTarget: regionNode, relatedTarget }); });
 }
 
-function outsideTap(target: object): void {
+function press(target: object): void {
   const event = new Event('pointerdown');
-  Object.defineProperty(event, 'target', { value: target });
-  act(() => { doc.dispatchEvent(event); });
+  Object.defineProperties(event, {
+    target: { value: target },
+    clientX: { value: 100 },
+    clientY: { value: 100 },
+  });
+  act(() => { win.dispatchEvent(event); });
+}
+
+function release(): void {
+  act(() => { win.dispatchEvent(new Event('pointerup')); });
+}
+
+function outsideTap(target: object): void {
+  press(target);
+  release();
 }
 
 function expectRevealed(value: boolean): void {
@@ -63,9 +78,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   useProjectImmersionStore.getState().exit();
   doc = Object.assign(new EventTarget(), { body: {} });
-  inside = {};
+  win = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
+  inside = new MockElement();
   regionNode = { contains: (node) => node === inside || node === regionNode };
   vi.stubGlobal('document', doc);
+  vi.stubGlobal('window', win);
+  vi.stubGlobal('Element', MockElement);
 });
 
 afterEach(() => {
@@ -137,7 +155,11 @@ describe('immersive exit control', () => {
     expect(useProjectImmersionStore.getState().immersiveProject).toBe('project-a');
     outsideTap(inside);
     expectRevealed(true);
-    outsideTap({});
+    press(inside);
+    press(new MockElement());
+    expectRevealed(true);
+    release();
+    outsideTap(new MockElement());
     expectRevealed(false);
 
     pointer('onPointerDown', 'touch');

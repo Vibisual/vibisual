@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-20
+
+### Added
+- **Vibimage: edit images as layered sources.** Combine pictures, text and shapes, adjust individual layers, use photo tools, and export PNG or SVG in several sizes. Ask a project agent to change the whole image or a selected layer, compare its proposal with your source, and choose whether to accept it.
+- **Build and edit scenes in Vibi3D.** Open common 3D model formats, move and reshape objects, edit materials and lighting, add animation and camera paths, and save editable sources or export GLB. Architectural tools add buildings, storefronts, streets, signs with bundled Korean fonts, decals and reusable modules; saved camera shots can become still images or a video project.
+- **Vibi3D keeps your edits and AI drafts separately.** Drafts save automatically and can be reopened from version history after restarting. Review an AI draft before applying it to the source; concurrent changes are kept as separate drafts.
+- **Vibisound has a waveform and track editor.** Import audio, arrange and split clips, trim a selected range, adjust volume and fades, compare with the original, and export the mix or a range as WAV. An existing project agent can work with the document and selected range.
+- **Vibistudio has an editable video timeline.** Combine video, images, sound, text, SRT captions and motion graphics; move and trim clips, step by frame, adjust transitions and effects, and animate layers from an image source. Pin a note to an exact moment and position for the agent, compare saved versions, and restore a checkpoint.
+- **A video export queue with scheduling and presets.** Export whole videos, time ranges or selected scenes in landscape, portrait and square formats. Choose MP4, WebM, transparent WebM or WAV, control quality, size, frame rate and captions, and save your naming and output-folder settings as a preset. Queue, pause, resume or schedule renders; interrupted and missed jobs remain available to start again.
+- **Talk to an agent directly on the canvas.** Switch its bubble to a speech balloon, choose which connected apps receive the request, and start a separate task or a copy of the current one. Task history lets you return to earlier work.
+- **Find, replace and navigate in the code editor.** Search with case, whole-word and regular-expression options, replace one match or all, jump to a line and column, and use familiar shortcuts for moving, copying, indenting and commenting lines.
+- **Link session memos to the work they describe.** Link selected memo text to a message or passage, another session, a file or a web address. Closed memos can be reopened from that session's memo history.
+
+### Changed
+- **The canvas shows how creative work fits together.** App nodes show previews and connected scenes, materials and earlier results, including which item an agent is working on. Related files group around their source, and you can focus on work files or connected items, or hide bubbles and lines while keeping their connections.
+- **Image and 3D sources can be reused across creative apps.** Connected work keeps the source revision it uses; when that source changes, you can apply the newer version or keep the existing one.
+- **Creative app windows can move between the workspace and separate desktop windows.** Drag a detached window back into the app to merge it, with its current document carried along. Controls and panels adapt to narrower windows and touch input.
+- **Project immersive mode** hides the surrounding workspace controls to make more room for the project. Escape leaves the mode.
+
+### Fixed
+- **Moving or closing a creative editor preserves pending work.** Window transfers wait for the editor to save, unsaved changes are checked before closing, and a failed save keeps the editor available to retry.
+- **Quitting waits for pending drafts to reach disk.** If a window cannot confirm its save, you can retry or cancel quitting instead of silently losing those edits.
+- **Following a source link in the conversation goes to the referenced lines and keeps them highlighted.** Agent edits can still be followed without taking focus away from the command you are typing.
+
 ## [0.2.3] - 2026-10-04
 
 ### Added
@@ -735,7 +759,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/Vibisual/vibisual/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Vibisual/vibisual/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Vibisual/vibisual/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Vibisual/vibisual/compare/v0.2.0...v0.2.1
