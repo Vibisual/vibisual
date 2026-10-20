@@ -55,6 +55,19 @@ interface LabelReference {
 
 const LABEL_REFERENCES: readonly LabelReference[] = [
   {
+    // §5.4 #36 (I) — 앱 작업 보기의 접힌 개수 점 툴팁. 모두 보이게 하는 메뉴 줄([작업 파일 위주로 보기])을 가리키는데,
+    // 그 메뉴 이름도 로케일마다 번역되므로 메뉴 라벨에서 받아 적는다.
+    key: 'canvas.appWork.foldedHint',
+    slots: { label: 'canvas.bubbleMenu.lensFiles' },
+    forbidden: ['Focus on work files'],
+  },
+  // §5.13 (AA) 42-5 — 대기열의 멈춘 줄 안내 셋. 누를 단추([지금 시작])의 이름도 로케일마다 번역되므로 그 라벨에서 받아 적는다.
+  ...(['held_user', 'held_missed', 'held_interrupted'] as const).map((held): LabelReference => ({
+    key: `panel.videoStudio.export.queue.${held}`,
+    slots: { start: 'panel.videoStudio.export.queue.startNow' },
+    forbidden: ['Start now'],
+  })),
+  {
     // §4 앱 테마 — 내 테마 구역의 안내문 둘. 파일을 고친 뒤 누를 버튼([다시 읽기])을 가리키는데,
     // 그 버튼 이름도 로케일마다 번역되므로 버튼 라벨에서 받아 적는다.
     key: 'panel.options.theme.custom.desc',
@@ -65,6 +78,13 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     key: 'panel.options.theme.custom.createdHint',
     slots: { reload: 'panel.options.theme.custom.reload' },
     forbidden: ['Reload themes'],
+  },
+  {
+    // §5.23 웹 버블 묶기 — 옵션창 [비슷한 종류끼리 묶기] 설명. 종류를 모르는 사이트가 가는 버블("그 밖의 웹")을
+    // 가리키는데, 그 제목도 캔버스에서 로케일마다 번역되므로 버블 제목 키에서 받아 적는다.
+    key: 'panel.options.advanced.webGroupByKindDesc',
+    slots: { other: 'canvas.webFold.rest' },
+    forbidden: ['Other web'],
   },
   {
     // §5.25 (M) — 코덱스 훅 목록 아래 안내문. 우리 훅을 켜고 끄는 자리는 옵션창 엔진 칸 하나뿐이라

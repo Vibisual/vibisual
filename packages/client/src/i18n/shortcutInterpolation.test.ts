@@ -52,6 +52,11 @@ const SHORTCUT_STRINGS: ReadonlyArray<{ key: string; vars: readonly string[]; ev
   { key: 'panel.commandQueue.placeholder', vars: ['paste'], everyLocale: true },
   { key: 'ide.diff.commentPlaceholder', vars: ['shortcut'], everyLocale: true },
   { key: 'common.preview.pickPlaceholder', vars: ['shortcut'], everyLocale: true },
+  // §5.5 #17-36 ⑫ — 메모 링크를 따라가는 손버릇(Ctrl/Cmd+클릭). 표기는 `shortcutLabel('Ctrl')` 이 넣는다.
+  { key: 'ide.memo.link.followHint', vars: ['shortcut'], everyLocale: true },
+  { key: 'ide.memo.link.followTitle', vars: ['shortcut'], everyLocale: true },
+  // §5.5 #17 — 명령 입력칸 x 의 되돌리기 안내. 표기는 `shortcutLabel('Ctrl+Z')` 가 넣는다.
+  { key: 'ide.mainArea.inputClearUndoHint', vars: ['shortcut'], everyLocale: true },
   // en 에만 있고 나머지는 en 으로 폴백하는 키 — 있는 로케일에서만 검사한다.
   { key: 'panel.options.advanced.terminalScrollbackDesc', vars: ['shortcut'], everyLocale: false },
   // 창 배치 힌트 두 개는 en·ko 에만 있다. 변수 이름이 컴포넌트와 어긋나면 화면에 `{{max}}` 가
