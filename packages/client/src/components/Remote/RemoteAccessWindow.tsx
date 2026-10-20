@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { ChatBridgeState, ChatChannelKind, MobileAccessState } from '@vibisual/shared';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { WINDOW_NAV_BODY, WINDOW_NAV_LIST, WINDOW_NAV_PANE, windowNavItemClass } from '../Layout/windowNav.js';
 import { MobileAccessSection } from './MobileAccessSection';
 import { ChatChannelSection } from './ChatChannelSection';
 
@@ -152,27 +153,23 @@ export function RemoteAccessWindow({ open, onClose }: RemoteAccessWindowProps): 
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
             aria-label={t('common.close', { defaultValue: 'Close' })}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
-        {/* Body — 좌측 사이드바 + 우측 패널 (옵션 창과 같은 뼈대) */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar — 폰에선 좁혀 본문 공간 확보 */}
-          <div className="w-44 shrink-0 overflow-y-auto border-r border-gray-700/50 bg-gray-900/40 py-2 max-md:w-28">
+        {/* Body — 좌측 사이드바 + 우측 패널 (옵션 창과 같은 뼈대 — `windowNav` 한 벌). 폰에선 사이드바가 본문 위 가로 띠. */}
+        <div className={WINDOW_NAV_BODY}>
+          {/* Sidebar */}
+          <div className={WINDOW_NAV_LIST}>
             {CATEGORIES.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setCategory(c)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
-                  category === c
-                    ? 'border-l-2 border-blue-500 bg-blue-500/10 text-white'
-                    : 'border-l-2 border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-                }`}
+                className={windowNavItemClass(category === c)}
               >
                 <span className="text-gray-500"><CategoryIcon category={c} /></span>
                 <span className="min-w-0 flex-1 truncate">{labelOf(c)}</span>
@@ -183,7 +180,7 @@ export function RemoteAccessWindow({ open, onClose }: RemoteAccessWindowProps): 
           </div>
 
           {/* Right pane */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className={WINDOW_NAV_PANE}>
             {category === 'mobile'
               ? <MobileAccessSection state={mobileState} onState={setMobileState} />
               : <ChatChannelSection kind={category} state={chatState} onState={setChatState} />}

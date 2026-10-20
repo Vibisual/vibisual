@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { placeHoverTooltip } from './hoverTooltipPlacement.js';
+import { placeHoverTooltip, TOOLTIP_EDGE_MARGIN } from './hoverTooltipPlacement.js';
 import type { CommandId } from '@vibisual/shared';
 // §6 — 툴팁의 단축키 표시는 레지스트리에서 나온다(문구에 키를 적지 않는다).
 import { KeyHint } from '../Shortcuts/KeyHint.js';
@@ -112,7 +112,8 @@ export function HoverTooltip({
             style={{
               left: pos?.left ?? 0,
               top: pos?.top ?? 0,
-              maxWidth,
+              // 화면 폭을 넘지 않게 묶는다 — 360px 폰에서 maxWidth 360 상자가 오른쪽으로 8px 잘려 나갔다.
+              maxWidth: `min(${maxWidth}px, calc(100vw - ${2 * TOOLTIP_EDGE_MARGIN}px))`,
               // 실측 전(첫 프레임)에는 그리지 않는다 — 좌상단에 한 번 번쩍이는 것을 막는다.
               visibility: pos ? 'visible' : 'hidden',
             }}

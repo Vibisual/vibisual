@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Translation } from 'react-i18next';
 import { flushAllPersisted } from '../../utils/persistFlush.js';
+import { sendMainWindowReady } from '../../utils/mainWindowReadyNotify.js';
 
 interface AppErrorBoundaryProps {
   children: ReactNode;
@@ -25,6 +26,9 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   componentDidCatch(error: unknown, info: ErrorInfo): void {
     this.reportFailure('[AppErrorBoundary] UI rendering failed', error, info.componentStack);
     this.flushDrafts();
+    // §3.7 「시작 화면(스플래시)」 — 앱을 켜는 도중 화면이 무너졌으면 첫 화면 신호가 오지 않는다. 복구 화면이 스플래시
+    //   뒤에 숨어 상한까지 기다리지 않게 지금 알린다(본체 창이 아니거나 이미 보였으면 main 이 무시한다).
+    sendMainWindowReady();
   }
 
   private reportFailure(message: string, ...details: unknown[]): void {

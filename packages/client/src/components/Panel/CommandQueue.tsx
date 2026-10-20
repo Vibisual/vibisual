@@ -236,18 +236,19 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       {...backdrop}
     >
+      {/* 화면보다 길어지면(세션이 많을 때) 창이 화면 밖으로 자라지 않고 안에서 구른다. */}
       <div
-        className="mx-4 flex w-full max-w-lg flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-700 px-4 py-3">
           <span className="text-sm font-semibold text-gray-100">
             {step === 'select' ? t('panel.commandQueue.selectSession') : t('panel.commandQueue.newCommand')}
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
             aria-label={t('panel.commandQueue.close')}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -259,7 +260,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
 
         {/* Step 1: 세션 선택 */}
         {step === 'select' && (
-          <div className="flex flex-col gap-1.5 p-4">
+          <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto p-4">
             {loading ? (
               <p className="text-center text-xs text-gray-500">{t('panel.commandQueue.loading')}</p>
             ) : (
@@ -301,7 +302,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
 
         {/* Step 2: 명령 입력 */}
         {step === 'input' && (
-          <div className="p-4">
+          <div className="min-h-0 overflow-y-auto p-4">
             {/* 선택된 세션 표시 */}
             <div className="mb-3 flex items-center gap-2">
               <span className="flex-shrink-0 text-[12px] text-gray-500">{t('panel.commandQueue.session')}</span>
@@ -318,7 +319,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                 <button
                   type="button"
                   onClick={() => setStep('select')}
-                  className="flex-shrink-0 whitespace-nowrap text-[12px] text-gray-500 hover:text-gray-300"
+                  className="flex-shrink-0 whitespace-nowrap text-[12px] text-gray-500 hover:text-gray-300 pointer-coarse:min-h-8 pointer-coarse:px-1.5"
                 >
                   {t('panel.commandQueue.change')}
                 </button>
@@ -350,10 +351,10 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                     <button
                       type="button"
                       onClick={() => removeAttachment(a.tempId)}
-                      className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[12px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                      className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[12px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100 pointer-coarse:h-7 pointer-coarse:w-7 pointer-coarse:opacity-100"
                       aria-label={t('panel.commandQueue.removeAttachment')}
                     >
-                      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                      <svg className="h-2.5 w-2.5 pointer-coarse:h-3.5 pointer-coarse:w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
                       </svg>
@@ -492,7 +493,7 @@ function DraggableItem({
                     onClick={() => { if (!active) setCommandDispatchMode(agentId, cmd.id, m); }}
                     title={t(`ide.mainArea.dispatchModeTitle.${m}`)}
                     aria-pressed={active}
-                    className={`rounded px-1 py-px text-[12px] font-medium transition-colors ${
+                    className={`rounded px-1 py-px text-[12px] font-medium transition-colors pointer-coarse:min-h-7 pointer-coarse:px-2 ${
                       active
                         ? m === 'immediate'
                           ? 'bg-amber-500/20 text-amber-300'
@@ -527,7 +528,7 @@ function DraggableItem({
         <button
           type="button"
           onClick={() => removeCommand(agentId, cmd.id)}
-          className="flex-shrink-0 pt-0.5 text-[12px] text-gray-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+          className="flex-shrink-0 pt-0.5 text-[12px] text-gray-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 pointer-coarse:min-h-7 pointer-coarse:px-2 pointer-coarse:pt-0 pointer-coarse:opacity-100"
         >
           {t('panel.commandQueue.delete')}
         </button>
@@ -599,7 +600,7 @@ export const CommandQueue = memo(function CommandQueue({
           <button
             type="button"
             onClick={() => setShowPopup(true)}
-            className="flex h-5 w-5 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200"
+            className="flex h-5 w-5 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
             aria-label={t('panel.commandQueue.addCommand')}
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>

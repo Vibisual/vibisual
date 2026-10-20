@@ -5,12 +5,15 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 import type { ProjectInfo } from '@vibisual/shared';
 
 import { AppWindow, AppWindowHost } from './AppWindow.js';
-import { useAppWindowsStore, type AppWindow as AppWindowEntry } from './appWindows.js';
+import { openAppWindow, useAppWindowsStore, type AppWindow as AppWindowEntry } from './appWindows.js';
 import type { AppHash } from './appHash.js';
 import { useGraphStore } from '../stores/graphStore.js';
 import { useCanvasVisibilityStore } from '../stores/canvasVisibility.js';
+import { useProjectImmersionStore } from '../stores/projectImmersion.js';
 import { __resetCaptureWindowsForTest, closeTopCaptureWindow } from '../components/BubbleMap/captureWindowManager.js';
 import { WINDOW_PULL_OUT } from '../hooks/floatingWindowGeom.js';
+import { registerAppWindowCloseGuard } from './appWindowCloseGuard.js';
+import { registerAppWindowCloseRetention } from './appWindowCloseRetention.js';
 
 interface TestGraphState {
   activeProject: string | null;
@@ -126,17 +129,95 @@ beforeEach(() => {
   });
   useAppWindowsStore.setState({ windows: [windowA, windowB] });
   useCanvasVisibilityStore.setState({ covers: [], covered: false });
+  useProjectImmersionStore.getState().exit();
   __resetCaptureWindowsForTest();
 });
 afterEach(() => {
   act(() => view?.unmount());
   view = undefined;
+  useProjectImmersionStore.getState().exit();
   __resetCaptureWindowsForTest();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe('project-scoped internal app windows', () => {
+  it.each(['project', 'ide'])('restores the same unsaved fullscreen editor after %s immersion', (kind) => {
+    act(mountHost);
+    const instance = editor(windowA.id).props['data-host-instance'];
+    act(() => editor(windowA.id).props.onChange({ target: { value: 'Unsaved immersion draft' } }));
+    act(() => shell(windowA.id).findByProps({ title: 'panel.apps.window.maximize' }).props.onClick());
+    expect(useCanvasVisibilityStore.getState().covered).toBe(true);
+
+    act(() => {
+      if (kind === 'project') useProjectImmersionStore.getState().toggle('project-a');
+      else useProjectImmersionStore.getState().enterIDE('project-a', 'pane-a');
+    });
+    expect(shell(windowA.id).props.style.visibility).toBe('hidden');
+    expect(shell(windowA.id).props.style.display).not.toBe('none');
+    expect(shell(windowA.id).props.inert).toBe('');
+    expect(useCanvasVisibilityStore.getState().covered).toBe(false);
+    expect(closeTopCaptureWindow()).toBe(false);
+    expect(useAppWindowsStore.getState().windows).toHaveLength(2);
+
+    act(() => useProjectImmersionStore.getState().exit());
+    expectVisible(windowA.id);
+    expect(shell(windowA.id).props.style.visibility).toBeUndefined();
+    expect(shell(windowA.id).findByProps({ title: 'panel.apps.window.restore' })).toBeDefined();
+    expect(useCanvasVisibilityStore.getState().covers).toEqual(['app-window:window-a']);
+    expect(editor(windowA.id).props['data-host-instance']).toBe(instance);
+    expect(editor(windowA.id).props.value).toBe('Unsaved immersion draft');
+  });
+
+  it.each(['titlebar', 'escape'])('hides retained editor through %s and reopens the same unsaved scene', async (via) => {
+    const offGuard = registerAppWindowCloseGuard(windowA.id, () => true);
+    const offRetention = registerAppWindowCloseRetention(windowA.id, () => true);
+    try {
+      act(mountHost);
+      const instance = editor(windowA.id).props['data-host-instance'];
+      act(() => editor(windowA.id).props.onChange({ target: { value: 'Agent work' } }));
+      await act(async () => {
+        if (via === 'escape') expect(closeTopCaptureWindow()).toBe(true);
+        else shell(windowA.id).findByProps({ 'aria-label': 'panel.apps.window.close' }).props.onClick();
+      });
+      expect(shell(windowA.id).props.style.visibility).toBe('hidden');
+      expect(shell(windowA.id).props.style.display).not.toBe('none');
+      expect(editor(windowA.id).props['data-host-instance']).toBe(instance);
+      expect(closeTopCaptureWindow()).toBe(false);
+      act(() => { openAppWindow({ appId: windowA.appId, projectId: windowA.projectId, ref: windowA.ref }); });
+      expectVisible(windowA.id);
+      expect(editor(windowA.id).props.value).toBe('Agent work');
+      expect(editor(windowA.id).props['data-host-instance']).toBe(instance);
+    } finally { offGuard(); offRetention(); }
+  });
+
+  it('keeps an agent renderer mounted with layout but no visible or focusable window until explicitly opened', () => {
+    useAppWindowsStore.setState({ windows: [{ ...windowA, background: true }] });
+    act(mountHost);
+    const instance = editor(windowA.id).props['data-host-instance'];
+    expect(shell(windowA.id).props.style).toMatchObject({ visibility: 'hidden' });
+    expect(shell(windowA.id).props.style.display).not.toBe('none');
+    expect(shell(windowA.id).props['aria-hidden']).toBe(true);
+    expect(shell(windowA.id).props.inert).toBe('');
+    expect(useCanvasVisibilityStore.getState().covered).toBe(false);
+    expect(closeTopCaptureWindow()).toBe(false);
+    act(() => editor(windowA.id).props.onChange({ target: { value: 'Agent work' } }));
+
+    act(() => graph.setState({ activeProject: 'project-b' }));
+    act(() => { openAppWindow({ appId: windowA.appId, projectId: windowA.projectId, ref: windowA.ref }, { background: true }); });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
+    expect(shell(windowA.id).props.style.visibility).toBe('hidden');
+    expect(editor(windowA.id).props['data-host-instance']).toBe(instance);
+    act(() => graph.setState({ activeProject: 'project-a' }));
+
+    act(() => { openAppWindow({ appId: windowA.appId, projectId: windowA.projectId, ref: windowA.ref }); });
+    expectVisible(windowA.id);
+    expect(shell(windowA.id).props.style.visibility).toBeUndefined();
+    expect(editor(windowA.id).props['data-host-instance']).toBe(instance);
+    expect(editor(windowA.id).props.value).toBe('Agent work');
+    expect(mocks.hostSequence).toBe(1);
+  });
+
   it('shows only the active project and preserves both editors and unsaved drafts across A → B → A', () => {
     act(mountHost);
     expectVisible(windowA.id);
@@ -181,7 +262,7 @@ describe('project-scoped internal app windows', () => {
     expectVisible(windowB.id);
   });
 
-  it('Escape skips a hidden window even when its retained z-index is higher', () => {
+  it('Escape skips a hidden window even when its retained z-index is higher', async () => {
     const renderWindows = (showB: boolean) => createElement(Fragment, null,
       createElement(AppWindow, { win: windowA }),
       createElement(AppWindow, { win: windowB, visible: showB }),
@@ -191,10 +272,12 @@ describe('project-scoped internal app windows', () => {
     act(() => view!.update(renderWindows(false)));
     expectHidden(windowB.id);
     expect(shell(windowB.id).props.style.zIndex).toBeGreaterThan(shell(windowA.id).props.style.zIndex);
-    const stopPropagation = vi.fn();
-    act(() => emit('keydown', { key: 'Escape', stopPropagation }));
+    const stopImmediatePropagation = vi.fn();
+    const preventDefault = vi.fn();
+    await act(async () => emit('keydown', { key: 'Escape', stopImmediatePropagation, preventDefault }));
     expect(useAppWindowsStore.getState().windows).toEqual([windowB]);
-    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(preventDefault).toHaveBeenCalledOnce();
   });
 
   it('releases a hidden fullscreen window’s canvas cover and restores its mode on return', () => {

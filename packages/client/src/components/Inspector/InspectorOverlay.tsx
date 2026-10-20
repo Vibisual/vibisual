@@ -17,7 +17,10 @@ export function InspectorOverlay(): React.JSX.Element | null {
       : t('inspector.modeInspector');
 
   return (
-    <div id={INSPECTOR_OVERLAY_ID} className="pointer-events-none fixed inset-0 z-[99999]">
+    // §5.4 #15 (D) — 덮개는 **모든 층 위**(CSS 최댓값). 종전 `z-[99999]` 는 앱 안 창(1,000,000~)·권한 팝업(100,000~)·스튜디오
+    //   팝오버(2,100,000,000) 밑에 깔려, 그 위에서는 무엇을 집는지 상자도 말풍선도 안 보였다(사용자 보고 — 영상 스튜디오 창에서
+    //   "알트로 영역 선택이 안 된다", 세 번째 지시). 같은 값을 다른 층에 쓰지 말 것 — `inspectorOverlayLayer.test.ts` 가 지킨다.
+    <div id={INSPECTOR_OVERLAY_ID} className="pointer-events-none fixed inset-0 z-[2147483647]">
       {/* 영역 드래그 중이면 region 박스만 표시 */}
       {region && (
         <div

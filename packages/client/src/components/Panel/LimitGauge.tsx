@@ -42,6 +42,7 @@ export function LimitGauge({
   now,
   subdued,
   hint,
+  showRemaining,
 }: {
   label: string;
   used: number | undefined;
@@ -52,6 +53,8 @@ export function LimitGauge({
   subdued?: boolean;
   /** 게이지 아래 작은 한 줄. 카운트다운이 있으면 그쪽이 자리를 갖는다. */
   hint?: string;
+  /** Account allowances show both used and remaining amounts; hardware meters keep their current form. */
+  showRemaining?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const countdown = useCountdownLabel(resetAt, now);
@@ -67,7 +70,8 @@ export function LimitGauge({
         <span className={`font-mono font-bold tabular-nums ${subdued ? 'text-sm' : 'text-lg'} ${
           pct === null ? 'text-gray-600' : usageTextToneClass(pct)
         }`}>
-          {pct === null ? t('panel.usage.noValue') : `${pct.toFixed(0)}%`}
+          {pct === null ? t('panel.usage.noValue') : showRemaining
+            ? t('panel.usage.usedPercent', { percent: pct.toFixed(0) }) : `${pct.toFixed(0)}%`}
         </span>
       </div>
       <div className={`overflow-hidden rounded-full bg-gray-700/70 ${subdued ? 'h-1.5' : 'h-2'}`}>
@@ -75,7 +79,10 @@ export function LimitGauge({
           <div className={`h-full transition-all duration-500 ${usageBarToneClass(pct)}`} style={{ width: `${pct}%` }} />
         )}
       </div>
-      {footnote && <div className="text-[12px] text-gray-500">{footnote}</div>}
+      {(footnote || (showRemaining && pct !== null)) && <div className="flex flex-wrap justify-between gap-x-2 gap-y-1 text-[12px] text-gray-400">
+        {showRemaining && pct !== null && <span>{t('panel.usage.remainingPercent', { percent: (100 - pct).toFixed(0) })}</span>}
+        {footnote && <span>{footnote}</span>}
+      </div>}
     </div>
   );
 }

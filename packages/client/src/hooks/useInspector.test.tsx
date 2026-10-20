@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SiteProbeResult } from '../utils/inspectorSite.js';
+import { registerInspectorPicker, type InspectorPickLevel, type InspectorPickLevels } from '../utils/inspectorPick.js';
 import { useInspector } from './useInspector.js';
 
 // Exercise the hook's event/state flow without requiring a layout engine. Geometry and
@@ -470,5 +471,187 @@ describe('Alt inspector DOM target selection', () => {
     await act(async () => { resolveRemote(remoteResult()); });
     expect(result.info).toBeNull();
     expect(clipboard).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * §5.4 #15 (C) — 그린 화면(캔버스에 그린 영상 미리보기 같은 것)은 브라우저가 판 하나만 안다. 판을 그린 쪽이 공급자로 안쪽을 답하면
+ * 인스펙터는 판이 아니라 그 자리의 것을 집는다(사용자 보고 — "알트 누르면 화면 전부가 선택돼", 같은 지시 세 번).
+ */
+describe('Alt inspector inside a drawn surface (pick providers)', () => {
+  const part: InspectorPickLevel = { rect: { x: 5, y: 2, width: 40, height: 10 }, label: 'intro › subtitle', text: 'Vibisual · Vibistudio', clipboard: 'clip:subtitle' };
+  const item: InspectorPickLevel = { rect: { x: 0, y: 0, width: 100, height: 30 }, label: 'intro (scene:title)', text: '제목', clipboard: 'clip:intro' };
+  const unregister: Array<() => void> = [];
+  afterEach(() => { unregister.splice(0).forEach((off) => off()); });
+
+  function surfaceWith(answer: (at: { x: number; y: number; width: number; height: number }) => InspectorPickLevels | Promise<InspectorPickLevels>): { surface: Element; parent: Element; picker: ReturnType<typeof vi.fn> } {
+    const parent = element('studio-preview', 'DIV');
+    const surface = element('preview-surface', 'DIV', parent);
+    const picker = vi.fn(answer);
+    unregister.push(registerInspectorPicker(surface, picker));
+    return { surface, parent, picker };
+  }
+
+  it('picks the drawn part under the cursor instead of the whole surface, and copies its own text', async () => {
+    const { surface, picker } = surfaceWith(() => [part, item]);
+    hitAt = () => surface;
+    altDown();
+    hover(20);
+    // The provider is asked in surface-local visible pixels (surface box starts at 10,10).
+    expect(picker).toHaveBeenLastCalledWith({ x: 10, y: 10, width: 100, height: 30 });
+    expect(result.info?.tag).toBe('intro › subtitle');
+    expect(result.info?.text).toBe('Vibisual · Vibistudio');
+    expect(result.info?.rect.left).toBe(15);
+    expect(result.info?.rect.top).toBe(12);
+    await click(20);
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('clip:subtitle');
+    expect(result.copiedSummary).toBe('intro › subtitle');
+  });
+
+  it('wheels up from the part to its item, then to the surface element and its DOM parents', async () => {
+    const { surface } = surfaceWith(() => [part, item]);
+    hitAt = () => surface;
+    altDown();
+    hover(20);
+    parentByWheel();
+    expect(result.info?.tag).toBe('intro (scene:title)');
+    await click(20);
+    expect(clipboard).toHaveBeenLastCalledWith('clip:intro');
+    parentByWheel();
+    expect(result.info?.id).toBe('preview-surface');
+    parentByWheel();
+    expect(result.info?.id).toBe('studio-preview');
+    await click(20);
+    expect(clipboard).toHaveBeenLastCalledWith('selected:studio-preview');
+  });
+
+  it('resets the wheel depth when a different drawn thing is under the click', async () => {
+    const other: InspectorPickLevel = { ...part, label: 'intro › title', text: 'See your AI agents think.', clipboard: 'clip:title' };
+    const { surface } = surfaceWith((at) => (at.x < 40 ? [part, item] : [other, item]));
+    hitAt = () => surface;
+    altDown();
+    hover(20);
+    parentByWheel();
+    expect(result.info?.tag).toBe('intro (scene:title)');
+    await click(80);
+    expect(clipboard).toHaveBeenLastCalledWith('clip:title');
+    expect(result.info?.tag).toBe('intro › title');
+  });
+
+  it('falls back to the surface element itself where nothing is drawn', async () => {
+    const { surface } = surfaceWith(() => []);
+    hitAt = () => surface;
+    altDown();
+    hover(20);
+    expect(result.info?.id).toBe('preview-surface');
+    await click(20);
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('selected:preview-surface');
+  });
+
+  it('keeps buttons on top of a surface as ordinary DOM picks (only the surface itself asks)', async () => {
+    const { surface, picker } = surfaceWith(() => [part, item]);
+    const pin = element('note-pin', 'BUTTON', surface);
+    hitAt = () => pin;
+    altDown();
+    hover(20);
+    await click(20);
+    expect(picker).not.toHaveBeenCalled();
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('selected:note-pin');
+  });
+
+  it('asks an SVG surface registered with subtree even when the browser picks a shape inside it', async () => {
+    const editor = element('image-editor', 'DIV');
+    const svg = element('image-stage', 'svg', editor);
+    const shape = element('layer-text', 'text', element('layer-g', 'g', svg));
+    const picker = vi.fn(() => [part, item]);
+    unregister.push(registerInspectorPicker(svg, picker, { subtree: true }));
+    hitAt = () => shape;
+    altDown();
+    hover(20);
+    // The surface (not the picked shape) is the coordinate origin.
+    expect(picker).toHaveBeenLastCalledWith({ x: 10, y: 10, width: 100, height: 30 });
+    expect(result.info?.tag).toBe('intro › subtitle');
+    await click(20);
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('clip:subtitle');
+    parentByWheel();
+    parentByWheel();
+    expect(result.info?.id).toBe('image-stage');
+    parentByWheel();
+    expect(result.info?.id).toBe('image-editor');
+  });
+
+  it('clears an old large box while an async answer is pending, then draws the answer', async () => {
+    const big = Object.assign(element('studio-screen', 'DIV'), {
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 1600, bottom: 900, width: 1600, height: 900 }),
+    });
+    let resolve!: (levels: InspectorPickLevels) => void;
+    const { surface } = surfaceWith(() => new Promise<InspectorPickLevels>((done) => { resolve = done; }));
+    hitAt = (x) => (x < 50 ? big : surface);
+    altDown();
+    hover(20);
+    expect(result.info?.id).toBe('studio-screen');
+    hover(80);
+    expect(result.info).toBeNull();
+    await act(async () => { resolve([part, item]); });
+    expect(result.info?.tag).toBe('intro › subtitle');
+  });
+
+  it('does not draw a late answer for a point the cursor already left; it asks the latest point instead', async () => {
+    const answers: Array<(levels: InspectorPickLevels) => void> = [];
+    const { surface, picker } = surfaceWith(() => new Promise<InspectorPickLevels>((done) => { answers.push(done); }));
+    hitAt = () => surface;
+    altDown();
+    hover(20);
+    hover(60);
+    hover(70);
+    expect(picker).toHaveBeenCalledOnce();
+    await act(async () => { answers[0]!([part, item]); });
+    // The stale answer is dropped and only the last point (70) is asked again.
+    expect(result.info).toBeNull();
+    expect(picker).toHaveBeenCalledTimes(2);
+    expect(picker).toHaveBeenLastCalledWith({ x: 60, y: 10, width: 100, height: 30 });
+    await act(async () => { answers[1]!([item]); });
+    expect(result.info?.tag).toBe('intro (scene:title)');
+  });
+
+  it('still copies a deliberate click whose async answer arrives after Alt is released, but a newer click wins', async () => {
+    const answers: Array<(levels: InspectorPickLevels) => void> = [];
+    const { surface } = surfaceWith(() => new Promise<InspectorPickLevels>((done) => { answers.push(done); }));
+    const button = element('local-export');
+    hitAt = (x) => (x < 50 ? surface : button);
+    altDown();
+    await click(20);
+    act(() => { dispatch('keyup', { key: 'Alt', altKey: false }); });
+    await act(async () => { answers[0]!([part, item]); });
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('clip:subtitle');
+
+    altDown();
+    await click(20);
+    await click(80);
+    await act(async () => { answers[answers.length - 1]!([part, item]); });
+    expect(clipboard).toHaveBeenLastCalledWith('selected:local-export');
+    expect(clipboard).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a wheel event without vertical movement (horizontal swipe) instead of climbing to the parent', () => {
+    const header = element('studio-header', 'DIV');
+    const button = element('title', 'BUTTON', header);
+    hitAt = () => button;
+    altDown();
+    hover(20);
+    const event = dispatch('wheel', { deltaY: 0, clientX: 20, clientY: 20 });
+    expect(result.info?.id).toBe('title');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('treats the surface as a plain element again once its provider is removed', async () => {
+    const { surface, picker } = surfaceWith(() => [part, item]);
+    unregister.splice(0).forEach((off) => off());
+    hitAt = () => surface;
+    altDown();
+    hover(20);
+    await click(20);
+    expect(picker).not.toHaveBeenCalled();
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('selected:preview-surface');
   });
 });

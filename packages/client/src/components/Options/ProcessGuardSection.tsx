@@ -175,7 +175,7 @@ export function ProcessGuardSection({ onDirtyChange }: ProcessGuardSectionProps 
         </p>
       )}
 
-      <div className="flex items-center gap-2 pt-0.5">
+      <div className="flex flex-wrap items-center gap-2 pt-0.5">
         <button
           type="button"
           disabled={!dirty || busy !== null}

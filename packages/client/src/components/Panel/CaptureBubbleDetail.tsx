@@ -165,7 +165,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
                   <button
                     type="button"
                     onClick={() => removeClip(bubble.id, clip.id)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-gray-500 transition-colors hover:border-rose-500/40 hover:text-rose-300"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-gray-500 transition-colors hover:border-rose-500/40 hover:text-rose-300 pointer-coarse:h-9 pointer-coarse:w-9"
                     title={t('bubbleMap.capture.playtest.deleteClip', { defaultValue: '이 클립 버리기' })}
                     aria-label={t('bubbleMap.capture.playtest.deleteClip', { defaultValue: '이 클립 버리기' })}
                   >

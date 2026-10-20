@@ -35,8 +35,8 @@ function payloadBlock(): string {
 /**
  * 미설정을 `undefined` 로 접으면 안 되는 축 — **설정 창에 같은 칸이 있어 위층이 값을 가질 수
  * 있는 것들.** 위층이 없는 축(`customMode`·`memory`·`subagentDepth`)은 되돌릴 상위값 자체가
- * 없으므로 이 목록에 넣지 않는다. `effort`·`contextWindow` 는 Opus 가 아닐 때만 접히는데
- * 그때는 축 자체가 무의미해 제외한다.
+ * 없으므로 이 목록에 넣지 않는다. `effort` 는 Effort 칸이 닫힌 모델(클로드 네 패밀리 밖)에서만,
+ * `contextWindow` 는 Opus 가 아닐 때만 접히는데 그때는 축 자체가 무의미해 제외한다.
  */
 const MUST_NOT_FOLD = [
   'agentCanCompact',

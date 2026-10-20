@@ -4,10 +4,14 @@ import { WindowControls } from '../components/Layout/WindowControls.js';
 import { AppShellHost } from './AppShellHost.js';
 import { parseAppHash, type AppHash } from './appHash.js';
 import { getInternalApp } from './registry.js';
-import { prepareAppWindowTransfer } from './appWindowTransfer.js';
+import { finishAppWindowTransfer, prepareAppWindowTransfer } from './appWindowTransfer.js';
 import { subscribeAppWindowDragRelease } from './useAppWindowRedock.js';
 import { AppChromeContext, useAppChromeHost, useAppChromeSlotGestures } from './appChrome.js';
 import { AttentionFlash } from '../components/Layout/AttentionFlash.js';
+import { DETACHED_APP_WINDOW } from './appWindowCloseGuard.js';
+import { isAppWindowCloseRetained, requestAppWindowClose } from './appWindowCloseRetention.js';
+import { getAppWindowTarget } from './appWindowLifecycle.js';
+import { appWindowKey } from './appWindowFocus.js';
 import type { TitleBarPress } from '../hooks/useFloatingWindow.js';
 
 /** 제목줄에서 끌기·두 번 눌러 최대화를 시작하지 않는 자손 — 입력·단추는 제 일을 한다(앱 안 창의 판정과 같다). */
@@ -17,6 +21,7 @@ const TITLE_NO_DRAG = 'button,input,select,textarea,a,[data-window-nodrag]';
 export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.Element {
   const { t } = useTranslation();
   const [hash, setHash] = useState(initial);
+  const hashRef = useRef(hash); hashRef.current = hash;
   const [error, setError] = useState(false);
   const [returning, setReturning] = useState(false);
   const dragCleanup = useRef<(() => void) | null>(null);
@@ -29,6 +34,11 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
     if (hash.mode !== 'main') return;
     document.title = windowTitle;
   }, [hash.mode, windowTitle]);
+
+  // OS close/Alt-F4 must ask the same editor as the custom title bar.
+  useEffect(() => window.api?.app?.onCloseRequested?.(() => {
+    void requestAppWindowClose(DETACHED_APP_WINDOW, () => window.api?.window?.closeSelf());
+  }), []);
 
   useEffect(() => {
     const api = window.api?.app;
@@ -43,8 +53,34 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
           return;
         }
         accepting = true;
+        let prepared = false; let transferred = false;
         try {
-          const prepared = await prepareAppWindowTransfer('@detached');
+          const current = hashRef.current;
+          const app = getInternalApp(current.appId);
+          const target = getAppWindowTarget(DETACHED_APP_WINDOW) ?? {
+            ref: app ? current.params[app.refKey] : undefined, file: current.params['file'], draftKey: current.params['draftKey'],
+          };
+          const nextRef = app ? next.params[app.refKey] : undefined;
+          const sameDocument = !!target.ref && target.ref === nextRef;
+          const sameTarget = next.mode === current.mode
+            && appWindowKey({ appId: current.appId, projectId: current.params['projectId'] ?? '',
+              ref: target.ref, file: sameDocument ? undefined : target.file, draftKey: target.draftKey })
+              === appWindowKey({ appId: next.appId, projectId: next.params['projectId'] ?? '',
+                ref: nextRef, file: sameDocument ? undefined : next.params['file'], draftKey: next.params['draftKey'] });
+          if (sameTarget) {
+            // Reveal the existing editor. Saving or remounting here would take control of agent work.
+            const accepted = !payload.requestId || await api.ackTarget?.(payload.requestId, true);
+            // The native acknowledgement adopts the caller's params. An ordinary document open
+            // may not know the live draft key; retain it for the next redock without remounting.
+            if (accepted && target.draftKey && api.updateTarget) await api.updateTarget({ ...next.params, draftKey: target.draftKey });
+            return;
+          }
+          if (isAppWindowCloseRetained(DETACHED_APP_WINDOW)) {
+            if (payload.requestId) await api.ackTarget?.(payload.requestId, false);
+            if (alive) setError(true);
+            return;
+          }
+          prepared = await prepareAppWindowTransfer('@detached');
           if (!alive || !prepared) {
             if (alive) setError(true);
             if (payload.requestId) await api.ackTarget?.(payload.requestId, false);
@@ -52,22 +88,31 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
           }
           // Do not replace a live editor if its request expired while it was saving.
           if (payload.requestId && !await api.ackTarget?.(payload.requestId, true)) return;
-          if (alive) { setHash(next); setError(false); }
-        } finally { accepting = false; }
+          if (alive) { transferred = true; setHash(next); setError(false); }
+        } finally { if (prepared) finishAppWindowTransfer('@detached', transferred); accepting = false; }
       })().catch(() => { if (alive) setError(true); });
     });
     const offDrag = subscribeAppWindowDragRelease(api);
-    return () => { alive = false; offTarget?.(); offDrag(); dragCleanup.current?.(); };
+    const offSettled = api.onTransferSettled?.(event => {
+      if (event.appId !== initial.appId) return;
+      finishAppWindowTransfer('@detached', event.transferred); setReturning(false);
+    });
+    return () => { alive = false; offTarget?.(); offDrag(); offSettled?.(); dragCleanup.current?.(); };
   }, [initial.appId]);
 
   const redock = useCallback(async (): Promise<void> => {
     if (returning) return;
     setReturning(true); setError(false);
+    let prepared = false; let requested = false;
     try {
-      const prepared = await prepareAppWindowTransfer('@detached');
-      if (!prepared || !await window.api?.app?.redock?.()) setError(true);
+      prepared = await prepareAppWindowTransfer('@detached');
+      requested = prepared && !!await window.api?.app?.redock?.();
+      if (!requested) setError(true);
     } catch { setError(true); }
-    finally { setReturning(false); }
+    finally {
+      // redock() only queues delivery. Native ACK/cancellation, not this IPC reply, settles ownership.
+      if (!requested) { if (prepared) finishAppWindowTransfer('@detached'); setReturning(false); }
+    }
   }, [returning]);
 
   const startDrag = useCallback((event: TitleBarPress): void => {
@@ -88,7 +133,7 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
     };
     const up = (): void => {
       cleanup();
-      if (started) void api.endDrag?.().catch(() => undefined);
+      if (started) void api.endDrag?.().then(ok => { if (!ok) finishAppWindowTransfer('@detached'); }, () => finishAppWindowTransfer('@detached'));
     };
     const move = (mouse: MouseEvent): void => {
       if (!(mouse.buttons & 1)) { up(); return; }
@@ -96,10 +141,10 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
       preparing = true;
       void (async () => {
         if (!await prepareAppWindowTransfer('@detached')) { setError(true); cleanup(); return; }
-        if (ended) return;
+        if (ended) { finishAppWindowTransfer('@detached'); return; }
         started = true;
-        try { if (!await api.startDrag!()) { started = false; cleanup(); } }
-        catch { setError(true); cleanup(); }
+        try { if (!await api.startDrag!()) { started = false; cleanup(); finishAppWindowTransfer('@detached'); } }
+        catch { setError(true); cleanup(); finishAppWindowTransfer('@detached'); }
       })();
     };
     dragCleanup.current = cleanup;
@@ -132,7 +177,7 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
   // Rendering stages do not get window chrome or different dimensions.
   if (hash.mode !== 'main') return <AppShellHost hash={hash} />;
   const Icon = app?.icon;
-  return <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-950 text-white">
+  return <div className="flex h-dvh w-screen flex-col overflow-hidden bg-gray-950 text-white">
     <div data-app-window-titlebar="" className={`${window.api?.app?.startDrag ? 'app-nodrag' : 'app-drag'} flex h-10 shrink-0 cursor-grab select-none items-center gap-2 border-b border-white/10 bg-slate-900 px-3 active:cursor-grabbing`}
       onMouseDown={startDrag}
       onDoubleClick={toggleMaximize}
@@ -141,8 +186,9 @@ export function DetachedAppWindow({ initial }: { initial: AppHash }): React.JSX.
       {!chromeHost.claimed ? <span className="min-w-0 truncate text-[13px] font-semibold">{windowTitle}</span> : null}
       {/* (V) 37-1 머리줄 자리 — 앱이 쓰지 않으면 빈 칸이다. */}
       <div ref={chromeHost.slotRef} data-app-chrome-slot="" className="flex min-w-0 flex-1 items-center gap-2" />
+      {/* 좁은 별창에서도 한 줄로 — 머리줄 자리(flex-1)가 먼저 줄고 이 단추는 줄지 않는다. */}
       {window.api?.app?.redock && <button type="button" disabled={returning} onClick={() => { void redock(); }}
-        className="rounded px-2 py-1 text-xs text-slate-300 hover:bg-white/10 disabled:opacity-40" title={t('panel.apps.window.redock')}>
+        className="shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs text-slate-300 hover:bg-white/10 disabled:opacity-40 pointer-coarse:py-2" title={t('panel.apps.window.redock')}>
         {t('panel.apps.window.redock')}
       </button>}
       <WindowControls />

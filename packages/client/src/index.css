@@ -8,6 +8,15 @@
    경로는 이 CSS 파일 기준 상대경로이며, 새 플러그인은 전부 이 경로 아래로 들어오므로 추가 등록이 필요 없다. */
 @source "../../plugins/src/**/*.{ts,tsx}";
 
+/* 상자 폭 변형 — 앱 창·별창 안쪽처럼 **뷰포트가 아니라 그 상자의 폭**으로 접는 자리. `hooks/useBoxTier.ts` 가
+   상자를 재서 `data-box` 토큰을 달고, 자손은 `box-compact:`(1024px 미만) · `box-narrow:`(640px 미만, compact 를 겸한다) ·
+   `box-wide:`(1600px 이상)로 읽는다. 기준 숫자는 `utils/boxTier.ts` 한 곳 — 여기는 토큰 이름만 안다.
+   `@container` 를 쓰지 않는 이유: Chromium 126 의 `container-type` 상자는 fixed 자손을 화면이 아니라 자기 기준으로
+   세운다(2026-10-17 실측) — 앱 화면 안에서 포털 없이 뜨는 메뉴가 창 위치만큼 밀린다. 등록 순서 = 우선순위(narrow 가 이긴다). */
+@custom-variant box-compact (&:where([data-box~="compact"] *));
+@custom-variant box-narrow (&:where([data-box~="narrow"] *));
+@custom-variant box-wide (&:where([data-box~="wide"] *));
+
 @theme {
   /* 끝에서 셋째 무리(Noto Sans SC·JP·Devanagari)가 §5.5 #17-22 ⑤-3 **문자 폴백**이다.
      앞의 동봉본은 전부 라틴+한글이라 中文·日本語·हिन्दी 는 걸리는 글꼴이 하나도 없었고,
@@ -144,6 +153,20 @@ html:lang(hi) {
   app-region: no-drag;
 }
 
+/* 로고의 배경·점·글자 모두 기존 제목줄과 같은 OS 창 이동 영역이다.
+ * 장식은 포인터를 가로채지 않으며, 페이지까지 온 누름은 부모 app-drag 의 공통 보조 처리가 받는다. */
+.app-titlebar-handle,
+.app-titlebar-handle * {
+  -webkit-app-region: drag;
+  app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.app-titlebar-handle * {
+  pointer-events: none;
+}
+
 /* §5.4 #14-2 / §5.5 #16-1 (E) — **꾹 눌러 항목을 집어 든 동안.**
  *
  * 두 가지를 함께 막는다.
@@ -164,7 +187,9 @@ body.vib-pointer-drag {
   user-select: none;
 }
 body.vib-pointer-drag .app-drag,
-body.vib-pointer-drag .app-drag * {
+body.vib-pointer-drag .app-drag *,
+body.vib-titlebar-drag .app-drag,
+body.vib-titlebar-drag .app-drag * {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -313,6 +338,22 @@ body.vib-pointer-drag .app-drag * {
 
 @utility animate-slide-in-left {
   animation: slide-in-left 0.2s ease-out both;
+}
+
+/* 폰 바텀시트 — 옆 패널이 폰에서 아래 시트로 바뀌면 들어오는 방향도 아래에서 위다(옆에서 밀려 들어오면 어색하다). */
+@keyframes slide-in-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@utility animate-slide-in-up {
+  animation: slide-in-up 0.2s ease-out both;
 }
 
 @utility animate-float {
@@ -801,6 +842,20 @@ body.vib-pointer-drag .app-drag * {
   background: color-mix(in srgb, var(--color-slate-500) 30%, transparent);
 }
 
+/* A moving ellipsis reveals whole glyphs in steps as a tab expands. Clip the
+ * text continuously through a soft edge instead. The trailing space lets the
+ * mask clear the final glyph naturally once the full name fits. */
+.tab-selection-label {
+  --tab-label-fade: 16px;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  padding-right: var(--tab-label-fade);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--tab-label-fade)), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--tab-label-fade)), transparent 100%);
+}
+
 /* ─── 스크롤 페이드 — 물결 그라데이션 + 애니메이션 ─── */
 
 .scroll-fade {
@@ -820,8 +875,9 @@ body.vib-pointer-drag .app-drag * {
   transition: opacity 0.4s ease;
 }
 
-.scroll-fade-top.visible,
-.scroll-fade-bottom.visible {
+/* Only opacity changes here. Tailwind's `visible` utility would override a hidden app window. */
+.scroll-fade-top.scroll-fade-shown,
+.scroll-fade-bottom.scroll-fade-shown {
   opacity: 1;
 }
 
@@ -852,8 +908,8 @@ body.vib-pointer-drag .app-drag * {
   transition: opacity 0.4s ease;
 }
 
-.scroll-fade-left.visible,
-.scroll-fade-right.visible {
+.scroll-fade-left.scroll-fade-shown,
+.scroll-fade-right.scroll-fade-shown {
   opacity: 1;
 }
 
@@ -1007,14 +1063,17 @@ body.vib-pointer-drag .app-drag * {
 /* 제한 있음 — 넓어야 값이 있는 것만 칼럼 밖으로. 좁은 칼럼에 갇힌 코드는 읽으라고 만든 것이 아니다. */
 :root[data-ide-layout='breakout'] .ide-stream:is([data-ide-prose], [data-ide-wide]) > *,
 /* 코드 블록은 복사 버튼 래퍼(`.ide-breakout`)가 그리드의 직접 자식이라 표식이 거기 붙는다.
- * 표(<table>)는 마크다운이 그대로 내보내므로 요소 선택자로 잡는다. */
+ * 표도 이제 가로 스크롤 래퍼(`.ide-breakout` — StreamRenderer `MarkdownTable`)에 싸여 나온다(좁은 칸에서 열 많은
+ * 표가 대화 칸 밖으로 삐져나가지 않게). `table` 요소 선택자는 래퍼 없이 그려지는 표를 위해 그대로 둔다. */
 :root[data-ide-layout='breakout'] .ide-md > :is(pre, table, .ide-breakout) {
   grid-column: 1 / -1;
 }
 
-/* 타이포그래피 — 본문(.ide-md)에만 먹인다. 코드 블록은 자체 행간·자간을 지키므로 제외한다
+/* 타이포그래피 — 본문(.ide-md)과 원문 말풍선(.ide-prompt-text, 임시 전체 보기 포함)이 함께 따른다.
+ * 코드 블록은 자체 행간·자간을 지키므로 제외한다
  * (코드는 산문과 시선 이동 패턴이 다르다는 별개 근거 — 산문 규칙을 코드에 적용하지 않는다). */
-.ide-md {
+.ide-md,
+.ide-prompt-text {
   font-family: var(--ide-reading-font, var(--font-sans));
   line-height: var(--ide-line-height, 1.7);
   letter-spacing: var(--ide-letter-spacing, 0);
@@ -1035,9 +1094,9 @@ body.vib-pointer-drag .app-drag * {
   margin-bottom: var(--ide-paragraph-spacing, 0.9em);
 }
 
-/* 코드 블록은 래퍼(.ide-breakout)가 간격을 소유한다 — 안쪽 <pre> 의 기본 마진까지 살아 있으면
- * 슬라이더 값에 프리셋 마진이 얹혀 두 배로 벌어진다. */
-.ide-md > .ide-breakout > pre {
+/* 코드 블록·표는 래퍼(.ide-breakout)가 간격을 소유한다 — 안쪽 <pre>·<table> 의 기본 마진(prose 의 표는 위아래
+ * 2em)까지 살아 있으면 슬라이더 값에 프리셋 마진이 얹혀 두 배로 벌어진다. */
+.ide-md > .ide-breakout > :is(pre, table) {
   margin-top: 0;
   margin-bottom: 0;
 }

@@ -16,6 +16,9 @@ import type { PreviewSnip } from './usePreviewSnip.js';
 
 interface Point { x: number; y: number }
 
+/** 크기 표시(`-top-5`, 20px)가 상자 위에 들어갈 자리 — 상자 윗변이 이보다 위쪽이면 상자 안쪽으로 내린다. */
+const SNIP_SIZE_LABEL_ROOM_PX = 20;
+
 export function PreviewSnipOverlay({ snip }: { snip: PreviewSnip }): React.JSX.Element | null {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -86,7 +89,7 @@ export function PreviewSnipOverlay({ snip }: { snip: PreviewSnip }): React.JSX.E
       className="absolute inset-0 z-20 cursor-crosshair bg-sky-500/10"
     >
       {box === null && (
-        <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded bg-gray-950/85 px-2 py-0.5 text-[12px] text-sky-200">
+        <div className="pointer-events-none absolute left-1/2 top-2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded bg-gray-950/85 px-2 py-0.5 text-center text-[12px] text-sky-200">
           {t('common.preview.snipHint')}
         </div>
       )}
@@ -95,7 +98,13 @@ export function PreviewSnipOverlay({ snip }: { snip: PreviewSnip }): React.JSX.E
           className="pointer-events-none absolute border border-sky-300 bg-sky-400/20"
           style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
         >
-          <span className="absolute -top-5 left-0 whitespace-nowrap rounded bg-gray-950/85 px-1 text-[12px] text-sky-200">
+          {/* 크기 표시는 상자 위에 붙인다 — 상자가 위쪽 가장자리에 붙어 그 자리가 없으면 상자 안쪽 위로 내린다
+              (밖에 두면 프리뷰 칸의 `overflow-hidden` 에 잘려 숫자가 안 보였다). */}
+          <span
+            className={`absolute whitespace-nowrap rounded bg-gray-950/85 px-1 text-[12px] text-sky-200 ${
+              box.top < SNIP_SIZE_LABEL_ROOM_PX ? 'left-1 top-1' : '-top-5 left-0'
+            }`}
+          >
             {Math.round(box.width)} × {Math.round(box.height)}
           </span>
         </div>

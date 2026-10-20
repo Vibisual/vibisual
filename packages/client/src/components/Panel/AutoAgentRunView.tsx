@@ -58,7 +58,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
   return (
     <div className="flex flex-col gap-2">
       {/* 머리 — 제목 + 게이트 점검 */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <div className="flex items-center gap-1.5">
           <ShieldIcon />
           <span className="text-xs font-semibold text-gray-300">{t('panel.autoAgent.run.title')}</span>
@@ -67,7 +67,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
           type="button"
           onClick={runSelfTest}
           disabled={selfTest?.running}
-          className="flex items-center gap-1 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-400 transition-colors hover:border-gray-500 hover:text-gray-200 disabled:opacity-50"
+          className="flex items-center gap-1 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-400 transition-colors hover:border-gray-500 hover:text-gray-200 disabled:opacity-50 pointer-coarse:min-h-8"
           title={t('panel.autoAgent.run.selfTestTip')}
         >
           <BeakerIcon />
@@ -89,19 +89,21 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
           </div>
           <ul className="flex flex-col gap-0.5">
             {selfTest?.checks.map((c) => (
-              <li key={c.id} className="flex items-center gap-1.5 font-mono text-[12px]">
+              <li key={c.id} className="flex flex-wrap items-center gap-x-1.5 font-mono text-[12px]">
                 {c.pass ? <CheckIcon /> : <CrossIcon />}
                 <span className="text-gray-400">{c.id}</span>
-                <span className="text-gray-600">→ {c.actual}</span>
+                <span className="min-w-0 break-all text-gray-600">→ {c.actual}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* 지표 3줄 — 개입이 줄었는지는 느낌이 아니라 숫자로 본다 */}
+      {/* 지표 3줄 — 개입이 줄었는지는 느낌이 아니라 숫자로 본다.
+          칸 하나가 72px 아래로 줄면 다음 줄로 내린다 — 상세 패널은 240px 까지 좁아지고 폰은 바텀시트라
+          화면 폭이 아니라 칸 폭으로 접어야 한다(평소 폭에서는 세 칸 한 줄 그대로). */}
       {metrics.total > 0 && (
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1.5">
           <MetricCell
             label={t('panel.autoAgent.run.metricHandsOff')}
             value={metrics.handsOffRate === null ? '—' : `${metrics.handsOffRate}%`}
@@ -139,7 +141,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
                 >
                   <ChevronIcon open={isOpen} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-x-1.5">
                       <span className="text-[12px] font-semibold uppercase tracking-wide">
                         {t(`panel.autoAgent.run.status.${run.status}`)}
                       </span>

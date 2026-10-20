@@ -79,7 +79,9 @@ export function NumberStepper({
     onChange(clamp(parsed));
   }, [clamp, onChange]);
 
-  const buttonClass = 'flex flex-1 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:pointer-events-none disabled:opacity-30';
+  // 터치(굵은 포인터)에서는 위/아래 반쪽(20×14px)을 손가락으로 못 맞춘다 — 그때만 두 단추를 옆으로 눕혀
+  //   36px 칸 둘(▼ ▲)로 편다. 마우스 화면은 종전 그대로다.
+  const buttonClass = 'flex flex-1 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:pointer-events-none disabled:opacity-30 pointer-coarse:w-9';
 
   return (
     <span
@@ -96,9 +98,9 @@ export function NumberStepper({
         disabled={disabled}
         aria-label={ariaLabel}
         onChange={(e) => handleInput(e.target.value)}
-        className={`${widthClassName} min-w-0 bg-transparent px-2 py-1.5 text-right text-xs text-gray-100 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
+        className={`${widthClassName} min-w-0 bg-transparent px-2 py-1.5 text-right text-xs text-gray-100 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none pointer-coarse:py-2.5`}
       />
-      <span className="flex w-5 shrink-0 flex-col border-l border-gray-700">
+      <span className="flex w-5 shrink-0 flex-col border-l border-gray-700 pointer-coarse:w-auto pointer-coarse:flex-row-reverse">
         <button
           type="button"
           tabIndex={-1}
@@ -125,7 +127,7 @@ export function NumberStepper({
           onPointerUp={stopHold}
           onPointerLeave={stopHold}
           onPointerCancel={stopHold}
-          className={`${buttonClass} border-t border-gray-700`}
+          className={`${buttonClass} border-t border-gray-700 pointer-coarse:border-r pointer-coarse:border-t-0`}
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="6 9 12 15 18 9" />

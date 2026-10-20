@@ -97,7 +97,7 @@ export const ServerList = memo(function ServerList({
           type="button"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40 pointer-coarse:min-h-8"
         >
           <svg
             className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`}
@@ -145,7 +145,7 @@ export const ServerList = memo(function ServerList({
               type="button"
               onClick={(e) => handleRestart(s.id, e)}
               disabled={stopping === s.id || !serverRespawnGate(s, 'restart').canRespawn}
-              className="ml-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-blue-500/20 hover:text-blue-400 disabled:opacity-40"
+              className="ml-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-blue-500/20 hover:text-blue-400 disabled:opacity-40 pointer-coarse:h-8 pointer-coarse:w-8"
               title={t(serverRespawnGate(s, 'restart').titleKey)}
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
@@ -158,7 +158,7 @@ export const ServerList = memo(function ServerList({
               type="button"
               onClick={(e) => handleStop(s.id, e)}
               disabled={stopping === s.id}
-              className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-500/20 hover:text-red-400 disabled:opacity-40"
+              className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-500/20 hover:text-red-400 disabled:opacity-40 pointer-coarse:h-8 pointer-coarse:w-8"
               title={t('panel.serverList.stop')}
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">

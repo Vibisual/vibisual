@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { selectEffectiveProject, useGraphStore } from '../../stores/graphStore.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { isMac } from '../../utils/platform.js';
-import { useTitlebarDrag } from '../../hooks/useTitlebarDrag.js';
 import { isDragRegionTarget } from '../../utils/titlebarPress.js';
 import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
@@ -67,11 +66,8 @@ export function Header({
   // 폰에서 우측 도구 묶음을 펼쳤는지. 기본 접힘 — 프로젝트 탭이 폭을 그대로 쓰게 한다.
   //   데스크톱은 묶음이 CSS 로 항상 보이므로 이 값이 화면을 바꾸지 않는다.
   const [rightToolsOpen, setRightToolsOpen] = useState(false);
-  // §3.7 · §5.5 #17-6 (H-19) — 로고 덮개의 누름. 드래그 영역 신고에 기대지 않고 창을 옮긴다(아래 로고 블록).
-  const handleLogoMouseDown = useTitlebarDrag();
-  // §3.7 — 헤더 빈 자리·탭 줄 빈 자리의 더블클릭이 페이지까지 왔다 = OS 가 그 자리를 제목줄로 못 봤다.
-  //   덮개와 같은 최대화/복원을 부른다(신고가 맞으면 OS 가 먼저 가져가 여기 오지 않는다). 누름은 부팅 지점의
-  //   `installTitlebarPressCatch` 가 받는다. 덮개·탭·버튼(`app-nodrag`)은 거른다 — 덮개는 자기 처리기가 있다.
+  // 로고·헤더·탭 줄 빈 자리는 같은 OS 제목줄이다. 페이지까지 온 더블클릭은 공통 보조 경로로
+  // 최대화/복원한다. 누름은 부팅 지점의 installTitlebarPressCatch 가 받으며 탭·버튼은 제외한다.
   const handleTitlebarDoubleClick = useCallback((event: React.MouseEvent<HTMLElement>): void => {
     if (!isDragRegionTarget(event.target)) return;
     void window.api?.window?.toggleMaximizeSelf();
@@ -165,27 +161,18 @@ export function Header({
     >
       {/* 좌측: 로고 + File 메뉴 + 프로젝트 탭 — 탭이 많아지면 내부에서 가로 스크롤. */}
       <div className="flex min-w-0 flex-1 items-stretch">
-        {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스.
+        {/* 로고 — 상자 전체가 창 손잡이. 가운데 정렬되도록 별도 h-full 박스.
             §4 v3.24 — 폰(max-md)에선 로고 블록 전체(dot 포함)를 숨겨 File+탭만 남긴다.
-            덮개는 드래그 영역 등록에 의존하지 않는 손잡이다. 누르면 moveSelf 가 창을 직접 옮기고
-            (세 OS 같은 수동 경로 — `ipc.ts` move-self 주석), 더블클릭은 같은 창의 최대화/복원을 부른다.
-            페이지까지 온 나머지 제목줄 누름도 이 덮개와 같은 길로 옮긴다(`utils/titlebarPress.ts`).
-            2026-10-08 에 OS 캡션으로 맞춘다며 걷었다가 로고로 창이 안 움직여 되살렸다 — 다시 걷지 말 것.
-            덮개를 둔 채 끌기만 OS 이동 루프로 넘긴 판도 창이 안 움직였다(2026-10-12 걷음) — 다시 넘기지 말 것. */}
-        <div className="app-drag-label app-drag relative flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden">
+            점·글자·여백 모두 기존 제목줄과 같은 drag 영역이다. no-drag 덮개를 두면 로고만
+            수동 이동 경로에 갇히므로 덮지 않는다. OS 가 누름을 페이지로 보내는 경우에도
+            installTitlebarPressCatch 와 헤더의 더블클릭 보조 처리가 그대로 받는다. */}
+        <div
+          className="app-titlebar-handle app-drag relative flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden"
+        >
           <div className="h-3 w-3 rounded-full bg-gradient-to-br from-blue-400 to-violet-500" />
           <span className="text-[12px] font-semibold tracking-tight text-white/90">
             {t('header.logo.name')}
           </span>
-          {window.api?.window?.moveSelf && (
-            <div
-              className="app-nodrag absolute inset-0 z-10"
-              style={{ pointerEvents: 'auto' }}
-              aria-hidden="true"
-              onMouseDown={handleLogoMouseDown}
-              onDoubleClick={() => { void window.api?.window?.toggleMaximizeSelf(); }}
-            />
-          )}
         </div>
 
         {/* File 메뉴 */}
@@ -218,10 +205,18 @@ export function Header({
             버블] 메뉴·지휘통제실·사용량·감사로 가는 입구가 폰에서 통째로 사라졌다(사용자 보고 —
             "프로젝트 상단 우측을 볼 길이 없다"). 지우는 대신 **접는다**: 기본은 접힌 채라 프로젝트
             탭이 폭을 그대로 쓰고, 오른쪽 손잡이를 누르면 펼쳐지고 다시 눌러 접는다.
-            데스크톱(md 이상)은 항상 펼쳐져 있고 손잡이 자체가 없다 — 기존 화면 불변. */}
+            데스크톱(md 이상)은 항상 펼쳐져 있고 손잡이 자체가 없다 — 기존 화면 불변.
+            §4 v3.16 — 펼친 묶음은 헤더 **아래 띠**로 내려온다. 같은 줄에 펼치면 묶음이 폭을 먹어 프로젝트
+            탭 줄이 128px 남짓으로 눌렸다(탭 하나도 다 안 보인다). 띠는 헤더(`relative`)에 매달려 캔버스
+            위에 겹치고, 넘치면 줄을 바꾼다 — 안의 팝업은 전부 body 포털이거나 화면 안으로 당겨지므로
+            (`useAnchoredMenuPlacement`) 띠가 그들을 가두지 않는다. */}
         <div
           id={RIGHT_TOOLS_ID}
-          className={`flex h-full min-w-0 items-center gap-2 max-md:gap-1 ${rightToolsOpen ? '' : 'max-md:hidden'}`}
+          className={`flex h-full min-w-0 items-center gap-2 max-md:gap-1 ${
+            rightToolsOpen
+              ? 'max-md:absolute max-md:inset-x-0 max-md:top-full max-md:h-auto max-md:min-h-9 max-md:flex-wrap max-md:justify-end max-md:border-b max-md:border-black/40 max-md:bg-vb-titlebar max-md:px-2 max-md:py-1 max-md:shadow-lg max-md:shadow-black/40'
+              : 'max-md:hidden'
+          }`}
         >
           {/* §5.11 v4.01 — 플러그인 헤더 슬롯. 활성 기여가 없으면 호스트가 null 을 돌려 DOM 이 안 생긴다. */}
           <PluginHeaderSlot />
@@ -276,7 +271,7 @@ export function Header({
           aria-controls={RIGHT_TOOLS_ID}
           aria-label={rightToolsOpen ? t('header.rightTools.collapse') : t('header.rightTools.expand')}
           title={rightToolsOpen ? t('header.rightTools.collapse') : t('header.rightTools.expand')}
-          className="app-nodrag hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-gray-300 transition-colors max-md:flex hover:bg-white/[0.08]"
+          className="app-nodrag hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-gray-300 transition-colors max-md:flex hover:bg-white/[0.08] pointer-coarse:h-8 pointer-coarse:w-8"
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             {rightToolsOpen ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}

@@ -242,7 +242,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
                 type="button"
                 onClick={() => void handleRegen()}
                 disabled={busy}
-                className="rounded-md px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                className="shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:py-2"
               >
                 {t('panel.mobileAccess.regen')}
               </button>
@@ -418,7 +418,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
                       </svg>
                       {t('panel.mobileAccess.externalReachable')}
                     </div>
-                    <div className="rounded-md border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 font-mono text-[13px] text-emerald-300">
+                    <div className="break-all rounded-md border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 font-mono text-[13px] text-emerald-300">
                       {state.externalUrl}
                     </div>
                     <p className="mt-2 text-[12px] leading-relaxed text-amber-300/80">{t('panel.mobileAccess.externalHttpsNote')}</p>
@@ -457,7 +457,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
                         <div className="mb-1 mt-3 text-[12px] font-medium text-gray-400">
                           {t('panel.mobileAccess.externalManualUrl')}
                         </div>
-                        <div className="rounded-md border border-white/[0.06] bg-black/30 px-3 py-2 font-mono text-[13px] text-sky-300">
+                        <div className="break-all rounded-md border border-white/[0.06] bg-black/30 px-3 py-2 font-mono text-[13px] text-sky-300">
                           {state.externalUrl}
                         </div>
                         <p className="mt-2 text-[12px] leading-relaxed text-amber-300/80">{t('panel.mobileAccess.externalHttpsNote')}</p>

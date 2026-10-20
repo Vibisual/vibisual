@@ -252,11 +252,12 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   }, [fps, perfContext]);
 
   return (
-    <aside className="flex h-full w-80 flex-shrink-0 flex-col border-r border-gray-800 bg-gray-900">
+    // 폰 폭에서는 320px 옆 칸이 캔버스를 40px 로 짓눌렀다 — 화면을 덮는 전체 칸으로 띄운다(캔버스 크기는 그대로 두고 위에 얹는다).
+    <aside className="flex h-full w-80 flex-shrink-0 flex-col border-r border-gray-800 bg-gray-900 max-md:absolute max-md:inset-0 max-md:z-40 max-md:w-full max-md:border-r-0">
       {/* Header (fixed) */}
       <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-800 px-4 py-3">
         <h2 className="text-sm font-bold text-gray-100">{t('panel.debugPanel.title')}</h2>
-        <button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200" aria-label={t('panel.debugPanel.close')}>
+        <button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9" aria-label={t('panel.debugPanel.close')}>
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>

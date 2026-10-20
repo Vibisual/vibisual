@@ -137,7 +137,8 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       {...backdrop}
     >
-      <div className="w-[clamp(22rem,40vw,32rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+      {/* 하한 22rem(352px)은 360px 폰에서 화면 끝에 닿는다 — 화면 폭에서 여백만큼은 늘 남기고, 낮으면 안에서 구른다. */}
+      <div className="max-h-[calc(100dvh-2rem)] w-[clamp(22rem,40vw,32rem)] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="border-b border-gray-800 px-5 py-3">
           <div className="text-sm font-semibold text-gray-100">{t('panel.worktreeDelete.title')}</div>
           <div className="truncate text-xs text-gray-400">{target.label}</div>
@@ -257,7 +258,7 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
             <pre className="scrollbar-thin max-h-48 overflow-auto rounded border border-gray-800 bg-black/60 p-3 font-mono text-xs text-gray-200 select-text whitespace-pre-wrap break-words">
               {leftover.files.length > 0 ? leftover.files.join('\n') : leftover.path}
             </pre>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={close}
@@ -294,7 +295,7 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
             >
               {errText}
             </pre>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={close}

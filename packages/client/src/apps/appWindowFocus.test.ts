@@ -32,6 +32,13 @@ function destination(args: { appId: string; projectId: string; ref?: string; fil
 }
 
 describe('같은 창인가 — 열쇠', () => {
+  it('distinguishes source-less drafts while leaving established document and file identities unchanged', () => {
+    const base = { appId: 'vibi3d', projectId: PROJECT };
+    expect(appWindowKey({ ...base, draftKey: 'local:first' })).not.toBe(appWindowKey({ ...base, draftKey: 'local:second' }));
+    expect(appWindowKey({ ...base, draftKey: 'local:first' })).not.toBe(appWindowKey(base));
+    expect(appWindowKey({ ...base, ref: 'doc-1', draftKey: 'local:first' })).toBe(appWindowKey({ ...base, ref: 'doc-1' }));
+    expect(appWindowKey({ ...base, file: 'scene.glb', draftKey: 'local:first' })).toBe(appWindowKey({ ...base, file: 'scene.glb' }));
+  });
   it('앱·프로젝트·문서·파일이 같으면 같고, 버블 이름은 보지 않는다', () => {
     expect(appWindowKey({ appId: 'vibistudio', projectId: PROJECT, ref: 'doc-1' }))
       .toBe(appWindowKey({ appId: 'vibistudio', projectId: PROJECT, ref: 'doc-1', file: '' }));
@@ -44,6 +51,12 @@ describe('같은 창인가 — 열쇠', () => {
 
 describe('main 의 목록을 앱 안 창과 같은 말로 옮긴다', () => {
   const refKeyOf = (appId: string): string | null => ({ vibistudio: 'docId', vibisound: 'clipId' } as Record<string, string>)[appId] ?? null;
+  it('retains draft identity from a source-less native editor for focus routing', () => {
+    const list = outsideAppWindowsFrom([{ windowId: 5, appId: 'vibi3d', params: { projectId: PROJECT, draftKey: 'local:first' } }], () => 'modelId');
+    expect(list).toEqual([{ windowId: 5, appId: 'vibi3d', projectId: PROJECT, draftKey: 'local:first' }]);
+    expect(resolveAppWindowDestination({ args: { appId: 'vibi3d', projectId: PROJECT, draftKey: 'local:first' },
+      inside: [], outside: list, redock: false, canFocusOutside: true })).toEqual({ kind: 'outside', appId: 'vibi3d', windowId: 5 });
+  });
 
   it('문서 열쇠는 앱이 선언한 이름에서 꺼낸다', () => {
     expect(outsideAppWindowsFrom([

@@ -93,7 +93,7 @@ function CopyButton({ url, copied, onCopy }: { url: string; copied: boolean; onC
       onClick={() => onCopy(url)}
       title={copied ? t('panel.mobileAccess.addr.copied') : t('panel.mobileAccess.addr.copy')}
       aria-label={copied ? t('panel.mobileAccess.addr.copied') : t('panel.mobileAccess.addr.copy')}
-      className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors ${
+      className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[12px] transition-colors pointer-coarse:py-2 ${
         copied ? 'text-emerald-300' : 'text-gray-400 hover:bg-white/[0.08] hover:text-gray-200'
       }`}
     >
@@ -188,12 +188,14 @@ function AddressRow({ entry, copiedUrl, onCopy }: RowProps): React.JSX.Element {
   const tone = toneOf(entry.kind);
   return (
     <div className="rounded-md border border-white/[0.06] bg-black/25 px-3 py-2">
-      <div className="flex items-center gap-2">
+      {/* 폰 폭에서는 주소가 종류·[복사] 사이에 100px 남짓만 받아 포트가 잘렸다 — 그때는 주소를 아랫줄로 내려
+          한 줄을 다 쓰고 줄을 바꾼다(주소는 사용자가 옮겨 적는 값이라 … 로 자르면 안 된다). */}
+      <div className="flex items-center gap-2 max-md:flex-wrap">
         <KindIcon kind={entry.kind} className={`h-3.5 w-3.5 shrink-0 ${tone.text}`} />
-        <span className={`shrink-0 text-[12px] font-medium ${tone.text}`}>
+        <span className={`shrink-0 text-[12px] font-medium max-md:flex-1 ${tone.text}`}>
           {t(mobileAddressKindLabelKey(entry.kind))}
         </span>
-        <span className="min-w-0 flex-1 truncate text-right font-mono text-[13px] text-gray-300" title={entry.url}>
+        <span className="min-w-0 flex-1 truncate text-right font-mono text-[13px] text-gray-300 max-md:order-last max-md:basis-full max-md:whitespace-normal max-md:break-all max-md:text-left" title={entry.url}>
           {entry.url}
         </span>
         <CopyButton url={entry.url} copied={copiedUrl === entry.url} onCopy={onCopy} />

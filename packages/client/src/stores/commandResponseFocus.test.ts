@@ -7,7 +7,7 @@ const originalAck = useGraphStore.getState().acknowledgeUsageLimit;
 const ack = vi.fn();
 const fetchMock = vi.fn<typeof fetch>();
 let pane: string;
-function response(sid: string): Response { return new Response(JSON.stringify({ command: { subAgentId: sid } })); }
+function response(sid: string): Response { return new Response(JSON.stringify({ command: { id: `cmd-${sid}`, subAgentId: sid } })); }
 function deferred(): { promise: Promise<Response>; resolve: (sid: string) => void } {
   let done!: (value: Response) => void;
   return { promise: new Promise((resolve) => { done = resolve; }), resolve: (sid) => done(response(sid)) };

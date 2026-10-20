@@ -140,7 +140,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
       <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px]" style={{ zIndex: Z - 1 }} {...backdrop} />
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: Z }}>
         <div
-          className="pointer-events-auto flex max-h-[90vh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-emerald-500/40 bg-gray-900 shadow-2xl"
+          className="pointer-events-auto flex max-h-[90dvh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-emerald-500/40 bg-gray-900 shadow-2xl"
           style={{ boxShadow: '0 0 0 1px rgba(16,185,129,0.2), 0 25px 50px -12px rgba(0,0,0,0.85), 0 0 40px -8px rgba(16,185,129,0.35)' }}
         >
           <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">
@@ -185,7 +185,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
                     <button
                       type="button"
                       onClick={handleCopy}
-                      className="text-[12px] text-gray-500 transition-colors hover:text-gray-300"
+                      className="shrink-0 text-[12px] text-gray-500 transition-colors hover:text-gray-300 pointer-coarse:min-h-8 pointer-coarse:px-2"
                     >
                       {copied
                         ? t('panel.codexSetup.copied', { defaultValue: 'Copied' })
@@ -209,7 +209,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
                   <div className="flex flex-col gap-1.5 rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
                     <span>{t('panel.codexSetup.failed', { defaultValue: 'The install did not complete. Run the command above in a terminal, then choose "Check again".' })}</span>
                     {(setup.error ?? progress?.error) && (
-                      <span className="font-mono text-[12px] text-red-400/80">{setup.error ?? progress?.error}</span>
+                      <span className="break-all font-mono text-[12px] text-red-400/80">{setup.error ?? progress?.error}</span>
                     )}
                   </div>
                 )}
@@ -272,7 +272,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
                 type="button"
                 onClick={handleRecheck}
                 disabled={rechecking}
-                className="text-[12px] text-gray-500 transition-colors hover:text-gray-300 disabled:opacity-50"
+                className="text-[12px] text-gray-500 transition-colors hover:text-gray-300 disabled:opacity-50 pointer-coarse:min-h-8"
               >
                 {rechecking
                   ? t('panel.codexSetup.rechecking', { defaultValue: 'Checking…' })
@@ -338,10 +338,11 @@ export function CodexSetupBanner(): React.JSX.Element | null {
         <path d="M12 8v5" />
         <path d="M12 16h.01" />
       </svg>
-      <span>
+      {/* 폰에서는 한 줄로 접는다 — 클로드 설치 띠(`ClaudeSetupBanner`)와 같은 규칙. */}
+      <span className="min-w-0 max-md:truncate">
         {t('header.codexSetupBanner.text', { defaultValue: 'Codex CLI is not installed — Codex agents cannot run yet.' })}
       </span>
-      <span className="font-semibold underline">
+      <span className="shrink-0 whitespace-nowrap font-semibold underline">
         {t('header.codexSetupBanner.action', { defaultValue: 'Install' })}
       </span>
     </button>

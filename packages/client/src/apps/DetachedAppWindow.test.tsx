@@ -6,15 +6,19 @@ import { AppShellHost } from './AppShellHost.js';
 import { WindowControls } from '../components/Layout/WindowControls.js';
 import { AttentionFlash } from '../components/Layout/AttentionFlash.js';
 import type { AppHash } from './appHash.js';
+import { registerAppWindowCloseGuard } from './appWindowCloseGuard.js';
+import { registerAppWindowCloseRetention } from './appWindowCloseRetention.js';
 
 const mocks = vi.hoisted(() => ({
-  prepare: vi.fn(), redock: vi.fn(), startDrag: vi.fn(), endDrag: vi.fn(), maximize: vi.fn(), ackTarget: vi.fn(),
+  prepare: vi.fn(), finish: vi.fn(), redock: vi.fn(), startDrag: vi.fn(), endDrag: vi.fn(), maximize: vi.fn(), ackTarget: vi.fn(),
   subscribeDrag: vi.fn(), offDrag: vi.fn(), offTarget: vi.fn(), hostSequence: 0,
   showTarget: null as ((payload: { appId: string; hash: string; requestId?: string }) => void) | null,
+  liveTarget: undefined as { ref?: string; file?: string; draftKey?: string } | undefined,
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('./registry.js', () => ({ getInternalApp: (id: string) => ({ id, name: 'Editor' }) }));
-vi.mock('./appWindowTransfer.js', () => ({ prepareAppWindowTransfer: mocks.prepare }));
+vi.mock('./registry.js', () => ({ getInternalApp: (id: string) => ({ id, name: 'Editor', refKey: 'modelId' }) }));
+vi.mock('./appWindowLifecycle.js', () => ({ getAppWindowTarget: () => mocks.liveTarget }));
+vi.mock('./appWindowTransfer.js', () => ({ prepareAppWindowTransfer: mocks.prepare, finishAppWindowTransfer: mocks.finish }));
 vi.mock('./useAppWindowRedock.js', () => ({ subscribeAppWindowDragRelease: mocks.subscribeDrag }));
 vi.mock('../components/Layout/WindowControls.js', () => ({ WindowControls: () => null }));
 vi.mock('./AppShellHost.js', () => ({ AppShellHost: ({ hash }: { hash: AppHash }) => {
@@ -35,10 +39,12 @@ function beginDrag(button = 0, control = false): void {
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 beforeEach(() => {
   vi.clearAllMocks(); mocks.hostSequence = 0; mocks.showTarget = null; listeners = new Map();
+  mocks.liveTarget = undefined;
   mocks.prepare.mockReset().mockResolvedValue(true); mocks.redock.mockReset().mockResolvedValue(true);
   mocks.startDrag.mockReset().mockResolvedValue(true); mocks.endDrag.mockResolvedValue(true);
   mocks.ackTarget.mockReset().mockResolvedValue(true);
   mocks.subscribeDrag.mockReturnValue(mocks.offDrag);
+  vi.stubGlobal('document', { title: '' });
   vi.stubGlobal('window', {
     api: { app: { redock: mocks.redock, startDrag: mocks.startDrag, endDrag: mocks.endDrag, ackTarget: mocks.ackTarget,
       onShowTarget: (callback: typeof mocks.showTarget) => { mocks.showTarget = callback; return mocks.offTarget; } },
@@ -50,10 +56,81 @@ beforeEach(() => {
 afterEach(() => { act(() => view?.unmount()); view = undefined; vi.unstubAllGlobals(); });
 
 describe('detached internal app chrome and handoff', () => {
+  it('holds the editor after redock was queued until native acknowledgement or cancellation settles ownership', async () => {
+    let settled!: (event: { appId: string; transferred: boolean }) => void;
+    Object.assign(window.api!.app!, { onTransferSettled: (callback: typeof settled) => { settled = callback; return vi.fn(); } });
+    act(() => mount());
+    await act(async () => { mergeButton().props.onClick(); });
+    expect(mocks.redock).toHaveBeenCalledOnce(); expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mergeButton().props.disabled).toBe(true);
+    act(() => settled({ appId: 'vibi3d', transferred: false }));
+    expect(mocks.finish).toHaveBeenCalledExactlyOnceWith('@detached', false);
+    expect(mergeButton().props.disabled).toBe(false);
+    await act(async () => { mergeButton().props.onClick(); });
+    act(() => settled({ appId: 'vibi3d', transferred: true }));
+    expect(mocks.finish).toHaveBeenLastCalledWith('@detached', true);
+  });
+  it('preserves the live draft key on a same-document native reveal and distinguishes source-less drafts', async () => {
+    const updateTarget = vi.fn().mockResolvedValue(true);
+    Object.assign(window.api!.app!, { updateTarget });
+    const draftKey = 'local:12345678-1234-4234-8234-123456789abc';
+    act(() => mount({ appId: 'vibi3d', mode: 'main', params: { projectId: '/project', draftKey } }));
+    await act(async () => mocks.showTarget!({ appId: 'vibi3d', hash: `#app=vibi3d&projectId=%2Fproject&draftKey=${encodeURIComponent(draftKey)}`, requestId: 'same-draft' }));
+    expect(mocks.prepare).not.toHaveBeenCalled(); expect(mocks.hostSequence).toBe(1);
+    mocks.liveTarget = { ref: 'new-document', draftKey };
+    await act(async () => mocks.showTarget!({ appId: 'vibi3d', hash: '#app=vibi3d&projectId=%2Fproject&modelId=new-document', requestId: 'same-doc' }));
+    expect(updateTarget).toHaveBeenLastCalledWith({ projectId: '/project', modelId: 'new-document', draftKey });
+    expect(mocks.prepare).not.toHaveBeenCalled(); expect(mocks.hostSequence).toBe(1);
+    mocks.liveTarget = { draftKey };
+    await act(async () => mocks.showTarget!({ appId: 'vibi3d', hash: '#app=vibi3d&projectId=%2Fproject&draftKey=local%3Adifferent', requestId: 'different-draft' }));
+    expect(mocks.prepare).toHaveBeenCalledOnce(); expect(mocks.hostSequence).toBe(2);
+  });
+  it('reveals the current retained document without saving or remounting, and rejects a different target', async () => {
+    const offRetention = registerAppWindowCloseRetention('@detached', () => true);
+    try {
+      act(() => mount());
+      // The model gained a source id after loading; the original hash still names only its import file.
+      mocks.liveTarget = { ref: 'live-source', file: 'exported.glb' };
+      await act(async () => mocks.showTarget!({ appId: 'vibi3d', hash: '#app=vibi3d&projectId=%2Fproject&modelId=live-source&file=first.glb', requestId: 'same' }));
+      expect(mocks.ackTarget).toHaveBeenCalledWith('same', true);
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      expect(mocks.hostSequence).toBe(1);
+      await act(async () => mocks.showTarget!({ appId: 'vibi3d', hash: '#app=vibi3d&projectId=%2Fproject&modelId=different-source', requestId: 'different' }));
+      expect(mocks.ackTarget).toHaveBeenCalledWith('different', false);
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      expect(mocks.hostSequence).toBe(1);
+      expect(view!.root.findByType(AppShellHost).props.hash.params.file).toBe('first.glb');
+    } finally { offRetention(); }
+  });
+
+  it('routes native close requests through the human guard then hides without replacing the shell', async () => {
+    let nativeClose!: () => void;
+    const hideSelf = vi.fn().mockResolvedValue(true), closeSelf = vi.fn(), offClose = vi.fn();
+    Object.assign(window.api!.app!, { hideSelf, onCloseRequested: (callback: () => void) => { nativeClose = callback; return offClose; } });
+    Object.assign(window.api!.window!, { closeSelf });
+    let allowed = false;
+    const offGuard = registerAppWindowCloseGuard('@detached', () => allowed);
+    const offRetention = registerAppWindowCloseRetention('@detached', () => true);
+    try {
+      act(() => mount());
+      const instance = view!.root.findByProps({ 'data-host-instance': 1 });
+      await act(async () => nativeClose());
+      expect(hideSelf).not.toHaveBeenCalled(); expect(closeSelf).not.toHaveBeenCalled();
+      allowed = true;
+      await act(async () => nativeClose());
+      expect(hideSelf).toHaveBeenCalledOnce(); expect(closeSelf).not.toHaveBeenCalled();
+      expect(view!.root.findByProps({ 'data-host-instance': 1 })).toBe(instance);
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      act(() => view!.unmount()); view = undefined;
+      expect(offClose).toHaveBeenCalledOnce();
+    } finally { offGuard(); offRetention(); }
+  });
+
   it('renders one native control group and hosts the editor below the custom title', () => {
     act(() => mount());
     expect(view!.root.findAllByType(WindowControls)).toHaveLength(1);
     expect(titlebar().findByType('span').children).toEqual(['My model']);
+    expect(document.title).toBe('My model');
     expect(view!.root.findByType(AppShellHost).props).toMatchObject({ fill: true, hash: { params: { appWindowHosted: '1', appWindowAppId: 'vibi3d' } } });
     act(() => titlebar().props.onDoubleClick({ target: { closest: () => null } }));
     expect(mocks.maximize).toHaveBeenCalledOnce();

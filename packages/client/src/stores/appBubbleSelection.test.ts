@@ -201,6 +201,46 @@ describe('app bubble detail panel wiring', () => {
   });
 });
 
+/** 공용 선택 손짓이 펼쳐 주는 핸들러 이름(`BubbleSelectGestureHandlers`). */
+const GESTURE_HANDLER_PROPS = [
+  'onPointerDownCapture',
+  'onPointerMove',
+  'onPointerUp',
+  'onPointerCancel',
+  'onContextMenuCapture',
+] as const;
+
+/** `const 이름 = …` 한 문장(다음 빈 줄까지). 없으면 빈 문자열. */
+function definitionOf(src: string, name: string): string {
+  const at = src.indexOf(`const ${name} =`);
+  if (at < 0) return '';
+  const rest = src.slice(at);
+  const end = rest.search(/\r?\n[ \t]*\r?\n/);
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+/**
+ * `{...gesture.handlers}` 뒤 같은 여는 태그에서 손짓 핸들러를 다시 적은 자리마다 — 그 값이 손짓을 이어 부르는가.
+ * 이 파일들은 속성을 줄마다 쓰고 여는 태그를 홀로 선 `>`·`/>` 줄로 닫는다. 펼침도 그 줄에 홀로 선 것만 센다 —
+ * 그 사고를 적어 둔 주석 속 글자를 JSX 로 읽지 않게.
+ */
+function gestureHandlerOverrides(src: string): { prop: string; value: string; chains: boolean }[] {
+  const out: { prop: string; value: string; chains: boolean }[] = [];
+  for (const spread of src.matchAll(/^[ \t]*\{\.\.\.gesture\.handlers\}[ \t]*\r?$/gm)) {
+    const rest = src.slice(spread.index ?? 0);
+    const close = rest.search(/\r?\n[ \t]*\/?>[ \t]*\r?\n/);
+    const attrs = close < 0 ? rest : rest.slice(0, close);
+    for (const prop of GESTURE_HANDLER_PROPS) {
+      const m = new RegExp(`\\b${prop}=\\{([^\\r\\n]*)\\}`).exec(attrs);
+      if (!m) continue;
+      const value = m[1]!.trim();
+      const body = /^[A-Za-z_$][\w$]*$/.test(value) ? definitionOf(src, value) : value;
+      out.push({ prop, value, chains: body.includes(`gesture.handlers.${prop}(`) });
+    }
+  }
+  return out;
+}
+
 /**
  * §5.13 (M) v4.69 — **선택 이벤트를 받는 단계**.
  *
@@ -265,6 +305,31 @@ describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는�
       expect(src).not.toContain('onMouseDown={handleSelect}');
     });
   }
+
+  /**
+   * 2026-10-20 — 펼쳐 넣은 묶음을 **뒤에서 같은 이름으로 덮어쓰면** 위 검사(펼쳐 쓰는가)는 통과하는데 손짓은 죽는다.
+   * 앱 노드가 누를 때 미리 받기(§5.13 39-2)를 `onPointerDownCapture={prefetchNow}` 로 따로 달아 손짓의 누름을
+   * 덮어썼고, 등록된 앱은 눌러도 고르지 않아 `Delete` 가 지울 것이 없었다(사용자 보고 — 일부 앱이 안 지워진다).
+   * 덮어써도 되는 것은 손짓 핸들러를 **이어 부르는** 핸들러뿐이다(에이전트 버블의 `handlePointerUp` 선례).
+   */
+  it('펼쳐 넣은 손짓 핸들러를 뒤에서 덮어쓰면, 그 핸들러가 손짓을 이어 부른다', () => {
+    const sources = import.meta.glob<string>('/src/components/BubbleMap/*.tsx', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    const broken: string[] = [];
+    let overrides = 0;
+    for (const [path, src] of Object.entries(sources)) {
+      for (const o of gestureHandlerOverrides(src)) {
+        overrides += 1;
+        if (!o.chains) broken.push(`${path}: ${o.prop}={${o.value}} 가 gesture.handlers.${o.prop} 를 부르지 않는다`);
+      }
+    }
+    expect(broken).toEqual([]);
+    // 헛검사 방지 — 이어 부르는 덮어쓰기는 실제로 있다(에이전트 버블·카드의 뗌, 앱 노드의 누름).
+    expect(overrides).toBeGreaterThanOrEqual(4);
+  });
 
   it('앱 버블은 선택되면 눈에 보이는 선택 이펙트(흰 테 + 헤일로)를 낸다', () => {
     const src = NODE_SOURCES['/src/components/BubbleMap/AppBubbleNode.tsx'] ?? '';

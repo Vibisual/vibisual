@@ -84,7 +84,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -101,7 +101,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
             <button
               type="button"
               onClick={handleOpen}
-              className="flex h-6 w-6 items-center justify-center rounded text-violet-400 hover:bg-violet-500/20 hover:text-violet-300"
+              className="flex h-6 w-6 items-center justify-center rounded text-violet-400 hover:bg-violet-500/20 hover:text-violet-300 pointer-coarse:h-9 pointer-coarse:w-9"
               aria-label={t('panel.fileEdit.openInEditor')}
               title={t('panel.fileEdit.openInVSCode')}
             >
@@ -113,7 +113,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
             <button
               type="button"
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
               aria-label={t('panel.fileEdit.closePopup')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -191,7 +191,7 @@ export const FileEditList = memo(function FileEditList({
                   </code>
                   <button
                     type="button"
-                    className="shrink-0 rounded p-0.5 text-gray-500 opacity-0 transition-all hover:bg-violet-500/20 hover:text-violet-400 group-hover/item:opacity-100"
+                    className="shrink-0 rounded p-0.5 text-gray-500 opacity-0 transition-all hover:bg-violet-500/20 hover:text-violet-400 group-hover/item:opacity-100 pointer-coarse:p-2 pointer-coarse:opacity-100"
                     aria-label={t('panel.fileEdit.openInEditor')}
                     title={t('panel.fileEdit.openInVSCode')}
                     onClick={(e) => {

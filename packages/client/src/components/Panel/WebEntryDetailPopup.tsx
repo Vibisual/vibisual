@@ -69,7 +69,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" {...backdrop}>
-      <div className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50">
+      <div className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50">
         {/* ① 헤더 — 무엇을(종류) · 어디서(호스트) · 언제(전체 시각) */}
         <div className="flex items-center gap-2 border-b border-gray-700 px-4 py-2.5">
           <span
@@ -88,7 +88,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
             onClick={onClose}
             aria-label={t('panel.webEntry.detailClose')}
             title={t('panel.webEntry.detailClose')}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -113,7 +113,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
                   onClick={() => copy(headline, 'headline')}
                   title={t('panel.webEntry.copy')}
                   aria-label={t('panel.webEntry.copy')}
-                  className="mt-0.5 shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-sky-300"
+                  className="mt-0.5 shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-sky-300 pointer-coarse:p-2.5"
                 >
                   <CopyGlyph done={copied === 'headline'} />
                 </button>
@@ -139,7 +139,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
                       // 에이전트는 이 도메인들을 **읽지 않았다**).
                       onClick={() => openExternal(`https://${h}`)}
                       title={t('panel.webEntry.openExternal')}
-                      className="rounded bg-gray-800/80 px-1.5 py-0.5 text-[12px] text-gray-300 hover:bg-gray-700 hover:text-sky-300"
+                      className="rounded bg-gray-800/80 px-1.5 py-0.5 text-[12px] text-gray-300 hover:bg-gray-700 hover:text-sky-300 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                     >
                       {h}
                     </button>
@@ -179,7 +179,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
               )}
             </div>
             {entry.result ? (
-              <pre className="max-h-[38vh] overflow-auto whitespace-pre-wrap break-words rounded border border-gray-800 bg-gray-950/60 px-2 py-1.5 text-[12px] leading-relaxed text-gray-300">
+              <pre className="max-h-[38dvh] overflow-auto whitespace-pre-wrap break-words rounded border border-gray-800 bg-gray-950/60 px-2 py-1.5 text-[12px] leading-relaxed text-gray-300">
                 {entry.result}
               </pre>
             ) : (
@@ -190,13 +190,13 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
           </div>
         </div>
 
-        {/* 바닥 행동 — 복사 · (fetch 만) 밖에서 열기 · 지우기 */}
-        <div className="flex items-center gap-1.5 border-t border-gray-800 px-4 py-2">
+        {/* 바닥 행동 — 복사 · (fetch 만) 밖에서 열기 · 지우기. 좁으면 줄을 바꾼다. */}
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-gray-800 px-4 py-2">
           {entry.result && (
             <button
               type="button"
               onClick={() => copy(entry.result ?? '', 'result')}
-              className="rounded px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-800 hover:text-sky-300"
+              className="rounded px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-800 hover:text-sky-300 pointer-coarse:min-h-9"
             >
               {copied === 'result' ? t('panel.webEntry.copied') : t('panel.webEntry.copyResult')}
             </button>
@@ -205,7 +205,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
             <button
               type="button"
               onClick={() => openExternal(entry.url ?? '')}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-800 hover:text-sky-300"
+              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-800 hover:text-sky-300 pointer-coarse:min-h-9"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -220,7 +220,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
           <button
             type="button"
             onClick={onDelete}
-            className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-gray-400 hover:bg-rose-950/40 hover:text-rose-300"
+            className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-gray-400 hover:bg-rose-950/40 hover:text-rose-300 pointer-coarse:min-h-9"
           >
             <TrashGlyph />
             {t('panel.webEntry.deleteEntry')}

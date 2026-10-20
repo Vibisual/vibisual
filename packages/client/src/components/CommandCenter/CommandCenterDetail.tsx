@@ -55,6 +55,8 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
         subAgentId: item.subAgentId,
       });
     }, [item, projectId]);
+    // 카드의 [점프]와 같은 판정 — 데스크톱 IPC 가 없는 창(폰·웹)에서는 흐리게 두고 이유를 단다.
+    const canJump = typeof window !== 'undefined' && !!window.api?.command?.revealInMain;
 
     const handleSend = useCallback((live?: string): void => {
       // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `draft` 는 마지막 글자가 비어 있을 수 있다.
@@ -96,8 +98,11 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           <button
             type="button"
             onClick={handleJump}
-            className="flex flex-shrink-0 items-center gap-1 rounded-md bg-white/[0.07] px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.14]"
-            title={t('commandCenter.jumpHint')}
+            disabled={!canJump}
+            className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-white/[0.07] px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/[0.07] pointer-coarse:py-2"
+            title={canJump
+              ? t('commandCenter.jumpHint')
+              : t('commandCenter.jumpUnavailable', { defaultValue: 'Jumping to the main window works only in the Vibisual desktop app.' })}
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 4h6v6M20 4l-8 8M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
@@ -107,7 +112,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           <button
             type="button"
             onClick={onClose}
-            className="flex-shrink-0 rounded p-1 text-gray-600 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+            className="flex-shrink-0 rounded p-1 text-gray-600 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:p-2.5"
             title={t('commandCenter.detail.close')}
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

@@ -60,7 +60,9 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
     // 이 줄은 **되돌아오는 유일한 문**이다(§7.16 — 조작은 헤더 한 곳). 그래서 좁아져도 줄지 않고
     // (`shrink-0`), 자리가 모자라면 잘리는 대신 아랫줄로 접힌다(`flex-wrap`) — 한 번 잘려 나가면
     // 폭 프리셋을 되돌릴 방법이 화면에서 사라진다.
-    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+    // `max-w-full` 이 그 접힘을 실제로 일으킨다 — 없으면 `shrink-0` 상자가 한 줄 폭(약 460px)을 고집해
+    // 폰(336px 줄)에서 접히지 않고 오른쪽이 잘려 [Alt]·[영역 캡처]에 닿을 수 없었다. 들어갈 때는 종전과 같다.
+    <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1">
       {/* 폭 프리셋 — 실제 폭으로 렌더한다(축소 ❌). `compare` 는 폭 하나가 아니라 여러 폭을 나란히. */}
       <div className="flex shrink-0 items-center overflow-hidden rounded border border-white/[0.08]">
         {PREVIEW_DEVICE_PRESETS.map((preset) => (
@@ -68,7 +70,7 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
             key={preset.id}
             type="button"
             onClick={() => picker.setDevice(preset.id)}
-            className={`shrink-0 whitespace-nowrap px-1.5 py-0.5 text-[12px] transition-colors ${
+            className={`shrink-0 whitespace-nowrap px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
               picker.device === preset.id
                 ? 'bg-sky-500/20 text-sky-300'
                 : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -89,7 +91,7 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
       <button
         type="button"
         onClick={picker.togglePickMode}
-        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
+        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
           picker.pickMode
             ? 'border-blue-400/60 bg-blue-500/20 text-blue-200'
             : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -105,7 +107,7 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
         type="button"
         onClick={picker.toggleAltCapture}
         aria-pressed={picker.altCapture}
-        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
+        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
           picker.altCapture
             ? 'border-amber-400/60 bg-amber-500/20 text-amber-200'
             : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -125,7 +127,7 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
           type="button"
           onClick={snip.toggle}
           disabled={snip.busy}
-          className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60 pointer-coarse:py-1.5 ${
             snip.snipMode
               ? 'border-sky-400/60 bg-sky-500/20 text-sky-200'
               : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -197,10 +199,10 @@ export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React
               <button
                 type="button"
                 onClick={() => snip?.remove(a.tempId)}
-                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-950/90 text-gray-300 transition-colors hover:text-white"
+                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-950/90 text-gray-300 transition-colors hover:text-white pointer-coarse:h-7 pointer-coarse:w-7"
                 title={t('common.preview.snipRemove')}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
                   <path d="M18 6 6 18M6 6l12 12" />
                 </svg>
               </button>
@@ -221,7 +223,7 @@ export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React
           <button
             type="button"
             onClick={() => snip?.clearError()}
-            className="shrink-0 rounded px-1 py-0.5 text-gray-500 transition-colors hover:text-gray-200"
+            className="shrink-0 rounded px-1 py-0.5 text-gray-500 transition-colors hover:text-gray-200 pointer-coarse:px-2 pointer-coarse:py-1.5"
           >
             {t('common.preview.pickClose')}
           </button>
@@ -230,18 +232,18 @@ export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React
       {picked && (
         <>
           <div className="flex items-center gap-1.5">
-            <span className="truncate font-mono text-[12px] text-blue-300">{describePickedElement(picked)}</span>
+            <span className="min-w-0 truncate font-mono text-[12px] text-blue-300">{describePickedElement(picked)}</span>
             <button
               type="button"
               onClick={handleCopy}
-              className="ml-auto flex-shrink-0 rounded border border-white/[0.08] px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-white/[0.06]"
+              className="ml-auto flex-shrink-0 whitespace-nowrap rounded border border-white/[0.08] px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-white/[0.06] pointer-coarse:py-1.5"
             >
               {copied ? t('common.preview.pickCopied') : t('common.preview.pickCopy')}
             </button>
             <button
               type="button"
               onClick={picker.clearPicked}
-              className="flex-shrink-0 rounded px-1 py-0.5 text-[12px] text-gray-500 transition-colors hover:text-gray-200"
+              className="flex-shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-[12px] text-gray-500 transition-colors hover:text-gray-200 pointer-coarse:px-2 pointer-coarse:py-1.5"
             >
               {t('common.preview.pickClose')}
             </button>

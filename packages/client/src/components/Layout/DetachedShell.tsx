@@ -6,6 +6,7 @@ import { CanvasLoadingHint } from '../BubbleMap/CanvasLoadingHint.js';
 import { TrashToolbar } from '../BubbleMap/TrashToolbar.js';
 import { IframeView } from './IframeView.js';
 import { WindowControls } from './WindowControls.js';
+import { ImmersiveExitControl } from './ImmersiveExitControl.js';
 import { DetailPanel } from '../Panel/DetailPanel.js';
 import { TrashPurgeDialog } from '../Panel/TrashPurgeDialog.js';
 import { MediaConvertDialog } from '../IDE/MediaConvertDialog.js';
@@ -15,6 +16,7 @@ import { OptionsWindowHost } from '../Options/OptionsWindowHost.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useDetachedSync } from '../../hooks/useDetachedSync.js';
+import { useProjectImmersion } from '../../hooks/useProjectImmersion.js';
 import { WS_PATH } from '@vibisual/shared';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 메인 TabBar 에서 분리돼 별도 BrowserWindow 로 뜬 별창의 shell.
@@ -81,12 +83,17 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
 
   const activeProjectInfo = kind === 'project' ? projects[targetName] : null;
   const iframeTab = kind === 'iframe' ? iframeTabs.find((t) => t.id === targetName) : null;
+  const immersive = useProjectImmersion(kind === 'project' && activeProjectInfo ? targetName : null);
 
   // ─── 미니 타이틀바 (드래그 = redock 시도) ────────────────────────────────
   return (
-    <div className="flex h-screen w-screen flex-col bg-gray-950 text-gray-100">
-      <DetachedTitleBar kind={kind} tabKey={tabKey} title={activeProjectInfo?.name ?? iframeTab?.label ?? targetName} />
-      <DetailPanelHost>
+    // h-dvh — 폰 브라우저가 해시로 바로 열 때 주소창 높이만큼 아래가 가려지지 않게(데스크톱 창에서는 h-screen 과 같다).
+    <div className="flex h-dvh w-screen flex-col bg-gray-950 text-gray-100">
+      <ImmersiveExitControl />
+      <div className={immersive ? 'hidden' : 'contents'}>
+        <DetachedTitleBar kind={kind} tabKey={tabKey} title={activeProjectInfo?.name ?? iframeTab?.label ?? targetName} />
+      </div>
+      <DetailPanelHost immersive={immersive}>
         <main className="relative flex-1 overflow-hidden">
           {kind === 'iframe' && iframeTab ? (
             <IframeView url={iframeTab.url} tabId={iframeTab.id} />
@@ -138,7 +145,7 @@ function DetachedMissingPlaceholder({ kind, targetName }: { kind: 'project' | 'i
 }
 
 // DetailPanel 은 별창 안에서도 자기 창의 selectedNodeId 를 따라 뜨도록 wrapping.
-function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX.Element {
+function DetailPanelHost({ children, immersive }: { children: React.ReactNode; immersive: boolean }): React.JSX.Element {
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
@@ -148,6 +155,7 @@ function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX
   return (
     <div className="relative flex flex-1 overflow-hidden">
       {children}
+      <div className={immersive ? 'hidden' : 'contents'}>
       {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || selectedAppBubbleId !== null) && (
         <DetailPanel
           onClose={() => {
@@ -160,6 +168,7 @@ function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX
           }}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -277,10 +286,11 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
       data-detached-titlebar="1"
       className="flex h-9 flex-shrink-0 items-stretch border-b border-black/40 bg-vb-raised select-none"
     >
-      {/* (a) 좌측 redock-trigger zone — 컨텐츠 폭만큼만 (flex-shrink-0). */}
+      {/* (a) 좌측 redock-trigger zone — 컨텐츠 폭만큼만. 창이 좁아지면 이름이 먼저 줄어든다(min-w-0 +
+          이름 truncate) — 줄지 않으면 오른쪽 창 조작 단추가 창 밖으로 밀려 [닫기]를 누를 길이 없어진다. */}
       <div
         data-redock-trigger="1"
-        className="app-nodrag flex flex-shrink-0 items-center gap-2 px-3 text-[12px] font-medium text-gray-200 cursor-grab active:cursor-grabbing hover:bg-white/[0.04]"
+        className="app-nodrag flex min-w-0 items-center gap-2 px-3 text-[12px] font-medium text-gray-200 cursor-grab active:cursor-grabbing hover:bg-white/[0.04]"
         onPointerDown={handlePointerDown}
         title={t('tabDetach.redockHint', { defaultValue: 'Drag to the main tab bar to redock' })}
       >
@@ -294,8 +304,8 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
             <path d="M3 12h18M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18" />
           </svg>
         )}
-        <span className="truncate max-w-[200px]">{title}</span>
-        <span className="ml-1 rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] uppercase tracking-wide text-gray-400">
+        <span className="min-w-0 truncate max-w-[200px]">{title}</span>
+        <span className="ml-1 flex-shrink-0 whitespace-nowrap rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] uppercase tracking-wide text-gray-400">
           {t('tabDetach.detachedBadge', { defaultValue: 'detached' })}
         </span>
       </div>

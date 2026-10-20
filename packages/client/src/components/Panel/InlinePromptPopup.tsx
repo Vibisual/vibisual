@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
+import { placeNearPointer, type BoxSize } from './panelPopupPlacement.js';
+
+/** 실측 전 1차 추정 크기 — 마운트 직후 layout effect 가 실제 크기로 바로잡는다(첫 페인트 전). */
+const POPUP_SIZE_GUESS: BoxSize = { w: 300, h: 180 };
 
 interface Props {
   contiId: string;
@@ -28,9 +32,20 @@ export function InlinePromptPopup({
   const patchingKey = `${contiId}::${frameId}::${elementId}`;
   const patching = useGraphStore((s) => s.contiElementPatching[patchingKey]);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<BoxSize>(POPUP_SIZE_GUESS);
 
   useEffect(() => {
     ref.current?.focus();
+  }, []);
+
+  // 화면 끝 클램프는 **실제 크기**로 — 종전에는 키를 180px 로 가정해(폭은 300px 에 여백 20px) 폰 폭·긴 번역에서
+  //   아래·옆이 잘렸다. 상자는 3줄 고정이라 한 번 재면 된다.
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setSize((prev) => (prev.w === r.width && prev.h === r.height ? prev : { w: r.width, h: r.height }));
   }, []);
 
   // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `text` 는 마지막 글자가 비어 있을 수 있다.
@@ -55,26 +70,31 @@ export function InlinePromptPopup({
     [onEnterKey, onClose],
   );
 
-  // 화면 우측 잘림 방지
-  const left = Math.min(screenX + 12, window.innerWidth - 320);
-  const top = Math.min(Math.max(screenY, 60), window.innerHeight - 180);
+  // 화면 잘림 방지 — 포인터 오른쪽에 앉히고 넘치면 화면 안으로(위쪽 60px 은 머리 띠 자리).
+  const { left, top } = placeNearPointer(
+    { x: screenX, y: screenY },
+    size,
+    { w: window.innerWidth, h: window.innerHeight },
+    { offsetX: 12, minTop: 60 },
+  );
 
   return (
     <div
+      ref={boxRef}
       data-popup="conti-prompt"
-      className="fixed z-[60] w-[300px] rounded-lg border border-blue-700/60 bg-gray-900 p-3 shadow-2xl shadow-blue-500/30"
+      className="fixed z-[60] w-[300px] max-w-[calc(100vw-1rem)] rounded-lg border border-blue-700/60 bg-gray-900 p-3 shadow-2xl shadow-blue-500/30"
       style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-blue-300">
           {t('panel.contiPrompt.title', { defaultValue: '프롬프트로 element 패치' })}
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+          className="rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2"
           aria-label={t('common.close')}
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -102,7 +122,7 @@ export function InlinePromptPopup({
           type="button"
           onClick={() => void handleSubmit()}
           disabled={!text.trim() || patching}
-          className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex shrink-0 items-center gap-1.5 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-9"
         >
           {patching ? (
             <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -78,7 +78,7 @@ export function ProjectFolderGate(): React.JSX.Element | null {
       <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px]" style={{ zIndex: Z - 1 }} {...backdrop} />
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: Z }}>
         <div
-          className="pointer-events-auto flex max-h-[90vh] w-[560px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-sky-500/40 bg-gray-900 shadow-2xl"
+          className="pointer-events-auto flex max-h-[90dvh] w-[560px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-sky-500/40 bg-gray-900 shadow-2xl"
           style={{ boxShadow: '0 0 0 1px rgba(56,189,248,0.2), 0 25px 50px -12px rgba(0,0,0,0.85), 0 0 40px -8px rgba(56,189,248,0.35)' }}
         >
           {/* 헤더 */}
@@ -182,10 +182,11 @@ export function ProjectFolderBanner(): React.JSX.Element | null {
       <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h3.7a1.5 1.5 0 0 1 1.2.6l1 1.4h7.1A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" />
       </svg>
-      <span>
+      {/* 폰에서는 한 줄로 접는다 — 클로드 설치 띠(`ClaudeSetupBanner`)와 같은 규칙. */}
+      <span className="min-w-0 max-md:truncate">
         {t('header.projectFolderBanner.text', { defaultValue: 'No project folder is open — agents have nowhere to work yet.' })}
       </span>
-      <span className="font-semibold underline">
+      <span className="shrink-0 whitespace-nowrap font-semibold underline">
         {t('header.projectFolderBanner.action', { defaultValue: 'Choose folder' })}
       </span>
     </button>

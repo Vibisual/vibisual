@@ -77,7 +77,7 @@ export function ScrollFade({ maxHeight, fill, className = '', onViewport, childr
 
   return (
     <div className={wrapperClass}>
-      <div className={`scroll-fade-top ${showTop ? 'visible' : ''}`} />
+      <div className={`scroll-fade-top ${showTop ? 'scroll-fade-shown' : ''}`} />
       <div
         ref={scrollRef}
         className={scrollClass}
@@ -85,7 +85,7 @@ export function ScrollFade({ maxHeight, fill, className = '', onViewport, childr
       >
         {children}
       </div>
-      <div className={`scroll-fade-bottom ${showBottom ? 'visible' : ''}`} />
+      <div className={`scroll-fade-bottom ${showBottom ? 'scroll-fade-shown' : ''}`} />
     </div>
   );
 }

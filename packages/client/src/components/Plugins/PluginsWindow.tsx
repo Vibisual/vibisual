@@ -219,7 +219,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
             aria-label={t('panel.plugins.close')}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -243,7 +243,8 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
           {projectPath ? (
             <>
               {/* 이름은 문장 밖의 라벨로 둔다 — 어순이 다른 언어에서도 자리가 흔들리지 않는다. */}
-              <span className="max-w-[200px] shrink-0 truncate rounded bg-white/[0.07] px-1.5 py-0.5 font-semibold text-gray-200" title={projectPath}>
+              {/* 폰 폭에서는 이름 칩이 줄 폭의 40% 를 넘지 않는다 — 넘으면 옆 문장이 0 으로 눌린다. */}
+              <span className="max-w-[200px] shrink-0 truncate rounded bg-white/[0.07] px-1.5 py-0.5 font-semibold text-gray-200 max-md:max-w-[40%]" title={projectPath}>
                 {projectName}
               </span>
               <span className="min-w-0 truncate">{t('panel.plugins.scopeProject')}</span>
@@ -253,10 +254,11 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
           )}
         </div>
 
-        {/* Body */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* Body — 폰 폭에서는 목록을 위, 상세를 아래로 쌓는다. 옆에 두면 160px 목록 + 160px 상세로 둘 다 짓눌렸다.
+            목록은 높이의 45% 까지만 쓰고 그 안에서 스크롤한다(상세가 남은 자리를 쓴다). */}
+        <div className="flex flex-1 overflow-hidden max-md:flex-col">
           {/* 좌측 — 플러그인 목록 */}
-          <div className="flex w-56 shrink-0 flex-col border-r border-gray-700/50 bg-gray-900/40 max-md:w-40">
+          <div className="flex w-56 shrink-0 flex-col border-r border-gray-700/50 bg-gray-900/40 max-md:max-h-[45%] max-md:w-full max-md:border-b max-md:border-r-0">
             {/* 찾기 — 이름·id·설명 본문을 함께 본다. 사람은 이름이 아니라 하려는 일로 찾는다. */}
             <div className="shrink-0 border-b border-gray-700/50 p-2">
               <div className="relative">
@@ -272,14 +274,14 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t('panel.plugins.searchPlaceholder')}
                   aria-label={t('panel.plugins.searchPlaceholder')}
-                  className="w-full rounded border border-gray-700 bg-gray-800/60 py-1 pl-7 pr-6 text-xs text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded border border-gray-700 bg-gray-800/60 py-1 pl-7 pr-6 text-xs text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none pointer-coarse:py-2 pointer-coarse:pr-9"
                 />
                 {query !== '' && (
                   <button
                     type="button"
                     onClick={() => setQuery('')}
                     aria-label={t('panel.plugins.clearSearch')}
-                    className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded text-gray-500 hover:bg-gray-700 hover:text-gray-300"
+                    className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded text-gray-500 hover:bg-gray-700 hover:text-gray-300 pointer-coarse:h-7 pointer-coarse:w-7"
                   >
                     <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                   </button>
@@ -288,7 +290,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
               <button
                 type="button"
                 onClick={() => setOnlyEnabled((v) => !v)}
-                className={`mt-1.5 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[12px] ${
+                className={`mt-1.5 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[12px] pointer-coarse:py-2 ${
                   onlyEnabled ? 'bg-emerald-500/15 text-emerald-300' : 'text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
                 }`}
               >
@@ -305,7 +307,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                 <button
                   type="button"
                   onClick={toggleDebug}
-                  className={`mt-1 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[12px] ${
+                  className={`mt-1 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[12px] pointer-coarse:py-2 ${
                     debugMode ? 'bg-amber-500/15 text-amber-300' : 'text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
                   }`}
                 >
@@ -359,7 +361,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                           key={m.id}
                           type="button"
                           onClick={() => setSelectedId(m.id)}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs pointer-coarse:py-2.5 ${
                             visibleId === m.id
                               ? 'border-l-2 border-blue-500 bg-blue-500/10 text-white'
                               : 'border-l-2 border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
@@ -383,7 +385,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
           </div>
 
           {/* 우측 — 상세 + 토글 */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="min-h-0 flex-1 overflow-y-auto p-5 max-md:p-4">
             {!selected ? (
               <p className="text-sm text-gray-500">{t('panel.plugins.empty')}</p>
             ) : (
@@ -401,7 +403,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                     // 매달 프로젝트가 없으면 저장할 칸이 없다 — 눌리는데 아무 일도 안 일어나는 버튼을 두지 않는다.
                     disabled={!projectPath}
                     title={projectPath ? undefined : t('panel.plugins.scopeNone')}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:py-2.5 ${
                       selectedEnabled
                         ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
                         : 'bg-white/[0.06] text-gray-400 hover:bg-white/[0.1] hover:text-gray-200'

@@ -112,7 +112,7 @@ export function EngineBridgeSection({ enabled, onChange }: EngineBridgeSectionPr
             onClick={() => { void load(); }}
             title={t('panel.options.advanced.engineBridgeRefresh', { defaultValue: 'Check again' })}
             aria-label={t('panel.options.advanced.engineBridgeRefresh', { defaultValue: 'Check again' })}
-            className="rounded p-1 text-gray-500 hover:bg-white/[0.06] hover:text-gray-200 disabled:opacity-40"
+            className="shrink-0 rounded p-1 text-gray-500 hover:bg-white/[0.06] hover:text-gray-200 disabled:opacity-40 pointer-coarse:p-2.5"
           >
             <svg
               className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}

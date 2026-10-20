@@ -170,8 +170,10 @@ function PermissionModal({
       className="pointer-events-none fixed inset-0 flex items-center justify-center"
       style={{ zIndex }}
     >
+      {/* 폰에서는 카드가 화면보다 길어진다(자물쇠·위험 띠 + 2×2 단추) — 머리줄과 [허용]/[거절]이 화면 밖으로
+          잘리지 않게 카드 안에서 스크롤한다. 데스크톱은 종전 그대로(번쩍임 덮개가 카드 밖으로 커지는 연출 유지). */}
       <div
-        className="relative flex w-[520px] max-w-[92vw] flex-col rounded-lg border-2 bg-gray-900 shadow-2xl transition-all duration-200 ease-out"
+        className="relative flex w-[520px] max-w-[92vw] flex-col rounded-lg border-2 bg-gray-900 shadow-2xl transition-all duration-200 ease-out max-md:max-h-[calc(100dvh-1rem)] max-md:overflow-y-auto"
         style={{
           transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
           opacity,
@@ -200,7 +202,8 @@ function PermissionModal({
               <h3 className="truncate text-sm font-bold text-gray-100">
                 {t('panel.permissionPrompt.title', { defaultValue: 'Permission required' })}
               </h3>
-              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-300">
+              {/* MCP 도구 이름(`mcp__서버__도구`)은 한 덩어리라 줄이 안 바뀐다 — 좁으면 … 로 줄여 옆 칸을 덮지 않는다. */}
+              <span className="min-w-0 truncate rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-300" title={request.toolName}>
                 {request.toolName}
               </span>
             </div>
@@ -314,13 +317,14 @@ function PermissionModal({
             value={denyReason}
             onChange={(e) => setDenyReason(e.target.value)}
             placeholder={t('panel.permissionPrompt.denyReasonPlaceholder', { defaultValue: 'e.g. wrong path, unsafe command' })}
-            className="mt-1 w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200 outline-none focus:border-red-500"
+            className="mt-1 w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200 outline-none focus:border-red-500 pointer-coarse:py-2"
           />
         </div>
 
         {/* Footer — §5.3 #12-1-B 답 넷: [이번만 거절][항상 거절] · [항상 허용][이번만 허용] */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
-          <span className="text-[12px] text-gray-600">
+          {/* 키보드 안내 — 터치 화면에는 누를 키가 없으니 접는다(장식 줄이라 입구가 사라지지 않는다). */}
+          <span className="text-[12px] text-gray-600 pointer-coarse:hidden">
             {t('panel.permissionPrompt.shortcutHint', { shortcut: shortcutLabel('Ctrl+Enter'), defaultValue: '{{shortcut}} = Allow · Esc = Deny' })}
           </span>
           <div className="flex flex-wrap justify-end gap-2">
@@ -333,7 +337,7 @@ function PermissionModal({
                 title={button.titleKey
                   ? t(button.titleKey, { defaultValue: button.defaultTitle, tool: request.toolName, group: groupName })
                   : undefined}
-                className={`rounded px-4 py-1.5 text-xs font-semibold shadow-md transition-all duration-100 ease-out hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:scale-95 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-60 ${
+                className={`rounded px-4 py-1.5 text-xs font-semibold shadow-md transition-all duration-100 ease-out hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:scale-95 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-60 pointer-coarse:py-2.5 ${
                   button.always
                     ? button.tone === 'deny'
                       ? 'border border-red-500/60 bg-red-500/10 text-red-200 hover:bg-red-500/25 active:bg-red-500/35'

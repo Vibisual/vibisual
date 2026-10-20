@@ -70,7 +70,7 @@ describe('자동 편성 준비 때문에 실행되지 않은 요청', () => {
     const restored = useGraphStore.getState().agentSessionInputs[key]!;
     useGraphStore.getState().addCommand(agentId, restored.text, subId, restored.attachments.map((a) => a.serverPath));
     useGraphStore.getState().clearAgentSessionInput(agentId, subId);
-    respond(new Response(JSON.stringify({ ok: true, command: {} }), { status: 200 }));
+    respond(new Response(JSON.stringify({ ok: true, command: { id: 'accepted-command', subAgentId: subId } }), { status: 200 }));
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
     expect(useGraphStore.getState().agentSessionInputs[key]).toBeUndefined();
   });

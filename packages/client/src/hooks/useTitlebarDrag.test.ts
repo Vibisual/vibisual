@@ -18,6 +18,12 @@ type Point = { x: number; y: number };
 
 function setup() {
   const listeners: Array<{ type: string; fn: (event: object) => void; capture: boolean }> = [];
+  const bodyClasses = new Set<string>();
+  vi.stubGlobal('document', { body: { classList: {
+    contains: (name: string) => bodyClasses.has(name),
+    add: (name: string) => { bodyClasses.add(name); },
+    remove: (name: string) => { bodyClasses.delete(name); },
+  } } });
   const moveSelf = vi.fn((_phase: Phase, _point?: Point): Promise<boolean> => Promise.resolve(true));
   const host = {
     api: { window: { moveSelf } },
@@ -37,6 +43,7 @@ function setup() {
     down,
     unmount,
     moveSelf,
+    bodyClasses,
     phases: () => moveSelf.mock.calls.map(([phase]) => phase),
     points: () => moveSelf.mock.calls.map(([phase, point]) => [phase, point ?? null]),
     listening: () => listeners.map((l) => l.type).sort(),
@@ -85,14 +92,17 @@ describe('로고 창 이동 — 최대화 복원 중에도 같은 손짓을 이�
   it('복원의 pointercancel·캡처 상실 뒤에도 이동하다 mouseup 에서 끝난다', () => {
     const rig = setup();
     rig.down(press());
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(true);
     rig.dispatch('mousemove', { buttons: 1 });
     rig.dispatch('pointercancel', { pointerId: 1 });
     rig.dispatch('lostpointercapture', { pointerId: 1 });
     expect(rig.phases()).toEqual(['start', 'move']);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(true);
     rig.dispatch('mousemove', { buttons: 1 });
     rig.dispatch('mouseup', { button: 0, buttons: 0 });
     expect(rig.phases()).toEqual(['start', 'move', 'move', 'end']);
     expect(rig.listening()).toEqual([]);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
   });
 
   it('창 밖에서 mouseup 을 놓쳐도 다음 이동의 buttons 가 해제를 알려 준다', () => {
@@ -110,12 +120,38 @@ describe('로고 창 이동 — 최대화 복원 중에도 같은 손짓을 이�
     rig.down(press());
     expect(rig.listening()).toEqual(['blur', 'mousemove', 'mouseup', 'pagehide']);
     if (type === 'unmount') rig.unmount();
-    else rig.dispatch(type);
+    // 창 자신의 blur — 창이 포커스를 잃었다(페이지 안 요소의 blur 는 아래 시험).
+    else rig.dispatch(type, type === 'blur' ? { target: rig.host } : {});
     rig.unmount();
     rig.dispatch('mousemove', { buttons: 1 });
     rig.dispatch('mouseup', { button: 0, buttons: 0 });
     expect(rig.phases()).toEqual(['start', 'end']);
     expect(rig.listening()).toEqual([]);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
+  });
+
+  // §3.7 (2026-10-16) — capture 로 듣는 blur 에는 페이지 안 요소의 blur 도 온다. 최대화를 풀며 화면이 다시 놓일 때
+  //   입력칸이 포커스를 잃는 일이 있는데, 그것으로 손짓을 끝내면 창이 복원된 자리에 멈춘다.
+  it('페이지 안 요소의 blur 는 손을 뗀 것이 아니다 — 창이 포커스를 잃을 때만 끝낸다', () => {
+    const rig = setup();
+    rig.down(press());
+    rig.dispatch('blur', { target: { tagName: 'TEXTAREA' } });
+    rig.dispatch('mousemove', { buttons: 1 });
+    expect(rig.phases()).toEqual(['start', 'move']);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(true);
+    rig.dispatch('blur', { target: rig.host });
+    expect(rig.phases()).toEqual(['start', 'move', 'end']);
+    expect(rig.listening()).toEqual([]);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
+  });
+
+  it('이미 진행 중인 다른 끌기의 영역 설정은 지우지 않는다', () => {
+    const rig = setup();
+    rig.bodyClasses.add('vib-pointer-drag');
+    rig.down(press());
+    rig.dispatch('mouseup', { button: 0, buttons: 0 });
+    expect(rig.bodyClasses.has('vib-pointer-drag')).toBe(true);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
   });
 
   it('다른 버튼은 시작하지 않으며 왼쪽을 쥔 채 오른쪽을 떼도 끝나지 않는다', () => {
@@ -142,6 +178,7 @@ describe('로고 창 이동 — 최대화 복원 중에도 같은 손짓을 이�
     expect(rig.phases()).toEqual([]);
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(rig.listening()).toEqual([]);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
   });
 
   it('더블클릭의 두 누름·해제는 각각 종료되며 지연 응답으로 다시 시작하지 않는다', async () => {
@@ -182,6 +219,7 @@ describe('로고 창 이동 — 최대화 복원 중에도 같은 손짓을 이�
     await Promise.resolve();
     expect(rig.phases()).toEqual(['start', 'move', 'end']);
     expect(rig.listening()).toEqual([]);
+    expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
   });
 
   it('시작·종료 IPC 가 실패해도 이벤트 정리는 끝나고 다음 누름을 받을 수 있다', async () => {
@@ -231,7 +269,7 @@ describe('누른 자리·놓은 자리는 렌더러가 잰다', () => {
 
     const left = setup();
     left.down(press(0, { x: 10, y: 10 }));
-    left.dispatch('blur', {});
+    left.dispatch('blur', { target: left.host });
     expect(left.points()).toEqual([['start', { x: 10, y: 10 }], ['end', null]]);
   });
 

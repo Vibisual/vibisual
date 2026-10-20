@@ -3,7 +3,7 @@ import {
   bindingFromEvent,
   inspectBinding,
   blocksAssignment,
-  COMMANDS,
+  defaultBindingFor,
   type BindingIssue,
   type CommandId,
 } from '@vibisual/shared';
@@ -122,7 +122,7 @@ export function useKeyCapture(id: CommandId): KeyCaptureState {
   return { capturing, pending, issues, blocked, stealable, start, cancel, commit, unbind };
 }
 
-/** 그 명령이 기본 바인딩과 다른가. */
+/** 그 명령이 기본 바인딩(이 OS 의 것 — `osBinding`)과 다른가. */
 export function isBindingChanged(id: CommandId, binding: string | null): boolean {
-  return binding !== COMMANDS[id].defaultBinding;
+  return binding !== defaultBindingFor(id, clientKeyPlatform());
 }

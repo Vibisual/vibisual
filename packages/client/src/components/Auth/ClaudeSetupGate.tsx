@@ -160,7 +160,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
       <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px]" style={{ zIndex: Z - 1 }} {...backdrop} />
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: Z }}>
         <div
-          className="pointer-events-auto flex max-h-[90vh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-sky-500/40 bg-gray-900 shadow-2xl"
+          className="pointer-events-auto flex max-h-[90dvh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-sky-500/40 bg-gray-900 shadow-2xl"
           style={{ boxShadow: '0 0 0 1px rgba(56,189,248,0.2), 0 25px 50px -12px rgba(0,0,0,0.85), 0 0 40px -8px rgba(56,189,248,0.35)' }}
         >
           {/* 헤더 */}
@@ -216,7 +216,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                     <button
                       type="button"
                       onClick={handleCopy}
-                      className="text-[12px] text-gray-500 transition-colors hover:text-gray-300"
+                      className="shrink-0 text-[12px] text-gray-500 transition-colors hover:text-gray-300 pointer-coarse:min-h-8 pointer-coarse:px-2"
                     >
                       {copied
                         ? t('panel.setup.copied', { defaultValue: 'Copied' })
@@ -240,7 +240,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                   <div className="flex flex-col gap-1.5 rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
                     <span>{t('panel.setup.failed', { defaultValue: 'The install did not complete. Run the command above in a terminal, then choose "Check again".' })}</span>
                     {(setup.error ?? progress?.error) && (
-                      <span className="font-mono text-[12px] text-red-400/80">{setup.error ?? progress?.error}</span>
+                      <span className="break-all font-mono text-[12px] text-red-400/80">{setup.error ?? progress?.error}</span>
                     )}
                   </div>
                 )}
@@ -305,7 +305,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                 type="button"
                 onClick={handleRecheck}
                 disabled={rechecking}
-                className="text-[12px] text-gray-500 transition-colors hover:text-gray-300 disabled:opacity-50"
+                className="text-[12px] text-gray-500 transition-colors hover:text-gray-300 disabled:opacity-50 pointer-coarse:min-h-8"
               >
                 {rechecking
                   ? t('panel.setup.rechecking', { defaultValue: 'Checking…' })
@@ -368,10 +368,11 @@ export function ClaudeSetupBanner(): React.JSX.Element | null {
         <path d="M12 8v5" />
         <path d="M12 16h.01" />
       </svg>
-      <span>
+      {/* 폰에서는 한 줄로 접는다(… 로 줄임) — 헤더 위에 쌓이는 띠가 두세 줄씩 화면을 먹었다. 눌러 여는 창이 전문을 말한다. */}
+      <span className="min-w-0 max-md:truncate">
         {t('header.setupBanner.text', { defaultValue: 'Claude Code is not installed — agents cannot run yet.' })}
       </span>
-      <span className="font-semibold underline">
+      <span className="shrink-0 whitespace-nowrap font-semibold underline">
         {t('header.setupBanner.action', { defaultValue: 'Install' })}
       </span>
     </button>

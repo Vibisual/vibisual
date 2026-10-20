@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { prepareAppWindowTransfer, registerAppWindowTransferGuard, trackAppWindowTargetUpdate } from './appWindowTransfer.js';
+import { finishAppWindowTransfer, prepareAppWindowTransfer, registerAppWindowTransferGuard, trackAppWindowTargetUpdate } from './appWindowTransfer.js';
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -12,6 +12,32 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
 describe('app window transfer preparation', () => {
+  it('holds a releasing guard through handoff, rejects concurrent preparation and resumes on cancellation', async () => {
+    const release = vi.fn(); const prepare = vi.fn(async () => true); const id = 'held-transfer';
+    cleanups.push(registerAppWindowTransferGuard(id, prepare, release));
+    expect(await prepareAppWindowTransfer(id)).toBe(true);
+    expect(await prepareAppWindowTransfer(id)).toBe(false);
+    expect(prepare).toHaveBeenCalledOnce(); expect(release).not.toHaveBeenCalled();
+    finishAppWindowTransfer(id); expect(release).toHaveBeenCalledOnce();
+    expect(await prepareAppWindowTransfer(id)).toBe(true);
+    finishAppWindowTransfer(id); expect(release).toHaveBeenCalledTimes(2);
+  });
+  it('keeps successful teardown frozen until unregistration, then releases exactly once', async () => {
+    const release = vi.fn(); const id = 'successful-handoff';
+    const unregister = registerAppWindowTransferGuard(id, async () => true, release); cleanups.push(unregister);
+    expect(await prepareAppWindowTransfer(id)).toBe(true);
+    finishAppWindowTransfer(id, true); expect(release).not.toHaveBeenCalled();
+    unregister(); unregister(); expect(release).toHaveBeenCalledOnce();
+  });
+  it.each(['refused', 'throw', 'target'] as const)('releases a quiesced editor after %s preparation failure', async failure => {
+    const release = vi.fn(); const id = `release-${failure}`;
+    cleanups.push(registerAppWindowTransferGuard(id, async () => {
+      if (failure === 'throw') throw new Error('failed');
+      if (failure === 'target') trackAppWindowTargetUpdate(id, Promise.reject(new Error('IPC unavailable')));
+      return failure !== 'refused';
+    }, release));
+    expect(await prepareAppWindowTransfer(id)).toBe(false); expect(release).toHaveBeenCalledOnce();
+  });
   it('allows a window with no pending work to move', async () => {
     expect(await prepareAppWindowTransfer('no-pending-work')).toBe(true);
   });

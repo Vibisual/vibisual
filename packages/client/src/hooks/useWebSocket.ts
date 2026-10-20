@@ -27,6 +27,7 @@ import {
 import { detectCustomAgentCompletions } from '../utils/completionChime.js';
 import { installResumeWatch, shouldResyncOnResume, type SocketState } from './resumeResync.js';
 import { resyncAfterReconnect } from './reconnectResync.js';
+import { emitAppEvent } from '../apps/appEvents.js';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -131,9 +132,18 @@ function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
  */
 export function useWebSocket(
   url: string,
-  options?: { announceCompletions?: boolean },
+  options?: {
+    announceCompletions?: boolean;
+    /**
+     * §9 슬라이스 스코프 — 이 창이 읽는 슬라이스 묶음을 **부르는 쪽이 직접 말한다**(해시로 판정하지 않는다). 독자를 코드로
+     * 확인한 창만 준다 — 빈 배열은 "스코프 대상 슬라이스를 하나도 안 읽는다"는 유효한 선언이다. 주지 않으면 종전 판정
+     * (`canDeclareSliceScope` — 메인 캔버스·버블 오버레이만 선언) 그대로다.
+     */
+    sliceScope?: readonly SliceScopeGroup[];
+  },
 ): UseWebSocketReturn {
   const announceCompletions = options?.announceCompletions ?? false;
+  const declaredSliceKey = options?.sliceScope ? [...options.sliceScope].sort().join(',') : null;
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -729,6 +739,11 @@ export function useWebSocket(
             useIDEActivityBarStore.getState().applyPrefs(parsed.payload);
             break;
           }
+          case 'app_event': {
+            // §5.13 (Y) 40-7 ② — 앱 서버 몫의 알림(판이 올랐다·지금 하는 일이 바뀌었다). 코어는 뜻을 모르고 그 앱 화면에 흘린다.
+            emitAppEvent(parsed.payload);
+            break;
+          }
         }
       } catch {
         // 파싱 실패 시 무시
@@ -871,6 +886,8 @@ export function useWebSocket(
     return false;
   }, [activePluginModules]);
   const sliceGroupsKey = useMemo(() => {
+    // 부르는 쪽이 독자를 코드로 확인해 직접 말한 창(내부 앱의 단독 창 등)은 그 선언을 그대로 쓴다.
+    if (declaredSliceKey !== null) return declaredSliceKey;
     // 자기가 읽는 것을 확증하지 못한 창(별창·지휘통제실·내부 앱)은 **선언하지 않는다**
     //   — 판정과 근거는 `canDeclareSliceScope` 주석이 소유한다.
     if (!canDeclareSliceScope()) return null;
@@ -879,7 +896,7 @@ export function useWebSocket(
     if (pluginReadsAgentData) groups.push('pluginAgentData');
     // 정렬해 둔다 — 선언 문자열이 순서 때문에 달라져 같은 상태를 두 번 보내지 않게.
     return groups.sort().join(',');
-  }, [ideLaneOpen, pluginReadsAgentData]);
+  }, [declaredSliceKey, ideLaneOpen, pluginReadsAgentData]);
 
   // 연결 상태를 스토어에도 실어 둔다 — 헤더 인디케이터만 알고 있으면 캔버스가 "끊겨서 비어 있는
   // 것"을 "불러오는 중"이라고 잘못 말한다. 값 하나를 두 화면이 같이 본다(설정은 여기 한 곳).

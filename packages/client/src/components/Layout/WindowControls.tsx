@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { DETACHED_APP_WINDOW } from '../../apps/appWindowCloseGuard.js';
+import { requestAppWindowClose } from '../../apps/appWindowCloseRetention.js';
 
 /**
  * 프레임 없는 창(`frame: false`)의 최소화 · 최대화/복원 · 닫기 버튼.
@@ -33,7 +35,14 @@ export function WindowControls({ stopPointerDown = false }: WindowControlsProps)
 
   const handleMinimize = useCallback((): void => { void window.api?.window?.minimizeSelf(); }, []);
   const handleToggleMaximize = useCallback((): void => { void window.api?.window?.toggleMaximizeSelf(); }, []);
-  const handleClose = useCallback((): void => { void window.api?.window?.closeSelf(); }, []);
+  // §5.13 (R-10) — an app shell alone in this OS window may hold unsaved edits; it is asked first.
+  const closingRef = useRef(false);
+  const handleClose = useCallback((): void => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    void requestAppWindowClose(DETACHED_APP_WINDOW, () => window.api?.window?.closeSelf())
+      .finally(() => { closingRef.current = false; });
+  }, []);
 
   const onPointerDown = stopPointerDown
     ? (e: React.PointerEvent<HTMLButtonElement>): void => e.stopPropagation()
@@ -45,7 +54,7 @@ export function WindowControls({ stopPointerDown = false }: WindowControlsProps)
         type="button"
         {...(onPointerDown ? { onPointerDown } : {})}
         onClick={handleMinimize}
-        className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+        className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100 pointer-coarse:h-8 pointer-coarse:w-8"
         title={t('tabDetach.minimizeWindow', { defaultValue: 'Minimize' })}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -56,7 +65,7 @@ export function WindowControls({ stopPointerDown = false }: WindowControlsProps)
         type="button"
         {...(onPointerDown ? { onPointerDown } : {})}
         onClick={handleToggleMaximize}
-        className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+        className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100 pointer-coarse:h-8 pointer-coarse:w-8"
         title={
           maximized
             ? t('tabDetach.restoreWindow', { defaultValue: 'Restore' })
@@ -78,7 +87,7 @@ export function WindowControls({ stopPointerDown = false }: WindowControlsProps)
         type="button"
         {...(onPointerDown ? { onPointerDown } : {})}
         onClick={handleClose}
-        className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-red-500/80 hover:text-white"
+        className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-red-500/80 hover:text-white pointer-coarse:h-8 pointer-coarse:w-8"
         title={t('tabDetach.closeWindow', { defaultValue: 'Close window' })}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

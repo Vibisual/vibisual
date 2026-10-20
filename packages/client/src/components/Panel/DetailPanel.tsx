@@ -8,6 +8,8 @@ import { useIDEDockLayout } from '../IDE/useIDEDockLayout.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
+import { commandHistoryRows } from './commandAppHistory.js';
+import { CommandAppIcon } from '../CommandAppIcon.js';
 import { ServerList } from './ServerList.js';
 import { IframeServerCard } from './IframeServerCard.js';
 import { IframeServerLogsPopup } from './IframeServerLogsPopup.js';
@@ -22,6 +24,7 @@ import { codexProviderOf } from '../Codex/codexModelEntry.js';
 import { FolderFileTree } from './FolderFileTree.js';
 import { WebEntryList } from './WebEntryList.js';
 import { WebFoldHostList } from './WebFoldHostList.js';
+import { webFoldTitle } from '../BubbleMap/webFoldTitle.js';
 import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
@@ -125,6 +128,9 @@ export function DetailPanel({
   const node = rawNode && currentFolderIdForRoot && selectedNodeId === currentFolderIdForRoot
     ? { ...rawNode, bubbleType: 'root' as const }
     : rawNode;
+  const selectedBashRows = useMemo(() => node?.bubbleType === 'bash'
+    ? commandHistoryRows(bashHistory, node.id, !!node.commandApp)
+    : [], [bashHistory, node?.id, node?.bubbleType, !!node?.commandApp]);
   const subAgents = useGraphStore((s) => s.subAgents);
   const completedCommands = useGraphStore((s) => s.completedCommands);
   const agentConfigs = useGraphStore((s) => s.agentConfigs);
@@ -203,8 +209,9 @@ export function DetailPanel({
 
   // §4 v3.16 — 4개 패널 블록(노드/태스크엣지/코멘트박스 등)이 공유하는 래퍼 class·style.
   // 좁은 뷰포트(폰): 하단 바텀시트(전폭·80dvh·상단 라운드), 넓은 화면: 기존 사이드 패널(가변폭).
+  // 시트는 아래에서 올라온다 — 옆 패널의 가로 진입(`slide-in-right`)을 그대로 쓰면 아래 붙은 시트가 옆에서 미끄러져 들어왔다.
   const panelWrapperClass = isNarrow
-    ? `absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl border-t border-gray-800 bg-gray-900 ${animating ? 'animate-slide-in-right' : ''}`
+    ? `absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl border-t border-gray-800 bg-gray-900 ${animating ? 'animate-slide-in-up' : ''}`
     : `absolute ${panelOnLeft ? 'border-r' : 'border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
   const panelWrapperStyle: React.CSSProperties = isNarrow
     ? { height: '80dvh' }
@@ -494,7 +501,7 @@ export function DetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white pointer-coarse:p-3"
             aria-label={t('panel.detailPanel.close')}
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -537,7 +544,7 @@ export function DetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white pointer-coarse:p-3"
             aria-label={t('panel.detailPanel.close')}
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -588,7 +595,7 @@ export function DetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white pointer-coarse:p-3"
             aria-label={t('panel.detailPanel.close')}
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -629,7 +636,7 @@ export function DetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white pointer-coarse:p-3"
             aria-label={t('panel.detailPanel.close')}
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -667,7 +674,7 @@ export function DetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white pointer-coarse:p-3"
             aria-label={t('panel.detailPanel.close')}
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -698,7 +705,7 @@ export function DetailPanel({
             <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#57534E' }} />
             <span className="truncate text-sm font-bold text-gray-100" title={node.label}>{node.label}</span>
           </div>
-          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
+          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white pointer-coarse:p-3" aria-label={t('panel.detailPanel.close')}>
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -783,8 +790,9 @@ export function DetailPanel({
               onClick={isAgent ? startEdit : isFile ? handleOpenFile : (isFolder || isRoot) ? handleOpenFolder : undefined}
               title={isAgent ? t('panel.detailPanel.clickToRename') : isFile ? t('panel.detailPanel.clickToOpenFile') : (isFolder || isRoot) ? t('panel.detailPanel.clickToOpenFolder') : undefined}
             >
-              {/* §5.23 접어 보기 — 접힌 웹 버블의 라벨 문자열은 최근 호스트 하나라, 캔버스 제목과 같은 "웹"을 쓴다. */}
-              {isRoot && currentFolder ? currentFolder.label : node.webFold ? t('ide.stage.surfaceName.web') : node.label}
+              {/* §5.23 웹 버블 묶기 — 접힌 웹 버블의 라벨 문자열은 최근 호스트 하나라, 캔버스와 같은 제목(사이트·종류·
+                  그 밖의 웹·웹)을 같은 함수로 쓴다(§7.22). */}
+              {isRoot && currentFolder ? currentFolder.label : node.webFold ? webFoldTitle(node.webFold, t) : node.label}
             </h2>
           )}
         </div>
@@ -793,7 +801,7 @@ export function DetailPanel({
             <button
               type="button"
               onClick={handleTogglePreservePin}
-              className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
+              className={`flex h-6 w-6 items-center justify-center rounded transition-colors pointer-coarse:h-10 pointer-coarse:w-10 ${
                 node.preservePinned
                   ? 'text-amber-400 hover:bg-amber-500/20'
                   : 'text-gray-500 hover:bg-gray-800 hover:text-amber-400'
@@ -811,7 +819,7 @@ export function DetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-10 pointer-coarse:w-10"
             aria-label={t('panel.detailPanel.closePanel')}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -853,8 +861,8 @@ export function DetailPanel({
                 </p>
               </div>
 
-              {/* Row 1: Type / Status / Activity */}
-              <div className="flex items-center gap-3">
+              {/* Row 1: Type / Status / Activity — 패널이 240px 까지 좁아지므로 넘치면 다음 줄로 내린다. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">{t('panel.detailPanel.type')}</span>
                   <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${color}20`, color }}>{t('panel.detailPanel.agentBadge')}</span>
@@ -873,7 +881,7 @@ export function DetailPanel({
                   §5.19 (G) — 로컬 버블은 **청구가 0**이고 대화 창도 클로드 세션이 아니라 엔진이
                   왕복마다 돌려준 수치다. 같은 자리에 클로드 어휘("청구 토큰" · M 단위 창)를 그대로
                   두면 이 줄 전체가 거짓말이 되므로, 로컬이면 로컬이 실제로 아는 값만 그린다. */}
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {!summaryProvider && billableTokens > 0 && (
                   <button
                     type="button"
@@ -954,7 +962,7 @@ export function DetailPanel({
                       </span>
                     </span>
                   ) : (
-                    <span className="text-xs font-medium text-gray-300">
+                    <span className="min-w-0 truncate text-xs font-medium text-gray-300">
                       {agentConfig?.model ?? (node.modelName ? node.modelName.replace('claude-', '').replace(/-\d+$/, '') : 'sonnet')}
                     </span>
                   )}
@@ -1018,6 +1026,13 @@ export function DetailPanel({
                 </svg>
                 {t('panel.detailPanel.agentSettings')}
               </button>
+              {/* 잠긴 사유는 title(호버)에만 있었다 — 터치에는 호버가 없고 비활성 단추는 탭에도 아무 말이 없다.
+                  굵은 포인터에서만 같은 문장을 본문으로 꺼낸다(마우스는 종전대로 호버). */}
+              {!node.customCreated && (
+                <p className="-mt-2 hidden text-[12px] leading-snug text-gray-500 pointer-coarse:block">
+                  {t('panel.detailPanel.hookAgentSettingsLocked')}
+                </p>
+              )}
             </>
           ) : (
             <>
@@ -1123,9 +1138,10 @@ export function DetailPanel({
                 <span className="text-xs font-medium text-gray-300">{t('panel.detailPanel.activityEvents', { n: node.activity })}</span>
               </div>
               {node.lastTool && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">{t('panel.detailPanel.lastTool')}</span>
-                  <span className="text-xs font-medium text-gray-300">{node.lastTool}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="shrink-0 text-xs text-gray-500">{t('panel.detailPanel.lastTool')}</span>
+                  {/* MCP 도구 이름은 40자를 넘는다 — 좁은 패널에서 줄 밖으로 밀어내지 않게 말줄임. */}
+                  <span className="min-w-0 truncate text-xs font-medium text-gray-300" title={node.lastTool}>{node.lastTool}</span>
                 </div>
               )}
             </>
@@ -1252,8 +1268,18 @@ export function DetailPanel({
           {/* Bash: server list + command history */}
           {node.bubbleType === 'bash' && (
             <>
-              <ServerList servers={runningServers[node.id] ?? []} />
-              <BashHistoryList entries={bashHistory[node.id] ?? []} />
+              {node.commandApp ? (
+                <div className="flex items-start gap-2 rounded border border-gray-700/50 bg-gray-800/40 p-2.5">
+                  <CommandAppIcon executable={node.commandApp.iconSource ?? node.commandApp.executable} px={28} />
+                  <div className="min-w-0 text-xs">
+                    <p className="font-semibold text-gray-200">{node.commandApp.name}</p>
+                    <p className="mt-1 text-gray-500">{t('panel.bashHistory.commandDetected')}</p>
+                    {node.commandApp.executable && <p className="mt-1 break-all font-mono text-gray-400">{node.commandApp.executable}</p>}
+                    {node.commandApp.projectPath && <p className="mt-1 break-all text-gray-400">{node.commandApp.projectPath}</p>}
+                  </div>
+                </div>
+              ) : <ServerList servers={runningServers[node.id] ?? []} />}
+              <BashHistoryList key={node.id} rows={selectedBashRows} />
             </>
           )}
 

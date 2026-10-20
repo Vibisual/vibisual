@@ -155,7 +155,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
       <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px]" style={{ zIndex: Z - 1 }} />
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: Z }}>
         <div
-          className="pointer-events-auto flex max-h-[90vh] w-[600px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-emerald-500/40 bg-gray-900 shadow-2xl"
+          className="pointer-events-auto flex max-h-[90dvh] w-[600px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-emerald-500/40 bg-gray-900 shadow-2xl"
           style={{ boxShadow: '0 0 0 1px rgba(16,185,129,0.2), 0 25px 50px -12px rgba(0,0,0,0.85), 0 0 40px -8px rgba(16,185,129,0.4)' }}
         >
           <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">
@@ -330,7 +330,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
                     <button
                       type="button"
                       onClick={() => setShowTerminal((v) => !v)}
-                      className="flex items-center gap-1.5 self-start text-[12px] text-gray-500 transition-colors hover:text-gray-300"
+                      className="flex items-center gap-1.5 self-start text-[12px] text-gray-500 transition-colors hover:text-gray-300 pointer-coarse:min-h-8"
                     >
                       <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${showTerminal ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 18l6-6-6-6" />
@@ -349,7 +349,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
               <button
                 type="button"
                 onClick={() => { void recheck(); }}
-                className="text-[12px] text-gray-500 transition-colors hover:text-gray-300"
+                className="text-[12px] text-gray-500 transition-colors hover:text-gray-300 pointer-coarse:min-h-8"
               >
                 {t('panel.codexLogin.recheck', { defaultValue: 'Check again' })}
               </button>

@@ -13,6 +13,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { useSelectedAppThemeId } from '../../theme/useAppTheme.js';
 import { ThemePreviewCard, useThemeLabel } from './ThemePreviewCard.js';
 import { ThemeCustomSection } from './ThemeCustomSection.js';
+import { BubbleAppearanceSection } from './BubbleAppearanceSection.js';
 
 interface ThemeGroupProps {
   title: string;
@@ -87,6 +88,7 @@ export function ThemeTab(): React.JSX.Element {
       <ThemeGroup title={t('panel.options.theme.groupDark')} themes={dark} activeId={active.id} onPick={pick} />
       <ThemeGroup title={t('panel.options.theme.groupLight')} themes={light} activeId={active.id} onPick={pick} />
       <ThemeCustomSection catalog={catalog} themes={mine} activeId={active.id} baseTheme={active} onPick={pick} />
+      <BubbleAppearanceSection />
     </div>
   );
 }

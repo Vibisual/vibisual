@@ -198,3 +198,49 @@ export function separationResponse(
 
   return give(0.5);
 }
+
+/**
+ * §5.1 #2-1 (B) — 부모가 바뀐 위성의 **새 궤도 자리**(부모 중심 기준 오프셋).
+ *
+ * 별자리가 서면 파일 위성의 부모가 폴더에서 별자리 중심(파일 위성·앱 노드)으로 바뀐다. 스프링은 "부모 중심 + 오프셋"으로
+ * 끌어당기므로 옛 부모 기준 오프셋을 그대로 두면 엉뚱한 자리로 간다. 방향은 **지금 자리에서 새 부모를 본 쪽**을 지키고
+ * (화면에서 가로질러 날아가지 않게), 거리는 부모 반경 + 위성 반경 + 간격이다 — 드래그를 놓았을 때(`onSatelliteDragStop`)와
+ * 정리(§5.4 #33)가 쓰는 것과 **같은 평형점**이라 앉힌 궤도가 스스로 풀리지 않는다. 두 중심이 겹쳐 방향이 없으면 id 로
+ * 정한 각도를 쓴다(재현 가능 — 무작위 ❌, `DEGENERATE_EPSILON` 과 같은 규율).
+ */
+export function orbitSeatOffset(
+  parent: { readonly x: number; readonly y: number; readonly radius: number },
+  body: { readonly id: string; readonly x: number; readonly y: number; readonly radius: number },
+  gap: number,
+): { x: number; y: number } {
+  let dx = body.x - parent.x;
+  let dy = body.y - parent.y;
+  let dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < DEGENERATE_EPSILON) {
+    let h = 0;
+    for (let i = 0; i < body.id.length; i += 1) h = ((h << 5) - h + body.id.charCodeAt(i)) | 0;
+    const angle = ((Math.abs(h) % 360) * Math.PI) / 180;
+    dx = Math.cos(angle);
+    dy = Math.sin(angle);
+    dist = 1;
+  }
+  const reach = parent.radius + body.radius + gap;
+  return { x: (dx / dist) * reach, y: (dy / dist) * reach };
+}
+
+/**
+ * §5.1 #2-1 (F) ⑤ — 정해진 **각도**의 궤도 자리(부모 중심 기준 오프셋). 앱 작업 위성은 역할 순서가 곧 자리라 지금 방향이 아니라
+ * 이 각도에 건다. 사각 부모(앱 노드)는 타원이다 — 가로·세로 반폭에 위성 반경 + 간격을 더한 두 반지름(화면의 흐린 타원 궤도와
+ * 같은 모양). 원 부모는 `orbitSeatOffset` 과 같은 평형점이다.
+ */
+export function orbitSeatAtAngle(
+  parent: { readonly radius: number; readonly halfW?: number; readonly halfH?: number; readonly shape?: 'circle' | 'rect' },
+  body: { readonly radius: number },
+  gap: number,
+  angle: number,
+): { x: number; y: number } {
+  const rect = parent.shape === 'rect' && typeof parent.halfW === 'number' && typeof parent.halfH === 'number';
+  const rx = (rect ? parent.halfW! : parent.radius) + body.radius + gap;
+  const ry = (rect ? parent.halfH! : parent.radius) + body.radius + gap;
+  return { x: Math.cos(angle) * rx, y: Math.sin(angle) * ry };
+}

@@ -3,9 +3,17 @@ import { useTranslation } from 'react-i18next';
 import type { BashEntry } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { COMMAND_HISTORY_VISIBLE_LIMIT, type CommandHistoryRow } from './commandAppHistory.js';
 
 interface BashHistoryListProps {
-  entries: BashEntry[];
+  rows: readonly CommandHistoryRow[];
+}
+
+function CommandStatus({ entry }: { entry: BashEntry }): React.JSX.Element {
+  const { t } = useTranslation();
+  const status = entry.status ?? 'unknown';
+  const tone = status === 'success' ? 'text-emerald-400' : status === 'error' ? 'text-rose-400' : status === 'running' ? 'text-blue-400' : 'text-gray-500';
+  return <span className={`text-[12px] ${tone}`}>{t(`panel.bashHistory.status.${status}`)}</span>;
 }
 
 function formatTime(timestamp: number): string {
@@ -44,7 +52,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -64,7 +72,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
             <button
               type="button"
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
               aria-label={t('panel.bashHistory.closePopup')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -75,9 +83,15 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
           </div>
         </div>
 
-        {/* Body — Input / Output — 내용 적으면 줄어들고 80vh 초과 시 스크롤 */}
+        {/* Body — Input / Output — 내용 적으면 줄어들고 80dvh 초과 시 스크롤 */}
         <ScrollFade fill className="min-h-0 flex-1">
           <div className="flex flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <CommandStatus entry={entry} />
+              {entry.endedAt !== undefined && <span className="text-xs text-gray-500">{t('panel.bashHistory.endedAt', { time: formatTime(entry.endedAt) })}</span>}
+            </div>
+            {entry.apps && entry.apps.length > 0 && <p className="text-xs text-gray-300">{entry.apps.map((app) => app.name).join(' · ')}</p>}
+            {entry.cwd && <p className="break-all text-xs text-gray-400">{t('panel.bashHistory.cwd')}: <code>{entry.cwd}</code></p>}
             {/* Input */}
             <div className="flex shrink-0 flex-col gap-1">
               <span className="text-[12px] font-semibold uppercase tracking-wider text-blue-400">
@@ -86,6 +100,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
               <pre className="whitespace-pre-wrap break-all rounded border border-gray-700/50 bg-gray-800 p-3 font-mono text-xs leading-relaxed text-gray-200">
                 <span className="select-none text-slate-500">$ </span>{entry.command}
               </pre>
+              {entry.commandTruncated && <p className="text-xs text-amber-400">{t('panel.bashHistory.commandTruncated')}</p>}
             </div>
 
             {/* Output */}
@@ -99,9 +114,10 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
                 </pre>
               ) : (
                 <p className="rounded border border-gray-700/30 bg-gray-800/40 px-3 py-2 text-xs text-gray-500">
-                  {t('panel.bashHistory.waitingForOutput')}
+                  {t(entry.status === 'running' ? 'panel.bashHistory.waitingForOutput' : 'panel.bashHistory.noOutput')}
                 </p>
               )}
+              {entry.outputTruncated && <p className="text-xs text-amber-400">{t('panel.bashHistory.outputTruncated')}</p>}
             </div>
           </div>
         </ScrollFade>
@@ -111,14 +127,16 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
 }
 
 export const BashHistoryList = memo(function BashHistoryList({
-  entries,
+  rows,
 }: BashHistoryListProps): React.JSX.Element {
   const { t } = useTranslation();
-  const [selectedEntry, setSelectedEntry] = useState<BashEntry | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Derive from current records: completion/output updates must reach an open popup.
+  const selectedEntry = selectedKey ? rows.find((row) => row.key === selectedKey)?.entry : undefined;
 
-  const handleClose = useCallback(() => setSelectedEntry(null), []);
+  const handleClose = useCallback(() => setSelectedKey(null), []);
 
-  if (entries.length === 0) {
+  if (rows.length === 0) {
     return (
       <p className="text-xs text-gray-500">{t('panel.bashHistory.noCommandsYet')}</p>
     );
@@ -128,30 +146,33 @@ export const BashHistoryList = memo(function BashHistoryList({
     <>
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">
-          {t('panel.bashHistory.commandsHeading', { count: entries.length })}
+          {t('panel.bashHistory.commandsHeading', { count: rows.length })}
         </span>
+        <span className="text-[12px] text-gray-500">{t('panel.bashHistory.recentLimit', { count: COMMAND_HISTORY_VISIBLE_LIMIT })}</span>
         <ScrollFade maxHeight={256}>
           <ul className="flex flex-col gap-1.5">
-            {entries.map((entry) => (
+            {rows.map(({ entry, key }) => (
               <li
-                key={entry.id}
+                key={key}
                 className="cursor-pointer rounded border border-gray-700/50 bg-gray-800/60 px-2.5 py-1.5 transition-colors hover:border-gray-600 hover:bg-gray-700/60"
-                onClick={() => setSelectedEntry(entry)}
               >
+                <button type="button" onClick={() => setSelectedKey(key)} className="block w-full text-left">
                 {/* Input */}
                 <code className="block truncate text-xs text-gray-200">
                   <span className="text-blue-400/70">$ </span>
-                  {entry.command}
+                  {entry.command.length > 240 ? `${entry.command.slice(0, 240)}…` : entry.command}
                 </code>
                 {/* Output preview */}
                 {entry.output && (
                   <p className="mt-0.5 truncate text-[12px] text-emerald-400/60">
-                    {entry.output.split('\n')[0]}
+                    {entry.output.slice(0, entry.output.indexOf('\n') < 0 ? 160 : Math.min(160, entry.output.indexOf('\n')))}
                   </p>
                 )}
-                <span className="mt-0.5 block text-[12px] text-gray-500">
-                  {formatTime(entry.timestamp)}
+                <span className="mt-0.5 flex flex-wrap items-center justify-between gap-1 text-[12px] text-gray-500">
+                  <span>{formatTime(entry.timestamp)}</span>
+                  <CommandStatus entry={entry} />
                 </span>
+                </button>
               </li>
             ))}
           </ul>

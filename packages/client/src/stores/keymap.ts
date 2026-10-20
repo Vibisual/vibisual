@@ -8,6 +8,7 @@ import {
   type CommandId,
   type KeymapOverrides,
 } from '@vibisual/shared';
+import { clientKeyPlatform } from '../utils/platform.js';
 
 /**
  * §6 — **지금 이 앱에서 실제로 도는 단축키.**
@@ -54,15 +55,15 @@ function sameOverrides(a: KeymapOverrides, b: KeymapOverrides): boolean {
 
 export const useKeymapStore = create<KeymapState>((set, get) => ({
   overrides: {},
-  resolved: resolveKeymap({}),
+  resolved: resolveKeymap({}, clientKeyPlatform()),
   loaded: false,
 
   applyOverrides: (raw) => {
-    const overrides = normalizeKeymapOverrides(raw);
+    const overrides = normalizeKeymapOverrides(raw, clientKeyPlatform());
     // 같은 값이면 통지하지 않는다 — `resolved` 는 디스패처가 매 키 입력마다 읽는 참조라
     // 무의미하게 갈아끼우면 그것을 구독하는 힌트 전부가 함께 다시 그려진다.
     if (get().loaded && sameOverrides(get().overrides, overrides)) return;
-    set({ overrides, resolved: resolveKeymap(overrides), loaded: true });
+    set({ overrides, resolved: resolveKeymap(overrides, clientKeyPlatform()), loaded: true });
   },
 
   fetchKeymap: async () => {
@@ -79,7 +80,7 @@ export const useKeymapStore = create<KeymapState>((set, get) => ({
   setBinding: async (id, binding) => {
     // 화면을 기다리게 하지 않는다. 저장이 실패하면 다음 `keymap_updated`·재조회가 되돌린다.
     const next: KeymapOverrides = { ...get().overrides, [id]: binding };
-    set({ overrides: next, resolved: resolveKeymap(next) });
+    set({ overrides: next, resolved: resolveKeymap(next, clientKeyPlatform()) });
     try {
       const r = await fetch('/api/keymap', {
         method: 'PUT',
@@ -94,7 +95,7 @@ export const useKeymapStore = create<KeymapState>((set, get) => ({
   resetBinding: async (id) => {
     const next = { ...get().overrides };
     delete next[id];
-    set({ overrides: next, resolved: resolveKeymap(next) });
+    set({ overrides: next, resolved: resolveKeymap(next, clientKeyPlatform()) });
     try {
       const r = await fetch('/api/keymap', {
         method: 'PUT',
@@ -107,7 +108,7 @@ export const useKeymapStore = create<KeymapState>((set, get) => ({
   },
 
   resetAll: async () => {
-    set({ overrides: {}, resolved: resolveKeymap({}) });
+    set({ overrides: {}, resolved: resolveKeymap({}, clientKeyPlatform()) });
     try {
       const r = await fetch('/api/keymap', { method: 'DELETE' });
       const data = await r.json() as { overrides?: unknown };
@@ -143,7 +144,7 @@ export function parseKeymapImport(text: string): KeymapOverrides | null {
     if (!parsed || typeof parsed !== 'object') return null;
     // 통째로 `{ "canvas.copy": "Ctrl+X" }` 형태로 붙여 넣는 사람도 있다 — 둘 다 받는다.
     const raw = parsed.keymap ?? parsed;
-    return normalizeKeymapOverrides(raw);
+    return normalizeKeymapOverrides(raw, clientKeyPlatform());
   } catch {
     return null;
   }
@@ -160,4 +161,4 @@ export function commandsInScopeOrder(): CommandId[] {
 }
 
 /** 기본 바인딩(설정 화면의 "되돌리기" 미리보기). */
-export const DEFAULT_KEYMAP = defaultKeymap();
+export const DEFAULT_KEYMAP = defaultKeymap(clientKeyPlatform());

@@ -166,8 +166,10 @@ export function ShelfPanel(): React.JSX.Element | null {
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
-      {/* 헤더 — 제목 인라인 편집 + 항목 수 + 내보내기/가져오기 + 닫기 */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3">
+      {/* 헤더 — 제목 인라인 편집 + 항목 수 + 내보내기/가져오기 + 닫기.
+          폰 폭에서는 항목 수·내보내기·가져오기 묶음을 둘째 줄로 내린다 — 한 줄이면 고정 폭 단추들이
+          화면을 넘어 [닫기]가 화면 밖으로 밀려났다(폰에는 Esc 도 없다). */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-800 px-4 py-3 max-md:gap-2 max-md:px-3">
         <span className="rounded bg-cyan-900/60 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-cyan-200">
           {t('canvas.shelf.title', { defaultValue: '선반' })}
         </span>
@@ -179,28 +181,30 @@ export function ShelfPanel(): React.JSX.Element | null {
           placeholder={t('canvas.shelf.untitled', { defaultValue: '이름 없는 선반' })}
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-lg font-semibold text-gray-100 outline-none transition-colors hover:border-gray-700 focus:border-cyan-600"
         />
-        <span className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-400">
-          {t('canvas.shelf.itemCount', {
-            count: shelf.items.length,
-            max: SHELF_MAX_ITEMS,
-            defaultValue: '항목 {{count}}/{{max}}',
-          })}
-        </span>
-        <button
-          type="button"
-          onClick={doExport}
-          disabled={shelf.items.length === 0}
-          className="shrink-0 rounded border border-gray-700 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-600"
-        >
-          {t('canvas.shelf.export', { defaultValue: '내보내기 (JSON)' })}
-        </button>
-        <button
-          type="button"
-          onClick={() => doImport(false)}
-          className="shrink-0 rounded border border-gray-700 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:bg-gray-800"
-        >
-          {t('canvas.shelf.import', { defaultValue: '가져오기 (JSON)' })}
-        </button>
+        <div className="flex shrink-0 items-center gap-3 max-md:order-last max-md:w-full max-md:flex-wrap max-md:gap-2">
+          <span className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-400">
+            {t('canvas.shelf.itemCount', {
+              count: shelf.items.length,
+              max: SHELF_MAX_ITEMS,
+              defaultValue: '항목 {{count}}/{{max}}',
+            })}
+          </span>
+          <button
+            type="button"
+            onClick={doExport}
+            disabled={shelf.items.length === 0}
+            className="shrink-0 rounded border border-gray-700 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-600"
+          >
+            {t('canvas.shelf.export', { defaultValue: '내보내기 (JSON)' })}
+          </button>
+          <button
+            type="button"
+            onClick={() => doImport(false)}
+            className="shrink-0 rounded border border-gray-700 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:bg-gray-800"
+          >
+            {t('canvas.shelf.import', { defaultValue: '가져오기 (JSON)' })}
+          </button>
+        </div>
         <button
           type="button"
           onClick={close}
@@ -228,7 +232,7 @@ export function ShelfPanel(): React.JSX.Element | null {
               const run = item.lastRun;
               return (
                 <li key={item.id} className="rounded-lg border border-gray-800 bg-gray-900/60">
-                  <div className="flex items-center gap-2 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2">
                     <span style={{ color: item.color }}>
                       <ShelfItemGlyph name={item.icon} />
                     </span>
@@ -249,43 +253,49 @@ export function ShelfPanel(): React.JSX.Element | null {
                         ? t('canvas.shelf.kindCommand', { defaultValue: '셸' })
                         : t('canvas.shelf.kindPrompt', { defaultValue: '프롬프트' })}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => move(item, -1)}
-                      disabled={index === 0}
-                      title={t('canvas.shelf.moveUp', { defaultValue: '위로' })}
-                      className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700"
-                    >
-                      <ArrowGlyph up />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => move(item, 1)}
-                      disabled={index === shelf.items.length - 1}
-                      title={t('canvas.shelf.moveDown', { defaultValue: '아래로' })}
-                      className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700"
-                    >
-                      <ArrowGlyph up={false} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { void runShelfItem(shelf.id, item.id); }}
-                      disabled={run?.status === 'running'}
-                      className="flex shrink-0 items-center gap-1 rounded bg-cyan-700 px-2.5 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-progress disabled:bg-gray-700"
-                    >
-                      <RunGlyph />
-                      {run?.status === 'running'
-                        ? t('canvas.shelf.running', { defaultValue: '도는 중' })
-                        : t('canvas.shelf.run', { defaultValue: '실행' })}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { void removeShelfItem(shelf.id, item.id); }}
-                      title={t('canvas.shelf.removeItem', { defaultValue: '항목 삭제' })}
-                      className="shrink-0 rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-300"
-                    >
-                      <TrashGlyph />
-                    </button>
+                    {/* 폰 폭에서는 손잡이 넷을 둘째 줄 오른쪽으로 내린다 — 한 줄이면 이름 칸이 50px 남짓으로 짓눌렸다. */}
+                    <div className="flex shrink-0 items-center gap-2 max-md:w-full max-md:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => move(item, -1)}
+                        disabled={index === 0}
+                        title={t('canvas.shelf.moveUp', { defaultValue: '위로' })}
+                        aria-label={t('canvas.shelf.moveUp', { defaultValue: '위로' })}
+                        className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700 pointer-coarse:p-2.5"
+                      >
+                        <ArrowGlyph up />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => move(item, 1)}
+                        disabled={index === shelf.items.length - 1}
+                        title={t('canvas.shelf.moveDown', { defaultValue: '아래로' })}
+                        aria-label={t('canvas.shelf.moveDown', { defaultValue: '아래로' })}
+                        className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:text-gray-700 pointer-coarse:p-2.5"
+                      >
+                        <ArrowGlyph up={false} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { void runShelfItem(shelf.id, item.id); }}
+                        disabled={run?.status === 'running'}
+                        className="flex shrink-0 items-center gap-1 rounded bg-cyan-700 px-2.5 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-progress disabled:bg-gray-700"
+                      >
+                        <RunGlyph />
+                        {run?.status === 'running'
+                          ? t('canvas.shelf.running', { defaultValue: '도는 중' })
+                          : t('canvas.shelf.run', { defaultValue: '실행' })}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { void removeShelfItem(shelf.id, item.id); }}
+                        title={t('canvas.shelf.removeItem', { defaultValue: '항목 삭제' })}
+                        aria-label={t('canvas.shelf.removeItem', { defaultValue: '항목 삭제' })}
+                        className="shrink-0 rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-300 pointer-coarse:p-2.5"
+                      >
+                        <TrashGlyph />
+                      </button>
+                    </div>
                   </div>
 
                   {/* 편집기 — 줄을 펼치면 나온다 */}
@@ -296,7 +306,7 @@ export function ShelfPanel(): React.JSX.Element | null {
                           value={item.label}
                           onChange={(e) => { void updateShelfItem(shelf.id, item.id, { label: e.target.value }); }}
                           placeholder={t('canvas.shelf.labelPlaceholder', { defaultValue: '이름' })}
-                          className="w-48 rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600"
+                          className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600 md:w-48"
                         />
                         <select
                           value={item.kind}
@@ -310,7 +320,7 @@ export function ShelfPanel(): React.JSX.Element | null {
                           <select
                             value={item.targetAgentId ?? ''}
                             onChange={(e) => { void updateShelfItem(shelf.id, item.id, { targetAgentId: e.target.value }); }}
-                            className="max-w-56 rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600"
+                            className="min-w-0 max-w-56 rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600"
                           >
                             <option value="">{t('canvas.shelf.newAgentTarget', { defaultValue: '실행할 때 새 카드 만들기' })}</option>
                             {targetOptions.map((a) => (
@@ -322,7 +332,7 @@ export function ShelfPanel(): React.JSX.Element | null {
                             value={item.cwd ?? ''}
                             onChange={(e) => { void updateShelfItem(shelf.id, item.id, { cwd: e.target.value }); }}
                             placeholder={t('canvas.shelf.cwdPlaceholder', { defaultValue: '작업 디렉터리 (비우면 프로젝트 루트)' })}
-                            className="w-72 rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600"
+                            className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600 md:w-72"
                           />
                         )}
                       </div>
@@ -342,14 +352,14 @@ export function ShelfPanel(): React.JSX.Element | null {
                       />
 
                       <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
                           {SHELF_ICONS.map((icon) => (
                             <button
                               key={icon}
                               type="button"
                               onClick={() => { void updateShelfItem(shelf.id, item.id, { icon: icon as ShelfIconName }); }}
                               title={icon}
-                              className={`rounded p-1.5 transition-colors ${
+                              className={`rounded p-1.5 transition-colors pointer-coarse:p-2.5 ${
                                 item.icon === icon ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
                               }`}
                             >
@@ -357,14 +367,14 @@ export function ShelfPanel(): React.JSX.Element | null {
                             </button>
                           ))}
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1 pointer-coarse:gap-2">
                           {SHELF_ITEM_COLORS.map((color) => (
                             <button
                               key={color}
                               type="button"
                               onClick={() => { void updateShelfItem(shelf.id, item.id, { color }); }}
                               title={color}
-                              className={`h-5 w-5 rounded-full border-2 transition-transform ${
+                              className={`h-5 w-5 rounded-full border-2 transition-transform pointer-coarse:h-8 pointer-coarse:w-8 ${
                                 item.color.toUpperCase() === color.toUpperCase() ? 'border-white scale-110' : 'border-transparent'
                               }`}
                               style={{ backgroundColor: color }}
@@ -406,7 +416,7 @@ export function ShelfPanel(): React.JSX.Element | null {
                               close();
                               selectNode(agentId);
                             }}
-                            className="ml-auto rounded border border-gray-700 px-2 py-0.5 text-gray-300 transition-colors hover:bg-gray-800"
+                            className="ml-auto rounded border border-gray-700 px-2 py-0.5 text-gray-300 transition-colors hover:bg-gray-800 pointer-coarse:min-h-8 pointer-coarse:px-3"
                           >
                             {t('canvas.shelf.openCard', { defaultValue: '그 카드 열기' })}
                           </button>
@@ -428,8 +438,8 @@ export function ShelfPanel(): React.JSX.Element | null {
         )}
       </div>
 
-      {/* 바닥 — 항목 추가 */}
-      <div className="flex shrink-0 items-center gap-2 border-t border-gray-800 px-4 py-3">
+      {/* 바닥 — 항목 추가. 좁으면 줄을 바꾼다(한도 안내까지 서면 한 줄을 넘는다). */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-800 px-4 py-3 max-md:px-3">
         <button
           type="button"
           onClick={() => addItem('command')}

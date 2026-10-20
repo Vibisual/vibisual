@@ -144,7 +144,7 @@ export function KeyboardTab(): React.JSX.Element {
             key={key}
             type="button"
             onClick={() => setFilter(key)}
-            className={`rounded px-2 py-1 text-xs ${filter === key ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
+            className={`whitespace-nowrap rounded px-2 py-1 text-xs pointer-coarse:py-2 ${filter === key ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
           >
             {label}
             {key === 'conflicts' && conflicts.size > 0 && (
@@ -178,7 +178,8 @@ export function KeyboardTab(): React.JSX.Element {
                   className={`flex items-center justify-between gap-3 px-3 py-2 ${conflicts.has(id) ? 'bg-rose-950/30' : ''}`}
                 >
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    {/* 폰 폭에서 [바뀜]·[충돌] 표식이 둘 다 서면 이름이 스무 px 로 눌렸다 — 그때는 표식이 아랫줄로 간다. */}
+                    <div className="flex items-center gap-1.5 max-md:flex-wrap">
                       <span className="truncate text-xs text-gray-200">{nameOf(id)}</span>
                       {isRemapped(overrides, id) && (
                         <span className="shrink-0 rounded bg-blue-900/60 px-1 text-xs text-blue-200">
@@ -205,7 +206,7 @@ export function KeyboardTab(): React.JSX.Element {
                       onClick={() => void resetBinding(id)}
                       title={t('panel.options.keyboard.resetOne', { defaultValue: 'Restore default' })}
                       aria-label={t('panel.options.keyboard.resetOne', { defaultValue: 'Restore default' })}
-                      className="flex h-5 w-5 items-center justify-center rounded text-gray-500 hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+                      className="flex h-5 w-5 items-center justify-center rounded text-gray-500 hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent pointer-coarse:h-8 pointer-coarse:w-8"
                     >
                       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
@@ -219,21 +220,21 @@ export function KeyboardTab(): React.JSX.Element {
         ))}
       </div>
 
-      {/* 아래 줄 — 되돌리기 · 내보내기/가져오기 */}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="truncate text-xs text-gray-500">{notice ?? ''}</span>
+      {/* 아래 줄 — 되돌리기 · 내보내기/가져오기. 폰 폭에서는 알림 글이 단추 아랫줄로 내려가 한 줄을 다 쓴다. */}
+      <div className="mt-2 flex items-center justify-between gap-2 max-md:flex-wrap">
+        <span className="truncate text-xs text-gray-500 max-md:order-last max-md:basis-full">{notice ?? ''}</span>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={onExport}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800"
+            className="whitespace-nowrap rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 pointer-coarse:py-2"
           >
             {t('panel.options.keyboard.export', { defaultValue: 'Export' })}
           </button>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800"
+            className="whitespace-nowrap rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 pointer-coarse:py-2"
           >
             {t('panel.options.keyboard.import', { defaultValue: 'Import' })}
           </button>
@@ -252,7 +253,7 @@ export function KeyboardTab(): React.JSX.Element {
             type="button"
             disabled={Object.keys(overrides).length === 0}
             onClick={() => { void resetAll(); setNotice(t('panel.options.keyboard.resetDone', { defaultValue: 'Restored all defaults.' })); }}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="whitespace-nowrap rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:py-2"
           >
             {t('panel.options.keyboard.resetAll', { defaultValue: 'Restore all defaults' })}
           </button>

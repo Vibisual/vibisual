@@ -30,10 +30,11 @@ afterEach(() => {
   vi.restoreAllMocks();
   useGraphStore.setState({ ensureClaudeVersionChecked: originalVersionCheck });
 });
-function submit(): void {
+function submit(): ReturnType<ReturnType<typeof useGraphStore.getState>['addCommand']> {
   const store = useGraphStore.getState();
-  store.addCommand(agentId, prompt, subId, [image.serverPath]);
+  const completion = store.addCommand(agentId, prompt, subId, [image.serverPath]);
   store.clearAgentSessionInput(agentId, subId);
+  return completion;
 }
 function pending(): (response: Response) => void {
   let respond!: (response: Response) => void;
@@ -45,6 +46,29 @@ function failure(status = 500, error = 'server-error'): Response {
 }
 
 describe('failed sends retain the original session draft without retrying a possibly accepted command', () => {
+  it.each(['accepted', 'rejected'] as const)('keeps the send promise pending until a delayed %s response is handled', async (outcome) => {
+    const respond = pending();
+    const completion = submit();
+    expect(completion).toBeInstanceOf(Promise);
+    let settled = false;
+    const settledDraft = Promise.resolve(completion).then(() => {
+      settled = true;
+      return useGraphStore.getState().agentSessionInputs[key];
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(useGraphStore.getState().agentSessionInputs[key]).toBeUndefined();
+
+    respond(outcome === 'accepted'
+      ? new Response(JSON.stringify({ ok: true, command: { id: 'accepted-command', subAgentId: subId } }))
+      : failure(403));
+    const draftAtSettlement = await settledDraft;
+    expect(settled).toBe(true);
+    if (outcome === 'accepted') expect(draftAtSettlement).toBeUndefined();
+    else expect(draftAtSettlement).toMatchObject({ text: prompt, attachments: [image], sendFailure: 'rejected' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   for (const provider of ['claude', 'codex-cli', 'local-llama'] as const) {
     it.each(['network', 'sync-throw', 'http', 'bad-json', 'bad-success'])(`${provider}: %s restores text and images`, async (kind) => {
       useGraphStore.setState({ agentConfigs: { [agentId]: {
@@ -105,10 +129,58 @@ describe('failed sends retain the original session draft without retrying a poss
   });
 
   it('a successful send leaves the draft cleared and does not manufacture a retry', async () => {
-    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, command: {} })));
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, command: { id: 'accepted-command', subAgentId: subId } })));
     submit();
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
     expect(useGraphStore.getState().agentSessionInputs[key]).toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the server-assigned command and session receipt', async () => {
+    const receipt = { id: 'server-command', subAgentId: 'server-session' };
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, command: receipt })));
+    expect(await submit()).toEqual(receipt);
+  });
+
+  it('requests a server snapshot of prior work only for an explicit new-task send', async () => {
+    fetcher.mockImplementation(async () => new Response(JSON.stringify({ command: { id: 'accepted-command', subAgentId: subId } })));
+    await useGraphStore.getState().addCommand(agentId, prompt, subId, undefined, { afterAgentWork: true });
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)).afterAgentWork).toBe(true);
+    await useGraphStore.getState().addCommand(agentId, prompt, subId);
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).not.toHaveProperty('afterAgentWork');
+  });
+
+  it('returns null and restores the original input location without exposing generated protocol', async () => {
+    const respond = pending();
+    const store = useGraphStore.getState();
+    const completion = store.addCommand(agentId, `${prompt}\n\nGenerated node protocol`, 'new-session', [image.serverPath], {
+      draftText: prompt, draftSessionId: subId,
+    });
+    store.clearAgentSessionInput(agentId, subId);
+    store.setAgentSessionInputText(agentId, subId, 'Another detail');
+    respond(failure());
+    expect(await completion).toBeNull();
+    expect(useGraphStore.getState().agentSessionInputs[key]).toMatchObject({
+      text: `${prompt}\n\nAnother detail`, attachments: [image], sendFailure: 'rejected',
+    });
+    expect(useGraphStore.getState().agentSessionInputs[agentSessionInputKey(agentId, 'new-session')]).toBeUndefined();
+    const sent = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(sent.text).toContain('Generated node protocol');
+    expect(sent).not.toHaveProperty('draftText');
+  });
+
+  it('honors an explicitly null source draft even when sending to a real session', async () => {
+    fetcher.mockResolvedValueOnce(failure());
+    expect(await useGraphStore.getState().addCommand(agentId, 'protocol', subId, undefined, {
+      draftText: 'Original new task', draftSessionId: null,
+    })).toBeNull();
+    expect(useGraphStore.getState().agentSessionInputs[agentSessionInputKey(agentId, null)]?.text).toBe('Original new task');
+    expect(useGraphStore.getState().agentSessionInputs[key]?.text).toBe(prompt);
+  });
+
+  it.each([{ id: 'missing-session' }, { subAgentId: subId }, {}])('does not report an incomplete receipt as accepted: %j', async (command) => {
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ command })));
+    expect(await submit()).toBeNull();
+    expect(useGraphStore.getState().agentSessionInputs[key]?.sendFailure).toBe('unconfirmed');
   });
 });

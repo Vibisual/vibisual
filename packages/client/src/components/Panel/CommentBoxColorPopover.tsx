@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
+import { clampSpan } from './panelPopupPlacement.js';
 
 interface Props {
   /** 현재 선택된 hex (#RRGGBB) */
@@ -334,14 +335,26 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
   // 폭 240 → 264: 격자 한 칸이 23.5 → 26.5px 이 되어 칸을 꽉 채우는 것과 합쳐 색 면적이
   // 196 → 702px²(약 3.6배)가 된다. 24px 넓어질 뿐이라 앵커 옆에 붙는 성격은 그대로다.
   const POP_W = 264;
-  const POP_H = 431 + (hasAlpha ? 22 : 0) + (presets ? 52 : 0);
+  // 키는 그려 본 뒤 잰다 — 종전에는 칸 수로 짐작했는데(431 + 알파 22 + 빠른 칸 52) 글꼴·번역·칸이 바뀌면
+  //   짐작이 어긋나 아래가 잘리거나 덜 올라갔다. 첫 페인트 전(layout effect)에 실측(`scrollHeight` —
+  //   maxHeight 클램프와 무관한 콘텐츠 키)으로 바로잡는다. 짐작은 실측 전 한 번만 쓴다.
+  const [measuredH, setMeasuredH] = useState<number | null>(null);
+  const hasPresets = !!presets;
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    if (!el) return;
+    const h = el.scrollHeight + (el.offsetHeight - el.clientHeight);
+    setMeasuredH((prev) => (prev === h ? prev : h));
+  }, [hasAlpha, hasPresets]);
+  const POP_H = measuredH ?? 431 + (hasAlpha ? 22 : 0) + (presets ? 52 : 0);
   const screenW = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const screenH = typeof window !== 'undefined' ? window.innerHeight : 768;
-  const left = anchor.x + POP_W + 8 < screenW ? anchor.x + 8 : Math.max(8, anchor.x - POP_W - 8);
-  const top = Math.max(8, Math.min(anchor.y, screenH - POP_H - 8));
   // 칸이 커지며 키가 자랐다 — 낮은 창에서 아래가 잘리지 않게 화면 안으로 묶고 넘치면 스크롤한다
   // (종전에는 `top` 하한 8 에 걸린 뒤 남는 만큼 그냥 화면 밖으로 나갔다 — HEX 입력칸이 대상이다).
   const maxHeight = Math.max(200, screenH - 16);
+  // 오른쪽에 자리가 없으면 왼쪽으로 뒤집고, 그래도 넘치면(폰 폭) 화면 안으로 접는다.
+  const left = clampSpan(anchor.x + POP_W + 8 < screenW ? anchor.x + 8 : anchor.x - POP_W - 8, POP_W, screenW);
+  const top = clampSpan(anchor.y, Math.min(POP_H, maxHeight), screenH);
 
   // 패드 배경: hue 색을 기반으로 한 saturation/value 그라디언트
   const hueOnly = hsvToHex(h, 1, 1);
@@ -365,7 +378,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+          className="rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2"
           aria-label={t('panel.detailPanel.close', 'Close')}
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
@@ -525,7 +538,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
               onClose();
             }
           }}
-          className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 font-mono text-xs text-gray-200 outline-none focus:border-blue-500"
+          className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 font-mono text-xs text-gray-200 outline-none focus:border-blue-500"
           placeholder="#RRGGBB"
           spellCheck={false}
           maxLength={7}

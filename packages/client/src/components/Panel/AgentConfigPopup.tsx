@@ -17,9 +17,12 @@ import {
   LOCAL_DEFAULT_CONTEXT_SIZE,
   LOCAL_TOOL_NAMES,
   isOpusModel,
+  supportsEffortSelection,
   supportsFastMode,
   isForwardSubagentTextEnabled,
   isThinkingEnabled,
+  isThinkingAlwaysOnModel,
+  AGENT_DEFINITION_NAME_MAX,
   resolveAliasToLatest,
   listModelFamilies,
   listEffortLevels,
@@ -72,6 +75,8 @@ import {
   type PopupAnchorRect,
 } from './modelSectionView.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+// 떠 있는 상자(설명·드롭다운)를 화면 안으로 앉히는 계산 — 폰 폭에서 화면 밖으로 나가던 자리(순수 함수·시험 있음).
+import { DD_LEFT_MIN_WIDTH, placeHoverTip, placePortalDropdown } from './panelPopupPlacement.js';
 import { codexReasoningLevelsOf, type CodexInheritedField } from '../Codex/codexModelEntry.js';
 import { codexModelOptionsFor, codexEffortOptionsFor } from '../Codex/codexSelectionOptions.js';
 import { codexInheritedOptionFor, codexInheritedValueText } from '../Codex/codexInheritedLabel.js';
@@ -121,22 +126,45 @@ function HoverTip({ text, children, className }: {
 }): React.JSX.Element {
   const [show, setShow] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: 0, y: 0, below: false });
 
   const handleEnter = useCallback(() => {
     if (ref.current) {
       const r = ref.current.getBoundingClientRect();
-      setPos({ x: r.left + r.width / 2, y: r.top - 6 });
+      setPos({ x: r.left + r.width / 2, y: r.top - 6, below: false });
     }
     setShow(true);
   }, []);
+
+  // 실측 클램프 — 칸 가운데 기준(`-translate-x-1/2`)이라 폰 폭에서 화면 끝 칸의 설명이 반쯤 화면 밖으로
+  //   나갔다. 첫 페인트 전에 상자 크기를 재서 화면 안으로 민다(맨 위 칸이면 칸 아래로 뒤집는다).
+  useLayoutEffect(() => {
+    if (!show || !ref.current || !tipRef.current) return;
+    const tip = tipRef.current;
+    setPos(placeHoverTip(
+      ref.current.getBoundingClientRect(),
+      { w: tip.offsetWidth, h: tip.offsetHeight },
+      { w: window.innerWidth, h: window.innerHeight },
+    ));
+  }, [show, text]);
+
+  // 터치에는 커서가 "떠나는" 순간이 없다 — 탭으로 연 설명이 손가락으로 굴린 뒤에도 옛 자리에 떠 있었다.
+  //   굴리면 닫는다(마우스로는 굴리는 순간 커서가 칸을 떠나 어차피 닫히던 자리다).
+  useEffect(() => {
+    if (!show) return;
+    const hide = (): void => setShow(false);
+    window.addEventListener('scroll', hide, true);
+    return () => window.removeEventListener('scroll', hide, true);
+  }, [show]);
 
   return (
     <span ref={ref} onMouseEnter={handleEnter} onMouseLeave={() => setShow(false)} className={className ?? 'inline-flex'}>
       {children}
       {show && createPortal(
         <div
-          className="pointer-events-none fixed z-[9999] max-w-56 -translate-x-1/2 -translate-y-full rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-[12px] leading-snug text-gray-300 shadow-lg"
+          ref={tipRef}
+          className={`pointer-events-none fixed z-[9999] max-w-56 -translate-x-1/2 rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-[12px] leading-snug text-gray-300 shadow-lg ${pos.below ? '' : '-translate-y-full'}`}
           style={{ left: pos.x, top: pos.y }}
         >
           {text}
@@ -149,7 +177,9 @@ function HoverTip({ text, children, className }: {
 
 function InfoTip({ text }: { text: string }): React.JSX.Element {
   return (
-    <HoverTip text={text} className="ml-1 inline-flex cursor-help">
+    <HoverTip text={text} className="relative ml-1 inline-flex cursor-help">
+      {/* 터치 히트 영역 — 아이콘은 12px 그대로 두고 손가락이 닿는 칸만 넓힌다(굵은 포인터에서만, 투명). */}
+      <span aria-hidden="true" className="absolute -inset-2 hidden pointer-coarse:block" />
       <svg className="h-3 w-3 text-gray-600 hover:text-gray-400" viewBox="0 0 16 16" fill="currentColor">
         <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
         <circle cx="8" cy="4.5" r="0.8" />
@@ -165,67 +195,44 @@ function InfoTip({ text }: { text: string }): React.JSX.Element {
  */
 function DiffMark({ text }: { text: string }): React.JSX.Element {
   return (
-    <HoverTip text={text} className="ml-1 inline-flex cursor-help items-center">
+    <HoverTip text={text} className="relative ml-1 inline-flex cursor-help items-center">
+      {/* 점은 6px 그대로 — 손가락이 닿는 칸만 투명하게 넓힌다(굵은 포인터에서만). */}
+      <span aria-hidden="true" className="absolute -inset-2.5 hidden pointer-coarse:block" />
       <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400" role="img" aria-label={text} />
     </HoverTip>
   );
 }
 
+/**
+ * 칩 안의 작은 손잡이(×·방패) 터치 면적 — 글리프는 그대로 두고 손가락이 닿는 칸만 24px 로 넓힌다.
+ * 굵은 포인터에서만 걸린다(데스크톱 칩은 종전 크기 그대로).
+ */
+const CHIP_HANDLE_TOUCH = 'pointer-coarse:flex pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:items-center pointer-coarse:justify-center';
+
+/** 포털 드롭다운 패널 폭 — 지정 폭을 지키되 폰 폭에서는 화면 양쪽 여백(8px) 안에 둔다. */
+function ddWidth(px: number): string {
+  return `min(${px}px, calc(100vw - 16px))`;
+}
+
 // ─── Portal Dropdown Hook ───
 
-/** 드롭다운 패널이 뷰포트 가장자리(창 하단 = 작업표시줄 쪽)에 잘리지 않도록 두는 여백. */
-const DD_VIEWPORT_MARGIN = 8;
-/** 버튼과 패널 사이 간격. */
-const DD_GAP = 4;
-/** 패널 기본 높이 상한(= Tailwind max-h-72/max-h-80 과 동급). 실측 전 1차 추정에 사용. */
-const DD_MAX_HEIGHT = 288;
-/** 위/아래 어느 쪽도 넉넉하지 않을 때 그래도 확보하는 최소 높이(내부 스크롤로 소화). */
-const DD_MIN_HEIGHT = 120;
-
-/** 버튼 위치·패널 실측 크기·뷰포트 경계를 보고 위/아래(또는 좌측 배치의 세로 위치)를 결정한다.
+/** 버튼 위치·패널 실측 크기·뷰포트 경계를 재서 자리 계산(`placePortalDropdown`)에 넘긴다.
  *  - 'below': 아래 공간이 모자라고 위가 더 넓으면 **위로 뒤집어** 버튼 상단에 붙인다.
- *  - 'left' : 가로는 버튼 왼쪽 고정, 세로만 뷰포트 안으로 클램프.
+ *  - 'left' : 버튼 왼쪽에 세우고 세로만 뷰포트 안으로 클램프 — 왼쪽에 패널 폭만큼 자리가 없으면 'below' 로 내린다.
  *  패널 실측(scrollHeight)은 maxHeight 클램프와 무관한 콘텐츠 높이라 재측정해도 값이 안정적이다(무한 루프 없음). */
 function computeDropdownPos(
   btn: HTMLElement,
   panel: HTMLElement | null,
   placement: 'below' | 'left',
 ): React.CSSProperties {
-  const r = btn.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  // 실측 전(패널 미마운트)에는 상한값으로 가정 — 마운트 직후 layout effect 가 실측으로 보정한다.
-  const contentH = Math.min(panel?.scrollHeight ?? DD_MAX_HEIGHT, DD_MAX_HEIGHT);
-
-  if (placement === 'left') {
-    const availH = vh - DD_VIEWPORT_MARGIN * 2;
-    const h = Math.min(contentH, availH);
-    // 기본은 버튼 하단에 맞춰 위로 자라되, 뷰포트 위/아래를 넘으면 안으로 밀어 넣는다.
-    const top = Math.min(Math.max(r.bottom - h, DD_VIEWPORT_MARGIN), vh - DD_VIEWPORT_MARGIN - h);
-    return { top, right: Math.max(DD_VIEWPORT_MARGIN, vw - r.left + 6), maxHeight: h };
-  }
-
-  const spaceBelow = vh - r.bottom - DD_GAP - DD_VIEWPORT_MARGIN;
-  const spaceAbove = r.top - DD_GAP - DD_VIEWPORT_MARGIN;
-  const flipUp = contentH > spaceBelow && spaceAbove > spaceBelow;
-
-  const panelW = panel?.offsetWidth ?? r.width;
-  const left = Math.min(Math.max(r.left, DD_VIEWPORT_MARGIN), Math.max(DD_VIEWPORT_MARGIN, vw - DD_VIEWPORT_MARGIN - panelW));
-
-  if (flipUp) {
-    return {
-      bottom: vh - r.top + DD_GAP,
-      left,
-      minWidth: r.width,
-      maxHeight: Math.max(DD_MIN_HEIGHT, Math.min(contentH, spaceAbove)),
-    };
-  }
-  return {
-    top: r.bottom + DD_GAP,
-    left,
-    minWidth: r.width,
-    maxHeight: Math.max(DD_MIN_HEIGHT, Math.min(contentH, spaceBelow)),
-  };
+  // 실측 전(패널 미마운트)에는 null — 상한값·최소 폭으로 가정하고, 마운트 직후 layout effect 가 실측으로 보정한다.
+  return placePortalDropdown(
+    btn.getBoundingClientRect(),
+    panel ? panel.scrollHeight : null,
+    panel ? panel.offsetWidth : null,
+    { w: window.innerWidth, h: window.innerHeight },
+    placement,
+  );
 }
 
 function usePortalDropdown(placement: 'below' | 'left' = 'below') {
@@ -296,15 +303,15 @@ function CustomSelect({ value, onChange, options, disabled, compact, ariaLabel }
         onClick={toggle}
         disabled={disabled}
         aria-label={ariaLabel}
-        className={`flex items-center justify-between rounded border border-gray-700 bg-gray-800 text-left outline-none hover:border-gray-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-40 ${compact ? 'px-2 py-0.5 text-xs text-gray-300' : 'px-2.5 py-1.5 text-sm text-gray-200'}`}
+        className={`flex items-center justify-between rounded border border-gray-700 bg-gray-800 text-left outline-none hover:border-gray-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-40 ${compact ? 'px-2 py-0.5 text-xs text-gray-300 pointer-coarse:min-h-8' : 'px-2.5 py-1.5 text-sm text-gray-200'}`}
       >
         <span>{options.find((o) => o.value === value)?.label ?? value}</span>
-        <svg className="ml-2 h-3 w-3 text-gray-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}>
+        <svg className="ml-2 h-3 w-3 shrink-0 text-gray-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}>
           <polyline points="2 4 6 8 10 4" />
         </svg>
       </button>
       {open && createPortal(
-        <div ref={panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...pos, maxWidth: 340 }}>
+        <div ref={panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...pos, maxWidth: ddWidth(340) }}>
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -343,7 +350,7 @@ function AskToolToggle({ on, onToggle, label }: {
       onClick={onToggle}
       aria-pressed={on}
       aria-label={label}
-      className={`ml-0.5 shrink-0 transition-colors ${on ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500/70 hover:text-amber-400'}`}
+      className={`ml-0.5 shrink-0 transition-colors ${CHIP_HANDLE_TOUCH} ${on ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500/70 hover:text-amber-400'}`}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -379,7 +386,7 @@ function ToolChip({ tool, onRemove, variant, ask, onToggleAsk }: {
     <span className={`flex items-center gap-1 rounded-full ${bg} px-2.5 py-0.5 text-xs font-medium ${text}`}>
       {tool}
       {onToggleAsk && <AskToolToggle on={askOn} onToggle={onToggleAsk} label={askLabel} />}
-      <button type="button" onClick={onRemove} className={`ml-0.5 ${colors.close}`}>×</button>
+      <button type="button" onClick={onRemove} className={`ml-0.5 ${CHIP_HANDLE_TOUCH} ${colors.close}`}>×</button>
     </span>
   );
 
@@ -799,6 +806,8 @@ export function AgentConfigPopup({
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   // §5.3 #28 (K) v1.48 — Rules 히스토리 미리보기 선택 (null=텍스트영역, ts=해당 항목 본문)
   const [historyPreviewTs, setHistoryPreviewTs] = useState<number | null>(null);
+  // 폰 폭에서는 히스토리가 본문 **아래로** 접혀 쌓인다(옆 칸 320px 를 둘 자리가 없다). 기본은 접힘 — 본문 편집이 먼저다.
+  const [rulesHistoryOpen, setRulesHistoryOpen] = useState(false);
   const rulesHistory = base.rulesHistory ?? [];
   const [saving, setSaving] = useState(false);
   const [contextItems, setContextItems] = useState<{ name: string; type: string; summary?: string; lines?: number; path?: string }[]>([]);
@@ -1016,6 +1025,9 @@ export function AgentConfigPopup({
   }, [agentId, projectPath, t]);
 
   const isOpus = model === 'opus';
+  // §4 (xhigh effort 등급 · 2026-10-15) — Effort 칸은 클로드 네 패밀리(Opus·Fable·Sonnet·Haiku)에 열린다.
+  //   1M 토글은 그대로 Opus 전용(`isOpus`)이다. 옵션창도 같은 판정 함수를 본다.
+  const effortEnabled = supportsEffortSelection(model);
 
   const backdrop = useBackdropDismiss(onClose);
   const closeRulesEditor = useCallback(() => setShowRulesEditor(false), []);
@@ -1042,7 +1054,8 @@ export function AgentConfigPopup({
 
   const handleModelChange = useCallback((v: string) => {
     setModel(v);
-    if (v !== 'opus') setEffort('default');
+    // Effort 칸이 닫히는 모델로 갈 때만 되돌린다 — 네 패밀리 사이를 오가면 고른 값을 지킨다.
+    if (!supportsEffortSelection(v)) setEffort('default');
     // §4 v2.38 — 패밀리 변경 시 기존 modelVersion 핀 무효 → alias=latest 모드로 복귀
     setModelVersion(undefined);
   }, []);
@@ -1229,7 +1242,7 @@ export function AgentConfigPopup({
     memory: normalizeAgentMemoryScope(memory),
     subagentDepth: normalizeSubagentDepth(subagentDepth),
     // 'default' = 오버라이드 없음. 드롭다운이 그 뜻으로 고르는 값이라 그대로 실어 보낸다.
-    effort: isOpus ? effort : undefined,
+    effort: effortEnabled ? effort : undefined,
     // §5.3 #12-1-A — 빈 목록도 그대로 보낸다. "전부 지웠다"와 "안 골랐다"는 같은 뜻이지만,
     //   위층이 채워 둔 목록을 비우려면 그 빈 목록이 비교에 올라야 한다.
     disallowedTools,
@@ -1309,7 +1322,7 @@ export function AgentConfigPopup({
   }), [
     model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
     memory, subagentDepth,
-    isOpus, disallowedTools, askTools, rules, customMode,
+    isOpus, effortEnabled, disallowedTools, askTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
     fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
@@ -1635,12 +1648,13 @@ export function AgentConfigPopup({
 
       {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
           native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
-      <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[12px] text-gray-500">
+      {/* 좁은 폭에서는 줄을 바꿔 쌓는다 — 한 줄로 못 박아 두면 긴 버전 이름과 인자 미리보기가 창 밖으로 나간다. */}
+      <div className="mt-0.5 flex flex-wrap items-center gap-1 px-0.5 text-[12px] text-gray-500">
         <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>{diffDot('modelVersion')}
         <select
           value={effectiveVersionValue}
           onChange={(e) => handleVersionChange(e.target.value)}
-          className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
+          className="min-w-0 max-w-full cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500 pointer-coarse:py-1"
         >
           {VERSION_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.description}</option>
@@ -1648,7 +1662,7 @@ export function AgentConfigPopup({
         </select>
         {/* alias 모드일 때 → 실제 전달 인자 미리보기 */}
         {modelVersion === undefined && (
-          <span className="font-mono text-gray-600">→ {effectiveCliArg}</span>
+          <span className="min-w-0 max-w-full truncate font-mono text-gray-600">→ {effectiveCliArg}</span>
         )}
         {isCustomVersion && (
           <input
@@ -1656,7 +1670,7 @@ export function AgentConfigPopup({
             value={modelVersion ?? ''}
             onChange={(e) => setModelVersion(e.target.value)}
             placeholder={`claude-${model}-X-Y`}
-            className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+            className="min-w-0 grow basis-32 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
           />
         )}
       </div>
@@ -1718,18 +1732,27 @@ export function AgentConfigPopup({
   const effortField = (
     <div className="flex flex-col gap-1">
       <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} />{diffDot('effort')}</label>
-      <CustomSelect value={isOpus ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!isOpus} />
+      <CustomSelect value={effortEnabled ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!effortEnabled} />
     </div>
   );
 
-  // 전체 보기의 격자 안에서는 `col-span-2` 로 한 줄을 다 쓰고, 카드(격자 밖)에서는 그 클래스가 아무 일도 하지 않는다.
+  // §4 (Thinking on/off) — 사고를 끌 수 없는 모델(Opus 5.5·Fable 5.x — API 가 사고 끄기를 400 으로 거부)이면 체크가
+  //   켜진 채 잠긴다. 판정 모델은 핀한 버전 → 없으면 alias(레지스트리 latest). **저장값(`thinking`)은 건드리지 않는다** —
+  //   꺼 둔 값은 그대로 남아 끌 수 있는 모델로 바꾸면 다시 먹는다(상태바 「확장 사고 꺼짐」 칸과 같은 판정 함수).
+  const thinkingLocked = isThinkingAlwaysOnModel(modelVersion ?? model, modelRegistry);
+  const thinkingShownOn = thinkingLocked || thinking;
+
+  // 전체 보기의 격자 안에서는 `col-span-full` 로 한 줄을 다 쓰고, 카드(격자 밖)에서는 그 클래스가 아무 일도 하지 않는다.
+  //   `col-span-2` 가 아닌 이유: 폰 폭에서 격자가 한 줄(`max-md:grid-cols-1`)로 접히면 2칸 걸침이
+  //   보이지 않는 둘째 열을 새로 만들어 위 칸들이 반쪽 폭으로 줄어든다. `full` 은 몇 열이든 그 줄 전체다.
   const thinkingToggle = (
-    <label className="col-span-2 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
+    <label className={`col-span-full flex items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 ${thinkingLocked ? 'cursor-not-allowed' : 'cursor-pointer hover:border-gray-600'}`}>
       <input
         type="checkbox"
-        checked={thinking}
+        checked={thinkingShownOn}
+        disabled={thinkingLocked}
         onChange={(e) => setThinking(e.target.checked)}
-        className="h-3.5 w-3.5 accent-indigo-500"
+        className="h-3.5 w-3.5 accent-indigo-500 disabled:opacity-60"
       />
       <svg
         viewBox="0 0 24 24"
@@ -1738,7 +1761,7 @@ export function AgentConfigPopup({
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className={`h-3.5 w-3.5 ${thinking ? 'text-indigo-400' : 'text-gray-600'}`}
+        className={`h-3.5 w-3.5 ${thinkingShownOn ? 'text-indigo-400' : 'text-gray-600'}`}
         aria-hidden="true"
       >
         <path d="M9.5 20.5h5" />
@@ -1747,7 +1770,9 @@ export function AgentConfigPopup({
       <span className="text-xs text-gray-300">
         {t('panel.agentConfig.thinking.label')}{diffDot('thinking')}
         <span className="ml-1 text-gray-600">
-          {thinking ? t('panel.agentConfig.thinking.hint') : t('panel.agentConfig.thinking.offHint')}
+          {thinkingLocked
+            ? t('panel.agentConfig.thinking.alwaysOnHint')
+            : thinking ? t('panel.agentConfig.thinking.hint') : t('panel.agentConfig.thinking.offHint')}
         </span>
       </span>
       <InfoTip text={t('panel.agentConfig.thinking.tip')} />
@@ -1802,7 +1827,7 @@ export function AgentConfigPopup({
           aria-label={t('panel.agentConfig.model.label')}
           className={narrowViewport
             ? 'flex max-h-[85dvh] w-screen flex-col rounded-t-lg border-t border-gray-700 bg-gray-900 shadow-2xl'
-            : `flex flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl ${placement ? 'absolute' : 'max-h-[70vh] w-[360px] max-w-[94vw]'}`}
+            : `flex flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl ${placement ? 'absolute' : 'max-h-[70dvh] w-[360px] max-w-[94vw]'}`}
           style={placement
             ? { left: placement.left, width: placement.width, top: placement.top, bottom: placement.bottom, maxHeight: placement.maxHeight }
             : undefined}
@@ -1832,7 +1857,7 @@ export function AgentConfigPopup({
                     disabled={modelListChecking}
                     title={t('panel.agentConfig.modelSection.recheckTip')}
                     aria-label={t('panel.agentConfig.modelSection.recheckTip')}
-                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:cursor-default disabled:opacity-60"
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:cursor-default disabled:opacity-60 pointer-coarse:h-8 pointer-coarse:w-8"
                   >
                     <svg
                       className={`h-3.5 w-3.5 ${modelListChecking ? 'animate-spin' : ''}`}
@@ -1855,7 +1880,7 @@ export function AgentConfigPopup({
               type="button"
               onClick={onClose}
               aria-label={t('common.close')}
-              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-10 pointer-coarse:w-10"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
@@ -1874,7 +1899,7 @@ export function AgentConfigPopup({
           </ScrollFade>
 
           {/* Footer — [전체 설정]은 닫지 않고 넓힌다(고치던 값이 그대로 남는다). 저장은 전체 보기와 같은 창구다. */}
-          <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-700 px-3 py-2.5">
             <HoverTip
               text={t('panel.agentConfig.modelSection.fullSettingsTip', { agentSettings: t('panel.agentConfig.title') })}
               className="inline-flex"
@@ -1893,7 +1918,7 @@ export function AgentConfigPopup({
                 {t('panel.agentConfig.modelSection.fullSettings')}
               </button>
             </HoverTip>
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2">
               <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200">{t('panel.agentConfig.cancel')}</button>
               <button type="button" onClick={handleSave} disabled={saving} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">{saving ? t('panel.agentConfig.saving') : t('panel.agentConfig.save')}</button>
             </div>
@@ -1910,9 +1935,9 @@ export function AgentConfigPopup({
   //   설정창은 늘 맨 위여야 하므로 부모의 층에서 빼낸다.
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" {...backdrop}>
-      <div className="flex max-h-[80vh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
+      <div className="flex max-h-[80dvh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
+        <div className="flex items-center justify-between gap-2 border-b border-gray-700 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-0.5">
             <h3 className="flex items-center gap-1.5 text-sm font-bold text-gray-100">
               {t('panel.agentConfig.title')}
@@ -1958,7 +1983,7 @@ export function AgentConfigPopup({
               </span>
             )}
           </div>
-          <button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
+          <button type="button" onClick={onClose} aria-label={t('common.close')} className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-10 pointer-coarse:w-10">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -2218,15 +2243,15 @@ export function AgentConfigPopup({
                         <span className="text-[12px] font-medium text-gray-300">{item.name}</span>
                         {/* File open + Folder open buttons */}
                         {item.path && (
-                          <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/ctx:opacity-100">
+                          <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/ctx:opacity-100 pointer-coarse:opacity-100">
                             {item.lines != null && <span className="mr-1 text-[12px] text-gray-600">{item.lines}L</span>}
                             <HoverTip text="Open file in editor" className="inline-flex">
-                              <button type="button" onClick={() => { fetch(`${API_BASE}/api/open-context-path`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: item.path, mode: 'file' }) }).catch(() => {}); }} className="rounded p-0.5 text-gray-500 hover:bg-gray-700 hover:text-gray-300">
+                              <button type="button" onClick={() => { fetch(`${API_BASE}/api/open-context-path`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: item.path, mode: 'file' }) }).catch(() => {}); }} className="rounded p-0.5 text-gray-500 hover:bg-gray-700 hover:text-gray-300 pointer-coarse:p-2">
                                 <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z" /></svg>
                               </button>
                             </HoverTip>
                             <HoverTip text="Open containing folder" className="inline-flex">
-                              <button type="button" onClick={() => { fetch(`${API_BASE}/api/open-context-path`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: item.path, mode: 'folder' }) }).catch(() => {}); }} className="rounded p-0.5 text-gray-500 hover:bg-gray-700 hover:text-gray-300">
+                              <button type="button" onClick={() => { fetch(`${API_BASE}/api/open-context-path`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: item.path, mode: 'folder' }) }).catch(() => {}); }} className="rounded p-0.5 text-gray-500 hover:bg-gray-700 hover:text-gray-300 pointer-coarse:p-2">
                                 <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.464 0 .909.184 1.237.513l1.414 1.414a.25.25 0 0 0 .177.073h5.672c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 13.75 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75c0-.464.184-.909.513-1.237Z" /></svg>
                               </button>
                             </HoverTip>
@@ -2376,7 +2401,7 @@ export function AgentConfigPopup({
                       <button
                         type="button"
                         onClick={() => removeTool(tool)}
-                        className="ml-0.5 no-underline text-gray-500 hover:text-red-400"
+                        className={`ml-0.5 no-underline text-gray-500 hover:text-red-400 ${CHIP_HANDLE_TOUCH}`}
                         aria-label={t('panel.agentConfig.tools.removeTool', { tool })}
                       >×</button>
                     </span>
@@ -2408,9 +2433,9 @@ export function AgentConfigPopup({
                 </div>
               )}
               <div className="relative">
-                <button ref={toolPicker.btnRef} type="button" onClick={toolPicker.toggle} disabled={availableToAdd.length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30">{t('panel.agentConfig.tools.addTool')}</button>
+                <button ref={toolPicker.btnRef} type="button" onClick={toolPicker.toggle} disabled={availableToAdd.length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30 pointer-coarse:min-h-9">{t('panel.agentConfig.tools.addTool')}</button>
                 {toolPicker.open && createPortal(
-                  <div ref={toolPicker.panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...toolPicker.pos, maxWidth: 320 }}>
+                  <div ref={toolPicker.panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...toolPicker.pos, maxWidth: ddWidth(320) }}>
                     {availableToAdd.map((t) => (
                       <button key={t} type="button" onClick={() => { setTools((p) => [...p, t]); toolPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-blue-500/15">
                         <span className="text-xs font-medium text-gray-200">{t}</span>
@@ -2444,7 +2469,7 @@ export function AgentConfigPopup({
                       <button
                         type="button"
                         onClick={() => setDisallowedTools((p) => p.filter((x) => x !== tool))}
-                        className="ml-0.5 text-red-400/60 hover:text-red-300"
+                        className={`ml-0.5 text-red-400/60 hover:text-red-300 ${CHIP_HANDLE_TOUCH}`}
                         aria-label={t('panel.agentConfig.tools.removeTool', { tool })}
                       >×</button>
                     </span>
@@ -2458,12 +2483,12 @@ export function AgentConfigPopup({
                   type="button"
                   onClick={denyPicker.toggle}
                   disabled={AVAILABLE_AGENT_TOOLS.filter((tool) => !disallowedTools.includes(tool)).length === 0}
-                  className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-red-500 hover:text-red-400 disabled:opacity-30"
+                  className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-red-500 hover:text-red-400 disabled:opacity-30 pointer-coarse:min-h-9"
                 >
                   {t('panel.agentConfig.disallowedTools.addTool', { defaultValue: '+ Block tool' })}
                 </button>
                 {denyPicker.open && createPortal(
-                  <div ref={denyPicker.panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...denyPicker.pos, maxWidth: 320 }}>
+                  <div ref={denyPicker.panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...denyPicker.pos, maxWidth: ddWidth(320) }}>
                     {AVAILABLE_AGENT_TOOLS.filter((tool) => !disallowedTools.includes(tool)).map((tool) => (
                       <button
                         key={tool}
@@ -2486,15 +2511,15 @@ export function AgentConfigPopup({
                 §5.19 (G) — 여섯 칸 전부 클로드 스폰 인자·env 라 로컬에는 뜨지 않는다
                 (왕복 상한은 러너의 `LOCAL_TOOL_MAX_ROUNDS`, 비용은 0, 격리·기억·깊이는 CLI 축). */}
             {!isProviderAgent && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 max-md:grid-cols-1">
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxTurns')}<InfoTip text={FIELD_TIPS.maxTurns} />{diffDot('maxTurns')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
-                  <button type="button" onClick={() => setMaxTurns((v) => { const step = v <= 100 ? 10 : v <= 1000 ? 50 : 100; return Math.max(1, v - step); })} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
+                  <button type="button" onClick={() => setMaxTurns((v) => { const step = v <= 100 ? 10 : v <= 1000 ? 50 : 100; return Math.max(1, v - step); })} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:w-9">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>
                   </button>
                   <input type="number" min={1} max={10000} value={maxTurns} onChange={(e) => setMaxTurns(Number(e.target.value) || 3000)} className="w-full min-w-0 flex-1 border-x border-gray-700 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
-                  <button type="button" onClick={() => setMaxTurns((v) => { const step = v < 100 ? 10 : v < 1000 ? 50 : 100; return Math.min(10000, v + step); })} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
+                  <button type="button" onClick={() => setMaxTurns((v) => { const step = v < 100 ? 10 : v < 1000 ? 50 : 100; return Math.min(10000, v + step); })} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:w-9">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /><line x1="6" y1="2" x2="6" y2="10" /></svg>
                   </button>
                 </div>
@@ -2513,7 +2538,7 @@ export function AgentConfigPopup({
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} />{diffDot('subagentDepth')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
-                  <button type="button" onClick={() => setSubagentDepth((v) => Math.max(0, v - 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
+                  <button type="button" onClick={() => setSubagentDepth((v) => Math.max(0, v - 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:w-9">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>
                   </button>
                   <input
@@ -2524,7 +2549,7 @@ export function AgentConfigPopup({
                     onChange={(e) => setSubagentDepth(Math.max(0, Math.min(SUBAGENT_DEPTH_MAX, Number(e.target.value) || 0)))}
                     className="w-full min-w-0 flex-1 border-x border-gray-700 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
-                  <button type="button" onClick={() => setSubagentDepth((v) => Math.min(SUBAGENT_DEPTH_MAX, v + 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
+                  <button type="button" onClick={() => setSubagentDepth((v) => Math.min(SUBAGENT_DEPTH_MAX, v + 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:w-9">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /><line x1="6" y1="2" x2="6" y2="10" /></svg>
                   </button>
                 </div>
@@ -2559,7 +2584,7 @@ export function AgentConfigPopup({
                 {t('panel.agentConfig.cliOptions.label')}
                 <InfoTip text={t('panel.agentConfig.cliOptions.tip')} />
               </span>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 max-md:grid-cols-1">
                 <div className="flex flex-col gap-1">
                   <label className="flex items-center text-[12px] font-medium text-gray-500">
                     {t('panel.agentConfig.fallbackModel.label')}{diffDot('fallbackModel')}
@@ -2632,7 +2657,7 @@ export function AgentConfigPopup({
                         key={src}
                         type="button"
                         onClick={() => setSettingSources((p) => (p.includes(src) ? p.filter((x) => x !== src) : [...p, src]))}
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors pointer-coarse:py-2 ${
                           on ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
                         }`}
                       >
@@ -2756,6 +2781,7 @@ export function AgentConfigPopup({
                       <input
                         type="text"
                         value={def.name}
+                        maxLength={AGENT_DEFINITION_NAME_MAX}
                         onChange={(e) => setAgentDefinitions(agentDefinitions.map((d, j) => (j === i ? { ...d, name: e.target.value } : d)))}
                         placeholder={t('panel.agentConfig.agentDefinitions.namePlaceholder')}
                         className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-200 outline-none focus:border-blue-500"
@@ -2765,7 +2791,7 @@ export function AgentConfigPopup({
                         onClick={() => setAgentDefinitions(agentDefinitions.filter((_, j) => j !== i))}
                         title={t('panel.agentConfig.agentDefinitions.remove')}
                         aria-label={t('panel.agentConfig.agentDefinitions.remove')}
-                        className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-700/60 hover:text-red-400"
+                        className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-700/60 hover:text-red-400 pointer-coarse:p-2.5"
                       >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
                           <path d="M18 6 6 18M6 6l12 12" />
@@ -2793,7 +2819,7 @@ export function AgentConfigPopup({
                 <button
                   type="button"
                   onClick={() => setAgentDefinitions([...agentDefinitions, { name: '', description: '', prompt: '' }])}
-                  className="self-start rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400"
+                  className="self-start rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400 pointer-coarse:min-h-9"
                 >
                   {t('panel.agentConfig.agentDefinitions.add')}
                 </button>
@@ -2978,16 +3004,17 @@ export function AgentConfigPopup({
                           onFix={(action) => { void activateSkill(info, action); }}
                         />
                       )}
-                      <button type="button" onClick={() => removeSkill(s)} className={`ml-0.5 ${dormant ? 'text-amber-300/60' : xTone} hover:text-red-400`}>×</button>
+                      <button type="button" onClick={() => removeSkill(s)} className={`ml-0.5 ${CHIP_HANDLE_TOUCH} ${dormant ? 'text-amber-300/60' : xTone} hover:text-red-400`}>×</button>
                     </span>
                   );
                   return info?.description ? <HoverTip key={s} text={info.description} className="inline-flex">{chip}</HoverTip> : chip;
                 })}
               </div></ScrollFade>
               <div className="relative">
-                <button ref={skillPicker.btnRef} type="button" onClick={skillPicker.toggle} disabled={availableSkills.filter((s) => !skills.includes(s.name)).length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400 disabled:opacity-30">{t('panel.agentConfig.addSkill')}</button>
+                <button ref={skillPicker.btnRef} type="button" onClick={skillPicker.toggle} disabled={availableSkills.filter((s) => !skills.includes(s.name)).length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400 disabled:opacity-30 pointer-coarse:min-h-9">{t('panel.agentConfig.addSkill')}</button>
+                {/* 'left' 배치 — 왼쪽에 자리가 없으면(폰 폭) 계산이 버튼 아래로 내린다. 최소 폭은 그 판정과 같은 상수다. */}
                 {skillPicker.open && createPortal(
-                  <div ref={skillPicker.panelRef} className="fixed z-[9999] max-h-80 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...skillPicker.pos, minWidth: 280, maxWidth: 360 }}>
+                  <div ref={skillPicker.panelRef} className="fixed z-[9999] max-h-80 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...skillPicker.pos, minWidth: ddWidth(DD_LEFT_MIN_WIDTH), maxWidth: ddWidth(360) }}>
                     {/* Project Skills */}
                     {availableSkills.some((s) => s.source === 'project' && !skills.includes(s.name)) && (
                       <>
@@ -3057,8 +3084,8 @@ export function AgentConfigPopup({
           </div>
         </ScrollFade>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
+        {/* Footer — 긴 번역에서 [오버레이]·[취소]·[저장]이 한 줄을 넘으면 줄을 바꾼다. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
           {/* §5.5 #17-6 — 오버레이 위젯 토글. packaged + customCreated 한정. */}
           {hasOverlayApi && isCustomAgent ? (
             <button
@@ -3082,7 +3109,7 @@ export function AgentConfigPopup({
                 : t('overlay.sendToOverlayLabel', { defaultValue: 'Overlay' })}
             </button>
           ) : <span />}
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200">{t('panel.agentConfig.cancel')}</button>
             <button type="button" onClick={handleSave} disabled={saving} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">{saving ? t('panel.agentConfig.saving') : t('panel.agentConfig.save')}</button>
           </div>
@@ -3092,14 +3119,14 @@ export function AgentConfigPopup({
       {/* Rules Editor Overlay — §5.3 #28 (K) v1.48: 좌 본문 + 우 히스토리 패널 2-column */}
       {showRulesEditor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" {...rulesBackdrop}>
-          <div className="flex h-[82vh] max-h-[92dvh] w-[960px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
+          <div className="flex h-[82dvh] max-h-[92dvh] w-[960px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
             <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
               <h3 className="text-sm font-bold text-gray-100">{t('panel.agentConfig.agentRules')}</h3>
-              <button type="button" onClick={() => setShowRulesEditor(false)} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
+              <button type="button" onClick={() => setShowRulesEditor(false)} aria-label={t('common.close')} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-10 pointer-coarse:w-10">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 overflow-hidden max-md:flex-col">
               {/* Left — 본문 편집 */}
               <div className="flex flex-1 flex-col overflow-hidden">
                 <p className="px-4 pt-2 text-[12px] text-gray-600">{t('panel.agentConfig.rulesEditor.help', { defaultValue: 'Custom rules injected into the agent prompt on every run (Markdown)' })}</p>
@@ -3115,16 +3142,35 @@ export function AgentConfigPopup({
                   <AutoEdgeSection agentId={agentId} />
                 </div>
               </div>
-              {/* Right — Rules History 패널 (폰에선 숨김 — 좁은 화면에서 본문 편집 우선) */}
-              <div className="flex w-[320px] flex-col border-l border-gray-700 bg-gray-950/40 max-md:hidden">
-                <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2">
-                  <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-400">
-                    {t('panel.agentConfig.rulesHistory.title', { defaultValue: 'History' })}
-                  </span>
-                  <span className="text-[12px] text-gray-600">{rulesHistory.length}/20</span>
-                </div>
+              {/* Right — Rules History 패널. 폰 폭에서는 옆 칸을 둘 자리가 없어 본문 **아래로** 쌓고 머리줄이
+                  접기 손잡이가 된다(종전엔 통째로 숨겨, 콘티 해제 안내의 "히스토리에서 직접 복원"이 갈 곳이 없었다). */}
+              <div className={`flex flex-col border-gray-700 bg-gray-950/40 ${narrowViewport ? `w-full border-t ${rulesHistoryOpen ? 'max-h-[45dvh]' : ''}` : 'w-[320px] border-l'}`}>
+                {narrowViewport ? (
+                  <button
+                    type="button"
+                    onClick={() => setRulesHistoryOpen((v) => !v)}
+                    aria-expanded={rulesHistoryOpen}
+                    className={`flex min-h-11 w-full shrink-0 items-center justify-between gap-2 px-3 py-2 text-left ${rulesHistoryOpen ? 'border-b border-gray-800' : ''}`}
+                  >
+                    <span className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-gray-400">
+                      <svg className={`h-3.5 w-3.5 transition-transform ${rulesHistoryOpen ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m9 18 6-6-6-6" />
+                      </svg>
+                      {t('panel.agentConfig.rulesHistory.title', { defaultValue: 'History' })}
+                    </span>
+                    <span className="text-[12px] text-gray-600">{rulesHistory.length}/20</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2">
+                    <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-400">
+                      {t('panel.agentConfig.rulesHistory.title', { defaultValue: 'History' })}
+                    </span>
+                    <span className="text-[12px] text-gray-600">{rulesHistory.length}/20</span>
+                  </div>
+                )}
+                {(!narrowViewport || rulesHistoryOpen) && (<>
                 {rulesHistory.length === 0 ? (
-                  <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] leading-snug text-gray-600">
+                  <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] leading-snug text-gray-600 max-md:py-6">
                     {t('panel.agentConfig.rulesHistory.empty', { defaultValue: '히스토리 없음 — 룰을 변경하고 저장하면 직전 값이 여기에 쌓입니다.' })}
                   </div>
                 ) : (
@@ -3172,7 +3218,7 @@ export function AgentConfigPopup({
                         <button
                           type="button"
                           onClick={() => { setRules(entry.rules); setHistoryPreviewTs(null); }}
-                          className="rounded border border-blue-700/60 bg-blue-900/30 px-2 py-0.5 text-[12px] font-medium text-blue-300 hover:bg-blue-900/50"
+                          className="rounded border border-blue-700/60 bg-blue-900/30 px-2 py-0.5 text-[12px] font-medium text-blue-300 hover:bg-blue-900/50 pointer-coarse:min-h-8 pointer-coarse:px-3"
                           title={t('panel.agentConfig.rulesHistory.restoreTitle', { defaultValue: '텍스트영역에 로드 (저장 전까지 dirty)' })}
                         >
                           {t('panel.agentConfig.rulesHistory.restore', { defaultValue: '되돌리기' })}
@@ -3184,6 +3230,7 @@ export function AgentConfigPopup({
                     </div>
                   );
                 })()}
+                </>)}
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-gray-700 px-4 py-3">

@@ -91,7 +91,7 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
         <button
           type="button"
           onClick={handleReload}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/[0.08]"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/[0.08] pointer-coarse:h-8 pointer-coarse:w-8"
           title={t('common.iframe.reload')}
         >
           <svg className="h-3.5 w-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

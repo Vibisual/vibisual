@@ -284,10 +284,10 @@ export const ServerLogPopup = memo(function ServerLogPopup({
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[85dvh] w-full max-w-4xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Header — 좁으면 연결 상태 글자가 말줄임으로 물러난다(줄 수·오류 수·닫기는 남는다). */}
         <div className="flex items-center justify-between gap-3 border-b border-gray-700 px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <svg className="h-4 w-4 shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -296,7 +296,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
             <span className="shrink-0 text-sm font-semibold text-gray-100">
               {t('panel.serverLog.title')}
             </span>
-            <span className={`shrink-0 font-mono text-xs ${connected ? 'text-emerald-300' : 'text-gray-500'}`}>
+            <span className={`min-w-0 truncate font-mono text-xs ${connected ? 'text-emerald-300' : 'text-gray-500'}`}>
               {t(`header.conn.${connectionStatus}`)}
             </span>
           </div>
@@ -312,7 +312,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
               aria-label={t('panel.serverLog.close')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -330,20 +330,20 @@ export const ServerLogPopup = memo(function ServerLogPopup({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder={t('panel.serverLog.filterPlaceholder')}
-            className="flex-1 rounded border border-gray-700 bg-gray-800/60 px-2 py-1 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-sky-500 focus:outline-none"
+            className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800/60 px-2 py-1 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-sky-500 focus:outline-none pointer-coarse:py-1.5"
           />
           <button
             type="button"
             onClick={() => setLines([])}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+            className="shrink-0 rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 hover:text-gray-100 pointer-coarse:min-h-8"
             title={t('panel.serverLog.clearLocal')}
           >
             {t('panel.serverLog.clear')}
           </button>
         </div>
 
-        {/* Toolbar — row 2: category filter chips + view toggles */}
-        <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-2">
+        {/* Toolbar — row 2: category filter chips + view toggles(좁으면 토글 둘이 다음 줄로 내려간다) */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-800 px-4 py-2">
           <div className="flex flex-1 flex-wrap items-center gap-1">
             {CATEGORY_ORDER.map((category) => {
               const hidden = hiddenCategories.has(category);
@@ -352,7 +352,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
                   key={category}
                   type="button"
                   onClick={() => toggleCategory(category)}
-                  className={`rounded px-1.5 py-0.5 font-mono text-[12px] uppercase transition ${
+                  className={`rounded px-1.5 py-0.5 font-mono text-[12px] uppercase transition pointer-coarse:min-h-8 pointer-coarse:px-2 ${
                     hidden
                       ? 'bg-gray-800 text-gray-600 line-through'
                       : categoryChipClasses(category)

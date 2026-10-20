@@ -1,7 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ClosedTabEntry } from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import {
+  MENU_VIEWPORT_MARGIN,
+  placeCanvasMenu,
+  placeCanvasSubmenu,
+  type MenuViewport,
+} from '../BubbleMap/canvasMenuPlacement.js';
 import { useKeymapStore, selectBinding } from '../../stores/keymap.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { formatSince } from '../../formatSince.js';
@@ -15,6 +21,20 @@ import { formatSince } from '../../formatSince.js';
  * 아래 `handleClick` 이 `onAction` 에 닿기 전에 가른다.
  */
 export type TabContextAction = 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename' | 'splitRight' | 'splitDown' | 'reopenClosed' | 'recentlyClosed';
+
+/** 하위 목록(최근에 닫은 탭)의 최대 높이(px) — 목록 상자의 `max-h-72` 와 같은 값. 넘치면 그 안에서 스크롤한다. */
+const FLYOUT_MAX_HEIGHT = 288;
+
+/** 지금 보이는 화면 — 핀치 확대 중이면 그 보이는 칸이 기준이다(캔버스 메뉴와 같은 기준). */
+function currentViewport(): MenuViewport {
+  const visual = window.visualViewport;
+  return {
+    left: visual?.offsetLeft ?? 0,
+    top: visual?.offsetTop ?? 0,
+    width: visual?.width ?? window.innerWidth,
+    height: visual?.height ?? window.innerHeight,
+  };
+}
 
 interface TabContextMenuProps {
   x: number;
@@ -199,7 +219,9 @@ export const TabContextMenu = memo(function TabContextMenu({
     onClose();
   }, [onReopen, onClose]);
 
-  // 뷰포트 경계 보정
+  // 뷰포트 경계 보정 — 첫 칠은 줄 수로 짐작한 크기로 놓고, 그리기 직전에 **실제로 잰 크기**로 다시 당긴다
+  //   (아래 useLayoutEffect). 짐작만 믿으면 글자가 긴 언어·터치용으로 커진 줄에서 메뉴 끝이 화면 밖으로
+  //   나갔고, 높이가 화면보다 크면(폰 가로·낮은 창) 아래 항목에 닿을 길이 없었다.
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
   const menuWidth = 208;
@@ -209,12 +231,35 @@ export const TabContextMenu = memo(function TabContextMenu({
   const SEP_H = 9;
   const menuHeight =
     actions.length * ITEM_H + actions.filter((a) => a.separatorAbove).length * SEP_H + 8;
-  const left = Math.min(x, vw - menuWidth - 4);
+  const left = Math.max(MENU_VIEWPORT_MARGIN, Math.min(x, vw - menuWidth - 4));
   const top = Math.max(4, Math.min(y, vh - menuHeight - 4));
 
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const update = (): void => {
+      const position = placeCanvasMenu({ x, y }, el.getBoundingClientRect(), currentViewport());
+      el.style.left = `${position.left}px`;
+      el.style.top = `${position.top}px`;
+    };
+    update();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
+    observer?.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+    // 짐작 자리(left/top)가 바뀌어 React 가 style 을 다시 쓰면 그 뒤에 다시 잰다.
+  }, [x, y, left, top]);
+
   // ── §5.4 #14-4 하위 목록(최근에 닫은 탭) ──
-  // 부모 줄의 실제 사각형을 기준으로 옆에 세운다. 오른쪽이 모자라면 왼쪽으로 넘긴다.
+  // 부모 줄의 실제 사각형을 기준으로 옆에 세운다. 오른쪽이 모자라면 왼쪽으로 넘기고, 양옆 다 모자라면
+  //   (폰 폭) 그 줄의 아래·위로 내린다 — 캔버스 하위 메뉴와 같은 규칙(`placeCanvasSubmenu`).
   const [flyout, setFlyout] = useState<{ top: number; left: number } | null>(null);
+  const flyoutAnchorRef = useRef<HTMLElement | null>(null);
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  const flyoutListRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<number | null>(null);
   const SUB_W = 236;
 
@@ -223,6 +268,7 @@ export const TabContextMenu = memo(function TabContextMenu({
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
+    flyoutAnchorRef.current = el;
     const r = el.getBoundingClientRect();
     // 목록은 최대 10줄까지 보이고 그 뒤로는 스크롤한다(25건까지 쌓이므로 그대로 그리면 화면을 넘는다).
     const rows = Math.min(closed.length, 10);
@@ -233,6 +279,23 @@ export const TabContextMenu = memo(function TabContextMenu({
       left: spillsRight ? Math.max(4, r.left - SUB_W + 2) : r.right - 2,
     });
   }, [closed.length, onClearClosed, vh, vw]);
+
+  // 하위 목록도 실제 크기로 다시 놓는다. 부모 줄과 2px 겹치고 4px 위로 올린 종전 자리를 그대로 기준으로 삼아
+  //   데스크톱에서는 같은 자리에 서고, 양옆이 모자랄 때만 아래·위로 간다.
+  useLayoutEffect(() => {
+    const box = flyoutRef.current;
+    const row = flyoutAnchorRef.current;
+    if (!flyout || !box || !row) return;
+    const r = row.getBoundingClientRect();
+    const placement = placeCanvasSubmenu(
+      { left: r.left + 2, top: r.top - 4, width: Math.max(0, r.width - 4), height: r.height + 4 },
+      box.getBoundingClientRect(),
+      currentViewport(),
+    );
+    box.style.left = `${placement.left}px`;
+    box.style.top = `${placement.top}px`;
+    if (flyoutListRef.current) flyoutListRef.current.style.maxHeight = `${Math.min(FLYOUT_MAX_HEIGHT, placement.maxHeight)}px`;
+  }, [flyout, closed.length]);
 
   /** 커서가 부모 줄과 하위 목록 사이를 지날 때 깜빡이지 않도록 닫기를 잠깐 미룬다. */
   const scheduleCloseFlyout = useCallback((): void => {
@@ -262,7 +325,7 @@ export const TabContextMenu = memo(function TabContextMenu({
       onContextMenu={(e) => e.preventDefault()}
       onWheel={(e) => e.stopPropagation()}
     >
-      <div className="min-w-52 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+      <div className="max-h-[calc(100dvh-1rem)] min-w-52 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
         {actions.map((action) => (
           <div key={action.key}>
             {action.separatorAbove && <div className="mx-2 my-1 border-t border-gray-700" />}
@@ -279,7 +342,7 @@ export const TabContextMenu = memo(function TabContextMenu({
               onFocus={(e) => {
                 if (action.submenu) openFlyout(e.currentTarget);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors pointer-coarse:py-2.5 ${
                 action.disabled
                   ? 'cursor-default text-gray-600'
                   : 'text-gray-200 hover:bg-gray-800'
@@ -306,19 +369,20 @@ export const TabContextMenu = memo(function TabContextMenu({
           이 안의 클릭을 "바깥"으로 오해하지 않는다. */}
       {flyout && hasClosed && (
         <div
-          className="fixed z-50"
+          ref={flyoutRef}
+          className="fixed z-50 max-w-[calc(100vw-1rem)]"
           style={{ left: flyout.left, top: flyout.top, width: SUB_W }}
           onMouseEnter={keepFlyout}
           onMouseLeave={scheduleCloseFlyout}
         >
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
+          <div ref={flyoutListRef} className="max-h-72 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
             {closed.map((entry) => (
               <button
                 key={entry.key}
                 type="button"
                 title={entry.kind === 'project' ? entry.path : entry.url}
                 onClick={() => handlePickClosed(entry.key)}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-200 transition-colors hover:bg-gray-800"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-200 transition-colors hover:bg-gray-800 pointer-coarse:py-2.5"
               >
                 {entry.kind === 'project' ? (
                   <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -344,7 +408,7 @@ export const TabContextMenu = memo(function TabContextMenu({
                 <button
                   type="button"
                   onClick={() => { onClearClosed(); onClose(); }}
-                  className="flex w-full items-center px-3 py-1.5 text-left text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                  className="flex w-full items-center px-3 py-1.5 text-left text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:py-2.5"
                 >
                   {t('tabMenu.clearRecentlyClosed', { defaultValue: 'Clear list' })}
                 </button>

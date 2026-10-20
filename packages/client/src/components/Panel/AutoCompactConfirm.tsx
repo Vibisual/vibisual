@@ -78,7 +78,8 @@ export function AutoCompactConfirm({
       role="dialog"
       aria-modal="true"
     >
-      <div className="w-[560px] max-w-full rounded-md border border-gray-700 bg-gray-900 p-4 shadow-2xl">
+      {/* 낮은 화면(폰 가로·작은 창)에서는 확인 단추가 화면 밖으로 밀려나지 않게 안에서 구른다. */}
+      <div className="max-h-[calc(100dvh-2rem)] w-[560px] max-w-full overflow-y-auto rounded-md border border-gray-700 bg-gray-900 p-4 shadow-2xl">
         <div className="mb-3 flex items-start gap-2.5">
           {/* §UI 아이콘 규칙 — 이모지 ❌, lucide 톤 stroke SVG 만. */}
           <svg
@@ -137,10 +138,10 @@ export function AutoCompactConfirm({
           {t('panel.agentConfig.autoCompact.confirm.everyTime')}
         </div>
 
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
-            className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:min-h-9"
             onClick={onCancel}
           >
             {t('panel.agentConfig.autoCompact.confirm.cancel')}
@@ -148,7 +149,7 @@ export function AutoCompactConfirm({
           <button
             ref={confirmRef}
             type="button"
-            className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-400 pointer-coarse:min-h-9"
             onClick={onConfirm}
           >
             {t('panel.agentConfig.autoCompact.confirm.enable')}

@@ -1,7 +1,8 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
-import { APP_THUMB } from '@vibisual/shared';
+import { APP_THUMB, PREVIEW_POLICY, type PreviewLane } from '@vibisual/shared';
 
 import { clientPathKey } from '../utils/platform.js';
+import { previewBudget } from './previewBudget.js';
 import { getInternalApp, type AppThumbnail, type AppThumbnailRenderer } from './registry.js';
 
 /**
@@ -37,6 +38,10 @@ export interface ThumbJob {
   /** 구울 크기(px × 화면 배율, 정수). */
   readonly width: number;
   readonly height: number;
+  /** §5.1 #2-1 (G) ④ — 굽는 줄(종류별 동시 건수). 없으면 줄 구분 없이 전체 상한만 본다. 열쇠에 들지 않는다. */
+  readonly lane?: PreviewLane | undefined;
+  /** §5.1 #2-1 (G) ① — 이미 아는 파일 크기(굽는 함수에 넘긴다). 열쇠에 들지 않는다. */
+  readonly bytes?: number | undefined;
 }
 
 export interface ThumbCacheOptions {
@@ -48,6 +53,15 @@ export interface ThumbCacheOptions {
   readonly concurrency: number;
   /** 한 장의 시간 상한(ms). 넘으면 못 구운 것으로 치고 줄을 비운다 — 늦게 끝난 결과는 돌려주고 버린다. */
   readonly timeoutMs: number;
+  /** §5.1 #2-1 (G) ④ — 종류별 동시 건수(줄마다). 없으면 전체 상한만. */
+  readonly laneConcurrency?: Partial<Record<PreviewLane, number>>;
+  /** §5.1 #2-1 (G) ④ — 지금 새 일감을 시작해도 되는가(캔버스가 멈춰 있나). 없으면 늘 된다. */
+  readonly isIdle?: () => boolean;
+  /** 다시 한가해지면 부를 길(미뤄 둔 줄을 다시 민다). */
+  readonly onIdle?: (listener: () => void) => () => void;
+  /** §5.1 #2-1 (G) ④ — 줄에 서고 이만큼 지나도록 아무도 보지 않으면 시작 전에 버린다(ms). 없으면 버리지 않는다. */
+  readonly staleQueuedMs?: number;
+  readonly now?: () => number;
 }
 
 export interface ThumbCache {
@@ -74,18 +88,59 @@ interface Entry {
   usedAt: number;
 }
 
+interface Queued {
+  readonly key: string;
+  readonly lane: PreviewLane | undefined;
+  readonly enqueuedAt: number;
+  readonly run: () => Promise<void>;
+}
+
 export function createThumbCache(opts: ThumbCacheOptions): ThumbCache {
   const entries = new Map<string, Entry>();
-  const queue: Array<() => Promise<void>> = [];
+  const queue: Queued[] = [];
+  const runningByLane = new Map<PreviewLane, number>();
   let running = 0;
   let clock = 0;
+  let idleWait: (() => void) | null = null;
+  const now = opts.now ?? (() => Date.now());
+
+  const laneFull = (lane: PreviewLane | undefined): boolean => {
+    if (lane === undefined) return false;
+    const cap = opts.laneConcurrency?.[lane];
+    return cap !== undefined && (runningByLane.get(lane) ?? 0) >= cap;
+  };
 
   const pump = (): void => {
-    while (running < opts.concurrency && queue.length > 0) {
-      const run = queue.shift()!;
+    // §5.1 #2-1 (G) ④ — 캔버스가 움직이는 동안은 새로 시작하지 않는다(돌던 것은 마저 굽는다). 한가해지면 다시 민다.
+    if (queue.length > 0 && opts.isIdle && !opts.isIdle()) {
+      if (!idleWait && opts.onIdle) {
+        const off = opts.onIdle(() => {
+          off();
+          idleWait = null;
+          pump();
+        });
+        idleWait = off;
+      }
+      return;
+    }
+    let i = 0;
+    while (running < opts.concurrency && i < queue.length) {
+      const item = queue[i]!;
+      const entry = entries.get(item.key);
+      // 줄에 섰다가 화면을 떠났다(보는 사람 없음 · 오래 기다림) — 시작 전에 버린다. 돌아오면 다시 줄에 선다.
+      if (!entry || (opts.staleQueuedMs !== undefined && entry.listeners.size === 0
+        && now() - item.enqueuedAt > opts.staleQueuedMs)) {
+        queue.splice(i, 1);
+        if (entry && entry.state.status === 'loading') entries.delete(item.key);
+        continue;
+      }
+      if (laneFull(item.lane)) { i += 1; continue; }
+      queue.splice(i, 1);
       running += 1;
-      void run().finally(() => {
+      if (item.lane) runningByLane.set(item.lane, (runningByLane.get(item.lane) ?? 0) + 1);
+      void item.run().finally(() => {
         running -= 1;
+        if (item.lane) runningByLane.set(item.lane, Math.max(0, (runningByLane.get(item.lane) ?? 1) - 1));
         pump();
       });
     }
@@ -126,11 +181,14 @@ export function createThumbCache(opts: ThumbCacheOptions): ThumbCache {
         return key;
       }
       entries.set(key, { state: LOADING, listeners: new Set(), usedAt: clock });
-      queue.push(async () => {
+      queue.push({ key, lane: job.lane, enqueuedAt: now(), run: async () => {
         const work = (async (): Promise<AppThumbnail | null> => {
           const render = await opts.resolve(job.appId);
           return render
-            ? await render({ projectId: job.projectId, file: job.file, width: job.width, height: job.height })
+            ? await render({
+              projectId: job.projectId, file: job.file, width: job.width, height: job.height,
+              ...(job.bytes !== undefined ? { bytes: job.bytes } : {}),
+            })
             : null;
         })();
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -152,7 +210,7 @@ export function createThumbCache(opts: ThumbCacheOptions): ThumbCache {
           clearTimeout(timer);
         }
         settle(key, next);
-      });
+      } });
       pump();
       evict();
       return key;
@@ -186,6 +244,11 @@ const appThumbCache = createThumbCache({
   cacheMax: APP_THUMB.cacheMax,
   concurrency: APP_THUMB.concurrency,
   timeoutMs: APP_THUMB.renderTimeoutMs,
+  // §5.1 #2-1 (G) ④ — 종류별 동시 건수 · 움직이는 동안 쉬기 · 화면을 떠난 줄 버리기.
+  laneConcurrency: PREVIEW_POLICY.laneConcurrency,
+  isIdle: () => previewBudget.isIdle(),
+  onIdle: (l) => previewBudget.onIdle(l),
+  staleQueuedMs: PREVIEW_POLICY.staleQueuedMs,
 });
 
 const IDLE: ThumbState = { status: 'none', thumb: null };

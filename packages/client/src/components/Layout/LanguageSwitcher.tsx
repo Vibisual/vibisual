@@ -88,7 +88,7 @@ export function LanguageSwitcher({ portalMenu = false, menuZIndex = 100_800 }: L
               void setUiLocale(loc);
               setOpen(false);
             }}
-            className={`flex w-full items-center justify-between gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[12px] transition-colors ${
+            className={`flex w-full items-center justify-between gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[12px] transition-colors pointer-coarse:py-2.5 ${
               isActive ? 'bg-blue-500/10 text-blue-300' : 'text-white/80 hover:bg-white/[0.04]'
             }`}
           >
@@ -105,7 +105,7 @@ export function LanguageSwitcher({ portalMenu = false, menuZIndex = 100_800 }: L
     </>
   );
 
-  const listClass = 'scrollbar-thin max-h-[60vh] min-w-[200px] overflow-y-auto rounded-md border border-white/[0.08] bg-gray-900/95 shadow-xl backdrop-blur-xl';
+  const listClass = 'scrollbar-thin max-h-[60dvh] min-w-[200px] overflow-y-auto rounded-md border border-white/[0.08] bg-gray-900/95 shadow-xl backdrop-blur-xl';
 
   // portal 판본은 body 로 빠지므로 `ref` 의 바깥 판정(useOutsidePressDismiss)에서 벗어난다 →
   //   목록 자체도 `refs` 에 넣어야 "목록을 눌렀는데 닫히는" 일이 없다.
@@ -124,7 +124,7 @@ export function LanguageSwitcher({ portalMenu = false, menuZIndex = 100_800 }: L
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-md bg-white/[0.08] px-2 py-1 text-[12px] text-white/80 transition-colors hover:bg-white/[0.14]"
+        className="flex items-center gap-1 whitespace-nowrap rounded-md bg-white/[0.08] px-2 py-1 text-[12px] text-white/80 transition-colors hover:bg-white/[0.14] pointer-coarse:py-2"
         aria-label={t('layout.languageSwitcher.changeLanguage')}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

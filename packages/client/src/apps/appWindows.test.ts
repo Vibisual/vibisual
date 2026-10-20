@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { canPopOutAppWindow, openAppWindow, useAppWindowsStore } from './appWindows.js';
-import { INTERNAL_APPS } from './registry.js';
+import { INTERNAL_APPS, appShellParams } from './registry.js';
 import { registerAppWindowTransferGuard } from './appWindowTransfer.js';
 
 /**
@@ -27,6 +27,15 @@ function reset(): void {
 
 describe('앱 안 창 store', () => {
   beforeEach(reset);
+  it('reopens the same source-less draft without merging two different new models', () => {
+    const appId = 'vibi3d';
+    openAppWindow({ appId, projectId: PROJECT, draftKey: 'local:first' });
+    const first = useAppWindowsStore.getState().windows[0]!;
+    openAppWindow({ appId, projectId: PROJECT, draftKey: 'local:second' });
+    openAppWindow({ appId, projectId: PROJECT, draftKey: 'local:first' });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(2);
+    expect(useAppWindowsStore.getState().windows[0]?.id).toBe(first.id);
+  });
 
   it('열면 창이 하나 선다', () => {
     expect(openAppWindow({ appId: APP.id, projectId: PROJECT })).toBe(true);
@@ -46,6 +55,73 @@ describe('앱 안 창 store', () => {
     // 이름은 최신 것으로 — 버블 이름을 바꾼 뒤 다시 열었을 때 옛 이름이 남지 않게.
     expect(windows[0]?.title).toBe('내 영상');
     expect(windows[0]?.focusAt).toBeGreaterThanOrEqual(first.focusAt);
+  });
+
+  it('prepares one background editor and reveals that same editor only on an explicit open', () => {
+    const args = { appId: APP.id, projectId: PROJECT, ref: 'doc-1' };
+    expect(openAppWindow(args, { background: true })).toBe(true);
+    const prepared = useAppWindowsStore.getState().windows[0]!;
+    expect(prepared).toMatchObject({ background: true, focusAt: 0 });
+    openAppWindow(args, { background: true });
+    expect(useAppWindowsStore.getState().windows).toEqual([prepared]);
+
+    openAppWindow({ ...args, title: 'My model' });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
+    expect(useAppWindowsStore.getState().windows[0]).toMatchObject({ id: prepared.id, background: false, title: 'My model' });
+    expect(useAppWindowsStore.getState().windows[0]?.focusAt).toBeGreaterThan(0);
+  });
+
+  it('leaves an already visible editor and its focus unchanged during background preparation', () => {
+    const args = { appId: APP.id, projectId: PROJECT, ref: 'doc-1' };
+    openAppWindow({ ...args, title: 'Current work' });
+    const visible = useAppWindowsStore.getState().windows[0]!;
+    openAppWindow(args, { background: true });
+    expect(useAppWindowsStore.getState().windows[0]).toBe(visible);
+    expect(visible.background).not.toBe(true);
+  });
+
+  it('reuses the prepared document when its bubble still carries the original import file', () => {
+    const args = { appId: APP.id, projectId: PROJECT, ref: 'doc-1' };
+    openAppWindow(args, { background: true });
+    const prepared = useAppWindowsStore.getState().windows[0]!;
+    openAppWindow({ ...args, file: 'original.glb', bubbleId: 'bubble-1' });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
+    expect(useAppWindowsStore.getState().windows[0]).toMatchObject({ id: prepared.id, background: false, bubbleId: 'bubble-1' });
+    expect(useAppWindowsStore.getState().windows[0]?.file).toBeUndefined();
+    openAppWindow({ ...args, file: 'original.glb', bubbleId: 'bubble-1' });
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
+    expect(useAppWindowsStore.getState().windows[0]?.id).toBe(prepared.id);
+  });
+
+  it('does not duplicate a visible document whose exported file differs from background preparation', () => {
+    const args = { appId: APP.id, projectId: PROJECT, ref: 'doc-1' };
+    openAppWindow({ ...args, file: 'exported.glb' });
+    const visible = useAppWindowsStore.getState().windows[0]!;
+    openAppWindow(args, { background: true });
+    expect(useAppWindowsStore.getState().windows).toEqual([visible]);
+  });
+
+  it('does not focus or duplicate an outside editor during background preparation', () => {
+    const focus = vi.fn();
+    vi.stubGlobal('window', { api: { app: { focus } } });
+    try {
+      useAppWindowsStore.setState({ outside: [{ windowId: 4, appId: APP.id, projectId: PROJECT, ref: 'doc-1', file: 'exported.glb' }] });
+      expect(openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1' }, { background: true })).toBe(true);
+      expect(focus).not.toHaveBeenCalled();
+      expect(useAppWindowsStore.getState().windows).toEqual([]);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('reveals the existing outside document even when the source bubble retains its old import file', async () => {
+    const focus = vi.fn().mockResolvedValue(true);
+    vi.stubGlobal('window', { api: { app: { focus } } });
+    try {
+      useAppWindowsStore.setState({ outside: [{ windowId: 4, appId: APP.id, projectId: PROJECT, ref: 'doc-1', file: 'exported.glb' }] });
+      expect(openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'doc-1', file: 'original.glb' })).toBe(true);
+      await Promise.resolve();
+      expect(focus).toHaveBeenCalledWith(APP.id, 4);
+      expect(useAppWindowsStore.getState().windows).toEqual([]);
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it('가리키는 것이 다르면 창도 다르다', () => {
@@ -77,6 +153,28 @@ describe('밖으로 꺼내기', () => {
   afterEach(() => {
     for (const cleanup of cleanups.splice(0)) cleanup();
     vi.restoreAllMocks();
+  });
+  it('keeps a saved editor quiesced while native open is pending and releases only when open fails', async () => {
+    const native = deferred<boolean>(); const release = vi.fn();
+    vi.spyOn(APP, 'open').mockReturnValue(native.promise);
+    openAppWindow({ appId: APP.id, projectId: PROJECT, ref: 'held-doc' });
+    const win = useAppWindowsStore.getState().windows[0]!;
+    cleanups.push(registerAppWindowTransferGuard(win.id, async () => true, release));
+    const transfer = useAppWindowsStore.getState().popOut(win.id);
+    await Promise.resolve(); await Promise.resolve(); expect(release).not.toHaveBeenCalled();
+    native.resolve(false); expect(await transfer).toBe(false); expect(release).toHaveBeenCalledOnce();
+    expect(useAppWindowsStore.getState().windows[0]?.id).toBe(win.id);
+  });
+  it('passes the most recently saved local draft identity through native open and shell params', async () => {
+    const app = INTERNAL_APPS.find(item => item.id === 'vibi3d')!;
+    const open = vi.spyOn(app, 'open').mockResolvedValue(true);
+    openAppWindow({ appId: app.id, projectId: PROJECT });
+    const win = useAppWindowsStore.getState().windows[0]!;
+    const draftKey = 'local:12345678-1234-4234-8234-123456789abc';
+    useAppWindowsStore.getState().updateTarget(win.id, { draftKey });
+    expect(await useAppWindowsStore.getState().popOut(win.id)).toBe(true);
+    expect(open).toHaveBeenCalledWith({ projectId: PROJECT, ref: undefined, file: undefined, draftKey });
+    expect(appShellParams(app, open.mock.calls[0]![0])).toEqual({ projectId: PROJECT, draftKey });
   });
 
   it('편집 화면에서 고른 최신 문서로 별도 창을 연다', async () => {

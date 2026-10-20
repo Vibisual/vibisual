@@ -9,6 +9,8 @@ import {
   extentOf,
   gapBetween,
   massOf,
+  orbitSeatOffset,
+  orbitSeatAtAngle,
   separation,
   separationResponse,
   type PhysicsGroup,
@@ -77,6 +79,14 @@ interface PhysicsBody {
   /** 이번 걸음을 시작한 자리 — 걸음이 끝난 뒤 "얼마나 움직였나"를 재는 기준(정지 판정·렌더 통지). */
   stepX: number;
   stepY: number;
+  /** §5.1 #2-1 (F) ⑤ — 앱 작업 위성의 자리 각도(노드 데이터 `_seatAngle`). 바뀌면 그 각도의 궤도에 다시 건다. */
+  seatAngle?: number | undefined;
+}
+
+/** §5.1 #2-1 (F) ⑤ — 노드 데이터의 자리 각도(앱 작업 위성만 있다). */
+function seatAngleOf(node: { data?: unknown }): number | undefined {
+  const v = (node.data as { _seatAngle?: unknown } | undefined)?._seatAngle;
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 const REPULSION_STRENGTH = 800;
@@ -225,6 +235,9 @@ export function usePhysicsLayout(
     // 활동으로 반경이 커진 바디들. 크기 전이 **자체**로는 깨우지 않고(상시 rAF 회귀 방지 — §4 v3.71),
     // 커진 결과 실제로 이웃과 겹쳐 버린 경우에만 아래에서 1회 깨운다.
     const grown: PhysicsBody[] = [];
+    // §5.1 #2-1 (B) — 새 부모 둘레 궤도에 다시 걸 위성: 부모가 바뀌었거나(별자리가 섰다·풀렸다) 부모가 버블 밖(앱 노드)이라
+    //   지금 자리에서 오프셋을 못 잰 새 위성. 외부 바디까지 다 지은 뒤에 건다(앱 노드 바디는 아래에서 선다).
+    const reseat: PhysicsBody[] = [];
 
     for (const node of nodes) {
       const isSat = node.id.startsWith('sat-');
@@ -244,6 +257,7 @@ export function usePhysicsLayout(
 
       const old = existing.get(node.id);
       const isPaused = Date.now() < pausedUntilRef.current;
+      const seatAngle = isSat ? seatAngleOf(node) : undefined;
       if (old) {
         if (!old.measured && measuredW != null) measuredArrived = true;
         old.measured = measuredW != null;
@@ -253,7 +267,9 @@ export function usePhysicsLayout(
         old.halfH = halfH;
         old.shape = rect ? 'rect' : 'circle';
         if (radius > prevRadius + 0.5) grown.push(old);
+        if (isSat && pid !== null && (old.parentId !== pid || old.seatAngle !== seatAngle) && !old.dragging) reseat.push(old);
         old.parentId = pid;
+        old.seatAngle = seatAngle;
         // 비위성은 항상 동기화, 위성은 pause 중일 때만 동기화 (캐시 복원 반영)
         if (!isSat || isPaused) {
           // 위치가 실제로 변했을 때만 동기화 (데이터만 갱신 시 속도 보존 → 떨림 방지)
@@ -279,6 +295,7 @@ export function usePhysicsLayout(
       } else {
         let offsetX = 0;
         let offsetY = 0;
+        let parentOutside = false;
         if (isSat && pid) {
           const parentNode = nodes.find((n) => n.id === pid);
           if (parentNode) {
@@ -286,9 +303,11 @@ export function usePhysicsLayout(
             const ph = parentNode.measured?.height ?? (typeof parentNode.height === 'number' ? parentNode.height : pw);
             offsetX = cx - (parentNode.position.x + pw / 2);
             offsetY = cy - (parentNode.position.y + ph / 2);
+          } else {
+            parentOutside = true; // §5.1 #2-1 — 부모가 버블 밖(앱 노드) — 외부 바디가 선 뒤 궤도에 건다.
           }
         }
-        newBodies.set(node.id, {
+        const created: PhysicsBody = {
           id: node.id,
           x: cx, y: cy,
           vx: 0, vy: 0,
@@ -304,7 +323,10 @@ export function usePhysicsLayout(
           movable: true,
           carryIds: null,
           stepX: cx, stepY: cy,
-        });
+          seatAngle,
+        };
+        newBodies.set(node.id, created);
+        if (parentOutside || seatAngle !== undefined) reseat.push(created);
       }
     }
 
@@ -367,6 +389,21 @@ export function usePhysicsLayout(
       if (!newBodies.has(id)) lastEmittedRef.current.delete(id);
     }
 
+    // §5.1 #2-1 (B) — 새 부모 둘레 궤도에 다시 건다(방향 유지 · 평형점 거리 — `orbitSeatOffset`). 스프링이 그 자리로
+    //   미끄러뜨리도록 엔진을 깨운다(별자리가 서는 순간 파일들이 중심 곁으로 모여드는 것이 화면에 보인다).
+    let reseated = false;
+    for (const body of reseat) {
+      const parent = body.parentId !== null ? newBodies.get(body.parentId) : undefined;
+      if (!parent) continue;
+      // §5.1 #2-1 (F) ⑤ — 앱 작업 위성은 지금 방향이 아니라 정해진 각도에(사각 부모는 타원).
+      const seat = body.seatAngle !== undefined
+        ? orbitSeatAtAngle(parent, body, SATELLITE_ORBIT_GAP, body.seatAngle)
+        : orbitSeatOffset(parent, body, SATELLITE_ORBIT_GAP);
+      body.offsetX = seat.x;
+      body.offsetY = seat.y;
+      reseated = true;
+    }
+
     bodiesRef.current = newBodies;
     // 커진 바디가 이웃을 파고들었는지 1회 검사 — 겹쳤을 때만 깨운다(겹침이 없으면 잠든 채로 둔다).
     let grownIntoOverlap = false;
@@ -380,7 +417,7 @@ export function usePhysicsLayout(
         if (grownIntoOverlap) break;
       }
     }
-    if (measuredArrived || grownIntoOverlap) {
+    if (measuredArrived || grownIntoOverlap || reseated) {
       sleepingRef.current = false;
       quietFramesRef.current = 0;
       ensureRunning();

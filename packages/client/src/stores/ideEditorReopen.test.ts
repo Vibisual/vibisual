@@ -4,6 +4,7 @@ import { DEFAULT_IDE_OVERLAY, useGraphStore } from './graphStore.js';
 import { editorOpenerTab } from './editorOpener.js';
 import { captureIDEPaneHandoff } from './idePaneHandoff.js';
 import { IDE_EDITOR_REOPEN_MAX, rememberIDEEditorTabs } from './ideEditorReopen.js';
+import { answerAppDialog, getAppDialog } from '../utils/appDialog.js';
 
 const PROJECT = 'project';
 const AGENT = 'agent';
@@ -35,13 +36,19 @@ describe('IDE 창을 다시 열어도 우측 탭은 남는다', () => {
     expect(pane().editorFiles).toEqual([editorOpenerTab('html')]);
   });
 
-  it('파일과 빈 탭의 순서·선택은 유지하고 초안 없는 dirty 표식은 걷는다', () => {
+  it('편집을 버리기로 확인한 뒤 파일과 빈 탭의 순서·선택을 복원하고 dirty 표식은 걷는다', async () => {
     open();
     store().openIDEEditorFile({ relPath: 'index.html', absPath: '/repo/index.html', name: 'index.html', dirty: true }, PROJECT);
     store().openIDEPaneOpener('html', PROJECT);
     store().openIDEPaneOpener('pdf', PROJECT);
     store().setActiveIDEEditorFile('//opener/html', PROJECT);
-    reopen();
+    store().closeIDEOverlay(PROJECT);
+    const dialog = getAppDialog()!;
+    expect(dialog).not.toBeNull();
+    answerAppDialog(dialog.id, true);
+    await Promise.resolve();
+    await Promise.resolve();
+    open();
     expect(pane().editorFiles.map((file) => file.relPath)).toEqual(['index.html', '//opener/html', '//opener/pdf']);
     expect(pane().activeEditorPath).toBe('//opener/html');
     expect(pane().editorFiles[0]?.dirty).toBeUndefined();

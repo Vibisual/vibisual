@@ -94,7 +94,7 @@ export function WebEntryList({ nodeId, host, entries, maxWebEntries }: Props): R
           title={t('panel.webEntry.maxTitle')}
           aria-label={t('panel.webEntry.maxTitle')}
           onClick={(e) => setMaxEditorAt({ x: e.clientX, y: e.clientY })}
-          className="ml-0.5 inline-flex items-center justify-center rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-sky-400"
+          className="ml-0.5 inline-flex items-center justify-center rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-sky-400 pointer-coarse:p-2"
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 20h9" />
@@ -108,14 +108,14 @@ export function WebEntryList({ nodeId, host, entries, maxWebEntries }: Props): R
               <button
                 type="button"
                 onClick={clearAll}
-                className="rounded bg-rose-600 px-1.5 py-0.5 text-[12px] font-medium text-white hover:bg-rose-500"
+                className="rounded bg-rose-600 px-1.5 py-0.5 text-[12px] font-medium text-white hover:bg-rose-500 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
               >
                 {t('panel.webEntry.clearConfirm')}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmClear(false)}
-                className="rounded px-1.5 py-0.5 text-[12px] text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+                className="rounded px-1.5 py-0.5 text-[12px] text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
               >
                 {t('panel.webEntry.clearCancel')}
               </button>
@@ -124,7 +124,7 @@ export function WebEntryList({ nodeId, host, entries, maxWebEntries }: Props): R
             <button
               type="button"
               onClick={() => setConfirmClear(true)}
-              className="rounded px-1.5 py-0.5 text-[12px] text-gray-500 hover:bg-gray-800 hover:text-rose-300"
+              className="rounded px-1.5 py-0.5 text-[12px] text-gray-500 hover:bg-gray-800 hover:text-rose-300 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
             >
               {t('panel.webEntry.clearAll')}
             </button>
@@ -219,8 +219,8 @@ function WebEntryRow({
             {headline ? (isSearch ? headline : middleEllipsis(headline)) : '—'}
           </span>
           <span className="flex-shrink-0 font-mono text-[12px] text-gray-600">{formatTime(entry.at)}</span>
-          {/* 지우기 버튼이 겹치지 않게 자리를 비워 둔다(호버 때만 버튼이 뜬다). */}
-          <span className="w-5 flex-shrink-0" />
+          {/* 지우기 버튼이 겹치지 않게 자리를 비워 둔다(호버 때만 버튼이 뜬다 — 터치에서는 늘 보이고 커진다). */}
+          <span className="w-5 flex-shrink-0 pointer-coarse:w-8" />
         </span>
 
         {/* 둘째 줄 — 한 줄 요약. 검색은 결과 건수 + 도메인 칩, 가져오기는 물어본 내용. */}
@@ -263,7 +263,7 @@ function WebEntryRow({
         onClick={onDelete}
         title={t('panel.webEntry.checkHint')}
         aria-label={t('panel.webEntry.checkHint')}
-        className="absolute right-1 top-1 rounded p-0.5 text-gray-700 opacity-0 transition-opacity hover:bg-rose-950/50 hover:text-rose-300 focus-visible:opacity-100 group-hover:opacity-100"
+        className="absolute right-1 top-1 rounded p-0.5 text-gray-700 opacity-0 transition-opacity hover:bg-rose-950/50 hover:text-rose-300 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:right-0 pointer-coarse:top-0 pointer-coarse:p-2 pointer-coarse:text-gray-500 pointer-coarse:opacity-100"
       >
         <TrashGlyph />
       </button>

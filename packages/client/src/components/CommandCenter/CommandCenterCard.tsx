@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IME_ENTER_OWNER, isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { sessionStopUrl } from '../../hooks/useSessionStop.js';
+import { useAnchoredMenuPlacement } from '../Layout/useAnchoredMenuPlacement.js';
 import { contextLevel, elapsedParts, waitingLevel, type CommandCenterItem } from './commandCenterModel.js';
 
 // SCENARIO.md §5.12 (D)(H) — 카드 한 장 = 세션 한 개. 액션은 **둘뿐**이다:
@@ -21,6 +22,9 @@ const LANE_TONE: Record<string, { dot: string; chip: string; strip: string }> = 
   working: { dot: 'bg-sky-400', chip: 'bg-sky-500/15 text-sky-200 ring-sky-400/30', strip: 'bg-sky-400/70' },
   done: { dot: 'bg-gray-500', chip: 'bg-white/[0.06] text-gray-300 ring-white/10', strip: 'bg-gray-600/70' },
 };
+
+/** [더보기] 단추와 메뉴 사이(px) — 종전 `top-7`(28px) = 단추 높이 22px + 6px 와 같은 자리. */
+const MORE_MENU_GAP = 6;
 
 export interface CommandCenterCardProps {
   item: CommandCenterItem;
@@ -52,6 +56,14 @@ export function CommandCenterCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // [더보기] 메뉴는 카드 밖으로 띄운다(`fixed` + 화면 안 당기기). 카드 루트의 `overflow-hidden`(레인 색 띠를
+  //   둥근 모서리에 맞춰 자르는 것) 안에 두면 카드 높이를 넘는 아래 항목이 잘려 누를 수 없었다.
+  const moreRef = useRef<HTMLButtonElement | null>(null);
+  const menuBoxRef = useRef<HTMLDivElement | null>(null);
+  useAnchoredMenuPlacement(menuOpen, moreRef, menuBoxRef, 'end', MORE_MENU_GAP);
+  // §5.12 (D) — [점프]는 데스크톱 IPC 로만 메인 창을 끌어올린다. 그 채널이 없는 창(폰·웹 브라우저)에서는
+  //   눌러도 아무 일이 없으므로 흐리게 두고 이유를 단다(입구를 지우는 것이 아니라 원래 못 쓰는 기능이다).
+  const canJump = typeof window !== 'undefined' && !!window.api?.command?.revealInMain;
 
   const tone = LANE_TONE[item.lane] ?? LANE_TONE['done']!;
   const ctx = contextLevel(item.contextUsed, item.contextMax);
@@ -188,7 +200,10 @@ export function CommandCenterCard({
             <span className={`rounded px-1.5 py-[1px] ring-1 ${tone.chip}`}>
               {t(`commandCenter.lane.${item.lane}`)}
             </span>
-            {item.lastTool && <span className="font-mono text-gray-400">{item.lastTool}</span>}
+            {item.lastTool && (
+              // MCP 도구 이름(`mcp__서버__도구`)은 한 덩어리라 줄이 안 바뀐다 — 좁은 카드에서는 … 로 줄인다.
+              <span className="min-w-0 max-w-full truncate font-mono text-gray-400" title={item.lastTool}>{item.lastTool}</span>
+            )}
             {waiting && item.waitingSince !== null && (
               <span
                 className={`tabular-nums ${
@@ -242,8 +257,11 @@ export function CommandCenterCard({
           <button
             type="button"
             onClick={handleJump}
-            className="rounded px-1.5 py-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
-            title={t('commandCenter.jumpHint')}
+            disabled={!canJump}
+            className="rounded px-1.5 py-1 text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-500 pointer-coarse:p-2.5"
+            title={canJump
+              ? t('commandCenter.jumpHint')
+              : t('commandCenter.jumpUnavailable', { defaultValue: 'Jumping to the main window works only in the Vibisual desktop app.' })}
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 4h6v6M20 4l-8 8M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
@@ -253,7 +271,7 @@ export function CommandCenterCard({
             <button
               type="button"
               onClick={() => setCommandOpen((v) => !v)}
-              className={`rounded px-1.5 py-1 transition-colors hover:bg-white/[0.08] hover:text-gray-100 ${
+              className={`rounded px-1.5 py-1 transition-colors hover:bg-white/[0.08] hover:text-gray-100 pointer-coarse:p-2.5 ${
                 commandOpen ? 'text-sky-300' : 'text-gray-500'
               }`}
               title={t('commandCenter.commandHint')}
@@ -265,9 +283,10 @@ export function CommandCenterCard({
           )}
           <div className="relative">
             <button
+              ref={moreRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="rounded px-1.5 py-1 text-gray-600 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+              className="rounded px-1.5 py-1 text-gray-600 transition-colors hover:bg-white/[0.08] hover:text-gray-100 pointer-coarse:p-2.5"
               title={t('commandCenter.moreHint')}
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -277,7 +296,11 @@ export function CommandCenterCard({
               </svg>
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-7 z-20 w-48 overflow-hidden rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60">
+              // 자리(left/top)는 `useAnchoredMenuPlacement` 가 잰다 — 아래가 모자라면 단추 위로 뒤집힌다.
+              <div
+                ref={menuBoxRef}
+                className="fixed z-20 max-h-[calc(100dvh-1rem)] w-48 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60"
+              >
                 {item.unacknowledged && (
                   <MenuItem onClick={handleDismiss} label={t('commandCenter.actionDismiss')} />
                 )}
@@ -356,7 +379,7 @@ function MenuItem({ onClick, label, danger }: { onClick: () => void; label: stri
     <button
       type="button"
       onClick={onClick}
-      className={`block w-full px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.08] ${
+      className={`block w-full px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.08] pointer-coarse:py-2.5 ${
         danger ? 'text-red-300' : 'text-gray-300'
       }`}
     >

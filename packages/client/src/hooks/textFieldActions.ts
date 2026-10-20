@@ -85,6 +85,16 @@ export function replaceFieldSelection(el: TextFieldElement, sel: FieldSelection,
   });
 }
 
+/**
+ * Empty the whole field as one edit, so the browser's own undo (Ctrl/Cmd+Z) brings the text back.
+ * Same rules as `replaceFieldSelection`: waits out the IME, never clears a value that changed meanwhile.
+ */
+export function clearFieldText(el: TextFieldElement): void {
+  const length = el.value.length;
+  if (length === 0) return;
+  replaceFieldSelection(el, { start: 0, end: length }, '');
+}
+
 /** Clipboard promises may outlive the menu, the field, or the selected value. */
 export function createTextFieldActions(el: TextFieldElement, sel: FieldSelection): TextFieldMenuHandlers {
   const value = el.value;

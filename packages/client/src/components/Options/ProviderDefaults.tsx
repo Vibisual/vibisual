@@ -68,7 +68,7 @@ export const ProviderDefaults = forwardRef<ProviderDefaultsHandle, { engine: Age
   const cls = 'w-full rounded border border-gray-700 bg-gray-950 p-2 text-xs';
   return <fieldset disabled={busy} className="flex min-w-0 flex-col gap-4">
     <p className="text-xs leading-relaxed text-gray-400">{t(projectPath ? 'providers.projectSettingsHint' : 'providers.globalSettingsHint')}</p>
-    {engine === 'codex' && <div className="grid grid-cols-2 gap-3">{([
+    {engine === 'codex' && <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">{([
       ['webSearch', ['disabled', 'cached', 'live']], ['modelVerbosity', ['low', 'medium', 'high']],
     ] as const).map(([field, values]) => <label key={field} className="text-xs text-gray-300">{t(`providers.${field}`)}<select className={cls} value={provider?.[field] ?? ''} onChange={e => updateProvider({ [field]: e.target.value || undefined })}><option value="" title={codexInherited(field).description}>{codexInherited(field).label}</option>{values.map(value => <option key={value} value={value}>{codexInheritedValueText(t, field, value)}</option>)}</select></label>)}</div>}
     <label className="text-xs text-gray-300">{t('providers.model')}

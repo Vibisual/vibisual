@@ -187,7 +187,7 @@ export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, 
             title={t('panel.folderFileTree.maxTitle')}
             aria-label={t('panel.folderFileTree.maxTitle')}
             onClick={(e) => setMaxEditorAt({ x: e.clientX, y: e.clientY })}
-            className="ml-0.5 inline-flex items-center justify-center rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-violet-400"
+            className="ml-0.5 inline-flex items-center justify-center rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-violet-400 pointer-coarse:p-2"
           >
             <svg
               className="h-3 w-3"
@@ -212,6 +212,7 @@ export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, 
           screenY={maxEditorAt.y}
           onClose={() => setMaxEditorAt(null)}
           onCommit={commitMax}
+          noteKey="panel.folderFileTree.constellationSlotHint"
         />
       )}
 

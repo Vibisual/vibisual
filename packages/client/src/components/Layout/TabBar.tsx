@@ -6,6 +6,7 @@ import type { IframeTab } from '../../stores/graphStore.js';
 import { TabContextMenu } from './TabContextMenu.js';
 import { HoverTooltip } from './HoverTooltip.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
+import { TAB_WIDTH_MOTION_MS, useTabWidthAnimation } from '../../hooks/useTabWidthAnimation.js';
 import { useCommand } from '../../hooks/useCommand.js';
 import { applyLocalOrder } from '../../hooks/tabPushGeom.js';
 // §5.4 #14-2 — 집어 들어 옮기는 손짓 한 벌(활동바·IDE 세션 탭과 같은 훅 — 탭은 꾹 누르지 않고 끌어서 든다, (F-6)).
@@ -40,6 +41,22 @@ const PROJECT_DOT_STYLES: Record<ProjectDotState, string> = {
   completed: 'bg-emerald-400 animate-pulse',
   active: 'bg-blue-400 animate-pulse',
 };
+
+/**
+ * §5.4 #14 — 탭 폭. 고르지 않은 탭은 한 칸으로 줄 세우고, **고른 탭만** 폭이 내용을 따라간다.
+ *
+ * 한 칸(128px)을 이름·배지(`1/19`)·닫기 버튼이 나눠 쓰면 이름 몫이 40px 남짓이라, 지금 보고 있는
+ * 프로젝트조차 `P_M…` 로 읽혔다(사용자 지시). 고른 탭은 한 칸보다 좁아지지 않고, 이름 칸이
+ * `TAB_LABEL_ACTIVE_MAX` 까지 이름 전체를 보인다 — 그보다 긴 이름은 오른쪽 끝에서 부드럽게 흐려진다.
+ * 기준을 탭이 아니라 이름 칸에 거는 것은 핀·기본 글리프나 배지 자릿수가 이름 몫을 다시 깎지 않게 하려는 것이다.
+ * 프로젝트 탭·iframe 탭이 같은 값을 쓴다(같은 줄에서 고른 탭의 모양이 종류마다 갈리지 않게).
+ */
+const TAB_WIDTH_IDLE = 'w-32';
+const TAB_WIDTH_ACTIVE = 'min-w-32';
+/** 고른 탭 이름 칸의 최대 폭(끝 페이드 여백 포함). 넘는 이름은 툴팁으로 읽는다. */
+const TAB_LABEL_ACTIVE_MAX = 'max-w-[200px]';
+// Width is measured separately (128px ↔ auto is not a CSS transition in Electron 31).
+const TAB_SELECTION_MOTION = 'transition-[height,margin-top,border-radius,background-color,color,border-color] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none';
 
 /**
  * projectId 정규화 — 서버 appState(경로키)와 동일 semantics.
@@ -567,8 +584,8 @@ export function TabBar(): React.JSX.Element | null {
     const th = thumbRef.current;
     if (!el || !fL || !fR || !th) return;
     const overflow = el.scrollWidth - el.clientWidth;
-    fL.classList.toggle('visible', el.scrollLeft > 4);
-    fR.classList.toggle('visible', overflow - el.scrollLeft > 4);
+    fL.classList.toggle('scroll-fade-shown', el.scrollLeft > 4);
+    fR.classList.toggle('scroll-fade-shown', overflow - el.scrollLeft > 4);
     if (overflow <= 0 || el.clientWidth <= 0) {
       th.style.opacity = '0';
       th.style.width = '0px';
@@ -588,6 +605,8 @@ export function TabBar(): React.JSX.Element | null {
     scrollEl.addEventListener('scroll', updateScrollState, { passive: true });
     const ro = new ResizeObserver(updateScrollState);
     ro.observe(scrollEl);
+    // The viewport stays fixed while tab widths animate, so observe the slots too.
+    for (const tab of Array.from(scrollEl.children)) ro.observe(tab);
     if (scrollEl.parentElement) ro.observe(scrollEl.parentElement);
     ro.observe(document.documentElement);
     const onWinResize = (): void => {
@@ -600,9 +619,11 @@ export function TabBar(): React.JSX.Element | null {
       ro.disconnect();
       window.removeEventListener('resize', onWinResize);
     };
-  }, [scrollEl, updateScrollState]);
+  }, [scrollEl, updateScrollState, orderedTabs]);
 
   useEffect(() => { updateScrollState(); }, [orderedTabs, updateScrollState]);
+
+  useTabWidthAnimation(scrollEl, tabDrag.dragKey !== null);
 
   // §5.4 #14 — 순서가 바뀌면 옆 탭이 **밀려나며** 제자리에 앉는다(FLIP). 끌고 있는 탭은 손을 바로
   // 따라오고 이웃은 살짝 넘겼다 돌아온다. 탭이 닫혀 옆이 메워질 때도 같은 재생이 돈다.
@@ -631,21 +652,44 @@ export function TabBar(): React.JSX.Element | null {
   }, [activeIframeId, activeProject]);
 
   useEffect(() => {
-    if (!activeKey || !scrollEl) return;
-    const tab = scrollEl.querySelector<HTMLElement>(`[data-tab-key="${activeKey}"]`);
+    if (!activeKey || !scrollEl || tabDrag.dragKey !== null) return;
+    const tab = Array.from(scrollEl.children).find((node) => node.getAttribute('data-tab-key') === activeKey) as HTMLElement | undefined;
     if (!tab) return;
-    const tl = tab.offsetLeft;
-    const tr = tl + tab.offsetWidth;
-    const vl = scrollEl.scrollLeft;
-    const vr = vl + scrollEl.clientWidth;
-    if (tl < vl) scrollEl.scrollLeft = tl - 8;
-    else if (tr > vr) scrollEl.scrollLeft = tr - scrollEl.clientWidth + 8;
-  }, [activeKey, orderedTabs.length, scrollEl]);
+    let frame = 0;
+    const deadline = performance.now() + TAB_WIDTH_MOTION_MS;
+    const reveal = (): void => {
+      const tl = tab.offsetLeft;
+      const tr = tl + tab.offsetWidth;
+      const vl = scrollEl.scrollLeft;
+      const vr = vl + scrollEl.clientWidth;
+      // A tab wider than the viewport cannot expose both edges: keep its label
+      // anchored instead of alternating between left and right every frame.
+      if (tab.offsetWidth + 16 >= scrollEl.clientWidth) scrollEl.scrollLeft = tl - 8;
+      else if (tl < vl) scrollEl.scrollLeft = tl - 8;
+      else if (tr > vr) scrollEl.scrollLeft = tr - scrollEl.clientWidth + 8;
+      if (performance.now() < deadline) frame = requestAnimationFrame(reveal);
+    };
+    const stopFollowing = (): void => cancelAnimationFrame(frame);
+    reveal();
+    // Follow the expanding edge only during selection; a new gesture takes over.
+    scrollEl.addEventListener('wheel', stopFollowing, { passive: true });
+    scrollEl.addEventListener('pointerdown', stopFollowing);
+    return () => {
+      stopFollowing();
+      scrollEl.removeEventListener('wheel', stopFollowing);
+      scrollEl.removeEventListener('pointerdown', stopFollowing);
+    };
+  }, [activeKey, orderedTabs.length, scrollEl, tabDrag.dragKey]);
+
+  // §5.4 #14 — 고른 탭만 이름을 따라 넓어지므로 고른 탭이 바뀌면 줄 길이가 바뀐다. 스크롤 칸 자체의
+  //   크기는 그대로라 ResizeObserver 가 모른다 — 좌우 페이드·오버레이 썸을 여기서 다시 잰다.
+  useEffect(() => { updateScrollState(); }, [activeKey, updateScrollState]);
 
   // 탭이 0개여도 wrapper 는 유지 — 빈 영역이 윈도우 드래그 영역으로 동작하도록.
   // (TabBar 가 return null 하면 부모 flex-1 도 사라져 드래그 영역 자체가 없어진다.)
 
-  // §3.7 v2.13/v2.14 — Chrome 스타일 탭. 폭 w-32, 라벨 truncate, 탭 간 1px 우측 구분선.
+  // §3.7 v2.13/v2.14 — Chrome 스타일 탭. 라벨 truncate, 탭 간 1px 우측 구분선.
+  //  폭은 한 칸(w-32)이되 고른 탭만 이름을 따라 넓어진다(§5.4 #14 — 위 `TAB_WIDTH_*`·`TAB_LABEL_ACTIVE_MAX`).
   // tab-folder 연결 효과(헤더 border-b 제거 후 색·높이로만 구현 — 고정 px 폭 키우기 ❌):
   //  · 활성 = h-full 로 헤더(h-9) 꽉 채움 + 콘텐츠 배경(gray-950) + 상단 2px 액센트 + rounded-t.
   //    헤더 밑줄이 없어 활성 탭 바닥(gray-950)이 캔버스(BubbleMap bg-gray-950)로 끊김 없이 이어짐.
@@ -747,12 +791,14 @@ export function TabBar(): React.JSX.Element | null {
               onContextMenu={(e) => handleContextMenu(e, item, idx)}
               // 끄는 동안 브라우저가 스크롤·선택으로 가로채지 않게(터치·펜 포함).
               style={tabDrag.dragKey !== null ? { touchAction: 'none' } : undefined}
-              className={`group app-nodrag relative flex w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-all duration-150 cursor-grab select-none ${
+              data-tab-surface
+              data-tab-active={isActive}
+              className={`group app-nodrag relative flex flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium ${TAB_SELECTION_MOTION} cursor-grab select-none ${
                 isDragging ? 'opacity-0' : ''
               } ${
                 isActive
-                  ? 'h-full rounded-t-md border-t-2 border-t-blue-400 bg-gray-950 text-white/90'
-                  : 'mt-[5px] h-[calc(100%-5px)] rounded-t bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200'
+                  ? `${TAB_WIDTH_ACTIVE} h-full rounded-t-md border-t-2 border-t-blue-400 bg-gray-950 text-white/90`
+                  : `${TAB_WIDTH_IDLE} mt-[5px] h-[calc(100%-5px)] rounded-t border-t-2 border-t-transparent bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200`
               }`}
               onClick={() => {
                 // 끌고 난 직후의 클릭은 그 탭으로 가라는 뜻이 아니다.
@@ -775,7 +821,7 @@ export function TabBar(): React.JSX.Element | null {
                   </svg>
                 </span>
               )}
-              <HoverTooltip className="min-w-0 flex-1 truncate" label={item.name} />
+              <HoverTooltip className={`min-w-0 flex-1 tab-selection-label ${isActive ? TAB_LABEL_ACTIVE_MAX : ''}`} label={item.name} />
               {item.count > 0 && (() => {
                 const dotState: ProjectDotState =
                   item.runningCount > 0
@@ -810,7 +856,9 @@ export function TabBar(): React.JSX.Element | null {
                 //   `ignoreSelector` 와 겹치는 이중 방어다(어느 한쪽이 사라져도 닫기는 닫기로 남는다).
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => handleCloseTab(e, item)}
-                className="ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100 pointer-coarse:opacity-100"
+                // 터치에서는 눈에 보이는 16px 은 그대로 두고 누르는 자리만 32px 로 넓힌다(투명 ::before) —
+                //   글리프를 키우면 128px 탭의 이름 칸이 그만큼 줄어든다.
+                className="relative ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100 pointer-coarse:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-2"
                 title={t('header.tab.closeProject')}
               >
                 <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -838,12 +886,14 @@ export function TabBar(): React.JSX.Element | null {
             onPointerDown={(e) => { tabDrag.onPointerDown(e, item.key); }}
             onContextMenu={(e) => handleContextMenu(e, item, idx)}
             style={tabDrag.dragKey !== null ? { touchAction: 'none' } : undefined}
-            className={`group app-nodrag relative flex w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-all duration-150 cursor-grab select-none ${
+            data-tab-surface
+            data-tab-active={isActive}
+            className={`group app-nodrag relative flex flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium ${TAB_SELECTION_MOTION} cursor-grab select-none ${
               isDragging ? 'opacity-0' : ''
             } ${
               isActive
-                ? 'h-full rounded-t-md border-t-2 border-t-sky-400 bg-gray-950 text-sky-300'
-                : 'mt-[5px] h-[calc(100%-5px)] rounded-t bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200'
+                ? `${TAB_WIDTH_ACTIVE} h-full rounded-t-md border-t-2 border-t-sky-400 bg-gray-950 text-sky-300`
+                : `${TAB_WIDTH_IDLE} mt-[5px] h-[calc(100%-5px)] rounded-t border-t-2 border-t-transparent bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200`
             }`}
             onClick={() => {
               if (tabDrag.consumeClick()) return;
@@ -868,7 +918,7 @@ export function TabBar(): React.JSX.Element | null {
             <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor" fillOpacity={0.6} stroke="currentColor" strokeWidth={1.5}>
               <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zM4 12c0-.93.16-1.82.46-2.65L8 12.83V14a2 2 0 0 0 2 2v3.73A8.01 8.01 0 0 1 4 12zm14.54 3.35A2 2 0 0 0 17 14h-1v-3a1 1 0 0 0-1-1H9V8h2a1 1 0 0 0 1-1V5.08A7.97 7.97 0 0 1 20 12c0 1.2-.27 2.34-.74 3.35z" />
             </svg>
-            <HoverTooltip className="min-w-0 flex-1 truncate" label={item.tab.label} />
+            <HoverTooltip className={`min-w-0 flex-1 tab-selection-label ${isActive ? TAB_LABEL_ACTIVE_MAX : ''}`} label={item.tab.label} />
             <span className={`flex-shrink-0 rounded px-1 text-[12px] font-semibold ${item.tab.serverKind === 'frontend' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
               {item.tab.serverKind === 'frontend' ? t('common.serverKind.frontendShort') : t('common.serverKind.backendShort')}
             </span>
@@ -876,7 +926,7 @@ export function TabBar(): React.JSX.Element | null {
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => handleCloseTab(e, item)}
-              className="ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100 pointer-coarse:opacity-100"
+              className="relative ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100 pointer-coarse:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-2"
               title={t('header.tab.closeTab')}
             >
               <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -929,7 +979,7 @@ export function TabBar(): React.JSX.Element | null {
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
           {...closeBackdrop}
         >
-          <div className="mx-4 w-[clamp(20rem,38vw,32rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+          <div className="mx-4 w-[clamp(20rem,38vw,32rem)] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
             <div className="flex items-center gap-2 border-b border-gray-800 px-5 py-3 text-sm font-semibold text-gray-100">
               <svg className="h-4 w-4 flex-shrink-0 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />

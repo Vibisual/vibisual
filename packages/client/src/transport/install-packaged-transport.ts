@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure, PerfMemoryWire } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -29,8 +29,10 @@ interface FetchResponseWire {
   statusText: string;
   headers: Record<string, string>;
   body: string;
-  /** `body` 가 base64 인코딩 바이너리임을 표시 — 비텍스트 응답(이미지 등) 무손실 수신. */
+  /** `body` 가 base64 인코딩 바이너리임을 표시 — 옛 길(하위 호환). */
   bodyEncoding?: 'base64';
+  /** §5.13 (Y) 40-7 ① — 비텍스트 응답의 바이트 그대로(구조화 복제). 있으면 이것이 본문이다(`body` 는 빈 문자열). */
+  bodyBytes?: Uint8Array;
 }
 // SCENARIO.md §5.4 #14-1 (v2.29) — 별창 detach/redock surface.
 export type DetachKindWire = 'project' | 'iframe';
@@ -58,6 +60,11 @@ export interface PackagedWindowApi {
   closeSelf(): Promise<boolean>;
   minimizeSelf(): Promise<boolean>;
   toggleMaximizeSelf(): Promise<boolean>;
+  /** Native fullscreen owned by immersion; exit restores the prior fullscreen state. */
+  setImmersiveSelf?(enabled: boolean): Promise<void>;
+  onImmersiveState?(cb: (payload: { immersive: boolean }) => void): () => void;
+  /** Native F11 is routed through the renderer keymap instead of toggling fullscreen separately. */
+  onImmersionShortcut?(cb: () => void): () => void;
   onMaximizeState(cb: (payload: { maximized: boolean }) => void): () => void;
   listDetached(): Promise<DetachedTabInfoWire[]>;
   hasTab(tabKey: string): Promise<boolean>;
@@ -393,6 +400,8 @@ export interface PackagedCaptureApi {
 
 export interface PackagedApi {
   serverInfo(): Promise<{ port: number; running: boolean }>;
+  /** Local executable icon decoration, absent in web mode and older desktop preload builds. */
+  getCommandAppIcon?(executable: string): Promise<string | null>;
   request(path: string, init?: FetchInitWire): Promise<FetchResponseWire>;
   send(message: unknown): Promise<void>;
   connect(): Promise<void>;
@@ -417,6 +426,14 @@ export interface PackagedApi {
   externalOpen?: PackagedExternalOpenApi;
   /** §3.2.1 — 종료 직전 초안 flush 물음. web 모드·구버전 preload 에선 부재. */
   lifecycle?: PackagedLifecycleApi;
+  /** §5.13 (Y) 40-12 — 계측(메모리 한 벌 · `main-stall.log` 한 줄). web 모드·구버전 preload 에선 부재. */
+  perf?: PackagedPerfApi;
+}
+
+/** §5.13 (Y) 40-12 — 계측 통로. 렌더러 계측 스위치를 켠 창만 부른다. */
+export interface PackagedPerfApi {
+  memory(): Promise<PerfMemoryWire>;
+  log(line: string): void;
 }
 
 /**
@@ -427,7 +444,13 @@ export interface PackagedApi {
  * 받는 쪽 구현은 `utils/persistFlush.ts`.
  */
 export interface PackagedLifecycleApi {
-  onFlushDrafts(cb: () => void): () => void;
+  onFlushDrafts(cb: () => boolean | Promise<boolean>): () => void;
+  onFlushDraftsCanceled?(cb: () => void): () => void;
+  /**
+   * §3.7 · §9 「시작 화면(스플래시)」 — 본체 창이 첫 화면을 다 그렸다고 main 에 알린다(그때 숨은 창이 보인다).
+   * 구버전 preload 에는 없다 — 그때 main 은 자기 상한 뒤에 창을 보인다. 받는 쪽 구현은 `utils/mainWindowReady.ts`.
+   */
+  mainReady?(): Promise<boolean>;
 }
 
 /**
@@ -450,6 +473,10 @@ export interface PackagedExternalOpenApi {
 export interface PackagedAppApi {
   open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }) => Promise<{ windowId: number; reused: boolean }>;
   close: (appId: string) => Promise<boolean>;
+  /** Retained app editors hide on human close and keep servicing their agent. */
+  hideSelf?: () => Promise<boolean>;
+  setCloseRetention?: (retained: boolean) => Promise<boolean>;
+  onCloseRequested?: (cb: () => void) => () => void;
   updateTarget?: (params: Record<string, string>) => Promise<boolean>;
   startDrag?: () => Promise<boolean>;
   endDrag?: (commit?: boolean, appId?: string) => Promise<boolean>;
@@ -461,6 +488,8 @@ export interface PackagedAppApi {
     geometry?: { x: number; y: number; w: number; h: number };
   }) => void) => () => void;
   onDragState?: (cb: (payload: { appId: string; dragging: boolean; armed: boolean }) => void) => () => void;
+  /** Sent to the source only after destination ACK or cancellation, not merely after redock was queued. */
+  onTransferSettled?: (cb: (payload: { appId: string; transferred: boolean }) => void) => () => void;
   /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
   invoke: (appId: string, action: string, payload?: unknown) => Promise<unknown>;
   onShowTarget: (cb: (payload: { appId: string; hash: string; requestId?: string }) => void) => () => void;
@@ -561,9 +590,11 @@ function wireToResponse(wire: FetchResponseWire): Response {
     wire.status === 204 || wire.status === 304 || (wire.status >= 100 && wire.status < 200);
   const body: BodyInit | null = nullBody
     ? null
-    : wire.bodyEncoding === 'base64'
-      ? base64ToBytes(wire.body)
-      : wire.body;
+    : wire.bodyBytes instanceof Uint8Array
+      ? (wire.bodyBytes as Uint8Array<ArrayBuffer>)
+      : wire.bodyEncoding === 'base64'
+        ? base64ToBytes(wire.body)
+        : wire.body;
   return new Response(body, {
     status: wire.status,
     statusText: wire.statusText,

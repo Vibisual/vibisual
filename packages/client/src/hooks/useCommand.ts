@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import {
   COMMANDS,
+  bindingSpecificity,
   commandDef,
   matchesBinding,
   scopeChain,
@@ -124,12 +125,20 @@ function handleKeyDown(e: KeyboardEvent): void {
 
   // ③ 좁은 스코프부터 본다 — 편집기의 `Ctrl+S` 가 전역의 것을 가린다.
   for (const scope of scopes) {
+    // 같은 스코프 안에서는 **좁은 바인딩**(진짜 Control)이 먼저다 — 판정이 `ctrlKey || metaKey` 라
+    //   mac 의 ⌃G 는 ⌘G 자리(`Ctrl+G`, 다음 찾기)에도 맞는다(`bindingSpecificity`). 그 밖의 순서는
+    //   종전 그대로(표에 등록된 차례 — 정렬은 안정적이다).
+    const candidates: Array<{ regs: Registration[]; specificity: number }> = [];
     for (const [id, regs] of registry) {
       if (COMMANDS[id].scope !== scope) continue;
       if (!isCommandAudible(id, scopes, editable)) continue;
       const binding = resolved[id];
       if (!binding || !matchesBinding(e, binding)) continue;
+      candidates.push({ regs, specificity: bindingSpecificity(binding) });
+    }
+    candidates.sort((a, b) => b.specificity - a.specificity);
 
+    for (const { regs } of candidates) {
       // 나중에 등록된 것부터(위에 열린 창이 아래를 가린다).
       const ordered = [...regs].filter((r) => r.enabled).sort((a, b) => b.seq - a.seq);
       for (const reg of ordered) {

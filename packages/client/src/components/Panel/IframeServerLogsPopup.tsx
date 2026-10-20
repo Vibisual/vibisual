@@ -147,7 +147,7 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[85dvh] w-full max-w-4xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -175,7 +175,7 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
               aria-label={t('panel.iframeServerLog.close')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -193,9 +193,9 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder={t('panel.iframeServerLog.filterPlaceholder')}
-            className="flex-1 rounded border border-gray-700 bg-gray-800/60 px-2 py-1 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-sky-500 focus:outline-none"
+            className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800/60 px-2 py-1 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-sky-500 focus:outline-none pointer-coarse:py-1.5"
           />
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-400">
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-gray-400">
             <input
               type="checkbox"
               checked={autoScroll}
@@ -207,7 +207,7 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
           <button
             type="button"
             onClick={() => setLines([])}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+            className="shrink-0 rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 hover:text-gray-100 pointer-coarse:min-h-8"
             title={t('panel.iframeServerLog.clearLocal')}
           >
             {t('panel.iframeServerLog.clear')}

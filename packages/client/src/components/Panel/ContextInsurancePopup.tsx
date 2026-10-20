@@ -210,7 +210,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -236,7 +236,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
             onClick={onClose}
             title={t('panel.insurance.close')}
             aria-label={t('panel.insurance.close')}
-            className="rounded p-1 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+            className="rounded p-1 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:p-2"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6 6 18" />
@@ -251,7 +251,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
           이름 옆 숫자는 **지금 갈피** 기준이라, 갈피를 옮기면 숫자도 따라 바뀐다 — 좁힌 눈금에서
           빈 목록을 봐도 넓은 쪽에 몇 줄이 있는지 누르기 전에 안다.
         */}
-        <div className="flex items-center gap-1 border-b border-gray-700 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1 border-b border-gray-700 px-3 py-2">
           <span className="mr-1 text-[12px] text-gray-500">{t('panel.insurance.scopeLabel')}</span>
           {scopeLevels.map((lv) => {
             const count = scopeRowCount(led, tab, lv, scope);
@@ -261,7 +261,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                 type="button"
                 onClick={() => setWantedScope(lv)}
                 title={t(`${INSURANCE_SCOPE_LABEL_KEY[lv]}Tip`)}
-                className={`rounded px-2 py-0.5 text-[12px] transition-colors ${
+                className={`rounded px-2 py-0.5 text-[12px] transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 ${
                   scopeLevel === lv
                     ? 'bg-gray-600/70 font-semibold text-gray-100'
                     : 'text-gray-500 hover:bg-white/[0.06] hover:text-gray-300'
@@ -282,7 +282,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`rounded px-2.5 py-1 text-xs transition-colors ${
+              className={`rounded px-2.5 py-1 text-xs transition-colors pointer-coarse:min-h-8 ${
                 tab === id ? 'bg-blue-600/80 font-semibold text-white' : 'text-gray-400 hover:bg-white/[0.06]'
               }`}
             >
@@ -357,7 +357,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                       type="button"
                       disabled={busyId === p.id}
                       onClick={() => { void openPreview(p); }}
-                      className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 disabled:opacity-40 hover:bg-white/[0.06]"
+                      className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 disabled:opacity-40 hover:bg-white/[0.06] pointer-coarse:min-h-8"
                     >
                       {t('panel.insurance.preview')}
                     </button>
@@ -368,7 +368,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                       type="button"
                       disabled={busyId === p.id}
                       onClick={() => { void restore(p); }}
-                      className={`shrink-0 rounded px-2 py-0.5 text-[12px] font-semibold text-white disabled:opacity-40 ${
+                      className={`shrink-0 rounded px-2 py-0.5 text-[12px] font-semibold text-white disabled:opacity-40 pointer-coarse:min-h-8 ${
                         p.sha256 ? 'bg-blue-600/80 hover:bg-blue-500' : 'bg-red-600/70 hover:bg-red-500'
                       }`}
                     >
@@ -406,7 +406,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                       type="button"
                       disabled={busyId === s.sessionId || !(s.agentId ?? agentId)}
                       onClick={() => { void resurrect(s, 'resume'); }}
-                      className="shrink-0 rounded bg-blue-600/80 px-2 py-0.5 text-[12px] font-semibold text-white disabled:opacity-40 hover:bg-blue-500"
+                      className="shrink-0 rounded bg-blue-600/80 px-2 py-0.5 text-[12px] font-semibold text-white disabled:opacity-40 hover:bg-blue-500 pointer-coarse:min-h-8"
                     >
                       {t('panel.insurance.resumeMode')}
                     </button>
@@ -415,7 +415,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                     type="button"
                     disabled={busyId === s.sessionId || !(s.agentId ?? agentId)}
                     onClick={() => { void resurrect(s, 'fresh'); }}
-                    className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 disabled:opacity-40 hover:bg-white/[0.06]"
+                    className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 disabled:opacity-40 hover:bg-white/[0.06] pointer-coarse:min-h-8"
                   >
                     {t('panel.insurance.freshMode')}
                   </button>
@@ -432,7 +432,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
               <button
                 type="button"
                 onClick={() => setPreview(null)}
-                className="rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 hover:bg-white/[0.06]"
+                className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 hover:bg-white/[0.06] pointer-coarse:min-h-8"
               >
                 {t('panel.insurance.closePreview')}
               </button>
@@ -491,7 +491,7 @@ function ScopedEmpty({
       <button
         type="button"
         onClick={() => onWiden(wider)}
-        className="rounded border border-gray-700 px-2.5 py-1 text-[12px] text-gray-300 transition-colors hover:bg-white/[0.06]"
+        className="rounded border border-gray-700 px-2.5 py-1 text-[12px] text-gray-300 transition-colors hover:bg-white/[0.06] pointer-coarse:min-h-8"
       >
         {t('panel.insurance.widenTo', {
           scope: t(INSURANCE_SCOPE_LABEL_KEY[wider]),

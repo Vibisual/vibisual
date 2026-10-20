@@ -38,6 +38,39 @@ interface Entry {
 const entries = new Map<string, Entry>();
 let clock = 0;
 
+/**
+ * §5.1 #2-1 (B) — 어느 노드든 "연결된 것"의 판본이 바뀌면 오르는 전역 판본. 캔버스의 별자리 판정(앱 노드 중심)이
+ * 이것 하나만 구독한다 — 노드마다 따로 구독하면 노드 수만큼 판정이 다시 돈다.
+ */
+let itemsVersion = 0;
+const versionListeners = new Set<() => void>();
+
+function bumpItemsVersion(): void {
+  itemsVersion += 1;
+  for (const listener of [...versionListeners]) listener();
+}
+
+/** §5.1 #2-1 — 전역 판본 구독(`useSyncExternalStore` 용). */
+export function subscribeAppLinkedItemsVersion(listener: () => void): () => void {
+  versionListeners.add(listener);
+  return () => {
+    versionListeners.delete(listener);
+  };
+}
+
+/** §5.1 #2-1 — 지금 전역 판본. */
+export function appLinkedItemsVersion(): number {
+  return itemsVersion;
+}
+
+/**
+ * §5.1 #2-1 — 그 노드의 "연결된 것"을 **묻지 않고** 기억된 결과만 꺼낸다(없으면 빈 목록). 묻는 것은 노드가 마운트된
+ * 동안 `useAppLinkedItems` 가 한다 — 별자리는 보이는 노드가 이미 읽어 둔 것을 빌려 쓸 뿐 새 요청을 만들지 않는다.
+ */
+export function peekAppLinkedItems(appId: string, req: AppLinkedItemsRequest): readonly AppLinkedItem[] {
+  return entries.get(linkedItemsKey(appId, req))?.snap?.items ?? EMPTY;
+}
+
 /** 앱마다 한 번 부르는 늦은 로더. 청크를 못 받았으면 다음에 다시 시도한다(실패를 영영 붙들지 않는다). */
 const readers = new Map<string, Promise<AppLinkedItemsReader | null>>();
 function loadReader(appId: string): Promise<AppLinkedItemsReader | null> {
@@ -99,6 +132,7 @@ function refresh(appId: string, req: AppLinkedItemsRequest, key: string): void {
       if (e.snap !== null && e.snap.key === won.key) return;
       e.snap = won;
       for (const listener of [...e.listeners]) listener();
+      bumpItemsVersion();
     } catch {
       // 못 읽었다 — 앞 결과를 지우지 않는다(다음 회차가 다시 묻는다).
     } finally {

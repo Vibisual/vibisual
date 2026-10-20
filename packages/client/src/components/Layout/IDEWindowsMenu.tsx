@@ -18,6 +18,7 @@ import {
   type IDEWindowLayoutKind,
 } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { useAnchoredMenuPlacement } from './useAnchoredMenuPlacement.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import type { IDEDockSide } from '../IDE/ideDockLayout.js';
 import { useViewportSize } from '../IDE/useIDEDockLayout.js';
@@ -178,6 +179,11 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   const [open, setOpen] = useState(false);
   const [configAgentId, setConfigAgentId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // §4 v3.16 — 목록은 트리거 오른쪽 변에 맞춰 펼치되 **화면 안으로 당긴다**(`useAnchoredMenuPlacement`).
+  //   폰에서는 배지가 헤더 아래 펼친 묶음 가운데쯤에 서서, 종전 `right-0 w-72` 는 왼쪽 가장자리 밖으로 나갔다.
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  useAnchoredMenuPlacement(open, triggerRef, dropdownRef, 'end');
   // 정렬 계산은 **지금 화면 크기**를 알아야 한다 — 자리를 비우는 쪽과 같은 훅에서 받는다.
   const viewport = useViewportSize();
 
@@ -364,6 +370,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   return (
     <div className="app-nodrag relative" ref={menuRef}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -395,7 +402,11 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-72 overflow-y-auto rounded-lg border border-white/[0.08] bg-gray-900/95 p-1 shadow-2xl backdrop-blur-xl scrollbar-thin">
+        // 자리(left/top)는 위 `useAnchoredMenuPlacement` 가 잰다 — DOM 은 여기 남아 바깥 누름 판정이 그대로다.
+        <div
+          ref={dropdownRef}
+          className="fixed z-50 max-h-[70vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-white/[0.08] bg-gray-900/95 p-1 shadow-2xl backdrop-blur-xl scrollbar-thin"
+        >
           <div className="px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
             {t('header.ideWindows.sectionTitle')}
           </div>
@@ -478,13 +489,14 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
                 )}
               </button>
 
-              {/* 설정 — 창이 있든 없든 여기서 연다(캔버스를 거치지 않는 유일한 길). */}
+              {/* 설정 — 창이 있든 없든 여기서 연다(캔버스를 거치지 않는 유일한 길).
+                  터치에는 호버가 없어 늘 보이게 둔다 — 안 그러면 폰에서는 이 입구가 아예 없다. */}
               <button
                 type="button"
                 onClick={() => setConfigAgentId(agent.id)}
                 title={t('header.ideWindows.settings')}
                 aria-label={t('header.ideWindows.settings')}
-                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-gray-200 group-hover:opacity-100"
+                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-gray-200 group-hover:opacity-100 pointer-coarse:h-8 pointer-coarse:w-8 pointer-coarse:opacity-100"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20 7h-9" />
@@ -501,7 +513,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
                     onClick={() => useGraphStore.getState().setIDEPaneCollapsed(pane.paneKey, !pane.collapsed)}
                     title={pane.collapsed ? t('header.ideWindows.expand') : t('header.ideWindows.collapse')}
                     aria-label={pane.collapsed ? t('header.ideWindows.expand') : t('header.ideWindows.collapse')}
-                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                       {pane.collapsed ? <path d="M7 14l5-5 5 5" /> : <path d="M5 12h14" />}
@@ -512,7 +524,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
                     onClick={() => useGraphStore.getState().closeIDEOverlay(pane.paneKey)}
                     title={t('header.ideWindows.close')}
                     aria-label={t('header.ideWindows.close')}
-                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18" />
@@ -538,7 +550,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
                     onClick={() => useGraphStore.getState().closeIDEOverlay(pane.paneKey)}
                     title={t('header.ideWindows.close')}
                     aria-label={t('header.ideWindows.close')}
-                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18" />

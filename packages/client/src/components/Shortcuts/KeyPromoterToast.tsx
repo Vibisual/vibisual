@@ -33,8 +33,10 @@ export function KeyPromoterToast(): React.JSX.Element | null {
 
   if (!show || !current) return null;
 
+  // 폭은 화면 안으로 묶는다 — `max-w-sm`(384px) 만으로는 폰(360px)에서 왼쪽 끝이 화면 밖으로 나갔다.
+  //   터치(굵은 포인터) 화면에는 "키보드로도 된다"를 알릴 키보드가 없으니 띄우지 않는다(안내일 뿐 입구가 아니다).
   return createPortal(
-    <div className="pointer-events-auto fixed bottom-4 right-4 z-[160] flex max-w-sm items-center gap-3 rounded-lg border border-gray-700 bg-gray-900/95 px-3 py-2 shadow-2xl">
+    <div className="pointer-events-auto fixed bottom-4 right-4 z-[160] flex max-w-[min(24rem,calc(100vw-2rem))] items-center gap-3 rounded-lg border border-gray-700 bg-gray-900/95 px-3 py-2 shadow-2xl pointer-coarse:hidden">
       <svg className="h-4 w-4 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="2" y="6" width="20" height="12" rx="2" />
         <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />

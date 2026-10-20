@@ -33,6 +33,19 @@ export function useIsNarrowViewport(): boolean {
   return useMediaQuery(NARROW_VIEWPORT_QUERY);
 }
 
+/**
+ * 앱 안의 떠 있는 창(`useFloatingWindow` 를 쓰는 창)을 **화면 전체로 고정**할지 — 폰 폭이거나 터치 기기면 true.
+ *
+ * 폰 폭에서는 320px 하한 창에 화면이 짓눌리고, 터치 기기에서는 창의 끌기·크기 조절이 마우스 이벤트라
+ * 손가락으로 옮길 수 없다(태블릿은 폭이 넓어도 그렇다). 창마다 따로 판정하면 기준이 갈리므로 여기 한 곳.
+ * ⚠ 두 훅을 **언제나 둘 다** 부른다 — `a() || b()` 로 쓰면 앞이 참일 때 뒤 훅이 빠져 훅 순서가 바뀐다.
+ */
+export function useFloatingWindowFullScreenLock(): boolean {
+  const narrow = useIsNarrowViewport();
+  const coarse = useCoarsePointer();
+  return narrow || coarse;
+}
+
 /** `useIsNarrowViewport` 와 **같은 기준**을 훅 밖(이벤트 콜백 등)에서 한 번 읽을 때. */
 export function isNarrowViewportNow(): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false;

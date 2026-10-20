@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useLongPress } from '../../hooks/useIsMobile.js';
+
 /** 툴팁이 뜨기까지의 기본 지연(ms) — 네이티브 `title`(0.5~1초)보다 빠르되, 스쳐 지나갈 때는 안 뜨게. */
 const DEFAULT_DELAY = 220;
 /** 화면 가장자리에서 이만큼은 띄운다(px). */
@@ -51,10 +53,14 @@ export function InfoTooltip({
     }
   }, []);
 
+  /** 길게 눌러 띄운 판인가(터치) — 그때는 뒤따르는 흉내 `mousedown` 으로 접지 않고 다음 터치에서 접는다. */
+  const [touchShown, setTouchShown] = useState(false);
+
   const hide = useCallback(() => {
     clear();
     setAnchorRect(null);
     setPos(null);
+    setTouchShown(false);
   }, [clear]);
 
   const handleEnter = useCallback(() => {
@@ -66,6 +72,26 @@ export function InfoTooltip({
       setAnchorRect(el.getBoundingClientRect());
     }, delay);
   }, [body, clear, delay]);
+
+  /**
+   * 터치에는 hover 가 없다 — 탭하면 흉내 `mouseenter` 가 타이머를 걸자마자 뒤따르는 `mousedown` 이 `hide` 로 지워 한 번도
+   * 뜨지 않았다. 감싼 줄을 탭하는 것은 그 줄의 원래 동작(켜기·끄기 등)이므로, 터치에서는 **길게 누르면** 곧바로 띄우고
+   * 다음 터치에서 접는다(마우스는 종전 그대로).
+   */
+  const showByLongPress = useCallback(() => {
+    const el = anchorRef.current;
+    if (!body || !el) return;
+    clear();
+    setAnchorRect(el.getBoundingClientRect());
+    setTouchShown(true);
+  }, [body, clear]);
+  const longPress = useLongPress(showByLongPress);
+  useEffect(() => {
+    if (!touchShown || !anchorRect) return;
+    const onNextTouch = (): void => { hide(); };
+    window.addEventListener('touchstart', onNextTouch, { capture: true, once: true });
+    return () => window.removeEventListener('touchstart', onNextTouch, { capture: true });
+  }, [touchShown, anchorRect, hide]);
 
   // 실제 높이를 잰 뒤에야 화면 안으로 밀어 넣을 수 있다 — 그리기 전 한 번 더 자리를 잡는다.
   useLayoutEffect(() => {
@@ -103,7 +129,8 @@ export function InfoTooltip({
       className={className}
       onMouseEnter={handleEnter}
       onMouseLeave={hide}
-      onMouseDown={hide}
+      onMouseDown={() => { if (!touchShown) hide(); }}
+      {...longPress}
     >
       {children}
       {anchorRect &&

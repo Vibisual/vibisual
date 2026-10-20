@@ -1,12 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { useAppWindowsStore } from './appWindows.js';
 import { APP_BUBBLE_PARAM, appShellParams, getInternalApp } from './registry.js';
-import { registerAppWindowTransferGuard, trackAppWindowTargetUpdate } from './appWindowTransfer.js';
+import { finishAppWindowTransfer, registerAppWindowTransferGuard, trackAppWindowTargetUpdate } from './appWindowTransfer.js';
 import { formChangeMove } from './appNodeForm.js';
 import { useGraphStore } from '../stores/graphStore.js';
+import { prepareAppWindowTransfer } from './appWindowTransfer.js';
+import { registerTaskWindowResponder } from './appTaskWindowBridge.js';
 
 type Params = Readonly<Record<string, string>>;
-interface Target { ref?: string | undefined; file?: string | undefined }
+interface Target { ref?: string | undefined; file?: string | undefined; draftKey?: string | undefined }
+const currentTargets = new Map<string, Target>();
+
+/** The live document may have changed since the OS window's initial hash. */
+export function getAppWindowTarget(id: string): Target | undefined { return currentTargets.get(id); }
 
 /**
  * §5.13 (L) — 창을 연 캔버스 노드가 **지금 그 창이 보는 작업 문서**를 기억한다(`AppBubble.ref`).
@@ -30,6 +36,7 @@ function bindBubbleRef(bubbleId: string | undefined, ref: string | undefined): v
 
 /** Publish the current document, including a new selection made after opening the shell. */
 export async function updateAppWindowTarget(params: Params, target: Target): Promise<void> {
+  currentTargets.set(params['appWindowId'] ?? '@detached', target);
   bindBubbleRef(params[APP_BUBBLE_PARAM], target.ref);
   const id = params['appWindowId'];
   if (id) {
@@ -51,11 +58,27 @@ export function useAppWindowTarget(params: Params, target: Target | null): void 
   paramsRef.current = params;
   useEffect(() => {
     if (target) void updateAppWindowTarget(paramsRef.current, target).catch(() => undefined);
-  }, [params['appWindowId'], params['appWindowAppId'], params['projectId'], target !== null, target?.ref, target?.file]);
+  }, [params['appWindowId'], params['appWindowAppId'], params['projectId'], target !== null, target?.ref, target?.file, target?.draftKey]);
 }
 
-export function useAppWindowTransferGuard(params: Params, prepare: () => Promise<boolean>): void {
+export function useAppWindowTransferGuard(params: Params, prepare: () => Promise<boolean>, release?: () => void): void {
   const prepareRef = useRef(prepare);
   prepareRef.current = prepare;
-  useEffect(() => registerAppWindowTransferGuard(params['appWindowId'] ?? '@detached', () => prepareRef.current()), [params['appWindowId']]);
+  const releaseRef = useRef(release); releaseRef.current = release;
+  const paramsRef = useRef(params); paramsRef.current = params;
+  useEffect(() => {
+    const id = params['appWindowId'] ?? '@detached';
+    const unregister = registerAppWindowTransferGuard(id, () => prepareRef.current(), release ? () => releaseRef.current?.() : undefined);
+    const stop = id !== '@detached' ? () => undefined : registerTaskWindowResponder(() => {
+      const current = paramsRef.current;
+      const app = getInternalApp(current['appWindowAppId'] ?? '');
+      if (!app || !current['projectId']) return null;
+      const target = currentTargets.get(id) ?? { ref: current[app.refKey], file: current['file'], draftKey: current['draftKey'] };
+      return { appId: app.id, projectId: current['projectId'], bubbleId: current[APP_BUBBLE_PARAM], ...target };
+    }, async () => {
+      const prepared = await prepareAppWindowTransfer(id);
+      try { return prepared; } finally { if (prepared) finishAppWindowTransfer(id); }
+    });
+    return () => { unregister(); stop(); currentTargets.delete(id); };
+  }, [params['appWindowId'], params['appWindowAppId'], !!release]);
 }

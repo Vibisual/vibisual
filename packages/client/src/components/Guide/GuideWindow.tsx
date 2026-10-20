@@ -10,6 +10,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { WINDOW_NAV_BODY, WINDOW_NAV_LIST, WINDOW_NAV_PANE, windowNavItemClass } from '../Layout/windowNav.js';
 // §6 — 단축키는 레지스트리가 정본이다. 문장 안에 키를 적어야 할 때도 하드코딩 대신 **지금
 //   배정된 값**을 라벨로 바꿔 쓴다(재매핑·mac 기호가 자동으로 따라온다).
 import { ShortcutList } from '../Shortcuts/ShortcutList.js';
@@ -218,25 +219,21 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
             <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
             {t('panel.guide.title', { defaultValue: 'Guide' })}
           </h3>
-          <button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
+          <button type="button" onClick={onClose} className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
-        {/* Body — 좌측 사이드바 + 우측 패널 */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar — 폰에선 좁혀 본문 공간 확보 */}
-          <div className="w-44 shrink-0 overflow-y-auto border-r border-gray-700/50 bg-gray-900/40 py-2 max-md:w-28">
+        {/* Body — 좌측 사이드바 + 우측 패널. 폰에선 사이드바가 본문 위 가로 띠가 된다(`windowNav`). */}
+        <div className={WINDOW_NAV_BODY}>
+          {/* Sidebar */}
+          <div className={WINDOW_NAV_LIST}>
             {categories.map((c) => (
               <button
                 key={c.key}
                 type="button"
                 onClick={() => setCategory(c.key)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
-                  category === c.key
-                    ? 'border-l-2 border-blue-500 bg-blue-500/10 text-white'
-                    : 'border-l-2 border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-                }`}
+                className={windowNavItemClass(category === c.key)}
               >
                 <span className="text-gray-500">{c.icon}</span>
                 {c.label}
@@ -245,7 +242,7 @@ export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps
           </div>
 
           {/* Right pane */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className={WINDOW_NAV_PANE}>
             <div className="flex flex-col gap-4">
               <div className="border-b border-gray-700/50 pb-2">
                 <h4 className="text-sm font-semibold text-gray-200">

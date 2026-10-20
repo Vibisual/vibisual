@@ -6,8 +6,10 @@
   <head>
     <meta charset="UTF-8" />
     <!-- §4 v3.16 모바일 웹 접속 — maximum-scale=1 로 iOS 의 입력 포커스 자동 확대(레이아웃 붕괴 원인) 차단.
-         페이지 줌 대신 버블 캔버스 자체 핀치줌 사용. 데스크톱(Electron)엔 영향 없음. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+         페이지 줌 대신 버블 캔버스 자체 핀치줌 사용. 데스크톱(Electron)엔 영향 없음.
+         `viewport-fit=cover` 는 쓰지 않는다 — 안전 영역(env(safe-area-inset-*)) 처리가 없어 노치 쪽 손잡이와 홈 표시줄 위
+         바닥 시트·입력창이 가려졌다. 기본값(auto)이면 iOS 가 안전 영역 안에 그리고 바깥은 body 바탕색으로 채운다. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>Vibisual</title>
   </head>

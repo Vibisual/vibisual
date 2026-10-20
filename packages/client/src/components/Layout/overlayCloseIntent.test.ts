@@ -86,13 +86,9 @@ describe('② OverlayShell 이 그 규칙을 실제로 쓰고 있다', () => {
     expect(call, '(H-18) 의 눌러 둔 이력을 판정에 넘긴다').not.toContain('convertedToBubble');
   });
 
-  it('표식은 손잡이가 닫기보다 **먼저** 세운다 — 뒤에 세우면 같은 틱의 효과가 닫기로 읽는다', () => {
+  it('버블 표식은 닫기 확인을 통과한 beforeClose에서만 세운다', () => {
     const text = src();
-    const mark = text.indexOf('toBubbleRef.current = true');
-    const close = text.indexOf('closeIDEOverlay();');
-    expect(mark, '버블 부탁 표식을 못 찾았다').toBeGreaterThan(0);
-    expect(close, '그 뒤의 닫기 호출을 못 찾았다').toBeGreaterThan(0);
-    expect(mark, '표식보다 닫기가 앞선다').toBeLessThan(close);
+    expect(text).toContain('closeIDEOverlay(null, { beforeClose: () => { toBubbleRef.current = true; } });');
   });
 
   it('효과는 표식을 읽은 뒤 **곧바로 내린다** — 안 내리면 버블을 다시 편 뒤의 닫기가 접기로 간다', () => {

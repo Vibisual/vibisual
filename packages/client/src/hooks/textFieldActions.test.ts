@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { composition, deferred, finishComposition, Input, setup, settleClipboard, Textarea } from './textFieldActions.testSupport.js';
-import { createTextFieldActions, readFieldSelection, replaceFieldSelection, setFieldValue } from './textFieldActions.js';
+import { clearFieldText, createTextFieldActions, readFieldSelection, replaceFieldSelection, setFieldValue } from './textFieldActions.js';
 
 let fixture: ReturnType<typeof setup>;
 const selection = { start: 1, end: 2 };
@@ -154,5 +154,55 @@ describe('text field clipboard actions', (): void => {
       expect(tracker).not.toHaveBeenCalled();
       expect(input).toHaveBeenCalledTimes(1);
     }
+  });
+});
+
+// §5.5 #17 — the command input's clear button. One native edit is what keeps Ctrl/Cmd+Z working.
+describe('clearFieldText', (): void => {
+  it('selects everything and deletes it with one native edit so undo can restore it', (): void => {
+    const { field, doc } = fixture;
+    field.value = '첫 줄\n둘째 줄 👩🏽‍💻';
+    doc.execCommand.mockImplementation((command: string, _ui?: boolean, value?: string): boolean => {
+      if (command !== 'insertText') return false;
+      field.value = field.value.slice(0, field.selectionStart ?? 0) + (value ?? '') + field.value.slice(field.selectionEnd ?? 0);
+      return true;
+    });
+    clearFieldText(field.element);
+    expect(doc.execCommand).toHaveBeenCalledExactlyOnceWith('insertText', false, '');
+    expect(field.value).toBe('');
+    expect(doc.activeElement).toBe(field);
+  });
+
+  it('falls back to a literal clear that still reaches controlled fields', (): void => {
+    const { field } = fixture;
+    const input = vi.fn();
+    field.addEventListener('input', input);
+    clearFieldText(field.element);
+    expect(field.value).toBe('');
+    expect(input).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing on an empty field', (): void => {
+    const { field, doc } = fixture;
+    field.value = '';
+    clearFieldText(field.element);
+    expect(field.focusCalls).toBe(0);
+    expect(doc.execCommand).not.toHaveBeenCalled();
+  });
+
+  it('waits for the IME and never clears text that changed while it waited', (): void => {
+    const { field } = fixture;
+    composition.active.add(field);
+    clearFieldText(field.element);
+    expect(field.value).toBe('abc');
+    finishComposition(field);
+    expect(field.value).toBe('');
+
+    const late = setup().field;
+    composition.active.add(late);
+    clearFieldText(late.element);
+    late.value = '새로 친 글';
+    finishComposition(late);
+    expect(late.value).toBe('새로 친 글');
   });
 });

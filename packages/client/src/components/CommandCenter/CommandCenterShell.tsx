@@ -5,6 +5,7 @@ import { useWebSocket, type ConnectionStatus } from '../../hooks/useWebSocket.js
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { WindowControls } from '../Layout/WindowControls.js';
+import { useAnchoredMenuPlacement } from '../Layout/useAnchoredMenuPlacement.js';
 import { CommandCenterBoard } from './CommandCenterBoard.js';
 import { elapsedParts } from './commandCenterModel.js';
 import { clientPathKey } from '../../utils/platform.js';
@@ -137,7 +138,8 @@ export function CommandCenterShell({ projectId: initialProjectId }: CommandCente
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-gray-950 text-gray-100">
+    // h-dvh — 폰 브라우저가 해시로 바로 열 때 주소창 높이만큼 아래가 가려지지 않게(데스크톱 창에서는 h-screen 과 같다).
+    <div className="flex h-dvh w-screen flex-col bg-gray-950 text-gray-100">
       <CommandCenterTitleBar
         viewed={viewed}
         pinned={settings.pinnedProject}
@@ -206,6 +208,10 @@ function CommandCenterTitleBar({
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  // 목록은 선택기 왼쪽 변·타이틀바 바로 아래(종전 `left-0 top-9`)에 펼치되 화면 안으로 당긴다 —
+  //   창이 좁으면 288px 목록이 오른쪽 창 밖으로 나갔다.
+  const pickerListRef = useRef<HTMLDivElement | null>(null);
+  useAnchoredMenuPlacement(pickerOpen, pickerRef, pickerListRef, 'start', 0);
 
   // 바깥 press 로 닫기(공통 규약 — 목록 안에서 시작한 드래그로는 안 닫힌다).
   useOutsidePressDismiss({
@@ -216,21 +222,23 @@ function CommandCenterTitleBar({
   });
 
   return (
+    // 좁아지면 창 이름·프로젝트 이름이 먼저 줄어든다(min-w-0 + truncate) — 줄지 않으면 오른쪽 새로고침·창 조작
+    //   단추가 창 밖으로 밀려 [닫기]를 누를 길이 없어진다. 넓을 때는 종전과 같은 폭이다.
     <div className="flex h-9 flex-shrink-0 items-stretch border-b border-black/40 bg-vb-raised select-none">
-      <div className="flex flex-shrink-0 items-center gap-2 px-3 text-[12px] font-medium text-gray-200">
+      <div className="flex min-w-0 items-center gap-2 px-3 text-[12px] font-medium text-gray-200">
         <svg className="h-3.5 w-3.5 flex-shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
           <circle cx="12" cy="12" r="4" />
         </svg>
-        <span className="whitespace-nowrap">{t('commandCenter.title')}</span>
+        <span className="min-w-0 truncate">{t('commandCenter.title')}</span>
       </div>
 
       {/* 프로젝트 선택기 — 무엇을 보는 중인지 + 따라가기/고정 */}
-      <div ref={pickerRef} className="relative flex flex-shrink-0 items-center app-nodrag">
+      <div ref={pickerRef} className="relative flex min-w-0 items-center app-nodrag">
         <button
           type="button"
           onClick={() => setPickerOpen((v) => !v)}
-          className="flex max-w-[320px] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.08]"
+          className="flex min-w-0 max-w-[320px] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.08] pointer-coarse:py-2"
           title={pinned ? t('commandCenter.pinnedHint') : t('commandCenter.followingHint')}
         >
           {pinned ? (
@@ -250,7 +258,10 @@ function CommandCenterTitleBar({
         </button>
 
         {pickerOpen && (
-          <div className="absolute left-0 top-9 z-40 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60">
+          <div
+            ref={pickerListRef}
+            className="fixed z-40 max-h-[60vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60"
+          >
             <button
               type="button"
               onClick={() => { onFollow(); setPickerOpen(false); }}
@@ -276,7 +287,7 @@ function CommandCenterTitleBar({
                   key={name}
                   type="button"
                   onClick={() => { onPin(name); setPickerOpen(false); }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.08] ${
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.08] pointer-coarse:py-2.5 ${
                     pinned === name ? 'text-amber-200' : 'text-gray-300'
                   }`}
                 >
@@ -401,13 +412,14 @@ function CommandCenterRefresh({
           {status === 'connecting' ? t('commandCenter.connConnecting') : t('commandCenter.connLost')}
         </span>
       )}
-      <span className="whitespace-nowrap text-[12px] tabular-nums text-gray-500">{updatedLabel}</span>
+      {/* 좁은 창(폰)에서는 갱신 시각 글자를 접고 연결 점·새로고침 단추만 남긴다 — 그 폭을 비워야 창 조작 단추가 창 안에 남는다. */}
+      <span className="whitespace-nowrap text-[12px] tabular-nums text-gray-500 max-sm:hidden">{updatedLabel}</span>
       <button
         type="button"
         onClick={run}
         title={`${t('commandCenter.refreshHint')} — ${connHint}`}
         aria-label={t('commandCenter.refresh')}
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-gray-300 transition-colors hover:bg-white/[0.08]"
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-gray-300 transition-colors hover:bg-white/[0.08] pointer-coarse:p-2"
       >
         <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dotClass}`} />
         <svg

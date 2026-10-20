@@ -185,3 +185,86 @@ describe('§5.4 #36 (G) 굽는 크기·파형 구간', () => {
     expect(wavePath(peaks, 120, 60, 8, { from: 3, to: 3 }).d).toBe('');
   });
 });
+
+/**
+ * §5.1 #2-1 (G) ④ — 시각 기준. 영상 디코더·WebGL 문맥은 종류마다 따로 줄을 세우고, 캔버스가 움직이는 동안은 새로 굽지 않고,
+ * 줄에 섰다가 화면을 떠난 일감은 시작 전에 버린다.
+ */
+describe('§5.1 #2-1 (G) ④ 굽는 줄 — 종류별 상한 · 움직이는 동안 쉬기 · 떠난 줄 버리기', () => {
+  /** 일감마다 손으로 끝내는 굽는 함수 — 지금 도는 파일 이름을 센다. */
+  function gatedRender() {
+    const started: string[] = [];
+    const gates = new Map<string, () => void>();
+    const render: AppThumbnailRenderer = (req) => new Promise((resolve) => {
+      started.push(req.file);
+      gates.set(req.file, () => resolve(picture(`blob:${req.file}`)));
+    });
+    const finish = async (file: string): Promise<void> => {
+      gates.get(file)?.();
+      gates.delete(file);
+      await flush();
+    };
+    return { render, started, finish };
+  }
+
+  it('한 줄이 차도 다른 줄은 시작한다 — 영상 1건이 도는 동안 그림은 앞질러 굽는다', async () => {
+    const { render, started, finish } = gatedRender();
+    const cache = createThumbCache({
+      resolve: async () => render, release: vi.fn(), cacheMax: 20, concurrency: 4, timeoutMs: 10_000,
+      laneConcurrency: { video: 1, image: 2 },
+    });
+    cache.ensure(job({ file: 'v1.mp4', lane: 'video' }));
+    cache.ensure(job({ file: 'v2.mp4', lane: 'video' }));
+    cache.ensure(job({ file: 'p1.png', lane: 'image' }));
+    await flush();
+    expect(started).toEqual(['v1.mp4', 'p1.png']);
+    await finish('v1.mp4');
+    expect(started).toEqual(['v1.mp4', 'p1.png', 'v2.mp4']);
+  });
+
+  it('움직이는 동안은 새로 시작하지 않고, 한가해지면 기다리던 줄을 다시 민다', async () => {
+    const { render, started } = gatedRender();
+    let idle = false;
+    const wake = new Set<() => void>();
+    const cache = createThumbCache({
+      resolve: async () => render, release: vi.fn(), cacheMax: 20, concurrency: 2, timeoutMs: 10_000,
+      isIdle: () => idle,
+      onIdle: (listener) => { wake.add(listener); return () => { wake.delete(listener); }; },
+    });
+    cache.ensure(job({ file: 'a.png' }));
+    cache.ensure(job({ file: 'b.png' }));
+    await flush();
+    expect(started).toEqual([]);
+    expect(wake.size).toBe(1); // 여러 번 밀어도 기다리는 길은 하나
+    idle = true;
+    for (const listener of [...wake]) listener();
+    await flush();
+    expect(started).toEqual(['a.png', 'b.png']);
+    expect(wake.size).toBe(0);
+  });
+
+  it('줄에서 오래 기다린 · 아무도 보지 않는 일감은 시작 전에 버린다 — 보고 있는 것은 굽고, 돌아오면 다시 선다', async () => {
+    const { render, started, finish } = gatedRender();
+    let t = 0;
+    const cache = createThumbCache({
+      resolve: async () => render, release: vi.fn(), cacheMax: 20, concurrency: 1, timeoutMs: 10_000,
+      staleQueuedMs: 1_500, now: () => t,
+    });
+    cache.ensure(job({ file: 'first.png' }));
+    const gone = cache.ensure(job({ file: 'gone.png' }));
+    const seen = cache.ensure(job({ file: 'seen.png' }));
+    const off = cache.subscribe(seen, vi.fn());
+    await flush();
+    expect(started).toEqual(['first.png']);
+    t = 2_000;
+    await finish('first.png');
+    expect(started).toEqual(['first.png', 'seen.png']); // gone.png 은 시작하지 않았다
+    expect(cache.peek(gone).status).toBe('loading'); // 모르는 열쇠 = 곧 다시 올린다
+    expect(cache.size()).toBe(2);
+    await finish('seen.png');
+    cache.ensure(job({ file: 'gone.png' })); // 화면에 돌아왔다
+    await flush();
+    expect(started).toEqual(['first.png', 'seen.png', 'gone.png']);
+    off();
+  });
+});

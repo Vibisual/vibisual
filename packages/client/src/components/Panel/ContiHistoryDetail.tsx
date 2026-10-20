@@ -167,7 +167,8 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
               })}
               className="w-full resize-y rounded border border-gray-700 bg-gray-900/70 p-2 font-mono text-[12px] leading-relaxed text-gray-200 placeholder:text-gray-600 focus:border-emerald-600/60 focus:outline-none"
             />
-            <div className="flex items-center gap-2">
+            {/* 패널이 240px 까지 좁아진다 — 넘치면 줄을 바꾼다(종전에는 글자 수 칸이 패널 밖으로 밀려났다). */}
+            <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1.5 text-[12px] text-gray-400">
                 <span>{t('panel.contiHistory.scriptPreset', { defaultValue: '출력' })}</span>
                 <select

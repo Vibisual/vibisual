@@ -209,11 +209,11 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 border-b border-gray-700 px-4 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-gray-700 px-4 py-3">
           {/* 제목 옆 방패도 지금 상태를 그대로 말한다 — 꺼져 있으면 헤더 필과 **같은 사선**. */}
           <AuditShieldGlyph
             off={!escalateRisky}
@@ -226,7 +226,7 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
             onClick={onClose}
             title={t('panel.audit.close')}
             aria-label={t('panel.audit.close')}
-            className="rounded p-1 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+            className="rounded p-1 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:p-2"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6 6 18" />
@@ -235,6 +235,10 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
           </button>
         </div>
 
+        {/* 폰 폭에서는 머리줄 아래 **전체**가 한 번에 구른다 — 설명·스위치·필터가 고정이면 낮은 화면에서
+            그것만으로 창이 차서 목록 자리가 손가락 한 마디만 남았다. 머리줄(닫기)은 늘 보인다.
+            넓은 화면에서는 이 묶음이 `contents` 로 사라져 종전대로 목록만 구른다. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:contents">
         {/* §7.20 관계 설명 — 스위치보다 **먼저** 온다. 사용자가 자기 권한 모드를 의심하기 전에
             "이건 그 모드와 별개로 도는 두 번째 검문소"라는 사실이 먼저 눈에 들어와야 한다. */}
         <div className="flex flex-col gap-2 border-b border-gray-700 bg-gray-800/40 px-4 py-3">
@@ -314,7 +318,7 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
               key={f}
               type="button"
               onClick={() => { setFilter(f); setLimit(AUDIT_TIMELINE_PAGE_SIZE); }}
-              className={`rounded px-2 py-1 text-[12px] font-semibold transition-colors ${
+              className={`rounded px-2 py-1 text-[12px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-3 ${
                 f === filter
                   ? 'bg-amber-500/20 text-amber-300'
                   : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -368,7 +372,7 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
           )}
         </div>
 
-        <ScrollFade fill className="min-h-0 flex-1">
+        <ScrollFade fill className="min-h-0 flex-1 max-md:flex-none">
           <div className="flex flex-col">
             {empty ? (
               <div className="m-4 flex flex-col gap-1.5 rounded border border-gray-700 bg-gray-800/40 px-3 py-4 text-center">
@@ -401,6 +405,7 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
             )}
           </div>
         </ScrollFade>
+        </div>
       </div>
     </div>
   );

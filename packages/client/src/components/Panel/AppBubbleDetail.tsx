@@ -121,7 +121,7 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
               <button
                 type="button"
                 onClick={clearFile}
-                className="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+                className="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
               >
                 {t('panel.apps.detail.clearFile')}
               </button>

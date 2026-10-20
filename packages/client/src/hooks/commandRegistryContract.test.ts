@@ -31,6 +31,10 @@ const MIGRATED = [
   'IDETabBar.tsx',
   'IDETerminalView.tsx',
   'CodeEditor.tsx',
+  // §5.5 #17-27 ⑲ — 편집창 찾기·줄 편집은 처음부터 레지스트리로 났다. 막대 안의 Enter·Esc 만 손수 받는다.
+  'CodeEditorFindWidget.tsx',
+  'useEditorFind.ts',
+  'useEditorLineCommands.ts',
 ];
 
 /**
@@ -107,10 +111,12 @@ describe('단축키 레지스트리 규약', () => {
     expect(bad, `번역문에 단축키가 박혀 있다: ${bad.join(', ')}`).toEqual([]);
   });
 
-  it('번역 키는 고정 네임스페이스(`common.`) 안에 있다 — 최상위를 늘리지 않는다', () => {
+  it('명령 번역은 단축키 네임스페이스나 기존 기능 라벨을 재사용한다 — 최상위를 늘리지 않는다', () => {
+    // Immersion already has the same translated name on the canvas button in every locale.
+    const reusedLabels = new Set(['canvas.controls.immersiveMode']);
     const outside = COMMAND_IDS
       .map((id) => COMMANDS[id].labelKey)
-      .filter((k) => !k.startsWith('common.shortcuts.'));
+      .filter((k) => !k.startsWith('common.shortcuts.') && !reusedLabels.has(k));
     expect(outside, `네임스페이스 밖 키: ${outside.join(', ')}`).toEqual([]);
   });
 });

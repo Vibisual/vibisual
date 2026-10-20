@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { GitStatus, GitCommit, GitWorktreeStatus } from '@vibisual/shared';
 import { BUBBLE_COLORS, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { alertDialog, confirmDialog } from '../../utils/appDialog.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { buildMergeConflictPrompt } from './mergeConflictPrompt.js';
 
@@ -344,10 +345,21 @@ function NoGitState(): React.JSX.Element {
 function NotRepoState({ projectName, onInitDone }: { projectName: string; onInitDone: () => void }): React.JSX.Element {
   const { t } = useTranslation();
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
+  const projectScope = useMemo(() => ({ projectName }), [projectName]);
+  const activeProjectRef = useRef<typeof projectScope | null>(projectScope);
+  activeProjectRef.current = projectScope;
+  useEffect(() => {
+    activeProjectRef.current = projectScope;
+    return () => { activeProjectRef.current = null; };
+  }, [projectScope]);
   const handleInit = useCallback(async () => {
-    if (!window.confirm(t('panel.gitStatus.initConfirm', { projectName }))) return;
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setPending(true);
     try {
+      if (!await confirmDialog(t('panel.gitStatus.initConfirm', { projectName }))) return;
+      if (activeProjectRef.current !== projectScope) return;
       const res = await fetch(`${API_BASE}/api/git-init`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -355,14 +367,20 @@ function NotRepoState({ projectName, onInitDone }: { projectName: string; onInit
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string; stderr?: string };
-        window.alert(t('panel.gitStatus.initFailed') + '\n' + (body.error ?? '') + '\n' + (body.stderr ?? ''));
+        if (activeProjectRef.current !== projectScope) return;
+        await alertDialog(t('panel.gitStatus.initFailed') + '\n' + (body.error ?? '') + '\n' + (body.stderr ?? ''), { tone: 'danger' });
         return;
       }
-      onInitDone();
+      if (activeProjectRef.current === projectScope) onInitDone();
+    } catch (error) {
+      if (activeProjectRef.current === projectScope) {
+        await alertDialog(t('panel.gitStatus.initFailed') + '\n' + String(error), { tone: 'danger' });
+      }
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
-  }, [projectName, onInitDone, t]);
+  }, [projectName, projectScope, onInitDone, t]);
 
   return (
     <div className="flex flex-col items-center gap-2 py-3 text-center">
@@ -490,7 +508,9 @@ function ChangeCounts({ staged, modified, untracked }: { staged: number; modifie
     return <p className="text-[12px] text-gray-500">{t('panel.gitStatus.clean')}</p>;
   }
   return (
-    <div className="grid grid-cols-3 gap-1.5">
+    // 상세 패널은 240px 까지 좁아진다 — 칸 하나가 72px 아래로 줄면(대문자 "UNTRACKED" 가 칸을 넘친다) 다음 줄로 내린다.
+    //   패널 폭은 화면 폭과 따로 움직여 뷰포트 기준으로는 못 잡는다(평소 폭에서는 세 칸 한 줄 그대로).
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1.5">
       <CountBox label="staged" count={staged} tone="emerald" />
       <CountBox label="modified" count={modified} tone="amber" />
       <CountBox label="untracked" count={untracked} tone="gray" />
@@ -657,7 +677,7 @@ function WorktreeRow({
           type="button"
           onClick={handleSync}
           disabled={!canSync || syncing}
-          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
+          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:min-h-8 ${
             canSync
               ? 'border border-gray-700 text-gray-300 hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-300'
               : 'border border-gray-800 text-gray-600'
@@ -676,7 +696,7 @@ function WorktreeRow({
           type="button"
           onClick={handleMerge}
           disabled={!canMerge || merging}
-          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
+          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:min-h-8 ${
             canMerge
               ? 'border border-gray-700 text-gray-300 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-lime-300'
               : 'border border-gray-800 text-gray-600'
@@ -734,7 +754,8 @@ function GitErrorModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       {...backdrop}
     >
-      <div className="w-[clamp(22rem,40vw,32rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+      {/* 하한 22rem(352px)은 360px 폰에서 화면 끝에 닿는다 — 화면 폭에서 여백만큼은 늘 남기고, 낮으면 안에서 구른다. */}
+      <div className="max-h-[calc(100dvh-2rem)] w-[clamp(22rem,40vw,32rem)] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="border-b border-gray-800 px-5 py-3">
           <div className="text-sm font-semibold text-gray-100">{error.title}</div>
           {error.subtitle && (
@@ -761,7 +782,7 @@ function GitErrorModal({
           >
             {error.stderr}
           </pre>
-          <div className="mt-4 flex justify-end gap-2">
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
             {/* §7.6 — 여기서 한 걸음 더 갈 수 있으면 그 손잡이를 함께 낸다(충돌 → 에이전트에게 넘기기). */}
             {error.action && (
               <button

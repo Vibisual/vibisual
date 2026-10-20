@@ -69,8 +69,9 @@ function UsageRing({ pct }: { pct: number | null }): React.JSX.Element {
 export function UsagePill(): React.JSX.Element {
   const { t } = useTranslation();
   const main = useGraphStore(s => s.userDefaults?.engineChoice?.kind ?? 'claude');
-  const codexLoggedIn = useGraphStore(s => s.codexAuth?.loggedIn === true);
-  const { usage: codexUsage } = useCodexUsage(main === 'codex' && codexLoggedIn);
+  const codexAuth = useGraphStore(s => s.codexAuth);
+  const codexLoggedIn = codexAuth?.loggedIn === true;
+  const { usage: codexUsage } = useCodexUsage(main === 'codex' && codexLoggedIn, codexAuth);
   const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
   const [open, setOpen] = useState(false);

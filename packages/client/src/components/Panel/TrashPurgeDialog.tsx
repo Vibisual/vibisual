@@ -51,7 +51,8 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       {...backdrop}
     >
-      <div className="w-[clamp(20rem,34vw,28rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+      {/* 하한 20rem(320px)은 폰 폭에서 화면 양끝에 닿는다 — 화면 폭에서 여백만큼은 늘 남긴다. */}
+      <div className="max-h-[calc(100dvh-2rem)] w-[clamp(20rem,34vw,28rem)] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="border-b border-gray-800 px-5 py-3">
           <div className="text-sm font-semibold text-gray-100">{t('trash.purge', { defaultValue: '영구 삭제' })}</div>
         </div>

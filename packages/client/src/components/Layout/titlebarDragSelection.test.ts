@@ -104,16 +104,28 @@ describe('타이틀바 드래그 영역', () => {
   });
 });
 
-// 로고 상자는 OS 드래그 영역으로 남고, 내부 장식만 포인터 대상에서 제외한다.
+// 로고의 배경·점·글자는 일반 제목줄과 같은 OS 드래그 영역이다.
 describe('드래그 영역의 정적 글자', () => {
-  it('로고 상자가 포인터 대상이고 내부 점과 글자만 제외된다', () => {
+  it('일반 제목줄의 정적 글자 상자는 포인터 대상이고 내부 장식만 제외된다', () => {
     expect(decl(ruleFor('.app-drag-label').body, 'pointer-events')).toBe('auto');
     expect(decl(ruleFor('.app-drag-label *').body, 'pointer-events')).toBe('none');
-    expect(source('Header.tsx')).toMatch(/className="app-drag-label app-drag /);
   });
 
-  it('죽은 규칙이 아니다 — 사용자가 집어 보여 준 헤더 로고에 실제로 걸려 있다', () => {
-    expect(source('Header.tsx'), '헤더 로고에 app-drag-label 이 없습니다').toMatch(/className="app-drag-label /);
+  it('로고는 모든 겹이 같은 OS 캡션이고 글자 선택·이미지 끌기가 창 이동을 가로채지 않는다', () => {
+    const rule = ruleFor('.app-titlebar-handle');
+    expect(rule.selectors).toContain('.app-titlebar-handle *');
+    expect(decl(rule.body, '-webkit-app-region')).toBe('drag');
+    expect(decl(rule.body, 'app-region')).toBe('drag');
+    expect(decl(rule.body, 'user-select')).toBe('none');
+    expect(decl(rule.body, '-webkit-user-select')).toBe('none');
+    expect(decl(rule.body, '-webkit-user-drag')).toBe('none');
+    expect(decl(rule.body, 'pointer-events')).not.toBe('none');
+    expect(source('Header.tsx')).toMatch(/className="app-titlebar-handle app-drag /);
+  });
+
+  it('로고의 장식은 포인터를 가로채지 않고 부모 제목줄로 보낸다', () => {
+    const rules = parseRules(indexCss).filter((rule) => rule.selectors.includes('.app-titlebar-handle *'));
+    expect(rules.some((rule) => decl(rule.body, 'pointer-events') === 'none')).toBe(true);
   });
 
   it('`.app-drag` 자손 전체에 일괄로 걸지 않는다 — 탭 줄의 가로 스크롤이 함께 죽는다', () => {
@@ -128,15 +140,13 @@ describe('드래그 영역의 정적 글자', () => {
   });
 });
 
-// §3.7 · §5.5 #17-6 (H-19) — 로고 덮개는 `app-nodrag` 라 OS 가 그 자리의 더블클릭을 모른다.
-//   덮개가 직접 제목줄과 같은 최대화/복원을 불러야 한다(받는 쪽 배선은 desktop `titlebarDrag.test.ts`).
-describe('헤더 로고 덮개 더블클릭', () => {
-  it('덮개가 자기 창 최대화/복원 채널을 부른다 — 사용자 보고: 로고 자리만 더블클릭해도 전체화면이 안 됐다', () => {
+// OS 캡션의 더블클릭은 OS 가 처리한다. DOM 에 도착한 것은 기존 Header 처리기 한 벌만 받는다.
+describe('헤더 로고 전체 더블클릭', () => {
+  it('로고 전용 처리기를 두지 않고 공통 Header 처리기만 사용한다', () => {
     const header = source('Header.tsx');
-    const at = header.indexOf('className="app-nodrag absolute inset-0 z-10"');
-    expect(at, '헤더 로고 덮개를 못 찾음').toBeGreaterThan(-1);
-    const cover = header.slice(at, header.indexOf('/>', at));
-    expect(cover).toContain('onDoubleClick={() => { void window.api?.window?.toggleMaximizeSelf(); }}');
+    expect(header).toContain('onDoubleClick={handleTitlebarDoubleClick}');
+    expect(header).not.toContain('handleLogoDoubleClick');
+    expect(header).not.toContain('onDoubleClickCapture=');
   });
 });
 
@@ -156,34 +166,27 @@ describe('File 메뉴 둘레', () => {
   });
 });
 
-// 덮개는 드래그 영역 신고에 기대지 않는 손잡이다 — 신고가 어긋난 순간(§3.7)에도 로고를 눌러 창을 옮긴다.
-//   2026-10-08 에 "헤더 나머지와 같은 OS 캡션으로" 맞춘다며 덮개와 누름 연결을 걷었다가, 로고로 창이
-//   안 움직여 되살렸다(사용자 보고 — "이거 누르면 화면 움직이는 기능 있었는데 날라간거야").
-describe('헤더 로고 덮개 누름', () => {
-  it('덮개가 로고 상자 안에 있고, 누르면 useTitlebarDrag 로 창을 옮긴다', () => {
+// app-nodrag 덮개는 네이티브 캡션을 막는다. DOM 까지 온 누름의 보완은 전역 받기가 담당한다.
+describe('헤더 로고 전체 누름', () => {
+  it('로고 위에 네이티브 드래그를 막는 덮개나 별도 수동 처리기를 두지 않는다', () => {
     const header = source('Header.tsx');
-    const at = header.indexOf('className="app-drag-label app-drag ');
+    const at = header.indexOf('className="app-titlebar-handle app-drag ');
     expect(at, '헤더 로고를 못 찾음').toBeGreaterThan(-1);
     const end = header.indexOf('{/* File 메뉴 */}', at);
     expect(end).toBeGreaterThan(at);
     const logo = header.slice(at, end);
-    expect(logo, '로고 덮개가 없습니다 — 걷으면 신고가 어긋난 순간 로고로 창이 안 움직입니다')
-      .toContain('className="app-nodrag absolute inset-0 z-10"');
-    expect(logo).toContain('onMouseDown={handleLogoMouseDown}');
-    expect(header).toContain('const handleLogoMouseDown = useTitlebarDrag();');
-  });
-
-  it('덮개는 인라인으로 손짓을 되찾는다 — `.app-drag-label *` 가 덮개까지 pointer-events:none 으로 만든다', () => {
-    expect(decl(ruleFor('.app-drag-label *').body, 'pointer-events')).toBe('none');
-    const header = source('Header.tsx');
-    const at = header.indexOf('className="app-nodrag absolute inset-0 z-10"');
-    expect(at, '헤더 로고 덮개를 못 찾음').toBeGreaterThan(-1);
-    expect(header.slice(at, header.indexOf('/>', at))).toContain("style={{ pointerEvents: 'auto' }}");
+    expect(logo).not.toContain('app-nodrag');
+    expect(logo).not.toContain('absolute inset-0');
+    expect(logo).not.toContain('onMouseDown');
+    expect(logo).not.toContain('onDoubleClick');
+    expect(header).not.toContain('useTitlebarDrag');
   });
 
   it('탭을 끄는 동안에는 제목줄 드래그 영역이 자손까지 비켜 준다(공통 vib-pointer-drag 규칙)', () => {
     const dragging = ruleFor('body.vib-pointer-drag .app-drag');
     expect(dragging.selectors).toContain('body.vib-pointer-drag .app-drag *');
+    expect(dragging.selectors).toContain('body.vib-titlebar-drag .app-drag');
+    expect(dragging.selectors).toContain('body.vib-titlebar-drag .app-drag *');
     expect(decl(dragging.body, '-webkit-app-region')).toBe('no-drag');
     expect(decl(dragging.body, 'app-region')).toBe('no-drag');
   });

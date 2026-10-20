@@ -11,6 +11,7 @@ export function receiveAppWindow(api: PackagedAppApi, payload: Parameters<Parame
   // §5.13 (S-11) 되돌아오는 길 — 밖의 그 창은 닫히는 중인데 목록에는 아직 있다. 밖을 보면 자기 자신을 앞으로 세운다.
   const opened = openAppWindow({
     appId: app.id, projectId, ref: payload.params[app.refKey], file: payload.params['file'],
+    draftKey: payload.params['draftKey'],
     title: payload.params['_windowTitle'], geometry: payload.geometry,
   }, { redock: true });
   if (opened) void api.ackRedock(payload.requestId).catch(() => undefined);

@@ -16,7 +16,7 @@
  */
 
 import type { ComponentType, JSX, ReactNode } from 'react';
-import type { Conti, ContiRenderStatus, StoryboardPreset, UserDefaults, WorkspaceOpenAppClaim } from '@vibisual/shared';
+import type { CommandExecutionRequirements, Conti, ContiRenderStatus, CreationRunLimits, StoryboardPreset, UserDefaults, WorkspaceOpenAppClaim } from '@vibisual/shared';
 
 /** 앱 창이 받는 것. 무엇을 쓸지는 앱이 정한다 — 코어는 hash 를 그대로 넘길 뿐이다. */
 export interface AppShellProps {
@@ -88,6 +88,11 @@ export interface AppThumbnailRequest {
   readonly file: string;
   readonly width: number;
   readonly height: number;
+  /**
+   * §5.1 #2-1 (G) ① — 이미 아는 파일 크기(bytes, 스냅샷의 `fileSize`). 있으면 굽는 함수가 크기를 다시 묻지 않고 성능 기준
+   * (`PREVIEW_POLICY.maxBytes`)으로 바로 가른다. 없으면 굽는 함수가 먼저 묻는다.
+   */
+  readonly bytes?: number | undefined;
 }
 
 /** 못 구우면 `null` — 코어가 아이콘 + 파일 이름으로 대신한다. 던져도 `null` 과 같다. */
@@ -138,6 +143,8 @@ export type AppCanvasFace = ComponentType<AppCanvasFaceProps>;
  * 완성 mp4 를 구워 넣었다 — 사용자가 원한 것은 코드로 짓고 검수·편집하며 다듬는 **작업 문서**였다.
  */
 export interface AppAgentBriefArgs {
+  /** Original user request, before linked app instructions are appended. */
+  readonly request: string;
   /** 프로젝트 루트 절대 경로. */
   readonly projectId: string;
   /** 프로젝트 표시 이름(앱 REST 의 `project` 값 — 에이전트가 그대로 쓴다). */
@@ -161,9 +168,28 @@ export interface AppAgentBriefArgs {
 export interface AppAgentBrief {
   readonly text: string;
   readonly ref?: string | undefined;
+  readonly executionRequirements?: CommandExecutionRequirements & { readonly runLimits?: CreationRunLimits };
+}
+
+/** Required preparation failed: never substitute generic output instructions. */
+export class AppAgentPreparationError extends Error {
+  constructor(message: string) { super(message); this.name = 'AppAgentPreparationError'; }
 }
 
 export type AppAgentBriefBuilder = (args: AppAgentBriefArgs) => Promise<AppAgentBrief | null>;
+
+/** A new task owns a distinct document; pending proposals stay with the old source. */
+export interface AppTaskTarget { readonly ref?: string | undefined; readonly file?: string | undefined }
+export interface AppTaskDocumentArgs {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly mode: 'new' | 'copy';
+  readonly source: AppTaskTarget;
+  readonly title: string;
+  /** Stable across transport retries of this one transition. */
+  readonly requestId: string;
+}
+export type AppTaskDocumentBuilder = (args: AppTaskDocumentArgs) => Promise<AppTaskTarget>;
 
 /**
  * §5.4 #36 (H) ③ — 앱 노드 아래 **구슬 줄**에 꿸 "연결된 것" 하나. 코어는 이 모양만 그린다(앱 이름을 모른다).
@@ -176,8 +202,9 @@ export type AppAgentBriefBuilder = (args: AppAgentBriefArgs) => Promise<AppAgent
  * - `file` — 프로젝트 루트 기준 상대 경로(`/` 구분). 그림·영상이면 구슬 안에 작은 미리보기를 굽는다.
  * - `label` — 툴팁에 쓰는 이름(장면 제목·파일 이름 — 사용자 내용이라 번역하지 않는다).
  */
-export type AppLinkedItemKind = 'scene' | 'image' | 'video' | 'audio' | 'model' | 'font' | 'code' | 'text' | 'file';
-export type AppLinkedItemStage = 'plan' | 'ready' | 'building' | 'done';
+export type AppLinkedItemKind = 'scene' | 'image' | 'video' | 'audio' | 'model' | 'font' | 'code' | 'text' | 'shape' | 'file';
+/** 장면·단계의 진행. `proposed` = 에이전트가 낸 판이 사람의 고르기를 기다린다(3D 의 제안 대기 단계 · 그림의 제안). */
+export type AppLinkedItemStage = 'plan' | 'proposed' | 'ready' | 'building' | 'done';
 
 export interface AppLinkedItem {
   /** 노드 안에서 안정적인 id — 다음 읽기에도 같은 것은 같은 id(구슬이 깜빡이지 않게). */
@@ -190,7 +217,15 @@ export interface AppLinkedItem {
   readonly active?: boolean | undefined;
   /** 길이(초) — 툴팁에 덧붙는다. */
   readonly durationSec?: number | undefined;
+  /**
+   * 구슬 안 그림의 파일. 장면·단계 구슬도 가질 수 있다 — 그러면 번호는 구슬 테두리의 작은 표식으로 내려가고 안은 그 그림이다
+   * (§5.1 #2-1 (F) 앱별 — Vibi3D 단계의 대표 캡처).
+   */
   readonly file?: string | undefined;
+  /** 이 구슬이 대표하는 그림 수(단계의 캡처 등) — 툴팁에 덧붙는다. */
+  readonly pictureCount?: number | undefined;
+  /** 번호 구슬이 무엇을 세는가 — 없으면 장면. 만드는 단계(3D) · 고르기 전 제안(그림)은 툴팁이 그 말로 부른다. */
+  readonly numbered?: 'step' | 'proposal' | undefined;
 }
 
 /** 구슬 줄을 읽을 때 받는 것. */
@@ -314,6 +349,8 @@ export interface InternalApp {
    * 종전 공통 문구(결과 파일을 만들어 `/output` 으로 넣어라)를 쓴다. 코어는 앱 이름을 모르고 이 선언만 부른다(§5.13 (P-4)).
    */
   readonly agentBrief?: () => Promise<AppAgentBriefBuilder>;
+  /** Prepare an independent document without rebinding or clearing the source node. */
+  readonly taskDocument?: () => Promise<AppTaskDocumentBuilder>;
   /**
    * §5.13 (V) 37-1·37-17 — 이 앱의 **편집 화면(`main`)이 앱 테마를 따른다.** 선언하지 않은 앱 화면은 종전대로 어두운 판에
    * 묶인다(`DARK_THEME_LOCK` — 고정 어두운 바탕을 전제로 칠한 화면). 렌더·일꾼 같은 다른 화면은 선언과 무관하게 묶인다
@@ -404,6 +441,8 @@ export interface AppOpenArgs {
   projectId: string;
   ref?: string | undefined;
   file?: string | undefined;
+  /** Durable editor draft identity, including models that do not have a source document yet. */
+  draftKey?: string | undefined;
   title?: string | undefined;
   /**
    * §5.13 (L) — 이 창을 연 캔버스 노드(`AppBubble.id`). 앱이 다른 작업 문서를 고르면 그 노드가 그 문서를 기억한다
@@ -430,6 +469,7 @@ export function appShellParams(app: Pick<InternalApp, 'refKey'>, args: AppOpenAr
   const params: Record<string, string> = { projectId: args.projectId };
   if (args.ref !== undefined && args.ref !== '') params[app.refKey] = args.ref;
   if (args.file !== undefined && args.file !== '') params['file'] = args.file;
+  if (args.draftKey !== undefined && args.draftKey !== '') params['draftKey'] = args.draftKey;
   if (args.bubbleId !== undefined && args.bubbleId !== '') params[APP_BUBBLE_PARAM] = args.bubbleId;
   return params;
 }
@@ -488,6 +528,7 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     // §5.4 #36 (C) 개정 — 이 노드는 완성 파일 납품처가 아니라 **작업 문서**다. 에이전트는 문서를 코드(컴포지션)와
     //   데이터로 짓고, 렌더는 사용자가 시킬 때만 한다. 브리프가 문서를 만들어 노드에 묶는다.
     agentBrief: async () => (await import('../components/VideoStudio/vibistudioBrief.js')).buildVibistudioBrief,
+    taskDocument: async () => (await import('../components/VideoStudio/videoTaskDocument.js')).prepareVideoTaskDocument,
     // §5.13 (V) 37-1 — 편집 화면은 다크/라이트 테마를 따른다(미리보기 무대 안의 그림은 그대로 어둡다).
     followsTheme: true,
     // §5.4 #36 (H) ③ — 노드 아래 구슬 줄: 장면(시간 순 · 단계 · AI 가 만지는 장면)과 소재(컴포지션 코드·그림·영상·소리·글꼴).
@@ -528,8 +569,11 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     canvasFace: async () => (await import('../components/Vibisound/SoundCanvasFace.js')).SoundCanvasFace,
     // §5.4 #36 (H) ③ — 노드 아래 구슬 줄: 묶인 문서의 원본 소리들(이름·길이).
     linkedItems: async () => (await import('../components/Vibisound/soundLinkedItems.js')).readVibisoundLinkedItems,
-    opens: ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.weba'],
+    // §5.1 #2-1 (G) ⑦ — mp4 소리의 다른 이름(`.m4b` 오디오북 · `.m4r` 벨소리)도 같은 엔진이 푼다.
+    opens: ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.weba', '.m4b', '.m4r'],
     refKey: 'clipId',
+    agentBrief: async () => (await import('../components/Vibisound/soundAgentBrief.js')).buildSoundAgentBrief,
+    taskDocument: async () => (await import('../components/Vibisound/soundTaskDocument.js')).prepareSoundTaskDocument,
     shells: {
       main: async () => (await import('../components/Vibisound/VibisoundShell.js')).VibisoundShell,
     },
@@ -550,8 +594,13 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     thumbnail: async () => (await import('../components/Vibi3D/modelThumbnail.js')).renderModelThumbnail,
     // §5.4 #36 (G) — 끌어 돌려 보기 · 자동 회전. 손을 떼고 잠시 지나면 문맥을 돌려주고 그 각도를 한 장으로 남긴다.
     canvasFace: async () => (await import('../components/Vibi3D/ModelCanvasFace.js')).ModelCanvasFace,
-    opens: ['.glb', '.gltf', '.obj', '.stl', '.ply', '.fbx', '.dae', '.3mf'],
+    faceShowsRef: true,
+    // §5.1 #2-1 (G) ⑦ — VRM 은 glb 그릇이라 같은 로더가 읽는다(`modelIO` 의 glb 갈래).
+    opens: ['.glb', '.gltf', '.obj', '.stl', '.ply', '.fbx', '.dae', '.3mf', '.vrm'],
     refKey: 'modelId',
+    agentBrief: async () => (await import('../components/Vibi3D/vibi3dBrief.js')).buildVibi3DBrief,
+    taskDocument: async () => (await import('../components/Vibi3D/modelTaskDocument.js')).prepareModelTaskDocument,
+    linkedItems: async () => (await import('../components/Vibi3D/modelLinkedItems.js')).readVibi3DLinkedItems,
     shells: {
       main: async () => (await import('../components/Vibi3D/Vibi3DShell.js')).Vibi3DShell,
     },
@@ -571,12 +620,18 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     screenSize: { width: 208, height: 130 },
     // `opens` 는 일부러 비운다 — 선언하면 파일 클릭의 그림 미리보기(라이트박스 주석 도구, §5.5 #17-25)
     //   갈래를 이 앱이 가로챈다. 이 앱은 **노드에 담긴 그림**을 여는 자리다(§5.13 (R-9)).
-    outputs: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp', '.avif'],
+    // §5.1 #2-1 (G) ⑦ — 브라우저가 그대로 푸는 이름만 다른 형식(JPEG 의 다른 확장자 · 움직이는 PNG).
+    outputs: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp', '.avif', '.jfif', '.jpe', '.apng'],
     // 그 그림을 화면 크기로 줄여 구운 한 장(원본을 노드마다 통째로 디코딩해 들고 있지 않게).
     thumbnail: async () => (await import('../components/Vibimage/imageThumbnail.js')).renderImageThumbnail,
     // §5.4 #36 (G) — 채우기 ↔ 맞춤 · 클립보드로 복사(원본을 PNG 로).
     canvasFace: async () => (await import('../components/Vibimage/ImageCanvasFace.js')).ImageCanvasFace,
+    faceShowsRef: true,
     refKey: 'imageId',
+    agentBrief: async () => (await import('../components/Vibimage/imageAgentBrief.js')).buildVibimageBrief,
+    taskDocument: async () => (await import('../components/Vibimage/imageTaskDocument.js')).prepareImageTaskDocument,
+    // §5.4 #36 (H) ③ · §5.1 #2-1 (F) 앱별 — 노드 아래 구슬 줄: 제안 대기(번호 · 점선 테) · 레이어(그림은 미리보기 · 글 · 도형).
+    linkedItems: async () => (await import('../components/Vibimage/imageLinkedItems.js')).readVibimageLinkedItems,
     shells: {
       main: async () => (await import('../components/Vibimage/VibimageShell.js')).VibimageShell,
     },

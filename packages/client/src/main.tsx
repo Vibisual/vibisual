@@ -13,6 +13,8 @@ import { DetachedAppWindow } from './apps/DetachedAppWindow.js';
 import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { GlobalTextFieldContextMenu } from './components/Layout/GlobalTextFieldContextMenu.js';
 import { ExternalOpenNotice } from './components/Layout/ExternalOpenNotice.js';
+import { AppDialogHost } from './components/Layout/AppDialogHost.js';
+import { installAppDialogKeyboardGuard } from './utils/appDialog.js';
 import { installRendererDiagnostics } from './utils/diagnostics.js';
 import { installPersistFlushBridge } from './utils/persistFlush.js';
 import { installTitlebarPressCatch } from './utils/titlebarPress.js';
@@ -33,6 +35,7 @@ installRendererDiagnostics();
 // 가리지 않으므로 부팅 지점에 둔다. 권위는 서버 저장값이고, 이 캐시는 아래 AppThemeHost 가 늘 갱신한다.
 bootAppTheme();
 installInputCompositionGuard(window);
+installAppDialogKeyboardGuard(window);
 
 // §3.2.1 — 종료 직전 main 의 "지금 초안을 밀어라"를 받는 창구.
 //
@@ -103,6 +106,7 @@ createRoot(rootElement).render(
       {/* §4 앱 테마 — 고른 테마를 이 창의 `<html>` 에 싣는다. 별창·오버레이·지휘통제실·내부 앱 창도
           같은 테마를 칠해야 하므로 InspectorOverlay 와 같은 이유로 **부팅 지점에서 한 번만** 마운트한다. */}
       <AppThemeHost />
+      <AppDialogHost />
       <InspectorOverlay />
       {/* 입력칸 우클릭 메뉴(잘라내기·복사·붙여넣기·전체 선택) — Electron 에는 브라우저 기본 메뉴가
           없어 직접 메뉴를 그려 둔 세 자리(IDE 입력창·편집창·터미널) 말고는 우클릭이 통째로 무반응이었다.

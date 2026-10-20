@@ -240,15 +240,20 @@ export function useBookmarks({ onToast, messages }: Params): void {
         store.openIDEOverlay(bm.agentId, { focus: { sessionId } });
       }
     } else {
-      store.setActiveProject(bm.projectName);
       // 버블 북마크는 캔버스의 버블을 보여주는 용도 — 직전 세션 점프로 열린 IDE 오버레이가
-      // 남아 캔버스를 가리지 않도록, 그 프로젝트의 IDE 창을 닫는다.
-      store.closeIDEOverlay();
-      if (!decision.stub) {
-        if (bm.folderId) store.enterFolderDeep(bm.folderId);
-        store.focusOnNode(bm.nodeId);
-        store.selectNode(bm.nodeId);
-      }
+      // 남아 캔버스를 가리지 않도록, 그 프로젝트의 IDE 창을 닫는다. 버리기를 취소하면 이동도 안 한다.
+      const target = selectIDEOverlay({ ...store, activeProject: bm.projectName });
+      store.closeIDEOverlay(target.paneKey || bm.projectName, { beforeClose: () => {
+        const current = useGraphStore.getState();
+        current.setActiveProject(bm.projectName);
+        if (!decision.stub) {
+          if (bm.folderId) current.enterFolderDeep(bm.folderId);
+          current.focusOnNode(bm.nodeId);
+          current.selectNode(bm.nodeId);
+        }
+        onToast(messages.jumped(bm.label), 'success');
+      } });
+      return;
     }
     onToast(messages.jumped(bm.label), 'success');
   }

@@ -116,7 +116,7 @@ export function EngineChooserGate(): React.JSX.Element | null {
       <div className="fixed inset-0 bg-black/75 backdrop-blur-[2px]" style={{ zIndex: Z - 1 }} />
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: Z }}>
         <div
-          className="pointer-events-auto flex max-h-[92vh] w-[720px] max-w-[95vw] flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
+          className="pointer-events-auto flex max-h-[92dvh] w-[720px] max-w-[95vw] flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
           style={{ boxShadow: '0 0 0 1px rgba(148,163,184,0.15), 0 25px 50px -12px rgba(0,0,0,0.9)' }}
         >
           <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">

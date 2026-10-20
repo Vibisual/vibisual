@@ -287,8 +287,9 @@ function LocalModelSetup(): React.JSX.Element | null {
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
       {...backdrop}
     >
+      {/* §4 v3.16 — 폰에서는 옵션 창과 같은 전체 시트다(680px 상자가 360px 화면 양옆으로 잘려 나갔다). */}
       <div
-        className="flex max-h-[82vh] w-[680px] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60"
+        className="flex max-h-[82vh] w-[680px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60 max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0"
       >
         {/* 헤더 — 어떤 버블을 준비하는 중인지 이름으로 말한다. */}
         <div className="flex items-center gap-2.5 border-b border-gray-800 px-4 py-3">
@@ -309,7 +310,7 @@ function LocalModelSetup(): React.JSX.Element | null {
           <button
             type="button"
             onClick={close}
-            className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            className="shrink-0 rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2"
             aria-label={t('common.close', { defaultValue: '닫기' })}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -379,7 +380,7 @@ function LocalModelSetup(): React.JSX.Element | null {
           ) : (
             /* ── 엔진 준비됨 — 모델을 고른다 ── */
             <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                 <span>{t('localModel.engineReady', { defaultValue: '엔진 준비됨' })}</span>
                 {engine?.build && <span className="text-gray-600">{engine.build}</span>}
                 {engine?.backends.length ? <span className="text-gray-600">{engine.backends.join(' · ')}</span> : null}
@@ -388,7 +389,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                   type="button"
                   disabled={busy}
                   onClick={() => void uninstallEngine()}
-                  className="rounded px-2 py-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-40"
+                  className="whitespace-nowrap rounded px-2 py-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-40 pointer-coarse:py-2"
                 >
                   {t('localModel.uninstall', { defaultValue: '엔진 삭제' })}
                 </button>
@@ -424,7 +425,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                         setContextDraft(String(clamped));
                         setLocalContextSize(target.agentId, clamped);
                       }}
-                      className="rounded bg-gray-800 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-700 disabled:opacity-40"
+                      className="whitespace-nowrap rounded bg-gray-800 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-700 disabled:opacity-40 pointer-coarse:py-2"
                     >
                       {t('localModel.contextApply', { defaultValue: '적용' })}
                     </button>
@@ -466,8 +467,10 @@ function LocalModelSetup(): React.JSX.Element | null {
                   const missing = m.missingParts?.length ?? 0;
                   const blocked = !isLocalModelReady(m) || binding || busy;
                   return (
-                  <div key={m.id} className="flex items-center gap-2 rounded border border-gray-800 bg-gray-950/40 px-3 py-2">
-                    <div className="flex min-w-0 flex-1 flex-col">
+                  // 폰 폭에서는 이름 칸이 [잘 돌아감]·[이 모델로 시작]·[삭제] 사이에 0~60px 만 받았다 —
+                  //   그때는 이름·설명이 한 줄을 다 쓰고 손잡이는 아랫줄로 내려간다.
+                  <div key={m.id} className="flex items-center gap-2 rounded border border-gray-800 bg-gray-950/40 px-3 py-2 max-md:flex-wrap">
+                    <div className="flex min-w-0 flex-1 flex-col max-md:basis-full">
                       <span className="truncate text-sm text-gray-200">{m.name}</span>
                       <span className="truncate text-xs text-gray-600">
                         {[
@@ -511,7 +514,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                       type="button"
                       disabled={blocked}
                       onClick={() => { setPendingDownload(null); void pick(m.id, m.name); }}
-                      className="shrink-0 rounded bg-violet-600/90 px-2.5 py-1 text-xs text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="shrink-0 whitespace-nowrap rounded bg-violet-600/90 px-2.5 py-1 text-xs text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:py-2"
                     >
                       {t('localModel.useModelStart', { defaultValue: '이 모델로 시작' })}
                     </button>
@@ -519,7 +522,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                       type="button"
                       disabled={busy || binding}
                       onClick={() => void deleteModel(m.id)}
-                      className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-40"
+                      className="shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-40 pointer-coarse:py-2"
                     >
                       {t('localModel.deleteModel', { defaultValue: '삭제' })}
                     </button>
@@ -545,7 +548,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                             if (d.downloadId === pendingDownload?.downloadId) setPendingDownload(null);
                             void cancelDownload(d.downloadId);
                           }}
-                          className="shrink-0 rounded px-1.5 py-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+                          className="shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:px-2.5 pointer-coarse:py-2"
                         >
                           {t('localModel.cancel', { defaultValue: '중단' })}
                         </button>
@@ -615,7 +618,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                         setSort(by);
                         void runSearch(query, by);
                       }}
-                      className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                      className={`whitespace-nowrap rounded px-2 py-0.5 text-xs transition-colors pointer-coarse:py-2 ${
                         sort === by ? 'bg-violet-600/80 text-white' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
                       }`}
                     >
@@ -626,7 +629,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                   <button
                     type="button"
                     onClick={() => setRunnableOnly((v) => !v)}
-                    className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
+                    className={`flex items-center gap-1 whitespace-nowrap rounded px-2 py-0.5 text-xs transition-colors pointer-coarse:py-2 ${
                       runnableOnly ? 'bg-emerald-600/80 text-white' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
                     }`}
                   >
@@ -644,7 +647,9 @@ function LocalModelSetup(): React.JSX.Element | null {
                     <button
                       type="button"
                       onClick={() => void openFiles(r.repo)}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-800/50"
+                      // 폰 폭에서는 내려받기·좋아요·날짜가 저장소 이름을 14px 로 눌렀다 — 그때는 이름이 첫 줄을
+                      //   쓰고(펼침 화살표와 함께) 숫자들은 아랫줄로 간다.
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-800/50 max-md:flex-wrap"
                     >
                       <svg
                         className={`h-3.5 w-3.5 shrink-0 text-gray-600 transition-transform ${openRepo === r.repo ? 'rotate-90' : ''}`}
@@ -652,7 +657,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                       >
                         <path d="m9 18 6-6-6-6" />
                       </svg>
-                      <span className="min-w-0 flex-1 truncate text-sm text-gray-300">{r.repo}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-300 max-md:basis-[calc(100%-1.375rem)]">{r.repo}</span>
                       {/* 이 저장소가 스스로 말하는 것들 — 우리가 매긴 점수는 하나도 없다. */}
                       {repoStat('downloads', r.downloads)}
                       {repoStat('likes', r.likes)}
@@ -690,8 +695,9 @@ function LocalModelSetup(): React.JSX.Element | null {
                           </span>
                         )}
                         {listedFiles.map((f) => (
-                          <div key={f.id} className="flex items-center gap-2 px-1.5 py-1">
-                            <span className="min-w-0 flex-1 truncate text-xs text-gray-400">{f.file}</span>
+                          // 폰 폭에서는 파일 이름이 한 줄을 다 쓰고 양자화·크기·[받기]는 아랫줄로 간다.
+                          <div key={f.id} className="flex items-center gap-2 px-1.5 py-1 max-md:flex-wrap">
+                            <span className="min-w-0 flex-1 truncate text-xs text-gray-400 max-md:basis-full">{f.file}</span>
                             {f.partFiles && f.partFiles.length > 1 && (
                               <span className="shrink-0 text-xs text-gray-600">
                                 {t('localModel.partCount', { defaultValue: '{{count}}조각', count: f.partFiles.length })}
@@ -713,7 +719,7 @@ function LocalModelSetup(): React.JSX.Element | null {
                               type="button"
                               disabled={busy || binding || f.archVerdict === 'broken' || downloads.some((d) => d.modelId === f.id && (d.status === 'starting' || d.status === 'downloading'))}
                               onClick={() => void startDownload(f)}
-                              className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="shrink-0 whitespace-nowrap rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:py-2"
                             >
                               {t('localModel.download', { defaultValue: '받기' })}
                             </button>

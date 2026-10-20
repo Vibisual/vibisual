@@ -6,7 +6,9 @@ import { useDetachedFollowRelease } from './hooks/useDetachedFollowRelease.js';
 import { useCommandCenterReveal } from './hooks/useCommandCenterReveal.js';
 import { useMobileBackAsEscape } from './hooks/useMobileBackAsEscape.js';
 import { useLowPowerMode } from './hooks/useIsMobile.js';
+import { useProjectImmersion } from './hooks/useProjectImmersion.js';
 import { Header } from './components/Layout/Header.js';
+import { ImmersiveExitControl } from './components/Layout/ImmersiveExitControl.js';
 import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
 import { CanvasLoadingHint } from './components/BubbleMap/CanvasLoadingHint.js';
@@ -34,6 +36,7 @@ import { useWebSocket } from './hooks/useWebSocket.js';
 import { useCodexModelsAutoRefresh } from './hooks/useCodexModelsAutoRefresh.js';
 import { useGraphStore } from './stores/graphStore.js';
 import { useIDEDockLayout } from './components/IDE/useIDEDockLayout.js';
+import { installMainWindowReadySignal } from './utils/mainWindowReady.js';
 import { WS_PATH } from '@vibisual/shared';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${WS_PATH}`;
@@ -67,6 +70,9 @@ export function App(): React.JSX.Element {
   useCommandCenterReveal();
   // §4 v3.16 — 모바일 웹 브라우저의 back 버튼을 ESC(오버레이·팝업 닫기)처럼 동작시켜 앱 이탈 방지.
   useMobileBackAsEscape();
+  // §3.7 · §9 「시작 화면(스플래시)」 — 앱을 켤 때 이 창은 숨긴 채 그린다. 지금 보는 탭의 첫 화면을 다 그리고 조용해지면
+  //   main 에 알린다 — 그때 스플래시가 걷히고 이 창이 보인다(메인 윈도우 한정 · 웹 모드에선 아무것도 하지 않는다).
+  useEffect(() => installMainWindowReadySignal(), []);
   // §4 v3.39 — 모바일/터치·'동작 줄이기'면 저전력 클래스를 root 에 걸어 상시 GPU 부하(애니메이션
   // 엣지·pulse/ping·backdrop-blur)를 index.css 에서 끈다(폰 발열 억제). 데스크톱엔 미적용.
   const lowPower = useLowPowerMode();
@@ -96,6 +102,7 @@ export function App(): React.JSX.Element {
     : undefined;
 
   const activeIsStub = activeProject !== null && !!stubProjects[activeProject];
+  const immersive = useProjectImmersion(activeIframeTab || activeIsStub ? null : activeProject);
 
   // §5.5 #17-1 — 활성 탭의 IDE 창들이 붙어 있는 **네 변**만큼 메인 캔버스를 축소(오버랩 X, 나란히).
   // IframeView 가 떠있으면 BubbleMap 이 언마운트되어 IDE 도 안 보이므로 축소 불필요.
@@ -104,7 +111,7 @@ export function App(): React.JSX.Element {
   //   슬롯의 에이전트가 스냅샷에서 사라지면 AgentIDEOverlay 는 null 을 반환하는데, 종전 판정은 그때도
   //   도크 폭만큼 캔버스를 잘라 "IDE 없는 빈 칸"이 화면을 가렸다(북마크 숫자키 점프 뒤 사용자 보고).
   const { insets: dockInsets } = useIDEDockLayout();
-  const shrinkForDock = !activeIframeTab
+  const shrinkForDock = !immersive && !activeIframeTab
     && (dockInsets.left > 0 || dockInsets.right > 0 || dockInsets.top > 0 || dockInsets.bottom > 0);
 
   // 도크 폭은 여기 `main` 의 marginRight 로만 반영한다 — 전역 `fixed inset-0` 모달/팝업까지 도크를
@@ -118,8 +125,10 @@ export function App(): React.JSX.Element {
     // §4 v3.16 — h-dvh: 모바일 브라우저의 동적 URL 바가 하단(입력창·상태바)을 가리지 않게
     // dynamic viewport height 사용. 데스크톱(Electron)에선 100vh 와 동일.
     <div className="flex h-dvh w-screen flex-col bg-gray-950">
+      <ImmersiveExitControl />
       {/* §4 (첫 실행 설치 온보딩) — 게이트를 [나중에]로 닫았을 때 남는 배너. 헤더보다 위에 둬야
           "에이전트를 아직 못 돌린다"는 사실이 화면 맨 처음에 읽힌다. */}
+      <div className={immersive ? 'hidden' : 'contents'}>
       <ClaudeSetupBanner />
       {/* §5.25 (D) — 코덱스 설치 배너. **코덱스를 고른 사람에게만** 뜬다(다른 엔진을 쓰는 사람의
           화면 위에 늘 떠 있으면 그건 안내가 아니라 광고다). */}
@@ -128,10 +137,13 @@ export function App(): React.JSX.Element {
           둘이 동시에 뜨지 않는다. */}
       <ProjectFolderBanner />
       <Header connectionStatus={status} agentPhase={agentPhase} />
+      </div>
       <div className="relative flex flex-1 overflow-hidden">
         {/* DebugPanel — 평소엔 숨김, `~`/` 키로 debugMode 토글 시에만 마운트(꺼지면 비용 0).
             켜져 있을 때의 잦은 리렌더는 DebugPanel 내부 React.memo + 안정 onClose 로 완화. */}
-        {debugMode && <DebugPanel onClose={closeDebug} />}
+        <div className={immersive ? 'hidden' : 'contents'}>
+          {debugMode && <DebugPanel onClose={closeDebug} />}
+        </div>
         {/* ⚠ `min-w-0` 은 장식이 아니다 — 없으면 이 칸이 **자기 안에서 가장 넓은 것만큼** 넓어진다
             (가로 flex 의 `min-width:auto` = 콘텐츠 최소폭). 프리뷰 탭의 폭 프리셋을 데스크톱(1280px)이나
             비교(390+820+1280)로 바꾸면 이 칸이 그 폭까지 부풀고, 바로 위 `overflow-hidden` 이 넘친 부분을
@@ -165,6 +177,7 @@ export function App(): React.JSX.Element {
             </>
           )}
         </main>
+        <div className={immersive ? 'hidden' : 'contents'}>
         {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || selectedAppBubbleId !== null ) && !activeIframeTab && (
           <DetailPanel
             onClose={() => {
@@ -177,6 +190,7 @@ export function App(): React.JSX.Element {
             }}
           />
         )}
+        </div>
       </div>
       {/* §5.10 — 사용법 가이드. 여는 문이 여럿(File 메뉴 · 메모리 라이브러리 [사용법])이라
           창은 여기서 전역 1회만 마운트하고 열림 여부는 스토어가 들고 있다. */}

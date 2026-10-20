@@ -104,7 +104,7 @@ function WebFoldHostRow({
           onClick={handlePin}
           title={t('panel.webFold.pinDomain')}
           aria-label={t('panel.webFold.pinDomain')}
-          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-amber-400"
+          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-amber-400 pointer-coarse:h-9 pointer-coarse:w-9"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 17v5" />

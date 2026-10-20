@@ -199,15 +199,16 @@ export function ChatChannelSection({ kind, state, onState }: ChatChannelSectionP
         {/* ② 토큰 */}
         <StepBlock index={2} label={t('panel.remoteControl.step2')} done={channel?.hasToken === true}>
           {channel?.hasToken ? (
-            <div className="flex items-center justify-between rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
-              <span className="text-[12px] text-emerald-300">
+            // 봇 이름은 띄어쓰기 없는 한 덩어리일 수 있다 — 줄을 바꿔 [지우기]를 밀어내지 않게 한다.
+            <div className="flex items-center justify-between gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
+              <span className="min-w-0 break-all text-[12px] text-emerald-300">
                 {t('panel.remoteControl.tokenSaved', { name: channel.botName ?? verifiedName ?? '—' })}
               </span>
               <button
                 type="button"
                 onClick={() => void handleClearToken()}
                 disabled={busy}
-                className="rounded-md px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                className="shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:py-2"
               >
                 {t('panel.remoteControl.clearToken')}
               </button>
@@ -283,7 +284,8 @@ export function ChatChannelSection({ kind, state, onState }: ChatChannelSectionP
 
               {ticket && (
                 <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/30 p-3">
-                  <div className="flex items-start gap-3">
+                  {/* 폰 폭에서는 QR(약 208px) 옆에 50px 남짓밖에 안 남아 주소가 여섯 자씩 꺾였다 — 아래로 쌓는다. */}
+                  <div className="flex items-start gap-3 max-md:flex-col">
                     <canvas ref={qrCanvasRef} className="shrink-0 rounded bg-white" />
                     <div className="min-w-0 flex-1">
                       <div className="text-[12px] uppercase tracking-wide text-gray-500">
@@ -369,7 +371,7 @@ export function ChatChannelSection({ kind, state, onState }: ChatChannelSectionP
                     <button
                       type="button"
                       onClick={() => void handleUnpair(p.kind, p.chatId)}
-                      className="shrink-0 rounded-md px-2 py-1 text-[12px] text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-red-300"
+                      className="shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[12px] text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-red-300 pointer-coarse:py-2"
                     >
                       {t('panel.remoteControl.unpair')}
                     </button>

@@ -85,7 +85,8 @@ function TotalsCard({
           </span>
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      {/* 폰 폭에서는 네 칸이 한 칸 70px 남짓이라 숫자가 잘린다 — 두 줄 두 칸으로 접는다. */}
+      <div className="grid grid-cols-4 gap-2 max-md:grid-cols-2">
         <TokenCell label={t('panel.cost.inputTokens')} value={totals.inputTokens} />
         <TokenCell label={t('panel.cost.outputTokens')} value={totals.outputTokens} />
         <TokenCell label={t('panel.cost.cacheReadTokens')} value={totals.cacheReadTokens} />
@@ -126,14 +127,16 @@ function CostRow({
       <span className="min-w-0 flex-1 text-xs text-gray-200">
         <span className="block truncate" title={name}>{name}</span>
         {provider && <span className="block text-[12px] text-gray-500">{provider === 'codex' ? 'Codex' : 'Claude'}</span>}
+        {/* 폰 폭에서는 모델 칸(96px)을 접어 이름 아래 한 줄로 옮긴다 — 고정 칸 넷이 이름 칸을 0 으로 밀어냈다. */}
+        {model && <span className="hidden truncate text-[12px] text-gray-500 max-md:block" title={model}>{model}</span>}
       </span>
-      <span title={model} className="w-24 flex-shrink-0 truncate text-right text-[12px] text-gray-500">{model ?? '—'}</span>
+      <span title={model} className="w-24 flex-shrink-0 truncate text-right text-[12px] text-gray-500 max-md:hidden">{model ?? '—'}</span>
       <span className="w-16 flex-shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-400">
         {measured ? formatTokenCount(tokens) : '—'}
       </span>
       {/* 표식은 금액 **칸 안**에 함께 앉힌다 — 바깥에 칸을 하나 더 만들면 표식이 없는 줄에도
           그 폭이 늘 비어 있어 이름 칸을 영구히 갉아먹는다. */}
-      <span className="flex w-28 flex-shrink-0 items-center justify-end gap-1">
+      <span className="flex w-28 flex-shrink-0 items-center justify-end gap-1 max-md:w-24">
         {measured && estimated && <EstimatedMark models={unseededModels} />}
         <span className={`font-mono text-xs font-semibold tabular-nums ${tone}`}>
           {measured ? formatCostUsd(costUsd) : t('panel.cost.notMeasured')}
@@ -162,9 +165,9 @@ function TableHead(): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 border-b border-gray-700/70 px-3 py-1 text-[12px] font-semibold text-gray-500">
       <span className="min-w-0 flex-1">{t('panel.cost.colName')}</span>
-      <span className="w-24 flex-shrink-0 text-right">{t('panel.cost.colModel')}</span>
+      <span className="w-24 flex-shrink-0 text-right max-md:hidden">{t('panel.cost.colModel')}</span>
       <span className="w-16 flex-shrink-0 text-right">{t('panel.cost.colTokens')}</span>
-      <span className="w-28 flex-shrink-0 text-right">{t('panel.cost.colCost')}</span>
+      <span className="w-28 flex-shrink-0 text-right max-md:w-24">{t('panel.cost.colCost')}</span>
     </div>
   );
 }
@@ -213,7 +216,7 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -229,7 +232,7 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
             onClick={onClose}
             title={t('panel.cost.close')}
             aria-label={t('panel.cost.close')}
-            className="rounded p-1 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+            className="rounded p-1 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200 pointer-coarse:p-2"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6 6 18" />
@@ -239,13 +242,13 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
         </div>
 
         {/* 기간 탭 — 고른 기간이 아래 전부를 지배한다. */}
-        <div className="flex gap-1 border-b border-gray-700 px-4 py-2">
+        <div className="flex flex-wrap gap-1 border-b border-gray-700 px-4 py-2">
           {COST_PERIODS.map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => setPeriod(p)}
-              className={`rounded px-2 py-1 text-[12px] font-semibold transition-colors ${
+              className={`rounded px-2 py-1 text-[12px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-3 ${
                 p === period
                   ? 'bg-emerald-500/20 text-emerald-300'
                   : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'

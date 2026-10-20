@@ -210,8 +210,10 @@ export function LabPanel(): React.JSX.Element | null {
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
-      {/* 헤더 — 제목 인라인 편집 + 상태 + 전부 실행 + 닫기 */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3">
+      {/* 헤더 — 제목 인라인 편집 + 상태 + 전부 실행 + 닫기.
+          폰 폭에서는 상태·실행 묶음을 둘째 줄로 내린다 — 한 줄로 두면 제목 칸이 30px 남짓으로 짓눌렸다.
+          첫 줄(배지·제목·닫기)은 그대로라 닫기가 늘 같은 자리에 있다. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-800 px-4 py-3 max-md:gap-2 max-md:px-3">
         <span className="rounded bg-orange-900/60 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-orange-200">
           {t('canvas.lab.title', { defaultValue: '랩' })}
         </span>
@@ -223,35 +225,37 @@ export function LabPanel(): React.JSX.Element | null {
           placeholder={t('canvas.lab.untitled', { defaultValue: '제목 없는 랩' })}
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-lg font-semibold text-gray-100 outline-none transition-colors hover:border-gray-700 focus:border-orange-600"
         />
-        <span className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-400">
-          {isRunning
-            ? t('canvas.lab.progressRunning', {
-              done: counts.finished,
-              total: counts.total,
-              defaultValue: '실행 중 {{done}}/{{total}}',
-            })
-            : t('canvas.lab.progressIdle', {
-              done: counts.finished,
-              total: counts.total,
-              defaultValue: '완료 {{done}}/{{total}}',
-            })}
-        </span>
-        <button
-          type="button"
-          onClick={startAll}
-          disabled={busy || counts.total === 0 || run.task.trim() === ''}
-          title={run.task.trim() === ''
-            ? t('canvas.lab.startNoTaskHint', { defaultValue: '먼저 과제를 적으세요' })
-            : undefined}
-          className="flex shrink-0 items-center gap-1.5 rounded bg-orange-600 px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-orange-500 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-500"
-        >
-          <PlayGlyph />
-          {t('canvas.lab.startAll', { defaultValue: '전부 실행' })}
-        </button>
+        <div className="flex shrink-0 items-center gap-3 max-md:order-last max-md:w-full max-md:gap-2">
+          <span className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-400">
+            {isRunning
+              ? t('canvas.lab.progressRunning', {
+                done: counts.finished,
+                total: counts.total,
+                defaultValue: '실행 중 {{done}}/{{total}}',
+              })
+              : t('canvas.lab.progressIdle', {
+                done: counts.finished,
+                total: counts.total,
+                defaultValue: '완료 {{done}}/{{total}}',
+              })}
+          </span>
+          <button
+            type="button"
+            onClick={startAll}
+            disabled={busy || counts.total === 0 || run.task.trim() === ''}
+            title={run.task.trim() === ''
+              ? t('canvas.lab.startNoTaskHint', { defaultValue: '먼저 과제를 적으세요' })
+              : undefined}
+            className="flex shrink-0 items-center gap-1.5 rounded bg-orange-600 px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-orange-500 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-500"
+          >
+            <PlayGlyph />
+            {t('canvas.lab.startAll', { defaultValue: '전부 실행' })}
+          </button>
+        </div>
         <button
           type="button"
           onClick={close}
-          className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2.5"
           aria-label={t('common.close', { defaultValue: '닫기' })}
         >
           <CloseGlyph />
@@ -260,21 +264,22 @@ export function LabPanel(): React.JSX.Element | null {
 
       <div className="flex min-h-0 flex-1 flex-col">
         {/* 과제 — 모든 변형에 똑같이 나가는 문장. 도는 중에는 잠긴다. */}
-        <div className="shrink-0 px-4 pt-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="shrink-0 px-4 pt-3 max-md:px-3">
+          {/* 좁으면 [기준 설정] 선택기가 다음 줄로 내려간다 — 긴 선택지 이름이 줄 밖으로 밀어내지 않게 줄어들 수도 있다. */}
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
             <span>{t('canvas.lab.taskLabel', { defaultValue: '과제 (모든 변형에 같은 문장)' })}</span>
             {isRunning ? (
               <span className="normal-case text-amber-300">
                 {t('canvas.lab.taskLocked', { defaultValue: '실행 중에는 과제를 바꿀 수 없습니다' })}
               </span>
             ) : null}
-            <span className="ml-auto flex items-center gap-1.5 normal-case text-gray-400">
-              {t('canvas.lab.baseAgentLabel', { defaultValue: '기준 설정' })}
+            <span className="ml-auto flex min-w-0 max-w-full items-center gap-1.5 normal-case text-gray-400">
+              <span className="shrink-0">{t('canvas.lab.baseAgentLabel', { defaultValue: '기준 설정' })}</span>
               <select
                 value={run.baseAgentId ?? ''}
                 onChange={(e) => { void updateLabRun(run.id, { baseAgentId: e.target.value }); }}
                 title={t('canvas.lab.baseAgentHint', { defaultValue: '변형이 물려받을 설정, 그리고 승격이 저장될 대상 에이전트입니다.' })}
-                className="rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[13px] text-gray-200 outline-none focus:border-orange-700"
+                className="min-w-0 max-w-full rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[13px] text-gray-200 outline-none focus:border-orange-700"
               >
                 <option value="">{t('canvas.lab.baseAgentNone', { defaultValue: '(고르지 않음 — 새 카드 기본 설정)' })}</option>
                 {baseAgentOptions.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
@@ -356,7 +361,7 @@ export function LabPanel(): React.JSX.Element | null {
                           type="button"
                           onClick={() => startOne(v.id)}
                           disabled={busy || r?.status === 'running' || run.task.trim() === ''}
-                          className="rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-600"
+                          className="rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-600 pointer-coarse:min-h-8"
                         >
                           {r ? t('canvas.lab.rerun', { defaultValue: '다시 실행' }) : t('canvas.lab.runOne', { defaultValue: '실행' })}
                         </button>
@@ -367,7 +372,7 @@ export function LabPanel(): React.JSX.Element | null {
                           title={r?.status !== 'success'
                             ? t('canvas.lab.promoteHint', { defaultValue: '성공한 변형만 승격할 수 있습니다' })
                             : undefined}
-                          className="rounded bg-orange-900/60 px-2 py-1 text-[12px] font-semibold text-orange-200 transition-colors hover:bg-orange-800/60 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600"
+                          className="rounded bg-orange-900/60 px-2 py-1 text-[12px] font-semibold text-orange-200 transition-colors hover:bg-orange-800/60 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600 pointer-coarse:min-h-8"
                         >
                           {t('canvas.lab.promote', { defaultValue: '기본값으로 승격' })}
                         </button>
@@ -375,7 +380,7 @@ export function LabPanel(): React.JSX.Element | null {
                           <button
                             type="button"
                             onClick={() => { if (v.agentId) selectNode(v.agentId); close(); }}
-                            className="rounded px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                            className="rounded px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:min-h-8"
                           >
                             {t('canvas.lab.openCard', { defaultValue: '카드 보기' })}
                           </button>
@@ -401,7 +406,7 @@ export function LabPanel(): React.JSX.Element | null {
               type="button"
               onClick={() => { void addLabVariant(run.id); }}
               disabled={run.variants.length >= LAB_MAX_VARIANTS}
-              className="ml-auto rounded bg-gray-800 px-2 py-1 text-[12px] normal-case text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-600"
+              className="ml-auto rounded bg-gray-800 px-2 py-1 text-[12px] normal-case text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-600 pointer-coarse:min-h-8"
             >
               {t('canvas.lab.addVariant', { defaultValue: '변형 추가' })}
             </button>
@@ -445,18 +450,18 @@ export function LabPanel(): React.JSX.Element | null {
                   value={v.config.maxTurns ?? ''}
                   onChange={(e) => patchVariant(v.id, { maxTurns: e.target.value === '' ? undefined : Number(e.target.value) })}
                   placeholder={t('canvas.lab.maxTurns', { defaultValue: '최대 턴' })}
-                  className="w-24 rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[13px] text-gray-200 outline-none focus:border-orange-700"
+                  className="w-24 min-w-0 rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[13px] text-gray-200 outline-none focus:border-orange-700"
                 />
                 <input
                   value={v.config.rulesAppend ?? ''}
                   onChange={(e) => patchVariant(v.id, { rulesAppend: e.target.value.slice(0, LAB_RULES_APPEND_MAX) })}
                   placeholder={t('canvas.lab.rulesAppend', { defaultValue: '이 변형에만 붙일 덧말(선택)' })}
-                  className="min-w-[180px] flex-1 rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[13px] text-gray-200 outline-none focus:border-orange-700"
+                  className="min-w-0 grow basis-[180px] rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[13px] text-gray-200 outline-none focus:border-orange-700"
                 />
                 <button
                   type="button"
                   onClick={() => { void removeLabVariant(run.id, v.id); }}
-                  className="rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-300"
+                  className="rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-300 pointer-coarse:p-2.5"
                   aria-label={t('canvas.lab.removeVariant', { defaultValue: '변형 삭제' })}
                 >
                   <TrashGlyph />

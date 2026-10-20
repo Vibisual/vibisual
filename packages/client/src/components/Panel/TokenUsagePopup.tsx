@@ -91,7 +91,7 @@ function CurrentTurnSection({ turn }: { turn: TurnTokenUsage }): React.JSX.Eleme
 
   return (
     <div className="border-b border-gray-700 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-xs font-semibold text-gray-100">{t('panel.tokenUsage.thisPrompt')}</span>
         {turn.model && (
           <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[12px] text-blue-400">
@@ -150,7 +150,7 @@ function SessionSummarySection({ turns }: { turns: TurnTokenUsage[] }): React.JS
       </div>
 
       {/* 메타 */}
-      <div className="mb-3 flex items-center justify-center gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5">
         <span className="rounded bg-gray-600/30 px-2 py-0.5 text-[12px] text-gray-400">
           {t('panel.tokenUsage.turns', { count: turns.length })}
         </span>
@@ -383,7 +383,7 @@ export const TokenUsagePopup = memo(function TokenUsagePopup({
       {...backdrop}
     >
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex max-h-[80dvh] w-full max-w-lg flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -398,7 +398,7 @@ export const TokenUsagePopup = memo(function TokenUsagePopup({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
             aria-label={t('panel.tokenUsage.closePopup')}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

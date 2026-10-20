@@ -64,11 +64,11 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
         style={{ zIndex: Z }}
       >
         <div
-          className="pointer-events-auto flex w-[560px] max-w-[92vw] flex-col rounded-lg border-2 border-amber-500/70 bg-gray-900 shadow-2xl"
+          className="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-[560px] max-w-[92vw] flex-col rounded-lg border-2 border-amber-500/70 bg-gray-900 shadow-2xl"
           style={{ boxShadow: '0 0 0 1px rgba(245,158,11,0.25), 0 25px 50px -12px rgba(0,0,0,0.8), 0 0 32px -4px rgba(245,158,11,0.35)' }}
         >
           {/* Header */}
-          <div className="flex items-center gap-2 border-b border-gray-700 px-4 py-3">
+          <div className="flex shrink-0 items-center gap-2 border-b border-gray-700 px-4 py-3">
             <svg viewBox="0 0 24 24" className="h-5 w-5 text-amber-400" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2v4" />
               <path d="M12 18v4" />
@@ -87,8 +87,8 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
             </span>
           </div>
 
-          {/* Body — version diff */}
-          <div className="flex flex-col gap-3 px-4 py-3">
+          {/* Body — version diff. 낮은 화면에서는 본문만 구르고 머리·바닥 단추는 남는다. */}
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-4 py-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1 rounded border border-gray-800 bg-gray-950/70 px-3 py-2">
                 <span className="text-[12px] uppercase tracking-wider text-gray-500">
@@ -106,7 +106,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
 
             <div className="text-[12px] text-gray-400">
               {t('panel.claudeVersionGate.binPath', { defaultValue: 'Binary' })}:{' '}
-              <span className="font-mono text-gray-500">{info.binPath}</span>
+              <span className="break-all font-mono text-gray-500">{info.binPath}</span>
             </div>
 
             {info.source === 'vscode-extension' && (
@@ -176,22 +176,22 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
             )}
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
+          {/* Footer — 좁으면 줄을 바꾼다(세 단추가 한 줄이면 폰 폭을 넘는다). */}
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
             <button
               type="button"
               onClick={dismiss}
               disabled={installing}
-              className="rounded px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-9"
             >
               {t('panel.claudeVersionGate.skip', { defaultValue: 'Skip this session' })}
             </button>
-            <div className="flex gap-2">
+            <div className="ml-auto flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={dismiss}
                 disabled={installing}
-                className="rounded border border-gray-700 px-4 py-1.5 text-xs font-semibold text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded border border-gray-700 px-4 py-1.5 text-xs font-semibold text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-9"
               >
                 {t('panel.claudeVersionGate.keep', { defaultValue: 'Keep current' })}
               </button>
@@ -204,7 +204,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
                   type="button"
                   onClick={() => void install()}
                   disabled={installing || installDone}
-                  className="rounded bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md transition-all duration-100 ease-out hover:bg-amber-500 hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500 disabled:shadow-none"
+                  className="rounded bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md transition-all duration-100 ease-out hover:bg-amber-500 hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500 disabled:shadow-none pointer-coarse:min-h-9"
                 >
                   {installing
                     ? t('panel.claudeVersionGate.updating', { defaultValue: 'Updating…' })
@@ -216,7 +216,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={dismiss}
-                  className="rounded bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white no-underline shadow-md transition-all duration-100 ease-out hover:bg-amber-500 hover:shadow-lg active:scale-95"
+                  className="rounded bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white no-underline shadow-md transition-all duration-100 ease-out hover:bg-amber-500 hover:shadow-lg active:scale-95 pointer-coarse:flex pointer-coarse:min-h-9 pointer-coarse:items-center"
                 >
                   {t('panel.claudeVersionGate.openMarketplace', { defaultValue: 'Open VS Code Marketplace' })}
                 </a>

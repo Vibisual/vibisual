@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { confirmDialog } from '../../utils/appDialog.js';
 import { sessionStopUrl } from '../../hooks/useSessionStop.js';
 import { CommandCenterCard } from './CommandCenterCard.js';
 import { CommandCenterDetail, type CommandCenterDetailHandle } from './CommandCenterDetail.js';
@@ -100,6 +101,14 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
   const detailRef = useRef<CommandCenterDetailHandle | null>(null);
   /** §5.12 (I) 레인 정착 기억 — 창이 열려 있는 동안만 산다(서버·체크포인트 무관). */
   const laneMemoryRef = useRef<LaneMemory>(new Map());
+  const bulkActionPending = useRef(false);
+  const boardScope = useMemo(() => ({ projectId }), [projectId]);
+  const boardScopeRef = useRef<typeof boardScope | null>(boardScope);
+  boardScopeRef.current = boardScope;
+  useEffect(() => {
+    boardScopeRef.current = boardScope;
+    return () => { boardScopeRef.current = null; };
+  }, [boardScope]);
 
   const agents = useGraphStore((s) => s.agents);
   const agentProjects = useGraphStore((s) => s.agentProjects);
@@ -313,37 +322,57 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
   }, [settings.collapsedLanes, update]);
 
   // ── 일괄 정리(§5.12 (E)) — 전부 기존 엔드포인트 ──────────────────────────
-  const handleBulkCloseDone = useCallback((): void => {
-    const byAgent = new Map<string, string[]>();
-    for (const item of allItems) {
-      if (item.lane !== 'done' || !item.subAgentId || item.unacknowledged) continue;
-      const list = byAgent.get(item.agentId) ?? [];
-      list.push(item.subAgentId);
-      byAgent.set(item.agentId, list);
+  const handleBulkCloseDone = useCallback(async (): Promise<void> => {
+    if (bulkActionPending.current) return;
+    const targets = allItems.filter((item) => item.lane === 'done' && item.subAgentId && !item.unacknowledged);
+    if (targets.length === 0) return;
+    bulkActionPending.current = true;
+    try {
+      if (!await confirmDialog(t('commandCenter.confirmCloseDone', { count: targets.length }), { tone: 'danger' })) return;
+      if (boardScopeRef.current !== boardScope) return;
+      const store = useGraphStore.getState();
+      // 확인을 기다리는 사이 다시 일을 시작했거나 답이 필요한 세션은 닫지 않는다.
+      const current = buildCommandCenterItems({ ...store, projectId, includeHistoryText: false });
+      const closable = new Set(current.filter((item) => item.lane === 'done' && !item.unacknowledged).map((item) => item.key));
+      const byAgent = new Map<string, string[]>();
+      for (const item of targets) {
+        if (!item.subAgentId || !closable.has(item.key)) continue;
+        const list = byAgent.get(item.agentId) ?? [];
+        list.push(item.subAgentId);
+        byAgent.set(item.agentId, list);
+      }
+      for (const [agentId, ids] of byAgent) {
+        for (const id of ids) store.optimisticRemoveSubAgent(agentId, id);
+        void fetch(`/api/subagents/${agentId}/remove-bulk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        }).catch(() => {});
+      }
+    } finally {
+      bulkActionPending.current = false;
     }
-    const total = [...byAgent.values()].reduce((n, l) => n + l.length, 0);
-    if (total === 0) return;
-    if (!window.confirm(t('commandCenter.confirmCloseDone', { count: total }))) return;
-    const store = useGraphStore.getState();
-    for (const [agentId, ids] of byAgent) {
-      for (const id of ids) store.optimisticRemoveSubAgent(agentId, id);
-      void fetch(`/api/subagents/${agentId}/remove-bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
-      }).catch(() => {});
-    }
-  }, [allItems, t]);
+  }, [allItems, boardScope, projectId, t]);
 
-  const handleStopAll = useCallback((): void => {
+  const handleStopAll = useCallback(async (): Promise<void> => {
+    if (bulkActionPending.current) return;
     const agentIds = [...new Set(allItems.filter((i) => i.lane === 'working').map((i) => i.agentId))];
     if (agentIds.length === 0) return;
-    if (!window.confirm(t('commandCenter.confirmStopAll', { count: agentIds.length }))) return;
-    for (const agentId of agentIds) {
-      // 에이전트 단위 일괄 중지 — 경로는 카드 하나 중지와 같은 곳(`sessionStopUrl`)에서 낸다.
-      void fetch(sessionStopUrl(agentId, null), { method: 'POST' }).catch(() => {});
+    bulkActionPending.current = true;
+    try {
+      if (!await confirmDialog(t('commandCenter.confirmStopAll', { count: agentIds.length }), { tone: 'danger' })) return;
+      if (boardScopeRef.current !== boardScope) return;
+      const current = buildCommandCenterItems({ ...useGraphStore.getState(), projectId, includeHistoryText: false });
+      const working = new Set(current.filter((item) => item.lane === 'working').map((item) => item.agentId));
+      for (const agentId of agentIds) {
+        if (!working.has(agentId)) continue;
+        // 에이전트 단위 일괄 중지 — 경로는 카드 하나 중지와 같은 곳(`sessionStopUrl`)에서 낸다.
+        void fetch(sessionStopUrl(agentId, null), { method: 'POST' }).catch(() => {});
+      }
+    } finally {
+      bulkActionPending.current = false;
     }
-  }, [allItems, t]);
+  }, [allItems, boardScope, projectId, t]);
 
   const renderCard = useCallback(
     (item: CommandCenterItem): React.JSX.Element => (
@@ -366,8 +395,10 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-950">
       {/* ── 도구 막대 ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-shrink-0 items-center gap-2 border-b border-white/[0.07] px-4 py-2.5">
-        <div className="relative min-w-0 flex-1">
+      {/* 좁은 창(폰)에서는 줄을 바꾼다 — 검색칸은 8rem 아래로 눌리지 않고, 넘친 손잡이는 다음 줄 오른쪽에 선다
+          ([정리]의 `ml-auto` — 그 상자가 오른쪽 변에 맞춰 펼쳐지므로 왼쪽 끝으로 가면 화면 밖으로 나간다). */}
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-white/[0.07] px-4 py-2.5">
+        <div className="relative min-w-32 flex-1">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
@@ -412,11 +443,11 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
           </IconToggle>
         )}
 
-        <div className="relative flex-shrink-0">
+        <div className="relative ml-auto flex-shrink-0">
           <button
             type="button"
             onClick={() => setTidyOpen((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[12px] transition-colors ${
+            className={`flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1.5 text-[12px] transition-colors pointer-coarse:py-2 ${
               settings.autoTidy
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
                 : 'border-white/10 bg-black/40 text-gray-400 hover:text-gray-100'
@@ -462,7 +493,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
           />
         ))}
 
-        <span className="ml-auto flex items-center gap-3 text-[12px] text-gray-500">
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[12px] text-gray-500">
           {historySearch.pending && <span role="status">{t('commandCenter.historySearching')}</span>}
           {historySearch.failed && (
             <span role="status" className="text-amber-300">
@@ -554,7 +585,8 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
         <span className="tabular-nums">{t('commandCenter.sessionCount', { count: allItems.length })}</span>
         {/* §5.12 (I) — 지금 무슨 기준으로 줄 세웠는지 항상 보이게. 순서가 왜 이런지 묻지 않아도 되게 한다. */}
         <span className="min-w-0 truncate">{t(`commandCenter.sortRule.${settings.sort}`)}</span>
-        <span className="ml-auto flex-shrink-0">{t('commandCenter.shortcuts')}</span>
+        {/* 폰 폭에서는 단축키 안내도 … 로 줄인다 — 줄지 않으면 이 줄이 창 밖으로 잘려 나간다. */}
+        <span className="ml-auto flex-shrink-0 max-sm:min-w-0 max-sm:flex-shrink max-sm:truncate">{t('commandCenter.shortcuts')}</span>
       </div>
     </div>
   );
@@ -759,7 +791,7 @@ function TriagePill({
       type="button"
       onClick={onClick}
       title={shortcut}
-      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
+      className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[12px] transition-colors pointer-coarse:py-1.5 ${
         active ? on : 'border-white/[0.08] bg-transparent text-gray-400 hover:border-white/20 hover:text-gray-100'
       } ${count === 0 && !active ? 'opacity-50' : ''}`}
     >
@@ -883,7 +915,7 @@ function TidyPanel({
 }): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="absolute right-0 top-9 z-30 w-72 rounded-md border border-white/10 bg-gray-900 p-3 shadow-lg shadow-black/60">
+    <div className="absolute right-0 top-9 z-30 max-h-[calc(100dvh-8rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 p-3 shadow-lg shadow-black/60">
       <label className="flex cursor-pointer items-start gap-2">
         <input
           type="checkbox"

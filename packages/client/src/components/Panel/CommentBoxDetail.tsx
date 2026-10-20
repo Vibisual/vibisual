@@ -119,7 +119,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
               key={p.id}
               type="button"
               onClick={() => setColor(p.color)}
-              className={`h-6 w-6 rounded-full border transition-all ${
+              className={`h-6 w-6 rounded-full border transition-all pointer-coarse:h-8 pointer-coarse:w-8 ${
                 box.color.toLowerCase() === p.color.toLowerCase()
                   ? 'border-white ring-2 ring-white/40 ring-offset-2 ring-offset-gray-900'
                   : 'border-gray-700 hover:scale-110'
@@ -133,7 +133,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
             ref={bgPickerRef}
             type="button"
             onClick={openBgPicker}
-            className="relative flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-gray-600 text-[12px] text-gray-300 transition-all hover:scale-110 hover:border-gray-300"
+            className="relative flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-gray-600 text-[12px] text-gray-300 transition-all hover:scale-110 hover:border-gray-300 pointer-coarse:h-8 pointer-coarse:w-8"
             title={t('panel.commentBox.customColor', 'Custom color')}
             aria-label={t('panel.commentBox.customColor', 'Custom color')}
             style={{
@@ -156,7 +156,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
           <button
             type="button"
             onClick={() => commitTextColor(undefined)}
-            className={`rounded border px-2 py-0.5 text-[12px] transition-colors ${
+            className={`rounded border px-2 py-0.5 text-[12px] transition-colors pointer-coarse:min-h-8 pointer-coarse:px-3 ${
               box.textColor === undefined || box.textColor === ''
                 ? 'border-blue-500 bg-blue-500/20 text-blue-400'
                 : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-500'
@@ -168,7 +168,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
             ref={textPickerRef}
             type="button"
             onClick={openTextPicker}
-            className={`relative flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-all hover:scale-110 ${
+            className={`relative flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-all hover:scale-110 pointer-coarse:h-8 pointer-coarse:w-8 ${
               box.textColor && box.textColor !== ''
                 ? 'border-white ring-2 ring-white/30 ring-offset-2 ring-offset-gray-900'
                 : 'border-gray-700'

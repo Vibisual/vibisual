@@ -9,6 +9,7 @@ import { useCodexUsage, refreshCodexUsage } from '../../hooks/useCodexUsage.js';
 import { CostPill } from './CostPill.js';
 import { LimitGauge } from './LimitGauge.js';
 import { LocalResourceSection } from './LocalResourceSection.js';
+import { UsageManagement, UsageResources } from './UsageResources.js';
 
 // SCENARIO.md §4 v1.50 / v3.60 — 사용량 팝업.
 //
@@ -111,9 +112,10 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
   const main = useGraphStore(s => s.userDefaults?.engineChoice?.kind ?? 'claude');
   const [engine, setEngine] = useState(main);
   useEffect(() => setEngine(main), [main]);
-  const codexLoggedIn = useGraphStore(s => s.codexAuth?.loggedIn === true);
+  const codexAuth = useGraphStore(s => s.codexAuth);
+  const codexLoggedIn = codexAuth?.loggedIn === true;
   const claudeLoggedIn = useGraphStore(s => s.claudeAuth?.loggedIn === true);
-  const codex = useCodexUsage(engine === 'codex' && codexLoggedIn);
+  const codex = useCodexUsage(engine === 'codex' && codexLoggedIn, codexAuth);
   const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
   const agents = useGraphStore((s) => s.agents);
@@ -262,8 +264,6 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
     return { count: inProject.length, input, output };
   }, [agents, agentProjects, activeProject]);
 
-  const credits = claudeUsage?.extraCredits;
-
   const backdrop = useBackdropDismiss(onClose);
 
   return (
@@ -272,7 +272,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
       {...backdrop}
     >
       <div
-        className="mx-4 flex h-[min(80vh,36rem)] w-full max-w-md flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
+        className="mx-4 flex h-[min(80dvh,36rem)] w-full max-w-md flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header — 제목 + 플랜 배지 + 새로고침 + 닫기 */}
@@ -282,7 +282,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             <path d="M6 20V10" />
             <path d="M18 20V4" />
           </svg>
-          <span className="text-sm font-semibold text-gray-100">{t('providers.usage')} · {t(`providers.${engine}`)}</span>
+          <span className="min-w-0 truncate text-sm font-semibold text-gray-100">{t('providers.usage')} · {t(`providers.${engine}`)}</span>
           {engine === 'claude' && claudeUsage?.plan && (
             <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-violet-300">
               {claudeUsage.plan}
@@ -300,7 +300,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             disabled={refreshing || codex.busy || engine === 'local'}
             title={t('panel.usage.refresh')}
             aria-label={t('panel.usage.refresh')}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40 pointer-coarse:h-9 pointer-coarse:w-9"
           >
             <svg className={`h-3.5 w-3.5 ${(engine === 'codex' ? codex.busy : refreshing) ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
@@ -310,7 +310,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9"
             aria-label={t('panel.usage.close')}
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -327,20 +327,21 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           {engine === 'local' && <LocalResourceSection />}
           {engine === 'codex' && <div className="flex flex-col gap-4 p-4">
             {!codexLoggedIn ? <button type="button" className="text-left text-xs text-blue-400" onClick={() => { const state = useGraphStore.getState(); if (state.codexSetup?.phase === 'ready') state.setCodexLoginGate({ forced: true, dismissed: false }); else state.setCodexSetupGate({ forced: true, dismissed: false }); }}>{t('providers.signIn')}</button> : <>
-              {codex.usage?.windows.map(window => <LimitGauge key={window.id} label={`${window.label} · ${window.windowDurationMins ? t('providers.window', { minutes: window.windowDurationMins }) : window.id}`} used={window.usedPercent} resetAt={window.resetsAt} now={now} />)}
+              {codex.usage?.windows.map(window => <LimitGauge key={window.id} label={`${window.label} · ${window.windowDurationMins === 300 ? t('panel.usage.session5h') : window.windowDurationMins === 10080 ? t('panel.usage.weekly7d') : window.windowDurationMins ? t('providers.window', { minutes: window.windowDurationMins }) : window.id}`} used={window.usedPercent} resetAt={window.resetsAt} now={now} showRemaining />)}
               <div className="flex flex-col gap-1 text-xs" role="status" aria-live="polite">
                 <p className={`min-h-4 ${codex.usage?.error ? 'text-amber-300' : 'text-gray-400'}`}>
                   {codex.busy ? t('panel.options.account.checking') : codex.usage?.error
-                    ? t(codex.usage.windows.length ? 'panel.usage.refreshFailed' : 'providers.noUsage') : '\u00a0'}
+                    ? t(codex.usage.windows.length || codex.usage.credits || codex.usage.resetCredits ? 'panel.usage.refreshFailed' : 'providers.noUsage') : '\u00a0'}
                 </p>
                 <p className="min-h-4 text-gray-500">
-                  {codex.usage?.fetchedAt && codex.usage.windows.length
+                  {codex.usage?.fetchedAt && (codex.usage.windows.length || codex.usage.credits || codex.usage.resetCredits)
                     ? t('panel.usage.lastUpdated', { time: new Date(codex.usage.fetchedAt).toLocaleTimeString() })
                     : t('panel.usage.neverUpdated')}
                 </p>
               </div>
             </>}
           </div>}
+          {engine === 'codex' && <UsageResources provider="codex" codexUsage={codexLoggedIn ? codex.usage : null} />}
           {engine === 'claude' && <>
           <div className="flex flex-col gap-4 px-4 py-4">
             {claudeUsage?.error && <ErrorNotice error={claudeUsage.error} />}
@@ -350,12 +351,14 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
               used={sessionPct}
               resetAt={sessionReset}
               now={now}
+              showRemaining
             />
             <LimitGauge
               label={t('panel.usage.weekly7d')}
               used={weeklyPct}
               resetAt={weeklyReset}
               now={now}
+              showRemaining
             />
 
             {/* 모델별 주간 한도 — Claude 앱 /usage 의 모델 행과 같은 자리 */}
@@ -367,10 +370,11 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
                 resetAt={l.resetsAt}
                 now={now}
                 subdued
+                showRemaining
               />
             ))}
 
-            <div className="flex items-center gap-2 text-[12px]">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
               <span className="text-gray-600">
                 {updatedAt
                   ? t('panel.usage.lastUpdated', { time: new Date(updatedAt).toLocaleTimeString() })
@@ -380,24 +384,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             </div>
           </div>
 
-          {/* 사용 크레딧 */}
-          {credits && (
-            <div className="flex flex-col gap-1.5 border-t border-gray-700 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-200">{t('panel.usage.creditsTitle')}</span>
-                <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${
-                  credits.enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-600/30 text-gray-400'
-                }`}>
-                  {credits.enabled ? t('panel.usage.creditsOn') : t('panel.usage.creditsOff')}
-                </span>
-              </div>
-              <span className="text-[12px] leading-relaxed text-gray-500">
-                {credits.enabled && typeof credits.utilization === 'number'
-                  ? t('panel.usage.creditsUsed', { percent: Math.round(credits.utilization) })
-                  : t('panel.usage.creditsHint')}
-              </span>
-            </div>
-          )}
+          <UsageResources provider="claude" claudeCredits={claudeLoggedIn ? claudeUsage?.extraCredits : undefined} />
 
           {/* statusLine 폴백 — 직접 조회가 막혔을 때만 */}
           {showCollector && (
@@ -430,6 +417,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           </div>
           </>}
         </ScrollFade>
+        {engine !== 'local' && <UsageManagement provider={engine} />}
 
         {/* §5.21 / §7.19 — 오늘 비용. 헤더에서 옮겨 온 자리이고, 스크롤 **밖** 바닥에 고정한다
             (아래로 내려야 보이는 입구는 없는 입구와 같다). 누르면 비용·토큰 지도가 이 위에 겹친다. */}

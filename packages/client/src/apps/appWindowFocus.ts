@@ -20,6 +20,7 @@ export interface AppWindowTarget {
   readonly projectId: string;
   readonly ref?: string | undefined;
   readonly file?: string | undefined;
+  readonly draftKey?: string | undefined;
 }
 
 /**
@@ -41,6 +42,8 @@ export function appWindowKey(a: AppWindowTarget): string {
     clientPathKey(a.projectId),
     a.ref ?? '',
     a.file === undefined || a.file === '' ? '' : clientPathKey(a.file),
+    // Existing documents/files keep their established identity; distinct untitled drafts do not.
+    !a.ref && !a.file ? a.draftKey ?? '' : '',
   ]);
 }
 
@@ -64,12 +67,14 @@ export function outsideAppWindowsFrom(list: AppWindowListWire, refKeyOf: (appId:
     if (refKey === null || !projectId) continue;
     const ref = item.params[refKey];
     const file = item.params['file'];
+    const draftKey = item.params['draftKey'];
     out.push({
       windowId: item.windowId,
       appId: item.appId,
       projectId,
       ...(ref ? { ref } : {}),
       ...(file ? { file } : {}),
+      ...(draftKey ? { draftKey } : {}),
     });
   }
   return out;

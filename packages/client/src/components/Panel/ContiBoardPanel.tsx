@@ -4,6 +4,7 @@ import type { ContiElement, ContiFrame, StoryboardPresetId } from '@vibisual/sha
 import { DEFAULT_STORYBOARD_PRESET_ID, STORYBOARD_PRESET_IDS, STORYBOARD_PRESETS } from '@vibisual/shared';
 import { listStoryboardApps } from '../../apps/registry.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { promptDialog } from '../../utils/appDialog.js';
 import { InlinePromptPopup } from './InlinePromptPopup.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { StampSvg } from './ContiStamps.js';
@@ -699,21 +700,23 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     };
   }, [updateDragOverGap]);
 
-  const handleEditFrameText = useCallback(() => {
+  const handleEditFrameText = useCallback(async () => {
     if (!conti) return;
     const f = conti.frames[selectedFrameIdx];
     if (!f) return;
-    const nextTitle = window.prompt(
+    const nextTitle = await promptDialog(
       t('panel.contiBoard.editTitlePrompt', { defaultValue: 'Frame title:' }),
       f.title,
     );
     if (nextTitle === null) return;
-    const nextAction = window.prompt(
+    const nextAction = await promptDialog(
       t('panel.contiBoard.editActionPrompt', { defaultValue: 'Frame action:' }),
       f.action,
     );
     if (nextAction === null) return;
-    void patchFrame(conti.id, selectedFrameIdx, { title: nextTitle, action: nextAction });
+    const latestFrameIdx = useGraphStore.getState().contis[conti.id]?.frames.findIndex((frame) => frame.id === f.id);
+    if (latestFrameIdx === undefined || latestFrameIdx < 0) return;
+    void patchFrame(conti.id, latestFrameIdx, { title: nextTitle, action: nextAction });
   }, [conti, selectedFrameIdx, patchFrame, t]);
 
   /**
@@ -749,8 +752,10 @@ export function ContiBoardPanel(): React.JSX.Element | null {
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-black/80 backdrop-blur-sm">
-      {/* 헤더 */}
-      <div className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-3">
+      {/* 헤더 — 정보 묶음은 좁으면 줄을 바꾸고, [닫기]는 묶음 밖 오른쪽 위에 늘 선다.
+          종전에는 한 줄에 다 늘어서 폰 폭에서 [닫기]가 화면 밖으로 밀려났다(폰에는 Esc 도 없다). */}
+      <div className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-3 max-md:items-start max-md:px-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 max-md:gap-2">
         <span className="text-sm font-bold text-gray-100">
           {t('panel.contiBoard.latest', { defaultValue: 'Latest Conti' })}
         </span>
@@ -804,10 +809,11 @@ export function ContiBoardPanel(): React.JSX.Element | null {
             </span>
           </span>
         )}
+        </div>
         <button
           type="button"
           onClick={close}
-          className="ml-auto flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-100"
+          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-100 pointer-coarse:h-10 pointer-coarse:w-10"
           aria-label={t('panel.contiBoard.close', { defaultValue: 'Close' })}
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -818,11 +824,13 @@ export function ContiBoardPanel(): React.JSX.Element | null {
       </div>
 
       {/* 본문 — 줌(휠) + 좌클릭 드래그 팬 + frame 드래그앤드롭 reorder.
-          boardRef = 뷰포트, 내부 inner = transform 적용 컨테이너. */}
+          boardRef = 뷰포트, 내부 inner = transform 적용 컨테이너.
+          터치에는 휠도 마우스 끌기도 없어 520px 카드 줄의 화면 밖 칸에 닿을 길이 없었다 — 굵은 포인터에서는
+          보드가 손가락으로 구른다(팬·줌 배선은 그대로 마우스 몫). */}
       <div
         ref={boardRef}
         onMouseDown={onBoardMouseDown}
-        className="relative flex-1 overflow-hidden bg-grid-fade select-none"
+        className="relative flex-1 overflow-hidden bg-grid-fade select-none pointer-coarse:overflow-auto"
         style={{ cursor: panDragRef.current.active ? 'grabbing' : 'grab' }}
       >
         <div
@@ -928,8 +936,8 @@ export function ContiBoardPanel(): React.JSX.Element | null {
         </div>
       </div>
 
-      {/* 하단 컨트롤바 — add/remove/edit */}
-      <div className="flex items-center justify-center gap-3 border-t border-gray-800 bg-gray-900 px-6 py-3">
+      {/* 하단 컨트롤바 — add/remove/edit. 좁으면 줄을 바꾼다(한 줄이면 폰 폭을 넘어 양 끝이 잘렸다). */}
+      <div className="flex flex-wrap items-center justify-center gap-3 border-t border-gray-800 bg-gray-900 px-6 py-3 max-md:gap-2 max-md:px-3">
         <button
           type="button"
           onClick={handleAddFrame}
@@ -1000,7 +1008,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
           </button>
         )}
         {handoffError && (
-          <span className="max-w-[28rem] truncate rounded border border-red-800/60 bg-red-950/40 px-2 py-1 text-[12px] text-red-300" title={handoffError}>
+          <span className="max-w-[min(28rem,100%)] truncate rounded border border-red-800/60 bg-red-950/40 px-2 py-1 text-[12px] text-red-300" title={handoffError}>
             {handoffError}
           </span>
         )}

@@ -173,7 +173,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 개정 번호 + 닫기 */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3">
+      <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3 max-md:gap-2 max-md:px-3">
         <span className="rounded bg-teal-900/60 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-teal-200">
           {t('canvas.spec.title', { defaultValue: '스펙' })}
         </span>
@@ -191,31 +191,36 @@ export function SpecBoardPanel(): React.JSX.Element | null {
         <button
           type="button"
           onClick={close}
-          className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className="shrink-0 rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:p-2.5"
           aria-label={t('common.close', { defaultValue: '닫기' })}
         >
           <CloseGlyph />
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      {/* 폰 폭에서는 두 칸을 위아래로 쌓는다 — 옆 칸 420px 가 화면을 넘어 본문이 0폭이 되고 기준 칸은 화면 밖으로 나갔다.
+          높이는 본문 2 : 기준 3 으로 나눠 갖고 각자 안에서 구른다(기준 칸 바닥의 추가·만들기 단추가 늘 보이게). */}
+      <div className="flex min-h-0 flex-1 max-md:flex-col">
         {/* 왼쪽 — 요구사항 본문(마크다운) */}
-        <div className="flex min-w-0 flex-1 flex-col border-r border-gray-800">
-          <div className="shrink-0 px-4 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            {t('canvas.spec.bodyLabel', { defaultValue: '요구사항 본문 (마크다운)' })}
+        <div className="flex min-w-0 flex-1 flex-col border-r border-gray-800 max-md:min-h-0 max-md:flex-[2] max-md:border-r-0 max-md:border-b">
+          {/* 큰 모니터에서 본문 줄이 화면 끝까지 늘어나지 않게 폭을 묶고 가운데에 둔다(읽는 글의 줄 길이). */}
+          <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
+            <div className="shrink-0 px-4 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              {t('canvas.spec.bodyLabel', { defaultValue: '요구사항 본문 (마크다운)' })}
+            </div>
+            <textarea
+              value={bodyDraft}
+              onChange={(e) => setBodyDraft(e.target.value)}
+              onBlur={commitBody}
+              spellCheck={false}
+              placeholder={t('canvas.spec.bodyPlaceholder', { defaultValue: '무엇을 만드는지, 왜 만드는지, 어디까지가 범위인지를 적습니다.' })}
+              className="m-4 min-h-0 flex-1 resize-none rounded-lg border border-gray-800 bg-gray-900 p-3 font-mono text-[13px] leading-relaxed text-gray-200 outline-none transition-colors focus:border-teal-700 max-md:mx-3 max-md:my-2"
+            />
           </div>
-          <textarea
-            value={bodyDraft}
-            onChange={(e) => setBodyDraft(e.target.value)}
-            onBlur={commitBody}
-            spellCheck={false}
-            placeholder={t('canvas.spec.bodyPlaceholder', { defaultValue: '무엇을 만드는지, 왜 만드는지, 어디까지가 범위인지를 적습니다.' })}
-            className="m-4 min-h-0 flex-1 resize-none rounded-lg border border-gray-800 bg-gray-900 p-3 font-mono text-[13px] leading-relaxed text-gray-200 outline-none transition-colors focus:border-teal-700"
-          />
         </div>
 
         {/* 오른쪽 — 수용 기준 + 작업 카드 */}
-        <div className="flex w-[420px] shrink-0 flex-col">
+        <div className="flex w-full shrink-0 flex-col md:w-[420px] max-md:min-h-0 max-md:flex-[3]">
           <div className="flex shrink-0 items-center gap-2 px-4 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
             <span>{t('canvas.spec.criteria', { defaultValue: '수용 기준' })}</span>
             <span className="text-gray-400">{counts.done}/{counts.total}</span>
@@ -249,7 +254,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                           type="checkbox"
                           checked={item.done === true}
                           onChange={() => toggleDone(item.id)}
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-teal-500"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-teal-500 pointer-coarse:h-5 pointer-coarse:w-5"
                         />
                         {editingItemId === item.id ? (
                           <input
@@ -277,7 +282,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                         <button
                           type="button"
                           onClick={() => removeItem(item.id)}
-                          className="shrink-0 rounded p-1 text-gray-600 transition-colors hover:bg-gray-800 hover:text-rose-300"
+                          className="shrink-0 rounded p-1 text-gray-600 transition-colors hover:bg-gray-800 hover:text-rose-300 pointer-coarse:p-2.5"
                           aria-label={t('canvas.spec.removeItem', { defaultValue: '수용 기준 삭제' })}
                         >
                           <TrashGlyph />
@@ -291,7 +296,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                             <button
                               type="button"
                               onClick={() => selectNode(item.taskAgentId ?? null)}
-                              className="flex items-center gap-1 rounded bg-blue-950/70 px-1.5 py-0.5 text-[12px] text-blue-200 transition-colors hover:bg-blue-900/70"
+                              className="flex items-center gap-1 rounded bg-blue-950/70 px-1.5 py-0.5 text-[12px] text-blue-200 transition-colors hover:bg-blue-900/70 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                             >
                               <CardGlyph />
                               {agentLabel ?? t('canvas.spec.cardMissing', { defaultValue: '카드(버블 없음)' })}
@@ -306,7 +311,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                                   type="button"
                                   onClick={() => acknowledgeStale(item.id)}
                                   disabled={busy}
-                                  className="rounded bg-gray-800 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50"
+                                  className="rounded bg-gray-800 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                                 >
                                   {t('canvas.spec.acknowledge', { defaultValue: '확인함' })}
                                 </button>
@@ -315,7 +320,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                             <button
                               type="button"
                               onClick={() => void detachSpecTask(doc.id, item.id)}
-                              className="rounded px-1.5 py-0.5 text-[12px] text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+                              className="rounded px-1.5 py-0.5 text-[12px] text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                             >
                               {t('canvas.spec.detach', { defaultValue: '연결 끊기' })}
                             </button>
@@ -325,7 +330,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                             type="button"
                             onClick={() => generateOne(item.id)}
                             disabled={busy}
-                            className="rounded bg-teal-900/70 px-1.5 py-0.5 text-[12px] text-teal-200 transition-colors hover:bg-teal-800/70 disabled:opacity-50"
+                            className="rounded bg-teal-900/70 px-1.5 py-0.5 text-[12px] text-teal-200 transition-colors hover:bg-teal-800/70 disabled:opacity-50 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                           >
                             {t('canvas.spec.generateOne', { defaultValue: '이 항목으로 작업 카드' })}
                           </button>

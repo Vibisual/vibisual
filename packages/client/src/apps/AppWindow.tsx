@@ -4,15 +4,19 @@ import { useTranslation } from 'react-i18next';
 
 import { registerCaptureWindow, type CaptureWindowHandle } from '../components/BubbleMap/captureWindowManager.js';
 import { useFloatingWindow } from '../hooks/useFloatingWindow.js';
+import { useFloatingWindowFullScreenLock } from '../hooks/useIsMobile.js';
 import { setCanvasCover } from '../stores/canvasVisibility.js';
+import { selectShellImmersive, useProjectImmersionStore } from '../stores/projectImmersion.js';
 import { AppShellHost } from './AppShellHost.js';
 import { AppChromeContext, useAppChromeHost, useAppChromeSlotGestures } from './appChrome.js';
+import { AppWindowShownContext } from './appWindowVisibility.js';
 import { appShellParams, getInternalApp } from './registry.js';
 import { canPopOutAppWindow, useAppWindowsStore, type AppWindow as AppWindowEntry } from './appWindows.js';
 import { useAppWindowRedock } from './useAppWindowRedock.js';
 import type { FloatingWindowGeom } from '../hooks/floatingWindowGeom.js';
 import { useGraphStore } from '../stores/graphStore.js';
 import { isAppWindowVisible } from './appWindowProject.js';
+import { requestAppWindowClose } from './appWindowCloseRetention.js';
 
 /**
  * §5.13 (S) — 내부 앱이 **앱 안에서** 열리는 창.
@@ -31,15 +35,24 @@ import { isAppWindowVisible } from './appWindowProject.js';
  */
 export const AppWindow = memo(function AppWindow({ win, visible = true }: { win: AppWindowEntry; visible?: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
+  const projectImmersive = useProjectImmersionStore(selectShellImmersive);
+  const shown = visible && !projectImmersive;
   const app = getInternalApp(win.appId);
   const closeWindow = useAppWindowsStore((s) => s.close);
   const popOutWindow = useAppWindowsStore((s) => s.popOut);
 
   // 최신 닫기를 ref 로 — 창 스택에 넘긴 콜백(Escape)이 stale 되지 않게(캡처 창과 같은 규약).
   const closeRef = useRef<() => void>(() => undefined);
-  closeRef.current = () => closeWindow(win.id);
-  const visibleRef = useRef(visible);
-  visibleRef.current = visible;
+  const closingRef = useRef(false);
+  // §5.13 (R-10) — the user's close asks the shell first (unsaved edits).
+  closeRef.current = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    void requestAppWindowClose(win.id, () => closeWindow(win.id))
+      .finally(() => { closingRef.current = false; });
+  };
+  const visibleRef = useRef(shown);
+  visibleRef.current = shown;
 
   // 공용 창 스택 등록(z-order + Escape 최상단). 첫 렌더에 1회.
   const handleRef = useRef<CaptureWindowHandle | null>(null);
@@ -78,15 +91,19 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
     } : undefined).then((ok) => { setTransferFailed(!ok); setTransferring(false); return ok; });
   }, [popOutWindow, win.id, win.geometry]);
 
+  // 폰 폭·터치 기기에서는 떠 있는 창이 아니라 화면 전체다 — 320px 하한 창에 앱 화면이 짓눌리지 않고, 손가락으로 못 옮기는
+  //   창이 남지 않게(끌기가 마우스 이벤트다). 이동·크기 조절·최대화 손잡이는 잠기고, 조건이 풀리면 저장된 자리로 돌아온다.
+  const lockFullScreen = useFloatingWindowFullScreenLock();
   const fw = useFloatingWindow({
-    enabled: visible,
+    enabled: shown,
     cascade: handle.cascadeOffset,
     initial: win.geometry ? { geom: win.geometry, mode: 'floating' } : null,
+    lockFullScreen,
     onInteractStart: bringToFront,
     // 창을 못 여는 판(웹·구버전 preload)에서는 손짓 자체가 없다 — 안내만 뜨고 아무 일도 안
     //   일어나면 그건 고장으로 읽힌다.
     pullOut: {
-      enabled: visible && canPopOut && !transferring,
+      enabled: shown && canPopOut && !transferring,
       // (S-10) 선 안의 이름 띠와 안내 한 줄 — 앱 안 윤곽선과 main 의 선이 같은 말을 한다(경계를 넘어도 안 바뀐다).
       ghost: {
         label: title,
@@ -127,9 +144,9 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
    */
   const coverKey = `app-window:${win.id}`;
   useEffect(() => {
-    setCanvasCover(coverKey, visible && fw.fullScreen);
+    setCanvasCover(coverKey, shown && fw.fullScreen);
     return () => setCanvasCover(coverKey, false);
-  }, [coverKey, visible, fw.fullScreen]);
+  }, [coverKey, shown, fw.fullScreen]);
 
   /**
    * 앱 화면에 넘길 값 — **OS 창과 같은 한 벌**(S-6). 원시값에서만 다시 만든다.
@@ -138,8 +155,8 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
    * (문서를 다시 읽고, 보던 자리를 잃는다).
    */
   const params = useMemo(
-    () => (app ? { ...appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file, bubbleId: win.bubbleId }), appWindowId: win.id, appWindowAppId: win.appId } : {}),
-    [app, win.projectId, win.ref, win.file, win.id, win.bubbleId],
+    () => (app ? { ...appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file, draftKey: win.draftKey, bubbleId: win.bubbleId }), appWindowId: win.id, appWindowAppId: win.appId } : {}),
+    [app, win.projectId, win.ref, win.file, win.draftKey, win.id, win.bubbleId],
   );
 
   /**
@@ -164,16 +181,19 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
     <div
       ref={fw.windowRef}
       data-app-window=""
-      aria-hidden={!visible}
-      {...(!visible ? { inert: '' } : {})}
+      aria-hidden={!shown}
+      {...(!shown ? { inert: '' } : {})}
       // (S-10) ⑨ 흐려지는 것은 **숨을 때만**(120ms) — 선이 꺼지면 손 아래에 곧바로 다시 선다(IDE 창과 같은
       //   박자). 전환을 늘 걸어 두면 돌아올 때도 흐릿하게 떠올라 그동안 잔상처럼 보인다.
       // §5.13 (V) 37-1 — 창 틀도 테마를 따른다(그래파이트 바탕 + 실버 1px 테 — 테마 토큰). 고정 rgba 였을 때는 라이트
       //   테마에서 머리줄 글자만 뒤집혀 어두운 유리 위에서 사라졌다.
-      className={`fixed flex flex-col overflow-hidden rounded-xl border border-white/10 bg-vb-window shadow-2xl shadow-black/70${ghost ? ' transition-opacity duration-120 ease-out' : ''}`}
+      className={`fixed flex flex-col overflow-hidden border border-white/10 bg-vb-window shadow-2xl shadow-black/70${lockFullScreen ? '' : ' rounded-xl'}${ghost ? ' transition-opacity duration-120 ease-out' : ''}`}
       style={{
         ...fw.style,
-        display: visible ? undefined : 'none',
+        // Background renderers need real layout dimensions for their scene and captures.
+        display: visible || win.background ? undefined : 'none',
+        // Immersion keeps editor dimensions and unsaved state while hiding this body portal.
+        visibility: projectImmersive || (!visible && win.background) ? 'hidden' : undefined,
         zIndex: z,
         // (S-10) 밖으로 빼는 동안 본체는 **완전히 숨는다** — 손을 따라가는 것은 선 하나다(§5.5 #17-6 (H-19)).
         //   반쯤 흐린 채 앱 경계에서 잘린 본체는 "밖으로 나가는 모습"이 아니라 잔상으로 읽혔다. 자리는
@@ -186,7 +206,7 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
       {/* 타이틀바 — 캡처 창과 같은 그래파이트 유리면. 드래그 이동 + 더블클릭 최대화 + 밖으로 끌어내기. */}
       <div
         {...fw.titleBarProps}
-        className="flex h-10 flex-shrink-0 cursor-grab select-none items-center gap-2 border-b border-white/10 bg-vb-sunken/90 px-3 text-slate-200 backdrop-blur-[10px] active:cursor-grabbing"
+        className={`flex h-10 flex-shrink-0 select-none items-center gap-2 border-b border-white/10 bg-vb-sunken/90 px-3 text-slate-200 backdrop-blur-[10px]${lockFullScreen ? '' : ' cursor-grab active:cursor-grabbing'}`}
         title={canPopOut ? t('panel.apps.window.dragHint', { defaultValue: '앱 밖으로 끌어내면 별도 창이 됩니다.' }) : undefined}
       >
         <span
@@ -222,10 +242,11 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
             </svg>
           </button>
         )}
-        <button
+        {/* 잠긴 전체 화면(폰 폭·터치)에서는 최대화가 할 일이 없다 — 눌러도 그대로인 버튼은 고장으로 읽힌다. */}
+        {!lockFullScreen && <button
           type="button"
           onClick={fw.toggleMaximized}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
           title={maximized ? t('panel.apps.window.restore', { defaultValue: '원래 크기로' }) : t('panel.apps.window.maximize', { defaultValue: '최대화' })}
           aria-label={maximized ? t('panel.apps.window.restore', { defaultValue: '원래 크기로' }) : t('panel.apps.window.maximize', { defaultValue: '최대화' })}
         >
@@ -244,11 +265,11 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
               <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
             </svg>
           )}
-        </button>
+        </button>}
         <button
           type="button"
-          onClick={() => closeWindow(win.id)}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-500/80 hover:text-white"
+          onClick={() => closeRef.current()}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-500/80 hover:text-white pointer-coarse:h-8 pointer-coarse:w-8"
           title={t('panel.apps.window.close', { defaultValue: '닫기 (Esc)' })}
           aria-label={t('panel.apps.window.close', { defaultValue: '닫기 (Esc)' })}
         >
@@ -262,11 +283,14 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
       {/* 본문 — 앱 화면은 레지스트리의 늦은 로더가 그린다(안 열면 그 청크는 내려오지 않는다). */}
       {transferFailed && <p role="alert" className="shrink-0 bg-rose-950 px-3 py-1 text-xs text-rose-100">{t('panel.apps.window.transferFailed')}</p>}
       <div className="relative min-h-0 flex-1" aria-busy={transferring} {...(transferring ? { inert: '' } : {})}>
-        <AppChromeContext.Provider value={chromeHost.chrome}>{shellView}</AppChromeContext.Provider>
+        {/* §5.13 (X) 39-8 — 숨은(다른 탭) 앱 안 창이라는 것을 앱 화면에 알린다 — 앱은 그동안 폴링·무대·미리 굽기를 쉰다. */}
+        <AppWindowShownContext.Provider value={shown}>
+          <AppChromeContext.Provider value={chromeHost.chrome}>{shellView}</AppChromeContext.Provider>
+        </AppWindowShownContext.Provider>
       </div>
 
-      {/* 우하단 리사이즈 핸들 — 최대화 중엔 숨김. */}
-      {!maximized && (
+      {/* 우하단 리사이즈 핸들 — 최대화·잠긴 전체 화면에선 숨김. */}
+      {!maximized && !lockFullScreen && (
         <div
           {...fw.resizeProps}
           className="absolute bottom-0 right-0 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1 text-slate-600 transition-colors hover:text-slate-300"
@@ -283,7 +307,7 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
         (`ghostFrame.ts`)이고, 이것은 그 창이 아직 안 섰거나 못 띄우는 환경에서 그린다(앱 경계에서
         잘리지만 선이 아예 없는 것보다 낫다). 그림은 main 의 선·IDE 창의 앱 안 선과 **같다** — 이름 띠
         34px + 안내 한 줄, 같은 색 — 그래서 main 의 선으로 넘어가는 순간이 보이지 않는다. */}
-    {visible && ghost?.kind === 'inapp' && (
+    {shown && ghost?.kind === 'inapp' && (
       <div
         data-app-window-ghost=""
         aria-hidden="true"
@@ -335,7 +359,7 @@ export function AppWindowHost(): React.JSX.Element | null {
   return (
     <>
       {/* Keep editors mounted so tab switches preserve unsaved scenes, selections and geometry. */}
-      {windows.map((w) => <AppWindow key={w.id} win={w} visible={isAppWindowVisible(w.projectId, { activeProject, activeIframeId, projects, stubProjects })} />)}
+      {windows.map((w) => <AppWindow key={w.id} win={w} visible={!w.background && isAppWindowVisible(w.projectId, { activeProject, activeIframeId, projects, stubProjects })} />)}
     </>
   );
 }

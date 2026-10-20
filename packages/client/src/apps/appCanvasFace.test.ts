@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { APP_CANVAS_FACE } from '@vibisual/shared';
 
 import { formatPlayClock, isFaceControlTarget, playFraction, quantizePlayTime } from './canvasFaceKit.js';
@@ -38,6 +38,27 @@ describe('§5.4 #36 (G) 조작줄 도우미', () => {
   it('DOM 요소가 아닌 대상은 조작 자리가 아니다', () => {
     expect(isFaceControlTarget(null)).toBe(false);
     expect(isFaceControlTarget(undefined)).toBe(false);
+  });
+
+  // 2026-10-20 — React Flow 의 크기 조절 띠도 `nodrag` 를 단다. 그것까지 조작 자리로 읽으면 띠의 누름·두 번 누름이
+  //   노드의 것이 되지 못한다(작게 줄인 명패에서는 띠가 몸통의 큰 몫이다 — 사용자 보고 "일부 앱이 안 지워진다").
+  it('크기 조절 띠는 조작 자리가 아니다 — 띠의 누름은 노드의 것이다', () => {
+    // 클라 시험에는 DOM 이 없다 — `closest` 만 흉내 낸 요소로 판정만 본다.
+    class FakeElement {
+      constructor(private readonly matches: readonly string[]) {}
+      closest(selector: string): FakeElement | null {
+        return this.matches.includes(selector) ? this : null;
+      }
+    }
+    vi.stubGlobal('Element', FakeElement);
+    try {
+      const at = (...matches: string[]): EventTarget => new FakeElement(matches) as unknown as EventTarget;
+      expect(isFaceControlTarget(at('.nodrag', '.react-flow__resize-control'))).toBe(false);
+      expect(isFaceControlTarget(at('.nodrag'))).toBe(true);
+      expect(isFaceControlTarget(at())).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -93,5 +114,23 @@ describe('§5.4 #36 (G) 앱 노드 소스 규약', () => {
   it('크기 손잡이가 있고, 화면 안 조작 자리의 누름은 선택·열기로 치지 않는다', () => {
     expect(src).toContain('<NodeResizer');
     expect(src).toContain('isFaceControlTarget(e.target)');
+  });
+
+  // 2026-10-20 — 띠는 몸통 밖 형제라 몸통의 손잡이가 닿지 않는다. 띠 위 우클릭이 아무 메뉴도 열지 않았다(사용자 보고).
+  it('크기 조절 띠도 노드다 — 띠 감싸개에 같은 우클릭 메뉴·선택 손짓·두 번 누름을 단다', () => {
+    const at = src.indexOf('group/app-resize');
+    expect(at).toBeGreaterThan(-1);
+    const wrapper = src.slice(at, src.indexOf('<NodeResizer', at));
+    expect(wrapper).toContain('onContextMenu={handleContextMenu}');
+    expect(wrapper).toContain('{...gesture.handlers}');
+    expect(wrapper).toContain('onDoubleClick={handleDoubleClick}');
+  });
+
+  // React Flow 는 크기가 그대로인 누름에 `onResizeEnd` 를 부르지 않는다 — 누를 때 잠그면 풀 손이 없다.
+  it('드래그 락은 크기가 실제로 바뀔 때 건다 — 그 누름은 선택 손짓에서 접는다', () => {
+    const start = src.indexOf('<NodeResizer');
+    const resizer = src.slice(start, src.indexOf('/>', start));
+    expect(resizer).not.toContain('onResizeStart=');
+    expect(src).toContain('gesture.cancelPress()');
   });
 });

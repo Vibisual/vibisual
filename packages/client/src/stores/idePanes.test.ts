@@ -321,13 +321,20 @@ describe('IDE 창 여러 개 (§5.5 #17-1)', () => {
     expect(useGraphStore.getState().ideOverlays['other']!.collapsed).toBe(false);
   });
 
-  it('창이 하나뿐이고 이미 맨 앞이면 앞뒤 도장을 새로 찍지 않는다', () => {
+  it('목록에서 같은 전면 창을 다시 열면 세션은 유지하고 탭 가시화를 위한 도장을 갱신한다', () => {
     open(A1, 'new');
-    const before = useGraphStore.getState().idePaneSeq;
+    useGraphStore.getState().setIDEActiveSession('selected-session', PROJ);
+    const before = selectIDEPane(useGraphStore.getState(), PROJ);
     useGraphStore.getState().soloIDEPane(PROJ);
-    // 카메라만 옮기고 z 는 그대로다 — 클릭마다 상태가 바뀌면 리렌더만 늘어난다.
-    expect(useGraphStore.getState().idePaneSeq).toBe(before);
+    const after = selectIDEPane(useGraphStore.getState(), PROJ);
+    expect(after.z).toBeGreaterThan(before.z);
+    expect(after.activeSessionId).toBe('selected-session');
+    expect(after.editorFiles).toBe(before.editorFiles);
+    expect(useGraphStore.getState().idePaneSeq).toBe(after.z);
     expect(useGraphStore.getState().focusNodeId).toBe(A1);
+    // 창 안의 일반 클릭으로는 사용자가 옮긴 탭 스크롤을 되돌리지 않는다.
+    useGraphStore.getState().focusIDEPane(PROJ);
+    expect(selectIDEPane(useGraphStore.getState(), PROJ).z).toBe(after.z);
   });
 
   it('없는 창을 고르면 아무 일도 하지 않는다', () => {

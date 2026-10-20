@@ -17,10 +17,16 @@ import { DARK_THEME_LOCK } from '../theme/themeLock.js';
  */
 export const FACE_CONTROL = 'nodrag nopan';
 
-/** 조작 자리 위에서 시작한 누름인가(노드의 선택·더블클릭 열기가 건너뛴다). */
+/**
+ * React Flow 크기 조절 선·손잡이의 공개 클래스. 이것도 `nodrag` 를 달지만 조작 자리가 아니라 **노드의 가장자리**다 —
+ * 크기를 바꾸지 않고 뗀 누름은 클릭(선택)이고, 두 번 누르면 연다(§5.4 #36 (G) "테두리 띠도 노드다").
+ */
+const RESIZE_EDGE_SELECTOR = '.react-flow__resize-control';
+
+/** 조작 자리 위에서 시작한 누름인가(노드의 선택·더블클릭 열기가 건너뛴다). 크기 조절 띠는 조작 자리가 아니다. */
 export function isFaceControlTarget(target: EventTarget | null | undefined): boolean {
   if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
-  return target.closest('.nodrag') !== null;
+  return target.closest('.nodrag') !== null && target.closest(RESIZE_EDGE_SELECTOR) === null;
 }
 
 /** 조작줄 높이(px) — 앱이 결과 자리 높이를 셀 때 쓴다. 아래 `FaceBar` 의 `h-6` 과 같은 값. */

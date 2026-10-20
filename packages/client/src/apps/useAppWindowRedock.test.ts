@@ -18,6 +18,14 @@ function appApi(overrides: Partial<PackagedAppApi> = {}): PackagedAppApi {
 
 describe('receiving an app window back in the workspace', () => {
   beforeEach(() => { useAppWindowsStore.setState({ windows: [] }); });
+  it('redocks source-less models using the same durable local draft key', () => {
+    const draftKey = 'local:12345678-1234-4234-8234-123456789abc';
+    const payload = { requestId: 'local-draft', appId: 'vibi3d', params: { projectId: 'C:/project', draftKey } };
+    expect(receiveAppWindow(appApi(), payload)).toBe(true);
+    expect(useAppWindowsStore.getState().windows[0]).toMatchObject({ draftKey, appId: 'vibi3d' });
+    expect(receiveAppWindow(appApi(), payload)).toBe(true);
+    expect(useAppWindowsStore.getState().windows).toHaveLength(1);
+  });
 
   it.each(INTERNAL_APPS)('restores $id using its declared document key before acknowledging', (app) => {
     const geometry = { x: 250, y: 110, w: 920, h: 640 };

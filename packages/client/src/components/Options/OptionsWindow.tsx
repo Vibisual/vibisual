@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback, isVerificationGateEnabled } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { ScrollFade } from '../ScrollFade.js';
+import { WINDOW_NAV_BODY, WINDOW_NAV_LIST, WINDOW_NAV_PANE, windowNavItemClass } from '../Layout/windowNav.js';
 import type { AgentConfig, AgentEngineKind, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
@@ -28,6 +29,7 @@ import {
   TURN_COMPACT_TRIGGER_RATIO,
   resolveAutoCompact,
   isOpusModel,
+  supportsEffortSelection,
   supportsFastMode,
   isThinkingEnabled,
   resolveAliasToLatest,
@@ -337,6 +339,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const backdrop = useBackdropDismiss(requestClose);
 
   const isOpus = isOpusModel(model);
+  // §4 (xhigh effort 등급 · 2026-10-15) — Effort 칸은 클로드 네 패밀리에 열린다(설정창과 같은 판정 함수).
+  const effortEnabled = supportsEffortSelection(model);
   // §4 (CLI 사양 추종) — 지금 고른 값이면 **실제로 몇 토큰에서 접히는가**. 고른 숫자는 CLI 에게
   //   창 크기라 그보다 낮은 자리에서 접히므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다.
   //   여긴 전역 기본값을 정하는 창이라 위층이 없다(에이전트 설정 → **여기** → 내장 기본).
@@ -434,7 +438,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const handleModelChange = useCallback((v: string) => {
     setDirty(true);
     setModel(v);
-    if (v !== 'opus') setEffort('default');
+    // Effort 칸이 닫히는 모델로 갈 때만 되돌린다 — 네 패밀리 사이를 오가면 고른 값을 지킨다.
+    if (!supportsEffortSelection(v)) setEffort('default');
     setModelVersion(undefined);
   }, []);
 
@@ -461,7 +466,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           modelVersion: modelVersion ?? null,
           permissionMode,
           permissionTimeoutPolicy: permissionTimeoutPolicy === 'deny' ? 'deny' : null,
-          effort: (isOpus && effort !== 'default') ? effort : null,
+          effort: (effortEnabled && effort !== 'default') ? effort : null,
           maxTurns: maxTurns > 0 ? maxTurns : null,
           maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : null,
           isolation: isolation !== 'none' ? isolation : null,
@@ -514,7 +519,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
       setDirty(false);
       return true;
     } catch { return false; }
-  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify, engineBridge, verificationGate, claudeDefaults]);
+  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effortEnabled, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify, engineBridge, verificationGate, claudeDefaults]);
 
   // Apply — 고쳐 둔 것만 저장한다. §5.25 (C) 메인 제공자도 칸 안이 아니라 여기서 남긴다.
   //   폼을 먼저, 제공자를 나중에 — 폼은 **지금** 제공자일 때의 값(`claudeDefaults`)을 바탕으로 짓는다.
@@ -595,26 +600,22 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
             {t('panel.options.title', { defaultValue: 'Options' })}
             {(dirty || mainDirty || providerDirty) && <span className="text-xs font-normal text-amber-400">• {t('panel.options.unsaved', { defaultValue: 'unsaved' })}</span>}
           </h3>
-          <button type="button" onClick={requestClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
+          <button type="button" onClick={requestClose} className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-9 pointer-coarse:w-9">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
-        {/* Body — 좌측 사이드바 + 우측 패널 */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar — 폰에선 좁혀 본문 공간 확보 */}
-          <div className="w-44 shrink-0 overflow-y-auto border-r border-gray-700/50 bg-gray-900/40 py-2 max-md:w-28">
+        {/* Body — 좌측 사이드바 + 우측 패널. 폰에선 사이드바가 본문 위 가로 띠가 된다(`windowNav`). */}
+        <div className={WINDOW_NAV_BODY}>
+          {/* Sidebar */}
+          <div className={WINDOW_NAV_LIST}>
             {categories.map((c) => (
               <button
                 key={c.key}
                 type="button"
                 disabled={providerDirty && category !== c.key}
                 onClick={() => setCategory(c.key)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
-                  category === c.key
-                    ? 'border-l-2 border-blue-500 bg-blue-500/10 text-white'
-                    : 'border-l-2 border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-                }`}
+                className={windowNavItemClass(category === c.key)}
               >
                 <span className="text-gray-500">{c.icon}</span>
                 {c.label}
@@ -623,7 +624,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
           </div>
 
           {/* Right pane */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className={WINDOW_NAV_PANE}>
             {category === 'agent' && <ProviderTabs value={settingsEngine} onChange={setSettingsEngine} disabled={dirty || providerDirty} />}
             {category === 'agent' && settingsEngine !== 'claude' && <>
               <label className="flex flex-col gap-1 text-xs text-gray-300">{t('providers.settingsScope')}
@@ -656,13 +657,13 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                   >
                     {listModelFamilies(modelRegistry).map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
-                  {/* Version sub */}
-                  <div className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500">
+                  {/* Version sub — 폰 폭에서는 버전 목록(고정폭 글꼴의 긴 id)과 직접 입력칸이 줄을 바꿔 선다. */}
+                  <div className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500 max-md:flex-wrap">
                     <span className="uppercase tracking-wider">{t('panel.options.version.versionLabel')}</span>
                     <select
                       value={effectiveVersionValue}
                       onChange={(e) => handleVersionChange(e.target.value)}
-                      className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
+                      className="max-w-full cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500 pointer-coarse:py-1.5"
                     >
                       {VERSION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
@@ -672,7 +673,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                         value={modelVersion ?? ''}
                         onChange={(e) => { setDirty(true); setModelVersion(e.target.value); }}
                         placeholder={`claude-${model}-X-Y`}
-                        className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+                        className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none max-md:basis-full pointer-coarse:py-1.5"
                       />
                     )}
                   </div>
@@ -708,7 +709,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                       <select
                         value={permissionTimeoutPolicy}
                         onChange={(e) => { setDirty(true); setPermissionTimeoutPolicy(e.target.value as 'allow' | 'deny'); }}
-                        className="rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] text-gray-200 outline-none focus:border-blue-500"
+                        className="rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] text-gray-200 outline-none focus:border-blue-500 pointer-coarse:py-1.5"
                       >
                         <option value="allow">allow</option>
                         <option value="deny">deny</option>
@@ -717,8 +718,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                   )}
                 </div>
 
-                {/* Effort (Opus only) */}
-                {isOpus && (
+                {/* Effort — 클로드 네 패밀리(Opus·Fable·Sonnet·Haiku) */}
+                {effortEnabled && (
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.effort', { defaultValue: 'Effort' })}</label>
                     <select
@@ -731,8 +732,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                   </div>
                 )}
 
-                {/* Max Turns + Budget + Isolation */}
-                <div className="flex gap-3">
+                {/* Max Turns + Budget + Isolation — 폰 폭에서는 세 칸을 위아래로 쌓는다(한 칸 100px 이 안 돼 라벨이 세 줄로 꺾였다). */}
+                <div className="flex gap-3 max-md:flex-col">
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.maxTurns', { defaultValue: 'Max Turns (0 = unlimited)' })}</label>
                     <NumberStepper
@@ -771,7 +772,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                 {/* §4 (CLI 사양 추종) — 설치된 claude 신규 옵션의 전역 기본값. 전부 미설정이 기본. */}
                 <div className="flex flex-col gap-2 rounded border border-gray-800 bg-gray-900/40 p-2.5">
                   <span className="text-xs font-medium text-gray-400">{t('panel.agentConfig.cliOptions.label')}</span>
-                  <div className="flex gap-3">
+                  {/* 폰 폭에서는 두 칸을 쌓는다 — 선택지 글이 길어 나란히 두면 상자 밖으로 넘쳤다. */}
+                  <div className="flex gap-3 max-md:flex-col">
                     <div className="flex flex-1 flex-col gap-1">
                       <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.fallbackModel.label')}</label>
                       {/* §4 (CLI 사양 추종) — 목록은 위 Model 과 **같은 레지스트리**(`listModelFamilies`)라
@@ -837,7 +839,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                       {/* §9 — 설명문도 가독 하한 12px. 위계는 크기가 아니라 색으로 낮춘다. */}
                       <span className="text-[12px] leading-snug text-gray-600">{t('panel.agentConfig.autoCompact.globalTipEffective', { value: autoCompactValueLabel(resolveAutoCompact()) })}</span>
                       {/* §4 (CLI 사양 추종) — 이 축만 직교로 남는다: 숫자로 못 잡는 자리를 에이전트가 부른다. */}
-                      <label className="mt-1 flex items-start gap-2 text-[12px] text-gray-400">
+                      <label className="mt-1 flex items-start gap-2 text-[12px] text-gray-400 pointer-coarse:py-1.5">
                         <input
                           type="checkbox"
                           checked={agentCanCompact}
@@ -861,7 +863,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                             key={src}
                             type="button"
                             onClick={() => { setDirty(true); setSettingSources((p) => (p.includes(src) ? p.filter((x) => x !== src) : [...p, src])); }}
-                            className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium transition-colors ${
+                            className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium transition-colors pointer-coarse:py-1.5 ${
                               on ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
                             }`}
                           >
@@ -874,7 +876,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                       )}
                     </div>
                   </div>
-                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400 pointer-coarse:py-1.5">
                     <input
                       type="checkbox"
                       checked={excludeDynamicSections}
@@ -883,7 +885,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                     />
                     <span>{t('panel.agentConfig.excludeDynamicSections.label')}</span>
                   </label>
-                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400 pointer-coarse:py-1.5">
                     <input
                       type="checkbox"
                       checked={safeMode}
@@ -896,7 +898,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                     </span>
                   </label>
                   {/* §4 (Fast 모드) — 지원하지 않는 모델에서는 CLI 가 조용히 무시하므로 비활성 + 이유. */}
-                  <label className={`flex items-start gap-2 text-[12px] ${fastModeSupported ? 'text-gray-400' : 'text-gray-600'}`}>
+                  <label className={`flex items-start gap-2 text-[12px] pointer-coarse:py-1.5 ${fastModeSupported ? 'text-gray-400' : 'text-gray-600'}`}>
                     <input
                       type="checkbox"
                       checked={fastMode && fastModeSupported}
@@ -913,7 +915,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                   </label>
                   {/* §4 (Thinking on/off) — 확장 사고를 켜고 끈다(Effort 는 깊이라 직교 축).
                       기본이 켬이라 끄면 스폰 설정 파일에 `alwaysThinkingEnabled: false` 가 실린다. */}
-                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400 pointer-coarse:py-1.5">
                     <input
                       type="checkbox"
                       checked={thinking}
@@ -987,7 +989,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                         key={tool}
                         type="button"
                         onClick={() => toggleTool(tool)}
-                        className={`rounded px-2 py-0.5 text-[12px] ${
+                        className={`rounded px-2 py-0.5 text-[12px] pointer-coarse:py-1.5 ${
                           tools.includes(tool)
                             ? 'bg-blue-500/20 text-blue-200 ring-1 ring-blue-500/40'
                             : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
@@ -1010,7 +1012,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                         key={tool}
                         type="button"
                         onClick={() => toggleDisallowed(tool)}
-                        className={`rounded px-2 py-0.5 text-[12px] ${
+                        className={`rounded px-2 py-0.5 text-[12px] pointer-coarse:py-1.5 ${
                           disallowedTools.includes(tool)
                             ? 'bg-red-500/20 text-red-200 ring-1 ring-red-500/40'
                             : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
@@ -1545,8 +1547,9 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
 function VersionHeader({ intro, loading, onRefresh }: { intro: string; loading: boolean; onRefresh: () => void }): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center justify-between border-b border-gray-700/50 pb-2">
-      <div>
+    // 좁으면 안내문이 줄을 바꾸고 [다시 검색]은 제 폭을 지킨다(안 지키면 한글 단추가 한 글자씩 꺾였다).
+    <div className="flex items-center justify-between gap-2 border-b border-gray-700/50 pb-2">
+      <div className="min-w-0">
         <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.version.title', { defaultValue: 'Version & About' })}</h4>
         <p className="mt-1 text-[12px] text-gray-500">{intro}</p>
       </div>
@@ -1554,7 +1557,7 @@ function VersionHeader({ intro, loading, onRefresh }: { intro: string; loading: 
         type="button"
         onClick={onRefresh}
         disabled={loading}
-        className="flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-700 disabled:opacity-40"
+        className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-700 disabled:opacity-40 pointer-coarse:py-2"
       >
         <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
         {t('panel.options.version.refresh', { defaultValue: 'Rescan' })}

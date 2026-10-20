@@ -359,9 +359,8 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
   const toBubbleRef = useRef(false);
   const closeIDEOverlay = useGraphStore((s) => s.closeIDEOverlay);
   const collapseToBubble = useCallback(() => {
-    // 표식을 **먼저** 세운다 — 아래 닫기가 같은 틱에 효과를 깨우므로, 뒤에 세우면 이미 늦다.
-    toBubbleRef.current = true;
-    closeIDEOverlay();
+    // 버리기 확인이 취소되면 표식도 남기지 않는다. 실제 닫기 바로 앞에서만 세운다.
+    closeIDEOverlay(null, { beforeClose: () => { toBubbleRef.current = true; } });
   }, [closeIDEOverlay]);
 
   useEffect(() => {
@@ -401,7 +400,7 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
   }, [expanded, agentId, projectId]);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-transparent text-gray-100">
+    <div className="h-dvh w-screen overflow-hidden bg-transparent text-gray-100">
       {/* 접힘: 투명 위에 실제 BubbleNode 단일 노드. app-drag 영역(ReactFlow pane)을 잡고 OS 창 이동,
           버블 본체(.bubble-body)는 캔버스와 동일하게 드래그/클릭/더블클릭. */}
       {!expanded && (
