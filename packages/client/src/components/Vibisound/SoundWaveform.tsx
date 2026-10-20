@@ -1,29 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { computePeaks, formatClipTime, type AudioClip } from '@vibisual/audio';
+import { useInspectorPicker } from '../../hooks/useInspectorPicker.js';
 import { SOUND_UI, type SoundRange } from './soundConfig.js';
 import { SoundButton } from './SoundButton.js';
-interface SoundWaveformProps { pcm: AudioClip | null; playhead: number; selection: SoundRange | null; onSeek: (at: number) => void; onSelect: (range: SoundRange | null) => void }
-export function SoundWaveform({ pcm, playhead, selection, onSeek, onSelect }: SoundWaveformProps): React.JSX.Element {
+import { soundWaveLevels, type SoundInspectContext } from './soundInspect.js';
+interface SoundWaveformProps {
+  pcm: AudioClip | null; playhead: number; selection: SoundRange | null; onSeek: (at: number) => void; onSelect: (range: SoundRange | null) => void;
+  /** §5.4 #15 (C) — Alt 인스펙터가 파형 안의 시각·클립을 집는다. */
+  inspect?: SoundInspectContext | null;
+}
+export function SoundWaveform({ pcm, playhead, selection, onSeek, onSelect, inspect }: SoundWaveformProps): React.JSX.Element {
   const { t } = useTranslation();
   const tr = (key: string): string => t(`panel.vibisound.workbench.${key}`);
   const canvas = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const anchor = useRef<number | null>(null);
-  const [width, setWidth] = useState(800);
+  // 0 = 아직 못 쟀다 — 그리기 전에 상자 폭을 재고(useLayoutEffect), 재기 전에는 그리지 않는다. 짐작한 폭(종전 800)으로 먼저
+  //   그리면 폰 폭 상자에 800칸짜리 그림이 눌려 첫 장면이 찌그러져 보였다.
+  const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState(0);
   const duration = pcm ? (pcm.channels[0]?.length ?? 0) / pcm.sampleRate : 0;
   const span = duration / zoom;
   const start = Math.min(offset, Math.max(0, duration - span));
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = wrap.current; if (!element) return;
     const resize = (): void => setWidth(Math.max(SOUND_UI.minCanvasWidth, element.clientWidth));
     const observer = new ResizeObserver(resize); observer.observe(element); resize(); return () => observer.disconnect();
   }, []);
-  const peaks = useMemo(() => pcm ? computePeaks({ sampleRate: pcm.sampleRate, channels: pcm.channels.map(ch => ch.subarray(Math.floor(start * pcm.sampleRate), Math.ceil((start + span) * pcm.sampleRate))) }, Math.ceil(width)) : new Float32Array(0), [pcm, start, span, width]);
+  const peaks = useMemo(() => pcm && width > 0 ? computePeaks({ sampleRate: pcm.sampleRate, channels: pcm.channels.map(ch => ch.subarray(Math.floor(start * pcm.sampleRate), Math.ceil((start + span) * pcm.sampleRate))) }, Math.ceil(width)) : new Float32Array(0), [pcm, start, span, width]);
   useEffect(() => {
-    const element = canvas.current; if (!element) return;
+    const element = canvas.current; if (!element || width <= 0) return;
     const dpr = window.devicePixelRatio || 1;
     const height = SOUND_UI.waveformHeight;
     element.width = width * dpr; element.height = height * dpr;
@@ -37,6 +45,9 @@ export function SoundWaveform({ pcm, playhead, selection, onSeek, onSelect }: So
     const head = (playhead - start) / span * width;
     g.strokeStyle = SOUND_UI.playhead; g.beginPath(); g.moveTo(head, 0); g.lineTo(head, height); g.stroke();
   }, [peaks, width, span, start, selection, playhead]);
+  useInspectorPicker(canvas, inspect && span > 0 ? (point) => soundWaveLevels(inspect, { start, span }, selection, {
+    track: tr('track'), range: (from, to) => t('panel.vibisound.workbench.range', { start: from, end: to }),
+  }, point) : null);
   const at = (clientX: number): number => {
     const rect = canvas.current?.getBoundingClientRect();
     return rect ? start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * span : 0;

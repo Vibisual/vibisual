@@ -18,6 +18,7 @@ import {
 } from '../../apps/canvasFaceKit.js';
 import { fetchWorkspaceMediaBlob } from '../../utils/workspaceMedia.js';
 import { CLIPBOARD_IMAGE_MIME, copyImageToClipboard, resolveClipboardSurface, type ClipboardScope } from '../IDE/imageClipboard.js';
+import { ImageSourceFace } from './ImageSourceFace.js';
 
 /**
  * §5.4 #36 (G) — Vibimage 노드 화면의 안쪽: **캔버스에서 바로 다룬다.**
@@ -59,7 +60,10 @@ async function toClipboardPng(blob: Blob): Promise<Blob | null> {
   }
 }
 
-export function ImageCanvasFace({
+export function ImageCanvasFace(props: AppCanvasFaceProps): React.JSX.Element {
+  return props.workRef ? <ImageSourceFace {...props} workRef={props.workRef} /> : <ImageFileFace {...props} />;
+}
+function ImageFileFace({
   projectId,
   file,
   version,

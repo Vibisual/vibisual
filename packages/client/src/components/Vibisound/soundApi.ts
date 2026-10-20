@@ -26,6 +26,9 @@ export async function createSoundDoc(project: string, title: string, id?: string
 export async function readSoundDoc(project: string, id: string): Promise<SoundEnvelope> {
   return response(await fetch(`${SOUND_API}/doc/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}`));
 }
+export async function copySoundDoc(project: string, id: string, title: string, requestId: string): Promise<SoundEnvelope> {
+  return post(`/doc/${encodeURIComponent(id)}/copy`, { project, title, requestId });
+}
 export async function mutateSoundDoc(project: string, doc: AudioDoc, action: 'patch' | 'undo' | 'redo', ops?: readonly AudioDocOp[]): Promise<SoundEnvelope> {
   const payload = { project, baseVersion: doc.version, requestId: crypto.randomUUID(), actor: 'human', ops };
   // One retry uses the SAME request ID: a lost response must not apply an edit twice.

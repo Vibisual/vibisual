@@ -29,7 +29,7 @@ export function SoundNumberField({ label, value, version, min = 0, max, disabled
       onFocus={() => { focused.current = true; base.current = { value, version }; setError(''); }}
       onChange={event => setDraft(event.target.value)} onBlur={commit}
       onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { setDraft(String(value)); focused.current = false; base.current = { value, version }; } }}
-      className="mt-1 w-full rounded border border-white/10 bg-black/25 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-teal-400/50 disabled:opacity-40" />
+      className="mt-1 w-full rounded border border-white/10 bg-black/25 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-teal-400/50 disabled:opacity-40 pointer-coarse:py-2" />
     {error && <span role="alert" className="mt-1 block text-xs text-amber-300">{error}</span>}
   </label>;
 }

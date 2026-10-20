@@ -5,7 +5,7 @@ import { useAudioDelegate, type AudioDelegateProps } from './useAudioDelegate.js
 import { useSoundProviders } from './useSoundProviders.js';
 
 const PREFIX = 'panel.vibisound.workbench.connections';
-const BUTTON = 'rounded border border-white/10 px-2 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40';
+const BUTTON = 'rounded border border-white/10 px-2 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:py-2';
 const MAX_PROVIDERS = 24;
 
 export interface SoundConnectionsProps extends AudioDelegateProps {}
@@ -37,7 +37,7 @@ function SoundConnectionsBody(props: SoundConnectionsProps): React.JSX.Element {
             <label className="block space-y-1 text-gray-400">
               <span>{t(`${PREFIX}.agent`)}</span>
               <select value={delegate.agentId} onChange={(e) => delegate.selectAgent(e.target.value)} disabled={!delegate.targets.length || delegate.status === 'submitting'}
-                className="w-full min-w-0 rounded border border-white/10 bg-gray-950 px-2 py-1.5 text-gray-200 disabled:opacity-50">
+                className="w-full min-w-0 rounded border border-white/10 bg-gray-950 px-2 py-1.5 text-gray-200 disabled:opacity-50 pointer-coarse:py-2">
                 {!delegate.targets.length && <option value="">{t(`${PREFIX}.noAgent`)}</option>}
                 {delegate.targets.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
               </select>

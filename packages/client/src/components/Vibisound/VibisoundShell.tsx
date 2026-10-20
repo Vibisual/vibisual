@@ -79,13 +79,15 @@ export function VibisoundShell({ params }: AppShellProps): React.JSX.Element {
     <header className={`flex shrink-0 items-center gap-3 border-b border-white/10 px-4 py-3 ${embedded ? '' : 'app-drag'}`}>
       <svg className="h-6 w-6 shrink-0 text-teal-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 10v4m4-7v10m5-14v18m5-14v10m4-7v4" /></svg>
       <div className="min-w-0 flex-1"><h1 className="text-sm font-semibold tracking-wide">Vibisound</h1><p className="truncate text-xs text-slate-500">{tr('subtitle')}</p></div>
-      <span className="text-xs text-slate-400" role="status">{busy || exporting ? tr('working') : doc ? t('panel.vibisound.workbench.saved', { version: doc.version }) : ''}</span>
+      <span className="shrink-0 whitespace-nowrap text-xs text-slate-400" role="status">{busy || exporting ? tr('working') : doc ? t('panel.vibisound.workbench.saved', { version: doc.version }) : ''}</span>
       {!embedded && <WindowControls />}
     </header>
     <ScrollFade fill className="flex-1">
+      {/* 넓은 창은 [목록 | 본체 | 속성] 한 줄. 창 폭이 좁으면(box-compact) 속성이 아래 전폭 줄로 내려가고, 폰 폭(box-narrow)이면 셋이
+          한 줄씩 쌓인다 — 맨 위 목록은 높이를 묶고 따로 스크롤해 본체가 화면 아래로 밀려나지 않게 한다. 기준은 뷰포트가 아니라 창 폭이다. */}
       <div className="flex min-h-full flex-wrap items-start">
-        <aside className="w-56 grow border-b border-white/10 lg:grow-0"><SoundLibrary doc={doc} docs={project.docs} disabled={disabled} open={project.open} create={project.create} importFiles={project.importFiles} /></aside>
-        <main className="min-w-0 flex-[3_1_420px] space-y-4 border-x border-white/10 p-4">
+        <aside className="w-56 border-b border-white/10 box-narrow:max-h-48 box-narrow:basis-full box-narrow:overflow-y-auto"><SoundLibrary doc={doc} docs={project.docs} disabled={disabled} open={project.open} create={project.create} importFiles={project.importFiles} /></aside>
+        <main className="min-w-0 flex-[3_1_420px] space-y-4 border-x border-white/10 p-4 box-compact:flex-[1_1_0%] box-narrow:basis-full box-narrow:border-x-0 box-narrow:p-3">
           {doc ? <>
             <form className="flex gap-2" onSubmit={event => {
               event.preventDefault();
@@ -99,30 +101,32 @@ export function VibisoundShell({ params }: AppShellProps): React.JSX.Element {
               <SoundButton accent disabled={!audio.pcm || audio.loading || !duration} onClick={togglePlay}>{tr(audio.playing ? 'pause' : 'play')}</SoundButton>
               <SoundButton disabled={!audio.pcm} onClick={() => audio.seek(range?.start ?? 0)}>{tr('stop')}</SoundButton>
               <SoundButton accent={loop} aria-pressed={loop} onClick={() => { audio.stop(); setLoop(value => !value); }}>{tr('loop')}</SoundButton>
-              <span className="px-1 font-mono text-xs tabular-nums text-teal-100">{formatClipTime(audio.playhead)} / {formatClipTime(duration)}</span>
+              <span className="whitespace-nowrap px-1 font-mono text-xs tabular-nums text-teal-100">{formatClipTime(audio.playhead)} / {formatClipTime(duration)}</span>
               <SoundButton disabled={disabled || !envelope?.canUndo} onClick={() => void project.history('undo')}>{tr('undo')}</SoundButton>
               <SoundButton disabled={disabled || !envelope?.canRedo} onClick={() => void project.history('redo')}>{tr('redo')}</SoundButton>
             </div>
-            <SoundWaveform pcm={audio.pcm} playhead={audio.playhead} selection={range} onSeek={audio.seek} onSelect={setRange} />
+            <SoundWaveform pcm={audio.pcm} playhead={audio.playhead} selection={range} onSeek={audio.seek} onSelect={setRange}
+              inspect={{ projectId, doc, auditionClipId: source ? selected : null }} />
             <div className="flex flex-wrap items-center gap-2">
               <SoundButton disabled={!clip || audio.loading} accent={source} aria-pressed={source} title={tr('originalHint')} onClick={() => setSource(value => !value)}>{tr(source ? 'playMix' : 'playOriginal')}</SoundButton>
               <span className="flex-1 text-xs text-slate-500">{audio.loading ? tr('preparing') : tr(source ? 'sourceMode' : 'mixMode')}</span>
               <SoundButton disabled={disabled || !audio.mix || !duration} onClick={() => void exportWav(false)}>{tr('export')}</SoundButton>
               <SoundButton disabled={disabled || !audio.mix || !range} onClick={() => void exportWav(true)}>{tr('exportSelection')}</SoundButton>
             </div>
-            <SoundTracks doc={doc} selected={selected} playhead={audio.playhead} busy={disabled} onSelect={setSelected} onSeek={audio.seek} patch={project.patch} />
-            <p className="text-xs leading-relaxed text-slate-500">{tr('selectHint')}</p>
-          </> : <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-teal-500/20 p-8 text-center">
+            <SoundTracks projectId={projectId} doc={doc} selected={selected} playhead={audio.playhead} busy={disabled} onSelect={setSelected} onSeek={audio.seek} patch={project.patch} />
+            <p className="max-w-prose text-xs leading-relaxed text-slate-500">{tr('selectHint')}</p>
+          </> : <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-teal-500/20 p-8 text-center box-narrow:p-5">
             <h2 className="text-lg font-medium text-teal-100">{tr('emptyTitle')}</h2><p className="max-w-md text-sm leading-relaxed text-slate-400">{tr(projectId ? 'emptyHint' : 'noProject')}</p>
           </div>}
           {(project.error || audio.error) && <p role="alert" className="break-words rounded border border-rose-400/20 bg-rose-400/10 p-3 text-xs leading-relaxed text-rose-200">{t('panel.vibisound.workbench.error', { message: project.error || audio.error })}</p>}
           {project.notice && <p role="status" className="break-words rounded bg-teal-400/10 p-3 text-xs text-teal-200">{project.notice}</p>}
         </main>
-        <aside className="min-w-0 flex-[1_1_280px] border-l border-white/5">
+        {/* 아래 줄로 내려가면(box-compact) 왼쪽 선 대신 위 선으로 본체와 가른다. */}
+        <aside className="min-w-0 flex-[1_1_280px] border-l border-white/5 box-compact:basis-full box-compact:border-l-0 box-compact:border-t">
           <h2 className="px-3 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-400">{tr('properties')}</h2>
           {doc ? <SoundInspector doc={doc} clip={clip} sourceDuration={clip ? audio.sourceDurations[clip.assetId] : undefined} selection={range} playhead={audio.playhead} busy={disabled} patch={project.patch} /> : <p className="p-3 text-xs text-slate-500">{tr('selectClip')}</p>}
           <div className="border-t border-white/10 p-3"><SoundConnections projectId={projectId} doc={doc} selectedClipId={selected} selection={range} disabled={disabled} /></div>
-          <details className="border-t border-white/10 p-3 text-xs text-slate-400"><summary className="cursor-pointer">{tr('history')}</summary><div className="mt-3 space-y-2">
+          <details className="border-t border-white/10 p-3 text-xs text-slate-400"><summary className="cursor-pointer pointer-coarse:py-2">{tr('history')}</summary><div className="mt-3 space-y-2">
             {envelope?.history?.length ? envelope.history.slice(-10).reverse().map(item => <p key={`${item.version}-${item.requestId}`}>{t('panel.vibisound.workbench.version', { version: item.version })} · {item.actor ?? 'Vibisound'}</p>) : <p>{tr('emptyHistory')}</p>}
           </div></details>
         </aside>

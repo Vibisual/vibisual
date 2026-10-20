@@ -3,7 +3,7 @@ import type { AudioProviderCapability, AudioProviderDraft } from '@vibisual/audi
 
 const CAPABILITIES: readonly AudioProviderCapability[] = ['generate', 'transcribe', 'separate', 'enhance'];
 const PREFIX = 'panel.vibisound.workbench.connections';
-const FIELD = 'w-full min-w-0 rounded border border-white/10 bg-gray-950 px-2 py-1.5 text-xs text-gray-200 disabled:opacity-50';
+const FIELD = 'w-full min-w-0 rounded border border-white/10 bg-gray-950 px-2 py-1.5 text-xs text-gray-200 disabled:opacity-50 pointer-coarse:py-2';
 
 interface SoundProviderDraftProps {
   provider: AudioProviderDraft;
@@ -18,7 +18,7 @@ export function SoundProviderDraft({ provider, disabled, onChange, onRemove }: S
     <fieldset disabled={disabled} className="space-y-2 rounded border border-white/10 p-2.5 disabled:opacity-50">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-amber-200/80">{t(`${PREFIX}.notConnected`)}</span>
-        <button type="button" onClick={onRemove} className="text-xs text-gray-400 hover:text-rose-300">{t(`${PREFIX}.remove`)}</button>
+        <button type="button" onClick={onRemove} className="shrink-0 text-xs text-gray-400 hover:text-rose-300 pointer-coarse:px-2 pointer-coarse:py-2">{t(`${PREFIX}.remove`)}</button>
       </div>
       <label className="block space-y-1 text-xs text-gray-400">
         <span>{t(`${PREFIX}.kind`)}</span>
