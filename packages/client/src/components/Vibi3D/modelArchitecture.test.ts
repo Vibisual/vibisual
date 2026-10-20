@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { isDeepStrictEqual } from 'node:util';
 import * as THREE from 'three';
 import { VIBI3D_ARCHITECTURE_KINDS, VIBI3D_PROP_KINDS, validateVibi3DArchitectureRecipe, validateVibi3DRecipe, type Vibi3DArchitectureRecipe, type Vibi3DRecipe } from '@vibisual/shared';
 import { buildArchitectureObject, defaultArchitectureRecipe } from './modelArchitecture.js';
@@ -22,9 +23,9 @@ const meshes = (root: THREE.Object3D): THREE.Mesh[] => { const result: THREE.Mes
 describe('native architecture recipes', () => {
   it.each(VIBI3D_ARCHITECTURE_KINDS)('%s has deterministic identities, exact recipes, materials and a source round trip', async kind => {
     const recipe = defaultArchitectureRecipe(kind), first = buildArchitectureObject(recipe, 'same-owner'), second = buildArchitectureObject(recipe, 'same-owner');
-    // Keep a mismatch report compact instead of dumping embedded pixel arrays into the test log.
-    const firstJson = JSON.stringify(serializeModelSource(first, [])), secondJson = JSON.stringify(serializeModelSource(second, []));
-    expect(firstJson === secondJson).toBe(true);
+    // Compare every saved field and pixel without allocating two large JSON strings or expanding their diff.
+    const firstSource = serializeModelSource(first, []);
+    expect(isDeepStrictEqual(firstSource, serializeModelSource(second, []))).toBe(true);
     const ids = new Set<string>(); first.traverse(node => {
       expect(node.userData['vibi3dArchitectureOwner']).toBe('same-owner'); expect(node.userData['vibi3dArchitectureKey']).toBeTruthy();
       expect(ids.has(node.userData['vibi3dId'])).toBe(false); ids.add(node.userData['vibi3dId']);
@@ -36,12 +37,13 @@ describe('native architecture recipes', () => {
       const original = foliageRecipe ? architectureFoliageGeometry(foliageRecipe) : makeGeometry(geometryRecipe);
       if (mesh.geometry.userData['vibi3dMetricUvProjection']) original.userData['vibi3dMetricUvProjection'] = structuredClone(mesh.geometry.userData['vibi3dMetricUvProjection']);
       const regenerated = metricUvGeometry(original, mesh.getWorldScale(new THREE.Vector3()));
-      expect(mesh.geometry.getAttribute('position').array).toEqual(regenerated.getAttribute('position').array);
-      expect(mesh.geometry.getAttribute('uv').array).toEqual(regenerated.getAttribute('uv').array);
+      // Native typed-array comparison retains every coordinate and UV check without per-element matcher overhead.
+      expect(isDeepStrictEqual(mesh.geometry.getAttribute('position').array, regenerated.getAttribute('position').array), `${mesh.name} positions`).toBe(true);
+      expect(isDeepStrictEqual(mesh.geometry.getAttribute('uv').array, regenerated.getAttribute('uv').array), `${mesh.name} UVs`).toBe(true);
       const material = mesh.material as THREE.MeshStandardMaterial; expect(material.map).toBeTruthy(); expect(material.normalMap).toBeTruthy(); expect(material.roughnessMap).toBeTruthy();
       original.dispose(); regenerated.dispose();
     }
-    const loaded = await loadModelSource(JSON.parse(firstJson));
+    const loaded = await loadModelSource(JSON.parse(JSON.stringify(firstSource)));
     expect(loaded.object.userData['vibi3dArchitectureRecipe']).toEqual(first.userData['vibi3dArchitectureRecipe']);
     expect(meshes(loaded.object).map(node => node.userData['vibi3dId'])).toEqual(meshes(first).map(node => node.userData['vibi3dId']));
   });
