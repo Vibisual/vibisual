@@ -250,6 +250,15 @@ describe('extractFileWrites — 캔버스 파일 버블은 사후에만 흘린�
     expect(extractFileWrites(line)).toEqual([]);
   });
 
+  it('§5.25 (F) — 적용에 실패한 패치(`status: failed`)는 완료 줄이어도 쓰기가 아니다', () => {
+    const failed =
+      '{"type":"item.completed","item":{"id":"f2","type":"file_change","status":"failed","changes":[{"path":"src/a.ts","kind":"update"}]}}';
+    expect(extractFileWrites(failed)).toEqual([]);
+    const applied =
+      '{"type":"item.completed","item":{"id":"f3","type":"file_change","status":"completed","changes":[{"path":"src/a.ts","kind":"update"}]}}';
+    expect(extractFileWrites(applied)).toEqual(['src/a.ts']);
+  });
+
   it('JSON 이 아니거나 모양이 다르면 빈 배열', () => {
     expect(extractFileWrites('')).toEqual([]);
     expect(extractFileWrites('codex banner line')).toEqual([]);

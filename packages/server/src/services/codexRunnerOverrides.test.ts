@@ -100,6 +100,17 @@ describe.each([undefined, 'existing-thread'])('runCodexTurn — 고급 설정이
  * (세 OS 의 조립 규칙 자체는 `codexRunner.test.ts` 가 `platform` 인자로 전부 잰다).
  */
 describe('runCodexTurn — Windows 샌드박스 키가 비었는지가 스폰 인자에 닿는다', () => {
+  it('returns a clear local-transport failure before spawn when a selected profile explicitly blocks networking', () => {
+    vi.mocked(readCodexEffectiveConfigFor).mockReturnValue(configWith({ networkAccess: false }));
+    const onDone = vi.fn();
+    runCodexTurn({
+      subAgentId: 'codex-local-transport-blocked', cwd: process.cwd(), model: 'test-model', prompt: 'Test prompt',
+      executionRequirements: { localTransport: true },
+      onEvent: vi.fn(), onThread: vi.fn(), onUsage: vi.fn(), onFileWrites: vi.fn(), onDone,
+    });
+    expect(spawn).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledWith(expect.stringContaining('local-transport-network-required'), '');
+  });
   function spawnArgs(): readonly string[] {
     runCodexTurn({
       subAgentId: 'codex-windows-sandbox-test', cwd: process.cwd(), model: 'test-model', prompt: 'Test prompt',

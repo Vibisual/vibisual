@@ -17,6 +17,7 @@ import { logger } from '../logger.js';
 import { dbgOnChange } from './debugLog.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
+import { stripTranscriptMarkdown, stripTranscriptTags } from './transcriptPlainText.js';
 import { registerEvictableCache } from './memoryMonitor.js';
 import { killTree, processGroupSpawnOptions } from './processTree.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
@@ -623,9 +624,7 @@ function scanTitleLine(line: string): { title: string | null } | null {
       if (typeof block !== 'object' || block === null) continue;
       const b = block as Record<string, unknown>;
       if (b['type'] === 'text' && typeof b['text'] === 'string') {
-        let text = b['text']
-          .replace(/<[^>]+>/g, '')  // XML 태그 제거
-          .trim();
+        let text = stripTranscriptTags(b['text']).trim();
         if (text.length > MAX_TITLE_LENGTH) {
           text = text.slice(0, MAX_TITLE_LENGTH) + '…';
         }
@@ -791,24 +790,6 @@ export function getSessionJsonlPath(cwd: string, sessionId: string): string {
   );
 }
 
-/** 마크다운/코드블록 제거하여 깨끗한 텍스트로 변환 */
-function stripMarkdown(raw: string): string {
-  return raw
-    .replace(/```[\s\S]*?```/g, '')           // 코드블록 제거
-    .replace(/`([^`]+)`/g, '$1')              // 인라인 코드 → 텍스트만
-    .replace(/<[^>]+>/g, '')                   // XML/HTML 태���
-    .replace(/^#{1,6}\s+/gm, '')              // 마크다운 헤더
-    .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1') // bold/italic
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [링크](url) → 텍스트만
-    .replace(/^[\s]*[-*]\s+/gm, '')           // 불릿 마커
-    .replace(/^[\s]*\d+\.\s+/gm, '')         // 숫자 리스트 마커
-    .replace(/^[\s]*[-]{3,}[\s]*$/gm, '')       // 수평선 (단독 줄만)
-    .replace(/^\|[-\s|:]+\|$/gm, '')          // 테이블 구분선 (|---|---|)
-    .replace(/\|/g, ' ')                       // 테이블 파이프 → 공백
-    .replace(/\n{3,}/g, '\n\n')               // 과도한 줄바꿈 축소
-    .trim();
-}
-
 /** JSONL 엔트리에서 텍스트 블록 추출 */
 function extractText(entry: Record<string, unknown>): string | null {
   const msg = entry['message'] as Record<string, unknown> | undefined;
@@ -818,7 +799,7 @@ function extractText(entry: Record<string, unknown>): string | null {
   //   블록 배열). 문자열만 처리하던 기존 분기는 이를 건너뛰어 사용자가 친 입력이 Results 에서 누락됐다.
   const content = msg['content'];
   if (typeof content === 'string') {
-    const cleaned = stripMarkdown(content);
+    const cleaned = stripTranscriptMarkdown(content);
     return cleaned || null;
   }
   if (!Array.isArray(content)) return null;
@@ -828,7 +809,7 @@ function extractText(entry: Record<string, unknown>): string | null {
     if (typeof block !== 'object' || block === null) continue;
     const b = block as Record<string, unknown>;
     if (b['type'] === 'text' && typeof b['text'] === 'string') {
-      const cleaned = stripMarkdown(b['text']);
+      const cleaned = stripTranscriptMarkdown(b['text']);
       if (cleaned) texts.push(cleaned);
     }
   }

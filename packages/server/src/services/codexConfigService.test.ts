@@ -93,6 +93,16 @@ describe('scanCodexConfigToml — 필요한 키만 훑는다', () => {
 });
 
 describe('readCodexEffectiveConfig — 코덱스와 같은 순서', () => {
+  it.each(['win32', 'darwin', 'linux'] as const)('reads selected file-based profile network refusal on %s', (platform) => {
+    const p = platform === 'win32' ? path.win32 : path.posix;
+    const home = platform === 'win32' ? 'C:\\fixtures\\codex' : '/fixtures/codex';
+    const files = memFs({
+      [p.join(home, 'config.toml')]: 'profile = "offline"\n[sandbox_workspace_write]\nnetwork_access = true',
+      [p.join(home, 'offline.config.toml')]: '[sandbox_workspace_write]\nnetwork_access = false',
+    });
+    const result = readCodexEffectiveConfig({ cwd: home, codexHomeDir: home, platform, ...files });
+    expect(result.layers[0]).toMatchObject({ source: 'profile', profile: 'offline', values: { networkAccess: false } });
+  });
   it('win32 — 신뢰한 저장소는 작업 폴더에서 루트까지 가까운 쪽부터, 그다음 사용자 파일', () => {
     const w = path.win32;
     const home = 'C:\\Users\\u\\.codex'; // privacy-ok — 테스트 픽스처

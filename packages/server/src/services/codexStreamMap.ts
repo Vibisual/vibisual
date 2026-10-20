@@ -241,10 +241,15 @@ export function mapCodexLine(line: string, platform: NodeJS.Platform = process.p
     case 'error': {
       // 턴을 끝내지는 않는다 — 사용량 한도처럼 곧이어 `turn.failed` 가 따라오는 경우가 있고,
       //   경고성 error(모델 메타데이터 없음 등)만 오고 턴은 계속되는 경우도 있다.
-      const message = str(o['message']) || 'error';
+      const nestedError = o['error'];
+      const errorBody = nestedError && typeof nestedError === 'object' && !Array.isArray(nestedError)
+        ? nestedError as Record<string, unknown> : undefined;
+      const message = str(o['message']) || str(errorBody?.['message']) || str(nestedError) || 'error';
       // CLI recovery is progress, not terminal failure. Preserve the diagnostic for history.
       const eventType = parseCodexTransportNotice(message) ? 'system' : 'error';
-      return { events: [{ eventType, content: message }] };
+      // Keep nested provider responses intact for guidance and expandable diagnostics.
+      const content = !str(o['message']) && errorBody && eventType === 'error' ? trimmed : message;
+      return { events: [{ eventType, content }] };
     }
 
     case 'item.started':

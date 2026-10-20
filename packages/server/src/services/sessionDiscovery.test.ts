@@ -69,6 +69,15 @@ function fullLastAssistant(): string | null {
 }
 
 describe('readUserMessages — 증분 == 전량 재스캔', () => {
+  it('문자열 사용자 본문과 블록형 응답을 같은 표시 규칙으로 정리한다', () => {
+    append([userLine('# Question\n[link](url)'), assistantLine('**Done** <tag>result</tag>')]);
+    const events = readUserMessagesByPath(fp);
+    expect(events[0]?.message).toBe('Question\nlink');
+    expect(events[0]?.response).toBe('Done result');
+    expect(readLastAssistantMessageByPath(fp)).toBe('Done result');
+    expect(readUserMessagesByPath(fp)).toEqual(events);
+  });
+
   it('append 를 나눠 먹여도 전량 재스캔과 같다', () => {
     append([userLine('첫 질문'), assistantLine('첫 답')]);
     const warmed = readUserMessagesByPath(fp); // 캐시 워밍(증분 경로 재현)

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import path from 'node:path';
 import type { AgentConfig, QueuedCommand } from '@vibisual/shared';
 import type { CodexTurnArgs } from './codexRunner.js';
 
@@ -33,6 +34,7 @@ function makeCommand(subAgentId: string): QueuedCommand {
     status: 'queued',
     subAgentId,
     attachments: ['C:/tmp/reference one.png'],
+    executionRequirements: { localTransport: true },
   };
 }
 
@@ -135,6 +137,7 @@ describe('Codex Agent Studio 실행 연결', () => {
     expect(lastTurnArgs).not.toBeNull();
     expect(lastTurnArgs).toMatchObject({ reasoningSummary: 'concise', personality: 'friendly', serviceTier: 'fast', autoCompactTokenLimit: 90000, networkAccess: false });
     expect(lastTurnArgs!.images).toEqual(cmd.attachments);
+    expect(lastTurnArgs!.executionRequirements).toEqual(cmd.executionRequirements);
     expect(lastTurnArgs!.contextArgs).toEqual(['-c', 'developer_instructions=""']);
     expect(lastTurnArgs!.edgeConfig?.edgeIds).toEqual(['edge-target']);
     expect(lastTurnArgs!.edgeConfig?.restrictedTools).toEqual(['Read']);
@@ -172,5 +175,83 @@ describe('Codex Agent Studio 실행 연결', () => {
     expect(lastTurnArgs!.prompt).not.toContain('mcp__vibisual_edges__dispatch');
     expect(lastTurnArgs!.prompt.match(/FILTERED CONTEXT/g)).toHaveLength(1);
     lastTurnArgs!.onDone(undefined, 'done');
+  });
+});
+
+/**
+ * §5.25 (F) "쓴 내용도 남는다" — 사용자 보고(2026-10-20): 코덱스가 고친 파일에 쓰기 화살표는 서는데 파일을
+ * 눌러도 쓴 내용이 비었다. `file_change` 는 경로만 싣기 때문이다. 사전 훅이 허락한 패치를 sub 장부에 적고,
+ * 그 파일의 완료가 꺼내 **같은 사후 `Write` 이벤트에 실어** 방출기로 보내는지 고정한다.
+ */
+describe('코덱스 패치 덩어리 → 파일 쓰기 이벤트', () => {
+  const PATCH = [
+    '*** Begin Patch',
+    '*** Update File: src/pathLinkContextMenu.ts',
+    '@@',
+    '-  /** `POST /api/reveal-path` — 파일이면 그 파일이 든 폴더. */',
+    '+  /** `POST /api/reveal-path` — 파일이면 상위 폴더에서 해당 파일 선택. */',
+    '*** End Patch',
+  ].join('\n');
+  const target = (): string => path.join(process.cwd(), 'src', 'pathLinkContextMenu.ts');
+  const notePatch = (subId: string): number => subAgentManager.noteCodexPatch(subId, {
+    cwd: process.cwd(), toolName: 'apply_patch', toolInput: { command: PATCH }, toolUseId: 'call-patch-1',
+  });
+
+  it('허락된 패치의 덩어리가 그 파일의 완료 이벤트에 한 번만 실린다', () => {
+    const sub = subAgentManager.create('agent-codex-patch', 'sub-codex-patch');
+    created.push(sub.id);
+    const emitted = vi.fn();
+    subAgentManager.setLocalHookEmitter(emitted);
+    try {
+      subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+      expect(notePatch(sub.id)).toBe(1);
+      lastTurnArgs!.onFileWrites([target()]);
+      expect(emitted).toHaveBeenCalledExactlyOnceWith(
+        { agentId: sub.parentAgentId, subAgentId: sub.id },
+        expect.objectContaining({
+          phase: 'post',
+          toolName: 'Write',
+          toolInput: { path: target() },
+          fileEdit: expect.objectContaining({
+            oldString: '  /** `POST /api/reveal-path` — 파일이면 그 파일이 든 폴더. */',
+            newString: '  /** `POST /api/reveal-path` — 파일이면 상위 폴더에서 해당 파일 선택. */',
+          }),
+        }),
+      );
+      expect(String(emitted.mock.calls[0]?.[1].fileEdit.id).startsWith('call-patch-1:')).toBe(true);
+
+      // 같은 파일의 다음 완료(장부가 빈 쓰기)는 버블·화살표만 — 같은 이력을 두 번 붙이지 않는다.
+      emitted.mockClear();
+      lastTurnArgs!.onFileWrites([target()]);
+      expect(emitted).toHaveBeenCalledTimes(1);
+      expect(emitted.mock.calls[0]?.[1].fileEdit).toBeUndefined();
+      lastTurnArgs!.onDone(undefined, 'done');
+    } finally {
+      subAgentManager.setLocalHookEmitter(() => { /* restore neutral test emitter */ });
+    }
+  });
+
+  it('지난 턴에 적용되지 못한 패치 칸은 다음 턴의 같은 파일에 붙지 않는다', () => {
+    const sub = subAgentManager.create('agent-codex-patch-stale', 'sub-codex-patch-stale');
+    created.push(sub.id);
+    const emitted = vi.fn();
+    subAgentManager.setLocalHookEmitter(emitted);
+    try {
+      subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+      expect(notePatch(sub.id)).toBe(1); // 허락은 됐지만 적용 전에 턴이 끝났다
+      lastTurnArgs!.onDone(undefined, 'done');
+
+      subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+      lastTurnArgs!.onFileWrites([target()]); // 이번 턴의 쓰기 — 훅이 적은 것이 없다
+      expect(emitted).toHaveBeenCalledTimes(1);
+      expect(emitted.mock.calls[0]?.[1].fileEdit).toBeUndefined();
+      lastTurnArgs!.onDone(undefined, 'done');
+    } finally {
+      subAgentManager.setLocalHookEmitter(() => { /* restore neutral test emitter */ });
+    }
+  });
+
+  it('모르는 sub 의 패치는 적지 않는다', () => {
+    expect(notePatch('sub-does-not-exist')).toBe(0);
   });
 });

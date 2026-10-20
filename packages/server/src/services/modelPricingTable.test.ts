@@ -73,9 +73,11 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
     ['claude-opus-4-8', 5, 25, 0.5, 6.25, 1_000_000],
     ['claude-opus-4-5', 5, 25, 0.5, 6.25, 200_000],
     ['claude-opus-4-1', 15, 75, 1.5, 18.75, 200_000],
+    ['claude-sonnet-5-5', 2, 10, 0.1, 2.5, 1_000_000], // 캐시 읽기만 0.05× (확인 2026-10-15)
     ['claude-sonnet-5', 2, 10, 0.2, 2.5, 1_000_000],
     ['claude-sonnet-4-6', 3, 15, 0.3, 3.75, 1_000_000],
     ['claude-sonnet-4-5', 3, 15, 0.3, 3.75, 200_000],
+    ['claude-haiku-5-5', 0.1, 0.5, 0.01, 0.125, 1_000_000], // 10만 토큰 이하 구간 — 초과는 아래 구간 요금 블록
     ['claude-haiku-4-5', 1, 5, 0.1, 1.25, 200_000],
   ];
 
@@ -92,8 +94,15 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
     for (const [id, p] of Object.entries(MODEL_PRICING)) {
       if (!id.startsWith('claude-')) continue;
       expect(p.cacheWrite, `${id} 캐시쓰기 = 입력가 × 1.25`).toBe(round(p.input * 1.25));
-      // 표준은 0.1×, Fable/Mythos 5.1 세대는 0.025×, Opus 5.5 는 0.05×(가격표 각주).
+      // 표준은 0.1×, Fable/Mythos 5.1 세대는 0.025×, Opus 5.5·Sonnet 5.5 는 0.05×(가격표 각주).
       expect([round(p.input * 0.1), round(p.input * 0.05), round(p.input * 0.025)], `${id} 캐시읽기 배수`).toContain(p.cacheRead);
+      // 장문 구간도 같은 규칙으로 파생한다 — 구간마다 손으로 옮겨 적으면 한쪽만 틀어진다.
+      const long = p.longPrompt;
+      if (long) {
+        expect(long.cacheWrite, `${id} 장문 캐시쓰기`).toBe(round(long.input * 1.25));
+        expect(long.cacheRead / long.input, `${id} 장문 캐시읽기 배수 = 기본 구간 배수`).toBeCloseTo(p.cacheRead / p.input);
+        expect(long.input, `${id} 장문 단가가 기본보다 싸면 자리 바뀜`).toBeGreaterThan(p.input);
+      }
     }
   });
 
@@ -196,9 +205,26 @@ describe('모델 테이블 — 폴백', () => {
     // 시드에 없는 미래 ID — 패밀리 디폴트가 받는다.
     expect(getModelPricing('claude-fable-9').input).toBe(10);
     expect(getModelContextLimit('claude-fable-9')).toBe(1_000_000);
-    expect(getModelPricing('claude-sonnet-9').input).toBe(2);
-    expect(getModelPricing('claude-haiku-9').input).toBe(1);
-    expect(getModelContextLimit('claude-haiku-9')).toBe(200_000);
+    expect(getModelPricing('claude-opus-9')).toEqual(MODEL_PRICING['claude-opus-5-5']);
+    expect(getModelPricing('claude-sonnet-9')).toEqual(MODEL_PRICING['claude-sonnet-5-5']);
+    // 종전 haiku 디폴트는 Haiku 4.5($1/$5·200K)라 시드가 놓친 Haiku 5.5 가 비용 10배·컨텍스트 5배 과소로 보였다.
+    expect(getModelPricing('claude-haiku-9')).toEqual(MODEL_PRICING['claude-haiku-5-5']);
+    expect(getModelContextLimit('claude-haiku-9')).toBe(1_000_000);
+  });
+
+  it('패밀리 디폴트는 그 패밀리의 시드 최신과 같은 값이다 — 한 세대 뒤처지면 여기서 깨진다', () => {
+    for (const family of ['fable', 'opus', 'sonnet', 'haiku'] as const) {
+      const newest = AVAILABLE_AGENT_MODEL_FULL_IDS
+        .filter((id) => parseFamilyFromFullId(id) === family)
+        .sort((a, b) => {
+          const [aMaj, aMin] = parseModelSemver(a);
+          const [bMaj, bMin] = parseModelSemver(b);
+          return bMaj - aMaj || bMin - aMin;
+        })[0];
+      expect(newest, `${family} 시드 최신`).toBeDefined();
+      expect(MODEL_FAMILY_DEFAULTS[family].pricing, `${family} 디폴트 단가`).toEqual(MODEL_PRICING[newest!]);
+      expect(MODEL_FAMILY_DEFAULTS[family].contextWindow, `${family} 디폴트 컨텍스트`).toBe(MODEL_CONTEXT_LIMITS[newest!]);
+    }
   });
 
   it('모델 ID 가 없으면 폴백', () => {
@@ -229,8 +255,44 @@ describe('alias 는 그 패밀리의 진짜 최신을 가리킨다', () => {
 
   it('나머지 패밀리 최신도 고정', () => {
     expect(newestSeedOf('opus')).toBe('claude-opus-5-5');
-    expect(newestSeedOf('sonnet')).toBe('claude-sonnet-5');
-    expect(newestSeedOf('haiku')).toBe('claude-haiku-4-5');
+    expect(newestSeedOf('sonnet')).toBe('claude-sonnet-5-5');
+    expect(newestSeedOf('haiku')).toBe('claude-haiku-5-5');
+  });
+});
+
+describe('길이 구간 요금 — Haiku 5.5', () => {
+  // 공개 가격표: 프롬프트(입력 + 캐시 읽기 + 캐시 쓰기)가 10만 토큰을 **넘는** 요청은 그 요청 전체가
+  // $0.50/$2.50(캐시 읽기 $0.05·쓰기 $0.625), 이하는 $0.10/$0.50. 확인 2026-10-15.
+  it('시드가 두 구간을 모두 든다', () => {
+    const p = MODEL_PRICING['claude-haiku-5-5'];
+    expect(p?.longPrompt).toEqual({ aboveTokens: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 });
+  });
+
+  it('요청 한 번의 프롬프트가 문턱을 넘으면 장문 단가로 센다', () => {
+    // 입력 50K + 캐시 읽기 60K = 110K > 100K
+    const cost = calculateTokenCost(50_000, 1_000, 60_000, 0, 'claude-haiku-5-5', null, { singleRequest: true });
+    expect(cost.input).toBeCloseTo(0.025);
+    expect(cost.output).toBeCloseTo(0.0025);
+    expect(cost.cacheRead).toBeCloseTo(0.003);
+    expect(cost.total).toBeCloseTo(0.0305);
+  });
+
+  it('문턱과 같으면 아직 기본 단가다 ("over 100,000")', () => {
+    const cost = calculateTokenCost(40_000, 1_000, 50_000, 10_000, 'claude-haiku-5-5', null, { singleRequest: true });
+    expect(cost.input).toBeCloseTo(0.004);
+    expect(cost.cacheRead).toBeCloseTo(0.0005);
+    expect(cost.cacheWrite).toBeCloseTo(0.00125);
+  });
+
+  it('합산 호출에는 문턱을 대지 않는다 — 짧은 요청이 모여 전부 5배가 되면 안 된다', () => {
+    const summed = calculateTokenCost(50_000, 1_000, 60_000, 0, 'claude-haiku-5-5');
+    expect(summed.total).toBeCloseTo(0.0061);
+  });
+
+  it('구간이 없는 모델은 singleRequest 여도 그대로다', () => {
+    const a = calculateTokenCost(500_000, 1_000, 400_000, 0, 'claude-opus-5-5', null, { singleRequest: true });
+    const b = calculateTokenCost(500_000, 1_000, 400_000, 0, 'claude-opus-5-5');
+    expect(a).toEqual(b);
   });
 });
 

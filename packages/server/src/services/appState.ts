@@ -8,9 +8,11 @@ import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTa
   normalizePluginRefreshSettings, CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP,
   normalizeClosedTabEntries, pushClosedTabEntry, takeClosedTabEntry, pruneMissingClosedTabs,
   normalizeIDEActivityBarPrefs,
+  normalizeWebGroupSettings, WEB_GROUP_DEFAULTS,
   type BackgroundTaskProbeSettings,
   type ProcessGuardSettings,
   type IDEActivityBarPrefs,
+  type WebGroupSettings,
   type SessionLivenessProbeSettings, normalizeTokenSaverSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
@@ -202,10 +204,13 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
       ? normalizeExternalTopBudget(raw.externalTopBudget)
       : undefined,
     // §5.23 접어 보기 — 같은 규약: 켜고 끈 적이 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸을 떨군다.
+    //   종전 설정이라 이제 읽기(이주)만 한다 — `appStateGetWebGroup` 참조.
     webFoldPerAgent: typeof raw.webFoldPerAgent === 'boolean' ? raw.webFoldPerAgent : undefined,
+    // §5.23 웹 버블 묶기 — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
+    webGroup: raw.webGroup ? normalizeWebGroupSettings(raw.webGroup) : undefined,
     // §6 — 같은 규약: **바꾼 것만** 저장돼 있고, 없으면 undefined 로 두어 코드의 기본 바인딩을
     //   따라간다(다음 판올림에서 기본값을 고치면 안 건드린 칸은 자동으로 새 값이 된다).
-    keymap: raw.keymap ? normalizeKeymapOverrides(raw.keymap) : undefined,
+    keymap: raw.keymap ? normalizeKeymapOverrides(raw.keymap, process.platform) : undefined,
     // §5.5 #16-1 — 같은 규약: 만진 적 없으면 undefined 로 두어 코드의 기본 순서를 따라간다
     //   (그래야 다음 판올림에서 활동바 항목을 늘려도 안 건드린 사용자에게 그대로 나타난다).
     ideActivityBar: normalizeIDEActivityBarPrefs(raw.ideActivityBar),
@@ -332,7 +337,7 @@ export function saveAppState(state: AppState): void {
     sessionProbeMemo = null; // 같은 이유 — 세션 판정 설정도 같은 창구를 탄다.
     processGuardMemo = null; // 같은 이유 — 자손 프로세스 보호(§5.3 #9-2)도 같은 창구를 탄다.
     externalTopBudgetMemo = null; // 같은 이유 — 외부 폴더 예산(§2.1 (B))도 같은 창구를 탄다.
-    webFoldPerAgentMemo = null; // 같은 이유 — 웹 버블 접어 보기(§5.23)도 같은 창구를 탄다.
+    webGroupMemo = null; // 같은 이유 — 웹 버블 묶기(§5.23)도 같은 창구를 탄다.
     keymapMemo = null; // 같은 이유 — 단축키(§6)도 같은 창구를 탄다.
     ideActivityBarMemo = null; // 같은 이유 — 활동바 구성(§5.5 #16-1)도 같은 창구를 탄다.
   } catch (err) {
@@ -501,26 +506,37 @@ export function appStateSetExternalTopBudget(value: unknown): number {
   return next;
 }
 
-let webFoldPerAgentMemo: boolean | null = null;
+let webGroupMemo: WebGroupSettings | null = null;
 
 /**
- * §5.23 접어 보기 — 켜면 에이전트마다 웹 버블 하나로 접는다. 저장된 값이 없으면 꺼짐.
+ * §5.23 웹 버블 묶기 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개.
  *
- * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 보기여야 한다).
+ * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
+ * 저장된 값이 없으면 `WEB_GROUP_DEFAULTS`(켬). **설정 이주** — 묶기를 저장한 적이 없고 종전 접어 보기
+ * (`webFoldPerAgent: true`)를 켜 둔 사용자는 최대 1개로 읽는다(그 체크박스가 이 숫자의 1 로 흡수됐다).
  */
-export function appStateGetWebFoldPerAgent(): boolean {
-  if (webFoldPerAgentMemo !== null) return webFoldPerAgentMemo;
-  webFoldPerAgentMemo = loadAppState().webFoldPerAgent === true;
-  return webFoldPerAgentMemo;
+export function appStateGetWebGroup(): WebGroupSettings {
+  if (webGroupMemo !== null) return { ...webGroupMemo };
+  const state = loadAppState();
+  webGroupMemo = state.webGroup
+    ? normalizeWebGroupSettings(state.webGroup)
+    : state.webFoldPerAgent === true
+      ? { ...WEB_GROUP_DEFAULTS, maxPerAgent: 1 }
+      : { ...WEB_GROUP_DEFAULTS };
+  return { ...webGroupMemo };
 }
 
-/** 접어 보기 켜고 끄기 → 저장. 불리언이 아닌 값은 꺼짐으로 읽는다(넘겨짚어 켜지 않는다). */
-export function appStateSetWebFoldPerAgent(value: unknown): boolean {
-  const next = value === true;
+/**
+ * 묶기 설정 저장. **준 칸만 바꾼다** — 빠진 칸은 지금 값을 지킨다(부분 페이로드가 나머지를 기본값으로 덮지 않게).
+ * 정규화는 shared 한 곳. 반환은 저장된 최종본(범위로 접힌 값일 수 있다).
+ */
+export function appStateSetWebGroup(value: unknown): WebGroupSettings {
+  const patch = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  const next = normalizeWebGroupSettings({ ...appStateGetWebGroup(), ...patch });
   const current = loadAppState();
-  saveAppState({ ...current, webFoldPerAgent: next });
-  webFoldPerAgentMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
-  return next;
+  saveAppState({ ...current, webGroup: next });
+  webGroupMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return { ...next };
 }
 
 let keymapMemo: KeymapOverrides | null = null;
@@ -532,7 +548,7 @@ let keymapMemo: KeymapOverrides | null = null;
  */
 export function appStateGetKeymap(): KeymapOverrides {
   if (keymapMemo) return keymapMemo;
-  keymapMemo = normalizeKeymapOverrides(loadAppState().keymap);
+  keymapMemo = normalizeKeymapOverrides(loadAppState().keymap, process.platform);
   return keymapMemo;
 }
 
@@ -550,7 +566,7 @@ export function appStateSetKeymap(
   const merged: Record<string, string | null> = { ...appStateGetKeymap() };
   for (const [id, value] of Object.entries(patch)) merged[id] = value;
   for (const id of resetKeys) delete merged[id];
-  const normalized = normalizeKeymapOverrides(merged);
+  const normalized = normalizeKeymapOverrides(merged, process.platform);
   const current = loadAppState();
   saveAppState({ ...current, keymap: normalized });
   keymapMemo = normalized; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.

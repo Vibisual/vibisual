@@ -1402,6 +1402,11 @@ export interface LocalHookToolEvent {
   cwd: string;
   /** 사후에만. 이 도구가 걸린 시간(ms). */
   durationMs?: number;
+  /**
+   * 사후에만, 있을 때만. 이 쓰기의 수정 이력 한 줄 — §5.25 (F) 코덱스 `apply_patch` 의 바뀐 덩어리.
+   * 훅 페이로드에는 싣지 않는다(그래프가 아는 도구 입력 모양이 아니다) — 방출기가 노드를 세운 뒤 따로 붙인다.
+   */
+  fileEdit?: { id: string; oldString: string; newString: string };
 }
 
 /** 진행 중인 턴 — [중지]가 자식 kill 이 아니라 생성 중단이라 여기서 붙잡는다. */

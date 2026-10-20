@@ -1,49 +1,13 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { type Vibi3DSnapshot, type Vibi3DCommandRequest, type Vibi3DCommandResult } from '@vibisual/shared';
+import { randomUUID } from 'node:crypto';
+import { sameSecret, viewKey, readImage, assertDocumentOwner, acknowledgementStats, Vibi3DError, type Vibi3DBrokerSession as Session } from './vibi3dBrokerSupport.js';
+export { Vibi3DError } from './vibi3dBrokerSupport.js';
+import { getVibi3DRequestTimeoutMs, type Vibi3DSnapshot, type Vibi3DCommandRequest, type Vibi3DCommandResult,
+  type Vibi3DWorkflowResult } from '@vibisual/shared';
 
 const LIVE_MS = 30_000;
 const EXPIRE_MS = 5 * 60_000;
-const COMMAND_MS = 20_000;
 const MAX_SESSIONS = 32;
 const MAX_RESULTS = 100;
-export class Vibi3DError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
-}
-interface StoredCommand {
-  request: Vibi3DCommandRequest;
-  fingerprint: string;
-  expiresAt: number;
-  result: Vibi3DCommandResult;
-}
-interface Session {
-  snapshot: Vibi3DSnapshot;
-  token: string;
-  updatedAt: number;
-  image?: { data: Buffer; contentType: string; revision: number; capturedAt: number };
-  commands: Map<string, StoredCommand>;
-  pending?: string;
-}
-
-function sameSecret(a: string, b: unknown): boolean {
-  if (typeof b !== 'string') return false;
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-function viewKey(snapshot: Vibi3DSnapshot): string {
-  return JSON.stringify([snapshot.revision, snapshot.selectedId, snapshot.camera, snapshot.playback]);
-}
-function readImage(value: unknown): { data: Buffer; contentType: string } | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string' || value.length > 3_000_000) throw new Vibi3DError(400, 'invalid-screenshot');
-  const match = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
-  if (!match) throw new Vibi3DError(400, 'invalid-screenshot');
-  const data = Buffer.from(match[2]!, 'base64');
-  const valid = match[1] === 'jpeg' ? data[0] === 255 && data[1] === 216 && data[2] === 255
-    : data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  if (!valid) throw new Vibi3DError(400, 'invalid-screenshot');
-  return { data, contentType: `image/${match[1]}` };
-}
 
 /** Ephemeral bridge. The renderer remains the authority for scene edits and saved files. */
 export class Vibi3DBroker {
@@ -53,10 +17,10 @@ export class Vibi3DBroker {
   private sweep(): void {
     const now = this.now();
     for (const [id, session] of this.sessions) {
-      if (now - session.updatedAt > EXPIRE_MS) { this.sessions.delete(id); continue; }
+      if (now > Math.max(session.updatedAt + EXPIRE_MS, session.retainUntil ?? 0)) { this.sessions.delete(id); continue; }
       const pending = session.pending ? session.commands.get(session.pending) : undefined;
       if (pending && now >= pending.expiresAt) {
-        pending.result = { commandId: pending.request.commandId, status: 'rejected', error: 'command-timeout-refresh-state', revision: session.snapshot.revision };
+        pending.result = { ...pending.result, commandId: pending.request.commandId, status: 'rejected', error: 'command-timeout-refresh-state', revision: session.snapshot.revision };
         session.pending = undefined;
       }
     }
@@ -77,14 +41,16 @@ export class Vibi3DBroker {
     if (this.now() - session.updatedAt > LIVE_MS) throw new Vibi3DError(409, 'viewer-offline');
   }
   private publishTo(session: Session, snapshot: Vibi3DSnapshot, screenshot?: unknown): void {
-    if (snapshot.sessionId !== session.snapshot.sessionId || snapshot.projectId !== session.snapshot.projectId || snapshot.fileName !== session.snapshot.fileName) {
+    assertDocumentOwner(snapshot, this.sessions.values(), this.now(), LIVE_MS);
+    if (snapshot.sessionId !== session.snapshot.sessionId || snapshot.projectId !== session.snapshot.projectId || snapshot.fileName !== session.snapshot.fileName
+      || snapshot.document?.id !== session.snapshot.document?.id || snapshot.ownerId !== session.snapshot.ownerId) {
       throw new Vibi3DError(409, 'session-source-mismatch');
     }
     if (snapshot.revision < session.snapshot.revision) throw new Vibi3DError(409, 'stale-snapshot');
     const image = readImage(screenshot);
     if (image) session.image = { ...image, revision: snapshot.revision, capturedAt: this.now() };
     else if (viewKey(snapshot) !== viewKey(session.snapshot)) session.image = undefined;
-    session.snapshot = structuredClone(snapshot);
+    session.snapshot = structuredClone({ ...snapshot, ...(session.snapshot.runId ? { runId: session.snapshot.runId } : {}) });
     session.updatedAt = this.now();
   }
 
@@ -100,6 +66,7 @@ export class Vibi3DBroker {
       return { sessionId: snapshot.sessionId, rendererToken: existing.token };
     }
     if (this.sessions.size >= MAX_SESSIONS) throw new Vibi3DError(429, 'session-limit');
+    assertDocumentOwner(snapshot, this.sessions.values(), this.now(), LIVE_MS);
     const token = typeof requestedToken === 'string' ? requestedToken : randomUUID();
     const session: Session = { snapshot: structuredClone(snapshot), token, updatedAt: this.now(), commands: new Map() };
     this.publishTo(session, snapshot, screenshot);
@@ -121,6 +88,37 @@ export class Vibi3DBroker {
     const session = this.get(id);
     return { snapshot: structuredClone(session.snapshot), updatedAt: session.updatedAt, online: this.now() - session.updatedAt <= LIVE_MS,
       ...(session.image ? { imageRevision: session.image.revision, capturedAt: session.image.capturedAt } : {}) };
+  }
+  document(projectId: string, docId: string): ReturnType<Vibi3DBroker['read']> | null {
+    this.sweep();
+    const found = [...this.sessions.values()].filter(s => s.snapshot.projectId === projectId && s.snapshot.document?.id === docId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    return found ? this.read(found.snapshot.sessionId) : null;
+  }
+  bindRun(id: string, runId: string): void { this.get(id).snapshot.runId = runId; }
+  workflowRequest(id: string, token: unknown, commandId: string, allowTimedOutReceipt = false): Vibi3DCommandRequest {
+    const session = this.renderer(id, token);
+    const command = session.commands.get(commandId);
+    if (!command) throw new Vibi3DError(404, 'command-not-found');
+    const uncertain = allowTimedOutReceipt && command.result.status === 'rejected' && command.result.error === 'command-timeout-refresh-state';
+    if (!uncertain && (session.pending !== commandId || !['pending', 'running'].includes(command.result.status))) {
+      throw new Vibi3DError(409, 'command-not-pending');
+    }
+    return structuredClone(command.request);
+  }
+  progress(id: string, token: unknown, commandId: string, progress: number): Vibi3DCommandResult {
+    if (!Number.isFinite(progress) || progress < 0 || progress > 1) throw new Vibi3DError(400, 'invalid-progress');
+    this.workflowRequest(id, token, commandId);
+    const session = this.renderer(id, token);
+    const command = session.commands.get(commandId)!;
+    command.result = { ...command.result, status: 'running', progress: Math.max(command.result.progress ?? 0, progress) };
+    session.updatedAt = this.now();
+    return { ...command.result };
+  }
+  recordResult(id: string, token: unknown, commandId: string, result: Vibi3DWorkflowResult): void {
+    this.workflowRequest(id, token, commandId, true);
+    const command = this.renderer(id, token).commands.get(commandId)!;
+    command.result.result = { ...command.result.result, ...structuredClone(result) };
   }
   image(id: string): { data: Buffer; contentType: string; revision: number; capturedAt: number } {
     const session = this.get(id);
@@ -144,14 +142,17 @@ export class Vibi3DBroker {
     if (request.commands.some((c) => (c.type === 'update' || c.type === 'select') && c.id !== null && !nodeIds.has(c.id))) {
       throw new Vibi3DError(400, 'node-not-found');
     }
-    const result: Vibi3DCommandResult = { commandId: request.commandId, status: 'pending' };
-    session.commands.set(request.commandId, { request: structuredClone(request), fingerprint, expiresAt: this.now() + COMMAND_MS, result });
+    const expiresAt = this.now() + getVibi3DRequestTimeoutMs(request.commands);
+    const result: Vibi3DCommandResult = { commandId: request.commandId, status: 'pending', expiresAt };
+    session.commands.set(request.commandId, { request: structuredClone(request), fingerprint, expiresAt, result });
+    session.retainUntil = expiresAt + EXPIRE_MS;
     session.pending = request.commandId;
     while (session.commands.size > MAX_RESULTS) session.commands.delete(session.commands.keys().next().value!);
     return { ...result };
   }
   pending(id: string, token: unknown): (Vibi3DCommandRequest & { expiresAt: number }) | null {
     const session = this.renderer(id, token);
+    assertDocumentOwner(session.snapshot, this.sessions.values(), this.now(), LIVE_MS);
     session.updatedAt = this.now();
     const command = session.pending ? session.commands.get(session.pending) : undefined;
     if (!command) return null;
@@ -163,16 +164,18 @@ export class Vibi3DBroker {
     }
     return { ...structuredClone(command.request), expiresAt: command.expiresAt };
   }
-  acknowledge(id: string, token: unknown, commandId: string, ok: boolean, snapshot: Vibi3DSnapshot, screenshot?: unknown, error?: string): Vibi3DCommandResult {
+  acknowledge(id: string, token: unknown, commandId: string, ok: boolean, snapshot: Vibi3DSnapshot, screenshot?: unknown, error?: string, statsValue?: unknown): Vibi3DCommandResult {
     const session = this.renderer(id, token);
     const command = session.commands.get(commandId);
     if (!command) throw new Vibi3DError(404, 'command-not-found');
     // A suspended renderer can finish immediately before the deadline and deliver its ACK
     // just after it. A timeout means unconfirmed, not proof the edit never happened.
     const timedOut = command.result.status === 'rejected' && command.result.error === 'command-timeout-refresh-state';
-    if (command.result.status !== 'pending' && !timedOut) return { ...command.result };
+    if (!['pending', 'running'].includes(command.result.status) && !timedOut) return { ...command.result };
+    const stats = acknowledgementStats(command, ok, statsValue);
     this.publishTo(session, snapshot, screenshot);
-    command.result = { commandId, status: ok ? 'applied' : 'rejected', revision: snapshot.revision, ...(!ok ? { error: error || 'command-rejected' } : {}) };
+    command.result = { commandId, status: ok ? 'applied' : 'rejected', revision: snapshot.revision,
+      ...(command.result.result || stats ? { result: { ...command.result.result, ...(stats ? { stats } : {}) } } : {}), ...(!ok ? { error: error || 'command-rejected' } : {}) };
     if (session.pending === commandId) session.pending = undefined;
     return { ...command.result };
   }

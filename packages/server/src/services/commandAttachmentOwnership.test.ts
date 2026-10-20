@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueuedCommand } from '@vibisual/shared';
+import { normalizeAppNodeIds, verificationScopeFromText, type QueuedCommand } from '@vibisual/shared';
 import { findReferencedCommandAttachment } from './commandAttachmentOwnership.js';
+import { normalizeRunLimits } from './commandRunLimits.js';
+import { normalizeExecutionRequirements } from './commandExecutionRequirements.js';
 
 // Execute the actual production callbacks without booting index.ts or a model.
 const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript');
@@ -55,7 +57,8 @@ function setup() {
       getOrchestraRootForAgent: () => null, recordSkillUsageFromCommandText: vi.fn(),
     },
     subAgentManager: { getSub: () => ({ agentId: 'agent-fixture' }) },
-    DEFAULT_COMMAND_DISPATCH_MODE: 'merge', normalizeCommandDispatchMode: () => 'merge',
+    DEFAULT_COMMAND_DISPATCH_MODE: 'merge', normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements, verificationScopeFromText,
+    normalizeAppNodeIds,
     hasForeignSubAgent: () => false, isReadOnlyHookAgent: () => false,
     LOOPBACK_INGRESS_HEADER: 'test-loopback', LOOPBACK_INGRESS_VALUE: '1', orchestraEngineOf: () => 'claude',
     broadcastSnapshot: vi.fn(), processNextCommand: vi.fn(),

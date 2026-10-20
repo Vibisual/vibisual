@@ -17,6 +17,8 @@ import type { CodexToolHookConfig } from './codexEdges.js';
 import { codexToolOverrides, codexVerificationFeatureOverrides } from './codexToolOverrides.js';
 import { codexVerificationOverrides, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
 import { codexWindowsSandboxConfigured, readCodexEffectiveConfigFor } from './codexConfigService.js';
+import { codexLocalTransportNetwork } from './codexLocalTransport.js';
+import type { CommandExecutionRequirements } from '@vibisual/shared';
 
 /**
  * §5.25 (F) — 코덱스 턴 하나를 돌린다.
@@ -33,6 +35,7 @@ import { codexWindowsSandboxConfigured, readCodexEffectiveConfigFor } from './co
 type CodexOverrides = Pick<AgentProvider, 'webSearch' | 'networkAccess' | 'modelVerbosity' | 'reasoningSummary' | 'personality' | 'serviceTier' | 'autoCompactTokenLimit'>;
 
 export interface CodexTurnArgs extends CodexOverrides {
+  executionRequirements?: CommandExecutionRequirements;
   verificationConfig?: VerificationToolsConfig;
   /** Native Codex context overrides, computed from the same sources shown in the context panel. */
   contextArgs?: string[];
@@ -157,6 +160,9 @@ export function stopCodexTurn(subAgentId: string): boolean {
  * 방식으로 죽고, 그 사고는 실행해 보지 않으면 안 보인다.
  */
 export function buildCodexExecArgs(args: {
+  executionRequirements?: CommandExecutionRequirements;
+  configuredNetworkAccess?: readonly boolean[];
+  networkConfigUnreadable?: boolean;
   verificationConfig?: VerificationToolsConfig;
   contextArgs?: readonly string[];
   toolHook?: CodexToolHookConfig;
@@ -178,6 +184,11 @@ export function buildCodexExecArgs(args: {
   windowsSandboxUnset?: boolean;
 } & CodexOverrides): string[] {
   const { sandbox, approval } = resolveCodexPermission(args.permissionMode);
+  const networkAccess = codexLocalTransportNetwork({
+    platform: args.platform ?? process.platform, required: args.executionRequirements?.localTransport,
+    permissionMode: args.permissionMode, networkAccess: args.networkAccess,
+    configuredNetworkAccess: args.configuredNetworkAccess, configUnreadable: args.networkConfigUnreadable,
+  });
   // `-C`와 `-s`는 `exec resume`가 받지 않는 상위 옵션이다. 반드시 하위명령보다 앞에 둔다.
   // 실제 CLI는 `codex exec resume <id> -C ...`를 `unexpected argument '-C'`로 거부한다.
   const out: string[] = ['exec', '-C', args.cwd, '-s', sandbox];
@@ -202,8 +213,8 @@ export function buildCodexExecArgs(args: {
   if (args.personality) out.push('-c', `personality=${JSON.stringify(args.personality)}`);
   if (args.serviceTier) out.push('-c', `service_tier=${JSON.stringify(args.serviceTier)}`);
   if (Number.isSafeInteger(args.autoCompactTokenLimit) && args.autoCompactTokenLimit! > 0) out.push('-c', `model_auto_compact_token_limit=${args.autoCompactTokenLimit}`);
-  if (sandbox === 'workspace-write' && typeof args.networkAccess === 'boolean') {
-    out.push('-c', `sandbox_workspace_write.network_access=${args.networkAccess}`);
+  if (sandbox === 'workspace-write' && typeof networkAccess === 'boolean') {
+    out.push('-c', `sandbox_workspace_write.network_access=${networkAccess}`);
   }
   // Windows 는 `[windows] sandbox` 가 없으면 `-s workspace-write` 를 **읽기 전용으로 내려** 돈다(0.159.2 실측 —
   //   turn_context 의 sandbox_policy 가 read-only, 셸은 `blocked by policy`, 패치는 `read-only sandbox` 로 거절,
@@ -298,29 +309,44 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     return;
   }
 
-  const execArgs = buildCodexExecArgs({
-    verificationConfig: args.verificationConfig,
-    contextArgs: args.contextArgs,
-    toolHook: args.toolHook,
-    edgeConfig: args.edgeConfig,
-    ...(args.permissionHook ? { permissionHook: args.permissionHook } : {}),
-    ...(args.hostedBrowserOff ? { hostedBrowserOff: true } : {}),
-    cwd: args.cwd,
-    model: args.model,
-    webSearch: args.webSearch,
-    networkAccess: args.networkAccess,
-    modelVerbosity: args.modelVerbosity,
-    // 셋은 화면·저장·턴 인자(`subAgentManager`)까지 오고도 여기서 빠져 한 번도 CLI 에 닿지 않았다.
-    reasoningSummary: args.reasoningSummary,
-    personality: args.personality,
-    serviceTier: args.serviceTier,
-    autoCompactTokenLimit: args.autoCompactTokenLimit,
-    ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
-    ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
-    ...(args.resumeThreadId ? { resumeThreadId: args.resumeThreadId } : {}),
-    ...(args.images?.length ? { images: args.images } : {}),
-    windowsSandboxUnset: windowsSandboxUnsetFor(args.cwd, process.platform),
-  });
+  let configuredNetworkAccess: boolean[] | undefined;
+  let networkConfigUnreadable = false;
+  if (args.executionRequirements?.localTransport) {
+    try {
+      configuredNetworkAccess = readCodexEffectiveConfigFor(args.cwd, true).layers
+        .flatMap((layer) => typeof layer.values.networkAccess === 'boolean' ? [layer.values.networkAccess] : []);
+    } catch { networkConfigUnreadable = true; }
+  }
+  let execArgs: string[];
+  try {
+    execArgs = buildCodexExecArgs({
+      executionRequirements: args.executionRequirements, configuredNetworkAccess, networkConfigUnreadable,
+      verificationConfig: args.verificationConfig,
+      contextArgs: args.contextArgs,
+      toolHook: args.toolHook,
+      edgeConfig: args.edgeConfig,
+      ...(args.permissionHook ? { permissionHook: args.permissionHook } : {}),
+      ...(args.hostedBrowserOff ? { hostedBrowserOff: true } : {}),
+      cwd: args.cwd,
+      model: args.model,
+      webSearch: args.webSearch,
+      networkAccess: args.networkAccess,
+      modelVerbosity: args.modelVerbosity,
+      // 셋은 화면·저장·턴 인자(`subAgentManager`)까지 오고도 여기서 빠져 한 번도 CLI 에 닿지 않았다.
+      reasoningSummary: args.reasoningSummary,
+      personality: args.personality,
+      serviceTier: args.serviceTier,
+      autoCompactTokenLimit: args.autoCompactTokenLimit,
+      ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+      ...(args.resumeThreadId ? { resumeThreadId: args.resumeThreadId } : {}),
+      ...(args.images?.length ? { images: args.images } : {}),
+      windowsSandboxUnset: windowsSandboxUnsetFor(args.cwd, process.platform),
+    });
+  } catch (error) {
+    args.onDone(error instanceof Error ? error.message : String(error), '');
+    return;
+  }
   if (hookTrust) execArgs.push(...hookTrust);
   const invocation = buildCliInvocation(binPath, execArgs, process.platform);
 
@@ -684,5 +710,8 @@ export function extractFileWrites(line: string): string[] {
   if (!item || typeof item !== 'object') return [];
   const rec = item as Record<string, unknown>;
   if (rec['type'] !== 'file_change') return [];
+  // 완료 줄이어도 적용에 실패한 패치(`status: failed`)는 파일을 바꾸지 않았다 — 쓰기 화살표도 수정 이력도
+  //   세우지 않는다(§5.25 (F) "쓴 내용도 남는다" ③). 상태가 없는 옛 모양은 종전대로 센다.
+  if (rec['status'] === 'failed') return [];
   return codexFileChangePaths(rec);
 }

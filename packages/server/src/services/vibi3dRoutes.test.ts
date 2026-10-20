@@ -99,7 +99,7 @@ describe('Vibi3D route and broker integration', () => {
     expect((await request('/sessions/scene-1/commands', 'POST', command(), ingress)).status).toBe(202);
     const pending = await (await request('/sessions/scene-1/pending')).json();
     expect(pending.request).toMatchObject(command());
-    expect(pending.request.expiresAt).toBe(now + 20_000);
+    expect(pending.request.expiresAt).toBe(now + 30_000);
     const applied = scene(1); applied.nodes[0]!.position = [1, 2, 3];
     const ack = await request('/sessions/scene-1/ack', 'POST', { commandId: 'change-1', ok: true, snapshot: applied, screenshot: jpeg });
     expect((await ack.json()).status).toBe('applied');
@@ -139,7 +139,7 @@ describe('Vibi3D route and broker integration', () => {
     await request('/sessions/scene-1/ack', 'POST', { commandId: 'change-1', ok: false, error: 'revision-conflict', snapshot: scene() });
     expect((await (await request('/sessions/scene-1/commands/change-1')).json()).status).toBe('rejected');
     await request('/sessions/scene-1/commands', 'POST', command('change-2'));
-    now += 20_001;
+    now += 30_001;
     expect((await (await request('/sessions/scene-1/commands/change-2')).json()).error).toBe('command-timeout-refresh-state');
     now += 10_000;
     expect((await request('/sessions/scene-1/commands', 'POST', command('change-3'))).status).toBe(409);
@@ -157,8 +157,9 @@ describe('Vibi3D route and broker integration', () => {
   it('accepts a late actual outcome after timeout without losing a newer pending command', async () => {
     await create();
     await request('/sessions/scene-1/commands', 'POST', command('late'));
-    now += 20_001;
+    now += 30_001;
     expect((await (await request('/sessions/scene-1/commands/late')).json()).error).toBe('command-timeout-refresh-state');
+    await request('/sessions/scene-1/publish', 'POST', { snapshot: scene() });
     // A second request may have reached the server while the first ACK was in transit.
     await request('/sessions/scene-1/commands', 'POST', command('newer'));
     const applied = scene(1); applied.nodes[0]!.position = [1, 2, 3];

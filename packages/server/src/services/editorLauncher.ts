@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { logger } from '../logger.js';
 import { resolveBinary } from './binLocator.js';
 
@@ -340,21 +341,23 @@ export function openWithDefaultApp(absPath: string): void {
 
 /**
  * 폴더를 시스템 탐색기에서 열기
- * @param absPath 절대 경로 (파일이면 상위 폴더를 염)
+ * @param absPath 절대 경로 (파일이면 상위 폴더에서 해당 파일을 선택)
  */
 export function openFolder(absPath: string): void {
-  let dirPath = absPath;
+  const paths = IS_WIN ? path.win32 : path.posix;
+  const target = IS_WIN ? paths.normalize(absPath) : absPath;
+  let dirPath = target;
+  let selectFile = false;
   try {
-    if (fs.existsSync(absPath) && !fs.statSync(absPath).isDirectory()) {
-      dirPath = path.dirname(absPath);
+    if (fs.existsSync(target) && !fs.statSync(target).isDirectory()) {
+      selectFile = true;
+      dirPath = paths.dirname(target);
     }
   } catch {
-    dirPath = path.dirname(absPath);
+    dirPath = paths.dirname(target);
   }
 
-  // Windows: 슬래시 → 역슬래시 정규화 (explorer가 선호, 일부 경로에서 인자 파싱 오류 회피).
-  const native = IS_WIN ? path.win32.normalize(dirPath) : dirPath;
-  logger.info(`openFolder: ${native}`);
+  logger.info(`openFolder: ${target}${selectFile ? ' (select)' : ''}`);
 
   if (IS_WIN) {
     // 백그라운드 Node 서버가 explorer.exe 를 직접 spawn 하면 Windows 포그라운드 잠금
@@ -363,11 +366,19 @@ export function openFolder(absPath: string): void {
     // 탐색기 창 HWND 를 찾아 AttachThreadInput 우회로 강제 포그라운드 한다.
     // 폴더 오픈(Start-Process)은 스크립트 맨 앞에서 먼저 수행되므로, 뒤의
     // Add-Type/창탐색이 실패해도 "열리긴 한다" 는 보장됨.
-    const targetEsc = native.replace(/'/g, "''");
+    // Paths are data: even smart quotes are PowerShell delimiters, so never
+    // interpolate filenames directly into the script.
+    const psPath = (value: string): string =>
+      `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(value, 'utf8').toString('base64')}'))`;
     const psCmd = [
       "$ErrorActionPreference='SilentlyContinue'",
-      `$target='${targetEsc}'`,
-      'Start-Process explorer.exe -ArgumentList @($target)',
+      `$target=${psPath(target)}`,
+      `$folder=${psPath(dirPath)}`,
+      `$itemName=${psPath(paths.basename(target))}`,
+      `$select=$${selectFile ? 'true' : 'false'}`,
+      // Start-Process joins ArgumentList, so quote the path inside the argument itself.
+      `if($select){ $explorerArgs='/select,"'+$target+'"' }else{ $explorerArgs='"'+$folder+'"' }`,
+      'Start-Process explorer.exe -ArgumentList $explorerArgs',
       'Add-Type @"',
       'using System;',
       'using System.Runtime.InteropServices;',
@@ -395,7 +406,11 @@ export function openFolder(absPath: string): void {
       ' $sh=New-Object -ComObject Shell.Application',
       ' foreach($w in $sh.Windows()){ try{',
       '  $p=$w.Document.Folder.Self.Path',
-      "  if($p -and ($p.TrimEnd('\\\\') -ieq $target.TrimEnd('\\\\'))){ $hwnd=[IntPtr]$w.HWND; break }",
+      "  if($p -and ($p.TrimEnd('\\\\') -ieq $folder.TrimEnd('\\\\'))){",
+      // Select, deselect others, scroll into view, and focus (1 | 4 | 8 | 16).
+      '   if($select){ $item=$w.Document.Folder.ParseName($itemName); if($null -eq $item){ continue }; $w.Document.SelectItem($item,29) }',
+      '   $hwnd=[IntPtr]$w.HWND; break',
+      '  }',
       ' }catch{} }',
       '}',
       'if($hwnd -ne [IntPtr]::Zero){ [VbFg]::Force($hwnd) }',
@@ -409,9 +424,29 @@ export function openFolder(absPath: string): void {
     child.unref();
     child.on('error', (err) => logger.warn(`openFolder spawn failed: ${err.message}`));
   } else if (IS_MAC) {
-    spawnUnix('open', [native]);
+    spawnUnix('open', selectFile ? ['-R', target] : [dirPath]);
+  } else if (selectFile) {
+    // FileManager1 reveals and selects files across supporting Linux file managers.
+    // dbus-send uses commas to delimit array elements, including inside a URI.
+    const uri = pathToFileURL(target, { windows: false }).href.replace(/,/g, '%2C');
+    const child = spawn('dbus-send', [
+      '--session', '--print-reply', '--reply-timeout=3000',
+      '--dest=org.freedesktop.FileManager1',
+      '/org/freedesktop/FileManager1',
+      'org.freedesktop.FileManager1.ShowItems',
+      `array:string:${uri}`, 'string:',
+    ], { detached: true, stdio: 'ignore' });
+    let fellBack = false;
+    const openParent = (): void => {
+      if (fellBack) return;
+      fellBack = true;
+      spawnUnix('xdg-open', [dirPath]);
+    };
+    child.once('error', openParent);
+    child.once('close', (code) => { if (code !== 0) openParent(); });
+    child.unref();
   } else {
-    spawnUnix('xdg-open', [native]);
+    spawnUnix('xdg-open', [dirPath]);
   }
 }
 

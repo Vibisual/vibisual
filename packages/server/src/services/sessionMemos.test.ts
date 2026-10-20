@@ -4,9 +4,12 @@ import {
   SESSION_MEMO_DEFAULT_COLOR,
   SESSION_MEMO_LEGACY_COLOR_MAP,
   normalizeMemoName,
+  normalizeMemoLinkUrl,
+  sanitizeMemoLinks,
   sanitizeSessionMemo,
   sanitizeSessionMemos,
   type SessionMemo,
+  type SessionMemoLink,
 } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
@@ -373,5 +376,176 @@ describe('메인 탭 메모 — 영속 왕복 5지점', () => {
 
     expect(graph.getAgentMemos(agentId)).toEqual([]);
     expect(graph.getSnapshot().agentMemos).toBeUndefined();
+  });
+});
+
+// ─── §5.5 #17-36 ⑫ 메모 링크 ───
+
+/** 링크 시험용 본문 — 오프셋을 눈으로 셀 수 있게 ASCII 로 둔다(0:'build' 6:'log' 10:'app' 14:'docs'). */
+const LINK_TEXT = 'build log app docs';
+
+function streamLink(over: Partial<SessionMemoLink> = {}): SessionMemoLink {
+  return {
+    id: 'ml-stream',
+    start: 0,
+    end: 5,
+    target: { kind: 'stream', sessionId: 'sub-memo-x', anchorId: 'cmd-42', text: '빌드 오류' },
+    ...over,
+  };
+}
+
+const FOUR_KINDS: SessionMemoLink[] = [
+  streamLink(),
+  { id: 'ml-session', start: 6, end: 9, target: { kind: 'session', sessionId: null, label: '메인' } },
+  { id: 'ml-file', start: 10, end: 13, target: { kind: 'file', path: 'src/App.tsx:42' } },
+  { id: 'ml-url', start: 14, end: 18, target: { kind: 'url', url: 'https://example.com/docs?q=1' } },
+];
+
+describe('메모 링크 정화 — §5.5 #17-36 ⑫ 밖에서 온 링크를 그대로 믿지 않는다', () => {
+  it('정상 링크는 네 종류 모두 그대로 통과한다', () => {
+    expect(sanitizeSessionMemo(memo({ text: LINK_TEXT, links: FOUR_KINDS }))?.links).toEqual(FOUR_KINDS);
+  });
+
+  it('링크가 없으면 필드를 남기지 않는다 — 빈 배열도 "없음"이다(옛 체크포인트가 부풀지 않게)', () => {
+    expect(sanitizeSessionMemo(memo({ text: LINK_TEXT }))).not.toHaveProperty('links');
+    expect(sanitizeSessionMemo(memo({ text: LINK_TEXT, links: [] }))).not.toHaveProperty('links');
+    expect(sanitizeSessionMemo({ ...memo({ text: LINK_TEXT }), links: 'nope' })).not.toHaveProperty('links');
+  });
+
+  it('범위가 본문 밖이거나 비었거나 정수가 아니면 버린다', () => {
+    const bad = [
+      streamLink({ id: 'a', start: 0, end: 99 }),
+      streamLink({ id: 'b', start: 3, end: 3 }),
+      streamLink({ id: 'c', start: 5, end: 2 }),
+      streamLink({ id: 'd', start: -1, end: 2 }),
+      streamLink({ id: 'e', start: 0.5, end: 2 }),
+    ];
+    expect(sanitizeMemoLinks(bad, LINK_TEXT.length)).toEqual([]);
+  });
+
+  it('[회귀] 본문이 상한에서 잘리면 그 뒤에 걸린 링크도 함께 사라진다 — 갈 글자가 없다', () => {
+    const text = 'x'.repeat(SESSION_MEMO.TEXT_MAX + 10);
+    const tail = streamLink({ id: 'tail', start: SESSION_MEMO.TEXT_MAX + 2, end: SESSION_MEMO.TEXT_MAX + 6 });
+    const head = streamLink({ id: 'head', start: 0, end: 4 });
+    expect(sanitizeSessionMemo(memo({ text, links: [head, tail] }))?.links?.map((l) => l.id)).toEqual(['head']);
+  });
+
+  it('겹치는 범위는 앞의 것만 남고, 결과는 시작 순이다 — 한 글자가 두 곳을 가리키지 않는다', () => {
+    const out = sanitizeMemoLinks([
+      streamLink({ id: 'late', start: 10, end: 13 }),
+      streamLink({ id: 'first', start: 0, end: 5 }),
+      streamLink({ id: 'overlap', start: 3, end: 8 }),
+    ], LINK_TEXT.length);
+    expect(out.map((l) => l.id)).toEqual(['first', 'late']);
+  });
+
+  it('id 가 겹치면 앞의 것만 — id 모양이 어긋나면 버린다', () => {
+    const out = sanitizeMemoLinks([
+      streamLink({ id: 'dup', start: 0, end: 5 }),
+      streamLink({ id: 'dup', start: 10, end: 13 }),
+      streamLink({ id: 'has space', start: 14, end: 18 }),
+    ], LINK_TEXT.length);
+    expect(out.map((l) => `${l.id}@${l.start}`)).toEqual(['dup@0']);
+  });
+
+  it('웹 주소는 http(s) 만 — javascript:·file:·data: 는 바깥 브라우저 길로 새지 않는다', () => {
+    expect(normalizeMemoLinkUrl('  https://example.com/a  ')).toBe('https://example.com/a');
+    expect(normalizeMemoLinkUrl('HTTP://Example.com')).toBe('HTTP://Example.com');
+    expect(normalizeMemoLinkUrl('javascript:alert(1)')).toBe('');
+    expect(normalizeMemoLinkUrl('file:///C:/secret.txt')).toBe('');
+    expect(normalizeMemoLinkUrl('data:text/html,<b>x</b>')).toBe('');
+    expect(normalizeMemoLinkUrl('https://')).toBe('');
+    expect(normalizeMemoLinkUrl('https://exa mple.com')).toBe('');
+    expect(normalizeMemoLinkUrl(`https://e.com/${'a'.repeat(SESSION_MEMO.LINK_URL_MAX)}`)).toBe('');
+    const out = sanitizeMemoLinks([
+      { id: 'u1', start: 0, end: 5, target: { kind: 'url', url: 'javascript:alert(1)' } },
+    ], LINK_TEXT.length);
+    expect(out).toEqual([]);
+  });
+
+  it('파일 경로에 제어 문자가 있거나 비었으면 버린다', () => {
+    const out = sanitizeMemoLinks([
+      { id: 'f1', start: 0, end: 5, target: { kind: 'file', path: 'src/a.ts\u0000b' } },
+      { id: 'f2', start: 6, end: 9, target: { kind: 'file', path: '   ' } },
+      { id: 'f3', start: 10, end: 13, target: { kind: 'file', path: '  C:\\work\\보고서 (최종).html  ' } },
+    ], LINK_TEXT.length);
+    expect(out).toEqual([{ id: 'f3', start: 10, end: 13, target: { kind: 'file', path: 'C:\\work\\보고서 (최종).html' } }]);
+  });
+
+  it('세션 글 위치는 갈 곳(항목 id 또는 그 자리의 글)이 하나는 있어야 한다', () => {
+    const out = sanitizeMemoLinks([
+      { id: 's1', start: 0, end: 5, target: { kind: 'stream', sessionId: null, text: '   ' } },
+      { id: 's2', start: 6, end: 9, target: { kind: 'stream', sessionId: null, anchorId: 'evt-1', text: '' } },
+      { id: 's3', start: 10, end: 13, target: { kind: 'stream', sessionId: null, anchorId: 'bad id"x', text: '남는 글' } },
+    ], LINK_TEXT.length);
+    expect(out).toEqual([
+      { id: 's2', start: 6, end: 9, target: { kind: 'stream', sessionId: null, anchorId: 'evt-1', text: '' } },
+      // 항목 id 가 모양이 어긋나면 그 값만 버리고, 글로 찾아가는 길은 남긴다.
+      { id: 's3', start: 10, end: 13, target: { kind: 'stream', sessionId: null, text: '남는 글' } },
+    ]);
+  });
+
+  it('세션 id 는 모양이 맞거나 null(메인 탭)일 때만 — 모르는 종류는 버린다', () => {
+    const out = sanitizeMemoLinks([
+      { id: 'a', start: 0, end: 5, target: { kind: 'session', sessionId: 'sub-1 2' } },
+      { id: 'b', start: 6, end: 9, target: { kind: 'session', sessionId: 42 } },
+      { id: 'c', start: 10, end: 13, target: { kind: 'teleport', to: 'x' } },
+      { id: 'd', start: 14, end: 18, target: { kind: 'session', sessionId: 'sub-ok_1' } },
+    ], LINK_TEXT.length);
+    expect(out).toEqual([{ id: 'd', start: 14, end: 18, target: { kind: 'session', sessionId: 'sub-ok_1' } }]);
+  });
+
+  it('그 자리의 글·탭 이름은 공백을 접고 상한에서 자른다', () => {
+    const long = `첫줄\n\t둘째줄  ${'가'.repeat(SESSION_MEMO.LINK_TEXT_MAX)}`;
+    const [s] = sanitizeMemoLinks([streamLink({ target: { kind: 'stream', sessionId: null, text: long } })], LINK_TEXT.length);
+    expect(s?.target.kind === 'stream' ? s.target.text : '').toMatch(/^첫줄 둘째줄 가/);
+    expect(s?.target.kind === 'stream' ? s.target.text.length : 0).toBe(SESSION_MEMO.LINK_TEXT_MAX);
+    const [t] = sanitizeMemoLinks([
+      { id: 'lab', start: 0, end: 5, target: { kind: 'session', sessionId: null, label: `  ${'탭'.repeat(200)}  ` } },
+    ], LINK_TEXT.length);
+    expect(t?.target.kind === 'session' ? t.target.label?.length : 0).toBe(SESSION_MEMO.LINK_LABEL_MAX);
+  });
+
+  it('개수 상한(LINK_MAX)을 넘으면 잘린다 — 키 개수로 붓는 길을 막는다', () => {
+    const text = 'a'.repeat(SESSION_MEMO.LINK_MAX * 2 + 4);
+    const many = Array.from({ length: SESSION_MEMO.LINK_MAX + 5 }, (_, i) => streamLink({ id: `ml-${i}`, start: i * 2, end: i * 2 + 1 }));
+    expect(sanitizeMemoLinks(many, text.length)).toHaveLength(SESSION_MEMO.LINK_MAX);
+  });
+
+  it('여러 번 거쳐도 같은 답 — 화면과 서버의 왕복 비교가 흔들리지 않는다(멱등)', () => {
+    const once = sanitizeSessionMemo(memo({ text: LINK_TEXT, links: [...FOUR_KINDS].reverse() }));
+    const twice = sanitizeSessionMemo(once);
+    expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+  });
+});
+
+describe('메모 링크 — 영속 왕복(사람이 건 연결은 코드가 되살릴 수 없다)', () => {
+  it('메인 탭 메모의 링크가 체크포인트를 나갔다 들어와도 그대로다', () => {
+    const graph = new ProjectGraph();
+    const info = graph.registerProject(PROJECT_CWD);
+    const bubble = graph.createCustomAgent('Link Owner', undefined, info.name);
+    const [clean] = sanitizeSessionMemos([memo({ text: LINK_TEXT, links: FOUR_KINDS })]);
+    graph.setAgentMemos(bubble.id, [clean!]);
+
+    const revived = new ProjectGraph();
+    revived.registerProject(PROJECT_CWD);
+    revived.restoreFromCheckpoint(graph.toProjectCheckpoint(info.name)!);
+
+    expect(revived.getAgentMemos(bubble.id)[0]!.links).toEqual(FOUR_KINDS);
+  });
+
+  it('세션 탭 메모의 링크는 그 세션 스냅샷에 그대로 실린다', () => {
+    const agentId = 'agent-memo-link';
+    const sub = subAgentManager.create(agentId, 'sub-memo-link');
+    try {
+      const memos = sanitizeSessionMemos([memo({ text: LINK_TEXT, links: [FOUR_KINDS[0]!] })]);
+      expect(subAgentManager.setSessionMemos(sub.id, memos)).toBe(true);
+      expect(subAgentManager.getSnapshot()[agentId]?.[0]?.memos?.[0]?.links).toEqual([FOUR_KINDS[0]]);
+      // 링크만 바뀌어도 "바뀜"이다 — 같은 본문에 링크를 걸었는데 저장이 헛돌면 안 된다.
+      const relinked = sanitizeSessionMemos([memo({ text: LINK_TEXT, links: [FOUR_KINDS[1]!] })]);
+      expect(subAgentManager.setSessionMemos(sub.id, relinked)).toBe(true);
+    } finally {
+      subAgentManager.remove(sub.id);
+    }
   });
 });

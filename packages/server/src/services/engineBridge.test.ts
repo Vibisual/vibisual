@@ -5,17 +5,20 @@
  *  1) 판올림 판정 — 2.1.287 아래에는 싣지 않는다(개발판 꼬리는 무시). 모르는 값도 싣지 않는다.
  *  2) 전선 모양 — 신뢰할 수 없는 입력이라 모양이 어긋나면 버리고, 글자·수는 범위로 접는다.
  *  3) 보증 — 신선한 다리가 "턴이 돈다 + 최근 진척"을 말할 때만 생존 판정을 건너뛴다. 끊긴 다리·끝난 다리·
- *     진척이 오래 없는 턴은 보증하지 않는다(멈춘 턴 찾기는 판정의 몫이다).
+ *     진척이 오래 없는 턴은 보증하지 않는다(멈춘 턴 찾기는 판정의 몫이다). 진척은 다리의 턴 가장자리와
+ *     대화록 마지막 쓰기 중 늦은 쪽이다.
  *  4) 프로세스 교대 — 같은 칸의 옛 프로세스가 보낸 늦은 신고가 새 프로세스의 상태를 덮지 않는다.
  *  5) CMD 분할 — 한 세션 탭의 여러 칸 중 하나라도 돌면 돈다.
  *  6) 동봉 파일 옮기기 — 평평한 패키지 모양을 제 모양으로 세우고, 같은 판이면 다시 쓰지 않고, 옛 판은 걷는다.
  *  7) 모드 본체 — 엔진이 읽을 수 있는 모양(정적 ES 모듈 · 문자열 그대로의 env 이름)과 빌드 복사 목록.
+ *     막을 수 있는 자리(`tool.call` 등)에는 훅을 걸지 않는다 — 관찰 전용 사건만.
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import {
   ENGINE_BRIDGE_EVENTS_MAX,
   ENGINE_BRIDGE_ENDED_KEEP_MS,
@@ -239,6 +242,23 @@ describe('보증 — 생존 판정을 건너뛰어도 되는가', () => {
     expect(engineBridgeVouchesRunning(st, now)).toBe(false);
   });
 
+  // 2026-10-15 — 다리는 턴 가장자리만 진척으로 센다(`tool.call` 을 걷었다). 30분 넘은 턴이 3분 조용한 도구 하나에
+  //   판정을 부르지 않도록, 도는 턴 안의 진척은 대화록 마지막 쓰기로 본다.
+  it('다리의 진척이 오래됐어도 대화록이 최근에 쓰였으면 보증한다', () => {
+    const st = stateOf({ lastSeenAt: now, turnState: 'running', turnStartedAt: now - 2 * 60 * 60_000, lastProgressAt: now - 2 * 60 * 60_000 });
+    expect(engineBridgeVouchesRunning(st, now)).toBe(false);
+    expect(engineBridgeVouchesRunning(st, now, now - 5 * 60_000)).toBe(true);
+    expect(engineBridgeVouchesRunning(st, now, now - ENGINE_BRIDGE_VOUCH_PROGRESS_MS - 1)).toBe(false);
+    // 더 오래된 관측은 다리의 진척을 끌어내리지 않는다.
+    expect(engineBridgeVouchesRunning(stateOf({ lastSeenAt: now, turnState: 'running', lastProgressAt: now - 60_000 }), now, now - 3 * 60 * 60_000)).toBe(true);
+  });
+
+  it('대화록이 쓰여도 턴이 도는지는 다리만 말한다', () => {
+    expect(engineBridgeVouchesRunning(stateOf({ lastSeenAt: now, turnState: 'idle' }), now, now)).toBe(false);
+    expect(engineBridgeVouchesRunning(stateOf({ lastSeenAt: now, turnState: 'unknown' }), now, now)).toBe(false);
+    expect(engineBridgeVouchesRunning(stateOf({ lastSeenAt: now - ENGINE_BRIDGE_STALE_MS - 1, turnState: 'running' }), now, now)).toBe(false);
+  });
+
   it('판정 증거 한 줄은 엔진이 말한 그대로를 싣는다', () => {
     const running = describeEngineBridgeForProbe(
       stateOf({ lastSeenAt: now, turnState: 'running', turnStartedAt: now - 20 * 60_000, lastProgressAt: now - 18 * 60_000, toolInFlight: { name: 'Bash', since: now - 18 * 60_000 } }),
@@ -411,6 +431,23 @@ describe('싣기 — 스위치·판올림·동봉 파일', () => {
 
 describe('모드 본체 — 엔진이 읽을 수 있는 모양', () => {
   const read = (rel: string): string => fs.readFileSync(path.join(MOD_SOURCE, rel), 'utf8');
+  function runtimeModuleLoads(src: string): string[] {
+    const tree = ts.createSourceFile('register.js', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const loads: string[] = [];
+    function visit(node: ts.Node): void {
+      if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+        loads.push(node.getText(tree));
+      }
+      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier
+        && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text.startsWith('node:')) {
+        loads.push(node.getText(tree));
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    return loads;
+  }
 
   it('매니페스트 이름과 모듈 경로', () => {
     expect((JSON.parse(read(path.join('.claude-plugin', 'plugin.json'))) as { name: string }).name).toBe(ENGINE_BRIDGE_PLUGIN_NAME);
@@ -420,9 +457,14 @@ describe('모드 본체 — 엔진이 읽을 수 있는 모양', () => {
   it('정적 ES 모듈이다 — require·import()·Node 모듈을 쓰지 않는다', () => {
     const src = read(path.join('hooks', 'register.js'));
     expect(src).toMatch(/export const register\s*=/);
-    expect(src).not.toMatch(/\brequire\s*\(/);
-    expect(src).not.toMatch(/\bimport\s*\(/);
-    expect(src).not.toMatch(/from\s+['"]node:/);
+    expect(runtimeModuleLoads(src)).toEqual([]);
+  });
+
+  it('실행 모듈 로드는 잡고 주석·JSDoc의 타입 참조는 허용한다', () => {
+    expect(runtimeModuleLoads("// require('x'), import('x')\n/** @type {import('claude-code').Register} */\nexport const register = () => {};")).toEqual([]);
+    for (const src of ["require('x');", "import('x');", "import fs from 'node:fs';", "export * from 'node:fs';"]) {
+      expect(runtimeModuleLoads(src)).toHaveLength(1);
+    }
   });
 
   it('환경변수 이름은 문자열 그대로다(validate 가 읽는 이름을 나열한다)', () => {
@@ -446,5 +488,103 @@ describe('모드 본체 — 엔진이 읽을 수 있는 모양', () => {
     expect(vite).toContain('out/mods/vibisual-bridge/plugin.json');
     expect(vite).toContain('hooks/mods/vibisual-bridge/hooks/hooks.json');
     expect(vite).toContain('hooks/mods/vibisual-bridge/hooks/register.js');
+  });
+});
+
+type ModHook = ($: unknown, e: Record<string, unknown>, next: (e: unknown) => Promise<unknown>) => unknown;
+type ModRegisterFn = (on: (name: string, fn: ModHook) => void) => void;
+
+/** 모드 본체는 import 없는 정적 ES 모듈이다(위 시험) — `export` 만 떼어 함수로 읽는다. */
+function loadModRegister(): ModRegisterFn {
+  const src = fs.readFileSync(path.join(MOD_SOURCE, 'hooks', 'register.js'), 'utf8');
+  return new Function(`${src.replace(/export const register\s*=/, 'const register =')}\nreturn register;`)() as ModRegisterFn;
+}
+
+// 2.1.299 부터 막을 수 있는 동작(도구 호출 등)에 걸린 플러그인 훅이 사건을 넘겨받지 못하거나 답을 돌려주지 못하면
+// 엔진이 그 동작을 거부한다(공식 변경 기록). 감지기의 고장이 사용자의 도구 호출을 막는 자리가 되지 않도록 모드는
+// 선언 파일이 "Observe" 로 적는 사건에만 훅을 건다. 새 훅을 더하려면 그 사건이 막을 수 없는지 확인하고 이 목록을 고친다.
+describe('모드 본체 — 막을 수 있는 자리에는 훅을 걸지 않는다', () => {
+  const OBSERVE_ONLY = ['session.start', 'turn.start', 'turn.complete', 'session.measure', 'session.end'];
+
+  it('관찰 전용 사건에만 훅을 건다 — tool.call 은 없다', () => {
+    const names: string[] = [];
+    loadModRegister()((name) => { names.push(name); });
+    expect(names.length).toBeGreaterThan(0);
+    for (const name of names) expect(OBSERVE_ONLY).toContain(name);
+    expect(names).not.toContain('tool.call');
+  });
+});
+
+// 2.1.299 부터 `turn.start` 가 서브에이전트·팀원 턴도 알린다(`e.agentId` — 메인 루프는 없다). 모드를 가짜 엔진에
+// 올려, 메인 턴이 끝난 뒤 배경 턴이 시작돼도 **신고 본문의 수준 상태가 쉬는 중으로 남는지** 본다. 거르지 않던
+// 판에서는 배경 턴 하나가 `running` 을 올리고 그 끝(agentId 있음)은 내리지 않아 다음 메인 턴까지 굳었다.
+describe('모드 본체 — 서브에이전트 턴은 이 세션의 턴이 아니다', () => {
+  type Hook = ModHook;
+
+  function bootMod() {
+    const hooks = new Map<string, Hook>();
+    loadModRegister()((name, fn) => { hooks.set(name, fn); });
+    const ticks: Array<() => void> = [];
+    const sent: Array<{ snapshot?: { turnState?: string } }> = [];
+    const env: Record<string, string> = {
+      VIBISUAL_BASE: 'http://127.0.0.1:51360',
+      VIBISUAL_TOKEN: 'tok',
+      VIBISUAL_SUBAGENT_ID: 'sub-1',
+      VIBISUAL_OWNER_AGENT_ID: 'agent-1',
+    };
+    const $ = {
+      env: { get: async (name: string) => env[name] ?? '' },
+      session: { id: async () => 'sess-1', version: async () => ({ version: '2.1.300' }) },
+      clock: {
+        every: (_ms: number, fn: () => void) => { ticks.push(fn); return { cancel: () => {} }; },
+        after: () => ({ cancel: () => {} }),
+        sleep: async () => {},
+      },
+      http: {
+        fetch: async (_url: string, init: { body: string }) => {
+          sent.push(JSON.parse(init.body) as { snapshot?: { turnState?: string } });
+          return { ok: true, status: 200, text: '{}' };
+        },
+      },
+      ui: { log: () => {} },
+    };
+    const fire = async (name: string, e: Record<string, unknown>): Promise<void> => {
+      const fn = hooks.get(name);
+      if (!fn) throw new Error(`hook ${name} not registered`);
+      await fn($, e, async (x) => x);
+    };
+    /** 보내기 한 번을 일으켜 그때 실린 수준 상태를 돌려준다(사용량이 바뀌면 사건이 없어도 보낸다). */
+    const stateNow = async (): Promise<string | undefined> => {
+      await fire('session.measure', { context: { percent: Math.random() }, rateLimits: [], changed: ['context'] });
+      for (const t of ticks) t();
+      await new Promise((r) => setTimeout(r, 0));
+      return sent.at(-1)?.snapshot?.turnState;
+    };
+    return { fire, stateNow };
+  }
+
+  it('메인 턴이 끝난 뒤 배경 턴이 시작돼도 쉬는 중으로 남는다', async () => {
+    const { fire, stateNow } = bootMod();
+    await fire('session.start', { isInteractive: false });
+    await fire('turn.start', { turnId: 't1' });
+    expect(await stateNow()).toBe('running');
+    await fire('turn.complete', { turnId: 't1', reason: 'answer' });
+    expect(await stateNow()).toBe('idle');
+
+    await fire('turn.start', { turnId: 'b1', agentId: 'bg-agent' });
+    expect(await stateNow()).toBe('idle');
+    await fire('turn.complete', { turnId: 'b1', agentId: 'bg-agent', reason: 'answer' });
+    expect(await stateNow()).toBe('idle');
+  });
+
+  it('메인 턴 도중의 서브에이전트 턴은 메인 턴을 끝내지도 다시 시작하지도 않는다', async () => {
+    const { fire, stateNow } = bootMod();
+    await fire('session.start', { isInteractive: false });
+    await fire('turn.start', { turnId: 't1' });
+    await fire('turn.start', { turnId: 's1', agentId: 'sub-agent' });
+    await fire('turn.complete', { turnId: 's1', agentId: 'sub-agent', reason: 'answer' });
+    expect(await stateNow()).toBe('running');
+    await fire('turn.complete', { turnId: 't1', reason: 'answer' });
+    expect(await stateNow()).toBe('idle');
   });
 });

@@ -53,7 +53,9 @@ import {
   type LocalTurnDoneInfo,
 } from './localRunner.js';
 import { isCodexTurnRunning, runCodexTurn, stopCodexTurn } from './codexRunner.js';
+import { effectiveMaxTurns, runLimitMs } from './commandRunLimits.js';
 import { createCodexBashBridge } from './codexBashBridge.js';
+import { CodexPatchEditLedger, type CodexPatchNote } from './codexPatchEdits.js';
 import { codexEdgeInstructions, type CodexEdgeConfig, type CodexPermissionHookConfig, type CodexToolHookConfig } from './codexEdges.js';
 import { formatUndeliveredDispatchJobs } from './taskEdgeDispatchJobs.js';
 import { permissionBroker } from './permissionBroker.js';
@@ -1366,6 +1368,11 @@ export class SubAgentManager {
   private localHostToolHandler: LocalHostToolHandler | null = null;
   /** §5.19 (H) — 도구 이벤트를 훅으로 흘리는 곳. 없으면 아무 데도 안 간다(종전 동작). */
   private localHookEmitter: LocalHookEmitter | null = null;
+  /**
+   * §5.25 (F) "쓴 내용도 남는다" — 앱 소유 사전 훅이 허락한 `apply_patch` 의 바뀐 덩어리(sub × 파일).
+   * 그 파일의 `file_change` 완료가 꺼내 가고, 그 sub 의 턴이 시작될 때 비워진다.
+   */
+  private readonly codexPatchEdits = new CodexPatchEditLedger();
   /** 턴 봉인 대차대조(sub 별) — CLI 백그라운드 작업의 시작/끝 셈. `turnSeal.ts` 참조. */
   private turnSealStates = new Map<string, TurnSealState>();
   /** 잠정 종료로 붙들어 둔 봉인(sub 별). 타이머가 끝나거나 다른 마감 경로가 오면 사라진다. */
@@ -1471,6 +1478,16 @@ export class SubAgentManager {
   /** §5.19 (H) — 로컬 도구 이벤트를 훅 경로에 이어 준다(캔버스 파일 노드·감사 원장·포트 감지). */
   setLocalHookEmitter(emitter: LocalHookEmitter): void {
     this.localHookEmitter = emitter;
+  }
+
+  /**
+   * §5.25 (F) "쓴 내용도 남는다" — 앱 소유 코덱스 사전 훅(`PreToolUse`)이 **허락한** `apply_patch` 를 적어 둔다.
+   * 패치는 이 답을 받은 뒤에야 적용되므로 적기가 늘 완료(`file_change`)보다 앞선다. 모르는 sub 면 적지 않는다.
+   * 적은 파일 수를 돌려준다.
+   */
+  noteCodexPatch(subAgentId: string, note: CodexPatchNote): number {
+    if (!this.index.has(subAgentId)) return 0;
+    return this.codexPatchEdits.note(subAgentId, note);
   }
 
   setLocalHostToolHandler(handler: LocalHostToolHandler): void {
@@ -3375,8 +3392,14 @@ export class SubAgentManager {
       if (quietMin < threshold) continue;
       // 수정 시각이 멈춘 대화록이 있다(Windows 코덱스 롤아웃은 생성 시각 그대로다) — 임계를 넘어 보일
       //   때만 마지막 줄의 시각으로 다시 잰다. 1초 전에 줄을 쓴 턴이 "8분 조용"으로 닫히던 자리다.
-      quietMin = Math.floor((now - transcriptLastWriteMs(tx.file, tx.mtimeMs, now)) / 60_000);
+      const lastWriteAt = transcriptLastWriteMs(tx.file, tx.mtimeMs, now);
+      quietMin = Math.floor((now - lastWriteAt) / 60_000);
       if (quietMin < threshold) continue;
+      // §4 엔진 다리 (D)① — 다리는 턴 가장자리만 진척으로 센다(도구를 보던 `tool.call` 은 2026-10-15 걷었다 — 막을 수
+      //   있는 훅이라 2.1.299 부터 답을 못 돌려주면 도구 호출이 거부된다). 도는 턴 안의 진척은 대화록에 붙는 줄이
+      //   말하므로, 다리가 "턴이 돈다"고 말하는 동안은 마지막 쓰기 시각으로도 보증한다 — 묻는 것은 대화록이
+      //   30분 넘게 조용할 때(긴 도구 하나)뿐이다.
+      if (engineBridge.vouchesRunning(sub.id, now, lastWriteAt)) continue;
       if (best && best.evidence.quietMin !== undefined && quietMin <= best.evidence.quietMin) continue;
 
       const tasks = this.sessionProbeTasks(sub);
@@ -3412,7 +3435,7 @@ export class SubAgentManager {
    * 우리가 정하면 남의 작업을 죽인다(판단은 사용자 몫).
    */
   private applySessionProbeVerdict(
-    candidate: { subId: string; parentAgentId: string; fingerprint: string },
+    candidate: { subId: string; parentAgentId: string; fingerprint: string; evidence?: { tail?: string } },
     result: SessionLivenessProbeResult | null,
     settings: SessionLivenessProbeSettings,
     queues: Map<string, QueuedCommand[]>,
@@ -3441,6 +3464,13 @@ export class SubAgentManager {
       //   `already has an active writer` 로 거절되고, 옛 턴은 [중지]로도 닿지 않은 채 혼자 돈다(2026-10-02
       //   실측 — 닫힌 뒤 20분을 더 돌았다). 정말 멎은 턴은 러너의 워치독(§5.25 (F) 20분)이 닫는다.
       logger.info(`[session-probe] 종료 판정 거부 sub=${candidate.subId} — 살아 있는 작업 또는 재개 대기가 남음`);
+      this.bumpSessionProbeBackoff(candidate.subId);
+      return;
+    }
+    if (result.verdict === 'finished' && candidate.evidence && !candidate.evidence.tail) {
+      // 꼬리를 하나도 못 읽었으면(큰 기록 줄뿐이거나 읽기 실패) 모델이 본 것은 "없음"뿐이다 — 없음은 끝남의
+      //   근거가 아니다. 예전에 빈 꼬리가 "끝났다"로 읽혀 도는 턴을 닫았다(2026-10-02, §2.4 생존 판정).
+      logger.info(`[session-probe] 종료 판정 거부 sub=${candidate.subId} — 대화록 꼬리를 못 읽음(근거 없음)`);
       this.bumpSessionProbeBackoff(candidate.subId);
       return;
     }
@@ -4594,6 +4624,12 @@ export class SubAgentManager {
     return this.index.get(subAgentId)?.memos ?? [];
   }
 
+  /** 소유 에이전트가 최종 삭제될 때 열린 메모와 닫은 기록 모두 정리한다. 탭 닫기·휴지통 이동에는 호출하지 않는다. */
+  clearAgentMemos(parentAgentId: string): void {
+    for (const sub of this.registry.get(parentAgentId) ?? []) delete sub.memos;
+    for (const sub of this.archive.get(parentAgentId) ?? []) delete sub.memos;
+  }
+
   /** §4 (CMD ①) — 이 sub 가 지금 사용자 입력을 기다리며 막혀 있는가(알림·표시 판정용). */
   isCmdBlocked(subAgentId: string): boolean {
     return this.index.get(subAgentId)?.blocked === true;
@@ -4906,6 +4942,24 @@ export class SubAgentManager {
    * legacy(`--print`) 는 close 핸들러가 stoppedByUser 플래그를 보고 status/result 를 맞춘다.
    * 실행 중이 아니면 false (큐잉된 명령은 이 API 로 취소하지 않음 — CommandQueue 의 삭제 UI 로 처리).
    */
+  /**
+   * §5.13 (R-10) — 명령 한 건의 시간 상한. 그 명령이 아직 실행 중이면 사용자 중지와 같은 길(`stop`)로 끊고, 끊은 이유를
+   * 명령에 남긴다(`runLimitHit`). 엔진과 무관하게 걸리는 유일한 상한이라 여기(실행 시작 자리) 한 곳에서 단다.
+   */
+  private armRunTimeLimit(sub: SubAgent, cmd: QueuedCommand): void {
+    const ms = runLimitMs(cmd.runLimits);
+    if (!ms) return;
+    cmd.runLimitsApplied = { ...cmd.runLimitsApplied, maxMinutes: cmd.runLimits!.maxMinutes! };
+    const subId = sub.id;
+    const timer = setTimeout(() => {
+      if (cmd.status !== 'executing' || this.currentTurnId.get(subId) !== cmd.id) return;
+      logger.info(`SubAgent ${subId}: command ${cmd.id} reached its ${cmd.runLimits?.maxMinutes} minute limit — stopping`);
+      cmd.runLimitHit = 'maxMinutes';
+      this.stop(subId);
+    }, ms);
+    (timer as { unref?: () => void }).unref?.();
+  }
+
   stop(subAgentId: string): boolean {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
@@ -5232,6 +5286,7 @@ export class SubAgentManager {
     //   재개는 **같은 턴의 이어달리기**지 새 턴이 아니므로 자리는 처음 나간 그 시각이 옳다.
     //   창구가 닫혀 큐로 되돌린 재시도(#17-18 ② 큐 되돌림)도 같은 이유로 첫 시각을 유지한다.
     if (cmd.startedAt === undefined) cmd.startedAt = Date.now();
+    this.armRunTimeLimit(sub, cmd);
     this.onSubStatusChange?.(sub.parentAgentId);
 
     // §5.19 — All Model(로컬 LLM) 갈림. **이 한 곳**이 이 기능이 기존 실행 경로에 내는 유일한 자국이다.
@@ -5337,7 +5392,9 @@ export class SubAgentManager {
     // - maxTurns > 0 일 때만 제한 — turnCount >= maxTurns 도달 시 강제 종료(legacy: SIGTERM / agent-view: `claude stop`)
     // - config 없으면 DEFAULT_AGENT_CONFIG.maxTurns(0=무제한) 사용. 사용자가 양수 지정 시에만 캡.
     // ──────────────────────────────────────────────────────────────
-    const maxTurns = agentConfig?.maxTurns ?? DEFAULT_AGENT_CONFIG.maxTurns ?? 0;
+    // §5.13 (R-10) — 명령 한 건의 턴 상한(제작 앱의 '빠른 초안 / 정교하게')은 설정 상한과 함께 걸리고 더 좁은 쪽이 이긴다.
+    const maxTurns = effectiveMaxTurns(agentConfig?.maxTurns ?? DEFAULT_AGENT_CONFIG.maxTurns ?? 0, cmd.runLimits);
+    if (cmd.runLimits?.maxTurns) cmd.runLimitsApplied = { ...cmd.runLimitsApplied, maxTurns };
     // §4 v2.88 — API 비용 상한(달러). undefined/0 = 무제한(기존 동작). 양수면 헤드리스 --print 스폰에 --max-budget-usd 전달.
     const maxBudgetUsd = (agentConfig?.maxBudgetUsd && agentConfig.maxBudgetUsd > 0) ? agentConfig.maxBudgetUsd : 0;
     // §4 (CLI 사양 추종) — 과부하 폴백 모델. `--print` 전용 플래그라 legacy 헤드리스 경로에만 실린다
@@ -6347,6 +6404,8 @@ ${finalText}` : ''}` : finalText;
 ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
 
     let fileEventSeq = 0;
+    // §5.25 (F) "쓴 내용도 남는다" — 지난 턴에 적용되지 못한(거부·실패) 패치 칸이 이번 턴의 같은 파일에 붙지 않게.
+    this.codexPatchEdits.clearOwner(sub.id);
     const bashBridge = createCodexBashBridge(`${sub.id}:${cmd.id}`, parentCwd);
 
     logger.info(`SubAgent ${sub.id} codex turn: model=${provider.modelId} "${cmd.text.slice(0, 50)}..."`);
@@ -6366,6 +6425,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       ...(provider.reasoningEffort ? { reasoningEffort: provider.reasoningEffort } : {}),
       webSearch: provider.webSearch,
       networkAccess: provider.networkAccess,
+      executionRequirements: cmd.executionRequirements,
       modelVerbosity: provider.modelVerbosity,
       reasoningSummary: provider.reasoningSummary,
       personality: provider.personality,
@@ -6421,6 +6481,9 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         //   (이 매니저는 그래프를 모른다 — `localHookEmitter` 가 그 주입선이다).
         for (const filePath of paths) {
           fileEventSeq += 1;
+          // §5.25 (F) "쓴 내용도 남는다" — `file_change` 는 경로만 싣는다. 무엇을 썼는지는 사전 훅이 적어 둔
+          //   패치 칸에 있다. 칸이 없으면(훅이 못 붙은 턴) 지어내지 않고 버블·화살표만 세운다.
+          const fileEdit = this.codexPatchEdits.take(sub.id, filePath, parentCwd);
           const event: LocalHookToolEvent = {
             phase: 'post',
             toolName: 'Write',
@@ -6428,6 +6491,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
             toolUseId: `codex-file-${sub.id}-${fileEventSeq}`,
             cwd: parentCwd,
             toolResponse: '',
+            ...(fileEdit ? { fileEdit } : {}),
           };
           this.localHookEmitter?.({ agentId: sub.parentAgentId, subAgentId: sub.id }, event);
         }

@@ -50,6 +50,24 @@ describe('§5.4 #36 (H) ①② 에이전트 연결 보기', () => {
     expect(graph.setAgentLinkView(cmd.id, { hidden: true })).toMatchObject({ ok: true, linksHidden: true });
   });
 
+  it('주변 버블 숨기기는 연결선·보기 전환과 독립이며 연결된 앱을 지우지 않는다', () => {
+    const { graph, projectName } = makeGraph();
+    const agent = graph.createCustomAgent('Visible agent', undefined, projectName);
+    const app = graph.createAppBubble({ projectName, appId: 'vibimage', x: 0, y: 0, linkedAgentIds: [agent.id] });
+    graph.setAgentLinkView(agent.id, { hidden: true, lens: 'files' });
+
+    graph.setAgentLinkView(agent.id, { bubblesHidden: true });
+    expect(agentOf(graph, agent.path)).toMatchObject({ bubblesHidden: true, linksHidden: true, linkLens: 'files' });
+    expect(graph.getSnapshot().agents.find((item) => item.id === agent.id)?.bubblesHidden).toBe(true);
+    expect(graph.getAppBubble(app.id)?.linkedAgentIds).toEqual([agent.id]);
+
+    graph.setAgentLinkView(agent.id, { hidden: false, lens: 'linked' });
+    expect(agentOf(graph, agent.path)?.bubblesHidden).toBe(true);
+    graph.setAgentLinkView(agent.id, { bubblesHidden: false });
+    expect(agentOf(graph, agent.path)?.bubblesHidden).toBeUndefined();
+    expect(graph.getAppBubble(app.id)?.linkedAgentIds).toEqual([agent.id]);
+  });
+
   it('없는 버블은 not-found 다(조용히 만들어 내지 않는다)', () => {
     const { graph } = makeGraph();
     expect(graph.setAgentLinkView('nope', { hidden: true })).toEqual({ ok: false, reason: 'not-found' });
@@ -58,10 +76,32 @@ describe('§5.4 #36 (H) ①② 에이전트 연결 보기', () => {
   it('체크포인트 왕복에 남는다(에이전트 노드째 영속 — 새 창구 없음)', () => {
     const { graph, projectName } = makeGraph();
     const agent = graph.createCustomAgent('Keeper', undefined, projectName);
-    graph.setAgentLinkView(agent.id, { hidden: true, lens: 'files' });
+    graph.setAgentLinkView(agent.id, { hidden: true, bubblesHidden: true, lens: 'files' });
     const fresh = new ProjectGraph();
-    fresh.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName));
-    expect(agentOf(fresh, agent.path)).toMatchObject({ linksHidden: true, linkLens: 'files' });
+    const checkpoint = structuredClone(graph.toProjectCheckpoint(projectName));
+    expect(checkpoint.graph.agents[agent.path]?.bubblesHidden).toBe(true);
+    expect(graph.toCheckpoint().graph.agents[agent.path]?.bubblesHidden).toBe(true);
+    fresh.restoreFromCheckpoint(checkpoint);
+    expect(agentOf(fresh, agent.path)).toMatchObject({ linksHidden: true, bubblesHidden: true, linkLens: 'files' });
+  });
+
+  it('다른 프로젝트 체크포인트를 병합해도 버블 숨김을 보존한다', () => {
+    const { graph, projectName } = makeGraph();
+    const agent = graph.createCustomAgent('Merged keeper', undefined, projectName);
+    graph.setAgentLinkView(agent.id, { bubblesHidden: true });
+    const fresh = new ProjectGraph();
+    fresh.registerProject('/tmp/another-link-view');
+    fresh.mergeFromCheckpoint(structuredClone(graph.toProjectCheckpoint(projectName)));
+    expect(agentOf(fresh, agent.path)?.bubblesHidden).toBe(true);
+    expect(fresh.toProjectCheckpoint(projectName).graph.agents[agent.path]?.bubblesHidden).toBe(true);
+  });
+
+  it('버블 숨김 칸이 없는 기존 체크포인트도 표시 기본값으로 복원한다', () => {
+    const { graph, projectName } = makeGraph();
+    const agent = graph.createCustomAgent('Legacy view', undefined, projectName);
+    const fresh = new ProjectGraph();
+    fresh.restoreFromCheckpoint(structuredClone(graph.toProjectCheckpoint(projectName)));
+    expect(agentOf(fresh, agent.path)?.bubblesHidden).toBeUndefined();
   });
 });
 

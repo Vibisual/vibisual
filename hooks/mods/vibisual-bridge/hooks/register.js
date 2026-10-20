@@ -1,11 +1,15 @@
 // Vibisual engine bridge — SCENARIO §4 「엔진 다리」.
 //
 // Vibisual 이 띄우는 Claude Code 세션에만 `--plugin-dir` 로 실린다(전역 설치 ❌ — 사용자가 따로 띄운
-// 세션에는 실리지 않는다). 엔진 안에서 턴 시작·끝, 도는 도구, 사용량을 보고 Vibisual 서버(루프백)에 알린다.
+// 세션에는 실리지 않는다). 엔진 안에서 턴 시작·끝과 사용량을 보고 Vibisual 서버(루프백)에 알린다.
 //
 // 지키는 것 넷:
 //   1. 관찰만 한다 — 어떤 훅도 사건을 바꾸거나 막지 않고(받은 `next` 의 답을 그대로 돌려준다),
 //      화면에 아무것도 그리지 않는다. 우리 화면은 Vibisual 의 캔버스·IDE 다.
+//      막을 수 있는 자리(`tool.call`·`tool.check`·`turn.step`·`prompt.submit`·`agent.spawn` 등)에는 아예
+//      훅을 걸지 않는다 — 2.1.299 부터 그 자리의 훅이 사건을 넘겨받지 못하거나 답을 돌려주지 못하면 엔진이
+//      그 동작을 거부한다(공식 변경 기록). 선언 파일이 "Observe" 로 적는 사건만 쓴다:
+//      `session.start`·`turn.start`·`turn.complete`·`session.measure`·`session.end`.
 //   2. 사건 훅에서 네트워크를 기다리지 않는다 — 서버가 멎어도 턴이 막히면 안 된다.
 //      사건 훅은 상태만 적고, 보내기는 타이머가 묶어서 한다(`$.http.fetch` 에는 시간 제한이 없다).
 //   3. 신원(주소·토큰·세션)은 Vibisual 이 스폰할 때 넣은 환경변수에서만 읽는다. 없으면(우리가 띄운
@@ -57,8 +61,6 @@ export const register = (on) => {
   let turnState = 'unknown';
   let turnStartedAt = 0;
   let lastProgressAt = 0;
-  /** @type {Map<string, { name: string, since: number }>} */
-  const tools = new Map();
   /** @type {null | Record<string, unknown>} */
   let usage = null;
   let usageDirty = false;
@@ -77,14 +79,15 @@ export const register = (on) => {
     if (outbox.length > OUTBOX_MAX) outbox = outbox.slice(outbox.length - OUTBOX_MAX);
   };
 
-  /** 보내는 순간의 수준 상태 — 가장자리(사건)를 놓쳐도 서버가 이것으로 바로잡는다. */
+  /**
+   * 보내는 순간의 수준 상태 — 가장자리(사건)를 놓쳐도 서버가 이것으로 바로잡는다.
+   * 도는 도구(`toolsInFlight`·`toolInFlight`)는 싣지 않는다 — 그것을 보던 `tool.call` 을 걷었다(위 1번).
+   * 모르는 것을 0 으로 적지 않으려고 칸째 뺀다. 도는 턴 안의 진척은 서버가 대화록 마지막 쓰기로 본다.
+   */
   const snapshot = (now) => {
-    let oldest = null;
-    for (const t of tools.values()) if (!oldest || t.since < oldest.since) oldest = t;
-    const snap = { turnState, toolsInFlight: tools.size };
+    const snap = { turnState };
     if (turnState === 'running' && turnStartedAt) snap.turnAgeMs = Math.max(0, now - turnStartedAt);
     if (lastProgressAt) snap.progressAgeMs = Math.max(0, now - lastProgressAt);
-    if (oldest) snap.toolInFlight = { name: oldest.name, ageMs: Math.max(0, now - oldest.since) };
     return snap;
   };
 
@@ -220,7 +223,6 @@ export const register = (on) => {
     // 다시 불러온 모듈은 턴 한가운데일 수 있다 — 모르는 것을 "안 돈다"로 적지 않는다.
     turnState = 'unknown';
     turnStartedAt = 0;
-    tools.clear();
     lastProgressAt = Date.now();
     queue({ kind: 'attach' });
     if (ticker) ticker.cancel();
@@ -240,10 +242,16 @@ export const register = (on) => {
 
   on('turn.start', ($, e, next) => {
     const now = Date.now();
+    // 서브에이전트·팀원의 턴은 이 세션의 턴 안(또는 메인 턴이 끝난 뒤 배경)에서 도는 일이다 — `turn.complete` 와
+    //   같이 진척으로만 센다. 2.1.299 부터 `turn.start` 도 그 턴들을 알린다(`e.agentId` — 메인 루프는 없다).
+    //   거르지 않으면 배경 턴 하나가 `running` 을 올리고 그 끝(agentId 있음)은 내리지 않아 다음 메인 턴까지 굳는다.
+    if (e.agentId) {
+      lastProgressAt = now;
+      return next(e);
+    }
     turnState = 'running';
     turnStartedAt = now;
     lastProgressAt = now;
-    tools.clear();
     if (target) {
       queue({ kind: 'turn-start', turnId: String(e.turnId || '') });
       kick($);
@@ -257,7 +265,6 @@ export const register = (on) => {
     if (!e.agentId) {
       turnState = 'idle';
       turnStartedAt = 0;
-      tools.clear();
       if (target) {
         queue({
           kind: 'turn-end',
@@ -271,19 +278,9 @@ export const register = (on) => {
     return next(e);
   });
 
-  // 도는 도구 — 긴 빌드·검색이 "조용한 세션"으로 오인되지 않게. 결과는 받은 그대로 돌려준다.
-  on('tool.call', async ($, e, next) => {
-    const id = typeof e.tool_use_id === 'string' ? e.tool_use_id : '';
-    const now = Date.now();
-    lastProgressAt = now;
-    if (id) tools.set(id, { name: String(e.tool), since: now });
-    try {
-      return await next(e);
-    } finally {
-      if (id) tools.delete(id);
-      lastProgressAt = Date.now();
-    }
-  });
+  // 도는 도구(`tool.call`)에는 훅을 걸지 않는다(위 1번) — 결과를 그대로 돌려주는 감지기였지만, 막을 수 있는
+  //   자리라 2.1.299 부터 이 모드의 작업자가 멎으면 사용자의 도구 호출이 거부된다. 긴 빌드·검색이 "조용한 세션"으로
+  //   오인되지 않게 하는 일은 서버가 대화록 마지막 쓰기로 맡는다(SCENARIO §4 엔진 다리 (D)①). 되살리지 마라.
 
   on('session.measure', ($, e, next) => {
     try {
@@ -316,7 +313,6 @@ export const register = (on) => {
         // 같은 프로세스가 다른 대화로 이어 간다 — 신호를 멈추지 않는다.
         turnState = 'idle';
         turnStartedAt = 0;
-        tools.clear();
         queue({ kind: 'clear', reason });
         try {
           $.clock.after(1000, () => { void refreshSessionId($); });

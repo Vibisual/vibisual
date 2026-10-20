@@ -29,6 +29,9 @@ const probeCalls: { evidence: SessionProbeEvidence; model: string }[] = [];
 let probeAnswer: SessionLivenessProbeResult | null = null;
 /** 대화록 조회도 가로챈다 — 테스트가 사용자의 `~/.claude/projects` 를 읽으면 안 된다. */
 let transcript: { file: string; bytes: number; mtimeMs: number } | null = null;
+/** 요약된 대화록 꼬리. 빈 문자열 = 꼬리를 하나도 못 읽음(큰 기록 줄뿐이거나 읽기 실패). */
+const DEFAULT_TAIL = 'called tool: Bash\ntool result: building…';
+let tailText = DEFAULT_TAIL;
 
 vi.mock('./sessionLivenessProbe.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./sessionLivenessProbe.js')>();
@@ -39,7 +42,7 @@ vi.mock('./sessionLivenessProbe.js', async (importOriginal) => {
       return Promise.resolve(probeAnswer);
     },
     resolveSessionTranscript: () => transcript,
-    summarizeTranscriptTail: () => 'called tool: Bash\ntool result: building…',
+    summarizeTranscriptTail: () => tailText,
   };
 });
 
@@ -90,6 +93,7 @@ const settle = async (): Promise<void> => {
 beforeEach(() => {
   probeCalls.length = 0;
   probeAnswer = null;
+  tailText = DEFAULT_TAIL;
   codexTurns.clear();
 
   m = new SubAgentManager();
@@ -357,6 +361,21 @@ describe('답 반영 — 확실할 때만 손댄다', () => {
     // 상태만 내리고 명령을 안 풀면 그 탭은 "쉬는 중"인데 새 명령은 못 받는 자리에 갇힌다.
     expect(held.status).toBe('completed');
     expect(held.result).toContain('마무리 요약을 쓰고 멈췄다');
+  });
+
+  it('대화록 꼬리를 하나도 못 읽었으면 `finished` 를 거부한다 — 없음은 끝남의 근거가 아니다', async () => {
+    // CLI 2.1.300 부터 요청마다 수백 KB 짜리 기록 줄이 마지막 줄이 될 수 있다. 꼬리가 비면 모델은 빈칸만 본다.
+    tailText = '';
+    probeAnswer = { at: Date.now(), verdict: 'finished', reason: 'Empty last lines suggests session completed.' };
+    const held = cmd({ id: 'c1', status: 'executing', startedAt: Date.now() - 50 * 60_000 });
+
+    m.maybeProbeRunningSessions(queuesWith(held));
+    await settle();
+
+    expect(probeCalls).toHaveLength(1);
+    expect(probeCalls[0]?.evidence.tail).toBe('');
+    expect(m.getSub(subId)!.status).toBe('active');
+    expect(held.status).toBe('executing');
   });
 
   it('자동종료를 꺼 두면 판정만 붙이고 내리지는 않는다', async () => {

@@ -7,9 +7,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   EDIT_INPUT_TOOLS,
+  MAX_WRITE_DIFF_BYTES,
   parseEditToolObject,
   parseEditToolInputJson,
   joinEditHunks,
+  clampEditSide,
+  parseApplyPatch,
 } from '@vibisual/shared';
 
 describe('parseEditToolObject — 네 도구의 입력 모양', () => {
@@ -108,5 +111,112 @@ describe('joinEditHunks — 호출 하나 = 이력 한 줄', () => {
       { oldText: 'a\nb', newText: 'A\nB' },
       { oldText: 'c', newText: 'C' },
     ])).toEqual({ oldString: 'a\nb\nc', newString: 'A\nB\nC' });
+  });
+});
+
+describe('clampEditSide — 이력 본문 상한은 한 벌', () => {
+  it('상한 이하는 그대로, 넘치면 자르고 넘친 글자 수를 표식으로 남긴다', () => {
+    expect(clampEditSide('short')).toBe('short');
+    const long = 'x'.repeat(MAX_WRITE_DIFF_BYTES + 7);
+    expect(clampEditSide(long)).toBe(`${'x'.repeat(MAX_WRITE_DIFF_BYTES)}\n…[truncated 7 chars]`);
+    expect(clampEditSide('abcdef', 4)).toBe('abcd\n…[truncated 2 chars]');
+  });
+});
+
+/**
+ * §5.25 (F) "쓴 내용도 남는다" — 코덱스 `apply_patch` 본문 → 파일별 바뀐 덩어리.
+ * 사진 속 실제 경우(2026-10-20 `pathLinkContextMenu.ts` 주석 한 줄)를 그대로 픽스처로 쓴다.
+ */
+describe('parseApplyPatch — 코덱스 패치 본문을 파일별 덩어리로', () => {
+  const REAL = [
+    '*** Begin Patch',
+    '*** Update File: C:/Work/Proj/packages/client/src/components/IDE/pathLinkContextMenu.ts',
+    '@@',
+    ' export interface OutsidePathLinkMenuHandlers {',
+    '-  /** `POST /api/reveal-path` — 파일이면 그 파일이 든 폴더. */',
+    '+  /** `POST /api/reveal-path` — 파일이면 상위 폴더에서 해당 파일 선택. */',
+    '   reveal: () => void;',
+    '*** Update File: C:/Work/Proj/packages/client/src/components/IDE/useWorkspaceExplorer.ts',
+    '@@ export function openFolderByPath',
+    '-/** 절대 경로가 든 폴더를 시스템 탐색기에서 연다 — 기존 폴더 열기 경로 재사용(새 열기 레일 ❌). */',
+    '+/** 시스템 탐색기에서 폴더를 열거나 파일을 선택한다 — 기존 폴더 열기 경로 재사용(새 열기 레일 ❌). */',
+    ' export function openFolderByPath(absolutePath: string, nodePath: string): void {',
+    '*** End Patch',
+  ].join('\n');
+
+  it('실제 사례 — 파일마다 문맥·지운 줄 → 문맥·넣은 줄', () => {
+    const files = parseApplyPatch(REAL);
+    expect(files.map((f) => [f.op, f.path])).toEqual([
+      ['update', 'C:/Work/Proj/packages/client/src/components/IDE/pathLinkContextMenu.ts'],
+      ['update', 'C:/Work/Proj/packages/client/src/components/IDE/useWorkspaceExplorer.ts'],
+    ]);
+    expect(files[0]!.hunks).toEqual([{
+      oldText: 'export interface OutsidePathLinkMenuHandlers {\n  /** `POST /api/reveal-path` — 파일이면 그 파일이 든 폴더. */\n  reveal: () => void;',
+      newText: 'export interface OutsidePathLinkMenuHandlers {\n  /** `POST /api/reveal-path` — 파일이면 상위 폴더에서 해당 파일 선택. */\n  reveal: () => void;',
+    }]);
+    // `@@` 뒤의 닻 글자는 본문이 아니다.
+    expect(files[1]!.hunks[0]!.oldText).not.toContain('@@');
+    expect(files[1]!.hunks[0]!.newText.split('\n')).toHaveLength(2);
+  });
+
+  it('덩어리가 여럿이면 따로 — 첫 덩어리는 `@@` 없이 시작할 수 있다', () => {
+    const files = parseApplyPatch([
+      '*** Begin Patch',
+      '*** Update File: src/a.ts',
+      ' const a = 1;',
+      '-const b = 2;',
+      '+const b = 20;',
+      '@@ function tail',
+      '-return 1;',
+      '+return 2;',
+      '*** End Patch',
+    ].join('\n'));
+    expect(files[0]!.hunks).toEqual([
+      { oldText: 'const a = 1;\nconst b = 2;', newText: 'const a = 1;\nconst b = 20;' },
+      { oldText: 'return 1;', newText: 'return 2;' },
+    ]);
+  });
+
+  it('빈 줄은 빈 문맥 줄이다 — 본문 끝 개행이 만든 빈 줄은 덧붙지 않는다', () => {
+    const files = parseApplyPatch('*** Begin Patch\n*** Update File: a.md\n@@\n first\n\n-old\n+new\n\n');
+    expect(files[0]!.hunks).toEqual([{ oldText: 'first\n\nold', newText: 'first\n\nnew' }]);
+  });
+
+  it('CRLF 본문도 같은 답 — `*** End of File` 은 닻일 뿐이다', () => {
+    const files = parseApplyPatch('*** Begin Patch\r\n*** Update File: a.ts\r\n@@\r\n-x\r\n+y\r\n*** End of File\r\n*** End Patch\r\n');
+    expect(files).toEqual([{ op: 'update', path: 'a.ts', hunks: [{ oldText: 'x', newText: 'y' }] }]);
+  });
+
+  it('새 파일은 이전 본문이 비고, 지운 파일은 덩어리가 없다(지어내지 않는다)', () => {
+    const files = parseApplyPatch([
+      '*** Begin Patch',
+      '*** Add File: src/new.ts',
+      '+export const x = 1;',
+      '+',
+      '+export const y = 2;',
+      '*** Delete File: src/old.ts',
+      '*** End Patch',
+    ].join('\n'));
+    expect(files).toEqual([
+      { op: 'add', path: 'src/new.ts', hunks: [{ oldText: '', newText: 'export const x = 1;\n\nexport const y = 2;' }] },
+      { op: 'delete', path: 'src/old.ts', hunks: [] },
+    ]);
+  });
+
+  it('이름 바꾸기는 새 경로를 함께 든다', () => {
+    const files = parseApplyPatch('*** Begin Patch\n*** Update File: a.ts\n*** Move to: b.ts\n@@\n-x\n+y\n*** End Patch');
+    expect(files[0]).toEqual({ op: 'update', path: 'a.ts', movePath: 'b.ts', hunks: [{ oldText: 'x', newText: 'y' }] });
+  });
+
+  it('바뀐 줄이 없는 덩어리·머리줄 없는 글·빈 글은 이력이 아니다', () => {
+    expect(parseApplyPatch('*** Begin Patch\n*** Update File: a.ts\n@@\n same\n*** End Patch')[0]!.hunks).toEqual([]);
+    expect(parseApplyPatch('-x\n+y')).toEqual([]);
+    expect(parseApplyPatch('')).toEqual([]);
+  });
+
+  it('본문 줄의 `***` 는 머리줄로 오인되지 않는다 — 접두 문자가 있다', () => {
+    const files = parseApplyPatch('*** Begin Patch\n*** Update File: a.md\n@@\n-*** Update File: fake.ts\n+*** Add File: fake.ts\n*** End Patch');
+    expect(files).toHaveLength(1);
+    expect(files[0]!.hunks).toEqual([{ oldText: '*** Update File: fake.ts', newText: '*** Add File: fake.ts' }]);
   });
 });

@@ -1,5 +1,5 @@
 import type { QueuedCommand } from '@vibisual/shared';
-import { COMMAND_MERGE_SEPARATOR, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisual/shared';
+import { APP_WORK, COMMAND_MERGE_SEPARATOR, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisual/shared';
 
 /**
  * §5.5 #17-18 v4.68 — **합치기(merge) 덧말 흡수** (순수 로직 — 큐 배열만 만진다).
@@ -33,6 +33,9 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
   if (base.silent) return [];
   // §5.3 #10-4 — 지휘 명령·킥오프는 남의 덧말을 삼키지 않는다. 지휘자가 받을 요청 원문이 바뀌면 안 된다.
   if (base.orchestraRunId) return [];
+  // Capabilities and execution caps belong to one request, never an absorbed follow-up.
+  if (base.executionRequirements || base.runLimits) return [];
+  if (base.waitForCommandIds?.length) return [];
   const baseIdx = queue.indexOf(base);
   if (baseIdx < 0) return [];
 
@@ -46,6 +49,8 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
     if (c.silent) break;
     // 지휘 명령·킥오프도 자기 턴으로 따로 나간다(§5.3 #10-4).
     if (c.orchestraRunId) break;
+    if (c.executionRequirements || c.runLimits) break;
+    if (c.waitForCommandIds?.length) break;
     if ((c.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE) !== 'merge') break;
     absorbed.push(c);
   }
@@ -61,6 +66,12 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
     for (const a of c.attachments ?? []) if (!atts.includes(a)) atts.push(a);
   }
   if (atts.length > 0) base.attachments = atts;
+  // §5.1 #2-1 (F) ① — 앱 노드도 합집합. 흡수된 덧말이 말풍선에서 넣은 노드의 작업이면 이 턴이 그 작업이다.
+  const appNodes = [...(base.appNodeIds ?? [])];
+  for (const c of absorbed) {
+    for (const id of c.appNodeIds ?? []) if (!appNodes.includes(id) && appNodes.length < APP_WORK.commandNodeMax) appNodes.push(id);
+  }
+  if (appNodes.length > 0) base.appNodeIds = appNodes;
   base.mergedCount = (base.mergedCount ?? 0) + absorbed.length;
 
   for (const c of absorbed) {

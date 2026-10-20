@@ -45,6 +45,8 @@ import { PROCESS_GUARD_LIMITS, DEFAULT_PROCESS_GUARD_SETTINGS, formatProcessGuar
 import { processGuard } from './services/processGuard.js';
 // §2.1 (B) — 최상위 외부 폴더 예산의 범위·기본값(설정 UI 와 서버가 같은 표를 본다).
 import { EXTERNAL_TOP_BUDGET_BOUNDS, EXTERNAL_TOP_BUDGET_DEFAULT } from '@vibisual/shared';
+// §5.23 웹 버블 묶기 — 옵션창의 "되돌리기"·범위가 쓰는 기본값과 경계(정본은 shared 상수).
+import { WEB_GROUP_DEFAULTS, WEB_GROUP_MAX_BOUNDS } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
 import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual/shared';
 import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
@@ -62,6 +64,8 @@ import { TOKEN_SAVER_LIMITS, DEFAULT_TOKEN_SAVER_SETTINGS, normalizeTokenSaverSe
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
 import { sessionsNeedingKick } from './services/queueWatchdog.js';
+import { mountAgentCardTaskRoutes } from './services/agentCardTasks.js';
+import { captureAgentWorkCommandIds, hasUnfinishedCommandDependencies, followsWaitingSessionCommand } from './services/agentWorkDependencies.js';
 // §5.5 #17-35 — 검증(Verify): 프롬프트 조립·판정 해석은 화면 없이 시험되는 순수 모듈에 있다.
 import {
   buildVerifyReworkPrompt,
@@ -82,6 +86,10 @@ import { resolveVerificationDemoFrames } from './services/verificationFrames.js'
 import { calculateTokenCost, resolveAliasToLatest } from '@vibisual/shared';
 // §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
 import type { CommandDispatchMode } from '@vibisual/shared';
+// §5.13 (R-10) — 명령 한 건의 턴·시간 상한(제작 앱의 '빠른 초안 / 정교하게').
+import { normalizeRunLimits } from './services/commandRunLimits.js';
+import { normalizeExecutionRequirements } from './services/commandExecutionRequirements.js';
+import { normalizeAppNodeIds } from '@vibisual/shared';
 import {
   DEFAULT_COMMAND_DISPATCH_MODE,
   normalizeCommandDispatchMode,
@@ -218,6 +226,7 @@ import { ensureOrchestraEntryEdge, ensureOrchestraMemberReturns, orchestraCritiq
 import { OrchestraResultCollector } from './services/orchestraResultCollector.js';
 import type { SpecReadingScope, SpecReadingSettings } from '@vibisual/shared';
 import { specReadingService } from './services/specReadingService.js';
+import { patchSpecReadingPreferences } from './services/specReadingSettingsPatch.js';
 
 /** §5.11 정독 게이트 — "이 파일을 건드렸다"로 세는 도구들(경로 축 라우팅의 재료). */
 const SPEC_TOUCH_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -249,7 +258,8 @@ import {
   getSubagentStatusLine,
   listSubagentStatusLines,
 } from './services/subagentStatusLineService.js';
-import { mountAppRoutes } from './services/appHost.js';
+import { mountAppBodyParsers, mountAppRoutes } from './services/appHost.js';
+import { sessionMemoBodyParser } from './services/sessionMemoBodyParser.js';
 import { distillFeedbackToRules } from './services/feedbackDistillService.js';
 import { isPortAlive, killByPort, respawn, setVibisualOwnPorts } from './services/processChecker.js';
 // §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼).
@@ -320,7 +330,7 @@ import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebFoldPerAgent, appStateSetWebFoldPerAgent, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebGroup, appStateSetWebGroup, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
 import { ensureHooksInstalledEverywhere, installHooksIntoNewCoworkHomes } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -434,6 +444,7 @@ import { CheckpointCoalescer, setActiveCheckpointCoalescer } from './services/ch
 import { diagnosticService, recordDiagnostic } from './services/diagnosticService.js';
 import { createSnapshotBroadcastScheduler } from './services/snapshotBroadcastScheduler.js';
 import { deferStartupJob } from './services/startupJobs.js';
+import { reportBootProgress } from './services/bootProgress.js';
 
 // §3.7 — desktop in-process 진입점이 server 코어를 라이브러리로 쓰기 위한 re-export.
 // `@vibisual/server` 단일 import 지점에서 코어 API를 모두 가져갈 수 있게 한다.
@@ -441,6 +452,10 @@ export { setBroadcastSink, broadcast, type BroadcastSink } from './broadcastBus.
 // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ② — 본체 창이 처음 보이면 desktop main 이 부른다. 그때부터
 // 부팅 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)이 원래 순서대로 한 칸씩 돈다.
 export { releaseStartupJobs } from './services/startupJobs.js';
+// §3.7 · §9 「시작 화면(스플래시)」 — 스플래시가 떠 있으면 desktop main 이 줄을 먼저 풀고(`'splash'`), 남은 수가
+// 0 이 된 뒤에 본체 창을 보인다. 부팅 진척은 스플래시 문구용이다(표시 전용).
+export { pendingStartupJobCount, type StartupJobRelease } from './services/startupJobs.js';
+export { setBootProgressSink } from './services/bootProgress.js';
 // §9 — 체크포인트 디스크 쓰기 워커. desktop main 의 before-quit 가 남은 쓰기를 마무리하고 워커를 내린다.
 export { shutdownDiskWriteQueue, flushPendingDiskWritesSync, getDiskWriteQueueStats } from './services/diskWriteQueue.js';
 // §9 — 코얼레스된 체크포인트 창. desktop main 의 before-quit 가 디스크 큐를 내리기 **직전에**
@@ -550,7 +565,7 @@ export { setMicSettingsOpener } from './services/micSettingsOpener.js';
 
 // §5.13 (T-11) ① — 내부 앱의 서버 몫이 같은 앱의 main 몫을 부르는 통로. desktop main 이 부팅 때 한 번 꽂는다
 //   (앱 이름을 모르는 함수 하나 — 어느 앱인지는 앱 호스트가 묶는다).
-export { setAppMainInvoker, type AppMainInvoker } from './services/appHost.js';
+export { setAppMainInvoker, resolveAppMediaFile, type AppMainInvoker } from './services/appHost.js';
 
 // §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
@@ -560,6 +575,7 @@ export { closeStaticHost } from './services/playStaticHost.js';
 // §4 v2.63 — desktop main 의 임베디드 터미널 매니저가 인터랙티브 claude 를 스폰할 때
 // 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
 export { resolveClaudeBin, getClaudeBin, invalidateClaudeBinCache } from './services/claudeBin.js';
+export { knownBinDirs } from './services/binLocator.js';
 
 // §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 제어 주입 지점. desktop main 이 terminalManager 를
 // 이 인터페이스로 감싸 넣으면 loopback REST(`/api/cmd/*`)가 터미널을 읽고 prefill 할 수 있다.
@@ -801,6 +817,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // Scene metadata and a viewport capture can exceed the default JSON limit; keep this scoped to Vibi3D.
   app.use('/api/app/vibi3d', express.json({ limit: '8mb' }));
+  mountAppBodyParsers(app);
+  app.use('/api/session-memos', sessionMemoBodyParser);
   app.use(express.json());
   // Task Edge dispatch raw-text 경로용 — instruction 원문을 손escape 없이 stdin 으로 받기 위함.
   // express.json() 은 application/json 만, express.text() 는 text/* 만 처리 → 상호 간섭 없음.
@@ -2638,7 +2656,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** POST /api/open-node-folder — 노드 키로 상위 폴더 열기 (탐색기).
+  /** POST /api/open-node-folder — 노드 키로 폴더 열기 / 파일 위치에서 선택 (탐색기).
    *  client가 absolutePath를 함께 보내면 그걸 우선 사용 (프로젝트 컨텍스트 보존). */
   app.post('/api/open-node-folder', (req, res) => {
     try {
@@ -3577,12 +3595,16 @@ export async function runServer(): Promise<RunServerHandle> {
     }
 
     let dispatched = false;
+    const waitsForEarlierWork = (command: QueuedCommand): boolean => hasUnfinishedCommandDependencies(
+      command, commandQueues, sessionId, (id) => graphManager.findAgentIdBySession(id) ?? subAgentManager.findSubBySessionId(id)?.parentAgentId,
+    );
     // §5.5 #17-18 v4.68 — 합치기가 뒤엣것을 큐에서 지우므로 **스냅샷**을 순회한다(라이브 배열을
     //   splice 하며 돌면 항목을 건너뛴다). 지워진 항목은 아래 `queue.includes` 가 걸러낸다.
     for (const next of [...queue]) {
       if (next.status !== 'queued') continue;
       if (!queue.includes(next)) continue; // 앞선 명령에 흡수됨 — 이 턴에 이미 실려 나갔다.
       if (busy.has(next.subAgentId)) continue;
+      if (waitsForEarlierWork(next) || followsWaitingSessionCommand(next, queue, waitsForEarlierWork)) continue;
       // §5.3 #9-1 (N·O) — 동시 가동 상한·스폰 시차. **부수효과보다 먼저** 본다(합치기·목표 시딩이
       //   돌고 난 뒤 미루면 그 일들이 다음 라운드에 또 돈다). 거절은 미룸이지 버림이 아니다.
       if (!tokenSaverAdmits(next, sessionId)) continue;
@@ -4970,15 +4992,24 @@ export async function runServer(): Promise<RunServerHandle> {
     let subAgentId: string | null | undefined;
     let attachments: string[] | undefined;
     let dispatchMode: CommandDispatchMode = DEFAULT_COMMAND_DISPATCH_MODE;
+    let runLimits: QueuedCommand['runLimits'];
+    let executionRequirements: QueuedCommand['executionRequirements'];
+    // §5.1 #2-1 (F) ① — 말풍선이 넣은 앱 노드. 이 명령 중 쓴 파일에 앱 꼬리표를 다는 열쇠다(모양이 맞는 id 만).
+    let appNodeIds: string[] | undefined;
+    let afterAgentWork = false;
     if (typeof req.body === 'string') {
       // express.text() 가 파싱한 raw 본문. 끝의 heredoc 잔여 개행만 정리.
       text = req.body.replace(/\r\n/g, '\n').replace(/\n+$/, '');
     } else {
-      const body = (req.body ?? {}) as { text?: string; subAgentId?: string | null; attachments?: string[]; dispatchMode?: unknown };
+      const body = (req.body ?? {}) as { text?: string; subAgentId?: string | null; attachments?: string[]; dispatchMode?: unknown; runLimits?: unknown; executionRequirements?: unknown; afterAgentWork?: unknown; appNodeIds?: unknown };
       text = body.text;
       subAgentId = body.subAgentId;
       attachments = body.attachments;
       dispatchMode = normalizeCommandDispatchMode(body.dispatchMode);
+      runLimits = normalizeRunLimits(body.runLimits);
+      executionRequirements = normalizeExecutionRequirements(body.executionRequirements);
+      appNodeIds = normalizeAppNodeIds(body.appNodeIds);
+      afterAgentWork = body.afterAgentWork === true;
     }
     if (typeof text !== 'string' || !text.trim()) {
       res.status(400).json({ error: 'text required' });
@@ -5144,6 +5175,9 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(429).json({ ok: false, error: 'command-queue-full', limit: COMMAND_QUEUE_MAX_PER_SESSION });
       return;
     }
+    const waitForCommandIds = afterAgentWork
+      ? captureAgentWorkCommandIds(commandQueues, sessionId, (id) => graphManager.findAgentIdBySession(id) ?? subAgentManager.findSubBySessionId(id)?.parentAgentId)
+      : [];
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now()}-${queue.length}`,
       text: text.trim(),
@@ -5153,6 +5187,11 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
       // §5.5 #17-18 v4.68 — 항상 명시 저장. 화면의 [대기|합치기|즉시] 칩이 이 값을 그대로 그린다.
       dispatchMode,
+      // §5.13 (R-10) — 제작 앱의 '빠른 초안 / 정교하게'가 실은 명령 한 건의 상한(실행할 때 엔진이 지원하면 건다).
+      ...(runLimits ? { runLimits } : {}),
+      ...(executionRequirements ? { executionRequirements } : {}),
+      ...(appNodeIds ? { appNodeIds } : {}),
+      ...(waitForCommandIds.length ? { waitForCommandIds } : {}),
     };
     /*
      * §5.3 #12-4 (B) — 검증 권한은 **사람 창구로 들어온 본문에서만** 선다. loopback(에이전트가 토큰으로 넣은
@@ -5282,6 +5321,8 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     res.json({ ok: true });
     broadcastSnapshot();
+    // Removing an unstarted predecessor may release a new task without any completion callback.
+    if (removed?.status === 'queued') processNextCommand(sessionId);
   });
 
   /** POST /api/commands/:sessionId/pop — 1번 명령 꺼내기 (실행용) */
@@ -7514,6 +7555,12 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  mountAgentCardTaskRoutes(app, {
+    rootForAgent: (agentId) => graphManager.getProjectPathForAgent(agentId),
+    sessionOwner: (sessionId) => subAgentManager.getSub(sessionId)?.parentAgentId,
+    warn: (message) => logger.warn(message),
+  });
+
   /** GET /api/subagents/:agentId — 해당 에이전트의 idle subagent 목록 (세션 선택용) */
   app.get('/api/subagents/:agentId', (req, res) => {
     const { agentId } = req.params;
@@ -9188,6 +9235,20 @@ export async function runServer(): Promise<RunServerHandle> {
       if (codexEvent) {
         const codexSessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
         const codexSubAgentId = typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined;
+        /*
+         * §5.25 (F) "쓴 내용도 남는다" — 적용이 **허락된** `apply_patch` 만 그 sub 의 장부에 적는다(거부된 패치는
+         * 칸을 남기지 않는다). 코덱스는 이 답을 받은 뒤에야 패치를 적용하므로 적기가 늘 `file_change` 완료보다 앞선다.
+         * 패치 도구가 아니면 장부가 알아서 버린다.
+         */
+        const noteAllowedPatch = (): void => {
+          if (codexEvent !== 'PreToolUse' || !codexSubAgentId) return;
+          subAgentManager.noteCodexPatch(codexSubAgentId, {
+            cwd: body.cwd ?? '',
+            toolName,
+            toolInput,
+            ...(typeof body.toolUseId === 'string' && body.toolUseId ? { toolUseId: body.toolUseId } : {}),
+          });
+        };
         const codexProject = graphManager.getAgentProjectName(agentId) ?? '';
         const codexRoots = graphManager.getAuditRoots(codexProject, body.cwd ?? null);
         const codexRisk = classifyToolRiskOnHost(toolName, toolInput, codexRoots);
@@ -9249,6 +9310,7 @@ export async function runServer(): Promise<RunServerHandle> {
         };
         if (plan.kind === 'allow') {
           if ('policy' in plan && plan.policy) noteCodexDecision('allow', 'policy', plan.policy);
+          noteAllowedPatch();
           res.json({ ok: true, decision: 'allow', reason: plan.reason });
           return;
         }
@@ -9289,6 +9351,7 @@ export async function runServer(): Promise<RunServerHandle> {
         }
         noteCodexDecision(codexDecision.decision, permissionDecisionSource(codexDecision), codexDecision.reason);
         if (codexEvent === 'PreToolUse' && codexDecision.decision === 'allow') codexApprovalMemory.grant(approvalKey);
+        if (codexDecision.decision === 'allow') noteAllowedPatch();
         if (!res.writableEnded) res.json({ ok: true, decision: codexDecision.decision, reason: codexDecision.reason });
         return;
       }
@@ -11346,18 +11409,19 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * PATCH /api/bubble/:nodeId/link-view — §5.4 #36 (H) 에이전트의 연결 보기.
-   * `{hidden?: boolean, lens?: 'linked'|'files'}` — 준 칸만 바꾼다. 둘 다 없거나 모양이 틀리면 400,
+   * `{hidden?: boolean, bubblesHidden?: boolean, lens?: 'linked'|'files'}` — 준 칸만 바꾼다. 유효한 칸이 없으면 400,
    * 에이전트가 아니면 409, 없으면 404. 표시 형태라 에이전트 노드째 체크포인트에 실린다(`/form` 과 같다).
    */
   app.patch('/api/bubble/:nodeId/link-view', (req, res) => {
     try {
       const { nodeId } = req.params;
-      const body = (req.body ?? {}) as { hidden?: unknown; lens?: unknown };
-      const patch: { hidden?: boolean; lens?: 'linked' | 'files' } = {};
+      const body = (req.body ?? {}) as { hidden?: unknown; bubblesHidden?: unknown; lens?: unknown };
+      const patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files' } = {};
       if (typeof body.hidden === 'boolean') patch.hidden = body.hidden;
+      if (typeof body.bubblesHidden === 'boolean') patch.bubblesHidden = body.bubblesHidden;
       if (body.lens === 'linked' || body.lens === 'files') patch.lens = body.lens;
-      if (!nodeId || (patch.hidden === undefined && patch.lens === undefined)) {
-        res.status(400).json({ error: 'nodeId and hidden(boolean) or lens(linked|files) required' });
+      if (!nodeId || (patch.hidden === undefined && patch.bubblesHidden === undefined && patch.lens === undefined)) {
+        res.status(400).json({ error: 'nodeId and hidden(boolean), bubblesHidden(boolean) or lens(linked|files) required' });
         return;
       }
       const result = graphManager.setAgentLinkView(nodeId, patch);
@@ -11612,8 +11676,9 @@ export async function runServer(): Promise<RunServerHandle> {
    * POST /api/reveal-path — §5.5 #17-27 ⑬ (d) 루트 밖 경로를 **시스템 탐색기에 보여준다**.
    *
    * 여는 실행부는 이미 있는 `editorLauncher.openFolder` 하나다(**새 열기 레일 ❌**) — Windows 는
-   * `explorer` + 포그라운드 보정, macOS 는 `open`, 그 밖은 `xdg-open` 이고 **파일을 주면 그 파일이 든
-   * 상위 폴더**를 연다. 그래서 이 라우트가 하는 일은 "있는가"를 한 번 더 확인하고 넘기는 것뿐이다.
+   * `explorer /select` + 포그라운드 보정, macOS 는 `open -R`, Linux 는 FileManager1 을 사용해
+   * **파일을 주면 상위 폴더에서 그 파일을 선택**한다(선택 미지원 시 폴더 열기).
+   * 이 라우트가 하는 일은 "있는가"를 한 번 더 확인하고 넘기는 것뿐이다.
    *
    * 경계는 위 `GET /api/external-path` 와 같다 — 화이트리스트 밖이라 렌더러만 닿는다. 그리고 여기서
    * **여는 갈래를 늘리지 않는다**: 연결 프로그램(`openWithDefaultApp`)·실행(`startRun`)으로는 가지 않는다.
@@ -12942,6 +13007,30 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  // Preference controls send only their changed field. Reading and merging here are synchronous,
+  // so a scope/waiver or another window's roots cannot be overwritten by an older UI snapshot.
+  app.patch('/api/spec-reading/settings', (req, res) => {
+    try {
+      const body = req.body as { projectPath?: unknown; settings?: unknown };
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+      const next = projectPath
+        ? patchSpecReadingPreferences(graphManager.getSpecReadingSettings(projectPath), body.settings)
+        : null;
+      if (!next) {
+        res.status(400).json({ ok: false, error: 'projectPath and a strength/roots patch required' });
+        return;
+      }
+      const saved = graphManager.setSpecReadingSettings(projectPath, next);
+      if (!saved) { res.status(404).json({ ok: false, error: 'project not loaded' }); return; }
+      scheduleCheckpoint();
+      broadcastSnapshot();
+      res.json({ ok: true, settings: saved });
+    } catch (err) {
+      logger.error('PATCH /api/spec-reading/settings failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
   /**
    * POST /api/spec-reading/waive — 절 하나를 면제한다(또는 되돌린다).
    *
@@ -14039,7 +14128,7 @@ export async function runServer(): Promise<RunServerHandle> {
   /** GET /api/keymap — 사용자 덮어쓰기 + 기본값(설정 UI 가 "되돌리기"에 쓴다). */
   app.get('/api/keymap', (_req, res) => {
     try {
-      res.json({ overrides: appStateGetKeymap(), defaults: defaultKeymap() });
+      res.json({ overrides: appStateGetKeymap(), defaults: defaultKeymap(process.platform) });
     } catch (err) {
       logger.error('GET /api/keymap failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -14071,7 +14160,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const overrides = appStateSetKeymap(patch, reset);
       // 창이 여럿이면 다른 창도 즉시 같은 키를 써야 한다 — 안 그러면 창마다 다른 단축키가 된다.
       broadcast({ type: 'keymap_updated', timestamp: Date.now(), payload: overrides });
-      res.json({ overrides, defaults: defaultKeymap() });
+      res.json({ overrides, defaults: defaultKeymap(process.platform) });
     } catch (err) {
       logger.error('PUT /api/keymap failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -14083,7 +14172,7 @@ export async function runServer(): Promise<RunServerHandle> {
     try {
       const overrides = appStateResetKeymap();
       broadcast({ type: 'keymap_updated', timestamp: Date.now(), payload: overrides });
-      res.json({ overrides, defaults: defaultKeymap() });
+      res.json({ overrides, defaults: defaultKeymap(process.platform) });
     } catch (err) {
       logger.error('DELETE /api/keymap failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -14293,25 +14382,31 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §5.23 접어 보기 — GET /api/web-fold. 에이전트마다 웹 버블 하나로 접는지(머신 단위 앱 설정). */
+  /**
+   * §5.23 웹 버블 묶기 — GET /api/web-fold. 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개(머신 단위 앱 설정)
+   * + 옵션창의 "되돌리기"용 기본값 + 최대 개수의 범위. 종전 `{ enabled }`(접어 보기)는 최대 1개로 흡수됐다.
+   */
   app.get('/api/web-fold', (_req, res) => {
     try {
-      res.json({ enabled: appStateGetWebFoldPerAgent() });
+      res.json({ group: appStateGetWebGroup(), defaults: WEB_GROUP_DEFAULTS, bounds: WEB_GROUP_MAX_BOUNDS });
     } catch (err) {
       logger.error('GET /api/web-fold failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  /** §5.23 접어 보기 — PUT /api/web-fold `{ enabled }`. `true` 만 켠다(그 밖의 값은 끔). */
+  /**
+   * §5.23 웹 버블 묶기 — PUT /api/web-fold `{ group }`. **준 칸만 바꾼다**(빠진 칸은 지금 값 유지),
+   * 정규화(범위 클램프)는 shared 한 곳에서.
+   */
   app.put('/api/web-fold', (req, res) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const enabled = appStateSetWebFoldPerAgent(body['enabled']);
-      // 저장과 동시에 그래프에 먹인다 — 판이 올라 다음 스냅샷부터 접힌(또는 풀린) 모양으로 그려진다.
-      graphManager.setWebFoldPerAgent(enabled);
+      const group = appStateSetWebGroup(body['group']);
+      // 저장과 동시에 그래프에 먹인다 — 판이 올라 다음 스냅샷부터 묶인(또는 풀린) 모양으로 그려진다.
+      graphManager.setWebGroupSettings(group);
       broadcastSnapshot();
-      res.json({ enabled });
+      res.json({ group, defaults: WEB_GROUP_DEFAULTS, bounds: WEB_GROUP_MAX_BOUNDS });
     } catch (err) {
       logger.error('PUT /api/web-fold failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -18369,7 +18464,10 @@ export async function runServer(): Promise<RunServerHandle> {
     // openProjects(경로) 에 있는 프로젝트만 부팅 시 즉시 hydrate (worktree 는 부모 재귀로).
     const filtered = validMetas.filter((m) => openKeySet.has(np(m.project.path)));
     let hydratedCount = 0;
-    for (const meta of filtered) {
+    // §9 「시작 화면(스플래시)」 — 복원 진척(표시 전용). 이 반복은 동기라 그동안 메인 스레드가 붙잡히지만,
+    //   desktop main 은 메시지 포트로 스플래시에 흘려보내 "몇 번째를 복원하는 중"이 그대로 뜬다.
+    for (const [bootIndex, meta] of filtered.entries()) {
+      reportBootProgress({ phase: 'projects', done: bootIndex, total: filtered.length, label: meta.project.name });
       graphManager.registerStub(meta);
       const result = graphManager.hydrateProject(meta.project.path);
       if (result.ok) {
@@ -18386,6 +18484,7 @@ export async function runServer(): Promise<RunServerHandle> {
         stalePaths.push(meta.project.path);
       }
     }
+    reportBootProgress({ phase: 'projects', done: filtered.length, total: filtered.length });
     // meta 가 없는데 openProjects 에만 남은 경로도 청소 (정규화 경로 매칭).
     // §3.2.1-4 손실방지 (v3.29): 메타(project.json)를 못 읽었어도 경로가 디스크에 실재하면
     // 크래시로 project.json 이 truncate/일시 손상됐을 수 있으므로 openProjects 에서 지우지 않고
@@ -18449,6 +18548,8 @@ export async function runServer(): Promise<RunServerHandle> {
       logger.warn(`Boot storage cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  // §9 「시작 화면(스플래시)」 — 복원과 보존 정리를 마쳤다. 남은 기동(세션 복원·감시·타이머)으로 넘어간다(표시 전용).
+  reportBootProgress({ phase: 'services' });
 
   // v1.2 (SCENARIO §5.7 #24): 기동 시 체크포인트만 유일한 버블 소스.
   // 이전엔 scanAllProjects로 ~/.claude/sessions/를 긁어 추가 시딩했으나, 체크포인트 외의
@@ -18650,6 +18751,13 @@ export async function runServer(): Promise<RunServerHandle> {
     // Bash 뒤에는 파일이 사라졌을 수 있다(삭제·이름 변경). 라우트와 **같은 스로틀**을 나눠 써서
     //   두 경로가 함께 폭주해도 스윕이 겹치지 않게 한다.
     let changed = result !== null;
+    // §5.25 (F) "쓴 내용도 남는다" — 코덱스 패치의 바뀐 덩어리. 버블을 세운 **뒤에** 붙인다(같은 세션 → 같은
+    //   인스턴스). 경로는 그래프가 노드를 세울 때 쓴 `file_path`(절대경로로 올린 값) 그대로다.
+    const fileEditPath = payload.tool_input?.['file_path'];
+    if (event.phase === 'post' && event.fileEdit && typeof fileEditPath === 'string'
+      && graphManager.recordProviderFileEdit(session, fileEditPath, event.fileEdit)) {
+      changed = true;
+    }
     if (
       event.phase === 'post' && event.toolName === 'Bash'
       && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
@@ -19692,8 +19800,9 @@ export async function runServer(): Promise<RunServerHandle> {
     // §2.1 (B) — 최상위 외부 폴더 예산도 같은 규약이다. 이 주입이 빠지면 사용자가 정한 밀도가
     //   재기동마다 기본값(12)으로 되돌아간다(설정은 저장돼 있는데 아무도 안 읽는 상태).
     graphManager.setExternalTopBudget(appStateGetExternalTopBudget());
-    // §5.23 — 접어 보기도 같은 규약이다. 빠지면 켜 둔 보기가 재기동마다 호스트마다 버블 하나로 돌아간다.
-    graphManager.setWebFoldPerAgent(appStateGetWebFoldPerAgent());
+    // §5.23 — 웹 버블 묶기도 같은 규약이다. 빠지면 엔진 씨앗(묶지 않음)이 그대로 남아, 저장값도 기본값(켬)도
+    //   먹지 않고 재기동마다 호스트마다 버블 하나로 돌아간다.
+    graphManager.setWebGroupSettings(appStateGetWebGroup());
     //   10분마다 **한 건**만 물어본다. 이 축이 메우는 자리는 위 다섯 장치가 손댈 수 없는 곳이다 —
     //   `hasLivingWork` 이 참이라 아무도 못 걷는데 실제로는 끝났거나 멈춘 세션. 그 판정은 마지막
     //   기록의 *뜻*을 읽어야 나오므로 코드가 아니라 모델이 답한다(§2.4 · `sessionLivenessProbe.ts`).

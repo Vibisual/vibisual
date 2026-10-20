@@ -131,6 +131,76 @@ describe('표식 없는 옛 블록 청소', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// 표식이 **지워진** 우리 블록 — settings.json 을 다른 쪽이 다시 쓰며 블록의 모르는 키(`_vibisualManaged`)를
+// 떨어뜨리면 생긴다. command 블록은 위 서명으로 걷혔지만 HTTP 블록은 서명 검사가 command 전용이라
+// 사용자 훅으로 남고, 부팅마다 표식 붙은 새 블록이 한 장씩 붙었다(실측 2026-10-15: HTTP 이벤트마다 7벌).
+describe('표식이 지워진 블록 청소 — HTTP 훅 · Windows 인코딩 런처', () => {
+  /** 표식만 떨어진 우리 HTTP 블록. */
+  function strippedHttpBlock(port = PORT) {
+    return {
+      hooks: [{
+        type: 'http',
+        url: `http://127.0.0.1:${port}/api/hook-event`,
+        timeout: 10,
+        headers: { 'x-vibisual-hook-token': TOKEN, 'x-vibisual-owner-agent-id': '$VIBISUAL_OWNER_AGENT_ID' },
+        allowedEnvVars: ['VIBISUAL_OWNER_AGENT_ID'],
+      }],
+    };
+  }
+
+  it('표식 없는 우리 HTTP 블록 6장 + 표식 블록 1장이 쌓여 있어도 1장만 남긴다', () => {
+    writeSettings({
+      hooks: {
+        Notification: [
+          ...Array.from({ length: 6 }, () => strippedHttpBlock()),
+          { _vibisualManaged: true, ...strippedHttpBlock() },
+        ],
+      },
+    });
+
+    const r = ensureClaudeHooksInstalled(PORT, HANDLER, TOKEN);
+
+    expect(r.prunedLegacy).toBe(6);
+    const arr = blocksOf('Notification');
+    expect(arr).toHaveLength(1);
+    expect(arr[0]?.['_vibisualManaged']).toBe(true);
+  });
+
+  it('남의 HTTP 훅은 남긴다 — 주소가 다르거나 우리 토큰 헤더가 없으면 우리 것이 아니다', () => {
+    const foreignUrl = { hooks: [{ type: 'http', url: 'http://127.0.0.1:9000/hooks', headers: { 'x-vibisual-hook-token': 'x' } }] };
+    const foreignHeader = { hooks: [{ type: 'http', url: `http://127.0.0.1:${PORT}/api/hook-event`, headers: { authorization: 'Bearer y' } }] };
+    writeSettings({ hooks: { Notification: [foreignUrl, strippedHttpBlock(), foreignHeader] } });
+
+    const r = ensureClaudeHooksInstalled(PORT, HANDLER, TOKEN);
+
+    expect(r.prunedLegacy).toBe(1);
+    const json = JSON.stringify(blocksOf('Notification'));
+    expect(json).toContain('http://127.0.0.1:9000/hooks');
+    expect(json).toContain('Bearer y');
+  });
+
+  it('Node 없는 Windows 런처(-EncodedCommand)도 풀어서 서명을 본다', () => {
+    const script = `$env:ELECTRON_RUN_AS_NODE='1'; & 'C:\\Vibisual\\Vibisual.exe' '${HANDLER}' '--server' 'http://127.0.0.1:${PORT}' '--token' 'old'; exit $LASTEXITCODE`;
+    const encoded = {
+      hooks: [{
+        type: 'command',
+        command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand',
+          Buffer.from(script, 'utf16le').toString('base64')],
+      }],
+    };
+    writeSettings({ hooks: { PreToolUse: [encoded, encoded, foreignBlock()] } });
+
+    const r = ensureClaudeHooksInstalled(PORT, HANDLER, TOKEN);
+
+    expect(r.prunedLegacy).toBe(2);
+    const arr = blocksOf('PreToolUse');
+    expect(arr).toHaveLength(2); // 남의 훅 1장 + 우리 정상 블록 1장
+    expect(JSON.stringify(arr)).toContain('my_own_hook.py');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
 describe('백업 회전', () => {
   it('오래된 백업은 최신 5개만 남기고 지운다', () => {
     writeSettings({ hooks: {} });

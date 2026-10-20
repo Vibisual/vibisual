@@ -411,9 +411,12 @@ export class EngineBridgeService {
     return this.statesOf(subAgentId).some((st) => isEngineBridgeTurnRunning(st, now));
   }
 
-  /** §2.4 — 생존 판정을 묻지 않아도 되는가. */
-  vouchesRunning(subAgentId: string, now: number = Date.now()): boolean {
-    return this.statesOf(subAgentId).some((st) => engineBridgeVouchesRunning(st, now));
+  /**
+   * §2.4 — 생존 판정을 묻지 않아도 되는가. `observedProgressAt` 는 다리 밖에서 관측한 진척 시각(대화록 마지막
+   * 쓰기)이다 — 다리는 턴 가장자리만 세므로 도는 턴 안의 진척은 그쪽이 말한다(`engineBridgeVouchesRunning`).
+   */
+  vouchesRunning(subAgentId: string, now: number = Date.now(), observedProgressAt?: number): boolean {
+    return this.statesOf(subAgentId).some((st) => engineBridgeVouchesRunning(st, now, observedProgressAt));
   }
 
   /** §2.4 — 판정에 싣는 엔진 사실. 이 세션 탭의 다리 중 가장 최근에 소식을 준 것을 본다. 없으면 null. */

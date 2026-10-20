@@ -400,17 +400,52 @@ function isOurBlock(block: HookMatcherBlock): boolean {
  * 우리 서명(`handler.mjs` + loopback `--server`)이 **둘 다** 보이는 블록만 걷어내므로 남의 훅은
  * 건드리지 않는다. exec 형식(`args`)으로 바뀐 뒤에는 서명이 `command` 한 줄이 아니라 `args` 배열에
  * 흩어지므로 둘을 합쳐서 본다.
+ *
+ * **표식이 지워진 블록도 여기서 걷힌다(2026-10-15).** settings.json 을 다른 쪽이 다시 쓰며 블록의 모르는
+ * 키(`_vibisualManaged`)를 떨어뜨리면 command 블록은 위 서명으로 걷혔지만 **HTTP 블록은 서명 검사가
+ * command 전용이라 사용자 훅으로 남았고**, 부팅마다 표식 붙은 새 블록이 한 장씩 붙었다(실측: HTTP
+ * 이벤트마다 7벌 — 같은 POST 가 일곱 번). HTTP 블록은 주소(`/api/hook-event` on loopback)와 우리 토큰
+ * 헤더가 **둘 다** 맞을 때만 우리 것이다. Node 없는 Windows 런처는 서명이 `-EncodedCommand` 안에 있어
+ * 풀어서 본다(`claudeHookInvocation`).
  */
 function isLegacyVibisualBlock(block: HookMatcherBlock): boolean {
   if (!block || typeof block !== 'object') return false;
   if (block[MARKER] === true) return false;
   if (!Array.isArray(block.hooks)) return false;
   return block.hooks.some((h) => {
-    if (!h || typeof h !== 'object' || h.type !== 'command') return false;
-    const parts = [h.command, ...(Array.isArray(h.args) ? h.args : [])].filter((s) => typeof s === 'string');
+    if (!h || typeof h !== 'object') return false;
+    if (h.type === 'http') return isOurHttpHookEntry(h);
+    if (h.type !== 'command') return false;
+    const args = Array.isArray(h.args) ? h.args.filter((s): s is string => typeof s === 'string') : [];
+    const parts = [h.command, ...args, ...args.map(decodeEncodedCommandArg)].filter((s): s is string => typeof s === 'string');
     const joined = parts.join(' ');
     return joined.includes('handler.mjs') && joined.includes('http://127.0.0.1:');
   });
+}
+
+/** 우리가 까는 HTTP 훅 주소 모양 — 포트만 바뀐다(`hookEventUrl`). */
+const OUR_HOOK_EVENT_URL_RE = /^http:\/\/127\.0\.0\.1:\d{1,5}\/api\/hook-event$/;
+
+/** HTTP 훅 엔트리가 우리 것인가 — 주소와 토큰 헤더가 둘 다 맞아야 한다(남의 HTTP 훅은 둘 중 하나가 어긋난다). */
+function isOurHttpHookEntry(h: HookHttpEntry): boolean {
+  if (typeof h.url !== 'string' || !OUR_HOOK_EVENT_URL_RE.test(h.url)) return false;
+  const headers = h.headers;
+  if (!headers || typeof headers !== 'object') return false;
+  return Object.keys(headers).some((k) => k.toLowerCase() === 'x-vibisual-hook-token');
+}
+
+/**
+ * `-EncodedCommand` 다음 인자면 그 스크립트를 푼다(PowerShell 규약: UTF-16LE 의 base64). 아니면 `undefined`.
+ * 판정용이라 실패는 조용히 `undefined` 다 — 남의 인자를 잘못 풀어도 서명 두 조각이 다 맞을 리 없다.
+ */
+function decodeEncodedCommandArg(arg: string, index: number, all: readonly string[]): string | undefined {
+  if (index === 0 || all[index - 1]?.toLowerCase() !== '-encodedcommand') return undefined;
+  if (!/^[A-Za-z0-9+/=]+$/.test(arg)) return undefined;
+  try {
+    return Buffer.from(arg, 'base64').toString('utf16le');
+  } catch {
+    return undefined;
+  }
 }
 
 /** §3.6 — 백업을 최신 `MAX_BACKUPS` 개만 남기고 정리. 실패해도 설치는 계속한다. */

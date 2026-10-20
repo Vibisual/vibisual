@@ -8,8 +8,18 @@
  *
  * 그래서 줄에 세웠다가 본체 창이 처음 보일 때(`releaseStartupJobs` — desktop main 이 부른다) 원래 순서 그대로
  * 한 칸씩 돌린다. 창 소식이 끝내 안 오면(창 없는 실행·시험) 상한 뒤 스스로 풀린다 — 확인이 영영 안 도는 일은 없다.
+ *
+ * §9 「시작 화면(스플래시)」 — 스플래시가 떠 있는 실행은 본체 창이 보이기 **전에** 줄을 푼다(`'splash'`). 그 구간에는
+ * 아무도 창을 끌지 않으므로 좁은 간격(`STARTUP_JOB_SPLASH_*`)으로 돌리고, desktop main 은 줄이 다 돌았는지
+ * (`pendingStartupJobCount() === 0`)를 보고서야 본체 창을 보인다 — 창이 보인 뒤의 CLI 기동 멈춤이 사라진다.
  */
-import { STARTUP_JOB_GAP_MS, STARTUP_JOB_RELEASE_CAP_MS, STARTUP_JOB_SETTLE_MS } from '@vibisual/shared';
+import {
+  STARTUP_JOB_GAP_MS,
+  STARTUP_JOB_RELEASE_CAP_MS,
+  STARTUP_JOB_SETTLE_MS,
+  STARTUP_JOB_SPLASH_GAP_MS,
+  STARTUP_JOB_SPLASH_SETTLE_MS,
+} from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 interface StartupJob {
@@ -18,6 +28,12 @@ interface StartupJob {
   delayMs: number;
   run: () => void;
 }
+
+/**
+ * 줄을 푸는 계기. `window-shown` = 본체 창이 처음 보였다 · `splash` = 스플래시 뒤에서 먼저 푼다(본체 창은 아직
+ * 숨어 있다) · `cap` = 창 소식이 끝내 오지 않아 상한이 대신 풀었다.
+ */
+export type StartupJobRelease = 'window-shown' | 'splash' | 'cap';
 
 /**
  * 풀린 순간부터 각 작업까지의 지연(ms) — 순수 함수. 등록 순서가 아니라 **종전 지연 순서**를 지킨다(같으면
@@ -40,6 +56,8 @@ export function planStartupJobDelays(
 const pending: StartupJob[] = [];
 let released = false;
 let capTimer: ReturnType<typeof setTimeout> | null = null;
+/** 풀린 뒤 시계에 걸어 두었지만 아직 돌지 않은 작업 수. */
+let scheduledNotRun = 0;
 
 function runSafely(job: StartupJob): void {
   try {
@@ -49,13 +67,22 @@ function runSafely(job: StartupJob): void {
   }
 }
 
+/** 시계에 건다 — 돌기 직전에 셈에서 뺀다(작업이 던져도 셈은 맞는다). */
+function schedule(job: StartupJob, delayMs: number): void {
+  scheduledNotRun += 1;
+  setTimeout(() => {
+    scheduledNotRun -= 1;
+    runSafely(job);
+  }, delayMs);
+}
+
 /**
  * 부팅 한 번짜리 작업을 줄에 세운다. 이미 풀린 뒤에 들어오면(창이 보인 뒤 늦게 등록) 종전처럼 `delayMs` 뒤에 돈다.
  */
 export function deferStartupJob(label: string, delayMs: number, run: () => void): void {
   const job: StartupJob = { label, delayMs, run };
   if (released) {
-    setTimeout(() => runSafely(job), delayMs);
+    schedule(job, delayMs);
     return;
   }
   pending.push(job);
@@ -67,10 +94,10 @@ export function deferStartupJob(label: string, delayMs: number, run: () => void)
 }
 
 /**
- * 본체 창이 처음 보였다 — 줄에 선 작업을 원래 순서대로 한 칸씩 돌린다. 두 번째부터는 아무것도 하지 않는다.
- * `cap` 은 창 소식이 끝내 오지 않아 상한이 대신 푼 경우다.
+ * 줄에 선 작업을 원래 순서대로 한 칸씩 돌린다. 두 번째부터는 아무것도 하지 않는다(스플래시가 먼저 풀었으면 본체
+ * 창의 첫 show 는 아무 일도 하지 않는다). `splash` 만 좁은 간격을 쓴다 — 나머지는 종전 간격 그대로다.
  */
-export function releaseStartupJobs(reason: 'window-shown' | 'cap' = 'window-shown'): void {
+export function releaseStartupJobs(reason: StartupJobRelease = 'window-shown'): void {
   if (released) return;
   released = true;
   if (capTimer !== null) {
@@ -78,19 +105,31 @@ export function releaseStartupJobs(reason: 'window-shown' | 'cap' = 'window-show
     capTimer = null;
   }
   const jobs = pending.splice(0);
-  const delays = planStartupJobDelays(jobs.map((job) => job.delayMs));
+  const delays = reason === 'splash'
+    ? planStartupJobDelays(jobs.map((job) => job.delayMs), STARTUP_JOB_SPLASH_SETTLE_MS, STARTUP_JOB_SPLASH_GAP_MS)
+    : planStartupJobDelays(jobs.map((job) => job.delayMs));
   jobs.forEach((job, index) => {
-    setTimeout(() => runSafely(job), delays[index] ?? STARTUP_JOB_SETTLE_MS);
+    schedule(job, delays[index] ?? STARTUP_JOB_SETTLE_MS);
   });
   if (reason === 'cap' && jobs.length > 0) {
     logger.info(`[startupJobs] no window signal — released ${jobs.length} startup job(s) after the cap`);
   }
 }
 
+/**
+ * 부팅 한 번짜리 확인 중 **아직 시작하지 않은** 것의 수 — 풀리기 전이면 줄에 선 수, 풀린 뒤면 시계에 걸린 수다.
+ * 작업은 시작만 동기이고(CLI 기동) 결과는 나중에 오므로, 0 이면 "멈춤을 만들 일은 다 지나갔다"는 뜻이다.
+ * desktop main 이 스플래시를 걷기 전에 본다(§9 「시작 화면(스플래시)」).
+ */
+export function pendingStartupJobCount(): number {
+  return released ? scheduledNotRun : pending.length;
+}
+
 /** 시험 전용 — 모듈 상태를 처음으로 돌린다. */
 export function __resetStartupJobsForTest(): void {
   pending.length = 0;
   released = false;
+  scheduledNotRun = 0;
   if (capTimer !== null) clearTimeout(capTimer);
   capTimer = null;
 }

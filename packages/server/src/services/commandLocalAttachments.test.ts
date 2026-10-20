@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
-import type { QueuedCommand } from '@vibisual/shared';
+import { normalizeAppNodeIds, verificationScopeFromText, type QueuedCommand } from '@vibisual/shared';
 import { findReferencedCommandAttachment } from './commandAttachmentOwnership.js';
+import { normalizeRunLimits } from './commandRunLimits.js';
+import { normalizeExecutionRequirements } from './commandExecutionRequirements.js';
 
 // Importing index.ts starts the app. Compile its actual route callback instead,
 // keeping files, agent creation and dispatch inert and observable in this test.
@@ -53,7 +55,8 @@ function setup(engine: 'claude' | 'codex' | 'local') {
   const broadcastSnapshot = vi.fn();
   const scope = {
     DEFAULT_COMMAND_DISPATCH_MODE: 'merge',
-    normalizeCommandDispatchMode: () => 'merge',
+    normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements, verificationScopeFromText,
+    normalizeAppNodeIds,
     graphManager, subAgentManager, commandQueues, fs: fileOps, path,
     completedCommandArchive: new Map<string, QueuedCommand[]>(), findReferencedCommandAttachment,
     hasForeignSubAgent: () => false, isReadOnlyHookAgent: () => false,

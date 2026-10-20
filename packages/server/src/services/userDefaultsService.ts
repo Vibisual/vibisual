@@ -18,7 +18,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { UserDefaults, UserDefaultsPatch } from '@vibisual/shared';
-import { AGENT_TOOLS_BACKFILL_GEN, backfillAgentTools, providerForEngine } from '@vibisual/shared';
+import { AGENT_TOOLS_BACKFILL_GEN, backfillAgentTools, providerForEngine, resolveBubbleSkin, resolveBubbleEdgeStyle } from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 /**
@@ -39,6 +39,27 @@ function mergeCategory<T extends object>(
     else if (value !== undefined) next[key] = value;
   }
   return next as T;
+}
+
+/** Only known canvas paint IDs are normalized; theme, language and future siblings survive. */
+function sanitizeAppearance(value: unknown): UserDefaults['appearance'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const next = { ...value } as NonNullable<UserDefaults['appearance']>;
+  if ('bubbleSkin' in next) {
+    if (next.bubbleSkin == null) delete next.bubbleSkin;
+    else next.bubbleSkin = resolveBubbleSkin(next.bubbleSkin);
+  }
+  if ('edgeStyle' in next) {
+    if (next.edgeStyle == null) delete next.edgeStyle;
+    else next.edgeStyle = resolveBubbleEdgeStyle(next.edgeStyle);
+  }
+  return next;
+}
+
+function mergeAppearance(prev: UserDefaults['appearance'], patch: UserDefaultsPatch['appearance']): UserDefaults['appearance'] {
+  // An invalid category must not replace existing theme/language settings.
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return prev;
+  return sanitizeAppearance(mergeCategory(prev, patch));
 }
 
 /**
@@ -87,6 +108,9 @@ class UserDefaultsService {
           //   디스크에는 다음 `update()` 때 함께 적힌다 — 부팅만으로 홈 디렉터리에 쓰지 않는다
           //   (테스트가 실제 사용자 파일을 건드리지 않게 하는 규율).
           if (parsed.agentConfig) parsed.agentConfig = backfillAgentTools(parsed.agentConfig);
+          // Normalize explicit choices in memory only. Missing fields retain resolver defaults;
+          // loading/restarting never writes new preferences to the user's settings file.
+          if (parsed.appearance !== undefined) parsed.appearance = sanitizeAppearance(parsed.appearance);
           logger.info(`[userDefaults] loaded from ${STORE_FILE}`);
           return { ...parsed, updatedAt: parsed.updatedAt ?? Date.now() };
         }
@@ -131,7 +155,7 @@ class UserDefaultsService {
       //   다음 부팅의 백필이 "고를 기회가 없어서 빠진 것"으로 오인해 방금 끈 도구를 되살린다
       //   (에이전트 오버라이드에서 `sparsifyAgentConfig` 가 하는 것과 같은 규칙).
       agentConfig: stampToolsGen(mergeCategory(prev.agentConfig, patch.agentConfig), patch.agentConfig),
-      appearance:  mergeCategory(prev.appearance,  patch.appearance),
+      appearance:  mergeAppearance(prev.appearance, patch.appearance),
       notifications: mergeCategory(prev.notifications, patch.notifications),
       permissions:   mergeCategory(prev.permissions,   patch.permissions),
       advanced:      mergeCategory(prev.advanced,      patch.advanced),

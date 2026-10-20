@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CODEX_AGENT_COLOR, CMD_AGENT_COLOR, CODEX_DEFAULT_LABEL_RE } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
+
+// 이름의 기본 동작은 개발자 PC에 저장된 모델·추론 강도와 독립적으로 검사한다.
+vi.mock('./userDefaultsService.js', () => ({
+  userDefaultsService: { get: () => ({ updatedAt: 1 }), subscribe: () => () => {} },
+}));
 
 /**
  * §5.25 (B) — **엔진마다 자기 이름으로 태어난다.**

@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, supportsEffortSelection } from '@vibisual/shared';
 
 // Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
 // `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
@@ -407,6 +407,16 @@ describe('스폰 인자 — 세션 한정 서브에이전트(--agents)', () => {
     expect(Object.keys(parse(args))).toEqual(['code-reviewer-v2']);
   });
 
+  it('이름은 256자에서 자른다 — CLI 2.1.292 부터 에이전트 이름 상한이다', () => {
+    const long = `${'a'.repeat(255)}-${'b'.repeat(40)}`; // 256번째 글자가 하이픈 — 자른 끝에 하이픈이 남는 자리
+    const args = buildInteractiveClaudeArgs(cfg({
+      agentDefinitions: [{ name: long, description: 'd', prompt: 'p' }],
+    }));
+    const [name] = Object.keys(parse(args));
+    expect(name).toBe('a'.repeat(255));
+    expect(name!.length).toBeLessThanOrEqual(256);
+  });
+
   it('필수 항목이 빈 정의는 통째로 버린다 — 스폰을 죽이지 않는다', () => {
     const args = buildInteractiveClaudeArgs(cfg({
       agentDefinitions: [
@@ -486,5 +496,31 @@ describe('스폰 env — Bash 타임아웃', () => {
   it('범위 밖(0 · 음수 · 24시간 초과)은 미설정으로 떨어진다', () => {
     expect(buildBashTimeoutEnv(cfg({ bashDefaultTimeoutMs: 0, bashMaxTimeoutMs: -1 }))).toEqual({});
     expect(buildBashTimeoutEnv(cfg({ bashMaxTimeoutMs: 86_400_001 }))).toEqual({});
+  });
+});
+
+// §4 (xhigh effort 등급 · 2026-10-15, 사용자 지시) — Effort 칸은 Opus 하나가 아니라 클로드 네 패밀리에 열린다.
+//   2.1.300 실측에서 Fable 5.1·Sonnet 5.5·Haiku 5.5·옛 Sonnet 4.5·Haiku 4.5 모두 `--effort` 를 거부하지 않았다.
+describe('Effort 칸 — 클로드 네 패밀리에 열리고, 고른 값은 모델을 가리지 않고 실린다', () => {
+  it('alias 네 패밀리와 그 풀ID 는 열린다', () => {
+    for (const id of ['opus', 'fable', 'sonnet', 'haiku', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-5-5[1m]']) {
+      expect(supportsEffortSelection(id)).toBe(true);
+    }
+  });
+
+  it('패밀리 밖(빈 값·레지스트리가 새로 알려 준 패밀리·다른 엔진의 모델)은 닫힌다', () => {
+    for (const id of ['', undefined, null, 'mythos', 'claude-mythos-1', 'gpt-5.5', 'qwen3.8-27b']) {
+      expect(supportsEffortSelection(id)).toBe(false);
+    }
+  });
+
+  it('Opus 밖의 모델에도 고른 값이 그대로 --effort 로 나가고, default 는 붙지 않는다', () => {
+    for (const model of ['fable', 'sonnet', 'haiku']) {
+      const args = buildInteractiveClaudeArgs(cfg({ model, effort: 'max' }));
+      const i = args.indexOf('--effort');
+      expect(i).toBeGreaterThan(-1);
+      expect(args[i + 1]).toBe('max');
+      expect(buildInteractiveClaudeArgs(cfg({ model, effort: 'default' }))).not.toContain('--effort');
+    }
   });
 });

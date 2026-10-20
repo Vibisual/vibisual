@@ -172,6 +172,35 @@ describe('대화록 꼬리 — 배관이 아니라 뜻만 싣는다', () => {
     expect(tail).not.toContain('line 0\n');
   });
 
+  it('마지막 줄이 큰 기록 줄이어도 그 앞의 말을 싣는다 — 고정 창이면 꼬리가 통째로 비었다', () => {
+    // CLI 2.1.300 부터 요청마다 시스템 프롬프트·도구 정의를 한 줄로 적는다(줄 하나가 수백 KB). 요청 직전에
+    //   쓰이므로 긴 요청이 도는 동안 바로 그 줄이 마지막 줄이다. 모양은 2.1.296 의 prompt_snapshot 줄에서 땄다.
+    const record = {
+      parentUuid: 'p',
+      isSidechain: false,
+      attachment: { type: 'prompt_snapshot', systemPrompt: ['x'.repeat(320 * 1024)], tools: [] },
+      type: 'attachment',
+      timestamp: '2026-10-15T07:00:00.000Z',
+    };
+    const f = write('big.jsonl', [
+      { type: 'assistant', message: { content: [{ type: 'text', text: '테스트를 돌립니다' }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'pnpm test' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } },
+      record,
+      record,
+    ]);
+    const tail = summarizeTranscriptTail(f);
+    expect(tail).toContain('said: 테스트를 돌립니다');
+    expect(tail).toContain('called tool: Bash');
+    expect(tail).toContain('tool result: ok');
+  });
+
+  it('꼬리를 못 읽었으면 판정 프롬프트가 "없음"을 끝남의 근거로 내밀지 않는다', () => {
+    const p = buildSessionProbePrompt({ ...baseEvidence, tail: '' });
+    expect(p).toContain('none readable');
+    expect(p).toContain('NOT evidence that the work is over');
+  });
+
   it('없는 파일·빈 파일은 빈 문자열 — 예외를 던지지 않는다', () => {
     expect(summarizeTranscriptTail(path.join(dir, 'nope.jsonl'))).toBe('');
     fs.writeFileSync(path.join(dir, 'empty.jsonl'), '', 'utf8');

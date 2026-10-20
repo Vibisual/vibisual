@@ -68,7 +68,12 @@ function turnEstimated(turn: TurnTokenUsage, registry: ModelRegistry | null): bo
   return isPricingEstimated(turn.model, registry);
 }
 
-/** 턴 하나의 비용 — 그 턴이 말한 모델의 단가로 4종을 각각 환산한다. */
+/**
+ * 턴 하나의 비용 — 그 턴이 말한 모델의 단가로 4종을 각각 환산한다.
+ *
+ * 턴 = 대화록 `assistant` 한 줄 = **API 요청 한 번**이라 길이 구간 요금(Haiku 5.5 — 프롬프트 10만 토큰 초과 요청은
+ * 장문 단가)을 이 자리에서만 가를 수 있다(`singleRequest`). §4 동적 모델 레지스트리 ⑧.
+ */
 function turnCost(turn: TurnTokenUsage, registry: ModelRegistry | null): number {
   return calculateTokenCost(
     turn.inputTokens,
@@ -77,6 +82,7 @@ function turnCost(turn: TurnTokenUsage, registry: ModelRegistry | null): number 
     turn.cacheCreateTokens,
     turn.model,
     registry,
+    { singleRequest: true },
   ).total;
 }
 

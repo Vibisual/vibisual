@@ -19,6 +19,8 @@ import {
   blocksAssignment,
   findKeymapConflicts,
   isCommandId,
+  defaultBindingFor,
+  bindingSpecificity,
   type CommandId,
   type KeyEventLike,
 } from '@vibisual/shared';
@@ -185,11 +187,19 @@ describe('명령 표', () => {
     }
   });
 
-  it('기본 키맵에는 충돌이 없다 — 세 OS 모두', () => {
-    const resolved = resolveKeymap({});
+  it('기본 키맵에는 충돌이 없다 — 세 OS 모두(그 OS 의 기본값으로)', () => {
     for (const platform of ['win32', 'darwin', 'linux'] as const) {
+      const resolved = resolveKeymap({}, platform);
       const conflicts = findKeymapConflicts(resolved, platform);
       expect(conflicts, `${platform} 기본 키맵 충돌`).toEqual([]);
+    }
+  });
+
+  it('OS 별 기본값도 정규 표기다 — 못 읽는 값은 그 OS 에서 영영 안 눌린다', () => {
+    for (const id of COMMAND_IDS) {
+      for (const [os, binding] of Object.entries(commandDef(id).osBinding ?? {})) {
+        expect(normalizeBinding(binding), `${id} 의 ${os} 기본값 '${binding}'`).toBe(binding);
+      }
     }
   });
 
@@ -329,5 +339,89 @@ describe('스코프가 요구하는 성질 — 이걸 어기면 그 자리에서
     const issues = inspectBinding('terminal.find', 'Ctrl+1', resolved, 'win32');
     expect(issues.some((i) => i.kind === 'shadow')).toBe(true);
     expect(blocksAssignment(issues)).toBe(false);
+  });
+});
+
+describe('편집창 명령 — VS Code 와 같은 키, OS 마다 다른 기본값 (§5.5 #17-27 ⑲)', () => {
+  it('win/linux 의 VS Code 기본 키를 그대로 쓴다', () => {
+    const win = defaultKeymap('win32');
+    expect(win['editor.find']).toBe('Ctrl+F');
+    expect(win['editor.replace']).toBe('Ctrl+H');
+    expect(win['editor.findNext']).toBe('F3');
+    expect(win['editor.findPrev']).toBe('Shift+F3');
+    expect(win['editor.goToLine']).toBe('Ctrl+G');
+    expect(win['editor.moveLineUp']).toBe('Alt+Up');
+    expect(win['editor.copyLineDown']).toBe('Alt+Shift+Down');
+    expect(win['editor.deleteLine']).toBe('Ctrl+Shift+K');
+    expect(win['editor.toggleLineComment']).toBe('Ctrl+/');
+    expect(win['editor.toggleBlockComment']).toBe('Alt+Shift+A');
+    expect(win['editor.indentLines']).toBe('Ctrl+]');
+    expect(win['editor.outdentLines']).toBe('Ctrl+[');
+    expect(win['editor.insertLineBelow']).toBe('Ctrl+Enter');
+    expect(win['editor.selectLine']).toBe('Ctrl+L');
+  });
+
+  it('mac 은 ⌘H(앱 숨기기)를 피해 바꾸기가 ⌥⌘F, 줄 번호 이동은 ⌃G, 다음 찾기는 ⌘G', () => {
+    const mac = defaultKeymap('darwin');
+    expect(mac['editor.replace']).toBe('Ctrl+Alt+F');
+    expect(mac['editor.goToLine']).toBe('Control+G');
+    expect(mac['editor.findNext']).toBe('Ctrl+G');
+    expect(mac['editor.findPrev']).toBe('Ctrl+Shift+G');
+    expect(mac['editor.toggleMatchCase']).toBe('Ctrl+Alt+C');
+    // 바꾸지 않은 칸은 공통 기본값 그대로다.
+    expect(mac['editor.find']).toBe('Ctrl+F');
+    // ⌘H 를 기본값으로 두면 OS 가 먼저 먹어 그 키가 우리에게 오지 않는다.
+    expect(Object.values(mac)).not.toContain('Ctrl+H');
+  });
+
+  it('linux 는 줄 복사·블록 주석이 VS Code linux 키다', () => {
+    expect(defaultBindingFor('editor.copyLineUp', 'linux')).toBe('Ctrl+Alt+Shift+Up');
+    expect(defaultBindingFor('editor.copyLineDown', 'linux')).toBe('Ctrl+Alt+Shift+Down');
+    expect(defaultBindingFor('editor.toggleBlockComment', 'linux')).toBe('Ctrl+Shift+A');
+    expect(defaultBindingFor('editor.replace', 'linux')).toBe('Ctrl+H');
+  });
+
+  it('OS 를 모르면(생략·다른 값) 공통 기본값이다', () => {
+    expect(defaultBindingFor('editor.replace')).toBe('Ctrl+H');
+    expect(defaultBindingFor('editor.replace', 'freebsd')).toBe('Ctrl+H');
+    expect(resolveKeymap({})['editor.goToLine']).toBe('Ctrl+G');
+  });
+
+  it('덮어쓰기 정규화는 그 OS 의 기본값과 같은 값을 지운다', () => {
+    // mac 에서 ⌥⌘F 로 "바꾼" 것은 mac 기본값으로 되돌린 것과 같다 — 남겨 두면 기본값을 고쳐도 옛 값에 묶인다.
+    expect(normalizeKeymapOverrides({ 'editor.replace': 'Ctrl+Alt+F' }, 'darwin')).toEqual({});
+    expect(normalizeKeymapOverrides({ 'editor.replace': 'Ctrl+Alt+F' }, 'win32')).toEqual({ 'editor.replace': 'Ctrl+Alt+F' });
+    expect(resolveKeymap({}, 'darwin')['editor.replace']).toBe('Ctrl+Alt+F');
+    expect(resolveKeymap({ 'editor.replace': null }, 'darwin')['editor.replace']).toBeNull();
+  });
+
+  it('mac 의 ⌃G 는 ⌘G 자리(Ctrl+G)에도 맞으므로 진짜 Control 바인딩이 먼저다', () => {
+    const controlG = ev('KeyG', { ctrlKey: true });
+    const cmdG = ev('KeyG', { metaKey: true });
+    // 판정은 ctrlKey || metaKey(5축)라 ⌃G 는 둘 다에 맞는다 — 그래서 디스패처가 좁은 쪽을 먼저 본다.
+    expect(matchesBinding(controlG, 'Ctrl+G')).toBe(true);
+    expect(matchesBinding(controlG, 'Control+G')).toBe(true);
+    expect(bindingSpecificity('Control+G')).toBeGreaterThan(bindingSpecificity('Ctrl+G'));
+    // ⌘G 는 진짜 Control 자리에 맞지 않는다 — 다음 찾기만 그 손짓의 주인이다.
+    expect(matchesBinding(cmdG, 'Control+G')).toBe(false);
+    expect(matchesBinding(cmdG, 'Ctrl+G')).toBe(true);
+  });
+
+  it('줄 주석(Ctrl+/)은 전역 단축키 목록을 편집창 안에서만 가린다 — 충돌이 아니라 shadow', () => {
+    const resolved = resolveKeymap({}, 'win32');
+    const issues = inspectBinding('editor.toggleLineComment', 'Ctrl+/', resolved, 'win32');
+    expect(issues.some((i) => i.kind === 'shadow' && i.with.includes('global.shortcutOverlay'))).toBe(true);
+    expect(blocksAssignment(issues)).toBe(false);
+  });
+
+  it('편집창 명령은 AltGr(= Ctrl+Alt) 로 글자를 치는 win/linux 자판에서 글자 키를 가로채지 않는다', () => {
+    // typingSafe 인 편집창 명령에 Ctrl+Alt+<글자> 를 주면 독일어 자판의 @·{·[ 입력이 명령이 된다.
+    for (const platform of ['win32', 'linux'] as const) {
+      for (const id of COMMAND_IDS.filter((c) => COMMANDS[c].scope === 'editor')) {
+        const parsed = parseBinding(defaultBindingFor(id, platform));
+        if (!parsed || !(parsed.mod && parsed.alt)) continue;
+        expect(/^[A-Z0-9]$|^[[\]\/;',.`=-]$/.test(parsed.key), `${platform} ${id} 가 AltGr 글자 자리를 쓴다`).toBe(false);
+      }
+    }
   });
 });

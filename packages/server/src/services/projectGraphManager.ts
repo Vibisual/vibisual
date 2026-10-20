@@ -92,7 +92,7 @@ import type {
   AgentProvider,
 } from '@vibisual/shared';
 import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, EXTERNAL_TOP_BUDGET_DEFAULT, GOAL_ACTION_MAX, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
-import { webFoldAgentId } from '@vibisual/shared';
+import { WEB_GROUP_OFF, normalizeWebGroupSettings, webFoldAgentId, type WebGroupSettings } from '@vibisual/shared';
 import type { GoalActionCard } from '@vibisual/shared';
 import type { IframeTabVerdict } from '@vibisual/shared';
 // §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
@@ -939,8 +939,11 @@ export class ProjectGraphManager {
   /** §2.1 (B) — 최상위 외부 폴더 예산의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
   private externalTopBudget: number = EXTERNAL_TOP_BUDGET_DEFAULT;
 
-  /** §5.23 접어 보기의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
-  private webFoldPerAgent = false;
+  /**
+   * §5.23 웹 버블 묶기의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. 씨앗은 **묶지 않음**이고, 앱이 부팅 때
+   * 저장값(없으면 `WEB_GROUP_DEFAULTS` — 켬)을 밀어 넣는다.
+   */
+  private webGroup: WebGroupSettings = { ...WEB_GROUP_OFF };
 
   getUiLocale(): UiLocale {
     return this.primaryInstance()?.getUiLocale() ?? this.uiLocale;
@@ -970,16 +973,16 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.23 접어 보기를 살아 있는 모든 인스턴스에 먹인다. 씨앗을 남기는 이유는 `setExternalTopBudget` 과
+   * §5.23 웹 버블 묶기 설정을 살아 있는 모든 인스턴스에 먹인다. 씨앗을 남기는 이유는 `setExternalTopBudget` 과
    * 같다 — 나중에 hydrate 되는 탭만 호스트마다 버블 하나로 돌아가면 같은 앱 안에서 보기가 갈린다.
    */
-  setWebFoldPerAgent(enabled: boolean): void {
-    this.webFoldPerAgent = enabled;
-    for (const inst of this.instances.values()) inst.setWebFoldPerAgent(enabled);
+  setWebGroupSettings(settings: WebGroupSettings): void {
+    this.webGroup = normalizeWebGroupSettings(settings);
+    for (const inst of this.instances.values()) inst.setWebGroupSettings(this.webGroup);
   }
 
-  isWebFoldPerAgent(): boolean {
-    return this.webFoldPerAgent;
+  getWebGroupSettings(): WebGroupSettings {
+    return { ...this.webGroup };
   }
 
   // ─── 새 인스턴스 생성 헬퍼 ───
@@ -996,11 +999,14 @@ export class ProjectGraphManager {
     // §2.1 (B) — 외부 폴더 예산도 같은 이유로 물려준다. 이 줄이 없으면 나중에 hydrate 되는
     //   프로젝트만 기본값(12)으로 돌아, 같은 앱 안에서 탭마다 화면 밀도가 달라진다.
     inst.setExternalTopBudget(this.externalTopBudget);
-    // §5.23 — 접어 보기도 같은 이유로 물려준다.
-    inst.setWebFoldPerAgent(this.webFoldPerAgent);
+    // §5.23 — 웹 버블 묶기도 같은 이유로 물려준다.
+    inst.setWebGroupSettings(this.webGroup);
     inst.setPoppedCommandsRef(this.poppedCommandsRef);
     inst.setCommandQueuesRef(this.commandQueuesRef);
     inst.setCompletedCommandArchiveRef(this.completedCommandArchiveRef);
+    // §5.1 #2-1 (C) — 내용 언급을 다 읽어 별자리 근거가 바뀌면 화면을 다시 민다(16ms 디바운스 — 새 타이머 ❌).
+    //   함수로 넘긴다: 콜백은 나중에 주입될 수 있다(`setOnMutated`).
+    inst.setOnAsyncChange(() => this.mutatedCallback?.());
     // §3.5 — 위 세 맵은 전 인스턴스가 **같은 객체**를 쓴다. 한 인스턴스가 제 버블을 치울 때 같은 세션 키를
     //   다른 인스턴스가 아직 쥐고 있으면 그 줄은 남겨야 한다(주인의 큐·이력을 남이 지우는 사고 — 실측 2026-09-30).
     inst.setSessionHeldElsewhere((sessionId) => this.isSessionHeldByOtherInstance(sessionId, inst));
@@ -1664,6 +1670,19 @@ export class ProjectGraphManager {
     const inst = this.getInstanceForSession(sessionId);
     if (inst) { inst.recordToolDuration(sessionId, tool, durationMs); return; }
     for (const i of this.instances.values()) i.recordToolDuration(sessionId, tool, durationMs);
+  }
+
+  /**
+   * §5.25 (F) "쓴 내용도 남는다" — 프로바이더(코덱스) 쓰기의 수정 이력 한 줄. 같은 쓰기의 사후 이벤트를
+   * `processHookEvent` 로 흘린 **뒤에** 부른다 — 그때 라우팅 표가 버블을 세운 인스턴스를 가리킨다.
+   */
+  recordProviderFileEdit(
+    sessionId: string,
+    filePath: string,
+    edit: { id: string; oldString: string; newString: string },
+  ): boolean {
+    const inst = this.getInstanceForSession(sessionId) ?? this.findSessionHolder(sessionId)?.inst ?? null;
+    return inst ? inst.recordProviderFileEdit(sessionId, filePath, edit) : false;
   }
 
   /** §4 v1.50 — PreCompact 카운터 증가. */
@@ -4436,10 +4455,10 @@ export class ProjectGraphManager {
     return { ok: false, reason: notEligible ? 'not-eligible' : 'not-found' };
   }
 
-  /** §5.4 #36 (H) — 에이전트의 연결 보기(선 켜고 끄기 · 보기 전환). 그 에이전트를 가진 인스턴스를 찾아 맡긴다. */
+  /** §5.4 #36 (H) — 에이전트의 연결 보기(주변 버블·선 켜고 끄기 · 보기 전환). 그 에이전트를 가진 인스턴스를 찾아 맡긴다. */
   setAgentLinkView(
     nodeId: string,
-    patch: { hidden?: boolean; lens?: 'linked' | 'files' },
+    patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files' },
   ): { ok: true; linksHidden: boolean; linkLens: 'linked' | 'files' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
     let notEligible = false;
     for (const inst of this.instances.values()) {

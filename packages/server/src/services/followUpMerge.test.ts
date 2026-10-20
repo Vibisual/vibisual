@@ -12,6 +12,14 @@ import { absorbMergeFollowUps } from './followUpMerge.js';
  */
 
 let seq = 0;
+
+it.each([{ executionRequirements: { localTransport: true } }, { runLimits: { maxMinutes: 120 } }, { waitForCommandIds: ['earlier-work'] }])('keeps per-command execution settings as a merge boundary: %j', (settings) => {
+  const ordinary = cmd();
+  const scoped = cmd(settings);
+  expect(absorbMergeFollowUps([ordinary, scoped], ordinary)).toEqual([]);
+  expect(absorbMergeFollowUps([scoped, ordinary], scoped)).toEqual([]);
+});
+
 function cmd(partial: Partial<QueuedCommand> = {}): QueuedCommand {
   seq += 1;
   return {

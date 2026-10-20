@@ -329,16 +329,20 @@ export interface ReadCodexEffectiveConfigInput {
   /** `$CODEX_HOME` 또는 `~/.codex`. */
   codexHomeDir: string;
   platform: PlatformName;
+  /** Permission decisions must not treat an unreadable existing config as an omitted preference. */
+  strict?: boolean;
   /** 없거나 못 읽으면 `null`. */
   readFile?: (file: string) => string | null;
   exists?: (file: string) => boolean;
   now?: number;
 }
 
-function defaultReadFile(file: string): string | null {
+function defaultReadFile(file: string, strict = false): string | null {
   try {
     return fs.readFileSync(file, 'utf8');
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (strict && code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
     return null;
   }
 }
@@ -365,7 +369,7 @@ function defaultExists(file: string): boolean {
 export function readCodexEffectiveConfig(input: ReadCodexEffectiveConfigInput): CodexEffectiveConfig {
   const { platform, codexHomeDir } = input;
   const p = platform === 'win32' ? path.win32 : path.posix;
-  const readFile = input.readFile ?? defaultReadFile;
+  const readFile = input.readFile ?? ((file: string) => defaultReadFile(file, input.strict));
   const exists = input.exists ?? defaultExists;
   const cwd = stripExtendedPathPrefix(input.cwd);
   const key = (x: string): string => pathKey(stripExtendedPathPrefix(x), platform);
@@ -423,6 +427,12 @@ export function readCodexEffectiveConfig(input: ReadCodexEffectiveConfigInput): 
   const layers: CodexConfigLayer[] = [];
   const profileName = files.find((f) => f.scan.profile)?.scan.profile;
   if (profileName) {
+    // CLI 0.162 profiles use $CODEX_HOME/<name>.config.toml; retain legacy tables as fallback.
+    if (/^[\w.-]+$/.test(profileName) && profileName !== '.' && profileName !== '..') {
+      const profilePath = p.join(codexHomeDir, `${profileName}.config.toml`);
+      const profile = read(profilePath);
+      if (profile && hasValues(profile.values)) layers.push({ source: 'profile', profile: profileName, path: profilePath, values: profile.values });
+    }
     for (const f of files) {
       const values = f.scan.profiles.get(profileName);
       if (values && hasValues(values)) layers.push({ source: 'profile', profile: profileName, path: f.path, values });
@@ -434,6 +444,6 @@ export function readCodexEffectiveConfig(input: ReadCodexEffectiveConfigInput): 
 }
 
 /** 지금 프로세스 기준으로 읽는다. 호출마다 새로 읽는다 — 파일 몇 개라 캐시가 틀리는 비용이 더 크다. */
-export function readCodexEffectiveConfigFor(cwd: string): CodexEffectiveConfig {
-  return readCodexEffectiveConfig({ cwd, codexHomeDir: codexHome(), platform: HOST_PLATFORM });
+export function readCodexEffectiveConfigFor(cwd: string, strict = false): CodexEffectiveConfig {
+  return readCodexEffectiveConfig({ cwd, codexHomeDir: codexHome(), platform: HOST_PLATFORM, strict });
 }

@@ -72,6 +72,31 @@ describe('mapCodexLine — 봉투(envelope) 종류', () => {
     expect(r?.turnEnded).toBeUndefined();
   });
 
+  it('preserves the reported nested model-access response for client guidance and diagnostics', () => {
+    const response = JSON.stringify({ type: 'error', status: 400, error: {
+      type: 'invalid_request_error',
+      message: "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.",
+    } });
+    expect(mapCodexLine(response)).toEqual({ events: [{ eventType: 'error', content: response }] });
+  });
+
+  it('keeps top-level error precedence and handles missing or string error bodies', () => {
+    expect(mapCodexLine('{"type":"error","message":"top-level","error":{"message":"nested"}}'))
+      .toEqual({ events: [{ eventType: 'error', content: 'top-level' }] });
+    expect(mapCodexLine('{"type":"error","error":"nested"}'))
+      .toEqual({ events: [{ eventType: 'error', content: 'nested' }] });
+    for (const error of [undefined, null, [], 400]) {
+      expect(mapCodexLine(JSON.stringify({ type: 'error', error })))
+        .toEqual({ events: [{ eventType: 'error', content: 'error' }] });
+    }
+  });
+
+  it('recognizes nested transport recovery without turning it into a failure', () => {
+    const message = 'Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)';
+    expect(mapCodexLine(JSON.stringify({ type: 'error', error: { message } })))
+      .toEqual({ events: [{ eventType: 'system', content: message }] });
+  });
+
   it.each([
     'Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)',
     'Falling back from WebSockets to HTTPS transport. stream disconnected before completion',

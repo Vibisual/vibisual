@@ -190,6 +190,8 @@ async function checkAskUserQuestion(payload) {
   try {
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), 65_000);
+    // 실패 경로에서도 타이머를 걷는다 — 남으면 답을 낸 뒤에도 프로세스가 65초를 더 살고, CLI 는 훅 프로세스가
+    //   끝나야 넘어가므로 앱이 꺼진 동안 모든 세션의 호출이 그만큼 멈춘다(2026-10-15 실측).
     const res = await fetch(ASK_USER_QUESTION_URL, {
       method: 'POST',
       headers: hookHeaders({}),
@@ -200,8 +202,7 @@ async function checkAskUserQuestion(payload) {
         toolInput: payload.tool_input ?? {},
       }),
       signal: controller.signal,
-    });
-    clearTimeout(tid);
+    }).finally(() => clearTimeout(tid));
     if (!res.ok) return { continue: true };
     const data = await res.json().catch(() => null);
     if (!data) return { continue: true };
@@ -247,6 +248,9 @@ async function checkPermission(payload) {
   try {
     const controller = new AbortController();
     // 서버 타임아웃(60s) 보다 살짝 길게 둬서 서버 safe-deny 가 우선 발동하도록.
+    //   실패 경로에서도 걷는다(아래 `.finally`) — 앱이 꺼져 연결이 거부되면 답은 곧 나가는데 이 타이머가
+    //   프로세스를 65초 붙들었고, CLI 는 훅 프로세스가 끝나야 도구를 돌려 이 PC 의 모든 세션이
+    //   도구 호출마다 그만큼 멈췄다(2026-10-15 실측 — 68.9초).
     const tid = setTimeout(() => controller.abort(), 65_000);
     const res = await fetch(PERMISSION_CHECK_URL, {
       method: 'POST',
@@ -266,8 +270,7 @@ async function checkPermission(payload) {
         ...(process.env.VIBISUAL_OWNER_TERM_ID ? { ownerTermId: process.env.VIBISUAL_OWNER_TERM_ID } : {}),
       }),
       signal: controller.signal,
-    });
-    clearTimeout(tid);
+    }).finally(() => clearTimeout(tid));
     // §5.3 #12-4 — 답을 못 받으면 우리 세션의 검증은 거부한다(그 밖은 종전대로 통과).
     if (!res.ok) return unconfirmedAnswer(payload);
     const data = await res.json().catch(() => null);

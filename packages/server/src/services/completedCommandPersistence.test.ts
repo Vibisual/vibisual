@@ -72,6 +72,21 @@ function makeGraph(): {
 }
 
 describe('§3.2.3 — 완료 명령(사용자 말풍선)은 저장·복원된다', () => {
+  it('새 작업이 기다리던 선행 명령 ID도 체크포인트 왕복 후 유지된다', () => {
+    const { graph, projectName, queues } = makeGraph();
+    const waiting: QueuedCommand = { ...cmd('new-task', '새 작업'), status: 'queued', waitForCommandIds: ['prior-1', 'prior-2'] };
+    queues.set(SESSION, [waiting]);
+    const cp = JSON.parse(JSON.stringify(graph.toProjectCheckpoint(projectName)!));
+    const revived = new ProjectGraph();
+    const revivedQueues = new Map<string, QueuedCommand[]>();
+    revived.setCommandQueuesRef(revivedQueues);
+    revived.setCompletedCommandArchiveRef(new Map());
+    revived.registerProject(tmpRoot);
+    revived.restoreFromCheckpoint(cp);
+    expect([...revivedQueues.values()].flat().find((command) => command.id === 'new-task'))
+      .toMatchObject({ status: 'queued', waitForCommandIds: ['prior-1', 'prior-2'] });
+  });
+
   it('완료된 명령이 체크포인트에 실린다', () => {
     const { graph, projectName, archive } = makeGraph();
     archive.set(SESSION, [cmd('c1', '첫 명령'), cmd('c2', '둘째 명령')]);
