@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -21,6 +22,24 @@ const REPO = path.resolve(__dirname, '../../..');
 const read = (rel: string): string => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
 describe('release packaging — mac/linux', () => {
+  it('DEB 의존성은 기존 Electron 기본 목록과 t64 전후 ALSA를 포함한다', () => {
+    const deb = read('packages/desktop/electron-builder.yml').split('\ndeb:')[1]!.split('\nrpm:')[0]!;
+    const depends = [...deb.matchAll(/^ {4}- (.+)$/gm)].map((match) => match[1]!.trim());
+    // electron-builder 24 customDepends replaces defaults; adding only ALSA would drop GTK/NSS/etc.
+    expect(depends).toEqual([
+      'libgtk-3-0', 'libnotify4', 'libnss3', 'libxss1', 'libxtst6', 'xdg-utils',
+      'libatspi2.0-0', 'libuuid1', 'libsecret-1-0', 'libasound2t64 | libasound2',
+    ]);
+  });
+
+  it('RPM 의존성은 기존 Electron 기본 목록과 ALSA를 포함한다', () => {
+    const rpm = read('packages/desktop/electron-builder.yml').split('\nrpm:')[1]!.split('\npublish:')[0]!;
+    const depends = [...rpm.matchAll(/^ {4}- (.+)$/gm)].map((match) => match[1]!.trim());
+    expect(depends).toEqual([
+      'gtk3', 'libnotify', 'nss', 'libXScrnSaver', 'libXtst', 'xdg-utils', 'at-spi2-core', 'libuuid', 'alsa-lib',
+    ]);
+  });
+
   it('TypeScript 입력은 대소문자를 접어도 .ts/.tsx 기본 경로가 겹치지 않는다', () => {
     // Windows/macOS에서는 sessionMemoHistory.test.ts가 SessionMemoHistory.test.tsx를
     // 소스 목록에서 가려 로컬 typecheck가 통과했고, Linux에서만 TSX의 오류가 드러났다.
@@ -408,11 +427,49 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
     expect(smoke).toContain('RESULT-RPM:');
     expect(smoke).toContain('RESULT-ZIP:');
     expect(smoke).not.toContain('이 릴리스에는 .deb 가 없다');
+    const cleanDeb = smoke.slice(smoke.indexOf('- name: Linux — 깨끗한 Ubuntu'), smoke.indexOf('- name: Linux — 실사용자 재현'));
+    expect(cleanDeb).toContain('ubuntu:24.04');
+    expect(cleanDeb).toContain('apt-get install -y /artifact/*.deb');
+    expect(cleanDeb).toContain('ELECTRON_RUN_AS_NODE=1 /opt/Vibisual/vibisual /installed-smoke.cjs native');
+    expect(cleanDeb).not.toMatch(/apt-get install[^\n]*(?:libasound|nodejs|xvfb)/);
     // Fixed runner labels alone cannot catch swapped or missing native modules.
-    expect(smoke).toContain('lipo -verify_arch');
+    const architectureChecks = smoke.split('\n').map((line) => line.trim()).filter((line) => line.startsWith('lipo '));
+    // lipo consumes every argument after -verify_arch as an architecture, including a misplaced input path.
+    expect(architectureChecks).toEqual([
+      'lipo "$APP/Contents/MacOS/Vibisual" -verify_arch "$(uname -m)"',
+      'lipo "$ZIP_APP/Contents/MacOS/Vibisual" -verify_arch "$(uname -m)"',
+    ]);
     expect(smoke).toContain('installed-smoke.cjs native');
     expect(smoke).toContain('installed-smoke.cjs check');
     expect(smoke).toContain('ref: ${{ env.TAG }}');
+  });
+
+  it.runIf(process.platform === 'darwin')('mac 스모크의 실제 lipo 명령이 공백 있는 앱 경로를 검사한다', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vib-lipo-'));
+    try {
+      const app = path.join(root, 'Vibisual fixture.app');
+      fs.mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
+      fs.symlinkSync('/usr/bin/true', path.join(app, 'Contents/MacOS/Vibisual'));
+      const commands = read('.github/workflows/smoke.yml').split('\n')
+        .map((line) => line.trim()).filter((line) => line.startsWith('lipo '));
+      expect(commands).toHaveLength(2);
+      for (const command of commands) {
+        const result = spawnSync('/bin/bash', ['-euo', 'pipefail', '-c', command], {
+          env: { ...process.env, APP: app, ZIP_APP: app }, encoding: 'utf8', timeout: 5_000,
+        });
+        expect(result.error, result.stdout + result.stderr).toBeUndefined();
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('Windows 설치 실패는 기존 실행 파일 탐색 전에 스모크를 실패시킨다', () => {
+    const workflow = read('.github/workflows/smoke.yml');
+    const failureStart = workflow.indexOf('if ($p.ExitCode -ne 0)');
+    const exeSearch = workflow.indexOf('function Find-VibisualExe');
+    expect(failureStart).toBeGreaterThan(-1);
+    expect(exeSearch).toBeGreaterThan(failureStart);
+    expect(workflow.slice(failureStart, exeSearch)).toContain('throw "설치 프로그램 실패 (exit=$($p.ExitCode))"');
   });
 
   it('자산은 draft 로 올라간다 (draft 면 업데이터가 못 읽는다 = 사용자에게 도달하지 않는다)', () => {

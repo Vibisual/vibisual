@@ -8,18 +8,25 @@
 import { EventEmitter } from 'node:events';
 import type { BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { startMainReveal } from './mainReveal';
+import { MAIN_READY_CHANNEL, observeMainWindowReady, startMainReveal } from './mainReveal';
 import type { SplashHandle } from './splashWindow';
 import type { FirstShowCover } from './windowCloak';
 
-vi.mock('electron', () => ({ ipcMain: { handle: vi.fn() } }));
+type ReadyHandler = (event: { sender: { id: number } }) => boolean;
+const ipc = vi.hoisted(() => ({ handlers: new Map<string, ReadyHandler>() }));
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn((channel: string, handler: ReadyHandler) => ipc.handlers.set(channel, handler)) },
+}));
 
 class FakeWindow extends EventEmitter {
   webContents = Object.assign(new EventEmitter(), { id: 7 });
   destroyed = false;
-  show = vi.fn();
-  showInactive = vi.fn();
+  visible = false;
+  show = vi.fn(() => { this.visible = true; this.emit('show'); });
+  showInactive = vi.fn(() => { this.visible = true; this.emit('show'); });
   isDestroyed(): boolean { return this.destroyed; }
+  isVisible(): boolean { return this.visible; }
+  destroy(): void { this.destroyed = true; this.visible = false; this.emit('closed'); }
 }
 
 type FakeSplash = SplashHandle & {
@@ -108,5 +115,108 @@ describe('본체 창 공개 — 화면에 나온 뒤에 스플래시를 걷는�
     win.emit('closed');
     expect(splash.close).toHaveBeenCalledTimes(1);
     expect(splash.finish).not.toHaveBeenCalled();
+  });
+});
+
+describe('main readiness without a splash', () => {
+  const invokeReady = (senderId = 7): boolean => {
+    const handler = ipc.handlers.get(MAIN_READY_CHANNEL);
+    expect(handler, 'the real renderer-ready IPC must remain registered without a splash').toBeDefined();
+    return handler!({ sender: { id: senderId } });
+  };
+  function start() {
+    const win = new FakeWindow(), onScreen = deferred<FirstShowCover>(), onRevealed = vi.fn();
+    observeMainWindowReady({ window: win as unknown as BrowserWindow, firstShow: onScreen.promise, onRevealed });
+    return { win, onScreen, onRevealed };
+  }
+
+  it.each([
+    ['renderer', 'show', 'presentation'],
+    ['renderer', 'presentation', 'show'],
+    ['show', 'renderer', 'presentation'],
+    ['show', 'presentation', 'renderer'],
+    ['presentation', 'renderer', 'show'],
+    ['presentation', 'show', 'renderer'],
+  ] as const)('requires every signal in order %s → %s → %s', async (...order) => {
+    const h = start();
+    h.win.emit('ready-to-show');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.onRevealed).not.toHaveBeenCalled();
+    expect(h.win.show).not.toHaveBeenCalled(); // The observer must not alter the fallback show policy.
+    for (const signal of order) {
+      expect(h.onRevealed).not.toHaveBeenCalled();
+      if (signal === 'renderer') expect(invokeReady()).toBe(true);
+      if (signal === 'show') h.win.show();
+      if (signal === 'presentation') h.onScreen.resolve('uncovered');
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(h.onRevealed).toHaveBeenCalledExactlyOnceWith('ready', expect.any(Number), 'uncovered');
+    expect(invokeReady()).toBe(false);
+    h.win.show();
+    expect(h.onRevealed).toHaveBeenCalledTimes(1);
+    expect(h.win.listenerCount('closed')).toBe(0);
+    expect(h.win.webContents.listenerCount('render-process-gone')).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not treat another window or a first paint as the main renderer being ready', async () => {
+    const h = start();
+    h.win.emit('ready-to-show');
+    h.win.show();
+    h.onScreen.resolve('plain');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(invokeReady(99)).toBe(false);
+    expect(h.onRevealed).not.toHaveBeenCalled();
+    expect(invokeReady()).toBe(true);
+    expect(h.onRevealed).toHaveBeenCalledExactlyOnceWith('ready', expect.any(Number), 'plain');
+  });
+
+  it.each(['renderer', 'show', 'presentation'] as const)('does not report a window closed before %s arrives', async missing => {
+    const h = start();
+    if (missing !== 'renderer') invokeReady();
+    if (missing !== 'show') h.win.show();
+    if (missing !== 'presentation') h.onScreen.resolve('plain');
+    await vi.advanceTimersByTimeAsync(0);
+    h.win.destroy();
+    expect(invokeReady()).toBe(false);
+    h.onScreen.resolve('plain');
+    h.win.emit('show');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.onRevealed).not.toHaveBeenCalled();
+    expect(h.win.listenerCount('show')).toBe(0);
+    expect(h.win.webContents.listenerCount('did-fail-load')).toBe(0);
+  });
+
+  it.each(['render-process-gone', 'did-fail-load'] as const)('does not report a renderer that fails before presentation (%s)', async event => {
+    const h = start();
+    invokeReady();
+    h.win.show();
+    h.win.webContents.emit(event, {}, -2, 'failed', 'file:///index.html', true);
+    h.onScreen.resolve('plain');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.onRevealed).not.toHaveBeenCalled();
+    expect(invokeReady()).toBe(false);
+  });
+
+  it('waits for the main window to be visible again if it was hidden before renderer readiness', async () => {
+    const h = start();
+    h.win.show();
+    h.win.visible = false;
+    h.onScreen.resolve('plain');
+    await vi.advanceTimersByTimeAsync(0);
+    invokeReady();
+    expect(h.onRevealed).not.toHaveBeenCalled();
+    h.win.show();
+    expect(h.onRevealed).toHaveBeenCalledExactlyOnceWith('ready', expect.any(Number), 'plain');
+  });
+
+  it('does not report a first-show cover that ends because the window closed', async () => {
+    const h = start();
+    invokeReady();
+    h.win.show();
+    h.onScreen.resolve('closed');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.onRevealed).not.toHaveBeenCalled();
+    expect(invokeReady()).toBe(false);
   });
 });

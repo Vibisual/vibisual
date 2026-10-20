@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project immersive mode** hides the surrounding workspace controls to make more room for the project. Escape leaves the mode.
 
 ### Fixed
+- **Linux packages install the audio libraries needed to start the app.** Fresh Debian and Ubuntu installations no longer fail to launch because the ALSA library is missing.
+- **Startup readiness is tracked even when the splash screen is skipped.** The main window's first-screen signal remains available on the fallback startup path.
 - **Closing the video editor cancels background audio analysis.** Pending media requests and decoders are released when the editor closes or switches documents, so analysis does not keep retrying after you leave.
 - **Moving or closing a creative editor preserves pending work.** Window transfers wait for the editor to save, unsaved changes are checked before closing, and a failed save keeps the editor available to retry.
 - **Quitting waits for pending drafts to reach disk.** If a window cannot confirm its save, you can retry or cancel quitting instead of silently losing those edits.

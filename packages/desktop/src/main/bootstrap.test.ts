@@ -180,6 +180,10 @@ describe('본체 쪽 배선', () => {
     const elseAt = mainIndex.indexOf('} else {', at);
     expect(mainIndex.slice(at, elseAt)).not.toContain("on('ready-to-show'");
     expect(mainIndex.slice(elseAt, elseAt + 120)).toContain("mainWindow.on('ready-to-show', () => mainWindow.show());");
+    const fallback = mainIndex.slice(elseAt, mainIndex.indexOf("mainWindow.once('show'", elseAt));
+    expect(fallback).toContain('observeMainWindowReady({');
+    expect(fallback).toContain('window: mainWindow,');
+    expect(fallback).toContain('firstShow,');
   });
 });
 

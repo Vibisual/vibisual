@@ -187,10 +187,19 @@ deb:
   #    `dist/@vibisual/desktop_0.1.14_amd64.deb` 를 쓰려다 "Parent directory does not exist" 로
   #    죽는다. Debian 관례대로 packageName 을 쓴다.
   artifactName: vibisual_${version}_${arch}.${ext}
-  # `depends` 는 **일부러 비워 둔다.** 손으로 적으면 Ubuntu 24.04 의 t64 전환
-  # (`libgtk-3-0` → `libgtk-3-0t64`) 같은 배포판별 이름 차이를 우리가 떠안게 된다.
-  # electron-builder 기본값이 실제로 통하는지는 스모크가 `apt install ./*.deb` 로 잰다 —
-  # 추측하지 말고 재는 자리를 만들어 두는 편이 낫다.
+  # electron-builder 24 기본 의존성은 ALSA를 빠뜨려 깨끗한 Ubuntu에서 libasound.so.2 로더 오류가 났다.
+  # depends는 기본값을 대체하므로 기존 9종도 모두 유지한다. ALSA의 t64 전환 전후 이름을 함께 받는다.
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libasound2t64 | libasound2
 
 # rpm 은 **rpmbuild 가 있어야** 지어진다(fpm 이 부른다). release.yml 의 ubuntu-latest 러너에는
 # rpm 4.18 이 기본으로 깔려 있어 그대로 통하고, 손으로 지을 때만 `sudo apt install rpm` 이 필요하다.
@@ -199,6 +208,17 @@ rpm:
   # deb 와 같은 이유(위 주석 참고). rpm 관례는 `이름-버전.아키.rpm`.
   maintainer: Vibisual <noreply@vibisual.pro>
   artifactName: vibisual-${version}.${arch}.${ext}
+  # electron-builder 24 기본 Requires 8종을 보존하고 Electron의 직접 링크 대상인 ALSA를 선언한다.
+  depends:
+    - gtk3
+    - libnotify
+    - nss
+    - libXScrnSaver
+    - libXtst
+    - xdg-utils
+    - at-spi2-core
+    - libuuid
+    - alsa-lib
 
 # electron-updater feed — SCENARIO.md §4 v2.44 자동 업데이트.
 # 이 publish 설정이 있어야 electron-builder 가 빌드 산출물에 app-update.yml 을 베이킹하고,

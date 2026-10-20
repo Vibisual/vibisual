@@ -64,6 +64,56 @@ function installReadyChannel(): void {
   });
 }
 
+/**
+ * A missing splash must not remove the renderer-ready IPC. Observe the existing fallback show path
+ * without changing when it shows or releases startup jobs. A first paint alone is not app readiness.
+ */
+export function observeMainWindowReady(opts: Pick<MainRevealOptions, 'window' | 'firstShow' | 'onRevealed'>): void {
+  installReadyChannel();
+  const win = opts.window;
+  if (win.isDestroyed()) return;
+  const createdAt = Date.now();
+  let rendererReady = false;
+  let shown = win.isVisible();
+  let presented: FirstShowCover | null = null;
+  let done = false;
+
+  const stop = (): void => {
+    done = true;
+    if (active === self) active = null;
+    win.removeListener('show', onShow);
+    win.removeListener('closed', stop);
+    win.webContents.removeListener('render-process-gone', stop);
+    win.webContents.removeListener('did-fail-load', onLoadFailure);
+  };
+  const reportReady = (): void => {
+    if (done || !rendererReady || !shown || presented === null || win.isDestroyed() || !win.isVisible()) return;
+    stop();
+    try {
+      opts.onRevealed?.('ready', Date.now() - createdAt, presented);
+    } catch { /* 표시·기록 전용 */ }
+  };
+  const onShow = (): void => { shown = true; reportReady(); };
+  const onLoadFailure = (_event: unknown, _code: number, _description: string, _url: string, isMainFrame: boolean): void => {
+    if (isMainFrame) stop();
+  };
+  const self: ActiveReveal = {
+    webContentsId: win.webContents.id,
+    markRendererReady: () => { rendererReady = true; reportReady(); },
+  };
+  active = self;
+  win.on('show', onShow);
+  win.once('closed', stop);
+  win.webContents.once('render-process-gone', stop);
+  win.webContents.on('did-fail-load', onLoadFailure);
+  void (opts.firstShow ?? Promise.resolve<FirstShowCover>('plain')).then((cover) => {
+    if (done) return;
+    if (cover === 'closed') { stop(); return; }
+    presented = cover;
+    reportReady();
+  }, stop);
+}
+
 export function startMainReveal(opts: MainRevealOptions): MainRevealController {
   installReadyChannel();
   const win = opts.window;

@@ -23,7 +23,7 @@ import { appMediaResponse } from './appMediaResponse';
 // §3.7 · §9 「시작 화면(스플래시)」 — 스플래시가 앞을 지키는 동안 본체 창은 숨긴 채 그리고, 준비가 끝나면 보인다.
 import { pendingStartupJobCount, setBootProgressSink, subscribeAppThemeChrome, atomicWriteFileSync } from '@vibisual/server';
 import type { SplashHandle } from './splashWindow';
-import { startMainReveal, type MainRevealController } from './mainReveal';
+import { observeMainWindowReady, startMainReveal, type MainRevealController } from './mainReveal';
 import { coverFirstShow } from './windowCloak';
 import { writeSplashCache } from './splashCache';
 import { makeSplashCache } from './splashPolicy';
@@ -230,6 +230,15 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
     });
   } else {
     mainWindow.on('ready-to-show', () => mainWindow.show());
+    observeMainWindowReady({
+      window: mainWindow,
+      firstShow,
+      onRevealed: (reason, waitedMs, cover) => {
+        const covered = cover === 'plain' ? '' : `, first frames covered → ${cover}`;
+        logStartupMilestone(`main window revealed (${reason}, ${waitedMs}ms after the window was created${covered})`);
+        saveSplashDisplayCache();
+      },
+    });
   }
 
   // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 — 본체 창이 처음 보이는 순간을 두 곳에 알린다.

@@ -177,6 +177,24 @@ jobs:
         run: ls -la artifact
 
       # ── Linux ──────────────────────────────────────────────────────────
+      # GitHub 러너에 이미 깔린 라이브러리가 Depends 누락을 가리지 못하게 최소 이미지에서도 설치한다.
+      # 검증기는 설치된 Electron의 Node 모드로 실행하므로 별도 Node/GUI 패키지가 의존성을 채우지 않는다.
+      - name: Linux — 깨끗한 Ubuntu DEB 의존성과 네이티브 모듈
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e RUNNER_TEMP=/tmp -e DEBIAN_FRONTEND=noninteractive \
+            -v "$PWD/artifact:/artifact:ro" \
+            -v "$PWD/.github/scripts/installed-smoke.cjs:/installed-smoke.cjs:ro" \
+            ubuntu:24.04 bash -euo pipefail -c '
+              apt-get update -qq
+              apt-get install -y /artifact/*.deb
+              ELECTRON_RUN_AS_NODE=1 /opt/Vibisual/vibisual /installed-smoke.cjs native /opt/Vibisual/resources x64
+              echo "RESULT-DEB-DEPS: clean Ubuntu package dependencies and native modules passed"
+            '
+
       # ⓪ **권장 경로부터 잰다** — deb 를 설치해서 실행. 여기가 통하면 사용자에게
       #    "libfuse2 를 까세요" 같은 말을 할 필요가 아예 없어진다. 안내문을 쓰는 것보다
       #    포장을 바꾸는 편이 낫다는 판단(2026-08-28)이 실제로 성립하는지를 재는 자리다.
@@ -205,7 +223,10 @@ jobs:
           DPID=$!
           sleep 25
           if kill -0 "$DPID" 2>/dev/null; then
-            node .github/scripts/installed-smoke.cjs check "$PROFILE"
+            if ! node .github/scripts/installed-smoke.cjs check "$PROFILE"; then
+              tail -80 deb-run.log || true
+              exit 1
+            fi
             echo "RESULT: deb 는 **아무 것도 따로 깔지 않고** 그대로 실행된다 — 안내문이 필요 없다."
           else
             echo "::error::deb 설치본이 25초 안에 죽었다"
@@ -228,11 +249,22 @@ jobs:
         run: |
           set -euo pipefail
           ls artifact/*.rpm >/dev/null
+          mkdir -p "$RUNNER_TEMP/vibisual-rpm-diagnostics"
           docker run --rm \
             -e GITHUB_ACTIONS=true -e RUNNER_TEMP=/tmp -e VIBISUAL_SKIP_HOOK_INSTALL=1 \
             -v "$PWD/artifact:/artifact:ro" \
             -v "$PWD/.github/scripts/installed-smoke.cjs:/installed-smoke.cjs:ro" \
+            -v "$RUNNER_TEMP/vibisual-rpm-diagnostics:/diagnostics" \
             registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+              capture() {
+                cp /tmp/rpm-run.log /diagnostics/ 2>/dev/null || true
+                for name in logs Crashpad; do
+                  if [ -d "/tmp/vibisual-smoke-rpm/$name" ]; then
+                    cp -R "/tmp/vibisual-smoke-rpm/$name" /diagnostics/ || true
+                  fi
+                done
+              }
+              trap capture EXIT
               dnf -y install /artifact/*.rpm
               dnf -y install xorg-x11-server-Xvfb xorg-x11-xauth nodejs shadow-utils util-linux
               useradd --create-home smoke
@@ -243,7 +275,10 @@ jobs:
               pid=$!
               sleep 25
               if ! kill -0 "$pid" 2>/dev/null; then cat /tmp/rpm-run.log; exit 1; fi
-              node /installed-smoke.cjs check /tmp/vibisual-smoke-rpm
+              if ! node /installed-smoke.cjs check /tmp/vibisual-smoke-rpm; then
+                cat /tmp/rpm-run.log
+                exit 1
+              fi
               echo "RESULT-RPM: Fedora dnf install, native modules, backend and renderer passed"
             '
 
@@ -359,7 +394,10 @@ jobs:
           APP_PID=$!
           sleep 25
           if kill -0 "$APP_PID" 2>/dev/null; then
-            node "$SCRIPT" check "$PROFILE"
+            if ! node "$SCRIPT" check "$PROFILE"; then
+              tail -80 run.log || true
+              exit 1
+            fi
             echo "OK — 25초 생존. 앱이 떴다."
             kill "$APP_PID" 2>/dev/null || true
           else
@@ -408,7 +446,7 @@ jobs:
           set -euo pipefail
           EXPECTED=x64
           if [ "$(uname -m)" = "arm64" ]; then EXPECTED=arm64; fi
-          lipo -verify_arch "$(uname -m)" "$APP/Contents/MacOS/Vibisual"
+          lipo "$APP/Contents/MacOS/Vibisual" -verify_arch "$(uname -m)"
           PROFILE="$RUNNER_TEMP/vibisual-smoke-dmg"
           node .github/scripts/installed-smoke.cjs prepare "$APP/Contents/Resources" "$PROFILE"
           ELECTRON_RUN_AS_NODE=1 arch -"$(uname -m)" "$APP/Contents/MacOS/Vibisual" \
@@ -417,7 +455,10 @@ jobs:
           APP_PID=$!
           sleep 25
           if kill -0 "$APP_PID" 2>/dev/null; then
-            node .github/scripts/installed-smoke.cjs check "$PROFILE"
+            if ! node .github/scripts/installed-smoke.cjs check "$PROFILE"; then
+              tail -80 run.log || true
+              exit 1
+            fi
             echo "OK — 25초 생존. 앱이 떴다."
             kill "$APP_PID" 2>/dev/null || true
           else
@@ -436,7 +477,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/zip-app"
           ditto -x -k artifact/*-mac.zip "$RUNNER_TEMP/zip-app"
           ZIP_APP="$RUNNER_TEMP/zip-app/Vibisual.app"
-          lipo -verify_arch "$(uname -m)" "$ZIP_APP/Contents/MacOS/Vibisual"
+          lipo "$ZIP_APP/Contents/MacOS/Vibisual" -verify_arch "$(uname -m)"
           PROFILE="$RUNNER_TEMP/vibisual-smoke-zip"
           node .github/scripts/installed-smoke.cjs prepare "$ZIP_APP/Contents/Resources" "$PROFILE"
           ELECTRON_RUN_AS_NODE=1 arch -"$(uname -m)" "$ZIP_APP/Contents/MacOS/Vibisual" \
@@ -445,7 +486,10 @@ jobs:
           pid=$!
           sleep 25
           if ! kill -0 "$pid" 2>/dev/null; then cat zip-run.log; exit 1; fi
-          node .github/scripts/installed-smoke.cjs check "$PROFILE"
+          if ! node .github/scripts/installed-smoke.cjs check "$PROFILE"; then
+            tail -80 zip-run.log || true
+            exit 1
+          fi
           echo "RESULT-ZIP: $EXPECTED update bundle passed"
           kill "$pid" 2>/dev/null || true
 
@@ -567,6 +611,7 @@ jobs:
               Write-Host "   $($_.FullName)"
               Get-ChildItem $_.FullName -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "      $($_.Name)  $($_.Length)" }
             }
+            throw "설치 프로그램 실패 (exit=$($p.ExitCode))"
           }
 
           function Find-VibisualExe {
@@ -625,7 +670,8 @@ jobs:
           $resources = Join-Path (Split-Path -Parent $exe) 'resources'
           node .github/scripts/installed-smoke.cjs prepare $resources $profileDir
           if ($LASTEXITCODE -ne 0) { throw '스모크 프로필 준비 실패' }
-          $p = Start-Process -FilePath $exe -ArgumentList "`"--user-data-dir=$profileDir`"" -PassThru
+          $p = Start-Process -FilePath $exe -ArgumentList "`"--user-data-dir=$profileDir`"" -PassThru `
+            -RedirectStandardOutput win-run.log -RedirectStandardError win-error.log
           Start-Sleep -Seconds 25
           if ($p.HasExited) {
             Write-Host "::error::앱이 25초 안에 죽었다 (exit=$($p.ExitCode))"
@@ -635,6 +681,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '백엔드·본체 준비 확인 실패' }
           Write-Host "OK — 25초 생존. 앱이 떴다."
           Stop-Process -Id $p.Id -Force
+
+      - name: 실패 진단 보존 (stdout, startup, crash dumps)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics-${{ matrix.artifact }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            *run.log
+            win-error.log
+            artifact/direct.log
+            artifact/fuse.log
+            artifact/run.log
+            ${{ runner.temp }}/vibisual-smoke-*/logs/
+            ${{ runner.temp }}/vibisual-smoke-*/Crashpad/**/*.dmp
+            ${{ runner.temp }}/vibisual-rpm-diagnostics/
 
   # ── 발행(공개) — **여기가 유일한 공개 전환점이다** ──────────────────────────
   #
