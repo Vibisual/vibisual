@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { BubbleData, Vibi3DSnapshot } from '@vibisual/shared';
-import { vibi3dAgentPrompt, vibi3dProjectAgents } from './vibi3dAgentPrompt.js';
+import { VIBI3D_LIMITS, type BubbleData, type Vibi3DSnapshot } from '@vibisual/shared';
+import { creationProjectAgents as vibi3dProjectAgents } from '../Creation/creationAgents.js';
+import { vibi3dAgentPrompt } from './vibi3dAgentPrompt.js';
 
 const snapshot: Vibi3DSnapshot = { sessionId: 'scene-1', projectId: '/work/project', fileName: 'chair.glb',
   revision: 8, selectedId: 'chair-2', nodes: [] };
@@ -8,6 +9,27 @@ const agent = (id: string, more: Partial<BubbleData> = {}): BubbleData => ({ id,
   path: `${id}-session`, status: 'idle', activity: 0, customCreated: true, ...more });
 
 describe('Vibi3D scene request', () => {
+  it('keeps hidden sessions live and limits document reopen to offline sessions', () => {
+    const prompt = vibi3dAgentPrompt({ ...snapshot, document: { id: 'product', revision: 3, dirty: false }, runId: 'run' }, 'Continue');
+    expect(prompt).toContain('/documents/product/reopen');
+    expect(prompt).toContain('Closing the Vibi3D window keeps the live session and agent connection running');
+    expect(prompt).toContain('do not reopen the window just because it is hidden');
+    expect(prompt).toContain('Only if the session is actually offline');
+    expect(prompt).not.toContain('If its window closes, POST');
+    expect(prompt).toContain('Saved work drafts survive closing the view');
+    expect(prompt).toContain('Full app shutdown waits for durable draft writes');
+    expect(prompt).toContain('"runId":"run"');
+    expect(prompt).toContain('/authoring/native-kit?projectId=');
+    expect(prompt).toContain('result.captures');
+    expect(prompt).toContain('Open those actual files');
+    expect(prompt).toContain('never accept your own candidate');
+    expect(prompt).toContain(`1 to ${VIBI3D_LIMITS.commandCount}`);
+    expect(prompt).toContain(`${VIBI3D_LIMITS.requestBytes} UTF-8 JSON bytes`);
+    expect(prompt).toContain('stats, capture, checkpoint, propose and resume');
+    expect(prompt).toContain('sign.source or decal.source');
+    expect(prompt).toContain('size:[1080,1920]');
+    expect(prompt).toContain('local-transport-network-required');
+  });
   it('gives the agent a live read, bounded edits, revision conflict recovery and verifiable command status', () => {
     const prompt = vibi3dAgentPrompt(snapshot, 'Make the selected chair blue');
     expect(prompt).toContain('GET /api/app/vibi3d/sessions/scene-1');
@@ -15,10 +37,24 @@ describe('Vibi3D scene request', () => {
     expect(prompt).toContain('"selectedId":"chair-2"');
     expect(prompt).toContain('expectedRevision');
     expect(prompt).toContain('preserve human edits');
+    expect(prompt).toContain('unsaved-human-edits means scene mutations are temporarily blocked');
+    expect(prompt).toContain('Never discard or save the human draft through agent commands');
+    expect(prompt).toContain('Wait for the user to save or discard their own edits, then GET the latest snapshot');
     expect(prompt).toContain('DEGREES');
     expect(prompt).toContain('HTTP 202 only means queued, never completed');
     expect(prompt).toContain('/image');
-    expect(prompt).toContain('unsaved until');
+    expect(prompt).toContain('automatically saves each successful mutation into the AI work draft before acknowledging applied');
+    expect(prompt).toContain('This does not apply the draft to the original source');
+    expect(prompt).not.toContain('Initially empty documents commit revisions');
+  });
+
+  it('continues an autosaved draft without demanding source mutation or a checkpoint workflow', () => {
+    const prompt = vibi3dAgentPrompt({ ...snapshot, document: { id: 'product', revision: 1, dirty: true } }, 'Refine', { workDraft: true });
+    expect(prompt).toContain('Continue the automatically saved AI work draft');
+    expect(prompt).toContain('Do not checkpoint, propose, accept, or commit');
+    expect(prompt).not.toContain('At EVERY stage: checkpoint');
+    expect(prompt).not.toContain('unsaved until');
+    expect(prompt).toContain('Otherwise inspect the existing /image JPEG');
   });
 
   it('passes the request as data and never propagates private renderer credentials', () => {

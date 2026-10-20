@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { VIBI3D_API_PREFIX, VIBI3D_RENDERER_TOKEN_HEADER, type Vibi3DCommandRequest, type Vibi3DSnapshot } from '@vibisual/shared';
+import { VIBI3D_API_PREFIX, VIBI3D_RENDERER_TOKEN_HEADER, type Vibi3DCommandRequest, type Vibi3DSnapshot, type Vibi3DCaptureCommand, type Vibi3DCommandResult, type Vibi3DCaptureRecord } from '@vibisual/shared';
+import type { CapturedView } from './vibi3dCapture.js';
+import { onAppEvent } from '../../apps/appEvents.js';
+import { vibi3dCommandProgress } from './vibi3dCommandProgress.js';
+
+export interface Vibi3DExecutionContext {
+  post: <T>(suffix: string, body: Record<string, unknown>) => Promise<T>;
+  progress?: (value: number) => Promise<void>;
+  assertActive?: () => void;
+}
+export interface Vibi3DExecutionResult { snapshot: Vibi3DSnapshot; result?: Vibi3DCommandResult['result'] }
 
 export interface Vibi3DBridgeOptions {
   snapshot: Vibi3DSnapshot | null;
   getSnapshot: () => Vibi3DSnapshot | null;
   capture: () => string | Promise<string>;
-  execute: (request: Vibi3DCommandRequest) => Vibi3DSnapshot | Promise<Vibi3DSnapshot>;
+  captureViews?: (command: Vibi3DCaptureCommand) => CapturedView[] | Promise<CapturedView[]>;
+  execute: (request: Vibi3DCommandRequest, context?: Vibi3DExecutionContext) => Vibi3DSnapshot | Vibi3DExecutionResult | Promise<Vibi3DSnapshot | Vibi3DExecutionResult>;
 }
 
 export interface Vibi3DBridge {
@@ -25,6 +36,7 @@ interface Ack {
   error?: string;
   snapshot: Vibi3DSnapshot;
   screenshot?: string;
+  result?: Vibi3DCommandResult['result'];
 }
 
 const POLL_MS = 1_000;
@@ -99,6 +111,24 @@ export function useVibi3DBridge(options: Vibi3DBridgeOptions): Vibi3DBridge {
       }
     };
 
+    const workflowPost: Vibi3DExecutionContext['post'] = async <T,>(suffix: string, body: Record<string, unknown>): Promise<T> => {
+      // A successful commit can lose its HTTP reply. Retry its immutable receipt key/payload,
+      // keeping the editor busy, until the server gives a definitive response or this scene closes.
+      const immutable = structuredClone(body);
+      for (;;) {
+        try { return await request<T>(`${base}/${suffix}`, 'POST', immutable); }
+        catch (error) {
+          if (stopped || (error instanceof BridgeHttpError && error.status < 500)) throw error;
+          setStatus({ sessionId, connected: false, error: error instanceof Error ? error.message : String(error) });
+          await new Promise<void>((resolve) => {
+            const finish = (): void => { clearTimeout(retry); lifetime.signal.removeEventListener('abort', finish); resolve(); };
+            const retry = setTimeout(finish, POLL_MS);
+            lifetime.signal.addEventListener('abort', finish, { once: true });
+          });
+        }
+      }
+    };
+
     const frame = async (): Promise<{ snapshot: Vibi3DSnapshot; screenshot: string }> => {
       const before = current();
       const screenshot = await callbacks.current.capture();
@@ -161,22 +191,51 @@ export function useVibi3DBridge(options: Vibi3DBridgeOptions): Vibi3DBridge {
             if (cached) {
               pendingAck = cached;
             } else {
+              let progress: ReturnType<typeof vibi3dCommandProgress> | undefined;
               try {
                 const snapshot = current();
                 if (queued.expiresAt !== undefined && queued.expiresAt <= Date.now()) throw new Error('command-expired');
                 if (queued.expectedRevision !== snapshot.revision) throw new Error('revision-conflict');
+                progress = vibi3dCommandProgress({ expiresAt: queued.expiresAt, signal: lifetime.signal,
+                  post: value => request(`${base}/progress`, 'POST', { commandId: queued.commandId, progress: value }),
+                  finalError: error => error instanceof BridgeHttpError && error.status < 500 });
+                await progress.progress(0);
+                const context: Vibi3DExecutionContext = { post: workflowPost, progress: progress.progress, assertActive: progress.assertActive };
                 if (queued.commands.length === 1 && queued.commands[0]?.type === 'capture') {
-                  pendingAck = { commandId: queued.commandId, ok: true, ...await frame() };
+                  const captures: Vibi3DCaptureRecord[] = [];
+                  if (callbacks.current.captureViews && snapshot.document && snapshot.runId) {
+                    const before = current();
+                    const rendered = await callbacks.current.captureViews(queued.commands[0]);
+                    if (before.revision !== current().revision) throw new Error('scene-changed-during-capture');
+                    for (const capture of rendered) {
+                      if (before.revision !== current().revision) throw new Error('scene-changed-during-capture');
+                      try {
+                        const saved = await context.post<{ captures: Vibi3DCaptureRecord[] }>('captures', {
+                          commandId: queued.commandId, snapshot: before, captures: [capture],
+                        });
+                        captures.push(...saved.captures);
+                      } catch (error) {
+                        // A draft can have a document/run but no named workflow stage yet.
+                        // The normal live JPEG remains available without inventing saved PNGs.
+                        if (error instanceof BridgeHttpError && error.status === 409
+                          && ['checkpoint-required', 'run-required'].includes(error.message)) break;
+                        throw error;
+                      }
+                    }
+                    if (before.revision !== current().revision) throw new Error('scene-changed-during-capture');
+                  }
+                  pendingAck = { commandId: queued.commandId, ok: true, ...await frame(), ...(captures.length ? { result: { captures } } : {}) };
                 } else {
-                  await callbacks.current.execute(queued);
-                  pendingAck = { commandId: queued.commandId, ok: true, snapshot: current() };
+                  const executed = await callbacks.current.execute(queued, context);
+                  pendingAck = { commandId: queued.commandId, ok: true, snapshot: current(),
+                    ...('snapshot' in executed && executed.result ? { result: executed.result } : {}) };
                   // An applied edit remains applied if only its screenshot failed.
                   try { pendingAck = { ...pendingAck, ...await frame() }; } catch { current(); }
                 }
               } catch (error) {
                 pendingAck = { commandId: queued.commandId, ok: false,
                   error: error instanceof Error ? error.message : String(error), snapshot: current() };
-              }
+              } finally { progress?.dispose(); }
             }
             await acknowledge();
           }
@@ -199,6 +258,9 @@ export function useVibi3DBridge(options: Vibi3DBridgeOptions): Vibi3DBridge {
       return task;
     };
     publishRef.current = () => enqueue(true);
+    const offCommand = onAppEvent('vibi3d', (event) => {
+      if (event.kind === 'command' && event.key === sessionId) void enqueue(false).catch(() => undefined);
+    });
     setStatus({ sessionId, connected: false, error: null });
     const tick = async (): Promise<void> => {
       try { await enqueue(false); } catch { /* Error is visible; the next bounded poll reconnects. */ }
@@ -208,6 +270,7 @@ export function useVibi3DBridge(options: Vibi3DBridgeOptions): Vibi3DBridge {
 
     return () => {
       stopped = true;
+      offCommand();
       publishRef.current = null;
       if (timer) clearTimeout(timer);
       lifetime.abort();

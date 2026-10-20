@@ -3,7 +3,12 @@ import { APP_CANVAS_FACE, APP_THUMB } from '@vibisual/shared';
 
 import { canvasObjectUrl } from '../../apps/thumbnailBake.js';
 import { workspaceMediaSize } from '../../utils/workspaceMedia.js';
+import { applyStudioEnvironment, createStudioLights, planStudioLights, releaseStudioEnvironment, renderStudioView } from '../Creation/studioLighting.js';
 import { disposeModel, loadWorkspaceModel } from './modelIO.js';
+import { loadModelSource } from './modelSource.js';
+import { applyModelCameraView, readActiveModelShot, readModelCamera } from './modelCamera.js';
+import { MODEL_BACKGROUNDS, MODEL_VIEW_FOV, MODEL_FRAME_MARGIN, createModelGrid, modelFrame } from './modelViewport.js';
+import { vibi3dViewSize } from './vibi3dViewSize.js';
 
 /**
  * §5.4 #36 (G) — Vibi3D 노드 화면에서 **끌어 돌려 보는** 살아 있는 장면.
@@ -20,11 +25,12 @@ import { disposeModel, loadWorkspaceModel } from './modelIO.js';
 const HOME_YAW_DEG = 45;
 const HOME_PITCH_DEG = (Math.asin(0.7 / Math.hypot(1, 0.7, 1)) * 180) / Math.PI;
 /** 정지 미리보기와 같은 여유(모델 둘레 반지름에 곱하는 거리 배율). */
-const FRAME_MARGIN = 1.35;
+const FRAME_MARGIN = MODEL_FRAME_MARGIN;
 
 export interface OrbitAngles {
   yaw: number;
   pitch: number;
+  custom?: boolean;
 }
 
 export function homeAngles(): OrbitAngles {
@@ -35,10 +41,30 @@ export interface LiveModel {
   readonly object: THREE.Object3D;
   readonly center: THREE.Vector3;
   readonly radius: number;
+  readonly empty?: boolean;
   dispose: () => void;
 }
 
-export type LiveModelLoad = { readonly ok: true; readonly model: LiveModel } | { readonly ok: false; readonly reason: 'tooLarge' | 'failed' };
+export type LiveModelLoad = { readonly ok: true; readonly model: LiveModel } | { readonly ok: false; readonly reason: 'tooLarge' | 'failed' | 'empty' };
+
+function frameModel(object: THREE.Object3D, allowEmpty: boolean): LiveModelLoad {
+  const { center, radius, empty } = modelFrame(object);
+  if (empty && !allowEmpty) {
+    disposeModel(object);
+    return { ok: false, reason: 'failed' };
+  }
+  return { ok: true, model: { object, center, radius, empty, dispose: () => disposeModel(object) } };
+}
+
+/** The document is data, using the same blob resolution and safe parser as the full editor. */
+export async function loadLiveModelSource(projectId: string, payload: unknown, title: string): Promise<LiveModelLoad> {
+  try {
+    const loaded = await loadModelSource(payload, title, projectId);
+    return frameModel(loaded.object, true);
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+}
 
 /** 모델을 읽는다. 통째로 받기 전에 크기를 묻는다 — 정지 미리보기와 같은 상한(`APP_THUMB.modelMaxBytes`). */
 export async function loadLiveModel(projectId: string, file: string): Promise<LiveModelLoad> {
@@ -47,15 +73,7 @@ export async function loadLiveModel(projectId: string, file: string): Promise<Li
   if (bytes > APP_THUMB.modelMaxBytes) return { ok: false, reason: 'tooLarge' };
   try {
     const loaded = await loadWorkspaceModel(projectId, file);
-    const bounds = new THREE.Box3().setFromObject(loaded.object);
-    if (bounds.isEmpty()) {
-      disposeModel(loaded.object);
-      return { ok: false, reason: 'failed' };
-    }
-    const center = bounds.getCenter(new THREE.Vector3());
-    const extent = bounds.getSize(new THREE.Vector3());
-    const radius = Math.max(extent.x, extent.y, extent.z) * 0.5 || 1;
-    return { ok: true, model: { object: loaded.object, center, radius, dispose: () => disposeModel(loaded.object) } };
+    return frameModel(loaded.object, false);
   } catch {
     return { ok: false, reason: 'failed' };
   }
@@ -78,7 +96,7 @@ export interface LiveView {
 
 /**
  * 모델 하나를 비추는 보기를 만든다. 각도는 `angles` 를 그대로 고쳐 쓴다 — 보기를 버렸다 다시 만들어도 그 각도에서 이어지게
- * 부르는 쪽이 같은 객체를 넘긴다. 배경은 투명이라 노드 바탕이 비친다(정지 미리보기와 같다).
+ * 부르는 쪽이 같은 객체를 넘긴다. 편집기와 같은 격자·배경·카메라 비율을 작은 해상도로 그린다.
  */
 export function createLiveView(
   model: LiveModel,
@@ -88,59 +106,79 @@ export function createLiveView(
   angles: OrbitAngles,
 ): LiveView {
   const canvas = document.createElement('canvas');
-  canvas.className = 'pointer-events-none absolute inset-0 h-full w-full';
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  canvas.className = 'pointer-events-none absolute';
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(pixelRatio);
-  renderer.setSize(Math.max(1, width), Math.max(1, height), false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setClearColor(0x000000, 0);
 
+  // §5.13 (R-10) — the same studio light and environment as the Vibi3D view and every output.
   const scene = new THREE.Scene();
-  const key = new THREE.DirectionalLight(0xffffff, 1.4);
-  key.position.set(3, 5, 4);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x334155, 1.1), key, model.object);
+  scene.background = new THREE.Color(MODEL_BACKGROUNDS.dark);
+  const grid = createModelGrid();
+  const lights = createStudioLights();
+  scene.add(lights.ambient, lights.key, grid, model.object);
+  const lighting: unknown = model.object.userData['vibi3dLighting'];
+  const level = typeof lighting === 'number' && Number.isFinite(lighting) && lighting >= 0 ? lighting : 1;
+  planStudioLights(lights, model.object, level);
+  applyStudioEnvironment(scene, renderer, level);
 
-  const camera = new THREE.PerspectiveCamera(40, Math.max(1, width) / Math.max(1, height), 0.01, 5000);
+  const camera = new THREE.PerspectiveCamera(MODEL_VIEW_FOV, 1, 0.01, 5000);
   const limit = APP_CANVAS_FACE.orbitPitchLimitDeg;
+  const saved = readActiveModelShot(model.object) ?? readModelCamera(model.object);
+  const target = saved ? new THREE.Vector3().fromArray(saved.target) : model.center;
+  const savedDistance = saved ? new THREE.Vector3().fromArray(saved.position).distanceTo(target) : null;
 
   const place = (): void => {
+    if (saved && applyModelCameraView(camera, saved, { aspect: camera.aspect }) && !angles.custom) return;
     const distance = (model.radius / Math.sin((camera.fov * Math.PI) / 360)) * Math.max(1, 1 / camera.aspect);
     const yaw = (angles.yaw * Math.PI) / 180;
     const pitch = (angles.pitch * Math.PI) / 180;
     const dir = new THREE.Vector3(Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw));
-    camera.position.copy(model.center).add(dir.multiplyScalar(distance * FRAME_MARGIN));
+    camera.position.copy(target).add(dir.multiplyScalar(savedDistance ?? distance * FRAME_MARGIN));
     camera.near = Math.max(0.001, distance / 500);
     camera.far = Math.max(100, distance * 50);
-    camera.lookAt(model.center);
+    camera.lookAt(target);
     camera.updateProjectionMatrix();
   };
-  place();
+  const resize = (w: number, h: number): void => {
+    const size = vibi3dViewSize(Math.max(1, w), Math.max(1, h), saved?.aspect);
+    renderer.setSize(size.width, size.height, true);
+    Object.assign(canvas.style, { left: `${size.left}px`, top: `${size.top}px` });
+    camera.aspect = size.width / size.height;
+    place();
+  };
+  resize(width, height);
 
   return {
     canvas,
-    setSize: (w, h) => {
-      renderer.setSize(Math.max(1, w), Math.max(1, h), false);
-      camera.aspect = Math.max(1, w) / Math.max(1, h);
-      place();
-    },
+    setSize: resize,
     orbit: (dYaw, dPitch) => {
+      if (saved && !angles.custom) {
+        const direction = camera.position.clone().sub(target).normalize();
+        angles.yaw = Math.atan2(direction.x, direction.z) * 180 / Math.PI; angles.pitch = Math.asin(direction.y) * 180 / Math.PI;
+      }
+      angles.custom = true;
       angles.yaw = (angles.yaw + dYaw) % 360;
       angles.pitch = Math.min(limit, Math.max(-limit, angles.pitch + dPitch));
       place();
     },
     home: () => {
+      delete angles.custom;
       const h = homeAngles();
       angles.yaw = h.yaw;
       angles.pitch = h.pitch;
       place();
     },
-    render: () => renderer.render(scene, camera),
+    render: () => renderStudioView(scene, renderer, camera, { object: model.object }),
     snapshot: async () => {
-      renderer.render(scene, camera);
+      renderStudioView(scene, renderer, camera, { object: model.object });
       return canvasObjectUrl(canvas, 'image/png');
     },
     dispose: () => {
       scene.remove(model.object);
+      grid.geometry.dispose();
+      (grid.material as THREE.Material).dispose();
+      releaseStudioEnvironment(renderer);
       renderer.dispose();
       renderer.forceContextLoss();
     },

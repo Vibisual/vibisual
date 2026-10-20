@@ -109,7 +109,7 @@ describe('Vibi3D model IO', () => {
     const loaded = await loadLocalModel([primary, companion]);
     expect(loaded.object.children[0]).toBeInstanceOf(THREE.Mesh);
     expect(revoke).toHaveBeenCalledTimes(1);
-    await expect(loadLocalModel([primary])).rejects.toThrow(/Missing companion/);
+    await expect(loadLocalModel([primary])).rejects.toThrow('model-companion-missing');
     disposeModel(loaded.object);
   });
 
@@ -127,7 +127,7 @@ describe('Vibi3D model IO', () => {
     expect(create).toHaveBeenCalledWith(right);
     // Two candidates share the name: a texture is skipped rather than guessed, a buffer stops the load.
     expect(resolver.resolve('missing/color.png')).toBe(UNAVAILABLE_TEXTURE);
-    expect(() => resolver.resolve('missing/scene.bin')).toThrow(/Missing companion/);
+    expect(() => resolver.resolve('missing/scene.bin')).toThrow('model-companion-missing');
     expect(resolver.resolve('data:image/png;base64,AA==')).toBe('data:image/png;base64,AA==');
     resolver.dispose(); resolver.dispose();
     expect(revoke).toHaveBeenCalledTimes(1);
@@ -152,7 +152,7 @@ describe('Vibi3D model IO', () => {
     // A texture recorded by the author's absolute path is looked for next to the model.
     const authored = new URL(workspaceResourceUrl('C:/work space', 'models\\props\\room.fbx', 'D:\\artist\\maps\\wall color.png'), 'http://localhost');
     expect(authored.searchParams.get('path')).toBe('models/props/wall color.png');
-    expect(() => workspaceResourceUrl('project', 'model.gltf', 'https://example.com/remote.bin')).toThrow(/External/);
+    expect(() => workspaceResourceUrl('project', 'model.gltf', 'https://example.com/remote.bin')).toThrow('model-external-resource');
   });
 
   it('opens an FBX whose texture is missing, decodes its TGA companion, and names what it skipped', async () => {
@@ -184,9 +184,10 @@ describe('Vibi3D model IO', () => {
 
   it('rejects workspace fetch errors and unsupported models', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
-    await expect(loadWorkspaceModel('root', 'missing.glb')).rejects.toThrow('404');
-    await expect(loadLocalModel([new File([''], 'notes.txt')])).rejects.toThrow('Select a GLB');
-    await expect(parseModel('.txt', new ArrayBuffer(0))).rejects.toThrow('Unsupported');
+    // Codes the screen translates; the HTTP status rides along as a parameter.
+    await expect(loadWorkspaceModel('root', 'missing.glb')).rejects.toMatchObject({ code: 'model-load-failed', params: { status: 404 } });
+    await expect(loadLocalModel([new File([''], 'notes.txt')])).rejects.toThrow('model-format-unsupported');
+    await expect(parseModel('.txt', new ArrayBuffer(0))).rejects.toThrow('model-format-unsupported');
   });
 
   it('disposes shared geometry, material, and textures once', () => {
