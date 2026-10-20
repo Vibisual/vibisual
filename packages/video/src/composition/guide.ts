@@ -90,7 +90,7 @@ chapter { id, title, duration, status:'plan'|'approved'|'building'|'done', brief
 track   { id, kind:'visual'|'audio'|'caption', label?, muted?, hidden?, items:[...] } — earlier visual tracks are drawn first
 item    { id, kind, at, duration, assetId?, sceneId?, props?, transform?, keyframes?, effects?, trimStart?, enabled?, label?,
           cues?, chapterId?, variantId? }
-  kind      'composition' | 'footage' | 'image' | 'audio' | 'caption' | 'text' | 'shape' | 'scene'
+  kind      'composition' | 'footage' | 'image' | 'audio' | 'caption' | 'text' | 'shape' | 'scene' | 'model'
   at        seconds | { after:itemId, offset? } | { start:itemId, offset? } | { chapter:chapterId, offset? }
             | { cue:name, item:compositionItemId, offset? }
   duration  seconds | 'auto' (= the asset's measured length: video, audio, composition)
@@ -163,6 +163,31 @@ moves the items with them.
 ## Variants (two engines side by side)
 When the context block says "Variant", build ONLY that variant of that chapter: every item you add carries the given
 "variantId" and "chapterId". Never edit or remove items of the other variant. The user compares both and picks one.
+
+## Editable image and 3D originals
+The media drawer imports immutable revisions of Vibimage and Vibi3D sources. Use kind:'model' for 3D items/assets.
+Model files are GLB, glTF with bundled buffers/textures, or .vibi3d JSON {format:'vibi3d',scene:<Three Object3D JSON>,clips:<AnimationClip JSON[]>}.
+Image sources are .vibimage JSON with stable layer IDs; photos remain single raster layers. Never invent recovered photo layers.
+To make a still image move, keep the image item and its source untouched and set props.layerMotion on the item:
+{ [layerId]: { preset:'fade'|'rise'|'slide-left'|'slide-right'|'zoom'|'none', delay (s), duration (s) } } — each layer moves on its own.
+The built-in renderer handles actual loading, animation seeking and output; no generation model or paid API is required.
+Model props: turntable and cameraOrbit (degrees/second), cameraYaw (radians), cameraElevation, cameraDistance,
+cameraFov (degrees), ambientLight, keyLight, cameraPosition:[x,y,z], cameraTarget:[x,y,z]. Source animations and saved
+camera remain active unless explicitly overridden. trimStart and the timeline source time drive both preview and export.
+Sources live at /api/app/creation/docs?projectId=<project>. Read /docs/:id/revisions/:revision before editing.
+Commit via /docs/:id/commit with projectId, baseRevision, requestId, payload and label. Preserve stable object/layer IDs,
+lockedPaths and unrelated fields. A stale revision is a conflict: re-read and reconcile; do not overwrite human edits.
+Video assets carry creationSource:{id,revision,appId}. Import a new snapshot as a new asset and patch only explicitly
+chosen video item assetIds; retain old assets and timing, captions, audio, camera props and human edits. The media drawer
+shows all affected items before this operation. Refresh alone keeps every current revision pinned.
+Document requirements are optional: {id,kind:'ending-text',text,lastSeconds,itemId?},
+{id,kind:'source-revision',assetId,sourceId,revision}, {id,kind:'visual',description,evidence?:{framePath,at,docVersion,verdict:'passed'|'failed',note}},
+{id,kind:'selected-only',itemIds,base} or {id,kind:'preserved',itemIds,base} (base = item signatures the studio records; never write it yourself).
+The request checks panel evaluates native text/caption presence on each output frame (not legibility or occlusion); text drawn
+inside scene or composition items cannot be read from the document and is reported as unverified. All text checks share one
+20,000-frame budget. A source-revision check passes only when the pinned asset is actually used by a visible item.
+selected-only fails when an item outside itemIds changed; preserved fails when one of itemIds changed or disappeared.
+Visual checks require a reviewed frame file that exists in the project and the matching final document version. Do not claim an automated visual verdict.
 
 ## Libraries and imported files
 Compositions cannot load anything from the network. GET /libs lists what the user imported; name the ones you use in
@@ -245,6 +270,12 @@ window.__vibi.cue('impact', 2.4) marks a known time (call it at load). The name 
 name ('bounce-1', 'bounce-2'). Vibistudio runs the composition once from 0 to its end to collect the cues (at most 500)
 and keeps them on the asset; sounds placed with at:{ cue, item } follow when you change the code. Errors during that run
 are reported with the second they happened at.
+
+## Internal Canvas / 3D object selection
+For code-rendered objects, optionally define window.__vibi.pick = ({x,y,t}) => ({objectId,adapter:'canvas',tag,text,
+properties:{...},rect:{x,y,width,height}}) or null. x/y and rect use composition pixels; t is the same seconds as seek.
+Return stable authored object IDs and bounded JSON properties. Picking must not mutate state or start network work.
+DOM elements continue using data-vibi-prop and the built-in element picker when this adapter is absent.
 
 ## Blocked by the sandbox (the probe lists these as lint)
 - Network: fetch, XHR, WebSocket, external URLs, CDN scripts or fonts. Copy what you need into the folder, or use what
@@ -364,4 +395,15 @@ style, restraint.
 - /strip for every composition: dead frames, jumps, overlaps, text that is too short on screen.
 - The first 3 seconds frame by frame: /strip?from=0&to=3&count=12.
 - /review?frames=1: fix every finding or explain it in warnings. Fix composition lint (engine-unsupported included).
+
+## 15. Performance — smooth preview on an ordinary laptop
+The person watches your composition live in the editor, often on a 4-core laptop. Motion that the compositor can do alone
+stays smooth; anything that repaints the full frame every frame stutters the preview.
+- Move and fade with transform (translate / scale / rotate) and opacity only. Those two never repaint.
+- Do not change background-position, filter (blur…), or a large blurred box-shadow every frame on a full-screen element.
+  Draw a glow or blur once on its own layer, then fade or move that layer.
+- Static light, vignettes and textures: draw them once (a fixed layer or an image), not per frame.
+- Canvas: avoid putImageData over the whole frame each frame; draw small tiles once and move them with transform.
+- Fewer, larger moving layers beat many small ones; remove elements that are off screen for the rest of the chapter.
+The probe reports these as perf-* lint (a warning — it does not block).
 `;

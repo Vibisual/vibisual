@@ -233,6 +233,10 @@ export function buildDrawList(doc: VideoDoc, timeline: ResolvedTimeline, t: numb
  *
  * 화면과 분리해 두는 이유는 오디오가 프레임 단위가 아니라 구간 단위로 섞이기
  * 때문이다 — 프레임마다 물어볼 필요가 없다.
+ *
+ * §5.13 (Y) 40-2 ① — **실효 이득이 0 인 아이템은 뺀다**(볼륨 0 · 트랙 음소거 · 꺼 둔 아이템 · 고르지 않은 갈래). 그 소리는 결과에
+ * 아무것도 더하지 않는데도, 종전에는 볼륨 0 실사까지 파일을 통째로 받아 디코딩했다(164MB·247MB 실사 둘 — 판마다). 미리보기와
+ * 렌더가 이 한 함수를 쓰므로 둘의 결과는 그대로 같다(37-12 같은 믹서).
  */
 export function audioItemsAt(doc: VideoDoc, timeline: ResolvedTimeline): readonly ResolvedItem[] {
   const muted = new Set<string>();
@@ -242,6 +246,8 @@ export function audioItemsAt(doc: VideoDoc, timeline: ResolvedTimeline): readonl
   const chapters = chapterMap(doc);
   return timeline.items.filter((it) => {
     if (it.item.enabled === false || muted.has(it.trackId) || isUnpickedVariant(chapters, it.item)) return false;
+    const volume = it.item.props?.['volume'];
+    if (typeof volume === 'number' && Number.isFinite(volume) && volume <= 0) return false;
     if (it.trackKind === 'audio') return true;
     if (it.kind !== 'footage') return false;
     const asset = it.item.assetId ? doc.assets[it.item.assetId] : undefined;

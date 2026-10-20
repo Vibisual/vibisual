@@ -16,12 +16,15 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import express, { type Express, type Request } from 'express';
 import { isPathWithin, pathKey } from '@vibisual/shared';
-import { importProjectAsset, resolveVideoAsset, saveVideoAsset, VIDEO_UPLOAD_LIMIT } from './assets.js';
+import { importProjectAsset, resolveVideoAsset, resolveVideoAssetAsync, saveVideoAsset, VIDEO_UPLOAD_LIMIT } from './assets.js';
+import { VideoSourceSync } from './sourceSync.js';
 import {
   assetWithProbe,
   compositionAssetId,
+  compositionFingerprintAsync,
   compositionRefreshOps,
   compositionRoots,
   engineChromium,
@@ -30,9 +33,15 @@ import {
   resolveInsideProject,
   vibisualRel,
 } from './composition.js';
+import { VersionBook, type VersionEntry } from './versionBook.js';
+import { copyVideoTaskDocument } from './taskCopy.js';
+import { taskCopyNamespaceOf } from './taskCopyPaths.js';
 
 import {
   CAPTION_IMPORT_MAX_BYTES,
+  CHAPTER_THUMB_MAX_EDGE,
+  CHAPTER_THUMBS_TIMEOUT_MS,
+  chapterThumbWants,
   MOTION_CRAFT_GUIDE,
   captionFormatOf,
   captionImportOps,
@@ -45,6 +54,7 @@ import {
   REVIEW_MAX_SAMPLES,
   REVIEW_TIMEOUT_MS,
   reviewMotion,
+  checkVideoRequirements,
   reviewSampleTimes,
   type FrameProbe,
   STILL_MAX_EDGE,
@@ -89,15 +99,33 @@ import {
 
 import type { AppServerHost } from '../host.js';
 import { isSafeHistoryId } from '../history.js';
-import { rejectAgent, requestAuthor } from './guards.js';
+import { isAgentRequest, rejectAgent, requestAuthor } from './guards.js';
 import { VideoHistoryStore } from './historyStore.js';
 import { ActivityBook, mountHistoryRoutes } from './historyRoutes.js';
 import { VideoNotesStore, mountNotesRoutes } from './notesRoutes.js';
 import { mountStyleRoutes, readStyleFile } from './styleRoutes.js';
 import { mountPartsRoutes } from './partsRoutes.js';
+import { pruneThumbs, readThumbs, removeThumbsDir, thumbsDirFor, writeThumb } from './thumbCache.js';
 import { mountLibsRoutes, readLibsFile } from './libsRoutes.js';
 import { libInjection } from '../libs.js';
 import { parseCompositionMeta } from '../composition/meta.js';
+import { RENDER_HISTORY_MAX } from '../constants.js';
+import { exportText } from '../exportValues.js';
+import { normalizeRange, normalizeRenderOutput, normalizeRenderSpec, type RenderOutputSpec, type RenderSpec } from '../renderSpec.js';
+import { ExportStore } from './exportStore.js';
+import { placeRenderOutput } from './exportOutput.js';
+import { mountExportRoutes } from './exportRoutes.js';
+import {
+  applyQueueAction,
+  historyOverflow,
+  isDue,
+  nextScheduledAt,
+  reorderJob,
+  type HeldReason,
+  type QueueAction,
+  type QueueBulkAction,
+} from './renderQueue.js';
+import { fromQueueRecord, toQueueRecord } from './queueRecord.js';
 
 /** §5.13 (V) 37-2 — 시작 화면 재료(소재 아닌 파일)의 형식과 크기 상한. */
 const MATERIAL_EXTENSIONS: readonly string[] = ['.csv', '.tsv', '.json', '.txt', '.md', '.svg'];
@@ -112,8 +140,10 @@ const NO_DOC = '_';
 /**
  * §5.13 (V) 37-9 — `review` = 프레임 검수 표본(일꾼이 찍고 재서 JSON 으로 돌려준다 — 판정은 서버의 순수 함수).
  * §5.13 (T-8) — `cues` = 표지 모으기(컴포지션 하나를 끝까지 한 번 흘려 받은 표지·오류를 JSON 으로 — 길이에 비례해 렌더 줄).
+ * §5.13 (X) 39-4 — `stills` = 여러 시각을 **한 무대에서 차례로** 찍어 그림 목록(JSON)으로 — 장면 대표 프레임을 장면마다 일감
+ *   하나(= 숨은 렌더 창 하나)씩 걸던 것을 한 번으로 묶는다(스틸 줄).
  */
-export type VideoJobKind = 'render' | 'still' | 'strip' | 'review' | 'cues';
+export type VideoJobKind = 'render' | 'still' | 'strip' | 'review' | 'cues' | 'stills';
 /** §5.13 (T-4) — 일감 두 줄. 스틸·프레임 띠는 렌더 뒤에 줄 서지 않는다(4분짜리 렌더 중에도 스틸이 온다). */
 export type VideoJobLane = 'still' | 'render';
 export type VideoJobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled';
@@ -155,7 +185,50 @@ export interface VideoJob {
   transparent?: boolean;
   /** §5.13 (W) 38-7 — `still` 이 장면 정지 화면이면 그 장면(일꾼이 그 컴포지션 하나짜리 문서로 그린다). */
   frameOf?: string;
+  /** §5.13 (X) 39-4 — `stills` 의 그림 형식(작은 그림은 webp — 같은 크기 png 의 몇 분의 일이다). 없으면 png. */
+  imageType?: 'png' | 'webp';
+  /** §5.13 (AA) 42-5 — 줄의 순서(작을수록 먼저). 스틸 줄도 같은 값으로 먼저 들어온 것부터. */
+  order: number;
+  /** §5.13 (AA) 42-5 — 줄에 섰지만 멈춤(사람 · 놓친 예약 · 끊김 — `heldReason`). */
+  held?: boolean;
+  heldReason?: HeldReason;
+  /** §5.13 (AA) 42-5 — 예약 시각(ms). 이 시각 전에는 집지 않는다. */
+  notBefore?: number;
+  /** §5.13 (AA) 42-5 — 도는 렌더를 멈췄다(일꾼이 프레임 사이에서 기다린다). */
+  paused?: boolean;
+  pausedAt?: number;
+  /** 지금까지 멈춰 있던 시간(ms) — 남은 시간 계산에서 뺀다. */
+  pausedMs?: number;
+  startedAt?: number;
+  finishedAt?: number;
+  /** §5.13 (AA) 42-5 — 일꾼이 알린 프레임(초당 프레임 계산). */
+  frame?: number;
+  totalFrames?: number;
+  /** §5.13 (AA) 42-1·42-2 — 그리는 방법과 결과를 놓는 방법(새 내보내기 화면이 건 일감만). */
+  spec?: RenderSpec;
+  output?: RenderOutputSpec;
+  /** 대기열 줄에 쓰는 이름(문서 제목 · 판형·장면). */
+  title?: string;
+  label?: string;
+  /** §5.13 (AA) 42-2 — 사용자가 보는 결과 파일(고른 폴더의 것, 없으면 `result`). */
+  exported?: string;
+  exportNote?: { code: 'export-failed' | 'overwrite-fallback'; detail?: string };
+  /** §5.13 (AA) 42-7 — 캔버스 노드에 담았다(창이 닫혀 있는 동안 끝난 것을 다음에 담는다). */
+  delivered?: boolean;
 }
+
+/** §5.13 (AA) 42-5 — 렌더를 걸 때 더 싣는 것. */
+export interface RenderEnqueueExtra {
+  readonly spec?: RenderSpec;
+  readonly output?: RenderOutputSpec;
+  readonly title?: string;
+  readonly label?: string;
+  readonly held?: boolean;
+  readonly notBefore?: number;
+}
+
+/** §5.13 (AA) 42-5 — 예약 시계 한 번의 최대 대기(ms) — 길면 나눠 다시 건다(잠자기·시계 변경을 따라간다). */
+const SCHEDULE_MAX_DELAY_MS = 6 * 60 * 60_000;
 
 /** §5.13 (T-8) — 표지 모으기 한 벌의 끝(적었으면 그 판본). */
 export interface CueOutcome {
@@ -220,6 +293,117 @@ function h(): AppServerHost {
   return host;
 }
 
+/**
+ * §5.13 (Y) 40-1 — 앱 **미디어** 요청(`/media?project=…&path=…`)이 가리키는 파일의 절대 경로. 패키지 앱은 코어의 vibproxy 미디어
+ * 갈래가 이 답으로 파일을 흘려 보내고(구간 지원 — IPC 를 타지 않는다), 그 밖(웹·모바일)은 아래 `/media` 라우트가 같은 답으로
+ * 낸다. 규칙은 `/asset` 과 같다 — 글자 경로도 실제 경로도 프로젝트 안의 파일만. 못 찾으면 null(404).
+ */
+export async function resolveVideoMedia(serverHost: AppServerHost, query: URLSearchParams): Promise<string | null> {
+  const p = serverHost.resolveProjectPath(query.get('project'));
+  const rel = query.get('path');
+  if (!p || !rel) return null;
+  try {
+    return await resolveVideoAssetAsync(p, rel);
+  } catch {
+    return null;
+  }
+}
+
+/** 읽은 글 → 검증한 문서(틀리면 경고를 남기고 null). 동기 읽기와 판 기억(비동기 읽기)이 같은 판정을 쓴다. */
+function parseDocText(text: string, docId: string): VideoDoc | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const result = validateDoc(parsed);
+    if (!result.ok) {
+      h().warn(`[video] 문서 ${docId} 가 검증을 통과하지 못했습니다: ${result.errors.join(' / ')}`);
+      return null;
+    }
+    return result.doc;
+  } catch (err) {
+    h().warn(`[video] 문서 ${docId} 를 읽지 못했습니다: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * §5.13 (Y) 40-7 ② — 문서 판 기억(`versionBook.ts`). `/version` 은 이것으로만 답하고(비동기 stat 한 번), 이 서버가 적으면 바뀐다.
+ * 알림은 호스트의 기존 방송 한 줄(`notify` — 새 통로 ❌)이다.
+ */
+export const versionBook = new VersionBook({
+  fileOf: (projectPath, docId) => docPath(projectPath, docId),
+  parse: (text, docId) => parseDocText(text, docId),
+  notify: (event) => { host?.notify?.(event); },
+});
+
+/** §5.13 (Y) 40-7 ② — 지켜보는 문서의 컴포지션 코드가 바뀌었는지 이 간격(ms)마다 **비동기로** 잰다. */
+export const VERSION_REFRESH_MS = 2_000;
+/** 이만큼(ms) 안에 `/version` 으로 물은 문서만 지켜본다(창의 안전망 폴링 간격보다 넉넉하게). */
+export const VERSION_WATCH_MS = 20_000;
+let versionRefresher: ReturnType<typeof setInterval> | null = null;
+
+function ensureVersionRefresher(): void {
+  if (versionRefresher) return;
+  versionRefresher = setInterval(() => { void refreshWatchedCompositions(); }, VERSION_REFRESH_MS);
+  versionRefresher.unref?.();
+}
+
+/** 시험 전용 — 지켜보기 시계를 멈춘다. */
+export function __stopVersionRefresherForTest(): void {
+  if (versionRefresher) clearInterval(versionRefresher);
+  versionRefresher = null;
+}
+
+/** 바뀐 컴포지션이 있는가(이미 살핀 지문은 건너뛴다 — 다시 적을 것이 없던 변화로 2초마다 탐침하지 않게). */
+async function compositionsMoved(entry: VersionEntry): Promise<boolean> {
+  let moved = false;
+  for (const asset of Object.values(entry.doc.assets)) {
+    if (asset.kind !== 'composition' || asset.source.kind !== 'file') continue;
+    const fingerprint = await compositionFingerprintAsync(entry.projectPath, asset.source.path);
+    if (fingerprint === null || fingerprint === asset.contentHash || entry.examined.get(asset.id) === fingerprint) continue;
+    entry.examined.set(asset.id, fingerprint);
+    moved = true;
+  }
+  return moved;
+}
+
+/** 한 간격 — 바뀐 문서만 종전 길(탐침 → 쓰기 · 쓰면 알린다), 그대로면 낡은 표지 모으기만 다시 건다. */
+export async function refreshWatchedCompositions(): Promise<void> {
+  versionBook.prune();
+  for (const entry of versionBook.watched(VERSION_WATCH_MS)) {
+    if (entry.refreshing) continue;
+    entry.refreshing = true;
+    try {
+      if (await compositionsMoved(entry)) {
+        const read = videoService.readDoc(entry.projectPath, entry.docId);
+        if (read) videoService.refreshCompositions(entry.projectPath, read);
+      } else if (Object.values(entry.doc.assets).some(needsCues)) {
+        videoService.scheduleCues(entry.projectPath, entry.doc);
+      }
+    } catch {
+      // 다음 간격에 다시 본다.
+    } finally {
+      entry.refreshing = false;
+    }
+  }
+}
+
+/** §5.13 (Y) 40-7 ② — `/content` 가 판마다 다시 풀지 않는 컴포지션 뿌리(폴더를 옮기면 `CONTENT_ROOTS_TTL_MS` 안에 다시 푼다). */
+const CONTENT_ROOTS_TTL_MS = 30_000;
+const contentRoots = new Map<string, { version: number; roots: string[]; at: number }>();
+
+function contentRootsFor(projectPath: string, doc: VideoDoc | null, revId: string | null): string[] {
+  // 판(되돌아보기) 문서는 기억하지 않는다 — 드물고, 판마다 다르다.
+  if (revId) return compositionRoots(projectPath, doc);
+  const key = `${pathKey(projectPath, process.platform)}\u0000${doc?.id ?? NO_DOC}`;
+  const version = doc?.version ?? -1;
+  const known = contentRoots.get(key);
+  if (known && known.version === version && Date.now() - known.at < CONTENT_ROOTS_TTL_MS) return known.roots;
+  const roots = compositionRoots(projectPath, doc);
+  contentRoots.set(key, { version, roots, at: Date.now() });
+  if (contentRoots.size > 256) contentRoots.delete(contentRoots.keys().next().value as string);
+  return roots;
+}
+
 class VideoService {
   private readonly jobs = new Map<string, VideoJob>();
   /** §5.13 (V) 37-15 — 판 기록에 '렌더함' 을 이미 적은 렌더 일감. */
@@ -227,17 +411,26 @@ class VideoService {
   private readonly pendingWaits = new Map<string, PendingWait>();
   private seq = 0;
   private workerUnavailableWarned = false;
+  /** §5.13 (AA) 42-5 — 줄 순서 시계(되살린 일감 뒤로 선다). */
+  private lastOrder = 0;
+  /** §5.13 (AA) 42-6 — 대기열 파일을 되살린 프로젝트(경로 열쇠). */
+  private readonly loadedQueues = new Set<string>();
+  /** §5.13 (AA) 42-5 — 가장 이른 예약 시각에 거는 시계 하나. */
+  private scheduleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** §5.13 (AA) 42-7 — 지금 OS 절전을 막고 있는가(바뀔 때만 main 몫에 알린다). */
+  private keepAwakeOn = false;
 
   // ─── 문서 ───
 
-  listDocs(projectPath: string): Array<{ id: string; title: string; updatedAt: number; version: number }> {
+  /** §5.13 (AA) 42-4 — 크기도 싣는다(여러 문서를 한 번에 내보낼 때 판형을 안다). */
+  listDocs(projectPath: string): Array<{ id: string; title: string; updatedAt: number; version: number; width: number; height: number }> {
     const dir = videoDirFor(projectPath);
     if (!fs.existsSync(dir)) return [];
-    const out: Array<{ id: string; title: string; updatedAt: number; version: number }> = [];
+    const out: Array<{ id: string; title: string; updatedAt: number; version: number; width: number; height: number }> = [];
     for (const file of fs.readdirSync(dir)) {
       if (!file.endsWith('.json')) continue;
       const doc = this.readDoc(projectPath, file.slice(0, -5));
-      if (doc) out.push({ id: doc.id, title: doc.title, updatedAt: doc.updatedAt, version: doc.version });
+      if (doc) out.push({ id: doc.id, title: doc.title, updatedAt: doc.updatedAt, version: doc.version, width: doc.size.width, height: doc.size.height });
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -247,18 +440,15 @@ class VideoService {
     const file = docPath(projectPath, docId);
     if (!fs.existsSync(file)) return null;
     try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const result = validateDoc(parsed);
-      if (!result.ok) {
-        h().warn(`[video] 문서 ${docId} 가 검증을 통과하지 못했습니다: ${result.errors.join(' / ')}`);
-        return null;
-      }
-      return result.doc;
+      return parseDocText(fs.readFileSync(file, 'utf8'), docId);
     } catch (err) {
       h().warn(`[video] 문서 ${docId} 를 읽지 못했습니다: ${String(err)}`);
       return null;
     }
   }
+
+  /** §5.13 (R-10) — 편집 원본 참조의 공통 색인(거울). 연결이 있는 문서만, 잦은 저장은 합쳐서, 그대로면 쓰지 않는다. */
+  readonly sourceSync = new VideoSourceSync();
 
   /**
    * 문서를 저장한다.
@@ -276,6 +466,9 @@ class VideoService {
       }
     }
     h().atomicWriteFile(file, JSON.stringify(doc, null, 2));
+    this.sourceSync.enqueue(h(), projectPath, doc);
+    // §5.13 (Y) 40-7 ② — 판 기억을 새 판으로 바꾸고 그 문서를 지켜보는 창에 알린다(지켜보는 창이 없으면 아무 일도 없다).
+    versionBook.noteWrite(projectPath, doc);
   }
 
   /**
@@ -435,11 +628,17 @@ class VideoService {
 
   // ─── 일감 ───
 
+  /** §5.13 (AA) 42-5 — 다음 줄 순서(시각을 따라가되 되살린 일감보다 늘 뒤). */
+  private nextOrder(): number {
+    this.lastOrder = Math.max(this.lastOrder + 1, Date.now());
+    return this.lastOrder;
+  }
+
   private newJob(
     kind: VideoJobKind,
     projectPath: string,
     docId: string,
-    extra: { t?: number; times?: number[]; maxEdge?: number; revId?: string; assetId?: string; after?: string[]; hideCaptions?: boolean; transparent?: boolean; frameOf?: string } = {},
+    extra: { t?: number; times?: number[]; maxEdge?: number; revId?: string; assetId?: string; after?: string[]; hideCaptions?: boolean; transparent?: boolean; frameOf?: string; imageType?: 'png' | 'webp' } & RenderEnqueueExtra = {},
   ): VideoJob {
     const job: VideoJob = {
       id: `job-${Date.now().toString(36)}-${(this.seq++).toString(36)}`,
@@ -450,6 +649,7 @@ class VideoService {
       progress: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      order: this.nextOrder(),
       ...(extra.t === undefined ? {} : { t: extra.t }),
       ...(extra.times === undefined ? {} : { times: extra.times }),
       ...(extra.maxEdge === undefined ? {} : { maxEdge: extra.maxEdge }),
@@ -459,10 +659,19 @@ class VideoService {
       ...(extra.hideCaptions === true ? { hideCaptions: true } : {}),
       ...(extra.transparent === true ? { transparent: true } : {}),
       ...(extra.frameOf === undefined ? {} : { frameOf: extra.frameOf }),
+      ...(extra.imageType === undefined ? {} : { imageType: extra.imageType }),
+      ...(extra.spec === undefined ? {} : { spec: extra.spec }),
+      ...(extra.output === undefined ? {} : { output: extra.output }),
+      ...(extra.title === undefined ? {} : { title: extra.title }),
+      ...(extra.label === undefined ? {} : { label: extra.label }),
+      ...(extra.held === true ? { held: true, heldReason: 'user' as const } : {}),
+      ...(extra.notBefore === undefined ? {} : { notBefore: extra.notBefore }),
     };
     this.jobs.set(job.id, job);
     this.sweep();
-    this.ensureWorker();
+    // §5.13 (AA) 42-5 — 멈춘·예약한 일감으로는 숨은 창을 띄우지 않는다(안 쓰면 0 — (P-1)). 예약은 시계 하나가 맡는다.
+    if (isDue(job, Date.now())) this.ensureWorker();
+    else this.armSchedule();
     return job;
   }
 
@@ -488,17 +697,195 @@ class VideoService {
   }
 
   private failQueued(reason: string): void {
+    const now = Date.now();
     for (const job of this.jobs.values()) {
-      if (job.status === 'queued') this.updateJob(job.id, { status: 'error', error: reason });
+      // §5.13 (AA) 42-5 — 멈춘·예약한 일감은 일꾼을 기다리는 것이 아니다(그때 다시 깨운다).
+      if (isDue(job, now)) this.updateJob(job.id, { status: 'error', error: reason });
     }
   }
 
   /**
    * `after` — 먼저 끝나야 하는 일감(낡은 표지 모으기 — §5.13 (T-8)). `hideCaptions` — 자막 따로 내기(§5.13 (V) 37-15).
-   * `transparent` — 투명 배경 WebM(§5.13 (W) 38-3).
+   * `transparent` — 투명 배경 WebM(§5.13 (W) 38-3). `extra` — §5.13 (AA) 42 그리는 방법·놓는 방법·멈춤·예약.
    */
-  enqueueRender(projectPath: string, docId: string, after: string[] = [], hideCaptions = false, transparent = false): VideoJob {
-    return this.newJob('render', projectPath, docId, { after, hideCaptions, transparent });
+  enqueueRender(projectPath: string, docId: string, after: string[] = [], hideCaptions = false, transparent = false, extra: RenderEnqueueExtra = {}): VideoJob {
+    this.ensureQueueLoaded(projectPath);
+    const job = this.newJob('render', projectPath, docId, { after, hideCaptions, transparent, ...extra });
+    this.afterQueueChange(projectPath, job);
+    return job;
+  }
+
+  // ─── §5.13 (AA) 42-5·42-6·42-7 렌더 대기열 ───
+
+  /** 그 프로젝트의 대기열 파일을 한 번 되살린다(이 앱에 처음 닿을 때 — 부팅 때 앱을 불러오지 않는다, (P-1)). */
+  ensureQueueLoaded(projectPath: string): void {
+    const key = pathKey(projectPath, process.platform);
+    if (this.loadedQueues.has(key) || !host) return;
+    this.loadedQueues.add(key);
+    const now = Date.now();
+    let restored = 0;
+    for (const raw of exportStore.readQueue(projectPath)) {
+      const job = fromQueueRecord(raw, projectPath, now);
+      if (!job || this.jobs.has(job.id)) continue;
+      // 되살린 줄은 렌더 일감뿐이다(`fromQueueRecord` 가 kind 를 'render' 로 세운다).
+      this.jobs.set(job.id, job as VideoJob);
+      this.lastOrder = Math.max(this.lastOrder, job.order);
+      if (job.status === 'done') this.renderRecorded.add(job.id);
+      restored += 1;
+    }
+    if (restored > 0) this.armSchedule();
+  }
+
+  /** 대기열이 바뀌었다 — 적고 · 알리고 · 예약 시계를 다시 걸고 · 절전 막기를 맞추고 · 집을 것이 있으면 일꾼을 깨운다. */
+  private afterQueueChange(projectPath: string, job?: VideoJob): void {
+    this.persistQueue(projectPath);
+    this.notifyQueue(projectPath, job?.id ?? '*');
+    this.armSchedule();
+    this.syncKeepAwake();
+    const now = Date.now();
+    if ([...this.jobs.values()].some((j) => j.kind === 'render' && isDue(j, now))) this.ensureWorker();
+  }
+
+  /** 대기열 파일에 적는다(끝난 기록은 최근 `RENDER_HISTORY_MAX` 건 — 결과 파일은 지우지 않는다 (K)). */
+  private persistQueue(projectPath: string): void {
+    if (!host) return;
+    this.ensureQueueLoaded(projectPath);
+    for (const id of historyOverflow(this.jobs.values(), projectPath, RENDER_HISTORY_MAX)) {
+      this.jobs.delete(id);
+      this.renderRecorded.delete(id);
+    }
+    const records = [...this.jobs.values()]
+      .filter((j) => j.kind === 'render' && j.projectPath === projectPath)
+      .sort((a, b) => a.order - b.order)
+      .map((j) => toQueueRecord(j));
+    exportStore.writeQueue(projectPath, records);
+  }
+
+  private notifyQueue(projectPath: string, key: string): void {
+    host?.notify?.({ project: projectPath, kind: 'render-queue', key });
+  }
+
+  /** 가장 이른 예약 시각에 시계 하나(길면 나눠서). */
+  private armSchedule(): void {
+    if (this.scheduleTimer) { clearTimeout(this.scheduleTimer); this.scheduleTimer = null; }
+    const now = Date.now();
+    const next = nextScheduledAt(this.jobs.values(), now);
+    if (next === null) return;
+    const delay = Math.min(Math.max(0, next - now) + 50, SCHEDULE_MAX_DELAY_MS);
+    this.scheduleTimer = setTimeout(() => { this.scheduleTimer = null; this.onScheduleTick(); }, delay);
+    this.scheduleTimer.unref?.();
+  }
+
+  /** 예약 시각이 된 일감을 줄에 세운다(표지가 낡았으면 먼저 모은다). */
+  private onScheduleTick(): void {
+    const now = Date.now();
+    const projects = new Set<string>();
+    for (const job of this.jobs.values()) {
+      if (job.kind !== 'render' || job.notBefore === undefined || !isDue(job, now)) continue;
+      delete job.notBefore;
+      job.updatedAt = now;
+      this.prepareDue(job);
+      projects.add(job.projectPath);
+    }
+    for (const p of projects) this.afterQueueChange(p);
+    this.armSchedule();
+  }
+
+  /**
+   * 멈춰 있던·예약한 일감이 이제 돈다 — 그 사이 코드가 바뀌어 표지가 낡았으면 표지 모으기를 먼저 건다(렌더 경로와 같은 규칙 —
+   * 낡은 시각으로 소리를 깔지 않는다).
+   */
+  private prepareDue(job: VideoJob): void {
+    try {
+      const read = this.readDoc(job.projectPath, job.docId);
+      if (!read) return;
+      const doc = this.refreshCompositions(job.projectPath, read);
+      const after = this.cueJobsFor(job.projectPath, doc);
+      if (after.length > 0) { job.after = after; job.waitingFor = 'cues'; }
+    } catch {
+      // 표지 준비 실패는 렌더를 막지 않는다 — 일꾼이 예전 표지로 그리고 그 사실을 알린다(`cuesFailed`).
+    }
+  }
+
+  /** 렌더 중(멈춤 제외) 절전 막기가 켜진 일감이 있으면 OS 절전을 막는다(바뀔 때만 알린다). */
+  private syncKeepAwake(): void {
+    const on = [...this.jobs.values()].some((j) => j.kind === 'render' && j.status === 'running' && j.paused !== true && j.output?.keepAwake === true);
+    if (on === this.keepAwakeOn) return;
+    this.keepAwakeOn = on;
+    void host?.invokeMain?.('power:keepAwake', { on })?.catch(() => undefined);
+  }
+
+  /** §5.13 (AA) 42-7 — 끝난 뒤(알림·폴더에서 보이기). 사람이 취소한 것은 알리지 않는다. */
+  private afterDone(job: VideoJob): void {
+    const out = job.output;
+    const current = host;
+    if (!out || !current?.invokeMain || job.status === 'canceled') return;
+    const failed = job.status === 'error';
+    if (failed ? !out.after.notify : !out.after.notify && !out.after.reveal) return;
+    const file = job.exported ?? job.result ?? null;
+    current.invokeMain('export:done', {
+      path: failed ? null : file,
+      reveal: !failed && out.after.reveal,
+      notify: out.after.notify,
+      title: (failed ? out.notice?.failed : out.notice?.done) ?? null,
+      body: failed ? (job.error ?? '').slice(0, 300) : file ? path.basename(file) : '',
+    }).catch(() => undefined);
+  }
+
+  /** 사람이 일감 하나에 거는 조작(일시정지·재개·취소·지금 시작·멈춤·순서·담았음). */
+  controlJob(jobId: string, action: QueueAction): { status: number; job?: VideoJob; error?: string } {
+    const job = this.jobs.get(jobId);
+    if (!job || job.kind !== 'render') return { status: 404, error: 'unknown job' };
+    const now = Date.now();
+    const wasDue = isDue(job, now);
+    let changed: boolean;
+    if (action === 'move-up' || action === 'move-down') {
+      changed = reorderJob(this.jobs.values(), job, action === 'move-up' ? 'up' : 'down');
+    } else {
+      const r = applyQueueAction(job, action, now);
+      if (r.error) return { status: 409, job, error: r.error };
+      changed = r.changed;
+    }
+    if (!changed) return { status: 200, job };
+    job.updatedAt = now;
+    if (!wasDue && isDue(job, now)) this.prepareDue(job);
+    this.afterQueueChange(job.projectPath, job);
+    return { status: 200, job };
+  }
+
+  /** 줄 전체(모두 시작 · 대기열 멈춤 · 모두 취소 · 끝난 것 지우기). 바뀐 수를 돌려준다. */
+  controlQueue(projectPath: string, action: QueueBulkAction): number {
+    this.ensureQueueLoaded(projectPath);
+    const now = Date.now();
+    let changed = 0;
+    for (const job of [...this.jobs.values()]) {
+      if (job.kind !== 'render' || job.projectPath !== projectPath) continue;
+      if (action === 'clear-finished') {
+        if (job.status === 'done' || job.status === 'error' || job.status === 'canceled') {
+          this.jobs.delete(job.id);
+          this.renderRecorded.delete(job.id);
+          changed += 1;
+        }
+        continue;
+      }
+      if (action === 'cancel-all') {
+        if (applyQueueAction(job, 'cancel', now).changed) changed += 1;
+        continue;
+      }
+      if (action === 'hold-all') {
+        if (job.status === 'queued' && applyQueueAction(job, 'hold', now).changed) changed += 1;
+        continue;
+      }
+      // start-all — 멈춘 것·예약한 것을 지금 줄에 세우고, 멈춘 렌더는 다시 돌린다.
+      const wasDue = isDue(job, now);
+      const r = job.status === 'running' ? applyQueueAction(job, 'resume', now) : applyQueueAction(job, 'start-now', now);
+      if (r.changed) {
+        changed += 1;
+        if (!wasDue && isDue(job, now)) this.prepareDue(job);
+      }
+    }
+    if (changed > 0) this.afterQueueChange(projectPath);
+    return changed;
   }
 
   /**
@@ -514,13 +901,19 @@ class VideoService {
     }
   }
 
-  /** 일꾼이 가져갈 다음 일감. 먼저 들어온 것부터. `lane` 을 주면 그 줄만. */
+  /**
+   * 일꾼이 가져갈 다음 일감. 줄 순서(`order` — 먼저 들어온 것부터, 사람이 위·아래로 바꿀 수 있다). `lane` 을 주면 그 줄만.
+   * §5.13 (AA) 42-5 — 멈춘 것·예약 시각 전인 것은 집지 않는다.
+   */
   claimNext(projectPath?: string, lane?: VideoJobLane): VideoJob | null {
     this.reap();
-    for (const job of this.jobs.values()) {
-      if (job.status !== 'queued') continue;
-      if (projectPath !== undefined && job.projectPath !== projectPath) continue;
-      if (lane !== undefined && laneOf(job.kind) !== lane) continue;
+    const now = Date.now();
+    const line = [...this.jobs.values()]
+      .filter((job) => isDue(job, now)
+        && (projectPath === undefined || job.projectPath === projectPath)
+        && (lane === undefined || laneOf(job.kind) === lane))
+      .sort((a, b) => a.order - b.order);
+    for (const job of line) {
       // §5.13 (T-8) — 먼저 끝나야 하는 일감이 아직 돌면 건너뛴다. 끝났으면 기다림 표시를 걷는다(실패했으면 그 사실을 남긴다).
       if (job.after && job.after.length > 0) {
         const deps = job.after.map((id) => this.jobs.get(id)).filter((d): d is VideoJob => d !== undefined);
@@ -530,7 +923,14 @@ class VideoService {
         delete job.waitingFor;
       }
       job.status = 'running';
-      job.updatedAt = Date.now();
+      job.updatedAt = now;
+      if (job.kind === 'render') {
+        job.startedAt = now;
+        job.pausedMs = 0;
+        delete job.pausedAt;
+        job.paused = false;
+        this.afterQueueChange(job.projectPath, job);
+      }
       return job;
     }
     return null;
@@ -541,19 +941,36 @@ class VideoService {
     return this.jobs.get(jobId);
   }
 
-  listJobs(projectPath?: string): VideoJob[] {
+  /** `kind` 를 주면 그 종류만(§5.13 (AA) 42-5 — 대기열은 렌더만 본다). */
+  listJobs(projectPath?: string, kind?: VideoJobKind): VideoJob[] {
     this.reap();
-    const all = [...this.jobs.values()];
-    return projectPath === undefined ? all : all.filter((j) => j.projectPath === projectPath);
+    if (projectPath !== undefined) this.ensureQueueLoaded(projectPath);
+    return [...this.jobs.values()].filter((j) => (projectPath === undefined || j.projectPath === projectPath) && (kind === undefined || j.kind === kind));
   }
 
-  updateJob(jobId: string, patch: Partial<Pick<VideoJob, 'status' | 'progress' | 'result' | 'error' | 'note'>>): VideoJob | null {
+  updateJob(jobId: string, patch: Partial<Pick<VideoJob, 'status' | 'progress' | 'result' | 'error' | 'note' | 'frame' | 'totalFrames' | 'exported' | 'exportNote'>>): VideoJob | null {
     const job = this.jobs.get(jobId);
     if (!job) return null;
     // A late progress response must not resurrect an already completed render.
     if (isTerminal(job.status) && (patch.status === 'running' || patch.status === 'queued')) return job;
+    // §5.13 (AA) 42-5 — 끝난 일감의 끝은 바뀌지 않는다(사람이 취소한 렌더에 일꾼의 늦은 '중단됨' 오류가 덮이지 않게).
+    if (isTerminal(job.status) && patch.status !== undefined && patch.status !== job.status) return job;
+    const finishing = !isTerminal(job.status) && patch.status !== undefined && isTerminal(patch.status);
     Object.assign(job, patch);
     job.updatedAt = Date.now();
+    if (job.kind === 'render') {
+      if (finishing) {
+        if (job.pausedAt !== undefined) job.pausedMs = (job.pausedMs ?? 0) + Math.max(0, job.updatedAt - job.pausedAt);
+        delete job.pausedAt;
+        job.paused = false;
+        job.finishedAt = job.updatedAt;
+        this.afterQueueChange(job.projectPath, job);
+        this.afterDone(job);
+      } else {
+        // 진행률만 — 적지 않고 알리기만 한다(머리줄 단추의 채움).
+        this.notifyQueue(job.projectPath, job.id);
+      }
+    }
     // §5.13 (V) 37-15 — 렌더가 끝나면 그 판본에 '이 판을 렌더함' 을 붙인다(한 번만).
     if (job.kind === 'render' && job.status === 'done' && typeof job.result === 'string' && !this.renderRecorded.has(job.id)) {
       this.renderRecorded.add(job.id);
@@ -629,6 +1046,15 @@ class VideoService {
     return this.waitFor(job, STILL_TIMEOUT_MS, '영상 일꾼이 정지 화면을 돌려주지 않았습니다.');
   }
 
+  /**
+   * §5.13 (X) 39-4 — 여러 시각을 **한 무대에서 차례로** 찍어 그림 목록으로 받는다(스틸 줄). 결과(`result`)는 그림 데이터 주소의
+   * JSON 배열이고 순서는 `times` 순서다. 장면 대표 프레임처럼 여러 장이 한꺼번에 필요할 때 숨은 렌더 창을 장마다 다시 세우지 않는다.
+   */
+  requestStills(projectPath: string, docId: string, times: number[], maxEdge: number, imageType: 'png' | 'webp' = 'png'): Promise<VideoJob> {
+    const job = this.newJob('stills', projectPath, docId, { times, maxEdge, imageType });
+    return this.waitFor(job, CHAPTER_THUMBS_TIMEOUT_MS, '영상 일꾼이 장면 그림을 돌려주지 않았습니다.');
+  }
+
   /** §5.13 (T-9) — 프레임 띠 한 장을 요청하고 기다린다(스틸 줄 — 렌더 뒤에 줄 서지 않는다). */
   requestStrip(projectPath: string, docId: string, times: number[], maxEdge: number): Promise<VideoJob> {
     const job = this.newJob('strip', projectPath, docId, { times, maxEdge });
@@ -656,16 +1082,49 @@ class VideoService {
   private sweep(): void {
     const cutoff = Date.now() - JOB_RETENTION_MS;
     for (const [id, job] of this.jobs) {
+      // §5.13 (AA) 42-6 — 렌더는 대기열의 기록이다(사람이 지우거나 `RENDER_HISTORY_MAX` 를 넘을 때까지 남는다).
+      if (job.kind === 'render') continue;
       if (isTerminal(job.status) && job.updatedAt < cutoff) this.jobs.delete(id);
     }
+  }
+
+  /**
+   * §5.13 (AA) 42-2 — 렌더 결과를 놓는다(종전 자리 + 고른 폴더 — 비동기). 그 사이 사람이 취소했으면 결과를 받지 않는다(409).
+   * 놓은 뒤 일감을 끝낸다 — 끝난 뒤(알림·폴더 열기)는 `updateJob` 이 한다.
+   */
+  async completeRenderOutput(job: VideoJob, bytes: Buffer): Promise<{ status: number; job: VideoJob | null; error?: string }> {
+    const doc = this.readDoc(job.projectPath, job.docId);
+    const placed = await placeRenderOutput({
+      outDir: outDirFor(job.projectPath),
+      docId: job.docId,
+      title: job.title ?? null,
+      spec: job.spec ?? null,
+      output: job.output ?? null,
+      legacyExt: job.transparent === true ? 'webm' : 'mp4',
+      bytes,
+      doc,
+      now: new Date(),
+    }, process.platform);
+    if (job.status !== 'running') return { status: 409, job, error: 'output job is not running' };
+    const updated = this.updateJob(job.id, {
+      status: 'done',
+      progress: 1,
+      result: placed.result,
+      exported: placed.exported,
+      ...(placed.exportNote ? { exportNote: placed.exportNote } : {}),
+    });
+    return { status: 200, job: updated };
   }
 }
 
 export const videoService = new VideoService();
+/** §5.13 (AA) 42-1·42-6 — 내보내기 설정·렌더 대기열 파일. */
+export const exportStore = new ExportStore(() => h());
 
 /** §5.13 (V) 37-3 — 판 기록(파일)과 지금 하는 일(메모리). 호스트는 붙일 때 들어온다. */
 export const videoHistory = new VideoHistoryStore(() => h());
-export const videoActivity = new ActivityBook();
+// §5.13 (Y) 40-7 ② — 지금 하는 일이 바뀌면 그 문서를 지켜보는 창에 알린다.
+export const videoActivity = new ActivityBook((projectPath, docId) => versionBook.noteActivity(projectPath, docId));
 /** §5.13 (V) 37-7 — 메모 핀(파일). */
 export const videoNotes = new VideoNotesStore(() => h());
 
@@ -689,6 +1148,13 @@ function sanitizeBeatFacts(raw: unknown): Pick<VideoAsset, 'beats' | 'beatsStron
   const hash = typeof hashRaw === 'string' && hashRaw.length > 0 && hashRaw.length <= 80 ? hashRaw : null;
   if (!beats || !strong || bpm === null || !hash) return null;
   return { beats, beatsStrong: strong, bpm, beatsHash: hash };
+}
+
+/** A project-relative evidence frame exists as a regular file inside the project (asynchronous stat). */
+async function evidenceFrameExists(projectPath: string, rel: string): Promise<boolean> {
+  const abs = resolveInsideProject(projectPath, rel);
+  if (!abs) return false;
+  try { return (await fs.promises.stat(abs)).isFile(); } catch { return false; }
 }
 
 /** 프로젝트 해소는 호스트가 한다 — 앱은 프로젝트가 무엇인지 모른다. */
@@ -789,7 +1255,12 @@ const CONTENT_HEADERS: Readonly<Record<string, string>> = {
 export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void {
   host = serverHost;
   /** 공통 — 프로젝트를 못 찾으면 404. */
-  const project = (raw: unknown): string | null => resolveProjectPath(raw);
+  const project = (raw: unknown): string | null => {
+    const p = resolveProjectPath(raw);
+    // §5.13 (AA) 42-6 — 그 프로젝트가 이 앱에 처음 닿을 때 렌더 대기열을 되살린다(한 번만).
+    if (p) videoService.ensureQueueLoaded(p);
+    return p;
+  };
 
   // ─── §5.13 (G)(T-2) 규약 글 — 에이전트가 세션마다 한 번 읽는다 ───
 
@@ -873,6 +1344,38 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok: true, doc });
   });
 
+  app.get('/doc/:docId/source-status', async (req, res) => {
+    const p = project(req.query['project']);
+    const doc = p ? videoService.readDoc(p, req.params.docId) : null;
+    if (!p || !doc) { res.status(404).json({ ok: false, error: 'unknown doc' }); return; }
+    // Repairs the index of a document saved by an older version — once per document per process, not per call.
+    videoService.sourceSync.ensure(h(), p, doc);
+    res.json(await videoService.sourceSync.status(p, doc.id));
+  });
+
+  app.post('/doc/:docId/copy', (req, res) => {
+    const p = project(req.body?.project);
+    if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
+    const { title, requestId } = req.body as { title?: unknown; requestId?: unknown };
+    if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof requestId !== 'string'
+      || !/^[A-Za-z0-9_.:-]{1,120}$/.test(requestId) || !isSafeId(req.params.docId)) {
+      res.status(400).json({ ok: false, error: 'invalid task copy request' }); return;
+    }
+    const id = `copy-${createHash('sha256').update(`${req.params.docId}\0${requestId}`).digest('hex').slice(0, 40)}`;
+    const existing = videoService.readDoc(p, id);
+    if (existing) { res.json({ ok: true, doc: existing }); return; }
+    const source = videoService.readDoc(p, req.params.docId);
+    if (!source) { res.status(404).json({ ok: false, error: 'unknown doc' }); return; }
+    try {
+      const doc = copyVideoTaskDocument(p, source, id, title.trim());
+      videoService.writeDoc(p, doc);
+      res.json({ ok: true, doc });
+    } catch (error) {
+      h().warn(`[video] Task copy failed: ${String(error)}`);
+      res.status(400).json({ ok: false, error: error instanceof Error ? error.message : 'task-copy-failed' });
+    }
+  });
+
   app.get('/doc/:docId', (req, res) => {
     const p = project(req.query['project']);
     if (!p) {
@@ -900,28 +1403,36 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
    * §5.13 (T-7) — 문서의 판본만. 스튜디오·노드 화면이 몇 초마다 물어 **에이전트가 고친 것을 저절로 다시 읽는다**.
    * 컴포지션 코드가 바뀐 것도 여기서 알아챈다(지문이 바뀌면 소재를 다시 적어 판본이 오른다).
    */
-  app.get('/doc/:docId/version', (req, res) => {
+  app.get('/doc/:docId/version', async (req, res) => {
     const p = project(req.query['project']);
     if (!p) {
       res.status(404).json({ ok: false, error: 'unknown project' });
       return;
     }
-    const read = videoService.readDoc(p, req.params.docId);
-    if (!read) {
+    const docId = req.params.docId;
+    if (!isSafeId(docId)) {
       res.status(404).json({ ok: false, error: 'unknown doc' });
       return;
     }
-    const doc = videoService.refreshCompositions(p, read);
-    res.json({
-      ok: true,
-      id: doc.id,
-      title: doc.title,
-      version: doc.version,
-      updatedAt: doc.updatedAt,
-      duration: resolveTimeline(doc).duration,
-      // §5.13 (V) 37-3 — 지금 하는 일(바퀴·만지는 장면). AI 패널 머리와 구슬 위성이 이것을 보인다.
-      activity: videoActivity.get(p, doc.id),
-    });
+    try {
+      // §5.13 (Y) 40-7 ② — 기억해 둔 판으로만 답한다(비동기 stat 한 번 — 동기 파일 시스템 ❌). 컴포지션 코드가 바뀌었는지는
+      //   지켜보는 문서에 한해 서버가 2초마다 비동기로 재고, 바뀌면 적은 뒤 알린다(`refreshWatchedCompositions`).
+      const name = typeof req.query['project'] === 'string' ? req.query['project'] : '';
+      const info = await versionBook.version(p, docId, name);
+      if (!info) {
+        res.status(404).json({ ok: false, error: 'unknown doc' });
+        return;
+      }
+      ensureVersionRefresher();
+      res.json({
+        ok: true,
+        ...info,
+        // §5.13 (V) 37-3 — 지금 하는 일(바퀴·만지는 장면). AI 패널 머리와 구슬 위성이 이것을 보인다.
+        activity: videoActivity.get(p, docId),
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: String(error) });
+    }
   });
 
   app.post('/doc/:docId/patch', (req, res) => {
@@ -979,7 +1490,10 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       res.status(404).json({ ok: false, error: 'unknown project' });
       return;
     }
-    res.json({ ok: videoService.deleteDoc(p, req.params.docId) });
+    const ok = videoService.deleteDoc(p, req.params.docId);
+    // §5.13 (X) 39-4 — 대표 프레임은 다시 구울 수 있는 기억이라 문서와 함께 걷는다(문서 본문은 옆으로 치워 되돌릴 길이 남는다).
+    if (ok) void removeThumbsDir(thumbsDirFor(p, req.params.docId));
+    res.json({ ok });
   });
 
   /**
@@ -1052,7 +1566,28 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       res.status(404).json({ ok: false, error: 'not found' });
       return;
     }
+    // §5.13 (R-10) — 소재는 그림·소리로만 읽힌다. SVG 를 문서로 직접 열어도 스크립트·바깥 요청이 돌지 않게 막는다.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.sendFile(target, { dotfiles: 'allow' });
+  });
+
+  /**
+   * §5.13 (Y) 40-1 — 같은 소재의 **미디어** 모양(`/media`). 패키지 앱은 이 경로를 vibproxy 가 가로채 파일을 흘려 보내므로 여기까지
+   * 오지 않는다. 웹·모바일 접속은 여기서 `sendFile`(구간 요청 지원)로 낸다 — 해석은 `resolveVideoMedia` 한 곳.
+   */
+  app.get('/media', (req, res) => {
+    const query = new URLSearchParams();
+    for (const key of ['project', 'path'] as const) {
+      const value = req.query[key];
+      if (typeof value === 'string') query.set(key, value);
+    }
+    void resolveVideoMedia(h(), query).then((target) => {
+      if (!target) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; sandbox");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.sendFile(target, { dotfiles: 'allow' });
+    }, () => { if (!res.headersSent) res.status(404).json({ ok: false, error: 'not found' }); });
   });
 
   // ─── §5.13 (T) 코드 컴포지션 ───
@@ -1161,10 +1696,19 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
    * ③ CSP — 응답 헤더와 문서 맨 앞 meta 두 겹, 그리고 HTML 이면 런타임 심과 그 아이템의 props·seed 를 맨 앞에 넣는다.
    * 패키지 앱에서는 `vibproxy://proxy` 로 들어온다(코어의 vibproxy 허용 목록은 앱 이름 없이 이 모양만 안다).
    */
-  app.get('/content/:project/:docId/*', (req, res) => {
+  app.get('/content/:project/:docId/*', async (req, res) => {
     const notFound = (): void => {
       res.status(404).set('X-Content-Type-Options', 'nosniff').type('text/plain').send('not found');
     };
+    try {
+      await serveContent(req, res, notFound);
+    } catch {
+      if (!res.headersSent) notFound();
+    }
+  });
+
+  /** 컴포지션 콘텐츠 한 건 — 문서는 판 기억에서(비동기), 뿌리는 판 단위로 기억한 것을 쓴다. */
+  async function serveContent(req: Request<{ project: string; docId: string }>, res: express.Response, notFound: () => void): Promise<void> {
     const projectRaw = req.params.project;
     const p = project(projectRaw);
     // §5.13 (V) 37-3 — `<docId>@<revId>` 면 그 판의 문서와 **그 판의 코드**로 내준다(판 둘을 나란히 볼 때·판 정지 화면).
@@ -1178,13 +1722,18 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     if (!p || !isProjectRelativePath(rel) || !isCompositionWebFile(rel)) { notFound(); return; }
     let doc: VideoDoc | null = null;
     if (docId !== NO_DOC) {
-      doc = revId ? videoHistory.readSnapshot(p, docId, revId) : videoService.readDoc(p, docId);
+      // §5.13 (Y) 40-7 ② — 판 기억에서(파일이 그대로면 다시 읽지도 파싱하지도 않는다). 판(되돌아보기)은 종전 길.
+      doc = revId ? videoHistory.readSnapshot(p, docId, revId) : (isSafeId(docId) ? await versionBook.doc(p, docId) : null);
       if (!doc) { notFound(); return; }
     }
     const revBlob = revId ? revisionBlob(p, docId, revId, rel) : null;
-    const abs = resolveInsideProject(p, rel) ?? (revBlob ? path.resolve(p, rel) : null);
+    const copyNamespace = taskCopyNamespaceOf(rel);
+    const immutableRelative = copyNamespace ? rel.slice(copyNamespace.length) : '';
+    // Code-relative references to imported immutable media keep working without copying the entire media library.
+    const immutableFallback = immutableRelative.startsWith('.vibisual/video/assets/') ? resolveInsideProject(p, immutableRelative) : null;
+    const abs = resolveInsideProject(p, rel) ?? immutableFallback ?? (revBlob ? path.resolve(p, rel) : null);
     if (!abs) { notFound(); return; }
-    const roots = compositionRoots(p, doc);
+    const roots = contentRootsFor(p, doc, revId);
     if (!roots.some((root) => abs !== root && isPathWithin(abs, root, process.platform))) { notFound(); return; }
     let isFile = revBlob !== null;
     if (!isFile) {
@@ -1231,13 +1780,13 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     let html: string;
     try { html = fs.readFileSync(revBlob ?? abs, 'utf8'); } catch { notFound(); return; }
     // §5.13 (T-6) — 들여놓은 라이브러리(`vibi:libs` 에 적은 이름)와 글꼴(늘 `@font-face`)을 심 뒤·컴포지션 스크립트 앞에 넣는다.
-    const libs = readLibsFile(p).items;
+    const libs = readLibsFile(copyNamespace ? path.join(p, copyNamespace) : p).items;
     const extra = libs.length > 0
-      ? libInjection(libs, parseCompositionMeta(html).libs ?? [], (rel) => contentPrefix + toPosixPath(rel).split('/').filter((s) => s !== '').map(encodeURIComponent).join('/'))
+      ? libInjection(libs, parseCompositionMeta(html).libs ?? [], (rel) => contentPrefix + toPosixPath(`${copyNamespace ?? ''}${rel}`).split('/').filter((s) => s !== '').map(encodeURIComponent).join('/'))
       : '';
     res.set('Content-Security-Policy', csp);
     res.type(mime).send(injectCompositionRuntime(html, csp, runtime, extra));
-  });
+  }
 
   // ─── 스틸 · 프레임 띠 · 렌더 ───
 
@@ -1311,6 +1860,59 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   });
 
   /**
+   * §5.13 (X) 39-4 — 장면 대표 프레임 **한 번에**(장면 구슬·기획 카드). 열쇠는 순수 층 `chapterThumbWants`(보이는 것이 같으면 같은
+   * 열쇠)이고, 디스크에 남은 것은 바로 돌려준다(`thumbs`: 열쇠 → 그림). `render=1` 이면 빠진 것을 굽는다 — 일반 장면은 **일감
+   * 하나**(`stills` — 한 무대에서 차례로)로, 기획 장면의 정지 화면은 장면마다(서로 다른 문서라 무대를 나눠 쓸 수 없다). 구운 것은
+   * 남기고, 상한을 넘으면 지금 장면이 쓰지 않는 옛 그림부터 지운다. `missing` 은 그래도 없는 열쇠다(일꾼이 못 왔다·실패).
+   */
+  app.get('/doc/:docId/chapter-thumbs', (req, res) => {
+    const p = project(req.query['project']);
+    if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
+    const docId = req.params.docId;
+    if (!isSafeId(docId)) { res.status(400).json({ ok: false, error: 'invalid doc id' }); return; }
+    const read = videoService.readDoc(p, docId);
+    if (!read) { res.status(404).json({ ok: false, error: 'unknown doc' }); return; }
+    const doc = videoService.refreshCompositions(p, read);
+    const wants = chapterThumbWants(doc, resolveTimeline(doc));
+    const dir = thumbsDirFor(p, docId);
+    const render = req.query['render'] === '1';
+    void (async () => {
+      const found = await readThumbs(dir, wants.map((w) => w.key));
+      if (render) {
+        const missing = wants.filter((w) => !found.has(w.key));
+        const stills = missing.flatMap((w) => (w.source.kind === 'still' ? [{ key: w.key, t: w.source.t }] : []));
+        if (stills.length > 0) {
+          const job = await videoService.requestStills(p, docId, stills.map((s) => s.t), CHAPTER_THUMB_MAX_EDGE, 'webp');
+          let images: unknown = [];
+          if (job.status === 'done' && typeof job.result === 'string') {
+            try { images = JSON.parse(job.result); } catch { images = []; }
+          }
+          if (Array.isArray(images)) {
+            for (let i = 0; i < stills.length; i += 1) {
+              const image = images[i];
+              const s = stills[i];
+              if (!s || typeof image !== 'string' || !image.startsWith('data:image/')) continue;
+              found.set(s.key, image);
+              await writeThumb(dir, s.key, image);
+            }
+          }
+        }
+        for (const w of missing) {
+          if (w.source.kind !== 'frame') continue;
+          const job = await videoService.requestFrame(p, docId, w.chapterId, chapterFrameTime(doc, w.chapterId), CHAPTER_THUMB_MAX_EDGE);
+          if (job.status !== 'done' || typeof job.result !== 'string' || !job.result.startsWith('data:image/')) continue;
+          found.set(w.key, job.result);
+          await writeThumb(dir, w.key, job.result);
+        }
+        await pruneThumbs(dir, new Set(wants.map((w) => w.key)));
+      }
+      const thumbs: Record<string, string> = {};
+      for (const [key, image] of found) thumbs[key] = image;
+      res.json({ ok: true, version: doc.version, thumbs, missing: wants.filter((w) => !found.has(w.key)).map((w) => w.key) });
+    })().catch((err: unknown) => res.status(500).json({ ok: false, error: String(err) }));
+  });
+
+  /**
    * §5.13 (T-9) — 프레임 띠: 한 구간에서 고르게 고른 시각 N 개를 찍어 시각이 적힌 격자 한 장으로. 스틸 한 장은 순간을,
    * 띠 한 장은 흐름을 보여 준다. `item` 이면 그 아이템 구간, 아니면 `from`/`to`(초). 끝 시각은 한 프레임 앞으로 당긴다.
    */
@@ -1364,7 +1966,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
    * §5.13 (V) 37-9 — 모션 검수. 기본은 문서만 보는 판정(읽을 시간·안전 영역·겹침·빈 구간·자막 잘림·무음·비트 어긋남), `frames=1`
    * 이면 일꾼이 표본 시각을 찍어 대비·평평한 화면·컴포지션 안 글자까지 본다. 스튜디오의 장면 줄 표시와 같은 결과다.
    */
-  app.get('/doc/:docId/review', (req, res) => {
+  app.get('/doc/:docId/review', async (req, res) => {
     const p = project(req.query['project']);
     if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
     const docId = req.params.docId;
@@ -1372,8 +1974,14 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     if (!read) { res.status(404).json({ ok: false, error: 'unknown doc' }); return; }
     const doc = videoService.refreshCompositions(p, read);
     const timeline = resolveTimeline(doc);
+    // §5.13 (R-10) — asynchronous (one shared frame budget, yields between slices) so this thread keeps serving;
+    // a visual verdict counts only when its frame file is really in the project.
+    let requestChecks: Awaited<ReturnType<typeof checkVideoRequirements>>;
+    try {
+      requestChecks = await checkVideoRequirements(doc, timeline, { frameExists: (rel) => evidenceFrameExists(p, rel) });
+    } catch (err) { res.status(500).json({ ok: false, error: String(err) }); return; }
     if (req.query['frames'] !== '1' || timeline.duration <= 0) {
-      res.json({ ok: true, version: doc.version, frames: false, findings: reviewMotion(doc, timeline) });
+      res.json({ ok: true, version: doc.version, frames: false, findings: reviewMotion(doc, timeline), requestChecks });
       return;
     }
     const times = reviewSampleTimes(timeline, REVIEW_MAX_SAMPLES);
@@ -1391,6 +1999,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
           frames: job.status === 'done',
           ...(job.status !== 'done' ? { framesError: job.error ?? 'the worker did not return frames' } : {}),
           findings: reviewMotion(doc, timeline, probes),
+          requestChecks,
         });
       })
       .catch((err: unknown) => res.status(500).json({ ok: false, error: String(err) }));
@@ -1557,7 +2166,8 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
 
   app.post('/doc/:docId/render', (req, res) => {
     // §5.13 (W) 38-3 — `transparent:true` 면 투명 배경 WebM(알파). 사람이 시킬 때만((T-15)).
-    const body = req.body as { project?: unknown; captions?: unknown; transparent?: unknown };
+    // §5.13 (AA) 42 — `spec`(그리는 방법) · `output`(놓는 방법) · `schedule`({ at?, hold? }) · `label`. 없으면 종전 렌더 그대로.
+    const body = req.body as { project?: unknown; captions?: unknown; transparent?: unknown; spec?: unknown; output?: unknown; schedule?: unknown; label?: unknown };
     const p = project(body.project);
     if (!p) {
       res.status(404).json({ ok: false, error: 'unknown project' });
@@ -1567,17 +2177,49 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     if (!read) {
       res.status(404).json({ ok: false, error: 'unknown doc' }); return;
     }
+    const agent = isAgentRequest(req);
+    const asked = body.output === undefined ? undefined : normalizeRenderOutput(body.output);
+    // §5.13 (AA) 42-2·42-9 — 저장 위치·덮어쓰기는 사람만 정한다(토큰 보유 ≠ 사용자 의사, 37-17).
+    if (asked && (asked.dir !== null || asked.conflict === 'overwrite') && agent) {
+      res.status(403).json({ ok: false, error: 'renderer-only', hint: 'The output folder and overwrite are chosen by the user in the Vibistudio export window.' });
+      return;
+    }
+    // 에이전트가 건 렌더는 사람의 화면에 무언가를 띄우지 않는다(알림·폴더 열기·절전 막기·노드 담기는 사람이 고른 것만).
+    const output = asked && agent
+      ? { ...asked, after: { reveal: false, notify: false, deliver: false }, keepAwake: false, notice: null }
+      : asked;
+    if (output?.dir && !path.isAbsolute(output.dir)) {
+      res.status(400).json({ ok: false, error: 'output.dir must be an absolute folder' });
+      return;
+    }
     const doc = videoService.refreshCompositions(p, read);
     // §5.13 (T-8) — 코드를 고친 뒤 표지를 아직 안 모았으면 모으기를 먼저 건다 — 렌더는 그 뒤에 선다(낡은 시각으로 소리를 깔지 않는다).
     const after = videoService.cueJobsFor(p, doc);
-    const job = videoService.enqueueRender(p, req.params.docId, after, body.captions === 'separate', body.transparent === true);
+    const rawSpec = body.spec === undefined ? undefined : normalizeRenderSpec(body.spec);
+    const spec = rawSpec ? { ...rawSpec, range: normalizeRange(rawSpec.range, resolveTimeline(doc).duration) } : undefined;
+    const schedule = (body.schedule !== null && typeof body.schedule === 'object' ? body.schedule : {}) as { at?: unknown; hold?: unknown };
+    const at = typeof schedule.at === 'number' && Number.isFinite(schedule.at) && schedule.at > Date.now() ? schedule.at : undefined;
+    const label = exportText(body.label);
+    const hideCaptions = spec ? spec.captions !== 'burn' : body.captions === 'separate';
+    const transparent = spec ? spec.format === 'webm-alpha' : body.transparent === true;
+    const job = videoService.enqueueRender(p, req.params.docId, after, hideCaptions, transparent, {
+      title: doc.title,
+      ...(spec ? { spec } : {}),
+      ...(output ? { output } : {}),
+      ...(label ? { label } : {}),
+      ...(schedule.hold === true ? { held: true } : {}),
+      ...(at !== undefined ? { notBefore: at } : {}),
+    });
     res.json({ ok: true, job });
   });
 
   app.get('/jobs', (req, res) => {
     const raw = req.query['project'];
     const p = typeof raw === 'string' ? project(raw) : null;
-    res.json({ ok: true, jobs: videoService.listJobs(p ?? undefined) });
+    // §5.13 (AA) 42-5 — `kind=render` 면 대기열만.
+    const kindRaw = req.query['kind'];
+    const kind = kindRaw === 'render' || kindRaw === 'still' || kindRaw === 'strip' || kindRaw === 'review' || kindRaw === 'cues' || kindRaw === 'stills' ? kindRaw : undefined;
+    res.json({ ok: true, jobs: videoService.listJobs(p ?? undefined, kind) });
   });
 
   app.get('/job/:jobId', (req, res) => {
@@ -1608,10 +2250,19 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     if (!job) { res.status(404).json({ ok: false, error: 'unknown output job' }); return; }
     if (job.status !== 'running') { res.status(409).json({ ok: false, error: 'output job is not running' }); return; }
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) { res.status(400).json({ ok: false, error: 'Expected output bytes.' }); return; }
+    if (job.kind === 'render') {
+      // §5.13 (AA) 42-2 — 종전 자리 + 고른 폴더(비동기 — 큰 파일을 본체 스레드에서 동기로 쓰지 않는다).
+      const bytes = req.body;
+      void videoService.completeRenderOutput(job, bytes)
+        .then((done) => {
+          if (done.status !== 200) res.status(done.status).json({ ok: false, error: done.error ?? 'output rejected' });
+          else res.json({ ok: true, job: done.job });
+        })
+        .catch((error: unknown) => { res.status(500).json({ ok: false, error: String(error) }); });
+      return;
+    }
     try {
-      const result = job.kind === 'render'
-        ? videoService.saveRenderOutput(job.projectPath, job.docId, req.body, job.transparent === true ? 'webm' : 'mp4')
-        : `data:image/png;base64,${req.body.toString('base64')}`;
+      const result = `data:image/png;base64,${req.body.toString('base64')}`;
       res.json({ ok: true, job: videoService.updateJob(job.id, { status: 'done', progress: 1, result }) });
     } catch (error) { res.status(500).json({ ok: false, error: String(error) }); }
   });
@@ -1629,12 +2280,18 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       bytes?: string;
       /** §5.13 (V) 37-9 — 검수 표본(JSON 글). */
       data?: string;
+      /** §5.13 (AA) 42-5 — 그린 프레임·전체 프레임(초당 프레임 계산). */
+      frame?: number;
+      totalFrames?: number;
     };
     const job = videoService.getJob(req.params.jobId);
     if (!job) {
       res.status(404).json({ ok: false, error: 'unknown job' });
       return;
     }
+    const frameOf = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 10_000_000 ? v : undefined);
+    const frame = frameOf(body.frame);
+    const totalFrames = frameOf(body.totalFrames);
 
     let result: string | undefined;
     if (job.kind === 'render' && typeof body.bytes === 'string' && body.bytes.length > 0) {
@@ -1644,7 +2301,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
         res.status(500).json({ ok: false, error: `결과를 저장하지 못했습니다: ${String(err)}` });
         return;
       }
-    } else if ((job.kind === 'review' || job.kind === 'cues') && typeof body.data === 'string') {
+    } else if ((job.kind === 'review' || job.kind === 'cues' || job.kind === 'stills') && typeof body.data === 'string') {
       result = body.data;
     } else if (job.kind !== 'render' && typeof body.image === 'string') {
       result = body.image;
@@ -1656,8 +2313,18 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       ...(result === undefined ? {} : { result }),
       ...(body.error === undefined ? {} : { error: body.error }),
       ...(body.note === undefined ? {} : { note: body.note }),
+      ...(frame === undefined ? {} : { frame }),
+      ...(totalFrames === undefined ? {} : { totalFrames }),
     });
     res.json({ ok: true, job: updated });
+  });
+
+  // ─── §5.13 (AA) 42 내보내기 설정·렌더 대기열 ───
+  mountExportRoutes(app, {
+    project,
+    store: exportStore,
+    controlJob: (jobId, action) => videoService.controlJob(jobId, action),
+    controlQueue: (p, action) => videoService.controlQueue(p, action),
   });
 
   h().info('[video] Vibistudio 라우트를 마운트했습니다.');

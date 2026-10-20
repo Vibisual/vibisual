@@ -47,7 +47,26 @@ const CORE_FILES = [
   'packages/client/src/components/BubbleMap/BubbleMap.tsx',
   'packages/client/src/components/BubbleMap/CanvasContextMenu.tsx',
   'packages/client/src/components/BubbleMap/AppBubbleNode.tsx',
+  // §5.4 #15 (C) — Alt 인스펙터의 집기 공급자 통로(앱이 그린 화면이 안쪽을 답한다). 답의 모양만 알고 앱 이름은 모른다.
+  'packages/client/src/hooks/useInspector.ts',
+  'packages/client/src/hooks/useInspectorPicker.ts',
+  'packages/client/src/utils/inspectorPick.ts',
+  'packages/client/src/components/Inspector/InspectorOverlay.tsx',
+  // §5.1 #2-1 — 파일 얼굴·작업물 별자리. 어느 앱이 굽고 여는지·앱 노드가 무엇을 선언했는지는 레지스트리 선언으로만 묻는다.
+  'packages/client/src/utils/fileFaceView.ts',
+  'packages/client/src/utils/constellationView.ts',
+  'packages/client/src/hooks/useConstellationAppHubs.ts',
+  'packages/client/src/components/BubbleMap/FileFaceLens.tsx',
+  'packages/client/src/components/BubbleMap/FileFaceRim.tsx',
+  'packages/client/src/components/BubbleMap/useFileFaceThumbnail.ts',
   'packages/server/src/index.ts',
+  // §5.13 (Y) 40-1·40-7·40-12 — 앱 미디어 스트리밍 응답·전송 기록·앱 창 단계 표식·공용 미디어 계약. 경로 모양과 바이트만 안다.
+  'packages/desktop/src/main/appMediaResponse.ts',
+  'packages/desktop/src/main/mainStallLog.ts',
+  'packages/client/src/apps/appTiming.ts',
+  'packages/client/src/apps/appWindows.ts',
+  'packages/client/src/apps/AppShellHost.tsx',
+  'packages/shared/src/appMedia.ts',
 ];
 
 /** 앱을 늦게 부르기로 한 자리 — 여기서 정적 import 를 쓰면 상주 비용이 생긴다. */

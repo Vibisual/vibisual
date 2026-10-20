@@ -313,11 +313,13 @@ interface FakeAnimation {
   pause(): void;
 }
 
-function bootRuntime(init: Partial<CompositionRuntimeInit> = {}) {
+function bootRuntime(init: Partial<CompositionRuntimeInit> = {}, manualPaint = false) {
   const messages: Msg[] = [];
   const waiters: Array<{ pred: (m: Msg) => boolean; resolve: (m: Msg) => void }> = [];
   const listeners = new Map<string, Array<(e: unknown) => void>>();
   const animations: FakeAnimation[] = [];
+  const paints = new Map<number, (t: number) => void>();
+  let paintId = 0;
   const parent = {
     postMessage(msg: unknown): void {
       const plain = JSON.parse(JSON.stringify(msg)) as Msg;
@@ -332,8 +334,15 @@ function bootRuntime(init: Partial<CompositionRuntimeInit> = {}) {
   const sandbox: Record<string, unknown> = {
     parent,
     performance: { now: () => 0 },
-    requestAnimationFrame: (cb: (t: number) => void) => setTimeout(() => cb(0), 0),
+    requestAnimationFrame: (cb: (t: number) => void) => {
+      if (!manualPaint) return setTimeout(() => cb(0), 0);
+      const id = ++paintId;
+      paints.set(id, cb);
+      return id;
+    },
+    cancelAnimationFrame: (id: ReturnType<typeof setTimeout> & number) => manualPaint ? paints.delete(id) : clearTimeout(id),
     setTimeout,
+    clearTimeout,
     addEventListener: (type: string, fn: (e: unknown) => void) => {
       listeners.set(type, [...(listeners.get(type) ?? []), fn]);
     },
@@ -364,23 +373,71 @@ function bootRuntime(init: Partial<CompositionRuntimeInit> = {}) {
     messages,
     waitFor,
     dispatch,
+    paints,
+    paint(): void {
+      const batch = [...paints.values()];
+      paints.clear();
+      for (const cb of batch) cb(0);
+    },
     run<T>(code: string): T {
       return vm.runInContext(code, ctx) as T;
     },
-    seek(t: number, seq: number): Promise<Msg> {
-      dispatch({ source: parent, data: { __vibi: 'seek', t, seq } });
+    seek(t: number, seq: number, preview = false): Promise<Msg> {
+      dispatch({ source: parent, data: { __vibi: 'seek', t, seq, preview } });
       return waitFor((m) => m.__vibi === 'ready' && m.seq === seq);
     },
   };
 }
 
 describe('§5.13 (T-2) 런타임 심 — 시각은 렌더러가 정한다', () => {
+  it('live preview waits for its async drawing but does not wait two extra browser paints', async () => {
+    const b = bootRuntime({}, true);
+    b.run('var finishDraw; window.__vibi.seek = function (t) { return new Promise(function (resolve) { finishDraw = resolve; }); };');
+    const ready = b.seek(1, 1, true);
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(b.messages.some((m) => m.__vibi === 'ready')).toBe(false);
+    b.run('finishDraw();');
+    expect(await ready).toMatchObject({ t: 1, seq: 1 });
+    expect(b.paints.size).toBe(0);
+  });
+
+  it('capture seeks retain both paint barriers even after a preview seek', async () => {
+    const b = bootRuntime({}, true);
+    await b.seek(0, 1, true);
+    const captured = b.seek(1, 2);
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(b.paints.size).toBe(1);
+    expect(b.messages.some((m) => m.__vibi === 'ready' && m.seq === 2)).toBe(false);
+    b.paint();
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    expect(b.paints.size).toBe(1);
+    expect(b.messages.some((m) => m.__vibi === 'ready' && m.seq === 2)).toBe(false);
+    b.paint();
+    expect(await captured).toMatchObject({ t: 1, seq: 2 });
+    expect(b.paints.size).toBe(0);
+  });
+
+  it('preview still waits for pending fonts and image decoding before its ready signal', async () => {
+    const b = bootRuntime({}, true);
+    b.run('var fontDone, imageDone; document.fonts = { ready: new Promise(function (r) { fontDone = r; }) };'
+      + 'document.images = [{ complete: false, decode: function () { return new Promise(function (r) { imageDone = r; }); } }];');
+    const ready = b.seek(0, 1, true);
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    b.run('fontDone();');
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(b.messages.some((m) => m.__vibi === 'ready')).toBe(false);
+    b.run('imageDone();');
+    expect(await ready).toMatchObject({ seq: 1 });
+  });
+
   it('뜨면 loaded 를 알리고, 프레임 콜백이 없으면 아무 시점으로나 맞춘다', async () => {
     const b = bootRuntime();
     expect(await b.waitFor((m) => m.__vibi === 'loaded')).toEqual({
       __vibi: 'loaded',
       mode: 'random',
       declared: { duration: null, size: null },
+      // §5.13 (Z) 41-1 — 직통 채널(포트)·스스로 재생을 받는 판이라고 알린다.
+      port: true,
     });
   });
 

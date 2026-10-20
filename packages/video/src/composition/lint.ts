@@ -95,6 +95,35 @@ const RULES: readonly Rule[] = [
     message: 'CSS transitions follow wall-clock style changes and are not seekable. Use @keyframes or element.animate().',
     stylePatterns: [/(?:^|[;{\s"'])transition\s*:/m],
   },
+  // §5.13 (Y) 40-8 ④ — 연출 **성능**(38-8 규약의 짝). 막지 않고 알린다 — 합성기가 혼자 처리하는 것은 transform·opacity 뿐이고,
+  //   전체 화면 크기의 배경 위치·필터·큰 흐림 그림자를 프레임마다 바꾸면 그 화면 전체를 프레임마다 다시 칠한다.
+  {
+    level: 'warn',
+    code: 'perf-background-position',
+    message: 'Animating background-position repaints the whole layer every frame. Move a layer with transform: translate() instead (the compositor moves it without repainting).',
+    codePatterns: [/\.style\.backgroundPosition\s*=/, /setProperty\s*\(\s*["']background-position["']/],
+    stylePatterns: [/@keyframes[^{]*\{[^@]*?background-position\s*:/],
+  },
+  {
+    level: 'warn',
+    code: 'perf-animated-filter',
+    message: 'Changing filter (blur, etc.) every frame re-renders the filtered area each frame. Keep the filter fixed and animate opacity or transform, or pre-render the blurred look once.',
+    codePatterns: [/\.style\.(?:filter|backdropFilter)\s*=/, /setProperty\s*\(\s*["'](?:backdrop-)?filter["']/],
+    stylePatterns: [/@keyframes[^{]*\{[^@]*?(?:^|[;{\s])(?:backdrop-)?filter\s*:/m],
+  },
+  {
+    level: 'warn',
+    code: 'perf-blur-shadow',
+    message: 'A large blurred box-shadow is expensive to repaint. Draw the glow once on its own layer and fade or move that layer with opacity/transform.',
+    codePatterns: [/\.style\.boxShadow\s*=/],
+    stylePatterns: [/box-shadow\s*:[^;{}]*?\b(?:[4-9]\d|\d{3,})px/],
+  },
+  {
+    level: 'warn',
+    code: 'perf-put-image-data',
+    message: 'putImageData over a full-screen canvas every frame is CPU-bound. Draw small tiles once and move them with transform, or draw with canvas paths.',
+    codePatterns: [/\.putImageData\s*\(/],
+  },
   {
     level: 'warn',
     code: 'input-wait',
@@ -120,6 +149,8 @@ const FRAME_CALLBACKS = /\b(?:requestAnimationFrame|setInterval|setTimeout|reque
 const VIRTUAL_CLOCK = /\b(?:Date\.now|performance\.now|Math\.random)\s*\(|\bnew\s+Date\s*\(\s*\)/;
 /** 시각을 받는 길이 있는가 — `__vibi.seek` · 타임라인 객체 · CSS/Web Animations. */
 const SEEK_HOOKS = /__vibi\s*\.\s*(?:seek|timelines)\b|\b__timelines\b|@keyframes\b|\.animate\s*\(/;
+/** §5.13 (Y) 40-8 ③ — 시각을 스스로 받는 길(`__vibi.seek` 함수 · 타임라인 객체)이 있는가 — 있으면 rAF·타이머를 써도 아무 시점으로 맞춘다. */
+const SEEK_DRIVEN = /__vibi\s*\.\s*seek\s*=|__vibi\s*\.\s*timelines\b|\b__timelines\b/;
 
 export function scanComposition(sources: CompositionSources, options: ScanOptions = {}): CompositionScan {
   const code = [sources.html, ...sources.scripts].join('\n');
@@ -166,12 +197,20 @@ export function scanComposition(sources: CompositionSources, options: ScanOption
   }
 
   const usesFrames = FRAME_CALLBACKS.test(code);
+  // §5.13 (Y) 40-8 ③ — 시각을 스스로 받는 컴포지션(`__vibi.seek` · 타임라인)은 rAF·타이머를 써도 아무 시점으로 맞춘다(런타임과 같은 판정).
+  const seekDriven = SEEK_DRIVEN.test(code);
   if (usesFrames) {
-    lint.push({
-      level: 'info',
-      code: 'frame-callbacks',
-      message: 'Uses requestAnimationFrame/timers: they run on a 60 Hz virtual clock, so the composition is forward-only (seeking backwards replays from 0). Prefer window.__vibi.seek(t) or CSS animations for instant seeking.',
-    });
+    lint.push(seekDriven
+      ? {
+        level: 'info',
+        code: 'frame-callbacks-seekable',
+        message: 'Uses requestAnimationFrame/timers but answers seeks itself (window.__vibi.seek or timelines), so it stays random-access. Frame callbacks still run on the 60 Hz virtual clock; anything they draw must also follow t.',
+      }
+      : {
+        level: 'info',
+        code: 'frame-callbacks',
+        message: 'Uses requestAnimationFrame/timers: they run on a 60 Hz virtual clock, so the composition is forward-only (seeking backwards replays from 0). Prefer window.__vibi.seek(t) or CSS animations for instant seeking.',
+      });
   }
   if (VIRTUAL_CLOCK.test(code)) {
     lint.push({
@@ -188,5 +227,5 @@ export function scanComposition(sources: CompositionSources, options: ScanOption
     });
   }
 
-  return { lint, mode: usesFrames ? 'forward' : 'random' };
+  return { lint, mode: usesFrames && !seekDriven ? 'forward' : 'random' };
 }

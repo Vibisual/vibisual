@@ -7,23 +7,22 @@
  * 코덱은 고정하지 않고 **이 기기가 실제로 인코딩할 수 있는 것**을 물어서 고른다.
  * 특정 코덱을 박아 두면 그게 없는 환경에서 조용히 실패하거나, 내장 인코더를 손으로
  * 패치해야 하는 상태가 된다(다른 도구에서 실제로 벌어진 일이다).
+ *
+ * §5.13 (X) 39-2 — Mediabunny 는 **인코딩을 시작할 때** 불러온다(`loadMediabunny`). 이 모듈을 불러오는 것만으로
+ * 인코더 코드를 해석하지 않게 — 렌더 배럴을 쓰는 모든 화면이 그 값을 치르던 자리다.
  */
 
-import {
+import type {
   AudioBufferSource,
   BufferTarget,
   CanvasSource,
-  Mp4OutputFormat,
   Output,
-  QUALITY_HIGH,
-  QUALITY_MEDIUM,
-  WebMOutputFormat,
-  canEncodeAudio,
-  canEncodeVideo,
-  type AudioCodec,
-  type Quality,
-  type VideoCodec,
+  AudioCodec,
+  Quality,
+  VideoCodec,
 } from 'mediabunny';
+
+import { loadMediabunny } from './media.js';
 
 /** 선호 순서. 앞에서부터 이 기기가 할 수 있는 것을 고른다. */
 const VIDEO_CODEC_PREFERENCE: readonly VideoCodec[] = ['avc', 'vp9', 'av1', 'vp8'];
@@ -38,23 +37,41 @@ const WEBM_AUDIO_CODEC_PREFERENCE: readonly AudioCodec[] = ['opus'];
 /** 출력 그릇 — 보통은 mp4, 투명 배경이면 webm. */
 export type OutputContainer = 'mp4' | 'webm';
 
+/** 품질 이름 — 실제 값(Mediabunny `Quality`)은 인코딩을 시작할 때 꺼낸다(39-2). */
+export type EncodeQualityLevel = 'very-low' | 'low' | 'medium' | 'high' | 'very-high';
+
 export interface EncodeQuality {
-  readonly video: Quality;
-  readonly audio: Quality;
+  readonly video: EncodeQualityLevel;
+  readonly audio: EncodeQualityLevel;
 }
 
-export const ENCODE_QUALITY_HIGH: EncodeQuality = { video: QUALITY_HIGH, audio: QUALITY_HIGH };
-export const ENCODE_QUALITY_DRAFT: EncodeQuality = { video: QUALITY_MEDIUM, audio: QUALITY_MEDIUM };
+export const ENCODE_QUALITY_HIGH: EncodeQuality = { video: 'high', audio: 'high' };
+export const ENCODE_QUALITY_DRAFT: EncodeQuality = { video: 'medium', audio: 'medium' };
+
+function qualityOf(mb: typeof import('mediabunny'), level: EncodeQualityLevel): Quality {
+  switch (level) {
+    case 'very-low': return mb.QUALITY_VERY_LOW;
+    case 'low': return mb.QUALITY_LOW;
+    case 'medium': return mb.QUALITY_MEDIUM;
+    case 'very-high': return mb.QUALITY_VERY_HIGH;
+    default: return mb.QUALITY_HIGH;
+  }
+}
 
 export interface PickedCodecs {
   readonly video: VideoCodec | null;
   readonly audio: AudioCodec | null;
 }
 
-/** 이 기기가 실제로 인코딩할 수 있는 코덱을 고른다. `alpha` 면 알파를 싣는 코덱(WebM)만 본다. */
-export async function pickCodecs(width: number, height: number, withAudio: boolean, alpha = false): Promise<PickedCodecs> {
-  const videoPreference = alpha ? ALPHA_VIDEO_CODEC_PREFERENCE : VIDEO_CODEC_PREFERENCE;
-  const audioPreference = alpha ? WEBM_AUDIO_CODEC_PREFERENCE : AUDIO_CODEC_PREFERENCE;
+/**
+ * 이 기기가 실제로 인코딩할 수 있는 코덱을 고른다. `alpha` 면 알파를 싣는 코덱(WebM)만 본다. §5.13 (AA) 42-1 — 그릇이 `webm` 이면
+ * (투명이 아니어도) WebM 이 받는 코덱(VP9·VP8 + Opus)만 본다.
+ */
+export async function pickCodecs(width: number, height: number, withAudio: boolean, alpha = false, container: OutputContainer = alpha ? 'webm' : 'mp4'): Promise<PickedCodecs> {
+  const webm = alpha || container === 'webm';
+  const videoPreference = webm ? ALPHA_VIDEO_CODEC_PREFERENCE : VIDEO_CODEC_PREFERENCE;
+  const audioPreference = webm ? WEBM_AUDIO_CODEC_PREFERENCE : AUDIO_CODEC_PREFERENCE;
+  const { canEncodeAudio, canEncodeVideo } = await loadMediabunny();
   let video: VideoCodec | null = null;
   for (const codec of videoPreference) {
     try {
@@ -95,6 +112,8 @@ export interface VideoEncoderOptions {
   readonly keyFrameInterval?: number;
   /** §5.13 (W) 38-3 — 투명 배경: WebM + 알파를 싣는 코덱(`alpha:'keep'`). */
   readonly alpha?: boolean;
+  /** §5.13 (AA) 42-1 — 그릇(없으면 mp4 · 투명이면 늘 webm). */
+  readonly container?: OutputContainer;
 }
 
 /**
@@ -119,7 +138,7 @@ export class VideoEncoder {
 
   /** 이 출력의 그릇(mp4 · 투명이면 webm). */
   get container(): OutputContainer {
-    return this.opts.alpha === true ? 'webm' : 'mp4';
+    return this.opts.alpha === true ? 'webm' : this.opts.container ?? 'mp4';
   }
 
   async start(): Promise<void> {
@@ -128,7 +147,8 @@ export class VideoEncoder {
     const withAudio = this.opts.withAudio ?? false;
     const alpha = this.opts.alpha === true;
 
-    this.codecs = await pickCodecs(width, height, withAudio, alpha);
+    const container = this.container;
+    this.codecs = await pickCodecs(width, height, withAudio, alpha, container);
     if (this.codecs.video === null) {
       // §5.13 (W) 38-3 — 투명 배경을 시켰는데 알파 코덱이 없으면 불투명 영상으로 조용히 내보내지 않는다.
       throw new Error(alpha
@@ -136,18 +156,19 @@ export class VideoEncoder {
         : '이 기기에서 인코딩할 수 있는 영상 코덱을 찾지 못했습니다.');
     }
 
-    const output = new Output({ format: alpha ? new WebMOutputFormat() : new Mp4OutputFormat(), target: new BufferTarget() });
+    const mb = await loadMediabunny();
+    const output = new mb.Output({ format: container === 'webm' ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat(), target: new mb.BufferTarget() });
 
-    const videoSource = new CanvasSource(canvas, {
+    const videoSource = new mb.CanvasSource(canvas, {
       codec: this.codecs.video,
-      quality: quality.video,
+      quality: qualityOf(mb, quality.video),
       keyFrameInterval: this.opts.keyFrameInterval ?? 2,
       ...(alpha ? { alpha: 'keep' as const } : {}),
     });
     output.addVideoTrack(videoSource, { frameRate: fps });
 
     if (withAudio && this.codecs.audio !== null) {
-      const audioSource = new AudioBufferSource({ codec: this.codecs.audio, quality: quality.audio });
+      const audioSource = new mb.AudioBufferSource({ codec: this.codecs.audio, quality: qualityOf(mb, quality.audio) });
       output.addAudioTrack(audioSource);
       this.audioSource = audioSource;
     }

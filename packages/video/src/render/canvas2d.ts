@@ -17,14 +17,56 @@ import { RENDER_BACKEND_CAPABILITIES } from './backend.js';
 import type { ResolvedTimeline, VideoDoc } from '../types.js';
 import { docHasCompositions } from '../resolveTimeline.js';
 import { vignetteStops } from './effects.js';
+import type { PickedElement } from './compositionFrame.js';
+import { upcomingFootage, type FootageWarmRequest } from './footagePlan.js';
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+/**
+ * §5.13 (Y) 40-3 — 실사 프레임을 청할 때의 귀띔. 같은 소재를 쓰는 아이템마다 읽개(반복자)를 따로 두고(`itemId`), 그릴 상자 폭
+ * (`boxWidth` — 문서 픽셀)으로 미리보기 칸의 실제 픽셀만큼만 풀어 옮긴다. 없으면 소재 하나에 읽개 하나 · 원본 크기다.
+ */
+export interface FrameHint {
+  readonly itemId?: string;
+  readonly boxWidth?: number;
+}
 
 /** 소재를 그릴 수 있는 형태로 내주는 쪽. 파일 접근을 백엔드가 직접 하지 않게 가른다. */
 export interface MediaProvider {
   getImage(assetId: string): Promise<CanvasImageSource | null>;
-  /** 영상 소재의 특정 시각 프레임. 순차 디코딩이 아니라 직접 탐색이어야 한다. */
-  getFrame(assetId: string, timeInAsset: number): Promise<CanvasImageSource | null>;
+  /**
+   * 영상 소재의 특정 시각 프레임. §5.13 (Y) 40-3 — 시각이 앞으로 이어지면 같은 반복자에서 순서대로 받는다(늦은 프레임은
+   * 건너뛴다), 뒤로·멀리 가면 그 자리에서 다시 연다. 돌려준 그림은 **곧바로** 그린다(읽개의 그리기 판이라 다음 요청이 덮는다).
+   */
+  getFrame(assetId: string, timeInAsset: number, hint?: FrameHint): Promise<CanvasImageSource | null>;
+  /** §5.13 (Y) 40-3 ④ — 곧 시작할 실사 아이템의 읽개를 미리 열어 첫 프레임에 세워 둔다(미리보기 전용 · 기다리지 않는다). */
+  warmFootage?(requests: readonly FootageWarmRequest[]): void;
+  /**
+   * §5.13 (Z) 41-4 — 재생 중 `<video>` 로 흘려 틀 주소(구간을 끊을 수 있는 진짜 스트림일 때만). 못 주면 null — 그 실사는 종전처럼
+   * 프레임마다 풀어 캔버스에 그린다. 렌더·스틸은 이 길을 쓰지 않는다(정확한 디코드).
+   */
+  streamUrl?(assetId: string): Promise<string | null>;
+  /**
+   * App-owned model adapter; all backends pass the same source time and properties. Each call returns its own
+   * picture (never a canvas a later call draws over), so two models drawn at one time stay separate.
+   */
+  getModelFrame?(op: DrawOp): Promise<CanvasImageSource>;
+  /**
+   * App-owned picture of an image item at its time (e.g. an editable image whose layers move). `null` means "the
+   * still picture is right" — the backend falls back to `getImage`.
+   */
+  getItemFrame?(op: DrawOp): Promise<CanvasImageSource | null>;
+  /** Objects inside a model or an editable image (ids, rectangle, properties) — the same answer in every backend. */
+  pickModel?(op: DrawOp, x: number, y: number): Promise<PickedElement | null>;
+}
+
+/** Error code (translated by the app) when a model item has no renderer in this runtime. */
+export const MODEL_RENDERER_UNAVAILABLE = 'model-renderer-unavailable';
+
+/** §5.13 (R-10) — the one way any preview mode asks a provider what is inside a model or an editable image. */
+export async function pickMediaElement(media: MediaProvider, op: DrawOp, x: number, y: number): Promise<PickedElement | null> {
+  if ((op.kind !== 'model' && op.kind !== 'image') || !media.pickModel) return null;
+  return media.pickModel(op, x, y);
 }
 
 export interface SceneEnv {
@@ -154,6 +196,11 @@ export interface Canvas2DBackendOptions {
    * 그대로 두면 컴포지션 자리에 표식만 찍힌 영상이 조용히 나온다. 미리보기처럼 표식이라도 보이는 게 나은 자리는 끈다.
    */
   readonly refuseCompositions?: boolean;
+  /**
+   * §5.13 (Y) 40-3 ④ — 미리보기면 그린 뒤 곧 시작할 실사 아이템의 읽개를 미리 연다(기다리지 않는다). 렌더·스틸은 끈다 — 찍히는
+   * 그림에 영향이 없고, 그쪽은 시각이 앞으로만 가니 이어 받기만으로 충분하다.
+   */
+  readonly prewarmFootage?: boolean;
 }
 
 function defaultCreateCanvas(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
@@ -224,6 +271,9 @@ export class Canvas2DBackend implements RenderBackend {
     for (const op of ops) {
       await this.drawOne(ctx, op, env);
     }
+    if (this.opts.prewarmFootage === true && this.opts.media.warmFootage) {
+      this.opts.media.warmFootage(upcomingFootage(this.opts.timeline, t, new Set(ops.map((o) => o.itemId))));
+    }
   }
 
   private async drawOne(ctx: Ctx2D, op: DrawOp, env: SceneEnv): Promise<void> {
@@ -266,6 +316,12 @@ export class Canvas2DBackend implements RenderBackend {
         case 'footage':
           await this.drawMedia(ctx, op, 'footage');
           break;
+        case 'model': {
+          if (!this.opts.media.getModelFrame) throw new Error(MODEL_RENDERER_UNAVAILABLE);
+          const frame = await this.opts.media.getModelFrame(op);
+          ctx.drawImage(frame, 0, 0, op.transform.width, op.transform.height);
+          break;
+        }
         case 'scene':
           this.drawScene(ctx, op, env);
           break;
@@ -406,8 +462,8 @@ export class Canvas2DBackend implements RenderBackend {
     if (assetId === undefined) return;
     const src =
       kind === 'image'
-        ? await this.opts.media.getImage(assetId)
-        : await this.opts.media.getFrame(assetId, op.sourceTime);
+        ? (await this.opts.media.getItemFrame?.(op)) ?? await this.opts.media.getImage(assetId)
+        : await this.opts.media.getFrame(assetId, op.sourceTime, { itemId: op.itemId, boxWidth: op.transform.width });
     if (!src) return;
 
     const { w, h } = sourceSize(src);

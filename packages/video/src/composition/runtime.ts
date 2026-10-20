@@ -11,12 +11,19 @@
  *   **고정 60Hz 틱**마다 분다(30fps 문서에서 절반 속도가 되지 않게). `Math.random` 은 문서 시드에서 파생한다.
  * - **소리를 내는 API 는 무음 대역** — 던지지 않고 성공한 척한다(로드할 때 `new AudioContext()` 부터 부르는 코드가 흔해서,
  *   던지면 그림까지 멈춘다).
- * - **다 그려진 뒤에만 `ready`** — 글꼴·그림 디코딩·진짜 프레임 둘(멈춘 창이면 150ms 상한)을 넘긴 뒤 알린다.
+ * - **다 그려진 뒤에만 `ready`** — 캡처는 글꼴·그림 디코딩·진짜 프레임 둘(멈춘 창이면 150ms 상한)을 기다린다.
+ *   미리보기 요청은 자원과 그리기 함수만 기다린다 — 화면 표시는 브라우저의 다음 페인트가 맡는다.
  * - **§5.13 (V) 데이터 메시지(읽기 전용)** — `props`(값 갈아 끼우기 → `[data-vibi-prop]` 글자·그림·`--vibi-prop-*` 와 컴포지션의
  *   `__vibi.onProps`) · `pick`(그 자리 요소를 읽어 `picked`) · `inspect`(보이는 글자 상자를 읽어 `inspected`). 받은 것을
  *   코드로 실행하는 길은 없다. 문서 스타일은 시작 값(`--vibi-*`·`__vibi.style`)으로 들어온다. `__vibi.cue` 는 표지를 알린다.
  * - **§5.13 (T-8) 훑기** — `scan{ to, step, seq }` 를 받으면 0초부터 `to` 까지 고정 걸음으로 시계를 한 번 흘린다(그리기를
  *   기다리지 않는다). 그 사이 알린 표지(`cue`)·오류(`error{ t }` — 죽은 가상 시각)가 차례로 올라가고 끝에 `scanned` 를 보낸다.
+ * - **§5.13 (Z) 41-1 직통 채널** — `loaded{ port:true }` 로 받을 수 있다고 알리면, 부모가 `{__vibi:'port'}` 와 함께 건넨
+ *   `MessagePort` 로 그 뒤 모든 요청·답이 오간다(다른 프로세스 프레임 사이의 `window.postMessage` 는 앱 본체 UI 스레드를
+ *   거친다 — 거기가 멈추면 미리보기도 멎었다). 포트는 부모 창에서 온 것만 받는다.
+ * - **§5.13 (Z) 41-2 스스로 재생** — `play{ base, anchor, min, until, grid, fps }` 를 받으면 자기 진짜 rAF 마다 에포크 시계로
+ *   제 시각을 계산해 미리보기 박자로 맞춘다(늦은 프레임은 버린다). `pause{ seq }` 는 멈춘 시각을 `paused` 로 답하고,
+ *   `seek`·`scan` 도 스스로 재생을 멈춘다.
  *
  * ⚠ 아래 `COMPOSITION_RUNTIME_JS` 는 **브라우저가 그대로 실행하는 JS 문자열**이다. 함수 `toString()` 으로 만들지
  * 않는 이유: 번들러가 함수 안에 자기 도우미(`__name` 등)를 끼워 넣으면 iframe 안에서 그 이름을 못 찾아 죽는다.
@@ -32,7 +39,14 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
 
   var parentWin = window.parent;
   var own = Object.prototype.hasOwnProperty;
-  function post(msg) { try { parentWin.postMessage(msg, '*'); } catch (e) { /* the stage is gone */ } }
+  /* §5.13 (Z) 41-1 — once the stage hands over a port, every answer travels on it (see the message section). */
+  var vibiPort = null;
+  function post(msg) {
+    try {
+      if (vibiPort) { vibiPort.postMessage(msg); return; }
+      parentWin.postMessage(msg, '*');
+    } catch (e) { /* the stage is gone */ }
+  }
   function report(err) {
     var text = 'error';
     try { text = err && (err.stack || err.message) ? String(err.stack || err.message) : String(err); } catch (e) { /* keep default */ }
@@ -41,7 +55,12 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
   }
 
   var realRAF = window.requestAnimationFrame.bind(window);
+  /* §5.13 (Z) 41-2 — the real clock (epoch ms) before the virtual one below replaces performance.now. */
+  var realPerfNow = window.performance && typeof window.performance.now === 'function' ? window.performance.now.bind(window.performance) : function () { return 0; };
+  var perfOrigin = window.performance && typeof window.performance.timeOrigin === 'number' ? window.performance.timeOrigin : 0;
   var realSetTimeout = window.setTimeout.bind(window);
+  var realClearTimeout = window.clearTimeout ? window.clearTimeout.bind(window) : function () {};
+  var realCancelRAF = window.cancelAnimationFrame ? window.cancelAnimationFrame.bind(window) : function () {};
   var TICK = 1000 / (init.rafHz > 0 ? init.rafHz : 60);
   var EPOCH = typeof init.epoch === 'number' ? init.epoch : 0;
   var vt = 0;
@@ -247,13 +266,71 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
       } catch (e) { report(e); }
     }
   }
+  /*
+   * §5.13 (Y) 40-8 ② — document.getAnimations() is costly in Chromium even when the list is empty. Call it only when an
+   * animation can exist: a stylesheet or inline style mentions keyframes/animation/transition, or code called animate()/play().
+   * Linked stylesheets cannot be read from an opaque origin, so they count as "may animate" (conservative).
+   */
+  var mayAnimate = false;
+  var sheetsChecked = false;
+  function cssMayAnimate(text) {
+    var s = String(text || '').toLowerCase();
+    return s.indexOf('@keyframes') >= 0 || s.indexOf('animation') >= 0 || s.indexOf('transition') >= 0;
+  }
+  function scanSheets() {
+    sheetsChecked = true;
+    try {
+      if (document.querySelectorAll('link[rel~=stylesheet]').length > 0) { mayAnimate = true; return; }
+      var styles = document.querySelectorAll('style');
+      for (var i = 0; i < styles.length; i++) if (cssMayAnimate(styles[i].textContent)) { mayAnimate = true; return; }
+      var styled = document.querySelectorAll('[style]');
+      for (var j = 0; j < styled.length; j++) if (cssMayAnimate(styled[j].getAttribute('style'))) { mayAnimate = true; return; }
+    } catch (e) { mayAnimate = true; }
+  }
+  function noteMutations(records) {
+    if (mayAnimate || !records) return;
+    for (var i = 0; i < records.length; i++) {
+      var r = records[i];
+      if (r.type === 'attributes') {
+        if (r.target && r.target.getAttribute && cssMayAnimate(r.target.getAttribute('style'))) { mayAnimate = true; return; }
+      } else {
+        /* a new or edited style/link element: read the sheets again */
+        sheetsChecked = false;
+      }
+    }
+  }
+  var animObserver = null;
+  try {
+    animObserver = new MutationObserver(noteMutations);
+    animObserver.observe(document.documentElement || document, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] });
+  } catch (e) { animObserver = null; mayAnimate = true; }
+  try {
+    var realAnimate = Element.prototype.animate;
+    if (typeof realAnimate === 'function') Element.prototype.animate = function () { mayAnimate = true; return realAnimate.apply(this, arguments); };
+  } catch (e) { mayAnimate = true; }
+  try {
+    var realPlay = window.Animation && window.Animation.prototype && window.Animation.prototype.play;
+    if (typeof realPlay === 'function') window.Animation.prototype.play = function () { mayAnimate = true; return realPlay.apply(this, arguments); };
+  } catch (e) { mayAnimate = true; }
   function alignAnimations(t) {
     if (typeof document.getAnimations !== 'function') return;
+    if (animObserver && !mayAnimate) noteMutations(animObserver.takeRecords());
+    if (!mayAnimate && !sheetsChecked) scanSheets();
+    if (!mayAnimate) return;
     var list = document.getAnimations();
     for (var i = 0; i < list.length; i++) {
       try { list[i].pause(); list[i].currentTime = t * 1000; } catch (e) { /* finished or invalid */ }
     }
   }
+  /*
+   * §5.13 (Y) 40-8 ③ — a composition that answers seeks itself (timelines or __vibi.seek) is random-access even when it
+   * also uses frame callbacks or timers (library tickers, particles). Only a composition that relies on frame callbacks
+   * alone is forward-only (the stage must reopen it to go back).
+   */
+  function hasSeekHooks() { return typeof vibi.seek === 'function' || timelineList().length > 0; }
+  function seekMode() { return usesFrames && !hasSeekHooks() ? 'forward' : 'random'; }
+  /* a random-access composition jumps instead of replaying thousands of ticks (going back, or forward by more than this) */
+  var JUMP_MS = 2000;
   function fireTimers(now) {
     for (var guard = 0; guard < 100000; guard++) {
       var due = null;
@@ -280,7 +357,7 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
       nextTick += 1;
     }
   }
-  function settle() {
+  function settle(preview) {
     var waits = [];
     try { if (document.fonts && document.fonts.ready) waits.push(document.fonts.ready.catch(function () {})); } catch (e) { /* no FontFaceSet */ }
     try {
@@ -291,17 +368,27 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
       }
     } catch (e) { /* no images */ }
     return Promise.all(waits).then(function () {
+      /* Live preview already runs on the host's paint clock. Two more rAFs here cap it below 30fps. */
+      if (preview) return;
       return new Promise(function (resolve) {
         var done = false;
-        function finish() { if (!done) { done = true; resolve(); } }
-        realRAF(function () { realRAF(finish); });
-        realSetTimeout(finish, 150);
+        var raf = null;
+        var timer = null;
+        function finish() {
+          if (done) return;
+          done = true;
+          if (timer !== null) realClearTimeout(timer);
+          if (raf !== null) realCancelRAF(raf);
+          resolve();
+        }
+        raf = realRAF(function () { if (!done) raf = realRAF(finish); });
+        timer = realSetTimeout(finish, 150);
       });
     });
   }
-  function doSeek(t) {
+  function doSeek(t, preview) {
     var target = t * 1000;
-    if (usesFrames) {
+    if (usesFrames && !(hasSeekHooks() && (target < vt || target - vt > JUMP_MS))) {
       runTicks(target);
     } else {
       /* nothing waits on ticks, so the clock may jump to t in either direction (seeking back included) */
@@ -312,10 +399,66 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
     var out;
     if (typeof vibi.seek === 'function') { try { out = vibi.seek(t); } catch (e) { report(e); } }
     alignAnimations(t);
-    return Promise.resolve(out).catch(report).then(settle);
+    return Promise.resolve(out).catch(report).then(function () { return settle(preview); });
   }
   var chain = Promise.resolve();
   var lastSeek = null;
+
+  /*
+   * §5.13 (Z) 41-2 — self-play. While the stage plays it sends one 'play' instead of a seek per frame, and the composition
+   * advances its own clock on its own (real) frames: at epoch time T its time is base + (T - anchor) seconds, kept on the
+   * document's frame grid (grid = item start - trim, so the frames are the ones the stage would have asked for) and inside
+   * [min, until). A frame that is not finished when the next one is due is skipped (late frames are dropped, like a video
+   * player) - a busy host thread no longer freezes the picture. 'pause' answers the time it stopped at; any 'seek' or
+   * 'scan' also stops it.
+   */
+  var playState = null;
+  var playBusy = false;
+  /* the first self-played frame after a 'play' is announced once ('played') - the stage then knows this frame has a picture */
+  var playReported = false;
+  function playFrameAt(state, epochMs) {
+    var t = state.base + (epochMs - state.anchor) / 1000;
+    var g = Math.floor((t + state.grid) * state.fps + 0.000001);
+    var gMin = Math.ceil((state.min + state.grid) * state.fps - 0.000001);
+    if (g < gMin) g = gMin;
+    if (state.until !== null) {
+      var gMax = Math.ceil((state.until + state.grid) * state.fps - 0.000001) - 1;
+      if (g > gMax) g = Math.max(gMin, gMax);
+    }
+    return g / state.fps - state.grid;
+  }
+  function playTick() {
+    var state = playState;
+    if (!state) return;
+    realRAF(playTick);
+    if (playBusy) return;
+    var q = playFrameAt(state, perfOrigin + realPerfNow());
+    if (state.last !== null && Math.abs(q - state.last) < 0.000001) return;
+    state.last = q;
+    lastSeek = q;
+    playBusy = true;
+    chain = chain.then(function () { return doSeek(q, true); }).then(function () {
+      playBusy = false;
+      if (!playReported && playState === state) { playReported = true; post({ __vibi: 'played', t: q, mode: seekMode() }); }
+    }, function (err) { playBusy = false; report(err); });
+  }
+  function num(v, fallback) { var n = Number(v); return typeof v === 'number' && isFinite(n) ? n : fallback; }
+  function onPlay(d) {
+    var fps = num(d.fps, vibi.fps);
+    var next = {
+      base: num(d.base, 0), anchor: num(d.anchor, 0), min: num(d.min, 0), grid: num(d.grid, 0),
+      until: typeof d.until === 'number' && isFinite(d.until) ? d.until : null,
+      fps: fps > 0 ? fps : 30, last: playState ? playState.last : null
+    };
+    var was = playState !== null;
+    playState = next;
+    if (!was) { playReported = false; realRAF(playTick); }
+  }
+  function stopPlay() { playState = null; }
+  function onPause(d) {
+    stopPlay();
+    chain = chain.then(function () { post({ __vibi: 'paused', seq: d.seq, t: lastSeek === null ? 0 : lastSeek }); });
+  }
 
   /* §5.13 (V) 37-6 — read-only picking: describe the element at a point (no DOM change). */
   function cssPath(el) {
@@ -349,6 +492,18 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
   function onPick(d) {
     var x = Number(d.x);
     var y = Number(d.y);
+    /* A composition may describe Canvas/WebGL objects through its own read-only adapter. */
+    if (typeof vibi.pick === 'function' && isFinite(x) && isFinite(y)) {
+      try {
+        var picked = vibi.pick({ x: x, y: y, t: vt / 1000 });
+        if (picked && typeof picked === 'object' && typeof picked.objectId === 'string' && picked.rect) {
+          post({ __vibi: 'picked', seq: d.seq, path: String(picked.path || 'object:' + picked.objectId),
+            objectId: picked.objectId, adapter: String(picked.adapter || 'canvas'), properties: picked.properties || {},
+            tag: String(picked.tag || 'canvas'), text: String(picked.text || ''), prop: picked.prop || null, rect: picked.rect });
+          return;
+        }
+      } catch (e) { report(e); }
+    }
     var el = isFinite(x) && isFinite(y) ? document.elementFromPoint(x, y) : null;
     if (!el || el === document.documentElement || el === document.body) { post({ __vibi: 'picked', seq: d.seq, path: '' }); return; }
     var bound = typeof el.closest === 'function' ? el.closest('[' + PROP_ATTR + ']') : null;
@@ -433,26 +588,47 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
     });
   }
 
+  /*
+   * §5.13 (Z) 41-1 — the stage hands over a MessagePort after 'loaded' ({__vibi:'port'} + the port). From then on every
+   * request and answer travels on that port: a window.postMessage between frames of different processes is relayed through
+   * the browser process UI thread (the app's main thread, where its server runs), so each stall there froze the preview.
+   * Only the parent window may hand a port; messages on it are handled exactly like the parent's.
+   */
   window.addEventListener('message', function (e) {
     if (e.source !== parentWin) return;
     var d = e.data;
+    if (d && typeof d === 'object' && d.__vibi === 'port') {
+      var port = e.ports && e.ports[0];
+      if (!port) return;
+      if (vibiPort) { try { vibiPort.close(); } catch (x) { /* already closed */ } }
+      vibiPort = port;
+      port.onmessage = function (ev) { handle(ev.data); };
+      return;
+    }
+    handle(d);
+  });
+  function handle(d) {
     if (!d || typeof d !== 'object') return;
+    if (d.__vibi === 'play') { onPlay(d); return; }
+    if (d.__vibi === 'pause') { onPause(d); return; }
     if (d.__vibi === 'props') { onProps(d); return; }
-    if (d.__vibi === 'scan') { onScan(d); return; }
+    if (d.__vibi === 'scan') { stopPlay(); onScan(d); return; }
     if (d.__vibi === 'pick') { onPick(d); return; }
     if (d.__vibi === 'inspect') { onInspect(d); return; }
     if (d.__vibi !== 'seek') return;
+    stopPlay();
     var t = Number(d.t);
     if (!isFinite(t) || t < 0) t = 0;
     var seq = d.seq;
+    var preview = d.preview === true;
     lastSeek = t;
-    chain = chain.then(function () { return doSeek(t); }).then(function () {
-      post({ __vibi: 'ready', seq: seq, t: t, mode: usesFrames ? 'forward' : 'random' });
+    chain = chain.then(function () { return doSeek(t, preview); }).then(function () {
+      post({ __vibi: 'ready', seq: seq, t: t, mode: seekMode() });
     }, function (err) {
       report(err);
-      post({ __vibi: 'ready', seq: seq, t: t, mode: usesFrames ? 'forward' : 'random' });
+      post({ __vibi: 'ready', seq: seq, t: t, mode: seekMode() });
     });
-  });
+  }
 
   /* ---- lifecycle ---- */
   window.addEventListener('error', function (e) { report(e.error || e.message); });
@@ -472,7 +648,8 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
   function sendLoaded() {
     if (loadedSent) return;
     loadedSent = true;
-    post({ __vibi: 'loaded', mode: usesFrames ? 'forward' : 'random', declared: declared() });
+    /* port: this runtime takes a MessagePort (41-1) and self-play (41-2) — older runtimes simply do not say so. */
+    post({ __vibi: 'loaded', mode: seekMode(), declared: declared(), port: true });
   }
   if (document.readyState === 'complete') realSetTimeout(sendLoaded, 0);
   else window.addEventListener('load', function () { realSetTimeout(sendLoaded, 0); });

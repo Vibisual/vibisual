@@ -69,6 +69,18 @@ describe('audio HTTP contract', () => {
     expect(badUpload.status).toBe(400);
   });
 
+  it('copies a document through the authenticated app route and refuses missing sources', async () => {
+    await post(`${base}/docs`, { project: 'project', id: 'source', title: 'Original' });
+    const request = { project: 'project', title: 'Copy', requestId: 'copy-request' };
+    const copied = await post(`${base}/doc/source/copy`, request);
+    expect(copied.status).toBe(200);
+    const first = await copied.json();
+    expect(first).toMatchObject({ doc: { title: 'Copy', version: 1 }, canUndo: false, canRedo: false });
+    expect(await (await post(`${base}/doc/source/copy`, request)).json()).toEqual(first);
+    expect((await post(`${base}/doc/unknown/copy`, request)).status).toBe(404);
+    expect((await post(`${base}/doc/source/copy`, { ...request, requestId: '../invalid' })).status).toBe(400);
+  });
+
   it('exposes editing capabilities and explicitly inactive connection drafts', async () => {
     expect(await (await fetch(`${base}/capabilities`)).json()).toMatchObject({ providersActive: false, operations: expect.arrayContaining([{ op: 'removeClip', clipId: 'clip-1' }]) });
     expect(await (await fetch(`${base}/settings?project=project`)).json()).toEqual({ ok: true, settings: { providers: [] }, active: false });

@@ -18,18 +18,24 @@ export function srtTime(seconds: number): string {
   return `${two(h)}:${two(m)}:${two(s)},${String(rest).padStart(3, '0')}`;
 }
 
-export function buildSrt(doc: VideoDoc, timeline: ResolvedTimeline): string {
+/**
+ * §5.13 (AA) 42-4 — `range` 를 주면 그 구간의 큐만, 구간 시작을 0 으로 옮겨 적는다(구간 렌더 옆에 놓는 SRT 가 그 영상의 시각과
+ * 맞게). 구간에 걸친 큐는 구간 안 몫만 남는다.
+ */
+export function buildSrt(doc: VideoDoc, timeline: ResolvedTimeline, range?: { readonly start: number; readonly end: number } | null): string {
   const hidden = new Set(doc.tracks.filter((t) => t.hidden === true).map((t) => t.id));
   const chapters = chapterMap(doc);
   const cues: Array<{ start: number; end: number; text: string }> = [];
+  const from = range ? Math.max(0, range.start) : 0;
+  const to = range ? Math.max(from, range.end) : Infinity;
   for (const r of timeline.items) {
     if (r.kind !== 'caption' || r.item.enabled === false || hidden.has(r.trackId) || isUnpickedVariant(chapters, r.item)) continue;
     for (const cue of r.item.cues ?? []) {
-      const start = Math.max(cue.start, r.start);
-      const end = Math.min(cue.end, r.end);
+      const start = Math.max(cue.start, r.start, from);
+      const end = Math.min(cue.end, r.end, to);
       const text = cue.text.trim();
       if (end - start <= 0.001 || text === '') continue;
-      cues.push({ start, end, text });
+      cues.push({ start: start - from, end: end - from, text });
     }
   }
   cues.sort((a, b) => a.start - b.start || a.end - b.end);

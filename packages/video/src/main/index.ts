@@ -20,6 +20,7 @@ import {
 import { closeWorker, ensureWorker } from './worker.js';
 import { capturePageImage } from './pageCapture.js';
 import { downloadLibrary } from './libsDownload.js';
+import { disposeExportHost, exportDone, openExport, openExportFolder, pickExportFolder, revealExport, setKeepAwake } from './exportHost.js';
 
 const DEFAULT_W = 1280;
 const DEFAULT_H = 860;
@@ -90,8 +91,9 @@ export const vibistudioApp: VideoMainModule = {
         return inspectOffscreen(p.session);
       }
       case 'offscreen:close': {
-        const p = (payload ?? {}) as { session?: string };
-        await closeOffscreen(p.session);
+        // §5.13 (Y) 40-7 ③ — `keep` 이면 창을 쉬게 둔다(다음 일감이 다시 쓴다). 렌더러의 기기 예산이 정한다.
+        const p = (payload ?? {}) as { session?: string; keep?: boolean };
+        await closeOffscreen(p.session, p.keep === true);
         return null;
       }
       // §5.13 (T-4) — 서버 몫이 일감을 받으면 깨운다(이미 떠 있으면 그대로). 일꾼 창이 일감이 끊겼다며 닫아 달라고 한다.
@@ -108,6 +110,19 @@ export const vibistudioApp: VideoMainModule = {
         const png = await capturePageImage((payload ?? {}) as { url: unknown; width?: unknown; height?: unknown });
         return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
       }
+      // §5.13 (AA) 42-2·42-7 — 내보내기의 OS 기능(폴더 창·폴더에서 보기·열기·끝난 뒤 알림·절전 막기).
+      case 'export:pickFolder':
+        return pickExportFolder(payload);
+      case 'export:reveal':
+        return revealExport(payload);
+      case 'export:open':
+        return openExport(payload);
+      case 'export:openFolder':
+        return openExportFolder(payload);
+      case 'export:done':
+        return exportDone(payload);
+      case 'power:keepAwake':
+        return setKeepAwake(payload);
       default:
         throw new Error(`vibistudio — 알 수 없는 동작: ${action}`);
     }
@@ -116,5 +131,6 @@ export const vibistudioApp: VideoMainModule = {
   dispose: () => {
     closeWorker();
     closeAllOffscreen();
+    disposeExportHost();
   },
 };

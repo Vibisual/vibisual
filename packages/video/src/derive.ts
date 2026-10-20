@@ -52,7 +52,7 @@ function deriveItem(item: VideoItem, from: VideoDoc['size'], to: VideoDoc['size'
   });
 
   let transform: VideoTransform | undefined = item.transform;
-  if ((item.kind === 'footage' || item.kind === 'image') && full) {
+  if ((item.kind === 'footage' || item.kind === 'image' || item.kind === 'model') && full) {
     const asset = item.assetId === undefined ? undefined : assets[item.assetId];
     const box = coverBox(asset?.width ?? 0, asset?.height ?? 0, to.width, to.height);
     transform = { ...box, ...keepRest(item.transform) };

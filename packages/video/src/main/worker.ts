@@ -33,6 +33,8 @@ export async function ensureWorker(): Promise<{ started: boolean }> {
     skipTaskbar: true,
     webPreferences: {
       preload: host.preloadFile,
+      // §5.13 (Y) 40-7 ⑤ — 꼭 필요해서가 아니다: 이 preload 는 샌드박스 창에서도 실린다(Electron 31.7.7 probe — `window.api`·`request`·
+      //   `app.invoke` 그대로). 모든 창과 같은 설정을 지킬 뿐이고, 샌드박스 전환은 창 전체를 함께 바꾸는 결정이다(사용자 확인 — P3 ⑥).
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,

@@ -74,6 +74,8 @@ export {
   resolveChapters,
   transitionOverlap,
 } from './chapters.js';
+// §5.13 (X) 39-4 — 장면 대표 프레임의 열쇠·찍을 자리(서버 디스크 기억과 화면 기억이 같은 열쇠를 쓴다 — 순수).
+export { CHAPTER_THUMB_AT, CHAPTER_THUMB_KEY_VERSION, chapterThumbWants, type ChapterThumbWant } from './chapterThumbs.js';
 export { requiredSchemaVersion } from './ops.js';
 // §5.13 (V) 37-13 — 대본으로 편집(문장 목록·잘라 낼 구간·자르기 연산 — 순수).
 export { buildCutOps, buildTranscript, keptSegments, mapCutTime, mergeCutRanges, sentenceCutRanges } from './transcript.js';
@@ -81,6 +83,38 @@ export type { CutPlan, CutRange, TranscriptSentence } from './transcript.js';
 // §5.13 (V) 37-15 — 내보내기(판형 파생·SRT·자막 따로 내기 — 순수).
 export { coverBox, deriveFormatDoc, derivedDocId } from './derive.js';
 export { buildSrt, srtTime, withoutCaptions } from './srt.js';
+// §5.13 (AA) 42 — 내보내기 편의(설정·일감 모양·파일 이름·계획 — 순수).
+export {
+  DEFAULT_EXPORT_SETTINGS,
+  EXPORT_CAPTIONS,
+  EXPORT_CONFLICTS,
+  EXPORT_FORMATS,
+  EXPORT_FPS_CHOICES,
+  EXPORT_QUALITIES,
+  EXPORT_SCALES,
+  exportDir,
+  exportFps,
+  exportText,
+  isSafePresetId,
+  normalizeExportSettings,
+  normalizeExportSettingsFile,
+} from './exportSettings.js';
+export { normalizeRange, normalizeRenderOutput, normalizeRenderSpec, renderExtension, scaledSize, specFromSettings } from './renderSpec.js';
+export type { ExportRange, RenderOutputSpec, RenderSpec } from './renderSpec.js';
+export type {
+  ExportAfter,
+  ExportCaptions,
+  ExportConflict,
+  ExportFormat,
+  ExportPreset,
+  ExportQuality,
+  ExportSettings,
+  ExportSettingsFile,
+} from './exportSettings.js';
+export { RENDER_NAME_TOKENS, buildRenderFileName, firstFreeName, numberedName, sanitizeFileName, utf8Bytes } from './exportNames.js';
+export type { RenderNameContext } from './exportNames.js';
+export { audibleTracks, batchFileName, planExportJobs, renderFramePlan, renderTiming, withMutedTracks } from './exportPlan.js';
+export type { AudibleTrack, ExportPlanDoc, ExportPlanEntry, ExportPlanInput, ExportPlanPiece, RenderFramePlan, RenderTimingInput } from './exportPlan.js';
 export { diffDoc, diffTargets, summarizeDiff, DIFF_LINE_LIMIT } from './diffDoc.js';
 export type { DiffChange, DiffLine, DiffLineKind, DocDiff } from './diffDoc.js';
 export { isSafeHistoryId, restoreOps } from './history.js';
@@ -145,8 +179,21 @@ export { CHAPTER_FRAME_ITEM_ID, chapterFrameDoc, chapterFrameTime } from './chap
 
 export { buildDrawList, audioItemsAt, captionTextAt } from './render/drawList.js';
 // §5.13 (V) 37-6 — 화면의 한 점 아래 무엇이 있나(순수).
-export { hitTest, opRect, textBounds } from './render/hitTest.js';
-export type { HitRect, HitResult } from './render/hitTest.js';
+export { hitTest, opBounds, opRect, textBounds } from './render/hitTest.js';
+export type { HitRect, HitResult, HitTestOptions } from './render/hitTest.js';
+// §5.13 (V) 37-6 — 기본 씬 안쪽(제목·부제·목록 줄 …) — 가리키기·메모·Alt 인스펙터가 같은 답을 쓴다(순수).
+export {
+  BUILTIN_SCENE_LAYOUTS,
+  ctxTextMeasure,
+  estimateTextMeasure,
+  parsePropIndex,
+  sceneFootprint,
+  sceneLayout,
+  scenePartAt,
+  scenePropText,
+  toDocRect,
+} from './render/sceneParts.js';
+export type { SceneLayout, ScenePart, TextMeasure } from './render/sceneParts.js';
 export type { DrawOp, ResolvedTransform } from './render/drawList.js';
 // §5.13 (V) 37-12 — 단어 강조 자막(순수 — 인스펙터가 추정 여부를 읽는다).
 export { captionWordSpans, splitCaptionWords, wantsWordHighlight } from './render/captionWords.js';
@@ -176,3 +223,7 @@ export {
   strongBeatsInDoc,
 } from './review/motionReview.js';
 export type { FrameProbe, MotionCode, MotionFinding, ProbeText } from './review/motionReview.js';
+export {
+  REQUEST_CHECK_FRAME_BUDGET, checkVideoRequirements, videoBaseline, videoItemSignature,
+  type VideoBaseline, type VideoCheckOptions, type VideoCheckReason, type VideoRequirement, type VideoRequirementResult,
+} from './requestReview.js';

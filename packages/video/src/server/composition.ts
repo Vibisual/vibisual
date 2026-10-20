@@ -29,6 +29,7 @@ import { parseCompositionMeta, parsePropsDecl } from '../composition/meta.js';
 import { scanComposition } from '../composition/lint.js';
 import { stableHash } from '../hashItem.js';
 import type { CompositionLintEntry, CompositionPropDecl, CompositionSeekMode, VideoAsset, VideoDoc, VideoDocOp } from '../types.js';
+import { taskCopyNamespaceOf } from './taskCopyPaths.js';
 
 /** `.vibisual` 아래 자리를 프로젝트 기준 상대 경로로. */
 /**
@@ -72,6 +73,33 @@ export function toProjectRelative(root: string, input: string, platform: Platfor
   return rel === '' || rel.startsWith('..') ? null : rel;
 }
 
+/**
+ * §5.13 (Y) 40-7 ② — `resolveInsideProject` 의 **비동기** 판(판단은 같다 — 메인 스레드를 막지 않는다). 프로젝트 뿌리의 실제 경로는
+ * 잠깐(`REAL_ROOT_TTL_MS`) 기억한다 — 2초마다 지켜보는 문서마다 다시 풀지 않게(폴더를 옮기면 그 안에 다시 푼다).
+ */
+const REAL_ROOT_TTL_MS = 30_000;
+const realRoots = new Map<string, { real: string; at: number }>();
+
+async function realRoot(root: string): Promise<string> {
+  const known = realRoots.get(root);
+  if (known && Date.now() - known.at < REAL_ROOT_TTL_MS) return known.real;
+  const real = await fs.promises.realpath(root);
+  realRoots.set(root, { real, at: Date.now() });
+  return real;
+}
+
+export async function resolveInsideProjectAsync(root: string, rel: string, platform: PlatformName = process.platform): Promise<string | null> {
+  try {
+    const base = await realRoot(root);
+    const abs = path.resolve(base, rel);
+    if (!isPathWithin(abs, base, platform)) return null;
+    const real = await fs.promises.realpath(abs);
+    return isPathWithin(real, base, platform) ? real : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 폴더 아래 웹 형식 파일(상대 경로, 정렬) — 상한까지만. 숨김 폴더·node_modules 는 건너뛴다. */
 export function listCompositionWebFiles(dirAbs: string): string[] {
   return listWebFiles(dirAbs);
@@ -103,6 +131,33 @@ function listWebFiles(dirAbs: string): string[] {
   return out;
 }
 
+/** `listWebFiles` 의 비동기 판(같은 순서·같은 상한·같은 건너뛰기). */
+async function listWebFilesAsync(dirAbs: string): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (dir: string, prefix: string): Promise<void> => {
+    if (out.length >= COMPOSITION_SCAN_MAX_FILES) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const entry of entries) {
+      if (out.length >= COMPOSITION_SCAN_MAX_FILES) return;
+      const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        await walk(path.join(dir, entry.name), rel);
+      } else if (entry.isFile() && isCompositionWebFile(entry.name)) {
+        out.push(rel);
+      }
+    }
+  };
+  await walk(dirAbs, '');
+  return out;
+}
+
 /** 컴포지션 폴더의 절대 경로(프로젝트 안 실제 경로). 경로가 잘못됐거나 루트 자신이면 null. */
 export function compositionFolderAbs(root: string, relHtml: string, platform: PlatformName = process.platform): string | null {
   if (!isProjectRelativePath(relHtml) || !isCompositionHtmlPath(relHtml)) return null;
@@ -128,7 +183,33 @@ export function compositionFingerprint(root: string, relHtml: string, platform: 
       // 훑는 사이 지워진 파일 — 지문에서 빠진다(그것도 변화다).
     }
   }
+  return fingerprintOf(relHtml, parts);
+}
+
+function fingerprintOf(relHtml: string, parts: readonly string[]): string {
   return stableHash(`${toPosixPath(relHtml)}\n${parts.join('\n')}`);
+}
+
+/**
+ * §5.13 (Y) 40-7 ② — 지문의 **비동기** 판(같은 값 — 시험이 둘을 맞댄다). 서버가 지켜보는 문서마다 2초마다 재므로 동기 파일 시스템으로
+ * 메인 스레드(패키지 앱에서는 창 스레드)를 막지 않게 한다.
+ */
+export async function compositionFingerprintAsync(root: string, relHtml: string, platform: PlatformName = process.platform): Promise<string | null> {
+  if (!isProjectRelativePath(relHtml) || !isCompositionHtmlPath(relHtml)) return null;
+  const folderRel = compositionFolderOf(relHtml);
+  if (folderRel === '') return null;
+  const folder = await resolveInsideProjectAsync(root, folderRel, platform);
+  if (!folder) return null;
+  const files = await listWebFilesAsync(folder);
+  const stats = await Promise.all(files.map(async (rel) => {
+    try {
+      const st = await fs.promises.stat(path.join(folder, rel));
+      return `${rel}:${st.size}:${Math.round(st.mtimeMs)}`;
+    } catch {
+      return null; // 훑는 사이 지워진 파일 — 지문에서 빠진다(그것도 변화다).
+    }
+  }));
+  return fingerprintOf(relHtml, stats.filter((s): s is string => s !== null));
 }
 
 export interface CompositionProbeResult {
@@ -296,6 +377,9 @@ export function compositionRoots(root: string, doc: VideoDoc | null, platform: P
       if (asset.kind !== 'composition' || asset.source.kind !== 'file') continue;
       const folder = compositionFolderAbs(root, asset.source.path, platform);
       if (folder) roots.add(folder);
+      const namespace = taskCopyNamespaceOf(asset.source.path);
+      const copyRoot = namespace ? resolveInsideProject(root, namespace, platform) : null;
+      if (copyRoot) roots.add(copyRoot);
     }
   }
   return [...roots];

@@ -46,6 +46,8 @@ export interface HistoryRouteDeps {
 /** 지금 하는 일 — 문서마다 마지막 바퀴의 상태(메모리, 프로젝트로 가른다 — §3.5). */
 export class ActivityBook {
   private readonly map = new Map<string, DocActivity>();
+  /** §5.13 (Y) 40-7 ② — 바뀔 때마다(그 문서를 지켜보는 창에 알린다). */
+  constructor(private readonly onChange?: (projectPath: string, docId: string) => void) {}
   private key(projectPath: string, docId: string): string {
     return `${pathKey(projectPath, process.platform)}::${docId}`;
   }
@@ -57,6 +59,7 @@ export class ActivityBook {
     const keepFocus = prev?.passId === passId ? prev.focus : undefined;
     const nextFocus = focus ?? keepFocus;
     this.map.set(this.key(projectPath, docId), { passId, at: Date.now(), status, ...(nextFocus ? { focus: nextFocus } : {}) });
+    try { this.onChange?.(projectPath, docId); } catch { /* 알림 실패가 기록을 막지 않는다 */ }
   }
 }
 

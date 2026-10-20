@@ -58,7 +58,7 @@ export function buildTranscript(doc: VideoDoc, timeline: ResolvedTimeline): Tran
   // 고르지 않은 갈래(37-14)는 그리지 않으니 대본에도 없다.
   const chapters = chapterMap(doc);
   const live = timeline.items.filter((r) => r.item.enabled !== false && !isUnpickedVariant(chapters, r.item));
-  const media = live.filter((r) => r.kind === 'footage' || r.kind === 'audio' || r.kind === 'composition');
+  const media = live.filter((r) => r.kind === 'footage' || r.kind === 'audio' || r.kind === 'composition' || r.kind === 'model');
   const out: TranscriptSentence[] = [];
   for (const r of live) {
     if (r.kind !== 'caption') continue;
@@ -146,7 +146,7 @@ function overlapLength(ranges: readonly CutRange[], a: number, b: number): numbe
 }
 
 function usesTrim(item: VideoItem): boolean {
-  return item.kind === 'footage' || item.kind === 'audio' || item.kind === 'composition';
+  return item.kind === 'footage' || item.kind === 'audio' || item.kind === 'composition' || item.kind === 'model';
 }
 
 /** 자막 큐를 자른 시각으로 옮긴다(완전히 잘린 큐는 빠진다 · 낱말도 함께). */

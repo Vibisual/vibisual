@@ -23,6 +23,10 @@ import { growWindowToContent } from './windowSize.js';
 
 /** 렌더 화면이 준비될 때까지 기다리는 최대 시간(ms). 넘으면 이 백엔드를 못 쓴다고 본다. */
 const READY_TIMEOUT_MS = 20_000;
+/** §5.13 (Y) 40-7 ③ — 일감이 끝난 렌더 창을 이만큼(ms) 쉬게 두었다가 닫는다(그 사이 다음 일감은 창을 다시 읽지 않는다). */
+export const OFFSCREEN_IDLE_TTL_MS = 60_000;
+/** 쉬게 둘 창 수의 상한(배경 종류마다) — 렌더러가 기기 예산으로 더 줄여 청한다(`keep`). */
+export const OFFSCREEN_IDLE_MAX = 1;
 /** 한 프레임을 그리고 찍는 데 허용하는 최대 시간(ms). */
 const FRAME_TIMEOUT_MS = 15_000;
 
@@ -32,6 +36,8 @@ interface OffscreenSession {
   height: number;
   /** §5.13 (W) 38-1 — 창을 문서 크기로 못 키웠을 때의 맞춤 배율(1 = 그대로). */
   fit: number;
+  /** §5.13 (Y) 40-7 ③ — 투명 창인가(쉬게 둘 때 같은 종류끼리만 다시 쓴다). */
+  alpha?: boolean;
 }
 
 /**
@@ -40,6 +46,38 @@ interface OffscreenSession {
  */
 const sessions = new Map<string, OffscreenSession>();
 const DEFAULT_SESSION = 'default';
+
+/**
+ * §5.13 (Y) 40-7 ③ — 쉬는 렌더 창(풀). 종전에는 still·stills·strip·review 일감마다 창을 새로 띄우고 끝나면 부숴, 창마다 본체 엔트리
+ * (13MB)를 코드 캐시 없이 다시 해석했다. 이제 끝난 창은 무대만 내려놓고 쉬다가, 다음 일감은 새 문서만 건네받는다
+ * (`__vibiRenderOpen`). 투명 창은 만들 때 정해지므로 배경 종류(`alpha`)마다 따로 쉰다.
+ */
+interface IdleWindow {
+  readonly window: BrowserWindow;
+  readonly alpha: boolean;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+const idleWindows: IdleWindow[] = [];
+
+/** 끝난 창을 쉬게 둘까(순수 — 시험이 고정한다). `keep` 은 렌더러의 기기 예산이 정한다. */
+export function offscreenPoolDecision(opts: { readonly keep: boolean; readonly idleSameKind: number; readonly maxIdle?: number }): 'pool' | 'destroy' {
+  return opts.keep && opts.idleSameKind < (opts.maxIdle ?? OFFSCREEN_IDLE_MAX) ? 'pool' : 'destroy';
+}
+
+function takeIdleWindow(alpha: boolean): BrowserWindow | null {
+  for (let i = idleWindows.length - 1; i >= 0; i -= 1) {
+    const idle = idleWindows[i]!;
+    if (idle.alpha !== alpha) continue;
+    idleWindows.splice(i, 1);
+    clearTimeout(idle.timer);
+    if (!idle.window.isDestroyed()) return idle.window;
+  }
+  return null;
+}
+
+function destroyWindow(win: BrowserWindow | null | undefined): void {
+  if (win && !win.isDestroyed()) win.destroy();
+}
 
 function sessionKey(raw: unknown): string {
   return typeof raw === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(raw) ? raw : DEFAULT_SESSION;
@@ -153,6 +191,24 @@ export async function openOffscreen(opts: {
   if (alpha && !(await probeAlphaCapture())) {
     throw new Error('이 환경에서는 투명 배경을 찍을 수 없습니다 — 창 합성(컴포지터)이 꺼져 있으면 투명 창이 검은 바탕으로 그려집니다. 일반 MP4 로 내보내 주세요.');
   }
+
+  // §5.13 (Y) 40-7 ③ — 쉬던 창이 있으면 새 문서만 건넨다(본체를 다시 읽지 않는다). 실패하면 그 창은 버리고 새로 띄운다.
+  const reused = takeIdleWindow(alpha);
+  if (reused) {
+    try {
+      const grown = growWindowToContent(reused, opts.width, opts.height, OFFSCREEN_MAX_EDGE);
+      const params = renderParams({ ...opts, fit: grown.fit, alpha });
+      await reused.webContents.executeJavaScript(`window.__vibiRenderOpen && window.__vibiRenderOpen(${JSON.stringify(params)}); typeof window.__vibiRenderOpen === 'function'`).then((ok: unknown) => {
+        if (ok !== true) throw new Error('render window cannot be reused');
+      });
+      await waitRenderReady(reused);
+      sessions.set(key, { window: reused, width: opts.width, height: opts.height, fit: grown.fit, alpha });
+      return { fit: grown.fit };
+    } catch {
+      destroyWindow(reused);
+    }
+  }
+
   const win = new BrowserWindow({
     width: opts.width,
     height: opts.height,
@@ -166,6 +222,7 @@ export async function openOffscreen(opts: {
     enableLargerThanScreen: true,
     webPreferences: {
       preload: hostOrThrow().preloadFile,
+      // §5.13 (Y) 40-7 ⑤ — 일꾼 창과 같은 판단: preload 는 샌드박스에서도 실리지만(31.7.7 probe) 창 전체의 샌드박스 전환은 사용자 확인 뒤(P3 ⑥).
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -174,31 +231,51 @@ export async function openOffscreen(opts: {
       offscreen: false,
     },
   });
-  // §5.13 (W) 38-1 — Windows 는 창을 화면 작업 영역으로 줄인다(실측). 최대 크기를 연 뒤 내용 크기를 다시 준다.
-  const grown = growWindowToContent(win, opts.width, opts.height, OFFSCREEN_MAX_EDGE);
+  // §5.13 (Y) 40-7 ③ — 읽기·준비 중 무엇이 던지든 창을 반드시 닫는다(종전에는 `loadFile`·`executeJavaScript` 가 던지면 창이
+  //   `sessions` 에 들지 않은 채 남아 `closeAllOffscreen` 도 못 찾는 고아가 됐다).
+  let committed = false;
+  try {
+    // §5.13 (W) 38-1 — Windows 는 창을 화면 작업 영역으로 줄인다(실측). 최대 크기를 연 뒤 내용 크기를 다시 준다.
+    const grown = growWindowToContent(win, opts.width, opts.height, OFFSCREEN_MAX_EDGE);
 
-  await win.loadFile(hostOrThrow().rendererFile, {
-    hash: renderHash({ ...opts, fit: grown.fit, alpha }),
-  });
+    await win.loadFile(hostOrThrow().rendererFile, {
+      hash: renderHash({ ...opts, fit: grown.fit, alpha }),
+    });
 
-  // 렌더 화면이 문서를 받아 무대를 세울 때까지 기다린다.
+    // 렌더 화면이 문서를 받아 무대를 세울 때까지 기다린다.
+    await waitRenderReady(win);
+
+    sessions.set(key, { window: win, width: opts.width, height: opts.height, fit: grown.fit, alpha });
+    committed = true;
+    return { fit: grown.fit };
+  } finally {
+    if (!committed) destroyWindow(win);
+  }
+}
+
+/** 렌더 화면이 문서를 받아 무대를 세웠는가(상한까지 기다린다 — 넘으면 그 화면이 남긴 이유와 함께 던진다). */
+async function waitRenderReady(win: BrowserWindow): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   for (;;) {
     if (win.isDestroyed()) throw new Error('렌더 창이 닫혔습니다.');
     const ready = (await win.webContents.executeJavaScript('window.__vibiRenderReady === true')) as boolean;
-    if (ready) break;
-    if (Date.now() > deadline) {
-      const err = (await win.webContents.executeJavaScript(
-        'window.__vibiRenderError ?? null',
-      )) as string | null;
-      win.destroy();
-      throw new Error(err ?? '렌더 화면이 준비되지 않았습니다.');
-    }
+    if (ready) return;
+    const err = (await win.webContents.executeJavaScript('window.__vibiRenderError ?? null')) as string | null;
+    if (err) throw new Error(err);
+    if (Date.now() > deadline) throw new Error('렌더 화면이 준비되지 않았습니다.');
     await sleep(120);
   }
+}
 
-  sessions.set(key, { window: win, width: opts.width, height: opts.height, fit: grown.fit });
-  return { fit: grown.fit };
+/** 해시와 같은 이름의 값(풀로 다시 쓰는 창에 건넨다). */
+function renderParams(opts: { project: string; docId: string; width: number; height: number; rev?: string; fit?: number; alpha?: boolean; frame?: string }): Record<string, string> {
+  return {
+    app: 'vibistudio', mode: 'render', project: opts.project, docId: opts.docId, w: String(opts.width), h: String(opts.height),
+    ...(opts.rev ? { rev: opts.rev } : {}),
+    ...(opts.fit !== undefined && opts.fit < 1 ? { fit: String(opts.fit) } : {}),
+    ...(opts.alpha === true ? { alpha: '1' } : {}),
+    ...(opts.frame ? { frame: opts.frame } : {}),
+  };
 }
 
 /**
@@ -258,17 +335,49 @@ export async function inspectOffscreen(session?: string): Promise<unknown[]> {
   }
 }
 
-export async function closeOffscreen(session?: string): Promise<void> {
+/**
+ * 일감을 끝낸다. `keep` 이면(렌더러의 기기 예산) 창을 부수지 않고 무대만 내려놓은 채 `OFFSCREEN_IDLE_TTL_MS` 동안 쉬게 둔다 —
+ * 다음 일감이 그 창을 다시 쓴다. 쉬는 창이 이미 차 있으면 부순다.
+ */
+export async function closeOffscreen(session?: string, keep = false): Promise<void> {
   const key = sessionKey(session);
   const current = sessions.get(key);
   sessions.delete(key);
-  if (current && !current.window.isDestroyed()) current.window.destroy();
+  if (!current || current.window.isDestroyed()) return;
+  const alpha = current.alpha === true;
+  const decision = offscreenPoolDecision({ keep, idleSameKind: idleWindows.filter((w) => w.alpha === alpha).length });
+  if (decision === 'destroy') { current.window.destroy(); return; }
+  const win = current.window;
+  try {
+    // 무대(샌드박스 문서·디코더)를 내려놓는다 — 빈 값을 건네면 렌더 화면이 아무것도 세우지 않는다.
+    await win.webContents.executeJavaScript('window.__vibiRenderOpen && window.__vibiRenderOpen({}); true');
+  } catch {
+    destroyWindow(win);
+    return;
+  }
+  if (win.isDestroyed()) return;
+  const timer = setTimeout(() => {
+    const i = idleWindows.findIndex((w) => w.window === win);
+    if (i >= 0) idleWindows.splice(i, 1);
+    destroyWindow(win);
+  }, OFFSCREEN_IDLE_TTL_MS);
+  timer.unref?.();
+  idleWindows.push({ window: win, alpha, timer });
 }
 
-/** 본체 창이 닫힐 때 — 열린 오프스크린 창을 전부 닫는다(§5.13 (T-11) ④). */
+/** 본체 창이 닫힐 때 — 열린·쉬는 오프스크린 창을 전부 닫는다(§5.13 (T-11) ④). */
 export function closeAllOffscreen(): void {
   for (const [key, current] of sessions) {
     sessions.delete(key);
     if (!current.window.isDestroyed()) current.window.destroy();
   }
+  for (const idle of idleWindows.splice(0)) {
+    clearTimeout(idle.timer);
+    destroyWindow(idle.window);
+  }
+}
+
+/** 지금 살아 있는 오프스크린 창 수(일감 중 + 쉬는 것) — 계측·시험용. */
+export function offscreenWindowCount(): { active: number; idle: number } {
+  return { active: sessions.size, idle: idleWindows.length };
 }

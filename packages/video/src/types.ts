@@ -28,7 +28,7 @@ export type VideoTrackKind = 'visual' | 'audio' | 'caption';
  * §5.13 (T-1) — `composition` 은 에이전트(또는 사람)가 HTML·CSS·JS 로 짠 모션그래픽 파일이다. 움직임은 그
  * 파일에, 언제·어디에·어떤 데이터(`props`)로는 이 문서에 있다. 기본 씬 6종과 **병행**한다(대체 ❌).
  */
-export type VideoItemKind = 'scene' | 'footage' | 'image' | 'audio' | 'caption' | 'shape' | 'text' | 'composition';
+export type VideoItemKind = 'scene' | 'footage' | 'image' | 'audio' | 'caption' | 'shape' | 'text' | 'composition' | 'model';
 
 /**
  * 시각 앵커.
@@ -142,7 +142,9 @@ export interface CueIssue {
 export interface VideoAsset {
   readonly id: string;
   /** §5.13 (T-1) — `composition` = 프로젝트 안 HTML 파일 하나(그 파일이 있는 폴더가 컴포지션 폴더). */
-  readonly kind: 'audio' | 'video' | 'image' | 'font' | 'composition';
+  readonly kind: 'audio' | 'video' | 'image' | 'font' | 'composition' | 'model';
+  /** Immutable editable source revision from the project creation catalog. */
+  readonly creationSource?: { readonly id: string; readonly revision: number; readonly appId: string };
   readonly source: VideoAssetSource;
   /** 초. 오디오·영상·컴포지션이 의미가 있으며, 이 값이 있어야 `duration:'auto'` 를 풀 수 있다. */
   readonly duration?: number;
@@ -385,6 +387,8 @@ export interface VideoDoc {
   readonly style?: DocStyle;
   /** §5.13 (V) 37-15 — 판형 파생 문서면 원본. */
   readonly derivedFrom?: { readonly docId: string; readonly format: VideoFormatId };
+  /** Objective request checks and explicitly attributed visual evidence. */
+  readonly requirements?: readonly import('./requestReview.js').VideoRequirement[];
   readonly createdAt: number;
   readonly updatedAt: number;
 }
@@ -493,7 +497,7 @@ export type VideoDocOp =
   | { readonly op: 'setAsset'; readonly asset: VideoAsset }
   | { readonly op: 'removeAsset'; readonly assetId: string }
   /** `style: null` 이면 스타일을 걷는다(JSON 은 undefined 를 보낼 수 없다). */
-  | { readonly op: 'setDoc'; readonly patch: Partial<Pick<VideoDoc, 'title' | 'size' | 'fps' | 'seed'>> & { readonly style?: DocStyle | null } }
+  | { readonly op: 'setDoc'; readonly patch: Partial<Pick<VideoDoc, 'title' | 'size' | 'fps' | 'seed' | 'requirements'>> & { readonly style?: DocStyle | null } }
   // §5.13 (V) 37-4 — 장면 층.
   | { readonly op: 'addChapter'; readonly chapter: VideoChapter; readonly beforeChapterId?: string }
   | { readonly op: 'updateChapter'; readonly chapterId: string; readonly patch: Partial<Omit<VideoChapter, 'id'>> }

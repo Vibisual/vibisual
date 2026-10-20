@@ -9,6 +9,8 @@
  * 그때부터 독립이 깨진 것이므로, 무엇이 오갔는지가 이 한 파일만 보면 드러난다.
  */
 
+import type { CreationLink } from '@vibisual/shared';
+
 /** 서버 몫이 호스트에게 요구하는 것. */
 export interface AppServerHost {
   /**
@@ -21,12 +23,25 @@ export interface AppServerHost {
   info(message: string): void;
   warn(message: string): void;
   /**
+   * 앱 원본의 **참조 관계만** 공통 색인(거울)에 반영한다 — 본문은 싣지 않는다(앱 문서가 본문의 주인). 링크도 거울도 없으면
+   * 아무것도 쓰지 않고 null, 제목·링크가 그대로면 쓰지 않는다(§5.13 (R-10)).
+   */
+  syncCreationSource?(
+    projectPath: string,
+    source: { key: string; appId: string; title: string; links: CreationLink[] },
+  ): Promise<{ id: string; revision: number } | null>;
+  /**
    * §5.13 (T-4)(T-11) ① — 서버 몫 → **같은 앱의 main 몫** `invoke(action, payload)`.
    *
    * 서버와 main 이 한 프로세스라(§3.7) 새 소켓도 새 IPC 채널도 없다. 일감이 들어오면 숨은 일꾼 창을 깨우는 데 쓴다.
    * main 이 없는 실행 형태(단위 시험·웹)에서는 비어 있다 — 그때 일감은 줄에 남아 다른 일꾼을 기다린다.
    */
   invokeMain?(action: string, payload?: unknown): Promise<unknown>;
+  /**
+   * §5.13 (Y) 40-7 ② — 열린 창들에 알린다(문서 판이 올랐다 등). 호스트가 기존 방송 한 줄로 나르고 뜻은 모른다. 없는 실행 형태
+   * (단위 시험)면 비어 있다 — 그때 창은 폴링(안전망)으로 알아챈다.
+   */
+  notify?(event: { project: string; kind: string; key: string; version?: number }): void;
 }
 
 /**

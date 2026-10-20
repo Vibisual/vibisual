@@ -55,6 +55,7 @@ export function mountAudioRoutes(app: Express, host: AudioServerHost): AudioServ
   app.get('/docs', route((req, res) => { res.json({ ok: true, docs: service.list(service.project(req.query['project'])) }); }));
   app.post('/docs', route((req, res) => { res.json(service.create(service.project(req.body?.project), req.body)); }));
   app.get('/doc/:docId', route((req, res) => { res.json(service.get(service.project(req.query['project']), req.params['docId'])); }));
+  app.post('/doc/:docId/copy', route((req, res) => { res.json(service.copy(service.project(req.body?.project), req.params['docId'], req.body)); }));
   for (const action of ['patch', 'undo', 'redo'] as const) {
     app.post(`/doc/:docId/${action}`, route((req, res) => {
       res.json(service.edit(service.project(req.body?.project), req.params['docId'], action, req.body));

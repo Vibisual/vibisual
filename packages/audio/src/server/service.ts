@@ -144,6 +144,24 @@ export class AudioService {
     return response(this.read(root, id));
   }
 
+  /** A task copy starts its own edit history; immutable, registered sources can be shared. */
+  copy(root: string, sourceId: unknown, raw: unknown): AudioDocumentResponse {
+    if (!safeId(sourceId) || !object(raw) || typeof raw.requestId !== 'string'
+      || !/^[a-zA-Z0-9_.:-]{1,120}$/.test(raw.requestId)) badRequest('A source document and unique requestId are required.');
+    if (typeof raw.title !== 'string' || !raw.title.trim() || raw.title.length > 200) badRequest('Invalid audio project title.');
+    const id = `copy-${createHash('sha256').update(`${sourceId}\0${raw.requestId}`).digest('hex').slice(0, 40)}`;
+    const relative = this.docPath(id);
+    const existing = this.storage.read(root, relative, storedDocument);
+    if (existing) return response(existing);
+    const source = this.read(root, sourceId).doc;
+    this.assets.validate(root, source.assets);
+    const now = Date.now();
+    const doc: AudioDoc = { ...structuredClone(source), id, title: raw.title.trim(), version: 1, createdAt: now, updatedAt: now };
+    const stored: StoredAudioDocument = { formatVersion: 1, doc, undo: [], redo: [], receipts: [], history: [] };
+    this.storage.write(root, relative, stored, storedDocument);
+    return response(stored);
+  }
+
   edit(root: string, id: unknown, action: 'patch' | 'undo' | 'redo', raw: unknown): AudioDocumentResponse {
     if (!object(raw) || !Number.isInteger(raw.baseVersion) || Number(raw.baseVersion) < 0
       || typeof raw.requestId !== 'string' || !/^[a-zA-Z0-9_.:-]{1,120}$/.test(raw.requestId)) {

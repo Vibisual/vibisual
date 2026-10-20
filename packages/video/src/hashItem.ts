@@ -20,7 +20,7 @@
 import type { VideoAsset, VideoItem } from './types.js';
 
 /** 키를 정렬해 직렬화한다 — 의미가 같으면 문자열도 같도록. */
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
 

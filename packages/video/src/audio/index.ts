@@ -4,3 +4,5 @@ export { BEAT_MAX_BPM, BEAT_MIN_BPM, analyzeBeats, downmixToMono, nearestBeat } 
 export type { BeatAnalysis } from './beats.js';
 export { DUCK_ATTACK_S, DUCK_DEFAULT_DB, DUCK_RELEASE_S, dbToGain, duckEnvelope, duckGainAt, mergeDuckRanges } from './duck.js';
 export type { DuckOptions, DuckPoint, DuckRange } from './duck.js';
+/** §5.13 (AA) 42-1 — 소리만 내보내기(WAV 그릇). */
+export { encodeWav } from './wav.js';

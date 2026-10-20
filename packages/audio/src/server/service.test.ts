@@ -65,6 +65,30 @@ describe('persisted audio editing and immutable assets', () => {
     expect(restarted.get(root, 'doc').doc.version).toBe(human.doc.version);
   });
 
+  it('copies a saved mix with independent edits/history and replays the same copy after restart', async () => {
+    const first = service.create(root, { id: 'source', title: 'Original' });
+    const asset = await service.assets.upload(root, 'voice.wav', wav());
+    const source = service.edit(root, first.doc.id, 'patch', { baseVersion: first.doc.version, requestId: 'source-edit', ops: [
+      { op: 'setAsset', asset }, { op: 'addClip', trackId: 'audio', clip: { id: 'voice', assetId: asset.id, at: 0, sourceStart: 0, duration: 1 } },
+    ] });
+    const request = { title: 'Variant', requestId: 'copy-once' };
+    const copy = service.copy(root, 'source', request);
+    expect(copy.doc.id).not.toBe(source.doc.id);
+    expect(copy).toMatchObject({ canUndo: false, canRedo: false, history: [], doc: { title: 'Variant', version: 1, assets: source.doc.assets, tracks: source.doc.tracks } });
+    const edited = service.edit(root, copy.doc.id, 'patch', { baseVersion: copy.doc.version, requestId: 'variant-edit', ops: [{ op: 'updateClip', clipId: 'voice', patch: { gainDb: -6 } }] });
+    expect(service.get(root, 'source')).toEqual(source);
+    expect(new AudioService(host).copy(root, 'source', request)).toEqual(edited);
+    expect(service.list(root)).toHaveLength(2);
+  });
+
+  it('fails a task copy without modifying the source when persistence fails', () => {
+    const source = service.create(root, { id: 'source', title: 'Original' });
+    const broken = new AudioService({ ...host, atomicWriteFile: () => { throw new Error('disk full'); } });
+    expect(() => broken.copy(root, 'source', { title: 'Copy', requestId: 'failed' })).toThrow('disk full');
+    expect(service.get(root, 'source')).toEqual(source);
+    expect(service.list(root)).toHaveLength(1);
+  });
+
   it('undo/redo versions increase and a new edit clears redo without removing the source', () => {
     const first = service.create(root, { id: 'doc', title: 'Original' });
     const changed = service.edit(root, 'doc', 'patch', { baseVersion: first.doc.version, requestId: 'a', ops: [{ op: 'setDoc', patch: { title: 'Changed' } }] });

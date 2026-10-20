@@ -11,6 +11,7 @@
  */
 
 import { VIDEO_MAX_ITEMS, VIDEO_SCHEMA_VERSION } from './constants.js';
+import { validVideoRequirements } from './requestReview.js';
 import type { TimeAnchor, VideoDoc, VideoItemKind, VideoTrackKind } from './types.js';
 
 const TRACK_KINDS: readonly VideoTrackKind[] = ['visual', 'audio', 'caption'];
@@ -18,6 +19,7 @@ const ITEM_KINDS: readonly VideoItemKind[] = [
   'scene',
   'footage',
   'image',
+  'model',
   'audio',
   'caption',
   'shape',
@@ -189,6 +191,7 @@ export function validateDoc(value: unknown): ValidateResult {
   }
 
   validateChapters(value['chapters'], errors);
+  if (value['requirements'] !== undefined && !validVideoRequirements(value['requirements'])) errors.push('requirements must contain valid request checks with unique ids (maximum 100).');
 
   const tracks = value['tracks'];
   if (!Array.isArray(tracks)) {
