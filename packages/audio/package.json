@@ -7,8 +7,14 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./server": { "types": "./dist/server/routes.d.ts", "default": "./dist/server/routes.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/routes.d.ts",
+      "default": "./dist/server/routes.js"
+    }
   },
   "scripts": {
     "build": "tsc",
@@ -18,7 +24,7 @@
   "dependencies": {
     "@vibisual/shared": "workspace:*",
     "express": "^4.21.0",
-    "mediabunny": "^1.52.2"
+    "mediabunny": "^1.61.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

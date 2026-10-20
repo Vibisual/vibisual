@@ -18,6 +18,7 @@
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
     "@types/d3-force": "^3.0.10",
+    "@vibisual/audio": "workspace:*",
     "@vibisual/plugins": "workspace:*",
     "@vibisual/shared": "workspace:*",
     "@vibisual/video": "workspace:*",
@@ -32,6 +33,7 @@
     "graphology-communities-louvain": "^2.0.2",
     "graphology-types": "^0.24.8",
     "i18next": "^26.0.6",
+    "opentype.js": "2.0.0",
     "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-colorful": "^5.6.1",
@@ -42,11 +44,11 @@
     "react-virtuoso": "^4.18.7",
     "remark-gfm": "^4.0.1",
     "three": "^0.185.1",
-    "zustand": "^5.0.0",
-    "@vibisual/audio": "workspace:*"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
+    "@types/opentype.js": "1.3.10",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-test-renderer": "18.3.1",
