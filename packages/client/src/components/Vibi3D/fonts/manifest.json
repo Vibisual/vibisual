@@ -1,0 +1,58 @@
+﻿[
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/nanummyeongjo/NanumMyeongjo-Regular.ttf",
+        "sha256":  "7ed9e8653a8ed04285d51dc343ffea6eb3d9c73afc27383ea8929ee4ffd03205",
+        "license":  "OFL-1.1",
+        "file":  "nanummyeongjo/NanumMyeongjo-Regular.ttf",
+        "bytes":  3058408
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/nanummyeongjo/NanumMyeongjo-Bold.ttf",
+        "sha256":  "bc9ed8e60d93fe6db054b8fb988481b625f2eef8cb2317ad0e9834681b8fe3f3",
+        "license":  "OFL-1.1",
+        "file":  "nanummyeongjo/NanumMyeongjo-Bold.ttf",
+        "bytes":  3074720
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/nanummyeongjo/OFL.txt",
+        "sha256":  "8eb1c1019fe7fe6d0b6e7d7bbbba1d9cbdd969d8c5f26455708f6cfb8a77284c",
+        "license":  "OFL-1.1",
+        "file":  "nanummyeongjo/OFL.txt",
+        "bytes":  4497
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/nanumgothic/NanumGothic-Regular.ttf",
+        "sha256":  "76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31",
+        "license":  "OFL-1.1",
+        "file":  "nanumgothic/NanumGothic-Regular.ttf",
+        "bytes":  2054744
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/nanumgothic/NanumGothic-Bold.ttf",
+        "sha256":  "f96298f9fb18e364d2370f4c3ce948ac67a2b61af992d7234bc15c42b033c674",
+        "license":  "OFL-1.1",
+        "file":  "nanumgothic/NanumGothic-Bold.ttf",
+        "bytes":  2073868
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/nanumgothic/OFL.txt",
+        "sha256":  "eeacf16032901d0ed0456876ec77b8f0fda6b3fecec7d972f8543eb602e6c30f",
+        "license":  "OFL-1.1",
+        "file":  "nanumgothic/OFL.txt",
+        "bytes":  4534
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/blackhansans/BlackHanSans-Regular.ttf",
+        "sha256":  "31960809284026681774a8e52dc19ebcad26cf69b0ad9d560f288296fbb52739",
+        "license":  "OFL-1.1",
+        "file":  "blackhansans/BlackHanSans-Regular.ttf",
+        "bytes":  998424
+    },
+    {
+        "source":  "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/blackhansans/OFL.txt",
+        "sha256":  "c324192c8b3a988bae45a9a7e4ac1258b684739003bda114e0523423440457c9",
+        "license":  "OFL-1.1",
+        "file":  "blackhansans/OFL.txt",
+        "bytes":  4399
+    }
+]
