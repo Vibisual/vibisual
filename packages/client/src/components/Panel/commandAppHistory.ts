@@ -1,7 +1,5 @@
 import type { BashEntry } from '@vibisual/shared';
 
-export const COMMAND_HISTORY_VISIBLE_LIMIT = 50;
-
 /** References into the existing history, never another persisted command/output copy. */
 export interface CommandHistoryRow {
   key: string;
@@ -12,12 +10,20 @@ function compareRows(a: CommandHistoryRow, b: CommandHistoryRow): number {
   return b.entry.timestamp - a.entry.timestamp || a.key.localeCompare(b.key);
 }
 
-/** Only called for the selected Bash/app panel; working memory stays at 50 rows. */
+/**
+ * Only called for the selected Bash/app panel.
+ *
+ * §5.1 명령 앱 · §7.3 (2026-10-21) — `limit` is the panel's `마지막 20개만 유지` checkbox, the same rule as the file bubble's
+ * edit list (`MAX_COMMAND_APP_HISTORY` = `MAX_FILE_EDITS`). `null` means the box is unchecked: every retained entry is
+ * listed (retention itself — 50 per session — is the server's separate axis). The 10-20 fixed screen cap of 50 is gone.
+ */
 export function commandHistoryRows(
   history: Readonly<Record<string, readonly BashEntry[]>>,
   nodeId: string,
   app: boolean,
+  limit: number | null,
 ): CommandHistoryRow[] {
+  const max = limit === null ? Number.POSITIVE_INFINITY : Math.max(0, Math.floor(limit));
   const rows: CommandHistoryRow[] = [];
   const collect = (owner: string, entries: readonly BashEntry[]): void => {
     for (const entry of entries) {
@@ -31,7 +37,7 @@ export function commandHistoryRows(
         if (compareRows(row, rows[duplicate]!) >= 0) continue;
         rows.splice(duplicate, 1);
       }
-      if (rows.length === COMMAND_HISTORY_VISIBLE_LIMIT && compareRows(row, rows[rows.length - 1]!) >= 0) continue;
+      if (rows.length >= max && (rows.length === 0 || compareRows(row, rows[rows.length - 1]!) >= 0)) continue;
       let low = 0;
       let high = rows.length;
       while (low < high) {
@@ -40,7 +46,7 @@ export function commandHistoryRows(
         else low = mid + 1;
       }
       rows.splice(low, 0, row);
-      if (rows.length > COMMAND_HISTORY_VISIBLE_LIMIT) rows.pop();
+      if (rows.length > max) rows.pop();
     }
   };
   if (app) {

@@ -37,6 +37,30 @@ describe('command app icon cache', () => {
     expect(fetchIcon).toHaveBeenCalledTimes(36);
   });
 
+  it('peeks a live answer synchronously — including "no icon" — and forgets it with its TTL', async () => {
+    vi.useFakeTimers();
+    const fetchIcon = vi.fn().mockResolvedValueOnce(PNG).mockResolvedValueOnce(null);
+    const get = createCommandAppIconCache(fetchIcon);
+    expect(get.peek('app')).toBeUndefined();
+    await get('app');
+    await get('none');
+    expect(get.peek('app')).toBe(PNG);
+    expect(get.peek('none')).toBeNull();
+    vi.advanceTimersByTime(30_001);
+    expect(get.peek('none')).toBeUndefined();
+    expect(get.peek('app')).toBe(PNG);
+    vi.advanceTimersByTime(300_000);
+    expect(get.peek('app')).toBeUndefined();
+  });
+
+  it('accepts SVG data from Linux icon themes but no other image types', async () => {
+    const svg = 'data:image/svg+xml;base64,PHN2Zy8+';
+    const fetchIcon = vi.fn().mockResolvedValueOnce(svg).mockResolvedValueOnce('data:text/html;base64,PGgxPg==');
+    const get = createCommandAppIconCache(fetchIcon);
+    expect(await get('svg')).toBe(svg);
+    expect(await get('html')).toBeNull();
+  });
+
   it('rejects external or oversized images and retries missing icons after the short TTL', async () => {
     vi.useFakeTimers();
     const fetchIcon = vi.fn().mockResolvedValueOnce('https://example.invalid/icon.png').mockResolvedValueOnce(PNG).mockResolvedValueOnce(`data:image/png;base64,${'a'.repeat(128 * 1024)}`);

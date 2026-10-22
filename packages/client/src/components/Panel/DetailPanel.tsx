@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
-import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, TOKEN_SUBAGENT_FETCH_CONCURRENCY, LOCAL_TOOL_NAMES } from '@vibisual/shared';
+import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, MAX_COMMAND_APP_HISTORY, TOKEN_SUBAGENT_FETCH_CONCURRENCY, LOCAL_TOOL_NAMES } from '@vibisual/shared';
 import { mapWithConcurrency } from '../../utils/tokenFanout.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useIDEDockLayout } from '../IDE/useIDEDockLayout.js';
@@ -10,6 +10,7 @@ import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
 import { commandHistoryRows } from './commandAppHistory.js';
 import { CommandAppIcon } from '../CommandAppIcon.js';
+import { useActiveAppTheme } from '../../theme/useAppTheme.js';
 import { ServerList } from './ServerList.js';
 import { IframeServerCard } from './IframeServerCard.js';
 import { IframeServerLogsPopup } from './IframeServerLogsPopup.js';
@@ -43,6 +44,12 @@ import { formatSince } from '../../formatSince.js';
 
 interface DetailPanelProps {
   onClose: () => void;
+}
+
+/** §5.1 — 패널 바탕은 테마를 따른다. 바탕별 공식 변형이 있는 동봉 그림(curl)이 그 바탕에 맞는 쪽을 고른다. */
+function PanelCommandAppIcon({ executable }: { executable?: string }): React.JSX.Element {
+  const tone = useActiveAppTheme().kind === 'light' ? 'light' : 'dark';
+  return <CommandAppIcon executable={executable} px={28} tone={tone} />;
 }
 
 function getStatusLabel(status: string): { label: string; classes: string } {
@@ -128,9 +135,22 @@ export function DetailPanel({
   const node = rawNode && currentFolderIdForRoot && selectedNodeId === currentFolderIdForRoot
     ? { ...rawNode, bubbleType: 'root' as const }
     : rawNode;
+  // §5.1 명령 앱 · §7.3 — 파일 버블과 같은 `마지막 20개만 유지` 체크박스(끄면 남아 있는 기록 전부).
+  const commandHistoryLimited = node?.unlimitedCommandHistory !== true;
   const selectedBashRows = useMemo(() => node?.bubbleType === 'bash'
-    ? commandHistoryRows(bashHistory, node.id, !!node.commandApp)
-    : [], [bashHistory, node?.id, node?.bubbleType, !!node?.commandApp]);
+    ? commandHistoryRows(bashHistory, node.id, !!node.commandApp, commandHistoryLimited ? MAX_COMMAND_APP_HISTORY : null)
+    : [], [bashHistory, node?.id, node?.bubbleType, !!node?.commandApp, commandHistoryLimited]);
+  const commandHistoryLimit = useMemo(() => (node?.bubbleType === 'bash' ? {
+    keep: MAX_COMMAND_APP_HISTORY,
+    limited: commandHistoryLimited,
+    onChange: (limited: boolean) => {
+      fetch('/api/command-history/unlimited', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId: node.id, unlimited: !limited }),
+      }).catch(() => {});
+    },
+  } : undefined), [node?.bubbleType, node?.id, commandHistoryLimited]);
   const subAgents = useGraphStore((s) => s.subAgents);
   const completedCommands = useGraphStore((s) => s.completedCommands);
   const agentConfigs = useGraphStore((s) => s.agentConfigs);
@@ -1270,7 +1290,7 @@ export function DetailPanel({
             <>
               {node.commandApp ? (
                 <div className="flex items-start gap-2 rounded border border-gray-700/50 bg-gray-800/40 p-2.5">
-                  <CommandAppIcon executable={node.commandApp.iconSource ?? node.commandApp.executable} px={28} />
+                  <PanelCommandAppIcon executable={node.commandApp.iconSource ?? node.commandApp.executable} />
                   <div className="min-w-0 text-xs">
                     <p className="font-semibold text-gray-200">{node.commandApp.name}</p>
                     <p className="mt-1 text-gray-500">{t('panel.bashHistory.commandDetected')}</p>
@@ -1279,7 +1299,7 @@ export function DetailPanel({
                   </div>
                 </div>
               ) : <ServerList servers={runningServers[node.id] ?? []} />}
-              <BashHistoryList key={node.id} rows={selectedBashRows} />
+              <BashHistoryList key={node.id} rows={selectedBashRows} limitControl={commandHistoryLimit} />
             </>
           )}
 

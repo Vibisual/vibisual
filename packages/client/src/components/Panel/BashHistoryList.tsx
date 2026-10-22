@@ -1,12 +1,25 @@
 import { memo, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BashEntry } from '@vibisual/shared';
+import { MAX_BASH_HISTORY } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
-import { COMMAND_HISTORY_VISIBLE_LIMIT, type CommandHistoryRow } from './commandAppHistory.js';
+import type { CommandHistoryRow } from './commandAppHistory.js';
+
+/**
+ * §5.1 명령 앱 · §7.3 — 목록 위 `마지막 N개만 유지` 체크박스(파일 버블 수정 기록과 같은 규칙 · 2026-10-21 사용자 지시).
+ * 켜면 최근 `keep` 개, 끄면 남아 있는 기록 전부(보관 상한은 서버의 별개 축이다).
+ */
+export interface CommandHistoryLimitControl {
+  readonly keep: number;
+  readonly limited: boolean;
+  readonly onChange: (limited: boolean) => void;
+}
 
 interface BashHistoryListProps {
   rows: readonly CommandHistoryRow[];
+  /** 없으면 체크박스를 그리지 않는다(종전 Bash 위성처럼 손잡이가 없는 자리). */
+  limitControl?: CommandHistoryLimitControl;
 }
 
 function CommandStatus({ entry }: { entry: BashEntry }): React.JSX.Element {
@@ -128,6 +141,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
 
 export const BashHistoryList = memo(function BashHistoryList({
   rows,
+  limitControl,
 }: BashHistoryListProps): React.JSX.Element {
   const { t } = useTranslation();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -136,9 +150,28 @@ export const BashHistoryList = memo(function BashHistoryList({
 
   const handleClose = useCallback(() => setSelectedKey(null), []);
 
+  // 파일 버블 수정 기록(§7.4)과 같은 체크박스 — 같은 문구·같은 자리(목록 위). 목록이 비어도 손잡이는 남긴다(켜고 끄는 자리).
+  const limitRow = limitControl ? (
+    <label
+      className="flex cursor-pointer select-none items-center gap-1.5 text-[12px] text-gray-400"
+      title={t('panel.bashHistory.limitHint', { keep: MAX_BASH_HISTORY })}
+    >
+      <input
+        type="checkbox"
+        className="h-3 w-3 accent-violet-500"
+        checked={limitControl.limited}
+        onChange={(e) => limitControl.onChange(e.target.checked)}
+      />
+      {t('panel.bashHistory.limitLabel', { count: limitControl.keep })}
+    </label>
+  ) : null;
+
   if (rows.length === 0) {
     return (
-      <p className="text-xs text-gray-500">{t('panel.bashHistory.noCommandsYet')}</p>
+      <div className="flex flex-col gap-1">
+        {limitRow}
+        <p className="text-xs text-gray-500">{t('panel.bashHistory.noCommandsYet')}</p>
+      </div>
     );
   }
 
@@ -148,7 +181,7 @@ export const BashHistoryList = memo(function BashHistoryList({
         <span className="text-xs text-gray-500">
           {t('panel.bashHistory.commandsHeading', { count: rows.length })}
         </span>
-        <span className="text-[12px] text-gray-500">{t('panel.bashHistory.recentLimit', { count: COMMAND_HISTORY_VISIBLE_LIMIT })}</span>
+        {limitRow}
         <ScrollFade maxHeight={256}>
           <ul className="flex flex-col gap-1.5">
             {rows.map(({ entry, key }) => (
