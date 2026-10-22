@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, RunningSubagentTask } from '@vibisual/shared';
 import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
-import { isBackgroundShellTask, isSessionRunning } from '@vibisual/shared';
+import { isBackgroundShellTask, isSessionRunning, BUBBLE_STYLES, HOOK_AGENT_STYLE } from '@vibisual/shared';
 import { verificationNotRun } from '@vibisual/shared';
 import {
   useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
@@ -12,7 +12,7 @@ import {
 import { afterInputComposition, cancelPendingInputEdits, IME_ENTER_OWNER, isComposingKeyEvent, isComposingNow, isImeConsumedKey, isInputComposing } from '../../utils/inputComposition.js';
 import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.js';
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
-import { clampStreamText, COMPACT_TEXT_CLAMP, turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
+import { speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
 import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
@@ -64,6 +64,8 @@ import { AgentListCard } from './AgentListCard.js';
 import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalPanes } from './IDETerminalPanes.js';
 import { SessionMemoLayer } from './SessionMemoLayer.js';
+import { SessionBubbleView, isInsideSessionBubbles, sessionBubbleStreamsOf, useOlderSessionIds } from './SessionBubbleView.js';
+import type { SessionBubbleStream } from './sessionBubbles.js';
 import { canAddMemoCount, hasHiddenMemoHeaders } from './sessionMemo.js';
 import { useMemoLinkHost } from './useMemoLinkHost.js';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
@@ -71,7 +73,7 @@ import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndic
 import { collectThinkRuns, mergeAdjacentThinkTraces, shouldTraceWriting, toolGroupElapsedMs, toolCallElapsedMs, type ThinkTraceView } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText } from './stepTraceText.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
-import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
+import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
 // §5.5 #17-38 — 음성 받아쓰기. 마이크 수명은 훅이, 키·글 끼우기 판정은 shared 가, "듣는 중" 표시는 오버레이가 맡는다.
@@ -842,11 +844,6 @@ const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
 };
 
 /**
- * §5.5 #17-21 ② — 메인 탭 AI 본문. 간결에서는 앞 N줄(또는 N자)만 남기고 [더 보기]로 접는다.
- * `exempt`(화면의 마지막 본문)는 지금 하는 말이자 결론이라 자르지 않는다. 훅을 쓰므로 별도 컴포넌트
- * (TerminalLine 은 분기마다 early return 이라 그 안에서 훅을 부를 수 없다).
- */
-/**
  * §5.5 #17-39 — 메인 탭 단계 자국. 훅(`useTranslation`)을 쓰므로 `TerminalLine` 안이 아니라 별도 조각
  * (그쪽은 분기마다 early return 이라 훅을 부를 수 없다 — `TerminalTextLine` 과 같은 이유).
  */
@@ -856,19 +853,13 @@ function TerminalStepLine({ entry }: { entry: TerminalEntry }): React.JSX.Elemen
   return <StepTraceLine text={thinkTraceText(t, i18n.language, ms, entry.stepChars ?? 0)} />;
 }
 
-/** 본문 한 덩이의 평문 클래스 — 접힌 본문은 머리·꼬리 **두 덩이**로 그리므로 한 곳에 둔다(§5.5 #17-46 ③). */
-const TERMINAL_TEXT_CLASS = 'block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200';
-
-function TerminalTextLine({ entry, density, exempt, run }: { entry: TerminalEntry; density: StreamDensity; exempt: boolean; run: SpeechRunPos }): React.JSX.Element {
+/**
+ * 메인 탭 AI 본문. §5.5 #17-49 — 어느 밀도에서도 본문을 접지 않는다(간결의 가운데 접기 #17-46 폐기 —
+ * Sub 탭 `TextBlock` 과 같은 규칙). 훅을 쓰므로 별도 컴포넌트(TerminalLine 은 분기마다 early return 이라
+ * 그 안에서 훅을 부를 수 없다).
+ */
+function TerminalTextLine({ entry, density, run }: { entry: TerminalEntry; density: StreamDensity; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
-  // §5.5 #17-46 — 간결에서는 **머리와 꼬리만 남기고 가운데**를 접는다(Sub 탭 `TextBlock` 과 같은 규칙·같은 설정).
-  //   평문(`whitespace-pre-wrap`)으로 그리므로 마크다운 코드펜스 보정(#17-46 ④)은 끈 설정을 쓴다.
-  const clamped = useMemo(
-    () => (density === 'compact' && !exempt ? clampStreamText(entry.text, COMPACT_TEXT_CLAMP) : null),
-    [density, exempt, entry.text],
-  );
-  const [open, toggleOpen] = useStreamToggle(`text-more-${entry.id}`, false);
-  const folded = clamped !== null && !open;
   // §5.5 #17-39 — 작성 자국(Sub 탭 TextBlock 과 같은 문턱·같은 문구 함수). 메인 탭의 본문 항목은
   //   buildEntries 가 연속 델타를 합쳐 만든 것이라 끝 시각이 따로 없다 — 분량만 적는다(시간은 0).
   const writeTrace = density !== 'compact' && shouldTraceWriting(entry.text.length)
@@ -881,29 +872,21 @@ function TerminalTextLine({ entry, density, exempt, run }: { entry: TerminalEntr
       <div className="flex gap-2">
         <AiSpeakerGlyph run={run} />
         <div className={`min-w-0 flex-1 ${run === 'mid' || run === 'tail' ? 'py-0.5' : 'py-1'}`}>
-          {/* §5.5 #17-46 ③ — 접힌 동안은 [머리 · 접기 손잡이 · 꼬리], 펼치면 [본문 전체 · 접기] 종전 모양. */}
-          <span className={TERMINAL_TEXT_CLASS}>
+          <span className="block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200">
             {entry.sessionLabel && (
               <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[12px] font-semibold text-cyan-400/80">
                 {entry.sessionLabel}
               </span>
             )}
-            {folded ? clamped.head : entry.text}
+            {entry.text}
           </span>
-          {folded && (
-            <>
-              <StreamTextFold open={false} hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />
-              <span className={TERMINAL_TEXT_CLASS}>{clamped.tail}</span>
-            </>
-          )}
-          {clamped !== null && open && <StreamTextFold open hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />}
         </div>
       </div>
     </div>
   );
 }
 
-function TerminalLine({ entry, density, exempt, run, agentId }: { entry: TerminalEntry; density?: StreamDensity; exempt?: boolean; run?: SpeechRunPos; agentId?: string }): React.JSX.Element {
+export function TerminalLine({ entry, density, run, agentId }: { entry: TerminalEntry; density?: StreamDensity; run?: SpeechRunPos; agentId?: string }): React.JSX.Element {
   if (entry.transportRecovery) {
     return <TransportRecoveryLine recovery={entry.transportRecovery} content={entry.text} sessionLabel={entry.sessionLabel} />;
   }
@@ -941,7 +924,7 @@ function TerminalLine({ entry, density, exempt, run, agentId }: { entry: Termina
   // AI 일상 대화(assistant text)는 Sub 탭 TextBlock 과 동일하게 박스 없이 평범한 본문 + 왼쪽 스파클
   // 글리프로만 표식한다(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분).
   if (entry.type === 'text') {
-    return <TerminalTextLine entry={entry} density={density ?? 'standard'} exempt={exempt ?? false} run={run ?? 'solo'} />;
+    return <TerminalTextLine entry={entry} density={density ?? 'standard'} run={run ?? 'solo'} />;
   }
   // §5.25 (O) — 엔진이 내건 그림. **Sub 탭과 같은 조각**을 쓴다(두 벌로 두면 한쪽만 고쳐진다).
   //   밀도로 접지 않는다 — 그림은 줄이면 아무 말도 못 한다.
@@ -2448,9 +2431,57 @@ interface StreamStatusBarProps {
    * 않는 세션이 "되살아난 턴"으로도 잡히지 않고 영영 파란 스피너로 남았다.
    */
   hasExecutingCommand: boolean;
+  /**
+   * §5.5 #17-50 — 이 칸이 지금 버블 지도를 보이고 있으면 받는다. 그때 줄을 누르면 대화가 화면에 없으므로
+   * 스크롤 대신 **대화로 돌아가 그 프롬프트로** 간다(지도 위에서 헛클릭이 되지 않게).
+   */
+  returnToStream?: (cmdId: string) => void;
 }
 
 const STATUS_SUMMARY_MAX = 80;
+
+/**
+ * §5.5 #17-50 — [버블]. 밀도 토글 **왼쪽**에 선다(사용자 지시 — 낱말은 짧게 「버블」).
+ * 켜면 이 칸의 대화 자리에 **이 세션만의 버블 지도**가 선다(`SessionBubbleView` — 프로젝트 캔버스 노드는 빌려 오지 않는다).
+ * 켜짐은 칸(세션)마다 따로이고 휘발이다 — 키는 [추종]과 같은 꼴이라 분할 칸마다 따로 켠다.
+ * 바깥 줄이 `role="button"`(프롬프트로 점프)이라 클릭은 밀도 토글과 같이 `stopPropagation` 한다.
+ */
+function StreamBubbleToggle(): React.JSX.Element {
+  const { t } = useTranslation();
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const paneSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  // §5.5 #17-34 — 창을 나눴으면 **이 칸의** 세션, 안 나눴으면 종전대로 창의 활성 세션.
+  const activeSessionId = useSplitCellSession(paneSessionId);
+  const viewKey = followSessionKey(agentId ?? '', activeSessionId);
+  const on = useGraphStore((s) => s.ideBubbleView[viewKey] === true);
+  const setOn = useGraphStore((s) => s.setIdeBubbleView);
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={(e) => { e.stopPropagation(); setOn(viewKey, !on); }}
+      title={on ? t('ide.bubbles.tipOn') : t('ide.bubbles.tipOff')}
+      className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold transition-colors ${
+        on
+          ? 'border-blue-400/80 bg-blue-500/25 text-blue-100'
+          : 'border-gray-600/70 text-gray-400 hover:bg-gray-800 hover:text-gray-100'
+      }`}
+    >
+      {/* lucide `orbit` — 원 · 궤도 · 위성(버블 언어). */}
+      <svg
+        className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+      >
+        <circle cx="12" cy="12" r="3" />
+        <circle cx="19" cy="5" r="2" />
+        <circle cx="5" cy="19" r="2" />
+        <path d="M10.4 21.9a10 10 0 0 0 9.941-15.416" />
+        <path d="M13.5 2.1a10 10 0 0 0-9.841 15.416" />
+      </svg>
+      {t('ide.bubbles.toggle')}
+    </button>
+  );
+}
 
 /** §5.5 #17-12 — 표시 밀도 3단 토글(간결/표준/원문). 상태바 우측에 상주 — 스트림이 길어지는 자리에서 바로 조절. */
 function StreamDensityToggle(): React.JSX.Element {
@@ -2725,6 +2756,8 @@ function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX
   return (
     <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       <StreamProviderModelButton />
+      {/* §5.5 #17-50 — [버블]은 밀도 토글 바로 왼쪽(사용자 지시). */}
+      <StreamBubbleToggle />
       <StreamDensityToggle />
       <StreamFollowToggle />
       {jumpHint && (
@@ -2807,7 +2840,7 @@ function StreamVerificationChip({ command, canRun }: { command: QueuedCommand; c
   );
 }
 
-function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting }: StreamStatusBarProps): React.JSX.Element | null {
+function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting, returnToStream }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const lightboxOrigin = useImageLightboxOrigin();
@@ -2910,6 +2943,8 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
 
   const handleJump = useCallback(() => {
     if (!target) return;
+    // §5.5 #17-50 — 버블 지도를 보고 있으면 대화가 화면에 없다. 대화로 돌아가 그 프롬프트로 간다.
+    if (returnToStream) { returnToStream(target.id); return; }
     // v3.14 — 점프 전 부모 추종 해제(워치독이 점프 위치를 바닥으로 되끌지 않게).
     onJump?.();
     // 가상 리스트는 뷰포트 밖 항목을 렌더하지 않는다 — DOM 조회만으로는 바닥에서 누를 때 타깃 프롬프트가
@@ -2926,7 +2961,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
       top: container.scrollTop + (targetRect.top - containerRect.top) - 16,
       behavior: 'smooth',
     });
-  }, [target, scrollRef, streamRef, onJump]);
+  }, [target, scrollRef, streamRef, onJump, returnToStream]);
 
   // §5.5 #17-12 — 보여줄 명령이 없어도 **밀도 토글만 있는 얇은 줄**은 남긴다 — 어느 화면에서든 밀도를 바꿀 수 있어야 한다.
   if (!target) {
@@ -3097,6 +3132,15 @@ interface ImageLightboxHostProps {
  */
 const MEMO_LINK_JUMP_SETTLE_MS = 280;
 
+/**
+ * §5.5 #17-50 — 버블 지도에서 [대화에서 보기]·상태바 줄로 돌아온 뒤 그 프롬프트로 옮기기까지 기다리는 틈(ms).
+ * 대화가 다시 서고 가상 리스트가 첫 측정을 마치는 동안이다(북마크 이동이 세션을 세운 뒤 120ms 를 기다리는 것과 같은 결).
+ */
+const BUBBLE_RETURN_SETTLE_MS = 180;
+/** 지도가 꺼져 있을 때의 빈 재료 — 매 렌더 새 배열이면 지도 쪽 memo 가 헛돈다. */
+const EMPTY_BUBBLE_STREAMS: readonly SessionBubbleStream[] = [];
+const EMPTY_BUBBLE_SESSION_IDS: readonly string[] = [];
+
 // IDE 본문 텍스트 줌 배율 사다리 — 크롬 페이지 줌처럼 정해진 단(段)만 밟아, 어디서 확대/축소해도 항상
 //   60·67·75·80·90·100·110·125·150·175·200·240% 같은 깔끔한 값에 떨어진다(옛 ×1.1 곱셈 누적은
 //   102%·112% 같은 어중간한 값을 만들었다). 범위는 store 클램프(0.6~2.4)와 동일.
@@ -3250,6 +3294,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (!el) return;
     const onWheelZoom = (e: WheelEvent): void => {
       if (!e.ctrlKey) return; // 줌 제스처만 가로챔 — 일반 스크롤은 그대로 통과.
+      if (isInsideSessionBubbles(e.target)) return; // §5.5 #17-50 — 버블 지도 위 Ctrl+휠은 지도 배율이다.
       e.preventDefault();
       e.stopPropagation();
       const cur = useGraphStore.getState().ideTextZoom;
@@ -3276,6 +3321,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
     const onTouchStart = (e: TouchEvent): void => {
       if (e.touches.length !== 2) return;
+      if (isInsideSessionBubbles(e.target)) return; // §5.5 #17-50 — 버블 지도 위 두 손가락은 지도 배율이다.
       pinching = true;
       pinchStartDist = touchDist(e.touches);
       pinchStartZoom = useGraphStore.getState().ideTextZoom;
@@ -3390,6 +3436,17 @@ export const IDEMainArea = memo(function IDEMainArea({
   // 탭(세션)마다 독립 termId → "+"=새 cmd 터미널, IDE 닫았다 열어도 reattach 로 보존.
   const executionMode = useGraphStore((s) => s.agentConfigs[agentId]?.executionMode);
   const showInteractiveTerminal = isCustom && executionMode === 'interactive-terminal';
+
+  // §5.5 #17-50 — [버블]: 이 칸의 대화 자리에 이 세션만의 버블 지도를 세우나. 키는 [추종]과 같은 꼴(칸마다 따로 · 휘발).
+  //   CMD 탭은 대화 칸이 PTY 라 지도가 설 자리도 손잡이(상태바)도 없다.
+  const bubbleViewKey = followSessionKey(agentId, activeSessionId);
+  const bubbleOn = useGraphStore((s) => s.ideBubbleView[bubbleViewKey] === true) && !showInteractiveTerminal;
+  const setBubbleView = useGraphStore((s) => s.setIdeBubbleView);
+  // 지도로 갈 때는 대화 스크롤러를 내려놓는다 — 화면에 없는 스크롤러를 워치독·정착 덮개가 계속 붙들지 않게.
+  //   돌아오면 대화가 새 스크롤러를 올리고, 그것이 정착·추종 정렬을 세션 탭을 오갈 때와 같은 길로 다시 돌린다.
+  useEffect(() => {
+    if (bubbleOn) setScrollNode(null);
+  }, [bubbleOn, setScrollNode]);
 
   // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴. anchorId = 선택 출처 항목(§17-7 북마크 이동용).
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string; anchorId?: string } | null>(null);
@@ -3807,27 +3864,6 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   §5.5 #17-12 — 밀도를 리셋 키로 함께(전환 시 항목 id 가 통째로 갈리는 걸 절단으로 오인 방지).
   const mainFirstItemIndex = useVirtuosoFrontShift(mainTimeline, mainTimelineNodeId, density);
 
-  // §5.5 #17-21 ② — 간결에서 유일하게 자르지 않는 본문 = 타임라인의 **마지막 AI 텍스트**(지금 하는 말 = 결론).
-  const mainLastTextId = useMemo(() => {
-    for (let k = mainTimeline.length - 1; k >= 0; k--) {
-      const n = mainTimeline[k]!;
-      if (n.t === 'item' && n.item.kind === undefined && n.item.type === 'text') return mainTimelineNodeId(n);
-    }
-    return null;
-  }, [mainTimeline]);
-
-  // §5.5 #17-12 ①-2 — 자르지 않는 두 번째 자리 = 턴의 **여는 본문**(의도 선언). Sub 탭과 같은 순수 함수로
-  //   판정해 두 탭이 어긋나지 않게 한다(같은 턴이 탭에 따라 접히고 안 접히면 그게 더 헷갈린다).
-  const mainOpeningTextIds = useMemo(
-    () => turnOpeningTextIds(mainTimeline.map((n) => {
-      const id = mainTimelineNodeId(n);
-      if (n.t !== 'item' || n.item.kind !== undefined) return { id, role: 'other' as const };
-      if (n.item.type === 'command') return { id, role: 'command' as const };
-      return { id, role: n.item.type === 'text' ? 'text' as const : 'other' as const };
-    })),
-    [mainTimeline],
-  );
-
   // §5.5 #17-45 — 연속 발화 런(Sub 탭과 **같은 순수 함수**). 간결에서만 켠다.
   //   주인은 **세션 이름표**다 — 전체 보기에서는 여러 세션의 말이 한 타임라인에 섞여 오므로,
   //   세션이 바뀌면 다른 사람의 말이라 런을 끊어야 한다(Sub 탭의 중첩 서브에이전트와 같은 자리).
@@ -4142,6 +4178,9 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (!target) return;
     if (target.nonce === handledBookmarkNonceRef.current) return;
     if (target.sessionId !== activeSessionId) return; // 타깃 세션 활성화 전 — 대기(아직 nonce 미처리)
+    // §5.5 #17-50 — 북마크는 대화의 자리다. 버블 지도를 보고 있으면 대화로 돌아가고, 대화가 선 다음 실행에서 옮긴다
+    //   (nonce 를 아직 처리하지 않았으므로 bubbleOn 이 바뀌어 이 효과가 다시 돌 때 이어서 간다).
+    if (bubbleOn) { setBubbleView(bubbleViewKey, false); return; }
     handledBookmarkNonceRef.current = target.nonce;
     // v3.14 — 점프 동안 워치독이 점프 위치를 바닥으로 되끌지 않게 추종을 명시 해제. 점프한 곳이 바닥
     //   근처면 atBottomStateChange 가 자동 재무장한다.
@@ -4172,7 +4211,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     // mainTimeline 은 의도적으로 deps 제외(스크롤은 nonce 변경 시 1회만; deps 에 넣으면 타임라인 갱신마다
     // cleanup 이 진행 중 타이머를 취소). nonce 가드가 중복 실행을 막는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookmarkScrollTarget, activeSessionId]);
+  }, [bookmarkScrollTarget, activeSessionId, bubbleOn, bubbleViewKey, setBubbleView]);
 
   // ── §5.5 대화 인-페이지 검색 (Ctrl+F) ──────────────────────────────────────
   //   가상 리스트(Virtuoso)라 화면 밖 항목은 DOM 에 없어 브라우저 Ctrl+F 로 못 잡는다 → 항목 **데이터**
@@ -4275,13 +4314,15 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (isComposingKeyEvent(e)) return;
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
+        // §5.5 #17-50 — 찾기는 대화에서 한다. 버블 지도를 보고 있으면 대화로 돌아가 검색바를 연다.
+        if (bubbleOn) setBubbleView(bubbleViewKey, false);
         setSearchOpen(true);
         requestAnimationFrame(() => { const el = searchInputRef.current; if (el) { el.focus(); el.select(); } });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showInteractiveTerminal, cellFocused]);
+  }, [showInteractiveTerminal, cellFocused, bubbleOn, bubbleViewKey, setBubbleView]);
 
   // v3.14 — 상태바 "프롬프트로 이동" 등 위쪽으로의 점프 전에 추종을 명시 해제(워치독 되끌림 방지).
   const releaseFollowForJump = useCallback(() => {
@@ -4336,6 +4377,57 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (activeSessionId !== null) { streamRef.current?.jumpToTop(); return; }
     mainVirtuosoRef.current?.scrollToIndex({ index: 0, align: 'start' });
   }, [activeSessionId, releaseFollowForJump]);
+
+  // ─── §5.5 #17-50 버블 지도 → 대화로 돌아가기 ───
+  //   돌아갈 자리: undefined = 없음 · 문자열 = 그 턴의 프롬프트 항목(`cmd-<명령 id>` — 두 탭이 같은 id 를 쓴다).
+  //   맨 아래(답을 기다리는 질문)는 정착 덮개가 바닥에 붙여 주므로 따로 옮기지 않는다.
+  const bubbleReturnRef = useRef<string | undefined>(undefined);
+  const jumpToPromptRef = useRef(jumpToPrompt);
+  jumpToPromptRef.current = jumpToPrompt;
+  const returnFromBubbles = useCallback((turnId: string | null) => {
+    if (turnId === null) {
+      followRef.current = true;
+      sessionAtBottomRef.current.set(sessionKey, true);
+      bubbleReturnRef.current = undefined;
+    } else {
+      // 그 프롬프트로 — 돌아올 때 정착 덮개가 바닥 고정을 돌리지 않게 먼저 추종을 놓는다.
+      followRef.current = false;
+      sessionAtBottomRef.current.set(sessionKey, false);
+      bubbleReturnRef.current = `cmd-${turnId}`;
+    }
+    setBubbleView(bubbleViewKey, false);
+  }, [sessionKey, setBubbleView, bubbleViewKey]);
+  useEffect(() => {
+    if (bubbleOn || bubbleReturnRef.current === undefined) return;
+    // 대화가 다시 서고(가상 리스트 첫 측정) 난 뒤에 옮긴다 — 북마크 이동이 세션을 세운 뒤 기다리는 것과 같은 결.
+    const timer = window.setTimeout(() => {
+      const target = bubbleReturnRef.current;
+      bubbleReturnRef.current = undefined;
+      if (target) jumpToPromptRef.current(target);
+    }, BUBBLE_RETURN_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [bubbleOn]);
+
+  // §5.5 #17-50 — 지도의 재료: 이 칸의 대화와 **같은 조립**(`streams`) + 세션마다 원본 명령(턴 귀속은 원본 상태로 —
+  //   표시용 사본은 조용한 압축 동안 대기 명령을 실행 중으로 올려 둔다). 꺼져 있으면 아무것도 만들지 않는다.
+  const bubbleStreams = useMemo(
+    () => (bubbleOn ? sessionBubbleStreamsOf(streams, originalCommands) : EMPTY_BUBBLE_STREAMS),
+    [bubbleOn, streams, originalCommands],
+  );
+  const bubbleSessionIds = useMemo(
+    () => (!bubbleOn ? EMPTY_BUBBLE_SESSION_IDS : activeSessionId !== null ? [activeSessionId] : subAgents.map((s) => s.id)),
+    [bubbleOn, activeSessionId, subAgents],
+  );
+  const bubbleOlderSessionIds = useOlderSessionIds(bubbleSessionIds);
+  const bubbleTitle = useGraphStore((s) => {
+    if (!bubbleOn) return '';
+    const agentLabel = s.nodeMap[agentId]?.label ?? '';
+    if (activeSessionId === null) return agentLabel;
+    return s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.label || agentLabel;
+  });
+  const agentCustomColor = useGraphStore((s) => s.agentConfigs[agentId]?.color);
+  // 가운데 원은 캔버스의 그 에이전트와 같은 색(사용자 색 · 훅이면 훅 톤 — §2.2 v2.67).
+  const bubbleColor = isCustom ? (agentCustomColor ?? BUBBLE_STYLES.agent.color) : HOOK_AGENT_STYLE.color;
 
   // §5.5 #17-36 ⑫ — 메모 링크의 "세션 글 위치"로 가기. 같은 화면 안이라 북마크 이동(#17-7)과 **같은 손잡이**를
   //   기다림 없이 부른다(북마크는 세션을 세운 뒤라 소비 효과가 타이머로 기다린다). 추종부터 놓는다.
@@ -4443,6 +4535,21 @@ export const IDEMainArea = memo(function IDEMainArea({
         onContextMenu={handleContextMenu}
         className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
       >
+        {bubbleOn ? (
+          /* §5.5 #17-50 — 대화 칸 자리에 이 세션만의 버블 지도. 대화에만 사는 덧판(메모 판·배율 배지·검색바·놓친 카드·
+             내 입력 레일·정착 덮개)은 서지 않는다 — 그 판들이 가리키는 대화가 화면에 없다. */
+          <SessionBubbleView
+            agentId={agentId}
+            sessionId={activeSessionId}
+            streams={bubbleStreams}
+            olderSessionIds={bubbleOlderSessionIds}
+            title={bubbleTitle}
+            color={bubbleColor}
+            running={streamSessionRunning}
+            pendingAsks={askCards.length}
+            onReturnToStream={returnFromBubbles}
+          />
+        ) : (<>
         {/* §5.5 #17-36 — 이 화면에 붙여 둔 스티키 메모. 대화 위에 떠 있고 함께 스크롤되지 않는다.
             좌표는 이 컨테이너(ideBodyRef) 기준이라 창을 좁혀도 판 안에 남는다. */}
         <SessionMemoLayer
@@ -4631,7 +4738,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                             ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
                               ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} turnStartedAt={n.item.turnStartedAt} hiddenTurn={n.item.hiddenTurn === true} compactingSince={n.item.compactingSince ?? null} />
-                              : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId || mainOpeningTextIds.has(itemId)} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
+                              : <TerminalLine entry={n.item} density={density} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
                     </div>
                   );
                 }}
@@ -4676,6 +4783,7 @@ export const IDEMainArea = memo(function IDEMainArea({
           onJumpToBottom={jumpToBottom}
           showJumpBottom={showJumpBottom}
         />
+        </>)}
       </div>
 
       {/* Stream 하단 상태바 — §5.5 #17-12 로 메인 탭에도 상주(밀도 토글이 어느 탭에서도 닿게).
@@ -4690,6 +4798,8 @@ export const IDEMainArea = memo(function IDEMainArea({
         events={activeSessionId !== null ? activeStreamEvents : EMPTY_STREAM_EVENTS}
         sessionRunning={streamSessionRunning}
         hasExecutingCommand={sessionExecuting}
+        // §5.5 #17-50 — 지도를 보고 있으면 줄 누름 = 대화로 돌아가 그 프롬프트로.
+        returnToStream={bubbleOn ? returnFromBubbles : undefined}
       />
 
       {/* Command input — 커스텀 에이전트만 입력 가능(§5.5 #17-29) */}

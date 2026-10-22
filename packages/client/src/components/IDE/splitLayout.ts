@@ -106,6 +106,24 @@ export function cellIdForSession(node: SplitNode, sessionId: string | null): str
 }
 
 /**
+ * 대상 칸 없이 나눌 때(탭 우클릭 [오른쪽으로·아래로 나누기]) 기준 칸이 **이미 그 세션을 보여 주는가**.
+ * 기준 칸은 초점 칸(없으면 첫 칸)이고, 아직 안 나뉜 창이면 창 전체 = 창의 활성 세션이다.
+ * 참이면 어느 쪽으로 나눠도 같은 세션이 두 칸에 뜨는 제자리라 스토어(`dropSessionOnIDECell`)가 아무 일도
+ * 하지 않는다 — 메뉴는 이 판정으로 항목을 미리 흐리게 하고 드래그와 같은 말("같은 탭")을 한다.
+ * 두 판정이 같은 답을 내는지는 `ideSplits.test.ts` 가 지킨다.
+ */
+export function splitAnchorShowsSession(
+  layout: SplitNode | null,
+  focusedCellId: string | null,
+  windowSessionId: string | null,
+  sessionId: string | null,
+): boolean {
+  if (!layout) return windowSessionId === sessionId;
+  const anchorId = focusedCellId ?? listCells(layout)[0]?.id ?? null;
+  return anchorId !== null && cellIdForSession(layout, sessionId) === anchorId;
+}
+
+/**
  * 비율 배열을 자식 수에 맞추고 합을 1로 만든다. 값이 깨져 들어와도(개수 불일치·0·NaN) 화면이
  * 무너지지 않게 하는 마지막 방벽 — 모든 변형이 이 함수를 지나 나간다.
  */

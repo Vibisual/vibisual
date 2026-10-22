@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { collectCmdPaneIds, cmdPaneTermId } from '@vibisual/shared';
 import type { SubAgent, SubAgentHistoryItem } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, isIDESplitMenuSameTab } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import { TabContextMenu } from '../Layout/TabContextMenu.js';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
@@ -597,6 +597,10 @@ export const IDETabBar = memo(function IDETabBar({
     if (!ctx) return false;
     return orderedSubs.some((s, i) => i > ctx.index && !tabPins[`subagent:${s.id}`]);
   }, [ctx, orderedSubs, tabPins]);
+  // §5.5 #17-34 ⑬ — 메뉴로 나누는 기준 칸(초점 칸, 안 나뉜 창이면 창 전체)이 이미 그 탭을 보여 주면
+  //   어느 쪽으로 나눠도 제자리라 스토어가 아무 일도 하지 않는다. 헛눌리게 두지 않고 드래그와 같은 말로 흐린다.
+  //   기준은 스토어 `dropSessionOnIDECell` 이 보는 그대로다 — 판정은 스토어 곁 한 함수(시험이 둘을 대조한다).
+  const ctxSplitSame = useGraphStore((s) => (ctx ? isIDESplitMenuSameTab(s, splitSlotKey, ctx.subId) : false));
 
   const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'splitRight' | 'splitDown') => {
     if (!ctx) return;
@@ -897,6 +901,7 @@ export const IDETabBar = memo(function IDETabBar({
           showRename
           // §5.5 #17-34 — 폰 폭에서는 나눠 봐야 두 칸 다 못 읽는다. 그 화면에서는 메뉴를 아예 안 준다.
           showSplit={!isNarrowViewport}
+          splitBlockedReason={ctxSplitSame ? t('ide.split.alreadyHere') : undefined}
           onAction={(action) => {
             // §5.4 #14-1 — IDE 서브에이전트 탭은 detach 미지원. showDetach=false 라 도달하지 않지만
             // 타입 좁힘을 위해 가드.

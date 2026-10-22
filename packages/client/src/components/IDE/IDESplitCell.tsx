@@ -38,7 +38,8 @@ export function SplitDropPreview({ state }: { state: SplitDropState }): React.JS
       className={`pointer-events-none absolute z-40 flex items-center justify-center rounded border-2 ${tone}`}
       style={previewBoxStyle(state.box)}
     >
-      <span className="rounded bg-gray-950/70 px-2 py-1 text-xs font-semibold">
+      {/* §5.5 #17-34 ⑬ — 막힌 이유는 한 문장이라 좁은 칸에서는 두 줄로 접힌다. 접혀도 가운데에서 읽히게. */}
+      <span className="mx-2 rounded bg-gray-950/70 px-2 py-1 text-center text-xs font-semibold">
         {t(splitDropLabelKey(state.side, state.blocked), { count: IDE_SPLIT.maxCells })}
       </span>
     </div>

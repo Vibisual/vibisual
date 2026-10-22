@@ -18,6 +18,7 @@ import {
   pruneCells,
   setBranchSizes,
   setCellSession,
+  splitAnchorShowsSession,
   type SplitIdFactory,
   type SplitNode,
 } from './splitLayout.js';
@@ -58,6 +59,38 @@ describe('splitLayout — 만들기·읽기', () => {
     expect(cellSessionIds(layout)).toEqual(new Set(['s2']));
     expect(cellIdForSession(layout, null)).toBe(main.id);
     expect(cellIdForSession(layout, 'nope')).toBeNull();
+  });
+});
+
+describe('splitLayout — 메뉴로 나누는 기준 칸 (§5.5 #17-34 ⑬)', () => {
+  it('안 나뉜 창은 창의 활성 세션이 기준이다 — 보고 있는 탭이면 "같은 탭"', () => {
+    expect(splitAnchorShowsSession(null, null, 's1', 's1')).toBe(true);
+    expect(splitAnchorShowsSession(null, null, 's1', 's2')).toBe(false);
+    // 메인 탭(null)도 같은 규칙이다.
+    expect(splitAnchorShowsSession(null, null, null, null)).toBe(true);
+    expect(splitAnchorShowsSession(null, null, null, 's1')).toBe(false);
+  });
+
+  it('나뉜 창은 초점 칸이 기준이다 — 옆 칸에 떠 있는 세션은 옮기기라 막지 않는다', () => {
+    const ids = seqIds();
+    const first = makeCell('s1', ids);
+    const layout = dropOnCell(first, first.id, 'right', 's2', ids)?.layout as SplitNode;
+    const [left, right] = listCells(layout);
+    const leftId = left?.id ?? null;
+    const rightId = right?.id ?? null;
+    expect(splitAnchorShowsSession(layout, rightId, 's2', 's2')).toBe(true);
+    expect(splitAnchorShowsSession(layout, rightId, 's2', 's1')).toBe(false);
+    expect(splitAnchorShowsSession(layout, leftId, 's1', 's1')).toBe(true);
+    // 아직 어느 칸에도 없는 세션은 그냥 나누기다.
+    expect(splitAnchorShowsSession(layout, leftId, 's1', 's3')).toBe(false);
+  });
+
+  it('초점 칸이 없으면 첫 칸이 기준이다(스토어와 같은 대체)', () => {
+    const ids = seqIds();
+    const first = makeCell('s1', ids);
+    const layout = dropOnCell(first, first.id, 'right', 's2', ids)?.layout as SplitNode;
+    expect(splitAnchorShowsSession(layout, null, 's1', 's1')).toBe(true);
+    expect(splitAnchorShowsSession(layout, null, 's1', 's2')).toBe(false);
   });
 });
 

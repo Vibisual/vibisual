@@ -7,13 +7,7 @@
  * 표시 계층 전용 — 파싱(streamItems)·스크롤·카드 합류는 건드리지 않는다. 순수 함수라 단위 테스트로 검증한다
  * (streamDensity.test.ts). 밀도는 클라 전용 UI 상태(`graphStore.ideStreamDensity`).
  */
-import {
-  extractStageBlocks,
-  STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS,
-  STREAM_COMPACT_TEXT_TAIL_LINES, STREAM_COMPACT_TEXT_TAIL_CHARS,
-  STREAM_COMPACT_TEXT_MIN_HIDDEN_CHARS,
-  type StreamDensity,
-} from '@vibisual/shared';
+import type { StreamDensity } from '@vibisual/shared';
 import { sameStreamItem, isSystemSubtypeChip, type StreamGroup, type StreamItemFull, type StreamPlan } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { mergeAdjacentThinkTraces, type ThinkTraceView } from './turnSteps.js';
@@ -52,189 +46,13 @@ export interface StreamToolGroup {
 /** 렌더러가 실제로 그리는 아이템 = 파싱 아이템 + 묶음. */
 export type StreamDisplayItem = StreamItemFull | StreamToolGroup;
 
-/** 접힌 본문 — 접혀도 **보이는** 머리·꼬리와 그 사이에 감춘 줄 수(버튼 라벨용). */
-export interface ClampedText {
-  /** 앞부분 — 무엇을 하려는가. */
-  head: string;
-  /** 끝부분 — 무엇이 됐는가·무엇이 막혔나. 접힌 상태에서도 보인다(§5.5 #17-46 ①). */
-  tail: string;
-  /** 머리와 꼬리 **사이**에 접힌 줄 수(버튼의 N). 종전 의미(머리 뒤 전부)와 다르다. */
-  hiddenLines: number;
-}
-
-/** `clampStreamText` 가 얼마나 남기고 어떻게 그릴지 — 상수는 `@vibisual/shared` 가 정본이라 부르는 쪽이 넘긴다. */
-export interface ClampSpec {
-  /** 머리로 남길 줄 수. */
-  headLines: number;
-  /** 머리로 남길 글자 수. */
-  headChars: number;
-  /** 꼬리로 남길 줄 수. */
-  tailLines: number;
-  /** 꼬리로 남길 글자 수. */
-  tailChars: number;
-  /** 이보다 적게 감추면 접지 않는다(§5.5 #17-46 ② — 버튼 한 줄과 상쇄되는 자리). */
-  minHiddenChars: number;
-  /**
-   * 마크다운으로 그릴 본문인가 — 꼬리가 코드블록 **안에서** 시작하면 여는 펜스를 덧대 준다(#17-46 ④).
-   * 평문으로 그리는 메인 탭은 끄고 부른다. 렌더러 종류를 함수 안에서 넘겨짚지 않으려고 인자로 받는다.
-   */
-  markdown?: boolean;
-}
-
-/**
- * §5.5 #17-46 — 간결 본문 클램프 한 벌. **두 탭이 같은 값을 쓰도록 여기서 한 번만 짓는다**
- * (부르는 쪽마다 상수를 조립하면 한쪽만 바뀌어 탭에 따라 다르게 접힌다).
- * 평문으로 그리는 메인 탭용이 기본이고, 마크다운으로 그리는 Sub 탭은 `COMPACT_TEXT_CLAMP_MD` 를 쓴다.
- */
-export const COMPACT_TEXT_CLAMP: ClampSpec = {
-  headLines: STREAM_COMPACT_TEXT_CLAMP_LINES,
-  headChars: STREAM_COMPACT_TEXT_CLAMP_CHARS,
-  tailLines: STREAM_COMPACT_TEXT_TAIL_LINES,
-  tailChars: STREAM_COMPACT_TEXT_TAIL_CHARS,
-  minHiddenChars: STREAM_COMPACT_TEXT_MIN_HIDDEN_CHARS,
-};
-
-/** 위와 같되 꼬리의 코드펜스를 맞춰 준다(§5.5 #17-46 ④ — 마크다운으로 그리는 Sub 탭 전용). */
-export const COMPACT_TEXT_CLAMP_MD: ClampSpec = { ...COMPACT_TEXT_CLAMP, markdown: true };
-
-/** 앞을 남기고 뒤를 버린다 — 공백 경계로 물러서되, 너무 앞이면(띄어쓰기가 드문 문장) 글자 수에서 자른다. */
-function keepHead(s: string, max: number): string {
-  const space = s.lastIndexOf(' ', max);
-  return s.slice(0, space > max * 0.6 ? space : max);
-}
-
-/** 뒤를 남기고 앞을 버린다 — `keepHead` 의 거울상(공백 경계가 너무 뒤면 글자 수에서 자른다). */
-function keepTail(s: string, max: number): string {
-  const from = s.length - max;
-  const space = s.indexOf(' ', from);
-  return s.slice(space >= 0 && space < from + max * 0.4 ? space + 1 : from);
-}
-
-/**
- * 이 글이 **닫히지 않은 코드펜스 안에서 끝나는가** — 그렇다면 언어 정보를 포함한 여는 펜스, 아니면 `null`.
- * 잘라 낸 꼬리를 따로 파싱할 때 이 값을 앞에 덧대야 "꼬리의 닫는 펜스가 여는 펜스로 읽혀 남은 글이
- * 통째로 코드로 그려지는" 뒤집힘을 막는다(§5.5 #17-46 ④). 언어를 버리면 `vibisual` 목표 블록도
- * 일반 코드로 바뀌어, 렌더러가 숨겨야 할 작업 목록이 간결 모드에 다시 노출된다.
- */
-function unclosedFence(s: string): string | null {
-  let open: { marker: string; opening: string } | null = null;
-  for (const line of s.split('\n')) {
-    const m = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/.exec(line);
-    if (!m) continue;
-    const marker = m[1]!;
-    const info = m[2]!;
-    if (open === null) {
-      // 백틱 펜스의 정보 문자열에는 백틱이 올 수 없다(인라인 코드 등을 블록으로 오인하지 않는다).
-      if (marker[0] === '`' && info.includes('`')) continue;
-      open = { marker, opening: marker + info };
-    } else if (marker[0] === open.marker[0] && marker.length >= open.marker.length && /^[ \t]*$/.test(info)) {
-      open = null;
-    }
-  }
-  return open?.opening ?? null;
-}
-
-/** 글자 제한이 펜스 줄 자체를 자르면 언어명이나 닫힘 표식이 깨지므로, 그 줄은 통째로 남긴다. */
-function splitFenceLine(content: string, offset: number): { start: number; end: number } | null {
-  const start = content.lastIndexOf('\n', offset - 1) + 1;
-  const newline = content.indexOf('\n', offset);
-  const end = newline < 0 ? content.length : newline;
-  if (offset <= start || offset >= end) return null;
-  return /^ {0,3}(`{3,}|~{3,})/.test(content.slice(start, end)) ? { start, end } : null;
-}
-
-/**
- * §5.5 #17-46 — 간결에서 AI 본문의 **머리와 꼬리만 남기고 가운데를 접는다.** 접을 게 없으면 `null`
- * (그대로 그린다).
- *
- * 종전(#17-21 ②)은 앞부분만 남기고 나머지를 통째로 숨겼다. 그런데 한 문단에서 사용자가 가장 읽어야
- * 하는 줄은 앞이 아니라 **끝**이다 — 무엇을 찾았는지·무엇이 막혔는지·다음에 무엇을 물어야 하는지가
- * 마지막 한두 줄에 있다. 그래서 버리는 자리를 가운데로 옮겼다.
- *
- * 머리·꼬리 모두 줄 수와 글자 수를 **둘 다** 본다: 마크다운 문단은 줄바꿈 없이 한 줄로 길게 오는 일이
- * 잦아 줄 수만 보면 클램프가 헛돌고, 글자 수만 보면 짧은 줄이 많은 목록이 안 잘린다.
- * 자르는 위치는 줄 경계 → 공백 경계 순으로 물러서 마크다운 문법을 최대한 덜 깬다.
- */
-export function clampStreamText(content: string, spec: ClampSpec): ClampedText | null {
-  const lines = content.split('\n');
-  // ① 머리 — 줄 경계로 먼저 자르고, 그래도 길면 글자 수로 한 번 더.
-  let head = lines.length > spec.headLines ? lines.slice(0, spec.headLines).join('\n') : content;
-  if (head.length > spec.headChars) head = keepHead(head, spec.headChars);
-  const headFence = spec.markdown ? splitFenceLine(content, head.length) : null;
-  if (headFence) head = content.slice(0, headFence.end);
-  if (head.length >= content.length) return null;
-
-  // ② 꼬리 — 머리 뒤에 남은 글에서 **뒤에서부터** 같은 방식으로 떼어 낸다.
-  const rest = content.slice(head.length);
-  const restLines = rest.split('\n');
-  let tail = restLines.length > spec.tailLines
-    ? restLines.slice(restLines.length - spec.tailLines).join('\n')
-    : rest;
-  if (tail.length > spec.tailChars) tail = keepTail(tail, spec.tailChars);
-  const tailFence = spec.markdown ? splitFenceLine(content, content.length - tail.length) : null;
-  if (tailFence) tail = content.slice(tailFence.start);
-
-  // ③ 가운데가 없거나 버튼 한 줄과 상쇄될 만큼 적으면 접지 않는다(§5.5 #17-46 ②).
-  const middle = rest.slice(0, rest.length - tail.length);
-  const trimmed = middle.trim();
-  if (trimmed === '') return null;
-  const hiddenLines = Math.max(1, middle.split('\n').filter((l) => l.trim() !== '').length);
-  if (hiddenLines < 2 && trimmed.length < spec.minHiddenChars) return null;
-
-  // ④ 꼬리가 코드블록 안에서 시작하면 여는 펜스를 덧대 넘긴다(마크다운으로 그릴 때만).
-  const fence = spec.markdown ? unclosedFence(head + middle) : null;
-  return { head, tail: fence ? `${fence}\n${tail.replace(/^\n+/, '')}` : tail, hiddenLines };
-}
-
-/** Count only rendered Markdown when folding: goal blocks are hidden by CodeBlock in both states. */
-export function clampVisibleStreamMarkdown(content: string): ClampedText | null {
-  const spans = extractStageBlocks(content);
-  if (spans.length === 0) return clampStreamText(content, COMPACT_TEXT_CLAMP_MD);
-  const parts: string[] = [];
-  let at = 0;
-  for (const span of spans) {
-    parts.push(content.slice(at, span.start));
-    at = span.end;
-  }
-  parts.push(content.slice(at));
-  return clampStreamText(parts.join('').trim(), COMPACT_TEXT_CLAMP_MD);
-}
-
-/** 여는 본문 판정에 필요한 최소 형태 — Sub 탭(`StreamDisplayItem`)·메인 탭(`TerminalEntry`) 공용. */
-export interface TurnRole {
-  id: string;
-  role: 'command' | 'text' | 'other';
-}
-
-/**
- * §5.5 #17-12 ①-2 — **턴의 여는 본문**(내 말풍선 바로 다음의 첫 AI 본문) id 들.
- *
- * 이 한 장이 `AGENT_INTENT_FIRST_RULES` 가 시키는 의도 선언이다. ①-1 이 그 선언을 요구 개수만큼
- * 길어지게 만들었는데, 간결 밀도의 4줄 클램프는 **바로 그 길어진 목록을 접는다** — 요구 7개 중 4개만
- * 보이는 화면은 모델이 30% 만 되짚던 종전과 사용자에게 똑같이 읽힌다(무엇을 빠뜨렸는지 모르니 멈출지
- * 판단이 안 선다). 그래서 마지막 본문(= 지금 하는 말)과 **같은 급으로 자르지 않는다**: 하나는 그 턴의
- * 결론이고 하나는 그 턴의 전제라, 간결이 지우면 안 되는 두 자리다.
- *
- * 순수 함수 — DOM 없이 단위 검증한다(클라 테스트에는 jsdom 이 없다).
- */
-export function turnOpeningTextIds(seq: readonly TurnRole[]): Set<string> {
-  const out = new Set<string>();
-  // 첫 명령 이전(복원된 앞 대화 등)에는 여는 본문이 없다 — 짝지을 말풍선이 없으면 종전대로 접힌다.
-  let awaiting = false;
-  for (const it of seq) {
-    if (it.role === 'command') { awaiting = true; continue; }
-    if (it.role === 'text' && awaiting) { out.add(it.id); awaiting = false; }
-  }
-  return out;
-}
-
 /**
  * §5.5 #17-45 — 이 본문이 **연속 발화 런**에서 선 자리.
  * `solo` 앞뒤가 끊긴 홑 문단 · `head` 런의 첫 문단 · `mid` 가운데 · `tail` 런의 마지막 문단.
  */
 export type SpeechRunPos = 'solo' | 'head' | 'mid' | 'tail';
 
-/** 런 판정에 필요한 최소 형태 — Sub 탭(`StreamDisplayItem`)·메인 탭(`TerminalEntry`) 공용(`TurnRole` 과 같은 갈래). */
+/** 런 판정에 필요한 최소 형태 — Sub 탭(`StreamDisplayItem`)·메인 탭(`TerminalEntry`) 공용. */
 export interface SpeechRole {
   id: string;
   /** AI 본문인가 — 아니면 여기서 런이 끊긴다(내 말풍선·카드·오류·계획·그림·도구 묶음·라이브 1줄). */
@@ -258,7 +76,7 @@ export const NO_SPEECH_RUNS: ReadonlyMap<string, SpeechRunPos> = new Map<string,
  * 그래서 **말머리는 런의 첫 문단에만** 달고 나머지는 같은 칼럼에 이어 붙인다.
  *
  * 가상 리스트라 CSS 형제 선택자(`+`)로는 판정할 수 없다 — 화면에 없는 앞 항목은 DOM 에도 없다.
- * 그래서 `turnOpeningTextIds` 와 같이 **항목 배열**로만 판정하는 순수 함수로 둔다(단위 검증 가능).
+ * 그래서 **항목 배열**로만 판정하는 순수 함수로 둔다(단위 검증 가능).
  */
 export function speechRunPositions(seq: readonly SpeechRole[]): Map<string, SpeechRunPos> {
   const out = new Map<string, SpeechRunPos>();

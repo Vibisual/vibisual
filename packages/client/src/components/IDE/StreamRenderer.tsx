@@ -32,7 +32,7 @@ import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
-import { CollapsiblePrompt, AiSpeakerGlyph, StreamTextFold, type PromptCommandState } from './CollapsiblePrompt.js';
+import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { DiffView, type DiffReviewCtx } from './DiffView.js';
 import { followSessionKey } from './editorFollow.js';
 import { PlanBlock } from './PlanBlock.js';
@@ -61,8 +61,7 @@ import { TransportRecoveryLine } from './TransportRecoveryLine.js';
 import { ProcessGuardLine } from './ProcessGuardLine.js';
 import { parseProcessGuardNotice } from '@vibisual/shared';
 import {
-  applyStreamDensity, sameDisplayItem, displayItemId, clampVisibleStreamMarkdown,
-  turnOpeningTextIds, speechRunPositions, NO_SPEECH_RUNS,
+  applyStreamDensity, sameDisplayItem, displayItemId, speechRunPositions, NO_SPEECH_RUNS,
   type StreamDisplayItem, type StreamToolGroup, type SpeechRunPos,
 } from './streamDensity.js';
 import { useStreamToggle, streamToggleProps } from './streamToggle.js';
@@ -601,18 +600,6 @@ const remarkPlugins = [remarkGfm];
 
 // ─── 개별 렌더러 ───
 
-/** assistant 텍스트 → 마크다운. "AI 와 나눈 일상 대화"임을 한눈에 — 박스로 감싸면 도구/생각/결과 박스와
- *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
- *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분). */
-/** 본문 한 덩이를 마크다운으로 — 접힌 본문은 머리·꼬리 **두 덩이**로 그리므로 클래스를 한 곳에 둔다. */
-function TextMarkdown({ body }: { body: string }): React.JSX.Element {
-  return (
-    <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
-      <Markdown remarkPlugins={remarkPlugins} urlTransform={streamUrlTransform} components={mdComponents}>{body}</Markdown>
-    </div>
-  );
-}
-
 /**
  * §5.5 #17-39 ⑫ — 그 일을 한 시각(`10:52`, 호버에 전체 표기). 도구 머리줄·묶음 머리줄·AI 글이 **같은 조각**을
  * 쓴다 — 세 자리의 시각이 한 세로줄에 서려면 글자 크기·색·숫자 폭이 같아야 한다. 본문을 긁어 복사할 때
@@ -627,22 +614,16 @@ function StreamClockStamp({ clock }: { clock: StreamClock | null }): React.JSX.E
   );
 }
 
-const TextBlock = memo(function TextBlock({ item, density, exempt, run }: { item: StreamText; density: StreamDensity; exempt: boolean; run: SpeechRunPos }): React.JSX.Element {
+/** assistant 텍스트 → 마크다운. "AI 와 나눈 일상 대화"임을 한눈에 — 박스로 감싸면 도구/생각/결과 박스와
+ *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
+ *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분).
+ *  §5.5 #17-49 — 어느 밀도에서도 본문을 접지 않는다(간결의 가운데 접기 #17-46 폐기 — 간결이 줄이는 것은
+ *  도구 묶음이지 AI 가 한 말의 길이가 아니다). 메인 탭 `TerminalTextLine` 과 같은 규칙이다. */
+export const TextBlock = memo(function TextBlock({ item, density, run }: { item: StreamText; density: StreamDensity; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   // §5.5 #17-39 ⑫ — 이 글이 온 시각. 간결의 연속 발화 런(#17-45)은 말머리가 선 첫 문단에만 —
   //   이어지는 문단마다 줄을 늘리면 런의 실선이 그 줄에서 끊긴다(그 줄은 말머리 칸 밖이다).
   const clock = run === 'solo' || run === 'head' ? formatStreamClock(item.timestamp, i18n.language) : null;
-  // §5.5 #17-46 — 간결에서는 **머리와 꼬리만 남기고 가운데**를 접는다([더 보기]로 펼침). 종전(#17-21 ②)은
-  //   앞부분만 남겨 그 문단의 결론이 매번 잘렸다 — 사용자가 읽어야 하는 줄은 앞이 아니라 끝에 있다.
-  //   `exempt`(화면의 마지막 본문·턴의 여는 본문)는 지금 하는 말이자 그 턴의 결론이라 아예 자르지 않는다.
-  //   목표 블록은 펼쳐도 숨겨지므로 접을 분량에서 뺀다 — 보이는 글이 같으면 접기 버튼도 없어야 한다.
-  const clamped = useMemo(
-    () => (density === 'compact' && !exempt ? clampVisibleStreamMarkdown(item.content) : null),
-    [density, exempt, item.content],
-  );
-  // 펼침은 #17-16 ④ 모듈 저장소 — 가상 리스트가 언마운트해도 펼쳐 둔 채로 돌아온다.
-  const [open, toggleOpen] = useStreamToggle(`text-more-${item.id}`, false);
-  const folded = clamped !== null && !open;
   // §5.5 #17-39 — 작성 자국. **긴 본문에만** 붙인다(짧은 대답 밑의 숫자는 소음이다).
   //   `간결` 은 핵심만 남기는 밀도라 자국도 붙이지 않는다(#17-21 과 같은 갈래).
   const writeTrace = density !== 'compact' && shouldTraceWriting(item.content.length)
@@ -663,15 +644,9 @@ const TextBlock = memo(function TextBlock({ item, density, exempt, run }: { item
       <div className="flex gap-2">
         <AiSpeakerGlyph run={run} />
         <div className={`min-w-0 flex-1 ${run === 'mid' || run === 'tail' ? 'py-0.5' : 'py-1'}`}>
-          {/* §5.5 #17-46 ③ — 접힌 동안은 [머리 · 접기 손잡이 · 꼬리] 세 덩이, 펼치면 [본문 전체 · 접기] 종전 모양. */}
-          <TextMarkdown body={folded ? clamped.head : item.content} />
-          {folded && (
-            <>
-              <StreamTextFold open={false} hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />
-              <TextMarkdown body={clamped.tail} />
-            </>
-          )}
-          {clamped !== null && open && <StreamTextFold open hiddenLines={clamped.hiddenLines} onToggle={toggleOpen} />}
+          <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
+            <Markdown remarkPlugins={remarkPlugins} urlTransform={streamUrlTransform} components={mdComponents}>{item.content}</Markdown>
+          </div>
           {writeTrace && <WriteTraceLine text={writeTrace} />}
         </div>
       </div>
@@ -1171,13 +1146,12 @@ const StepTraceBlock = memo(function StepTraceBlock({ item }: { item: StreamStep
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, openingTextIds: ReadonlySet<string>, speechRuns: ReadonlyMap<string, SpeechRunPos>, nestedLabel: string, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, speechRuns: ReadonlyMap<string, SpeechRunPos>, nestedLabel: string, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
-    // §5.5 #17-21 ② — 마지막 본문(lastTextId)은 간결에서도 통째로 보인다(지금 하는 말 = 결론).
-    // §5.5 #17-12 ①-2 — 턴의 여는 본문(의도 선언)도 같다. 그 턴의 전제라 접히면 멈출 판단이 안 선다.
+    // §5.5 #17-49 — 본문은 어느 밀도에서도 통째로 보인다(간결의 본문 접기 폐기).
     // §5.5 #17-45 — 연달아 온 본문은 한 발화로 묶어 말머리를 첫 문단에만 단다(간결에서만 · 없으면 `solo`).
-    case 'text':     inner = <TextBlock item={item} density={density} exempt={item.id === lastTextId || openingTextIds.has(item.id)} run={speechRuns.get(item.id) ?? 'solo'} />; break;
+    case 'text':     inner = <TextBlock item={item} density={density} run={speechRuns.get(item.id) ?? 'solo'} />; break;
     case 'tool':     inner = <ToolBlock item={item} density={density} review={reviewCtx} />; break;
     case 'toolgroup': inner = <ToolGroupBlock item={item} density={density} />; break;
     case 'plan':     inner = <PlanBlock item={item} />; break;
@@ -1352,25 +1326,6 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
-  // §5.5 #17-21 ② — 간결에서 유일하게 자르지 않는 본문 = 화면의 **마지막 text**(지금 하는 말이자 결론).
-  //   본문이 하나 더 도착하면 직전 것이 자동으로 접히므로 화면 아래쪽만 열려 있는 모양이 유지된다.
-  const lastTextId = useMemo(() => {
-    for (let k = items.length - 1; k >= 0; k--) {
-      const it = items[k]!;
-      if (it.kind === 'text') return it.id;
-    }
-    return null;
-  }, [items]);
-  // §5.5 #17-12 ①-2 — 자르지 않는 두 번째 자리 = 턴의 **여는 본문**(의도 선언). 요구가 여러 갈래면
-  //   그 선언이 요구 개수만큼 길어지는데(①-1), 4줄에서 접히면 무엇을 빠뜨렸는지 보이지 않아
-  //   "멈출지 판단"이 다시 불가능해진다. 결론(마지막 본문)과 전제(여는 본문)는 간결에서도 온전히 남는다.
-  const openingTextIds = useMemo(
-    () => turnOpeningTextIds(items.map((it) => ({
-      id: it.id,
-      role: it.kind === 'command' ? 'command' as const : it.kind === 'text' ? 'text' as const : 'other' as const,
-    }))),
-    [items],
-  );
   // §5.5 #17-45 — 연속 발화 런. **간결에서만** 켠다 — 표준·원문은 도구 상자가 사이사이 끼어 본문이
   //   원래 끊겨 보이므로 문단마다 말머리가 붙는 종전 모양이 맞고, 이 항목은 그 둘을 바꾸지 않는다.
   //   주인(중첩 서브에이전트)이 다르면 런을 끊는다 — 남의 말을 내 발화에 붙일 수 없다.
@@ -1395,8 +1350,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   );
   const itemContent = useCallback(
     (_index: number, item: StreamDisplayItem) =>
-      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, openingTextIds, speechRuns, nestedLabel, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
-    [liveLabels, ideTextZoom, density, lastTextId, openingTextIds, speechRuns, nestedLabel, agentId, subAgentId, reviewCtx],
+      renderStreamItem(item, liveLabels, ideTextZoom, density, speechRuns, nestedLabel, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
+    [liveLabels, ideTextZoom, density, speechRuns, nestedLabel, agentId, subAgentId, reviewCtx],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다

@@ -84,51 +84,6 @@ export function AiSpeakerGlyph({ run = 'solo' }: { run?: SpeechRunPos }): React.
 }
 
 /**
- * §5.5 #17-46 ③ — 간결에서 AI 본문의 **가운데를 접는 손잡이**. Sub 탭 `TextBlock`·메인 탭
- * `TerminalTextLine` 이 **같은 조각**을 쓴다(두 벌로 두면 한쪽만 고쳐진다 — `AiSpeakerGlyph` 와 같은 이유로
- * 이 공용 모듈에 둔다).
- *
- * 접힌 상태에서는 머리와 꼬리 **사이**에 서고 좌우로 헤어라인을 뻗어 "여기가 잘린 자리"임을 그린다 —
- * 버튼이 곧 생략 표시다. 펼치면 본문 아래의 평범한 [접기] 한 줄로 돌아간다(종전 모양 그대로).
- * 라벨은 기존 키를 그대로 쓴다(뜻이 "N줄 더 보기"에서 달라지지 않아 12 로케일에 문자열을 늘리지 않는다).
- */
-export function StreamTextFold({ open, hiddenLines, onToggle }: {
-  open: boolean;
-  /** 가운데에 접힌 줄 수 — 펼친 상태에서는 라벨에 쓰이지 않는다. */
-  hiddenLines: number;
-  onToggle: () => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const label = open
-    ? t('ide.streamRenderer.showLess')
-    : t('ide.streamRenderer.showMoreLines', { count: hiddenLines });
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      {...streamToggleProps(open)}
-      className={`flex items-center gap-2 text-[12px] text-gray-500 transition-colors hover:text-gray-300 ${
-        open ? 'mt-0.5' : 'my-1 w-full'
-      }`}
-    >
-      {!open && <span className="h-px flex-1 bg-gray-700/60" aria-hidden="true" />}
-      <span className="flex flex-shrink-0 items-center gap-1">
-        <svg
-          className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`}
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        {label}
-      </span>
-      {!open && <span className="h-px flex-1 bg-gray-700/60" aria-hidden="true" />}
-    </button>
-  );
-}
-
-/**
  * 이 말풍선이 그리는 명령의 상태 — 색과 안쪽 컨트롤을 정한다.
  * `agentId`+`commandId` 가 있고 `status==='queued'` 일 때만 [대기|합치기|즉시]·삭제가 뜬다
  * (이미 나간 명령의 방식은 바꿀 수 없다).

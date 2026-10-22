@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { SubAgent } from '@vibisual/shared';
-import { useGraphStore, DEFAULT_IDE_OVERLAY } from './graphStore.js';
+import { useGraphStore, DEFAULT_IDE_OVERLAY, isIDESplitMenuSameTab } from './graphStore.js';
 import { listCells } from '../components/IDE/splitLayout.js';
 
 /**
@@ -158,7 +158,7 @@ describe('QA — 실제로 겪는 잘못된 떨구기', () => {
 
   it('안 나눈 창에 지금 보고 있는 세션을 그대로 떨구면 아무 일도 없다(같은 것 두 칸 ❌)', () => {
     // 사용자가 가장 먼저 해 보는 손동작 중 하나. 같은 세션 두 벌은 얻는 게 없고 CMD 면 해롭다 —
-    //   화면은 이 사실을 드래그 중에 미리 말한다(호박색 "이미 이 칸에 있습니다").
+    //   화면은 이 사실을 드래그 중에 미리 말한다(호박색 "지금 보고 있는 탭과 같은 탭" — ⑬).
     store().dropSessionOnIDECell(PROJ, null, 'right', 'sub-a'); // 지금 보고 있는 세션
     expect(split()).toBeUndefined();
   });
@@ -167,6 +167,51 @@ describe('QA — 실제로 겪는 잘못된 떨구기', () => {
     seed('sub-a');
     store().dropSessionOnIDECell(PROJ, null, 'right', null);
     expect(sessions()).toEqual(['sub-a', null]);
+  });
+});
+
+describe('탭 메뉴의 "같은 탭" 판정 = 스토어의 제자리 판정 (§5.5 #17-34 ⑬)', () => {
+  // 탭 우클릭 [나누기]는 대상 칸 없이(`cellId=null`) 스토어를 부른다. 메뉴가 흐리게 하는 경우와 스토어가
+  //   아무 일도 하지 않는 경우가 어긋나면, 흐린 항목이 실제로는 되거나 눌리는 항목이 헛눌린다(사용자 보고의 뿌리).
+  //   이 창 자신의 세션·칸 상한 아래에서 잰다 — 남의 세션·상한은 메뉴가 판정하지 않는 다른 이유다.
+  function menuThenStore(sessionId: string | null): { menuSame: boolean; storeIdle: boolean } {
+    const menuSame = isIDESplitMenuSameTab(store(), PROJ, sessionId);
+    const before = { splits: store().ideSplits, overlays: store().ideOverlays };
+    store().dropSessionOnIDECell(PROJ, null, 'right', sessionId);
+    const storeIdle = store().ideSplits === before.splits && store().ideOverlays === before.overlays;
+    return { menuSame, storeIdle };
+  }
+
+  it('안 나뉜 창 — 보고 있는 탭은 같은 탭(헛눌림), 다른 탭은 나뉜다', () => {
+    expect(menuThenStore('sub-a')).toEqual({ menuSame: true, storeIdle: true });
+    seed();
+    expect(menuThenStore('sub-b')).toEqual({ menuSame: false, storeIdle: false });
+  });
+
+  it('안 나뉜 창 — 메인 탭을 보고 있으면 메인 탭도 같은 탭이다', () => {
+    seed(null);
+    expect(menuThenStore(null)).toEqual({ menuSame: true, storeIdle: true });
+  });
+
+  it('나뉜 창 — 초점 칸의 탭만 같은 탭이고, 옆 칸의 탭은 옮기기·안 뜬 탭은 나누기다', () => {
+    store().dropSessionOnIDECell(PROJ, null, 'right', 'sub-b'); // [a | b], 초점 = b
+    expect(menuThenStore('sub-b')).toEqual({ menuSame: true, storeIdle: true });
+    expect(menuThenStore('sub-a')).toEqual({ menuSame: false, storeIdle: false });
+    expect(sessions()).toEqual(['sub-b', 'sub-a']);
+    expect(menuThenStore('sub-c')).toEqual({ menuSame: false, storeIdle: false });
+    expect(sessions()).toHaveLength(3);
+  });
+
+  it('창이 다른 버블로 갈아 끼워지면 남은 분할로 판정하지 않는다(스토어와 같은 무시)', () => {
+    store().dropSessionOnIDECell(PROJ, null, 'right', 'sub-b');
+    useGraphStore.setState({
+      ideOverlays: {
+        [PROJ]: { ...DEFAULT_IDE_OVERLAY, agentId: 'agent-2', paneKey: PROJ, projectId: PROJ, activeSessionId: 'sub-z' },
+      },
+    });
+    // 남은 분할(agent-1)에는 sub-b 가 초점 칸이지만 지금 창은 agent-2 다 — 기준은 창의 활성 세션 sub-z.
+    expect(isIDESplitMenuSameTab(store(), PROJ, 'sub-b')).toBe(false);
+    expect(menuThenStore('sub-z')).toEqual({ menuSame: true, storeIdle: true });
   });
 });
 

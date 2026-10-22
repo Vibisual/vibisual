@@ -84,6 +84,14 @@ describe('provider response guidance', () => {
     expect(providerErrorGuidance(error("You've hit your usage limit."))?.resetsLabel).toBeUndefined();
   });
 
+  it('reads the monthly spend limit notice as a usage limit, not a billing failure (§5.5 #17-47 (H))', () => {
+    // Measured CLI text (2026-10-22): the session window is what is blocked, and it says when it reopens.
+    const spend = error("You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage?from=cc_cli_limit_message · your session limit resets 2:40pm (Asia/Seoul)", 'claude');
+    expect(providerErrorGuidance(spend)).toMatchObject({ kind: 'usageLimit', resetsLabel: '2:40pm (Asia/Seoul)' });
+    // API billing wording stays billing.
+    expect(providerErrorGuidance(error('You have reached your monthly spending limit', 'claude'))?.kind).toBe('billing');
+  });
+
   it('keeps local and process failures as errors even if their detail mentions capacity', () => {
     for (const code of ['spawn', 'stdin', 'crash', 'local', 'maxTurns'] as const) {
       expect(providerErrorGuidance({ code, engine: 'codex', detail: capacity })).toBeUndefined();
