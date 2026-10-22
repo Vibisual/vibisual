@@ -1,22 +1,47 @@
 /**
- * §5.1 #2-1 (B) — 화면 하나(메인 · 폴더 안)의 **작업물 별자리 배치**.
+ * §5.1 #2-1 (B) — 화면 하나(메인 · 폴더 안)의 **작업물 별자리 · 묶음 배치**.
  *
- * 판정은 shared `planConstellations` 한 곳이다(서버 위성 상한과 같은 답). 여기서는 그 답을 이 화면의 노드로 옮길 뿐이다:
- *  - 후보 = 이 화면에 선 파일 — 원 둘레(방사형) 파일 + 폴더·에이전트의 파일 위성.
- *  - **위성은 중심을 도는 위성이 된다** — 부모를 중심(파일이면 그 화면의 노드, 앱 노드면 그 노드)으로 바꾸고 선을 다시 건다.
- *    선의 모양·읽기/쓰기 방향은 종전 위성선 그대로다(`sat-edge-<id>` — 새 선 문법 ❌).
- *  - **직속 파일이 위성이 되면** 원 둘레 자리를 떠나 위성(`sat-<id>`)으로 선다. 그 파일로 들어오던 선은 호출부가
- *    `converted` 로 옮겨 단다.
- *  - 중심 사본에는 위성 수(`_moonCount`)를, 위성 사본에는 이유 꼬리표(`_constellation`)를 싣는다 — 둘 다 표시 전용이다.
- *  - 한 별자리의 위성끼리는 크기 범위를 함께 잰다(원래 부모가 갈려 있어도 한 무리로 보이게).
+ * 판정은 shared 두 곳이다 — 앱 노드 별자리는 `planConstellations`, 같은 종류 묶음은 `planKindBundles`(서버 위성 상한과 같은 답).
+ * 여기서는 그 답을 이 화면의 노드로 옮길 뿐이다:
+ *  - **앱 노드가 선언한 파일은 그 노드를 돈다** — 후보는 이 화면에 선 파일(원 둘레 파일 + 폴더·에이전트의 파일 위성)이고, 위성이
+ *    된 직속 파일은 원 둘레 자리를 떠난다(그 파일로 들어오던 선은 호출부가 `converted` 로 옮겨 단다).
+ *  - **파일은 중심이 되지 않는다 — 묶음에는 같은 종류만 (2026-10-21 사용자 지시 "사진 묶음인데 위성이나 사진 묶음 안으로 들어가면
+ *    사진만 있는게 아니라 다른 파일들도 같이 있는게 문제야 … 사진 제외한 다른 앱들표현도 마찬가지야")** — 종전에는 미디어 파일
+ *    중심의 별자리(그 파일을 적고 있는 md · 같은 이름의 json · 코드)를 묶음 버블로 세워, `사진 묶음` 안을 다른 종류가 함께 돌았다.
+ *  - **같은 폴더의 같은 종류는 묶음 버블 하나다 (같은 날 "비디오나 영상인줄알고 들어갔더니 묶음이야 묶음 버블로 변경하고",
+ *    2026-10-22 "사용한 앱이 같은 폴더에 2개 이상이면 묶음 폴더로 승격 시키고 묶음 버블은 기존 앱과 동일한 위성을 갖고")** —
+ *    폴더를 도는 위성 가운데 같은 폴더(그 폴더 자신 · 하위 폴더)의 같은 미디어 종류(둘 이상)는 그 파일들 대신 화면 전용 묶음
+ *    버블(`bundle` — `sat-bundle-<부모 id>-<열쇠>`) **하나**가 그 위성 자리에 선다. **구성 파일은 바깥 화면에 서지 않는다** —
+ *    묶음 안에서만 보인다(2026-10-22 두 번째 지시 "저런 버블은 없다고 … 특정 유형을 연상시키는 버블이 나와있고 그걸 누르면 묶음
+ *    버블처럼 동작하잖아" — 묶음 둘레를 돌던 영상 파일 버블을 누르면 그 폴더로 들어가 묶음과 똑같이 동작했다). 폴더의 직속
+ *    파일도 묶는다. 묶음의 수는 위성 수가 아니라 그 폴더에서 사용한 그 종류 전부(서버가 위성 사본에 싣는 `folderKindCount`)다.
+ *  - **원 둘레 파일도 같다(2026-10-22 "아니 이런게 없다고 … 내가 만들라는 구조에서 이게 뭐냐고")** — 폴더 안 화면의 직속 파일과
+ *    메인 화면의 최상위 파일도 같은 폴더의 같은 종류 둘 이상이면 묶음 버블 하나(`bundle-radial-<열쇠>`)가 그 파일들 대신 선다.
+ *    그 파일로 들어오던 선은 호출부가 `bundled` 로 묶음에 옮겨 단다.
+ *  - **연속 번호의 대표**(§5.1 #2-1 (F) ⑦)도 묶음 버블이다 — 가장 최근 파일의 얼굴을 쓰면 그림 한 장으로 읽혔다.
+ *  - 선의 모양·읽기/쓰기 방향은 종전 위성선 그대로다(`sat-edge-<id>` — 새 선 문법 ❌).
+ *  - 묶음 버블에는 구성(`_bundle`)을, 앱 노드 위성 사본에는 이유 꼬리표(`_constellation`)를 싣는다 — 둘 다 표시 전용이다.
+ *  - 한 앱 노드의 구성 파일끼리는 크기 범위를 함께 잰다(원래 부모가 갈려 있어도 한 무리로 보이게).
  *
  * 순수 함수다 — 스토어·DOM 을 보지 않고, 플랫폼은 인자로 받는다(멀티플랫폼 1축).
  */
-import type { AppWorkRole, BubbleData, ConstellationAppHubInput, ConstellationMoon, ConstellationReason, FileFaceKind, HeatScale, PlatformName } from '@vibisual/shared';
-import { BUBBLE_COLORS, READ_TOOLS, appWorkRoleOf, appWorkRoleRank, appWorkSeatAngles, planConstellations } from '@vibisual/shared';
+import type { AppWorkRole, BubbleData, ConstellationAppHubInput, ConstellationMoon, ConstellationReason, FileFaceKind, HeatScale, NodeStatus, PlatformName } from '@vibisual/shared';
+import {
+  BUBBLE_COLORS,
+  BUNDLE_BUBBLE,
+  FOLDER_BUBBLE_TYPES,
+  READ_TOOLS,
+  appWorkRoleOf,
+  appWorkRoleRank,
+  appWorkSeatAngles,
+  fileFaceKindOf,
+  kindBundleNameOf,
+  planConstellations,
+  planKindBundles,
+} from '@vibisual/shared';
 
-import { calcBubbleSize, calcFileSizeRange } from './sizeCalc.js';
-import type { EdgeInput, SatelliteInfo } from './satellite.js';
+import { calcBubbleSize, calcFileSizeRange, stableSizeRange } from './sizeCalc.js';
+import type { SatelliteInfo } from './satellite.js';
 import { appWorkPathKey, type AppWorkMoonMeta } from './appWorkView.js';
 
 /**
@@ -51,19 +76,94 @@ export interface ConstellationWorkTag {
   readonly sequenceLabel?: string;
   readonly sequenceCount?: number;
   readonly sequenceNames?: readonly string[];
+  /** 연속 번호 묶음의 파일 노드 id(번호 순) — 묶음 버블의 구성 · 묶음 안이 이것으로 찾는다. */
+  readonly sequenceIds?: readonly string[];
 }
+
+/**
+ * 묶인 이유 — 판정(`planConstellations`)의 이유 그대로다. 같은 종류 묶음의 구성은 `sameFolder`(같은 하위 폴더)다.
+ * (종전 `center` — 묶음의 중심 파일 — 는 파일 중심 별자리와 함께 걷었다, 2026-10-21.)
+ */
+export type ConstellationTagReason = ConstellationReason;
 
 /** 위성 사본에 싣는 이유 꼬리표 — 툴팁이 "무엇과 · 왜"를 말한다. */
 export interface ConstellationTag {
   readonly hubLabel: string;
-  readonly reason: ConstellationReason;
+  readonly reason: ConstellationTagReason;
   readonly viaLabel?: string;
   /** §5.1 #2-1 (F) — 앱 작업 보기의 위성이면 그 작업의 정보. */
   readonly work?: ConstellationWorkTag;
 }
 
+/** 묶음 버블의 구성 한 줄(툴팁) — 이름과 묶인 이유(같은 폴더 묶음·연속 번호는 이유가 없다 — 묶음이 이미 말한다). */
+export interface BundleMember {
+  readonly label: string;
+  readonly reason: ConstellationTagReason | null;
+}
+
+/**
+ * §2.2 · §5.1 #2-1 (B) — 묶음 버블 사본에 싣는 구성(`_bundle`). 서버 데이터가 아니다 — 화면이 판정에서 짓는다.
+ */
+export interface BundleInfo {
+  /** 무엇이 묶었나 — 같은 하위 폴더의 같은 종류(`planKindBundles`) · 연속 번호((F) ⑦). */
+  readonly source: 'folder' | 'sequence';
+  /** 구성의 종류 — 작은 줄 `영상 묶음` 과 테의 배지. 묶음에는 이 종류만 든다. */
+  readonly kind: FileFaceKind;
+  /** 같은 종류 묶음의 폴더(외부 표식을 뗀 경로) — 툴팁이 말한다. 연속 번호는 없다. */
+  readonly folder?: string;
+  /**
+   * 같은 종류 묶음의 폴더 노드 id(서버가 위성 사본에 싣는 `folderNodeId`). 묶음 안이 이 폴더를 화면 범위로 선언해 위성 상한으로
+   * 빠진 같은 종류까지 세운다(2026-10-22). 서버가 그 폴더 노드를 모르면(평탄하게 붙은 외부 위성) 없다 — 묶음 안은 구성만 선다.
+   */
+  readonly folderId?: string;
+  /** 구성 파일 노드 id — 같은 폴더 묶음은 최근 것부터, 연속 번호는 번호 순. 묶음 안(`interiorView` `bundle`)이 이것으로 찾는다. */
+  readonly memberIds: readonly string[];
+  /** 툴팁 줄(상한 `BUNDLE_BUBBLE.tooltipNameMax` — 넘치면 `count` 가 말한다). */
+  readonly members: readonly BundleMember[];
+  /** 수 — 같은 폴더 묶음은 그 폴더에서 사용한 그 종류 전부(위성 상한으로 빠진 것 포함), 연속 번호는 그 연속의 장 수. */
+  readonly count: number;
+}
+
+/** 묶음 버블 노드 id 의 머리(위성 자리면 `sat-` 가 앞에 붙는다). 판정은 `isBundleNodeId` 한 곳. */
+export const BUNDLE_NODE_PREFIX = 'bundle-';
+
+/** 이 노드 id 가 화면이 지은 묶음 버블인가(`bundle-…` · `sat-bundle-…`). */
+export function isBundleNodeId(id: string): boolean {
+  return id.startsWith(BUNDLE_NODE_PREFIX) || id.startsWith(`sat-${BUNDLE_NODE_PREFIX}`);
+}
+
+/** 버블 사본의 묶음 구성(묶음 버블이 아니면 `null`). */
+export function bundleInfoOf(bubble: Pick<BubbleData, 'bubbleType'>): BundleInfo | null {
+  if (bubble.bubbleType !== 'bundle') return null;
+  const info = (bubble as unknown as { _bundle?: unknown })._bundle;
+  return info && typeof info === 'object' ? info as BundleInfo : null;
+}
+
+/** 같은 내용의 구성은 같은 객체 — 꼬리표와 같은 이유(노드 data 얕은 비교). */
+const BUNDLE_CACHE_MAX = 256;
+const bundleCache = new Map<string, BundleInfo>();
+function stableBundle(info: BundleInfo): BundleInfo {
+  const key = JSON.stringify(info);
+  const hit = bundleCache.get(key);
+  if (hit) return hit;
+  if (bundleCache.size >= BUNDLE_CACHE_MAX) bundleCache.clear();
+  bundleCache.set(key, info);
+  return info;
+}
+
+/** 묶음 버블의 이름 — 파일 이름에서 확장자만 뗀다(지어내지 않는다). 점으로 시작하는 이름은 그대로. 연속 번호 `frame_####` 가 쓴다. */
+export function bundleNameOf(fileLabel: string): string {
+  const dot = fileLabel.lastIndexOf('.');
+  return dot > 0 ? fileLabel.slice(0, dot) : fileLabel;
+}
+
+/** 구성 중 하나라도 돌면 묶음도 돈다 — 나머지는 쉬는 중(완료·오류는 구성 파일이 각자 말한다). */
+function bundleStatusOf(bubbles: readonly BubbleData[]): NodeStatus {
+  return bubbles.some((b) => b.status === 'active') ? 'active' : 'idle';
+}
+
 export interface ConstellationViewInput {
-  /** 이 화면에서 원 둘레에 서는 버블 — 파일이 섞여 있으면 후보가 된다. */
+  /** 이 화면에서 원 둘레에 서는 버블 — 파일이 섞여 있으면 후보가 된다. 폴더 버블은 같은 종류 묶음의 부모 경로도 준다. */
   readonly radial: readonly BubbleData[];
   readonly satInfos: readonly SatelliteInfo[];
   readonly appHubs: readonly ConstellationAppHubView[];
@@ -71,6 +171,8 @@ export interface ConstellationViewInput {
   readonly platform: PlatformName;
   /** 서버에 저장된 위성 자리(`sat-<id>` → 좌표). 직속 파일이 위성이 될 때 그 자리가 있으면 쓴다. */
   readonly satellitePositions?: Readonly<Record<string, { x: number; y: number }>> | undefined;
+  /** 메인 화면 최상위 파일 묶음(폴더 조각이 없는 프로젝트 루트)의 이름 — 프로젝트 이름. 없으면 빈 이름이다. */
+  readonly rootLabel?: string | undefined;
 }
 
 export interface ConstellationViewResult {
@@ -78,7 +180,17 @@ export interface ConstellationViewResult {
   readonly satInfos: SatelliteInfo[];
   /** 위성이 된 직속 파일: 원래 id → 위성 id. */
   readonly converted: ReadonlyMap<string, string>;
+  /**
+   * 원 둘레 묶음에 든 직속 파일: 원래 id → 묶음 버블 id(2026-10-22). 그 파일로 들어오던 선은 묶음으로 옮겨 단다 — 위성이 된
+   * 파일(`converted`)과 달리 폴더 쪽 선도 버리지 않고, 같은 끝점이 된 선은 하나만 남긴다.
+   */
+  readonly bundled: ReadonlyMap<string, string>;
 }
+
+/** 앱 노드 별자리까지의 결과 — 원 둘레 묶음(`bundled`)은 그 뒤에 짓는다. */
+type HubResult = Omit<ConstellationViewResult, 'bundled'>;
+
+const NO_BUNDLED: ReadonlyMap<string, string> = new Map();
 
 interface Candidate {
   readonly fileId: string;
@@ -93,7 +205,7 @@ interface Candidate {
  */
 const TAG_CACHE_MAX = 1024;
 const tagCache = new Map<string, ConstellationTag>();
-function tagOf(hubLabel: string, reason: ConstellationReason, viaLabel: string | undefined, work?: ConstellationWorkTag): ConstellationTag {
+function tagOf(hubLabel: string, reason: ConstellationTagReason, viaLabel: string | undefined, work?: ConstellationWorkTag): ConstellationTag {
   const key = JSON.stringify([hubLabel, reason, viaLabel ?? null, work ?? null]);
   const hit = tagCache.get(key);
   if (hit) return hit;
@@ -108,16 +220,18 @@ function fileIdOfSat(id: string): string {
   return id.startsWith('sat-') ? id.slice(4) : id;
 }
 
-/** 이 노드가 끝점인 쪽의 반경을 바꾼 선(끝점 폴백 — 실측이 있으면 `CurvedEdge` 가 실측을 쓴다). */
-function withRadius(edge: EdgeInput, nodeId: string, radius: number): EdgeInput {
-  if (edge.source === nodeId) return { ...edge, sourceRadius: radius };
-  if (edge.target === nodeId) return { ...edge, targetRadius: radius };
-  return edge;
+export function applyConstellations(input: ConstellationViewInput): ConstellationViewResult {
+  const app = applyAppHubConstellations(input);
+  const satInfos = applyKindBundles(app.satInfos, input);
+  const radial = applyRadialKindBundles(app.radial, input);
+  return { radial: radial.radial, satInfos, converted: app.converted, bundled: radial.bundled };
 }
 
-export function applyConstellations(input: ConstellationViewInput): ConstellationViewResult {
+/** 앱 노드 별자리 — 앱 노드가 선언한 파일(결과 · 소재 · 코드 소재 폴더 · 작업물)은 그 노드를 돈다. 앱 노드가 없으면 그대로다. */
+function applyAppHubConstellations(input: ConstellationViewInput): HubResult {
   const { radial, satInfos, appHubs, heat, platform } = input;
-  const unchanged: ConstellationViewResult = { radial: [...radial], satInfos: [...satInfos], converted: new Map() };
+  const unchanged: HubResult = { radial: [...radial], satInfos: [...satInfos], converted: new Map() };
+  if (appHubs.length === 0) return unchanged;
 
   const cands: Candidate[] = [];
   const seen = new Set<string>();
@@ -133,7 +247,7 @@ export function applyConstellations(input: ConstellationViewInput): Constellatio
     seen.add(fileId);
     cands.push({ fileId, viewId: s.bubble.id, bubble: s.bubble, sat: s });
   }
-  if (cands.length === 0 || (cands.length < 2 && appHubs.length === 0)) return unchanged;
+  if (cands.length === 0) return unchanged;
 
   const plan = planConstellations(
     cands.map((c) => ({
@@ -150,28 +264,15 @@ export function applyConstellations(input: ConstellationViewInput): Constellatio
   const byFileId = new Map(cands.map((c) => [c.fileId, c] as const));
   const appById = new Map(appHubs.map((a) => [a.id, a] as const));
   const labelOf = (id: string): string => byFileId.get(id)?.bubble.label ?? appById.get(id)?.label ?? id;
+  const hubSize = (hubId: string): number => appById.get(hubId)?.size ?? 0;
 
-  // 중심 사본 — 위성 수를 싣는다(크기 하한·궤도). 앱 노드 중심은 버블이 아니라 사본이 없다.
-  const hubCopyByView = new Map<string, BubbleData>();
-  for (const [hubId, moons] of plan.moonsOf) {
-    const c = byFileId.get(hubId);
-    if (c) hubCopyByView.set(c.viewId, { ...c.bubble, _moonCount: moons.length } as BubbleData);
-  }
-  const hubSize = (hubId: string): number => {
-    const app = appById.get(hubId);
-    if (app) return app.size;
-    const c = byFileId.get(hubId);
-    if (!c) return 0;
-    return calcBubbleSize(hubCopyByView.get(c.viewId) ?? c.bubble, c.sat?.localRange, heat);
-  };
-  const viewIdOfHub = (hubId: string): string => (appById.has(hubId) ? hubId : byFileId.get(hubId)?.viewId ?? hubId);
-
-  // 한 별자리의 위성끼리 크기 범위 · 그 안의 차례.
+  // 한 앱 노드를 도는 파일끼리 크기 범위 · 그 안의 차례.
   const rangeByHub = new Map<string, { min: number; max: number }>();
   const orderOf = new Map<string, { index: number; total: number }>();
   for (const [hubId, moons] of plan.moonsOf) {
     const bubbles = moons.map((m) => byFileId.get(m.id)?.bubble).filter((b): b is BubbleData => b !== undefined);
-    rangeByHub.set(hubId, calcFileSizeRange(bubbles));
+    const raw = calcFileSizeRange(bubbles);
+    rangeByHub.set(hubId, stableSizeRange(raw.min, raw.max));
     moons.forEach((m, i) => orderOf.set(m.id, { index: i, total: moons.length }));
   }
 
@@ -207,31 +308,62 @@ export function applyConstellations(input: ConstellationViewInput): Constellatio
           sequenceLabel: e.meta.sequence.label,
           sequenceCount: e.meta.sequence.count,
           sequenceNames: e.meta.sequence.names,
+          sequenceIds: e.meta.sequence.ids,
         } : {}),
       });
     });
   }
 
-  const makeMoon = (bubble: BubbleData, fileId: string, moon: ConstellationMoon, fromSat: boolean): SatelliteInfo => {
-    const satId = `sat-${fileId}`;
-    const parentId = viewIdOfHub(moon.hub);
-    const parentSize = hubSize(moon.hub);
-    const localRange = rangeByHub.get(moon.hub) ?? { min: 0, max: 0 };
-    const work = workTagOf.get(fileId);
-    const tag = tagOf(labelOf(moon.hub), moon.reason, moon.via !== undefined ? labelOf(moon.via) : undefined, work);
-    const position = fromSat ? bubble.position : input.satellitePositions?.[satId];
+  /**
+   * 앱 노드를 도는 위성 하나. `tag` 는 툴팁의 "무엇과 · 왜", `hubId` 는 앱 노드 id.
+   * 연속 번호의 대표(§5.1 #2-1 (F) ⑦)는 파일 사본 대신 **묶음 버블**로 선다 — 대표 파일의 얼굴을 쓰면 그림 한 장으로 읽혔다.
+   * 이름은 확장자를 뗀 `frame_####` 다 — 모든 묶음이 `이름 / 종류 묶음 · 수` 로 같다(2026-10-21 사용자 지시 「통일」).
+   */
+  const makeMember = (bubble: BubbleData, fileId: string, hubId: string, tag: ConstellationTag, fromSat: boolean): SatelliteInfo => {
+    const parentId = hubId;
+    const parentSize = hubSize(hubId);
+    const localRange = rangeByHub.get(hubId) ?? stableSizeRange(0, 0);
+    const work = tag.work;
     const seatAngle = seatOf.get(fileId);
-    const satBubble = {
-      ...bubble,
-      id: satId,
-      activity: 1,
-      position,
-      _constellation: tag,
-      ...(seatAngle !== undefined ? { _seatAngle: seatAngle } : {}),
-    } as BubbleData;
+    const fileSatId = `sat-${fileId}`;
+    const position = fromSat ? bubble.position : input.satellitePositions?.[fileSatId];
+    const sequenceIds = work?.sequenceLabel !== undefined && work.sequenceIds && work.sequenceIds.length > 0 ? work.sequenceIds : null;
+    let satBubble: BubbleData;
+    if (sequenceIds !== null && work?.sequenceLabel !== undefined) {
+      const names = work.sequenceNames ?? [];
+      satBubble = {
+        id: `sat-${BUNDLE_NODE_PREFIX}${fileId}`,
+        label: bundleNameOf(work.sequenceLabel),
+        bubbleType: 'bundle',
+        path: '',
+        status: bubble.status === 'active' ? 'active' : 'idle',
+        activity: 1,
+        lastActivity: bubble.lastActivity,
+        ...(position ? { position } : {}),
+        _bundle: stableBundle({
+          source: 'sequence',
+          kind: fileFaceKindOf(bubble.absolutePath || bubble.path || bubble.label),
+          memberIds: sequenceIds,
+          members: names.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((label) => ({ label, reason: null })),
+          count: work.sequenceCount ?? sequenceIds.length,
+        }),
+        _constellation: tag,
+        ...(seatAngle !== undefined ? { _seatAngle: seatAngle } : {}),
+      } as BubbleData;
+    } else {
+      satBubble = {
+        ...bubble,
+        id: fileSatId,
+        activity: 1,
+        position,
+        _constellation: tag,
+        ...(seatAngle !== undefined ? { _seatAngle: seatAngle } : {}),
+      } as BubbleData;
+    }
     const size = calcBubbleSize(satBubble, localRange, heat);
     const isRead = bubble.lastTool ? READ_TOOLS.has(bubble.lastTool) : false;
     const order = orderOf.get(fileId) ?? { index: 0, total: 1 };
+    const satId = satBubble.id;
     return {
       bubble: satBubble,
       parentId,
@@ -251,43 +383,279 @@ export function applyConstellations(input: ConstellationViewInput): Constellatio
       localRange,
       heat,
       orbitSeat: true,
+      // §5.1 #2-2 (J) — 앱 노드 둘레 궤도도 달 수로 나눠 고르게(앱 작업 위성은 정해진 각도라 쓰지 않는다).
+      parentSlots: order.total,
       ...(seatAngle !== undefined ? { seatAngle } : {}),
-      ...(appById.get(moon.hub)?.linksHidden === true ? { edgeHidden: true } : {}),
+      ...(appById.get(hubId)?.linksHidden === true ? { edgeHidden: true } : {}),
     };
   };
+  const moonTag = (fileId: string, moon: ConstellationMoon): ConstellationTag =>
+    tagOf(labelOf(moon.hub), moon.reason, moon.via !== undefined ? labelOf(moon.via) : undefined, workTagOf.get(fileId));
 
-  // 원 둘레: 위성이 된 직속 파일은 빼고, 중심은 사본으로 바꿔 세운다.
+  // 원 둘레: 위성이 된 직속 파일은 빼고 위성으로 세운다.
   const converted = new Map<string, string>();
   const nextRadial: BubbleData[] = [];
   const convertedMoons: SatelliteInfo[] = [];
   for (const b of radial) {
     const moon = b.bubbleType === 'file' ? plan.memberOf.get(b.id) : undefined;
     if (moon) {
-      converted.set(b.id, `sat-${b.id}`);
-      convertedMoons.push(makeMoon(b, b.id, moon, false));
+      const info = makeMember(b, b.id, moon.hub, moonTag(b.id, moon), false);
+      converted.set(b.id, info.bubble.id);
+      convertedMoons.push(info);
       continue;
     }
-    nextRadial.push(hubCopyByView.get(b.id) ?? b);
+    nextRadial.push(b);
   }
 
-  // 위성: 위성이 아닌 것(중심 포함)을 먼저 — 새 위성의 첫 자리를 잡을 때 중심이 이미 자리에 있어야 한다.
+  // 위성: 위성이 아닌 것을 먼저 — 새 위성의 첫 자리를 잡을 때 중심이 이미 자리에 있어야 한다.
   const staying: SatelliteInfo[] = [];
   const moons: SatelliteInfo[] = [];
   for (const s of satInfos) {
     const fileId = fileIdOfSat(s.bubble.id);
     const moon = s.bubble.bubbleType === 'file' ? plan.memberOf.get(fileId) : undefined;
     if (moon) {
-      moons.push(makeMoon(s.bubble, fileId, moon, true));
+      moons.push(makeMember(s.bubble, fileId, moon.hub, moonTag(fileId, moon), true));
       continue;
     }
-    const hubCopy = hubCopyByView.get(s.bubble.id);
-    if (!hubCopy) {
-      staying.push(s);
-      continue;
-    }
-    const size = calcBubbleSize(hubCopy, s.localRange, heat);
-    staying.push({ ...s, bubble: hubCopy, edge: withRadius(s.edge, s.bubble.id, size / 2) });
+    staying.push(s);
   }
 
   return { radial: nextRadial, satInfos: [...staying, ...moons, ...convertedMoons], converted };
+}
+
+/**
+ * 묶음 구성이 든 폴더의 노드 id(서버가 위성 사본에 싣는 `folderNodeId`) — 구성이 모두 같은 폴더를 말할 때만. 한 묶음은 한 폴더라
+ * 어긋날 일이 없지만, 어긋나면 범위를 잘못 선언하느니 싣지 않는다(묶음 안은 구성만 선다).
+ */
+function bundleFolderIdOf(bubbles: readonly BubbleData[]): string | undefined {
+  let id: string | undefined;
+  for (const b of bubbles) {
+    if (b.folderNodeId === undefined) continue;
+    if (id === undefined) id = b.folderNodeId;
+    else if (id !== b.folderNodeId) return undefined;
+  }
+  return id;
+}
+
+/**
+ * §5.1 #2-1 (B) — **같은 종류 묶음**(2026-10-21 사용자 지시 · 2026-10-22 직속 포함 · 구성은 바깥에 서지 않는다). 폴더를 도는 파일
+ * 위성 가운데 같은 폴더(그 폴더 자신 · 하위 폴더)의 같은 미디어 종류(`BUNDLE_BUBBLE.minMembers` 이상)는 **그 파일들 대신** 묶음
+ * 버블 하나가 가장 최근 구성의 자리에 선다. 구성 위성은 이 화면에서 걷는다 — 파일처럼 보이는 버블이 누르면 그 폴더로 들어가 묶음과
+ * 똑같이 동작하던 것을 없앤다(2026-10-22 사용자 지시 "저런 버블은 없다고"). 구성은 묶음 안(`bundleInteriorMembers`)에서만 선다.
+ * 판정은 shared `planKindBundles` — 서버 위성 상한(§5.1 #2-1 (D))과 같은 답이다. 묶음의 수는 그 폴더에서 사용한 그 종류 전부다
+ * (위성 상한으로 빠진 것 포함 — 서버가 센 `folderKindCount`). 앱 노드로 옮겨 간 위성·폴더가 아닌 부모의 위성은 건드리지 않는다.
+ */
+function applyKindBundles(sats: SatelliteInfo[], input: ConstellationViewInput): SatelliteInfo[] {
+  const folderParents = new Set<string>();
+  for (const b of input.radial) {
+    if (FOLDER_BUBBLE_TYPES.has(b.bubbleType)) folderParents.add(b.id);
+  }
+  if (folderParents.size === 0) return sats;
+
+  const byParent = new Map<string, SatelliteInfo[]>();
+  for (const s of sats) {
+    if (s.bubble.bubbleType !== 'file' || !folderParents.has(s.parentId)) continue;
+    const list = byParent.get(s.parentId);
+    if (list) list.push(s);
+    else byParent.set(s.parentId, [s]);
+  }
+
+  /** 묶음의 머리(가장 최근 구성) 위성 id → 그 자리에 서는 묶음 버블. */
+  const bundleAt = new Map<string, SatelliteInfo>();
+  /**
+   * 묶음이 대신하는 구성 위성 id — 이 화면에서 걷는다. 구성은 묶음 안에서만 선다(2026-10-22 사용자 지시 "저런 버블은 없다고 …
+   * 특정 유형을 연상시키는 버블이 나와있고 그걸 누르면 묶음 버블처럼 동작하잖아" — 묶음 둘레를 돌던 영상 파일 버블을 누르면 그
+   * 폴더로 들어가 묶음과 똑같이 동작했다). 그래서 묶음은 달을 거느리지 않는다 — 몸집(§5.1 #2-2 (J) ④)도 제 원이다.
+   */
+  const folded = new Set<string>();
+  for (const [parentId, list] of byParent) {
+    if (list.length < BUNDLE_BUBBLE.minMembers) continue;
+    const plans = planKindBundles(
+      list.map((s) => ({ id: s.bubble.id, path: s.bubble.path || s.bubble.absolutePath || '', lastActivity: s.bubble.lastActivity })),
+      // 화면은 서버가 보낸 구성을 다 담는다 — 한 묶음의 상한은 서버 위성 상한이 이미 적용했다.
+      { platform: input.platform, memberMax: Number.MAX_SAFE_INTEGER },
+    );
+    if (plans.length === 0) continue;
+    const bySatId = new Map(list.map((s) => [s.bubble.id, s] as const));
+    for (const plan of plans) {
+      const members = [...plan.memberIds, ...plan.overflowIds]
+        .map((id) => bySatId.get(id))
+        .filter((s): s is SatelliteInfo => s !== undefined);
+      const head = members[0];
+      if (!head || members.length < BUNDLE_BUBBLE.minMembers) continue;
+      const bundleId = `sat-${BUNDLE_NODE_PREFIX}${parentId}-${plan.token}`;
+      const label = kindBundleNameOf(plan.dir);
+      const memberBubbles = members.map((m) => m.bubble);
+      const folderId = bundleFolderIdOf(memberBubbles);
+      // 수는 그 폴더에서 사용한 그 종류 전부 — 서버가 못 셌으면(옛 스냅샷·폴더 노드 없음) 화면의 구성 수다.
+      const count = Math.max(members.length, ...memberBubbles.map((b) => b.folderKindCount ?? 0));
+      const bundle = {
+        id: bundleId,
+        label,
+        bubbleType: 'bundle',
+        path: '',
+        status: bundleStatusOf(memberBubbles),
+        activity: 1,
+        lastActivity: Math.max(0, ...memberBubbles.map((b) => b.lastActivity ?? 0)),
+        ...(head.bubble.position ? { position: head.bubble.position } : {}),
+        _bundle: stableBundle({
+          source: 'folder',
+          kind: plan.kind,
+          folder: plan.dir,
+          ...(folderId !== undefined ? { folderId } : {}),
+          memberIds: members.map((m) => fileIdOfSat(m.bubble.id)),
+          members: members.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((m) => ({ label: m.bubble.label, reason: null })),
+          count,
+        }),
+      } as BubbleData;
+      bundleAt.set(head.bubble.id, bundleSatellite(head, bundle, head.bubble));
+      for (const m of members) folded.add(m.bubble.id);
+    }
+  }
+  if (bundleAt.size === 0) return sats;
+
+  // 묶음 버블은 가장 최근 구성이 서던 차례에 선다 — 구성 위성은 내지 않는다.
+  const out: SatelliteInfo[] = [];
+  for (const s of sats) {
+    const bundle = bundleAt.get(s.bubble.id);
+    if (bundle) out.push(bundle);
+    if (!folded.has(s.bubble.id)) out.push(s);
+  }
+  return out;
+}
+
+/**
+ * §5.1 #2-1 (B) — **원 둘레 파일도 같은 종류 둘 이상이면 묶음 하나**(2026-10-22 사용자 지시 — 폴더 안에 들어가면 같은 종류 영상
+ * 39개가 낱개로 서 있었다: "아니 이런게 없다고 왜 말을 안들어 … 내가 만들라는 구조에서 이게 뭐냐고"). 폴더 안 화면의 직속 파일과
+ * 메인 화면의 최상위 파일(프로젝트 루트)이 대상이다 — 같은 폴더의 같은 미디어 종류 둘 이상은 그 파일들 대신 묶음 버블 하나가 가장
+ * 최근 파일이 서던 차례에 선다. 원 둘레 파일은 그 화면에 다 실려 있으므로(위성 상한이 없다) 구성은 전부이고, 묶음 안은 그 구성으로
+ * 선다. 그 파일로 들어오던 선은 호출부가 `bundled` 로 묶음에 옮겨 단다.
+ */
+function applyRadialKindBundles(
+  radial: BubbleData[],
+  input: ConstellationViewInput,
+): { radial: BubbleData[]; bundled: ReadonlyMap<string, string> } {
+  const files = radial.filter((b) => b.bubbleType === 'file');
+  if (files.length < BUNDLE_BUBBLE.minMembers) return { radial, bundled: NO_BUNDLED };
+  const plans = planKindBundles(
+    files.map((b) => ({ id: b.id, path: b.path || b.absolutePath || '', lastActivity: b.lastActivity })),
+    { platform: input.platform, memberMax: Number.MAX_SAFE_INTEGER, includeRoot: true },
+  );
+  if (plans.length === 0) return { radial, bundled: NO_BUNDLED };
+  const byId = new Map(files.map((b) => [b.id, b] as const));
+  /** 묶음의 머리(가장 최근 파일) id → 그 차례에 서는 묶음 버블. */
+  const bundleAt = new Map<string, BubbleData>();
+  const bundled = new Map<string, string>();
+  for (const plan of plans) {
+    const members = plan.memberIds.map((id) => byId.get(id)).filter((b): b is BubbleData => b !== undefined);
+    const head = members[0];
+    if (!head || members.length < BUNDLE_BUBBLE.minMembers) continue;
+    const bundleId = `${BUNDLE_NODE_PREFIX}radial-${plan.token}`;
+    bundleAt.set(head.id, {
+      id: bundleId,
+      // 이름은 그 폴더 이름 — 메인 화면 최상위 파일(폴더 조각 없음)은 프로젝트 이름이다(지어내지 않는다).
+      label: plan.dir === '' ? (input.rootLabel ?? '') : kindBundleNameOf(plan.dir),
+      bubbleType: 'bundle',
+      path: '',
+      status: bundleStatusOf(members),
+      activity: 1,
+      lastActivity: Math.max(0, ...members.map((b) => b.lastActivity ?? 0)),
+      _bundle: stableBundle({
+        source: 'folder',
+        kind: plan.kind,
+        ...(plan.dir !== '' ? { folder: plan.dir } : {}),
+        memberIds: members.map((b) => b.id),
+        members: members.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((b) => ({ label: b.label, reason: null })),
+        count: members.length,
+      }),
+    } as BubbleData);
+    for (const m of members) bundled.set(m.id, bundleId);
+  }
+  if (bundled.size === 0) return { radial, bundled: NO_BUNDLED };
+  const out: BubbleData[] = [];
+  for (const b of radial) {
+    const bundle = bundleAt.get(b.id);
+    if (bundle) out.push(bundle);
+    if (!bundled.has(b.id)) out.push(b);
+  }
+  return { radial: out, bundled };
+}
+
+/** 위성 자리에 서던 구성 대신 그 자리(원래 부모의 위성)에 서는 묶음 버블. 선은 그 구성이 쓰던 방향 그대로다. */
+function bundleSatellite(s: SatelliteInfo, bundle: BubbleData, from: BubbleData): SatelliteInfo {
+  const size = BUNDLE_BUBBLE.size;
+  const isRead = from.lastTool ? READ_TOOLS.has(from.lastTool) : false;
+  return {
+    ...s,
+    bubble: bundle,
+    edge: {
+      id: `sat-edge-${bundle.id.slice(4)}`,
+      source: isRead ? bundle.id : s.parentId,
+      target: isRead ? s.parentId : bundle.id,
+      isActive: bundle.status === 'active',
+      color: BUBBLE_COLORS.bundle,
+      sourceRadius: isRead ? size / 2 : s.parentSize / 2,
+      targetRadius: isRead ? s.parentSize / 2 : size / 2,
+    },
+  };
+}
+
+/**
+ * §5.1 #2-1 (B) — 묶음 안에 세울 구성 파일 id. **묶음 안에도 그 종류만**이다(2026-10-21 사용자 지시 "사진 묶음 안으로 들어가면 사진만
+ * 있는게 아니라 다른 파일들도") — 들어온 순간 구성에서 종류가 다른 파일을 거른다(찾지 못한 id 는 묶음 안이 어차피 뺀다).
+ * 상한(`BUNDLE_BUBBLE.interiorMax`) 안이면 그대로, 넘치면(연속 번호는 수백 장일 수 있다) 최근에 만진 것부터 그만큼을 고르되
+ * 원래 차례(최근 순 · 번호 순)는 지킨다.
+ */
+export function bundleInteriorIds(
+  info: Pick<BundleInfo, 'memberIds' | 'kind'>,
+  nodes: Readonly<Record<string, Pick<BubbleData, 'lastActivity' | 'path' | 'absolutePath' | 'label'> | undefined>>,
+): string[] {
+  const ids = info.memberIds.filter((id) => {
+    const node = nodes[id];
+    return node === undefined || fileFaceKindOf(node.absolutePath || node.path || node.label) === info.kind;
+  });
+  if (ids.length <= BUNDLE_BUBBLE.interiorMax) return ids;
+  const recent = [...ids]
+    .sort((a, b) => (nodes[b]?.lastActivity ?? 0) - (nodes[a]?.lastActivity ?? 0))
+    .slice(0, BUNDLE_BUBBLE.interiorMax);
+  const keep = new Set(recent);
+  return ids.filter((id) => keep.has(id));
+}
+
+/** 묶음 안에 세울 구성을 고르는 데 쓰는 내부 뷰의 몫(`InteriorView` 의 `bundle`). */
+export interface BundleInteriorTarget {
+  readonly memberIds: readonly string[];
+  readonly folderId?: string | undefined;
+  readonly fileKind?: FileFaceKind | undefined;
+}
+
+/**
+ * §5.1 #2-1 (B) — 묶음 안에 세울 구성 파일(2026-10-22 사용자 지시 "해당 묶음 버블 내부로 들어가면 위성 규칙으로 인해 사라졌던
+ * 사용한 버블들이 눈에 보이게"). 같은 폴더 묶음은 들어온 순간의 구성(`memberIds` — 위성 상한이 줄인 것)에 더해, 그 폴더를
+ * 범위로 선언해 서버가 실어 준 그 폴더의 `children` 에서 **같은 종류 파일 전부**를 세운다. 범위가 도착하기 전에는 구성만
+ * 선다(빈 화면 ❌). 차례는 최근에 만진 것부터, 상한 `BUNDLE_BUBBLE.interiorMax`. 연속 번호 묶음은 폴더가 없어 종전대로
+ * 구성(번호 순)이다.
+ */
+export function bundleInteriorMembers(
+  view: BundleInteriorTarget,
+  nodeMap: Readonly<Record<string, BubbleData | undefined>>,
+  children: Readonly<Record<string, readonly BubbleData[] | undefined>>,
+): BubbleData[] {
+  const out: BubbleData[] = [];
+  const seen = new Set<string>();
+  for (const id of view.memberIds) {
+    const node = nodeMap[id];
+    if (!node || node.bubbleType !== 'file' || seen.has(id)) continue;
+    seen.add(id);
+    out.push(node);
+  }
+  if (view.folderId === undefined || view.fileKind === undefined) return out;
+  for (const node of children[view.folderId] ?? []) {
+    if (node.bubbleType !== 'file' || seen.has(node.id)) continue;
+    if (fileFaceKindOf(node.absolutePath || node.path || node.label) !== view.fileKind) continue;
+    seen.add(node.id);
+    out.push(node);
+  }
+  out.sort((a, b) => ((b.lastActivity ?? 0) - (a.lastActivity ?? 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out.length > BUNDLE_BUBBLE.interiorMax ? out.slice(0, BUNDLE_BUBBLE.interiorMax) : out;
 }

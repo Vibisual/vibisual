@@ -3,6 +3,8 @@ import type { Edge } from '@xyflow/react';
 import type { BubbleData, ActivityEdge, PipelineState } from '@vibisual/shared';
 import { BUBBLE_COLORS, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, PIPELINE_PARENT_BUBBLE_ID } from '@vibisual/shared';
 import { collectSatellites } from '../utils/satellite.js';
+import { withScreenFileRange } from '../utils/sizeCalc.js';
+import type { InteriorView } from '../stores/graphStore.js';
 import { applyConstellations, type ConstellationAppHubView } from '../utils/constellationView.js';
 import { clientPathPlatform } from '../utils/platform.js';
 import { useHeatScale } from './useHeatScale.js';
@@ -29,26 +31,65 @@ interface UseBubbleLayoutProps {
   residentBubbles?: BubbleData[];
   /** §5.1 #2-1 (B) — 메인 캔버스의 앱 노드 중심(그 노드가 선언한 파일들). 없으면 파일 중심만. */
   appHubs?: readonly ConstellationAppHubView[];
+  /** §5.1 #2-1 (B) — 최상위 파일 묶음(프로젝트 루트)의 이름 = 지금 탭의 프로젝트 이름. */
+  rootLabel?: string | null;
 }
 
 const NO_APP_HUBS: readonly ConstellationAppHubView[] = [];
+const NO_BUBBLES: BubbleData[] = [];
+
+/** 폴더 안 내비게이션 버블 — `← Back`(한 단계 위) · `Root→`(이 폴더의 홈). */
+const FOLDER_BACK_ID = '__root_back__';
+const FOLDER_HOME_ID = '__root_home__';
+
+/**
+ * §5.1 #2-2 — 폴더 안 내비게이션 버블 id. 이 둘은 그 화면의 배치(`radialLayout` 의 중심)가 세우는 고정물이라
+ * 새 버블의 등장 영역 규칙에서 뺀다(`spawnZoneSeating.isSpawnZoneSeated`).
+ */
+export const FOLDER_NAV_IDS: ReadonlySet<string> = new Set([FOLDER_BACK_ID, FOLDER_HOME_ID]);
+
+const NO_BUNDLED: ReadonlyMap<string, string> = new Map();
 
 /**
  * §5.1 #2-1 (B) — 위성이 된 직속 파일로 들어오던 선을 새 노드로 옮겨 단다. `dropWith` 가 주어지면 그 노드와 위성이 된
  * 파일 사이의 선은 버린다(폴더 → 직속 파일 선 — 그 관계는 이제 중심 → 위성 선이 말한다).
+ *
+ * 원 둘레 묶음에 든 직속 파일(`bundled` — 2026-10-22)의 선은 묶음 버블로 옮겨 단다. 폴더 쪽 선도 버리지 않고(묶음에는 따로 선
+ * 위성선이 없다), 구성 수만큼 같은 끝점 선이 겹쳐 그려지지 않게 하나만 남긴다 — 그중 하나라도 돌면(`animated`) 도는 선을 남긴다.
  */
-function remapConverted(edges: Edge[], converted: ReadonlyMap<string, string>, dropWith?: string): Edge[] {
-  if (converted.size === 0) return edges;
+export function remapConverted(
+  edges: Edge[],
+  converted: ReadonlyMap<string, string>,
+  dropWith?: string,
+  bundled: ReadonlyMap<string, string> = NO_BUNDLED,
+): Edge[] {
+  if (converted.size === 0 && bundled.size === 0) return edges;
   const out: Edge[] = [];
+  /** 묶음으로 옮긴 선의 끝점 쌍 → `out` 안의 자리. */
+  const bundledAt = new Map<string, number>();
   for (const e of edges) {
-    const source = converted.get(e.source);
-    const target = converted.get(e.target);
-    if (source === undefined && target === undefined) {
+    const cs = converted.get(e.source);
+    const ct = converted.get(e.target);
+    const bs = bundled.get(e.source);
+    const bt = bundled.get(e.target);
+    if (cs === undefined && ct === undefined && bs === undefined && bt === undefined) {
       out.push(e);
       continue;
     }
-    if (dropWith !== undefined && (e.source === dropWith || e.target === dropWith)) continue;
-    out.push({ ...e, source: source ?? e.source, target: target ?? e.target });
+    if ((cs !== undefined || ct !== undefined) && dropWith !== undefined && (e.source === dropWith || e.target === dropWith)) continue;
+    const moved = { ...e, source: cs ?? bs ?? e.source, target: ct ?? bt ?? e.target };
+    if (bs === undefined && bt === undefined) {
+      out.push(moved);
+      continue;
+    }
+    const key = `${moved.source}\u0000${moved.target}`;
+    const at = bundledAt.get(key);
+    if (at === undefined) {
+      bundledAt.set(key, out.length);
+      out.push(moved);
+    } else if (moved.animated === true && out[at]!.animated !== true) {
+      out[at] = moved;
+    }
   }
   return out;
 }
@@ -67,6 +108,7 @@ export function useBubbleLayout({
   satellitePositions,
   residentBubbles = [],
   appHubs = NO_APP_HUBS,
+  rootLabel = null,
 }: UseBubbleLayoutProps): ViewData {
   // §5.24 — 히트맵이 켜져 있으면 배치도 렌더와 **같은 자**를 써야 한다(안 그러면 화살표가 빗나간다).
   const heat = useHeatScale();
@@ -78,6 +120,7 @@ export function useBubbleLayout({
 
     // §5.1 #2-1 (B) — 작업물 별자리. 판정은 이 화면의 파일(최상위 파일 + 폴더·에이전트의 파일 위성)로 하고,
     //   위성이 된 최상위 파일은 원 둘레에서 빠진다 — 그래서 원 배치(`radialLayout`)는 그 **뒤의** 목록으로 짓는다.
+    //   같은 종류 둘 이상인 최상위 파일은 묶음 하나로 선다(2026-10-22 — 이름은 프로젝트 이름).
     const rawSatInfos = collectSatellites([...agents, ...folders], satellites, heat, satellitePositions);
     const cv = applyConstellations({
       radial: folders,
@@ -86,22 +129,25 @@ export function useBubbleLayout({
       heat,
       platform: clientPathPlatform(),
       satellitePositions,
+      ...(rootLabel ? { rootLabel } : {}),
     });
-    const radialFolders = cv.radial;
+    // §2.3 · §5.1 #2-1 (A) — 원 둘레에 선 파일은 같은 화면의 원 둘레 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
+    const radialFolders = withScreenFileRange(cv.radial);
     const satInfos = cv.satInfos;
 
     // §5.10 — 상주 버블(휴지통)은 폴더처럼 홈 주변을 공전(items)하되 물리 standalone.
     const foldersWithResident = [...radialFolders, ...residentBubbles];
     const allBubbles = [...agents, ...foldersWithResident];
-    // §5.23 웹 궤도 — 웹 버블은 이 원에 세우지 않는다(`radialItemsOf`). 첫 자리는 BubbleMap 이
-    //   읽은 에이전트 둘레 궤도에서 정한다(`webOrbitSeating.ts`).
+    // §5.23 — 웹 버블은 이 원에 세우지 않는다(`radialItemsOf` — 원이 부풀어 함께 선 항목을 벽으로 민다).
+    //   새 버블의 첫 자리는 이 원이 아니라 BubbleMap 이 주인 둘레 등장 영역에서 정한다(§5.1 #2-2 `spawnZoneSeating.ts`).
     const layout = radialLayout(agents, radialItemsOf(foldersWithResident), cx, cy, heat);
 
-    // 선 끝점 반경 폴백은 위성이 된 파일도 찾을 수 있게 위성 사본까지 함께 본다.
+    // 선 끝점 반경 폴백은 위성이 된 파일도 찾을 수 있게 위성 사본까지 함께 본다. 묶음에 든 파일은 그 묶음으로 잰다.
     const radiusPool = cv.converted.size > 0 ? [...allBubbles, ...satInfos.map((s) => s.bubble)] : allBubbles;
+    const endOf = (id: string): string => cv.converted.get(id) ?? cv.bundled.get(id) ?? id;
     const flowEdges = remapConverted(edges.map((e) => {
-      const folder = radialFolders.find((f) => f.id === e.target)
-        ?? radialFolders.find((f) => f.id === e.source);
+      const folder = radialFolders.find((f) => f.id === endOf(e.target))
+        ?? radialFolders.find((f) => f.id === endOf(e.source));
       return buildFlowEdge({
         id: e.id,
         source: e.source,
@@ -109,10 +155,10 @@ export function useBubbleLayout({
         label: e.label,
         isActive: e.isActive,
         color: folder ? BUBBLE_COLORS[folder.bubbleType] : '#64748b',
-        sourceRadius: findRadius(radiusPool, cv.converted.get(e.source) ?? e.source, heat),
-        targetRadius: findRadius(radiusPool, cv.converted.get(e.target) ?? e.target, heat),
+        sourceRadius: findRadius(radiusPool, endOf(e.source), heat),
+        targetRadius: findRadius(radiusPool, endOf(e.target), heat),
       });
-    }), cv.converted);
+    }), cv.converted, undefined, cv.bundled);
 
     const satFlowEdges = buildSatelliteEdges(satInfos);
 
@@ -122,17 +168,19 @@ export function useBubbleLayout({
       flowEdges: [...flowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs]);
+  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel]);
 }
 
 // ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
 
 
 interface UseInteriorLayoutProps {
-  /** 내부 뷰 종류 — 지금은 trash(버려진 에이전트 나열) 하나뿐이다. */
-  view: { kind: 'trash' } | null;
+  /** 내부 뷰 — 휴지통(버려진 에이전트 나열) · 묶음 안(§5.1 #2-1 (B) — 구성 파일만). */
+  view: InteriorView | null;
   /** trash: 버려진(trashed) 커스텀 에이전트 버블. */
   trashedAgents: BubbleData[];
+  /** bundle: 그 묶음의 구성 파일 노드(호출부가 `memberIds` 로 스토어에서 찾은 것 — 사라진 것은 빠져 있다). */
+  bundleMembers?: BubbleData[];
 }
 
 /**
@@ -140,7 +188,8 @@ interface UseInteriorLayoutProps {
  * currentFolderId 계층과 독립(interiorView 축). §5.10 로 기억 축이 폐기된 뒤
  * 이 축에 남은 값은 휴지통 하나뿐이다.
  */
-export function useInteriorLayout({ view, trashedAgents }: UseInteriorLayoutProps): ViewData {
+export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBBLES }: UseInteriorLayoutProps): ViewData {
+  const heat = useHeatScale();
   return useMemo(() => {
     if (!view) return EMPTY_VIEW_DATA;
     const cx = LAYOUT_CENTER_X;
@@ -154,6 +203,15 @@ export function useInteriorLayout({ view, trashedAgents }: UseInteriorLayoutProp
       status: 'idle',
       activity: 1,
     };
+
+    // §5.1 #2-1 (B) — 묶음 안: 구성 파일만 원 둘레에 선다. 크기는 구성끼리 견준다(§2.3 — 같은 화면의 같은 층).
+    //   파일의 선·위성은 바깥 화면의 것이라 여기서는 긋지 않는다(묶음은 파일들을 한 자리에 모아 보는 화면이다).
+    if (view.kind === 'bundle') {
+      const members = withScreenFileRange(bundleMembers);
+      const navBubbles = [backBubble];
+      const layout = radialLayout(navBubbles, members, cx, cy, heat, { offsetX: -300, offsetY: -150 });
+      return { bubbles: [...navBubbles, ...members], layout, flowEdges: [], satInfos: [] };
+    }
 
     // 버려진 에이전트 버블 — ghost 톤은 BubbleNode 가 trashed 로 판단(여기선 원형 유지).
     const contentBubbles: BubbleData[] = trashedAgents.map((a) => ({ ...a, _interior: true } as BubbleData));
@@ -169,7 +227,7 @@ export function useInteriorLayout({ view, trashedAgents }: UseInteriorLayoutProp
       flowEdges: [],
       satInfos: [],
     };
-  }, [view, trashedAgents]);
+  }, [view, trashedAgents, bundleMembers, heat]);
 }
 
 // ─── 폴더 내부 뷰 데이터 Hook ───
@@ -207,7 +265,7 @@ export function useFolderLayout({
     const cy = LAYOUT_CENTER_Y;
 
     const backBubble: BubbleData = {
-      id: '__root_back__',
+      id: FOLDER_BACK_ID,
       label: '\u2190 Back',
       bubbleType: 'back',
       path: '',
@@ -216,12 +274,14 @@ export function useFolderLayout({
     };
 
     const rootBubble: BubbleData = {
-      id: '__root_home__',
+      id: FOLDER_HOME_ID,
       label: folderData?.label ?? '\u2302 Root',
       bubbleType: 'root',
       path: folderData?.path ?? '',
       status: 'idle',
-      activity: folderData?.activity ?? 0,
+      // §2.3 (2026-10-21) — `Root→` 는 내비게이션이라 그 폴더의 활동량을 따르지 않고 `← Back` 과 같은 크기다(종전에는 활동량으로
+      //   최대 지름까지 커져 폴더 안에서 혼자 거대했다 — 사용자 지시 "하나의 크기가 갑자기 너무 커져버렸다").
+      activity: backBubble.activity,
       childCount: folderData?.childCount,
     };
 
@@ -262,13 +322,16 @@ export function useFolderLayout({
       platform: clientPathPlatform(),
       satellitePositions,
     });
-    const radialChildren = cv.radial;
+    // §2.3 · §5.1 #2-1 (A) — 직속 파일은 이 폴더 화면의 직속 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
+    const radialChildren = withScreenFileRange(cv.radial);
     const satInfos = cv.satInfos;
 
     const allBubbles = [...navBubbles, ...radialChildren, ...extraAgents];
     const layout = radialLayout(navBubbles, [...radialChildren, ...extraAgents], cx, cy, heat, { offsetX: -300, offsetY: -150 });
 
-    // 폴더 → 직속 파일 선은 그 파일이 위성이 되면 버린다(그 관계는 중심 → 위성 선이 말한다).
+    // 폴더 → 직속 파일 선은 그 파일이 위성이 되면 버린다(그 관계는 중심 → 위성 선이 말한다). 묶음에 든 직속 파일의 선은
+    //   그 묶음으로 옮겨 단다(2026-10-22 — 같은 끝점은 하나로).
+    const endOf = (id: string): string => (id === folderId ? backBubble.id : cv.bundled.get(id) ?? id);
     const flowEdges = remapConverted(innerEdges.map((e) => {
       const child = visibleChildren.find((i) => i.id === e.source) ?? visibleChildren.find((i) => i.id === e.target);
       return buildFlowEdge({
@@ -278,10 +341,10 @@ export function useFolderLayout({
         label: e.label,
         isActive: e.isActive,
         color: child ? BUBBLE_COLORS[child.bubbleType] : '#64748b',
-        sourceRadius: findRadius(allBubbles, e.source === folderId ? backBubble.id : e.source, heat),
-        targetRadius: findRadius(allBubbles, e.target === folderId ? backBubble.id : e.target, heat),
+        sourceRadius: findRadius(allBubbles, endOf(e.source), heat),
+        targetRadius: findRadius(allBubbles, endOf(e.target), heat),
       });
-    }), cv.converted, backBubble.id);
+    }), cv.converted, backBubble.id, cv.bundled);
 
     // worktree 드릴다운: agent→자식(파일/폴더) 엣지도 렌더 — 메인 레이어와 동일하게.
     // useFolderLayout 은 기본적으로 innerEdges(자식↔자식)만 그리므로, 워크트리로 이주한
@@ -289,7 +352,7 @@ export function useFolderLayout({
     // (extraAgents/children/nav)에 있는 agentEdges 만 추려 추가(중복 id 는 제외).
     const innerEdgeIds = new Set(flowEdges.map((fe) => fe.id));
     // 위성이 된 직속 파일은 원래 id 로 들어온다 — 그 id 도 이 화면에 있는 것으로 치고, 선은 새 노드로 옮겨 단다.
-    const bubbleIds = new Set([...allBubbles.map((b) => b.id), ...cv.converted.keys()]);
+    const bubbleIds = new Set([...allBubbles.map((b) => b.id), ...cv.converted.keys(), ...cv.bundled.keys()]);
     const agentFlowEdges = remapConverted((extraAgents.length > 0 ? agentEdges : [])
       .filter((e) => !innerEdgeIds.has(e.id) && bubbleIds.has(e.source) && bubbleIds.has(e.target))
       .map((e) => buildFlowEdge({
@@ -299,9 +362,9 @@ export function useFolderLayout({
         label: e.label,
         isActive: e.isActive,
         color: '#64748b',
-        sourceRadius: findRadius(allBubbles, e.source, heat),
-        targetRadius: findRadius(allBubbles, e.target, heat),
-      })), cv.converted);
+        sourceRadius: findRadius(allBubbles, cv.bundled.get(e.source) ?? e.source, heat),
+        targetRadius: findRadius(allBubbles, cv.bundled.get(e.target) ?? e.target, heat),
+      })), cv.converted, undefined, cv.bundled);
 
     const satFlowEdges = buildSatelliteEdges(satInfos);
 

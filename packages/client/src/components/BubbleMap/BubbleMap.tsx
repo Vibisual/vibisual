@@ -17,9 +17,11 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo, TidySort } from '@vibisual/shared';
-import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH, WEB_ORBIT_TYPES } from '@vibisual/shared';
+import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_ORBIT_GAP, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
 // §5.4 #36 (A) — `bubble` 노드는 형태만 갈라 그린다(커스텀 에이전트의 말풍선 ↔ 원형 버블).
 import { CanvasBubbleNode, noteAgentFormChange } from './AgentCardNode.js';
+import { bundleInfoOf, bundleInteriorIds, bundleInteriorMembers, isBundleNodeId } from '../../utils/constellationView.js';
+import { interiorViewKeyOf } from './canvasViewMemory.js';
 import { archivedCardTaskNodes, loadCardTasks, useCardTaskStore } from './agentCardTaskState.js';
 // §5.4 #36 (B) — 위성줄(에이전트 → 그 에이전트를 참조하는 앱 노드)과 궤도 위성 끌기 · 꽃잎 고르기.
 import { RefLinkEdge } from './RefLinkEdge.js';
@@ -75,14 +77,16 @@ import { EdgeMask } from './EdgeMask.js';
 import { CoronaWarmup } from './CoronaWarmup.js';
 import { useGraphStore, selectActivePluginProjectPath } from '../../stores/graphStore.js';
 import { placeSatellitePositions } from '../../utils/satellite.js';
-import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
+import { toFlowNodes, shallowEqualData } from '../../utils/flowBuilder.js';
+import type { SpawnField } from '../../utils/spawnZone.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type PhysicsMove } from '../../hooks/usePhysicsLayout.js';
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
 // §5.1 #2-1 — 파일 얼굴(미디어 더블클릭 열기) · 작업물 별자리(앱 노드 중심 · 버블 밖 부모의 첫 자리).
 import { useConstellationAppHubs } from '../../hooks/useConstellationAppHubs.js';
-import { fileFaceOf, fileMediaTarget } from '../../utils/fileFaceView.js';
+import { activeProjectRoot, fileFaceOf, fileFaceOpenRoute, fileMediaTarget } from '../../utils/fileFaceView.js';
 import { openAppWindow } from '../../apps/appWindows.js';
+import { openExternally, openWorkspaceTarget } from '../IDE/openWorkspaceTarget.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { canCreateMainViewBubble, isMainCanvasView } from './canvasScope.js';
@@ -109,7 +113,8 @@ import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets
 import { computeTidyLayout, computeTidySatellitesNested, tidyBandOf, type TidyItem, type TidyParentSeat, type TidySatellite } from './tidyLayout.js';
 // §5.4 #33 (I) — "누구와 함께 앉나"는 여기가 쥔다(배치 기하와 갈라 둔다).
 import { computeTidyGrouping, type TidySortItem } from './tidySort.js';
-import { seatWebOrbitBubbles } from './webOrbitSeating.js';
+// §5.1 #2-2 — 새 버블의 첫 자리(주인 둘레 등장 영역 — 붐비면 바깥 고리로 넓힌다).
+import { buildSpawnField, isSpawnZoneSeated, orbitReachOf, seatSpawnZoneBubbles } from './spawnZoneSeating.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
@@ -130,8 +135,12 @@ import { LinkFocusHint } from './LinkFocusHint.js';
 import { SelectionFocusFlow } from './SelectionFocusFlow.js';
 import type { LinkSatelliteRef } from './linkedBubbles.js';
 import { folderCandidates, resolveSatelliteFolderId } from './satelliteNavigate.js';
+import { openDomainBubble } from './openDomainBubble.js';
+import { useWebOpenTargetStore } from '../../stores/webOpenTarget.js';
 import { useTranslation } from 'react-i18next';
 
+/** §5.1 #2-1 (B) — 묶음 안이 아닐 때의 빈 구성(참조 고정). */
+const NO_BUNDLE_MEMBERS: BubbleData[] = [];
 const nodeTypes: NodeTypes = { bubble: CanvasBubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
 
 /**
@@ -401,7 +410,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // 장면 전환
   const [transition, setTransition] = useState<'none' | 'zoom-in' | 'zoom-out'>('none');
-  const viewKey = canvasViewKey(canvasProjectId, currentFolderId, interiorView?.kind ?? null);
+  // §5.1 #2-1 (B) — 묶음 안은 묶음마다 화면 위치를 따로 기억한다(휴지통은 종류 하나).
+  const viewKey = canvasViewKey(canvasProjectId, currentFolderId, interiorViewKeyOf(interiorView));
   const syncedViewKeyRef = useRef<string | null>(null);
   const prevProjectRef = useRef<string | null>(null);
   const { memory: viewMemory, restore: restoreViewport, cancelRestore, rememberViewport } = useCanvasViewport({
@@ -922,7 +932,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     } as Node));
   }, [allShelfBubbles, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
 
-  // §5.4 #36 (I) — 앱 작업 보기: 앱과 연결해 일하는 에이전트는 그 작업물만 앱 노드 둘레에 두고 나머지 활동 버블을 접는다.
+  // §5.4 #36 (I) — 앱 작업 보기: 앱을 이은 에이전트는(잇는 순간부터) 그 앱의 작업물·결과만 앱 노드 둘레에 두고 나머지 활동 버블을 접는다.
   //   판정은 순수 모듈(`appWorkView.ts` · `appWorkFold.ts`) — 메인 뷰에서만(앱 노드는 메인에만 그려진다).
   const appWorkPlan = useAppWorkPlan({
     enabled: currentFolderId === null && interiorView === null,
@@ -967,15 +977,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const base = failedWorktreeNodes.length === 0 ? flowNodes : [...flowNodes, ...failedWorktreeNodes];
     // §5.4 #36 (I) — 접힌 개수(에이전트) · 작업 궤도와 넘침(앱 노드)은 그리는 사본에만 얹는다(표시 전용).
     if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0 && specNodes.length === 0 && labNodes.length === 0 && shelfNodes.length === 0) {
-      return decorateAppWorkNodes(applyBubbleVisibilityToNodes(base, hiddenBubbleIds), appWorkPlan, appWorkFold);
+      return decorateAppWorkNodes(applyBubbleVisibilityToNodes(base, hiddenBubbleIds), appWorkPlan, appWorkFold, edges);
     }
     // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/실패 표식 (앞으로)
     return decorateAppWorkNodes(
       applyBubbleVisibilityToNodes([...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...specNodes, ...labNodes, ...shelfNodes, ...base], hiddenBubbleIds),
       appWorkPlan,
       appWorkFold,
+      edges,
     );
-  }, [flowNodes, failedWorktreeNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, hiddenBubbleIds, appWorkPlan, appWorkFold]);
+  }, [flowNodes, failedWorktreeNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, hiddenBubbleIds, appWorkPlan, appWorkFold, edges]);
   /** 묶음 메뉴·Shift 클릭·`Delete` 가 **지금 화면의** 노드를 읽는 자리(키 핸들러는 마운트 때 한 번 건다). */
   const displayNodesRef = useRef<Node[]>(displayNodes);
   displayNodesRef.current = displayNodes;
@@ -1380,7 +1391,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const nodes = flowNodesRef.current;
     if (nodes.length === 0) return null;
     const positions = nodes
-      .filter((n) => n.position.x !== 0 || n.position.y !== 0)
+      // §5.1 #2-1 (B) — 묶음 버블은 화면이 짓는 자리(서버 노드가 아니다) — 저장하지 않는다.
+      .filter((n) => (n.position.x !== 0 || n.position.y !== 0) && !isBundleNodeId(n.id))
       .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
     if (positions.length === 0) return null;
     return JSON.stringify({ positions });
@@ -1454,6 +1466,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     //  옆으로 튀었다. 그 대기 버블 자체가 폐기됐으므로 규약도 여기서 끝난다.)
     return out;
   }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, scopedCommentBoxes, capturePrefsMap]);
+  /**
+   * §5.1 #2-2 — 새 버블의 등장 영역이 세는 사각 창(물리와 같은 목록). 동기화 effect 가 읽는다 — 의존성에 넣으면
+   * 앱 노드를 끌 때마다 effect 가 다시 돈다.
+   */
+  const physicsExternalsRef = useRef<ExternalPhysicsNode[]>(physicsExternals);
+  physicsExternalsRef.current = physicsExternals;
 
   /** 물리로 움직인 store 요소 — 정착 시점에 한 번씩 PATCH 하고 락을 푼다. */
   const physicsMovedRef = useRef<Map<string, PhysicsExternalKind>>(new Map());
@@ -1928,12 +1946,22 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     satellitePositions,
     residentBubbles,
     appHubs: constellationAppHubs,
+    // §5.1 #2-1 (B) — 최상위 파일 묶음(프로젝트 루트)의 이름. `activeProject` 는 표시명이다.
+    rootLabel: activeProject,
   });
 
-  // §5.10 — 휴지통 내부 뷰 데이터(버려진 에이전트 나열).
+  // §5.1 #2-1 (B) — 묶음 안의 구성 파일. 들어온 순간의 id 로 스토어에서 찾고(그 사이 사라진 것은 빠진다), 같은 폴더 묶음은
+  //   범위로 받은 그 폴더의 같은 종류 파일까지 세운다 — 위성 상한으로 사라졌던 사용한 파일이 여기서 보인다(2026-10-22).
+  const bundleMembers = useMemo(() => {
+    if (interiorView?.kind !== 'bundle') return NO_BUNDLE_MEMBERS;
+    return bundleInteriorMembers(interiorView, nodeMap, storeChildren);
+  }, [interiorView, nodeMap, storeChildren]);
+
+  // §5.10 — 내부 뷰 데이터(휴지통: 버려진 에이전트 나열 · 묶음 안: 구성 파일).
   const interiorViewData = useInteriorLayout({
     view: interiorView,
     trashedAgents,
+    bundleMembers,
   });
 
   // 파이프라인 내부 뷰 데이터
@@ -2033,7 +2061,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
 
     // 5) 위치 결정 — 새 노드만 초기 위치 배정 (기존 노드는 현재 위치 유지)
-    //    우선순위: 로컬 캐시(positionsRef) > 서버 저장 위치(BubbleData.position) > pinned 계산 > 방사형 레이아웃
+    //    우선순위: 로컬 캐시(positionsRef) > 서버 저장 위치(BubbleData.position) > 등장 영역(§5.1 #2-2) > 방사형 레이아웃(에이전트·내비게이션)
     const layout = viewData.layout;
     const ids = new Set(viewData.bubbles.map((b) => b.id));
     for (const id of positionsRef.current.keys()) {
@@ -2047,13 +2075,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       }
     }
 
-    const pendingWebOrbit: BubbleData[] = [];
+    const pendingSpawn: BubbleData[] = [];
     for (const b of viewData.bubbles) {
       if (b.id.startsWith('sat-')) continue;
       // positionsRef에 이미 있으면 유지 (위에서 현재 렌더 위치가 들어감)
       if (positionsRef.current.has(b.id)) continue;
 
-      // 새 노드: 서버 저장 위치 → pinned 계산 → 방사형 레이아웃
+      // 새 노드: 서버 저장 위치 → 등장 영역(§5.1 #2-2) → 방사형 레이아웃(에이전트·내비게이션)
       const saved = (b as BubbleData).position;
       const validSaved = saved && (saved.x !== 0 || saved.y !== 0) ? saved : undefined;
       let pos: XYPosition | undefined;
@@ -2063,30 +2091,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         pos = layout.get(b.id);
       } else if (validSaved) {
         pos = validSaved;
-      } else if ((b as BubbleData).pinned) {
-        const root = viewData.bubbles.find((r) => (r as BubbleData).bubbleType === 'root');
-        const rootPos = root ? (positionsRef.current.get(root.id) ?? layout.get(root.id)) : undefined;
-        const rootNode = root ? flowNodesRef.current.find((n) => n.id === root.id) : undefined;
-        const rw = rootNode?.measured?.width ?? 100;
-        const rh = rootNode?.measured?.height ?? 100;
-        const anchor = rootPos ? { x: rootPos.x + rw / 2, y: rootPos.y + rh / 2 } : { x: 0, y: 0 };
-        const occupiedCenters = new Map<string, XYPosition>();
-        for (const fn of flowNodesRef.current) {
-          const p = positionsRef.current.get(fn.id);
-          if (!p) continue;
-          const fw = fn.measured?.width ?? 80;
-          const fh = fn.measured?.height ?? 80;
-          occupiedCenters.set(fn.id, { x: p.x + fw / 2, y: p.y + fh / 2 });
-        }
-        const center = findNonCollidingPosition(anchor, occupiedCenters);
-        const bNode = flowNodesRef.current.find((n) => n.id === b.id);
-        const bw = bNode?.measured?.width ?? 80;
-        const bh = bNode?.measured?.height ?? 80;
-        pos = { x: center.x - bw / 2, y: center.y - bh / 2 };
-      } else if (WEB_ORBIT_TYPES.has(b.bubbleType)) {
-        // §5.23 웹 궤도 — 원(`layout`)이 아니라 읽은 에이전트 둘레 궤도의 빈칸에 앉는다. 다른 새 버블이
-        //   다 앉은 뒤(아래 6) 한꺼번에 앉혀야 그것들도 장애물로 센다.
-        pendingWebOrbit.push(b);
+      } else if (isSpawnZoneSeated(b)) {
+        // §5.1 #2-2 등장 영역 — 원(`layout`)이 아니라 주인(이어진 에이전트) 둘레 고리의 빈칸에 앉는다. 고정(pinned)
+        //   노드도 같다(종전 루트 둘레 무작위). 에이전트·내비게이션이 먼저 다 선 뒤(아래 6) 한꺼번에 앉혀야
+        //   그것들도 장애물이자 셀 거리가 된다.
+        pendingSpawn.push(b);
         continue;
       } else {
         pos = layout.get(b.id);
@@ -2094,27 +2103,42 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       if (pos) positionsRef.current.set(b.id, pos);
     }
 
-    // 6) §5.23 웹 궤도 — 새 웹 버블의 첫 자리. 12시에서 시계 방향, 안쪽 궤도부터 첫 빈칸.
-    //    이미 자리가 있는 버블은 하나도 옮기지 않는다(처음 설 때 한 번뿐). 상자는 물리 클램프와 같은 상자다.
-    if (pendingWebOrbit.length > 0) {
+    // 6) §5.1 #2-2 등장 영역 — 새 버블의 첫 자리. 주인 둘레 원판 안의 것을 주인 불문 전부 세어 칸 수 이상이면
+    //    고리를 넓히고, 그 바깥 고리의 12시부터 시계 방향 첫 빈칸에 앉는다. 이미 자리가 있는 버블은 하나도
+    //    옮기지 않는다(처음 설 때 한 번뿐). 상자는 물리 클램프와 같은 상자, 장부는 위성(7)까지 이어 쓴다.
+    const needsSatelliteSeat = viewData.satInfos.some((s) => {
+      const p = positionsRef.current.get(s.bubble.id);
+      return !p || (p.x === 0 && p.y === 0);
+    });
+    let spawnField: SpawnField | undefined;
+    if (pendingSpawn.length > 0 || needsSatelliteSeat) {
       const store = useGraphStore.getState();
       const box = (store.activeProject ? store.layoutBoundsByProject[store.activeProject] : undefined) ?? LAYOUT_BOUNDS_DEFAULT;
-      const seats = seatWebOrbitBubbles({
-        pending: pendingWebOrbit,
+      spawnField = buildSpawnField({
         bubbles: viewData.bubbles,
         nodes: flowNodesRef.current,
         positions: positionsRef.current,
-        edges: viewData.flowEdges,
+        // 코멘트 박스는 버블을 담는 상자라 세지 않는다 — 화면을 차지하는 사각 창만.
+        panels: physicsExternalsRef.current.filter((p) => p.group === 'panel'),
         heat: heatScale,
         fileSizeRange: store.fileSizeRange,
         bounds: { cx: LAYOUT_CENTER_X, cy: LAYOUT_CENTER_Y, hw: box.hw, hh: box.hh },
         cardForm: isMainCanvasView(store),
-        fallbackCenter: { x: LAYOUT_CENTER_X, y: LAYOUT_CENTER_Y },
       });
-      for (const [id, pos] of seats) positionsRef.current.set(id, pos);
+      if (pendingSpawn.length > 0) {
+        const seats = seatSpawnZoneBubbles({
+          pending: pendingSpawn,
+          field: spawnField,
+          bubbles: viewData.bubbles,
+          edges: viewData.flowEdges,
+          heat: heatScale,
+          fallbackCenter: { x: LAYOUT_CENTER_X, y: LAYOUT_CENTER_Y },
+        });
+        for (const [id, pos] of seats) positionsRef.current.set(id, pos);
+      }
     }
 
-    // 7) 위성 위치 — positionsRef의 실제 폴더 위치 기준으로 계산 (캐시에 있으면 스킵)
+    // 7) 위성 위치 — positionsRef의 실제 부모 위치 기준, 같은 등장 영역 규칙으로 (캐시에 있으면 스킵)
     if (viewData.satInfos) {
       satInfosRef.current = viewData.satInfos;
       // §5.1 #2-1 (B) — 별자리 중심이 앱 노드면 그 노드는 `positionsRef` 밖(store 좌표)이다. 새 위성의 첫 자리는
@@ -2124,7 +2148,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         if (!app) return null;
         const size = appNodeSize(getInternalApp(app.appId), appNodeForm(app), app);
         return { cx: app.x + size.width / 2, cy: app.y + size.height / 2, size: Math.max(size.width, size.height) };
-      });
+      }, spawnField);
     }
 
     // 8) 노드 업데이트 — positionsRef 기반으로 위치 결정 (서버 위치 우선)
@@ -2170,6 +2194,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
             type: 'bubble' as const,
             position: pos,
             dragHandle: '.bubble-body',
+            // §5.1 #2-1 (B) — 묶음 버블은 고르지 않는다(지울·잠글 데이터가 없는 자리 — 고른 묶음·묶음 메뉴에 들지 않게).
+            ...(b.bubbleType === 'bundle' ? { selectable: false } : {}),
             data: b.id.startsWith('sat-') ? { ...b, position: pos } : { ...b },
           };
         });
@@ -2277,13 +2303,43 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // 프로젝트 전환 로직은 메인 sync effect 내부로 통합됨 (위치 결정 전 초기화 보장)
 
-  const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
+  // §5.23 「더블클릭」 — 웹 버블이 여는 곳(기계 단위 설정)을 이 창에서 한 번 읽어 둔다. 이후 바뀌면 WS 가 알려 준다.
+  //   더블클릭은 이 값을 동기로 읽으므로, 읽기 전에 누르면 기본값(바깥 브라우저)이다.
+  useEffect(() => {
+    if (!useWebOpenTargetStore.getState().loaded) void useWebOpenTargetStore.getState().fetchTarget();
+  }, []);
+
+  const handleNodeDoubleClick = useCallback((event: React.MouseEvent, node: Node) => {
     const data = node.data as unknown as BubbleData;
     const store = useGraphStore.getState();
+    // §5.1 #2-1 (B) · §5.4 #14-5 (B) — 들어가는 더블클릭은 그 순간의 화면(위치·줌)을 확정해 기억한다(손으로 옮긴 화면과 같은
+    //   대접). 나오면 그 화면으로 돌아온다 — 2026-10-21 사용자 지시 "묶음 버블은 안으로 들어갔다가 나오면 처음 들어간 위치에서
+    //   나와야해". 기억은 지금 화면 열쇠에만 앉는다(`rememberViewport` 가 열쇠·준비를 대조한다).
+    const rememberHere = (): void => {
+      const flow = rfRef.current;
+      if (flow) rememberViewport(event.nativeEvent, flow.getViewport());
+    };
     // §5.10 — 휴지통 내부 back → 내부 종료(캔버스 복귀).
     if (data.id === '__interior_back__') { store.exitInterior(); return; }
     // 휴지통은 기존 버블 진입 방식 유지(소수라 피드 불요).
-    if (data.id === '__trash__') { store.enterInterior({ kind: 'trash' }); return; }
+    if (data.id === '__trash__') { rememberHere(); store.enterInterior({ kind: 'trash' }); return; }
+    // §5.1 #2-1 (B) — 묶음 버블 더블클릭 = 묶음 안(그 종류의 구성 파일만 · `← Back` 으로 나온다). 지울·열 파일이 아니라 자리다.
+    //   같은 폴더 묶음은 그 폴더를 싣고 들어간다 — 범위 선언이 그 폴더의 같은 종류(위성 상한으로 빠진 것까지)를 받아 온다.
+    if (data.bubbleType === 'bundle') {
+      const info = bundleInfoOf(data);
+      const memberIds = info ? bundleInteriorIds(info, store.nodeMap) : [];
+      if (info && memberIds.length > 0) {
+        rememberHere();
+        store.enterInterior({
+          kind: 'bundle',
+          bundleId: node.id,
+          label: data.label,
+          memberIds,
+          ...(info.source === 'folder' && info.folderId !== undefined ? { folderId: info.folderId, fileKind: info.kind } : {}),
+        });
+      }
+      return;
+    }
     // §5.10 — trashed 커스텀 에이전트는 IDE 사용 불가(휴지통 내부). 좌더블클릭 무시.
     if (data.bubbleType === 'agent' && data.trashed) { return; }
     if (data.id === '__root_back__') { store.goBack(); return; }
@@ -2311,6 +2367,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const hasSubFolders = (store.children[data.id] ?? [])
         .some((c) => c.bubbleType === 'external_folder' || c.bubbleType === 'internal_folder');
       if (hasSubFolders) {
+        rememberHere();
         store.enterFolder(data.id);
         return;
       }
@@ -2322,11 +2379,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       return;
     }
     if (data.bubbleType === 'internal_folder' || data.bubbleType === 'worktree') {
+      rememberHere();
       store.enterFolder(data.id);
       return;
     }
     // 파이프라인 버블 더블클릭 → 내부 진입
     if (data.bubbleType === 'pipeline') {
+      rememberHere();
       store.enterFolder(data.id);
       return;
     }
@@ -2335,13 +2394,26 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     //   store.enterFolder(data.id);
     //   return;
     // }
-    // §5.1 #2-1 (A) — 미디어 얼굴은 그 파일을 **굽는 앱**의 편집기로 연다(굽는 앱이 곧 여는 앱 · 같은 문 `openAppWindow`
-    //   — 앱 안 창). 굽는 앱이 없거나 프로젝트 밖이면 아래 종전 길(위성이면 그 파일의 폴더로 들어가기)로 떨어진다.
+    // §5.1 #2-1 (A) — 미디어 얼굴은 **보여 주는 자리**다 — 누르면 그 파일을 우리 앱 안에서 연다(2026-10-22 사용자 지시
+    //   "기존파일은 클릭하면 해당 위치로 이동하는게 맞는데 지금 이 신설한 것은 해당 파일이 우리 앱안에셔 열리게 만드는게 목적").
+    //   어디서 여는지는 `fileFaceOpenRoute` 한 곳이 정한다: 굽는 앱이 곧 여는 앱(같은 문 `openAppWindow` — 앱 안 창 · 프로젝트
+    //   밖은 보기 전용 앱만) → 우리 엔진이 그대로 못 읽는 영상·소리는 변환해서 우리 앱으로(§5.13 (R-8) — IDE 탐색기와 같은
+    //   `openWorkspaceTarget` · 변환해 둔 것이 있으면 바로, 없으면 변환 창) → 그 밖은 OS 연결 프로그램. 그 파일의 폴더·묶음
+    //   안으로 들어가지 않는다 — 위치로 가는 것은 아래 종전 길(미디어가 아닌 위성 → 그 파일의 폴더)뿐이다.
     if (data.bubbleType === 'file') {
       const face = fileFaceOf(data);
-      if (face !== null && face.media && face.appId !== null) {
-        const target = fileMediaTarget(data.absolutePath, Object.values(store.projects).map((p) => p.path));
-        if (target !== null && openAppWindow({ appId: face.appId, projectId: target.root, file: target.rel })) return;
+      if (face !== null && face.media) {
+        const target = fileMediaTarget(data.absolutePath, Object.values(store.projects).map((p) => p.path), activeProjectRoot(store));
+        const route = fileFaceOpenRoute(face, target);
+        if (route === 'app' && face.appId !== null && target !== null
+          && openAppWindow({ appId: face.appId, projectId: target.root, file: target.rel })) return;
+        if (route === 'convert' && target !== null && data.absolutePath) {
+          // 실행 여부를 싣지 않으므로 실행 갈래로 가지 않는다 — 실행 실패 안내 문구는 쓰일 일이 없다.
+          void openWorkspaceTarget({ relPath: target.rel, absPath: data.absolutePath, kind: 'file' }, target.root, '');
+          return;
+        }
+        if (data.absolutePath) void openExternally(data.absolutePath);
+        return;
       }
     }
     // §5.3 #28 v1.47 — 콘티 버블 더블클릭 → 가장 최근 콘티의 보드 오픈
@@ -2378,6 +2450,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       useGraphStore.getState().openIDEOverlay(data.id, { pane: isNarrowViewportNow() ? 'reuse' : 'new' });
       return;
     }
+    // §5.23 「더블클릭」 — 도메인(웹) 버블은 그 버블에서 마지막으로 읽은 주소를 연다. 기본은 바깥 브라우저이고,
+    //   옵션창 고급 탭 "웹 버블"에서 고르면 탭 줄의 iframe 탭으로 연다(판정·여는 길은 `openDomainBubble` 한 곳).
+    if (data.bubbleType === 'domain') {
+      openDomainBubble(data);
+      return;
+    }
     // iframe 더블클릭 → 탭 열기
     if (data.bubbleType === 'iframe' && data.url) {
       // §7.11 / §3.5 — 탭은 프로젝트 탭과 상관없이 공유되므로, 연 프로젝트를 함께 담아 화면을 불러오기
@@ -2398,9 +2476,15 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     if (node.id.startsWith('sat-')) {
       const { children: allChildren, topFolders: tops } = useGraphStore.getState();
       const folderId = resolveSatelliteFolderId(data, folderCandidates(tops, allChildren));
-      if (folderId) store.enterFolderDeep(folderId);
+      if (folderId) {
+        rememberHere();
+        store.enterFolderDeep(folderId);
+      }
+      return;
     }
-  }, []);
+    // §5.1 #2-1 (B) — 묶음 안의 구성 파일은 미디어뿐이라 위 미디어 갈래(우리 앱 · 변환 · OS 연결 프로그램)에서 끝난다. 종전처럼 묶음에서
+    //   나와 그 폴더로 들어가면 그 폴더의 같은 종류가 다시 묶음으로 서 "누르면 묶음처럼 동작"이 된다(2026-10-22 사용자 지시).
+  }, [rememberViewport]);
 
   // 선택 + dismiss는 BubbleNode의 pointerDown에서 처리 (click보다 확실)
 
@@ -2457,6 +2541,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     //     parentByChildId 에 없어도 bubbleType 이 SATELLITE_TYPES 면 보수적 orphan 처리.
     const finalChildNodeIds: string[] = [];
     for (const id of spatialInside) {
+      // §5.1 #2-1 (B) — 묶음 버블은 화면이 짓는 자리라 멤버로 싣지 않는다(구성 파일의 부모 판정에는 남는다).
+      if (isBundleNodeId(id)) continue;
       const pid = parentByChildId.get(id);
       if (pid) {
         if (!spatialInside.has(pid)) continue; // 위성: 부모가 박스 안에 없음 → 제외
@@ -2494,7 +2580,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         const sw = satNode.measured?.width ?? (satNode.width ?? 30);
         const sh = satNode.measured?.height ?? (satNode.height ?? 30);
         const angle = Math.random() * Math.PI * 2;
-        const orbit = (pw / 2) + (sw / 2) + 24;
+        // 물리 평형점과 같은 틈(§5.1 #2-2 (J)) — 따로 들면 옮긴 직후 스프링이 다시 끌어 한 번 더 움직인다.
+        const orbit = (pw / 2) + (sw / 2) + SATELLITE_ORBIT_GAP;
         const cxParent = parentNode.position.x + pw / 2;
         const cyParent = parentNode.position.y + ph / 2;
         const newX = cxParent + Math.cos(angle) * orbit - sw / 2;
@@ -2624,7 +2711,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const cx = node.position.x + diameter / 2;
       const cy = node.position.y + tidyHalfHeightOf(node, diameter);
       const parentId = satParentById.get(node.id);
-      if (parentId) { sats.push({ id: node.id, parentId, diameter, cx, cy }); continue; }
+      if (parentId) {
+        // §5.1 #2-2 (J) — 달을 거느린 위성(묶음)은 몸집으로 앉는다(제 달이 부모를 파고들지 않게).
+        const reach = orbitReachOf(data);
+        sats.push({ id: node.id, parentId, diameter, cx, cy, ...(reach !== undefined ? { reach } : {}) });
+        continue;
+      }
       picked.push({
         // `group` 은 바로 아래 나눔이 채운다 — 기준마다 뜻이 달라 여기서 미리 정할 수 없다.
         item: { id: node.id, diameter, group: band, cx, cy },
@@ -2753,12 +2845,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       tidyRafRef.current = null;
       setTidying(false);
       // 위성은 부모 기준 궤도 오프셋을 다시 잡아 줘야 스프링이 옛 자리로 되끌지 않는다
-      // (메모 상자 텔레포트가 세운 규약 그대로 — drag 로 알린 뒤 즉시 dragStop).
+      // (메모 상자 텔레포트가 세운 규약 그대로 — drag 로 알린 뒤 즉시 dragStop). 앉힌 거리는 지킨다 — 두 겹 고리·달이 많아
+      // 넓힌 묶음 궤도(§5.1 #2-2 (J))를 첫 고리로 되돌리면 서로 포갠다.
       for (const id of satIds) {
         const pos = to.get(id);
         if (!pos) continue;
         onSatelliteDrag(id, pos.x, pos.y);
-        onSatelliteDragStop(id);
+        onSatelliteDragStop(id, { keepDistance: true });
       }
       wake();
       // 버블이 옮겨졌으니 어느 메모 상자에 속하는지 다시 판정하고, 앉은 자리를 저장한다.

@@ -1,3 +1,7 @@
+import { PHYSICS_MAGNET_GAP, SPAWN_ZONE } from '@vibisual/shared';
+
+import { satelliteSeatDistance } from '../utils/satellite.js';
+
 /**
  * 캔버스 물리의 **순수 기하** — 겹침 판정과 밀어내기 벡터.
  *
@@ -30,8 +34,12 @@ export interface PhysicsShape {
   parentId: string | null;
 }
 
-/** 원형 버블끼리 띄워 두는 간격. 사각 요소가 낀 쌍은 0 — 붙여 놓은 변이 다시 벌어지면 안 된다. */
-export const MAGNET_GAP = 12;
+/**
+ * 원형 버블끼리 띄워 두는 간격. 사각 요소가 낀 쌍은 0 — 붙여 놓은 변이 다시 벌어지면 안 된다.
+ * 값은 shared 한 곳이다 — §5.1 #2-2 등장 영역이 새 버블의 빈칸을 같은 간격으로 고른다(두 벌이면 앉힌
+ * 자리를 물리가 다시 민다).
+ */
+export const MAGNET_GAP = PHYSICS_MAGNET_GAP;
 
 /**
  * 겹침을 풀 때 얹는 되튐 세기 — **침투 깊이에 정확히 비례**한다. 바닥값을 두면 안 된다.
@@ -210,22 +218,180 @@ export function separationResponse(
  */
 export function orbitSeatOffset(
   parent: { readonly x: number; readonly y: number; readonly radius: number },
-  body: { readonly id: string; readonly x: number; readonly y: number; readonly radius: number },
+  body: { readonly id: string; readonly x: number; readonly y: number; readonly radius: number; readonly reach?: number | undefined },
   gap: number,
 ): { x: number; y: number } {
   let dx = body.x - parent.x;
   let dy = body.y - parent.y;
   let dist = Math.sqrt(dx * dx + dy * dy);
   if (dist < DEGENERATE_EPSILON) {
-    let h = 0;
-    for (let i = 0; i < body.id.length; i += 1) h = ((h << 5) - h + body.id.charCodeAt(i)) | 0;
-    const angle = ((Math.abs(h) % 360) * Math.PI) / 180;
+    const angle = degenerateAngle(body.id);
     dx = Math.cos(angle);
     dy = Math.sin(angle);
     dist = 1;
   }
-  const reach = parent.radius + body.radius + gap;
-  return { x: (dx / dist) * reach, y: (dy / dist) * reach };
+  const orbit = parent.radius + orbitExtentOf(body) + gap;
+  return { x: (dx / dist) * orbit, y: (dy / dist) * orbit };
+}
+
+/** 두 중심이 겹쳐 방향이 없을 때의 각도 — id 로 정한다(재현 가능 — 무작위 ❌, `DEGENERATE_EPSILON` 과 같은 규율). */
+function degenerateAngle(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  return ((Math.abs(h) % 360) * Math.PI) / 180;
+}
+
+/**
+ * §5.1 #2-2 (J) — 궤도를 재는 반경. 달을 거느린 위성(묶음)은 가장 큰 달의 바깥 테두리까지가 몸이라(노드 데이터 `_orbitReach`)
+ * 그 몸집으로 재야 제 달이 부모를 파고들지 않는다. 몸집이 없거나 원보다 작으면 그려지는 원이다.
+ */
+export function orbitExtentOf(body: { readonly radius: number; readonly reach?: number | undefined }): number {
+  const reach = body.reach;
+  return typeof reach === 'number' && Number.isFinite(reach) && reach > body.radius ? reach : body.radius;
+}
+
+/** 궤도 밀어내기를 건너뛰는 오차(px) — 측정 반올림으로 매번 깨우지 않게. */
+const ORBIT_MIN_TOLERANCE = 0.5;
+
+/**
+ * §5.1 #2-2 (J) — 궤도 안쪽으로 들어온 위성을 궤도로 민다(부모 중심 기준 오프셋 · 방향 유지).
+ *
+ * 폴더는 쓸수록 커진다(활동량 · 작업 중 1.15배) — 처음 앉은 거리는 그대로라 커진 부모의 테두리를 파고들었고, 스프링은 그 옛 거리로
+ * 끌어당기고 겹침 풀기는 밀어내 위성이 테두리에 붙어 떨었다. 평형점(부모 반경 + 몸집 + 간격)보다 가까울 때만 그 거리로 늘린다 —
+ * 바깥 고리에 앉은 위성은 그대로다(당겨 들이지 않는다). 바꿀 것이 없으면 `null`.
+ */
+export function orbitMinOffset(
+  parent: { readonly radius: number },
+  body: { readonly id: string; readonly radius: number; readonly reach?: number | undefined; readonly offsetX: number; readonly offsetY: number },
+  gap: number,
+): { x: number; y: number } | null {
+  const need = parent.radius + orbitExtentOf(body) + gap;
+  const len = Math.hypot(body.offsetX, body.offsetY);
+  if (!(Number.isFinite(need) && Number.isFinite(len))) return null;
+  if (len >= need - ORBIT_MIN_TOLERANCE) return null;
+  if (len < DEGENERATE_EPSILON) {
+    const angle = degenerateAngle(body.id);
+    return { x: Math.cos(angle) * need, y: Math.sin(angle) * need };
+  }
+  return { x: (body.offsetX / len) * need, y: (body.offsetY / len) * need };
+}
+
+/** 다시 걸 위성 — 지금 자리(중심) · 그려지는 반경 · 몸집. */
+export interface OrbitBody {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly reach?: number | undefined;
+}
+
+/** 같은 부모를 이미 도는 위성 — 스프링 목표(부모 중심 기준 오프셋)와 반경. */
+export interface OrbitSibling {
+  readonly radius: number;
+  readonly reach?: number | undefined;
+  readonly offsetX: number;
+  readonly offsetY: number;
+}
+
+const TWO_PI = Math.PI * 2;
+
+/** 두 각도 사이의 가장 짧은 거리(0..π). */
+function angularDistance(a: number, b: number): number {
+  const d = Math.abs(((a - b) % TWO_PI + TWO_PI) % TWO_PI);
+  return d > Math.PI ? TWO_PI - d : d;
+}
+
+/**
+ * §5.1 #2-1 (B) · §5.1 #2-2 (J) — 부모가 바뀐 위성들을 새 부모 둘레 궤도에 건다(id → 부모 중심 기준 오프셋).
+ *
+ * 묶음이 서는 순간 구성들은 옛 부모(폴더) 둘레 자리에서 한꺼번에 새 부모(묶음)로 옮겨 온다. 종전처럼 하나씩 "지금 방향 그대로"
+ * 걸면 모두가 폴더 쪽 같은 방향에 포개져 서고, 겹침 풀기가 그 뭉치를 폴더 쪽으로 밀어 다닥다닥 붙었다. 이제
+ *  - 그 부모의 위성이 **전부 새로 걸리면**(묶음이 막 섰다) 궤도를 그 수로 고르게 나눠, 지금 각도 순서를 지킨 채 **가장 덜 도는**
+ *    회전에 건다 — 가로질러 날아가지 않는다(정리 §5.4 #33 의 `placeRing` 과 같은 규율).
+ *  - 이미 도는 형제가 있으면 그 수로 나눈 칸(12시부터 — 등장 영역과 같은 시작) 가운데 **형제와 겹치지 않는 칸**에서 지금 방향에 가장
+ *    가까운 칸에 건다. 빈칸이 없으면 종전대로 지금 방향이다(남은 겹침은 물리가 푼다).
+ * 거리는 등장 영역 고리 0 과 같다 — 위성 수를 다 담도록 넓힌 고리(`satelliteSeatDistance`, 몸집이 있으면 몸집으로).
+ */
+export function orbitReseatGroup(
+  parent: { readonly x: number; readonly y: number; readonly radius: number },
+  group: readonly OrbitBody[],
+  siblings: readonly OrbitSibling[],
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  if (group.length === 0) return out;
+  const n = group.length + siblings.length;
+  const step = TWO_PI / n;
+  const distOf = (b: OrbitBody): number => satelliteSeatDistance(parent.radius, n, orbitExtentOf(b) * 2);
+  const angleOf = (b: OrbitBody): number => {
+    const dx = b.x - parent.x;
+    const dy = b.y - parent.y;
+    return Math.hypot(dx, dy) < DEGENERATE_EPSILON ? degenerateAngle(b.id) : Math.atan2(dy, dx);
+  };
+  const ordered = group
+    .map((b) => ({ b, theta: angleOf(b) }))
+    .sort((p, q) => (p.theta - q.theta) || (p.b.id < q.b.id ? -1 : p.b.id > q.b.id ? 1 : 0));
+  const put = (b: OrbitBody, angle: number): { x: number; y: number } => {
+    const d = distOf(b);
+    const seat = { x: Math.cos(angle) * d, y: Math.sin(angle) * d };
+    out.set(b.id, seat);
+    return seat;
+  };
+
+  if (siblings.length === 0) {
+    if (ordered.length === 1) {
+      put(ordered[0]!.b, ordered[0]!.theta);
+      return out;
+    }
+    // 고르게 — 지금 각도 순서의 어느 자리에서 한 바퀴를 시작할지(순환 이동)와 통째 회전을 함께 골라 가장 덜 돌게 한다.
+    //   회전 하나만 고르면 ±π 이음매에 걸친 무리가 반 바퀴씩 돌아 서로 가로지른다.
+    let best: { shift: number; rot: number; cost: number } | null = null;
+    for (let shift = 0; shift < ordered.length; shift += 1) {
+      let s = 0;
+      let c = 0;
+      for (let i = 0; i < ordered.length; i += 1) {
+        const theta = ordered[(i + shift) % ordered.length]!.theta;
+        s += Math.sin(theta - i * step);
+        c += Math.cos(theta - i * step);
+      }
+      const rot = Math.hypot(s, c) < 1e-12 ? SPAWN_ZONE.START_ANGLE : Math.atan2(s, c);
+      let cost = 0;
+      for (let i = 0; i < ordered.length; i += 1) {
+        const d = angularDistance(ordered[(i + shift) % ordered.length]!.theta, rot + i * step);
+        cost += d * d;
+      }
+      if (best === null || cost < best.cost - 1e-9) best = { shift, rot, cost };
+    }
+    for (let i = 0; i < ordered.length; i += 1) {
+      put(ordered[(i + best!.shift) % ordered.length]!.b, best!.rot + i * step);
+    }
+    return out;
+  }
+
+  // 이미 도는 형제가 있다 — 그 수로 나눈 칸 가운데 형제·먼저 건 것과 겹치지 않는 칸에서 지금 방향에 가장 가까운 칸.
+  const placed = siblings.map((s) => ({ x: s.offsetX, y: s.offsetY, r: orbitExtentOf(s) }));
+  const taken = new Set<number>();
+  for (const { b, theta } of ordered) {
+    const r = orbitExtentOf(b);
+    const d = distOf(b);
+    let pick = -1;
+    let pickDiff = Number.POSITIVE_INFINITY;
+    for (let k = 0; k < n; k += 1) {
+      if (taken.has(k)) continue;
+      const angle = SPAWN_ZONE.START_ANGLE + k * step;
+      const x = Math.cos(angle) * d;
+      const y = Math.sin(angle) * d;
+      if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < p.r + r + MAGNET_GAP)) continue;
+      const diff = angularDistance(angle, theta);
+      if (diff < pickDiff - 1e-9) {
+        pick = k;
+        pickDiff = diff;
+      }
+    }
+    if (pick >= 0) taken.add(pick);
+    const seat = put(b, pick >= 0 ? SPAWN_ZONE.START_ANGLE + pick * step : theta);
+    placed.push({ x: seat.x, y: seat.y, r });
+  }
+  return out;
 }
 
 /**

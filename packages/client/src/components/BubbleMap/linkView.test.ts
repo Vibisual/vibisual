@@ -155,22 +155,14 @@ describe('§5.4 #36 (H) ① 위성줄', () => {
 });
 
 describe('§5.4 #36 (H) ③ 구슬 줄을 펴는가', () => {
-  it('노드에서 끈 것이 이긴다', () => {
-    expect(appNodeShowsLinkedItems({ linksHidden: true, linkedAgentIds: ['a'] }, [agent('a')])).toBe(false);
+  it('노드에서 끈 것(①)만 접는다', () => {
+    expect(appNodeShowsLinkedItems({ linksHidden: true })).toBe(false);
+    expect(appNodeShowsLinkedItems({})).toBe(true);
   });
 
-  it('이어진 에이전트가 없거나 화면에 없으면 노드의 기본 — 편다', () => {
-    expect(appNodeShowsLinkedItems({}, [])).toBe(true);
-    expect(appNodeShowsLinkedItems({ linkedAgentIds: ['gone'] }, [agent('a')])).toBe(true);
-  });
-
-  it('하나라도 연결된 것 위주면 펴고, 모두 작업 파일일 때만 접는다', () => {
-    const both = { linkedAgentIds: ['a', 'b'] };
-    expect(appNodeShowsLinkedItems(both, [agent('a', { linkLens: 'files' }), agent('b')])).toBe(true);
-    expect(appNodeShowsLinkedItems(both, [agent('a', { linkLens: 'files' }), agent('b', { linkLens: 'files' })])).toBe(false);
-  });
-
-  it('에이전트 쪽 끄기(①)는 구슬 줄을 접지 않는다 — 구슬은 그 노드의 것이다', () => {
-    expect(appNodeShowsLinkedItems({ linkedAgentIds: ['a'] }, [agent('a', { linksHidden: true })])).toBe(true);
+  it('[버블 전부 보기]에서도 편다 — 이어진 에이전트의 보기는 묻지 않는다(2026-10-21 — "전부"에서 접으면 이름이 거짓이 된다)', () => {
+    // 종전에는 이어진 에이전트가 모두 `linkLens: 'files'` 면 접었다. 이제 판정에 에이전트가 들어가지 않는다.
+    expect(appNodeShowsLinkedItems({ linksHidden: false })).toBe(true);
+    expect(appNodeShowsLinkedItems.length).toBe(1);
   });
 });

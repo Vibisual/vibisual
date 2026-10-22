@@ -119,42 +119,15 @@ export function radialLayout(
 }
 
 /**
- * §5.23 웹 궤도 — 큰 원(`radialLayout`)에 세울 항목. 웹 버블(`WEB_ORBIT_TYPES`)은 뺀다.
+ * §5.23 — 큰 원(`radialLayout`)에 세울 항목. 웹 버블(`WEB_ORBIT_TYPES`)은 뺀다.
  *
  * 그 원의 반지름은 개수에 비례해 자란다. 자료조사 한 번에 호스트 수십 곳이 거기 들면 원이 물리 상자를
- * 넘고, 물리 클램프가 그 버블들을 상자 벽에 눌러 사각 테두리가 된다(함께 선 폴더도 부푼 반지름을 받는다).
- * 웹 버블의 첫 자리는 읽은 에이전트 둘레 궤도가 정한다(`webOrbitSeating.ts`).
+ * 넘고, 물리 클램프가 함께 선 항목까지 상자 벽에 눌러 사각 테두리가 된다. 메인 캔버스·폴더 안의 새 버블은
+ * 이 원이 아니라 주인 둘레 등장 영역에서 첫 자리를 받는다(§5.1 #2-2 `spawnZoneSeating.ts` — 종전의
+ * 무작위 첫 자리 `findNonCollidingPosition` 도 그 규칙으로 대체됐다).
  */
 export function radialItemsOf(items: readonly BubbleData[]): BubbleData[] {
   return items.filter((b) => !WEB_ORBIT_TYPES.has(b.bubbleType));
-}
-
-// ─── 충돌 방지 배치 ───
-
-export const SPAWN_RADIUS = 300;
-export const SPAWN_MIN_DIST = 60;
-const SPAWN_MAX_TRIES = 50;
-
-/** anchor 중심 반경 SPAWN_RADIUS 내에서 기존 노드와 겹치지 않는 랜덤 위치 */
-export function findNonCollidingPosition(
-  anchor: XYPosition,
-  occupied: Map<string, XYPosition>,
-): XYPosition {
-  for (let i = 0; i < SPAWN_MAX_TRIES; i++) {
-    const angle = Math.random() * 2 * Math.PI;
-    const r = SPAWN_MIN_DIST + Math.random() * (SPAWN_RADIUS - SPAWN_MIN_DIST);
-    const candidate = { x: anchor.x + Math.cos(angle) * r, y: anchor.y + Math.sin(angle) * r };
-    let collides = false;
-    for (const pos of occupied.values()) {
-      const dx = pos.x - candidate.x;
-      const dy = pos.y - candidate.y;
-      if (dx * dx + dy * dy < SPAWN_MIN_DIST * SPAWN_MIN_DIST) { collides = true; break; }
-    }
-    if (!collides) return candidate;
-  }
-  // 못 찾으면 랜덤 각도로 반경 끝에 배치
-  const fallbackAngle = Math.random() * 2 * Math.PI;
-  return { x: anchor.x + Math.cos(fallbackAngle) * SPAWN_RADIUS, y: anchor.y + Math.sin(fallbackAngle) * SPAWN_RADIUS };
 }
 
 /**
@@ -187,6 +160,8 @@ export function toFlowNodes(
     type: 'bubble' as const,
     position: positions.get(b.id) ?? layout?.get(b.id) ?? b.position ?? { x: 0, y: 0 },
     dragHandle: '.bubble-body',
+    // §5.1 #2-1 (B) — 묶음 버블은 고르지 않는다(지울·잠글 데이터가 없는 자리).
+    ...(b.bubbleType === 'bundle' ? { selectable: false } : {}),
     data: { ...b },
   }));
 }

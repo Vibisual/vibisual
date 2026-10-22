@@ -74,7 +74,10 @@ export function useAppWorkPlan(input: {
     }
     const files: BubbleData[] = [];
     for (const f of input.folders) if (f.bubbleType === 'file') files.push(f);
-    for (const list of Object.values(input.satellites)) {
+    // Match useBubbleLayout's collectSatellites scope: cached files under off-view
+    // parents never become canvas nodes and must not create an empty work orbit.
+    for (const parent of [...input.agents, ...input.folders]) {
+      const list = input.satellites[parent.id] ?? [];
       for (const f of list) if (f && f.bubbleType === 'file') files.push(f);
     }
     const plan = planAppWork({

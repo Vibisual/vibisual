@@ -234,6 +234,84 @@ function LinkLensGlyph({ to }: { to: 'linked' | 'files' }): React.JSX.Element {
   );
 }
 
+/**
+ * §5.4 #36 (H) ①-2 — [연결된 버블 ▸] 묶음 글리프. 원 셋이 선으로 이어진 그림(lucide `share-2` 톤) — 에이전트와 그 선에
+ * 매달린 버블이라는 우리 캔버스의 연결 언어 그대로다(②의 궤도 글리프와 겹치지 않게 궤도는 쓰지 않는다).
+ */
+function LinkedBubblesGlyph(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
+    </svg>
+  );
+}
+
+/**
+ * §5.4 #36 (H) ①-2 — [고정]/[고정 풀기] 글리프. 앱 안 다른 고정 손잡이(앱 노드·탭·메모)와 **같은 핀 path** 다 — 고정은
+ * 어디서 보든 같은 그림이다. 풀기는 그 핀에 빗금(lucide `pin-off` 톤).
+ */
+function LinksPinGlyph({ pinned }: { pinned: boolean }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      {pinned ? (
+        // 지금 고정돼 있다 → [고정 풀기]: 빗금 친 핀.
+        <>
+          <path d="M12 17v5" />
+          <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+          <path d="M2 2l20 20" />
+          <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
+        </>
+      ) : (
+        <>
+          <path d="M12 17v5" />
+          <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** §5.4 #36 (H) ①-2 — [이전 연결 다시 보기] 글리프. 거꾸로 도는 시계(lucide `history` 톤) — 지난 것을 다시 꺼낸다. */
+function ReplayLinksGlyph(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
+
 /** §5.4 #36 (A) — [버블로 되돌리기] 글리프. 펼친 것이 원으로 모이는 그림(lucide `minimize-2` 톤). */
 function FoldToBubbleGlyph(): React.JSX.Element {
   return (
@@ -438,7 +516,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
 
   /**
    * §5.4 #36 (H) — [숨기기] 하위 메뉴에 버블·연결선 표시를 모은다. children 배열에 항목을 더해 확장한다.
-   * 앱 노드가 이어진 에이전트면 그 아래 [작업 파일 위주로 보기] ↔ [연결된 것 위주로 보기].
+   * 앱 노드가 이어진 에이전트면 그 아래 [버블 전부 보기] ↔ [앱 관련 버블만 보기], 끝에 ①-2 [연결된 버블 ▸].
    * 혼자 고른 에이전트에서만이고(묶음 일괄 ❌), 휴지통 안에서는 뜨지 않는다(그 화면에는 선이 없다).
    * 상태는 **연 순간의 노드 데이터**에서 읽고(누르면 메뉴는 닫힌다), 판정은 `linkView.ts`, 저장은 store 한 경로다.
    */
@@ -481,6 +559,38 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
         onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { lens: to }),
       });
     }
+    // §5.4 #36 (H) ①-2 — [연결된 버블 ▸]: 고정 ↔ 같은 자리 고정 풀기 · 이전 연결 다시 보기. 보기 묶음의 끝이다
+    //   (숨기기·보기 전환이 "어떻게 보이나"라면 이 묶음은 "언제까지 남나"다). 판정(무엇이 남고 언제 걷히나)은 서버가 한다 —
+    //   메뉴는 연 순간의 칸(`linksPinned`·`status`·`prevLinkCount`)으로 문구와 흐림만 고른다.
+    const pinned = data.linksPinned === true;
+    const running = data.status === 'active';
+    const prevCount = data.prevLinkCount ?? 0;
+    const replayBlocked = running ? 'canvas.bubbleMenu.replayLinksRunning' : prevCount === 0 ? 'canvas.bubbleMenu.replayLinksEmpty' : null;
+    out.push({
+      id: 'bubble-linked',
+      label: t('canvas.bubbleMenu.linkedBubbles'),
+      icon: <LinkedBubblesGlyph />,
+      onClick: () => undefined,
+      children: [{
+        id: pinned ? 'bubble-links-unpin' : 'bubble-links-pin',
+        label: t(pinned ? 'canvas.bubbleMenu.unpinLinks' : 'canvas.bubbleMenu.pinLinks'),
+        icon: <LinksPinGlyph pinned={pinned} />,
+        // 처음 보는 동작이라 무엇이 되는지 한 줄로 — 푸는 쪽은 지금 걷히는지(실행 중이 아니면) 미리 말한다.
+        note: t(pinned
+          ? (running ? 'canvas.bubbleMenu.unpinLinksRunningNote' : 'canvas.bubbleMenu.unpinLinksNote')
+          : 'canvas.bubbleMenu.pinLinksNote'),
+        onClick: () => useGraphStore.getState().setAgentLinksPinned(agentId, !pinned),
+      }, {
+        id: 'bubble-links-replay',
+        label: t('canvas.bubbleMenu.replayLinks'),
+        icon: <ReplayLinksGlyph />,
+        // 못 누르는 까닭은 툴팁만이 아니라 라벨 아래 줄로도 말한다 — 터치에는 hover 가 없다.
+        note: replayBlocked ? t(replayBlocked) : t('canvas.bubbleMenu.replayLinksNote', { count: prevCount }),
+        disabled: replayBlocked !== null,
+        disabledTitle: replayBlocked ? t(replayBlocked) : undefined,
+        onClick: () => useGraphStore.getState().replayAgentLinks(agentId),
+      }],
+    });
     return out;
   }, [soleBubbleId, inTrashView, nodes, nodeMap, soleHasAppLinks, t]);
 

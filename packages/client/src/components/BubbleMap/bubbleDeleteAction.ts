@@ -54,7 +54,8 @@ export function bubbleDeleteAction(
   const pinned = node.preservePinned === true;
 
   // 네비게이션 골격은 사용자 데이터가 아니다 — 지우는 손을 아예 주지 않는다.
-  if (node.bubbleType === 'root' || node.bubbleType === 'back') return { kind: 'none', pinned };
+  //   §5.1 #2-1 (B) 묶음 버블도 화면이 짓는 자리라 지울 것이 없다(구성 파일은 각자 지운다).
+  if (node.bubbleType === 'root' || node.bubbleType === 'back' || node.bubbleType === 'bundle') return { kind: 'none', pinned };
 
   // 휴지통 안에서는 버려진 것만 다룬다. 안에 떠 있는데 `trashed` 가 아닌 버블(내부 뷰의 골격 등)은
   //   지우기 대상이 아니다 — 여기서 일반 경로로 흘리면 위 `purge` 주석의 사고가 그대로 난다.

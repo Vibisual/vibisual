@@ -1,24 +1,42 @@
-import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT, FILE_FACE } from '@vibisual/shared';
+import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT, FILE_FACE, FILE_SIZE_SCALE, BUNDLE_BUBBLE } from '@vibisual/shared';
 import { fileFaceKindOf, heatRatio, heatSize, heatValueOf, isHeatBubbleType, isMediaFaceKind } from '@vibisual/shared';
 import type { BubbleData, HeatScale, ToolAxis } from '@vibisual/shared';
 
 /**
- * §5.1 #2-1 (B) — 화면이 별자리 중심에 달아 주는 위성 수(표시 전용 — 서버 데이터가 아니다). `constellationView` 가 버블
- * 사본에 싣고, 여기서 크기 하한을 읽는다(렌더·배치·선 끝점·정리가 같은 자를 쓰게).
+ * §5.1 #2-1 (A) — 파일 얼굴의 지름 하한. 미디어는 그림이 읽혀야 한다(`mediaMinSize`). 판정 경로는 얼굴과 같다(절대경로 → 노드 키 →
+ * 이름). 위성을 거느린 파일 중심의 하한(`hubMinSize`)은 묶음 버블(§5.1 #2-1 (B))이 생기며 걷었다 — 파일은 중심이 되지 않는다.
  */
-export function moonCountOf(bubble: BubbleData): number {
-  const n = (bubble as BubbleData & { _moonCount?: unknown })._moonCount;
-  return typeof n === 'number' && n > 0 ? n : 0;
+function fileFaceMinSize(bubble: BubbleData): number {
+  const src = bubble.absolutePath || bubble.path || bubble.label;
+  return isMediaFaceKind(fileFaceKindOf(src)) ? FILE_FACE.mediaMinSize : 0;
+}
+
+/** 같은 범위는 같은 객체 — 노드 `data` 의 얕은 비교가 참조로 걸리므로 스냅샷마다 새 범위를 만들면 버블이 매번 다시 그려진다. */
+const RANGE_CACHE_MAX = 512;
+const rangeCache = new Map<string, { min: number; max: number }>();
+
+/** `{min, max}` 범위 객체를 값으로 재사용한다(표시 전용 `_localRange` 용). */
+export function stableSizeRange(min: number, max: number): { min: number; max: number } {
+  const key = `${min}:${max}`;
+  const hit = rangeCache.get(key);
+  if (hit) return hit;
+  if (rangeCache.size >= RANGE_CACHE_MAX) rangeCache.clear();
+  const range = Object.freeze({ min, max }) as { min: number; max: number };
+  rangeCache.set(key, range);
+  return range;
 }
 
 /**
- * §5.1 #2-1 (A)(B) — 파일 얼굴의 지름 하한. 미디어는 그림이 읽혀야 하고(`mediaMinSize`), 위성을 거느린 중심은 한 단계
- * 더 크다(`hubMinSize`). 판정 경로는 얼굴과 같다(절대경로 → 노드 키 → 이름).
+ * §2.3 · §5.1 #2-1 (A) — 한 화면의 **같은 층**(원 둘레에 선 버블 · 묶음 안의 구성)에 선 파일들끼리 견줄 범위를 싣는다. 종전에는
+ * 원 둘레 파일이 프로젝트 전체 위성의 범위(`store.fileSizeRange`)와 견줘, 다른 폴더의 큰 파일 하나가 이 화면의 지름을 정했다.
+ * 위성은 이미 같은 부모끼리 견준다(`collectSatellites` 의 `localRange`). 파일이 없거나 하나도 크기를 모르면 그대로 돌려준다.
  */
-function fileFaceMinSize(bubble: BubbleData): number {
-  if (moonCountOf(bubble) > 0) return FILE_FACE.hubMinSize;
-  const src = bubble.absolutePath || bubble.path || bubble.label;
-  return isMediaFaceKind(fileFaceKindOf(src)) ? FILE_FACE.mediaMinSize : 0;
+export function withScreenFileRange(bubbles: BubbleData[]): BubbleData[] {
+  const files = bubbles.filter((b) => b.bubbleType === 'file' && b.fileSize != null);
+  if (files.length === 0) return bubbles;
+  const raw = calcFileSizeRange(files);
+  const range = stableSizeRange(raw.min, raw.max);
+  return bubbles.map((b) => (b.bubbleType === 'file' ? { ...b, _localRange: range } as BubbleData : b));
 }
 
 /** 활동량 기반 크기 계산을 위한 상한 */
@@ -48,6 +66,11 @@ export function calcBubbleSize(
   // iframe 타입: 원형 버블, 고정 지름
   if (bubble.bubbleType === 'iframe') {
     return IFRAME_BUBBLE_HEIGHT;
+  }
+
+  // §5.1 #2-1 (B) — 묶음 버블은 용량·활동과 무관한 고정 지름(무리의 중심이되 구성 파일을 덮지 않는다).
+  if (bubble.bubbleType === 'bundle') {
+    return BUNDLE_BUBBLE.size;
   }
 
   // file 타입: 파일 용량 기반 상대 크기
@@ -104,7 +127,13 @@ export function calcBubbleSize(
   return Math.round(size);
 }
 
-/** 파일 버블 크기 — 현재 보이는 파일들 사이의 상대 용량 기반 */
+/**
+ * 파일 버블 크기 — 같은 화면에서 견주는 파일들 사이의 상대 용량.
+ *
+ * §2.3 · §5.1 #2-1 (A) (2026-10-21 사용자 지시) — 용량은 **자릿수로** 읽는다(로그 눈금). 정비례면 큰 파일 하나가 최대 지름을
+ * 차지하고 나머지가 바닥에 눌린다. 눈금 폭에는 하한(`FILE_SIZE_SCALE.minSpread` 배)을 걸어 좁게 갈린 무리는 가운데 지름으로
+ * 모은다 — 몇 바이트 차이가 지름 차이가 되지 않게. 하한이라 문턱에서 튀지 않고 이어진다(같은 크기 → 정확히 가운데).
+ */
 function calcFileBubbleSize(
   bubble: BubbleData,
   range?: { min: number; max: number },
@@ -116,12 +145,11 @@ function calcFileBubbleSize(
     return FILE_MIN_SIZE;
   }
 
-  // 모든 파일이 같은 크기면 중간
-  if (range.max === range.min) {
-    return Math.round((FILE_MIN_SIZE + FILE_MAX_SIZE) / 2);
-  }
-
-  const ratio = (fileSize - range.min) / (range.max - range.min);
+  const lo = Math.log1p(Math.max(0, range.min));
+  const hi = Math.log1p(Math.max(range.min, range.max));
+  const v = Math.log1p(Math.min(Math.max(fileSize, range.min), range.max));
+  const span = Math.max(hi - lo, Math.log(FILE_SIZE_SCALE.minSpread));
+  const ratio = Math.min(1, Math.max(0, 0.5 + (v - (lo + hi) / 2) / span));
   return Math.round(FILE_MIN_SIZE + ratio * (FILE_MAX_SIZE - FILE_MIN_SIZE));
 }
 

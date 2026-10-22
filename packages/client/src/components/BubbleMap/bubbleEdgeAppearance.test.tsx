@@ -1,7 +1,7 @@
 import { createElement, type CSSProperties } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import type { EdgeProps, Position } from '@xyflow/react';
-import { TASK_EDGE_KIND_STYLES, type BubbleEdgeStyle, type TaskEdgeKind } from '@vibisual/shared';
+import { REDUCED_MOTION_LOOP_SLOWDOWN, TASK_EDGE_KIND_STYLES, type BubbleEdgeStyle, type TaskEdgeKind } from '@vibisual/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 import { CurvedEdge } from './CurvedEdge.js';
@@ -83,6 +83,23 @@ describe('bubble edge appearance semantics', () => {
     expect(base).toEqual(original);
   });
 
+  // §5.4 #31 (K) 2026-10-22 — on a PC with animation effects off (reduced motion) the travel layer used to be
+  // stripped to `animation: none`, so a working edge stood as still as an idle one. It now slows down instead.
+  it.each(variants)('%s keeps a working edge flowing under reduced motion: same keyframes, slower, still 24 moves a second', (variant) => {
+    const paint = bubbleEdgeAppearance(variant, {
+      semantic: 'activity', base: { stroke: '#369ac5CC', strokeWidth: 2.5 }, active: true,
+    });
+    const travel = paint.find((p) => p.role === 'travel')?.style as Record<string, unknown> | undefined;
+    const flow = (value: unknown) => /^bubble-edge-(\w+)-flow ([\d.]+)s steps\((\d+), end\) infinite$/.exec(String(value));
+    const reduced = flow(travel?.['--bubble-edge-flow-reduced']);
+    const normal = flow(travel?.animation);
+    expect(reduced?.[1]).toBe(variant);
+    expect(normal?.[1]).toBe(variant);
+    expect(REDUCED_MOTION_LOOP_SLOWDOWN).toBeGreaterThan(1);
+    expect(Number(reduced![2])).toBeCloseTo(Number(normal![2]) * REDUCED_MOTION_LOOP_SLOWDOWN, 3);
+    for (const m of [normal!, reduced!]) expect(Number(m[3]) / Number(m[2])).toBeCloseTo(24, 0);
+  });
+
   it('retains width hierarchy instead of replacing inactive, Artifact or focus multipliers', () => {
     for (const variant of variants) {
       const width = (w: number) => bubbleEdgeAppearance(variant, {
@@ -127,6 +144,12 @@ describe('paint does not replace edge geometry or interaction', () => {
     const base = mount(CurvedEdge).root.findByProps({ 'data-base-edge': true });
     expect(base.props.markerEnd).toBeUndefined();
     expect(base.props.markerStart).toBe('url(#start-arrow)');
+  });
+
+  it('a mounted working edge carries its reduced-motion flow on the travel path', () => {
+    const travel = mount(CurvedEdge).root.findByProps({ 'data-paint-layer': 'travel' });
+    expect(travel.props.className).toBe('bubble-edge-paint');
+    expect(String(travel.props.style['--bubble-edge-flow-reduced'])).toMatch(/^bubble-edge-dash-flow \S+s steps\(\d+, end\) infinite$/);
   });
 
   it('does not restyle a non-directional play-owner edge', () => {

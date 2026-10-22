@@ -130,6 +130,41 @@ describe('§5.4 #36 (H) — PATCH 전에 떠난 스냅샷이 누른 값을 되�
     expect(useGraphStore.getState().agentLinkViewHolds).toEqual({});
   });
 
+  it('§5.4 #36 (H) ①-2 [고정]도 같은 붙들기다 — 화면이 먼저 고정을 보이고, PATCH 전의 옛 스냅샷이 풀지 못한다', async () => {
+    const answer = deferPatch();
+    useGraphStore.getState().setAgentLinksPinned('owner', true);
+    expect(useGraphStore.getState().agents[0]).toMatchObject({ linksPinned: true, linksHidden: true, linkLens: 'files' });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/bubble/owner/link-pin'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: true }),
+    });
+
+    snapshot([agent('owner', { linksHidden: true, linkLens: 'files' }), agent('other')]);
+    expect(useGraphStore.getState().agents[0]?.linksPinned).toBe(true);
+
+    await answer(true);
+    snapshot([agent('owner', { linksHidden: true, linkLens: 'files', linksPinned: true }), agent('other')]);
+    expect(useGraphStore.getState().agentLinkViewHolds).toEqual({});
+  });
+
+  it('[고정 풀기]는 칸을 지워서 적는다(서버와 같은 모양) — 다른 연결 보기 칸은 그대로', () => {
+    useGraphStore.setState({ agents: [agent('owner', { linksPinned: true, linksHidden: true }), agent('other')] });
+    useGraphStore.getState().setAgentLinksPinned('owner', false);
+    const owner = useGraphStore.getState().agents[0];
+    expect(owner?.linksPinned).toBeUndefined();
+    expect(owner?.linksHidden).toBe(true);
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining('/api/bubble/owner/link-pin'),
+      expect.objectContaining({ body: JSON.stringify({ pinned: false }) }));
+  });
+
+  it('[이전 연결 다시 보기]는 서버에 다시 세우기를 부탁만 한다 — 화면은 다음 스냅샷이 그린다', () => {
+    const before = useGraphStore.getState().agents;
+    useGraphStore.getState().replayAgentLinks('owner');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/bubble/owner/link-replay'), { method: 'POST' });
+    expect(useGraphStore.getState().agents).toBe(before);
+  });
+
   it('앱 노드의 [연결선 보이기]도 같은 규칙이다 — 옛 스냅샷이 위성줄을 다시 숨기지 못한다', async () => {
     useGraphStore.setState({ appBubbles: [app('n1', { linksHidden: true })] });
     const answer = deferPatch();

@@ -6,6 +6,7 @@ import { carryForwardScopedSlices, type SliceScopeGroup } from '@vibisual/shared
 import { useGraphStore, selectRenderedIDEPaneKeys } from '../stores/graphStore.js';
 // §6 — 단축키는 프로젝트가 아니라 기계의 것이라 별도 스토어에 산다(graphStore ❌).
 import { useKeymapStore } from '../stores/keymap.js';
+import { useWebOpenTargetStore } from '../stores/webOpenTarget.js';
 import { useIDEActivityBarStore } from '../stores/ideActivityBar.js';
 import { useActivePluginModules } from '../plugins/host.js';
 import { batchStoreNotify } from '../stores/batchedNotify.js';
@@ -733,6 +734,11 @@ export function useWebSocket(
             useKeymapStore.getState().applyOverrides(parsed.payload);
             break;
           }
+          case 'web_open_target_updated': {
+            // §5.23 「더블클릭」 — 도메인 버블이 여는 곳. 단축키와 같은 이유로 다른 창도 즉시 같은 곳에서 연다.
+            useWebOpenTargetStore.getState().apply(parsed.payload);
+            break;
+          }
           case 'ide_activity_bar_updated': {
             // §5.5 #16-1 — 활동바 배치. 단축키와 같은 이유로 창이 여럿이면 다른 창도 즉시
             //   같은 자리를 써야 한다 — 한 창에서 내려놓은 칸이 옆 창에 남아 있으면 그것이 곧 버그 신고다.
@@ -863,6 +869,9 @@ export function useWebSocket(
   //   실측(살아 있는 checkpoint.json): 세 슬라이스 1,306,933 → 72,938 바이트(5.6%).
   const navStack = useGraphStore((s) => s.navStack);
   const currentFolderId = useGraphStore((s) => s.currentFolderId);
+  // §5.1 #2-1 (B) — 같은 폴더 묶음 안에 들어가 있으면 그 폴더도 지금 그리는 폴더다. 그 `children` 이 와야 위성 상한으로 빠진
+  //   같은 종류 파일이 묶음 안에 선다(2026-10-22 사용자 지시) — 새 메시지 없이 같은 선언의 폴더 축에 하나를 더한다.
+  const bundleFolderId = useGraphStore((s) => (s.interiorView?.kind === 'bundle' ? s.interiorView.folderId ?? null : null));
 
   // §9 슬라이스 스코프 — 이 창이 **지금 읽고 있는 슬라이스 묶음**. 서버는 모든 창 선언의 합집합에
   //   든 슬라이스만 싣는다(창별로 가르면 전선 증분의 기준점이 어긋난다 — `sliceScope.ts` 함정 ①).
@@ -914,6 +923,7 @@ export function useWebSocket(
     // 폴더 축은 프로젝트 축과 **한 선언에 함께** 실린다 — 드릴다운이 두 번 왕복하지 않게.
     // 폴더 밖(메인 뷰)이면 빈 배열이고, 그것도 유효한 선언이다("나는 지금 폴더 밖이다").
     const folders = currentFolderId ? [...navStack, currentFolderId] : [...navStack];
+    if (bundleFolderId !== null && !folders.includes(bundleFolderId)) folders.push(bundleFolderId);
     // §9 슬라이스 축도 **같은 선언에 함께** 실린다(한 메시지 = 한 왕복). `null` 이면 이 창이
     //   슬라이스 축을 말할 수 없다는 뜻이라 필드 자체를 빼고 보낸다 — 그러면 서버가 전량으로
     //   되돌아간다(빈 배열 `[]` 은 "아무것도 안 읽는다"는 다른 뜻이므로 여기서 섞으면 안 된다).
@@ -928,7 +938,7 @@ export function useWebSocket(
       timestamp: Date.now(),
       payload: { projects: [activeProject], folders, ...(slices ? { slices } : {}) },
     });
-  }, [status, activeProject, navStack, currentFolderId, sliceGroupsKey, send]);
+  }, [status, activeProject, navStack, currentFolderId, bundleFolderId, sliceGroupsKey, send]);
 
   return { status, send, reconnect, getLastSnapshotAt };
 }

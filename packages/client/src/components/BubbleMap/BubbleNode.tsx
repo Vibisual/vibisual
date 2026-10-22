@@ -28,6 +28,7 @@ import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { shouldDismissOnSelect } from './agentDismiss.js';
 // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 잡으면 그 무리만 남고 나머지는 뒤로 물러난다.
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
+import { useWebOpenTargetStore } from '../../stores/webOpenTarget.js';
 import { linkFocusNodeStyle } from './linkedBubbles.js';
 import { BRAND_ICON_PATHS } from './brandIconPaths.js';
 import { SunCorona } from './SunCorona.js';
@@ -40,12 +41,12 @@ import { BubbleSurfaceDetail } from './BubbleSurfaceDetail.js';
 import { BubbleHiddenIndicator } from './BubbleHiddenIndicator.js';
 // §5.1 #2-1 — 파일 얼굴(미디어 렌즈 · 종류 글리프 · 원 아래 이름) · 작업물 별자리(중심 궤도 · 위성 툴팁).
 import { getInternalApp } from '../../apps/registry.js';
-import { fileFaceOf, fileFaceVersion } from '../../utils/fileFaceView.js';
-import { moonCountOf } from '../../utils/sizeCalc.js';
+import { fileFaceOf, fileFaceOpensInApp, fileFaceVersion } from '../../utils/fileFaceView.js';
 import type { ConstellationTag } from '../../utils/constellationView.js';
 import { useFileFaceThumbnail } from './useFileFaceThumbnail.js';
 import { FileFaceLens } from './FileFaceLens.js';
-import { ConstellationOrbit, FileFaceRim } from './FileFaceRim.js';
+import { FileFaceRim } from './FileFaceRim.js';
+import { BUNDLE_GLYPH_PATH } from './bundleGlyph.js';
 import { FileFamilyGlyph } from './fileFaceGlyphs.js';
 import type { AppWorkFoldedBadge } from './appWorkFold.js';
 import { CommandAppIcon } from '../CommandAppIcon.js';
@@ -166,6 +167,12 @@ const ICON_PATHS: Record<BubbleIconKind, { viewBox: string; d: string; fill: boo
     d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z',
     fill: false,
   },
+  // §5.1 #2-1 (B) — 묶음 버블은 `BundleNode` 가 그리지만, 아이콘 표는 종류마다 한 칸이라 같은 획을 둔다.
+  bundle: {
+    viewBox: '0 0 24 24',
+    d: BUNDLE_GLYPH_PATH,
+    fill: false,
+  },
 };
 
 /** claude·codex 는 우리가 그린 lucide 톤 글리프가 아니라 **브랜드 로고**다(속이 꽉 찬 그림). */
@@ -184,7 +191,8 @@ function isBrandIcon(icon: BubbleIconKind): boolean {
 const BRAND_ICON_SCALE = 0.74;
 const BRAND_ICON_FILL_OPACITY = 0.55;
 
-function BubbleIcon({ icon, px }: { icon: BubbleIconKind; px?: number }): React.JSX.Element {
+/** §5.5 #17-50 — IDE 세션 버블 지도도 이 글리프를 쓴다(같은 종류 = 같은 획). */
+export function BubbleIcon({ icon, px }: { icon: BubbleIconKind; px?: number }): React.JSX.Element {
   const cfg = ICON_PATHS[icon];
   const s = px ?? 20;
   if (isBrandIcon(icon)) {
@@ -355,7 +363,6 @@ export const BubbleNode = memo(function BubbleNode({
   );
   const isMediaFace = face !== null && face.media;
   /** §5.1 #2-1 (B) — 별자리: 중심이면 위성 수, 위성이면 이유 꼬리표(둘 다 화면이 단 표시 전용 값). */
-  const moonCount = moonCountOf(data);
   const constellationTag = (data as Record<string, unknown>)['_constellation'] as ConstellationTag | undefined;
   // 에이전트 커스텀 색상 — AgentConfig.color가 있으면 기본 스타일 오버라이드
   const customColor = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.color : undefined);
@@ -461,7 +468,7 @@ export const BubbleNode = memo(function BubbleNode({
   const globalRange = useGraphStore((s) => s.fileSizeRange);
   const range = localRange ?? globalRange;
   // §5.1 #2-1 — 미디어 얼굴·별자리 중심의 지름 하한도 같은 함수(`calcBubbleSize`)가 읽는다 — 경로·위성 수가 바뀌면 다시 잰다.
-  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, moonCount, range, heat]); // eslint-disable-line react-hooks/exhaustive-deps
+  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, range, heat]); // eslint-disable-line react-hooks/exhaustive-deps
   // 단일 스케일 팩터 — 모든 텍스트/아이콘이 이 비율로 비례 축소/확대
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
@@ -489,6 +496,8 @@ export const BubbleNode = memo(function BubbleNode({
     data.bubbleType === 'pipeline' ||
     data.bubbleType === 'conti' ||
     data.bubbleType === 'trash' ||
+    // §5.23 「더블클릭」 — 웹 버블은 더블클릭이 마지막으로 읽은 주소를 연다(바깥 브라우저 · 옵션이면 앱 안 iframe 탭).
+    data.bubbleType === 'domain' ||
     data.id.startsWith('sat-') ||
     // §5.1 #2-1 (A) — 미디어 얼굴은 더블클릭이 그 앱의 편집기를 연다(원 둘레에 선 직속 파일도).
     isMediaFace ||
@@ -1207,15 +1216,22 @@ export const BubbleNode = memo(function BubbleNode({
         ? t('canvas.constellation.groupVia', { hub: constellationTag.hubLabel, reason, via: constellationTag.viaLabel })
         : t('canvas.constellation.group', { hub: constellationTag.hubLabel, reason }));
     }
-    if (moonCount > 0) lines.push(t('canvas.constellation.hub', { count: moonCount }));
-    // 프로젝트 밖 파일은 더블클릭도 기존 폴더 진입으로 빠진다 — 실제로 열 수 있는 파일만 앱 열기를 안내한다.
-    const appName = faceTarget !== null && face.appId !== null ? getInternalApp(face.appId)?.name : undefined;
+    // 실제로 열 수 있는 파일만 앱 열기를 안내한다 — 더블클릭과 같은 판정이다(프로젝트 밖 파일은 보기 전용으로 여는 앱만).
+    const appName = face.appId !== null && fileFaceOpensInApp(face, faceTarget) ? getInternalApp(face.appId)?.name : undefined;
     if (appName) lines.push(t('canvas.fileFace.openIn', { app: appName }));
     // §5.1 #2-1 (G) ① — 미리보기를 굽지 않은 이유(앱 성능 기준). 파일은 그대로 열린다.
     if (faceBlocked === 'tooLarge') lines.push(t('canvas.fileFace.previewSkippedLarge'));
     return lines.join('\n');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [face, faceTarget, faceBlocked, constellationTag, moonCount, data.label, data.absolutePath, t]);
+  }, [face, faceTarget, faceBlocked, constellationTag, data.label, data.absolutePath, t]);
+  /**
+   * §5.23 「더블클릭」 — 웹 버블은 더블클릭이 무엇을 하는지 툴팁이 말한다(어디서 여는지까지 — 옵션에서 바꿀 수 있다).
+   * 구독하는 것은 **웹 버블일 때만 그 값**이다 — 나머지 버블은 늘 `null` 이라 설정이 바뀌어도 깨어나지 않는다(§9).
+   */
+  const domainOpenWhere = useWebOpenTargetStore((s) => (data.bubbleType === 'domain' ? s.target : null));
+  const domainTitle = domainOpenWhere === null
+    ? undefined
+    : t(domainOpenWhere === 'iframe' ? 'canvas.domain.openHintIframe' : 'canvas.domain.openHintExternal');
 
   /**
    * §5.4 #36 (I) — 앱 작업 보기에서 이 에이전트 때문에 접힌 버블(그리는 사본에만 실린 표시 값). 점은 오른쪽 아래 45° 림에 앉고
@@ -1286,8 +1302,7 @@ export const BubbleNode = memo(function BubbleNode({
       <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} />
       <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} />
 
-      {/* §5.1 #2-1 (B) — 별자리 중심의 궤도(위성이 앉는 반지름의 흐린 점선). 본체보다 먼저 그려 그 뒤에 깔린다. */}
-      {moonCount > 0 && face !== null ? <ConstellationOrbit size={size} glow={style.glow} /> : null}
+      {/* §5.1 #2-1 (B) — 별자리 중심의 궤도는 묶음 버블(`BundleNode`)이 그린다 — 파일은 중심이 되지 않는다(2026-10-21). */}
 
       {/* §5.1 #2-1 (F) ⑥ — 앱 작업 위성의 **앱 색 테**. 본체는 종류 색 그대로, 테만 이 작업의 앱 색이다(새 배지 ❌). */}
       {constellationTag?.work ? (
@@ -1428,7 +1443,7 @@ export const BubbleNode = memo(function BubbleNode({
         onPointerUp={handlePointerUp}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
-        title={fileTitle}
+        title={fileTitle ?? domainTitle}
         style={{
           ...surface.body,
           borderStyle: 'solid',

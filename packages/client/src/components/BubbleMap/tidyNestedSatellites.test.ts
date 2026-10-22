@@ -5,7 +5,7 @@
  * ③ 부모가 끝내 정리 대상이 아닌 위성(앱 노드 둘레)은 손대지 않는다.
  */
 import { describe, it, expect } from 'vitest';
-import { SATELLITE_ORBIT_GAP } from '@vibisual/shared';
+import { PHYSICS_MAGNET_GAP, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
 import { computeTidySatellites, computeTidySatellitesNested, type TidyParentSeat } from './tidyLayout.js';
 
 describe('computeTidySatellitesNested — 별자리까지 두 바퀴', () => {
@@ -33,5 +33,55 @@ describe('computeTidySatellitesNested — 별자리까지 두 바퀴', () => {
 
   it('부모가 정리 대상이 아닌 위성(앱 노드 둘레)은 그 자리에 둔다', () => {
     expect(computeTidySatellitesNested(sats, parents).some((p) => p.id === 'sat-app-moon')).toBe(false);
+  });
+});
+
+/**
+ * §5.1 #2-2 (J) — 정리도 등장 영역과 같은 틈으로 건다: 한 고리에 선 위성은 크기가 달라도 부모 테두리와의 틈이 같고(가장 큰 것의
+ * 반경에 다 같이 서지 않는다), 달을 거느린 묶음은 몸집으로 앉아 제 달이 부모를 파고들지 않는다.
+ */
+describe('computeTidySatellites — 위성 틈(§5.1 #2-2 (J))', () => {
+  const parents = new Map<string, TidyParentSeat>([['folder', { cx: 0, cy: 0, diameter: 180, bandIndex: 0 }]]);
+
+  it('한 고리의 위성은 제 크기로 — 부모 테두리와의 틈이 모두 SATELLITE_ORBIT_GAP', () => {
+    const sats = [
+      { id: 'sat-big', parentId: 'folder', diameter: 90, cx: 0, cy: -300 },
+      { id: 'sat-small', parentId: 'folder', diameter: 40, cx: 300, cy: 0 },
+      { id: 'sat-mid', parentId: 'folder', diameter: 64, cx: 0, cy: 300 },
+    ];
+    const placed = computeTidySatellites(sats, parents);
+    for (const s of sats) {
+      const p = placed.find((q) => q.id === s.id)!;
+      expect(Math.hypot(p.cx, p.cy) - 90 - s.diameter / 2).toBeCloseTo(SATELLITE_ORBIT_GAP, 6);
+    }
+  });
+
+  it('달을 거느린 묶음은 몸집으로 앉는다 — 같은 고리의 작은 위성은 그 몸집만큼 밀려나지 않는다', () => {
+    const reach = 150;
+    const sats = [
+      { id: 'sat-bundle', parentId: 'folder', diameter: 64, cx: 0, cy: -400, reach },
+      { id: 'sat-a', parentId: 'folder', diameter: 56, cx: 400, cy: 0 },
+      { id: 'sat-b', parentId: 'folder', diameter: 56, cx: -400, cy: 0 },
+    ];
+    const placed = computeTidySatellites(sats, parents);
+    const bundle = placed.find((p) => p.id === 'sat-bundle')!;
+    expect(Math.hypot(bundle.cx, bundle.cy)).toBeCloseTo(90 + SATELLITE_ORBIT_GAP + reach, 6);
+    for (const id of ['sat-a', 'sat-b']) {
+      const p = placed.find((q) => q.id === id)!;
+      expect(Math.hypot(p.cx, p.cy)).toBeCloseTo(90 + SATELLITE_ORBIT_GAP + 28, 6);
+      // 묶음의 몸집(달 자리)을 밟지 않는다.
+      expect(Math.hypot(p.cx - bundle.cx, p.cy - bundle.cy)).toBeGreaterThanOrEqual(reach + 28 + PHYSICS_MAGNET_GAP);
+    }
+  });
+
+  it('달은 묶음의 그려지는 원 둘레에 건다(몸집 둘레 ❌)', () => {
+    const sats = [
+      { id: 'sat-bundle', parentId: 'folder', diameter: 64, cx: 0, cy: -400, reach: 150 },
+      { id: 'sat-moon', parentId: 'sat-bundle', diameter: 56, cx: 0, cy: -600 },
+    ];
+    const placed = computeTidySatellitesNested(sats, parents);
+    const bundle = placed.find((p) => p.id === 'sat-bundle')!;
+    const moon = placed.find((p) => p.id === 'sat-moon')!;
+    expect(Math.hypot(moon.cx - bundle.cx, moon.cy - bundle.cy)).toBeCloseTo(32 + SATELLITE_ORBIT_GAP + 28, 6);
   });
 });

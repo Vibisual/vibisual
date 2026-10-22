@@ -17,6 +17,15 @@ export function canvasViewKey(projectId: string | null, folderId: string | null,
   return projectId === null ? null : JSON.stringify([projectId, folderId, interiorKind]);
 }
 
+/**
+ * 내부 뷰의 화면 열쇠 조각 — 휴지통은 종류 하나, 묶음 안(§5.1 #2-1 (B))은 묶음마다 따로 기억한다(묶음 둘을 오가며 같은 자리·줌을
+ * 나눠 쓰면 한쪽에서 옮긴 화면이 다른 쪽을 덮는다).
+ */
+export function interiorViewKeyOf(view: { readonly kind: string; readonly bundleId?: string } | null): string | null {
+  if (view === null) return null;
+  return view.kind === 'bundle' && view.bundleId ? `bundle:${view.bundleId}` : view.kind;
+}
+
 function copySnapshot(snapshot: CanvasViewSnapshot): CanvasViewSnapshot {
   return {
     viewport: { ...snapshot.viewport },

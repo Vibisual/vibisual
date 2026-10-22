@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { AppWorkMark, BubbleData, QueuedCommand } from '@vibisual/shared';
 import { APP_WORK, CONSTELLATION } from '@vibisual/shared';
 
-import { EMPTY_APP_WORK_PLAN, appWorkFocusOf, planAppWork, type AppWorkAppInfo, type AppWorkInput } from './appWorkView.js';
+import { EMPTY_APP_WORK_PLAN, appWorkFocusOf, appWorkPlanKey, planAppWork, type AppWorkAppInfo, type AppWorkInput } from './appWorkView.js';
 import { applyConstellations, type ConstellationAppHubView } from './constellationView.js';
 import type { SatelliteInfo } from './satellite.js';
 
@@ -66,23 +66,33 @@ function input(overrides: Partial<AppWorkInput> = {}): AppWorkInput {
   };
 }
 
-describe('appWorkFocusOf — 초점', () => {
-  it('도는 명령의 앱 노드 → 작업 장부 → 마지막 앱 명령 순 · 이어진 노드만', () => {
-    const base = input();
-    expect(appWorkFocusOf({ id: AGENT }, base.apps, base)).toEqual([APP]);
-    const running = { ...base, queued: { [AGENT]: [cmd('x', { status: 'executing', appNodeIds: [APP] })] }, completed: {} };
-    expect(appWorkFocusOf({ id: AGENT }, base.apps, running)).toEqual([APP]);
-    const task = { ...base, completed: {}, activeTaskNodes: (id: string) => (id === AGENT ? [APP] : null) };
-    expect(appWorkFocusOf({ id: AGENT }, base.apps, task)).toEqual([APP]);
-    // 이어지지 않은 에이전트 · 작업 파일 보기 · 버블 숨기기는 초점이 없다.
-    expect(appWorkFocusOf({ id: OTHER }, base.apps, base)).toEqual([]);
-    expect(appWorkFocusOf({ id: AGENT, linkLens: 'files' }, base.apps, base)).toEqual([]);
-    expect(appWorkFocusOf({ id: AGENT, bubblesHidden: true }, base.apps, base)).toEqual([]);
+describe('appWorkFocusOf — 초점 = 이어진 앱 노드 전부(2026-10-21 — 잇는 순간 켜진다)', () => {
+  it('잇기만 해도 초점이다 — 명령도 작업 장부도 없이', () => {
+    const linkedOnly = input({ queued: {}, completed: {} });
+    expect(appWorkFocusOf({ id: AGENT }, linkedOnly.apps, linkedOnly)).toEqual([APP]);
+    // 이어지지 않은 에이전트 · 버블 전부 보기 · 버블 숨기기는 초점이 없다.
+    expect(appWorkFocusOf({ id: OTHER }, linkedOnly.apps, linkedOnly)).toEqual([]);
+    expect(appWorkFocusOf({ id: AGENT, linkLens: 'files' }, linkedOnly.apps, linkedOnly)).toEqual([]);
+    expect(appWorkFocusOf({ id: AGENT, bubblesHidden: true }, linkedOnly.apps, linkedOnly)).toEqual([]);
+    // 끊으면 풀린다.
+    const unlinked = [{ ...vibi3d, linkedAgentIds: [] }];
+    expect(appWorkFocusOf({ id: AGENT }, unlinked, linkedOnly)).toEqual([]);
   });
 
-  it('마지막 명령이 앱 명령이 아니면 초점이 풀린다', () => {
+  it('마지막 명령이 앱 명령이 아니어도(IDE 입력) 풀리지 않는다', () => {
     const base = input({ completed: { [AGENT]: [cmd(`앞 작업 ${APP}`), cmd('테스트 고쳐', { id: 'cmd-2' })] } });
-    expect(appWorkFocusOf({ id: AGENT }, base.apps, base)).toEqual([]);
+    expect(appWorkFocusOf({ id: AGENT }, base.apps, base)).toEqual([APP]);
+  });
+
+  it('명령·작업 장부는 차례만 정한다 — 도는 명령 → 고른 작업 → 마지막 앱 명령 → 나머지 이은 노드', () => {
+    const app = (id: string): AppWorkAppInfo => ({ ...vibi3d, id });
+    const apps = [app('app-a-fixture'), app('app-b-fixture'), app('app-c-fixture'), app('app-d-fixture')];
+    const order = appWorkFocusOf({ id: AGENT }, apps, {
+      queued: { [AGENT]: [cmd('x', { status: 'executing', appNodeIds: ['app-c-fixture'] })] },
+      completed: { [AGENT]: [cmd('앞', { appNodeIds: ['app-b-fixture'] }), cmd('IDE 입력', { id: 'cmd-2' })] },
+      activeTaskNodes: (id) => (id === AGENT ? ['app-d-fixture'] : null),
+    });
+    expect(order).toEqual(['app-c-fixture', 'app-d-fixture', 'app-b-fixture', 'app-a-fixture']);
   });
 });
 
@@ -120,8 +130,11 @@ describe('planAppWork — 사진 속 실제 경우', () => {
     for (const f of hub.overflow) expect(plan.hiddenWorkIds.has(`sat-${f.fileId}`)).toBe(true);
   });
 
-  it('초점이 없으면 빈 판정이다', () => {
-    expect(planAppWork(input({ completed: {} }))).toBe(EMPTY_APP_WORK_PLAN);
+  it('초점이 없으면 빈 판정이다 — 이은 앱이 없거나 버블 전부 보기', () => {
+    expect(planAppWork(input({ apps: [{ ...vibi3d, linkedAgentIds: [] }] }))).toBe(EMPTY_APP_WORK_PLAN);
+    expect(planAppWork(input({ agents: [{ id: AGENT, linkLens: 'files' }] }))).toBe(EMPTY_APP_WORK_PLAN);
+    // 명령이 없어도 이었으면 판정이 선다.
+    expect(planAppWork(input({ completed: {} })).focusByAgent.get(AGENT)).toEqual([APP]);
   });
 });
 
@@ -165,6 +178,27 @@ describe('planAppWork — 다양한 확장자 · 연속 번호 · 노드 고르�
     }));
     const hub = plan.hubs.get(APP)!;
     expect(hub.work.map((f) => f.path.split('/').pop())).toEqual(['scene.mjs']);
+  });
+
+  it('노드에 담긴 결과·지난 결과는 작업 목록에 없어도 접지 않는다(keep) — 꼬리표가 없어도', () => {
+    // 2026-10-21 실측 모양 — 에이전트가 만든 shot.glb 를 결과로 넘겼더니 작업물 rig.obj 는 보이고 shot.glb 는 접혔다.
+    const withResult = { ...vibi3d, results: [`${ROOT}/out/shot.glb`, `${ROOT}/out/shot-v1.glb`] };
+    const shot = file('shot.glb', 'out', { [APP]: { w: 1, at: 9 } });
+    const past = file('shot-v1.glb', 'out'); // 지난 결과 — 꼬리표 없음
+    const rig = file('rig.obj', 'out', { [APP]: { w: 1, at: 8 } });
+    const plan = planAppWork(input({ apps: [withResult], files: [shot, past, rig] }));
+    for (const f of [shot, past, rig]) {
+      expect(plan.keepIds.has(f.id)).toBe(true);
+      expect(plan.keepIds.has(`sat-${f.id}`)).toBe(true);
+    }
+    expect(plan.hubs.get(APP)!.work.map((f) => f.path.split('/').pop())).toEqual(['rig.obj']);
+  });
+
+  it('작업이 같아도 결과가 바뀌면 판정 지문이 달라진다(옛 판정을 돌려쓰지 않게)', () => {
+    const files = [file('shot.glb', 'out'), file('rig.obj', 'out', { [APP]: { w: 1, at: 8 } })];
+    const before = planAppWork(input({ files }));
+    const after = planAppWork(input({ apps: [{ ...vibi3d, results: [`${ROOT}/out/shot.glb`] }], files }));
+    expect(appWorkPlanKey(after)).not.toBe(appWorkPlanKey(before));
   });
 });
 

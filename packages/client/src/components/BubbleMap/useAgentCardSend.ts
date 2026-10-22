@@ -13,6 +13,8 @@ export function useAgentCardSend(
   draft: string,
   outputNodes: readonly LinkedOutputNode[],
   task?: { projectId: string; taskId?: string },
+  /** §5.1 #2-1 (F) ① — 이어진 앱이 있는데 칩을 모두 껐다(이번 명령은 앱 작업이 아니다). 넣은 노드가 하나라도 있으면 무시된다. */
+  appsExcluded = false,
 ): { send: (live?: string) => void; sending: boolean; preparationFailed: boolean } {
   const inFlight = useRef(false);
   const [sending, setSending] = useState(false);
@@ -35,10 +37,11 @@ export function useAgentCardSend(
         const command = withLinkedOutputBrief(text, nodes);
         // §5.1 #2-1 (F) ① — 넣은 앱 노드를 명령에 싣는다. 서버가 이 명령 중 쓴 파일을 그 노드의 작업물로 단다(확장자 무관).
         const appNodeIds = nodes.map((node) => node.id);
-        const withNodes = appNodeIds.length > 0 ? { appNodeIds } : {};
+        //   칩을 모두 껐으면 "앱 작업 아님"을 싣는다 — 서버가 이어진 앱으로 폴백해 꼬리표를 달지 않게(칩을 끈 뜻).
+        const withNodes = appNodeIds.length > 0 ? { appNodeIds } : appsExcluded ? { appNodesOff: true } : {};
         const receipt = task
           ? await useGraphStore.getState().addCommand(agentId, command, sessionId, undefined, { ...options, ...withNodes, draftText: text })
-          : options || appNodeIds.length > 0
+          : options || appNodeIds.length > 0 || appsExcluded
             ? await useGraphStore.getState().addCommand(agentId, command, sessionId, undefined, { ...options, ...withNodes })
             : await useGraphStore.getState().addCommand(agentId, command, sessionId);
         if (task && receipt?.subAgentId) {
@@ -60,6 +63,6 @@ export function useAgentCardSend(
         setSending(false);
       }
     })();
-  }, [agentId, sessionId, draft, outputNodes, task?.projectId, task?.taskId]);
+  }, [agentId, sessionId, draft, outputNodes, task?.projectId, task?.taskId, appsExcluded]);
   return { send, sending, preparationFailed: failedSession !== null && failedSession.id === sessionId };
 }

@@ -1,6 +1,7 @@
 import type { Edge, Node } from '@xyflow/react';
 import type { BubbleData, BubbleType } from '@vibisual/shared';
 import { isActivityEdge } from './linkView.js';
+import { isBundleNodeId } from '../../utils/constellationView.js';
 
 type AgentVisibility = Pick<BubbleData, 'id' | 'bubbleType' | 'bubblesHidden'>;
 type ActivityLink = Pick<Edge, 'id' | 'source' | 'target' | 'type'>;
@@ -8,6 +9,8 @@ type Satellite = Pick<BubbleData, 'id' | 'bubbleType'>;
 
 const ACTIVITY_BUBBLE_TYPES: ReadonlySet<BubbleType> = new Set([
   'internal_folder', 'external_folder', 'file', 'domain', 'bash', 'ghost', 'iframe', 'conti', 'auto',
+  // §5.1 #2-1 (B) — 묶음 버블은 구성 파일의 자리다. 빠지면 부모 폴더가 숨을 때 묶음과 그 구성만 남고, 구성으로 가는 소유 사슬도 끊긴다.
+  'bundle',
 ]);
 const NO_HIDDEN_BUBBLES: ReadonlySet<string> = new Set();
 
@@ -61,6 +64,12 @@ export function hiddenActivityBubbleIds(
     if (edge.id.startsWith('sat-edge-')) {
       if (edge.source.startsWith('sat-')) relate(edge.target, edge.source);
       if (edge.target.startsWith('sat-')) relate(edge.source, edge.target);
+      // §5.1 #2-1 (B) — 묶음 버블과 그 구성은 한 무리다. 원 둘레에 선 묶음(`bundle-…`)에는 활동선이 닿지 않아(에이전트 선은
+      //   중심 파일로 옮겨 간다) 구성에서 거슬러 잇는다 — 위성 자리의 묶음(`sat-bundle-…`)은 위 두 줄이 이미 양쪽을 잇는다.
+      if (isBundleNodeId(edge.source) || isBundleNodeId(edge.target)) {
+        relate(edge.source, edge.target);
+        relate(edge.target, edge.source);
+      }
     }
   }
   for (const [parentId, list] of Object.entries(satellites)) {

@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import type { VerificationTarget, VerificationDemoStep, CommandReceipt } from '@vibisual/shared';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
@@ -10,7 +10,7 @@ import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMem
 import type { AppThemeCatalog, UserDefaultsPatch } from '@vibisual/shared';
 import { resolveBubbleSkin, resolveBubbleEdgeStyle, type BubbleSkin, type BubbleEdgeStyle } from '@vibisual/shared';
 // §5.4 #36 (H) — 연결 보기(보기 전환의 말).
-import type { LinkLens } from '@vibisual/shared';
+import type { FileFaceKind, LinkLens } from '@vibisual/shared';
 import { isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
 // §5.4 #36 (B) — 위성줄 목록 다듬기(서버 검증과 한 벌).
 import { APP_BUBBLE_PENDING_MS, LINK_VIEW, makeAppBubbleId, withLinkedAgent, withoutLinkedAgent } from '@vibisual/shared';
@@ -94,7 +94,7 @@ import type { EditorPaneFileKind } from '@vibisual/shared';
 // §5.5 #17-34 — 창 **안**의 화면 분할. 트리 연산은 전부 순수 모듈이 하고 스토어는 그 결과만 앉힌다.
 import {
   adjacentCellId, cellIdForSession, closeCell, dropOnCell, findCell, listCells, makeCell, pruneCells,
-  type SplitNode,
+  splitAnchorShowsSession, type SplitNode,
 } from '../components/IDE/splitLayout.js';
 import type { SplitDropSide } from '../components/IDE/splitDrop.js';
 import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
@@ -1005,6 +1005,23 @@ export interface IDESplitState {
 }
 
 /**
+ * §5.5 #17-34 ⑬ — 탭 우클릭 [나누기](대상 칸 없음)가 **제자리**인가. `dropSessionOnIDECell` 이 보는 것
+ * 그대로다 — 슬롯의 에이전트·활성 세션, 그리고 그 에이전트의 분할만. 참이면 스토어는 아무 일도 하지 않으므로
+ * 메뉴가 항목을 흐리고 "같은 탭"이라고 말한다. 두 답이 같은지는 `ideSplits.test.ts` 가 지킨다.
+ */
+export function isIDESplitMenuSameTab(
+  state: { ideSplits: Record<string, IDESplitState>; ideOverlays: Record<string, IDEOverlayState> },
+  slotKey: string,
+  sessionId: string | null,
+): boolean {
+  const slot = state.ideOverlays[slotKey];
+  if (!slot?.agentId) return false;
+  const cur = state.ideSplits[slotKey];
+  const own = cur && cur.agentId === slot.agentId ? cur : null;
+  return splitAnchorShowsSession(own?.layout ?? null, own?.focusedCellId ?? null, slot.activeSessionId, sessionId);
+}
+
+/**
  * §5.5 #17-34 — 분할 트리를 앉히는 **유일한 창구**(모든 변형이 여기를 지난다).
  * 한 칸 이하로 줄면 분할을 접고, 마지막 칸이 보던 세션을 창이 그대로 이어받는다.
  */
@@ -1661,6 +1678,28 @@ function findSessionId(agents: BubbleData[], agentId: string): string | null {
 // AgentPhase는 @vibisual/shared에서 import (서버가 계산)
 // QueuedCommand는 @vibisual/shared에서 import (서버가 관리)
 
+/**
+ * §5.10 · §5.1 #2-1 (B) — **내부 뷰**(폴더 계층과 독립 축 · 영속 ❌). 휴지통(버려진 에이전트 나열)과 묶음 안(묶음 버블의 구성 파일만 —
+ * 2026-10-21 사용자 지시 "그 묶음으로 들어가면 …"). 묶음은 들어온 순간의 구성을 쥔다 — 판정이 바뀌어도 들어온 화면은 그대로다.
+ * 같은 폴더 묶음은 그 폴더(`folderId`)를 화면 범위로 선언해 위성 상한으로 빠진 같은 종류 파일까지 세운다(2026-10-22 사용자 지시
+ * "해당 묶음 버블 내부로 들어가면 위성 규칙으로 인해 사라졌던 사용한 버블들이 눈에 보이게").
+ */
+export type InteriorView =
+  | { readonly kind: 'trash' }
+  | {
+      readonly kind: 'bundle';
+      /** 들어온 묶음 버블의 노드 id — 화면 위치 기억을 묶음마다 가르는 열쇠. */
+      readonly bundleId: string;
+      /** 묶음 이름(경로 표시). */
+      readonly label: string;
+      /** 구성 파일 노드 id(상한 `BUNDLE_BUBBLE.interiorMax` — 최근 것부터). 범위가 도착하기 전에도 이것으로 먼저 선다. */
+      readonly memberIds: readonly string[];
+      /** 구성 파일이 든 폴더의 노드 id — 같은 폴더 묶음만. 있으면 이 폴더를 범위로 선언하고 그 `children` 에서 같은 종류를 더 세운다. */
+      readonly folderId?: string;
+      /** 묶음의 종류 — 그 폴더의 `children` 에서 이 종류만 고른다. */
+      readonly fileKind?: FileFaceKind;
+    };
+
 interface GraphState {
   /** 등록된 프로젝트 (projectName → ProjectInfo). 전역 접근용 */
   projects: Record<string, ProjectInfo>;
@@ -1855,6 +1894,8 @@ interface GraphState {
       afterAgentWork?: boolean;
       /** §5.1 #2-1 (F) ① — 이 명령이 어느 앱 노드의 작업인가(말풍선이 넣은 노드). 서버가 그 명령 중 쓴 파일에 꼬리표를 단다. */
       appNodeIds?: readonly string[];
+      /** §5.1 #2-1 (F) ① — 말풍선에서 이어진 앱을 모두 빼고 보낸다(칩을 다 끈 뜻) — 이 명령 중 쓴 파일은 앱 작업물이 아니다. */
+      appNodesOff?: boolean;
     },
   ) => Promise<CommandReceipt | null> | void;
   /** 선택한 엔진의 기존 설치·로그인 창을 연다. 설치/로그인을 자동 실행하지 않는다. */
@@ -2354,6 +2395,14 @@ interface GraphState {
    */
   setAgentLinkView: (agentId: string, patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: LinkLens }) => void;
   /**
+   * §5.4 #36 (H) ①-2 — 에이전트의 **연결된 버블 고정**. 고정한 동안 확인 클릭·자동 유휴·5분 TTL 이 그 연결을 걷지 않는다.
+   * 화면 먼저(`linksPinned` 칸 — 붙들기는 `agentLinkViewHolds`), 서버(`PATCH /api/bubble/:id/link-pin`)는 뒤따른다.
+   * 풀 때 그 에이전트가 실행 중이 아니면 서버가 그 자리에서 걷는다.
+   */
+  setAgentLinksPinned: (agentId: string, pinned: boolean) => void;
+  /** §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]. 서버(`POST /api/bubble/:id/link-replay`)가 다시 세우고 스냅샷이 그린다. */
+  replayAgentLinks: (agentId: string) => void;
+  /**
    * §5.4 #36 (H) — 누른 연결 보기 칸의 낙관 붙들기(에이전트 id → 붙들기). `loadSnapshot` 이 들어온 에이전트에 덧씌우고,
    * 확인·실패·`LINK_VIEW.pendingMs` 에 놓는다. 규칙은 `linkViewHold.ts` 한 벌 — 표시용이고 영속 ❌.
    */
@@ -2547,8 +2596,9 @@ interface GraphState {
   /**
    * §7.11 / §3.5 — 열어 둔 탭의 주소를 옮긴다(서버 판정이 `follow` 라고 답했을 때 — 위성이 옮겨졌거나
    * 같은 포트의 우리 서버에 닿는 별칭). 없는 탭·같은 주소면 아무것도 하지 않는다.
+   * `label` 을 주면 이름도 함께 옮긴다 — §5.23 「더블클릭」 웹 탭은 다시 누르면 그때의 마지막 주소(검색이면 검색어)로 간다.
    */
-  followIframeTab: (id: string, url: string) => void;
+  followIframeTab: (id: string, url: string, label?: string) => void;
   closeIframeTab: (id: string) => void;
   setActiveIframeTab: (id: string) => void;
   /**
@@ -2633,6 +2683,11 @@ interface GraphState {
   applyAppState: (state: AppState | undefined) => void;
   /** 서버에 PATCH /api/app-state 요청 (fire-and-forget — 성공 시 snapshot으로 갱신됨) */
   patchAppState: (patch: AppStatePatch) => Promise<void>;
+  /**
+   * §5.4 #14-2 (C-1) — 프로젝트 탭 순서 저장(`PATCH /api/projects/order`). `order` = 화면에 선 프로젝트 탭의 경로(보이는
+   * 순서). 서버는 순서만 바꾸고 방송한다. 답은 성공 여부 — 화면은 기다리지 않고 탭 줄이 붙들기를 놓는 근거로만 쓴다.
+   */
+  reorderProjectTabs: (order: readonly string[]) => Promise<boolean>;
   debugMode: boolean;
   toggleDebug: () => void;
   /**
@@ -2713,9 +2768,9 @@ interface GraphState {
   applyConfigTrim: (map: Record<string, ConfigTrimSummary> | undefined) => void;
   /**
    * §5.10 v3.49 — 휴지통 내부 진입 상태 — currentFolderId/navStack 과 독립. null=일반 캔버스.
-   * §5.10 — 기억 피드 오버레이가 폐기돼 이 축에 남은 값은 휴지통 하나뿐이다.
+   * §5.10 — 기억 피드 오버레이가 폐기돼 이 축에는 휴지통과 §5.1 #2-1 (B) 묶음 안(2026-10-21) 둘이 있다.
    */
-  interiorView: { kind: 'trash' } | null;
+  interiorView: InteriorView | null;
   /**
    * §5.10 — 사용법 가이드(File > Guide) 를 **어느 화면에서든** 여는 자리.
    * 값이 곧 열 항목(GuideWindow 의 카테고리 키)이고 null 이면 닫힘이다 — 가이드를 여는 문이
@@ -2736,8 +2791,8 @@ interface GraphState {
   openOptions: (category?: string) => void;
   /** 옵션 창 닫기. */
   closeOptions: () => void;
-  /** 휴지통 내부 진입 — 선택 초기화(카드 fetch 없음). */
-  enterInterior: (view: { kind: 'trash' }) => void;
+  /** 내부 진입(휴지통 · 묶음 안) — 선택 초기화(카드 fetch 없음). */
+  enterInterior: (view: InteriorView) => void;
   /** 내부 뷰 종료(캔버스 복귀). */
   exitInterior: () => void;
   /** 휴지통 커스텀 에이전트 복구. */
@@ -3168,6 +3223,12 @@ interface GraphState {
    */
   ideEditorFollow: Record<string, true>;
   setIdeEditorFollow: (sessionKey: string, on: boolean) => void;
+  /**
+   * §5.5 #17-50 — [버블]이 켜진 **세션키의 집합**(`에이전트::세션id|main` — [추종]과 같은 꼴). 켜져 있으면 그 칸의
+   * 대화 자리에 이 세션만의 버블 지도가 선다. 분할 칸마다 따로다. **휘발**(메모리 · 영속 ❌) — 앱을 다시 켜면 대화로 시작한다.
+   */
+  ideBubbleView: Record<string, true>;
+  setIdeBubbleView: (sessionKey: string, on: boolean) => void;
   /**
    * §5.5 #17-30 — 그 세션에서 **아직 보내지 않은** diff 리뷰 코멘트(세션키 → 목록).
    *
@@ -3622,6 +3683,42 @@ export function isStoreChannelSelection(
   );
 }
 
+/**
+ * §5.4 #36 (H) — 에이전트 칸 몇 개를 **화면 먼저** 적고, 누른 칸을 붙든 채 서버에 보낸다. 연결 보기(①·①-1·② — `/link-view`)와
+ * 연결된 버블 고정(①-2 — `/link-pin`)이 같은 길을 탄다 — 붙들기 규칙(`linkViewHold.ts`)이 두 벌이 되면 한쪽만 깜빡인다.
+ * `want` 는 서버와 같은 모양이다(기본값은 칸을 지운다 — `undefined`). 바꾼 버블만 새 객체.
+ */
+function sendHeldAgentFields(
+  set: StoreApi<GraphState>['setState'],
+  get: StoreApi<GraphState>['getState'],
+  agentId: string,
+  want: Record<string, unknown>,
+  url: string,
+  body: unknown,
+): void {
+  const now = Date.now();
+  const since = linkViewHoldSince(get().agentLinkViewHolds, agentId, now);
+  set((s) => {
+    let changed = false;
+    const agents = s.agents.map((a) => {
+      if (a.id !== agentId || carriesHeldFields(a, want)) return a;
+      changed = true;
+      return withHeldFields(a, want);
+    });
+    const agentLinkViewHolds = beginLinkViewHold(s.agentLinkViewHolds, agentId, want, now);
+    return changed ? { agents, agentLinkViewHolds } : { agentLinkViewHolds };
+  });
+  const settle = (ok: boolean): void => set((s) => {
+    const agentLinkViewHolds = settleLinkViewHold(s.agentLinkViewHolds, agentId, since, ok);
+    return agentLinkViewHolds === s.agentLinkViewHolds ? s : { agentLinkViewHolds };
+  });
+  void fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then((res) => settle(res.ok), () => settle(false));
+}
+
 // §9 — 스냅샷 1건은 `set()` 을 36번 부른다(loadSnapshot 1 + apply* 35). zustand 는 호출마다
 //   구독자 전원의 선택자를 다시 돌리므로 그 36벌이 통째로 낭비였다(실측 5.01ms → 0.15ms, 33배).
 //   `batchStoreNotify()` 로 감싼 구간은 통지가 1회로 접힌다 — 상태는 종전대로 즉시 갱신된다.
@@ -3895,7 +3992,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             ...(options?.runLimits ? { runLimits: options.runLimits } : {}),
             ...(options?.executionRequirements ? { executionRequirements: options.executionRequirements } : {}),
             ...(options?.afterAgentWork ? { afterAgentWork: true } : {}),
-            ...(options?.appNodeIds && options.appNodeIds.length > 0 ? { appNodeIds: [...options.appNodeIds] } : {}),
+            ...(options?.appNodeIds && options.appNodeIds.length > 0
+              ? { appNodeIds: [...options.appNodeIds] }
+              : options?.appNodesOff ? { appNodesOff: true } : {}),
           }),
         });
         const data = await r.json() as { command?: Partial<CommandReceipt>; error?: string; preparation?: OrchestraPreparation };
@@ -4415,27 +4514,23 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     if (patch.hidden !== undefined) want['linksHidden'] = patch.hidden ? true : undefined;
     if (patch.bubblesHidden !== undefined) want['bubblesHidden'] = patch.bubblesHidden ? true : undefined;
     if (patch.lens !== undefined) want['linkLens'] = patch.lens === 'files' ? 'files' : undefined;
-    const now = Date.now();
-    const since = linkViewHoldSince(get().agentLinkViewHolds, agentId, now);
-    set((s) => {
-      let changed = false;
-      const agents = s.agents.map((a) => {
-        if (a.id !== agentId || carriesHeldFields(a, want)) return a;
-        changed = true;
-        return withHeldFields(a, want);
-      });
-      const agentLinkViewHolds = beginLinkViewHold(s.agentLinkViewHolds, agentId, want, now);
-      return changed ? { agents, agentLinkViewHolds } : { agentLinkViewHolds };
-    });
-    const settle = (ok: boolean): void => set((s) => {
-      const agentLinkViewHolds = settleLinkViewHold(s.agentLinkViewHolds, agentId, since, ok);
-      return agentLinkViewHolds === s.agentLinkViewHolds ? s : { agentLinkViewHolds };
-    });
-    void fetch(`${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/link-view`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    }).then((res) => settle(res.ok), () => settle(false));
+    sendHeldAgentFields(set, get, agentId, want, `${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/link-view`, patch);
+  },
+  // §5.4 #36 (H) ①-2 — 고정도 버블의 데이터 칸이다. 누른 칸은 연결 보기와 같은 붙들기로 지킨다. 풀 때 실행 중이 아니면
+  //   서버가 같은 PATCH 안에서 걷고, 버블은 그 뒤 스냅샷이 내린다(걷기를 화면이 먼저 흉내 내지 않는다 — 판정은 서버 몫).
+  setAgentLinksPinned: (agentId, pinned) => {
+    sendHeldAgentFields(
+      set,
+      get,
+      agentId,
+      { linksPinned: pinned ? true : undefined },
+      `${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/link-pin`,
+      { pinned },
+    );
+  },
+  // §5.4 #36 (H) ①-2 — 다시 세우는 일은 서버가 기존 라우팅으로 한다. 화면은 다음 스냅샷을 그린다(통합 앱은 IPC 직결 — 답을 기다리지 않는다).
+  replayAgentLinks: (agentId) => {
+    void fetch(`${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/link-replay`, { method: 'POST' }).catch(() => undefined);
   },
   appBubbleLinkViewHolds: NO_LINK_VIEW_HOLDS,
   setAppBubbleLinksHidden: (id, hidden) => {
@@ -5988,12 +6083,12 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     if (exists) return { activeIframeId: tab.id };
     return { iframeTabs: [...state.iframeTabs, tab], activeIframeId: tab.id };
   }),
-  followIframeTab: (id, url) => set((state) => {
+  followIframeTab: (id, url, label) => set((state) => {
     const at = state.iframeTabs.findIndex((t) => t.id === id);
     const tab = at >= 0 ? state.iframeTabs[at] : undefined;
-    if (!tab || tab.url === url) return {};
+    if (!tab || (tab.url === url && (label === undefined || tab.label === label))) return {};
     const next = [...state.iframeTabs];
-    next[at] = { ...tab, url };
+    next[at] = { ...tab, url, ...(label !== undefined ? { label } : {}) };
     return { iframeTabs: next };
   }),
   closeIframeTab: (id) => {
@@ -6169,6 +6264,19 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       // 서버가 broadcast snapshot 하므로 별도 로컬 set 불필요 — WS로 돌아옴
     } catch {
       // offline 등 — 서버 복구 후 다음 snapshot으로 재동기화되므로 무시
+    }
+  },
+  reorderProjectTabs: async (order) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/order`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+      });
+      return res.ok;
+    } catch {
+      // 요청이 못 나갔다 — 서버는 옛 순서 그대로다. 탭 줄이 붙들기를 놓아 서버 순서로 돌아간다.
+      return false;
     }
   },
   debugMode: false,
@@ -7296,6 +7404,15 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     if (s.ideEditorWidth === next) return s;
     saveJSON(IDE_EDITOR_WIDTH_KEY, next);
     return { ideEditorWidth: next };
+  }),
+  // ─── §5.5 #17-50 [버블] — 칸(세션)마다 따로 · 휘발 ───
+  ideBubbleView: {},
+  setIdeBubbleView: (sessionKey, on) => set((s) => {
+    if ((s.ideBubbleView[sessionKey] === true) === on) return s;
+    const next: Record<string, true> = { ...s.ideBubbleView };
+    if (on) next[sessionKey] = true;
+    else delete next[sessionKey];
+    return { ideBubbleView: next };
   }),
   // ─── §5.5 #17-27 ⑪ [추종] — 켜짐도 신호도 세션마다 따로 ───
   ideEditorFollow: normalizeFollowMap(loadJSON<unknown>(IDE_EDITOR_FOLLOW_KEY, {})),

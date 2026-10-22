@@ -682,6 +682,11 @@ describe('§7.23 preimageActionKey — 도구 이름이 아니라 무엇을 했�
     expect(preimageActionKey(preimage({ toolName: 'Bash' }))).toBe('panel.insurance.action.shell');
   });
 
+  // §5.1 #1-1 (A) — PowerShell 도구(Windows 기본 주 셸)로 덮기 전 사본도 "셸"이다.
+  it('PowerShell 도구도 셸이다', () => {
+    expect(preimageActionKey(preimage({ toolName: 'PowerShell' }))).toBe('panel.insurance.action.shell');
+  });
+
   it('그 자리에 파일이 없었으면 그 사실이 먼저다 — 되돌리기가 삭제인 줄이다', () => {
     const p = preimage({ toolName: 'Write' });
     delete (p as { sha256?: string }).sha256;

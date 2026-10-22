@@ -1,7 +1,26 @@
 import type { XYPosition } from '@xyflow/react';
 import type { BubbleData, BubbleType, HeatScale } from '@vibisual/shared';
-import { BUBBLE_COLORS, READ_TOOLS, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
+import {
+  BUBBLE_COLORS,
+  DEFAULT_MAX_SATELLITES,
+  FOLDER_BUBBLE_TYPES,
+  READ_TOOLS,
+  SATELLITE_ORBIT_GAP,
+  SATELLITE_RING_SPACING,
+  SPAWN_ZONE,
+} from '@vibisual/shared';
 import { calcBubbleSize, calcFileSizeRange } from './sizeCalc.js';
+import {
+  addToSpawnField,
+  anchorFromObstacle,
+  createSpawnField,
+  seatInZone,
+  zoneGridRadius,
+  zoneSeatRadius,
+  type SpawnField,
+  type ZoneAnchor,
+  type ZoneGrid,
+} from './spawnZone.js';
 
 // ─── 타입 ───
 
@@ -35,8 +54,21 @@ export interface SatelliteInfo {
    * §5.1 #2-1 (B) — 이 위성선을 그리지 않는다(연결은 그대로). 별자리 중심인 앱 노드가 연결선을 숨겼을 때(§5.4 #36 (H) ①).
    */
   edgeHidden?: boolean;
-  /** 별자리 위성은 첫 자리도 부모 반경 + 위성 반경 + 간격인 궤도에 건다. 일반 폴더 위성의 초기 퍼짐은 유지한다. */
+  /**
+   * 별자리·묶음의 달 — 첫 고리(부모 반경 + 위성 반경 + 간격인 궤도) 하나에만 앉는다(§5.1 #2-2 (G)). 그 고리는 달 수(`parentSlots`)를
+   * 다 담도록 넓힌다(§5.1 #2-2 (J)).
+   */
   orbitSeat?: boolean;
+  /**
+   * §5.1 #2-2 (J) — 부모가 거느릴 위성 수. 첫 고리를 이 수만큼 나눠 고르게 둘러싼다 — 폴더는 위성 상한(`maxSatellites` ·
+   * 기본 `DEFAULT_MAX_SATELLITES`), 묶음·앱 노드 별자리는 달 수. 없으면(에이전트 등) 고리가 담을 수 있는 만큼이다.
+   */
+  parentSlots?: number;
+  /**
+   * §5.1 #2-2 (J) — 달을 거느린 위성(묶음)의 몸집 반경(가장 큰 달의 바깥 테두리까지 — `satelliteHubReach`). 부모 둘레에는 이
+   * 몸집으로 앉고, 물리도 이 몸집으로 궤도를 잰다(노드 데이터 `_orbitReach`). 없으면 그려지는 원 그대로다.
+   */
+  reach?: number;
   /**
    * §5.1 #2-1 (F) ⑤ — 앱 작업 위성의 자리 각도(라디안 · 화면 좌표: 0 = 3시, π/2 = 6시). 있으면 첫 자리도 이 각도에 서고,
    * 물리가 이 각도를 스프링 오프셋으로 건다(위쪽 반원에 역할 순). 노드 데이터에는 `_seatAngle` 로 실린다.
@@ -88,6 +120,10 @@ export function collectSatellites(
     if (!files || files.length === 0) continue;
 
     const parentSize = calcBubbleSize(parent, undefined, heat);
+    // §5.1 #2-2 (J) — 폴더는 위성 상한만큼 거느린다(서버가 그 수로 자른다) — 첫 고리를 그 수로 나눠 다 차면 고르게 둘러싼다.
+    const parentSlots = FOLDER_BUBBLE_TYPES.has(parent.bubbleType)
+      ? parent.maxSatellites ?? DEFAULT_MAX_SATELLITES
+      : undefined;
 
     // 서버가 TTL 필터링 완료 — null 체크 + 중복 제거 + 숨김 타입(§2.4 v4.48) 제외
     const aliveFiles = files.filter(
@@ -134,6 +170,7 @@ export function collectSatellites(
         total: aliveFiles.length,
         localRange,
         heat,
+        ...(parentSlots !== undefined ? { parentSlots } : {}),
       });
     }
   }
@@ -143,73 +180,140 @@ export function collectSatellites(
 
 // ─── 위성 위치 배치 ───
 
-const SAT_SPAWN_RADIUS = 250;
-const SAT_SPAWN_MIN_DIST = 50;
-const SAT_SPAWN_MAX_TRIES = 50;
+/**
+ * §5.1 #2-2 — 위성 둘레의 격자. 첫 고리는 물리 스프링의 평형점(부모 반경 + 위성 반경 + `SATELLITE_ORBIT_GAP`)이고, 이웃 사이·
+ * 고리 사이는 위성 간격(`SATELLITE_RING_SPACING` — 이름 줄을 달고 다니는 위성의 몫)이다(§5.1 #2-2 (J)).
+ *
+ * 첫 고리는 그 부모가 거느릴 수(`parentSlots`)만큼만 나눈다 — 다 차면 정다각형으로 고르게 둘러싸고, 덜 차면 12시부터 시계 방향의
+ * 호다. 고리 하나에만 앉는 달(`orbitSeat` — 묶음·앱 노드 별자리)은 그 수를 다 담도록 고리를 넓힌다(넘칠 바깥 고리가 없다).
+ * 정리(§5.4 #33)·물리의 다시 걸기·묶음 궤도 점선이 같은 격자를 본다.
+ */
+export function satelliteZoneGrid(sat: Pick<SatelliteInfo, 'parentSlots' | 'orbitSeat'> = {}): ZoneGrid {
+  const slots = typeof sat.parentSlots === 'number' && Number.isFinite(sat.parentSlots) && sat.parentSlots >= 1
+    ? Math.floor(sat.parentSlots)
+    : undefined;
+  return {
+    slot: SPAWN_ZONE.SATELLITE_SLOT,
+    firstGap: SATELLITE_ORBIT_GAP,
+    neighborGap: SATELLITE_RING_SPACING.NEIGHBOR_GAP,
+    rowGap: SATELLITE_RING_SPACING.ROW_GAP,
+    ...(slots !== undefined ? { firstRingSlots: slots } : {}),
+    ...(slots !== undefined && sat.orbitSeat === true ? { fitFirstRing: true } : {}),
+  };
+}
 
 /**
- * positionsRef 기준으로 위성 위치를 계산한다.
+ * §5.1 #2-2 (J) — 달 `count` 개를 거느린 중심(반경 `coreR`)의 **궤도 반경**(칸 지름 달의 중심이 지나는 고리). 묶음의 점선 궤도가
+ * 이 반경에 그려진다 — 달이 앉는 격자(`satelliteZoneGrid` 의 고리 0)와 같은 함수라 점선이 달을 꿰뚫고 지나간다.
+ */
+export function satelliteOrbitRadius(coreR: number, count: number): number {
+  return zoneGridRadius(coreR, satelliteZoneGrid({ parentSlots: Math.max(1, count), orbitSeat: true }), 0);
+}
+
+/**
+ * §5.1 #2-2 (J) — 위성 `count` 개를 거느린 중심(반경 `coreR`) 둘레에서 지름 `diameter` 위성이 앉는 **중심 사이 거리** — 등장 영역
+ * 고리 0 과 같은 자리(주인 테두리와의 틈이 같게 · 수를 다 담도록 넓힌 고리). 물리가 부모가 바뀐 위성을 다시 걸 때 쓴다.
+ */
+export function satelliteSeatDistance(coreR: number, count: number, diameter: number): number {
+  return zoneSeatRadius(coreR, satelliteZoneGrid({ parentSlots: Math.max(1, count), orbitSeat: true }), diameter, 0);
+}
+
+/**
+ * §5.1 #2-2 (J) — 달을 거느린 위성(묶음)의 **몸집 반경**: 가장 큰 달의 바깥 테두리까지. 이 위성은 부모 둘레에 이 몸집으로 앉아
+ * (부모 테두리에서 `SATELLITE_ORBIT_GAP` 밖) 제 달이 부모나 이웃 위성을 파고들지 않는다. 물리도 이 몸집으로 궤도를 잰다.
+ */
+export function satelliteHubReach(coreR: number, moonDiameters: readonly number[]): number {
+  const grid = satelliteZoneGrid({ parentSlots: Math.max(1, moonDiameters.length), orbitSeat: true });
+  let reach = coreR;
+  for (const d of moonDiameters) {
+    if (!(Number.isFinite(d) && d > 0)) continue;
+    reach = Math.max(reach, zoneSeatRadius(coreR, grid, d, 0) + d / 2);
+  }
+  return reach;
+}
+
+/** 위성의 주인(부모) — 장부의 자리 → 화면 위치 + 부모 지름 → 버블 밖 부모(앱 노드) 순. */
+function satelliteAnchor(
+  sat: SatelliteInfo,
+  positionsRef: ReadonlyMap<string, XYPosition>,
+  field: SpawnField,
+  anchorOf?: (parentId: string) => SatelliteAnchor | null,
+): ZoneAnchor | null {
+  // 장부에는 렌더와 같은 자로 잰 자리가 있다 — 말풍선 부모도 물리 스프링과 같은 중심(상자 가운데)을 본다.
+  const known = field.byId.get(sat.parentId);
+  if (known) return anchorFromObstacle(known);
+  const parentPos = positionsRef.get(sat.parentId);
+  if (parentPos) {
+    const ps = sat.parentSize;
+    return { id: sat.parentId, cx: parentPos.x + ps / 2, cy: parentPos.y + ps / 2, r: ps / 2 };
+  }
+  const external = anchorOf?.(sat.parentId) ?? null;
+  return external ? { id: sat.parentId, cx: external.cx, cy: external.cy, r: external.size / 2 } : null;
+}
+
+/**
+ * positionsRef 기준으로 **새 위성의 첫 자리**를 정한다(§5.1 #2-2 등장 영역).
  * 유효한 캐시 위치가 있는 위성은 스킵 (물리 엔진이 이동시킨 위치 보존).
- * 일반 위성은 부모 중심 반경 250px 내, 별자리 위성은 부모 둘레 궤도에서 충돌 없는 위치에 배치.
+ *
+ * 일반 위성은 부모 둘레 고리에 12시부터 시계 방향으로 앉고, 부모 둘레 원판이 붐비면(남의 버블까지 센다)
+ * 고리를 넓혀 바깥 띠에 앉는다 — 종전의 "부모 둘레 250px 안 무작위"를 대체한다. 별자리 위성은 궤도(고리 0)
+ * 에만, 앱 작업 위성은 정해진 각도에 선다. 물리는 이 첫 자리를 스프링 오프셋으로 기억한다.
+ *
+ * §5.1 #2-2 (J) — 첫 고리는 부모가 거느릴 수만큼 나눠 고르게 둘러싸고(`satelliteZoneGrid`), 달을 거느린 위성(묶음 — `reach`)은
+ * 달 궤도까지를 몸으로 앉는다: 부모 테두리에서 틈 하나 밖에 몸집의 테두리가 오고, 장부에도 몸집으로 올라 다른 위성이 그 달 자리를
+ * 밟지 않는다(제 달을 앉힐 때의 주인은 제 원 — `core`).
+ *
+ * `field` 는 그 화면의 등장 영역 장부(`spawnZoneSeating.buildSpawnField`) — 주면 화면의 모든 버블·창을
+ * 장애물이자 셀 거리로 보고, 앉힌 위성을 더해 간다. 없으면 이번에 앉힌 위성끼리만 본다(시험·폴백).
  */
 export function placeSatellitePositions(
   sats: SatelliteInfo[],
   positionsRef: Map<string, XYPosition>,
   /** §5.1 #2-1 (B) — 버블 밖 부모(앱 노드)의 자리. `positionsRef` 에 없는 부모만 여기서 찾는다. */
   anchorOf?: (parentId: string) => SatelliteAnchor | null,
+  field?: SpawnField,
 ): void {
-  for (const sat of sats) {
+  const ledger = field ?? createSpawnField([], null);
+  // 부모 차례(처음 나온 순)를 지키고, 한 부모 안에서는 마지막 활동이 이른 것부터 — 도착 순서가 곧 시계 순서다.
+  const parentOrder = new Map<string, number>();
+  const pending: { sat: SatelliteInfo; at: number }[] = [];
+  sats.forEach((sat, at) => {
+    if (!parentOrder.has(sat.parentId)) parentOrder.set(sat.parentId, parentOrder.size);
     const existing = positionsRef.get(sat.bubble.id);
-    if (existing && (existing.x !== 0 || existing.y !== 0)) continue;
+    if (existing && (existing.x !== 0 || existing.y !== 0)) return;
+    pending.push({ sat, at });
+  });
+  pending.sort((a, b) =>
+    (parentOrder.get(a.sat.parentId)! - parentOrder.get(b.sat.parentId)!)
+    || ((a.sat.bubble.lastActivity ?? 0) - (b.sat.bubble.lastActivity ?? 0))
+    || (a.at - b.at));
 
-    const parentPos = positionsRef.get(sat.parentId);
-    const external = parentPos ? null : anchorOf?.(sat.parentId) ?? null;
-    const ps = external ? external.size : sat.parentSize;
-    const anchor = parentPos
-      ? { x: parentPos.x + ps / 2, y: parentPos.y + ps / 2 }
-      : external
-        ? { x: external.cx, y: external.cy }
-        : null;
+  for (const { sat } of pending) {
+    const anchor = satelliteAnchor(sat, positionsRef, ledger, anchorOf);
     if (!anchor) continue;
 
-    // 부모 중심 반경 SAT_SPAWN_RADIUS 내에서 충돌 없는 위치 탐색
     const satSize = calcBubbleSize(sat.bubble, sat.localRange, sat.heat);
-    const minDist = Math.max(SAT_SPAWN_MIN_DIST, satSize);
-    const orbitR = ps / 2 + satSize / 2 + SATELLITE_ORBIT_GAP;
+    // §5.1 #2-2 (J) — 달을 거느린 위성은 달 궤도까지가 몸이다(그려지는 원은 그대로 `satSize`).
+    const reach = typeof sat.reach === 'number' && Number.isFinite(sat.reach) && sat.reach > satSize / 2 ? sat.reach : null;
+    let center: { cx: number; cy: number };
     // §5.1 #2-1 (F) ⑤ — 앱 작업 위성은 정해진 각도에 바로 선다(무작위 ❌ — 역할 순서가 자리다).
     if (typeof sat.seatAngle === 'number' && Number.isFinite(sat.seatAngle)) {
-      positionsRef.set(sat.bubble.id, {
-        x: anchor.x + Math.cos(sat.seatAngle) * orbitR - satSize / 2,
-        y: anchor.y + Math.sin(sat.seatAngle) * orbitR - satSize / 2,
-      });
-      continue;
-    }
-    let placed = false;
-    for (let i = 0; i < SAT_SPAWN_MAX_TRIES; i++) {
-      const angle = Math.random() * 2 * Math.PI;
-      // 새 파일 중심 위성은 물리가 이 첫 거리 자체를 스프링 오프셋으로 기억한다. 무작위 반경이면 궤도로 모이지 않는다.
-      const r = sat.orbitSeat ? orbitR : orbitR + Math.random() * (SAT_SPAWN_RADIUS - orbitR);
-      const cx = anchor.x + Math.cos(angle) * r - satSize / 2;
-      const cy = anchor.y + Math.sin(angle) * r - satSize / 2;
-      let collides = false;
-      for (const pos of positionsRef.values()) {
-        const dx = pos.x - cx;
-        const dy = pos.y - cy;
-        if (dx * dx + dy * dy < minDist * minDist) { collides = true; break; }
-      }
-      if (!collides) {
-        positionsRef.set(sat.bubble.id, { x: cx, y: cy });
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      const fallbackAngle = Math.random() * 2 * Math.PI;
-      const fallbackR = orbitR;
-      positionsRef.set(sat.bubble.id, {
-        x: anchor.x + Math.cos(fallbackAngle) * fallbackR - satSize / 2,
-        y: anchor.y + Math.sin(fallbackAngle) * fallbackR - satSize / 2,
+      const orbitR = anchor.r + (reach ?? satSize / 2) + SATELLITE_ORBIT_GAP;
+      center = { cx: anchor.cx + Math.cos(sat.seatAngle) * orbitR, cy: anchor.cy + Math.sin(sat.seatAngle) * orbitR };
+    } else {
+      // §5.1 #2-2 (G) — 별자리 달은 궤도 하나(고리 0)에만 앉는다. 칸 고르기만 같은 규칙이다.
+      center = seatInZone({
+        anchor,
+        diameter: reach !== null ? reach * 2 : satSize,
+        grid: satelliteZoneGrid(sat),
+        obstacles: ledger.obstacles,
+        bounds: ledger.bounds,
+        onlyRing: sat.orbitSeat ? 0 : undefined,
       });
     }
+    positionsRef.set(sat.bubble.id, { x: center.cx - satSize / 2, y: center.cy - satSize / 2 });
+    addToSpawnField(ledger, reach !== null
+      ? { id: sat.bubble.id, cx: center.cx, cy: center.cy, r: reach, core: satSize / 2 }
+      : { id: sat.bubble.id, cx: center.cx, cy: center.cy, r: satSize / 2 });
   }
 }

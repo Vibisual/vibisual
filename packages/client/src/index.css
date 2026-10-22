@@ -698,10 +698,42 @@ body.vib-titlebar-drag .app-drag * {
   animation: app-screen-scan 1.6s ease-in-out infinite;
 }
 
+/* §5.5 #17-50 세션 버블 지도 — 결과가 아직 안 온 호출의 버블은 고리가 번지고(transform·opacity 만 — 합성으로 돈다),
+ * 그 선은 데이터가 가는 쪽으로 흐른다. 주기 = `SESSION_BUBBLE_MAP.pulseMs`(1.6s) · `flowMs`(0.8s). */
+@keyframes session-bubble-pulse {
+  0%   { transform: scale(1);    opacity: 0.6; }
+  70%  { transform: scale(1.45); opacity: 0; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+
+.session-bubble-pulse {
+  animation: session-bubble-pulse 1.6s ease-out infinite;
+}
+
+@keyframes session-bubble-flow {
+  from { stroke-dashoffset: 12; }
+  to   { stroke-dashoffset: 0; }
+}
+
+.session-bubble-flow {
+  stroke-dasharray: 6 6;
+  animation: session-bubble-flow 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 끄지 않고 `REDUCED_MOTION_LOOP_SLOWDOWN` 배 느리게 — 멈추면 그 PC 에서 도는 호출이 끝난 것과 똑같아진다(§5.4 #31 (K)).
+   * 값 = `SESSION_BUBBLE_MOTION.pulseReducedMs` · `flowReducedMs`. */
+  .session-bubble-pulse { animation-duration: 2.4s; }
+  .session-bubble-flow { animation-duration: 1.2s; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-balloon-unfold { animation: none; }
-  .agent-orbit-spin { animation: none; }
-  .ref-bead-flow { animation: none; }
+  /* 도는 동안 계속 도는 궤도·구슬은 끄지 않고 느리게 돈다 — 멈추면 그 PC 에서 일하는 에이전트가 쉬는 것과 똑같아진다
+   * (2026-10-22 사용자 보고 "커스텀마다 움직이던 선이 멈춰 있다" — Windows 는 애니메이션 효과를 끄면 이 설정이 된다).
+   * 값 = shared `AGENT_CARD.orbitSpinReducedMs` · `REF_LINK_STYLE.flowReducedMs`(`REDUCED_MOTION_LOOP_SLOWDOWN` 배). */
+  .agent-orbit-spin { animation-duration: 21s; }
+  .ref-bead-flow { animation-duration: 0.9s; }
   .ref-bloom-seed { animation: none; }
   /* 멈춘 줄은 가운데에 선다 — 도는 중이라는 사실은 남긴다. */
   .app-screen-scan { animation: none; transform: translateX(75%); }
@@ -845,8 +877,12 @@ body.vib-titlebar-drag .app-drag * {
 /* A moving ellipsis reveals whole glyphs in steps as a tab expands. Clip the
  * text continuously through a soft edge instead. The trailing space lets the
  * mask clear the final glyph naturally once the full name fits. */
+/* §5.4 #14 — 고른 탭이 커질 때 이 칸은 왼쪽 끝을 기준으로 늘고(안쪽 글자는 그 역수로 펴진다), 탭의 판
+ * (`data-tab-part="plate"`, absolute) 위에 서야 하므로 스스로 자리를 갖는다. */
 .tab-selection-label {
   --tab-label-fade: 16px;
+  position: relative;
+  transform-origin: left center;
   display: block;
   overflow: hidden;
   white-space: nowrap;

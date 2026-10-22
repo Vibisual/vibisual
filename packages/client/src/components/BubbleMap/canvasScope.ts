@@ -22,8 +22,8 @@
 export interface CanvasScopeState {
   /** 드릴다운한 폴더(워크트리 버블 포함). null 이면 최상위 캔버스. */
   currentFolderId: string | null;
-  /** 휴지통 같은 내부 뷰. null 이면 평범한 캔버스. */
-  interiorView: { kind: 'trash' } | null;
+  /** 휴지통 · 묶음 안 같은 내부 뷰(`InteriorView`). null 이면 평범한 캔버스. 종류는 여기서 가르지 않는다. */
+  interiorView: { readonly kind: string } | null;
 }
 
 /**

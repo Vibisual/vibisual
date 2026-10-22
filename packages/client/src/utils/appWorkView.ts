@@ -1,10 +1,12 @@
 /**
- * §5.4 #36 (I) · §5.1 #2-1 (F) — **앱 작업 보기**(순수). 앱과 연결해 일하는 동안은 그 일의 버블만 보인다.
+ * §5.4 #36 (I) · §5.1 #2-1 (F) — **앱 작업 보기**(순수). 말풍선에 앱을 잇는 순간부터 그 앱과 관련된 버블만 보인다.
  *
- * - **초점**: 에이전트의 지금 앱 작업 — 도는(줄 선) 명령의 앱 노드 → 말풍선 작업 장부의 고른 작업 → 마지막 명령이 앱
- *   명령이었을 때 그 노드. 그 에이전트에 이어진 앱 노드만 친다. 보기가 "작업 파일 위주"거나 [버블 숨기기] 중이면 초점이 없다.
+ * - **초점**: 그 에이전트에 이어진 앱 노드 **전부**(2026-10-21 — 잇는 순간 켜지고 끊으면 풀린다. 종전에는 명령을 보내야 켜졌다).
+ *   명령·작업 장부는 차례만 정한다 — 도는(줄 선) 명령의 노드 → 말풍선 작업 장부의 고른 작업 → 마지막 앱 명령 → 나머지 이은
+ *   노드. 보기가 "버블 전부"거나 [버블 숨기기] 중이면 초점이 없다.
  * - **작업물**: 서버가 단 `appWork` 꼬리표가 초점 노드를 가리키는 파일. 확장자는 귀속을 정하지 않는다 — 여기서 확장자를
- *   보는 것은 노드 고르기(꼬리표가 여럿일 때) · 역할(자리) · 짝뿐이다.
+ *   보는 것은 노드 고르기(꼬리표가 여럿일 때) · 역할(자리) · 짝뿐이다. 초점 노드에 담긴 결과·지난 결과는 작업 목록에 넣지 않지만
+ *   (별자리가 `appResult` 로 맨 앞에 둔다) **접지도 않는다**.
  * - **연속 번호** 묶기 · 위성 상한을 넘는 것(넘침)은 화면에서 감추고 개수로 말한다.
  *
  * 무엇을 접을지(소유 판정)는 `bubbleVisibility.ts`, 위성 자리는 `constellationView.ts` 가 이 결과를 받아 정한다.
@@ -70,8 +72,11 @@ export interface AppWorkMoonMeta {
   readonly order: number;
   readonly writes: number;
   readonly script: boolean;
-  /** 연속 번호 묶음의 대표면 그 묶음. */
-  readonly sequence?: { readonly label: string; readonly count: number; readonly names: readonly string[] } | undefined;
+  /**
+   * 연속 번호 묶음의 대표면 그 묶음. `ids` 는 묶음의 파일 노드 id(번호 순) — 화면은 대표 자리에 묶음 버블을 세우고(§5.1 #2-1 (F) ⑦),
+   * 묶음 안(더블클릭)이 이것으로 구성을 찾는다.
+   */
+  readonly sequence?: { readonly label: string; readonly count: number; readonly names: readonly string[]; readonly ids: readonly string[] } | undefined;
 }
 
 export interface AppWorkFile extends Omit<AppWorkMoonMeta, 'order'> {
@@ -119,8 +124,10 @@ function filePathOf(b: BubbleData): string {
 }
 
 /**
- * 에이전트의 **초점** — 도는(줄 선) 명령의 앱 노드 → 말풍선 작업 장부의 고른 작업 → 마지막 명령이 앱 명령이었을 때 그 노드.
- * 그 에이전트에 이어진 앱 노드만 남긴다. 없으면 빈 배열.
+ * 에이전트의 **초점** — 그 에이전트에 이어진 앱 노드 전부(§5.4 #36 (I) — 잇는 순간 켜진다). 없으면 빈 배열.
+ *
+ * 차례: 도는(줄 선) 명령의 노드 → 말풍선 작업 장부의 고른 작업 → 마지막 앱 명령 → 나머지 이은 노드(만든 순서). 꼬리표가
+ * 여럿인 파일이 어느 노드를 돌지의 마지막 기준("첫 노드")이 이 차례다 — 명령은 켜고 끄지 않고 차례만 정한다.
  */
 export function appWorkFocusOf(
   agent: AppWorkAgentInfo,
@@ -128,27 +135,25 @@ export function appWorkFocusOf(
   input: Pick<AppWorkInput, 'queued' | 'completed' | 'activeTaskNodes'>,
 ): string[] {
   if (agent.linkLens === 'files' || agent.bubblesHidden === true) return [];
-  const linked = new Set(apps.filter((a) => a.linkedAgentIds.includes(agent.id)).map((a) => a.id));
-  if (linked.size === 0) return [];
-  const pick = (ids: readonly string[]): string[] => {
-    const out: string[] = [];
-    for (const id of ids) if (linked.has(id) && !out.includes(id)) out.push(id);
-    return out;
+  const linked = apps.filter((a) => a.linkedAgentIds.includes(agent.id)).map((a) => a.id);
+  if (linked.length === 0) return [];
+  const out: string[] = [];
+  const take = (ids: readonly string[]): void => {
+    for (const id of ids) if (linked.includes(id) && !out.includes(id)) out.push(id);
   };
   const queue = input.queued[agent.id] ?? [];
-  const running = [...queue.filter((c) => c.status === 'executing'), ...queue.filter((c) => c.status === 'queued')];
-  for (const cmd of running) {
-    const ids = pick(commandAppNodeIds(cmd));
-    if (ids.length > 0) return ids;
-  }
-  const task = input.activeTaskNodes(agent.id);
-  if (task) {
-    const ids = pick(task);
-    if (ids.length > 0) return ids;
-  }
+  for (const cmd of queue) if (cmd.status === 'executing') take(commandAppNodeIds(cmd));
+  for (const cmd of queue) if (cmd.status === 'queued') take(commandAppNodeIds(cmd));
+  take(input.activeTaskNodes(agent.id) ?? []);
   const done = input.completed[agent.id] ?? [];
-  const last = done[done.length - 1];
-  return last ? pick(commandAppNodeIds(last)) : [];
+  for (let i = done.length - 1; i >= 0; i -= 1) {
+    const ids = commandAppNodeIds(done[i]!);
+    if (ids.length === 0) continue;
+    take(ids);
+    break;
+  }
+  take(linked);
+  return out;
 }
 
 function compareFiles(a: AppWorkFile, b: AppWorkFile): number {
@@ -240,6 +245,16 @@ export function planAppWork(input: AppWorkInput): AppWorkPlan {
     hiddenWorkIds.add(fileId);
     hiddenWorkIds.add(`sat-${fileId}`);
   };
+  // 초점 노드에 담긴 결과·지난 결과는 접지 않는다 — 작업 목록에서 뺀 것(별자리가 결과로 맨 앞에 둔다)이 남김 목록에서도 빠져,
+  //   에이전트가 만들어 넘긴 결과 파일이 접혔다(2026-10-21 실측: 작업물 rig.obj 는 보이고 넘긴 shot.glb 는 접혔다).
+  for (const b of input.files) {
+    if (b.bubbleType !== 'file') continue;
+    const key = appWorkPathKey(filePathOf(b), input.platform);
+    if (!focusedOrder.some((id) => resultKeys.get(id)?.has(key))) continue;
+    const fileId = b.id.startsWith('sat-') ? b.id.slice(4) : b.id;
+    keepIds.add(fileId);
+    keepIds.add(`sat-${fileId}`);
+  }
   for (const hubId of focusedOrder) {
     const app = appById.get(hubId);
     if (!app) continue;
@@ -264,6 +279,7 @@ export function planAppWork(input: AppWorkInput): AppWorkPlan {
         label: sequenceLabel(rep),
         count: list.length,
         names: ordered.map((e) => fileBaseName(e.file.path)),
+        ids: ordered.map((e) => e.file.fileId),
       });
       for (const e of list) if (e.file !== rep.file) collapsed.add(e.file);
     }
@@ -323,8 +339,10 @@ export function appWorkPlanKey(plan: AppWorkPlan): string {
   const parts: unknown[] = [];
   for (const [agentId, ids] of plan.focusByAgent) parts.push(['f', agentId, ids]);
   for (const [hubId, hub] of plan.hubs) {
-    parts.push(['h', hubId, hub.app.glow, hub.work.map((f) => [f.fileId, f.role, f.writes, f.script, f.sequence?.count ?? 0]),
+    parts.push(['h', hubId, hub.app.glow, hub.work.map((f) => [f.fileId, f.role, f.writes, f.script, f.sequence?.count ?? 0, f.sequence?.ids ?? null]),
       hub.overflow.map((f) => f.fileId)]);
   }
+  // 남김 목록에는 결과도 든다 — 작업이 그대로여도 결과가 바뀌면 다른 판정이다(같은 지문이면 옛 판정을 돌려쓴다).
+  parts.push(['k', [...plan.keepIds].sort()]);
   return JSON.stringify(parts);
 }

@@ -9,7 +9,9 @@ import {
   extentOf,
   gapBetween,
   massOf,
-  orbitSeatOffset,
+  orbitExtentOf,
+  orbitMinOffset,
+  orbitReseatGroup,
   orbitSeatAtAngle,
   separation,
   separationResponse,
@@ -81,12 +83,23 @@ interface PhysicsBody {
   stepY: number;
   /** §5.1 #2-1 (F) ⑤ — 앱 작업 위성의 자리 각도(노드 데이터 `_seatAngle`). 바뀌면 그 각도의 궤도에 다시 건다. */
   seatAngle?: number | undefined;
+  /**
+   * §5.1 #2-2 (J) — 달을 거느린 위성(묶음)의 몸집 반경(노드 데이터 `_orbitReach`). 부모 둘레 궤도는 이 몸집으로 잰다 — 그려지는
+   * 원(`radius`)으로 재면 제 달이 부모를 파고든다. 겹침 풀기는 여전히 그려지는 원으로 한다.
+   */
+  reach?: number | undefined;
 }
 
 /** §5.1 #2-1 (F) ⑤ — 노드 데이터의 자리 각도(앱 작업 위성만 있다). */
 function seatAngleOf(node: { data?: unknown }): number | undefined {
   const v = (node.data as { _seatAngle?: unknown } | undefined)?._seatAngle;
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+/** §5.1 #2-2 (J) — 노드 데이터의 몸집 반경(달을 거느린 위성만 있다). */
+function reachOf(node: { data?: unknown }): number | undefined {
+  const v = (node.data as { _orbitReach?: unknown } | undefined)?._orbitReach;
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
 const REPULSION_STRENGTH = 800;
@@ -113,7 +126,8 @@ function isCanvasUnseen(): boolean {
 
 export interface PhysicsHandlers {
   onSatelliteDrag: (id: string, x: number, y: number) => void;
-  onSatelliteDragStop: (id: string) => void;
+  /** `keepDistance` — 놓은 거리를 지킨다(궤도보다 가까우면 궤도로). 정리(§5.4 #33)의 도착이 쓴다. */
+  onSatelliteDragStop: (id: string, opts?: { keepDistance?: boolean }) => void;
   /** 뷰 전환 시 물리 일시 정지 → 바디 리셋 */
   pauseAndReset: () => void;
   /**
@@ -258,7 +272,9 @@ export function usePhysicsLayout(
       const old = existing.get(node.id);
       const isPaused = Date.now() < pausedUntilRef.current;
       const seatAngle = isSat ? seatAngleOf(node) : undefined;
+      const reach = isSat ? reachOf(node) : undefined;
       if (old) {
+        old.reach = reach;
         if (!old.measured && measuredW != null) measuredArrived = true;
         old.measured = measuredW != null;
         const prevRadius = old.radius;
@@ -324,6 +340,7 @@ export function usePhysicsLayout(
           carryIds: null,
           stepX: cx, stepY: cy,
           seatAngle,
+          reach,
         };
         newBodies.set(node.id, created);
         if (parentOutside || seatAngle !== undefined) reseat.push(created);
@@ -389,19 +406,63 @@ export function usePhysicsLayout(
       if (!newBodies.has(id)) lastEmittedRef.current.delete(id);
     }
 
-    // §5.1 #2-1 (B) — 새 부모 둘레 궤도에 다시 건다(방향 유지 · 평형점 거리 — `orbitSeatOffset`). 스프링이 그 자리로
-    //   미끄러뜨리도록 엔진을 깨운다(별자리가 서는 순간 파일들이 중심 곁으로 모여드는 것이 화면에 보인다).
+    // §5.1 #2-1 (B) — 새 부모 둘레 궤도에 다시 건다. 스프링이 그 자리로 미끄러뜨리도록 엔진을 깨운다(별자리·묶음이 서는 순간
+    //   파일들이 중심 곁으로 모여드는 것이 화면에 보인다). §5.1 #2-2 (J) — 같은 부모로 옮겨 오는 것은 한 무리로 건다: 그 부모의
+    //   위성이 전부 새로 걸리면(묶음이 막 섰다) 궤도를 고르게 나누고, 이미 도는 형제가 있으면 형제와 겹치지 않는 칸에(`orbitReseatGroup`).
     let reseated = false;
+    const reseatGroups = new Map<string, PhysicsBody[]>();
     for (const body of reseat) {
       const parent = body.parentId !== null ? newBodies.get(body.parentId) : undefined;
       if (!parent) continue;
       // §5.1 #2-1 (F) ⑤ — 앱 작업 위성은 지금 방향이 아니라 정해진 각도에(사각 부모는 타원).
-      const seat = body.seatAngle !== undefined
-        ? orbitSeatAtAngle(parent, body, SATELLITE_ORBIT_GAP, body.seatAngle)
-        : orbitSeatOffset(parent, body, SATELLITE_ORBIT_GAP);
-      body.offsetX = seat.x;
-      body.offsetY = seat.y;
-      reseated = true;
+      if (body.seatAngle !== undefined) {
+        const seat = orbitSeatAtAngle(parent, body, SATELLITE_ORBIT_GAP, body.seatAngle);
+        body.offsetX = seat.x;
+        body.offsetY = seat.y;
+        reseated = true;
+        continue;
+      }
+      const group = reseatGroups.get(parent.id);
+      if (group) group.push(body);
+      else reseatGroups.set(parent.id, [body]);
+    }
+    if (reseatGroups.size > 0) {
+      const regrouped = new Set<PhysicsBody>(reseat);
+      const siblingsOf = new Map<string, PhysicsBody[]>();
+      for (const b of newBodies.values()) {
+        if (b.parentId === null || regrouped.has(b) || !reseatGroups.has(b.parentId)) continue;
+        const list = siblingsOf.get(b.parentId);
+        if (list) list.push(b);
+        else siblingsOf.set(b.parentId, [b]);
+      }
+      for (const [parentId, group] of reseatGroups) {
+        const parent = newBodies.get(parentId);
+        if (!parent) continue;
+        const seats = orbitReseatGroup(parent, group, siblingsOf.get(parentId) ?? []);
+        for (const body of group) {
+          const seat = seats.get(body.id);
+          if (!seat) continue;
+          body.offsetX = seat.x;
+          body.offsetY = seat.y;
+          reseated = true;
+        }
+      }
+    }
+
+    // §5.1 #2-2 (J) — 위성은 부모 테두리에서 궤도 틈 밖에 둔다. 폴더는 쓸수록 커지고(활동량 · 작업 중 1.15배) 위성은 처음 앉은
+    //   거리를 기억하므로, 커진 부모의 테두리를 파고든 위성을 그 방향 그대로 궤도로 민다(당겨 들이지는 않는다 — 바깥 고리는 그대로).
+    //   실측 전 반경(기본값)으로는 재지 않고, 정리 이동 중에는 정리가 자리를 쥐고 있으므로 건드리지 않는다.
+    if (Date.now() >= pausedUntilRef.current) {
+      for (const body of newBodies.values()) {
+        if (body.parentId === null || body.dragging || body.seatAngle !== undefined || !body.measured) continue;
+        const parent = newBodies.get(body.parentId);
+        if (!parent || !parent.measured) continue;
+        const pushed = orbitMinOffset(parent, body, SATELLITE_ORBIT_GAP);
+        if (!pushed) continue;
+        body.offsetX = pushed.x;
+        body.offsetY = pushed.y;
+        reseated = true;
+      }
     }
 
     bodiesRef.current = newBodies;
@@ -439,8 +500,14 @@ export function usePhysicsLayout(
     lastEmittedRef.current.delete(id);
   }, [ensureRunning]);
 
-  /** 드래그 끝 — 놓은 방향 유지, 거리는 원래 궤도로 복귀 */
-  const onSatelliteDragStop = useCallback((id: string) => {
+  /**
+   * 드래그 끝 — 놓은 방향 유지, 거리는 원래 궤도로 복귀.
+   *
+   * `keepDistance` — 놓은 거리를 지킨다(궤도보다 가까우면 궤도로). 정리(§5.4 #33)가 도착한 위성의 오프셋을 다시 잡을 때 쓴다: 정리는
+   * 위성이 많으면 두 겹·세 겹 고리로, 달이 많은 묶음은 넓힌 고리로 앉히는데(§5.1 #2-2 (J)), 궤도로 되돌리면 그 고리가 첫 고리로
+   * 오므라들어 서로 포갠다.
+   */
+  const onSatelliteDragStop = useCallback((id: string, opts?: { keepDistance?: boolean }) => {
     const body = bodiesRef.current.get(id);
     if (!body) return;
     body.dragging = false;
@@ -454,12 +521,13 @@ export function usePhysicsLayout(
         const dx = body.x - parent.x;
         const dy = body.y - parent.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        // 원래 궤도 반경 = 부모 반경 + 위성 반경 + 간격. **§5.4 #33 정리 배치가 같은 값을 쓴다** —
-        // 두 곳이 따로 들면 정리한 궤도를 이 스프링이 조금씩 당겨 스스로 풀어 버린다.
-        const orbitR = parent.radius + body.radius + SATELLITE_ORBIT_GAP;
+        // 원래 궤도 반경 = 부모 반경 + 위성 몸집(달을 거느린 묶음은 달 궤도까지 — §5.1 #2-2 (J)) + 간격.
+        //   **§5.4 #33 정리 배치가 같은 값을 쓴다** — 두 곳이 따로 들면 정리한 궤도를 이 스프링이 조금씩 당겨 스스로 풀어 버린다.
+        const orbitR = parent.radius + orbitExtentOf(body) + SATELLITE_ORBIT_GAP;
+        const target = opts?.keepDistance === true ? Math.max(orbitR, dist) : orbitR;
         // 방향은 유지, 거리만 궤도로
-        body.offsetX = (dx / dist) * orbitR;
-        body.offsetY = (dy / dist) * orbitR;
+        body.offsetX = (dx / dist) * target;
+        body.offsetY = (dy / dist) * target;
       }
     }
   }, []);

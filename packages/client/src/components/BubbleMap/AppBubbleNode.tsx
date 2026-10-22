@@ -358,12 +358,11 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const working = useGraphStore((s) => linkedIds.length > 0 && s.agents.some((a) => a.status === 'active' && linkedIds.includes(a.id)));
 
   /**
-   * §5.4 #36 (H) — 연결 보기. ③ 노드 아래 구슬 줄(연결된 것 위성)을 펴는가 — 노드에서 끈 것(①)이 이기고, 이어진 에이전트가
-   * **모두** "작업 파일" 보기면 접는다(②). 판정은 `linkView.ts` 한 벌, 구독은 판정 결과(불리언) 하나.
+   * §5.4 #36 (H) — 연결 보기. ③ 노드 아래 구슬 줄(연결된 것 위성)을 펴는가 — 노드에서 끈 것(①)만 접는다. 이어진 에이전트의
+   * 보기(②)는 묻지 않는다 — [버블 전부 보기]에서도 편다(2026-10-21). 판정은 `linkView.ts` 한 벌.
    */
   const linksHidden = data.linksHidden === true;
-  const showLinked = useGraphStore((s) =>
-    appNodeShowsLinkedItems({ linksHidden: data.linksHidden, linkedAgentIds: linkedIds }, s.agents));
+  const showLinked = appNodeShowsLinkedItems({ linksHidden: data.linksHidden });
   const hasRef = typeof data.refKey === 'string' && data.refKey !== '';
   // 앱이 선언한 "연결된 것"(장면·소재 등) — 화면이고, 펴는 보기이고, 묶인 문서나 결과가 있을 때만 묻는다(늦은 로더).
   const linkedReq = isScreen && showLinked && projectPath !== undefined && (hasFile || hasRef)

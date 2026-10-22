@@ -7,14 +7,14 @@ import type { Edge, Node } from '@xyflow/react';
 import type { BubbleData } from '@vibisual/shared';
 
 import { EMPTY_APP_WORK_PLAN, type AppWorkPlan } from '../../utils/appWorkView.js';
-import { appWorkFoldOf, decorateAppWorkNodes } from './appWorkFold.js';
+import { EMPTY_APP_WORK_FOLD, appWorkFoldOf, decorateAppWorkNodes } from './appWorkFold.js';
 
 const A = 'agent-474628602';
 const B = 'agent-1353363285';
 const APP = 'app-mvdp00r7-k74xi';
 
-function bubble(id: string, bubbleType: BubbleData['bubbleType'], label = id): Node {
-  return { id, type: 'bubble', position: { x: 0, y: 0 }, data: { id, label, bubbleType, path: label, status: 'idle', activity: 1 } };
+function bubble(id: string, bubbleType: BubbleData['bubbleType'], label = id, extra: Record<string, unknown> = {}): Node {
+  return { id, type: 'bubble', position: { x: 0, y: 0 }, data: { id, label, bubbleType, path: label, status: 'idle', activity: 1, ...extra } };
 }
 
 const nodes: Node[] = [
@@ -23,7 +23,7 @@ const nodes: Node[] = [
   bubble('folder-artifacts', 'internal_folder', 'artifacts'),
   bubble('folder-docs', 'internal_folder', 'docs'),
   bubble('sat-file-brief', 'file', 'brief.md'),
-  bubble('sat-file-scene', 'file', 'scene-work.mjs'),
+  bubble('sat-file-scene', 'file', 'scene-work.mjs', { _seatAngle: -Math.PI / 2 }),
   bubble('sat-file-preview', 'file', 'preview.tsx'),
   bubble('domain-three', 'domain', 'threejs.org'),
   bubble('folder-b-notes', 'internal_folder', 'b-notes'),
@@ -87,25 +87,90 @@ describe('appWorkFoldOf — 접기', () => {
 });
 
 describe('decorateAppWorkNodes — 그리는 사본의 표시 값', () => {
+  const withHub: AppWorkPlan = {
+    ...plan,
+    hubs: new Map([[APP, {
+      app: { id: APP, name: 'Vibi3D', glow: '#B9A8E0', exts: ['.glb'], kind: 'model', linkedAgentIds: [A], results: [] },
+      work: [{ fileId: 'file-scene', path: 'C:/w/artifacts/scene-work.mjs', role: 'code', writes: 3, script: false, last: 1 }],
+      overflow: [{ fileId: 'file-old', path: 'C:/w/artifacts/old.mjs', role: 'code', writes: 1, script: false, last: 0 }],
+      meta: new Map(),
+    }]]),
+  };
+  const withoutOverflow: AppWorkPlan = {
+    ...withHub,
+    hubs: new Map([[APP, { ...withHub.hubs.get(APP)!, overflow: [] }]]),
+  };
+
   it('에이전트에는 접힌 개수 점, 앱 노드에는 궤도 · 넘침 — 같은 값이면 같은 사본', () => {
     const fold = appWorkFoldOf(nodes, edges, agents, satellites, plan);
-    const withHub: AppWorkPlan = {
-      ...plan,
-      hubs: new Map([[APP, {
-        app: { id: APP, name: 'Vibi3D', glow: '#B9A8E0', exts: ['.glb'], kind: 'model', linkedAgentIds: [A], results: [] },
-        work: [{ fileId: 'file-scene', path: 'C:/w/artifacts/scene-work.mjs', role: 'code', writes: 3, script: false, last: 1 }],
-        overflow: [{ fileId: 'file-old', path: 'C:/w/artifacts/old.mjs', role: 'code', writes: 1, script: false, last: 0 }],
-        meta: new Map(),
-      }]]),
-    };
-    const once = decorateAppWorkNodes(nodes, withHub, fold);
+    const once = decorateAppWorkNodes(nodes, withHub, fold, edges);
     const agent = once.find((n) => n.id === A)!;
     expect((agent.data as Record<string, unknown>)['_appWorkFolded']).toMatchObject({ count: 3 });
     const app = once.find((n) => n.id === APP)!;
     expect((app.data as Record<string, unknown>)['appWorkOrbit']).toMatchObject({ moons: 1, overflow: 1, overflowNames: ['old.mjs'], ring: '#B9A8E0' });
-    const twice = decorateAppWorkNodes(nodes, withHub, fold);
+    const twice = decorateAppWorkNodes(nodes, withHub, fold, edges);
     expect(twice.find((n) => n.id === A)).toBe(agent);
     expect(twice.find((n) => n.id === APP)).toBe(app);
-    expect(decorateAppWorkNodes(nodes, EMPTY_APP_WORK_PLAN, appWorkFoldOf(nodes, edges, agents, satellites, EMPTY_APP_WORK_PLAN))).toBe(nodes);
+    expect(decorateAppWorkNodes(nodes, EMPTY_APP_WORK_PLAN, appWorkFoldOf(nodes, edges, agents, satellites, EMPTY_APP_WORK_PLAN), edges)).toBe(nodes);
+  });
+
+  it.each(['missing', 'hidden', 'despawning', 'unseated', 'disconnected'] as const)(
+    '작업 파일이 %s 상태면 빈 궤도를 만들지 않는다',
+    (state) => {
+      const shown = nodes.flatMap((node) => {
+        if (node.id !== 'sat-file-scene') return [node];
+        if (state === 'missing') return [];
+        return [{
+          ...node,
+          hidden: state === 'hidden',
+          data: { ...node.data, _despawning: state === 'despawning', _seatAngle: state === 'unseated' ? undefined : -Math.PI / 2 },
+        }];
+      });
+      const out = decorateAppWorkNodes(shown, withoutOverflow, EMPTY_APP_WORK_FOLD, state === 'disconnected' ? [] : edges);
+      expect(out.find((node) => node.id === APP)?.data['appWorkOrbit']).toBeUndefined();
+      expect(out).toBe(shown);
+    },
+  );
+
+  it('위성이 사라지면 같은 원본 앱 노드의 캐시된 궤도도 내려간다', () => {
+    const visible = decorateAppWorkNodes(nodes, withoutOverflow, EMPTY_APP_WORK_FOLD, edges);
+    expect(visible.find((node) => node.id === APP)?.data['appWorkOrbit']).toMatchObject({ moons: 1 });
+    const absent = nodes.filter((node) => node.id !== 'sat-file-scene');
+    const hidden = decorateAppWorkNodes(absent, withoutOverflow, EMPTY_APP_WORK_FOLD, edges);
+    expect(hidden.find((node) => node.id === APP)?.data['appWorkOrbit']).toBeUndefined();
+  });
+
+  it('결과 파일만 있어도 실제 위쪽 위성이면 센다 · 읽기 방향과 숨긴 선도 같은 소속이다', () => {
+    const resultsOnly: AppWorkPlan = {
+      ...withoutOverflow,
+      hubs: new Map([[APP, { ...withoutOverflow.hubs.get(APP)!, work: [], meta: new Map() }]]),
+    };
+    const readEdges = [
+      { id: 'sat-read', source: 'sat-file-scene', target: APP, hidden: true },
+      { id: 'duplicate', source: APP, target: 'sat-file-scene' },
+    ];
+    const out = decorateAppWorkNodes(nodes, resultsOnly, EMPTY_APP_WORK_FOLD, readEdges);
+    expect(out.find((node) => node.id === APP)?.data['appWorkOrbit']).toMatchObject({ moons: 1, overflow: 0 });
+  });
+
+  it('이름과 색이 같은 다른 앱의 위성을 내 궤도로 세지 않는다', () => {
+    const otherId = 'app-other-model';
+    const hub = withoutOverflow.hubs.get(APP)!;
+    const twoApps: AppWorkPlan = {
+      ...withoutOverflow,
+      hubs: new Map([...withoutOverflow.hubs, [otherId, { ...hub, app: { ...hub.app, id: otherId } }]]),
+    };
+    const shown = [...nodes, { id: otherId, type: 'appNode', position: { x: 0, y: 0 }, data: { appBubbleId: otherId } }];
+    const out = decorateAppWorkNodes(shown, twoApps, EMPTY_APP_WORK_FOLD, [{ id: 'other-link', source: otherId, target: 'sat-file-scene' }]);
+    expect(out.find((node) => node.id === APP)?.data['appWorkOrbit']).toBeUndefined();
+    expect(out.find((node) => node.id === otherId)?.data['appWorkOrbit']).toMatchObject({ moons: 1 });
+  });
+
+  it('위성이 없어도 넘침 점의 개수와 이름은 남는다', () => {
+    const absent = nodes.filter((node) => node.id !== 'sat-file-scene');
+    const out = decorateAppWorkNodes(absent, withHub, EMPTY_APP_WORK_FOLD, edges);
+    expect(out.find((node) => node.id === APP)?.data['appWorkOrbit']).toMatchObject({
+      moons: 0, overflow: 1, overflowNames: ['old.mjs'],
+    });
   });
 });

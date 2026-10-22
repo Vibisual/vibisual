@@ -15,7 +15,7 @@ export interface RefTetherProps {
   stroke: string;
   /** 손을 올렸거나 끄는 중 — 한 단계 밝게. */
   bright?: boolean;
-  /** 구슬이 출발 → 도착 쪽으로 흐른다(에이전트가 도는 동안). 움직임 줄이기면 CSS 가 멈춘다. */
+  /** 구슬이 출발 → 도착 쪽으로 흐른다(에이전트가 도는 동안). 움직임 줄이기면 CSS 가 멈추지 않고 느리게 흘린다. */
   flowing?: boolean;
   /**
    * 굵기 배율(§5.4 #31 무리 강조). 구슬 **간격은 곱하지 않는다** — 흐름 한 칸이 `beadGap` 이라

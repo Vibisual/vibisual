@@ -14,6 +14,9 @@ import { hiddenActivityBubbleIds } from './bubbleVisibility.js';
  */
 export const APP_WORK_FOLD_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>([
   'file', 'internal_folder', 'external_folder', 'domain', 'ghost',
+  // §5.1 #2-1 (B) — 파일 묶음 버블은 그 구성과 함께 접힌다(구성만 접히고 빈 묶음이 남지 않게). 앱 작업의 연속 번호 묶음은 앱 노드를
+  //   부모로 두어 에이전트 소유 사슬에 들지 않으므로 접히지 않는다.
+  'bundle',
 ]);
 
 const NONE: ReadonlySet<string> = new Set();
@@ -106,12 +109,34 @@ function withDeco(node: Node, key: string, deco: unknown): Node {
   return out;
 }
 
+/** Count visible upper-arc satellites by their actual app endpoint, including result files. */
+function visibleWorkMoons(nodes: readonly Node[], edges: readonly ActivityLink[], plan: AppWorkPlan): Map<string, Set<string>> {
+  const seated = new Set(nodes.filter((node) => node.type === 'bubble' && !node.hidden
+    // §5.1 #2-1 (F) ⑦ — 연속 번호의 대표는 묶음 버블로 선다(하나로 센다).
+    && (node.data['bubbleType'] === 'file' || node.data['bubbleType'] === 'bundle') && node.data['_despawning'] !== true
+    && typeof node.data['_seatAngle'] === 'number' && Number.isFinite(node.data['_seatAngle']))
+    .map((node) => node.id));
+  const byHub = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    // Hidden edges still describe ownership: hiding a link does not hide its satellite.
+    const hub = plan.hubs.has(edge.source) ? edge.source : plan.hubs.has(edge.target) ? edge.target : null;
+    if (hub === null) continue;
+    const moon = edge.source === hub ? edge.target : edge.source;
+    if (!seated.has(moon)) continue;
+    const moons = byHub.get(hub) ?? new Set<string>();
+    moons.add(moon);
+    byHub.set(hub, moons);
+  }
+  return byHub;
+}
+
 /**
  * §5.4 #36 (I) — 그리는 노드 사본에 앱 작업 보기의 표시 값을 얹는다: 에이전트(`bubble`)에는 접힌 개수 점(`_appWorkFolded`),
  * 앱 노드(`appNode`)에는 작업 궤도와 넘침(`appWorkOrbit`). 없으면 원본 배열을 그대로 돌려준다.
  */
-export function decorateAppWorkNodes(nodes: Node[], plan: AppWorkPlan, fold: AppWorkFold): Node[] {
+export function decorateAppWorkNodes(nodes: Node[], plan: AppWorkPlan, fold: AppWorkFold, edges: readonly ActivityLink[]): Node[] {
   if (plan.hubs.size === 0 && fold.byAgent.size === 0) return nodes;
+  const visibleMoons = visibleWorkMoons(nodes, edges, plan);
   let changed = false;
   const out = nodes.map((node) => {
     if (node.type === 'bubble') {
@@ -123,11 +148,12 @@ export function decorateAppWorkNodes(nodes: Node[], plan: AppWorkPlan, fold: App
     }
     if (node.type === 'appNode') {
       const hub = plan.hubs.get(node.id);
-      if (!hub || (hub.work.length === 0 && hub.overflow.length === 0)) return node;
+      const moons = visibleMoons.get(node.id)?.size ?? 0;
+      if (!hub || (moons === 0 && hub.overflow.length === 0)) return node;
       const overflowNames = hub.overflow.map((f) => fileBaseName(f.path) || f.path);
-      const orbit = cached(orbitCache, JSON.stringify([hub.app.glow, hub.work.length, overflowNames]), () => ({
+      const orbit = cached(orbitCache, JSON.stringify([hub.app.glow, moons, overflowNames]), () => ({
         ring: hub.app.glow,
-        moons: hub.work.length,
+        moons,
         overflow: hub.overflow.length,
         overflowNames,
       }));

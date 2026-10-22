@@ -75,6 +75,10 @@ export function CanvasBreadcrumb(): React.JSX.Element | null {
       interior: true,
     });
   }
+  // §5.1 #2-1 (B) — 묶음 안. 묶음은 폴더 계층과 무관한 자리라 휴지통처럼 맨 끝에 붙는다.
+  if (interiorView?.kind === 'bundle') {
+    breadcrumbs.push({ id: interiorView.bundleId, label: t('canvas.bundle.crumb', { name: interiorView.label }), interior: true });
+  }
 
   if (breadcrumbs.length === 0) return null;
 

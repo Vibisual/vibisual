@@ -7,6 +7,11 @@
 @keyframes bubble-edge-glow-flow { to { stroke-dashoffset: -100; } }
 @keyframes bubble-edge-rail-flow { to { stroke-dashoffset: -36; } }
 
+/* Reduced motion slows the travel instead of stopping it. A working edge that
+ * stands still reads exactly like an idle one, and Windows reports reduced
+ * motion whenever its animation effects are turned off, which is common on
+ * PCs tuned for speed (SSOT §5.4 #31 (K), 2026-10-22: "the lines stopped").
+ * Each travel layer carries its own slower shorthand. */
 @media (prefers-reduced-motion: reduce) {
-  .bubble-edge-paint[data-paint-layer="travel"] { animation: none !important; }
+  .bubble-edge-paint[data-paint-layer="travel"] { animation: var(--bubble-edge-flow-reduced) !important; }
 }

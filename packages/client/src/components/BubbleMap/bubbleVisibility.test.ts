@@ -14,6 +14,21 @@ function edge(source: string, target: string, extra: Partial<Edge> = {}): Edge {
 }
 
 describe('activity bubble visibility', () => {
+  // §5.1 #2-1 (B) — 묶음 버블(화면 전용)과 그 구성은 한 무리로 숨는다. 원 둘레의 묶음에는 활동선이 닿지 않는다
+  //   (에이전트 선은 중심 파일로 옮겨 간다) — 구성에서 거슬러 이어 빈 묶음이 홀로 남지 않게.
+  it('hides a bundle bubble together with its members, whether it sits on a folder or on the ring', () => {
+    const satNodes = [node('folder', 'internal_folder'), node('sat-bundle-hub', 'bundle'), node('sat-hub', 'file'), node('sat-moon', 'file')];
+    const satEdges = [edge('a', 'folder'), edge('folder', 'sat-bundle-hub', { id: 'sat-edge-bundle-hub' }),
+      edge('sat-hub', 'sat-bundle-hub', { id: 'sat-edge-hub' }), edge('sat-bundle-hub', 'sat-moon', { id: 'sat-edge-moon' })];
+    expect([...hiddenActivityBubbleIds(satNodes, satEdges, [agent('a', true)])].sort())
+      .toEqual(['folder', 'sat-bundle-hub', 'sat-hub', 'sat-moon']);
+    const ringNodes = [node('bundle-hub', 'bundle'), node('sat-hub', 'file'), node('sat-moon', 'file')];
+    const ringEdges = [edge('a', 'sat-hub'), edge('bundle-hub', 'sat-hub', { id: 'sat-edge-hub' }),
+      edge('bundle-hub', 'sat-moon', { id: 'sat-edge-moon' })];
+    expect([...hiddenActivityBubbleIds(ringNodes, ringEdges, [agent('a', true)])].sort())
+      .toEqual(['bundle-hub', 'sat-hub', 'sat-moon']);
+  });
+
   it('hides read/write activity and descendant satellites but retains navigation and user-created nodes', () => {
     const nodes = [node('a', 'agent'), node('folder', 'internal_folder'), node('domain', 'domain'),
       node('sat-file', 'file'), node('root', 'root'), node('back', 'back'), node('worktree', 'worktree'),

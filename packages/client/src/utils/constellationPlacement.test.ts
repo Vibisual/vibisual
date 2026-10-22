@@ -4,6 +4,7 @@ import { SATELLITE_ORBIT_GAP, type BubbleData } from '@vibisual/shared';
 import { applyConstellations } from './constellationView.js';
 import { collectSatellites, placeSatellitePositions, type SatelliteInfo } from './satellite.js';
 import { calcBubbleSize } from './sizeCalc.js';
+import { createSpawnField } from './spawnZone.js';
 
 const folder: BubbleData = {
   id: 'folder', label: 'video', path: '/project/video', bubbleType: 'internal_folder', status: 'idle', activity: 1,
@@ -25,24 +26,52 @@ function orbitRadius(sat: SatelliteInfo): number {
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * §5.1 #2-1 (B) — 같은 종류 묶음(2026-10-21 · 2026-10-22): 상위 폴더 `/project` 를 도는 위성 가운데 하위 폴더 `video` 의 영상 둘은
+ * 묶음 버블 하나가 되고, 그 영상들은 바깥 화면에 서지 않는다(2026-10-22 사용자 지시 "저런 버블은 없다고" — 구성은 묶음 안에서만).
+ * 묶음 버블은 폴더의 보통 위성처럼 첫 고리에 선다. 궤도(고리 0)에만 앉는 달은 앱 노드 별자리의 위성이다.
+ */
+const parent: BubbleData = {
+  id: 'parent', label: 'project', path: '/project', bubbleType: 'internal_folder', status: 'idle', activity: 1,
+};
+
+function kindBundleView(): ReturnType<typeof applyConstellations> {
+  return applyConstellations({
+    radial: [parent],
+    satInfos: collectSatellites([parent], { parent: [file('video', 'teaser.mp4'), file('clip', 'clip.mp4')] }, undefined),
+    appHubs: [], heat: undefined, platform: 'linux',
+  });
+}
+
+/** 앱 노드 별자리 — 그 노드가 결과로 선언한 영상이 노드 둘레 궤도(고리 0)를 도는 달이 된다. */
+const APP_CENTER = { x: 900, y: 700 };
+function appHubView(): ReturnType<typeof applyConstellations> {
+  const video = file('video', 'teaser.mp4');
+  return applyConstellations({
+    radial: [video], satInfos: [], heat: undefined, platform: 'linux',
+    appHubs: [{ id: 'app', label: 'Video', size: 208, linksHidden: false, results: [video.absolutePath!], parts: [], codeParts: [] }],
+  });
+}
+
 describe('별자리 첫 자리 — 새 파일 위성이 먼 임의 거리에 남지 않는다', () => {
-  it.each(['folderSatellite', 'radialFile'])('파일 중심(%s)의 새 위성이 처음부터 실제 궤도에 앉는다', (kind) => {
+  it('같은 종류 묶음은 구성 대신 묶음 버블 하나가 부모 둘레 첫 고리 12시에 선다 — 구성은 바깥에 서지 않는다', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    const video = file('video', 'teaser.mp4');
-    const json = file('json', 'teaser.json');
-    const nested = kind === 'folderSatellite';
-    const view = applyConstellations({
-      radial: nested ? [folder] : [video, json],
-      satInfos: nested ? collectSatellites([folder], { folder: [video, json] }, undefined) : [],
-      appHubs: [], heat: undefined, platform: 'linux',
-    });
-    const moon = view.satInfos.find((s) => s.bubble.id === 'sat-json')!;
-    const positions = new Map([[moon.parentId, { x: 500, y: 500 }]]);
-    const center = { x: 500 + moon.parentSize / 2, y: 500 + moon.parentSize / 2 };
+    const view = kindBundleView();
+    expect(view.satInfos).toHaveLength(1);
+    const bundle = view.satInfos[0]!;
+    expect(bundle.bubble.bubbleType).toBe('bundle');
+    expect(bundle.parentId).toBe(parent.id);
+    expect(view.satInfos.some((s) => s.bubble.id === 'sat-clip' || s.bubble.id === 'sat-video')).toBe(false);
+    const positions = new Map([[parent.id, { x: 500, y: 500 }]]);
+    const center = { x: 500 + bundle.parentSize / 2, y: 500 + bundle.parentSize / 2 };
 
     placeSatellitePositions(view.satInfos, positions);
 
-    expect(radiusFrom(moon, positions.get(moon.bubble.id)!, center)).toBeCloseTo(orbitRadius(moon));
+    const size = calcBubbleSize(bundle.bubble, bundle.localRange, bundle.heat);
+    const p = positions.get(bundle.bubble.id)!;
+    expect(radiusFrom(bundle, p, center)).toBeCloseTo(orbitRadius(bundle));
+    expect(p.x + size / 2).toBeCloseTo(center.x);
+    expect(p.y + size / 2).toBeLessThan(center.y);
   });
 
   it('앱 중심의 새 위성도 앱 가운데를 기준으로 같은 궤도에 앉는다', () => {
@@ -62,21 +91,20 @@ describe('별자리 첫 자리 — 새 파일 위성이 먼 임의 거리에 남
     expect(radiusFrom(moon, positions.get(moon.bubble.id)!, center)).toBeCloseTo(orbitRadius(moon));
   });
 
-  it('사용자가 놓아 둔 기존 별자리 위성은 첫 자리 계산으로 옮기지 않는다', () => {
-    const video = file('video', 'teaser.mp4');
-    const view = applyConstellations({ radial: [video, file('json', 'teaser.json')], satInfos: [],
-      appHubs: [], heat: undefined, platform: 'linux' });
+  it('사용자가 놓아 둔 기존 앱 중심 위성은 첫 자리 계산으로 옮기지 않는다', () => {
+    const view = appHubView();
     const moon = view.satInfos[0]!;
     const saved = { x: 900, y: 1100 };
-    const positions = new Map([[video.id, { x: 500, y: 500 }], [moon.bubble.id, saved]]);
+    const positions = new Map([[moon.bubble.id, saved]]);
 
-    placeSatellitePositions(view.satInfos, positions);
+    placeSatellitePositions(view.satInfos, positions, (id) => id === 'app' ? { cx: APP_CENTER.x, cy: APP_CENTER.y, size: 208 } : null);
 
     expect(positions.get(moon.bubble.id)).toBe(saved);
   });
 
-  it('일반 폴더 위성은 기존의 초기 퍼짐을 유지한다', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  it('일반 폴더 위성도 부모 둘레 첫 고리 12시에 선다 — 무작위 퍼짐 폐기(§5.1 #2-2)', () => {
+    // 무작위를 쓰지 않는다 — 난수가 무엇이든 같은 자리여야 한다.
+    vi.spyOn(Math, 'random').mockReturnValue(0.93);
     const sats = collectSatellites([folder], { folder: [file('code', 'build.ts')] }, undefined);
     const sat = sats[0]!;
     const positions = new Map([[folder.id, { x: 500, y: 500 }]]);
@@ -84,6 +112,29 @@ describe('별자리 첫 자리 — 새 파일 위성이 먼 임의 거리에 남
 
     placeSatellitePositions(sats, positions);
 
-    expect(radiusFrom(sat, positions.get(sat.bubble.id)!, center)).toBeGreaterThan(orbitRadius(sat));
+    const size = calcBubbleSize(sat.bubble, sat.localRange, sat.heat);
+    const p = positions.get(sat.bubble.id)!;
+    expect(radiusFrom(sat, p, center)).toBeCloseTo(orbitRadius(sat));
+    expect(p.x + size / 2).toBeCloseTo(center.x);
+    expect(p.y + size / 2).toBeLessThan(center.y);
+  });
+
+  it('앱 중심 위성은 부모 둘레가 붐벼도 궤도(고리 0)에만 앉는다 — 넓히지 않는다', () => {
+    const view = appHubView();
+    const moon = view.satInfos[0]!;
+    expect(moon.orbitSeat).toBe(true);
+    const center = { x: APP_CENTER.x, y: APP_CENTER.y };
+    // 궤도 바로 바깥을 남의 버블로 채운다 — 일반 위성이면 바깥 고리로 넓혔을 수다.
+    const crowd = Array.from({ length: 24 }, (_, i) => {
+      const t = (i * Math.PI * 2) / 24;
+      const r = orbitRadius(moon) + 30;
+      return { id: `crowd-${i}`, cx: center.x + Math.cos(t) * r, cy: center.y + Math.sin(t) * r, r: 6 };
+    });
+    const field = createSpawnField([{ id: moon.parentId, cx: center.x, cy: center.y, r: moon.parentSize / 2 }, ...crowd], null);
+    const positions = new Map([[moon.parentId, { x: 500, y: 500 }]]);
+
+    placeSatellitePositions(view.satInfos, positions, undefined, field);
+
+    expect(radiusFrom(moon, positions.get(moon.bubble.id)!, center)).toBeCloseTo(orbitRadius(moon));
   });
 });

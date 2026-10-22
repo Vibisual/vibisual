@@ -1,7 +1,7 @@
 /**
  * linkView.ts — §5.4 #36 (H) **연결 보기**의 화면 쪽 순수 판정 한 벌.
  *
- * ① 켜고 끄기(`linksHidden`) · ② 보기 전환(`linkLens` — "연결된 것 위주" 기본 ↔ "작업 파일") · ③ 앱 노드가 구슬 줄
+ * ① 켜고 끄기(`linksHidden`) · ② 보기 전환(`linkLens` — "앱 관련 버블만" 기본 ↔ "버블 전부") · ③ 앱 노드가 구슬 줄
  * (연결된 것 위성)을 펴는가를, 캔버스 선(`BubbleMap`) · 위성줄(`refLinkPairs`) · 메뉴(`BubbleContextMenu`) · 앱 노드
  * (`AppBubbleNode`)가 **같은 답**으로 내야 한다. 한 곳만 고쳐져 "메뉴는 숨겼다는데 선이 보이는" 자리가 생기지 않게
  * 판정을 여기 모은다. DOM·store 를 만지지 않으므로 그대로 단위 테스트된다.
@@ -126,24 +126,12 @@ export function refLinkVisible(
 }
 
 /**
- * 앱 노드가 "연결된 것" 구슬 줄을 펴는가(③).
- * - 노드에서 끈 것이 이긴다(①).
- * - 이어진 에이전트가 없거나 지금 화면에 없으면 노드 자신의 기본이다 — 편다.
- * - 이어진 에이전트 중 하나라도 "연결된 것 위주"면 편다. **모두** "작업 파일"일 때만 접는다(②).
+ * 앱 노드가 "연결된 것" 구슬 줄을 펴는가(③). 노드에서 끈 것(①)만 접는다.
  *
- * 에이전트 쪽 끄기(①)는 구슬 줄을 접지 않는다 — 구슬은 그 노드의 것이고, 에이전트가 감춘 것은 자기에게 닿는 선이다.
+ * 이어진 에이전트의 보기(②)는 묻지 않는다 — [앱 관련 버블만 보기]에서도 [버블 전부 보기]에서도 편다(2026-10-21 — "버블
+ * 전부"에서 구슬을 접으면 이름이 거짓이 된다. 종전에는 이어진 에이전트가 모두 "작업 파일" 보기면 접었다). 에이전트 쪽 끄기(①)도
+ * 구슬 줄을 접지 않는다 — 구슬은 그 노드의 것이고, 에이전트가 감춘 것은 자기에게 닿는 선이다.
  */
-export function appNodeShowsLinkedItems(
-  bubble: Pick<AppBubble, 'linksHidden' | 'linkedAgentIds'>,
-  agents: readonly Pick<BubbleData, 'id' | 'linkLens'>[],
-): boolean {
-  if (bubble.linksHidden === true) return false;
-  let known = false;
-  for (const id of bubble.linkedAgentIds ?? []) {
-    const agent = agents.find((a) => a.id === id);
-    if (!agent) continue;
-    known = true;
-    if (agent.linkLens !== 'files') return true;
-  }
-  return !known;
+export function appNodeShowsLinkedItems(bubble: Pick<AppBubble, 'linksHidden'>): boolean {
+  return bubble.linksHidden !== true;
 }

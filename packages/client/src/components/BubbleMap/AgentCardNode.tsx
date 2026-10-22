@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData } from '@vibisual/shared';
 import { AGENT_CARD, BUBBLE_STYLES, LINK_FOCUS, clipNameList } from '@vibisual/shared';
 import type { AppWorkFoldedBadge } from './appWorkFold.js';
+import { BundleNode } from './BundleNode.js';
 import { useGraphStore, selectIDEActiveSessionForAgent, agentSessionInputKey } from '../../stores/graphStore.js';
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
 import { useRefLinkDragStore } from '../../stores/refLinkDrag.js';
@@ -192,8 +193,10 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
   //   §5.4 #36 (C) 개정 — 앱이 자기 브리프를 선언한 노드(작업 문서)는 그 브리프를 지어 붙인다(문서를 새로 만들었으면
   //   노드에 묶인다). 초안은 먼저 비운다 — 브리프를 짓는 짧은 왕복 동안 같은 글을 두 번 보내지 않게(전송이 실패하면
   //   `addCommand` 가 초안을 되돌린다).
+  //   §5.1 #2-1 (F) ① — 이어진 앱 칩을 모두 껐으면 이 명령은 앱 작업이 아니다(서버가 이어진 앱으로 폴백하지 않게 싣는다).
   const { send: sendCurrent, sending, preparationFailed } = useAgentCardSend(agentId, sessionId, draft, outputNodes,
-    tasks.projectId ? { projectId: tasks.projectId, ...(activeTask ? { taskId: activeTask.id } : {}) } : undefined);
+    tasks.projectId ? { projectId: tasks.projectId, ...(activeTask ? { taskId: activeTask.id } : {}) } : undefined,
+    linked.length > 0 && outputNodes.length === 0);
   const taskTitle = activeTask?.title ?? (linked.map((node) => appNodeLabel(node, getInternalApp(node.appId)?.name ?? node.appId)).join(', ')
     || subs?.find((sub) => sub.id === sessionId)?.label || t('canvas.agentCard.tasks.current'));
   const taskError = (error: unknown): void => useCardTaskStore.getState().patch(tasks.key,
@@ -721,6 +724,8 @@ export const CanvasBubbleNode = memo(function CanvasBubbleNode(props: NodeProps)
   const data = props.data as unknown as BubbleData & Record<string, unknown>;
   // 말풍선은 메인 뷰에서만 — 폴더·워크트리·휴지통 안은 앱 노드도 없고 고르는 자리다(판정은 결과 한 글자만 구독).
   const mainView = useGraphStore((s) => isMainCanvasView(s));
+  // §5.1 #2-1 (B) — 묶음 버블(화면 전용)은 따로 그린다 — 파일 얼굴을 쓰면 다시 그 파일로 읽힌다.
+  if (data.bubbleType === 'bundle') return <BundleNode {...props} />;
   if (mainView && isAgentCardForm(data) && data['_overlayMode'] !== true) {
     return <AgentCardNode {...(props as CardNodeProps)} />;
   }

@@ -146,6 +146,37 @@ describe('useCanvasViewport scheduling', () => {
     expect(frames.size).toBe(0);
   });
 
+  it('숨긴 노드(숨기기·앱 작업 보기 접기)가 있어도 기다리지 않고 저장 화면을 복원한다', async () => {
+    // 2026-10-21 사용자 지시 "묶음 버블은 안으로 들어갔다가 나오면 처음 들어간 위치에서 나와야해" — 숨긴 노드는 그려지지 않을 뿐
+    //   이미 섰다. 그것이 그려지기를 기다리면 복원이 영영 오지 않아, 나와도 카메라가 묶음 안의 자리에 남았다.
+    const h = mount();
+    h.rendered = [node(), { id: 'folded', position: { x: 0, y: 0 }, data: {}, hidden: true }];
+    h.api.restore(h.key, saved(), ['node', 'folded']);
+    await tick(2);
+    expect(h.setViewport).toHaveBeenCalledWith(SAVED_VIEW, { duration: 0 });
+    expect(h.api.memory.settled).toBe(true);
+    expect(frames.size).toBe(0);
+  });
+
+  it('저장된 화면이 없으면 보이는 노드만 재서 맞춘다 — 숨긴 노드의 크기를 기다리지 않는다', async () => {
+    const h = mount();
+    h.rendered = [node(), { id: 'folded', position: { x: 0, y: 0 }, data: {}, hidden: true }];
+    h.api.restore(h.key, undefined, ['node', 'folded']);
+    await tick(2);
+    expect(h.setViewport).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(0);
+  });
+
+  it('아직 커밋되지 않은 노드는 숨김 여부와 무관하게 기다린다', async () => {
+    const h = mount();
+    h.api.restore(h.key, saved(), ['node', 'not-yet']);
+    await tick(2);
+    expect(h.setViewport).not.toHaveBeenCalled();
+    h.rendered = [node(), { id: 'not-yet', position: { x: 0, y: 0 }, data: {}, hidden: true }];
+    await tick();
+    expect(h.setViewport).toHaveBeenCalledTimes(1);
+  });
+
   it('저장된 위치와 2를 넘는 확대율도 그대로 복원한다', async () => {
     const h = mount();
     h.api.restore(h.key, saved(), ['node']);

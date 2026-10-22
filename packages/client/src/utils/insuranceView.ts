@@ -11,6 +11,7 @@ import type {
   CompactWatchState,
   ResurrectableSession,
 } from '@vibisual/shared';
+import { isShellToolName } from '@vibisual/shared';
 
 /** §7.23 — 팝업의 네 갈피. */
 export type InsuranceTab = 'compacts' | 'notCarried' | 'preimages' | 'resurrect';
@@ -410,5 +411,6 @@ export function preimageRevisions(list: readonly FilePreimage[]): Map<string, { 
 /** 사본을 뜨게 만든 도구가 **무엇을 했나** — 낱말의 i18n 키. */
 export function preimageActionKey(p: FilePreimage): string {
   if (!p.sha256) return 'panel.insurance.action.created';
-  return p.toolName === 'Bash' ? 'panel.insurance.action.shell' : 'panel.insurance.action.edited';
+  // §5.1 #1-1 (A) — 셸 도구는 Bash·PowerShell 둘이다(PowerShell 로 덮은 사본도 "셸로 바꿈"이다).
+  return isShellToolName(p.toolName) ? 'panel.insurance.action.shell' : 'panel.insurance.action.edited';
 }

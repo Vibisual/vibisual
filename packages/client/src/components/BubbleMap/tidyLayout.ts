@@ -1,5 +1,5 @@
 import type { BubbleType, NodeStatus, TidyBand, TidyGeometry } from '@vibisual/shared';
-import { SATELLITE_ORBIT_GAP, TIDY_BAND_ORDER, TIDY_LAYOUT } from '@vibisual/shared';
+import { SATELLITE_ORBIT_GAP, SATELLITE_RING_SPACING, TIDY_BAND_ORDER, TIDY_LAYOUT } from '@vibisual/shared';
 
 /**
  * §5.4 #33 **버블 정리** — 흩어진 버블을 "지금 봐야 하는 순서"로 앉히는 순수 기하.
@@ -102,6 +102,14 @@ interface RingPackOptions {
    * 말해 주지만 덩어리는 빈 자리 말고 경계를 말할 것이 없다(§5.4 #33 I-1).
    */
   ringGap?: number;
+  /** 고리와 고리 사이 간격(px). 기본은 `TIDY_LAYOUT.ROW_GAP` — 위성은 `SATELLITE_RING_SPACING.ROW_GAP`(§5.1 #2-2 (J)). */
+  rowGap?: number;
+  /**
+   * §5.1 #2-2 (J) — 항목마다 제 크기로 앉는다: 고리에서 가장 큰 것만 고리 반경에 서고, 작은 것은 앞 테두리와의 틈이 같게 그만큼
+   * 안쪽에 선다(등장 영역 `zoneSeatRadius` 와 같은 규칙). 위성 정리가 쓴다 — 몸집이 큰 묶음과 한 고리에 선 작은 위성이 묶음의
+   * 몸집만큼 멀리 밀려나지 않게. 원 고리(aspect 1)에서만 뜻이 맞다.
+   */
+  ownRadius?: boolean;
 }
 
 interface RingPackResult {
@@ -188,18 +196,27 @@ function placeRing(
   rho: number,
   totalWidth: number,
   table: ArcTable,
-  opts: { center: { x: number; y: number }; aspect: number; bandIndex: number; ringGap: number },
+  opts: {
+    center: { x: number; y: number };
+    aspect: number;
+    bandIndex: number;
+    ringGap: number;
+    /** 항목마다 앉는 반경 — 없으면 모두 `rho`. 위성은 제 크기로 앞 테두리와의 틈을 같게 둔다(`RingPackOptions.ownRadius`). */
+    radiusOf?: (item: TidyItem) => number;
+  },
 ): TidyPlacement[] {
   const { center, aspect, bandIndex, ringGap } = opts;
+  const radiusOf = opts.radiusOf ?? ((): number => rho);
   if (ring.length === 0) return [];
   if (ring.length === 1) {
     // 하나뿐이면 방향을 그대로 지킨다(회전 계산은 같은 답을 주지만 각도가 0 인 경우를 피한다).
     const only = ring[0]!;
     const theta = Math.atan2((only.cy - center.y) / (aspect || 1), only.cx - center.x);
+    const r = radiusOf(only);
     return [{
       id: only.id,
-      cx: center.x + Math.cos(theta) * rho,
-      cy: center.y + Math.sin(theta) * rho * aspect,
+      cx: center.x + Math.cos(theta) * r,
+      cy: center.y + Math.sin(theta) * r * aspect,
       bandIndex,
     }];
   }
@@ -234,10 +251,11 @@ function placeRing(
 
   return ordered.map(({ item }, i) => {
     const theta = angleAtArc(table, (raw[i]! + shift) / rho);
+    const r = radiusOf(item);
     return {
       id: item.id,
-      cx: center.x + Math.cos(theta) * rho,
-      cy: center.y + Math.sin(theta) * rho * aspect,
+      cx: center.x + Math.cos(theta) * r,
+      cy: center.y + Math.sin(theta) * r * aspect,
       bandIndex,
     };
   });
@@ -278,9 +296,16 @@ function packRings(queue: TidyItem[], opts: RingPackOptions): RingPackResult {
       width = nextWidth;
       rho = Math.max(rhoClear, rhoFit);
     }
-    placements.push(...placeRing(ring, rho, width, table, { center, aspect, bandIndex, ringGap }));
+    const ringMaxR = maxR;
+    placements.push(...placeRing(ring, rho, width, table, {
+      center,
+      aspect,
+      bandIndex,
+      ringGap,
+      ...(opts.ownRadius === true ? { radiusOf: (item: TidyItem): number => rho - ringMaxR + item.diameter / 2 } : {}),
+    }));
     edge = rho * aspect + maxR;
-    gap = TIDY_LAYOUT.ROW_GAP;
+    gap = opts.rowGap ?? TIDY_LAYOUT.ROW_GAP;
   }
 
   return { placements, outerEdge: edge };
@@ -592,6 +617,11 @@ export interface TidySatellite {
   diameter: number;
   cx: number;
   cy: number;
+  /**
+   * §5.1 #2-2 (J) — 달을 거느린 위성(묶음)의 몸집 반경(노드 데이터 `_orbitReach`). 부모 둘레에는 이 몸집으로 앉고(제 달이 부모를
+   * 파고들지 않게), 제 달을 걸 때의 중심은 그려지는 원(`diameter`)이다.
+   */
+  reach?: number;
 }
 
 export interface TidyParentSeat {
@@ -610,6 +640,9 @@ export interface TidyParentSeat {
  * **반경은 `SATELLITE_ORBIT_GAP` 이다** — 물리 스프링이 위성을 끌어당기는 평형점(`부모 반경 +
  * 위성 반경 + 이 값`)과 **같은 값**이라야 앉힌 궤도가 그대로 유지된다. 다른 값을 쓰면 정리한
  * 직후부터 스프링이 조금씩 당겨 궤도가 스스로 풀린다.
+ *
+ * §5.1 #2-2 (J) — 이웃 사이·고리 사이는 위성 간격(`SATELLITE_RING_SPACING`)이다 — 등장 영역의 위성 격자와 같은 값이라 정리한
+ * 위성과 갓 앉은 위성이 같은 간격으로 읽힌다. 달을 거느린 위성(묶음)은 몸집(`reach`)으로 앉는다.
  */
 export function computeTidySatellites(
   satellites: TidySatellite[],
@@ -629,7 +662,14 @@ export function computeTidySatellites(
     const center = { x: seat.cx, y: seat.cy };
     const queue = sats
       // 위성은 부모 곁 궤도가 곧 제자리라 무리 나눔의 대상이 아니다 — 키는 한 벌이면 족하다.
-      .map((s) => ({ id: s.id, diameter: s.diameter, group: 'satellite', cx: s.cx, cy: s.cy }))
+      //   달을 거느린 위성은 몸집 지름으로 자리를 잡는다(돌려주는 것은 중심이라 그려지는 원은 그대로다).
+      .map((s) => ({
+        id: s.id,
+        diameter: typeof s.reach === 'number' && Number.isFinite(s.reach) && s.reach * 2 > s.diameter ? s.reach * 2 : s.diameter,
+        group: 'satellite',
+        cx: s.cx,
+        cy: s.cy,
+      }))
       .sort(byDistanceFromCenter(center));
     const packed = packRings(queue, {
       center,
@@ -638,6 +678,9 @@ export function computeTidySatellites(
       gapBefore: SATELLITE_ORBIT_GAP,
       minRadius: 0,
       bandIndex: seat.bandIndex,
+      ringGap: SATELLITE_RING_SPACING.NEIGHBOR_GAP,
+      rowGap: SATELLITE_RING_SPACING.ROW_GAP,
+      ownRadius: true,
     });
     out.push(...packed.placements);
   }

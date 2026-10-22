@@ -1,6 +1,14 @@
 import type { CSSProperties } from 'react';
-import type { BubbleEdgeStyle } from '@vibisual/shared';
+import { REDUCED_MOTION_LOOP_SLOWDOWN, type BubbleEdgeStyle } from '@vibisual/shared';
 import './bubbleEdgeAppearance.css';
+
+/** §5.4 #31 (K): a moving dash offset repaints every tile it crosses, so travel moves 24 times a second. */
+const FLOW_STEPS_PER_SECOND = 24;
+
+function flowAnimation(variant: BubbleEdgeStyle, seconds: number): string {
+  const s = Math.round(seconds * 1000) / 1000;
+  return `bubble-edge-${variant}-flow ${s}s steps(${Math.round(s * FLOW_STEPS_PER_SECOND)}, end) infinite`;
+}
 
 /** Paint layers only: callers retain the one original path, marker and hit area. */
 export interface BubbleEdgePaintLayer {
@@ -79,7 +87,9 @@ export function bubbleEdgeAppearance(variant: BubbleEdgeStyle, options: EdgePain
       stroke: `color-mix(in srgb, ${color} 36%, #f3f8ff)`,
       strokeDasharray: flow.dash,
       strokeLinecap: variant === 'dash' ? 'butt' : 'round',
-      animation: `bubble-edge-${variant}-flow ${flow.duration}s steps(${Math.round(flow.duration * 24)}, end) infinite`,
+      animation: flowAnimation(variant, flow.duration),
+      // Reduced motion slows this same flow instead of stopping it; bubbleEdgeAppearance.css swaps it in.
+      ['--bubble-edge-flow-reduced' as string]: flowAnimation(variant, flow.duration * REDUCED_MOTION_LOOP_SLOWDOWN),
     }));
   }
   return layers;
