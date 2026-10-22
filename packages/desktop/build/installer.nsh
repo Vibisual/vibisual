@@ -100,3 +100,28 @@
   LicenseLangString MUILicense 1081 "${PROJECT_DIR}\build\license\license_hi_IN.txt"
   !insertmacro MUI_PAGE_LICENSE "$(MUILicense)"
 !macroend
+
+; ─────────────────────────────────────────────────────────────────────────────
+; 제거할 때 Claude Code·코덱스 설정에 남은 우리 훅을 걷는다 (2026-10-22, 사용자 지시 — SCENARIO §3.6 「수명」 · §5.7 #24-3 ⑤)
+;
+; 왜: 우리 훅은 앱이 켜져 있는 동안만 둔다 — 앱은 끌 때 스스로 걷는다. 그런데 앱이 팅겼거나, 제거기의 "앱 실행 중"
+;   처리가 앱을 강제로 끝냈으면(taskkill /f) 걷을 기회가 없었다. 그대로 파일을 지우면 훅이 부를 handler.mjs 가 사라져
+;   이 PC 의 모든 Claude Code 세션에 오류 알림이 남는다.
+; 어떻게: 사용자 확인과 "앱 실행 중" 처리가 끝난 뒤(un.onInit 의 끝 — customUnInit), 파일을 지우기 **전**에 앱을
+;   `--vibisual-remove-hooks` 로 한 번 부른다. 앱의 시작 진입점(bootstrap.ts)이 그 인자를 보면 잠금·창·서버 없이
+;   저장된 포트를 가리키는 우리 훅만 걷고(모든 설정 홈 · 상태 줄 되돌리기 · 코덱스 전역 훅) 끝난다(hookCleanup.ts).
+;   인자 글자는 packages/desktop/src/main/hookLifecycle.ts 의 HOOK_CLEANUP_ARG 와 같다.
+; 업데이트(--updated)면 건너뛴다 — 설치기는 옛 판을 지울 때 늘 이 표시를 붙이고, 그때는 앱이 끌 때 이미 걷었으며
+;   새 판이 켜지며 다시 깐다.
+; 30초 상한(nsExec /TIMEOUT) — 앱이 어떤 이유로 멎어도 제거가 멈추지 않는다. 결과는 버린다 — 걷지 못해도 제거는 계속한다.
+; 계약 시험: packages/server/src/releasePackaging.test.ts 「제거기 — 남은 훅을 걷는다」.
+!macro customUnInit
+  ${ifNot} ${isUpdated}
+    ${If} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+      Push $0
+      nsExec::Exec /TIMEOUT=30000 `"$INSTDIR\${APP_EXECUTABLE_FILENAME}" --vibisual-remove-hooks`
+      Pop $0
+      Pop $0
+    ${EndIf}
+  ${endIf}
+!macroend

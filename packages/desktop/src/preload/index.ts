@@ -48,6 +48,11 @@ export interface DetachPayloadWire {
   kind: DetachKindWire;
   tabKey: string;
   cursor?: { x: number; y: number };
+  /**
+   * §5.4 #14-1 (H) 탭을 끌어 놓았다 — main 에 **멈춰 세운 선(가상 창)**의 자리·크기 그대로 별창을 세운다.
+   * 선의 경계는 main 이 직접 읽는다(렌더러 좌표는 배율이 다른 모니터에서 어긋난다). 선이 없으면 `cursor` 기준.
+   */
+  fromGhost?: boolean;
 }
 export interface RectWire { x: number; y: number; width: number; height: number }
 export interface PointWire { x: number; y: number }

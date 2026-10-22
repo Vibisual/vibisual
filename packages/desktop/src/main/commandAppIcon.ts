@@ -3,10 +3,14 @@ import { isPathWithin, pathKey } from '@vibisual/shared';
 import { findCommandExecutable, normalizeCommandExecutable, type CommandExecutableContext } from './commandAppExecutable';
 import { COMMAND_APP_ICON_LIMITS as LIMITS } from './commandAppIconConfig';
 import { commandAppIconCandidates } from './commandAppIconCandidates';
+import { iconDataUrl, type IconImage, type IconTarget } from './commandAppIconSource';
 
 interface IconDependencies extends CommandExecutableContext {
-  /** Electron is injected so filesystem work, queues and cache policy can be tested without native startup. */
-  getIconPng(file: string): Promise<Buffer | null>;
+  /**
+   * Per-OS icon reading (`createCommandAppIconSource`), injected so filesystem work, queues and cache
+   * policy can be tested without Electron. Null means the executable shows no app icon of its own.
+   */
+  readIcon(target: IconTarget, canceled: () => boolean): Promise<IconImage | null>;
   now?: () => number;
 }
 
@@ -77,11 +81,15 @@ export function createCommandAppIconResolver(deps: IconDependencies): {
         const file = await findCommandExecutable(candidate.executable, deps, canceled);
         if (canceled()) return null;
         if (!file || (candidate.bundle && !isPathWithin(file, candidate.bundle, deps.platform))) continue;
-        const png = await deps.getIconPng(candidate.bundle ?? file);
+        const image = await deps.readIcon({
+          file,
+          command: candidate.executable,
+          ...(candidate.bundle ? { bundle: candidate.bundle } : {}),
+          ...(candidate.iconFile ? { iconFile: candidate.iconFile } : {}),
+        }, canceled);
         if (canceled()) return null;
-        if (!png || png.length > LIMITS.maxPngBytes || png.length < 8) continue;
-        if (png.readUInt32BE(0) !== 0x89504e47 || png.readUInt32BE(4) !== 0x0d0a1a0a) continue;
-        return `data:image/png;base64,${png.toString('base64')}`;
+        const url = iconDataUrl(image);
+        if (url) return url;
       } catch { /* Optional decoration: try the next grounded candidate, without logging local paths. */ }
     }
     return null;

@@ -1,7 +1,13 @@
 import { posix, win32 } from 'node:path';
 import { normalizeCommandExecutable } from './commandAppExecutable';
 
-interface IconCandidate { executable: string; bundle?: string }
+export interface IconCandidate {
+  executable: string;
+  /** macOS bundle that must contain the verified executable. */
+  bundle?: string;
+  /** Icon image in the same engine installation, read once the executable is verified (Linux). */
+  iconFile?: string;
+}
 
 /** Two grounded Unreal siblings at most; ordinary commands retain their own executable icon. */
 export function commandAppIconCandidates(input: string, platform: NodeJS.Platform): IconCandidate[] {
@@ -18,8 +24,14 @@ export function commandAppIconCandidates(input: string, platform: NodeJS.Platfor
       if (platform === 'darwin') {
         const bundle = p.join(engine, 'Binaries', 'Mac', `${name}.app`);
         result.push({ executable: p.join(bundle, 'Contents', 'MacOS', name), bundle });
+      } else if (platform === 'win32') {
+        result.push({ executable: p.join(engine, 'Binaries', 'Win64', `${name}.exe`) });
       } else {
-        result.push({ executable: p.join(engine, 'Binaries', platform === 'win32' ? 'Win64' : 'Linux', `${name}${platform === 'win32' ? '.exe' : ''}`) });
+        // Linux editors are plain ELF files without an embedded icon; the engine ships its desktop icon.
+        result.push({
+          executable: p.join(engine, 'Binaries', 'Linux', name),
+          iconFile: p.join(engine, 'Source', 'Runtime', 'Launch', 'Resources', 'Linux', name === 'UnrealEditor' ? 'UnrealEngine.png' : 'UE4.png'),
+        });
       }
     }
   }

@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appIdOfMediaPath, isAppMediaPath, mediaContentType, mediaEtag, parseByteRange, summarizeProcessMetrics } from '@vibisual/shared';
+import {
+  WORKSPACE_MEDIA_PATH, appIdOfMediaPath, isAppMediaPath, isWorkspaceMediaFile, mediaContentType, mediaEtag, parseByteRange,
+  summarizeProcessMetrics, workspaceMediaMime,
+} from '@vibisual/shared';
 
 import { appMediaResponse, type MediaStreamDone } from './appMediaResponse';
 
@@ -110,6 +113,30 @@ describe('§5.13 (Y) 40-1 — appMediaResponse', () => {
   it('is 404 for a missing file or a folder', async () => {
     expect((await appMediaResponse(path.join(dir, 'gone.mp4'), request('GET'))).status).toBe(404);
     expect((await appMediaResponse(dir, request('GET'))).status).toBe(404);
+  });
+
+  it('takes the type from the caller when its route types files by another table (the core media window)', async () => {
+    // §5.13 40-1 — 코어 미디어 창구는 그 라우트와 같은 표(`workspaceMediaMime`)로 형식을 정한다 — 패키지 앱에서만 다르게 읽히지 않게.
+    const model = path.join(dir, 'robot.glb');
+    fs.writeFileSync(model, Buffer.alloc(16));
+    expect(mediaContentType(model)).toBe('application/octet-stream');
+    const typed = await appMediaResponse(model, request('GET', 'bytes=0-3'), undefined, 1_024, workspaceMediaMime(model));
+    expect(typed.status).toBe(206);
+    expect(typed.headers.get('content-type')).toBe('model/gltf-binary');
+    expect(typed.headers.get('x-content-type-options')).toBe('nosniff');
+    expect((await appMediaResponse(model, request('HEAD'))).headers.get('content-type')).toBe('application/octet-stream');
+  });
+});
+
+describe('§5.13 40-1 — the core media window streams only media types', () => {
+  it('names the path and accepts only files in the media table', () => {
+    expect(WORKSPACE_MEDIA_PATH).toBe('/api/workspace-media');
+    for (const name of ['a/b.png', 'a/B.JPG', 'clip.mp4', 'hit.wav', 'robot.glb', 'spec.pdf', 'icon.svg', 'C:\\x\\y.webp']) {
+      expect(isWorkspaceMediaFile(name), name).toBe(true);
+    }
+    for (const name of ['.env', 'src/app.ts', 'config.json', 'id_rsa', 'notes.txt', 'archive.zip', 'folder/']) {
+      expect(isWorkspaceMediaFile(name), name).toBe(false);
+    }
   });
 });
 

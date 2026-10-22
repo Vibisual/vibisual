@@ -32,12 +32,15 @@ const MEDIA_SECURITY_HEADERS: Readonly<Record<string, string>> = {
 
 /**
  * 파일 하나를 응답으로. `chunkBytes` 는 시험이 작게 줄 때만 쓴다. 파일을 못 열면 404(경로 검사는 이미 끝났으니 사라졌다는 뜻).
+ * `contentType` 은 형식을 다른 표로 정하는 갈래가 준다 — 코어 미디어 창구는 그 라우트와 같은 표(`workspaceMediaMime`)를 쓴다
+ * (주는 길마다 형식이 갈리면 같은 파일이 패키지 앱에서만 다르게 읽힌다). 없으면 이 갈래의 표.
  */
 export async function appMediaResponse(
   filePath: string,
   request: MediaRequestLike,
   onDone?: (info: MediaStreamDone) => void,
   chunkBytes: number = APP_MEDIA_STREAM_CHUNK_BYTES,
+  contentType: string = mediaContentType(filePath),
 ): Promise<Response> {
   const startedAt = performance.now();
   let stat: fs.Stats;
@@ -50,7 +53,7 @@ export async function appMediaResponse(
   const size = stat.size;
   const base: Record<string, string> = {
     ...MEDIA_SECURITY_HEADERS,
-    'Content-Type': mediaContentType(filePath),
+    'Content-Type': contentType,
     'Accept-Ranges': 'bytes',
     ETag: mediaEtag(size, stat.mtimeMs),
     'Last-Modified': stat.mtime.toUTCString(),

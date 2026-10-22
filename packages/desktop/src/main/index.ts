@@ -3,16 +3,17 @@ import { pathToFileURL } from 'node:url';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, Notification, session } from 'electron';
+import { app, shell, BrowserWindow, protocol, Notification, session, powerMonitor } from 'electron';
 import { hasAppMessageBox, showAppMessageBox } from './appMessageBox';
+import { createHookRetirement, osEndSignals } from './hookLifecycle';
 import { createQuitConfirmationGate } from './quitConfirmation';
 import { optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import { followOuterDisconnect, isHoldPath, type InjectDispatch } from './injectDisconnect';
 import { isVerificationToolIngress } from './verificationToolIngress';
-import { releaseStartupJobs, unloadAllLocalModels, runServer, resolveAppMediaFile, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setEngineBridgeSourceDir, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
-import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE, appIdOfMediaPath, isAppContentPath, isAppMediaPath } from '@vibisual/shared';
+import { releaseStartupJobs, unloadAllLocalModels, runServer, resolveAppMediaFile, resolveWorkspaceMediaStreamFile, shutdownDiskWriteQueue, flushPendingStreamWrites, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setEngineBridgeSourceDir, setCodexHookContext, setDebugLogDir, ensureHooksInstalledEverywhere, syncUsageCollectorAtBoot, syncCodexHooksAtBoot, retireVibisualHooks, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
+import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH, WORKSPACE_MEDIA_PATH, LOOPBACK_INGRESS_HEADER, LOOPBACK_INGRESS_VALUE, appIdOfMediaPath, isAppContentPath, isAppMediaPath, workspaceMediaMime } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { startBackendBeforeWindow } from './backendStartup';
 import { ensureDesktopConsent, focusConsentWindow, closeConsentWindow } from './consentWindow';
@@ -57,6 +58,7 @@ import { verificationAutomationAdapter, closeAllVerificationTargets } from './ve
 // §5.13 (T-11) — 내부 앱 공통 층의 앱 이름 없는 접점: 서버 몫 → main 몫 호출 · 숨은 창 정리 · 콘텐츠 프레임 이동 금지.
 import { disposeAppMains, invokeAppMain } from './apps';
 import { guardAppContentFrames } from './appContentGuard';
+import { allowWebPageViews } from './webPageSession';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -88,6 +90,16 @@ let hookToken: string = randomBytes(24).toString('hex');
 export function getHookToken(): string {
   return hookToken;
 }
+
+// §3.6 「수명」 · §5.7 #24-3 — 훅은 앱이 켜져 있는 동안만 둔다. 이 프로세스가 깐 포트·핸들러 경로를 기억했다가, 끌 때
+//   (정상 종료·OS 종료·로그오프) 그 포트를 가리키는 우리 블록과 이 앱의 코덱스 전역 훅만 한 번 걷는다. 깔지 않은
+//   실행은 아무것도 걷지 않는다.
+let installedHooks: { port: number; handlerPath: string } | null = null;
+const hookRetirement = createHookRetirement((reason) => {
+  const s = retireVibisualHooks(installedHooks?.port ?? null, installedHooks?.handlerPath ?? null);
+  console.log(`[main] hooks retired (${reason}) — ${s.removed} block(s) removed from ${s.homesWritten} settings file(s)${s.statusLineRestored ? ', statusLine restored' : ''}${s.codexRemoved ? ', codex hooks removed' : ''}`);
+  for (const e of s.errors) console.warn(`[main] hook retire: ${e}`);
+}, (error) => mainDiagnostics.report('hook', error));
 
 /**
  * §보안 감사 2026-09-09 — loopback 토큰 비교는 **걸리는 시간이 값에 따라 달라지면 안 된다.**
@@ -196,8 +208,12 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
       plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // §5.23 「더블클릭」 — iframe 탭의 인터넷 페이지는 격리 웹뷰로 띄운다. 손님 설정은 바로 아래 `allowWebPageViews` 가 다시 쓴다.
+      webviewTag: true,
     },
   });
+  // 태그를 켠 이 자리에서 가드를 건다 — 웹뷰는 전용 메모리 세션·샌드박스·권한 거절로만 붙는다(`webPageView.ts`).
+  allowWebPageViews(mainWindow.webContents);
 
   // §3.7 — 창 상태 전이마다 렌더러에 드래그 영역 재신고를 시키던 배선은 걷었다. 그 재신고(영역 흔들기)가
   //   제목줄 누름을 버리게 했다 — 페이지까지 온 누름은 렌더러가 덮개와 같은 길로 옮긴다(client `titlebarPress.ts`).
@@ -303,6 +319,11 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
 
   // SCENARIO.md §5.4 #14-1 (v2.29) — 별창 매니저가 메인 윈도우를 참조해야 한다(redock 푸시 대상).
   primaryMainWindow = mainWindow;
+  // §3.6 「수명」 — Windows 의 OS 종료·재시작·로그오프에는 before-quit 가 오지 않는다(Electron 문서). 이 창의
+  //   `session-end` 가 그 순간에 오므로 여기서 동기로 걷는다(정상 종료와 겹쳐도 한 번만 돈다).
+  if (osEndSignals(process.platform).windowSessionEnd) {
+    mainWindow.on('session-end', () => { hookRetirement.retire('os-session-end'); });
+  }
   // Keep the main renderer alive while the themed quit question awaits an answer.
   let preparingMainClose = false;
   mainWindow.on('close', (event) => {
@@ -566,9 +587,26 @@ function registerIframeProxyProtocol(expressApp: Express): void {
     //   + §5.13 (T-3) 내부 앱이 iframe 으로 띄울 정적 콘텐츠(`/api/app/<앱id>/content/…`) — 앱 이름 없이 모양 하나로.
     const allowed = ALLOWED_PROTOCOL_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
-    ) || isAppContentPath(pathname) || isAppMediaPath(pathname);
+    ) || isAppContentPath(pathname) || isAppMediaPath(pathname) || pathname === WORKSPACE_MEDIA_PATH;
     if (!allowed) {
       return new Response('not found', { status: 404 });
+    }
+    // §5.13 40-1 — **코어** 미디어 창구의 읽기(그림 보기 · 미리보기 굽기 · 소리 파형)도 Express·IPC 를 거치지 않고 흘려 보낸다 —
+    //   IPC 는 응답 전체를 이 메인에 모았다가 한 번에 넘긴다. 어느 파일인지는 서버 라우트와 같은 판정이 답하고(미디어 표에 있는
+    //   형식만 — 같은 출처의 프리뷰 페이지도 닿는 길이다), 형식도 라우트와 같은 표다. 쓰기(PUT)는 종전 IPC 길이라 여기서 받지 않는다.
+    if (pathname === WORKSPACE_MEDIA_PATH) {
+      const bare = { 'X-Content-Type-Options': 'nosniff' };
+      if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('method not allowed', { status: 405, headers: bare });
+      const file = resolveWorkspaceMediaStreamFile(new URL(request.url).searchParams);
+      if (!file) return new Response('not found', { status: 404, headers: bare });
+      try {
+        return await appMediaResponse(file, request, (done) => {
+          logTransfer({ at: Date.now(), channel: done.cancelled ? 'vibproxy-media-cancelled' : 'vibproxy-media', path: pathname + search, ms: 0, bytes: done.bytes });
+        }, undefined, workspaceMediaMime(file));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return new Response(`media unavailable: ${msg}`, { status: 502, headers: bare });
+      }
     }
     // §5.13 (Y) 40-1 — 앱 **미디어**(`/api/app/<id>/media?…`)는 Express 를 거치지 않고 파일을 흘려 보낸다(구간 지원 · 끊으면 멈춤).
     //   어느 파일인지는 그 앱의 서버 몫이 답한다(경로 검사는 그쪽 규칙) — 이 줄은 앱 이름을 모른다.
@@ -762,13 +800,18 @@ async function bootBackend(): Promise<void> {
     // §4 v3.60 — 사용량 수집기(statusLine)도 같은 핸들러를 쓴다. 사용자가 팝업에서 켤 때
     //   server 가 이 경로로 명령을 조립하도록 주입.
     setHookHandlerPath(handlerPath);
-    // §5.25 (I) — 코덱스 훅에 필요한 값도 같은 자리에서 넘긴다. **여기서 설치하지는 않는다** —
-    //   코덱스 훅은 기본 꺼짐이고 사용자가 켤 때만 REST 로 깔린다(남의 전역 설정을 말없이 건드리지 않는다).
+    // §5.25 (I) — 코덱스 훅에 필요한 값도 같은 자리에서 넘긴다. **여기서 새로 켜지는 않는다** —
+    //   코덱스 훅은 기본 꺼짐이고 처음 켜는 것은 사용자의 REST 뿐이다(남의 전역 설정을 말없이 건드리지 않는다).
+    //   켜 둔 사람의 훅은 아래에서 이번 실행의 값으로 다시 깐다(§3.6 「수명」 — 끌 때 걷었다).
     setCodexHookContext({ port: hookPort, handlerPath, token: hookToken });
     // §3.6 — 호스트 `~/.claude` 하나가 아니라 **우리가 아는 모든 설정 홈**에 심는다.
     //   Cowork(Claude Desktop 로컬 세션)는 설정 홈을 세션마다 따로 잡아 우리 훅을 보지 않았다
     //   (anthropics/claude-code#63360) — 그래서 Cowork 작업은 캔버스에 한 획도 남지 않았다.
     const all = ensureHooksInstalledEverywhere(hookPort, handlerPath, hookToken);
+    // §3.6 「수명」 — 이 프로세스가 깔았다. 끌 때(정상 종료·OS 종료) 이 포트를 가리키는 우리 블록만 걷는다.
+    //   설치를 건너뛴 실행(위 두 갈래)·잠금을 못 잡은 두 번째 실행은 여기 오지 않으므로 남의 훅을 걷지 않는다.
+    installedHooks = { port: hookPort, handlerPath };
+    hookRetirement.markInstalled();
     const r = all.host;
     if (all.coworkInstalled > 0) {
       console.log(`[main] hooks installed into ${all.coworkInstalled} Cowork session home(s)`);
@@ -788,13 +831,30 @@ async function bootBackend(): Promise<void> {
       );
     }
 
-    // §4 v3.60 — 사용량 수집기는 **자동 설치하지 않는다**(opt-in). 사용자가 이미 켜둔
-    //   경우에만 이번 런의 포트·토큰으로 명령을 갱신해 "재기동 후 값이 안 들어오는" 것을 막는다.
-    const sl = refreshStatusLineIfInstalled(hookPort, handlerPath, hookToken);
+    // §4 v3.60 — 사용량 수집기는 **자동 설치하지 않는다**(opt-in). 사용자가 켜 둔 경우에만 이번 런의 포트·토큰으로
+    //   감싼다. §3.6 「수명」 — 끌 때 원래 상태 줄로 되돌리므로 켬 여부는 AppState 가 기억한다(값이 없는 첫 부팅은
+    //   지금 깔려 있는지로 옮겨 적어 종전 사용자의 켬이 이어진다).
+    const sl = syncUsageCollectorAtBoot(hookPort, handlerPath, hookToken);
     if (sl.installed && !sl.error) {
-      console.log('[main] usage collector (statusLine) refreshed for this launch');
+      console.log('[main] usage collector (statusLine) installed for this launch');
     } else if (sl.error) {
-      console.warn(`[main] usage collector refresh skipped: ${sl.error}`);
+      console.warn(`[main] usage collector sync skipped: ${sl.error}`);
+    }
+
+    // §5.25 (I) · §3.6 「수명」 — 코덱스 전역 훅도 같은 규칙이다. 켜 둔 경우에만 이번 실행의 포트·토큰으로 다시 깔고
+    //   (정의가 바뀌었거나 코덱스가 사라진 훅을 잊었다면 신뢰를 다시 묻는다 — 사용자가 받아들였다), 켬이 아닌데
+    //   남아 있으면 걷는다. 켬 여부는 AppState 가 기억한다(값이 없는 첫 부팅은 지금 깔려 있는지로 옮겨 적는다).
+    const cx = syncCodexHooksAtBoot(hookPort, handlerPath, hookToken);
+    if (cx.installed && !cx.error) {
+      console.log(`[main] codex hooks installed for this launch (${cx.events.length} event(s))`);
+    } else if (cx.error) {
+      console.warn(`[main] codex hooks sync skipped: ${cx.error}`);
+    }
+
+    // §3.6 「수명」 — OS 종료·로그오프에도 걷는다. Windows 는 그때 before-quit 가 오지 않아 본체 창의 `session-end`
+    //   로 받고(창을 만들 때 건다), mac·linux 는 `powerMonitor` 의 `shutdown` 으로 받는다. 한 번만 돈다.
+    if (osEndSignals(process.platform).powerMonitorShutdown) {
+      powerMonitor.on('shutdown', () => { hookRetirement.retire('os-shutdown'); });
     }
   }
 
@@ -1087,6 +1147,10 @@ app.on('before-quit', (event) => {
 });
 
 function finishApprovedQuit(): void {
+  // §3.6 「수명」 — 훅은 앱이 켜져 있는 동안만 둔다. 창·훅 리스너를 닫기 **전**에 걷는다 — 그사이 도착하는 호출이
+  //   닫힌 문을 두드리지 않게. 동기 파일 몇 개라 종료를 늦추지 않는다. 이 프로세스가 깔았을 때 한 번만 돈다.
+  hookRetirement.retire('quit');
+
   // crashLog — 정상 종료 마커. 다음 부팅 배너 이전에 이 줄이 있으면 지난 실행은 정상 종료,
   // 없으면 그 사이 팅긴 것으로 판별된다.
   logCleanExit();

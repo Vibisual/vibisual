@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createCommandAppIconResolver, isCommandAppIconRenderer } from './commandAppIcon';
 import { COMMAND_APP_ICON_CHANNEL } from './commandAppIconConfig';
+import { createCommandAppIconSource } from './commandAppIconSource';
 import { isVerificationWindow } from './verificationWindows';
 import { mountAppIpc, removeAppIpc } from './apps/index';
 // §5.5 #17-6 (H-6) — 밖으로 빼는 동안 앱 밖까지 이어지는 가상 창 윤곽선.
@@ -220,10 +221,15 @@ export function setupIpc(expressApp: Express): IpcHub {
     platform: process.platform,
     env: process.env,
     knownDirs: knownBinDirs({ platform: process.platform, env: process.env, home: homedir() }),
-    getIconPng: async (file) => {
-      const icon = await app.getFileIcon(file, { size: 'normal' });
-      return icon.isEmpty() ? null : icon.toPNG();
-    },
+    readIcon: createCommandAppIconSource({
+      platform: process.platform,
+      env: process.env,
+      home: homedir(),
+      shellIcon: async (file) => {
+        const icon = await app.getFileIcon(file, { size: 'normal' });
+        return icon.isEmpty() ? null : icon.toPNG();
+      },
+    }),
   });
   ipcMain.handle(COMMAND_APP_ICON_CHANNEL, (event, executable: unknown): Promise<string | null> => {
     if (isVerificationWindow(event.sender.id) || !BrowserWindow.fromWebContents(event.sender)
@@ -317,7 +323,7 @@ export function setupIpc(expressApp: Express): IpcHub {
     'vibisual:window:detach',
     (
       _event,
-      payload: { kind: DetachKind; tabKey: string; cursor?: { x: number; y: number } },
+      payload: { kind: DetachKind; tabKey: string; cursor?: { x: number; y: number }; fromGhost?: boolean },
     ): { windowId: number; reused: boolean } => {
       if (!payload || (payload.kind !== 'project' && payload.kind !== 'iframe')) {
         throw new Error('vibisual:window:detach — invalid kind');
@@ -329,6 +335,8 @@ export function setupIpc(expressApp: Express): IpcHub {
         kind: payload.kind,
         tabKey: payload.tabKey,
         cursor: payload.cursor,
+        // §5.4 #14-1 (H) 끌어 놓은 탭 — 손을 뗀 자리에 멈춘 선의 자리·크기 그대로 선다(참일 때만 — 렌더러가 무엇을 보내든).
+        fromGhost: payload.fromGhost === true,
       });
     },
   );

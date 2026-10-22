@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, screen } from 'electron';
 import {
+  DETACHED_WINDOW,
+  detachedWindowPlacement,
   growSpanRight,
   isCursorDeepInside,
   isCursorOutsideRect,
@@ -10,6 +12,7 @@ import {
 } from '@vibisual/shared';
 import { hidePopOutGhost, isPopOutGhostVisible, nudgePopOutGhost, popOutGhostBounds, showPopOutGhost } from './ghostFrame';
 import { openExternalWithNotice } from './externalOpen';
+import { allowWebPageViews } from './webPageSession';
 import { safeAppThemeChrome, trackThemedWindow } from './themeChrome';
 import { broadcastWindowMessage } from './windowDelivery';
 import {
@@ -88,6 +91,12 @@ export interface DetachOptions {
   kind: DetachKind;
   tabKey: string;
   cursor?: { x: number; y: number } | undefined;
+  /**
+   * §5.4 #14-1 (H) 탭을 끌어 놓은 판 — 손을 뗀 자리에 **멈춰 선 선(가상 창)**의 자리·크기 그대로 선다.
+   * 선의 경계는 렌더러 좌표가 아니라 main 이 직접 읽는다(배율이 다른 모니터에서 렌더러 좌표는 어긋난다).
+   * 선이 없으면(못 띄운 환경) 종전대로 `cursor` 기준 자리다.
+   */
+  fromGhost?: boolean | undefined;
 }
 
 interface DetachedEntry {
@@ -109,10 +118,10 @@ interface DetachedEntry {
   dragActive: boolean;
 }
 
-const POPUP_DEFAULT_W = 1100;
-const POPUP_DEFAULT_H = 720;
-const POPUP_MIN_W = 480;
-const POPUP_MIN_H = 320;
+// §5.4 #14-1 (H) 별창 크기는 shared 한 곳이 쥔다 — 떼어 내는 동안 렌더러가 그리는 선(가상 창)이
+//   이 크기로 서야 놓는 순간 창이 선과 다른 크기로 튀지 않는다.
+const POPUP_MIN_W = DETACHED_WINDOW.minWidth;
+const POPUP_MIN_H = DETACHED_WINDOW.minHeight;
 
 // Mini ghost 사이즈 — detach 시 cursor 옆 floating hint card 와 동일한 컴팩트 칩 느낌.
 const MINI_W = 200;
@@ -164,26 +173,27 @@ export function hasTabKey(tabKey: string): boolean {
 }
 
 export function openDetached(opts: DetachOptions): { windowId: number; reused: boolean } {
+  // §5.4 #14-1 (H) 탭을 끌어 놓은 판 — 손을 뗀 자리에 **멈춰 선 선(가상 창)**의 자리·크기 그대로 선다
+  //   (§5.13 (S-10) 앱 창 · §5.5 #17-6 (H-17) ④ "놓은 그 자리 그 크기 그대로"와 같은 규율). 선이 없으면
+  //   (못 띄운 환경 · 우클릭 [별창으로 분리]) 종전대로 커서 기준 자리다.
+  const ghostBounds = opts.fromGhost === true ? popOutGhostBounds() : null;
   const existing = byTabKey.get(opts.tabKey);
   if (existing && !existing.window.isDestroyed()) {
     if (existing.window.isMinimized()) existing.window.restore();
     existing.window.focus();
+    // 이어받을 새 창이 없다 — 멈춰 선 선을 남기지 않는다(클릭통과라 사용자가 없앨 수 없다).
+    if (ghostBounds) finishGhostHandoff();
     return { windowId: existing.id, reused: true };
   }
 
-  let x: number | undefined;
-  let y: number | undefined;
-  if (opts.cursor) {
-    x = Math.round(opts.cursor.x - POPUP_DEFAULT_W / 2);
-    y = Math.round(opts.cursor.y - 18);
-  }
+  const placement = detachedWindowPlacement({ ghost: ghostBounds, cursor: opts.cursor ?? null });
 
   const win = new BrowserWindow({
-    width: POPUP_DEFAULT_W,
-    height: POPUP_DEFAULT_H,
+    width: placement.width,
+    height: placement.height,
     minWidth: POPUP_MIN_W,
     minHeight: POPUP_MIN_H,
-    ...(x !== undefined && y !== undefined ? { x, y } : {}),
+    ...(placement.x !== undefined && placement.y !== undefined ? { x: placement.x, y: placement.y } : {}),
     show: false,
     // §4 앱 테마 — 그리기 전의 빈 창도 고른 테마의 바탕이다(아래 trackThemedWindow 가 바뀔 때 다시 칠한다).
     backgroundColor: safeAppThemeChrome().background,
@@ -200,15 +210,24 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
       plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // §5.23 「더블클릭」 — 떼어 낸 iframe 탭도 인터넷 페이지를 격리 웹뷰로 띄운다(본체 창과 같은 규칙 · 아래 가드와 한 쌍).
+      webviewTag: true,
     },
   });
   // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
+  // 태그를 켠 이 자리에서 웹뷰 가드를 건다 — 전용 메모리 세션·샌드박스·권한 거절(`webPageView.ts`).
+  allowWebPageViews(win.webContents);
   // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕도 다시 칠한다.
   trackThemedWindow(win);
 
+  // §5.4 #14-1 (H) 선이 서 있으면 이 창이 **보일 때까지** 살려 둔다 — 먼저 걷으면 창이 뜨기까지 놓은
+  //   자리가 빈다(그물은 나가는 길의 4초). 창이 보이면 그 자리를 창이 이어받는다("선이 창이 된다").
+  //   별창은 불투명 바탕이라(테마 배경색) 앱 창처럼 보인 뒤 합성 한 박자만 기다리면 된다.
+  if (ghostBounds) armGhostHandoff(win.id);
   win.on('ready-to-show', () => {
     if (!win.isDestroyed()) win.show();
+    if (ghostBounds) finishGhostHandoffOnceShown(win.id);
   });
 
   const entry: DetachedEntry = {
@@ -243,11 +262,16 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
     }
     byTabKey.delete(opts.tabKey);
     byWindowId.delete(win.id);
+    // §5.4 #14-1 (H) 보이기 전에 닫혔다 — 이 창을 기다리던 선을 남기지 않는다.
+    if (isGhostHandoffTarget(win.id)) finishGhostHandoff();
     notifyChange();
   });
 
   const hash = `detached=1&kind=${encodeURIComponent(opts.kind)}&tabKey=${encodeURIComponent(opts.tabKey)}`;
-  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
+  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash }).catch(() => {
+    // §5.4 #14-1 (H) 못 열었다 — 이 창을 기다리던 선을 그물(4초)까지 끌지 않고 걷는다.
+    if (isGhostHandoffTarget(win.id)) finishGhostHandoff();
+  });
 
   win.webContents.once('did-finish-load', () => {
     if (!win.isDestroyed()) {

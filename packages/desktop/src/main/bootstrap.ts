@@ -18,6 +18,7 @@ import { showAppMessageBox } from './appMessageBox';
 import { electronApp } from '@electron-toolkit/utils';
 import { installBootErrorLog } from './bootErrors';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
+import { isHookCleanupRun } from './hookLifecycle';
 import { logStartupMilestone, markSplashShown, startMainStallLog } from './mainStallLog';
 import { readSplashCache } from './splashCache';
 import { resolveSplashLocale, SPLASH_FALLBACK_BACKGROUND } from './splashPolicy';
@@ -56,11 +57,27 @@ interface LaunchedApp {
   onActivate(): void;
 }
 
+// §3.6 「수명」 · §5.7 #24-3 ⑤ — Windows 제거기가 파일을 지우기 **전**에 `--vibisual-remove-hooks` 로 부른다. 잠금·스플래시·
+// 본체·서버 없이 설정 파일에 남은 우리 훅만 걷고 끝낸다(`hookCleanup.ts` — 본체처럼 동적으로만 읽는다). 잠금을 잡지 않으므로
+// 떠 있는 앱이 있어도 그 창을 불러내지 않는다.
+const hookCleanupRun = isHookCleanupRun(process.argv);
+
 // 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를 자기 동적 포트로 덮어쓰는
 // 사고를 원천 차단한다(상세는 `index.ts` `launchApp`). **스플래시보다 먼저** 잡는다 — 못 잡은 쪽이 스플래시를 한 번
 // 번쩍이고 사라지면 안 된다. 못 잡으면 즉시 끝내고, 기존 인스턴스가 자기 창(또는 스플래시)을 앞으로 가져온다.
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
+const gotSingleInstanceLock = !hookCleanupRun && app.requestSingleInstanceLock();
+if (hookCleanupRun) {
+  void import('./hookCleanup')
+    .then((m) => { m.removeHooksForUninstall(); })
+    .catch((error: unknown) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      appendCrashLine('main', 'error', `[hook-cleanup] failed: ${err.message}`, err.stack);
+    })
+    .finally(() => {
+      logCleanExit();
+      void app.whenReady().then(() => app.exit(0));
+    });
+} else if (!gotSingleInstanceLock) {
   logCleanExit();
   app.quit();
 } else {

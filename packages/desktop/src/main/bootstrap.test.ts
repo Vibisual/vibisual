@@ -73,8 +73,8 @@ describe('시작 진입점은 가볍다', () => {
   it('닿는 모듈이 예상한 범위다(새 의존이 끼면 이 목록부터 본다)', () => {
     const names = [...closure.keys()].map((f) => f.slice(MAIN_DIR.length + 1).replace(/\\/g, '/')).sort();
     expect(names).toEqual([
-      'appMessageBox.ts', 'appMessagePage.ts', 'bootErrors.ts', 'bootstrap.ts', 'consentStrings.ts', 'crashLog.ts', 'mainStallLog.ts',
-      'splashCache.ts', 'splashPage.ts', 'splashPolicy.ts', 'splashStrings.ts', 'splashWindow.ts', 'windowCloak.ts',
+      'appMessageBox.ts', 'appMessagePage.ts', 'bootErrors.ts', 'bootstrap.ts', 'consentStrings.ts', 'crashLog.ts', 'hookLifecycle.ts',
+      'mainStallLog.ts', 'splashCache.ts', 'splashPage.ts', 'splashPolicy.ts', 'splashStrings.ts', 'splashWindow.ts', 'windowCloak.ts',
     ]);
   });
 
@@ -118,6 +118,21 @@ describe('ready 전에만 먹는 일은 시작 진입점에 있다', () => {
     expect(ready).toBeLessThan(stall);
     expect(stall).toBeLessThan(splash);
     expect(splash).toBeLessThan(load);
+  });
+
+  // §3.6 「수명」 · §5.7 #24-3 ⑤ — 제거기의 정리 모드는 잠금·스플래시·본체 없이 훅만 걷고 끝난다.
+  it('제거기의 정리 모드는 잠금을 잡지 않고, 정리 모듈만 동적으로 읽고 끝낸다', () => {
+    expect(bootstrap).toContain('const gotSingleInstanceLock = !hookCleanupRun && app.requestSingleInstanceLock();');
+    const at = bootstrap.indexOf('if (hookCleanupRun) {');
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(bootstrap.indexOf('await openSplash('));
+    const branch = bootstrap.slice(at, bootstrap.indexOf('} else if (!gotSingleInstanceLock) {', at));
+    expect(branch).toContain("import('./hookCleanup')");
+    expect(branch).toContain('logCleanExit();');
+    expect(branch).toContain('app.exit(0)');
+    expect(branch).not.toContain('openSplash');
+    expect(branch).not.toContain("import('./index')");
+    expect(staticImports(bootstrap).some((i) => i.from === './hookCleanup' && !i.typeOnly)).toBe(false);
   });
 
   it('잠금을 못 잡은 쪽은 스플래시 없이 끝난다(정상 종료 표식을 남기고)', () => {
