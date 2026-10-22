@@ -37,6 +37,7 @@ import { useCodexModelsAutoRefresh } from './hooks/useCodexModelsAutoRefresh.js'
 import { useGraphStore } from './stores/graphStore.js';
 import { useIDEDockLayout } from './components/IDE/useIDEDockLayout.js';
 import { installMainWindowReadySignal } from './utils/mainWindowReady.js';
+import { registerIframeTabHost } from './utils/iframeTabHost.js';
 import { WS_PATH } from '@vibisual/shared';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${WS_PATH}`;
@@ -73,6 +74,9 @@ export function App(): React.JSX.Element {
   // §3.7 · §9 「시작 화면(스플래시)」 — 앱을 켤 때 이 창은 숨긴 채 그린다. 지금 보는 탭의 첫 화면을 다 그리고 조용해지면
   //   main 에 알린다 — 그때 스플래시가 걷히고 이 창이 보인다(메인 윈도우 한정 · 웹 모드에선 아무것도 하지 않는다).
   useEffect(() => installMainWindowReadySignal(), []);
+  // §5.23 「더블클릭」 — 이 셸이 iframe 탭 줄을 그린다는 표식. 도메인 버블을 앱 안에서 열 때, 표식이 없는 창(별창·오버레이…)은
+  //   보이지 않는 탭을 만드는 대신 바깥 브라우저로 연다(`iframeTabHost.ts`).
+  useEffect(() => registerIframeTabHost(), []);
   // §4 v3.39 — 모바일/터치·'동작 줄이기'면 저전력 클래스를 root 에 걸어 상시 GPU 부하(애니메이션
   // 엣지·pulse/ping·backdrop-blur)를 index.css 에서 끈다(폰 발열 억제). 데스크톱엔 미적용.
   const lowPower = useLowPowerMode();

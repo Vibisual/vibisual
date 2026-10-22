@@ -49,9 +49,15 @@ interface PreviewControlsProps {
   picker: PreviewPicker;
   /** 없으면 [영역 캡처] 를 그리지 않는다(붙일 입력창이 없는 화면). */
   snip?: PreviewSnip | undefined;
+  /**
+   * 프리뷰 안에 우리 다리 스크립트가 있는가(기본 있음 — 프록시를 지난 로컬 프리뷰).
+   * `false` 면 그 스크립트가 있어야 도는 [요소 선택]·[Alt] 를 걷는다 — §5.23 「더블클릭」 인터넷 페이지(격리 웹뷰)에는
+   * 다리가 없어(§7.11 (F) "picker 는 프록시를 통과한 문서에만") 눌러도 아무 일도 없는 손잡이가 된다.
+   */
+  bridge?: boolean | undefined;
 }
 
-export function PreviewControls({ picker, snip }: PreviewControlsProps): React.JSX.Element {
+export function PreviewControls({ picker, snip, bridge = true }: PreviewControlsProps): React.JSX.Element {
   const { t } = useTranslation();
   // 이 키의 이름은 OS 마다 다르다 — mac 은 `⌥`(Option). 번역문에 `Alt` 를 박으면 12개 로케일이
   // 한꺼번에 틀어지므로(멀티플랫폼 5축) 라벨도 설명문도 **여기서 만든 이름 하나**를 받아 쓴다.
@@ -88,39 +94,43 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
         ))}
       </div>
       {/* 요소 집기 — 켜면 프리뷰 안에서 hover 한 요소에 테두리가 뜨고, 클릭이 그 안에서 소비된다. */}
-      <button
-        type="button"
-        onClick={picker.togglePickMode}
-        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
-          picker.pickMode
-            ? 'border-blue-400/60 bg-blue-500/20 text-blue-200'
-            : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
-        }`}
-        title={t('common.preview.pickHint')}
-      >
-        <PickIcon />
-        <span>{t('common.preview.pickElement')}</span>
-      </button>
-      {/* §7.11 (G) Alt 가로채기 — 기본은 **우리 것이 강제**(켜짐). 프리뷰 안에서 Alt 를 누르면
-          포커스가 우리 창으로 돌아와 인스펙터가 선다. 안에서 도는 앱이 Alt 를 쓰면 여기서 양보한다. */}
-      <button
-        type="button"
-        onClick={picker.toggleAltCapture}
-        aria-pressed={picker.altCapture}
-        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
-          picker.altCapture
-            ? 'border-amber-400/60 bg-amber-500/20 text-amber-200'
-            : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
-        }`}
-        title={
-          picker.altCapture
-            ? t('common.preview.altCaptureOnHint', { key: altKey })
-            : t('common.preview.altCaptureOffHint', { key: altKey })
-        }
-      >
-        <AltKeyIcon />
-        <span>{altKey}</span>
-      </button>
+      {bridge && (
+        <>
+          <button
+            type="button"
+            onClick={picker.togglePickMode}
+            className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
+              picker.pickMode
+                ? 'border-blue-400/60 bg-blue-500/20 text-blue-200'
+                : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
+            }`}
+            title={t('common.preview.pickHint')}
+          >
+            <PickIcon />
+            <span>{t('common.preview.pickElement')}</span>
+          </button>
+          {/* §7.11 (G) Alt 가로채기 — 기본은 **우리 것이 강제**(켜짐). 프리뷰 안에서 Alt 를 누르면
+              포커스가 우리 창으로 돌아와 인스펙터가 선다. 안에서 도는 앱이 Alt 를 쓰면 여기서 양보한다. */}
+          <button
+            type="button"
+            onClick={picker.toggleAltCapture}
+            aria-pressed={picker.altCapture}
+            className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors pointer-coarse:py-1.5 ${
+              picker.altCapture
+                ? 'border-amber-400/60 bg-amber-500/20 text-amber-200'
+                : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
+            }`}
+            title={
+              picker.altCapture
+                ? t('common.preview.altCaptureOnHint', { key: altKey })
+                : t('common.preview.altCaptureOffHint', { key: altKey })
+            }
+          >
+            <AltKeyIcon />
+            <span>{altKey}</span>
+          </button>
+        </>
+      )}
       {/* §5.17 (B) 영역 캡처 — 그은 사각형이 이 프리뷰를 띄운 에이전트의 입력창 첨부가 된다. */}
       {snip && picker.hostAgentId !== undefined && (
         <button

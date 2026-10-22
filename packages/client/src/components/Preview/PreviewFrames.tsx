@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
+import { WEB_PAGE_PARTITION } from '@vibisual/shared';
 
 import { useScrollReveal } from '../../hooks/useScrollReveal.js';
 import { PreviewSnipOverlay } from './PreviewSnipOverlay.js';
@@ -17,13 +18,33 @@ import type { PreviewSnip } from './usePreviewSnip.js';
  */
 
 const IFRAME_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups';
+/**
+ * §5.23 「더블클릭」 — 웹뷰가 없는 화면(휴대폰 웹 접속)에서 인터넷 페이지를 직접 싣는 iframe. 거기서 새 창은 그 브라우저의
+ * 새 탭이라 샌드박스 밖으로 나가게 둔다(묶어 두면 열린 탭의 스크립트·로그인까지 깨진다). 최상위 이동은 여전히 막는다.
+ */
+const WEB_IFRAME_SANDBOX = `${IFRAME_SANDBOX} allow-popups-to-escape-sandbox`;
+
+/**
+ * 이 창이 Electron 웹뷰 태그를 쓸 수 있는가 — 본체 창·떼어 낸 iframe 탭 창은 켜 두었다(손님 설정은 main 이 다시 쓴다 —
+ * 전용 메모리 세션·샌드박스·권한 거절). 휴대폰 웹 접속(§4 v3.16)에는 없다.
+ */
+export function canUseWebview(): boolean {
+  if (typeof window === 'undefined') return false;
+  const registry = window.customElements;
+  return typeof registry?.get === 'function' && registry.get('webview') !== undefined;
+}
 
 interface PreviewFramesProps {
   picker: PreviewPicker;
   /** 없으면 조준 레이어를 달지 않는다(캡처를 열지 않은 화면). */
   snip?: PreviewSnip | undefined;
-  /** 프록시를 거친 최종 src. */
+  /** 프록시를 거친 최종 src(`web` 이면 원본 주소 그대로). */
   src: string;
+  /**
+   * §5.23 「더블클릭」 — **인터넷 페이지**다(프록시가 받지 않는 공인 호스트). 우리 렌더러의 iframe 에 싣지 않고 격리 웹뷰로
+   * 띄운다 — 본체 창은 샌드박스 밖이라 그 하위 프레임도 샌드박스 없이 돈다. 다리 스크립트가 없으므로 요소 집기 등록도 하지 않는다.
+   */
+  web?: boolean | undefined;
   /** 대표 프레임 — 새로고침처럼 한 장을 가리켜야 하는 조작의 상대. */
   primaryRef: MutableRefObject<HTMLIFrameElement | null>;
   /** 같은 문자열 src 를 다시 넣어도 브라우저가 무시하므로, 새로고침은 이 키를 돌려서 한다. */
@@ -38,12 +59,16 @@ export function PreviewFrames({
   picker,
   snip,
   src,
+  web,
   primaryRef,
   reloadKey,
   className,
   style,
 }: PreviewFramesProps): React.JSX.Element {
   const { t } = useTranslation();
+  // §5.23 「더블클릭」 — 인터넷 페이지는 격리 웹뷰로(데스크톱), 웹뷰가 없는 화면에서는 직접 iframe 으로 싣는다.
+  const webview = web === true && canUseWebview();
+  const frameTitle = web === true ? t('common.iframe.webPage') : t('common.iframe.serverPreview');
 
   // 대표 프레임 ref + pick 방송 등록을 한 번에. 콜백 ref 라 프레임이 바뀔 때마다 다시 불린다.
   const attachPrimary = useCallback((el: HTMLIFrameElement | null) => {
@@ -64,6 +89,41 @@ export function PreviewFrames({
   // 그래서 안에서 알려 온 신고(§7.11 다리)를 `:hover` 자리에 세운다.
   const hoverReveal = picker.hovered ? 'true' : 'false';
 
+  /**
+   * 한 칸의 표면. 로컬 프리뷰는 종전 그대로 프록시 iframe + 요소 집기 등록, 인터넷 페이지는 다리가 없어 등록하지 않는다 —
+   * 배치(한 폭·세 폭 비교)는 한 벌이고 그리는 표면만 갈린다(두 벌이면 한쪽만 고쳐진다).
+   */
+  const frame = (
+    frameKey: string | number | undefined,
+    register: ((el: HTMLIFrameElement | null) => void) | undefined,
+    frameClassName: string,
+    frameStyle: React.CSSProperties | undefined,
+    title: string,
+  ): React.JSX.Element => {
+    if (webview) {
+      return (
+        <webview key={frameKey} src={src} partition={WEB_PAGE_PARTITION} className={frameClassName} style={frameStyle} title={title} />
+      );
+    }
+    if (web === true) {
+      return (
+        <iframe key={frameKey} src={src} className={frameClassName} style={frameStyle} title={title} sandbox={WEB_IFRAME_SANDBOX} />
+      );
+    }
+    return (
+      <iframe
+        key={frameKey}
+        ref={register}
+        src={src}
+        onLoad={(e) => picker.notifyFrameLoaded(e.currentTarget)}
+        className={frameClassName}
+        style={frameStyle}
+        title={title}
+        sandbox={IFRAME_SANDBOX}
+      />
+    );
+  };
+
   return (
     <div className={`relative flex min-h-0 flex-1 overflow-hidden ${className ?? ''}`} style={style}>
       {compare === null ? (
@@ -72,18 +132,15 @@ export function PreviewFrames({
           {...scrollReveal}
           data-hovering={hoverReveal}
         >
-          <iframe
-            key={reloadKey}
-            ref={attachPrimary}
-            src={src}
-            onLoad={(e) => picker.notifyFrameLoaded(e.currentTarget)}
-            className="h-full border-0 bg-white"
-            style={picker.deviceWidth === null
+          {frame(
+            reloadKey,
+            attachPrimary,
+            'h-full border-0 bg-white',
+            picker.deviceWidth === null
               ? { width: '100%' }
-              : { width: `${picker.deviceWidth}px`, flex: '0 0 auto' }}
-            title={t('common.iframe.serverPreview')}
-            sandbox={IFRAME_SANDBOX}
-          />
+              : { width: `${picker.deviceWidth}px`, flex: '0 0 auto' },
+            frameTitle,
+          )}
         </div>
       ) : (
         // 비교 줄 — 칸마다 이름·폭을 머리에 달아 어느 폭이 깨졌는지 바로 보이게 한다.
@@ -102,15 +159,13 @@ export function PreviewFrames({
                 <span className="truncate">{t(entry.labelKey)}</span>
                 <span className="ml-auto shrink-0 font-mono text-gray-500">{entry.width}px</span>
               </div>
-              <iframe
-                key={`${entry.id}-${reloadKey ?? 0}`}
-                ref={index === 0 ? attachPrimary : picker.registerFrame}
-                src={src}
-                onLoad={(e) => picker.notifyFrameLoaded(e.currentTarget)}
-                className="min-h-0 w-full flex-1 border-0 bg-white"
-                title={`${t('common.iframe.serverPreview')} — ${entry.width}px`}
-                sandbox={IFRAME_SANDBOX}
-              />
+              {frame(
+                `${entry.id}-${reloadKey ?? 0}`,
+                index === 0 ? attachPrimary : picker.registerFrame,
+                'min-h-0 w-full flex-1 border-0 bg-white',
+                undefined,
+                `${frameTitle} — ${entry.width}px`,
+              )}
             </div>
           ))}
         </div>

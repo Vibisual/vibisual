@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   WEB_GROUP_DEFAULTS,
   WEB_GROUP_MAX_BOUNDS,
+  WEB_OPEN_TARGETS,
+  WEB_OPEN_TARGET_DEFAULT,
   normalizeWebGroupSettings,
+  normalizeWebOpenTarget,
   sameWebGroupSettings,
   type WebGroupSettings,
+  type WebOpenTarget,
 } from '@vibisual/shared';
+import { useWebOpenTargetStore } from '../../stores/webOpenTarget.js';
 import { NumberStepper } from './NumberStepper.js';
 
 /**
@@ -23,6 +28,9 @@ import { NumberStepper } from './NumberStepper.js';
  *
  * 설정은 **머신 단위**(`AppState.webGroup`, 기본 켬)라 프로젝트를 옮겨도 같다 — `ExternalFolderSection` 과 같은
  * 문법으로 자기 REST(`/api/web-fold`)를 직접 읽고 쓰고, 미저장만 창에 올린다.
+ *
+ * §5.23 「더블클릭」 — 같은 칸에 **[더블클릭하면 열 곳]**(`AppState.webOpenTarget`)도 있다. 기본은 바깥 브라우저, 고르면 앱 안
+ * iframe 탭(인터넷 페이지는 격리 웹뷰). 같은 저장 단추·같은 기본값 되돌리기를 탄다(칸 하나 = 창구 하나 = 단추 하나).
  */
 
 const API_BASE = '';
@@ -34,22 +42,31 @@ interface WebFoldSectionProps {
 
 interface WebFoldResponse {
   group?: unknown;
+  openTarget?: unknown;
 }
 
 export function WebFoldSection({ onDirtyChange }: WebFoldSectionProps = {}): React.JSX.Element {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<WebGroupSettings>({ ...WEB_GROUP_DEFAULTS });
   const [saved, setSaved] = useState<WebGroupSettings>({ ...WEB_GROUP_DEFAULTS });
+  const [draftTarget, setDraftTarget] = useState<WebOpenTarget>(WEB_OPEN_TARGET_DEFAULT);
+  const [savedTarget, setSavedTarget] = useState<WebOpenTarget>(WEB_OPEN_TARGET_DEFAULT);
   const [busy, setBusy] = useState<'load' | 'save' | null>(null);
   const [error, setError] = useState<'load' | 'save' | null>(null);
+  const radioName = useId();
 
-  const dirty = !sameWebGroupSettings(draft, saved);
+  const dirty = !sameWebGroupSettings(draft, saved) || draftTarget !== savedTarget;
 
   /** 화면은 **서버가 돌려준 그 값**을 따라간다 — 서버가 범위 밖 값을 접어 돌려줄 수 있다. */
   const adopt = useCallback((data: WebFoldResponse) => {
     const group = normalizeWebGroupSettings(data.group);
     setDraft(group);
     setSaved(group);
+    const target = normalizeWebOpenTarget(data.openTarget);
+    setDraftTarget(target);
+    setSavedTarget(target);
+    // 이 창의 더블클릭도 곧바로 새 값을 쓴다(다른 창은 WS `web_open_target_updated` 가 맞춘다).
+    useWebOpenTargetStore.getState().apply(target);
   }, []);
 
   const load = useCallback(async () => {
@@ -70,11 +87,11 @@ export function WebFoldSection({ onDirtyChange }: WebFoldSectionProps = {}): Rea
     setBusy('save');
     setError(null);
     try {
-      // 세 칸을 **늘 함께** 보낸다 — 서버는 빠진 칸을 지금 값으로 지키지만, 화면이 아는 완성본을 보내는 쪽이 어긋날 일이 없다.
+      // 칸을 **늘 함께** 보낸다 — 서버는 빠진 칸을 지금 값으로 지키지만, 화면이 아는 완성본을 보내는 쪽이 어긋날 일이 없다.
       const res = await fetch(`${API_BASE}/api/web-fold`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group: draft }),
+        body: JSON.stringify({ group: draft, openTarget: draftTarget }),
       });
       if (!res.ok) throw new Error(String(res.status));
       adopt(await res.json() as WebFoldResponse);
@@ -83,7 +100,7 @@ export function WebFoldSection({ onDirtyChange }: WebFoldSectionProps = {}): Rea
     } finally {
       setBusy(null);
     }
-  }, [draft, adopt]);
+  }, [draft, draftTarget, adopt]);
 
   useEffect(() => { void load(); }, [load]);
   // 편집분은 이 컴포넌트 state 에만 있다 — 언마운트되면 함께 사라지므로 dirty 도 반드시 내린다.
@@ -93,6 +110,21 @@ export function WebFoldSection({ onDirtyChange }: WebFoldSectionProps = {}): Rea
   const maxLabel = t('panel.options.advanced.webGroupMaxLabel', {
     defaultValue: 'Web bubbles shown separately per agent',
   });
+  const openTargetLabel = t('panel.options.advanced.webOpenTargetLabel', { defaultValue: 'Double-click opens in' });
+  const openTargetText: Record<WebOpenTarget, { label: string; description: string }> = {
+    external: {
+      label: t('panel.options.advanced.webOpenTargetExternal', { defaultValue: 'Your browser' }),
+      description: t('panel.options.advanced.webOpenTargetExternalDesc', {
+        defaultValue: 'The default. Opens in the browser you normally use.',
+      }),
+    },
+    iframe: {
+      label: t('panel.options.advanced.webOpenTargetIframe', { defaultValue: 'In-app iframe tab' }),
+      description: t('panel.options.advanced.webOpenTargetIframeDesc', {
+        defaultValue: 'Opens a web tab in the tab bar so you can read it inside the app. Internet pages run in a separate sandboxed view with no permissions, and sign-ins are cleared when the app closes.',
+      }),
+    },
+  };
   const disabled = busy !== null;
 
   return (
@@ -146,6 +178,40 @@ export function WebFoldSection({ onDirtyChange }: WebFoldSectionProps = {}): Rea
         </p>
       </div>
 
+      {/* §5.23 「더블클릭」 — 웹 버블을 더블클릭하면 마지막으로 읽은 주소를 어디서 여는가. 기본은 바깥 브라우저(사용자 지시). */}
+      <div
+        role="radiogroup"
+        aria-label={openTargetLabel}
+        className="flex flex-col gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5"
+      >
+        <span className="text-xs text-gray-200">{openTargetLabel}</span>
+        <p className="text-[12px] leading-snug text-gray-500">
+          {t('panel.options.advanced.webOpenTargetDesc', {
+            defaultValue: 'Double-clicking a web bubble opens the last address it read (for the search bubble, the last search).',
+          })}
+        </p>
+        {WEB_OPEN_TARGETS.map((target) => (
+          <label
+            key={target}
+            className={`flex items-start gap-2.5 rounded px-1 py-1 ${disabled ? 'opacity-40' : 'cursor-pointer hover:bg-white/[0.03]'}`}
+          >
+            <input
+              type="radio"
+              name={radioName}
+              value={target}
+              checked={draftTarget === target}
+              disabled={disabled}
+              onChange={() => setDraftTarget(target)}
+              className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-blue-500 disabled:cursor-not-allowed"
+            />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-xs text-gray-200">{openTargetText[target].label}</span>
+              <span className="text-[12px] leading-snug text-gray-500">{openTargetText[target].description}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
       {/* 오류 문구는 바로 위 섹션과 원문이 같아 그 키를 그대로 쓴다 — 같은 원문에 키를 새로 파면
           로케일마다 번역이 갈린다(docs/rules/i18n.md 「같은 원문이 여러 곳에 쓰이면 단일 키」). */}
       {error && (
@@ -170,7 +236,10 @@ export function WebFoldSection({ onDirtyChange }: WebFoldSectionProps = {}): Rea
         <button
           type="button"
           disabled={disabled}
-          onClick={() => setDraft({ ...WEB_GROUP_DEFAULTS })}
+          onClick={() => {
+            setDraft({ ...WEB_GROUP_DEFAULTS });
+            setDraftTarget(WEB_OPEN_TARGET_DEFAULT);
+          }}
           className="rounded border border-gray-700 px-3 py-1.5 text-xs text-gray-300 disabled:opacity-40 hover:bg-white/[0.04]"
         >
           {t('panel.options.storage.reset', { defaultValue: 'Restore defaults' })}

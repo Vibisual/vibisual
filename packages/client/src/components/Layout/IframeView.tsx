@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isHttpUrl, isRemoteWebUrl } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
 import { isWorkspaceSiteSrc } from '../../utils/workspaceSite.js';
@@ -37,6 +38,11 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   //   스냅샷에 없어 위 따라가기만으로는 모자란다). 사용자가 주소창으로 고른 주소는 묻지 않는다.
   const guard = useIframeTabGuard(tabId, currentUrl, currentUrl === url);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // §5.23 「더블클릭」 · §7.11 — 공인 호스트는 **인터넷 페이지**다. 프록시(로컬·사설 대역 전용 — 공인은 403)를 거치지 않고
+  //   격리 웹뷰로 싣는다(`PreviewFrames` 의 `web`). 다리 스크립트가 없어 요소 집기·Alt 손잡이도 걷는다.
+  const web = isRemoteWebUrl(currentUrl);
+  // 웹뷰·직접 iframe 은 같은 src 를 다시 넣어 새로 고칠 수 없어(프록시 iframe 과 달리 그 프레임이 우리 것이 아니다) 키를 돌린다.
+  const [webReloadKey, setWebReloadKey] = useState(0);
   // §7.11 — 폭 프리셋 + 요소 집기(집은 요소 → 이 프리뷰를 띄운 에이전트에게 명령).
   const picker = usePreviewPicker(iframeRef, currentUrl);
   // §5.17 (B) — 그은 사각형이 그 에이전트의 입력창 첨부가 된다.
@@ -77,8 +83,22 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   }, [inputUrl, tabId]);
 
   const handleReload = useCallback(() => {
+    if (web) {
+      setWebReloadKey((k) => k + 1);
+      return;
+    }
     if (iframeRef.current) {
       iframeRef.current.src = toProxyUrl(currentUrl);
+    }
+  }, [currentUrl, web]);
+
+  // 지금 보는 주소를 바깥 브라우저로 — 앱에 하나뿐인 여는 길(`window.open` → main `setWindowOpenHandler`). 웹뷰가 없는 화면에서
+  //   띄우기를 막는 사이트를 만났을 때 나가는 문이기도 하다(§7.11).
+  const handleOpenExternal = useCallback(() => {
+    try {
+      window.open(currentUrl, '_blank', 'noopener,noreferrer');
+    } catch {
+      /* 창이 막히면 조용히 넘어간다 */
     }
   }, [currentUrl]);
 
@@ -114,7 +134,24 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
         </form>
 
         {/* §7.11 · §5.17 — 폭 프리셋 + 요소 집기 + 영역 캡처. 캔버스 프리뷰와 같은 훅·같은 화면 요소. */}
-        <PreviewControls picker={picker} snip={snip} />
+        <PreviewControls picker={picker} snip={snip} bridge={!web} />
+
+        {/* 바깥 브라우저에서 열기 — http(s) 주소인 탭마다(로컬 프리뷰도). 워크스페이스 HTML(상대 경로)은 바깥에서 열 주소가 아니다. */}
+        {isHttpUrl(currentUrl) && (
+          <button
+            type="button"
+            onClick={handleOpenExternal}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/[0.08] pointer-coarse:h-8 pointer-coarse:w-8"
+            title={t('panel.webEntry.openExternal')}
+            aria-label={t('panel.webEntry.openExternal')}
+          >
+            <svg className="h-3.5 w-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <path d="M15 3h6v6" />
+              <path d="M10 14 21 3" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* iframe content — 프록시 경유. 서버 꺼짐 시 opacity 낮춰 비활성 표시. */}
@@ -124,7 +161,9 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
         <PreviewFrames
           picker={picker}
           snip={snip}
-          src={toProxyUrl(currentUrl)}
+          src={web ? currentUrl : toProxyUrl(currentUrl)}
+          web={web}
+          reloadKey={web ? webReloadKey : undefined}
           primaryRef={iframeRef}
           className="bg-gray-950"
           style={overlayStyle}
