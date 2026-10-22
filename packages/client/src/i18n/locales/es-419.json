@@ -729,7 +729,13 @@
         "webGroupByKind": "Agrupar sitios de tipos similares",
         "webGroupByKindDesc": "Cuando se supera el número de abajo, los sitios del mismo tipo (documentación, código, paquetes, Q&A, etc.) comparten una sola burbuja. Los sitios cuyo tipo no está claro van a «{{other}}».",
         "webGroupMaxLabel": "Burbujas web mostradas por separado para cada agente",
-        "webGroupMaxDesc": "Se muestran por separado hasta esta cantidad de burbujas, empezando por las de lectura más reciente; el resto se agrupa. Con 1, todo lo que leyó un agente se reúne en una sola burbuja, y 0 significa sin límite. Los dominios anclados siempre conservan su propia burbuja y no cuentan."
+        "webGroupMaxDesc": "Se muestran por separado hasta esta cantidad de burbujas, empezando por las de lectura más reciente; el resto se agrupa. Con 1, todo lo que leyó un agente se reúne en una sola burbuja, y 0 significa sin límite. Los dominios anclados siempre conservan su propia burbuja y no cuentan.",
+        "webOpenTargetLabel": "El doble clic abre en",
+        "webOpenTargetDesc": "Al hacer doble clic en una burbuja web, se abre la última dirección que leyó (en la burbuja de búsqueda, la última búsqueda).",
+        "webOpenTargetExternal": "Tu navegador",
+        "webOpenTargetExternalDesc": "Opción predeterminada. Se abre en el navegador que usas habitualmente.",
+        "webOpenTargetIframe": "Pestaña iframe en la app",
+        "webOpenTargetIframeDesc": "Abre una pestaña web en la barra de pestañas para leerla dentro de la app. Las páginas de internet se ejecutan en una vista aislada (sandbox) sin permisos, y los inicios de sesión se borran al cerrar la app."
       },
       "notifications": {
         "cmdBlocked": "Avisar cuando una sesión de CMD esté esperando entrada",
@@ -757,7 +763,7 @@
         "localHint": "Haz clic derecho en el lienzo y luego en All Model. La descarga del motor y los modelos ocurre en esa ventana.",
         "codexHooks": "Mostrar sesiones de Codex ejecutadas fuera de Vibisual",
         "codexHooksDesc": "Agrega hooks de Vibisual a tu configuración de Codex para que las sesiones iniciadas en una terminal o editor también aparezcan en el lienzo.",
-        "codexHooksTrust": "Codex te va a pedir que confíes en los hooks nuevos una vez, la próxima vez que lo inicies. Hasta que aceptes, no se reenvía nada.",
+        "codexHooksTrust": "Codex te va a pedir que confíes en los hooks nuevos la próxima vez que lo inicies. Vibisual los quita al cerrarse y los vuelve a agregar al iniciarse, así que Codex puede volver a pedírtelo. Hasta que aceptes, no se reenvía nada.",
         "hooksOn": "Activado",
         "hooksOff": "Desactivado",
         "working": "Procesando…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "Comando acortado por el límite del historial.",
       "outputTruncated": "Salida acortada por el límite del historial.",
       "noOutput": "No hay salida registrada.",
-      "recentLimit": "Se muestran hasta {{count}} comandos recientes.",
       "status": {
         "running": "En ejecución",
         "success": "Completado",
@@ -1790,7 +1795,9 @@
       "output": "Salida",
       "waitingForOutput": "Esperando salida...",
       "noCommandsYet": "Aún no hay comandos registrados.",
-      "commandsHeading": "Comandos ({{count}})"
+      "commandsHeading": "Comandos ({{count}})",
+      "limitLabel": "Conservar solo los últimos {{count}}",
+      "limitHint": "Desmarca para mostrar todos los registros de comandos que todavía tiene esta burbuja. Los registros en sí se conservan hasta los {{keep}} más recientes por sesión."
     },
     "fileEdit": {
       "edit": "Editar",
@@ -1980,9 +1987,6 @@
       "checkOnSite": "Consultar en el sitio web",
       "resetPasses": "Pases para restablecer el límite",
       "resetPassCount": "{{count}} disponibles",
-      "resetPassCount_one": "{{count}} disponible",
-      "resetPassCount_other": "{{count}} disponibles",
-      "resetPassCount_many": "{{count}} disponibles",
       "resetPassDefault": "Restablecer el límite",
       "expiresAt": "Vence el {{date}}",
       "noExpiry": "Sin vencimiento",
@@ -5570,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} líneas",
       "activity": "Comandos ejecutados",
-      "showMoreLines": "Mostrar {{count}} líneas más",
-      "showLess": "Mostrar menos",
       "pathLink": {
         "openFile": "Abrir en el editor — {{path}}",
         "openFolder": "Abrir carpeta — {{path}}",
@@ -5885,6 +5887,36 @@
       "usageLimit": "Límite de uso",
       "disconnected": "Conexión cortada",
       "interrupted": "Interrumpido"
+    },
+    "bubbles": {
+      "toggle": "Burbujas",
+      "tipOff": "Mostrar esta sesión como burbujas: los archivos, carpetas, sitios web y comandos que tocó",
+      "tipOn": "Volver a la conversación",
+      "mapLabel": "Mapa de burbujas de la sesión",
+      "empty": "Todavía no hay archivos, comandos ni visitas web en esta conversación.",
+      "pendingAsk": "Preguntas que esperan tu respuesta: {{count}}",
+      "goToConversation": "Ir a la conversación",
+      "loadOlder": "Cargar historial anterior",
+      "loadOlderTip": "El mapa se construye a partir del historial cargado aquí. Carga una página más de historial anterior.",
+      "summary": "Llamadas a herramientas: {{calls}} · Eventos cargados: {{events}}",
+      "reads": "Lecturas: {{count}}",
+      "writes": "Escrituras: {{count}}",
+      "searches": "Búsquedas: {{count}}",
+      "files": "Archivos: {{count}}",
+      "lastTouch": "Último: {{tool}} · {{when}}",
+      "viaTask": "A través del sub-agente: {{name}}",
+      "external": "Fuera del proyecto",
+      "enter": "Entrar a la carpeta",
+      "leave": "Volver a la sesión",
+      "openAddress": "Abrir dirección",
+      "showInConversation": "Mostrar en la conversación",
+      "copyAddress": "Copiar dirección",
+      "copyCommand": "Copiar comando",
+      "recentQueries": "Búsquedas recientes",
+      "recentCommands": "Comandos recientes",
+      "moreFiles": "{{count}} archivos más: entra a la carpeta para verlos todos",
+      "overflowHint": "Los lugares usados hace más tiempo, reunidos en una sola burbuja",
+      "centerTotals": "Archivos {{files}} · Web {{webs}} · Apps {{apps}} · Sub-agentes {{tasks}}"
     },
     "density": {
       "label": "Densidad de visualización",
@@ -6529,7 +6561,7 @@
       "resizeHint": "Arrastra para ajustar · doble clic para igualar",
       "foreignSession": "Esa sesión pertenece a otra burbuja",
       "tooSmall": "Demasiado pequeño para dividir",
-      "alreadyHere": "Ya se muestra aquí"
+      "alreadyHere": "Es la misma pestaña que estás viendo · elige otra"
     },
     "specReading": {
       "scope": {
@@ -7956,10 +7988,21 @@
       "hiddenLinksBadge": "Enlaces ocultos",
       "hiddenBubblesAndLinksBadge": "Burbujas y enlaces ocultos",
       "hiddenBadgeHint": "Clic derecho → Ocultar para volver a mostrarlos",
-      "lensFiles": "Enfocar archivos de trabajo",
-      "lensFilesNote": "Devuelve las líneas de archivos a plena intensidad y contrae los elementos enlazados",
-      "lensLinked": "Enfocar elementos enlazados",
-      "lensLinkedNote": "Muestra las escenas y los materiales de las apps enlazadas y atenúa las líneas de archivos"
+      "lensFiles": "Ver todas las burbujas",
+      "lensFilesNote": "Muestra todas las burbujas de este agente y devuelve las líneas de archivos a plena intensidad",
+      "lensLinked": "Ver solo las burbujas de las apps",
+      "lensLinkedNote": "Deja solo las burbujas relacionadas con las apps enlazadas, contrae el resto y atenúa las líneas de archivos",
+      "linkedBubbles": "Burbujas enlazadas",
+      "pinLinks": "Fijar",
+      "pinLinksNote": "Mantiene las burbujas enlazadas aunque hagas clic en el agente después de que termine",
+      "unpinLinks": "Desfijar",
+      "unpinLinksNote": "Quita las burbujas enlazadas de inmediato",
+      "unpinLinksRunningNote": "Sigue en ejecución — se quitarán como siempre cuando termine",
+      "replayLinks": "Volver a mostrar los enlaces anteriores",
+      "replayLinksNote_one": "{{count}} burbuja — haz clic de nuevo en el agente para quitarla",
+      "replayLinksNote_other": "{{count}} burbujas — haz clic de nuevo en el agente para quitarlas",
+      "replayLinksRunning": "Mientras se ejecuta, ya se muestran sus enlaces actuales",
+      "replayLinksEmpty": "Aún no hay enlaces anteriores para mostrar"
     },
     "pathLock": {
       "badgeSelf": "Bloqueado: cualquier IA debe preguntarte antes de abrirlo",
@@ -8024,8 +8067,6 @@
     "constellation": {
       "group": "Agrupado con {{hub}} — {{reason}}",
       "groupVia": "Agrupado con {{hub}} — {{reason}} ({{via}})",
-      "hub_one": "{{count}} archivo relacionado orbita alrededor de este archivo",
-      "hub_other": "{{count}} archivos relacionados orbitan alrededor de este archivo",
       "reason": {
         "appResult": "el resultado del nodo",
         "appPart": "usado por el nodo",
@@ -8035,8 +8076,8 @@
         "sameStem": "mismo nombre",
         "stemFamily": "nombre similar",
         "sameFolder": "misma carpeta",
-        "album": "fotos en la misma carpeta",
-        "appWork": "creado mientras se trabajaba en el nodo"
+        "appWork": "creado mientras se trabajaba en el nodo",
+        "center": "el archivo principal del grupo"
       }
     },
     "fileFace": {
@@ -8100,6 +8141,30 @@
         "memo": "Notas",
         "other": "Otros"
       }
+    },
+    "domain": {
+      "openHintExternal": "Doble clic para abrir en el navegador la última dirección que leyó esta burbuja",
+      "openHintIframe": "Doble clic para abrir en una pestaña de la app la última dirección que leyó esta burbuja"
+    },
+    "bundle": {
+      "kind": {
+        "video": "Grupo de videos",
+        "image": "Grupo de imágenes",
+        "audio": "Grupo de sonidos",
+        "model": "Grupo de modelos 3D",
+        "code": "Grupo de código",
+        "data": "Grupo de datos",
+        "doc": "Grupo de documentos",
+        "subtitle": "Grupo de subtítulos",
+        "font": "Grupo de tipografías",
+        "other": "Grupo de archivos"
+      },
+      "sequence": "Secuencia numerada",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}} — {{kind}} · {{count}} archivo",
+      "title_other": "{{name}} — {{kind}} · {{count}} archivos",
+      "enterHint": "Doble clic para abrir este grupo y ver solo sus archivos",
+      "crumb": "Grupo {{name}}"
     }
   },
   "common": {
@@ -8114,7 +8179,8 @@
       "serverPreview": "Vista previa del servidor",
       "reload": "Recargar",
       "otherProjectTitle": "El servidor de otro proyecto está en esta dirección",
-      "otherProjectBody": "En {{url}} responde ahora un servidor iniciado por otro proyecto abierto, así que esta pestaña no carga esa dirección. Se abre de nuevo sola en cuanto el servidor de este proyecto vuelva a estar en esa dirección."
+      "otherProjectBody": "En {{url}} responde ahora un servidor iniciado por otro proyecto abierto, así que esta pestaña no carga esa dirección. Se abre de nuevo sola en cuanto el servidor de este proyecto vuelva a estar en esa dirección.",
+      "webPage": "Página web"
     },
     "serverKind": {
       "frontendShort": "FE",

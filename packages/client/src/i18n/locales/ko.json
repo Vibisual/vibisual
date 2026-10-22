@@ -729,7 +729,13 @@
         "webGroupByKind": "비슷한 종류의 사이트 묶기",
         "webGroupByKindDesc": "아래 개수를 넘으면 같은 종류의 사이트(문서, 코드, 패키지, 질문·답변 등)는 버블 하나로 묶입니다. 종류가 분명하지 않은 사이트는 \"{{other}}\"에 들어갑니다.",
         "webGroupMaxLabel": "에이전트마다 따로 보일 웹 버블 개수",
-        "webGroupMaxDesc": "이 개수까지는 가장 최근에 읽은 것부터 차례로 따로 표시되고, 나머지는 묶입니다. 1이면 에이전트가 읽은 모든 도메인이 버블 하나로 접히고, 0이면 제한이 없습니다. 고정된 도메인은 항상 자기 버블을 유지하며 이 개수에 포함되지 않습니다."
+        "webGroupMaxDesc": "이 개수까지는 가장 최근에 읽은 것부터 차례로 따로 표시되고, 나머지는 묶입니다. 1이면 에이전트가 읽은 모든 도메인이 버블 하나로 접히고, 0이면 제한이 없습니다. 고정된 도메인은 항상 자기 버블을 유지하며 이 개수에 포함되지 않습니다.",
+        "webOpenTargetLabel": "더블클릭하면 열 곳",
+        "webOpenTargetDesc": "웹 버블을 더블클릭하면 그 버블이 마지막으로 읽은 주소를 엽니다(검색 버블은 마지막 검색).",
+        "webOpenTargetExternal": "바깥 브라우저",
+        "webOpenTargetExternalDesc": "기본값입니다. 평소 쓰시는 브라우저에서 엽니다.",
+        "webOpenTargetIframe": "앱 안 iframe 탭",
+        "webOpenTargetIframeDesc": "탭 줄에 웹 탭을 열어 앱 안에서 봅니다. 인터넷 페이지는 앱과 분리된 샌드박스 화면에서 권한 없이 열리고, 로그인은 앱을 끄면 지워집니다."
       },
       "notifications": {
         "cmdBlocked": "CMD 세션이 입력을 기다리면 알림",
@@ -757,7 +763,7 @@
         "localHint": "캔버스를 마우스 오른쪽 버튼으로 클릭한 뒤 [All Model]을 선택하세요. 엔진과 모델 다운로드는 그 창에서 진행됩니다.",
         "codexHooks": "Vibisual 외부에서 실행한 Codex 세션 표시",
         "codexHooksDesc": "터미널이나 편집기에서 시작한 세션도 캔버스에 나타나도록, Codex 설정에 Vibisual hook을 추가합니다.",
-        "codexHooksTrust": "다음에 Codex를 시작할 때 새 hook을 신뢰할지 한 번 물어봅니다. 수락하기 전까지는 아무것도 전달되지 않습니다.",
+        "codexHooksTrust": "다음에 Codex를 시작할 때 새 hook을 신뢰할지 물어봅니다. Vibisual에서는 종료할 때 hook을 제거하고 시작할 때 다시 추가하므로, Codex가 또 물어볼 수 있습니다. 수락하기 전까지는 아무것도 전달되지 않습니다.",
         "hooksOn": "켜짐",
         "hooksOff": "꺼짐",
         "working": "작업 중…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "기록 용량 제한으로 명령 일부만 보관했습니다.",
       "outputTruncated": "기록 용량 제한으로 출력 일부만 보관했습니다.",
       "noOutput": "기록된 출력이 없습니다.",
-      "recentLimit": "최근 명령을 최대 {{count}}개 표시합니다.",
       "status": {
         "running": "실행 중",
         "success": "완료",
@@ -1790,7 +1795,9 @@
       "output": "출력",
       "waitingForOutput": "출력 대기 중...",
       "noCommandsYet": "기록된 명령이 없습니다.",
-      "commandsHeading": "명령 ({{count}})"
+      "commandsHeading": "명령 ({{count}})",
+      "limitLabel": "마지막 {{count}}개만 유지",
+      "limitHint": "체크를 끄면 이 버블에 남아 있는 명령 기록을 모두 보여 줍니다. 기록 자체는 세션마다 최근 {{keep}}건까지 보관됩니다."
     },
     "fileEdit": {
       "edit": "편집",
@@ -5883,6 +5890,36 @@
       "disconnected": "응답 끊김",
       "interrupted": "중단됨"
     },
+    "bubbles": {
+      "toggle": "버블",
+      "tipOff": "이 세션이 건드린 파일, 폴더, 웹, 명령을 버블로 보기",
+      "tipOn": "대화로 돌아가기",
+      "mapLabel": "세션 버블맵",
+      "empty": "이 대화에는 아직 파일, 명령, 웹 방문이 없습니다.",
+      "pendingAsk": "답변을 기다리는 질문 {{count}}개",
+      "goToConversation": "대화로 이동",
+      "loadOlder": "이전 기록 불러오기",
+      "loadOlderTip": "이 버블맵은 지금까지 불러온 기록으로 만들어집니다. 이전 기록을 한 페이지 더 불러옵니다.",
+      "summary": "도구 호출 {{calls}}건 · 이벤트 {{events}}건 불러옴",
+      "reads": "읽기 {{count}}회",
+      "writes": "쓰기 {{count}}회",
+      "searches": "검색 {{count}}회",
+      "files": "파일 {{count}}개",
+      "lastTouch": "마지막: {{tool}} · {{when}}",
+      "viaTask": "서브 에이전트 경유: {{name}}",
+      "external": "프로젝트 밖",
+      "enter": "폴더 안으로 들어가기",
+      "leave": "세션으로 돌아가기",
+      "openAddress": "주소 열기",
+      "showInConversation": "대화에서 보기",
+      "copyAddress": "주소 복사",
+      "copyCommand": "명령 복사",
+      "recentQueries": "최근 검색어",
+      "recentCommands": "최근 명령",
+      "moreFiles": "파일 {{count}}개가 더 있으며, 폴더 안으로 들어가면 모두 볼 수 있습니다",
+      "overflowHint": "가장 오래 사용하지 않은 곳들이 하나로 접혀 있습니다",
+      "centerTotals": "파일 {{files}} · 웹 {{webs}} · 앱 {{apps}} · 서브 에이전트 {{tasks}}"
+    },
     "density": {
       "label": "표시 밀도",
       "compact": "간결",
@@ -6526,7 +6563,7 @@
       "resizeHint": "끌어서 크기 조절 · 더블클릭하면 균등",
       "foreignSession": "다른 버블의 세션입니다",
       "tooSmall": "더 나누기엔 너무 좁습니다",
-      "alreadyHere": "이미 이 칸에 있습니다"
+      "alreadyHere": "지금 보고 있는 탭과 같은 탭입니다 · 다른 탭을 고르세요"
     },
     "specReading": {
       "scope": {
@@ -7953,10 +7990,21 @@
       "hiddenLinksBadge": "연결선 숨김",
       "hiddenBubblesAndLinksBadge": "버블·연결선 숨김",
       "hiddenBadgeHint": "우클릭 → 숨기기에서 다시 표시할 수 있습니다",
-      "lensFiles": "작업 파일 위주로 보기",
-      "lensFilesNote": "파일 선을 다시 선명하게 하고 연결된 것은 접습니다",
-      "lensLinked": "연결된 것 위주로 보기",
-      "lensLinkedNote": "연결된 앱의 장면·소재를 보여 주고 파일 선은 흐리게 합니다"
+      "lensFiles": "버블 전부 보기",
+      "lensFilesNote": "이 에이전트의 버블을 모두 보이고, 흐리게 했던 파일 선을 다시 선명하게 합니다",
+      "lensLinked": "앱 관련 버블만 보기",
+      "lensLinkedNote": "연결된 앱과 관련된 버블만 남기고 나머지는 접습니다. 파일 선은 흐리게 합니다",
+      "linkedBubbles": "연결된 버블",
+      "pinLinks": "고정",
+      "pinLinksNote": "끝난 에이전트를 클릭해도 연결된 버블이 그대로 남습니다",
+      "unpinLinks": "고정 풀기",
+      "unpinLinksNote": "연결된 버블이 바로 사라집니다",
+      "unpinLinksRunningNote": "아직 실행 중입니다 — 끝나면 평소처럼 사라집니다",
+      "replayLinks": "이전 연결 다시 보기",
+      "replayLinksNote_one": "버블 {{count}}개 — 에이전트를 다시 클릭하면 사라집니다",
+      "replayLinksNote_other": "버블 {{count}}개 — 에이전트를 다시 클릭하면 사라집니다",
+      "replayLinksRunning": "실행 중에는 현재 연결이 이미 보이고 있습니다",
+      "replayLinksEmpty": "아직 다시 볼 이전 연결이 없습니다"
     },
     "pathLock": {
       "badgeSelf": "잠김 — 어떤 AI든 열기 전에 허락을 받습니다",
@@ -8021,8 +8069,6 @@
     "constellation": {
       "group": "{{hub}}에 묶임 — {{reason}}",
       "groupVia": "{{hub}}에 묶임 — {{reason}} ({{via}})",
-      "hub_one": "관련 파일 {{count}}개가 이 파일 주위를 돕니다",
-      "hub_other": "관련 파일 {{count}}개가 이 파일 주위를 돕니다",
       "reason": {
         "appResult": "앱 위성의 결과",
         "appPart": "앱 위성에서 사용됨",
@@ -8032,8 +8078,8 @@
         "sameStem": "같은 이름",
         "stemFamily": "비슷한 이름",
         "sameFolder": "같은 폴더",
-        "album": "같은 폴더의 사진",
-        "appWork": "앱 위성의 작업 중에 생김"
+        "appWork": "앱 위성의 작업 중에 생김",
+        "center": "묶음의 중심 파일"
       }
     },
     "fileFace": {
@@ -8097,6 +8143,30 @@
         "memo": "메모",
         "other": "기타"
       }
+    },
+    "domain": {
+      "openHintExternal": "더블클릭하면 이 버블이 마지막으로 읽은 주소를 브라우저에서 엽니다",
+      "openHintIframe": "더블클릭하면 이 버블이 마지막으로 읽은 주소를 앱 안 탭에서 엽니다"
+    },
+    "bundle": {
+      "kind": {
+        "video": "영상 묶음",
+        "image": "사진 묶음",
+        "audio": "소리 묶음",
+        "model": "3D 묶음",
+        "code": "코드 묶음",
+        "data": "데이터 묶음",
+        "doc": "문서 묶음",
+        "subtitle": "자막 묶음",
+        "font": "글꼴 묶음",
+        "other": "파일 묶음"
+      },
+      "sequence": "연속 번호",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}} — {{kind}} · 파일 {{count}}개",
+      "title_other": "{{name}} — {{kind}} · 파일 {{count}}개",
+      "enterHint": "더블클릭하면 묶음 안으로 들어가 구성 파일만 봅니다",
+      "crumb": "{{name}} 묶음"
     }
   },
   "common": {
@@ -8111,7 +8181,8 @@
       "serverPreview": "서버 미리보기",
       "reload": "새로고침",
       "otherProjectTitle": "다른 프로젝트의 서버가 이 주소에서 실행 중입니다",
-      "otherProjectBody": "현재 {{url}}에서는 다른 열린 프로젝트가 시작한 서버가 응답하고 있어서 이 탭은 불러오지 않습니다. 이 프로젝트의 서버가 그 주소에서 다시 실행되면 자동으로 열립니다."
+      "otherProjectBody": "현재 {{url}}에서는 다른 열린 프로젝트가 시작한 서버가 응답하고 있어서 이 탭은 불러오지 않습니다. 이 프로젝트의 서버가 그 주소에서 다시 실행되면 자동으로 열립니다.",
+      "webPage": "웹 페이지"
     },
     "serverKind": {
       "frontendShort": "FE",

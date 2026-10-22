@@ -729,7 +729,13 @@
         "webGroupByKind": "Websites ähnlicher Art gruppieren",
         "webGroupByKindDesc": "Sind es mehr als die unten eingestellte Anzahl, teilen sich Websites derselben Art — Doku, Code, Pakete, Q&A usw. — eine Bubble. Websites, deren Art unklar ist, kommen in „{{other}}“.",
         "webGroupMaxLabel": "Einzeln angezeigte Web-Bubbles pro Agent",
-        "webGroupMaxDesc": "Höchstens so viele stehen einzeln, die zuletzt gelesenen zuerst; der Rest wird gruppiert. Bei 1 wird alles, was ein Agent gelesen hat, in einer Bubble zusammengefasst, und bei 0 gibt es kein Limit. Angeheftete Domains behalten immer ihre eigene Bubble und zählen nicht mit."
+        "webGroupMaxDesc": "Höchstens so viele stehen einzeln, die zuletzt gelesenen zuerst; der Rest wird gruppiert. Bei 1 wird alles, was ein Agent gelesen hat, in einer Bubble zusammengefasst, und bei 0 gibt es kein Limit. Angeheftete Domains behalten immer ihre eigene Bubble und zählen nicht mit.",
+        "webOpenTargetLabel": "Doppelklick öffnet in",
+        "webOpenTargetDesc": "Ein Doppelklick auf eine Web-Bubble öffnet die Adresse, die sie zuletzt gelesen hat (bei der Such-Bubble die letzte Suche).",
+        "webOpenTargetExternal": "Ihr Browser",
+        "webOpenTargetExternalDesc": "Standard. Öffnet im Browser, den Sie sonst verwenden.",
+        "webOpenTargetIframe": "iframe-Tab in der App",
+        "webOpenTargetIframeDesc": "Öffnet einen Web-Tab in der Tableiste, damit Sie die Seite in der App lesen können. Internetseiten laufen in einer getrennten Sandbox-Ansicht ohne Berechtigungen, und Anmeldungen werden beim Schließen der App gelöscht."
       },
       "notifications": {
         "cmdBlocked": "Benachrichtigen, wenn eine CMD-Sitzung auf eine Eingabe wartet",
@@ -757,7 +763,7 @@
         "localHint": "Klicke mit der rechten Maustaste auf die Arbeitsfläche, dann auf All Model. Das Herunterladen der Engine und der Modelle erfolgt in diesem Fenster.",
         "codexHooks": "Codex-Sitzungen außerhalb von Vibisual anzeigen",
         "codexHooksDesc": "Fügt deiner Codex-Konfiguration Vibisual-Hooks hinzu, damit auch Sitzungen, die in einem Terminal oder Editor gestartet wurden, auf der Arbeitsfläche erscheinen.",
-        "codexHooksTrust": "Codex bittet dich beim nächsten Start einmal darum, neuen Hooks zu vertrauen. Bis du zustimmst, wird nichts weitergeleitet.",
+        "codexHooksTrust": "Wenn du Codex das nächste Mal startest, bittet es dich, den neuen Hooks zu vertrauen. Vibisual entfernt sie beim Beenden und fügt sie beim Start wieder hinzu, sodass Codex möglicherweise erneut darum bittet. Bis du zustimmst, wird nichts weitergeleitet.",
         "hooksOn": "An",
         "hooksOff": "Aus",
         "working": "Wird ausgeführt…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "Befehl wegen des Speicherlimits gekürzt.",
       "outputTruncated": "Ausgabe wegen des Speicherlimits gekürzt.",
       "noOutput": "Keine Ausgabe aufgezeichnet.",
-      "recentLimit": "Bis zu {{count}} letzte Befehle werden angezeigt.",
       "status": {
         "running": "Läuft",
         "success": "Abgeschlossen",
@@ -1790,7 +1795,9 @@
       "output": "Ausgabe",
       "waitingForOutput": "Warte auf Ausgabe...",
       "noCommandsYet": "Noch keine Befehle aufgezeichnet.",
-      "commandsHeading": "Befehle ({{count}})"
+      "commandsHeading": "Befehle ({{count}})",
+      "limitLabel": "Nur letzte {{count}} behalten",
+      "limitHint": "Entferne das Häkchen, um alle noch vorhandenen Befehlseinträge dieser Blase aufzulisten. Von den Einträgen selbst bleiben pro Sitzung nur die neuesten {{keep}} erhalten."
     },
     "fileEdit": {
       "edit": "Bearbeiten",
@@ -5567,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} Zeilen",
       "activity": "Befehle ausgeführt",
-      "showMoreLines": "{{count}} weitere Zeilen anzeigen",
-      "showLess": "Weniger anzeigen",
       "pathLink": {
         "openFile": "Im Editor öffnen — {{path}}",
         "openFolder": "Ordner öffnen — {{path}}",
@@ -5882,6 +5887,36 @@
       "usageLimit": "Nutzungslimit",
       "disconnected": "Verbindung abgerissen",
       "interrupted": "Unterbrochen"
+    },
+    "bubbles": {
+      "toggle": "Bubbles",
+      "tipOff": "Diese Sitzung als Bubbles anzeigen – die Dateien, Ordner, Websites und Befehle, mit denen sie gearbeitet hat",
+      "tipOn": "Zurück zur Unterhaltung",
+      "mapLabel": "Bubble Map der Sitzung",
+      "empty": "In dieser Unterhaltung gibt es noch keine Dateien, Befehle oder besuchten Websites.",
+      "pendingAsk": "Fragen, die auf deine Antwort warten: {{count}}",
+      "goToConversation": "Zur Unterhaltung wechseln",
+      "loadOlder": "Früheren Verlauf laden",
+      "loadOlderTip": "Die Bubble Map wird aus dem hier geladenen Verlauf erstellt. Eine weitere Seite des früheren Verlaufs laden.",
+      "summary": "Tool-Aufrufe: {{calls}} · Geladene Ereignisse: {{events}}",
+      "reads": "Gelesen: {{count}}",
+      "writes": "Geschrieben: {{count}}",
+      "searches": "Durchsucht: {{count}}",
+      "files": "Dateien: {{count}}",
+      "lastTouch": "Zuletzt: {{tool}} · {{when}}",
+      "viaTask": "Über den Unteragenten: {{name}}",
+      "external": "Außerhalb des Projekts",
+      "enter": "In den Ordner wechseln",
+      "leave": "Zurück zur Sitzung",
+      "openAddress": "Adresse öffnen",
+      "showInConversation": "In der Unterhaltung anzeigen",
+      "copyAddress": "Adresse kopieren",
+      "copyCommand": "Befehl kopieren",
+      "recentQueries": "Letzte Suchanfragen",
+      "recentCommands": "Letzte Befehle",
+      "moreFiles": "Weitere Dateien: {{count}} – in den Ordner wechseln, um alle zu sehen",
+      "overflowHint": "Die am längsten nicht genutzten Elemente, zu einer Bubble zusammengefasst",
+      "centerTotals": "Dateien {{files}} · Web {{webs}} · Apps {{apps}} · Unteragenten {{tasks}}"
     },
     "density": {
       "label": "Anzeigedichte",
@@ -6526,7 +6561,7 @@
       "resizeHint": "Ziehen zum Anpassen · Doppelklick für gleiche Größe",
       "foreignSession": "Diese Sitzung gehört zu einer anderen Bubble",
       "tooSmall": "Zu klein zum Teilen",
-      "alreadyHere": "Wird hier bereits angezeigt"
+      "alreadyHere": "Derselbe Tab, den du gerade ansiehst · wähle einen anderen Tab"
     },
     "specReading": {
       "scope": {
@@ -7953,10 +7988,21 @@
       "hiddenLinksBadge": "Verknüpfungen ausgeblendet",
       "hiddenBubblesAndLinksBadge": "Bubbles und Verknüpfungen ausgeblendet",
       "hiddenBadgeHint": "Rechtsklick → Ausblenden, um sie wieder anzuzeigen",
-      "lensFiles": "Auf Arbeitsdateien fokussieren",
-      "lensFilesNote": "Zeigt die Dateilinien wieder in voller Stärke und klappt die verknüpften Elemente ein",
-      "lensLinked": "Auf verknüpfte Elemente fokussieren",
-      "lensLinkedNote": "Zeigt die Szenen und Materialien der verknüpften Apps und dimmt die Dateilinien"
+      "lensFiles": "Alle Bubbles anzeigen",
+      "lensFilesNote": "Zeigt alle Bubbles dieses Agenten und die Dateilinien wieder in voller Stärke",
+      "lensLinked": "Nur App-bezogene Bubbles anzeigen",
+      "lensLinkedNote": "Lässt nur Bubbles der verknüpften Apps stehen, klappt den Rest ein und dimmt die Dateilinien",
+      "linkedBubbles": "Verknüpfte Bubbles",
+      "pinLinks": "Anheften",
+      "pinLinksNote": "Verknüpfte Bubbles bleiben erhalten – auch bei Klick auf den Agent nach dessen Abschluss",
+      "unpinLinks": "Lösen",
+      "unpinLinksNote": "Verknüpfte Bubbles werden sofort entfernt",
+      "unpinLinksRunningNote": "Der Agent läuft noch – die Bubbles werden wie gewohnt entfernt, sobald er fertig ist",
+      "replayLinks": "Vorherige Verknüpfungen erneut anzeigen",
+      "replayLinksNote_one": "{{count}} Bubble – zum Entfernen erneut auf den Agent klicken",
+      "replayLinksNote_other": "{{count}} Bubbles – zum Entfernen erneut auf den Agent klicken",
+      "replayLinksRunning": "Solange der Agent läuft, werden seine aktuellen Verknüpfungen bereits angezeigt",
+      "replayLinksEmpty": "Noch keine vorherigen Verknüpfungen zum Anzeigen"
     },
     "pathLock": {
       "badgeSelf": "Gesperrt – jede AI muss vor dem Öffnen bei dir nachfragen",
@@ -8021,8 +8067,6 @@
     "constellation": {
       "group": "Gruppiert mit {{hub}} – {{reason}}",
       "groupVia": "Gruppiert mit {{hub}} – {{reason}} ({{via}})",
-      "hub_one": "{{count}} zugehörige Datei umkreist diese Datei",
-      "hub_other": "{{count}} zugehörige Dateien umkreisen diese Datei",
       "reason": {
         "appResult": "das Ergebnis des App-Satelliten",
         "appPart": "vom App-Satelliten verwendet",
@@ -8032,8 +8076,8 @@
         "sameStem": "gleicher Name",
         "stemFamily": "ähnlicher Name",
         "sameFolder": "im selben Ordner",
-        "album": "Fotos im selben Ordner",
-        "appWork": "bei der Arbeit am App-Satelliten entstanden"
+        "appWork": "bei der Arbeit am App-Satelliten entstanden",
+        "center": "die Hauptdatei der Gruppe"
       }
     },
     "fileFace": {
@@ -8097,6 +8141,30 @@
         "memo": "Notizen",
         "other": "Sonstiges"
       }
+    },
+    "domain": {
+      "openHintExternal": "Doppelklick öffnet die zuletzt von dieser Bubble gelesene Adresse im Browser",
+      "openHintIframe": "Doppelklick öffnet die zuletzt von dieser Bubble gelesene Adresse in einem Tab in der App"
+    },
+    "bundle": {
+      "kind": {
+        "video": "Videogruppe",
+        "image": "Bildgruppe",
+        "audio": "Soundgruppe",
+        "model": "3D-Gruppe",
+        "code": "Code-Gruppe",
+        "data": "Datengruppe",
+        "doc": "Dokumentgruppe",
+        "subtitle": "Untertitelgruppe",
+        "font": "Schriftartengruppe",
+        "other": "Dateigruppe"
+      },
+      "sequence": "Nummerierte Sequenz",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}} – {{kind}} · {{count}} Datei",
+      "title_other": "{{name}} – {{kind}} · {{count}} Dateien",
+      "enterHint": "Doppelklick, um diese Gruppe zu öffnen und nur ihre Dateien zu sehen",
+      "crumb": "Gruppe {{name}}"
     }
   },
   "common": {
@@ -8111,7 +8179,8 @@
       "serverPreview": "Server-Vorschau",
       "reload": "Neu laden",
       "otherProjectTitle": "Der Server eines anderen Projekts läuft unter dieser Adresse",
-      "otherProjectBody": "Unter {{url}} antwortet derzeit ein Server, den ein anderes geöffnetes Projekt gestartet hat. Deshalb lädt dieser Tab die Seite nicht. Sobald der Server dieses Projekts wieder unter dieser Adresse läuft, öffnet sie sich automatisch erneut."
+      "otherProjectBody": "Unter {{url}} antwortet derzeit ein Server, den ein anderes geöffnetes Projekt gestartet hat. Deshalb lädt dieser Tab die Seite nicht. Sobald der Server dieses Projekts wieder unter dieser Adresse läuft, öffnet sie sich automatisch erneut.",
+      "webPage": "Webseite"
     },
     "serverKind": {
       "frontendShort": "FE",

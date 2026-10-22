@@ -729,7 +729,13 @@
         "webGroupByKind": "Kelompokkan situs sejenis",
         "webGroupByKindDesc": "Jika jumlahnya melebihi angka di bawah, situs sejenis — dokumentasi, kode, paket, Q&A, dan sebagainya — berbagi satu bubble. Situs yang jenisnya tidak jelas masuk ke \"{{other}}\".",
         "webGroupMaxLabel": "Bubble web yang ditampilkan terpisah per agen",
-        "webGroupMaxDesc": "Bubble ditampilkan sendiri-sendiri hingga sebanyak angka ini, dimulai dari yang terakhir dibaca; sisanya dikelompokkan. Angka 1 melipat semua yang dibaca agen menjadi satu bubble, dan 0 berarti tanpa batas. Domain yang di-pin selalu memiliki bubble sendiri dan tidak ikut dihitung."
+        "webGroupMaxDesc": "Bubble ditampilkan sendiri-sendiri hingga sebanyak angka ini, dimulai dari yang terakhir dibaca; sisanya dikelompokkan. Angka 1 melipat semua yang dibaca agen menjadi satu bubble, dan 0 berarti tanpa batas. Domain yang di-pin selalu memiliki bubble sendiri dan tidak ikut dihitung.",
+        "webOpenTargetLabel": "Klik dua kali membuka di",
+        "webOpenTargetDesc": "Klik dua kali pada bubble web membuka alamat terakhir yang dibacanya (untuk bubble pencarian, pencarian terakhir).",
+        "webOpenTargetExternal": "Peramban Anda",
+        "webOpenTargetExternalDesc": "Bawaan. Membuka di peramban yang biasa Anda gunakan.",
+        "webOpenTargetIframe": "Tab iframe di dalam aplikasi",
+        "webOpenTargetIframeDesc": "Membuka tab web di bilah tab agar Anda bisa membacanya di dalam aplikasi. Halaman internet berjalan di tampilan sandbox terpisah tanpa izin apa pun, dan info masuk dihapus saat aplikasi ditutup."
       },
       "notifications": {
         "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
@@ -757,7 +763,7 @@
         "localHint": "Klik kanan pada canvas, lalu All Model. Mengunduh engine dan model berlangsung di jendela itu.",
         "codexHooks": "Tampilkan sesi Codex yang berjalan di luar Vibisual",
         "codexHooksDesc": "Menambahkan hook Vibisual ke config Codex Anda, sehingga sesi yang dimulai dari terminal atau editor juga muncul di canvas.",
-        "codexHooksTrust": "Codex akan meminta Anda mempercayai hook baru satu kali, pada saat berikutnya Anda menjalankannya. Sebelum Anda menyetujui, tidak ada yang diteruskan.",
+        "codexHooksTrust": "Codex akan meminta Anda mempercayai hook baru pada saat berikutnya Anda menjalankannya. Vibisual menghapus hook tersebut saat keluar dan menambahkannya kembali saat dimulai, sehingga Codex dapat meminta lagi. Sebelum Anda menyetujui, tidak ada yang diteruskan.",
         "hooksOn": "Aktif",
         "hooksOff": "Nonaktif",
         "working": "Memproses…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "Perintah dipersingkat sesuai batas riwayat.",
       "outputTruncated": "Keluaran dipersingkat sesuai batas riwayat.",
       "noOutput": "Tidak ada keluaran yang tercatat.",
-      "recentLimit": "Menampilkan hingga {{count}} perintah terbaru.",
       "status": {
         "running": "Berjalan",
         "success": "Selesai",
@@ -1790,7 +1795,9 @@
       "output": "Output",
       "waitingForOutput": "Menunggu output...",
       "noCommandsYet": "Belum ada perintah yang tercatat.",
-      "commandsHeading": "Perintah ({{count}})"
+      "commandsHeading": "Perintah ({{count}})",
+      "limitLabel": "Simpan {{count}} terakhir saja",
+      "limitHint": "Hapus centang untuk menampilkan semua catatan perintah yang masih ada di bubble ini. Catatan itu sendiri disimpan hingga {{keep}} terbaru per sesi."
     },
     "fileEdit": {
       "edit": "Edit",
@@ -5567,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} baris",
       "activity": "Perintah dijalankan",
-      "showMoreLines": "Tampilkan {{count}} baris lagi",
-      "showLess": "Tampilkan lebih sedikit",
       "pathLink": {
         "openFile": "Buka di editor — {{path}}",
         "openFolder": "Buka folder — {{path}}",
@@ -5882,6 +5887,36 @@
       "usageLimit": "Batas penggunaan",
       "disconnected": "Terputus",
       "interrupted": "Disela"
+    },
+    "bubbles": {
+      "toggle": "Bubble",
+      "tipOff": "Tampilkan sesi ini sebagai bubble — file, folder, web, dan perintah yang disentuh",
+      "tipOn": "Kembali ke percakapan",
+      "mapLabel": "Peta bubble sesi",
+      "empty": "Belum ada file, perintah, atau kunjungan web dalam percakapan ini.",
+      "pendingAsk": "Pertanyaan yang menunggu jawaban Anda: {{count}}",
+      "goToConversation": "Buka percakapan",
+      "loadOlder": "Muat riwayat sebelumnya",
+      "loadOlderTip": "Peta ini disusun dari riwayat yang dimuat di sini. Muat satu halaman lagi dari riwayat sebelumnya.",
+      "summary": "{{calls}} panggilan tool · {{events}} event dimuat",
+      "reads": "Dibaca {{count}} kali",
+      "writes": "Ditulis {{count}} kali",
+      "searches": "Dicari {{count}} kali",
+      "files": "File: {{count}}",
+      "lastTouch": "Terakhir: {{tool}} · {{when}}",
+      "viaTask": "Melalui sub-agent: {{name}}",
+      "external": "Di luar proyek",
+      "enter": "Masuk ke folder",
+      "leave": "Kembali ke sesi",
+      "openAddress": "Buka alamat",
+      "showInConversation": "Tampilkan di percakapan",
+      "copyAddress": "Salin alamat",
+      "copyCommand": "Salin perintah",
+      "recentQueries": "Pencarian terbaru",
+      "recentCommands": "Perintah terbaru",
+      "moreFiles": "{{count}} file lagi — masuk ke folder untuk melihat semuanya",
+      "overflowHint": "Tempat yang paling lama tidak dipakai, dilipat menjadi satu",
+      "centerTotals": "File {{files}} · Web {{webs}} · Aplikasi {{apps}} · Sub-agent {{tasks}}"
     },
     "density": {
       "label": "Kepadatan tampilan",
@@ -6526,7 +6561,7 @@
       "resizeHint": "Seret untuk mengubah ukuran · klik ganda untuk menyamakan",
       "foreignSession": "Sesi itu milik bubble lain",
       "tooSmall": "Terlalu kecil untuk dibagi",
-      "alreadyHere": "Sudah ditampilkan di sini"
+      "alreadyHere": "Sama dengan tab yang sedang Anda lihat · pilih tab lain"
     },
     "specReading": {
       "scope": {
@@ -7953,10 +7988,21 @@
       "hiddenLinksBadge": "Tautan disembunyikan",
       "hiddenBubblesAndLinksBadge": "Gelembung dan tautan disembunyikan",
       "hiddenBadgeHint": "Klik kanan → Sembunyikan untuk menampilkannya kembali",
-      "lensFiles": "Fokus pada file kerja",
-      "lensFilesNote": "Mengembalikan garis file ke kecerahan penuh dan melipat item terhubung",
-      "lensLinked": "Fokus pada item terhubung",
-      "lensLinkedNote": "Menampilkan adegan dan aset aplikasi terhubung, serta meredupkan garis file"
+      "lensFiles": "Tampilkan semua gelembung",
+      "lensFilesNote": "Menampilkan semua gelembung agen ini dan mengembalikan garis file ke kecerahan penuh",
+      "lensLinked": "Tampilkan hanya gelembung terkait aplikasi",
+      "lensLinkedNote": "Hanya menyisakan gelembung yang terkait aplikasi terhubung, melipat sisanya, dan meredupkan garis file",
+      "linkedBubbles": "Gelembung tertaut",
+      "pinLinks": "Pin",
+      "pinLinksNote": "Gelembung tertaut tetap ada meski agen diklik setelah selesai",
+      "unpinLinks": "Unpin",
+      "unpinLinksNote": "Gelembung tertaut langsung dihilangkan",
+      "unpinLinksRunningNote": "Masih berjalan — gelembung akan hilang seperti biasa setelah selesai",
+      "replayLinks": "Tampilkan lagi tautan sebelumnya",
+      "replayLinksNote_one": "{{count}} gelembung — klik agen lagi untuk menghilangkannya",
+      "replayLinksNote_other": "{{count}} gelembung — klik agen lagi untuk menghilangkannya",
+      "replayLinksRunning": "Selama agen berjalan, tautan saat ini sudah tampil",
+      "replayLinksEmpty": "Belum ada tautan sebelumnya untuk ditampilkan"
     },
     "pathLock": {
       "badgeSelf": "Terkunci — AI apa pun harus bertanya kepada Anda sebelum membukanya",
@@ -8021,8 +8067,6 @@
     "constellation": {
       "group": "Dikelompokkan dengan {{hub}} — {{reason}}",
       "groupVia": "Dikelompokkan dengan {{hub}} — {{reason}} ({{via}})",
-      "hub_one": "{{count}} file terkait mengorbit file ini",
-      "hub_other": "{{count}} file terkait mengorbit file ini",
       "reason": {
         "appResult": "hasil dari node itu",
         "appPart": "digunakan oleh node itu",
@@ -8032,8 +8076,8 @@
         "sameStem": "nama yang sama",
         "stemFamily": "nama yang mirip",
         "sameFolder": "folder yang sama",
-        "album": "foto di folder yang sama",
-        "appWork": "dibuat saat mengerjakan node"
+        "appWork": "dibuat saat mengerjakan node",
+        "center": "file utama kelompok"
       }
     },
     "fileFace": {
@@ -8097,6 +8141,30 @@
         "memo": "Catatan",
         "other": "Lainnya"
       }
+    },
+    "domain": {
+      "openHintExternal": "Klik dua kali untuk membuka alamat terakhir yang dibaca bubble ini di peramban",
+      "openHintIframe": "Klik dua kali untuk membuka alamat terakhir yang dibaca bubble ini di tab dalam aplikasi"
+    },
+    "bundle": {
+      "kind": {
+        "video": "Kelompok video",
+        "image": "Kelompok gambar",
+        "audio": "Kelompok suara",
+        "model": "Kelompok 3D",
+        "code": "Kelompok kode",
+        "data": "Kelompok data",
+        "doc": "Kelompok dokumen",
+        "subtitle": "Kelompok subtitel",
+        "font": "Kelompok font",
+        "other": "Kelompok file"
+      },
+      "sequence": "Urutan bernomor",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}} — {{kind}} · {{count}} file",
+      "title_other": "{{name}} — {{kind}} · {{count}} file",
+      "enterHint": "Klik dua kali untuk membuka kelompok ini dan hanya melihat file di dalamnya",
+      "crumb": "Kelompok {{name}}"
     }
   },
   "common": {
@@ -8111,7 +8179,8 @@
       "serverPreview": "Pratinjau server",
       "reload": "Muat ulang",
       "otherProjectTitle": "Server proyek lain berada di alamat ini",
-      "otherProjectBody": "{{url}} saat ini dilayani oleh server yang dijalankan proyek lain yang terbuka, sehingga tab ini tidak akan memuatnya. Tab ini akan terbuka lagi dengan sendirinya begitu server proyek ini kembali berada di alamat itu."
+      "otherProjectBody": "{{url}} saat ini dilayani oleh server yang dijalankan proyek lain yang terbuka, sehingga tab ini tidak akan memuatnya. Tab ini akan terbuka lagi dengan sendirinya begitu server proyek ini kembali berada di alamat itu.",
+      "webPage": "Halaman web"
     },
     "serverKind": {
       "frontendShort": "FE",

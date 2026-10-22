@@ -729,7 +729,13 @@
         "webGroupByKind": "将同类网站归为一组",
         "webGroupByKindDesc": "当超过下方设置的数量时，同类网站——文档、代码、软件包、问答等——会共用一个气泡。类型不明确的网站会归入“{{other}}”。",
         "webGroupMaxLabel": "每个 Agent 单独显示的网页气泡数量",
-        "webGroupMaxDesc": "最多会独立显示此数量的气泡，最近读取的优先；其余的会被分组。设为 1 会把 Agent 读取的全部内容折叠进一个气泡，设为 0 表示不限制。已固定的域名始终保留独立的气泡，且不计入此数量。"
+        "webGroupMaxDesc": "最多会独立显示此数量的气泡，最近读取的优先；其余的会被分组。设为 1 会把 Agent 读取的全部内容折叠进一个气泡，设为 0 表示不限制。已固定的域名始终保留独立的气泡，且不计入此数量。",
+        "webOpenTargetLabel": "双击时的打开位置",
+        "webOpenTargetDesc": "双击网页气泡会打开它最后读取的地址（搜索气泡则打开最后一次搜索）。",
+        "webOpenTargetExternal": "外部浏览器",
+        "webOpenTargetExternalDesc": "默认选项。在您平时使用的浏览器中打开。",
+        "webOpenTargetIframe": "应用内 iframe 标签页",
+        "webOpenTargetIframeDesc": "在标签栏中打开网页标签页，在应用内阅读。互联网页面在与应用隔离的沙盒视图中运行，不授予任何权限；关闭应用后登录信息会被清除。"
       },
       "notifications": {
         "cmdBlocked": "CMD 会话等待输入时通知我",
@@ -757,7 +763,7 @@
         "localHint": "在画布上右键点击，然后选择 All Model。下载引擎和模型都在该窗口中完成。",
         "codexHooks": "显示在 Vibisual 之外运行的 Codex 会话",
         "codexHooksDesc": "在你的 Codex 配置中添加 Vibisual Hooks，这样在终端或编辑器中启动的会话也会显示在画布上。",
-        "codexHooksTrust": "下次启动 Codex 时，它会请你信任一次新的 Hooks。在你确认之前，不会转发任何内容。",
+        "codexHooksTrust": "下次启动 Codex 时，它会请你信任新的 Hooks。Vibisual 退出时会移除这些 Hooks，启动时会重新添加，因此 Codex 可能会再次询问。在你确认之前，不会转发任何内容。",
         "hooksOn": "开启",
         "hooksOff": "关闭",
         "working": "处理中…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "命令已按历史记录容量限制截短。",
       "outputTruncated": "输出已按历史记录容量限制截短。",
       "noOutput": "没有记录的输出。",
-      "recentLimit": "最多显示最近 {{count}} 条命令。",
       "status": {
         "running": "运行中",
         "success": "已完成",
@@ -1790,7 +1795,9 @@
       "output": "输出",
       "waitingForOutput": "等待输出...",
       "noCommandsYet": "暂无命令记录。",
-      "commandsHeading": "命令（{{count}}）"
+      "commandsHeading": "命令（{{count}}）",
+      "limitLabel": "仅保留最近 {{count}} 条",
+      "limitHint": "取消勾选可列出此气泡中仍有的全部命令记录。记录本身每个会话最多保留最近 {{keep}} 条。"
     },
     "fileEdit": {
       "edit": "编辑",
@@ -5567,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} 行",
       "activity": "已执行命令",
-      "showMoreLines": "显示另外 {{count}} 行",
-      "showLess": "收起",
       "pathLink": {
         "openFile": "在编辑器中打开 — {{path}}",
         "openFolder": "打开文件夹 — {{path}}",
@@ -5882,6 +5887,36 @@
       "usageLimit": "用量上限",
       "disconnected": "连接断开",
       "interrupted": "已中断"
+    },
+    "bubbles": {
+      "toggle": "气泡",
+      "tipOff": "以气泡显示此会话——它触碰过的文件、文件夹、网页和命令",
+      "tipOn": "返回对话",
+      "mapLabel": "会话气泡图",
+      "empty": "此对话中还没有文件、命令或网页访问。",
+      "pendingAsk": "等待你回答的问题：{{count}}",
+      "goToConversation": "转到对话",
+      "loadOlder": "加载更早的历史记录",
+      "loadOlderTip": "气泡图根据这里已加载的历史记录生成。再加载一页更早的历史记录。",
+      "summary": "已加载 {{calls}} 次工具调用 · {{events}} 个事件",
+      "reads": "读取 {{count}} 次",
+      "writes": "写入 {{count}} 次",
+      "searches": "搜索 {{count}} 次",
+      "files": "文件：{{count}}",
+      "lastTouch": "最近：{{tool}} · {{when}}",
+      "viaTask": "通过子 Agent：{{name}}",
+      "external": "项目之外",
+      "enter": "进入文件夹",
+      "leave": "返回会话",
+      "openAddress": "打开地址",
+      "showInConversation": "在对话中显示",
+      "copyAddress": "复制地址",
+      "copyCommand": "复制命令",
+      "recentQueries": "最近搜索",
+      "recentCommands": "最近命令",
+      "moreFiles": "还有 {{count}} 个文件——进入文件夹查看全部",
+      "overflowHint": "最近最少使用的位置，折叠成一个",
+      "centerTotals": "文件 {{files}} · 网页 {{webs}} · 应用 {{apps}} · 子 Agent {{tasks}}"
     },
     "density": {
       "label": "显示密度",
@@ -6526,7 +6561,7 @@
       "resizeHint": "拖动调整大小 · 双击均分",
       "foreignSession": "该会话属于其他气泡",
       "tooSmall": "空间太小，无法在此拆分",
-      "alreadyHere": "此视图中已显示"
+      "alreadyHere": "与你正在查看的标签页相同 · 请选择其他标签页"
     },
     "specReading": {
       "scope": {
@@ -7953,10 +7988,21 @@
       "hiddenLinksBadge": "连线已隐藏",
       "hiddenBubblesAndLinksBadge": "气泡和连线已隐藏",
       "hiddenBadgeHint": "右键点击 → 隐藏，可重新显示",
-      "lensFiles": "聚焦工作文件",
-      "lensFilesNote": "文件连线恢复清晰，并折叠已连接的内容",
-      "lensLinked": "聚焦已连接的内容",
-      "lensLinkedNote": "显示已连接应用的场景和素材，并淡化文件连线"
+      "lensFiles": "显示全部气泡",
+      "lensFilesNote": "显示全部气泡，文件连线恢复清晰",
+      "lensLinked": "只显示与应用相关的气泡",
+      "lensLinkedNote": "只保留与已连接应用相关的气泡，其余折叠，并淡化文件连线",
+      "linkedBubbles": "关联气泡",
+      "pinLinks": "固定",
+      "pinLinksNote": "即使在 Agent 完成后点击它，也会保留关联气泡",
+      "unpinLinks": "取消固定",
+      "unpinLinksNote": "立即清除关联气泡",
+      "unpinLinksRunningNote": "仍在运行，完成后关联气泡会照常清除",
+      "replayLinks": "重新显示之前的连线",
+      "replayLinksNote_one": "{{count}} 个气泡，再次点击 Agent 即可清除",
+      "replayLinksNote_other": "{{count}} 个气泡，再次点击 Agent 即可清除",
+      "replayLinksRunning": "运行期间，当前连线已在显示",
+      "replayLinksEmpty": "暂无之前的连线可显示"
     },
     "pathLock": {
       "badgeSelf": "已锁定——任何 AI 打开前都必须先询问你",
@@ -8021,8 +8067,6 @@
     "constellation": {
       "group": "与 {{hub}} 归为一组——{{reason}}",
       "groupVia": "与 {{hub}} 归为一组——{{reason}}（{{via}}）",
-      "hub_one": "{{count}} 个相关文件环绕此文件",
-      "hub_other": "{{count}} 个相关文件环绕此文件",
       "reason": {
         "appResult": "该节点的结果",
         "appPart": "被该节点使用",
@@ -8032,8 +8076,8 @@
         "sameStem": "名称相同",
         "stemFamily": "名称相似",
         "sameFolder": "同一文件夹",
-        "album": "同一文件夹中的照片",
-        "appWork": "处理该节点时生成"
+        "appWork": "处理该节点时生成",
+        "center": "该组的主文件"
       }
     },
     "fileFace": {
@@ -8097,6 +8141,30 @@
         "memo": "笔记",
         "other": "其他"
       }
+    },
+    "domain": {
+      "openHintExternal": "双击在浏览器中打开此气泡最后读取的地址",
+      "openHintIframe": "双击在应用内标签页中打开此气泡最后读取的地址"
+    },
+    "bundle": {
+      "kind": {
+        "video": "视频分组",
+        "image": "图片分组",
+        "audio": "声音分组",
+        "model": "3D 分组",
+        "code": "代码分组",
+        "data": "数据分组",
+        "doc": "文档分组",
+        "subtitle": "字幕分组",
+        "font": "字体分组",
+        "other": "文件分组"
+      },
+      "sequence": "编号序列",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}}——{{kind}} · {{count}} 个文件",
+      "title_other": "{{name}}——{{kind}} · {{count}} 个文件",
+      "enterHint": "双击打开此分组，仅查看其中的文件",
+      "crumb": "{{name}} 分组"
     }
   },
   "common": {
@@ -8111,7 +8179,8 @@
       "serverPreview": "服务器预览",
       "reload": "刷新",
       "otherProjectTitle": "此地址上运行的是另一个项目的服务器",
-      "otherProjectBody": "{{url}} 当前由另一个已打开的项目启动的服务器响应，因此该标签页不会加载它。一旦本项目的服务器重新在该地址上运行，它就会自动再次打开。"
+      "otherProjectBody": "{{url}} 当前由另一个已打开的项目启动的服务器响应，因此该标签页不会加载它。一旦本项目的服务器重新在该地址上运行，它就会自动再次打开。",
+      "webPage": "网页"
     },
     "serverKind": {
       "frontendShort": "前端",

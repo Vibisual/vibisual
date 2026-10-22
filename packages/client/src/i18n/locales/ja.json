@@ -729,7 +729,13 @@
         "webGroupByKind": "似た種類のサイトをグループ化",
         "webGroupByKindDesc": "下の数を超えると、同じ種類のサイト（ドキュメント、コード、パッケージ、Q&Aなど）が1つのバブルにまとめられます。種類が不明なサイトは「{{other}}」に入ります。",
         "webGroupMaxLabel": "エージェントごとに個別表示するウェブバブル数",
-        "webGroupMaxDesc": "最近読んだものから順に、この数までが個別のバブルとして表示され、残りはグループ化されます。1にすると、エージェントが読んだものはすべて1つのバブルに折りたたまれ、0にすると上限なしになります。固定したドメインは常に個別のバブルのままで、この数には含まれません。"
+        "webGroupMaxDesc": "最近読んだものから順に、この数までが個別のバブルとして表示され、残りはグループ化されます。1にすると、エージェントが読んだものはすべて1つのバブルに折りたたまれ、0にすると上限なしになります。固定したドメインは常に個別のバブルのままで、この数には含まれません。",
+        "webOpenTargetLabel": "ダブルクリックで開く場所",
+        "webOpenTargetDesc": "ウェブバブルをダブルクリックすると、そのバブルが最後に読んだアドレスを開きます（検索バブルは最後の検索）。",
+        "webOpenTargetExternal": "外部ブラウザー",
+        "webOpenTargetExternalDesc": "既定の設定です。普段お使いのブラウザーで開きます。",
+        "webOpenTargetIframe": "アプリ内の iframe タブ",
+        "webOpenTargetIframeDesc": "タブバーにウェブタブを開き、アプリ内で閲覧します。インターネットのページはアプリから切り離されたサンドボックス画面で権限なしに開かれ、ログイン情報はアプリを閉じると消去されます。"
       },
       "notifications": {
         "cmdBlocked": "CMDセッションが入力待ちのときに通知",
@@ -757,7 +763,7 @@
         "localHint": "キャンバスを右クリックし、「All Model」を選択してください。エンジンとモデルのダウンロードは、そのウィンドウ内で行われます。",
         "codexHooks": "Vibisual外で実行されたCodexセッションを表示",
         "codexHooksDesc": "VibisualのフックをCodexの設定に追加します。これにより、ターミナルやエディタで開始したセッションもキャンバスに表示されるようになります。",
-        "codexHooksTrust": "Codexは次回起動時に、一度だけ新しいフックを信頼するか確認します。承認するまでは何も転送されません。",
+        "codexHooksTrust": "Codexは次回起動時に、新しいフックを信頼するか確認します。Vibisualは終了時にフックを削除し、起動時に再び追加するため、Codexが再度確認する場合があります。承認するまでは何も転送されません。",
         "hooksOn": "オン",
         "hooksOff": "オフ",
         "working": "処理中…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "履歴の容量制限によりコマンドを短縮しました。",
       "outputTruncated": "履歴の容量制限により出力を短縮しました。",
       "noOutput": "記録された出力はありません。",
-      "recentLimit": "最近のコマンドを最大{{count}}件表示します。",
       "status": {
         "running": "実行中",
         "success": "完了",
@@ -1790,7 +1795,9 @@
       "output": "出力",
       "waitingForOutput": "出力を待機中...",
       "noCommandsYet": "コマンドの記録はまだありません。",
-      "commandsHeading": "コマンド ({{count}})"
+      "commandsHeading": "コマンド ({{count}})",
+      "limitLabel": "最新{{count}}件のみ保持",
+      "limitHint": "チェックを外すと、このバブルに残っているコマンドの記録をすべて一覧表示します。記録そのものは、セッションごとに最新{{keep}}件まで保持されます。"
     },
     "fileEdit": {
       "edit": "編集",
@@ -5567,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} 行",
       "activity": "コマンド実行",
-      "showMoreLines": "さらに{{count}}行表示",
-      "showLess": "折りたたむ",
       "pathLink": {
         "openFile": "エディタで開く — {{path}}",
         "openFolder": "フォルダを開く — {{path}}",
@@ -5882,6 +5887,36 @@
       "usageLimit": "使用量上限",
       "disconnected": "応答途絶",
       "interrupted": "中断"
+    },
+    "bubbles": {
+      "toggle": "バブル",
+      "tipOff": "このセッションをバブルで表示（触れたファイル・フォルダ・ウェブ・コマンド）",
+      "tipOn": "会話に戻る",
+      "mapLabel": "セッションのバブルマップ",
+      "empty": "この会話には、まだファイル・コマンド・ウェブアクセスがありません。",
+      "pendingAsk": "回答待ちの質問：{{count}}件",
+      "goToConversation": "会話に移動",
+      "loadOlder": "以前の履歴を読み込む",
+      "loadOlderTip": "マップは、ここに読み込まれている履歴から作られます。以前の履歴をもう1ページ分読み込みます。",
+      "summary": "ツール呼び出し{{calls}}件・読み込み済みイベント{{events}}件",
+      "reads": "読み取り{{count}}回",
+      "writes": "書き込み{{count}}回",
+      "searches": "検索{{count}}回",
+      "files": "ファイル：{{count}}件",
+      "lastTouch": "最終：{{tool}}・{{when}}",
+      "viaTask": "サブエージェント経由：{{name}}",
+      "external": "プロジェクト外",
+      "enter": "フォルダに入る",
+      "leave": "セッションに戻る",
+      "openAddress": "アドレスを開く",
+      "showInConversation": "会話内で表示",
+      "copyAddress": "アドレスをコピー",
+      "copyCommand": "コマンドをコピー",
+      "recentQueries": "最近の検索",
+      "recentCommands": "最近のコマンド",
+      "moreFiles": "ほか{{count}}件のファイル（フォルダに入るとすべて表示されます）",
+      "overflowHint": "最も長く使われていない場所が、1つに折りたたまれています",
+      "centerTotals": "ファイル{{files}}件・ウェブ{{webs}}件・アプリ{{apps}}件・サブエージェント{{tasks}}件"
     },
     "density": {
       "label": "表示密度",
@@ -6526,7 +6561,7 @@
       "resizeHint": "ドラッグでサイズ変更・ダブルクリックで均等",
       "foreignSession": "別のバブルのセッションです",
       "tooSmall": "分割するには狭すぎます",
-      "alreadyHere": "すでにこのビューに表示中"
+      "alreadyHere": "今見ているタブと同じです・別のタブを選択"
     },
     "specReading": {
       "scope": {
@@ -7953,10 +7988,21 @@
       "hiddenLinksBadge": "リンクを非表示中",
       "hiddenBubblesAndLinksBadge": "バブル・リンクを非表示中",
       "hiddenBadgeHint": "右クリック → 非表示から再表示できます",
-      "lensFiles": "作業ファイルにフォーカス",
-      "lensFilesNote": "ファイルの線を元の濃さに戻し、リンクされた項目を折りたたみます",
-      "lensLinked": "リンクされた項目にフォーカス",
-      "lensLinkedNote": "リンクされたアプリのシーンと素材を表示し、ファイルの線を薄くします"
+      "lensFiles": "すべてのバブルを表示",
+      "lensFilesNote": "このエージェントのバブルをすべて表示し、ファイルの線を元の濃さに戻します",
+      "lensLinked": "アプリ関連のバブルだけ表示",
+      "lensLinkedNote": "リンクされたアプリに関係するバブルだけを残して残りを折りたたみ、ファイルの線を薄くします",
+      "linkedBubbles": "リンクされたバブル",
+      "pinLinks": "ピン留め",
+      "pinLinksNote": "完了後にエージェントをクリックしても、リンクされたバブルを残します",
+      "unpinLinks": "ピン留めを解除",
+      "unpinLinksNote": "リンクされたバブルをすぐにクリアします",
+      "unpinLinksRunningNote": "まだ実行中です。完了すると通常どおりクリアされます",
+      "replayLinks": "以前のリンクを再表示",
+      "replayLinksNote_one": "{{count}} 個のバブル。もう一度エージェントをクリックするとクリアされます",
+      "replayLinksNote_other": "{{count}} 個のバブル。もう一度エージェントをクリックするとクリアされます",
+      "replayLinksRunning": "実行中は、現在のリンクがすでに表示されています",
+      "replayLinksEmpty": "再表示できる以前のリンクはまだありません"
     },
     "pathLock": {
       "badgeSelf": "ロック中：どのAIも開く前に必ず確認を求めます",
@@ -8021,8 +8067,6 @@
     "constellation": {
       "group": "{{hub}}とグループ化：{{reason}}",
       "groupVia": "{{hub}}とグループ化：{{reason}}（{{via}}）",
-      "hub_one": "{{count}}個の関連ファイルがこのファイルを周回しています",
-      "hub_other": "{{count}}個の関連ファイルがこのファイルを周回しています",
       "reason": {
         "appResult": "そのアプリ衛星の結果",
         "appPart": "そのアプリ衛星が使用している",
@@ -8032,8 +8076,8 @@
         "sameStem": "同じ名前",
         "stemFamily": "似た名前",
         "sameFolder": "同じフォルダ",
-        "album": "同じフォルダ内の写真",
-        "appWork": "そのアプリ衛星の作業中に作成されたもの"
+        "appWork": "そのアプリ衛星の作業中に作成されたもの",
+        "center": "グループのメインファイル"
       }
     },
     "fileFace": {
@@ -8097,6 +8141,30 @@
         "memo": "メモ",
         "other": "その他"
       }
+    },
+    "domain": {
+      "openHintExternal": "ダブルクリックすると、このバブルが最後に読んだアドレスをブラウザーで開きます",
+      "openHintIframe": "ダブルクリックすると、このバブルが最後に読んだアドレスをアプリ内のタブで開きます"
+    },
+    "bundle": {
+      "kind": {
+        "video": "動画グループ",
+        "image": "画像グループ",
+        "audio": "サウンドグループ",
+        "model": "3Dグループ",
+        "code": "コードグループ",
+        "data": "データグループ",
+        "doc": "文書グループ",
+        "subtitle": "字幕グループ",
+        "font": "フォントグループ",
+        "other": "ファイルグループ"
+      },
+      "sequence": "連番シーケンス",
+      "line": "{{kind}}・{{count}}",
+      "title_one": "{{name}}：{{kind}}・{{count}}個のファイル",
+      "title_other": "{{name}}：{{kind}}・{{count}}個のファイル",
+      "enterHint": "ダブルクリックでこのグループを開き、そのファイルだけを表示します",
+      "crumb": "{{name}}グループ"
     }
   },
   "common": {
@@ -8111,7 +8179,8 @@
       "serverPreview": "サーバープレビュー",
       "reload": "再読み込み",
       "otherProjectTitle": "別のプロジェクトのサーバーがこのアドレスで動作しています",
-      "otherProjectBody": "{{url}}では現在、開いている別のプロジェクトが起動したサーバーが応答しているため、このタブでは読み込みません。このプロジェクトのサーバーがそのアドレスに戻ると、自動的に再び開きます。"
+      "otherProjectBody": "{{url}}では現在、開いている別のプロジェクトが起動したサーバーが応答しているため、このタブでは読み込みません。このプロジェクトのサーバーがそのアドレスに戻ると、自動的に再び開きます。",
+      "webPage": "ウェブページ"
     },
     "serverKind": {
       "frontendShort": "FE",

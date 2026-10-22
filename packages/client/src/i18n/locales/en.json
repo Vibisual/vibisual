@@ -729,7 +729,13 @@
         "webGroupByKind": "Group similar kinds of sites",
         "webGroupByKindDesc": "When there are more than the number below, sites of the same kind — docs, code, packages, Q&A and so on — share one bubble. Sites whose kind is unclear go into \"{{other}}\".",
         "webGroupMaxLabel": "Web bubbles shown separately per agent",
-        "webGroupMaxDesc": "Up to this many stand on their own, the most recently read first; the rest are grouped. 1 folds everything an agent read into one bubble, and 0 means no limit. Pinned domains always keep their own bubble and do not count."
+        "webGroupMaxDesc": "Up to this many stand on their own, the most recently read first; the rest are grouped. 1 folds everything an agent read into one bubble, and 0 means no limit. Pinned domains always keep their own bubble and do not count.",
+        "webOpenTargetLabel": "Double-click opens in",
+        "webOpenTargetDesc": "Double-clicking a web bubble opens the last address it read (for the search bubble, the last search).",
+        "webOpenTargetExternal": "Your browser",
+        "webOpenTargetExternalDesc": "The default. Opens in the browser you normally use.",
+        "webOpenTargetIframe": "In-app iframe tab",
+        "webOpenTargetIframeDesc": "Opens a web tab in the tab bar so you can read it inside the app. Internet pages run in a separate sandboxed view with no permissions, and sign-ins are cleared when the app closes."
       },
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
@@ -757,7 +763,7 @@
         "localHint": "Right-click the canvas, then All Model. Downloading the engine and models happens in that window.",
         "codexHooks": "Show Codex sessions run outside Vibisual",
         "codexHooksDesc": "Adds Vibisual hooks to your Codex config so sessions started in a terminal or editor also appear on the canvas.",
-        "codexHooksTrust": "Codex asks you to trust new hooks once, the next time you start it. Until you accept, nothing is forwarded.",
+        "codexHooksTrust": "Codex asks you to trust the new hooks the next time you start it. Vibisual removes them when it quits and adds them back when it starts, so Codex may ask again. Until you accept, nothing is forwarded.",
         "hooksOn": "On",
         "hooksOff": "Off",
         "working": "Working…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "Command shortened to fit the history limit.",
       "outputTruncated": "Output shortened to fit the history limit.",
       "noOutput": "No output recorded.",
-      "recentLimit": "Showing up to {{count}} recent commands.",
       "status": {
         "running": "Running",
         "success": "Completed",
@@ -1790,7 +1795,9 @@
       "output": "Output",
       "waitingForOutput": "Waiting for output...",
       "noCommandsYet": "No commands recorded yet.",
-      "commandsHeading": "Commands ({{count}})"
+      "commandsHeading": "Commands ({{count}})",
+      "limitLabel": "Keep last {{count}} only",
+      "limitHint": "Uncheck to list every command record this bubble still has. Records themselves are kept up to the latest {{keep}} per session."
     },
     "fileEdit": {
       "edit": "Edit",
@@ -5567,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} lines",
       "activity": "Ran commands",
-      "showMoreLines": "Show {{count}} more lines",
-      "showLess": "Show less",
       "pathLink": {
         "openFile": "Open in editor — {{path}}",
         "openFolder": "Open folder — {{path}}",
@@ -5882,6 +5887,36 @@
       "usageLimit": "Usage limit",
       "disconnected": "Cut off",
       "interrupted": "Interrupted"
+    },
+    "bubbles": {
+      "toggle": "Bubbles",
+      "tipOff": "Show this session as bubbles — the files, folders, web and commands it touched",
+      "tipOn": "Back to the conversation",
+      "mapLabel": "Session bubble map",
+      "empty": "No files, commands or web visits in this conversation yet.",
+      "pendingAsk": "Questions waiting for your answer: {{count}}",
+      "goToConversation": "Go to conversation",
+      "loadOlder": "Load earlier history",
+      "loadOlderTip": "The map is built from the history loaded here. Load one more page of earlier history.",
+      "summary": "{{calls}} tool calls · {{events}} events loaded",
+      "reads": "Read {{count}}",
+      "writes": "Wrote {{count}}",
+      "searches": "Searched {{count}}",
+      "files": "Files: {{count}}",
+      "lastTouch": "Last: {{tool}} · {{when}}",
+      "viaTask": "Through sub-agent: {{name}}",
+      "external": "Outside the project",
+      "enter": "Go into folder",
+      "leave": "Back to session",
+      "openAddress": "Open address",
+      "showInConversation": "Show in conversation",
+      "copyAddress": "Copy address",
+      "copyCommand": "Copy command",
+      "recentQueries": "Recent searches",
+      "recentCommands": "Recent commands",
+      "moreFiles": "{{count}} more files — go into the folder to see them all",
+      "overflowHint": "The least recently used places, folded into one",
+      "centerTotals": "Files {{files}} · Web {{webs}} · Apps {{apps}} · Sub-agents {{tasks}}"
     },
     "density": {
       "label": "Display density",
@@ -6526,7 +6561,7 @@
       "resizeHint": "Drag to resize · double-click to even out",
       "foreignSession": "That session belongs to another bubble",
       "tooSmall": "Too small to split here",
-      "alreadyHere": "Already shown here"
+      "alreadyHere": "Same as the tab you're viewing · pick another tab"
     },
     "specReading": {
       "scope": {
@@ -7953,10 +7988,21 @@
       "hiddenLinksBadge": "Links hidden",
       "hiddenBubblesAndLinksBadge": "Bubbles and links hidden",
       "hiddenBadgeHint": "Right-click → Hide to show them again",
-      "lensFiles": "Focus on work files",
-      "lensFilesNote": "Brings file lines back to full strength and folds the connected items",
-      "lensLinked": "Focus on connected items",
-      "lensLinkedNote": "Shows the connected apps’ scenes and materials, and dims file lines"
+      "lensFiles": "Show all bubbles",
+      "lensFilesNote": "Shows every bubble of this agent and brings file lines back to full strength",
+      "lensLinked": "Show only app-related bubbles",
+      "lensLinkedNote": "Keeps only bubbles related to the connected apps, folds the rest, and dims file lines",
+      "linkedBubbles": "Linked bubbles",
+      "pinLinks": "Pin",
+      "pinLinksNote": "Keeps the linked bubbles even when you click the agent after it finishes",
+      "unpinLinks": "Unpin",
+      "unpinLinksNote": "Clears the linked bubbles right away",
+      "unpinLinksRunningNote": "Still running — they clear as usual once it finishes",
+      "replayLinks": "Show previous links again",
+      "replayLinksNote_one": "{{count}} bubble — click the agent again to clear it",
+      "replayLinksNote_other": "{{count}} bubbles — click the agent again to clear them",
+      "replayLinksRunning": "While it runs, its current links are already showing",
+      "replayLinksEmpty": "No previous links to show yet"
     },
     "pathLock": {
       "badgeSelf": "Locked — any AI must ask you before opening it",
@@ -8021,8 +8067,6 @@
     "constellation": {
       "group": "Grouped with {{hub}} — {{reason}}",
       "groupVia": "Grouped with {{hub}} — {{reason}} ({{via}})",
-      "hub_one": "{{count}} related file orbits this file",
-      "hub_other": "{{count}} related files orbit this file",
       "reason": {
         "appResult": "the node's result",
         "appPart": "used by the node",
@@ -8032,8 +8076,8 @@
         "sameStem": "same name",
         "stemFamily": "similar name",
         "sameFolder": "same folder",
-        "album": "photos in the same folder",
-        "appWork": "made while working on the node"
+        "appWork": "made while working on the node",
+        "center": "the group's main file"
       }
     },
     "fileFace": {
@@ -8097,6 +8141,30 @@
         "memo": "Notes",
         "other": "Other"
       }
+    },
+    "domain": {
+      "openHintExternal": "Double-click to open the last address this bubble read in your browser",
+      "openHintIframe": "Double-click to open the last address this bubble read in an in-app tab"
+    },
+    "bundle": {
+      "kind": {
+        "video": "Video group",
+        "image": "Image group",
+        "audio": "Sound group",
+        "model": "3D group",
+        "code": "Code group",
+        "data": "Data group",
+        "doc": "Document group",
+        "subtitle": "Subtitle group",
+        "font": "Font group",
+        "other": "File group"
+      },
+      "sequence": "Numbered sequence",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}} — {{kind}} · {{count}} file",
+      "title_other": "{{name}} — {{kind}} · {{count}} files",
+      "enterHint": "Double-click to open this group and see only its files",
+      "crumb": "{{name}} group"
     }
   },
   "common": {
@@ -8111,7 +8179,8 @@
       "serverPreview": "Server preview",
       "reload": "Reload",
       "otherProjectTitle": "Another project's server is on this address",
-      "otherProjectBody": "{{url}} is currently answered by a server that another open project started, so this tab won't load it. It opens again on its own once this project's server is back on that address."
+      "otherProjectBody": "{{url}} is currently answered by a server that another open project started, so this tab won't load it. It opens again on its own once this project's server is back on that address.",
+      "webPage": "Web page"
     },
     "serverKind": {
       "frontendShort": "FE",

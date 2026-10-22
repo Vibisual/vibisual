@@ -729,7 +729,13 @@
         "webGroupByKind": "Raggruppa i siti di tipo simile",
         "webGroupByKindDesc": "Quando ce ne sono più del numero indicato sotto, i siti dello stesso tipo — documentazione, codice, pacchetti, Q&A e così via — condividono una sola bolla. I siti il cui tipo non è chiaro finiscono in «{{other}}».",
         "webGroupMaxLabel": "Bolle web mostrate separatamente per agente",
-        "webGroupMaxDesc": "Fino a questo numero di bolle restano separate, a partire da quelle lette più di recente; le altre vengono raggruppate. Con 1, tutto ciò che un agente ha letto confluisce in una sola bolla, mentre 0 significa nessun limite. I domini bloccati mantengono sempre una bolla propria e non rientrano nel conteggio."
+        "webGroupMaxDesc": "Fino a questo numero di bolle restano separate, a partire da quelle lette più di recente; le altre vengono raggruppate. Con 1, tutto ciò che un agente ha letto confluisce in una sola bolla, mentre 0 significa nessun limite. I domini bloccati mantengono sempre una bolla propria e non rientrano nel conteggio.",
+        "webOpenTargetLabel": "Il doppio clic apre in",
+        "webOpenTargetDesc": "Il doppio clic su una bolla web apre l'ultimo indirizzo che ha letto (per la bolla di ricerca, l'ultima ricerca).",
+        "webOpenTargetExternal": "Il tuo browser",
+        "webOpenTargetExternalDesc": "Predefinito. Si apre nel browser che usi di solito.",
+        "webOpenTargetIframe": "Scheda iframe nell'app",
+        "webOpenTargetIframeDesc": "Apre una scheda web nella barra delle schede per leggerla dentro l'app. Le pagine internet girano in una vista sandbox separata senza permessi, e gli accessi vengono cancellati alla chiusura dell'app."
       },
       "notifications": {
         "cmdBlocked": "Notifica quando una sessione CMD è in attesa di input",
@@ -757,7 +763,7 @@
         "localHint": "Fai clic con il tasto destro sul canvas, poi su All Model. Il download del motore e dei modelli avviene in quella finestra.",
         "codexHooks": "Mostra le sessioni Codex eseguite fuori da Vibisual",
         "codexHooksDesc": "Aggiunge hook di Vibisual alla configurazione di Codex, così anche le sessioni avviate in un terminale o in un editor compaiono sul canvas.",
-        "codexHooksTrust": "Codex ti chiederà di considerare attendibili i nuovi hook una volta, al prossimo avvio. Finché non accetti, non viene inoltrato nulla.",
+        "codexHooksTrust": "Codex ti chiederà di considerare attendibili i nuovi hook al prossimo avvio. Vibisual li rimuove quando si chiude e li reinserisce quando si avvia, quindi Codex potrebbe chiedertelo di nuovo. Finché non accetti, non viene inoltrato nulla.",
         "hooksOn": "On",
         "hooksOff": "Off",
         "working": "In corso…"
@@ -1777,7 +1783,6 @@
       "commandTruncated": "Comando abbreviato per rispettare il limite della cronologia.",
       "outputTruncated": "Output abbreviato per rispettare il limite della cronologia.",
       "noOutput": "Nessun output registrato.",
-      "recentLimit": "Mostra fino a {{count}} comandi recenti.",
       "status": {
         "running": "In esecuzione",
         "success": "Completato",
@@ -1790,7 +1795,9 @@
       "output": "Output",
       "waitingForOutput": "In attesa dell'output...",
       "noCommandsYet": "Nessun comando ancora registrato.",
-      "commandsHeading": "Comandi ({{count}})"
+      "commandsHeading": "Comandi ({{count}})",
+      "limitLabel": "Mantieni solo gli ultimi {{count}}",
+      "limitHint": "Deseleziona per elencare tutti i record di comando ancora presenti in questa bolla. I record stessi vengono conservati fino agli ultimi {{keep}} per sessione."
     },
     "fileEdit": {
       "edit": "Modifica",
@@ -1980,9 +1987,6 @@
       "checkOnSite": "Verifica sul sito",
       "resetPasses": "Pass per reimpostare il limite",
       "resetPassCount": "{{count}} disponibili",
-      "resetPassCount_one": "{{count}} disponibile",
-      "resetPassCount_other": "{{count}} disponibili",
-      "resetPassCount_many": "{{count}} disponibili",
       "resetPassDefault": "Reimpostazione del limite",
       "expiresAt": "Scade il {{date}}",
       "noExpiry": "Senza scadenza",
@@ -5570,8 +5574,6 @@
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} righe",
       "activity": "Comandi eseguiti",
-      "showMoreLines": "Mostra altre {{count}} righe",
-      "showLess": "Mostra meno",
       "pathLink": {
         "openFile": "Apri nell'editor — {{path}}",
         "openFolder": "Apri cartella — {{path}}",
@@ -5885,6 +5887,36 @@
       "usageLimit": "Limite di utilizzo",
       "disconnected": "Disconnesso",
       "interrupted": "Interrotto"
+    },
+    "bubbles": {
+      "toggle": "Bolle",
+      "tipOff": "Mostra questa sessione come bolle — i file, le cartelle, il web e i comandi che ha toccato",
+      "tipOn": "Torna alla conversazione",
+      "mapLabel": "Mappa a bolle della sessione",
+      "empty": "Ancora nessun file, comando o accesso al web in questa conversazione.",
+      "pendingAsk": "Domande in attesa della tua risposta: {{count}}",
+      "goToConversation": "Vai alla conversazione",
+      "loadOlder": "Carica cronologia precedente",
+      "loadOlderTip": "La mappa è costruita a partire dalla cronologia caricata qui. Carica un'altra pagina di cronologia precedente.",
+      "summary": "Chiamate di tool: {{calls}} · Eventi caricati: {{events}}",
+      "reads": "Letture {{count}}",
+      "writes": "Scritture {{count}}",
+      "searches": "Ricerche {{count}}",
+      "files": "File: {{count}}",
+      "lastTouch": "Ultimo: {{tool}} · {{when}}",
+      "viaTask": "Tramite sub-agent: {{name}}",
+      "external": "Fuori dal progetto",
+      "enter": "Entra nella cartella",
+      "leave": "Torna alla sessione",
+      "openAddress": "Apri indirizzo",
+      "showInConversation": "Mostra nella conversazione",
+      "copyAddress": "Copia indirizzo",
+      "copyCommand": "Copia comando",
+      "recentQueries": "Ricerche recenti",
+      "recentCommands": "Comandi recenti",
+      "moreFiles": "{{count}} file in più — entra nella cartella per vederli tutti",
+      "overflowHint": "Gli elementi usati meno di recente, riuniti in una sola bolla",
+      "centerTotals": "File {{files}} · Web {{webs}} · App {{apps}} · Sub-agent {{tasks}}"
     },
     "density": {
       "label": "Densità di visualizzazione",
@@ -6529,7 +6561,7 @@
       "resizeHint": "Trascina per ridimensionare · doppio clic per uniformare",
       "foreignSession": "Quella sessione appartiene a un’altra bolla",
       "tooSmall": "Troppo piccolo per dividere",
-      "alreadyHere": "Già visualizzato qui"
+      "alreadyHere": "È la stessa scheda che stai visualizzando · scegline un’altra"
     },
     "specReading": {
       "scope": {
@@ -7956,10 +7988,21 @@
       "hiddenLinksBadge": "Collegamenti nascosti",
       "hiddenBubblesAndLinksBadge": "Bolle e collegamenti nascosti",
       "hiddenBadgeHint": "Clic destro → Nascondi per mostrarli di nuovo",
-      "lensFiles": "Metti a fuoco i file di lavoro",
-      "lensFilesNote": "Riporta le linee dei file alla piena intensità e comprime gli elementi collegati",
-      "lensLinked": "Metti a fuoco gli elementi collegati",
-      "lensLinkedNote": "Mostra le scene e i materiali delle app collegate e attenua le linee dei file"
+      "lensFiles": "Mostra tutte le bolle",
+      "lensFilesNote": "Mostra tutte le bolle di questo agente e riporta le linee dei file alla piena intensità",
+      "lensLinked": "Mostra solo le bolle delle app",
+      "lensLinkedNote": "Lascia solo le bolle legate alle app collegate, comprime le altre e attenua le linee dei file",
+      "linkedBubbles": "Bolle collegate",
+      "pinLinks": "Blocca",
+      "pinLinksNote": "Mantiene le bolle collegate anche quando clicchi sull'agente dopo che ha finito",
+      "unpinLinks": "Sblocca",
+      "unpinLinksNote": "Rimuove subito le bolle collegate",
+      "unpinLinksRunningNote": "Ancora in esecuzione — verranno rimosse come al solito al termine",
+      "replayLinks": "Mostra di nuovo i collegamenti precedenti",
+      "replayLinksNote_one": "{{count}} bolla — clicca di nuovo sull'agente per rimuoverla",
+      "replayLinksNote_other": "{{count}} bolle — clicca di nuovo sull'agente per rimuoverle",
+      "replayLinksRunning": "Durante l'esecuzione, i suoi collegamenti attuali sono già visibili",
+      "replayLinksEmpty": "Nessun collegamento precedente da mostrare per ora"
     },
     "pathLock": {
       "badgeSelf": "Con lucchetto — qualsiasi IA deve chiederti prima di aprirlo",
@@ -8024,8 +8067,6 @@
     "constellation": {
       "group": "Raggruppato con {{hub}} — {{reason}}",
       "groupVia": "Raggruppato con {{hub}} — {{reason}} ({{via}})",
-      "hub_one": "{{count}} file correlato orbita attorno a questo file",
-      "hub_other": "{{count}} file correlati orbitano attorno a questo file",
       "reason": {
         "appResult": "il risultato del nodo",
         "appPart": "usato dal nodo",
@@ -8035,8 +8076,8 @@
         "sameStem": "stesso nome",
         "stemFamily": "nome simile",
         "sameFolder": "stessa cartella",
-        "album": "foto nella stessa cartella",
-        "appWork": "creato durante il lavoro sul nodo"
+        "appWork": "creato durante il lavoro sul nodo",
+        "center": "il file principale del gruppo"
       }
     },
     "fileFace": {
@@ -8100,6 +8141,30 @@
         "memo": "Note",
         "other": "Altro"
       }
+    },
+    "domain": {
+      "openHintExternal": "Fai doppio clic per aprire nel browser l'ultimo indirizzo letto da questa bolla",
+      "openHintIframe": "Fai doppio clic per aprire in una scheda dell'app l'ultimo indirizzo letto da questa bolla"
+    },
+    "bundle": {
+      "kind": {
+        "video": "Gruppo video",
+        "image": "Gruppo immagini",
+        "audio": "Gruppo suoni",
+        "model": "Gruppo 3D",
+        "code": "Gruppo codice",
+        "data": "Gruppo dati",
+        "doc": "Gruppo documenti",
+        "subtitle": "Gruppo sottotitoli",
+        "font": "Gruppo font",
+        "other": "Gruppo file"
+      },
+      "sequence": "Sequenza numerata",
+      "line": "{{kind}} · {{count}}",
+      "title_one": "{{name}} — {{kind}} · {{count}} file",
+      "title_other": "{{name}} — {{kind}} · {{count}} file",
+      "enterHint": "Fai doppio clic per aprire questo gruppo e vedere solo i suoi file",
+      "crumb": "Gruppo {{name}}"
     }
   },
   "common": {
@@ -8114,7 +8179,8 @@
       "serverPreview": "Anteprima server",
       "reload": "Ricarica",
       "otherProjectTitle": "Su questo indirizzo c'è il server di un altro progetto",
-      "otherProjectBody": "{{url}} è al momento servito da un server avviato da un altro progetto aperto, quindi questa scheda non lo carica. Si riapre da sola non appena il server di questo progetto torna su quell'indirizzo."
+      "otherProjectBody": "{{url}} è al momento servito da un server avviato da un altro progetto aperto, quindi questa scheda non lo carica. Si riapre da sola non appena il server di questo progetto torna su quell'indirizzo.",
+      "webPage": "Pagina web"
     },
     "serverKind": {
       "frontendShort": "FE",
