@@ -61,6 +61,26 @@ const APP_NAMES: Readonly<Record<string, string>> = {
   ruby: 'Ruby', perl: 'Perl', php: 'PHP', sqlite3: 'SQLite', psql: 'PostgreSQL',
 };
 
+/**
+ * Commands drawn with a bundled mark instead of an OS icon — their executables carry none (git.exe,
+ * curl.exe; POSIX command-line programs never do). Listed only where the mark's owner licenses the
+ * artwork for this use: sources, licenses and the marks left out are in the client's
+ * `assets/command-app-icons/README.md`. Keyed by the same base name as APP_NAMES.
+ */
+export type CommandAppBrand = 'git' | 'curl' | 'php' | 'ruby' | 'perl' | 'yarn' | 'pnpm' | 'godot';
+const COMMAND_APP_BRANDS: Readonly<Record<string, CommandAppBrand>> = {
+  git: 'git', curl: 'curl', php: 'php', ruby: 'ruby', irb: 'ruby', perl: 'perl',
+  yarn: 'yarn', pnpm: 'pnpm', pnpx: 'pnpm', godot: 'godot',
+};
+
+/** Bundled-mark key for an executable path or command name; undefined → ask the OS for its icon. */
+export function commandAppBrandOf(executable: string | undefined): CommandAppBrand | undefined {
+  if (!executable || executable.length > COMMAND_ACTIVITY_LIMITS.pathChars) return undefined;
+  const base = normalizeShellCommandName(executable).replace(/\.(?:com|ps1|sh)$/, '');
+  if (Object.prototype.hasOwnProperty.call(COMMAND_APP_BRANDS, base)) return COMMAND_APP_BRANDS[base];
+  return /^godot(?:\d+|_v\d[^\\/]*)$/.test(base) ? 'godot' : undefined;
+}
+
 // File utilities already feed file bubbles; shell syntax/cmdlets are not apps.
 const NON_APPS: ReadonlySet<string> = new Set([
   'echo', 'printf', 'cat', 'head', 'tail', 'less', 'more', 'nl', 'wc', 'rg', 'grep', 'egrep', 'fgrep',

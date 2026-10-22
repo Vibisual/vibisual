@@ -65,6 +65,9 @@ function u32be(b: Uint8Array, i: number): number {
 function i32le(b: Uint8Array, i: number): number {
   return (b[i] ?? 0) | ((b[i + 1] ?? 0) << 8) | ((b[i + 2] ?? 0) << 16) | ((b[i + 3] ?? 0) << 24);
 }
+function u32le(b: Uint8Array, i: number): number {
+  return i32le(b, i) >>> 0;
+}
 
 /**
  * ① 그림의 **머리만 읽어** 가로×세로를 안다 — PNG(APNG) · JPEG · GIF · WebP(VP8 · VP8L · VP8X) · BMP. 그 밖(AVIF·ICO·SVG)이거나
@@ -111,6 +114,93 @@ export function imageHeaderSize(head: Uint8Array): { width: number; height: numb
     return null;
   }
   return null;
+}
+
+/**
+ * §5.13 (R-9) · §5.1 #2-1 (G) ⑧ — JPEG 머리의 **EXIF 회전**(1~8, 모르면 1). 브라우저는 그림을 이 회전대로 세워 푼다
+ * (`createImageBitmap` 기본값 · `<img>`) — 줄여 풀 크기를 정하려면 세운 뒤의 가로×세로가 필요하다. 다른 형식은 1 이다.
+ */
+export function imageHeaderOrientation(head: Uint8Array): number {
+  const b = head;
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return 1;
+  let i = 2;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 0xff) { i += 1; continue; }
+    const marker = b[i + 1] ?? 0;
+    if (marker === 0xff) { i += 1; continue; }
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+    // 화상 자료(SOS)·끝(EOI)부터는 머리가 없다.
+    if (marker === 0xda || marker === 0xd9) return 1;
+    const len = u16be(b, i + 2);
+    if (len < 2) return 1;
+    // APP1 "Exif\0\0" 뒤가 TIFF 머리다.
+    if (marker === 0xe1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66
+      && b[i + 8] === 0 && b[i + 9] === 0) {
+      const o = tiffOrientation(b, i + 10, Math.min(b.length, i + 2 + len));
+      if (o !== null) return o;
+    }
+    i += 2 + len;
+  }
+  return 1;
+}
+
+/** TIFF 머리(`t` 부터 `end` 앞까지)의 첫 IFD 에서 회전 태그(0x0112)를 읽는다. 없거나 모양이 틀리면 null. */
+function tiffOrientation(b: Uint8Array, t: number, end: number): number | null {
+  if (t + 8 > end) return null;
+  const little = b[t] === 0x49 && b[t + 1] === 0x49;
+  const big = b[t] === 0x4d && b[t + 1] === 0x4d;
+  if (!little && !big) return null;
+  const r16 = (i: number): number => (little ? u16le(b, i) : u16be(b, i));
+  const r32 = (i: number): number => (little ? u32le(b, i) : u32be(b, i));
+  if (r16(t + 2) !== 42) return null;
+  const ifd = t + r32(t + 4);
+  if (ifd + 2 > end) return null;
+  const count = r16(ifd);
+  for (let k = 0; k < count; k += 1) {
+    const e = ifd + 2 + k * 12;
+    if (e + 12 > end) return null;
+    if (r16(e) !== 0x0112) continue;
+    const value = r16(e + 8);
+    return value >= 1 && value <= 8 ? value : null;
+  }
+  return null;
+}
+
+/** EXIF 회전을 세운 뒤의 가로×세로 — 5~8 은 90도 돌아간 것이라 가로·세로가 바뀐다. */
+export function orientedImageSize(
+  size: { readonly width: number; readonly height: number },
+  orientation: number,
+): { width: number; height: number } {
+  return orientation >= 5 && orientation <= 8
+    ? { width: size.height, height: size.width }
+    : { width: size.width, height: size.height };
+}
+
+/**
+ * §5.13 (R-9) — 머리로 보아 **움직이는 그림일 수 있는가** — GIF(전부 그렇다고 본다) · APNG(`IDAT` 앞의 `acTL` 덩어리) · 움직이는
+ * WebP(VP8X 의 애니메이션 깃발). 줄여 풀면 첫 장만 남으므로 보기 창은 이것을 원본 그대로 그린다.
+ */
+export function imageHeaderAnimated(head: Uint8Array): boolean {
+  const b = head;
+  if (b.length < 21) return false;
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return true;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+    let i = 8;
+    while (i + 8 <= b.length) {
+      const len = u32be(b, i);
+      const type = String.fromCharCode(b[i + 4] ?? 0, b[i + 5] ?? 0, b[i + 6] ?? 0, b[i + 7] ?? 0);
+      if (type === 'acTL') return true;
+      if (type === 'IDAT' || type === 'IEND') return false;
+      i += 12 + len;
+    }
+    return false;
+  }
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+    && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
+    && b[12] === 0x56 && b[13] === 0x50 && b[14] === 0x38 && b[15] === 0x58) {
+    return ((b[20] ?? 0) & 0x02) !== 0;
+  }
+  return false;
 }
 
 // ─── ② 화면 기준 · ③ 한눈 기준 ───

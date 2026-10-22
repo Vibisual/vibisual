@@ -19,6 +19,7 @@
  * 셸 명령은 읽기·쓰기 축과 **같은 토크나이저**(`bashCommandPaths.ts`)로 자른다(§2.1 #3 — 두 벌 금지).
  */
 import {
+  decodePowerShellEncodedCommand,
   extractBashWritePaths,
   normalizeShellCommandName,
   readHeredocDelimiter,
@@ -479,18 +480,8 @@ function inlineCodeHits(code: string, ctx: SegmentContext, detail: string): Veri
   return hits;
 }
 
-/** PowerShell `-EncodedCommand`(base64 UTF-16LE). 풀지 못하면 null. */
-function decodePowerShellEncoded(value: string): string | null {
-  try {
-    if (typeof atob !== 'function') return null;
-    const bin = atob(value.trim());
-    let out = '';
-    for (let i = 0; i + 1 < bin.length; i += 2) out += String.fromCharCode(bin.charCodeAt(i) | (bin.charCodeAt(i + 1) << 8));
-    return out;
-  } catch {
-    return null;
-  }
-}
+/** PowerShell `-EncodedCommand`(base64 UTF-16LE). 풀지 못하면 null. 해독은 셸 파서 한 곳(§5.1 #1-1 껍데기 벗기기와 공용). */
+const decodePowerShellEncoded = decodePowerShellEncodedCommand;
 
 function namedScriptHits(
   name: string | undefined,

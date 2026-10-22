@@ -1,9 +1,9 @@
-import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, SessionMemoLink, SessionMemoLinkKind, SessionMemoLinkTarget, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken, FileFaceKind, FileFaceFamily, WebGroupSettings, WebKind } from './types.js';
+import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, SessionMemoLink, SessionMemoLinkKind, SessionMemoLinkTarget, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken, FileFaceKind, FileFaceFamily, WebGroupSettings, WebOpenTarget, WebKind } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 // §2.1 #3 쓰기 축 — Bash 줄의 `target`(어느 파일을 고쳤나)을 그래프와 **같은 추출기**에서 뽑는다.
-import { extractBashWritePaths } from './bashCommandPaths.js';
+import { extractBashWritePaths, shellDialectOfTool } from './bashCommandPaths.js';
 import { normalizeCodexToolPolicy } from './codexToolPolicy.js';
 import { harnessBuilderPowershellBlocks } from './harnessBuilderApi.js';
 import { AGENT_AUTH_POSIX, agentPowershellRequest, type AgentRuleShell } from './agentRuleShell.js';
@@ -267,6 +267,14 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-sky-300',
     ringActive: 'border-sky-600 shadow-lg shadow-sky-600/30',
   },
+  // §2.2 · §5.1 #2-1 (B) — 묶음 버블(화면 전용). 파일 보라와 갈리는 남회색 + 점선 테 — 파일 한 장으로 읽히지 않게.
+  bundle: {
+    color: '#3F3F66',
+    glow: '#A5B4FC',
+    icon: 'bundle',
+    ringIdle: 'border-indigo-300/70 border-dashed',
+    ringActive: 'border-indigo-300 border-dashed shadow-lg shadow-indigo-400/30',
+  },
 };
 
 /**
@@ -321,6 +329,12 @@ export const EDGE_STYLE: EdgeStyleConfig = {
 export const MAX_BASH_HISTORY = 50;
 /** 파일 버블당 보관하는 diff 엔트리 상한(초과 시 오래된 것부터 drop). 노드별 `unlimitedFileEdits=true` 면 미적용(무한 저장) */
 export const MAX_FILE_EDITS = 20;
+/**
+ * §5.1 명령 앱 · §7.3 — 명령 앱 버블 패널이 보이는 명령 수. 파일 버블 수정 기록과 **같은 규칙**(`마지막 20개만 유지` 체크박스)이라
+ * 같은 수를 따로 적지 않는다(2026-10-21 사용자 지시 — 10-20 에 새로 만든 화면 상한 50 을 걷었다). 노드별
+ * `unlimitedCommandHistory=true` 면 남아 있는 기록을 모두 보인다. 보관 상한(`MAX_BASH_HISTORY`)과 별개의 보기 축이다.
+ */
+export const MAX_COMMAND_APP_HISTORY = MAX_FILE_EDITS;
 /** Write diff 합성 시 old/new 본문 한 쪽당 최대 보관 길이(문자). 초과분은 잘라 표식 추가 — 스냅샷/메모리 폭증 방지 */
 export const MAX_WRITE_DIFF_BYTES = 100_000;
 /**
@@ -1310,6 +1324,15 @@ export function workspaceMediaMime(filePath: string): string {
   return WORKSPACE_MEDIA_MIME_BY_EXT[workspaceFileExt(filePath)] ?? 'application/octet-stream';
 }
 
+/**
+ * §5.13 40-1 — 코어 미디어 창구의 **흘려 보내는 갈래**(패키지 앱의 `vibproxy://proxy/api/workspace-media`)가 낼 수 있는 파일인가 —
+ * 위 미디어 표에 있는 형식만이다. 같은 출처의 프리뷰 페이지도 그 갈래에 닿으므로 표 밖(코드 · 설정 · 키)은 내지 않는다.
+ * 화면도 같은 표로 미리 가른다(표 밖은 종전 IPC 길).
+ */
+export function isWorkspaceMediaFile(filePath: string): boolean {
+  return Object.prototype.hasOwnProperty.call(WORKSPACE_MEDIA_MIME_BY_EXT, workspaceFileExt(filePath));
+}
+
 // ─── §5.13 (R-8) — 못 읽는 영상·소리는 **변환해서** 우리 안에서 연다 ─────────────
 //
 // 코덱을 받는 것이 아니다. Chromium 은 시스템 코덱을 쓰지 않으므로(실측: `.avi` 는
@@ -1418,6 +1441,13 @@ export const DEFAULT_MAX_SATELLITES = 5;
 export const SATELLITE_MAX_BOUNDS = { MIN: 1, MAX: 50 } as const;
 
 // ─── 외부 폴더 표시 규약 (§2.1 — 요약 · 예산 · 접기 · 이름) ───
+
+/**
+ * 외부 노드 키의 표식 — 서버 노드 키는 `<워크트리 접두>__ext__<절대경로>` 이고, 화면의 외부 폴더 `path` 는 절대경로다.
+ * §5.1 #2-1 (B) 같은 종류 묶음(`kindBundle.ts`)이 서버 위성 목록과 화면 위성을 같은 자로 재려고 shared 로 올렸다
+ * (서버 `EXT_KEY_MARK` 가 이 값을 쓴다 — 키 조립·해체가 한 값에서 나오게).
+ */
+export const EXTERNAL_NODE_KEY_MARK = '__ext__';
 
 /**
  * (A) 접합 버블이 요약으로 보여 줄 **자손 이름 칩** 개수.
@@ -1553,6 +1583,21 @@ export const WEB_GROUP_DEFAULTS: Readonly<WebGroupSettings> = { sameSite: true, 
 export const WEB_GROUP_OFF: Readonly<WebGroupSettings> = { sameSite: false, byKind: false, maxPerAgent: 0 };
 /** (C) 에이전트마다 따로 세울 웹 버블 수의 범위. `0` = 상한 없음, `1` = 에이전트마다 하나. */
 export const WEB_GROUP_MAX_BOUNDS = { MIN: 0, MAX: 40 } as const;
+
+// ─── 웹 버블 더블클릭 (§5.23 「더블클릭」) ───
+
+/** 더블클릭이 고를 수 있는 열 곳 — 옵션창 고르기 칸이 이 순서로 그린다. */
+export const WEB_OPEN_TARGETS: readonly WebOpenTarget[] = ['external', 'iframe'];
+/** 기본은 바깥 브라우저 — 사용자 지시(2026-10-21 "기본 선택은 외부 웹에서 여는 거"). */
+export const WEB_OPEN_TARGET_DEFAULT: WebOpenTarget = 'external';
+/** 도메인 버블이 여는 iframe 탭의 id 접두 — `web-<버블 id>`. 버블마다 탭 하나(다시 누르면 같은 탭이 옮겨 간다). */
+export const WEB_PAGE_TAB_PREFIX = 'web-';
+/**
+ * 인터넷 페이지를 띄우는 격리 웹뷰의 세션(partition) 이름. `persist:` 를 붙이지 않는다 — 메모리에만 살아 쿠키·저장소를
+ * 디스크에 남기지 않고, 앱을 끄면 함께 사라진다. 기본 세션과 갈라 두는 것이 격리의 핵심이다(그쪽에는 `vibproxy://`
+ * 처리기와 "전부 허락" 권한 처리기가 있다). 렌더러의 `<webview partition>` 과 main 의 `will-attach-webview` 가 같은 값을 쓴다.
+ */
+export const WEB_PAGE_PARTITION = 'vibisual-web';
 
 /**
  * (A) **끝 두 칸이 사이트가 아닌 접미사** — 여기 걸리면 한 칸 더 붙여 사이트로 본다.
@@ -1715,6 +1760,35 @@ export const NODE_MAX_SIZE = 180;
 /** 파일(위성) 버블 최소/최대 크기 */
 export const FILE_MIN_SIZE = 40;
 export const FILE_MAX_SIZE = 90;
+
+/**
+ * §2.3 · §5.1 #2-1 (A) — 파일 지름의 **용량 눈금**(2026-10-21 사용자 지시 — "상대적이긴 하지만 어느정도 크기의 제어를 해야한다
+ * 하나의 크기가 갑자기 너무 커져버렸다"). 용량은 자릿수로 읽는다(로그 눈금) — 정비례면 큰 파일 하나가 `FILE_MAX_SIZE` 를 차지하고
+ * 나머지는 바닥에 눌렸다(실측 57MB wav 하나만 90px).
+ */
+export const FILE_SIZE_SCALE = {
+  /**
+   * 눈금 폭의 하한(배). 같은 화면 파일들의 용량이 이 배 안에서 갈리면 지름이 가운데로 모인다 — 몇 바이트 차이가 지름 차이가 되지
+   * 않게(실측 같은 그림 40장 184~186B 가 56~90px 로 갈렸다). 하한으로 거는 것이라 문턱에서 튀지 않고 이어진다.
+   */
+  minSpread: 16,
+} as const;
+
+/**
+ * §2.2 · §5.1 #2-1 (B) — **묶음 버블**(화면 전용 `bundle`). 같은 종류 파일들(하위 폴더의 같은 미디어 종류 · 연속 번호)의 자리 —
+ * 파일이 묶음의 부모로 서지 않고(2026-10-21 사용자 지시 "png인줄알고 mp4인줄 알고 들어갔더니 그게 묶음이더라"), 묶음에는 그
+ * 종류만 든다(같은 날 "사진 묶음인데 … 사진만 있는게 아니라 다른 파일들도 같이 있는게 문제야").
+ */
+export const BUNDLE_BUBBLE = {
+  /** 지름(px) — 파일 범위의 가운데보다 조금 커서 무리의 중심으로 읽히되 구성 파일을 덮지 않는다. 용량·활동과 무관하게 고정. */
+  size: 64,
+  /** 같은 종류 묶음이 서는 최소 구성 수 — 하나는 묶음이 아니라 파일이다(`planKindBundles`). */
+  minMembers: 2,
+  /** 묶음 안(더블클릭)에 세우는 구성 파일 상한 — 연속 번호는 수백 장일 수 있다. 넘치면 최근 것부터 이만큼. */
+  interiorMax: 120,
+  /** 툴팁에 이름을 적는 구성 수 상한 — 넘치면 "외 N개". */
+  tooltipNameMax: 12,
+} as const;
 
 // ─── §5.24 읽기 히트맵 ───
 
@@ -2252,8 +2326,27 @@ export const AGENT_CLUSTER_RADIUS_PER_AGENT = 15;
 export const ORBIT_BASE_RADIUS = 180;
 export const ORBIT_RADIUS_PER_ITEM = 20;
 
-/** 위성(파일) 궤도 간격 — 부모 원 둘레로부터의 갭 */
-export const SATELLITE_ORBIT_GAP = 20;
+/**
+ * 위성(파일) 궤도 간격 — 부모 테두리와 위성 테두리 사이의 틈(px).
+ *
+ * §5.1 #2-2 (J) — 20 → 48 (2026-10-22 사용자 지시 「폴더에 붙는 위성들이 너무 짧아져서 다닥다닥」). 20 은 미디어 위성의 원 아래
+ * 이름 줄(`FILE_FACE.captionGap` 3 + 줄 높이 14)과 거의 같아, 12시 자리 위성은 이름이 부모 테두리에 닿았고 위성선이 보이지 않아
+ * "도는 것"이 아니라 "붙은 것"으로 읽혔다. 이름 줄 뒤에도 선이 보일 만큼(약 30px) 남긴다.
+ *
+ * 이 값 하나를 등장 영역 첫 고리 · 물리 스프링 평형점 · 놓았을 때 · 부모가 바뀐 위성 · 정리(§5.4 #33) · 묶음 궤도 점선 · 앱 작업
+ * 타원 궤도가 함께 본다 — 따로 들면 한쪽이 앉힌 궤도를 다른 쪽 스프링이 조금씩 당겨 스스로 풀린다.
+ */
+export const SATELLITE_ORBIT_GAP = 48;
+
+/**
+ * §5.1 #2-2 (J) — 위성 고리의 **이웃 사이(호)**와 **고리 사이** 틈(px). 최상위 버블의 `TIDY_LAYOUT.RING_GAP`(34)·`ROW_GAP`(30)
+ * 보다 넓다 — 위성은 원 아래 이름 줄(지름의 1.8배 폭까지)을 달고 다녀, 최상위 간격으로 붙이면 이웃의 이름이 서로를 밟는다.
+ * 등장 영역의 위성 격자(`satelliteZoneGrid`)·물리의 다시 걸기·정리(§5.4 #33 (F))가 같은 값을 쓴다.
+ */
+export const SATELLITE_RING_SPACING = {
+  NEIGHBOR_GAP: 44,
+  ROW_GAP: 40,
+} as const;
 
 /** 위성으로 허용되는 버블 타입 */
 export const SATELLITE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['file', 'bash', 'ghost', 'iframe']);
@@ -2434,8 +2527,6 @@ export const FILE_FACE_STYLES: Readonly<Record<FileFaceKind, { readonly color: s
 export const FILE_FACE = {
   /** 미디어 얼굴 지름 하한(px) — 그림이 읽혀야 한다. */
   mediaMinSize: 56,
-  /** 위성을 거느린 중심의 지름 하한(px). */
-  hubMinSize: 68,
   /** 영상 렌즈 둘레의 네모 구멍 수(필름 퍼포레이션을 원으로 감은 것). */
   sprocketCount: 12,
   /** 소리 방사형 파형의 막대 수(구운 파형을 이 수로 다시 뽑는다). */
@@ -2600,6 +2691,25 @@ export const PREVIEW_POLICY = {
 } as const;
 
 /**
+ * §5.13 (R-9) — 그림 **보기 창**이 필요한 만큼만 풀고 안 보면 내려놓는 기준. 판단은 클라 `imageViewPlan.ts`(순수) 한 곳이다.
+ * 너비는 전부 **장치 픽셀**(CSS px × 화면 배율)로 비교한다.
+ */
+export const IMAGE_VIEW = {
+  /** 미리보기(창에 맞춘 저화질) 너비를 이 단위로 올려 잡는다 — 창을 조금씩 키울 때마다 다시 풀지 않게. */
+  previewStepPx: 256,
+  /** 원본 너비가 미리보기 너비의 이 배 이하면 미리보기 없이 원본을 바로 푼다(두 번 풀 이득이 없다). */
+  directMaxRatio: 1.5,
+  /** 보이는 배율이 미리보기보다 이 배 넘게 촘촘해야 하면 원본을 푼다. */
+  fullAboveRatio: 1.1,
+  /** 미리보기로 충분해진 뒤(필요 너비 ≤ 미리보기 너비) 이만큼 지나면 원본을 놓는다(ms) — 확대·축소를 오가며 다시 풀지 않게. */
+  fullReleaseDelayMs: 1_500,
+  /** 창이 숨은(다른 탭 · 최소화) 지 이만큼 지나면 받은 바이트 · 미리보기 · 원본을 다 놓는다(ms). 다시 보이면 다시 받는다. */
+  hiddenReleaseMs: 5_000,
+  /** 창이 커져 미리보기를 다시 풀기 전에 기다리는 시간(ms) — 창 가장자리를 끄는 동안 매 프레임 풀지 않게. */
+  regrowDebounceMs: 200,
+} as const;
+
+/**
  * **안에 들어갈 수 있는** 폴더 버블 타입 — 더블클릭하면 `children` 을 펼쳐 내부 뷰가 되는 것들.
  *
  * §9 폴더 스코프드 스냅샷이 "한 칸 앞"을 계산할 때 쓴다: 지금 그리는 폴더 안에서 사용자가
@@ -2659,6 +2769,22 @@ export const APP_STATE_BACKUP_GENERATIONS = 3;
  * 같은 크기를 쓴다.
  */
 export const MAX_RECENTLY_CLOSED_TABS = 25;
+
+/**
+ * §5.4 #14-2 (C-1) — 프로젝트 탭 순서 저장(`PATCH /api/projects/order`).
+ *
+ * 순서의 SSOT 는 `AppState.openProjects` 의 배열 순서다. 탭을 끌어 놓으면 화면이 먼저 바뀌고 PATCH 가 뒤따르므로,
+ * 서버가 그 PATCH 를 받기 전에 떠난 스냅샷이 옛 순서로 탭을 한 번 되돌리지 않게 클라가 놓은 순서를 붙든다.
+ */
+export const PROJECT_TAB_ORDER = {
+  /**
+   * 놓은 순서를 화면이 붙드는 최대 시간(ms). 보낸 PATCH 가 다 답한 뒤 서버 순서가 그것을 따르면 그 전에 놓는다 —
+   * 이 값은 서버가 끝내 다른 순서를 말할 때(다른 창이 다시 옮겼다)의 안전망이다. `LINK_VIEW.pendingMs` 와 같은 창.
+   */
+  pendingMs: 8000,
+  /** 한 번에 받는 경로 수 상한(입력 검증). 넘는 것은 언급하지 않은 것으로 보아 제자리에 둔다. */
+  maxEntries: 1000,
+} as const;
 
 /**
  * §3.2.1-3 v2.63 — 명시 삭제 커스텀 에이전트 묘비(deletedCustomAgents) 최대 보관 수.
@@ -5865,25 +5991,38 @@ export const TIDY_LAYOUT = {
 } as const;
 
 /**
- * §5.23 **웹 궤도** — 새 도메인 버블이 처음 앉는 자리(읽은 에이전트 둘레 동심 궤도의 빈칸).
+ * §5.1 #2-2 **등장 영역** — 새 버블이 처음 앉는 자리(주인 둘레 동심 고리의 빈칸, 붐비면 바깥 고리).
+ * §5.23 웹 궤도(도메인)가 첫 사례였고, 이제 메인 캔버스·폴더 안의 모든 새 버블이 같은 규칙을 탄다.
  *
- * 간격은 따로 두지 않는다 — 첫 궤도 앞과 같은 궤도의 이웃 사이는 `TIDY_LAYOUT.RING_GAP`, 궤도 사이는
- * `TIDY_LAYOUT.ROW_GAP` 이다. 정리(§5.4 #33)와 같은 간격이라야 물리가 다시 밀어낼 이유가 없고,
+ * 간격은 따로 두지 않는다 — 최상위는 첫 고리 앞과 같은 고리의 이웃 사이가 `TIDY_LAYOUT.RING_GAP`, 고리 사이가
+ * `TIDY_LAYOUT.ROW_GAP` 이고, 위성은 첫 고리 앞이 `SATELLITE_ORBIT_GAP`(물리 스프링의 평형점), 이웃 사이·고리 사이가
+ * `SATELLITE_RING_SPACING` 이다(§5.1 #2-2 (J)). 정리(§5.4 #33)와 같은 간격이라야 물리가 다시 밀어낼 이유가 없고,
  * 정리한 지도와 갓 자란 지도가 같은 말로 읽힌다.
  */
-export const WEB_ORBIT = {
+export const SPAWN_ZONE = {
   /**
-   * 모든 궤도의 첫 칸이 서는 방향(라디안) — 12시. 화면 y 는 아래로 자라므로 각이 커지면 **시계 방향**이다.
+   * 모든 고리의 첫 칸이 서는 방향(라디안) — 12시. 화면 y 는 아래로 자라므로 각이 커지면 **시계 방향**이다.
    * 고리에 시작점이 없으면 순서가 읽히지 않는다(§5.4 #33 I-1) — 시작점과 방향을 약속해 순서를 읽히게 한다.
    */
   START_ANGLE: -Math.PI / 2,
+  /**
+   * 위성 칸의 기준 지름(px) — 파일 위성 지름 범위의 가운데. 한 부모 둘레의 위성이 **한 격자**를 나눠 써야
+   * 고리가 고리로 보인다(위성마다 제 지름으로 격자를 다시 짜지 않는다 — 큰 위성은 겹침 판정이 걸러 낸다).
+   */
+  SATELLITE_SLOT: (FILE_MIN_SIZE + FILE_MAX_SIZE) / 2,
+  /**
+   * 사각 창·말풍선이 원판 안에 든 넓이를 잴 때 한 변을 나누는 표본 수(N×N 격자 칸의 가운데). 원판과 사각의
+   * 겹친 넓이를 식으로 풀지 않고 표본으로 어림한다 — 세기는 "얼마나 붐볐나"를 칸 단위로 묻는 일이라 충분하다.
+   */
+  AREA_SAMPLES: 8,
+  /** 상자가 없을 때(시험·폴백) 훑는 고리 수의 상한 — 탐색이 끝나는 자리. */
+  MAX_RINGS: 24,
 } as const;
 
 /**
- * §5.23 웹 궤도에 앉는 버블 타입 — 새 버블 원(`radialLayout`)에서 빠지고 읽은 에이전트 둘레에 선다.
- *
- * 그 원의 반지름은 개수에 비례해 자란다(`ORBIT_RADIUS_PER_ITEM`). 리서치 한 번에 수십 개가 서는 타입이
- * 거기 들면 원이 물리 상자를 넘고, 물리 클램프가 그 버블들을 상자 벽에 눌러 사각 테두리를 만든다.
+ * §5.23 큰 원(`radialLayout`)에서 빼는 버블 타입. 그 원의 반지름은 개수에 비례해 자란다
+ * (`ORBIT_RADIUS_PER_ITEM`). 리서치 한 번에 수십 개가 서는 타입이 거기 들면 원이 물리 상자를 넘고, 함께 선
+ * 항목까지 상자 벽으로 민다. 새 버블의 첫 자리는 이 표와 상관없이 §5.1 #2-2 등장 영역(`SPAWN_ZONE`)이 정한다.
  * **새 타입은 여기 한 줄 추가로만.**
  */
 export const WEB_ORBIT_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['domain']);
@@ -7348,36 +7487,6 @@ export const DIFF_COMMENT_MAX = 50;
 
 // ─── §5.5 #17-28 "간결" 밀도 = 핵심만 남기는 밀도 (v4.75) ───
 // 종전 간결은 표준과 같은 분기를 타서 사실상 차이가 없었다. 아래 상수들이 "얼마나 남길지"를 정한다.
-
-/** 간결에서 AI 본문(text)의 **머리**로 남기는 줄 수. 화면의 마지막 본문·여는 본문은 예외(자르지 않음). */
-export const STREAM_COMPACT_TEXT_CLAMP_LINES = 4;
-
-/**
- * 간결에서 AI 본문의 머리로 남기는 글자 수 — 줄 수와 **둘 다** 본다.
- * 마크다운 문단은 줄바꿈 없이 한 줄로 길게 오는 일이 잦아, 줄 수만 보면 클램프가 통째로 헛돈다.
- */
-export const STREAM_COMPACT_TEXT_CLAMP_CHARS = 420;
-
-/**
- * §5.5 #17-46 ① — 간결에서 AI 본문의 **꼬리**로 남기는 줄 수. 접히는 것은 가운데뿐이다.
- *
- * 한 문단에서 사용자가 가장 읽어야 하는 줄은 앞이 아니라 끝이다(무엇을 찾았는지·무엇이 막혔는지·
- * 다음에 무엇을 물어야 하는지). 앞만 남기던 종전 클램프는 그 결론을 매번 잘라 냈다.
- * 머리(4줄)보다 짧게 두는 이유는 꼬리가 "요점 확인"이지 "다시 읽기"가 아니기 때문이다.
- */
-export const STREAM_COMPACT_TEXT_TAIL_LINES = 3;
-
-/** §5.5 #17-46 ① — 꼬리의 글자 수 상한. 머리와 같은 이유로 줄 수와 **둘 다** 본다. */
-export const STREAM_COMPACT_TEXT_TAIL_CHARS = 240;
-
-/**
- * §5.5 #17-46 ② — 가운데를 접어서 **감추는 양이 이보다 적으면 아예 접지 않는다**(줄바꿈 없는 긴 문단용).
- *
- * 접기 버튼 자체가 한 줄을 먹으므로, 한 줄을 감추려고 버튼 한 줄을 쓰는 자리는 순이득이 0이고
- * 화면에 손잡이만 하나 더 생긴다. 줄 수로는 `hiddenLines >= 2` 가 같은 판정을 하고, 이 상수는
- * **줄바꿈 없이 길게 오는 마크다운 문단**(줄 수로는 1줄이지만 실제로는 여러 줄로 접히는 글)을 위한 쪽이다.
- */
-export const STREAM_COMPACT_TEXT_MIN_HIDDEN_CHARS = 120;
 
 /** 간결에서 번호 목록 카드가 보여주는 항목 수 — 나머지는 `+N` 한 줄. */
 export const STREAM_COMPACT_LIST_PREVIEW = 3;
@@ -9047,6 +9156,15 @@ export function isAppContentPath(pathname: string): boolean {
 // ─── §5.4 #36 전환과 연결 — 에이전트 말풍선 · 위성줄 · 꽃잎 고르기 ─────────────
 
 /**
+ * §5.4 #31 (K) · #36 (A)(B) — 움직임 줄이기(OS 애니메이션 효과 꺼짐 → 엔진이 `prefers-reduced-motion: reduce`)에서
+ * **도는 동안 계속 도는 움직임**(활성 선의 흐름 · 말풍선 궤도 · 위성줄 구슬)을 끄지 않고 이 배율만큼 느리게 돌린다.
+ * 끄면 그 설정이 켜진 PC 에서 일하는 선이 쉬는 선과 똑같아진다(2026-10-22 사용자 보고 "커스텀마다 움직이던 선이
+ * 멈춰 있다" — 그 PC 가 이 설정이었다). 끄지 말고 누그러뜨리는 원칙은 docs/rules/multiplatform.md §1.
+ * CSS 만으로 도는 둘(`.agent-orbit-spin` · `.ref-bead-flow`)은 곱한 값을 아래 `*ReducedMs` 와 `index.css` 에 함께 적는다.
+ */
+export const REDUCED_MOTION_LOOP_SLOWDOWN = 1.5;
+
+/**
  * §5.4 #36 (A) — 에이전트 말풍선의 기하(캔버스 px, 노드 좌표계 = 좌상단 원점).
  *
  * 버블은 판으로 변하지 않는다 — **원이 그 자리에 남고** 그 왼쪽으로 말풍선이 펴진다. 읽는 방향이 곧 흐름이다:
@@ -9088,6 +9206,8 @@ export const AGENT_CARD = {
   orbitDotStepDeg: 17,
   /** 에이전트가 도는 동안 궤도가 한 바퀴 도는 시간(ms). `index.css` 의 `.agent-orbit-spin` 과 같은 값. */
   orbitSpinMs: 14000,
+  /** 움직임 줄이기에서 궤도가 한 바퀴 도는 시간(ms) — 멈추지 않고 `REDUCED_MOTION_LOOP_SLOWDOWN` 배 느리게. `index.css` 와 같은 값. */
+  orbitSpinReducedMs: 14000 * REDUCED_MOTION_LOOP_SLOWDOWN,
   /** 이름이 궤도 아래로 떨어지는 간격. */
   labelGap: 4,
   /** 위성을 누른 뒤 이만큼(px) 움직여야 끌기다 — 못 넘으면 "누름"(그 자리에 꽃). 손떨림이 줄이 되지 않게. */
@@ -9132,6 +9252,8 @@ export const REF_LINK_STYLE = {
   sagMax: 56,
   /** 도는 동안 구슬이 한 칸(beadGap) 흐르는 시간(ms). `index.css` 의 `.ref-bead-flow` 와 같은 값. */
   flowMs: 600,
+  /** 움직임 줄이기에서 구슬이 한 칸 흐르는 시간(ms) — 멈추지 않고 `REDUCED_MOTION_LOOP_SLOWDOWN` 배 느리게. `index.css` 와 같은 값. */
+  flowReducedMs: 600 * REDUCED_MOTION_LOOP_SLOWDOWN,
   /** 앱 쪽 끝의 도킹 고리 — 반지름·두께. 끄는 중 앱 노드 위에 있으면 `dockActiveRadius`. */
   dockRadius: 4.5,
   dockActiveRadius: 7,
@@ -9273,6 +9395,17 @@ export const LINK_VIEW = {
    * 낙관 생성의 `APP_BUBBLE_PENDING_MS` 와 같은 창(클라 `linkViewHold.ts`).
    */
   pendingMs: 8000,
+} as const;
+
+/**
+ * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]가 기억하는 연결의 한도(§3.2.3 B·C축). 에이전트마다 한 벌이고 걷을 때마다
+ * 갈아 끼운다. 넘치면 오래 안 만진 버블부터 버린다(다시 보기가 가장 최근 것을 먼저 돌려줘야 한다).
+ */
+export const AGENT_LINK_RECORD = {
+  /** 한 에이전트가 기억하는 버블 수 — 파일 하나는 그 폴더 사슬까지 몇 장이다. */
+  maxEntries: 300,
+  /** 도메인 버블 하나가 같이 기억하는 웹 이력 수(버블의 기본 상한과 같다). */
+  maxWebEntries: 20,
 } as const;
 
 /** §5.4 #36 (H) ③ — 결과 전달로 바뀌기 전 파일을 노드에 남기는 수(지난 결과, 최근 것부터). */
@@ -12019,7 +12152,8 @@ export function summarizeToolCall(
     const urls = command.match(AUDIT_URL_PATTERN);
     // §2.1 #3 쓰기 축 — 셸로 고친 줄은 명령만 있고 **어느 파일인지가 비어 있었다**.
     // 그래프가 쓰기 화살표를 세우는 것과 같은 추출기로 그 칸을 채운다(첫 경로 하나면 족하다).
-    const written = extractBashWritePaths(command, 1, { platform: options?.platform })[0];
+    // §5.1 #1-1 — PowerShell 도구의 명령은 PowerShell 말씨로 자른다(따옴표·here-string·주석 규칙이 다르다).
+    const written = extractBashWritePaths(command, 1, { platform: options?.platform, dialect: shellDialectOfTool(toolName) })[0];
     const target = urls?.[0] ?? filePath ?? written;
     return {
       summary: auditClip(command, AUDIT_SUMMARY_MAX_CHARS),

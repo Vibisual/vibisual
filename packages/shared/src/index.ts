@@ -26,6 +26,8 @@ export type {
   AppBubble,
   AppBubblePastFile,
   LinkLens,
+  AgentLinkEntry,
+  AgentLinkRecord,
   CaptureBubble,
   PlayRecipeKind,
   PlayRecipeSource,
@@ -135,6 +137,7 @@ export type {
   WebFoldInfo,
   WebFoldScope,
   WebGroupSettings,
+  WebOpenTarget,
   WebKind,
   ServerEntry,
   AgentEvent,
@@ -534,6 +537,8 @@ export {
   NODE_MAX_SIZE,
   FILE_MIN_SIZE,
   FILE_MAX_SIZE,
+  FILE_SIZE_SCALE,
+  BUNDLE_BUBBLE,
   HEAT_MIN_SIZE,
   HEAT_MAX_SIZE,
   HEATMAP_RAMP,
@@ -544,6 +549,7 @@ export {
   HEAT_LEGEND_TICKS,
   MAX_BASH_HISTORY,
   MAX_FILE_EDITS,
+  MAX_COMMAND_APP_HISTORY,
   MAX_WRITE_DIFF_BYTES,
   BASH_WRITE_PENDING_MAX,
   CODEX_PATCH_PENDING_MAX,
@@ -644,6 +650,7 @@ export {
   EXTERNAL_PROMOTION_PER_PARENT,
   EXTERNAL_PROMOTION_HALF_LIFE_MS,
   EXTERNAL_FOLDER_MAX,
+  EXTERNAL_NODE_KEY_MARK,
   EXTERNAL_PLACE_PATTERNS,
   // §7.5 폴더 목록 지연 로딩
   FOLDER_FILES_PAGE_SIZE,
@@ -660,6 +667,11 @@ export {
   WEB_GROUP_DEFAULTS,
   WEB_GROUP_OFF,
   WEB_GROUP_MAX_BOUNDS,
+  // §5.23 「더블클릭」 — 여는 곳 · 웹 탭 id 접두 · 격리 웹뷰 세션
+  WEB_OPEN_TARGETS,
+  WEB_OPEN_TARGET_DEFAULT,
+  WEB_PAGE_TAB_PREFIX,
+  WEB_PAGE_PARTITION,
   WEB_SITE_SUFFIXES,
   WEB_KINDS,
   WEB_KIND_HOSTS,
@@ -684,6 +696,7 @@ export {
   WORKSPACE_MEDIA_MIME_BY_EXT,
   WORKSPACE_MEDIA_MAX_BYTES,
   workspaceMediaMime,
+  isWorkspaceMediaFile,
   resolveWorkspaceOpen,
   workspaceFileExt,
   isWorkspaceImagePath,
@@ -721,6 +734,7 @@ export {
   ORBIT_BASE_RADIUS,
   ORBIT_RADIUS_PER_ITEM,
   SATELLITE_ORBIT_GAP,
+  SATELLITE_RING_SPACING,
   SATELLITE_TYPES,
   // §5.1 #2-1 — 파일 버블 얼굴 · 작업물 별자리
   FILE_FACE_EXTENSIONS,
@@ -728,6 +742,7 @@ export {
   FILE_FACE_FAMILY_EXTENSIONS,
   APP_WORK,
   PREVIEW_POLICY,
+  IMAGE_VIEW,
   FILE_FACE_MEDIA_KINDS,
   FILE_FACE_STYLES,
   FILE_FACE,
@@ -748,6 +763,7 @@ export {
   CHECKPOINT_BACKUP_GENERATIONS,
   APP_STATE_BACKUP_GENERATIONS,
   MAX_RECENTLY_CLOSED_TABS,
+  PROJECT_TAB_ORDER,
   DELETED_AGENT_TOMBSTONE_MAX,
   CHECKPOINT_EMPTY_GUARD_MIN_PRIOR,
   CHECKPOINT_SHRINK_GUARD_MIN_PRIOR,
@@ -931,7 +947,7 @@ export {
   DEFAULT_TIDY_SORT,
   normalizeTidySort,
   tidyGeometryOf,
-  WEB_ORBIT,
+  SPAWN_ZONE,
   WEB_ORBIT_TYPES,
   LAYOUT_BOUNDS_DEFAULT,
   COMMENT_BOX_PALETTE,
@@ -1071,11 +1087,6 @@ export {
   PREVIEW_DEVICE_PRESETS,
   PREVIEW_SNIP_MIN_PX,
   resolveCompareWidths,
-  STREAM_COMPACT_TEXT_CLAMP_LINES,
-  STREAM_COMPACT_TEXT_CLAMP_CHARS,
-  STREAM_COMPACT_TEXT_TAIL_LINES,
-  STREAM_COMPACT_TEXT_TAIL_CHARS,
-  STREAM_COMPACT_TEXT_MIN_HIDDEN_CHARS,
   STREAM_COMPACT_LIST_PREVIEW,
   STREAM_COMPACT_SUMMARY_CHARS,
   buildAgentReviewRules,
@@ -1563,7 +1574,7 @@ export {
   AUTO_GOAL_SKILL_BUDGET,
 } from './constants.js';
 // §5.13 (Y) 40-1 — 내부 앱 미디어(흘려 보내기)·앱 알림 계약(앱 이름 없음).
-export { APP_MEDIA_SEGMENT, APP_MEDIA_STREAM_CHUNK_BYTES, appIdOfMediaPath, isAppMediaPath, mediaContentType, mediaEtag, parseByteRange } from './appMedia.js';
+export { APP_MEDIA_SEGMENT, APP_MEDIA_STREAM_CHUNK_BYTES, WORKSPACE_MEDIA_PATH, appIdOfMediaPath, isAppMediaPath, mediaContentType, mediaEtag, parseByteRange } from './appMedia.js';
 export type { AppEventPayload, ByteRangeResult } from './appMedia.js';
 export { summarizeProcessMetrics } from './perfWire.js';
 export type { AppMetricLike, PerfMemoryWire, PerfProcessMemoryWire, PerfRendererMemoryWire } from './perfWire.js';
@@ -2076,9 +2087,12 @@ export {
   samePath,
 } from './pathCase.js';
 
-// §2.1 #3 — Bash 명령에서 경로를 뽑는 공용 셸 파서. 토크나이저는 읽기(서버 `bashReadPaths.ts`)와
+// §2.1 #3 — Bash 명령에서 경로를 뽑는 공용 셸 파서. 토크나이저는 읽기(`bashReadPaths.ts`)와
 // 쓰기(여기)가 한 벌을 나눠 쓴다. 쓰기 추출기가 shared 인 이유는 §5.22 감사 원장의 `target` 도
 // 같은 답을 봐야 하기 때문(`summarizeToolCall` 은 순수 함수라 서버 모듈을 부를 수 없다).
+// 읽기 추출기도 §5.5 #17-50 부터 shared 다 — IDE 세션 버블 지도가 캔버스와 같은 판정을 본다(서버는 감싸개).
+export { BASH_READ_PATH_LIMIT, extractBashReadTargets, extractBashReadPaths } from './bashReadPaths.js';
+export type { BashReadTarget } from './bashReadPaths.js';
 export {
   BASH_WRITE_PATH_LIMIT,
   SHELL_SEGMENT_SEPARATORS,
@@ -2095,7 +2109,20 @@ export {
   readShellCdTarget,
   extractBashWritePaths,
   extractBashScanAnchors,
+  // §5.1 #1-1 — 셸 도구(Bash·PowerShell) 판정 · 껍데기 벗기기 · 세그먼트 걷기. 읽기·쓰기·훑기가 같은 걷기를 쓴다.
+  SHELL_TOOL_NAMES,
+  isShellToolName,
+  shellDialectOfTool,
+  SHELL_WRAPPER_DEPTH_MAX,
+  readShellInvocation,
+  forEachShellSegment,
+  shellCommandIndex,
+  shellInPlaceEdit,
+  joinShellPath,
+  decodePowerShellEncodedCommand,
+  extractBashWriteTargets,
 } from './bashCommandPaths.js';
+export type { ShellDialect, ShellInvocation, ShellSegmentContext, ShellWriteTarget } from './bashCommandPaths.js';
 
 // §5.23 — 도메인 버블의 공용 추출기. 서버 그래프(버블 세우기)와 §5.22 감사 원장(`target` 채우기)이
 // **같은 함수**를 부른다 — 두 벌이 되면 "버블은 섰는데 원장은 비어 있는" 상태가 된다.
@@ -2148,6 +2175,11 @@ export {
 
 // §5.23 웹 버블 묶기 — 사이트(등록 도메인 어림)와 종류 판정. 묶기와 시험이 같은 함수를 본다.
 export { webSiteOf, webKindOfHost, webKindOfSite, webKindOfUrl } from './webHostKind.js';
+
+// §5.23 「더블클릭」 — 여는 곳 정규화(서버 저장·WS·클라 스토어 한 벌)와 "로컬 프리뷰냐 인터넷 페이지냐" 판정
+//   (서버 iframe 프록시 가드와 같은 규칙 — 서버 시험이 대조한다).
+export { normalizeWebOpenTarget } from './webOpenTarget.js';
+export { isLocalPreviewHost, isHttpUrl, isRemoteWebUrl } from './localPreviewHost.js';
 
 // §2.1 — 외부 폴더 버블의 "무엇을 보여 줄까" 판정. 서버가 트리를 세울 때와 클라이언트가 그릴
 // 때가 **같은 답**을 내야 한다(두 벌이 되면 한쪽만 고쳐져 화면과 숫자가 어긋난다).
@@ -2221,6 +2253,19 @@ export {
   stepAppEntry,
   stepRedockDwell,
 } from './windowDragRegion.js';
+
+// §5.4 #14-1 (H) — 탭을 떼어 내는 동안의 가상 창과 별창이 설 자리·크기. 선의 크기를 정하는
+// 렌더러와 창을 세우는 main 이 같은 값을 봐야 해서 한 곳에 둔다(화면 API ❌ — 숫자만 본다).
+export type {
+  DetachGhostFrame,
+  DetachedWindowRect,
+  DetachedWindowPlacement,
+} from './detachedWindowFrame.js';
+export {
+  DETACHED_WINDOW,
+  detachGhostFrame,
+  detachedWindowPlacement,
+} from './detachedWindowFrame.js';
 
 // §5.5 #17-27 ⑮ — HTML 을 페이지로 여는 **경로형** 창구의 규약. 조립(클라 iframe src)과
 // 해석(서버 라우트)이 갈라지면 화면에는 흰 사각형만 남으므로 한 파일에 둔다.
@@ -2443,6 +2488,12 @@ export {
   pruneMissingClosedTabs,
 } from './closedTabs.js';
 
+// ─── §5.4 #14-2 (C-1) 프로젝트 탭 순서 = `openProjects` 배열 순서 (순수 로직 — 서버 저장·클라 붙들기 공용) ───
+export {
+  reorderOpenProjects,
+  projectOrderFollows,
+} from './projectTabOrder.js';
+
 // ─── §4 (판올림 번호 발급 대기) 모바일 접속 주소의 정체 판정 (순수 로직) ───
 // 주소만 나열하면 Tailscale 의 `100.77.x.x` 와 진짜 랜 `192.168.x.x` 가 구별되지 않는다.
 // 서버(desktop main)가 판정해 넘기고 클라이언트는 그대로 그린다 — 두 벌이 되면 어긋난다.
@@ -2530,11 +2581,11 @@ export {
   findToolLockHits,
 } from './pathLock.js';
 // §5.4 #36 — 전환과 연결(에이전트 말풍선 · 위성줄). 서버 검증과 클라 낙관 반영이 한 벌을 쓴다.
-export { AGENT_CARD, APP_BUBBLE_LINK_MAX, APP_BUBBLE_PENDING_MS, APP_BUBBLE_REF_MAX, APP_SHELL_SKELETON, APP_THUMB, REF_BLOOM, REF_LINK_STYLE } from './constants.js';
+export { AGENT_CARD, APP_BUBBLE_LINK_MAX, APP_BUBBLE_PENDING_MS, APP_BUBBLE_REF_MAX, APP_SHELL_SKELETON, APP_THUMB, REDUCED_MOTION_LOOP_SLOWDOWN, REF_BLOOM, REF_LINK_STYLE } from './constants.js';
 // §5.4 #36 (G) — 앱 노드 크기 조절 한도와 캔버스 조작 한도. 서버(PATCH 자르기)와 클라(손잡이·재생)가 한 벌을 쓴다.
 export { APP_NODE_RESIZE, APP_CANVAS_FACE } from './constants.js';
 // §5.4 #36 (H) — 연결 보기(켜고 끄기 · 전환 · 구슬 줄). 서버(지난 결과 상한)와 클라(흐림·구슬)가 한 벌을 쓴다.
-export { LINK_VIEW, APP_BUBBLE_PAST_FILE_MAX, APP_LINKED_ITEMS } from './constants.js';
+export { LINK_VIEW, AGENT_LINK_RECORD, APP_BUBBLE_PAST_FILE_MAX, APP_LINKED_ITEMS } from './constants.js';
 export {
   sanitizeLinkedAgentIds,
   withLinkedAgent,
@@ -2653,6 +2704,9 @@ export {
   previewTooLarge,
   previewTooManyPixels,
   imageHeaderSize,
+  imageHeaderOrientation,
+  orientedImageSize,
+  imageHeaderAnimated,
   selectPreviewGrants,
 } from './previewPolicy.js';
 export type { PreviewLane, PreviewCandidate, PreviewGrantOptions } from './previewPolicy.js';
@@ -2675,5 +2729,7 @@ export type {
   ConstellationMoon,
   ConstellationPlan,
 } from './constellation.js';
-export { detectCommandApps, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
-export type { CommandAppTarget } from './commandApps.js';
+export { planKindBundles, kindBundleNameOf, kindBundlePathShape } from './kindBundle.js';
+export type { KindBundle, KindBundleFileInput, KindBundleOptions } from './kindBundle.js';
+export { detectCommandApps, commandAppBrandOf, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
+export type { CommandAppBrand, CommandAppTarget } from './commandApps.js';

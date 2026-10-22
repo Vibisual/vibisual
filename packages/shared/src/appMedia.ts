@@ -12,6 +12,12 @@
 /** 앱 미디어 경로의 마지막 마디: `/api/app/<앱id>/media?…`. */
 export const APP_MEDIA_SEGMENT = 'media';
 
+/**
+ * **코어** 미디어 창구(`GET /api/workspace-media?root=&path=`). 패키지 앱은 이 경로의 읽기도 같은 미디어 갈래로 흘려 보낸다(응답 조립이
+ * 같다). 어느 파일인지는 서버 라우트와 같은 판정이 답하고, 미디어 표에 있는 형식만 낸다(`isWorkspaceMediaFile`).
+ */
+export const WORKSPACE_MEDIA_PATH = '/api/workspace-media';
+
 const APP_MEDIA_PATH_RE = /^\/api\/app\/([a-z0-9][a-z0-9-]{0,40})\/media$/;
 
 /** 경로(pathname — 쿼리·해시를 뗀 것)가 내부 앱의 미디어 파일 요청인가. */

@@ -80,6 +80,14 @@ export interface HookEventPayload {
    */
   _vibisualOwnerTermId?: string;
   /**
+   * §5.1 #1-1 (D) — 이 이벤트를 낸 **우리 sub**(그 일을 한 세션 탭). 우리가 띄운 세션은 env `VIBISUAL_SUBAGENT_ID` 를
+   * 물려받고, 훅이 그것을 헤더 `x-vibisual-subagent-id`(HTTP 훅)나 본문(command 훅 `handler.mjs`)으로 싣는다. 라우트가
+   * 못 받으면 이미 찾아 둔 sub(세션 id·터미널 id)로 채우고, 코덱스·로컬 모델은 방출기가 싣는다.
+   * 라우트가 소유자 태그로 `session_id` 를 주인 버블 키로 바꿔 쓴 뒤에도 앱 작업 귀속(§5.1 #2-1 (F))이 그 sub 를 잃지
+   * 않게 하는 **명시 상관 id** 다. 그래프는 그 sub 가 이 에이전트의 것일 때만 쓴다.
+   */
+  _vibisualSubAgentId?: string;
+  /**
    * §5.26 (B) — 그 세션의 트랜스크립트(JSONL) 절대경로.
    *
    * Claude Code 는 이 필드를 여러 이벤트에 실어 보내는데(특히 `PreCompact`), 우리는 지금까지
@@ -318,7 +326,11 @@ export type NodeStatus =
   | 'awaiting_permission';
 
 /** 버블 타입 — 시각 카테고리 */
-export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'domain';
+/**
+ * 버블 종류. `bundle` 은 **화면만 짓는** 종류다(§2.2 · §5.1 #2-1 (B)) — 같이 묶인 파일들(별자리 · 연속 번호)의 자리로,
+ * 서버는 만들지도 저장하지도 않는다. 파일이 묶음의 부모로 서면 png·mp4 가 폴더처럼 읽혔다(2026-10-21 사용자 지시).
+ */
+export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'domain' | 'bundle';
 
 /**
  * §5.1 #2-1 (A) — 파일 버블의 **얼굴**(무엇을 담았나). `BubbleType` 과 별개 축이다 — 버블 타입은 여전히 `file` 이고,
@@ -399,8 +411,8 @@ export type AppWorkRole = 'result' | 'sibling' | 'material' | 'code' | 'data' | 
  * - `mention`/`mentioned` — 이 파일이 중심을 적고 있다 / 중심이 이 파일을 적고 있다(서버 내용 언급).
  * - `chain` — 이미 묶인 재료가 이 파일을 적고 있다(또는 그 반대).
  * - `sameStem`/`stemFamily` — 이름이 같다 / 이름의 낱말을 나눠 가진다.
- * - `sameFolder` — 같은 폴더의 곁 파일·재료 미디어.
- * - `album` — 같은 폴더의 사진끼리.
+ * - `sameFolder` — 같은 폴더의 곁 파일·재료 미디어(앱 노드로 이어지는 사슬 — 파일은 중심이 되지 않는다, 2026-10-21) · 같은 종류
+ *   묶음(`kindBundle.ts`)의 구성(같은 하위 폴더의 같은 미디어 종류). 사진 묶음 `album` 은 2026-10-21 에 걷었다.
  * - `appWork` — 그 앱 노드의 작업 중에 생긴 파일(§5.1 #2-1 (F) — 앱 작업 보기에서만 넘어온다).
  */
 export type ConstellationReason =
@@ -412,8 +424,7 @@ export type ConstellationReason =
   | 'chain'
   | 'sameStem'
   | 'stemFamily'
-  | 'sameFolder'
-  | 'album';
+  | 'sameFolder';
 
 /**
  * §5.4 #33 버블 정리 — 정리했을 때 그 버블이 앉는 **띠**.
@@ -676,6 +687,49 @@ export interface AppBubblePastFile {
  * 저장되는 값은 `'files'` 하나뿐이다(`BubbleData.linkLens`) — 이 유니온은 판정·창구가 주고받는 말이다.
  */
 export type LinkLens = 'linked' | 'files';
+
+/**
+ * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]가 다시 세울 **연결된 버블 한 장**. 서버가 연결을 걷는 순간(확인 dismiss ·
+ * 고정 풀기 걷기 · 자동 유휴가 선을 지울 때) 그 에이전트가 소유한 활동 버블마다 한 줄씩 적는다.
+ *
+ * 노드 객체를 통째로 두지 않는다 — 다시 세우는 길은 훅 이벤트와 같은 라우팅이고(구조 장부 7곳을 손으로 되돌리지
+ * 않는다), 여기 남는 것은 그 라우팅이 모르는 칸(횟수·자리·표식·상한)뿐이다.
+ */
+export interface AgentLinkEntry {
+  /** 그래프 노드 키(경로 키). 다시 세운 뒤 이 키로 찾아 칸을 되돌린다. */
+  key: string;
+  /** 걷기 전의 종류 — 파일·내부 폴더·외부 폴더·도메인·명령 앱(`bash` + `commandApp`). */
+  bubbleType: BubbleType;
+  /** 파일·폴더는 절대 경로, 도메인은 호스트. 명령 앱에는 없다. */
+  target?: string;
+  /**
+   * 외부 파일이 위성으로 붙어 있던 외부 폴더 중 **직속 부모가 아닌 것**의 절대 경로(Grep/Glob 결과가 훑은 폴더 하나에
+   * 평탄하게 붙는 §2.1 v2.7 규칙). 다시 세울 때 그 폴더를 훑은 것처럼 그 밑에 다시 붙인다.
+   */
+  folders?: string[];
+  /** 직속 부모(또는 휘발 접기 자리) 밑에는 없었다 — `folders` 밑으로만 다시 선다. */
+  folderOnly?: boolean;
+  /** 명령 앱이면 그 앱과 소속 탭 프로젝트(노드 키가 둘로 지어진다). */
+  commandApp?: CommandAppTarget;
+  project?: string;
+  /** 도메인이면 그 버블의 웹 이력(버블이 사라질 때 함께 사라지므로 여기 남긴다). */
+  webEntries?: WebEntry[];
+  lastTool?: string;
+  lastActivity?: number;
+  activity?: number;
+  readCount?: number;
+  writeCount?: number;
+  position?: { x: number; y: number };
+  appWork?: Record<string, AppWorkMark>;
+  maxSatellites?: number;
+  maxWebEntries?: number;
+}
+
+/** §5.4 #36 (H) ①-2 — 한 에이전트의 마지막으로 걷힌 연결. `at` 은 적은 시각(ms), 줄은 오래된 것부터. */
+export interface AgentLinkRecord {
+  at: number;
+  entries: AgentLinkEntry[];
+}
 
 export interface CaptureBubble {
   /** 고유 id (예: "capture-lp3x9-a1b2"). */
@@ -2010,7 +2064,7 @@ export interface GhostInfo {
 export interface BubbleStyleConfig {
   color: string;
   glow: string;
-  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'globe';
+  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'globe' | 'bundle';
   ringIdle: string;
   ringActive: string;
 }
@@ -2060,6 +2114,12 @@ export interface BubbleData {
    * 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites/preservePinned 선례).
    */
   unlimitedFileEdits?: boolean;
+  /**
+   * §5.1 명령 앱 · §7.3 — 명령 목록을 `MAX_COMMAND_APP_HISTORY` 개로 줄이지 않고 남아 있는 기록을 모두 보인다(디테일 패널의
+   * `마지막 20개만 유지` 체크박스를 끈 것 — 파일 버블 `unlimitedFileEdits` 와 같은 규칙, 2026-10-21 사용자 지시). 기록은 지우지
+   * 않고 보이는 수만 정한다(보관 상한은 세션당 50건 그대로). `bash` 타입만 의미 · 노드째 체크포인트에 실린다.
+   */
+  unlimitedCommandHistory?: boolean;
   /**
    * 도메인 버블별 항목 표시 상한 (사용자가 디테일 패널에서 편집, §5.23 · §7.22).
    * undefined 면 `DEFAULT_MAX_WEB_ENTRIES`(=20). `domain` 타입만 의미.
@@ -2140,6 +2200,17 @@ export interface BubbleData {
    */
   mentions?: string[];
   /**
+   * §5.1 #2-1 (B) — 이 미디어 파일이 든 **폴더의 노드 id**. 묶음 안(`interiorView` `bundle`)이 이 폴더를 화면 범위로 선언해
+   * 위성 상한으로 빠진 같은 종류 파일까지 받는다(2026-10-22 사용자 지시 "해당 묶음 버블 내부로 들어가면 위성 규칙으로 인해
+   * 사라졌던 사용한 버블들이 눈에 보이게"). 서버가 폴더 위성 사본에만 싣는 **표시 전용 파생값** — 체크포인트 ❌.
+   */
+  folderNodeId?: string;
+  /**
+   * §5.1 #2-1 (B) — 같은 폴더에서 사용한(살아 있는) **같은 종류 파일 수**(이 파일 포함). 묶음 버블의 `종류 묶음 · 수` 가 위성
+   * 수가 아니라 이 수를 말한다. `folderNodeId` 와 같은 자리에서 싣는 표시 전용 파생값 — 체크포인트 ❌.
+   */
+  folderKindCount?: number;
+  /**
    * §5.1 #2-1 (F) ① — 이 파일이 생긴 **앱 작업**(앱 노드 id → 표식). 서버가 훅 귀속·되짚기·작업 폴더 훑기로 단다.
    * 노드 객체째 체크포인트에 실린다(`preservePinned` 선례 — 새 영속 창구 ❌). 파일 노드에만 있다.
    */
@@ -2207,6 +2278,22 @@ export interface BubbleData {
    * 에이전트에는 뜻이 없다(늘 작업 파일 — 위주로 볼 연결된 것이 없다).
    */
   linkLens?: 'files';
+  /**
+   * §5.4 #36 (H) ①-2 — 이 에이전트의 **연결된 버블을 고정했다**. 고정한 동안 그 에이전트의 선에 매달린 활동 버블과 선을
+   * 확인 dismiss·자동 유휴·5분 TTL 이 걷지 않는다(삭제 키·우클릭 삭제는 그대로). 풀 때 실행 중이 아니면 서버가 그 자리에서
+   * 걷는다. 서버 소유(§3.1), 에이전트 노드째 체크포인트에 실린다(`linksHidden` 선례 — identity ❌). 없거나 false 면 평소대로다.
+   */
+  linksPinned?: boolean;
+  /**
+   * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]로 다시 세운 연결을 **다음 확인 클릭까지** 붙든다(TTL·자동 유휴가 걷지 않는다).
+   * 확인 dismiss·고정 풀기 걷기가 지운다. 서버 소유, 에이전트 노드째 체크포인트에 실린다.
+   */
+  linksReplay?: boolean;
+  /**
+   * §5.4 #36 (H) ①-2 — 다시 세울 수 있는 이전 연결의 버블 수(`ProjectCheckpoint.agentLinkRecords` 의 줄 수). 메뉴가
+   * [이전 연결 다시 보기]를 켤지 정한다. 서버 `getSnapshot` 이 에이전트 사본에만 싣는 **표시 전용 파생값**(체크포인트 ❌).
+   */
+  prevLinkCount?: number;
   /** Ghost 메타데이터 — bubbleType이 'ghost'일 때만 존재 */
   ghostInfo?: GhostInfo;
   /** 소멸 시작 시각 (ms) — status가 'disappearing'일 때 설정 */
@@ -2441,6 +2528,13 @@ export interface WebGroupSettings {
   /** (C) 에이전트마다 따로 세울 웹 버블 수. `0` = 상한 없음, `1` = 에이전트마다 하나(종전 접어 보기). */
   maxPerAgent: number;
 }
+
+/**
+ * §5.23 「더블클릭」 — 도메인 버블을 더블클릭하면 마지막으로 읽은 주소를 **어디서** 여는가.
+ * `external` = 바깥 브라우저(기본) · `iframe` = 탭 줄의 iframe 탭(인터넷 페이지는 격리 웹뷰).
+ * 기계 단위 앱 설정(`AppState.webOpenTarget`). 정규화는 shared `normalizeWebOpenTarget` 한 곳.
+ */
+export type WebOpenTarget = 'external' | 'iframe';
 
 /** 실행 중인 서버 프로세스 항목 */
 export interface ServerEntry {
@@ -3177,6 +3271,11 @@ export interface QueuedCommand {
    * 서버가 그 명령 중 쓴 파일에 `appWork` 꼬리표를 다는 열쇠다. 없으면 본문에 적힌 앱 노드 id(옛 명령)를 읽는다.
    */
   appNodeIds?: string[];
+  /**
+   * §5.1 #2-1 (F) ① — 말풍선에서 이어진 앱을 **모두 빼고** 보낸 명령(칩을 다 끈 뜻). 서버는 이 명령 중 쓴 파일에 꼬리표를
+   * 달지 않고, "이어진 앱 노드"·"마지막 앱 명령" 폴백도 타지 않는다. `appNodeIds` 가 있으면 싣지 않는다(일부만 뺀 명령).
+   */
+  appNodesOff?: true;
   /** 서버가 실제로 건 상한(없으면 이 엔진은 상한을 지원하지 않았다). 화면은 이것만 "적용됨"으로 말한다. */
   runLimitsApplied?: { maxTurns?: number; maxMinutes?: number };
   /** 시간 상한에 닿아 서버가 멈춘 명령(턴 상한은 기존 `error.code === 'maxTurns'` 가 말한다). */
@@ -4167,6 +4266,9 @@ export type WSMessageType =
   | 'app_event'
   // §6 — 단축키 재매핑. payload = KeymapOverrides. 창이 여럿이면 다른 창도 즉시 같은 키를 쓴다.
   | 'keymap_updated'
+  // §5.23 「더블클릭」 — 도메인 버블 더블클릭이 여는 곳이 바뀌었다. payload = WebOpenTarget. 단축키와 같은 이유로
+  //   창이 여럿이면 다른 창도 즉시 같은 곳에서 연다(창마다 다른 곳에서 열리면 그게 곧 버그 신고다).
+  | 'web_open_target_updated'
   // §5.5 #16-1 — IDE 활동바 구성(순서·제외) 변경. payload = IDEActivityBarPrefs. 단축키와 같은 이유로
   //   창이 여럿이면 다른 창도 즉시 같은 배치를 쓴다(창마다 항목 순서가 다르면 그게 곧 버그 신고다).
   | 'ide_activity_bar_updated'
@@ -4893,12 +4995,34 @@ export interface AppState {
    */
   webFoldPerAgent?: boolean;
   /**
+   * §3.6 「수명」 · §5.7 #24-3 — 사용량 수집기(`statusLine`·`subagentStatusLine`)를 켜 두었는가.
+   *
+   * 종전에는 `~/.claude/settings.json` 에 우리 상태 줄이 깔려 있는지가 곧 켬 여부였다. 이제 앱을 끌 때 원래 상태 줄로
+   * 되돌리므로(앱이 켜져 있는 동안만 둔다) 파일만 보고는 켜져 있었는지 알 수 없다 — 그래서 여기 기억한다.
+   * optional — 없으면 첫 부팅에 지금 깔려 있는지로 옮겨 적는다(종전 사용자의 켬이 그대로 이어진다).
+   */
+  usageCollector?: boolean;
+  /**
+   * §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅(앱 밖 코덱스 세션 표시)을 켜 두었는가.
+   *
+   * 사용량 수집기와 같은 사정이다 — 앱을 끌 때 코덱스 `hooks.json` 의 우리 항목을 걷으므로 파일만 보고는 켜져
+   * 있었는지 알 수 없다. optional — 없으면 첫 부팅에 지금 깔려 있는지로 옮겨 적는다.
+   */
+  codexHooks?: boolean;
+  /**
    * §5.23 웹 버블 묶기 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개.
    *
    * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
    * optional — 없으면 `WEB_GROUP_DEFAULTS`(켬). 종전 `webFoldPerAgent: true` 만 있으면 최대 1개(위 이주).
    */
   webGroup?: WebGroupSettings;
+  /**
+   * §5.23 「더블클릭」 — 도메인 버블 더블클릭이 마지막 주소를 여는 곳.
+   *
+   * 위 묶기와 같은 이유로 **머신 단위**다(어느 프로젝트의 버블을 누르든 같은 곳에서 열려야 한다).
+   * optional — 없으면 `WEB_OPEN_TARGET_DEFAULT`(바깥 브라우저).
+   */
+  webOpenTarget?: WebOpenTarget;
   /**
    * §6 — 사용자가 바꾼 **단축키**만. 안 건드린 칸은 여기 없고 코드의 기본값을 따라간다.
    *
@@ -7335,6 +7459,13 @@ export interface ProjectCheckpoint {
    * 완료 신고는 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
    */
   agentReports?: Record<string, AgentReport[]>;
+
+  /**
+   * §5.4 #36 (H) ①-2 — 에이전트마다 마지막으로 걷힌 연결 (agentId → AgentLinkRecord). [이전 연결 다시 보기]가 이것으로
+   * 다시 세운다. optional — 구버전 체크포인트 하위 호환(없으면 빈 맵 — 다시 볼 것이 없을 뿐이다). 재계산할 수 없는 것은
+   * 아니지만(다시 일하면 다시 생긴다) 껐다 켠 뒤에도 "방금 걷은 것"을 되돌릴 수 있어야 해서 싣는다. identity ❌.
+   */
+  agentLinkRecords?: Record<string, AgentLinkRecord>;
 
   /**
    * §5.5 #17-36 — 메인 탭 스티키 메모 (agentId → SessionMemo[]) 영속화.

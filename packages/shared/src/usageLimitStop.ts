@@ -16,7 +16,8 @@
  * ```
  * 다른 모양들도 같은 자리로 온다 — 주간 한도(`weekly limit`), 옛 CLI 의
  * `Claude AI usage limit reached|<epoch>`, 코덱스의 `{"type":"error","message":"You've hit
- * your usage limit. …"}`(§5.25 (F)).
+ * your usage limit. …"}`(§5.25 (F)), 추가 사용량을 켠 요금제의 `You've hit your monthly spend
+ * limit · raise it at … · your session limit resets 2:40pm (Asia/Seoul)`(§5.5 #17-47 (H)).
  *
  * **판정을 여기 한 곳에 둔다.** 스트림 경로가 셋(persistent stdout · legacy stdout · agent-view
  * JSONL watcher)이라, 화면마다·경로마다 따로 알아보면 한쪽만 고쳐지는 날이 온다(§2.1 셸
@@ -26,6 +27,10 @@
  * 그 문장 자체였다). 그래서 두 관문을 함께 요구한다 — ① 원문이 **그 통지로 시작**할 것(문장
  * 가운데 인용은 통지가 아니다), ② 합성 표식(`<synthetic>`)이나 한도 증거(`rate_limit`·HTTP 429·
  * `quotaLimits`)가 함께 있거나, 그것이 없으면 **통지 길이의 짧은 한 줄**일 것.
+ *
+ * **낱말을 몰라도 봉투가 말한다.** 문구는 판마다 바뀌어 왔다(`usage limit reached` → `hit your
+ * session limit` → `monthly spend limit`). 그래서 합성 표식과 `quotaLimits` 거절이 **둘 다** 있으면
+ * ① 없이도 받는다 — 합성 줄은 CLI 가 API 응답 없이 직접 적은 줄이라 대화 본문의 인용일 수 없다.
  */
 
 /** 어느 창이 막혔는가 — CLI 가 쓰는 낱말 그대로. */
@@ -34,7 +39,7 @@ export type UsageLimitKind =
   | 'session'
   /** 7일 창(주간 한도). CLI `rateLimitType: 'seven_day'`. */
   | 'weekly'
-  /** 창을 특정할 수 없는 사용량 한도(옛 CLI · 코덱스). */
+  /** 창을 특정할 수 없는 사용량 한도(옛 CLI · 코덱스 · 꼬리가 창을 말하지 않는 월 지출 한도). */
   | 'usage';
 
 /** 한도로 끊긴 사실 한 건 — 세션에 붙어 화면이 그대로 읽는다. */
@@ -62,8 +67,14 @@ export const USAGE_LIMIT_RESET_LABEL_MAX = 40;
  */
 export const USAGE_LIMIT_NOTICE_MAX = 200;
 
-/** `You've hit your session limit …` — 현행 CLI. */
-const LIMIT_HEAD_RE = /^(?:you(?:'|’)?ve\s+)?hit\s+your\s+(session|weekly|usage)\s+limit\b/i;
+/**
+ * `You've hit your session limit …` — 현행 CLI. 머리 낱말은 막힌 창(`session`·`weekly`·`usage`)이거나
+ * 월 지출 한도(`monthly spend` — 추가 사용량까지 다 쓴 요금제, §5.5 #17-47 (H))다.
+ */
+const LIMIT_HEAD_RE = /^(?:you(?:'|’)?ve\s+)?hit\s+your\s+(session|weekly|usage|(?:monthly\s+)?spend(?:ing)?)\s+limit\b/i;
+
+/** 월 지출 한도 통지의 꼬리 — `· your session limit resets 2:40pm` 이 실제로 막힌 창을 말한다. */
+const SPEND_WINDOW_TAIL_RE = /\byour\s+(session|weekly)\s+limit\s+resets\b/i;
 
 /** `Claude AI usage limit reached|<epoch>` — 옛 CLI. */
 const LIMIT_REACHED_RE = /^(?:claude\s+(?:ai\s+)?)?(session|weekly|usage)\s+limit\s+reached\b/i;
@@ -100,7 +111,10 @@ export function matchUsageLimitNotice(text: string): UsageLimitKind | null {
   const head = LIMIT_HEAD_RE.exec(t) ?? LIMIT_REACHED_RE.exec(t);
   if (!head) return null;
   const word = (head[1] ?? 'usage').toLowerCase();
-  return word === 'session' || word === 'weekly' ? word : 'usage';
+  if (word === 'session' || word === 'weekly' || word === 'usage') return word;
+  // 지출 한도는 창이 아니라 지갑이다 — 막힌 창은 꼬리가 말한다(없으면 창을 특정하지 않는다).
+  const tail = SPEND_WINDOW_TAIL_RE.exec(t)?.[1]?.toLowerCase();
+  return tail === 'session' || tail === 'weekly' ? tail : 'usage';
 }
 
 /** 원문에서 리셋 표기(`10pm (Asia/Seoul)`)를 떼어 낸다. 없으면 `undefined`. */
@@ -192,8 +206,11 @@ export function detectUsageLimitStop(line: unknown, now: number): UsageLimitStop
     ?? str(obj, 'text')
     ?? '';
 
-  const kind = matchUsageLimitNotice(text);
-  if (!kind) return null;
+  const matched = matchUsageLimitNotice(text);
+  // 낱말을 몰라도 봉투가 말한다(§5.5 #17-47 (H)) — 합성 줄이 quotaLimits 거절까지 달고 왔으면 문구와
+  // 무관하게 한도 통지다. 둘 중 하나만으로는 받지 않는다: quotaLimits 만은 초과 사용으로 계속 도는
+  // 평범한 줄에 실릴 수 있고, 합성 줄은 인증 실패·조직 차단·압축 반복 같은 다른 통지에도 쓰인다.
+  if (!matched && !(synthetic && quotaRejected)) return null;
   // 증거가 없으면 **짧은 통지 한 줄**만 인정한다(위 detectUsageLimitInText 와 같은 관문).
   if (!synthetic && !rateLimited && text.trim().length > USAGE_LIMIT_NOTICE_MAX) return null;
 
@@ -205,9 +222,10 @@ export function detectUsageLimitStop(line: unknown, now: number): UsageLimitStop
 
   return {
     // 봉투가 창을 특정하면 그쪽이 정확하다(원문은 사람이 읽는 말, 봉투는 CLI 의 판정).
-    kind: typed ?? kind,
+    kind: typed ?? matched ?? 'usage',
     at: now,
-    message: clamp(text, USAGE_LIMIT_MESSAGE_MAX),
+    // 원문이 비었으면 비워 둔다 — 화면이 자기 문장을 쓴다(빈 툴팁을 만들지 않는다).
+    ...(text.trim() !== '' ? { message: clamp(text, USAGE_LIMIT_MESSAGE_MAX) } : {}),
     ...(resetsAtRaw !== undefined ? { resetsAt: resetsAtRaw } : {}),
     ...(label ? { resetsLabel: label } : {}),
   };
