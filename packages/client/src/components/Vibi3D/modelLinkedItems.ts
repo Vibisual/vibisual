@@ -24,18 +24,26 @@ export function representativeCapture(stage: Pick<Vibi3DStageRecord, 'captures'>
 
 export function modelRunLinkedItems(run: Vibi3DRun | null): AppLinkedItem[] {
   if (!run) return [];
+  // 단계 id 는 기록 여럿이 나눠 쓴다(같은 단계의 검토 대기 기록 → 직접 검수 기록). 지금 단계는 서버처럼 그 id 의 **마지막
+  // 기록** 하나다(`vibi3dWorkflowStore` — 뒤에서부터 찾는다). id 로만 견주면 같은 id 의 구슬이 모두 숨 쉰다.
+  let activeIndex = -1;
+  for (let i = run.stages.length - 1; i >= 0 && run.activeStageId !== undefined; i -= 1) {
+    if (run.stages[i]!.id === run.activeStageId) { activeIndex = i; break; }
+  }
   return run.stages.map((stage, i): AppLinkedItem => {
     const capture = representativeCapture(stage);
     const waiting = stage.mode === 'candidate' && (run.candidateId === undefined || stage.candidateId === run.candidateId);
     return {
-      id: `stage:${run.id}:${stage.id}`,
+      // 구슬 하나 = 기록 하나(편집기 목록과 같은 단위). 기록은 뒤에만 쌓이므로 차례가 곧 정체다 — 단계 id 로 열쇠를 지으면
+      // 같은 id 의 기록끼리 열쇠가 겹쳐 구슬이 겹치거나 빠진다(2026-10-21 실제 문서: 6기록에 id 3개).
+      id: `stage:${run.id}:${i}`,
       group: 'scene',
       kind: 'model',
       label: stage.label,
       index: i + 1,
       numbered: 'step',
       stage: waiting ? 'proposed' : 'done',
-      ...(run.activeStageId === stage.id ? { active: true } : {}),
+      ...(i === activeIndex ? { active: true } : {}),
       ...(capture ? { file: capture.path } : {}),
       ...(stage.captures.length > 0 ? { pictureCount: stage.captures.length } : {}),
     };

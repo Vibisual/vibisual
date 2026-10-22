@@ -10,6 +10,8 @@ import {
   wavePath,
   type ThumbJob,
 } from './appThumbnails.js';
+import { thumbnailAppFor, thumbnailSkipped } from './appLinkedItems.js';
+import { THUMB_SKIPPED_TOO_LARGE } from './thumbnailSkip.js';
 
 /**
  * §5.4 #36 (F) — 앱 위성 화면의 미리보기 기억 장소. 앱이 굽고 코어가 기억한다 — 여기서 고정하는 것은
@@ -73,6 +75,35 @@ describe('§5.4 #36 (F) 미리보기 기억 장소', () => {
     const k2 = noApp.ensure(job());
     await flush();
     expect(noApp.peek(k2).status).toBe('none');
+  });
+
+  it('§5.1 #2-1 (G) ① 기준보다 커서 일부러 굽지 않은 것은 그 이유와 함께 기억한다 — 파일 버블의 툴팁이 말한다', async () => {
+    const release = vi.fn();
+    const render = vi.fn<AppThumbnailRenderer>(async () => THUMB_SKIPPED_TOO_LARGE);
+    const cache = createThumbCache({ resolve: async () => render, release, cacheMax: 10, concurrency: 1, timeoutMs: 1000 });
+    const key = cache.ensure(job());
+    await flush();
+    expect(cache.peek(key)).toEqual({ status: 'none', thumb: null, reason: 'tooLarge' });
+    expect(release).not.toHaveBeenCalled(); // 되돌릴 그림이 없다
+    // 그냥 못 구운 것(null)은 이유가 없다 — 툴팁을 달지 않는다.
+    const plain = createThumbCache({ resolve: async () => async () => null, release, cacheMax: 10, concurrency: 1, timeoutMs: 1000 });
+    const other = plain.ensure(job());
+    await flush();
+    expect(plain.peek(other)).toEqual({ status: 'none', thumb: null });
+  });
+
+  it('§5.1 #2-1 (G) ⑦ 굽지 않을 일감은 줄에 세우지 않는다 — 굽는 함수를 부르지 않고 곧바로 못 구운 것', async () => {
+    const render = vi.fn<AppThumbnailRenderer>(async () => picture('blob:clip'));
+    const cache = createThumbCache({
+      resolve: async () => render, release: vi.fn(), cacheMax: 10, concurrency: 1, timeoutMs: 1000,
+      skip: (j) => j.file.endsWith('.ogv'),
+    });
+    const skipped = cache.ensure(job({ file: 'out/clip.ogv' }));
+    expect(cache.peek(skipped)).toEqual({ status: 'none', thumb: null });
+    const baked = cache.ensure(job({ file: 'out/clip.mp4' }));
+    await flush();
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(cache.peek(baked).status).toBe('ready');
   });
 
   it('동시에 굽는 수는 상한까지 — 나머지는 줄을 선다', async () => {
@@ -266,5 +297,15 @@ describe('§5.1 #2-1 (G) ④ 굽는 줄 — 종류별 상한 · 움직이는 동
     await flush();
     expect(started).toEqual(['first.png', 'seen.png', 'gone.png']);
     off();
+  });
+});
+
+describe('§5.1 #2-1 (G) ⑦ 선언했어도 디코더가 못 푸는 확장자는 굽지 않는다', () => {
+  it('.ogv 는 굽지 않는다(대소문자 무관) — 받는 앱은 그대로라 색·더블클릭으로 여는 앱은 바뀌지 않는다', () => {
+    expect(thumbnailSkipped('vibistudio', 'clips/intro.ogv')).toBe(true);
+    expect(thumbnailSkipped('vibistudio', 'clips/INTRO.OGV')).toBe(true);
+    expect(thumbnailSkipped('vibistudio', 'clips/intro.mp4')).toBe(false);
+    expect(thumbnailSkipped('vibistudio', 'clips/ogv')).toBe(false);
+    expect(thumbnailAppFor('clips/intro.ogv')).toBe('vibistudio');
   });
 });

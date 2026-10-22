@@ -6,7 +6,38 @@
  *
  * 파일을 통째로 읽어 오지 않아도 된다 — 서버가 Range 요청에 206 으로 답하므로, 구간을 집어 가는 `fetch`
  * 소비자(Mediabunny `UrlSource` 등)는 필요한 부분만 받는다.
+ *
+ * §5.13 40-1 — 이 파일의 **읽기 도우미**(`fetchWorkspaceMediaBlob` · `workspaceMediaSize` · `fetchWorkspaceMediaHead`)는 패키지 앱에서
+ * 흘려 받는 주소(`workspaceMediaStreamUrl` — vibproxy 미디어 갈래)로 받는다. 상대 주소는 패치된 fetch(IPC)를 타는데, IPC 는 응답
+ * 전체를 메인에 모았다가 한 번에 넘긴다(그림 한 장을 볼 때마다 그 파일 전체가 메인 메모리를 지나갔다).
+ *
+ * §5.1 #2-1 (A) — 여기 오는 경로는 둘 중 하나다: **루트 기준 상대 경로**(프로젝트 안) 또는 **절대경로**(프로젝트 밖 —
+ * 지금 버블로 떠 있는 파일). 앞에 `/` 를 붙인 상대 경로는 쓰지 않는다(POSIX 에서 그것은 절대경로다).
  */
+import { WORKSPACE_MEDIA_PATH, isWorkspaceMediaFile, normalizePathShape } from '@vibisual/shared';
+
+import { isPackagedDesktop } from '../transport/packaged.js';
+
+/**
+ * 이 경로가 **절대경로**인가 — Windows 드라이브(`C:/`·`C:\`) · UNC(`\\server`·`//server`) · POSIX 루트(`/`).
+ * 모양만 본다(케이스를 접지 않는다) — 어느 OS 에서 돌든 세 모양을 다 알아본다.
+ */
+export function isAbsoluteMediaPath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p) || /^[\\/]/.test(p);
+}
+
+/**
+ * 서버에 실을 루트·경로. 상대 경로는 그대로이고, **절대경로는 그 파일의 폴더 + 이름**으로 푼다 — 서버는 루트 기준으로만
+ * 풀고(앞 `/` 를 떼어 루트 아래에 다시 붙인다), 루트 밖은 그 파일이 지금 버블로 떠 있을 때만 연다(`resolveWorkspaceMediaRead`).
+ */
+export function workspaceMediaQuery(root: string, relPath: string): { readonly root: string; readonly path: string } {
+  if (!isAbsoluteMediaPath(relPath)) return { root, path: relPath };
+  const shaped = normalizePathShape(relPath);
+  const cut = shaped.lastIndexOf('/');
+  const dir = shaped.slice(0, cut);
+  // 드라이브 루트(`C:`)·POSIX 루트(폴더 이름이 빈 것)는 구분자를 남긴다 — 떼면 `C:` 는 "그 드라이브의 현재 폴더"라는 다른 뜻이다.
+  return { root: dir === '' || /^[A-Za-z]:$/.test(dir) ? `${dir}/` : dir, path: shaped.slice(cut + 1) };
+}
 
 /**
  * 그 파일의 바이트를 가리키는 URL. **`fetch` 에 쓴다**(Range 요청 포함).
@@ -15,18 +46,52 @@
  * `/api/…` 요청은 IPC 를 타지 않아 조용히 빈다(§5.13 (R-5)). 그림이 필요하면 {@link fetchWorkspaceMediaBlob}.
  */
 export function workspaceMediaUrl(root: string, relPath: string): string {
-  return `/api/workspace-media?root=${encodeURIComponent(root)}&path=${encodeURIComponent(relPath)}`;
+  const query = workspaceMediaQuery(root, relPath);
+  return `${WORKSPACE_MEDIA_PATH}?root=${encodeURIComponent(query.root)}&path=${encodeURIComponent(query.path)}`;
 }
 
 /**
- * §5.4 #36 (F) — 그 파일을 **`fetch` 로** 통째로 받는다. 못 받으면 `null`.
+ * §5.13 40-1 — **읽기 전용** 바이트 주소. 패키지 앱이면 미디어 갈래(`vibproxy://proxy/api/workspace-media?…`)로 흘려 받는다 — 메인이
+ * 파일을 1MB 조각으로 당겨 읽어 보내고, 받는 쪽이 끊으면 그 자리에서 멈춘다. 그 갈래는 **미디어 표에 있는 형식만** 내므로(같은 출처의
+ * 프리뷰 페이지도 닿는 길이다) 표 밖은 종전 주소다. 웹·모바일은 상대 주소 그대로다(진짜 HTTP 라 이미 흐른다).
+ * 쓰기(PUT)·구간을 묶어 읽는 소비자는 이 주소를 쓰지 않는다(`workspaceMediaUrl`).
+ *
+ * @param packaged 시험용 — 기본은 지금 판(패키지 앱인가).
+ */
+export function workspaceMediaStreamUrl(root: string, relPath: string, packaged: boolean = isPackagedDesktop()): string {
+  const url = workspaceMediaUrl(root, relPath);
+  return packaged && isWorkspaceMediaFile(relPath) ? `vibproxy://proxy${url}` : url;
+}
+
+/**
+ * 읽기 요청 한 번 — 흘려 받는 주소로 먼저 묻고, 그 길이 **던지면**(전송 실패 — 답이 온 실패는 그대로 돌려준다) 그 한 번만 종전 주소로
+ * 다시 묻는다. 끊은 요청(`signal`)은 다시 묻지 않는다.
+ */
+async function fetchWorkspaceMediaRead(root: string, relPath: string, init?: RequestInit): Promise<Response> {
+  const plain = workspaceMediaUrl(root, relPath);
+  const stream = workspaceMediaStreamUrl(root, relPath);
+  if (stream === plain) return fetch(plain, init);
+  try {
+    return await fetch(stream, init);
+  } catch (err) {
+    if (init?.signal?.aborted) throw err;
+    return fetch(plain, init);
+  }
+}
+
+/**
+ * §5.4 #36 (F) — 그 파일을 **`fetch` 로** 통째로 받는다. 못 받으면(끊은 것 포함) `null`.
  *
  * 타입은 서버가 붙인 `Content-Type` 그대로라(그림 형식은 SVG 까지 표에 있다) `URL.createObjectURL` 로 만든 주소를
- * `<img>` 에 걸면 패키지 앱에서도 그려진다.
+ * `<img>` 에 걸면 패키지 앱에서도 그려진다. 바이트는 흘려 받아 blob 으로 쌓인다(§5.13 40-1 — JS 배열로 모으지 않는다).
  */
-export async function fetchWorkspaceMediaBlob(root: string, relPath: string): Promise<Blob | null> {
+export async function fetchWorkspaceMediaBlob(
+  root: string,
+  relPath: string,
+  opts: { readonly signal?: AbortSignal } = {},
+): Promise<Blob | null> {
   try {
-    const res = await fetch(workspaceMediaUrl(root, relPath));
+    const res = await fetchWorkspaceMediaRead(root, relPath, opts.signal ? { signal: opts.signal } : undefined);
     if (!res.ok) return null;
     return await res.blob();
   } catch {
@@ -40,7 +105,7 @@ export async function fetchWorkspaceMediaBlob(root: string, relPath: string): Pr
  */
 export async function workspaceMediaSize(root: string, relPath: string): Promise<number | null> {
   try {
-    const res = await fetch(workspaceMediaUrl(root, relPath), { headers: { Range: 'bytes=0-0' } });
+    const res = await fetchWorkspaceMediaRead(root, relPath, { headers: { Range: 'bytes=0-0' } });
     let size: number | null = null;
     if (res.status === 206) {
       const total = /\/(\d+)\s*$/.exec(res.headers.get('Content-Range') ?? '');
@@ -64,7 +129,7 @@ export async function workspaceMediaSize(root: string, relPath: string): Promise
 export async function fetchWorkspaceMediaHead(root: string, relPath: string, bytes: number): Promise<Uint8Array | null> {
   const want = Math.max(1, Math.floor(bytes));
   try {
-    const res = await fetch(workspaceMediaUrl(root, relPath), { headers: { Range: `bytes=0-${want - 1}` } });
+    const res = await fetchWorkspaceMediaRead(root, relPath, { headers: { Range: `bytes=0-${want - 1}` } });
     if (!res.ok && res.status !== 206) return null;
     if (res.status === 206 || !res.body) {
       const buf = new Uint8Array(await res.arrayBuffer());

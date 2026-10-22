@@ -33,6 +33,8 @@ export const FileFaceLens = memo(function FileFaceLens({ face, thumb, size }: Fi
           src={ready.url}
           alt=""
           draggable={false}
+          // §5.1 #2-1 (G) ⑧ — 구운 작은 그림도 화면 스레드 밖에서 푼다(버블이 한꺼번에 들어올 때 그리기가 밀리지 않게).
+          decoding="async"
           className={`absolute inset-0 h-full w-full ${ready.fit === 'contain' ? 'object-contain' : 'object-cover'}`}
         />
       ) : null}

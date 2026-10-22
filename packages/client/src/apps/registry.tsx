@@ -17,6 +17,7 @@
 
 import type { ComponentType, JSX, ReactNode } from 'react';
 import type { CommandExecutionRequirements, Conti, ContiRenderStatus, CreationRunLimits, StoryboardPreset, UserDefaults, WorkspaceOpenAppClaim } from '@vibisual/shared';
+import type { AppThumbnailSkip } from './thumbnailSkip.js';
 
 /** 앱 창이 받는 것. 무엇을 쓸지는 앱이 정한다 — 코어는 hash 를 그대로 넘길 뿐이다. */
 export interface AppShellProps {
@@ -95,8 +96,11 @@ export interface AppThumbnailRequest {
   readonly bytes?: number | undefined;
 }
 
-/** 못 구우면 `null` — 코어가 아이콘 + 파일 이름으로 대신한다. 던져도 `null` 과 같다. */
-export type AppThumbnailRenderer = (req: AppThumbnailRequest) => Promise<AppThumbnail | null>;
+/**
+ * 못 구우면 `null` — 코어가 아이콘 + 파일 이름으로 대신한다. 던져도 `null` 과 같다. 성능 기준(§5.1 #2-1 (G) ①)을 넘어 일부러
+ * 굽지 않았으면 `THUMB_SKIPPED_TOO_LARGE` — 아이콘은 같고, 파일 버블이 "미리보기 생략" 툴팁으로 이유를 말한다.
+ */
+export type AppThumbnailRenderer = (req: AppThumbnailRequest) => Promise<AppThumbnail | AppThumbnailSkip | null>;
 
 /**
  * §5.4 #36 (G) — 앱 위성 화면의 **안쪽**을 앱이 그릴 때 받는 것. 결과가 담긴 화면에서만 그려진다.
@@ -327,6 +331,13 @@ export interface InternalApp {
    */
   readonly outputs?: readonly string[];
   /**
+   * §5.1 #2-1 (A) — 이 앱은 **프로젝트 밖 파일을 보기 전용으로** 연다 — 여는 것만으로 아무것도 쓰지 않는다. 캔버스에 떠 있는
+   * 바깥 미디어 파일을 더블클릭하면 이 선언이 있는 앱만 열린다(`file` 은 절대경로, 창의 주인은 지금 탭의 프로젝트).
+   * `file` 을 받으면 그 파일로 프로젝트 문서를 짓는 앱(영상·소리·3D 편집기)은 선언하지 않는다 — 바깥 파일은 폴더로 들어간다.
+   * 코어는 앱 이름을 모르고 이 선언만 본다(§5.13 (P-4)).
+   */
+  readonly viewsOutsideFiles?: boolean;
+  /**
    * §5.13 (R-9) → §5.4 #36 (F) 개정 — 화면에 담긴 결과를 **어떻게 비출지** 앱이 굽는 늦은 로더.
    *
    * 첫 판은 `'image'` 한 값(그림만)이었고 영상·3D 는 디코딩 비용 때문에 뺐다. 이제 앱이 자기 디코더로 한 장을
@@ -334,6 +345,11 @@ export interface InternalApp {
    * 늦은 로더라 그 화면이 보이기 전에는 앱 코드가 내려오지 않는다. 선언하지 않은 앱의 화면은 아이콘 + 파일 이름.
    */
   readonly thumbnail?: () => Promise<AppThumbnailRenderer>;
+  /**
+   * §5.1 #2-1 (G) ⑦ — 받는 확장자(`outputs ?? opens`) 중 **굽는 함수가 풀지 못하는 것**(소문자, 마침표 포함). 그 파일은 굽지
+   * 않고 처음부터 아이콘이다(요청 0건). 여는 것(`opens`)·색·더블클릭은 그대로다 — 미리보기만 뺀다.
+   */
+  readonly thumbnailSkips?: readonly string[];
   /**
    * §5.4 #36 (G) — 결과가 담긴 화면에서 **캔버스에서 바로 하는 간단한 조작**을 그리는 늦은 로더(재생·돌려 보기·맞춤 등).
    * 선언하지 않은 앱의 화면은 정지 미리보기만 보인다. 그 화면이 보일 때만 청크가 내려온다(§5.13 (P-1)).
@@ -521,6 +537,9 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     screenSize: { width: 208, height: 130 },
     // 앞부분 한 프레임 + 길이. Mediabunny 는 이 앱 청크에만 있다 — 화면이 보일 때만 내려온다.
     thumbnail: async () => (await import('../components/VideoStudio/videoThumbnail.js')).renderVideoThumbnail,
+    // §5.1 #2-1 (G) ⑦ — Mediabunny 1.61.5 의 Ogg 디먹서는 Vorbis·Opus 소리만 알고 영상 코덱에 Theora 가 없다 — `.ogv` 는
+    //   받고 풀다 매번 실패했다. 굽지 않고 아이콘으로 둔다(여는 것은 `opens` 그대로).
+    thumbnailSkips: ['.ogv'],
     // §5.4 #36 (G) — 캔버스에서 바로 재생·재생 위치·음소거. 디코더는 브라우저의 것(<video>)이라 무거운 의존성이 없다.
     //   §5.13 (L) — 문서만 묶인 노드는 그 문서의 지금 한 장(포스터)과 길이·판본을 비춘다(문서 모드).
     canvasFace: async () => (await import('../components/VideoStudio/VideoCanvasFace.js')).VideoCanvasFace,
@@ -622,6 +641,9 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     //   갈래를 이 앱이 가로챈다. 이 앱은 **노드에 담긴 그림**을 여는 자리다(§5.13 (R-9)).
     // §5.1 #2-1 (G) ⑦ — 브라우저가 그대로 푸는 이름만 다른 형식(JPEG 의 다른 확장자 · 움직이는 PNG).
     outputs: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp', '.avif', '.jfif', '.jpe', '.apng'],
+    // §5.1 #2-1 (A) — 그림 노드·파일은 (R-9) 보기 화면으로 열리고 그 화면은 아무것도 쓰지 않는다. 그래서 프로젝트 밖 그림도
+    //   연다(2026-10-21 사용자 보고 — "png 인데 더블클릭해도 이미지 보는 창이 안 열린다"). 바깥 그림에서는 [편집]을 숨긴다(셸).
+    viewsOutsideFiles: true,
     // 그 그림을 화면 크기로 줄여 구운 한 장(원본을 노드마다 통째로 디코딩해 들고 있지 않게).
     thumbnail: async () => (await import('../components/Vibimage/imageThumbnail.js')).renderImageThumbnail,
     // §5.4 #36 (G) — 채우기 ↔ 맞춤 · 클립보드로 복사(원본을 PNG 로).

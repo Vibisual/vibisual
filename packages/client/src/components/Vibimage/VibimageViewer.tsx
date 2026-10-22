@@ -1,19 +1,31 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { IMAGE_VIEW, PREVIEW_POLICY, imageHeaderAnimated, imageHeaderOrientation, imageHeaderSize, orientedImageSize } from '@vibisual/shared';
 import type { AppShellProps } from '../../apps/registry.js';
+import { useAppVisible } from '../../apps/appWindowVisibility.js';
 import { useInspectorPicker } from '../../hooks/useInspectorPicker.js';
 import { WindowControls } from '../Layout/WindowControls.js';
 import { fetchWorkspaceMediaBlob, mediaFileName } from '../../utils/workspaceMedia.js';
 import { imageViewerLevels } from './imageInspect.js';
 import { pinchSpan, pinchView, type PinchPoint, type PinchStart } from './imageViewerPinch.js';
+import { planImageView, viewerFitScale } from './imageViewPlan.js';
 
 /**
  * §5.13 (R-9) — **Vibimage.** 캔버스 참조 노드(§5.4 #36)에 담긴 그림 한 장을 본다.
  *
- * 바이트는 영상·소리·3D 와 같은 창구(`workspaceMediaUrl`)를 **`fetch` 로** 읽어 blob URL 로 그린다 — 앱마다 쿼리를
+ * 바이트는 영상·소리·3D 와 같은 창구(`workspaceMediaUrl`)를 **`fetch` 로** 읽어 그린다 — 앱마다 쿼리를
  * 조립하면 서버 가드가 바뀔 때 앱 수만큼 고치게 되고, 그 주소를 `<img src>` 에 바로 걸면 패키지 앱(file://)에서
- * IPC 를 타지 않아 빈 화면이 된다(첫 판이 그랬다 — §5.4 #36 (F)). 그림 표시는 브라우저 `<img>` 하나라 새로 들여온
+ * IPC 를 타지 않아 빈 화면이 된다(첫 판이 그랬다 — §5.4 #36 (F)). 그림 표시는 브라우저 `<img>`·`<canvas>` 라 새로 들여온
  * 제3자 코드가 없다.
+ *
+ * **필요한 만큼만 풀고, 안 보면 내려놓는다**(2026-10-21 사용자 지시 — "전체 사진 불러올 필요 없고 화질 잘 저화해서 불러와서
+ * 임시로 보이게 … 안보면 잘 해제"). 판단은 `imageViewPlan.ts` 한 곳이다.
+ * ① 바이트는 흘려 받는다(패키지 앱도 미디어 갈래 — §5.13 40-1).
+ * ② 처음엔 창에 맞는 크기로만 줄여 풀어 캔버스에 넘긴다(임시 저화질 — `bitmaprenderer` 라 복사가 없다). 창이 커지면 다시 푼다.
+ * ③ 확대해 그보다 촘촘해야 할 때만 원본을 풀고(다 풀릴 때까지 미리보기가 밑에 있다), 미리보기로 충분해지면 조금 뒤 놓는다.
+ * ④ 창이 숨은(다른 탭 · 최소화) 지 `IMAGE_VIEW.hiddenReleaseMs` 가 지나면 바이트·미리보기·원본을 다 놓는다(받는 중이면 끊는다).
+ *    다시 보이면 보던 배율·자리 그대로 다시 받는다. 닫으면 바로 놓는다.
+ * 움직이는 그림 · SVG · 머리를 못 읽는 형식은 종전대로 원본 그대로 그린다(첫 장만 멈춰 보이면 안 된다).
  *
  * 높이는 호스트가 준다(§5.13 (S-7)) — 셸은 `h-full` 이다.
  */
@@ -26,6 +38,50 @@ type Backdrop = 'checker' | 'dark';
 interface Natural {
   w: number;
   h: number;
+}
+
+/** 받은 그림 — 바이트와 그 머리에서 읽은 것. */
+type Source =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'failed' }
+  | {
+    readonly kind: 'ready';
+    readonly blob: Blob;
+    /** 미리보기 없이 원본 그대로 그린다(SVG · 움직이는 그림 · 머리를 못 읽는 형식). */
+    readonly direct: boolean;
+    /** 머리에서 읽은, EXIF 회전을 세운 뒤의 크기. 모르면 null(원본이 뜨면 안다). */
+    readonly natural: Natural | null;
+  };
+
+/** 창에 맞춰 줄여 푼 임시 저화질 한 장. `bitmap` 은 캔버스에 넘기는 순간 비워진다(크기는 따로 들고 있다). */
+interface Preview {
+  readonly bitmap: ImageBitmap;
+  readonly width: number;
+  readonly height: number;
+  /** 청한 너비 — 다시 풀지는 이것으로 판단한다(브라우저가 회전을 어떻게 세든 같은 답). */
+  readonly requested: number;
+}
+
+/** 풀린 미리보기가 머리에서 읽은 크기와 같은 가로·세로 비인가(반올림 몇 픽셀은 같다고 본다). 머리를 모르면 그렇다고 본다. */
+function sameAspect(bitmap: { readonly width: number; readonly height: number }, natural: Natural | null): boolean {
+  if (!natural || !(bitmap.width > 0) || !(bitmap.height > 0)) return natural === null;
+  const expectedHeight = (bitmap.width * natural.h) / natural.w;
+  return Math.abs(bitmap.height - expectedHeight) <= Math.max(2, expectedHeight * 0.02);
+}
+
+/** 받은 바이트의 머리만 본다 — 세운 뒤의 크기와, 원본 그대로 그려야 하는지. */
+async function probeImage(blob: Blob): Promise<{ direct: boolean; natural: Natural | null }> {
+  if (blob.type === 'image/svg+xml') return { direct: true, natural: null };
+  try {
+    const head = new Uint8Array(await blob.slice(0, PREVIEW_POLICY.headerBytes).arrayBuffer());
+    const raw = imageHeaderSize(head);
+    if (!raw) return { direct: true, natural: null };
+    const size = orientedImageSize(raw, imageHeaderOrientation(head));
+    return { direct: imageHeaderAnimated(head), natural: { w: size.width, h: size.height } };
+  } catch {
+    return { direct: true, natural: null };
+  }
 }
 
 function ToolButton({
@@ -80,33 +136,46 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
   const root = params['projectId'] ?? '';
   const file = params['file'] ?? '';
   const hosted = !!params['appWindowId'] || params['appWindowHosted'] === '1';
-  /** 받아 둔 그림의 blob URL. 받는 중이면 ''(빈 화면 문구는 `!file` 일 때만 — 받는 중에 "없음"이라 말하지 않는다). */
-  const [src, setSrc] = useState('');
 
   const stageRef = useRef<HTMLDivElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const [natural, setNatural] = useState<Natural | null>(null);
-  const [failed, setFailed] = useState(false);
 
-  // 그림을 fetch 로 받아 이 문서의 blob URL 로 — 다른 그림이 오거나 창을 닫으면 앞의 것을 되돌린다.
+  // ④ 안 보면 내려놓는다 — 숨은 지 조금 지나야 놓는다(탭을 잠깐 오갈 때마다 다시 받지 않게). 처음부터 숨어 있으면 받지 않는다.
+  const visible = useAppVisible();
+  const [active, setActive] = useState(visible);
   useEffect(() => {
-    setSrc('');
-    if (!root || !file) return undefined;
-    let cancelled = false;
-    let made = '';
-    void fetchWorkspaceMediaBlob(root, file).then((blob) => {
-      if (cancelled) return;
-      if (!blob) {
-        setFailed(true);
+    if (visible) {
+      setActive(true);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setActive(false), IMAGE_VIEW.hiddenReleaseMs);
+    return () => window.clearTimeout(timer);
+  }, [visible]);
+
+  // ① 그림을 흘려 받는다 — 다른 그림이 오거나 내려놓거나 창을 닫으면 받던 것을 끊는다(파일 손잡이도 닫힌다).
+  const [source, setSource] = useState<Source>({ kind: 'idle' });
+  useEffect(() => {
+    if (!root || !file || !active) {
+      setSource({ kind: 'idle' });
+      return undefined;
+    }
+    const ctrl = new AbortController();
+    setSource({ kind: 'loading' });
+    void (async () => {
+      const blob = await fetchWorkspaceMediaBlob(root, file, { signal: ctrl.signal });
+      if (ctrl.signal.aborted) return;
+      if (!blob || blob.size === 0) {
+        setSource({ kind: 'failed' });
         return;
       }
-      made = URL.createObjectURL(blob);
-      setSrc(made);
-    });
-    return () => {
-      cancelled = true;
-      if (made) URL.revokeObjectURL(made);
-    };
-  }, [root, file]);
+      const probe = await probeImage(blob);
+      if (!ctrl.signal.aborted) setSource({ kind: 'ready', blob, ...probe });
+    })();
+    return () => ctrl.abort();
+  }, [root, file, active]);
+  const ready = source.kind === 'ready' ? source : null;
+
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   /** null = 맞춤(창이 바뀌면 다시 맞춘다). 숫자 = 사용자가 고른 배율. */
   const [zoom, setZoom] = useState<number | null>(null);
@@ -118,13 +187,36 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
   /** 진행 중인 두 손가락 핀치의 시작 상태(`imageViewerPinch.ts`). */
   const pinchRef = useRef<PinchStart | null>(null);
 
-  // 다른 그림을 받으면 처음부터 — 옛 그림의 배율·자리를 새 그림에 씌우지 않는다.
+  // 다른 그림을 받으면 처음부터 — 옛 그림의 배율·자리를 새 그림에 씌우지 않는다(내려놓았다 다시 받을 때는 그대로 둔다).
   useEffect(() => {
     setNatural(null);
-    setFailed(false);
     setZoom(null);
     setOffset({ x: 0, y: 0 });
-  }, [src]);
+  }, [root, file]);
+
+  // 머리에서 읽은 크기 — 원본을 풀지 않고도 배율·자리·픽셀 크기를 안다.
+  useEffect(() => {
+    if (source.kind === 'ready' && source.natural) setNatural(source.natural);
+  }, [source]);
+
+  // 미리보기·원본 붙들기·실패는 **받은 그 그림의 것**이다 — 다른 그림이 오거나 내려놓은 그 렌더부터 앞 그림의 것은 없는 셈이다
+  //   (한 프레임이라도 앞 그림의 "원본 붙들기"가 새 그림에 씌워지면 새 그림의 원본을 풀기 시작한다).
+  const [previewState, setPreviewState] = useState<(Preview & { readonly source: Source }) | null>(null);
+  const [previewFailedFor, setPreviewFailedFor] = useState<Source | null>(null);
+  const [heldFor, setHeldFor] = useState<Source | null>(null);
+  const [displayFailedFor, setDisplayFailedFor] = useState<Source | null>(null);
+  const [fullReady, setFullReady] = useState(false);
+  const preview = ready !== null && previewState?.source === ready ? previewState : null;
+  const previewFailed = ready !== null && previewFailedFor === ready;
+  const holdFull = ready !== null && heldFor === ready;
+  const displayFailed = ready !== null && displayFailedFor === ready;
+  // 앞 그림을 가리키던 것은 바로 놓는다(그 바이트를 붙들고 있지 않게).
+  useEffect(() => {
+    setPreviewState((p) => (p && p.source !== source ? null : p));
+    setPreviewFailedFor((s) => (s === source ? s : null));
+    setHeldFor((s) => (s === source ? s : null));
+    setDisplayFailedFor((s) => (s === source ? s : null));
+  }, [source]);
 
   useLayoutEffect(() => {
     const el = stageRef.current;
@@ -137,13 +229,110 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
   }, []);
 
   // 맞춤 배율 — 창보다 크면 줄이고, 작으면 그대로(작은 아이콘을 흐리게 키우지 않는다).
-  const fitScale = natural && stage.w > 0 && stage.h > 0
-    ? Math.min(1, (stage.w - 32) / natural.w, (stage.h - 32) / natural.h)
-    : 1;
+  const fitScale = natural ? viewerFitScale({ width: natural.w, height: natural.h }, { width: stage.w, height: stage.h }) : 1;
   const scale = zoom ?? Math.max(ZOOM_LIMITS.min, fitScale);
   /** 지금 보이는 배율·자리 — 손짓 처리기는 렌더를 기다리지 않고 이 최신 값에서 이어 간다(손가락을 바꿔 쥘 때 그림이 튀지 않게). */
   const viewRef = useRef({ scale, offset });
   viewRef.current = { scale, offset };
+
+  // ②③ 무엇을 얼마나 풀어 둘지 — **보이는 동안만** 판단한다. 숨은 창은 무대가 0×0 으로 재여 맞춤 배율이 1 로 읽히므로, 그때
+  //   판단하면 내려놓기 전 몇 초 사이에 원본을 풀게 된다. 무대를 아직 못 쟀으면(막 열림) 화면 크기로 본다.
+  const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio;
+  const planStage = stage.w > 0 && stage.h > 0
+    ? { width: stage.w, height: stage.h }
+    : { width: typeof window === 'undefined' ? 0 : window.screen.availWidth, height: typeof window === 'undefined' ? 0 : window.screen.availHeight };
+  const plan = visible && ready && !ready.direct && !previewFailed && natural
+    ? planImageView({
+      natural: { width: natural.w, height: natural.h },
+      stage: planStage,
+      devicePixelRatio: dpr,
+      scale,
+      previewRequested: preview?.requested ?? 0,
+      previewWidth: preview?.width ?? 0,
+      holdingFull: holdFull,
+    })
+    : null;
+  const direct = ready !== null && (ready.direct || previewFailed || natural === null || plan?.direct === true);
+  // 원본 그대로 그리는 그림(SVG · 움직이는 그림)은 숨어도 내려놓을 때까지 그대로 둔다 — 미리보기 그림은 숨으면 원본부터 놓는다.
+  const wantFull = ready !== null && (direct || plan?.full === true);
+  const previewTarget = plan && !plan.direct ? plan.previewWidth : 0;
+  const previewRequested = preview?.requested ?? 0;
+
+  // ② 창에 맞는 크기로만 줄여 푼다 — 처음은 바로, 창이 커져 다시 풀 때는 끄는 동안 매 프레임 풀지 않게 조금 기다린다.
+  useEffect(() => {
+    if (!ready || previewTarget <= 0 || previewTarget <= previewRequested) return undefined;
+    const owner = ready;
+    const { blob, natural: expected } = owner;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      createImageBitmap(blob, { resizeWidth: previewTarget, resizeQuality: 'high', imageOrientation: 'from-image' }).then((bitmap) => {
+        if (cancelled) {
+          bitmap.close();
+          return;
+        }
+        // 세운 방향이 머리와 다르게 나오면(가로·세로 비가 어긋남) 찌그러뜨려 깔지 않고 원본 그대로 보기로 물러선다.
+        if (!sameAspect(bitmap, expected)) {
+          bitmap.close();
+          setPreviewFailedFor(owner);
+          return;
+        }
+        setPreviewState({ source: owner, bitmap, width: bitmap.width, height: bitmap.height, requested: previewTarget });
+      }, () => {
+        if (!cancelled) setPreviewFailedFor(owner);
+      });
+    }, previewRequested > 0 ? IMAGE_VIEW.regrowDebounceMs : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [ready, previewTarget, previewRequested]);
+
+  // 미리보기를 캔버스에 넘긴다 — `bitmaprenderer` 는 복사 없이 그 비트맵을 쥐고, 다음 것이 오면 앞의 것을 놓는다.
+  useLayoutEffect(() => {
+    const canvas = previewCanvasRef.current;
+    if (!preview || !canvas) return;
+    canvas.width = preview.width;
+    canvas.height = preview.height;
+    const ctx = canvas.getContext('bitmaprenderer');
+    if (ctx) {
+      ctx.transferFromImageBitmap(preview.bitmap);
+      return;
+    }
+    canvas.getContext('2d')?.drawImage(preview.bitmap, 0, 0);
+    preview.bitmap.close();
+  }, [preview]);
+
+  // ③ 원본을 붙들지 — 필요해지면 바로, 미리보기로 충분해지면 조금 뒤에 놓는다(확대·축소를 오가며 다시 풀지 않게).
+  useEffect(() => {
+    if (wantFull && ready) {
+      setHeldFor(ready);
+      return undefined;
+    }
+    if (!holdFull) return undefined;
+    const timer = window.setTimeout(() => setHeldFor(null), IMAGE_VIEW.fullReleaseDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [wantFull, holdFull, ready]);
+
+  // 원본의 blob URL — 붙드는 동안만 있고, 놓거나 다른 그림이 오거나 창을 닫으면 되돌린다.
+  const fullBlob = ready && holdFull ? ready.blob : null;
+  const [fullUrl, setFullUrl] = useState('');
+  useEffect(() => {
+    setFullReady(false);
+    if (!fullBlob) {
+      setFullUrl('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(fullBlob);
+    setFullUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [fullBlob]);
+
+  // 원본만으로 그리게 된 뒤(창이 커져 원본이 곧 맞춤 크기가 됐다)에는 미리보기를 놓는다.
+  useEffect(() => {
+    if (direct && fullReady && preview) setPreviewState(null);
+  }, [direct, fullReady, preview]);
+
+  const failed = source.kind === 'failed' || displayFailed;
 
   const zoomBy = useCallback((factor: number): void => {
     setZoom((z) => clampZoom((z ?? Math.max(ZOOM_LIMITS.min, fitScale)) * factor));
@@ -206,6 +395,7 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
 
   const name = file ? mediaFileName(file) : '';
   const percent = Math.round(scale * 100);
+  const transform = `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`;
 
   // §5.4 #15 (C) — 그림은 손짓을 받지 않아(`pointer-events-none`) 브라우저는 무대를 집는다. 무대가 그림 자리와 픽셀을 답한다.
   useInspectorPicker(stageRef, natural ? (at) => imageViewerLevels({
@@ -265,20 +455,40 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
         onDoubleClick={fit}
         aria-label={t('panel.apps.vibimage.viewport')}
       >
-        {src && !failed && (
+        {/* ② 임시 저화질 — 그림의 원본 크기(CSS px)로 깔고 원본과 같은 변환을 건다(원본이 뜨면 그 아래에 그대로 있다). */}
+        {preview && natural && !failed && (
+          <canvas
+            ref={previewCanvasRef}
+            role="img"
+            aria-label={name}
+            className="pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center"
+            style={{ width: `${natural.w}px`, height: `${natural.h}px`, transform }}
+          />
+        )}
+
+        {/* ③ 원본 — 붙드는 동안만 있다. 다 풀리기 전에는 보이지 않는다(밑의 미리보기가 그대로 보인다). */}
+        {fullUrl && !failed && (
           <img
-            key={src}
-            src={src}
+            key={fullUrl}
+            src={fullUrl}
             alt={name}
             draggable={false}
+            decoding="async"
             onLoad={(e) => {
               const img = e.currentTarget;
-              if (img.naturalWidth > 0) setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+              if (img.naturalWidth > 0) {
+                const next = { w: img.naturalWidth, h: img.naturalHeight };
+                setNatural((n) => (n && n.w === next.w && n.h === next.h ? n : next));
+              }
+              setFullReady(true);
             }}
-            onError={() => setFailed(true)}
-            className={`pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center ${natural ? '' : 'opacity-0'}`}
+            onError={() => {
+              // 미리보기가 있으면 그것으로 계속 본다 — 원본을 못 풀었다고 보던 그림을 지우지 않는다.
+              if (!preview && ready) setDisplayFailedFor(ready);
+            }}
+            className={`pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center ${fullReady && natural ? '' : 'opacity-0'}`}
             style={{
-              transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+              transform,
               imageRendering: scale >= 3 ? 'pixelated' : 'auto',
             }}
           />

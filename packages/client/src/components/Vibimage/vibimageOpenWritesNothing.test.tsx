@@ -18,6 +18,18 @@ describe('(7) opening a picture writes nothing', () => {
     expect(renderer!.root.findAllByType('editor' as never)).toHaveLength(1);
   });
 
+  it('a picture outside the project (absolute file) opens view-only — no Edit, so nothing can be written', () => {
+    // §5.1 #2-1 (A) — a canvas file bubble the agent touched outside the project; the editable source would live in
+    //   the project's .vibisual, so the viewer offers no Edit for it.
+    for (const file of ['c:/users/dev/appdata/local/temp/icon-probe/out/preview2.png', '/tmp/probe/out/preview2.png']) { // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+      act(() => { renderer = create(createElement(VibimageShell, { appId: 'vibimage', params: { projectId: 'C:/proj', file } })); });
+      expect(renderer!.root.findAllByType('editor' as never)).toHaveLength(0);
+      expect((renderer!.root.findByType('viewer' as never).props as { onEdit?: () => void }).onEdit).toBeUndefined();
+      act(() => renderer!.unmount());
+      renderer = undefined;
+    }
+  });
+
   it('a node that already has an editable source opens the editor', () => {
     act(() => { renderer = create(createElement(VibimageShell, { appId: 'vibimage', params: { projectId: 'project', file: 'photos/product.png', ref: 'poster' } })); });
     expect(renderer!.root.findAllByType('editor' as never)).toHaveLength(1);

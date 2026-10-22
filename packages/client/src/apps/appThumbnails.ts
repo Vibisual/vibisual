@@ -2,8 +2,10 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { APP_THUMB, PREVIEW_POLICY, type PreviewLane } from '@vibisual/shared';
 
 import { clientPathKey } from '../utils/platform.js';
+import { thumbnailSkipped } from './appLinkedItems.js';
 import { previewBudget } from './previewBudget.js';
 import { getInternalApp, type AppThumbnail, type AppThumbnailRenderer } from './registry.js';
+import { isThumbnailSkip } from './thumbnailSkip.js';
 
 /**
  * §5.4 #36 (F) — 앱 위성 화면의 **미리보기 기억 장소**.
@@ -25,6 +27,11 @@ export type ThumbStatus = 'loading' | 'ready' | 'none';
 export interface ThumbState {
   readonly status: ThumbStatus;
   readonly thumb: AppThumbnail | null;
+  /**
+   * §5.1 #2-1 (G) ① — 못 구운(`none`) 이유가 "앱 성능 기준보다 커서 일부러 굽지 않았다"면 `tooLarge`(굽는 함수가
+   * `THUMB_SKIPPED_TOO_LARGE` 를 돌려줬다). 파일 버블이 이 값으로 "미리보기 생략" 툴팁을 단다. 없으면 이유를 모른다.
+   */
+  readonly reason?: 'tooLarge';
 }
 
 export interface ThumbJob {
@@ -61,6 +68,8 @@ export interface ThumbCacheOptions {
   readonly onIdle?: (listener: () => void) => () => void;
   /** §5.1 #2-1 (G) ④ — 줄에 서고 이만큼 지나도록 아무도 보지 않으면 시작 전에 버린다(ms). 없으면 버리지 않는다. */
   readonly staleQueuedMs?: number;
+  /** §5.1 #2-1 (G) ⑦ — 굽지 않을 일감(앱이 그 확장자는 못 푼다고 선언). 줄에 세우지 않고 곧바로 못 구운 것으로 둔다(요청 0건). */
+  readonly skip?: (job: ThumbJob) => boolean;
   readonly now?: () => number;
 }
 
@@ -76,6 +85,7 @@ export interface ThumbCache {
 
 const LOADING: ThumbState = { status: 'loading', thumb: null };
 const NONE: ThumbState = { status: 'none', thumb: null };
+const SKIPPED_LARGE: ThumbState = { status: 'none', thumb: null, reason: 'tooLarge' };
 
 export function thumbKey(job: ThumbJob): string {
   // JSON 으로 묶는다 — 구분자 한 글자로 이으면 그 글자가 경로 안에 있을 때 두 열쇠가 같아진다.
@@ -180,9 +190,14 @@ export function createThumbCache(opts: ThumbCacheOptions): ThumbCache {
         hit.usedAt = clock;
         return key;
       }
+      if (opts.skip?.(job) === true) {
+        entries.set(key, { state: NONE, listeners: new Set(), usedAt: clock });
+        evict();
+        return key;
+      }
       entries.set(key, { state: LOADING, listeners: new Set(), usedAt: clock });
       queue.push({ key, lane: job.lane, enqueuedAt: now(), run: async () => {
-        const work = (async (): Promise<AppThumbnail | null> => {
+        const work = (async (): ReturnType<AppThumbnailRenderer> => {
           const render = await opts.resolve(job.appId);
           return render
             ? await render({
@@ -200,7 +215,9 @@ export function createThumbCache(opts: ThumbCacheOptions): ThumbCache {
           const won = await Promise.race([work, late]);
           if (won === 'late') {
             // 상한을 넘긴 일감은 자리를 비우고, 나중에 끝나면 그 결과를 돌려주고 버린다.
-            void work.then((thumb) => { if (thumb) opts.release(thumb); }, () => undefined);
+            void work.then((thumb) => { if (thumb && !isThumbnailSkip(thumb)) opts.release(thumb); }, () => undefined);
+          } else if (isThumbnailSkip(won)) {
+            next = SKIPPED_LARGE; // 기준보다 커서 일부러 굽지 않았다 — 이유를 함께 기억한다(툴팁)
           } else if (won) {
             next = { status: 'ready', thumb: won };
           }
@@ -249,6 +266,8 @@ const appThumbCache = createThumbCache({
   isIdle: () => previewBudget.isIdle(),
   onIdle: (l) => previewBudget.onIdle(l),
   staleQueuedMs: PREVIEW_POLICY.staleQueuedMs,
+  // §5.1 #2-1 (G) ⑦ — 앱이 못 푼다고 선언한 확장자는 줄에 세우지 않는다(파일 버블·앱 화면·구슬 공통).
+  skip: (job) => thumbnailSkipped(job.appId, job.file),
 });
 
 const IDLE: ThumbState = { status: 'none', thumb: null };

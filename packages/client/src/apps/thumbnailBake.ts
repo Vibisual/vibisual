@@ -4,15 +4,19 @@
  * 꽉 채워 보일 크기(짧은 변이 화면을 덮는 크기)까지만 줄이고 키우지는 않는다. 원본을 그대로 걸면 큰 사진·4K 프레임이
  * 노드마다 원본 해상도로 디코딩되어 메모리에 남는다 — 화면에는 그 몇십 분의 일만 보인다.
  * 만든 URL 은 미리보기 기억 장소가 밀어낼 때 되돌린다(`appThumbnails.ts`).
+ *
+ * §5.1 #2-1 (G) ⑧ — 벡터(SVG)는 `upscale` 로 굽는 크기까지 키워 그린다(벡터라 흐려지지 않는다 — 원본 SVG 를 쥐지 않으려고 굽는다).
  */
 export async function bakeCoverPicture(
   source: CanvasImageSource,
   sourceWidth: number,
   sourceHeight: number,
   target: { readonly width: number; readonly height: number },
+  opts: { readonly upscale?: boolean } = {},
 ): Promise<string | null> {
   if (!(sourceWidth > 0) || !(sourceHeight > 0) || !(target.width > 0) || !(target.height > 0)) return null;
-  const scale = Math.min(1, Math.max(target.width / sourceWidth, target.height / sourceHeight));
+  const cover = Math.max(target.width / sourceWidth, target.height / sourceHeight);
+  const scale = opts.upscale === true ? cover : Math.min(1, cover);
   const w = Math.max(1, Math.round(sourceWidth * scale));
   const h = Math.max(1, Math.round(sourceHeight * scale));
   const canvas = document.createElement('canvas');
@@ -26,10 +30,15 @@ export async function bakeCoverPicture(
   return canvasObjectUrl(canvas, 'image/webp', 0.86);
 }
 
-/** 캔버스 → blob URL. 못 만들면 `null`(빈 캔버스·문맥 상실). */
+/** 캔버스 → blob URL. 못 만들면 `null`(빈 캔버스·문맥 상실·더럽혀진 캔버스 — `toBlob` 이 던진다). */
 export async function canvasObjectUrl(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<string | null> {
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, type, quality);
-  });
+  let blob: Blob | null;
+  try {
+    blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, type, quality);
+    });
+  } catch {
+    return null;
+  }
   return blob ? URL.createObjectURL(blob) : null;
 }

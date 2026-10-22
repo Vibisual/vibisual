@@ -190,12 +190,27 @@ export function useAppLinkedItems(appId: string | null, req: AppLinkedItemsReque
  * (`thumbnail`)가 있는 첫 앱. 코어는 확장자 표를 들지 않는다(§5.13 (R-1) 과 같은 규율). 없으면 `null` — 아이콘으로 둔다.
  */
 export function thumbnailAppFor(file: string): string | null {
-  const dot = file.lastIndexOf('.');
-  const slash = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
-  if (dot <= slash + 1) return null;
-  const ext = file.slice(dot).toLowerCase();
+  const ext = fileExtension(file);
+  if (ext === null) return null;
   for (const app of INTERNAL_APPS) {
     if (app.thumbnail && appOutputExtensions(app).includes(ext)) return app.id;
   }
   return null;
+}
+
+/**
+ * §5.1 #2-1 (G) ⑦ — 그 앱이 이 파일은 **굽지 못한다**고 선언했는가(`thumbnailSkips`). 그러면 굽지 않고 처음부터 아이콘이다
+ * (요청 0건). 받는 앱(`thumbnailAppFor`)은 그대로라 색·더블클릭으로 여는 앱은 바뀌지 않는다 — 미리보기만 뺀다.
+ */
+export function thumbnailSkipped(appId: string, file: string): boolean {
+  const ext = fileExtension(file);
+  return ext !== null && getInternalApp(appId)?.thumbnailSkips?.includes(ext) === true;
+}
+
+/** 소문자 확장자(마침표 포함) — 이름이 점으로 시작하거나 확장자가 없으면 `null`. */
+function fileExtension(file: string): string | null {
+  const dot = file.lastIndexOf('.');
+  const slash = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+  if (dot <= slash + 1) return null;
+  return file.slice(dot).toLowerCase();
 }

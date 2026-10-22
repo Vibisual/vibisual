@@ -2,6 +2,7 @@ import { APP_THUMB, PREVIEW_POLICY, previewTooLarge } from '@vibisual/shared';
 import { computePeaks } from '@vibisual/audio';
 
 import type { AppThumbnail, AppThumbnailRequest } from '../../apps/registry.js';
+import { THUMB_SKIPPED_TOO_LARGE, type AppThumbnailSkip } from '../../apps/thumbnailSkip.js';
 import { fetchWorkspaceMediaBlob, workspaceMediaSize } from '../../utils/workspaceMedia.js';
 
 /**
@@ -31,9 +32,11 @@ function offlineContext(): OfflineAudioContext | null {
   return null;
 }
 
-export async function renderSoundThumbnail(req: AppThumbnailRequest): Promise<AppThumbnail | null> {
+export async function renderSoundThumbnail(req: AppThumbnailRequest): Promise<AppThumbnail | AppThumbnailSkip | null> {
   const bytes = typeof req.bytes === 'number' ? req.bytes : await workspaceMediaSize(req.projectId, req.file);
-  if (bytes === null || bytes <= 0 || bytes > APP_THUMB.audioMaxBytes || previewTooLarge(req.file, bytes)) return null;
+  if (bytes === null || bytes <= 0) return null;
+  // 기준보다 커서 일부러 굽지 않는다 — 이유를 함께 돌려준다(파일 버블의 "미리보기 생략" 툴팁).
+  if (bytes > APP_THUMB.audioMaxBytes || previewTooLarge(req.file, bytes)) return THUMB_SKIPPED_TOO_LARGE;
   const blob = await fetchWorkspaceMediaBlob(req.projectId, req.file);
   if (!blob) return null;
   const ctx = offlineContext();

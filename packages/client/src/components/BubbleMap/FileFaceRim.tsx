@@ -1,8 +1,9 @@
 import { memo } from 'react';
-import { FILE_FACE, FILE_MIN_SIZE, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
+import { FILE_FACE } from '@vibisual/shared';
 
 import { formatMediaDuration, type ThumbState } from '../../apps/appThumbnails.js';
 import type { FileFace } from '../../utils/fileFaceView.js';
+import { satelliteOrbitRadius } from '../../utils/satellite.js';
 import { FileKindGlyph } from './fileFaceGlyphs.js';
 
 /**
@@ -49,11 +50,15 @@ export const FileFaceRim = memo(function FileFaceRim({ face, thumb, size, ts, la
 });
 
 /**
- * §5.1 #2-1 (B) — 별자리 중심의 **궤도**. 위성들이 앉는 반지름(중심 반경 + 위성 간격 + 파일 최소 반경 — 물리 스프링의
- * 평형점)에 흐린 점선 원을 그린다. 위성이 흩어져도 "이것들이 한 무리"가 읽히게 하는 선이다. 손짓은 받지 않는다.
+ * §5.1 #2-1 (B) — 별자리 중심의 **궤도**. 위성들이 앉는 고리에 흐린 점선 원을 그린다. 위성이 흩어져도 "이것들이 한 무리"가
+ * 읽히게 하는 선이다. 손짓은 받지 않는다.
+ *
+ * §5.1 #2-2 (J) — 반지름은 달이 앉는 격자의 고리 0(`satelliteOrbitRadius` — 중심 반경 + `SATELLITE_ORBIT_GAP` + 칸 반경, 달이
+ * 많으면 다 담도록 넓힌 고리)이다. 종전에는 가장 작은 파일이 앉는 반지름이라 미디어 달(56px 이상)의 안쪽 가장자리를 스쳤다.
+ * `moons` 를 모르면 달 하나로 본다.
  */
-export const ConstellationOrbit = memo(function ConstellationOrbit({ size, glow }: { size: number; glow: string }): React.JSX.Element {
-  const radius = size / 2 + SATELLITE_ORBIT_GAP + FILE_MIN_SIZE / 2;
+export const ConstellationOrbit = memo(function ConstellationOrbit({ size, glow, moons }: { size: number; glow: string; moons?: number }): React.JSX.Element {
+  const radius = satelliteOrbitRadius(size / 2, Math.max(1, Math.floor(moons ?? 1)));
   const pad = radius - size / 2 + 2;
   const box = size + pad * 2;
   return (
