@@ -1,4 +1,4 @@
-import { agentRuleShell } from '@vibisual/shared';
+import { agentRuleShell, isShellToolName } from '@vibisual/shared';
 import { readCodexUsage } from './services/codexUsageService.js';
 import express from 'express';
 import cors from 'cors';
@@ -46,7 +46,7 @@ import { processGuard } from './services/processGuard.js';
 // §2.1 (B) — 최상위 외부 폴더 예산의 범위·기본값(설정 UI 와 서버가 같은 표를 본다).
 import { EXTERNAL_TOP_BUDGET_BOUNDS, EXTERNAL_TOP_BUDGET_DEFAULT } from '@vibisual/shared';
 // §5.23 웹 버블 묶기 — 옵션창의 "되돌리기"·범위가 쓰는 기본값과 경계(정본은 shared 상수).
-import { WEB_GROUP_DEFAULTS, WEB_GROUP_MAX_BOUNDS } from '@vibisual/shared';
+import { WEB_GROUP_DEFAULTS, WEB_GROUP_MAX_BOUNDS, WEB_OPEN_TARGET_DEFAULT } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
 import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual/shared';
 import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
@@ -259,6 +259,7 @@ import {
   listSubagentStatusLines,
 } from './services/subagentStatusLineService.js';
 import { mountAppBodyParsers, mountAppRoutes } from './services/appHost.js';
+import { mountHookIngressBodyParser } from './services/hookIngressBody.js';
 import { sessionMemoBodyParser } from './services/sessionMemoBodyParser.js';
 import { distillFeedbackToRules } from './services/feedbackDistillService.js';
 import { isPortAlive, killByPort, respawn, setVibisualOwnPorts } from './services/processChecker.js';
@@ -279,6 +280,7 @@ import {
   isWorktreeUnderConstruction,
 } from './services/worktreeLiveness.js';
 import { listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './services/workspaceExplorer.js';
+import { resolveWorkspaceMediaRead, setWorkspaceMediaReadGuards, type WorkspaceMediaReadGuards } from './services/workspaceMediaRead.js';
 // §5.5 #17-27 ⑱ — 판 쪽에서 그 갈래의 파일을 찾는다(빈 탭의 파일 고르기).
 import { findWorkspaceFiles } from './services/workspaceFind.js';
 import { WORKSPACE_FIND_PATH, isEditorPaneFileKind, parseClaimedExtensions } from '@vibisual/shared';
@@ -330,7 +332,7 @@ import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebGroup, appStateSetWebGroup, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebGroup, appStateSetWebGroup, appStateGetWebOpenTarget, appStateSetWebOpenTarget, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs, appStateReorderOpenProjects } from './services/appState.js';
 import { ensureHooksInstalledEverywhere, installHooksIntoNewCoworkHomes } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -344,11 +346,8 @@ import {
   needsSnapshotRefresh,
   isTaskLedgerEvent,
 } from './services/hookEventClass.js';
-import {
-  readUsageCollectorStatus,
-  installStatusLine,
-  uninstallStatusLine,
-} from './services/statusLineInstaller.js';
+import { readUsageCollectorStatus } from './services/statusLineInstaller.js';
+import { keepVibisualHooksInPlace, setCodexHooksEnabled, setUsageCollectorEnabled } from './services/hookLifetime.js';
 import { buildClaudeUsage } from './services/claudeUsageService.js';
 import { probeClaudeUsage, readCachedUsageSnapshot } from './services/claudeUsageProbe.js';
 import type { UsageProbeFailure, UsageProbeSnapshot } from './services/claudeUsageProbe.js';
@@ -366,7 +365,7 @@ import { readCodexEffectiveConfigFor } from './services/codexConfigService.js';
 import { codexReviewService } from './services/codexReviewService.js';
 import { isCodexImageFile } from './services/codexStreamMap.js';
 import type { CodexReviewMode } from '@vibisual/shared';
-import { getCodexHookState, installCodexHooks, uninstallCodexHooks } from './services/codexHookInstaller.js';
+import { getCodexHookState } from './services/codexHookInstaller.js';
 import { invalidateClaudeBinCache, setClaudeBinOverrideWriter } from './services/claudeBin.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
 import type { AgentProvider } from '@vibisual/shared';
@@ -475,6 +474,10 @@ export { ensureClaudeHooksInstalled, ensureHooksInstalledEverywhere } from './se
 export type { HookInstallAllResult } from './services/hookInstaller.js';
 // §4 v3.60 — 사용량 수집기(statusLine). desktop main 이 부팅 시 "이미 설치된 경우에만" 포트·토큰을 갱신한다.
 export { refreshStatusLineIfInstalled } from './services/statusLineInstaller.js';
+// §3.6 「수명」 · §5.7 #24-3 — 훅은 앱이 켜져 있는 동안만 둔다. desktop main 이 켤 때(상태 줄 켬 동기화)·
+//   끌 때(정상 종료·OS 종료)·제거기 정리 모드에서 부른다.
+export { retireVibisualHooks, removeVibisualHooksForUninstall, syncUsageCollectorAtBoot, syncCodexHooksAtBoot } from './services/hookLifetime.js';
+export type { HookRetireSummary } from './services/hookLifetime.js';
 // §4 v1.98 — 진단 에러 로그: desktop main 이 자기 프로세스 에러를 recordDiagnostic 으로 적재.
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
@@ -566,6 +569,8 @@ export { setMicSettingsOpener } from './services/micSettingsOpener.js';
 // §5.13 (T-11) ① — 내부 앱의 서버 몫이 같은 앱의 main 몫을 부르는 통로. desktop main 이 부팅 때 한 번 꽂는다
 //   (앱 이름을 모르는 함수 하나 — 어느 앱인지는 앱 호스트가 묶는다).
 export { setAppMainInvoker, resolveAppMediaFile, type AppMainInvoker } from './services/appHost.js';
+// §5.13 40-1 — 코어 미디어 창구의 읽기를 데스크톱 main 의 vibproxy 미디어 갈래가 흘려 보낼 때 낼 파일(라우트와 같은 판정).
+export { resolveWorkspaceMediaStreamFile } from './services/workspaceMediaRead.js';
 
 // §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
@@ -819,6 +824,9 @@ export async function runServer(): Promise<RunServerHandle> {
   app.use('/api/app/vibi3d', express.json({ limit: '8mb' }));
   mountAppBodyParsers(app);
   app.use('/api/session-memos', sessionMemoBodyParser);
+  // §3.7 「훅 입구의 본문 상한」 — 훅 본문은 CLI 가 도구 내용을 통째로 싣는다. 전역 파서의 기본 100KB 가 큰 파일을
+  //   고친 신고를 413 으로 버렸다(3주 2,100건). 문이 받은 크기를 그대로 받도록 전역 파서보다 **앞에** 건다.
+  mountHookIngressBodyParser(app);
   app.use(express.json());
   // Task Edge dispatch raw-text 경로용 — instruction 원문을 손escape 없이 stdin 으로 받기 위함.
   // express.json() 은 application/json 만, express.text() 는 text/* 만 처리 → 상호 간섭 없음.
@@ -1037,6 +1045,12 @@ export async function runServer(): Promise<RunServerHandle> {
         const ownerTermId = headerValue('x-vibisual-owner-term-id');
         if (ownerTermId) body._vibisualOwnerTermId = ownerTermId;
       }
+      // §5.1 #1-1 (D) — 이 이벤트를 낸 우리 sub(env `VIBISUAL_SUBAGENT_ID`). 아래 소유자 태그 재작성이 세션 키를 주인 버블
+      //   것으로 바꿔도 앱 작업 귀속이 그 sub 를 잃지 않게 명시로 싣는다. 빈 값은 "없음"(안 잡힌 env 는 빈 문자열이 된다).
+      if (!body._vibisualSubAgentId) {
+        const subAgentId = headerValue('x-vibisual-subagent-id');
+        if (subAgentId) body._vibisualSubAgentId = subAgentId;
+      }
       // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그면 상태/그래프 귀속을 그 CMD 버블 세션으로
       //   일원화한다. 이후 markActive/markStop·Notification·processHookEvent 가 모두 CMD 버블을
       //   가리켜 별개 Hook 버블/오완료(recompute) 대신 Hook 에이전트와 동일한 라이프사이클
@@ -1087,6 +1101,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const bgOwnerSub = subAgentManager.findSubBySessionId(claudeSessionId)
         ?? (body._vibisualOwnerTermId ? subAgentManager.findSubByTermId(body._vibisualOwnerTermId) : undefined);
       const bgOwnerAgentId = body._vibisualOwnerAgentId ?? bgOwnerSub?.parentAgentId;
+      // §5.1 #1-1 (D) — 훅이 sub 를 못 실어 왔으면(옛 훅 블록 · 헤더 env 를 막는 정책) 여기서 찾은 sub 로 채운다.
+      if (!body._vibisualSubAgentId && bgOwnerSub) body._vibisualSubAgentId = bgOwnerSub.id;
 
       // §5.5 #17-32 ⑤ — 이 이벤트가 여기 도착했다는 것은 **같은 이벤트에 걸린 다른 훅들도 그
       //   순간에 함께 돌았다**는 뜻이다(우리 훅이 그들과 같은 자리에 걸려 있으므로 — 새 계측 ❌).
@@ -1349,7 +1365,7 @@ export async function runServer(): Promise<RunServerHandle> {
         let ghosted = 0;
         let pruned = 0;
         if (
-          body.hook_event_name === 'PostToolUse' && body.tool_name === 'Bash'
+          body.hook_event_name === 'PostToolUse' && isShellToolName(body.tool_name)
           && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
         ) {
           lastExistenceSweepAt = Date.now();
@@ -1939,8 +1955,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * 새로 나타난 Cowork 세션 홈에만 훅을 심는다 — 세션 스캔 스윕(10초)이 부른다.
-   * 호스트 홈은 건드리지 않는다(부팅 설치·전송 경로 승격이 이미 맡는다).
+   * 새로 나타난 Cowork 세션 홈에 훅을 심고, 이미 심은 홈(호스트 포함)은 **설정 파일이 바뀐 것만** 다시 맞춘다 —
+   * 세션 스캔 스윕(10초)이 부른다. 뒤쪽은 §3.6 「수명」 ③ "켜져 있는 동안 지킨다"이다: Claude Code 가 settings.json
+   * 을 다시 쓰며 표식을 떨어뜨리거나 우리 블록이 지워져도 10초 안에 돌아온다(그대로면 stat 한 번).
    */
   function installHooksIntoNewCoworkHomesIfReady(): void {
     const t = hookInstallTarget();
@@ -1950,6 +1967,12 @@ export async function runServer(): Promise<RunServerHandle> {
       if (n > 0) logger.info(`[hooks] cowork: ${n} new session home(s) hooked`);
     } catch (err) {
       logger.warn(`[hooks] cowork install sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      const kept = keepVibisualHooksInPlace(t.port, t.handlerPath, t.token, lastHookInstallOptions);
+      if (kept.rewritten.length > 0) logger.info(`[hooks] restored hooks in ${kept.rewritten.length} settings home(s) changed by someone else`);
+    } catch (err) {
+      logger.warn(`[hooks] keep-in-place sweep failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -2284,6 +2307,7 @@ export async function runServer(): Promise<RunServerHandle> {
   /**
    * §5.25 (I) — 코덱스 훅. **기본 꺼짐**이라 사용자가 켤 때만 깔린다.
    * 설치 뒤에도 코덱스 자신의 훅 신뢰 절차가 한 번 더 남아 있으며, 우리는 그것을 우회하지 않는다.
+   * §3.6 「수명」 — 끌 때 걷으므로 켜기·끄기는 켬 값(AppState)을 함께 적는다(`setCodexHooksEnabled`).
    */
   app.get('/api/codex-hooks', (_req, res) => {
     try {
@@ -2302,7 +2326,7 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     try {
-      const state = installCodexHooks(ctx.handlerPath, ctx.port, ctx.token);
+      const state = setCodexHooksEnabled(true, ctx);
       graphManager.setCodexHooks(state);
       broadcastSnapshot();
       res.json(state);
@@ -2318,7 +2342,7 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     try {
-      const state = uninstallCodexHooks(ctx.handlerPath);
+      const state = setCodexHooksEnabled(false, ctx);
       graphManager.setCodexHooks(state);
       broadcastSnapshot();
       res.json(state);
@@ -2398,7 +2422,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const body = req.body as { enable?: unknown } | null;
       const enable = body?.enable === true;
       if (!enable) {
-        res.json(uninstallStatusLine());
+        // §3.6 「수명」 — 켬 여부를 함께 적는다(끌 때 상태 줄을 걷으므로 파일만으로는 다음 부팅이 알 수 없다).
+        res.json(setUsageCollectorEnabled(false, null));
         return;
       }
       if (hookListenerPort === null || hookListenerToken === null || hookHandlerPath === null) {
@@ -2407,7 +2432,7 @@ export async function runServer(): Promise<RunServerHandle> {
         });
         return;
       }
-      res.json(installStatusLine(hookListenerPort, hookHandlerPath, hookListenerToken));
+      res.json(setUsageCollectorEnabled(true, { port: hookListenerPort, handlerPath: hookHandlerPath, token: hookListenerToken }));
     } catch (err) {
       logger.error('POST /api/usage-collector failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -4996,12 +5021,14 @@ export async function runServer(): Promise<RunServerHandle> {
     let executionRequirements: QueuedCommand['executionRequirements'];
     // §5.1 #2-1 (F) ① — 말풍선이 넣은 앱 노드. 이 명령 중 쓴 파일에 앱 꼬리표를 다는 열쇠다(모양이 맞는 id 만).
     let appNodeIds: string[] | undefined;
+    // 말풍선에서 이어진 앱을 모두 뺀 명령 — 이 명령 중 쓴 파일은 앱 작업물이 아니다(폴백도 없다).
+    let appNodesOff = false;
     let afterAgentWork = false;
     if (typeof req.body === 'string') {
       // express.text() 가 파싱한 raw 본문. 끝의 heredoc 잔여 개행만 정리.
       text = req.body.replace(/\r\n/g, '\n').replace(/\n+$/, '');
     } else {
-      const body = (req.body ?? {}) as { text?: string; subAgentId?: string | null; attachments?: string[]; dispatchMode?: unknown; runLimits?: unknown; executionRequirements?: unknown; afterAgentWork?: unknown; appNodeIds?: unknown };
+      const body = (req.body ?? {}) as { text?: string; subAgentId?: string | null; attachments?: string[]; dispatchMode?: unknown; runLimits?: unknown; executionRequirements?: unknown; afterAgentWork?: unknown; appNodeIds?: unknown; appNodesOff?: unknown };
       text = body.text;
       subAgentId = body.subAgentId;
       attachments = body.attachments;
@@ -5009,6 +5036,7 @@ export async function runServer(): Promise<RunServerHandle> {
       runLimits = normalizeRunLimits(body.runLimits);
       executionRequirements = normalizeExecutionRequirements(body.executionRequirements);
       appNodeIds = normalizeAppNodeIds(body.appNodeIds);
+      appNodesOff = body.appNodesOff === true;
       afterAgentWork = body.afterAgentWork === true;
     }
     if (typeof text !== 'string' || !text.trim()) {
@@ -5190,7 +5218,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.13 (R-10) — 제작 앱의 '빠른 초안 / 정교하게'가 실은 명령 한 건의 상한(실행할 때 엔진이 지원하면 건다).
       ...(runLimits ? { runLimits } : {}),
       ...(executionRequirements ? { executionRequirements } : {}),
-      ...(appNodeIds ? { appNodeIds } : {}),
+      ...(appNodeIds ? { appNodeIds } : appNodesOff ? { appNodesOff: true as const } : {}),
       ...(waitForCommandIds.length ? { waitForCommandIds } : {}),
     };
     /*
@@ -11438,6 +11466,59 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /**
+   * PATCH /api/bubble/:nodeId/link-pin — §5.4 #36 (H) ①-2 에이전트의 연결된 버블 고정.
+   * `{pinned: boolean}`. 고정한 동안 확인 dismiss·자동 유휴·5분 TTL 이 그 에이전트의 연결을 걷지 않는다. 풀 때 실행 중이
+   * 아니면 **같은 호출 안에서** 걷는다(확인 dismiss 와 같은 걷기 · 에이전트 상태는 그대로). 에이전트가 아니면 409, 없으면 404.
+   */
+  app.patch('/api/bubble/:nodeId/link-pin', (req, res) => {
+    try {
+      const { nodeId } = req.params;
+      const pinned = (req.body as { pinned?: unknown } | undefined)?.pinned;
+      if (!nodeId || typeof pinned !== 'boolean') {
+        res.status(400).json({ error: 'nodeId and pinned(boolean) required' });
+        return;
+      }
+      const result = graphManager.setAgentLinksPinned(nodeId, pinned);
+      if (!result.ok) {
+        res.status(result.reason === 'not-found' ? 404 : 409).json({ error: result.reason });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, linksPinned: result.linksPinned, purged: result.purged.length });
+    } catch (err) {
+      logger.error('PATCH /api/bubble/link-pin failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/bubble/:nodeId/link-replay — §5.4 #36 (H) ①-2 [이전 연결 다시 보기].
+   * 마지막으로 걷힌 연결을 훅 이벤트와 같은 라우팅으로 다시 세우고 다음 확인 클릭까지 붙든다.
+   * 실행 중이면 409 `running`, 기억한 연결이 없으면 409 `empty`, 에이전트가 아니면 409, 없으면 404.
+   */
+  app.post('/api/bubble/:nodeId/link-replay', (req, res) => {
+    try {
+      const { nodeId } = req.params;
+      if (!nodeId) {
+        res.status(400).json({ error: 'nodeId required' });
+        return;
+      }
+      const result = graphManager.replayAgentLinks(nodeId);
+      if (!result.ok) {
+        res.status(result.reason === 'not-found' ? 404 : 409).json({ error: result.reason });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, restored: result.restored });
+    } catch (err) {
+      logger.error('POST /api/bubble/link-replay failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /** PATCH /api/bubble/:nodeId/disappear-pause — 소멸 중단/재개 토글 */
   app.patch('/api/bubble/:nodeId/disappear-pause', (req, res) => {
     try {
@@ -11918,7 +11999,17 @@ export async function runServer(): Promise<RunServerHandle> {
    * 서버 메모리에 파일 전체가 올라오고 첫 프레임까지 몇 초가 걸린다.
    *
    * 가드는 탐색기·편집창과 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나 그대로다.
+   * §5.1 #2-1 (A) — 루트 밖이라도 **그 파일 자체가 지금 버블로 떠 있으면** 읽기는 연다(열기 라우트 셋과 같은 두 번째
+   * 기준 `hasNodeAbsolutePath` — 판정은 `resolveWorkspaceMediaRead` 한 곳). 쓰기(PUT)는 그대로 루트 안만이다.
+   *
+   * §5.13 40-1 — 패키지 앱은 이 읽기를 vibproxy 미디어 갈래로 흘려 받는다(IPC 는 응답 전체를 메인에 모았다가 한 번에 넘긴다).
+   * 그 갈래도 **이 판정 한 벌**을 쓴다(`setWorkspaceMediaReadGuards` — 미디어 표 밖은 그쪽에서 더 막는다).
    */
+  const workspaceMediaReadGuards: WorkspaceMediaReadGuards = {
+    isOpenableRoot: (resolvedRoot) => isWithinOpenableRoots(resolvedRoot),
+    isBubblePath: (absPath) => graphManager.hasNodeAbsolutePath(absPath),
+  };
+  setWorkspaceMediaReadGuards(workspaceMediaReadGuards);
   app.get('/api/workspace-media', (req, res) => {
     try {
       const root = req.query['root'];
@@ -11928,15 +12019,9 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      const resolvedRoot = path.resolve(root);
-      if (!isWithinOpenableRoots(resolvedRoot)) {
-        logger.warn(`workspace-media blocked (outside project root): "${root}"`);
-        res.status(403).json({ error: 'Path outside project root' });
-        return;
-      }
-
-      const resolved = resolveWorkspacePath(resolvedRoot, relPath);
+      const resolved = resolveWorkspaceMediaRead(root, relPath, workspaceMediaReadGuards);
       if (!resolved) {
+        logger.warn(`workspace-media blocked (not a project root / known bubble path): "${root}" "${relPath}"`);
         res.status(403).json({ error: 'Path outside project root' });
         return;
       }
@@ -13951,6 +14036,28 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /** POST /api/command-history/unlimited — 명령 앱 버블별 명령 목록 체크박스(§5.1 명령 앱 · §7.3 — file-edits/unlimited 미러) */
+  app.post('/api/command-history/unlimited', (req, res) => {
+    try {
+      const { nodeId, unlimited } = req.body as { nodeId?: unknown; unlimited?: unknown };
+      if (typeof nodeId !== 'string' || typeof unlimited !== 'boolean') {
+        res.status(400).json({ error: 'nodeId, unlimited required' });
+        return;
+      }
+      const ok = graphManager.setCommandHistoryUnlimited(nodeId, unlimited);
+      if (!ok) {
+        res.status(404).json({ error: 'Command bubble not found' });
+        return;
+      }
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('POST /api/command-history/unlimited failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /** POST /api/root/toggle — 루트 패널에서 독립 버블 추가/제거 (폴더 내부 Root도 지원) */
   app.post('/api/root/toggle', (req, res) => {
     try {
@@ -14385,10 +14492,17 @@ export async function runServer(): Promise<RunServerHandle> {
   /**
    * §5.23 웹 버블 묶기 — GET /api/web-fold. 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개(머신 단위 앱 설정)
    * + 옵션창의 "되돌리기"용 기본값 + 최대 개수의 범위. 종전 `{ enabled }`(접어 보기)는 최대 1개로 흡수됐다.
+   * §5.23 「더블클릭」 — 같은 칸의 [더블클릭하면 열 곳](`openTarget`)과 그 기본값도 함께 싣는다(옵션창 한 칸 = 창구 하나).
    */
   app.get('/api/web-fold', (_req, res) => {
     try {
-      res.json({ group: appStateGetWebGroup(), defaults: WEB_GROUP_DEFAULTS, bounds: WEB_GROUP_MAX_BOUNDS });
+      res.json({
+        group: appStateGetWebGroup(),
+        defaults: WEB_GROUP_DEFAULTS,
+        bounds: WEB_GROUP_MAX_BOUNDS,
+        openTarget: appStateGetWebOpenTarget(),
+        openTargetDefault: WEB_OPEN_TARGET_DEFAULT,
+      });
     } catch (err) {
       logger.error('GET /api/web-fold failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -14396,17 +14510,33 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.23 웹 버블 묶기 — PUT /api/web-fold `{ group }`. **준 칸만 바꾼다**(빠진 칸은 지금 값 유지),
-   * 정규화(범위 클램프)는 shared 한 곳에서.
+   * §5.23 웹 버블 묶기 — PUT /api/web-fold `{ group?, openTarget? }`. **준 칸만 바꾼다**(빠진 칸은 지금 값 유지),
+   * 정규화(범위 클램프·모르는 값)는 shared 한 곳에서. 둘은 서로 다른 일을 깨운다 — 묶기는 그래프의 판을 올리고,
+   * 여는 곳은 창들에 알리기만 한다(스냅샷 모양과 무관하다).
    */
   app.put('/api/web-fold', (req, res) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const group = appStateSetWebGroup(body['group']);
-      // 저장과 동시에 그래프에 먹인다 — 판이 올라 다음 스냅샷부터 묶인(또는 풀린) 모양으로 그려진다.
-      graphManager.setWebGroupSettings(group);
-      broadcastSnapshot();
-      res.json({ group, defaults: WEB_GROUP_DEFAULTS, bounds: WEB_GROUP_MAX_BOUNDS });
+      let group = appStateGetWebGroup();
+      if (body['group'] !== undefined) {
+        group = appStateSetWebGroup(body['group']);
+        // 저장과 동시에 그래프에 먹인다 — 판이 올라 다음 스냅샷부터 묶인(또는 풀린) 모양으로 그려진다.
+        graphManager.setWebGroupSettings(group);
+        broadcastSnapshot();
+      }
+      let openTarget = appStateGetWebOpenTarget();
+      if (body['openTarget'] !== undefined) {
+        openTarget = appStateSetWebOpenTarget(body['openTarget']);
+        // 창이 여럿이면 다른 창도 즉시 같은 곳에서 연다(단축키 `keymap_updated` 와 같은 길).
+        broadcast({ type: 'web_open_target_updated', timestamp: Date.now(), payload: openTarget });
+      }
+      res.json({
+        group,
+        defaults: WEB_GROUP_DEFAULTS,
+        bounds: WEB_GROUP_MAX_BOUNDS,
+        openTarget,
+        openTargetDefault: WEB_OPEN_TARGET_DEFAULT,
+      });
     } catch (err) {
       logger.error('PUT /api/web-fold failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -14528,6 +14658,33 @@ export async function runServer(): Promise<RunServerHandle> {
     } catch (err) {
       logger.error('PATCH /api/app-state failed', err);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PATCH /api/projects/order — §5.4 #14-2 (C-1) 프로젝트 탭 순서 저장(끌어서 놓은 순서). 껐다 켜도 그 자리에 선다.
+   * body `{ order: string[] }` = 화면에 선 프로젝트 탭의 경로(보이는 순서). **순서만** 바꾼다 — 목록 치환 ❌
+   * (위 `PATCH /api/app-state` 가 `openProjects` 를 받지 않는 규약 그대로, `appStateReorderOpenProjects`).
+   * 바뀐 것이 있을 때만 저장·방송한다 — 클라는 방송된 순서가 놓은 순서를 따르면 붙들기를 놓는다.
+   */
+  app.patch('/api/projects/order', (req, res) => {
+    try {
+      const body = req.body as { order?: unknown } | undefined;
+      const raw = body?.order;
+      if (!Array.isArray(raw)) {
+        res.status(400).json({ ok: false, error: 'order must be string[]' });
+        return;
+      }
+      const order = raw.filter((p): p is string => typeof p === 'string' && p.length > 0);
+      const changed = appStateReorderOpenProjects(order);
+      if (changed) {
+        logger.info(`AppState: openProjects reordered (${order.length} tab(s))`);
+        broadcastSnapshot();
+      }
+      res.json({ ok: true, changed });
+    } catch (err) {
+      logger.error('PATCH /api/projects/order failed', err);
+      res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });
 
@@ -18741,7 +18898,8 @@ export async function runServer(): Promise<RunServerHandle> {
     // 변환은 `localHookPayload` 한 곳에만 있다 — 그 모양이 그래프가 기대하는 모양과 한 칸이라도
     //   어긋나면 **아무 오류 없이 조용히 아무 일도 안 일어나므로**(2026-08-24: 원장엔 남고 파일
     //   노드는 0개였다), 시험도 같은 함수를 쓰게 해 사본이 어긋날 자리를 없앤다.
-    const payload: HookEventPayload = toLocalHookPayload(session, event);
+    // §5.1 #1-1 (D) — 그 일을 한 sub 를 함께 싣는다(앱 작업 귀속). 세션 키는 이미 주인 버블 것이라 그래프가 sub 를 못 찾는다.
+    const payload: HookEventPayload = toLocalHookPayload(session, event, { subAgentId: ctx.subAgentId });
 
     const result = graphManager.processHookEvent(payload);
     if (event.phase === 'post' && typeof payload.duration_ms === 'number') {
@@ -18759,7 +18917,7 @@ export async function runServer(): Promise<RunServerHandle> {
       changed = true;
     }
     if (
-      event.phase === 'post' && event.toolName === 'Bash'
+      event.phase === 'post' && isShellToolName(event.toolName)
       && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
     ) {
       lastExistenceSweepAt = Date.now();

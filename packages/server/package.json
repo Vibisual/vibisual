@@ -13,6 +13,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./hook-lifetime": {
+      "types": "./dist/services/hookLifetime.d.ts",
+      "default": "./dist/services/hookLifetime.js"
     }
   },
   "scripts": {

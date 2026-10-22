@@ -59,9 +59,13 @@ export function localToolInputForGraph(
 /**
  * 도구 이벤트 한 건을 훅 페이로드로. **`index.ts` 의 방출기와 시험이 같이 쓰는 유일한 변환**이라
  * 여기만 고치면 두 곳이 함께 따라온다(베껴 둔 사본이 어긋나 생기던 거짓 안심을 없앤다).
+ *
+ * @param opts.subAgentId §5.1 #1-1 (D) — 그 일을 한 sub. `sessionId` 는 이미 주인 버블의 세션 키라 그래프가 sub 를
+ *   거꾸로 찾을 수 없다 — 싣지 않으면 로컬·코덱스의 앱 작업 꼬리표가 붙지 않는다.
  */
-export function toLocalHookPayload(sessionId: string, event: LocalHookToolEvent): HookEventPayload {
+export function toLocalHookPayload(sessionId: string, event: LocalHookToolEvent, opts?: { subAgentId?: string }): HookEventPayload {
   return {
+    ...(opts?.subAgentId ? { _vibisualSubAgentId: opts.subAgentId } : {}),
     session_id: sessionId,
     hook_event_name: event.phase === 'pre' ? 'PreToolUse' : event.toolIsError === true ? 'PostToolUseFailure' : 'PostToolUse',
     tool_name: event.toolName,

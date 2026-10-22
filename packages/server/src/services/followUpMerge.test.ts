@@ -48,6 +48,21 @@ describe('absorbMergeFollowUps', () => {
     expect(queue).toEqual([base]);
   });
 
+  it('§5.1 #2-1 (F) ① 앱을 모두 뺀 표식은 합쳐지는 명령이 모두 뺀 명령일 때만 남는다', () => {
+    const allOff = cmd({ appNodesOff: true });
+    absorbMergeFollowUps([allOff, cmd({ appNodesOff: true })], allOff);
+    expect(allOff.appNodesOff).toBe(true);
+
+    const withIde = cmd({ appNodesOff: true });
+    absorbMergeFollowUps([withIde, cmd()], withIde); // IDE 덧말 — 그 턴은 더는 "앱 작업 아님"이 아니다
+    expect(withIde.appNodesOff).toBeUndefined();
+
+    const withApp = cmd({ appNodesOff: true });
+    absorbMergeFollowUps([withApp, cmd({ appNodeIds: ['app-mvdp00r7-k74xi'] })], withApp);
+    expect(withApp.appNodesOff).toBeUndefined();
+    expect(withApp.appNodeIds).toEqual(['app-mvdp00r7-k74xi']);
+  });
+
   it('합쳐도 base 의 id 는 그대로다 (루프·엣지 완료 매칭 보존)', () => {
     const base = cmd({ id: 'cmd-loop-iteration' });
     const queue = [base, cmd()];

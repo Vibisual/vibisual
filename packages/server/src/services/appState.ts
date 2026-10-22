@@ -9,10 +9,13 @@ import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTa
   normalizeClosedTabEntries, pushClosedTabEntry, takeClosedTabEntry, pruneMissingClosedTabs,
   normalizeIDEActivityBarPrefs,
   normalizeWebGroupSettings, WEB_GROUP_DEFAULTS,
+  normalizeWebOpenTarget,
+  reorderOpenProjects, PROJECT_TAB_ORDER,
   type BackgroundTaskProbeSettings,
   type ProcessGuardSettings,
   type IDEActivityBarPrefs,
   type WebGroupSettings,
+  type WebOpenTarget,
   type SessionLivenessProbeSettings, normalizeTokenSaverSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
@@ -206,8 +209,14 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     // §5.23 접어 보기 — 같은 규약: 켜고 끈 적이 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸을 떨군다.
     //   종전 설정이라 이제 읽기(이주)만 한다 — `appStateGetWebGroup` 참조.
     webFoldPerAgent: typeof raw.webFoldPerAgent === 'boolean' ? raw.webFoldPerAgent : undefined,
+    // §3.6 「수명」 — 사용량 수집기 켬 여부. 없으면 첫 부팅이 settings.json 에서 옮겨 적는다(`syncUsageCollectorAtBoot`).
+    usageCollector: typeof raw.usageCollector === 'boolean' ? raw.usageCollector : undefined,
+    // §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅 켬 여부. 없으면 첫 부팅이 hooks.json 에서 옮겨 적는다(`syncCodexHooksAtBoot`).
+    codexHooks: typeof raw.codexHooks === 'boolean' ? raw.codexHooks : undefined,
     // §5.23 웹 버블 묶기 — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
     webGroup: raw.webGroup ? normalizeWebGroupSettings(raw.webGroup) : undefined,
+    // §5.23 「더블클릭」 — 같은 규약: 고른 적이 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸을 떨군다.
+    webOpenTarget: raw.webOpenTarget !== undefined ? normalizeWebOpenTarget(raw.webOpenTarget) : undefined,
     // §6 — 같은 규약: **바꾼 것만** 저장돼 있고, 없으면 undefined 로 두어 코드의 기본 바인딩을
     //   따라간다(다음 판올림에서 기본값을 고치면 안 건드린 칸은 자동으로 새 값이 된다).
     keymap: raw.keymap ? normalizeKeymapOverrides(raw.keymap, process.platform) : undefined,
@@ -338,6 +347,7 @@ export function saveAppState(state: AppState): void {
     processGuardMemo = null; // 같은 이유 — 자손 프로세스 보호(§5.3 #9-2)도 같은 창구를 탄다.
     externalTopBudgetMemo = null; // 같은 이유 — 외부 폴더 예산(§2.1 (B))도 같은 창구를 탄다.
     webGroupMemo = null; // 같은 이유 — 웹 버블 묶기(§5.23)도 같은 창구를 탄다.
+    webOpenTargetMemo = null; // 같은 이유 — 웹 버블 더블클릭이 여는 곳(§5.23)도 같은 창구를 탄다.
     keymapMemo = null; // 같은 이유 — 단축키(§6)도 같은 창구를 탄다.
     ideActivityBarMemo = null; // 같은 이유 — 활동바 구성(§5.5 #16-1)도 같은 창구를 탄다.
   } catch (err) {
@@ -483,6 +493,39 @@ export function appStateSetProcessGuard(patch: Partial<ProcessGuardSettings>): P
   return merged;
 }
 
+/**
+ * §3.6 「수명」 · §5.7 #24-3 — 사용량 수집기(`statusLine`)를 켜 두었는가. 머신 단위다(설정 파일이 사용자 단위라서).
+ * 저장된 적이 없으면 `undefined` — 첫 부팅이 settings.json 에 깔려 있는지로 옮겨 적는다(`syncUsageCollectorAtBoot`).
+ * `loadAppState` 가 캐시를 들고 있어 따로 메모하지 않는다.
+ */
+export function appStateGetUsageCollector(): boolean | undefined {
+  const value = loadAppState().usageCollector;
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+/** 사용량 수집기 켬 여부 저장. 같은 값이면 쓰지 않는다. */
+export function appStateSetUsageCollector(enabled: boolean): void {
+  const current = loadAppState();
+  if (current.usageCollector === enabled) return;
+  saveAppState({ ...current, usageCollector: enabled });
+}
+
+/**
+ * §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅을 켜 두었는가. 사용량 수집기와 같은 규약이다 — 저장된 적이 없으면
+ * `undefined` 이고, 첫 부팅이 코덱스 `hooks.json` 에 깔려 있는지로 옮겨 적는다(`syncCodexHooksAtBoot`).
+ */
+export function appStateGetCodexHooks(): boolean | undefined {
+  const value = loadAppState().codexHooks;
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+/** 코덱스 전역 훅 켬 여부 저장. 같은 값이면 쓰지 않는다. */
+export function appStateSetCodexHooks(enabled: boolean): void {
+  const current = loadAppState();
+  if (current.codexHooks === enabled) return;
+  saveAppState({ ...current, codexHooks: enabled });
+}
+
 let externalTopBudgetMemo: number | null = null;
 
 /**
@@ -537,6 +580,29 @@ export function appStateSetWebGroup(value: unknown): WebGroupSettings {
   saveAppState({ ...current, webGroup: next });
   webGroupMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
   return { ...next };
+}
+
+let webOpenTargetMemo: WebOpenTarget | null = null;
+
+/**
+ * §5.23 「더블클릭」 — 도메인 버블 더블클릭이 마지막 주소를 여는 곳.
+ *
+ * 묶기와 같은 이유로 **머신 단위**다. 저장된 값이 없으면 바깥 브라우저(`WEB_OPEN_TARGET_DEFAULT`) —
+ * 사용자 지시("기본 선택은 외부 웹")다.
+ */
+export function appStateGetWebOpenTarget(): WebOpenTarget {
+  if (webOpenTargetMemo !== null) return webOpenTargetMemo;
+  webOpenTargetMemo = normalizeWebOpenTarget(loadAppState().webOpenTarget);
+  return webOpenTargetMemo;
+}
+
+/** 여는 곳 저장 → 정규화(모르는 값은 기본값) 후 저장. 반환은 저장된 최종본. */
+export function appStateSetWebOpenTarget(value: unknown): WebOpenTarget {
+  const next = normalizeWebOpenTarget(value);
+  const current = loadAppState();
+  saveAppState({ ...current, webOpenTarget: next });
+  webOpenTargetMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return next;
 }
 
 let keymapMemo: KeymapOverrides | null = null;
@@ -680,6 +746,26 @@ export function appStateRemoveOpenProject(projectPath: string): boolean {
     defaultProject: defaultMatch ? null : current.defaultProject,
   });
   return hadOpen;
+}
+
+/**
+ * §5.4 #14-2 (C-1) — 프로젝트 탭 순서 저장. `openProjects` 의 배열 순서가 곧 탭 순서다(새 영속 필드 ❌).
+ *
+ * **목록은 치환하지 않는다 — 순서만 바꾼다.** 보낸 경로가 지금 차지한 자리들에만 새 순서를 되꽂고, 보내지 않은
+ * 것(별창으로 뺀 탭 · 그 사이 새로 열린 프로젝트)은 제자리, 열려 있지 않은 경로는 버린다. 여닫기는 이 함수의
+ * 몫이 아니다(`PATCH /api/app-state` 가 `openProjects` 를 받지 않는 것과 같은 규약 — 클라가 쥔 옛 목록으로 통째
+ * 덮으면 그 사이 열린 프로젝트가 다음 부팅에 사라진다). 실제로 바뀌었을 때만 저장하고 `true`.
+ */
+export function appStateReorderOpenProjects(order: readonly string[]): boolean {
+  const current = loadAppState();
+  const next = reorderOpenProjects(
+    current.openProjects,
+    order.slice(0, PROJECT_TAB_ORDER.maxEntries),
+    HOST_PLATFORM,
+  );
+  if (next.every((p, i) => p === current.openProjects[i])) return false;
+  saveAppState({ ...current, openProjects: next });
+  return true;
 }
 
 /** projectId(경로) → 표시 이름 조회 (정규화 비교). 캐시 미스 시 basename 폴백. */

@@ -190,3 +190,25 @@ describe('command apps use existing graph and command history', () => {
     expect(second.appNodeIds).not.toContain(firstId);
   });
 });
+
+// §5.1 명령 앱 · §7.3 (2026-10-21 사용자 지시) — 명령 목록은 파일 버블과 같은 `마지막 20개만 유지` 체크박스다.
+//   체크박스는 보이는 수만 정한다 — 앱별 이력은 세션 실행 기록의 참조라 버블 하나가 남의 기록을 자를 수 없다.
+describe('command app history checkbox follows the file bubble rule', () => {
+  it('toggles only the node flag, never trims the shared records, and rides the checkpoint', () => {
+    for (let i = 0; i < 30; i += 1) event(`run-${i}`, 'blender -b');
+    const node = appNodes()[0]!;
+    const before = entries().length;
+    expect(graph.setCommandHistoryUnlimited(node.id, true)).toBe(true);
+    expect(appNodes()[0]?.unlimitedCommandHistory).toBe(true);
+    expect(entries()).toHaveLength(before);
+    const saved = Object.values(graph.toProjectCheckpoint(path.basename(root)).graph.nodes).find((n) => n.commandApp);
+    expect(saved?.unlimitedCommandHistory).toBe(true);
+    expect(graph.setCommandHistoryUnlimited(node.id, false)).toBe(true);
+    expect(appNodes()[0]?.unlimitedCommandHistory).toBeUndefined();
+    expect(entries()).toHaveLength(before);
+  });
+
+  it('answers false for anything that is not a Bash node', () => {
+    expect(graph.setCommandHistoryUnlimited('no-such-node', true)).toBe(false);
+  });
+});

@@ -72,6 +72,9 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
     for (const id of c.appNodeIds ?? []) if (!appNodes.includes(id) && appNodes.length < APP_WORK.commandNodeMax) appNodes.push(id);
   }
   if (appNodes.length > 0) base.appNodeIds = appNodes;
+  // 말풍선에서 앱을 모두 뺀 표식은 합쳐지는 명령이 **모두** 뺀 명령일 때만 남는다 — IDE 덧말·앱을 넣은 덧말이 섞이면
+  //   그 턴은 더는 "앱 작업 아님"이 아니다(넣은 노드가 있으면 그 노드, 없으면 이어진 앱 폴백 — §5.1 #2-1 (F) ①).
+  if (base.appNodesOff && (appNodes.length > 0 || !absorbed.every((c) => c.appNodesOff === true))) delete base.appNodesOff;
   base.mergedCount = (base.mergedCount ?? 0) + absorbed.length;
 
   for (const c of absorbed) {

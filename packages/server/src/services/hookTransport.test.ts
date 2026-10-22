@@ -194,6 +194,13 @@ describe('§3.6 — 훅 엔트리 모양', () => {
     );
   });
 
+  // §5.1 #1-1 (D) — 그 일을 한 sub 도 같은 길로 싣는다(앱 작업 귀속의 명시 상관 id). 허용 목록에 없으면 빈 값으로 치환된다.
+  it('http 엔트리는 이 이벤트를 낸 우리 sub 를 x-vibisual-subagent-id 로 싣는다', () => {
+    const [entry] = entriesOf('PostToolUse', 'http');
+    expect(entry?.headers?.['x-vibisual-subagent-id']).toBe('$VIBISUAL_SUBAGENT_ID');
+    expect(entry?.allowedEnvVars).toEqual(expect.arrayContaining(['VIBISUAL_SUBAGENT_ID']));
+  });
+
   it('command 폴백에서는 순수 전달 훅이 async 로 붙어 턴을 붙잡지 않는다', () => {
     const [entry] = entriesOf('MessageDisplay', 'command');
     expect(entry?.type).toBe('command');

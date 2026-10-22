@@ -196,6 +196,8 @@ export interface HookInstallResult {
   transport: HookTransport;
   /** `http` 를 원했는데 `command` 로 떨어진 사유(진단용). 떨어지지 않았으면 undefined. */
   transportFallbackReason?: string;
+  /** §3.6 「수명」 — 이 프로세스가 이미 훅을 걷어(종료 중) 깔지 않았다. */
+  skippedRetired?: boolean;
   error?: Error;
 }
 
@@ -313,8 +315,10 @@ function buildHttpEntry(port: number, token: string, opts: { if?: string; timeou
       'x-vibisual-owner-agent-id': '$VIBISUAL_OWNER_AGENT_ID',
       'x-vibisual-owner-term-id': '$VIBISUAL_OWNER_TERM_ID',
       'x-vibisual-usage-probe': '$VIBISUAL_USAGE_PROBE',
+      // §5.1 #1-1 (D) — 이 이벤트를 낸 우리 sub(앱 작업 귀속의 명시 상관 id). 우리가 띄우지 않은 세션은 빈 값이다.
+      'x-vibisual-subagent-id': '$VIBISUAL_SUBAGENT_ID',
     },
-    allowedEnvVars: ['VIBISUAL_OWNER_AGENT_ID', 'VIBISUAL_OWNER_TERM_ID', 'VIBISUAL_USAGE_PROBE'],
+    allowedEnvVars: ['VIBISUAL_OWNER_AGENT_ID', 'VIBISUAL_OWNER_TERM_ID', 'VIBISUAL_USAGE_PROBE', 'VIBISUAL_SUBAGENT_ID'],
   };
   if (opts.if) entry.if = opts.if;
   return entry;
@@ -515,6 +519,12 @@ export function ensureClaudeHooksInstalled(
     transport: 'command',
   };
 
+  // §3.6 「수명」 — 종료 중에 걷은 뒤에는 같은 프로세스가 다시 깔지 않는다(스윕·전송 승격이 되살리지 못하게).
+  if (hooksRetired) {
+    result.skippedRetired = true;
+    return result;
+  }
+
   try {
     if (!fs.existsSync(settingsDir)) {
       fs.mkdirSync(settingsDir, { recursive: true });
@@ -577,35 +587,14 @@ export function ensureClaudeHooksInstalled(
       // 손댈 게 없어도 쌓인 백업은 정리한다(§3.6 — 무한 누적 방지).
       result.prunedBackups = pruneBackups(settingsDir, settingsPath);
       result.alreadyPresent = true;
+      noteSettingsStamp(settingsPath);
       return result;
     }
 
-    if (raw !== null) {
-      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      const backupPath = `${settingsPath}.bak-vibisual-${ts}`;
-      // §보안 감사 2026-09-09 — 백업본에도 직전 판의 훅 헤더(= loopback 토큰)가 그대로 들어 있다.
-      //   원본과 같은 권한으로 좁히지 않으면 백업이 토큰 유출 경로가 된다.
-      fs.writeFileSync(backupPath, raw, { encoding: 'utf-8', mode: 0o600 });
-      result.backupPath = backupPath;
-      result.prunedBackups = pruneBackups(settingsDir, settingsPath);
-    }
-
-    /*
-     * §보안 감사 2026-09-09 — 이 파일의 훅 블록에는 `x-vibisual-hook-token` 헤더가 평문으로 들어간다.
-     * 토큰 하나면 loopback 리스너의 화이트리스트 전체에 닿으므로 **소유자만 읽게** 좁힌다.
-     *
-     * `mode` 는 새로 만들 때만 먹으므로 이미 있던 `settings.json` 은 rename 뒤에 `chmodSync` 로
-     * 함께 좁힌다(rename 은 tmp 의 권한을 그대로 옮긴다). Windows 에서는 읽기전용 비트만 다루는
-     * 무해한 no-op 이고, 실효는 mac·linux 에서 난다 — 셋 다 도는 제품이다.
-     */
-    const tmpPath = `${settingsPath}.tmp-vibisual-${process.pid}`;
-    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
-    fs.renameSync(tmpPath, settingsPath);
-    try {
-      fs.chmodSync(settingsPath, 0o600);
-    } catch {
-      /* 권한을 다루지 않는 파일시스템 — 위 mode 로 할 수 있는 데까지는 했다 */
-    }
+    const written = writeSettingsFile(settingsDir, settingsPath, settings, raw);
+    if (written.backupPath) result.backupPath = written.backupPath;
+    result.prunedBackups = written.prunedBackups;
+    noteSettingsStamp(settingsPath);
 
     result.installed = true;
     return result;
@@ -613,6 +602,239 @@ export function ensureClaudeHooksInstalled(
     result.error = err as Error;
     return result;
   }
+}
+
+/**
+ * §3.6 — settings.json 쓰기 한 벌(깔기·걷기 공용). 직전 원본을 백업하고 tmp → rename 으로 바꾼다(부분 쓰기 ❌).
+ *
+ * §보안 감사 2026-09-09 — 이 파일의 훅 블록에는 `x-vibisual-hook-token` 헤더가 평문으로 들어간다. 토큰 하나면
+ * loopback 리스너의 화이트리스트 전체에 닿으므로 **소유자만 읽게** 좁힌다. 백업본에도 직전 판의 토큰이 그대로
+ * 들어 있어 같은 권한으로 쓴다(안 그러면 백업이 토큰 유출 경로가 된다).
+ *
+ * `mode` 는 새로 만들 때만 먹으므로 이미 있던 `settings.json` 은 rename 뒤에 `chmodSync` 로 함께 좁힌다(rename 은
+ * tmp 의 권한을 그대로 옮긴다). Windows 에서는 읽기전용 비트만 다루는 무해한 no-op 이고, 실효는 mac·linux 에서 난다.
+ */
+function writeSettingsFile(
+  settingsDir: string,
+  settingsPath: string,
+  settings: ClaudeSettings,
+  raw: string | null,
+): { backupPath?: string; prunedBackups: number } {
+  let backupPath: string | undefined;
+  let prunedBackups = 0;
+  if (raw !== null) {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    backupPath = `${settingsPath}.bak-vibisual-${ts}`;
+    fs.writeFileSync(backupPath, raw, { encoding: 'utf-8', mode: 0o600 });
+    prunedBackups = pruneBackups(settingsDir, settingsPath);
+  }
+  const tmpPath = `${settingsPath}.tmp-vibisual-${process.pid}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+  fs.renameSync(tmpPath, settingsPath);
+  try {
+    fs.chmodSync(settingsPath, 0o600);
+  } catch {
+    /* 권한을 다루지 않는 파일시스템 — 위 mode 로 할 수 있는 데까지는 했다 */
+  }
+  return { ...(backupPath ? { backupPath } : {}), prunedBackups };
+}
+
+// ── §3.6 「수명」 — 훅은 앱이 켜져 있는 동안만 둔다 ───────────────────────────────────────────────
+
+/**
+ * 이 프로세스가 훅을 걷었는가. 걷은 뒤에는 `ensureClaudeHooksInstalled` 가 아무것도 깔지 않는다 — 종료 중에도
+ * 타이머는 몇 번 더 돌 수 있어서, 10초 스윕이나 CLI 판올림을 확인한 전송 경로 승격이 방금 걷은 훅을 되살리면
+ * 앱이 꺼진 뒤에 훅이 남는다(이 축이 막으려던 바로 그 상태다).
+ */
+let hooksRetired = false;
+
+/** 설정 파일마다 우리가 마지막으로 맞춘 뒤의 지문(수정 시각·크기). 바뀐 홈만 다시 맞추는 데 쓴다. */
+const settingsStamps = new Map<string, string>();
+
+function settingsStampOf(settingsPath: string): string {
+  try {
+    const st = fs.statSync(settingsPath);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+function noteSettingsStamp(settingsPath: string): void {
+  settingsStamps.set(settingsPath, settingsStampOf(settingsPath));
+}
+
+/** 테스트에서 걷음 표시와 지문 장부를 비운다. */
+export function __resetHookLifetimeForTest(): void {
+  hooksRetired = false;
+  settingsStamps.clear();
+}
+
+/** 이 프로세스가 이미 훅을 걷었는가(종료 중). */
+export function areClaudeHooksRetired(): boolean {
+  return hooksRetired;
+}
+
+/** 블록이 가리키는 루프백 포트. HTTP 주소나 command 의 `--server` 인자(PowerShell 런처는 풀어서)에서 읽는다. */
+function vibisualBlockPort(block: HookMatcherBlock): number | null {
+  if (!Array.isArray(block.hooks)) return null;
+  for (const h of block.hooks) {
+    if (!h || typeof h !== 'object') continue;
+    let text = '';
+    if (h.type === 'http') {
+      text = typeof h.url === 'string' ? h.url : '';
+    } else if (h.type === 'command') {
+      const args = Array.isArray(h.args) ? h.args.filter((s): s is string => typeof s === 'string') : [];
+      text = [h.command, ...args, ...args.map(decodeEncodedCommandArg)].filter((s): s is string => typeof s === 'string').join(' ');
+    }
+    const m = /http:\/\/127\.0\.0\.1:(\d{1,5})(?!\d)/.exec(text);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
+/**
+ * 걷어도 되는 우리 블록인가 — 표식이 있거나 옛 서명(§3.6 머지 규칙 5)이 맞고, **이 앱의 포트**를 가리킬 때만.
+ * 포트를 모르면(`null`) 우리 블록 전부다. 포트를 못 읽는 우리 블록은 걷는다 — 우리 것인데 주소가 없으면
+ * 어디로도 닿지 않는 블록이다.
+ */
+function isRemovableVibisualBlock(block: HookMatcherBlock, port: number | null): boolean {
+  if (!block || typeof block !== 'object') return false;
+  if (!isOurBlock(block) && !isLegacyVibisualBlock(block)) return false;
+  if (port === null) return true;
+  const blockPort = vibisualBlockPort(block);
+  return blockPort === null || blockPort === port;
+}
+
+export interface HookRemovalResult {
+  settingsPath: string;
+  /** 걷은 블록 수. */
+  removed: number;
+  /** 파일을 다시 썼는가(걷을 것이 없으면 쓰지 않는다). */
+  written: boolean;
+  backupPath?: string;
+  error?: Error;
+}
+
+/**
+ * §3.6 「수명」 — 설정 홈 하나에서 우리 블록을 걷는다. 남의 훅, 다른 포트를 가리키는 우리 블록은 남긴다.
+ *
+ * 비어 버린 이벤트 키와 `hooks` 는 지운다 — 우리가 깔기 전 모양으로 돌려놓는다(설치기는 파일이 없으면
+ * `{ "hooks": {} }` 로 만들었다). 파일이 없거나 JSON 이 깨져 있으면 손대지 않는다(§3.6 「JSON 파싱 실패」).
+ * 홈 디렉터리를 만들지 않는다 — 걷기가 남의 자리에 빈 껍데기를 되살리면 안 된다.
+ */
+export function removeClaudeHooks(options: { port?: number | null; settingsDir?: string } = {}): HookRemovalResult {
+  const settingsDir = options.settingsDir ?? path.join(os.homedir(), '.claude');
+  const settingsPath = path.join(settingsDir, 'settings.json');
+  const result: HookRemovalResult = { settingsPath, removed: 0, written: false };
+  try {
+    if (!fs.existsSync(settingsPath)) return result;
+    const raw = fs.readFileSync(settingsPath, 'utf-8');
+    let settings: ClaudeSettings;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result;
+      settings = parsed as ClaudeSettings;
+    } catch (parseErr) {
+      result.error = new Error(`settings.json JSON 파싱 실패 — 걷지 않고 그대로 둠: ${(parseErr as Error).message}`);
+      return result;
+    }
+    const hooks = settings.hooks as Record<string, unknown> | undefined;
+    if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return result;
+
+    for (const [event, blocks] of Object.entries(hooks)) {
+      if (!Array.isArray(blocks)) continue;
+      const kept = (blocks as HookMatcherBlock[]).filter((b) => !isRemovableVibisualBlock(b, options.port ?? null));
+      const removed = blocks.length - kept.length;
+      if (removed === 0) continue;
+      result.removed += removed;
+      if (kept.length > 0) hooks[event] = kept;
+      else delete hooks[event];
+    }
+    if (result.removed === 0) return result;
+    if (Object.keys(hooks).length === 0) delete settings.hooks;
+
+    const written = writeSettingsFile(settingsDir, settingsPath, settings, raw);
+    if (written.backupPath) result.backupPath = written.backupPath;
+    result.written = true;
+    noteSettingsStamp(settingsPath);
+    return result;
+  } catch (err) {
+    result.error = err as Error;
+    return result;
+  }
+}
+
+export interface HookRemovalAllResult {
+  host: HookRemovalResult;
+  cowork: HookRemovalResult[];
+}
+
+/** 호스트 + Cowork 세션 홈 전부에서 걷는다(깔 때와 같은 목록 — §3.6 「설치처는 하나가 아니다」). */
+export function removeHooksEverywhere(port: number | null): HookRemovalAllResult {
+  const host = removeClaudeHooks({ port });
+  const cowork: HookRemovalResult[] = [];
+  try {
+    for (const home of listCoworkConfigHomes()) {
+      cowork.push(removeClaudeHooks({ port, settingsDir: home.dir }));
+    }
+  } catch {
+    /* 열거 실패 — 호스트는 이미 걷었다 */
+  }
+  return { host, cowork };
+}
+
+/**
+ * §3.6 「수명」 — **앱을 끌 때** 부른다. 다시 깔지 않게 막은 뒤(같은 프로세스의 스윕·승격) 모든 홈에서 걷는다.
+ * 한 번만 의미가 있다 — 두 번째 부름은 걷을 것이 없어 파일을 쓰지 않는다.
+ */
+export function retireClaudeHooks(port: number | null): HookRemovalAllResult {
+  hooksRetired = true;
+  return removeHooksEverywhere(port);
+}
+
+export interface HookReensureResult {
+  /** 지문이 바뀌어 다시 맞춘 홈(`settingsDir`). */
+  checked: string[];
+  /** 그중 실제로 파일을 다시 쓴 홈. */
+  rewritten: string[];
+  /** 호스트 `~/.claude/settings.json` 이 바뀌어 다시 맞췄는가(상태 줄도 거기 산다). */
+  hostChecked: boolean;
+}
+
+/**
+ * §3.6 「수명」 ③ — **켜져 있는 동안 지킨다.** 세션 스캔 스윕(10초)이 부른다.
+ *
+ * 우리가 맞춰 둔 뒤 설정 파일이 바뀐 홈(수정 시각·크기)만 다시 맞춘다 — 그대로면 stat 한 번으로 끝난다.
+ * Claude Code 가 settings.json 을 다시 쓰며 표식을 떨어뜨리거나 사용자가 우리 블록을 지워도 10초 안에
+ * 돌아온다. 대상은 호스트와 **이 프로세스가 이미 심은** Cowork 홈뿐이다(새 홈은 `installHooksIntoNewCoworkHomes`).
+ */
+export function reensureHooksWhereChanged(
+  port: number,
+  handlerPath: string,
+  token: string,
+  options: HookInstallOptions = {},
+): HookReensureResult {
+  const out: HookReensureResult = { checked: [], rewritten: [], hostChecked: false };
+  if (hooksRetired) return out;
+  const hostDir = path.join(os.homedir(), '.claude');
+  for (const dir of [hostDir, ...coworkHomesDone]) {
+    // 지워진 Cowork 세션 — 설치기가 `mkdir -p` 로 빈 껍데기를 되살리지 않게 장부에서 뺀다.
+    if (dir !== hostDir && !fs.existsSync(dir)) {
+      coworkHomesDone.delete(dir);
+      continue;
+    }
+    const settingsPath = path.join(dir, 'settings.json');
+    if (settingsStamps.get(settingsPath) === settingsStampOf(settingsPath)) continue;
+    out.checked.push(dir);
+    if (dir === hostDir) out.hostChecked = true;
+    const r = ensureClaudeHooksInstalled(port, handlerPath, token, {
+      ...options,
+      settingsDir: dir === hostDir ? undefined : dir,
+    });
+    if (r.installed) out.rewritten.push(dir);
+  }
+  return out;
 }
 
 /**

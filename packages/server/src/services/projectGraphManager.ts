@@ -2785,6 +2785,14 @@ export class ProjectGraphManager {
     return false;
   }
 
+  /** §5.1 명령 앱 · §7.3 — 명령 목록 체크박스. 노드 id 는 프로젝트 스코프가 섞여 유일하다. */
+  setCommandHistoryUnlimited(nodeId: string, unlimited: boolean): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.setCommandHistoryUnlimited(nodeId, unlimited)) return true;
+    }
+    return false;
+  }
+
   // ─── §5.23 도메인 버블 ───
 
   /** 도메인 버블별 항목 상한 편집(§7.22). 노드 ID 는 프로젝트 스코프가 섞여 유일하다. */
@@ -4467,6 +4475,35 @@ export class ProjectGraphManager {
       if (result.reason === 'not-eligible') notEligible = true;
     }
     return { ok: false, reason: notEligible ? 'not-eligible' : 'not-found' };
+  }
+
+  /**
+   * §5.4 #36 (H) ①-2 — 에이전트의 연결된 버블 고정/풀기. 풀 때 실행 중이 아니면 그 인스턴스가 그 자리에서 걷는다
+   * (`purged` = 즉시 제거된 버블 id). 그 에이전트를 가진 인스턴스를 찾아 맡긴다.
+   */
+  setAgentLinksPinned(
+    nodeId: string,
+    pinned: boolean,
+  ): { ok: true; linksPinned: boolean; purged: string[] } | { ok: false; reason: 'not-found' | 'not-eligible' } {
+    let notEligible = false;
+    for (const inst of this.instances.values()) {
+      const result = inst.setAgentLinksPinned(nodeId, pinned);
+      if (result.ok) return result;
+      if (result.reason === 'not-eligible') notEligible = true;
+    }
+    return { ok: false, reason: notEligible ? 'not-eligible' : 'not-found' };
+  }
+
+  /** §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]. 그 에이전트를 가진 인스턴스가 기억한 연결을 다시 세운다. */
+  replayAgentLinks(
+    nodeId: string,
+  ): { ok: true; restored: number } | { ok: false; reason: 'not-found' | 'not-eligible' | 'running' | 'empty' } {
+    for (const inst of this.instances.values()) {
+      const result = inst.replayAgentLinks(nodeId);
+      // 에이전트를 찾은 인스턴스의 답이 정답이다(실행 중·기록 없음도 그 인스턴스만 안다).
+      if (result.ok || result.reason !== 'not-found') return result;
+    }
+    return { ok: false, reason: 'not-found' };
   }
 
   /** 모든 인스턴스를 훑어 id 로 찾는다(어느 프로젝트 것인지 호출부가 모를 수 있다). */

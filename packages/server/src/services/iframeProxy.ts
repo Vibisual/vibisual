@@ -31,7 +31,11 @@ function isPrivateIPv4(ip: string): boolean {
   return false; // 공인·0.0.0.0·169.254 링크로컬(메타데이터) 전부 거부
 }
 
-function isAllowedProxyHost(hostname: string): boolean {
+/**
+ * 프록시가 받는 호스트인가. 클라가 "로컬 프리뷰냐 인터넷 페이지냐"를 가를 때 쓰는 shared `isLocalPreviewHost` 와
+ * **같은 답**을 내야 한다(§5.23 「더블클릭」) — `localPreviewHost.test.ts` 가 같은 표로 대조하려고 내보낸다.
+ */
+export function isAllowedProxyHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (h === 'localhost') return true;
   if (h === '::1') return true;

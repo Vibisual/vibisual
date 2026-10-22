@@ -16,6 +16,7 @@ import {
   buildCodexHookCommand,
   isOurCodexHookCommand,
   buildCodexHookBlocks,
+  codexHomeExists,
   codexHooksPath,
   getCodexHookState,
   installCodexHooks,
@@ -126,6 +127,17 @@ describe('설치 — 없던 파일에', () => {
   it('handler 경로를 모르면 설치 여부를 판정할 근거가 없다 → 설치 안 됨', () => {
     installCodexHooks(HANDLER, PORT, TOKEN);
     expect(getCodexHookState(null).installed).toBe(false);
+  });
+});
+
+describe('코덱스 홈 확인 — 켤 때 다시 깔기는 홈이 있을 때만(§3.6 「수명」)', () => {
+  it('홈 폴더가 있으면 참, 없거나 같은 이름의 파일이면 거짓', () => {
+    expect(codexHomeExists()).toBe(true);
+    const missing = path.join(tmpHome, 'gone');
+    process.env['CODEX_HOME'] = missing;
+    expect(codexHomeExists()).toBe(false);
+    fs.writeFileSync(missing, 'not a directory');
+    expect(codexHomeExists()).toBe(false);
   });
 });
 

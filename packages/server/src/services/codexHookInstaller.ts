@@ -16,6 +16,8 @@ import { logger } from '../logger.js';
  *
  * **기본 꺼짐이다.** 앱을 깔았다고 남의 전역 설정에 우리 훅이 말없이 들어가면 안 되므로,
  * 설치는 사용자가 켤 때만 REST 로 돈다(`ensureClaudeHooksInstalled` 가 부팅 시 도는 것과 다르다).
+ * 켠 사람의 훅도 §3.6 「수명」대로 앱이 켜져 있는 동안만 둔다 — 끌 때 걷고 켤 때 켬 값대로 다시 깐다
+ * (`hookLifetime.ts` · 켬 값은 AppState `codexHooks`).
  *
  * **우리 것만 건드린다.** 판정 근거는 명령 문자열에 든 우리 서명(handler 경로 + `--token`)이다.
  * 코덱스 훅 스키마에 없는 표식 필드를 넣으면 `--strict-config` 를 쓰는 사용자에게서 깨질 수 있어,
@@ -49,6 +51,18 @@ const BACKUP_KEEP = 5;
 /** 훅 파일 절대 경로. */
 export function codexHooksPath(): string {
   return path.join(codexHome(), CODEX_HOOKS_FILENAME);
+}
+
+/**
+ * 코덱스 홈 폴더가 있는가. 켤 때 다시 깔기(`syncCodexHooksAtBoot`)는 이것이 참일 때만 돈다 — 지운 코덱스의 홈을
+ * 우리가 되살리지 않는다. 홈을 새로 만드는 것은 사용자가 옵션에서 켤 때(`installCodexHooks`)뿐이다.
+ */
+export function codexHomeExists(): boolean {
+  try {
+    return fs.statSync(codexHome()).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**

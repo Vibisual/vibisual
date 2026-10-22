@@ -1,5 +1,5 @@
 /**
- * §5.1 #2-1 — shared `fileFace.ts` · `fileMentions.ts` · `constellation.ts` 고정 시험.
+ * §5.1 #2-1 — shared `fileFace.ts` · `fileMentions.ts` · `constellation.ts` · `kindBundle.ts` 고정 시험.
  *
  * 판정은 shared 순수 함수지만 shared 패키지에는 러너가 없으므로 여기서 고정한다(`externalFolderView.test.ts` 와 같은
  * 자리). **플랫폼을 인자로 넘긴다** — 개발기 한 대에서 win32·darwin·linux 셋의 경로 규칙을 다 재기 위함이다.
@@ -12,7 +12,10 @@ import {
   fileFaceKindOf,
   fileStemOf,
   isMediaFaceKind,
+  kindBundleNameOf,
+  kindBundlePathShape,
   planConstellations,
+  planKindBundles,
   stemTokensOf,
   type ConstellationFileInput,
 } from '@vibisual/shared';
@@ -120,62 +123,34 @@ describe('createMentionResolver — 낱말을 파일 노드로', () => {
   });
 });
 
-describe('planConstellations — 작업물 별자리', () => {
+describe('planConstellations — 앱 노드 별자리(파일은 중심이 되지 않는다)', () => {
   const opts = { platform: 'win32' as const };
+  const APP = (extra: Partial<{ results: string[]; parts: string[]; codeParts: string[]; work: string[] }> = {}) => ({
+    id: 'app-1', results: [], parts: [], codeParts: [], ...extra,
+  });
 
-  it('같은 이름의 json·코드는 영상을 돈다', () => {
+  it('파일만 있으면 아무것도 묶지 않는다 — 영상의 같은 이름 json·코드도 영상을 돌지 않는다(2026-10-21 사용자 지시)', () => {
+    // "사진 묶음인데 … 사진만 있는게 아니라 다른 파일들도 같이 있는게 문제야 … 사진 제외한 다른 앱들표현도 마찬가지" — 파일 중심
+    //   별자리는 다른 종류를 그 묶음에 넣었다. 같은 종류끼리의 묶음은 planKindBundles 가 맡는다.
     const plan = planConstellations([
       f('mp4', 'video/teaser.mp4'),
       f('json', 'video/teaser.json'),
       f('tsx', 'src/teaser.tsx'),
+      f('notes', 'video/notes.md'),
+      f('header', 'src/Header.tsx', { mentions: ['mp4'] }),
     ], [], opts);
-    expect(plan.memberOf.get('json')).toMatchObject({ hub: 'mp4', reason: 'sameStem' });
-    expect(plan.memberOf.get('tsx')).toMatchObject({ hub: 'mp4', reason: 'sameStem' });
-    expect(plan.moonsOf.get('mp4')?.map((m) => m.id).sort()).toEqual(['json', 'tsx']);
-  });
-
-  it('코드는 같은 폴더만으로는 묶지 않는다 — 언급하면 묶는다', () => {
-    const loose = planConstellations([f('logo', 'src/logo.png'), f('btn', 'src/Button.tsx')], [], opts);
-    expect(loose.memberOf.has('btn')).toBe(false);
-    const mentioned = planConstellations([
-      f('logo', 'src/logo.png'),
-      f('header', 'src/Header.tsx', { mentions: ['logo'] }),
-    ], [], opts);
-    expect(mentioned.memberOf.get('header')).toMatchObject({ hub: 'logo', reason: 'mention' });
-  });
-
-  it('곁 파일(문서·데이터)은 같은 폴더로 묶인다', () => {
-    const plan = planConstellations([f('mp4', 'video/out.mp4'), f('notes', 'video/notes.md')], [], opts);
-    expect(plan.memberOf.get('notes')).toMatchObject({ hub: 'mp4', reason: 'sameFolder' });
-  });
-
-  it('재료 미디어는 순위가 높은 중심으로 가고, 그 위성도 따라간다(깊이 1)', () => {
-    const plan = planConstellations([
-      f('mp4', 'video/teaser.mp4'),
-      f('bg', 'video/bg.png'),
-      f('bgtxt', 'prompts/bg.txt'),
-    ], [], opts);
-    expect(plan.memberOf.get('bg')).toMatchObject({ hub: 'mp4', reason: 'sameFolder' });
-    // bg.txt 는 bg.png 와 같은 이름 — bg.png 가 영상의 재료가 됐으니 영상을 직접 돌고, 근거 파일은 via 로 남는다.
-    expect(plan.memberOf.get('bgtxt')).toMatchObject({ hub: 'mp4', reason: 'sameStem', via: 'bg' });
-    expect(plan.moonsOf.has('bg')).toBe(false);
-  });
-
-  it('영상은 어떤 중심의 재료도 아니다', () => {
-    const plan = planConstellations([f('a', 'clips/teaser.mp4'), f('b', 'clips/teaser.mov')], [], opts);
     expect(plan.memberOf.size).toBe(0);
+    expect(plan.moonsOf.size).toBe(0);
   });
 
-  it('사진은 사진끼리 — 같은 폴더에서 가장 최근 사진이 중심', () => {
+  it('사진은 사진의 부모가 되지 않는다 — 앱 노드가 있어도 사진끼리 묶이지 않는다', () => {
+    const dir = 'c:/users/dev/appdata/local/temp/icon-probe/out'; // privacy-ok — 실제 홈이 아니라 테스트 픽스처
     const plan = planConstellations([
-      f('a', 'photos/a.png', { lastActivity: 1 }),
-      f('b', 'photos/b.jpg', { lastActivity: 3 }),
-      f('c', 'photos/c.webp', { lastActivity: 2 }),
-      f('d', 'other/d.png', { lastActivity: 9 }),
-    ], [], opts);
-    expect(plan.memberOf.get('a')).toMatchObject({ hub: 'b', reason: 'album' });
-    expect(plan.memberOf.get('c')).toMatchObject({ hub: 'b', reason: 'album' });
-    expect(plan.memberOf.has('d')).toBe(false);
+      f('preview', `${dir}/preview.png`, { lastActivity: 1 }),
+      f('preview2', `${dir}/preview2.png`, { lastActivity: 9 }),
+      f('buildbat', `${dir}/buildbat-fileicon-normal.png`, { lastActivity: 1 }),
+    ], [APP({ results: ['elsewhere/out.mp4'] })], opts);
+    expect(plan.memberOf.size).toBe(0);
   });
 
   it('앱 노드 선언이 가장 세다 — 결과 · 소재 · 코드 소재의 폴더', () => {
@@ -185,12 +160,11 @@ describe('planConstellations — 작업물 별자리', () => {
       f('css', '.vibisual/video/compositions/intro/style.css'),
       f('asset', 'assets/bgm.wav'),
       f('prompt', 'prompts/hero.txt'),
-    ], [{
-      id: 'app-1',
+    ], [APP({
       results: ['out/hero.png'],
       parts: ['assets/bgm.wav'],
       codeParts: ['.vibisual/video/compositions/intro/index.html'],
-    }], opts);
+    })], opts);
     expect(plan.memberOf.get('result')).toMatchObject({ hub: 'app-1', reason: 'appResult' });
     expect(plan.memberOf.get('index')).toMatchObject({ hub: 'app-1', reason: 'appPart' });
     expect(plan.memberOf.get('css')).toMatchObject({ hub: 'app-1', reason: 'appPart' });
@@ -199,73 +173,185 @@ describe('planConstellations — 작업물 별자리', () => {
     expect(plan.memberOf.get('prompt')).toMatchObject({ hub: 'app-1', reason: 'sameStem', via: 'result' });
   });
 
-  it('언급 사슬 — 묶인 재료가 적고 있는 파일은 그 별자리로', () => {
+  it('앱이 가져간 영상의 같은 이름 json·코드는 그 영상을 거쳐 앱을 돈다(깊이 1)', () => {
+    const plan = planConstellations([
+      f('mp4', 'video/teaser.mp4'),
+      f('json', 'video/teaser.json'),
+      f('tsx', 'src/teaser.tsx'),
+    ], [APP({ results: ['video/teaser.mp4'] })], opts);
+    expect(plan.memberOf.get('json')).toMatchObject({ hub: 'app-1', reason: 'sameStem', via: 'mp4' });
+    expect(plan.memberOf.get('tsx')).toMatchObject({ hub: 'app-1', reason: 'sameStem', via: 'mp4' });
+    expect(plan.moonsOf.has('mp4')).toBe(false);
+  });
+
+  it('재료 미디어도 앱이 가져간 영상을 거쳐 앱을 돈다 — 그 재료의 곁 파일도 따라간다', () => {
+    const plan = planConstellations([
+      f('mp4', 'video/teaser.mp4'),
+      f('bg', 'video/bg.png'),
+      f('bgtxt', 'prompts/bg.txt'),
+    ], [APP({ results: ['video/teaser.mp4'] })], opts);
+    expect(plan.memberOf.get('bg')).toMatchObject({ hub: 'app-1', reason: 'sameFolder', via: 'mp4' });
+    expect(plan.memberOf.get('bgtxt')).toMatchObject({ hub: 'app-1', reason: 'sameStem', via: 'bg' });
+  });
+
+  it('언급 사슬 — 앱으로 이어진 재료가 적고 있는 파일은 그 앱으로', () => {
     const plan = planConstellations([
       f('mp4', 'video/teaser.mp4'),
       f('comp', 'video/teaser.composition.json', { mentions: ['bgm'] }),
       f('bgm', 'audio/bgm.wav'),
-    ], [], opts);
-    expect(plan.memberOf.get('comp')).toMatchObject({ hub: 'mp4' });
-    expect(plan.memberOf.get('bgm')).toMatchObject({ hub: 'mp4', reason: 'chain', via: 'comp' });
+    ], [APP({ results: ['video/teaser.mp4'] })], opts);
+    expect(plan.memberOf.get('comp')).toMatchObject({ hub: 'app-1' });
+    expect(plan.memberOf.get('bgm')).toMatchObject({ hub: 'app-1', reason: 'chain', via: 'comp' });
   });
 
-  it('같은 폴더의 컴포지션이 배경음을 적고 있어도 영상을 돈다 — 배경음은 사슬로 따라온다', () => {
+  it('앱으로 이어지지 않는 파일 사이의 관계는 위성으로 세우지 않는다', () => {
     const plan = planConstellations([
-      f('mp4', 'video/out.mp4'),
-      f('comp', 'video/scene.json', { mentions: ['bgm'] }),
-      f('bgm', 'audio/bgm.wav'),
-    ], [], opts);
-    expect(plan.memberOf.get('comp')).toMatchObject({ hub: 'mp4', reason: 'sameFolder' });
-    expect(plan.memberOf.get('bgm')).toMatchObject({ hub: 'mp4', reason: 'chain', via: 'comp' });
-  });
-
-  it('모델이 적고 있는 텍스처는 옆 폴더의 영상보다 그 모델에 붙는다', () => {
-    const plan = planConstellations([
-      f('mp4', 'scene/turntable.mp4'),
-      f('tex', 'scene/robot_albedo.png'),
-      f('gltf', 'models/robot.gltf', { mentions: ['tex'] }),
-    ], [], opts);
-    expect(plan.memberOf.get('tex')).toMatchObject({ hub: 'gltf', reason: 'mentioned' });
-    expect(plan.moonsOf.get('gltf')?.map((m) => m.id)).toEqual(['tex']);
-  });
-
-  it('자기 결과와 다른 영상을 함께 언급해도 같은 이름의 결과 곁에 남는다', () => {
-    const plan = planConstellations([
-      f('own', 'video/teaser.mp4', { lastActivity: 1 }),
-      f('other', 'video/reference.mp4', { lastActivity: 10 }),
-      f('source', 'video/teaser.json', { mentions: ['own', 'other'] }),
-    ], [], opts);
-    expect(plan.memberOf.get('source')).toMatchObject({ hub: 'own', reason: 'sameStem' });
-  });
-
-  it('서로 언급해도 모델이 재료를 적고 있다는 소속 근거가 지워지지 않는다', () => {
-    const plan = planConstellations([
-      f('video', 'preview/turntable.mp4'),
-      f('model', 'models/robot.gltf', { mentions: ['material'] }),
-      f('material', 'preview/surface.mtl', { mentions: ['model'] }),
-    ], [], opts);
-    expect(plan.memberOf.get('material')).toMatchObject({ hub: 'model', reason: 'mentioned' });
-  });
-
-  it('둘 이상 걸리면 높은 순위의 중심 · 같은 입력은 같은 그림', () => {
-    const files = [f('mp4', 'w/clip.mp4'), f('png', 'w/still.png'), f('md', 'w/notes.md')];
-    const a = planConstellations(files, [], opts);
-    const b = planConstellations([...files].reverse(), [], opts);
-    expect(a.memberOf.get('md')?.hub).toBe('mp4');
-    expect(b.memberOf.get('md')?.hub).toBe('mp4');
+      f('mp4', 'video/teaser.mp4'),
+      f('json', 'video/teaser.json'),
+      f('other', 'scene/turntable.mp4'),
+      f('gltf', 'models/robot.gltf'),
+      f('tex', 'models/robot_albedo.png'),
+    ], [APP({ results: ['scene/turntable.mp4'] })], opts);
+    // teaser.mp4 는 앱의 것이 아니다 — 그 json 도 남는다.
+    expect(plan.memberOf.has('json')).toBe(false);
+    expect(plan.memberOf.has('mp4')).toBe(false);
+    expect(plan.moonsOf.has('mp4')).toBe(false);
   });
 
   it('위성 상한을 넘는 것은 원래 자리에 남는다', () => {
     const files = [f('mp4', 'v/teaser.mp4')];
     for (let i = 0; i < CONSTELLATION.moonMax + 3; i += 1) files.push(f(`n${i}`, `v/note${i}.md`, { lastActivity: i }));
-    const plan = planConstellations(files, [], opts);
-    expect(plan.moonsOf.get('mp4')?.length).toBe(CONSTELLATION.moonMax);
+    const plan = planConstellations(files, [APP({ results: ['v/teaser.mp4'] })], opts);
+    expect(plan.moonsOf.get('app-1')?.length).toBe(CONSTELLATION.moonMax);
     expect(plan.memberOf.has('n0')).toBe(false); // 가장 오래된 것부터 남는다
+  });
+
+  it('둘 이상 걸리면 같은 답 — 입력 순서와 무관하다', () => {
+    const files = [f('mp4', 'w/clip.mp4'), f('png', 'w/still.png'), f('md', 'w/notes.md')];
+    const hubs = [APP({ results: ['w/clip.mp4'] })];
+    const a = planConstellations(files, hubs, opts);
+    const b = planConstellations([...files].reverse(), hubs, opts);
+    expect(a.memberOf.get('md')?.hub).toBe('app-1');
+    expect(b.memberOf.get('md')?.hub).toBe('app-1');
   });
 
   it('폴더 비교는 플랫폼 규칙 — linux 는 Video 와 video 를 다른 폴더로 본다', () => {
     const files = [f('mp4', 'Video/out.mp4'), f('md', 'video/notes.md')];
-    expect(planConstellations(files, [], { platform: 'win32' }).memberOf.has('md')).toBe(true);
-    expect(planConstellations(files, [], { platform: 'linux' }).memberOf.has('md')).toBe(false);
+    const hubs = [APP({ results: ['Video/out.mp4'] })];
+    expect(planConstellations(files, hubs, { platform: 'win32' }).memberOf.has('md')).toBe(true);
+    expect(planConstellations(files, hubs, { platform: 'linux' }).memberOf.has('md')).toBe(false);
+  });
+});
+
+describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용자 지시 · 2026-10-22 직속 포함)', () => {
+  const opts = { platform: 'win32' as const };
+
+  it('사진 속 2번 — bubble-test 의 위성 다섯(전부 bubble-test/video 의 영상)은 영상 묶음 하나다', () => {
+    const files = ['veg.veg', 'vob.vob', 'webm.webm', 'wmv.wmv', 'y4m.y4m']
+      .map((n, i) => f(`v${i}`, `bubble-test/video/${n}`, { lastActivity: i }));
+    const bundles = planKindBundles(files, opts);
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({ kind: 'video', dir: 'bubble-test/video', overflowIds: [] });
+    expect(bundles[0]?.memberIds).toEqual(['v4', 'v3', 'v2', 'v1', 'v0']); // 최근 것부터
+    expect(kindBundleNameOf(bundles[0]!.dir)).toBe('video');
+  });
+
+  it('사진 속 1번 — 같은 폴더의 사진만 묶고, md·코드는 어느 묶음에도 들지 않는다', () => {
+    const bundles = planKindBundles([
+      f('crop', 'saved/dispatchframealpha/user-crop-x4.png', { lastActivity: 3 }),
+      f('tl', 'saved/dispatchframealpha/ref-tl.png', { lastActivity: 2 }),
+      f('py', 'saved/dispatchframealpha/tools/align_ref.py', { lastActivity: 1 }),
+      f('json', 'saved/ct-w2-245/dispatch-final-binding.json', { lastActivity: 1 }),
+    ], opts);
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({ kind: 'image', memberIds: ['crop', 'tl'] });
+  });
+
+  it('폴더의 직속 파일도 같은 종류 둘 이상이면 묶음 하나다 — 직속 제외는 걷었다(2026-10-22 사용자 지시)', () => {
+    const bundles = planKindBundles([f('a', 'video/a.mp4', { lastActivity: 1 }), f('b', 'video/b.mp4', { lastActivity: 2 })], opts);
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({ kind: 'video', dir: 'video', memberIds: ['b', 'a'], overflowIds: [] });
+  });
+
+  it('사진 속 many — 한 폴더의 png 40장은 사진 묶음 하나, 구성은 최근 moonMax 장이고 나머지는 overflow 로 알린다', () => {
+    const files = Array.from({ length: 40 }, (_, i) => f(`p${i + 1}`, `bubble-test/many/p${String(i + 1).padStart(2, '0')}.png`, { lastActivity: i + 1 }));
+    const [bundle, ...rest] = planKindBundles(files, opts);
+    expect(rest).toHaveLength(0);
+    expect(bundle).toMatchObject({ kind: 'image', dir: 'bubble-test/many' });
+    expect(bundle?.memberIds).toHaveLength(CONSTELLATION.moonMax);
+    expect(bundle?.memberIds[0]).toBe('p40');
+    expect(bundle?.overflowIds).toHaveLength(40 - CONSTELLATION.moonMax);
+  });
+
+  it('하나뿐인 종류는 묶음이 아니라 파일이다(최소 둘)', () => {
+    expect(planKindBundles([f('a', 'p/v/a.mp4'), f('b', 'p/i/b.png')], opts)).toEqual([]);
+  });
+
+  it('미디어가 아닌 종류는 묶지 않는다 — 앱이 여는 종류(사진·영상·소리·3D)만', () => {
+    expect(planKindBundles([f('a', 'p/docs/a.md'), f('b', 'p/docs/b.md'), f('c', 'p/src/c.ts'), f('d', 'p/src/d.ts')], opts)).toEqual([]);
+  });
+
+  it('루트 바로 아래 파일은 includeRoot 일 때만 묶는다 — 메인 화면 최상위 파일(2026-10-22), 위성(서버)은 늘 폴더 안이다', () => {
+    expect(planKindBundles([f('a', 'a.png'), f('b', 'b.png')], opts)).toEqual([]);
+    const [root, ...rest] = planKindBundles([f('a', 'a.png', { lastActivity: 1 }), f('b', 'b.png', { lastActivity: 2 })], { ...opts, includeRoot: true });
+    expect(rest).toHaveLength(0);
+    expect(root).toMatchObject({ kind: 'image', dir: '', memberIds: ['b', 'a'] });
+  });
+
+  it('한 폴더에 종류가 섞이면 종류마다 따로 — 묶음에는 그 종류만', () => {
+    const bundles = planKindBundles([
+      f('a', 'p/media/a.mp4'), f('b', 'p/media/b.mp4'), f('c', 'p/media/c.png'), f('d', 'p/media/d.png'), f('e', 'p/media/e.wav'),
+    ], opts);
+    expect(bundles.map((b) => [b.kind, [...b.memberIds].sort()])).toEqual(expect.arrayContaining([
+      ['video', ['a', 'b']],
+      ['image', ['c', 'd']],
+    ]));
+    expect(bundles).toHaveLength(2); // 소리는 하나뿐이라 묶음이 아니다
+  });
+
+  it('같은 종류라도 폴더가 다르면 따로 — 묶음 하나는 한 폴더다', () => {
+    const bundles = planKindBundles([f('a', 'p/x/a.png'), f('b', 'p/x/b.png'), f('c', 'p/y/c.png'), f('d', 'p/y/d.png')], opts);
+    expect(bundles.map((b) => kindBundleNameOf(b.dir)).sort()).toEqual(['x', 'y']);
+  });
+
+  it('상한을 넘으면 최근 것부터 남기고 오래된 구성은 overflow 로 알린다', () => {
+    const files = Array.from({ length: CONSTELLATION.moonMax + 2 }, (_, i) => f(`v${i}`, `p/clips/c${i}.mp4`, { lastActivity: i }));
+    const [bundle] = planKindBundles(files, opts);
+    expect(bundle?.memberIds).toHaveLength(CONSTELLATION.moonMax);
+    expect(bundle?.overflowIds).toEqual(['v1', 'v0']);
+    // 화면은 상한을 풀 수 있다(서버가 이미 적용했다).
+    expect(planKindBundles(files, { ...opts, memberMax: Number.MAX_SAFE_INTEGER })[0]?.overflowIds).toEqual([]);
+  });
+
+  it('외부 노드 키(`__ext__` · 워크트리 접두 포함)를 같은 자로 잰다 — 하위 폴더와 직속이 저마다 묶음이다', () => {
+    const files = [
+      f('a', '__ext__c:/users/dev/temp/out/a.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+      f('b', 'wtabc__ext__c:/users/dev/temp/out/b.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+      f('c', '__ext__c:/users/dev/temp/c.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+      f('d', '__ext__c:/users/dev/temp/d.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+    ];
+    const bundles = planKindBundles(files, opts);
+    expect(bundles).toHaveLength(2);
+    const byName = new Map(bundles.map((b) => [kindBundleNameOf(b.dir), [...b.memberIds].sort()] as const));
+    expect(byName.get('out')).toEqual(['a', 'b']);
+    expect(byName.get('temp')).toEqual(['c', 'd']);
+    expect(kindBundlePathShape('wtabc__ext__c:\\users\\dev\\temp\\x.png')).toBe('c:/users/dev/temp/x.png'); // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+  });
+
+  it('대소문자 — win32·darwin 은 접고 linux 는 가른다(플랫폼은 인자)', () => {
+    const files = [f('a', 'p/Video/a.mp4'), f('b', 'p/video/b.mp4')];
+    expect(planKindBundles(files, { platform: 'win32' })).toHaveLength(1);
+    expect(planKindBundles(files, { platform: 'darwin' })).toHaveLength(1);
+    expect(planKindBundles(files, { platform: 'linux' })).toHaveLength(0);
+    // 같은 글자의 폴더면 linux 에서도 한 묶음이다.
+    expect(planKindBundles([f('a', 'P/x/a.mp4'), f('b', 'P/x/b.mp4')], { platform: 'linux' })).toHaveLength(1);
+  });
+
+  it('같은 입력은 같은 열쇠 — 입력 순서와 무관하고, 한 부모 안에서 열쇠가 겹치지 않는다', () => {
+    const files = [f('a', 'p/v/a.mp4'), f('b', 'p/v/b.mp4'), f('c', 'p/i/c.png'), f('d', 'p/i/d.png')];
+    const a = planKindBundles(files, opts);
+    const b = planKindBundles([...files].reverse(), opts);
+    expect(a.map((x) => x.token)).toEqual(b.map((x) => x.token));
+    expect(new Set(a.map((x) => x.token)).size).toBe(a.length);
   });
 });

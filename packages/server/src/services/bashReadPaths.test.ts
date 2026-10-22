@@ -133,9 +133,14 @@ describe('extractBashReadPaths — 바꾸는 낌새가 있으면 버린다', () 
       .toEqual(['src/a.ts']);
   });
 
-  it('powershell 안의 내용은 우리가 판정하지 않는다', () => {
+  // §5.1 #1-1 (B) — 종전 결정 "powershell 안의 내용은 우리가 판정하지 않는다"를 2026-10-22 사용자 지시로 대체했다.
+  //   껍데기는 코덱스·PowerShell 의 기본 모양이라(저장된 코덱스 명령 91건이 전부 이 꼴이었고 경로 0건) 안을 같은 규칙으로 본다.
+  it('powershell 껍데기 안의 읽기도 같은 규칙으로 본다 — 안에서 바꾸는 낌새가 있으면 버린다', () => {
     expect(
       extractBashReadPaths(`powershell -NoProfile -Command "Get-Content x.txt"`, 4, posix),
+    ).toEqual(['x.txt']);
+    expect(
+      extractBashReadPaths(`powershell -NoProfile -Command "Get-Content x.txt > y.txt"`, 4, posix),
     ).toEqual([]);
   });
 });

@@ -60,7 +60,10 @@ export class FileMentionScanner {
   constructor(
     private readonly onChange: () => void,
     private readonly readHead: ReadFileHead = readFileHead,
-    /** 빈 결과·읽기 실패도 완료다 — 언급이 없음을 기다리던 위성 상한을 풀어 준다. */
+    /**
+     * 읽기 한 건이 끝날 때마다(빈 결과·읽기 실패도 완료다). 위성 상한이 언급 읽기를 기다리던 시절의 길이다 — 2026-10-21 부터
+     * 상한은 경로와 종류로만 가르므로(§5.1 #2-1 (D)) `ProjectGraph` 는 걸지 않는다.
+     */
     private readonly onSettled?: () => void,
   ) {}
 

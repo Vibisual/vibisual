@@ -771,3 +771,62 @@ describe('release 완수 — 초록을 볼 때까지 간다', () => {
     expect(src).toContain('headers: apiHeaders()');
   });
 });
+
+/**
+ * 제거기 — 남은 훅을 걷는다 (2026-10-22, 사용자 지시 — SCENARIO §3.6 「수명」 · §5.7 #24-3 ⑤).
+ *
+ * 우리 훅은 앱이 켜져 있는 동안만 둔다 — 앱은 끌 때 스스로 걷는다. 그런데 앱이 팅겼거나 제거기의 "앱 실행 중" 처리가
+ * 앱을 강제로 끝냈으면 걷을 기회가 없었다. 그대로 파일을 지우면 훅이 부를 handler.mjs 가 사라져 이 PC 의 모든 Claude
+ * Code 세션에 오류 알림이 남는다. 그래서 제거기가 파일을 지우기 **전**에 앱을 정리 모드로 한 번 부른다.
+ * 성립 전제(호출 위치·업데이트 표시)는 **실제로 설치된** electron-builder 템플릿에서 잰다 — 판을 올려 순서가 바뀌면
+ * 여기서 넘어진다.
+ */
+describe('제거기 — 남은 훅을 걷는다', () => {
+  const NSH = 'packages/desktop/build/installer.nsh';
+  const macroBody = (): string => {
+    const code = read(NSH).split(/\r?\n/).filter((line) => !/^\s*[;#]/.test(line)).join('\n');
+    const at = code.indexOf('!macro customUnInit');
+    expect(at).toBeGreaterThan(-1);
+    return code.slice(at, code.indexOf('!macroend', at));
+  };
+  const builderTemplates = (): string => {
+    const fromDesktop = createRequire(path.join(REPO, 'packages/desktop/package.json'));
+    const builderPkg = fs.realpathSync(fromDesktop.resolve('electron-builder/package.json'));
+    return path.join(path.dirname(createRequire(builderPkg).resolve('app-builder-lib/package.json')), 'templates/nsis');
+  };
+
+  it('업데이트가 아니고 앱이 있을 때만, 앱 진입점과 같은 인자로 한 번 부른다(상한 있음 · 스택을 남기지 않음)', () => {
+    const body = macroBody();
+    const arg = /HOOK_CLEANUP_ARG = '([^']+)'/.exec(read('packages/desktop/src/main/hookLifecycle.ts'))?.[1];
+    expect(arg).toBe('--vibisual-remove-hooks');
+    const guard = body.indexOf('${ifNot} ${isUpdated}');
+    const exists = body.indexOf('${If} ${FileExists} "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"');
+    const exec = body.indexOf('nsExec::Exec /TIMEOUT=30000 `"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" ' + String(arg) + '`');
+    expect(guard).toBeGreaterThan(-1);
+    expect(exists).toBeGreaterThan(guard);
+    expect(exec).toBeGreaterThan(exists);
+    // 결과는 버린다 — Push 로 지킨 $0 을 되돌려 놓아 스택에 아무것도 남기지 않는다.
+    expect(body).toContain('Push $0');
+    expect(body.match(/\bPop \$0\b/g)).toHaveLength(2);
+  });
+
+  it('템플릿이 customUnInit 을 "앱 실행 중" 처리 뒤·파일 지우기 전에 부르고, 업데이트 땐 옛 제거기에 --updated 를 붙인다', () => {
+    const dir = builderTemplates();
+    const un = fs.readFileSync(path.join(dir, 'uninstaller.nsh'), 'utf8');
+    const initAt = un.indexOf('Function un.onInit');
+    const onInit = un.slice(initAt, un.indexOf('FunctionEnd', initAt));
+    expect(onInit.indexOf('!insertmacro customUnInit')).toBeGreaterThan(onInit.indexOf('call un.checkAppRunning'));
+    // 파일은 un.install 섹션에서 지운다 — un.onInit 이 끝난 뒤다.
+    const sectionAt = un.indexOf('Section "un.install"');
+    expect(sectionAt).toBeGreaterThan(-1);
+    expect(un.indexOf('RMDir /r $INSTDIR', sectionAt)).toBeGreaterThan(sectionAt);
+    // 설치기가 옛 판을 지울 때 늘 붙이는 표시 — 이것으로 업데이트를 가린다.
+    expect(fs.readFileSync(path.join(dir, 'include/installUtil.nsh'), 'utf8')).toContain('StrCpy $0 "$0 --updated"');
+  });
+
+  it('앱 진입점은 그 인자를 보면 정리 모듈만 동적으로 읽는다', () => {
+    const boot = read('packages/desktop/src/main/bootstrap.ts');
+    expect(boot).toContain("import { isHookCleanupRun } from './hookLifecycle';");
+    expect(boot).toContain("import('./hookCleanup')");
+  });
+});

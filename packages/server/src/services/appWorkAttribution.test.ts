@@ -13,6 +13,7 @@ import type { BubbleData, HookEventPayload, QueuedCommand, SubAgent } from '@vib
 import { APP_WORK } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { subAgentManager } from './subAgentManager.js';
+import { toLocalHookPayload } from './localHookPayload.js';
 
 let root: string;
 
@@ -36,7 +37,11 @@ function writeFile(rel: string[], body = 'x'): string {
   return abs;
 }
 
-function setup(): {
+/**
+ * `linked: false` 면 앱 노드가 에이전트를 잇지 않은 캔버스다 — 2026-10-21 부터 이어진 동안 쓴 파일은 앱 노드 없는 명령에도
+ * 꼬리표가 붙으므로(§5.1 #2-1 (F) ①), "명령만으로 귀속" · "기능 이전의 캔버스" 를 보는 시험은 잇지 않은 채로 쓴다.
+ */
+function setup(opts: { linked?: boolean } = {}): {
   graph: ProjectGraph;
   projectName: string;
   queues: Map<string, QueuedCommand[]>;
@@ -53,7 +58,8 @@ function setup(): {
   const projectName = graph.registerProject(root).name;
   const agent = graph.createCustomAgent('Vibi3D builder', undefined, projectName);
   const sessionKey = graph.findSessionByAgentId(agent.id)!;
-  const app = graph.createAppBubble({ projectName, appId: 'vibi3d', x: 0, y: 0, ref: 'source-048d9c', linkedAgentIds: [agent.id] });
+  const linkedAgentIds = opts.linked === false ? [] : [agent.id];
+  const app = graph.createAppBubble({ projectName, appId: 'vibi3d', x: 0, y: 0, ref: 'source-048d9c', linkedAgentIds });
   return { graph, projectName, queues, archive, agent, sessionKey, appId: app.id };
 }
 
@@ -116,8 +122,52 @@ describe('§5.1 #2-1 (F) ① — 실시간 귀속', () => {
     expect(nodeByLabel(graph, projectName, 'upgrade.mjs')?.appWork?.[appId]).toBeDefined();
   });
 
-  it('사전 이벤트는 꼬리표만 세우고 쓰기 수는 사후에 센다 · 다른 sub 의 쓰기는 귀속되지 않는다', () => {
+  // 2026-10-21 사용자 지시 — "말풍선에 해당 앱을 연결한 순간 앱과 연관성있는 애들만". 이어진 동안 쓴 파일은 그 앱의 작업물이다.
+  it('이어진 동안 IDE 로 시킨 일(앱 노드 없는 명령 · 앞 앱 명령 없음)도 이어진 앱 노드의 작업물이다', () => {
     const { graph, projectName, queues, agent, sessionKey, appId } = setup();
+    mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { text: '노트 정리해' })]);
+    graph.processHookEvent(hook('cli-a', 'Write', { file_path: writeFile(['notes', 'todo.md']) }));
+    expect(nodeByLabel(graph, projectName, 'todo.md')?.appWork?.[appId]).toMatchObject({ w: 1 });
+  });
+
+  it('말풍선에서 앱을 모두 뺀 명령은 꼬리표가 없다 — 이어진 앱 · 앞 앱 명령 폴백도 타지 않는다', () => {
+    const { graph, projectName, queues, archive, agent, sessionKey, appId } = setup();
+    mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    archive.set(sessionKey, [command('cmd-0', 'sub-a', { status: 'completed', appNodeIds: [appId] })]);
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { text: '테스트만 고쳐', appNodesOff: true })]);
+    graph.processHookEvent(hook('cli-a', 'Write', { file_path: writeFile(['src', 'unrelated.ts']) }));
+    expect(nodeByLabel(graph, projectName, 'unrelated.ts')?.appWork).toBeUndefined();
+  });
+
+  it('앞 앱 명령의 노드가 아직 이어져 있으면 그 노드로 좁힌다 · 끊겼으면 지금 이어진 노드 전부', () => {
+    const { graph, projectName, queues, archive, agent, sessionKey, appId } = setup();
+    const image = graph.createAppBubble({ projectName, appId: 'vibimage', x: 0, y: 0, linkedAgentIds: [agent.id] });
+    const gone = graph.createAppBubble({ projectName, appId: 'vibisound', x: 0, y: 0, linkedAgentIds: [] });
+    mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' }, { id: 'sub-b', parentAgentId: agent.id, sessionId: 'cli-b' });
+    archive.set(sessionKey, [
+      command('cmd-0', 'sub-a', { status: 'completed', appNodeIds: [image.id] }),
+      command('cmd-9', 'sub-b', { status: 'completed', appNodeIds: [gone.id] }),
+    ]);
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { text: '간판 더 밝게' }), command('cmd-2', 'sub-b', { text: '이어서' })]);
+    graph.processHookEvent(hook('cli-a', 'Write', { file_path: writeFile(['out', 'sign.png']) }));
+    graph.processHookEvent(hook('cli-b', 'Write', { file_path: writeFile(['out', 'mix.json']) }));
+    expect(Object.keys(nodeByLabel(graph, projectName, 'sign.png')?.appWork ?? {})).toEqual([image.id]);
+    // sub-b 의 앞 앱 명령 노드는 이 에이전트를 잇지 않는다 — 지금 이어진 노드 전부의 작업물이다.
+    expect(Object.keys(nodeByLabel(graph, projectName, 'mix.json')?.appWork ?? {}).sort()).toEqual([appId, image.id].sort());
+  });
+
+  it('이은 앱이 없으면 종전대로 같은 세션의 마지막 앱 명령을 잇는다', () => {
+    const { graph, projectName, queues, archive, agent, sessionKey, appId } = setup({ linked: false });
+    mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    archive.set(sessionKey, [command('cmd-0', 'sub-a', { status: 'completed', appNodeIds: [appId] })]);
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { text: '창문 더 크게' })]);
+    graph.processHookEvent(hook('cli-a', 'Write', { file_path: writeFile([...WORK_DIR, 'upgrade.mjs']) }));
+    expect(nodeByLabel(graph, projectName, 'upgrade.mjs')?.appWork?.[appId]).toBeDefined();
+  });
+
+  it('사전 이벤트는 꼬리표만 세우고 쓰기 수는 사후에 센다 · 다른 sub 의 쓰기는 그 명령에 귀속되지 않는다', () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup({ linked: false });
     mockSubs(
       { id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' },
       { id: 'sub-b', parentAgentId: agent.id, sessionId: 'cli-b' },
@@ -154,7 +204,7 @@ describe('§5.1 #2-1 (F) ② — 이미 떠 있던 캔버스 되짚기(사진 �
    * 읽기만 한 문서 · 명령은 본문에 노드 id 가 적힌 옛 말풍선 명령 두 건(appNodeIds 없음). 껐다 켜면 되짚어야 한다.
    */
   function oldCanvas(): { cp: unknown; projectName: string; appId: string } {
-    const { graph, projectName, archive, agent, sessionKey, appId } = setup();
+    const { graph, projectName, archive, agent, sessionKey, appId } = setup({ linked: false });
     const other = graph.createCustomAgent('Dokkaebi builder', undefined, projectName);
     mockSubs(
       { id: 'sub-mvdp3hid-sn4g', parentAgentId: agent.id, sessionId: 'cli-a' },
@@ -189,7 +239,7 @@ describe('§5.1 #2-1 (F) ② — 이미 떠 있던 캔버스 되짚기(사진 �
   });
 
   it('명령이 섞여 있고 sub 가 둘이면 묶지 않는다', () => {
-    const { graph, projectName, archive, agent, sessionKey, appId } = setup();
+    const { graph, projectName, archive, agent, sessionKey, appId } = setup({ linked: false });
     mockSubs(
       { id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' },
       { id: 'sub-b', parentAgentId: agent.id, sessionId: 'cli-b' },
@@ -250,14 +300,116 @@ describe('§5.1 #2-1 (F) ③ — 스크립트가 만든 파일(작업 폴더 훑
     expect(asked.filter((p) => !p.startsWith(inside))).toEqual([]);
   });
 
-  it('앱 작업이 아니면 훑지 않는다', async () => {
-    const { graph, projectName, queues, agent, sessionKey } = setup();
+  it('앱 작업이 아니면 훑지 않는다 — 이은 앱이 없거나 · 말풍선에서 앱을 모두 뺀 명령', async () => {
+    for (const variant of ['unlinked', 'appsOff'] as const) {
+      const { graph, projectName, queues, agent, sessionKey } = setup({ linked: variant !== 'unlinked' });
+      mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+      const script = writeFile([...WORK_DIR, `build-${variant}.mjs`]);
+      const off = variant === 'appsOff' ? { appNodesOff: true as const } : {};
+      queues.set(sessionKey, [command('cmd-1', 'sub-a', { startedAt: Date.now() - 1_000, ...off })]);
+      writeFile([...WORK_DIR, 'out', `model-${variant}.glb`]);
+      graph.processHookEvent(hook('cli-a', 'Bash', { command: `node ${script.replace(/\\/g, '/')}` }));
+      await new Promise((r) => setTimeout(r, APP_WORK.scanDelayMs + 300));
+      expect(nodeByLabel(graph, projectName, `model-${variant}.glb`)).toBeUndefined();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('이어진 동안 IDE 로 돌린 스크립트의 출력도 훑는다 — 시작 시각은 도는 명령의 것', async () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup();
     mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
-    const script = writeFile([...WORK_DIR, 'build.mjs']);
-    queues.set(sessionKey, [command('cmd-1', 'sub-a', { startedAt: Date.now() - 1_000 })]);
-    writeFile([...WORK_DIR, 'out', 'model.glb']);
+    const script = writeFile([...WORK_DIR, 'render.mjs']);
+    const past = (Date.now() - 60_000) / 1000;
+    fs.utimesSync(script, past, past);
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { text: '렌더 다시', startedAt: Date.now() - 1_000 })]);
+    writeFile([...WORK_DIR, 'out', 'shot.glb']);
     graph.processHookEvent(hook('cli-a', 'Bash', { command: `node ${script.replace(/\\/g, '/')}` }));
-    await new Promise((r) => setTimeout(r, APP_WORK.scanDelayMs + 300));
-    expect(nodeByLabel(graph, projectName, 'model.glb')).toBeUndefined();
+    await vi.waitFor(() => {
+      expect(nodeByLabel(graph, projectName, 'shot.glb')?.appWork?.[appId]).toMatchObject({ script: true });
+    }, { timeout: APP_WORK.scanDelayMs + 4_000, interval: 50 });
+    // 명령 전에 있던 스크립트 자신은 스크립트 출력이 아니다.
+    expect(nodeByLabel(graph, projectName, 'render.mjs')).toBeUndefined();
+  });
+});
+
+/**
+ * §5.1 #1-1 (D) — 실제 라우트가 넘기는 모양 그대로. 우리가 띄운 세션은 전부 소유자 태그를 달아 라우트가 `session_id` 를
+ * **주인 버블 키**로 바꿔 쓰므로, 위 시험들이 쓰는 워커 세션 id(`cli-a`) 길은 실제로는 돌지 않는다(2026-10-22 실측 —
+ * 실데이터 꼬리표가 전부 되짚기 `retro`). 그 일을 한 sub 는 훅·라우트·방출기가 `_vibisualSubAgentId` 로 싣는다.
+ */
+describe('§5.1 #1-1 (D) — 라우트 모양: 세션 키는 주인 버블 것, sub 는 명시로', () => {
+  function mockSubsWithLookup(...subs: Array<{ id: string; parentAgentId: string; sessionId: string }>): void {
+    mockSubs(...subs);
+    vi.spyOn(subAgentManager, 'getSub').mockImplementation(
+      (id: string) => subs.find((s) => s.id === id) as unknown as SubAgent | undefined,
+    );
+  }
+
+  it('주인 키 + 명시 sub → 쓴 파일에 꼬리표가 붙는다', () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup();
+    mockSubsWithLookup({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { appNodeIds: [appId] })]);
+    const abs = writeFile([...WORK_DIR, 'route-shape.mjs']);
+    graph.processHookEvent({
+      ...hook(sessionKey, 'Write', { file_path: abs }),
+      _vibisualOwnerAgentId: agent.id,
+      _vibisualSubAgentId: 'sub-a',
+    });
+    expect(nodeByLabel(graph, projectName, 'route-shape.mjs')?.appWork?.[appId]).toMatchObject({ w: 1 });
+  });
+
+  it('명시 sub 가 없으면 주인 키만으로는 sub 를 못 찾는다 — 이번에 고친 자리', () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup({ linked: false });
+    mockSubsWithLookup({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { appNodeIds: [appId] })]);
+    const abs = writeFile([...WORK_DIR, 'no-sub.mjs']);
+    graph.processHookEvent({ ...hook(sessionKey, 'Write', { file_path: abs }), _vibisualOwnerAgentId: agent.id });
+    expect(nodeByLabel(graph, projectName, 'no-sub.mjs')?.appWork).toBeUndefined();
+  });
+
+  it('남의 에이전트의 sub id 는 받지 않는다', () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup();
+    mockSubsWithLookup({ id: 'sub-x', parentAgentId: 'agent-someone-else', sessionId: 'cli-x' });
+    queues.set(sessionKey, [command('cmd-1', 'sub-x', { appNodeIds: [appId] })]);
+    const abs = writeFile([...WORK_DIR, 'foreign.mjs']);
+    graph.processHookEvent({
+      ...hook(sessionKey, 'Write', { file_path: abs }),
+      _vibisualOwnerAgentId: agent.id,
+      _vibisualSubAgentId: 'sub-x',
+    });
+    expect(nodeByLabel(graph, projectName, 'foreign.mjs')?.appWork).toBeUndefined();
+  });
+
+  it('셸로 쓴 파일도 — 라우트 모양의 Bash 사전·사후', () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup();
+    mockSubsWithLookup({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { appNodeIds: [appId] })]);
+    const abs = writeFile([...WORK_DIR, 'shell-out.json'], '{}');
+    const input = { command: `echo '{"a":1}' > '${abs.split(path.sep).join('/')}'` };
+    for (const phase of ['PreToolUse', 'PostToolUse'] as const) {
+      graph.processHookEvent({
+        ...hook(sessionKey, 'Bash', input, phase),
+        tool_use_id: 'toolu-route-bash',
+        _vibisualOwnerAgentId: agent.id,
+        _vibisualSubAgentId: 'sub-a',
+      });
+    }
+    expect(nodeByLabel(graph, projectName, 'shell-out.json')?.appWork?.[appId]).toMatchObject({ w: 1 });
+  });
+
+  it('로컬·코덱스 방출기 — toLocalHookPayload 가 그 sub 를 싣는다', () => {
+    const { graph, projectName, queues, agent, sessionKey, appId } = setup();
+    mockSubsWithLookup({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });
+    queues.set(sessionKey, [command('cmd-1', 'sub-a', { appNodeIds: [appId] })]);
+    writeFile([...WORK_DIR, 'codex-made.mjs']);
+    const payload = toLocalHookPayload(sessionKey, {
+      phase: 'post',
+      toolName: 'Write',
+      toolInput: { path: [...WORK_DIR, 'codex-made.mjs'].join('/') },
+      toolUseId: 'codex-file:1',
+      cwd: root,
+    }, { subAgentId: 'sub-a' });
+    graph.processHookEvent(payload);
+    expect(nodeByLabel(graph, projectName, 'codex-made.mjs')?.appWork?.[appId]).toMatchObject({ w: 1 });
   });
 });

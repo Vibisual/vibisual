@@ -579,11 +579,15 @@ async function main() {
   // §4 v2.64 — termId 도 함께 실어 보낸다. 서버가 termId 별로 claude 대화 sessionId 를 기록해
   //   앱 재시작 후 `claude --resume` 으로 직전 대화를 이어받게 한다.
   const ownerTermId = process.env.VIBISUAL_OWNER_TERM_ID;
-  const trackingBody = (ownerAgentId || ownerTermId)
+  // §5.1 #1-1 (D) — 이 이벤트를 낸 우리 sub. 서버가 소유자 태그로 세션 키를 주인 버블 것으로 바꿔 쓴 뒤에도 앱 작업
+  //   귀속이 그 sub 를 잃지 않게 명시로 싣는다(HTTP 훅은 같은 값을 `x-vibisual-subagent-id` 헤더로 보낸다).
+  const subAgentId = process.env.VIBISUAL_SUBAGENT_ID;
+  const trackingBody = (ownerAgentId || ownerTermId || subAgentId)
     ? JSON.stringify({
         ...payload,
         ...(ownerAgentId ? { _vibisualOwnerAgentId: ownerAgentId } : {}),
         ...(ownerTermId ? { _vibisualOwnerTermId: ownerTermId } : {}),
+        ...(subAgentId ? { _vibisualSubAgentId: subAgentId } : {}),
       })
     : input;
 
