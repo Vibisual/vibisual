@@ -111,7 +111,8 @@ describe('§5.4 #14-2 탭은 끌어서 집어 든다', () => {
     expect(s).toContain('api.window');
     expect(s).toContain('.detach(');
     // screen 좌표는 BrowserWindow 좌상단 기준이라 반드시 포인터 이벤트의 것을 넘겨야 한다.
-    expect(s).toMatch(/detachTab\(key, p\.screenX, p\.screenY\)/);
+    //   (§5.4 #14-1 (H) 뒤에 멈춰 세운 선을 쓸지(`fromGhost`)가 한 칸 더 붙는다 — `tabDetachGhost.test.ts`.)
+    expect(s).toMatch(/detachTab\(key, p\.screenX, p\.screenY[,)]/);
     // 순서가 그대로여도 놓은 자리가 헤더 띠 밖이면 별창이다 — 두 일은 배타적이지 않다.
     expect(s).toMatch(/if \(next\) setTabOrder/);
   });

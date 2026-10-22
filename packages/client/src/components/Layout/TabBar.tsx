@@ -6,17 +6,43 @@ import type { IframeTab } from '../../stores/graphStore.js';
 import { TabContextMenu } from './TabContextMenu.js';
 import { HoverTooltip } from './HoverTooltip.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
-import { TAB_WIDTH_MOTION_MS, useTabWidthAnimation } from '../../hooks/useTabWidthAnimation.js';
+// §5.4 #14 — 고른 탭이 커지는 움직임(FLIP · 합성 스레드 · 아이폰식 스프링).
+import { useTabSelectionMotion } from '../../hooks/useTabSelectionMotion.js';
+import { TAB_SELECTION_FLIP, tabSelectionKey } from '../../hooks/tabSelectionMotionGeom.js';
 import { useCommand } from '../../hooks/useCommand.js';
 import { applyLocalOrder } from '../../hooks/tabPushGeom.js';
 // §5.4 #14-2 — 집어 들어 옮기는 손짓 한 벌(활동바·IDE 세션 탭과 같은 훅 — 탭은 꾹 누르지 않고 끌어서 든다, (F-6)).
-import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
+import { usePointerDragReorder, type PointerDragGrab, type PointerDragPoint } from '../../hooks/usePointerDragReorder.js';
+// §5.4 #14-1 (H) — 띠 밖에서 손을 따라오는 가상 창의 수명 그물 주기는 IDE·앱 창의 선과 같은 값이다.
+import { WINDOW_PULL_OUT } from '../../hooks/floatingWindowGeom.js';
+import { TabDetachOutline } from './TabDetachOutline.js';
 // 화면에 선 탭만 끌 수 있으므로(별창으로 빠진 탭은 줄에 없다) 새 순서는 **그 자리들에만** 되꽂는다.
-import { applyVisibleOrder } from '@vibisual/shared';
+import {
+  applyVisibleOrder,
+  detachGhostFrame,
+  isRemoteWebUrl,
+  projectOrderFollows,
+  PROJECT_TAB_ORDER,
+  type DetachGhostFrame,
+} from '@vibisual/shared';
+// §5.4 #14-2 (C-1) — 프로젝트 탭끼리의 순서는 서버 `openProjects` 순서를 따르고, 놓은 직후에는 그 순서를 붙든다.
+import {
+  syncTabOrder,
+  sameTabOrder,
+  beginProjectTabOrderHold,
+  settleProjectTabOrderHold,
+  isProjectTabOrderHoldDone,
+  heldProjectTabOrder,
+  type TabOrderEntry,
+  type ProjectTabOrderHold,
+} from './projectTabOrder.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { resolveHeaderAgentCounts } from './headerAgentCounts.js';
 import { resolveTabCloseIntent, stopTargetProjectIds, type TabCloseTarget } from './tabCloseConfirm.js';
-import { clientPathKey } from '../../utils/platform.js';
+import { clientPathKey, clientPathPlatform } from '../../utils/platform.js';
+
+/** 서버 순서를 아직 모를 때(첫 스냅샷 전) — 한 배열을 돌려 써서 메모가 매 렌더 깨지지 않게. */
+const NO_PROJECT_ORDER: readonly string[] = [];
 
 type TabItem =
   | {
@@ -55,8 +81,22 @@ const TAB_WIDTH_IDLE = 'w-32';
 const TAB_WIDTH_ACTIVE = 'min-w-32';
 /** 고른 탭 이름 칸의 최대 폭(끝 페이드 여백 포함). 넘는 이름은 툴팁으로 읽는다. */
 const TAB_LABEL_ACTIVE_MAX = 'max-w-[200px]';
-// Width is measured separately (128px ↔ auto is not a CSS transition in Electron 31).
-const TAB_SELECTION_MOTION = 'transition-[height,margin-top,border-radius,background-color,color,border-color] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none';
+/**
+ * §5.4 #14 — 고른 탭이 바뀔 때 **CSS 가 맡는 것은 글자색뿐**이다. 크기·위치·판은 `useTabSelectionMotion` 이
+ * 옛 모양에서 새 모양으로 풀어 준다(FLIP — transform·opacity 만 움직여 합성 스레드가 돌린다). 종전에는 높이·
+ * 바깥 여백·폭을 메인 스레드에서 바꿔 가며 움직여, 프로젝트를 바꾸며 캔버스를 다시 그리는 동안 움직임이
+ * 화면에 거의 안 남았고, 움직임 줄이기(OS 설정)에서는 `motion-reduce:` 변형으로 전환이 통째로 꺼졌다.
+ */
+const TAB_SELECTION_MOTION = 'transition-colors duration-200 ease-out';
+/**
+ * §5.4 #14 — 탭의 **판**(배경·윗선·구분선·둥근 모서리). 크기가 바뀌는 순간 판만 옛 크기에서 새 크기로
+ * 늘거나 줄어야 하므로 본체가 아니라 본체를 덮는 이 층이 그린다(본체의 테두리는 자리만 잡는 투명 선이다 —
+ * 판이 그 자리까지 덮는다). 쉬는 판과 고른 판을 겹쳐 두고 불투명도로 갈아 끼운다.
+ */
+const TAB_PLATE = 'pointer-events-none absolute -top-0.5 -right-px bottom-0 left-0 origin-top-left';
+const TAB_PLATE_LAYER = 'absolute inset-0 border-r border-t-2 border-black/30 transition-[opacity,background-color] duration-[260ms] ease-out';
+const TAB_PLATE_IDLE = `${TAB_PLATE_LAYER} rounded-t border-t-transparent bg-black/25 group-hover:bg-black/40`;
+const TAB_PLATE_ACTIVE = `${TAB_PLATE_LAYER} rounded-t-md bg-gray-950`;
 
 /**
  * projectId 정규화 — 서버 appState(경로키)와 동일 semantics.
@@ -98,6 +138,59 @@ function toCloseTarget(item: TabItem): TabCloseTarget {
   // iframe 탭은 에이전트를 갖지 않는다 — 언제나 즉시 닫힘 경로.
   return { key: item.key, kind: 'iframe', label: item.tab.label, runningCount: 0 };
 }
+
+// §5.4 #14-1 v2.35 — safe-zone 은 **헤더 행 전체**(h-9 = 36px 띠, 가로 무관)다.
+// 사용자 의도: File 메뉴 등 헤더 안 어디서든 reorder 영역, 헤더 띠를 벗어나야(=캔버스로 내려와야) detach.
+// 별창에서도 동일 — 별창의 미니 타이틀바도 36px 띠지만 별창엔 TabBar 가 없으므로 이 컨테이너 자체가 마운트 안 됨.
+const HEADER_SAFE_HEIGHT = 36;
+
+/**
+ * 이 창에서 탭을 별창으로 뗄 수 있는가 — 창을 못 여는 판(웹·모바일 접속)에서 "놓으면 별창" 표시와
+ * 선만 뜨고 아무 일도 안 일어나면 그건 고장으로 읽힌다(§5.13 (S-3) `pullOut.enabled` 와 같은 규율).
+ */
+function canDetachTabs(): boolean {
+  return typeof window !== 'undefined' && !!window.api?.window;
+}
+
+/**
+ * §5.4 #14-1 (H) — 떼어 내는 동안의 선을 **누가 그리는가**. `os` 면 main 의 클릭통과 창이 앱 밖까지
+ * 잇고(`ghostFrame.ts`), `inapp` 은 그 창이 서기 전이거나 못 띄우는 환경이라 앱 안에 그린다.
+ */
+interface DetachGhostView {
+  kind: 'os' | 'inapp';
+  frame: DetachGhostFrame;
+  /** 손에 든 고스트 칸 안에서 선이 설 자리(탭 안 잡은 지점 − 선의 잡은 지점). */
+  offset: { x: number; y: number };
+}
+
+/** 한 판의 선 — 유지·멈춤을 부탁할 때 같은 값을 보내야 선이 흔들리지 않는다. */
+interface DetachGhostSession {
+  seq: number;
+  frame: DetachGhostFrame;
+  label: string;
+  hint: string;
+  /** main 에 선을 부탁했는가 — 그랬다면 거둘 때도 main 에 말해야 한다(클릭통과 선은 사용자가 못 없앤다). */
+  requested: boolean;
+  /** main 의 선이 실제로 그려졌는가(`ghostShow` 가 참으로 답했다) — 아니면 놓는 순간 앱 안 선이 그 틈을 잇는다. */
+  painted: boolean;
+  keepAlive: number | null;
+}
+
+/** 손을 뗀 뒤 main 의 선이 그려지기를 기다리며 놓은 자리에 세워 두는 앱 안 선. */
+interface SettledDetachOutline {
+  seq: number;
+  frame: DetachGhostFrame;
+  /** 뷰포트 좌표의 선 좌상단 — 놓은 커서에서 선의 잡은 지점을 뺀 자리(= main 의 선이 멈춘 자리). */
+  at: { x: number; y: number };
+  label: string;
+  hint: string;
+}
+
+/**
+ * 멈춘 앱 안 선의 상한(ms) — main 의 선 대답이 끝내 안 와도 화면에 남지 않게.
+ * main 은 선의 문서가 선 뒤에 대답하고 그 기다림의 상한이 300ms 다(`ghostFrame.ts`) — 그보다 넉넉히.
+ */
+const DETACH_SETTLED_OUTLINE_MAX_MS = 600;
 
 export function TabBar(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -208,19 +301,51 @@ export function TabBar(): React.JSX.Element | null {
   // --- Tab ordering (local UI state) ---
   const [tabOrder, setTabOrder] = useState<string[]>([]);
 
+  // §5.4 #14-2 (C-1) — **프로젝트 탭끼리의 순서는 서버 `AppState.openProjects` 의 배열 순서**다(껐다 켜도 남는다).
+  //   종전에는 이 줄 순서가 여기 휘발 상태뿐이라, 앱을 켤 때마다 첫 스냅샷이 실어 온 순서("마지막으로 보던 프로젝트
+  //   → 나머지")로 다시 섰다 — 끌어서 맞춰 둔 자리가 흐트러지고 마지막에 본 탭이 맨 앞으로 튀었다(사용자 보고).
+  //   iframe 탭은 서버가 모르므로 종전처럼 이 로컬 순서 안의 제자리다.
+  const serverProjectOrder = appState?.openProjects ?? NO_PROJECT_ORDER;
+  // 놓은 직후의 붙들기 — PATCH 전에 떠난 스냅샷이 옛 순서를 싣고 와 탭을 한 번 되돌리지 않게(`linkViewHold` 와 같은 규율).
+  const [orderHold, setOrderHoldState] = useState<ProjectTabOrderHold | null>(null);
+  // PATCH 의 답이 자기 붙들기를 찾으려면 지금 값을 곧바로 읽어야 한다 — 바꿀 때마다 ref 도 함께 맞춘다.
+  const orderHoldRef = useRef<ProjectTabOrderHold | null>(null);
+  const setOrderHold = useCallback((next: ProjectTabOrderHold | null) => {
+    orderHoldRef.current = next;
+    setOrderHoldState(next);
+  }, []);
+  /** 줄이 따를 프로젝트 순서 — 붙드는 동안은 서버 순서 위에 놓은 순서를 얹은 것(서버가 PATCH 를 받으면 같은 답). */
+  const projectOrder = useMemo(
+    () => heldProjectTabOrder(serverProjectOrder, orderHold, clientPathPlatform()),
+    [serverProjectOrder, orderHold],
+  );
+
+  const tabEntries = useMemo((): TabOrderEntry[] => [
+    ...projectItems.map((t): TabOrderEntry => (t.kind === 'project' ? { key: t.key, path: t.path } : { key: t.key })),
+    ...iframeItems.map((t): TabOrderEntry => ({ key: t.key })),
+  ], [projectItems, iframeItems]);
+
   useEffect(() => {
-    const allKeys = new Set([
-      ...projectItems.map((t) => t.key),
-      ...iframeItems.map((t) => t.key),
-    ]);
+    const platform = clientPathPlatform();
     setTabOrder((prev) => {
-      const kept = prev.filter((k) => allKeys.has(k));
-      const existing = new Set(kept);
-      const newKeys = [...allKeys].filter((k) => !existing.has(k));
-      if (newKeys.length === 0 && kept.length === prev.length) return prev;
-      return [...kept, ...newKeys];
+      const next = syncTabOrder(prev, tabEntries, projectOrder, platform);
+      return sameTabOrder(prev, next) ? prev : next;
     });
-  }, [projectItems, iframeItems]);
+  }, [tabEntries, projectOrder]);
+
+  // 붙들기를 놓는다 — 보낸 PATCH 가 다 답한 뒤 서버 순서가 놓은 순서를 따르면 곧바로, 아무것도 안 오면 안전망 시간 뒤에.
+  useEffect(() => {
+    if (!orderHold) return;
+    const now = Date.now();
+    if (isProjectTabOrderHoldDone(orderHold, serverProjectOrder, now, PROJECT_TAB_ORDER.pendingMs, clientPathPlatform())) {
+      setOrderHold(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (orderHoldRef.current === orderHold) setOrderHold(null);
+    }, Math.max(0, orderHold.at + PROJECT_TAB_ORDER.pendingMs - now) + 1);
+    return () => clearTimeout(timer);
+  }, [orderHold, serverProjectOrder, setOrderHold]);
 
   const tabMap = useMemo(() => {
     const map = new Map<string, TabItem>();
@@ -278,15 +403,29 @@ export function TabBar(): React.JSX.Element | null {
   // §5.4 #14-1 — 드래그 중 마우스가 탭바 밖에 있어 detach 가 예상되는 상태일 때 detach-hint 표시.
   const [detachHint, setDetachHint] = useState(false);
 
-  // §5.4 #14-1 v2.35 — safe-zone 은 **헤더 행 전체**(h-9 = 36px 띠, 가로 무관)다.
-  // 사용자 의도: File 메뉴 등 헤더 안 어디서든 reorder 영역, 헤더 띠를 벗어나야(=캔버스로 내려와야) detach.
-  // 별창에서도 동일 — 별창의 미니 타이틀바도 36px 띠지만 별창엔 TabBar 가 없으므로 이 컨테이너 자체가 마운트 안 됨.
-  const HEADER_SAFE_HEIGHT = 36;
+  /**
+   * §5.4 #14-1 (H) — 띠 밖에서 손을 따라오는 **가상 창**(곧 설 별창 크기 그대로의 선).
+   *
+   * 종전에 손에 들린 것은 탭 모양의 DOM 이라 **앱 창 경계에서 잘려 사라졌다** — 앱 밖은 렌더러가 그릴
+   * 수 없다(사용자 보고 — "앱의 경계에서 그림이 사라져서 내 마우스를 따라오지 않는 느낌"). IDE 창을 밖으로
+   * 빼는 길(§5.5 #17-6 (H-6)·(H-19))과 같이, 띠 밖에서는 탭 대신 선 하나가 손을 따라오고 그 선은 main 의
+   * 클릭통과 창이 앱 밖까지 잇는다. 놓으면 별창이 **그 선의 자리·크기 그대로** 선다((H-17) ④).
+   */
+  const [detachGhost, setDetachGhost] = useState<DetachGhostView | null>(null);
+  const detachGhostRef = useRef<DetachGhostSession | null>(null);
+  const detachGhostSeqRef = useRef(0);
+  // 빠르게 놓은 손 — main 의 선이 그려지기 전에 손을 뗐으면 그 선이 설 때까지 앱 안 선이 놓은 자리를 지킨다.
+  const [settledOutline, setSettledOutline] = useState<SettledDetachOutline | null>(null);
+  const settledOutlineTimerRef = useRef<number | null>(null);
 
-  /** 헤더 띠 밖에서 놓았다 — 그 탭을 별창으로 뗀다(§5.4 #14-1). */
-  const detachTab = useCallback((draggedKey: string, screenX: number, screenY: number) => {
+  /** 헤더 띠 밖에서 놓았다 — 그 탭을 별창으로 뗀다(§5.4 #14-1). `fromGhost` 면 멈춰 세운 선의 자리·크기에 선다. */
+  const detachTab = useCallback((draggedKey: string, screenX: number, screenY: number, fromGhost = false) => {
     const item = tabMap.get(draggedKey);
-    if (!item) return;
+    if (!item) {
+      // 그 사이 탭이 사라졌다 — 이어받을 별창이 없으니 멈춰 세운 선도 남기지 않는다.
+      if (fromGhost) void window.api?.overlay?.ghostHide?.();
+      return;
+    }
 
     const api = typeof window !== 'undefined' ? window.api : undefined;
     if (!api?.window) {
@@ -295,10 +434,11 @@ export function TabBar(): React.JSX.Element | null {
     }
 
     // screen 좌표가 필요(BrowserWindow 좌상단 기준) — 포인터 이벤트의 screenX/Y 를 그대로 쓴다.
+    //   선이 있으면 main 은 이 좌표 대신 선의 경계를 직접 읽는다(배율이 다른 모니터에서도 놓은 그 자리).
     const cursor = { x: screenX, y: screenY };
 
     void api.window
-      .detach({ kind: item.kind, tabKey: draggedKey, cursor })
+      .detach({ kind: item.kind, tabKey: draggedKey, cursor, ...(fromGhost ? { fromGhost: true } : {}) })
       .then(({ reused }) => {
         // 활성 탭을 detach 한 경우 메인을 다음 visible 탭으로 자동 전환(§5.4 #14-1 B).
         // detach 후 server 의 detachedTabKeys 가 broadcast 되어 store 가 즉시 갱신됨.
@@ -328,8 +468,135 @@ export function TabBar(): React.JSX.Element | null {
       })
       .catch((err) => {
         console.error('[TabBar] detach failed', err);
+        // §5.4 #14-1 (H) 별창이 못 섰다 — 멈춰 세운 선을 남기지 않는다(클릭통과라 사용자가 없앨 수 없다).
+        if (fromGhost) void window.api?.overlay?.ghostHide?.();
       });
   }, [tabMap, tabOrder]);
+
+  /**
+   * §5.4 #14-1 (H) 띠 밖으로 나왔다 — 곧 설 별창 크기의 선을 손에 매단다. 이미 떠 있으면 그대로다
+   * (한 판 안에서 크기·잡은 지점은 변하지 않는다 — 다시 재면 선이 손 아래에서 흔들린다).
+   */
+  const showDetachGhost = useCallback((key: string, grab: PointerDragGrab): void => {
+    if (detachGhostRef.current) return;
+    const item = tabMap.get(key);
+    const label = item?.kind === 'project' ? item.name : item?.kind === 'iframe' ? item.tab.label : key;
+    const scr = typeof window !== 'undefined' ? window.screen : undefined;
+    const frame = detachGhostFrame({
+      grab,
+      avail: scr && scr.availWidth > 0 && scr.availHeight > 0 ? { width: scr.availWidth, height: scr.availHeight } : null,
+    });
+    const hint = t('tabDetach.detachCardTitle', { defaultValue: 'Drop here to open as new window' });
+    const seq = detachGhostSeqRef.current + 1;
+    detachGhostSeqRef.current = seq;
+    const ov = window.api?.overlay;
+    const session: DetachGhostSession = { seq, frame, label, hint, requested: !!ov?.ghostShow, painted: false, keepAlive: null };
+    detachGhostRef.current = session;
+    // 선은 **지금 이 프레임에** 서야 한다 — 손에 든 탭은 이미 숨는데 main 의 창이 서기를(백 밀리초 남짓)
+    //   기다리면 그동안 손을 따라오는 것이 없다. 앱 안 선으로 먼저 그리고, main 의 선이 그려지면 넘긴다.
+    setDetachGhost({ kind: 'inapp', frame, offset: { x: grab.x - frame.grabX, y: grab.y - frame.grabY } });
+    if (!ov?.ghostShow) return;
+    const look = { ...frame, label, armed: true, hint };
+    void ov.ghostShow(look).then((ok) => {
+      // 못 띄웠거나(합성 창이 없는 환경 등) 그 사이 선을 거뒀으면 앱 안 선 그대로 간다.
+      if (!ok || detachGhostRef.current?.seq !== seq) return;
+      session.painted = true;
+      setDetachGhost((cur) => (cur ? { ...cur, kind: 'os' } : cur));
+    }).catch(() => { /* 앱 안 선으로 계속 간다 */ });
+    // main 의 선은 클릭통과라 스스로 걷는 수명 그물(20초)이 있다 — 띠 밖에서 오래 머무는 손 아래에서 그
+    //   그물이 선을 걷지 않게 아직 끌고 있다고 알린다(IDE·앱 창 선과 같은 주기).
+    session.keepAlive = window.setInterval(() => {
+      if (detachGhostRef.current?.seq !== seq) return;
+      void window.api?.overlay?.ghostShow?.(look);
+    }, WINDOW_PULL_OUT.GHOST_KEEPALIVE_MS);
+  }, [tabMap, t]);
+
+  /** §5.4 #14-1 (H) 선을 거둔다 — 띠 안으로 돌아왔거나 판이 끝났다(띠 안에 놓음 · Esc · 창 포커스 상실). */
+  const hideDetachGhost = useCallback((): void => {
+    const session = detachGhostRef.current;
+    if (!session) return;
+    detachGhostRef.current = null;
+    if (session.keepAlive !== null) window.clearInterval(session.keepAlive);
+    setDetachGhost(null);
+    if (session.requested) void window.api?.overlay?.ghostHide?.();
+  }, []);
+
+  /**
+   * §5.4 #14-1 (H) 띠 밖에서 손을 뗐다 — 선을 **그 자리에 멈춘다**. 별창은 그 선의 자리·크기에 서고(main 이
+   * 선의 경계를 직접 읽는다), 선은 main 이 그 창이 보인 뒤에 걷는다 — 여기서 걷으면 창이 뜨기까지 놓은
+   * 자리가 빈다. 멈춤 부탁은 반드시 `detach` 보다 먼저 나간다(같은 통로라 main 이 차례대로 받는다).
+   * @param at 손을 뗀 자리(뷰포트 좌표) — main 의 선이 아직 안 그려졌으면 그 자리에 앱 안 선을 세워 둔다.
+   * @returns 별창을 그 선에 맞춰 세울 수 있는가(`detach` 의 `fromGhost`).
+   */
+  const settleDetachGhost = useCallback((at: PointerDragPoint): boolean => {
+    const session = detachGhostRef.current;
+    if (!session) return false;
+    detachGhostRef.current = null;
+    if (session.keepAlive !== null) window.clearInterval(session.keepAlive);
+    setDetachGhost(null);
+    const ov = window.api?.overlay;
+    if (!session.requested || !ov?.ghostShow) return false;
+    // main 의 선이 아직 안 섰어도 이 부탁이 지금 커서 자리에 세운다 — 놓은 자리가 비지 않는다.
+    const settled = ov.ghostShow({ ...session.frame, label: session.label, armed: true, hint: session.hint, settled: true });
+    if (session.painted) {
+      void settled.catch(() => { /* 선 없이도 별창은 선다 — main 이 커서 기준 자리로 떨어진다 */ });
+      return true;
+    }
+    // §5.5 #17-6 (H-7) ② 와 같은 자리 — 빠르게 놓은 손에서는 main 의 선이 아직 안 그려졌다. 손에 든 칸이
+    //   사라지며 앱 안 선도 함께 사라지면 그 선이 그려질 때까지 놓은 자리에 아무 선도 없는 틈이 생기므로,
+    //   대답이 올 때까지 앱 안 선을 놓은 그 자리(= main 의 선이 멈춘 자리)에 세워 둔다.
+    const seq = session.seq;
+    setSettledOutline({
+      seq,
+      frame: session.frame,
+      at: { x: at.x - session.frame.grabX, y: at.y - session.frame.grabY },
+      label: session.label,
+      hint: session.hint,
+    });
+    const clear = (): void => { setSettledOutline((cur) => (cur?.seq === seq ? null : cur)); };
+    void settled.then(clear, clear);
+    if (settledOutlineTimerRef.current !== null) window.clearTimeout(settledOutlineTimerRef.current);
+    settledOutlineTimerRef.current = window.setTimeout(clear, DETACH_SETTLED_OUTLINE_MAX_MS);
+    return true;
+  }, []);
+
+  // 탭바가 내려가면 떠 있던 선도 함께 거둔다 — 클릭통과 선은 사용자가 없앨 수 없다.
+  useEffect(() => () => {
+    hideDetachGhost();
+    if (settledOutlineTimerRef.current !== null) window.clearTimeout(settledOutlineTimerRef.current);
+  }, [hideDetachGhost]);
+
+  /**
+   * 손이 지금 띠 밖인가 — 그때 놓으면 별창이다. 무장 표시(`detachHint`)와 선은 이 한 곳에서 함께 켜고
+   * 끈다(둘이 갈리면 "놓으면 별창"이라 말하는 그림과 실제가 어긋난다).
+   */
+  const followDetachZone = useCallback((key: string, p: PointerDragPoint, grab: PointerDragGrab): void => {
+    const armed = canDetachTabs() && p.y >= HEADER_SAFE_HEIGHT;
+    setDetachHint(armed);
+    if (armed) showDetachGhost(key, grab);
+    else hideDetachGhost();
+  }, [showDetachGhost, hideDetachGhost]);
+
+  /**
+   * §5.4 #14-2 (C-1) — 놓은 순서 중 **프로젝트 탭끼리의 앞뒤**를 서버에 남긴다(다음에 켜도 그 자리에 선다).
+   * 화면은 기다리지 않는다 — 붙들기가 놓은 순서를 곧바로 그리고, 답은 붙들기를 놓는 근거로만 쓴다.
+   */
+  const commitProjectOrder = useCallback((nextVisible: readonly string[]) => {
+    const paths: string[] = [];
+    for (const key of nextVisible) {
+      const item = tabMap.get(key);
+      if (item?.kind === 'project') paths.push(item.path);
+    }
+    // 프로젝트 탭끼리의 앞뒤가 그대로면(iframe 탭만 옮겼다) 보낼 것이 없다.
+    if (paths.length < 2 || projectOrderFollows(projectOrder, paths, clientPathPlatform())) return;
+    const now = Date.now();
+    // 답이 자기 붙들기를 찾는 표 — 붙들기를 세우기 **전에** 읽는다(이미 붙들고 있으면 그 붙들기의 것).
+    const since = orderHoldRef.current?.since ?? now;
+    setOrderHold(beginProjectTabOrderHold(orderHoldRef.current, paths, now));
+    void useGraphStore.getState().reorderProjectTabs(paths).then((ok) => {
+      setOrderHold(settleProjectTabOrderHold(orderHoldRef.current, since, ok));
+    });
+  }, [tabMap, projectOrder, setOrderHold]);
 
   const tabDrag = usePointerDragReorder({
     axis: 'x',
@@ -340,17 +607,23 @@ export function TabBar(): React.JSX.Element | null {
     ignoreSelector: 'button',
     // §5.4 #14-2 (F-6) — 꾹 누르지 않는다. 누른 채 문턱을 넘게 끌면 곧장 든다(터치만 꾹 누르기로 남는다).
     activation: 'drag',
-    onDragStart: (_key, p) => { setDetachHint(p.y >= HEADER_SAFE_HEIGHT); },
-    onDragMove: (_key, p) => { setDetachHint(p.y >= HEADER_SAFE_HEIGHT); },
+    onDragStart: (key, p, grab) => { followDetachZone(key, p, grab); },
+    onDragMove: (key, p, grab) => { followDetachZone(key, p, grab); },
     onCommit: (next, p, key) => {
       setDetachHint(false);
+      // §5.4 #14-1 (H) 놓은 자리가 띠 밖이면 선을 그 자리에 멈추고(별창이 이어받는다), 띠 안이면 거둔다.
+      const detaching = canDetachTabs() && p.y >= HEADER_SAFE_HEIGHT;
+      const fromGhost = detaching && settleDetachGhost(p);
+      if (!detaching) hideDetachGhost();
       // 화면에 선 탭만 끌 수 있으므로 새 순서는 전체 `tabOrder` 의 **그 자리들에만** 되꽂는다
       //   (별창으로 빠진 탭이 사이에 껴 있어도 보이는 앞뒤가 어긋나지 않는다 — #14-2 (C) 키 기반 규약).
       if (next) setTabOrder((prev) => applyVisibleOrder(prev, visibleKeys, next));
+      // §5.4 #14-2 (C-1) — 프로젝트 탭끼리의 새 앞뒤는 서버 `openProjects` 순서로 남긴다(껐다 켜도 그 자리).
+      if (next) commitProjectOrder(next);
       // 순서가 그대로여도 놓은 자리가 헤더 띠 밖이면 별창이다 — 그래서 `next` 와 배타적이지 않다.
-      if (p.y >= HEADER_SAFE_HEIGHT) detachTab(key, p.screenX, p.screenY);
+      if (detaching) detachTab(key, p.screenX, p.screenY, fromGhost);
     },
-    onCancel: () => { setDetachHint(false); },
+    onCancel: () => { setDetachHint(false); hideDetachGhost(); },
   });
 
   // 끄는 동안에는 손이 만든 순서가 화면을 붙든다(서버·스토어 왕복 ❌ — #14-2 (C)).
@@ -623,8 +896,6 @@ export function TabBar(): React.JSX.Element | null {
 
   useEffect(() => { updateScrollState(); }, [orderedTabs, updateScrollState]);
 
-  useTabWidthAnimation(scrollEl, tabDrag.dragKey !== null);
-
   // §5.4 #14 — 순서가 바뀌면 옆 탭이 **밀려나며** 제자리에 앉는다(FLIP). 끌고 있는 탭은 손을 바로
   // 따라오고 이웃은 살짝 넘겼다 돌아온다. 탭이 닫혀 옆이 메워질 때도 같은 재생이 돈다.
   useTabPushAnimation({
@@ -645,18 +916,19 @@ export function TabBar(): React.JSX.Element | null {
   }, [scrollEl]);
 
   // 활성 탭이 뷰포트 밖이면 자동 가시화.
-  const activeKey = useMemo(() => {
-    if (activeIframeId) return `i:${activeIframeId}`;
-    if (activeProject) return `p:${activeProject}`;
-    return null;
-  }, [activeIframeId, activeProject]);
+  const activeKey = useMemo(() => tabSelectionKey(activeIframeId, activeProject), [activeIframeId, activeProject]);
+
+  // §5.4 #14 — 고른 탭이 바뀌면 그 탭은 이름만큼 커지고 앞서 고른 탭은 한 칸으로 준다. 폭은 그 자리에서
+  //   끝 값이 되고, 보이는 쪽만 옛 모양에서 새 모양으로 풀린다(아이폰식 스프링 · 이름은 커튼처럼 드러나며
+  //   또렷해진다 · 움직임 줄이기에서는 튐과 흐림만 뺀다).
+  useTabSelectionMotion(scrollEl, activeKey, tabDrag.dragKey !== null);
 
   useEffect(() => {
     if (!activeKey || !scrollEl || tabDrag.dragKey !== null) return;
     const tab = Array.from(scrollEl.children).find((node) => node.getAttribute('data-tab-key') === activeKey) as HTMLElement | undefined;
     if (!tab) return;
     let frame = 0;
-    const deadline = performance.now() + TAB_WIDTH_MOTION_MS;
+    const deadline = performance.now() + TAB_SELECTION_FLIP.followMs;
     const reveal = (): void => {
       const tl = tab.offsetLeft;
       const tr = tl + tab.offsetWidth;
@@ -712,6 +984,8 @@ export function TabBar(): React.JSX.Element | null {
         무슨 일이 나나)을 그대로 이어받되, 카드 대신 **탭 자신의 모양**으로 온다 — 커서 옆에 뜨는
         네모가 둘(네이티브 고스트 + 안내 카드)이던 것을 하나로 합친 셈이다.
         `document.body` 로 내보내고 자리는 훅이 `transform` 으로 준다(프레임마다 리렌더 ❌).
+        §5.4 #14-1 (H) 띠 밖에서는 탭·안내 대신 **곧 설 별창 크기의 선** 하나가 손을 따라온다 —
+        main 의 선이 서면(`os`) 앱 밖까지 그쪽이 이으므로 여기는 비운다(같은 자리를 두 선이 그리지 않게).
       */}
       {tabDrag.dragKey !== null && createPortal(
         <div
@@ -720,45 +994,46 @@ export function TabBar(): React.JSX.Element | null {
           aria-hidden
           className="pointer-events-none fixed left-0 top-0 z-[9999] will-change-transform"
         >
-          <div
-            // 집어 든 순간 원본 탭이 차지하던 치수 그대로(§5.4 #14-2 (F-2)) — 폭을 `w-32` 로 박아
-            //   두면 프로젝트 이름·배지 때문에 탭이 넓어졌을 때 손에 드는 순간 좁아진다.
-            style={tabDrag.dragSize ?? undefined}
-            className={`flex items-center gap-1.5 rounded-t-md border-t-2 px-2.5 text-[12px] font-medium shadow-lg shadow-black/60 transition-colors duration-100 ${
-              detachHint
-                ? 'border-t-amber-400 bg-vb-raised text-amber-100 ring-1 ring-amber-400/60'
-                : 'border-t-blue-400 bg-gray-950 text-white/90 ring-1 ring-white/[0.08]'
-            }`}
-          >
-            <span className="min-w-0 flex-1 truncate">{dragLabel}</span>
-          </div>
-          <div
-            className={`mt-1 flex max-w-[260px] items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-medium shadow-lg shadow-black/50 transition-colors duration-100 ${
-              detachHint
-                ? 'bg-vb-raised text-amber-200 ring-1 ring-amber-400/60'
-                : 'bg-vb-raised/85 text-gray-300 ring-1 ring-white/[0.08]'
-            }`}
-          >
-            {detachHint ? (
-              <svg className="h-3 w-3 flex-shrink-0 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 4h6v6" />
-                <path d="M10 14L20 4" />
-                <path d="M20 14v6H4V4h6" />
-              </svg>
-            ) : (
-              <svg className="h-3 w-3 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 5h13" />
-                <path d="M8 12h13" />
-                <path d="M8 19h13" />
-                <path d="M3 5h.01M3 12h.01M3 19h.01" />
-              </svg>
-            )}
-            <span className="truncate">
-              {detachHint
-                ? t('tabDetach.detachCardTitle', { defaultValue: 'Drop here to open as new window' })
-                : t('tabDetach.reorderCardSubtitle', { defaultValue: 'Stay inside the tab bar to reorder' })}
-            </span>
-          </div>
+          {detachGhost ? (
+            detachGhost.kind === 'inapp' && (
+              <TabDetachOutline
+                frame={detachGhost.frame}
+                offset={detachGhost.offset}
+                label={dragLabel}
+                hint={t('tabDetach.detachCardTitle', { defaultValue: 'Drop here to open as new window' })}
+              />
+            )
+          ) : (
+            <>
+              <div
+                // 집어 든 순간 원본 탭이 차지하던 치수 그대로(§5.4 #14-2 (F-2)) — 폭을 `w-32` 로 박아
+                //   두면 프로젝트 이름·배지 때문에 탭이 넓어졌을 때 손에 드는 순간 좁아진다.
+                style={tabDrag.dragSize ?? undefined}
+                className="flex items-center gap-1.5 rounded-t-md border-t-2 border-t-blue-400 bg-gray-950 px-2.5 text-[12px] font-medium text-white/90 shadow-lg shadow-black/60 ring-1 ring-white/[0.08]"
+              >
+                <span className="min-w-0 flex-1 truncate">{dragLabel}</span>
+              </div>
+              <div className="mt-1 flex max-w-[260px] items-center gap-1 rounded-md bg-vb-raised/85 px-2.5 py-1 text-[12px] font-medium text-gray-300 shadow-lg shadow-black/50 ring-1 ring-white/[0.08]">
+                <svg className="h-3 w-3 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 5h13" />
+                  <path d="M8 12h13" />
+                  <path d="M8 19h13" />
+                  <path d="M3 5h.01M3 12h.01M3 19h.01" />
+                </svg>
+                <span className="truncate">
+                  {t('tabDetach.reorderCardSubtitle', { defaultValue: 'Stay inside the tab bar to reorder' })}
+                </span>
+              </div>
+            </>
+          )}
+        </div>,
+        document.body,
+      )}
+      {/* §5.4 #14-1 (H) 빠르게 놓은 손 — 끌기는 끝났지만 main 의 선이 아직 안 그려졌다. 그 선이 설 때까지
+          놓은 자리에 앱 안 선을 세워 둔다(손에 든 칸과 함께 사라지면 놓은 자리가 잠깐 빈다 — (H-7) ②). */}
+      {settledOutline && createPortal(
+        <div aria-hidden className="pointer-events-none fixed left-0 top-0 z-[9999]">
+          <TabDetachOutline frame={settledOutline.frame} offset={settledOutline.at} label={settledOutline.label} hint={settledOutline.hint} />
         </div>,
         document.body,
       )}
@@ -793,12 +1068,12 @@ export function TabBar(): React.JSX.Element | null {
               style={tabDrag.dragKey !== null ? { touchAction: 'none' } : undefined}
               data-tab-surface
               data-tab-active={isActive}
-              className={`group app-nodrag relative flex flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium ${TAB_SELECTION_MOTION} cursor-grab select-none ${
+              className={`group app-nodrag relative flex flex-shrink-0 items-center gap-1.5 border-r border-t-2 border-transparent px-2.5 text-[12px] font-medium ${TAB_SELECTION_MOTION} cursor-grab select-none ${
                 isDragging ? 'opacity-0' : ''
               } ${
                 isActive
-                  ? `${TAB_WIDTH_ACTIVE} h-full rounded-t-md border-t-2 border-t-blue-400 bg-gray-950 text-white/90`
-                  : `${TAB_WIDTH_IDLE} mt-[5px] h-[calc(100%-5px)] rounded-t border-t-2 border-t-transparent bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200`
+                  ? `${TAB_WIDTH_ACTIVE} h-full text-white/90`
+                  : `${TAB_WIDTH_IDLE} mt-[5px] h-[calc(100%-5px)] text-gray-400 hover:text-gray-200`
               }`}
               onClick={() => {
                 // 끌고 난 직후의 클릭은 그 탭으로 가라는 뜻이 아니다.
@@ -806,8 +1081,13 @@ export function TabBar(): React.JSX.Element | null {
                 useGraphStore.getState().setActiveProject(item.name);
               }}
             >
+              {/* §5.4 #14 판 — 크기가 바뀔 때 이 층만 늘고 준다. 첫 자식이고, 그 뒤 칸들은 모두 `relative` 라 글자가 판 위에 선다. */}
+              <span data-tab-part="plate" aria-hidden className={TAB_PLATE}>
+                <span className={`${TAB_PLATE_IDLE} ${isActive ? 'opacity-0' : 'opacity-100'}`} />
+                <span className={`${TAB_PLATE_ACTIVE} border-t-blue-400 ${isActive ? 'opacity-100' : 'opacity-0'}`} />
+              </span>
               {isPinned && (
-                <span className="flex-shrink-0 cursor-help" title={t('tabMenu.pinTooltip')}>
+                <span className="relative flex-shrink-0 cursor-help" title={t('tabMenu.pinTooltip')}>
                   <svg className="h-3 w-3 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 17v5" />
                     <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
@@ -815,13 +1095,18 @@ export function TabBar(): React.JSX.Element | null {
                 </span>
               )}
               {isDefault && (
-                <span className="flex-shrink-0 cursor-help" title={t('tabMenu.defaultTooltip')}>
+                <span className="relative flex-shrink-0 cursor-help" title={t('tabMenu.defaultTooltip')}>
                   <svg className="h-3 w-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.3l6.5-.9z" />
                   </svg>
                 </span>
               )}
-              <HoverTooltip className={`min-w-0 flex-1 tab-selection-label ${isActive ? TAB_LABEL_ACTIVE_MAX : ''}`} label={item.name} />
+              <HoverTooltip className={`min-w-0 flex-1 tab-selection-label ${isActive ? TAB_LABEL_ACTIVE_MAX : ''}`} label={item.name}>
+                {/* 이름 칸이 늘 때 안쪽은 그 역수로 펴(글자는 늘어나지 않는다), 글자 칸은 흐림에서 또렷하게 나타난다. */}
+                <span data-tab-part="label-inner" className="inline-block origin-left">
+                  <span data-tab-part="label-text" className="inline-block">{item.name}</span>
+                </span>
+              </HoverTooltip>
               {item.count > 0 && (() => {
                 const dotState: ProjectDotState =
                   item.runningCount > 0
@@ -843,7 +1128,7 @@ export function TabBar(): React.JSX.Element | null {
                 return (
                   <span
                     title={tooltip}
-                    className="flex flex-shrink-0 items-center gap-1 text-[12px] tabular-nums text-gray-300"
+                    className="relative flex flex-shrink-0 items-center gap-1 text-[12px] tabular-nums text-gray-300"
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${PROJECT_DOT_STYLES[dotState]}`} />
                     <span>{item.runningCount}/{item.sessionCount}</span>
@@ -888,20 +1173,25 @@ export function TabBar(): React.JSX.Element | null {
             style={tabDrag.dragKey !== null ? { touchAction: 'none' } : undefined}
             data-tab-surface
             data-tab-active={isActive}
-            className={`group app-nodrag relative flex flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium ${TAB_SELECTION_MOTION} cursor-grab select-none ${
+            className={`group app-nodrag relative flex flex-shrink-0 items-center gap-1.5 border-r border-t-2 border-transparent px-2.5 text-[12px] font-medium ${TAB_SELECTION_MOTION} cursor-grab select-none ${
               isDragging ? 'opacity-0' : ''
             } ${
               isActive
-                ? `${TAB_WIDTH_ACTIVE} h-full rounded-t-md border-t-2 border-t-sky-400 bg-gray-950 text-sky-300`
-                : `${TAB_WIDTH_IDLE} mt-[5px] h-[calc(100%-5px)] rounded-t border-t-2 border-t-transparent bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200`
+                ? `${TAB_WIDTH_ACTIVE} h-full text-sky-300`
+                : `${TAB_WIDTH_IDLE} mt-[5px] h-[calc(100%-5px)] text-gray-400 hover:text-gray-200`
             }`}
             onClick={() => {
               if (tabDrag.consumeClick()) return;
               useGraphStore.getState().setActiveIframeTab(item.tab.id);
             }}
           >
+            {/* 판 규약은 위 프로젝트 탭과 같다 — 윗선 색만 iframe 의 하늘색. */}
+            <span data-tab-part="plate" aria-hidden className={TAB_PLATE}>
+              <span className={`${TAB_PLATE_IDLE} ${isActive ? 'opacity-0' : 'opacity-100'}`} />
+              <span className={`${TAB_PLATE_ACTIVE} border-t-sky-400 ${isActive ? 'opacity-100' : 'opacity-0'}`} />
+            </span>
             {isPinned && (
-              <span className="flex-shrink-0 cursor-help" title={t('tabMenu.pinTooltip')}>
+              <span className="relative flex-shrink-0 cursor-help" title={t('tabMenu.pinTooltip')}>
                 <svg className="h-3 w-3 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 17v5" />
                   <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
@@ -909,19 +1199,29 @@ export function TabBar(): React.JSX.Element | null {
               </span>
             )}
             {isDefault && (
-              <span className="flex-shrink-0 cursor-help" title={t('tabMenu.defaultTooltip')}>
+              <span className="relative flex-shrink-0 cursor-help" title={t('tabMenu.defaultTooltip')}>
                 <svg className="h-3 w-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.3l6.5-.9z" />
                 </svg>
               </span>
             )}
-            <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor" fillOpacity={0.6} stroke="currentColor" strokeWidth={1.5}>
-              <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zM4 12c0-.93.16-1.82.46-2.65L8 12.83V14a2 2 0 0 0 2 2v3.73A8.01 8.01 0 0 1 4 12zm14.54 3.35A2 2 0 0 0 17 14h-1v-3a1 1 0 0 0-1-1H9V8h2a1 1 0 0 0 1-1V5.08A7.97 7.97 0 0 1 20 12c0 1.2-.27 2.34-.74 3.35z" />
-            </svg>
-            <HoverTooltip className={`min-w-0 flex-1 tab-selection-label ${isActive ? TAB_LABEL_ACTIVE_MAX : ''}`} label={item.tab.label} />
-            <span className={`flex-shrink-0 rounded px-1 text-[12px] font-semibold ${item.tab.serverKind === 'frontend' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
-              {item.tab.serverKind === 'frontend' ? t('common.serverKind.frontendShort') : t('common.serverKind.backendShort')}
+            {/* SVG 를 직접 옮기면 배율 ≠ 100% 에서 합성기가 맡지 않는다 — 감싼 칸이 움직인다. */}
+            <span className="relative flex flex-shrink-0">
+              <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor" fillOpacity={0.6} stroke="currentColor" strokeWidth={1.5}>
+                <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zM4 12c0-.93.16-1.82.46-2.65L8 12.83V14a2 2 0 0 0 2 2v3.73A8.01 8.01 0 0 1 4 12zm14.54 3.35A2 2 0 0 0 17 14h-1v-3a1 1 0 0 0-1-1H9V8h2a1 1 0 0 0 1-1V5.08A7.97 7.97 0 0 1 20 12c0 1.2-.27 2.34-.74 3.35z" />
+              </svg>
             </span>
+            <HoverTooltip className={`min-w-0 flex-1 tab-selection-label ${isActive ? TAB_LABEL_ACTIVE_MAX : ''}`} label={item.tab.label}>
+              <span data-tab-part="label-inner" className="inline-block origin-left">
+                <span data-tab-part="label-text" className="inline-block">{item.tab.label}</span>
+              </span>
+            </HoverTooltip>
+            {/* FE/BE 는 로컬 서버 탭의 말이다 — 인터넷 페이지(§5.23 「더블클릭」 웹 탭)에는 달지 않는다. */}
+            {!isRemoteWebUrl(item.tab.url) && (
+              <span className={`relative flex-shrink-0 rounded px-1 text-[12px] font-semibold ${item.tab.serverKind === 'frontend' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                {item.tab.serverKind === 'frontend' ? t('common.serverKind.frontendShort') : t('common.serverKind.backendShort')}
+              </span>
+            )}
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}

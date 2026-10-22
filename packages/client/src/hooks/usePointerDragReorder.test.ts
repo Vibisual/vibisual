@@ -281,3 +281,24 @@ describe('기본값(활동바)은 꾹 누르기 그대로다 — (F-6) 은 탭 �
     expect(calls.start).toEqual(['a']);
   });
 });
+
+describe('§5.4 #14-1 (H) 잡은 지점이 콜백에 함께 온다 — 줄 밖에서 다른 그림으로 바꿔 그리는 쪽이 이어 쓴다', () => {
+  it('드는 순간과 끄는 내내 같은 값 — 처음 누른 자리 기준(탭 좌상단에서)', () => {
+    const grabs: Array<{ kind: string; x: number; y: number }> = [];
+    const { rig, api, tabA } = setup({
+      activation: 'drag',
+      onDragStart: (_key, _p, grab) => { grabs.push({ kind: 'start', x: grab.x, y: grab.y }); },
+      onDragMove: (_key, _p, grab) => { grabs.push({ kind: 'move', x: grab.x, y: grab.y }); },
+    });
+    // 탭 a 는 (80,0) — (100,10) 을 누르면 탭 안의 (20,10) 을 잡은 것이다.
+    api.onPointerDown(press(tabA, { x: 100, y: 10 }), 'a');
+    rig.dispatch('pointermove', moveTo(106, 10));
+    // 띠 밖으로 한참 내려가도 잡은 지점은 그대로다 — 별창의 가상 창이 이 값으로 손 아래에 매달린다.
+    rig.dispatch('pointermove', moveTo(140, 300));
+    expect(grabs).toEqual([
+      { kind: 'start', x: 20, y: 10 },
+      { kind: 'move', x: 20, y: 10 },
+      { kind: 'move', x: 20, y: 10 },
+    ]);
+  });
+});

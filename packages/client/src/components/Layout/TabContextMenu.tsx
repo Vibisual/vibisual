@@ -55,6 +55,11 @@ interface TabContextMenuProps {
    */
   showSplit?: boolean;
   /**
+   * §5.5 #17-34 ⑬ — 나누기를 할 수 없는 이유. 주면 두 나누기 항목을 흐리게 하고 마우스를 올리면 이 말을
+   * 보인다(드래그 미리보기와 같은 문구). 말없이 헛눌리는 항목은 사용자에게 고장으로 읽힌다.
+   */
+  splitBlockedReason?: string;
+  /**
    * §5.4 #14-4 — 최근에 닫은 탭(최신이 앞). 서버 `AppState.recentlyClosedTabs` 를 그대로 받는다.
    * 비었거나 `onReopen` 이 없으면 "다시 열기" 묶음 자체를 그리지 않는다 — IDE 세션 탭 메뉴처럼
    * 이 기능이 없는 자리에 빈 항목을 남기지 않기 위해서다.
@@ -79,6 +84,7 @@ export const TabContextMenu = memo(function TabContextMenu({
   showDetach = true,
   showRename = false,
   showSplit = false,
+  splitBlockedReason,
   recentlyClosed,
   onReopen,
   onClearClosed,
@@ -92,6 +98,8 @@ export const TabContextMenu = memo(function TabContextMenu({
   const hasClosed = closed.length > 0;
   // 힌트는 **지금 실제로 도는 키**를 그린다 — 하드코딩하면 재매핑한 사용자에게 거짓말이 된다.
   const reopenBinding = useKeymapStore(selectBinding('global.reopenClosedTab'));
+  // §5.5 #17-34 ⑬ — 막힌 나누기는 흐린 채 이유를 말한다. 두 항목은 언제나 같은 이유로 막힌다.
+  const splitBlock = splitBlockedReason ? { disabled: true, tooltip: splitBlockedReason } : {};
 
   // 바깥 press 로 닫기(공통 규약). 우클릭(2)은 메뉴 재오픈용이라 닫기 사유가 아니다.
   useOutsidePressDismiss({
@@ -135,10 +143,12 @@ export const TabContextMenu = memo(function TabContextMenu({
             key: 'splitRight' as const,
             label: t('tabMenu.splitRight', { defaultValue: 'Split right' }),
             separatorAbove: showRename,
+            ...splitBlock,
           },
           {
             key: 'splitDown' as const,
             label: t('tabMenu.splitDown', { defaultValue: 'Split down' }),
+            ...splitBlock,
           },
         ]
       : []),

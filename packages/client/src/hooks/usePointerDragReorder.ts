@@ -54,6 +54,17 @@ export interface PointerDragPoint {
   screenY: number;
 }
 
+/**
+ * 집어 든 항목 안에서 **잡은 지점**(항목 좌상단 기준 px). 한 판 안에서는 변하지 않는다.
+ *
+ * 고스트는 이 값을 빼서 손 아래에 붙는다. 줄 밖에서 다른 그림으로 바뀌는 쪽(탭 → 별창의 가상 창,
+ * §5.4 #14-1 (H))도 잡은 지점을 여기서 이어 와야 바뀌는 순간 그림이 손 아래에서 튀지 않는다.
+ */
+export interface PointerDragGrab {
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface PointerDragReorderOptions {
   /** 항목이 늘어선 방향. 가로로 선 줄(탭바)은 `'x'`, 세로로 선 줄(활동바)은 `'y'`. */
   axis: PushAxis;
@@ -72,10 +83,11 @@ export interface PointerDragReorderOptions {
   /**
    * 항목이 손에 들린 순간 — 꾹 누르기가 성립했거나(`'longPress'`), 누른 채 끈 거리가 문턱을
    * 넘었을 때(`'drag'`). 어느 문으로 들었든 그 뒤의 흐름(고스트·밀어내기·놓기)은 같다.
+   * `grab` 은 그 항목 안에서 잡은 지점이다(줄 밖에서 다른 그림으로 바꿔 그리는 쪽이 이어 쓴다).
    */
-  onDragStart?: (key: string, point: PointerDragPoint) => void;
+  onDragStart?: (key: string, point: PointerDragPoint, grab: PointerDragGrab) => void;
   /** 끄는 동안 매 움직임. 별창 분리 힌트·분할 미리보기처럼 **줄 밖의 일**은 호출부가 판단한다. */
-  onDragMove?: (key: string, point: PointerDragPoint) => void;
+  onDragMove?: (key: string, point: PointerDragPoint, grab: PointerDragGrab) => void;
   /** `Esc`·창 포커스 상실·브라우저 취소. 순서는 이미 되돌아간 뒤에 불린다. */
   onCancel?: (key: string) => void;
   /** 여기에 걸리는 곳에서 시작된 누르기는 무시한다(닫기 버튼·이름 편집 입력 등). */
@@ -173,7 +185,8 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
   const autoScrollRef = useRef<-1 | 0 | 1>(0);
   const lastPointRef = useRef<PointerDragPoint>({ x: 0, y: 0, screenX: 0, screenY: 0 });
   // 항목 안에서 **잡은 지점**. 이걸 빼야 고스트가 손에서 튀지 않고 "잡은 그 자리 그대로" 붙어 온다.
-  const grabRef = useRef({ x: 0, y: 0 });
+  //   집어 들 때 **새 객체로 갈아 끼운다**(고치지 않는다) — 콜백에 그대로 넘겨도 판 도중에 값이 바뀌지 않는다.
+  const grabRef = useRef<PointerDragGrab>({ x: 0, y: 0 });
   const ghostRef = useRef<HTMLDivElement | null>(null);
 
   // 최신 옵션을 창 리스너가 늘 보게 한다 — 리스너를 매번 다시 거는 것보다 싸고 새는 자리가 없다.
@@ -310,7 +323,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     localOrderRef.current = null;
     setDragKey(key);
     setLocalOrder(null);
-    optionsRef.current.onDragStart?.(key, lastPointRef.current);
+    optionsRef.current.onDragStart?.(key, lastPointRef.current, grabRef.current);
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLElement>, key: string): void => {
@@ -392,7 +405,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
       });
     }
     reorderAt(optionsRef.current.axis === 'y' ? point.y : point.x);
-    optionsRef.current.onDragMove?.(key, point);
+    optionsRef.current.onDragMove?.(key, point, grabRef.current);
   }, [clearPress, stopTracking, beginDrag, moveGhost, reorderAt]);
 
   /** 손을 놓으면 **어디서 놓았든** 지금 순서 그대로 앉힌다(줄 밖도 마찬가지). */
